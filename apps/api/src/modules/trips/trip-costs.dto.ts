@@ -16,6 +16,8 @@ export const TRIP_COST_BLOCKERS = [
   'TRIP_NOT_COMPLETED',
   'PENDING_FIELD_CHARGES',
   'CARRIER_FEE_MISSING',
+  'REVENUE_PROVISIONAL',
+  'REVENUE_MISSING',
 ] as const;
 export type TripCostBlocker = (typeof TRIP_COST_BLOCKERS)[number];
 
@@ -122,7 +124,9 @@ export class TripCostSummaryDto {
     enum: TRIP_COST_BLOCKERS,
     description:
       'สิ่งที่ยังขวางการปิดต้นทุน: TRIP_NOT_COMPLETED = เที่ยวยังไม่จบ · PENDING_FIELD_CHARGES = มีค่าใช้จ่ายหน้างานรอยืนยัน · ' +
-      'CARRIER_FEE_MISSING = เที่ยวรถร่วมไม่มีค่าจ้างของการจ้างที่ใช้งานอยู่',
+      'CARRIER_FEE_MISSING = เที่ยวรถร่วมไม่มีค่าจ้างของการจ้างที่ใช้งานอยู่ · ' +
+      'REVENUE_PROVISIONAL = เที่ยวมีหลาย DO และรายได้ของ DO ใดยังไม่ยืนยัน (ยังไม่บันทึกยอดส่งจริง) — ปันตามสัดส่วนรายได้ไม่ได้ · ' +
+      'REVENUE_MISSING = เที่ยวมีหลาย DO แต่รายได้รวมเป็น 0 — ไม่มีสัดส่วนให้ปัน (รอ PO กำหนด)',
   })
   blockers!: TripCostBlocker[];
   @ApiProperty({ nullable: true, type: String, description: 'เวลาปิดต้นทุน (COSTED)' })
@@ -130,7 +134,27 @@ export class TripCostSummaryDto {
   @ApiProperty({ nullable: true, type: String }) costedBy!: string | null;
 }
 
+/** ต้นทุนเที่ยวที่ปันลง DO หนึ่งใบ (ST6-T01c — `trip_cost.allocated` รวมต่อ DO) */
+export class TripCostAllocationDto {
+  @ApiProperty({ example: 'do_…' }) deliveryOrderId!: string;
+  @ApiProperty({ nullable: true, type: String, example: 'DO-2611-00001' }) doNo!: string | null;
+  @ApiPropertyOptional({
+    example: '2400.25',
+    description:
+      'ต้นทุนเที่ยวที่ปันลงใบนี้ (บาท ก่อน VAT) — ตามสัดส่วนรายได้ของ DO ณ เวลาปิดต้นทุน · เห็นเมื่อมี `prices.buy:read`',
+  })
+  @PriceField('buy')
+  buyAllocatedCost?: string;
+}
+
 export class TripCostListDto {
   @ApiProperty({ type: [TripCostLineDto] }) data!: TripCostLineDto[];
   @ApiProperty({ type: TripCostSummaryDto }) summary!: TripCostSummaryDto;
+  @ApiProperty({
+    type: [TripCostAllocationDto],
+    description:
+      'ต้นทุนที่ปันลง DO (เขียนตอนปิดต้นทุน COSTED — PO ตัดสิน 19 พ.ย. 2569: ตามสัดส่วนรายได้ของ DO, เศษสตางค์ของแต่ละบรรทัด → DO รายได้สูงสุด ' +
+      '(เท่ากัน → เลข DO น้อยสุด)) · ผลรวม = `buyTotal` · ยังไม่ปิดต้นทุน / เที่ยวไม่มี DO = []',
+  })
+  allocations!: TripCostAllocationDto[];
 }

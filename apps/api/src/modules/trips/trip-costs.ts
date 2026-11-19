@@ -1,6 +1,8 @@
 import { Prisma, type TripCost } from '@prisma/client';
+import { allocateSatangRemainderTo, decimalFromSatang, satangFromDecimal } from '@tms/domain';
 import { encodeId } from '../../common/ids';
 import type { Tx } from '../../db/db.service';
+import { revenueTotalsByDeliveryOrder } from '../revenue-lines/revenue-rebuild';
 import type { TripCostBlocker, TripCostLineDto } from './trip-costs.dto';
 
 /**
@@ -17,21 +19,68 @@ import type { TripCostBlocker, TripCostLineDto } from './trip-costs.dto';
  */
 
 /**
- * เปิดใช้การปิดต้นทุน (COMPLETED → COSTED) หรือยัง — env `TRIP_COSTING_ENABLED=1` (ค่าเริ่มต้นปิด)
- * docs/01 §4.2 กำหนด COSTED = "ต้นทุนเที่ยวครบ + ปันลง DO" แต่วิธีปันลง DO ยัง [OPEN — นักบัญชี/PO] (spec/12 §3 ST6-T01 (ก))
- * → ไม่ข้าม guard ของ state machine: ปิดไว้จนกว่าจะตัดสิน (ตั้งที่ระดับระบบ ไม่ใช่ค่าตั้ง tenant — tenant เปิดเองไม่ได้)
- * อ่านทุกครั้งที่เรียก (test เปิดได้ระหว่างรัน)
+ * เปิดใช้การปิดต้นทุน (COMPLETED → COSTED) หรือยัง — **เปิดโดยค่าเริ่มต้น** (ST6-T01c: ปันลง DO ตามสัดส่วนรายได้ — PO ตัดสิน
+ * 19 พ.ย. 2569) · env `TRIP_COSTING_ENABLED=0` (หรือ false/off) = kill switch ระดับระบบ (ไม่ใช่ค่าตั้ง tenant)
+ * อ่านทุกครั้งที่เรียก (test สลับได้ระหว่างรัน)
  */
-export const tripCostingEnabled = () => process.env.TRIP_COSTING_ENABLED === '1';
+export const tripCostingEnabled = () =>
+  !['0', 'false', 'off', 'no'].includes(
+    (process.env.TRIP_COSTING_ENABLED ?? '').trim().toLowerCase(),
+  );
 
 /** ปิดต้นทุนแล้ว — ไม่คิดสิ่งที่ขวาง */
 const COSTED_STATUSES = new Set(['COSTED', 'SETTLED']);
+
+/** DO ที่รับต้นทุนเที่ยว (ไม่นับ DO ที่ยกเลิก) + รายได้ (สตางค์) ณ เวลาปิดต้นทุน */
+export interface AllocationTarget {
+  id: string;
+  doNo: string | null;
+  revenue: bigint;
+  provisional: boolean;
+}
 
 export interface CostReadiness {
   blockers: TripCostBlocker[];
   pendingCount: number;
   buyTotal: Prisma.Decimal;
   carrierFee: Prisma.Decimal;
+  /** DO ที่จะรับส่วนแบ่ง เรียงตามลำดับ "ตัวรับเศษ" ก่อน (รายได้สูงสุด → เลข DO น้อยสุด) */
+  targets: AllocationTarget[];
+}
+
+/**
+ * ลำดับรับเศษสตางค์ (PO ตัดสิน 19 พ.ย. 2569): รายได้สูงสุดก่อน · เท่ากัน → เลข DO น้อยสุด (ไม่มีเลข = ท้าย) → id
+ */
+const cmpDoNo = (a: string | null, b: string | null) =>
+  a === b ? 0 : a === null ? 1 : b === null ? -1 : a.localeCompare(b, 'en', { numeric: true });
+const byRemainderPriority = (a: AllocationTarget, b: AllocationTarget) =>
+  a.revenue === b.revenue
+    ? cmpDoNo(a.doNo, b.doNo) || a.id.localeCompare(b.id)
+    : a.revenue > b.revenue
+      ? -1
+      : 1;
+
+/** DO (ไม่ยกเลิก) ของเที่ยว + รายได้ต่อ DO (บรรทัดรายได้ ACTIVE — ST5-T01b) */
+export async function allocationTargets(tx: Tx, tripId: string): Promise<AllocationTarget[]> {
+  const dos = await tx.deliveryOrder.findMany({
+    where: { tripId, status: { not: 'CANCELLED' } },
+    select: { id: true, doNo: true },
+  });
+  const totals = await revenueTotalsByDeliveryOrder(
+    tx,
+    dos.map((d) => d.id),
+  );
+  return dos
+    .map((d) => {
+      const t = totals.get(d.id);
+      return {
+        id: d.id,
+        doNo: d.doNo,
+        revenue: t ? satangFromDecimal(t.amount) : 0n,
+        provisional: t?.provisional ?? false,
+      };
+    })
+    .sort(byRemainderPriority);
 }
 
 const sum = (rows: { amount: Prisma.Decimal }[]) =>
@@ -69,13 +118,119 @@ export async function costReadiness(
       );
   }
   const blockers: TripCostBlocker[] = [];
+  let targets: AllocationTarget[] = [];
   if (trip.status === 'CANCELLED') blockers.push('TRIP_NOT_COMPLETED');
   else if (!COSTED_STATUSES.has(trip.status)) {
     if (trip.status !== 'COMPLETED') blockers.push('TRIP_NOT_COMPLETED');
     if (pendingCount) blockers.push('PENDING_FIELD_CHARGES');
     if (trip.carrierId && !carrierFee.gt(0)) blockers.push('CARRIER_FEE_MISSING');
+    // ปันลง DO ตามสัดส่วนรายได้ (ST6-T01c) — น้ำหนักมีผลเฉพาะเมื่อมี DO > 1 ใบ และมีบรรทัดที่มียอด
+    targets = await allocationTargets(tx, trip.id);
+    const needsWeights = targets.length > 1 && confirmed.some((r) => !r.amount.isZero());
+    if (needsWeights) {
+      const net = sum(confirmed);
+      if (targets.some((t) => t.provisional)) blockers.push('REVENUE_PROVISIONAL');
+      // รายได้รวมเป็น 0 แต่ต้นทุนสุทธิไม่เป็น 0 → ไม่มีสัดส่วนให้ปัน [OPEN — PO] (spec/12 §3 ST6-T01c)
+      else if (targets.every((t) => t.revenue === 0n) && !net.isZero())
+        blockers.push('REVENUE_MISSING');
+    }
   }
-  return { blockers, pendingCount, buyTotal: sum(confirmed), carrierFee };
+  return { blockers, pendingCount, buyTotal: sum(confirmed), carrierFee, targets };
+}
+
+/**
+ * ปันต้นทุนเที่ยวลง DO (ST6-T01c — PO ตัดสิน 19 พ.ย. 2569; docs/01 §3.3 `trip_cost.allocated` = `{do_id: amount}`, §4.2
+ * COMPLETED → COSTED "ต้นทุนเที่ยวครบ + ปันลง DO") — เรียกใน transaction ของการปิดต้นทุน หลังล็อก DO + เที่ยว + บรรทัดต้นทุน
+ * - ต่อบรรทัด CONFIRMED (รวมบรรทัดกลับรายการ ยอดติดลบ): ส่วนแบ่ง = floor(|ยอด| × รายได้ DO ÷ รายได้รวม) เศษสตางค์ทั้งหมด → DO
+ *   รายได้สูงสุด (เท่ากัน → เลข DO น้อยสุด) · ผลรวมต่อบรรทัดเท่ายอดบรรทัดพอดี · บรรทัดเดิม/กลับรายการหักล้างกันพอดีต่อ DO
+ * - DO เดียว = ทั้งยอด · ไม่มี DO = ไม่ปัน (`{}` — DECISION ย้อนได้) · รายได้รวม 0 + ต้นทุนสุทธิ 0 = ทั้งบรรทัดไปตัวรับเศษ
+ *   (ยอดต่อ DO สุทธิ 0 ทุกใบ) · บรรทัดที่ไม่ CONFIRMED = `{}`
+ * - snapshot ณ เวลาปิดต้นทุน: รายได้ที่เปลี่ยนภายหลังไม่ปันใหม่ (ไม่เขียน `delivery_order.allocated_cost_amount` — อ่านจาก
+ *   `trip_cost.allocated` แหล่งเดียว เหมือน `revenue_amount` ของ ST5-T01b)
+ * คืนยอดรวมต่อ DO (สตางค์) — ใช้ตรวจว่าเท่าต้นทุนสุทธิ
+ */
+export async function allocateTripCost(
+  tx: Tx,
+  tripId: string,
+  targets: AllocationTarget[],
+): Promise<Map<string, bigint>> {
+  const rows = await tx.tripCost.findMany({
+    where: { tripId },
+    select: { id: true, amount: true, status: true },
+  });
+  const perDo = new Map<string, bigint>(targets.map((t) => [t.id, 0n]));
+  const weights = targets.map((t) => t.revenue);
+  for (const r of rows) {
+    let allocated: Record<string, string> = {};
+    if (r.status === 'CONFIRMED' && targets.length) {
+      const parts = allocateSatangRemainderTo(satangFromDecimal(r.amount.toFixed(2)), weights, 0);
+      allocated = Object.fromEntries(
+        targets.map((t, i) => {
+          perDo.set(t.id, perDo.get(t.id)! + parts[i]!);
+          return [t.id, decimalFromSatang(parts[i]!)];
+        }),
+      );
+    }
+    await tx.tripCost.update({ where: { id: r.id }, data: { allocated } });
+  }
+  for (const [id, v] of perDo)
+    if (v < 0n) throw new Error(`trip cost allocation negative for delivery order ${id}`);
+  return perDo;
+}
+
+/** ต้นทุนที่ปันลง DO ต่อใบ (สตางค์) ของเที่ยวที่ปิดต้นทุนแล้ว — อ่านจาก `trip_cost.allocated` */
+export async function allocatedByDeliveryOrder(
+  tx: Tx,
+  tripId: string,
+): Promise<Map<string, bigint>> {
+  const rows = await tx.tripCost.findMany({
+    where: { tripId, status: 'CONFIRMED' },
+    select: { allocated: true },
+  });
+  const out = new Map<string, bigint>();
+  for (const r of rows) {
+    const a = (r.allocated ?? {}) as Record<string, string>;
+    for (const [doId, amount] of Object.entries(a))
+      out.set(doId, (out.get(doId) ?? 0n) + satangFromDecimal(amount));
+  }
+  return out;
+}
+
+/** สรุปการปันต่อ DO สำหรับ `GET /trips/{id}/costs` — ว่างจนกว่าจะปิดต้นทุน */
+export async function costAllocations(
+  tx: Tx,
+  trip: { id: string; status: string },
+): Promise<{ deliveryOrderId: string; doNo: string | null; buyAllocatedCost: string }[]> {
+  if (!COSTED_STATUSES.has(trip.status)) return [];
+  const per = await allocatedByDeliveryOrder(tx, trip.id);
+  if (!per.size) return [];
+  const dos = await tx.deliveryOrder.findMany({
+    where: { id: { in: [...per.keys()] } },
+    select: { id: true, doNo: true },
+  });
+  const no = new Map(dos.map((d) => [d.id, d.doNo]));
+  return [...per.entries()]
+    .map(([id, v]) => ({
+      deliveryOrderId: encodeId('deliveryOrder', id),
+      doNo: no.get(id) ?? null,
+      buyAllocatedCost: decimalFromSatang(v),
+    }))
+    .sort((a, b) => cmpDoNo(a.doNo, b.doNo));
+}
+
+/** ต้นทุนที่ปันมาของ DO หนึ่งใบ (บาท) — null = เที่ยวยังไม่ปิดต้นทุน / DO ไม่อยู่ในเที่ยว */
+export async function allocatedCostForDeliveryOrder(
+  tx: Tx,
+  deliveryOrderId: string,
+): Promise<string | null> {
+  const d = await tx.deliveryOrder.findUnique({
+    where: { id: deliveryOrderId },
+    select: { tripId: true, trip: { select: { status: true } } },
+  });
+  if (!d?.tripId || !d.trip || !COSTED_STATUSES.has(d.trip.status)) return null;
+  const per = await allocatedByDeliveryOrder(tx, d.tripId);
+  const v = per.get(deliveryOrderId);
+  return v === undefined ? null : decimalFromSatang(v);
 }
 
 type LineRow = TripCost & { reversedBy: { id: string } | null };

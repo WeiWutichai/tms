@@ -160,6 +160,16 @@ export class DeliveryOrderRevenueDto {
   sellRevenueTotal?: string;
   @ApiProperty({ description: 'true = มีบรรทัดที่ยอดยังไม่ยืนยัน (ยังไม่บันทึกยอดส่งจริง)' })
   provisional!: boolean;
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: '2400.25',
+    description:
+      'ต้นทุนเที่ยวที่ปันลงใบนี้ (ST6-T01c — ตามสัดส่วนรายได้ ณ เวลาปิดต้นทุน; docs/01 §3.3 `allocated_cost_amount`) · null = เที่ยวยังไม่ปิดต้นทุน · ' +
+      'กำไรต่อ DO = `sellRevenueTotal` − `buyAllocatedCost` (ผู้เรียกคำนวณเอง — ต้องมีสิทธิ์ทั้งสองฝั่ง) · เห็นเมื่อมี `prices.buy:read`',
+  })
+  @PriceField('buy')
+  buyAllocatedCost?: string | null;
   @ApiProperty({ type: [RevenueLineDto], description: 'รวมบรรทัดที่ยกเลิก (`status` VOIDED)' })
   data!: RevenueLineDto[];
 }

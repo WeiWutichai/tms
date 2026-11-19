@@ -78,3 +78,26 @@ export function allocateSatang(total: Satang, weights: readonly bigint[]): Satan
   }
   return base;
 }
+
+/**
+ * ปันยอด (สตางค์) ตามสัดส่วนน้ำหนัก — **เศษสตางค์ทั้งหมดให้ตัวที่ `remainderIndex`** (ไม่ใช้ largest remainder)
+ * ส่วนแบ่ง = floor(|ยอด| × น้ำหนัก ÷ รวมน้ำหนัก) · ยอดติดลบ (บรรทัดกลับรายการ) = ปันค่าสัมบูรณ์แล้วกลับเครื่องหมาย
+ * → บรรทัดเดิมกับบรรทัดกลับรายการที่น้ำหนักชุดเดียวกันหักล้างกันพอดี · ผลรวมเท่ายอดเดิมพอดีเสมอ ไม่ใช้ float
+ * น้ำหนักรวม 0 → ทั้งยอดไปที่ `remainderIndex` · น้ำหนักติดลบ/index ผิด → RangeError
+ * ใช้ปันต้นทุนเที่ยวลง DO ตามสัดส่วนรายได้ (ST6-T01c — PO ตัดสิน 19 พ.ย. 2569: เศษให้ DO รายได้สูงสุด)
+ */
+export function allocateSatangRemainderTo(
+  total: Satang,
+  weights: readonly bigint[],
+  remainderIndex: number,
+): Satang[] {
+  if (weights.some((w) => w < 0n)) throw new RangeError('allocate: weights must be >= 0');
+  if (!Number.isInteger(remainderIndex) || remainderIndex < 0 || remainderIndex >= weights.length)
+    throw new RangeError('allocate: remainderIndex out of range');
+  const negative = total < 0n;
+  const abs = negative ? -total : total;
+  const sum = sumSatang(weights);
+  const out = weights.map((w) => (sum === 0n ? 0n : (abs * w) / sum));
+  out[remainderIndex]! += abs - sumSatang(out);
+  return negative ? out.map((v) => -v) : out;
+}
