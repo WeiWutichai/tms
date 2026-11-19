@@ -58,6 +58,8 @@ export const ID_PREFIX = {
   savedView: 'svw',
   /** ST9-T19 alert ถึงทีม Innovera (monitor_alert — Platform Console เท่านั้น) */
   monitorAlert: 'alr',
+  /** ST7-T20 คำสั่ง 1 รายการใน integration_outbox (แสดงในบันทึกการซิงก์ของ connector) */
+  outboxCommand: 'obx',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

@@ -1,16 +1,24 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { CONNECTOR_KEY_RE, CONNECTOR_STATUSES, ERP_CAPABILITIES } from '@tms/domain';
-import { Transform } from 'class-transformer';
+import {
+  CONNECTOR_KEY_RE,
+  CONNECTOR_STATUSES,
+  ERP_CAPABILITIES,
+  ERP_MASTER_CODE_KINDS,
+} from '@tms/domain';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
   IsIn,
+  IsInt,
   IsISO8601,
   IsObject,
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
+  Min,
 } from 'class-validator';
 import {
   CleanText,
@@ -54,6 +62,13 @@ export class ErpAdapterDto {
     description: 'capability ที่ adapter รองรับ (docs/01 §6.1) — UI แสดงเฉพาะที่อยู่ในรายการนี้',
   })
   capabilities!: string[];
+  @ApiProperty({
+    type: [String],
+    enum: ERP_MASTER_CODE_KINDS,
+    description:
+      'ST7-T18 ชนิดผังรหัสที่ดึงจาก ERP ได้ (`POST /connectors/{id}/master-codes/sync`) — ว่าง = นำเข้าไฟล์ (import `erp_master_code`)',
+  })
+  masterCodeKinds!: string[];
   @ApiProperty({ type: [ConnectorConfigFieldDto] }) configFields!: ConnectorConfigFieldDto[];
 }
 
@@ -410,4 +425,52 @@ export class InboundReceiptDto {
   })
   duplicate!: boolean;
   @ApiProperty({ example: 'ibe_8f3a…', description: 'รายการใน ledger' }) id!: string;
+}
+
+// ---------- ST7-T20 คำสั่งที่ส่งผ่าน connector (บันทึกการซิงก์ย่อ) + Platform Console ----------
+
+const COMMAND_STATUSES = [
+  'PENDING',
+  'IN_FLIGHT',
+  'DONE',
+  'FAILED_RETRYABLE',
+  'FAILED_FINAL',
+  'SKIPPED',
+] as const;
+
+export class ConnectorCommandQuery {
+  @ApiPropertyOptional({ enum: COMMAND_STATUSES })
+  @IsOptional()
+  @IsIn(COMMAND_STATUSES)
+  status?: string;
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 200, default: 50 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+}
+
+/**
+ * คำสั่ง 1 รายการในคิว outbox ของ connector (sink `erp`) — ไม่มี payload/ผลลัพธ์ดิบ (request/response log ตัด secret = ST7-T19)
+ */
+export class ConnectorCommandDto {
+  @ApiProperty({ example: 'obx_…' }) id!: string;
+  @ApiProperty({ example: 'PUSH_INVOICE' }) operation!: string;
+  @ApiProperty({ example: 'invoice' }) entityType!: string;
+  @ApiProperty({ description: 'id ของเอกสารใน TMS (uuid)' }) localId!: string;
+  @ApiProperty({ enum: COMMAND_STATUSES }) status!: string;
+  @ApiProperty() attempt!: number;
+  @ApiProperty({ nullable: true, type: String, example: 'TRANSIENT' }) errorClass!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'รหัสผิดพลาดล่าสุด (ไม่มีข้อความดิบ)' })
+  errorCode!: string | null;
+  @ApiProperty({ format: 'date-time' }) createdAt!: string;
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' }) doneAt!: string | null;
+  @ApiProperty({ format: 'date-time' }) updatedAt!: string;
+}
+
+export class ConnectorCommandListDto {
+  @ApiProperty({ type: [ConnectorCommandDto] }) data!: ConnectorCommandDto[];
 }

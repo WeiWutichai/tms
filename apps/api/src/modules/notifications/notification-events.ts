@@ -1,3 +1,4 @@
+import { safeName } from '../../common/safe-text';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { encodeId } from '../../common/ids';
@@ -193,6 +194,32 @@ export class NotificationEvents implements OnModuleInit {
         to: { permissions: ['settings:write', 'integrations:retry'] },
         template: 'connector.error',
         vars: { label: input.label, code: input.code },
+        link: '/settings?sec=conn',
+        entity: { type: 'connector', id: encodeId('connector', input.connectorId) },
+      }),
+    );
+  }
+
+  /**
+   * ST7-T20 ทีม Innovera เปลี่ยน connector (credential/สถานะ) จาก Platform Console → แจ้ง owner ทุกคน ในระบบ + อีเมล
+   * (สอดคล้องกับเข้าใช้งานแทน — docs/04 A6 "อีเมลแจ้ง tenant owner ทุกครั้ง") [DECISION spec/12 §3]
+   */
+  async connectorChangedByPlatform(
+    tx: Tx,
+    input: {
+      tenantId: string;
+      connectorId: string;
+      label: string;
+      action: 'created' | 'credentials' | 'resumed' | 'paused' | 'error' | 'recovered';
+      reason: string;
+    },
+  ): Promise<void> {
+    await this.safely(tx, 'connector.platform_changed', () =>
+      this.notifications.notify(tx, {
+        tenantId: input.tenantId,
+        to: { roles: ['owner'] },
+        template: 'connector.platform_changed',
+        vars: { label: input.label, action: input.action, reason: safeName(input.reason, 300) },
         link: '/settings?sec=conn',
         entity: { type: 'connector', id: encodeId('connector', input.connectorId) },
       }),

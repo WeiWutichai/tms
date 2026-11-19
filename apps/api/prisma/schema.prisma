@@ -1146,6 +1146,7 @@ model ServiceItem {
   rateCards            RateCard[]
   rateCardAccessorials RateCardAccessorial[]
   orderCharges         SalesOrderCharge[]
+  erpCodeMappings      ErpCodeMapping[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -2847,6 +2848,8 @@ model Connector {
 
   cursors       ConnectorCursor[]
   inboundEvents ProcessedWebhookEvent[]
+  masterCodes   ErpMasterCode[]
+  codeMappings  ErpCodeMapping[]
 
   @@index([tenantId, createdAt, id])
   @@index([tenantId, companyId])
@@ -3126,6 +3129,53 @@ model WebhookDelivery {
   @@index([tenantId, sentAt])
   @@index([sentAt])
   @@map("webhook_delivery")
+}
+
+/// ST7-T18 ผังรหัส ERP (docs/04 B "ผังรหัส ERP (master code)", docs/01 §7.4) — ค่าที่ connector ยอมรับ ต่อ connector
+/// มาจาก adapter (`fetchMasterCodes`) หรือนำเข้า CSV/Excel · ไม่มี hard delete: รหัสที่หายจาก ERP = active false
+/// อัตรา VAT (kind VAT_RATE) เป็นข้อมูลอ้างอิงให้ adapter เท่านั้น — ไม่เปลี่ยนการคำนวณภาษีของ TMS
+model ErpMasterCode {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  connectorId String    @map("connector_id") @db.Uuid
+  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// UNIT · SALESPERSON · ACCOUNT · ITEM · VAT_RATE (ERP_MASTER_CODE_KINDS ใน @tms/domain)
+  kind        String    @db.VarChar(16)
+  /// รหัสตามที่ ERP ใช้ (ตัวพิมพ์ตามต้นทาง — unique ไม่สนตัวพิมพ์)
+  code        String    @db.VarChar(64)
+  name        String?   @db.VarChar(200)
+  /// อัตรา (%) ของ VAT_RATE เป็นสตริงทศนิยม เช่น "7.00" — ข้อมูลอ้างอิงเท่านั้น
+  rate        Decimal?  @db.Decimal(5, 2)
+  /// ADAPTER · IMPORT
+  source      String    @db.VarChar(8)
+  active      Boolean   @default(true)
+  syncedAt    DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([tenantId, connectorId, kind, active])
+  @@map("erp_master_code")
+}
+
+/// ST7-T18 การจับคู่ "ค่าบริการ/ประเภทรายได้ TMS ↔ รหัสสินค้า ERP" ต่อ connector (docs/04 G3 Sync master ลงมา; ต้นแบบ ตั้งค่า → ระบบบัญชี)
+/// 1 แถวต่อ (connector, service_item) · code null = ยกเลิกการจับคู่ (ไม่ลบแถว) · ไม่ครบ → คำสั่ง push ไป ERP FAILED_FINAL(VALIDATION)
+model ErpCodeMapping {
+  id            String      @id @default(uuid()) @db.Uuid
+  tenantId      String      @map("tenant_id") @db.Uuid
+  connectorId   String      @map("connector_id") @db.Uuid
+  connector     Connector   @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  serviceItemId String      @map("service_item_id") @db.Uuid
+  serviceItem   ServiceItem @relation(fields: [serviceItemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// รหัสสินค้า/บริการฝั่ง ERP (kind ITEM)
+  itemCode      String?     @map("item_code") @db.VarChar(64)
+  updatedBy     String?     @map("updated_by")
+  version       Int         @default(1)
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([connectorId, serviceItemId])
+  @@index([tenantId, connectorId])
+  @@map("erp_code_mapping")
 }
 
 // ---------- ST9-T19 Monitoring + alert (ตารางระดับแพลตฟอร์ม — ไม่มี tenant_id; role แอปเข้าไม่ได้ ใช้ผ่าน role platform เท่านั้น) ----------

@@ -1,17 +1,18 @@
 import { NotificationEvents } from '../notifications/notification-events';
 import { Injectable, Logger } from '@nestjs/common';
-import { type Connector, Prisma } from '@prisma/client';
+import { type Connector, type IntegrationOutbox, Prisma } from '@prisma/client';
 import {
   canConnectorTransition,
   type ConnectorStatus,
   documentSyncModes,
   ERP_CAPABILITIES,
+  ERP_MASTER_CODE_KINDS,
   unsupportedCapabilities,
 } from '@tms/domain';
 import { randomUUID } from 'node:crypto';
 import { isLocalEnv } from '../../auth/tokens';
 import { FieldCipher } from '../../common/crypto';
-import { encodeId, tryDecodeId } from '../../common/ids';
+import { encodeId, ID_PREFIX, type IdKind, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
@@ -20,6 +21,8 @@ import { EntitlementService } from '../entitlements/entitlement.service';
 import { checkUrlShape } from '../webhooks/ssrf';
 import type {
   ConnectorActionDto,
+  ConnectorCommandDto,
+  ConnectorCommandQuery,
   ConnectorCredentialsDto,
   ConnectorDto,
   ConnectorHealthDto,
@@ -63,6 +66,30 @@ export function redactSecrets(text: string, secrets: Iterable<string>): string {
       if (f.length >= 4) out = out.split(f).join('***');
   }
   return out;
+}
+
+/** `delivery_order` → `deliveryOrder` — ชนิดเอกสารที่มี prefix สาธารณะ (docs/01 §5.1) แสดงเป็น id แบบ prefix */
+function publicLocalId(entityType: string, localId: string): string {
+  const kind = entityType.replace(/_([a-z])/g, (_m, c: string) => c.toUpperCase());
+  return kind in ID_PREFIX ? encodeId(kind as IdKind, localId) : localId;
+}
+
+/** ST7-T20 คำสั่งในคิว (sink `erp`) แบบย่อ — ไม่มี payload/result/ข้อความ error ดิบ (request/response log = ST7-T19) */
+export function commandDto(r: IntegrationOutbox): ConnectorCommandDto {
+  const err = (r.lastError ?? null) as { code?: unknown } | null;
+  return {
+    id: encodeId('outboxCommand', r.id),
+    operation: r.operation,
+    entityType: r.entityType,
+    localId: publicLocalId(r.entityType, r.localId),
+    status: r.status,
+    attempt: r.attempt,
+    errorClass: r.errorClass,
+    errorCode: typeof err?.code === 'string' ? err.code.slice(0, 60) : null,
+    createdAt: r.createdAt.toISOString(),
+    doneAt: iso(r.doneAt),
+    updatedAt: r.updatedAt.toISOString(),
+  };
 }
 
 /** สิ่งที่ลง audit (ไม่มีค่า credential — มีแค่ชื่อช่องที่ตั้ง) */
@@ -116,7 +143,8 @@ export class ConnectorsService {
 
   assertHuman(): void {
     const pt = requestContext.require().principalType;
-    if (pt !== 'user' && pt !== 'dev')
+    // ST7-T20: ทีม Innovera จาก Platform Console (route `/platform/...` เท่านั้น — actor `platform:<id>` ลง audit ของ tenant)
+    if (pt !== 'user' && pt !== 'dev' && pt !== 'platform')
       throw new ProblemException('permission_denied', undefined, undefined, {
         module: 'connectors',
         action: 'manage',
@@ -132,6 +160,9 @@ export class ConnectorsService {
       displayName: a.displayName,
       demo: !!a.localOnly,
       capabilities: ERP_CAPABILITIES.filter((c) => a.capabilities().has(c)),
+      masterCodeKinds: a.fetchMasterCodes
+        ? ERP_MASTER_CODE_KINDS.filter((k) => (a.masterCodeKinds ?? []).includes(k))
+        : [],
       configFields: a.configFields.map((f) => ({
         key: f.key,
         secret: f.secret,
@@ -196,6 +227,47 @@ export class ConnectorsService {
     const c = await tx.connector.findUnique({ where: { id } });
     if (!c) throw new ProblemException('not_found');
     return c;
+  }
+
+  /**
+   * ST7-T20 ชื่อทีมงาน Innovera ในประวัติ (actor `platform:<uuid>`) — role แอปอ่าน platform_user ไม่ได้ จึงอ่านด้วย role platform
+   * เฉพาะชื่อที่แสดง (ไม่มีอีเมล/บทบาท) · หน้าเว็บแสดง "ทีม Innovera · {ชื่อ}"
+   */
+  async withPlatformNames<
+    P extends { data: { actor: { id: string; name: string | null } | null }[] },
+  >(page: P): Promise<P> {
+    const ids = [
+      ...new Set(
+        page.data.flatMap((r) => {
+          const m = r.actor ? /^platform:([0-9a-f-]{36})$/i.exec(r.actor.id) : null;
+          return m ? [m[1]!] : [];
+        }),
+      ),
+    ];
+    if (!ids.length) return page;
+    const staff = await this.prisma.platform.platformUser.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true },
+    });
+    const name = new Map(staff.map((u) => [`platform:${u.id}`, u.name]));
+    for (const r of page.data)
+      if (r.actor && name.has(r.actor.id)) r.actor.name = name.get(r.actor.id)!;
+    return page;
+  }
+
+  /** ST7-T20 คำสั่งล่าสุดของ connector (ใหม่สุดก่อน) — บันทึกการซิงก์ในหน้าตั้งค่า */
+  async commands(id: string, q: ConnectorCommandQuery, tx: Tx = this.db.tx) {
+    const c = await this.get(id, tx);
+    const rows = await tx.integrationOutbox.findMany({
+      where: {
+        sink: 'erp',
+        targetId: c.id,
+        ...(q.status ? { status: q.status as IntegrationOutbox['status'] } : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { seq: 'desc' }],
+      take: q.limit ?? 50,
+    });
+    return rows.map(commandDto);
   }
 
   /** connector ที่เอกสารของนิติบุคคล/สาขาใช้ (routing ตามนิติบุคคล — ST1-T16) */
@@ -427,7 +499,8 @@ export class ConnectorsService {
 
   // ---------- write ----------
 
-  async create(body: CreateConnectorDto): Promise<Connector> {
+  /** `reason` = เหตุผลของทีม Innovera เมื่อเปิดจาก Platform Console (ST7-T20) — ผู้ใช้ของ tenant ไม่ต้องใส่ */
+  async create(body: CreateConnectorDto, reason?: string): Promise<Connector> {
     this.assertHuman();
     const ctx = requestContext.require();
     const tx = this.db.tx;
@@ -471,7 +544,12 @@ export class ConnectorsService {
         throw new ProblemException('connector_scope_taken');
       throw e;
     }
-    await this.audit(tx, { action: 'connector.created', entityId: id, after: auditView(row) });
+    await this.audit(tx, {
+      action: 'connector.created',
+      entityId: id,
+      after: auditView(row),
+      reason: reason ?? null,
+    });
     return row;
   }
 

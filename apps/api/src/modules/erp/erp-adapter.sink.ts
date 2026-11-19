@@ -6,6 +6,11 @@ import { OutboxSinkRegistry } from '../integration/outbox-sink.registry';
 import { OutboxSinkError, type OutboxDelivery, type OutboxSink } from '../integration/outbox.types';
 import { ConnectorResolver } from './connector-resolver';
 import { ConnectorsService, redactSecrets } from './connectors.service';
+import {
+  documentServiceItemIds,
+  ErpMasterCodesService,
+  withMappedItemCodes,
+} from './erp-master-codes.service';
 import type {
   CanonicalDocument,
   ErpAdapter,
@@ -23,6 +28,9 @@ export const ERP_SINK = 'erp';
  * - PAUSED / ERROR / tenant ถูกระงับ / แพ็กเกจไม่มี `conn` / adapter ไม่ได้ติดตั้ง → คงคำสั่งไว้ (AUTH = PENDING ไม่นับครั้ง)
  * - capability ไม่ได้เปิด/ไม่รองรับ → SKIPPED (CAPABILITY — docs/01 §6.3)
  * - adapter ตอบ AUTH → connector = ERROR (หยุดทั้งตัว) แล้วคำสั่งรอ · class อื่นตาม retry policy ของ dispatcher
+ * - ST7-T18 ประตู mapping: ค่าบริการในเอกสาร (`lines[].serviceItem.id`) ที่ยังไม่จับคู่รหัสสินค้า ERP → FAILED_FINAL
+ *   (VALIDATION `erp_mapping_incomplete` + ลิงก์หน้า mapping — plan/11 #9: ไม่กันการออกเอกสาร) · ครบ = ใส่รหัสลง
+ *   `serviceItem.externalId` ก่อนส่ง adapter (docs/01 §7.2)
  * การสร้างคำสั่งหลัง finalize + ประตู syncFromDate + external_mapping = ST7-T15/T16
  */
 @Injectable()
@@ -34,6 +42,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     private readonly connectors: ConnectorsService,
     private readonly resolver: ConnectorResolver,
     private readonly entitlements: EntitlementService,
+    private readonly masterCodes: ErpMasterCodesService,
   ) {}
 
   onModuleInit() {
@@ -97,11 +106,26 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         capability: cap,
       });
 
-    const payload = (d.payload ?? {}) as {
+    // สำเนาตื้น — ใส่รหัส ERP ที่จับคู่โดยไม่แก้ payload ที่เก็บในคิว
+    const payload = { ...((d.payload ?? {}) as Record<string, unknown>) } as {
       document?: CanonicalDocument;
       ref?: ExternalRef;
       branchId?: string;
     };
+    // ST7-T18 ประตู mapping (docs/01 §7.4) — ตรวจหลังเงื่อนไข "ส่งได้" ทั้งหมด (คำสั่งที่พัก/ข้ามไม่ถูกตัดสินว่าล้ม)
+    const doc = payload.document ?? (payload as CanonicalDocument);
+    const itemIds = documentServiceItemIds(doc);
+    if (itemIds.length) {
+      const check = await d.withTx((tx) =>
+        this.masterCodes.checkMapping(tx, connector.id, itemIds),
+      );
+      if (check.gaps.length) {
+        const problem = this.masterCodes.incompleteProblem(connector.id, check.gaps);
+        throw new OutboxSinkError(problem.message, 'VALIDATION', { ...problem });
+      }
+      if (payload.document) payload.document = withMappedItemCodes(payload.document, check.codes);
+      else Object.assign(payload, withMappedItemCodes(payload as CanonicalDocument, check.codes));
+    }
     const ctx = this.connectors.contextOf(connector, {
       idempotencyKey: d.idempotencyKey,
       signal: d.signal,

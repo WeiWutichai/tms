@@ -1,6 +1,9 @@
 import { Icon } from '@tms/ui';
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { api, unwrap } from '../api';
+import { adapterName } from '../features/settings/ConnectorSettings';
 import { useI18n } from '../i18n';
 import { canAny, isLocked, navFor, NAV, parentOf, type NavGroup } from '../nav';
 
@@ -43,6 +46,7 @@ export function Sidebar({
   }, [loc.pathname]);
   // ปุ่ม "ไม่ได้เชื่อมระบบบัญชี" พาไปตั้งค่าการเชื่อมต่อ — ต้องมีสิทธิ์ตั้งค่าองค์กร (master:read เข้าหน้าตั้งค่าได้แค่หัวข้อ "เหตุผล")
   const canSettings = canAny(scopes, ['settings:read', 'settings:write']);
+  const erp = useErpFoot(canAny(scopes, ['settings:read']) && !!features?.includes('conn'));
   // ตัวย่อ = พยัญชนะ/ตัวอักษรแรกของชื่อ + ของนามสกุล (ต้นแบบ: พรทิพย์ ศรีวงศ์ → พศ; ข้ามสระนำ เ แ โ ใ ไ)
   const first = (w: string) => [...w].find((ch) => /[\u0E01-\u0E2EA-Za-z0-9]/.test(ch)) ?? '';
   const words = actor.trim().split(/\s+/);
@@ -308,7 +312,7 @@ export function Sidebar({
                   justifyContent: 'center',
                 }}
               >
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#59606B' }} />
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: erp.dot }} />
               </button>
               <div
                 title={actor}
@@ -333,7 +337,7 @@ export function Sidebar({
             <>
               <button
                 type="button"
-                onClick={canSettings ? () => nav('/settings') : undefined}
+                onClick={canSettings ? () => nav('/settings?sec=conn') : undefined}
                 disabled={!canSettings}
                 className="tms-sb-foot"
                 style={{
@@ -350,13 +354,39 @@ export function Sidebar({
                   fontWeight: 500,
                 }}
               >
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#59606B' }} />
-                <span style={{ flex: 1, textAlign: 'left', whiteSpace: 'nowrap' }}>
-                  {t('shell.erpOff')}
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: erp.dot,
+                    flexShrink: 0,
+                  }}
+                />
+                <span
+                  title={erp.label ?? undefined}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    textAlign: 'left',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {erp.label ?? t('shell.erpOff')}
                 </span>
-                {canSettings && (
-                  <span style={{ color: '#2257C4', fontWeight: 600 }}>{t('shell.erpSetup')}</span>
-                )}
+                {erp.label
+                  ? erp.sync && (
+                      <span style={{ fontSize: 12, color: '#3B424C' }}>
+                        {t('shell.erpSync', { t: erp.sync })}
+                      </span>
+                    )
+                  : canSettings && (
+                      <span style={{ color: '#2257C4', fontWeight: 600 }}>
+                        {t('shell.erpSetup')}
+                      </span>
+                    )}
               </button>
               <div style={{ height: 1, background: '#E4E6E0', margin: '2px 4px' }} />
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 6px' }}>
@@ -627,4 +657,47 @@ function Group({
       )}
     </>
   );
+}
+
+/**
+ * ท้าย sidebar: สถานะระบบบัญชี (ต้นแบบ foot.on "{ระบบ} เชื่อมต่อ · ซิงก์ HH:MM" / foot.off "ไม่ได้เชื่อมระบบบัญชี · ตั้งค่า")
+ * ST7-T20 — เดิมแสดง "ไม่ได้เชื่อม" เสมอแม้มี connector · สถานะ หยุดชั่วคราว/ผิดพลาด ต้นแบบไม่มี [DECISION spec/12 §3]
+ * ผู้ไม่มีสิทธิ์ดูการตั้งค่า / แพ็กเกจไม่มี connector = แสดงแบบไม่เชื่อม (ไม่เรียก API)
+ */
+function useErpFoot(enabled: boolean): { dot: string; label: string | null; sync: string | null } {
+  const { t } = useI18n();
+  const list = useQuery({
+    queryKey: ['connectors'],
+    queryFn: () => unwrap(api.GET('/v1/connectors')),
+    enabled,
+    retry: false,
+    staleTime: 60_000,
+  });
+  const cs = enabled ? (list.data?.data ?? []) : [];
+  const c = cs.find((x) => x.status === 'ACTIVE') ?? cs.find((x) => x.status === 'ERROR') ?? cs[0];
+  const last = useQuery({
+    queryKey: ['connector-commands', c?.id, 'DONE1'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/v1/connectors/{id}/commands', {
+          params: { path: { id: c!.id }, query: { status: 'DONE', limit: 1 } },
+        }),
+      ),
+    enabled: c?.status === 'ACTIVE',
+    retry: false,
+    staleTime: 60_000,
+  });
+  if (!c) return { dot: '#59606B', label: null, sync: null };
+  const n = adapterName(t, c.adapterKey, c.displayName);
+  const at = last.data?.data[0]?.doneAt;
+  const hhmm = at
+    ? new Intl.DateTimeFormat('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Asia/Bangkok',
+      }).format(new Date(at))
+    : null;
+  if (c.status === 'ACTIVE') return { dot: '#17733F', label: t('shell.erpOn', { n }), sync: hhmm };
+  if (c.status === 'ERROR') return { dot: '#B3322A', label: t('shell.erpErr', { n }), sync: null };
+  return { dot: '#59606B', label: t('shell.erpPaused', { n }), sync: null };
 }
