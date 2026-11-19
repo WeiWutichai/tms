@@ -454,7 +454,7 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <h2 id="post-orders-id-revenue-lines">เพิ่มบรรทัดรายได้เอง — คงไว้เมื่อระบบคิดราคาใหม่</h2>
 <p><code>POST /v1/orders/{id}/revenue-lines</code></p>
 <p>scope: <code>orders:write</code> · operationId: <code>OrderRevenueLines_add</code></p>
-<p>ธงภาษีคัดลอกจากรายการบริการฝั่งขาย ณ เวลาเพิ่ม · ยอด = จำนวน × ราคา (ปัดครึ่งขึ้นเป็นสตางค์) · ต้องมี <code>prices.sell:write</code> · เหตุผล ≥ 10 ตัวอักษร (audit <code>sales_order.revenue_line_added</code>) · ใบสั่งปิด/ยกเลิก หรือมีบรรทัดที่ออกใบแจ้งหนี้แล้ว → 409</p>
+<p>ธงภาษีคัดลอกจากรายการบริการฝั่งขาย ณ เวลาเพิ่ม · ยอด = จำนวน × ราคา (ปัดครึ่งขึ้นเป็นสตางค์) · ต้องมี <code>prices.sell:write</code> · เหตุผล ≥ 10 ตัวอักษร (audit <code>sales_order.revenue_line_added</code>) · ใบสั่งปิด/ยกเลิก หรือใบส่งของที่ระบุ (ไม่ระบุ = ระดับใบสั่ง) มีบรรทัดที่ออกใบแจ้งหนี้แล้ว → 409</p>
 <p><strong>Parameters</strong></p>
 <div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td>id ของ resource หรือ <code>ext:{externalId}</code> (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)</td></tr></tbody></table></div>
 <p><strong>Request body</strong> <code>AddRevenueLineDto</code></p>

@@ -7,7 +7,6 @@ import { ensureDefaultReasonCodes } from '../reason-codes/defaults';
 import { ensureDefaultServiceItems } from '../service-items/defaults';
 import { ensureDefaultVehicleTypes } from '../vehicle-types/defaults';
 import { backfillTripLegs } from '../trips/trip-legs';
-import { backfillRevenueLinesPerDo } from '../revenue-lines/revenue-rebuild';
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -64,11 +63,6 @@ const STEPS: readonly BootstrapStep[] = [
   { name: 'reason-codes', run: (db, t) => ensureDefaultReasonCodes(db, t) },
   // ST3-T16: ระยะ/เวลาช่วงวิ่งของเที่ยวที่สร้างก่อน migration 0072 (PLANNING/ASSIGNED ที่ยังไม่เคยคำนวณ) — รันซ้ำไม่แตะซ้ำ
   { name: 'trip-legs-backfill', run: async (db, t) => void (await backfillTripLegs(db, t)) },
-  // ST5-T01b: บรรทัดรายได้ระดับใบสั่ง (ก่อน migration 0117) ของใบที่มี DO แล้ว → คิดใหม่ต่อ DO (ระดับใบสั่ง VOIDED + เหตุผล) — รันซ้ำไม่แตะซ้ำ
-  {
-    name: 'revenue-lines-per-do',
-    run: async (db, t) => void (await backfillRevenueLinesPerDo(db as Prisma.TransactionClient, t)),
-  },
 ];
 
 export function bootstrapSteps(): readonly BootstrapStep[] {

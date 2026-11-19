@@ -75,7 +75,7 @@ export class OrderRevenueLinesController {
     summary: 'เพิ่มบรรทัดรายได้เอง — คงไว้เมื่อระบบคิดราคาใหม่',
     description:
       'ธงภาษีคัดลอกจากรายการบริการฝั่งขาย ณ เวลาเพิ่ม · ยอด = จำนวน × ราคา (ปัดครึ่งขึ้นเป็นสตางค์) · ต้องมี `prices.sell:write` · ' +
-      'เหตุผล ≥ 10 ตัวอักษร (audit `sales_order.revenue_line_added`) · ใบสั่งปิด/ยกเลิก หรือมีบรรทัดที่ออกใบแจ้งหนี้แล้ว → 409',
+      'เหตุผล ≥ 10 ตัวอักษร (audit `sales_order.revenue_line_added`) · ใบสั่งปิด/ยกเลิก หรือใบส่งของที่ระบุ (ไม่ระบุ = ระดับใบสั่ง) มีบรรทัดที่ออกใบแจ้งหนี้แล้ว → 409',
   })
   @ApiProblems(T403('prices.sell:write'), NF, T409('order_locked_for_update'), T422)
   @ApiCreatedResponse({ type: RevenueLineDto })

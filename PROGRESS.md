@@ -282,6 +282,12 @@
 
 ## บันทึกรายวัน
 
+### 19 พ.ย. 2569 (ST5-T01b แก้ตาม review/QA — lane l5)
+
+- **ทำ:** (H1) ยอดเหมาและส่วนที่ขาดถึงขั้นต่ำ หักยอดที่ออกใบแล้ว (บรรทัดล็อกของบรรทัดราคาเดียวกัน/แหล่งเดิมที่ถูกคิดใหม่) ก่อนแบ่งให้ DO ที่ยังคิดได้ — ไม่ติดลบ (M1) คิดต่อ DO ไม่ได้ → ยอดเหมาชั่วคราว + `provisional` (M2) เปลี่ยนเกณฑ์วางบิลลูกค้า → งาน `revenue_lines.rebuild_customer` ทีละใบสั่ง · backfill ย้ายออกจาก STEPS ไปท้าย `tenants:bootstrap` ทีละใบสั่ง (resumable, ล้มไม่ทำให้ migrate ล้ม) (M3) เพิ่มบรรทัดเองกันเฉพาะ DO ที่ล็อก + backlog ST5-T09 "ห้าม finalize บรรทัด provisional" (QA L1) แยก/รวม DO ที่มีบรรทัดล็อก → 409 (L1) seed bootstrap ใน transaction (L2) [OPEN — PO] เปลี่ยนเกณฑ์วางบิลกลางทาง · spec/12 ระบุชัดเรื่องปัดต่อ DO ทำให้ผลรวมต่างยอดใบสั่งได้ไม่กี่สตางค์
+- **ไฟล์:** `revenue-rebuild.ts`, `revenue-lines.service.ts`/`.controller.ts`, `delivery-order.service.ts`, `customers.service.ts`, `cli/bootstrap-tenants.ts`, `tenants/bootstrap.ts`, `prisma/seed.ts`, test `revenue-lines` (+2), `actual-qty`, `partial-return` (+1), `bootstrap`, spec/12, plan/01
+- **ค้าง:** ส่วนที่ขาดถึงขั้นต่ำเมื่อไม่มี DO ที่คิดได้แล้ว = ใบเพิ่มหนี้ (ST5-T13)
+
 ### 19 พ.ย. 2569 (ST5-T01b บรรทัดรายได้ต่อ DO ตามปริมาณส่งจริง — PO ตัดสิน · lane l5)
 
 - **ทำ:** PO ตัดสิน 19 พ.ย. 2569 — รายได้ = snapshot ราคา × ปริมาณส่งจริงต่อ DO (docs/01 §3.3) วางบิลต่อ DO · บรรทัด `SO_CHARGE` แบ่งลง DO (แหล่ง = บรรทัดราคา + DO; ยังไม่มี DO = ระดับใบสั่ง `provisional`) · ค่าขนส่งสูตรตามจำนวนคิดด้วย engine เดิมต่อ DO ปัดต่อใบ (MD-114) · ลูกค้าตามยอดส่งจริง: ก่อนบันทึก = แผน + `provisional` → คิดใหม่เมื่อบันทึก POD / คืนคลัง = 0 · ลูกค้าตามใบสั่ง = แผนของ DO (ใบส่งซ้ำของที่ปฏิเสธไม่คิดซ้ำ) · DO ยกเลิก → บรรทัดระบบของใบนั้น VOIDED (รวม DO_SURCHARGE — ปิด OPEN เดิม) · คิดใหม่ทุกงานของ `DeliveryOrderService` ที่เปลี่ยนชุด DO/ปริมาณ + หลัง `syncWithOrder` + เปลี่ยนเกณฑ์วางบิลของลูกค้า · ล็อกต่อ DO · `GET /v1/delivery-orders/{id}/revenue-lines` (`sellRevenueTotal`, `provisional`) + `RevenueLinesService.totalsByDeliveryOrder()` ให้งานปันต้นทุน · ข้อมูลเดิม: ขั้น bootstrap `revenue-lines-per-do` · domain `allocateSatang` (largest remainder)

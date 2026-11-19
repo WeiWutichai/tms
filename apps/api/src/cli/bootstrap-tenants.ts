@@ -14,6 +14,7 @@
 import { PrismaClient } from '@prisma/client';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { backfillRevenueLinesPerDo } from '../modules/revenue-lines/revenue-rebuild';
 import { bootstrapTenant } from '../modules/tenants/bootstrap';
 
 function loadRootEnv() {
@@ -40,6 +41,11 @@ export interface BootstrapAllResult {
   total: number;
   ok: number;
   failed: { tenantId: string; error: string }[];
+  /** ST5-T01b backfill บรรทัดรายได้ต่อ DO (ทีละใบสั่ง) — ใบที่ล้มไม่ทำให้ migrate ล้ม (รันครั้งหน้าทำต่อ) */
+  revenueBackfill?: {
+    done: number;
+    failed: { tenantId: string; salesOrderId: string; error: string }[];
+  };
 }
 
 export async function bootstrapAllTenants(env: {
@@ -86,7 +92,26 @@ export async function bootstrapAllTenants(env: {
         failed.push({ tenantId: t.id, error: e instanceof Error ? e.message : String(e) });
       }
     }
-    return { total: tenants.length, ok: tenants.length - failed.length, failed };
+    // ST5-T01b: นอก transaction ของ tenant — ทีละใบสั่ง (ไม่ติดอายุ 60 วิของ tenant ใหญ่)
+    const revenueBackfill = {
+      done: 0,
+      failed: [] as { tenantId: string; salesOrderId: string; error: string }[],
+    };
+    for (const t of tenants) {
+      if (failed.some((f) => f.tenantId === t.id)) continue;
+      try {
+        const r = await backfillRevenueLinesPerDo(db, t.id);
+        revenueBackfill.done += r.done;
+        revenueBackfill.failed.push(...r.failed.map((f) => ({ tenantId: t.id, ...f })));
+      } catch (e) {
+        revenueBackfill.failed.push({
+          tenantId: t.id,
+          salesOrderId: '-',
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+    return { total: tenants.length, ok: tenants.length - failed.length, failed, revenueBackfill };
   } finally {
     await db.$disconnect();
   }
@@ -101,6 +126,12 @@ async function main() {
     ...(process.env.DATABASE_URL ? { ownerUrl: process.env.DATABASE_URL } : {}),
   });
   for (const f of r.failed) console.error(`bootstrap ${f.tenantId} failed: ${f.error}`);
+  const rb = r.revenueBackfill;
+  if (rb?.done) console.log(`revenue-lines-per-do backfill — ${rb.done} ใบสั่ง`);
+  for (const f of rb?.failed ?? [])
+    console.error(
+      `revenue-lines-per-do backfill ${f.tenantId}/${f.salesOrderId} ล้ม (ทำต่อครั้งหน้า): ${f.error}`,
+    );
   console.log(`tenants:bootstrap — ${r.ok}/${r.total} tenant OK (${dbTarget(platformUrl)})`);
   if (r.failed.length) process.exit(1);
 }

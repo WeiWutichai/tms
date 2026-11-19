@@ -1225,7 +1225,7 @@ const { data, error } = await tms.GET('/v1/orders/{id}/revenue-lines', {
 
 scope: `orders:write` · operationId: `OrderRevenueLines_add`
 
-ธงภาษีคัดลอกจากรายการบริการฝั่งขาย ณ เวลาเพิ่ม · ยอด = จำนวน × ราคา (ปัดครึ่งขึ้นเป็นสตางค์) · ต้องมี `prices.sell:write` · เหตุผล ≥ 10 ตัวอักษร (audit `sales_order.revenue_line_added`) · ใบสั่งปิด/ยกเลิก หรือมีบรรทัดที่ออกใบแจ้งหนี้แล้ว → 409
+ธงภาษีคัดลอกจากรายการบริการฝั่งขาย ณ เวลาเพิ่ม · ยอด = จำนวน × ราคา (ปัดครึ่งขึ้นเป็นสตางค์) · ต้องมี `prices.sell:write` · เหตุผล ≥ 10 ตัวอักษร (audit `sales_order.revenue_line_added`) · ใบสั่งปิด/ยกเลิก หรือใบส่งของที่ระบุ (ไม่ระบุ = ระดับใบสั่ง) มีบรรทัดที่ออกใบแจ้งหนี้แล้ว → 409
 
 **Parameters**
 

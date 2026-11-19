@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import type { OrderChargeKind, Prisma, RevenueLine, VatType } from '@prisma/client';
 import { decimalFromSatang, mulRateHalfUp, satangFromDecimal, scopeAllows } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
@@ -6,6 +6,7 @@ import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { JobQueue } from '../../jobs/job-queue.service';
 import { ServiceItemsService } from '../service-items/service-items.service';
 import type {
   AddRevenueLineDto,
@@ -25,6 +26,8 @@ const qtyMilli = (q: string): bigint => {
   const [i, f = ''] = q.split('.');
   return BigInt(i!) * 1000n + BigInt((f + '000').slice(0, 3));
 };
+/** งานเบื้องหลังคิดบรรทัดรายได้ใหม่เมื่อลูกค้าเปลี่ยนเกณฑ์วางบิล (ST5-T01b review M2) */
+export const REBUILD_CUSTOMER_JOB = 'revenue_lines.rebuild_customer';
 /** audit อยู่ใต้ใบสั่ง (entity ที่กันไม่ให้ retention ลบ — retention-policy.ts) */
 const ENTITY = 'sales_order';
 /** ใบสั่งที่ปิด/ยกเลิกแล้ว — เพิ่มบรรทัดเองไม่ได้ */
@@ -59,13 +62,62 @@ const locked = (extra: Record<string, unknown> = {}) =>
  * - ไม่คำนวณภาษีที่นี่ (ST5-T02)
  */
 @Injectable()
-export class RevenueLinesService {
+export class RevenueLinesService implements OnModuleInit {
   private readonly log = new Logger(RevenueLinesService.name);
   constructor(
     private readonly db: DbService,
     private readonly serviceItems: ServiceItemsService,
     private readonly audit: AuditService,
+    private readonly queue: JobQueue,
   ) {}
+
+  /**
+   * งานเบื้องหลัง (review M2): ลูกค้าเปลี่ยนเกณฑ์วางบิล → คิดบรรทัดรายได้ของใบสั่งที่ยังเปิดใหม่ **ทีละใบสั่ง transaction สั้น**
+   * (ไม่ทำทั้งหมดใน request เดียว) · ใบที่ล้ม → งานล้มให้ลองใหม่ (ใบที่ทำแล้ว idempotent — ไม่เปลี่ยนซ้ำ)
+   */
+  onModuleInit() {
+    this.queue.register(
+      REBUILD_CUSTOMER_JOB,
+      async ({ job, withTx }) => {
+        const customerId = (job.payload as { customerId?: unknown } | null)?.customerId;
+        if (typeof customerId !== 'string') return { skipped: 'bad_payload' };
+        const orders = await withTx((tx) =>
+          tx.salesOrder.findMany({
+            where: { customerId, status: { notIn: ['CLOSED', 'CANCELLED'] } },
+            select: { id: true },
+            orderBy: { id: 'asc' },
+          }),
+        );
+        let changed = 0;
+        const failed: string[] = [];
+        for (const o of orders) {
+          try {
+            if (await withTx((tx) => rebuildRevenueLines(tx, o.id, 'system:billing-basis')))
+              changed += 1;
+          } catch (e) {
+            this.log.warn(`order ${o.id}: rebuild failed — ${(e as Error).message}`);
+            failed.push(o.id);
+          }
+        }
+        if (failed.length)
+          throw new Error(`revenue rebuild failed for ${failed.length} order(s) — retrying`);
+        return { orders: orders.length, changed };
+      },
+      { outsideTransaction: true },
+    );
+  }
+
+  /** คิดบรรทัดรายได้ของใบสั่งที่ยังเปิดของลูกค้าใหม่ในงานเบื้องหลัง (enqueue ใน transaction ของคำขอ) */
+  async scheduleRebuildForCustomer(customerId: string, tx: Tx = this.db.tx) {
+    const tenantId = requestContext.require().tenantId;
+    if (!tenantId) throw new Error('revenue lines: tenant missing in request context');
+    return this.queue.enqueue(tx, {
+      tenantId,
+      type: REBUILD_CUSTOMER_JOB,
+      payload: { customerId },
+      maxAttempts: 5,
+    });
+  }
 
   /**
    * สร้าง/ปรับบรรทัดระบบของใบสั่งให้ตรงกับแหล่ง (ต่อ DO — ST5-T01b; กติกาเต็มที่ `rebuildRevenueLines`) — idempotent
@@ -159,7 +211,7 @@ export class RevenueLinesService {
    * เพิ่มบรรทัดเอง (MANUAL — `is_user_added`, คงไว้เมื่อ rebuild) · ธงภาษีคัดลอกจากรายการบริการ (ฝั่งขาย) ไม่รับจาก client
    * ยอด = จำนวน × ราคาต่อหน่วย ปัดครึ่งขึ้นเป็นสตางค์ครั้งเดียว (MD-114 — กติกาเดียวกับ pricing engine / ค่าใช้จ่ายหน้างาน)
    * สิทธิ์ `orders:write` (controller) + `prices.sell:write` · เหตุผล ≥ 10 → audit `sales_order.revenue_line_added`
-   * ใบสั่งปิด/ยกเลิก หรือมีบรรทัดที่ล็อกแล้ว (ออกใบแจ้งหนี้แล้ว — ส่วนเพิ่มใช้ใบเพิ่มหนี้ ST5-T13) → 409
+   * ใบสั่งปิด/ยกเลิก หรือ DO ที่ระบุ (ไม่ระบุ = ระดับใบสั่ง) มีบรรทัดที่ล็อกแล้ว (ออกใบแล้ว — ส่วนเพิ่มใช้ใบเพิ่มหนี้ ST5-T13) → 409
    */
   async add(salesOrderId: string, input: AddRevenueLineDto): Promise<RevenueLineDto> {
     const tx = this.db.tx;
@@ -173,8 +225,6 @@ export class RevenueLinesService {
         orderStatus: row.status,
       });
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LOCK_NS}::int, hashtext(${salesOrderId}))`;
-    if (await tx.revenueLine.findFirst({ where: { salesOrderId, lockedAt: { not: null } } }))
-      throw locked();
 
     const errors: { field: string; code: string; message: string }[] = [];
     const qty = input.qty ?? '1';
@@ -225,6 +275,14 @@ export class RevenueLinesService {
         );
       doId = d.id;
     }
+    // ST5-T01b (review M3): ออกใบต่อ DO → กันเฉพาะ DO ที่มีบรรทัดออกใบแล้ว · บรรทัดระดับใบสั่ง = กันเมื่อมีบรรทัดระดับใบสั่งที่ล็อก
+    if (
+      await tx.revenueLine.findFirst({
+        where: { salesOrderId, deliveryOrderId: doId, lockedAt: { not: null } },
+        select: { id: true },
+      })
+    )
+      throw locked(doId ? { deliveryOrderId: encodeId('deliveryOrder', doId) } : {});
 
     const itemId = tryDecodeId('serviceItem', input.serviceItemId);
     if (!itemId)
