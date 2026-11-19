@@ -420,6 +420,108 @@ describe('billing guard — กันวางบิลซ้ำ (ST5-T05)', { t
     ).rejects.toThrow(/invoice_line_draft_only|not a draft/);
   });
 
+  it('ฐานข้อมูล (review M / QA L1, L3): ย้ายบรรทัดข้ามใบ/เปลี่ยน DO ไม่ได้ · ปิดบรรทัดของใบที่ออกแล้วไม่ได้ · CANCELLED/VOIDED เป็นสถานะสิ้นสุด', async () => {
+    const cus = await newCustomer();
+    const d = await unbilledDo(cus);
+    const d2 = await unbilledDo(cus);
+    const a = await draft(cus);
+    await run((tx) => guard().attach(a, [line(d)], tx));
+    const [l] = await activeLines(d);
+    const issued = await draft(cus);
+    await db.invoice.update({
+      where: { id: issued },
+      data: { status: 'ISSUED', invoiceNo: 'INV-20' },
+    });
+    // ย้ายบรรทัดจากร่างไปใบที่ออกแล้ว / เปลี่ยน DO / เปลี่ยน tenant
+    await expect(
+      run((tx) => tx.invoiceLine.update({ where: { id: l!.id }, data: { invoiceId: issued } })),
+    ).rejects.toThrow(/invoice_line_immutable_ref|cannot change/);
+    await expect(
+      run((tx) => tx.invoiceLine.update({ where: { id: l!.id }, data: { deliveryOrderId: d2 } })),
+    ).rejects.toThrow(/invoice_line_immutable_ref|cannot change/);
+    await expect(
+      db.invoiceLine.update({ where: { id: l!.id }, data: { tenantId: otherId } }),
+    ).rejects.toThrow(/invoice_line_immutable_ref|cannot change/);
+    // ออกเลขใบ a แล้วปิดบรรทัดตรง ๆ (ข้ามใบลดหนี้) ไม่ได้ — DO ยังถูกกันวางบิลซ้ำ
+    await run(async (tx) => {
+      await tx.invoice.update({
+        where: { id: a },
+        data: { status: 'ISSUED', invoiceNo: 'INV-21' },
+      });
+      await guard().syncFromInvoice(a, tx);
+    });
+    await expect(
+      run((tx) => tx.invoiceLine.update({ where: { id: l!.id }, data: { active: false } })),
+    ).rejects.toThrow(/invoice_line_release_state|cannot be released/);
+    await expect(
+      run((tx) => tx.invoiceLine.updateMany({ where: { invoiceId: a }, data: { active: false } })),
+    ).rejects.toThrow(/invoice_line_release_state|cannot be released/);
+    expect(await activeLines(d)).toHaveLength(1);
+    // ลดหนี้เต็มใบ (VOIDED) → trigger ปิดบรรทัดได้ · แล้วสถานะใบเปลี่ยนต่อไม่ได้
+    await run((tx) => tx.invoice.update({ where: { id: a }, data: { status: 'VOIDED' } }));
+    expect(await activeLines(d)).toHaveLength(0);
+    await expect(
+      run((tx) => tx.invoice.update({ where: { id: a }, data: { status: 'ISSUED' } })),
+    ).rejects.toThrow(/invoice_status_terminal|terminal/);
+    const c = await draft(cus);
+    await run((tx) => tx.invoice.update({ where: { id: c }, data: { status: 'CANCELLED' } }));
+    for (const to of ['DRAFT', 'ISSUED', 'VOIDED'] as const)
+      await expect(db.invoice.update({ where: { id: c }, data: { status: to } })).rejects.toThrow(
+        /invoice_status_terminal|terminal/,
+      );
+  });
+
+  it('DO ในร่าง/ใบที่ออกแล้ว: เพิ่ม/ยกเลิกบรรทัดรายได้เอง และยืนยันค่าใช้จ่ายหน้างานฝั่งขาย → 409 do_in_invoice (docs/04 F4, BIL-024)', async () => {
+    const cus = await newCustomer();
+    const d = await unbilledDo(cus);
+    const { salesOrderId } = await db.deliveryOrder.findUniqueOrThrow({ where: { id: d } });
+    const orderId = encodeId('salesOrder', salesOrderId);
+    const body = {
+      serviceItemId: encodeId('serviceItem', freight),
+      sellUnitPrice: '100.00',
+      deliveryOrderId: encodeId('deliveryOrder', d),
+      reason: 'ลูกค้าขอเพิ่มค่าบริการพิเศษ',
+    };
+    // ก่อนเข้าร่าง: เพิ่มได้
+    const manual = (
+      await api(app, admin).post(`/v1/orders/${orderId}/revenue-lines`).send(body).expect(201)
+    ).body as { id: string };
+    const sur = await db.doSurcharge.create({
+      data: {
+        tenantId,
+        deliveryOrderId: d,
+        serviceItemId: freight,
+        vatType: 'EXEMPT_TRANSPORT',
+        whtRate: '1.00',
+        qty: '1',
+        unitPrice: '50.00',
+        amount: '50.00',
+      },
+    });
+    const inv = await draft(cus);
+    await run((tx) => guard().attach(inv, [line(d)], tx));
+    const add = await api(app, admin).post(`/v1/orders/${orderId}/revenue-lines`).send(body);
+    expect(add.status, JSON.stringify(add.body)).toBe(409);
+    expect(add.body).toMatchObject({
+      code: 'invalid_state_transition',
+      billingStatus: 'IN_DRAFT',
+      errors: [{ field: 'deliveryOrderId', code: 'do_in_invoice' }],
+    });
+    const v = await api(app, admin)
+      .post(`/v1/revenue-lines/${manual.id}/void`)
+      .send({ reason: 'ยกเลิกบรรทัดที่เพิ่มผิด' });
+    expect(v.status, JSON.stringify(v.body)).toBe(409);
+    expect(v.body.billingStatus).toBe('IN_DRAFT');
+    const cf = await api(app, admin)
+      .post(`/v1/do-surcharges/${encodeId('doSurcharge', sur.id)}/confirm`)
+      .send({ reason: 'ยืนยันค่าใช้จ่ายหน้างานตามใบเสร็จ' });
+    expect(cf.status, JSON.stringify(cf.body)).toBe(409);
+    expect(cf.body.billingStatus).toBe('IN_DRAFT');
+    expect((await db.doSurcharge.findUniqueOrThrow({ where: { id: sur.id } })).status).toBe(
+      'PENDING_CONFIRM',
+    );
+  });
+
   it('แยก tenant: tenant อื่นไม่เห็นใบ/บรรทัด · ใช้ DO/ใบของ tenant อื่นไม่ได้ · index แยกต่อ tenant', async () => {
     const cus = await newCustomer();
     const d = await unbilledDo(cus);

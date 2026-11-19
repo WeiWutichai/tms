@@ -7,7 +7,10 @@ import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { DeliveryOrderService, type BillingDoRow } from '../delivery-orders/delivery-order.service';
 
-/** บรรทัดค่าขนส่งของ DO ที่จะเพิ่มลงร่าง (เนื้อหาบรรทัด/ราคา/ภาษีมาจากผู้เรียก — ST5-T07 สร้างจากบรรทัดรายได้) */
+/**
+ * บรรทัดค่าขนส่งของ DO ที่จะเพิ่มลงร่าง (เนื้อหาบรรทัด/ราคา/ภาษีมาจากผู้เรียก — ST5-T07 สร้างจากบรรทัดรายได้)
+ * บรรทัดค่าใช้จ่ายหน้างาน (`do_surcharge_id`) / บรรทัดรวม (Group/Merge) = ST5-T07 [OPEN spec/12 §3] — ไม่ผ่าน attach
+ */
 export interface DoInvoiceLineInput {
   deliveryOrderId: string;
   serviceItemId: string;
@@ -19,7 +22,6 @@ export interface DoInvoiceLineInput {
   vatType: VatType;
   vatAmount?: Prisma.Decimal | string;
   whtRate: Prisma.Decimal | string;
-  doSurchargeId?: string | null;
   accountCode?: string | null;
   isUserAdded?: boolean;
 }
@@ -103,7 +105,6 @@ export class InvoiceBillingGuard {
       invoiceId,
       lineNo: ++lineNo,
       deliveryOrderId: l.deliveryOrderId,
-      doSurchargeId: l.doSurchargeId ?? null,
       serviceItemId: l.serviceItemId,
       description: l.description,
       quantity: l.quantity,

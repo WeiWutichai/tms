@@ -86,7 +86,10 @@ ALTER TABLE "invoice_line" ADD CONSTRAINT "invoice_line_delivery_order_id_fkey" 
 ALTER TABLE "invoice_line" ADD CONSTRAINT "invoice_line_do_surcharge_id_fkey" FOREIGN KEY ("do_surcharge_id") REFERENCES "do_surcharge"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "invoice_line" ADD CONSTRAINT "invoice_line_service_item_id_fkey" FOREIGN KEY ("service_item_id") REFERENCES "service_item"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- บรรทัด: (1) เพิ่มได้เฉพาะใบที่ยังเป็น DRAFT และเพิ่มเป็น active เท่านั้น (2) active ทางเดียว true → false
+-- บรรทัด: (1) เพิ่มได้เฉพาะใบที่ยังเป็น DRAFT และเพิ่มเป็น active เท่านั้น
+--        (2) tenant_id / invoice_id / delivery_order_id แก้ไม่ได้ (ย้ายบรรทัดข้ามใบ/เปลี่ยน DO = ข้ามตัวกัน)
+--        (3) active ทางเดียว true → false และปิดได้เฉพาะเมื่อใบเป็น DRAFT (ถอดออกจากร่าง) หรือ CANCELLED/VOIDED (trigger สถานะใบ)
+--            — ใบที่ออกแล้วถอด DO ไม่ได้ (แก้ด้วยใบลดหนี้)
 CREATE OR REPLACE FUNCTION tms_invoice_line_guard() RETURNS trigger
   LANGUAGE plpgsql SET search_path = pg_catalog, public AS
 $$
@@ -101,15 +104,42 @@ BEGIN
     END IF;
     RETURN NEW;
   END IF;
+  IF NEW.tenant_id IS DISTINCT FROM OLD.tenant_id OR NEW.invoice_id IS DISTINCT FROM OLD.invoice_id
+     OR NEW.delivery_order_id IS DISTINCT FROM OLD.delivery_order_id THEN
+    RAISE EXCEPTION 'invoice_line %: tenant_id / invoice_id / delivery_order_id cannot change', OLD.id
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'invoice_line_immutable_ref';
+  END IF;
   IF NOT OLD.active AND NEW.active THEN
     RAISE EXCEPTION 'invoice_line % was released from billing — cannot reactivate', OLD.id
       USING ERRCODE = 'check_violation', CONSTRAINT = 'invoice_line_active_one_way';
+  END IF;
+  IF OLD.active AND NOT NEW.active THEN
+    SELECT i.status INTO st FROM invoice i WHERE i.id = OLD.invoice_id;
+    IF st NOT IN ('DRAFT', 'CANCELLED', 'VOIDED') THEN
+      RAISE EXCEPTION 'invoice_line %: invoice % is % — lines of an issued invoice cannot be released', OLD.id, OLD.invoice_id, st
+        USING ERRCODE = 'check_violation', CONSTRAINT = 'invoice_line_release_state';
+    END IF;
   END IF;
   RETURN NEW;
 END
 $$;
 CREATE TRIGGER invoice_line_guard BEFORE INSERT OR UPDATE ON "invoice_line"
   FOR EACH ROW EXECUTE FUNCTION tms_invoice_line_guard();
+
+-- ใบ CANCELLED / VOIDED = สถานะสิ้นสุด (ทุก role) — state machine เต็มของใบ = ST5-T07/T09 (domain)
+CREATE OR REPLACE FUNCTION tms_invoice_terminal_guard() RETURNS trigger
+  LANGUAGE plpgsql SET search_path = pg_catalog, public AS
+$$
+BEGIN
+  IF OLD.status IN ('CANCELLED', 'VOIDED') AND NEW.status IS DISTINCT FROM OLD.status THEN
+    RAISE EXCEPTION 'invoice % is % (terminal) — status cannot change', OLD.id, OLD.status
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'invoice_status_terminal';
+  END IF;
+  RETURN NEW;
+END
+$$;
+CREATE TRIGGER invoice_terminal_guard BEFORE UPDATE OF "status" ON "invoice"
+  FOR EACH ROW EXECUTE FUNCTION tms_invoice_terminal_guard();
 
 -- ใบเป็น CANCELLED (ยกเลิกร่าง) / VOIDED (ลดหนี้เต็มใบ) → บรรทัดหยุดนับ (DO วางบิลใหม่ได้ — docs/01 §4.3/§4.4)
 CREATE OR REPLACE FUNCTION tms_invoice_release_lines() RETURNS trigger

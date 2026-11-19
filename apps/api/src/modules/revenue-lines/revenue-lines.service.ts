@@ -1,3 +1,4 @@
+import { assertNotInInvoice } from '../invoices/billing-lock';
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import type { OrderChargeKind, Prisma, RevenueLine, VatType } from '@prisma/client';
 import { decimalFromSatang, mulRateHalfUp, satangFromDecimal, scopeAllows } from '@tms/domain';
@@ -253,7 +254,7 @@ export class RevenueLinesService implements OnModuleInit {
       const d = id
         ? await tx.deliveryOrder.findFirst({
             where: { id, salesOrderId },
-            select: { id: true, status: true },
+            select: { id: true, status: true, billingStatus: true },
           })
         : null;
       if (!d)
@@ -275,6 +276,7 @@ export class RevenueLinesService implements OnModuleInit {
           ],
           { doStatus: d.status },
         );
+      assertNotInInvoice(d); // ST5-T05: DO ในร่าง/ใบที่ออกแล้ว → แก้ที่ใบ (ST5-T07)
       doId = d.id;
     }
     // ST5-T01b (review M3): ออกใบต่อ DO → กันเฉพาะ DO ที่มีบรรทัดออกใบแล้ว · บรรทัดระดับใบสั่ง = กันเมื่อมีบรรทัดระดับใบสั่งที่ล็อก
@@ -367,6 +369,13 @@ export class RevenueLinesService implements OnModuleInit {
         orderStatus: so.status,
       });
     if (line.lockedAt) throw locked();
+    if (line.deliveryOrderId)
+      assertNotInInvoice(
+        await tx.deliveryOrder.findUniqueOrThrow({
+          where: { id: line.deliveryOrderId },
+          select: { status: true, billingStatus: true },
+        }),
+      );
     if (!line.isUserAdded)
       throw new ProblemException('invalid_state_transition', undefined, undefined, {
         reason: 'system_line',
