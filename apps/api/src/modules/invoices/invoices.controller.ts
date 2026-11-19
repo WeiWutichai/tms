@@ -57,7 +57,7 @@ const NOT_READY = {
 export class InvoicesController {
   constructor(private readonly queue: BillingQueueService) {}
 
-  // ต้องประกาศก่อน route `:id` ใด ๆ ของ /invoices ที่จะเพิ่ม (ST5-T07) — ไม่งั้น 'queue' ถูกจับเป็น id (test billing-queue ตรวจ)
+  // ST5-T07 ต้องประกาศ queue ก่อน :id และเพิ่ม test ตรวจลำดับ route
   @Get('queue')
   @RequireScope('invoices:read')
   @ApiOperation({
