@@ -1685,6 +1685,9 @@ model Trip {
   costAllocationMethod      String            @default("BY_WEIGHT") @map("cost_allocation_method")
   dispatchedAt              DateTime?         @map("dispatched_at") @db.Timestamptz(6)
   completedAt               DateTime?         @map("completed_at") @db.Timestamptz(6)
+  /// ST6-T01 ปิดต้นทุน (COMPLETED → COSTED) — เวลา/ผู้ปิด
+  costedAt                  DateTime?         @map("costed_at") @db.Timestamptz(6)
+  costedBy                  String?           @map("costed_by")
   cancelledAt               DateTime?         @map("cancelled_at") @db.Timestamptz(6)
   cancelReason              String?           @map("cancel_reason") /// เหตุผล ≥ 10 ตัวอักษร (CHECK คู่กับสถานะ CANCELLED)
   cancelReasonCodeId        String?           @map("cancel_reason_code_id") @db.Uuid

@@ -1,6 +1,6 @@
 # เที่ยววิ่ง (trips)
 
-32 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+34 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -20,6 +20,8 @@
 | [`POST /v1/trips/{id}/dispatch`](#post-trips-id-dispatch) | `trips:dispatch` |
 | [`POST /v1/trips/{id}/confirm-rules`](#post-trips-id-confirm-rules) | `trips:assign` |
 | [`POST /v1/trips/{id}/complete`](#post-trips-id-complete) | `trips:close` |
+| [`GET /v1/trips/{id}/costs`](#get-trips-id-costs) | `trips:read` |
+| [`POST /v1/trips/{id}/cost`](#post-trips-id-cost) | `trips:close` |
 | [`POST /v1/trips/{id}/cancel`](#post-trips-id-cancel) | `trips:assign` |
 | [`GET /v1/trips/{id}/field-charges`](#get-trips-id-field-charges) | `trips:read` |
 | [`POST /v1/trips/{id}/field-charges`](#post-trips-id-field-charges) | `trips:read` |
@@ -849,6 +851,85 @@ curl -sS -X POST "$TMS_BASE_URL/v1/trips/<id>/complete" \
 
 ```ts
 const { data, error } = await tms.POST('/v1/trips/{id}/complete', {
+  params: { path: { id: "…" } },
+});
+```
+
+## บรรทัดต้นทุนของเที่ยว + สรุป {#get-trips-id-costs}
+
+`GET /v1/trips/{id}/costs`
+
+scope: `trips:read` · operationId: `Trips_costs`
+
+ค่าจ้างรถร่วม (บรรทัดระบบ snapshot ตอนจ้าง — แก้ rate card ภายหลังไม่เปลี่ยน) + ค่าใช้จ่ายหน้างานฝั่งซื้อ + บรรทัดกลับรายการ (ไม่มีการลบ) · ยอดเงิน (`buy*`) เห็นเมื่อมี `prices.buy:read`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `TripCostListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`trips:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/trips/<id>/costs" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/trips/{id}/costs', {
+  params: { path: { id: "…" } },
+});
+```
+
+## ปิดต้นทุนเที่ยว (COMPLETED → COSTED) {#post-trips-id-cost}
+
+`POST /v1/trips/{id}/cost`
+
+scope: `trips:close` · operationId: `Trips_cost`
+
+ต้นทุนครบ = ไม่มีค่าใช้จ่ายหน้างานฝั่งซื้อรอยืนยัน และเที่ยวรถร่วมมีค่าจ้างของการจ้างที่รถร่วมรับแล้ว · ไม่ครบ → 409 `trip_costs_incomplete` + `blockers` · หลังปิดบันทึก/ยืนยันค่าใช้จ่ายหน้างานไม่ได้ · **ยังไม่เปิดใช้** (ค่าเริ่มต้น): ต้องปันต้นทุนลง DO ซึ่งยังไม่ตัดสินวิธี → 409 `trip_costing_unavailable`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `Idempotency-Key` | header |   | `string` |   |
+| `If-Match` | header |   | `string` | ETag จาก GET — ไม่ตรง → 412 |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `TripDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`trips:close`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress), [trip_costs_incomplete](errors.md#trip_costs_incomplete), [trip_costing_unavailable](errors.md#trip_costing_unavailable) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/trips/<id>/cost" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)"
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/trips/{id}/cost', {
   params: { path: { id: "…" } },
 });
 ```
@@ -1707,6 +1788,15 @@ const { data, error } = await tms.POST('/v1/trip-sheets', {
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `data` | ใช่ | `array<SubconOfferDto>` |   |   |   |
+
+### TripCostListDto {#schema-TripCostListDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<TripCostLineDto>` |   |   |   |
+| `summary` | ใช่ | `TripCostSummaryDto` |   |   |   |
 
 ### TripDto {#schema-TripDto}
 

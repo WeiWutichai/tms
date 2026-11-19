@@ -169,6 +169,12 @@
 | T13 ค่าใช้จ่ายหน้างาน → `do_surcharge` / `trip_cost` | dev + แก้ตาม review/QA เสร็จ (ไม่มี High) — รอ merge | migration `0092_field_charges` (สถานะ PENDING_CONFIRM/CONFIRMED/REJECTED/CANCELLED + CHECK ผู้ตัดสิน/เหตุผล, `evidence_document_id` unique, snapshot รายการ, `trip_cost.source_type` FIELD/DO_SURCHARGE, REVOKE DELETE) · API `GET/POST /v1/trips/{id}/field-charges`, `POST /v1/do-surcharges/{id}/confirm|reject|cancel`, `/v1/trip-costs/{id}/…` (id `dsc_`/`tco_`) · ธงภาษี snapshot จาก service_item, ฝั่งซื้อ vat_amount 0 (#58) · เว็บแท็บ "ค่าใช้จ่ายหน้างาน" ใน drawer เที่ยว · test API 9 + isolation + web 7 + E2E `field-surcharges.spec.ts` 2 · ภาพเทียบ `design/compare/st4-surcharge-{list,add}-1440.png` |
 | T14 Tracking link สาธารณะ | dev + แก้ตาม security review/QA เสร็จ — รอ merge | magic link `tracking` ต่อ DO (เปิดแล้วเห็นงาน) หรือต่อลูกค้า (ค้นเลข DO/PO + เบอร์ผู้รับ 4 ตัวท้าย) · public `GET /v1/public/tracking/{token}` + `POST …/lookup` (DTO สาธารณะแยก ไม่มีราคา/ที่อยู่/คนขับ/ทะเบียนเต็ม; noindex/no-referrer/no-store; 60 req/นาที/IP; ค้นผิด 5/ชม./IP, 30/ชม./ลิงก์ → 429) · ผู้จัดรถ `GET/POST /v1/delivery-orders/{id}/tracking-link` (+`/revoke`) และ `/v1/customers/{id}/tracking-link` · ค่าตั้ง `tracking.contactPhone/showPod/linkDays` · เว็บ `/t/:token` ตามต้นแบบ TMS Tracking · test API 10, web 6, E2E 2 · ภาพเทียบ `design/compare/st4-tracking-{transit,delivered,search}-{390,1440}.png` |
 
+### งาน ST6 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
+
+| งาน | สถานะ | หลักฐาน / ที่ยังขาด |
+|---|---|---|
+| T01 Cost line (`trip_cost`) + ปิดต้นทุน COMPLETED → COSTED | dev + แก้ตาม review/QA เสร็จ (ไม่มี High) — รอ merge · ปิดต้นทุนปิดใช้จนกว่าจะตัดสินวิธีปันลง DO | บรรทัด CARRIER_FEE มีตั้งแต่จ้าง (ST3-T22) · `GET /v1/trips/{id}/costs` (ยอดตัดตาม `prices.buy:read`) · `POST /v1/trips/{id}/cost` (`trips:close`, If-Match, 409 `trip_costs_incomplete` + blockers) · migration `0115_trip_costed` · test `trip-costs.test.ts` · ไม่มี UI (ต้นแบบไม่มี) · [OPEN] ปันลง DO / คิดค่าจ้างใหม่เมื่อ DO เปลี่ยน / ค่าหน้างานของเที่ยวที่ยกเลิก — spec/12 §3 |
+
 ### งาน ST7 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
 
 | งาน | สถานะ | หลักฐาน / ที่ยังขาด |
@@ -268,6 +274,15 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 19 พ.ย. 2569 (ST6-T01 แก้ตาม review/QA — lane l6)
+- ทำ: ปิดต้นทุน (COSTED) **ปิดใช้โดยค่าเริ่มต้น** — docs/01 §4.2 ต้อง "ปันลง DO" ซึ่งยัง OPEN → 409 `trip_costing_unavailable` จนกว่าจะตั้ง env `TRIP_COSTING_ENABLED=1` (ระดับระบบ; logic/test คงไว้ ชุด test เปิด gate + test ค่าเริ่มต้น) · หน้าติดตาม: เที่ยว COSTED/SETTLED นับว่าเริ่มแล้ว (ชุดเดียวกับ `stopEventAdmission`) · คำอธิบาย `buyCarrierFee` = เฉพาะการจ้างที่รับแล้ว · spec/12 §3: [OPEN — PO] คิวจ่าย COSTED (docs/01 §4.5) vs COMPLETED (ST6-T02) ต้องตัดสินก่อน ST6-T02, [OPEN — PO] accounting กับ `trips:close`, `trip.costed` เป็น event ภายใน
+- ไฟล์: `apps/api/src/modules/trips/{trip-costs.ts,trip-costs.dto.ts,trip.service.ts,trips.controller.ts}`, `apps/api/src/common/problem.ts`, `apps/api/src/modules/tracking/tracking.service.ts`, `apps/api/test/trip-costs.test.ts`, `apps/web/src/i18n/th.ts`, `.env.example`, spec/12 §3
+
+### 19 พ.ย. 2569 (ST6-T01 Cost line `trip_cost` — lane l6)
+- ทำ: `GET /v1/trips/{id}/costs` (บรรทัดต้นทุนทุกบรรทัด รวมกลับรายการ + `reversalOfId/reversedById/settled` + summary `buyTotal/buyCarrierFee/pendingCount/blockers/costedAt`) · `POST /v1/trips/{id}/cost` COMPLETED → COSTED (ต้นทุนครบ = ไม่มีค่าหน้างานฝั่งซื้อรอยืนยัน + เที่ยวรถร่วมมีค่าจ้างของการจ้างที่รับแล้ว; ล็อกเที่ยว + บรรทัดต้นทุน; audit/event `trip.costed`) · problem `trip_costs_incomplete` · ยืนยันเกณฑ์ตรวจรับด้วย test: จ้าง → CARRIER_FEE ทันที, แก้ rate card แล้ว snapshot ไม่เปลี่ยน, เปลี่ยนรถร่วม/ยกเลิก = กลับรายการไม่ลบ, viewer ไม่เห็นยอด, ข้ามบริษัท 404
+- ไฟล์: `apps/api/prisma/{schema.prisma,migrations/0115_trip_costed}`, `apps/api/src/modules/trips/{trip-costs.ts,trip-costs.dto.ts,trip.service.ts,trips.controller.ts}`, `apps/api/src/common/problem.ts`, `apps/api/test/trip-costs.test.ts`, `apps/web/src/i18n/th.ts`, `packages/contracts/openapi.json`, spec/12 §3
+- ค้าง: UI ต้นทุนในเที่ยว (ต้นแบบไม่มี) · [OPEN — นักบัญชี/PO] ปันต้นทุนลง DO, คิดค่าจ้างใหม่เมื่อ DO เปลี่ยนหลังจ้าง, ค่าหน้างานของเที่ยวยกเลิก (PLN-155) · VAT/WHT ขาซื้อ = #58 / ST6-T08 · ค่าเที่ยวคนขับ/น้ำมันรถบริษัท = P1
 
 ### 19 พ.ย. 2569 (ST8-T01 Mock KRS API จาก contract — lane l7)
 - ทำ: package ใหม่ `packages/mock-krs` (`@tms/mock-krs`) — `MockKrs` / `startMockKrs()` (in-process, พอร์ตสุ่ม) + CLI `pnpm --filter @tms/mock-krs dev` (พอร์ต 4784 ของ lane l7, env `MOCK_KRS_PORT`/`MOCK_KRS_API_KEY`) · `POST/PUT/GET /api/invoice` ตรวจ body ด้วย JSON schema ของ `packages/contracts/krs` (ฟิลด์เกิน/ส่ง voucherNo เอง/วันที่ผิด/lineId ไม่ใช่ int/เกิน 50 MB = 400 + errors), `X-API-Key` (401), 404, 409 `tmsVoucherNo` ซ้ำ, `transactionNo` เรียง + `voucherNo` `SA-S{YYMM}-{NNNN}` ต่อเดือน, ยอด `amount`/`totalAmount` แบบทศนิยม (bigint สตางค์) · control `/__mock/*`: reset, state, faults (503/ทุก code, timeout, reset, หลังบันทึกแล้ว response หาย; ต่อ method/จำนวนครั้ง; header `X-Mock-Fault`), สวิตช์เขียนทับ `PUT /__mock/overwrite` + ต่อใบ (keepLines 30 / dropFlowNos / blankFields / renumber) · test `src/mock-krs.test.ts` 48 ข้อ (ทุกแถว A.1 + 79 → 30 รายการ 2,054,000 → 780,000) — `pnpm test` (turbo) รันด้วย

@@ -34824,6 +34824,333 @@
         ]
       }
     },
+    "/v1/trips/{id}/costs": {
+      "get": {
+        "description": "ค่าจ้างรถร่วม (บรรทัดระบบ snapshot ตอนจ้าง — แก้ rate card ภายหลังไม่เปลี่ยน) + ค่าใช้จ่ายหน้างานฝั่งซื้อ + บรรทัดกลับรายการ (ไม่มีการลบ) · ยอดเงิน (`buy*`) เห็นเมื่อมี `prices.buy:read`",
+        "operationId": "Trips_costs",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TripCostListDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "read",
+                      "required": [
+                        "trips:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบเที่ยว (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "บรรทัดต้นทุนของเที่ยว + สรุป",
+        "tags": [
+          "trips"
+        ],
+        "x-required-scopes": [
+          "trips:read"
+        ]
+      }
+    },
+    "/v1/trips/{id}/cost": {
+      "post": {
+        "description": "ต้นทุนครบ = ไม่มีค่าใช้จ่ายหน้างานฝั่งซื้อรอยืนยัน และเที่ยวรถร่วมมีค่าจ้างของการจ้างที่รถร่วมรับแล้ว · ไม่ครบ → 409 `trip_costs_incomplete` + `blockers` · หลังปิดบันทึก/ยืนยันค่าใช้จ่ายหน้างานไม่ได้ · **ยังไม่เปิดใช้** (ค่าเริ่มต้น): docs/01 §4.2 ต้องปันต้นทุนลง DO ซึ่งยังไม่ตัดสินวิธี → 409 `trip_costing_unavailable`",
+        "operationId": "Trips_cost",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TripDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:close`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "close",
+                      "required": [
+                        "trips:close"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบเที่ยว (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "trip_costs_incomplete": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/trip_costs_incomplete",
+                      "title": "ต้นทุนเที่ยวยังไม่ครบ — ยืนยัน/ปฏิเสธค่าใช้จ่ายหน้างานที่รอ และตรวจค่าจ้างรถร่วมก่อนปิดต้นทุน",
+                      "status": 409,
+                      "code": "trip_costs_incomplete",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "trip_costing_unavailable": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/trip_costing_unavailable",
+                      "title": "ปิดต้นทุนเที่ยวได้หลังกำหนดวิธีปันต้นทุนลง DO",
+                      "status": 409,
+                      "code": "trip_costing_unavailable",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ปิดต้นทุนเที่ยว (COMPLETED → COSTED)",
+        "tags": [
+          "trips"
+        ],
+        "x-required-scopes": [
+          "trips:close"
+        ]
+      }
+    },
     "/v1/trips/{id}/cancel": {
       "post": {
         "operationId": "Trips_cancel",
@@ -68508,6 +68835,204 @@
           "overrideReason"
         ]
       },
+      "TripCostLineDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "tco_…"
+          },
+          "costType": {
+            "type": "string",
+            "enum": [
+              "FUEL",
+              "TOLL",
+              "DRIVER_WAGE",
+              "CARRIER_FEE",
+              "ALLOWANCE",
+              "REPAIR",
+              "OTHER"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "RATE_CARD",
+              "MANUAL",
+              "GPS",
+              "ADVANCE"
+            ],
+            "description": "ที่มาของราคา: RATE_CARD = ตาม rate card ขาซื้อ · MANUAL = กรอกเอง/ค่าใช้จ่ายหน้างาน"
+          },
+          "sourceType": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "SUBCON_OFFER",
+              "FIELD",
+              "DO_SURCHARGE",
+              null
+            ],
+            "description": "ต้นทางของบรรทัด: SUBCON_OFFER = ราคาที่ตกลงตอนจ้างรถร่วม (บรรทัดระบบ — snapshot ไม่ตาม rate card ที่แก้ภายหลัง) · FIELD / DO_SURCHARGE = ค่าใช้จ่ายหน้างานฝั่งซื้อ (ST4-T13)"
+          },
+          "sourceId": {
+            "type": "string",
+            "nullable": true,
+            "example": "sco_…",
+            "description": "id ของต้นทาง (`sco_` การจ้าง · `dsc_` บรรทัดฝั่งขายที่บันทึกคู่กัน) — ไม่มี = null"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING_CONFIRM",
+              "CONFIRMED",
+              "REJECTED",
+              "CANCELLED"
+            ],
+            "description": "บรรทัดระบบ = CONFIRMED เสมอ · ค่าใช้จ่ายหน้างานรอยืนยันก่อน (นับเป็นต้นทุนเมื่อ CONFIRMED)"
+          },
+          "carrierId": {
+            "type": "string",
+            "nullable": true,
+            "example": "car_…"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "vatType": {
+            "type": "string",
+            "nullable": true,
+            "description": "ธง VAT ที่คัดลอกจากรายการบริการ (snapshot) — null = ไม่มีรายการบริการให้คัดลอก"
+          },
+          "whtRate": {
+            "type": "string",
+            "nullable": true,
+            "example": "1.00",
+            "description": "อัตรา WHT (%) snapshot ของบรรทัด — ยังไม่คำนวณยอดหัก (ST6-T08)"
+          },
+          "buyAmount": {
+            "type": "string",
+            "example": "4800.50",
+            "description": "ยอดต้นทุนก่อน VAT (บาท; บรรทัดกลับรายการติดลบ) — เห็นเมื่อมี `prices.buy:read`"
+          },
+          "buyVatAmount": {
+            "type": "string",
+            "example": "0.00",
+            "description": "VAT ของบรรทัด (ขาซื้อยังเป็น 0 — รอนักบัญชี #58) — เห็นเมื่อมี `prices.buy:read`"
+          },
+          "reversalOfId": {
+            "type": "string",
+            "nullable": true,
+            "example": "tco_…",
+            "description": "บรรทัดนี้กลับรายการของบรรทัดใด (เปลี่ยนรถร่วม/จ้างใหม่/ยกเลิกเที่ยว) — ไม่ลบ/ไม่แก้ยอดเดิม"
+          },
+          "reversedById": {
+            "type": "string",
+            "nullable": true,
+            "example": "tco_…",
+            "description": "บรรทัดที่กลับรายการบรรทัดนี้"
+          },
+          "settled": {
+            "type": "boolean",
+            "description": "อยู่ในใบสำคัญจ่ายแล้ว (`settlement_line_id` ไม่ว่าง)"
+          },
+          "createdBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "example": "2026-11-19T03:00:00.000Z"
+          }
+        },
+        "required": [
+          "id",
+          "costType",
+          "source",
+          "sourceType",
+          "sourceId",
+          "status",
+          "carrierId",
+          "description",
+          "vatType",
+          "whtRate",
+          "reversalOfId",
+          "reversedById",
+          "settled",
+          "createdBy",
+          "createdAt"
+        ]
+      },
+      "TripCostSummaryDto": {
+        "type": "object",
+        "properties": {
+          "tripStatus": {
+            "type": "string",
+            "example": "COMPLETED"
+          },
+          "buyTotal": {
+            "type": "string",
+            "example": "5000.50",
+            "description": "ต้นทุนรวมสุทธิ (บรรทัด CONFIRMED รวมบรรทัดกลับรายการ) — เห็นเมื่อมี `prices.buy:read`"
+          },
+          "buyCarrierFee": {
+            "type": "string",
+            "example": "4800.50",
+            "description": "ค่าจ้างรถร่วมสุทธิของการจ้างที่**รถร่วมรับงานแล้ว (ACCEPTED)** ของรายปัจจุบันเท่านั้น — ข้อเสนอที่รอตอบ (OFFERED) = 0.00 · เห็นเมื่อมี `prices.buy:read`"
+          },
+          "pendingCount": {
+            "type": "number",
+            "description": "จำนวนค่าใช้จ่ายหน้างานฝั่งซื้อที่รอยืนยัน"
+          },
+          "blockers": {
+            "type": "array",
+            "description": "สิ่งที่ยังขวางการปิดต้นทุน: TRIP_NOT_COMPLETED = เที่ยวยังไม่จบ · PENDING_FIELD_CHARGES = มีค่าใช้จ่ายหน้างานรอยืนยัน · CARRIER_FEE_MISSING = เที่ยวรถร่วมไม่มีค่าจ้างของการจ้างที่ใช้งานอยู่",
+            "items": {
+              "type": "string",
+              "enum": [
+                "TRIP_NOT_COMPLETED",
+                "PENDING_FIELD_CHARGES",
+                "CARRIER_FEE_MISSING"
+              ]
+            }
+          },
+          "costedAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "เวลาปิดต้นทุน (COSTED)"
+          },
+          "costedBy": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "tripStatus",
+          "pendingCount",
+          "blockers",
+          "costedAt",
+          "costedBy"
+        ]
+      },
+      "TripCostListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripCostLineDto"
+            }
+          },
+          "summary": {
+            "$ref": "#/components/schemas/TripCostSummaryDto"
+          }
+        },
+        "required": [
+          "data",
+          "summary"
+        ]
+      },
       "CancelTripDto": {
         "type": "object",
         "properties": {
@@ -81613,6 +82138,16 @@
       "status": 409,
       "title": "อีเมลนี้เป็นสมาชิกหลายบริษัท เลือกบริษัทที่ต้องการเข้า",
       "titleEn": "This account belongs to several organisations; choose one"
+    },
+    "trip_costing_unavailable": {
+      "status": 409,
+      "title": "ปิดต้นทุนเที่ยวได้หลังกำหนดวิธีปันต้นทุนลง DO",
+      "titleEn": "Trip costing is unavailable until the rule for allocating costs to delivery orders is decided"
+    },
+    "trip_costs_incomplete": {
+      "status": 409,
+      "title": "ต้นทุนเที่ยวยังไม่ครบ — ยืนยัน/ปฏิเสธค่าใช้จ่ายหน้างานที่รอ และตรวจค่าจ้างรถร่วมก่อนปิดต้นทุน",
+      "titleEn": "Trip costs are not complete — decide pending field charges and check the carrier fee first"
     },
     "trip_empty": {
       "status": 409,

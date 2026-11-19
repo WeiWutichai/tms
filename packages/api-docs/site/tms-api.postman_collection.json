@@ -2539,6 +2539,80 @@
           }
         },
         {
+          "name": "บรรทัดต้นทุนของเที่ยว + สรุป",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/trips/:id/costs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "trips",
+                ":id",
+                "costs"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: trips:read\n\nค่าจ้างรถร่วม (บรรทัดระบบ snapshot ตอนจ้าง — แก้ rate card ภายหลังไม่เปลี่ยน) + ค่าใช้จ่ายหน้างานฝั่งซื้อ + บรรทัดกลับรายการ (ไม่มีการลบ) · ยอดเงิน (`buy*`) เห็นเมื่อมี `prices.buy:read`"
+          }
+        },
+        {
+          "name": "ปิดต้นทุนเที่ยว (COMPLETED → COSTED)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/trips/:id/cost",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "trips",
+                ":id",
+                "cost"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: trips:close\n\nต้นทุนครบ = ไม่มีค่าใช้จ่ายหน้างานฝั่งซื้อรอยืนยัน และเที่ยวรถร่วมมีค่าจ้างของการจ้างที่รถร่วมรับแล้ว · ไม่ครบ → 409 `trip_costs_incomplete` + `blockers` · หลังปิดบันทึก/ยืนยันค่าใช้จ่ายหน้างานไม่ได้ · **ยังไม่เปิดใช้** (ค่าเริ่มต้น): ต้องปันต้นทุนลง DO ซึ่งยังไม่ตัดสินวิธี → 409 `trip_costing_unavailable`"
+          }
+        },
+        {
           "name": "POST /v1/trips/{id}/cancel",
           "request": {
             "method": "POST",
