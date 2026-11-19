@@ -218,7 +218,7 @@ export class DeliveryOrderService {
   }
 
   /**
-   * ST5-T01b (QA L1): แยก/รวม DO ที่มีบรรทัดรายได้ออกใบแล้ว (ล็อก) → 409 — ปริมาณที่ย้ายเข้า/ออกจะคิดเงินซ้ำหรือหาย
+   * ST5-T01b (QA L1): แยก/รวม/ยกเลิก DO ที่มีบรรทัดรายได้ออกใบแล้ว (ล็อก) → 409 — ปริมาณที่ย้ายเข้า/ออกจะคิดเงินซ้ำหรือหาย
    * (บรรทัดที่ล็อกไม่เปลี่ยน) · แก้ด้วยใบลด/เพิ่มหนี้ (ST5-T12/T13)
    */
   private async assertNoBilledRevenue(tx: Tx, ids: string[]): Promise<void> {
@@ -629,6 +629,7 @@ export class DeliveryOrderService {
       if (!rc) throw field422('reasonCodeId', 'invalid_reference', 'reason code not found');
     }
     const d = await this.lockEditable(tx, deliveryOrderId, expectedVersion);
+    await this.assertNoBilledRevenue(tx, [d.id]);
     // คนยกเลิก: คง source_hash ไว้ → ระบบไม่สร้าง DO คืนจากข้อมูลชุดเดิม (M1)
     await this.cancelOne(tx, d, 'cancel', input.reasonCodeId ?? null, note, true);
     const final = await this.get(d.id, tx);
