@@ -8,6 +8,7 @@ import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { JobQueue } from '../../jobs/job-queue.service';
 import { ServiceItemsService } from '../service-items/service-items.service';
+import { allocatedCostForDeliveryOrder } from '../trips/trip-costs';
 import type {
   AddRevenueLineDto,
   DeliveryOrderRevenueDto,
@@ -196,6 +197,7 @@ export class RevenueLinesService implements OnModuleInit {
       doNo: d.doNo,
       sellRevenueTotal: total?.amount ?? '0.00',
       provisional: total?.provisional ?? false,
+      buyAllocatedCost: await allocatedCostForDeliveryOrder(tx, d.id),
       data: rows.map((r) => toDto(r)),
     };
   }

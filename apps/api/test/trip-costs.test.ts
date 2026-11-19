@@ -42,8 +42,8 @@ describe('trip costs (ST6-T01)', () => {
   };
 
   beforeAll(async () => {
-    // ปิดต้นทุนปิดไว้โดยค่าเริ่มต้น (รอวิธีปันลง DO) — ชุดนี้ทดสอบ logic เมื่อเปิดใช้
-    process.env.TRIP_COSTING_ENABLED = '1';
+    // ST6-T01c: ปิดต้นทุนเปิดโดยค่าเริ่มต้น (ไม่ตั้ง env)
+    delete process.env.TRIP_COSTING_ENABLED;
     await truncateAll();
     app = await bootApp();
     tenantId = (await createTenantWithDefaults(db, { name: 'บริษัท ต้นทุนเที่ยว' })).id;
@@ -128,6 +128,32 @@ describe('trip costs (ST6-T01)', () => {
       .send({ reason: 'อนุมัติตามราคาที่ตกลง' })
       .expect(200);
     return r.body as { id: string };
+  };
+  const newOrderDo = async (a: string, b: string) => {
+    const customer = (
+      await api(app, admin)
+        .post('/v1/customers')
+        .send({ legalName: `ลูกค้า ${++seed}`, taxId: validTaxId(9700 + seed) })
+        .expect(201)
+    ).body.id as string;
+    const input: UpsertOrderInput = {
+      source: 'MANUAL',
+      customer: { id: uuid('customer', customer) },
+      requestedDate: today,
+      vehicleTypeId: uuid('vehicleType', vt6),
+      stops: [
+        { type: 'PICKUP', siteId: uuid('site', a) },
+        { type: 'DELIVERY', siteId: uuid('site', b) },
+      ],
+      lines: [{ description: 'ปูนซีเมนต์', qty: '5', unitId: unitTon, weightKg: '5000' }],
+    };
+    const { order: so } = await run((tx) => app.get(OrderIntakeService).upsertOrder(input, tx));
+    const [d] = await run((tx) => app.get(DeliveryOrderService).listForOrder(so.id, {}, tx));
+    return {
+      soPub: encodeId('salesOrder', so.id),
+      doId: d!.id,
+      doPub: encodeId('deliveryOrder', d!.id),
+    };
   };
   const newTrip = async (a: string, b: string) => {
     const customer = (
@@ -376,7 +402,11 @@ describe('trip costs (ST6-T01)', () => {
     const au = await db.auditLog.findFirstOrThrow({
       where: { action: 'trip.costed', entityId: tid },
     });
-    expect(au.after).toEqual({ status: 'COSTED', costLines: 2 });
+    expect(au.after).toEqual({
+      status: 'COSTED',
+      costLines: 2,
+      allocatedTo: [expect.stringMatching(/^do_/)],
+    });
     const ev = await db.domainEvent.findFirst({
       where: { type: 'trip.costed', localId: tid },
     });
@@ -403,21 +433,355 @@ describe('trip costs (ST6-T01)', () => {
     await api(app, admin).post(`/v1/trips/${own.id}/cost`).expect(200);
   });
 
-  it('ค่าเริ่มต้น (ยังไม่ตัดสินวิธีปันลง DO — docs/01 §4.2): ปิดต้นทุนไม่ได้ → 409 trip_costing_unavailable · เที่ยวไม่เปลี่ยน', async () => {
+  it('kill switch TRIP_COSTING_ENABLED=0 → 409 trip_costing_unavailable · เที่ยวไม่เปลี่ยน · ไม่ตั้ง = เปิด (ค่าเริ่มต้น)', async () => {
     const L = await lane();
     const own = await newTrip(L.a, L.b);
     await complete(own.id);
-    delete process.env.TRIP_COSTING_ENABLED;
-    try {
-      const r = await api(app, admin).post(`/v1/trips/${own.id}/cost`).expect(409);
-      expect(r.body.code).toBe('trip_costing_unavailable');
-      // อ่านต้นทุนยังได้ตามปกติ
-      await costs(own.id).expect(200);
-    } finally {
-      process.env.TRIP_COSTING_ENABLED = '1';
+    for (const off of ['0', 'false']) {
+      process.env.TRIP_COSTING_ENABLED = off;
+      try {
+        const r = await api(app, admin).post(`/v1/trips/${own.id}/cost`).expect(409);
+        expect(r.body.code).toBe('trip_costing_unavailable');
+        // อ่านต้นทุนยังได้ตามปกติ — แต่ไม่ "พร้อม" (blocker COSTING_DISABLED)
+        expect((await costs(own.id).expect(200)).body.summary.blockers).toEqual([
+          'COSTING_DISABLED',
+        ]);
+      } finally {
+        delete process.env.TRIP_COSTING_ENABLED;
+      }
     }
     expect((await api(app, admin).get(`/v1/trips/${own.id}`).expect(200)).body.status).toBe(
       'COMPLETED',
     );
+    await api(app, admin).post(`/v1/trips/${own.id}/cost`).expect(200);
+  });
+
+  // ---------- ST6-T01c ปันต้นทุนลง DO ตามสัดส่วนรายได้ (PO ตัดสิน 19 พ.ย. 2569) ----------
+
+  let waitSvc = '';
+  /** เที่ยวหลาย DO — `revenues[i]` = รายได้ของ DO ที่ i (บรรทัดที่คนเพิ่มผูก DO) · null = ไม่มีบรรทัดรายได้ */
+  async function multiTrip(L: Awaited<ReturnType<typeof lane>>, revenues: (string | null)[]) {
+    if (!waitSvc)
+      waitSvc = encodeId(
+        'serviceItem',
+        (await db.serviceItem.findFirstOrThrow({ where: { tenantId, code: 'WAIT' } })).id,
+      );
+    const dos = [];
+    for (const rev of revenues) {
+      const o = await newOrderDo(L.a, L.b);
+      if (rev)
+        await api(app, admin)
+          .post(`/v1/orders/${o.soPub}/revenue-lines`)
+          .send({
+            serviceItemId: waitSvc,
+            qty: '1',
+            sellUnitPrice: rev,
+            deliveryOrderId: o.doPub,
+            reason: 'รายได้ของใบส่งของสำหรับทดสอบการปัน',
+          })
+          .expect(201);
+      dos.push(o);
+    }
+    const t = (
+      await api(app, admin)
+        .post('/v1/trips')
+        .send({ tripDate: today, deliveryOrderIds: dos.map((d) => d.doPub) })
+        .expect(201)
+    ).body as { id: string; version: number };
+    return { t, dos };
+  }
+  const confirmedCharge = (tripId: string, amount: string, carrierId?: string) =>
+    db.tripCost.create({
+      data: {
+        tenantId,
+        tripId: uuid('trip', tripId),
+        costType: 'TOLL',
+        amount,
+        source: 'MANUAL',
+        sourceType: 'FIELD',
+        status: 'CONFIRMED',
+        carrierId: carrierId ? uuid('carrier', carrierId) : null,
+        description: 'ค่าทางด่วน',
+        createdBy: 'u-disp',
+        decidedBy: 'u-acc',
+        decidedAt: new Date(),
+      },
+    });
+  type Alloc = { deliveryOrderId: string; doNo: string; buyAllocatedCost?: string };
+  const allocOf = async (tripId: string, token = admin) =>
+    (await costs(tripId, token).expect(200)).body.allocations as Alloc[];
+  const byDo = (a: Alloc[]) =>
+    Object.fromEntries(a.map((x) => [x.deliveryOrderId, x.buyAllocatedCost]));
+  /** ผลรวมต่อบรรทัดเท่ายอดบรรทัด (สตางค์) ทุกบรรทัด CONFIRMED */
+  const assertLinesExact = async (tripId: string) => {
+    const rows = await db.tripCost.findMany({ where: { tripId: uuid('trip', tripId) } });
+    for (const r of rows) {
+      const a = r.allocated as Record<string, string>;
+      if (r.status !== 'CONFIRMED') {
+        expect(a).toEqual({});
+        continue;
+      }
+      const total = Object.values(a).reduce((x, v) => x + Math.round(Number(v) * 100), 0);
+      expect(total).toBe(Math.round(Number(r.amount.toFixed(2)) * 100));
+    }
+    return rows;
+  };
+
+  it('ปันตามสัดส่วนรายได้ · เศษสตางค์ → DO รายได้สูงสุด · DO รายได้ 0 ได้ 0 · ผลรวมเท่าต้นทุนพอดี · DO endpoint เห็นต้นทุนที่ปันมา', async () => {
+    const L = await lane();
+    const { t, dos } = await multiTrip(L, ['100', '200', null]);
+    await hire(t.id, { carrierId: L.B.id }).expect(200); // 4800.50
+    await complete(t.id, { carrierId: L.B.id, accept: true });
+    await confirmedCharge(t.id, '180.01', L.B.id);
+    // ก่อนปิดต้นทุน: allocations ว่าง · DO endpoint = null
+    expect(await allocOf(t.id)).toEqual([]);
+    const pre = await api(app, admin)
+      .get(`/v1/delivery-orders/${dos[0]!.doPub}/revenue-lines`)
+      .expect(200);
+    expect(pre.body.buyAllocatedCost).toBeNull();
+
+    await api(app, admin).post(`/v1/trips/${t.id}/cost`).expect(200);
+    const a = await allocOf(t.id);
+    // ต้นทุนสุทธิ 4980.51 ปันครั้งเดียวตามรายได้ 100:200:0 → 1660.17 / 3320.34 / 0.00 (ลงตัว ไม่มีเศษ)
+    expect(byDo(a)).toEqual({
+      [dos[0]!.doPub]: '1660.17',
+      [dos[1]!.doPub]: '3320.34',
+      [dos[2]!.doPub]: '0.00',
+    });
+    expect(a.map((x) => x.doNo)).toEqual([...a.map((x) => x.doNo)].sort());
+    const summary = (await costs(t.id).expect(200)).body.summary;
+    expect(summary.buyTotal).toBe('4980.51');
+    await assertLinesExact(t.id);
+    expect(
+      (await db.trip.findUniqueOrThrow({ where: { id: uuid('trip', t.id) } })).costAllocationMethod,
+    ).toBe('BY_REVENUE');
+
+    // DO endpoint: ต้นทุนที่ปันมา + รายได้ (กำไร = ผู้เรียกคำนวณ)
+    const d2 = await api(app, admin)
+      .get(`/v1/delivery-orders/${dos[1]!.doPub}/revenue-lines`)
+      .expect(200);
+    expect(d2.body).toMatchObject({ sellRevenueTotal: '200.00', buyAllocatedCost: '3320.34' });
+    // สิทธิ์แยกกัน: ไม่มี prices.buy:read → ไม่เห็นต้นทุน (เห็นรายได้) · trips viewer ไม่เห็นยอดปัน
+    const sellOnly = await tokenFor(tenantId, 'orders:read prices.sell:read', 'u-sell');
+    const s = await api(app, sellOnly)
+      .get(`/v1/delivery-orders/${dos[1]!.doPub}/revenue-lines`)
+      .expect(200);
+    expect(s.body).toHaveProperty('sellRevenueTotal', '200.00');
+    expect(s.body).not.toHaveProperty('buyAllocatedCost');
+    const buyOnly = await tokenFor(tenantId, 'orders:read prices.buy:read', 'u-buy');
+    const b = await api(app, buyOnly)
+      .get(`/v1/delivery-orders/${dos[1]!.doPub}/revenue-lines`)
+      .expect(200);
+    expect(b.body).toHaveProperty('buyAllocatedCost', '3320.34');
+    expect(b.body).not.toHaveProperty('sellRevenueTotal');
+    const v = await allocOf(t.id, viewer);
+    expect(v).toHaveLength(3);
+    expect(v[0]).not.toHaveProperty('buyAllocatedCost');
+    expect(JSON.stringify(v)).not.toContain('3320');
+    // audit ไม่มียอดเงิน
+    const au = await db.auditLog.findFirstOrThrow({
+      where: { action: 'trip.costed', entityId: uuid('trip', t.id) },
+    });
+    expect(au.after).toMatchObject({ status: 'COSTED', allocatedTo: expect.any(Array) });
+    expect(JSON.stringify(au.after)).not.toContain('1660');
+  });
+
+  it('รายได้เท่ากัน → เศษไป DO เลขน้อยสุด · บรรทัดกลับรายการหักล้างกันพอดีต่อ DO', async () => {
+    const L = await lane();
+    const { t, dos } = await multiTrip(L, ['100', '100', '100']);
+    await hire(t.id, { carrierId: L.B.id }).expect(200); // 4800.50 → กลับรายการ
+    await hire(t.id, { carrierId: L.A.id, changeReason: REASON }).expect(200); // 5200.00
+    await complete(t.id, { carrierId: L.A.id, accept: true });
+    await confirmedCharge(t.id, '0.01', L.A.id);
+    await api(app, admin).post(`/v1/trips/${t.id}/cost`).expect(200);
+    const nos = await db.deliveryOrder.findMany({
+      where: { id: { in: dos.map((d) => d.doId) } },
+      select: { id: true, doNo: true },
+    });
+    const first = nos.sort((x, y) => x.doNo!.localeCompare(y.doNo!, 'en', { numeric: true }))[0]!;
+    // สุทธิ 5200.01 (กลับรายการหักล้าง) ÷ 3 = 1733.33 ×3 + เศษ 0.02 → ใบเลขน้อยสุด (รายได้เท่ากัน)
+    const a = byDo(await allocOf(t.id));
+    for (const d of dos) expect(a[d.doPub]).toBe(d.doId === first.id ? '1733.35' : '1733.33');
+    const rows = await assertLinesExact(t.id);
+    const orig = rows.find((r) => r.amount.toFixed(2) === '4800.50')!;
+    const rev = rows.find((r) => r.reversalOfId === orig.id)!;
+    const oa = orig.allocated as Record<string, string>;
+    const ra = rev.allocated as Record<string, string>;
+    for (const k of Object.keys(oa)) expect(Number(oa[k]) + Number(ra[k])).toBe(0);
+    expect(oa[first.id]).toBe('1600.18'); // 1600.16 + เศษ 0.02
+  });
+
+  it('DO ที่ยกเลิกไม่รับส่วนแบ่ง · เที่ยวไม่มี DO (ทุกใบยกเลิก) = ไม่ปัน (ปิดได้) · DO เดียวรายได้ 0 = ทั้งยอด', async () => {
+    const L = await lane();
+    const { t, dos } = await multiTrip(L, ['300', '100']);
+    await hire(t.id, { carrierId: L.B.id }).expect(200);
+    await complete(t.id, { carrierId: L.B.id, accept: true });
+    // DO ใบแรก (รายได้สูงสุด) ถูกยกเลิก — บรรทัดรายได้ยังอยู่ แต่ไม่นับเพราะสถานะ
+    await db.deliveryOrder.update({ where: { id: dos[0]!.doId }, data: { status: 'CANCELLED' } });
+    await api(app, admin).post(`/v1/trips/${t.id}/cost`).expect(200);
+    expect(byDo(await allocOf(t.id))).toEqual({ [dos[1]!.doPub]: '4800.50' });
+
+    const own = await newTrip(L.a, L.b);
+    await complete(own.id);
+    await confirmedCharge(own.id, '99.99');
+    await db.deliveryOrder.updateMany({
+      where: { tripId: uuid('trip', own.id) },
+      data: { status: 'CANCELLED' },
+    });
+    await api(app, admin).post(`/v1/trips/${own.id}/cost`).expect(200);
+    expect(await allocOf(own.id)).toEqual([]);
+    const r = await db.tripCost.findFirstOrThrow({ where: { tripId: uuid('trip', own.id) } });
+    expect(r.allocated).toEqual({});
+
+    const single = await multiTrip(L, [null]);
+    await hire(single.t.id, { carrierId: L.B.id }).expect(200);
+    await complete(single.t.id, { carrierId: L.B.id, accept: true });
+    await api(app, admin).post(`/v1/trips/${single.t.id}/cost`).expect(200);
+    expect(byDo(await allocOf(single.t.id))).toEqual({ [single.dos[0]!.doPub]: '4800.50' });
+  });
+
+  it('หลาย DO รายได้รวม 0 → 409 REVENUE_MISSING · รายได้ยังไม่ยืนยัน → 409 REVENUE_PROVISIONAL · ไม่เขียนการปัน', async () => {
+    const L = await lane();
+    const z = await multiTrip(L, [null, null]);
+    await hire(z.t.id, { carrierId: L.B.id }).expect(200);
+    await complete(z.t.id, { carrierId: L.B.id, accept: true });
+    expect((await costs(z.t.id).expect(200)).body.summary.blockers).toEqual(['REVENUE_MISSING']);
+    const r1 = await api(app, admin).post(`/v1/trips/${z.t.id}/cost`).expect(409);
+    expect(r1.body).toMatchObject({ code: 'trip_costs_incomplete', blockers: ['REVENUE_MISSING'] });
+
+    const p = await multiTrip(L, ['100', '50']);
+    await hire(p.t.id, { carrierId: L.B.id }).expect(200);
+    await complete(p.t.id, { carrierId: L.B.id, accept: true });
+    await db.revenueLine.updateMany({
+      where: { deliveryOrderId: p.dos[1]!.doId },
+      data: { provisional: true },
+    });
+    const r2 = await api(app, admin).post(`/v1/trips/${p.t.id}/cost`).expect(409);
+    expect(r2.body.blockers).toEqual(['REVENUE_PROVISIONAL']);
+    const rows = await db.tripCost.findMany({ where: { tripId: uuid('trip', p.t.id) } });
+    for (const row of rows) expect(row.allocated).toEqual({});
+    expect((await api(app, admin).get(`/v1/trips/${p.t.id}`).expect(200)).body.status).toBe(
+      'COMPLETED',
+    );
+    // ยืนยันยอดแล้ว → ปิดได้
+    await db.revenueLine.updateMany({
+      where: { deliveryOrderId: p.dos[1]!.doId },
+      data: { provisional: false },
+    });
+    await api(app, admin).post(`/v1/trips/${p.t.id}/cost`).expect(200);
+    expect(byDo(await allocOf(p.t.id))).toEqual({
+      [p.dos[0]!.doPub]: '3200.34',
+      [p.dos[1]!.doPub]: '1600.16',
+    });
+  });
+
+  it('พร้อมกัน: ปิดต้นทุนซ้อน 2 ครั้ง + เพิ่มรายได้ระหว่างปิด → สำเร็จครั้งเดียว · การปันตรงกับรายได้ที่เห็นและรวมเท่าต้นทุน', async () => {
+    const L = await lane();
+    const { t, dos } = await multiTrip(L, ['100', '100']);
+    await hire(t.id, { carrierId: L.B.id }).expect(200);
+    await complete(t.id, { carrierId: L.B.id, accept: true });
+    const [c1, c2, add] = await Promise.all([
+      api(app, admin).post(`/v1/trips/${t.id}/cost`),
+      api(app, dispatcher).post(`/v1/trips/${t.id}/cost`),
+      api(app, admin).post(`/v1/orders/${dos[1]!.soPub}/revenue-lines`).send({
+        serviceItemId: waitSvc,
+        qty: '1',
+        sellUnitPrice: '100',
+        deliveryOrderId: dos[1]!.doPub,
+        reason: 'รายได้ของใบส่งของสำหรับทดสอบการปัน',
+      }),
+    ]);
+    expect([c1.status, c2.status].sort()).toEqual([200, 409]);
+    expect(add.status).toBe(201);
+    const a = byDo(await allocOf(t.id));
+    const sum = Object.values(a).reduce((x, v) => x + Math.round(Number(v) * 100), 0);
+    expect(sum).toBe(480050);
+    // ปันตามรายได้ 100:100 (2400.25 ×2) หรือ 100:200 (1600.16 / 3200.34) แล้วแต่ลำดับ — ไม่มีแบบอื่น
+    expect([
+      JSON.stringify({ [dos[0]!.doPub]: '2400.25', [dos[1]!.doPub]: '2400.25' }),
+      JSON.stringify({ [dos[0]!.doPub]: '1600.16', [dos[1]!.doPub]: '3200.34' }),
+    ]).toContain(
+      JSON.stringify({ [dos[0]!.doPub]: a[dos[0]!.doPub], [dos[1]!.doPub]: a[dos[1]!.doPub] }),
+    );
+    await assertLinesExact(t.id);
+  });
+
+  it('พร้อมกัน: ยืนยันค่าใช้จ่ายหน้างานฝั่งขาย (รายได้เปลี่ยน) ระหว่างปิดต้นทุน → ปันตามรายได้ก่อนหรือหลังยืนยันอย่างใดอย่างหนึ่ง', async () => {
+    const L = await lane();
+    const { t, dos } = await multiTrip(L, ['100', '100']);
+    await hire(t.id, { carrierId: L.B.id }).expect(200);
+    await complete(t.id, { carrierId: L.B.id, accept: true });
+    const wait = await db.serviceItem.findFirstOrThrow({ where: { tenantId, code: 'WAIT' } });
+    const sur = await db.doSurcharge.create({
+      data: {
+        tenantId,
+        deliveryOrderId: dos[1]!.doId,
+        tripId: uuid('trip', t.id),
+        serviceItemId: wait.id,
+        serviceItemVersion: wait.version,
+        description: 'ค่ารอ',
+        vatType: 'VAT_7',
+        whtRate: '3.00',
+        qty: '1',
+        unitPrice: '100',
+        amount: '100',
+        createdBy: 'user-recorder',
+      },
+    });
+    const [conf, cost] = await Promise.all([
+      api(app, admin)
+        .post(`/v1/do-surcharges/${encodeId('doSurcharge', sur.id)}/confirm`)
+        .send({ reason: 'ตรวจใบเสร็จแล้วถูกต้อง' }),
+      api(app, dispatcher).post(`/v1/trips/${t.id}/cost`),
+    ]);
+    expect(conf.status).toBe(200);
+    if (cost.status === 409) {
+      // ปิดต้นทุนอ่านก่อน: ยังมีค่าหน้างานฝั่งขายรอยืนยัน → ไม่ให้ปิด (QA M1) · ยืนยันแล้วปิดได้
+      expect(cost.body).toMatchObject({
+        code: 'trip_costs_incomplete',
+        blockers: ['PENDING_SELL_CHARGES'],
+      });
+      await api(app, dispatcher).post(`/v1/trips/${t.id}/cost`).expect(200);
+    } else expect(cost.status).toBe(200);
+    // ทั้งสองลำดับ: รายได้รวมค่าหน้างานที่ยืนยัน = 100:200
+    expect(byDo(await allocOf(t.id))).toEqual({
+      [dos[0]!.doPub]: '1600.16',
+      [dos[1]!.doPub]: '3200.34',
+    });
+  });
+
+  it('ค่าใช้จ่ายหน้างานฝั่งขายรอยืนยัน → GET แสดง PENDING_SELL_CHARGES · POST 409 · ปฏิเสธแล้วปิดได้', async () => {
+    const L = await lane();
+    const { t, dos } = await multiTrip(L, ['100']);
+    await hire(t.id, { carrierId: L.B.id }).expect(200);
+    await complete(t.id, { carrierId: L.B.id, accept: true });
+    const wait = await db.serviceItem.findFirstOrThrow({ where: { tenantId, code: 'WAIT' } });
+    const sur = await db.doSurcharge.create({
+      data: {
+        tenantId,
+        deliveryOrderId: dos[0]!.doId,
+        tripId: uuid('trip', t.id),
+        serviceItemId: wait.id,
+        serviceItemVersion: wait.version,
+        description: 'ค่ารอ',
+        vatType: 'VAT_7',
+        whtRate: '3.00',
+        qty: '1',
+        unitPrice: '100',
+        amount: '100',
+        createdBy: 'user-recorder',
+      },
+    });
+    expect((await costs(t.id).expect(200)).body.summary.blockers).toEqual(['PENDING_SELL_CHARGES']);
+    const r = await api(app, admin).post(`/v1/trips/${t.id}/cost`).expect(409);
+    expect(r.body).toMatchObject({
+      code: 'trip_costs_incomplete',
+      blockers: ['PENDING_SELL_CHARGES'],
+    });
+    await api(app, admin)
+      .post(`/v1/do-surcharges/${encodeId('doSurcharge', sur.id)}/reject`)
+      .send({ reason: 'ไม่มีหลักฐานการรอคิว' })
+      .expect(200);
+    await api(app, admin).post(`/v1/trips/${t.id}/cost`).expect(200);
   });
 });

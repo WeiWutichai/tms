@@ -71,7 +71,10 @@ export function ConnectorSettingsSection({ canWrite }: { canWrite: boolean }) {
   const { t } = useI18n();
   const go = useNavigate();
   const qc = useQueryClient();
-  const [toast, setToast] = useState<string | null>(null);
+  const [toastMsg, setToastMsg] = useState<{ m: string; err: boolean } | null>(null);
+  /** `err` = ผลล้มเหลว (toast สีแดง) */
+  const setToast = (m: string | null | undefined, err = false) =>
+    setToastMsg(m ? { m, err } : null);
   const [sel, setSel] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('map');
   const [params] = useSearchParams();
@@ -126,7 +129,7 @@ export function ConnectorSettingsSection({ canWrite }: { canWrite: boolean }) {
     },
     onError: (e) => {
       refresh();
-      setToast(healthFail(t, e));
+      setToast(healthFail(t, e), true);
     },
   });
   const health = useMutation({
@@ -143,10 +146,11 @@ export function ConnectorSettingsSection({ canWrite }: { canWrite: boolean }) {
       setToast(
         r.ok
           ? t('cnx.toast.testOk', { n, ms })
-          : t('cnx.toast.testFail', { n, code: r.code ?? '' }),
+          : t('cnx.toast.testFail', { n, code: healthText(t, r.code) }),
+        !r.ok,
       );
     },
-    onError: (e) => setToast(problemText(e, t)),
+    onError: (e) => setToast(problemText(e, t), true),
   });
   const disconnect = useMutation({
     mutationFn: async ({ list: cs, reason }: { list: Connector[]; reason: string }) => {
@@ -366,10 +370,10 @@ export function ConnectorSettingsSection({ canWrite }: { canWrite: boolean }) {
         <ConnectDialog
           adapter={connectFor}
           onClose={() => setConnectFor(null)}
-          onDone={(msg) => {
+          onDone={(msg, err) => {
             setConnectFor(null);
             refresh();
-            setToast(msg);
+            setToast(msg, err);
           }}
         />
       )}
@@ -393,7 +397,12 @@ export function ConnectorSettingsSection({ canWrite }: { canWrite: boolean }) {
         }}
         onOk={(reason) => disc && disconnect.mutate({ list: disc, reason })}
       />
-      <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />
+      <Toast
+        message={toastMsg?.m ?? null}
+        tone={toastMsg?.err ? 'err' : 'ok'}
+        onClose={() => setToast(null)}
+        closeLabel={t('drawer.close')}
+      />
     </section>
   );
 }
@@ -401,9 +410,46 @@ export function ConnectorSettingsSection({ canWrite }: { canWrite: boolean }) {
 function healthFail(t: T, e: unknown): string {
   if (e instanceof ApiError && e.problem.code === 'connector_health_failed') {
     const code = (e.problem as { healthCode?: string }).healthCode ?? '';
-    return t('cnx.toast.healthFailed', { code });
+    return t('cnx.toast.healthFailed', { code: healthText(t, code) });
   }
   return problemText(e, t) ?? '';
+}
+
+/** ST8-T03 รหัสผลทดสอบการเชื่อมต่อ → ข้อความไทย (ไม่รู้จัก = รหัสเดิม) */
+const HEALTH_CODES: Record<string, MessageKey> = {
+  unreachable: 'cnx.hc.unreachable',
+  timeout: 'cnx.hc.timeout',
+  service_unavailable: 'cnx.hc.service_unavailable',
+  unauthorized: 'cnx.hc.unauthorized',
+  credentials_missing: 'cnx.hc.credentials_missing',
+  config_missing: 'cnx.hc.config_missing',
+  url_not_allowed: 'cnx.hc.url_not_allowed',
+};
+export function healthText(t: T, code: string | null | undefined): string {
+  const k = code ? HEALTH_CODES[code] : undefined;
+  return k ? t(k) : (code ?? '');
+}
+
+/** ERROR เพราะปลายทางไม่ตอบ (TRANSIENT — ระบบกู้คืนเอง) หรือ key (AUTH — คนต้องแก้) */
+function errorOf(c: Connector): { code: string; down: boolean } {
+  const e = (c.lastHealthError ?? null) as { code?: string; errorClass?: string } | null;
+  return { code: String(e?.code ?? c.statusReason ?? ''), down: e?.errorClass === 'TRANSIENT' };
+}
+
+/** ST8-T03 ชื่อช่องค่าตั้งของ adapter เป็นภาษาไทย (ไม่รู้จัก = ชื่อช่อง) */
+const FIELD_LABELS: Record<string, MessageKey> = {
+  apiKey: 'cnx.fl.apiKey',
+  baseUrl: 'cnx.fl.baseUrl',
+  healthTransactionNo: 'cnx.fl.healthTransactionNo',
+  sqlServer: 'cnx.fl.sqlServer',
+  sqlDatabase: 'cnx.fl.sqlDatabase',
+  sqlUser: 'cnx.fl.sqlUser',
+  sqlPassword: 'cnx.fl.sqlPassword',
+  inboundSecret: 'cnx.fl.inboundSecret',
+};
+export function fieldLabel(t: T, key: string): string {
+  const k = FIELD_LABELS[key];
+  return k ? t(k) : key;
 }
 
 function Shell({ children }: { children: ReactNode }) {
@@ -478,11 +524,9 @@ function CardMeta({ c }: { c?: Connector }) {
   if (c.status === 'ERROR')
     return (
       <>
-        {t('cnx.meta.error', {
-          code: String(
-            (c.lastHealthError as { code?: string } | null)?.code ?? c.statusReason ?? '',
-          ),
-        })}
+        {errorOf(c).down
+          ? t('cnx.meta.errorDown', { code: healthText(t, errorOf(c).code) })
+          : t('cnx.meta.error', { code: healthText(t, errorOf(c).code) })}
       </>
     );
   if (c.status === 'PAUSED') return <>{t('cnx.meta.paused')}</>;
@@ -553,7 +597,7 @@ function Detail({
   tab: Tab;
   setTab: (t: Tab) => void;
   canWrite: boolean;
-  onToast: (m: string) => void;
+  onToast: (m: string, err?: boolean) => void;
   onConnect: () => void;
 }) {
   const { t } = useI18n();
@@ -566,11 +610,9 @@ function Detail({
           {c.status !== 'ACTIVE' && (
             <span>
               {c.status === 'ERROR'
-                ? t('cnx.cd.error', {
-                    code: String(
-                      (c.lastHealthError as { code?: string } | null)?.code ?? c.statusReason ?? '',
-                    ),
-                  })
+                ? errorOf(c).down
+                  ? t('cnx.cd.errorDown', { code: healthText(t, errorOf(c).code) })
+                  : t('cnx.cd.error', { code: healthText(t, errorOf(c).code) })
                 : c.activatedAt
                   ? t('cnx.cd.paused')
                   : t('cnx.cd.off')}
@@ -644,7 +686,7 @@ function MapTab({
   n: string;
   adapter: Adapter;
   canWrite: boolean;
-  onToast: (m: string) => void;
+  onToast: (m: string, err?: boolean) => void;
 }) {
   const { t, lang } = useI18n();
   const qc = useQueryClient();
@@ -670,7 +712,7 @@ function MapTab({
     },
     onError: (e) => {
       done();
-      onToast(problemText(e, t) ?? '');
+      onToast(problemText(e, t) ?? '', true);
     },
   });
   const inbound = useMutation({
@@ -785,6 +827,13 @@ function MapTab({
               </div>
             );
           })}
+          {/* ST8-T03 ที่ระบบนี้ประกาศแต่ยังไม่ได้ทำ — เปิดไม่ได้ */}
+          {(c.capabilitiesPending ?? []).map((k) => (
+            <div key={k} className="cnx-row" data-testid="capability-pending">
+              <span style={{ flex: 1 }}>{t(`cnx.cap.${k}` as MessageKey)}</span>
+              <Badge label={t('cnx.cap.pending')} tone={OFF_BADGE.tone} icon="clock" />
+            </div>
+          ))}
         </div>
       </div>
 
@@ -954,18 +1003,19 @@ function ConnectDialog({
   adapter: Adapter;
   rotate?: Connector;
   onClose: () => void;
-  onDone: (msg: string) => void;
+  onDone: (msg: string, err?: boolean) => void;
 }) {
   const { t } = useI18n();
   const id = useId();
   const qc = useQueryClient();
   const n = adapterName(t, adapter.key, adapter.displayName, adapter.demo);
-  const fields = adapter.configFields.filter((f) => f.secret || (!rotate && f.options?.length));
+  // เชื่อมต่อใหม่ = ทุกช่อง (ช่องลับ + ค่าตั้ง เช่น base URL ของ KRS — ST8-T03) · เปลี่ยน key = ช่องลับเท่านั้น
+  const fields = adapter.configFields.filter((f) => f.secret || !rotate);
   const [v, setV] = useState<Record<string, string>>({});
   const [reason, setReason] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const missing = fields.some((f) => f.secret && f.required && !v[f.key]);
+  const missing = fields.some((f) => f.required && !v[f.key]?.trim());
   const ok = !missing && !busy && (!rotate || reason.trim().length >= 10);
 
   async function submit() {
@@ -975,8 +1025,8 @@ function ConnectDialog({
     const pick = (secret: boolean) =>
       Object.fromEntries(
         adapter.configFields
-          .filter((f) => f.secret === secret && v[f.key])
-          .map((f) => [f.key, v[f.key]!]),
+          .filter((f) => f.secret === secret && (secret ? v[f.key] : v[f.key]?.trim()))
+          .map((f) => [f.key, secret ? v[f.key]! : v[f.key]!.trim()]),
       );
     try {
       if (rotate) {
@@ -1007,7 +1057,7 @@ function ConnectDialog({
         );
         onDone(t('cnx.toast.connected', { n }));
       } catch (e) {
-        onDone(healthFail(t, e));
+        onDone(healthFail(t, e), true);
       }
     } catch (e) {
       setErr(problemText(e, t));
@@ -1045,7 +1095,7 @@ function ConnectDialog({
           {fields.map((f) => (
             <label key={f.key} className="tms-field" htmlFor={`${id}-${f.key}`}>
               <span className="tms-label">
-                {f.key} {f.secret && f.required && <span style={{ color: '#B3322A' }}>*</span>}
+                {fieldLabel(t, f.key)} {f.required && <span style={{ color: '#B3322A' }}>*</span>}
               </span>
               {f.options?.length ? (
                 <select
@@ -1065,8 +1115,8 @@ function ConnectDialog({
                 <input
                   id={`${id}-${f.key}`}
                   className="tms-input"
-                  type="password"
-                  autoComplete="new-password"
+                  type={f.secret ? 'password' : f.kind === 'url' ? 'url' : 'text'}
+                  autoComplete={f.secret ? 'new-password' : 'off'}
                   value={v[f.key] ?? ''}
                   maxLength={f.maxLength ?? undefined}
                   onChange={(e) => setV({ ...v, [f.key]: e.target.value })}

@@ -338,17 +338,23 @@ export const PROBLEMS = {
     th: 'เที่ยวนี้ยังไม่มีใบส่งของ',
     en: 'Trip has no delivery orders',
   },
-  /** ST6-T01: ปิดต้นทุน (COMPLETED → COSTED) ไม่ได้ — extension `blockers` (PENDING_FIELD_CHARGES / CARRIER_FEE_MISSING) */
-  /** ST6-T01: ปิดต้นทุนยังไม่เปิดใช้ — docs/01 §4.2 COSTED ต้อง "ปันลง DO" แต่วิธีปันยังไม่ตัดสิน (spec/12 §3 [OPEN] (ก)) */
+  /** ST6-T01c: ปิดต้นทุนถูกปิดด้วย kill switch ระดับระบบ (env `TRIP_COSTING_ENABLED=0`) — ค่าเริ่มต้นเปิด */
   trip_costing_unavailable: {
     status: 409,
-    th: 'ปิดต้นทุนเที่ยวได้หลังกำหนดวิธีปันต้นทุนลง DO',
-    en: 'Trip costing is unavailable until the rule for allocating costs to delivery orders is decided',
+    th: 'ปิดต้นทุนเที่ยวถูกปิดใช้ชั่วคราวโดยผู้ดูแลระบบ',
+    en: 'Trip costing is temporarily disabled by the system administrator',
   },
+  /** ST6-T01c: ผลปันต้นทุนลง DO ไม่ลงตัว (invariant — ไม่ควรเกิด) · transaction ถูกยกเลิก */
+  trip_cost_allocation_failed: {
+    status: 500,
+    th: 'ปันต้นทุนเที่ยวลงใบส่งของไม่ลงตัว — ยังไม่ปิดต้นทุน กรุณาแจ้งผู้ดูแลระบบ',
+    en: 'Trip cost allocation to delivery orders did not balance — trip was not costed',
+  },
+  /** ST6-T01: ปิดต้นทุน (COMPLETED → COSTED) ไม่ได้ — extension `blockers` (PENDING_FIELD_CHARGES / CARRIER_FEE_MISSING / REVENUE_PROVISIONAL / REVENUE_MISSING / PENDING_SELL_CHARGES) */
   trip_costs_incomplete: {
     status: 409,
-    th: 'ต้นทุนเที่ยวยังไม่ครบ — ยืนยัน/ปฏิเสธค่าใช้จ่ายหน้างานที่รอ และตรวจค่าจ้างรถร่วมก่อนปิดต้นทุน',
-    en: 'Trip costs are not complete — decide pending field charges and check the carrier fee first',
+    th: 'ต้นทุนเที่ยวยังไม่ครบ — ยืนยัน/ปฏิเสธค่าใช้จ่ายหน้างานที่รอ ตรวจค่าจ้างรถร่วม และรายได้ของใบส่งของ (ใช้ปันต้นทุน) ก่อนปิดต้นทุน',
+    en: 'Trip costs are not complete — decide pending field charges, check the carrier fee and the delivery order revenue used for allocation first',
   },
   trip_stops_open: {
     status: 409,

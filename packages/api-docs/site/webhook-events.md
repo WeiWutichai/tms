@@ -55,7 +55,8 @@
 | `status` | ใช่ | `string` | ค่า: `ACTIVE`, `PAUSED`, `ERROR`, `DISCONNECTED` |   |   |
 | `statusReason` | ใช่ | `string` | null ได้ |   |   |
 | `statusChangedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
-| `capabilitiesSupported` | ใช่ | `array<string>` |   | capability ที่ adapter รองรับทั้งหมด |   |
+| `capabilitiesSupported` | ใช่ | `array<string>` |   | capability ที่ adapter รองรับ (ใช้งานได้จริง — ไม่รวมที่ยังไม่ได้ทำ) |   |
+| `capabilitiesPending` | ใช่ | `array<string>` |   | capability ที่ adapter ประกาศแต่ยังไม่ได้ทำ — เปิดไม่ได้ แสดงเป็น "ยังไม่รองรับ" |   |
 | `capabilitiesEnabled` | ใช่ | `array<string>` |   | ที่ tenant เปิด |   |
 | `capabilities` | ใช่ | `array<string>` |   | ใช้ได้จริง = รองรับ ∩ เปิด (ว่างเมื่อยกเลิกการเชื่อม) |   |
 | `settings` | ใช่ | `object` |   | ค่าตั้งที่ไม่ลับ (base URL ฯลฯ) |   |

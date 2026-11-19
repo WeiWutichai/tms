@@ -26,6 +26,7 @@
 | ST3 Order intake + Planning/Dispatch | **เสร็จ** (T01–T25 ครบ — T25 นับเมื่อ merge PR ของ `st3/t25-change-carrier`) | 12 พ.ย. | 17 พ.ย. 2569 | ตารางงาน ST3 ด้านล่าง · สรุป: รับ order ทุกทาง (มือ/Excel/API/connector) ผ่าน `upsertOrder()` เดียว + ใบค้าง + DO/trip state machine + กระดานวางแผน (constraint/multi-drop/assign-dispatch/send all/ตารางรถ) + ใบคุมรถ PDF + LINE/SMS + จ้างรถร่วมครบวงจร (ลิงก์รับ/ปฏิเสธ, หมดเวลา, เปลี่ยนผู้รับเหมา) |
 | ST4 Execution และ POD | **กำลังทำ** 2/15 (T01, T02) + T03, T04, T05, T06 dev | 17 พ.ย. 2569 | — | ตารางงาน ST4 ด้านล่าง |
 | ST5 Billing AR (เฉพาะ T01 บรรทัดรายได้) | T01 merge แล้ว (PR #115) · **T01b รายได้ต่อ DO dev เสร็จ** รอ review/QA/merge (`st5/t01b-revenue-per-do`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST5-T01b) · PO ตัดสิน: รายได้ต่อ DO × ปริมาณส่งจริง · [OPEN] ขั้นต่ำ/ยอดเหมาเมื่อหลาย DO (spec/12 §3) |
+| ST6 (T01c ปันต้นทุนลง DO) | **dev เสร็จ** รอ review/QA/merge (`st6/t01c-cost-allocation` — ต่อจาก `st5/t01b-revenue-per-do`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST6-T01c) · PO ตัดสิน: ปันตามสัดส่วนรายได้ DO · ปิดต้นทุนเปิดโดยค่าเริ่มต้น · [OPEN] หลาย DO รายได้รวม 0 |
 | ST5–ST6, ST8 | ยังไม่เริ่ม | | | |
 | ST9 Cross-cutting | **กำลังทำ** · T10 ส่งออกตามตัวกรอง dev เสร็จ รอ review/QA (`st9/t10-export`) · T14 Retention dev เสร็จ รอ review/QA (`st9/t14-retention`) | 18 พ.ย. 2569 | — | |
 | ST5–ST6, ST8–ST9 | ยังไม่เริ่ม | | | |
@@ -37,6 +38,7 @@
 | ST9 (เฉพาะ T12 ตรวจความครบ) | **dev เสร็จ** รอ review/QA/merge (`st9/t12-completeness`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST9-T12) |
 | ST9 (เฉพาะ T19 Monitoring + alert) | **dev เสร็จ** รอ review/QA/merge (`st9/t19-monitoring`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST9-T19) · UI Console รอต้นแบบ (spec/12 §3) |
 | ST8 (เฉพาะ T01 mock KRS) | **dev เสร็จ** รอ review/QA/merge (`st8/t01-mock-krs`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST8-T01) |
+| ST8 (เฉพาะ T03 โครง KrsAdapter) | **dev เสร็จ** รอ review/QA/merge (`st8/t03-krs-adapter`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST8-T03) |
 | ST9 Dashboard / รายงาน (T01) | **กำลังทำ** — T01 dev เสร็จ (lane C) รอ review/QA | 18 พ.ย. 2569 | — | ST9-T01 Dashboard ปฏิบัติการ |
 
 ### งาน ST0 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
@@ -290,6 +292,36 @@
 - **ไฟล์:** `apps/api/src/modules/invoices/` (billing-queue.dto/service, billing-release.service, invoices.controller), `delivery-order.service.ts` (`lockForRelease`/`markReleased`), `pod.service.ts` (`checkCurrent`), `customers/*`, `common/problem.ts` (`not_ready_to_bill`), migration `0120_ready_to_bill`, `test/billing-queue.test.ts`, spec/12 §3 +4 แถว
 - **แก้ตาม review/QA:** คิวแสดง `pod.checklistOk` (ตรวจกับ checklist ปัจจุบันเฉพาะแถวในหน้า) · `updatedAfter` ใช้กับ `customers[]` ด้วย · spec/12 + backlog ST5-T07: ร่างใบต้องตรวจความพร้อมซ้ำ ห้ามเชื่อ `released_at` · คำถาม PO วันที่งวด (doDate vs วันส่งจริง)
 - **ค้าง:** หน้า `bill` ตามต้นแบบ + ปุ่มส่งบัญชี/แท็บ POD ยังไม่ผ่าน (ST5-T07, [OPEN — Claude Design]) · ย้อน RELEASED / ล็อกแก้ stop-qty หลังส่งบัญชี (ST5-T06) · [OPEN — PO] DO FAILED ที่มีค่าเที่ยวเปล่า, บรรทัดที่คนเพิ่มระดับใบสั่ง, DO ที่ออกใบไปบางส่วน
+
+### 19 พ.ย. 2569 (ST6-T01c แก้ตาม QA — lane l7)
+
+- **ทำ:** (M1) blocker `PENDING_SELL_CHARGES` — ค่าใช้จ่ายหน้างานฝั่งขายของเที่ยว/DO รอยืนยัน → ปิดต้นทุนไม่ได้ (409) [DECISION ตามคำแนะนำ ย้อนได้ — แจ้ง PO] · (L1) kill switch ปิด → `GET /costs` มี blocker `COSTING_DISABLED` · merge `st5/t01b-revenue-per-do` (d84a780) · test เพิ่ม/ปรับ (พร้อมกัน: ทั้งสองลำดับได้การปันรวมค่าหน้างาน)
+- **ไฟล์:** `trips/{trip-costs.ts,trip-costs.dto.ts}`, `common/problem.ts`, `test/trip-costs.test.ts`, spec/12, openapi/api-docs
+
+### 19 พ.ย. 2569 (ST6-T01c แก้ตาม review — lane l7)
+
+- **ทำ:** (M) ปันต้นทุนสุทธิของเที่ยวครั้งเดียว เศษทั้งหมด → DO รายได้สูงสุด แล้วกระจายลงบรรทัดให้ลงตัวทั้งต่อ DO/ต่อบรรทัด (domain `allocateTripCostLines` ใหม่ + test) · (L) ไม่ลงตัว → 500 `trip_cost_allocation_failed` + ตรวจ Σ ต่อ DO = buyTotal · ยืนยันค่าหน้างานฝั่งขายล็อก SO → trip (FOR SHARE) ลำดับเดียวกับปิดต้นทุน + test พร้อมกัน · เขียน `cost_allocation_method = 'BY_REVENUE'` · plan/00a RA-15 · spec/12: ผลข้างเคียงการเห็นสัดส่วนรายได้, บรรทัดระดับใบสั่งไม่นับ · merge `st5/t01b-revenue-per-do` (แก้ review)
+- **ไฟล์:** `packages/domain/src/cost-allocation.ts` (+test), `trips/{trip-costs.ts,trip-costs.dto.ts,trip.service.ts}`, `field-charges/field-charges.service.ts`, `common/problem.ts`, `i18n/th.ts`, `test/trip-costs.test.ts`, plan/00a, spec/12
+
+### 19 พ.ย. 2569 (ST6-T01c ปันต้นทุนเที่ยวลง DO ตามสัดส่วนรายได้ — PO ตัดสิน · lane l7)
+
+- **ทำ:** PO ตัดสิน 19 พ.ย. 2569 — ต้นทุนเที่ยว (ค่าจ้างรถร่วม + ค่าหน้างานฝั่งซื้อที่ยืนยัน สุทธิหลังกลับรายการ) ปันลง DO ตามสัดส่วนรายได้ขาย เศษสตางค์ → DO รายได้สูงสุด (เท่ากัน → เลข DO น้อยสุด) · ปันใน transaction ของ `POST /v1/trips/{id}/cost` ลง `trip_cost.allocated` ต่อบรรทัด (กลับรายการหักล้างพอดี; ผลรวมต่อบรรทัด/ทั้งเที่ยวเท่ายอดพอดี) · blocker ใหม่ `REVENUE_PROVISIONAL` (หลาย DO + รายได้ยังไม่ยืนยัน) / `REVENUE_MISSING` (หลาย DO รายได้รวม 0 — [OPEN PO]) · `GET /trips/{id}/costs` `allocations[]` + `GET /delivery-orders/{id}/revenue-lines` `buyAllocatedCost` (ตัดตาม `prices.buy:read` แยกจากขาย; ไม่มี field margin) · ปิดต้นทุนเปิดโดยค่าเริ่มต้น (`TRIP_COSTING_ENABLED=0` = kill switch) · domain `allocateSatangRemainderTo`
+- **ไฟล์:** `packages/domain/src/money.ts` (+test), `apps/api/src/modules/trips/{trip-costs.ts,trip-costs.dto.ts,trip.service.ts,trips.controller.ts}`, `apps/api/src/modules/revenue-lines/{revenue-lines.service.ts,revenue-line.dto.ts}`, `apps/api/src/common/problem.ts`, `apps/web/src/i18n/th.ts`, `apps/api/test/trip-costs.test.ts`, `.env.example`, `packages/contracts/openapi.json`, `packages/api-docs/site/*`, spec/12 §3 (แถวใหม่ + แก้แถว ST6-T01/คิวจ่าย) · ไม่มี migration
+- **ค้าง:** [OPEN — PO] หลาย DO รายได้รวม 0 + ต้นทุน ≠ 0 (ตอนนี้ 409) · ปันใหม่เมื่อรายได้เปลี่ยนหลังปิดต้นทุน (ตอนนี้ snapshot) · `cost_allocation_method` ของ docs/01 ไม่ใช้ · UI ต้นทุน/กำไรต่อ DO (ต้นแบบไม่มี — P1 รายงาน)
+
+### 19 พ.ย. 2569 (ST8-T03 แก้ตาม review/QA — lane l8)
+- ทำ: (M1) capability ที่ยังไม่ได้ทำ = `pendingCapabilities` ของ adapter → ไม่เปิดเป็นค่าเริ่มต้น / ขอเปิด 422 / API `capabilitiesPending` / หน้าจอ "ยังไม่รองรับ" · คำสั่งที่ค้าง = PENDING `capability_not_implemented` (ไม่ SKIPPED ไม่เสียครั้ง) · (M2) ตาม spec/07 §1: AUTH หยุดทันที, TRANSIENT จด `health_failing_since` (migration **0121**) หยุดเมื่อล้มต่อเนื่อง ≥ 30 นาที · worker `recheckUnhealthy` ทุก 5 นาที คืน ERROR(TRANSIENT) → ACTIVE เอง (audit + แจ้ง `connector.recovered` + ปลุกคิว) · (Low) `POST /health` `message` ไทย + `detail` ดิบ, การ์ด ERROR จากปลายทางล่มไม่บอก "แก้ key", toast ล้มเหลวแบบ error (`Toast tone="err"`), ป้ายไทยของช่องค่าตั้ง, PUT credentials รวมกับค่าเดิม
+- ไฟล์: `prisma/{schema.prisma,migrations/0121_connector_health_failing_since}`, `modules/erp/{erp-adapter.ts,erp-adapter.sink.ts,connectors.service.ts,connector.dto.ts,connector-resolver.ts,inbound-webhook.service.ts}`, `modules/connectors/connector-pull.scheduler.ts`, `modules/notifications/{templates,catalogue,notification-events}.ts`, `worker.ts`, `erp-adapters/krs/krs.adapter.ts`, test `erp-krs`/`erp-connectors`/`erp-adapter`, web `ConnectorSettings.tsx(+test)`, `console/Connectors.tsx`, `e2e/connectors.spec.ts` (ป้าย "API key"), `packages/ui` Toast, `th.ts`, openapi, spec/12 §3
+
+### 19 พ.ย. 2569 (ST8-T03 โครง KrsAdapter — lane l8)
+- ทำ: adapter `krs` (`apps/api/src/erp-adapters/krs/krs.adapter.ts`) ลงทะเบียนใน composition root · capabilities ตาม docs/01 A.2 `{pullOrders, pushInvoice, fetchDocument, replaceDocument, ownsDocumentNumber}` — method ยังไม่ทำตอบ CAPABILITY `not_implemented` (คลาสกลางใหม่ `ErpAdapterError` + `notImplementedResult/Error` ใน core; sink แปลงตาม class, รอบดึง order ข้าม `not_implemented`) · ค่าตั้ง baseUrl / `apiKey` (X-API-Key, เข้ารหัส write-only) / `healthTransactionNo` / SQL read-only (`sqlServer`/`sqlDatabase`/`sqlUser` + `sqlPassword` ลับ — เก็บไว้ใช้ ST8-T04) · healthCheck `GET /invoice/{เลขทดสอบ}` ผ่าน `safeHttpRequest` (แยกจาก `postWebhook` — กัน SSRF + pin IP) · core: ทดสอบล้ม AUTH **หรือ TRANSIENT** → ERROR หยุดคิว; ส่งล้ม TRANSIENT → healthCheck ยืนยันล่ม → ERROR (`HEALTH_STOP_CLASSES`, `markError(…, errorClass)`) · UI: dialog เชื่อมต่อ (ตั้งค่า + Console) แสดงค่าตั้งข้อความ (baseUrl ฯลฯ) และบังคับช่อง required ทุกชนิด
+- ไฟล์: `apps/api/src/erp-adapters/{index.ts,krs/krs.adapter.ts}`, `modules/erp/{erp-adapter.ts,erp-adapter.sink.ts,connectors.service.ts,connectors.controller.ts}`, `modules/connectors/connector-intake.service.ts`, `modules/webhooks/webhook-http.ts`, `test/{erp-krs.test.ts (ใหม่ — contract + mock KRS พอร์ตสุ่ม: เขียว/AUTH/503/ตัดสาย/mock หยุด → ERROR + คิวพัก → กลับมา ACTIVE ส่งต่อ, credential ไม่รั่วใน API/audit/log, SSRF nip.io/rebinding, sandbox), erp-adapter-contract.ts (+`notImplemented`), erp-connectors.test.ts (+ทาง sink)}`, `apps/web/src/{features/settings/ConnectorSettings.tsx(+test),console/Connectors.tsx}`, `apps/api/package.json` (devDep `@tms/mock-krs`), `packages/contracts/openapi.json` (คำอธิบาย /health), spec/12 §3 แถว "โครง KrsAdapter" · ไม่มี migration
+- ค้าง: pullOrders = ST8-T04 · pushInvoice = ST8-T08 · replaceDocument = ST8-T09/T11 · fetchDocument = ST8-T10 · [OPEN — KRS] ไม่มี endpoint health เฉพาะ · ภาพเทียบต้นแบบ dialog ยังไม่ได้ถ่าย (เครื่องโหลดสูง — การ์ดใช้แบบ ST7-T20 เดิม)
+
+### 19 พ.ย. 2569 (แก้ E2E routes.spec — RefPicker เปิดรายการตอน focus · lane l5)
+
+- **ทำ:** E2E `routes.spec.ts:38` timeout ทุกครั้ง **ทั้งบน origin/main (5be2a82) และ branch นี้** — สาเหตุ ST9-T20 (9a3f9d6): FormDrawer ย้าย focus ไปช่องที่ผิดหลังบันทึก → 409 เส้นทางซ้ำทำให้ focus ช่อง "ปลายทาง" → `RefPicker` เปิดรายการตอน focus → รายการลอยทับลิงก์ "เปิดใช้เส้นทางเดิม" (คลิกโดนบัง) · แก้: `RefPicker` เปิดรายการเมื่อผู้ใช้สั่งเท่านั้น (คลิก / พิมพ์ / ↓ — แบบ WAI-ARIA combobox) ไม่เปิดตอน focus · spec ไม่แก้
+- **ไฟล์:** `apps/web/src/features/master/RefPicker.tsx`, `RefPicker.test.tsx` (ใหม่ 2 ข้อ)
 
 ### 19 พ.ย. 2569 (ST5-T01b แก้ตาม review/QA — lane l5)
 

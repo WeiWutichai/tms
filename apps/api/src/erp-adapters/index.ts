@@ -3,6 +3,7 @@ import { PrismaService } from '../db/prisma.service';
 import type { ErpAdapter } from '../modules/erp/erp-adapter';
 import { ErpAdapterRegistry } from '../modules/erp/erp-adapter.registry';
 import { DemoAdapter } from './demo/demo.adapter';
+import { KrsAdapter } from './krs/krs.adapter';
 
 /**
  * Composition root ของ ErpAdapter (ST7-T13) — **ที่เดียว** ที่รู้จัก adapter แต่ละตัว
@@ -12,9 +13,14 @@ import { DemoAdapter } from './demo/demo.adapter';
  * - adapter ใหม่ = เพิ่มโฟลเดอร์ + 1 บรรทัดใน ERP_ADAPTER_FACTORIES + ผ่าน contract test (`test/erp-adapter-contract.ts`)
  * - StandaloneProvider (ไม่มี connector) อยู่ใน core (`STANDALONE_ADAPTER`) — ไม่ลงทะเบียนที่นี่ และเป็นค่าเริ่มต้นของทุก tenant เสมอ
  * - DemoProvider (`demo`, ST7-T14) = ERP จำลอง `localOnly` — มีเฉพาะ dev/test/`ERP_DEMO_ADAPTERS=1` ไม่เป็นค่าเริ่มต้นของใคร
- * - ตัวถัดไป: FileExportAdapter (ST7-T23), KrsAdapter (ST8-T03)
+ * - KrsAdapter (`krs`, ST8-T03) = adapter จริงตัวแรก (โครง — push/pull/fetch ตาม ST8-T04…T10) · เปิดได้ทุก environment
+ *   แต่ tenant sandbox ใช้ไม่ได้ (route connector เป็น @LiveOnly + sink กันซ้ำ)
+ * - ตัวถัดไป: FileExportAdapter (ST7-T23)
  */
-export const ERP_ADAPTER_FACTORIES: ReadonlyArray<() => ErpAdapter> = [() => new DemoAdapter()];
+export const ERP_ADAPTER_FACTORIES: ReadonlyArray<() => ErpAdapter> = [
+  () => new DemoAdapter(),
+  () => new KrsAdapter(),
+];
 
 @Injectable()
 export class ErpAdaptersBootstrap implements OnModuleInit, OnApplicationBootstrap {

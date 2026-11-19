@@ -79,8 +79,8 @@
 | [`stop_not_ready`](#stop_not_ready) | 409 | ปิดงานจุดก่อนหน้าก่อน |
 | [`stop_skipped`](#stop_skipped) | 409 | จุดนี้ไม่มีใบส่งของแล้ว (นัดส่งใหม่ไปเที่ยวอื่น) — ไม่ต้องบันทึกที่จุดนี้ |
 | [`tenant_selection_required`](#tenant_selection_required) | 409 | อีเมลนี้เป็นสมาชิกหลายบริษัท เลือกบริษัทที่ต้องการเข้า |
-| [`trip_costing_unavailable`](#trip_costing_unavailable) | 409 | ปิดต้นทุนเที่ยวได้หลังกำหนดวิธีปันต้นทุนลง DO |
-| [`trip_costs_incomplete`](#trip_costs_incomplete) | 409 | ต้นทุนเที่ยวยังไม่ครบ — ยืนยัน/ปฏิเสธค่าใช้จ่ายหน้างานที่รอ และตรวจค่าจ้างรถร่วมก่อนปิดต้นทุน |
+| [`trip_costing_unavailable`](#trip_costing_unavailable) | 409 | ปิดต้นทุนเที่ยวถูกปิดใช้ชั่วคราวโดยผู้ดูแลระบบ |
+| [`trip_costs_incomplete`](#trip_costs_incomplete) | 409 | ต้นทุนเที่ยวยังไม่ครบ — ยืนยัน/ปฏิเสธค่าใช้จ่ายหน้างานที่รอ ตรวจค่าจ้างรถร่วม และรายได้ของใบส่งของ (ใช้ปันต้นทุน) ก่อนปิดต้นทุน |
 | [`trip_empty`](#trip_empty) | 409 | เที่ยวนี้ยังไม่มีใบส่งของ |
 | [`trip_has_loaded_orders`](#trip_has_loaded_orders) | 409 | ยกเลิกเที่ยวไม่ได้ — มีใบส่งของที่รับของขึ้นรถหรือส่งแล้ว (ปิดเที่ยวบางส่วนแล้วเปิดเที่ยวใหม่แทน) |
 | [`trip_not_in_progress`](#trip_not_in_progress) | 409 | บันทึกสถานะหน้างานได้เฉพาะเที่ยวที่ปล่อยรถแล้วและยังไม่จบ |
@@ -102,6 +102,7 @@
 | [`account_locked`](#account_locked) | 429 | ใส่รหัสผ่านผิดหลายครั้ง ลองใหม่อีกครั้งใน 15 นาที |
 | [`rate_limited`](#rate_limited) | 429 | เรียกถี่เกินไป |
 | [`internal_error`](#internal_error) | 500 | ระบบขัดข้อง |
+| [`trip_cost_allocation_failed`](#trip_cost_allocation_failed) | 500 | ปันต้นทุนเที่ยวลงใบส่งของไม่ลงตัว — ยังไม่ปิดต้นทุน กรุณาแจ้งผู้ดูแลระบบ |
 | [`pdf_render_timeout`](#pdf_render_timeout) | 503 | สร้าง PDF ไม่ทันเวลา กรุณาลองใหม่อีกครั้ง |
 | [`service_busy`](#service_busy) | 503 | ระบบกำลังมีผู้ใช้งานมาก กรุณาลองใหม่อีกครั้ง |
 
@@ -557,13 +558,13 @@ HTTP `409` · อีเมลนี้เป็นสมาชิกหลาย
 
 ## trip_costing_unavailable {#trip_costing_unavailable}
 
-HTTP `409` · ปิดต้นทุนเที่ยวได้หลังกำหนดวิธีปันต้นทุนลง DO
+HTTP `409` · ปิดต้นทุนเที่ยวถูกปิดใช้ชั่วคราวโดยผู้ดูแลระบบ
 
 พบใน: [`POST /v1/trips/{id}/cost`](ref-trips.md#post-trips-id-cost)
 
 ## trip_costs_incomplete {#trip_costs_incomplete}
 
-HTTP `409` · ต้นทุนเที่ยวยังไม่ครบ — ยืนยัน/ปฏิเสธค่าใช้จ่ายหน้างานที่รอ และตรวจค่าจ้างรถร่วมก่อนปิดต้นทุน
+HTTP `409` · ต้นทุนเที่ยวยังไม่ครบ — ยืนยัน/ปฏิเสธค่าใช้จ่ายหน้างานที่รอ ตรวจค่าจ้างรถร่วม และรายได้ของใบส่งของ (ใช้ปันต้นทุน) ก่อนปิดต้นทุน
 
 พบใน: [`POST /v1/trips/{id}/cost`](ref-trips.md#post-trips-id-cost)
 
@@ -690,6 +691,12 @@ HTTP `429` · เรียกถี่เกินไป
 ## internal_error {#internal_error}
 
 HTTP `500` · ระบบขัดข้อง
+
+อาจตอบได้จากหลาย endpoint
+
+## trip_cost_allocation_failed {#trip_cost_allocation_failed}
+
+HTTP `500` · ปันต้นทุนเที่ยวลงใบส่งของไม่ลงตัว — ยังไม่ปิดต้นทุน กรุณาแจ้งผู้ดูแลระบบ
 
 อาจตอบได้จากหลาย endpoint
 

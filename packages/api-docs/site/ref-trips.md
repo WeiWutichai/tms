@@ -861,7 +861,7 @@ const { data, error } = await tms.POST('/v1/trips/{id}/complete', {
 
 scope: `trips:read` · operationId: `Trips_costs`
 
-ค่าจ้างรถร่วม (บรรทัดระบบ snapshot ตอนจ้าง — แก้ rate card ภายหลังไม่เปลี่ยน) + ค่าใช้จ่ายหน้างานฝั่งซื้อ + บรรทัดกลับรายการ (ไม่มีการลบ) · ยอดเงิน (`buy*`) เห็นเมื่อมี `prices.buy:read`
+ค่าจ้างรถร่วม (บรรทัดระบบ snapshot ตอนจ้าง — แก้ rate card ภายหลังไม่เปลี่ยน) + ค่าใช้จ่ายหน้างานฝั่งซื้อ + บรรทัดกลับรายการ (ไม่มีการลบ) · `allocations` = ต้นทุนที่ปันลง DO (หลังปิดต้นทุน) · ยอดเงิน (`buy*`) เห็นเมื่อมี `prices.buy:read`
 
 **Parameters**
 
@@ -898,7 +898,7 @@ const { data, error } = await tms.GET('/v1/trips/{id}/costs', {
 
 scope: `trips:close` · operationId: `Trips_cost`
 
-ต้นทุนครบ = ไม่มีค่าใช้จ่ายหน้างานฝั่งซื้อรอยืนยัน และเที่ยวรถร่วมมีค่าจ้างของการจ้างที่รถร่วมรับแล้ว · ไม่ครบ → 409 `trip_costs_incomplete` + `blockers` · หลังปิดบันทึก/ยืนยันค่าใช้จ่ายหน้างานไม่ได้ · **ยังไม่เปิดใช้** (ค่าเริ่มต้น): ต้องปันต้นทุนลง DO ซึ่งยังไม่ตัดสินวิธี → 409 `trip_costing_unavailable`
+ต้นทุนครบ = ไม่มีค่าใช้จ่ายหน้างานฝั่งซื้อรอยืนยัน และเที่ยวรถร่วมมีค่าจ้างของการจ้างที่รถร่วมรับแล้ว · เที่ยวหลาย DO ต้องมีรายได้ที่ยืนยันแล้ว และรวม > 0 · ไม่ครบ → 409 `trip_costs_incomplete` + `blockers` · ปันต้นทุนลง DO ตามสัดส่วนรายได้ของ DO (เศษสตางค์ → DO รายได้สูงสุด) ใน transaction เดียวกัน — ดูผลที่ `GET /trips/{id}/costs` `allocations` · หลังปิดบันทึก/ยืนยันค่าใช้จ่ายหน้างานไม่ได้ · ผู้ดูแลระบบปิดฟังก์ชันชั่วคราวได้ (kill switch) → 409 `trip_costing_unavailable`
 
 **Parameters**
 
@@ -1797,6 +1797,7 @@ const { data, error } = await tms.POST('/v1/trip-sheets', {
 |---|---|---|---|---|---|
 | `data` | ใช่ | `array<TripCostLineDto>` |   |   |   |
 | `summary` | ใช่ | `TripCostSummaryDto` |   |   |   |
+| `allocations` | ใช่ | `array<TripCostAllocationDto>` |   | ต้นทุนที่ปันลง DO (เขียนตอนปิดต้นทุน COSTED ตัดสิน 19 พ.ย. 2569: ต้นทุนสุทธิของเที่ยวปันครั้งเดียวตามสัดส่วนรายได้ของ DO, เศษสตางค์ → DO รายได้สูงสุด (เท่ากัน → เลข DO น้อยสุด)) · ผลรวม = `buyTotal` · ยังไม่ปิดต้นทุน / เที่ยวไม่มี DO = [] |   |
 
 ### TripDto {#schema-TripDto}
 

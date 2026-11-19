@@ -742,16 +742,17 @@ export class TripsController {
     summary: 'บรรทัดต้นทุนของเที่ยว + สรุป',
     description:
       'ค่าจ้างรถร่วม (บรรทัดระบบ snapshot ตอนจ้าง — แก้ rate card ภายหลังไม่เปลี่ยน) + ค่าใช้จ่ายหน้างานฝั่งซื้อ + บรรทัดกลับรายการ ' +
-      '(ไม่มีการลบ) · ยอดเงิน (`buy*`) เห็นเมื่อมี `prices.buy:read`',
+      '(ไม่มีการลบ) · `allocations` = ต้นทุนที่ปันลง DO (หลังปิดต้นทุน) · ยอดเงิน (`buy*`) เห็นเมื่อมี `prices.buy:read`',
   })
   @ApiProblems(T403('trips:read'), T404)
   @TenantResource('trip')
   @RequireScope('trips:read')
   @ApiOkResponse({ type: TripCostListDto })
   async costs(@Param('id') id: string): Promise<TripCostListDto> {
-    const { trip, data, ready } = await this.trips.costs(decodeIdOr404('trip', id));
+    const { trip, data, ready, allocations } = await this.trips.costs(decodeIdOr404('trip', id));
     return {
       data,
+      allocations,
       summary: {
         tripStatus: trip.status,
         buyTotal: ready.buyTotal.toFixed(2),
@@ -769,9 +770,10 @@ export class TripsController {
   @ApiOperation({
     summary: 'ปิดต้นทุนเที่ยว (COMPLETED → COSTED)',
     description:
-      'ต้นทุนครบ = ไม่มีค่าใช้จ่ายหน้างานฝั่งซื้อรอยืนยัน และเที่ยวรถร่วมมีค่าจ้างของการจ้างที่รถร่วมรับแล้ว · ' +
-      'ไม่ครบ → 409 `trip_costs_incomplete` + `blockers` · หลังปิดบันทึก/ยืนยันค่าใช้จ่ายหน้างานไม่ได้ · ' +
-      '**ยังไม่เปิดใช้** (ค่าเริ่มต้น): docs/01 §4.2 ต้องปันต้นทุนลง DO ซึ่งยังไม่ตัดสินวิธี → 409 `trip_costing_unavailable`',
+      'ต้นทุนครบ = ไม่มีค่าใช้จ่ายหน้างานฝั่งซื้อรอยืนยัน และเที่ยวรถร่วมมีค่าจ้างของการจ้างที่รถร่วมรับแล้ว · เที่ยวหลาย DO ต้องมีรายได้ที่ยืนยันแล้ว ' +
+      'และรวม > 0 · ไม่ครบ → 409 `trip_costs_incomplete` + `blockers` · ปันต้นทุนลง DO ตามสัดส่วนรายได้ของ DO (เศษสตางค์ → DO รายได้สูงสุด) ' +
+      'ใน transaction เดียวกัน — ดูผลที่ `GET /trips/{id}/costs` `allocations` · หลังปิดบันทึก/ยืนยันค่าใช้จ่ายหน้างานไม่ได้ · ' +
+      'ผู้ดูแลระบบปิดฟังก์ชันชั่วคราวได้ (kill switch) → 409 `trip_costing_unavailable`',
   })
   @ApiProblems(
     T403('trips:close'),

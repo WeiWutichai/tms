@@ -1462,6 +1462,9 @@ body:has(.tms-drawer__foot) .tms-toast {
   justify-content: center;
   flex-shrink: 0;
 }
+.tms-toast--err .tms-toast__ic {
+  background: #b3322a;
+}
 .tms-toast__x {
   width: 28px;
   height: 28px;

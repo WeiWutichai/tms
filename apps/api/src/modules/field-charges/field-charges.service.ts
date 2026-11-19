@@ -413,6 +413,16 @@ export class FieldChargesService {
     if (action !== 'cancel' && row.createdBy && row.createdBy === ctx.actorId)
       throw new ProblemException('self_approval_forbidden');
     if (action === 'confirm') {
+      // ฝั่งขายยืนยัน = รายได้ DO เปลี่ยน → ล็อกตามลำดับ SO → trip (ลำดับเดียวกับปิดต้นทุน ST6-T01c) กันรายได้เปลี่ยนระหว่างปันต้นทุน
+      if (kind === 'doSurcharge' && row.deliveryOrderId) {
+        const { salesOrderId } = await tx.deliveryOrder.findUniqueOrThrow({
+          where: { id: row.deliveryOrderId },
+          select: { salesOrderId: true },
+        });
+        await tx.$queryRaw`SELECT id FROM sales_order WHERE id = ${salesOrderId}::uuid FOR UPDATE`;
+        if (row.tripId)
+          await tx.$queryRaw`SELECT id FROM trip WHERE id = ${row.tripId}::uuid FOR SHARE`;
+      }
       const trip = row.tripId
         ? await tx.trip.findUnique({ where: { id: row.tripId }, select: { status: true } })
         : null;

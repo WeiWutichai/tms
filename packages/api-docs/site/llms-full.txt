@@ -3082,6 +3082,7 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `doNo` | ใช่ | `string` | null ได้ |   | `DO-2611-00001` |
 | `sellRevenueTotal` |   | `string` |   | รายได้ของใบส่งของก่อน VAT = ผลรวมบรรทัดที่ยังใช้ (ACTIVE) — เห็นเมื่อมี `prices.sell:read` | `8750.00` |
 | `provisional` | ใช่ | `boolean` |   | true = มีบรรทัดที่ยอดยังไม่ยืนยัน (ยังไม่บันทึกยอดส่งจริง) |   |
+| `buyAllocatedCost` |   | `string` | null ได้ | ต้นทุนเที่ยวที่ปันลงใบนี้ · null = เที่ยวยังไม่ปิดต้นทุน · กำไรต่อ DO = `sellRevenueTotal` − `buyAllocatedCost` (ผู้เรียกคำนวณเอง — ต้องมีสิทธิ์ทั้งสองฝั่ง) · เห็นเมื่อมี `prices.buy:read` | `2400.25` |
 | `data` | ใช่ | `array<RevenueLineDto>` |   | รวมบรรทัดที่ยกเลิก (`status` VOIDED) |   |
 
 ### DeliveryOrderSplitResultDto {#schema-DeliveryOrderSplitResultDto}
@@ -3998,7 +3999,7 @@ const { data, error } = await tms.POST('/v1/trips/{id}/complete', {
 
 scope: `trips:read` · operationId: `Trips_costs`
 
-ค่าจ้างรถร่วม (บรรทัดระบบ snapshot ตอนจ้าง — แก้ rate card ภายหลังไม่เปลี่ยน) + ค่าใช้จ่ายหน้างานฝั่งซื้อ + บรรทัดกลับรายการ (ไม่มีการลบ) · ยอดเงิน (`buy*`) เห็นเมื่อมี `prices.buy:read`
+ค่าจ้างรถร่วม (บรรทัดระบบ snapshot ตอนจ้าง — แก้ rate card ภายหลังไม่เปลี่ยน) + ค่าใช้จ่ายหน้างานฝั่งซื้อ + บรรทัดกลับรายการ (ไม่มีการลบ) · `allocations` = ต้นทุนที่ปันลง DO (หลังปิดต้นทุน) · ยอดเงิน (`buy*`) เห็นเมื่อมี `prices.buy:read`
 
 **Parameters**
 
@@ -4035,7 +4036,7 @@ const { data, error } = await tms.GET('/v1/trips/{id}/costs', {
 
 scope: `trips:close` · operationId: `Trips_cost`
 
-ต้นทุนครบ = ไม่มีค่าใช้จ่ายหน้างานฝั่งซื้อรอยืนยัน และเที่ยวรถร่วมมีค่าจ้างของการจ้างที่รถร่วมรับแล้ว · ไม่ครบ → 409 `trip_costs_incomplete` + `blockers` · หลังปิดบันทึก/ยืนยันค่าใช้จ่ายหน้างานไม่ได้ · **ยังไม่เปิดใช้** (ค่าเริ่มต้น): ต้องปันต้นทุนลง DO ซึ่งยังไม่ตัดสินวิธี → 409 `trip_costing_unavailable`
+ต้นทุนครบ = ไม่มีค่าใช้จ่ายหน้างานฝั่งซื้อรอยืนยัน และเที่ยวรถร่วมมีค่าจ้างของการจ้างที่รถร่วมรับแล้ว · เที่ยวหลาย DO ต้องมีรายได้ที่ยืนยันแล้ว และรวม > 0 · ไม่ครบ → 409 `trip_costs_incomplete` + `blockers` · ปันต้นทุนลง DO ตามสัดส่วนรายได้ของ DO (เศษสตางค์ → DO รายได้สูงสุด) ใน transaction เดียวกัน — ดูผลที่ `GET /trips/{id}/costs` `allocations` · หลังปิดบันทึก/ยืนยันค่าใช้จ่ายหน้างานไม่ได้ · ผู้ดูแลระบบปิดฟังก์ชันชั่วคราวได้ (kill switch) → 409 `trip_costing_unavailable`
 
 **Parameters**
 
@@ -4934,6 +4935,7 @@ const { data, error } = await tms.POST('/v1/trip-sheets', {
 |---|---|---|---|---|---|
 | `data` | ใช่ | `array<TripCostLineDto>` |   |   |   |
 | `summary` | ใช่ | `TripCostSummaryDto` |   |   |   |
+| `allocations` | ใช่ | `array<TripCostAllocationDto>` |   | ต้นทุนที่ปันลง DO (เขียนตอนปิดต้นทุน COSTED ตัดสิน 19 พ.ย. 2569: ต้นทุนสุทธิของเที่ยวปันครั้งเดียวตามสัดส่วนรายได้ของ DO, เศษสตางค์ → DO รายได้สูงสุด (เท่ากัน → เลข DO น้อยสุด)) · ผลรวม = `buyTotal` · ยังไม่ปิดต้นทุน / เที่ยวไม่มี DO = [] |   |
 
 ### TripDto {#schema-TripDto}
 
@@ -17705,7 +17707,8 @@ const { data, error } = await tms.GET('/v1/connectors/{id}/mappings', {
 | `status` | ใช่ | `string` | ค่า: `ACTIVE`, `PAUSED`, `ERROR`, `DISCONNECTED` |   |   |
 | `statusReason` | ใช่ | `string` | null ได้ |   |   |
 | `statusChangedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
-| `capabilitiesSupported` | ใช่ | `array<string>` |   | capability ที่ adapter รองรับทั้งหมด |   |
+| `capabilitiesSupported` | ใช่ | `array<string>` |   | capability ที่ adapter รองรับ (ใช้งานได้จริง — ไม่รวมที่ยังไม่ได้ทำ) |   |
+| `capabilitiesPending` | ใช่ | `array<string>` |   | capability ที่ adapter ประกาศแต่ยังไม่ได้ทำ — เปิดไม่ได้ แสดงเป็น "ยังไม่รองรับ" |   |
 | `capabilitiesEnabled` | ใช่ | `array<string>` |   | ที่ tenant เปิด |   |
 | `capabilities` | ใช่ | `array<string>` |   | ใช้ได้จริง = รองรับ ∩ เปิด (ว่างเมื่อยกเลิกการเชื่อม) |   |
 | `settings` | ใช่ | `object` |   | ค่าตั้งที่ไม่ลับ (base URL ฯลฯ) |   |
@@ -18728,7 +18731,8 @@ const { data, error } = await tms.GET('/v1/invoices/queue');
 | `status` | ใช่ | `string` | ค่า: `ACTIVE`, `PAUSED`, `ERROR`, `DISCONNECTED` |   |   |
 | `statusReason` | ใช่ | `string` | null ได้ |   |   |
 | `statusChangedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
-| `capabilitiesSupported` | ใช่ | `array<string>` |   | capability ที่ adapter รองรับทั้งหมด |   |
+| `capabilitiesSupported` | ใช่ | `array<string>` |   | capability ที่ adapter รองรับ (ใช้งานได้จริง — ไม่รวมที่ยังไม่ได้ทำ) |   |
+| `capabilitiesPending` | ใช่ | `array<string>` |   | capability ที่ adapter ประกาศแต่ยังไม่ได้ทำ — เปิดไม่ได้ แสดงเป็น "ยังไม่รองรับ" |   |
 | `capabilitiesEnabled` | ใช่ | `array<string>` |   | ที่ tenant เปิด |   |
 | `capabilities` | ใช่ | `array<string>` |   | ใช้ได้จริง = รองรับ ∩ เปิด (ว่างเมื่อยกเลิกการเชื่อม) |   |
 | `settings` | ใช่ | `object` |   | ค่าตั้งที่ไม่ลับ (base URL ฯลฯ) |   |
@@ -19494,8 +19498,8 @@ const { data, error } = await tms.GET('/v1/invoices/queue');
 | [`stop_not_ready`](#stop_not_ready) | 409 | ปิดงานจุดก่อนหน้าก่อน |
 | [`stop_skipped`](#stop_skipped) | 409 | จุดนี้ไม่มีใบส่งของแล้ว (นัดส่งใหม่ไปเที่ยวอื่น) — ไม่ต้องบันทึกที่จุดนี้ |
 | [`tenant_selection_required`](#tenant_selection_required) | 409 | อีเมลนี้เป็นสมาชิกหลายบริษัท เลือกบริษัทที่ต้องการเข้า |
-| [`trip_costing_unavailable`](#trip_costing_unavailable) | 409 | ปิดต้นทุนเที่ยวได้หลังกำหนดวิธีปันต้นทุนลง DO |
-| [`trip_costs_incomplete`](#trip_costs_incomplete) | 409 | ต้นทุนเที่ยวยังไม่ครบ — ยืนยัน/ปฏิเสธค่าใช้จ่ายหน้างานที่รอ และตรวจค่าจ้างรถร่วมก่อนปิดต้นทุน |
+| [`trip_costing_unavailable`](#trip_costing_unavailable) | 409 | ปิดต้นทุนเที่ยวถูกปิดใช้ชั่วคราวโดยผู้ดูแลระบบ |
+| [`trip_costs_incomplete`](#trip_costs_incomplete) | 409 | ต้นทุนเที่ยวยังไม่ครบ — ยืนยัน/ปฏิเสธค่าใช้จ่ายหน้างานที่รอ ตรวจค่าจ้างรถร่วม และรายได้ของใบส่งของ (ใช้ปันต้นทุน) ก่อนปิดต้นทุน |
 | [`trip_empty`](#trip_empty) | 409 | เที่ยวนี้ยังไม่มีใบส่งของ |
 | [`trip_has_loaded_orders`](#trip_has_loaded_orders) | 409 | ยกเลิกเที่ยวไม่ได้ — มีใบส่งของที่รับของขึ้นรถหรือส่งแล้ว (ปิดเที่ยวบางส่วนแล้วเปิดเที่ยวใหม่แทน) |
 | [`trip_not_in_progress`](#trip_not_in_progress) | 409 | บันทึกสถานะหน้างานได้เฉพาะเที่ยวที่ปล่อยรถแล้วและยังไม่จบ |
@@ -19517,6 +19521,7 @@ const { data, error } = await tms.GET('/v1/invoices/queue');
 | [`account_locked`](#account_locked) | 429 | ใส่รหัสผ่านผิดหลายครั้ง ลองใหม่อีกครั้งใน 15 นาที |
 | [`rate_limited`](#rate_limited) | 429 | เรียกถี่เกินไป |
 | [`internal_error`](#internal_error) | 500 | ระบบขัดข้อง |
+| [`trip_cost_allocation_failed`](#trip_cost_allocation_failed) | 500 | ปันต้นทุนเที่ยวลงใบส่งของไม่ลงตัว — ยังไม่ปิดต้นทุน กรุณาแจ้งผู้ดูแลระบบ |
 | [`pdf_render_timeout`](#pdf_render_timeout) | 503 | สร้าง PDF ไม่ทันเวลา กรุณาลองใหม่อีกครั้ง |
 | [`service_busy`](#service_busy) | 503 | ระบบกำลังมีผู้ใช้งานมาก กรุณาลองใหม่อีกครั้ง |
 
@@ -19972,13 +19977,13 @@ HTTP `409` · อีเมลนี้เป็นสมาชิกหลาย
 
 ## trip_costing_unavailable {#trip_costing_unavailable}
 
-HTTP `409` · ปิดต้นทุนเที่ยวได้หลังกำหนดวิธีปันต้นทุนลง DO
+HTTP `409` · ปิดต้นทุนเที่ยวถูกปิดใช้ชั่วคราวโดยผู้ดูแลระบบ
 
 พบใน: [`POST /v1/trips/{id}/cost`](ref-trips.md#post-trips-id-cost)
 
 ## trip_costs_incomplete {#trip_costs_incomplete}
 
-HTTP `409` · ต้นทุนเที่ยวยังไม่ครบ — ยืนยัน/ปฏิเสธค่าใช้จ่ายหน้างานที่รอ และตรวจค่าจ้างรถร่วมก่อนปิดต้นทุน
+HTTP `409` · ต้นทุนเที่ยวยังไม่ครบ — ยืนยัน/ปฏิเสธค่าใช้จ่ายหน้างานที่รอ ตรวจค่าจ้างรถร่วม และรายได้ของใบส่งของ (ใช้ปันต้นทุน) ก่อนปิดต้นทุน
 
 พบใน: [`POST /v1/trips/{id}/cost`](ref-trips.md#post-trips-id-cost)
 
@@ -20105,6 +20110,12 @@ HTTP `429` · เรียกถี่เกินไป
 ## internal_error {#internal_error}
 
 HTTP `500` · ระบบขัดข้อง
+
+อาจตอบได้จากหลาย endpoint
+
+## trip_cost_allocation_failed {#trip_cost_allocation_failed}
+
+HTTP `500` · ปันต้นทุนเที่ยวลงใบส่งของไม่ลงตัว — ยังไม่ปิดต้นทุน กรุณาแจ้งผู้ดูแลระบบ
 
 อาจตอบได้จากหลาย endpoint
 

@@ -103,7 +103,7 @@ describe('ตั้งค่า → การเชื่อมต่อ (ST7-T2
     wrap();
     const card = await screen.findByRole('group', { name: 'ERP จำลอง (Demo)' });
     fireEvent.click(within(card).getByRole('button', { name: 'เชื่อมต่อ' }));
-    const key = await screen.findByLabelText(/apiKey/);
+    const key = await screen.findByLabelText(/API key/);
     expect(key).toHaveAttribute('type', 'password');
     fireEvent.change(key, { target: { value: 'k-0001' } });
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'เชื่อมต่อ' }));
@@ -117,6 +117,71 @@ describe('ตั้งค่า → การเชื่อมต่อ (ST7-T2
     );
     await waitFor(() =>
       expect(POST).toHaveBeenCalledWith('/v1/connectors/{id}/resume', expect.anything()),
+    );
+  });
+
+  it('ST8-T03 KRS: ช่องค่าตั้งข้อความ (baseUrl บังคับ) อยู่ในฟอร์มเชื่อมต่อ · ส่งเป็น settings', async () => {
+    const krs = {
+      key: 'krs',
+      displayName: 'KRS',
+      demo: false,
+      capabilities: ['pullOrders', 'pushInvoice', 'fetchDocument', 'replaceDocument'],
+      configFields: [
+        {
+          key: 'baseUrl',
+          secret: false,
+          required: true,
+          kind: 'url',
+          maxLength: 300,
+          options: null,
+        },
+        {
+          key: 'apiKey',
+          secret: true,
+          required: true,
+          kind: 'string',
+          maxLength: 500,
+          options: null,
+        },
+        {
+          key: 'sqlUser',
+          secret: false,
+          required: false,
+          kind: 'string',
+          maxLength: 128,
+          options: null,
+        },
+      ],
+    };
+    GET.mockImplementation(async (path: string) => {
+      if (path === '/v1/connectors') return { data: { data: [] } };
+      if (path === '/v1/connectors/adapters') return { data: { data: [ADAPTER, krs] } };
+      return { data: { data: [] } };
+    });
+    wrap();
+    const card = await screen.findByRole('group', { name: 'KRS' });
+    fireEvent.click(within(card).getByRole('button', { name: 'เชื่อมต่อ' }));
+    const dlg = await screen.findByRole('dialog');
+    const url = within(dlg).getByLabelText(/URL ของ API/);
+    expect(url).toHaveAttribute('type', 'url');
+    expect(within(dlg).getByLabelText(/ผู้ใช้ SQL/)).toHaveAttribute('type', 'text');
+    fireEvent.change(within(dlg).getByLabelText(/API key/), { target: { value: 'k-krs' } });
+    const ok = within(dlg).getByRole('button', { name: 'เชื่อมต่อ' });
+    expect(ok).toBeDisabled(); // baseUrl ยังว่าง
+    fireEvent.change(url, { target: { value: ' https://krs.example/api ' } });
+    expect(ok).toBeEnabled();
+    fireEvent.click(ok);
+    await waitFor(() =>
+      expect(POST).toHaveBeenCalledWith(
+        '/v1/connectors',
+        expect.objectContaining({
+          body: {
+            adapterKey: 'krs',
+            credentials: { apiKey: 'k-krs' },
+            settings: { baseUrl: 'https://krs.example/api' },
+          },
+        }),
+      ),
     );
   });
 
@@ -158,6 +223,41 @@ describe('ตั้งค่า → การเชื่อมต่อ (ST7-T2
     expect(screen.queryByRole('button', { name: 'ใช้โหมดนี้' })).toBeNull();
   });
 
+  it('ST8-T03 ERROR จากปลายทางล่ม (TRANSIENT): บอกว่าติดต่อปลายทางไม่ได้ ไม่ใช่ "แก้ key" · ความสามารถที่ยังไม่ได้ทำ = "ยังไม่รองรับ"', async () => {
+    conns = [
+      {
+        ...conn('ERROR'),
+        lastHealthError: { code: 'unreachable', errorClass: 'TRANSIENT' },
+        activatedAt: 'x',
+        capabilitiesPending: ['fetchDocument'],
+      },
+    ];
+    wrap();
+    const detail = await screen.findByTestId('connector-detail');
+    expect(
+      within(detail).getByText(/ติดต่อปลายทางไม่ได้ \(ติดต่อระบบปลายทางไม่ได้\)/),
+    ).toBeInTheDocument();
+    expect(within(detail).queryByText(/แก้ key/)).toBeNull();
+    const pending = within(detail).getByTestId('capability-pending');
+    expect(pending.textContent).toContain('อ่านเอกสารจากระบบบัญชี');
+    expect(pending.textContent).toContain('ยังไม่รองรับ');
+  });
+
+  it('ทดสอบไม่ผ่าน = toast แบบ error พร้อมข้อความไทยของรหัส', async () => {
+    conns = [conn('ACTIVE')];
+    POST.mockImplementation(async (path: string) =>
+      path.endsWith('/health')
+        ? { data: { ok: false, code: 'unreachable', connector: conn('ACTIVE') } }
+        : { data: conn('ACTIVE') },
+    );
+    wrap();
+    const card = await screen.findByRole('group', { name: 'ERP จำลอง (Demo)' });
+    fireEvent.click(within(card).getByRole('button', { name: 'ทดสอบ' }));
+    const st = await screen.findByRole('status');
+    await waitFor(() => expect(st.textContent).toContain('ติดต่อระบบปลายทางไม่ได้'));
+    expect(st.className).toContain('tms-toast--err');
+  });
+
   it('ERROR: หัวกล่องบอกว่าเชื่อมต่อไม่ได้ (ไม่ใช่ "ยังไม่ได้เชื่อมต่อ") · แท็บประวัติแสดงทีม Innovera', async () => {
     conns = [{ ...conn('ERROR'), lastHealthError: { code: 'unauthorized' }, activatedAt: 'x' }];
     GET.mockImplementation(async (path: string) => {
@@ -186,7 +286,9 @@ describe('ตั้งค่า → การเชื่อมต่อ (ST7-T2
     });
     wrap();
     const detail = await screen.findByTestId('connector-detail');
-    expect(within(detail).getByText(/เชื่อมต่อไม่ได้ \(unauthorized\)/)).toBeInTheDocument();
+    expect(
+      within(detail).getByText(/เชื่อมต่อไม่ได้ \(key ไม่ถูกต้องหรือถูกเพิกถอน\) · แก้ key/),
+    ).toBeInTheDocument();
     expect(within(detail).queryByText('ยังไม่ได้เชื่อมต่อ · ตั้งค่าล่วงหน้าได้')).toBeNull();
     fireEvent.click(within(detail).getByRole('tab', { name: 'ประวัติ' }));
     expect(await within(detail).findByText('เปลี่ยน key')).toBeInTheDocument();

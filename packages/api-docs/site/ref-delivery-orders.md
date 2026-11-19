@@ -923,6 +923,7 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `doNo` | ใช่ | `string` | null ได้ |   | `DO-2611-00001` |
 | `sellRevenueTotal` |   | `string` |   | รายได้ของใบส่งของก่อน VAT = ผลรวมบรรทัดที่ยังใช้ (ACTIVE) — เห็นเมื่อมี `prices.sell:read` | `8750.00` |
 | `provisional` | ใช่ | `boolean` |   | true = มีบรรทัดที่ยอดยังไม่ยืนยัน (ยังไม่บันทึกยอดส่งจริง) |   |
+| `buyAllocatedCost` |   | `string` | null ได้ | ต้นทุนเที่ยวที่ปันลงใบนี้ · null = เที่ยวยังไม่ปิดต้นทุน · กำไรต่อ DO = `sellRevenueTotal` − `buyAllocatedCost` (ผู้เรียกคำนวณเอง — ต้องมีสิทธิ์ทั้งสองฝั่ง) · เห็นเมื่อมี `prices.buy:read` | `2400.25` |
 | `data` | ใช่ | `array<RevenueLineDto>` |   | รวมบรรทัดที่ยกเลิก (`status` VOIDED) |   |
 
 ### DeliveryOrderSplitResultDto {#schema-DeliveryOrderSplitResultDto}

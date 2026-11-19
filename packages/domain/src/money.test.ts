@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { allocateSatang, decimalFromSatang, mulRateHalfUp, satangFromDecimal } from './money';
+import {
+  allocateSatang,
+  allocateSatangRemainderTo,
+  decimalFromSatang,
+  mulRateHalfUp,
+  satangFromDecimal,
+} from './money';
 
 describe('money', () => {
   it('แปลงไปกลับไม่เสียค่า', () => {
@@ -36,5 +42,26 @@ describe('allocateSatang', () => {
   it('ยอด/น้ำหนักติดลบ → RangeError', () => {
     expect(() => allocateSatang(-1n, [1n])).toThrow(RangeError);
     expect(() => allocateSatang(1n, [-1n, 2n])).toThrow(RangeError);
+  });
+});
+
+describe('allocateSatangRemainderTo (ST6-T01c)', () => {
+  it('ปันตามสัดส่วน เศษทั้งหมดให้ตัวที่กำหนด · ผลรวมเท่ายอดเดิม', () => {
+    // 100.01 บาท ตามรายได้ 1:1:1 → 33.33 ×3 + เศษ 0.02 ไปตัวที่ index 1
+    expect(allocateSatangRemainderTo(10001n, [100n, 100n, 100n], 1)).toEqual([3333n, 3335n, 3333n]);
+    const r = allocateSatangRemainderTo(480050n, [300000n, 125000n, 7n], 0);
+    expect(r.reduce((a, b) => a + b, 0n)).toBe(480050n);
+    expect(r[1]).toBe((480050n * 125000n) / 425007n);
+  });
+  it('ยอดติดลบ = กลับเครื่องหมายของการปันยอดบวก (กลับรายการหักล้างพอดี)', () => {
+    const pos = allocateSatangRemainderTo(10001n, [1n, 2n], 1);
+    const neg = allocateSatangRemainderTo(-10001n, [1n, 2n], 1);
+    expect(neg).toEqual(pos.map((v) => -v));
+  });
+  it('น้ำหนักศูนย์ได้ 0 · น้ำหนักรวม 0 → ทั้งยอดไปตัวที่กำหนด · ผิดรูป → RangeError', () => {
+    expect(allocateSatangRemainderTo(999n, [0n, 5n], 1)).toEqual([0n, 999n]);
+    expect(allocateSatangRemainderTo(999n, [0n, 0n], 0)).toEqual([999n, 0n]);
+    expect(() => allocateSatangRemainderTo(1n, [-1n, 2n], 0)).toThrow(RangeError);
+    expect(() => allocateSatangRemainderTo(1n, [1n], 1)).toThrow(RangeError);
   });
 });

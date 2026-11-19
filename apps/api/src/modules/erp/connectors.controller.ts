@@ -213,7 +213,7 @@ export class ConnectorsController {
   @ApiOkResponse({
     type: ConnectorHealthDto,
     description:
-      'ทดสอบการเชื่อมต่อ (healthCheck ≤ 15 วิ) — ACTIVE + AUTH ล้ม → ERROR · ERROR + ผ่าน → ACTIVE',
+      'ทดสอบการเชื่อมต่อ (healthCheck ≤ 15 วิ) — ACTIVE + ล้มแบบ AUTH หรือ TRANSIENT (ปลายทางล่ม/503/timeout) → ERROR หยุดคิว · ERROR + ผ่าน → ACTIVE',
   })
   health(@Param('id') id: string): Promise<ConnectorHealthDto> {
     return this.connectors.health(decodeIdOr404('connector', id));
