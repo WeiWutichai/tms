@@ -372,6 +372,16 @@ export class SettlementsService {
     const ctx = requestContext.require();
     // ST6-T05 จะเพิ่ม SENT_TO_CARRIER เป็นสถานะที่อนุมัติได้ (docs/01 §4.5) — ตอนนี้ DRAFT → APPROVED (tenant ข้ามขั้นรถร่วมตรวจ)
     const s = await this.lockDraft(tx, id, expected);
+    // อนุมัติต้องอ้าง version ที่ผู้อนุมัติเห็น (review L5) — ไม่ส่ง If-Match = 422 `if_match_required` (แบบ ST4-T11)
+    // ตรวจหลังหาใบเจอ (ใบของบริษัทอื่น/ไม่มี = 404 ก่อน)
+    if (expected === undefined)
+      throw invalid([
+        {
+          field: 'If-Match',
+          code: 'if_match_required',
+          message: 'send If-Match (ETag of the settlement)',
+        },
+      ]);
     const actor = ctx.actorId;
     // อนุมัติ = คนที่ login เท่านั้น (review H1) — API key / OAuth client ไม่มี scope นี้อยู่แล้ว (API_KEY_DENIED_SCOPES) กันอีกชั้นที่นี่
     if (!actor || !HUMAN_PRINCIPALS.has(ctx.principalType ?? ''))

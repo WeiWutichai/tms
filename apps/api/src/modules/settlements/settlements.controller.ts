@@ -314,20 +314,10 @@ export class SettlementsController {
     const token = req.header('x-step-up');
     const su = token ? await verifyStepUpToken(token) : null;
     const steppedUp = !!su && su.sub === ctx.actorId && su.tid === ctx.tenantId;
-    // อนุมัติต้องอ้าง version ที่ผู้อนุมัติเห็น (review L5) — ไม่ส่ง If-Match = 422 `if_match_required` (แบบ ST4-T11)
-    const expected = expectedVersion(req);
-    if (expected === undefined)
-      throw new ProblemException('validation_failed', undefined, [
-        {
-          field: 'If-Match',
-          code: 'if_match_required',
-          message: 'send If-Match (ETag of the settlement)',
-        },
-      ]);
     const out = await this.svc.approve(
       decodeIdOr404('settlement', id),
       body.reason,
-      expected,
+      expectedVersion(req),
       steppedUp,
     );
     setEtag(res, out.version);
