@@ -950,6 +950,18 @@ describe('revenue lines (ST5-T01)', () => {
       .post(`/v1/delivery-orders/${y}/merge`)
       .send({ deliveryOrderIds: [x] })
       .expect(409);
+    const cx = await api(app, admin)
+      .post(`/v1/delivery-orders/${x}/cancel`)
+      .send({ reason: 'ลูกค้าขอยกเลิกใบที่ออกบิลแล้ว' })
+      .expect(409);
+    expect(cx.body).toMatchObject({
+      code: 'invalid_state_transition',
+      reason: 'revenue_line_locked',
+    });
+    expect(
+      (await db.deliveryOrder.findUniqueOrThrow({ where: { id: uuid('deliveryOrder', x!) } }))
+        .status,
+    ).toBe('DRAFT');
     // review M3: เพิ่มบรรทัดเองกันเฉพาะ DO ที่ออกใบแล้ว
     await addManual(t.pub, { deliveryOrderId: x }).expect(409);
     await addManual(t.pub, { deliveryOrderId: y }).expect(201);
