@@ -2889,6 +2889,8 @@ model Connector {
   lastHealthOk         Boolean?        @map("last_health_ok")
   /// ผล healthCheck ล่าสุดที่ล้ม {errorClass, code, message} (ตัด secret แล้ว)
   lastHealthError      Json?           @map("last_health_error")
+  /// ST8-T03 เวลาที่ healthCheck เริ่มล้มแบบ TRANSIENT ต่อเนื่อง (null = ปกติ) — ล้มต่อเนื่อง ≥ 30 นาที → ERROR (spec/07 §1 ตารางสถานะ)
+  healthFailingSince   DateTime?       @map("health_failing_since") @db.Timestamptz(6)
   activatedAt          DateTime?       @map("activated_at") @db.Timestamptz(6)
   disconnectedAt       DateTime?       @map("disconnected_at") @db.Timestamptz(6)
   createdBy            String?         @map("created_by")

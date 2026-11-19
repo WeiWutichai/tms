@@ -4,12 +4,13 @@ import { Icon } from '@tms/ui';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { queryClient } from '../api';
-import { formatDateTime, useI18n } from '../i18n';
+import { formatDateTime, type T, useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/th';
 import {
   adapterName,
   COMMAND_BADGE,
   docLabel,
+  fieldLabel,
   MASK,
   operationLabel,
   thDate,
@@ -471,7 +472,7 @@ function ConnectorDrawer({
         <ActionDialog
           title={t('con.conn.dlg.rotT', { n, co: c.tenantName })}
           desc={t('con.conn.dlg.rotD')}
-          fields={secretFields(adapter)}
+          fields={secretFields(t, adapter)}
           okL={t('con.conn.act.rotate')}
           check={(v) => (missingSecret(adapter, v) ? t('con.conn.f.required') : '')}
           onClose={() => setDlg(null)}
@@ -523,13 +524,18 @@ function ConnectorDrawer({
   );
 }
 
-function secretFields(a?: Adapter): Field[] {
+function secretFields(t: T, a?: Adapter): Field[] {
   return (a?.configFields ?? [])
     .filter((f) => f.secret)
-    .map((f) => ({ k: `cred.${f.key}`, l: 'con.conn.f.cred', label: f.key, type: 'pw' as const }));
+    .map((f) => ({
+      k: `cred.${f.key}`,
+      l: 'con.conn.f.cred',
+      label: fieldLabel(t, f.key),
+      type: 'pw' as const,
+    }));
 }
 /** ค่าตั้งที่ไม่ลับ: มีตัวเลือก (เช่น โหมดทดสอบของ Demo) = เลือก · ข้อความอิสระ (base URL ของ KRS ฯลฯ — ST8-T03) = ช่องกรอก */
-function settingFields(a: Adapter | undefined, def: string): Field[] {
+function settingFields(t: T, a: Adapter | undefined, def: string): Field[] {
   return (a?.configFields ?? [])
     .filter((f) => !f.secret)
     .map((f) =>
@@ -537,11 +543,16 @@ function settingFields(a: Adapter | undefined, def: string): Field[] {
         ? {
             k: `set.${f.key}`,
             l: 'con.conn.f.cred' as const,
-            label: f.key,
+            label: fieldLabel(t, f.key),
             type: 'sel' as const,
             opts: [{ v: '', l: def }, ...f.options.map((o) => ({ v: o, l: o }))],
           }
-        : { k: `set.${f.key}`, l: 'con.conn.f.cred' as const, label: f.key, type: 'in' as const },
+        : {
+            k: `set.${f.key}`,
+            l: 'con.conn.f.cred' as const,
+            label: fieldLabel(t, f.key),
+            type: 'in' as const,
+          },
     );
 }
 function pickSettings(a: Adapter | undefined, v: Record<string, string>) {
@@ -598,8 +609,12 @@ function CreateDialog({
             l: adapterName(t, a.key, a.displayName, a.demo),
           })),
         },
-        ...secretFields(adapters.find((a) => a.key === (v.adapter || first))),
+        ...secretFields(
+          t,
+          adapters.find((a) => a.key === (v.adapter || first)),
+        ),
         ...settingFields(
+          t,
           adapters.find((a) => a.key === (v.adapter || first)),
           t('cnx.f.default'),
         ),

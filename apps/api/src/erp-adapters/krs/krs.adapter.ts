@@ -21,7 +21,7 @@ import { safeHttpRequest, type SendOptions } from '../../modules/webhooks/webhoo
  * - capabilities ตาม docs/01 A.2: `{pullOrders, pushInvoice, fetchDocument, replaceDocument}` + ธง `ownsDocumentNumber`
  *   (KRS ออก `voucherNo` เอง) — **ไม่มี** pushCreditNote / pushSettlement / fetchPaymentStatus / postedStatus / listDocuments
  *   และไม่ดึงผังรหัส (`masterCodeKinds` ว่าง — plan/11 #8: ไม่มี getMasters → นำเข้าไฟล์ ST7-T18)
- * - method ของโครงยังไม่ทำ → CAPABILITY `not_implemented` (คำสั่ง SKIPPED ไม่ลองใหม่):
+ * - method ของโครงยังไม่ทำ → `pendingCapabilities` + ตอบ CAPABILITY `not_implemented` (core พักคำสั่งไว้ ไม่ทิ้ง):
  *   pullOrders = ST8-T04 (SQL read-only view), pushInvoice = ST8-T08, replaceDocument = ST8-T09/T11, fetchDocument = ST8-T10
  * - ค่าตั้ง: `baseUrl` (เช่น `https://api-pueanphet.krs.co.th/api`), credential `apiKey` (header `X-API-Key` — เข้ารหัส FieldCipher, write-only),
  *   SQL Server login แบบอ่านอย่างเดียว (`sqlServer`/`sqlDatabase`/`sqlUser` + credential `sqlPassword`) **เก็บไว้เฉย ๆ** จนถึง ST8-T02/T04
@@ -68,6 +68,12 @@ export class KrsAdapter implements ErpAdapter {
   capabilities(): ReadonlySet<ErpCapability> {
     return new Set(CAPS);
   }
+
+  /**
+   * โครง: ทุก capability ยังไม่ได้ทำ → core ไม่เปิดเป็นค่าเริ่มต้น เปิดไม่ได้ แสดง "ยังไม่รองรับ" และพักคำสั่งที่ค้าง
+   * (เอาออกจากรายการเมื่อทำเสร็จ: pullOrders ST8-T04, pushInvoice + ownsDocumentNumber ST8-T08, replaceDocument ST8-T09/T11, fetchDocument ST8-T10)
+   */
+  readonly pendingCapabilities: readonly ErpCapability[] = CAPS;
 
   async healthCheck(ctx: ErpContext): Promise<HealthResult> {
     const base = (ctx.config.baseUrl ?? '').trim().replace(/\/+$/, '');

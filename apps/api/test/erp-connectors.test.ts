@@ -2,6 +2,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { Clock } from '../src/common/clock';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { DbService } from '../src/db/db.service';
 import { EntitlementService } from '../src/modules/entitlements/entitlement.service';
@@ -312,7 +313,8 @@ describe('connectors (ST7-T13)', () => {
     };
     const h = await api(app, token).post(`/v1/connectors/${id}/health`).expect(200);
     expect(h.body).toMatchObject({ ok: false, errorClass: 'AUTH', code: 'unauthorized' });
-    expect(h.body.message).not.toContain(GOOD_KEY); // ตัด credential ออกจากข้อความของปลายทาง
+    expect(h.body.message).not.toContain(GOOD_KEY); // ข้อความไทยตามรหัส
+    expect(h.body.detail).not.toContain(GOOD_KEY); // ตัด credential ออกจากข้อความของปลายทาง
     expect(h.body.connector.status).toBe('ERROR');
     fake.health = undefined;
     const h2 = await api(app, token).post(`/v1/connectors/${id}/health`).expect(200);
@@ -541,7 +543,10 @@ describe('connectors (ST7-T13)', () => {
       );
     });
 
-    it('ST8-T03 ส่งล้ม TRANSIENT + healthCheck ยืนยันปลายทางล่ม → connector ERROR หยุดทั้งคิว (คำสั่งอื่นพักไว้)', async () => {
+    it('ST8-T03 ส่งล้ม TRANSIENT + healthCheck ล้ม: ครั้งแรกยังไม่หยุด · ล้มต่อเนื่อง ≥ 30 นาที → ERROR หยุดทั้งคิว (spec/07 §1)', async () => {
+      const clock = app.get(Clock);
+      const t0 = new Date('2026-11-19T03:00:00Z');
+      clock.set(t0);
       const cid = await activeConnector();
       fake.fail = { errorClass: 'TRANSIENT', message: '503' };
       fake.health = {
@@ -552,6 +557,12 @@ describe('connectors (ST7-T13)', () => {
       const a = await enqueue(cid, 'PUSH_INVOICE');
       await drain();
       expect(await cmd(a)).toMatchObject({ status: 'FAILED_RETRYABLE', errorClass: 'TRANSIENT' });
+      const first = await plat.connector.findUniqueOrThrow({ where: { id: cid } });
+      expect(first.status).toBe('ACTIVE');
+      expect(first.healthFailingSince?.toISOString()).toBe(t0.toISOString());
+      clock.set(new Date(t0.getTime() + 31 * 60_000));
+      await drain(); // ส่งซ้ำ → ล้มอีก → ล้มต่อเนื่องครบ 30 นาที
+      clock.set(null);
       const con = await plat.connector.findUniqueOrThrow({ where: { id: cid } });
       expect(con).toMatchObject({
         status: 'ERROR',

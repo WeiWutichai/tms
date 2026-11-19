@@ -2,7 +2,10 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { PrismaClient } from '@prisma/client';
 import { type MockKrs, startMockKrs } from '@tms/mock-krs';
 import { randomUUID } from 'node:crypto';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Clock } from '../src/common/clock';
+import { ConnectorsService } from '../src/modules/erp/connectors.service';
+import { NotificationEvents } from '../src/modules/notifications/notification-events';
 import { tryDecodeId } from '../src/common/ids';
 import { DbService } from '../src/db/db.service';
 import { KrsAdapter } from '../src/erp-adapters/krs/krs.adapter';
@@ -195,6 +198,8 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
   const plat: PrismaClient = platform();
   let db: DbService;
   let dispatcher: OutboxDispatcher;
+  let connectors: ConnectorsService;
+  let clock: Clock;
   let mock: MockKrs;
   let tenantId: string;
   let userId: string;
@@ -235,6 +240,8 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
     app = await bootApp();
     db = app.get(DbService);
     dispatcher = app.get(OutboxDispatcher);
+    connectors = app.get(ConnectorsService);
+    clock = app.get(Clock);
     mock = await startMockKrs({ apiKey: KEY });
     tenantId = (await createTenant(plat, 'บริษัท เชื่อม KRS')).id;
     await plat.tenant.update({ where: { id: tenantId }, data: { planCode: 'ent' } });
@@ -254,6 +261,7 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
     process.stderr.write = capture(origErr) as typeof process.stderr.write;
   });
   beforeEach(async () => {
+    clock.set(null);
     mock.clearFaults();
     await plat.$executeRaw`UPDATE integration_outbox SET status = 'SKIPPED', lease_id = NULL, lease_until = NULL
                             WHERE status IN ('PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE')`;
@@ -263,6 +271,7 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
     });
   });
   afterAll(async () => {
+    clock?.set(null);
     process.stdout.write = origOut;
     process.stderr.write = origErr;
     if (prevPrivate === undefined) delete process.env.WEBHOOK_ALLOW_PRIVATE_TARGETS;
@@ -285,17 +294,19 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
         credentials: { ...credentials, sqlPassword: 'sql-ro-pass-55aa' },
       });
 
-  it('catalog มี KRS (ไม่ใช่ demo) พร้อม capabilities และช่องตั้งค่า', async () => {
+  it('catalog มี KRS (ไม่ใช่ demo) · capability ทั้งหมดยังไม่รองรับ (pending) · ช่องตั้งค่า', async () => {
     const cat = await api(app, token).get('/v1/connectors/adapters').expect(200);
     const k = cat.body.data.find((a: { key: string }) => a.key === 'krs');
     expect(k).toMatchObject({ key: 'krs', displayName: 'KRS', demo: false, masterCodeKinds: [] });
-    expect(k.capabilities).toEqual([
+    const all = [
       'pullOrders',
       'pushInvoice',
       'fetchDocument',
       'replaceDocument',
       'ownsDocumentNumber',
-    ]);
+    ];
+    expect(k.capabilities).toEqual(all);
+    expect(k.capabilitiesPending).toEqual(all);
     expect(k.configFields.map((f: { key: string }) => f.key)).toEqual([
       'baseUrl',
       'apiKey',
@@ -305,6 +316,36 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
       'sqlUser',
       'sqlPassword',
     ]);
+  });
+
+  it('M1: capability ที่ยังไม่ได้ทำไม่เปิดเป็นค่าเริ่มต้น · ขอเปิด = 422 · คำสั่ง PUSH_INVOICE ที่ค้าง = PENDING (ไม่ SKIPPED ไม่เสียครั้ง)', async () => {
+    const r = await createKrs();
+    expect(r.status, JSON.stringify(r.body)).toBe(201);
+    expect(r.body).toMatchObject({
+      capabilitiesSupported: [],
+      capabilitiesEnabled: [],
+      capabilities: [],
+    });
+    expect(r.body.capabilitiesPending).toContain('pushInvoice');
+    const bad = await api(app, token)
+      .patch(`/v1/connectors/${r.body.id}`)
+      .send({ capabilitiesEnabled: ['pushInvoice'] });
+    expect(bad.status).toBe(422);
+    expect(bad.body.errors[0]).toMatchObject({
+      field: 'capabilitiesEnabled',
+      code: 'capability_not_supported',
+    });
+    await api(app, token).post(`/v1/connectors/${r.body.id}/resume`).send({}).expect(200);
+    const c = await enqueue(uuid(r.body.id));
+    await drain();
+    await drain();
+    const row = await cmd(c);
+    expect(row).toMatchObject({ status: 'PENDING', errorClass: 'AUTH', attempt: 0 });
+    expect(row.lastError).toMatchObject({
+      code: 'capability_not_implemented',
+      capability: 'pushInvoice',
+    });
+    expect(mock.requests().some((q) => q.method === 'POST')).toBe(false);
   });
 
   it('เปิด connector KRS → healthCheck เขียว → ACTIVE · credential เข้ารหัส ไม่ส่งกลับ ไม่ลง audit/log', async () => {
@@ -345,50 +386,105 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
     expect(JSON.stringify(no.body)).not.toContain('wrong-key-krs-0000');
   });
 
-  it('ปิด mock → ทดสอบไม่ผ่าน (TRANSIENT) → connector ERROR + คิวหยุด (คำสั่งพักไว้ไม่ส่ง) · mock กลับมา → ACTIVE ส่งต่อ', async () => {
+  it('M2: ปิด mock → ล้ม TRANSIENT ครั้งเดียวยังไม่หยุด · ล้มต่อเนื่อง ≥ 30 นาที → ERROR หยุดคิว · ปลายทางกลับมา → worker คืน ACTIVE เอง', async () => {
+    const t0 = new Date('2026-11-19T03:00:00Z');
+    clock.set(t0);
     const down = await startMockKrs({ apiKey: KEY });
     const r = await createKrs({ apiKey: KEY }, down.apiBaseUrl);
     const id = r.body.id as string;
     await api(app, token).post(`/v1/connectors/${id}/resume`).send({}).expect(200);
     await down.stop();
     const h = await api(app, token).post(`/v1/connectors/${id}/health`).expect(200);
-    expect(h.body).toMatchObject({ ok: false, errorClass: 'TRANSIENT', code: 'unreachable' });
-    expect(h.body.connector.status).toBe('ERROR');
+    expect(h.body).toMatchObject({
+      ok: false,
+      errorClass: 'TRANSIENT',
+      code: 'unreachable',
+      message: expect.stringContaining('ติดต่อระบบปลายทางไม่ได้'),
+    });
+    expect(h.body.connector.status).toBe('ACTIVE');
+    let row = await plat.connector.findUniqueOrThrow({ where: { id: uuid(id) } });
+    expect(row.healthFailingSince?.toISOString()).toBe(t0.toISOString());
+    // worker ตรวจซ้ำ 29 นาทีต่อมา — ยังล้ม แต่ไม่ถึง 30 นาที
+    clock.set(new Date(t0.getTime() + 29 * 60_000));
+    await connectors.recheckUnhealthy();
+    row = await plat.connector.findUniqueOrThrow({ where: { id: uuid(id) } });
+    expect(row).toMatchObject({ status: 'ACTIVE' });
+    expect(row.healthFailingSince?.toISOString()).toBe(t0.toISOString()); // คงเวลาเริ่มเดิม
+    // ครบ 30 นาที → ERROR หยุดคิว
+    clock.set(new Date(t0.getTime() + 31 * 60_000));
+    await connectors.recheckUnhealthy();
+    row = await plat.connector.findUniqueOrThrow({ where: { id: uuid(id) } });
+    expect(row).toMatchObject({ status: 'ERROR', statusReason: 'unreachable' });
+    expect(row.lastHealthError).toMatchObject({ errorClass: 'TRANSIENT' });
     const c = await enqueue(uuid(id));
     await drain();
     expect(await cmd(c)).toMatchObject({ status: 'PENDING', errorClass: 'AUTH', attempt: 0 });
     expect((await cmd(c)).lastError).toMatchObject({ code: 'connector_not_active' });
-    // ชี้ไปที่ mock ที่ทำงาน (เช่น KRS กลับมา) → ทดสอบผ่าน → ACTIVE + ปลุกคิว → คำสั่งถึง adapter (โครง: SKIPPED not_implemented)
-    await api(app, token)
-      .patch(`/v1/connectors/${id}`)
-      .send({ settings: { baseUrl: mock.apiBaseUrl } })
-      .expect(200);
-    const back = await api(app, token).post(`/v1/connectors/${id}/health`).expect(200);
-    expect(back.body.connector.status).toBe('ACTIVE');
+    // ปลายทางกลับมา (ชี้ไป mock ที่ทำงาน) → worker ตรวจรอบถัดไป → ACTIVE เอง + audit + แจ้ง
+    await plat.connector.update({
+      where: { id: uuid(id) },
+      data: { settings: { baseUrl: mock.apiBaseUrl } },
+    });
+    const notify = vi.spyOn(app.get(NotificationEvents), 'connectorRecovered');
+    clock.set(new Date(t0.getTime() + 36 * 60_000));
+    await connectors.recheckUnhealthy();
+    row = await plat.connector.findUniqueOrThrow({ where: { id: uuid(id) } });
+    expect(row).toMatchObject({ status: 'ACTIVE', healthFailingSince: null, lastHealthOk: true });
+    expect(notify).toHaveBeenCalledTimes(1);
+    notify.mockRestore();
+    const audit = await plat.auditLog.findFirst({
+      where: { entityId: uuid(id), action: 'connector.recovered' },
+    });
+    expect(audit?.after).toMatchObject({ status: 'ACTIVE', by: 'system' });
+    // คำสั่งที่พักไว้ถูกปลุก → ถึง sink อีกครั้ง → พักต่อเพราะ capability ยังไม่ได้ทำ (ไม่ SKIPPED)
     await drain();
-    expect(await cmd(c)).toMatchObject({ status: 'SKIPPED', errorClass: 'CAPABILITY' });
-    expect((await cmd(c)).lastError).toMatchObject({ code: 'not_implemented' });
+    expect(await cmd(c)).toMatchObject({ status: 'PENDING', attempt: 0 });
+    expect((await cmd(c)).lastError).toMatchObject({ code: 'capability_not_implemented' });
   });
 
-  it('KRS ตอบ 503 (DB KRS ล่ม) → ทดสอบไม่ผ่าน → ERROR หยุดทั้งคิว + audit (docs/01 A.2/A.5)', async () => {
+  it('M2: KRS ตอบ 503 ครั้งเดียว = ยังไม่หยุด · 401 (AUTH) = ERROR ทันที และ worker ไม่กู้คืนเอง', async () => {
+    clock.set(new Date('2026-11-19T05:00:00Z'));
     const r = await createKrs();
     const id = r.body.id as string;
     await api(app, token).post(`/v1/connectors/${id}/resume`).send({}).expect(200);
-    mock.injectFault({ kind: 'status', status: 503, times: 0 });
+    mock.injectFault({ kind: 'status', status: 503, times: 1 });
     const h = await api(app, token).post(`/v1/connectors/${id}/health`).expect(200);
     expect(h.body).toMatchObject({
       ok: false,
       errorClass: 'TRANSIENT',
       code: 'service_unavailable',
     });
-    expect(h.body.connector).toMatchObject({
-      status: 'ERROR',
-      statusReason: 'service_unavailable',
-    });
-    const audit = await plat.auditLog.findFirst({
-      where: { entityId: uuid(id), action: 'connector.error' },
-    });
-    expect(audit).toBeTruthy();
+    expect(h.body.connector.status).toBe('ACTIVE');
+    // ผ่านรอบถัดไป → ล้างเวลาเริ่มล้ม
+    await connectors.recheckUnhealthy();
+    expect(
+      (await plat.connector.findUniqueOrThrow({ where: { id: uuid(id) } })).healthFailingSince,
+    ).toBeNull();
+    mock.injectFault({ kind: 'status', status: 401, times: 1 });
+    const a = await api(app, token).post(`/v1/connectors/${id}/health`).expect(200);
+    expect(a.body).toMatchObject({ ok: false, errorClass: 'AUTH', code: 'unauthorized' });
+    expect(a.body.connector.status).toBe('ERROR');
+    await connectors.recheckUnhealthy(); // ปลายทางตอบปกติแล้ว แต่ ERROR(AUTH) ต้องให้คนแก้ key
+    expect((await plat.connector.findUniqueOrThrow({ where: { id: uuid(id) } })).status).toBe(
+      'ERROR',
+    );
+  });
+
+  it('PUT credentials บางช่อง = รวมกับค่าเดิม (หมุน apiKey ไม่ลบ sqlPassword)', async () => {
+    const r = await createKrs();
+    const id = r.body.id as string;
+    const put = await api(app, token)
+      .put(`/v1/connectors/${id}/credentials`)
+      .send({ credentials: { apiKey: 'rotated-key-1234' }, reason: 'หมุน key ตามรอบทดสอบ' })
+      .expect(200);
+    expect(put.body.credentialKeys).toEqual(['apiKey', 'sqlPassword']);
+    const row = await plat.connector.findUniqueOrThrow({ where: { id: uuid(id) } });
+    const cfg = connectors.configOf(row);
+    expect(cfg).toMatchObject({ apiKey: 'rotated-key-1234', sqlPassword: 'sql-ro-pass-55aa' });
+    await api(app, token)
+      .put(`/v1/connectors/${id}/credentials`)
+      .send({ credentials: {} })
+      .expect(422);
   });
 
   it('tenant sandbox ใช้ connector KRS ไม่ได้ (LiveOnly)', async () => {
