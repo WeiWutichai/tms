@@ -771,6 +771,40 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('doSurcharge', s.id);
     },
+    // ST5-T01 บรรทัดรายได้ที่คนเพิ่ม (/revenue-lines/:id/void)
+    revenueLine: async (db, tenantId, n) => {
+      const soId = (await FIXTURES.salesOrder!(db, tenantId, 9500 + n)).replace(/^ord_/, '');
+      const id = soId.replace(/^(.{8})(.{4})(.{4})(.{4})/, '$1-$2-$3-$4-');
+      const svc = await db.serviceItem.create({
+        data: {
+          tenantId,
+          code: `ISO-RVL${n}`,
+          nameTh: `ค่ายกของ ${n}`,
+          vatType: 'VAT_7',
+          whtRate: '3.00',
+          calcUnit: 'PER_TRIP',
+          unitLabel: 'เที่ยว',
+        },
+      });
+      const l = await db.revenueLine.create({
+        data: {
+          tenantId,
+          salesOrderId: id,
+          lineNo: 1,
+          sourceType: 'MANUAL',
+          isUserAdded: true,
+          kind: 'ACCESSORIAL',
+          serviceItemId: svc.id,
+          description: 'ค่ายกของ',
+          qty: '1',
+          unitPrice: '100',
+          amount: '100',
+          vatType: 'VAT_7',
+          whtRate: '3.00',
+        },
+      });
+      return encodeId('revenueLine', l.id);
+    },
     // ST4-T13 ค่าใช้จ่ายหน้างานฝั่งซื้อ (/trip-costs/:id/confirm|reject|cancel)
     tripCost: async (db, tenantId, n) => {
       const t = await db.trip.create({
@@ -911,6 +945,13 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
 
 /** body เฉพาะ route (suffix เดียวกันแต่ validation ต่างกัน) — มาก่อน BODY_FOR_SUFFIX */
 const BODY_FOR_PATH: Record<string, object> = {
+  // ST5-T01 เพิ่มบรรทัดรายได้เอง (body ผ่าน validation → ไปถึงการตรวจ tenant)
+  '/v1/orders/:id/revenue-lines': {
+    serviceItemId: 'svc_00000000000040008000000000000001',
+    sellUnitPrice: '100.00',
+    reason: 'isolation test reason',
+  },
+  '/v1/revenue-lines/:id/void': { reason: 'isolation test reason' }, // ST5-T01
   '/v1/api-keys/:id/rotate': { reason: 'isolation test reason' }, // ST7-T01
   '/v1/webhooks/:id/disable': { reason: 'isolation test reason' }, // ST7-T04
   '/v1/connectors/:id/credentials': { credentials: { apiKey: 'isolation' } }, // ST7-T13

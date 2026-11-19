@@ -25,6 +25,7 @@
 | ST2 Master data + Fleet | **เสร็จ** (12 พ.ย. — PR #23–#45) | 11 พ.ย. | 12 พ.ย. | ตารางงาน ST2 ด้านล่าง |
 | ST3 Order intake + Planning/Dispatch | **เสร็จ** (T01–T25 ครบ — T25 นับเมื่อ merge PR ของ `st3/t25-change-carrier`) | 12 พ.ย. | 17 พ.ย. 2569 | ตารางงาน ST3 ด้านล่าง · สรุป: รับ order ทุกทาง (มือ/Excel/API/connector) ผ่าน `upsertOrder()` เดียว + ใบค้าง + DO/trip state machine + กระดานวางแผน (constraint/multi-drop/assign-dispatch/send all/ตารางรถ) + ใบคุมรถ PDF + LINE/SMS + จ้างรถร่วมครบวงจร (ลิงก์รับ/ปฏิเสธ, หมดเวลา, เปลี่ยนผู้รับเหมา) |
 | ST4 Execution และ POD | **กำลังทำ** 2/15 (T01, T02) + T03, T04, T05, T06 dev | 17 พ.ย. 2569 | — | ตารางงาน ST4 ด้านล่าง |
+| ST5 Billing AR (เฉพาะ T01 บรรทัดรายได้) | **dev เสร็จ** รอ review/QA/merge (`st5/t01-revenue-line`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST5-T01) · [OPEN] ปริมาณ/ระดับ DO ของบรรทัดรายได้ (spec/12 §3) |
 | ST5–ST6, ST8 | ยังไม่เริ่ม | | | |
 | ST9 Cross-cutting | **กำลังทำ** · T10 ส่งออกตามตัวกรอง dev เสร็จ รอ review/QA (`st9/t10-export`) · T14 Retention dev เสร็จ รอ review/QA (`st9/t14-retention`) | 18 พ.ย. 2569 | — | |
 | ST5–ST6, ST8–ST9 | ยังไม่เริ่ม | | | |
@@ -168,6 +169,12 @@
 | T13 ค่าใช้จ่ายหน้างาน → `do_surcharge` / `trip_cost` | dev + แก้ตาม review/QA เสร็จ (ไม่มี High) — รอ merge | migration `0092_field_charges` (สถานะ PENDING_CONFIRM/CONFIRMED/REJECTED/CANCELLED + CHECK ผู้ตัดสิน/เหตุผล, `evidence_document_id` unique, snapshot รายการ, `trip_cost.source_type` FIELD/DO_SURCHARGE, REVOKE DELETE) · API `GET/POST /v1/trips/{id}/field-charges`, `POST /v1/do-surcharges/{id}/confirm|reject|cancel`, `/v1/trip-costs/{id}/…` (id `dsc_`/`tco_`) · ธงภาษี snapshot จาก service_item, ฝั่งซื้อ vat_amount 0 (#58) · เว็บแท็บ "ค่าใช้จ่ายหน้างาน" ใน drawer เที่ยว · test API 9 + isolation + web 7 + E2E `field-surcharges.spec.ts` 2 · ภาพเทียบ `design/compare/st4-surcharge-{list,add}-1440.png` |
 | T14 Tracking link สาธารณะ | dev + แก้ตาม security review/QA เสร็จ — รอ merge | magic link `tracking` ต่อ DO (เปิดแล้วเห็นงาน) หรือต่อลูกค้า (ค้นเลข DO/PO + เบอร์ผู้รับ 4 ตัวท้าย) · public `GET /v1/public/tracking/{token}` + `POST …/lookup` (DTO สาธารณะแยก ไม่มีราคา/ที่อยู่/คนขับ/ทะเบียนเต็ม; noindex/no-referrer/no-store; 60 req/นาที/IP; ค้นผิด 5/ชม./IP, 30/ชม./ลิงก์ → 429) · ผู้จัดรถ `GET/POST /v1/delivery-orders/{id}/tracking-link` (+`/revoke`) และ `/v1/customers/{id}/tracking-link` · ค่าตั้ง `tracking.contactPhone/showPod/linkDays` · เว็บ `/t/:token` ตามต้นแบบ TMS Tracking · test API 10, web 6, E2E 2 · ภาพเทียบ `design/compare/st4-tracking-{transit,delivered,search}-{390,1440}.png` |
 
+### งาน ST5 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
+
+| งาน | สถานะ | หลักฐาน / ที่ยังขาด |
+|---|---|---|
+| T01 บรรทัดรายได้ (revenue line) | dev เสร็จ — รอ review/QA | migration `0114_revenue_line` (ตาราง `revenue_line` source_type SO_CHARGE/DO_SURCHARGE/MANUAL + unique แหล่ง + trigger ล็อก `tms_revenue_line_guard` + backfill) · `RevenueLinesService.rebuild` เรียกจาก `OrderIntakeService.evaluate` และยืนยันค่าใช้จ่ายหน้างาน · API `GET/POST /v1/orders/{id}/revenue-lines`, `POST /v1/revenue-lines/{id}/void` · test `revenue-lines.test.ts` (5) + isolation · **ไม่มี UI** (ต้นแบบไม่มีหน้าจอ) · **[OPEN]** ปริมาณตามส่งจริง/แบ่งลง DO ยังไม่ตัดสิน — ใช้ราคาตามใบสั่งระดับใบสั่ง |
+
 ### งาน ST7 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
 
 | งาน | สถานะ | หลักฐาน / ที่ยังขาด |
@@ -267,6 +274,11 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 19 พ.ย. 2569 (ST5-T01 บรรทัดรายได้ — lane l5)
+- ทำ: ตาราง `revenue_line` = ฐานของบรรทัดใบแจ้งหนี้ (docs/04 F3) · ที่มาต่อบรรทัด `source_type/source_id`: SO_CHARGE (ราคาของใบสั่ง `sales_order_charge` — rate card snapshot / ราคาที่กำหนดเอง) · DO_SURCHARGE (ค่าใช้จ่ายหน้างานที่ CONFIRMED) · MANUAL (คนเพิ่ม — คงไว้เมื่อ rebuild, ยกเลิก = VOIDED + เหตุผล + audit) · rebuild หลังประเมินราคาใบสั่งทุกครั้ง + หลังยืนยันค่าใช้จ่ายหน้างาน (advisory lock ต่อใบสั่ง) · ล็อกหลังออกเลข = `locked_at`/`locked_document_id` (ST5-T09 ตั้ง) + trigger ฐานข้อมูลห้ามแก้เนื้อหา/ลบ · มีบรรทัดราคาที่ล็อก = ไม่ rebuild ราคาใบสั่งนั้น · ไม่คำนวณภาษี (vat_type/wht_rate snapshot เท่านั้น)
+- ไฟล์: `apps/api/prisma/{schema.prisma,migrations/0114_revenue_line}`, `src/modules/revenue-lines/*`, `src/modules/orders/order-intake.service.ts`, `src/modules/field-charges/field-charges.service.ts`, `src/common/ids.ts` (`rvl_`, `och_`), `src/app.module.ts`, `test/revenue-lines.test.ts`, `test/isolation.test.ts`, `packages/contracts/openapi.json`, spec/12 §3 (+1 DECISION, +1 OPEN)
+- ค้าง: **[OPEN — PO/นักบัญชี]** บรรทัดรายได้ใช้ปริมาณตามใบสั่งระดับใบสั่ง — ยอดตามส่งจริง (ST4-T10 `sellBilling`) และการแบ่งราคาลง DO (docs/01 §3.3 `revenue_amount`) ต้องตัดสินก่อน ST5-T04/T05/T07 · ค่าใช้จ่ายหน้างานที่เป็นเงินทดรองจ่าย (ACC-35) · UI เพิ่มบรรทัดจาก drawer ใบสั่ง (ต้นแบบไม่มี — ร่างใบแจ้งหนี้ ST5-T07) · finalize ตั้งล็อก = ST5-T09 · ยกเลิกใบปลดล็อก = ST5-T10
 
 ### 19 พ.ย. 2569 (ST7-T20 แก้ตาม review/QA — lane l6)
 - ทำ: (M1) merge `st7/t18-master-sync` แล้วย้ายตาราง mapping + ผังรหัส ERP (`Connectors.tsx` เหลือ `MappingTable`) เข้ากล่อง "ตั้งค่า {ระบบ}" แท็บแรก, ลบ shell/CSS ซ้ำของ T18, `?connector=` + "ไม่พบระบบบัญชีที่เชื่อมไว้", ปรับ test/E2E ของ T18 เป็นชื่อ "ERP จำลอง (Demo)" (M2) route เปลี่ยนของ Console ปฏิเสธบริษัท CANCELLED (409) + รับ If-Match (QA M1) catalog โหลด/ล้ม = แจ้ง + ลองอีกครั้ง (QA M2/L1) แท็บ "ประวัติ" (HistoryTab + `/v1/connectors/{id}/history`) ชื่อทีมงานจาก `ConnectorsService.withPlatformNames` → "ทีม Innovera · {ชื่อ}" (L2) แจ้ง owner ในระบบ + อีเมล (`connector.platform_changed`) ทุกครั้งที่ทีมงานเปลี่ยน credential/สถานะ (Low) หัวกล่องตามสถานะ, เส้นการ์ด ERROR/PAUSED, วันที่ไทย, ป้ายเอกสารในบันทึกการซิงก์, ท้าย sidebar ตัดข้อความยาว, Console ส่งค่าตั้งแบบมีตัวเลือก, ข้อความ problem ของ T18 ใน th.ts
