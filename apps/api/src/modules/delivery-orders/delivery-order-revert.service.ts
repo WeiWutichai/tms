@@ -15,22 +15,30 @@ import { DeliveryOrderService, type DeliveryOrderRecord } from './delivery-order
 const REVERTIBLE = ['DELIVERED', 'POD_PENDING', 'UNBILLED'];
 const RULE = BILLING_REVERT_RULES.DELIVERED!;
 
-const conflict = (code: string, message: string, extra: Record<string, unknown> = {}) =>
+const conflict = (
+  code: string,
+  message: string,
+  extra: Record<string, unknown> = {},
+  detail?: string,
+) =>
   new ProblemException(
     'invalid_state_transition',
-    undefined,
+    detail,
     [{ field: 'deliveryOrderId', code, message }],
     extra,
   );
+/** เที่ยวที่ปิดต้นทุนแล้ว — ต้นทุนปันลง DO แล้ว (ST4-T15) ย้อนผลส่งไม่ได้ [DECISION spec/12 §3; OPEN การปันใหม่] */
+const COSTED_TRIPS = ['COSTED', 'SETTLED'];
 
 /**
  * ST5-T06 ย้อนผลส่งถึง (docs/04 F4 แถว DELIVERED "ย้อนได้โดย Dispatcher (ภายใน 24 ชม.) / Admin") [DECISION spec/12 §3]
  *
  * - สิทธิ์: `trips:close` (A3 Trip "ปิด" — Dispatcher) ภายใน 24 ชม. นับจากเวลาที่ DO เป็นส่งถึง (ประวัติสถานะ event `deliver`,
- *   เวลาเซิร์ฟเวอร์ — Clock) · เกิน 24 ชม. ต้องมี `trips:override` (owner/admin/manager) ไม่งั้น 403 `permission_denied`
+ *   เวลาเซิร์ฟเวอร์ — Clock) · เกิน 24 ชม. ต้องมี `deliveries:revert_late` (owner/admin — F4 "Admin") ไม่งั้น 403 `permission_denied`
  *   (`reason: revert_window_expired` + `deliveredAt` / `revertDeadline`)
  * - เงื่อนไข: DO ส่งถึง (DELIVERED/POD_PENDING/UNBILLED) · ไม่อยู่ในใบแจ้งหนี้ (`do_in_invoice`) · ไม่เคยถูกลดหนี้ (`do_credited`) ·
  *   ยังไม่ส่งบัญชี (`do_released` — Invoicer ย้อนการส่งบัญชีก่อน) · ยังไม่มีงานต่อจากยอดปฏิเสธรับ (ส่งซ้ำ/คืนคลัง — `has_followups`) ·
+ *   เที่ยวยังไม่ปิดต้นทุน (COSTED/SETTLED → `trip_costed` — ต้นทุนปันลง DO แล้ว) ·
  *   ใบสั่งไม่ปิด/ยกเลิก → ไม่ผ่าน = 409 `invalid_state_transition` + `errors[].code`
  * - ผล: DO → FAILED (`revert_delivery`) + เหตุผล ≥ 10 ตัวอักษร (+ reason code หมวด DELIVERY_FAILED ไม่บังคับ) + audit
  *   `delivery_order.delivery_reverted` · ใบสั่งไล่ตาม DO (ส่งครบ → ส่งบางส่วน) · จัดการต่อด้วยส่งซ้ำ/คืนคลัง (ST4-T11)
@@ -78,6 +86,19 @@ export class DeliveryOrderRevertService {
     });
     if (so.status === 'CLOSED' || so.status === 'CANCELLED')
       throw conflict('order_closed', `order is ${so.status}`, { ...extra, orderStatus: so.status });
+    if (d.tripId) {
+      const trip = await tx.trip.findUniqueOrThrow({
+        where: { id: d.tripId },
+        select: { status: true, tripNo: true },
+      });
+      if (COSTED_TRIPS.includes(trip.status))
+        throw conflict(
+          'trip_costed',
+          `trip is ${trip.status}`,
+          { ...extra, tripNo: trip.tripNo, tripStatus: trip.status },
+          'เที่ยวนี้ปิดต้นทุนแล้ว (ต้นทุนปันลงใบส่งของแล้ว) — ย้อนผลส่งถึงไม่ได้',
+        );
+    }
     const kids = await tx.deliveryOrder.count({
       where: { rejectedFromId: d.id, status: { not: 'CANCELLED' } },
     });
@@ -98,14 +119,19 @@ export class DeliveryOrderRevertService {
     const canOverride = scopeAllows(ctx.scopes ?? [], RULE.overrideScope!);
     if (!within && !canOverride) {
       const [module, action] = RULE.overrideScope!.split(':');
-      throw new ProblemException('permission_denied', undefined, undefined, {
-        module,
-        action,
-        required: [RULE.overrideScope],
-        reason: 'revert_window_expired',
-        deliveredAt: deliveredAt?.toISOString() ?? null,
-        revertDeadline: win?.deadline.toISOString() ?? null,
-      });
+      throw new ProblemException(
+        'permission_denied',
+        'ย้อนผลส่งถึงได้ภายใน 24 ชม. — เกินแล้วต้องให้ผู้ดูแลระบบทำ',
+        undefined,
+        {
+          module,
+          action,
+          required: [RULE.overrideScope],
+          reason: 'revert_window_expired',
+          deliveredAt: deliveredAt?.toISOString() ?? null,
+          revertDeadline: win?.deadline.toISOString() ?? null,
+        },
+      );
     }
 
     await this.dos.revertDelivery(tx, d, {

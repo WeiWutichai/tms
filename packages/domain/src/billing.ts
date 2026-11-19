@@ -81,7 +81,7 @@ export function billingStage(
  * กฎย้อนขั้นของ lifecycle (ST5-T06; docs/04 F4 คอลัมน์ "ย้อนได้โดย" + "permission ต่อ transition กำหนดใน role")
  * [DECISION spec/12 §3] — scope ตาม docs/04 A3:
  * - DELIVERED → ส่งไม่สำเร็จ (`POST /delivery-orders/{id}/revert-delivery`): `trips:close` (Dispatcher) ภายใน 24 ชม. นับจากเวลาที่ DO
- *   เป็นส่งถึง · เกิน 24 ชม. ต้องมี `trips:override` (owner/admin/manager — ยกเว้นกฎพร้อมเหตุผล เหมือน D-07)
+ *   เป็นส่งถึง · เกิน 24 ชม. ต้องมี `deliveries:revert_late` (owner/admin — F4 "Admin" เคร่งครัด)
  * - RELEASED → DELIVERED (`POST /delivery-orders/{id}/unrelease`): `invoices:draft` (Invoicer — ผู้ส่งบัญชี)
  * - IN_DRAFT → ถอดออกจากร่าง (ST5-T07): `invoices:draft`
  * - INVOICED / PARTIALLY_PAID / PAID: ย้อนไม่ได้ → ใบลดหนี้ (ST5-T12) · CREDITED: ไม่มีขั้นให้ย้อน
@@ -94,7 +94,7 @@ export interface BillingRevertRule {
   overrideScope?: string;
 }
 export const BILLING_REVERT_RULES: Record<BillingStage, BillingRevertRule | null> = {
-  DELIVERED: { scope: 'trips:close', windowHours: 24, overrideScope: 'trips:override' },
+  DELIVERED: { scope: 'trips:close', windowHours: 24, overrideScope: 'deliveries:revert_late' },
   RELEASED: { scope: 'invoices:draft' },
   IN_DRAFT: { scope: 'invoices:draft' },
   INVOICED: null,

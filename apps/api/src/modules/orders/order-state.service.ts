@@ -279,13 +279,14 @@ export class OrderStateService {
     // ST4-T11 [DECISION spec/12 §3]: ทุกใบคืนคลัง (RETURNED) → ถอยกลับรอจัด แล้วค้าง ALL_RETURNED (ท้ายฟังก์ชัน)
     const allReturned = dos.length > 0 && dos.every((d) => d.status === 'RETURNED');
     if ((status === 'RECEIVED' || status === 'ON_HOLD') && onTrip && !rejectedPending) step('plan');
+    // ST5-T06 [DECISION spec/12 §3]: ผู้จัดรถย้อนผลส่งถึงของ DO (FAILED) ในใบสั่งที่ส่งครบแล้ว → กำลังขนส่ง แล้วไล่ต่อด้วยกฎเดิม
+    // (เหมือนส่งไม่สำเร็จตั้งแต่แรก: ใบอื่นส่งแล้ว → ส่งบางส่วน · คืนคลังทั้งหมด → recall + ค้าง ALL_RETURNED)
+    if (status === 'DELIVERED' && has(['FAILED'])) step('reopen');
     if (status === 'IN_TRANSIT' && !moving && (!finished || allReturned)) step('recall');
     // ST4-T12: ใบที่คืนจาก redeliver (ส่งไม่สำเร็จถูกพลิก) อาจส่งถึงแล้วขณะ SO ยัง PLANNED → ผ่าน IN_TRANSIT แล้วไล่การส่ง
     if (status === 'PLANNED' && (moving || (onTrip && finished))) step('dispatch');
     // ทุกใบคืนคลัง: ค้างจาก PLANNED เลย (ไม่ถอยไปรับงานใหม่ — ประเมินราคา/ใบค้างทางเข้าเมื่อจัดรถใหม่)
     else if (status === 'PLANNED' && !onTrip && !allReturned) step('unplan');
-    // ST5-T06 [DECISION spec/12 §3]: ผู้จัดรถย้อนผลส่งถึงของ DO (FAILED) ในใบสั่งที่ส่งครบแล้ว → ส่งบางส่วน (ส่งซ้ำ/จัดรถใหม่ได้)
-    if (status === 'DELIVERED' && has(['FAILED'])) step('reopen');
     if (status === 'IN_TRANSIT' || status === 'PARTIALLY_DELIVERED') {
       // ST4-T11 (review High): ใบคืนคลัง (RETURNED) นับว่าจบ — มีใบส่งถึงอย่างน้อย 1 ใบ → SO ส่งครบ (คืนคลังนับจัดสรรแล้ว)
       const allDelivered =

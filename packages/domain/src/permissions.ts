@@ -11,7 +11,10 @@
  *   → owner, admin, manager (spec/03 ORD-031 "manager ปลดล็อกได้") [DECISION — ย้อนได้ spec/12 §3]
  *
  * `trips:override` (ST3-T14 — D-07 PO 16 พ.ย. 2569: กฎเอกสารบล็อก ยกเว้นได้โดยผู้จัดการ/ผู้ดูแลพร้อมเหตุผล; A3 ไม่มีแถวนี้)
- *   → owner, admin, manager · ST5-T06 ใช้ตัวเดียวกันย้อนผลส่งถึงเกิน 24 ชม. (docs/04 F4 "Admin") — `BILLING_REVERT_RULES`
+ *   → owner, admin, manager
+ *
+ * `deliveries:revert_late` (ST5-T06 — docs/04 F4 "DELIVERED ย้อนได้โดย Dispatcher (ภายใน 24 ชม.) / Admin"; A3 ไม่มีแถวนี้)
+ *   → owner, admin เท่านั้น (ตาม F4 เคร่งครัด — manager ไม่ได้) — `BILLING_REVERT_RULES`
  *
  * "เลือกได้" ในตาราง A3 = ค่าเริ่มต้นไม่ให้ (owner เปิดเพิ่มได้เมื่อมี custom role — P1)
  */
@@ -38,6 +41,8 @@ export const PERMISSIONS = [
   'trips:override',
   'trips:dispatch',
   'trips:close',
+  /** ST5-T06 ย้อนผลส่งถึงของ DO เกิน 24 ชม. (docs/04 F4 "DELIVERED ย้อนได้โดย … Admin") */
+  'deliveries:revert_late',
   'invoices:read',
   'invoices:draft',
   'invoices:finalize',

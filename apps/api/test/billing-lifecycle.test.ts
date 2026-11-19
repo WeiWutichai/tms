@@ -7,6 +7,7 @@ import { encodeId, tryDecodeId } from '../src/common/ids';
 import { requestContext } from '../src/common/request-context';
 import { DbService, type Tx } from '../src/db/db.service';
 import { DeliveryOrderService } from '../src/modules/delivery-orders/delivery-order.service';
+import { StopEventsService } from '../src/modules/stops/stop-events.service';
 import {
   InvoiceBillingGuard,
   type DoInvoiceLineInput,
@@ -21,7 +22,7 @@ import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './hel
 
 /**
  * ST5-T06 Lifecycle และ revert rules ของ DO (docs/04 F4) — เกณฑ์ตรวจรับ:
- * Dispatcher ย้อนหลัง 24 ชม. ถูกปฏิเสธ (403 — ผู้มี trips:override ย้อนได้) · แก้ stop/qty หลัง RELEASED → 409
+ * Dispatcher ย้อนหลัง 24 ชม. ถูกปฏิเสธ (403 — owner/admin ย้อนได้) · แก้ stop/qty หลัง RELEASED → 409
  * + ย้อนการส่งบัญชี (Invoicer, เหตุผล, audit) · DO ในใบแจ้งหนี้ย้อน/แก้ไม่ได้ · timestamp ต่อขั้น · สิทธิ์ · If-Match · แยก tenant
  */
 describe('billing lifecycle + revert rules (ST5-T06)', { timeout: 300_000 }, () => {
@@ -210,6 +211,17 @@ describe('billing lifecycle + revert rules (ST5-T06)', { timeout: 300_000 }, () 
     const { order: so } = await run((tx) => app.get(OrderIntakeService).upsertOrder(input, tx));
     const [d] = await run((tx) => app.get(DeliveryOrderService).listForOrder(so.id, {}, tx));
     const doId = encodeId('deliveryOrder', d!.id);
+    const { drop, tripId } = await runTrip(doId);
+    // ข้อมูลเก่า/นำเข้าที่จุดส่งไม่มีเวลาถึง-ออก (flow ปกติปิดงานได้หลังถึงจุดเท่านั้น) — ล้าง projection ตรงที่ฐาน
+    if (o.noArrive)
+      await db.tripStop.update({
+        where: { id: uuid('tripStop', drop) },
+        data: { arrivedAt: null, departedAt: null },
+      });
+    return { doId, uuid: d!.id, customer, soId: so.id, drop, tripId };
+  };
+  /** DO → เที่ยวใหม่ ปล่อยรถ → ปิดจุดรับ + จุดส่ง (ส่งสำเร็จ) */
+  const runTrip = async (doId: string) => {
     const vid = await newVehicle();
     const t = (
       await api(app, admin)
@@ -238,20 +250,7 @@ describe('billing lifecycle + revert rules (ST5-T06)', { timeout: 300_000 }, () 
     await post(pickup.id, 'complete', 55, { outcome: 'DELIVERED' }).expect(201);
     await post(drop.id, 'arrive', 20).expect(201);
     await post(drop.id, 'complete', 10, { outcome: 'DELIVERED' }).expect(201);
-    // ข้อมูลเก่า/นำเข้าที่จุดส่งไม่มีเวลาถึง-ออก (flow ปกติปิดงานได้หลังถึงจุดเท่านั้น) — ล้าง projection ตรงที่ฐาน
-    if (o.noArrive)
-      await db.tripStop.update({
-        where: { id: uuid('tripStop', drop.id) },
-        data: { arrivedAt: null, departedAt: null },
-      });
-    return {
-      doId,
-      uuid: d!.id,
-      customer,
-      soId: so.id,
-      drop: drop.id as string,
-      tripId: t.id as string,
-    };
+    return { drop: drop.id as string, tripId: t.id as string };
   };
   const queue = async (qs = '', token = admin) =>
     (await api(app, token).get(`/v1/invoices/queue${qs}`).expect(200)).body as {
@@ -276,6 +275,15 @@ describe('billing lifecycle + revert rules (ST5-T06)', { timeout: 300_000 }, () 
       string,
       any
     >;
+  /** เหตุผลปฏิเสธรับ "จำนวนไม่ครบ" — ปิดบังคับรูปในชุดทดสอบนี้ (ไม่ได้ทดสอบหลักฐานรูป) */
+  const shortQty = async () => {
+    const r = await db.reasonCode.findFirstOrThrow({
+      where: { tenantId, category: 'REJECTED_BY_RECEIVER', code: 'SHORT_QTY' },
+    });
+    if (r.requiresPhoto)
+      await db.reasonCode.update({ where: { id: r.id }, data: { requiresPhoto: false } });
+    return encodeId('reasonCode', r.id);
+  };
   const errCode = (r: { body: { errors?: { code: string }[] } }) => r.body.errors?.[0]?.code;
   const guard = () => app.get(InvoiceBillingGuard);
   const draft = async (customer: string) =>
@@ -351,8 +359,9 @@ describe('billing lifecycle + revert rules (ST5-T06)', { timeout: 300_000 }, () 
       where: { docId: d.uuid, event: 'revert_delivery' },
     });
     expect(hist).toMatchObject({ fromStatus: 'UNBILLED', toStatus: 'FAILED' });
+    // ใบสั่งกลับเป็นกำลังขนส่ง (เหมือน DO ส่งไม่สำเร็จตั้งแต่แรก)
     expect((await db.salesOrder.findUniqueOrThrow({ where: { id: d.soId } })).status).toBe(
-      'PARTIALLY_DELIVERED',
+      'IN_TRANSIT',
     );
     // ย้อนซ้ำ → 409 (ไม่ได้ส่งถึงแล้ว) · ไม่ออกจากคิวพร้อมวางบิล = ไม่อยู่ในคิว
     const again = await revert(d.doId).expect(409);
@@ -373,24 +382,55 @@ describe('billing lifecycle + revert rules (ST5-T06)', { timeout: 300_000 }, () 
       .send({ reasonCodeId: rsn, note: 'คืนคลังหลังย้อนผลส่งถึง' })
       .expect(200);
     expect((await getDo(d.doId)).status).toBe('RETURNED');
+    // คืนคลังทั้งหมด → ใบสั่งค้าง ALL_RETURNED (กฎเดิม ST4-T11 — ไม่ค้างถาวร)
+    const so = await db.salesOrder.findUniqueOrThrow({
+      where: { id: d.soId },
+      include: { holdReasonCode: true },
+    });
+    expect(so.status).toBe('ON_HOLD');
+    expect(so.holdReasonCode?.code).toBe('ALL_RETURNED');
   });
 
-  it('เกณฑ์ตรวจรับ: Dispatcher ย้อนหลัง 24 ชม. → 403 · ผู้มี trips:override ย้อนได้ (audit override)', async () => {
+  it('ย้อนผลส่งถึง → ส่งซ้ำ → จัดรถ → ส่งถึง: ใบสั่งกลับเป็นส่งครบ', async () => {
+    const d = await delivered({ podRequirements: NONE_REQ });
+    await revert(d.doId).expect(200);
+    const soStatus = async () =>
+      (await db.salesOrder.findUniqueOrThrow({ where: { id: d.soId } })).status;
+    expect(await soStatus()).toBe('IN_TRANSIT');
+    const rsn = encodeId(
+      'reasonCode',
+      (await db.reasonCode.findFirstOrThrow({ where: { tenantId, category: 'DELIVERY_FAILED' } }))
+        .id,
+    );
+    const r = await api(app, admin)
+      .post(`/v1/delivery-orders/${d.doId}/redeliver`)
+      .send({ reasonCodeId: rsn, note: 'นัดส่งใหม่หลังย้อนผลส่งถึง' })
+      .expect(200);
+    expect(r.body.source.status).toBe('CANCELLED');
+    await runTrip(r.body.redelivery.id);
+    expect((await getDo(r.body.redelivery.id)).status).toBe('UNBILLED');
+    expect(await soStatus()).toBe('DELIVERED');
+  });
+
+  it('เกณฑ์ตรวจรับ: Dispatcher ย้อนหลัง 24 ชม. → 403 · ผู้ดูแล (deliveries:revert_late) ย้อนได้ (audit override)', async () => {
     const d = await delivered({ podRequirements: NONE_REQ });
     app.get(Clock).set(new Date(Date.now() + 25 * 3600_000));
     const r = await revert(d.doId, dispatcher).expect(403);
     expect(r.body).toMatchObject({
       code: 'permission_denied',
       reason: 'revert_window_expired',
-      required: ['trips:override'],
+      required: ['deliveries:revert_late'],
+      detail: 'ย้อนผลส่งถึงได้ภายใน 24 ชม. — เกินแล้วต้องให้ผู้ดูแลระบบทำ',
     });
     const deliveredAt = new Date(r.body.deliveredAt).getTime();
     expect(new Date(r.body.revertDeadline).getTime() - deliveredAt).toBe(24 * 3600_000);
     expect((await getDo(d.doId)).status).toBe('UNBILLED');
 
-    // manager (trips:override) ย้อนได้หลัง 24 ชม.
+    // manager (ไม่มี deliveries:revert_late — F4 "Admin") → 403 · admin ย้อนได้หลัง 24 ชม.
     const manager = await tokenFor(tenantId, SYSTEM_ROLES.manager.permissions.join(' '), 'u-mgr');
-    await revert(d.doId, manager, { reason: 'ผู้จัดการตรวจแล้ว ส่งไม่ถึงจริง' }).expect(200);
+    await revert(d.doId, manager).expect(403);
+    const adm = await tokenFor(tenantId, SYSTEM_ROLES.admin.permissions.join(' '), 'u-adm');
+    await revert(d.doId, adm, { reason: 'ผู้ดูแลตรวจแล้ว ส่งไม่ถึงจริง' }).expect(200);
     const audit = await db.auditLog.findFirstOrThrow({
       where: { tenantId, action: 'delivery_order.delivery_reverted', entityId: d.uuid },
     });
@@ -410,7 +450,7 @@ describe('billing lifecycle + revert rules (ST5-T06)', { timeout: 300_000 }, () 
     // ยอดส่งจริง (POD lines) → 409
     const pod = await api(app, admin)
       .put(`/v1/delivery-orders/${d.doId}/pod`)
-      .send({ lines: [{ lineNo: 1, qtyActual: '5' }] });
+      .send({ lines: [{ lineNo: 1, qtyActual: '4', rejectReasonCodeId: await shortQty() }] });
     expect(pod.status).toBe(409);
     expect(errCode(pod)).toBe('do_released');
     // ย้อนผลส่งถึง → 409 (ต้องย้อนการส่งบัญชีก่อน)
@@ -476,6 +516,107 @@ describe('billing lifecycle + revert rules (ST5-T06)', { timeout: 300_000 }, () 
     const r = await unrelease(d.doId).expect(409);
     expect(r.body).toMatchObject({ billingStatus: 'INVOICED' });
     expect(errCode(await revert(d.doId, admin).expect(409))).toBe('do_in_invoice');
+  });
+
+  it('เที่ยวปิดต้นทุนแล้ว (COSTED/SETTLED) → ย้อนผลส่งไม่ได้ (trip_costed)', async () => {
+    const d = await delivered({ podRequirements: NONE_REQ });
+    await db.trip.update({ where: { id: uuid('trip', d.tripId) }, data: { status: 'COSTED' } });
+    const r = await revert(d.doId, admin).expect(409);
+    expect(errCode(r)).toBe('trip_costed');
+    expect(r.body).toMatchObject({ tripStatus: 'COSTED' });
+    expect(r.body.detail).toContain('ปิดต้นทุนแล้ว');
+  });
+
+  it('หลังส่งบัญชี: event จากเครื่อง/ลิงก์ (offline sync) รับเก็บแบบมาช้า + ธง ไม่นับ · ส่งซ้ำของที่ปฏิเสธ 409 · POD ฉบับแรกยอดตามแผนไม่นับว่าแก้', async () => {
+    const d = await delivered({ podRequirements: NONE_REQ });
+    // POD ฉบับแรกที่ส่งจริง = แผน (ไม่เปลี่ยนยอด) หลังส่งบัญชี → ได้
+    await release(d.doId, invoicer).expect(200);
+    await api(app, admin)
+      .put(`/v1/delivery-orders/${d.doId}/pod`)
+      .send({ lines: [{ lineNo: 1, qtyActual: '5' }] })
+      .expect(200);
+    const changed = await api(app, admin)
+      .put(`/v1/delivery-orders/${d.doId}/pod`)
+      .send({
+        lines: [{ lineNo: 1, qtyActual: '4', rejectReasonCodeId: await shortQty() }],
+        reason: 'แก้ยอดตามใบรับของ',
+      });
+    expect(changed.status).toBe(409);
+    expect(errCode(changed)).toBe('do_released');
+
+    // event จากเครื่อง/API (ไม่ใช่เว็บ — offline sync) → รับเก็บ late_reason BILLING_LOCKED + ธง LATE ไม่นับ (จุดไม่เปลี่ยน)
+    // เที่ยวยังวิ่งอยู่ (จุดอื่นยังไม่จบ) — เที่ยวจบแล้วรับแบบมาช้าด้วยเหตุ TRIP_COMPLETED เดิมอยู่แล้ว
+    await db.trip.update({
+      where: { id: uuid('trip', d.tripId) },
+      data: { status: 'IN_PROGRESS' },
+    });
+    const before = await db.tripStop.findUniqueOrThrow({ where: { id: uuid('tripStop', d.drop) } });
+    const failRsn = encodeId(
+      'reasonCode',
+      (await db.reasonCode.findFirstOrThrow({ where: { tenantId, category: 'DELIVERY_FAILED' } }))
+        .id,
+    );
+    const out = await app.get(DbService).withTenant(tenantId, (tx) =>
+      requestContext.run(
+        {
+          requestId: randomUUID(),
+          tenantId,
+          actorId: 'u-device',
+          principalType: 'api_key',
+          locale: 'th',
+          tx,
+        },
+        () =>
+          app.get(StopEventsService).record(
+            uuid('tripStop', d.drop),
+            'FAIL',
+            {
+              clientEventId: randomUUID(),
+              occurredAt: ago(30),
+              reasonCodeId: failRsn,
+              note: 'ลูกค้าไม่อยู่ที่จุดส่ง',
+            },
+            tx,
+          ),
+      ),
+    );
+    expect(out.event).toMatchObject({ lateReason: 'BILLING_LOCKED', source: 'API' });
+    const after = await db.tripStop.findUniqueOrThrow({ where: { id: uuid('tripStop', d.drop) } });
+    expect(after).toMatchObject({ status: before.status, outcome: before.outcome });
+    expect((await getDo(d.doId)).status).toBe('UNBILLED');
+    // ผู้จัดรถ "ใช้" event นี้ไม่ได้จนกว่าจะย้อนการส่งบัญชี
+    const res = await api(app, admin)
+      .post(`/v1/stop-event-flags/${encodeId('event', out.event.id)}/resolve`)
+      .send({ decision: 'ACCEPT', reason: 'ตรวจแล้วใช้ event นี้' });
+    expect(res.status).toBe(409);
+    expect(errCode(res)).toBe('do_released');
+
+    // ส่งซ้ำของที่ปฏิเสธรับหลังส่งบัญชี → 409 เหมือนคืนคลัง
+    await db.deliveryOrderLine.updateMany({
+      where: { deliveryOrderId: d.uuid },
+      data: {
+        rejectQty: '1',
+        qtyActual: '4',
+        rejectReasonCodeId: (
+          await db.reasonCode.findFirstOrThrow({
+            where: { tenantId, category: 'REJECTED_BY_RECEIVER', code: 'SHORT_QTY' },
+          })
+        ).id,
+      },
+    });
+    const short = encodeId(
+      'reasonCode',
+      (
+        await db.reasonCode.findFirstOrThrow({
+          where: { tenantId, category: 'REJECTED_BY_RECEIVER', code: 'SHORT_QTY' },
+        })
+      ).id,
+    );
+    const rd = await api(app, admin)
+      .post(`/v1/delivery-orders/${d.doId}/redeliver`)
+      .send({ reasonCodeId: short, note: 'ส่งของที่ขาดใหม่' });
+    expect(rd.status).toBe(409);
+    expect(errCode(rd)).toBe('do_released');
   });
 
   it('งานต่อจากยอดปฏิเสธรับแล้ว → ย้อนผลส่งไม่ได้ (has_followups)', async () => {

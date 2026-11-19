@@ -71,11 +71,11 @@ describe('lifecycle + revert rules (ST5-T06)', () => {
     ).toBe(false);
   });
 
-  it('สิทธิ์ต่อขั้น: DELIVERED dispatcher 24 ชม./override · RELEASED/IN_DRAFT invoicer · ออกใบแล้วย้อนไม่ได้', () => {
+  it('สิทธิ์ต่อขั้น: DELIVERED dispatcher 24 ชม./admin · RELEASED/IN_DRAFT invoicer · ออกใบแล้วย้อนไม่ได้', () => {
     expect(BILLING_REVERT_RULES.DELIVERED).toEqual({
       scope: 'trips:close',
       windowHours: 24,
-      overrideScope: 'trips:override',
+      overrideScope: 'deliveries:revert_late',
     });
     expect(BILLING_REVERT_RULES.RELEASED?.scope).toBe('invoices:draft');
     expect(BILLING_REVERT_RULES.IN_DRAFT?.scope).toBe('invoices:draft');
@@ -83,14 +83,14 @@ describe('lifecycle + revert rules (ST5-T06)', () => {
       expect(BILLING_REVERT_RULES[s]).toBeNull();
   });
 
-  it('transition: DO ส่งถึง → revert_delivery → FAILED (ไม่ใช่ BILLED) · SO ส่งครบ → reopen → ส่งบางส่วน', () => {
+  it('transition: DO ส่งถึง → revert_delivery → FAILED (ไม่ใช่ BILLED) · SO ส่งครบ → reopen → กำลังขนส่ง', () => {
     for (const s of ['DELIVERED', 'POD_PENDING', 'UNBILLED'] as const)
       expect(DO_TRANSITIONS[s]?.revert_delivery).toBe('FAILED');
     expect(DO_TRANSITIONS.BILLED?.revert_delivery).toBeUndefined();
     expect(() => transition('do', DO_TRANSITIONS, 'BILLED', 'revert_delivery')).toThrow(
       InvalidTransitionError,
     );
-    expect(SO_TRANSITIONS.DELIVERED?.reopen).toBe('PARTIALLY_DELIVERED');
+    expect(SO_TRANSITIONS.DELIVERED?.reopen).toBe('IN_TRANSIT');
   });
 
   it('billingStage: paidAt = PAID เมื่อไม่ส่งสถานะใบ', () => {

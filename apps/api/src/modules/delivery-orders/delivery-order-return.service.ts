@@ -62,6 +62,8 @@ export class DeliveryOrderReturnService {
     const tx = this.db.tx;
     const doDate = this.doDate(input.doDate);
     const p = await this.prepare(tx, id, input, expectedVersion);
+    // ST5-T06 (review): ส่งซ้ำของที่ปฏิเสธรับ = งานต่อจากยอดของ DO → ล็อกหลังส่งบัญชี/อยู่ในใบแจ้งหนี้ เหมือนคืนคลัง
+    if (p.mode === 'rejected') assertDeliveryUnlocked(p.src);
     let redelivery: DeliveryOrderRecord;
     if (p.mode === 'failed') {
       redelivery = await this.dos.redeliver(tx, p.src.id, {
