@@ -26911,7 +26911,7 @@
         ],
         "responses": {
           "200": {
-            "description": "ทดสอบการเชื่อมต่อ (healthCheck ≤ 15 วิ) — ACTIVE + AUTH ล้ม → ERROR · ERROR + ผ่าน → ACTIVE",
+            "description": "ทดสอบการเชื่อมต่อ (healthCheck ≤ 15 วิ) — ACTIVE + ล้มแบบ AUTH หรือ TRANSIENT (ปลายทางล่ม/503/timeout) → ERROR หยุดคิว · ERROR + ผ่าน → ACTIVE",
             "content": {
               "application/json": {
                 "schema": {

@@ -120,6 +120,71 @@ describe('ตั้งค่า → การเชื่อมต่อ (ST7-T2
     );
   });
 
+  it('ST8-T03 KRS: ช่องค่าตั้งข้อความ (baseUrl บังคับ) อยู่ในฟอร์มเชื่อมต่อ · ส่งเป็น settings', async () => {
+    const krs = {
+      key: 'krs',
+      displayName: 'KRS',
+      demo: false,
+      capabilities: ['pullOrders', 'pushInvoice', 'fetchDocument', 'replaceDocument'],
+      configFields: [
+        {
+          key: 'baseUrl',
+          secret: false,
+          required: true,
+          kind: 'url',
+          maxLength: 300,
+          options: null,
+        },
+        {
+          key: 'apiKey',
+          secret: true,
+          required: true,
+          kind: 'string',
+          maxLength: 500,
+          options: null,
+        },
+        {
+          key: 'sqlUser',
+          secret: false,
+          required: false,
+          kind: 'string',
+          maxLength: 128,
+          options: null,
+        },
+      ],
+    };
+    GET.mockImplementation(async (path: string) => {
+      if (path === '/v1/connectors') return { data: { data: [] } };
+      if (path === '/v1/connectors/adapters') return { data: { data: [ADAPTER, krs] } };
+      return { data: { data: [] } };
+    });
+    wrap();
+    const card = await screen.findByRole('group', { name: 'KRS' });
+    fireEvent.click(within(card).getByRole('button', { name: 'เชื่อมต่อ' }));
+    const dlg = await screen.findByRole('dialog');
+    const url = within(dlg).getByLabelText(/baseUrl/);
+    expect(url).toHaveAttribute('type', 'url');
+    expect(within(dlg).getByLabelText(/sqlUser/)).toHaveAttribute('type', 'text');
+    fireEvent.change(within(dlg).getByLabelText(/apiKey/), { target: { value: 'k-krs' } });
+    const ok = within(dlg).getByRole('button', { name: 'เชื่อมต่อ' });
+    expect(ok).toBeDisabled(); // baseUrl ยังว่าง
+    fireEvent.change(url, { target: { value: ' https://krs.example/api ' } });
+    expect(ok).toBeEnabled();
+    fireEvent.click(ok);
+    await waitFor(() =>
+      expect(POST).toHaveBeenCalledWith(
+        '/v1/connectors',
+        expect.objectContaining({
+          body: {
+            adapterKey: 'krs',
+            credentials: { apiKey: 'k-krs' },
+            settings: { baseUrl: 'https://krs.example/api' },
+          },
+        }),
+      ),
+    );
+  });
+
   it('เชื่อมแล้ว: ป้าย "เชื่อมต่อ" · credential แสดงแค่จุด · กดทดสอบได้', async () => {
     conns = [conn('ACTIVE')];
     wrap();

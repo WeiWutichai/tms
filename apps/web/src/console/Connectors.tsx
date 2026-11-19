@@ -528,23 +528,27 @@ function secretFields(a?: Adapter): Field[] {
     .filter((f) => f.secret)
     .map((f) => ({ k: `cred.${f.key}`, l: 'con.conn.f.cred', label: f.key, type: 'pw' as const }));
 }
-/** ค่าตั้งที่ไม่ลับแบบมีตัวเลือก (เช่น โหมดทดสอบของ Demo) — ช่องข้อความอิสระ (base URL ฯลฯ) เพิ่มพร้อม adapter จริง ST8 */
+/** ค่าตั้งที่ไม่ลับ: มีตัวเลือก (เช่น โหมดทดสอบของ Demo) = เลือก · ข้อความอิสระ (base URL ของ KRS ฯลฯ — ST8-T03) = ช่องกรอก */
 function settingFields(a: Adapter | undefined, def: string): Field[] {
   return (a?.configFields ?? [])
-    .filter((f) => !f.secret && f.options?.length)
-    .map((f) => ({
-      k: `set.${f.key}`,
-      l: 'con.conn.f.cred',
-      label: f.key,
-      type: 'sel' as const,
-      opts: [{ v: '', l: def }, ...f.options!.map((o) => ({ v: o, l: o }))],
-    }));
+    .filter((f) => !f.secret)
+    .map((f) =>
+      f.options?.length
+        ? {
+            k: `set.${f.key}`,
+            l: 'con.conn.f.cred' as const,
+            label: f.key,
+            type: 'sel' as const,
+            opts: [{ v: '', l: def }, ...f.options.map((o) => ({ v: o, l: o }))],
+          }
+        : { k: `set.${f.key}`, l: 'con.conn.f.cred' as const, label: f.key, type: 'in' as const },
+    );
 }
 function pickSettings(a: Adapter | undefined, v: Record<string, string>) {
   return Object.fromEntries(
     (a?.configFields ?? [])
-      .filter((f) => !f.secret && v[`set.${f.key}`])
-      .map((f) => [f.key, v[`set.${f.key}`]!]),
+      .filter((f) => !f.secret && v[`set.${f.key}`]?.trim())
+      .map((f) => [f.key, v[`set.${f.key}`]!.trim()]),
   );
 }
 function pickSecrets(a: Adapter | undefined, v: Record<string, string>) {
@@ -555,7 +559,9 @@ function pickSecrets(a: Adapter | undefined, v: Record<string, string>) {
   );
 }
 function missingSecret(a: Adapter | undefined, v: Record<string, string>) {
-  return (a?.configFields ?? []).some((f) => f.secret && f.required && !v[`cred.${f.key}`]);
+  return (a?.configFields ?? []).some(
+    (f) => f.required && !v[`${f.secret ? 'cred' : 'set'}.${f.key}`]?.trim(),
+  );
 }
 
 /** เปิด connector ให้ลูกค้า: เลือกบริษัท + ระบบ + credential → สร้างแล้วทดสอบ+เปิดใช้ (ไม่ผ่าน = คงหยุดชั่วคราว) */

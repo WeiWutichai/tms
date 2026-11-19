@@ -13,6 +13,7 @@ import { JobQueue } from '../../jobs/job-queue.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { ConnectorResolver } from '../erp/connector-resolver';
 import { ConnectorsService, redactSecrets } from '../erp/connectors.service';
+import { ErpAdapterError } from '../erp/erp-adapter';
 import { OrderIntakeService } from '../orders/order-intake.service';
 import { bangkokToday } from '../vehicle-documents/expiry';
 import {
@@ -83,7 +84,9 @@ export type PullSkip =
   | 'connector_not_active'
   | 'pull_not_enabled'
   | 'adapter_unavailable'
-  | 'feature_off';
+  | 'feature_off'
+  /** ST8-T03 adapter ประกาศ pullOrders แต่ยังไม่ได้ทำ (`ErpAdapterError` CAPABILITY — เช่นโครง adapter `krs` ก่อน ST8-T04) */
+  | 'not_implemented';
 
 export interface PullRunResult {
   /** รหัส adapter (ป้ายที่มา `ERP:{key}`) */
@@ -347,6 +350,11 @@ export class ConnectorIntakeService implements OnModuleInit {
         try {
           got = await source.pullOrders(run.cursor, pageSize);
         } catch (e) {
+          // ST8-T03 capability ที่ adapter ยังไม่ได้ทำ = ข้ามรอบ (ไม่ใช่ต้นทางล่ม — ไม่ลองใหม่ ไม่เลื่อน cursor)
+          if (e instanceof ErpAdapterError && e.errorClass === 'CAPABILITY') {
+            run.skipped = 'not_implemented';
+            break;
+          }
           // ข้อความจาก adapter อาจมี credential (URL/header ของ HTTP client) → ตัดก่อนเก็บ/log
           run.sourceError = redactSecrets(
             e instanceof Error ? e.message : show(e),

@@ -960,12 +960,13 @@ function ConnectDialog({
   const id = useId();
   const qc = useQueryClient();
   const n = adapterName(t, adapter.key, adapter.displayName, adapter.demo);
-  const fields = adapter.configFields.filter((f) => f.secret || (!rotate && f.options?.length));
+  // เชื่อมต่อใหม่ = ทุกช่อง (ช่องลับ + ค่าตั้ง เช่น base URL ของ KRS — ST8-T03) · เปลี่ยน key = ช่องลับเท่านั้น
+  const fields = adapter.configFields.filter((f) => f.secret || !rotate);
   const [v, setV] = useState<Record<string, string>>({});
   const [reason, setReason] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const missing = fields.some((f) => f.secret && f.required && !v[f.key]);
+  const missing = fields.some((f) => f.required && !v[f.key]?.trim());
   const ok = !missing && !busy && (!rotate || reason.trim().length >= 10);
 
   async function submit() {
@@ -975,8 +976,8 @@ function ConnectDialog({
     const pick = (secret: boolean) =>
       Object.fromEntries(
         adapter.configFields
-          .filter((f) => f.secret === secret && v[f.key])
-          .map((f) => [f.key, v[f.key]!]),
+          .filter((f) => f.secret === secret && (secret ? v[f.key] : v[f.key]?.trim()))
+          .map((f) => [f.key, secret ? v[f.key]! : v[f.key]!.trim()]),
       );
     try {
       if (rotate) {
@@ -1045,7 +1046,7 @@ function ConnectDialog({
           {fields.map((f) => (
             <label key={f.key} className="tms-field" htmlFor={`${id}-${f.key}`}>
               <span className="tms-label">
-                {f.key} {f.secret && f.required && <span style={{ color: '#B3322A' }}>*</span>}
+                {f.key} {f.required && <span style={{ color: '#B3322A' }}>*</span>}
               </span>
               {f.options?.length ? (
                 <select
@@ -1065,8 +1066,8 @@ function ConnectDialog({
                 <input
                   id={`${id}-${f.key}`}
                   className="tms-input"
-                  type="password"
-                  autoComplete="new-password"
+                  type={f.secret ? 'password' : f.kind === 'url' ? 'url' : 'text'}
+                  autoComplete={f.secret ? 'new-password' : 'off'}
                   value={v[f.key] ?? ''}
                   maxLength={f.maxLength ?? undefined}
                   onChange={(e) => setV({ ...v, [f.key]: e.target.value })}

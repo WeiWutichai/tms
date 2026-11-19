@@ -37,9 +37,20 @@ import type {
 import { ConnectorResolver } from './connector-resolver';
 import type { ErpAdapter, ErpContext, HealthResult } from './erp-adapter';
 import { ErpAdapterRegistry } from './erp-adapter.registry';
+import type { ErrorClass } from '../integration/outbox.types';
 import { generateInboundToken, INBOUND_MAX_ATTEMPTS, INBOUND_PROCESS_JOB } from './inbound-token';
 
 const HEALTH_TIMEOUT_MS = 15_000;
+
+/**
+ * ผล healthCheck ที่หยุดคิวของ connector (ACTIVE → ERROR — คำสั่งพักไว้ ไม่ทิ้ง) — ST8-T03:
+ * AUTH = credential ใช้ไม่ได้ (docs/01 §6.3) · TRANSIENT = ปลายทางไม่ตอบ/503/timeout (docs/01 A.2/A.5 "healthCheck ยังไม่ผ่าน → หยุดทั้งคิว")
+ * class อื่น (VALIDATION ค่าตั้งผิด, CAPABILITY adapter ไม่ได้ติดตั้ง) ไม่เปลี่ยนสถานะ
+ */
+export const HEALTH_STOP_CLASSES: ReadonlySet<ErrorClass> = new Set<ErrorClass>([
+  'AUTH',
+  'TRANSIENT',
+]);
 const VALUE_MAX = 2048;
 
 const field422 = (field: string, code: string, message: string) =>
@@ -987,7 +998,7 @@ export class ConnectorsService {
 
   /**
    * ทดสอบการเชื่อมต่อ (docs/01 §5.2 #14 `POST /connectors/{id}/health`)
-   * ACTIVE + ล้มแบบ AUTH → ERROR (spec/07 §1.6) · ERROR + ผ่าน → ACTIVE (ส่งคิวค้างต่อ)
+   * ACTIVE + ล้มแบบ AUTH/TRANSIENT (`HEALTH_STOP_CLASSES`) → ERROR = หยุดคิว (spec/07 §1.6; ST8-T03) · ERROR + ผ่าน → ACTIVE (ส่งคิวค้างต่อ)
    */
   async health(id: string): Promise<ConnectorHealthDto> {
     this.assertHuman();
@@ -1004,7 +1015,7 @@ export class ConnectorsService {
         entityId: id,
         after: r.ok ? { ok: true } : { ok: false, errorClass: r.errorClass, code: r.problem.code },
       });
-      if (now.status === 'ACTIVE' && !r.ok && r.errorClass === 'AUTH') {
+      if (now.status === 'ACTIVE' && !r.ok && HEALTH_STOP_CLASSES.has(r.errorClass)) {
         const down = await this.transition(tx, now, 'ERROR', 'connector.error', r.problem.code);
         await this.notifyDown(tx, down, r.problem.code);
         return down;
@@ -1055,10 +1066,15 @@ export class ConnectorsService {
   }
 
   /**
-   * ระบบหยุด connector (docs/01 §6.3 AUTH: "หยุด connector ทั้งตัว status = ERROR") — เรียกจาก ErpAdapterSink
+   * ระบบหยุด connector (docs/01 §6.3 AUTH: "หยุด connector ทั้งตัว status = ERROR"; ST8-T03 TRANSIENT ที่ healthCheck ยืนยันว่าปลายทางล่ม) — เรียกจาก ErpAdapterSink
    * ใน transaction ของ tenant · ไม่มีผู้ใช้ (actor null) · ไม่ทับสถานะที่ผู้ดูแลตั้ง (PAUSED/DISCONNECTED)
    */
-  async markError(tx: Tx, c: Connector, problem: { code: string; message: string }) {
+  async markError(
+    tx: Tx,
+    c: Connector,
+    problem: { code: string; message: string },
+    errorClass: ErrorClass = 'AUTH',
+  ) {
     const n = await tx.connector.updateMany({
       where: { id: c.id, status: 'ACTIVE' },
       data: {
@@ -1066,7 +1082,8 @@ export class ConnectorsService {
         statusReason: problem.code.slice(0, 60),
         statusChangedAt: new Date(),
         lastHealthOk: false,
-        lastHealthError: { errorClass: 'AUTH', ...problem } as Prisma.InputJsonValue,
+        lastHealthAt: new Date(),
+        lastHealthError: { errorClass, ...problem } as Prisma.InputJsonValue,
         version: { increment: 1 },
       },
     });
@@ -1080,7 +1097,7 @@ export class ConnectorsService {
         entityType: 'connector',
         entityId: c.id,
         before: { status: 'ACTIVE' },
-        after: { status: 'ERROR', errorClass: 'AUTH', code: problem.code },
+        after: { status: 'ERROR', errorClass, code: problem.code },
         reason: problem.code.slice(0, 60),
       },
     });

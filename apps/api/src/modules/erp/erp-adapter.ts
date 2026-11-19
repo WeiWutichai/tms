@@ -19,7 +19,7 @@ import type { PullPage } from '../connectors/order-source.port';
  * - adapter **ห้ามเขียนฐานข้อมูล TMS** และห้ามถือ transaction — core เรียกนอก transaction แล้วบันทึกผลเอง
  * - error ของปลายทาง → คืน `PushResult.ok=false` พร้อม `ErrorClass` กลาง (docs/01 §6.3) ไม่ใช่ HTTP code ของ ERP;
  *   throw = TRANSIENT (outbox ลองใหม่) · ห้ามมี credential ใน `problem`/`raw`/`message` (contract test ตรวจ)
- * - implementation จริง: StandaloneProvider/DemoProvider (ST7-T14), FileExportAdapter (ST7-T23), KrsAdapter (ST8-T03)
+ * - implementation จริง: StandaloneProvider/DemoProvider (ST7-T14), FileExportAdapter (ST7-T23), adapter `krs` (ST8-T03)
  * - canonical payload ละเอียด (docs/01 §7) มาใน ST7-T15 — ที่นี่ประกาศเฉพาะช่องที่ทุก adapter อาศัย
  */
 
@@ -71,6 +71,42 @@ export interface Problem {
   code: string;
   message: string;
   fields?: { field: string; code: string; message: string }[];
+}
+
+/**
+ * error ที่ adapter โยนพร้อม ErrorClass กลาง (ST8-T03) — ใช้กับ method ที่คืนผลแบบ `PushResult` ไม่ได้
+ * (`fetchDocument`, `pullOrders` ฯลฯ) · core (ErpAdapterSink) แปลงเป็นผลของคำสั่งตาม class (CAPABILITY = SKIPPED ฯลฯ)
+ * throw แบบอื่น = TRANSIENT เหมือนเดิม · `problem` ห้ามมี credential (core ตัดซ้ำอีกชั้น)
+ */
+export class ErpAdapterError extends Error {
+  constructor(
+    readonly errorClass: ErrorClass,
+    readonly problem: Problem,
+  ) {
+    super(problem.message || problem.code);
+    this.name = 'ErpAdapterError';
+  }
+}
+
+/** รหัสของ capability ที่ adapter ประกาศแล้วแต่ยังไม่ได้ทำ (โครง adapter — เช่น adapter `krs` ก่อน ST8-T04/T08/T10) */
+export const NOT_IMPLEMENTED = 'not_implemented';
+
+/** ผล push ของ capability ที่ยังไม่ได้ทำ — CAPABILITY (คำสั่ง SKIPPED ไม่ลองใหม่) */
+export function notImplementedResult(capability: ErpCapability): PushResult {
+  return {
+    ok: false,
+    errorClass: 'CAPABILITY',
+    retryable: false,
+    problem: { code: NOT_IMPLEMENTED, message: `${capability} is not implemented yet` },
+  };
+}
+
+/** error ของ capability ที่ยังไม่ได้ทำ (method ที่คืน PushResult ไม่ได้) */
+export function notImplementedError(capability: ErpCapability): ErpAdapterError {
+  return new ErpAdapterError('CAPABILITY', {
+    code: NOT_IMPLEMENTED,
+    message: `${capability} is not implemented yet`,
+  });
 }
 
 /** docs/01 §6.1 `PushResult` */

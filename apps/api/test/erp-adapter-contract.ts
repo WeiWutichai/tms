@@ -5,6 +5,8 @@ import {
   adapterShapeProblems,
   type CanonicalDocument,
   type ErpAdapter,
+  ErpAdapterError,
+  NOT_IMPLEMENTED,
   type ErpContext,
   type ExternalRef,
   type HealthResult,
@@ -34,6 +36,11 @@ export interface ErpAdapterContractOptions {
   };
   /** healthCheck ด้วย `config` ต้องผ่าน (false สำหรับ adapter ที่ต้องมีปลายทางจริง) */
   expectHealthy?: boolean;
+  /**
+   * ST8-T03 capability ที่ประกาศแต่ยังไม่ได้ทำ (โครง adapter) — ต้องตอบ CAPABILITY `not_implemented`
+   * (push/replace คืน PushResult · pull/fetch throw `ErpAdapterError`) แทนการตรวจผลจริง
+   */
+  notImplemented?: ErpCapability[];
 }
 
 const SENTINEL = 'SENTINEL-secret-9f2c7e41b6';
@@ -143,7 +150,7 @@ export function describeErpAdapterContract(name: string, opts: ErpAdapterContrac
         ['pushSettlement', s.settlement, 'pushSettlement'],
       ];
       for (const [cap, doc, m] of pushes) {
-        if (!caps.has(cap) || !doc) continue;
+        if (!caps.has(cap) || !doc || opts.notImplemented?.includes(cap)) continue;
         const fn = a[m] as (c: ErpContext, d: CanonicalDocument) => Promise<PushResult>;
         const ctx = ctxOf(a, opts.config, `contract:${cap}:${doc.id}`);
         const r1 = await fn.call(a, ctx, doc);
@@ -154,7 +161,7 @@ export function describeErpAdapterContract(name: string, opts: ErpAdapterContrac
           expect(r2.ok ? r2.externalId : r2.errorClass).toBe(r2.ok ? r1.externalId : 'DUPLICATE');
         await noLeak(() => fn.call(a, ctxOf(a, leakConfig(), `contract:leak:${cap}`), doc));
       }
-      if (s.ref && caps.has('fetchDocument'))
+      if (s.ref && caps.has('fetchDocument') && !opts.notImplemented?.includes('fetchDocument'))
         await noLeak(() => a.fetchDocument!(ctxOf(a, leakConfig()), s.ref!));
       if (s.ref && caps.has('fetchPaymentStatus')) {
         const p = await a.fetchPaymentStatus!(ctxOf(a, opts.config), s.ref);
@@ -165,9 +172,63 @@ export function describeErpAdapterContract(name: string, opts: ErpAdapterContrac
       }
     });
 
+    it('capability ที่ยังไม่ได้ทำ (ถ้ามี) ตอบ CAPABILITY not_implemented', async () => {
+      const a = opts.make();
+      const ctx = ctxOf(a, leakConfig());
+      const doc = { id: 'contract-doc', number: 'CONTRACT-1' } as CanonicalDocument;
+      const ref: ExternalRef = {
+        entityType: 'invoice',
+        localId: 'x',
+        number: 'CONTRACT-1',
+        externalId: '1',
+      };
+      for (const c of opts.notImplemented ?? []) {
+        expect(a.capabilities().has(c)).toBe(true);
+        const call = (): Promise<unknown> => {
+          switch (c) {
+            case 'pullOrders':
+              return a.pullOrders!(ctx, null, 5);
+            case 'fetchDocument':
+              return a.fetchDocument!(ctx, ref);
+            case 'fetchPaymentStatus':
+              return a.fetchPaymentStatus!(ctx, ref);
+            case 'listDocuments':
+              return a.listDocuments!(ctx, { limit: 5 });
+            case 'replaceDocument':
+              return a.replaceDocument!(ctx, ref, doc);
+            case 'pushInvoice':
+              return a.pushInvoice!(ctx, doc);
+            case 'pushCreditNote':
+              return a.pushCreditNote!(ctx, doc);
+            case 'pushSettlement':
+              return a.pushSettlement!(ctx, doc);
+            default:
+              throw new Error(`flag capability ${c} has no method`);
+          }
+        };
+        let out: unknown;
+        try {
+          out = await call();
+        } catch (e) {
+          expect(e).toBeInstanceOf(ErpAdapterError);
+          out = {
+            ok: false,
+            errorClass: (e as ErpAdapterError).errorClass,
+            problem: (e as ErpAdapterError).problem,
+          };
+        }
+        expect(out).toMatchObject({
+          ok: false,
+          errorClass: 'CAPABILITY',
+          problem: { code: NOT_IMPLEMENTED },
+        });
+      }
+    });
+
     it('pullOrders (ถ้าประกาศ): หน้าไม่เกิน limit + cursor ถูกรูป', async () => {
       const a = opts.make();
       if (!a.capabilities().has('pullOrders')) return;
+      if (opts.notImplemented?.includes('pullOrders')) return;
       const page = await a.pullOrders!(ctxOf(a, opts.config), null, 5);
       expect(Array.isArray(page.orders)).toBe(true);
       expect(page.orders.length).toBeLessThanOrEqual(5);

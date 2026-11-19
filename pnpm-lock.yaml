@@ -97,6 +97,9 @@ importers:
       '@tms/api-docs':
         specifier: workspace:*
         version: link:../../packages/api-docs
+      '@tms/mock-krs':
+        specifier: workspace:*
+        version: link:../../packages/mock-krs
       '@tms/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk

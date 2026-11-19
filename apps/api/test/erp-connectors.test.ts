@@ -189,7 +189,7 @@ describe('connectors (ST7-T13)', () => {
       if (typeof field === 'string') expect(x.body.errors[0].field).toBe(field);
       else expect(x.body.errors[0].field).toMatch(field);
     };
-    await bad({ adapterKey: 'krs' }, 'adapterKey');
+    await bad({ adapterKey: 'not-installed' }, 'adapterKey');
     await bad({ adapterKey: 'standalone' }, 'adapterKey');
     await bad({ capabilitiesEnabled: ['pushSettlement'] }, 'capabilitiesEnabled');
     await bad({ credentials: {} }, 'credentials.apiKey');
@@ -535,6 +535,41 @@ describe('connectors (ST7-T13)', () => {
       const t = await enqueue(cid, 'PUSH_INVOICE');
       await drain();
       expect(await cmd(t)).toMatchObject({ status: 'FAILED_RETRYABLE', errorClass: 'TRANSIENT' });
+      // healthCheck ยังผ่าน = ล้มเฉพาะใบ — connector คง ACTIVE
+      expect((await plat.connector.findUniqueOrThrow({ where: { id: cid } })).status).toBe(
+        'ACTIVE',
+      );
+    });
+
+    it('ST8-T03 ส่งล้ม TRANSIENT + healthCheck ยืนยันปลายทางล่ม → connector ERROR หยุดทั้งคิว (คำสั่งอื่นพักไว้)', async () => {
+      const cid = await activeConnector();
+      fake.fail = { errorClass: 'TRANSIENT', message: '503' };
+      fake.health = {
+        ok: false,
+        errorClass: 'TRANSIENT',
+        problem: { code: 'service_unavailable', message: `db down ${GOOD_KEY}` },
+      };
+      const a = await enqueue(cid, 'PUSH_INVOICE');
+      await drain();
+      expect(await cmd(a)).toMatchObject({ status: 'FAILED_RETRYABLE', errorClass: 'TRANSIENT' });
+      const con = await plat.connector.findUniqueOrThrow({ where: { id: cid } });
+      expect(con).toMatchObject({
+        status: 'ERROR',
+        statusReason: 'service_unavailable',
+        lastHealthOk: false,
+      });
+      expect(con.lastHealthError).toMatchObject({ errorClass: 'TRANSIENT' });
+      expect(JSON.stringify(con.lastHealthError)).not.toContain(GOOD_KEY);
+      const audit = await plat.auditLog.findFirst({
+        where: { entityId: cid, action: 'connector.error' },
+      });
+      expect(audit?.after).toMatchObject({ errorClass: 'TRANSIENT', code: 'service_unavailable' });
+      // คำสั่งถัดไปไม่ถึง adapter (พักไว้ ไม่นับครั้ง)
+      const calls = fake.calls.length;
+      const b = await enqueue(cid, 'PUSH_INVOICE');
+      await drain();
+      expect(await cmd(b)).toMatchObject({ status: 'PENDING', errorClass: 'AUTH' });
+      expect(fake.calls).toHaveLength(calls);
     });
   });
 });

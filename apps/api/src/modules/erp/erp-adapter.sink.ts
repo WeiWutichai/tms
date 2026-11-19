@@ -5,18 +5,19 @@ import { EntitlementService } from '../entitlements/entitlement.service';
 import { OutboxSinkRegistry } from '../integration/outbox-sink.registry';
 import { OutboxSinkError, type OutboxDelivery, type OutboxSink } from '../integration/outbox.types';
 import { ConnectorResolver } from './connector-resolver';
-import { ConnectorsService, redactSecrets } from './connectors.service';
+import { ConnectorsService, HEALTH_STOP_CLASSES, redactSecrets } from './connectors.service';
 import {
   documentServiceItemIds,
   ErpMasterCodesService,
   withMappedItemCodes,
 } from './erp-master-codes.service';
-import type {
-  CanonicalDocument,
-  ErpAdapter,
-  ErpContext,
-  ExternalRef,
-  PushResult,
+import {
+  type CanonicalDocument,
+  type ErpAdapter,
+  ErpAdapterError,
+  type ErpContext,
+  type ExternalRef,
+  type PushResult,
 } from './erp-adapter';
 
 export const ERP_SINK = 'erp';
@@ -28,6 +29,9 @@ export const ERP_SINK = 'erp';
  * - PAUSED / ERROR / tenant ถูกระงับ / แพ็กเกจไม่มี `conn` / adapter ไม่ได้ติดตั้ง → คงคำสั่งไว้ (AUTH = PENDING ไม่นับครั้ง)
  * - capability ไม่ได้เปิด/ไม่รองรับ → SKIPPED (CAPABILITY — docs/01 §6.3)
  * - adapter ตอบ AUTH → connector = ERROR (หยุดทั้งตัว) แล้วคำสั่งรอ · class อื่นตาม retry policy ของ dispatcher
+ * - ST8-T03 adapter ตอบ/throw TRANSIENT → เรียก healthCheck 1 ครั้ง: ไม่ผ่านแบบ AUTH/TRANSIENT = ปลายทางล่มจริง → connector = ERROR
+ *   (หยุดทั้งคิว — docs/01 A.5 "healthCheck ยังไม่ผ่าน → หยุดทั้งคิว") · ผ่าน = ล้มเฉพาะใบนี้ ลองใหม่ตาม policy
+ * - adapter throw `ErpAdapterError` = ผลตาม class ที่ระบุ (เช่น CAPABILITY `not_implemented` ของโครง adapter = SKIPPED)
  * - ST7-T18 ประตู mapping: ค่าบริการในเอกสาร (`lines[].serviceItem.id`) ที่ยังไม่จับคู่รหัสสินค้า ERP → FAILED_FINAL
  *   (VALIDATION `erp_mapping_incomplete` + ลิงก์หน้า mapping — plan/11 #9: ไม่กันการออกเอกสาร) · ครบ = ใส่รหัสลง
  *   `serviceItem.externalId` ก่อนส่ง adapter (docs/01 §7.2)
@@ -135,13 +139,43 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     try {
       return await this.call(d, adapter, ctx, payload, secrets, connector);
     } catch (e) {
-      if (e instanceof OutboxSinkError) throw e;
+      if (e instanceof OutboxSinkError) {
+        if (e.errorClass === 'TRANSIENT') await this.stopIfDown(d, connector);
+        throw e;
+      }
+      if (e instanceof ErpAdapterError) {
+        const problem = {
+          code: redactSecrets(String(e.problem?.code ?? 'error'), secrets).slice(0, 60),
+          message: redactSecrets(String(e.problem?.message ?? ''), secrets).slice(0, 500),
+        };
+        if (e.errorClass === 'AUTH')
+          await d.withTx((tx) => this.connectors.markError(tx, connector, problem));
+        if (e.errorClass === 'TRANSIENT') await this.stopIfDown(d, connector);
+        throw new OutboxSinkError(problem.message || problem.code, e.errorClass, problem);
+      }
       // adapter throw = TRANSIENT (docs/01 §6.3) — ข้อความอาจมี credential (URL/header ของ HTTP client) → ตัดก่อนเก็บ
       const msg = redactSecrets(String((e as Error)?.message ?? e), secrets).slice(0, 500);
+      await this.stopIfDown(d, connector);
       throw new OutboxSinkError(msg || 'adapter error', 'TRANSIENT', {
         code: 'adapter_threw',
         message: msg,
       });
+    }
+  }
+
+  /**
+   * ST8-T03 ส่งล้มแบบ TRANSIENT → ถาม healthCheck ว่าปลายทางล่มทั้งตัวไหม (docs/01 A.5) — ล่ม (AUTH/TRANSIENT) = connector ERROR
+   * หยุดทั้งคิว (คำสั่งอื่นพักไว้ ไม่เผาจำนวนครั้ง) · ไม่ throw (ผลของคำสั่งนี้ยังเป็น TRANSIENT ตามเดิม)
+   * ไม่ทำตอนถูกยกเลิก (lease หลุด/ปิด worker)
+   */
+  private async stopIfDown(d: OutboxDelivery, connector: Connector): Promise<void> {
+    if (d.signal.aborted) return;
+    try {
+      const h = await this.connectors.runHealth(connector);
+      if (h.ok || !HEALTH_STOP_CLASSES.has(h.errorClass)) return;
+      await d.withTx((tx) => this.connectors.markError(tx, connector, h.problem, h.errorClass));
+    } catch {
+      /* ตรวจไม่ได้ = คงสถานะเดิม (คำสั่งนี้ลองใหม่ตาม policy) */
     }
   }
 
