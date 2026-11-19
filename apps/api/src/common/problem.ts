@@ -338,6 +338,12 @@ export const PROBLEMS = {
     th: 'เที่ยวนี้ยังไม่มีใบส่งของ',
     en: 'Trip has no delivery orders',
   },
+  /** ST6-T01: ปิดต้นทุน (COMPLETED → COSTED) ไม่ได้ — extension `blockers` (PENDING_FIELD_CHARGES / CARRIER_FEE_MISSING) */
+  trip_costs_incomplete: {
+    status: 409,
+    th: 'ต้นทุนเที่ยวยังไม่ครบ — ยืนยัน/ปฏิเสธค่าใช้จ่ายหน้างานที่รอ และตรวจค่าจ้างรถร่วมก่อนปิดต้นทุน',
+    en: 'Trip costs are not complete — decide pending field charges and check the carrier fee first',
+  },
   trip_stops_open: {
     status: 409,
     th: 'ยังมีจุดแวะที่ยังไม่จบ — ปิดเที่ยวได้เมื่อทุกจุดส่งสำเร็จ/ไม่สำเร็จ/ข้าม',

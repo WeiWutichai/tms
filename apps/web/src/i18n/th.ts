@@ -4412,6 +4412,8 @@ export const th = {
   'problem.trip_empty': 'เที่ยวนี้ยังไม่มีใบส่งของ',
   'problem.trip_stops_open':
     'ยังมีจุดแวะที่ยังไม่จบ — ปิดเที่ยวได้เมื่อทุกจุดส่งสำเร็จ/ไม่สำเร็จ/ข้าม',
+  'problem.trip_costs_incomplete':
+    'ต้นทุนเที่ยวยังไม่ครบ — ยืนยัน/ปฏิเสธค่าใช้จ่ายหน้างานที่รอ และตรวจค่าจ้างรถร่วมก่อนปิดต้นทุน',
   'problem.trip_not_in_progress': 'บันทึกสถานะหน้างานได้เฉพาะเที่ยวที่ปล่อยรถแล้วและยังไม่จบ',
   'problem.stop_event_duplicate': 'clientEventId นี้ถูกใช้กับ event อื่นแล้ว',
   'problem.stop_event_not_flagged': 'เหตุการณ์นี้ไม่มีข้อขัดแย้งให้ตัดสิน',

@@ -28,6 +28,7 @@ import { requestContext } from '../../common/request-context';
 import { ApiProblems } from '../../common/problem.dto';
 import { isRealDate } from '../vehicle-documents/expiry';
 import { T403, T404, T409, T412, T422 } from './trip-problems';
+import { TripCostListDto } from './trip-costs.dto';
 import {
   AssignTripDto,
   AttachDeliveryOrdersDto,
@@ -731,6 +732,60 @@ export class TripsController {
   ): Promise<TripDto> {
     const trip = await this.trips.get(decodeIdOr404('trip', id));
     const t = await this.trips.complete(trip.id, undefined, expectedVersion(req));
+    setEtag(res, t.version);
+    return toTripDto(t);
+  }
+
+  /** ต้นทุนของเที่ยว (ST6-T01) — บรรทัด `trip_cost` ทุกบรรทัด (รวมกลับรายการ) + สรุป/สิ่งที่ขวางการปิดต้นทุน */
+  @Get(':id/costs')
+  @ApiOperation({
+    summary: 'บรรทัดต้นทุนของเที่ยว + สรุป',
+    description:
+      'ค่าจ้างรถร่วม (บรรทัดระบบ snapshot ตอนจ้าง — แก้ rate card ภายหลังไม่เปลี่ยน) + ค่าใช้จ่ายหน้างานฝั่งซื้อ + บรรทัดกลับรายการ ' +
+      '(ไม่มีการลบ) · ยอดเงิน (`buy*`) เห็นเมื่อมี `prices.buy:read`',
+  })
+  @ApiProblems(T403('trips:read'), T404)
+  @TenantResource('trip')
+  @RequireScope('trips:read')
+  @ApiOkResponse({ type: TripCostListDto })
+  async costs(@Param('id') id: string): Promise<TripCostListDto> {
+    const { trip, data, ready } = await this.trips.costs(decodeIdOr404('trip', id));
+    return {
+      data,
+      summary: {
+        tripStatus: trip.status,
+        buyTotal: ready.buyTotal.toFixed(2),
+        buyCarrierFee: ready.carrierFee.toFixed(2),
+        pendingCount: ready.pendingCount,
+        blockers: ready.blockers,
+        costedAt: trip.costedAt?.toISOString() ?? null,
+        costedBy: trip.costedBy,
+      },
+    };
+  }
+
+  /** ปิดต้นทุน → COSTED (ต้นทุนครบ — docs/01 §4.2) */
+  @Post(':id/cost')
+  @ApiOperation({
+    summary: 'ปิดต้นทุนเที่ยว (COMPLETED → COSTED)',
+    description:
+      'ต้นทุนครบ = ไม่มีค่าใช้จ่ายหน้างานฝั่งซื้อรอยืนยัน และเที่ยวรถร่วมมีค่าจ้างของการจ้างที่รถร่วมรับแล้ว · ' +
+      'ไม่ครบ → 409 `trip_costs_incomplete` + `blockers` · หลังปิดบันทึก/ยืนยันค่าใช้จ่ายหน้างานไม่ได้',
+  })
+  @ApiProblems(T403('trips:close'), T404, T409('trip_costs_incomplete'), T412)
+  @HttpCode(200)
+  @TenantResource('trip')
+  @RequireScope('trips:close')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiHeader({ name: 'Idempotency-Key', required: false })
+  @ApiOkResponse({ type: TripDto })
+  async cost(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<TripDto> {
+    const trip = await this.trips.get(decodeIdOr404('trip', id));
+    const t = await this.trips.cost(trip.id, undefined, expectedVersion(req));
     setEtag(res, t.version);
     return toTripDto(t);
   }
