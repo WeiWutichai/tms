@@ -105,7 +105,10 @@ export class OrderStateService {
         sourceCancelledAt: true,
       },
     });
-    const out = (outcome: 'cancelled' | 'cancel_alert' | 'unchanged' | 'conflict', status: string) => ({
+    const out = (
+      outcome: 'cancelled' | 'cancel_alert' | 'unchanged' | 'conflict',
+      status: string,
+    ) => ({
       outcome,
       orderId: so.id,
       soNo: so.soNo,
@@ -124,7 +127,11 @@ export class OrderStateService {
         where: { id: so.id },
         data: { sourceCancelledAt: new Date() },
       });
-      await this.cancel(so.id, { reason: `ต้นทาง ${source} ยกเลิกใบสั่งนี้แล้ว — ยกเลิกอัตโนมัติ` }, tx);
+      await this.cancel(
+        so.id,
+        { reason: `ต้นทาง ${source} ยกเลิกใบสั่งนี้แล้ว — ยกเลิกอัตโนมัติ` },
+        tx,
+      );
       return out('cancelled', 'CANCELLED');
     }
     if (so.sourceCancelledAt) return out('unchanged', so.status);
