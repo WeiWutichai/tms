@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  Optional,
   Param,
   Post,
   Put,
@@ -32,9 +33,17 @@ import { ApiProblems } from '../../common/problem.dto';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { LocalFileStore, fileKeyFor, type StoredFile } from '../../pdf/file-store';
+import { EntitlementService } from '../entitlements/entitlement.service';
+import { ImportRegistry, importSpecAllowed } from '../imports/import-spec';
 import { POD_LINK_PURPOSE, podLinkUsable } from '../trips/offer-links';
 import { ALLOWED_MIME, EXT, IMPORT_MIME, sniffMime, type AllowedMime } from './mime';
-import { DOWNLOAD_TTL_S, signDocumentUrl, UPLOAD_TTL_S, verifyDocumentUrl } from './signed-url';
+import {
+  DOWNLOAD_TTL_S,
+  IMPORT_DOWNLOAD_TTL_S,
+  signDocumentUrl,
+  UPLOAD_TTL_S,
+  verifyDocumentUrl,
+} from './signed-url';
 
 /** docs/04 I "10 MB/ไฟล์" (POD ของแอปคนขับมีเพดานเล็กกว่า — กำหนดตอน ST4) */
 export const MAX_BYTES = 10 * 1024 * 1024;
@@ -100,7 +109,9 @@ export class DocumentDto {
   @ApiProperty({ format: 'date-time' }) createdAt!: string;
   @ApiPropertyOptional({ description: 'สถานะ pending: PUT เนื้อไฟล์ไปที่นี่ (หมดอายุ 15 นาที)' })
   uploadUrl?: string;
-  @ApiPropertyOptional({ description: 'สถานะ ready: ลิงก์ดาวน์โหลด (หมดอายุ 5 นาที)' })
+  @ApiPropertyOptional({
+    description: 'สถานะ ready: ลิงก์ดาวน์โหลด (หมดอายุ 5 นาที · ไฟล์นำเข้า IMPORT 60 วินาที)',
+  })
   downloadUrl?: string;
   @ApiPropertyOptional({ format: 'date-time' }) urlExpiresAt?: string;
 }
@@ -223,7 +234,36 @@ export class DocumentsController {
   constructor(
     private readonly db: DbService,
     private readonly limiter: RateLimitService,
+    private readonly importSpecs: ImportRegistry,
+    @Optional() private readonly entitlements?: EntitlementService,
   ) {}
+
+  /**
+   * ไฟล์ต้นฉบับที่นำเข้า (kind IMPORT) อาจมีข้อมูลส่วนบุคคลเต็ม (เลขบัตรคนขับ เบอร์โทร ฯลฯ — ST9-T16 R-1)
+   * เห็นได้เฉพาะ:
+   * - ผู้อัปโหลดเอง — เห็นเสมอ แม้ภายหลังถูกลดสิทธิ์ (เป็นไฟล์ที่เขาถืออยู่แล้ว) · API key ก็เห็นเฉพาะไฟล์ที่ key นั้นอัปโหลด
+   * - ผู้ใช้ (pt user/dev) ที่มีสิทธิ์จัดการการนำเข้า **ทุกชนิด** ที่อ้างไฟล์นี้ (scope ของ ImportSpec + แพ็กเกจ)
+   *   — ไฟล์เดียวถูกใช้กับหลายชนิดได้ ผ่านชนิดเดียวไม่พอ · ยังไม่มีงานนำเข้าอ้างถึง = ไม่เห็น
+   * การเข้าใช้งานแทน (ทีม Innovera) ไม่เห็นเลย แม้สวมผู้อัปโหลด
+   */
+  private async canSeeImportFile(doc: StoredDocument): Promise<boolean> {
+    const ctx = requestContext.require();
+    if (ctx.principalType === 'imp') return false;
+    if (doc.createdBy !== null && doc.createdBy === (ctx.actorId ?? null)) return true;
+    if (ctx.principalType !== 'user' && ctx.principalType !== 'dev') return false;
+    const jobs = await this.db.tx.importJob.findMany({
+      where: { documentId: doc.id },
+      select: { kind: true },
+      distinct: ['kind'],
+    });
+    if (!jobs.length) return false;
+    for (const j of jobs) {
+      const spec = this.importSpecs.get(j.kind);
+      if (!(await importSpecAllowed(spec, ctx.scopes ?? [], ctx.tenantId!, this.entitlements)))
+        return false;
+    }
+    return true;
+  }
 
   /**
    * ST7-T08 (review L1): URL ลายเซ็นผิด/หมดอายุ → นับต่อ IP (30 ครั้ง/นาที) เกินแล้วตอบ 429 แทน 404 — กันสแกน id/ลายเซ็น
@@ -285,7 +325,11 @@ export class DocumentsController {
   @ApiBearerAuth()
   @TenantResource('document')
   @RequireScope('documents:read')
-  @ApiOkResponse({ type: DocumentDto })
+  @ApiOkResponse({
+    type: DocumentDto,
+    description:
+      'ไฟล์ส่งออก (EXPORT) เห็นเฉพาะผู้สั่ง · ไฟล์นำเข้า (IMPORT) เห็นเฉพาะผู้อัปโหลด (API key เห็นเฉพาะไฟล์ที่ key นั้นอัปโหลด) หรือผู้ใช้ที่มีสิทธิ์จัดการการนำเข้าทุกชนิดที่ใช้ไฟล์นั้น; การเข้าใช้งานแทนไม่เห็น; `downloadUrl` ของไฟล์นำเข้าหมดอายุ 60 วินาที — ไม่มีสิทธิ์ = 404',
+  })
   async get(@Param('id') id: string, @Req() req: Request): Promise<DocumentDto> {
     const doc = await this.db.tx.storedDocument.findUnique({
       where: { id: decodeIdOr404('document', id) },
@@ -293,6 +337,9 @@ export class DocumentsController {
     if (!doc) throw new ProblemException('not_found');
     // ไฟล์ส่งออก (ST9-T10) มีข้อมูลตามสิทธิ์ของผู้สั่ง — เฉพาะผู้สั่งเท่านั้น (ดาวน์โหลดผ่าน GET /v1/exports/{id})
     if (doc.kind === 'EXPORT' && doc.createdBy !== (requestContext.require().actorId ?? null))
+      throw new ProblemException('not_found');
+    // ไฟล์นำเข้า (ST9-T16 R-1) — ไม่มีสิทธิ์ตอบ 404 เหมือนไม่มี (ไม่บอกใบ้ว่ามีอยู่) แบบเดียวกับไฟล์ส่งออก
+    if (doc.kind === 'IMPORT' && !(await this.canSeeImportFile(doc)))
       throw new ProblemException('not_found');
     return this.withUrl(doc, req);
   }
@@ -413,7 +460,9 @@ export class DocumentsController {
       dto.urlExpiresAt = s.expiresAt.toISOString();
     } else if (doc.status === 'READY') {
       // PURGED (ST9-T14) = ไฟล์ถูกลบตามระยะเก็บ — ไม่มีลิงก์ดาวน์โหลด
-      const s = signDocumentUrl('download', doc.tenantId, doc.id, DOWNLOAD_TTL_S);
+      // ไฟล์นำเข้า (มีข้อมูลส่วนบุคคลเต็ม — ST9-T16 R-1) ลิงก์อายุสั้นกว่า: หน้าเว็บไม่ดาวน์โหลดไฟล์นี้ ใช้แค่ผ่าน API
+      const ttl = doc.kind === 'IMPORT' ? IMPORT_DOWNLOAD_TTL_S : DOWNLOAD_TTL_S;
+      const s = signDocumentUrl('download', doc.tenantId, doc.id, ttl);
       dto.downloadUrl = `${base}?${s.query}`;
       dto.urlExpiresAt = s.expiresAt.toISOString();
     }
