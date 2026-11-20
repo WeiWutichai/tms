@@ -6,6 +6,7 @@
 import {
   DEFAULT_MAX_AUTO_RESCHEDULES,
   DEFAULT_POD_REQUIREMENTS,
+  DEFAULT_WHT_MINIMUM_BAHT,
   MAX_AUTO_RESCHEDULES_LIMIT,
   parsePodRequirements,
 } from '@tms/domain';
@@ -92,6 +93,15 @@ export const SETTINGS = {
     type: { kind: 'bool' },
     default: true,
     description: 'เปิดใช้หัก ณ ที่จ่าย 3% (ค่าบริการ)',
+  },
+  // ST5-T02 (D-54 ยอดภาษีใน TMS = ประมาณการ) — ค่าตั้งต้นที่รอนักบัญชี (docs/01 §8.2 ข้อ 7) · ไม่มีหน้าจอ (ต้นแบบไม่มีช่อง — spec/12 §3)
+  // ใช้กับ computeDocumentTax ของ @tms/domain ผ่าน taxOptionsFromSettings
+  'tax.whtMinimumAmount': {
+    group: 'tax',
+    type: { kind: 'int', min: 0, max: SETTLEMENT_STEP_UP_MAX },
+    default: DEFAULT_WHT_MINIMUM_BAHT,
+    description:
+      'ขั้นต่ำหัก ณ ที่จ่าย (บาท) — ฐานก่อน VAT ของใบ (หรือยอดตามสัญญา) ตั้งแต่ค่านี้ขึ้นไปจึงแสดงยอดหัก · ค่าเริ่ม 0 = หักทุกยอด (ตรงกับระบบบัญชี) · ท.ป.4/2528 ข้อ 12/5 ขั้นต่ำ 1,000 "ตามสัญญา" (research §3.1) แต่ฐานนับต่อเที่ยว/ต่อปียังรอนักบัญชี [OPEN docs/01 §8.2 ข้อ 7] · ยอดประมาณการ (D-54)',
   },
   'tax.separateVatDocs': {
     group: 'tax',
