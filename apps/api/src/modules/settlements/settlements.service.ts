@@ -355,7 +355,7 @@ export class SettlementsService {
 
   /**
    * อนุมัติ (ST6-T07; docs/04 F6 "Approve (separation of duties)", docs/01 §4.5 DRAFT → APPROVED, spec/05 §11.5–11.6)
-   * - ผู้ใช้ที่ login เท่านั้น · ผู้เตรียมใบ (ผู้สร้าง/ผู้เพิ่ม/ผู้นำบรรทัดออก; key = ผู้ออก key; ระบุไม่ได้ = ปฏิเสธ) อนุมัติไม่ได้ → 403 `settlement_self_approval` (trigger 0125 ใน DB ด้วย)
+   * - ผู้ใช้ที่ login เท่านั้น · ผู้เตรียมใบ (ผู้สร้าง/ผู้เพิ่ม/ผู้นำบรรทัดออก; key = ผู้ออก key; ระบุไม่ได้ = ปฏิเสธ) อนุมัติไม่ได้ → 403 `settlement_self_approval` (trigger 0126 ใน DB ด้วย)
    * - ยอดสุทธิ > วงเงิน (0 = ทุกใบ) `settlement.approvalStepUpAmount` → ต้องยืนยัน 2FA ซ้ำ (`X-Step-Up` ของผู้อนุมัติเอง) ไม่งั้น 403 `step_up_required`
    * - ไม่มีบรรทัดค่าขนส่ง (FREIGHT) → 409 `settlement_empty` · ยอดสุทธิติดลบ → 409 `settlement_net_negative` (BIL-133 — ยกยอดหักส่วนเกินไปงวดถัดไป)
    * - ออกเลข STL (`issueNumber` — แถวตัวนับล็อกจน commit, rollback = ไม่กินเลข) ใน transaction เดียวกับการเปลี่ยนสถานะ · ใบ APPROVED แก้ไม่ได้ (trigger 0124)
