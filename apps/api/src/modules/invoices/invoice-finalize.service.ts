@@ -84,18 +84,28 @@ export class InvoiceFinalizeService implements OnModuleInit {
     private readonly queue: JobQueue,
   ) {}
 
-  /** งาน render PDF ต้นฉบับ (idempotent — มีไฟล์แล้ว = จบ) · นอก transaction (render ไม่ถือ connection) · ลองใหม่จนเก็บได้ */
+  /** งาน render PDF ต้นฉบับ + สำเนา (idempotent — มีไฟล์แล้ว = ข้าม) · นอก transaction (render ไม่ถือ connection) · ลองใหม่จนเก็บได้ */
   onModuleInit() {
     this.queue.register(
       INVOICE_PDF_JOB,
       async ({ job, tenantId }) => {
         const invoiceId = (job.payload as { invoiceId?: unknown } | null)?.invoiceId;
         if (typeof invoiceId !== 'string') return { skipped: 'bad_payload' };
-        const { doc } = await requestContext.run(
+        // ต้นฉบับ + สำเนา ณ วันออก (แม่แบบรุ่นเดียวกัน) — สำเนาไม่ต้อง render ภายหลัง (แม่แบบเปลี่ยนแล้วจะพิมพ์ไม่ได้)
+        const out = await requestContext.run(
           { requestId: randomUUID(), tenantId, actorId: 'system:invoice-pdf', locale: 'th' },
-          () => this.ensurePdf(invoiceId, 'ORIGINAL'),
+          async () => ({
+            original: (await this.ensurePdf(invoiceId, 'ORIGINAL')).doc,
+            copy: (await this.ensurePdf(invoiceId, 'COPY')).doc,
+          }),
         );
-        return { documentId: encodeId('document', doc.id), sha256: doc.sha256 };
+        return {
+          original: {
+            documentId: encodeId('document', out.original.id),
+            sha256: out.original.sha256,
+          },
+          copy: { documentId: encodeId('document', out.copy.id), sha256: out.copy.sha256 },
+        };
       },
       { outsideTransaction: true, retryDelaysMs: PDF_RETRY_MS },
     );

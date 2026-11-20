@@ -567,6 +567,18 @@ describe('invoice finalize (ST5-T09)', { timeout: 900_000 }, () => {
     const after = await getInv(inv.id);
     expect(after.pdf).toMatchObject({ sha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
     expect((await db.job.findUniqueOrThrow({ where: { id: job.id } })).status).toBe('SUCCEEDED');
+    // งานเก็บทั้งต้นฉบับและสำเนา ณ วันออก (สำเนาไม่ต้อง render ภายหลัง)
+    const stored = await db.storedDocument.findMany({
+      where: { tenantId, entityType: 'invoice', entityId: iid },
+    });
+    expect(stored.map((d) => (d.metadata as { copy: string }).copy).sort()).toEqual([
+      'COPY',
+      'ORIGINAL',
+    ]);
+    const spy2 = vi.spyOn(renderer, 'pdf');
+    await api(app, admin).get(`/v1/invoices/${inv.id}/pdf?copy=COPY`).expect(200);
+    expect(spy2).not.toHaveBeenCalled();
+    spy2.mockRestore();
     // ใบที่บันทึกแม่แบบรุ่นอื่น (จำลองแม่แบบเปลี่ยนหลังวันออก) → ไม่ render ใหม่เงียบ ๆ
     const d2 = await draft(cus, [(await delivered(cus)).doId]);
     await db.invoice.update({
