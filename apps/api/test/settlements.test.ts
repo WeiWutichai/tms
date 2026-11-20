@@ -2121,8 +2121,23 @@ describe('settlements (ST6-T03)', () => {
         where: { id: uuid('carrier', C.id) },
         data: { whtRateDefault: '3.00' },
       });
+      // review L1: ผู้จ่ายตรึงตอนอนุมัติ — เปลี่ยนชื่อบริษัททีหลัง ใบเดิมยังพิมพ์ชื่อเดิม
+      const row = await db.carrierSettlement.findUniqueOrThrow({
+        where: { id: uuid('settlement', s.id) },
+      });
+      const snap = row.payerSnapshot as { companyId: string; name: string; branchCode: string };
+      expect(snap.name).toBe(ap.model.payer.name);
+      expect(snap.branchCode).toBe('00000');
+      const co = await db.company.findUniqueOrThrow({ where: { id: snap.companyId } });
+      await db.company.update({
+        where: { id: co.id },
+        data: { legalName: 'บริษัท ชื่อใหม่ จำกัด' },
+      });
       const after = await check('APPROVED');
       expect(after.model.whtTotal).toBe(ap.model.whtTotal);
+      expect(after.model.payer.name).toBe(co.legalName);
+      expect(after.text).not.toContain('บริษัท ชื่อใหม่ จำกัด');
+      await db.company.update({ where: { id: co.id }, data: { legalName: co.legalName } });
       expect((await pay(s.id)).status).toBe(200);
       const paid = await check('PAID');
       expect(paid.model.docDate).toBe(today);
@@ -2151,6 +2166,10 @@ describe('settlements (ST6-T03)', () => {
         .expect(200);
       const c = await pdfOf(s.id);
       expect(c.status).toBe(409);
+      // review L1: ผู้จ่ายตรึงได้เฉพาะใบที่พ้นร่าง (CHECK) — ใบยกเลิก/ร่างไม่มี snapshot
+      await expect(
+        db.$executeRaw`UPDATE carrier_settlement SET payer_snapshot = '{}'::jsonb WHERE id = ${uuid('settlement', s.id)}::uuid`,
+      ).rejects.toThrow();
     }, 60_000);
   });
 });

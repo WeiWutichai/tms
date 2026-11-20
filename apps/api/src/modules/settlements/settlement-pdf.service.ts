@@ -4,6 +4,7 @@ import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import type { FinanceParty } from '../../pdf/finance-document';
+import { resolvePayer, type PayerSnapshot } from './settlement-payer';
 import { PdfRenderer } from '../../pdf/pdf-renderer';
 import { bangkokToday } from '../vehicle-documents/expiry';
 import type { DeductionType, SettlementDto } from './settlement.dto';
@@ -11,8 +12,17 @@ import {
   settlementVoucherDocument,
   sumDecimal,
   type SettlementPrintModel,
+  type SettlementPrintTrip,
 } from './settlement-pdf.template';
 import { SettlementsService } from './settlements.service';
+
+/** ผู้จ่ายบนใบ — ต้นแบบ #pv แสดงชื่อ + สาขา + เลขผู้เสียภาษี (ไม่แสดงที่อยู่ แม้ snapshot เก็บไว้) */
+const payerParty = (p: PayerSnapshot): FinanceParty => ({
+  name: p.name,
+  taxId: p.taxId,
+  branchCode: p.branchCode,
+  address: '',
+});
 
 /** ลำดับชนิดบรรทัดหักบนเส้นรวม (ตาม DEDUCTION_TYPES) */
 const DEDUCTION_ORDER: DeductionType[] = ['CASH_ADVANCE', 'FUEL_PROVIDED', 'FINE', 'DAMAGE'];
@@ -23,8 +33,15 @@ const DEDUCTION_ORDER: DeductionType[] = ['CASH_ADVANCE', 'FUEL_PROVIDED', 'FINE
  * **ตัวเลขทุกตัวมาจาก `SettlementsService.get`** (DTO เดียวกับ `GET /v1/settlements/{id}`) — ยอดบน PDF = API โดยโครงสร้าง ·
  * ใบที่อนุมัติแล้วใช้ยอด WHT ที่ตรึง (`wht_amount`) · สุทธิ = `buyNetAfterWht`
  */
+/** เปลี่ยนเมื่อแม่แบบเปลี่ยน (key ของ cache) */
+export const SETTLEMENT_PDF_TEMPLATE_VERSION = 1;
+const PDF_CACHE_TTL_MS = 10 * 60_000;
+const PDF_CACHE_MAX = 50;
+
 @Injectable()
 export class SettlementPdfService {
+  private readonly cache = new Map<string, { pdf: Buffer; at: number }>();
+  private readonly inflight = new Map<string, Promise<Buffer>>();
   constructor(
     private readonly db: DbService,
     private readonly renderer: PdfRenderer,
@@ -48,7 +65,25 @@ export class SettlementPdfService {
         ctx.tx = undefined;
       }
     });
-    return { model, dto, pdf: await this.renderer.pdf(settlementVoucherDocument(model)) };
+    // review M1: ใบ PAID = สิ้นสุด (ข้อมูลบนใบไม่เปลี่ยน) → render ครั้งเดียวต่อ (ใบ, version, แม่แบบ) แล้วใช้ซ้ำ ·
+    // คำขอพร้อมกันรอผล render เดียวกัน — ไม่ให้ลิงก์เดียวกินคิว Chromium ที่ใช้ร่วมทุก tenant
+    if (dto.status !== 'PAID')
+      return { model, dto, pdf: await this.renderer.pdf(settlementVoucherDocument(model)) };
+    const key = `${id}:${dto.version}:t${SETTLEMENT_PDF_TEMPLATE_VERSION}`;
+    const hit = this.cache.get(key);
+    if (hit && hit.at > Date.now() - PDF_CACHE_TTL_MS) return { model, dto, pdf: hit.pdf };
+    let job = this.inflight.get(key);
+    if (!job) {
+      job = this.renderer
+        .pdf(settlementVoucherDocument(model))
+        .finally(() => this.inflight.delete(key));
+      this.inflight.set(key, job);
+    }
+    const pdf = await job;
+    this.cache.delete(key);
+    this.cache.set(key, { pdf, at: Date.now() });
+    while (this.cache.size > PDF_CACHE_MAX) this.cache.delete(this.cache.keys().next().value!);
+    return { model, dto, pdf };
   }
 
   async loadModel(
@@ -82,13 +117,13 @@ export class SettlementPdfService {
     const byId = new Map(trips.map((t) => [t.id, t]));
     const row = await tx.carrierSettlement.findUniqueOrThrow({
       where: { id },
-      select: { payingCompanyId: true },
+      select: { payingCompanyId: true, payerSnapshot: true },
     });
-    const tenant = await tx.tenant.findFirst({ select: { yearStyle: true, name: true } });
+    const tenant = await tx.tenant.findFirst({ select: { yearStyle: true } });
     const yearStyle = tenant?.yearStyle === 'CE' ? 'CE' : 'BE';
 
     // แถวต่อเที่ยว (ลำดับตามบรรทัดแรกของเที่ยว): ค่าเที่ยว = Σ FREIGHT · ค่าใช้จ่ายหน้างาน = Σ SURCHARGE
-    const rows = tripIds.map((tid) => {
+    const rows: (SettlementPrintTrip & { driver: string | null })[] = tripIds.map((tid) => {
       const t = byId.get(tid)!;
       const mine = tripLines.filter((l) => tryDecodeId('trip', l.tripId!) === tid);
       const sum = (type: string) =>
@@ -105,7 +140,27 @@ export class SettlementPdfService {
         driver: t.driverNameSnapshot,
       };
     });
-    const drivers = new Set(rows.map((r) => r.driver));
+    // review L3: บรรทัดเที่ยว/ค่าใช้จ่ายที่ไม่ผูกเที่ยว (ไม่ควรมี — trip_cost ผูกเที่ยวเสมอ) → แถว "—" เพื่อให้ผลรวมตาราง = ยอดซื้อรวม
+    const orphan = active.filter((l) => l.lineType !== 'DEDUCTION' && !l.tripId);
+    if (orphan.length) {
+      const sum = (type: string) =>
+        sumDecimal(orphan.filter((l) => l.lineType === type).map((l) => l.buyAmount ?? '0.00'));
+      rows.push({
+        tripNo: '—',
+        date: null,
+        route: orphan.map((l) => l.description).join(', '),
+        tripFee: sum('FREIGHT'),
+        siteExpenses: sum('SURCHARGE'),
+        driver: null,
+      });
+    }
+    // ผลรวมตารางต้องเท่ากับยอดซื้อรวมของ API เสมอ — ไม่ตรง = ไม่พิมพ์ (ดีกว่าออกใบที่ยอดขัดกัน)
+    const tableSum = sumDecimal(rows.flatMap((r) => [r.tripFee, r.siteExpenses]));
+    if (tableSum !== dto.buyGrossAmount)
+      throw new Error(
+        `settlement ${id}: trip table total ${tableSum} ≠ buyGrossAmount ${dto.buyGrossAmount}`,
+      );
+    const drivers = new Set(rows.filter((r) => r.tripNo !== '—').map((r) => r.driver));
     const driver = drivers.size === 1 ? ([...drivers][0] ?? null) : null;
 
     const deductions = DEDUCTION_ORDER.map((type) => {
@@ -126,7 +181,10 @@ export class SettlementPdfService {
         yearStyle,
         settlementNo: dto.settlementNo,
         docDate,
-        payer: await this.payer(tx, row.payingCompanyId, tenant?.name ?? ''),
+        payer: payerParty(
+          (row.payerSnapshot as unknown as PayerSnapshot | null) ??
+            (await resolvePayer(tx, row.payingCompanyId)),
+        ),
         payee: {
           name: c.legalName,
           // บุคคลธรรมดา: snapshot เก็บเฉพาะ 4 หลักท้าย (PDPA) → พิมพ์แบบปิดบัง
@@ -147,25 +205,5 @@ export class SettlementPdfService {
         net: dto.buyNetAfterWht!,
       },
     };
-  }
-
-  /**
-   * ผู้จ่าย = "จ้างในนาม" ของใบ (ไม่ตั้ง = บริษัทแรกของ tenant) · สาขา = สาขาผู้ออกตั้งต้น → สำนักงานใหญ่ (กติกาเดียวกับผู้ออกใบแจ้งหนี้)
-   * ไม่มีนิติบุคคลเลย = ชื่อ tenant (ไม่มีเลขผู้เสียภาษี)
-   */
-  private async payer(tx: Tx, companyId: string | null, tenantName: string): Promise<FinanceParty> {
-    const co = await tx.company.findFirst({
-      where: companyId ? { id: companyId } : { status: 'ACTIVE' },
-      orderBy: { createdAt: 'asc' },
-    });
-    if (!co) return { name: tenantName, taxId: null, branchCode: null, address: '' };
-    const branches = await tx.branch.findMany({
-      where: { companyId: co.id },
-      orderBy: { branchCode: 'asc' },
-    });
-    const b =
-      branches.find((x) => x.isDefaultIssuer) ?? branches.find((x) => x.branchCode === '00000');
-    // ต้นแบบ #pv ไม่แสดงที่อยู่ผู้จ่าย (ชื่อ + สาขา + เลขผู้เสียภาษีเท่านั้น)
-    return { name: co.legalName, taxId: co.taxId, branchCode: b?.branchCode ?? null, address: '' };
   }
 }

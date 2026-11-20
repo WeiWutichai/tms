@@ -19,8 +19,8 @@ import type { DeductionType, SettlementPaymentMethod } from './settlement.dto';
  */
 export interface SettlementPrintTrip {
   tripNo: string;
-  /** YYYY-MM-DD — วันที่เที่ยวจบ (เวลาไทย) หรือวันที่เที่ยว */
-  date: string;
+  /** YYYY-MM-DD — วันที่เที่ยวจบ (เวลาไทย) หรือวันที่เที่ยว · null = บรรทัดไม่ผูกเที่ยว */
+  date: string | null;
   /** "ต้นทาง → ปลายทาง" (ชื่อจุดแรก/สุดท้าย) — null = ไม่มีจุด */
   route: string | null;
   /** Σ บรรทัด FREIGHT ของเที่ยว (ค่าจ้างรถร่วม) */
@@ -105,7 +105,7 @@ function tripCells(t: SettlementPrintTrip, yearStyle: 'BE' | 'CE'): string[] {
   const e = escapeHtml;
   return [
     `<span style="${NUM}">${e(t.tripNo)}</span>`,
-    e(docDateShort(t.date, yearStyle)),
+    t.date ? e(docDateShort(t.date, yearStyle)) : '—',
     e(t.route ?? '—'),
     `<span style="${NUM}">${e(bahtFormat(t.tripFee))}</span>`,
     `<span style="${NUM}">${e(bahtFormat(t.siteExpenses))}</span>`,

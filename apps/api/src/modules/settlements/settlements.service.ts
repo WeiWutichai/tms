@@ -34,6 +34,7 @@ import type {
   SettlementSummaryDto,
   UpdateSettlementDto,
 } from './settlement.dto';
+import { resolvePayer } from './settlement-payer';
 import { payableLines, SettlementQueueService } from './settlement-queue.service';
 import { disputedCount, disputedLines, latestBy, lineStatus } from './settlement-dispute';
 import type { SettlementSentDto, SettlementReviewLinkDto } from './settlement-review.dto';
@@ -480,6 +481,11 @@ export class SettlementsService {
         whtMinimumAmount: minimum,
         // ใบที่สร้างก่อน ST6-T08: ตรึงค่าตั้งต้นของรถร่วมที่ใช้คำนวณ → ทุกตัวเลข (แยกอัตรา/รายบรรทัด) ทำซ้ำได้
         whtRateDefault: row.whtRateDefault ?? row.carrier.whtRateDefault,
+        // ST6-T04 (review L1): ผู้จ่ายบนใบสำคัญจ่าย ตรึง ณ วันอนุมัติ (PDF ไม่อ่านชื่อบริษัทปัจจุบัน)
+        payerSnapshot: (await resolvePayer(
+          tx,
+          row.payingCompanyId,
+        )) as unknown as Prisma.InputJsonValue,
         version: { increment: 1 },
       },
     });
