@@ -9,6 +9,7 @@ import {
 } from '../delivery-orders/delivery-order.service';
 import { PodService } from '../pod/pod.service';
 import { BillingQueueService, type NotReadyReason } from './billing-queue.service';
+import { assertNotInInvoice } from './billing-lock';
 
 export interface ReleaseOutcome {
   d: DeliveryOrderRecord;
@@ -56,6 +57,27 @@ export class BillingReleaseService {
       throw notReady(reasons, { doStatus: d.status, ...(missing ? { missing } : {}) });
     const note = o.note ? cleanLine(o.note).trim() || null : null;
     return { d: await this.dos.markReleased(tx, d, this.clock.now(), note), outcome: 'RELEASED' };
+  }
+
+  /**
+   * ST5-T06 ย้อนการส่งบัญชี (RELEASED → DELIVERED — docs/04 F4 "RELEASED ย้อนได้โดย Invoicer") [DECISION spec/12 §3]:
+   * เหตุผลบังคับ (≥ 10 ตัวอักษร) + audit `delivery_order.unreleased` · DO ในร่าง → 409 `do_in_invoice` (ถอดออกจากร่างก่อน — ST5-T07)
+   * · ใบออกเลขแล้ว (INVOICED) → 409 ย้อนไม่ได้ (ใบลดหนี้) · ยังไม่ส่งบัญชี = ตอบ DO เดิม (UNCHANGED ไม่ลง audit)
+   */
+  async unrelease(
+    id: string,
+    o: { version?: number; reason: string },
+    tx: Tx = this.db.tx,
+  ): Promise<DeliveryOrderRecord> {
+    const reason = cleanLine(o.reason).trim();
+    if ([...reason].length < 10)
+      throw new ProblemException('validation_failed', undefined, [
+        { field: 'reason', code: 'too_short', message: 'reason must be at least 10 characters' },
+      ]);
+    const d = await this.dos.lockForRelease(tx, id, o.version);
+    assertNotInInvoice(d);
+    if (!d.releasedAt) return d;
+    return this.dos.markUnreleased(tx, d, reason);
   }
 
   /**

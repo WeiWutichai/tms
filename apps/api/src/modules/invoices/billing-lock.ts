@@ -17,3 +17,27 @@ export function assertNotInInvoice(
     { billingStatus: d.billingStatus, ...(d.status ? { doStatus: d.status } : {}) },
   );
 }
+
+/**
+ * ST5-T06 ล็อกจุดแวะ/ยอดส่งจริงหลังส่งบัญชี (docs/04 F4 RELEASED "แก้ stop/qty ไม่ได้"; IN_DRAFT/INVOICED ล็อกเพิ่ม) →
+ * 409 `invalid_state_transition` + `errors[].code` = `do_in_invoice` (อยู่ในใบแจ้งหนี้) / `do_released` (ส่งบัญชีแล้ว — Invoicer
+ * ย้อนการส่งบัญชีก่อน: `POST /delivery-orders/{id}/unrelease`)
+ */
+export function assertDeliveryUnlocked(
+  d: { billingStatus: string; status?: string; releasedAt: Date | null; doNo?: string | null },
+  field = 'deliveryOrderId',
+): void {
+  assertNotInInvoice(d, field);
+  if (!d.releasedAt) return;
+  throw new ProblemException(
+    'invalid_state_transition',
+    undefined,
+    [{ field, code: 'do_released', message: 'delivery order was released to billing' }],
+    {
+      billingStatus: d.billingStatus,
+      releasedAt: d.releasedAt.toISOString(),
+      ...(d.doNo ? { doNo: d.doNo } : {}),
+      ...(d.status ? { doStatus: d.status } : {}),
+    },
+  );
+}

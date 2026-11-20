@@ -1,6 +1,6 @@
 # ใบส่งของ (delivery-orders)
 
-17 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+19 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -13,9 +13,11 @@
 | [`POST /v1/delivery-orders/{id}/cancel`](#post-delivery-orders-id-cancel) | `orders:cancel` |
 | [`POST /v1/delivery-orders/{id}/redeliver`](#post-delivery-orders-id-redeliver) | `orders:write` |
 | [`POST /v1/delivery-orders/{id}/return`](#post-delivery-orders-id-return) | `orders:write` |
+| [`POST /v1/delivery-orders/{id}/revert-delivery`](#post-delivery-orders-id-revert-delivery) | `trips:close` |
 | [`GET /v1/delivery-orders/{id}/pod`](#get-delivery-orders-id-pod) | `trips:read` |
 | [`PUT /v1/delivery-orders/{id}/pod`](#put-delivery-orders-id-pod) | `trips:dispatch` |
 | [`POST /v1/delivery-orders/{id}/release`](#post-delivery-orders-id-release) | `invoices:draft` |
+| [`POST /v1/delivery-orders/{id}/unrelease`](#post-delivery-orders-id-unrelease) | `invoices:draft` |
 | [`POST /v1/delivery-orders/bulk-release`](#post-delivery-orders-bulk-release) | `invoices:draft` |
 | [`GET /v1/delivery-orders/{id}/revenue-lines`](#get-delivery-orders-id-revenue-lines) | `orders:read` |
 | [`GET /v1/delivery-orders/{id}/tracking-link`](#get-delivery-orders-id-tracking-link) | `orders:write` / `trips:dispatch` |
@@ -454,6 +456,60 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/return', {
 });
 ```
 
+## ย้อนผลส่งถึง (DELIVERED → ส่งไม่สำเร็จ) {#post-delivery-orders-id-revert-delivery}
+
+`POST /v1/delivery-orders/{id}/revert-delivery`
+
+scope: `trips:close` · operationId: `DeliveryOrderRevert_revertDelivery`
+
+ผู้จัดรถ (`trips:close`) ย้อนได้ภายใน 24 ชม. นับจากเวลาที่ใบส่งของเป็นส่งถึง — เกินต้องมี `deliveries:revert` (owner/admin) (ไม่งั้น 403 `permission_denied` + `reason: revert_window_expired`, `deliveredAt`, `revertDeadline`) · ใบส่งของต้องส่งถึง (DELIVERED/POD_PENDING/UNBILLED) ยังไม่ส่งบัญชี ไม่อยู่ในใบแจ้งหนี้ และยังไม่มีส่งซ้ำ/คืนคลังของที่ปฏิเสธรับ → สถานะเป็น FAILED + เหตุผล + audit `delivery_order.delivery_reverted` แล้วจัดการต่อด้วย `/redeliver` หรือ `/return`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header |   | `string` | ETag จาก GET — ไม่ตรง → 412 |
+
+**Request body** `RevertDeliveryDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 | เหตุผล (บังคับ ≥ 10 ตัวอักษร — ลง audit + ประวัติสถานะ) | `คนขับกดปิดงานผิดจุด ของยังไม่ถึงลูกค้า` |
+| `reasonCodeId` |   | `string` | null ได้ | เหตุผลมาตรฐานหมวด DELIVERY_FAILED (ส่งไม่สำเร็จ) — ใช้ต่อกับส่งซ้ำ/คืนคลัง | `rsn_3f2a…` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `DeliveryOrderDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`trips:close`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | `invalid_state_transition` — `errors[].code`: not_delivered · do_released (ส่งบัญชีแล้ว — ย้อนการส่งบัญชีก่อน) · do_in_invoice (อยู่ในร่าง/ใบที่ออกแล้ว) · do_credited · has_followups (ส่งซ้ำ/คืนคลังของที่ปฏิเสธรับแล้ว) · order_closed · trip_costed (เที่ยวปิดต้นทุนแล้ว) — [do_released](errors.md#do_released) | `ProblemDto` |
+| `412` | If-Match ไม่ตรงกับ version ปัจจุบัน (ETag จาก GET) — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/delivery-orders/<id>/revert-delivery" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"คนขับกดปิดงานผิดจุด ของยังไม่ถึงลูกค้า"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/delivery-orders/{id}/revert-delivery', {
+  params: { path: { id: "…" } },
+  body: {
+    "reason": "คนขับกดปิดงานผิดจุด ของยังไม่ถึงลูกค้า"
+  },
+});
+```
+
 ## หลักฐานส่งของ DO (ฉบับปัจจุบัน + ประวัติ + checklist + สิ่งที่ขาด) {#get-delivery-orders-id-pod}
 
 `GET /v1/delivery-orders/{id}/pod`
@@ -616,6 +672,59 @@ curl -sS -X POST "$TMS_BASE_URL/v1/delivery-orders/<id>/release" \
 const { data, error } = await tms.POST('/v1/delivery-orders/{id}/release', {
   params: { path: { id: "…" } },
   body: {},
+});
+```
+
+## ย้อนการส่งบัญชี (RELEASED → DELIVERED) {#post-delivery-orders-id-unrelease}
+
+`POST /v1/delivery-orders/{id}/unrelease`
+
+scope: `invoices:draft` · operationId: `DeliveryOrderRelease_unrelease`
+
+"RELEASED ย้อนได้โดย Invoicer": ล้างเวลา/ผู้ส่งบัญชี + audit `delivery_order.unreleased` (เหตุผลบังคับ) · หลังย้อนแก้จุดแวะ/ยอดส่งจริงได้อีก (ล็อกหลังส่งบัญชี — 409 `do_released`) · ใบส่งของในร่างใบแจ้งหนี้ → 409 `do_in_invoice` (ถอดออกจากร่างก่อน) · ออกใบแล้ว (INVOICED) ย้อนไม่ได้ — ใช้ใบลดหนี้ · ยังไม่ส่งบัญชี = ตอบใบเดิม (ไม่ทำซ้ำ)
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header |   | `string` | ETag จาก GET — ไม่ตรง → 412 |
+
+**Request body** `UnreleaseDeliveryOrderDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 | เหตุผล (บังคับ ≥ 10 ตัวอักษร — ลง audit) | `ยอดส่งจริงต้องแก้ตามใบรับของลูกค้า` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `DeliveryOrderDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:draft`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | `invalid_state_transition` + `errors[].code = do_in_invoice` + `billingStatus` (IN_DRAFT ถอดออกจากร่างก่อน · INVOICED ย้อนไม่ได้) — [do_in_invoice](errors.md#do_in_invoice) | `ProblemDto` |
+| `412` | If-Match ไม่ตรงกับ version ปัจจุบัน (ETag จาก GET) — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/delivery-orders/<id>/unrelease" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"ยอดส่งจริงต้องแก้ตามใบรับของลูกค้า"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/delivery-orders/{id}/unrelease', {
+  params: { path: { id: "…" } },
+  body: {
+    "reason": "ยอดส่งจริงต้องแก้ตามใบรับของลูกค้า"
+  },
 });
 ```
 
@@ -881,6 +990,9 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `podStatus` | ใช่ | `string` |   |   | `NONE` |
 | `releasedAt` | ใช่ | `string` | null ได้ | เวลาส่งบัญชี · null = ยังไม่ส่ง |   |
 | `billingStatus` | ใช่ | `string` | ค่า: `UNBILLED`, `IN_DRAFT`, `INVOICED`, `CREDITED` | สถานะวางบิล: UNBILLED ยังไม่อยู่ในใบแจ้งหนี้ · IN_DRAFT อยู่ในร่าง · INVOICED ใบออกเลขแล้ว · CREDITED ใบถูกลดหนี้เต็มใบ (วางบิลใหม่ได้) — DO หนึ่งใบอยู่ในใบแจ้งหนี้ที่ active ได้ใบเดียว | `UNBILLED` |
+| `invoicedAt` | ใช่ | `string` | null ได้ | เวลาใบแจ้งหนี้ของ DO ออกเลข · null = ยังไม่ออก/ดึงเข้าร่างใหม่หลังลดหนี้ |   |
+| `paidAt` | ใช่ | `string` | null ได้ | เวลารับชำระครบ · null = ยังไม่ชำระครบ |   |
+| `billingStage` | ใช่ | `string` | ค่า: `DELIVERED`, `RELEASED`, `IN_DRAFT`, `INVOICED`, `PARTIALLY_PAID`, `PAID`, `CREDITED` · null ได้ | ขั้น lifecycle วางบิล: DELIVERED ส่งถึง · RELEASED ส่งบัญชีแล้ว · IN_DRAFT อยู่ในร่าง · INVOICED ออกใบแล้ว · PAID ชำระครบ · CREDITED ลดหนี้เต็มใบ · null = ยังไม่ส่งถึง/ส่งไม่สำเร็จ/ยกเลิก | `RELEASED` |
 | `lines` | ใช่ | `array<DeliveryOrderLineDto>` |   |   |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |

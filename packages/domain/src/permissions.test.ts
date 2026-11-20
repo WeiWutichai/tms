@@ -41,6 +41,8 @@ const A3: Array<[string, string, RoleCode[]]> = [
   ['Order: ยกเลิก', 'orders:cancel', ['owner', 'admin', 'manager', 'planner']],
   // ST3-T08: docs/04 C `orders.unlock` (A3 ไม่มีแถว) — spec/03 ORD-031 "manager ปลดล็อกได้"
   ['Order: ปลดล็อกการแก้ของคนอื่น', 'orders:unlock', ['owner', 'admin', 'manager']],
+  // ST5-T06: docs/04 F4 "DELIVERED ย้อนได้โดย Dispatcher (ภายใน 24 ชม.) / Admin" — เกิน 24 ชม. เฉพาะ owner/admin
+  ['ย้อนผลส่งถึงเกิน 24 ชม.', 'deliveries:revert', ['owner', 'admin']],
   [
     'Order: ดู',
     'orders:read',
