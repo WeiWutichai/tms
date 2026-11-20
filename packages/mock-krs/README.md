@@ -1,4 +1,4 @@
-# @tms/mock-krs — mock ของ KRS api-pueanphet (ST8-T01)
+# @tms/mock-krs — mock ของ KRS api-pueanphet (ST8-T01) + แหล่ง SO (ST8-T02)
 
 mock server จาก contract `packages/contracts/krs/*.schema.json` (docs/01 Appendix A.1, A.3, A.5) สำหรับ dev / test / staging — **ไม่เรียก KRS จริง ไม่ต่อเครือข่ายภายนอก** และไม่มีโค้ดของ core ใดอ้างถึง (KRS เป็นแค่ adapter หนึ่งหลัง `ErpAdapter`)
 
@@ -31,6 +31,7 @@ mock server จาก contract `packages/contracts/krs/*.schema.json` (docs/01 A
 | `putCheckOrder` | `MOCK_KRS_PUT_CHECK_ORDER` (`validate-first`/`lookup-first`) | `validate-first` |
 | `unsupportedMethodStatus` | `MOCK_KRS_UNSUPPORTED_METHOD_STATUS` (`404`/`405`) | 405 |
 | `retryAfterSeconds` | `MOCK_KRS_RETRY_AFTER` (วินาที หรือ `none`) | 60 |
+| `salesOrderSample` | `MOCK_KRS_SO_SAMPLE` (`true`/`false`/`1`/`0`) | true (ใส่ SO ตัวอย่างปลอมตอนเริ่ม/reset) |
 | `now` (นาฬิกา) | — (in-process เท่านั้น) | เวลาจริง |
 
 ## Endpoint (ตาม contract)
@@ -49,6 +50,30 @@ mock server จาก contract `packages/contracts/krs/*.schema.json` (docs/01 A
 | 503 | มี `Retry-After: 60` (ค่าเริ่ม — [OPEN — KRS] `retryAfterSeconds`, `null` = ไม่ส่ง header) |
 
 error body: `{ status, error, message, errors? }`
+
+## แหล่ง SO (ST8-T02 — docs/01 A.4; plan/08 KRS-11 ทาง B)
+
+แทน SQL Server view `vw_TMS_SalesOrder` ด้วย HTTP stub (SQL Server image ทางการไม่มี arm64 — ดู spec/12 §3 แถว ST8-T02) · **ชื่อ view/คอลัมน์/path อยู่ใน `packages/contracts/krs/salesorder-source.json` ที่เดียว** ([OPEN — KRS] ชื่อเสนอ) — client `apps/api/src/erp-adapters/krs/krs-so-source.ts` อ่านไฟล์เดียวกัน
+
+| คำขอ | ผล |
+|---|---|
+| `GET /api/salesorder?since={watermark}&limit={n}` (+ `X-API-Key`) | 200 `{ view, rows[], next, hasMore }` — แถวที่ `row_ver > since` (ไม่รวม since) เรียง `row_ver` แล้ว `line_no` · 1 แถว = 1 รายการ (หัวใบซ้ำทุกแถว, `row_ver` เท่ากันทั้งใบ) · `limit` นับเป็นใบ 1–500 (ค่าเริ่ม 100) ไม่ตัดกลางใบ · ไม่มีแถว = `next` เท่ากับ since เดิม |
+| since/limit ผิดรูป · key ผิด · method อื่น | 400 · 401 · 405 (+ fault 503/timeout ใช้ได้เหมือน `/invoice`) |
+
+ค่าในแถว: วันที่ `YYYY-MM-DD` · `updated_at` รูป datetime2 ไม่มี offset (เวลาไทย) · `qty` สตริงทศนิยม · `is_cancelled` 0/1 · `row_ver` สตริงตัวเลข (เหมือน `rowversion` — ไม่ซ้ำ เพิ่มทุกครั้งที่ใบเปลี่ยน)
+
+ข้อมูลตัวอย่าง (ปลอมทั้งหมด — `SAMPLE-` / "บริษัทตัวอย่าง"): `SAMPLE-SO-6911-0001` ปกติ · `-0002` 2 รายการ · `-0003` ลูกค้ายังไม่จับคู่ (`SAMPLE-C999`) · `-0004` ถูกแก้ (updated_at หลังวันที่ SO) · `-0005` **ถูกยกเลิก** (`is_cancelled = 1`)
+
+| control | ทำอะไร |
+|---|---|
+| `GET /__mock/salesorders` · `GET /__mock/salesorders/{company}/{soNo}` | ดู SO (ชื่อเชิงตรรกะ) |
+| `POST /__mock/salesorders` | เพิ่ม/แทนที่ทั้งใบ |
+| `PATCH /__mock/salesorders/{company}/{soNo}` | แก้บางช่อง (เช่น `deliveryDate`, `lines`) — แก้ `company`/`soNo`/`rowVersion` ไม่ได้ |
+| `POST /__mock/salesorders/{company}/{soNo}/cancel` | ยกเลิก (แถวยังอยู่ `is_cancelled = 1`) |
+
+ทุกการเขียนได้ `row_ver` + `updated_at` ใหม่ → poller เห็นในรอบถัดไป · in-process ใช้ `mock.salesOrders.edit/cancel/upsert` ตรง ๆ ได้
+
+**[OPEN — KRS]** ทางที่ KRS เลือก (view SQL / API / ไฟล์ — KRS-11) · ชื่อ view/คอลัมน์ · 1 แถวต่อรายการหรือต่อใบ · watermark (`rowversion` หรือ `updated_at`) · เขตเวลาของ `updated_at` · รูป response/พารามิเตอร์ของ API · SO ที่ถูกลบจริง (ไม่ใช่ยกเลิก) จะหายจาก view หรือไม่
 
 ## สวิตช์ (control — ไม่ต้องใช้ key)
 

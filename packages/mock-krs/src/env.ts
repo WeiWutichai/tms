@@ -28,6 +28,7 @@ export const MOCK_KRS_ENV_VARS = [
   'MOCK_KRS_PUT_CHECK_ORDER',
   'MOCK_KRS_UNSUPPORTED_METHOD_STATUS',
   'MOCK_KRS_RETRY_AFTER',
+  'MOCK_KRS_SO_SAMPLE',
 ] as const;
 
 type Env = Record<string, string | undefined>;
@@ -87,6 +88,7 @@ export function optionsFromEnv(env: Env): MockKrsEnvConfig {
   if (ra !== undefined && ra !== '')
     o.retryAfterSeconds =
       ra === 'none' ? null : (int(env, 'MOCK_KRS_RETRY_AFTER', 0, 86_400) ?? 60);
+  set('salesOrderSample', bool(env, 'MOCK_KRS_SO_SAMPLE'));
   const port = int(env, 'MOCK_KRS_PORT', 0, 65_535) ?? 4784;
   return { port, host: env.MOCK_KRS_HOST || '127.0.0.1', options: o };
 }
