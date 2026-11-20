@@ -426,6 +426,9 @@ const HEALTH_CODES: Record<string, MessageKey> = {
   credentials_missing: 'cnx.hc.credentials_missing',
   config_missing: 'cnx.hc.config_missing',
   url_not_allowed: 'cnx.hc.url_not_allowed',
+  // ST8-T04 รอบดึง SO หยุด connector เพราะแหล่งข้อมูลผิดโครงสร้าง
+  source_not_found: 'cnx.hc.source_not_found',
+  source_columns_missing: 'cnx.hc.source_columns_missing',
 };
 export function healthText(t: T, code: string | null | undefined): string {
   const k = code ? HEALTH_CODES[code] : undefined;

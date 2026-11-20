@@ -2140,6 +2140,12 @@ model CarrierSettlement {
   grossAmount        Decimal                 @default(0) @map("gross_amount") @db.Decimal(14, 2)
   deductionAmount    Decimal                 @default(0) @map("deduction_amount") @db.Decimal(14, 2)
   netPayable         Decimal                 @default(0) @map("net_payable") @db.Decimal(14, 2)
+  /// หัก ณ ที่จ่ายประมาณการ (ST6-T08, D-54/D-58) — ตรึงตอนอนุมัติ (null = ยังไม่อนุมัติ → คำนวณสดจากบรรทัด) · ร่าง ยังไม่ผ่านนักบัญชี
+  whtAmount          Decimal?                @map("wht_amount") @db.Decimal(14, 2)
+  /// ขั้นต่ำหัก ณ ที่จ่าย (บาท) ที่ใช้ตอนตรึง — ค่าตั้ง `tax.whtMinimumAmount` ณ วันอนุมัติ
+  whtMinimumAmount   Decimal?                @map("wht_minimum_amount") @db.Decimal(14, 2)
+  /// ค่าตั้งต้นอัตราหัก ณ ที่จ่ายของรถร่วม (%) ณ วันสร้างใบ — ใช้กับบรรทัดที่ไม่มีธง · ใบเก่า = null จนอนุมัติ (ตรึงตอนอนุมัติ)
+  whtRateDefault     Decimal?                @map("wht_rate_default") @db.Decimal(5, 2)
   /// DRAFT / SENT_TO_CARRIER / DISPUTED / APPROVED / CANCELLED (CHECK ใน migration 0122/0124/0127/0130 — PAID เพิ่มใน ST6-T09)
   /// DISPUTED (ST6-T06) = ส่งตรวจแล้วมีรายการโต้แย้งที่ยังไม่เคลียร์ (รถร่วม/บริษัท) — อนุมัติไม่ได้ · เคลียร์ครบ → SENT_TO_CARRIER · เรียกกลับ → DRAFT
   status             String                  @default("DRAFT")

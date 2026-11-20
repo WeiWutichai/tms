@@ -91,6 +91,11 @@ const HEALTH_CODE_TH: Readonly<Record<string, string>> = {
   url_not_allowed: 'ไม่อนุญาตให้เชื่อมต่อปลายทางนี้ (ที่อยู่ภายใน/พอร์ตไม่อนุญาต)',
   adapter_unavailable: 'ระบบนี้ยังไม่พร้อมใช้งานในสภาพแวดล้อมนี้',
   health_error: 'ทดสอบการเชื่อมต่อไม่สำเร็จ — ระบบจะลองใหม่',
+  // ST8-T04 รอบดึง SO หยุด connector (แหล่งข้อมูลผิดโครงสร้าง — แก้ต้นทางแล้วกดเปิดใช้)
+  source_not_found:
+    'ไม่พบแหล่งข้อมูล SO ที่ปลายทาง — ให้ปลายทางตรวจ view/endpoint แล้วเปิดใช้อีกครั้ง',
+  source_columns_missing:
+    'แหล่งข้อมูล SO ขาดคอลัมน์ที่จำเป็น — SO ที่ดึงได้ค้างรอแก้ต้นทาง แก้แล้วเปิดใช้อีกครั้ง',
 };
 const HEALTH_CLASS_TH: Readonly<Partial<Record<ErrorClass, string>>> = {
   AUTH: 'ระบบปลายทางไม่ยอมรับข้อมูลยืนยันตัวตน — ตรวจ key แล้วทดสอบอีกครั้ง',
@@ -1205,6 +1210,7 @@ export class ConnectorsService {
       config: Object.freeze(this.configOf(c)),
       idempotencyKey: extra.idempotencyKey,
       signal: extra.signal,
+      capabilitiesEnabled: Object.freeze([...(c.capabilitiesEnabled ?? [])]),
     };
   }
 

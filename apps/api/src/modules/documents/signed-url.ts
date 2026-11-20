@@ -10,6 +10,8 @@ import { isLocalEnv } from '../../auth/tokens';
 export type UrlAction = 'upload' | 'download' | 'preview';
 export const UPLOAD_TTL_S = 15 * 60;
 export const DOWNLOAD_TTL_S = 5 * 60;
+/** ไฟล์นำเข้า (kind IMPORT — ข้อมูลส่วนบุคคลเต็ม, ST9-T16 R-1) ลิงก์ดาวน์โหลดอายุสั้น */
+export const IMPORT_DOWNLOAD_TTL_S = 60;
 
 function key(): Buffer {
   const s =

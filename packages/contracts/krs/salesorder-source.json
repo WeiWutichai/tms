@@ -1,0 +1,32 @@
+{
+  "$comment": "ST8-T02 แหล่ง SO ของ KRS (docs/01 A.4, A.6 คำถาม SO source; plan/08 KRS-11) — ชื่อ view/คอลัมน์ทั้งหมดอยู่ไฟล์นี้ที่เดียว [OPEN — KRS] ชื่อเสนอ ยังไม่ยืนยัน: เมื่อ KRS ตอบให้แก้ไฟล์นี้ (mock packages/mock-krs และ client apps/api/src/erp-adapters/krs/krs-so-source.ts อ่านจากไฟล์นี้)",
+  "status": "proposed",
+  "view": "vw_TMS_SalesOrder",
+  "httpPath": "/salesorder",
+  "grain": "line",
+  "watermark": "rowVersion",
+  "timezone": "Asia/Bangkok",
+  "columns": {
+    "company": { "column": "company_code", "type": "string", "required": true },
+    "soNo": { "column": "so_no", "type": "string", "required": true },
+    "soDate": { "column": "so_date", "type": "date", "required": true },
+    "customerCode": { "column": "cust_code", "type": "string", "required": true },
+    "customerName": { "column": "cust_name", "type": "string", "required": true },
+    "customerPo": { "column": "cust_po", "type": "string", "required": false },
+    "deliveryDate": { "column": "delivery_date", "type": "date", "required": true },
+    "vehicleType": { "column": "vehicle_type", "type": "string", "required": false },
+    "originCode": { "column": "origin_code", "type": "string", "required": false },
+    "originName": { "column": "origin_name", "type": "string", "required": true },
+    "destinationCode": { "column": "dest_code", "type": "string", "required": false },
+    "destinationName": { "column": "dest_name", "type": "string", "required": true },
+    "remark": { "column": "remark", "type": "string", "required": false },
+    "lineNo": { "column": "line_no", "type": "int", "required": true },
+    "itemCode": { "column": "item_code", "type": "string", "required": true },
+    "itemName": { "column": "item_name", "type": "string", "required": true },
+    "qty": { "column": "qty", "type": "decimal", "required": true },
+    "unit": { "column": "unit", "type": "string", "required": true },
+    "cancelled": { "column": "is_cancelled", "type": "bit", "required": true },
+    "updatedAt": { "column": "updated_at", "type": "datetime", "required": true },
+    "rowVersion": { "column": "row_ver", "type": "bigint", "required": true }
+  }
+}
