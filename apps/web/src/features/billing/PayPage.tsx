@@ -34,7 +34,8 @@ const TAB_QUERY: Record<Tab, Record<string, string>> = {
   all: { receivable: 'all' },
   open: { receivable: 'open' },
   over: { receivable: 'overdue' },
-  part: { receivable: 'all', status: 'PARTIALLY_PAID' },
+  // ต้นแบบ invSt: ใบเกินกำหนดอยู่แท็บ "เกินกำหนด" (ไม่ซ้ำในแท็บชำระบางส่วน — ST5-T18)
+  part: { receivable: 'all', status: 'PARTIALLY_PAID', overdue: 'false' },
   paid: { receivable: 'all', status: 'PAID' },
 };
 /** ตัวกรองคอลัมน์สถานะ (ต้นแบบ: ทั้งหมด / ออกแล้ว / ชำระบางส่วน / ชำระแล้ว / เกินกำหนด) */
@@ -84,7 +85,7 @@ export function PayPage() {
     (x) =>
       (!col.no || (x.invoiceNo ?? '').includes(col.no)) &&
       (!col.cust || x.customer.legalName.includes(col.cust)) &&
-      (!col.st || invoiceDisplayStatus(x, today) === col.st),
+      (!col.st || invoiceDisplayStatus(x) === col.st),
   );
   const tabCount: Record<Tab, number | undefined> = {
     all: sum?.total,
@@ -181,8 +182,8 @@ export function PayPage() {
           ...ST_OPTS.map((s) => ({ value: s, label: invoiceStatusLabel(t, s) })),
         ],
       },
-      render: (x) => <StatusDot label={invoiceStatusLabel(t, invoiceDisplayStatus(x, today))} />,
-      csv: (x) => invoiceStatusLabel(t, invoiceDisplayStatus(x, today)),
+      render: (x) => <StatusDot label={invoiceStatusLabel(t, invoiceDisplayStatus(x))} />,
+      csv: (x) => invoiceStatusLabel(t, invoiceDisplayStatus(x)),
     },
   ];
 

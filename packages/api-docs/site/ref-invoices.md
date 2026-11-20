@@ -1,6 +1,6 @@
 # invoices
 
-20 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+22 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -24,6 +24,8 @@
 | [`POST /v1/invoices/{id}/lines/{lineId}/remove`](#post-invoices-id-lines-lineId-remove) | `invoices:draft` |
 | [`POST /v1/invoices/{id}/cancel`](#post-invoices-id-cancel) | `invoices:draft` |
 | [`POST /v1/invoices/{id}/void`](#post-invoices-id-void) | `invoices:void` |
+| [`POST /v1/invoices/{id}/mark-sent`](#post-invoices-id-mark-sent) | `invoices:finalize` |
+| [`POST /v1/invoices/{id}/unmark-sent`](#post-invoices-id-unmark-sent) | `invoices:void` |
 
 ## คิวพร้อมวางบิล (DO ที่ส่งแล้ว หลักฐานครบ และราคาพร้อม) {#get-invoices-queue}
 
@@ -171,7 +173,7 @@ scope: `invoices:read` · operationId: `Invoices_listInvoices`
 | `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `customerId` | query |   | `string` | ลูกค้า — id หรือ `ext:{externalId}` |
 | `status` | query |   | `string` ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |
-| `receivable` | query |   | `string` ค่า: `all`, `open`, `overdue` | หน้า "รับชำระ": `all` = ใบที่ออกแล้ว (ไม่รวมร่าง/ยกเลิก) · `open` = ค้างรับ (ISSUED + PARTIALLY_PAID) · `overdue` = ค้างรับและเลยวันครบกำหนด (เวลาไทย) — ใช้ร่วมกับ `status` ได้ |
+| `receivable` | query |   | `string` ค่า: `all`, `open`, `overdue` | หน้า "รับชำระ": `all` = ใบที่ออกแล้ว (ไม่รวมร่าง/ยกเลิก) · `open` = ค้างรับ (ISSUED + PARTIALLY_PAID) · `overdue` = ใบที่มีธงเกินกำหนด — ใช้ร่วมกับ `status` ได้ |
 
 **Responses**
 
@@ -973,7 +975,7 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
 
 scope: `invoices:void` · operationId: `Invoices_void`
 
-สิทธิ์ `invoices:void` · **If-Match บังคับ** (ไม่ส่ง → 422 `if_match_required`) · ISSUED → **CANCELLED คงเลข** (เลขไม่ถูกออกซ้ำ · record ไม่ถูกลบ) · รับชำระแล้ว (บางส่วน/ครบ) → 409 `invoice_has_payments` (`payments[]` — กลับรายการก่อน) · อยู่ในใบวางบิลที่ออกแล้ว/เก็บเงินแล้ว → 409 `invoice_on_billing_note` (`billingNoteNo` — ยกเลิกใบวางบิลก่อน) · ร่าง → 409 (ใช้ `/cancel`) · ผล: DO INVOICED/BILLED → UNBILLED (วางบิลใหม่ได้) · ปลดล็อกบรรทัดรายได้ · ถอดออกจากใบวางบิลที่ยังเป็นร่าง · audit `invoice.cancelled` + webhook `invoice.voided` · `reissue: true` = สร้างร่างฉบับใหม่แทน (DO ชุดเดิม + บรรทัดที่เพิ่มเอง) อ้างเลขเดิม (`replacedByInvoice` / `replacesInvoice`) — ออกเลขใหม่ตามปกติ · PDF ของใบที่ยกเลิกมีลายน้ำ "ยกเลิก"
+สิทธิ์ `invoices:void` · **If-Match บังคับ** (ไม่ส่ง → 422 `if_match_required`) · ISSUED → **CANCELLED คงเลข** (เลขไม่ถูกออกซ้ำ · record ไม่ถูกลบ) · รับชำระแล้ว (บางส่วน/ครบ) → 409 `invoice_has_payments` (`payments[]` — กลับรายการก่อน) · อยู่ในใบวางบิลที่ออกแล้ว/เก็บเงินแล้ว → 409 `invoice_on_billing_note` (`billingNoteNo` — ยกเลิกใบวางบิลก่อน) · **ส่งลูกค้าแล้ว** → 409 `invoice_sent_to_customer` · ร่าง → 409 (ใช้ `/cancel`) · ผล: DO INVOICED/BILLED → UNBILLED (วางบิลใหม่ได้) · ปลดล็อกบรรทัดรายได้ · ถอดออกจากใบวางบิลที่ยังเป็นร่าง · audit `invoice.cancelled` + webhook `invoice.voided` · `reissue: true` = สร้างร่างฉบับใหม่แทน (DO ชุดเดิม + บรรทัดที่เพิ่มเอง) อ้างเลขเดิม (`replacedByInvoice` / `replacesInvoice`) — ออกเลขใหม่ตามปกติ · PDF ของใบที่ยกเลิกมีลายน้ำ "ยกเลิก"
 
 **Parameters**
 
@@ -997,7 +999,7 @@ scope: `invoices:void` · operationId: `Invoices_void`
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`invoices:void`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `404` | ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
-| `409` | `invalid_state_transition` (ร่าง/ยกเลิกแล้ว/สถานะอื่น) · `invoice_has_payments` · `invoice_on_billing_note` · `not_ready_to_bill` (ออกฉบับใหม่แทน — DO ไม่พร้อม) — [invoice_on_billing_note](errors.md#invoice_on_billing_note), [invoice_has_payments](errors.md#invoice_has_payments) | `ProblemDto` |
+| `409` | `invalid_state_transition` (ร่าง/ยกเลิกแล้ว/สถานะอื่น) · `invoice_has_payments` · `invoice_on_billing_note` · `invoice_sent_to_customer` · `not_ready_to_bill` (ออกฉบับใหม่แทน — DO ไม่พร้อม) — [invoice_on_billing_note](errors.md#invoice_on_billing_note), [invoice_has_payments](errors.md#invoice_has_payments) | `ProblemDto` |
 | `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
@@ -1014,6 +1016,99 @@ curl -sS -X POST "$TMS_BASE_URL/v1/invoices/<id>/void" \
 
 ```ts
 const { data, error } = await tms.POST('/v1/invoices/{id}/void', {
+  params: { path: { id: "…" } },
+  body: {
+    "reason": "ลูกค้าขอแยกวางบิลงวดหน้า"
+  },
+});
+```
+
+## ทำเครื่องหมาย "ส่งลูกค้าแล้ว" {#post-invoices-id-mark-sent}
+
+`POST /v1/invoices/{id}/mark-sent`
+
+scope: `invoices:finalize` · operationId: `Invoices_markSent`
+
+สิทธิ์ `invoices:finalize` · ใบที่ออกเลขแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — อื่น ๆ 409 `invalid_state_transition`) · ส่งแล้วอยู่แล้ว = คืนค่าเดิม (ไม่เปลี่ยน) · audit `invoice.sent_to_customer` · ส่งแล้ว**ยกเลิกใบไม่ได้** (`/void` → 409 `invoice_sent_to_customer`) · ออกใบวางบิลตั้งธงนี้ให้อัตโนมัติ (ช่องทาง BILLING_NOTE) · ส่งอีเมล =
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `InvoiceDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:finalize`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/invoices/<id>/mark-sent" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)"
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/invoices/{id}/mark-sent', {
+  params: { path: { id: "…" } },
+});
+```
+
+## ล้างธง "ส่งลูกค้าแล้ว" (ทำเครื่องหมายผิด) — เหตุผล ≥ 10 ตัวอักษร {#post-invoices-id-unmark-sent}
+
+`POST /v1/invoices/{id}/unmark-sent`
+
+scope: `invoices:void` · operationId: `Invoices_unmarkSent`
+
+สิทธิ์ `invoices:void` (owner/admin/manager — สิทธิ์เดียวกับยกเลิกใบที่ออกแล้ว) · ยังไม่ส่ง = คืนค่าเดิม · audit `invoice.sent_to_customer_cleared` พร้อมเหตุผล · ยกเลิกใบวางบิลที่ออกแล้วล้างธงช่องทาง BILLING_NOTE ให้อัตโนมัติ
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
+
+**Request body** `UnmarkInvoiceSentDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `ลูกค้าขอแยกวางบิลงวดหน้า` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `InvoiceDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:void`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/invoices/<id>/unmark-sent" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"ลูกค้าขอแยกวางบิลงวดหน้า"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/invoices/{id}/unmark-sent', {
   params: { path: { id: "…" } },
   body: {
     "reason": "ลูกค้าขอแยกวางบิลงวดหน้า"
@@ -1054,6 +1149,10 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/void', {
 | `dueDate` | ใช่ | `string` | null ได้ | ครบกำหนดชำระ = วันที่ออก + เครดิต — ร่าง = null | `2026-12-20` |
 | `sellPaidAmount` |   | `string` |   | ยอดรับชำระแล้ว — `prices.sell:read` |   |
 | `sellOutstanding` |   | `string` |   | คงค้าง = ยอดรวม − รับชำระแล้ว (ร่าง/ยกเลิก = 0.00) — `prices.sell:read` |   |
+| `overdue` | ใช่ | `boolean` |   | เกินกำหนด — ค้างรับ (ISSUED/PARTIALLY_PAID) และเลยวันครบกำหนด (เวลาไทย) · **ธงแยกจาก `status`** (ใบชำระบางส่วนที่เลยกำหนด = `PARTIALLY_PAID` + `overdue: true`) · ตั้งโดย job รายวัน 00:05 และตอนรับชำระ/กลับรายการ · ชำระครบแล้วหลุดเอง |   |
+| `overdueAt` | ใช่ | `string` | null ได้ | เวลาที่ระบบตั้งธงเกินกำหนด — ไม่เกิน = null | `2026-11-21T17:05:00.000Z` |
+| `sentToCustomerAt` | ใช่ | `string` | null ได้ | ส่งลูกค้าแล้วเมื่อ — ส่งแล้วยกเลิกใบไม่ได้ (409 `invoice_sent_to_customer`) |   |
+| `sentToCustomerChannel` | ใช่ | `string` | ค่า: `MANUAL`, `BILLING_NOTE`, `EMAIL` · null ได้ | ช่องทางที่ทำให้ "ส่งลูกค้าแล้ว": MANUAL = ทำเครื่องหมายเอง · BILLING_NOTE = ออกใบวางบิล · EMAIL = ส่งอีเมล |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
 | `updatedAt` | ใช่ | `string` |   |   |   |
@@ -1112,5 +1211,5 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/void', {
 | `issued` | ใช่ | `number` |   | ISSUED + ADJUSTED |   |
 | `partiallyPaid` | ใช่ | `number` |   |   |   |
 | `paid` | ใช่ | `number` |   |   |   |
-| `overdue` | ใช่ | `number` |   | เกินกำหนด — คำนวณเมื่อมีการรับชำระ ตอนนี้ 0 เสมอ |   |
+| `overdue` | ใช่ | `number` |   | เกินกำหนด — ใบที่มีธง `overdue` |   |
 | `cancelled` | ใช่ | `number` |   | CANCELLED + VOIDED |   |

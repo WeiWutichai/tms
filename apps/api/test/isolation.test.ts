@@ -1094,6 +1094,7 @@ const BODY_FOR_PATH: Record<string, object> = {
   },
   '/v1/revenue-lines/:id/void': { reason: 'isolation test reason' }, // ST5-T01
   '/v1/invoices/:id/void': { reason: 'isolation test reason' }, // ST5-T10
+  '/v1/invoices/:id/unmark-sent': { reason: 'isolation test reason' }, // ST5-T18
   '/v1/payments/:id/reverse': { reason: 'isolation test reason' }, // ST5-T13
   '/v1/payments/:id/bounce': { reason: 'isolation test reason' }, // ST5-T13
   '/v1/settlements/:id/lines/:lineId/remove': { reason: 'isolation test reason' }, // ST6-T03

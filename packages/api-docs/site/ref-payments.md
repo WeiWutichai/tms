@@ -138,7 +138,7 @@ const { data, error } = await tms.POST('/v1/payments', {
 
 scope: `invoices:read` · operationId: `Payments_summary`
 
-วันครบกำหนดและเดือน ตามเวลาไทย (Asia/Bangkok) · เกินกำหนด = ค้างรับและเลยวันครบกำหนด
+วันครบกำหนดและเดือน ตามเวลาไทย (Asia/Bangkok) · เกินกำหนด = ใบที่มีธง `overdue`
 
 **Responses**
 
@@ -402,6 +402,6 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 | `dueSoon` | ใช่ | `number` |   | ใบที่ค้างรับและครบกำหนดภายใน 7 วัน |   |
 | `total` | ใช่ | `number` |   | ใบที่ออกแล้วทั้งหมด (ไม่รวมร่าง/ยกเลิก) |   |
 | `open` | ใช่ | `number` |   | ค้างรับ (ISSUED + PARTIALLY_PAID) |   |
-| `overdue` | ใช่ | `number` |   | เกินกำหนด (ค้างรับและเลยวันครบกำหนด) |   |
+| `overdue` | ใช่ | `number` |   | เกินกำหนด — ธง `overdue` ของใบ |   |
 | `partiallyPaid` | ใช่ | `number` |   |   |   |
 | `paid` | ใช่ | `number` |   |   |   |

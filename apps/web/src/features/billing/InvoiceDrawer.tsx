@@ -210,7 +210,7 @@ export function InvoiceDrawer({
   const voidable = inv.status === 'ISSUED' && canVoid;
   const no = inv.invoiceNo ?? t('bill.draftNo');
   const today = bangkokToday();
-  const st = invoiceStatusLabel(t, invoiceDisplayStatus(inv, today));
+  const st = invoiceStatusLabel(t, invoiceDisplayStatus(inv));
   const late = overdueDays(inv, today);
   const outstanding = Number(inv.sellOutstanding ?? '0');
   const paid = (pays.data?.data ?? []).filter((p) => p.status === 'RECORDED');

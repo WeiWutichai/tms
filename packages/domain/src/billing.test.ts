@@ -6,6 +6,7 @@ import {
   REVERT_DELIVERY_WINDOW_MS,
   INVOICE_STATUSES,
   billingStage,
+  invoiceOverdue,
   invoicePaymentStatus,
   isBillable,
   isInvoiceActive,
@@ -118,5 +119,22 @@ describe('invoicePaymentStatus (ST5-T13)', () => {
     expect(invoicePaymentStatus('PARTIALLY_PAID', 10000n, 0n)).toBe('ISSUED');
     expect(invoicePaymentStatus('DRAFT', 10000n, 10000n)).toBe('DRAFT');
     expect(invoicePaymentStatus('CANCELLED', 10000n, 0n)).toBe('CANCELLED');
+  });
+});
+
+describe('invoiceOverdue (ST5-T18)', () => {
+  const T = '2026-11-21';
+  it('ค้างรับ + เลยวันครบกำหนด (เวลาไทย) = เกินกำหนด · ครบกำหนดวันนี้ยังไม่เกิน', () => {
+    expect(invoiceOverdue('ISSUED', 10000n, 0n, '2026-11-20', T)).toBe(true);
+    expect(invoiceOverdue('PARTIALLY_PAID', 10000n, 5000n, '2026-11-20', T)).toBe(true);
+    expect(invoiceOverdue('ISSUED', 10000n, 0n, T, T)).toBe(false);
+    expect(invoiceOverdue('ISSUED', 10000n, 0n, '2026-12-01', T)).toBe(false);
+    expect(invoiceOverdue('ISSUED', 10000n, 0n, null, T)).toBe(false);
+  });
+  it('ชำระครบ / ร่าง / ยกเลิก / ปรับยอด ไม่เกินกำหนด', () => {
+    expect(invoiceOverdue('PAID', 10000n, 10000n, '2026-11-01', T)).toBe(false);
+    expect(invoiceOverdue('ISSUED', 10000n, 10000n, '2026-11-01', T)).toBe(false);
+    for (const s of ['DRAFT', 'CANCELLED', 'VOIDED', 'ADJUSTED'] as const)
+      expect(invoiceOverdue(s, 10000n, 0n, '2026-11-01', T)).toBe(false);
   });
 });

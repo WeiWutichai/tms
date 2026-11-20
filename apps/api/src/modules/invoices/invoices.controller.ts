@@ -65,9 +65,11 @@ import {
   UpdateInvoiceDto,
   UpdateInvoiceLineDto,
   InvoicePdfQuery,
+  UnmarkInvoiceSentDto,
   VoidInvoiceDto,
 } from './invoice.dto';
 import { InvoiceCancelService } from './invoice-cancel.service';
+import { InvoiceStatusService } from './invoice-status.service';
 import { InvoiceFinalizeService } from './invoice-finalize.service';
 import { InvoicePdfService } from './invoice-pdf.service';
 import { InvoicesService } from './invoices.service';
@@ -162,6 +164,7 @@ export class InvoicesController {
     private readonly pdf: InvoicePdfService,
     private readonly finalizer: InvoiceFinalizeService,
     private readonly canceller: InvoiceCancelService,
+    private readonly status: InvoiceStatusService,
   ) {}
 
   // ประกาศ `queue` ก่อน `:id` เสมอ (ไม่งั้น /invoices/queue ถูกจับเป็น id) — test/invoices-draft.test.ts ตรวจลำดับ route
@@ -710,7 +713,8 @@ export class InvoicesController {
       'ST5-T10 (docs/04 F3 "ยกเลิกใบ" + G1/G2 `/invoices/{id}/void`; spec/05 §3.6/§7; D-54 ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี) · สิทธิ์ `invoices:void` (owner/admin/manager — spec/05 §19) · **If-Match บังคับ** ' +
       '(ไม่ส่ง → 422 `if_match_required`) · ISSUED → **CANCELLED คงเลข** (เลขไม่ถูกออกซ้ำ · record ไม่ถูกลบ) · ' +
       'รับชำระแล้ว (บางส่วน/ครบ) → 409 `invoice_has_payments` (`payments[]` — กลับรายการก่อน) · ' +
-      'อยู่ในใบวางบิลที่ออกแล้ว/เก็บเงินแล้ว → 409 `invoice_on_billing_note` (`billingNoteNo` — ยกเลิกใบวางบิลก่อน) · ร่าง → 409 (ใช้ `/cancel`) · ' +
+      'อยู่ในใบวางบิลที่ออกแล้ว/เก็บเงินแล้ว → 409 `invoice_on_billing_note` (`billingNoteNo` — ยกเลิกใบวางบิลก่อน) · ' +
+      '**ส่งลูกค้าแล้ว** → 409 `invoice_sent_to_customer` (ST5-T18 — docs/04 F3 "เฉพาะยังไม่ส่งลูกค้า") · ร่าง → 409 (ใช้ `/cancel`) · ' +
       'ผล: DO INVOICED/BILLED → UNBILLED (วางบิลใหม่ได้) · ปลดล็อกบรรทัดรายได้ · ถอดออกจากใบวางบิลที่ยังเป็นร่าง · ' +
       'audit `invoice.cancelled` + webhook `invoice.voided` (ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม — ST8-T16) · ' +
       '`reissue: true` = สร้างร่างฉบับใหม่แทน (DO ชุดเดิม + บรรทัดที่เพิ่มเอง) อ้างเลขเดิม (`replacedByInvoice` / `replacesInvoice`) — ออกเลขใหม่ตามปกติ · ' +
@@ -727,7 +731,7 @@ export class InvoicesController {
     {
       status: 409,
       description:
-        '`invalid_state_transition` (ร่าง/ยกเลิกแล้ว/สถานะอื่น) · `invoice_has_payments` · `invoice_on_billing_note` · `not_ready_to_bill` (ออกฉบับใหม่แทน — DO ไม่พร้อม)',
+        '`invalid_state_transition` (ร่าง/ยกเลิกแล้ว/สถานะอื่น) · `invoice_has_payments` · `invoice_on_billing_note` · `invoice_sent_to_customer` · `not_ready_to_bill` (ออกฉบับใหม่แทน — DO ไม่พร้อม)',
       examples: {
         invoice_on_billing_note: {
           type: 'https://docs.tms.example/problems/invoice_on_billing_note',
@@ -762,6 +766,59 @@ export class InvoicesController {
       decodeIdOr404('invoice', id),
       body.reason,
       body.reissue === true,
+      expectedVersion(req),
+    );
+    setEtag(res, out.version);
+    return out;
+  }
+
+  @Post(':id/mark-sent')
+  @HttpCode(200)
+  @TenantResource('issuedInvoice')
+  @RequireScope('invoices:finalize')
+  @ApiOperation({
+    summary: 'ทำเครื่องหมาย "ส่งลูกค้าแล้ว"',
+    description:
+      'ST5-T18 (plan/11 #5 `sent_to_customer_at`; docs/04 F3) · สิทธิ์ `invoices:finalize` · ใบที่ออกเลขแล้วและไม่ถูกยกเลิก ' +
+      '(ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — อื่น ๆ 409 `invalid_state_transition`) · ส่งแล้วอยู่แล้ว = คืนค่าเดิม (ไม่เปลี่ยน) · ' +
+      'audit `invoice.sent_to_customer` · ส่งแล้ว**ยกเลิกใบไม่ได้** (`/void` → 409 `invoice_sent_to_customer`) · ' +
+      'ออกใบวางบิลตั้งธงนี้ให้อัตโนมัติ (ช่องทาง BILLING_NOTE) · ส่งอีเมล = ST5-T21',
+  })
+  @ApiHeader(IF_MATCH)
+  @ApiProblems(T403('invoices:finalize'), NF, T409(), T412)
+  @ApiOkResponse({ type: InvoiceDto })
+  async markSent(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<InvoiceDto> {
+    const out = await this.status.markSent(decodeIdOr404('invoice', id), expectedVersion(req));
+    setEtag(res, out.version);
+    return out;
+  }
+
+  @Post(':id/unmark-sent')
+  @HttpCode(200)
+  @TenantResource('issuedInvoice')
+  @RequireScope('invoices:void')
+  @ApiOperation({
+    summary: 'ล้างธง "ส่งลูกค้าแล้ว" (ทำเครื่องหมายผิด) — เหตุผล ≥ 10 ตัวอักษร',
+    description:
+      'ST5-T18 · สิทธิ์ `invoices:void` (owner/admin/manager — สิทธิ์เดียวกับยกเลิกใบที่ออกแล้ว) · ยังไม่ส่ง = คืนค่าเดิม · ' +
+      'audit `invoice.sent_to_customer_cleared` พร้อมเหตุผล · ยกเลิกใบวางบิลที่ออกแล้วล้างธงช่องทาง BILLING_NOTE ให้อัตโนมัติ',
+  })
+  @ApiHeader(IF_MATCH)
+  @ApiProblems(T403('invoices:void'), NF, T412, T422)
+  @ApiOkResponse({ type: InvoiceDto })
+  async unmarkSent(
+    @Param('id') id: string,
+    @Body() body: UnmarkInvoiceSentDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<InvoiceDto> {
+    const out = await this.status.unmarkSent(
+      decodeIdOr404('invoice', id),
+      body.reason,
       expectedVersion(req),
     );
     setEtag(res, out.version);

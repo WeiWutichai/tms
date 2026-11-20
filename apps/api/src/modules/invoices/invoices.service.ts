@@ -10,6 +10,7 @@ import {
   toCalcVatType,
   toCalcWhtRate,
   type InvoiceLineMode,
+  type InvoiceSentChannel,
   type InvoiceStatus,
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
@@ -20,7 +21,6 @@ import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
-import { bangkokToday } from '../vehicle-documents/expiry';
 import type { BillingDoRow } from '../delivery-orders/delivery-order.service';
 import { LINE_UNIT_EXPR, LINE_UNIT_JOINS } from './line-units';
 import { REVENUE_LOCK_NS } from '../revenue-lines/revenue-rebuild';
@@ -123,10 +123,10 @@ export class InvoicesService {
     if (q.status) and.push({ status: q.status });
     if (q.receivable === 'all')
       and.push({ status: { in: RECEIVABLE_STATUSES as InvoiceStatus[] } });
-    if (q.receivable === 'open' || q.receivable === 'overdue')
-      and.push({ status: { in: ['ISSUED', 'PARTIALLY_PAID'] } });
-    if (q.receivable === 'overdue')
-      and.push({ dueDate: { lt: day(bangkokToday(this.clock.now())) } });
+    if (q.receivable === 'open') and.push({ status: { in: ['ISSUED', 'PARTIALLY_PAID'] } });
+    // ST5-T18 ธงที่เก็บ (job รายวัน / ตอนรับชำระ) — ไม่คำนวณตอนอ่าน
+    if (q.receivable === 'overdue' || q.overdue === 'true') and.push({ overdueAt: { not: null } });
+    if (q.overdue === 'false') and.push({ overdueAt: null });
     if (q.customerId !== undefined)
       and.push({ customerId: (await this.customerRef(tx, q.customerId)) ?? NONE });
     const rows = await tx.invoice.findMany({
@@ -649,16 +649,23 @@ export class InvoicesService {
 
   /** รายงานจำนวนตามสถานะ (แท็บ/KPI ของหน้า "วางบิลและใบแจ้งหนี้") */
   async summary(): Promise<InvoiceSummaryCountsDto> {
-    const rows = await this.db.tx.invoice.groupBy({ by: ['status'], _count: { _all: true } });
+    // ST5-T18 เกินกำหนดเป็นแท็บของตัวเอง (ต้นแบบ invSt: เกินกำหนดมาก่อนออกแล้ว/ชำระบางส่วน) — นับแยกจากสถานะ
+    const rows = await this.db.tx.invoice.groupBy({
+      by: ['status'],
+      where: { overdueAt: null },
+      _count: { _all: true },
+    });
+    const overdue = await this.db.tx.invoice.count({ where: { overdueAt: { not: null } } });
     const n = (...st: string[]) =>
       rows.filter((r) => st.includes(r.status)).reduce((a, r) => a + r._count._all, 0);
     return {
-      total: n('DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED', 'VOIDED', 'CANCELLED'),
+      total:
+        n('DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED', 'VOIDED', 'CANCELLED') + overdue,
       draft: n('DRAFT'),
       issued: n('ISSUED', 'ADJUSTED'),
       partiallyPaid: n('PARTIALLY_PAID'),
       paid: n('PAID'),
-      overdue: 0,
+      overdue,
       cancelled: n('CANCELLED', 'VOIDED'),
     };
   }
@@ -992,6 +999,10 @@ function summary(
       : '0.00',
     issueDate: r.issueDate ? ymd(r.issueDate) : null,
     dueDate: r.dueDate ? ymd(r.dueDate) : null,
+    overdue: r.overdueAt !== null,
+    overdueAt: r.overdueAt ? r.overdueAt.toISOString() : null,
+    sentToCustomerAt: r.sentToCustomerAt ? r.sentToCustomerAt.toISOString() : null,
+    sentToCustomerChannel: (r.sentToCustomerChannel as InvoiceSentChannel | null) ?? null,
     version: r.version,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),

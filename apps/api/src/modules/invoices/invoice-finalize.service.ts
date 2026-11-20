@@ -530,12 +530,12 @@ export class InvoiceFinalizeService implements OnModuleInit {
 }
 
 /**
- * `data.object` ของ webhook `invoice.finalized` / `invoice.voided` (ทะเบียน event) = InvoiceDto เดียวกับ `GET /v1/invoices/{id}`
+ * `data.object` ของ webhook `invoice.finalized` / `invoice.voided` / `invoice.paid` (ทะเบียน event) = InvoiceDto เดียวกับ `GET /v1/invoices/{id}`
  * − ยอดเงิน (`sell*` — webhook ระดับ tenant ไม่ผ่านสิทธิ์ราคา) − `omit` ของทะเบียน
  */
 export function invoiceEventObject(
   dto: InvoiceDto,
-  type: 'invoice.finalized' | 'invoice.voided' = 'invoice.finalized',
+  type: 'invoice.finalized' | 'invoice.voided' | 'invoice.paid' = 'invoice.finalized',
 ): Record<string, unknown> {
   const o = JSON.parse(JSON.stringify(redact(dto))) as Record<string, unknown>;
   for (const k of eventDefinition(type)!.object!.omit) delete o[k];
