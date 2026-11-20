@@ -421,6 +421,7 @@
 | `carrierInvoiceDate` | ใช่ | `string` | null ได้ |   |   |
 | `carrierReceiptNo` | ใช่ | `string` | null ได้ |   |   |
 | `tripCount` | ใช่ | `number` |   | จำนวนเที่ยวในใบ (บรรทัดที่ยังใช้) |   |
+| `whtEstimate` | ใช่ | `SettlementWhtEstimateDto` |   |   |   |
 | `approvedAt` | ใช่ | `string` | null ได้ | เวลาอนุมัติ — ออกเลข `settlementNo` พร้อมกัน |   |
 | `paidDate` | ใช่ | `string` | null ได้ | วันที่จ่ายจริง (YYYY-MM-DD) — null จนบันทึกจ่าย | `2026-11-20` |
 | `paidAt` | ใช่ | `string` | null ได้ | เวลาที่บันทึกจ่าย |   |

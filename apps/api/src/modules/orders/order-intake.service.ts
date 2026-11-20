@@ -649,6 +649,63 @@ export class OrderIntakeService {
   }
 
   /**
+   * ST8-T04 ต้นทาง (connector) ส่งข้อมูลที่อาจไม่ครบมาให้ใบที่มีอยู่แล้ว (คอลัมน์หาย / รายการน้อยกว่าเดิม / เลขรายการผิด)
+   * → **ไม่ทับข้อมูลเดิม** ตั้งเฉพาะ `source_issues` (→ ใบค้าง SOURCE_ERROR) แล้วประเมินใบค้างใหม่ · ล้าง `input_hash`
+   * (ต้นทางส่งข้อมูลครบชุดเดิมมาภายหลัง = upsert เขียนจริงและล้างปัญหา ไม่ถูกข้ามเพราะ hash เท่าเดิม)
+   * ใบพ้นช่วงรับงาน (วางแผนแล้ว/ปิด) → 409 `order_locked_for_update` (connector บันทึกผล locked — ไม่แตะใบ)
+   * ปัญหาชุดเดิม = ไม่เขียนซ้ำ · คนเคลียร์ด้วย `resolveSourceError` (เหตุผล + audit) หรือรอต้นทางส่งข้อมูลครบ
+   */
+  async holdFromSource(
+    externalId: string,
+    issues: string[],
+    tx: Tx = this.db.tx,
+  ): Promise<UpsertOrderResult | null> {
+    const tenantId = this.tenantId();
+    await lockKey(tx, `${ENTITY}.ext:${externalId}`);
+    const hit = await tx.salesOrder.findUnique({
+      where: { tenantId_externalId: { tenantId, externalId } },
+      select: { id: true },
+    });
+    if (!hit) return null;
+    const current = (await this.lockAndLoad(tx, hit.id))!;
+    if (!isIntakeEditable(current.status as SoStatus))
+      throw new ProblemException('order_locked_for_update', undefined, undefined, {
+        orderStatus: current.status,
+        editableFields: [],
+        sourceIssues: issues,
+      });
+    const prev = (current.sourceIssues as string[] | null) ?? [];
+    if (stableStringify(prev) === stableStringify(issues) && current.inputHash === null)
+      return this.evaluate(tx, current, {
+        draft: current.status === 'DRAFT',
+        created: false,
+        dataChanged: false,
+      });
+    await tx.salesOrder.update({
+      where: { id: current.id },
+      data: { sourceIssues: issues, inputHash: null, version: { increment: 1 } },
+    });
+    await this.audit.record({
+      action: `${ENTITY}.source_held`,
+      entityType: ENTITY,
+      entityId: current.id,
+      before: { sourceIssues: prev },
+      after: { sourceIssues: issues },
+    });
+    const loaded = (await tx.salesOrder.findUnique({
+      where: { id: current.id },
+      include: INCLUDE,
+    }))!;
+    return this.evaluate(tx, loaded, {
+      draft: current.status === 'DRAFT',
+      created: false,
+      dataChanged: true,
+      before: orderEventView(current, { lines: true }),
+      beforeObj: orderEventObject(current),
+    });
+  }
+
+  /**
    * ใบค้างด้วยเหตุที่ flow อื่นตั้ง (เหตุตอนจัดรถ/ส่ง — CARRIER_REJECTED ฯลฯ ใบเหล่านี้เคยวางแผนแล้ว) → 409
    * กติกา "แก้หลังวางแผนไม่คิดราคาใหม่" (spec/12 §3): ตรวจอีกครั้ง/กำหนดราคาเอง ใช้ได้เฉพาะเหตุของทางเข้า (review ST3-T07)
    */
