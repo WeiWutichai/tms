@@ -2128,8 +2128,12 @@ model CarrierSettlement {
   grossAmount        Decimal          @default(0) @map("gross_amount") @db.Decimal(14, 2)
   deductionAmount    Decimal          @default(0) @map("deduction_amount") @db.Decimal(14, 2)
   netPayable         Decimal          @default(0) @map("net_payable") @db.Decimal(14, 2)
-  /// DRAFT / APPROVED / CANCELLED (CHECK ใน migration 0122/0124 — SENT_TO_CARRIER/DISPUTED/PAID เพิ่มใน ST6-T05/T06/T09)
+  /// DRAFT / SENT_TO_CARRIER / APPROVED / CANCELLED (CHECK ใน migration 0122/0124/0127 — DISPUTED/PAID เพิ่มใน ST6-T06/T09)
   status             String           @default("DRAFT")
+  /// ส่งให้รถร่วมตรวจล่าสุด (ST6-T05) — ผู้ส่งนับเป็นผู้เตรียมใบ (SoD) · รอบตรวจ +1 ทุกครั้งที่ส่ง (คำตอบของรถร่วมผูกกับรอบ)
+  sentAt             DateTime?        @map("sent_at") @db.Timestamptz(6)
+  sentBy             String?          @map("sent_by")
+  reviewRound        Int              @default(0) @map("review_round")
   /// อนุมัติ (ST6-T07) — ผู้อนุมัติ ≠ ผู้สร้าง (CHECK) · เลข STL ออกตอนนี้ (issueNumber) แก้ไม่ได้
   approvedAt         DateTime?        @map("approved_at") @db.Timestamptz(6)
   approvedBy         String?          @map("approved_by")
@@ -2143,6 +2147,7 @@ model CarrierSettlement {
   createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   lines              SettlementLine[]
+  reviews            SettlementLineReview[]
 
   @@index([tenantId, updatedAt, id])
   @@index([tenantId, carrierId, status])
@@ -2175,10 +2180,35 @@ model SettlementLine {
   createdBy     String?           @map("created_by")
   createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  reviews       SettlementLineReview[]
 
   @@unique([settlementId, lineNo])
   @@index([tenantId, tripId])
   @@map("settlement_line")
+}
+
+/// คำตอบของรถร่วมต่อบรรทัดใบสำคัญจ่าย ผ่านลิงก์ (ST6-T05; docs/04 F6 "รถร่วมตรวจผ่านลิงก์") — เพิ่มอย่างเดียว (แก้/ลบไม่ได้)
+/// คำตอบล่าสุดของบรรทัดในรอบตรวจปัจจุบัน = สถานะที่แสดง · DISPUTED = ติดธง (อนุมัติไม่ได้จนกว่า ST6-T06 เคลียร์/ส่งตรวจรอบใหม่)
+/// ผู้ตอบ = actor สังเคราะห์ `link:<id>` (ไม่ใช่คน — ไม่นับเป็นผู้เตรียม/ผู้อนุมัติ)
+model SettlementLineReview {
+  id           String            @id @default(uuid()) @db.Uuid
+  tenantId     String            @map("tenant_id") @db.Uuid
+  settlementId String            @map("settlement_id") @db.Uuid
+  settlement   CarrierSettlement @relation(fields: [settlementId], references: [id], onDelete: Restrict)
+  lineId       String            @map("line_id") @db.Uuid
+  line         SettlementLine    @relation(fields: [lineId], references: [id], onDelete: Restrict)
+  round        Int
+  /// ACCEPTED / DISPUTED
+  response     String
+  reason       String?
+  /// รูปประกอบ (stored_document ที่จองผ่านลิงก์นี้สำหรับบรรทัดนี้)
+  photoIds     String[]          @default([]) @map("photo_ids") @db.Uuid
+  linkId       String            @map("link_id") @db.Uuid
+  createdBy    String            @map("created_by")
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, settlementId, round, lineId, createdAt])
+  @@map("settlement_line_review")
 }
 
 /// สถานะข้อเสนองาน/การจ้างรถร่วม (ST3-T22; spec/03 §8 SubconOffer — ชุดย่อยเฟส 0) · ACCEPTED = รถร่วมรับ (ผู้จัดรถบันทึกแทนผ่าน /assign หรือ ST3-T23)

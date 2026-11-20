@@ -4370,6 +4370,139 @@
               }
             }
           }
+        },
+        {
+          "name": "ส่งให้รถร่วมตรวจผ่านลิงก์ (DRAFT → SENT_TO_CARRIER)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/settlements/:id/send-to-carrier",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "settlements",
+                ":id",
+                "send-to-carrier"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settlements:create\n\n\"รถร่วมตรวจผ่านลิงก์\" · ต้องมีบรรทัดค่าขนส่ง (409 `settlement_empty`) และยอดสุทธิไม่ติดลบ (409 `settlement_net_negative`) · ออกลิงก์อายุ 7 วัน (`link.url` แสดงครั้งเดียว — ส่งทาง LINE/SMS ด้วย POST /v1/messages/send-link หรือคัดลอกไปส่งเอง) · รอบตรวจ +1 · ใบที่ส่งแล้วแก้/เพิ่ม/นำบรรทัดออก/ยกเลิกไม่ได้ (409) จนกว่าจะเรียกกลับ · **ผู้ส่งนับเป็นผู้เตรียมใบ — อนุมัติใบนี้ไม่ได้** · audit `settlement.sent`"
+          }
+        },
+        {
+          "name": "ออกลิงก์ให้รถร่วมตรวจใหม่ (ลิงก์เดิมหมดอายุ/หาย)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/settlements/:id/review-link",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "settlements",
+                ":id",
+                "review-link"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settlements:create\n\nเฉพาะใบ SENT_TO_CARRIER · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued`"
+          }
+        },
+        {
+          "name": "เรียกใบกลับมาแก้ (SENT_TO_CARRIER → DRAFT) — เหตุผล ≥ 10 ตัวอักษร",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/settlements/:id/recall",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "settlements",
+                ":id",
+                "recall"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settlements:create\n\nเช่น รถร่วมโต้แย้งรายการ แล้วต้องแก้/นำบรรทัดออก · เพิกถอนลิงก์ตรวจ · คำตอบของรถร่วมเก็บเป็นประวัติ (ส่งใหม่ = รอบใหม่) · audit `settlement.recalled`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"รถร่วมขอแยกวางบิลเที่ยวนี้งวดหน้า\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -15587,7 +15720,7 @@
                 "send-link"
               ]
             },
-            "description": "scope: master:write | trips:assign",
+            "description": "scope: master:write | trips:assign | settlements:create",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"channel\": \"line\",\n  \"url\": \"string\"\n}",
@@ -15657,7 +15790,7 @@
                 }
               ]
             },
-            "description": "scope: master:read | trips:read"
+            "description": "scope: master:read | trips:read | settlements:read"
           }
         },
         {
@@ -15681,7 +15814,7 @@
                 "channels"
               ]
             },
-            "description": "scope: master:read | trips:read"
+            "description": "scope: master:read | trips:read | settlements:read"
           }
         },
         {
@@ -15712,7 +15845,7 @@
                 }
               ]
             },
-            "description": "scope: master:read | trips:read"
+            "description": "scope: master:read | trips:read | settlements:read"
           }
         },
         {

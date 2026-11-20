@@ -23,7 +23,8 @@ import { MessagingService } from './messaging.service';
 /**
  * ส่งลิงก์ทาง LINE / SMS + บันทึกการส่ง (ST3-T21; docs/04 G4, I)
  * สิทธิ์ตามชนิดลิงก์ (docs/04 A3): ลิงก์เอกสารรถร่วม = ข้อมูลหลัก (`master:write` ส่ง / `master:read` ดู) ·
- * ลิงก์ข้อเสนองาน (ST3-T23) = จ่ายงาน (`trips:assign` ส่ง / `trips:read` ดู)
+ * ลิงก์ข้อเสนองาน (ST3-T23) = จ่ายงาน (`trips:assign` ส่ง / `trips:read` ดู) ·
+ * ลิงก์ให้รถร่วมตรวจใบสำคัญจ่าย (ST6-T05) = `settlements:create` ส่ง / `settlements:read` ดู
  */
 @ApiTags('messaging')
 @ApiBearerAuth()
@@ -33,7 +34,7 @@ export class MessagesController {
 
   @Post('send-link')
   @HttpCode(202)
-  @RequireScope('master:write', 'trips:assign')
+  @RequireScope('master:write', 'trips:assign', 'settlements:create')
   @ApiAcceptedResponse({
     type: MessageDeliveryDto,
     description:
@@ -47,7 +48,7 @@ export class MessagesController {
   }
 
   @Get()
-  @RequireScope('master:read', 'trips:read')
+  @RequireScope('master:read', 'trips:read', 'settlements:read')
   @ApiOkResponse({
     type: MessageDeliveryPageDto,
     description:
@@ -58,7 +59,7 @@ export class MessagesController {
   }
 
   @Get('channels')
-  @RequireScope('master:read', 'trips:read')
+  @RequireScope('master:read', 'trips:read', 'settlements:read')
   @ApiOkResponse({
     type: ChannelStatusListDto,
     description: 'ช่องทางที่ส่งได้ตอนนี้ — UI ซ่อนปุ่มส่งของช่องที่ใช้ไม่ได้ (เหลือคัดลอกลิงก์)',
@@ -69,7 +70,7 @@ export class MessagesController {
 
   @Get(':id')
   @TenantResource('messageDelivery')
-  @RequireScope('master:read', 'trips:read')
+  @RequireScope('master:read', 'trips:read', 'settlements:read')
   @ApiOkResponse({ type: MessageDeliveryDto })
   get(@Param('id') id: string): Promise<MessageDeliveryDto> {
     return this.svc.get(decodeIdOr404('messageDelivery', id));
