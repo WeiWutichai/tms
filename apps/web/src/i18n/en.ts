@@ -1227,6 +1227,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'cnx.ent.invoice': 'Invoice',
   'cnx.ent.credit_note': 'Credit note',
   'cnx.ent.debit_note': 'Debit note',
+  'cnx.ent.payment': 'Receipts',
   'cnx.ent.sales_order': 'Shipment order',
   'cnx.ent.delivery_order': 'Delivery order',
   'cnx.hf.status': 'Status',

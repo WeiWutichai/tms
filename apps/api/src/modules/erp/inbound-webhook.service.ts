@@ -3,6 +3,7 @@ import { type Connector, Prisma } from '@prisma/client';
 import { CONNECTOR_KEY_RE, effectiveCapabilities } from '@tms/domain';
 import { createHash, randomUUID } from 'node:crypto';
 import { encodeId } from '../../common/ids';
+import { requestContext } from '../../common/request-context';
 import { ProblemException } from '../../common/problem';
 import { DbService, type Tx } from '../../db/db.service';
 import { PrismaService } from '../../db/prisma.service';
@@ -20,6 +21,7 @@ import {
   readyCapabilities,
 } from './erp-adapter';
 import { ErpAdapterRegistry } from './erp-adapter.registry';
+import { ErpInboundEffects } from './erp-inbound-effects';
 import {
   hashInboundToken,
   INBOUND_MAX_ATTEMPTS,
@@ -49,6 +51,8 @@ export const INBOUND_PAYLOAD_RETENTION_DAYS = 30;
 const DAY = 24 * 3600_000;
 const BATCH = 5000;
 const UUID_RE = /^[0-9a-f-]{36}$/i;
+/** ผู้กระทำของผลจาก webhook ขาเข้า (audit/event) */
+const INBOUND_ACTOR = 'system:connector-inbound';
 
 export interface InboundReceiveInput {
   provider: string;
@@ -107,6 +111,7 @@ export class InboundWebhookService implements OnModuleInit {
     private readonly intake: ConnectorIntakeService,
     private readonly limiter: RateLimitService,
     private readonly entitlements: EntitlementService,
+    private readonly effects: ErpInboundEffects,
   ) {}
 
   onModuleInit() {
@@ -325,25 +330,66 @@ export class InboundWebhookService implements OnModuleInit {
       return { status: 'FAILED', code };
     }
     const triggers = (r.triggers ?? []).filter((t) => INBOUND_TRIGGERS.includes(t));
-    return this.db.withTenant(tenantId, async (tx) => {
-      const done: string[] = [];
-      for (const t of triggers)
-        if (t === 'pullOrders' && (await this.triggerPull(tx, c))) done.push(t);
-      const n = await tx.processedWebhookEvent.updateMany({
-        where: { id: eventId, status: 'RECEIVED' },
-        data: {
-          status: 'PROCESSED',
-          processedAt: new Date(),
-          lastError: Prisma.DbNull,
-          result: {
-            triggers: done,
-            ...(r.summary ? { summary: JSON.parse(JSON.stringify(r.summary)) } : {}),
-          } as Prisma.InputJsonValue,
-          updatedAt: new Date(),
+    const effects = Array.isArray(r.effects) ? r.effects : [];
+    return this.db.withTenant(tenantId, (tx) =>
+      // ST8-T16 ผลทางธุรกิจ (รับชำระ ฯลฯ) เขียน audit/event ในนามระบบ — ต้องมี request context ของงาน
+      requestContext.run(
+        {
+          requestId: `inbound:${eventId}`,
+          tenantId,
+          actorId: INBOUND_ACTOR,
+          principalType: 'system',
+          scopes: [],
+          locale: 'th',
+          tx: tx as never,
         },
-      });
-      return { status: n.count ? 'PROCESSED' : 'raced', triggers: done };
-    });
+        async () => {
+          // ล็อกแถว event ก่อนทำผล — งานซ้อน (lease หลุด) รายที่สองเห็นว่าไม่ใช่ RECEIVED แล้วไม่ทำซ้ำ
+          const locked = await tx.$queryRaw<{ status: string }[]>`
+            SELECT status::text FROM processed_webhook_event WHERE id = ${eventId}::uuid FOR UPDATE`;
+          if (locked[0]?.status !== 'RECEIVED') return { status: 'raced', triggers: [] };
+          const done: string[] = [];
+          for (const t of triggers)
+            if (t === 'pullOrders' && (await this.triggerPull(tx, c))) done.push(t);
+          const fx = effects.length
+            ? await this.effects.apply(tx, c, effects)
+            : { applied: [], review: null };
+          const result = {
+            triggers: done,
+            ...(fx.applied.length ? { effects: fx.applied } : {}),
+            ...(r.summary ? { summary: JSON.parse(JSON.stringify(r.summary)) } : {}),
+          } as Prisma.InputJsonValue;
+          // ต้องให้คนตัดสิน (เช่น ระบบบัญชียกเลิกเอกสาร/ยอดรับชำระไม่ตรง) = FAILED พร้อมรหัส → คิวตรวจ
+          const n = await tx.processedWebhookEvent.updateMany({
+            where: { id: eventId, status: 'RECEIVED' },
+            data: fx.review
+              ? {
+                  status: 'FAILED',
+                  processedAt: new Date(),
+                  lastError: {
+                    code: redactSecrets(fx.review.code, secrets).slice(0, 60),
+                    message: redactSecrets(fx.review.message, secrets).slice(0, 500),
+                    review: true,
+                  },
+                  result,
+                  updatedAt: new Date(),
+                }
+              : {
+                  status: 'PROCESSED',
+                  processedAt: new Date(),
+                  lastError: Prisma.DbNull,
+                  result,
+                  updatedAt: new Date(),
+                },
+          });
+          return {
+            status: n.count ? (fx.review ? 'FAILED' : 'PROCESSED') : 'raced',
+            triggers: done,
+            ...(fx.review ? { review: fx.review.code } : {}),
+          };
+        },
+      ),
+    );
   }
 
   /** ตั้งรอบดึง order ทันที — เฉพาะเมื่อ connector ACTIVE และเปิด pullOrders · มีรอบค้างแล้วไม่สร้างซ้ำ */

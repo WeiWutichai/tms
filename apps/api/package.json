@@ -47,6 +47,10 @@
   "devDependencies": {
     "@swc-node/register": "^1.12.1",
     "@swc/core": "^1.9.3",
+    "@tms/api-docs": "workspace:*",
+    "@tms/mock-accountsystem": "workspace:*",
+    "@tms/mock-krs": "workspace:*",
+    "@tms/sdk": "workspace:*",
     "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.0",
     "@types/node": "^20.17.0",
@@ -60,9 +64,6 @@
     "supertest": "^7.0.0",
     "typescript": "^5.6.3",
     "unplugin-swc": "^1.6.0",
-    "vitest": "^4.1.12",
-    "@tms/sdk": "workspace:*",
-    "@tms/api-docs": "workspace:*",
-    "@tms/mock-krs": "workspace:*"
+    "vitest": "^4.1.12"
   }
 }

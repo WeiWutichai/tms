@@ -6,6 +6,7 @@ import {
   type ErpMasterCodeKind,
   type ErpOperation,
   isErpCapability,
+  type SorOwner,
   isErpMasterCodeKind,
 } from '@tms/domain';
 import type { ErrorClass } from '../integration/outbox.types';
@@ -277,8 +278,53 @@ export interface InboundEvent {
 export type InboundTrigger = 'pullOrders';
 export const INBOUND_TRIGGERS: readonly InboundTrigger[] = ['pullOrders'];
 
+/**
+ * ST8-T16 ผลทางธุรกิจของ event ขาเข้าที่ core บันทึกเอง (adapter ห้ามเขียนฐาน) — ไม่ผูก ERP ใด
+ * เงินเป็นสตริงทศนิยม 2 ตำแหน่ง (ห้าม float) · วันที่ `YYYY-MM-DD` (วันตามปฏิทินไทย) · ข้อความห้ามมี credential
+ * - `externalDocument` เอกสารที่ TMS ส่งไป (ร่าง) ถูกลงบัญชี/ยกเลิกฝั่ง ERP → core อัปเดต `external_mapping`
+ *   (หาเอกสาร TMS จาก `externalId` ที่ได้ตอน push หรือเลข TMS `localNumber`) · VOIDED = **ไม่ยกเลิกใบ TMS อัตโนมัติ** → ขึ้นคิวให้คนตัดสิน
+ * - `paymentReceived` ลูกค้าชำระใบแจ้งหนี้ใน ERP (D-57) → core สร้าง `payment` (source CONNECTOR) + คำนวณสถานะใบ (ST5-T18)
+ *   `amount` = ยอดตัดหนี้รวม WHT (ความหมายเดียวกับ `payment_allocation.amount`) · ยอดเกินค้าง/ใบชำระไม่ได้ = ขึ้นคิวตรวจ (ไม่สร้าง)
+ * - `paymentMade` ERP จ่ายเจ้าหนี้ (ใบสำคัญจ่ายที่ TMS ส่งเป็นร่าง) → core เก็บเลขเอกสารจ่าย/เลข 50 ทวิ ใน mapping ของใบสำคัญจ่าย
+ */
+export type InboundEffect =
+  | {
+      kind: 'externalDocument';
+      entityType: 'invoice' | 'settlement';
+      externalId: string | null;
+      localNumber: string | null;
+      externalDocNo: string | null;
+      status: 'POSTED' | 'VOIDED';
+      reason?: string | null;
+    }
+  | {
+      kind: 'paymentReceived';
+      externalId: string;
+      externalDocNo: string | null;
+      receivedDate: string;
+      allocations: readonly {
+        externalId: string | null;
+        localNumber: string | null;
+        amount: string;
+        whtAmount: string;
+      }[];
+    }
+  | {
+      kind: 'paymentMade';
+      externalId: string;
+      externalDocNo: string | null;
+      allocations: readonly { externalId: string; amount: string; whtAmount: string }[];
+      certificates: readonly string[];
+    };
+
 export type InboundHandleResult =
-  | { ok: true; triggers?: readonly InboundTrigger[]; summary?: Record<string, unknown> }
+  | {
+      ok: true;
+      triggers?: readonly InboundTrigger[];
+      summary?: Record<string, unknown>;
+      /** ST8-T16 ผลที่ core บันทึกใน transaction เดียวกับการปิด event (ไม่มี = ไม่มีผลทางธุรกิจ) */
+      effects?: readonly InboundEffect[];
+    }
   | { ok: false; retryable: boolean; problem: Problem };
 
 /**
@@ -367,6 +413,11 @@ export interface ErpAdapter {
   ): readonly MasterCodeRef[];
   /** ST8-T06 ความพร้อมของผังรหัสก่อนส่งเอกสาร (ฟังก์ชันบริสุทธิ์ จากค่าตั้ง) — ไม่มี = ไม่ตรวจ */
   pushReadiness?(ctx: ErpContext): MasterCodeReadiness;
+  /**
+   * ST8-T16 system-of-record ที่ adapter กำหนดตายตัว (D-55) — core ตั้งค่าให้ตอนสร้าง connector และไม่ยอมให้เปลี่ยน (422 `sor_fixed`)
+   * ไม่มี = ผู้ดูแลเลือกเอง (ST7-T17)
+   */
+  readonly fixedSystemOfRecord?: { readonly taxDocumentOwner?: SorOwner };
 }
 
 /** capability → ชื่อ method (ธงไม่มี method) */

@@ -3106,10 +3106,11 @@ model Connector {
   inboundTokenPrefix    String?   @map("inbound_token_prefix") @db.VarChar(16)
   inboundTokenRotatedAt DateTime? @map("inbound_token_rotated_at") @db.Timestamptz(6)
 
-  cursors       ConnectorCursor[]
-  inboundEvents ProcessedWebhookEvent[]
-  masterCodes   ErpMasterCode[]
-  codeMappings  ErpCodeMapping[]
+  cursors          ConnectorCursor[]
+  inboundEvents    ProcessedWebhookEvent[]
+  masterCodes      ErpMasterCode[]
+  codeMappings     ErpCodeMapping[]
+  externalMappings ExternalMapping[]
 
   @@index([tenantId, createdAt, id])
   @@index([tenantId, companyId])
@@ -3881,4 +3882,37 @@ model BillingNoteInvoice {
   @@index([tenantId, billingNoteId])
   @@index([tenantId, invoiceId])
   @@map("billing_note_invoice")
+}
+
+/// ST8-T16 (ส่วนย่อยของ ST7-T15 `external_mapping` — docs/01 §3.7, docs/04 G3 "เลขเอกสารสองฝั่ง") — เอกสาร TMS 1 ใบ ↔ เอกสารฝั่ง ERP ต่อ connector
+/// สร้าง/อัปเดตโดย core เท่านั้น: push สำเร็จ (ErpAdapterSink) และ webhook ขาเข้า (InboundWebhookService) — adapter ไม่เขียนฐาน
+/// `entity_type` = invoice / settlement / payment (payment = การรับชำระที่สร้างจาก webhook — กันสร้างซ้ำด้วย external_id)
+/// ไม่มี hard delete (REVOKE DELETE) · ST7-T15 ต่อยอด (canonical hash เต็ม / ทุก entity)
+model ExternalMapping {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  connectorId    String    @map("connector_id") @db.Uuid
+  connector      Connector @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  entityType     String    @map("entity_type") @db.VarChar(40)
+  localId        String    @map("local_id") @db.Uuid
+  /// เลขเอกสาร TMS ตอนส่ง (invoice_no / settlement_no / payment_no)
+  localNumber    String?   @map("local_number") @db.VarChar(60)
+  /// id ของเอกสารฝั่ง ERP
+  externalId     String?   @map("external_id") @db.VarChar(200)
+  /// เลขเอกสารฝั่ง ERP (ได้ตอนลงบัญชี — webhook)
+  externalDocNo  String?   @map("external_doc_no") @db.VarChar(100)
+  /// DRAFT (ส่งเป็นร่างแล้ว) / POSTED / VOIDED / PAID
+  externalStatus String?   @map("external_status") @db.VarChar(30)
+  /// รายละเอียดจาก ERP (เช่น เลขใบจ่าย/50 ทวิ) — ห้ามมี credential
+  detail         Json?
+  /// sha256 ของ canonical payload ที่ส่งล่าสุด
+  payloadHash    String?   @map("payload_hash") @db.VarChar(64)
+  syncedAt       DateTime? @map("synced_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([tenantId, connectorId, entityType, localId])
+  @@index([tenantId, connectorId, entityType, externalId])
+  @@index([tenantId, entityType, localId])
+  @@map("external_mapping")
 }

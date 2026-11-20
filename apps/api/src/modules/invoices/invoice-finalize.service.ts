@@ -13,6 +13,7 @@ import { DbService, type Tx } from '../../db/db.service';
 import { JobQueue } from '../../jobs/job-queue.service';
 import { PdfRenderer } from '../../pdf/pdf-renderer';
 import { DeliveryOrderService } from '../delivery-orders/delivery-order.service';
+import { ErpSyncService } from '../erp/erp-sync.service';
 import { putFileLocked, store } from '../documents/documents.controller';
 import { issueNumber } from '../sequences/sequences.service';
 import { readSettings } from '../settings/settings.service';
@@ -89,6 +90,7 @@ export class InvoiceFinalizeService implements OnModuleInit {
     private readonly invoices: InvoicesService,
     private readonly pdf: InvoicePdfService,
     private readonly renderer: PdfRenderer,
+    private readonly erpSync: ErpSyncService,
     private readonly clock: Clock,
     private readonly queue: JobQueue,
   ) {}
@@ -328,6 +330,8 @@ export class InvoiceFinalizeService implements OnModuleInit {
         actorId: actor ?? null,
       },
     });
+    // ST8-T16 connector ที่เปิด pushInvoice → คำสั่งส่งใบเข้า ERP (outbox — ส่งหลัง commit · Standalone = ไม่มีคำสั่ง)
+    await this.erpSync.invoiceFinalized(tx, id);
     // review M1: งาน render PDF ต้นฉบับใน transaction เดียวกับการออกเลข — process ตายหลัง commit ก็ยังมีงานค้างให้ทำต่อ
     await this.queue.enqueue(tx, {
       tenantId: ctx.tenantId!,

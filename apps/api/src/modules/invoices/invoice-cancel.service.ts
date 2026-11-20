@@ -10,6 +10,7 @@ import { DeliveryOrderService } from '../delivery-orders/delivery-order.service'
 import { InvoiceBillingGuard } from './billing-guard.service';
 import { InvoiceFinalizeService, invoiceEventObject } from './invoice-finalize.service';
 import type { InvoiceDto } from './invoice.dto';
+import { ErpSyncService } from '../erp/erp-sync.service';
 import { InvoicesService } from './invoices.service';
 
 const ENTITY = 'invoice';
@@ -40,6 +41,7 @@ export class InvoiceCancelService {
     private readonly guard: InvoiceBillingGuard,
     private readonly dos: DeliveryOrderService,
     private readonly finalizer: InvoiceFinalizeService,
+    private readonly erpSync: ErpSyncService,
   ) {}
 
   async void(
@@ -167,6 +169,8 @@ export class InvoiceCancelService {
         actorId: ctx.actorId ?? null,
       },
     });
+    // ST8-T16 ใบที่ส่งเข้า ERP แล้ว → แจ้งยกเลิกตามที่ ERP รองรับ (ไม่รองรับ = งานยกเลิกด้วยมือในบันทึกการซิงก์)
+    await this.erpSync.invoiceVoided(tx, id);
     // review L4: เก็บ PDF ลายน้ำ "ยกเลิก" (แม่แบบรุ่นวันออก) หลัง commit — งานใน transaction เดียวกับการยกเลิก
     await this.finalizer.enqueueCancelledPdf(tx, ctx.tenantId!, id);
     if (reissue) await this.reissue(tx, inv, doIds, manual);

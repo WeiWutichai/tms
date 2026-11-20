@@ -177,6 +177,12 @@ export const PROBLEMS = {
     th: 'เลือก "ใครออกเลขเอกสาร" ก่อนเปิดการส่งเอกสารเข้าระบบบัญชี',
     en: 'Choose the tax document owner before enabling document push',
   },
+  /** ST8-T16 ระบบบัญชีนี้กำหนดเจ้าของเอกสารภาษีตายตัว (D-55) — เลือกค่าอื่นไม่ได้ */
+  sor_fixed: {
+    status: 422,
+    th: 'ระบบบัญชีนี้เป็นผู้ออกเอกสารภาษีเสมอ เปลี่ยนไม่ได้',
+    en: 'This accounting system always owns tax documents — it cannot be changed',
+  },
   /** ST7-T17 เปลี่ยนเจ้าของข้อมูล/เอกสารภาษีไม่ได้หลังส่งเอกสารเข้าระบบบัญชีสำเร็จแล้ว (แบบ spec/07 INT-014) */
   sor_locked: {
     status: 409,

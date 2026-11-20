@@ -59879,6 +59879,15 @@
               ]
             }
           },
+          "fixedTaxDocumentOwner": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "TMS",
+              "ERP"
+            ],
+            "description": "เจ้าของเอกสารภาษีที่ระบบบัญชีนี้กำหนดตายตัว — ตั้งให้ตอนสร้าง เปลี่ยนไม่ได้ (422 `sor_fixed`) · null = ผู้ดูแลเลือกเอง"
+          },
           "configFields": {
             "type": "array",
             "items": {
@@ -59893,6 +59902,7 @@
           "capabilities",
           "capabilitiesPending",
           "masterCodeKinds",
+          "fixedTaxDocumentOwner",
           "configFields"
         ]
       },
@@ -71630,6 +71640,7 @@
               "payment.recorded",
               "payment.reversed",
               "settlement.approved",
+              "settlement.paid",
               "connector.health_changed",
               "job.completed"
             ],
@@ -79765,7 +79776,7 @@
       },
       "WebhookEvent_settlement_approved": {
         "type": "object",
-        "description": "`data.object` ของ settlement.approved — อนุมัติใบสำคัญจ่ายรถร่วม (ออกเลข STL แล้ว — ผู้อนุมัติไม่ใช่ผู้สร้าง) · รูปเดียวกับ SettlementDto (ไม่มี field ราคา, lines, createdBy, approvedBy, cancelledBy, cancelReason, note, sentBy, whtEstimate)",
+        "description": "`data.object` ของ settlement.approved — อนุมัติใบสำคัญจ่ายรถร่วม (ออกเลข STL แล้ว — ผู้อนุมัติไม่ใช่ผู้สร้าง) · รูปเดียวกับ SettlementDto (ไม่มี field ราคา, lines, createdBy, approvedBy, cancelledBy, cancelReason, note, sentBy, paidBy, whtEstimate)",
         "properties": {
           "id": {
             "type": "string",
@@ -79835,10 +79846,149 @@
             "nullable": true,
             "description": "เวลาที่บันทึกจ่าย"
           },
-          "paidBy": {
+          "paymentMethod": {
             "type": "string",
             "nullable": true,
-            "description": "ผู้บันทึกจ่าย"
+            "enum": [
+              "TRANSFER",
+              "CHEQUE",
+              "CASH"
+            ],
+            "description": "วิธีจ่าย TRANSFER / CHEQUE / CASH"
+          },
+          "paymentReference": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขอ้างอิงการโอน / เลขที่เช็ค"
+          },
+          "paymentBank": {
+            "type": "string",
+            "nullable": true,
+            "description": "ธนาคาร"
+          },
+          "sentAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ส่งให้รถร่วมตรวจล่าสุด — ผู้ส่งนับเป็นผู้เตรียมใบ (อนุมัติใบนี้ไม่ได้)"
+          },
+          "carrierReview": {
+            "$ref": "#/components/schemas/SettlementCarrierReviewDto"
+          },
+          "dispute": {
+            "$ref": "#/components/schemas/SettlementDisputeSummaryDto"
+          },
+          "cancelledAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "settlementNo",
+          "status",
+          "carrier",
+          "payingCompanyId",
+          "periodFrom",
+          "periodTo",
+          "carrierInvoiceNo",
+          "carrierInvoiceDate",
+          "carrierReceiptNo",
+          "tripCount",
+          "approvedAt",
+          "paidDate",
+          "paidAt",
+          "paymentMethod",
+          "paymentReference",
+          "paymentBank",
+          "sentAt",
+          "carrierReview",
+          "dispute",
+          "cancelledAt",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "WebhookEvent_settlement_paid": {
+        "type": "object",
+        "description": "`data.object` ของ settlement.paid — บันทึกจ่ายใบสำคัญจ่ายรถร่วมแล้ว (APPROVED → PAID — วันที่จ่าย วิธี เลขอ้างอิง ธนาคาร; เที่ยวที่จ่ายครบเป็น SETTLED) · รูปเดียวกับ SettlementDto (ไม่มี field ราคา, lines, createdBy, approvedBy, cancelledBy, cancelReason, note, sentBy, paidBy, whtEstimate)",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "stl_…"
+          },
+          "settlementNo": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขเอกสาร (ชุด STL) — ร่างยังไม่มีเลข · ออกตอนอนุมัติ"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "SENT_TO_CARRIER",
+              "DISPUTED",
+              "APPROVED",
+              "PAID",
+              "CANCELLED"
+            ]
+          },
+          "carrier": {
+            "$ref": "#/components/schemas/SettlementCarrierDto"
+          },
+          "payingCompanyId": {
+            "type": "string",
+            "nullable": true,
+            "description": "นิติบุคคลที่จ่าย (\"จ้างในนาม\" ของรถร่วม — null = ค่าเริ่มต้นองค์กร)"
+          },
+          "periodFrom": {
+            "type": "string",
+            "example": "2026-11-01"
+          },
+          "periodTo": {
+            "type": "string",
+            "example": "2026-11-15"
+          },
+          "carrierInvoiceNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "carrierInvoiceDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "carrierReceiptNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "tripCount": {
+            "type": "number",
+            "description": "จำนวนเที่ยวในใบ (บรรทัดที่ยังใช้)"
+          },
+          "approvedAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "เวลาอนุมัติ — ออกเลข `settlementNo` พร้อมกัน"
+          },
+          "paidDate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-11-20",
+            "description": "วันที่จ่ายจริง (YYYY-MM-DD) — null จนบันทึกจ่าย"
+          },
+          "paidAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "เวลาที่บันทึกจ่าย"
           },
           "paymentMethod": {
             "type": "string",
@@ -79900,7 +80050,6 @@
           "approvedAt",
           "paidDate",
           "paidAt",
-          "paidBy",
           "paymentMethod",
           "paymentReference",
           "paymentBank",
@@ -82656,8 +82805,12 @@
       }
     },
     "settlement.paid": {
-      "description": "จ่ายเงินตามใบสรุปค่าขนส่งรถร่วมแล้ว",
-      "phase": "pending"
+      "description": "บันทึกจ่ายใบสำคัญจ่ายรถร่วมแล้ว (APPROVED → PAID — วันที่จ่าย วิธี เลขอ้างอิง ธนาคาร; เที่ยวที่จ่ายครบเป็น SETTLED)",
+      "phase": "active",
+      "dto": "SettlementDto",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_settlement_paid"
+      }
     },
     "wht_certificate.issued": {
       "description": "ออกหนังสือรับรองการหักภาษี ณ ที่จ่ายแล้ว",
@@ -83169,6 +83322,11 @@
       "status": 403,
       "title": "ผู้เตรียมใบสำคัญจ่าย (สร้างใบ เพิ่มหรือนำรายการออก) อนุมัติใบนั้นไม่ได้ ต้องให้ผู้อนุมัติคนอื่น",
       "titleEn": "Whoever prepared a settlement cannot approve it"
+    },
+    "sor_fixed": {
+      "status": 422,
+      "title": "ระบบบัญชีนี้เป็นผู้ออกเอกสารภาษีเสมอ เปลี่ยนไม่ได้",
+      "titleEn": "This accounting system always owns tax documents — it cannot be changed"
     },
     "sor_locked": {
       "status": 409,

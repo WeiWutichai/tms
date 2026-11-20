@@ -278,6 +278,7 @@ export class ConnectorsService {
       masterCodeKinds: a.fetchMasterCodes
         ? ERP_MASTER_CODE_KINDS.filter((k) => (a.masterCodeKinds ?? []).includes(k))
         : [],
+      fixedTaxDocumentOwner: a.fixedSystemOfRecord?.taxDocumentOwner ?? null,
       configFields: a.configFields.map((f) => ({
         key: f.key,
         secret: f.secret,
@@ -661,7 +662,11 @@ export class ConnectorsService {
     const companyId = await this.checkCompany(tx, body.companyId);
     const settings = this.checkGroup(adapter, 'settings', body.settings);
     const credentials = this.checkGroup(adapter, 'credentials', body.credentials);
-    const taxDocumentOwner = (body.taxDocumentOwner ?? null) as SorOwner | null;
+    // ST8-T16 adapter ที่กำหนดเจ้าของเอกสารภาษีตายตัว (D-55) — ตั้งให้เอง ส่งค่าอื่นมา = 422 `sor_fixed`
+    const fixedTax = adapter.fixedSystemOfRecord?.taxDocumentOwner ?? null;
+    if (fixedTax && body.taxDocumentOwner !== undefined && body.taxDocumentOwner !== fixedTax)
+      throw this.sorFixed(fixedTax);
+    const taxDocumentOwner = (fixedTax ?? body.taxDocumentOwner ?? null) as SorOwner | null;
     const customerOwner = (body.customerOwner ?? null) as SorOwner | null;
     // ST7-T17 ตรวจ sor_not_chosen ก่อน — ประตูผังรหัส (ST8-T06) ตามมาด้านล่าง
     let caps = this.checkCapabilities(adapter, body.capabilitiesEnabled, taxDocumentOwner);
@@ -851,6 +856,10 @@ export class ConnectorsService {
         ...body.fieldSync,
       });
     }
+    // ST8-T16 เจ้าของเอกสารภาษีที่ adapter กำหนดตายตัว (D-55) เปลี่ยนไม่ได้
+    const fixedTax = this.adapters.get(cur.adapterKey)?.fixedSystemOfRecord?.taxDocumentOwner;
+    if (fixedTax && body.taxDocumentOwner !== undefined && body.taxDocumentOwner !== fixedTax)
+      throw this.sorFixed(fixedTax);
     const owners: Array<['customerOwner' | 'taxDocumentOwner', string | undefined]> = [
       ['customerOwner', body.customerOwner],
       ['taxDocumentOwner', body.taxDocumentOwner],
@@ -1545,6 +1554,17 @@ export class ConnectorsService {
       label: this.adapters.get(c.adapterKey)?.displayName ?? c.adapterKey,
       code: code.slice(0, 60),
     });
+  }
+
+  /** ST8-T16 422 `sor_fixed` — ระบบบัญชีนี้กำหนดเจ้าของเอกสารภาษีตายตัว (D-55) */
+  private sorFixed(owner: string): ProblemException {
+    return new ProblemException('sor_fixed', undefined, [
+      {
+        field: 'taxDocumentOwner',
+        code: 'sor_fixed',
+        message: `taxDocumentOwner is fixed to ${owner} for this adapter`,
+      },
+    ]);
   }
 
   /**

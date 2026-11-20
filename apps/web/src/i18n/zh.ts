@@ -1227,6 +1227,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'cnx.ent.invoice': '发票',
   'cnx.ent.credit_note': '贷项通知单',
   'cnx.ent.debit_note': '借项通知单',
+  'cnx.ent.payment': '收款',
   'cnx.ent.sales_order': '运输订单',
   'cnx.ent.delivery_order': '送货单',
   'cnx.hf.status': '状态',

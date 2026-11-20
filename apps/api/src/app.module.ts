@@ -108,6 +108,8 @@ import { ConnectorResolver } from './modules/erp/connector-resolver';
 import { SystemOfRecordPolicy } from './modules/erp/system-of-record.policy';
 import { ErpAdapterRegistry } from './modules/erp/erp-adapter.registry';
 import { ErpAdapterSink } from './modules/erp/erp-adapter.sink';
+import { ErpSyncService } from './modules/erp/erp-sync.service';
+import { ErpInboundEffects } from './modules/erp/erp-inbound-effects';
 import { ErpAdaptersBootstrap } from './erp-adapters';
 import {
   EventsController,
@@ -458,6 +460,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     ErpMasterCodesService,
     InboundWebhookService,
     ErpAdapterSink,
+    ErpSyncService,
+    ErpInboundEffects,
     ErpAdaptersBootstrap,
     WebhooksService,
     WebhookOpsService,
