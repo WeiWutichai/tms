@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BILLING_REVERT_RULES,
   BILLING_STATUSES,
   BILLING_TRANSITIONS,
+  REVERT_DELIVERY_WINDOW_MS,
   INVOICE_STATUSES,
   billingStage,
   isBillable,
   isInvoiceActive,
+  revertDeliveryWindow,
 } from './billing';
+import { DO_TRANSITIONS } from './delivery-order';
+import { SO_TRANSITIONS } from './sales-order';
 import { InvalidTransitionError, transition } from './state-machine';
 
 describe('billing status (ST5-T05)', () => {
@@ -53,5 +58,50 @@ describe('billing status (ST5-T05)', () => {
     expect(billingStage({ status: 'UNBILLED', billingStatus: 'CREDITED', releasedAt: at })).toBe(
       'CREDITED',
     );
+  });
+});
+
+describe('lifecycle + revert rules (ST5-T06)', () => {
+  it('ช่วงย้อนผลส่งถึง 24 ชม. (ขอบรวม)', () => {
+    const at = new Date('2026-11-19T17:30:00.000Z'); // 00:30 น. 20 พ.ย. เวลาไทย
+    const w = revertDeliveryWindow(at, new Date(at.getTime() + REVERT_DELIVERY_WINDOW_MS));
+    expect(w).toEqual({ deadline: new Date('2026-11-20T17:30:00.000Z'), within: true });
+    expect(
+      revertDeliveryWindow(at, new Date(at.getTime() + REVERT_DELIVERY_WINDOW_MS + 1)).within,
+    ).toBe(false);
+  });
+
+  it('สิทธิ์ต่อขั้น: DELIVERED dispatcher 24 ชม./admin · RELEASED/IN_DRAFT invoicer · ออกใบแล้วย้อนไม่ได้', () => {
+    expect(BILLING_REVERT_RULES.DELIVERED).toEqual({
+      scope: 'trips:close',
+      windowHours: 24,
+      overrideScope: 'deliveries:revert',
+    });
+    expect(BILLING_REVERT_RULES.RELEASED?.scope).toBe('invoices:draft');
+    expect(BILLING_REVERT_RULES.IN_DRAFT?.scope).toBe('invoices:draft');
+    for (const s of ['INVOICED', 'PARTIALLY_PAID', 'PAID', 'CREDITED'] as const)
+      expect(BILLING_REVERT_RULES[s]).toBeNull();
+  });
+
+  it('transition: DO ส่งถึง → revert_delivery → FAILED (ไม่ใช่ BILLED) · SO ส่งครบ → reopen → กำลังขนส่ง', () => {
+    for (const s of ['DELIVERED', 'POD_PENDING', 'UNBILLED'] as const)
+      expect(DO_TRANSITIONS[s]?.revert_delivery).toBe('FAILED');
+    expect(DO_TRANSITIONS.BILLED?.revert_delivery).toBeUndefined();
+    expect(() => transition('do', DO_TRANSITIONS, 'BILLED', 'revert_delivery')).toThrow(
+      InvalidTransitionError,
+    );
+    expect(SO_TRANSITIONS.DELIVERED?.reopen).toBe('IN_TRANSIT');
+  });
+
+  it('billingStage: paidAt = PAID เมื่อไม่ส่งสถานะใบ', () => {
+    const d = {
+      status: 'BILLED',
+      billingStatus: 'INVOICED',
+      releasedAt: null,
+      paidAt: new Date(),
+    } as const;
+    expect(billingStage(d)).toBe('PAID');
+    expect(billingStage(d, 'PARTIALLY_PAID')).toBe('PARTIALLY_PAID');
+    expect(billingStage({ ...d, paidAt: null })).toBe('INVOICED');
   });
 });

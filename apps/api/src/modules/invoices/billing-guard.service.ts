@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type InvoiceLine, type VatType } from '@prisma/client';
 import { BILLABLE_DO_STATUSES, isBillable, type InvoiceStatus } from '@tms/domain';
+import { Clock } from '../../common/clock';
 import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
@@ -47,6 +48,7 @@ export class InvoiceBillingGuard {
   constructor(
     private readonly db: DbService,
     private readonly dos: DeliveryOrderService,
+    private readonly clock: Clock,
   ) {}
 
   /** ดึง DO เข้าร่าง: เพิ่มบรรทัด (active) + DO → IN_DRAFT · ใบต้องเป็น DRAFT · DO ต้องเป็นของลูกค้าเดียวกับใบ */
@@ -123,7 +125,7 @@ export class InvoiceBillingGuard {
       if (isActiveDoViolation(e)) throw new ProblemException('do_already_drafted');
       throw e;
     }
-    await this.dos.moveBilling(tx, rows, 'draft', `invoice:${invoiceId}`);
+    await this.dos.moveBilling(tx, rows, 'draft', `invoice:${invoiceId}`, this.clock.now());
     return tx.invoiceLine.findMany({
       where: { invoiceId, deliveryOrderId: { in: ids }, active: true },
       orderBy: { lineNo: 'asc' },
@@ -197,7 +199,7 @@ export class InvoiceBillingGuard {
       pick = rows.filter((r) => r.billingStatus === 'IN_DRAFT' && activeHere.has(r.id));
       event = 'invoice';
     }
-    await this.dos.moveBilling(tx, pick, event, note);
+    await this.dos.moveBilling(tx, pick, event, note, this.clock.now());
     return pick.length;
   }
 

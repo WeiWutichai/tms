@@ -24,6 +24,7 @@ import {
   BulkReleaseDeliveryOrdersDto,
   BulkReleaseResultsDto,
   ReleaseDeliveryOrderDto,
+  UnreleaseDeliveryOrderDto,
 } from './billing-queue.dto';
 import { BillingQueueService } from './billing-queue.service';
 import { BillingReleaseService } from './billing-release.service';
@@ -43,6 +44,28 @@ const NOT_READY = {
       requestId: 'b6a1c2d3-…',
       reasons: ['POD_INCOMPLETE'],
       missing: [{ key: 'photo', type: 'PHOTO', code: 'min_count', expected: 1, actual: 0 }],
+    },
+  },
+};
+
+/** ST5-T06 ใบส่งของอยู่ในใบแจ้งหนี้ (ร่าง/ออกเลขแล้ว) — ย้อนการส่งบัญชีไม่ได้ */
+const IN_INVOICE_409 = {
+  status: 409,
+  description:
+    '`invalid_state_transition` + `errors[].code = do_in_invoice` + `billingStatus` (IN_DRAFT ถอดออกจากร่างก่อน · INVOICED ย้อนไม่ได้)',
+  examples: {
+    do_in_invoice: {
+      type: 'https://docs.tms.example/problems/invalid_state_transition',
+      title: PROBLEMS.invalid_state_transition.th,
+      status: 409,
+      code: 'invalid_state_transition',
+      instance: '/v1/delivery-orders/do_3f2a…/unrelease',
+      requestId: 'b6a1c2d3-…',
+      errors: [
+        { field: 'deliveryOrderId', code: 'do_in_invoice', message: 'delivery order is INVOICED' },
+      ],
+      billingStatus: 'INVOICED',
+      doStatus: 'BILLED',
     },
   },
 };
@@ -118,6 +141,34 @@ export class DeliveryOrderReleaseController {
     });
     setEtag(res, r.d.version);
     return toDeliveryOrderDto(r.d);
+  }
+
+  @Post(':id/unrelease')
+  @HttpCode(200)
+  @TenantResource('deliveryOrder')
+  @RequireScope('invoices:draft')
+  @ApiOperation({
+    summary: 'ย้อนการส่งบัญชี (RELEASED → DELIVERED)',
+    description:
+      'docs/04 F4 "RELEASED ย้อนได้โดย Invoicer": ล้างเวลา/ผู้ส่งบัญชี + audit `delivery_order.unreleased` (เหตุผลบังคับ) · ' +
+      'หลังย้อนแก้จุดแวะ/ยอดส่งจริงได้อีก (ล็อกหลังส่งบัญชี — 409 `do_released`) · ใบส่งของในร่างใบแจ้งหนี้ → 409 `do_in_invoice` ' +
+      '(ถอดออกจากร่างก่อน) · ออกใบแล้ว (INVOICED) ย้อนไม่ได้ — ใช้ใบลดหนี้ · ยังไม่ส่งบัญชี = ตอบใบเดิม (ไม่ทำซ้ำ)',
+  })
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiProblems(T403('invoices:draft'), T422, IN_INVOICE_409)
+  @ApiOkResponse({ type: DeliveryOrderDto })
+  async unrelease(
+    @Param('id') id: string,
+    @Body() body: UnreleaseDeliveryOrderDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<DeliveryOrderDto> {
+    const d = await this.release.unrelease(decodeIdOr404('deliveryOrder', id), {
+      version: expectedVersion(req),
+      reason: body.reason,
+    });
+    setEtag(res, d.version);
+    return toDeliveryOrderDto(d);
   }
 
   @Post('bulk-release')

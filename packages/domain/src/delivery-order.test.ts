@@ -43,6 +43,9 @@ const EXPECTED: Record<string, DoStatus> = {
   'UNBILLED.bill': 'BILLED',
   'BILLED.unbill': 'UNBILLED',
   'CANCELLED.restore': 'DISPATCHED', // ST4-T12 คืนใบที่ยกเลิกด้วย redeliver (ผู้เรียกตรวจ)
+  'DELIVERED.revert_delivery': 'FAILED', // ST5-T06 ย้อนผลส่งถึง (docs/04 F4)
+  'POD_PENDING.revert_delivery': 'FAILED',
+  'UNBILLED.revert_delivery': 'FAILED',
 };
 
 const line = (

@@ -3545,6 +3545,7 @@ export const th = {
   'exc.late.STOP_REMOVED': 'จุดนี้ถูกถอดออกจากเที่ยวแล้ว',
   'exc.late.TRIP_CANCELLED': 'เที่ยวถูกยกเลิกแล้ว',
   'exc.late.TRIP_COMPLETED': 'เที่ยวจบแล้ว',
+  'exc.late.BILLING_LOCKED': 'ใบส่งของส่งบัญชีแล้ว',
   'exc.state.PENDING': 'ขณะยังไม่ออกเดินทางไปจุดนี้',
   'exc.state.EN_ROUTE': 'ขณะยังไม่ถึงจุด',
   'exc.state.ARRIVED': 'หลังถึงจุดแล้ว',
@@ -3945,6 +3946,7 @@ export const th = {
   'akey.sc.trips:read': 'อ่านใบส่งของและเที่ยวรถ',
   'akey.sc.trips:assign': 'จัดรถ (assign)',
   'akey.sc.trips:override': 'ยกเว้นกฎจ่ายงาน',
+  'akey.sc.deliveries:revert': 'ย้อนผลส่งถึงเกิน 24 ชม.',
   'akey.sc.trips:dispatch': 'จ่ายงาน (dispatch)',
   'akey.sc.trips:close': 'ปิดเที่ยว',
   'akey.sc.invoices:read': 'ใบแจ้งหนี้และการชำระ',
@@ -4486,6 +4488,10 @@ export const th = {
     'ปันต้นทุนเที่ยวลงใบส่งของไม่ลงตัว — ยังไม่ปิดต้นทุน กรุณาแจ้งผู้ดูแลระบบ',
   'problem.not_ready_to_bill': 'ใบส่งของนี้ยังไม่พร้อมวางบิล',
   'problem.do_already_drafted': 'ใบส่งของนี้อยู่ในใบแจ้งหนี้อื่นแล้ว',
+  'problem.do_in_invoice':
+    'ใบส่งของนี้อยู่ในใบแจ้งหนี้แล้ว — แก้ที่ใบแจ้งหนี้ หรือถอดออกจากร่างก่อน',
+  'problem.do_released':
+    'ใบส่งของนี้ส่งบัญชีแล้ว — แก้จุดแวะ/ยอดส่งจริงไม่ได้ ให้ฝ่ายวางบิลย้อนการส่งบัญชีก่อน',
   'problem.trip_costs_incomplete':
     'ต้นทุนเที่ยวยังไม่ครบ — ยืนยัน/ปฏิเสธค่าใช้จ่ายหน้างานที่รอ ตรวจค่าจ้างรถร่วม และรายได้ของใบส่งของ (ใช้ปันต้นทุน) ก่อนปิดต้นทุน',
   'problem.trip_cost_already_settled': 'บรรทัดต้นทุนนี้อยู่ในใบสำคัญจ่ายอื่นแล้ว — จ่ายซ้ำไม่ได้',

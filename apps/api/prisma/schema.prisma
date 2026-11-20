@@ -1887,6 +1887,10 @@ model DeliveryOrder {
   /// ST5-T05 กันวางบิลซ้ำ (docs/04 F3 "Flag กันวางบิลซ้ำ"): UNBILLED / IN_DRAFT / INVOICED / CREDITED — แกนแยกจาก `status`
   /// เขียนผ่าน InvoiceBillingGuard (ล็อก DO + unique partial บน invoice_line) เท่านั้น · [DECISION spec/12 §3]
   billingStatus        BillingStatus   @default(UNBILLED) @map("billing_status")
+  /// ST5-T06 timestamp ต่อขั้น (docs/04 F4 `invoicedAt`, `paidAt`) — ขั้นเองคำนวณ (`billingStage`) ไม่เก็บ
+  /// invoiced_at: ใบออกเลข (billing event `invoice`) · ล้างเมื่อดึงเข้าร่างใหม่หลังลดหนี้เต็มใบ · paid_at: รับชำระครบ (ST5-T22 เขียน)
+  invoicedAt           DateTime?       @map("invoiced_at") @db.Timestamptz(6)
+  paidAt               DateTime?       @map("paid_at") @db.Timestamptz(6)
   redeliveryOfId       String?         @map("redelivery_of_id") @db.Uuid /// D-23 ส่งใหม่ = DO ใบใหม่
   redeliveryOf         DeliveryOrder?  @relation("DoRedelivery", fields: [redeliveryOfId], references: [id], onDelete: Restrict)
   redeliveries         DeliveryOrder[] @relation("DoRedelivery")

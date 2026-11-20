@@ -20,6 +20,7 @@ import {
 import { Clock } from '../../common/clock';
 import { encodeId } from '../../common/ids';
 import { likeEscape } from '../../common/ilike';
+import { assertDeliveryUnlocked } from '../invoices/billing-lock';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
@@ -137,7 +138,18 @@ export class StopEventsService {
     if (now.status === 'SKIPPED' && stop.removedAt === null)
       throw new ProblemException('stop_skipped');
 
-    const admission = stopEventAdmission(tripStatus, stop.removedAt !== null, dispatched);
+    // ST5-T06 (docs/04 F4 RELEASED "แก้ stop/qty ไม่ได้"): จุดของ DO ที่ส่งบัญชีแล้ว/อยู่ในใบแจ้งหนี้ → 409 (ส่งซ้ำด้วย clientEventId เดิมยังได้แถวเดิม)
+    // ST5-T06 จุดของ DO ที่ส่งบัญชีแล้ว/อยู่ในใบแจ้งหนี้: ผู้ใช้เว็บ → 409 · เครื่อง/ลิงก์/API (เช่น offline บันทึกก่อนส่งบัญชีแล้ว sync ทีหลัง)
+    // → รับเก็บแบบมาช้า (`late_reason` BILLING_LOCKED) ไม่นับ/ไม่ไล่สถานะ-ยอด + ธง LATE ให้ผู้จัดรถ (ใช้ได้หลังย้อนการส่งบัญชี)
+    const source = stopEventSourceOf(ctx.principalType);
+    const billed = await this.billedDoAt(tx, stop.id);
+    if (billed && source === 'WEB') assertDeliveryUnlocked(billed);
+
+    const base = stopEventAdmission(tripStatus, stop.removedAt !== null, dispatched);
+    const admission =
+      billed && base.kind === 'ok'
+        ? { kind: 'late' as const, reason: 'BILLING_LOCKED' as const }
+        : base;
     if (admission.kind === 'reject')
       throw new ProblemException('trip_not_in_progress', undefined, undefined, { tripStatus });
 
@@ -170,7 +182,7 @@ export class StopEventsService {
         outcome,
         reasonCodeId: reason?.sourceId ?? null,
         clientEventId: input.clientEventId,
-        source: stopEventSourceOf(ctx.principalType),
+        source,
         actor: ctx.actorId ?? null,
         lat: hasLat ? input.lat : null,
         lng: hasLng ? input.lng : null,
@@ -308,6 +320,9 @@ export class StopEventsService {
         'acknowledge_only',
         'OUTCOME_MISMATCH can only be acknowledged (ACCEPT)',
       );
+    // ST5-T06: การตัดสินที่เปลี่ยนการนับ (ธงอื่นนอกจากธงแจ้ง) = แก้ผลของจุด → ล็อกเมื่อ DO ส่งบัญชีแล้ว/อยู่ในใบ (รับทราบธงแจ้งยังได้)
+    if (stored.some((f) => f !== 'OUTCOME_MISMATCH'))
+      await this.assertStopUnlocked(tx, e.tripStopId);
     await tx.stopEventResolution.create({
       data: {
         tenantId: ctx.tenantId!,
@@ -330,6 +345,35 @@ export class StopEventsService {
     await this.resequence(tx, e.tripStopId);
     await this.projection.project(tx, e.tripId);
     return tx.stopEvent.findFirstOrThrow({ where: { id: e.id } });
+  }
+
+  /**
+   * ST5-T06 (docs/04 F4 RELEASED "แก้ stop/qty ไม่ได้"): จุด (รับหรือส่ง) ของ DO ที่ส่งบัญชีแล้ว/อยู่ในใบแจ้งหนี้ → 409
+   * `invalid_state_transition` (`do_released` / `do_in_invoice`) — ส่งซ้ำด้วย clientEventId เดิมตรวจก่อน (ได้แถวเดิม)
+   */
+  private async assertStopUnlocked(tx: Tx, stopId: string): Promise<void> {
+    const billed = await this.billedDoAt(tx, stopId);
+    if (billed) assertDeliveryUnlocked(billed);
+  }
+
+  /** DO (ไม่ยกเลิก) ที่จุดนี้เป็นจุดรับ/ส่ง และส่งบัญชีแล้วหรืออยู่ในใบแจ้งหนี้ — null = ไม่มี */
+  private billedDoAt(tx: Tx, stopId: string) {
+    return tx.deliveryOrder.findFirst({
+      where: {
+        status: { not: 'CANCELLED' },
+        OR: [{ tripStopId: stopId }, { pickupTripStopId: stopId }],
+        AND: [
+          {
+            OR: [
+              { releasedAt: { not: null } },
+              { billingStatus: { in: ['IN_DRAFT', 'INVOICED'] } },
+            ],
+          },
+        ],
+      },
+      select: { doNo: true, status: true, billingStatus: true, releasedAt: true },
+      orderBy: { id: 'asc' },
+    });
   }
 
   /** เริ่มวันนี้ตามเวลาไทย */

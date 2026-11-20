@@ -127,6 +127,9 @@
 | `podStatus` | ใช่ | `string` |   |   | `NONE` |
 | `releasedAt` | ใช่ | `string` | null ได้ | เวลาส่งบัญชี · null = ยังไม่ส่ง |   |
 | `billingStatus` | ใช่ | `string` | ค่า: `UNBILLED`, `IN_DRAFT`, `INVOICED`, `CREDITED` | สถานะวางบิล: UNBILLED ยังไม่อยู่ในใบแจ้งหนี้ · IN_DRAFT อยู่ในร่าง · INVOICED ใบออกเลขแล้ว · CREDITED ใบถูกลดหนี้เต็มใบ (วางบิลใหม่ได้) — DO หนึ่งใบอยู่ในใบแจ้งหนี้ที่ active ได้ใบเดียว | `UNBILLED` |
+| `invoicedAt` | ใช่ | `string` | null ได้ | เวลาใบแจ้งหนี้ของ DO ออกเลข · null = ยังไม่ออก/ดึงเข้าร่างใหม่หลังลดหนี้ |   |
+| `paidAt` | ใช่ | `string` | null ได้ | เวลารับชำระครบ · null = ยังไม่ชำระครบ |   |
+| `billingStage` | ใช่ | `string` | ค่า: `DELIVERED`, `RELEASED`, `IN_DRAFT`, `INVOICED`, `PARTIALLY_PAID`, `PAID`, `CREDITED` · null ได้ | ขั้น lifecycle วางบิล: DELIVERED ส่งถึง · RELEASED ส่งบัญชีแล้ว · IN_DRAFT อยู่ในร่าง · INVOICED ออกใบแล้ว · PAID ชำระครบ · CREDITED ลดหนี้เต็มใบ · null = ยังไม่ส่งถึง/ส่งไม่สำเร็จ/ยกเลิก | `RELEASED` |
 | `lines` | ใช่ | `array<DeliveryOrderLineDto>` |   |   |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
