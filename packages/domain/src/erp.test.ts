@@ -10,6 +10,7 @@ import {
   ERP_OPERATION_CAPABILITY,
   isErpCapability,
   isErpOperation,
+  resolveErpMasterCode,
   unsupportedCapabilities,
 } from './erp';
 
@@ -111,5 +112,43 @@ describe('erpItemMappingStatus (ST7-T18)', () => {
   it('ชนิดรหัส', () => {
     expect(isErpMasterCodeKind('ITEM')).toBe(true);
     expect(isErpMasterCodeKind('item')).toBe(false);
+  });
+});
+
+describe('resolveErpMasterCode (ST8-T06)', () => {
+  const units = [
+    { code: 'TRIP', name: 'เที่ยว' },
+    { code: 'ตัน', name: null },
+    { code: 'KM', name: 'กม.' },
+    { code: 'H1', name: 'ชั่วโมง' },
+    { code: 'H2', name: 'ชั่วโมง' },
+  ];
+  const byName = { matchByName: true };
+  it('ตรงรหัส (ตรงตัวก่อน แล้วไม่สนตัวพิมพ์) → รหัสและชื่อตามผัง', () => {
+    expect(resolveErpMasterCode(' trip ', units)).toEqual({
+      status: 'FOUND',
+      code: 'TRIP',
+      name: 'เที่ยว',
+    });
+    expect(resolveErpMasterCode('ตัน', units)).toEqual({
+      status: 'FOUND',
+      code: 'ตัน',
+      name: null,
+    });
+    const twin = [{ code: 'Ab' }, { code: 'AB' }];
+    expect(resolveErpMasterCode('AB', twin)).toMatchObject({ code: 'AB' });
+    expect(resolveErpMasterCode('ab', twin).status).toBe('AMBIGUOUS');
+  });
+  it('ตรงชื่อเฉพาะเมื่อเปิด matchByName', () => {
+    expect(resolveErpMasterCode('เที่ยว', units, byName)).toMatchObject({ code: 'TRIP' });
+    expect(resolveErpMasterCode('กม.', units, byName)).toMatchObject({ code: 'KM' });
+    expect(resolveErpMasterCode('เที่ยว', units).status).toBe('UNKNOWN');
+  });
+  it('ชื่อซ้ำหลายรหัส = AMBIGUOUS · ไม่มีค่า = MISSING · ไม่พบ = UNKNOWN', () => {
+    expect(resolveErpMasterCode('ชั่วโมง', units, byName).status).toBe('AMBIGUOUS');
+    expect(resolveErpMasterCode('', units).status).toBe('MISSING');
+    expect(resolveErpMasterCode(null, units).status).toBe('MISSING');
+    expect(resolveErpMasterCode('คืน', units, byName).status).toBe('UNKNOWN');
+    expect(resolveErpMasterCode('เที่ยว', [], byName).status).toBe('UNKNOWN');
   });
 });
