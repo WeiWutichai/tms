@@ -290,12 +290,15 @@ export const INBOUND_TRIGGERS: readonly InboundTrigger[] = ['pullOrders'];
 export type InboundEffect =
   | {
       kind: 'externalDocument';
-      entityType: 'invoice' | 'settlement';
+      /** null = adapter ไม่รู้ชนิดฝั่ง TMS (เช่น ใบรับเงินของ ERP) → core หาจาก externalId ใน mapping การรับชำระ */
+      entityType: 'invoice' | 'settlement' | null;
       externalId: string | null;
       localNumber: string | null;
       externalDocNo: string | null;
       status: 'POSTED' | 'VOIDED';
       reason?: string | null;
+      /** ยอดรวมเอกสารที่ ERP ลงบัญชี (สตริงเงิน) — core เทียบกับยอด TMS (ไม่ตรง = คิวตรวจ) */
+      externalTotal?: string | null;
     }
   | {
       kind: 'paymentReceived';

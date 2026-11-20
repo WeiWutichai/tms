@@ -16,7 +16,8 @@ import { AS_SOURCE } from './accountsystem-payload';
  * - กันซ้ำ: `eventKey` = `id` ของ event (uuid ต่อ event — ส่งซ้ำ/ลองใหม่ได้ id เดิม) → ledger ของ core (ST7-T22)
  * - `handle` แปลงเป็น `InboundEffect` ให้ core บันทึก (adapter ไม่เขียนฐาน) — เอกสารที่ไม่ได้มาจาก TMS = ไม่มีผล
  *   · `document.posted` / `document.voided` → externalDocument (เฉพาะ external_source `tms.*`)
- *   · `payment.received` → paymentReceived: ยอดตัดหนี้ = applied + wht (AccountSystem: applied ไม่รวม WHT)
+ *   · `payment.received` → paymentReceived: ยอดตัดหนี้ = applied + wht (AccountSystem: applied ไม่รวม WHT) · วันที่รับ = วันที่ของ
+ *     `occurred_at` เวลาไทย (payload ไม่มีวันที่ของใบรับเงิน — [OPEN — ทีม AccountSystem] README ข้อ 5)
  *   · `payment.paid` → paymentMade (บิลอ้างด้วย document_id — ไม่มี external_ref ในตัวจริง)
  *   · `period.closed` / ชนิดอื่น = รับไว้ ไม่มีผล
  */
@@ -113,15 +114,22 @@ export const accountSystemInbound: InboundWebhookHandler = {
       case 'document.posted':
       case 'document.voided': {
         const entityType = entityOf(d.external_source);
-        if (!entityType) return { ok: true, summary: { skipped: 'not_from_tms' } };
+        // ลงบัญชีเอกสารที่ไม่ได้มาจาก TMS = ไม่มีผล · ยกเลิกเอกสารที่ไม่ได้มาจาก TMS อาจเป็นใบรับเงินที่ TMS บันทึกจาก webhook
+        // (เช่น เช็คคืน → ยกเลิก RV — sales.ts:612) → ส่ง id ให้ core หาใน mapping การรับชำระ (review M2)
+        if (!entityType && ev.type === 'document.posted')
+          return { ok: true, summary: { skipped: 'not_from_tms' } };
         effects.push({
           kind: 'externalDocument',
           entityType,
           externalId: str(d.id),
-          localNumber: str(d.external_ref, 60),
+          localNumber: entityType ? str(d.external_ref, 60) : null,
           externalDocNo: str(d.doc_no, 100),
           status: ev.type === 'document.posted' ? 'POSTED' : 'VOIDED',
           reason: str(d.reason, 300),
+          externalTotal:
+            typeof d.grand_total === 'string' && MONEY_RE.test(d.grand_total)
+              ? d.grand_total
+              : null,
         });
         break;
       }
@@ -142,8 +150,8 @@ export const accountSystemInbound: InboundWebhookHandler = {
             };
           allocations.push({
             externalId: str(a.document_id),
-            // อ้างด้วย id ที่ได้ตอนส่งร่างเท่านั้น — external_ref ไม่บอกระบบต้นทาง (อาจชนเลขของระบบอื่น)
-            localNumber: null,
+            // หาด้วย id ที่ได้ตอนส่งร่างก่อน แล้วจึงเลข TMS — มีเลขแต่หาไม่เจอ = คิวตรวจ (review M4 ไม่ข้ามเงียบ)
+            localNumber: str(a.external_ref, 60),
             amount: fromSatang(applied + wht),
             whtAmount: fromSatang(wht),
           });

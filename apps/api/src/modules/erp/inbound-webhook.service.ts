@@ -21,7 +21,7 @@ import {
   readyCapabilities,
 } from './erp-adapter';
 import { ErpAdapterRegistry } from './erp-adapter.registry';
-import { ErpInboundEffects } from './erp-inbound-effects';
+import { ErpInboundEffects, type InboundEffectsResult } from './erp-inbound-effects';
 import {
   hashInboundToken,
   INBOUND_MAX_ATTEMPTS,
@@ -351,9 +351,14 @@ export class InboundWebhookService implements OnModuleInit {
           const done: string[] = [];
           for (const t of triggers)
             if (t === 'pullOrders' && (await this.triggerPull(tx, c))) done.push(t);
-          const fx = effects.length
+          const fx: InboundEffectsResult = effects.length
             ? await this.effects.apply(tx, c, effects)
             : { applied: [], review: null };
+          // review L1 ยังทำไม่ได้ตอนนี้ (เช่น ผลการส่งยังไม่บันทึก) → ล้ม transaction แล้วลองใหม่ · ครั้งสุดท้าย = คิวตรวจ
+          if (fx.retry && !fx.review) {
+            if (!lastAttempt) throw new Error(`${fx.retry.code}: ${fx.retry.message}`);
+            fx.review = fx.retry;
+          }
           const result = {
             triggers: done,
             ...(fx.applied.length ? { effects: fx.applied } : {}),

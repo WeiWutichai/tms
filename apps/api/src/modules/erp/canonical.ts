@@ -67,7 +67,7 @@ export interface CanonicalSettlementLine {
   lineType: string;
   trip: { number: string } | null;
   description: string;
-  /** ยอดของบรรทัด (บรรทัดหัก = ยอดบวกของรายการหัก) */
+  /** ยอดของบรรทัด (บรรทัดหัก = ยอดติดลบตามที่เก็บ — CHECK `settlement_line_ref_check`) */
   amount: string;
   vatType: string | null;
   /** อัตรา % ที่ใช้ประมาณการ (null = บรรทัดหัก) */

@@ -135,30 +135,58 @@ export class ErpSyncService {
   }
 
   /**
-   * ใบแจ้งหนี้ที่ส่งเข้า ERP แล้วถูกยกเลิกใน TMS (ST5-T10) → VOID_DOCUMENT ต่อ connector ที่มี mapping ของใบนี้
-   * adapter ไม่รองรับ = SKIPPED `void_manual_required` (ขึ้นบันทึกการซิงก์ให้บัญชียกเลิกในระบบบัญชีเอง — ไม่เดาแทน)
+   * ใบแจ้งหนี้ถูกยกเลิกใน TMS (ST5-T10) — review M1
+   * - คำสั่ง PUSH_INVOICE ที่ยังไม่ส่ง (PENDING / พักไว้ตอน PAUSED/ERROR) ไม่ต้องทำอะไรที่นี่: sink ตรวจสถานะเอกสารก่อนส่งทุกครั้ง
+   *   → ใบที่ยกเลิกแล้ว = SKIPPED `document_cancelled` (ไม่ส่งร่างของใบที่ยกเลิกเข้า ERP)
+   * - ใบที่ **อาจถึง ERP แล้ว** = มี external_mapping (ส่งสำเร็จ) หรือคำสั่งกำลังส่ง/ลองใหม่อยู่ (IN_FLIGHT / FAILED_RETRYABLE —
+   *   ครั้งก่อนอาจถึงปลายทางแล้ว เช่น timeout) → VOID_DOCUMENT ต่อ connector นั้น (คีย์ serialize เดียวกับ PUSH = ทำหลัง PUSH)
+   *   ยังไม่มี adapter ใดยกเลิกผ่าน API ได้ = SKIPPED `void_manual_required` (บัญชีตรวจ/ยกเลิกในระบบบัญชีเอง)
    */
   async invoiceVoided(tx: Tx, invoiceId: string): Promise<string[]> {
+    const inv = await tx.invoice.findUnique({
+      where: { id: invoiceId },
+      select: { tenantId: true, customerId: true, invoiceNo: true },
+    });
+    if (!inv) return [];
     const maps = await tx.externalMapping.findMany({
       where: { entityType: MAP_ENTITY.invoice, localId: invoiceId },
     });
+    const inFlight = await tx.integrationOutbox.findMany({
+      where: {
+        sink: ERP_SINK,
+        operation: 'PUSH_INVOICE',
+        entityType: ERP_ENTITY.invoice,
+        localId: invoiceId,
+        status: { in: ['IN_FLIGHT', 'FAILED_RETRYABLE'] },
+      },
+      select: { targetId: true },
+    });
+    const targets = new Map<string, { number: string; externalId: string | null }>();
+    for (const m of maps)
+      targets.set(m.connectorId, {
+        number: m.localNumber ?? inv.invoiceNo ?? '',
+        externalId: m.externalId,
+      });
+    for (const o of inFlight)
+      if (o.targetId && !targets.has(o.targetId))
+        targets.set(o.targetId, { number: inv.invoiceNo ?? '', externalId: null });
     const out: string[] = [];
-    for (const m of maps) {
-      const c = await tx.connector.findUnique({ where: { id: m.connectorId } });
+    for (const [connectorId, ref] of targets) {
+      const c = await tx.connector.findUnique({ where: { id: connectorId } });
       if (!c || c.status === 'DISCONNECTED') continue;
       await this.enqueue(tx, {
-        tenantId: m.tenantId,
+        tenantId: inv.tenantId,
         connectorId: c.id,
         operation: 'VOID_DOCUMENT',
         entityType: ERP_ENTITY.invoice,
         localId: invoiceId,
-        customerId: null,
+        customerId: inv.customerId,
         payload: {
           ref: {
             entityType: ERP_ENTITY.invoice,
             localId: invoiceId,
-            number: m.localNumber ?? '',
-            externalId: m.externalId,
+            number: ref.number,
+            externalId: ref.externalId,
           },
         },
       });

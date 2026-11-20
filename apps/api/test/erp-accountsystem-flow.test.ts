@@ -494,6 +494,159 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
     });
   });
 
+  it('review M1: ยกเลิกใบก่อนคำสั่งส่งถูกส่ง → PUSH_INVOICE ถูกข้าม document_cancelled (ไม่มี IV ร่างของใบที่ยกเลิก) · คำสั่งที่อาจถึงแล้ว (ลองใหม่อยู่) → VOID_DOCUMENT งานยกเลิกด้วยมือ', async () => {
+    const voidInv = async (id: string) => {
+      const r = await api(app, admin)
+        .post(`/v1/invoices/${id}/void`)
+        .set('If-Match', `"${(await getInv(id)).version}"`)
+        .send({ reason: 'ยกเลิกก่อนส่งเข้าระบบบัญชี ทดสอบ' });
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+    };
+    // (ก) ยังไม่ส่ง (PENDING — เช่น connector หยุดอยู่) → ยกเลิก → ไม่ส่ง
+    const a = await issuedInvoice('410.00');
+    await voidInv(a.id);
+    expect((await commands('VOID_DOCUMENT')).filter((c) => c.localId === a.uuid)).toHaveLength(0);
+    await drainOutbox();
+    const pa = (await commands('PUSH_INVOICE')).find((c) => c.localId === a.uuid)!;
+    expect(pa.status).toBe('SKIPPED');
+    expect(pa.lastError).toMatchObject({ code: 'document_cancelled' });
+    expect(mock.byRef(a.invoiceNo, 'tms.invoice')).toHaveLength(0);
+    expect(
+      await plat.auditLog.count({
+        where: { tenantId, action: 'connector.command_skipped', reason: 'document_cancelled' },
+      }),
+    ).toBeGreaterThan(0);
+    // (ข) ครั้งก่อนล้มแบบลองใหม่ (อาจถึงปลายทางแล้ว เช่น timeout) → ยกเลิก → แจ้งยกเลิกด้วยมือ + ไม่ส่งซ้ำ
+    const b = await issuedInvoice('420.00');
+    await plat.$executeRaw`UPDATE integration_outbox SET status = 'FAILED_RETRYABLE', attempt = 1
+                            WHERE tenant_id = ${tenantId}::uuid AND local_id = ${b.uuid}::uuid`;
+    await voidInv(b.id);
+    const v = (await commands('VOID_DOCUMENT')).filter((c) => c.localId === b.uuid);
+    expect(v).toHaveLength(1);
+    await drainOutbox();
+    expect(
+      (await plat.integrationOutbox.findUniqueOrThrow({ where: { id: v[0]!.id } })).lastError,
+    ).toMatchObject({
+      code: 'void_manual_required',
+    });
+    expect((await commands('PUSH_INVOICE')).find((c) => c.localId === b.uuid)!.status).toBe(
+      'SKIPPED',
+    );
+    expect(mock.byRef(b.invoiceNo, 'tms.invoice')).toHaveLength(0);
+  });
+
+  it('review L1: document.posted มาก่อนผลการส่งถูกบันทึก → ลองใหม่ (คง RECEIVED) แล้วสำเร็จเมื่อ mapping มา', async () => {
+    const inv = await issuedInvoice('430.00');
+    const early = mock.webhook('document.posted', {
+      id: '11111111-2222-4333-8444-555555555555',
+      doc_type: 'IV',
+      doc_no: 'IV-EARLY-1',
+      external_source: 'tms.invoice',
+      external_ref: inv.invoiceNo,
+      grand_total: '430.00',
+    });
+    await send(early).expect(200);
+    await drainJobs();
+    expect((await events()).find((e) => e.eventKey === early.event.id)!.status).toBe('RECEIVED');
+    await drainOutbox();
+    await drainJobs();
+    expect((await events()).find((e) => e.eventKey === early.event.id)!.status).toBe('PROCESSED');
+    expect(await mapping('INVOICE', inv.uuid)).toMatchObject({
+      externalStatus: 'POSTED',
+      externalDocNo: 'IV-EARLY-1',
+    });
+  });
+
+  it('review M3: ยอดที่ระบบบัญชีลงบัญชี ≠ ยอด TMS → คิวตรวจ external_total_mismatch (ยังเก็บเลขเอกสาร)', async () => {
+    const inv = await issuedInvoice('440.00');
+    await drainOutbox();
+    const [doc] = mock.byRef(inv.invoiceNo, 'tms.invoice');
+    const ok = mock.post(doc!.id);
+    expect(ok.event.data.grand_total).toBe('440.00');
+    const bad = mock.webhook('document.posted', { ...ok.event.data, grand_total: '470.80' });
+    await send(bad).expect(200);
+    await drainJobs();
+    const ev = (await events()).find((e) => e.eventKey === bad.event.id)!;
+    expect(ev.status).toBe('FAILED');
+    expect(ev.lastError).toMatchObject({ code: 'external_total_mismatch', review: true });
+    expect(await mapping('INVOICE', inv.uuid)).toMatchObject({
+      externalStatus: 'POSTED',
+      externalDocNo: ok.event.data.doc_no,
+    });
+    // ยอดตรง = ผ่าน
+    await send(ok).expect(200);
+    await drainJobs();
+    expect((await events()).find((e) => e.eventKey === ok.event.id)!.status).toBe('PROCESSED');
+  });
+
+  it('review M2 + M4: ใบรับเงินถูกยกเลิกในระบบบัญชี (เช็คคืน) → คิวตรวจ payment_voided_external ไม่กลับรายการเอง · รับชำระอ้างเลขใบที่ TMS ไม่รู้จัก → คิวตรวจ', async () => {
+    const inv = await issuedInvoice('450.00');
+    await drainOutbox();
+    const [doc] = mock.byRef(inv.invoiceNo, 'tms.invoice');
+    await send(mock.post(doc!.id)).expect(200);
+    const rv = mock.receive([{ documentId: doc!.id, applied: '450.00' }]);
+    await send(rv).expect(200);
+    await drainJobs();
+    expect((await getInv(inv.id)).status).toBe('PAID');
+    const rvVoid = mock.webhook('document.voided', {
+      id: rv.event.data.id,
+      doc_type: 'RV',
+      doc_no: rv.event.data.doc_no,
+      external_source: null,
+      external_ref: null,
+      reason: 'เช็คคืน',
+      reversal: 'JV-R-1',
+    });
+    await send(rvVoid).expect(200);
+    await drainJobs();
+    const ev = (await events()).find((e) => e.eventKey === rvVoid.event.id)!;
+    expect(ev.status).toBe('FAILED');
+    expect(ev.lastError).toMatchObject({ code: 'payment_voided_external', review: true });
+    expect((await getInv(inv.id)).status).toBe('PAID');
+    const pay = await plat.externalMapping.findFirstOrThrow({
+      where: { tenantId, entityType: 'PAYMENT', externalId: rv.event.data.id as string },
+    });
+    expect(pay.externalStatus).toBe('VOIDED');
+    expect((await plat.payment.findUniqueOrThrow({ where: { id: pay.localId } })).status).toBe(
+      'RECORDED',
+    );
+    // M4: เลขใบอ้างของ TMS ที่ไม่มี mapping → ไม่ข้ามเงียบ
+    const unk = mock.webhook('payment.received', {
+      id: '99999999-2222-4333-8444-555555555555',
+      doc_no: 'RV-X',
+      applications: [
+        {
+          document_id: '88888888-2222-4333-8444-555555555555',
+          doc_no: 'IV-X',
+          external_ref: 'INV-NOT-IN-TMS',
+          applied: '10.00',
+          wht: '0.00',
+        },
+      ],
+    });
+    await send(unk).expect(200);
+    await drainJobs();
+    const e2 = (await events()).find((e) => e.eventKey === unk.event.id)!;
+    expect(e2.status).toBe('FAILED');
+    expect(e2.lastError).toMatchObject({ code: 'payment_unmatched' });
+    // RV ของเอกสารที่ไม่ได้มาจาก TMS (ไม่มีเลขอ้าง) = ไม่มีผล
+    const other = mock.webhook('payment.received', {
+      id: '77777777-2222-4333-8444-555555555555',
+      doc_no: 'RV-Y',
+      applications: [
+        {
+          document_id: '66666666-2222-4333-8444-555555555555',
+          external_ref: null,
+          applied: '10.00',
+          wht: '0.00',
+        },
+      ],
+    });
+    await send(other).expect(200);
+    await drainJobs();
+    expect((await events()).find((e) => e.eventKey === other.event.id)!.status).toBe('PROCESSED');
+  });
+
   it('(6) external_mapping แยก tenant (RLS) — tenant อื่นมองไม่เห็นแม้รู้ id', async () => {
     const all = await plat.externalMapping.findMany({ where: { tenantId } });
     expect(all.length).toBeGreaterThan(0);

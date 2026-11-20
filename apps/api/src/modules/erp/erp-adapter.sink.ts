@@ -7,6 +7,7 @@ import {
   SOR_TAX_PUSH_CAPABILITIES,
 } from '@tms/domain';
 import { Clock } from '../../common/clock';
+import type { Tx } from '../../db/db.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { OutboxSinkRegistry } from '../integration/outbox-sink.registry';
 import { OutboxSinkError, type OutboxDelivery, type OutboxSink } from '../integration/outbox.types';
@@ -25,6 +26,29 @@ import {
 } from './erp-adapter';
 
 export const ERP_SINK = 'erp';
+
+/**
+ * ST8-T16 สถานะของเอกสารต้นทางตอนจะส่ง — `CANCELLED` = ไม่ส่ง · ไม่พบ/ชนิดอื่น = `OK` (ไม่ตัดสินแทน)
+ * ใบแจ้งหนี้: CANCELLED (ST5-T10) · ใบสำคัญจ่าย: ส่งได้เฉพาะ PAID (D-58) อื่น ๆ (ยกเลิก) = CANCELLED
+ */
+async function sourceState(
+  tx: Tx,
+  entityType: string,
+  localId: string,
+): Promise<'OK' | 'CANCELLED'> {
+  if (entityType === 'invoice') {
+    const r = await tx.invoice.findUnique({ where: { id: localId }, select: { status: true } });
+    return r?.status === 'CANCELLED' ? 'CANCELLED' : 'OK';
+  }
+  if (entityType === 'settlement') {
+    const r = await tx.carrierSettlement.findUnique({
+      where: { id: localId },
+      select: { status: true },
+    });
+    return r && r.status !== 'PAID' ? 'CANCELLED' : 'OK';
+  }
+  return 'OK';
+}
 
 /** entity ที่เก็บ external_mapping หลัง push สำเร็จ (ST8-T16) */
 const MAPPED_ENTITIES: Readonly<Record<string, string>> = {
@@ -125,21 +149,25 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         code: 'unknown_operation',
       });
     const cap = ERP_OPERATION_CAPABILITY[d.operation];
+    // ST8-T16 (review L3) แจ้งยกเลิกเอกสารที่ส่งไปแล้ว: ยังไม่มี adapter ใดยกเลิกผ่าน API (void ผ่านใบลดหนี้ = ST7-T16)
+    // → งานที่บัญชีต้องตรวจ/ยกเลิกในระบบบัญชีเอง (SKIPPED + audit แจ้งบัญชี) ทุก adapter
+    if (d.operation === 'VOID_DOCUMENT') {
+      await this.skipped(d, connector, 'void_manual_required');
+      throw new OutboxSinkError(
+        'document was cancelled in TMS — check and cancel it in the accounting system manually',
+        'CAPABILITY',
+        { code: 'void_manual_required', capability: cap },
+      );
+    }
     // ST8-T03 adapter ประกาศแต่ยังไม่ได้ทำ → พักไว้ (ไม่ทิ้ง ไม่เสียจำนวนครั้ง) จนกว่า deploy ตัวที่ทำแล้ว
     if (isPendingCapability(adapter, cap)) throw parkedNotImplemented(cap);
     if (!adapter.capabilities().has(cap)) {
       // adapter ทำไม่ได้จริง → SKIPPED + แจ้งบัญชี (docs/01 §6.3 CAPABILITY)
-      // ST8-T16 แจ้งยกเลิกเอกสารที่ ERP ไม่รองรับ = งานที่บัญชีต้องยกเลิกในระบบบัญชีเอง (`void_manual_required`)
-      const code =
-        d.operation === 'VOID_DOCUMENT' ? 'void_manual_required' : 'capability_not_supported';
-      await this.skipped(d, connector, code);
-      throw new OutboxSinkError(
-        code === 'void_manual_required'
-          ? 'ERP cannot cancel this document via API — cancel it in the accounting system manually'
-          : `capability ${cap} not supported`,
-        'CAPABILITY',
-        { code, capability: cap },
-      );
+      await this.skipped(d, connector, 'capability_not_supported');
+      throw new OutboxSinkError(`capability ${cap} not supported`, 'CAPABILITY', {
+        code: 'capability_not_supported',
+        capability: cap,
+      });
     }
     if (!resolved.capabilities.includes(cap))
       // tenant ปิดไว้ (adapter รองรับ) → พักคำสั่ง ไม่ทิ้ง — เปิดกลับแล้วส่งต่อ (ConnectorsService.update ปลุก)
@@ -157,6 +185,17 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         code: 'sor_not_chosen',
         capability: cap,
       });
+
+    // ST8-T16 (review M1) ตรวจสถานะเอกสารต้นทางก่อนส่งทุกครั้ง — ยกเลิกแล้ว (เช่น ยกเลิกใบระหว่างคำสั่งรอคิว/พักไว้) = ไม่ส่ง
+    if (d.operation === 'PUSH_INVOICE' || d.operation === 'PUSH_SETTLEMENT') {
+      const state = await d.withTx((tx) => sourceState(tx, d.entityType, d.localId));
+      if (state === 'CANCELLED') {
+        await this.skipped(d, connector, 'document_cancelled');
+        throw new OutboxSinkError('source document was cancelled — not sent', 'CAPABILITY', {
+          code: 'document_cancelled',
+        });
+      }
+    }
 
     // สำเนาตื้น — ใส่รหัส ERP ที่จับคู่โดยไม่แก้ payload ที่เก็บในคิว
     const payload = { ...((d.payload ?? {}) as Record<string, unknown>) } as {

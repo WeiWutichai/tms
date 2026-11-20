@@ -18,6 +18,8 @@ export interface InboundReview {
 export interface InboundEffectsResult {
   applied: Record<string, unknown>[];
   review: InboundReview | null;
+  /** review L1 ลองใหม่ภายหลังได้ (เช่น ผลการส่งยังไม่ถูกบันทึก) — core ลองใหม่ ครั้งสุดท้ายแล้วยังไม่ได้ = คิวตรวจ */
+  retry?: InboundReview;
 }
 
 /**
@@ -86,31 +88,37 @@ export class ErpInboundEffects {
     out: InboundEffectsResult,
     review: (code: string, message: string) => void,
   ) {
+    if (e.entityType === null) return this.unknownDocument(tx, c, e, out, review);
     if (e.entityType !== 'invoice' && e.entityType !== 'settlement')
       return review('unknown_entity', 'unknown entity type');
     const m = await this.findMapping(tx, c, MAP_ENTITY[e.entityType], e.externalId, e.localNumber);
     if (!m) {
-      // เอกสารที่ไม่ได้มาจาก TMS (ไม่มีเลข TMS) = ไม่ใช่ของเรา ข้าม · มีเลข TMS แต่หาไม่เจอ = ให้คนดู
+      // เอกสารที่ไม่ได้มาจาก TMS (ไม่มีเลข TMS) = ไม่ใช่ของเรา ข้าม
       if (!e.localNumber) {
         out.applied.push({ kind: e.kind, skipped: 'not_from_tms' });
         return;
       }
-      return review(
-        'mapping_not_found',
-        `${e.entityType} ${e.localNumber} was not sent from TMS to this connector`,
-      );
+      // review L1: webhook มาก่อนผลการส่งถูกบันทึก (mapping ยังไม่มี) → ลองใหม่ภายหลัง (ครั้งสุดท้ายยังไม่เจอ = คิวตรวจ)
+      out.retry ??= {
+        code: 'mapping_not_found',
+        message: `${e.entityType} ${e.localNumber} was not sent from TMS to this connector (yet)`,
+      };
+      return;
     }
+    const total = e.externalTotal && MONEY_RE.test(e.externalTotal) ? e.externalTotal : null;
+    const prevDetail = (m.detail as Record<string, unknown> | null) ?? {};
     await tx.externalMapping.update({
       where: { id: m.id },
       data: {
         externalDocNo: e.externalDocNo?.slice(0, 100) ?? m.externalDocNo,
         externalStatus: e.status,
         ...(e.externalId && !m.externalId ? { externalId: e.externalId.slice(0, 100) } : {}),
-        ...(e.status === 'VOIDED'
+        ...(e.status === 'VOIDED' || total
           ? {
               detail: {
-                ...((m.detail as Record<string, unknown> | null) ?? {}),
-                voidReason: e.reason?.slice(0, 300) ?? null,
+                ...prevDetail,
+                ...(total ? { externalTotal: total } : {}),
+                ...(e.status === 'VOIDED' ? { voidReason: e.reason?.slice(0, 300) ?? null } : {}),
               } as Prisma.InputJsonValue,
             }
           : {}),
@@ -123,6 +131,31 @@ export class ErpInboundEffects {
       status: e.status,
       externalDocNo: e.externalDocNo ?? null,
     });
+    if (e.status === 'POSTED' && total) {
+      // review M3: ยอดรวมที่ระบบบัญชีลงบัญชี ≠ ยอดใน TMS → คิวตรวจ (เทียบตัวเลขอย่างเดียว ไม่คำนวณภาษีแทน)
+      const tms =
+        e.entityType === 'invoice'
+          ? (
+              await tx.invoice.findUnique({
+                where: { id: m.localId },
+                select: { totalAmount: true },
+              })
+            )?.totalAmount
+          : (
+              await tx.carrierSettlement.findUnique({
+                where: { id: m.localId },
+                select: { netPayable: true },
+              })
+            )?.netPayable;
+      if (tms && !tms.equals(new Prisma.Decimal(total)))
+        review(
+          'external_total_mismatch',
+          `${e.entityType} ${m.localNumber ?? m.localId}: accounting system total ${total} ≠ TMS ${tms.toFixed(2)}${
+            e.externalDocNo ? ` (${e.externalDocNo})` : ''
+          }`,
+        );
+      return;
+    }
     if (e.status !== 'VOIDED') return;
     // ERP ยกเลิกเอกสาร — ใบ TMS ที่ยังใช้อยู่ไม่ถูกยกเลิกอัตโนมัติ (acceptance ST8-T16 ข้อ 3) → คิวให้คนตัดสิน
     const tmsCancelled =
@@ -142,6 +175,57 @@ export class ErpInboundEffects {
           e.externalDocNo ? ` (${e.externalDocNo})` : ''
         } — decide in TMS`,
       );
+  }
+
+  /**
+   * review M2 เอกสารที่ adapter ไม่รู้ว่าเป็นของ TMS (เช่น ใบรับเงินที่ระบบบัญชีออกเองจาก webhook รับชำระ) — หาจาก id ฝั่ง ERP:
+   * การรับชำระที่ TMS สร้างจาก webhook ถูกยกเลิกฝั่งบัญชี (เช่น เช็คคืน) → คิวตรวจ `payment_voided_external` (ไม่กลับรายการเอง)
+   */
+  private async unknownDocument(
+    tx: Tx,
+    c: Connector,
+    e: Extract<InboundEffect, { kind: 'externalDocument' }>,
+    out: InboundEffectsResult,
+    review: (code: string, message: string) => void,
+  ) {
+    const p = e.externalId
+      ? await this.findMapping(tx, c, MAP_ENTITY.payment, e.externalId, null)
+      : null;
+    if (!p) {
+      out.applied.push({ kind: e.kind, skipped: 'not_from_tms' });
+      return;
+    }
+    await tx.externalMapping.update({
+      where: { id: p.id },
+      data: {
+        externalStatus: e.status,
+        ...(e.status === 'VOIDED'
+          ? {
+              detail: {
+                ...((p.detail as Record<string, unknown> | null) ?? {}),
+                voidReason: e.reason?.slice(0, 300) ?? null,
+              } as Prisma.InputJsonValue,
+            }
+          : {}),
+      },
+    });
+    out.applied.push({
+      kind: e.kind,
+      entityType: 'payment',
+      number: p.localNumber,
+      status: e.status,
+    });
+    if (e.status === 'VOIDED') {
+      const pay = await tx.payment.findUnique({
+        where: { id: p.localId },
+        select: { status: true },
+      });
+      if (pay?.status !== 'REVERSED')
+        review(
+          'payment_voided_external',
+          `payment ${p.localNumber ?? p.localId} (${e.externalDocNo ?? p.externalDocNo ?? p.externalId}) was voided in the accounting system — reverse it in TMS if correct`,
+        );
+    }
   }
 
   private async paymentReceived(

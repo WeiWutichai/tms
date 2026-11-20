@@ -430,6 +430,7 @@ describe('AccountSystemAdapter (ST8-T16) — กับ mock จาก contract',
         doc_no: 'IV2611-0001',
         external_source: 'tms.invoice',
         external_ref: 'INV-1',
+        grand_total: '2124.50',
       });
       const r = await accountSystemInbound.handle(
         ctx(),
@@ -446,6 +447,7 @@ describe('AccountSystemAdapter (ST8-T16) — กับ mock จาก contract',
             localNumber: 'INV-1',
             externalDocNo: 'IV2611-0001',
             status: 'POSTED',
+            externalTotal: '2124.50',
           },
         ],
       });
@@ -456,6 +458,25 @@ describe('AccountSystemAdapter (ST8-T16) — กับ mock จาก contract',
         req(other),
       );
       expect(r2).toEqual({ ok: true, summary: { skipped: 'not_from_tms' } });
+      // review M2: ยกเลิกเอกสารที่ไม่มีที่มา (เช่น ใบรับเงิน) → ส่ง id ให้ core หา (entityType null)
+      const rvVoid = m.webhook('document.voided', {
+        id: 'rv1',
+        doc_type: 'RV',
+        doc_no: 'RV-1',
+        external_source: null,
+      });
+      expect(
+        await accountSystemInbound.handle(
+          ctx(),
+          accountSystemInbound.parse(ctx(), req(rvVoid))!,
+          req(rvVoid),
+        ),
+      ).toMatchObject({
+        ok: true,
+        effects: [
+          { kind: 'externalDocument', entityType: null, externalId: 'rv1', status: 'VOIDED' },
+        ],
+      });
     });
 
     it('handle: payment.received → ยอดตัดหนี้ = applied + wht (สตริง ไม่ใช้ float) · วันที่ตามเวลาไทย', async () => {
@@ -490,7 +511,7 @@ describe('AccountSystemAdapter (ST8-T16) — กับ mock จาก contract',
             externalDocNo: 'RV-0001',
             receivedDate: '2026-11-21',
             allocations: [
-              { externalId: 'd1', localNumber: null, amount: '0.30', whtAmount: '0.01' },
+              { externalId: 'd1', localNumber: 'INV-1', amount: '0.30', whtAmount: '0.01' },
             ],
           },
         ],
