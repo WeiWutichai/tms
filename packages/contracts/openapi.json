@@ -56803,6 +56803,52 @@
           "credentials"
         ]
       },
+      "ConnectorMasterCodeGapDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "UNIT",
+              "SALESPERSON",
+              "ACCOUNT",
+              "ITEM",
+              "VAT_RATE",
+              "CUSTOMER"
+            ],
+            "example": "UNIT"
+          },
+          "value": {
+            "type": "string",
+            "nullable": true,
+            "example": "เที่ยว"
+          },
+          "fields": {
+            "example": [
+              "salePerson"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "MISSING",
+              "UNKNOWN",
+              "AMBIGUOUS",
+              "NO_CATALOGUE"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "value",
+          "fields",
+          "status"
+        ]
+      },
       "ConnectorDto": {
         "type": "object",
         "properties": {
@@ -57057,6 +57103,13 @@
             "nullable": true,
             "description": "ข้อความดิบจากปลายทาง (ตัด credential แล้ว) สำหรับผู้ดูแล/support"
           },
+          "masterCodeGaps": {
+            "description": "ST8-T06 สิ่งที่ยังไม่พร้อมก่อนส่งเอกสารเข้า ERP (เช่น ยังไม่มีผังหน่วย / พนักงานขายไม่อยู่ในผัง) — ว่าง = พร้อม · ไม่ทำให้ผลทดสอบล้ม",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectorMasterCodeGapDto"
+            }
+          },
           "checkedAt": {
             "type": "string",
             "format": "date-time"
@@ -57071,6 +57124,7 @@
           "code",
           "message",
           "detail",
+          "masterCodeGaps",
           "checkedAt",
           "connector"
         ]

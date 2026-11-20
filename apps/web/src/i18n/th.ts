@@ -4305,6 +4305,7 @@ export const th = {
   'cnx.fl.apiKey': 'API key',
   'cnx.fl.baseUrl': 'URL ของ API',
   'cnx.fl.healthTransactionNo': 'เลขเอกสารสำหรับทดสอบการเชื่อมต่อ',
+  'cnx.fl.salePerson': 'รหัสพนักงานขายในระบบบัญชี',
   'cnx.fl.sqlServer': 'SQL Server (โฮสต์:พอร์ต)',
   'cnx.fl.sqlDatabase': 'ชื่อฐานข้อมูล',
   'cnx.fl.sqlUser': 'ผู้ใช้ SQL (อ่านอย่างเดียว)',

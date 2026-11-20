@@ -44,6 +44,11 @@ import {
   readyCapabilities,
 } from './erp-adapter';
 import { ErpAdapterRegistry } from './erp-adapter.registry';
+import {
+  checkMasterCodeRefs,
+  MASTER_CODE_KIND_TH,
+  type MasterCodeGap,
+} from './erp-master-code.check';
 import type { ErrorClass } from '../integration/outbox.types';
 import { generateInboundToken, INBOUND_MAX_ATTEMPTS, INBOUND_PROCESS_JOB } from './inbound-token';
 
@@ -100,6 +105,27 @@ const VALUE_MAX = 2048;
 
 const field422 = (field: string, code: string, message: string) =>
   new ProblemException('validation_failed', undefined, [{ field, code, message }]);
+
+/** capability ที่ส่งเอกสารเข้า ERP (เปิดเพิ่ม = ตรวจความพร้อมผังรหัส — ST8-T06) */
+const PUSH_CAPABILITIES: ReadonlySet<string> = new Set([
+  'pushInvoice',
+  'pushCreditNote',
+  'pushSettlement',
+  'replaceDocument',
+]);
+
+/** ข้อความสั้นของรายการที่ยังไม่พร้อม */
+function readinessText(gaps: MasterCodeGap[]): string {
+  return gaps
+    .slice(0, 5)
+    .map((g) => {
+      const k = MASTER_CODE_KIND_TH[g.kind] ?? 'รหัส';
+      if (g.status === 'MISSING') return `ไม่ได้ระบุ${k}`;
+      if (g.status === 'NO_CATALOGUE' && g.value === null) return `ยังไม่มีผังรหัส${k}`;
+      return `${k} "${String(g.value).slice(0, 40)}" ไม่อยู่ในผังรหัส`;
+    })
+    .join(', ');
+}
 
 /** วันนี้ตามเวลาไทย (YYYY-MM-DD) */
 const todayTh = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
@@ -572,7 +598,7 @@ export class ConnectorsService {
     const companyId = await this.checkCompany(tx, body.companyId);
     const settings = this.checkGroup(adapter, 'settings', body.settings);
     const credentials = this.checkGroup(adapter, 'credentials', body.credentials);
-    const caps = this.checkCapabilities(adapter, body.capabilitiesEnabled);
+    let caps = this.checkCapabilities(adapter, body.capabilitiesEnabled);
     const syncFromDate = this.checkSyncFromDate(body.syncFromDate);
     const branchMap = (await this.checkBranchMap(tx, companyId, body.branchMap)) ?? {};
     // จำนวน/ขอบเขตต่อ tenant — serialize การสร้างพร้อมกัน (partial unique index กันซ้ำอีกชั้น)
@@ -580,6 +606,23 @@ export class ConnectorsService {
     await this.assertScopeFree(tx, companyId);
     await this.assertLimit(tx, tenantId);
     const id = randomUUID();
+    // ST8-T06 ส่งเอกสารต้องพร้อมผังรหัสก่อน (connector ใหม่ยังไม่มีผัง): ค่าเริ่มต้น = ไม่เปิด capability ส่งเอกสารที่ยังไม่พร้อม ·
+    // ขอเปิดชัด ๆ = 422 เหมือน update (เปิดได้หลังนำเข้าผังรหัส)
+    if (caps.some((c) => PUSH_CAPABILITIES.has(c))) {
+      const gaps = await this.readinessGapsFor(tx, id, adapter.key, {
+        ...settings,
+        ...credentials,
+      });
+      if (gaps.length) {
+        if (body.capabilitiesEnabled !== undefined)
+          throw field422(
+            'capabilitiesEnabled',
+            'erp_master_codes_not_ready',
+            `ผังรหัสยังไม่พร้อมสำหรับส่งเอกสาร: ${readinessText(gaps)}`,
+          );
+        caps = caps.filter((c) => !PUSH_CAPABILITIES.has(c));
+      }
+    }
     const credKeys = Object.keys(credentials).sort();
     let row: Connector;
     try {
@@ -646,8 +689,21 @@ export class ConnectorsService {
       data.erpCompanyCode = body.erpCompanyCode?.trim() || null;
     if (body.settings !== undefined)
       data.settings = this.checkGroup(adapter, 'settings', body.settings);
-    if (body.capabilitiesEnabled !== undefined)
-      data.capabilitiesEnabled = this.checkCapabilities(adapter, body.capabilitiesEnabled);
+    if (body.capabilitiesEnabled !== undefined) {
+      const caps = this.checkCapabilities(adapter, body.capabilitiesEnabled);
+      data.capabilitiesEnabled = caps;
+      // ST8-T06 เปิดส่งเอกสาร "เพิ่ม" ต้องพร้อมผังรหัสก่อน (บันทึกค่าตั้งอื่น/ปิด capability ได้เสมอ)
+      if (caps.some((c) => PUSH_CAPABILITIES.has(c) && !cur.capabilitiesEnabled.includes(c))) {
+        const settings = (data.settings ?? cur.settings) as Prisma.JsonValue;
+        const gaps = await this.pushReadinessGaps(tx, { ...cur, settings });
+        if (gaps.length)
+          throw field422(
+            'capabilitiesEnabled',
+            'erp_master_codes_not_ready',
+            `ผังรหัสยังไม่พร้อมสำหรับส่งเอกสาร: ${readinessText(gaps)}`,
+          );
+      }
+    }
     if (body.syncFromDate !== undefined)
       data.syncFromDate = this.checkSyncFromDate(body.syncFromDate);
     const bm = await this.checkBranchMap(tx, cur.companyId, body.branchMap);
@@ -996,6 +1052,45 @@ export class ConnectorsService {
     };
   }
 
+  /**
+   * ST8-T06 ความพร้อมของผังรหัสก่อนส่งเอกสาร (`adapter.pushReadiness`) — ว่าง = พร้อม/adapter ไม่กำหนด
+   * ใช้ตอนเปิด capability ส่งเอกสาร (422) และแสดงในผลทดสอบการเชื่อมต่อ (ไม่ทำให้ทดสอบล้ม/ไม่หยุดคิว)
+   */
+  async pushReadinessGaps(tx: Tx, c: Connector): Promise<MasterCodeGap[]> {
+    let config: Record<string, string>;
+    try {
+      config = this.configOf(c);
+    } catch {
+      return [];
+    }
+    return this.readinessGapsFor(tx, c.id, c.adapterKey, config);
+  }
+
+  /** ความพร้อมจากค่าตั้งโดยตรง (ใช้ตอนสร้าง — ยังไม่มีแถว connector) */
+  private async readinessGapsFor(
+    tx: Tx,
+    connectorId: string,
+    adapterKey: string,
+    config: Record<string, string>,
+  ): Promise<MasterCodeGap[]> {
+    const adapter = this.adapters.get(adapterKey);
+    if (!adapter?.pushReadiness) return [];
+    let need;
+    try {
+      need = adapter.pushReadiness({
+        tenantId: requestContext.get()?.tenantId ?? '',
+        connectorId,
+        companyId: null,
+        erpCompanyCode: null,
+        config: Object.freeze({ ...config }),
+      });
+    } catch {
+      return [];
+    }
+    return (await checkMasterCodeRefs(tx, connectorId, need?.refs ?? [], need?.catalogues ?? []))
+      .gaps;
+  }
+
   /** เรียก healthCheck แบบมีเพดานเวลา — ไม่ throw · ข้อความตัด credential แล้ว */
   async runHealth(c: Connector): Promise<HealthResult> {
     const adapter = this.adapters.get(c.adapterKey);
@@ -1112,6 +1207,7 @@ export class ConnectorsService {
       code: r.ok ? null : r.problem.code,
       message: r.ok ? null : healthMessageTh(r.problem.code, r.errorClass),
       detail: r.ok ? null : r.problem.message || null,
+      masterCodeGaps: await this.db.withTenant(tenantId, (tx) => this.pushReadinessGaps(tx, row)),
       checkedAt: at.toISOString(),
       connector: this.toDto(row),
     };

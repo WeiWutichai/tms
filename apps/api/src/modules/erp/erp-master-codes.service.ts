@@ -4,6 +4,7 @@ import {
   ERP_MASTER_CODE_KINDS,
   type ErpItemMappingStatus,
   type ErpMasterCodeKind,
+  type ErpOperation,
   erpItemMappingStatus,
 } from '@tms/domain';
 import { encodeId, tryDecodeId } from '../../common/ids';
@@ -13,7 +14,16 @@ import { DbService, type Tx } from '../../db/db.service';
 import { ImportRegistry } from '../imports/import-spec';
 import { ConnectorsService, redactSecrets } from './connectors.service';
 import { erpMasterCodeImportSpec } from './erp-master-code.import';
+import {
+  checkMasterCodeRefs,
+  mappingPageLink,
+  type MasterCodeGap,
+  masterCodeProblem,
+  type MasterCodeUnknownProblem,
+} from './erp-master-code.check';
 import { chunks, lockKind, rethrowUniqueAsConflict } from './erp-master-code.util';
+
+export { mappingPageLink } from './erp-master-code.check';
 import type {
   ErpItemMappingDto,
   ErpItemMappingListDto,
@@ -24,7 +34,14 @@ import type {
   ErpMasterSyncResultDto,
   SetErpItemMappingDto,
 } from './erp-master-code.dto';
-import type { CanonicalDocument, ErpMasterCodeEntry } from './erp-adapter';
+import type {
+  CanonicalDocument,
+  ErpAdapter,
+  ErpContext,
+  ErpMasterCodeEntry,
+  MasterCodeRef,
+  ResolvedMasterCodes,
+} from './erp-adapter';
 import { ErpAdapterRegistry } from './erp-adapter.registry';
 
 /** เพดานเวลาดึงผังรหัส 1 ชนิด */
@@ -37,11 +54,6 @@ const RATE_RE = /^\d{1,3}(\.\d{1,2})?$/;
 /** transaction ของการซิงก์ (เขียนได้หลายหมื่นแถว) */
 const SYNC_TX_TIMEOUT_MS = 120_000;
 const WRITE_CHUNK = 2_000;
-
-/** หน้า mapping ในเว็บ (ลิงก์ในผลของคำสั่งที่ถูกกัน — docs/01 §7.4 "พร้อมลิงก์ไปหน้า mapping") */
-export function mappingPageLink(connectorId: string): string {
-  return `/settings?sec=conn&connector=${encodeId('connector', connectorId)}`;
-}
 
 /** ค่าบริการที่ทำให้เอกสารส่งเข้า ERP ไม่ได้ */
 export interface MappingGap {
@@ -102,6 +114,11 @@ export function withMappedItemCodes<T extends CanonicalDocument>(
   }
   return copy;
 }
+
+/** ผลรวมของประตูก่อนส่ง ERP (ST7-T18 mapping ค่าบริการ + ST8-T06 ค่าที่ adapter ประกาศ) */
+export type PushPreparation =
+  | { ok: true; document: CanonicalDocument; masterCodes: ResolvedMasterCodes }
+  | { ok: false; problem: MappingIncompleteProblem | MasterCodeUnknownProblem };
 
 const isUuid = (s: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
@@ -595,6 +612,52 @@ export class ErpMasterCodesService implements OnModuleInit {
         });
     }
     return { codes, gaps };
+  }
+
+  // ---------- ST8-T06 ผังรหัสที่ adapter ประกาศ (หน่วย/พนักงานขาย/บัญชี …) ----------
+
+  /** ST8-T06 ตรวจค่าที่ adapter ประกาศกับผังรหัส (`checkMasterCodeRefs`) — ใช้ใน tx ของ tenant */
+  checkMasterCodes(
+    tx: Tx,
+    connectorId: string,
+    refs: readonly MasterCodeRef[],
+    catalogues: readonly ErpMasterCodeKind[] = [],
+  ): Promise<{ resolved: ResolvedMasterCodes; gaps: MasterCodeGap[] }> {
+    return checkMasterCodeRefs(tx, connectorId, refs, catalogues);
+  }
+
+  /**
+   * ประตูก่อนส่ง ERP ทั้งชุด (ใช้ใน tx ของ tenant) — ErpAdapterSink เรียกก่อนเรียก adapter และงานสร้างคำสั่ง push (ST7-T15/T16) เรียกซ้ำได้
+   * 1) ค่าบริการ ↔ รหัสสินค้า ERP (ST7-T18 `checkMapping`) → ใส่ `serviceItem.externalId`
+   * 2) ค่าที่ adapter ประกาศใน `masterCodeRefs` (ST8-T06) ต้องอยู่ใน `erp_master_code` → ผลใน `masterCodes` (ใส่ลง ctx)
+   * ไม่ผ่าน = `{ok:false, problem}` (VALIDATION — เอกสารยังออกได้ plan/11 #9) · ไม่แก้ `doc` ที่ส่งเข้ามา
+   */
+  async prepareForPush(
+    tx: Tx,
+    connectorId: string,
+    adapter: Pick<ErpAdapter, 'masterCodeRefs'>,
+    ctx: ErpContext,
+    operation: ErpOperation,
+    doc: CanonicalDocument,
+  ): Promise<PushPreparation> {
+    let document = doc;
+    const itemIds = documentServiceItemIds(doc);
+    if (itemIds.length) {
+      const check = await this.checkMapping(tx, connectorId, itemIds);
+      if (check.gaps.length)
+        return { ok: false, problem: this.incompleteProblem(connectorId, check.gaps) };
+      document = withMappedItemCodes(doc, check.codes);
+    }
+    // adapter ผิดพลาด (throw/คืนค่าผิดรูป) = ตัดสินไม่ได้ → ห้ามส่ง (ไม่ปล่อยผ่านโดยไม่ตรวจ) — ผู้เรียกแปลงเป็นผลของคำสั่ง
+    let refs: readonly MasterCodeRef[] = [];
+    if (adapter.masterCodeRefs) {
+      const out = adapter.masterCodeRefs(ctx, operation, document);
+      if (!Array.isArray(out)) throw new Error('masterCodeRefs() must return an array');
+      refs = out;
+    }
+    const { resolved, gaps } = await checkMasterCodeRefs(tx, connectorId, refs);
+    if (gaps.length) return { ok: false, problem: masterCodeProblem(connectorId, gaps) };
+    return { ok: true, document, masterCodes: resolved };
   }
 
   /** ปัญหา `erp_mapping_incomplete` (เก็บใน outbox last_error) — ข้อความไทยสำหรับคิวเชื่อมระบบบัญชี */

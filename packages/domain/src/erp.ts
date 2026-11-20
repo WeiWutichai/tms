@@ -189,3 +189,49 @@ export function erpItemMappingStatus(
     return 'CODE_UNKNOWN';
   return 'MAPPED';
 }
+
+/** รหัส 1 ตัวในผังรหัส ERP ที่ใช้งานอยู่ (สำหรับ `resolveErpMasterCode`) */
+export interface ErpMasterCodeOption {
+  code: string;
+  name?: string | null;
+}
+
+/** ผลการหาค่าในผังรหัส ERP — `code`/`name` = ตามผัง */
+export type ErpMasterCodeResolution =
+  | { status: 'FOUND'; code: string; name: string | null }
+  | { status: 'MISSING' | 'UNKNOWN' | 'AMBIGUOUS' };
+
+/**
+ * ST8-T06 หาค่าจากเอกสารในผังรหัส ERP ชนิดหนึ่ง (กฎกลาง — ไม่ผูก ERP ใด; docs/01 §7.4 "validate ก่อนเข้า outbox")
+ * - ไม่มีค่า → MISSING
+ * - ตรงรหัสทุกตัวอักษร (ตัดช่องว่างหัวท้าย) → FOUND
+ * - ไม่งั้น ตรงรหัสแบบไม่สนตัวพิมพ์ 1 ตัว → FOUND · หลายตัว → AMBIGUOUS
+ * - `matchByName` (เปิดเฉพาะชนิดที่ TMS ส่งเป็นข้อความ เช่น หน่วย): ตรง **ชื่อ** ของรหัสเดียวพอดี → FOUND
+ *   (หน่วย "เที่ยว" ↔ รหัส `TRIP` ชื่อ "เที่ยว") · ชื่อซ้ำหลายรหัส → AMBIGUOUS (ไม่เดา)
+ * - อื่น ๆ → UNKNOWN
+ * `options` = รหัสที่ใช้งาน (active) ของชนิดนั้นเท่านั้น
+ */
+export function resolveErpMasterCode(
+  value: string | null | undefined,
+  options: readonly ErpMasterCodeOption[],
+  opts: { matchByName?: boolean } = {},
+): ErpMasterCodeResolution {
+  const raw = value?.trim();
+  if (!raw) return { status: 'MISSING' };
+  const found = (o: ErpMasterCodeOption): ErpMasterCodeResolution => ({
+    status: 'FOUND',
+    code: o.code,
+    name: o.name ?? null,
+  });
+  const exact = options.find((o) => o.code.trim() === raw);
+  if (exact) return found(exact);
+  const v = raw.toLowerCase();
+  const ci = options.filter((o) => o.code.trim().toLowerCase() === v);
+  if (ci.length === 1) return found(ci[0]!);
+  // กันไว้ก่อน: ผังรหัสใน DB มี unique lower(code) ต่อ (connector, ชนิด) (migration 0110) — หลายตัวเกิดได้เฉพาะ options จากที่อื่น
+  if (ci.length > 1) return { status: 'AMBIGUOUS' };
+  if (!opts.matchByName) return { status: 'UNKNOWN' };
+  const byName = options.filter((o) => o.name?.trim().toLowerCase() === v);
+  if (byName.length === 1) return found(byName[0]!);
+  return { status: byName.length ? 'AMBIGUOUS' : 'UNKNOWN' };
+}
