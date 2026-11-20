@@ -7,6 +7,7 @@ import { NotificationEvents } from '../notifications/notification-events';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
+import { sameHuman } from '../../common/actors';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
 import { readyDocumentDto } from '../documents/documents.controller';
@@ -412,7 +413,8 @@ export class FieldChargesService {
       throw new ProblemException('invalid_state_transition', undefined, undefined, {
         status: row.status,
       });
-    if (action !== 'cancel' && row.createdBy && row.createdBy === ctx.actorId)
+    // ผู้ออก API key = คนเดียวกับ key (ST6-T07 review H1) — key ของผู้บันทึกยืนยันรายการของผู้บันทึกเองไม่ได้
+    if (action !== 'cancel' && (await sameHuman(tx, row.createdBy, ctx.actorId)))
       throw new ProblemException('self_approval_forbidden');
     if (action === 'confirm') {
       // ฝั่งขายยืนยัน = รายได้ DO เปลี่ยน → ล็อกตามลำดับ SO → trip (ลำดับเดียวกับปิดต้นทุน ST6-T01c) กันรายได้เปลี่ยนระหว่างปันต้นทุน

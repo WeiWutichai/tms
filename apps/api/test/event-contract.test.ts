@@ -32,7 +32,15 @@ import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { WebhookEngine } from '../src/modules/webhooks/webhook-engine';
 import { FakeErpAdapter, GOOD_KEY } from './fake-erp-adapter';
-import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
+import {
+  api,
+  bootApp,
+  platform,
+  settleTripCostsForTest,
+  tokenFor,
+  truncateAll,
+  validTaxId,
+} from './helpers';
 
 /**
  * ST7-T06 contract test ของ event สาธารณะ (docs/01 §5.3; docs/04 G1) — เกณฑ์ตรวจรับ:
@@ -326,7 +334,6 @@ describe('event registry contract (ST7-T06)', () => {
       'payment.recorded',
       'payment.reversed',
       'receipt.issued',
-      'settlement.approved',
       'settlement.paid',
       'wht_certificate.issued',
       'reconcile.mismatch_found',
@@ -522,6 +529,60 @@ describe('event registry contract (ST7-T06)', () => {
       app.get(OrderStateService).holdReschedulesExhausted(tx, [h.soId], 'นัดส่งใหม่ครบจำนวนครั้ง'),
     );
 
+    // ---- settlement.approved (ST6-T07): ค่าจ้างรถร่วมของเที่ยว t ในใบสำคัญจ่าย (ข้อมูลจริงผ่าน trigger) → อนุมัติ ----
+    const car = (
+      await api(app, admin)
+        .post('/v1/carriers')
+        .send({
+          legalName: 'หจก. รถร่วมสัญญา event',
+          entityType: 'JURISTIC',
+          taxId: '0105561000011',
+        })
+        .expect(201)
+    ).body as { id: string; code: string };
+    const fee = await db.tripCost.create({
+      data: {
+        tenantId,
+        tripId: uuid('trip', t.id),
+        costType: 'CARRIER_FEE',
+        amount: '4500.00',
+        source: 'RATE_CARD',
+        carrierId: uuid('carrier', car.id),
+      },
+    });
+    await settleTripCostsForTest(db, { id: fee.id }, 'u-preparer');
+    const stl = await db.carrierSettlement.findFirstOrThrow({
+      where: { tenantId, carrierId: uuid('carrier', car.id) },
+    });
+    await db.carrierSettlement.update({
+      where: { id: stl.id },
+      data: {
+        carrierSnapshot: {
+          code: car.code,
+          legalName: 'หจก. รถร่วมสัญญา event',
+          entityType: 'JURISTIC',
+          taxId: '0105561000011',
+          taxIdLast4: null,
+          branchCode: null,
+          address: null,
+        },
+      },
+    });
+    const stlPub = encodeId('settlement', stl.id);
+    await api(app, admin)
+      .post(`/v1/settlements/${stlPub}/approve`)
+      .set(
+        'If-Match',
+        `"${(await db.carrierSettlement.findUniqueOrThrow({ where: { id: stl.id } })).version}"`,
+      )
+      .send({ reason: 'ตรวจยอดตรงใบแจ้งหนี้รถร่วมแล้ว' })
+      .expect(200);
+    expect((await latest('settlement.approved', stl.id))!.snapshot).toEqual(
+      await rest(`/v1/settlements/${stlPub}`, [
+        ...eventDefinition('settlement.approved')!.object!.omit,
+      ]),
+    );
+
     // ---------------- ตรวจ ----------------
     const events = await db.domainEvent.findMany({
       where: { tenantId },
@@ -613,6 +674,14 @@ describe('event registry contract (ST7-T06)', () => {
     ).toMatchObject({
       statusReason: 'auth_failed',
       lastHealthError: { errorClass: 'AUTH', code: 'auth_failed' },
+    });
+    expect(one('settlement.approved').snapshot).toMatchObject({
+      status: 'APPROVED',
+      settlementNo: expect.stringMatching(/^SA-\d{4}-0001$/),
+    });
+    expect(one('settlement.approved').previousAttributes).toEqual({
+      status: 'DRAFT',
+      settlementNo: null,
     });
     expect(registered.filter((e) => e.type === 'job.completed').map((e) => e.snapshot)).toEqual([
       expect.objectContaining({ id: encodeId('job', job.id), status: 'succeeded' }),

@@ -1,12 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { eventDefinition } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { EXT_PREFIX, EXTERNAL_ID_RE } from '../../common/external-id';
+import { resolveActors } from '../../common/actors';
 import { encodeId, tryDecodeId } from '../../common/ids';
+import { redactPrices } from '../../common/price-fields';
 import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { issueNumber } from '../sequences/sequences.service';
+import { readSettings } from '../settings/settings.service';
 import type {
   CreateSettlementDto,
   SettlementCarrierDto,
@@ -22,6 +27,8 @@ import type {
 import { SettlementQueueService } from './settlement-queue.service';
 
 const ENTITY = 'carrier_settlement';
+/** ผู้อนุมัติได้ = ผู้ใช้ที่ login (`dev` = token ทดสอบ — production ปฏิเสธ) — ไม่ใช่ API key / ลิงก์ (review H1) */
+const HUMAN_PRINCIPALS = new Set(['user', 'dev']);
 /** เพดาน numeric(14,2) */
 const MAX_AMOUNT = '999999999999.99';
 
@@ -116,6 +123,8 @@ export class SettlementsService {
         buyGrossAmount: r.grossAmount.toFixed(2),
         buyDeductionAmount: r.deductionAmount.toFixed(2),
         buyNetPayable: r.netPayable.toFixed(2),
+        approvedAt: r.approvedAt?.toISOString() ?? null,
+        createdBy: r.createdBy,
         version: r.version,
         createdAt: r.createdAt.toISOString(),
         updatedAt: r.updatedAt.toISOString(),
@@ -218,6 +227,8 @@ export class SettlementsService {
     const data: Prisma.CarrierSettlementUpdateInput = {
       periodFrom: day(from),
       periodTo: day(to),
+      // ผู้แก้หัวใบ = ผู้เตรียมใบ (อนุมัติใบนี้ไม่ได้ — SoD ST6-T07)
+      updatedBy: requestContext.require().actorId ?? null,
       version: { increment: 1 },
     };
     if (body.carrierInvoiceNo !== undefined) data.carrierInvoiceNo = body.carrierInvoiceNo || null;
@@ -342,6 +353,133 @@ export class SettlementsService {
       },
     });
     return this.get(id);
+  }
+
+  /**
+   * อนุมัติ (ST6-T07; docs/04 F6 "Approve (separation of duties)", docs/01 §4.5 DRAFT → APPROVED, spec/05 §11.5–11.6)
+   * - ผู้ใช้ที่ login เท่านั้น · ผู้เตรียมใบ (ผู้สร้าง/ผู้เพิ่ม/ผู้นำบรรทัดออก; key = ผู้ออก key; ระบุไม่ได้ = ปฏิเสธ) อนุมัติไม่ได้ → 403 `settlement_self_approval` (trigger 0126 ใน DB ด้วย)
+   * - ยอดสุทธิ > วงเงิน (0 = ทุกใบ) `settlement.approvalStepUpAmount` → ต้องยืนยัน 2FA ซ้ำ (`X-Step-Up` ของผู้อนุมัติเอง) ไม่งั้น 403 `step_up_required`
+   * - ไม่มีบรรทัดค่าขนส่ง (FREIGHT) → 409 `settlement_empty` · ยอดสุทธิติดลบ → 409 `settlement_net_negative` (BIL-133 — ยกยอดหักส่วนเกินไปงวดถัดไป)
+   * - ออกเลข STL (`issueNumber` — แถวตัวนับล็อกจน commit, rollback = ไม่กินเลข) ใน transaction เดียวกับการเปลี่ยนสถานะ · ใบ APPROVED แก้ไม่ได้ (trigger 0124)
+   * - เหตุผล ≥ 10 ตัวอักษร + audit `settlement.approved` + webhook `settlement.approved`
+   * - ไม่คำนวณ VAT/WHT (ST6-T08) — ยอดสุทธิ = ยอดรวม − รายการหัก
+   */
+  async approve(
+    id: string,
+    reason: string,
+    expected: number | undefined,
+    steppedUp: boolean,
+  ): Promise<SettlementDto> {
+    const tx = this.db.tx;
+    const ctx = requestContext.require();
+    // ST6-T05 จะเพิ่ม SENT_TO_CARRIER เป็นสถานะที่อนุมัติได้ (docs/01 §4.5) — ตอนนี้ DRAFT → APPROVED (tenant ข้ามขั้นรถร่วมตรวจ)
+    const s = await this.lockDraft(tx, id, expected);
+    // อนุมัติต้องอ้าง version ที่ผู้อนุมัติเห็น (review L5) — ไม่ส่ง If-Match = 422 `if_match_required` (แบบ ST4-T11)
+    // ตรวจหลังหาใบเจอ (ใบของบริษัทอื่น/ไม่มี = 404 ก่อน)
+    if (expected === undefined)
+      throw invalid([
+        {
+          field: 'If-Match',
+          code: 'if_match_required',
+          message: 'send If-Match (ETag of the settlement)',
+        },
+      ]);
+    const actor = ctx.actorId;
+    // อนุมัติ = คนที่ login เท่านั้น (review H1) — API key / OAuth client ไม่มี scope นี้อยู่แล้ว (API_KEY_DENIED_SCOPES) กันอีกชั้นที่นี่
+    if (!actor || !HUMAN_PRINCIPALS.has(ctx.principalType ?? ''))
+      throw new ProblemException('permission_denied', undefined, undefined, {
+        module: 'settlements',
+        action: 'approve',
+        required: ['settlements:approve'],
+      });
+    await this.assertNotPreparer(tx, id, s.createdBy, s.updatedBy, actor);
+    await this.assertNoOpenDisputes(tx, id);
+    // ต้องมีบรรทัดค่าขนส่ง (FREIGHT) อย่างน้อย 1 — ค่าใช้จ่ายเพิ่ม (SURCHARGE) อย่างเดียวไม่นับเป็นใบ (review L4)
+    const trips = await tx.settlementLine.count({
+      where: { settlementId: id, voidedAt: null, lineType: 'FREIGHT' },
+    });
+    if (trips === 0) throw new ProblemException('settlement_empty');
+    if (s.netPayable.isNegative()) throw new ProblemException('settlement_net_negative');
+    const limit = (await readSettings(tx, ctx.tenantId!, ['settlement.approvalStepUpAmount']))[
+      'settlement.approvalStepUpAmount'
+    ] as number | null;
+    // 0 = ทุกใบ (รวมยอด 0.00) · > 0 = ยอดสุทธิเกินวงเงิน (review L3)
+    const needStepUp = limit !== null && (limit === 0 || s.netPayable.greaterThan(limit));
+    if (needStepUp && !steppedUp) throw new ProblemException('step_up_required');
+
+    const settlementNo = await issueNumber(tx, ctx.tenantId!, { docType: 'STL' });
+    await tx.carrierSettlement.update({
+      where: { id },
+      data: {
+        status: 'APPROVED',
+        settlementNo,
+        approvedAt: new Date(),
+        approvedBy: actor,
+        version: { increment: 1 },
+      },
+    });
+    const out = await this.get(id);
+    await this.audit.record({
+      action: 'settlement.approved',
+      entityType: ENTITY,
+      entityId: id,
+      reason,
+      before: { status: 'DRAFT', settlementNo: null },
+      after: {
+        status: 'APPROVED',
+        settlementNo,
+        stepUp: needStepUp,
+        buyNetPayable: out.buyNetPayable,
+      },
+    });
+    await tx.domainEvent.create({
+      data: {
+        tenantId: ctx.tenantId!,
+        type: 'settlement.approved',
+        entityType: ENTITY,
+        localId: id,
+        snapshot: settlementEventObject(out) as Prisma.InputJsonValue,
+        previousAttributes: { status: 'DRAFT', settlementNo: null },
+        requestId: ctx.requestId ?? null,
+        actorId: actor,
+      },
+    });
+    return out;
+  }
+
+  /**
+   * separation of duties (A3; review H1/M2): ผู้อนุมัติต้องไม่ใช่ผู้เตรียมใบ — ผู้สร้างหัวใบ + ผู้แก้หัวใบล่าสุด + ผู้เพิ่มบรรทัด + ผู้นำบรรทัดออก
+   * actor ที่เป็น API key (`apikey:<id>`) = ผู้ออก key · ผู้เตรียมที่ระบุตัวไม่ได้ (ว่าง/key หาไม่พบ/ไม่มีผู้ออก) = ปฏิเสธ (fail closed)
+   */
+  private async assertNotPreparer(
+    tx: Tx,
+    id: string,
+    createdBy: string | null,
+    updatedBy: string | null,
+    actor: string,
+  ): Promise<void> {
+    const lines = await tx.settlementLine.findMany({
+      where: { settlementId: id },
+      select: { createdBy: true, voidedAt: true, voidedBy: true },
+    });
+    const raw = [
+      createdBy,
+      // ผู้แก้หัวใบล่าสุด (ไม่เคยแก้ = ไม่นับ)
+      ...(updatedBy ? [updatedBy] : []),
+      ...lines.map((l) => l.createdBy),
+      ...lines.filter((l) => l.voidedAt).map((l) => l.voidedBy),
+    ];
+    const [me, ...preparers] = await resolveActors(tx, [actor, ...raw]);
+    if (me === null || preparers.some((p) => p === null || p === me))
+      throw new ProblemException('settlement_self_approval');
+  }
+
+  /**
+   * จุดต่อ ST6-T06 (Dispute — docs/01 §4.5 "dispute ใด ๆ บล็อก approve", spec/05 BIL-136):
+   * เมื่อมีบรรทัด DISPUTED ให้ throw 409 ที่นี่ ("มีรายการโต้แย้ง n รายการ") — ตอนนี้ยังไม่มีข้อมูล dispute จึงผ่านเสมอ
+   */
+  private async assertNoOpenDisputes(_tx: Tx, _id: string): Promise<void> {
+    return;
   }
 
   // ---------- ภายใน ----------
@@ -723,6 +861,16 @@ export class SettlementsService {
   }
 }
 
+/**
+ * `data.object` ของ webhook `settlement.approved` (ทะเบียน event ST7-T06) = SettlementDto เดียวกับ `GET /v1/settlements/{id}`
+ * − ยอดเงิน (`buy*` — webhook ระดับ tenant ไม่ผ่านสิทธิ์ราคา) − `omit` ของทะเบียน (บรรทัด, id ผู้ใช้ — ดูรายละเอียดผ่าน REST)
+ */
+function settlementEventObject(dto: SettlementDto): Record<string, unknown> {
+  const o = JSON.parse(JSON.stringify(redactPrices(dto, []))) as Record<string, unknown>;
+  for (const k of eventDefinition('settlement.approved')!.object!.omit) delete o[k];
+  return o;
+}
+
 function invalid(errors: FieldError[]) {
   return new ProblemException('validation_failed', undefined, errors);
 }
@@ -806,6 +954,8 @@ function toDto(r: SettlementRow): SettlementDto {
     buyDeductionAmount: r.deductionAmount.toFixed(2),
     buyNetPayable: r.netPayable.toFixed(2),
     lines: r.lines.map(lineDto),
+    approvedAt: r.approvedAt?.toISOString() ?? null,
+    approvedBy: r.approvedBy,
     cancelledAt: r.cancelledAt?.toISOString() ?? null,
     cancelledBy: r.cancelledBy,
     cancelReason: r.cancelReason,
