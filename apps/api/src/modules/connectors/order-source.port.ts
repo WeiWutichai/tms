@@ -37,6 +37,12 @@ export interface ExternalOrder {
    * = ถือเป็น `holdOnly` (ไม่ทับ ใบค้าง SOURCE_ERROR ให้คนตรวจ) · ใช้กับต้นทางที่อาจส่งใบมาไม่ครบ (view ระดับรายการ)
    */
   noLineShrink?: unknown;
+  /**
+   * ST8-T05 (`true`) ต้นทางยกเลิกใบนี้แล้ว (เช่น KRS `is_cancelled = 1`) — core ไม่ upsert ข้อมูล:
+   * ใบที่ยังไม่มีใน TMS = ไม่สร้าง (`skipped`) · ยังไม่มี DO = ยกเลิกใน TMS อัตโนมัติ (`cancelled`, เหตุผล + audit) ·
+   * มี DO แล้ว/พ้นช่วงยกเลิก = ไม่ยกเลิก แจ้งเตือนผู้วางแผนครั้งเดียว (`cancel_alert`) — docs/01 A.4
+   */
+  cancelled?: unknown;
 }
 
 /** จุดรับ/ส่งตามต้นทาง (ใน `ExternalOrder.stops[]`) */

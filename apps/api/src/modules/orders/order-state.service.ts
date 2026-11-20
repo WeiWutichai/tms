@@ -22,6 +22,9 @@ import {
 } from '../delivery-orders/delivery-order.service';
 import { OrderIntakeService, SUPERSEDE_NOTE, decisionNote } from './order-intake.service';
 import { loadOrderEventObject, previousOf } from './order-dto';
+import { lockKey } from '../master/master-kit';
+import { NotificationEvents } from '../notifications/notification-events';
+import { requestContext } from '../../common/request-context';
 
 /** previousAttributes = ค่าเดิมเทียบ data.object (รูป REST) ก่อนเปลี่ยน — ST7-T06 */
 const prevFrom = (before: Record<string, unknown>) => (snap: Record<string, unknown>) =>
@@ -59,7 +62,91 @@ export class OrderStateService {
     private readonly deliveryOrders: DeliveryOrderService,
     private readonly audit: AuditService,
     private readonly revenueLines: RevenueLinesService,
+    private readonly events: NotificationEvents,
   ) {}
+
+  /**
+   * ST8-T05 ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบสั่ง (docs/01 A.4 "SO ที่ถูกยกเลิกใน KRS → ยกเลิกถ้ายังไม่มี DO; มี DO แล้ว → แจ้งเตือนแทน";
+   * docs/04 C ยกเลิก / คืนสถานะ) — ไม่ผูก ERP ใด · ผู้เรียก (ConnectorIntakeService) ถือ transaction + ผู้กระทำ `connector:{key}`
+   * - ยังไม่มีใบใน TMS → `skipped` (ไม่สร้างงานที่ต้นทางยกเลิกแล้ว — ต้นทางกลับมาส่งใบปกติ = สร้างตามปกติ)
+   * - ใบเป็นของช่องทางอื่น (externalId ชน) → `conflict` · ยกเลิกแล้ว → `unchanged`
+   * - **ยังไม่มี DO** (ไม่มี DO ที่เข้าเที่ยว/พ้น DRAFT — DO DRAFT ที่ระบบสร้างรอจัดถูกยกเลิกตาม) และสถานะยกเลิกได้
+   *   → `cancel` ทางเดียวกับคน (เหตุผลระบบ + ประวัติ + audit) + ตั้ง
+   *   `source_cancelled_at` → `cancelled`
+   * - **มี DO แล้ว** หรือพ้นช่วงยกเลิก (ออกรถ/ส่งแล้ว) → ไม่ยกเลิก · ตั้ง `source_cancelled_at` + audit `sales_order.source_cancel_alert`
+   *   + แจ้งเตือนผู้ดูแลใบสั่ง/ผู้จัดรถ **ครั้งเดียว** (ดึงซ้ำ = `unchanged`) → `cancel_alert`
+   */
+  async cancelFromSource(
+    tx: Tx,
+    input: { externalId: string; connector: string },
+  ): Promise<{
+    outcome: 'cancelled' | 'cancel_alert' | 'unchanged' | 'skipped' | 'conflict';
+    orderId?: string;
+    soNo?: string | null;
+    status?: string;
+  }> {
+    const ctx = requestContext.require();
+    const source = `ERP:${input.connector}`;
+    await lockKey(tx, `${ENTITY}.ext:${input.externalId}`);
+    const hit = await tx.salesOrder.findUnique({
+      where: { tenantId_externalId: { tenantId: ctx.tenantId!, externalId: input.externalId } },
+      select: { id: true },
+    });
+    if (!hit) return { outcome: 'skipped' };
+    await tx.$queryRaw`SELECT id FROM sales_order WHERE id = ${hit.id}::uuid FOR UPDATE`;
+    const so = await tx.salesOrder.findUniqueOrThrow({
+      where: { id: hit.id },
+      select: {
+        id: true,
+        soNo: true,
+        status: true,
+        source: true,
+        sourceConnector: true,
+        sourceCancelledAt: true,
+      },
+    });
+    const out = (outcome: 'cancelled' | 'cancel_alert' | 'unchanged' | 'conflict', status: string) => ({
+      outcome,
+      orderId: so.id,
+      soNo: so.soNo,
+      status,
+    });
+    if (so.source !== 'CONNECTOR' || so.sourceConnector !== input.connector)
+      return out('conflict', so.status);
+    if (so.status === 'CANCELLED') return out('unchanged', so.status);
+    // "มี DO แล้ว" = DO ที่ระบบสร้างรอจัด (DRAFT นอกเที่ยว) ไม่นับ — ใบที่เข้าเที่ยว/พ้น DRAFT แล้ว (กติกาเดียวกับ cancelForOrder)
+    const dos =
+      (await tx.deliveryOrder.count({
+        where: { salesOrderId: so.id, status: { notIn: ['DRAFT', 'CANCELLED', 'RETURNED'] } },
+      })) + ((await this.deliveryOrders.hasDoOnTrip(tx, so.id)) ? 1 : 0);
+    if (!dos && canCancelOrder(so.status as SoStatus)) {
+      await tx.salesOrder.update({
+        where: { id: so.id },
+        data: { sourceCancelledAt: new Date() },
+      });
+      await this.cancel(so.id, { reason: `ต้นทาง ${source} ยกเลิกใบสั่งนี้แล้ว — ยกเลิกอัตโนมัติ` }, tx);
+      return out('cancelled', 'CANCELLED');
+    }
+    if (so.sourceCancelledAt) return out('unchanged', so.status);
+    await tx.salesOrder.update({
+      where: { id: so.id },
+      data: { sourceCancelledAt: new Date(), version: { increment: 1 } },
+    });
+    await this.audit.record({
+      action: `${ENTITY}.source_cancel_alert`,
+      entityType: ENTITY,
+      entityId: so.id,
+      before: { status: so.status },
+      after: { status: so.status, source },
+      reason: `ต้นทาง ${source} ยกเลิกใบสั่งนี้ แต่มีใบส่งของ (DO) แล้ว — ไม่ยกเลิกอัตโนมัติ`,
+    });
+    await this.events.orderSourceCancelled(tx, {
+      tenantId: ctx.tenantId!,
+      orderId: so.id,
+      source,
+    });
+    return out('cancel_alert', so.status);
+  }
 
   /**
    * ยกเลิก SO (ST3-T10; docs/04 C "ยกเลิก / คืนสถานะ พร้อม reason; order ที่มี trip แล้วต้องถอดจาก trip ก่อน",

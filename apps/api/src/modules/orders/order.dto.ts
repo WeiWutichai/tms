@@ -661,6 +661,15 @@ export class OrderDto {
   sourceChangedAfterPlan!: boolean;
   @ApiProperty({
     nullable: true,
+    type: String,
+    format: 'date-time',
+    description:
+      'ST8-T05 ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · ' +
+      'มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก',
+  })
+  sourceCancelledAt!: string | null;
+  @ApiProperty({
+    nullable: true,
     type: OrderSourceChangeDto,
     description:
       'ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject)',

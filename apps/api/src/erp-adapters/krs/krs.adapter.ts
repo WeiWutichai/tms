@@ -99,6 +99,15 @@ export class KrsAdapter implements ErpAdapter {
     return krsPushReadiness(ctx);
   }
 
+  /**
+   * ST8-T05 รหัสลูกค้า NSF (ใน SO) ↔ PP (`custOrSuppCode` ของ Invoice) — docs/01 A.4 ให้ map ครั้งเดียวได้ทั้งสองรหัส
+   * **[OPEN — KRS] (docs/01 A.6 "รหัสลูกค้า NSF ↔ PP")** ยังไม่รู้ว่าเป็นรหัสเดียวกันไหม → สมมติว่าเท่ากัน (ย้อนได้ — แก้รายลูกค้าได้ที่
+   * แท็บ "รหัสระบบบัญชี" · KRS ตอบ 400 ถ้ารหัส PP ไม่มีจริง) · KRS ตอบว่าต่างกัน = คืน null (คนกรอกเอง) หรืออ่านตาราง mapping ของ KRS
+   */
+  deriveCustomerCode(_ctx: ErpContext, _target: 'erp' | 'source', code: string): string | null {
+    return code.trim() || null;
+  }
+
   async healthCheck(ctx: ErpContext): Promise<HealthResult> {
     const base = (ctx.config.baseUrl ?? '').trim().replace(/\/+$/, '');
     const key = ctx.config.apiKey ?? '';
