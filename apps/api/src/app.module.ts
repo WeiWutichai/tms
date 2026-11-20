@@ -105,6 +105,7 @@ import { ErpMasterCodesService } from './modules/erp/erp-master-codes.service';
 import { InboundWebhookController } from './modules/erp/inbound-webhook.controller';
 import { InboundWebhookService } from './modules/erp/inbound-webhook.service';
 import { ConnectorResolver } from './modules/erp/connector-resolver';
+import { SystemOfRecordPolicy } from './modules/erp/system-of-record.policy';
 import { ErpAdapterRegistry } from './modules/erp/erp-adapter.registry';
 import { ErpAdapterSink } from './modules/erp/erp-adapter.sink';
 import { ErpAdaptersBootstrap } from './erp-adapters';
@@ -434,6 +435,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     WebhookSink,
     ErpAdapterRegistry,
     ConnectorResolver,
+    SystemOfRecordPolicy,
     ConnectorsService,
     ErpMasterCodesService,
     InboundWebhookService,

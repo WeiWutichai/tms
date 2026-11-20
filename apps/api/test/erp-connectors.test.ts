@@ -61,7 +61,7 @@ describe('connectors (ST7-T13)', () => {
   async function create(body: Record<string, unknown>, tok = token) {
     return api(app, tok)
       .post('/v1/connectors')
-      .send({ settings, credentials: goodCreds, ...body });
+      .send({ taxDocumentOwner: 'TMS', settings, credentials: goodCreds, ...body });
   }
 
   const uuid = (id: string) => tryDecodeId('connector', id)!;

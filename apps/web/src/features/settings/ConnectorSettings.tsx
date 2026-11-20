@@ -10,6 +10,7 @@ import { SecretDialog } from '../api-keys/SecretDialog';
 import { HistoryTab } from '../master/HistoryTab';
 import { problemText } from '../master/problems';
 import { MappingTable } from './Connectors';
+import { Radio } from './OrgSections';
 import { Toggle } from './Settings';
 
 type Connector = Schemas['ConnectorDto'];
@@ -64,7 +65,8 @@ export const MASK = '••••••••';
  * - การ์ด "ไม่เชื่อม" + การ์ดระบบจาก catalog (`GET /connectors/adapters` ไม่ hard-code — INT-010) + "API ทั่วไป" (ไปหน้า Open API)
  * - การ์ด: เชื่อมต่อ (ยังไม่มี = กรอก credential แล้วทดสอบ+เปิดใช้ · มีแล้ว PAUSED/ERROR = เปิดใช้หลังทดสอบผ่าน) / ตัดการเชื่อมต่อ (เหตุผล ≥ 10) · ทดสอบ · ดู log
  * - กล่อง "ตั้งค่า {ระบบ}": วันที่เริ่มซิงก์ + ส่วนที่ต้นแบบไม่มี (credential แบบปิดค่า + เปลี่ยน key, ฟีเจอร์ที่เปิด, URL รับ webhook ขาเข้า) [DECISION spec/12 §3]
- *   แท็บ "บันทึกการซิงก์" = คำสั่งล่าสุดในคิว (ไม่มี payload — ST7-T19) · ใครออกเลขเอกสาร = ST7-T17 · ตาราง mapping = ST7-T18
+ *   แท็บ "บันทึกการซิงก์" = คำสั่งล่าสุดในคิว (ไม่มี payload — ST7-T19) · ตาราง mapping = ST7-T18
+ *   "ใครออกเลขเอกสาร" = `taxDocumentOwner` ของ system-of-record (ST7-T17; D-27 TMS ออกเลขของตัวเองเสมอ) — เปลี่ยนต้องมีเหตุผล
  * - แพ็กเกจไม่มีการเชื่อมต่อ (403) = การ์ด "ไม่เชื่อม" อย่างเดียว + ข้อความแพ็กเกจ
  */
 export function ConnectorSettingsSection({ canWrite }: { canWrite: boolean }) {
@@ -696,6 +698,7 @@ function MapTab({
   const [rotOpen, setRotOpen] = useState(false);
   const [inb, setInb] = useState<'rotate' | 'revoke' | null>(null);
   const [secret, setSecret] = useState<{ url: string; copied: boolean } | null>(null);
+  const [numTo, setNumTo] = useState<'TMS' | 'ERP' | null>(null);
   useEffect(() => setFrom(c.syncFromDate ?? ''), [c.syncFromDate]);
   const ifMatch = { 'If-Match': `"${c.version}"` } as never;
   const done = () => void qc.invalidateQueries({ queryKey: ['connectors'] });
@@ -716,6 +719,23 @@ function MapTab({
       onToast(problemText(e, t) ?? '', true);
     },
   });
+  // ST7-T17 ผู้ออกเลขเอกสาร = เจ้าของเอกสารภาษี (PUT system-of-record — เหตุผลบังคับ)
+  const sor = useMutation({
+    mutationFn: (body: Schemas['UpdateSystemOfRecordDto']) =>
+      unwrap(
+        api.PUT('/v1/connectors/{id}/system-of-record', {
+          params: { path: { id: c.id }, header: ifMatch },
+          body,
+        }),
+      ),
+    onSuccess: () => {
+      setNumTo(null);
+      done();
+      onToast(t('cnx.toast.saved'));
+    },
+    onError: () => done(),
+  });
+  const owner = c.systemOfRecord.taxDocumentOwner;
   const inbound = useMutation({
     mutationFn: async ({ kind, reason }: { kind: 'rotate' | 'revoke'; reason: string }) => {
       if (kind === 'rotate') {
@@ -772,6 +792,29 @@ function MapTab({
               : t('cnx.f.syncFromHint')}
         </span>
       </label>
+
+      <div className="cnx-f" data-testid="numbering-owner">
+        <Radio
+          label={t('cnx.f.numOwner')}
+          options={[
+            { v: 'TMS', l: t('cnx.num.tms', { n }) },
+            { v: 'ERP', l: t('cnx.num.erp', { n }) },
+          ]}
+          value={owner}
+          disabled={!canWrite || sor.isPending}
+          onChange={(v) => v !== owner && setNumTo(v as 'TMS' | 'ERP')}
+        />
+        <span className="cnx-f__h">
+          {t(
+            owner === 'ERP'
+              ? 'cnx.num.erpHint'
+              : owner === 'TMS'
+                ? 'cnx.num.tmsHint'
+                : 'cnx.num.noneHint',
+            { n },
+          )}
+        </span>
+      </div>
 
       <MappingTable c={c} name={n} canWrite={canWrite} />
 
@@ -886,6 +929,23 @@ function MapTab({
           }}
         />
       )}
+      <ReasonDialog
+        open={!!numTo}
+        title={t('cnx.dlg.numT')}
+        description={`${numTo ? t(numTo === 'ERP' ? 'cnx.num.erp' : 'cnx.num.tms', { n }) : ''} · ${t('cnx.dlg.numD', { n })}`}
+        label={t('cnx.reason')}
+        placeholder={t('cnx.reasonPh')}
+        okLabel={t('common.save')}
+        cancelLabel={t('common.cancel')}
+        closeLabel={t('drawer.close')}
+        busy={sor.isPending}
+        error={problemText(sor.error, t)}
+        onClose={() => {
+          setNumTo(null);
+          sor.reset();
+        }}
+        onOk={(reason) => numTo && sor.mutate({ taxDocumentOwner: numTo, reason })}
+      />
       <ReasonDialog
         open={!!inb}
         title={t(inb === 'revoke' ? 'cnx.dlg.inRevokeT' : 'cnx.dlg.inRotateT')}

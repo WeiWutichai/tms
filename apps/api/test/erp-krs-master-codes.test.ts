@@ -170,6 +170,7 @@ describe('ผังรหัส KRS + ประตูก่อนส่ง (ST8-
     const r = await api(app, token)
       .post('/v1/connectors')
       .send({
+        taxDocumentOwner: 'TMS',
         adapterKey: 'krs',
         settings: { baseUrl: 'https://krs.example.com/api', ...settings },
         credentials: { apiKey: 'krs-key-0123456789' },
@@ -541,6 +542,7 @@ describe('ผังรหัส KRS + ประตูก่อนส่ง (ST8-
     const r = await api(app, token)
       .post('/v1/connectors')
       .send({
+        taxDocumentOwner: 'TMS',
         adapterKey: 'krs',
         settings: { baseUrl: 'https://krs.example.com/api', salePerson: 'S01' },
         credentials: { apiKey: 'krs-key-0123456789' },
@@ -561,6 +563,7 @@ describe('ผังรหัส KRS + ประตูก่อนส่ง (ST8-
     const r = await api(app, token)
       .post('/v1/connectors')
       .send({
+        taxDocumentOwner: 'TMS',
         adapterKey: 'krs',
         settings: { baseUrl: 'https://krs.example.com/api', salePerson: 'S01' },
         credentials: { apiKey: 'krs-key-0123456789' },

@@ -162,6 +162,27 @@ export const PROBLEMS = {
     en: 'This legal entity already has a connector — disconnect it first',
   },
   /** ST7-T13 เปิดใช้ไม่ได้เพราะทดสอบการเชื่อมต่อไม่ผ่าน (spec/07 INT-015) — มี `errorClass`, `code` */
+  /**
+   * ST7-T17 นิติบุคคลนี้ให้ระบบบัญชี (ERP) เป็นเจ้าของเอกสารภาษี — TMS ออกเลขใบกำกับภาษีไม่ได้ (docs/01 §8.1)
+   * มี `connectorId` — ออกได้เฉพาะใบแจ้งหนี้/ใบวางบิล
+   */
+  tax_document_owned_by_erp: {
+    status: 409,
+    th: 'นิติบุคคลนี้ให้ระบบบัญชีเป็นผู้ออกใบกำกับภาษี — TMS ออกได้เฉพาะใบแจ้งหนี้/ใบวางบิล',
+    en: 'Tax documents for this legal entity are issued by the ERP — TMS issues invoices/billing notes only',
+  },
+  /** ST7-T17 ยังไม่ได้เลือกเจ้าของเอกสารภาษี — เปิดการส่งเอกสารภาษีไประบบบัญชีไม่ได้ (docs/01 §8.1 "ต้องเลือก") */
+  sor_not_chosen: {
+    status: 422,
+    th: 'เลือก "ใครออกเลขเอกสาร" ก่อนเปิดการส่งเอกสารเข้าระบบบัญชี',
+    en: 'Choose the tax document owner before enabling document push',
+  },
+  /** ST7-T17 เปลี่ยนเจ้าของข้อมูล/เอกสารภาษีไม่ได้หลังส่งเอกสารเข้าระบบบัญชีสำเร็จแล้ว (แบบ spec/07 INT-014) */
+  sor_locked: {
+    status: 409,
+    th: 'เปลี่ยนเจ้าของเอกสารไม่ได้ เพราะมีเอกสารส่งหรือรอส่งเข้าระบบบัญชีแล้ว — ยกเลิกการเชื่อมแล้วตั้งใหม่',
+    en: 'Ownership cannot change after documents were synced — disconnect and set up again',
+  },
   /** ST7-T22 adapter ของ connector นี้ไม่รับ webhook ขาเข้า */
   inbound_not_supported: {
     status: 409,

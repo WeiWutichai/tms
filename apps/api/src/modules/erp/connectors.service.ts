@@ -7,6 +7,11 @@ import {
   documentSyncModes,
   ERP_CAPABILITIES,
   ERP_MASTER_CODE_KINDS,
+  fieldSyncErrors,
+  normalizeFieldSync,
+  type SorOwner,
+  SOR_TAX_PUSH_CAPABILITIES,
+  type SystemOfRecord,
   unsupportedCapabilities,
 } from '@tms/domain';
 import { randomUUID } from 'node:crypto';
@@ -34,7 +39,9 @@ import type {
   EffectiveConnectorQuery,
   ErpAdapterDto,
   UpdateConnectorDto,
+  UpdateSystemOfRecordDto,
 } from './connector.dto';
+import { sorOf, SystemOfRecordPolicy } from './system-of-record.policy';
 import { ConnectorResolver } from './connector-resolver';
 import {
   type ErpAdapter,
@@ -186,6 +193,24 @@ function auditView(c: Connector) {
     credentialKeys: c.credentialKeys,
     syncFromDate: c.syncFromDate?.toISOString().slice(0, 10) ?? null,
     status: c.status,
+    customerOwner: c.customerOwner,
+    taxDocumentOwner: c.taxDocumentOwner,
+    fieldSync: normalizeFieldSync(c.fieldSync),
+  };
+}
+
+/** data.object ของ webhook `connector.health_changed` = ConnectorDto ไม่รวม `systemOfRecord` (ST7-T17) */
+function healthSnapshot(d: ConnectorDto): Omit<ConnectorDto, 'systemOfRecord'> {
+  const { systemOfRecord: _sor, ...rest } = d;
+  return rest;
+}
+
+/** system-of-record แบบ DTO (+ ธงออกเลขใบกำกับภาษี) */
+function sorDto(s: SystemOfRecord) {
+  return {
+    customerOwner: s.customerOwner,
+    taxDocumentOwner: s.taxDocumentOwner,
+    fieldSync: { ...s.fieldSync },
   };
 }
 
@@ -218,6 +243,7 @@ export class ConnectorsService {
     private readonly prisma: PrismaService,
     private readonly events: NotificationEvents,
     private readonly clock: Clock,
+    private readonly sor: SystemOfRecordPolicy,
   ) {}
 
   get cipher(): FieldCipher {
@@ -295,6 +321,7 @@ export class ConnectorsService {
         tokenPrefix: c.inboundTokenPrefix,
         tokenRotatedAt: iso(c.inboundTokenRotatedAt),
       },
+      systemOfRecord: sorDto(sorOf(c)),
       version: c.version,
       createdAt: c.createdAt.toISOString(),
       updatedAt: c.updatedAt.toISOString(),
@@ -371,7 +398,9 @@ export class ConnectorsService {
     let companyId = decode('company', 'companyId', q.companyId);
     const branchId = decode('branch', 'branchId', q.branchId);
     // แพ็กเกจไม่มี connector → Standalone เสมอ (ไม่ 403 — หน้าจอทุกแพ็กเกจถามได้)
-    if (!(await this.entitlements.enabled(tenantId, 'conn')))
+    // system-of-record (ST7-T17) = แบบ Standalone (TMS/TMS) — ใบแจ้งหนี้ไม่ไป ERP จึงไม่มีเหตุให้ TMS หยุดออกเลขใบกำกับภาษี
+    //   (ค่าที่เก็บในแถว connector ไม่เปลี่ยน — กลับมาใช้เมื่อแพ็กเกจมี `conn` อีกครั้ง)
+    if (!(await this.entitlements.enabled(tenantId, 'conn'))) {
       return {
         standalone: true,
         connectorId: null,
@@ -386,7 +415,9 @@ export class ConnectorsService {
         erpCompanyCode: null,
         companyId: q.companyId ?? null,
         branchId: q.branchId ?? null,
+        systemOfRecord: { ...sorDto(sorOf(null)), canIssueTaxDocumentNumber: true },
       };
+    }
     // ระบุแค่สาขา → นิติบุคคลของสาขานั้น
     if (branchId && !companyId) {
       const b = await tx.branch.findUnique({
@@ -405,6 +436,7 @@ export class ConnectorsService {
             companyId,
             branchId,
           });
+    const sor = await this.sor.describe(r);
     return {
       standalone: r.standalone,
       connectorId: r.connector ? encodeId('connector', r.connector.id) : null,
@@ -419,6 +451,7 @@ export class ConnectorsService {
       erpCompanyCode: r.erpCompanyCode,
       companyId: r.routing ? encodeId('company', r.routing.company.id) : null,
       branchId: r.routing ? encodeId('branch', r.routing.branch.id) : null,
+      systemOfRecord: { ...sorDto(sor), canIssueTaxDocumentNumber: sor.canIssueTaxDocumentNumber },
     };
   }
 
@@ -479,10 +512,35 @@ export class ConnectorsService {
     return out;
   }
 
-  private checkCapabilities(adapter: ErpAdapter, list: string[] | undefined): string[] {
+  /**
+   * `taxOwner` null (ยังไม่เลือกเจ้าของเอกสารภาษี — ST7-T17): ค่าเริ่มต้นไม่รวม capability ส่งเอกสารภาษี และขอเปิดใหม่ = 422 `sor_not_chosen`
+   * (`already` = ที่เปิดอยู่แล้ว — แถวเดิมก่อน ST7-T17 ไม่ถูกบังคับปิด แต่คำสั่งถูกพักที่ sink)
+   */
+  private checkCapabilities(
+    adapter: ErpAdapter,
+    list: string[] | undefined,
+    taxOwner: string | null = 'TMS',
+    already: readonly string[] = [],
+  ): string[] {
     // ST8-T03 ที่ยังไม่ได้ทำ (`pendingCapabilities`) ไม่นับว่ารองรับ — ไม่เปิดเป็นค่าเริ่มต้น และขอเปิด = 422
     const caps = readyCapabilities(adapter);
-    if (list === undefined) return ERP_CAPABILITIES.filter((c) => caps.has(c));
+    const taxPush = SOR_TAX_PUSH_CAPABILITIES as readonly string[];
+    if (list === undefined)
+      return ERP_CAPABILITIES.filter((c) => caps.has(c) && (taxOwner || !taxPush.includes(c)));
+    const blocked = taxOwner
+      ? []
+      : list.filter(
+          (c) =>
+            taxPush.includes(c) && (caps as ReadonlySet<string>).has(c) && !already.includes(c),
+        );
+    if (blocked.length)
+      throw new ProblemException('sor_not_chosen', undefined, [
+        {
+          field: 'capabilitiesEnabled',
+          code: 'sor_not_chosen',
+          message: `choose taxDocumentOwner before enabling: ${[...new Set(blocked)].join(', ')}`,
+        },
+      ]);
     const bad = unsupportedCapabilities(caps, list);
     if (bad.length)
       throw field422(
@@ -598,7 +656,10 @@ export class ConnectorsService {
     const companyId = await this.checkCompany(tx, body.companyId);
     const settings = this.checkGroup(adapter, 'settings', body.settings);
     const credentials = this.checkGroup(adapter, 'credentials', body.credentials);
-    let caps = this.checkCapabilities(adapter, body.capabilitiesEnabled);
+    const taxDocumentOwner = (body.taxDocumentOwner ?? null) as SorOwner | null;
+    const customerOwner = (body.customerOwner ?? null) as SorOwner | null;
+    // ST7-T17 ตรวจ sor_not_chosen ก่อน — ประตูผังรหัส (ST8-T06) ตามมาด้านล่าง
+    let caps = this.checkCapabilities(adapter, body.capabilitiesEnabled, taxDocumentOwner);
     const syncFromDate = this.checkSyncFromDate(body.syncFromDate);
     const branchMap = (await this.checkBranchMap(tx, companyId, body.branchMap)) ?? {};
     // จำนวน/ขอบเขตต่อ tenant — serialize การสร้างพร้อมกัน (partial unique index กันซ้ำอีกชั้น)
@@ -640,6 +701,8 @@ export class ConnectorsService {
           credentialKeys: credKeys,
           credentialsUpdatedAt: credKeys.length ? new Date() : null,
           syncFromDate: syncFromDate ?? null,
+          taxDocumentOwner,
+          customerOwner,
           status: 'PAUSED',
           statusChangedAt: new Date(),
           createdBy: ctx.actorId ?? null,
@@ -690,7 +753,13 @@ export class ConnectorsService {
     if (body.settings !== undefined)
       data.settings = this.checkGroup(adapter, 'settings', body.settings);
     if (body.capabilitiesEnabled !== undefined) {
-      const caps = this.checkCapabilities(adapter, body.capabilitiesEnabled);
+      // ST7-T17 sor_not_chosen ก่อน แล้วจึงตรวจผังรหัส (ST8-T06)
+      const caps = this.checkCapabilities(
+        adapter,
+        body.capabilitiesEnabled,
+        cur.taxDocumentOwner,
+        cur.capabilitiesEnabled,
+      );
       data.capabilitiesEnabled = caps;
       // ST8-T06 เปิดส่งเอกสาร "เพิ่ม" ต้องพร้อมผังรหัสก่อน (บันทึกค่าตั้งอื่น/ปิด capability ได้เสมอ)
       if (caps.some((c) => PUSH_CAPABILITIES.has(c) && !cur.capabilitiesEnabled.includes(c))) {
@@ -736,6 +805,90 @@ export class ConnectorsService {
       }
     if (!Object.keys(a).length && !reason) return;
     await this.audit(tx, { action, entityId: id, before: b, after: a, reason });
+  }
+
+  /**
+   * ST7-T17 เปลี่ยน system-of-record ของ connector (docs/04 G3) — เหตุผลบังคับ + audit `connector.sor_changed`
+   * เจ้าของลูกค้า/เอกสารภาษีเปลี่ยนไม่ได้เมื่อมีคำสั่งส่งเอกสาร (PUSH_* / REPLACE_DOCUMENT) ที่ไม่ใช่ FAILED_FINAL/SKIPPED
+   * (รวมที่รอส่ง/กำลังส่ง — แบบ spec/07 INT-014) → 409 `sor_locked` · ล็อกแถว connector (FOR UPDATE) กันแข่งกัน
+   * เลือกเจ้าของเอกสารภาษีครั้งแรก → ปลุกคำสั่งที่พักไว้ (`sor_not_chosen`) หลัง commit
+   */
+  async setSystemOfRecord(
+    id: string,
+    body: UpdateSystemOfRecordDto,
+    expected?: number,
+  ): Promise<Connector> {
+    this.assertHuman();
+    const tenantId = requestContext.require().tenantId!;
+    const { before, after } = await this.db.withTenant(tenantId, (tx) =>
+      this.setSystemOfRecordIn(tx, id, body, expected),
+    );
+    if (!before.taxDocumentOwner && after.taxDocumentOwner) await this.wakeParked(tenantId, id);
+    return after;
+  }
+
+  private async setSystemOfRecordIn(
+    tx: Tx,
+    id: string,
+    body: UpdateSystemOfRecordDto,
+    expected?: number,
+  ): Promise<{ before: Connector; after: Connector }> {
+    await tx.$queryRaw`SELECT id FROM connector WHERE id = ${id}::uuid FOR UPDATE`;
+    const cur = await this.get(id, tx);
+    this.version(cur, expected);
+    if (cur.status === 'DISCONNECTED') throw new ProblemException('invalid_state_transition');
+    const data: Prisma.ConnectorUpdateManyMutationInput = {};
+    if (body.fieldSync !== undefined) {
+      const errs = fieldSyncErrors(body.fieldSync);
+      if (errs.length) throw new ProblemException('validation_failed', undefined, errs);
+      data.fieldSync = normalizeFieldSync({
+        ...normalizeFieldSync(cur.fieldSync),
+        ...body.fieldSync,
+      });
+    }
+    const owners: Array<['customerOwner' | 'taxDocumentOwner', string | undefined]> = [
+      ['customerOwner', body.customerOwner],
+      ['taxDocumentOwner', body.taxDocumentOwner],
+    ];
+    const ownerChanged = owners.filter(([k, v]) => v !== undefined && v !== cur[k]);
+    if (ownerChanged.length) {
+      // เลือกครั้งแรก (จาก null) ไม่ล็อก — ยังไม่มีเอกสารภาษีถูกส่ง (คำสั่งถูกพักไว้)
+      const changing = ownerChanged.filter(([k]) => cur[k] !== null);
+      const inUse = changing.length
+        ? await tx.integrationOutbox.findFirst({
+            where: {
+              sink: 'erp',
+              targetId: cur.id,
+              status: { notIn: ['FAILED_FINAL', 'SKIPPED'] },
+              OR: [{ operation: { startsWith: 'PUSH_' } }, { operation: 'REPLACE_DOCUMENT' }],
+            },
+            select: { id: true },
+          })
+        : null;
+      if (inUse)
+        throw new ProblemException('sor_locked', undefined, undefined, {
+          fields: changing.map(([k]) => k),
+        });
+      for (const [k, v] of ownerChanged) data[k] = v as SorOwner;
+    }
+    const merged = { ...cur, ...data } as Connector;
+    if (JSON.stringify(sorOf(merged)) === JSON.stringify(sorOf(cur)))
+      return { before: cur, after: cur };
+    const n = await tx.connector.updateMany({
+      where: { id, version: cur.version },
+      data: { ...data, version: { increment: 1 } },
+    });
+    if (n.count !== 1) throw new ProblemException('precondition_failed');
+    const after = await this.get(id, tx);
+    await this.auditChanged(
+      tx,
+      'connector.sor_changed',
+      id,
+      auditView(cur),
+      auditView(after),
+      body.reason,
+    );
+    return { before: cur, after };
   }
 
   /**
@@ -915,7 +1068,10 @@ export class ConnectorsService {
         entityType: 'connector',
         localId: c.id,
         // ST7-T06 (QA): data.object = ConnectorDto เดียวกับ `GET /v1/connectors/{id}` (credential แสดงแค่ชื่อช่อง)
-        snapshot: JSON.parse(JSON.stringify(this.toDto(c))) as Prisma.InputJsonValue,
+        // ST7-T17 (QA): ไม่ใส่ `systemOfRecord` — event นี้เป็นเรื่องสุขภาพ ไม่ใช่ค่าตั้ง SoR (event contract สาธารณะเดิม)
+        snapshot: JSON.parse(
+          JSON.stringify(healthSnapshot(this.toDto(c))),
+        ) as Prisma.InputJsonValue,
         previousAttributes: { status: from },
         requestId,
         actorId,
