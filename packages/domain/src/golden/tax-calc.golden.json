@@ -1,0 +1,1336 @@
+{
+  "status": "DRAFT_UNREVIEWED",
+  "label": "ร่าง — ยังไม่ผ่านนักบัญชี",
+  "decision": "D-54 (PO 20 พ.ย. 2569): ยอดแสดง/ประมาณการ — ยอดภาษีจริง AccountSystem เป็นผู้คำนวณ",
+  "rounding": "half-up 2 ตำแหน่ง · VAT ครั้งเดียวต่อใบจากฐาน 7% รวม · WHT ครั้งเดียวต่อกลุ่มอัตรา จากฐานก่อน VAT · ค่ารายบรรทัด = ปัดรายบรรทัด เศษไปบรรทัดสุดท้ายของกลุ่ม (ตาม AccountSystem packages/ledger/src/sales.ts docTotals + packages/tax-th whtOnPayment + apps/accounting-web purchase/_lib/wht.ts expectedWht)",
+  "defaults": {
+    "whtMinimum": "0.00"
+  },
+  "defaultsNote": "ค่าเริ่มขั้นต่ำ 0 = หักทุกยอด (ตรง AccountSystem) — เคสที่ทดสอบขั้นต่ำ 1,000 ส่ง options.whtMinimum ชัด ๆ (ฐานนับขั้นต่ำรอนักบัญชี docs/01 §8.2 ข้อ 7)",
+  "units": "amount = บาท 2 ตำแหน่ง ก่อน VAT · vatType/whtRate = ค่าบรรทัดแบบ DB/API (EXEMPT_TRANSPORT/VAT_7/ZERO_RATED, เปอร์เซ็นต์ \"1.00\")",
+  "accountSystemLegend": {
+    "MATCH": "ตรงกับวิธีของ AccountSystem ทุกยอด",
+    "DIFF_MINIMUM": "เคสที่ตั้งขั้นต่ำ 1,000 ชัด ๆ: VAT/ยอดรวมตรง แต่ WHT ต่าง เพราะ AccountSystem ไม่มีกฎขั้นต่ำ (ค่าของ AccountSystem อยู่ที่ expected.accountSystemWht)",
+    "N/A": "AccountSystem ไม่รับข้อมูลรูปนี้"
+  },
+  "cases": [
+    {
+      "id": "G01",
+      "title": "ค่าขนส่งล้วน ยกเว้น VAT หัก 1%",
+      "lines": [
+        {
+          "amount": "10000.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "expected": {
+        "exemptBase": "10000.00",
+        "vatableBase": "0.00",
+        "zeroRatedBase": "0.00",
+        "vat": "0.00",
+        "grandTotal": "10000.00",
+        "wht": "100.00",
+        "deductions": "0.00",
+        "netPayable": "9900.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "10000.00",
+            "wht": "100.00"
+          }
+        ],
+        "lineVat": ["0.00"],
+        "lineWht": ["100.00"]
+      }
+    },
+    {
+      "id": "G02",
+      "title": "ค่าขนส่งล้วน ไม่หัก ณ ที่จ่าย (ผู้จ่ายไม่ใช่นิติบุคคล)",
+      "lines": [
+        {
+          "amount": "5000.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "0.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "expected": {
+        "exemptBase": "5000.00",
+        "vatableBase": "0.00",
+        "zeroRatedBase": "0.00",
+        "vat": "0.00",
+        "grandTotal": "5000.00",
+        "wht": "0.00",
+        "deductions": "0.00",
+        "netPayable": "5000.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [],
+        "lineVat": ["0.00"],
+        "lineWht": ["0.00"]
+      }
+    },
+    {
+      "id": "G03",
+      "title": "ค่าบริการ VAT 7% ล้วน หัก 3%",
+      "lines": [
+        {
+          "amount": "1500.00",
+          "vatType": "VAT_7",
+          "whtRate": "3.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "pending": ["ACC-3"],
+      "expected": {
+        "exemptBase": "0.00",
+        "vatableBase": "1500.00",
+        "zeroRatedBase": "0.00",
+        "vat": "105.00",
+        "grandTotal": "1605.00",
+        "wht": "45.00",
+        "deductions": "0.00",
+        "netPayable": "1560.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "3.00",
+            "base": "1500.00",
+            "wht": "45.00"
+          }
+        ],
+        "lineVat": ["105.00"],
+        "lineWht": ["45.00"]
+      }
+    },
+    {
+      "id": "G04",
+      "title": "ปน: ค่าขนส่งยกเว้น 1% + ค่ายกขน 7% 3% (ใบเดียวแยกบรรทัด)",
+      "lines": [
+        {
+          "amount": "10000.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        },
+        {
+          "amount": "1500.00",
+          "vatType": "VAT_7",
+          "whtRate": "3.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "pending": ["D-33"],
+      "expected": {
+        "exemptBase": "10000.00",
+        "vatableBase": "1500.00",
+        "zeroRatedBase": "0.00",
+        "vat": "105.00",
+        "grandTotal": "11605.00",
+        "wht": "145.00",
+        "deductions": "0.00",
+        "netPayable": "11460.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "10000.00",
+            "wht": "100.00"
+          },
+          {
+            "ratePercent": "3.00",
+            "base": "1500.00",
+            "wht": "45.00"
+          }
+        ],
+        "lineVat": ["0.00", "105.00"],
+        "lineWht": ["100.00", "45.00"]
+      }
+    },
+    {
+      "id": "G05",
+      "title": "ปน 3 บรรทัด: ขนส่ง 2 บรรทัด 1% + ค่ารอ 7% 3%",
+      "lines": [
+        {
+          "amount": "8000.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        },
+        {
+          "amount": "2000.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        },
+        {
+          "amount": "750.00",
+          "vatType": "VAT_7",
+          "whtRate": "3.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "pending": ["ACC-3"],
+      "expected": {
+        "exemptBase": "10000.00",
+        "vatableBase": "750.00",
+        "zeroRatedBase": "0.00",
+        "vat": "52.50",
+        "grandTotal": "10802.50",
+        "wht": "122.50",
+        "deductions": "0.00",
+        "netPayable": "10680.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "10000.00",
+            "wht": "100.00"
+          },
+          {
+            "ratePercent": "3.00",
+            "base": "750.00",
+            "wht": "22.50"
+          }
+        ],
+        "lineVat": ["0.00", "0.00", "52.50"],
+        "lineWht": ["80.00", "20.00", "22.50"]
+      }
+    },
+    {
+      "id": "G06",
+      "title": "อัตราศูนย์ (ZERO_RATED) ไม่หัก",
+      "lines": [
+        {
+          "amount": "20000.00",
+          "vatType": "ZERO_RATED",
+          "whtRate": "0.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "expected": {
+        "exemptBase": "0.00",
+        "vatableBase": "0.00",
+        "zeroRatedBase": "20000.00",
+        "vat": "0.00",
+        "grandTotal": "20000.00",
+        "wht": "0.00",
+        "deductions": "0.00",
+        "netPayable": "20000.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [],
+        "lineVat": ["0.00"],
+        "lineWht": ["0.00"]
+      }
+    },
+    {
+      "id": "G07",
+      "title": "tenant ตั้งขั้นต่ำ 1,000: ขนส่ง 800 → ไม่หัก",
+      "lines": [
+        {
+          "amount": "800.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        }
+      ],
+      "options": {
+        "whtMinimum": "1000.00"
+      },
+      "accountSystem": "DIFF_MINIMUM",
+      "pending": ["01§8.2 ข้อ 7"],
+      "expected": {
+        "exemptBase": "800.00",
+        "vatableBase": "0.00",
+        "zeroRatedBase": "0.00",
+        "vat": "0.00",
+        "grandTotal": "800.00",
+        "wht": "0.00",
+        "deductions": "0.00",
+        "netPayable": "800.00",
+        "whtBelowMinimum": true,
+        "whtMinimumTested": "800.00",
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "800.00",
+            "wht": "0.00"
+          }
+        ],
+        "lineVat": ["0.00"],
+        "lineWht": ["0.00"],
+        "accountSystemWht": "8.00"
+      }
+    },
+    {
+      "id": "G08",
+      "title": "เท่าขั้นต่ำพอดี 1,000.00 → หัก (ตั้งแต่หนึ่งพันบาทขึ้นไป)",
+      "lines": [
+        {
+          "amount": "1000.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        }
+      ],
+      "options": {
+        "whtMinimum": "1000.00"
+      },
+      "accountSystem": "MATCH",
+      "pending": ["01§8.2 ข้อ 7"],
+      "expected": {
+        "exemptBase": "1000.00",
+        "vatableBase": "0.00",
+        "zeroRatedBase": "0.00",
+        "vat": "0.00",
+        "grandTotal": "1000.00",
+        "wht": "10.00",
+        "deductions": "0.00",
+        "netPayable": "990.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": "1000.00",
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "1000.00",
+            "wht": "10.00"
+          }
+        ],
+        "lineVat": ["0.00"],
+        "lineWht": ["10.00"]
+      }
+    },
+    {
+      "id": "G09",
+      "title": "ต่ำกว่าขั้นต่ำ 1 สตางค์ 999.99 → ไม่หัก",
+      "lines": [
+        {
+          "amount": "999.99",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        }
+      ],
+      "options": {
+        "whtMinimum": "1000.00"
+      },
+      "accountSystem": "DIFF_MINIMUM",
+      "pending": ["01§8.2 ข้อ 7"],
+      "expected": {
+        "exemptBase": "999.99",
+        "vatableBase": "0.00",
+        "zeroRatedBase": "0.00",
+        "vat": "0.00",
+        "grandTotal": "999.99",
+        "wht": "0.00",
+        "deductions": "0.00",
+        "netPayable": "999.99",
+        "whtBelowMinimum": true,
+        "whtMinimumTested": "999.99",
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "999.99",
+            "wht": "0.00"
+          }
+        ],
+        "lineVat": ["0.00"],
+        "lineWht": ["0.00"],
+        "accountSystemWht": "10.00"
+      }
+    },
+    {
+      "id": "G10",
+      "title": "ขั้นต่ำ 1,000 รวมฐานข้ามอัตรา: แต่ละอัตราต่ำกว่า 1,000 แต่รวมทั้งใบถึง → หักทุกอัตรา [OPEN — นักบัญชี]",
+      "lines": [
+        {
+          "amount": "600.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        },
+        {
+          "amount": "500.00",
+          "vatType": "VAT_7",
+          "whtRate": "3.00"
+        }
+      ],
+      "options": {
+        "whtMinimum": "1000.00"
+      },
+      "accountSystem": "MATCH",
+      "pending": ["01§8.2 ข้อ 7", "รวมฐานข้ามอัตรา"],
+      "expected": {
+        "exemptBase": "600.00",
+        "vatableBase": "500.00",
+        "zeroRatedBase": "0.00",
+        "vat": "35.00",
+        "grandTotal": "1135.00",
+        "wht": "21.00",
+        "deductions": "0.00",
+        "netPayable": "1114.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": "1100.00",
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "600.00",
+            "wht": "6.00"
+          },
+          {
+            "ratePercent": "3.00",
+            "base": "500.00",
+            "wht": "15.00"
+          }
+        ],
+        "lineVat": ["0.00", "35.00"],
+        "lineWht": ["6.00", "15.00"]
+      }
+    },
+    {
+      "id": "G11",
+      "title": "ขั้นต่ำเทียบฐานก่อน VAT: บริการ 950 (+VAT = 1,016.50) → ต่ำกว่า 1,000 → ไม่หัก",
+      "lines": [
+        {
+          "amount": "950.00",
+          "vatType": "VAT_7",
+          "whtRate": "3.00"
+        }
+      ],
+      "options": {
+        "whtMinimum": "1000.00"
+      },
+      "accountSystem": "DIFF_MINIMUM",
+      "pending": ["01§8.2 ข้อ 7"],
+      "expected": {
+        "exemptBase": "0.00",
+        "vatableBase": "950.00",
+        "zeroRatedBase": "0.00",
+        "vat": "66.50",
+        "grandTotal": "1016.50",
+        "wht": "0.00",
+        "deductions": "0.00",
+        "netPayable": "1016.50",
+        "whtBelowMinimum": true,
+        "whtMinimumTested": "950.00",
+        "whtByRate": [
+          {
+            "ratePercent": "3.00",
+            "base": "950.00",
+            "wht": "0.00"
+          }
+        ],
+        "lineVat": ["66.50"],
+        "lineWht": ["0.00"],
+        "accountSystemWht": "28.50"
+      }
+    },
+    {
+      "id": "G12",
+      "title": "ยอดตามสัญญา (รายปี) 12,000 ส่งมา: ใบ 500 ก็หัก (ข้อ 12/5 แบ่งจ่ายงวด < 1,000 ยังต้องหัก)",
+      "lines": [
+        {
+          "amount": "500.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        }
+      ],
+      "options": {
+        "whtMinimum": "1000.00",
+        "whtContractAmount": "12000.00"
+      },
+      "accountSystem": "MATCH",
+      "pending": ["01§8.2 ข้อ 7"],
+      "expected": {
+        "exemptBase": "500.00",
+        "vatableBase": "0.00",
+        "zeroRatedBase": "0.00",
+        "vat": "0.00",
+        "grandTotal": "500.00",
+        "wht": "5.00",
+        "deductions": "0.00",
+        "netPayable": "495.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": "12000.00",
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "500.00",
+            "wht": "5.00"
+          }
+        ],
+        "lineVat": ["0.00"],
+        "lineWht": ["5.00"]
+      }
+    },
+    {
+      "id": "G13",
+      "title": "ค่าเริ่ม (ขั้นต่ำ 0 = หักทุกยอด ตรง AccountSystem): 800 → หัก 8.00",
+      "lines": [
+        {
+          "amount": "800.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "expected": {
+        "exemptBase": "800.00",
+        "vatableBase": "0.00",
+        "zeroRatedBase": "0.00",
+        "vat": "0.00",
+        "grandTotal": "800.00",
+        "wht": "8.00",
+        "deductions": "0.00",
+        "netPayable": "792.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "800.00",
+            "wht": "8.00"
+          }
+        ],
+        "lineVat": ["0.00"],
+        "lineWht": ["8.00"]
+      }
+    },
+    {
+      "id": "G14",
+      "title": "ปัดเศษ VAT ครั้งเดียวทั้งใบ: 33.33 × 3 → 7.00 (รายบรรทัด 6.99)",
+      "lines": [
+        {
+          "amount": "33.33",
+          "vatType": "VAT_7",
+          "whtRate": "0.00"
+        },
+        {
+          "amount": "33.33",
+          "vatType": "VAT_7",
+          "whtRate": "0.00"
+        },
+        {
+          "amount": "33.33",
+          "vatType": "VAT_7",
+          "whtRate": "0.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "expected": {
+        "exemptBase": "0.00",
+        "vatableBase": "99.99",
+        "zeroRatedBase": "0.00",
+        "vat": "7.00",
+        "grandTotal": "106.99",
+        "wht": "0.00",
+        "deductions": "0.00",
+        "netPayable": "106.99",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [],
+        "lineVat": ["2.33", "2.33", "2.34"],
+        "lineWht": ["0.00", "0.00", "0.00"]
+      }
+    },
+    {
+      "id": "G15",
+      "title": "ปัดเศษ WHT ครั้งเดียวต่ออัตรา: 333.35 × 3 → 10.00 (รายบรรทัด 9.99)",
+      "lines": [
+        {
+          "amount": "333.35",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        },
+        {
+          "amount": "333.35",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        },
+        {
+          "amount": "333.35",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "expected": {
+        "exemptBase": "1000.05",
+        "vatableBase": "0.00",
+        "zeroRatedBase": "0.00",
+        "vat": "0.00",
+        "grandTotal": "1000.05",
+        "wht": "10.00",
+        "deductions": "0.00",
+        "netPayable": "990.05",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "1000.05",
+            "wht": "10.00"
+          }
+        ],
+        "lineVat": ["0.00", "0.00", "0.00"],
+        "lineWht": ["3.33", "3.33", "3.34"]
+      }
+    },
+    {
+      "id": "G16",
+      "title": "WHT ปัดครึ่งขึ้น: 1,050.50 × 1% = 10.505 → 10.51",
+      "lines": [
+        {
+          "amount": "1050.50",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "expected": {
+        "exemptBase": "1050.50",
+        "vatableBase": "0.00",
+        "zeroRatedBase": "0.00",
+        "vat": "0.00",
+        "grandTotal": "1050.50",
+        "wht": "10.51",
+        "deductions": "0.00",
+        "netPayable": "1039.99",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "1050.50",
+            "wht": "10.51"
+          }
+        ],
+        "lineVat": ["0.00"],
+        "lineWht": ["10.51"]
+      }
+    },
+    {
+      "id": "G17",
+      "title": "VAT/WHT ปัดครึ่งขึ้น: 1,000.50 → VAT 70.035 → 70.04, WHT 30.015 → 30.02",
+      "lines": [
+        {
+          "amount": "1000.50",
+          "vatType": "VAT_7",
+          "whtRate": "3.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "expected": {
+        "exemptBase": "0.00",
+        "vatableBase": "1000.50",
+        "zeroRatedBase": "0.00",
+        "vat": "70.04",
+        "grandTotal": "1070.54",
+        "wht": "30.02",
+        "deductions": "0.00",
+        "netPayable": "1040.52",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "3.00",
+            "base": "1000.50",
+            "wht": "30.02"
+          }
+        ],
+        "lineVat": ["70.04"],
+        "lineWht": ["30.02"]
+      }
+    },
+    {
+      "id": "G18",
+      "title": "ต่ำกว่าครึ่งปัดลง: 1,000.07 → VAT 70.0049 → 70.00, WHT 30.0021 → 30.00",
+      "lines": [
+        {
+          "amount": "1000.07",
+          "vatType": "VAT_7",
+          "whtRate": "3.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "expected": {
+        "exemptBase": "0.00",
+        "vatableBase": "1000.07",
+        "zeroRatedBase": "0.00",
+        "vat": "70.00",
+        "grandTotal": "1070.07",
+        "wht": "30.00",
+        "deductions": "0.00",
+        "netPayable": "1040.07",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "3.00",
+            "base": "1000.07",
+            "wht": "30.00"
+          }
+        ],
+        "lineVat": ["70.00"],
+        "lineWht": ["30.00"]
+      }
+    },
+    {
+      "id": "G19",
+      "title": "ปน + ปัดแยกกลุ่ม: 1,234.56 (1%) + 789.01 (7% 3%)",
+      "lines": [
+        {
+          "amount": "1234.56",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        },
+        {
+          "amount": "789.01",
+          "vatType": "VAT_7",
+          "whtRate": "3.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "expected": {
+        "exemptBase": "1234.56",
+        "vatableBase": "789.01",
+        "zeroRatedBase": "0.00",
+        "vat": "55.23",
+        "grandTotal": "2078.80",
+        "wht": "36.02",
+        "deductions": "0.00",
+        "netPayable": "2042.78",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "1234.56",
+            "wht": "12.35"
+          },
+          {
+            "ratePercent": "3.00",
+            "base": "789.01",
+            "wht": "23.67"
+          }
+        ],
+        "lineVat": ["0.00", "55.23"],
+        "lineWht": ["12.35", "23.67"]
+      }
+    },
+    {
+      "id": "G20",
+      "title": "บรรทัดส่วนลดลดฐานอัตราเดียวกัน: ขนส่ง 5,000 − 500",
+      "lines": [
+        {
+          "amount": "5000.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        },
+        {
+          "amount": "-500.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "note": "เทียบเท่าส่วนลดรายการของ AccountSystem (AccountSystem ไม่รับบรรทัดติดลบ)",
+      "expected": {
+        "exemptBase": "4500.00",
+        "vatableBase": "0.00",
+        "zeroRatedBase": "0.00",
+        "vat": "0.00",
+        "grandTotal": "4500.00",
+        "wht": "45.00",
+        "deductions": "0.00",
+        "netPayable": "4455.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "4500.00",
+            "wht": "45.00"
+          }
+        ],
+        "lineVat": ["0.00", "0.00"],
+        "lineWht": ["50.00", "-5.00"]
+      }
+    },
+    {
+      "id": "G21",
+      "title": "ส่วนลดทำให้ฐานต่ำกว่าขั้นต่ำ: บริการ 1,000 − 100 → ไม่หัก",
+      "lines": [
+        {
+          "amount": "1000.00",
+          "vatType": "VAT_7",
+          "whtRate": "3.00"
+        },
+        {
+          "amount": "-100.00",
+          "vatType": "VAT_7",
+          "whtRate": "3.00"
+        }
+      ],
+      "options": {
+        "whtMinimum": "1000.00"
+      },
+      "accountSystem": "DIFF_MINIMUM",
+      "pending": ["01§8.2 ข้อ 7"],
+      "note": "เทียบเท่าส่วนลดรายการของ AccountSystem",
+      "expected": {
+        "exemptBase": "0.00",
+        "vatableBase": "900.00",
+        "zeroRatedBase": "0.00",
+        "vat": "63.00",
+        "grandTotal": "963.00",
+        "wht": "0.00",
+        "deductions": "0.00",
+        "netPayable": "963.00",
+        "whtBelowMinimum": true,
+        "whtMinimumTested": "900.00",
+        "whtByRate": [
+          {
+            "ratePercent": "3.00",
+            "base": "900.00",
+            "wht": "0.00"
+          }
+        ],
+        "lineVat": ["70.00", "-7.00"],
+        "lineWht": ["0.00", "0.00"],
+        "accountSystemWht": "27.00"
+      }
+    },
+    {
+      "id": "G22",
+      "title": "เหมือน G22 แต่ขั้นต่ำ 0 (ค่าเริ่ม) → หัก 27.00",
+      "lines": [
+        {
+          "amount": "1000.00",
+          "vatType": "VAT_7",
+          "whtRate": "3.00"
+        },
+        {
+          "amount": "-100.00",
+          "vatType": "VAT_7",
+          "whtRate": "3.00"
+        }
+      ],
+      "options": {
+        "whtMinimum": "0.00"
+      },
+      "accountSystem": "MATCH",
+      "note": "เทียบเท่าส่วนลดรายการของ AccountSystem",
+      "expected": {
+        "exemptBase": "0.00",
+        "vatableBase": "900.00",
+        "zeroRatedBase": "0.00",
+        "vat": "63.00",
+        "grandTotal": "963.00",
+        "wht": "27.00",
+        "deductions": "0.00",
+        "netPayable": "936.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "3.00",
+            "base": "900.00",
+            "wht": "27.00"
+          }
+        ],
+        "lineVat": ["70.00", "-7.00"],
+        "lineWht": ["30.00", "-3.00"]
+      }
+    },
+    {
+      "id": "G23",
+      "title": "ใบสำคัญจ่ายรถร่วม: ค่าจ้าง 12,000 (1%) มีบรรทัดหักเงินเบิก 2,000 — หักไม่ลดฐาน WHT",
+      "lines": [
+        {
+          "amount": "12000.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        },
+        {
+          "amount": "2000.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "0.00",
+          "kind": "DEDUCTION"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "pending": ["#58", "ST6-T08"],
+      "expected": {
+        "exemptBase": "12000.00",
+        "vatableBase": "0.00",
+        "zeroRatedBase": "0.00",
+        "vat": "0.00",
+        "grandTotal": "12000.00",
+        "wht": "120.00",
+        "deductions": "2000.00",
+        "netPayable": "9880.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "12000.00",
+            "wht": "120.00"
+          }
+        ],
+        "lineVat": ["0.00", "0.00"],
+        "lineWht": ["120.00", "0.00"]
+      }
+    },
+    {
+      "id": "G24",
+      "title": "ใบสำคัญจ่าย: ค่าจ้าง + ค่าบริการ 7% + หักเงินเบิกและค่าปรับ",
+      "lines": [
+        {
+          "amount": "15000.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        },
+        {
+          "amount": "1000.00",
+          "vatType": "VAT_7",
+          "whtRate": "3.00"
+        },
+        {
+          "amount": "500.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "0.00",
+          "kind": "DEDUCTION"
+        },
+        {
+          "amount": "300.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "0.00",
+          "kind": "DEDUCTION"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "pending": ["#58", "ST6-T08"],
+      "expected": {
+        "exemptBase": "15000.00",
+        "vatableBase": "1000.00",
+        "zeroRatedBase": "0.00",
+        "vat": "70.00",
+        "grandTotal": "16070.00",
+        "wht": "180.00",
+        "deductions": "800.00",
+        "netPayable": "15090.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "15000.00",
+            "wht": "150.00"
+          },
+          {
+            "ratePercent": "3.00",
+            "base": "1000.00",
+            "wht": "30.00"
+          }
+        ],
+        "lineVat": ["0.00", "70.00", "0.00", "0.00"],
+        "lineWht": ["150.00", "30.00", "0.00", "0.00"]
+      }
+    },
+    {
+      "id": "G25",
+      "title": "ขั้นต่ำ 1,000: บรรทัดหักไม่นับรวมเทียบขั้นต่ำ: ค่าจ้าง 900 + หัก 100 → ไม่หัก WHT",
+      "lines": [
+        {
+          "amount": "900.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        },
+        {
+          "amount": "100.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "0.00",
+          "kind": "DEDUCTION"
+        }
+      ],
+      "options": {
+        "whtMinimum": "1000.00"
+      },
+      "accountSystem": "DIFF_MINIMUM",
+      "pending": ["01§8.2 ข้อ 7", "ST6-T08"],
+      "expected": {
+        "exemptBase": "900.00",
+        "vatableBase": "0.00",
+        "zeroRatedBase": "0.00",
+        "vat": "0.00",
+        "grandTotal": "900.00",
+        "wht": "0.00",
+        "deductions": "100.00",
+        "netPayable": "800.00",
+        "whtBelowMinimum": true,
+        "whtMinimumTested": "900.00",
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "900.00",
+            "wht": "0.00"
+          }
+        ],
+        "lineVat": ["0.00", "0.00"],
+        "lineWht": ["0.00", "0.00"],
+        "accountSystemWht": "9.00"
+      }
+    },
+    {
+      "id": "G26",
+      "title": "คู่ไม่ปกติ ยกเว้น VAT + 3% — คำนวณตามธงบรรทัด (ไม่ตัดสิน)",
+      "lines": [
+        {
+          "amount": "2000.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "3.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "pending": ["ACC-3"],
+      "expected": {
+        "exemptBase": "2000.00",
+        "vatableBase": "0.00",
+        "zeroRatedBase": "0.00",
+        "vat": "0.00",
+        "grandTotal": "2000.00",
+        "wht": "60.00",
+        "deductions": "0.00",
+        "netPayable": "1940.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "3.00",
+            "base": "2000.00",
+            "wht": "60.00"
+          }
+        ],
+        "lineVat": ["0.00"],
+        "lineWht": ["60.00"]
+      }
+    },
+    {
+      "id": "G27",
+      "title": "VAT 7% + 1% (e-WHT ลดอัตรา) — คำนวณตามธงบรรทัด",
+      "lines": [
+        {
+          "amount": "2000.00",
+          "vatType": "VAT_7",
+          "whtRate": "1.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "pending": ["ACC-3"],
+      "expected": {
+        "exemptBase": "0.00",
+        "vatableBase": "2000.00",
+        "zeroRatedBase": "0.00",
+        "vat": "140.00",
+        "grandTotal": "2140.00",
+        "wht": "20.00",
+        "deductions": "0.00",
+        "netPayable": "2120.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "2000.00",
+            "wht": "20.00"
+          }
+        ],
+        "lineVat": ["140.00"],
+        "lineWht": ["20.00"]
+      }
+    },
+    {
+      "id": "G28",
+      "title": "ยอดใหญ่: 9,999,999.99 × 1% = 99,999.9999 → 100,000.00",
+      "lines": [
+        {
+          "amount": "9999999.99",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "expected": {
+        "exemptBase": "9999999.99",
+        "vatableBase": "0.00",
+        "zeroRatedBase": "0.00",
+        "vat": "0.00",
+        "grandTotal": "9999999.99",
+        "wht": "100000.00",
+        "deductions": "0.00",
+        "netPayable": "9899999.99",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "9999999.99",
+            "wht": "100000.00"
+          }
+        ],
+        "lineVat": ["0.00"],
+        "lineWht": ["100000.00"]
+      }
+    },
+    {
+      "id": "G29",
+      "title": "ยอดใหญ่ VAT: 1,234,567.89 (7% 3%)",
+      "lines": [
+        {
+          "amount": "1234567.89",
+          "vatType": "VAT_7",
+          "whtRate": "3.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "expected": {
+        "exemptBase": "0.00",
+        "vatableBase": "1234567.89",
+        "zeroRatedBase": "0.00",
+        "vat": "86419.75",
+        "grandTotal": "1320987.64",
+        "wht": "37037.04",
+        "deductions": "0.00",
+        "netPayable": "1283950.60",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "3.00",
+            "base": "1234567.89",
+            "wht": "37037.04"
+          }
+        ],
+        "lineVat": ["86419.75"],
+        "lineWht": ["37037.04"]
+      }
+    },
+    {
+      "id": "G30",
+      "title": "ฐานกลุ่ม 1% ติดลบ (ส่วนลดเกินยอด) → WHT กลุ่มนั้น 0",
+      "lines": [
+        {
+          "amount": "300.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        },
+        {
+          "amount": "-500.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        },
+        {
+          "amount": "2000.00",
+          "vatType": "VAT_7",
+          "whtRate": "3.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "N/A",
+      "note": "AccountSystem ไม่รับบรรทัดติดลบ/ส่วนลดเกินราคา (PostingError) — TMS ตั้ง WHT กลุ่ม = 0 [PROPOSED]",
+      "expected": {
+        "exemptBase": "-200.00",
+        "vatableBase": "2000.00",
+        "zeroRatedBase": "0.00",
+        "vat": "140.00",
+        "grandTotal": "1940.00",
+        "wht": "60.00",
+        "deductions": "0.00",
+        "netPayable": "1880.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "-200.00",
+            "wht": "0.00"
+          },
+          {
+            "ratePercent": "3.00",
+            "base": "2000.00",
+            "wht": "60.00"
+          }
+        ],
+        "lineVat": ["0.00", "0.00", "140.00"],
+        "lineWht": ["0.00", "0.00", "60.00"]
+      }
+    },
+    {
+      "id": "G31",
+      "title": "เอกสารว่าง (ไม่มีบรรทัด)",
+      "lines": [],
+      "options": {},
+      "accountSystem": "MATCH",
+      "expected": {
+        "exemptBase": "0.00",
+        "vatableBase": "0.00",
+        "zeroRatedBase": "0.00",
+        "vat": "0.00",
+        "grandTotal": "0.00",
+        "wht": "0.00",
+        "deductions": "0.00",
+        "netPayable": "0.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [],
+        "lineVat": [],
+        "lineWht": []
+      }
+    },
+    {
+      "id": "G32",
+      "title": "บรรทัดเล็กหลายบรรทัด: 0.15 × 10 → VAT 0.105 → 0.11 (รายบรรทัด 0.10)",
+      "lines": [
+        {
+          "amount": "0.15",
+          "vatType": "VAT_7",
+          "whtRate": "0.00"
+        },
+        {
+          "amount": "0.15",
+          "vatType": "VAT_7",
+          "whtRate": "0.00"
+        },
+        {
+          "amount": "0.15",
+          "vatType": "VAT_7",
+          "whtRate": "0.00"
+        },
+        {
+          "amount": "0.15",
+          "vatType": "VAT_7",
+          "whtRate": "0.00"
+        },
+        {
+          "amount": "0.15",
+          "vatType": "VAT_7",
+          "whtRate": "0.00"
+        },
+        {
+          "amount": "0.15",
+          "vatType": "VAT_7",
+          "whtRate": "0.00"
+        },
+        {
+          "amount": "0.15",
+          "vatType": "VAT_7",
+          "whtRate": "0.00"
+        },
+        {
+          "amount": "0.15",
+          "vatType": "VAT_7",
+          "whtRate": "0.00"
+        },
+        {
+          "amount": "0.15",
+          "vatType": "VAT_7",
+          "whtRate": "0.00"
+        },
+        {
+          "amount": "0.15",
+          "vatType": "VAT_7",
+          "whtRate": "0.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "expected": {
+        "exemptBase": "0.00",
+        "vatableBase": "1.50",
+        "zeroRatedBase": "0.00",
+        "vat": "0.11",
+        "grandTotal": "1.61",
+        "wht": "0.00",
+        "deductions": "0.00",
+        "netPayable": "1.61",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [],
+        "lineVat": ["0.01", "0.01", "0.01", "0.01", "0.01", "0.01", "0.01", "0.01", "0.01", "0.02"],
+        "lineWht": ["0.00", "0.00", "0.00", "0.00", "0.00", "0.00", "0.00", "0.00", "0.00", "0.00"]
+      }
+    },
+    {
+      "id": "G33",
+      "title": "ยกเว้น + อัตราศูนย์ + 7% ในใบเดียว",
+      "lines": [
+        {
+          "amount": "5000.00",
+          "vatType": "EXEMPT_TRANSPORT",
+          "whtRate": "1.00"
+        },
+        {
+          "amount": "3000.00",
+          "vatType": "ZERO_RATED",
+          "whtRate": "0.00"
+        },
+        {
+          "amount": "1000.00",
+          "vatType": "VAT_7",
+          "whtRate": "3.00"
+        }
+      ],
+      "options": {},
+      "accountSystem": "MATCH",
+      "expected": {
+        "exemptBase": "5000.00",
+        "vatableBase": "1000.00",
+        "zeroRatedBase": "3000.00",
+        "vat": "70.00",
+        "grandTotal": "9070.00",
+        "wht": "80.00",
+        "deductions": "0.00",
+        "netPayable": "8990.00",
+        "whtBelowMinimum": false,
+        "whtMinimumTested": null,
+        "whtByRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "5000.00",
+            "wht": "50.00"
+          },
+          {
+            "ratePercent": "3.00",
+            "base": "1000.00",
+            "wht": "30.00"
+          }
+        ],
+        "lineVat": ["0.00", "0.00", "70.00"],
+        "lineWht": ["50.00", "0.00", "30.00"]
+      }
+    }
+  ]
+}
