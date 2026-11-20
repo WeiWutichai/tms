@@ -1,6 +1,6 @@
 # TMS API v1
 
-เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 330 endpoint
+เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 346 endpoint
 
 เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
 
@@ -57,7 +57,7 @@
 - [ตั้งค่า (settings)](ref-settings.md) — 1 endpoint: GET /v1/settings
 - [ประวัติการทำรายการ (audit)](ref-audit.md) — 1 endpoint: GET /v1/audit-logs
 - [OAuth และระบบ (auth)](ref-auth.md) — 4 endpoint: POST /v1/oauth/token, GET /v1/.well-known/jwks.json, POST /v1/oauth/revoke, GET /v1/health
-- [invoices](ref-invoices.md) — 1 endpoint: GET /v1/invoices/queue
+- [invoices](ref-invoices.md) — 17 endpoint: GET /v1/invoices/queue, GET /v1/invoices/summary, POST /v1/invoices/preview, GET /v1/invoices, POST /v1/invoices, GET /v1/invoices/{id}, …
 
 ## อ้างอิง
 
