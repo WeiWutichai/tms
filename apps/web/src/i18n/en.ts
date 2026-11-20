@@ -979,6 +979,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'stl.st.SENT_TO_CARRIER': 'To review',
   'stl.st.PAID': 'Paid',
   'stl.gross': 'Total',
+  'stl.pdf': 'Payment slip',
   'stl.secTrips': 'Trips',
   'stl.ln.st.PENDING': 'To review',
   'stl.accept': 'Accept',

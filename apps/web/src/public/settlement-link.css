@@ -88,3 +88,7 @@
 .stl__netl span {
   font-size: 13px;
 }
+/* ST6-T04 ปุ่ม "ใบจ่ายเงิน" (ต้นแบบ TMS Subcon การ์ดงวด จ่ายแล้ว: <a> 44px ขอบ #2257C4 ตัว 500 ไม่ขีดเส้นใต้) */
+.stl__pv {
+  text-decoration: none;
+}

@@ -1,14 +1,25 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Req,
+  Res,
+  StreamableFile,
+} from '@nestjs/common';
 import {
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiProduces,
   ApiTags,
   ApiTooManyRequestsResponse,
 } from '@nestjs/swagger';
-import type { Request } from 'express';
-import { LinkAction } from '../../common/decorators';
+import type { Request, Response } from 'express';
+import { LinkAction, NoTransaction } from '../../common/decorators';
 import { ProblemException } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
 import { requestContext } from '../../common/request-context';
@@ -29,6 +40,7 @@ import {
   REVIEW_LINK_PURPOSE,
   SettlementReviewService,
 } from './settlement-review.service';
+import { SettlementPdfService } from './settlement-pdf.service';
 
 const TOO_MANY = 'เรียกถี่เกินไป — ต่อ IP (`/v1/public/*`) และ 30 คำขอ/นาที ต่อลิงก์';
 
@@ -41,7 +53,10 @@ const TOO_MANY = 'เรียกถี่เกินไป — ต่อ IP (`
 @ApiParam({ name: 'token', type: String, description: 'token ของลิงก์ตรวจ (ml1.…)' })
 @Controller('public/settlements')
 export class SettlementReviewPublicController {
-  constructor(private readonly svc: SettlementReviewService) {}
+  constructor(
+    private readonly svc: SettlementReviewService,
+    private readonly pdf: SettlementPdfService,
+  ) {}
 
   /** ใบที่ลิงก์ (ยืนยันแล้วโดย AuthGuard) ชี้ */
   private settlementId(): string {
@@ -60,6 +75,32 @@ export class SettlementReviewPublicController {
   @ApiTooManyRequestsResponse({ description: 'เรียกถี่เกินไป (ต่อ IP)' })
   view(): Promise<ReviewLinkViewDto> {
     return this.svc.view(this.settlementId(), requestContext.require().link!.id);
+  }
+
+  @Get(':token/pdf')
+  @NoTransaction()
+  @LinkAction(REVIEW_LINK_ACTIONS.view)
+  @ApiOperation({
+    summary: 'ใบจ่ายเงิน (PDF ใบสำคัญจ่าย — ST6-T04) ของงวดที่จ่ายแล้ว',
+    description:
+      'ต้นแบบ TMS Subcon แท็บ "การเงิน": ปุ่ม "ใบจ่ายเงิน" เฉพาะงวดที่จ่ายแล้ว · แม่แบบ/ยอดเดียวกับ `GET /v1/settlements/{id}/pdf` · ' +
+      'ใบยังไม่จ่าย → 409 `invalid_state_transition` · ลิงก์ผิด/หมดอายุ/เพิกถอน → 404',
+  })
+  @ApiProduces('application/pdf')
+  @ApiOkResponse({ description: 'application/pdf', schema: { type: 'string', format: 'binary' } })
+  @ApiProblems(T409())
+  @ApiTooManyRequestsResponse({ description: 'เรียกถี่เกินไป (ต่อ IP)' })
+  async voucherPdf(@Res({ passthrough: true }) res: Response): Promise<StreamableFile> {
+    const { dto, pdf } = await this.pdf.render(this.settlementId(), true);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${(dto.settlementNo ?? 'payment-voucher').replace(/[^\w.-]/g, '_')}.pdf"`,
+    );
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    return new StreamableFile(pdf);
   }
 
   @Post(':token/files')

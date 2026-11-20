@@ -9,6 +9,7 @@ import {
   lineState,
   REVIEW_IMAGE_MIME,
   REVIEW_PHOTOS_MAX,
+  settlementPdfUrl,
   uploadReviewPhoto,
   useRespond,
   useReviewView,
@@ -377,6 +378,20 @@ export function SettlementLinkPage() {
               ) : (
                 <div className="ofl__done">
                   <b>{t(v.status === 'PAID' ? 'stl.doneNote.PAID' : 'stl.doneNote')}</b>
+                </div>
+              )}
+              {v.status === 'PAID' && (
+                // ST6-T04 ต้นแบบ TMS Subcon การ์ดงวด "จ่ายแล้ว": ปุ่ม "ใบจ่ายเงิน" (PDF ใบสำคัญจ่าย) · "หนังสือ 50 ทวิ" ออกที่ระบบบัญชี (D-58) — ไม่ทำ
+                <div className="stl__acts">
+                  <a
+                    className="stl__acc stl__pv"
+                    href={settlementPdfUrl(token)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-testid="stl-pdf"
+                  >
+                    {t('stl.pdf')}
+                  </a>
                 </div>
               )}
               <span className="cdl__senthd">{t('stl.secTrips')}</span>

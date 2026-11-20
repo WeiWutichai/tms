@@ -826,4 +826,36 @@ describe('settlement carrier review (ST6-T05)', () => {
     expect(r.body.code).toBe('rate_limited');
     await resetLinkWriteRate();
   });
+
+  it('ST6-T04 ลิงก์รถร่วม: "ใบจ่ายเงิน" (PDF) เฉพาะงวดที่จ่ายแล้ว — รอตรวจ/อนุมัติแล้ว 409 · จ่ายแล้ว 200 PDF · ลิงก์ผิด 404', async () => {
+    await resetLinkWriteRate();
+    const { s, r, token } = await sent(1, '3000');
+    const pdf = (t: string) =>
+      pub()
+        .get(`/v1/public/settlements/${t}/pdf`)
+        .buffer(true)
+        .parse((res, cb) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => cb(null, Buffer.concat(chunks)));
+        });
+    expect((await pdf(token)).status).toBe(409);
+    for (const l of r.body.settlement.lines as Line[])
+      await respond(token, l.id, { response: 'ACCEPTED' }).expect(201);
+    await approve(s.id).expect(200);
+    expect((await pdf(token)).status).toBe(409);
+    await withVersion(s.id, (v) =>
+      api(app, accounting)
+        .post(`/v1/settlements/${s.id}/mark-paid`)
+        .set('If-Match', `"${v}"`)
+        .send({ paidDate: today, method: 'CASH' }),
+    ).expect(200);
+    const ok = await pdf(token);
+    expect(ok.status).toBe(200);
+    expect(ok.headers['content-type']).toContain('application/pdf');
+    expect(ok.headers['cache-control']).toContain('no-store');
+    expect((ok.body as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
+    expect((await pdf(`${token}x`)).status).toBe(404);
+    await resetLinkWriteRate();
+  }, 60_000);
 });

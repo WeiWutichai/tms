@@ -1,6 +1,6 @@
 # จ่ายรถร่วม (settlements)
 
-15 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+16 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -9,6 +9,7 @@
 | [`POST /v1/settlements`](#post-settlements) | `settlements:create` |
 | [`GET /v1/settlements/{id}`](#get-settlements-id) | `settlements:read` |
 | [`PATCH /v1/settlements/{id}`](#patch-settlements-id) | `settlements:create` |
+| [`GET /v1/settlements/{id}/pdf`](#get-settlements-id-pdf) | `settlements:read` |
 | [`GET /v1/settlements/{id}/comparison`](#get-settlements-id-comparison) | `settlements:read` |
 | [`POST /v1/settlements/{id}/lines`](#post-settlements-id-lines) | `settlements:create` |
 | [`POST /v1/settlements/{id}/lines/{lineId}/remove`](#post-settlements-id-lines-lineId-remove) | `settlements:create` |
@@ -259,6 +260,44 @@ const { data, error } = await tms.PATCH('/v1/settlements/{id}', {
     "periodFrom": "2026-11-01",
     "periodTo": "2026-11-15"
   },
+});
+```
+
+## PDF ใบสำคัญจ่ายรถร่วม — รายการเที่ยว ยอด หัก ณ ที่จ่าย (ประมาณการ) สุทธิ {#get-settlements-id-pdf}
+
+`GET /v1/settlements/{id}/pdf`
+
+scope: `settlements:read` · operationId: `Settlements_voucherPdf`
+
+แม่แบบตามต้นแบบ TMS Print #pv (แม่แบบการเงินร่วมกับใบแจ้งหนี้) · ทุกตัวเลขมาจาก `GET /v1/settlements/{id}` ชุดเดียวกัน: ยอดซื้อรวม = `buyGrossAmount` · หัก ณ ที่จ่ายแยกอัตรา = `whtEstimate.byRate` (รวม = `buyWhtAmount`; ใบที่อนุมัติแล้ว = ยอดที่ตรึง) · บรรทัดหักรวมต่อชนิด · จ่ายสุทธิ = `buyNetAfterWht` · ยอดหัก ณ ที่จ่ายติด * · ยังไม่อนุมัติ = ลายน้ำ "ร่าง" ไม่มีเลข · จ่ายแล้ว = วันที่จ่าย + วิธีจ่าย + เลขอ้างอิง · render ตามคำขอ (ไม่ใช่เอกสารภาษี — ไม่เก็บไฟล์) · ใบที่ยกเลิก → 409 · ต้องมี `prices.buy:read` ไม่งั้น 403
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | application/pdf | `string (binary)` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settlements:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/settlements/<id>/pdf" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/settlements/{id}/pdf', {
+  params: { path: { id: "…" } },
 });
 ```
 

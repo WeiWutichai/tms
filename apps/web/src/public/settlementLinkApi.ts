@@ -16,6 +16,10 @@ export const REVIEW_PHOTOS_MAX = 6;
 
 const key = (token: string) => ['settlement-link', token];
 
+/** ใบจ่ายเงิน (PDF ใบสำคัญจ่าย — ST6-T04) ของงวดที่จ่ายแล้ว · เปิดแท็บใหม่ (token อยู่ใน path) */
+export const settlementPdfUrl = (token: string) =>
+  `/v1/public/settlements/${encodeURIComponent(token)}/pdf`;
+
 export function useReviewView(token: string) {
   return useQuery({
     queryKey: key(token),
