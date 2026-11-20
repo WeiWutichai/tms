@@ -15,7 +15,15 @@ import {
 } from '../src/modules/orders/order-intake.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
-import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
+import {
+  api,
+  bootApp,
+  platform,
+  settleTripCostsForTest,
+  tokenFor,
+  truncateAll,
+  validTaxId,
+} from './helpers';
 
 /**
  * ST3-T25 เปลี่ยนผู้รับเหมา (docs/04 D3 "เปลี่ยน carrier — ยกเลิกการจ้างเดิมแล้วจ้างใหม่ (ประวัติคงอยู่)", plan/11 #13)
@@ -390,10 +398,7 @@ describe('subcon change carrier (ST3-T25)', () => {
     const B = await newCarrier();
     const t = await newTrip();
     const a = await hire(t.id, A.id);
-    await db.tripCost.updateMany({
-      where: { subconOfferId: a.offer.id },
-      data: { settlementLineId: randomUUID() },
-    });
+    await settleTripCostsForTest(db, { subconOfferId: a.offer.id });
     const v = (await trip(t.id)).body.version as number;
     await change(t.id, v, {
       carrierId: B.id,

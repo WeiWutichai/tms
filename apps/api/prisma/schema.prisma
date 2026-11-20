@@ -73,6 +73,7 @@ model Company {
   updatedAt     DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   salesOrders SalesOrder[]
+  settlements CarrierSettlement[]
 
   invoices Invoice[]
 
@@ -642,6 +643,7 @@ model Carrier {
   docSubmissions CarrierDocSubmission[]
   subconOffers   SubconOffer[]
   trips          Trip[]
+  settlements    CarrierSettlement[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -1767,6 +1769,7 @@ model Trip {
   stopEvents           StopEvent[]
   stopEventResolutions StopEventResolution[]
   doSurcharges         DoSurcharge[]
+  settlementLines      SettlementLine[]
 
   @@unique([tenantId, tripNo])
   @@index([tenantId, tripDate, status])
@@ -2100,9 +2103,81 @@ model TripCost {
   createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  settlementLines SettlementLine[]
+
   @@index([tenantId, tripId])
   @@index([tenantId, doSurchargeId])
   @@map("trip_cost")
+}
+
+/// ST6-T03 ใบสำคัญจ่ายรถร่วม (docs/01 §3.6 carrier_settlement; spec/05 §11) — ร่าง DRAFT ไม่มีเลข (STL ออกตอนอนุมัติ ST6-T07)
+/// ยอด: gross = Σ บรรทัดเที่ยว · deduction = Σ |บรรทัดหัก| · net = gross − deduction (CHECK) · ไม่คำนวณ VAT/WHT (ST6-T08) · ไม่มีการลบ
+model CarrierSettlement {
+  id                 String           @id @default(uuid()) @db.Uuid
+  tenantId           String           @map("tenant_id") @db.Uuid
+  settlementNo       String?          @map("settlement_no")
+  carrierId          String           @map("carrier_id") @db.Uuid
+  carrier            Carrier          @relation(fields: [carrierId], references: [id], onDelete: Restrict)
+  /// ข้อมูลรถร่วม ณ วันสร้างใบ {code, legalName, entityType, taxId, taxIdLast4, branchCode, address}
+  carrierSnapshot    Json             @map("carrier_snapshot")
+  /// นิติบุคคลที่จ่าย ("จ้างในนาม" ของรถร่วม — null = ค่าเริ่มต้นองค์กร)
+  payingCompanyId    String?          @map("paying_company_id") @db.Uuid
+  payingCompany      Company?         @relation(fields: [payingCompanyId], references: [id], onDelete: Restrict)
+  periodFrom         DateTime         @map("period_from") @db.Date
+  periodTo           DateTime         @map("period_to") @db.Date
+  carrierInvoiceNo   String?          @map("carrier_invoice_no")
+  carrierInvoiceDate DateTime?        @map("carrier_invoice_date") @db.Date
+  carrierReceiptNo   String?          @map("carrier_receipt_no")
+  note               String?
+  grossAmount        Decimal          @default(0) @map("gross_amount") @db.Decimal(14, 2)
+  deductionAmount    Decimal          @default(0) @map("deduction_amount") @db.Decimal(14, 2)
+  netPayable         Decimal          @default(0) @map("net_payable") @db.Decimal(14, 2)
+  /// DRAFT / CANCELLED (CHECK ใน migration 0122 — สถานะถัดไปเพิ่มใน ST6-T05…T09)
+  status             String           @default("DRAFT")
+  cancelledAt        DateTime?        @map("cancelled_at") @db.Timestamptz(6)
+  cancelledBy        String?          @map("cancelled_by")
+  cancelReason       String?          @map("cancel_reason")
+  createdBy          String?          @map("created_by")
+  version            Int              @default(1)
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  lines              SettlementLine[]
+
+  @@index([tenantId, updatedAt, id])
+  @@index([tenantId, carrierId, status])
+  @@map("carrier_settlement")
+}
+
+/// บรรทัดใบสำคัญจ่าย — FREIGHT/SURCHARGE อ้าง trip_cost 1:1 (unique บรรทัดที่ยังใช้ — partial index กันจ่ายซ้ำ K11)
+/// DEDUCTION = กรอกมือ ยอดติดลบ (CASH_ADVANCE / FUEL_PROVIDED / FINE / DAMAGE) + เอกสารอ้างอิง · นำออก = voided_at + เหตุผล
+model SettlementLine {
+  id            String            @id @default(uuid()) @db.Uuid
+  tenantId      String            @map("tenant_id") @db.Uuid
+  settlementId  String            @map("settlement_id") @db.Uuid
+  settlement    CarrierSettlement @relation(fields: [settlementId], references: [id], onDelete: Restrict)
+  lineNo        Int               @map("line_no")
+  lineType      String            @map("line_type") /// FREIGHT / SURCHARGE / DEDUCTION
+  tripCostId    String?           @map("trip_cost_id") @db.Uuid
+  tripCost      TripCost?         @relation(fields: [tripCostId], references: [id], onDelete: Restrict)
+  tripId        String?           @map("trip_id") @db.Uuid
+  trip          Trip?             @relation(fields: [tripId], references: [id], onDelete: Restrict)
+  deductionType String?           @map("deduction_type")
+  description   String
+  amount        Decimal           @db.Decimal(14, 2)
+  reference     String?
+  /// ธงภาษีคัดลอกจาก trip_cost (ข้อมูลเท่านั้น — คำนวณ WHT ใน ST6-T08)
+  vatType       String?           @map("vat_type")
+  whtRate       Decimal?          @map("wht_rate") @db.Decimal(5, 2)
+  voidedAt      DateTime?         @map("voided_at") @db.Timestamptz(6)
+  voidedBy      String?           @map("voided_by")
+  voidReason    String?           @map("void_reason")
+  createdBy     String?           @map("created_by")
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([settlementId, lineNo])
+  @@index([tenantId, tripId])
+  @@map("settlement_line")
 }
 
 /// สถานะข้อเสนองาน/การจ้างรถร่วม (ST3-T22; spec/03 §8 SubconOffer — ชุดย่อยเฟส 0) · ACCEPTED = รถร่วมรับ (ผู้จัดรถบันทึกแทนผ่าน /assign หรือ ST3-T23)
