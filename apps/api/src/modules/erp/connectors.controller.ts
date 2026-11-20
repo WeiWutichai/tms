@@ -48,6 +48,7 @@ import {
   ErpAdapterListDto,
   InboundTokenDto,
   UpdateConnectorDto,
+  UpdateSystemOfRecordDto,
 } from './connector.dto';
 import { apiOrigin } from '../documents/documents.controller';
 import { ConnectorsService } from './connectors.service';
@@ -172,6 +173,31 @@ export class ConnectorsController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<ConnectorDto> {
     const c = await this.connectors.update(
+      decodeIdOr404('connector', id),
+      body,
+      expectedVersion(req),
+    );
+    setEtag(res, c.version);
+    return this.connectors.toDto(c);
+  }
+
+  @Put(':id/system-of-record')
+  @NoTransaction()
+  @TenantResource('connector')
+  @RequireScope('settings:write')
+  @ApiHeader(IF_MATCH)
+  @ApiOkResponse({
+    type: ConnectorDto,
+    description:
+      'ST7-T17 ตั้ง system-of-record (เจ้าของลูกค้า/เอกสารภาษี, กลุ่ม field auto-sync vs regenerate) — ส่งเฉพาะที่เปลี่ยน + เหตุผล ≥ 10 ตัว (audit) · มีคำสั่งส่งเอกสารที่ส่งแล้ว/รอส่ง → เปลี่ยนเจ้าของไม่ได้ 409 `sor_locked` (เลือกครั้งแรกได้เสมอ) · CUSTOMER ตั้ง AUTO_SYNC → 422 · แก้ได้จนรับชำระเป็นกฎ ไม่ใช่ค่าตั้ง',
+  })
+  async systemOfRecord(
+    @Param('id') id: string,
+    @Body() body: UpdateSystemOfRecordDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ConnectorDto> {
+    const c = await this.connectors.setSystemOfRecord(
       decodeIdOr404('connector', id),
       body,
       expectedVersion(req),

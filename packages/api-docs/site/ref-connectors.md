@@ -340,6 +340,7 @@ const { data, error } = await tms.GET('/v1/connectors/{id}/mappings', {
 | `activatedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
 | `disconnectedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
 | `inbound` | ใช่ | `ConnectorInboundDto` |   |   |   |
+| `systemOfRecord` | ใช่ | `SystemOfRecordDto` |   |   |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string (date-time)` |   |   |   |
 | `updatedAt` | ใช่ | `string (date-time)` |   |   |   |
@@ -371,6 +372,7 @@ const { data, error } = await tms.GET('/v1/connectors/{id}/mappings', {
 | `erpCompanyCode` | ใช่ | `string` | null ได้ |   |   |
 | `companyId` | ใช่ | `string` | null ได้ | นิติบุคคลที่ routing เลือก (null = ไม่ได้ระบุ — ค่าระดับ tenant) | `cmp_…` |
 | `branchId` | ใช่ | `string` | null ได้ |   | `brn_…` |
+| `systemOfRecord` | ใช่ | `EffectiveSystemOfRecordDto` |   | system-of-record ที่ใช้กับนิติบุคคลนี้ — connector ที่ยังไม่ยกเลิก (แม้หยุดชั่วคราว/แพ็กเกจปิดการเชื่อมต่อ) ใช้กฎของ connector · ไม่มี = TMS ทั้งหมด |   |
 
 ### ErpAdapterListDto {#schema-ErpAdapterListDto}
 

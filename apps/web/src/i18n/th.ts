@@ -4289,6 +4289,9 @@ export const th = {
   'cnx.hf.erpCompanyCode': 'รหัสบริษัทใน ERP',
   'cnx.hf.branchMap': 'รหัสสาขาใน ERP',
   'cnx.hf.inboundTokenPrefix': 'token รับ webhook',
+  'cnx.hf.customerOwner': 'เจ้าของข้อมูลลูกค้า',
+  'cnx.hf.taxDocumentOwner': 'ผู้ออกใบกำกับภาษี',
+  'cnx.hf.fieldSync': 'การส่งการแก้ไขไประบบบัญชี',
   'cnx.ha.connector.created': 'สร้างการเชื่อมต่อ',
   'cnx.ha.connector.credentials_changed': 'เปลี่ยน key',
   'cnx.ha.connector.health_checked': 'ทดสอบการเชื่อมต่อ',
@@ -4302,6 +4305,7 @@ export const th = {
   'cnx.ha.connector.inbound_token_revoked': 'เลิกรับ webhook',
   'cnx.ha.connector.commands_abandoned': 'ทิ้งคำสั่งค้างตอนตัดการเชื่อมต่อ',
   'cnx.ha.connector.command_skipped': 'ข้ามคำสั่ง',
+  'cnx.ha.connector.sor_changed': 'เปลี่ยนผู้ออกเลขเอกสาร / เจ้าของข้อมูล',
   'hist.platform': 'ทีม Innovera',
   'problem.master_sync_not_supported': 'ระบบบัญชีนี้ดึงผังรหัสอัตโนมัติไม่ได้ นำเข้าจากไฟล์แทน',
   'problem.master_sync_failed': 'ดึงผังรหัสจากระบบบัญชีไม่สำเร็จ ตรวจการเชื่อมต่อแล้วลองใหม่',
@@ -4316,6 +4320,14 @@ export const th = {
   'cnx.f.syncFrom': 'วันที่เริ่มซิงก์',
   'cnx.f.syncFromHint': 'เอกสารก่อนวันนี้จะไม่ถูกส่ง',
   'cnx.f.syncFromFuture': 'วันที่เริ่มซิงก์ต้องไม่เกินวันนี้',
+  'cnx.f.numOwner': 'ใครออกเลขเอกสาร',
+  'cnx.num.tms': 'TMS ออกเลข แล้วส่งให้ {n}',
+  'cnx.num.erp': '{n} ออกเลข แล้วส่งกลับ TMS',
+  'cnx.num.tmsHint': 'TMS ออกเลขใบแจ้งหนี้และใบกำกับภาษีเอง แล้วส่งเลขไปให้ {n}',
+  'cnx.num.noneHint':
+    'ยังไม่ได้เลือก — TMS ออกเลขเอกสารเองไปก่อน และส่งเอกสารเข้า {n} ไม่ได้จนกว่าจะเลือก',
+  'cnx.num.erpHint':
+    '{n} เป็นผู้ออกใบกำกับภาษี · TMS ออกเลขใบแจ้งหนี้/ใบวางบิลของตัวเอง แต่ไม่ออกเลขใบกำกับภาษี',
   'cnx.f.cred': 'ข้อมูลสำหรับเชื่อมต่อ (เก็บแบบเข้ารหัส)',
   'cnx.f.caps': 'ข้อมูลที่ส่งและรับ',
   'cnx.f.inbound': 'รับการแจ้งเตือนจากระบบบัญชี (webhook ขาเข้า)',
@@ -4389,6 +4401,8 @@ export const th = {
   'cnx.dlg.inRotateD': 'URL เดิม (ถ้ามี) ใช้ไม่ได้ทันที · ต้องตั้ง URL ใหม่ในระบบบัญชี',
   'cnx.dlg.inRevokeT': 'เลิกรับ webhook ขาเข้า',
   'cnx.dlg.inRevokeD': 'URL เดิมจะถูกปฏิเสธทันที',
+  'cnx.dlg.numT': 'เปลี่ยนผู้ออกเลขเอกสาร',
+  'cnx.dlg.numD': 'มีผลกับเอกสารที่ออกหลังจากนี้ · เปลี่ยนไม่ได้หลังส่งเอกสารเข้า {n} แล้ว',
   'cnx.toast.connected': 'เชื่อมต่อ {n} แล้ว',
   'cnx.toast.disconnected': 'ตัดการเชื่อมต่อ {n} แล้ว · ใช้งานแบบไม่เชื่อมระบบบัญชี',
   'cnx.toast.testOk': 'ทดสอบการเชื่อมต่อ {n} สำเร็จ · {ms} ms',
@@ -4468,6 +4482,11 @@ export const th = {
   'problem.pdf_render_timeout': 'สร้าง PDF ไม่ทันเวลา กรุณาลองใหม่อีกครั้ง',
   'problem.connector_limit_reached': 'จำนวนการเชื่อมระบบบัญชีครบตามแพ็กเกจแล้ว',
   'problem.connector_scope_taken': 'นิติบุคคลนี้เชื่อมระบบบัญชีอยู่แล้ว ยกเลิกการเชื่อมเดิมก่อน',
+  'problem.tax_document_owned_by_erp':
+    'นิติบุคคลนี้ให้ระบบบัญชีเป็นผู้ออกใบกำกับภาษี — TMS ออกได้เฉพาะใบแจ้งหนี้/ใบวางบิล',
+  'problem.sor_locked':
+    'เปลี่ยนเจ้าของเอกสารไม่ได้ เพราะมีเอกสารส่งหรือรอส่งเข้าระบบบัญชีแล้ว — ยกเลิกการเชื่อมแล้วตั้งใหม่',
+  'problem.sor_not_chosen': 'เลือก "ใครออกเลขเอกสาร" ก่อนเปิดการส่งเอกสารเข้าระบบบัญชี',
   'problem.inbound_not_supported': 'ระบบบัญชีนี้ไม่รองรับการส่งข้อมูลเข้ามาทาง webhook',
   'problem.connector_health_failed':
     'ทดสอบการเชื่อมต่อไม่ผ่าน ตรวจค่าตั้งและ credential แล้วลองใหม่',

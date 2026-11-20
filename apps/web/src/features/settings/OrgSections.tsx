@@ -99,7 +99,7 @@ function Card({
 const lbl = { fontSize: 12.5, fontWeight: 500, color: '#3B424C' } as const;
 
 /** radio แบบ pill ของต้นแบบ (this.radio) */
-function Radio({
+export function Radio({
   label,
   options,
   value,
