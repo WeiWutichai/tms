@@ -46,6 +46,7 @@ const IdList = (max: number, example: string, description: string) => (t: object
 };
 
 export type InvoiceStatusDto = (typeof INVOICE_STATUSES)[number];
+export const INVOICE_RECEIVABLE = ['all', 'open', 'overdue'] as const;
 
 // ---------- คำขอ ----------
 
@@ -269,6 +270,16 @@ export class InvoiceListQuery extends ListQuery {
   @IsOptional()
   @IsIn(INVOICE_STATUSES)
   status?: InvoiceStatusDto;
+
+  @ApiPropertyOptional({
+    enum: INVOICE_RECEIVABLE,
+    description:
+      'หน้า "รับชำระ" (ST5-T13): `all` = ใบที่ออกแล้ว (ไม่รวมร่าง/ยกเลิก) · `open` = ค้างรับ (ISSUED + PARTIALLY_PAID) · ' +
+      '`overdue` = ค้างรับและเลยวันครบกำหนด (เวลาไทย) — ใช้ร่วมกับ `status` ได้',
+  })
+  @IsOptional()
+  @IsIn(INVOICE_RECEIVABLE)
+  receivable?: (typeof INVOICE_RECEIVABLE)[number];
 }
 
 // ---------- คำตอบ ----------
@@ -404,6 +415,17 @@ export class InvoiceSummaryDto {
     description: 'ครบกำหนดชำระ = วันที่ออก + เครดิต (spec/05 BIL-031) — ร่าง = null',
   })
   dueDate!: string | null;
+  @ApiPropertyOptional({
+    description:
+      'ยอดรับชำระแล้ว (ยอดตัดหนี้รวม WHT ที่ถูกหัก — ไม่นับที่กลับรายการ, ST5-T13) — `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellPaidAmount?: string;
+  @ApiPropertyOptional({
+    description: 'คงค้าง = ยอดรวม − รับชำระแล้ว (ร่าง/ยกเลิก = 0.00) — `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellOutstanding?: string;
   @ApiProperty() version!: number;
   @ApiProperty() createdAt!: string;
   @ApiProperty() updatedAt!: string;

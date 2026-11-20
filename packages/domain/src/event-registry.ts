@@ -102,6 +102,13 @@ const INVOICE = shape('InvoiceDto', {
   omit: ['lines', 'printLines', 'createdBy', 'issuedBy', 'cancelReason', 'note', 'pdf'],
   require: ['invoiceNo', 'issueDate', 'dueDate', 'issuedAt'],
 });
+/**
+ * payment (ST5-T13; D-57 รับเงิน/เช็คบันทึกใน TMS — ไม่ออกใบเสร็จ D-56): `GET /v1/payments/{id}` − id ผู้ใช้ − ข้อความอิสระ ·
+ * ยอด `sell*` ตัดอัตโนมัติ (ดูยอดผ่าน REST ด้วย `prices.sell:read`)
+ */
+const PAYMENT = shape('PaymentDto', {
+  omit: ['createdBy', 'reversedBy', 'reverseReason', 'differenceReason', 'note'],
+});
 
 const active = (
   resource: string,
@@ -218,8 +225,18 @@ const DEFS: Record<WebhookEventType, Omit<EventDefinition, 'type'>> = {
   'invoice.voided': pending('invoice', 'ยกเลิกใบแจ้งหนี้', 'ST5-T10'),
   'credit_note.finalized': pending('credit_note', 'ออกเลขใบลดหนี้แล้ว', 'ST5-T19'),
   'debit_note.finalized': pending('debit_note', 'ออกเลขใบเพิ่มหนี้แล้ว', 'ST5-T20'),
-  'payment.recorded': pending('payment', 'บันทึกรับชำระเงิน', 'ST5-T13'),
-  'payment.reversed': pending('payment', 'กลับรายการรับชำระเงิน', 'ST5-T13'),
+  'payment.recorded': active(
+    'payment',
+    'บันทึกรับชำระเงิน (ตัดยอดใบแจ้งหนี้ — ไม่ออกใบเสร็จ D-56)',
+    'PaymentsService.record',
+    PAYMENT,
+  ),
+  'payment.reversed': active(
+    'payment',
+    'กลับรายการรับชำระเงิน (รวมเช็คคืน — `chequeStatus` = BOUNCED) ยอดค้างของใบกลับมา',
+    'PaymentsService.reverse / bounceCheque',
+    PAYMENT,
+  ),
   'receipt.issued': pending('receipt', 'ออกใบเสร็จรับเงินแล้ว', 'ST5-T14'),
   'settlement.approved': active(
     'settlement',

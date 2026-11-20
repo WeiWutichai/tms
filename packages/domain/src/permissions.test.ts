@@ -72,6 +72,9 @@ const A3: Array<[string, string, RoleCode[]]> = [
     'invoices:read',
     ['owner', 'admin', 'manager', 'invoicer', 'accounting', 'approver', 'viewer'],
   ],
+  // ST5-T13 spec/05 §19: รับชำระ owner/admin/manager/accounting · void payment owner/admin/manager
+  ['รับชำระ: บันทึก', 'payments:record', ['owner', 'admin', 'manager', 'accounting']],
+  ['รับชำระ: กลับรายการ/เช็คคืน', 'payments:reverse', ['owner', 'admin', 'manager']],
   ['ใบลด/เพิ่มหนี้: ขอ', 'credit-notes:request', ['owner', 'admin', 'invoicer', 'accounting']],
   ['ใบลด/เพิ่มหนี้: อนุมัติ', 'credit-notes:approve', ['owner', 'manager', 'approver']],
   [

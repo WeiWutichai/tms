@@ -557,6 +557,18 @@ export const PROBLEMS = {
     th: 'แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ',
     en: 'The invoice template changed after issue — the issued PDF cannot be re-rendered',
   },
+  /** ST5-T13 รับชำระได้เฉพาะใบที่ออกแล้วและยังค้างชำระ (ISSUED / PARTIALLY_PAID) — `invoiceId`, `currentStatus` */
+  invoice_not_payable: {
+    status: 409,
+    th: 'ใบแจ้งหนี้นี้รับชำระไม่ได้ในสถานะปัจจุบัน',
+    en: 'This invoice cannot take a payment in its current status',
+  },
+  /** ST5-T13 ยอดตัดหนี้เกินยอดคงค้างของใบ (ตรวจใต้ล็อกใบ — 2 คำขอพร้อมกันตัดเกินไม่ได้) — `invoiceId`, `invoiceNo`, `outstanding` */
+  payment_exceeds_outstanding: {
+    status: 409,
+    th: 'ยอดตัดหนี้เกินยอดคงค้าง',
+    en: 'The amount applied exceeds the outstanding balance',
+  },
   sandbox_finalize_disabled: {
     status: 409,
     th: 'โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้',

@@ -6,6 +6,7 @@ import {
   REVERT_DELIVERY_WINDOW_MS,
   INVOICE_STATUSES,
   billingStage,
+  invoicePaymentStatus,
   isBillable,
   isInvoiceActive,
   revertDeliveryWindow,
@@ -103,5 +104,17 @@ describe('lifecycle + revert rules (ST5-T06)', () => {
     expect(billingStage(d)).toBe('PAID');
     expect(billingStage(d, 'PARTIALLY_PAID')).toBe('PARTIALLY_PAID');
     expect(billingStage({ ...d, paidAt: null })).toBe('INVOICED');
+  });
+});
+
+describe('invoicePaymentStatus (ST5-T13)', () => {
+  it('ISSUED ↔ PARTIALLY_PAID ↔ PAID ตามยอดตัด · สถานะอื่นไม่เปลี่ยน', () => {
+    expect(invoicePaymentStatus('ISSUED', 10000n, 0n)).toBe('ISSUED');
+    expect(invoicePaymentStatus('ISSUED', 10000n, 9900n)).toBe('PARTIALLY_PAID');
+    expect(invoicePaymentStatus('ISSUED', 10000n, 10000n)).toBe('PAID');
+    expect(invoicePaymentStatus('PAID', 10000n, 0n)).toBe('ISSUED');
+    expect(invoicePaymentStatus('PARTIALLY_PAID', 10000n, 0n)).toBe('ISSUED');
+    expect(invoicePaymentStatus('DRAFT', 10000n, 10000n)).toBe('DRAFT');
+    expect(invoicePaymentStatus('CANCELLED', 10000n, 0n)).toBe('CANCELLED');
   });
 });

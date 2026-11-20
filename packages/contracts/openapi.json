@@ -40438,6 +40438,20 @@
             }
           },
           {
+            "name": "receivable",
+            "required": false,
+            "in": "query",
+            "description": "หน้า \"รับชำระ\" (ST5-T13): `all` = ใบที่ออกแล้ว (ไม่รวมร่าง/ยกเลิก) · `open` = ค้างรับ (ISSUED + PARTIALLY_PAID) · `overdue` = ค้างรับและเลยวันครบกำหนด (เวลาไทย) — ใช้ร่วมกับ `status` ได้",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "open",
+                "overdue"
+              ]
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -43807,6 +43821,1328 @@
         ],
         "x-required-scopes": [
           "invoices:draft"
+        ]
+      }
+    },
+    "/v1/payments": {
+      "get": {
+        "description": "กรองใบแจ้งหนี้ (`invoiceId`) / ลูกค้า (`customerId` รับ `ext:`) / สถานะ · cursor มาตรฐาน (updatedAt, id) · ยอด `sell*` เห็นเมื่อมี `prices.sell:read`",
+        "operationId": "Payments_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "updatedAt",
+              "type": "string",
+              "enum": [
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "invoiceId",
+            "required": false,
+            "in": "query",
+            "description": "การรับชำระที่ตัดใบแจ้งหนี้นี้",
+            "schema": {
+              "example": "ivc_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "customerId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "cus_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "RECORDED",
+                "REVERSED"
+              ]
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentPageDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`invoices:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "invoices",
+                      "action": "read",
+                      "required": [
+                        "invoices:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "รายการรับชำระ",
+        "tags": [
+          "payments"
+        ],
+        "x-required-scopes": [
+          "invoices:read"
+        ]
+      },
+      "post": {
+        "description": "ใบแจ้งหนี้ที่ออกแล้ว (ISSUED / PARTIALLY_PAID) ของลูกค้ารายเดียว หลายใบได้ (BIL-050) · **เงินรับ + WHT + ค่าธรรมเนียม + ส่วนต่าง = Σ `allocations.amount`** (BIL-051 — ไม่มีเงินรับเกิน/เครดิตลูกค้าในเฟสนี้) ไม่ตรง → 422 `payment_unbalanced` · ยอดตัดต่อใบ ≤ คงค้าง (ตรวจใต้ล็อกใบ — พร้อมกันก็ตัดเกินไม่ได้) → 409 `payment_exceeds_outstanding` · ใบไม่อยู่ในสถานะรับชำระ → 409 `invoice_not_payable` · วันที่รับ ≤ วันนี้ (เวลาไทย) · `CHEQUE` ต้องมี `chequeNo` `chequeBank` `chequeDate` (สถานะเช็คเริ่ม PENDING) · ส่วนต่าง > 0 ต้องมี `differenceReason` · WHT ที่ถูกหัก = บันทึกยอด (+ เลขที่ 50 ทวิ) — รับ/ตรวจ 50 ทวิ ที่ระบบบัญชี (D-54) · สถานะใบ: ตัดครบ → PAID · บางส่วน → PARTIALLY_PAID · เลขภายใน PAY · audit + webhook `payment.recorded` (transaction เดียว) · แก้/ลบไม่ได้ — กลับรายการด้วย `POST /payments/{id}/reverse`",
+        "operationId": "Payments_record",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "ส่งซ้ำ key เดิม + body เดิม = ผลเดิม (ไม่บันทึกซ้ำ) เก็บ 24 ชม.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePaymentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`payments:record`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "payments",
+                      "action": "record",
+                      "required": [
+                        "payments:record"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`invoice_not_payable` · `payment_exceeds_outstanding` (`outstanding`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "invoice_not_payable": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invoice_not_payable",
+                      "title": "ใบแจ้งหนี้นี้รับชำระไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invoice_not_payable",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "payment_exceeds_outstanding": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/payment_exceeds_outstanding",
+                      "title": "ยอดตัดหนี้เกินยอดคงค้าง",
+                      "status": 409,
+                      "code": "payment_exceeds_outstanding",
+                      "invoiceId": "ivc_…",
+                      "invoiceNo": "INV-00000-2611-0001",
+                      "outstanding": "25000.00"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "บันทึกรับชำระ (ตัดยอดใบแจ้งหนี้ — ไม่ออกใบเสร็จ D-56)",
+        "tags": [
+          "payments"
+        ],
+        "x-required-scopes": [
+          "payments:record"
+        ]
+      }
+    },
+    "/v1/payments/summary": {
+      "get": {
+        "description": "วันครบกำหนดและเดือน ตามเวลาไทย (Asia/Bangkok) · เกินกำหนด = ค้างรับและเลยวันครบกำหนด (คำนวณตอนอ่าน — สถานะ OVERDUE + job = ST5-T18)",
+        "operationId": "Payments_summary",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentSummaryDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`invoices:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "invoices",
+                      "action": "read",
+                      "required": [
+                        "invoices:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "KPI หน้า \"รับชำระ\" — ยอดค้างรับ / เกินกำหนด / รับชำระเดือนนี้ / ครบกำหนดใน 7 วัน + จำนวนต่อแท็บ",
+        "tags": [
+          "payments"
+        ],
+        "x-required-scopes": [
+          "invoices:read"
+        ]
+      }
+    },
+    "/v1/payments/{id}": {
+      "get": {
+        "operationId": "Payments_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`invoices:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "invoices",
+                      "action": "read",
+                      "required": [
+                        "invoices:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบการรับชำระ (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "การรับชำระ + การตัดชำระต่อใบแจ้งหนี้",
+        "tags": [
+          "payments"
+        ],
+        "x-required-scopes": [
+          "invoices:read"
+        ]
+      }
+    },
+    "/v1/payments/{id}/reverse": {
+      "post": {
+        "description": "RECORDED → REVERSED · ยอดค้างของใบกลับมา (PAID/PARTIALLY_PAID → ตามยอดที่เหลือ) · เหตุผล ≥ 10 ตัวอักษร + audit · webhook `payment.reversed` · บันทึกผิด = กลับรายการแล้วบันทึกใหม่ (ไม่มีแก้/ลบ)",
+        "operationId": "Payments_reverse",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag (version) ของการรับชำระ — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaymentReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`payments:reverse`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "payments",
+                      "action": "reverse",
+                      "required": [
+                        "payments:reverse"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบการรับชำระ (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`invalid_state_transition` — กลับรายการแล้ว / ไม่ใช่เช็ค / เช็คไม่อยู่ในสถานะที่ทำได้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "กลับรายการรับชำระ (แก้รับชำระด้วย reversal — docs/04 F4)",
+        "tags": [
+          "payments"
+        ],
+        "x-required-scopes": [
+          "payments:reverse"
+        ]
+      }
+    },
+    "/v1/payments/{id}/bounce": {
+      "post": {
+        "description": "เช็คที่รอเคลียร์/ผ่านแล้ว → `chequeStatus` BOUNCED + REVERSED · ยอดค้างของใบกลับมา · เหตุผล + audit `payment.cheque_bounced` · webhook `payment.reversed` (`chequeStatus: BOUNCED`)",
+        "operationId": "Payments_bounce",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag (version) ของการรับชำระ — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaymentReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`payments:reverse`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "payments",
+                      "action": "reverse",
+                      "required": [
+                        "payments:reverse"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบการรับชำระ (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`invalid_state_transition` — กลับรายการแล้ว / ไม่ใช่เช็ค / เช็คไม่อยู่ในสถานะที่ทำได้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "เช็คคืน — กลับรายการรับชำระด้วยเช็ค (BIL-060)",
+        "tags": [
+          "payments"
+        ],
+        "x-required-scopes": [
+          "payments:reverse"
+        ]
+      }
+    },
+    "/v1/payments/{id}/clear": {
+      "post": {
+        "description": "ไม่เปลี่ยนยอดตัดหนี้ (ตัดยอดตั้งแต่บันทึกรับเช็ค) · audit `payment.cheque_cleared`",
+        "operationId": "Payments_clear",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag (version) ของการรับชำระ — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`payments:record`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "payments",
+                      "action": "record",
+                      "required": [
+                        "payments:record"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบการรับชำระ (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`invalid_state_transition` — กลับรายการแล้ว / ไม่ใช่เช็ค / เช็คไม่อยู่ในสถานะที่ทำได้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "เช็คผ่าน (เคลียร์แล้ว) — PENDING → CLEARED",
+        "tags": [
+          "payments"
+        ],
+        "x-required-scopes": [
+          "payments:record"
         ]
       }
     },
@@ -64226,7 +65562,8 @@
               "STL",
               "WHT",
               "WO",
-              "INC"
+              "INC",
+              "PAY"
             ]
           },
           "prefix": {
@@ -73174,6 +74511,8 @@
               "delivery_order.status_changed",
               "pod.captured",
               "invoice.finalized",
+              "payment.recorded",
+              "payment.reversed",
               "settlement.approved",
               "connector.health_changed",
               "job.completed"
@@ -81001,6 +82340,14 @@
             "example": "2026-12-20",
             "description": "ครบกำหนดชำระ = วันที่ออก + เครดิต (spec/05 BIL-031) — ร่าง = null"
           },
+          "sellPaidAmount": {
+            "type": "string",
+            "description": "ยอดรับชำระแล้ว (ยอดตัดหนี้รวม WHT ที่ถูกหัก — ไม่นับที่กลับรายการ, ST5-T13) — `prices.sell:read`"
+          },
+          "sellOutstanding": {
+            "type": "string",
+            "description": "คงค้าง = ยอดรวม − รับชำระแล้ว (ร่าง/ยกเลิก = 0.00) — `prices.sell:read`"
+          },
           "version": {
             "type": "number"
           },
@@ -81364,6 +82711,14 @@
             "example": "2026-12-20",
             "description": "ครบกำหนดชำระ = วันที่ออก + เครดิต (spec/05 BIL-031) — ร่าง = null"
           },
+          "sellPaidAmount": {
+            "type": "string",
+            "description": "ยอดรับชำระแล้ว (ยอดตัดหนี้รวม WHT ที่ถูกหัก — ไม่นับที่กลับรายการ, ST5-T13) — `prices.sell:read`"
+          },
+          "sellOutstanding": {
+            "type": "string",
+            "description": "คงค้าง = ยอดรวม − รับชำระแล้ว (ร่าง/ยกเลิก = 0.00) — `prices.sell:read`"
+          },
           "version": {
             "type": "number"
           },
@@ -81712,6 +83067,410 @@
             "minLength": 10,
             "maxLength": 500,
             "example": "ลูกค้าขอแยกวางบิลงวดหน้า"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "PaymentCustomerDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cus_…"
+          },
+          "code": {
+            "type": "string",
+            "example": "C-0001"
+          },
+          "legalName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "legalName"
+        ]
+      },
+      "PaymentAllocationDto": {
+        "type": "object",
+        "properties": {
+          "invoiceId": {
+            "type": "string",
+            "example": "ivc_…"
+          },
+          "invoiceNo": {
+            "type": "string",
+            "nullable": true,
+            "example": "INV-00000-2611-0001"
+          },
+          "sellAmount": {
+            "type": "string",
+            "description": "ยอดตัดหนี้ (รวม WHT) — `prices.sell:read`"
+          },
+          "sellWhtAmount": {
+            "type": "string",
+            "description": "WHT ที่ถูกหักของใบนี้ — `prices.sell:read`"
+          }
+        },
+        "required": [
+          "invoiceId",
+          "invoiceNo"
+        ]
+      },
+      "PaymentDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "pay_…"
+          },
+          "paymentNo": {
+            "type": "string",
+            "example": "PAY-2611-0001",
+            "description": "เลขภายใน (ไม่ใช่ใบเสร็จ — D-56)"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/PaymentCustomerDto"
+          },
+          "receivedDate": {
+            "type": "string",
+            "example": "2026-11-21"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "TRANSFER",
+              "CHEQUE",
+              "CASH",
+              "OFFSET"
+            ]
+          },
+          "reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "chequeNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "chequeBank": {
+            "type": "string",
+            "nullable": true
+          },
+          "chequeDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "chequeStatus": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "PENDING",
+              "CLEARED",
+              "BOUNCED"
+            ],
+            "description": "สถานะเช็ค (รอเคลียร์ / ผ่าน / เช็คคืน) — ไม่ใช่เช็ค = null"
+          },
+          "sellAmountReceived": {
+            "type": "string",
+            "description": "เงินเข้าจริง — `prices.sell:read`"
+          },
+          "sellWhtAmount": {
+            "type": "string",
+            "description": "WHT ที่ลูกค้าหัก — `prices.sell:read`"
+          },
+          "sellFeeAmount": {
+            "type": "string",
+            "description": "ค่าธรรมเนียมที่ลูกค้าหัก — `prices.sell:read`"
+          },
+          "sellDifferenceAmount": {
+            "type": "string",
+            "description": "ส่วนต่างที่ยอมตัดยอด — `prices.sell:read`"
+          },
+          "sellAppliedTotal": {
+            "type": "string",
+            "description": "ยอดตัดหนี้รวม (= Σ allocations) — `prices.sell:read`"
+          },
+          "differenceReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "whtCertificateNo": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขที่ 50 ทวิ ที่ลูกค้าแจ้ง"
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "MANUAL",
+              "CONNECTOR"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "RECORDED",
+              "REVERSED"
+            ],
+            "description": "RECORDED · REVERSED (กลับรายการแล้ว — ไม่นับเป็นยอดรับ)"
+          },
+          "allocations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentAllocationDto"
+            }
+          },
+          "reversedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "reversedBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "reverseReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "paymentNo",
+          "customer",
+          "receivedDate",
+          "method",
+          "reference",
+          "chequeNo",
+          "chequeBank",
+          "chequeDate",
+          "chequeStatus",
+          "differenceReason",
+          "whtCertificateNo",
+          "note",
+          "source",
+          "status",
+          "allocations",
+          "reversedAt",
+          "reversedBy",
+          "reverseReason",
+          "createdBy",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "PaymentPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "PaymentSummaryDto": {
+        "type": "object",
+        "properties": {
+          "sellOutstanding": {
+            "type": "string",
+            "description": "ยอดค้างรับรวม (ใบที่ออกแล้ว) — `prices.sell:read`"
+          },
+          "sellOverdueOutstanding": {
+            "type": "string",
+            "description": "ยอดค้างของใบที่เลยวันครบกำหนด (เวลาไทย) — `prices.sell:read`"
+          },
+          "sellReceivedThisMonth": {
+            "type": "string",
+            "description": "ยอดตัดหนี้ของการรับชำระเดือนนี้ (เวลาไทย ไม่รวมที่กลับรายการ) — `prices.sell:read`"
+          },
+          "dueSoon": {
+            "type": "number",
+            "description": "ใบที่ค้างรับและครบกำหนดภายใน 7 วัน"
+          },
+          "total": {
+            "type": "number",
+            "description": "ใบที่ออกแล้วทั้งหมด (ไม่รวมร่าง/ยกเลิก)"
+          },
+          "open": {
+            "type": "number",
+            "description": "ค้างรับ (ISSUED + PARTIALLY_PAID)"
+          },
+          "overdue": {
+            "type": "number",
+            "description": "เกินกำหนด (ค้างรับและเลยวันครบกำหนด)"
+          },
+          "partiallyPaid": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "dueSoon",
+          "total",
+          "open",
+          "overdue",
+          "partiallyPaid",
+          "paid"
+        ]
+      },
+      "PaymentAllocationInputDto": {
+        "type": "object",
+        "properties": {
+          "invoiceId": {
+            "type": "string",
+            "example": "ivc_…",
+            "description": "ใบแจ้งหนี้ที่ออกแล้วของลูกค้ารายเดียวกัน"
+          },
+          "amount": {
+            "type": "string",
+            "example": "25000.00",
+            "description": "ยอดตัดหนี้ของใบนี้ (รวม WHT ที่ถูกหัก) > 0 และ ≤ ยอดคงค้าง"
+          },
+          "whtAmount": {
+            "type": "string",
+            "example": "250.00",
+            "description": "WHT ที่ถูกหักของใบนี้ — ตัดใบเดียว: ไม่ส่ง = `whtAmount` ของการรับชำระ · หลายใบ: ส่งทุกใบ และรวม = `whtAmount`"
+          }
+        },
+        "required": [
+          "invoiceId",
+          "amount"
+        ]
+      },
+      "CreatePaymentDto": {
+        "type": "object",
+        "properties": {
+          "receivedDate": {
+            "type": "string",
+            "example": "2026-11-21",
+            "description": "วันที่รับ (เวลาไทย) ≤ วันนี้"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "TRANSFER",
+              "CHEQUE",
+              "CASH",
+              "OFFSET"
+            ],
+            "description": "โอนเงิน / เช็ค / เงินสด / หักกลบลบหนี้"
+          },
+          "reference": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "เลขอ้างอิงการโอน / หักกลบ (เช็คใช้ `chequeNo`)"
+          },
+          "chequeNo": {
+            "type": "string",
+            "maxLength": 30,
+            "description": "เลขที่เช็ค — **บังคับเมื่อ `CHEQUE`**"
+          },
+          "chequeBank": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "ธนาคาร (สาขา) — **บังคับเมื่อ `CHEQUE`**"
+          },
+          "chequeDate": {
+            "type": "string",
+            "example": "2026-11-30",
+            "description": "วันที่หน้าเช็ค — **บังคับเมื่อ `CHEQUE`**"
+          },
+          "amountReceived": {
+            "type": "string",
+            "example": "24750.00",
+            "description": "เงินเข้าจริง ≥ 0"
+          },
+          "whtAmount": {
+            "type": "string",
+            "example": "250.00",
+            "description": "WHT ที่ลูกค้าหักไว้ (บันทึกยอดอย่างเดียว — รับ/ตรวจ 50 ทวิ ที่ระบบบัญชี D-54)"
+          },
+          "whtCertificateNo": {
+            "type": "string",
+            "maxLength": 40,
+            "description": "เลขที่หนังสือรับรอง 50 ทวิ ที่ลูกค้าแจ้ง"
+          },
+          "feeAmount": {
+            "type": "string",
+            "example": "0.00",
+            "description": "ค่าธรรมเนียมโอนที่ลูกค้าหัก"
+          },
+          "differenceAmount": {
+            "type": "string",
+            "example": "0.00",
+            "description": "ส่วนต่างที่ยอมตัดยอด (ลูกค้าจ่ายขาด) — > 0 ต้องมี `differenceReason`"
+          },
+          "differenceReason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "description": "เหตุผลของส่วนต่าง"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "allocations": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentAllocationInputDto"
+            }
+          }
+        },
+        "required": [
+          "receivedDate",
+          "method",
+          "amountReceived",
+          "allocations"
+        ]
+      },
+      "PaymentReasonDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "บันทึกยอดผิด ลูกค้าโอน 24,500.00"
           }
         },
         "required": [
@@ -93602,6 +95361,238 @@
           "issuedAt"
         ]
       },
+      "WebhookEvent_payment_recorded": {
+        "type": "object",
+        "description": "`data.object` ของ payment.recorded — บันทึกรับชำระเงิน (ตัดยอดใบแจ้งหนี้ — ไม่ออกใบเสร็จ D-56) · รูปเดียวกับ PaymentDto (ไม่มี field ราคา, createdBy, reversedBy, reverseReason, differenceReason, note)",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "pay_…"
+          },
+          "paymentNo": {
+            "type": "string",
+            "example": "PAY-2611-0001",
+            "description": "เลขภายใน (ไม่ใช่ใบเสร็จ — D-56)"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/PaymentCustomerDto"
+          },
+          "receivedDate": {
+            "type": "string",
+            "example": "2026-11-21"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "TRANSFER",
+              "CHEQUE",
+              "CASH",
+              "OFFSET"
+            ]
+          },
+          "reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "chequeNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "chequeBank": {
+            "type": "string",
+            "nullable": true
+          },
+          "chequeDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "chequeStatus": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "PENDING",
+              "CLEARED",
+              "BOUNCED"
+            ],
+            "description": "สถานะเช็ค (รอเคลียร์ / ผ่าน / เช็คคืน) — ไม่ใช่เช็ค = null"
+          },
+          "whtCertificateNo": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขที่ 50 ทวิ ที่ลูกค้าแจ้ง"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "MANUAL",
+              "CONNECTOR"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "RECORDED",
+              "REVERSED"
+            ],
+            "description": "RECORDED · REVERSED (กลับรายการแล้ว — ไม่นับเป็นยอดรับ)"
+          },
+          "allocations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentAllocationDto"
+            }
+          },
+          "reversedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "paymentNo",
+          "customer",
+          "receivedDate",
+          "method",
+          "reference",
+          "chequeNo",
+          "chequeBank",
+          "chequeDate",
+          "chequeStatus",
+          "whtCertificateNo",
+          "source",
+          "status",
+          "allocations",
+          "reversedAt",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "WebhookEvent_payment_reversed": {
+        "type": "object",
+        "description": "`data.object` ของ payment.reversed — กลับรายการรับชำระเงิน (รวมเช็คคืน — `chequeStatus` = BOUNCED) ยอดค้างของใบกลับมา · รูปเดียวกับ PaymentDto (ไม่มี field ราคา, createdBy, reversedBy, reverseReason, differenceReason, note)",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "pay_…"
+          },
+          "paymentNo": {
+            "type": "string",
+            "example": "PAY-2611-0001",
+            "description": "เลขภายใน (ไม่ใช่ใบเสร็จ — D-56)"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/PaymentCustomerDto"
+          },
+          "receivedDate": {
+            "type": "string",
+            "example": "2026-11-21"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "TRANSFER",
+              "CHEQUE",
+              "CASH",
+              "OFFSET"
+            ]
+          },
+          "reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "chequeNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "chequeBank": {
+            "type": "string",
+            "nullable": true
+          },
+          "chequeDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "chequeStatus": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "PENDING",
+              "CLEARED",
+              "BOUNCED"
+            ],
+            "description": "สถานะเช็ค (รอเคลียร์ / ผ่าน / เช็คคืน) — ไม่ใช่เช็ค = null"
+          },
+          "whtCertificateNo": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขที่ 50 ทวิ ที่ลูกค้าแจ้ง"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "MANUAL",
+              "CONNECTOR"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "RECORDED",
+              "REVERSED"
+            ],
+            "description": "RECORDED · REVERSED (กลับรายการแล้ว — ไม่นับเป็นยอดรับ)"
+          },
+          "allocations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentAllocationDto"
+            }
+          },
+          "reversedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "paymentNo",
+          "customer",
+          "receivedDate",
+          "method",
+          "reference",
+          "chequeNo",
+          "chequeBank",
+          "chequeDate",
+          "chequeStatus",
+          "whtCertificateNo",
+          "source",
+          "status",
+          "allocations",
+          "reversedAt",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
       "WebhookEvent_settlement_approved": {
         "type": "object",
         "description": "`data.object` ของ settlement.approved — อนุมัติใบสำคัญจ่ายรถร่วม (ออกเลข STL แล้ว — ผู้อนุมัติไม่ใช่ผู้สร้าง) · รูปเดียวกับ SettlementDto (ไม่มี field ราคา, lines, createdBy, approvedBy, cancelledBy, cancelReason, note, sentBy)",
@@ -94929,14 +96920,20 @@
       "pendingTask": "ST5-T20"
     },
     "payment.recorded": {
-      "description": "บันทึกรับชำระเงิน",
-      "phase": "pending",
-      "pendingTask": "ST5-T13"
+      "description": "บันทึกรับชำระเงิน (ตัดยอดใบแจ้งหนี้ — ไม่ออกใบเสร็จ D-56)",
+      "phase": "active",
+      "dto": "PaymentDto",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_payment_recorded"
+      }
     },
     "payment.reversed": {
-      "description": "กลับรายการรับชำระเงิน",
-      "phase": "pending",
-      "pendingTask": "ST5-T13"
+      "description": "กลับรายการรับชำระเงิน (รวมเช็คคืน — `chequeStatus` = BOUNCED) ยอดค้างของใบกลับมา",
+      "phase": "active",
+      "dto": "PaymentDto",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_payment_reversed"
+      }
     },
     "receipt.issued": {
       "description": "ออกใบเสร็จรับเงินแล้ว",
@@ -95199,6 +97196,11 @@
       "title": "ยังออกเอกสารใบแจ้งหนี้นี้ไม่ได้",
       "titleEn": "This invoice cannot be finalized yet"
     },
+    "invoice_not_payable": {
+      "status": 409,
+      "title": "ใบแจ้งหนี้นี้รับชำระไม่ได้ในสถานะปัจจุบัน",
+      "titleEn": "This invoice cannot take a payment in its current status"
+    },
     "invoice_pdf_template_changed": {
       "status": 409,
       "title": "แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ",
@@ -95313,6 +97315,11 @@
       "status": 413,
       "title": "ไฟล์หรือข้อมูลมีขนาดใหญ่เกินกำหนด",
       "titleEn": "Payload too large"
+    },
+    "payment_exceeds_outstanding": {
+      "status": 409,
+      "title": "ยอดตัดหนี้เกินยอดคงค้าง",
+      "titleEn": "The amount applied exceeds the outstanding balance"
     },
     "pdf_render_timeout": {
       "status": 503,

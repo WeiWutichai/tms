@@ -20,6 +20,7 @@ import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { bangkokToday } from '../vehicle-documents/expiry';
 import type { BillingDoRow } from '../delivery-orders/delivery-order.service';
 import { LINE_UNIT_EXPR, LINE_UNIT_JOINS } from './line-units';
 import { REVENUE_LOCK_NS } from '../revenue-lines/revenue-rebuild';
@@ -48,6 +49,9 @@ const day = (s: string) => new Date(`${s}T00:00:00.000Z`);
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 const isRealDay = (s: string) => !Number.isNaN(day(s).getTime()) && ymd(day(s)) === s;
 const money = (d: Prisma.Decimal | string) => new Prisma.Decimal(d).toFixed(2);
+
+/** ใบที่ออกแล้วและนับยอดค้าง (หน้า "รับชำระ" — ไม่รวมร่าง/ยกเลิก) */
+const RECEIVABLE_STATUSES: readonly string[] = ['ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED'];
 
 const LOAD = {
   customer: { select: { id: true, code: true, legalName: true, taxId: true, branchCode: true } },
@@ -109,6 +113,12 @@ export class InvoicesService {
     const k = keysetArgs(q);
     const and: Prisma.InvoiceWhereInput[] = [k.where as Prisma.InvoiceWhereInput];
     if (q.status) and.push({ status: q.status });
+    if (q.receivable === 'all')
+      and.push({ status: { in: RECEIVABLE_STATUSES as InvoiceStatus[] } });
+    if (q.receivable === 'open' || q.receivable === 'overdue')
+      and.push({ status: { in: ['ISSUED', 'PARTIALLY_PAID'] } });
+    if (q.receivable === 'overdue')
+      and.push({ dueDate: { lt: day(bangkokToday(this.clock.now())) } });
     if (q.customerId !== undefined)
       and.push({ customerId: (await this.customerRef(tx, q.customerId)) ?? NONE });
     const rows = await tx.invoice.findMany({
@@ -966,6 +976,10 @@ function summary(
     lineMode: r.lineMode as InvoiceLineMode,
     sellTotal: money(r.totalAmount),
     sellNetExpected: money(r.netExpectedAmount),
+    sellPaidAmount: money(r.paidAmount),
+    sellOutstanding: RECEIVABLE_STATUSES.includes(r.status)
+      ? money(r.totalAmount.sub(r.paidAmount))
+      : '0.00',
     issueDate: r.issueDate ? ymd(r.issueDate) : null,
     dueDate: r.dueDate ? ymd(r.dueDate) : null,
     version: r.version,

@@ -316,6 +316,8 @@ enum DocType {
   WHT
   WO
   INC
+  /// ST5-T13 เลขภายในของการรับชำระ (spec/05 §4 `docNo` series PAY — ไม่ใช่ใบเสร็จ D-56)
+  PAY
 
   @@map("doc_type")
 }
@@ -456,6 +458,7 @@ model Customer {
   deliveryOrders DeliveryOrder[]
 
   invoices Invoice[]
+  payments Payment[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -3572,11 +3575,15 @@ model Invoice {
   /// PDF ต้นฉบับที่เก็บ (render หลัง commit — ผูกได้ครั้งเดียว)
   pdfDocumentId     String?         @map("pdf_document_id") @db.Uuid
   pdfDocument       StoredDocument? @relation(fields: [pdfDocumentId], references: [id], onDelete: Restrict)
+  /// ST5-T13 ยอดตัดชำระรวม (Σ payment_allocation.amount ของ payment ที่ยังไม่กลับรายการ — รวม WHT ที่ถูกหัก) · CHECK 0 ≤ paid ≤ total
+  /// เขียนโดย `applyInvoicePayments` ที่เดียว (ใต้ล็อกใบ) · คงค้าง = total_amount − paid_amount
+  paidAmount        Decimal         @default(0) @map("paid_amount") @db.Decimal(14, 2)
   version           Int             @default(1)
   createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  lines InvoiceLine[]
+  lines       InvoiceLine[]
+  allocations PaymentAllocation[]
 
   @@unique([tenantId, issuingBranchId, invoiceNo])
   @@index([tenantId, customerId, status])
@@ -3632,4 +3639,107 @@ model InvoiceLine {
   @@index([tenantId, doSurchargeId])
   @@index([tenantId, serviceItemId])
   @@map("invoice_line")
+}
+
+/// ST5-T13 วิธีรับเงิน (ต้นแบบ: โอนเงิน / เช็ค / เงินสด / หักกลบลบหนี้)
+enum PaymentMethod {
+  TRANSFER
+  CHEQUE
+  CASH
+  OFFSET
+
+  @@map("payment_method")
+}
+
+/// ST5-T13 สถานะการรับชำระ — แก้/ลบไม่ได้ แก้ด้วยการกลับรายการ (docs/04 F4 "แก้รับชำระด้วย reversal entry")
+enum PaymentStatus {
+  RECORDED
+  REVERSED
+
+  @@map("payment_status")
+}
+
+/// ST5-T13 สถานะเช็ค (spec/05 §4 `chequeStatus`) — BOUNCED (เช็คคืน) = กลับรายการพร้อมกัน
+enum ChequeStatus {
+  PENDING
+  CLEARED
+  BOUNCED
+
+  @@map("cheque_status")
+}
+
+/// ST5-T13 ที่มาของการรับชำระ — CONNECTOR = ระบบบัญชีแจ้ง (ST7-T21 / ST8-T16)
+enum PaymentSource {
+  MANUAL
+  CONNECTOR
+
+  @@map("payment_source")
+}
+
+/// ST5-T13 รับชำระจากลูกค้า (docs/01 §3.4 `payment`, docs/04 F5, spec/05 §4) — **บัญชีเบา D-54/D-57: บันทึกเงิน/เช็คใน TMS ไม่ออกใบเสร็จ (D-56)**
+/// ยอด: เงินรับ + WHT ที่ลูกค้าหัก + ค่าธรรมเนียมที่ลูกค้าหัก + ส่วนต่าง = Σ allocation.amount (BIL-051 — ไม่มียอดรับเกิน/เครดิตลูกค้าในเฟสนี้)
+/// แก้/ลบไม่ได้ (trigger) — กลับรายการ (REVERSED) พร้อมเหตุผล · เช็คคืน = กลับรายการ + cheque_status BOUNCED
+model Payment {
+  id               String        @id @default(uuid()) @db.Uuid
+  tenantId         String        @map("tenant_id") @db.Uuid
+  /// เลขภายใน series PAY (ไม่ใช่ใบเสร็จ)
+  paymentNo        String        @map("payment_no")
+  customerId       String        @map("customer_id") @db.Uuid
+  customer         Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  /// วันที่รับ (เวลาไทย) ≤ วันนี้
+  receivedDate     DateTime      @map("received_date") @db.Date
+  method           PaymentMethod
+  /// เลขอ้างอิงการโอน / หักกลบ
+  reference        String?
+  chequeNo         String?       @map("cheque_no")
+  chequeBank       String?       @map("cheque_bank")
+  chequeDate       DateTime?     @map("cheque_date") @db.Date
+  chequeStatus     ChequeStatus? @map("cheque_status")
+  /// เงินเข้าจริง
+  amountReceived   Decimal       @map("amount_received") @db.Decimal(14, 2)
+  /// WHT ที่ลูกค้าหักไว้ (บันทึกยอดอย่างเดียว — รับ/ตรวจ 50 ทวิ ที่ AccountSystem D-54)
+  whtAmount        Decimal       @default(0) @map("wht_amount") @db.Decimal(14, 2)
+  /// เลขที่หนังสือรับรอง 50 ทวิ ที่ลูกค้าแจ้ง (ข้อความ — ต้นแบบ)
+  whtCertificateNo String?       @map("wht_certificate_no")
+  /// ค่าธรรมเนียมโอนที่ลูกค้าหัก
+  feeAmount        Decimal       @default(0) @map("fee_amount") @db.Decimal(14, 2)
+  /// ส่วนต่างที่ยอมตัดยอด (ลูกค้าจ่ายขาด) — ต้องมีเหตุผล
+  differenceAmount Decimal       @default(0) @map("difference_amount") @db.Decimal(14, 2)
+  differenceReason String?       @map("difference_reason")
+  note             String?
+  source           PaymentSource @default(MANUAL)
+  status           PaymentStatus @default(RECORDED)
+  reversedAt       DateTime?     @map("reversed_at") @db.Timestamptz(6)
+  reversedBy       String?       @map("reversed_by")
+  reverseReason    String?       @map("reverse_reason")
+  createdBy        String?       @map("created_by")
+  version          Int           @default(1)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  allocations PaymentAllocation[]
+
+  @@unique([tenantId, paymentNo])
+  @@index([tenantId, customerId])
+  @@index([tenantId, receivedDate])
+  @@index([tenantId, updatedAt, id])
+  @@map("payment")
+}
+
+/// ST5-T13 การตัดชำระต่อใบแจ้งหนี้ (docs/01 §3.4 `payment_allocation`) — `amount` = ยอดตัดหนี้ (รวม WHT) · แก้/ลบไม่ได้
+/// Σ ต่อใบ (payment ที่ยังไม่กลับรายการ) ≤ total_amount — ตรวจใต้ล็อกใบ + CHECK invoice.paid_amount
+model PaymentAllocation {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  paymentId String   @map("payment_id") @db.Uuid
+  payment   Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  invoiceId String   @map("invoice_id") @db.Uuid
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  amount    Decimal  @db.Decimal(14, 2)
+  whtAmount Decimal  @default(0) @map("wht_amount") @db.Decimal(14, 2)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([paymentId, invoiceId])
+  @@index([tenantId, invoiceId])
+  @@map("payment_allocation")
 }

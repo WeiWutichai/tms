@@ -245,6 +245,7 @@ describe('องค์กร: นิติบุคคล สาขา เลข
         'DN',
         'STL',
         'WHT',
+        'PAY',
       ]);
       const so = list[0];
       expect(so.pattern).toBe('{YYMM}-{NNNN}');

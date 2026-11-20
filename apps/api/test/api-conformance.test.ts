@@ -25,7 +25,7 @@ import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './hel
  * - ทุก endpoint ใน MATRIX: scope ใน OpenAPI (`x-required-scopes`) ตรงกับตาราง · key ไม่มี scope → 403 `permission_denied`
  *   (`required` ตรง) · key ของบริษัทอื่น → 404 · ไม่มี credential → 401 · OpenAPI มีตัวอย่าง 403/404
  * - list: cursor pagination (`limit`/`nextCursor`/`hasMore`) · GET ใบเดียวมี ETag · If-Match ไม่ตรง → 412
- * - แถว #6 invoices อยู่ในตารางแล้ว (ST5-T09: list/สร้างร่าง/อ่าน/ออกเอกสาร) · void / invoice-runs / payments = DEFERRED (ST5-T10/T12/T13)
+ * - แถว #6 invoices อยู่ในตารางแล้ว (ST5-T09: list/สร้างร่าง/อ่าน/ออกเอกสาร) + payments (ST5-T13) · void / invoice-runs = DEFERRED (ST5-T10/T12)
  *   — ตรวจว่ายังไม่มี path (กันลืมย้ายเข้าตาราง)
  */
 
@@ -146,6 +146,17 @@ export const MATRIX: Row[] = [
       E('post', '/v1/invoices/{id}/finalize', 'invoices:finalize'),
     ],
   },
+  {
+    g2: '#6',
+    resource: 'payments',
+    endpoints: [
+      E('get', '/v1/payments', 'invoices:read'),
+      E('get', '/v1/payments/summary', 'invoices:read'),
+      E('post', '/v1/payments', 'payments:record'),
+      E('get', '/v1/payments/{id}', 'invoices:read'),
+      E('post', '/v1/payments/{id}/reverse', 'payments:reverse'),
+    ],
+  },
   { g2: '#8', resource: 'drivers', endpoints: master('drivers') },
   { g2: '#8', resource: 'vehicles', endpoints: master('vehicles') },
   { g2: '#8', resource: 'carriers', endpoints: master('carriers') },
@@ -160,7 +171,6 @@ export const MATRIX: Row[] = [
 export const DEFERRED: { g2: string; resource: string; paths: string[]; task: string }[] = [
   { g2: '#6', resource: 'invoices (void)', paths: ['/v1/invoices/{id}/void'], task: 'ST5-T10' },
   { g2: '#6', resource: 'invoice-runs', paths: ['/v1/invoice-runs'], task: 'ST5-T12' },
-  { g2: '#6', resource: 'payments', paths: ['/v1/payments'], task: 'ST5-T13' },
 ];
 
 const PNG = Buffer.from(
@@ -1016,6 +1026,34 @@ describe(
         status: 'ISSUED',
         invoiceNo: expect.stringMatching(/^INV-00000-\d{4}-0001$/),
       });
+      // ST5-T13 รับชำระจากระบบบัญชี (docs/04 G2 "POST /payments") → อ่าน → กลับรายการ
+      const paid = await call(full, 'post', '/v1/payments', {
+        body: {
+          receivedDate: today,
+          method: 'TRANSFER',
+          amountReceived: fin.body.sellTotal,
+          allocations: [{ invoiceId: draft.id, amount: fin.body.sellTotal }],
+        },
+        expect: 201,
+      });
+      await call(full, 'get', '/v1/payments', { query: { invoiceId: draft.id }, expect: 200 });
+      await call(full, 'get', '/v1/payments/summary', { expect: 200 });
+      const pg = await call(full, 'get', '/v1/payments/{id}', {
+        params: { id: paid.body.id },
+        expect: 200,
+      });
+      const stalePay = await call(full, 'post', '/v1/payments/{id}/reverse', {
+        params: { id: paid.body.id },
+        headers: { 'If-Match': '"999"' },
+        body: { reason: REASON },
+      });
+      expect(stalePay.status).toBe(412);
+      await call(full, 'post', '/v1/payments/{id}/reverse', {
+        params: { id: paid.body.id },
+        headers: { 'If-Match': pg.headers.etag as string },
+        body: { reason: REASON },
+        expect: 200,
+      });
     });
 
     it('#2 #10 webhooks/event-types/deliveries (อ่าน) · jobs · api-keys · openapi.json ด้วย key', async () => {
@@ -1282,7 +1320,7 @@ describe(
       }
     });
 
-    it('แถว #6 (void / invoice-runs / payments) = DEFERRED → ST5 — ยังไม่มี path ใน OpenAPI', () => {
+    it('แถว #6 (void / invoice-runs) = DEFERRED → ST5 — ยังไม่มี path ใน OpenAPI', () => {
       for (const d of DEFERRED) {
         expect(d.task).toMatch(/^ST5-T\d+$/);
         for (const p of d.paths)

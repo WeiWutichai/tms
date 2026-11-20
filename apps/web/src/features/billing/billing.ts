@@ -5,6 +5,8 @@ import {
   sumSatang,
   taxOptionsFromSettings,
 } from '@tms/domain';
+import type { T } from '../../i18n';
+import type { MessageKey } from '../../i18n/th';
 import { addDays } from '../rate-cards/rateFormat';
 
 /**
@@ -62,4 +64,30 @@ export function selectionTotals(rows: readonly QueueAmounts[]) {
     vat: decimalFromSatang(tax.vat),
     net: decimalFromSatang(tax.grandTotal),
   };
+}
+
+/**
+ * สถานะที่แสดง (ต้นแบบ invSt): ใบค้างรับที่เลยวันครบกำหนด (เวลาไทย) = "เกินกำหนด" — คำนวณตอนแสดงเท่านั้น
+ * (สถานะ OVERDUE ในฐานข้อมูล + job = ST5-T18)
+ */
+export function invoiceDisplayStatus(
+  x: { status: string; dueDate: string | null },
+  today: string,
+): string {
+  if ((x.status === 'ISSUED' || x.status === 'PARTIALLY_PAID') && x.dueDate && x.dueDate < today)
+    return 'OVERDUE';
+  return x.status;
+}
+
+/** จำนวนวันที่เกินกำหนด (0 = ยังไม่เกิน / ไม่ค้าง) */
+export function overdueDays(x: { status: string; dueDate: string | null }, today: string): number {
+  if (invoiceDisplayStatus(x, today) !== 'OVERDUE') return 0;
+  return Math.round(
+    (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${x.dueDate}T00:00:00Z`)) / 86_400_000,
+  );
+}
+
+/** วิธีรับเงิน → ป้ายไทย (ต้นแบบ: โอนเงิน / เช็ค / เงินสด / หักกลบลบหนี้) */
+export function methodLabel(t: T, m: string): string {
+  return t(`pay.m.${m}` as MessageKey);
 }
