@@ -6516,7 +6516,7 @@ scope: `documents:read` · operationId: `Documents_get`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` |   | `DocumentDto` |
+| `200` | ไฟล์ส่งออก (EXPORT) เห็นเฉพาะผู้สั่ง · ไฟล์นำเข้า (IMPORT) เห็นเฉพาะผู้อัปโหลด (API key เห็นเฉพาะไฟล์ที่ key นั้นอัปโหลด) หรือผู้ใช้ที่มีสิทธิ์จัดการการนำเข้าทุกชนิดที่ใช้ไฟล์นั้น; การเข้าใช้งานแทนไม่เห็น; `downloadUrl` ของไฟล์นำเข้าหมดอายุ 60 วินาที — ไม่มีสิทธิ์ = 404 | `DocumentDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`documents:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
@@ -6620,7 +6620,7 @@ const { data, error } = await tms.PUT('/v1/documents/{id}/content', {
 | `sha256` | ใช่ | `string` | null ได้ |   |   |
 | `createdAt` | ใช่ | `string (date-time)` |   |   |   |
 | `uploadUrl` |   | `string` |   | สถานะ pending: PUT เนื้อไฟล์ไปที่นี่ (หมดอายุ 15 นาที) |   |
-| `downloadUrl` |   | `string` |   | สถานะ ready: ลิงก์ดาวน์โหลด (หมดอายุ 5 นาที) |   |
+| `downloadUrl` |   | `string` |   | สถานะ ready: ลิงก์ดาวน์โหลด (หมดอายุ 5 นาที · ไฟล์นำเข้า IMPORT 60 วินาที) |   |
 | `urlExpiresAt` |   | `string (date-time)` |   |   |   |
 
 ---

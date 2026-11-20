@@ -28,8 +28,8 @@ import { krsMasterCodeRefs, krsPushReadiness } from './krs-master-codes';
  * - method ของโครงยังไม่ทำ → `pendingCapabilities` + ตอบ CAPABILITY `not_implemented` (core พักคำสั่งไว้ ไม่ทิ้ง):
  *   pullOrders = ST8-T04 (SQL read-only view), pushInvoice = ST8-T08, replaceDocument = ST8-T09/T11, fetchDocument = ST8-T10
  * - ค่าตั้ง: `baseUrl` (เช่น `https://api-pueanphet.krs.co.th/api`), credential `apiKey` (header `X-API-Key` — เข้ารหัส FieldCipher, write-only),
- *   SQL Server login แบบอ่านอย่างเดียว (`sqlServer`/`sqlDatabase`/`sqlUser` + credential `sqlPassword`) **เก็บไว้เฉย ๆ** จนถึง ST8-T02/T04
- *   (ยังไม่มี dependency SQL Server) · `healthTransactionNo` = เลข `transactionNo` ของใบที่รู้จักแล้ว ใช้ทดสอบ (docs/01 A.2)
+ *   SQL Server login แบบอ่านอย่างเดียว (`sqlServer`/`sqlDatabase`/`sqlUser` + credential `sqlPassword`) **เก็บไว้เฉย ๆ** จนถึง ST8-T04
+ *   (ยังไม่มี dependency SQL Server — ST8-T02 อ่าน SO ผ่าน HTTP stub `GET /salesorder?since=`: `krs-so-source.ts`) · `healthTransactionNo` = เลข `transactionNo` ของใบที่รู้จักแล้ว ใช้ทดสอบ (docs/01 A.2)
  * - healthCheck = `GET {baseUrl}/invoice/{healthTransactionNo | 0}` ผ่าน HTTP client กัน SSRF ตัวเดียวกับ webhook
  *   (resolve + ตรวจ IP + ต่อด้วย address ที่ตรวจแล้ว · ไม่ follow redirect · timeout 10 วิ):
  *   200/404 = ถึงปลายทางและ key ใช้ได้ (KRS ตรวจ key ก่อนหาใบ — A.1) · 401/403 = AUTH · 503/5xx/429/timeout/เครือข่าย = TRANSIENT
