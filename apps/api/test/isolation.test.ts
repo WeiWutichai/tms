@@ -844,6 +844,39 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('settlement', s.id);
     },
+    // ST5-T07 ร่างใบแจ้งหนี้ (/invoices/:id, /proforma, /delivery-orders(/remove|/move), /lines(/merge|/split|/:lineId|/:lineId/remove), /cancel)
+    invoice: async (db, tenantId, n) => {
+      const c = await db.company.create({
+        data: { tenantId, legalName: `Co inv ${n}`, taxId: validTaxId(1500 + n) },
+      });
+      const b = await db.branch.create({
+        data: {
+          tenantId,
+          companyId: c.id,
+          branchCode: '00000',
+          branchLabel: 'HQ',
+          address: {
+            line1: 'x',
+            subdistrict: 'x',
+            district: 'x',
+            province: 'x',
+            postcode: '10000',
+          },
+        },
+      });
+      const cus = await db.customer.create({
+        data: {
+          tenantId,
+          code: `ISO-INV-${n}`,
+          legalName: `Cust inv ${n}`,
+          taxId: validTaxId(1700 + n),
+        },
+      });
+      const inv = await db.invoice.create({
+        data: { tenantId, customerId: cus.id, issuingCompanyId: c.id, issuingBranchId: b.id },
+      });
+      return encodeId('invoice', inv.id);
+    },
     // ST3-T11 เที่ยวรถ (PLANNING ว่าง)
     trip: async (db, tenantId, n) =>
       encodeId(
@@ -976,6 +1009,25 @@ const BODY_FOR_PATH: Record<string, object> = {
   },
   '/v1/revenue-lines/:id/void': { reason: 'isolation test reason' }, // ST5-T01
   '/v1/settlements/:id/lines/:lineId/remove': { reason: 'isolation test reason' }, // ST6-T03
+  // ST5-T07 ร่างใบแจ้งหนี้
+  '/v1/invoices/:id/delivery-orders': { deliveryOrderIds: [`do_${'0'.repeat(32)}`] },
+  '/v1/invoices/:id/delivery-orders/remove': {
+    deliveryOrderIds: [`do_${'0'.repeat(32)}`],
+    reason: 'isolation test reason',
+  },
+  '/v1/invoices/:id/delivery-orders/move': {
+    deliveryOrderIds: [`do_${'0'.repeat(32)}`],
+    targetInvoiceId: `ivc_${'0'.repeat(32)}`,
+  },
+  '/v1/invoices/:id/lines': {
+    serviceItemId: `svc_${'0'.repeat(32)}`,
+    quantity: '1',
+    sellUnitPrice: '1.00',
+    reason: 'isolation test reason',
+  },
+  '/v1/invoices/:id/lines/merge': { lineIds: [`ivl_${'0'.repeat(32)}`] },
+  '/v1/invoices/:id/lines/split': { lineIds: [`ivl_${'0'.repeat(32)}`] },
+  '/v1/invoices/:id/lines/:lineId/remove': { reason: 'isolation test reason' },
   '/v1/settlements/:id/recall': { reason: 'isolation test reason' }, // ST6-T05
   '/v1/settlements/:id/lines/:lineId/dispute': { reason: 'isolation test reason' }, // ST6-T06
   '/v1/settlements/:id/lines/:lineId/resolve': { reason: 'isolation test reason' }, // ST6-T06

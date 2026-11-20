@@ -30,8 +30,8 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <main>
 <a class="md-link" href="ref-invoices.md">Markdown</a>
 <h1 id="invoices">invoices</h1>
-<p>1 endpoint · ทุกคำขอส่ง <code>Authorization: Bearer &lt;API key&gt;</code> — ดู <a href="authentication.html">ยืนยันตัวตน</a> และ <a href="conventions.html">แนวทางการใช้ API</a></p>
-<div class="table"><table><thead><tr><th>Endpoint</th><th>scope</th></tr></thead><tbody><tr><td>[<code>GET /v1/invoices/queue</code>](#get-invoices-queue)</td><td><code>invoices:read</code></td></tr></tbody></table></div>
+<p>17 endpoint · ทุกคำขอส่ง <code>Authorization: Bearer &lt;API key&gt;</code> — ดู <a href="authentication.html">ยืนยันตัวตน</a> และ <a href="conventions.html">แนวทางการใช้ API</a></p>
+<div class="table"><table><thead><tr><th>Endpoint</th><th>scope</th></tr></thead><tbody><tr><td>[<code>GET /v1/invoices/queue</code>](#get-invoices-queue)</td><td><code>invoices:read</code></td></tr><tr><td>[<code>GET /v1/invoices/summary</code>](#get-invoices-summary)</td><td><code>invoices:read</code></td></tr><tr><td>[<code>POST /v1/invoices/preview</code>](#post-invoices-preview)</td><td><code>invoices:draft</code></td></tr><tr><td>[<code>GET /v1/invoices</code>](#get-invoices)</td><td><code>invoices:read</code></td></tr><tr><td>[<code>POST /v1/invoices</code>](#post-invoices)</td><td><code>invoices:draft</code></td></tr><tr><td>[<code>GET /v1/invoices/{id}</code>](#get-invoices-id)</td><td><code>invoices:read</code></td></tr><tr><td>[<code>PATCH /v1/invoices/{id}</code>](#patch-invoices-id)</td><td><code>invoices:draft</code></td></tr><tr><td>[<code>GET /v1/invoices/{id}/proforma</code>](#get-invoices-id-proforma)</td><td><code>invoices:read</code></td></tr><tr><td>[<code>POST /v1/invoices/{id}/delivery-orders</code>](#post-invoices-id-delivery-orders)</td><td><code>invoices:draft</code></td></tr><tr><td>[<code>POST /v1/invoices/{id}/delivery-orders/remove</code>](#post-invoices-id-delivery-orders-remove)</td><td><code>invoices:draft</code></td></tr><tr><td>[<code>POST /v1/invoices/{id}/delivery-orders/move</code>](#post-invoices-id-delivery-orders-move)</td><td><code>invoices:draft</code></td></tr><tr><td>[<code>POST /v1/invoices/{id}/lines</code>](#post-invoices-id-lines)</td><td><code>invoices:draft</code></td></tr><tr><td>[<code>POST /v1/invoices/{id}/lines/merge</code>](#post-invoices-id-lines-merge)</td><td><code>invoices:draft</code></td></tr><tr><td>[<code>POST /v1/invoices/{id}/lines/split</code>](#post-invoices-id-lines-split)</td><td><code>invoices:draft</code></td></tr><tr><td>[<code>PATCH /v1/invoices/{id}/lines/{lineId}</code>](#patch-invoices-id-lines-lineId)</td><td><code>invoices:draft</code></td></tr><tr><td>[<code>POST /v1/invoices/{id}/lines/{lineId}/remove</code>](#post-invoices-id-lines-lineId-remove)</td><td><code>invoices:draft</code></td></tr><tr><td>[<code>POST /v1/invoices/{id}/cancel</code>](#post-invoices-id-cancel)</td><td><code>invoices:draft</code></td></tr></tbody></table></div>
 <h2 id="get-invoices-queue">คิวพร้อมวางบิล (DO ที่ส่งแล้ว หลักฐานครบ และราคาพร้อม)</h2>
 <p><code>GET /v1/invoices/queue</code></p>
 <p>scope: <code>invoices:read</code> · operationId: <code>Invoices_list</code></p>
@@ -44,9 +44,351 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <pre><code class="language-bash">curl -sS -X GET &quot;$TMS_BASE_URL/v1/invoices/queue&quot; \
   -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
 <pre><code class="language-ts">const { data, error } = await tms.GET('/v1/invoices/queue');</code></pre>
+<h2 id="get-invoices-summary">จำนวนใบแจ้งหนี้ตามสถานะ (แท็บ/KPI)</h2>
+<p><code>GET /v1/invoices/summary</code></p>
+<p>scope: <code>invoices:read</code> · operationId: <code>Invoices_summary</code></p>
+<p>นับทั้ง tenant · เกินกำหนดเป็น 0 จนกว่าจะมีวันครบกำหนด/รับชำระ</p>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>InvoiceSummaryCountsDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>invoices:read</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X GET &quot;$TMS_BASE_URL/v1/invoices/summary&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.GET('/v1/invoices/summary');</code></pre>
+<h2 id="post-invoices-preview">PDF ตัวอย่างจาก DO ที่เลือก — ไม่บันทึกอะไร</h2>
+<p><code>POST /v1/invoices/preview</code></p>
+<p>scope: <code>invoices:draft</code> · operationId: <code>Invoices_preview</code></p>
+<p>body เดียวกับ <code>POST /invoices</code> · ตรวจกติกาชุดเดียวกัน (ลูกค้าเดียว, เงื่อนไขส่งบัญชี + คิวพร้อมวางบิล, กันวางบิลซ้ำ) แต่ <strong>ไม่สร้างร่าง ไม่ส่งบัญชี ไม่ลง audit</strong> (ทำใน transaction แล้วย้อนทั้งหมด) · ไม่มีเลข มีลายน้ำ &quot;ร่าง&quot; ไม่มีคำว่า &quot;ใบกำกับภาษี&quot; · ต้องมี <code>prices.sell:read</code></p>
+<p><strong>Request body</strong> <code>CreateInvoiceDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>customerId</code></td><td>ใช่</td><td><code>string</code></td><td></td><td>ลูกค้า — id หรือ <code>ext:{externalId}</code></td><td><code>cus_…</code></td></tr><tr><td><code>deliveryOrderIds</code></td><td>ใช่</td><td><code>array&lt;string&gt;</code></td><td></td><td>ใบส่งของ (≤ 200) ของลูกค้ารายนี้ที่ <strong>ส่งบัญชีแล้ว</strong> และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง)</td><td><code>[&quot;do_…&quot;]</code></td></tr><tr><td><code>periodFrom</code></td><td></td><td><code>string</code></td><td></td><td>งวดตั้งแต่ — ไม่ส่ง = วันที่ DO แรก</td><td><code>2026-11-01</code></td></tr><tr><td><code>periodTo</code></td><td></td><td><code>string</code></td><td></td><td>งวดถึง — ไม่ส่ง = วันที่ DO สุดท้าย</td><td><code>2026-11-15</code></td></tr><tr><td><code>lineMode</code></td><td></td><td><code>string</code></td><td>ค่า: <code>SINGLE</code>, <code>GROUP</code>, <code>MERGE</code></td><td>ไม่ส่ง = SINGLE</td><td></td></tr><tr><td><code>releaseDeliveryOrders</code></td><td></td><td><code>boolean</code></td><td></td><td>true = ส่งบัญชี DO ที่ยังไม่ส่งในคำขอเดียวกัน (atomic — ส่งไม่ผ่าน = 409 และไม่มีอะไรเปลี่ยน) · ไม่ส่ง/false = DO ต้องส่งบัญชีแล้ว</td><td></td></tr><tr><td><code>customerPoNo</code></td><td></td><td><code>string</code></td><td>ยาว ≤ 60 · null ได้</td><td>เลข ลูกค้า</td><td></td></tr><tr><td><code>note</code></td><td></td><td><code>string</code></td><td>ยาว ≤ 1000 · null ได้</td><td></td><td></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td>application/pdf</td><td></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>invoices:draft</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>409</code></td><td><code>not_ready_to_bill</code> — DO ยังไม่พร้อม (ตรวจซ้ำตอนดึง): <code>reasons[]</code> + <code>deliveryOrders[]</code> (ต่อ DO: <code>reasons</code>, <code>missing</code>) — รวม <code>NOT_RELEASED</code> (ยังไม่ส่งบัญชี) · <code>do_already_drafted</code> — DO อยู่ในใบแจ้งหนี้อื่นที่ยัง active · <code>invalid_state_transition</code> — ใบไม่ใช่ร่าง — <a href="errors.html#not_ready_to_bill">not_ready_to_bill</a>, <a href="errors.html#do_already_drafted">do_already_drafted</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/invoices/preview&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;customerId&quot;:&quot;cus_…&quot;,&quot;deliveryOrderIds&quot;:[&quot;do_…&quot;],&quot;periodFrom&quot;:&quot;2026-11-01&quot;,&quot;periodTo&quot;:&quot;2026-11-15&quot;}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/invoices/preview', {
+  body: {
+    &quot;customerId&quot;: &quot;cus_…&quot;,
+    &quot;deliveryOrderIds&quot;: [
+      &quot;do_…&quot;
+    ],
+    &quot;periodFrom&quot;: &quot;2026-11-01&quot;,
+    &quot;periodTo&quot;: &quot;2026-11-15&quot;
+  },
+});</code></pre>
+<h2 id="get-invoices">รายการใบแจ้งหนี้</h2>
+<p><code>GET /v1/invoices</code></p>
+<p>scope: <code>invoices:read</code> · operationId: <code>Invoices_listInvoices</code></p>
+<p>กรองลูกค้า (<code>customerId</code> รับ <code>ext:</code> — ไม่พบ = ว่าง) / สถานะ · cursor มาตรฐาน (updatedAt, id) · ร่างไม่มีเลข (<code>invoiceNo</code> = null) · ยอด <code>sell*</code> เห็นเมื่อมี <code>prices.sell:read</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>limit</code></td><td>query</td><td></td><td><code>number</code></td><td></td></tr><tr><td><code>cursor</code></td><td>query</td><td></td><td><code>string</code></td><td>ค่า nextCursor จากหน้าก่อน</td></tr><tr><td><code>updatedAfter</code></td><td>query</td><td></td><td><code>string</code></td><td>คืนเฉพาะแถวที่ updatedAt &gt; ค่านี้ (incremental pull)</td></tr><tr><td><code>sort</code></td><td>query</td><td></td><td><code>string</code> ค่า: <code>updatedAt</code>, <code>-updatedAt</code></td><td></td></tr><tr><td><code>fields</code></td><td>query</td><td></td><td><code>string</code></td><td>รายชื่อ field คั่นด้วย, เช่น id,legalName</td></tr><tr><td><code>customerId</code></td><td>query</td><td></td><td><code>string</code></td><td>ลูกค้า — id หรือ <code>ext:{externalId}</code></td></tr><tr><td><code>status</code></td><td>query</td><td></td><td><code>string</code> ค่า: <code>DRAFT</code>, <code>ISSUED</code>, <code>PARTIALLY_PAID</code>, <code>PAID</code>, <code>ADJUSTED</code>, <code>VOIDED</code>, <code>CANCELLED</code></td><td></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>InvoicePageDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>invoices:read</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X GET &quot;$TMS_BASE_URL/v1/invoices&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.GET('/v1/invoices');</code></pre>
+<h2 id="post-invoices">สร้างร่างใบแจ้งหนี้จาก DO หลายใบของลูกค้าเดียว (ไม่มีเลข)</h2>
+<p><code>POST /v1/invoices</code></p>
+<p>scope: <code>invoices:draft</code> · operationId: <code>Invoices_create</code></p>
+<p>บัญชีเบา: <strong>ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี</strong> · ทุก DO ต้องเป็นของลูกค้ารายนี้ <strong>ส่งบัญชีแล้ว</strong> (<code>POST /delivery-orders/{id}/release</code>) และ <strong>ตรวจความพร้อมซ้ำตอนดึง</strong> (เงื่อนไขเดียวกับคิว <code>GET /invoices/queue</code> + เวลาจุดส่ง + หลักฐานตาม checklist ปัจจุบัน — ไม่เชื่อเวลาส่งบัญชีอย่างเดียว) ไม่ผ่าน → 409 <code>not_ready_to_bill</code> · DO อยู่ในใบอื่นที่ active → 409 <code>do_already_drafted</code> (กันวางบิลซ้ำ — ระดับ DB) · 1 บรรทัด = 1 บรรทัดรายได้ของ DO (ค่าขนส่ง/บริการประกอบ/ค่าใช้จ่ายหน้างาน — <code>vatType</code>/<code>whtRate</code> ต่อบรรทัด) · DO → <code>billingStatus</code> IN_DRAFT (ราคาที่ order ล็อก) · ยอด VAT/WHT <strong>ประมาณการ</strong> (computeDocumentTax) · ผู้ออก = บริษัทวางบิลตั้งต้นของลูกค้า + สาขาผู้ออกตั้งต้น · เครดิตจากลูกค้า · งวดไม่ส่ง = ช่วงวันที่ DO · <strong>ไม่เข้า outbox/webhook</strong> (ส่งระบบบัญชีหลังออกเลข) · audit <code>invoice.draft_created</code></p>
+<p><strong>Request body</strong> <code>CreateInvoiceDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>customerId</code></td><td>ใช่</td><td><code>string</code></td><td></td><td>ลูกค้า — id หรือ <code>ext:{externalId}</code></td><td><code>cus_…</code></td></tr><tr><td><code>deliveryOrderIds</code></td><td>ใช่</td><td><code>array&lt;string&gt;</code></td><td></td><td>ใบส่งของ (≤ 200) ของลูกค้ารายนี้ที่ <strong>ส่งบัญชีแล้ว</strong> และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง)</td><td><code>[&quot;do_…&quot;]</code></td></tr><tr><td><code>periodFrom</code></td><td></td><td><code>string</code></td><td></td><td>งวดตั้งแต่ — ไม่ส่ง = วันที่ DO แรก</td><td><code>2026-11-01</code></td></tr><tr><td><code>periodTo</code></td><td></td><td><code>string</code></td><td></td><td>งวดถึง — ไม่ส่ง = วันที่ DO สุดท้าย</td><td><code>2026-11-15</code></td></tr><tr><td><code>lineMode</code></td><td></td><td><code>string</code></td><td>ค่า: <code>SINGLE</code>, <code>GROUP</code>, <code>MERGE</code></td><td>ไม่ส่ง = SINGLE</td><td></td></tr><tr><td><code>releaseDeliveryOrders</code></td><td></td><td><code>boolean</code></td><td></td><td>true = ส่งบัญชี DO ที่ยังไม่ส่งในคำขอเดียวกัน (atomic — ส่งไม่ผ่าน = 409 และไม่มีอะไรเปลี่ยน) · ไม่ส่ง/false = DO ต้องส่งบัญชีแล้ว</td><td></td></tr><tr><td><code>customerPoNo</code></td><td></td><td><code>string</code></td><td>ยาว ≤ 60 · null ได้</td><td>เลข ลูกค้า</td><td></td></tr><tr><td><code>note</code></td><td></td><td><code>string</code></td><td>ยาว ≤ 1000 · null ได้</td><td></td><td></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>201</code></td><td></td><td><code>InvoiceDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>invoices:draft</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>409</code></td><td><code>not_ready_to_bill</code> — DO ยังไม่พร้อม (ตรวจซ้ำตอนดึง): <code>reasons[]</code> + <code>deliveryOrders[]</code> (ต่อ DO: <code>reasons</code>, <code>missing</code>) — รวม <code>NOT_RELEASED</code> (ยังไม่ส่งบัญชี) · <code>do_already_drafted</code> — DO อยู่ในใบแจ้งหนี้อื่นที่ยัง active · <code>invalid_state_transition</code> — ใบไม่ใช่ร่าง — <a href="errors.html#not_ready_to_bill">not_ready_to_bill</a>, <a href="errors.html#do_already_drafted">do_already_drafted</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/invoices&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;customerId&quot;:&quot;cus_…&quot;,&quot;deliveryOrderIds&quot;:[&quot;do_…&quot;],&quot;periodFrom&quot;:&quot;2026-11-01&quot;,&quot;periodTo&quot;:&quot;2026-11-15&quot;}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/invoices', {
+  body: {
+    &quot;customerId&quot;: &quot;cus_…&quot;,
+    &quot;deliveryOrderIds&quot;: [
+      &quot;do_…&quot;
+    ],
+    &quot;periodFrom&quot;: &quot;2026-11-01&quot;,
+    &quot;periodTo&quot;: &quot;2026-11-15&quot;
+  },
+});</code></pre>
+<h2 id="get-invoices-id">ใบแจ้งหนี้ + บรรทัด + บรรทัดบนเอกสาร (Group / Merge / Single)</h2>
+<p><code>GET /v1/invoices/{id}</code></p>
+<p>scope: <code>invoices:read</code> · operationId: <code>Invoices_get</code></p>
+<p><code>lines</code> = บรรทัดจริง (รวมที่ถอดออกแล้ว <code>active=false</code>) · <code>printLines</code> = รูปบนเอกสารตาม <code>lineMode</code> + กลุ่มที่รวมเอง · ยอดภาษีเป็นประมาณการ (<code>taxEstimated</code>) · <code>sell*</code> เห็นเมื่อมี <code>prices.sell:read</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>InvoiceDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>invoices:read</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X GET &quot;$TMS_BASE_URL/v1/invoices/&lt;id&gt;&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.GET('/v1/invoices/{id}', {
+  params: { path: { id: &quot;…&quot; } },
+});</code></pre>
+<h2 id="patch-invoices-id">แก้หัวร่าง — รูปบรรทัด (Group / Merge / Single) งวด เครดิต เลข หมายเหตุ</h2>
+<p><code>PATCH /v1/invoices/{id}</code></p>
+<p>scope: <code>invoices:draft</code> · operationId: <code>Invoices_update</code></p>
+<p>เฉพาะ DRAFT (อื่น ๆ → 409) · audit <code>invoice.draft_updated</code> (เฉพาะช่องที่เปลี่ยน)</p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag (version) จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>UpdateInvoiceDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>lineMode</code></td><td></td><td><code>string</code></td><td>ค่า: <code>SINGLE</code>, <code>GROUP</code>, <code>MERGE</code></td><td>รูปบรรทัดบนเอกสาร (Group / Merge / Single)</td><td></td></tr><tr><td><code>periodFrom</code></td><td></td><td><code>string</code></td><td></td><td></td><td><code>2026-11-01</code></td></tr><tr><td><code>periodTo</code></td><td></td><td><code>string</code></td><td></td><td></td><td><code>2026-11-15</code></td></tr><tr><td><code>creditTermDays</code></td><td></td><td><code>number</code></td><td>≥ 0 · ≤ 365</td><td>เครดิต (วัน) — ค่าเริ่มจากลูกค้า แก้ได้ในร่าง</td><td></td></tr><tr><td><code>customerPoNo</code></td><td></td><td><code>string</code></td><td>ยาว ≤ 60 · null ได้</td><td></td><td></td></tr><tr><td><code>note</code></td><td></td><td><code>string</code></td><td>ยาว ≤ 1000 · null ได้</td><td></td><td></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>InvoiceDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>invoices:draft</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>409</code></td><td>สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — <a href="errors.html#invalid_state_transition">invalid_state_transition</a>, <a href="errors.html#concurrent_update">concurrent_update</a>, <a href="errors.html#idempotency_in_progress">idempotency_in_progress</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>412</code></td><td>If-Match ไม่ตรง version — <a href="errors.html#precondition_failed">precondition_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X PATCH &quot;$TMS_BASE_URL/v1/invoices/&lt;id&gt;&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;periodFrom&quot;:&quot;2026-11-01&quot;,&quot;periodTo&quot;:&quot;2026-11-15&quot;}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.PATCH('/v1/invoices/{id}', {
+  params: { path: { id: &quot;…&quot; } },
+  body: {
+    &quot;periodFrom&quot;: &quot;2026-11-01&quot;,
+    &quot;periodTo&quot;: &quot;2026-11-15&quot;
+  },
+});</code></pre>
+<h2 id="get-invoices-id-proforma">PDF ตัวอย่าง (pro forma) ของร่าง — ไม่มีเลข มีลายน้ำ &quot;ร่าง&quot;</h2>
+<p><code>GET /v1/invoices/{id}/proforma</code></p>
+<p>scope: <code>invoices:read</code> · operationId: <code>Invoices_proforma</code></p>
+<p>เฉพาะใบ DRAFT · แม่แบบใบแจ้งหนี้เต็ม · render ใหม่ทุกครั้งตามร่างล่าสุด (ไม่เก็บไฟล์) · ไม่มีคำว่า &quot;ใบกำกับภาษี&quot; · ยอด VAT/WHT ประมาณการ · ต้องมี <code>prices.sell:read</code> (มีราคา) ไม่งั้น 403</p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td>application/pdf</td><td></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>invoices:read</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>409</code></td><td>สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — <a href="errors.html#invalid_state_transition">invalid_state_transition</a>, <a href="errors.html#concurrent_update">concurrent_update</a>, <a href="errors.html#idempotency_in_progress">idempotency_in_progress</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X GET &quot;$TMS_BASE_URL/v1/invoices/&lt;id&gt;/proforma&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.GET('/v1/invoices/{id}/proforma', {
+  params: { path: { id: &quot;…&quot; } },
+});</code></pre>
+<h2 id="post-invoices-id-delivery-orders">เพิ่ม DO เข้าร่าง</h2>
+<p><code>POST /v1/invoices/{id}/delivery-orders</code></p>
+<p>scope: <code>invoices:draft</code> · operationId: <code>Invoices_addDos</code></p>
+<p>กฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 <code>customer_mismatch</code> · audit <code>invoice.delivery_orders_added</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag (version) จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>InvoiceDeliveryOrdersDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>deliveryOrderIds</code></td><td>ใช่</td><td><code>array&lt;string&gt;</code></td><td></td><td>ใบส่งของ (≤ 200)</td><td><code>[&quot;do_…&quot;]</code></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>InvoiceDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>invoices:draft</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>409</code></td><td><code>not_ready_to_bill</code> — DO ยังไม่พร้อม (ตรวจซ้ำตอนดึง): <code>reasons[]</code> + <code>deliveryOrders[]</code> (ต่อ DO: <code>reasons</code>, <code>missing</code>) — รวม <code>NOT_RELEASED</code> (ยังไม่ส่งบัญชี) · <code>do_already_drafted</code> — DO อยู่ในใบแจ้งหนี้อื่นที่ยัง active · <code>invalid_state_transition</code> — ใบไม่ใช่ร่าง — <a href="errors.html#not_ready_to_bill">not_ready_to_bill</a>, <a href="errors.html#do_already_drafted">do_already_drafted</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>412</code></td><td>If-Match ไม่ตรง version — <a href="errors.html#precondition_failed">precondition_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/invoices/&lt;id&gt;/delivery-orders&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;deliveryOrderIds&quot;:[&quot;do_…&quot;]}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/invoices/{id}/delivery-orders', {
+  params: { path: { id: &quot;…&quot; } },
+  body: {
+    &quot;deliveryOrderIds&quot;: [
+      &quot;do_…&quot;
+    ]
+  },
+});</code></pre>
+<h2 id="post-invoices-id-delivery-orders-remove">ถอด DO ออกจากร่าง — เหตุผล ≥ 10 ตัวอักษร</h2>
+<p><code>POST /v1/invoices/{id}/delivery-orders/remove</code></p>
+<p>scope: <code>invoices:draft</code> · operationId: <code>Invoices_removeDos</code></p>
+<p>บรรทัดของ DO คงอยู่ (<code>active</code> false + เหตุผล — ไม่มีการลบ) · DO กลับ UNBILLED (ขึ้นคิวพร้อมวางบิลอีก ราคาที่ order ปลดล็อก) · DO ไม่อยู่ในร่างนี้ → 422 <code>not_on_invoice</code> · audit <code>invoice.delivery_orders_removed</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag (version) จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>RemoveInvoiceDeliveryOrdersDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>deliveryOrderIds</code></td><td>ใช่</td><td><code>array&lt;string&gt;</code></td><td></td><td>ใบส่งของ (≤ 200)</td><td><code>[&quot;do_…&quot;]</code></td></tr><tr><td><code>reason</code></td><td>ใช่</td><td><code>string</code></td><td>ยาว ≤ 500 · ยาว ≥ 10</td><td></td><td><code>ลูกค้าขอวางบิล DO นี้งวดหน้า</code></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>InvoiceDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>invoices:draft</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>409</code></td><td>สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — <a href="errors.html#invalid_state_transition">invalid_state_transition</a>, <a href="errors.html#concurrent_update">concurrent_update</a>, <a href="errors.html#idempotency_in_progress">idempotency_in_progress</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>412</code></td><td>If-Match ไม่ตรง version — <a href="errors.html#precondition_failed">precondition_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/invoices/&lt;id&gt;/delivery-orders/remove&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;deliveryOrderIds&quot;:[&quot;do_…&quot;],&quot;reason&quot;:&quot;ลูกค้าขอวางบิล DO นี้งวดหน้า&quot;}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/invoices/{id}/delivery-orders/remove', {
+  params: { path: { id: &quot;…&quot; } },
+  body: {
+    &quot;deliveryOrderIds&quot;: [
+      &quot;do_…&quot;
+    ],
+    &quot;reason&quot;: &quot;ลูกค้าขอวางบิล DO นี้งวดหน้า&quot;
+  },
+});</code></pre>
+<h2 id="post-invoices-id-delivery-orders-move">ย้าย DO ไปร่างอื่น (ลูกค้า + สาขาผู้ออกเดียวกัน)</h2>
+<p><code>POST /v1/invoices/{id}/delivery-orders/move</code></p>
+<p>scope: <code>invoices:draft</code> · operationId: <code>Invoices_moveDos</code></p>
+<p>ถอดจากร่างนี้แล้วดึงเข้าร่างปลายทางใน transaction เดียว (ตรวจความพร้อมซ้ำ — ไม่ผ่าน = ไม่ย้ายเลย) · ปลายทางไม่ใช่ร่าง → 409 · ลูกค้า/สาขาต่างกัน → 422 <code>customer_mismatch</code> · If-Match = version ของร่างต้นทาง · ETag ตอบกลับ = ต้นทาง · audit ทั้งสองใบ</p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag (version) จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>MoveInvoiceDeliveryOrdersDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>deliveryOrderIds</code></td><td>ใช่</td><td><code>array&lt;string&gt;</code></td><td></td><td>ใบส่งของ (≤ 200)</td><td><code>[&quot;do_…&quot;]</code></td></tr><tr><td><code>targetInvoiceId</code></td><td>ใช่</td><td><code>string</code></td><td></td><td>ร่างปลายทาง (ลูกค้า + สาขาผู้ออกเดียวกัน)</td><td><code>ivc_…</code></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>InvoiceMoveResultDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>invoices:draft</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>409</code></td><td><code>not_ready_to_bill</code> — DO ยังไม่พร้อม (ตรวจซ้ำตอนดึง): <code>reasons[]</code> + <code>deliveryOrders[]</code> (ต่อ DO: <code>reasons</code>, <code>missing</code>) — รวม <code>NOT_RELEASED</code> (ยังไม่ส่งบัญชี) · <code>do_already_drafted</code> — DO อยู่ในใบแจ้งหนี้อื่นที่ยัง active · <code>invalid_state_transition</code> — ใบไม่ใช่ร่าง — <a href="errors.html#not_ready_to_bill">not_ready_to_bill</a>, <a href="errors.html#do_already_drafted">do_already_drafted</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>412</code></td><td>If-Match ไม่ตรง version — <a href="errors.html#precondition_failed">precondition_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/invoices/&lt;id&gt;/delivery-orders/move&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;deliveryOrderIds&quot;:[&quot;do_…&quot;],&quot;targetInvoiceId&quot;:&quot;ivc_…&quot;}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/invoices/{id}/delivery-orders/move', {
+  params: { path: { id: &quot;…&quot; } },
+  body: {
+    &quot;deliveryOrderIds&quot;: [
+      &quot;do_…&quot;
+    ],
+    &quot;targetInvoiceId&quot;: &quot;ivc_…&quot;
+  },
+});</code></pre>
+<h2 id="post-invoices-id-lines">เพิ่มบรรทัดเอง (ไม่ผูก DO) — เหตุผล ≥ 10 ตัวอักษร</h2>
+<p><code>POST /v1/invoices/{id}/lines</code></p>
+<p>scope: <code>invoices:draft</code> · operationId: <code>Invoices_addLine</code></p>
+<p>ประเภท VAT / อัตราหัก ณ ที่จ่าย / หน่วย ตามรายการบริการ (snapshot) · ยอด = จำนวน × ราคา ปัดครึ่งขึ้น 2 ตำแหน่ง · ราคาต้องมี <code>prices.sell:write</code> · audit <code>invoice.line_added</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag (version) จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>AddInvoiceLineDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>serviceItemId</code></td><td>ใช่</td><td><code>string</code></td><td></td><td>รายการบริการ (catalog) — ประเภท VAT/อัตราหักตามรายการ</td><td><code>svc_…</code></td></tr><tr><td><code>description</code></td><td></td><td><code>string</code></td><td>ยาว ≤ 500</td><td>ไม่ส่ง = ชื่อรายการบริการ</td><td></td></tr><tr><td><code>quantity</code></td><td>ใช่</td><td><code>string</code></td><td></td><td>จำนวน &gt; 0 (ทศนิยม ≤ 4)</td><td><code>1</code></td></tr><tr><td><code>sellUnitPrice</code></td><td>ใช่</td><td><code>string</code></td><td></td><td>ราคาต่อหน่วย (บาท ก่อน VAT) — ต้องมี <code>prices.sell:write</code></td><td><code>500.00</code></td></tr><tr><td><code>reason</code></td><td>ใช่</td><td><code>string</code></td><td>ยาว ≤ 500 · ยาว ≥ 10</td><td></td><td><code>ค่ายกขนเพิ่มตามที่ลูกค้าตกลงทางอีเมล</code></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>InvoiceDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>invoices:draft</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>409</code></td><td>สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — <a href="errors.html#invalid_state_transition">invalid_state_transition</a>, <a href="errors.html#concurrent_update">concurrent_update</a>, <a href="errors.html#idempotency_in_progress">idempotency_in_progress</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>412</code></td><td>If-Match ไม่ตรง version — <a href="errors.html#precondition_failed">precondition_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/invoices/&lt;id&gt;/lines&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;serviceItemId&quot;:&quot;svc_…&quot;,&quot;quantity&quot;:&quot;1&quot;,&quot;sellUnitPrice&quot;:&quot;500.00&quot;,&quot;reason&quot;:&quot;ค่ายกขนเพิ่มตามที่ลูกค้าตกลงทางอีเมล&quot;}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/invoices/{id}/lines', {
+  params: { path: { id: &quot;…&quot; } },
+  body: {
+    &quot;serviceItemId&quot;: &quot;svc_…&quot;,
+    &quot;quantity&quot;: &quot;1&quot;,
+    &quot;sellUnitPrice&quot;: &quot;500.00&quot;,
+    &quot;reason&quot;: &quot;ค่ายกขนเพิ่มตามที่ลูกค้าตกลงทางอีเมล&quot;
+  },
+});</code></pre>
+<h2 id="post-invoices-id-lines-merge">รวมบรรทัด (Merge) บนเอกสาร</h2>
+<p><code>POST /v1/invoices/{id}/lines/merge</code></p>
+<p>scope: <code>invoices:draft</code> · operationId: <code>Invoices_merge</code></p>
+<p>≥ 2 บรรทัดที่ยังใช้ ประเภท VAT + อัตราหักเดียวกัน (ปน → 422 <code>mixed_tax_treatment</code>) · รวมเป็นบรรทัดเดียวบนเอกสาร — ยอดเงิน/ภาษีไม่เปลี่ยน · audit <code>invoice.lines_merged</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag (version) จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>InvoiceLineIdsDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>lineIds</code></td><td>ใช่</td><td><code>array&lt;string&gt;</code></td><td></td><td></td><td><code>[&quot;ivl_…&quot;,&quot;ivl_…&quot;]</code></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>InvoiceDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>invoices:draft</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>409</code></td><td>สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — <a href="errors.html#invalid_state_transition">invalid_state_transition</a>, <a href="errors.html#concurrent_update">concurrent_update</a>, <a href="errors.html#idempotency_in_progress">idempotency_in_progress</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>412</code></td><td>If-Match ไม่ตรง version — <a href="errors.html#precondition_failed">precondition_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/invoices/&lt;id&gt;/lines/merge&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;lineIds&quot;:[&quot;ivl_…&quot;,&quot;ivl_…&quot;]}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/invoices/{id}/lines/merge', {
+  params: { path: { id: &quot;…&quot; } },
+  body: {
+    &quot;lineIds&quot;: [
+      &quot;ivl_…&quot;,
+      &quot;ivl_…&quot;
+    ]
+  },
+});</code></pre>
+<h2 id="post-invoices-id-lines-split">แยกบรรทัดที่รวมไว้ — กลับไปตามรูปบรรทัดของใบ</h2>
+<p><code>POST /v1/invoices/{id}/lines/split</code></p>
+<p>scope: <code>invoices:draft</code> · operationId: <code>Invoices_split</code></p>
+<p>audit <code>invoice.lines_split</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag (version) จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>InvoiceLineIdsDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>lineIds</code></td><td>ใช่</td><td><code>array&lt;string&gt;</code></td><td></td><td></td><td><code>[&quot;ivl_…&quot;,&quot;ivl_…&quot;]</code></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>InvoiceDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>invoices:draft</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>409</code></td><td>สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — <a href="errors.html#invalid_state_transition">invalid_state_transition</a>, <a href="errors.html#concurrent_update">concurrent_update</a>, <a href="errors.html#idempotency_in_progress">idempotency_in_progress</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>412</code></td><td>If-Match ไม่ตรง version — <a href="errors.html#precondition_failed">precondition_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/invoices/&lt;id&gt;/lines/split&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;lineIds&quot;:[&quot;ivl_…&quot;,&quot;ivl_…&quot;]}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/invoices/{id}/lines/split', {
+  params: { path: { id: &quot;…&quot; } },
+  body: {
+    &quot;lineIds&quot;: [
+      &quot;ivl_…&quot;,
+      &quot;ivl_…&quot;
+    ]
+  },
+});</code></pre>
+<h2 id="patch-invoices-id-lines-lineId">แก้บรรทัดในร่าง — คำอธิบาย / ส่วนลด</h2>
+<p><code>PATCH /v1/invoices/{id}/lines/{lineId}</code></p>
+<p>scope: <code>invoices:draft</code> · operationId: <code>Invoices_updateLine</code></p>
+<p>ส่วนลด = แก้ราคาที่ร่าง (ราคาที่ order ล็อก) — ≥ 0 และ ≤ ยอดก่อนส่วนลด · ต้องมี <code>prices.sell:write</code> + <code>reason</code> · ยอดบรรทัด = ยอดก่อนส่วนลด − ส่วนลด · audit <code>invoice.line_updated</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr><tr><td><code>lineId</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag (version) จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>UpdateInvoiceLineDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>description</code></td><td></td><td><code>string</code></td><td>ยาว ≤ 500</td><td></td><td></td></tr><tr><td><code>sellDiscount</code></td><td></td><td><code>string</code></td><td></td><td>ส่วนลดของบรรทัด (บาท ≥ 0, ≤ ยอดก่อนส่วนลด) — ต้องมี <code>prices.sell:write</code> + <code>reason</code></td><td><code>100.00</code></td></tr><tr><td><code>reason</code></td><td></td><td><code>string</code></td><td>ยาว ≤ 500 · ยาว ≥ 10</td><td>บังคับเมื่อเปลี่ยนส่วนลด</td><td></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>InvoiceDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>invoices:draft</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>409</code></td><td>สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — <a href="errors.html#invalid_state_transition">invalid_state_transition</a>, <a href="errors.html#concurrent_update">concurrent_update</a>, <a href="errors.html#idempotency_in_progress">idempotency_in_progress</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>412</code></td><td>If-Match ไม่ตรง version — <a href="errors.html#precondition_failed">precondition_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X PATCH &quot;$TMS_BASE_URL/v1/invoices/&lt;id&gt;/lines/&lt;lineId&gt;&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;sellDiscount&quot;:&quot;100.00&quot;}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.PATCH('/v1/invoices/{id}/lines/{lineId}', {
+  params: { path: { id: &quot;…&quot;, lineId: &quot;…&quot; } },
+  body: {
+    &quot;sellDiscount&quot;: &quot;100.00&quot;
+  },
+});</code></pre>
+<h2 id="post-invoices-id-lines-lineId-remove">ถอดบรรทัดที่เพิ่มเอง — เหตุผล ≥ 10 ตัวอักษร</h2>
+<p><code>POST /v1/invoices/{id}/lines/{lineId}/remove</code></p>
+<p>scope: <code>invoices:draft</code> · operationId: <code>Invoices_removeLine</code></p>
+<p>บรรทัดคงอยู่ (<code>active</code> false + เหตุผล) · บรรทัดของ DO ถอดทั้ง DO ด้วย <code>POST /invoices/{id}/delivery-orders/remove</code> (422 <code>delivery_order_line</code>) · audit <code>invoice.line_removed</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr><tr><td><code>lineId</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag (version) จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>InvoiceReasonDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>reason</code></td><td>ใช่</td><td><code>string</code></td><td>ยาว ≤ 500 · ยาว ≥ 10</td><td></td><td><code>ลูกค้าขอแยกวางบิลงวดหน้า</code></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>InvoiceDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>invoices:draft</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>409</code></td><td>สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — <a href="errors.html#invalid_state_transition">invalid_state_transition</a>, <a href="errors.html#concurrent_update">concurrent_update</a>, <a href="errors.html#idempotency_in_progress">idempotency_in_progress</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>412</code></td><td>If-Match ไม่ตรง version — <a href="errors.html#precondition_failed">precondition_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/invoices/&lt;id&gt;/lines/&lt;lineId&gt;/remove&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;reason&quot;:&quot;ลูกค้าขอแยกวางบิลงวดหน้า&quot;}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/invoices/{id}/lines/{lineId}/remove', {
+  params: { path: { id: &quot;…&quot;, lineId: &quot;…&quot; } },
+  body: {
+    &quot;reason&quot;: &quot;ลูกค้าขอแยกวางบิลงวดหน้า&quot;
+  },
+});</code></pre>
+<h2 id="post-invoices-id-cancel">ยกเลิกร่าง — เหตุผล ≥ 10 ตัวอักษร</h2>
+<p><code>POST /v1/invoices/{id}/cancel</code></p>
+<p>scope: <code>invoices:draft</code> · operationId: <code>Invoices_cancel</code></p>
+<p>DRAFT → CANCELLED · บรรทัดหยุดนับ · DO กลับ UNBILLED (ขึ้นคิวอีก) · ใบที่ออกแล้วยกเลิกที่นี่ไม่ได้ · audit <code>invoice.draft_cancelled</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag (version) จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>InvoiceReasonDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>reason</code></td><td>ใช่</td><td><code>string</code></td><td>ยาว ≤ 500 · ยาว ≥ 10</td><td></td><td><code>ลูกค้าขอแยกวางบิลงวดหน้า</code></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>InvoiceDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>invoices:draft</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>409</code></td><td>สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — <a href="errors.html#invalid_state_transition">invalid_state_transition</a>, <a href="errors.html#concurrent_update">concurrent_update</a>, <a href="errors.html#idempotency_in_progress">idempotency_in_progress</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>412</code></td><td>If-Match ไม่ตรง version — <a href="errors.html#precondition_failed">precondition_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/invoices/&lt;id&gt;/cancel&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;reason&quot;:&quot;ลูกค้าขอแยกวางบิลงวดหน้า&quot;}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
+  params: { path: { id: &quot;…&quot; } },
+  body: {
+    &quot;reason&quot;: &quot;ลูกค้าขอแยกวางบิลงวดหน้า&quot;
+  },
+});</code></pre>
 <h2 id="schemas">Schema ของ response</h2>
 <h3 id="schema-BillingQueuePageDto">BillingQueuePageDto</h3>
 <div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>data</code></td><td>ใช่</td><td><code>array&lt;BillingQueueRowDto&gt;</code></td><td></td><td></td><td></td></tr><tr><td><code>nextCursor</code></td><td>ใช่</td><td><code>string</code></td><td>null ได้</td><td></td><td></td></tr><tr><td><code>hasMore</code></td><td>ใช่</td><td><code>boolean</code></td><td></td><td></td><td></td></tr><tr><td><code>customers</code></td><td>ใช่</td><td><code>array&lt;BillingQueueCustomerDto&gt;</code></td><td></td><td>สรุปต่อลูกค้าของทุกแถวที่ตรงตัวกรอง (ไม่ขึ้นกับ cursor/limit) — เรียงตามรหัสลูกค้า</td><td></td></tr></tbody></table></div>
+<h3 id="schema-InvoiceDto">InvoiceDto</h3>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>id</code></td><td>ใช่</td><td><code>string</code></td><td></td><td></td><td><code>ivc_…</code></td></tr><tr><td><code>invoiceNo</code></td><td>ใช่</td><td><code>string</code></td><td>null ได้</td><td>เลขใบแจ้งหนี้ — <strong>ร่างไม่มีเลข</strong> (ออกตอนออกเอกสาร)</td><td></td></tr><tr><td><code>status</code></td><td>ใช่</td><td><code>string</code></td><td>ค่า: <code>DRAFT</code>, <code>ISSUED</code>, <code>PARTIALLY_PAID</code>, <code>PAID</code>, <code>ADJUSTED</code>, <code>VOIDED</code>, <code>CANCELLED</code></td><td></td><td></td></tr><tr><td><code>customer</code></td><td>ใช่</td><td><code>InvoiceCustomerDto</code></td><td></td><td></td><td></td></tr><tr><td><code>periodFrom</code></td><td>ใช่</td><td><code>string</code></td><td>null ได้</td><td></td><td></td></tr><tr><td><code>periodTo</code></td><td>ใช่</td><td><code>string</code></td><td>null ได้</td><td></td><td></td></tr><tr><td><code>deliveryOrderCount</code></td><td>ใช่</td><td><code>number</code></td><td></td><td></td><td></td></tr><tr><td><code>lineMode</code></td><td>ใช่</td><td><code>string</code></td><td>ค่า: <code>SINGLE</code>, <code>GROUP</code>, <code>MERGE</code></td><td></td><td></td></tr><tr><td><code>sellTotal</code></td><td></td><td><code>string</code></td><td></td><td>ยอดรวม (รวม VAT ประมาณการ) — <code>prices.sell:read</code></td><td></td></tr><tr><td><code>sellNetExpected</code></td><td></td><td><code>string</code></td><td></td><td>ยอดรวม − WHT ที่คาดว่าจะถูกหัก (ประมาณการ) — <code>prices.sell:read</code></td><td></td></tr><tr><td><code>version</code></td><td>ใช่</td><td><code>number</code></td><td></td><td></td><td></td></tr><tr><td><code>createdAt</code></td><td>ใช่</td><td><code>string</code></td><td></td><td></td><td></td></tr><tr><td><code>updatedAt</code></td><td>ใช่</td><td><code>string</code></td><td></td><td></td><td></td></tr><tr><td><code>issuingCompanyId</code></td><td>ใช่</td><td><code>string</code></td><td></td><td></td><td><code>cmp_…</code></td></tr><tr><td><code>issuingBranchId</code></td><td>ใช่</td><td><code>string</code></td><td></td><td></td><td><code>brn_…</code></td></tr><tr><td><code>creditTermDays</code></td><td>ใช่</td><td><code>number</code></td><td></td><td></td><td></td></tr><tr><td><code>customerPoNo</code></td><td>ใช่</td><td><code>string</code></td><td>null ได้</td><td></td><td></td></tr><tr><td><code>note</code></td><td>ใช่</td><td><code>string</code></td><td>null ได้</td><td></td><td></td></tr><tr><td><code>sellSubtotalExempt</code></td><td></td><td><code>string</code></td><td></td><td>ฐานยกเว้น VAT — <code>prices.sell:read</code></td><td></td></tr><tr><td><code>sellSubtotalVatable</code></td><td></td><td><code>string</code></td><td></td><td>ฐาน VAT 7% — <code>prices.sell:read</code></td><td></td></tr><tr><td><code>sellSubtotalZeroRated</code></td><td></td><td><code>string</code></td><td></td><td>ฐาน VAT 0% — <code>prices.sell:read</code></td><td></td></tr><tr><td><code>sellVatAmount</code></td><td></td><td><code>string</code></td><td></td><td>VAT 7% — <code>prices.sell:read</code></td><td></td></tr><tr><td><code>sellWhtExpected</code></td><td></td><td><code>string</code></td><td></td><td>WHT ที่คาดว่าจะถูกหัก — <code>prices.sell:read</code></td><td></td></tr><tr><td><code>sellDiscountTotal</code></td><td></td><td><code>string</code></td><td></td><td>ส่วนลดรวม — <code>prices.sell:read</code></td><td></td></tr><tr><td><code>taxEstimated</code></td><td>ใช่</td><td><code>boolean</code></td><td></td><td>ยอด VAT/WHT เป็นประมาณการ — true เสมอ</td><td></td></tr><tr><td><code>deliveryOrders</code></td><td>ใช่</td><td><code>array&lt;InvoiceDeliveryOrderDto&gt;</code></td><td></td><td></td><td></td></tr><tr><td><code>lines</code></td><td>ใช่</td><td><code>array&lt;InvoiceLineDto&gt;</code></td><td></td><td>บรรทัดจริง (รวมที่ถอดออกแล้ว <code>active=false</code>)</td><td></td></tr><tr><td><code>printLines</code></td><td>ใช่</td><td><code>array&lt;InvoicePrintLineDto&gt;</code></td><td></td><td>บรรทัดบนเอกสารตาม <code>lineMode</code> + กลุ่มที่รวมเอง</td><td></td></tr><tr><td><code>cancelReason</code></td><td>ใช่</td><td><code>string</code></td><td>null ได้</td><td></td><td></td></tr><tr><td><code>createdBy</code></td><td>ใช่</td><td><code>string</code></td><td>null ได้</td><td></td><td></td></tr></tbody></table></div>
+<h3 id="schema-InvoiceMoveResultDto">InvoiceMoveResultDto</h3>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>source</code></td><td>ใช่</td><td><code>InvoiceDto</code></td><td></td><td>ร่างต้นทาง (หลังย้าย)</td><td></td></tr><tr><td><code>target</code></td><td>ใช่</td><td><code>InvoiceDto</code></td><td></td><td>ร่างปลายทาง (หลังย้าย)</td><td></td></tr></tbody></table></div>
+<h3 id="schema-InvoicePageDto">InvoicePageDto</h3>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>data</code></td><td>ใช่</td><td><code>array&lt;InvoiceSummaryDto&gt;</code></td><td></td><td></td><td></td></tr><tr><td><code>nextCursor</code></td><td>ใช่</td><td><code>string</code></td><td>null ได้</td><td></td><td></td></tr><tr><td><code>hasMore</code></td><td>ใช่</td><td><code>boolean</code></td><td></td><td></td><td></td></tr></tbody></table></div>
+<h3 id="schema-InvoiceSummaryCountsDto">InvoiceSummaryCountsDto</h3>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>total</code></td><td>ใช่</td><td><code>number</code></td><td></td><td></td><td></td></tr><tr><td><code>draft</code></td><td>ใช่</td><td><code>number</code></td><td></td><td></td><td></td></tr><tr><td><code>issued</code></td><td>ใช่</td><td><code>number</code></td><td></td><td>ISSUED + ADJUSTED</td><td></td></tr><tr><td><code>partiallyPaid</code></td><td>ใช่</td><td><code>number</code></td><td></td><td></td><td></td></tr><tr><td><code>paid</code></td><td>ใช่</td><td><code>number</code></td><td></td><td></td><td></td></tr><tr><td><code>overdue</code></td><td>ใช่</td><td><code>number</code></td><td></td><td>เกินกำหนด — คำนวณเมื่อมีวันครบกำหนด/รับชำระ ตอนนี้ 0 เสมอ</td><td></td></tr><tr><td><code>cancelled</code></td><td>ใช่</td><td><code>number</code></td><td></td><td>CANCELLED + VOIDED</td><td></td></tr></tbody></table></div>
 </main>
 </div>
 </body>
