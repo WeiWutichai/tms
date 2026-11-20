@@ -46,7 +46,12 @@ export const EVENT_CATALOGUE: Record<NotificationEvent, EventDefinition> = {
     defaults: { in_app: true, email: true },
     pending: null,
   },
-  dispute: { templates: [], defaults: { in_app: true, email: true }, pending: 'ST6-T06' },
+  // ST6-T06 ใบสำคัญจ่ายรถร่วมเข้าสถานะ DISPUTED (รถร่วมโต้แย้ง/บัญชีติด dispute) → ผู้เตรียมใบ (`settlements:create`)
+  dispute: {
+    templates: ['settlement.disputed'],
+    defaults: { in_app: true, email: true },
+    pending: null,
+  },
   // ค่าใช้จ่ายหน้างานรอยืนยัน (ST4-T13) · settlement/ใบลดหนี้รออนุมัติมากับ ST6/ST5
   'approval.requested': {
     templates: ['field_charge.pending'],

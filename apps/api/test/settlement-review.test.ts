@@ -395,7 +395,9 @@ describe('settlement carrier review (ST6-T05)', () => {
       reason: 'ค่ารอไม่ตรง รอ 3 ชม.',
       round: 1,
     });
-    expect(g.version).toBe(2); // คำตอบของรถร่วมไม่เปลี่ยน version ของใบ
+    // ST6-T06: โต้แย้ง → หัวใบ DISPUTED (version +1) · ยอมรับอย่างเดียวไม่เปลี่ยน version
+    expect(g.status).toBe('DISPUTED');
+    expect(g.version).toBe(3);
     const audit = await db.auditLog.findFirstOrThrow({
       where: { entityId: uuid('settlement', s.id), action: 'settlement.line_disputed' },
     });

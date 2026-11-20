@@ -25,6 +25,7 @@ import type {
   UpdateSettlementDto,
 } from './settlement.dto';
 import { SettlementQueueService } from './settlement-queue.service';
+import { disputedCount, disputedLines, latestBy, lineStatus } from './settlement-dispute';
 import type { SettlementSentDto, SettlementReviewLinkDto } from './settlement-review.dto';
 import {
   latestReviews,
@@ -45,6 +46,7 @@ type SettlementRow = Prisma.CarrierSettlementGetPayload<{
       include: { tripCost: { select: { costType: true } }; trip: { select: { tripNo: true } } };
     };
     reviews: true;
+    disputes: true;
   };
 }>;
 
@@ -145,9 +147,11 @@ export class SettlementsService {
   }
 
   async get(id: string): Promise<SettlementDto> {
-    const r = await this.load(this.db.tx, id);
+    const tx = this.db.tx;
+    const r = await this.load(tx, id);
     if (!r) throw new ProblemException('not_found');
-    return toDto(r);
+    // รายการโต้แย้งค้าง — นิยามเดียวกับ trigger ที่บล็อกอนุมัติ (ST6-T06)
+    return toDto(r, await disputedLines(tx, id, r.reviewRound));
   }
 
   // ---------- เขียน ----------
@@ -382,8 +386,9 @@ export class SettlementsService {
   ): Promise<SettlementDto> {
     const tx = this.db.tx;
     const ctx = requestContext.require();
-    // docs/01 §4.5: SENT_TO_CARRIER → APPROVED · DRAFT → APPROVED เฉพาะบริษัทที่ไม่บังคับให้รถร่วมตรวจ (ST6-T05)
-    const s = await this.lockFor(tx, id, expected, ['DRAFT', 'SENT_TO_CARRIER']);
+    // docs/01 §4.5: SENT_TO_CARRIER → APPROVED · DRAFT → APPROVED เฉพาะบริษัทที่ไม่บังคับให้รถร่วมตรวจ (ST6-T05) ·
+    // DISPUTED → 409 `settlement_disputed` (ไม่ใช่ invalid_state_transition — ST6-T06 เกณฑ์ตรวจรับ)
+    const s = await this.lockFor(tx, id, expected, ['DRAFT', 'SENT_TO_CARRIER', 'DISPUTED']);
     // อนุมัติต้องอ้าง version ที่ผู้อนุมัติเห็น (review L5) — ไม่ส่ง If-Match = 422 `if_match_required` (แบบ ST4-T11)
     // ตรวจหลังหาใบเจอ (ใบของบริษัทอื่น/ไม่มี = 404 ก่อน)
     if (expected === undefined)
@@ -498,31 +503,19 @@ export class SettlementsService {
   }
 
   /**
-   * dispute บล็อกการอนุมัติ (docs/01 §4.5 "disputed_count = 0", spec/05 BIL-136) — ST6-T05: บรรทัดที่ยังใช้ซึ่งคำตอบล่าสุดของรถร่วม
-   * ในรอบตรวจล่าสุดเป็น DISPUTED → 409 `settlement_disputed` (+ `disputedCount`) — ทั้งใบที่รอตรวจและร่างที่เรียกกลับ (review M1:
-   * เรียกกลับแล้วอนุมัติร่างตรงไม่ข้ามการโต้แย้ง) · ทางเคลียร์ = นำบรรทัดที่โต้แย้งออก หรือส่งตรวจรอบใหม่ (trigger 0127 ตรวจซ้ำ)
-   * (ST6-T06 เพิ่มสถานะรายการ OPEN/DISPUTED/APPROVED + ยืนยันยอดเดิมพร้อมเหตุผล)
+   * dispute บล็อกการอนุมัติ (docs/01 §4.5 "disputed_count = 0", spec/05 BIL-136) — รายการโต้แย้งค้างในรอบตรวจล่าสุด
+   * (รถร่วมโต้แย้ง/บัญชีติด dispute ที่ยังไม่เคลียร์ — `tms_settlement_disputed_count` เดียวกับ trigger 0130) → 409 `settlement_disputed`
+   * (+ `disputedCount`) — ทั้งใบ DISPUTED และร่างที่เรียกกลับ (review M1 ของ T05) · ทางเคลียร์ = ยืนยันยอดเดิมพร้อมเหตุผล (`/resolve`),
+   * รถร่วมเปลี่ยนเป็นยอมรับ, นำบรรทัดออก (ร่าง) หรือส่งตรวจรอบใหม่
    */
   private async assertNoOpenDisputes(
     tx: Tx,
     s: { id: string; status: string; reviewRound: number },
   ): Promise<void> {
-    if (s.reviewRound === 0) return;
-    const [rows, active] = await Promise.all([
-      tx.settlementLineReview.findMany({
-        where: { settlementId: s.id, round: s.reviewRound },
-        orderBy: REVIEW_ORDER,
-      }),
-      tx.settlementLine.findMany({
-        where: { settlementId: s.id, voidedAt: null },
-        select: { id: true },
-      }),
-    ]);
-    const latest = latestReviews(rows, s.reviewRound);
-    const disputed = active.filter((l) => latest.get(l.id)?.response === 'DISPUTED').length;
-    if (disputed > 0)
+    const n = await disputedCount(tx, s.id, s.reviewRound);
+    if (n > 0 || s.status === 'DISPUTED')
       throw new ProblemException('settlement_disputed', undefined, undefined, {
-        disputedCount: disputed,
+        disputedCount: n,
       });
   }
 
@@ -580,7 +573,8 @@ export class SettlementsService {
       SELECT id FROM carrier_settlement WHERE id = ${id}::uuid FOR UPDATE`;
     if (!r) throw new ProblemException('not_found');
     const s = await tx.carrierSettlement.findUniqueOrThrow({ where: { id } });
-    if (s.status !== 'SENT_TO_CARRIER')
+    // ST6-T06: ใบ DISPUTED ยังรอรถร่วมตอบ — ออกลิงก์ใหม่ได้
+    if (s.status !== 'SENT_TO_CARRIER' && s.status !== 'DISPUTED')
       throw new ProblemException('invalid_state_transition', undefined, undefined, {
         status: s.status,
       });
@@ -605,7 +599,8 @@ export class SettlementsService {
    */
   async recall(id: string, reason: string, expected: number | undefined): Promise<SettlementDto> {
     const tx = this.db.tx;
-    const s = await this.lockFor(tx, id, expected, ['SENT_TO_CARRIER']);
+    // SENT_TO_CARRIER → DRAFT (ST6-T05) · DISPUTED → DRAFT "แก้รายการ" (docs/01 §4.5 — ST6-T06)
+    const s = await this.lockFor(tx, id, expected, ['SENT_TO_CARRIER', 'DISPUTED']);
     requireIfMatch(expected);
     await tx.carrierSettlement.update({
       where: { id },
@@ -634,6 +629,161 @@ export class SettlementsService {
     return out;
   }
 
+  // ---------- Dispute (ST6-T06) ----------
+
+  /**
+   * บริษัท (บัญชี) ติด dispute รายการเอง (docs/01 §4.5 "รถร่วม/บัญชีติด dispute รายการ") — ใบ SENT_TO_CARRIER/DISPUTED · เหตุผล ≥ 10 ·
+   * If-Match บังคับ · บรรทัดที่โต้แย้งค้างอยู่แล้ว → 409 · หัวใบ → DISPUTED · ไม่แสดงให้รถร่วม · audit `settlement.line_flagged`
+   * ผู้ติด dispute ไม่นับเป็นผู้เตรียมใบ (ไม่ได้เตรียมยอด — แค่ทำให้อนุมัติยากขึ้น)
+   */
+  async disputeLine(
+    id: string,
+    lineRef: string,
+    reason: string,
+    expected: number | undefined,
+  ): Promise<SettlementDto> {
+    const tx = this.db.tx;
+    const s = await this.lockFor(tx, id, expected, ['SENT_TO_CARRIER', 'DISPUTED']);
+    requireIfMatch(expected);
+    const actor = this.person();
+    const line = await this.activeLine(tx, id, lineRef);
+    if ((await disputedLines(tx, id, s.reviewRound)).has(line.id))
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        lineStatus: 'DISPUTED',
+      });
+    await tx.settlementLineDispute.create({
+      data: {
+        tenantId: s.tenantId,
+        settlementId: id,
+        lineId: line.id,
+        round: s.reviewRound,
+        action: 'DISPUTED',
+        reason,
+        createdBy: actor,
+      },
+    });
+    await tx.carrierSettlement.update({ where: { id }, data: { version: { increment: 1 } } });
+    await this.review.syncDisputeStatus(tx, id);
+    const out = await this.get(id);
+    await this.audit.record({
+      action: 'settlement.line_flagged',
+      entityType: ENTITY,
+      entityId: id,
+      reason,
+      after: {
+        lineId: encodeId('settlementLine', line.id),
+        round: s.reviewRound,
+        lineStatus: 'DISPUTED',
+        status: out.status,
+        disputedCount: out.dispute.disputed,
+      },
+    });
+    return out;
+  }
+
+  /**
+   * เคลียร์ dispute = ยืนยันยอดเดิมพร้อมเหตุผล (spec/05 BIL-136 "RESOLVED — ยืนยันยอดเดิมพร้อมเหตุผล") — ใบ DISPUTED หรือร่างที่เรียกกลับ ·
+   * บรรทัดต้องโต้แย้งค้าง (ไม่งั้น 409) · ปิดทุก dispute ก่อนหน้าของบรรทัดในรอบนี้ (รถร่วม + บัญชี) — รถร่วมตอบบรรทัดนี้ในรอบนี้ไม่ได้อีก ·
+   * **ผู้เคลียร์ = ผู้เตรียมใบ (อนุมัติใบนี้ไม่ได้ — SoD)** · เคลียร์ครบ → DISPUTED กลับเป็น SENT_TO_CARRIER · audit `settlement.line_resolved`
+   * แก้ยอด = เรียกกลับ (DISPUTED → DRAFT) แล้วนำบรรทัดออก/เพิ่มใหม่ (ยอดบรรทัดมาจากต้นทุนของเที่ยว — แก้ในใบไม่ได้)
+   */
+  async resolveLine(
+    id: string,
+    lineRef: string,
+    reason: string,
+    expected: number | undefined,
+  ): Promise<SettlementDto> {
+    const tx = this.db.tx;
+    const s = await this.lockFor(tx, id, expected, ['DISPUTED', 'DRAFT']);
+    requireIfMatch(expected);
+    const actor = this.person();
+    const line = await this.activeLine(tx, id, lineRef);
+    if (!(await disputedLines(tx, id, s.reviewRound)).has(line.id))
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        lineStatus: 'NOT_DISPUTED',
+      });
+    const before = await this.disputeSnapshot(tx, id, line.id, s.reviewRound);
+    await tx.settlementLineDispute.create({
+      data: {
+        tenantId: s.tenantId,
+        settlementId: id,
+        lineId: line.id,
+        round: s.reviewRound,
+        action: 'RESOLVED',
+        reason,
+        createdBy: actor,
+      },
+    });
+    await tx.carrierSettlement.update({
+      where: { id },
+      data: { preparers: { push: actor }, version: { increment: 1 } },
+    });
+    await this.review.syncDisputeStatus(tx, id);
+    const out = await this.get(id);
+    await this.audit.record({
+      action: 'settlement.line_resolved',
+      entityType: ENTITY,
+      entityId: id,
+      reason,
+      before: { lineId: encodeId('settlementLine', line.id), lineStatus: 'DISPUTED', ...before },
+      after: {
+        lineStatus: 'APPROVED',
+        buyAmount: line.amount.toFixed(2),
+        round: s.reviewRound,
+        status: out.status,
+        disputedCount: out.dispute.disputed,
+      },
+    });
+    return out;
+  }
+
+  /** ผู้ทำรายการ dispute ต้องระบุตัวได้ (ไม่ใช่ว่าง) — ลง `created_by` + preparers */
+  private person(): string {
+    const actor = requestContext.require().actorId;
+    if (!actor)
+      throw new ProblemException('permission_denied', undefined, undefined, {
+        module: 'settlements',
+        action: 'dispute',
+      });
+    return actor;
+  }
+
+  /** บรรทัดที่ยังใช้ของใบ — ไม่ใช่ของใบนี้ = 404 · นำออกแล้ว = 409 */
+  private async activeLine(tx: Tx, settlementId: string, lineId: string) {
+    const line = await tx.settlementLine.findFirst({ where: { id: lineId, settlementId } });
+    if (!line) throw new ProblemException('not_found');
+    if (line.voidedAt)
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        lineStatus: 'VOIDED',
+      });
+    return line;
+  }
+
+  /** dispute ที่กำลังเคลียร์ (คำตอบล่าสุดของรถร่วม + การติด dispute ล่าสุดของบัญชี) — ลง audit */
+  private async disputeSnapshot(tx: Tx, settlementId: string, lineId: string, round: number) {
+    const [rv, fl] = await Promise.all([
+      tx.settlementLineReview.findFirst({
+        where: { settlementId, lineId, round },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      }),
+      tx.settlementLineDispute.findFirst({
+        where: { settlementId, lineId, round, action: 'DISPUTED' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      }),
+    ]);
+    return {
+      carrier: rv
+        ? {
+            response: rv.response,
+            reason: rv.reason,
+            buyClaimedAmount: rv.claimedAmount?.toFixed(2) ?? null,
+            reviewId: rv.id,
+          }
+        : null,
+      company: fl ? { reason: fl.reason, by: fl.createdBy, disputeId: fl.id } : null,
+    };
+  }
+
   // ---------- ภายใน ----------
 
   private load(tx: Tx, id: string): Promise<SettlementRow | null> {
@@ -645,6 +795,7 @@ export class SettlementsService {
           include: { tripCost: { select: { costType: true } }, trip: { select: { tripNo: true } } },
         },
         reviews: { orderBy: REVIEW_ORDER },
+        disputes: { orderBy: REVIEW_ORDER },
       },
     });
   }
@@ -1084,6 +1235,8 @@ function carrierDto(carrierId: string, snap: Prisma.JsonValue): SettlementCarrie
 function lineDto(
   l: SettlementRow['lines'][number],
   r: SettlementRow['reviews'][number] | undefined,
+  co: SettlementRow['disputes'][number] | undefined,
+  status: SettlementLineDto['status'],
 ): SettlementLineDto {
   return {
     id: encodeId('settlementLine', l.id),
@@ -1110,19 +1263,38 @@ function lineDto(
           response: r.response as 'ACCEPTED' | 'DISPUTED',
           reason: r.reason,
           photoIds: r.photoIds.map((p) => encodeId('document', p)),
+          buyClaimedAmount: r.claimedAmount?.toFixed(2) ?? null,
           round: r.round,
           respondedAt: r.createdAt.toISOString(),
+        }
+      : null,
+    status,
+    companyReview: co
+      ? {
+          action: co.action as 'DISPUTED' | 'RESOLVED',
+          reason: co.reason,
+          round: co.round,
+          by: co.createdBy,
+          at: co.createdAt.toISOString(),
         }
       : null,
   };
 }
 
-function toDto(r: SettlementRow): SettlementDto {
+function toDto(r: SettlementRow, disputed: Set<string>): SettlementDto {
   const tripLines = r.lines.filter((l) => !l.voidedAt && l.lineType !== 'DEDUCTION');
   // คำตอบของรถร่วม = รอบตรวจปัจจุบันเท่านั้น (เรียกกลับแล้วส่งใหม่ = เริ่มนับใหม่ · รอบก่อนเก็บเป็นประวัติ)
   const latest = latestReviews(r.reviews, r.reviewRound);
   const active = r.lines.filter((l) => !l.voidedAt);
   const count = (resp: string) => active.filter((l) => latest.get(l.id)?.response === resp).length;
+  // ST6-T06 สถานะรายการ: โต้แย้งค้าง (DB) / ยอมรับหรือเคลียร์แล้ว / ยังไม่มีคำตอบ
+  const company = latestBy(r.disputes, r.reviewRound);
+  const resolved = latestBy(r.disputes, r.reviewRound, (d) => d.action === 'RESOLVED');
+  const statusOf = (l: SettlementRow['lines'][number]) =>
+    l.voidedAt
+      ? null
+      : lineStatus(disputed.has(l.id), latest.get(l.id)?.response, resolved.has(l.id));
+  const statuses = active.map(statusOf);
   return {
     id: encodeId('settlement', r.id),
     settlementNo: r.settlementNo,
@@ -1139,7 +1311,7 @@ function toDto(r: SettlementRow): SettlementDto {
     buyGrossAmount: r.grossAmount.toFixed(2),
     buyDeductionAmount: r.deductionAmount.toFixed(2),
     buyNetPayable: r.netPayable.toFixed(2),
-    lines: r.lines.map((l) => lineDto(l, latest.get(l.id))),
+    lines: r.lines.map((l) => lineDto(l, latest.get(l.id), company.get(l.id), statusOf(l))),
     approvedAt: r.approvedAt?.toISOString() ?? null,
     approvedBy: r.approvedBy,
     sentAt: r.sentAt?.toISOString() ?? null,
@@ -1149,6 +1321,11 @@ function toDto(r: SettlementRow): SettlementDto {
       accepted: count('ACCEPTED'),
       disputed: count('DISPUTED'),
       pending: r.reviewRound > 0 ? active.filter((l) => !latest.has(l.id)).length : 0,
+    },
+    dispute: {
+      disputed: statuses.filter((x) => x === 'DISPUTED').length,
+      approved: statuses.filter((x) => x === 'APPROVED').length,
+      open: statuses.filter((x) => x === 'OPEN').length,
     },
     cancelledAt: r.cancelledAt?.toISOString() ?? null,
     cancelledBy: r.cancelledBy,

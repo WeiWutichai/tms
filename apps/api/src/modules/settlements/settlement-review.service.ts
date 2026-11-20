@@ -9,6 +9,7 @@ import { linkWriteBucket } from '../../http/link-rate-limit';
 import { RateLimitService } from '../../http/rate-limit/rate-limit.service';
 import { signDocumentUrl, UPLOAD_TTL_S } from '../documents/signed-url';
 import { MagicLinkService } from '../links/magic-link.service';
+import { NotificationEvents } from '../notifications/notification-events';
 import { linkUrl } from '../messaging/link-kinds';
 import { lockKey } from '../master/master-kit';
 import { bangkokToday } from '../vehicle-documents/expiry';
@@ -22,6 +23,7 @@ import type {
   SettlementReviewLinkDto,
 } from './settlement-review.dto';
 import { REVIEW_LINK_TTL_DAYS } from './settlement-review.dto';
+import { disputedCount, UNDER_REVIEW } from './settlement-dispute';
 
 export const REVIEW_LINK_PURPOSE = 'settlement_review' as const;
 export const REVIEW_LINK_ENTITY = 'carrier_settlement' as const;
@@ -41,8 +43,9 @@ export const REVIEW_REVOKE_REASON = {
   RECALLED: 'เรียกใบสำคัญจ่ายกลับมาแก้ — ลิงก์ให้รถร่วมตรวจใช้ไม่ได้แล้ว',
 } as const;
 
-/** สถานะที่หน้าลิงก์เปิดดูได้ (อนุมัติแล้ว = ดูอย่างเดียวจนลิงก์หมดอายุ) */
-const VIEWABLE = new Set(['SENT_TO_CARRIER', 'APPROVED']);
+/** สถานะที่หน้าลิงก์เปิดดูได้ (อนุมัติแล้ว = ดูอย่างเดียวจนลิงก์หมดอายุ · DISPUTED = ยังตอบได้ — ST6-T06) */
+const VIEWABLE = new Set(['SENT_TO_CARRIER', 'DISPUTED', 'APPROVED']);
+const RESPONDABLE = new Set<string>(UNDER_REVIEW);
 
 const field422 = (field: string, code: string, message: string) =>
   new ProblemException('validation_failed', undefined, [{ field, code, message }]);
@@ -54,6 +57,7 @@ type ReviewRow = {
   response: string;
   reason: string | null;
   photoIds: string[];
+  claimedAmount: Prisma.Decimal | null;
   createdAt: Date;
 };
 
@@ -92,6 +96,7 @@ export class SettlementReviewService {
     private readonly audit: AuditService,
     private readonly links: MagicLinkService,
     private readonly limiter: RateLimitService,
+    private readonly events: NotificationEvents,
   ) {}
 
   // ---------- ฝั่งบริษัท ----------
@@ -146,6 +151,39 @@ export class SettlementReviewService {
     });
   }
 
+  /**
+   * สถานะหัวใบตามรายการโต้แย้งค้าง (ST6-T06; docs/01 §4.5): ใบที่รอตรวจ + โต้แย้งค้าง > 0 → DISPUTED · DISPUTED + เคลียร์ครบ → SENT_TO_CARRIER
+   * เปลี่ยนสถานะ = version +1 + audit `settlement.disputed` / `settlement.dispute_cleared` · ร่าง/อนุมัติแล้วไม่แตะ · เรียกหลังล็อกใบ
+   */
+  async syncDisputeStatus(tx: Tx, settlementId: string): Promise<void> {
+    const s = await tx.carrierSettlement.findUniqueOrThrow({ where: { id: settlementId } });
+    if (!RESPONDABLE.has(s.status)) return;
+    const n = await disputedCount(tx, s.id, s.reviewRound);
+    const next = n > 0 ? 'DISPUTED' : 'SENT_TO_CARRIER';
+    if (next === s.status) return;
+    await tx.carrierSettlement.update({
+      where: { id: s.id },
+      data: { status: next, version: { increment: 1 } },
+    });
+    await this.audit.record({
+      action: next === 'DISPUTED' ? 'settlement.disputed' : 'settlement.dispute_cleared',
+      entityType: REVIEW_LINK_ENTITY,
+      entityId: s.id,
+      before: { status: s.status },
+      after: { status: next, round: s.reviewRound, disputedCount: n },
+    });
+    if (next === 'DISPUTED') {
+      const snap = s.carrierSnapshot as { legalName?: string };
+      await this.events.settlementDisputed(tx, {
+        tenantId: s.tenantId,
+        settlementId: s.id,
+        carrier: snap.legalName ?? '',
+        ref: `${ymdTh(s.periodFrom)}–${ymdTh(s.periodTo)}`,
+        count: n,
+      });
+    }
+  }
+
   // ---------- ฝั่งรถร่วม ----------
 
   /** ใบของลิงก์ — ร่าง/ยกเลิกแล้ว (เรียกกลับ = ลิงก์ถูกเพิกถอนอยู่แล้ว) → 404 ไม่บอกใบ้ */
@@ -176,9 +214,9 @@ export class SettlementReviewService {
       grossAmount: s.grossAmount.toFixed(2),
       deductionAmount: s.deductionAmount.toFixed(2),
       netAmount: s.netPayable.toFixed(2),
-      canRespond: s.status === 'SENT_TO_CARRIER',
+      canRespond: RESPONDABLE.has(s.status),
       expiresAt: link.expiresAt.toISOString(),
-      lines,
+      lines: RESPONDABLE.has(s.status) ? lines : lines.map((l) => ({ ...l, canRespond: false })),
     };
   }
 
@@ -192,8 +230,9 @@ export class SettlementReviewService {
     const tx = this.db.tx;
     const s = await this.context(settlementId);
     await this.limiter.assert([linkWriteBucket(linkId)]);
-    if (s.status !== 'SENT_TO_CARRIER') throw closed(s.status);
+    if (!RESPONDABLE.has(s.status)) throw closed(s.status);
     const lineId = await this.lineOf(s.id, body.lineId);
+    await this.assertNotResolved(lineId, s.reviewRound);
     const actor = `link:${linkId}`;
     await lockKey(tx, `settlement_review.files:${linkId}`);
     const perLine = await tx.storedDocument.count({
@@ -250,14 +289,19 @@ export class SettlementReviewService {
     // ล็อกใบ — คำตอบกับการเรียกกลับ/อนุมัติพร้อมกันได้ลำดับเดียว
     await tx.$queryRaw`SELECT id FROM carrier_settlement WHERE id = ${settlementId}::uuid FOR UPDATE`;
     const s = await tx.carrierSettlement.findUniqueOrThrow({ where: { id: settlementId } });
-    if (s.status !== 'SENT_TO_CARRIER') throw closed(s.status);
+    if (!RESPONDABLE.has(s.status)) throw closed(s.status);
     // ลิงก์ถูกเพิกถอน/หมดอายุระหว่างรอล็อก (เรียกกลับ/ออกลิงก์ใหม่พร้อมกัน) → 404 (review L2)
     await this.assertLinkLive(linkId, s.id);
     const lineId = await this.lineOf(s.id, lineRef);
+    // บริษัทยืนยันยอดเดิมของบรรทัดนี้แล้วในรอบนี้ → ตอบซ้ำไม่ได้ (ST6-T06 — trigger 0130 ตรวจซ้ำ)
+    await this.assertNotResolved(lineId, s.reviewRound);
     const reason = body.reason?.trim() || null;
     const photos = body.photoDocumentIds ?? [];
     if (body.response === 'ACCEPTED' && photos.length)
       throw field422('photoDocumentIds', 'not_allowed', 'photos are only for disputes');
+    const claimed = body.claimedAmount ?? null;
+    if (body.response === 'ACCEPTED' && claimed !== null)
+      throw field422('claimedAmount', 'not_allowed', 'the claimed amount is only for disputes');
     if (body.response === 'DISPUTED' && !reason && !photos.length)
       throw field422('reason', 'required', 'give a reason or a photo for the dispute');
     const photoIds = await this.ownPhotos(linkId, lineId, photos);
@@ -270,6 +314,7 @@ export class SettlementReviewService {
         response: body.response,
         reason,
         photoIds,
+        claimedAmount: claimed,
         linkId,
         createdBy: `link:${linkId}`,
       },
@@ -285,16 +330,32 @@ export class SettlementReviewService {
         round: s.reviewRound,
         response: body.response,
         photoIds: photoIds.map((p) => encodeId('document', p)),
+        ...(claimed !== null ? { buyClaimedAmount: claimed } : {}),
         reviewId: row.id,
       },
     });
+    // โต้แย้ง/เปลี่ยนใจ → สถานะหัวใบ SENT_TO_CARRIER ↔ DISPUTED (ST6-T06)
+    await this.syncDisputeStatus(tx, s.id);
     const line = (await this.lines(tx, s.id, s.reviewRound)).find(
       (l) => l.id === encodeId('settlementLine', lineId),
     )!;
-    return { line };
+    const { status } = await tx.carrierSettlement.findUniqueOrThrow({
+      where: { id: s.id },
+      select: { status: true },
+    });
+    return { line, status };
   }
 
   // ---------- ภายใน ----------
+
+  /** บรรทัดที่บริษัทเคลียร์ (ยืนยันยอดเดิม) แล้วในรอบนี้ → 409 `settlement_line_resolved` */
+  private async assertNotResolved(lineId: string, round: number): Promise<void> {
+    const r = await this.db.tx.settlementLineDispute.findFirst({
+      where: { lineId, round, action: 'RESOLVED' },
+      select: { id: true },
+    });
+    if (r) throw new ProblemException('settlement_line_resolved');
+  }
 
   /** ลิงก์ยังใช้ได้และชี้ใบนี้ (อ่านหลังล็อกใบ) */
   private async assertLinkLive(linkId: string, settlementId: string): Promise<void> {
@@ -390,11 +451,19 @@ export class SettlementReviewService {
         response: true,
         reason: true,
         photoIds: true,
+        claimedAmount: true,
         createdAt: true,
       },
     });
     const latest = latestReviews(reviews, round);
-    return rows.map((l) => lineView(l, latest.get(l.id) ?? null));
+    // การเคลียร์ล่าสุดของบริษัท (ยืนยันยอดเดิม) — การติด dispute ภายในของบริษัทไม่แสดงให้รถร่วม
+    const resolutions = await tx.settlementLineDispute.findMany({
+      where: { settlementId, round, action: 'RESOLVED' },
+      orderBy: REVIEW_ORDER,
+      select: { lineId: true, reason: true, createdAt: true },
+    });
+    const resolved = new Map(resolutions.map((r) => [r.lineId, r]));
+    return rows.map((l) => lineView(l, latest.get(l.id) ?? null, resolved.get(l.id) ?? null));
   }
 }
 
@@ -411,7 +480,11 @@ type LineRow = Prisma.SettlementLineGetPayload<{
   };
 }>;
 
-function lineView(l: LineRow, r: ReviewRow | null): ReviewLinkLineDto {
+function lineView(
+  l: LineRow,
+  r: ReviewRow | null,
+  res: { reason: string; createdAt: Date } | null,
+): ReviewLinkLineDto {
   const stops = l.trip?.stops ?? [];
   const first = stops[0];
   const last = stops[stops.length - 1];
@@ -436,10 +509,19 @@ function lineView(l: LineRow, r: ReviewRow | null): ReviewLinkLineDto {
           response: r.response as 'ACCEPTED' | 'DISPUTED',
           reason: r.reason,
           photoCount: r.photoIds.length,
+          claimedAmount: r.claimedAmount?.toFixed(2) ?? null,
           respondedAt: r.createdAt.toISOString(),
         }
       : null,
+    resolution: res ? { reason: res.reason, resolvedAt: res.createdAt.toISOString() } : null,
+    canRespond: !res,
   };
+}
+
+/** งวด (วันที่ไทย พ.ศ. — ข้อความแจ้งเตือน) */
+function ymdTh(d: Date): string {
+  const [y, m, dd] = d.toISOString().slice(0, 10).split('-');
+  return `${Number(dd)}/${Number(m)}/${Number(y) + 543}`;
 }
 
 function closed(status: string) {

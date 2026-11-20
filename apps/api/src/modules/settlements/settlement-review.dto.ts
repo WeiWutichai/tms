@@ -49,7 +49,20 @@ export class ReviewLinkLineReviewDto {
   @ApiProperty({ enum: CARRIER_REVIEW_RESPONSES }) response!: CarrierReviewResponse;
   @ApiProperty({ nullable: true, type: String }) reason!: string | null;
   @ApiProperty({ description: 'จำนวนรูปที่แนบ' }) photoCount!: number;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '5200.00',
+    description: 'ยอดที่ท่านเรียก (ST6-T06 — เฉพาะโต้แย้ง ไม่บังคับ)',
+  })
+  claimedAmount!: string | null;
   @ApiProperty({ format: 'date-time' }) respondedAt!: string;
+}
+
+/** บริษัทยืนยันยอดเดิมของบรรทัดนี้แล้ว (ST6-T06) — รถร่วมตอบบรรทัดนี้ในรอบนี้ไม่ได้อีก */
+export class ReviewLinkLineResolutionDto {
+  @ApiProperty({ description: 'เหตุผลที่บริษัทยืนยันยอดเดิม' }) reason!: string;
+  @ApiProperty({ format: 'date-time' }) resolvedAt!: string;
 }
 
 export class ReviewLinkLineDto {
@@ -77,14 +90,25 @@ export class ReviewLinkLineDto {
   amount!: string;
   @ApiProperty({ nullable: true, type: ReviewLinkLineReviewDto })
   review!: ReviewLinkLineReviewDto | null;
+  @ApiProperty({
+    nullable: true,
+    type: ReviewLinkLineResolutionDto,
+    description: 'บริษัทยืนยันยอดเดิมแล้ว (ST6-T06) — null = ยังไม่ได้ยืนยัน',
+  })
+  resolution!: ReviewLinkLineResolutionDto | null;
+  @ApiProperty({
+    description: 'ตอบบรรทัดนี้ได้อยู่ไหม (ใบรอตรวจ และบริษัทยังไม่ยืนยันยอดเดิม)',
+  })
+  canRespond!: boolean;
 }
 
 export class ReviewLinkViewDto {
   @ApiProperty({ description: 'ชื่อบริษัทขนส่ง (ผู้จ่าย)' }) company!: string;
   @ApiProperty({ description: 'ชื่อรถร่วม (ตามใบ)' }) carrierName!: string;
   @ApiProperty({
-    enum: ['SENT_TO_CARRIER', 'APPROVED'],
-    description: 'SENT_TO_CARRIER = รอรถร่วมตรวจ (ตอบได้) · APPROVED = อนุมัติแล้ว (ดูอย่างเดียว)',
+    enum: ['SENT_TO_CARRIER', 'DISPUTED', 'APPROVED'],
+    description:
+      'SENT_TO_CARRIER = รอรถร่วมตรวจ (ตอบได้) · DISPUTED = มีรายการโต้แย้งรอบริษัทตรวจ (ยังตอบได้ — ST6-T06) · APPROVED = อนุมัติแล้ว (ดูอย่างเดียว)',
   })
   status!: string;
   @ApiProperty({ nullable: true, type: String, description: 'เลขใบ (ออกตอนอนุมัติ)' })
@@ -162,8 +186,24 @@ export class ReviewLinkRespondDto {
   @ArrayMaxSize(REVIEW_PHOTOS_MAX)
   @IsString({ each: true })
   photoDocumentIds?: string[];
+  @ApiPropertyOptional({
+    nullable: true,
+    type: String,
+    example: '5200.00',
+    description:
+      'ยอดที่รถร่วมเรียก (ST6-T06 — เฉพาะโต้แย้ง ไม่บังคับ · บาท ทศนิยม ≤ 2 · ≥ 0) ใช้ในหน้าเทียบ planned / executed / claimed ของบริษัท',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{1,12}(\.\d{1,2})?$/, { message: 'claimedAmount must be a money amount ≥ 0' })
+  claimedAmount?: string | null;
 }
 
 export class ReviewLinkRespondResultDto {
   @ApiProperty({ type: ReviewLinkLineDto }) line!: ReviewLinkLineDto;
+  @ApiProperty({
+    enum: ['SENT_TO_CARRIER', 'DISPUTED'],
+    description: 'สถานะใบหลังตอบ (ST6-T06 — โต้แย้งค้าง = DISPUTED)',
+  })
+  status!: string;
 }

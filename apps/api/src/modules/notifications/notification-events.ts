@@ -184,6 +184,25 @@ export class NotificationEvents implements OnModuleInit {
     }
   }
 
+  /**
+   * ST6-T06 ใบสำคัญจ่ายรถร่วมเข้า DISPUTED (docs/04 I "dispute") → ผู้เตรียมใบ (`settlements:create`) ยกเว้นผู้ทำเอง ·
+   * ไม่ใส่ยอดเงิน (สิทธิ์เห็นราคาซื้อแยก) · ยังไม่มีหน้า settle — ไม่มีลิงก์ในแจ้งเตือน (spec/12 §3 แถว ST6-T07)
+   */
+  async settlementDisputed(
+    tx: Tx,
+    input: { tenantId: string; settlementId: string; carrier: string; ref: string; count: number },
+  ): Promise<void> {
+    await this.safely(tx, 'settlement.disputed', () =>
+      this.notifications.notify(tx, {
+        tenantId: input.tenantId,
+        to: { permissions: ['settlements:create'], exclude: selfExclude() },
+        template: 'settlement.disputed',
+        vars: { carrier: input.carrier, ref: input.ref, count: input.count },
+        entity: { type: 'settlement', id: encodeId('settlement', input.settlementId) },
+      }),
+    );
+  }
+
   async connectorDown(
     tx: Tx,
     input: { tenantId: string; connectorId: string; label: string; code: string },

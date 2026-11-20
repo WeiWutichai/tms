@@ -1,6 +1,6 @@
 # จ่ายรถร่วม (settlements)
 
-11 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+14 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -9,12 +9,15 @@
 | [`POST /v1/settlements`](#post-settlements) | `settlements:create` |
 | [`GET /v1/settlements/{id}`](#get-settlements-id) | `settlements:read` |
 | [`PATCH /v1/settlements/{id}`](#patch-settlements-id) | `settlements:create` |
+| [`GET /v1/settlements/{id}/comparison`](#get-settlements-id-comparison) | `settlements:read` |
 | [`POST /v1/settlements/{id}/lines`](#post-settlements-id-lines) | `settlements:create` |
 | [`POST /v1/settlements/{id}/lines/{lineId}/remove`](#post-settlements-id-lines-lineId-remove) | `settlements:create` |
 | [`POST /v1/settlements/{id}/cancel`](#post-settlements-id-cancel) | `settlements:create` |
 | [`POST /v1/settlements/{id}/send-to-carrier`](#post-settlements-id-send-to-carrier) | `settlements:create` |
 | [`POST /v1/settlements/{id}/review-link`](#post-settlements-id-review-link) | `settlements:create` |
 | [`POST /v1/settlements/{id}/recall`](#post-settlements-id-recall) | `settlements:create` |
+| [`POST /v1/settlements/{id}/lines/{lineId}/dispute`](#post-settlements-id-lines-lineId-dispute) | `settlements:create` |
+| [`POST /v1/settlements/{id}/lines/{lineId}/resolve`](#post-settlements-id-lines-lineId-resolve) | `settlements:create` |
 
 ## คิวจ่ายรถร่วม (เที่ยวที่ปิดต้นทุนแล้วและยังไม่อยู่ในใบสำคัญจ่าย) {#get-settlements-queue}
 
@@ -77,7 +80,7 @@ scope: `settlements:read` · operationId: `Settlements_listSettlements`
 | `sort` | query |   | `string` ค่า: `updatedAt`, `-updatedAt` |   |
 | `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `carrierId` | query |   | `string` | รถร่วม — id หรือ `ext:{externalId}` |
-| `status` | query |   | `string` ค่า: `DRAFT`, `SENT_TO_CARRIER`, `APPROVED`, `CANCELLED` |   |
+| `status` | query |   | `string` ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `CANCELLED` |   |
 
 **Responses**
 
@@ -255,6 +258,43 @@ const { data, error } = await tms.PATCH('/v1/settlements/{id}', {
     "periodFrom": "2026-11-01",
     "periodTo": "2026-11-15"
   },
+});
+```
+
+## หน้าเทียบ planned vs executed vs claimed + POD {#get-settlements-id-comparison}
+
+`GET /v1/settlements/{id}/comparison`
+
+scope: `settlements:read` · operationId: `Settlements_compare`
+
+"Dispute — หน้าเอกสารคู่ยอด" · ต่อบรรทัดที่ยังใช้: ยอดตามแผน (ราคาที่ตกลงตอนจ้างรถร่วม) / ยอดในใบ / ยอดที่รถร่วมเรียก + ส่วนต่าง + สถานะรายการ (OPEN/DISPUTED/APPROVED) + คำตอบของรถร่วม + การตัดสินของบริษัท · ต่อเที่ยว: POD ล่าสุดต่อ DO (ผ่านเกณฑ์จ่ายไหม, ปริมาณตามแผน/ส่งจริง/ปฏิเสธ, เอกสาร) · ยอด `buy*` เห็นเมื่อมี `prices.buy:read`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `SettlementComparisonDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settlements:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/settlements/<id>/comparison" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/settlements/{id}/comparison', {
+  params: { path: { id: "…" } },
 });
 ```
 
@@ -478,7 +518,7 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/send-to-carrier', {
 
 scope: `settlements:create` · operationId: `Settlements_reissueLink`
 
-เฉพาะใบ SENT_TO_CARRIER · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued`
+เฉพาะใบ SENT_TO_CARRIER / DISPUTED · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued`
 
 **Parameters**
 
@@ -511,13 +551,13 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/review-link', {
 });
 ```
 
-## เรียกใบกลับมาแก้ (SENT_TO_CARRIER → DRAFT) — เหตุผล ≥ 10 ตัวอักษร {#post-settlements-id-recall}
+## เรียกใบกลับมาแก้ (SENT_TO_CARRIER / DISPUTED → DRAFT) — เหตุผล ≥ 10 ตัวอักษร {#post-settlements-id-recall}
 
 `POST /v1/settlements/{id}/recall`
 
 scope: `settlements:create` · operationId: `Settlements_recall`
 
-เช่น รถร่วมโต้แย้งรายการ แล้วต้องแก้/นำบรรทัดออก · เพิกถอนลิงก์ตรวจ · คำตอบของรถร่วมเก็บเป็นประวัติ (ส่งใหม่ = รอบใหม่) · audit `settlement.recalled`
+เช่น รถร่วมโต้แย้งรายการ แล้วต้องแก้/นำบรรทัดออก · เพิกถอนลิงก์ตรวจ · คำตอบของรถร่วมเก็บเป็นประวัติ (ส่งใหม่ = รอบใหม่) · รายการที่โต้แย้งค้างยังบล็อกอนุมัติร่างตรง (นำออก / ยืนยันยอดเดิม / ส่งรอบใหม่) · audit `settlement.recalled`
 
 **Parameters**
 
@@ -564,7 +604,129 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/recall', {
 });
 ```
 
+## บัญชีติด dispute รายการ — เหตุผล ≥ 10 ตัวอักษร {#post-settlements-id-lines-lineId-dispute}
+
+`POST /v1/settlements/{id}/lines/{lineId}/dispute`
+
+scope: `settlements:create` · operationId: `Settlements_disputeLine`
+
+"SENT_TO_CARRIER → DISPUTED: รถร่วม/บัญชีติด dispute รายการ" · เฉพาะใบ SENT_TO_CARRIER / DISPUTED (อื่น ๆ → 409) · บรรทัดที่โต้แย้งค้างอยู่แล้ว / นำออกแล้ว → 409 · หัวใบ → DISPUTED (อนุมัติไม่ได้จนเคลียร์) · ไม่แสดงให้รถร่วมเห็น · audit `settlement.line_flagged`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `lineId` | path | ใช่ | `string` |   |
+| `If-Match` | header | ใช่ | `string` | ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
+
+**Request body** `SettlementReasonDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `รถร่วมขอแยกวางบิลเที่ยวนี้งวดหน้า` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `SettlementDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settlements:create`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/settlements/<id>/lines/<lineId>/dispute" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"รถร่วมขอแยกวางบิลเที่ยวนี้งวดหน้า"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/settlements/{id}/lines/{lineId}/dispute', {
+  params: { path: { id: "…", lineId: "…" } },
+  body: {
+    "reason": "รถร่วมขอแยกวางบิลเที่ยวนี้งวดหน้า"
+  },
+});
+```
+
+## เคลียร์ dispute — ยืนยันยอดเดิมพร้อมเหตุผล ≥ 10 ตัวอักษร {#post-settlements-id-lines-lineId-resolve}
+
+`POST /v1/settlements/{id}/lines/{lineId}/resolve`
+
+scope: `settlements:create` · operationId: `Settlements_resolveLine`
+
+BIL-136 · เฉพาะบรรทัดที่โต้แย้งค้าง ของใบ DISPUTED หรือร่างที่เรียกกลับ (อื่น ๆ → 409) · ปิดทุก dispute ก่อนหน้าของบรรทัดในรอบนี้ (รถร่วม + บัญชี) → สถานะรายการ APPROVED · **รถร่วมตอบบรรทัดนี้ในรอบนี้ไม่ได้อีก** (409 `settlement_line_resolved`) และเห็นเหตุผลนี้บนลิงก์ตรวจ · เคลียร์ครบ → DISPUTED กลับเป็น SENT_TO_CARRIER (อนุมัติได้) · **ผู้เคลียร์นับเป็นผู้เตรียมใบ — อนุมัติใบนี้ไม่ได้** (separation of duties) · แก้ยอด = เรียกกลับแล้วนำบรรทัดออก/เพิ่มใหม่ · audit `settlement.line_resolved`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `lineId` | path | ใช่ | `string` |   |
+| `If-Match` | header | ใช่ | `string` | ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
+
+**Request body** `SettlementReasonDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `รถร่วมขอแยกวางบิลเที่ยวนี้งวดหน้า` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `SettlementDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settlements:create`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/settlements/<id>/lines/<lineId>/resolve" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"รถร่วมขอแยกวางบิลเที่ยวนี้งวดหน้า"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/settlements/{id}/lines/{lineId}/resolve', {
+  params: { path: { id: "…", lineId: "…" } },
+  body: {
+    "reason": "รถร่วมขอแยกวางบิลเที่ยวนี้งวดหน้า"
+  },
+});
+```
+
 ## Schema ของ response {#schemas}
+
+### SettlementComparisonDto {#schema-SettlementComparisonDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `stl_…` |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `CANCELLED` |   |   |
+| `round` | ใช่ | `number` |   | รอบตรวจปัจจุบัน (0 = ยังไม่เคยส่ง) |   |
+| `carrierInvoiceNo` | ใช่ | `string` | null ได้ | เลขใบแจ้งหนี้ของรถร่วม |   |
+| `dispute` | ใช่ | `SettlementDisputeSummaryDto` |   |   |   |
+| `lines` | ใช่ | `array<ComparisonLineDto>` |   | บรรทัดที่ยังใช้ เรียงตามลำดับในใบ |   |
+| `trips` | ใช่ | `array<ComparisonTripDto>` |   | เที่ยวของบรรทัด + POD ต่อ DO |   |
 
 ### SettlementDto {#schema-SettlementDto}
 
@@ -574,7 +736,7 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/recall', {
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `stl_…` |
 | `settlementNo` | ใช่ | `string` | null ได้ | เลขเอกสาร (ชุด STL) — ร่างยังไม่มีเลข · ออกตอนอนุมัติ |   |
-| `status` | ใช่ | `string` | ค่า: `DRAFT`, `SENT_TO_CARRIER`, `APPROVED`, `CANCELLED` |   |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `CANCELLED` |   |   |
 | `carrier` | ใช่ | `SettlementCarrierDto` |   |   |   |
 | `payingCompanyId` | ใช่ | `string` | null ได้ | นิติบุคคลที่จ่าย ("จ้างในนาม" ของรถร่วม — null = ค่าเริ่มต้นองค์กร) |   |
 | `periodFrom` | ใช่ | `string` |   |   | `2026-11-01` |
@@ -593,6 +755,7 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/recall', {
 | `sentAt` | ใช่ | `string` | null ได้ | ส่งให้รถร่วมตรวจล่าสุด — ผู้ส่งนับเป็นผู้เตรียมใบ (อนุมัติใบนี้ไม่ได้) |   |
 | `sentBy` | ใช่ | `string` | null ได้ |   |   |
 | `carrierReview` | ใช่ | `SettlementCarrierReviewDto` |   |   |   |
+| `dispute` | ใช่ | `SettlementDisputeSummaryDto` |   |   |   |
 | `cancelledAt` | ใช่ | `string` | null ได้ |   |   |
 | `cancelledBy` | ใช่ | `string` | null ได้ |   |   |
 | `cancelReason` | ใช่ | `string` | null ได้ |   |   |

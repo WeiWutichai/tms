@@ -29,6 +29,8 @@ import { ApiProblems } from '../../common/problem.dto';
 import { T403, T404, T409, T412, T422 } from '../trips/trip-problems';
 import { PROBLEMS } from '../../common/problem';
 import { isRealDate } from '../vehicle-documents/expiry';
+import { SettlementComparisonDto } from './settlement-comparison.dto';
+import { SettlementComparisonService } from './settlement-comparison.service';
 import { SettlementQueuePageDto, SettlementQueueQuery } from './settlement-queue.dto';
 import { SettlementQueueService } from './settlement-queue.service';
 import {
@@ -52,7 +54,7 @@ const IF_MATCH = {
 
 /**
  * Settlement รถร่วม (AP — docs/04 F6, docs/01 §4.5, §5.2 #12 `settlements`)
- * ST6-T02 คิวจ่ายรถร่วม · ST6-T03 ใบสำคัญจ่าย (ร่าง) · ST6-T05 ส่งรถร่วมตรวจผ่านลิงก์ · ST6-T07 อนุมัติ — dispute/จ่าย = ST6-T06/T09
+ * ST6-T02 คิวจ่ายรถร่วม · ST6-T03 ใบสำคัญจ่าย (ร่าง) · ST6-T05 ส่งรถร่วมตรวจผ่านลิงก์ · ST6-T06 dispute + หน้าเทียบ · ST6-T07 อนุมัติ — จ่าย = ST6-T09
  * อ่าน `settlements:read` (ยอดเห็นเมื่อมี `prices.buy:read`) · สร้าง/แก้ร่าง/ยกเลิกร่าง `settlements:create` · อนุมัติ `settlements:approve`
  */
 @ApiTags('settlements')
@@ -62,6 +64,7 @@ export class SettlementsController {
   constructor(
     private readonly queue: SettlementQueueService,
     private readonly svc: SettlementsService,
+    private readonly comparison: SettlementComparisonService,
   ) {}
 
   @Get('queue')
@@ -143,6 +146,21 @@ export class SettlementsController {
     const out = await this.svc.get(decodeIdOr404('settlement', id));
     setEtag(res, out.version);
     return out;
+  }
+
+  @Get(':id/comparison')
+  @TenantResource('settlement')
+  @RequireScope('settlements:read')
+  @ApiOperation({
+    summary: 'หน้าเทียบ planned vs executed vs claimed + POD (ST6-T06)',
+    description:
+      'docs/04 F6 "Dispute — หน้าเอกสารคู่ยอด" · ต่อบรรทัดที่ยังใช้: ยอดตามแผน (ราคาที่ตกลงตอนจ้างรถร่วม) / ยอดในใบ / ยอดที่รถร่วมเรียก + ส่วนต่าง + สถานะรายการ (OPEN/DISPUTED/APPROVED) + คำตอบของรถร่วม + การตัดสินของบริษัท · ' +
+      'ต่อเที่ยว: POD ล่าสุดต่อ DO (ผ่านเกณฑ์จ่ายไหม, ปริมาณตามแผน/ส่งจริง/ปฏิเสธ, เอกสาร) · ยอด `buy*` เห็นเมื่อมี `prices.buy:read`',
+  })
+  @ApiProblems(T403('settlements:read'), NF)
+  @ApiOkResponse({ type: SettlementComparisonDto })
+  compare(@Param('id') id: string): Promise<SettlementComparisonDto> {
+    return this.comparison.compare(decodeIdOr404('settlement', id));
   }
 
   @Patch(':id')
@@ -296,7 +314,7 @@ export class SettlementsController {
   @ApiOperation({
     summary: 'ออกลิงก์ให้รถร่วมตรวจใหม่ (ลิงก์เดิมหมดอายุ/หาย)',
     description:
-      'เฉพาะใบ SENT_TO_CARRIER · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued`',
+      'เฉพาะใบ SENT_TO_CARRIER / DISPUTED · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued`',
   })
   @ApiProblems(T403('settlements:create'), NF, T409())
   @ApiCreatedResponse({ type: SettlementReviewLinkDto })
@@ -309,9 +327,10 @@ export class SettlementsController {
   @TenantResource('settlement')
   @RequireScope('settlements:create')
   @ApiOperation({
-    summary: 'เรียกใบกลับมาแก้ (SENT_TO_CARRIER → DRAFT) — เหตุผล ≥ 10 ตัวอักษร',
+    summary: 'เรียกใบกลับมาแก้ (SENT_TO_CARRIER / DISPUTED → DRAFT) — เหตุผล ≥ 10 ตัวอักษร',
     description:
-      'เช่น รถร่วมโต้แย้งรายการ แล้วต้องแก้/นำบรรทัดออก · เพิกถอนลิงก์ตรวจ · คำตอบของรถร่วมเก็บเป็นประวัติ (ส่งใหม่ = รอบใหม่) · audit `settlement.recalled`',
+      'เช่น รถร่วมโต้แย้งรายการ แล้วต้องแก้/นำบรรทัดออก (docs/01 §4.5 DISPUTED → DRAFT "แก้รายการ") · เพิกถอนลิงก์ตรวจ · คำตอบของรถร่วมเก็บเป็นประวัติ (ส่งใหม่ = รอบใหม่) · ' +
+      'รายการที่โต้แย้งค้างยังบล็อกอนุมัติร่างตรง (นำออก / ยืนยันยอดเดิม / ส่งรอบใหม่) · audit `settlement.recalled`',
   })
   @ApiHeader({
     ...IF_MATCH,
@@ -335,6 +354,77 @@ export class SettlementsController {
     return out;
   }
 
+  @Post(':id/lines/:lineId/dispute')
+  @HttpCode(200)
+  @TenantResource('settlement')
+  @RequireScope('settlements:create')
+  @ApiOperation({
+    summary: 'บัญชีติด dispute รายการ (ST6-T06) — เหตุผล ≥ 10 ตัวอักษร',
+    description:
+      'docs/01 §4.5 "SENT_TO_CARRIER → DISPUTED : รถร่วม/บัญชีติด dispute รายการ" · เฉพาะใบ SENT_TO_CARRIER / DISPUTED (อื่น ๆ → 409) · ' +
+      'บรรทัดที่โต้แย้งค้างอยู่แล้ว / นำออกแล้ว → 409 · หัวใบ → DISPUTED (อนุมัติไม่ได้จนเคลียร์) · ไม่แสดงให้รถร่วมเห็น · audit `settlement.line_flagged`',
+  })
+  @ApiHeader({
+    ...IF_MATCH,
+    required: true,
+    description: 'ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412',
+  })
+  @ApiProblems(T403('settlements:create'), NF, T409(), T412, T422)
+  @ApiOkResponse({ type: SettlementDto })
+  async disputeLine(
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+    @Body() body: SettlementReasonDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SettlementDto> {
+    const sid = decodeIdOr404('settlement', id);
+    const out = await this.svc.disputeLine(
+      sid,
+      decodeIdOr404('settlementLine', lineId),
+      body.reason,
+      expectedVersion(req),
+    );
+    setEtag(res, out.version);
+    return out;
+  }
+
+  @Post(':id/lines/:lineId/resolve')
+  @HttpCode(200)
+  @TenantResource('settlement')
+  @RequireScope('settlements:create')
+  @ApiOperation({
+    summary: 'เคลียร์ dispute — ยืนยันยอดเดิมพร้อมเหตุผล ≥ 10 ตัวอักษร (ST6-T06)',
+    description:
+      'spec/05 BIL-136 · เฉพาะบรรทัดที่โต้แย้งค้าง ของใบ DISPUTED หรือร่างที่เรียกกลับ (อื่น ๆ → 409) · ปิดทุก dispute ก่อนหน้าของบรรทัดในรอบนี้ (รถร่วม + บัญชี) → สถานะรายการ APPROVED · ' +
+      '**รถร่วมตอบบรรทัดนี้ในรอบนี้ไม่ได้อีก** (409 `settlement_line_resolved`) และเห็นเหตุผลนี้บนลิงก์ตรวจ · เคลียร์ครบ → DISPUTED กลับเป็น SENT_TO_CARRIER (อนุมัติได้) · ' +
+      '**ผู้เคลียร์นับเป็นผู้เตรียมใบ — อนุมัติใบนี้ไม่ได้** (separation of duties) · แก้ยอด = เรียกกลับแล้วนำบรรทัดออก/เพิ่มใหม่ · audit `settlement.line_resolved`',
+  })
+  @ApiHeader({
+    ...IF_MATCH,
+    required: true,
+    description: 'ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412',
+  })
+  @ApiProblems(T403('settlements:create'), NF, T409(), T412, T422)
+  @ApiOkResponse({ type: SettlementDto })
+  async resolveLine(
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+    @Body() body: SettlementReasonDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SettlementDto> {
+    const sid = decodeIdOr404('settlement', id);
+    const out = await this.svc.resolveLine(
+      sid,
+      decodeIdOr404('settlementLine', lineId),
+      body.reason,
+      expectedVersion(req),
+    );
+    setEtag(res, out.version);
+    return out;
+  }
+
   @Post(':id/approve')
   @HttpCode(200)
   @TenantResource('settlement')
@@ -343,8 +433,8 @@ export class SettlementsController {
     summary: 'อนุมัติใบสำคัญจ่าย (separation of duties) → ออกเลข STL — เหตุผล ≥ 10 ตัวอักษร',
     description:
       'SENT_TO_CARRIER → APPROVED หรือ DRAFT → APPROVED (docs/01 §4.5 — DRAFT ตรงได้เมื่อไม่ตั้ง `settlement.carrierReviewRequired` ไม่งั้น 409 `settlement_review_required`) · ' +
-      'รถร่วมโต้แย้งบรรทัดในรอบตรวจปัจจุบัน → 409 `settlement_disputed` (`disputedCount`) · **ผู้ใช้ที่ login เท่านั้น** (API key / OAuth client / ลิงก์ ไม่มี scope นี้) · ' +
-      '**ผู้เตรียมใบ (ผู้สร้าง / ผู้แก้หัวใบ / ผู้เพิ่มหรือนำบรรทัดออก / ผู้ส่งให้รถร่วมตรวจ — key = ผู้ออก key) อนุมัติไม่ได้ → 403 `settlement_self_approval`** (ระบุผู้เตรียมไม่ได้ = ปฏิเสธ) · ' +
+      'ใบ DISPUTED / มีรายการโต้แย้งค้างในรอบตรวจปัจจุบัน (รถร่วมโต้แย้ง/บัญชีติด dispute ที่ยังไม่เคลียร์) → 409 `settlement_disputed` (`disputedCount`) · **ผู้ใช้ที่ login เท่านั้น** (API key / OAuth client / ลิงก์ ไม่มี scope นี้) · ' +
+      '**ผู้เตรียมใบ (ผู้สร้าง / ผู้แก้หัวใบ / ผู้เพิ่มหรือนำบรรทัดออก / ผู้ส่งให้รถร่วมตรวจ / ผู้เคลียร์ dispute — key = ผู้ออก key) อนุมัติไม่ได้ → 403 `settlement_self_approval`** (ระบุผู้เตรียมไม่ได้ = ปฏิเสธ) · ' +
       'ยอดสุทธิเกินวงเงินที่ตั้ง (`settlement.approvalStepUpAmount` — ค่าเริ่ม 100,000 บาท; 0 = ทุกใบ) ต้องส่ง `X-Step-Up` ของผู้อนุมัติ ' +
       '(จาก `POST /v1/auth/step-up` ยืนยัน TOTP) ไม่งั้น 403 `step_up_required` · ไม่มีบรรทัดค่าขนส่ง (FREIGHT) → 409 `settlement_empty` · ' +
       'ยอดสุทธิติดลบ → 409 `settlement_net_negative` · ออกเลขชุด STL ตอนนี้เท่านั้น (ร่างไม่กินเลข; ออกแล้วแก้ไม่ได้) · ใบที่อนุมัติแล้วแก้/เพิ่ม/นำบรรทัดออก/ยกเลิกไม่ได้ (409) · ' +

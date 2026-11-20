@@ -2113,47 +2113,49 @@ model TripCost {
 /// ST6-T03 ใบสำคัญจ่ายรถร่วม (docs/01 §3.6 carrier_settlement; spec/05 §11) — ร่าง DRAFT ไม่มีเลข (STL ออกตอนอนุมัติ ST6-T07)
 /// ยอด: gross = Σ บรรทัดเที่ยว · deduction = Σ |บรรทัดหัก| · net = gross − deduction (CHECK) · ไม่คำนวณ VAT/WHT (ST6-T08) · ไม่มีการลบ
 model CarrierSettlement {
-  id                 String           @id @default(uuid()) @db.Uuid
-  tenantId           String           @map("tenant_id") @db.Uuid
-  settlementNo       String?          @map("settlement_no")
-  carrierId          String           @map("carrier_id") @db.Uuid
-  carrier            Carrier          @relation(fields: [carrierId], references: [id], onDelete: Restrict)
+  id                 String                  @id @default(uuid()) @db.Uuid
+  tenantId           String                  @map("tenant_id") @db.Uuid
+  settlementNo       String?                 @map("settlement_no")
+  carrierId          String                  @map("carrier_id") @db.Uuid
+  carrier            Carrier                 @relation(fields: [carrierId], references: [id], onDelete: Restrict)
   /// ข้อมูลรถร่วม ณ วันสร้างใบ {code, legalName, entityType, taxId, taxIdLast4, branchCode, address}
-  carrierSnapshot    Json             @map("carrier_snapshot")
+  carrierSnapshot    Json                    @map("carrier_snapshot")
   /// นิติบุคคลที่จ่าย ("จ้างในนาม" ของรถร่วม — null = ค่าเริ่มต้นองค์กร)
-  payingCompanyId    String?          @map("paying_company_id") @db.Uuid
-  payingCompany      Company?         @relation(fields: [payingCompanyId], references: [id], onDelete: Restrict)
-  periodFrom         DateTime         @map("period_from") @db.Date
-  periodTo           DateTime         @map("period_to") @db.Date
-  carrierInvoiceNo   String?          @map("carrier_invoice_no")
-  carrierInvoiceDate DateTime?        @map("carrier_invoice_date") @db.Date
-  carrierReceiptNo   String?          @map("carrier_receipt_no")
+  payingCompanyId    String?                 @map("paying_company_id") @db.Uuid
+  payingCompany      Company?                @relation(fields: [payingCompanyId], references: [id], onDelete: Restrict)
+  periodFrom         DateTime                @map("period_from") @db.Date
+  periodTo           DateTime                @map("period_to") @db.Date
+  carrierInvoiceNo   String?                 @map("carrier_invoice_no")
+  carrierInvoiceDate DateTime?               @map("carrier_invoice_date") @db.Date
+  carrierReceiptNo   String?                 @map("carrier_receipt_no")
   note               String?
-  grossAmount        Decimal          @default(0) @map("gross_amount") @db.Decimal(14, 2)
-  deductionAmount    Decimal          @default(0) @map("deduction_amount") @db.Decimal(14, 2)
-  netPayable         Decimal          @default(0) @map("net_payable") @db.Decimal(14, 2)
-  /// DRAFT / SENT_TO_CARRIER / APPROVED / CANCELLED (CHECK ใน migration 0122/0124/0127 — DISPUTED/PAID เพิ่มใน ST6-T06/T09)
-  status             String           @default("DRAFT")
+  grossAmount        Decimal                 @default(0) @map("gross_amount") @db.Decimal(14, 2)
+  deductionAmount    Decimal                 @default(0) @map("deduction_amount") @db.Decimal(14, 2)
+  netPayable         Decimal                 @default(0) @map("net_payable") @db.Decimal(14, 2)
+  /// DRAFT / SENT_TO_CARRIER / DISPUTED / APPROVED / CANCELLED (CHECK ใน migration 0122/0124/0127/0130 — PAID เพิ่มใน ST6-T09)
+  /// DISPUTED (ST6-T06) = ส่งตรวจแล้วมีรายการโต้แย้งที่ยังไม่เคลียร์ (รถร่วม/บริษัท) — อนุมัติไม่ได้ · เคลียร์ครบ → SENT_TO_CARRIER · เรียกกลับ → DRAFT
+  status             String                  @default("DRAFT")
   /// ส่งให้รถร่วมตรวจล่าสุด (ST6-T05) — ผู้ส่งนับเป็นผู้เตรียมใบ (SoD) · รอบตรวจ +1 ทุกครั้งที่ส่ง (คำตอบของรถร่วมผูกกับรอบ)
-  sentAt             DateTime?        @map("sent_at") @db.Timestamptz(6)
-  sentBy             String?          @map("sent_by")
-  reviewRound        Int              @default(0) @map("review_round")
+  sentAt             DateTime?               @map("sent_at") @db.Timestamptz(6)
+  sentBy             String?                 @map("sent_by")
+  reviewRound        Int                     @default(0) @map("review_round")
   /// ผู้เตรียมใบจากขั้นรถร่วมตรวจ (ผู้ส่งทุกรอบ + ผู้เรียกกลับ + ผู้ออกลิงก์ใหม่) — เพิ่มอย่างเดียว · อนุมัติใบนี้ไม่ได้ (SoD)
-  preparers          String[]         @default([])
+  preparers          String[]                @default([])
   /// อนุมัติ (ST6-T07) — ผู้อนุมัติ ≠ ผู้สร้าง (CHECK) · เลข STL ออกตอนนี้ (issueNumber) แก้ไม่ได้
-  approvedAt         DateTime?        @map("approved_at") @db.Timestamptz(6)
-  approvedBy         String?          @map("approved_by")
+  approvedAt         DateTime?               @map("approved_at") @db.Timestamptz(6)
+  approvedBy         String?                 @map("approved_by")
   /// ผู้แก้หัวใบล่าสุด (PATCH) — นับเป็นผู้เตรียมใบ (SoD ST6-T07)
-  updatedBy          String?          @map("updated_by")
-  cancelledAt        DateTime?        @map("cancelled_at") @db.Timestamptz(6)
-  cancelledBy        String?          @map("cancelled_by")
-  cancelReason       String?          @map("cancel_reason")
-  createdBy          String?          @map("created_by")
-  version            Int              @default(1)
-  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedBy          String?                 @map("updated_by")
+  cancelledAt        DateTime?               @map("cancelled_at") @db.Timestamptz(6)
+  cancelledBy        String?                 @map("cancelled_by")
+  cancelReason       String?                 @map("cancel_reason")
+  createdBy          String?                 @map("created_by")
+  version            Int                     @default(1)
+  createdAt          DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   lines              SettlementLine[]
   reviews            SettlementLineReview[]
+  disputes           SettlementLineDispute[]
 
   @@index([tenantId, updatedAt, id])
   @@index([tenantId, carrierId, status])
@@ -2163,30 +2165,31 @@ model CarrierSettlement {
 /// บรรทัดใบสำคัญจ่าย — FREIGHT/SURCHARGE อ้าง trip_cost 1:1 (unique บรรทัดที่ยังใช้ — partial index กันจ่ายซ้ำ K11)
 /// DEDUCTION = กรอกมือ ยอดติดลบ (CASH_ADVANCE / FUEL_PROVIDED / FINE / DAMAGE) + เอกสารอ้างอิง · นำออก = voided_at + เหตุผล
 model SettlementLine {
-  id            String            @id @default(uuid()) @db.Uuid
-  tenantId      String            @map("tenant_id") @db.Uuid
-  settlementId  String            @map("settlement_id") @db.Uuid
-  settlement    CarrierSettlement @relation(fields: [settlementId], references: [id], onDelete: Restrict)
-  lineNo        Int               @map("line_no")
-  lineType      String            @map("line_type") /// FREIGHT / SURCHARGE / DEDUCTION
-  tripCostId    String?           @map("trip_cost_id") @db.Uuid
-  tripCost      TripCost?         @relation(fields: [tripCostId], references: [id], onDelete: Restrict)
-  tripId        String?           @map("trip_id") @db.Uuid
-  trip          Trip?             @relation(fields: [tripId], references: [id], onDelete: Restrict)
-  deductionType String?           @map("deduction_type")
+  id            String                  @id @default(uuid()) @db.Uuid
+  tenantId      String                  @map("tenant_id") @db.Uuid
+  settlementId  String                  @map("settlement_id") @db.Uuid
+  settlement    CarrierSettlement       @relation(fields: [settlementId], references: [id], onDelete: Restrict)
+  lineNo        Int                     @map("line_no")
+  lineType      String                  @map("line_type") /// FREIGHT / SURCHARGE / DEDUCTION
+  tripCostId    String?                 @map("trip_cost_id") @db.Uuid
+  tripCost      TripCost?               @relation(fields: [tripCostId], references: [id], onDelete: Restrict)
+  tripId        String?                 @map("trip_id") @db.Uuid
+  trip          Trip?                   @relation(fields: [tripId], references: [id], onDelete: Restrict)
+  deductionType String?                 @map("deduction_type")
   description   String
-  amount        Decimal           @db.Decimal(14, 2)
+  amount        Decimal                 @db.Decimal(14, 2)
   reference     String?
   /// ธงภาษีคัดลอกจาก trip_cost (ข้อมูลเท่านั้น — คำนวณ WHT ใน ST6-T08)
-  vatType       String?           @map("vat_type")
-  whtRate       Decimal?          @map("wht_rate") @db.Decimal(5, 2)
-  voidedAt      DateTime?         @map("voided_at") @db.Timestamptz(6)
-  voidedBy      String?           @map("voided_by")
-  voidReason    String?           @map("void_reason")
-  createdBy     String?           @map("created_by")
-  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  vatType       String?                 @map("vat_type")
+  whtRate       Decimal?                @map("wht_rate") @db.Decimal(5, 2)
+  voidedAt      DateTime?               @map("voided_at") @db.Timestamptz(6)
+  voidedBy      String?                 @map("voided_by")
+  voidReason    String?                 @map("void_reason")
+  createdBy     String?                 @map("created_by")
+  createdAt     DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   reviews       SettlementLineReview[]
+  disputes      SettlementLineDispute[]
 
   @@unique([settlementId, lineNo])
   @@index([tenantId, tripId])
@@ -2197,6 +2200,32 @@ model SettlementLine {
 /// คำตอบล่าสุดของบรรทัดในรอบตรวจปัจจุบัน = สถานะที่แสดง · DISPUTED = ติดธง (อนุมัติไม่ได้จนกว่า ST6-T06 เคลียร์/ส่งตรวจรอบใหม่)
 /// ผู้ตอบ = actor สังเคราะห์ `link:<id>` (ไม่ใช่คน — ไม่นับเป็นผู้เตรียม/ผู้อนุมัติ)
 model SettlementLineReview {
+  id            String            @id @default(uuid()) @db.Uuid
+  tenantId      String            @map("tenant_id") @db.Uuid
+  settlementId  String            @map("settlement_id") @db.Uuid
+  settlement    CarrierSettlement @relation(fields: [settlementId], references: [id], onDelete: Restrict)
+  lineId        String            @map("line_id") @db.Uuid
+  line          SettlementLine    @relation(fields: [lineId], references: [id], onDelete: Restrict)
+  round         Int
+  /// ACCEPTED / DISPUTED
+  response      String
+  reason        String?
+  /// รูปประกอบ (stored_document ที่จองผ่านลิงก์นี้สำหรับบรรทัดนี้)
+  photoIds      String[]          @default([]) @map("photo_ids") @db.Uuid
+  /// ST6-T06 ยอดที่รถร่วมเรียก (เฉพาะโต้แย้ง — ไม่บังคับ) ใช้ในหน้าเทียบ planned / executed / claimed
+  claimedAmount Decimal?          @map("claimed_amount") @db.Decimal(14, 2)
+  linkId        String            @map("link_id") @db.Uuid
+  createdBy     String            @map("created_by")
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, settlementId, round, lineId, createdAt])
+  @@map("settlement_line_review")
+}
+
+/// ST6-T06 การตัดสินฝั่งบริษัทต่อบรรทัดใบสำคัญจ่าย (docs/04 F6 "Dispute", docs/01 §4.5 "รถร่วม/บัญชีติด dispute รายการ", spec/05 BIL-136)
+/// DISPUTED = บริษัท (บัญชี) ติด dispute รายการเอง · RESOLVED = เคลียร์ — ยืนยันยอดเดิมพร้อมเหตุผล (ปิดทุก dispute ก่อนหน้าของบรรทัดในรอบ;
+/// รถร่วมตอบบรรทัดนั้นในรอบนี้ไม่ได้อีก) · เพิ่มอย่างเดียว · ผู้บันทึก = คน (ไม่ใช่ลิงก์) · ผู้เคลียร์ = ผู้เตรียมใบ (อนุมัติไม่ได้ — SoD)
+model SettlementLineDispute {
   id           String            @id @default(uuid()) @db.Uuid
   tenantId     String            @map("tenant_id") @db.Uuid
   settlementId String            @map("settlement_id") @db.Uuid
@@ -2204,17 +2233,15 @@ model SettlementLineReview {
   lineId       String            @map("line_id") @db.Uuid
   line         SettlementLine    @relation(fields: [lineId], references: [id], onDelete: Restrict)
   round        Int
-  /// ACCEPTED / DISPUTED
-  response     String
-  reason       String?
-  /// รูปประกอบ (stored_document ที่จองผ่านลิงก์นี้สำหรับบรรทัดนี้)
-  photoIds     String[]          @default([]) @map("photo_ids") @db.Uuid
-  linkId       String            @map("link_id") @db.Uuid
+  /// DISPUTED / RESOLVED
+  action       String
+  reason       String
   createdBy    String            @map("created_by")
-  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// clock_timestamp() — ลำดับเทียบกับคำตอบของรถร่วมต้องเป็นเวลาที่บันทึกจริง (ไม่ใช่เวลาเริ่ม transaction)
+  createdAt    DateTime          @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
 
   @@index([tenantId, settlementId, round, lineId, createdAt])
-  @@map("settlement_line_review")
+  @@map("settlement_line_dispute")
 }
 
 /// สถานะข้อเสนองาน/การจ้างรถร่วม (ST3-T22; spec/03 §8 SubconOffer — ชุดย่อยเฟส 0) · ACCEPTED = รถร่วมรับ (ผู้จัดรถบันทึกแทนผ่าน /assign หรือ ST3-T23)

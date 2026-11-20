@@ -39,6 +39,8 @@ export interface NotificationVars {
   'subcon_offer.rejected': { orderNo: string; customer: string; note: string };
   /** ST9-T08 ค่าใช้จ่ายหน้างานรอยืนยัน (docs/04 I "ขออนุมัติ"; ST4-T13) — ไม่ใส่ยอดเงิน (สิทธิ์เห็นราคาแยกฝั่ง) */
   'field_charge.pending': { tripNo: string; item: string; side: 'SELL' | 'BUY' | 'BOTH' };
+  /** ST6-T06 ใบสำคัญจ่ายรถร่วมมีรายการโต้แย้ง (docs/04 I "dispute") · ref = เลขใบ/งวด · count = รายการโต้แย้งค้าง — ไม่ใส่ยอดเงิน */
+  'settlement.disputed': { carrier: string; ref: string; count: number };
   /** ST9-T08 connector หยุดทำงาน (status ERROR — docs/04 I "connector ล่ม") · label = รหัส adapter · code = รหัสปัญหา */
   'connector.error': { label: string; code: string };
   /** ST8-T03 connector กลับมาทำงานเอง (ปลายทางตอบอีกครั้ง — ERROR → ACTIVE โดยระบบ) */
@@ -389,6 +391,16 @@ const TEMPLATES: {
     en: (v) => ({
       title: 'Field charge awaiting approval',
       body: `${v.tripNo} · ${v.item} (${SIDE_EN[v.side]}) — confirm or reject it on the trip.`,
+    }),
+  },
+  'settlement.disputed': {
+    th: (v) => ({
+      title: 'ใบสำคัญจ่ายรถร่วมมีรายการโต้แย้ง',
+      body: `${safeName(v.carrier, 80)} · ${safeName(v.ref, 60)} — โต้แย้ง ${n(v.count)} รายการ · อนุมัติไม่ได้จนกว่าจะยืนยันยอดเดิมหรือแก้รายการ`,
+    }),
+    en: (v) => ({
+      title: 'Carrier settlement disputed',
+      body: `${safeName(v.carrier, 80)} · ${safeName(v.ref, 60)} — ${n(v.count)} disputed line(s). It cannot be approved until they are resolved or corrected.`,
     }),
   },
   'connector.error': {

@@ -135,7 +135,7 @@ describe('notification center (ST9-T08)', () => {
       pendingTask: null,
     });
     expect(by['subcon.no_response']).toMatchObject({ inApp: true, email: true, line: false });
-    expect(by.dispute!.pendingTask).toBe('ST6-T06');
+    expect(by.dispute!.pendingTask).toBeNull(); // ST6-T06 ยิงแล้ว (settlement.disputed)
     expect(by['delivery_order.unbilled']!.pendingTask).toBe('ST9-T06');
     expect(by['payment.due']!.pendingTask).toBe('ST5-T22');
   });
