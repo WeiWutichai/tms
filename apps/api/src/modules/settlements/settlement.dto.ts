@@ -26,14 +26,18 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** ยอดหักติดลบ ≠ 0 ("-0", "-0.00", "-00.00" ไม่ผ่าน) */
 const NEG_MONEY = /^-(?!0+(\.0{1,2})?$)\d{1,12}(\.\d{1,2})?$/;
 
-/** docs/01 §4.5 — SENT_TO_CARRIER (ST6-T05) · DISPUTED (ST6-T06) · PAID (ST6-T09) เพิ่มภายหลัง */
+/** docs/01 §4.5 — SENT_TO_CARRIER (ST6-T05) · DISPUTED (ST6-T06) · PAID (ST6-T09) */
 export const SETTLEMENT_STATUSES = [
   'DRAFT',
   'SENT_TO_CARRIER',
   'DISPUTED',
   'APPROVED',
+  'PAID',
   'CANCELLED',
 ] as const;
+/** วิธีจ่าย (ST6-T09 — ต้นแบบ "วิธีจ่าย": โอนเงิน / เช็ค / เงินสด) */
+export const SETTLEMENT_PAYMENT_METHODS = ['TRANSFER', 'CHEQUE', 'CASH'] as const;
+export type SettlementPaymentMethod = (typeof SETTLEMENT_PAYMENT_METHODS)[number];
 /** คำตอบของรถร่วมต่อบรรทัด (ST6-T05) */
 export const CARRIER_REVIEW_RESPONSES = ['ACCEPTED', 'DISPUTED'] as const;
 export type CarrierReviewResponse = (typeof CARRIER_REVIEW_RESPONSES)[number];
@@ -232,6 +236,60 @@ export class SettlementReasonDto {
   @IsReason()
   reason!: string;
 }
+
+/** บันทึกจ่าย (ST6-T09; docs/04 F6 "จ่าย" — วันโอน/เลขอ้างอิง/ธนาคาร; ต้นแบบ dialog "บันทึกจ่าย") */
+export class SettlementPayDto {
+  @ApiProperty({
+    example: '2026-11-20',
+    description:
+      'วันที่จ่ายจริง (วันโอน / วันที่เช็ค / วันจ่ายเงินสด — YYYY-MM-DD วันที่ไทย) — ไม่เกินวันนี้',
+  })
+  @Matches(DATE_RE)
+  paidDate!: string;
+
+  @ApiProperty({
+    enum: SETTLEMENT_PAYMENT_METHODS,
+    description: 'TRANSFER = โอนเงิน · CHEQUE = เช็ค · CASH = เงินสด',
+  })
+  @IsIn(SETTLEMENT_PAYMENT_METHODS)
+  method!: SettlementPaymentMethod;
+
+  @ApiPropertyOptional({
+    maxLength: 60,
+    nullable: true,
+    type: String,
+    example: 'KBANK-2611-0091',
+    description: 'เลขอ้างอิงการโอน / เลขที่เช็ค — **บังคับเมื่อ TRANSFER / CHEQUE**',
+  })
+  @IsOptional()
+  @CleanText()
+  @IsString()
+  @MaxLength(60)
+  reference?: string | null;
+
+  @ApiPropertyOptional({
+    maxLength: 60,
+    nullable: true,
+    type: String,
+    example: 'กสิกรไทย',
+    description: 'ธนาคาร (ของบัญชีที่โอนออก / ธนาคารของเช็ค) — ไม่บังคับ',
+  })
+  @IsOptional()
+  @CleanText()
+  @IsString()
+  @MaxLength(60)
+  bank?: string | null;
+}
+
+/** ข้อมูลการจ่าย (ST6-T09) — null จนบันทึกจ่าย */
+const PAID_DOCS = {
+  paidDate: 'วันที่จ่ายจริง (YYYY-MM-DD) — null จนบันทึกจ่าย (ST6-T09)',
+  paidAt: 'เวลาที่บันทึกจ่าย',
+  paidBy: 'ผู้บันทึกจ่าย',
+  paymentMethod: 'วิธีจ่าย TRANSFER / CHEQUE / CASH',
+  paymentReference: 'เลขอ้างอิงการโอน / เลขที่เช็ค',
+  paymentBank: 'ธนาคาร',
+} as const;
 
 export class SettlementListQuery extends ListQuery {
   @ApiPropertyOptional({ example: 'car_…', description: 'รถร่วม — id หรือ `ext:{externalId}`' })
@@ -536,6 +594,28 @@ export class SettlementDto {
   @ApiProperty({
     nullable: true,
     type: String,
+    example: '2026-11-20',
+    description: PAID_DOCS.paidDate,
+  })
+  paidDate!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: PAID_DOCS.paidAt })
+  paidAt!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: PAID_DOCS.paidBy })
+  paidBy!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    enum: SETTLEMENT_PAYMENT_METHODS,
+    description: PAID_DOCS.paymentMethod,
+  })
+  paymentMethod!: SettlementPaymentMethod | null;
+  @ApiProperty({ nullable: true, type: String, description: PAID_DOCS.paymentReference })
+  paymentReference!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: PAID_DOCS.paymentBank })
+  paymentBank!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
     description: 'ส่งให้รถร่วมตรวจล่าสุด (ST6-T05) — ผู้ส่งนับเป็นผู้เตรียมใบ (อนุมัติใบนี้ไม่ได้)',
   })
   sentAt!: string | null;
@@ -584,6 +664,13 @@ export class SettlementSummaryDto {
   whtForm!: (typeof WHT_FORMS)[number];
   @ApiProperty({ nullable: true, type: String, description: 'เวลาอนุมัติ (ST6-T07)' })
   approvedAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '2026-11-20',
+    description: PAID_DOCS.paidDate,
+  })
+  paidDate!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'ส่งให้รถร่วมตรวจล่าสุด (ST6-T05)' })
   sentAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) createdBy!: string | null;

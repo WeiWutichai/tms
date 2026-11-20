@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
+  bangkokDay,
   decimalFromSatang,
   estimateSettlementWht,
   eventDefinition,
@@ -18,6 +19,7 @@ import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { issueNumber } from '../sequences/sequences.service';
+import { TripService } from '../trips/trip.service';
 import { readSettings } from '../settings/settings.service';
 import type {
   CreateSettlementDto,
@@ -27,11 +29,12 @@ import type {
   SettlementLineDto,
   SettlementListQuery,
   SettlementPageDto,
+  SettlementPayDto,
   SettlementStatus,
   SettlementSummaryDto,
   UpdateSettlementDto,
 } from './settlement.dto';
-import { SettlementQueueService } from './settlement-queue.service';
+import { payableLines, SettlementQueueService } from './settlement-queue.service';
 import { disputedCount, disputedLines, latestBy, lineStatus } from './settlement-dispute';
 import type { SettlementSentDto, SettlementReviewLinkDto } from './settlement-review.dto';
 import {
@@ -102,6 +105,7 @@ export class SettlementsService {
     private readonly audit: AuditService,
     private readonly queue: SettlementQueueService,
     private readonly review: SettlementReviewService,
+    private readonly trips: TripService,
   ) {}
 
   // ---------- อ่าน ----------
@@ -151,6 +155,7 @@ export class SettlementsService {
           ...whtTotals(r, wht),
           whtForm: wht.form,
           approvedAt: r.approvedAt?.toISOString() ?? null,
+          paidDate: r.paidDate ? ymd(r.paidDate) : null,
           sentAt: r.sentAt?.toISOString() ?? null,
           createdBy: r.createdBy,
           version: r.version,
@@ -508,6 +513,143 @@ export class SettlementsService {
       },
     });
     return out;
+  }
+
+  /**
+   * บันทึกจ่าย (ST6-T09; docs/04 F6 "จ่าย" — วันโอน/เลขอ้างอิง/ธนาคาร, docs/01 §4.5 APPROVED → PAID, D-58 บัญชีเบา)
+   * - เฉพาะใบ APPROVED (อื่น ๆ รวม PAID แล้ว → 409 `invalid_state_transition`) · If-Match บังคับ · สิทธิ์ `settlements:pay` (A3: owner/admin/accounting)
+   * - จ่ายเต็มยอดครั้งเดียว (ยอดที่จ่าย = ยอดสุทธิ − หัก ณ ที่จ่ายที่ตรึงตอนอนุมัติ) — ไม่มีแบ่งจ่าย (docs/01 §4.5 ไม่มี PARTIALLY_PAID)
+   * - หัก ณ ที่จ่ายที่ตรึง (`wht_amount` / `wht_minimum_amount` / `wht_rate_default`) คงเดิม (trigger 0139) · ใบที่อนุมัติก่อน ST6-T08 → ตรึงตอนนี้
+   * - เที่ยวในใบ: COSTED → SETTLED เมื่อบรรทัดต้นทุนที่จ่ายรถร่วมได้ทุกบรรทัดอยู่ในใบที่จ่ายแล้ว (docs/01 §4.2) → ไม่กลับเข้าคิวจ่าย
+   * - audit `settlement.paid` + webhook `settlement.paid` (ST8-T16 ส่ง AP ร่างจาก event นี้ — D-58; 50 ทวิ ออกที่ระบบบัญชี)
+   */
+  async markPaid(
+    id: string,
+    body: SettlementPayDto,
+    expected: number | undefined,
+  ): Promise<SettlementDto> {
+    const tx = this.db.tx;
+    const ctx = requestContext.require();
+    const reference = body.reference?.trim() || null;
+    const bank = body.bank?.trim() || null;
+    const bad: FieldError[] = [];
+    if (!isRealDay(body.paidDate))
+      bad.push({
+        field: 'paidDate',
+        code: 'invalid_date',
+        message: 'must be a real date (YYYY-MM-DD)',
+      });
+    else if (body.paidDate > bangkokDay(new Date().toISOString()))
+      bad.push({
+        field: 'paidDate',
+        code: 'future_date',
+        message: 'paidDate cannot be in the future',
+      });
+    if (body.method !== 'CASH' && !reference)
+      bad.push({
+        field: 'reference',
+        code: 'required',
+        message:
+          'reference (transfer reference / cheque number) is required for TRANSFER and CHEQUE',
+      });
+    const s = await this.lockFor(tx, id, expected, ['APPROVED']);
+    requireIfMatch(expected);
+    if (bad.length) throw invalid(bad);
+    const actor = ctx.actorId ?? 'system';
+    // ใบที่อนุมัติก่อน ST6-T08 (ยังไม่ตรึง WHT) → ตรึงในคำสั่งเดียวกับการบันทึกจ่าย (trigger 0139 ยอมครั้งเดียว)
+    let freeze: Prisma.CarrierSettlementUpdateInput = {};
+    if (s.whtAmount === null) {
+      const row = (await this.load(tx, id))!;
+      const minimum = await this.liveWhtMinimum(tx);
+      freeze = {
+        whtAmount: decimalFromSatang(whtOf(row, row.lines, minimum).wht),
+        whtMinimumAmount: minimum,
+        whtRateDefault: row.whtRateDefault ?? row.carrier.whtRateDefault,
+      };
+    }
+    await tx.carrierSettlement.update({
+      where: { id },
+      data: {
+        status: 'PAID',
+        paidDate: day(body.paidDate),
+        paidAt: new Date(),
+        paidBy: actor,
+        paymentMethod: body.method,
+        paymentReference: reference,
+        paymentBank: bank,
+        ...freeze,
+        version: { increment: 1 },
+      },
+    });
+    const settledTrips = await this.settleTrips(tx, id);
+    const out = await this.get(id);
+    await this.audit.record({
+      action: 'settlement.paid',
+      entityType: ENTITY,
+      entityId: id,
+      before: { status: s.status },
+      after: {
+        status: 'PAID',
+        settlementNo: out.settlementNo,
+        paidDate: out.paidDate,
+        paymentMethod: out.paymentMethod,
+        paymentReference: out.paymentReference,
+        paymentBank: out.paymentBank,
+        buyNetPayable: out.buyNetPayable,
+        buyWhtAmount: out.buyWhtAmount,
+        buyNetAfterWht: out.buyNetAfterWht,
+        whtFrozenNow: s.whtAmount === null,
+        settledTripIds: settledTrips.map((t) => encodeId('trip', t)),
+      },
+    });
+    await tx.domainEvent.create({
+      data: {
+        tenantId: ctx.tenantId!,
+        type: 'settlement.paid',
+        entityType: ENTITY,
+        localId: id,
+        snapshot: settlementEventObject(out) as Prisma.InputJsonValue,
+        previousAttributes: {
+          status: s.status,
+          paidDate: null,
+          paidAt: null,
+          paymentMethod: null,
+          paymentReference: null,
+          paymentBank: null,
+        },
+        requestId: ctx.requestId ?? null,
+        actorId: actor,
+      },
+    });
+    return out;
+  }
+
+  /**
+   * เที่ยวของใบที่เพิ่งจ่าย: COSTED → SETTLED (docs/01 §4.2 "(รถร่วม) cost line ถูกจ่ายใน settlement") เมื่อ
+   * (ก) ไม่มีบรรทัดต้นทุนรอจ่าย (กฎเดียวกับคิวจ่าย — `payableLines`) และ (ข) บรรทัดเที่ยวที่ยังใช้ทุกใบของเที่ยวนั้นอยู่ในใบ PAID แล้ว
+   * — เที่ยวที่ยังมีบรรทัดรอจ่าย/อยู่ในใบอื่นที่ยังไม่จ่าย คง COSTED (เปลี่ยนเป็น SETTLED เมื่อจ่ายใบสุดท้าย) · ล็อกเที่ยวเรียงตาม id
+   */
+  private async settleTrips(tx: Tx, id: string): Promise<string[]> {
+    const rows = await tx.$queryRaw<{ id: string }[]>`
+      SELECT t.id FROM trip t
+       WHERE t.id IN (SELECT l.trip_id FROM settlement_line l
+                       WHERE l.settlement_id = ${id}::uuid AND l.voided_at IS NULL
+                         AND l.line_type <> 'DEDUCTION' AND l.trip_id IS NOT NULL)
+       ORDER BY t.id
+         FOR UPDATE OF t`;
+    const ids = rows.map((r) => r.id);
+    if (!ids.length) return [];
+    const done = await tx.$queryRaw<{ id: string }[]>`
+      WITH tp AS NOT MATERIALIZED (SELECT t.id, t.carrier_id FROM trip t WHERE t.id = ANY(${ids}::uuid[]))
+      SELECT t.id FROM trip t
+       WHERE t.id = ANY(${ids}::uuid[]) AND t.status = 'COSTED'
+         AND NOT EXISTS (SELECT 1 FROM (${payableLines(Prisma.sql`tp`)}) x WHERE x.trip_id = t.id)
+         AND NOT EXISTS (SELECT 1 FROM settlement_line l JOIN carrier_settlement s ON s.id = l.settlement_id
+                          WHERE l.trip_id = t.id AND l.voided_at IS NULL AND l.line_type <> 'DEDUCTION'
+                            AND s.status <> 'PAID')
+       ORDER BY t.id`;
+    for (const t of done) await this.trips.settle(tx, t.id);
+    return done.map((t) => t.id);
   }
 
   /**
@@ -1429,6 +1571,12 @@ function toDto(r: SettlementRow, disputed: Set<string>, wht: SettlementWhtEstima
     ),
     approvedAt: r.approvedAt?.toISOString() ?? null,
     approvedBy: r.approvedBy,
+    paidDate: r.paidDate ? ymd(r.paidDate) : null,
+    paidAt: r.paidAt?.toISOString() ?? null,
+    paidBy: r.paidBy,
+    paymentMethod: r.paymentMethod as SettlementDto['paymentMethod'],
+    paymentReference: r.paymentReference,
+    paymentBank: r.paymentBank,
     sentAt: r.sentAt?.toISOString() ?? null,
     sentBy: r.sentBy,
     carrierReview: {

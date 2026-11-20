@@ -43,8 +43,8 @@ export const REVIEW_REVOKE_REASON = {
   RECALLED: 'เรียกใบสำคัญจ่ายกลับมาแก้ — ลิงก์ให้รถร่วมตรวจใช้ไม่ได้แล้ว',
 } as const;
 
-/** สถานะที่หน้าลิงก์เปิดดูได้ (อนุมัติแล้ว = ดูอย่างเดียวจนลิงก์หมดอายุ · DISPUTED = ยังตอบได้ — ST6-T06) */
-const VIEWABLE = new Set(['SENT_TO_CARRIER', 'DISPUTED', 'APPROVED']);
+/** สถานะที่หน้าลิงก์เปิดดูได้ (อนุมัติแล้ว/จ่ายแล้ว — ST6-T09 = ดูอย่างเดียวจนลิงก์หมดอายุ · DISPUTED = ยังตอบได้ — ST6-T06) */
+const VIEWABLE = new Set(['SENT_TO_CARRIER', 'DISPUTED', 'APPROVED', 'PAID']);
 const RESPONDABLE = new Set<string>(UNDER_REVIEW);
 
 const field422 = (field: string, code: string, message: string) =>
