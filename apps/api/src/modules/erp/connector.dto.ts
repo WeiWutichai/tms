@@ -4,11 +4,15 @@ import {
   CONNECTOR_STATUSES,
   ERP_CAPABILITIES,
   ERP_MASTER_CODE_KINDS,
+  SOR_CHANGE_MODES,
+  SOR_FIELD_GROUPS,
+  SOR_OWNERS,
 } from '@tms/domain';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsISO8601,
@@ -101,6 +105,70 @@ export class ConnectorInboundDto {
     string | null;
 }
 
+/** ST7-T17 กลุ่ม field → AUTO_SYNC (แก้แล้วส่งการเปลี่ยนไป ERP เอง) / REGENERATE (ต้องสร้างเอกสารฝั่ง ERP ใหม่) */
+export class SorFieldSyncDto {
+  @ApiProperty({ enum: SOR_CHANGE_MODES, description: 'ราคา' }) PRICE!: string;
+  @ApiProperty({ enum: SOR_CHANGE_MODES, description: 'วันที่' }) DATES!: string;
+  @ApiProperty({ enum: SOR_CHANGE_MODES, description: 'ค่าใช้จ่ายเพิ่มเติม (accessorial)' })
+  ACCESSORIAL!: string;
+  @ApiProperty({
+    enum: SOR_CHANGE_MODES,
+    description: 'เปลี่ยนลูกค้า — REGENERATE เสมอ (docs/04 G3)',
+  })
+  CUSTOMER!: string;
+}
+
+/** ST7-T17 system-of-record ของ connector (docs/04 G3; docs/01 §8.1) — ตกลงกับลูกค้าก่อน go-live (plan/templates/sor-agreement.md) */
+export class SystemOfRecordDto {
+  @ApiProperty({ enum: SOR_OWNERS, description: 'เจ้าของข้อมูลลูกค้า(หลัก)' })
+  customerOwner!: string;
+  @ApiProperty({
+    enum: SOR_OWNERS,
+    description:
+      'เจ้าของเอกสารภาษี — ERP = TMS ไม่ออกเลขใบกำกับภาษี (ออกเฉพาะใบแจ้งหนี้/ใบวางบิล) · TMS ออกเลขเอกสารของตัวเองเสมอ (D-27)',
+  })
+  taxDocumentOwner!: string;
+  @ApiProperty({ type: SorFieldSyncDto }) fieldSync!: SorFieldSyncDto;
+  @ApiProperty({ description: 'แก้แล้ว sync ไป ERP ได้จนรับชำระ (รับบางส่วนก็นับ)' })
+  editableUntilPaid!: boolean;
+}
+
+export class EffectiveSystemOfRecordDto extends SystemOfRecordDto {
+  @ApiProperty({
+    description:
+      'TMS ออกเลขใบกำกับภาษีให้เอกสารของนิติบุคคลนี้ได้ไหม (false เมื่อ taxDocumentOwner = ERP) — หน้าจอซ่อนเลขใบกำกับภาษีเมื่อ false',
+  })
+  canIssueTaxDocumentNumber!: boolean;
+}
+
+/** ST7-T17 เปลี่ยน system-of-record — ส่งเฉพาะที่เปลี่ยน · เหตุผลบังคับ (ลง audit) */
+export class UpdateSystemOfRecordDto extends MasterReasonDto {
+  @ApiPropertyOptional({ enum: SOR_OWNERS })
+  @IsOptionalNotNull()
+  @IsIn(SOR_OWNERS)
+  customerOwner?: string;
+
+  @ApiPropertyOptional({ enum: SOR_OWNERS })
+  @IsOptionalNotNull()
+  @IsIn(SOR_OWNERS)
+  taxDocumentOwner?: string;
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: { type: 'string', enum: [...SOR_CHANGE_MODES] },
+    example: { PRICE: 'REGENERATE' },
+    description: `กลุ่มที่เปลี่ยน (${SOR_FIELD_GROUPS.join(', ')}) — กลุ่มที่ไม่ส่งคงค่าเดิม · CUSTOMER ตั้ง AUTO_SYNC ไม่ได้ (422)`,
+  })
+  @IsOptionalNotNull()
+  @IsObject()
+  fieldSync?: Record<string, string>;
+
+  @ApiPropertyOptional()
+  @IsOptionalNotNull()
+  @IsBoolean()
+  editableUntilPaid?: boolean;
+}
+
 export class ConnectorDto {
   @ApiProperty({ example: 'con_8f3a…' }) id!: string;
   @ApiProperty({ example: 'demo' }) adapterKey!: string;
@@ -182,6 +250,7 @@ export class ConnectorDto {
   @ApiProperty({ nullable: true, type: String, format: 'date-time' }) disconnectedAt!:
     string | null;
   @ApiProperty({ type: ConnectorInboundDto }) inbound!: ConnectorInboundDto;
+  @ApiProperty({ type: SystemOfRecordDto }) systemOfRecord!: SystemOfRecordDto;
   @ApiProperty() version!: number;
   @ApiProperty({ format: 'date-time' }) createdAt!: string;
   @ApiProperty({ format: 'date-time' }) updatedAt!: string;
@@ -441,6 +510,12 @@ export class EffectiveConnectorDto {
   })
   companyId!: string | null;
   @ApiProperty({ nullable: true, type: String, example: 'brn_…' }) branchId!: string | null;
+  @ApiProperty({
+    type: EffectiveSystemOfRecordDto,
+    description:
+      'ST7-T17 system-of-record ที่ใช้กับนิติบุคคลนี้ — connector ที่ยังไม่ยกเลิก (แม้หยุดชั่วคราว/แพ็กเกจปิดการเชื่อมต่อ) ใช้กฎของ connector · ไม่มี = TMS ทั้งหมด',
+  })
+  systemOfRecord!: EffectiveSystemOfRecordDto;
 }
 
 /** ST7-T22 ผลการรับ webhook ขาเข้า */

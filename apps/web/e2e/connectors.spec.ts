@@ -4,6 +4,7 @@ import { DEMO_PASSWORD, DEMO_TOTP_SECRET, E2E_WEB, expect, test, totp } from './
 /**
  * ST7-T20 หน้าจัดการ connector — เกณฑ์ตรวจรับ:
  * Innovera เปิด connector demo ให้ tenant จาก admin portal; tenant เห็นสถานะและกด healthCheck ได้; credential ไม่แสดงเต็ม
+ * + ST7-T17 "ใครออกเลขเอกสาร" (เจ้าของเอกสารภาษี) เปลี่ยนได้พร้อมเหตุผล
  */
 const KEY = `demo-e2e-key-${Date.now() % 1_000_000}`;
 
@@ -58,6 +59,21 @@ test('Innovera เปิด connector demo ให้ลูกค้า → ล�
   const detail = page.getByTestId('connector-detail');
   await expect(detail.getByTestId('credential-row').first()).toContainText('••••••••');
   expect(await page.content()).not.toContain(KEY);
+
+  // ST7-T17 ใครออกเลขเอกสาร = เจ้าของเอกสารภาษี (ค่าเริ่มต้น ERP ตาม docs/04 G3) — เปลี่ยนต้องมีเหตุผล
+  const num = detail.getByRole('radiogroup', { name: 'ใครออกเลขเอกสาร' });
+  await expect(
+    num.getByRole('radio', { name: 'ERP จำลอง (Demo) ออกเลข แล้วส่งกลับ TMS' }),
+  ).toHaveAttribute('aria-checked', 'true');
+  await expect(detail.getByText(/แต่ไม่ออกเลขใบกำกับภาษี/)).toBeVisible();
+  await num.getByRole('radio', { name: 'TMS ออกเลข แล้วส่งให้ ERP จำลอง (Demo)' }).click();
+  const nd = page.getByRole('dialog');
+  await nd.getByLabel(/เหตุผล/).fill('ตกลงกับลูกค้าให้ TMS ออกใบกำกับภาษี (E2E)');
+  await nd.getByRole('button', { name: 'บันทึก' }).click();
+  await expect(page.getByRole('status')).toContainText('บันทึกการตั้งค่าการเชื่อมต่อแล้ว');
+  await expect(
+    num.getByRole('radio', { name: 'TMS ออกเลข แล้วส่งให้ ERP จำลอง (Demo)' }),
+  ).toHaveAttribute('aria-checked', 'true');
 
   // ตัดการเชื่อมต่อ (เหตุผล ≥ 10) — กลับเป็นไม่เชื่อม (เก็บกวาดให้ spec อื่น)
   await card.getByRole('button', { name: 'ตัดการเชื่อมต่อ' }).click();

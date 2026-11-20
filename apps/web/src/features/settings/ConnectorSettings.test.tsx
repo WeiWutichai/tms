@@ -35,17 +35,29 @@ const conn = (status: string) => ({
   syncFromDate: null,
   lastHealthError: null,
   inbound: { supported: true, tokenPrefix: null, tokenRotatedAt: null },
+  systemOfRecord: {
+    customerOwner: 'ERP',
+    taxDocumentOwner: 'ERP',
+    fieldSync: {
+      PRICE: 'AUTO_SYNC',
+      DATES: 'AUTO_SYNC',
+      ACCESSORIAL: 'AUTO_SYNC',
+      CUSTOMER: 'REGENERATE',
+    },
+    editableUntilPaid: true,
+  },
   version: 3,
 });
 let conns: unknown[] = [];
 const GET = vi.fn();
 const POST = vi.fn();
+const PUT = vi.fn();
 vi.mock('../../api', () => ({
   api: {
     GET: (...a: unknown[]) => GET(...a),
     POST: (...a: unknown[]) => POST(...a),
     PATCH: vi.fn(),
-    PUT: vi.fn(),
+    PUT: (...a: unknown[]) => PUT(...a),
   },
   unwrap: async (p: Promise<{ data: unknown }>) => (await p).data,
   ApiError: class ApiError extends Error {
@@ -201,6 +213,51 @@ describe('ตั้งค่า → การเชื่อมต่อ (ST7-T2
     expect(
       await screen.findByText(/ทดสอบการเชื่อมต่อ ERP จำลอง \(Demo\) สำเร็จ/),
     ).toBeInTheDocument();
+  });
+
+  it('ST7-T17 ใครออกเลขเอกสาร (ต้นแบบ) = เจ้าของเอกสารภาษี: เปลี่ยนต้องใส่เหตุผล → PUT system-of-record', async () => {
+    conns = [conn('ACTIVE')];
+    PUT.mockReset().mockResolvedValue({
+      data: {
+        ...conn('ACTIVE'),
+        systemOfRecord: { ...conn('ACTIVE').systemOfRecord, taxDocumentOwner: 'TMS' },
+      },
+    });
+    wrap();
+    const box = await screen.findByTestId('numbering-owner');
+    const group = within(box).getByRole('radiogroup', { name: 'ใครออกเลขเอกสาร' });
+    const erp = within(group).getByRole('radio', {
+      name: 'ERP จำลอง (Demo) ออกเลข แล้วส่งกลับ TMS',
+    });
+    const tms = within(group).getByRole('radio', {
+      name: 'TMS ออกเลข แล้วส่งให้ ERP จำลอง (Demo)',
+    });
+    expect(erp).toHaveAttribute('aria-checked', 'true');
+    expect(box.textContent).toContain('แต่ไม่ออกเลขใบกำกับภาษี');
+    fireEvent.click(erp); // ค่าเดิม = ไม่เปิด dialog
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(tms);
+    const dlg = await screen.findByRole('dialog');
+    expect(within(dlg).getByText('เปลี่ยนผู้ออกเลขเอกสาร')).toBeInTheDocument();
+    fireEvent.change(within(dlg).getByRole('textbox'), {
+      target: { value: 'ตกลงกับลูกค้าให้ TMS ออกใบกำกับภาษี' },
+    });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'บันทึก' }));
+    await waitFor(() =>
+      expect(PUT).toHaveBeenCalledWith(
+        '/v1/connectors/{id}/system-of-record',
+        expect.objectContaining({
+          body: { taxDocumentOwner: 'TMS', reason: 'ตกลงกับลูกค้าให้ TMS ออกใบกำกับภาษี' },
+        }),
+      ),
+    );
+  });
+
+  it('ST7-T17 สิทธิ์อ่านอย่างเดียว: เลือกผู้ออกเลขเอกสารไม่ได้', async () => {
+    conns = [conn('ACTIVE')];
+    wrap(false);
+    const box = await screen.findByTestId('numbering-owner');
+    for (const r of within(box).getAllByRole('radio')) expect(r).toBeDisabled();
   });
 
   it('สิทธิ์อ่านอย่างเดียว: ไม่มีปุ่มเชื่อมต่อ/ทดสอบ', async () => {

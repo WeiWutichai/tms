@@ -7,6 +7,11 @@ import {
   documentSyncModes,
   ERP_CAPABILITIES,
   ERP_MASTER_CODE_KINDS,
+  canIssueTaxDocumentNumber,
+  fieldSyncErrors,
+  normalizeFieldSync,
+  type SorOwner,
+  type SystemOfRecord,
   unsupportedCapabilities,
 } from '@tms/domain';
 import { randomUUID } from 'node:crypto';
@@ -34,7 +39,9 @@ import type {
   EffectiveConnectorQuery,
   ErpAdapterDto,
   UpdateConnectorDto,
+  UpdateSystemOfRecordDto,
 } from './connector.dto';
+import { sorOf, SystemOfRecordPolicy } from './system-of-record.policy';
 import { ConnectorResolver } from './connector-resolver';
 import {
   type ErpAdapter,
@@ -160,6 +167,20 @@ function auditView(c: Connector) {
     credentialKeys: c.credentialKeys,
     syncFromDate: c.syncFromDate?.toISOString().slice(0, 10) ?? null,
     status: c.status,
+    customerOwner: c.customerOwner,
+    taxDocumentOwner: c.taxDocumentOwner,
+    fieldSync: normalizeFieldSync(c.fieldSync),
+    editableUntilPaid: c.editableUntilPaid,
+  };
+}
+
+/** system-of-record แบบ DTO (+ ธงออกเลขใบกำกับภาษี) */
+function sorDto(s: SystemOfRecord) {
+  return {
+    customerOwner: s.customerOwner,
+    taxDocumentOwner: s.taxDocumentOwner,
+    fieldSync: { ...s.fieldSync },
+    editableUntilPaid: s.editableUntilPaid,
   };
 }
 
@@ -192,6 +213,7 @@ export class ConnectorsService {
     private readonly prisma: PrismaService,
     private readonly events: NotificationEvents,
     private readonly clock: Clock,
+    private readonly sor: SystemOfRecordPolicy,
   ) {}
 
   get cipher(): FieldCipher {
@@ -269,6 +291,7 @@ export class ConnectorsService {
         tokenPrefix: c.inboundTokenPrefix,
         tokenRotatedAt: iso(c.inboundTokenRotatedAt),
       },
+      systemOfRecord: sorDto(sorOf(c)),
       version: c.version,
       createdAt: c.createdAt.toISOString(),
       updatedAt: c.updatedAt.toISOString(),
@@ -345,7 +368,14 @@ export class ConnectorsService {
     let companyId = decode('company', 'companyId', q.companyId);
     const branchId = decode('branch', 'branchId', q.branchId);
     // แพ็กเกจไม่มี connector → Standalone เสมอ (ไม่ 403 — หน้าจอทุกแพ็กเกจถามได้)
-    if (!(await this.entitlements.enabled(tenantId, 'conn')))
+    // ยกเว้น system-of-record (ST7-T17): connector ที่ยังไม่ยกเลิกยังเป็นเจ้าของเอกสารภาษี (กันใบกำกับภาษีซ้ำ — SystemOfRecordPolicy)
+    if (!(await this.entitlements.enabled(tenantId, 'conn'))) {
+      let sorCompany = companyId;
+      if (branchId && !sorCompany)
+        sorCompany =
+          (await tx.branch.findUnique({ where: { id: branchId }, select: { companyId: true } }))
+            ?.companyId ?? null;
+      const s = await this.sor.forCompany(tx, sorCompany);
       return {
         standalone: true,
         connectorId: null,
@@ -360,7 +390,9 @@ export class ConnectorsService {
         erpCompanyCode: null,
         companyId: q.companyId ?? null,
         branchId: q.branchId ?? null,
+        systemOfRecord: { ...sorDto(s), canIssueTaxDocumentNumber: canIssueTaxDocumentNumber(s) },
       };
+    }
     // ระบุแค่สาขา → นิติบุคคลของสาขานั้น
     if (branchId && !companyId) {
       const b = await tx.branch.findUnique({
@@ -393,6 +425,10 @@ export class ConnectorsService {
       erpCompanyCode: r.erpCompanyCode,
       companyId: r.routing ? encodeId('company', r.routing.company.id) : null,
       branchId: r.routing ? encodeId('branch', r.routing.branch.id) : null,
+      systemOfRecord: {
+        ...sorDto(sorOf(r.connector)),
+        canIssueTaxDocumentNumber: canIssueTaxDocumentNumber(sorOf(r.connector)),
+      },
     };
   }
 
@@ -680,6 +716,71 @@ export class ConnectorsService {
       }
     if (!Object.keys(a).length && !reason) return;
     await this.audit(tx, { action, entityId: id, before: b, after: a, reason });
+  }
+
+  /**
+   * ST7-T17 เปลี่ยน system-of-record ของ connector (docs/04 G3) — เหตุผลบังคับ + audit `connector.sor_changed`
+   * เจ้าของลูกค้า/เอกสารภาษีเปลี่ยนไม่ได้หลังส่งเอกสารเข้า ERP สำเร็จ ≥ 1 ใบ (แบบ spec/07 INT-014) → 409 `sor_locked`
+   * กลุ่ม field / แก้ได้จนรับชำระ เปลี่ยนได้เสมอ (มีผลกับการเปลี่ยนครั้งถัดไป)
+   */
+  async setSystemOfRecord(
+    id: string,
+    body: UpdateSystemOfRecordDto,
+    expected?: number,
+  ): Promise<Connector> {
+    this.assertHuman();
+    const tx = this.db.tx;
+    const cur = await this.get(id, tx);
+    this.version(cur, expected);
+    if (cur.status === 'DISCONNECTED') throw new ProblemException('invalid_state_transition');
+    const data: Prisma.ConnectorUpdateManyMutationInput = {};
+    if (body.fieldSync !== undefined) {
+      const errs = fieldSyncErrors(body.fieldSync);
+      if (errs.length) throw new ProblemException('validation_failed', undefined, errs);
+      data.fieldSync = normalizeFieldSync({
+        ...normalizeFieldSync(cur.fieldSync),
+        ...body.fieldSync,
+      });
+    }
+    if (body.editableUntilPaid !== undefined) data.editableUntilPaid = body.editableUntilPaid;
+    const owners: Array<['customerOwner' | 'taxDocumentOwner', string | undefined]> = [
+      ['customerOwner', body.customerOwner],
+      ['taxDocumentOwner', body.taxDocumentOwner],
+    ];
+    const ownerChanged = owners.filter(([k, v]) => v !== undefined && v !== cur[k]);
+    if (ownerChanged.length) {
+      const synced = await tx.integrationOutbox.findFirst({
+        where: {
+          sink: 'erp',
+          targetId: cur.id,
+          status: 'DONE',
+          OR: [{ operation: { startsWith: 'PUSH_' } }, { operation: 'REPLACE_DOCUMENT' }],
+        },
+        select: { id: true },
+      });
+      if (synced)
+        throw new ProblemException('sor_locked', undefined, undefined, {
+          fields: ownerChanged.map(([k]) => k),
+        });
+      for (const [k, v] of ownerChanged) data[k] = v as SorOwner;
+    }
+    const after0 = { ...cur, ...data } as Connector;
+    if (JSON.stringify(sorOf(after0)) === JSON.stringify(sorOf(cur))) return cur;
+    const n = await tx.connector.updateMany({
+      where: { id, version: cur.version },
+      data: { ...data, version: { increment: 1 } },
+    });
+    if (n.count !== 1) throw new ProblemException('precondition_failed');
+    const after = await this.get(id, tx);
+    await this.auditChanged(
+      tx,
+      'connector.sor_changed',
+      id,
+      auditView(cur),
+      auditView(after),
+      body.reason,
+    );
+    return after;
   }
 
   /**

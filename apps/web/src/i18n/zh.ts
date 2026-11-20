@@ -1127,6 +1127,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'cnx.tab.map': '映射与编号',
   'cnx.tab.log': '同步日志',
   'cnx.f.syncFrom': '同步开始日期',
+  'cnx.f.numOwner': '由谁生成单据编号',
   'cnx.f.default': '默认值',
   'cnx.log.time': '时间',
   'cnx.log.doc': '文件',

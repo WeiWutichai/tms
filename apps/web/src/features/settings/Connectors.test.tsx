@@ -19,6 +19,17 @@ const connector = (status = 'ACTIVE') => ({
   syncFromDate: null,
   lastHealthError: null,
   inbound: { supported: false, tokenPrefix: null, tokenRotatedAt: null },
+  systemOfRecord: {
+    customerOwner: 'ERP',
+    taxDocumentOwner: 'ERP',
+    fieldSync: {
+      PRICE: 'AUTO_SYNC',
+      DATES: 'AUTO_SYNC',
+      ACCESSORIAL: 'AUTO_SYNC',
+      CUSTOMER: 'REGENERATE',
+    },
+    editableUntilPaid: true,
+  },
   version: 1,
 });
 const ADAPTER = {

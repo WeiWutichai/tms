@@ -26801,6 +26801,98 @@
         ]
       }
     },
+    "/v1/connectors/{id}/system-of-record": {
+      "put": {
+        "operationId": "Connectors_systemOfRecord",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSystemOfRecordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ST7-T17 ตั้ง system-of-record (เจ้าของลูกค้า/เอกสารภาษี, กลุ่ม field auto-sync vs regenerate, แก้ได้จนรับชำระ) — ส่งเฉพาะที่เปลี่ยน + เหตุผล ≥ 10 ตัว (audit) · ส่งเอกสารเข้า ERP สำเร็จแล้วเปลี่ยนเจ้าของไม่ได้ → 409 `sor_locked` · CUSTOMER ตั้ง AUTO_SYNC → 422",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.write"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "settings:write"
+        ]
+      }
+    },
     "/v1/connectors/{id}/credentials": {
       "put": {
         "operationId": "Connectors_credentials",
@@ -55772,6 +55864,83 @@
           "tokenRotatedAt"
         ]
       },
+      "SorFieldSyncDto": {
+        "type": "object",
+        "properties": {
+          "PRICE": {
+            "type": "string",
+            "enum": [
+              "AUTO_SYNC",
+              "REGENERATE"
+            ],
+            "description": "ราคา"
+          },
+          "DATES": {
+            "type": "string",
+            "enum": [
+              "AUTO_SYNC",
+              "REGENERATE"
+            ],
+            "description": "วันที่"
+          },
+          "ACCESSORIAL": {
+            "type": "string",
+            "enum": [
+              "AUTO_SYNC",
+              "REGENERATE"
+            ],
+            "description": "ค่าใช้จ่ายเพิ่มเติม (accessorial)"
+          },
+          "CUSTOMER": {
+            "type": "string",
+            "enum": [
+              "AUTO_SYNC",
+              "REGENERATE"
+            ],
+            "description": "เปลี่ยนลูกค้า — REGENERATE เสมอ (docs/04 G3)"
+          }
+        },
+        "required": [
+          "PRICE",
+          "DATES",
+          "ACCESSORIAL",
+          "CUSTOMER"
+        ]
+      },
+      "SystemOfRecordDto": {
+        "type": "object",
+        "properties": {
+          "customerOwner": {
+            "type": "string",
+            "enum": [
+              "TMS",
+              "ERP"
+            ],
+            "description": "เจ้าของข้อมูลลูกค้า(หลัก)"
+          },
+          "taxDocumentOwner": {
+            "type": "string",
+            "enum": [
+              "TMS",
+              "ERP"
+            ],
+            "description": "เจ้าของเอกสารภาษี — ERP = TMS ไม่ออกเลขใบกำกับภาษี (ออกเฉพาะใบแจ้งหนี้/ใบวางบิล) · TMS ออกเลขเอกสารของตัวเองเสมอ (D-27)"
+          },
+          "fieldSync": {
+            "$ref": "#/components/schemas/SorFieldSyncDto"
+          },
+          "editableUntilPaid": {
+            "type": "boolean",
+            "description": "แก้แล้ว sync ไป ERP ได้จนรับชำระ (รับบางส่วนก็นับ)"
+          }
+        },
+        "required": [
+          "customerOwner",
+          "taxDocumentOwner",
+          "fieldSync",
+          "editableUntilPaid"
+        ]
+      },
       "PlatformQueueCountDto": {
         "type": "object",
         "properties": {
@@ -55977,6 +56146,9 @@
           "inbound": {
             "$ref": "#/components/schemas/ConnectorInboundDto"
           },
+          "systemOfRecord": {
+            "$ref": "#/components/schemas/SystemOfRecordDto"
+          },
           "version": {
             "type": "number"
           },
@@ -56023,6 +56195,7 @@
           "activatedAt",
           "disconnectedAt",
           "inbound",
+          "systemOfRecord",
           "version",
           "createdAt",
           "updatedAt",
@@ -56436,6 +56609,9 @@
           "inbound": {
             "$ref": "#/components/schemas/ConnectorInboundDto"
           },
+          "systemOfRecord": {
+            "$ref": "#/components/schemas/SystemOfRecordDto"
+          },
           "version": {
             "type": "number"
           },
@@ -56492,6 +56668,7 @@
           "activatedAt",
           "disconnectedAt",
           "inbound",
+          "systemOfRecord",
           "version",
           "createdAt",
           "updatedAt",
@@ -56711,6 +56888,9 @@
           "inbound": {
             "$ref": "#/components/schemas/ConnectorInboundDto"
           },
+          "systemOfRecord": {
+            "$ref": "#/components/schemas/SystemOfRecordDto"
+          },
           "version": {
             "type": "number"
           },
@@ -56747,6 +56927,7 @@
           "activatedAt",
           "disconnectedAt",
           "inbound",
+          "systemOfRecord",
           "version",
           "createdAt",
           "updatedAt"
@@ -67357,6 +67538,45 @@
           "settlement"
         ]
       },
+      "EffectiveSystemOfRecordDto": {
+        "type": "object",
+        "properties": {
+          "customerOwner": {
+            "type": "string",
+            "enum": [
+              "TMS",
+              "ERP"
+            ],
+            "description": "เจ้าของข้อมูลลูกค้า(หลัก)"
+          },
+          "taxDocumentOwner": {
+            "type": "string",
+            "enum": [
+              "TMS",
+              "ERP"
+            ],
+            "description": "เจ้าของเอกสารภาษี — ERP = TMS ไม่ออกเลขใบกำกับภาษี (ออกเฉพาะใบแจ้งหนี้/ใบวางบิล) · TMS ออกเลขเอกสารของตัวเองเสมอ (D-27)"
+          },
+          "fieldSync": {
+            "$ref": "#/components/schemas/SorFieldSyncDto"
+          },
+          "editableUntilPaid": {
+            "type": "boolean",
+            "description": "แก้แล้ว sync ไป ERP ได้จนรับชำระ (รับบางส่วนก็นับ)"
+          },
+          "canIssueTaxDocumentNumber": {
+            "type": "boolean",
+            "description": "TMS ออกเลขใบกำกับภาษีให้เอกสารของนิติบุคคลนี้ได้ไหม (false เมื่อ taxDocumentOwner = ERP) — หน้าจอซ่อนเลขใบกำกับภาษีเมื่อ false"
+          }
+        },
+        "required": [
+          "customerOwner",
+          "taxDocumentOwner",
+          "fieldSync",
+          "editableUntilPaid",
+          "canIssueTaxDocumentNumber"
+        ]
+      },
       "EffectiveConnectorDto": {
         "type": "object",
         "properties": {
@@ -67443,6 +67663,14 @@
             "type": "string",
             "nullable": true,
             "example": "brn_…"
+          },
+          "systemOfRecord": {
+            "description": "ST7-T17 system-of-record ที่ใช้กับนิติบุคคลนี้ — connector ที่ยังไม่ยกเลิก (แม้หยุดชั่วคราว/แพ็กเกจปิดการเชื่อมต่อ) ใช้กฎของ connector · ไม่มี = TMS ทั้งหมด",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EffectiveSystemOfRecordDto"
+              }
+            ]
           }
         },
         "required": [
@@ -67458,7 +67686,8 @@
           "scope",
           "erpCompanyCode",
           "companyId",
-          "branchId"
+          "branchId",
+          "systemOfRecord"
         ]
       },
       "ConnectorListDto": {
@@ -67676,6 +67905,51 @@
             "format": "date"
           }
         }
+      },
+      "UpdateSystemOfRecordDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569"
+          },
+          "customerOwner": {
+            "type": "string",
+            "enum": [
+              "TMS",
+              "ERP"
+            ]
+          },
+          "taxDocumentOwner": {
+            "type": "string",
+            "enum": [
+              "TMS",
+              "ERP"
+            ]
+          },
+          "fieldSync": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "AUTO_SYNC",
+                "REGENERATE"
+              ]
+            },
+            "example": {
+              "PRICE": "REGENERATE"
+            },
+            "description": "กลุ่มที่เปลี่ยน (PRICE, DATES, ACCESSORIAL, CUSTOMER) — กลุ่มที่ไม่ส่งคงค่าเดิม · CUSTOMER ตั้ง AUTO_SYNC ไม่ได้ (422)"
+          },
+          "editableUntilPaid": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "reason"
+        ]
       },
       "ConnectorCredentialsDto": {
         "type": "object",
@@ -85694,6 +85968,9 @@
           "inbound": {
             "$ref": "#/components/schemas/ConnectorInboundDto"
           },
+          "systemOfRecord": {
+            "$ref": "#/components/schemas/SystemOfRecordDto"
+          },
           "version": {
             "type": "number"
           },
@@ -85730,6 +86007,7 @@
           "activatedAt",
           "disconnectedAt",
           "inbound",
+          "systemOfRecord",
           "version",
           "createdAt",
           "updatedAt"
@@ -87167,6 +87445,11 @@
       "title": "ระบบกำลังมีผู้ใช้งานมาก กรุณาลองใหม่อีกครั้ง",
       "titleEn": "Service busy — please retry"
     },
+    "sor_locked": {
+      "status": 409,
+      "title": "เปลี่ยนเจ้าของเอกสารไม่ได้ เพราะส่งเอกสารเข้าระบบบัญชีแล้ว — ยกเลิกการเชื่อมแล้วตั้งใหม่",
+      "titleEn": "Ownership cannot change after documents were synced — disconnect and set up again"
+    },
     "source_change_not_pending": {
       "status": 409,
       "title": "การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่",
@@ -87216,6 +87499,11 @@
       "status": 409,
       "title": "จุดนี้ไม่มีใบส่งของแล้ว (นัดส่งใหม่ไปเที่ยวอื่น) — ไม่ต้องบันทึกที่จุดนี้",
       "titleEn": "This stop has no delivery orders left (rescheduled) — nothing to record here"
+    },
+    "tax_document_owned_by_erp": {
+      "status": 409,
+      "title": "นิติบุคคลนี้ให้ระบบบัญชีเป็นผู้ออกใบกำกับภาษี — TMS ออกได้เฉพาะใบแจ้งหนี้/ใบวางบิล",
+      "titleEn": "Tax documents for this legal entity are issued by the ERP — TMS issues invoices/billing notes only"
     },
     "tenant_selection_required": {
       "status": 409,

@@ -1127,6 +1127,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'cnx.tab.map': 'Mapping & numbering',
   'cnx.tab.log': 'Sync log',
   'cnx.f.syncFrom': 'Sync start date',
+  'cnx.f.numOwner': 'Who issues document numbers',
   'cnx.f.default': 'Default value',
   'cnx.log.time': 'Time',
   'cnx.log.doc': 'Documents',
