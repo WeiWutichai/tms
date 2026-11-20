@@ -146,6 +146,16 @@ export const th = {
   'bill.toast.drafted':
     'สร้างร่างใบแจ้งหนี้จาก {n} DO แล้ว · ยังไม่มีเลขที่ (ออกเลขเมื่อออกเอกสาร)',
   'bill.toast.cancelled': 'ยกเลิกร่างแล้ว · DO กลับไปรอวางบิล',
+  'bill.toast.voided': 'ยกเลิก {no} แล้ว',
+  'bill.toast.voidReissued': 'ยกเลิก {no} แล้ว · สร้างร่างฉบับใหม่แทน',
+  'bill.void.desc': 'ใบแจ้งหนี้ · เอกสารจะยังอยู่ในระบบพร้อมเหตุผล และย้อนกลับไม่ได้',
+  'bill.void.reissue': 'ออกฉบับใหม่แทน',
+  'bill.void.onNote': 'ใบวางบิล {no}',
+  'bill.act.cancelled': 'ยกเลิกเอกสาร · {why}',
+  'bill.kv.ref': 'อ้างอิงใบแจ้งหนี้',
+  'bill.kv.replaces': 'ออกแทน {no} ลงวันที่ {d}',
+  'bill.kv.replacedBy': 'ออกฉบับใหม่แทน · {no}',
+  'bill.doc.pdfVoid': 'PDF · ลายน้ำ "ยกเลิก"',
   'bill.toast.issued': 'ออก {no} แล้ว · เอกสารถูกล็อก',
   'bill.issueFail': 'ออกเอกสารไม่สำเร็จ',
   'bill.lock.issued': 'ออกแล้ว · แก้ไขไม่ได้',
@@ -4787,6 +4797,9 @@ export const th = {
   'problem.do_already_drafted': 'ใบส่งของนี้อยู่ในใบแจ้งหนี้อื่นแล้ว',
   'problem.invoice_not_finalizable': 'ยังออกเอกสารใบแจ้งหนี้นี้ไม่ได้',
   'problem.invoice_already_billed': 'ใบแจ้งหนี้นี้อยู่ในใบวางบิลอื่นแล้ว',
+  'problem.invoice_has_payments': 'ใบแจ้งหนี้นี้รับชำระแล้ว ยกเลิกไม่ได้ — กลับรายการรับชำระก่อน',
+  'problem.invoice_on_billing_note':
+    'ใบแจ้งหนี้นี้อยู่ในใบวางบิลที่ออกแล้ว ยกเลิกไม่ได้ — ยกเลิกใบวางบิลก่อน',
   'problem.invoice_not_billable': 'ใบแจ้งหนี้นี้ยังไม่ออกหรือไม่มียอดค้าง ใส่ในใบวางบิลไม่ได้',
   'problem.invoice_self_finalize':
     'ผู้สร้างหรือผู้แก้ร่างใบแจ้งหนี้ ออกเอกสารใบนั้นเองไม่ได้ ต้องให้ผู้อื่นออก',

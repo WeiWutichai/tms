@@ -318,6 +318,7 @@ export function PayPage() {
           canFinalize={canFinalize}
           canRecord={canRecord}
           onPay={() => setOpen({ id: open.id, kind: 'pay' })}
+          onOpenInvoice={(id) => setOpen({ id, kind: 'inv' })}
           onClose={() => setOpen(null)}
           onToast={setToast}
         />

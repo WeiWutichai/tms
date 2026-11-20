@@ -1,7 +1,7 @@
 <!-- index.md -->
 # TMS API v1
 
-เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 365 endpoint
+เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 366 endpoint
 
 เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
 
@@ -59,13 +59,13 @@
 - [ประวัติการทำรายการ (audit)](ref-audit.md) — 1 endpoint: GET /v1/audit-logs
 - [OAuth และระบบ (auth)](ref-auth.md) — 4 endpoint: POST /v1/oauth/token, GET /v1/.well-known/jwks.json, POST /v1/oauth/revoke, GET /v1/health
 - [billing-notes](ref-billing-notes.md) — 12 endpoint: GET /v1/billing-notes/summary, GET /v1/billing-notes/candidates, GET /v1/billing-notes, POST /v1/billing-notes, GET /v1/billing-notes/{id}, PATCH /v1/billing-notes/{id}, …
-- [invoices](ref-invoices.md) — 19 endpoint: GET /v1/invoices/queue, GET /v1/invoices/summary, POST /v1/invoices/preview, GET /v1/invoices, POST /v1/invoices, GET /v1/invoices/{id}, …
+- [invoices](ref-invoices.md) — 20 endpoint: GET /v1/invoices/queue, GET /v1/invoices/summary, POST /v1/invoices/preview, GET /v1/invoices, POST /v1/invoices, GET /v1/invoices/{id}, …
 - [payments](ref-payments.md) — 7 endpoint: GET /v1/payments, POST /v1/payments, GET /v1/payments/summary, GET /v1/payments/{id}, POST /v1/payments/{id}/reverse, POST /v1/payments/{id}/bounce, …
 
 ## อ้างอิง
 
 - [Webhook events](webhook-events.md) — 31 event: connector.health_changed, credit_note.finalized, debit_note.finalized, delivery_order.status_changed, invoice.adjusted, invoice.finalized, invoice.paid, invoice.voided, …
-- [รหัส error](errors.md) — 124 code ของ problem+json
+- [รหัส error](errors.md) — 126 code ของ problem+json
 - [Changelog](changelog.md) — ประวัติเวอร์ชันของ API (added/changed/deprecated)
 
 ---
@@ -7129,7 +7129,7 @@ scope: `settings:read` · operationId: `TestEvents_trigger`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `type` | ใช่ | `string` | ค่า: `order.created`, `order.updated`, `order.held`, `order.released`, `order.cancelled`, `trip.assigned`, `trip.dispatched`, `trip.started`, `trip.completed`, `trip.cancelled`, `stop.arrived`, `stop.departed`, `stop.completed`, `stop.failed`, `delivery_order.status_changed`, `pod.captured`, `invoice.finalized`, `payment.recorded`, `payment.reversed`, `settlement.approved`, `connector.health_changed`, `job.completed` | event สาธารณะที่ยิงได้ในเฟสนี้ (`phase: active` ใน `GET /v1/webhooks/event-types`) — `data.object` = ตัวอย่างตาม schema ของ event (ข้อมูลสมมติ) | `order.created` |
+| `type` | ใช่ | `string` | ค่า: `order.created`, `order.updated`, `order.held`, `order.released`, `order.cancelled`, `trip.assigned`, `trip.dispatched`, `trip.started`, `trip.completed`, `trip.cancelled`, `stop.arrived`, `stop.departed`, `stop.completed`, `stop.failed`, `delivery_order.status_changed`, `pod.captured`, `invoice.finalized`, `invoice.voided`, `payment.recorded`, `payment.reversed`, `settlement.approved`, `connector.health_changed`, `job.completed` | event สาธารณะที่ยิงได้ในเฟสนี้ (`phase: active` ใน `GET /v1/webhooks/event-types`) — `data.object` = ตัวอย่างตาม schema ของ event (ข้อมูลสมมติ) | `order.created` |
 
 **Responses**
 
@@ -19973,7 +19973,7 @@ const { data, error } = await tms.GET('/v1/billing-notes/{id}/pdf', {
 <!-- ref-invoices.md -->
 # invoices
 
-19 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+20 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -19996,6 +19996,7 @@ const { data, error } = await tms.GET('/v1/billing-notes/{id}/pdf', {
 | [`PATCH /v1/invoices/{id}/lines/{lineId}`](#patch-invoices-id-lines-lineId) | `invoices:draft` |
 | [`POST /v1/invoices/{id}/lines/{lineId}/remove`](#post-invoices-id-lines-lineId-remove) | `invoices:draft` |
 | [`POST /v1/invoices/{id}/cancel`](#post-invoices-id-cancel) | `invoices:draft` |
+| [`POST /v1/invoices/{id}/void`](#post-invoices-id-void) | `invoices:finalize` |
 
 ## คิวพร้อมวางบิล (DO ที่ส่งแล้ว หลักฐานครบ และราคาพร้อม) {#get-invoices-queue}
 
@@ -20402,7 +20403,7 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/finalize', {
 
 scope: `invoices:read` · operationId: `Invoices_issuedPdf`
 
-ใบที่ออกเลขแล้วเท่านั้น (ร่าง → 409 ใช้ `/proforma`) · `copy=ORIGINAL` (ค่าเริ่ม) = ไฟล์ต้นฉบับที่เก็บตอนออก · `copy=COPY` = สำเนา render จาก snapshot ณ วันออกครั้งแรกที่ขอแล้วเก็บ — ไม่ render ตามข้อมูลลูกค้าปัจจุบัน · ยังไม่มีไฟล์ (render ตอนออกล้ม) → สร้างให้แล้วเก็บ · header `X-Content-SHA256` · ไม่มีคำว่า "ใบกำกับภาษี" · ต้องมี `prices.sell:read` ไม่งั้น 403
+ใบที่ออกเลขแล้วเท่านั้น (ร่าง → 409 ใช้ `/proforma`) · `copy=ORIGINAL` (ค่าเริ่ม) = ไฟล์ต้นฉบับที่เก็บตอนออก · `copy=COPY` = สำเนา render จาก snapshot ณ วันออกครั้งแรกที่ขอแล้วเก็บ — ไม่ render ตามข้อมูลลูกค้าปัจจุบัน · ยังไม่มีไฟล์ (render ตอนออกล้ม) → สร้างให้แล้วเก็บ · header `X-Content-SHA256` · ไม่มีคำว่า "ใบกำกับภาษี" · ต้องมี `prices.sell:read` ไม่งั้น 403 · **ใบที่ยกเลิกแล้ว** = render จาก snapshot ณ วันออก + ลายน้ำ "ยกเลิก" ไม่เก็บ — ไฟล์ต้นฉบับที่เก็บคงเดิม
 
 **Parameters**
 
@@ -20892,7 +20893,7 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/lines/{lineId}/remove'
 
 scope: `invoices:draft` · operationId: `Invoices_cancel`
 
-DRAFT → CANCELLED · บรรทัดหยุดนับ · DO กลับ UNBILLED (ขึ้นคิวอีก) · ใบที่ออกแล้วยกเลิกที่นี่ไม่ได้ · audit `invoice.draft_cancelled`
+DRAFT → CANCELLED · บรรทัดหยุดนับ · DO กลับ UNBILLED (ขึ้นคิวอีก) · ใบที่ออกแล้วยกเลิกที่นี่ไม่ได้ (409 — ใช้ `POST /v1/invoices/{id}/void`) · audit `invoice.draft_cancelled`
 
 **Parameters**
 
@@ -20932,6 +20933,60 @@ curl -sS -X POST "$TMS_BASE_URL/v1/invoices/<id>/cancel" \
 
 ```ts
 const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
+  params: { path: { id: "…" } },
+  body: {
+    "reason": "ลูกค้าขอแยกวางบิลงวดหน้า"
+  },
+});
+```
+
+## ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (void) — คงเลข · ยังไม่รับชำระ · เหตุผล ≥ 10 ตัวอักษร {#post-invoices-id-void}
+
+`POST /v1/invoices/{id}/void`
+
+scope: `invoices:finalize` · operationId: `Invoices_void`
+
+**If-Match บังคับ** (ไม่ส่ง → 422 `if_match_required`) · ISSUED → **CANCELLED คงเลข** (เลขไม่ถูกออกซ้ำ · record ไม่ถูกลบ) · รับชำระแล้ว (บางส่วน/ครบ) → 409 `invoice_has_payments` (`payments[]` — กลับรายการก่อน) · อยู่ในใบวางบิลที่ออกแล้ว/เก็บเงินแล้ว → 409 `invoice_on_billing_note` (`billingNoteNo` — ยกเลิกใบวางบิลก่อน) · ร่าง → 409 (ใช้ `/cancel`) · ผล: DO INVOICED/BILLED → UNBILLED (วางบิลใหม่ได้) · ปลดล็อกบรรทัดรายได้ · ถอดออกจากใบวางบิลที่ยังเป็นร่าง · audit `invoice.cancelled` + webhook `invoice.voided` · `reissue: true` = สร้างร่างฉบับใหม่แทน (DO ชุดเดิม + บรรทัดที่เพิ่มเอง) อ้างเลขเดิม (`replacedByInvoice` / `replacesInvoice`) — ออกเลขใหม่ตามปกติ · PDF ของใบที่ยกเลิกมีลายน้ำ "ยกเลิก"
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header | ใช่ | `string` | ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
+
+**Request body** `VoidInvoiceDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `ลูกค้าขอแยกวางบิลงวดหน้า` |
+| `reissue` |   | `boolean` |   | สร้าง**ร่างฉบับใหม่แทน**ใน transaction เดียวกัน (DO ชุดเดิม + บรรทัดที่เพิ่มเอง · อ้างเลขเดิม `replacesInvoice`) — ร่างใหม่ต้องออกเอกสารตามปกติ (ได้เลขถัดไป ไม่ใช้เลขเดิม) |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `InvoiceDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:finalize`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | `invalid_state_transition` (ร่าง/ยกเลิกแล้ว/สถานะอื่น) · `invoice_has_payments` · `invoice_on_billing_note` · `not_ready_to_bill` (ออกฉบับใหม่แทน — DO ไม่พร้อม) — [invoice_on_billing_note](errors.md#invoice_on_billing_note), [invoice_has_payments](errors.md#invoice_has_payments) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/invoices/<id>/void" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"ลูกค้าขอแยกวางบิลงวดหน้า"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/invoices/{id}/void', {
   params: { path: { id: "…" } },
   body: {
     "reason": "ลูกค้าขอแยกวางบิลงวดหน้า"
@@ -20991,6 +21046,9 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
 | `lines` | ใช่ | `array<InvoiceLineDto>` |   | บรรทัดจริง (รวมที่ถอดออกแล้ว `active=false`) |   |
 | `printLines` | ใช่ | `array<InvoicePrintLineDto>` |   | บรรทัดบนเอกสารตาม `lineMode` + กลุ่มที่รวมเอง |   |
 | `cancelReason` | ใช่ | `string` | null ได้ |   |   |
+| `cancelledAt` | ใช่ | `string` | null ได้ | เวลายกเลิก · null = ไม่ถูกยกเลิก |   |
+| `replacesInvoice` | ใช่ | `InvoiceReplacesDto` | null ได้ | ใบนี้ออกแทนใบที่ยกเลิก · PDF พิมพ์หมายเหตุอ้างเลข/วันที่เดิม |   |
+| `replacedByInvoice` | ใช่ | `InvoiceReplacedByDto` | null ได้ | ใบที่ออกแทนใบนี้ (ใบที่ยกเลิกแล้วออกใหม่ — ล่าสุดที่ยังไม่ยกเลิก) |   |
 | `createdBy` | ใช่ | `string` | null ได้ |   |   |
 | `issuedAt` | ใช่ | `string` | null ได้ | เวลาออกเอกสาร (ออกเลข) — ร่าง = null |   |
 | `issuedBy` | ใช่ | `string` | null ได้ | ผู้ออกเอกสาร |   |
@@ -21459,7 +21517,7 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 | [`invoice.adjusted`](#invoice-adjusted) | ยังไม่ส่ง (จองชื่อไว้) |   | ปรับยอดใบแจ้งหนี้ด้วยใบลดหนี้/เพิ่มหนี้ |
 | [`invoice.finalized`](#invoice-finalized) | ใช้งาน | `InvoiceDto` | ออกเอกสารใบแจ้งหนี้แล้ว |
 | [`invoice.paid`](#invoice-paid) | ยังไม่ส่ง (จองชื่อไว้) |   | ใบแจ้งหนี้ได้รับชำระครบ |
-| [`invoice.voided`](#invoice-voided) | ยังไม่ส่ง (จองชื่อไว้) |   | ยกเลิกใบแจ้งหนี้ |
+| [`invoice.voided`](#invoice-voided) | ใช้งาน | `InvoiceDto` | ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (สถานะ CANCELLED คงเลข — ยังไม่รับชำระ; DO กลับรอวางบิล) — ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม |
 | [`job.completed`](#job-completed) | ใช้งาน | `JobDto` | งานเบื้องหลัง (นำเข้า/bulk/ส่งออก/รอบวางบิล) เสร็จ |
 | [`order.cancelled`](#order-cancelled) | ใช้งาน | `OrderDto` | ยกเลิกใบสั่งงาน |
 | [`order.created`](#order-created) | ใช้งาน | `OrderDto` | สร้างใบสั่งงานใหม่ (หน้าจอ, Open API, นำเข้าไฟล์) |
@@ -21616,6 +21674,9 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 | `customerPoNo` | ใช่ | `string` | null ได้ |   |   |
 | `taxEstimated` | ใช่ | `boolean` |   | ยอด VAT/WHT เป็นประมาณการ — true เสมอ |   |
 | `deliveryOrders` | ใช่ | `array<InvoiceDeliveryOrderDto>` |   |   |   |
+| `cancelledAt` | ใช่ | `string` | null ได้ | เวลายกเลิก · null = ไม่ถูกยกเลิก |   |
+| `replacesInvoice` | ใช่ | `InvoiceReplacesDto` | null ได้ | ใบนี้ออกแทนใบที่ยกเลิก · PDF พิมพ์หมายเหตุอ้างเลข/วันที่เดิม |   |
+| `replacedByInvoice` | ใช่ | `InvoiceReplacedByDto` | null ได้ | ใบที่ออกแทนใบนี้ (ใบที่ยกเลิกแล้วออกใหม่ — ล่าสุดที่ยังไม่ยกเลิก) |   |
 | `issuedAt` | ใช่ | `string` | null ได้ | เวลาออกเอกสาร (ออกเลข) — ร่าง = null |   |
 | `billingNoteId` | ใช่ | `string` | null ได้ | ใบวางบิลที่ใบนี้อยู่ · null = ไม่อยู่ในใบวางบิล | `bn_…` |
 
@@ -21629,11 +21690,36 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 
 ## invoice.voided {#invoice-voided}
 
-ยกเลิกใบแจ้งหนี้
+ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (สถานะ CANCELLED คงเลข — ยังไม่รับชำระ; DO กลับรอวางบิล) — ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม
 
-> ยังไม่ส่ง — ชื่อและ schema จองไว้ (สมัครรับล่วงหน้าได้)
+`data.object` = `InvoiceDto`
 
-`data.object` = 
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `ivc_…` |
+| `invoiceNo` | ใช่ | `string` | null ได้ | เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร) |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |   |
+| `customer` | ใช่ | `InvoiceCustomerDto` |   |   |   |
+| `periodFrom` | ใช่ | `string` | null ได้ |   |   |
+| `periodTo` | ใช่ | `string` | null ได้ |   |   |
+| `deliveryOrderCount` | ใช่ | `number` |   |   |   |
+| `lineMode` | ใช่ | `string` | ค่า: `SINGLE`, `GROUP`, `MERGE` |   |   |
+| `issueDate` | ใช่ | `string` | null ได้ | วันที่ออก (เวลาไทย) — ร่าง = null | `2026-11-20` |
+| `dueDate` | ใช่ | `string` | null ได้ | ครบกำหนดชำระ = วันที่ออก + เครดิต — ร่าง = null | `2026-12-20` |
+| `version` | ใช่ | `number` |   |   |   |
+| `createdAt` | ใช่ | `string` |   |   |   |
+| `updatedAt` | ใช่ | `string` |   |   |   |
+| `issuingCompanyId` | ใช่ | `string` |   |   | `cmp_…` |
+| `issuingBranchId` | ใช่ | `string` |   |   | `brn_…` |
+| `creditTermDays` | ใช่ | `number` |   |   |   |
+| `customerPoNo` | ใช่ | `string` | null ได้ |   |   |
+| `taxEstimated` | ใช่ | `boolean` |   | ยอด VAT/WHT เป็นประมาณการ — true เสมอ |   |
+| `deliveryOrders` | ใช่ | `array<InvoiceDeliveryOrderDto>` |   |   |   |
+| `cancelledAt` | ใช่ | `string` | null ได้ | เวลายกเลิก · null = ไม่ถูกยกเลิก |   |
+| `replacesInvoice` | ใช่ | `InvoiceReplacesDto` | null ได้ | ใบนี้ออกแทนใบที่ยกเลิก · PDF พิมพ์หมายเหตุอ้างเลข/วันที่เดิม |   |
+| `replacedByInvoice` | ใช่ | `InvoiceReplacedByDto` | null ได้ | ใบที่ออกแทนใบนี้ (ใบที่ยกเลิกแล้วออกใหม่ — ล่าสุดที่ยังไม่ยกเลิก) |   |
+| `issuedAt` | ใช่ | `string` | null ได้ | เวลาออกเอกสาร (ออกเลข) — ร่าง = null |   |
+| `billingNoteId` | ใช่ | `string` | null ได้ | ใบวางบิลที่ใบนี้อยู่ · null = ไม่อยู่ในใบวางบิล | `bn_…` |
 
 ## job.completed {#job-completed}
 
@@ -22333,9 +22419,11 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 | [`inbound_not_supported`](#inbound_not_supported) | 409 | ระบบบัญชีนี้ไม่รองรับการส่งข้อมูลเข้ามาทาง webhook |
 | [`invalid_state_transition`](#invalid_state_transition) | 409 | ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน |
 | [`invoice_already_billed`](#invoice_already_billed) | 409 | ใบแจ้งหนี้นี้อยู่ในใบวางบิลอื่นแล้ว |
+| [`invoice_has_payments`](#invoice_has_payments) | 409 | ใบแจ้งหนี้นี้รับชำระแล้ว ยกเลิกไม่ได้ — กลับรายการรับชำระก่อน |
 | [`invoice_not_billable`](#invoice_not_billable) | 409 | ใบแจ้งหนี้นี้ยังไม่ออกหรือไม่มียอดค้าง ใส่ในใบวางบิลไม่ได้ |
 | [`invoice_not_finalizable`](#invoice_not_finalizable) | 409 | ยังออกเอกสารใบแจ้งหนี้นี้ไม่ได้ |
 | [`invoice_not_payable`](#invoice_not_payable) | 409 | ใบแจ้งหนี้นี้รับชำระไม่ได้ในสถานะปัจจุบัน |
+| [`invoice_on_billing_note`](#invoice_on_billing_note) | 409 | ใบแจ้งหนี้นี้อยู่ในใบวางบิลที่ออกแล้ว ยกเลิกไม่ได้ — ยกเลิกใบวางบิลก่อน |
 | [`invoice_pdf_template_changed`](#invoice_pdf_template_changed) | 409 | แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ |
 | [`master_sync_failed`](#master_sync_failed) | 409 | ดึงผังรหัสจากระบบบัญชีไม่สำเร็จ ตรวจการเชื่อมต่อแล้วลองใหม่ |
 | [`master_sync_not_supported`](#master_sync_not_supported) | 409 | ระบบบัญชีนี้ดึงผังรหัสอัตโนมัติไม่ได้ นำเข้าจากไฟล์แทน |
@@ -22490,7 +22578,7 @@ HTTP `401` · กรอกรหัสยืนยันตัวตน 2 ชั
 
 HTTP `401` · ต้องเข้าสู่ระบบ
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 347 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 348 endpoint
 
 ## edit_lock_user_required {#edit_lock_user_required}
 
@@ -22538,7 +22626,7 @@ HTTP `403` · ส่วนต่างเกินวงเงินที่ต
 
 HTTP `403` · ไม่มีสิทธิ์ทำรายการนี้
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 347 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 348 endpoint
 
 ## sandbox_only {#sandbox_only}
 
@@ -22574,7 +22662,7 @@ HTTP `403` · ยืนยันตัวตน 2 ชั้นอีกครั
 
 HTTP `404` · ไม่พบข้อมูล
 
-พบใน: [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/documents/{id}/content`](ref-documents.md#get-documents-id-content), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/jobs/{id}`](ref-jobs.md#get-jobs-id), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`GET /v1/customers/{id}`](ref-customers.md#get-customers-id), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`GET /v1/customers/{id}/history`](ref-customers.md#get-customers-id-history) และอีก 221 endpoint
+พบใน: [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/documents/{id}/content`](ref-documents.md#get-documents-id-content), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/jobs/{id}`](ref-jobs.md#get-jobs-id), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`GET /v1/customers/{id}`](ref-customers.md#get-customers-id), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`GET /v1/customers/{id}/history`](ref-customers.md#get-customers-id-history) และอีก 222 endpoint
 
 ## method_not_allowed {#method_not_allowed}
 
@@ -22738,6 +22826,12 @@ HTTP `409` · ใบแจ้งหนี้นี้อยู่ในใบว
 
 พบใน: [`POST /v1/billing-notes`](ref-billing-notes.md#post-billing-notes), [`PATCH /v1/billing-notes/{id}`](ref-billing-notes.md#patch-billing-notes-id), [`POST /v1/billing-notes/{id}/finalize`](ref-billing-notes.md#post-billing-notes-id-finalize)
 
+## invoice_has_payments {#invoice_has_payments}
+
+HTTP `409` · ใบแจ้งหนี้นี้รับชำระแล้ว ยกเลิกไม่ได้ — กลับรายการรับชำระก่อน
+
+พบใน: [`POST /v1/invoices/{id}/void`](ref-invoices.md#post-invoices-id-void)
+
 ## invoice_not_billable {#invoice_not_billable}
 
 HTTP `409` · ใบแจ้งหนี้นี้ยังไม่ออกหรือไม่มียอดค้าง ใส่ในใบวางบิลไม่ได้
@@ -22755,6 +22849,12 @@ HTTP `409` · ยังออกเอกสารใบแจ้งหนี้
 HTTP `409` · ใบแจ้งหนี้นี้รับชำระไม่ได้ในสถานะปัจจุบัน
 
 พบใน: [`POST /v1/payments`](ref-payments.md#post-payments)
+
+## invoice_on_billing_note {#invoice_on_billing_note}
+
+HTTP `409` · ใบแจ้งหนี้นี้อยู่ในใบวางบิลที่ออกแล้ว ยกเลิกไม่ได้ — ยกเลิกใบวางบิลก่อน
+
+พบใน: [`POST /v1/invoices/{id}/void`](ref-invoices.md#post-invoices-id-void)
 
 ## invoice_pdf_template_changed {#invoice_pdf_template_changed}
 
@@ -23036,7 +23136,7 @@ HTTP `409` · จำนวน webhook endpoint ครบตามแพ็กเ
 
 HTTP `412` · ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่
 
-พบใน: [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`POST /v1/customers/{id}/deactivate`](ref-customers.md#post-customers-id-deactivate), [`POST /v1/customers/{id}/activate`](ref-customers.md#post-customers-id-activate), [`POST /v1/customers/{id}/delete`](ref-customers.md#post-customers-id-delete), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/cancel`](ref-orders.md#post-orders-id-cancel), [`POST /v1/orders/{id}/source-changes/{changeId}/accept`](ref-orders.md#post-orders-id-source-changes-changeId-accept), [`POST /v1/orders/{id}/source-changes/{changeId}/reject`](ref-orders.md#post-orders-id-source-changes-changeId-reject) และอีก 128 endpoint
+พบใน: [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`POST /v1/customers/{id}/deactivate`](ref-customers.md#post-customers-id-deactivate), [`POST /v1/customers/{id}/activate`](ref-customers.md#post-customers-id-activate), [`POST /v1/customers/{id}/delete`](ref-customers.md#post-customers-id-delete), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/cancel`](ref-orders.md#post-orders-id-cancel), [`POST /v1/orders/{id}/source-changes/{changeId}/accept`](ref-orders.md#post-orders-id-source-changes-changeId-accept), [`POST /v1/orders/{id}/source-changes/{changeId}/reject`](ref-orders.md#post-orders-id-source-changes-changeId-reject) และอีก 129 endpoint
 
 ## payload_too_large {#payload_too_large}
 
@@ -23060,7 +23160,7 @@ HTTP `422` · นิติบุคคลออกบิลไม่พบหร
 
 HTTP `422` · Idempotency-Key นี้เคยใช้กับข้อมูลอื่น
 
-พบใน: [`POST /v1/orders:bulk`](ref-orders.md#post-orders-bulk), [`GET /v1/orders`](ref-orders.md#get-orders), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/stops/{sequence}/map-site`](ref-orders.md#post-orders-id-stops-sequence-map-site), [`POST /v1/orders/{id}/manual-price`](ref-orders.md#post-orders-id-manual-price), [`POST /v1/orders/{id}/resolve-source-error`](ref-orders.md#post-orders-id-resolve-source-error), [`POST /v1/orders/{id}/map-customer`](ref-orders.md#post-orders-id-map-customer), [`POST /v1/delivery-orders/{id}/revert-delivery`](ref-delivery-orders.md#post-delivery-orders-id-revert-delivery), [`GET /v1/trips`](ref-trips.md#get-trips) และอีก 75 endpoint
+พบใน: [`POST /v1/orders:bulk`](ref-orders.md#post-orders-bulk), [`GET /v1/orders`](ref-orders.md#get-orders), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/stops/{sequence}/map-site`](ref-orders.md#post-orders-id-stops-sequence-map-site), [`POST /v1/orders/{id}/manual-price`](ref-orders.md#post-orders-id-manual-price), [`POST /v1/orders/{id}/resolve-source-error`](ref-orders.md#post-orders-id-resolve-source-error), [`POST /v1/orders/{id}/map-customer`](ref-orders.md#post-orders-id-map-customer), [`POST /v1/delivery-orders/{id}/revert-delivery`](ref-delivery-orders.md#post-delivery-orders-id-revert-delivery), [`GET /v1/trips`](ref-trips.md#get-trips) และอีก 76 endpoint
 
 ## pod_incomplete {#pod_incomplete}
 
@@ -23090,7 +23190,7 @@ HTTP `422` · ลำดับจุดไม่ถูกต้อง — จุ�
 
 HTTP `422` · ข้อมูลไม่ถูกต้อง
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id) และอีก 250 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id) และอีก 251 endpoint
 
 ## webhook_event_expired {#webhook_event_expired}
 

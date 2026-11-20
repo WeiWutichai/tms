@@ -167,6 +167,19 @@ export class InvoiceReasonDto {
   reason!: string;
 }
 
+/** ยกเลิกใบที่ออกแล้ว (ST5-T10 `POST /invoices/{id}/void`) — CANCELLED คงเลข (+ ออกฉบับใหม่แทนอ้างเลขเดิม — spec/05 §7) */
+export class VoidInvoiceDto extends InvoiceReasonDto {
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'สร้าง**ร่างฉบับใหม่แทน**ใน transaction เดียวกัน (DO ชุดเดิม + บรรทัดที่เพิ่มเอง · อ้างเลขเดิม `replacesInvoice`) — ' +
+      'ร่างใหม่ต้องออกเอกสารตามปกติ (ได้เลขถัดไป ไม่ใช้เลขเดิม)',
+  })
+  @IsOptional()
+  @IsBoolean()
+  reissue?: boolean;
+}
+
 export class InvoiceDeliveryOrdersDto {
   @IdList(200, 'do_…', 'ใบส่งของ (≤ 200)')
   deliveryOrderIds!: string[];
@@ -340,6 +353,11 @@ export class InvoiceLineDto {
   printGroup!: number | null;
   @ApiProperty({ description: 'บรรทัดที่เพิ่มเอง (ไม่ผูก DO)' }) isUserAdded!: boolean;
   @ApiProperty({ description: 'false = ถอดออกแล้ว (เก็บเป็นประวัติ)' }) active!: boolean;
+  @ApiProperty({
+    description:
+      'หยุดนับเพราะใบถูกยกเลิก (ST5-T10) — เป็นบรรทัดของเอกสาร ณ วันยกเลิก (≠ ถอดออกจากร่าง) · บรรทัดบนเอกสาร = `active || releasedWithInvoice`',
+  })
+  releasedWithInvoice!: boolean;
   @ApiProperty({ nullable: true, type: String }) removeReason!: string | null;
 }
 
@@ -439,6 +457,21 @@ export class InvoicePdfDto {
   @ApiProperty() sizeBytes!: number;
 }
 
+/** ST5-T10 ใบเดิมที่ใบนี้ออกแทน (ยกเลิกแล้ว) */
+export class InvoiceReplacesDto {
+  @ApiProperty({ example: 'ivc_…' }) id!: string;
+  @ApiProperty({ nullable: true, type: String, example: 'INV-00000-6911-0001' })
+  invoiceNo!: string | null;
+  @ApiProperty({ nullable: true, type: String, example: '2026-11-03' }) issueDate!: string | null;
+}
+
+/** ST5-T10 ใบที่ออกแทนใบนี้ (ร่าง = ยังไม่มีเลข) */
+export class InvoiceReplacedByDto {
+  @ApiProperty({ example: 'ivc_…' }) id!: string;
+  @ApiProperty({ nullable: true, type: String }) invoiceNo!: string | null;
+  @ApiProperty({ enum: INVOICE_STATUSES }) status!: InvoiceStatusDto;
+}
+
 export class InvoiceDto extends InvoiceSummaryDto {
   @ApiProperty({ example: 'cmp_…' }) issuingCompanyId!: string;
   @ApiProperty({ example: 'brn_…' }) issuingBranchId!: string;
@@ -481,6 +514,25 @@ export class InvoiceDto extends InvoiceSummaryDto {
   })
   printLines!: InvoicePrintLineDto[];
   @ApiProperty({ nullable: true, type: String }) cancelReason!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'เวลายกเลิก (ร่าง/ใบที่ออกแล้ว — ST5-T10) · null = ไม่ถูกยกเลิก',
+  })
+  cancelledAt!: string | null;
+  @ApiProperty({
+    type: InvoiceReplacesDto,
+    nullable: true,
+    description:
+      'ใบนี้ออกแทนใบที่ยกเลิก (docs/04 F3 "ฉบับใหม่อ้างเลขเดิม" — ST5-T10) · PDF พิมพ์หมายเหตุอ้างเลข/วันที่เดิม',
+  })
+  replacesInvoice!: InvoiceReplacesDto | null;
+  @ApiProperty({
+    type: InvoiceReplacedByDto,
+    nullable: true,
+    description: 'ใบที่ออกแทนใบนี้ (ใบที่ยกเลิกแล้วออกใหม่ — ล่าสุดที่ยังไม่ยกเลิก)',
+  })
+  replacedByInvoice!: InvoiceReplacedByDto | null;
   @ApiProperty({ nullable: true, type: String }) createdBy!: string | null;
   @ApiProperty({
     nullable: true,

@@ -23,6 +23,7 @@ import {
   useCustomerTerms,
   useFinalize,
   useInvoice,
+  useVoidInvoice,
   type Invoice,
 } from './useInvoices';
 
@@ -53,9 +54,26 @@ export function invoiceStatusLabel(t: T, status: string): string {
   return t(ST_KEY[status] ?? 'bill.st.DRAFT');
 }
 
+/** ข้อความไทยของการยกเลิกใบที่ออกแล้วไม่สำเร็จ — 409 `invoice_on_billing_note` ต่อท้ายเลขใบวางบิล · `invoice_has_payments` ต่อท้ายเลขรับชำระ */
+export function voidErrorText(err: unknown, t: T): string | null {
+  const base = problemText(err, t);
+  if (!(err instanceof ApiError)) return base;
+  const p = err.problem as {
+    code?: string;
+    billingNoteNo?: string | null;
+    payments?: { paymentNo: string }[];
+  };
+  if (p.code === 'invoice_on_billing_note' && p.billingNoteNo)
+    return `${base} (${t('bill.void.onNote', { no: p.billingNoteNo })})`;
+  if (p.code === 'invoice_has_payments' && p.payments?.length)
+    return `${base} (${p.payments.map((x) => x.paymentNo).join(', ')})`;
+  return base;
+}
+
+// บรรทัดของเอกสาร: ที่ยังใช้ + บรรทัด ณ วันยกเลิก (ST5-T10 — ใบที่ยกเลิกยังแสดงยอดเดิม)
 const sum = (inv: Invoice, pick: (k: string | null) => boolean) =>
   inv.lines
-    .filter((l) => l.active && pick(l.kind))
+    .filter((l) => (l.active || l.releasedWithInvoice) && pick(l.kind))
     .reduce((a, l) => a + Math.round(Number(l.sellAmount ?? '0') * 100), 0);
 const fromSatang = (n: number) => (n / 100).toFixed(2);
 const SEC = {
@@ -129,6 +147,8 @@ function Step({ title, state, at }: { title: string; state: string; at?: string 
  * ST5-T09 ปุ่ม "ออกเอกสาร" (ต้นแบบ issueInv — กดแล้วออกทันที ไม่มีกล่องยืนยัน) → ออกเลข + ล็อก · ใบที่ออกแล้ว: kv รับแล้ว/คงค้าง/ออกเมื่อ/ครบกำหนดชำระ,
  * แถบล็อก, footer "คงค้าง" + "พิมพ์ PDF" (ไฟล์ต้นฉบับที่เก็บ) — ปุ่มใบลด/เพิ่มหนี้ (D-54 ไม่ทำใน TMS) / ส่งเข้าระบบบัญชี (ST8-T16) ยังไม่แสดง
  * ST5-T13: รับแล้ว/คงค้างจากการรับชำระ · ปุ่ม "บันทึกรับชำระ" (คงค้าง > 0 — ต้นแบบ) → drawer รับชำระ · ส่วน "รับชำระแล้ว" หลังแถบล็อก
+ * ST5-T10: เมนู ⋯ "ยกเลิกเอกสาร" ของใบที่ออกแล้ว (ต้นแบบ askCancelDoc — กล่องเหตุผล + ตารางสถานะ เดิม → ยกเลิก) + ติ๊ก "ออกฉบับใหม่แทน"
+ * (spec/05 §7) · ใบที่ยกเลิก: PDF ลายน้ำ "ยกเลิก" · กิจกรรม "ยกเลิกเอกสาร · เหตุผล" (ต้นแบบ docLog) · อ้างอิงใบเดิม/ฉบับใหม่ [DECISION spec/12 §3 แถว ST5-T10]
  * แก้บรรทัด/ส่วนลด/รวม-แยก/ย้าย DO: ต้นแบบไม่มีหน้าจอ → ทำผ่าน API (`/v1/invoices/{id}/…`) [OPEN — Claude Design, spec/12 §3]
  */
 export function InvoiceDrawer({
@@ -137,6 +157,7 @@ export function InvoiceDrawer({
   canFinalize,
   canRecord = false,
   onPay,
+  onOpenInvoice,
   onClose,
   onToast,
 }: {
@@ -147,6 +168,8 @@ export function InvoiceDrawer({
   canRecord?: boolean;
   /** ST5-T13 เปิด drawer รับชำระของใบนี้ */
   onPay?: () => void;
+  /** ST5-T10 เปิดใบอื่น (ร่างฉบับใหม่แทน / ใบเดิม) */
+  onOpenInvoice?: (id: string) => void;
   onClose: () => void;
   onToast: (m: string) => void;
 }) {
@@ -157,8 +180,11 @@ export function InvoiceDrawer({
   const terms = useCustomerTerms(q.data?.customer.id);
   const cancel = useCancelDraft();
   const finalize = useFinalize();
+  const voider = useVoidInvoice();
   const [tab, setTab] = useState('sum');
   const [dlg, setDlg] = useState(false);
+  const [voidDlg, setVoidDlg] = useState(false);
+  const [reissue, setReissue] = useState(false);
   const labels = { close: t('drawer.close'), more: t('drawer.more') };
   const inv = q.data;
   if (!inv)
@@ -176,6 +202,9 @@ export function InvoiceDrawer({
   const draft = inv.status === 'DRAFT';
   const cancelled = inv.status === 'CANCELLED' || inv.status === 'VOIDED';
   const issued = !draft && !cancelled;
+  // ใบที่ออกเลขแล้ว (รวมที่ยกเลิกภายหลัง — ST5-T10): มี PDF / วันที่ออก
+  const numbered = !!inv.invoiceNo;
+  const voidable = inv.status === 'ISSUED' && canFinalize;
   const no = inv.invoiceNo ?? t('bill.draftNo');
   const today = bangkokToday();
   const st = invoiceStatusLabel(t, invoiceDisplayStatus(inv, today));
@@ -189,7 +218,7 @@ export function InvoiceDrawer({
   const svc = sum(inv, (k) => k !== 'FREIGHT');
   const pdfName = `${inv.invoiceNo ?? 'invoice'}.pdf`;
   const print = () =>
-    void (draft ? openProforma(inv.id) : openIssuedPdf(inv.id, pdfName)).catch(() =>
+    void (draft || !numbered ? openProforma(inv.id) : openIssuedPdf(inv.id, pdfName)).catch(() =>
       onToast(t('bill.pdfFail')),
     );
   const issue = () =>
@@ -210,7 +239,7 @@ export function InvoiceDrawer({
     { k: t('bill.kv.tax'), v: inv.customer.taxId ?? '—' },
     { k: t('bill.kv.per'), v: per },
     { k: t('bill.kv.n'), v: t('bill.kv.nDo', { n: inv.deliveryOrderCount }) },
-    ...(issued
+    ...(issued || numbered
       ? [
           { k: t('bill.kv.issuedOn'), v: inv.issueDate ? dateText(inv.issueDate) : '—' },
           {
@@ -221,7 +250,31 @@ export function InvoiceDrawer({
           },
         ]
       : []),
-  ];
+    // ST5-T10 ยกเลิกแล้วออกใหม่ — อ้างเลขเดิม / ฉบับใหม่
+    ...(inv.replacesInvoice
+      ? [
+          {
+            k: t('bill.kv.ref'),
+            v: t('bill.kv.replaces', {
+              no: inv.replacesInvoice.invoiceNo ?? '',
+              d: inv.replacesInvoice.issueDate ? dateText(inv.replacesInvoice.issueDate) : '—',
+            }),
+            open: inv.replacesInvoice.id,
+          },
+        ]
+      : []),
+    ...(inv.replacedByInvoice
+      ? [
+          {
+            k: t('bill.kv.ref'),
+            v: t('bill.kv.replacedBy', {
+              no: inv.replacedByInvoice.invoiceNo ?? t('bill.draftNo'),
+            }),
+            open: inv.replacedByInvoice.id,
+          },
+        ]
+      : []),
+  ] as { k: string; v: string; open?: string }[];
   const amounts = [
     { k: t('bill.kv.fr'), v: money(fromSatang(fr)) },
     { k: t('bill.kv.svc'), v: money(fromSatang(svc)) },
@@ -248,8 +301,23 @@ export function InvoiceDrawer({
       subtitle={[inv.customer.legalName, inv.periodFrom ? per : ''].filter(Boolean).join(' · ')}
       // ต้นแบบ ⋯: แก้ไข · คัดลอกเป็นใบใหม่ · พิมพ์ · ยกเลิกเอกสาร — แก้ไข/คัดลอกยังไม่มีหน้าจอ [OPEN — Claude Design spec/12 §3]
       menu={[
-        ...(draft || issued
+        ...(draft || numbered
           ? [{ label: t('bill.menu.print'), icon: 'printer', onClick: print }]
+          : []),
+        // ST5-T10 ต้นแบบ askCancelDoc: รายการสุดท้ายของเมนู ⋯ สีแดง (ใบที่ออกแล้ว ยังไม่รับชำระ)
+        ...(voidable
+          ? [
+              {
+                label: t('bill.menu.cancel'),
+                icon: 'ban',
+                danger: true,
+                onClick: () => {
+                  voider.reset();
+                  setReissue(false);
+                  setVoidDlg(true);
+                },
+              },
+            ]
           : []),
         ...(draft && canDraft
           ? [
@@ -314,7 +382,9 @@ export function InvoiceDrawer({
         ) : (
           <>
             <span style={{ flex: 1 }} />
-            <DrawerFooterButtons secondary={[]} />
+            <DrawerFooterButtons
+              secondary={numbered ? [{ label: t('bill.menu.pdf'), onClick: print }] : []}
+            />
           </>
         )
       }
@@ -336,15 +406,32 @@ export function InvoiceDrawer({
                   style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}
                 >
                   <span style={{ fontSize: 12.5, fontWeight: 500, color: '#59606B' }}>{x.k}</span>
-                  <span
-                    style={{
-                      color: '#101418',
-                      wordBreak: 'break-word',
-                      fontVariantNumeric: 'tabular-nums',
-                    }}
-                  >
-                    {x.v}
-                  </span>
+                  {x.open && onOpenInvoice ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenInvoice(x.open!)}
+                      style={{
+                        all: 'unset',
+                        cursor: 'pointer',
+                        color: '#2257C4',
+                        fontWeight: 500,
+                        wordBreak: 'break-word',
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      {x.v}
+                    </button>
+                  ) : (
+                    <span
+                      style={{
+                        color: '#101418',
+                        wordBreak: 'break-word',
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      {x.v}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
@@ -506,7 +593,7 @@ export function InvoiceDrawer({
                 <span style={{ fontSize: 12.5, color: '#59606B' }}>PDF</span>
               </span>
             </button>
-          ) : issued ? (
+          ) : numbered ? (
             <button
               type="button"
               onClick={print}
@@ -526,9 +613,11 @@ export function InvoiceDrawer({
               <span style={{ display: 'flex', flexDirection: 'column' }}>
                 <span style={{ fontWeight: 500 }}>{inv.pdf?.filename ?? pdfName}</span>
                 <span style={{ fontSize: 12.5, color: '#59606B' }}>
-                  {inv.pdf
-                    ? t('bill.doc.pdf', { kb: Math.max(1, Math.round(inv.pdf.sizeBytes / 1024)) })
-                    : t('bill.doc.pdfPending')}
+                  {cancelled
+                    ? t('bill.doc.pdfVoid')
+                    : inv.pdf
+                      ? t('bill.doc.pdf', { kb: Math.max(1, Math.round(inv.pdf.sizeBytes / 1024)) })
+                      : t('bill.doc.pdfPending')}
                 </span>
               </span>
             </button>
@@ -550,9 +639,15 @@ export function InvoiceDrawer({
               <Step
                 title={t('bill.step.issue')}
                 state={
-                  issued ? 'done' : cancelled ? t('bill.st.CANCELLED') : t('bill.step.pending')
+                  issued || numbered
+                    ? 'done'
+                    : cancelled
+                      ? t('bill.st.CANCELLED')
+                      : t('bill.step.pending')
                 }
-                {...(issued && inv.issuedAt ? { at: formatDateTime(inv.issuedAt, lang) } : {})}
+                {...((issued || numbered) && inv.issuedAt
+                  ? { at: formatDateTime(inv.issuedAt, lang) }
+                  : {})}
               />
               {/* ต้นแบบ step('รับชำระ', st, '', เกินกำหนด → "เกินกำหนด n วัน · คงค้าง ฿x" / ชำระบางส่วน → "คงค้าง ฿x") */}
               <Step
@@ -568,7 +663,22 @@ export function InvoiceDrawer({
           </div>
           <ActivityTimeline
             items={[
-              ...(issued && inv.issuedAt
+              // ต้นแบบ docLog: "ยกเลิกเอกสาร · เหตุผล" ป้าย "ยกเลิก" (ล่าสุดอยู่บน)
+              ...(cancelled && inv.cancelledAt
+                ? [
+                    {
+                      key: 'x',
+                      title: t('bill.act.cancelled', { why: inv.cancelReason ?? '' }),
+                      sub: formatDateTime(inv.cancelledAt, lang),
+                      badge: {
+                        label: t('bill.st.CANCELLED'),
+                        tone: statusOf(t('bill.st.CANCELLED')).tone,
+                        icon: statusOf(t('bill.st.CANCELLED')).icon,
+                      },
+                    },
+                  ]
+                : []),
+              ...((issued || numbered) && inv.issuedAt
                 ? [
                     {
                       key: 'i',
@@ -598,6 +708,57 @@ export function InvoiceDrawer({
           />
         </div>
       )}
+      {/* ST5-T10 ต้นแบบ askCancelDoc (หัว/คำอธิบาย/ตารางสถานะ/ปุ่มยืนยัน) + ติ๊กออกฉบับใหม่แทน (spec/05 §7 — ต้นแบบไม่มี) */}
+      <ReasonDialog
+        open={voidDlg}
+        title={t('ord.cancel.title', { no })}
+        description={t('bill.void.desc')}
+        diff={{
+          rows: [{ f: t('ord.dlg.status'), b: st, a: t('bill.st.CANCELLED') }],
+          labels: [t('ord.dlg.field'), t('ord.dlg.before'), t('ord.dlg.after')],
+        }}
+        hint={(n, ok) => (ok ? t('ord.dlg.hintOk') : t('ord.dlg.hintMin', { n }))}
+        label={t('ord.dlg.reason')}
+        placeholder={t('ord.dlg.reasonPh')}
+        okLabel={t('ord.cancel.ok')}
+        cancelLabel={t('common.cancel')}
+        closeLabel={t('drawer.close')}
+        extra={
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={reissue}
+              onChange={(e) => setReissue(e.target.checked)}
+              style={{
+                width: 16,
+                height: 16,
+                accentColor: '#2257C4',
+                margin: 0,
+                cursor: 'pointer',
+              }}
+            />
+            <span>{t('bill.void.reissue')}</span>
+          </label>
+        }
+        busy={voider.isPending}
+        error={voider.error ? voidErrorText(voider.error, t) : null}
+        onClose={() => setVoidDlg(false)}
+        onOk={(reason) =>
+          voider.mutate(
+            { id: inv.id, version: inv.version, reason, reissue },
+            {
+              onSuccess: (x) => {
+                setVoidDlg(false);
+                const next = x.replacedByInvoice;
+                onToast(
+                  next ? t('bill.toast.voidReissued', { no }) : t('bill.toast.voided', { no }),
+                );
+                if (next && onOpenInvoice) onOpenInvoice(next.id);
+              },
+            },
+          )
+        }
+      />
       <ReasonDialog
         open={dlg}
         title={t('bill.cancel.title')}

@@ -1,5 +1,5 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Prisma, type StoredDocument } from '@prisma/client';
 import { eventDefinition } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
@@ -375,7 +375,8 @@ export class InvoiceFinalizeService implements OnModuleInit {
         dueDate: ymd(inv.dueDate),
         copy,
       });
-      return { doc: null, model, invoiceNo: inv.invoiceNo };
+      // ไฟล์ที่เก็บ = เอกสาร ณ วันออก (ไม่มีลายน้ำ "ยกเลิก" แม้ render หลังยกเลิก — BIL-100 เก็บ PDF เดิม)
+      return { doc: null, model: { ...model, cancelled: false }, invoiceNo: inv.invoiceNo };
     });
     if (found.doc) return { doc: found.doc, data: await store().get(found.doc.fileKey!) };
     const data = await this.renderer.pdf(invoiceDocument(found.model!));
@@ -421,6 +422,44 @@ export class InvoiceFinalizeService implements OnModuleInit {
     return { doc, data };
   }
 
+  /**
+   * PDF สำหรับดาวน์โหลด (`GET /invoices/{id}/pdf`): ใบปกติ = ไฟล์ที่เก็บ (ensurePdf) · **ใบที่ยกเลิกแล้ว (ST5-T10)** = render จาก snapshot
+   * ณ วันออก + ลายน้ำ "ยกเลิก" (spec/05 BIL-195) ทุกครั้ง ไม่เก็บ — ไฟล์ต้นฉบับ/สำเนาที่เก็บไว้คงเดิม (BIL-100)
+   */
+  async downloadPdf(
+    id: string,
+    copy: InvoiceCopy,
+  ): Promise<{ filename: string; sha256: string; data: Buffer }> {
+    const found = await this.inTx(async (tx) => {
+      const inv = await tx.invoice.findUnique({ where: { id } });
+      if (!inv) throw new ProblemException('not_found');
+      if (inv.status !== 'CANCELLED' || !inv.invoiceNo || !inv.issueDate || !inv.dueDate)
+        return null;
+      const tv = (inv.printOptions as InvoicePrintOptions | null)?.templateVersion;
+      if (tv !== INVOICE_TEMPLATE_VERSION)
+        throw new ProblemException('invoice_pdf_template_changed', undefined, undefined, {
+          issuedTemplateVersion: tv ?? null,
+          currentTemplateVersion: INVOICE_TEMPLATE_VERSION,
+        });
+      const { model } = await this.pdf.loadModel(tx, id, {
+        issueDate: ymd(inv.issueDate),
+        dueDate: ymd(inv.dueDate),
+        copy,
+      });
+      return { model: { ...model, cancelled: true }, invoiceNo: inv.invoiceNo };
+    });
+    if (!found) {
+      const { doc, data } = await this.ensurePdf(id, copy);
+      return { filename: doc.filename ?? 'invoice.pdf', sha256: doc.sha256 ?? '', data };
+    }
+    const data = await this.renderer.pdf(invoiceDocument(found.model));
+    return {
+      filename: `${found.invoiceNo}${copy === 'COPY' ? '-copy' : ''}-cancelled.pdf`,
+      sha256: createHash('sha256').update(data).digest('hex'),
+      data,
+    };
+  }
+
   private async storedPdf(
     tx: Tx,
     invoiceId: string,
@@ -447,12 +486,15 @@ export class InvoiceFinalizeService implements OnModuleInit {
 }
 
 /**
- * `data.object` ของ webhook `invoice.finalized` (ทะเบียน event) = InvoiceDto เดียวกับ `GET /v1/invoices/{id}`
+ * `data.object` ของ webhook `invoice.finalized` / `invoice.voided` (ทะเบียน event) = InvoiceDto เดียวกับ `GET /v1/invoices/{id}`
  * − ยอดเงิน (`sell*` — webhook ระดับ tenant ไม่ผ่านสิทธิ์ราคา) − `omit` ของทะเบียน
  */
-function invoiceEventObject(dto: InvoiceDto): Record<string, unknown> {
+export function invoiceEventObject(
+  dto: InvoiceDto,
+  type: 'invoice.finalized' | 'invoice.voided' = 'invoice.finalized',
+): Record<string, unknown> {
   const o = JSON.parse(JSON.stringify(redact(dto))) as Record<string, unknown>;
-  for (const k of eventDefinition('invoice.finalized')!.object!.omit) delete o[k];
+  for (const k of eventDefinition(type)!.object!.omit) delete o[k];
   return o;
 }
 

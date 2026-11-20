@@ -964,6 +964,7 @@ export function BillPage() {
             setPayId(openId);
             setOpenId(null);
           }}
+          onOpenInvoice={setOpenId}
           onClose={() => setOpenId(null)}
           onToast={setToast}
         />

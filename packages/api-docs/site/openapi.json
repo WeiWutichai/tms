@@ -32659,7 +32659,7 @@
     },
     "/v1/invoices/{id}/pdf": {
       "get": {
-        "description": "ใบที่ออกเลขแล้วเท่านั้น (ร่าง → 409 ใช้ `/proforma`) · `copy=ORIGINAL` (ค่าเริ่ม) = ไฟล์ต้นฉบับที่เก็บตอนออก · `copy=COPY` = สำเนา render จาก snapshot ณ วันออกครั้งแรกที่ขอแล้วเก็บ — ไม่ render ตามข้อมูลลูกค้าปัจจุบัน · ยังไม่มีไฟล์ (render ตอนออกล้ม) → สร้างให้แล้วเก็บ · header `X-Content-SHA256` · ไม่มีคำว่า \"ใบกำกับภาษี\" · ต้องมี `prices.sell:read` ไม่งั้น 403",
+        "description": "ใบที่ออกเลขแล้วเท่านั้น (ร่าง → 409 ใช้ `/proforma`) · `copy=ORIGINAL` (ค่าเริ่ม) = ไฟล์ต้นฉบับที่เก็บตอนออก · `copy=COPY` = สำเนา render จาก snapshot ณ วันออกครั้งแรกที่ขอแล้วเก็บ — ไม่ render ตามข้อมูลลูกค้าปัจจุบัน · ยังไม่มีไฟล์ (render ตอนออกล้ม) → สร้างให้แล้วเก็บ · header `X-Content-SHA256` · ไม่มีคำว่า \"ใบกำกับภาษี\" · ต้องมี `prices.sell:read` ไม่งั้น 403 · **ใบที่ยกเลิกแล้ว** = render จาก snapshot ณ วันออก + ลายน้ำ \"ยกเลิก\" ไม่เก็บ — ไฟล์ต้นฉบับที่เก็บคงเดิม",
         "operationId": "Invoices_issuedPdf",
         "parameters": [
           {
@@ -34766,7 +34766,7 @@
     },
     "/v1/invoices/{id}/cancel": {
       "post": {
-        "description": "DRAFT → CANCELLED · บรรทัดหยุดนับ · DO กลับ UNBILLED (ขึ้นคิวอีก) · ใบที่ออกแล้วยกเลิกที่นี่ไม่ได้ · audit `invoice.draft_cancelled`",
+        "description": "DRAFT → CANCELLED · บรรทัดหยุดนับ · DO กลับ UNBILLED (ขึ้นคิวอีก) · ใบที่ออกแล้วยกเลิกที่นี่ไม่ได้ (409 — ใช้ `POST /v1/invoices/{id}/void`) · audit `invoice.draft_cancelled`",
         "operationId": "Invoices_cancel",
         "parameters": [
           {
@@ -35002,6 +35002,241 @@
         ],
         "x-required-scopes": [
           "invoices:draft"
+        ]
+      }
+    },
+    "/v1/invoices/{id}/void": {
+      "post": {
+        "description": "**If-Match บังคับ** (ไม่ส่ง → 422 `if_match_required`) · ISSUED → **CANCELLED คงเลข** (เลขไม่ถูกออกซ้ำ · record ไม่ถูกลบ) · รับชำระแล้ว (บางส่วน/ครบ) → 409 `invoice_has_payments` (`payments[]` — กลับรายการก่อน) · อยู่ในใบวางบิลที่ออกแล้ว/เก็บเงินแล้ว → 409 `invoice_on_billing_note` (`billingNoteNo` — ยกเลิกใบวางบิลก่อน) · ร่าง → 409 (ใช้ `/cancel`) · ผล: DO INVOICED/BILLED → UNBILLED (วางบิลใหม่ได้) · ปลดล็อกบรรทัดรายได้ · ถอดออกจากใบวางบิลที่ยังเป็นร่าง · audit `invoice.cancelled` + webhook `invoice.voided` · `reissue: true` = สร้างร่างฉบับใหม่แทน (DO ชุดเดิม + บรรทัดที่เพิ่มเอง) อ้างเลขเดิม (`replacedByInvoice` / `replacesInvoice`) — ออกเลขใหม่ตามปกติ · PDF ของใบที่ยกเลิกมีลายน้ำ \"ยกเลิก\"",
+        "operationId": "Invoices_void",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoidInvoiceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`invoices:finalize`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "invoices",
+                      "action": "finalize",
+                      "required": [
+                        "invoices:finalize"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`invalid_state_transition` (ร่าง/ยกเลิกแล้ว/สถานะอื่น) · `invoice_has_payments` · `invoice_on_billing_note` · `not_ready_to_bill` (ออกฉบับใหม่แทน — DO ไม่พร้อม)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invoice_on_billing_note": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invoice_on_billing_note",
+                      "title": "ใบแจ้งหนี้นี้อยู่ในใบวางบิลที่ออกแล้ว ยกเลิกไม่ได้ — ยกเลิกใบวางบิลก่อน",
+                      "status": 409,
+                      "code": "invoice_on_billing_note",
+                      "billingNoteId": "bn_…",
+                      "billingNoteNo": "BN-00000-6911-0001",
+                      "billingNoteStatus": "ISSUED"
+                    }
+                  },
+                  "invoice_has_payments": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invoice_has_payments",
+                      "title": "ใบแจ้งหนี้นี้รับชำระแล้ว ยกเลิกไม่ได้ — กลับรายการรับชำระก่อน",
+                      "status": 409,
+                      "code": "invoice_has_payments",
+                      "currentStatus": "PARTIALLY_PAID",
+                      "payments": [
+                        {
+                          "paymentId": "pay_…",
+                          "paymentNo": "PAY-6911-0001"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (void) — คงเลข · ยังไม่รับชำระ · เหตุผล ≥ 10 ตัวอักษร",
+        "tags": [
+          "invoices"
+        ],
+        "x-required-scopes": [
+          "invoices:finalize"
         ]
       }
     },
@@ -60344,6 +60579,31 @@
             "type": "string",
             "nullable": true
           },
+          "cancelledAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "เวลายกเลิก · null = ไม่ถูกยกเลิก"
+          },
+          "replacesInvoice": {
+            "nullable": true,
+            "description": "ใบนี้ออกแทนใบที่ยกเลิก · PDF พิมพ์หมายเหตุอ้างเลข/วันที่เดิม",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InvoiceReplacesDto"
+              }
+            ]
+          },
+          "replacedByInvoice": {
+            "nullable": true,
+            "description": "ใบที่ออกแทนใบนี้ (ใบที่ยกเลิกแล้วออกใหม่ — ล่าสุดที่ยังไม่ยกเลิก)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InvoiceReplacedByDto"
+              }
+            ]
+          },
           "createdBy": {
             "type": "string",
             "nullable": true
@@ -60399,6 +60659,9 @@
           "lines",
           "printLines",
           "cancelReason",
+          "cancelledAt",
+          "replacesInvoice",
+          "replacedByInvoice",
           "createdBy",
           "issuedAt",
           "issuedBy",
@@ -60503,6 +60766,10 @@
             "type": "boolean",
             "description": "false = ถอดออกแล้ว (เก็บเป็นประวัติ)"
           },
+          "releasedWithInvoice": {
+            "type": "boolean",
+            "description": "หยุดนับเพราะใบถูกยกเลิก — เป็นบรรทัดของเอกสาร ณ วันยกเลิก (≠ ถอดออกจากร่าง) · บรรทัดบนเอกสาร = `active || releasedWithInvoice`"
+          },
           "removeReason": {
             "type": "string",
             "nullable": true
@@ -60524,6 +60791,7 @@
           "printGroup",
           "isUserAdded",
           "active",
+          "releasedWithInvoice",
           "removeReason"
         ]
       },
@@ -60696,6 +60964,60 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "InvoiceReplacedByDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ivc_…"
+          },
+          "invoiceNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "ISSUED",
+              "PARTIALLY_PAID",
+              "PAID",
+              "ADJUSTED",
+              "VOIDED",
+              "CANCELLED"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "invoiceNo",
+          "status"
+        ]
+      },
+      "InvoiceReplacesDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ivc_…"
+          },
+          "invoiceNo": {
+            "type": "string",
+            "nullable": true,
+            "example": "INV-00000-6911-0001"
+          },
+          "issueDate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-11-03"
+          }
+        },
+        "required": [
+          "id",
+          "invoiceNo",
+          "issueDate"
         ]
       },
       "InvoiceSummaryCountsDto": {
@@ -70390,6 +70712,7 @@
               "delivery_order.status_changed",
               "pod.captured",
               "invoice.finalized",
+              "invoice.voided",
               "payment.recorded",
               "payment.reversed",
               "settlement.approved",
@@ -75679,6 +76002,25 @@
           "rateCards"
         ]
       },
+      "VoidInvoiceDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "ลูกค้าขอแยกวางบิลงวดหน้า"
+          },
+          "reissue": {
+            "type": "boolean",
+            "default": false,
+            "description": "สร้าง**ร่างฉบับใหม่แทน**ใน transaction เดียวกัน (DO ชุดเดิม + บรรทัดที่เพิ่มเอง · อ้างเลขเดิม `replacesInvoice`) — ร่างใหม่ต้องออกเอกสารตามปกติ (ได้เลขถัดไป ไม่ใช้เลขเดิม)"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
       "WebhookDeliveryDetailDto": {
         "type": "object",
         "properties": {
@@ -76744,6 +77086,31 @@
               "$ref": "#/components/schemas/InvoiceDeliveryOrderDto"
             }
           },
+          "cancelledAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "เวลายกเลิก · null = ไม่ถูกยกเลิก"
+          },
+          "replacesInvoice": {
+            "nullable": true,
+            "description": "ใบนี้ออกแทนใบที่ยกเลิก · PDF พิมพ์หมายเหตุอ้างเลข/วันที่เดิม",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InvoiceReplacesDto"
+              }
+            ]
+          },
+          "replacedByInvoice": {
+            "nullable": true,
+            "description": "ใบที่ออกแทนใบนี้ (ใบที่ยกเลิกแล้วออกใหม่ — ล่าสุดที่ยังไม่ยกเลิก)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InvoiceReplacedByDto"
+              }
+            ]
+          },
           "issuedAt": {
             "type": "string",
             "nullable": true,
@@ -76776,6 +77143,166 @@
           "customerPoNo",
           "taxEstimated",
           "deliveryOrders",
+          "cancelledAt",
+          "replacesInvoice",
+          "replacedByInvoice",
+          "issuedAt",
+          "billingNoteId"
+        ]
+      },
+      "WebhookEvent_invoice_voided": {
+        "type": "object",
+        "description": "`data.object` ของ invoice.voided — ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (สถานะ CANCELLED คงเลข — ยังไม่รับชำระ; DO กลับรอวางบิล) — ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf)",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ivc_…"
+          },
+          "invoiceNo": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "ISSUED",
+              "PARTIALLY_PAID",
+              "PAID",
+              "ADJUSTED",
+              "VOIDED",
+              "CANCELLED"
+            ]
+          },
+          "customer": {
+            "$ref": "#/components/schemas/InvoiceCustomerDto"
+          },
+          "periodFrom": {
+            "type": "string",
+            "nullable": true
+          },
+          "periodTo": {
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryOrderCount": {
+            "type": "number"
+          },
+          "lineMode": {
+            "type": "string",
+            "enum": [
+              "SINGLE",
+              "GROUP",
+              "MERGE"
+            ]
+          },
+          "issueDate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-11-20",
+            "description": "วันที่ออก (เวลาไทย) — ร่าง = null"
+          },
+          "dueDate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-12-20",
+            "description": "ครบกำหนดชำระ = วันที่ออก + เครดิต — ร่าง = null"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "issuingCompanyId": {
+            "type": "string",
+            "example": "cmp_…"
+          },
+          "issuingBranchId": {
+            "type": "string",
+            "example": "brn_…"
+          },
+          "creditTermDays": {
+            "type": "number"
+          },
+          "customerPoNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "taxEstimated": {
+            "type": "boolean",
+            "description": "ยอด VAT/WHT เป็นประมาณการ — true เสมอ"
+          },
+          "deliveryOrders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceDeliveryOrderDto"
+            }
+          },
+          "cancelledAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "เวลายกเลิก · null = ไม่ถูกยกเลิก"
+          },
+          "replacesInvoice": {
+            "nullable": true,
+            "description": "ใบนี้ออกแทนใบที่ยกเลิก · PDF พิมพ์หมายเหตุอ้างเลข/วันที่เดิม",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InvoiceReplacesDto"
+              }
+            ]
+          },
+          "replacedByInvoice": {
+            "nullable": true,
+            "description": "ใบที่ออกแทนใบนี้ (ใบที่ยกเลิกแล้วออกใหม่ — ล่าสุดที่ยังไม่ยกเลิก)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InvoiceReplacedByDto"
+              }
+            ]
+          },
+          "issuedAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "เวลาออกเอกสาร (ออกเลข) — ร่าง = null"
+          },
+          "billingNoteId": {
+            "type": "string",
+            "nullable": true,
+            "example": "bn_…",
+            "description": "ใบวางบิลที่ใบนี้อยู่ · null = ไม่อยู่ในใบวางบิล"
+          }
+        },
+        "required": [
+          "id",
+          "invoiceNo",
+          "status",
+          "customer",
+          "periodFrom",
+          "periodTo",
+          "deliveryOrderCount",
+          "lineMode",
+          "issueDate",
+          "dueDate",
+          "version",
+          "createdAt",
+          "updatedAt",
+          "issuingCompanyId",
+          "issuingBranchId",
+          "creditTermDays",
+          "customerPoNo",
+          "taxEstimated",
+          "deliveryOrders",
+          "cancelledAt",
+          "replacesInvoice",
+          "replacedByInvoice",
           "issuedAt",
           "billingNoteId"
         ]
@@ -80866,8 +81393,12 @@
       "phase": "pending"
     },
     "invoice.voided": {
-      "description": "ยกเลิกใบแจ้งหนี้",
-      "phase": "pending"
+      "description": "ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (สถานะ CANCELLED คงเลข — ยังไม่รับชำระ; DO กลับรอวางบิล) — ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม",
+      "phase": "active",
+      "dto": "InvoiceDto",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_invoice_voided"
+      }
     },
     "credit_note.finalized": {
       "description": "ออกเลขใบลดหนี้แล้ว",
@@ -81150,6 +81681,11 @@
       "title": "ใบแจ้งหนี้นี้อยู่ในใบวางบิลอื่นแล้ว",
       "titleEn": "This invoice is already on another active billing note"
     },
+    "invoice_has_payments": {
+      "status": 409,
+      "title": "ใบแจ้งหนี้นี้รับชำระแล้ว ยกเลิกไม่ได้ — กลับรายการรับชำระก่อน",
+      "titleEn": "This invoice has payments — reverse them before cancelling"
+    },
     "invoice_not_billable": {
       "status": 409,
       "title": "ใบแจ้งหนี้นี้ยังไม่ออกหรือไม่มียอดค้าง ใส่ในใบวางบิลไม่ได้",
@@ -81164,6 +81700,11 @@
       "status": 409,
       "title": "ใบแจ้งหนี้นี้รับชำระไม่ได้ในสถานะปัจจุบัน",
       "titleEn": "This invoice cannot take a payment in its current status"
+    },
+    "invoice_on_billing_note": {
+      "status": 409,
+      "title": "ใบแจ้งหนี้นี้อยู่ในใบวางบิลที่ออกแล้ว ยกเลิกไม่ได้ — ยกเลิกใบวางบิลก่อน",
+      "titleEn": "This invoice is on an issued billing note — cancel the billing note first"
     },
     "invoice_pdf_template_changed": {
       "status": 409,

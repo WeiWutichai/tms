@@ -25,7 +25,7 @@ import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './hel
  * - ทุก endpoint ใน MATRIX: scope ใน OpenAPI (`x-required-scopes`) ตรงกับตาราง · key ไม่มี scope → 403 `permission_denied`
  *   (`required` ตรง) · key ของบริษัทอื่น → 404 · ไม่มี credential → 401 · OpenAPI มีตัวอย่าง 403/404
  * - list: cursor pagination (`limit`/`nextCursor`/`hasMore`) · GET ใบเดียวมี ETag · If-Match ไม่ตรง → 412
- * - แถว #6 invoices อยู่ในตารางแล้ว (ST5-T09: list/สร้างร่าง/อ่าน/ออกเอกสาร) + payments (ST5-T13) · void / invoice-runs = DEFERRED (ST5-T10/T12)
+ * - แถว #6 invoices อยู่ในตารางแล้ว (ST5-T09: list/สร้างร่าง/อ่าน/ออกเอกสาร · ST5-T10: void) + payments (ST5-T13) · invoice-runs = DEFERRED (ST5-T12)
  *   — ตรวจว่ายังไม่มี path (กันลืมย้ายเข้าตาราง)
  */
 
@@ -136,7 +136,7 @@ export const MATRIX: Row[] = [
     ],
   },
   {
-    // ST5-T09 (D-54 ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี) — void = ST5-T10 (ยังอยู่ใน DEFERRED)
+    // ST5-T09 (D-54 ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี) · ST5-T10 void (ยกเลิกใบที่ออกแล้ว คงเลข)
     g2: '#6',
     resource: 'invoices',
     endpoints: [
@@ -144,6 +144,7 @@ export const MATRIX: Row[] = [
       E('post', '/v1/invoices', 'invoices:draft'),
       E('get', '/v1/invoices/{id}', 'invoices:read'),
       E('post', '/v1/invoices/{id}/finalize', 'invoices:finalize'),
+      E('post', '/v1/invoices/{id}/void', 'invoices:finalize'),
     ],
   },
   {
@@ -169,7 +170,6 @@ export const MATRIX: Row[] = [
 
 /** แถว P0 ที่เลื่อนไป task อื่น (ยังไม่มี module) — path ต้องยังไม่มีใน OpenAPI; มีแล้ว = ย้ายเข้า MATRIX */
 export const DEFERRED: { g2: string; resource: string; paths: string[]; task: string }[] = [
-  { g2: '#6', resource: 'invoices (void)', paths: ['/v1/invoices/{id}/void'], task: 'ST5-T10' },
   { g2: '#6', resource: 'invoice-runs', paths: ['/v1/invoice-runs'], task: 'ST5-T12' },
 ];
 
@@ -1054,6 +1054,18 @@ describe(
         body: { reason: REASON },
         expect: 200,
       });
+      // ST5-T10 ยกเลิกใบที่ออกแล้ว (docs/04 G2 `/void`) — กลับรายการรับชำระแล้ว ยอดชำระ 0 → CANCELLED คงเลข
+      const g2 = await call(full, 'get', '/v1/invoices/{id}', {
+        params: { id: draft.id },
+        expect: 200,
+      });
+      const voided = await call(full, 'post', '/v1/invoices/{id}/void', {
+        params: { id: draft.id },
+        headers: { 'If-Match': g2.headers.etag as string },
+        body: { reason: REASON },
+        expect: 200,
+      });
+      expect(voided.body).toMatchObject({ status: 'CANCELLED', invoiceNo: fin.body.invoiceNo });
     });
 
     it('#2 #10 webhooks/event-types/deliveries (อ่าน) · jobs · api-keys · openapi.json ด้วย key', async () => {
@@ -1320,7 +1332,7 @@ describe(
       }
     });
 
-    it('แถว #6 (void / invoice-runs) = DEFERRED → ST5 — ยังไม่มี path ใน OpenAPI', () => {
+    it('แถว #6 (invoice-runs) = DEFERRED → ST5 — ยังไม่มี path ใน OpenAPI', () => {
       for (const d of DEFERRED) {
         expect(d.task).toMatch(/^ST5-T\d+$/);
         for (const p of d.paths)

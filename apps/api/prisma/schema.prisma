@@ -3586,6 +3586,10 @@ model Invoice {
   /// ST5-T13 ยอดตัดชำระรวม (Σ payment_allocation.amount ของ payment ที่ยังไม่กลับรายการ — รวม WHT ที่ถูกหัก) · CHECK 0 ≤ paid ≤ total
   /// เขียนโดย `applyInvoicePayments` ที่เดียว (ใต้ล็อกใบ) · คงค้าง = total_amount − paid_amount
   paidAmount        Decimal         @default(0) @map("paid_amount") @db.Decimal(14, 2)
+  /// ST5-T10 ยกเลิกแล้วออกใหม่ (docs/04 F3 "ฉบับใหม่อ้างเลขเดิม"): ใบนี้ออกแทนใบที่ยกเลิก (CANCELLED มีเลข · ลูกค้าเดียวกัน — trigger 0144)
+  replacesInvoiceId String?         @map("replaces_invoice_id") @db.Uuid
+  replaces          Invoice?        @relation("InvoiceReissue", fields: [replacesInvoiceId], references: [id], onDelete: Restrict)
+  replacedBy        Invoice[]       @relation("InvoiceReissue")
   version           Int             @default(1)
   createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -3599,6 +3603,7 @@ model Invoice {
   @@index([tenantId, customerId, status])
   @@index([tenantId, status])
   @@index([tenantId, issueDate])
+  @@index([tenantId, replacesInvoiceId])
   @@map("invoice")
 }
 
@@ -3606,42 +3611,45 @@ model Invoice {
 /// **กันวางบิลซ้ำ**: unique partial `(tenant_id, delivery_order_id) WHERE delivery_order_id IS NOT NULL AND active` (migration 0123)
 /// `active` = บรรทัดยังนับเป็นการวางบิล DO — false เมื่อถอดออกจากร่าง หรือใบเป็น CANCELLED/VOIDED (trigger) · ไม่กลับเป็น true
 model InvoiceLine {
-  id              String         @id @default(uuid()) @db.Uuid
-  tenantId        String         @map("tenant_id") @db.Uuid
-  invoiceId       String         @map("invoice_id") @db.Uuid
-  invoice         Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
-  lineNo          Int            @map("line_no")
+  id                  String         @id @default(uuid()) @db.Uuid
+  tenantId            String         @map("tenant_id") @db.Uuid
+  invoiceId           String         @map("invoice_id") @db.Uuid
+  invoice             Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  lineNo              Int            @map("line_no")
   /// revenue line ของ DO (1 บรรทัด = 1 DO — docs/01 §7.2) · null = บรรทัดที่ไม่ใช่ค่าขนส่งของ DO
-  deliveryOrderId String?        @map("delivery_order_id") @db.Uuid
-  deliveryOrder   DeliveryOrder? @relation(fields: [deliveryOrderId], references: [id], onDelete: Restrict)
-  doSurchargeId   String?        @map("do_surcharge_id") @db.Uuid
-  doSurcharge     DoSurcharge?   @relation(fields: [doSurchargeId], references: [id], onDelete: Restrict)
-  serviceItemId   String         @map("service_item_id") @db.Uuid
-  serviceItem     ServiceItem    @relation(fields: [serviceItemId], references: [id], onDelete: Restrict)
-  description     String
-  quantity        Decimal        @db.Decimal(18, 4)
-  unitLabel       String         @map("unit_label")
-  unitPrice       Decimal        @map("unit_price") @db.Decimal(14, 2)
-  amount          Decimal        @db.Decimal(14, 2)
-  vatType         VatType        @map("vat_type")
-  vatAmount       Decimal        @default(0) @map("vat_amount") @db.Decimal(14, 2)
-  whtRate         Decimal        @map("wht_rate") @db.Decimal(5, 2) /// เปอร์เซ็นต์ (1.00 = 1%)
-  accountCode     String?        @map("account_code")
-  isUserAdded     Boolean        @default(false) @map("is_user_added")
-  active          Boolean        @default(true)
+  deliveryOrderId     String?        @map("delivery_order_id") @db.Uuid
+  deliveryOrder       DeliveryOrder? @relation(fields: [deliveryOrderId], references: [id], onDelete: Restrict)
+  doSurchargeId       String?        @map("do_surcharge_id") @db.Uuid
+  doSurcharge         DoSurcharge?   @relation(fields: [doSurchargeId], references: [id], onDelete: Restrict)
+  serviceItemId       String         @map("service_item_id") @db.Uuid
+  serviceItem         ServiceItem    @relation(fields: [serviceItemId], references: [id], onDelete: Restrict)
+  description         String
+  quantity            Decimal        @db.Decimal(18, 4)
+  unitLabel           String         @map("unit_label")
+  unitPrice           Decimal        @map("unit_price") @db.Decimal(14, 2)
+  amount              Decimal        @db.Decimal(14, 2)
+  vatType             VatType        @map("vat_type")
+  vatAmount           Decimal        @default(0) @map("vat_amount") @db.Decimal(14, 2)
+  whtRate             Decimal        @map("wht_rate") @db.Decimal(5, 2) /// เปอร์เซ็นต์ (1.00 = 1%)
+  accountCode         String?        @map("account_code")
+  isUserAdded         Boolean        @default(false) @map("is_user_added")
+  active              Boolean        @default(true)
   /// ST5-T07 บรรทัดรายได้ต้นทาง (1 บรรทัด = 1 บรรทัดรายได้ของ DO) — unique partial ต่อบรรทัดที่ active (migration 0135)
-  revenueLineId   String?        @map("revenue_line_id") @db.Uuid
-  revenueLine     RevenueLine?   @relation(fields: [revenueLineId], references: [id], onDelete: Restrict)
+  revenueLineId       String?        @map("revenue_line_id") @db.Uuid
+  revenueLine         RevenueLine?   @relation(fields: [revenueLineId], references: [id], onDelete: Restrict)
   /// บรรทัดแรกของ DO ในใบ = ตัวกันวางบิลซ้ำต่อ DO (unique partial `(tenant_id, delivery_order_id) WHERE active AND do_anchor`)
-  doAnchor        Boolean        @default(true) @map("do_anchor")
+  doAnchor            Boolean        @default(true) @map("do_anchor")
   /// ส่วนลดของบรรทัด (≥ 0) — `amount` = ยอดหลังหักส่วนลด · ยอดก่อนส่วนลด = amount + discount
-  discount        Decimal        @default(0) @db.Decimal(14, 2)
+  discount            Decimal        @default(0) @db.Decimal(14, 2)
   /// กลุ่มบรรทัดที่ผู้ใช้รวมเอง (Merge) — null = ตามรูปบรรทัดของใบ (`invoice.line_mode`)
-  printGroup      Int?           @map("print_group")
-  removedAt       DateTime?      @map("removed_at") @db.Timestamptz(6)
-  removedBy       String?        @map("removed_by")
-  removeReason    String?        @map("remove_reason")
-  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  printGroup          Int?           @map("print_group")
+  removedAt           DateTime?      @map("removed_at") @db.Timestamptz(6)
+  removedBy           String?        @map("removed_by")
+  removeReason        String?        @map("remove_reason")
+  /// ST5-T10 บรรทัดของเอกสาร ณ วันยกเลิก — หยุดนับเพราะใบถูกยกเลิก/ลดหนี้เต็มใบ (trigger `invoice_release_lines`) ไม่ใช่ถอดออกจากร่าง
+  /// บรรทัดบนเอกสาร = `active OR released_with_invoice` (ใบที่ยกเลิกยังแสดง/พิมพ์รายการเดิมได้)
+  releasedWithInvoice Boolean        @default(false) @map("released_with_invoice")
+  createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@unique([tenantId, invoiceId, lineNo])
   @@index([tenantId, revenueLineId])

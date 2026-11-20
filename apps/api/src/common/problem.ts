@@ -595,6 +595,24 @@ export const PROBLEMS = {
     th: 'ใบแจ้งหนี้นี้ยังไม่ออกหรือไม่มียอดค้าง ใส่ในใบวางบิลไม่ได้',
     en: 'Only issued invoices with an outstanding balance can be put on a billing note',
   },
+  /**
+   * ST5-T10 ยกเลิกใบแจ้งหนี้ที่รับชำระแล้ว (บางส่วน/ครบ) ไม่ได้ (docs/04 F3 "ยังไม่รับชำระ") — กลับรายการรับชำระก่อน ·
+   * `currentStatus`, `payments[]` (`paymentId`, `paymentNo`)
+   */
+  invoice_has_payments: {
+    status: 409,
+    th: 'ใบแจ้งหนี้นี้รับชำระแล้ว ยกเลิกไม่ได้ — กลับรายการรับชำระก่อน',
+    en: 'This invoice has payments — reverse them before cancelling',
+  },
+  /**
+   * ST5-T10 (ST5-T11 review M2) ใบแจ้งหนี้อยู่ในใบวางบิลที่ออกแล้ว/เก็บเงินแล้ว ยกเลิกไม่ได้ — ยกเลิกใบวางบิลก่อน ·
+   * `billingNoteId`, `billingNoteNo`, `billingNoteStatus`
+   */
+  invoice_on_billing_note: {
+    status: 409,
+    th: 'ใบแจ้งหนี้นี้อยู่ในใบวางบิลที่ออกแล้ว ยกเลิกไม่ได้ — ยกเลิกใบวางบิลก่อน',
+    en: 'This invoice is on an issued billing note — cancel the billing note first',
+  },
   /** ST4-T07 บันทึก/แก้หลักฐานส่งได้เฉพาะ DO ที่ส่งแล้ว/ส่งไม่สำเร็จและยังไม่วางบิล — `doStatus` บอกสถานะปัจจุบัน */
   pod_not_allowed: {
     status: 409,
