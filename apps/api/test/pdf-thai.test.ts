@@ -2,6 +2,17 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { inflateSync } from 'node:zlib';
 import { afterAll, describe, expect, it } from 'vitest';
+import {
+  sampleBillingNote,
+  sampleBillingNoteLong,
+} from '../src/modules/billing-notes/billing-note.sample';
+import { billingNoteDocument } from '../src/modules/billing-notes/billing-note.template';
+import {
+  sampleInvoiceExempt,
+  sampleInvoiceLong,
+  sampleInvoiceMixed,
+} from '../src/modules/invoices/invoice.sample';
+import { invoiceDocument, type InvoicePrintModel } from '../src/modules/invoices/invoice.template';
 import { sampleLongTripSheet, sampleTripSheet } from '../src/modules/trip-sheets/trip-sheet.sample';
 import { tripSheetDocument } from '../src/modules/trip-sheets/trip-sheet.template';
 import { sarabunFontCss } from '../src/pdf/fonts';
@@ -39,7 +50,47 @@ const KINDS: Array<{
     },
     labels: ['ใบคุมรถ'],
   },
+  {
+    kind: 'ใบแจ้งหนี้ (ST5-T08 — ร่าง/ต้นฉบับ/สำเนา, ยกเว้น VAT/ผสม/หลายหน้า)',
+    module: 'src/modules/invoices',
+    docs: () => {
+      const original = sampleInvoiceMixed();
+      original.invoiceNo = 'INV-2611-0001';
+      original.copy = 'ORIGINAL';
+      const ce = sampleInvoiceExempt();
+      ce.yearStyle = 'CE';
+      return [sampleInvoiceExempt(), sampleInvoiceMixed(), sampleInvoiceLong(), original, ce]
+        .map(noArrow)
+        .map(invoiceDocument);
+    },
+    labels: ['ใบแจ้งหนี้', 'รวมทั้งสิ้น'],
+  },
+  {
+    kind: 'ใบวางบิล (ST5-T11 — ร่าง/ต้นฉบับ, หลายหน้า)',
+    module: 'src/modules/billing-notes',
+    docs: () => {
+      const draft = sampleBillingNote();
+      draft.billingNoteNo = null;
+      draft.copy = null;
+      const ce = sampleBillingNote();
+      ce.yearStyle = 'CE';
+      return [sampleBillingNote(), sampleBillingNoteLong(), draft, ce].map(billingNoteDocument);
+    },
+    labels: ['ใบวางบิล', 'รวมทั้งสิ้น'],
+  },
 ];
+
+/**
+ * ตัวอย่างใบแจ้งหนี้ (golden ใน test/invoice-pdf.test.ts) ใช้ "→" ในคำอธิบายเส้นทาง ซึ่งเป็นข้อความที่ผู้ใช้พิมพ์เอง
+ * (ไม่ใช่ป้ายของแม่แบบ) และไม่อยู่ในชุด Sarabun — ที่นี่ตรวจเฉพาะแม่แบบ จึงแทนด้วย "–" ก่อน render
+ */
+function noArrow(m: InvoicePrintModel): InvoicePrintModel {
+  return {
+    ...m,
+    note: m.note?.replaceAll('→', '–') ?? null,
+    lines: m.lines.map((l) => ({ ...l, description: l.description.replaceAll('→', '–') })),
+  };
+}
 
 const THAI = /[ก-๛]/;
 
