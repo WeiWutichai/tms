@@ -66,8 +66,6 @@ interface CarrierSnapshot {
   taxIdLast4: string | null;
   branchCode: string | null;
   address: unknown;
-  /** ค่าตั้งต้นหัก ณ ที่จ่ายของรถร่วม ณ วันสร้างใบ (%) — ST6-T08 · ใบที่สร้างก่อนหน้าไม่มี → ใช้ค่าปัจจุบันของรถร่วม */
-  whtRateDefault?: string;
 }
 
 /** บรรทัดต้นทุนที่จะใส่ใบ (ผ่านกฎคิวจ่ายแล้ว) */
@@ -150,8 +148,7 @@ export class SettlementsService {
           buyGrossAmount: r.grossAmount.toFixed(2),
           buyDeductionAmount: r.deductionAmount.toFixed(2),
           buyNetPayable: r.netPayable.toFixed(2),
-          buyWhtAmount: decimalFromSatang(wht.wht),
-          buyNetAfterWht: decimalFromSatang(wht.netAfterWht),
+          ...whtTotals(r, wht),
           whtForm: wht.form,
           approvedAt: r.approvedAt?.toISOString() ?? null,
           sentAt: r.sentAt?.toISOString() ?? null,
@@ -215,7 +212,6 @@ export class SettlementsService {
       taxIdLast4: carrier.entityType === 'JURISTIC' ? null : carrier.taxIdLast4,
       branchCode: carrier.branchCode,
       address: carrier.address ?? null,
-      whtRateDefault: carrier.whtRateDefault.toFixed(2),
     };
     const s = await tx.carrierSettlement.create({
       data: {
@@ -230,6 +226,8 @@ export class SettlementsService {
         carrierReceiptNo: body.carrierReceiptNo ?? null,
         note: body.note ?? null,
         createdBy: ctx.actorId ?? null,
+        // ST6-T08: ค่าตั้งต้นอัตราหัก ณ ที่จ่ายของรถร่วม ณ วันสร้างใบ (บรรทัดที่ไม่มีธง)
+        whtRateDefault: carrier.whtRateDefault,
       },
     });
     const added = await this.insertLines(tx, s.id, 0, picks, deductions);
@@ -475,6 +473,8 @@ export class SettlementsService {
         approvedBy: actor,
         whtAmount: decimalFromSatang(wht.wht),
         whtMinimumAmount: minimum,
+        // ใบที่สร้างก่อน ST6-T08: ตรึงค่าตั้งต้นของรถร่วมที่ใช้คำนวณ → ทุกตัวเลข (แยกอัตรา/รายบรรทัด) ทำซ้ำได้
+        whtRateDefault: row.whtRateDefault ?? row.carrier.whtRateDefault,
         version: { increment: 1 },
       },
     });
@@ -1329,13 +1329,15 @@ function lineDto(
 
 /**
  * หัก ณ ที่จ่ายประมาณการของใบ (ST6-T08) จากบรรทัดที่ยังใช้ — ใบที่ตรึงแล้ว (อนุมัติ) ใช้ขั้นต่ำที่ตรึงไว้
- * อัตราบรรทัดว่าง → ค่าตั้งต้นรถร่วมใน snapshot (ใบที่สร้างก่อน ST6-T08: ค่าปัจจุบันของรถร่วม — ยอดรวมที่อนุมัติแล้วใช้ `wht_amount` ที่ตรึง)
+ * อัตราบรรทัดว่าง → `wht_rate_default` ของใบ (ค่าตั้งต้นรถร่วม ณ วันสร้าง/ตรึงตอนอนุมัติ) · ใบเก่าที่ยังไม่อนุมัติ = ค่าปัจจุบันของรถร่วม
+ * ใบที่ตรึงแล้ว: บรรทัดแข็ง + อัตราตั้งต้น + ขั้นต่ำที่ตรึง → ผลแยกอัตรา/รายบรรทัดเท่ากับตอนอนุมัติเสมอ
  */
 function whtOf(
   r: {
     carrierSnapshot: Prisma.JsonValue;
     carrier: { whtRateDefault: Prisma.Decimal };
     whtMinimumAmount: Prisma.Decimal | null;
+    whtRateDefault: Prisma.Decimal | null;
   },
   lines: readonly {
     lineType: string;
@@ -1354,10 +1356,26 @@ function whtOf(
         amount: satangFromDecimal(l.amount.toFixed(2)),
         whtRate: l.whtRate?.toFixed(2) ?? null,
       })),
-    carrierWhtRateDefault: snap.whtRateDefault ?? r.carrier.whtRateDefault.toFixed(2),
+    carrierWhtRateDefault: (r.whtRateDefault ?? r.carrier.whtRateDefault).toFixed(2),
     entityType: snap.entityType,
     whtMinimumAmount: r.whtMinimumAmount ? Number(r.whtMinimumAmount.toFixed(0)) : liveMinimum,
   });
+}
+
+/** ยอดรวม WHT ของใบ — ตรึงแล้ว (`wht_amount`) ใช้ค่าที่ตรึง: สุทธิหลังหัก = ยอดสุทธิ − wht_amount */
+function whtTotals(
+  r: { whtAmount: Prisma.Decimal | null; netPayable: Prisma.Decimal },
+  wht: SettlementWhtEstimate,
+): { buyWhtAmount: string; buyNetAfterWht: string } {
+  if (r.whtAmount !== null)
+    return {
+      buyWhtAmount: r.whtAmount.toFixed(2),
+      buyNetAfterWht: r.netPayable.minus(r.whtAmount).toFixed(2),
+    };
+  return {
+    buyWhtAmount: decimalFromSatang(wht.wht),
+    buyNetAfterWht: decimalFromSatang(wht.netAfterWht),
+  };
 }
 
 function toDto(r: SettlementRow, disputed: Set<string>, wht: SettlementWhtEstimate): SettlementDto {
@@ -1393,8 +1411,7 @@ function toDto(r: SettlementRow, disputed: Set<string>, wht: SettlementWhtEstima
     buyGrossAmount: r.grossAmount.toFixed(2),
     buyDeductionAmount: r.deductionAmount.toFixed(2),
     buyNetPayable: r.netPayable.toFixed(2),
-    buyWhtAmount: r.whtAmount ? r.whtAmount.toFixed(2) : decimalFromSatang(wht.wht),
-    buyNetAfterWht: decimalFromSatang(wht.netAfterWht),
+    ...whtTotals(r, wht),
     whtEstimate: {
       review: wht.review,
       form: wht.form,

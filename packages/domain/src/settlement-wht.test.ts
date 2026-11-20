@@ -46,7 +46,8 @@ const golden = JSON.parse(
 ) as { status: string; label: string; cases: GoldenCase[] };
 
 /**
- * วิธีของ AccountSystem สำหรับ AP (อ่านอย่างเดียว — `apps/accounting-web/app/purchase/_lib/wht.ts` expectedWht,
+ * **แบบจำลอง** วิธีของ AccountSystem สำหรับ AP — ไม่ได้เรียกระบบจริง; AccountSystem จัดกลุ่มตามประเภทเงินได้ ส่วนแบบจำลองนี้ (และ TMS)
+ * จัดกลุ่มตามอัตรา (ถือว่า 1 อัตรา = 1 ประเภทเงินได้) [OPEN — นักบัญชี #62 ข้อ ง] (อ่านอย่างเดียว — `apps/accounting-web/app/purchase/_lib/wht.ts` expectedWht,
  * `packages/db/src/purchase.ts` whtForBill): WHT = Σ ต่ออัตรา round_half_up(Σ ฐานบรรทัดบิล × อัตรา) · ไม่มีขั้นต่ำ ·
  * รายการหักกลบตอนจ่ายไม่อยู่ในฐาน — เขียนด้วยจำนวนเต็มแยกจาก tax.ts เพื่อเทียบอิสระ
  */

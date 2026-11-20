@@ -6,7 +6,7 @@
   "engine": "computeDocumentTax (ST5-T02) — half-up 2 ตำแหน่ง · WHT ครั้งเดียวต่อกลุ่มอัตราจากฐานก่อนหัก · บรรทัดหักไม่ใช่ฐาน · ค่ารายบรรทัด = ปัดรายบรรทัด เศษไปบรรทัดสุดท้ายของกลุ่ม",
   "units": "amount = บาท 2 ตำแหน่ง (บรรทัดหักติดลบแบบ settlement_line.amount) · whtRate = เปอร์เซ็นต์แบบ DB (\"1.00\") หรือ null = ค่าตั้งต้นของรถร่วม · whtMinimumAmount = บาท (tax.whtMinimumAmount ค่าเริ่ม 0)",
   "accountSystemLegend": {
-    "MATCH": "WHT ตรงกับวิธีของ AccountSystem (expectedWht: Σ ต่อประเภทเงินได้ round_half_up(ฐาน × อัตรา))",
+    "MATCH": "WHT ตรงกับ **แบบจำลอง** วิธีของ AccountSystem (expectedWht: Σ round_half_up(ฐาน × อัตรา)) — AccountSystem จัดกลุ่มตาม \"ประเภทเงินได้\" ส่วน TMS จัดกลุ่มตาม \"อัตรา\" (แบบจำลองถือว่า 1 อัตรา = 1 ประเภทเงินได้) → ยังไม่ใช่ผลจริงจาก AccountSystem [OPEN — นักบัญชี #62 ข้อ ง]",
     "DIFF_MINIMUM": "tenant ตั้งขั้นต่ำ 1,000 ชัด ๆ: AccountSystem ไม่มีกฎขั้นต่ำ — ค่าของ AccountSystem อยู่ที่ expected.accountSystemWht"
   },
   "cases": [
@@ -842,5 +842,6 @@
         "accountSystemWht": "17.00"
       }
     }
-  ]
+  ],
+  "referenceNote": "การเทียบกับ AccountSystem ในชุดนี้เป็นแบบจำลอง (เขียนใหม่ใน test ด้วยจำนวนเต็ม) ไม่ได้เรียกระบบจริง — ถ้า 1 ประเภทเงินได้มีหลายอัตรา หรือ 1 อัตรามีหลายประเภทเงินได้ ผลอาจต่างกัน"
 }

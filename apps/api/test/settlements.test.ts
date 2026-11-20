@@ -998,7 +998,7 @@ describe('settlements (ST6-T03)', () => {
         '90.00',
         '0.00',
       ]);
-      expect((row.carrierSnapshot as { whtRateDefault?: string }).whtRateDefault).toBe('1.00');
+      expect(row.whtRateDefault?.toFixed(2)).toBe('1.00');
       expect(row.status).toBe('APPROVED');
       const audit = await db.auditLog.findFirstOrThrow({
         where: { entityId: sid, action: 'settlement.approved' },
@@ -1035,6 +1035,67 @@ describe('settlements (ST6-T03)', () => {
       ).body.data[0];
       expect(vl.buyWhtAmount).toBeUndefined();
       expect(vl.whtForm).toBe('PND53');
+    });
+
+    it('review M: ใบเก่า (ไม่มีค่าตั้งต้นอัตราในใบ) + บรรทัดไม่มีธง → อนุมัติตรึง · เปลี่ยนค่าตั้งต้นรถร่วมเป็น 3% ทีหลัง = ทุกตัวเลขคงเดิม (รายละเอียด/แยกอัตรา/รายบรรทัด/รายการ)', async () => {
+      const approver = await tokenFor(
+        tenantId,
+        SYSTEM_ROLES.approver.permissions.join(' '),
+        'u-appr-wht2',
+      );
+      const { C, trips } = await setup(1, '4000');
+      await db.tripCost.updateMany({
+        where: { tripId: uuid('trip', trips[0]!.id), costType: 'CARRIER_FEE' },
+        data: { whtRate: null },
+      });
+      const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }).expect(201)).body;
+      const sid = uuid('settlement', s.id);
+      // จำลองใบที่สร้างก่อน ST6-T08 (ยังไม่มีค่าตั้งต้นอัตราในใบ) — ร่างแก้ได้ด้วย role แอป
+      await run((tx) =>
+        tx.carrierSettlement.update({ where: { id: sid }, data: { whtRateDefault: null } }),
+      );
+      const ok = await api(app, approver)
+        .post(`/v1/settlements/${s.id}/approve`)
+        .set('If-Match', `"${s.version}"`)
+        .send({ reason: 'ตรวจยอดตรงใบแจ้งหนี้รถร่วมแล้ว' })
+        .expect(200);
+      const expected = {
+        buyWhtAmount: '40.00',
+        buyNetAfterWht: '3960.00',
+        whtEstimate: {
+          frozen: true,
+          byRate: [{ whtRate: '1.00', buyBaseAmount: '4000.00', buyWhtAmount: '40.00' }],
+        },
+      };
+      expect(ok.body).toMatchObject(expected);
+      expect(
+        (
+          await db.carrierSettlement.findUniqueOrThrow({ where: { id: sid } })
+        ).whtRateDefault?.toFixed(2),
+      ).toBe('1.00');
+      // รถร่วมเปลี่ยนค่าตั้งต้นเป็น 3% หลังอนุมัติ
+      await db.carrier.update({
+        where: { id: uuid('carrier', C.id) },
+        data: { whtRateDefault: 3 },
+      });
+      const after = (await api(app, admin).get(`/v1/settlements/${s.id}`).expect(200)).body;
+      expect(after).toMatchObject(expected);
+      expect((after.lines as WhtLine[])[0]).toMatchObject({
+        whtRateApplied: '1.00',
+        whtRateSource: 'CARRIER_DEFAULT',
+        buyWhtAmount: '40.00',
+      });
+      const row = (
+        (await api(app, admin).get('/v1/settlements').query({ carrierId: C.id }).expect(200)).body
+          .data as Record<string, unknown>[]
+      )[0];
+      expect(row).toMatchObject({ buyWhtAmount: '40.00', buyNetAfterWht: '3960.00' });
+      // ใบ APPROVED: ช่องที่ตรึงแก้ไม่ได้ (DB) — ST6-T09 ต้องคงไว้
+      await expect(
+        run((tx) =>
+          tx.carrierSettlement.update({ where: { id: sid }, data: { whtRateDefault: 3 } }),
+        ),
+      ).rejects.toThrow(/carrier_settlement_terminal/);
     });
 
     it('กติกา DB (role แอป): ใบที่ยังไม่อนุมัติตรึง WHT ไม่ได้ · ยอดติดลบไม่ได้ · ต้องมีคู่ยอด/ขั้นต่ำ', async () => {
