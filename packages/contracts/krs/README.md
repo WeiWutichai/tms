@@ -6,6 +6,7 @@
 |---|---|
 | `invoice-request.schema.json` | body ของ `POST /invoice` และ `PUT /invoice/{transactionNo}` |
 | `invoice-response.schema.json` | response 201/200 และ `GET /invoice/{transactionNo}` |
+| `salesorder-source.json` | ST8-T02 แหล่ง SO: ชื่อ view (`vw_TMS_SalesOrder`) / path stub (`/salesorder`) / คอลัมน์ / watermark — **ที่เดียว** ที่ mock และ client อ่าน · [OPEN — KRS] ชื่อเสนอ (plan/08 KRS-11) |
 
 mock server: `packages/mock-krs` (ST8-T01) โหลด schema จากโฟลเดอร์นี้ตรง ๆ — แก้ schema ที่นี่แล้ว mock เปลี่ยนตาม
 

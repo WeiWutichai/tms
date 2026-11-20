@@ -7,6 +7,9 @@
  * - สวิตช์ "เขียนทับ" จำลองบัญชีกดบันทึกใน ERP แล้วรายการถูกเขียนใหม่ (เช่น 79 → 30 รายการ) — ST8-T11 ใช้ทดสอบ reconcile
  * - state อยู่ในหน่วยความจำ (reset ได้) · เลข `transactionNo`/`voucherNo` ออกแบบกำหนดได้ (deterministic)
  *
+ * - ST8-T02 แหล่ง SO: `GET /salesorder?since=&limit=` อ่านแถวของ view ตาม watermark (ชื่อ view/คอลัมน์จาก
+ *   `salesorder-source.json` — [OPEN — KRS]) + ข้อมูลตัวอย่างปลอม + control แก้/ยกเลิก SO (`salesorder.ts`)
+ *
  * ไม่มีการเรียกเครือข่ายภายนอก — ใช้ใน dev/test/staging เท่านั้น (docs/04 NFR Environments)
  * พฤติกรรมที่ contract ไม่ได้ระบุ (รูป error body, ลำดับการตรวจ, ฟิลด์เพิ่มใน GET ฯลฯ) ตั้งค่าได้ผ่าน `MockKrsOptions`
  * และมีหมายเหตุ [OPEN — KRS] (คำถามใน plan/08-questions-krs.md) — อย่าถือเป็นข้อเท็จจริงของ KRS
@@ -24,6 +27,16 @@ import {
   satangToNumber,
   type Scaled,
 } from './decimal';
+import {
+  loadSalesOrderMapping,
+  MockSalesOrderStore,
+  SO_PAGE_LIMIT_DEFAULT,
+  SO_PAGE_LIMIT_MAX,
+  SoHttpError,
+  type MockSalesOrder,
+  type MockSalesOrderInput,
+  type MockSalesOrderPatch,
+} from './salesorder';
 
 /** ที่อยู่ JSON schema ของ contract (ใช้ได้ทั้งจาก src/ และ dist/) */
 export const DEFAULT_SCHEMA_DIR = join(__dirname, '../../contracts/krs');
@@ -160,6 +173,8 @@ export interface MockKrsOptions {
   amountRounding?: 'line-half-up' | 'total-half-up' | 'line-half-even';
   /** ที่อยู่ไฟล์ JSON schema (ค่าเริ่ม packages/contracts/krs) */
   schemaDir?: string;
+  /** ST8-T02 ใส่ SO ตัวอย่าง (ปลอม) ตอนเริ่ม/reset (ค่าเริ่ม true) — false = แหล่ง SO ว่าง */
+  salesOrderSample?: boolean;
 }
 
 /** ใบใน state ของ mock */
@@ -282,6 +297,8 @@ export class MockKrs {
     rule: {},
   };
   private log: MockKrsRequestLog[] = [];
+  /** ST8-T02 แหล่ง SO (view จำลอง) */
+  readonly salesOrders: MockSalesOrderStore;
 
   constructor(options: MockKrsOptions = {}) {
     this.opts = {
@@ -301,6 +318,7 @@ export class MockKrs {
       putTmsVoucherNoChange: options.putTmsVoucherNoChange ?? 'accept',
       putCheckOrder: options.putCheckOrder ?? 'validate-first',
       schemaDir: options.schemaDir ?? DEFAULT_SCHEMA_DIR,
+      salesOrderSample: options.salesOrderSample ?? true,
     };
     const ajv = new Ajv2020({ allErrors: true, strict: true });
     const load = (f: string) =>
@@ -308,6 +326,11 @@ export class MockKrs {
     this.validateRequest = ajv.compile(load('invoice-request.schema.json'));
     this.validateResponse = ajv.compile(load('invoice-response.schema.json'));
     this.nextTransaction = this.opts.transactionNoStart;
+    this.salesOrders = new MockSalesOrderStore(
+      loadSalesOrderMapping(this.opts.schemaDir),
+      this.opts.salesOrderSample,
+      this.opts.now,
+    );
   }
 
   // ---------- วงจรชีวิต ----------
@@ -357,7 +380,7 @@ export class MockKrs {
 
   // ---------- control (ใช้ใน test ตรง ๆ หรือผ่าน /__mock/*) ----------
 
-  /** ล้างใบทั้งหมด เลขเริ่มใหม่ สวิตช์ทุกตัวปิด */
+  /** ล้างใบทั้งหมด เลขเริ่มใหม่ สวิตช์ทุกตัวปิด · แหล่ง SO กลับเป็นข้อมูลตัวอย่าง (หรือว่าง) */
   reset(): void {
     this.invoices = new Map();
     this.byTmsVoucherNo = new Map();
@@ -366,6 +389,7 @@ export class MockKrs {
     this.faults = [];
     this.overwriteSwitch = { enabled: false, rule: {} };
     this.log = [];
+    this.salesOrders.reset();
   }
 
   injectFault(spec: FaultSpec): void {
@@ -487,11 +511,17 @@ export class MockKrs {
   ): Outcome {
     try {
       const base = this.opts.basePath;
-      if (path !== `${base}/invoice` && !path.startsWith(`${base}/invoice/`))
+      const soPath = `${base}${this.salesOrders.mapping.httpPath}`;
+      const isSo = path === soPath;
+      if (!isSo && path !== `${base}/invoice` && !path.startsWith(`${base}/invoice/`))
         throw new HttpError(404, 'route not found');
       const key = req.headers['x-api-key'];
       if (typeof key !== 'string' || !sameSecret(key, this.opts.apiKey))
         throw new HttpError(401, 'invalid or missing X-API-Key');
+      if (isSo) {
+        if (method !== 'GET') return this.methodNotAllowed('GET');
+        return this.readSalesOrders(req.url ?? '');
+      }
 
       const rest = path.slice(`${base}/invoice`.length);
       if (rest === '' || rest === '/') {
@@ -509,6 +539,31 @@ export class MockKrs {
         return { status: e.status, body: errorBody(e.status, e.message, e.errors) };
       return { status: 500, body: errorBody(500, 'mock internal error') };
     }
+  }
+
+  /**
+   * ST8-T02 `GET /salesorder?since={watermark}&limit={จำนวนใบ}` — แถวที่ watermark > since (ไม่รวม since)
+   * since ว่าง/ไม่ส่ง = ตั้งแต่ต้น · limit 1–500 (ค่าเริ่ม 100) · ผิดรูป = 400
+   * response `{ view, rows[], next, hasMore }` — [OPEN — KRS] รูป response/ชื่อพารามิเตอร์ยังไม่ยืนยัน (plan/08 KRS-11)
+   */
+  private readSalesOrders(url: string): Outcome {
+    const q = new URL(url, 'http://mock.local').searchParams;
+    const sinceRaw = q.get('since') ?? '';
+    if (sinceRaw !== '' && !/^\d{1,15}$/.test(sinceRaw))
+      throw new HttpError(400, 'since must be a watermark (digits) or empty');
+    const limitRaw = q.get('limit');
+    let limit = SO_PAGE_LIMIT_DEFAULT;
+    if (limitRaw !== null) {
+      if (
+        !/^\d{1,4}$/.test(limitRaw) ||
+        Number(limitRaw) < 1 ||
+        Number(limitRaw) > SO_PAGE_LIMIT_MAX
+      )
+        throw new HttpError(400, `limit must be 1-${SO_PAGE_LIMIT_MAX}`);
+      limit = Number(limitRaw);
+    }
+    const page = this.salesOrders.page(sinceRaw === '' ? null : sinceRaw, limit);
+    return { status: 200, body: { view: this.salesOrders.mapping.view, ...page } };
   }
 
   private methodNotAllowed(allow: string): Outcome {
@@ -752,6 +807,7 @@ export class MockKrs {
           faults: this.faults.map(({ remaining, ...f }) => ({ ...f, remaining })),
           overwrite: clone(this.overwriteSwitch),
           requests: this.requests(),
+          salesOrders: this.salesOrders.list(),
         });
       if (method === 'POST' && path === '/reset') {
         this.reset();
@@ -787,6 +843,8 @@ export class MockKrs {
         this.setOverwrite(body.enabled, (body.rule ?? {}) as OverwriteRule);
         return ok({ ok: true, overwrite: clone(this.overwriteSwitch) });
       }
+      const so = this.salesOrderControl(method, path, json);
+      if (so) return so;
       const m = /^\/invoices\/([^/]+)\/overwrite$/.exec(path);
       if (method === 'POST' && m) {
         const inv = this.overwriteInvoice(safeDecode(m[1]!), json() as OverwriteRule);
@@ -797,8 +855,49 @@ export class MockKrs {
     } catch (e) {
       if (e instanceof HttpError)
         return { status: e.status, body: errorBody(e.status, e.message, e.errors) };
+      if (e instanceof SoHttpError)
+        return { status: e.status, body: errorBody(e.status, e.message) };
       return { status: 500, body: errorBody(500, 'mock control error') };
     }
+  }
+
+  /**
+   * ST8-T02 control ของแหล่ง SO (ไม่ต้องใช้ key):
+   * `GET /__mock/salesorders` ทุกใบ · `POST /__mock/salesorders` เพิ่ม/แทนที่ทั้งใบ ·
+   * `PATCH /__mock/salesorders/{company}/{soNo}` แก้บางช่อง · `POST /__mock/salesorders/{company}/{soNo}/cancel` ยกเลิก
+   * ทุกการเขียนได้ rowVersion + updated_at ใหม่ (poller เห็นในรอบถัดไป)
+   */
+  private salesOrderControl(
+    method: string,
+    path: string,
+    json: () => Record<string, unknown>,
+  ): Outcome | null {
+    if (path === '/salesorders') {
+      if (method === 'GET') return { status: 200, body: { salesOrders: this.salesOrders.list() } };
+      if (method === 'POST')
+        return {
+          status: 200,
+          body: this.salesOrders.upsert(json() as unknown as MockSalesOrderInput),
+        };
+      return null;
+    }
+    const m = /^\/salesorders\/([^/]+)\/([^/]+)(\/cancel)?$/.exec(path);
+    if (!m) return null;
+    const company = safeDecode(m[1]!);
+    const soNo = safeDecode(m[2]!);
+    if (m[3] && method === 'POST')
+      return { status: 200, body: this.salesOrders.cancel(company, soNo) };
+    if (!m[3] && method === 'PATCH')
+      return {
+        status: 200,
+        body: this.salesOrders.edit(company, soNo, json() as MockSalesOrderPatch),
+      };
+    if (!m[3] && method === 'GET') {
+      const so: MockSalesOrder | undefined = this.salesOrders.get(company, soNo);
+      if (!so) throw new HttpError(404, 'sales order not found');
+      return { status: 200, body: so };
+    }
+    return null;
   }
 
   private readBody(req: IncomingMessage): Promise<Buffer | 'too-large'> {
