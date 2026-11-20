@@ -74,7 +74,12 @@ export const EVENT_CATALOGUE: Record<NotificationEvent, EventDefinition> = {
     defaults: { in_app: true, email: true },
     pending: 'ST9-T06',
   },
-  'payment.due': { templates: [], defaults: { in_app: true, email: true }, pending: 'ST5-T22' },
+  // ST5-T22 สรุปเตือนครบกำหนดชำระรายวัน 08:00 (BIL-121) → ผู้ดูแลลูกค้า (ไม่มี/ใช้ไม่ได้ → ผู้บันทึกรับชำระ `payments:record`)
+  'payment.due': {
+    templates: ['invoice.payment_due'],
+    defaults: { in_app: true, email: true },
+    pending: null,
+  },
 };
 
 const BY_TEMPLATE = new Map<string, NotificationEvent>();

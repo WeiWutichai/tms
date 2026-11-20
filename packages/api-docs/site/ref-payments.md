@@ -1,12 +1,13 @@
 # payments
 
-7 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+8 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
 | [`GET /v1/payments`](#get-payments) | `invoices:read` |
 | [`POST /v1/payments`](#post-payments) | `payments:record` |
 | [`GET /v1/payments/summary`](#get-payments-summary) | `invoices:read` |
+| [`GET /v1/payments/aging`](#get-payments-aging) | `invoices:read` |
 | [`GET /v1/payments/{id}`](#get-payments-id) | `invoices:read` |
 | [`POST /v1/payments/{id}/reverse`](#post-payments-id-reverse) | `payments:reverse` |
 | [`POST /v1/payments/{id}/bounce`](#post-payments-id-bounce) | `payments:reverse` |
@@ -158,6 +159,43 @@ curl -sS -X GET "$TMS_BASE_URL/v1/payments/summary" \
 
 ```ts
 const { data, error } = await tms.GET('/v1/payments/summary');
+```
+
+## อายุลูกหนี้ — ยอดค้างตามช่วงอายุ รวมและต่อลูกค้า {#get-payments-aging}
+
+`GET /v1/payments/aging`
+
+scope: `invoices:read` · operationId: `Payments_agingReport`
+
+ใบค้างรับ (ISSUED / PARTIALLY_PAID ที่ยังมียอดค้าง) · ยอดค้าง = ยอดรวม − ยอดตัดชำระ · ช่วงอายุจาก `daysPastDue = asOf − dueDate` (เวลาไทย): ยังไม่ครบกำหนด (≤ 0) · 1–30 · 31–60 · 61–90 · เกิน 90 วัน · **Σ ทุกช่วง = `sellOutstanding` ของ `GET /payments/summary`** · `data` = ต่อลูกค้า (เฉพาะที่มียอดค้าง) เรียงตามชื่อ cursor มาตรฐาน · กรองลูกค้า `customerId` (รับ `ext:`) · asOf = วันนี้ · ยอด `sell*` เห็นเมื่อมี `prices.sell:read` (จำนวนใบเห็นเสมอ) · รายการใบในช่วงอายุ: `GET /invoices?receivable=open&aging=…`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `limit` | query |   | `number` | ลูกค้าต่อหน้า |
+| `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (เรียงตามชื่อลูกค้า) |
+| `customerId` | query |   | `string` | ลูกค้ารายเดียว — id หรือ `ext:{externalId}` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `AgingReportDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/payments/aging" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/payments/aging');
 ```
 
 ## การรับชำระ + การตัดชำระต่อใบแจ้งหนี้ {#get-payments-id}
@@ -344,6 +382,21 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 ```
 
 ## Schema ของ response {#schemas}
+
+### AgingReportDto {#schema-AgingReportDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `asOf` | ใช่ | `string` |   | วันที่คำนวณ (วันนี้ เวลาไทย Asia/Bangkok) | `2026-11-09` |
+| `basis` | ใช่ | `string` | ค่า: `DUE_DATE` | นับอายุจากวันครบกำหนด — ไม่มีวันครบกำหนด = ยังไม่ครบกำหนด |   |
+| `count` | ใช่ | `number` |   | ใบค้างรับทั้งหมด (ตามตัวกรองลูกค้า — ไม่ขึ้นกับหน้า) |   |
+| `sellOutstanding` |   | `string` |   | ยอดค้างรวม = Σ ทุกช่วง = `sellOutstanding` ของ `GET /payments/summary` (ใบ ISSUED + PARTIALLY_PAID) — `prices.sell:read` |   |
+| `buckets` | ใช่ | `array<AgingBucketDto>` |   | รวมทุกลูกค้า (ไม่ขึ้นกับหน้า) |   |
+| `data` | ใช่ | `array<AgingCustomerDto>` |   | ต่อลูกค้า (เฉพาะที่มียอดค้าง) เรียงตามชื่อ |   |
+| `nextCursor` | ใช่ | `string` | null ได้ |   |   |
+| `hasMore` | ใช่ | `boolean` |   |   |   |
 
 ### PaymentDto {#schema-PaymentDto}
 

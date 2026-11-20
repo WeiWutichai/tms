@@ -6,6 +6,8 @@ import type { InvoiceSummary } from './useInvoices';
 
 export type Payment = Schemas['PaymentDto'];
 export type PaymentInput = Schemas['CreatePaymentDto'];
+export type AgingReport = Schemas['AgingReportDto'];
+export type AgingBucketRow = Schemas['AgingBucketDto'];
 
 /** ใบแจ้งหนี้ + การรับชำระ ใช้ key เดียวกัน — บันทึก/กลับรายการแล้วยอดคงค้าง/สถานะใบโหลดใหม่ทุกหน้า */
 const KEY = 'invoices';
@@ -24,6 +26,16 @@ export function usePaymentSummary() {
   return useQuery({
     queryKey: [KEY, 'payments', 'summary'],
     queryFn: () => unwrap(api.GET('/v1/payments/summary')),
+  });
+}
+
+/**
+ * การ์ด "อายุลูกหนี้" (ST5-T22) — ใช้เฉพาะยอดรวม/ช่วง (ไม่ขึ้นกับหน้า) จึงขอลูกค้าแค่ 1 ราย · key เดียวกับใบ → รับชำระแล้วโหลดใหม่
+ */
+export function useAgingSummary() {
+  return useQuery({
+    queryKey: [KEY, 'payments', 'aging'],
+    queryFn: () => unwrap(api.GET('/v1/payments/aging', { params: { query: { limit: 1 } } })),
   });
 }
 
