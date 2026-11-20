@@ -155,6 +155,7 @@ export function InvoiceDrawer({
   id,
   canDraft,
   canFinalize,
+  canVoid = false,
   canRecord = false,
   onPay,
   onOpenInvoice,
@@ -164,6 +165,8 @@ export function InvoiceDrawer({
   id: string;
   canDraft: boolean;
   canFinalize: boolean;
+  /** ST5-T10 ยกเลิกใบที่ออกแล้ว (`invoices:void` — owner/admin/manager) */
+  canVoid?: boolean;
   /** ST5-T13 สิทธิ์บันทึกรับชำระ (`payments:record`) */
   canRecord?: boolean;
   /** ST5-T13 เปิด drawer รับชำระของใบนี้ */
@@ -204,7 +207,7 @@ export function InvoiceDrawer({
   const issued = !draft && !cancelled;
   // ใบที่ออกเลขแล้ว (รวมที่ยกเลิกภายหลัง — ST5-T10): มี PDF / วันที่ออก
   const numbered = !!inv.invoiceNo;
-  const voidable = inv.status === 'ISSUED' && canFinalize;
+  const voidable = inv.status === 'ISSUED' && canVoid;
   const no = inv.invoiceNo ?? t('bill.draftNo');
   const today = bangkokToday();
   const st = invoiceStatusLabel(t, invoiceDisplayStatus(inv, today));

@@ -103,7 +103,7 @@ export function useCancelDraft() {
 }
 
 /**
- * ยกเลิกใบที่ออกแล้ว (ST5-T10 `POST /invoices/{id}/void`): CANCELLED คงเลข — If-Match บังคับ · `invoices:finalize`
+ * ยกเลิกใบที่ออกแล้ว (ST5-T10 `POST /invoices/{id}/void`): CANCELLED คงเลข — If-Match บังคับ · `invoices:void` (owner/admin/manager)
  * รับชำระแล้ว → 409 `invoice_has_payments` · อยู่ในใบวางบิลที่ออกแล้ว → 409 `invoice_on_billing_note` (`billingNoteNo`)
  * `reissue` = สร้างร่างฉบับใหม่แทน (ตอบ `replacedByInvoice`)
  */

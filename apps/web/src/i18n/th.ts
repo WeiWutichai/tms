@@ -4237,6 +4237,7 @@ export const th = {
   'akey.sc.invoices:read': 'ใบแจ้งหนี้และการชำระ',
   'akey.sc.invoices:draft': 'สร้างร่างใบแจ้งหนี้',
   'akey.sc.invoices:finalize': 'ออกใบแจ้งหนี้ (finalize)',
+  'akey.sc.invoices:void': 'ยกเลิกใบแจ้งหนี้ที่ออกแล้ว',
   'akey.sc.payments:record': 'บันทึกรับชำระ',
   'akey.sc.payments:reverse': 'กลับรายการรับชำระ / เช็คคืน',
   'akey.sc.credit-notes:request': 'ขอใบลดหนี้ / เพิ่มหนี้',

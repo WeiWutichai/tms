@@ -8,7 +8,7 @@ import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { DeliveryOrderService } from '../delivery-orders/delivery-order.service';
 import { InvoiceBillingGuard } from './billing-guard.service';
-import { invoiceEventObject } from './invoice-finalize.service';
+import { InvoiceFinalizeService, invoiceEventObject } from './invoice-finalize.service';
 import type { InvoiceDto } from './invoice.dto';
 import { InvoicesService } from './invoices.service';
 
@@ -39,6 +39,7 @@ export class InvoiceCancelService {
     private readonly invoices: InvoicesService,
     private readonly guard: InvoiceBillingGuard,
     private readonly dos: DeliveryOrderService,
+    private readonly finalizer: InvoiceFinalizeService,
   ) {}
 
   async void(
@@ -49,6 +50,20 @@ export class InvoiceCancelService {
   ): Promise<InvoiceDto> {
     const tx = this.db.tx;
     const ctx = requestContext.require();
+    // review M2: ลำดับล็อกเดียวกับใบวางบิล (ออก/แก้ร่าง: billing_note FOR UPDATE → invoice FOR SHARE) — ล็อกใบวางบิลที่ผูกใบนี้ก่อน
+    // (เรียง id) แล้วจึงล็อกใบแจ้งหนี้ · ไม่งั้นยกเลิกพร้อมออกใบวางบิล = deadlock (40P01)
+    const noteIds = [
+      ...new Set(
+        (
+          await tx.billingNoteInvoice.findMany({
+            where: { invoiceId: id, active: true },
+            select: { billingNoteId: true },
+          })
+        ).map((l) => l.billingNoteId),
+      ),
+    ].sort();
+    if (noteIds.length)
+      await tx.$queryRaw`SELECT id FROM billing_note WHERE id = ANY(${noteIds}::uuid[]) ORDER BY id FOR UPDATE`;
     await tx.$queryRaw`SELECT id FROM invoice WHERE id = ${id}::uuid FOR UPDATE`;
     const inv = await tx.invoice.findUnique({ where: { id } });
     if (!inv) throw new ProblemException('not_found');
@@ -146,6 +161,8 @@ export class InvoiceCancelService {
         actorId: ctx.actorId ?? null,
       },
     });
+    // review L4: เก็บ PDF ลายน้ำ "ยกเลิก" (แม่แบบรุ่นวันออก) หลัง commit — งานใน transaction เดียวกับการยกเลิก
+    await this.finalizer.enqueueCancelledPdf(tx, ctx.tenantId!, id);
     if (reissue) await this.reissue(tx, inv, doIds, manual);
     return this.invoices.get(id, tx);
   }
@@ -171,6 +188,7 @@ export class InvoiceCancelService {
       orderBy: { billingNoteId: 'asc' },
     });
     for (const l of links) {
+      // ล็อกแล้วตั้งแต่ต้น (ก่อนล็อกใบแจ้งหนี้ — review M2) · ผูกใหม่ที่ commit ระหว่างนั้นล็อกซ้ำที่นี่ได้ (ไม่มีใครรอใบนี้อยู่แล้ว)
       await tx.$queryRaw`SELECT id FROM billing_note WHERE id = ${l.billingNoteId}::uuid FOR UPDATE`;
       await tx.billingNoteInvoice.update({
         where: { id: l.id },

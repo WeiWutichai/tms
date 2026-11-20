@@ -405,7 +405,8 @@ export class InvoicesController {
       'ใบที่ออกเลขแล้วเท่านั้น (ร่าง → 409 ใช้ `/proforma`) · `copy=ORIGINAL` (ค่าเริ่ม) = ไฟล์ต้นฉบับที่เก็บตอนออก · `copy=COPY` = สำเนา ' +
       'render จาก snapshot ณ วันออกครั้งแรกที่ขอแล้วเก็บ (spec/05 BIL-195/196) — ไม่ render ตามข้อมูลลูกค้าปัจจุบัน · ยังไม่มีไฟล์ (render ตอนออกล้ม) → สร้างให้แล้วเก็บ · ' +
       'header `X-Content-SHA256` · ไม่มีคำว่า "ใบกำกับภาษี" (D-54) · ต้องมี `prices.sell:read` ไม่งั้น 403 · ' +
-      '**ใบที่ยกเลิกแล้ว (ST5-T10)** = render จาก snapshot ณ วันออก + ลายน้ำ "ยกเลิก" (spec/05 BIL-195) ไม่เก็บ — ไฟล์ต้นฉบับที่เก็บคงเดิม',
+      '**ใบที่ยกเลิกแล้ว (ST5-T10)** = ไฟล์ลายน้ำ "ยกเลิก" (spec/05 BIL-195) ที่ render ด้วยแม่แบบวันออกแล้วเก็บตอนยกเลิก · ' +
+      'แม่แบบเปลี่ยนแล้วและยังไม่มีไฟล์ลายน้ำ → ส่งไฟล์ต้นฉบับที่เก็บแทน + header `X-Invoice-Pdf-Note: cancelled-watermark-unavailable` · ไฟล์ต้นฉบับ/สำเนาคงเดิม',
   })
   @ApiProduces('application/pdf')
   @ApiProblems(T403('invoices:read'), NF, T409())
@@ -424,6 +425,7 @@ export class InvoicesController {
     const data = f.data;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('X-Content-SHA256', f.sha256);
+    if (f.note) res.setHeader('X-Invoice-Pdf-Note', f.note);
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(f.filename)}"`);
     return new StreamableFile(data);
   }
@@ -701,11 +703,11 @@ export class InvoicesController {
   @Post(':id/void')
   @HttpCode(200)
   @TenantResource('issuedInvoice')
-  @RequireScope('invoices:finalize')
+  @RequireScope('invoices:void')
   @ApiOperation({
     summary: 'ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (void) — คงเลข · ยังไม่รับชำระ · เหตุผล ≥ 10 ตัวอักษร',
     description:
-      'ST5-T10 (docs/04 F3 "ยกเลิกใบ" + G1/G2 `/invoices/{id}/void`; spec/05 §3.6/§7; D-54 ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี) · **If-Match บังคับ** ' +
+      'ST5-T10 (docs/04 F3 "ยกเลิกใบ" + G1/G2 `/invoices/{id}/void`; spec/05 §3.6/§7; D-54 ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี) · สิทธิ์ `invoices:void` (owner/admin/manager — spec/05 §19) · **If-Match บังคับ** ' +
       '(ไม่ส่ง → 422 `if_match_required`) · ISSUED → **CANCELLED คงเลข** (เลขไม่ถูกออกซ้ำ · record ไม่ถูกลบ) · ' +
       'รับชำระแล้ว (บางส่วน/ครบ) → 409 `invoice_has_payments` (`payments[]` — กลับรายการก่อน) · ' +
       'อยู่ในใบวางบิลที่ออกแล้ว/เก็บเงินแล้ว → 409 `invoice_on_billing_note` (`billingNoteNo` — ยกเลิกใบวางบิลก่อน) · ร่าง → 409 (ใช้ `/cancel`) · ' +
@@ -720,7 +722,7 @@ export class InvoicesController {
     description: 'ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412',
   })
   @ApiProblems(
-    T403('invoices:finalize'),
+    T403('invoices:void'),
     NF,
     {
       status: 409,

@@ -23,7 +23,7 @@
 | [`PATCH /v1/invoices/{id}/lines/{lineId}`](#patch-invoices-id-lines-lineId) | `invoices:draft` |
 | [`POST /v1/invoices/{id}/lines/{lineId}/remove`](#post-invoices-id-lines-lineId-remove) | `invoices:draft` |
 | [`POST /v1/invoices/{id}/cancel`](#post-invoices-id-cancel) | `invoices:draft` |
-| [`POST /v1/invoices/{id}/void`](#post-invoices-id-void) | `invoices:finalize` |
+| [`POST /v1/invoices/{id}/void`](#post-invoices-id-void) | `invoices:void` |
 
 ## คิวพร้อมวางบิล (DO ที่ส่งแล้ว หลักฐานครบ และราคาพร้อม) {#get-invoices-queue}
 
@@ -430,7 +430,7 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/finalize', {
 
 scope: `invoices:read` · operationId: `Invoices_issuedPdf`
 
-ใบที่ออกเลขแล้วเท่านั้น (ร่าง → 409 ใช้ `/proforma`) · `copy=ORIGINAL` (ค่าเริ่ม) = ไฟล์ต้นฉบับที่เก็บตอนออก · `copy=COPY` = สำเนา render จาก snapshot ณ วันออกครั้งแรกที่ขอแล้วเก็บ — ไม่ render ตามข้อมูลลูกค้าปัจจุบัน · ยังไม่มีไฟล์ (render ตอนออกล้ม) → สร้างให้แล้วเก็บ · header `X-Content-SHA256` · ไม่มีคำว่า "ใบกำกับภาษี" · ต้องมี `prices.sell:read` ไม่งั้น 403 · **ใบที่ยกเลิกแล้ว** = render จาก snapshot ณ วันออก + ลายน้ำ "ยกเลิก" ไม่เก็บ — ไฟล์ต้นฉบับที่เก็บคงเดิม
+ใบที่ออกเลขแล้วเท่านั้น (ร่าง → 409 ใช้ `/proforma`) · `copy=ORIGINAL` (ค่าเริ่ม) = ไฟล์ต้นฉบับที่เก็บตอนออก · `copy=COPY` = สำเนา render จาก snapshot ณ วันออกครั้งแรกที่ขอแล้วเก็บ — ไม่ render ตามข้อมูลลูกค้าปัจจุบัน · ยังไม่มีไฟล์ (render ตอนออกล้ม) → สร้างให้แล้วเก็บ · header `X-Content-SHA256` · ไม่มีคำว่า "ใบกำกับภาษี" · ต้องมี `prices.sell:read` ไม่งั้น 403 · **ใบที่ยกเลิกแล้ว** = ไฟล์ลายน้ำ "ยกเลิก" ที่ render ด้วยแม่แบบวันออกแล้วเก็บตอนยกเลิก · แม่แบบเปลี่ยนแล้วและยังไม่มีไฟล์ลายน้ำ → ส่งไฟล์ต้นฉบับที่เก็บแทน + header `X-Invoice-Pdf-Note: cancelled-watermark-unavailable` · ไฟล์ต้นฉบับ/สำเนาคงเดิม
 
 **Parameters**
 
@@ -971,9 +971,9 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
 
 `POST /v1/invoices/{id}/void`
 
-scope: `invoices:finalize` · operationId: `Invoices_void`
+scope: `invoices:void` · operationId: `Invoices_void`
 
-**If-Match บังคับ** (ไม่ส่ง → 422 `if_match_required`) · ISSUED → **CANCELLED คงเลข** (เลขไม่ถูกออกซ้ำ · record ไม่ถูกลบ) · รับชำระแล้ว (บางส่วน/ครบ) → 409 `invoice_has_payments` (`payments[]` — กลับรายการก่อน) · อยู่ในใบวางบิลที่ออกแล้ว/เก็บเงินแล้ว → 409 `invoice_on_billing_note` (`billingNoteNo` — ยกเลิกใบวางบิลก่อน) · ร่าง → 409 (ใช้ `/cancel`) · ผล: DO INVOICED/BILLED → UNBILLED (วางบิลใหม่ได้) · ปลดล็อกบรรทัดรายได้ · ถอดออกจากใบวางบิลที่ยังเป็นร่าง · audit `invoice.cancelled` + webhook `invoice.voided` · `reissue: true` = สร้างร่างฉบับใหม่แทน (DO ชุดเดิม + บรรทัดที่เพิ่มเอง) อ้างเลขเดิม (`replacedByInvoice` / `replacesInvoice`) — ออกเลขใหม่ตามปกติ · PDF ของใบที่ยกเลิกมีลายน้ำ "ยกเลิก"
+สิทธิ์ `invoices:void` · **If-Match บังคับ** (ไม่ส่ง → 422 `if_match_required`) · ISSUED → **CANCELLED คงเลข** (เลขไม่ถูกออกซ้ำ · record ไม่ถูกลบ) · รับชำระแล้ว (บางส่วน/ครบ) → 409 `invoice_has_payments` (`payments[]` — กลับรายการก่อน) · อยู่ในใบวางบิลที่ออกแล้ว/เก็บเงินแล้ว → 409 `invoice_on_billing_note` (`billingNoteNo` — ยกเลิกใบวางบิลก่อน) · ร่าง → 409 (ใช้ `/cancel`) · ผล: DO INVOICED/BILLED → UNBILLED (วางบิลใหม่ได้) · ปลดล็อกบรรทัดรายได้ · ถอดออกจากใบวางบิลที่ยังเป็นร่าง · audit `invoice.cancelled` + webhook `invoice.voided` · `reissue: true` = สร้างร่างฉบับใหม่แทน (DO ชุดเดิม + บรรทัดที่เพิ่มเอง) อ้างเลขเดิม (`replacedByInvoice` / `replacesInvoice`) — ออกเลขใหม่ตามปกติ · PDF ของใบที่ยกเลิกมีลายน้ำ "ยกเลิก"
 
 **Parameters**
 
@@ -995,7 +995,7 @@ scope: `invoices:finalize` · operationId: `Invoices_void`
 |---|---|---|
 | `200` |   | `InvoiceDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`invoices:finalize`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:void`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `404` | ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
 | `409` | `invalid_state_transition` (ร่าง/ยกเลิกแล้ว/สถานะอื่น) · `invoice_has_payments` · `invoice_on_billing_note` · `not_ready_to_bill` (ออกฉบับใหม่แทน — DO ไม่พร้อม) — [invoice_on_billing_note](errors.md#invoice_on_billing_note), [invoice_has_payments](errors.md#invoice_has_payments) | `ProblemDto` |
 | `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |

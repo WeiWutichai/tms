@@ -144,7 +144,7 @@ export const MATRIX: Row[] = [
       E('post', '/v1/invoices', 'invoices:draft'),
       E('get', '/v1/invoices/{id}', 'invoices:read'),
       E('post', '/v1/invoices/{id}/finalize', 'invoices:finalize'),
-      E('post', '/v1/invoices/{id}/void', 'invoices:finalize'),
+      E('post', '/v1/invoices/{id}/void', 'invoices:void'),
     ],
   },
   {

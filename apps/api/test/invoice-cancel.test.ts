@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { SYSTEM_ROLES } from '@tms/domain';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { PrismaClient } from '@prisma/client';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { PdfRenderer } from '../src/pdf/pdf-renderer';
 import { JobQueue } from '../src/jobs/job-queue.service';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { requestContext } from '../src/common/request-context';
@@ -25,12 +27,16 @@ import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './hel
 describe('invoice cancel (ST5-T10)', { timeout: 900_000 }, () => {
   let app: NestExpressApplication;
   const db = platform();
+  /** เจ้าของตาราง — จำลองแม่แบบเปลี่ยนหลังวันออก (ข้าม trigger ด้วย session_replication_role) */
+  const owner = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
   let tenantId: string;
   let companyId: string;
   let admin: string;
   let viewer: string;
   let invoicer: string;
   let accounting: string;
+  let manager: string;
+  let approver: string;
   let seed = 0;
   let unitTon: string;
   let vt6: string;
@@ -64,6 +70,8 @@ describe('invoice cancel (ST5-T10)', { timeout: 900_000 }, () => {
     viewer = await tokenFor(tenantId, SYSTEM_ROLES.viewer.permissions.join(' '), 'u-view');
     invoicer = await tokenFor(tenantId, SYSTEM_ROLES.invoicer.permissions.join(' '), 'u-inv');
     accounting = await tokenFor(tenantId, SYSTEM_ROLES.accounting.permissions.join(' '), 'u-acc');
+    manager = await tokenFor(tenantId, SYSTEM_ROLES.manager.permissions.join(' '), 'u-mgr');
+    approver = await tokenFor(tenantId, SYSTEM_ROLES.approver.permissions.join(' '), 'u-appr');
     const us = (await api(app, admin).get('/v1/units?limit=50').expect(200)).body.data as {
       id: string;
       code: string;
@@ -80,6 +88,7 @@ describe('invoice cancel (ST5-T10)', { timeout: 900_000 }, () => {
   afterAll(async () => {
     await app.close();
     await db.$disconnect();
+    await owner.$disconnect();
   });
 
   const run = <T>(fn: (tx: Tx) => Promise<T>) =>
@@ -236,7 +245,7 @@ describe('invoice cancel (ST5-T10)', { timeout: 900_000 }, () => {
     id: string,
     version: number | null,
     body: object = { reason: 'ลูกค้าแจ้งชื่อบริษัทผิด ขอออกใหม่' },
-    token = accounting,
+    token = manager,
   ) => {
     const r = api(app, token).post(`/v1/invoices/${id}/void`);
     return (version === null ? r : r.set('If-Match', `"${version}"`)).send(body);
@@ -343,7 +352,7 @@ describe('invoice cancel (ST5-T10)', { timeout: 900_000 }, () => {
       deliveryOrderCount: 2,
       sellTotal: inv.sellTotal,
       creditTermDays: inv.creditTermDays,
-      createdBy: 'u-acc',
+      createdBy: 'u-mgr',
     });
     expect(re.lines.filter((l: { deliveryOrderId: string | null }) => !l.deliveryOrderId)).toEqual([
       expect.objectContaining({ description: 'ค่ายกขึ้นชั้น 2', sellAmount: '300.00' }),
@@ -354,8 +363,8 @@ describe('invoice cancel (ST5-T10)', { timeout: 900_000 }, () => {
         (await db.deliveryOrder.findUniqueOrThrow({ where: { id: d.uuid } })).billingStatus,
       ).toBe('IN_DRAFT');
     // ผู้ยกเลิก = ผู้สร้างร่างใหม่ → ออกเองไม่ได้ (A3) · คนอื่นออกได้ เลขถัดไป
-    await finalize(nid, re.version).expect(403);
-    const out = (await finalize(nid, re.version, invoicer).expect(200)).body;
+    await finalize(nid, re.version, manager).expect(403);
+    const out = (await finalize(nid, re.version).expect(200)).body;
     expect(Number(NO_RE.exec(out.invoiceNo)![2])).toBeGreaterThan(
       Number(NO_RE.exec(inv.invoiceNo)![2]),
     );
@@ -499,12 +508,15 @@ describe('invoice cancel (ST5-T10)', { timeout: 900_000 }, () => {
     expect((await getInv(b.id)).billingNoteId).toBeNull();
   });
 
-  it('สิทธิ์ + If-Match: /void ต้องมี `invoices:finalize` (403) · ไม่ส่ง If-Match 422 · version เก่า 412 · ข้าม tenant 404 · /cancel ใช้กับร่างเท่านั้น', async () => {
+  it('สิทธิ์ + If-Match: /void ต้องมี `invoices:void` — owner/admin/manager (review M1: invoicer/accounting/approver 403) · ไม่ส่ง If-Match 422 · version เก่า 412 · ข้าม tenant 404 · /cancel ใช้กับร่างเท่านั้น', async () => {
     const cus = await newCustomer();
     const inv = await issued(cus, [(await delivered(cus)).doId]);
     const drafterOnly = await tokenFor(tenantId, 'invoices:read invoices:draft', 'u-draft-only');
     const r403 = await cancel(inv.id, inv.version, undefined, drafterOnly).expect(403);
-    expect(r403.body).toMatchObject({ code: 'permission_denied', required: ['invoices:finalize'] });
+    expect(r403.body).toMatchObject({ code: 'permission_denied', required: ['invoices:void'] });
+    // spec/05 §19: ผู้ออกเอกสารได้ (invoicer/accounting/approver) ยกเลิกใบที่ออกแล้วไม่ได้
+    for (const tk of [invoicer, accounting, approver])
+      await cancel(inv.id, inv.version, undefined, tk).expect(403);
     // /cancel (ร่าง) ยกเลิกใบที่ออกแล้วไม่ได้
     await api(app, accounting)
       .post(`/v1/invoices/${inv.id}/cancel`)
@@ -534,7 +546,7 @@ describe('invoice cancel (ST5-T10)', { timeout: 900_000 }, () => {
     ).toBe('UNBILLED');
   });
 
-  it('PDF ใบที่ยกเลิก: ลายน้ำ "ยกเลิก" (render จาก snapshot ไม่เก็บ) · ไฟล์ต้นฉบับที่เก็บคงเดิม · ใบออกแทนพิมพ์หมายเหตุอ้างเลขเดิม', async () => {
+  it('PDF ใบที่ยกเลิก: ลายน้ำ "ยกเลิก" เก็บตอนยกเลิก (งาน render) · ไฟล์ต้นฉบับคงเดิม · แม่แบบเปลี่ยน → ส่งต้นฉบับ + header · ใบออกแทนพิมพ์หมายเหตุอ้างเลขเดิม', async () => {
     const cus = await newCustomer();
     const inv = await issued(cus, [(await delivered(cus)).doId]);
     const queue = app.get(JobQueue);
@@ -545,16 +557,51 @@ describe('invoice cancel (ST5-T10)', { timeout: 900_000 }, () => {
       reason: 'ที่อยู่ลูกค้าผิด ออกใหม่',
       reissue: true,
     }).expect(200);
+    // review L4: งาน render ลายน้ำอยู่ใน transaction เดียวกับการยกเลิก → เก็บไฟล์ลายน้ำ (ต้นฉบับ + สำเนา)
+    expect(
+      await db.job.count({
+        where: {
+          tenantId,
+          type: 'invoice.render_cancelled_pdf',
+          payload: { path: ['invoiceId'], equals: uuid('invoice', inv.id) },
+        },
+      }),
+    ).toBe(1);
+    while (await queue.runOnce());
+    const docs = await db.storedDocument.findMany({
+      where: { tenantId, entityType: 'invoice', entityId: uuid('invoice', inv.id) },
+    });
+    expect(docs.map((d) => (d.metadata as { copy: string }).copy).sort()).toEqual([
+      'CANCELLED_COPY',
+      'CANCELLED_ORIGINAL',
+      'COPY',
+      'ORIGINAL',
+    ]);
+    const wm = docs.find((d) => (d.metadata as { copy: string }).copy === 'CANCELLED_ORIGINAL')!;
+    const spy = vi.spyOn(app.get(PdfRenderer), 'pdf');
     const pdf = await api(app, admin).get(`/v1/invoices/${inv.id}/pdf`).expect(200);
+    expect(spy).not.toHaveBeenCalled(); // ใช้ไฟล์ที่เก็บ
+    spy.mockRestore();
     expect(pdf.body.subarray(0, 4).toString()).toBe('%PDF');
     expect(pdf.headers['content-disposition']).toContain('-cancelled.pdf');
+    expect(pdf.headers['x-content-sha256']).toBe(wm.sha256);
     expect(pdf.headers['x-content-sha256']).not.toBe(stored.sha256);
+    expect(pdf.headers['x-invoice-pdf-note']).toBeUndefined();
     expect((await getInv(inv.id)).pdf).toEqual(stored);
-    expect(
-      await db.storedDocument.count({
-        where: { tenantId, entityType: 'invoice', entityId: uuid('invoice', inv.id) },
-      }),
-    ).toBe(2); // ต้นฉบับ + สำเนา ณ วันออก — ไม่เพิ่ม
+
+    // แม่แบบเปลี่ยนหลังวันออก + ยังไม่มีไฟล์ลายน้ำ → ส่งต้นฉบับที่เก็บ + header (ไม่ 409)
+    const inv2 = await issued(cus, [(await delivered(cus)).doId]);
+    while (await queue.runOnce());
+    const orig2 = (await getInv(inv2.id)).pdf;
+    await cancel(inv2.id, inv2.version).expect(200);
+    const i2 = uuid('invoice', inv2.id);
+    await owner.$transaction([
+      owner.$executeRaw`SET LOCAL session_replication_role = replica`,
+      owner.$executeRaw`UPDATE invoice SET print_options = jsonb_set(print_options, '{templateVersion}', '0') WHERE id = ${i2}::uuid`,
+    ]);
+    const fb = await api(app, admin).get(`/v1/invoices/${inv2.id}/pdf`).expect(200);
+    expect(fb.headers['x-invoice-pdf-note']).toBe('cancelled-watermark-unavailable');
+    expect(fb.headers['x-content-sha256']).toBe(orig2.sha256);
     // pro forma ของร่างที่ออกแทน
     await api(app, admin).get(`/v1/invoices/${r.body.replacedByInvoice.id}/proforma`).expect(200);
     // แม่แบบ: ลายน้ำ + หมายเหตุอ้างเลข/วันที่เดิม (ไม่กระทบเอกสารปกติ)
@@ -567,5 +614,74 @@ describe('invoice cancel (ST5-T10)', { timeout: 900_000 }, () => {
       replaces: { invoiceNo: 'INV-00000-6911-0007', issueDate: '2026-11-03' },
     }).body;
     expect(re).toContain('ออกแทนใบแจ้งหนี้เลขที่ INV-00000-6911-0007 ลงวันที่ 3 พ.ย. 2569');
+  });
+
+  it('review L2/L3: ฐานข้อมูลกันแก้เหตุผล/ผู้/เวลายกเลิกหลังยกเลิก · released_with_invoice ตั้งได้ครั้งเดียวตอนปิดบรรทัด', async () => {
+    const cus = await newCustomer();
+    const inv = await issued(cus, [(await delivered(cus)).doId]);
+    await cancel(inv.id, inv.version).expect(200);
+    const iid = uuid('invoice', inv.id);
+    await expect(
+      run((tx) =>
+        tx.invoice.update({ where: { id: iid }, data: { cancelReason: 'แก้เหตุผลภายหลัง' } }),
+      ),
+    ).rejects.toThrow(/cancel reason\/time\/actor cannot change/);
+    await expect(
+      run((tx) => tx.invoice.update({ where: { id: iid }, data: { cancelledBy: 'someone' } })),
+    ).rejects.toThrow(/cannot change/);
+    await expect(
+      run((tx) =>
+        tx.invoiceLine.updateMany({
+          where: { invoiceId: iid },
+          data: { releasedWithInvoice: false },
+        }),
+      ),
+    ).rejects.toThrow(/released_with_invoice is set only/);
+    // ร่าง: ตั้งธงเองไม่ได้ (ทั้งบรรทัด active และตอนถอดออกจากร่าง)
+    const dr = await draft(cus, [(await delivered(cus)).doId]);
+    const did = uuid('invoice', dr.id);
+    await expect(
+      run((tx) =>
+        tx.invoiceLine.updateMany({
+          where: { invoiceId: did },
+          data: { releasedWithInvoice: true },
+        }),
+      ),
+    ).rejects.toThrow(/released_with_invoice is set only|invoice_line_released_inactive_check/);
+    await expect(
+      run((tx) =>
+        tx.invoiceLine.updateMany({
+          where: { invoiceId: did },
+          data: { active: false, releasedWithInvoice: true },
+        }),
+      ),
+    ).rejects.toThrow(/released_with_invoice is set only/);
+  });
+
+  it('review M2: ยกเลิกใบแจ้งหนี้ พร้อมกับออกใบวางบิลร่างที่มีใบนั้น → ไม่ deadlock — สำเร็จฝั่งเดียว อีกฝั่ง 4xx', async () => {
+    const cus = await newCustomer();
+    for (let i = 0; i < 4; i++) {
+      const inv = await issued(cus, [(await delivered(cus)).doId]);
+      const bn = (
+        await api(app, invoicer)
+          .post('/v1/billing-notes')
+          .send({ customerId: cus, invoiceIds: [inv.id], collectionDate: addDays(today, 7) })
+          .expect(201)
+      ).body;
+      const [v, b] = await Promise.all([
+        cancel(inv.id, inv.version, { reason: `ยกเลิกพร้อมออกใบวางบิล ${i}` }),
+        api(app, accounting)
+          .post(`/v1/billing-notes/${bn.id}/finalize`)
+          .set('If-Match', `"${bn.version}"`),
+      ]);
+      // ไม่มี 500/deadlock: ยกเลิกชนะ → ใบวางบิลร่างถูกถอดใบออก (version เปลี่ยน → 412) · ออกใบวางบิลชนะ → ยกเลิก 409 บอกเลขใบวางบิล
+      const ctx = JSON.stringify([v.status, v.body, b.status, b.body]);
+      if (v.status === 200) expect([409, 412, 422], ctx).toContain(b.status);
+      else {
+        expect(b.status, ctx).toBe(200);
+        expect(v.status, ctx).toBe(409);
+        expect(v.body.code).toBe('invoice_on_billing_note');
+      }
+    }
   });
 });

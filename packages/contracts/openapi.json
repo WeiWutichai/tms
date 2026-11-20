@@ -41478,7 +41478,7 @@
     },
     "/v1/invoices/{id}/pdf": {
       "get": {
-        "description": "ใบที่ออกเลขแล้วเท่านั้น (ร่าง → 409 ใช้ `/proforma`) · `copy=ORIGINAL` (ค่าเริ่ม) = ไฟล์ต้นฉบับที่เก็บตอนออก · `copy=COPY` = สำเนา render จาก snapshot ณ วันออกครั้งแรกที่ขอแล้วเก็บ (spec/05 BIL-195/196) — ไม่ render ตามข้อมูลลูกค้าปัจจุบัน · ยังไม่มีไฟล์ (render ตอนออกล้ม) → สร้างให้แล้วเก็บ · header `X-Content-SHA256` · ไม่มีคำว่า \"ใบกำกับภาษี\" (D-54) · ต้องมี `prices.sell:read` ไม่งั้น 403 · **ใบที่ยกเลิกแล้ว (ST5-T10)** = render จาก snapshot ณ วันออก + ลายน้ำ \"ยกเลิก\" (spec/05 BIL-195) ไม่เก็บ — ไฟล์ต้นฉบับที่เก็บคงเดิม",
+        "description": "ใบที่ออกเลขแล้วเท่านั้น (ร่าง → 409 ใช้ `/proforma`) · `copy=ORIGINAL` (ค่าเริ่ม) = ไฟล์ต้นฉบับที่เก็บตอนออก · `copy=COPY` = สำเนา render จาก snapshot ณ วันออกครั้งแรกที่ขอแล้วเก็บ (spec/05 BIL-195/196) — ไม่ render ตามข้อมูลลูกค้าปัจจุบัน · ยังไม่มีไฟล์ (render ตอนออกล้ม) → สร้างให้แล้วเก็บ · header `X-Content-SHA256` · ไม่มีคำว่า \"ใบกำกับภาษี\" (D-54) · ต้องมี `prices.sell:read` ไม่งั้น 403 · **ใบที่ยกเลิกแล้ว (ST5-T10)** = ไฟล์ลายน้ำ \"ยกเลิก\" (spec/05 BIL-195) ที่ render ด้วยแม่แบบวันออกแล้วเก็บตอนยกเลิก · แม่แบบเปลี่ยนแล้วและยังไม่มีไฟล์ลายน้ำ → ส่งไฟล์ต้นฉบับที่เก็บแทน + header `X-Invoice-Pdf-Note: cancelled-watermark-unavailable` · ไฟล์ต้นฉบับ/สำเนาคงเดิม",
         "operationId": "Invoices_issuedPdf",
         "parameters": [
           {
@@ -43826,7 +43826,7 @@
     },
     "/v1/invoices/{id}/void": {
       "post": {
-        "description": "ST5-T10 (docs/04 F3 \"ยกเลิกใบ\" + G1/G2 `/invoices/{id}/void`; spec/05 §3.6/§7; D-54 ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี) · **If-Match บังคับ** (ไม่ส่ง → 422 `if_match_required`) · ISSUED → **CANCELLED คงเลข** (เลขไม่ถูกออกซ้ำ · record ไม่ถูกลบ) · รับชำระแล้ว (บางส่วน/ครบ) → 409 `invoice_has_payments` (`payments[]` — กลับรายการก่อน) · อยู่ในใบวางบิลที่ออกแล้ว/เก็บเงินแล้ว → 409 `invoice_on_billing_note` (`billingNoteNo` — ยกเลิกใบวางบิลก่อน) · ร่าง → 409 (ใช้ `/cancel`) · ผล: DO INVOICED/BILLED → UNBILLED (วางบิลใหม่ได้) · ปลดล็อกบรรทัดรายได้ · ถอดออกจากใบวางบิลที่ยังเป็นร่าง · audit `invoice.cancelled` + webhook `invoice.voided` (ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม — ST8-T16) · `reissue: true` = สร้างร่างฉบับใหม่แทน (DO ชุดเดิม + บรรทัดที่เพิ่มเอง) อ้างเลขเดิม (`replacedByInvoice` / `replacesInvoice`) — ออกเลขใหม่ตามปกติ · PDF ของใบที่ยกเลิกมีลายน้ำ \"ยกเลิก\" (spec/05 BIL-195)",
+        "description": "ST5-T10 (docs/04 F3 \"ยกเลิกใบ\" + G1/G2 `/invoices/{id}/void`; spec/05 §3.6/§7; D-54 ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี) · สิทธิ์ `invoices:void` (owner/admin/manager — spec/05 §19) · **If-Match บังคับ** (ไม่ส่ง → 422 `if_match_required`) · ISSUED → **CANCELLED คงเลข** (เลขไม่ถูกออกซ้ำ · record ไม่ถูกลบ) · รับชำระแล้ว (บางส่วน/ครบ) → 409 `invoice_has_payments` (`payments[]` — กลับรายการก่อน) · อยู่ในใบวางบิลที่ออกแล้ว/เก็บเงินแล้ว → 409 `invoice_on_billing_note` (`billingNoteNo` — ยกเลิกใบวางบิลก่อน) · ร่าง → 409 (ใช้ `/cancel`) · ผล: DO INVOICED/BILLED → UNBILLED (วางบิลใหม่ได้) · ปลดล็อกบรรทัดรายได้ · ถอดออกจากใบวางบิลที่ยังเป็นร่าง · audit `invoice.cancelled` + webhook `invoice.voided` (ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม — ST8-T16) · `reissue: true` = สร้างร่างฉบับใหม่แทน (DO ชุดเดิม + บรรทัดที่เพิ่มเอง) อ้างเลขเดิม (`replacedByInvoice` / `replacesInvoice`) — ออกเลขใหม่ตามปกติ · PDF ของใบที่ยกเลิกมีลายน้ำ \"ยกเลิก\" (spec/05 BIL-195)",
         "operationId": "Invoices_void",
         "parameters": [
           {
@@ -43889,7 +43889,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`invoices:finalize`)",
+            "description": "ไม่มีสิทธิ์ (`invoices:void`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -43905,9 +43905,9 @@
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
                       "module": "invoices",
-                      "action": "finalize",
+                      "action": "void",
                       "required": [
-                        "invoices:finalize"
+                        "invoices:void"
                       ]
                     }
                   }
@@ -44055,7 +44055,7 @@
           "invoices"
         ],
         "x-required-scopes": [
-          "invoices:finalize"
+          "invoices:void"
         ]
       }
     },
@@ -98500,7 +98500,7 @@
       },
       "WebhookEvent_invoice_voided": {
         "type": "object",
-        "description": "`data.object` ของ invoice.voided — ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (สถานะ CANCELLED คงเลข — ยังไม่รับชำระ; DO กลับรอวางบิล) — ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม (ST8-T16) · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf)",
+        "description": "`data.object` ของ invoice.voided — ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (`POST /invoices/{id}/void`) — `data.object` = ใบหลังยกเลิก: `status` CANCELLED + `invoiceNo` เดิม + `cancelledAt` (ไม่มีเหตุผล/ผู้ยกเลิก — ข้อความอิสระ) · `replacedByInvoice` = null เสมอตอนยิง (ร่างฉบับใหม่แทนสร้างหลัง event — ดูผ่าน GET) · `previousAttributes` = { status: ISSUED, version } · ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม (ST8-T16) · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf)",
         "properties": {
           "id": {
             "type": "string",
@@ -100199,7 +100199,7 @@
       "pendingTask": "ST5-T18"
     },
     "invoice.voided": {
-      "description": "ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (สถานะ CANCELLED คงเลข — ยังไม่รับชำระ; DO กลับรอวางบิล) — ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม (ST8-T16)",
+      "description": "ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (`POST /invoices/{id}/void`) — `data.object` = ใบหลังยกเลิก: `status` CANCELLED + `invoiceNo` เดิม + `cancelledAt` (ไม่มีเหตุผล/ผู้ยกเลิก — ข้อความอิสระ) · `replacedByInvoice` = null เสมอตอนยิง (ร่างฉบับใหม่แทนสร้างหลัง event — ดูผ่าน GET) · `previousAttributes` = { status: ISSUED, version } · ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม (ST8-T16)",
       "phase": "active",
       "dto": "InvoiceDto",
       "schema": {

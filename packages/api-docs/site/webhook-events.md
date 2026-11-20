@@ -13,7 +13,7 @@
 | [`invoice.adjusted`](#invoice-adjusted) | ยังไม่ส่ง (จองชื่อไว้) |   | ปรับยอดใบแจ้งหนี้ด้วยใบลดหนี้/เพิ่มหนี้ |
 | [`invoice.finalized`](#invoice-finalized) | ใช้งาน | `InvoiceDto` | ออกเอกสารใบแจ้งหนี้แล้ว |
 | [`invoice.paid`](#invoice-paid) | ยังไม่ส่ง (จองชื่อไว้) |   | ใบแจ้งหนี้ได้รับชำระครบ |
-| [`invoice.voided`](#invoice-voided) | ใช้งาน | `InvoiceDto` | ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (สถานะ CANCELLED คงเลข — ยังไม่รับชำระ; DO กลับรอวางบิล) — ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม |
+| [`invoice.voided`](#invoice-voided) | ใช้งาน | `InvoiceDto` | ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (`POST /invoices/{id}/void`) — `data.object` = ใบหลังยกเลิก: `status` CANCELLED + `invoiceNo` เดิม + `cancelledAt` (ไม่มีเหตุผล/ผู้ยกเลิก — ข้อความอิสระ) · `replacedByInvoice` = null เสมอตอนยิง (ร่างฉบับใหม่แทนสร้างหลัง event — ดูผ่าน GET) · `previousAttributes` = { status: ISSUED, version } · ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม |
 | [`job.completed`](#job-completed) | ใช้งาน | `JobDto` | งานเบื้องหลัง (นำเข้า/bulk/ส่งออก/รอบวางบิล) เสร็จ |
 | [`order.cancelled`](#order-cancelled) | ใช้งาน | `OrderDto` | ยกเลิกใบสั่งงาน |
 | [`order.created`](#order-created) | ใช้งาน | `OrderDto` | สร้างใบสั่งงานใหม่ (หน้าจอ, Open API, นำเข้าไฟล์) |
@@ -186,7 +186,7 @@
 
 ## invoice.voided {#invoice-voided}
 
-ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (สถานะ CANCELLED คงเลข — ยังไม่รับชำระ; DO กลับรอวางบิล) — ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม
+ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (`POST /invoices/{id}/void`) — `data.object` = ใบหลังยกเลิก: `status` CANCELLED + `invoiceNo` เดิม + `cancelledAt` (ไม่มีเหตุผล/ผู้ยกเลิก — ข้อความอิสระ) · `replacedByInvoice` = null เสมอตอนยิง (ร่างฉบับใหม่แทนสร้างหลัง event — ดูผ่าน GET) · `previousAttributes` = { status: ISSUED, version } · ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม
 
 `data.object` = `InvoiceDto`
 

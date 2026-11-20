@@ -1,5 +1,5 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { Prisma, type StoredDocument } from '@prisma/client';
 import { eventDefinition } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
@@ -41,6 +41,15 @@ const addDays = (day: string, n: number) =>
   new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 
 export type InvoiceCopy = 'ORIGINAL' | 'COPY';
+/**
+ * ไฟล์ PDF ที่เก็บของใบ (`stored_document.metadata.copy`): ต้นฉบับ/สำเนา ณ วันออก · **ST5-T10** ฉบับลายน้ำ "ยกเลิก" (render ตอนยกเลิก
+ * ด้วยแม่แบบรุ่นเดียวกับวันออก แล้วเก็บ — review L4)
+ */
+export type InvoicePdfVariant = InvoiceCopy | 'CANCELLED_ORIGINAL' | 'CANCELLED_COPY';
+/** งานเบื้องหลัง render + เก็บ PDF ลายน้ำ "ยกเลิก" (enqueue ใน transaction ของการยกเลิก — ST5-T10) */
+export const INVOICE_CANCELLED_PDF_JOB = 'invoice.render_cancelled_pdf';
+const cancelledVariant = (copy: InvoiceCopy): InvoicePdfVariant =>
+  copy === 'COPY' ? 'CANCELLED_COPY' : 'CANCELLED_ORIGINAL';
 
 /** เหตุที่ออกเอกสารไม่ได้ (extension `reasons[]` ของ 409 `invoice_not_finalizable`) */
 export type FinalizeBlocker =
@@ -109,6 +118,36 @@ export class InvoiceFinalizeService implements OnModuleInit {
       },
       { outsideTransaction: true, retryDelaysMs: PDF_RETRY_MS },
     );
+    // ST5-T10 (review L4): ใบที่ยกเลิก — เก็บ PDF ลายน้ำ "ยกเลิก" ตอนยกเลิก (แม่แบบเปลี่ยนภายหลังก็ยังดาวน์โหลดได้)
+    this.queue.register(
+      INVOICE_CANCELLED_PDF_JOB,
+      async ({ job, tenantId }) => {
+        const invoiceId = (job.payload as { invoiceId?: unknown } | null)?.invoiceId;
+        if (typeof invoiceId !== 'string') return { skipped: 'bad_payload' };
+        const out = await requestContext.run(
+          { requestId: randomUUID(), tenantId, actorId: 'system:invoice-pdf', locale: 'th' },
+          async () => ({
+            original: (await this.ensurePdf(invoiceId, 'CANCELLED_ORIGINAL')).doc,
+            copy: (await this.ensurePdf(invoiceId, 'CANCELLED_COPY')).doc,
+          }),
+        );
+        return {
+          original: { documentId: encodeId('document', out.original.id) },
+          copy: { documentId: encodeId('document', out.copy.id) },
+        };
+      },
+      { outsideTransaction: true, retryDelaysMs: PDF_RETRY_MS },
+    );
+  }
+
+  /** ST5-T10 enqueue งาน render PDF ลายน้ำ "ยกเลิก" ใน transaction ของการยกเลิก */
+  async enqueueCancelledPdf(tx: Tx, tenantId: string, invoiceId: string): Promise<void> {
+    await this.queue.enqueue(tx, {
+      tenantId,
+      type: INVOICE_CANCELLED_PDF_JOB,
+      payload: { invoiceId },
+      maxAttempts: PDF_RETRY_MS.length + 1,
+    });
   }
 
   /** transaction ของ tenant ปัจจุบัน + ให้ AuditService/โค้ดที่ใช้ `db.tx` ทำงานในนั้น (route เป็น @NoTransaction) */
@@ -353,11 +392,20 @@ export class InvoiceFinalizeService implements OnModuleInit {
    * PDF ของใบที่ออกแล้ว (BIL-195/196): ต้นฉบับ = ไฟล์ที่เก็บตอนออก (`pdf_document_id`) · สำเนา = render จาก snapshot ครั้งแรกที่ขอ แล้วเก็บ
    * ยังไม่มีไฟล์ → render นอก transaction แล้วเก็บแบบเขียนครั้งเดียวใต้ล็อกใบ (ขอพร้อมกัน = ได้ไฟล์เดียว) · ร่าง/ร่างที่ยกเลิก → 409
    */
-  async ensurePdf(id: string, copy: InvoiceCopy): Promise<{ doc: StoredDocument; data: Buffer }> {
+  async ensurePdf(
+    id: string,
+    copy: InvoicePdfVariant,
+  ): Promise<{ doc: StoredDocument; data: Buffer }> {
+    const cancelled = copy.startsWith('CANCELLED_');
     const found = await this.inTx(async (tx) => {
       const inv = await tx.invoice.findUnique({ where: { id } });
       if (!inv) throw new ProblemException('not_found');
-      if (!inv.invoiceNo || !inv.issueDate || !inv.dueDate)
+      if (
+        !inv.invoiceNo ||
+        !inv.issueDate ||
+        !inv.dueDate ||
+        (cancelled && inv.status !== 'CANCELLED')
+      )
         throw new ProblemException('invalid_state_transition', undefined, undefined, {
           currentStatus: inv.status,
         });
@@ -373,10 +421,10 @@ export class InvoiceFinalizeService implements OnModuleInit {
       const { model } = await this.pdf.loadModel(tx, id, {
         issueDate: ymd(inv.issueDate),
         dueDate: ymd(inv.dueDate),
-        copy,
+        copy: copy.endsWith('COPY') ? 'COPY' : 'ORIGINAL',
       });
-      // ไฟล์ที่เก็บ = เอกสาร ณ วันออก (ไม่มีลายน้ำ "ยกเลิก" แม้ render หลังยกเลิก — BIL-100 เก็บ PDF เดิม)
-      return { doc: null, model: { ...model, cancelled: false }, invoiceNo: inv.invoiceNo };
+      // ต้นฉบับ/สำเนา = เอกสาร ณ วันออก (ไม่มีลายน้ำแม้ render หลังยกเลิก — BIL-100 เก็บ PDF เดิม) · CANCELLED_* = ลายน้ำ "ยกเลิก"
+      return { doc: null, model: { ...model, cancelled }, invoiceNo: inv.invoiceNo };
     });
     if (found.doc) return { doc: found.doc, data: await store().get(found.doc.fileKey!) };
     const data = await this.renderer.pdf(invoiceDocument(found.model!));
@@ -396,7 +444,7 @@ export class InvoiceFinalizeService implements OnModuleInit {
           fileKey: f.key,
           sha256: f.sha256,
           sizeBytes: f.size,
-          filename: `${found.invoiceNo}${copy === 'COPY' ? '-copy' : ''}.pdf`,
+          filename: `${found.invoiceNo}${copy.endsWith('COPY') ? '-copy' : ''}${cancelled ? '-cancelled' : ''}.pdf`,
           entityType: ENTITY,
           entityId: id,
           createdBy: ctx.actorId ?? null,
@@ -423,40 +471,36 @@ export class InvoiceFinalizeService implements OnModuleInit {
   }
 
   /**
-   * PDF สำหรับดาวน์โหลด (`GET /invoices/{id}/pdf`): ใบปกติ = ไฟล์ที่เก็บ (ensurePdf) · **ใบที่ยกเลิกแล้ว (ST5-T10)** = render จาก snapshot
-   * ณ วันออก + ลายน้ำ "ยกเลิก" (spec/05 BIL-195) ทุกครั้ง ไม่เก็บ — ไฟล์ต้นฉบับ/สำเนาที่เก็บไว้คงเดิม (BIL-100)
+   * PDF สำหรับดาวน์โหลด (`GET /invoices/{id}/pdf`): ใบปกติ = ไฟล์ที่เก็บ ณ วันออก (ensurePdf) · **ใบที่ยกเลิกแล้ว (ST5-T10)** = ไฟล์ลายน้ำ
+   * "ยกเลิก" (spec/05 BIL-195) ที่เก็บตอนยกเลิก (งาน `invoice.render_cancelled_pdf` — ยังไม่มี = render แล้วเก็บ) · แม่แบบเปลี่ยนหลังวันออก
+   * และยังไม่มีไฟล์ลายน้ำ → ส่งไฟล์ต้นฉบับที่เก็บไว้แทน + header `X-Invoice-Pdf-Note: cancelled-watermark-unavailable` (review L4)
+   * · ไฟล์ต้นฉบับ/สำเนาที่เก็บคงเดิมเสมอ (BIL-100)
    */
   async downloadPdf(
     id: string,
     copy: InvoiceCopy,
-  ): Promise<{ filename: string; sha256: string; data: Buffer }> {
-    const found = await this.inTx(async (tx) => {
-      const inv = await tx.invoice.findUnique({ where: { id } });
+  ): Promise<{ filename: string; sha256: string; data: Buffer; note: string | null }> {
+    const status = await this.inTx(async (tx) => {
+      const inv = await tx.invoice.findUnique({ where: { id }, select: { status: true } });
       if (!inv) throw new ProblemException('not_found');
-      if (inv.status !== 'CANCELLED' || !inv.invoiceNo || !inv.issueDate || !inv.dueDate)
-        return null;
-      const tv = (inv.printOptions as InvoicePrintOptions | null)?.templateVersion;
-      if (tv !== INVOICE_TEMPLATE_VERSION)
-        throw new ProblemException('invoice_pdf_template_changed', undefined, undefined, {
-          issuedTemplateVersion: tv ?? null,
-          currentTemplateVersion: INVOICE_TEMPLATE_VERSION,
-        });
-      const { model } = await this.pdf.loadModel(tx, id, {
-        issueDate: ymd(inv.issueDate),
-        dueDate: ymd(inv.dueDate),
-        copy,
-      });
-      return { model: { ...model, cancelled: true }, invoiceNo: inv.invoiceNo };
+      return inv.status;
     });
-    if (!found) {
-      const { doc, data } = await this.ensurePdf(id, copy);
-      return { filename: doc.filename ?? 'invoice.pdf', sha256: doc.sha256 ?? '', data };
-    }
-    const data = await this.renderer.pdf(invoiceDocument(found.model));
+    let note: string | null = null;
+    let got: { doc: StoredDocument; data: Buffer };
+    if (status === 'CANCELLED') {
+      try {
+        got = await this.ensurePdf(id, cancelledVariant(copy));
+      } catch (e) {
+        if (!(e instanceof ProblemException) || e.code !== 'invoice_pdf_template_changed') throw e;
+        got = await this.ensurePdf(id, copy);
+        note = 'cancelled-watermark-unavailable';
+      }
+    } else got = await this.ensurePdf(id, copy);
     return {
-      filename: `${found.invoiceNo}${copy === 'COPY' ? '-copy' : ''}-cancelled.pdf`,
-      sha256: createHash('sha256').update(data).digest('hex'),
-      data,
+      filename: got.doc.filename ?? 'invoice.pdf',
+      sha256: got.doc.sha256 ?? '',
+      data: got.data,
+      note,
     };
   }
 
@@ -464,7 +508,7 @@ export class InvoiceFinalizeService implements OnModuleInit {
     tx: Tx,
     invoiceId: string,
     pdfDocumentId: string | null,
-    copy: InvoiceCopy,
+    copy: InvoicePdfVariant,
   ): Promise<StoredDocument | null> {
     const doc =
       copy === 'ORIGINAL'
@@ -476,7 +520,7 @@ export class InvoiceFinalizeService implements OnModuleInit {
               entityType: ENTITY,
               entityId: invoiceId,
               kind: 'PDF',
-              metadata: { path: ['copy'], equals: 'COPY' },
+              metadata: { path: ['copy'], equals: copy },
             },
             orderBy: { createdAt: 'asc' },
           });
