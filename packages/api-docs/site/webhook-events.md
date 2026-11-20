@@ -26,7 +26,7 @@
 | [`receipt.issued`](#receipt-issued) | ยังไม่ส่ง (จองชื่อไว้) |   | ออกใบเสร็จรับเงินแล้ว |
 | [`reconcile.mismatch_found`](#reconcile-mismatch_found) | ยังไม่ส่ง (จองชื่อไว้) |   | พบข้อมูลไม่ตรงกันจากการกระทบยอดกับระบบภายนอก |
 | [`settlement.approved`](#settlement-approved) | ใช้งาน | `SettlementDto` | อนุมัติใบสำคัญจ่ายรถร่วม (ออกเลข STL แล้ว — ผู้อนุมัติไม่ใช่ผู้สร้าง) |
-| [`settlement.paid`](#settlement-paid) | ยังไม่ส่ง (จองชื่อไว้) |   | จ่ายเงินตามใบสรุปค่าขนส่งรถร่วมแล้ว |
+| [`settlement.paid`](#settlement-paid) | ใช้งาน | `SettlementDto` | บันทึกจ่ายใบสำคัญจ่ายรถร่วมแล้ว (APPROVED → PAID — วันที่จ่าย วิธี เลขอ้างอิง ธนาคาร; เที่ยวที่จ่ายครบเป็น SETTLED) |
 | [`stop.arrived`](#stop-arrived) | ใช้งาน | `TripStopDto` | รถถึงจุดรับ/ส่ง |
 | [`stop.completed`](#stop-completed) | ใช้งาน | `TripStopDto` | ปิดงานที่จุดรับ/ส่งสำเร็จ |
 | [`stop.departed`](#stop-departed) | ใช้งาน | `TripStopDto` | รถออกจากจุดรับ/ส่ง |
@@ -213,6 +213,7 @@
 | `stops` | ใช่ | `array<OrderStopDto>` |   |   |   |
 | `lines` | ใช่ | `array<OrderLineDto>` |   |   |   |
 | `sourceChangedAfterPlan` | ใช่ | `boolean` |   | ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน |   |
+| `sourceCancelledAt` | ใช่ | `string (date-time)` | null ได้ | ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก |   |
 | `sourceChange` | ใช่ | `OrderSourceChangeDto` | null ได้ | ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject) |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
@@ -246,6 +247,7 @@
 | `stops` | ใช่ | `array<OrderStopDto>` |   |   |   |
 | `lines` | ใช่ | `array<OrderLineDto>` |   |   |   |
 | `sourceChangedAfterPlan` | ใช่ | `boolean` |   | ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน |   |
+| `sourceCancelledAt` | ใช่ | `string (date-time)` | null ได้ | ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก |   |
 | `sourceChange` | ใช่ | `OrderSourceChangeDto` | null ได้ | ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject) |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
@@ -279,6 +281,7 @@
 | `stops` | ใช่ | `array<OrderStopDto>` |   |   |   |
 | `lines` | ใช่ | `array<OrderLineDto>` |   |   |   |
 | `sourceChangedAfterPlan` | ใช่ | `boolean` |   | ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน |   |
+| `sourceCancelledAt` | ใช่ | `string (date-time)` | null ได้ | ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก |   |
 | `sourceChange` | ใช่ | `OrderSourceChangeDto` | null ได้ | ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject) |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
@@ -312,6 +315,7 @@
 | `stops` | ใช่ | `array<OrderStopDto>` |   |   |   |
 | `lines` | ใช่ | `array<OrderLineDto>` |   |   |   |
 | `sourceChangedAfterPlan` | ใช่ | `boolean` |   | ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน |   |
+| `sourceCancelledAt` | ใช่ | `string (date-time)` | null ได้ | ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก |   |
 | `sourceChange` | ใช่ | `OrderSourceChangeDto` | null ได้ | ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject) |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
@@ -345,6 +349,7 @@
 | `stops` | ใช่ | `array<OrderStopDto>` |   |   |   |
 | `lines` | ใช่ | `array<OrderLineDto>` |   |   |   |
 | `sourceChangedAfterPlan` | ใช่ | `boolean` |   | ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน |   |
+| `sourceCancelledAt` | ใช่ | `string (date-time)` | null ได้ | ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก |   |
 | `sourceChange` | ใช่ | `OrderSourceChangeDto` | null ได้ | ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject) |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
@@ -412,7 +417,7 @@
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `stl_…` |
 | `settlementNo` | ใช่ | `string` | null ได้ | เลขเอกสาร (ชุด STL) — ร่างยังไม่มีเลข · ออกตอนอนุมัติ |   |
-| `status` | ใช่ | `string` | ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `CANCELLED` |   |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `PAID`, `CANCELLED` |   |   |
 | `carrier` | ใช่ | `SettlementCarrierDto` |   |   |   |
 | `payingCompanyId` | ใช่ | `string` | null ได้ | นิติบุคคลที่จ่าย ("จ้างในนาม" ของรถร่วม — null = ค่าเริ่มต้นองค์กร) |   |
 | `periodFrom` | ใช่ | `string` |   |   | `2026-11-01` |
@@ -423,6 +428,11 @@
 | `tripCount` | ใช่ | `number` |   | จำนวนเที่ยวในใบ (บรรทัดที่ยังใช้) |   |
 | `whtEstimate` | ใช่ | `SettlementWhtEstimateDto` |   |   |   |
 | `approvedAt` | ใช่ | `string` | null ได้ | เวลาอนุมัติ — ออกเลข `settlementNo` พร้อมกัน |   |
+| `paidDate` | ใช่ | `string` | null ได้ | วันที่จ่ายจริง (YYYY-MM-DD) — null จนบันทึกจ่าย | `2026-11-20` |
+| `paidAt` | ใช่ | `string` | null ได้ | เวลาที่บันทึกจ่าย |   |
+| `paymentMethod` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH` · null ได้ | วิธีจ่าย TRANSFER / CHEQUE / CASH |   |
+| `paymentReference` | ใช่ | `string` | null ได้ | เลขอ้างอิงการโอน / เลขที่เช็ค |   |
+| `paymentBank` | ใช่ | `string` | null ได้ | ธนาคาร |   |
 | `sentAt` | ใช่ | `string` | null ได้ | ส่งให้รถร่วมตรวจล่าสุด — ผู้ส่งนับเป็นผู้เตรียมใบ (อนุมัติใบนี้ไม่ได้) |   |
 | `carrierReview` | ใช่ | `SettlementCarrierReviewDto` |   |   |   |
 | `dispute` | ใช่ | `SettlementDisputeSummaryDto` |   |   |   |
@@ -433,11 +443,36 @@
 
 ## settlement.paid {#settlement-paid}
 
-จ่ายเงินตามใบสรุปค่าขนส่งรถร่วมแล้ว
+บันทึกจ่ายใบสำคัญจ่ายรถร่วมแล้ว (APPROVED → PAID — วันที่จ่าย วิธี เลขอ้างอิง ธนาคาร; เที่ยวที่จ่ายครบเป็น SETTLED)
 
-> ยังไม่ส่ง — ชื่อและ schema จองไว้ (สมัครรับล่วงหน้าได้)
+`data.object` = `SettlementDto`
 
-`data.object` = 
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `stl_…` |
+| `settlementNo` | ใช่ | `string` | null ได้ | เลขเอกสาร (ชุด STL) — ร่างยังไม่มีเลข · ออกตอนอนุมัติ |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `PAID`, `CANCELLED` |   |   |
+| `carrier` | ใช่ | `SettlementCarrierDto` |   |   |   |
+| `payingCompanyId` | ใช่ | `string` | null ได้ | นิติบุคคลที่จ่าย ("จ้างในนาม" ของรถร่วม — null = ค่าเริ่มต้นองค์กร) |   |
+| `periodFrom` | ใช่ | `string` |   |   | `2026-11-01` |
+| `periodTo` | ใช่ | `string` |   |   | `2026-11-15` |
+| `carrierInvoiceNo` | ใช่ | `string` | null ได้ |   |   |
+| `carrierInvoiceDate` | ใช่ | `string` | null ได้ |   |   |
+| `carrierReceiptNo` | ใช่ | `string` | null ได้ |   |   |
+| `tripCount` | ใช่ | `number` |   | จำนวนเที่ยวในใบ (บรรทัดที่ยังใช้) |   |
+| `approvedAt` | ใช่ | `string` | null ได้ | เวลาอนุมัติ — ออกเลข `settlementNo` พร้อมกัน |   |
+| `paidDate` | ใช่ | `string` | null ได้ | วันที่จ่ายจริง (YYYY-MM-DD) — null จนบันทึกจ่าย | `2026-11-20` |
+| `paidAt` | ใช่ | `string` | null ได้ | เวลาที่บันทึกจ่าย |   |
+| `paymentMethod` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH` · null ได้ | วิธีจ่าย TRANSFER / CHEQUE / CASH |   |
+| `paymentReference` | ใช่ | `string` | null ได้ | เลขอ้างอิงการโอน / เลขที่เช็ค |   |
+| `paymentBank` | ใช่ | `string` | null ได้ | ธนาคาร |   |
+| `sentAt` | ใช่ | `string` | null ได้ | ส่งให้รถร่วมตรวจล่าสุด — ผู้ส่งนับเป็นผู้เตรียมใบ (อนุมัติใบนี้ไม่ได้) |   |
+| `carrierReview` | ใช่ | `SettlementCarrierReviewDto` |   |   |   |
+| `dispute` | ใช่ | `SettlementDisputeSummaryDto` |   |   |   |
+| `cancelledAt` | ใช่ | `string` | null ได้ |   |   |
+| `version` | ใช่ | `number` |   |   |   |
+| `createdAt` | ใช่ | `string` |   |   |   |
+| `updatedAt` | ใช่ | `string` |   |   |   |
 
 ## stop.arrived {#stop-arrived}
 

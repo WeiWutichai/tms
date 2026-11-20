@@ -1,4 +1,4 @@
-// ภาพเทียบ "ต้นแบบ | ของจริง" ของ ST6-T05 (รถร่วมตรวจใบสำคัญจ่ายผ่านลิงก์) + ST6-T06 (ใบมีรายการโต้แย้ง / บริษัทยืนยันยอดเดิม) — เครื่อง dev เท่านั้น
+// ภาพเทียบ "ต้นแบบ | ของจริง" ของ ST6-T05 (รถร่วมตรวจใบสำคัญจ่ายผ่านลิงก์) + ST6-T06 (ใบมีรายการโต้แย้ง / บริษัทยืนยันยอดเดิม) + ST6-T09 (จ่ายแล้ว) — เครื่อง dev เท่านั้น
 // หน้าลิงก์ (public) เทียบ TMS Subcon แท็บ "การเงิน" ที่ 390 + 1440 px
 // ต้นแบบไม่มีหน้ารายการให้ตรวจ (มีแค่การ์ดงวด) — ชิ้นที่ใช้: การ์ดงวด/ใบสั่งงาน/เหตุผลที่ปฏิเสธ/รูปแบบส่ง POD (spec/12 §3)
 // ต้องมี web dev (vite) เท่านั้น — ข้อมูลของหน้าลิงก์จำลองด้วย page.route (ข้อมูลสมมติ ชุดเดียวกับ unit test):
@@ -202,6 +202,16 @@ for (const vp of [
   await W.reload();
   await W.waitForTimeout(1200);
   const cAppr = await W.screenshot({ fullPage: true });
+  // ST6-T09: จ่ายแล้ว (ป้าย "จ่ายแล้ว" สีเขียวของการ์ดงวดต้นแบบ — ดูอย่างเดียว)
+  view = {
+    ...structuredClone(VIEW),
+    status: 'PAID',
+    settlementNo: 'SA-2611-0007',
+    canRespond: false,
+  };
+  await W.reload();
+  await W.waitForTimeout(1200);
+  const cPaid = await W.screenshot({ fullPage: true });
 
   const h = vp.height + 600;
   await pair(`list-${vp.width}`, aPay, cList, vp.width, h, [
@@ -215,6 +225,10 @@ for (const vp of [
   await pair(`dispute-${vp.width}`, aDec, cForm, vp.width, h, [
     'ต้นแบบ (TMS Subcon · เหตุผลที่ปฏิเสธ)',
     'ของจริง (ฟอร์มโต้แย้ง)',
+  ]);
+  await pair(`paid-${vp.width}`, aPay, cPaid, vp.width, h, [
+    'ต้นแบบ (TMS Subcon · การเงิน — การ์ดงวด "จ่ายแล้ว")',
+    'ของจริง (จ่ายแล้ว — ST6-T09)',
   ]);
   if (vp.width === 390) {
     await pair('flagged-390', aPay, cDone, vp.width, h, [
