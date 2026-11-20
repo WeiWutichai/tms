@@ -24,6 +24,13 @@ import { docDateShort } from '../../common/thai-date';
  * ยอด VAT/WHT เป็น**ประมาณการ** (computeDocumentTax — ติด * + หมายเหตุ) · ใช้ทั้ง PDF ตัวอย่างของร่าง (ลายน้ำ "ร่าง" ไม่มีเลข)
  * และใบที่ออกแล้ว (ST5-T09 ส่งเลข + "ต้นฉบับ/สำเนา") · หน้าตาตามต้นแบบ TMS Print #inv (ตัดส่วนใบเสร็จ/ใบกำกับภาษี — spec/12 §3)
  */
+/**
+ * รุ่นของแม่แบบใบแจ้งหนี้ (ST5-T09 review M1) — เก็บใน `invoice.print_options.templateVersion` ตอนออกเลข · PDF ของใบที่ออกแล้ว
+ * render ได้เฉพาะเมื่อรุ่นตรงกับที่บันทึก (ไม่ render ต้นฉบับ/สำเนาด้วยแม่แบบใหม่เงียบ ๆ — BIL-196, ST9-T15 hash คงที่)
+ * **แก้หน้าตา/เนื้อของแม่แบบ (`invoiceDocument`, finance-document.ts) ต้องเพิ่มเลขนี้**
+ */
+export const INVOICE_TEMPLATE_VERSION = 1;
+
 export interface InvoicePrintLine {
   no: number;
   description: string;

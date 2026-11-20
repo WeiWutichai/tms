@@ -154,6 +154,7 @@ export const th = {
   'bill.kv.issuedOn': 'ออกเมื่อ',
   'bill.kv.due': 'ครบกำหนดชำระ',
   'bill.doc.pdf': 'PDF · {kb} KB',
+  'bill.doc.pdfPending': 'กำลังสร้าง PDF',
   'bill.reason.no_lines': 'ไม่มีรายการในใบ',
   'bill.reason.total_not_positive': 'ยอดรวมต้องมากกว่า 0',
   'bill.reason.customer_tax_id_missing': 'ลูกค้ายังไม่มีเลขผู้เสียภาษี',
@@ -4642,6 +4643,8 @@ export const th = {
   'problem.invoice_not_finalizable': 'ยังออกเอกสารใบแจ้งหนี้นี้ไม่ได้',
   'problem.invoice_self_finalize':
     'ผู้สร้างหรือผู้แก้ร่างใบแจ้งหนี้ ออกเอกสารใบนั้นเองไม่ได้ ต้องให้ผู้อื่นออก',
+  'problem.invoice_pdf_template_changed':
+    'แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ',
   'problem.sandbox_finalize_disabled': 'โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้',
   'problem.do_in_invoice':
     'ใบส่งของนี้อยู่ในใบแจ้งหนี้แล้ว — แก้ที่ใบแจ้งหนี้ หรือถอดออกจากร่างก่อน',

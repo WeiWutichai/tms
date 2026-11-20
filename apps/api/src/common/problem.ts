@@ -551,6 +551,12 @@ export const PROBLEMS = {
     en: 'Whoever prepared an invoice draft cannot finalize it',
   },
   /** ST5-T09 sandbox ยังออกเลขใบแจ้งหนี้ไม่ได้ ([OPEN — spec/12 §3 "Sandbox: เอกสารภาษีใน sandbox" — ห้ามตัดสินเอง]) */
+  /** ST5-T09 review M1: PDF ใบที่ออกแล้วต้อง render ด้วยแม่แบบรุ่นเดียวกับวันออก — แม่แบบเปลี่ยนแล้ว (ไม่ render ใหม่เงียบ ๆ) */
+  invoice_pdf_template_changed: {
+    status: 409,
+    th: 'แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ',
+    en: 'The invoice template changed after issue — the issued PDF cannot be re-rendered',
+  },
   sandbox_finalize_disabled: {
     status: 409,
     th: 'โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้',

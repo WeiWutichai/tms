@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { SYSTEM_ROLES } from '@tms/domain';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { signStepUpToken } from '../src/auth/tokens';
+import { JobQueue } from '../src/jobs/job-queue.service';
+import { PdfRenderer } from '../src/pdf/pdf-renderer';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { requestContext } from '../src/common/request-context';
 import { DbService, type Tx } from '../src/db/db.service';
@@ -13,7 +16,15 @@ import {
 } from '../src/modules/orders/order-intake.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
-import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
+import {
+  api,
+  bootApp,
+  issuedTestFields,
+  platform,
+  tokenFor,
+  truncateAll,
+  validTaxId,
+} from './helpers';
 
 /**
  * ST5-T09 ออกเอกสาร (finalize) ใบแจ้งหนี้ — D-54: ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี (ไม่มี `tax_invoice_no`) · เกณฑ์ตรวจรับ:
@@ -245,9 +256,15 @@ describe('invoice finalize (ST5-T09)', { timeout: 900_000 }, () => {
     expect(new Set(nos.map((n) => NO_RE.exec(n)![1])).size).toBe(1);
     for (const r of rs) {
       expect(r.body.status).toBe('ISSUED');
-      expect(r.body.pdf).toMatchObject({ sha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
       expect(r.headers.etag).toBe(`"${r.body.version}"`);
     }
+    // PDF ต้นฉบับครบทุกใบ — render ทันทีหลังออก หรือ (เครื่องโหลดสูง คิว render เต็ม) งาน invoice.render_pdf ที่ enqueue ตอนออกเลข
+    const queue = app.get(JobQueue);
+    while (await queue.runOnce());
+    for (const r of rs)
+      expect((await getInv(r.body.id)).pdf).toMatchObject({
+        sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      });
   });
 
   it('ออกเอกสาร: snapshot · วันที่ออก/ครบกำหนด · DO INVOICED+BILLED · ล็อกบรรทัดรายได้ · audit + event (outbox) · ไม่มี tax_invoice_no', async () => {
@@ -526,5 +543,158 @@ describe('invoice finalize (ST5-T09)', { timeout: 900_000 }, () => {
     const otherToken = await tokenFor(other);
     await finalize(inv.id, inv.version, otherToken).expect(404);
     expect(await getInv(inv.id)).toMatchObject({ status: 'DRAFT', invoiceNo: null });
+  });
+
+  it('review M1: render PDF ล้มหลังออกเลข → ใบยัง ISSUED (pdf null) + งาน invoice.render_pdf ใน transaction เดียวกัน ลองใหม่จนเก็บได้ · แม่แบบเปลี่ยน → 409', async () => {
+    const cus = await newCustomer();
+    const inv = await draft(cus, [(await delivered(cus)).doId]);
+    const renderer = app.get(PdfRenderer);
+    const spy = vi.spyOn(renderer, 'pdf').mockRejectedValueOnce(new Error('chromium crashed'));
+    const out = (await finalize(inv.id, inv.version).expect(200)).body;
+    spy.mockRestore();
+    expect(out).toMatchObject({ status: 'ISSUED', pdf: null });
+    const iid = uuid('invoice', inv.id);
+    const job = await db.job.findFirstOrThrow({
+      where: {
+        tenantId,
+        type: 'invoice.render_pdf',
+        payload: { path: ['invoiceId'], equals: iid },
+      },
+    });
+    expect(job.status).toBe('PENDING');
+    const queue = app.get(JobQueue);
+    while (await queue.runOnce());
+    const after = await getInv(inv.id);
+    expect(after.pdf).toMatchObject({ sha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect((await db.job.findUniqueOrThrow({ where: { id: job.id } })).status).toBe('SUCCEEDED');
+    // ใบที่บันทึกแม่แบบรุ่นอื่น (จำลองแม่แบบเปลี่ยนหลังวันออก) → ไม่ render ใหม่เงียบ ๆ
+    const d2 = await draft(cus, [(await delivered(cus)).doId]);
+    await db.invoice.update({
+      where: { id: uuid('invoice', d2.id) },
+      data: {
+        status: 'ISSUED',
+        ...issuedTestFields(`INV-OLD-${seed}`),
+        printOptions: { yearStyle: 'BE', whtMinimumAmount: 0, templateVersion: 0 },
+      },
+    });
+    const r = await api(app, admin).get(`/v1/invoices/${d2.id}/pdf`).expect(409);
+    expect(r.body).toMatchObject({
+      code: 'invoice_pdf_template_changed',
+      issuedTemplateVersion: 0,
+    });
+  });
+
+  it('review M2: ออกใบตอน DO ยังรอหลักฐาน (ลูกค้าไม่บังคับหลักฐานก่อนวางบิล) → บันทึกหลักฐานครบภายหลัง → BILLED (ไม่ค้าง UNBILLED)', async () => {
+    const cus = await newCustomer();
+    await db.customer.update({
+      where: { id: uuid('customer', cus) },
+      data: {
+        requirePodToBill: false,
+        podRequirements: { success: { fields: [{ type: 'NOTE', level: 'REQUIRED' }] } },
+      },
+    });
+    const d = await delivered(cus);
+    const before = await db.deliveryOrder.findUniqueOrThrow({ where: { id: d.uuid } });
+    expect(['DELIVERED', 'POD_PENDING']).toContain(before.status);
+    const inv = await draft(cus, [d.doId]);
+    await finalize(inv.id, inv.version).expect(200);
+    let row = await db.deliveryOrder.findUniqueOrThrow({ where: { id: d.uuid } });
+    expect(row).toMatchObject({ status: before.status, billingStatus: 'INVOICED' });
+    await api(app, admin)
+      .put(`/v1/delivery-orders/${d.doId}/pod`)
+      .send({ receiverName: 'สมชาย ใจดี', receiverRelation: 'SELF', note: 'วางไว้หน้าร้าน' })
+      .expect(200);
+    row = await db.deliveryOrder.findUniqueOrThrow({ where: { id: d.uuid } });
+    expect(row).toMatchObject({ status: 'BILLED', billingStatus: 'INVOICED' });
+  });
+
+  it('review L4: sandbox → 409 · API key = ผู้ออก key (แบ่งหน้าที่) · เปิด billing.allowSelfFinalize เฉพาะ owner + step-up', async () => {
+    // sandbox ของบริษัทนี้ (ร่างสร้างตรงในฐาน — ออกเลขไม่ได้จนกว่าจะตัดสิน [OPEN])
+    const sb = await db.tenant.create({
+      data: { name: 'sandbox ออกบิล', mode: 'test', liveTenantId: tenantId },
+    });
+    const sc = await db.company.create({
+      data: { tenantId: sb.id, legalName: 'Co sandbox', taxId: validTaxId(991) },
+    });
+    const sbr = await db.branch.create({
+      data: {
+        tenantId: sb.id,
+        companyId: sc.id,
+        branchCode: '00000',
+        branchLabel: 'HQ',
+        address: ADDR,
+      },
+    });
+    const scus = await db.customer.create({
+      data: {
+        tenantId: sb.id,
+        code: 'SB-1',
+        legalName: 'ลูกค้า sandbox',
+        taxId: validTaxId(992),
+        branchCode: '00000',
+      },
+    });
+    const sinv = await db.invoice.create({
+      data: {
+        tenantId: sb.id,
+        customerId: scus.id,
+        issuingCompanyId: sc.id,
+        issuingBranchId: sbr.id,
+      },
+    });
+    const sr = await finalize(encodeId('invoice', sinv.id), 1, await tokenFor(sb.id)).expect(409);
+    expect(sr.body.code).toBe('sandbox_finalize_disabled');
+
+    // ผู้ใช้จริง (uuid) สร้างร่าง แล้วออก API key ของตัวเอง → key ออกใบนั้นไม่ได้ (key = ผู้ออก key)
+    const u = await db.appUser.create({
+      data: { tenantId, email: `inv-${seed}@finalize.test`, name: 'ผู้ออกบิล', status: 'ACTIVE' },
+    });
+    const ut = await tokenFor(tenantId, '*', u.id);
+    const cus = await newCustomer();
+    const d = await delivered(cus);
+    const inv = (
+      await api(app, ut)
+        .post('/v1/invoices')
+        .send({ customerId: cus, deliveryOrderIds: [d.doId] })
+        .expect(201)
+    ).body;
+    const key = (
+      await api(app, ut)
+        .post('/v1/api-keys')
+        .send({ name: 'ERP ออกบิล', scopes: ['invoices:read', 'invoices:finalize'] })
+        .expect(201)
+    ).body.secret as string;
+    const kr = await api(app, key)
+      .post(`/v1/invoices/${inv.id}/finalize`)
+      .set('If-Match', `"${inv.version}"`)
+      .expect(403);
+    expect(kr.body.code).toBe('invoice_self_finalize');
+
+    // ค่าตั้ง: admin (ไม่ใช่ owner) เปลี่ยนไม่ได้ · owner ต้อง step-up · ปิดกลับไม่ต้อง step-up
+    const ownerRole = await db.role.findFirstOrThrow({ where: { tenantId, code: 'owner' } });
+    const o = await db.appUser.create({
+      data: { tenantId, email: `owner-${seed}@finalize.test`, name: 'เจ้าของ', status: 'ACTIVE' },
+    });
+    await db.userRole.create({ data: { tenantId, userId: o.id, roleId: ownerRole.id } });
+    const ot = await tokenFor(tenantId, '*', o.id);
+    const on = { values: { 'billing.allowSelfFinalize': true } };
+    const na = await api(app, admin).patch('/v1/settings').send(on).expect(403);
+    expect(na.body.code).toBe('permission_denied');
+    const ns = await api(app, ot).patch('/v1/settings').send(on).expect(403);
+    expect(ns.body.code).toBe('step_up_required');
+    await api(app, ot)
+      .patch('/v1/settings')
+      .set('X-Step-Up', await signStepUpToken(o.id, tenantId))
+      .send(on)
+      .expect(200);
+    // เปิดแล้ว: key ของผู้สร้างออกใบได้ (audit selfFinalized)
+    await api(app, key)
+      .post(`/v1/invoices/${inv.id}/finalize`)
+      .set('If-Match', `"${inv.version}"`)
+      .expect(200);
+    await api(app, ot)
+      .patch('/v1/settings')
+      .send({ values: { 'billing.allowSelfFinalize': false } })
+      .expect(200);
   });
 });

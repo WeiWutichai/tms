@@ -154,6 +154,25 @@ export class SettingsService {
         throw new ProblemException('precondition_failed');
     }
     const before = await readSettings(tx, tenantId, keys);
+    // ST5-T09 review L3 (docs/04 A3 "ปิดได้สำหรับ tenant เล็กโดย owner ยอมรับความเสี่ยง"): เปลี่ยนกฎแบ่งหน้าที่ของใบแจ้งหนี้ได้เฉพาะ owner
+    if (
+      'billing.allowSelfFinalize' in values &&
+      values['billing.allowSelfFinalize'] !== before['billing.allowSelfFinalize']
+    ) {
+      const actor = requestContext.require().actorId ?? '';
+      const owner = await tx.role.findFirst({ where: { code: 'owner' } });
+      const isOwner =
+        owner &&
+        (await tx.userRole
+          .findFirst({ where: { userId: actor, roleId: owner.id } })
+          .catch(() => null));
+      if (!isOwner)
+        throw new ProblemException('permission_denied', undefined, undefined, {
+          module: 'settings',
+          action: 'billing.allowSelfFinalize',
+          required: ['owner'],
+        });
+    }
     if (!steppedUp && weakensSecurity(before, values))
       throw new ProblemException('step_up_required');
     const actor = requestContext.require().actorId ?? null;

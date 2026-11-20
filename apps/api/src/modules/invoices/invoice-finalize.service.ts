@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Prisma, type StoredDocument } from '@prisma/client';
 import { eventDefinition } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
@@ -9,6 +10,7 @@ import { redactPrices } from '../../common/price-fields';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { JobQueue } from '../../jobs/job-queue.service';
 import { PdfRenderer } from '../../pdf/pdf-renderer';
 import { DeliveryOrderService } from '../delivery-orders/delivery-order.service';
 import { putFileLocked, store } from '../documents/documents.controller';
@@ -21,11 +23,17 @@ import {
   issuerParty,
   type InvoicePrintOptions,
 } from './invoice-pdf.service';
-import { invoiceDocument } from './invoice.template';
+import { INVOICE_TEMPLATE_VERSION, invoiceDocument } from './invoice.template';
 import type { InvoiceDto } from './invoice.dto';
 import { InvoicesService, type InvoicePartySnapshot } from './invoices.service';
 
 const ENTITY = 'invoice';
+/** งานเบื้องหลัง render + เก็บ PDF ต้นฉบับ (enqueue ใน transaction เดียวกับการออกเลข — review M1) */
+export const INVOICE_PDF_JOB = 'invoice.render_pdf';
+/** ลองใหม่: 10 วิ · 1 นาที · 5 นาที · 15 นาที · 1 ชม. · 3 ชม. · 6 ชม. (รวม 8 ครั้ง) */
+const PDF_RETRY_MS = [10_000, 60_000, 300_000, 900_000, 3_600_000, 10_800_000, 21_600_000];
+/** advisory lock ต่อ (tenant, สาขาผู้ออก) ของการออกเลข INV — อ่านเวลาหลังได้ล็อก (review L1) */
+const INVOICE_NO_LOCK_NS = 0x1a09;
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 /** วันที่ (เวลาไทย Asia/Bangkok UTC+7) ของเวลา `at` */
 const bangkokDay = (at: Date) => new Date(at.getTime() + 7 * 3600_000).toISOString().slice(0, 10);
@@ -53,14 +61,15 @@ export type FinalizeBlocker =
  * snapshot ลูกค้า/ผู้ออก/ค่าพิมพ์ + วันที่ออก/ครบกำหนด → ISSUED → DO INVOICED (+ UNBILLED → BILLED) → ล็อกบรรทัดรายได้ →
  * audit `invoice.finalized` + event `invoice.finalized` (outbox — ส่ง webhook หลัง commit)
  * ขั้น 2 (หลัง commit): render PDF ต้นฉบับจาก snapshot แล้วเก็บแบบเขียนครั้งเดียว (`pdf_document_id`) — ไม่ถือล็อกเลขระหว่าง render
- * (render ใน transaction = ใบอื่นของสาขาเดียวกันรอทั้งหมด) · render ล้ม = ใบยังออกแล้ว, `GET /v1/invoices/{id}/pdf` สร้างให้ภายหลัง
- * (เนื้อเหมือนเดิมเพราะมาจาก snapshot + บรรทัดที่แก้ไม่ได้) [DECISION spec/12 §3 แถว ST5-T09]
+ * (render ใน transaction = ใบอื่นของสาขาเดียวกันรอทั้งหมด) · render ล้ม/process ตาย = ใบยังออกแล้ว และงาน `invoice.render_pdf`
+ * (enqueue ใน transaction ของการออกเลข — review M1) ลองใหม่จนเก็บได้ · render ได้เฉพาะแม่แบบรุ่นเดียวกับวันออก
+ * (`print_options.templateVersion`) — แม่แบบเปลี่ยนแล้ว → 409 `invoice_pdf_template_changed` [DECISION spec/12 §3 แถว ST5-T09]
  *
  * D-55: TMS ออกเลข**ใบแจ้งหนี้**ของตัวเองเสมอ ไม่ว่า connector จะตั้ง `taxDocumentOwner` เป็นใคร — ไม่มีทางออกเลขเอกสารภาษีในเฟส 0
  * (`SystemOfRecordPolicy.assertCanIssueTaxDocumentNumber` ใช้เมื่อเปิดเอกสารภาษีใน TMS ภายหลัง — D-56)
  */
 @Injectable()
-export class InvoiceFinalizeService {
+export class InvoiceFinalizeService implements OnModuleInit {
   private readonly log = new Logger(InvoiceFinalizeService.name);
 
   constructor(
@@ -72,7 +81,25 @@ export class InvoiceFinalizeService {
     private readonly pdf: InvoicePdfService,
     private readonly renderer: PdfRenderer,
     private readonly clock: Clock,
+    private readonly queue: JobQueue,
   ) {}
+
+  /** งาน render PDF ต้นฉบับ (idempotent — มีไฟล์แล้ว = จบ) · นอก transaction (render ไม่ถือ connection) · ลองใหม่จนเก็บได้ */
+  onModuleInit() {
+    this.queue.register(
+      INVOICE_PDF_JOB,
+      async ({ job, tenantId }) => {
+        const invoiceId = (job.payload as { invoiceId?: unknown } | null)?.invoiceId;
+        if (typeof invoiceId !== 'string') return { skipped: 'bad_payload' };
+        const { doc } = await requestContext.run(
+          { requestId: randomUUID(), tenantId, actorId: 'system:invoice-pdf', locale: 'th' },
+          () => this.ensurePdf(invoiceId, 'ORIGINAL'),
+        );
+        return { documentId: encodeId('document', doc.id), sha256: doc.sha256 };
+      },
+      { outsideTransaction: true, retryDelaysMs: PDF_RETRY_MS },
+    );
+  }
 
   /** transaction ของ tenant ปัจจุบัน + ให้ AuditService/โค้ดที่ใช้ `db.tx` ทำงานในนั้น (route เป็น @NoTransaction) */
   private inTx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
@@ -92,7 +119,7 @@ export class InvoiceFinalizeService {
     try {
       await this.ensurePdf(id, 'ORIGINAL');
     } catch (e) {
-      // ใบออกแล้ว (commit) — PDF สร้างภายหลังได้จาก snapshot (GET /pdf) ไม่ย้อนการออกเลข
+      // ใบออกแล้ว (commit) — งาน `invoice.render_pdf` (enqueue ในการออกเลข) ลองใหม่จนเก็บได้ · ไม่ย้อนการออกเลข
       this.log.warn(`invoice ${id}: issued PDF not stored yet — ${(e as Error).message}`);
     }
     return this.inTx((tx) => this.invoices.get(id, tx));
@@ -131,10 +158,11 @@ export class InvoiceFinalizeService {
     ]);
     const selfAllowed = settings['billing.allowSelfFinalize'] === true;
     // A3: ผู้สร้างใบแจ้งหนี้ finalize ใบตัวเองไม่ได้ — นับผู้แก้ร่างล่าสุดด้วย (แบบ ST6-T07) · key = ผู้ออก key · ระบุตัวไม่ได้ = ปฏิเสธ
+    // review L2: ร่างที่ระบบสร้าง (createdBy ว่าง — รอบวางบิล ST5-T12) = ไม่มีผู้สร้างที่เป็นคน → นับเฉพาะผู้แก้ร่าง
+    // (ผู้เตรียมที่ระบุไม่ได้หลังแปลง key → ผู้ออก key ยังปฏิเสธ — fail closed) · hand-off ST5-T12: ใส่ createdBy = `system:invoice-run`
     const [me, ...preparers] = await resolveActors(tx, [
       actor,
-      inv.createdBy,
-      ...(inv.updatedBy ? [inv.updatedBy] : []),
+      ...[inv.createdBy, inv.updatedBy].filter((x): x is string => !!x && !x.startsWith('system:')),
     ]);
     const isPreparer = me === null || preparers.some((p) => p === null || p === me);
     if (isPreparer && !selfAllowed) throw new ProblemException('invoice_self_finalize');
@@ -142,6 +170,8 @@ export class InvoiceFinalizeService {
     await this.invoices.refreshTotals(tx, id);
     await this.assertFinalizable(tx, id, inv);
 
+    // review L1: ล็อกการออกเลขของสาขาก่อนอ่านเวลา — ข้ามเที่ยงคืน ลำดับวันที่ออกตรงลำดับเลข (ใบเลขมากกว่าไม่ลงวันก่อนหน้า)
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${INVOICE_NO_LOCK_NS}::int, hashtext(${`${ctx.tenantId}:${inv.issuingBranchId}`}))`;
     const now = this.clock.now();
     const issueDate = bangkokDay(now);
     const dueDate = addDays(issueDate, inv.creditTermDays);
@@ -163,6 +193,7 @@ export class InvoiceFinalizeService {
     const print: InvoicePrintOptions = {
       yearStyle: tenant?.yearStyle === 'CE' ? 'CE' : 'BE',
       whtMinimumAmount: settings['tax.whtMinimumAmount'] as number,
+      templateVersion: INVOICE_TEMPLATE_VERSION,
     };
     const before = await this.invoices.get(id, tx);
     await tx.invoice.update({
@@ -248,6 +279,13 @@ export class InvoiceFinalizeService {
         actorId: actor ?? null,
       },
     });
+    // review M1: งาน render PDF ต้นฉบับใน transaction เดียวกับการออกเลข — process ตายหลัง commit ก็ยังมีงานค้างให้ทำต่อ
+    await this.queue.enqueue(tx, {
+      tenantId: ctx.tenantId!,
+      type: INVOICE_PDF_JOB,
+      payload: { invoiceId: id },
+      maxAttempts: PDF_RETRY_MS.length + 1,
+    });
   }
 
   /** BIL-037/038 + ห้ามบรรทัด provisional (ST5-T01b review) → 409 `invoice_not_finalizable` + `reasons[]` */
@@ -315,6 +353,13 @@ export class InvoiceFinalizeService {
         });
       const doc = await this.storedPdf(tx, inv.id, inv.pdfDocumentId, copy);
       if (doc) return { doc, model: null, invoiceNo: inv.invoiceNo };
+      // review M1: render ได้เฉพาะแม่แบบรุ่นเดียวกับวันออก (ไม่ใช้แม่แบบใหม่กับใบเก่าเงียบ ๆ)
+      const tv = (inv.printOptions as InvoicePrintOptions | null)?.templateVersion;
+      if (tv !== INVOICE_TEMPLATE_VERSION)
+        throw new ProblemException('invoice_pdf_template_changed', undefined, undefined, {
+          issuedTemplateVersion: tv ?? null,
+          currentTemplateVersion: INVOICE_TEMPLATE_VERSION,
+        });
       const { model } = await this.pdf.loadModel(tx, id, {
         issueDate: ymd(inv.issueDate),
         dueDate: ymd(inv.dueDate),

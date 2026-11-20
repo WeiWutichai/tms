@@ -463,7 +463,7 @@ export function InvoiceDrawer({
                 <span style={{ fontSize: 12.5, color: '#59606B' }}>
                   {inv.pdf
                     ? t('bill.doc.pdf', { kb: Math.max(1, Math.round(inv.pdf.sizeBytes / 1024)) })
-                    : 'PDF'}
+                    : t('bill.doc.pdfPending')}
                 </span>
               </span>
             </button>

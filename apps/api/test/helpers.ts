@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { signDevToken } from '../src/auth/auth.guard';
 import { createApp } from '../src/bootstrap';
+import { INVOICE_TEMPLATE_VERSION } from '../src/modules/invoices/invoice.template';
 
 export const platform = () =>
   new PrismaClient({ datasources: { db: { url: process.env.PLATFORM_DATABASE_URL } } });
@@ -202,6 +203,10 @@ export function issuedTestFields(invoiceNo: string) {
     dueDate: new Date('2026-12-20T00:00:00.000Z'),
     customerSnapshot: { name: 'ลูกค้าทดสอบ', taxId: null, branchCode: null, address: '' },
     issuerSnapshot: { name: 'ผู้ออกทดสอบ', taxId: null, branchCode: '00000', address: '' },
-    printOptions: { yearStyle: 'BE', whtMinimumAmount: 0 },
+    printOptions: {
+      yearStyle: 'BE',
+      whtMinimumAmount: 0,
+      templateVersion: INVOICE_TEMPLATE_VERSION,
+    },
   };
 }

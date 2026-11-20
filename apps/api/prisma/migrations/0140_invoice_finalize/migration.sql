@@ -2,6 +2,7 @@
 -- docs/04 F3 "Finalize (immutable)", F1 เลขเอกสารเรียงลำดับ + สาขาผู้ออก/ผู้ซื้อ, docs/01 §4.4 (ISSUED: ไม่มี PUT/PATCH), spec/05 §2/§16 (BIL-196)
 -- (1) ข้อมูล ณ วันออก: เวลา/ผู้ออก วันที่ออก ครบกำหนด snapshot ลูกค้า/ผู้ออก ค่าพิมพ์ (ปี พ.ศ./ค.ศ., ขั้นต่ำ WHT) + PDF ต้นฉบับที่เก็บ
 -- (2) ใบที่ออกแล้วต้องมีข้อมูลข้อ (1) ครบ (CHECK NOT VALID — ไม่ตรวจแถวเก่าที่อาจมีจาก test/สคริปต์ก่อน T09)
+--     TODO (review L5 — ส่งต่อ ST9-T15): ตรวจฐานจริงว่าไม่มีแถวเก่าที่ผิด แล้ว `ALTER TABLE invoice VALIDATE CONSTRAINT ...` ทั้งสองตัวใน migration ถัดไป
 -- (3) trigger: ใบที่ไม่ใช่ร่าง แก้เนื้อหาหัวใบไม่ได้ (ทุก role) · เลขออกได้เฉพาะตอน DRAFT → ISSUED · PDF ต้นฉบับผูกได้ครั้งเดียว
 --     ร่างไปได้แค่ ISSUED / CANCELLED
 -- [DECISION spec/12 §3 — ST5-T09]
@@ -65,6 +66,13 @@ BEGIN
       RAISE EXCEPTION 'invoice %: issued PDF is immutable', OLD.id
         USING ERRCODE = 'check_violation', CONSTRAINT = 'invoice_pdf_once';
     END IF;
+  END IF;
+  -- review L5: PDF ที่ผูกต้องเป็นไฟล์ของ tenant เดียวกันและของใบนี้ (RLS ทำให้ไฟล์ของ tenant อื่นมองไม่เห็น = ไม่ผ่าน)
+  IF NEW.pdf_document_id IS NOT NULL AND NEW.pdf_document_id IS DISTINCT FROM OLD.pdf_document_id
+     AND NOT EXISTS (SELECT 1 FROM stored_document d WHERE d.id = NEW.pdf_document_id
+                       AND d.tenant_id = NEW.tenant_id AND d.entity_type = 'invoice' AND d.entity_id = NEW.id) THEN
+    RAISE EXCEPTION 'invoice %: pdf_document_id must be a stored PDF of this invoice (same tenant)', OLD.id
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'invoice_pdf_document_owner';
   END IF;
   RETURN NEW;
 END

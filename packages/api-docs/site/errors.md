@@ -59,6 +59,7 @@
 | [`inbound_not_supported`](#inbound_not_supported) | 409 | ระบบบัญชีนี้ไม่รองรับการส่งข้อมูลเข้ามาทาง webhook |
 | [`invalid_state_transition`](#invalid_state_transition) | 409 | ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน |
 | [`invoice_not_finalizable`](#invoice_not_finalizable) | 409 | ยังออกเอกสารใบแจ้งหนี้นี้ไม่ได้ |
+| [`invoice_pdf_template_changed`](#invoice_pdf_template_changed) | 409 | แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ |
 | [`master_sync_failed`](#master_sync_failed) | 409 | ดึงผังรหัสจากระบบบัญชีไม่สำเร็จ ตรวจการเชื่อมต่อแล้วลองใหม่ |
 | [`master_sync_not_supported`](#master_sync_not_supported) | 409 | ระบบบัญชีนี้ดึงผังรหัสอัตโนมัติไม่ได้ นำเข้าจากไฟล์แทน |
 | [`not_ready_to_bill`](#not_ready_to_bill) | 409 | ใบส่งของนี้ยังไม่พร้อมวางบิล |
@@ -452,6 +453,12 @@ HTTP `409` · ทำรายการนี้ไม่ได้ในสถา
 HTTP `409` · ยังออกเอกสารใบแจ้งหนี้นี้ไม่ได้
 
 พบใน: [`POST /v1/invoices/{id}/finalize`](ref-invoices.md#post-invoices-id-finalize)
+
+## invoice_pdf_template_changed {#invoice_pdf_template_changed}
+
+HTTP `409` · แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ
+
+อาจตอบได้จากหลาย endpoint
 
 ## master_sync_failed {#master_sync_failed}
 

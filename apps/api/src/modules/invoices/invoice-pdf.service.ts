@@ -240,6 +240,8 @@ export function customerParty(row: Pick<PrintRow, 'customer'>) {
 export interface InvoicePrintOptions {
   yearStyle: 'BE' | 'CE';
   whtMinimumAmount: number;
+  /** รุ่นแม่แบบ ณ วันออก (`INVOICE_TEMPLATE_VERSION`) */
+  templateVersion?: number;
 }
 
 function issuedSnapshot(row: {

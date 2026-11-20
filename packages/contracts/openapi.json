@@ -95199,6 +95199,11 @@
       "title": "ยังออกเอกสารใบแจ้งหนี้นี้ไม่ได้",
       "titleEn": "This invoice cannot be finalized yet"
     },
+    "invoice_pdf_template_changed": {
+      "status": 409,
+      "title": "แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ",
+      "titleEn": "The invoice template changed after issue — the issued PDF cannot be re-rendered"
+    },
     "invoice_self_finalize": {
       "status": 403,
       "title": "ผู้สร้างหรือผู้แก้ร่างใบแจ้งหนี้ ออกเอกสารใบนั้นเองไม่ได้ ต้องให้ผู้อื่นออก",
