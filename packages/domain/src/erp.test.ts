@@ -123,19 +123,32 @@ describe('resolveErpMasterCode (ST8-T06)', () => {
     { code: 'H1', name: 'ชั่วโมง' },
     { code: 'H2', name: 'ชั่วโมง' },
   ];
-  it('ตรงรหัส (ไม่สนตัวพิมพ์/ช่องว่าง) → รหัสตามผัง', () => {
-    expect(resolveErpMasterCode(' trip ', units)).toEqual({ status: 'FOUND', code: 'TRIP' });
-    expect(resolveErpMasterCode('ตัน', units)).toEqual({ status: 'FOUND', code: 'ตัน' });
+  const byName = { matchByName: true };
+  it('ตรงรหัส (ตรงตัวก่อน แล้วไม่สนตัวพิมพ์) → รหัสและชื่อตามผัง', () => {
+    expect(resolveErpMasterCode(' trip ', units)).toEqual({
+      status: 'FOUND',
+      code: 'TRIP',
+      name: 'เที่ยว',
+    });
+    expect(resolveErpMasterCode('ตัน', units)).toEqual({
+      status: 'FOUND',
+      code: 'ตัน',
+      name: null,
+    });
+    const twin = [{ code: 'Ab' }, { code: 'AB' }];
+    expect(resolveErpMasterCode('AB', twin)).toMatchObject({ code: 'AB' });
+    expect(resolveErpMasterCode('ab', twin).status).toBe('AMBIGUOUS');
   });
-  it('ตรงชื่อของรหัสเดียว → รหัสนั้น', () => {
-    expect(resolveErpMasterCode('เที่ยว', units)).toEqual({ status: 'FOUND', code: 'TRIP' });
-    expect(resolveErpMasterCode('กม.', units)).toEqual({ status: 'FOUND', code: 'KM' });
+  it('ตรงชื่อเฉพาะเมื่อเปิด matchByName', () => {
+    expect(resolveErpMasterCode('เที่ยว', units, byName)).toMatchObject({ code: 'TRIP' });
+    expect(resolveErpMasterCode('กม.', units, byName)).toMatchObject({ code: 'KM' });
+    expect(resolveErpMasterCode('เที่ยว', units).status).toBe('UNKNOWN');
   });
   it('ชื่อซ้ำหลายรหัส = AMBIGUOUS · ไม่มีค่า = MISSING · ไม่พบ = UNKNOWN', () => {
-    expect(resolveErpMasterCode('ชั่วโมง', units).status).toBe('AMBIGUOUS');
+    expect(resolveErpMasterCode('ชั่วโมง', units, byName).status).toBe('AMBIGUOUS');
     expect(resolveErpMasterCode('', units).status).toBe('MISSING');
     expect(resolveErpMasterCode(null, units).status).toBe('MISSING');
-    expect(resolveErpMasterCode('คืน', units).status).toBe('UNKNOWN');
-    expect(resolveErpMasterCode('เที่ยว', []).status).toBe('UNKNOWN');
+    expect(resolveErpMasterCode('คืน', units, byName).status).toBe('UNKNOWN');
+    expect(resolveErpMasterCode('เที่ยว', [], byName).status).toBe('UNKNOWN');
   });
 });

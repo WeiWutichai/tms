@@ -350,6 +350,17 @@ export class ConnectorCredentialsDto {
 export class ConnectorActionDto extends MasterOptionalReasonDto {}
 export class ConnectorReasonDto extends MasterReasonDto {}
 
+export class ConnectorMasterCodeGapDto {
+  @ApiProperty({
+    enum: ['UNIT', 'SALESPERSON', 'ACCOUNT', 'ITEM', 'VAT_RATE', 'CUSTOMER'],
+    example: 'UNIT',
+  })
+  kind!: string;
+  @ApiProperty({ nullable: true, type: String, example: 'เที่ยว' }) value!: string | null;
+  @ApiProperty({ type: [String], example: ['salePerson'] }) fields!: string[];
+  @ApiProperty({ enum: ['MISSING', 'UNKNOWN', 'AMBIGUOUS', 'NO_CATALOGUE'] }) status!: string;
+}
+
 export class ConnectorHealthDto {
   @ApiProperty() ok!: boolean;
   @ApiProperty({ nullable: true, type: String, example: 'AUTH' }) errorClass!: string | null;
@@ -366,6 +377,12 @@ export class ConnectorHealthDto {
     description: 'ข้อความดิบจากปลายทาง (ตัด credential แล้ว) สำหรับผู้ดูแล/support',
   })
   detail!: string | null;
+  @ApiProperty({
+    type: () => [ConnectorMasterCodeGapDto],
+    description:
+      'ST8-T06 สิ่งที่ยังไม่พร้อมก่อนส่งเอกสารเข้า ERP (เช่น ยังไม่มีผังหน่วย / พนักงานขายไม่อยู่ในผัง) — ว่าง = พร้อม · ไม่ทำให้ผลทดสอบล้ม',
+  })
+  masterCodeGaps!: ConnectorMasterCodeGapDto[];
   @ApiProperty({ format: 'date-time' }) checkedAt!: string;
   @ApiProperty({ type: ConnectorDto }) connector!: ConnectorDto;
 }

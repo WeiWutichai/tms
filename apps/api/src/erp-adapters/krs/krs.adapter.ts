@@ -8,13 +8,14 @@ import {
   type ErpContext,
   type ExternalRef,
   type HealthResult,
+  type MasterCodeReadiness,
   type MasterCodeRef,
   notImplementedError,
   notImplementedResult,
   type PushResult,
 } from '../../modules/erp/erp-adapter';
 import { safeHttpRequest, type SendOptions } from '../../modules/webhooks/webhook-http';
-import { krsMasterCodeRefs } from './krs-master-codes';
+import { krsMasterCodeRefs, krsPushReadiness } from './krs-master-codes';
 
 /**
  * KrsAdapter — โครง (ST8-T03; docs/04 G4 KRS; docs/01 Appendix A.1–A.2, A.5) · KRS เป็นแค่ adapter หนึ่งหลัง `ErpAdapter`
@@ -87,6 +88,11 @@ export class KrsAdapter implements ErpAdapter {
     doc: CanonicalDocument,
   ): readonly MasterCodeRef[] {
     return krsMasterCodeRefs(ctx, operation, doc);
+  }
+
+  /** ST8-T06 ต้องมีพนักงานขายในผัง + ผังหน่วย ก่อนเปิดส่งใบ */
+  pushReadiness(ctx: ErpContext): MasterCodeReadiness {
+    return krsPushReadiness(ctx);
   }
 
   async healthCheck(ctx: ErpContext): Promise<HealthResult> {

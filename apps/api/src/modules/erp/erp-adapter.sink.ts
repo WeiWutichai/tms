@@ -7,7 +7,7 @@ import { OutboxSinkRegistry } from '../integration/outbox-sink.registry';
 import { OutboxSinkError, type OutboxDelivery, type OutboxSink } from '../integration/outbox.types';
 import { ConnectorResolver } from './connector-resolver';
 import { ConnectorsService, HEALTH_STOP_CLASSES, redactSecrets } from './connectors.service';
-import { ErpMasterCodesService } from './erp-master-codes.service';
+import { ErpMasterCodesService, type PushPreparation } from './erp-master-codes.service';
 import {
   type CanonicalDocument,
   type ErpAdapter,
@@ -145,18 +145,33 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     // ST7-T18 ประตู mapping + ST8-T06 ผังรหัสที่ adapter ประกาศ (docs/01 §7.4) — ตรวจหลังเงื่อนไข "ส่งได้" ทั้งหมด
     // (คำสั่งที่พัก/ข้ามไม่ถูกตัดสินว่าล้ม) · คำสั่งดึงข้อมูล (FETCH_*) ไม่มีเอกสารให้ตรวจ
     const operation = d.operation as ErpOperation; // ตรวจด้วย isErpOperation ข้างบนแล้ว
+    const secrets = connector.credentialKeys.map((k) => ctx.config[k] ?? '');
     if (PUSH_OPERATIONS.has(operation)) {
+      // รูปของ payload ก่อนเข้าประตู (REPLACE_DOCUMENT ต้องมีทั้ง ref และ document)
+      if (operation === 'REPLACE_DOCUMENT' && (!payload.ref || !payload.document))
+        throw new OutboxSinkError('ref and document required', 'VALIDATION', {
+          code: 'invalid_payload',
+        });
       const doc = payload.document ?? (payload as CanonicalDocument);
-      const prep = await d.withTx((tx) =>
-        this.masterCodes.prepareForPush(tx, connector.id, adapter, ctx, operation, doc),
-      );
+      let prep: PushPreparation;
+      try {
+        prep = await d.withTx((tx) =>
+          this.masterCodes.prepareForPush(tx, connector.id, adapter, ctx, operation, doc),
+        );
+      } catch (e) {
+        // adapter.masterCodeRefs พัง / ฐานข้อมูลล้ม — ลองใหม่ตาม policy · ข้อความตัด credential ก่อนเก็บ
+        const msg = redactSecrets(String((e as Error)?.message ?? e), secrets).slice(0, 500);
+        throw new OutboxSinkError(msg || 'master code check failed', 'TRANSIENT', {
+          code: 'erp_master_code_check_failed',
+          message: msg,
+        });
+      }
       if (!prep.ok)
         throw new OutboxSinkError(prep.problem.message, 'VALIDATION', { ...prep.problem });
       if (payload.document) payload.document = prep.document;
       else Object.assign(payload, prep.document);
       ctx.masterCodes = prep.masterCodes;
     }
-    const secrets = connector.credentialKeys.map((k) => ctx.config[k] ?? '');
     try {
       return await this.call(d, adapter, ctx, payload, secrets, connector);
     } catch (e) {

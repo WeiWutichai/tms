@@ -66,42 +66,77 @@ export interface ErpContext {
   /** ยกเลิกเมื่อ lease ของคำสั่งหลุด/ปิด worker */
   signal?: AbortSignal;
   /**
-   * ST8-T06 ค่าจากเอกสารที่ core หาในผังรหัส ERP แล้ว (ตาม `masterCodeRefs` ของ adapter) — ชนิด → (ค่าในเอกสาร ตัวพิมพ์เล็ก → รหัสในผัง)
-   * มีเฉพาะตอนส่งคำสั่ง push · payload builder ใช้ `resolvedMasterCode()` แปลง เช่น หน่วย "เที่ยว" → รหัสหน่วยของ ERP
+   * ST8-T06 ค่าจากเอกสารที่ core ตรวจตาม `masterCodeRefs` ของ adapter แล้ว — ชนิด → (ค่าในเอกสาร trim + ตัวพิมพ์เล็ก → รหัส/ชื่อ)
+   * มีเฉพาะตอนส่งคำสั่ง push · payload builder ใช้ `resolvedMasterCode()` / `resolvedMasterCodeName()`
+   * ทุกค่าที่ประกาศและไม่ถูกกันอยู่ในนี้: หาเจอในผัง = รหัสตามผัง · ไม่ได้ตรวจ (ช่องไม่บังคับที่ยังไม่มีผัง / CUSTOMER) = **ค่าดิบ** (name null)
    */
   masterCodes?: ResolvedMasterCodes;
 }
 
-/** ST8-T06 ผลหาค่าในผังรหัส ERP ต่อชนิด (key = ค่าในเอกสารแบบ trim + ตัวพิมพ์เล็ก) */
+/** ST8-T06 ชนิดของค่าที่ adapter ให้ core ตรวจ: ผังรหัส ERP (`erp_master_code`) หรือ `CUSTOMER` = รหัสลูกค้าฝั่ง ERP */
+export type MasterCodeRefKind = ErpMasterCodeKind | 'CUSTOMER';
+
+/** ค่าที่ตรวจแล้ว 1 ค่า */
+export interface ResolvedMasterCode {
+  code: string;
+  /** ชื่อตามผัง (เช่น `saleName` ของ KRS) — ไม่ได้มาจากผัง = null */
+  name: string | null;
+}
+
+/** ST8-T06 ผลตรวจต่อชนิด (key = ค่าในเอกสารแบบ trim + ตัวพิมพ์เล็ก) */
 export type ResolvedMasterCodes = Readonly<
-  Partial<Record<ErpMasterCodeKind, ReadonlyMap<string, string>>>
+  Partial<Record<MasterCodeRefKind, ReadonlyMap<string, ResolvedMasterCode>>>
 >;
 
-/** รหัสในผัง ERP ของค่าจากเอกสาร (ไม่พบ = null — core กันคำสั่งไว้ก่อนแล้วสำหรับค่าที่ adapter ประกาศ) */
+/** รหัสของค่าจากเอกสาร (ไม่ได้ประกาศใน refs = null) */
 export function resolvedMasterCode(
   ctx: Pick<ErpContext, 'masterCodes'>,
-  kind: ErpMasterCodeKind,
+  kind: MasterCodeRefKind,
   value: string | null | undefined,
 ): string | null {
   const v = value?.trim().toLowerCase();
-  return (v && ctx.masterCodes?.[kind]?.get(v)) || null;
+  return (v && ctx.masterCodes?.[kind]?.get(v)?.code) || null;
+}
+
+/** ชื่อตามผังของค่าจากเอกสาร (เช่น ชื่อพนักงานขาย) — ไม่มีชื่อ/ไม่ได้มาจากผัง = null */
+export function resolvedMasterCodeName(
+  ctx: Pick<ErpContext, 'masterCodes'>,
+  kind: MasterCodeRefKind,
+  value: string | null | undefined,
+): string | null {
+  const v = value?.trim().toLowerCase();
+  return (v && ctx.masterCodes?.[kind]?.get(v)?.name) || null;
 }
 
 /**
- * ST8-T06 ค่า 1 ค่าในเอกสารที่ ERP บังคับให้เป็นรหัสในผังรหัส (`erp_master_code`) ของ connector — adapter ประกาศ core ตรวจก่อนส่ง
+ * ST8-T06 ค่า 1 ค่าในเอกสารที่ ERP บังคับให้เป็นรหัสที่ ERP รู้จัก — adapter ประกาศ core ตรวจก่อนส่ง
  * (docs/01 §7.4 "รหัสที่ ERP ยอมรับ … validate ก่อนเข้า outbox", A.3 "Validation เฉพาะ KRS")
+ * - ชนิดผังรหัส → ต้องอยู่ใน `erp_master_code` ที่ใช้งานของ connector
+ * - `CUSTOMER` → ต้องมีรหัสลูกค้าฝั่ง ERP (`customer.externalId` ของ canonical = external_mapping(CUSTOMER) — docs/01 §7.1)
+ *   **ตอนนี้ตรวจแค่ "มีค่า"** (ตาราง external_mapping มาใน ST7-T15 — ตอนนั้นตรวจกับตาราง) · ไม่มี = MISSING
  */
 export interface MasterCodeRef {
-  kind: ErpMasterCodeKind;
+  kind: MasterCodeRefKind;
   /** ค่าในเอกสาร · null/ว่าง = ไม่มีค่า (strict = ถูกกัน) */
   value: string | null;
   /** ช่องที่มาของค่า สำหรับแสดงในคิว เช่น `lines[2].unitLabel` · `salePerson` (ห้ามมี credential) */
   field: string;
   /**
    * true = ต้องมีค่าและต้องอยู่ในผังรหัสที่ใช้งาน (ยังไม่มีผังชนิดนี้ = ถูกกัน — ให้นำเข้าผังรหัสก่อน)
-   * false = ช่องไม่บังคับ: ตรวจเฉพาะเมื่อมีค่า **และ** connector เคยมีผังชนิดนี้ (กฎเดียวกับ `erpItemMappingStatus`)
+   * false = ช่องไม่บังคับ: ตรวจเฉพาะเมื่อมีค่า **และ** connector เคยมีผังชนิดนี้ (กฎเดียวกับ `erpItemMappingStatus`) — ไม่ตรวจ = ใช้ค่าดิบ
    */
   strict: boolean;
+  /** หาด้วย "ชื่อ" ของรหัสได้ด้วย (เปิดเฉพาะค่าที่ TMS เก็บเป็นข้อความ เช่น หน่วย "เที่ยว") — ไม่ระบุ = ตรงรหัสเท่านั้น */
+  matchByName?: boolean;
+}
+
+/**
+ * ST8-T06 สิ่งที่ต้องพร้อมก่อนส่งเอกสารเข้า ERP ได้ (ตรวจตอนเปิด capability ส่งเอกสาร และแสดงในผลทดสอบการเชื่อมต่อ)
+ * `refs` = ค่าจากค่าตั้งที่ต้องอยู่ในผัง (เช่น พนักงานขายของ KRS) · `catalogues` = ชนิดผังรหัสที่ต้องนำเข้าแล้ว (เช่น หน่วย)
+ */
+export interface MasterCodeReadiness {
+  refs: readonly MasterCodeRef[];
+  catalogues: readonly ErpMasterCodeKind[];
 }
 
 export interface Problem {
@@ -325,6 +360,8 @@ export interface ErpAdapter {
     operation: ErpOperation,
     doc: CanonicalDocument,
   ): readonly MasterCodeRef[];
+  /** ST8-T06 ความพร้อมของผังรหัสก่อนส่งเอกสาร (ฟังก์ชันบริสุทธิ์ จากค่าตั้ง) — ไม่มี = ไม่ตรวจ */
+  pushReadiness?(ctx: ErpContext): MasterCodeReadiness;
 }
 
 /** capability → ชื่อ method (ธงไม่มี method) */

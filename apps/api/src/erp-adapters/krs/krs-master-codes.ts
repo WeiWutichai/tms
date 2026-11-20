@@ -3,6 +3,7 @@ import type {
   CanonicalDocument,
   ErpContext,
   ErpMasterCodeEntry,
+  MasterCodeReadiness,
   MasterCodeRef,
 } from '../../modules/erp/erp-adapter';
 
@@ -15,13 +16,16 @@ import type {
  * | ช่อง KRS | ชนิดผังรหัส | มาจาก canonical | บังคับ |
  * | --- | --- | --- | --- |
  * | `mainUnits` (ทุกรายการ) | UNIT | `lines[].unitLabel` (เที่ยว/ตัน/กม.) | ใช่ — ต้องอยู่ในผัง |
- * | `salePerson` (หัวเอกสาร) | SALESPERSON | ค่าตั้ง connector `salePerson` | ใช่ — ต้องอยู่ในผัง |
+ * | `custOrSuppCode` (หัวเอกสาร) | CUSTOMER | `customer.externalId` (external_mapping CUSTOMER — docs/01 §7.1) | ใช่ — ต้องมีค่า |
+ * | `salePerson` (หัวเอกสาร) | SALESPERSON | ค่าตั้ง connector `salePerson` | ใช่ — ต้องอยู่ในผัง (ตรงรหัสเท่านั้น) |
+ * | `saleName` (หัวเอกสาร) | — | **ชื่อ**ของรหัส SALESPERSON ที่หาได้ (`resolvedMasterCodeName(ctx, 'SALESPERSON', …)`) | — |
  * | `itemCode` (รายการ) | ITEM | `lines[].serviceItem.externalId` (mapping ST7-T18) | ไม่ — ตรวจเมื่อมีผัง ITEM |
  * | `accountCode` (รายการ) | ACCOUNT | `lines[].accountCode` | ไม่ — ตรวจเมื่อมีผัง ACCOUNT |
  *
- * - core หาค่าแบบ "ตรงรหัส หรือตรงชื่อของรหัสเดียว" (`resolveErpMasterCode`) — หน่วย "เที่ยว" ใช้ได้ทั้งเมื่อ KRS ใช้รหัส `เที่ยว`
- *   หรือรหัสอื่นที่ชื่อ "เที่ยว" · payload builder (ST8-T08) ส่งรหัสที่หาได้ (`resolvedMasterCode(ctx, 'UNIT', unitLabel)`)
- * - `custOrSuppCode` (รหัสลูกค้า) ไม่ใช่ผังรหัส — มาจาก `external_mapping(CUSTOMER)` (ST7-T15)
+ * - หน่วยหาได้ทั้ง "ตรงรหัส" หรือ "ตรงชื่อของรหัสเดียว" (`matchByName` — TMS เก็บหน่วยเป็นข้อความ) — ใช้ได้ทั้งเมื่อ KRS ใช้รหัส `เที่ยว`
+ *   หรือรหัสอื่นที่ชื่อ "เที่ยว" · ชนิดอื่นตรงรหัสเท่านั้น · payload builder (ST8-T08) ส่งรหัสที่หาได้ (`resolvedMasterCode(ctx, 'UNIT', unitLabel)`)
+ * - `custOrSuppCode`: docs/01 A.3 ขัดกันเอง (ตาราง = external_mapping(CUSTOMER), บรรทัด "Validation เฉพาะ KRS" = อยู่ใน erp_master_code)
+ *   → **[OPEN PO] plan/00b RB-20** · ระหว่างรอ: บังคับว่าต้องมีรหัสลูกค้าฝั่ง ERP (ไม่มี = กัน MISSING) ไม่ตรวจกับผังรหัส
  * - พนักงานขายต่อลูกค้า (docs/01 A.3 "ต่อลูกค้า") ยังไม่มีที่เก็บ → ใช้ค่าตั้งของ connector ตัวเดียว (หรือ `salePerson` ใน canonical
  *   ถ้า ST7-T15 ใส่มา) **[OPEN — KRS ยืนยันว่าต้องต่อลูกค้าไหม]**
  * - `entryBy` ยังไม่ตรวจ (A.6: ถาม KRS ว่าต้องเป็น user ใน ERP ไหม)
@@ -57,7 +61,13 @@ export function krsMasterCodeRefs(
 ): MasterCodeRef[] {
   if (!KRS_PUSH_OPERATIONS.has(operation)) return [];
   const refs: MasterCodeRef[] = [];
-  const header = doc as { salePerson?: unknown };
+  const header = doc as { salePerson?: unknown; customer?: { externalId?: unknown } | null };
+  refs.push({
+    kind: 'CUSTOMER',
+    value: str(header.customer?.externalId),
+    field: 'custOrSuppCode',
+    strict: true,
+  });
   refs.push({
     kind: 'SALESPERSON',
     value: str(header.salePerson) ?? str(ctx.config.salePerson),
@@ -77,6 +87,7 @@ export function krsMasterCodeRefs(
       value: str(line.unitLabel),
       field: `lines[${i}].unitLabel`,
       strict: true,
+      matchByName: true,
     });
     refs.push({
       kind: 'ITEM',
@@ -92,6 +103,19 @@ export function krsMasterCodeRefs(
     });
   });
   return refs;
+}
+
+/**
+ * ความพร้อมก่อนเปิดส่งใบเข้า KRS (ตรวจตอนเปิด capability ส่งเอกสาร + แสดงในผลทดสอบการเชื่อมต่อ — ไม่กันการบันทึกค่าตั้ง)
+ * ต้องมีพนักงานขายที่อยู่ในผัง และนำเข้าผังหน่วยแล้ว
+ */
+export function krsPushReadiness(ctx: Pick<ErpContext, 'config'>): MasterCodeReadiness {
+  return {
+    refs: [
+      { kind: 'SALESPERSON', value: str(ctx.config.salePerson), field: 'salePerson', strict: true },
+    ],
+    catalogues: ['UNIT'],
+  };
 }
 
 /**

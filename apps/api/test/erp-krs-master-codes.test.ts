@@ -13,14 +13,18 @@ import {
   KRS_REQUIRED_UNITS,
   KRS_SAMPLE_MASTER_CODES,
   krsMasterCodeRefs,
+  krsPushReadiness,
 } from '../src/erp-adapters/krs/krs-master-codes';
 import { KrsAdapter } from '../src/erp-adapters/krs/krs.adapter';
 import {
+  type CanonicalDocument,
   type CanonicalInvoice,
   type ErpContext,
+  type ExternalRef,
   type HealthResult,
   type PushResult,
   resolvedMasterCode,
+  resolvedMasterCodeName,
 } from '../src/modules/erp/erp-adapter';
 import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
 import { ERP_SINK } from '../src/modules/erp/erp-adapter.sink';
@@ -47,34 +51,50 @@ describe('krsMasterCodeRefs (ST8-T06) — ไม่แตะฐานข้อ�
   const doc = {
     id: 'i1',
     number: 'INV-1',
+    customer: { externalId: 'C-001' },
     lines: [
       line('เที่ยว', { serviceItem: { id: 'x', externalId: 'IT-1' }, accountCode: '4100' }),
       line(null),
     ],
   };
 
-  it('ใบแจ้งหนี้: พนักงานขาย + หน่วยทุกรายการ (บังคับ) · itemCode/accountCode (ไม่บังคับ)', () => {
+  it('ใบแจ้งหนี้: รหัสลูกค้า + พนักงานขาย + หน่วยทุกรายการ (บังคับ; หน่วยหาด้วยชื่อได้) · itemCode/accountCode (ไม่บังคับ)', () => {
     const refs = krsMasterCodeRefs(ctx, 'PUSH_INVOICE', doc);
     expect(refs).toEqual([
+      { kind: 'CUSTOMER', value: 'C-001', field: 'custOrSuppCode', strict: true },
       { kind: 'SALESPERSON', value: 'S01', field: 'salePerson', strict: true },
-      { kind: 'UNIT', value: 'เที่ยว', field: 'lines[0].unitLabel', strict: true },
+      {
+        kind: 'UNIT',
+        value: 'เที่ยว',
+        field: 'lines[0].unitLabel',
+        strict: true,
+        matchByName: true,
+      },
       { kind: 'ITEM', value: 'IT-1', field: 'lines[0].serviceItem.externalId', strict: false },
       { kind: 'ACCOUNT', value: '4100', field: 'lines[0].accountCode', strict: false },
-      { kind: 'UNIT', value: null, field: 'lines[1].unitLabel', strict: true },
+      { kind: 'UNIT', value: null, field: 'lines[1].unitLabel', strict: true, matchByName: true },
       { kind: 'ITEM', value: null, field: 'lines[1].serviceItem.externalId', strict: false },
       { kind: 'ACCOUNT', value: null, field: 'lines[1].accountCode', strict: false },
     ]);
     // REPLACE_DOCUMENT (PUT /invoice) ตรวจเหมือนกัน · พนักงานขายในเอกสารมาก่อนค่าตั้ง
     expect(
-      krsMasterCodeRefs(ctx, 'REPLACE_DOCUMENT', { ...doc, salePerson: 'S09' })[0],
-    ).toMatchObject({ value: 'S09' });
+      krsMasterCodeRefs(ctx, 'REPLACE_DOCUMENT', { ...doc, salePerson: 'S09' })[1],
+    ).toMatchObject({ kind: 'SALESPERSON', value: 'S09' });
   });
 
-  it('คำสั่งที่ไม่ส่งใบ (FETCH_*) = ไม่มีค่าให้ตรวจ · ไม่มีค่าตั้งพนักงานขาย = null', () => {
+  it('คำสั่งที่ไม่ส่งใบ (FETCH_*) = ไม่มีค่าให้ตรวจ · ไม่มีลูกค้า/ค่าตั้งพนักงานขาย = null', () => {
     expect(krsMasterCodeRefs(ctx, 'FETCH_DOCUMENT', doc)).toEqual([]);
     expect(krsMasterCodeRefs({ config: {} }, 'PUSH_INVOICE', { id: 'i', number: 'n' })).toEqual([
+      { kind: 'CUSTOMER', value: null, field: 'custOrSuppCode', strict: true },
       { kind: 'SALESPERSON', value: null, field: 'salePerson', strict: true },
     ]);
+  });
+
+  it('ความพร้อมก่อนเปิดส่งใบ: พนักงานขายจากค่าตั้ง + ผังหน่วย', () => {
+    expect(krsPushReadiness({ config: { salePerson: ' S01 ' } })).toEqual({
+      refs: [{ kind: 'SALESPERSON', value: 'S01', field: 'salePerson', strict: true }],
+      catalogues: ['UNIT'],
+    });
   });
 
   it('ไฟล์ตัวอย่าง CSV ตรงกับ KRS_SAMPLE_MASTER_CODES · หน่วยตาม docs/01 A.3 ครบ · รหัสอื่นติดป้าย SAMPLE-', () => {
@@ -111,6 +131,19 @@ class ReadyKrs extends KrsAdapter {
     this.pushed.push({ doc, ctx });
     return { ok: true, externalId: `T-${this.pushed.length}`, externalDocNo: 'SA-S6911-0001' };
   }
+  override async replaceDocument(
+    ctx: ErpContext,
+    _ref: ExternalRef,
+    doc: CanonicalInvoice,
+  ): Promise<PushResult> {
+    this.pushed.push({ doc, ctx });
+    return { ok: true, externalId: `T-${this.pushed.length}` };
+  }
+  override async fetchDocument(): Promise<CanonicalDocument | null> {
+    this.fetched++;
+    return null;
+  }
+  fetched = 0;
 }
 
 describe('ผังรหัส KRS + ประตูก่อนส่ง (ST8-T06)', () => {
@@ -167,7 +200,11 @@ describe('ผังรหัส KRS + ประตูก่อนส่ง (ST8-
     expect(c.status, JSON.stringify(c.body)).toBe(200);
   }
 
-  async function enqueueInvoice(connectorId: string, lines: Record<string, unknown>[]) {
+  async function enqueue(
+    connectorId: string,
+    payload: Record<string, unknown>,
+    operation = 'PUSH_INVOICE',
+  ) {
     const id = randomUUID();
     const { id: cmdId } = await db.withTenant(tenantId, (tx) =>
       app.get(OutboxService).enqueueCommand(tx, {
@@ -175,14 +212,34 @@ describe('ผังรหัส KRS + ประตูก่อนส่ง (ST8-
         kind: 'ADAPTER',
         sink: ERP_SINK,
         targetId: uuid(connectorId),
-        operation: 'PUSH_INVOICE',
+        operation,
         entityType: 'invoice',
         localId: id,
-        payload: { document: { id, number: `INV-T06-${id.slice(0, 6)}`, lines } },
+        payload,
       }),
     );
     return cmdId;
   }
+  const invoice = (lines: Record<string, unknown>[], customer: string | null = 'C-001') => {
+    const id = randomUUID();
+    return {
+      id,
+      number: `INV-T06-${id.slice(0, 6)}`,
+      ...(customer ? { customer: { externalId: customer } } : {}),
+      lines,
+    };
+  };
+  const enqueueInvoice = (connectorId: string, lines: Record<string, unknown>[]) =>
+    enqueue(connectorId, { document: invoice(lines) });
+  const readyConnector = async (salePerson = 'S01') => {
+    ready = new ReadyKrs();
+    reg.replace(ready);
+    const con = await krsConnector({ salePerson });
+    await api(app, token).post(`/v1/connectors/${con}/resume`).send({}).expect(200);
+    return con;
+  };
+  const header = 'ระบบบัญชี,ชนิดรหัส,รหัส,ชื่อ,อัตรา (%),ใช้งาน';
+  type Missing = { kind: string; value: string | null; status: string; fields: string[] }[];
 
   beforeAll(async () => {
     await truncateAll();
@@ -226,11 +283,7 @@ describe('ผังรหัส KRS + ประตูก่อนส่ง (ST8-
   it('เกณฑ์ตรวจรับ: นำเข้าไฟล์ตัวอย่างของ KRS → หน่วย เที่ยว/ตัน/กม. หาเจอครบ · ก่อนนำเข้า = ยังไม่มีผัง (ถูกกัน)', async () => {
     const con = await krsConnector({ salePerson: 'SAMPLE-S01' });
     const svc = app.get(ErpMasterCodesService);
-    const doc = {
-      id: 'x',
-      number: 'INV-X',
-      lines: KRS_REQUIRED_UNITS.map((u) => line(u)),
-    };
+    const doc = invoice(KRS_REQUIRED_UNITS.map((u) => line(u)));
     const prep = () =>
       db.withTenant(tenantId, async (tx) => {
         const c = await tx.connector.findUniqueOrThrow({ where: { id: uuid(con) } });
@@ -266,21 +319,22 @@ describe('ผังรหัส KRS + ประตูก่อนส่ง (ST8-
     if (after.ok) {
       for (const u of KRS_REQUIRED_UNITS)
         expect(resolvedMasterCode({ masterCodes: after.masterCodes }, 'UNIT', u)).toBe(u);
-      expect(
-        resolvedMasterCode({ masterCodes: after.masterCodes }, 'SALESPERSON', 'sample-s01'),
-      ).toBe('SAMPLE-S01');
+      const m = { masterCodes: after.masterCodes };
+      expect(resolvedMasterCode(m, 'SALESPERSON', 'SAMPLE-S01')).toBe('SAMPLE-S01');
+      // saleName ของ KRS = ชื่อของรหัสพนักงานขายในผัง
+      expect(resolvedMasterCodeName(m, 'SALESPERSON', 'SAMPLE-S01')).toBe(
+        'ตัวอย่าง — รอรายการจริงจาก KRS',
+      );
+      expect(resolvedMasterCode(m, 'CUSTOMER', 'C-001')).toBe('C-001');
     }
   });
 
   it('เกณฑ์ตรวจรับ: ค่าที่ไม่มีใน master → คำสั่งส่งใบ FAILED_FINAL (VALIDATION) ไม่ถึง KRS · ครบ → ส่งพร้อมรหัสที่หาได้', async () => {
-    ready = new ReadyKrs();
-    reg.replace(ready);
-    const con = await krsConnector({ salePerson: 'S-NOPE' });
-    await api(app, token).post(`/v1/connectors/${con}/resume`).send({}).expect(200);
+    const con = await readyConnector('S-NOPE');
     // KRS ใช้รหัสหน่วยของตัวเอง (ชื่อ = ข้อความหน่วยของ TMS) — หาได้ด้วยชื่อ
     await importCsv(
       [
-        'ระบบบัญชี,ชนิดรหัส,รหัส,ชื่อ,อัตรา (%),ใช้งาน',
+        header,
         `${con},หน่วย,U-TRIP,เที่ยว,,`,
         `${con},หน่วย,U-TON,ตัน,,`,
         `${con},หน่วย,U-KM,กม.,,`,
@@ -307,12 +361,7 @@ describe('ผังรหัส KRS + ประตูก่อนส่ง (ST8-
       code: 'erp_master_code_unknown',
       link: `/settings?sec=conn&connector=${con}`,
     });
-    const missing = (
-      b.lastError as {
-        missing: { kind: string; value: string; status: string; fields: string[] }[];
-      }
-    ).missing;
-    expect(missing).toEqual([
+    expect((b.lastError as { missing: Missing }).missing).toEqual([
       { kind: 'SALESPERSON', value: 'S-NOPE', fields: ['salePerson'], status: 'UNKNOWN' },
       {
         kind: 'UNIT',
@@ -322,7 +371,9 @@ describe('ผังรหัส KRS + ประตูก่อนส่ง (ST8-
       },
       { kind: 'ACCOUNT', value: '4100', fields: ['lines[2].accountCode'], status: 'UNKNOWN' },
     ]);
-    expect(String((b.lastError as { message: string }).message)).toContain('หน่วย "ชั่วโมง"');
+    const msg = String((b.lastError as { message: string }).message);
+    expect(msg).toContain('หน่วย "ชั่วโมง"');
+    expect(msg).not.toContain('undefined');
     expect(ready.pushed).toHaveLength(0); // ไม่ถึง KRS
 
     await api(app, token)
@@ -344,9 +395,130 @@ describe('ผังรหัส KRS + ประตูก่อนส่ง (ST8-
     );
     expect(units).toEqual(['U-TRIP', 'U-TON', 'U-KM']);
     expect(resolvedMasterCode(sent.ctx, 'SALESPERSON', sent.ctx.config.salePerson)).toBe('S01');
+    expect(resolvedMasterCodeName(sent.ctx, 'SALESPERSON', 'S01')).toBe('พนักงานขาย ทดสอบ');
     expect(
       (sent.doc as unknown as { lines: { serviceItem: { externalId: string } }[] }).lines[0]!
         .serviceItem.externalId,
     ).toBe('IT-FRT');
+  });
+
+  it('M1 ไม่มีรหัสลูกค้าฝั่ง ERP → กัน (CUSTOMER MISSING) · พนักงานขาย "ชื่อ" ไม่ใช่รหัส → ไม่รับ (ตรงรหัสเท่านั้น) · ชื่อหน่วยซ้ำ → AMBIGUOUS', async () => {
+    const con = await readyConnector('พนักงานขาย ทดสอบ');
+    await importCsv(
+      [
+        header,
+        `${con},หน่วย,U-TRIP,เที่ยว,,`,
+        `${con},หน่วย,U-TRIP2,เที่ยว,,`,
+        `${con},พนักงานขาย,S01,พนักงานขาย ทดสอบ,,`,
+      ].join('\n'),
+    );
+    const id = await enqueue(con, { document: invoice([line('เที่ยว')], null) });
+    await drain();
+    const c = await cmd(id);
+    expect(c).toMatchObject({ status: 'FAILED_FINAL', errorClass: 'VALIDATION' });
+    expect((c.lastError as { missing: Missing }).missing).toEqual([
+      { kind: 'CUSTOMER', value: null, fields: ['custOrSuppCode'], status: 'MISSING' },
+      {
+        kind: 'SALESPERSON',
+        value: 'พนักงานขาย ทดสอบ',
+        fields: ['salePerson'],
+        status: 'UNKNOWN',
+      },
+      { kind: 'UNIT', value: 'เที่ยว', fields: ['lines[0].unitLabel'], status: 'AMBIGUOUS' },
+    ]);
+    expect(String((c.lastError as { message: string }).message)).toContain(
+      'ไม่ได้ระบุรหัสลูกค้าในระบบบัญชี',
+    );
+    expect(ready.pushed).toHaveLength(0);
+  });
+
+  it('ช่องไม่บังคับที่ยังไม่มีผัง = ใช้ค่าดิบ · ผังรหัสแยกต่อ connector (A ไม่ปนกับ B) · FETCH ไม่ถูกตรวจ', async () => {
+    const a = await readyConnector();
+    await importCsv([header, `${a},หน่วย,เที่ยว,,,`, `${a},พนักงานขาย,S01,,,`].join('\n'));
+    const ok = await enqueueInvoice(a, [line('เที่ยว', { accountCode: 'ACC-RAW' })]);
+    await drain();
+    expect((await cmd(ok)).status).toBe('DONE');
+    const ctx = ready.pushed[0]!.ctx;
+    expect(resolvedMasterCode(ctx, 'ACCOUNT', 'ACC-RAW')).toBe('ACC-RAW');
+    expect(resolvedMasterCodeName(ctx, 'ACCOUNT', 'ACC-RAW')).toBeNull();
+
+    // FETCH_DOCUMENT ไม่มีเอกสารให้ตรวจ — ไม่ถูกกัน
+    const f = await enqueue(
+      a,
+      { ref: { entityType: 'invoice', localId: 'x', number: 'INV-X', externalId: 'T-1' } },
+      'FETCH_DOCUMENT',
+    );
+    await drain();
+    expect((await cmd(f)).status).toBe('DONE');
+    expect(ready.fetched).toBe(1);
+
+    // connector B ในบริษัทเดียวกัน (หลังยกเลิก A) ไม่เห็นผังรหัสของ A
+    await plat.connector.update({
+      where: { id: uuid(a) },
+      data: { status: 'DISCONNECTED', disconnectedAt: new Date() },
+    });
+    const bCon = await readyConnector();
+    const blocked = await enqueueInvoice(bCon, [line('เที่ยว')]);
+    await drain();
+    expect((await cmd(blocked)).lastError).toMatchObject({
+      code: 'erp_master_code_unknown',
+      missing: expect.arrayContaining([
+        expect.objectContaining({ kind: 'UNIT', status: 'NO_CATALOGUE' }),
+      ]),
+    });
+  });
+
+  it('REPLACE_DOCUMENT ผ่านคิว: ไม่มี ref → invalid_payload · ค่านอกผัง → กัน · ครบ → ส่ง PUT', async () => {
+    const con = await readyConnector();
+    await importCsv([header, `${con},หน่วย,ตัน,,,`, `${con},พนักงานขาย,S01,,,`].join('\n'));
+    const ref = { entityType: 'invoice', localId: 'x', number: 'INV-X', externalId: 'T-9' };
+    const noRef = await enqueue(con, { document: invoice([line('ตัน')]) }, 'REPLACE_DOCUMENT');
+    const bad = await enqueue(con, { ref, document: invoice([line('กม.')]) }, 'REPLACE_DOCUMENT');
+    const good = await enqueue(con, { ref, document: invoice([line('ตัน')]) }, 'REPLACE_DOCUMENT');
+    await drain();
+    expect((await cmd(noRef)).lastError).toMatchObject({ code: 'invalid_payload' });
+    expect((await cmd(bad)).lastError).toMatchObject({
+      code: 'erp_master_code_unknown',
+      missing: [{ kind: 'UNIT', value: 'กม.', status: 'UNKNOWN' }],
+    });
+    expect((await cmd(good)).status).toBe('DONE');
+    expect(ready.pushed).toHaveLength(1);
+  });
+
+  it('M3 เปิดส่งใบเพิ่มต้องพร้อมผังรหัส (422) · บันทึกค่าตั้งอื่นได้เสมอ · ผลทดสอบการเชื่อมต่อแสดงสิ่งที่ยังไม่พร้อม', async () => {
+    const con = await readyConnector('S01');
+    const h0 = await api(app, token).post(`/v1/connectors/${con}/health`).send({}).expect(200);
+    expect(h0.body.ok).toBe(true);
+    expect(h0.body.masterCodeGaps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'SALESPERSON', value: 'S01', status: 'NO_CATALOGUE' }),
+        expect.objectContaining({ kind: 'UNIT', value: null, status: 'NO_CATALOGUE' }),
+      ]),
+    );
+    // ปิด แล้วขอเปิดใหม่ตอนยังไม่มีผัง → 422
+    await api(app, token)
+      .patch(`/v1/connectors/${con}`)
+      .send({ capabilitiesEnabled: [] })
+      .expect(200);
+    const no = await api(app, token)
+      .patch(`/v1/connectors/${con}`)
+      .send({ capabilitiesEnabled: ['pushInvoice'] });
+    expect(no.status).toBe(422);
+    expect(no.body.errors[0]).toMatchObject({
+      field: 'capabilitiesEnabled',
+      code: 'erp_master_codes_not_ready',
+    });
+    // ค่าตั้งอื่นยังบันทึกได้
+    await api(app, token)
+      .patch(`/v1/connectors/${con}`)
+      .send({ settings: { baseUrl: 'https://krs.example.com/api', salePerson: 'S01' } })
+      .expect(200);
+    await importCsv([header, `${con},หน่วย,เที่ยว,,,`, `${con},พนักงานขาย,S01,,,`].join('\n'));
+    await api(app, token)
+      .patch(`/v1/connectors/${con}`)
+      .send({ capabilitiesEnabled: ['pushInvoice'] })
+      .expect(200);
+    const h1 = await api(app, token).post(`/v1/connectors/${con}/health`).send({}).expect(200);
+    expect(h1.body.masterCodeGaps).toEqual([]);
   });
 });
