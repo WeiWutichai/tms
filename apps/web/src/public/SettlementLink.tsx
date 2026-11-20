@@ -19,12 +19,14 @@ import './offer-link.css';
 import './settlement-link.css';
 
 /* สีป้ายสถานะ — ต้นแบบ TMS Subcon แท็บ "การเงิน" (รอตรวจ / อนุมัติแล้ว · รอจ่าย) + ป้ายรับงาน/ปฏิเสธของแท็บ "งาน" */
+// ST6-T06: หัวใบ DISPUTED ใช้สีป้ายปฏิเสธ (เดียวกับรายการโต้แย้ง) · บรรทัดที่บริษัทยืนยันยอดเดิม ใช้สีป้ายอนุมัติแล้ว
 const CHIP: Record<string, { bg: string; c: string }> = {
   SENT_TO_CARRIER: { bg: '#FCF0DC', c: '#8F5500' },
   APPROVED: { bg: '#E9F0FA', c: '#2257C4' },
   PENDING: { bg: '#FCF0DC', c: '#8F5500' },
   ACCEPTED: { bg: '#E6F4EC', c: '#17733F' },
   DISPUTED: { bg: '#FBE9E7', c: '#B3322A' },
+  RESOLVED: { bg: '#E9F0FA', c: '#2257C4' },
 };
 
 const dayTh = (iso: string) => formatDate(new Date(iso), 'th', 'BE');
@@ -66,6 +68,7 @@ export function SettlementLinkPage() {
       if (e.problem.status === 429) text = t('cdl.v.tooMany');
       else if (e.problem.status === 404) text = t('cdl.badD');
       else if (e.problem.code === 'invalid_state_transition') text = t('stl.e.closed');
+      else if (e.problem.code === 'settlement_line_resolved') text = t('stl.e.resolved');
     }
     setErr({ line: lineId, text });
     if (e instanceof ApiError && (e.problem.status === 404 || e.problem.status === 409)) {
@@ -178,7 +181,12 @@ export function SettlementLinkPage() {
               .join(' · ')}
           </span>
         )}
-        {v?.canRespond && !isOpen && (
+        {l.resolution && (
+          <span className="cdl__why" data-testid={`stl-resolved-${l.lineNo}`}>
+            {t('stl.ln.resolvedWhy', { r: l.resolution.reason })}
+          </span>
+        )}
+        {v?.canRespond && l.canRespond && !isOpen && (
           <div className="stl__acts">
             <button
               type="button"

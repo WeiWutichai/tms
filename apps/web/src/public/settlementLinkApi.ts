@@ -38,7 +38,13 @@ export function useRespond(token: string) {
       ),
     onSuccess: (r) =>
       qc.setQueryData<ReviewView>(key(token), (old) =>
-        old ? { ...old, lines: old.lines.map((l) => (l.id === r.line.id ? r.line : l)) } : old,
+        old
+          ? {
+              ...old,
+              status: r.status,
+              lines: old.lines.map((l) => (l.id === r.line.id ? r.line : l)),
+            }
+          : old,
       ),
   });
 }
@@ -59,6 +65,6 @@ export async function uploadReviewPhoto(token: string, lineId: string, f: File):
   return r.id;
 }
 
-/** สถานะที่แสดงของบรรทัด (ยังไม่ตอบ = PENDING) */
-export const lineState = (l: ReviewLine): 'PENDING' | 'ACCEPTED' | 'DISPUTED' =>
-  l.review?.response ?? 'PENDING';
+/** สถานะที่แสดงของบรรทัด (ยังไม่ตอบ = PENDING · บริษัทยืนยันยอดเดิมแล้ว = RESOLVED — ST6-T06) */
+export const lineState = (l: ReviewLine): 'PENDING' | 'ACCEPTED' | 'DISPUTED' | 'RESOLVED' =>
+  l.resolution ? 'RESOLVED' : (l.review?.response ?? 'PENDING');

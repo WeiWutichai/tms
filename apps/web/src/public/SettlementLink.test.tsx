@@ -19,6 +19,8 @@ const line = (o: Partial<ReviewLine>): ReviewLine => ({
   reference: null,
   amount: '4500.00',
   review: null,
+  resolution: null,
+  canRespond: true,
   ...o,
 });
 const view = (o: Partial<ReviewView> = {}): ReviewView => ({
@@ -45,6 +47,7 @@ const view = (o: Partial<ReviewView> = {}): ReviewView => ({
         response: 'DISPUTED',
         reason: 'ค่ารอไม่ตรง',
         photoCount: 1,
+        claimedAmount: null,
         respondedAt: '2026-11-20T03:00:00.000Z',
       },
     }),
@@ -146,6 +149,34 @@ describe('SettlementLinkPage (ST6-T05)', () => {
     expect(screen.getByText('SA-2611-0010')).toBeTruthy();
     expect(screen.queryByTestId('stl-accept-1')).toBeNull();
     expect(screen.getByText('อนุมัติแล้ว · ตอบรายการไม่ได้แล้ว')).toBeTruthy();
+  });
+
+  it('ST6-T06: ใบมีรายการโต้แย้ง → ป้ายหัว "มีรายการโต้แย้ง" ยังตอบได้ · บรรทัดที่บริษัทยืนยันยอดเดิม → ป้าย + เหตุผล ไม่มีปุ่มตอบ', () => {
+    const base = view();
+    q.data = view({
+      status: 'DISPUTED',
+      lines: [
+        base.lines[0]!,
+        {
+          ...base.lines[1]!,
+          resolution: {
+            reason: 'ตรวจใบชั่งแล้ว ค่ารอตามสัญญา',
+            resolvedAt: '2026-11-20T05:00:00.000Z',
+          },
+          canRespond: false,
+        },
+      ],
+    });
+    show();
+    expect(screen.getByTestId('stl-status').textContent).toBe('มีรายการโต้แย้ง');
+    expect(screen.getByTestId('stl-accept-1')).toBeTruthy();
+    const l2 = screen.getByTestId('stl-line-2');
+    expect(l2.textContent).toContain('ยืนยันยอดเดิม');
+    expect(screen.getByTestId('stl-resolved-2').textContent).toBe(
+      'บริษัทยืนยันยอดเดิม: ตรวจใบชั่งแล้ว ค่ารอตามสัญญา',
+    );
+    expect(screen.queryByTestId('stl-accept-2')).toBeNull();
+    expect(screen.queryByTestId('stl-dispute-2')).toBeNull();
   });
 
   it('ลิงก์ใช้ไม่ได้ (404) → ข้อความเดียวกับหน้าลิงก์อื่น', () => {
