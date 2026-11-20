@@ -194,4 +194,25 @@ describe('settings registry', () => {
     ).rejects.toThrow(/permission denied/);
     await ps.onModuleDestroy();
   });
+
+  it('ST5-T02 ขั้นต่ำหัก ณ ที่จ่าย: ค่าตั้งต้น 1,000 / WHT_BASE · แก้ได้ · ค่าผิด 422', async () => {
+    const s = await get();
+    expect(s['tax.whtMinimumAmount']).toMatchObject({ value: 1000, isDefault: true });
+    expect(s['tax.whtMinimumBasis']).toMatchObject({ value: 'WHT_BASE', isDefault: true });
+    const bad = await api(app, admin)
+      .patch('/v1/settings')
+      .send({ values: { 'tax.whtMinimumAmount': -1, 'tax.whtMinimumBasis': 'PER_YEAR' } });
+    expect(bad.status).toBe(422);
+    expect(bad.body.errors.map((e: { field: string }) => e.field).sort()).toEqual([
+      'values.tax.whtMinimumAmount',
+      'values.tax.whtMinimumBasis',
+    ]);
+    await api(app, admin)
+      .patch('/v1/settings')
+      .send({ values: { 'tax.whtMinimumAmount': 0, 'tax.whtMinimumBasis': 'GRAND_TOTAL' } })
+      .expect(200);
+    const after = await get();
+    expect(after['tax.whtMinimumAmount']).toMatchObject({ value: 0, isDefault: false });
+    expect(after['tax.whtMinimumBasis']).toMatchObject({ value: 'GRAND_TOTAL' });
+  });
 });

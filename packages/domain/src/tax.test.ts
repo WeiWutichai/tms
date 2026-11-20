@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { computeDocumentTax, serviceItemTaxNote, toCalcVatType, toCalcWhtRate } from './tax';
+import {
+  computeDocumentTax,
+  serviceItemTaxNote,
+  taxOptionsFromSettings,
+  toCalcVatType,
+  toCalcWhtRate,
+} from './tax';
 import { decimalFromSatang, satangFromDecimal as d } from './money';
 
 /**
@@ -46,7 +52,46 @@ describe('computeDocumentTax', () => {
     ]);
     expect(decimalFromSatang(r.vatableBase)).toBe('900.00');
     expect(decimalFromSatang(r.vat)).toBe('63.00');
-    expect(decimalFromSatang(r.wht)).toBe('27.00');
+    // ฐาน 900 < ขั้นต่ำ 1,000 (ค่าตั้งต้น ข้อ 12/5) → ไม่หัก; ปิดขั้นต่ำ → 27.00
+    expect(decimalFromSatang(r.wht)).toBe('0.00');
+    expect(r.whtBelowMinimum).toBe(true);
+    const r0 = computeDocumentTax(
+      [
+        { amount: d('1000.00'), vatType: 'VAT7', whtRate: '0.03' },
+        { amount: d('-100.00'), vatType: 'VAT7', whtRate: '0.03' },
+      ],
+      { whtMinimum: 0n },
+    );
+    expect(decimalFromSatang(r0.wht)).toBe('27.00');
+    expect(r0.whtMinimumTested).toBeNull();
+  });
+
+  it('ST5-T02: อัตราเดียวกันต่างรูปสตริงรวมกลุ่มเดียว ("0.01" = "0.0100")', () => {
+    const r = computeDocumentTax([
+      { amount: d('333.35'), vatType: 'EXEMPT', whtRate: '0.01' },
+      { amount: d('333.35'), vatType: 'EXEMPT', whtRate: '0.0100' },
+      { amount: d('333.35'), vatType: 'EXEMPT', whtRate: '0.010' },
+    ]);
+    expect(r.whtByRate).toEqual([{ rate: '0.01', base: d('1000.05'), wht: d('10.00') }]);
+  });
+
+  it('ST5-T02: ตรวจค่าเข้า — บรรทัดหักติดลบ / ขั้นต่ำติดลบ → RangeError', () => {
+    expect(() =>
+      computeDocumentTax([
+        { amount: d('-1.00'), vatType: 'EXEMPT', whtRate: '0', kind: 'DEDUCTION' },
+      ]),
+    ).toThrow(RangeError);
+    expect(() =>
+      computeDocumentTax([{ amount: d('1.00'), vatType: 'EXEMPT', whtRate: '0' }], {
+        whtMinimum: -1n,
+      }),
+    ).toThrow(RangeError);
+  });
+
+  it('ST5-T02: ไม่มีบรรทัดหัก ณ ที่จ่าย → ไม่ติดธงต่ำกว่าขั้นต่ำ', () => {
+    const r = computeDocumentTax([{ amount: d('500.00'), vatType: 'VAT7', whtRate: '0' }]);
+    expect(r.whtBelowMinimum).toBe(false);
+    expect(r.whtByRate).toEqual([]);
   });
 });
 
@@ -82,5 +127,26 @@ describe('toCalcWhtRate + computeDocumentTax กันหน่วยอัต�
     expect(() => computeDocumentTax([{ ...line, whtRate: '3' }])).toThrow(RangeError);
     const r = computeDocumentTax([{ ...line, whtRate: toCalcWhtRate('1.00') }]);
     expect(decimalFromSatang(r.wht)).toBe('10.00');
+  });
+});
+
+describe('taxOptionsFromSettings (ST5-T02)', () => {
+  it('บาท → สตางค์ + ยอดตามสัญญา; ค่าผิด → RangeError', () => {
+    expect(taxOptionsFromSettings({ whtMinimumAmount: 1000, whtMinimumBasis: 'WHT_BASE' })).toEqual(
+      {
+        whtMinimum: 100000n,
+        whtMinimumBasis: 'WHT_BASE',
+      },
+    );
+    expect(
+      taxOptionsFromSettings({
+        whtMinimumAmount: 0,
+        whtMinimumBasis: 'GRAND_TOTAL',
+        contractAmount: d('12000.00'),
+      }),
+    ).toEqual({ whtMinimum: 0n, whtMinimumBasis: 'GRAND_TOTAL', whtContractAmount: 1200000n });
+    expect(() =>
+      taxOptionsFromSettings({ whtMinimumAmount: 1.5, whtMinimumBasis: 'WHT_BASE' }),
+    ).toThrow(RangeError);
   });
 });
