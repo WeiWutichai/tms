@@ -163,6 +163,8 @@ import {
 } from './modules/revenue-lines/revenue-lines.controller';
 import { RevenueLinesService } from './modules/revenue-lines/revenue-lines.service';
 import { SettlementsController } from './modules/settlements/settlements.controller';
+import { SettlementReviewPublicController } from './modules/settlements/settlement-review.controller';
+import { SettlementReviewService } from './modules/settlements/settlement-review.service';
 import {
   DeliveryOrderReleaseController,
   InvoicesController,
@@ -315,6 +317,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     TripOffersController,
     SubconOfferPublicController,
     PodLinkPublicController,
+    SettlementReviewPublicController,
     TrackingPublicController,
     DeliveryOrderTrackingController,
     CustomerTrackingController,
@@ -388,6 +391,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     RevenueLinesService,
     SettlementQueueService,
     SettlementsService,
+    SettlementReviewService,
     BillingQueueService,
     BillingReleaseService,
     InvoiceBillingGuard,

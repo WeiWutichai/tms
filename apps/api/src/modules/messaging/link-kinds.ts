@@ -24,6 +24,15 @@ export const LINK_KINDS = {
     entityType: 'subcon_offer',
     enabled: true,
   },
+  // ST6-T05 ลิงก์ให้รถร่วมตรวจใบสำคัญจ่าย — ผู้รับ = รถร่วมของใบ · ส่งได้เฉพาะใบที่รอรถร่วมตรวจ (SENT_TO_CARRIER)
+  settlement_review: {
+    path: 'settlement',
+    template: 'settlement_review_link',
+    sendScope: 'settlements:create',
+    readScope: 'settlements:read',
+    entityType: 'carrier_settlement',
+    enabled: true,
+  },
 } as const satisfies Record<
   string,
   {

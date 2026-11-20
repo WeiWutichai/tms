@@ -221,6 +221,13 @@ export function weakensSecurity(before: Record<string, unknown>, after: Record<s
     const a = after['settlement.approvalStepUpAmount'];
     if (b !== null && (a === null || Number(a) > Number(b))) return true;
   }
+  // ST6-T05 ปิดขั้นให้รถร่วมตรวจก่อนอนุมัติ = คุมการจ่ายเงินหลวมขึ้น — ต้อง step-up
+  if (
+    has('settlement.carrierReviewRequired') &&
+    before['settlement.carrierReviewRequired'] === true &&
+    after['settlement.carrierReviewRequired'] === false
+  )
+    return true;
   // ST9-T14 ลดระยะเก็บ = ข้อมูลเก่าถูกลบเร็วขึ้น (ย้อนคืนไม่ได้) — ต้อง step-up เหมือนลดความปลอดภัย
   for (const k of Object.keys(after))
     if (k.startsWith('retention.') && Number(after[k]) < Number(before[k])) return true;

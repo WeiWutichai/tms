@@ -1,0 +1,90 @@
+/* ST6-T05 หน้ารถร่วมตรวจใบสำคัญจ่าย — ค่าจาก design/prototype/TMS Subcon.dc.html (ต่อจาก carrier-link.css / offer-link.css)
+   การ์ดรายการ = การ์ดงวดของแท็บ "การเงิน" (แถวบน: เลข 14/600 tabular + ป้าย · แถวล่าง: #3B424C + ยอด 14/600 #101418)
+   ปุ่ม ยอมรับ = ปุ่ม "ใบจ่ายเงิน" (44px ขอบ #2257C4) · โต้แย้ง = ปุ่ม "ปฏิเสธ" (ขอบ #D9DCD4 ตัว #B3322A 600) */
+.stl__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.stl__no {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stl__mid {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  color: #3b424c;
+}
+.stl__what {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.stl__what b {
+  font-weight: 600;
+  color: #101418;
+  overflow-wrap: anywhere;
+}
+.stl__amt {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  color: #101418;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.stl__acts {
+  display: flex;
+  gap: 8px;
+}
+.stl__acc,
+.stl__dis {
+  flex: 1;
+  height: 44px;
+  border-radius: 999px;
+  background: #ffffff;
+  font-size: 15px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.stl__acc {
+  border: 1px solid #2257c4;
+  color: #2257c4;
+  font-weight: 500;
+}
+.stl__dis {
+  border: 1px solid #d9dcd4;
+  color: #b3322a;
+  font-weight: 600;
+}
+.stl__acc:disabled,
+.stl__dis:disabled,
+.stl__form .ofl__decline:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.stl__form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.stl__netl {
+  display: flex;
+  flex-direction: column;
+}
+.stl__netl b {
+  font-weight: 600;
+}
+.stl__netl span {
+  font-size: 13px;
+}

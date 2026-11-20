@@ -9,12 +9,14 @@ import { requestContext } from '../../common/request-context';
  * Magic link (ST1-T06; docs/04 A1 "เข้าถึงโดยไม่ login", J "Magic link"; docs/01 §5.5 M10)
  * token = `ml1.<id>.<exp>.<sig>` — sig = HMAC-SHA256(id|exp) · action ที่ทำได้ + การเพิกถอนอยู่ในแถว magic_link
  * ใช้กับ: ข้อเสนองานรถร่วม (48 ชม.), POD ผ่านลิงก์ (จนปิด trip + 7 วัน), ดูใบจ่าย, ติดตามพัสดุ,
- * รถร่วมอัปโหลดเอกสารรถ/ใบขับขี่ (ST2-T21 `carrier_docs`), เปิดใบคุมรถ PDF ที่ส่งให้คนขับ (ST3-T20 `trip_sheet`)
+ * รถร่วมอัปโหลดเอกสารรถ/ใบขับขี่ (ST2-T21 `carrier_docs`), เปิดใบคุมรถ PDF ที่ส่งให้คนขับ (ST3-T20 `trip_sheet`),
+ * รถร่วมตรวจใบสำคัญจ่าย (ST6-T05 `settlement_review`)
  */
 export const LINK_PURPOSES = [
   'trip_offer',
   'pod',
   'settlement_view',
+  'settlement_review',
   'tracking',
   'carrier_docs',
   'trip_sheet',

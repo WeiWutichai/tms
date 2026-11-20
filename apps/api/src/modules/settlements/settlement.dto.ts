@@ -20,8 +20,11 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** ยอดหักติดลบ ≠ 0 ("-0", "-0.00", "-00.00" ไม่ผ่าน) */
 const NEG_MONEY = /^-(?!0+(\.0{1,2})?$)\d{1,12}(\.\d{1,2})?$/;
 
-/** docs/01 §4.5 — SENT_TO_CARRIER / DISPUTED (ST6-T05/T06) และ PAID (ST6-T09) เพิ่มภายหลัง */
-export const SETTLEMENT_STATUSES = ['DRAFT', 'APPROVED', 'CANCELLED'] as const;
+/** docs/01 §4.5 — SENT_TO_CARRIER (ST6-T05) · DISPUTED (ST6-T06) และ PAID (ST6-T09) เพิ่มภายหลัง */
+export const SETTLEMENT_STATUSES = ['DRAFT', 'SENT_TO_CARRIER', 'APPROVED', 'CANCELLED'] as const;
+/** คำตอบของรถร่วมต่อบรรทัด (ST6-T05) */
+export const CARRIER_REVIEW_RESPONSES = ['ACCEPTED', 'DISPUTED'] as const;
+export type CarrierReviewResponse = (typeof CARRIER_REVIEW_RESPONSES)[number];
 export type SettlementStatus = (typeof SETTLEMENT_STATUSES)[number];
 export const SETTLEMENT_LINE_TYPES = ['FREIGHT', 'SURCHARGE', 'DEDUCTION'] as const;
 /** ชนิดบรรทัดหัก (docs/04 F6: เงินเบิกล่วงหน้า, ค่าน้ำมันที่เราจ่าย, ค่าปรับ, ค่าเสียหาย — ชื่อตาม spec/05 §11.4 sourceType) */
@@ -239,6 +242,36 @@ export class SettlementCarrierDto {
   @ApiProperty({ nullable: true, type: String }) branchCode!: string | null;
 }
 
+/** คำตอบล่าสุดของรถร่วมต่อบรรทัดในรอบตรวจปัจจุบัน (ST6-T05) */
+export class SettlementLineReviewDto {
+  @ApiProperty({
+    enum: CARRIER_REVIEW_RESPONSES,
+    description: 'ACCEPTED = รถร่วมยอมรับ · DISPUTED = โต้แย้ง (ติดธง — อนุมัติไม่ได้)',
+  })
+  response!: CarrierReviewResponse;
+  @ApiProperty({ nullable: true, type: String, description: 'เหตุผลที่รถร่วมกรอก' })
+  reason!: string | null;
+  @ApiProperty({
+    type: [String],
+    example: ['doc_…'],
+    description: 'รูปประกอบ — เปิดดูผ่าน GET /v1/documents/{id}',
+  })
+  photoIds!: string[];
+  @ApiProperty({ description: 'รอบตรวจ (เพิ่มทุกครั้งที่ส่งให้รถร่วมตรวจ)' }) round!: number;
+  @ApiProperty({ format: 'date-time' }) respondedAt!: string;
+}
+
+/** สรุปการตรวจของรถร่วมในรอบปัจจุบัน (ST6-T05) — นับเฉพาะบรรทัดที่ยังใช้ */
+export class SettlementCarrierReviewDto {
+  @ApiProperty({ description: 'รอบตรวจปัจจุบัน (0 = ยังไม่เคยส่ง)' }) round!: number;
+  @ApiProperty() accepted!: number;
+  @ApiProperty({
+    description: 'บรรทัดที่รถร่วมโต้แย้ง (> 0 = อนุมัติไม่ได้ — 409 `settlement_disputed`)',
+  })
+  disputed!: number;
+  @ApiProperty({ description: 'บรรทัดที่รถร่วมยังไม่ตอบ' }) pending!: number;
+}
+
 export class SettlementLineDto {
   @ApiProperty({ example: 'stln_…' }) id!: string;
   @ApiProperty() lineNo!: number;
@@ -279,6 +312,12 @@ export class SettlementLineDto {
   @ApiProperty({ nullable: true, type: String }) voidReason!: string | null;
   @ApiProperty({ nullable: true, type: String }) createdBy!: string | null;
   @ApiProperty() createdAt!: string;
+  @ApiProperty({
+    nullable: true,
+    type: SettlementLineReviewDto,
+    description: 'คำตอบล่าสุดของรถร่วมในรอบตรวจปัจจุบัน (ST6-T05) — null = ยังไม่ตอบ/ไม่ได้ส่งตรวจ',
+  })
+  carrierReview!: SettlementLineReviewDto | null;
 }
 
 /** ใบสำคัญจ่ายรถร่วม (ร่าง) */
@@ -342,6 +381,14 @@ export class SettlementDto {
     description: 'ผู้อนุมัติ (ไม่ใช่ผู้สร้าง — separation of duties)',
   })
   approvedBy!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'ส่งให้รถร่วมตรวจล่าสุด (ST6-T05) — ผู้ส่งนับเป็นผู้เตรียมใบ (อนุมัติใบนี้ไม่ได้)',
+  })
+  sentAt!: string | null;
+  @ApiProperty({ nullable: true, type: String }) sentBy!: string | null;
+  @ApiProperty({ type: SettlementCarrierReviewDto }) carrierReview!: SettlementCarrierReviewDto;
   @ApiProperty({ nullable: true, type: String }) cancelledAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) cancelledBy!: string | null;
   @ApiProperty({ nullable: true, type: String }) cancelReason!: string | null;
@@ -372,6 +419,8 @@ export class SettlementSummaryDto {
   buyNetPayable?: string;
   @ApiProperty({ nullable: true, type: String, description: 'เวลาอนุมัติ (ST6-T07)' })
   approvedAt!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'ส่งให้รถร่วมตรวจล่าสุด (ST6-T05)' })
+  sentAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) createdBy!: string | null;
   @ApiProperty() version!: number;
   @ApiProperty() createdAt!: string;

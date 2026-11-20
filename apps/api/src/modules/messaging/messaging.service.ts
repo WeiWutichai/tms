@@ -65,6 +65,7 @@ const ENTITY_KIND: Record<string, IdKind> = {
   carrier: 'carrier',
   trip: 'trip',
   subcon_offer: 'subconOffer',
+  carrier_settlement: 'settlement',
 };
 
 const bad = (field: string, code: string, message: string) =>
@@ -150,6 +151,20 @@ export class MessagingService {
         );
       carrierId = offer.carrierId;
       ref = offer.trip.tripNo;
+    }
+    if (kind === 'settlement_review') {
+      // ST6-T05: รถร่วมของใบ · ใบต้องยังรอรถร่วมตรวจ
+      const st = await tx.carrierSettlement.findFirst({
+        where: { id: link.entityId },
+        select: { carrierId: true, status: true },
+      });
+      if (!st || st.status !== 'SENT_TO_CARRIER')
+        throw bad(
+          'url',
+          'settlement_not_sent',
+          'the settlement of this link is no longer awaiting the carrier review',
+        );
+      carrierId = st.carrierId;
     }
     const carrier = await tx.carrier.findFirst({
       where: { id: carrierId, deletedAt: null },
