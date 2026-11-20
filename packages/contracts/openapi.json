@@ -26838,7 +26838,7 @@
         },
         "responses": {
           "200": {
-            "description": "ST7-T17 ตั้ง system-of-record (เจ้าของลูกค้า/เอกสารภาษี, กลุ่ม field auto-sync vs regenerate, แก้ได้จนรับชำระ) — ส่งเฉพาะที่เปลี่ยน + เหตุผล ≥ 10 ตัว (audit) · ส่งเอกสารเข้า ERP สำเร็จแล้วเปลี่ยนเจ้าของไม่ได้ → 409 `sor_locked` · CUSTOMER ตั้ง AUTO_SYNC → 422",
+            "description": "ST7-T17 ตั้ง system-of-record (เจ้าของลูกค้า/เอกสารภาษี, กลุ่ม field auto-sync vs regenerate) — ส่งเฉพาะที่เปลี่ยน + เหตุผล ≥ 10 ตัว (audit) · มีคำสั่งส่งเอกสารที่ส่งแล้ว/รอส่ง → เปลี่ยนเจ้าของไม่ได้ 409 `sor_locked` (เลือกครั้งแรกได้เสมอ) · CUSTOMER ตั้ง AUTO_SYNC → 422 · แก้ได้จนรับชำระเป็นกฎ ไม่ใช่ค่าตั้ง",
             "content": {
               "application/json": {
                 "schema": {
@@ -55916,7 +55916,8 @@
               "TMS",
               "ERP"
             ],
-            "description": "เจ้าของข้อมูลลูกค้า(หลัก)"
+            "nullable": true,
+            "description": "เจ้าของข้อมูลลูกค้า(หลัก) · null = ยังไม่เลือก"
           },
           "taxDocumentOwner": {
             "type": "string",
@@ -55924,21 +55925,22 @@
               "TMS",
               "ERP"
             ],
-            "description": "เจ้าของเอกสารภาษี — ERP = TMS ไม่ออกเลขใบกำกับภาษี (ออกเฉพาะใบแจ้งหนี้/ใบวางบิล) · TMS ออกเลขเอกสารของตัวเองเสมอ (D-27)"
+            "nullable": true,
+            "description": "เจ้าของเอกสารภาษี — ERP (และใบแจ้งหนี้ไปถึง ERP) = TMS ไม่ออกเลขใบกำกับภาษี (ออกเฉพาะใบแจ้งหนี้/ใบวางบิล) · TMS ออกเลขเอกสารของตัวเองเสมอ (D-27) · null = ยังไม่เลือก: TMS ออกเลขตามปกติ แต่เปิด pushInvoice/pushCreditNote/replaceDocument ไม่ได้ (422 `sor_not_chosen`) และคำสั่งส่งเอกสารภาษีถูกพัก"
           },
           "fieldSync": {
-            "$ref": "#/components/schemas/SorFieldSyncDto"
-          },
-          "editableUntilPaid": {
-            "type": "boolean",
-            "description": "แก้แล้ว sync ไป ERP ได้จนรับชำระ (รับบางส่วนก็นับ)"
+            "description": "แก้แล้วส่งไป ERP ได้จนรับชำระ (กฎ docs/04 G3 — ไม่ใช่ค่าตั้ง; รับบางส่วนก็นับ)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SorFieldSyncDto"
+              }
+            ]
           }
         },
         "required": [
           "customerOwner",
           "taxDocumentOwner",
-          "fieldSync",
-          "editableUntilPaid"
+          "fieldSync"
         ]
       },
       "PlatformQueueCountDto": {
@@ -56325,6 +56327,22 @@
       "PlatformCreateConnectorDto": {
         "type": "object",
         "properties": {
+          "taxDocumentOwner": {
+            "type": "string",
+            "enum": [
+              "TMS",
+              "ERP"
+            ],
+            "description": "ST7-T17 เจ้าของเอกสารภาษี — ไม่ส่ง = ยังไม่เลือก (ค่าเริ่มต้นของ capabilitiesEnabled ไม่รวม pushInvoice/pushCreditNote/replaceDocument)"
+          },
+          "customerOwner": {
+            "type": "string",
+            "enum": [
+              "TMS",
+              "ERP"
+            ],
+            "description": "ST7-T17 เจ้าของข้อมูลลูกค้า(หลัก)"
+          },
           "adapterKey": {
             "type": "string",
             "example": "demo",
@@ -67547,7 +67565,8 @@
               "TMS",
               "ERP"
             ],
-            "description": "เจ้าของข้อมูลลูกค้า(หลัก)"
+            "nullable": true,
+            "description": "เจ้าของข้อมูลลูกค้า(หลัก) · null = ยังไม่เลือก"
           },
           "taxDocumentOwner": {
             "type": "string",
@@ -67555,14 +67574,16 @@
               "TMS",
               "ERP"
             ],
-            "description": "เจ้าของเอกสารภาษี — ERP = TMS ไม่ออกเลขใบกำกับภาษี (ออกเฉพาะใบแจ้งหนี้/ใบวางบิล) · TMS ออกเลขเอกสารของตัวเองเสมอ (D-27)"
+            "nullable": true,
+            "description": "เจ้าของเอกสารภาษี — ERP (และใบแจ้งหนี้ไปถึง ERP) = TMS ไม่ออกเลขใบกำกับภาษี (ออกเฉพาะใบแจ้งหนี้/ใบวางบิล) · TMS ออกเลขเอกสารของตัวเองเสมอ (D-27) · null = ยังไม่เลือก: TMS ออกเลขตามปกติ แต่เปิด pushInvoice/pushCreditNote/replaceDocument ไม่ได้ (422 `sor_not_chosen`) และคำสั่งส่งเอกสารภาษีถูกพัก"
           },
           "fieldSync": {
-            "$ref": "#/components/schemas/SorFieldSyncDto"
-          },
-          "editableUntilPaid": {
-            "type": "boolean",
-            "description": "แก้แล้ว sync ไป ERP ได้จนรับชำระ (รับบางส่วนก็นับ)"
+            "description": "แก้แล้วส่งไป ERP ได้จนรับชำระ (กฎ docs/04 G3 — ไม่ใช่ค่าตั้ง; รับบางส่วนก็นับ)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SorFieldSyncDto"
+              }
+            ]
           },
           "canIssueTaxDocumentNumber": {
             "type": "boolean",
@@ -67573,7 +67594,6 @@
           "customerOwner",
           "taxDocumentOwner",
           "fieldSync",
-          "editableUntilPaid",
           "canIssueTaxDocumentNumber"
         ]
       },
@@ -67707,6 +67727,22 @@
       "CreateConnectorDto": {
         "type": "object",
         "properties": {
+          "taxDocumentOwner": {
+            "type": "string",
+            "enum": [
+              "TMS",
+              "ERP"
+            ],
+            "description": "ST7-T17 เจ้าของเอกสารภาษี — ไม่ส่ง = ยังไม่เลือก (ค่าเริ่มต้นของ capabilitiesEnabled ไม่รวม pushInvoice/pushCreditNote/replaceDocument)"
+          },
+          "customerOwner": {
+            "type": "string",
+            "enum": [
+              "TMS",
+              "ERP"
+            ],
+            "description": "ST7-T17 เจ้าของข้อมูลลูกค้า(หลัก)"
+          },
           "adapterKey": {
             "type": "string",
             "example": "demo",
@@ -67942,9 +67978,6 @@
               "PRICE": "REGENERATE"
             },
             "description": "กลุ่มที่เปลี่ยน (PRICE, DATES, ACCESSORIAL, CUSTOMER) — กลุ่มที่ไม่ส่งคงค่าเดิม · CUSTOMER ตั้ง AUTO_SYNC ไม่ได้ (422)"
-          },
-          "editableUntilPaid": {
-            "type": "boolean"
           }
         },
         "required": [
@@ -87447,8 +87480,13 @@
     },
     "sor_locked": {
       "status": 409,
-      "title": "เปลี่ยนเจ้าของเอกสารไม่ได้ เพราะส่งเอกสารเข้าระบบบัญชีแล้ว — ยกเลิกการเชื่อมแล้วตั้งใหม่",
+      "title": "เปลี่ยนเจ้าของเอกสารไม่ได้ เพราะมีเอกสารส่งหรือรอส่งเข้าระบบบัญชีแล้ว — ยกเลิกการเชื่อมแล้วตั้งใหม่",
       "titleEn": "Ownership cannot change after documents were synced — disconnect and set up again"
+    },
+    "sor_not_chosen": {
+      "status": 422,
+      "title": "เลือก \"ใครออกเลขเอกสาร\" ก่อนเปิดการส่งเอกสารเข้าระบบบัญชี",
+      "titleEn": "Choose the tax document owner before enabling document push"
     },
     "source_change_not_pending": {
       "status": 409,

@@ -44,7 +44,6 @@ const conn = (status: string) => ({
       ACCESSORIAL: 'AUTO_SYNC',
       CUSTOMER: 'REGENERATE',
     },
-    editableUntilPaid: true,
   },
   version: 3,
 });
@@ -251,6 +250,16 @@ describe('ตั้งค่า → การเชื่อมต่อ (ST7-T2
         }),
       ),
     );
+  });
+
+  it('ST7-T17 ยังไม่เลือก (null): ไม่มีตัวเลือกใดถูกเลือกไว้ก่อน + บอกว่าต้องเลือก', async () => {
+    const c = conn('ACTIVE');
+    conns = [{ ...c, systemOfRecord: { ...c.systemOfRecord, taxDocumentOwner: null } }];
+    wrap();
+    const box = await screen.findByTestId('numbering-owner');
+    for (const r of within(box).getAllByRole('radio'))
+      expect(r).toHaveAttribute('aria-checked', 'false');
+    expect(box.textContent).toContain('ยังไม่ได้เลือก');
   });
 
   it('ST7-T17 สิทธิ์อ่านอย่างเดียว: เลือกผู้ออกเลขเอกสารไม่ได้', async () => {

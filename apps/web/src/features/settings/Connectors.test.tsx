@@ -28,7 +28,6 @@ const connector = (status = 'ACTIVE') => ({
       ACCESSORIAL: 'AUTO_SYNC',
       CUSTOMER: 'REGENERATE',
     },
-    editableUntilPaid: true,
   },
   version: 1,
 });

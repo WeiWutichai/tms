@@ -285,6 +285,7 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
     api(app, token)
       .post('/v1/connectors')
       .send({
+        taxDocumentOwner: 'TMS',
         adapterKey: 'krs',
         settings: {
           baseUrl: base ?? mock.apiBaseUrl,
@@ -495,6 +496,7 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
     const r = await api(app, sbToken)
       .post('/v1/connectors')
       .send({
+        taxDocumentOwner: 'TMS',
         adapterKey: 'krs',
         settings: { baseUrl: mock.apiBaseUrl },
         credentials: { apiKey: KEY },

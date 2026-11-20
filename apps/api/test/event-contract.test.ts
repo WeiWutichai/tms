@@ -447,6 +447,7 @@ describe('event registry contract (ST7-T06)', () => {
       await api(app, admin)
         .post('/v1/connectors')
         .send({
+          taxDocumentOwner: 'TMS',
           adapterKey: fake.key,
           settings: { baseUrl: 'https://erp.example.com/api' },
           credentials: { apiKey: GOOD_KEY },

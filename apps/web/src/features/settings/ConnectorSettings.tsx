@@ -804,7 +804,14 @@ function MapTab({
           onChange={(v) => v !== owner && setNumTo(v as 'TMS' | 'ERP')}
         />
         <span className="cnx-f__h">
-          {t(owner === 'ERP' ? 'cnx.num.erpHint' : 'cnx.num.tmsHint', { n })}
+          {t(
+            owner === 'ERP'
+              ? 'cnx.num.erpHint'
+              : owner === 'TMS'
+                ? 'cnx.num.tmsHint'
+                : 'cnx.num.noneHint',
+            { n },
+          )}
         </span>
       </div>
 

@@ -12,7 +12,6 @@ import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
-  IsBoolean,
   IsIn,
   IsInt,
   IsISO8601,
@@ -120,17 +119,26 @@ export class SorFieldSyncDto {
 
 /** ST7-T17 system-of-record ของ connector (docs/04 G3; docs/01 §8.1) — ตกลงกับลูกค้าก่อน go-live (plan/templates/sor-agreement.md) */
 export class SystemOfRecordDto {
-  @ApiProperty({ enum: SOR_OWNERS, description: 'เจ้าของข้อมูลลูกค้า(หลัก)' })
-  customerOwner!: string;
   @ApiProperty({
     enum: SOR_OWNERS,
-    description:
-      'เจ้าของเอกสารภาษี — ERP = TMS ไม่ออกเลขใบกำกับภาษี (ออกเฉพาะใบแจ้งหนี้/ใบวางบิล) · TMS ออกเลขเอกสารของตัวเองเสมอ (D-27)',
+    nullable: true,
+    type: String,
+    description: 'เจ้าของข้อมูลลูกค้า(หลัก) · null = ยังไม่เลือก',
   })
-  taxDocumentOwner!: string;
-  @ApiProperty({ type: SorFieldSyncDto }) fieldSync!: SorFieldSyncDto;
-  @ApiProperty({ description: 'แก้แล้ว sync ไป ERP ได้จนรับชำระ (รับบางส่วนก็นับ)' })
-  editableUntilPaid!: boolean;
+  customerOwner!: string | null;
+  @ApiProperty({
+    enum: SOR_OWNERS,
+    nullable: true,
+    type: String,
+    description:
+      'เจ้าของเอกสารภาษี — ERP (และใบแจ้งหนี้ไปถึง ERP) = TMS ไม่ออกเลขใบกำกับภาษี (ออกเฉพาะใบแจ้งหนี้/ใบวางบิล) · TMS ออกเลขเอกสารของตัวเองเสมอ (D-27) · null = ยังไม่เลือก: TMS ออกเลขตามปกติ แต่เปิด pushInvoice/pushCreditNote/replaceDocument ไม่ได้ (422 `sor_not_chosen`) และคำสั่งส่งเอกสารภาษีถูกพัก',
+  })
+  taxDocumentOwner!: string | null;
+  @ApiProperty({
+    type: SorFieldSyncDto,
+    description: 'แก้แล้วส่งไป ERP ได้จนรับชำระ (กฎ docs/04 G3 — ไม่ใช่ค่าตั้ง; รับบางส่วนก็นับ)',
+  })
+  fieldSync!: SorFieldSyncDto;
 }
 
 export class EffectiveSystemOfRecordDto extends SystemOfRecordDto {
@@ -162,11 +170,6 @@ export class UpdateSystemOfRecordDto extends MasterReasonDto {
   @IsOptionalNotNull()
   @IsObject()
   fieldSync?: Record<string, string>;
-
-  @ApiPropertyOptional()
-  @IsOptionalNotNull()
-  @IsBoolean()
-  editableUntilPaid?: boolean;
 }
 
 export class ConnectorDto {
@@ -288,6 +291,20 @@ export class ConnectorListQuery {
 }
 
 export class CreateConnectorDto {
+  @ApiPropertyOptional({
+    enum: SOR_OWNERS,
+    description:
+      'ST7-T17 เจ้าของเอกสารภาษี — ไม่ส่ง = ยังไม่เลือก (ค่าเริ่มต้นของ capabilitiesEnabled ไม่รวม pushInvoice/pushCreditNote/replaceDocument)',
+  })
+  @IsOptionalNotNull()
+  @IsIn(SOR_OWNERS)
+  taxDocumentOwner?: string;
+
+  @ApiPropertyOptional({ enum: SOR_OWNERS, description: 'ST7-T17 เจ้าของข้อมูลลูกค้า(หลัก)' })
+  @IsOptionalNotNull()
+  @IsIn(SOR_OWNERS)
+  customerOwner?: string;
+
   @ApiProperty({
     example: 'demo',
     pattern: CONNECTOR_KEY_RE.source,

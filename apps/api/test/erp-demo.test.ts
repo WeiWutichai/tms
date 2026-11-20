@@ -62,7 +62,7 @@ describe('Standalone + DemoProvider (ST7-T14)', () => {
   ) {
     const r = await api(app, token)
       .post('/v1/connectors')
-      .send({ adapterKey: 'demo', credentials: demoCreds, ...body });
+      .send({ taxDocumentOwner: 'TMS', adapterKey: 'demo', credentials: demoCreds, ...body });
     expect(r.status, JSON.stringify(r.body)).toBe(201);
     if (opts.activate !== false)
       await api(app, token).post(`/v1/connectors/${r.body.id}/resume`).send({}).expect(200);
@@ -210,7 +210,12 @@ describe('Standalone + DemoProvider (ST7-T14)', () => {
     });
     const bad = await api(app, token)
       .post('/v1/connectors')
-      .send({ adapterKey: 'demo', credentials: demoCreds, settings: { failMode: 'EXPLODE' } });
+      .send({
+        taxDocumentOwner: 'TMS',
+        adapterKey: 'demo',
+        credentials: demoCreds,
+        settings: { failMode: 'EXPLODE' },
+      });
     expect(bad.status).toBe(422);
     expect(bad.body.errors[0]).toMatchObject({
       field: 'settings.failMode',
@@ -458,7 +463,12 @@ describe('Standalone + DemoProvider (ST7-T14)', () => {
     const send = (baseUrl: string) =>
       api(app, token)
         .post('/v1/connectors')
-        .send({ adapterKey: 'fake-erp', settings: { baseUrl }, credentials: { apiKey: GOOD_KEY } });
+        .send({
+          taxDocumentOwner: 'TMS',
+          adapterKey: 'fake-erp',
+          settings: { baseUrl },
+          credentials: { apiKey: GOOD_KEY },
+        });
     for (const [url, code] of [
       ['https://10.1.2.3/api', 'url_not_allowed'],
       ['https://169.254.169.254/latest', 'url_not_allowed'],

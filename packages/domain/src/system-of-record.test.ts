@@ -1,41 +1,41 @@
 import { describe, expect, it } from 'vitest';
 import {
   canIssueTaxDocumentNumber,
-  DEFAULT_CONNECTOR_SOR,
   DEFAULT_SOR_FIELD_SYNC,
   fieldChangePolicy,
   fieldSyncErrors,
   normalizeFieldSync,
+  SOR_TAX_PUSH_CAPABILITIES,
   STANDALONE_SOR,
-  type SystemOfRecord,
 } from './system-of-record';
 
-const erpOwned: SystemOfRecord = {
-  ...DEFAULT_CONNECTOR_SOR,
-  fieldSync: { ...DEFAULT_SOR_FIELD_SYNC },
-};
+const sync = { fieldSync: { ...DEFAULT_SOR_FIELD_SYNC } };
 
 describe('System-of-record rules (ST7-T17; docs/04 G3, docs/01 §8.1)', () => {
-  it('เกณฑ์ตรวจรับ: taxDocumentOwner = ERP → TMS ไม่ออกเลขใบกำกับภาษี · TMS/Standalone → ออกได้', () => {
-    expect(canIssueTaxDocumentNumber({ taxDocumentOwner: 'ERP' })).toBe(false);
-    expect(canIssueTaxDocumentNumber({ taxDocumentOwner: 'TMS' })).toBe(true);
-    expect(canIssueTaxDocumentNumber(STANDALONE_SOR)).toBe(true);
+  it('เกณฑ์ตรวจรับ: taxDocumentOwner = ERP + ใบแจ้งหนี้ไปถึง ERP → TMS ไม่ออกเลขใบกำกับภาษี', () => {
+    expect(canIssueTaxDocumentNumber({ taxDocumentOwner: 'ERP' }, true)).toBe(false);
   });
 
-  it('ค่าเริ่มต้นตาม docs/04 G3: ราคา/วันที่/accessorial = auto-sync · เปลี่ยนลูกค้า = regenerate · แก้ได้จนรับชำระ', () => {
-    expect(DEFAULT_CONNECTOR_SOR).toMatchObject({
-      customerOwner: 'ERP',
-      taxDocumentOwner: 'ERP',
-      editableUntilPaid: true,
-      fieldSync: {
-        PRICE: 'AUTO_SYNC',
-        DATES: 'AUTO_SYNC',
-        ACCESSORIAL: 'AUTO_SYNC',
-        CUSTOMER: 'REGENERATE',
-      },
-    });
-    expect(STANDALONE_SOR.taxDocumentOwner).toBe('TMS');
+  it('standalone-first: ERP แต่ใบแจ้งหนี้ไปไม่ถึง ERP / TMS / ยังไม่เลือก / Standalone → TMS ออกเลข', () => {
+    expect(canIssueTaxDocumentNumber({ taxDocumentOwner: 'ERP' }, false)).toBe(true);
+    expect(canIssueTaxDocumentNumber({ taxDocumentOwner: 'TMS' }, true)).toBe(true);
+    expect(canIssueTaxDocumentNumber({ taxDocumentOwner: null }, true)).toBe(true);
+    expect(canIssueTaxDocumentNumber(STANDALONE_SOR, false)).toBe(true);
     expect(STANDALONE_SOR.customerOwner).toBe('TMS');
+    expect([...SOR_TAX_PUSH_CAPABILITIES]).toEqual([
+      'pushInvoice',
+      'pushCreditNote',
+      'replaceDocument',
+    ]);
+  });
+
+  it('ค่าเริ่มต้นกลุ่ม field ตาม docs/04 G3: ราคา/วันที่/accessorial = auto-sync · เปลี่ยนลูกค้า = regenerate', () => {
+    expect(DEFAULT_SOR_FIELD_SYNC).toEqual({
+      PRICE: 'AUTO_SYNC',
+      DATES: 'AUTO_SYNC',
+      ACCESSORIAL: 'AUTO_SYNC',
+      CUSTOMER: 'REGENERATE',
+    });
   });
 
   it('normalizeFieldSync: เติมค่าเริ่มต้น · ทิ้งค่าที่ไม่รู้จัก · CUSTOMER เป็น REGENERATE เสมอ', () => {
@@ -57,21 +57,18 @@ describe('System-of-record rules (ST7-T17; docs/04 G3, docs/01 §8.1)', () => {
     });
   });
 
-  it('fieldChangePolicy: ไม่มีสำเนาใน ERP = LOCAL · ตามกลุ่ม · รับชำระแล้ว (บางส่วนก็นับ) = BLOCKED เมื่อ editableUntilPaid', () => {
-    expect(fieldChangePolicy(erpOwned, 'PRICE', 'ISSUED', false)).toEqual({ mode: 'LOCAL' });
-    expect(fieldChangePolicy(erpOwned, 'PRICE', 'ISSUED', true)).toEqual({ mode: 'AUTO_SYNC' });
-    expect(fieldChangePolicy(erpOwned, 'CUSTOMER', 'ISSUED', true)).toEqual({ mode: 'REGENERATE' });
+  it('fieldChangePolicy: ไม่อยู่ใน ERP = LOCAL · ตามกลุ่ม · รับชำระแล้ว (บางส่วนก็นับ) = BLOCKED เสมอ (กฎ)', () => {
+    expect(fieldChangePolicy(sync, 'PRICE', 'ISSUED', false)).toEqual({ mode: 'LOCAL' });
+    expect(fieldChangePolicy(sync, 'PRICE', 'ISSUED', true)).toEqual({ mode: 'AUTO_SYNC' });
+    expect(fieldChangePolicy(sync, 'CUSTOMER', 'ISSUED', true)).toEqual({ mode: 'REGENERATE' });
     for (const st of ['PARTIALLY_PAID', 'PAID'])
-      expect(fieldChangePolicy(erpOwned, 'DATES', st, true)).toEqual({
+      expect(fieldChangePolicy(sync, 'DATES', st, true)).toEqual({
         mode: 'BLOCKED',
         code: 'paid_locked',
       });
     expect(
-      fieldChangePolicy({ ...erpOwned, editableUntilPaid: false }, 'DATES', 'PAID', true),
-    ).toEqual({ mode: 'AUTO_SYNC' });
-    expect(
       fieldChangePolicy(
-        { ...erpOwned, fieldSync: { ...erpOwned.fieldSync, PRICE: 'REGENERATE' } },
+        { fieldSync: { ...DEFAULT_SOR_FIELD_SYNC, PRICE: 'REGENERATE' } },
         'PRICE',
         'ADJUSTED',
         true,

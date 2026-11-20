@@ -5,8 +5,9 @@
  * - `taxDocumentOwner` ใครเป็นเจ้าของเอกสารภาษี: `ERP` → TMS ออกแค่ใบแจ้งหนี้/ใบวางบิล **ไม่ออกเลขใบกำกับภาษี** (docs/01 §8.1)
  *   TMS ออกเลขเอกสารของตัวเองเสมอ (D-27 / RA-9) — ค่านี้ตัดสินเฉพาะว่า TMS ออกเลขใบกำกับภาษีหรือไม่
  * - `customerOwner` ใครเป็นเจ้าของข้อมูลลูกค้า (หลัก) — docs/04 G3 "ERP = เจ้าของลูกค้า(หลัก)"
+ * - ทั้งสองค่าเริ่มเป็น null = ยังไม่เลือก (docs/01 §8.1 "ต้องเลือก") — ค่าเริ่มต้นเป็นของ PO/นักบัญชี (คำถามค้างใน PROGRESS)
  * - `fieldSync` กลุ่ม field ที่แก้แล้ว sync อัตโนมัติ vs ต้อง regenerate (docs/04 G3: ราคา วันที่ accessorial = auto-sync; เปลี่ยนลูกค้า = ต้อง regenerate)
- * - `editableUntilPaid` แก้ (แล้ว sync ออก) ได้จนรับชำระ
+ * - แก้ (แล้ว sync ออก) ได้จนรับชำระ — **กฎ** ของ docs/04 G3 (ไม่ใช่ค่าตั้ง) บังคับใน `fieldChangePolicy`
  *
  * กฎนี้ **ไม่เปลี่ยนกฎเอกสารภาษีของ TMS**: ใบที่ออกเลขแล้วแก้ไม่ได้ — การแก้หลังออกเลขยังเป็นใบลดหนี้/เพิ่มหนี้ใน TMS เสมอ
  * (`fieldChangePolicy` ตัดสินแค่ว่าการเปลี่ยนนั้นไปถึงเอกสารฝั่ง ERP แบบไหน)
@@ -43,10 +44,11 @@ export const DEFAULT_SOR_FIELD_SYNC: Readonly<Record<SorFieldGroup, SorChangeMod
 };
 
 export interface SystemOfRecord {
-  customerOwner: SorOwner;
-  taxDocumentOwner: SorOwner;
+  /** null = ยังไม่เลือก (docs/01 §8.1 "ต้องเลือก") — ค่าเริ่มต้นเป็นของ PO/นักบัญชี ไม่ใช่ของระบบ */
+  customerOwner: SorOwner | null;
+  /** null = ยังไม่เลือก → TMS ออกเลขตามปกติ แต่เปิด/ส่งเอกสารภาษีไป ERP ไม่ได้จนกว่าจะเลือก (`SOR_TAX_PUSH_CAPABILITIES`) */
+  taxDocumentOwner: SorOwner | null;
   fieldSync: Record<SorFieldGroup, SorChangeMode>;
-  editableUntilPaid: boolean;
 }
 
 /** ไม่มี connector (หรือยกเลิกการเชื่อมแล้ว) — TMS เป็นเจ้าของทุกอย่าง */
@@ -54,19 +56,17 @@ export const STANDALONE_SOR: Readonly<SystemOfRecord> = Object.freeze({
   customerOwner: 'TMS',
   taxDocumentOwner: 'TMS',
   fieldSync: { ...DEFAULT_SOR_FIELD_SYNC },
-  editableUntilPaid: true,
 });
 
 /**
- * ค่าเริ่มต้นของ connector ใหม่ = ตาม docs/04 G3 (ERP เป็นเจ้าของลูกค้า(หลัก)/VAT) และคำตอบสำรองของ plan/08 KRS-2 (แบบ A — ERP ออก)
- * ต้องยืนยันกับลูกค้าก่อน go-live (plan/09) — เปลี่ยนได้ที่ `PUT /v1/connectors/{id}/system-of-record`
+ * capability ที่ส่งเอกสารภาษี/เอกสารที่ปรับเอกสารภาษีไป ERP — เปิดไม่ได้ (และคำสั่งถูกพัก) จนกว่าจะเลือก `taxDocumentOwner`
+ * (กันเอกสารภาษีซ้ำสองชุดก่อนตกลงกับลูกค้า — docs/01 §8.1)
  */
-export const DEFAULT_CONNECTOR_SOR: Readonly<SystemOfRecord> = Object.freeze({
-  customerOwner: 'ERP',
-  taxDocumentOwner: 'ERP',
-  fieldSync: { ...DEFAULT_SOR_FIELD_SYNC },
-  editableUntilPaid: true,
-});
+export const SOR_TAX_PUSH_CAPABILITIES = [
+  'pushInvoice',
+  'pushCreditNote',
+  'replaceDocument',
+] as const;
 
 /** ค่าที่เก็บ (jsonb — เก็บเฉพาะที่ต่างจากค่าเริ่มต้นหรือทั้งชุด) → ชุดเต็ม · ค่าที่ไม่รู้จักใช้ค่าเริ่มต้น · กลุ่ม regenerate-only บังคับเสมอ */
 export function normalizeFieldSync(stored: unknown): Record<SorFieldGroup, SorChangeMode> {
@@ -120,10 +120,14 @@ export function fieldSyncErrors(
 /**
  * **จุดตัดสินเดียว** ว่า TMS ออกเลขใบกำกับภาษี (`tax_invoice_no`) ได้ไหม — ST5-T09 (finalize/ออกเลข) ต้องเรียกผ่าน
  * `SystemOfRecordPolicy.assertCanIssueTaxDocumentNumber` ก่อนออกเลขใบกำกับภาษีทุกครั้ง
- * false = ERP เป็นเจ้าของเอกสารภาษี → TMS ออกเฉพาะใบแจ้งหนี้/ใบวางบิล (ไม่มี tax_invoice_no)
+ * false เฉพาะเมื่อ ERP เป็นเจ้าของเอกสารภาษี **และ** ใบแจ้งหนี้ไปถึง ERP ได้จริงตามค่าตั้ง (`invoiceReachesErp`)
+ * → TMS ออกเฉพาะใบแจ้งหนี้/ใบวางบิล · ไม่เช่นนั้น (standalone-first) TMS ออกเลขเองเสมอ — ไม่ปล่อยให้ไม่มีใครออก
  */
-export function canIssueTaxDocumentNumber(sor: Pick<SystemOfRecord, 'taxDocumentOwner'>): boolean {
-  return sor.taxDocumentOwner === 'TMS';
+export function canIssueTaxDocumentNumber(
+  sor: Pick<SystemOfRecord, 'taxDocumentOwner'>,
+  invoiceReachesErp: boolean,
+): boolean {
+  return !(sor.taxDocumentOwner === 'ERP' && invoiceReachesErp);
 }
 
 /** สถานะใบแจ้งหนี้ที่นับว่า "รับชำระแล้ว" — รับบางส่วนก็นับ (แบบระมัดระวัง: ERP อาจตัดชำระกับใบนั้นแล้ว) */
@@ -134,25 +138,22 @@ export type SorChangeDecision =
   | { mode: 'LOCAL' }
   | { mode: 'AUTO_SYNC' }
   | { mode: 'REGENERATE' }
-  /** รับชำระแล้ว + `editableUntilPaid` — ห้ามส่งการเปลี่ยนไป ERP (ต้องทำในระบบบัญชีด้วยมือ/ตกลงกับลูกค้า) */
+  /** รับชำระแล้ว — ห้ามส่งการเปลี่ยนไป ERP (docs/04 G3 "แก้ได้จนรับชำระ" เป็นกฎ ไม่ใช่ค่าตั้ง) */
   | { mode: 'BLOCKED'; code: 'paid_locked' };
 
 /**
  * การเปลี่ยน field กลุ่ม `group` ของใบแจ้งหนี้สถานะ `invoiceStatus` ไปถึง ERP แบบไหน
- * `documentInErp` = connector ส่งใบแจ้งหนี้ไป ERP (documentSyncMode invoice ≠ NOT_APPLICABLE)
+ * `documentInErp` = เอกสาร**ใบนั้น**อยู่ใน ERP แล้ว — ST7-T16 ต้องตัดสินจาก `external_mapping` ของเอกสารนั้น
+ * (ไม่ใช่แค่ capability ของ connector: ใบก่อน `syncFromDate` / ยังไม่ส่ง = LOCAL)
  */
 export function fieldChangePolicy(
-  sor: SystemOfRecord,
+  sor: Pick<SystemOfRecord, 'fieldSync'>,
   group: SorFieldGroup,
   invoiceStatus: string | null,
   documentInErp: boolean,
 ): SorChangeDecision {
   if (!documentInErp) return { mode: 'LOCAL' };
-  if (
-    sor.editableUntilPaid &&
-    invoiceStatus &&
-    (SOR_PAYMENT_RECEIVED_STATUSES as readonly string[]).includes(invoiceStatus)
-  )
+  if (invoiceStatus && (SOR_PAYMENT_RECEIVED_STATUSES as readonly string[]).includes(invoiceStatus))
     return { mode: 'BLOCKED', code: 'paid_locked' };
   return { mode: normalizeFieldSync(sor.fieldSync)[group] };
 }

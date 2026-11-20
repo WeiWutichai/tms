@@ -2981,14 +2981,13 @@ model Connector {
   credentialsUpdatedAt DateTime?       @map("credentials_updated_at") @db.Timestamptz(6)
   /// ไม่ push เอกสารที่ issue_date ก่อนวันนี้ (docs/01 §6.4)
   syncFromDate         DateTime?       @map("sync_from_date") @db.Date
-  /// ST7-T17 system-of-record (docs/04 G3; docs/01 §8.1) — ใครเป็นเจ้าของข้อมูลลูกค้า(หลัก)
-  customerOwner        SorOwner        @default(ERP) @map("customer_owner")
-  /// ST7-T17 ใครเป็นเจ้าของเอกสารภาษี — ERP = TMS ไม่ออกเลขใบกำกับภาษี (SystemOfRecordPolicy)
-  taxDocumentOwner     SorOwner        @default(ERP) @map("tax_document_owner")
-  /// ST7-T17 กลุ่ม field → AUTO_SYNC / REGENERATE (เก็บเฉพาะที่ตั้ง — ค่าเริ่มต้นใน @tms/domain DEFAULT_SOR_FIELD_SYNC)
+  /// ST7-T17 system-of-record (docs/04 G3; docs/01 §8.1) — ใครเป็นเจ้าของข้อมูลลูกค้า(หลัก) · null = ยังไม่เลือก
+  customerOwner        SorOwner?       @map("customer_owner")
+  /// ST7-T17 ใครเป็นเจ้าของเอกสารภาษี — ERP + ใบแจ้งหนี้ไปถึง ERP = TMS ไม่ออกเลขใบกำกับภาษี (SystemOfRecordPolicy)
+  /// null = ยังไม่เลือก ("ต้องเลือก" docs/01 §8.1) → TMS ออกเลขตามปกติ แต่เปิด/ส่ง pushInvoice/pushCreditNote/replaceDocument ไม่ได้
+  taxDocumentOwner     SorOwner?       @map("tax_document_owner")
+  /// ST7-T17 กลุ่ม field → AUTO_SYNC / REGENERATE (เก็บเฉพาะที่ตั้ง — ค่าเริ่มต้นใน @tms/domain DEFAULT_SOR_FIELD_SYNC) · CHECK เป็น object
   fieldSync            Json            @default("{}") @map("field_sync")
-  /// ST7-T17 แก้แล้ว sync ไป ERP ได้จนรับชำระ (docs/04 G3)
-  editableUntilPaid    Boolean         @default(true) @map("editable_until_paid")
   status               ConnectorStatus @default(PAUSED)
   /// เหตุผลของสถานะล่าสุด (หยุด/ผิดพลาด/ยกเลิก)
   statusReason         String?         @map("status_reason")

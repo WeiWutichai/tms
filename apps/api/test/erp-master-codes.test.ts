@@ -46,7 +46,7 @@ describe('ผังรหัส ERP + mapping (ST7-T18)', () => {
   async function demoConnector(creds = { apiKey: 'demo-key-0001' }, activate = true) {
     const r = await api(app, token)
       .post('/v1/connectors')
-      .send({ adapterKey: 'demo', credentials: creds });
+      .send({ taxDocumentOwner: 'TMS', adapterKey: 'demo', credentials: creds });
     expect(r.status, JSON.stringify(r.body)).toBe(201);
     if (activate)
       await api(app, token).post(`/v1/connectors/${r.body.id}/resume`).send({}).expect(200);
@@ -203,6 +203,7 @@ describe('ผังรหัส ERP + mapping (ST7-T18)', () => {
     const f = await api(app, token)
       .post('/v1/connectors')
       .send({
+        taxDocumentOwner: 'TMS',
         adapterKey: 'fake-erp',
         settings: { baseUrl: 'https://erp.example.com' },
         credentials: { apiKey: GOOD_KEY },
@@ -380,6 +381,7 @@ describe('ผังรหัส ERP + mapping (ST7-T18)', () => {
     const f = await api(app, token)
       .post('/v1/connectors')
       .send({
+        taxDocumentOwner: 'TMS',
         adapterKey: 'fake-erp',
         settings: { baseUrl: 'https://erp.example.com' },
         credentials: { apiKey: GOOD_KEY },

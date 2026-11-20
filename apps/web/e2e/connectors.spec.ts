@@ -60,12 +60,11 @@ test('Innovera เปิด connector demo ให้ลูกค้า → ล�
   await expect(detail.getByTestId('credential-row').first()).toContainText('••••••••');
   expect(await page.content()).not.toContain(KEY);
 
-  // ST7-T17 ใครออกเลขเอกสาร = เจ้าของเอกสารภาษี (ค่าเริ่มต้น ERP ตาม docs/04 G3) — เปลี่ยนต้องมีเหตุผล
+  // ST7-T17 ใครออกเลขเอกสาร = เจ้าของเอกสารภาษี (ไม่มีค่าเริ่มต้น — ต้องเลือก, D-53) — เปลี่ยนต้องมีเหตุผล
   const num = detail.getByRole('radiogroup', { name: 'ใครออกเลขเอกสาร' });
-  await expect(
-    num.getByRole('radio', { name: 'ERP จำลอง (Demo) ออกเลข แล้วส่งกลับ TMS' }),
-  ).toHaveAttribute('aria-checked', 'true');
-  await expect(detail.getByText(/แต่ไม่ออกเลขใบกำกับภาษี/)).toBeVisible();
+  for (const r of await num.getByRole('radio').all())
+    await expect(r).toHaveAttribute('aria-checked', 'false');
+  await expect(detail.getByText(/ยังไม่ได้เลือก/)).toBeVisible();
   await num.getByRole('radio', { name: 'TMS ออกเลข แล้วส่งให้ ERP จำลอง (Demo)' }).click();
   const nd = page.getByRole('dialog');
   await nd.getByLabel(/เหตุผล/).fill('ตกลงกับลูกค้าให้ TMS ออกใบกำกับภาษี (E2E)');

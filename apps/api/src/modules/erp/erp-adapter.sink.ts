@@ -1,6 +1,6 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
 import type { Connector } from '@prisma/client';
-import { ERP_OPERATION_CAPABILITY, isErpOperation } from '@tms/domain';
+import { ERP_OPERATION_CAPABILITY, isErpOperation, SOR_TAX_PUSH_CAPABILITIES } from '@tms/domain';
 import { Clock } from '../../common/clock';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { OutboxSinkRegistry } from '../integration/outbox-sink.registry';
@@ -122,6 +122,16 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
       // tenant ปิดไว้ (adapter รองรับ) → พักคำสั่ง ไม่ทิ้ง — เปิดกลับแล้วส่งต่อ (ConnectorsService.update ปลุก)
       throw new OutboxSinkError(`capability ${cap} turned off — parked`, 'AUTH', {
         code: 'capability_off',
+        capability: cap,
+      });
+
+    // ST7-T17 ยังไม่เลือกเจ้าของเอกสารภาษี → พักคำสั่งส่งเอกสารภาษี (ไม่ทิ้ง ไม่เสียจำนวนครั้ง) จนกว่าจะเลือก (setSystemOfRecord ปลุก)
+    if (
+      !connector.taxDocumentOwner &&
+      (SOR_TAX_PUSH_CAPABILITIES as readonly string[]).includes(cap)
+    )
+      throw new OutboxSinkError(`tax document owner not chosen — parked`, 'AUTH', {
+        code: 'sor_not_chosen',
         capability: cap,
       });
 
