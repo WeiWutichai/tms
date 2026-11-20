@@ -227,6 +227,8 @@ export class SettlementsService {
     const data: Prisma.CarrierSettlementUpdateInput = {
       periodFrom: day(from),
       periodTo: day(to),
+      // ผู้แก้หัวใบ = ผู้เตรียมใบ (อนุมัติใบนี้ไม่ได้ — SoD ST6-T07)
+      updatedBy: requestContext.require().actorId ?? null,
       version: { increment: 1 },
     };
     if (body.carrierInvoiceNo !== undefined) data.carrierInvoiceNo = body.carrierInvoiceNo || null;
@@ -390,7 +392,7 @@ export class SettlementsService {
         action: 'approve',
         required: ['settlements:approve'],
       });
-    await this.assertNotPreparer(tx, id, s.createdBy, actor);
+    await this.assertNotPreparer(tx, id, s.createdBy, s.updatedBy, actor);
     await this.assertNoOpenDisputes(tx, id);
     // ต้องมีบรรทัดค่าขนส่ง (FREIGHT) อย่างน้อย 1 — ค่าใช้จ่ายเพิ่ม (SURCHARGE) อย่างเดียวไม่นับเป็นใบ (review L4)
     const trips = await tx.settlementLine.count({
@@ -446,13 +448,14 @@ export class SettlementsService {
   }
 
   /**
-   * separation of duties (A3; review H1/M2): ผู้อนุมัติต้องไม่ใช่ผู้เตรียมใบ — ผู้สร้างหัวใบ + ผู้เพิ่มบรรทัด + ผู้นำบรรทัดออก
+   * separation of duties (A3; review H1/M2): ผู้อนุมัติต้องไม่ใช่ผู้เตรียมใบ — ผู้สร้างหัวใบ + ผู้แก้หัวใบล่าสุด + ผู้เพิ่มบรรทัด + ผู้นำบรรทัดออก
    * actor ที่เป็น API key (`apikey:<id>`) = ผู้ออก key · ผู้เตรียมที่ระบุตัวไม่ได้ (ว่าง/key หาไม่พบ/ไม่มีผู้ออก) = ปฏิเสธ (fail closed)
    */
   private async assertNotPreparer(
     tx: Tx,
     id: string,
     createdBy: string | null,
+    updatedBy: string | null,
     actor: string,
   ): Promise<void> {
     const lines = await tx.settlementLine.findMany({
@@ -461,6 +464,8 @@ export class SettlementsService {
     });
     const raw = [
       createdBy,
+      // ผู้แก้หัวใบล่าสุด (ไม่เคยแก้ = ไม่นับ)
+      ...(updatedBy ? [updatedBy] : []),
       ...lines.map((l) => l.createdBy),
       ...lines.filter((l) => l.voidedAt).map((l) => l.voidedBy),
     ];

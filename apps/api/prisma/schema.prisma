@@ -2133,6 +2133,8 @@ model CarrierSettlement {
   /// อนุมัติ (ST6-T07) — ผู้อนุมัติ ≠ ผู้สร้าง (CHECK) · เลข STL ออกตอนนี้ (issueNumber) แก้ไม่ได้
   approvedAt         DateTime?        @map("approved_at") @db.Timestamptz(6)
   approvedBy         String?          @map("approved_by")
+  /// ผู้แก้หัวใบล่าสุด (PATCH) — นับเป็นผู้เตรียมใบ (SoD ST6-T07)
+  updatedBy          String?          @map("updated_by")
   cancelledAt        DateTime?        @map("cancelled_at") @db.Timestamptz(6)
   cancelledBy        String?          @map("cancelled_by")
   cancelReason       String?          @map("cancel_reason")

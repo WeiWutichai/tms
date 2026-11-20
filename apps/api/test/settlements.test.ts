@@ -1143,6 +1143,36 @@ describe('settlements (ST6-T03)', () => {
       await approve(b.id, approver).expect(200);
     });
 
+    it('re-review: ผู้แก้หัวใบ (PATCH) อนุมัติใบนั้นไม่ได้ (service + DB) · ผู้อื่นอนุมัติได้', async () => {
+      const editor = await tokenFor(tenantId, '*', 'u-editor');
+      const { C, trips } = await setup(1, '650');
+      const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
+        .body;
+      await api(app, editor)
+        .patch(`/v1/settlements/${s.id}`)
+        .send({ carrierInvoiceNo: 'INV-SUB-7788' })
+        .expect(200);
+      const row = await db.carrierSettlement.findUniqueOrThrow({
+        where: { id: uuid('settlement', s.id) },
+      });
+      expect(row.updatedBy).toBe('u-editor');
+      expect((await approve(s.id, editor).expect(403)).body.code).toBe('settlement_self_approval');
+      await expect(
+        run((tx) =>
+          tx.carrierSettlement.update({
+            where: { id: row.id },
+            data: {
+              status: 'APPROVED',
+              settlementNo: 'SA-9999-0011',
+              approvedAt: new Date(),
+              approvedBy: 'u-editor',
+            },
+          }),
+        ),
+      ).rejects.toThrow(/carrier_settlement_sod/);
+      await approve(s.id, approver).expect(200);
+    });
+
     it('review L3/L4/L5: วงเงิน 0 → ยอด 0.00 ก็ต้อง step-up · ค่าใช้จ่ายเพิ่ม (SURCHARGE) อย่างเดียว = settlement_empty · ไม่ส่ง If-Match → 422', async () => {
       const { C, trips } = await setup(2, '1000');
       const zero = (
