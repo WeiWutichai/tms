@@ -304,6 +304,7 @@
 - **ไฟล์:** `plan/legal/{README,01-dpa,02-ropa,03-privacy-notice-template,04-breach-response-72h,05-driver-national-id-review}.md`, PROGRESS (แถว stage + คำถามค้าง #59)
 - **พบ (ไม่แก้โค้ด — ส่ง lead/PO):** ไฟล์นำเข้า (`stored_document` kind IMPORT) เก็บเลขบัตรแบบอ่านได้และไม่ถูกลบ (`retention.service.ts:166`) · ไม่มีขั้นตอนลบข้อมูล tenant หลังยกเลิก (docs/02 90 วัน) · `licence_no` และ `customer.tax_id` (ลูกค้าบุคคลธรรมดา) ไม่เข้ารหัส · key เข้ารหัสอยู่ใน env ไม่ใช่ KMS · เลขบัตรคนขับยังไม่มีฟีเจอร์ใดใช้ (50 ทวิใช้เลขรถร่วม) · ไม่มี legal hold ระงับงาน retention ระหว่างสอบสวนเหตุ · ไม่มี runbook เข้ารหัสใหม่เมื่อ key หลุด
 - **ค้าง:** PO ทบทวน → ส่งทนาย (คำถามค้าง #59) → แนบสัญญานำร่อง · เครื่องมือ DSAR = P1
+- **แก้ตาม review (20 พ.ย.):** ไฟล์ IMPORT อ่านได้ทุก role/API key/การเข้าดูแทน (`documents.controller.ts:284-297` ตรวจผู้สร้างเฉพาะ EXPORT) → แก้ P-12/F-7/R-1 (โค้ดแก้ในงานแยก "fix import document access") · เพิ่ม `domain_event` snapshot, raw payload, `processed_webhook_event`, notification/api_key IP/PDF ใบคุมรถ · C-01 ลบผู้ใช้ = anonymise จริง (+ DPA 7.2) · ลิงก์ติดตามเปิดชื่อ/รูป/ลายเซ็นผู้รับ (P-07 + ประกาศส่วน ข) · NFR-153 envelope key ต่อ tenant ยังไม่มี · ประกาศ: ไฟล์ POD ยังไม่ลบจริง · ตรึง commit อ้างอิง `e70dcc0` ทุกไฟล์ · spec/12 §3 แถวใหม่ "เลขบัตรคนขับ: วัตถุประสงค์" (spec/11 §4.2 vs โค้ด)
 
 ### 20 พ.ย. 2569 (ST6-T06 แก้ตาม review/QA — lane l6)
 

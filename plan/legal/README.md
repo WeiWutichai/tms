@@ -2,7 +2,7 @@
 
 > **ร่าง — ยังไม่ผ่านการตรวจของทนาย ห้ามใช้จริงก่อนตรวจ**
 
-ชุดนี้คือเอกสาร PDPA ที่ต้องแนบสัญญานำร่อง (plan/01 แถว ST9-T16; plan/09 เช็กลิสต์ "เอกสารสัญญา/ความยินยอม") เขียนจาก**ข้อมูลที่ระบบเก็บจริงในโค้ด ณ 20 พ.ย. 2569** (`apps/api/prisma/schema.prisma`, `apps/api/src/modules/retention/*`) ร่วมกับ docs/04 J, spec/11 §4, research/thai-tax-docs-research.md §5.4 และคำถามทนายใน `plan/07-questions-legal-pdpa.md`
+ชุดนี้คือเอกสาร PDPA ที่ต้องแนบสัญญานำร่อง (plan/01 แถว ST9-T16; plan/09 เช็กลิสต์ "เอกสารสัญญา/ความยินยอม") เขียนจาก**ข้อมูลที่ระบบเก็บจริงในโค้ด ณ 20 พ.ย. 2569** — โค้ดอ้างอิง `main` @ `e70dcc0` (เลขบรรทัดทุกจุดในชุดนี้อ้าง commit นี้) — (`apps/api/prisma/schema.prisma`, `apps/api/src/modules/retention/*`) ร่วมกับ docs/04 J, spec/11 §4, research/thai-tax-docs-research.md §5.4 และคำถามทนายใน `plan/07-questions-legal-pdpa.md`
 
 ## เอกสาร
 
