@@ -823,7 +823,7 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('tripCost', c.id);
     },
-    // ST6-T03 ใบสำคัญจ่ายรถร่วม (ร่าง — /settlements/:id, /lines, /lines/:lineId/remove, /cancel)
+    // ST6-T03 ใบสำคัญจ่ายรถร่วม (ร่าง — /settlements/:id, /lines, /lines/:lineId/remove, /cancel · ST6-T05 /send-to-carrier, /review-link, /recall)
     settlement: async (db, tenantId, n) => {
       const c = await db.carrier.create({
         data: {
@@ -976,6 +976,7 @@ const BODY_FOR_PATH: Record<string, object> = {
   },
   '/v1/revenue-lines/:id/void': { reason: 'isolation test reason' }, // ST5-T01
   '/v1/settlements/:id/lines/:lineId/remove': { reason: 'isolation test reason' }, // ST6-T03
+  '/v1/settlements/:id/recall': { reason: 'isolation test reason' }, // ST6-T05
   '/v1/api-keys/:id/rotate': { reason: 'isolation test reason' }, // ST7-T01
   '/v1/webhooks/:id/disable': { reason: 'isolation test reason' }, // ST7-T04
   '/v1/connectors/:id/credentials': { credentials: { apiKey: 'isolation' } }, // ST7-T13

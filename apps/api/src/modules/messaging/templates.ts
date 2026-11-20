@@ -8,7 +8,11 @@ import type { MessageChannel } from './providers';
  * SMS = ข้อความคงที่สั้น + ลิงก์ ไม่มีชื่อที่ tenant กรอกเลย (ส่งจากบัญชี SMS ของระบบ — review ST3-T21 M1)
  * LINE = ส่งจาก OA ของบริษัทเอง → มีชื่อบริษัท/ผู้รับ (ผ่าน sanitiser) · URL มาจากระบบเท่านั้น
  */
-export const MESSAGE_TEMPLATES = ['carrier_docs_link', 'job_offer_link'] as const;
+export const MESSAGE_TEMPLATES = [
+  'carrier_docs_link',
+  'job_offer_link',
+  'settlement_review_link',
+] as const;
 export type MessageTemplate = (typeof MESSAGE_TEMPLATES)[number];
 
 export interface MessageVars {
@@ -50,6 +54,18 @@ const T: Record<MessageTemplate, Record<'th' | 'en', Record<MessageChannel, Rend
       LINE: (v) =>
         `${v.name ? `Dear ${v.name}\n` : ''}${v.sender} sent you a job offer${v.ref ? ` ${v.ref}` : ''}. Accept or decline via this link — no login needed\n${v.url}\nReply by ${v.until}`,
       SMS: (v) => `TMS: transport job offer ${v.url} (until ${v.until})`,
+    },
+  },
+  settlement_review_link: {
+    th: {
+      LINE: (v) =>
+        `${v.name ? `เรียน ${v.name}\n` : ''}${v.sender} ส่งใบสรุปค่าขนส่งให้ตรวจ กดยอมรับหรือโต้แย้งรายการได้ที่ลิงก์นี้ ไม่ต้อง login\n${v.url}\nลิงก์ใช้ได้ถึง ${v.until}`,
+      SMS: (v) => `TMS: ตรวจใบสรุปค่าขนส่ง ${v.url} (ถึง ${v.until})`,
+    },
+    en: {
+      LINE: (v) =>
+        `${v.name ? `Dear ${v.name}\n` : ''}${v.sender} sent you a payment statement to check. Accept or dispute lines via this link — no login needed\n${v.url}\nValid until ${v.until}`,
+      SMS: (v) => `TMS: check your payment statement ${v.url} (until ${v.until})`,
     },
   },
 };

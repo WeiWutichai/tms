@@ -28363,6 +28363,7 @@
               "type": "string",
               "enum": [
                 "DRAFT",
+                "SENT_TO_CARRIER",
                 "APPROVED",
                 "CANCELLED"
               ]
@@ -29780,6 +29781,654 @@
           }
         ],
         "summary": "ยกเลิกใบร่าง — เหตุผล ≥ 10 ตัวอักษร",
+        "tags": [
+          "settlements"
+        ],
+        "x-required-scopes": [
+          "settlements:create"
+        ]
+      }
+    },
+    "/v1/settlements/{id}/send-to-carrier": {
+      "post": {
+        "description": "\"รถร่วมตรวจผ่านลิงก์\" · ต้องมีบรรทัดค่าขนส่ง (409 `settlement_empty`) และยอดสุทธิไม่ติดลบ (409 `settlement_net_negative`) · ออกลิงก์อายุ 7 วัน (`link.url` แสดงครั้งเดียว — ส่งทาง LINE/SMS ด้วย POST /v1/messages/send-link หรือคัดลอกไปส่งเอง) · รอบตรวจ +1 · ใบที่ส่งแล้วแก้/เพิ่ม/นำบรรทัดออก/ยกเลิกไม่ได้ (409) จนกว่าจะเรียกกลับ · **ผู้ส่งนับเป็นผู้เตรียมใบ — อนุมัติใบนี้ไม่ได้** · audit `settlement.sent`",
+        "operationId": "Settlements_send",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettlementSentDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`settlements:create`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settlements",
+                      "action": "create",
+                      "required": [
+                        "settlements:create"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "settlement_empty": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/settlement_empty",
+                      "title": "ใบสำคัญจ่ายยังไม่มีรายการเที่ยว อนุมัติไม่ได้",
+                      "status": 409,
+                      "code": "settlement_empty",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "settlement_net_negative": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/settlement_net_negative",
+                      "title": "ยอดสุทธิติดลบ อนุมัติไม่ได้ — นำรายการหักส่วนเกินออกแล้วยกไปงวดถัดไป",
+                      "status": 409,
+                      "code": "settlement_net_negative",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ส่งให้รถร่วมตรวจผ่านลิงก์ (DRAFT → SENT_TO_CARRIER)",
+        "tags": [
+          "settlements"
+        ],
+        "x-required-scopes": [
+          "settlements:create"
+        ]
+      }
+    },
+    "/v1/settlements/{id}/review-link": {
+      "post": {
+        "description": "เฉพาะใบ SENT_TO_CARRIER · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued`",
+        "operationId": "Settlements_reissueLink",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettlementReviewLinkDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`settlements:create`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settlements",
+                      "action": "create",
+                      "required": [
+                        "settlements:create"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ออกลิงก์ให้รถร่วมตรวจใหม่ (ลิงก์เดิมหมดอายุ/หาย)",
+        "tags": [
+          "settlements"
+        ],
+        "x-required-scopes": [
+          "settlements:create"
+        ]
+      }
+    },
+    "/v1/settlements/{id}/recall": {
+      "post": {
+        "description": "เช่น รถร่วมโต้แย้งรายการ แล้วต้องแก้/นำบรรทัดออก · เพิกถอนลิงก์ตรวจ · คำตอบของรถร่วมเก็บเป็นประวัติ (ส่งใหม่ = รอบใหม่) · audit `settlement.recalled`",
+        "operationId": "Settlements_recall",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettlementReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettlementDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`settlements:create`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settlements",
+                      "action": "create",
+                      "required": [
+                        "settlements:create"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "เรียกใบกลับมาแก้ (SENT_TO_CARRIER → DRAFT) — เหตุผล ≥ 10 ตัวอักษร",
         "tags": [
           "settlements"
         ],
@@ -42395,7 +43044,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_master.write_trips.assign"
+            "$ref": "#/components/responses/Forbidden_master.write_trips.assign_settlements.create"
           },
           "409": {
             "description": "`channel_unavailable` — ช่องทางปิดหรือยังไม่ตั้งค่า"
@@ -42438,7 +43087,8 @@
         ],
         "x-required-scopes": [
           "master:write",
-          "trips:assign"
+          "trips:assign",
+          "settlements:create"
         ]
       }
     },
@@ -42545,7 +43195,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_master.read_trips.read"
+            "$ref": "#/components/responses/Forbidden_master.read_trips.read_settlements.read"
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -42564,7 +43214,8 @@
         ],
         "x-required-scopes": [
           "master:read",
-          "trips:read"
+          "trips:read",
+          "settlements:read"
         ]
       }
     },
@@ -42605,7 +43256,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_master.read_trips.read"
+            "$ref": "#/components/responses/Forbidden_master.read_trips.read_settlements.read"
           },
           "429": {
             "$ref": "#/components/responses/RateLimited"
@@ -42621,7 +43272,8 @@
         ],
         "x-required-scopes": [
           "master:read",
-          "trips:read"
+          "trips:read",
+          "settlements:read"
         ]
       }
     },
@@ -42670,7 +43322,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_master.read_trips.read"
+            "$ref": "#/components/responses/Forbidden_master.read_trips.read_settlements.read"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -42689,7 +43341,8 @@
         ],
         "x-required-scopes": [
           "master:read",
-          "trips:read"
+          "trips:read",
+          "settlements:read"
         ]
       }
     },
@@ -56804,6 +57457,32 @@
           "branchCode"
         ]
       },
+      "SettlementCarrierReviewDto": {
+        "type": "object",
+        "properties": {
+          "round": {
+            "type": "number",
+            "description": "รอบตรวจปัจจุบัน (0 = ยังไม่เคยส่ง)"
+          },
+          "accepted": {
+            "type": "number"
+          },
+          "disputed": {
+            "type": "number",
+            "description": "บรรทัดที่รถร่วมโต้แย้ง (> 0 = อนุมัติไม่ได้ — 409 `settlement_disputed`)"
+          },
+          "pending": {
+            "type": "number",
+            "description": "บรรทัดที่รถร่วมยังไม่ตอบ"
+          }
+        },
+        "required": [
+          "round",
+          "accepted",
+          "disputed",
+          "pending"
+        ]
+      },
       "SettlementDeductionInput": {
         "type": "object",
         "properties": {
@@ -56862,6 +57541,7 @@
             "type": "string",
             "enum": [
               "DRAFT",
+              "SENT_TO_CARRIER",
               "APPROVED",
               "CANCELLED"
             ]
@@ -56934,6 +57614,18 @@
             "nullable": true,
             "description": "ผู้อนุมัติ (ไม่ใช่ผู้สร้าง — separation of duties)"
           },
+          "sentAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ส่งให้รถร่วมตรวจล่าสุด — ผู้ส่งนับเป็นผู้เตรียมใบ (อนุมัติใบนี้ไม่ได้)"
+          },
+          "sentBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "carrierReview": {
+            "$ref": "#/components/schemas/SettlementCarrierReviewDto"
+          },
           "cancelledAt": {
             "type": "string",
             "nullable": true
@@ -56976,6 +57668,9 @@
           "lines",
           "approvedAt",
           "approvedBy",
+          "sentAt",
+          "sentBy",
+          "carrierReview",
           "cancelledAt",
           "cancelledBy",
           "cancelReason",
@@ -57110,6 +57805,16 @@
           },
           "createdAt": {
             "type": "string"
+          },
+          "carrierReview": {
+            "nullable": true,
+            "description": "คำตอบล่าสุดของรถร่วมในรอบตรวจปัจจุบัน — null = ยังไม่ตอบ/ไม่ได้ส่งตรวจ",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SettlementLineReviewDto"
+              }
+            ]
           }
         },
         "required": [
@@ -57130,7 +57835,51 @@
           "voidedBy",
           "voidReason",
           "createdBy",
-          "createdAt"
+          "createdAt",
+          "carrierReview"
+        ]
+      },
+      "SettlementLineReviewDto": {
+        "type": "object",
+        "properties": {
+          "response": {
+            "type": "string",
+            "enum": [
+              "ACCEPTED",
+              "DISPUTED"
+            ],
+            "description": "ACCEPTED = รถร่วมยอมรับ · DISPUTED = โต้แย้ง (ติดธง — อนุมัติไม่ได้)"
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "description": "เหตุผลที่รถร่วมกรอก"
+          },
+          "photoIds": {
+            "example": [
+              "doc_…"
+            ],
+            "description": "รูปประกอบ — เปิดดูผ่าน GET /v1/documents/{id}",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "round": {
+            "type": "number",
+            "description": "รอบตรวจ (เพิ่มทุกครั้งที่ส่งให้รถร่วมตรวจ)"
+          },
+          "respondedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "response",
+          "reason",
+          "photoIds",
+          "round",
+          "respondedAt"
         ]
       },
       "SettlementPageDto": {
@@ -57331,6 +58080,43 @@
           "reason"
         ]
       },
+      "SettlementReviewLinkDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "mlk_…"
+          },
+          "url": {
+            "type": "string",
+            "description": "ลิงก์หน้าตรวจของรถร่วม (`/link/settlement/{token}`) — ส่งทาง LINE/SMS ด้วย POST /v1/messages/send-link หรือคัดลอกไปส่งเอง · แสดงครั้งเดียว (ไม่เก็บ token)"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "expiresAt"
+        ]
+      },
+      "SettlementSentDto": {
+        "type": "object",
+        "properties": {
+          "settlement": {
+            "$ref": "#/components/schemas/SettlementDto"
+          },
+          "link": {
+            "$ref": "#/components/schemas/SettlementReviewLinkDto"
+          }
+        },
+        "required": [
+          "settlement",
+          "link"
+        ]
+      },
       "SettlementSummaryDto": {
         "type": "object",
         "properties": {
@@ -57346,6 +58132,7 @@
             "type": "string",
             "enum": [
               "DRAFT",
+              "SENT_TO_CARRIER",
               "APPROVED",
               "CANCELLED"
             ]
@@ -57383,6 +58170,11 @@
             "nullable": true,
             "description": "เวลาอนุมัติ"
           },
+          "sentAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ส่งให้รถร่วมตรวจล่าสุด"
+          },
           "createdBy": {
             "type": "string",
             "nullable": true
@@ -57407,6 +58199,7 @@
           "carrierInvoiceNo",
           "tripCount",
           "approvedAt",
+          "sentAt",
           "createdBy",
           "version",
           "createdAt",
@@ -66676,7 +67469,7 @@
       },
       "WebhookEvent_settlement_approved": {
         "type": "object",
-        "description": "`data.object` ของ settlement.approved — อนุมัติใบสำคัญจ่ายรถร่วม (ออกเลข STL แล้ว — ผู้อนุมัติไม่ใช่ผู้สร้าง) · รูปเดียวกับ SettlementDto (ไม่มี field ราคา, lines, createdBy, approvedBy, cancelledBy, cancelReason, note)",
+        "description": "`data.object` ของ settlement.approved — อนุมัติใบสำคัญจ่ายรถร่วม (ออกเลข STL แล้ว — ผู้อนุมัติไม่ใช่ผู้สร้าง) · รูปเดียวกับ SettlementDto (ไม่มี field ราคา, lines, createdBy, approvedBy, cancelledBy, cancelReason, note, sentBy)",
         "properties": {
           "id": {
             "type": "string",
@@ -66691,6 +67484,7 @@
             "type": "string",
             "enum": [
               "DRAFT",
+              "SENT_TO_CARRIER",
               "APPROVED",
               "CANCELLED"
             ]
@@ -66732,6 +67526,14 @@
             "nullable": true,
             "description": "เวลาอนุมัติ — ออกเลข `settlementNo` พร้อมกัน"
           },
+          "sentAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ส่งให้รถร่วมตรวจล่าสุด — ผู้ส่งนับเป็นผู้เตรียมใบ (อนุมัติใบนี้ไม่ได้)"
+          },
+          "carrierReview": {
+            "$ref": "#/components/schemas/SettlementCarrierReviewDto"
+          },
           "cancelledAt": {
             "type": "string",
             "nullable": true
@@ -66759,6 +67561,8 @@
           "carrierReceiptNo",
           "tripCount",
           "approvedAt",
+          "sentAt",
+          "carrierReview",
           "cancelledAt",
           "version",
           "createdAt",
@@ -69162,8 +69966,8 @@
           }
         }
       },
-      "Forbidden_master.write_trips.assign": {
-        "description": "ไม่มีสิทธิ์ (`master:write` / `trips:assign` — มีตัวใดตัวหนึ่งก็พอ)",
+      "Forbidden_master.write_trips.assign_settlements.create": {
+        "description": "ไม่มีสิทธิ์ (`master:write` / `trips:assign` / `settlements:create` — มีตัวใดตัวหนึ่งก็พอ)",
         "content": {
           "application/problem+json": {
             "schema": {
@@ -69182,7 +69986,8 @@
                   "action": "write",
                   "required": [
                     "master:write",
-                    "trips:assign"
+                    "trips:assign",
+                    "settlements:create"
                   ]
                 }
               }
@@ -69190,8 +69995,8 @@
           }
         }
       },
-      "Forbidden_master.read_trips.read": {
-        "description": "ไม่มีสิทธิ์ (`master:read` / `trips:read` — มีตัวใดตัวหนึ่งก็พอ)",
+      "Forbidden_master.read_trips.read_settlements.read": {
+        "description": "ไม่มีสิทธิ์ (`master:read` / `trips:read` / `settlements:read` — มีตัวใดตัวหนึ่งก็พอ)",
         "content": {
           "application/problem+json": {
             "schema": {
@@ -69210,7 +70015,8 @@
                   "action": "read",
                   "required": [
                     "master:read",
-                    "trips:read"
+                    "trips:read",
+                    "settlements:read"
                   ]
                 }
               }
@@ -69910,6 +70716,11 @@
       "title": "ระบบกำลังมีผู้ใช้งานมาก กรุณาลองใหม่อีกครั้ง",
       "titleEn": "Service busy — please retry"
     },
+    "settlement_disputed": {
+      "status": 409,
+      "title": "มีรายการที่รถร่วมโต้แย้ง อนุมัติไม่ได้ — เรียกใบกลับมาแก้แล้วส่งให้รถร่วมตรวจใหม่",
+      "titleEn": "The carrier disputed lines of this settlement — it cannot be approved"
+    },
     "settlement_empty": {
       "status": 409,
       "title": "ใบสำคัญจ่ายยังไม่มีรายการเที่ยว อนุมัติไม่ได้",
@@ -69919,6 +70730,11 @@
       "status": 409,
       "title": "ยอดสุทธิติดลบ อนุมัติไม่ได้ — นำรายการหักส่วนเกินออกแล้วยกไปงวดถัดไป",
       "titleEn": "Net payable is negative — move the excess deductions to the next period"
+    },
+    "settlement_review_required": {
+      "status": 409,
+      "title": "ต้องส่งให้รถร่วมตรวจก่อนอนุมัติ (ตั้งค่าบริษัท)",
+      "titleEn": "The settlement must be sent to the carrier for review before approval"
     },
     "settlement_self_approval": {
       "status": 403,

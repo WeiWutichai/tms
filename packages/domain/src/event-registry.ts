@@ -91,7 +91,7 @@ const POD = shape('DeliveryOrderPodDto');
 const CONNECTOR = shape('ConnectorDto', { omit: ['systemOfRecord'] }); // ST7-T17: ค่าตั้ง SoR ไม่ใช่เรื่องสุขภาพการเชื่อมต่อ
 /** settlement: `GET /v1/settlements/{id}` − บรรทัด − id ผู้ใช้ − ข้อความอิสระ (`note`, `cancelReason`) (ยอด `buy*` ตัดอัตโนมัติ — ดูยอดผ่าน REST ด้วยสิทธิ์ `prices.buy:read`) */
 const SETTLEMENT = shape('SettlementDto', {
-  omit: ['lines', 'createdBy', 'approvedBy', 'cancelledBy', 'cancelReason', 'note'],
+  omit: ['lines', 'createdBy', 'approvedBy', 'cancelledBy', 'cancelReason', 'note', 'sentBy'],
 });
 const JOB = shape('JobDto');
 

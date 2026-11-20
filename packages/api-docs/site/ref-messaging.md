@@ -4,17 +4,17 @@
 
 | Endpoint | scope |
 |---|---|
-| [`POST /v1/messages/send-link`](#post-messages-send-link) | `master:write` / `trips:assign` |
-| [`GET /v1/messages`](#get-messages) | `master:read` / `trips:read` |
-| [`GET /v1/messages/channels`](#get-messages-channels) | `master:read` / `trips:read` |
-| [`GET /v1/messages/{id}`](#get-messages-id) | `master:read` / `trips:read` |
+| [`POST /v1/messages/send-link`](#post-messages-send-link) | `master:write` / `trips:assign` / `settlements:create` |
+| [`GET /v1/messages`](#get-messages) | `master:read` / `trips:read` / `settlements:read` |
+| [`GET /v1/messages/channels`](#get-messages-channels) | `master:read` / `trips:read` / `settlements:read` |
+| [`GET /v1/messages/{id}`](#get-messages-id) | `master:read` / `trips:read` / `settlements:read` |
 | [`GET /v1/settings/messaging`](#get-settings-messaging) | `settings:read` |
 
 ## POST /v1/messages/send-link {#post-messages-send-link}
 
 `POST /v1/messages/send-link`
 
-scope: `master:write` หรือ `trips:assign` · operationId: `Messages_send`
+scope: `master:write` หรือ `trips:assign` หรือ `settlements:create` · operationId: `Messages_send`
 
 **Request body** `SendLinkDto`
 
@@ -29,7 +29,7 @@ scope: `master:write` หรือ `trips:assign` · operationId: `Messages_send
 |---|---|---|
 | `202` | เข้าคิวส่งแล้ว (status `queued`) — worker ส่งจริงพร้อม retry; ติดตามผลที่ GET /v1/messages/{id} · ส่งไม่ได้/ล้ม ผู้ใช้ยังคัดลอก url ไปส่งเองได้เสมอ | `MessageDeliveryDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`master:write` / `trips:assign` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:write` / `trips:assign` / `settlements:create` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `409` | `channel_unavailable` — ช่องทางปิดหรือยังไม่ตั้งค่า |   |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
 | `429` | เกินเพดานต่อบริษัท/ชั่วโมง หรือต่อผู้รับ/ชั่วโมง | `ProblemDto` |
@@ -57,7 +57,7 @@ const { data, error } = await tms.POST('/v1/messages/send-link', {
 
 `GET /v1/messages`
 
-scope: `master:read` หรือ `trips:read` · operationId: `Messages_list`
+scope: `master:read` หรือ `trips:read` หรือ `settlements:read` · operationId: `Messages_list`
 
 **Parameters**
 
@@ -76,7 +76,7 @@ scope: `master:read` หรือ `trips:read` · operationId: `Messages_list`
 |---|---|---|
 | `200` | บันทึกการส่ง ใหม่ → เก่า (เฉพาะชนิดลิงก์ที่มีสิทธิ์ดู) — ผู้รับแสดงแบบปิดบังเสมอ ไม่มีเนื้อความ | `MessageDeliveryPageDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`master:read` / `trips:read` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:read` / `trips:read` / `settlements:read` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
 
@@ -95,7 +95,7 @@ const { data, error } = await tms.GET('/v1/messages');
 
 `GET /v1/messages/channels`
 
-scope: `master:read` หรือ `trips:read` · operationId: `Messages_channels`
+scope: `master:read` หรือ `trips:read` หรือ `settlements:read` · operationId: `Messages_channels`
 
 **Responses**
 
@@ -103,7 +103,7 @@ scope: `master:read` หรือ `trips:read` · operationId: `Messages_channel
 |---|---|---|
 | `200` | ช่องทางที่ส่งได้ตอนนี้ — UI ซ่อนปุ่มส่งของช่องที่ใช้ไม่ได้ (เหลือคัดลอกลิงก์) | `ChannelStatusListDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`master:read` / `trips:read` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:read` / `trips:read` / `settlements:read` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
 
 **ตัวอย่าง**
@@ -121,7 +121,7 @@ const { data, error } = await tms.GET('/v1/messages/channels');
 
 `GET /v1/messages/{id}`
 
-scope: `master:read` หรือ `trips:read` · operationId: `Messages_get`
+scope: `master:read` หรือ `trips:read` หรือ `settlements:read` · operationId: `Messages_get`
 
 **Parameters**
 
@@ -135,7 +135,7 @@ scope: `master:read` หรือ `trips:read` · operationId: `Messages_get`
 |---|---|---|
 | `200` |   | `MessageDeliveryDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`master:read` / `trips:read` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:read` / `trips:read` / `settlements:read` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
 

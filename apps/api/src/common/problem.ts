@@ -401,6 +401,18 @@ export const PROBLEMS = {
     th: 'ยอดสุทธิติดลบ อนุมัติไม่ได้ — นำรายการหักส่วนเกินออกแล้วยกไปงวดถัดไป',
     en: 'Net payable is negative — move the excess deductions to the next period',
   },
+  /** ST6-T05 (docs/01 §4.5 "dispute ใด ๆ บล็อก approve", spec/05 BIL-136): มีบรรทัดที่รถร่วมโต้แย้งในรอบตรวจปัจจุบัน — extension `disputedCount` */
+  settlement_disputed: {
+    status: 409,
+    th: 'มีรายการที่รถร่วมโต้แย้ง อนุมัติไม่ได้ — เรียกใบกลับมาแก้แล้วส่งให้รถร่วมตรวจใหม่',
+    en: 'The carrier disputed lines of this settlement — it cannot be approved',
+  },
+  /** ST6-T05 (docs/01 §4.5): บริษัทตั้งให้รถร่วมตรวจก่อนอนุมัติ (`settlement.carrierReviewRequired`) — ร่างอนุมัติตรงไม่ได้ */
+  settlement_review_required: {
+    status: 409,
+    th: 'ต้องส่งให้รถร่วมตรวจก่อนอนุมัติ (ตั้งค่าบริษัท)',
+    en: 'The settlement must be sent to the carrier for review before approval',
+  },
   /** ST6-T03: เที่ยว/บรรทัดต้นทุนไม่อยู่ในคิวจ่ายของรถร่วมรายนี้ (ยังไม่ปิดต้นทุน / POD ไม่ครบ / ต่างรถร่วม / ยังไม่ยืนยัน) — extension `tripIds`, `tripCostIds` */
   trip_cost_not_payable: {
     status: 409,
