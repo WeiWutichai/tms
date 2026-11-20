@@ -48,6 +48,7 @@ const field422 = (field: string, code: string, message: string) =>
   new ProblemException('validation_failed', undefined, [{ field, code, message }]);
 
 type ReviewRow = {
+  id: string;
   lineId: string;
   round: number;
   response: string;
@@ -56,13 +57,23 @@ type ReviewRow = {
   createdAt: Date;
 };
 
-/** คำตอบล่าสุดต่อบรรทัดของรอบ `round` (แถวเรียงใหม่สุดก่อน หรือไม่เรียงก็ได้) */
-export function latestReviews<T extends ReviewRow>(rows: T[], round: number): Map<string, T> {
+/** ลำดับคำตอบ (เวลา แล้ว id — เวลาเท่ากันก็ได้ผลแน่นอน ตรงกับ trigger 0127 `ORDER BY created_at, id`) */
+export const REVIEW_ORDER = [{ createdAt: 'asc' as const }, { id: 'asc' as const }];
+
+/** คำตอบล่าสุดต่อบรรทัดของรอบ `round` — (createdAt, id) มากสุดชนะ ไม่ขึ้นกับลำดับที่ส่งเข้ามา */
+export function latestReviews<T extends Pick<ReviewRow, 'id' | 'lineId' | 'round' | 'createdAt'>>(
+  rows: T[],
+  round: number,
+): Map<string, T> {
   const out = new Map<string, T>();
   for (const r of rows) {
     if (r.round !== round) continue;
     const cur = out.get(r.lineId);
-    if (!cur || r.createdAt.getTime() >= cur.createdAt.getTime()) out.set(r.lineId, r);
+    const later =
+      !cur ||
+      r.createdAt.getTime() > cur.createdAt.getTime() ||
+      (r.createdAt.getTime() === cur.createdAt.getTime() && r.id > cur.id);
+    if (later) out.set(r.lineId, r);
   }
   return out;
 }
@@ -240,6 +251,8 @@ export class SettlementReviewService {
     await tx.$queryRaw`SELECT id FROM carrier_settlement WHERE id = ${settlementId}::uuid FOR UPDATE`;
     const s = await tx.carrierSettlement.findUniqueOrThrow({ where: { id: settlementId } });
     if (s.status !== 'SENT_TO_CARRIER') throw closed(s.status);
+    // ลิงก์ถูกเพิกถอน/หมดอายุระหว่างรอล็อก (เรียกกลับ/ออกลิงก์ใหม่พร้อมกัน) → 404 (review L2)
+    await this.assertLinkLive(linkId, s.id);
     const lineId = await this.lineOf(s.id, lineRef);
     const reason = body.reason?.trim() || null;
     const photos = body.photoDocumentIds ?? [];
@@ -282,6 +295,21 @@ export class SettlementReviewService {
   }
 
   // ---------- ภายใน ----------
+
+  /** ลิงก์ยังใช้ได้และชี้ใบนี้ (อ่านหลังล็อกใบ) */
+  private async assertLinkLive(linkId: string, settlementId: string): Promise<void> {
+    const ok = await this.db.tx.magicLink.findFirst({
+      where: {
+        id: linkId,
+        purpose: REVIEW_LINK_PURPOSE,
+        entityId: settlementId,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      select: { id: true },
+    });
+    if (!ok) throw new ProblemException('not_found');
+  }
 
   /** บรรทัดที่ยังใช้ของใบ (id ภายนอก) — ไม่ใช่ของใบนี้/นำออกแล้ว → 404 */
   private async lineOf(settlementId: string, ref: string): Promise<string> {
@@ -354,7 +382,9 @@ export class SettlementReviewService {
     });
     const reviews = await tx.settlementLineReview.findMany({
       where: { settlementId, round },
+      orderBy: REVIEW_ORDER,
       select: {
+        id: true,
         lineId: true,
         round: true,
         response: true,

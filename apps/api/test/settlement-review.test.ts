@@ -14,6 +14,7 @@ import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import request from 'supertest';
 import { resetLinkWriteRate } from '../src/http/link-rate-limit';
+import { encodeLinkToken } from '../src/modules/links/magic-link.service';
 import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
 
 /**
@@ -687,12 +688,129 @@ describe('settlement carrier review (ST6-T05)', () => {
     );
     await fails(
       (tx) => tx.carrierSettlement.update({ where: { id: sid }, data: { reviewRound: 5 } }),
-      /carrier_settlement_review_round/,
+      /carrier_settlement_sent_frozen|carrier_settlement_review_round/,
     );
     // บรรทัดของใบที่ส่งตรวจแข็ง
     await fails(
       (tx) => tx.settlementLine.update({ where: { id: lid }, data: { description: 'แก้' } }),
       /settlement_line_frozen/,
     );
+  });
+  it('review M1: เรียกกลับแล้วอนุมัติร่างตรงไม่ข้ามการโต้แย้ง (409) · ผู้เรียกกลับอนุมัติไม่ได้ · นำบรรทัดที่โต้แย้งออก = เคลียร์', async () => {
+    await resetLinkWriteRate();
+    const { s, token } = await sent(2);
+    await respond(token, s.lines[0]!.id, { response: 'DISPUTED', reason: 'ค่ารอไม่ตรง' }).expect(
+      201,
+    );
+    const owner2 = await tokenFor(tenantId, '*', 'u-recall');
+    await recall(s.id, owner2).expect(200);
+    const blocked = await approve(s.id).expect(409);
+    expect(blocked.body).toMatchObject({ code: 'settlement_disputed', disputedCount: 1 });
+    // ผู้เรียกกลับ = ผู้เตรียมใบ
+    expect((await approve(s.id, owner2).expect(403)).body.code).toBe('settlement_self_approval');
+    // DB: ข้ามบริการไป APPROVED ตรงไม่ได้
+    await expect(
+      run((tx) =>
+        tx.carrierSettlement.update({
+          where: { id: uuid('settlement', s.id) },
+          data: {
+            status: 'APPROVED',
+            settlementNo: 'SA-9999-0201',
+            approvedAt: new Date(),
+            approvedBy: 'u-appr',
+          },
+        }),
+      ),
+    ).rejects.toThrow(/carrier_settlement_disputed/);
+    await api(app, accounting)
+      .post(`/v1/settlements/${s.id}/lines/${s.lines[0]!.id}/remove`)
+      .set('If-Match', `"${await version(s.id)}"`)
+      .send({ reason: 'รถร่วมโต้แย้ง ยกไปงวดหน้า' })
+      .expect(200);
+    await approve(s.id).expect(200);
+  });
+
+  it('review L3: ผู้ส่งรอบก่อน / ผู้ออกลิงก์ใหม่ ยังนับเป็นผู้เตรียม (ไม่ถูกเขียนทับ) · หัวใบแข็งระหว่างรอตรวจ (DB)', async () => {
+    const { C, trips } = await setup(1);
+    const d = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
+      .body;
+    const first = await tokenFor(tenantId, '*', 'u-first-sender');
+    const reissuer = await tokenFor(tenantId, '*', 'u-reissuer');
+    await send(d.id, first).expect(200);
+    await recall(d.id).expect(200);
+    await send(d.id).expect(200); // ส่งรอบ 2 โดยผู้สร้าง — sent_by เปลี่ยน แต่ผู้ส่งรอบแรกยังอยู่
+    await api(app, reissuer).post(`/v1/settlements/${d.id}/review-link`).expect(201);
+    expect((await approve(d.id, first).expect(403)).body.code).toBe('settlement_self_approval');
+    expect((await approve(d.id, reissuer).expect(403)).body.code).toBe('settlement_self_approval');
+    const sid = uuid('settlement', d.id);
+    const fails = (fn: (tx: Tx) => Promise<unknown>, re: RegExp) =>
+      expect(run(fn)).rejects.toThrow(re);
+    await fails(
+      (tx) => tx.carrierSettlement.update({ where: { id: sid }, data: { note: 'แก้ระหว่างรอ' } }),
+      /carrier_settlement_sent_frozen/,
+    );
+    await fails(
+      (tx) => tx.carrierSettlement.update({ where: { id: sid }, data: { preparers: [] } }),
+      /carrier_settlement_preparers/,
+    );
+    // DB: ผู้ส่งรอบแรกอนุมัติตรงไม่ได้
+    await fails(
+      (tx) =>
+        tx.carrierSettlement.update({
+          where: { id: sid },
+          data: {
+            status: 'APPROVED',
+            settlementNo: 'SA-9999-0202',
+            approvedAt: new Date(),
+            approvedBy: 'u-first-sender',
+          },
+        }),
+      /carrier_settlement_sod/,
+    );
+    await approve(d.id).expect(200);
+  });
+
+  it('ลิงก์หมดอายุ → 404 · รูปที่จองด้วยลิงก์เดิมใช้กับลิงก์ใหม่ไม่ได้ (422) · ลิงก์เดิมจอง/อัปโหลดไม่ได้หลังออกใหม่', async () => {
+    await resetLinkWriteRate();
+    const { s, token } = await sent(1);
+    const lid = s.lines[0]!.id;
+    const old = await photo(token, lid);
+    const pending = (
+      await pub()
+        .post(`/v1/public/settlements/${token}/files`)
+        .send({ lineId: lid, mime: 'image/png', bytes: PNG.length })
+        .expect(201)
+    ).body.uploadUrl as string;
+    const re = await api(app, accounting).post(`/v1/settlements/${s.id}/review-link`).expect(201);
+    const t2 = tokenOf(re.body.url as string);
+    const r = await respond(t2, lid, { response: 'DISPUTED', photoDocumentIds: [old] }).expect(422);
+    expect((r.body.errors as { field: string }[])[0]!.field).toBe('photoDocumentIds.0');
+    await pub()
+      .post(`/v1/public/settlements/${token}/files`)
+      .send({ lineId: lid, mime: 'image/png', bytes: PNG.length })
+      .expect(404);
+    await pub()
+      .put(pathOf(pending))
+      .set('Content-Type', 'application/octet-stream')
+      .send(PNG)
+      .expect(404);
+    // หมดอายุ: token ลายเซ็นถูกต้องแต่เวลาหมดอายุผ่านไปแล้ว (อายุในแถวแก้ไม่ได้ — trigger) → 404
+    const expired = encodeLinkToken(
+      tryDecodeId('magicLink', re.body.id as string)!,
+      Math.floor(Date.now() / 1000) - 60,
+    );
+    await view(expired).expect(404);
+    await respond(expired, lid, { response: 'ACCEPTED' }).expect(404);
+    await view(t2).expect(200);
+  });
+
+  it('rate limit ต่อลิงก์: 30 คำขอเขียน/นาที แล้ว 429', async () => {
+    await resetLinkWriteRate();
+    const { s, token } = await sent(1);
+    for (let i = 0; i < 30; i++)
+      await respond(token, s.lines[0]!.id, { response: 'ACCEPTED' }).expect(201);
+    const r = await respond(token, s.lines[0]!.id, { response: 'ACCEPTED' }).expect(429);
+    expect(r.body.code).toBe('rate_limited');
+    await resetLinkWriteRate();
   });
 });

@@ -2138,6 +2138,8 @@ model CarrierSettlement {
   sentAt             DateTime?        @map("sent_at") @db.Timestamptz(6)
   sentBy             String?          @map("sent_by")
   reviewRound        Int              @default(0) @map("review_round")
+  /// ผู้เตรียมใบจากขั้นรถร่วมตรวจ (ผู้ส่งทุกรอบ + ผู้เรียกกลับ + ผู้ออกลิงก์ใหม่) — เพิ่มอย่างเดียว · อนุมัติใบนี้ไม่ได้ (SoD)
+  preparers          String[]         @default([])
   /// อนุมัติ (ST6-T07) — ผู้อนุมัติ ≠ ผู้สร้าง (CHECK) · เลข STL ออกตอนนี้ (issueNumber) แก้ไม่ได้
   approvedAt         DateTime?        @map("approved_at") @db.Timestamptz(6)
   approvedBy         String?          @map("approved_by")

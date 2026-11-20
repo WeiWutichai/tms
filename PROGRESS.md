@@ -291,6 +291,11 @@
 
 ## บันทึกรายวัน
 
+### 20 พ.ย. 2569 (ST6-T05 แก้ตาม review — lane l5)
+
+- **ทำ:** (M1) dispute บล็อกอนุมัติทั้งใบรอตรวจและร่างที่เรียกกลับ (คำตอบล่าสุดของรอบล่าสุด, บรรทัดที่ยังใช้) + ผู้เรียกกลับเป็นผู้เตรียม · (L3) `carrier_settlement.preparers` (ผู้ส่งทุกรอบ/ผู้เรียกกลับ/ผู้ออกลิงก์ใหม่ — เพิ่มอย่างเดียว) ใน service + trigger · (L4) trigger ตอน → APPROVED ตรวจบรรทัดที่โต้แย้ง + หัวใบแข็งระหว่าง SENT_TO_CARRIER · (L2) ตรวจลิงก์ซ้ำหลังล็อกใบ · (L5) ลำดับคำตอบ (createdAt, id) · (L1/L6) docstring + spec/12 [OPEN — PO] pending=0 / ชื่อสถานที่บนลิงก์ · test +4 (M1, L3/DB, ลิงก์หมดอายุ + รูปลิงก์เดิมหลังออกใหม่, 429) · แก้ใน 0127 (ยังไม่ merge — ฐาน tms_l5* ปรับมือ + checksum)
+- **ไฟล์:** `migrations/0127_settlement_carrier_review/`, `schema.prisma`, `settlements/{settlements.service,settlement-review.service}.ts`, `test/settlement-review.test.ts`, spec/12
+
 ### 20 พ.ย. 2569 (ST6-T05 รถร่วมตรวจใบสำคัญจ่ายผ่านลิงก์ — lane l5)
 
 - **ทำ:** ส่งให้รถร่วมตรวจ `POST /v1/settlements/{id}/send-to-carrier` (DRAFT → SENT_TO_CARRIER, รอบตรวจ +1, magic link `settlement_review` 7 วัน — URL ในคำตอบ) · ออกลิงก์ใหม่ `/review-link` · เรียกกลับ `/recall` (เหตุผล + If-Match, SENT → DRAFT, เพิกถอนลิงก์) · หน้าลิงก์สาธารณะ `GET /v1/public/settlements/{token}` (เฉพาะบรรทัดของใบ = เที่ยว/ราคาซื้อของรถร่วมรายนี้), `POST …/files` (จองรูป), `POST …/lines/{lineId}/review` (ยอมรับ/โต้แย้ง + เหตุผล/รูป; คำตอบล่าสุดของรอบใช้ · ตาราง `settlement_line_review` เพิ่มอย่างเดียว) · โต้แย้ง = ติดธง → อนุมัติ 409 `settlement_disputed` (`assertNoOpenDisputes`) · อนุมัติจาก SENT_TO_CARRIER ได้ · ค่าตั้ง `settlement.carrierReviewRequired` (ค่าเริ่มปิด; เปิด → ร่างอนุมัติตรง 409 `settlement_review_required`; ปิด = step-up) · SoD: ผู้ส่ง = ผู้เตรียม, actor สังเคราะห์อนุมัติไม่ได้ (DB) · `SettlementDto` + `sentAt/sentBy/carrierReview` และ `lines[].carrierReview` · ส่งลิงก์ทาง LINE/SMS (ชนิด `settlement_review`) · หน้าเว็บ `/link/settlement/:token` ประกอบจากชิ้นต้นแบบ TMS Subcon (DECISION spec/12 §3) · audit `carrier_settlement` เข้ารายการที่ retention ไม่ลบ (ตกหล่นจาก T03 — `tms_audit_retention_purge` ใน 0127) · ค่าตั้งใหม่ลง plan/12 #28

@@ -28,6 +28,7 @@ import { SettlementQueueService } from './settlement-queue.service';
 import type { SettlementSentDto, SettlementReviewLinkDto } from './settlement-review.dto';
 import {
   latestReviews,
+  REVIEW_ORDER,
   REVIEW_REVOKE_REASON,
   SettlementReviewService,
 } from './settlement-review.service';
@@ -407,7 +408,10 @@ export class SettlementsService {
       )['settlement.carrierReviewRequired'];
       if (required === true) throw new ProblemException('settlement_review_required');
     }
-    await this.assertNotPreparer(tx, id, s.createdBy, s.updatedBy, actor, s.sentBy);
+    await this.assertNotPreparer(tx, id, s.createdBy, s.updatedBy, actor, [
+      ...(s.sentBy ? [s.sentBy] : []),
+      ...s.preparers,
+    ]);
     await this.assertNoOpenDisputes(tx, s);
     // ต้องมีบรรทัดค่าขนส่ง (FREIGHT) อย่างน้อย 1 — ค่าใช้จ่ายเพิ่ม (SURCHARGE) อย่างเดียวไม่นับเป็นใบ (review L4)
     const trips = await tx.settlementLine.count({
@@ -472,7 +476,7 @@ export class SettlementsService {
     createdBy: string | null,
     updatedBy: string | null,
     actor: string,
-    sentBy: string | null = null,
+    reviewPreparers: string[] = [],
   ): Promise<void> {
     const lines = await tx.settlementLine.findMany({
       where: { settlementId: id },
@@ -482,8 +486,9 @@ export class SettlementsService {
       createdBy,
       // ผู้แก้หัวใบล่าสุด (ไม่เคยแก้ = ไม่นับ)
       ...(updatedBy ? [updatedBy] : []),
-      // ผู้ส่งให้รถร่วมตรวจ (ST6-T05) = ผู้เตรียมใบ · รถร่วม (`link:`) ไม่ได้สร้าง/แก้บรรทัด จึงไม่อยู่ในรายการนี้
-      ...(sentBy ? [sentBy] : []),
+      // ขั้นรถร่วมตรวจ (ST6-T05): ผู้ส่งทุกรอบ + ผู้เรียกกลับ + ผู้ออกลิงก์ใหม่ = ผู้เตรียมใบ ·
+      // รถร่วม (`link:`) ไม่ได้สร้าง/แก้บรรทัด จึงไม่อยู่ในรายการนี้
+      ...reviewPreparers,
       ...lines.map((l) => l.createdBy),
       ...lines.filter((l) => l.voidedAt).map((l) => l.voidedBy),
     ];
@@ -494,16 +499,20 @@ export class SettlementsService {
 
   /**
    * dispute บล็อกการอนุมัติ (docs/01 §4.5 "disputed_count = 0", spec/05 BIL-136) — ST6-T05: บรรทัดที่ยังใช้ซึ่งคำตอบล่าสุดของรถร่วม
-   * ในรอบตรวจปัจจุบันเป็น DISPUTED → 409 `settlement_disputed` (+ `disputedCount`) · ทางเคลียร์ = เรียกกลับมาแก้แล้วส่งตรวจรอบใหม่
+   * ในรอบตรวจล่าสุดเป็น DISPUTED → 409 `settlement_disputed` (+ `disputedCount`) — ทั้งใบที่รอตรวจและร่างที่เรียกกลับ (review M1:
+   * เรียกกลับแล้วอนุมัติร่างตรงไม่ข้ามการโต้แย้ง) · ทางเคลียร์ = นำบรรทัดที่โต้แย้งออก หรือส่งตรวจรอบใหม่ (trigger 0127 ตรวจซ้ำ)
    * (ST6-T06 เพิ่มสถานะรายการ OPEN/DISPUTED/APPROVED + ยืนยันยอดเดิมพร้อมเหตุผล)
    */
   private async assertNoOpenDisputes(
     tx: Tx,
     s: { id: string; status: string; reviewRound: number },
   ): Promise<void> {
-    if (s.status !== 'SENT_TO_CARRIER') return;
+    if (s.reviewRound === 0) return;
     const [rows, active] = await Promise.all([
-      tx.settlementLineReview.findMany({ where: { settlementId: s.id, round: s.reviewRound } }),
+      tx.settlementLineReview.findMany({
+        where: { settlementId: s.id, round: s.reviewRound },
+        orderBy: REVIEW_ORDER,
+      }),
       tx.settlementLine.findMany({
         where: { settlementId: s.id, voidedAt: null },
         select: { id: true },
@@ -520,8 +529,9 @@ export class SettlementsService {
   // ---------- รถร่วมตรวจ (ST6-T05) ----------
 
   /**
-   * ส่งให้รถร่วมตรวจ (docs/01 §4.5 DRAFT → SENT_TO_CARRIER) — ต้องมีบรรทัดค่าขนส่งและยอดสุทธิไม่ติดลบ (อนุมัติได้เมื่อรถร่วมยอมรับ)
-   * รอบตรวจ +1 · ผู้ส่ง = ผู้เตรียมใบ (SoD) · ออกลิงก์ 7 วัน (เพิกถอนลิงก์เดิม) — URL แสดงในคำตอบนี้ครั้งเดียว · บรรทัดแข็งจนเรียกกลับ
+   * ส่งให้รถร่วมตรวจ (docs/01 §4.5 DRAFT → SENT_TO_CARRIER) — ต้องมีบรรทัดค่าขนส่งและยอดสุทธิไม่ติดลบ
+   * อนุมัติได้เมื่อไม่มีบรรทัดที่รถร่วมโต้แย้ง (บรรทัดที่ยังไม่ตอบไม่บล็อก — [OPEN PO] spec/12 §3) · ค่าตั้ง `carrierReviewRequired`
+   * บังคับแค่ว่าต้องส่งตรวจก่อนอนุมัติ · รอบตรวจ +1 · ผู้ส่ง = ผู้เตรียมใบ (SoD) · ออกลิงก์ 7 วัน (เพิกถอนลิงก์เดิม) — URL แสดงในคำตอบนี้ครั้งเดียว · หัวใบ/บรรทัดแข็งจนเรียกกลับ
    */
   async send(id: string, expected: number | undefined): Promise<SettlementSentDto> {
     const tx = this.db.tx;
@@ -539,6 +549,7 @@ export class SettlementsService {
         status: 'SENT_TO_CARRIER',
         sentAt: new Date(),
         sentBy: actor,
+        preparers: { push: actor },
         reviewRound: { increment: 1 },
         version: { increment: 1 },
       },
@@ -572,6 +583,11 @@ export class SettlementsService {
       throw new ProblemException('invalid_state_transition', undefined, undefined, {
         status: s.status,
       });
+    // ผู้ออกลิงก์ใหม่ = ผู้เตรียมใบ (review L3)
+    await tx.carrierSettlement.update({
+      where: { id },
+      data: { preparers: { push: requestContext.require().actorId ?? 'system' } },
+    });
     const link = await this.review.issueLink(tx, id);
     await this.audit.record({
       action: 'settlement.review_link_reissued',
@@ -591,7 +607,12 @@ export class SettlementsService {
     const s = await this.lockFor(tx, id, expected, ['SENT_TO_CARRIER']);
     await tx.carrierSettlement.update({
       where: { id },
-      data: { status: 'DRAFT', version: { increment: 1 } },
+      // ผู้เรียกกลับ = ผู้เตรียมใบ (review M1/L3)
+      data: {
+        status: 'DRAFT',
+        preparers: { push: requestContext.require().actorId ?? 'system' },
+        version: { increment: 1 },
+      },
     });
     const revoked = await this.review.revokeActive(tx, id, REVIEW_REVOKE_REASON.RECALLED);
     const out = await this.get(id);
@@ -621,7 +642,7 @@ export class SettlementsService {
           orderBy: { lineNo: 'asc' },
           include: { tripCost: { select: { costType: true } }, trip: { select: { tripNo: true } } },
         },
-        reviews: true,
+        reviews: { orderBy: REVIEW_ORDER },
       },
     });
   }

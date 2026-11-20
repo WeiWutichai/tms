@@ -3,13 +3,17 @@
 --     SENT_TO_CARRIER → DRAFT (เรียกกลับมาแก้) / APPROVED · บรรทัดของใบที่ส่งแล้วแข็ง (กติกาเดิม 0124: ไม่ใช่ร่าง = แก้ไม่ได้)
 -- (2) settlement_line_review: คำตอบของรถร่วมต่อบรรทัด (ยอมรับ/โต้แย้ง + เหตุผล/รูป) — เพิ่มอย่างเดียว ·
 --     ตอบได้เฉพาะใบ SENT_TO_CARRIER ในรอบปัจจุบัน · ผู้ตอบ = actor สังเคราะห์ `link:<id>` ของลิงก์ที่ตอบ
--- (3) separation of duties: ผู้ส่งให้รถร่วมตรวจ (`sent_by`) นับเป็นผู้เตรียมใบ · ผู้อนุมัติต้องเป็นคน — actor สังเคราะห์
---     (`link:` `connector:` ฯลฯ ที่มี `:` หลังแปลง key / `system`) อนุมัติไม่ได้
+-- (3) separation of duties: ผู้ส่งให้รถร่วมตรวจทุกรอบ / ผู้เรียกกลับ / ผู้ออกลิงก์ใหม่ (`preparers` + `sent_by`) นับเป็นผู้เตรียมใบ ·
+--     ผู้อนุมัติต้องเป็นคน — actor สังเคราะห์ (`link:` `connector:` ฯลฯ ที่มี `:` หลังแปลง key / `system`) อนุมัติไม่ได้
+--     · อนุมัติไม่ได้ถ้าบรรทัดที่ยังใช้มีคำตอบล่าสุด (รอบตรวจล่าสุด) เป็น DISPUTED — ทั้งจาก SENT_TO_CARRIER และร่างที่เรียกกลับ (review M1/L4)
+--     · ระหว่าง SENT_TO_CARRIER หัวใบแก้ไม่ได้ (ยกเว้นสถานะ/อนุมัติ/ผู้เตรียม/version)
 
 -- AlterTable
 ALTER TABLE "carrier_settlement" ADD COLUMN "sent_at" TIMESTAMPTZ(6),
 ADD COLUMN "sent_by" TEXT,
-ADD COLUMN "review_round" INTEGER NOT NULL DEFAULT 0;
+ADD COLUMN "review_round" INTEGER NOT NULL DEFAULT 0,
+-- ผู้เตรียมใบจากขั้นรถร่วมตรวจ (ผู้ส่งทุกรอบ + ผู้เรียกกลับ + ผู้ออกลิงก์ใหม่) — เพิ่มอย่างเดียว (review L3)
+ADD COLUMN "preparers" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
 
 ALTER TABLE "carrier_settlement" DROP CONSTRAINT "carrier_settlement_status_check";
 ALTER TABLE "carrier_settlement" ADD CONSTRAINT "carrier_settlement_status_check"
@@ -38,6 +42,17 @@ BEGIN
      OR (OLD.settlement_no IS NOT NULL AND NEW.settlement_no IS DISTINCT FROM OLD.settlement_no) THEN
     RAISE EXCEPTION 'carrier_settlement_immutable: carrier_settlement %: tenant / carrier / creator / document number cannot change', OLD.id
       USING ERRCODE = 'check_violation', CONSTRAINT = 'carrier_settlement_immutable';
+  END IF;
+  -- ระหว่างรอรถร่วมตรวจ: หัวใบ (ยอด งวด หมายเหตุ เลขใบแจ้งหนี้ ฯลฯ) แข็ง — เปลี่ยนได้เฉพาะสถานะ/อนุมัติ/ผู้เตรียม (review L4)
+  IF OLD.status = 'SENT_TO_CARRIER'
+     AND (pg_catalog.to_jsonb(NEW) - ARRAY['status', 'version', 'updated_at', 'approved_at', 'approved_by', 'settlement_no', 'preparers'])
+         IS DISTINCT FROM (pg_catalog.to_jsonb(OLD) - ARRAY['status', 'version', 'updated_at', 'approved_at', 'approved_by', 'settlement_no', 'preparers']) THEN
+    RAISE EXCEPTION 'carrier_settlement_sent_frozen: carrier_settlement % is awaiting the carrier review — recall it before editing', OLD.id
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'carrier_settlement_sent_frozen';
+  END IF;
+  IF NOT (NEW.preparers @> OLD.preparers) THEN
+    RAISE EXCEPTION 'carrier_settlement_preparers: carrier_settlement %: preparers can only be appended', OLD.id
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'carrier_settlement_preparers';
   END IF;
   IF NEW.review_round < OLD.review_round
      OR (NEW.review_round <> OLD.review_round AND NOT (OLD.status = 'DRAFT' AND NEW.status = 'SENT_TO_CARRIER')) THEN
@@ -69,12 +84,23 @@ BEGIN
            SELECT NEW.created_by AS a
            UNION ALL SELECT NEW.updated_by WHERE NEW.updated_by IS NOT NULL
            UNION ALL SELECT NEW.sent_by WHERE NEW.sent_by IS NOT NULL
+           UNION ALL SELECT p FROM unnest(NEW.preparers) AS p
            UNION ALL SELECT l.created_by FROM settlement_line l WHERE l.settlement_id = NEW.id
            UNION ALL SELECT l.voided_by FROM settlement_line l WHERE l.settlement_id = NEW.id AND l.voided_at IS NOT NULL
          ) p
          WHERE tms_resolve_actor(p.a) IS NULL OR tms_resolve_actor(p.a) = approver) THEN
       RAISE EXCEPTION 'carrier_settlement_sod: carrier_settlement %: approver % prepared this settlement, is not a person, or a preparer is unknown', NEW.id, NEW.approved_by
         USING ERRCODE = 'check_violation', CONSTRAINT = 'carrier_settlement_sod';
+    END IF;
+    -- dispute บล็อกอนุมัติ (docs/01 §4.5): คำตอบล่าสุดของรอบตรวจล่าสุดของบรรทัดที่ยังใช้ = DISPUTED → ปฏิเสธ
+    IF NEW.review_round > 0 AND EXISTS (
+         SELECT 1 FROM settlement_line l
+          WHERE l.settlement_id = NEW.id AND l.voided_at IS NULL
+            AND (SELECT r.response FROM settlement_line_review r
+                  WHERE r.line_id = l.id AND r.round = NEW.review_round
+                  ORDER BY r.created_at DESC, r.id DESC LIMIT 1) = 'DISPUTED') THEN
+      RAISE EXCEPTION 'carrier_settlement_disputed: carrier_settlement % has lines disputed by the carrier', NEW.id
+        USING ERRCODE = 'check_violation', CONSTRAINT = 'carrier_settlement_disputed';
     END IF;
   END IF;
   RETURN NEW;
