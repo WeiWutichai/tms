@@ -1004,6 +1004,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'sub.wo.reject': '已拒绝',
   'stl.tab': '财务',
   'stl.st.SENT_TO_CARRIER': '待审核',
+  'stl.st.PAID': '已支付',
   'stl.gross': '合计',
   'stl.secTrips': '行程明细',
   'stl.ln.st.PENDING': '待审核',

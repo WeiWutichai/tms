@@ -537,7 +537,7 @@
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `stl_…` |
 | `settlementNo` | ใช่ | `string` | null ได้ | เลขเอกสาร (ชุด STL) — ร่างยังไม่มีเลข · ออกตอนอนุมัติ |   |
-| `status` | ใช่ | `string` | ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `CANCELLED` |   |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `PAID`, `CANCELLED` |   |   |
 | `carrier` | ใช่ | `SettlementCarrierDto` |   |   |   |
 | `payingCompanyId` | ใช่ | `string` | null ได้ | นิติบุคคลที่จ่าย ("จ้างในนาม" ของรถร่วม — null = ค่าเริ่มต้นองค์กร) |   |
 | `periodFrom` | ใช่ | `string` |   |   | `2026-11-01` |
@@ -546,8 +546,13 @@
 | `carrierInvoiceDate` | ใช่ | `string` | null ได้ |   |   |
 | `carrierReceiptNo` | ใช่ | `string` | null ได้ |   |   |
 | `tripCount` | ใช่ | `number` |   | จำนวนเที่ยวในใบ (บรรทัดที่ยังใช้) |   |
-| `whtEstimate` | ใช่ | `SettlementWhtEstimateDto` |   |   |   |
 | `approvedAt` | ใช่ | `string` | null ได้ | เวลาอนุมัติ — ออกเลข `settlementNo` พร้อมกัน |   |
+| `paidDate` | ใช่ | `string` | null ได้ | วันที่จ่ายจริง (YYYY-MM-DD) — null จนบันทึกจ่าย | `2026-11-20` |
+| `paidAt` | ใช่ | `string` | null ได้ | เวลาที่บันทึกจ่าย |   |
+| `paidBy` | ใช่ | `string` | null ได้ | ผู้บันทึกจ่าย |   |
+| `paymentMethod` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH` · null ได้ | วิธีจ่าย TRANSFER / CHEQUE / CASH |   |
+| `paymentReference` | ใช่ | `string` | null ได้ | เลขอ้างอิงการโอน / เลขที่เช็ค |   |
+| `paymentBank` | ใช่ | `string` | null ได้ | ธนาคาร |   |
 | `sentAt` | ใช่ | `string` | null ได้ | ส่งให้รถร่วมตรวจล่าสุด — ผู้ส่งนับเป็นผู้เตรียมใบ (อนุมัติใบนี้ไม่ได้) |   |
 | `carrierReview` | ใช่ | `SettlementCarrierReviewDto` |   |   |   |
 | `dispute` | ใช่ | `SettlementDisputeSummaryDto` |   |   |   |

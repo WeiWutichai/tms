@@ -329,7 +329,6 @@ describe('event registry contract (ST7-T06)', () => {
       'credit_note.finalized',
       'debit_note.finalized',
       'receipt.issued',
-      'settlement.paid',
       'wht_certificate.issued',
       'reconcile.mismatch_found',
     ]);
@@ -579,6 +578,25 @@ describe('event registry contract (ST7-T06)', () => {
         ...eventDefinition('settlement.approved')!.object!.omit,
       ]),
     );
+    // ---- settlement.paid (ST6-T09): บันทึกจ่ายใบที่อนุมัติแล้ว ----
+    await api(app, admin)
+      .post(`/v1/settlements/${stlPub}/mark-paid`)
+      .set(
+        'If-Match',
+        `"${(await db.carrierSettlement.findUniqueOrThrow({ where: { id: stl.id } })).version}"`,
+      )
+      .send({
+        paidDate: today,
+        method: 'TRANSFER',
+        reference: 'KBANK-0001',
+        bank: 'กสิกรไทย',
+      })
+      .expect(200);
+    expect((await latest('settlement.paid', stl.id))!.snapshot).toEqual(
+      await rest(`/v1/settlements/${stlPub}`, [
+        ...eventDefinition('settlement.paid')!.object!.omit,
+      ]),
+    );
 
     // ---- invoice.finalized (ST5-T09): ใบสั่งราคาจาก rate card → ส่งถึง → ส่งบัญชี + ร่าง (ผู้ดูแล) → ออกเอกสาร (อีกคน — A3) ----
     const icus = await newCustomer();
@@ -809,6 +827,13 @@ describe('event registry contract (ST7-T06)', () => {
       status: 'DRAFT',
       invoiceNo: null,
     });
+    expect(one('settlement.paid').snapshot).toMatchObject({
+      status: 'PAID',
+      paidDate: today,
+      paymentMethod: 'TRANSFER',
+      paymentReference: 'KBANK-0001',
+    });
+    expect(one('settlement.paid').previousAttributes).toMatchObject({ status: 'APPROVED' });
     expect(registered.filter((e) => e.type === 'job.completed').map((e) => e.snapshot)).toEqual([
       expect.objectContaining({ id: encodeId('job', job.id), status: 'succeeded' }),
       expect.objectContaining({ id: encodeId('job', failed.id), status: 'failed' }),

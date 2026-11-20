@@ -3554,6 +3554,8 @@ export const th = {
   'stl.st.SENT_TO_CARRIER': 'รอตรวจ',
   'stl.st.APPROVED': 'อนุมัติแล้ว · รอจ่าย',
   'stl.st.DISPUTED': 'มีรายการโต้แย้ง',
+  // ST6-T09 บันทึกจ่ายแล้ว — ป้าย "จ่ายแล้ว" ของการ์ดงวด (ต้นแบบ TMS Subcon แท็บ "การเงิน")
+  'stl.st.PAID': 'จ่ายแล้ว',
   'stl.draftNo': 'รอออกเลขเมื่ออนุมัติ',
   'stl.period': 'งวด {a} – {b}',
   'stl.trips': '{n} เที่ยว',
@@ -3564,6 +3566,7 @@ export const th = {
   'stl.netNote': 'ยังไม่หัก ณ ที่จ่าย',
   'stl.notice': 'ตรวจได้ถึง {d} · กดยอมรับหรือโต้แย้งทีละรายการ',
   'stl.doneNote': 'อนุมัติแล้ว · ตอบรายการไม่ได้แล้ว',
+  'stl.doneNote.PAID': 'จ่ายแล้ว · ตอบรายการไม่ได้แล้ว',
   'stl.secTrips': 'รายการเที่ยว',
   'stl.secDeduct': 'รายการหัก',
   'stl.ln.st.PENDING': 'รอตรวจ',
