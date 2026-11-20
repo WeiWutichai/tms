@@ -305,6 +305,7 @@
 ### 21 พ.ย. 2569 (ST5-T13 แก้ตาม review/QA — lane lj)
 
 - **ทำ:** M1 ส่วนต่างเกิน `payments.maxDifferenceAmount` (ค่าตั้งใหม่ ค่าเริ่ม 10 บาท, API-only, เพิ่มค่าต้อง step-up) ต้องมี `payments:reverse` → 403 `payment_difference_over_limit` (BIL-059) · KPI "รับชำระเดือนนี้" นับเฉพาะ `amount_received` · L2 ปิด OFFSET (ซ่อนตัวเลือก + 422 `method_not_available`) · L4 วันที่รับก่อนวันออกใบ → 422 `before_invoice_issue` · plan/12 checklist แถว 30–31 (key ของ T09 + ส่วนต่าง; แถว 29 ของ T02 มีบน main) · DECISION spec/12 §3 แถว ST5-T13 (3)–(3d)
+- **ทำ (หลัง merge ST5-T11):** ใบวางบิลใช้ยอดคงค้างจริง (`total − paid_amount`) + ใส่ใบ PARTIALLY_PAID ได้ + WHT ประมาณการส่วนที่เหลือ (`billing-notes.service.ts` — hand-off ของ T11) · test `billing-notes.test.ts` เคสชำระบางส่วน · golden PDF ไม่เปลี่ยน
 - **ค้าง/ส่งต่อ:** L3 เช็คผ่านยังไม่มี webhook (audit อย่างเดียว) · L6 BIL-052 เตือน WHT ต่างจากประมาณการ > 1 บาท ยังไม่ทำ
 
 ### 21 พ.ย. 2569 (ST5-T13 รับชำระ + เช็ค — บัญชีเบา D-54/D-56/D-57 — lane lj)
