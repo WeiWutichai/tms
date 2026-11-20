@@ -512,7 +512,9 @@ describe('settlement dispute (ST6-T06)', () => {
     await flag(s.id, l0).expect(409);
     // รถร่วมยอมรับ → ธงของบัญชียังอยู่
     const acc = await respond(token, l0, { response: 'ACCEPTED' }).expect(201);
-    expect(acc.body.status).toBe('DISPUTED');
+    // ลิงก์ไม่เปิดเผยธงภายใน (review M2) — หัวใบจริงยัง DISPUTED
+    expect(acc.body.status).toBe('SENT_TO_CARRIER');
+    expect((await get(s.id)).status).toBe('DISPUTED');
     const raw = JSON.stringify((await view(token).expect(200)).body);
     expect(raw).not.toContain(DISPUTE.reason);
     expect((await approve(s.id).expect(409)).body.code).toBe('settlement_disputed');
@@ -751,5 +753,161 @@ describe('settlement dispute (ST6-T06)', () => {
       code: 'settlement_disputed',
       disputedCount: 1,
     });
+  });
+
+  it('review M1/M2: เคลียร์แค่ธงภายในของบัญชี → รถร่วมยังตอบได้ ไม่เห็นเหตุผล · ลิงก์ไม่แสดง DISPUTED จากธงภายใน', async () => {
+    await resetLinkWriteRate();
+    const { s, token } = await sent(2);
+    const [l0, l1] = [s.lines[0]!.id, s.lines[1]!.id];
+    await flag(s.id, l0).expect(200);
+    expect((await get(s.id)).status).toBe('DISPUTED');
+    // M2: ลิงก์เห็นสถานะรอตรวจ (ธงภายในไม่เปิดเผย)
+    let v = (await view(token).expect(200)).body;
+    expect(v.status).toBe('SENT_TO_CARRIER');
+    expect(JSON.stringify(v)).not.toContain(DISPUTE.reason);
+    // ตอบบรรทัดอื่นระหว่างนั้น — ผลตอบก็ไม่บอก DISPUTED
+    const a = await respond(token, l1, { response: 'ACCEPTED' }).expect(201);
+    expect(a.body.status).toBe('SENT_TO_CARRIER');
+    // M1: เคลียร์ธงภายใน → รถร่วมยังตอบบรรทัดนั้นได้ และไม่เห็นเหตุผลการเคลียร์
+    const resolver = await tokenFor(
+      tenantId,
+      SYSTEM_ROLES.accounting.permissions.join(' '),
+      'u-r4',
+    );
+    await resolve(s.id, l0, resolver).expect(200);
+    v = (await view(token).expect(200)).body;
+    expect(v.lines[0]).toMatchObject({ resolution: null, canRespond: true });
+    expect(JSON.stringify(v)).not.toContain(RESOLVE.reason);
+    const d = await respond(token, l0, { response: 'DISPUTED', reason: 'ค่ารอไม่ตรง' }).expect(201);
+    expect(d.body.status).toBe('DISPUTED');
+    expect((await view(token).expect(200)).body.status).toBe('DISPUTED');
+    expect((await get(s.id)).lines[0]!.status).toBe('DISPUTED');
+  });
+
+  it('review L3/L5: ใบเก่า SENT_TO_CARRIER ที่มีโต้แย้งค้าง (ก่อน T06) เคลียร์ได้ · ผู้เคลียร์ (จากตาราง) อนุมัติไม่ได้ใน DB แม้ไม่อยู่ใน preparers', async () => {
+    await resetLinkWriteRate();
+    const { s, token } = await sent(1);
+    const sid = uuid('settlement', s.id);
+    const lid = uuid('settlementLine', s.lines[0]!.id);
+    const link = await db.magicLink.findFirstOrThrow({
+      where: { entityId: sid, revokedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    // จำลองข้อมูลก่อน T06: คำตอบโต้แย้งโดยไม่ปรับหัวใบ
+    await run((tx) =>
+      tx.settlementLineReview.create({
+        data: {
+          tenantId,
+          settlementId: sid,
+          lineId: lid,
+          round: 1,
+          response: 'DISPUTED',
+          reason: 'ข้อมูลเก่า',
+          linkId: link.id,
+          createdBy: `link:${link.id}`,
+        },
+      }),
+    );
+    expect((await get(s.id)).status).toBe('SENT_TO_CARRIER');
+    expect((await approve(s.id).expect(409)).body.code).toBe('settlement_disputed');
+    const resolver = await tokenFor(
+      tenantId,
+      SYSTEM_ROLES.accounting.permissions.join(' '),
+      'u-r5',
+    );
+    const r = await resolve(s.id, s.lines[0]!.id, resolver).expect(200);
+    expect(r.body).toMatchObject({ status: 'SENT_TO_CARRIER', dispute: { disputed: 0 } });
+    expect((await view(token).expect(200)).body.lines[0]).toMatchObject({
+      resolution: { reason: RESOLVE.reason },
+      canRespond: false,
+    });
+    // L5: ผู้เคลียร์อยู่ใน settlement_line_dispute — DB ปฏิเสธเป็นผู้อนุมัติ (แม้ preparers ไม่มีชื่อ เช่น บันทึกตรง)
+    await run((tx) =>
+      tx.settlementLineDispute.create({
+        data: {
+          tenantId,
+          settlementId: sid,
+          lineId: lid,
+          round: 1,
+          action: 'DISPUTED',
+          reason: 'ธงภายในเพื่อทดสอบผู้เคลียร์',
+          createdBy: 'u-acc',
+        },
+      }),
+    );
+    await run((tx) =>
+      tx.settlementLineDispute.create({
+        data: {
+          tenantId,
+          settlementId: sid,
+          lineId: lid,
+          round: 1,
+          action: 'RESOLVED',
+          reason: 'เคลียร์ตรงในฐานข้อมูลเพื่อทดสอบ',
+          createdBy: 'u-dbres',
+        },
+      }),
+    );
+    await expect(
+      run((tx) =>
+        tx.carrierSettlement.update({
+          where: { id: sid },
+          data: {
+            status: 'APPROVED',
+            settlementNo: 'SA-9999-0401',
+            approvedAt: new Date(),
+            approvedBy: 'u-dbres',
+          },
+        }),
+      ),
+    ).rejects.toThrow(/carrier_settlement_sod/);
+    await approve(s.id).expect(200);
+  });
+
+  it('review L6 concurrency: รถร่วมตอบ ∥ บริษัทเคลียร์ และ รถร่วมโต้แย้ง ∥ อนุมัติ — สำเร็จได้ทางเดียว สถานะสอดคล้อง', async () => {
+    await resetLinkWriteRate();
+    // (ก) respond ACCEPTED ∥ resolve บรรทัดเดียวกันที่รถร่วมโต้แย้งไว้
+    const A = await sent(1);
+    const a0 = A.s.lines[0]!.id;
+    await respond(A.token, a0, { response: 'DISPUTED', reason: 'ค่ารอไม่ตรง' }).expect(201);
+    const v = await version(A.s.id);
+    const [rr, rs] = await Promise.all([
+      respond(A.token, a0, { response: 'ACCEPTED' }),
+      api(app, accounting)
+        .post(`/v1/settlements/${A.s.id}/lines/${a0}/resolve`)
+        .set('If-Match', `"${v}"`)
+        .send(RESOLVE),
+    ]);
+    const ok1 = [rr.status === 201, rs.status === 200].filter(Boolean).length;
+    expect(ok1, `${rr.status} ${rs.status}`).toBe(1);
+    expect([409, 412]).toContain(rr.status === 201 ? rs.status : rr.status);
+    const ga = await get(A.s.id);
+    expect(ga.status).toBe('SENT_TO_CARRIER');
+    expect(ga.dispute.disputed).toBe(0);
+
+    // (ข) respond DISPUTED ∥ approve (ใบไม่มีโต้แย้ง)
+    const B = await sent(1);
+    const b0 = B.s.lines[0]!.id;
+    const vb = await version(B.s.id);
+    const [dr, ap] = await Promise.all([
+      respond(B.token, b0, { response: 'DISPUTED', reason: 'ยอดไม่ตรง' }),
+      api(app, approver)
+        .post(`/v1/settlements/${B.s.id}/approve`)
+        .set('If-Match', `"${vb}"`)
+        .send(APPROVE),
+    ]);
+    const gb = await get(B.s.id);
+    if (ap.status === 200) {
+      expect(dr.status).toBe(409);
+      expect(gb.status).toBe('APPROVED');
+    } else {
+      expect(dr.status).toBe(201);
+      expect([409, 412]).toContain(ap.status);
+      expect(gb.status).toBe('DISPUTED');
+    }
+    // DB สอดคล้อง: ใบที่อนุมัติไม่มีโต้แย้งค้าง
+    const [n] = await db.$queryRaw<{ n: number }[]>`
+      SELECT tms_settlement_disputed_count(${uuid('settlement', B.s.id)}::uuid, 1) AS n`;
+    if (gb.status === 'APPROVED') expect(Number(n!.n)).toBe(0);
   });
 });

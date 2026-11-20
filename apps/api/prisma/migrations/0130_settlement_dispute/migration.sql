@@ -79,8 +79,22 @@ $$
        AND tms_settlement_line_disputed(l.id, p_round)) END
 $$;
 
+-- บริษัทเคลียร์ข้อโต้แย้งของรถร่วมในรอบนี้แล้ว = มี RESOLVED ที่ตามหลังคำตอบโต้แย้ง (DISPUTED) ของรถร่วมในรอบเดียวกัน
+-- (review M1) — เคลียร์แค่ธงภายในของบัญชี (รถร่วมไม่ได้โต้แย้ง) ไม่นับ: รถร่วมยังตอบได้และไม่เห็นเหตุผลภายใน
+CREATE OR REPLACE FUNCTION tms_settlement_line_carrier_resolved(p_line uuid, p_round integer) RETURNS boolean
+  LANGUAGE sql STABLE SET search_path = pg_catalog, public AS
+$$
+  SELECT EXISTS (
+    SELECT 1 FROM settlement_line_dispute d
+     WHERE d.line_id = p_line AND d.round = p_round AND d.action = 'RESOLVED'
+       AND EXISTS (SELECT 1 FROM settlement_line_review r
+                    WHERE r.line_id = p_line AND r.round = p_round AND r.response = 'DISPUTED'
+                      AND (r.created_at, r.id) < (d.created_at, d.id)))
+$$;
+
 -- เพิ่มอย่างเดียว · ติด dispute ได้เฉพาะใบที่ส่งตรวจอยู่ (SENT_TO_CARRIER / DISPUTED) · เคลียร์ได้เฉพาะบรรทัดที่โต้แย้งค้าง
--- ของใบ DISPUTED หรือร่างที่เรียกกลับ · บรรทัดต้องยังใช้ + รอบ = รอบตรวจปัจจุบัน
+-- ของใบ DISPUTED / ร่างที่เรียกกลับ / SENT_TO_CARRIER ที่ยังมีโต้แย้งค้าง (ข้อมูลก่อน T06 — review L3) · บรรทัดต้องยังใช้ + รอบ = รอบตรวจปัจจุบัน
+-- created_at = clock_timestamp() เสมอ (นาฬิกาเดียวกับคำตอบของรถร่วม — review L4)
 CREATE OR REPLACE FUNCTION tms_settlement_line_dispute_guard() RETURNS trigger
   LANGUAGE plpgsql SET search_path = pg_catalog, public AS
 $$
@@ -98,10 +112,11 @@ BEGIN
                   WHERE l.id = NEW.line_id AND l.settlement_id = NEW.settlement_id AND l.voided_at IS NULL) INTO ok;
   IF NOT ok OR NEW.round IS DISTINCT FROM rnd
      OR (NEW.action = 'DISPUTED' AND st NOT IN ('SENT_TO_CARRIER', 'DISPUTED'))
-     OR (NEW.action = 'RESOLVED' AND (st NOT IN ('DISPUTED', 'DRAFT') OR NOT tms_settlement_line_disputed(NEW.line_id, NEW.round))) THEN
+     OR (NEW.action = 'RESOLVED' AND (st NOT IN ('DISPUTED', 'DRAFT', 'SENT_TO_CARRIER') OR NOT tms_settlement_line_disputed(NEW.line_id, NEW.round))) THEN
     RAISE EXCEPTION 'settlement_line_dispute_state: settlement % is % (round %) — cannot % line %', NEW.settlement_id, st, rnd, NEW.action, NEW.line_id
       USING ERRCODE = 'check_violation', CONSTRAINT = 'settlement_line_dispute_state';
   END IF;
+  NEW.created_at := pg_catalog.clock_timestamp();
   RETURN NEW;
 END
 $$;
@@ -116,7 +131,8 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- คำตอบของรถร่วม: + ใบ DISPUTED ตอบได้ (เปลี่ยนใจ/ตอบบรรทัดอื่น) · บรรทัดที่บริษัทเคลียร์แล้วในรอบนี้ตอบไม่ได้อีก
+-- คำตอบของรถร่วม: + ใบ DISPUTED ตอบได้ (เปลี่ยนใจ/ตอบบรรทัดอื่น) · บรรทัดที่บริษัทเคลียร์ข้อโต้แย้งของรถร่วมแล้วในรอบนี้ตอบไม่ได้อีก
+-- (เคลียร์แค่ธงภายในไม่บล็อก — review M1) · created_at = clock_timestamp() (review L4)
 CREATE OR REPLACE FUNCTION tms_settlement_line_review_guard() RETURNS trigger
   LANGUAGE plpgsql SET search_path = pg_catalog, public AS
 $$
@@ -136,11 +152,11 @@ BEGIN
     RAISE EXCEPTION 'settlement_line_review_state: settlement % is % (round %) — the carrier can only review active lines of a settlement sent for review in the current round', NEW.settlement_id, st, rnd
       USING ERRCODE = 'check_violation', CONSTRAINT = 'settlement_line_review_state';
   END IF;
-  IF EXISTS (SELECT 1 FROM settlement_line_dispute d
-              WHERE d.line_id = NEW.line_id AND d.round = NEW.round AND d.action = 'RESOLVED') THEN
+  IF tms_settlement_line_carrier_resolved(NEW.line_id, NEW.round) THEN
     RAISE EXCEPTION 'settlement_line_review_resolved: settlement_line % was resolved by the company in round % — the carrier cannot answer it again', NEW.line_id, NEW.round
       USING ERRCODE = 'check_violation', CONSTRAINT = 'settlement_line_review_resolved';
   END IF;
+  NEW.created_at := pg_catalog.clock_timestamp();
   RETURN NEW;
 END
 $$;
@@ -212,6 +228,8 @@ BEGIN
            UNION ALL SELECT p FROM unnest(NEW.preparers) AS p
            UNION ALL SELECT l.created_by FROM settlement_line l WHERE l.settlement_id = NEW.id
            UNION ALL SELECT l.voided_by FROM settlement_line l WHERE l.settlement_id = NEW.id AND l.voided_at IS NOT NULL
+           -- ผู้เคลียร์ dispute (ยืนยันยอดเดิม) = ผู้เตรียมใบ (review L5 — นอกจาก preparers)
+           UNION ALL SELECT d.created_by FROM settlement_line_dispute d WHERE d.settlement_id = NEW.id AND d.action = 'RESOLVED'
          ) p
          WHERE tms_resolve_actor(p.a) IS NULL OR tms_resolve_actor(p.a) = approver) THEN
       RAISE EXCEPTION 'carrier_settlement_sod: carrier_settlement %: approver % prepared this settlement, is not a person, or a preparer is unknown', NEW.id, NEW.approved_by

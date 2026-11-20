@@ -108,7 +108,7 @@ export class ReviewLinkViewDto {
   @ApiProperty({
     enum: ['SENT_TO_CARRIER', 'DISPUTED', 'APPROVED'],
     description:
-      'SENT_TO_CARRIER = รอรถร่วมตรวจ (ตอบได้) · DISPUTED = มีรายการโต้แย้งรอบริษัทตรวจ (ยังตอบได้ — ST6-T06) · APPROVED = อนุมัติแล้ว (ดูอย่างเดียว)',
+      'SENT_TO_CARRIER = รอรถร่วมตรวจ (ตอบได้) · DISPUTED = มีรายการที่ท่านโต้แย้งรอบริษัทตรวจ (ยังตอบได้ — ST6-T06) · APPROVED = อนุมัติแล้ว (ดูอย่างเดียว)',
   })
   status!: string;
   @ApiProperty({ nullable: true, type: String, description: 'เลขใบ (ออกตอนอนุมัติ)' })

@@ -682,8 +682,9 @@ export class SettlementsService {
   }
 
   /**
-   * เคลียร์ dispute = ยืนยันยอดเดิมพร้อมเหตุผล (spec/05 BIL-136 "RESOLVED — ยืนยันยอดเดิมพร้อมเหตุผล") — ใบ DISPUTED หรือร่างที่เรียกกลับ ·
-   * บรรทัดต้องโต้แย้งค้าง (ไม่งั้น 409) · ปิดทุก dispute ก่อนหน้าของบรรทัดในรอบนี้ (รถร่วม + บัญชี) — รถร่วมตอบบรรทัดนี้ในรอบนี้ไม่ได้อีก ·
+   * เคลียร์ dispute = ยืนยันยอดเดิมพร้อมเหตุผล (spec/05 BIL-136 "RESOLVED — ยืนยันยอดเดิมพร้อมเหตุผล") — ใบ DISPUTED / ร่างที่เรียกกลับ /
+   * SENT_TO_CARRIER ที่มีโต้แย้งค้าง (ข้อมูลก่อน T06) · บรรทัดต้องโต้แย้งค้าง (ไม่งั้น 409) · ปิดทุก dispute ก่อนหน้าของบรรทัดในรอบนี้ (รถร่วม + บัญชี) —
+   * ถ้าปิดข้อโต้แย้งของรถร่วม: รถร่วมตอบบรรทัดนี้ในรอบนี้ไม่ได้อีก + เห็นเหตุผล · ถ้าปิดแค่ธงภายใน: รถร่วมยังตอบได้ ไม่เห็นเหตุผล ·
    * **ผู้เคลียร์ = ผู้เตรียมใบ (อนุมัติใบนี้ไม่ได้ — SoD)** · เคลียร์ครบ → DISPUTED กลับเป็น SENT_TO_CARRIER · audit `settlement.line_resolved`
    * แก้ยอด = เรียกกลับ (DISPUTED → DRAFT) แล้วนำบรรทัดออก/เพิ่มใหม่ (ยอดบรรทัดมาจากต้นทุนของเที่ยว — แก้ในใบไม่ได้)
    */
@@ -694,7 +695,8 @@ export class SettlementsService {
     expected: number | undefined,
   ): Promise<SettlementDto> {
     const tx = this.db.tx;
-    const s = await this.lockFor(tx, id, expected, ['DISPUTED', 'DRAFT']);
+    // + SENT_TO_CARRIER ที่ยังมีโต้แย้งค้าง (ใบก่อน T06 ที่ยังไม่ถูกปรับเป็น DISPUTED — review L3; บรรทัดต้องโต้แย้งค้างอยู่ดี)
+    const s = await this.lockFor(tx, id, expected, ['DISPUTED', 'DRAFT', 'SENT_TO_CARRIER']);
     requireIfMatch(expected);
     const actor = this.person();
     const line = await this.activeLine(tx, id, lineRef);

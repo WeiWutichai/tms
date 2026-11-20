@@ -197,7 +197,7 @@ export class SettlementReviewService {
     const tx = this.db.tx;
     const s = await this.context(settlementId);
     const link = await tx.magicLink.findUniqueOrThrow({ where: { id: linkId } });
-    const [tenant, lines] = await Promise.all([
+    const [tenant, { lines, carrierOpen }] = await Promise.all([
       tx.tenant.findFirst({ select: { name: true } }),
       this.lines(tx, s.id, s.reviewRound),
     ]);
@@ -205,7 +205,7 @@ export class SettlementReviewService {
     return {
       company: tenant?.name ?? '',
       carrierName: snap.legalName ?? '',
-      status: s.status,
+      status: carrierStatus(s.status, carrierOpen),
       settlementNo: s.settlementNo,
       periodFrom: s.periodFrom.toISOString().slice(0, 10),
       periodTo: s.periodTo.toISOString().slice(0, 10),
@@ -336,25 +336,26 @@ export class SettlementReviewService {
     });
     // โต้แย้ง/เปลี่ยนใจ → สถานะหัวใบ SENT_TO_CARRIER ↔ DISPUTED (ST6-T06)
     await this.syncDisputeStatus(tx, s.id);
-    const line = (await this.lines(tx, s.id, s.reviewRound)).find(
-      (l) => l.id === encodeId('settlementLine', lineId),
-    )!;
+    const view = await this.lines(tx, s.id, s.reviewRound);
+    const line = view.lines.find((l) => l.id === encodeId('settlementLine', lineId))!;
     const { status } = await tx.carrierSettlement.findUniqueOrThrow({
       where: { id: s.id },
       select: { status: true },
     });
-    return { line, status };
+    return { line, status: carrierStatus(status, view.carrierOpen) };
   }
 
   // ---------- ภายใน ----------
 
   /** บรรทัดที่บริษัทเคลียร์ (ยืนยันยอดเดิม) แล้วในรอบนี้ → 409 `settlement_line_resolved` */
+  /**
+   * บริษัทเคลียร์ข้อโต้แย้งของรถร่วมบรรทัดนี้แล้วในรอบนี้ → 409 `settlement_line_resolved`
+   * (นิยามเดียวกับ trigger 0130 `tms_settlement_line_carrier_resolved` — เคลียร์แค่ธงภายในไม่บล็อก: review M1)
+   */
   private async assertNotResolved(lineId: string, round: number): Promise<void> {
-    const r = await this.db.tx.settlementLineDispute.findFirst({
-      where: { lineId, round, action: 'RESOLVED' },
-      select: { id: true },
-    });
-    if (r) throw new ProblemException('settlement_line_resolved');
+    const [r] = await this.db.tx.$queryRaw<{ ok: boolean }[]>`
+      SELECT tms_settlement_line_carrier_resolved(${lineId}::uuid, ${round}::int) AS ok`;
+    if (r?.ok) throw new ProblemException('settlement_line_resolved');
   }
 
   /** ลิงก์ยังใช้ได้และชี้ใบนี้ (อ่านหลังล็อกใบ) */
@@ -422,7 +423,11 @@ export class SettlementReviewService {
   }
 
   /** บรรทัดที่ยังใช้ + เที่ยว (เลข/วันจบ/จุดแรก-สุดท้าย) + คำตอบล่าสุดของรอบ */
-  private async lines(tx: Tx, settlementId: string, round: number): Promise<ReviewLinkLineDto[]> {
+  private async lines(
+    tx: Tx,
+    settlementId: string,
+    round: number,
+  ): Promise<{ lines: ReviewLinkLineDto[]; carrierOpen: number }> {
     const rows = await tx.settlementLine.findMany({
       where: { settlementId, voidedAt: null },
       orderBy: { lineNo: 'asc' },
@@ -456,14 +461,41 @@ export class SettlementReviewService {
       },
     });
     const latest = latestReviews(reviews, round);
-    // การเคลียร์ล่าสุดของบริษัท (ยืนยันยอดเดิม) — การติด dispute ภายในของบริษัทไม่แสดงให้รถร่วม
+    // การเคลียร์ล่าสุดของบริษัท (ยืนยันยอดเดิม) — แสดงให้รถร่วมเฉพาะเมื่อเคลียร์ข้อโต้แย้งของรถร่วมเอง (review M1):
+    // การติด dispute ภายใน และการเคลียร์ธงภายใน ไม่แสดง (ข้อความภายใน) และไม่ปิดสิทธิ์ตอบ
     const resolutions = await tx.settlementLineDispute.findMany({
       where: { settlementId, round, action: 'RESOLVED' },
       orderBy: REVIEW_ORDER,
-      select: { lineId: true, reason: true, createdAt: true },
+      select: { id: true, lineId: true, reason: true, createdAt: true },
     });
-    const resolved = new Map(resolutions.map((r) => [r.lineId, r]));
-    return rows.map((l) => lineView(l, latest.get(l.id) ?? null, resolved.get(l.id) ?? null));
+    const lastResolved = new Map(resolutions.map((r) => [r.lineId, r]));
+    const carrierResolved = new Set(
+      round > 0
+        ? (
+            await tx.$queryRaw<{ id: string }[]>`
+              SELECT l.id::text AS id FROM settlement_line l
+               WHERE l.settlement_id = ${settlementId}::uuid AND l.voided_at IS NULL
+                 AND tms_settlement_line_carrier_resolved(l.id, ${round}::int)`
+          ).map((r) => r.id)
+        : [],
+    );
+    // ข้อโต้แย้งของรถร่วมที่ยังค้าง (คำตอบล่าสุดเป็นโต้แย้ง และไม่มีการเคลียร์หลังจากนั้น) — ใช้กำหนดป้ายหัวใบบนลิงก์ (review M2)
+    let carrierOpen = 0;
+    for (const l of rows) {
+      const r = latest.get(l.id);
+      const res = lastResolved.get(l.id);
+      if (r?.response === 'DISPUTED' && !(res && isAfter(res, r))) carrierOpen++;
+    }
+    return {
+      lines: rows.map((l) =>
+        lineView(
+          l,
+          latest.get(l.id) ?? null,
+          carrierResolved.has(l.id) ? (lastResolved.get(l.id) ?? null) : null,
+        ),
+      ),
+      carrierOpen,
+    };
   }
 }
 
@@ -516,6 +548,21 @@ function lineView(
     resolution: res ? { reason: res.reason, resolvedAt: res.createdAt.toISOString() } : null,
     canRespond: !res,
   };
+}
+
+/** (createdAt, id) ของ a มาหลัง b — ลำดับเดียวกับ DB */
+function isAfter(a: { id: string; createdAt: Date }, b: { id: string; createdAt: Date }): boolean {
+  const x = a.createdAt.getTime();
+  const y = b.createdAt.getTime();
+  return x > y || (x === y && a.id > b.id);
+}
+
+/**
+ * สถานะที่รถร่วมเห็น — DISPUTED เฉพาะเมื่อมีข้อโต้แย้งของรถร่วมเองค้าง (review M2) · ใบ DISPUTED จากธงภายในของบัญชีอย่างเดียว
+ * แสดงเป็น SENT_TO_CARRIER (ไม่เปิดเผยการตรวจภายใน)
+ */
+function carrierStatus(status: string, carrierOpen: number): string {
+  return status === 'DISPUTED' && carrierOpen === 0 ? 'SENT_TO_CARRIER' : status;
 }
 
 /** งวด (วันที่ไทย พ.ศ. — ข้อความแจ้งเตือน) */

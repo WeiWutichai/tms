@@ -664,7 +664,7 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/lines/{lineId}/disp
 
 scope: `settlements:create` · operationId: `Settlements_resolveLine`
 
-BIL-136 · เฉพาะบรรทัดที่โต้แย้งค้าง ของใบ DISPUTED หรือร่างที่เรียกกลับ (อื่น ๆ → 409) · ปิดทุก dispute ก่อนหน้าของบรรทัดในรอบนี้ (รถร่วม + บัญชี) → สถานะรายการ APPROVED · **รถร่วมตอบบรรทัดนี้ในรอบนี้ไม่ได้อีก** (409 `settlement_line_resolved`) และเห็นเหตุผลนี้บนลิงก์ตรวจ · เคลียร์ครบ → DISPUTED กลับเป็น SENT_TO_CARRIER (อนุมัติได้) · **ผู้เคลียร์นับเป็นผู้เตรียมใบ — อนุมัติใบนี้ไม่ได้** (separation of duties) · แก้ยอด = เรียกกลับแล้วนำบรรทัดออก/เพิ่มใหม่ · audit `settlement.line_resolved`
+BIL-136 · เฉพาะบรรทัดที่โต้แย้งค้าง ของใบ DISPUTED / ร่างที่เรียกกลับ / SENT_TO_CARRIER ที่มีโต้แย้งค้าง (อื่น ๆ → 409) · ปิดทุก dispute ก่อนหน้าของบรรทัดในรอบนี้ (รถร่วม + บัญชี) → สถานะรายการ APPROVED · ถ้าปิดข้อโต้แย้งของรถร่วม: **รถร่วมตอบบรรทัดนี้ในรอบนี้ไม่ได้อีก** (409 `settlement_line_resolved`) และเห็นเหตุผลนี้บนลิงก์ตรวจ · ปิดแค่ธงภายในของบัญชี: รถร่วมยังตอบได้และไม่เห็นเหตุผล · เคลียร์ครบ → DISPUTED กลับเป็น SENT_TO_CARRIER (อนุมัติได้) · **ผู้เคลียร์นับเป็นผู้เตรียมใบ — อนุมัติใบนี้ไม่ได้** (separation of duties) · แก้ยอด = เรียกกลับแล้วนำบรรทัดออก/เพิ่มใหม่ · audit `settlement.line_resolved`
 
 **Parameters**
 
