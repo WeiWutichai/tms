@@ -8,13 +8,20 @@ import {
 } from './tax';
 import { decimalFromSatang, satangFromDecimal as d } from './money';
 
+/** ไม่ตรวจขั้นต่ำ (ค่าเริ่มของ tenant = 0) — opts เป็นค่าบังคับ */
+const NO_MIN = { whtMinimum: 0n } as const;
+const MIN_1000 = { whtMinimum: 100000n } as const;
+
 /**
  * เคสในไฟล์นี้เป็น "ตัวอย่างโครงสร้าง" — golden case จริงต้องให้นักบัญชีเซ็นรับ (plan/03 §4)
  * แล้วย้ายมาไว้ใน golden/*.json พร้อมเลขอ้างอิงเอกสารตัวอย่าง
  */
 describe('computeDocumentTax', () => {
   it('ค่าขนส่งอย่างเดียว: ไม่มี VAT, หัก ณ ที่จ่าย 1%', () => {
-    const r = computeDocumentTax([{ amount: d('10000.00'), vatType: 'EXEMPT', whtRate: '0.01' }]);
+    const r = computeDocumentTax(
+      [{ amount: d('10000.00'), vatType: 'EXEMPT', whtRate: '0.01' }],
+      NO_MIN,
+    );
     expect(decimalFromSatang(r.vat)).toBe('0.00');
     expect(decimalFromSatang(r.grandTotal)).toBe('10000.00');
     expect(decimalFromSatang(r.wht)).toBe('100.00');
@@ -22,10 +29,13 @@ describe('computeDocumentTax', () => {
   });
 
   it('ขนส่ง + บริการยก: VAT เฉพาะบริการ, WHT แยกอัตรา', () => {
-    const r = computeDocumentTax([
-      { amount: d('10000.00'), vatType: 'EXEMPT', whtRate: '0.01' },
-      { amount: d('1500.00'), vatType: 'VAT7', whtRate: '0.03' },
-    ]);
+    const r = computeDocumentTax(
+      [
+        { amount: d('10000.00'), vatType: 'EXEMPT', whtRate: '0.01' },
+        { amount: d('1500.00'), vatType: 'VAT7', whtRate: '0.03' },
+      ],
+      NO_MIN,
+    );
     expect(decimalFromSatang(r.exemptBase)).toBe('10000.00');
     expect(decimalFromSatang(r.vatableBase)).toBe('1500.00');
     expect(decimalFromSatang(r.vat)).toBe('105.00');
@@ -36,23 +46,29 @@ describe('computeDocumentTax', () => {
 
   it('ปัดเศษ VAT ครั้งเดียวทั้งใบ และกระจายเศษให้บรรทัดสุดท้าย', () => {
     // 33.33 × 3 บรรทัด = 99.99 → VAT 7% = 6.9993 → 7.00 (ปัดรวม) ขณะที่ปัดรายบรรทัด 2.33 × 3 = 6.99
-    const r = computeDocumentTax([
-      { amount: d('33.33'), vatType: 'VAT7', whtRate: '0' },
-      { amount: d('33.33'), vatType: 'VAT7', whtRate: '0' },
-      { amount: d('33.33'), vatType: 'VAT7', whtRate: '0' },
-    ]);
+    const r = computeDocumentTax(
+      [
+        { amount: d('33.33'), vatType: 'VAT7', whtRate: '0' },
+        { amount: d('33.33'), vatType: 'VAT7', whtRate: '0' },
+        { amount: d('33.33'), vatType: 'VAT7', whtRate: '0' },
+      ],
+      NO_MIN,
+    );
     expect(decimalFromSatang(r.vat)).toBe('7.00');
     expect(r.lines.map((l) => decimalFromSatang(l.vat))).toEqual(['2.33', '2.33', '2.34']);
   });
 
   it('บรรทัดติดลบ (ส่วนลด/ใบลดหนี้) หักฐานและ VAT ถูกต้อง', () => {
-    const r = computeDocumentTax([
-      { amount: d('1000.00'), vatType: 'VAT7', whtRate: '0.03' },
-      { amount: d('-100.00'), vatType: 'VAT7', whtRate: '0.03' },
-    ]);
+    const r = computeDocumentTax(
+      [
+        { amount: d('1000.00'), vatType: 'VAT7', whtRate: '0.03' },
+        { amount: d('-100.00'), vatType: 'VAT7', whtRate: '0.03' },
+      ],
+      MIN_1000,
+    );
     expect(decimalFromSatang(r.vatableBase)).toBe('900.00');
     expect(decimalFromSatang(r.vat)).toBe('63.00');
-    // ฐาน 900 < ขั้นต่ำ 1,000 (ค่าตั้งต้น ข้อ 12/5) → ไม่หัก; ปิดขั้นต่ำ → 27.00
+    // ตั้งขั้นต่ำ 1,000: ฐาน 900 < 1,000 → ไม่หัก; ขั้นต่ำ 0 (ค่าเริ่ม) → 27.00
     expect(decimalFromSatang(r.wht)).toBe('0.00');
     expect(r.whtBelowMinimum).toBe(true);
     const r0 = computeDocumentTax(
@@ -67,19 +83,23 @@ describe('computeDocumentTax', () => {
   });
 
   it('ST5-T02: อัตราเดียวกันต่างรูปสตริงรวมกลุ่มเดียว ("0.01" = "0.0100")', () => {
-    const r = computeDocumentTax([
-      { amount: d('333.35'), vatType: 'EXEMPT', whtRate: '0.01' },
-      { amount: d('333.35'), vatType: 'EXEMPT', whtRate: '0.0100' },
-      { amount: d('333.35'), vatType: 'EXEMPT', whtRate: '0.010' },
-    ]);
+    const r = computeDocumentTax(
+      [
+        { amount: d('333.35'), vatType: 'EXEMPT', whtRate: '0.01' },
+        { amount: d('333.35'), vatType: 'EXEMPT', whtRate: '0.0100' },
+        { amount: d('333.35'), vatType: 'EXEMPT', whtRate: '0.010' },
+      ],
+      NO_MIN,
+    );
     expect(r.whtByRate).toEqual([{ rate: '0.01', base: d('1000.05'), wht: d('10.00') }]);
   });
 
   it('ST5-T02: ตรวจค่าเข้า — บรรทัดหักติดลบ / ขั้นต่ำติดลบ → RangeError', () => {
     expect(() =>
-      computeDocumentTax([
-        { amount: d('-1.00'), vatType: 'EXEMPT', whtRate: '0', kind: 'DEDUCTION' },
-      ]),
+      computeDocumentTax(
+        [{ amount: d('-1.00'), vatType: 'EXEMPT', whtRate: '0', kind: 'DEDUCTION' }],
+        NO_MIN,
+      ),
     ).toThrow(RangeError);
     expect(() =>
       computeDocumentTax([{ amount: d('1.00'), vatType: 'EXEMPT', whtRate: '0' }], {
@@ -88,9 +108,13 @@ describe('computeDocumentTax', () => {
     ).toThrow(RangeError);
   });
 
-  it('ST5-T02: ไม่มีบรรทัดหัก ณ ที่จ่าย → ไม่ติดธงต่ำกว่าขั้นต่ำ', () => {
-    const r = computeDocumentTax([{ amount: d('500.00'), vatType: 'VAT7', whtRate: '0' }]);
+  it('ST5-T02: ไม่มีบรรทัดที่มีอัตราหัก → ไม่ติดธงต่ำกว่าขั้นต่ำ และ whtMinimumTested = null', () => {
+    const r = computeDocumentTax(
+      [{ amount: d('500.00'), vatType: 'VAT7', whtRate: '0' }],
+      MIN_1000,
+    );
     expect(r.whtBelowMinimum).toBe(false);
+    expect(r.whtMinimumTested).toBeNull();
     expect(r.whtByRate).toEqual([]);
   });
 });
@@ -123,30 +147,23 @@ describe('toCalcWhtRate + computeDocumentTax กันหน่วยอัต�
   });
   it('ส่งอัตราแบบเปอร์เซ็นต์ (3.00 / 3) เข้า computeDocumentTax → throw; สัดส่วนจาก toCalcWhtRate คำนวณถูก', () => {
     const line = { amount: d('1000.00'), vatType: 'EXEMPT' as const };
-    expect(() => computeDocumentTax([{ ...line, whtRate: '3.00' }])).toThrow(/toCalcWhtRate/);
-    expect(() => computeDocumentTax([{ ...line, whtRate: '3' }])).toThrow(RangeError);
-    const r = computeDocumentTax([{ ...line, whtRate: toCalcWhtRate('1.00') }]);
+    expect(() => computeDocumentTax([{ ...line, whtRate: '3.00' }], NO_MIN)).toThrow(
+      /toCalcWhtRate/,
+    );
+    expect(() => computeDocumentTax([{ ...line, whtRate: '3' }], NO_MIN)).toThrow(RangeError);
+    const r = computeDocumentTax([{ ...line, whtRate: toCalcWhtRate('1.00') }], NO_MIN);
     expect(decimalFromSatang(r.wht)).toBe('10.00');
   });
 });
 
 describe('taxOptionsFromSettings (ST5-T02)', () => {
   it('บาท → สตางค์ + ยอดตามสัญญา; ค่าผิด → RangeError', () => {
-    expect(taxOptionsFromSettings({ whtMinimumAmount: 1000, whtMinimumBasis: 'WHT_BASE' })).toEqual(
-      {
-        whtMinimum: 100000n,
-        whtMinimumBasis: 'WHT_BASE',
-      },
-    );
-    expect(
-      taxOptionsFromSettings({
-        whtMinimumAmount: 0,
-        whtMinimumBasis: 'GRAND_TOTAL',
-        contractAmount: d('12000.00'),
-      }),
-    ).toEqual({ whtMinimum: 0n, whtMinimumBasis: 'GRAND_TOTAL', whtContractAmount: 1200000n });
-    expect(() =>
-      taxOptionsFromSettings({ whtMinimumAmount: 1.5, whtMinimumBasis: 'WHT_BASE' }),
-    ).toThrow(RangeError);
+    expect(taxOptionsFromSettings({ whtMinimumAmount: 1000 })).toEqual({ whtMinimum: 100000n });
+    expect(taxOptionsFromSettings({ whtMinimumAmount: 0, contractAmount: d('12000.00') })).toEqual({
+      whtMinimum: 0n,
+      whtContractAmount: 1200000n,
+    });
+    expect(() => taxOptionsFromSettings({ whtMinimumAmount: 1.5 })).toThrow(RangeError);
+    expect(() => taxOptionsFromSettings({ whtMinimumAmount: -1 })).toThrow(RangeError);
   });
 });

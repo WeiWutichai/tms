@@ -4,13 +4,13 @@
   "decision": "D-54 (PO 20 พ.ย. 2569): ยอดแสดง/ประมาณการ — ยอดภาษีจริง AccountSystem เป็นผู้คำนวณ",
   "rounding": "half-up 2 ตำแหน่ง · VAT ครั้งเดียวต่อใบจากฐาน 7% รวม · WHT ครั้งเดียวต่อกลุ่มอัตรา จากฐานก่อน VAT · ค่ารายบรรทัด = ปัดรายบรรทัด เศษไปบรรทัดสุดท้ายของกลุ่ม (ตาม AccountSystem packages/ledger/src/sales.ts docTotals + packages/tax-th whtOnPayment + apps/accounting-web purchase/_lib/wht.ts expectedWht)",
   "defaults": {
-    "whtMinimum": "1000.00",
-    "whtMinimumBasis": "WHT_BASE"
+    "whtMinimum": "0.00"
   },
+  "defaultsNote": "ค่าเริ่มขั้นต่ำ 0 = หักทุกยอด (ตรง AccountSystem) — เคสที่ทดสอบขั้นต่ำ 1,000 ส่ง options.whtMinimum ชัด ๆ (ฐานนับขั้นต่ำรอนักบัญชี docs/01 §8.2 ข้อ 7)",
   "units": "amount = บาท 2 ตำแหน่ง ก่อน VAT · vatType/whtRate = ค่าบรรทัดแบบ DB/API (EXEMPT_TRANSPORT/VAT_7/ZERO_RATED, เปอร์เซ็นต์ \"1.00\")",
   "accountSystemLegend": {
     "MATCH": "ตรงกับวิธีของ AccountSystem ทุกยอด",
-    "DIFF_MINIMUM": "VAT/ยอดรวมตรง แต่ WHT ต่าง เพราะ AccountSystem ไม่มีกฎขั้นต่ำ 1,000 (ค่าของ AccountSystem อยู่ที่ expected.accountSystemWht)",
+    "DIFF_MINIMUM": "เคสที่ตั้งขั้นต่ำ 1,000 ชัด ๆ: VAT/ยอดรวมตรง แต่ WHT ต่าง เพราะ AccountSystem ไม่มีกฎขั้นต่ำ (ค่าของ AccountSystem อยู่ที่ expected.accountSystemWht)",
     "N/A": "AccountSystem ไม่รับข้อมูลรูปนี้"
   },
   "cases": [
@@ -36,7 +36,7 @@
         "deductions": "0.00",
         "netPayable": "9900.00",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "10000.00",
+        "whtMinimumTested": null,
         "whtByRate": [
           {
             "ratePercent": "1.00",
@@ -70,7 +70,7 @@
         "deductions": "0.00",
         "netPayable": "5000.00",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "0.00",
+        "whtMinimumTested": null,
         "whtByRate": [],
         "lineVat": ["0.00"],
         "lineWht": ["0.00"]
@@ -99,7 +99,7 @@
         "deductions": "0.00",
         "netPayable": "1560.00",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "1500.00",
+        "whtMinimumTested": null,
         "whtByRate": [
           {
             "ratePercent": "3.00",
@@ -139,7 +139,7 @@
         "deductions": "0.00",
         "netPayable": "11460.00",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "11500.00",
+        "whtMinimumTested": null,
         "whtByRate": [
           {
             "ratePercent": "1.00",
@@ -189,7 +189,7 @@
         "deductions": "0.00",
         "netPayable": "10680.00",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "10750.00",
+        "whtMinimumTested": null,
         "whtByRate": [
           {
             "ratePercent": "1.00",
@@ -228,7 +228,7 @@
         "deductions": "0.00",
         "netPayable": "20000.00",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "0.00",
+        "whtMinimumTested": null,
         "whtByRate": [],
         "lineVat": ["0.00"],
         "lineWht": ["0.00"]
@@ -236,7 +236,7 @@
     },
     {
       "id": "G07",
-      "title": "ต่ำกว่าขั้นต่ำ 1,000: ขนส่ง 800 → ไม่หัก",
+      "title": "tenant ตั้งขั้นต่ำ 1,000: ขนส่ง 800 → ไม่หัก",
       "lines": [
         {
           "amount": "800.00",
@@ -244,7 +244,9 @@
           "whtRate": "1.00"
         }
       ],
-      "options": {},
+      "options": {
+        "whtMinimum": "1000.00"
+      },
       "accountSystem": "DIFF_MINIMUM",
       "pending": ["01§8.2 ข้อ 7"],
       "expected": {
@@ -280,8 +282,11 @@
           "whtRate": "1.00"
         }
       ],
-      "options": {},
+      "options": {
+        "whtMinimum": "1000.00"
+      },
       "accountSystem": "MATCH",
+      "pending": ["01§8.2 ข้อ 7"],
       "expected": {
         "exemptBase": "1000.00",
         "vatableBase": "0.00",
@@ -314,7 +319,9 @@
           "whtRate": "1.00"
         }
       ],
-      "options": {},
+      "options": {
+        "whtMinimum": "1000.00"
+      },
       "accountSystem": "DIFF_MINIMUM",
       "pending": ["01§8.2 ข้อ 7"],
       "expected": {
@@ -342,7 +349,7 @@
     },
     {
       "id": "G10",
-      "title": "ปน: แต่ละอัตราต่ำกว่า 1,000 แต่รวมทั้งใบถึง → หักทุกอัตรา",
+      "title": "ขั้นต่ำ 1,000 รวมฐานข้ามอัตรา: แต่ละอัตราต่ำกว่า 1,000 แต่รวมทั้งใบถึง → หักทุกอัตรา [OPEN — นักบัญชี]",
       "lines": [
         {
           "amount": "600.00",
@@ -355,9 +362,11 @@
           "whtRate": "3.00"
         }
       ],
-      "options": {},
+      "options": {
+        "whtMinimum": "1000.00"
+      },
       "accountSystem": "MATCH",
-      "pending": ["01§8.2 ข้อ 7"],
+      "pending": ["01§8.2 ข้อ 7", "รวมฐานข้ามอัตรา"],
       "expected": {
         "exemptBase": "600.00",
         "vatableBase": "500.00",
@@ -387,7 +396,7 @@
     },
     {
       "id": "G11",
-      "title": "ฐาน WHT_BASE (ค่าตั้งต้น): บริการ 950 + VAT → ก่อน VAT ต่ำกว่าขั้นต่ำ → ไม่หัก",
+      "title": "ขั้นต่ำเทียบฐานก่อน VAT: บริการ 950 (+VAT = 1,016.50) → ต่ำกว่า 1,000 → ไม่หัก",
       "lines": [
         {
           "amount": "950.00",
@@ -395,7 +404,9 @@
           "whtRate": "3.00"
         }
       ],
-      "options": {},
+      "options": {
+        "whtMinimum": "1000.00"
+      },
       "accountSystem": "DIFF_MINIMUM",
       "pending": ["01§8.2 ข้อ 7"],
       "expected": {
@@ -423,43 +434,6 @@
     },
     {
       "id": "G12",
-      "title": "ฐาน GRAND_TOTAL: บริการ 950 + VAT 66.50 = 1,016.50 ≥ 1,000 → หัก",
-      "lines": [
-        {
-          "amount": "950.00",
-          "vatType": "VAT_7",
-          "whtRate": "3.00"
-        }
-      ],
-      "options": {
-        "whtMinimumBasis": "GRAND_TOTAL"
-      },
-      "accountSystem": "MATCH",
-      "pending": ["01§8.2 ข้อ 7"],
-      "expected": {
-        "exemptBase": "0.00",
-        "vatableBase": "950.00",
-        "zeroRatedBase": "0.00",
-        "vat": "66.50",
-        "grandTotal": "1016.50",
-        "wht": "28.50",
-        "deductions": "0.00",
-        "netPayable": "988.00",
-        "whtBelowMinimum": false,
-        "whtMinimumTested": "1016.50",
-        "whtByRate": [
-          {
-            "ratePercent": "3.00",
-            "base": "950.00",
-            "wht": "28.50"
-          }
-        ],
-        "lineVat": ["66.50"],
-        "lineWht": ["28.50"]
-      }
-    },
-    {
-      "id": "G13",
       "title": "ยอดตามสัญญา (รายปี) 12,000 ส่งมา: ใบ 500 ก็หัก (ข้อ 12/5 แบ่งจ่ายงวด < 1,000 ยังต้องหัก)",
       "lines": [
         {
@@ -469,6 +443,7 @@
         }
       ],
       "options": {
+        "whtMinimum": "1000.00",
         "whtContractAmount": "12000.00"
       },
       "accountSystem": "MATCH",
@@ -496,8 +471,8 @@
       }
     },
     {
-      "id": "G14",
-      "title": "tenant ปิดขั้นต่ำ (whtMinimum 0): 800 → หัก 8.00",
+      "id": "G13",
+      "title": "ค่าเริ่ม (ขั้นต่ำ 0 = หักทุกยอด ตรง AccountSystem): 800 → หัก 8.00",
       "lines": [
         {
           "amount": "800.00",
@@ -505,9 +480,7 @@
           "whtRate": "1.00"
         }
       ],
-      "options": {
-        "whtMinimum": "0.00"
-      },
+      "options": {},
       "accountSystem": "MATCH",
       "expected": {
         "exemptBase": "800.00",
@@ -532,7 +505,7 @@
       }
     },
     {
-      "id": "G15",
+      "id": "G14",
       "title": "ปัดเศษ VAT ครั้งเดียวทั้งใบ: 33.33 × 3 → 7.00 (รายบรรทัด 6.99)",
       "lines": [
         {
@@ -563,14 +536,14 @@
         "deductions": "0.00",
         "netPayable": "106.99",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "0.00",
+        "whtMinimumTested": null,
         "whtByRate": [],
         "lineVat": ["2.33", "2.33", "2.34"],
         "lineWht": ["0.00", "0.00", "0.00"]
       }
     },
     {
-      "id": "G16",
+      "id": "G15",
       "title": "ปัดเศษ WHT ครั้งเดียวต่ออัตรา: 333.35 × 3 → 10.00 (รายบรรทัด 9.99)",
       "lines": [
         {
@@ -601,7 +574,7 @@
         "deductions": "0.00",
         "netPayable": "990.05",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "1000.05",
+        "whtMinimumTested": null,
         "whtByRate": [
           {
             "ratePercent": "1.00",
@@ -614,7 +587,7 @@
       }
     },
     {
-      "id": "G17",
+      "id": "G16",
       "title": "WHT ปัดครึ่งขึ้น: 1,050.50 × 1% = 10.505 → 10.51",
       "lines": [
         {
@@ -635,7 +608,7 @@
         "deductions": "0.00",
         "netPayable": "1039.99",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "1050.50",
+        "whtMinimumTested": null,
         "whtByRate": [
           {
             "ratePercent": "1.00",
@@ -648,7 +621,7 @@
       }
     },
     {
-      "id": "G18",
+      "id": "G17",
       "title": "VAT/WHT ปัดครึ่งขึ้น: 1,000.50 → VAT 70.035 → 70.04, WHT 30.015 → 30.02",
       "lines": [
         {
@@ -669,7 +642,7 @@
         "deductions": "0.00",
         "netPayable": "1040.52",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "1000.50",
+        "whtMinimumTested": null,
         "whtByRate": [
           {
             "ratePercent": "3.00",
@@ -682,7 +655,7 @@
       }
     },
     {
-      "id": "G19",
+      "id": "G18",
       "title": "ต่ำกว่าครึ่งปัดลง: 1,000.07 → VAT 70.0049 → 70.00, WHT 30.0021 → 30.00",
       "lines": [
         {
@@ -703,7 +676,7 @@
         "deductions": "0.00",
         "netPayable": "1040.07",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "1000.07",
+        "whtMinimumTested": null,
         "whtByRate": [
           {
             "ratePercent": "3.00",
@@ -716,7 +689,7 @@
       }
     },
     {
-      "id": "G20",
+      "id": "G19",
       "title": "ปน + ปัดแยกกลุ่ม: 1,234.56 (1%) + 789.01 (7% 3%)",
       "lines": [
         {
@@ -742,7 +715,7 @@
         "deductions": "0.00",
         "netPayable": "2042.78",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "2023.57",
+        "whtMinimumTested": null,
         "whtByRate": [
           {
             "ratePercent": "1.00",
@@ -760,7 +733,7 @@
       }
     },
     {
-      "id": "G21",
+      "id": "G20",
       "title": "บรรทัดส่วนลดลดฐานอัตราเดียวกัน: ขนส่ง 5,000 − 500",
       "lines": [
         {
@@ -787,7 +760,7 @@
         "deductions": "0.00",
         "netPayable": "4455.00",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "4500.00",
+        "whtMinimumTested": null,
         "whtByRate": [
           {
             "ratePercent": "1.00",
@@ -800,7 +773,7 @@
       }
     },
     {
-      "id": "G22",
+      "id": "G21",
       "title": "ส่วนลดทำให้ฐานต่ำกว่าขั้นต่ำ: บริการ 1,000 − 100 → ไม่หัก",
       "lines": [
         {
@@ -814,7 +787,9 @@
           "whtRate": "3.00"
         }
       ],
-      "options": {},
+      "options": {
+        "whtMinimum": "1000.00"
+      },
       "accountSystem": "DIFF_MINIMUM",
       "pending": ["01§8.2 ข้อ 7"],
       "note": "เทียบเท่าส่วนลดรายการของ AccountSystem",
@@ -842,8 +817,8 @@
       }
     },
     {
-      "id": "G23",
-      "title": "เหมือน G22 แต่ปิดขั้นต่ำ → หัก 27.00",
+      "id": "G22",
+      "title": "เหมือน G22 แต่ขั้นต่ำ 0 (ค่าเริ่ม) → หัก 27.00",
       "lines": [
         {
           "amount": "1000.00",
@@ -884,7 +859,7 @@
       }
     },
     {
-      "id": "G24",
+      "id": "G23",
       "title": "ใบสำคัญจ่ายรถร่วม: ค่าจ้าง 12,000 (1%) มีบรรทัดหักเงินเบิก 2,000 — หักไม่ลดฐาน WHT",
       "lines": [
         {
@@ -912,7 +887,7 @@
         "deductions": "2000.00",
         "netPayable": "9880.00",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "12000.00",
+        "whtMinimumTested": null,
         "whtByRate": [
           {
             "ratePercent": "1.00",
@@ -925,7 +900,7 @@
       }
     },
     {
-      "id": "G25",
+      "id": "G24",
       "title": "ใบสำคัญจ่าย: ค่าจ้าง + ค่าบริการ 7% + หักเงินเบิกและค่าปรับ",
       "lines": [
         {
@@ -964,7 +939,7 @@
         "deductions": "800.00",
         "netPayable": "15090.00",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "16000.00",
+        "whtMinimumTested": null,
         "whtByRate": [
           {
             "ratePercent": "1.00",
@@ -982,8 +957,8 @@
       }
     },
     {
-      "id": "G26",
-      "title": "บรรทัดหักไม่นับรวมเทียบขั้นต่ำ: ค่าจ้าง 900 + หัก 100 → ไม่หัก WHT",
+      "id": "G25",
+      "title": "ขั้นต่ำ 1,000: บรรทัดหักไม่นับรวมเทียบขั้นต่ำ: ค่าจ้าง 900 + หัก 100 → ไม่หัก WHT",
       "lines": [
         {
           "amount": "900.00",
@@ -997,7 +972,9 @@
           "kind": "DEDUCTION"
         }
       ],
-      "options": {},
+      "options": {
+        "whtMinimum": "1000.00"
+      },
       "accountSystem": "DIFF_MINIMUM",
       "pending": ["01§8.2 ข้อ 7", "ST6-T08"],
       "expected": {
@@ -1024,7 +1001,7 @@
       }
     },
     {
-      "id": "G27",
+      "id": "G26",
       "title": "คู่ไม่ปกติ ยกเว้น VAT + 3% — คำนวณตามธงบรรทัด (ไม่ตัดสิน)",
       "lines": [
         {
@@ -1046,7 +1023,7 @@
         "deductions": "0.00",
         "netPayable": "1940.00",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "2000.00",
+        "whtMinimumTested": null,
         "whtByRate": [
           {
             "ratePercent": "3.00",
@@ -1059,7 +1036,7 @@
       }
     },
     {
-      "id": "G28",
+      "id": "G27",
       "title": "VAT 7% + 1% (e-WHT ลดอัตรา) — คำนวณตามธงบรรทัด",
       "lines": [
         {
@@ -1081,7 +1058,7 @@
         "deductions": "0.00",
         "netPayable": "2120.00",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "2000.00",
+        "whtMinimumTested": null,
         "whtByRate": [
           {
             "ratePercent": "1.00",
@@ -1094,7 +1071,7 @@
       }
     },
     {
-      "id": "G29",
+      "id": "G28",
       "title": "ยอดใหญ่: 9,999,999.99 × 1% = 99,999.9999 → 100,000.00",
       "lines": [
         {
@@ -1115,7 +1092,7 @@
         "deductions": "0.00",
         "netPayable": "9899999.99",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "9999999.99",
+        "whtMinimumTested": null,
         "whtByRate": [
           {
             "ratePercent": "1.00",
@@ -1128,7 +1105,7 @@
       }
     },
     {
-      "id": "G30",
+      "id": "G29",
       "title": "ยอดใหญ่ VAT: 1,234,567.89 (7% 3%)",
       "lines": [
         {
@@ -1149,7 +1126,7 @@
         "deductions": "0.00",
         "netPayable": "1283950.60",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "1234567.89",
+        "whtMinimumTested": null,
         "whtByRate": [
           {
             "ratePercent": "3.00",
@@ -1162,7 +1139,7 @@
       }
     },
     {
-      "id": "G31",
+      "id": "G30",
       "title": "ฐานกลุ่ม 1% ติดลบ (ส่วนลดเกินยอด) → WHT กลุ่มนั้น 0",
       "lines": [
         {
@@ -1194,7 +1171,7 @@
         "deductions": "0.00",
         "netPayable": "1880.00",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "1800.00",
+        "whtMinimumTested": null,
         "whtByRate": [
           {
             "ratePercent": "1.00",
@@ -1212,7 +1189,7 @@
       }
     },
     {
-      "id": "G32",
+      "id": "G31",
       "title": "เอกสารว่าง (ไม่มีบรรทัด)",
       "lines": [],
       "options": {},
@@ -1227,14 +1204,14 @@
         "deductions": "0.00",
         "netPayable": "0.00",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "0.00",
+        "whtMinimumTested": null,
         "whtByRate": [],
         "lineVat": [],
         "lineWht": []
       }
     },
     {
-      "id": "G33",
+      "id": "G32",
       "title": "บรรทัดเล็กหลายบรรทัด: 0.15 × 10 → VAT 0.105 → 0.11 (รายบรรทัด 0.10)",
       "lines": [
         {
@@ -1300,14 +1277,14 @@
         "deductions": "0.00",
         "netPayable": "1.61",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "0.00",
+        "whtMinimumTested": null,
         "whtByRate": [],
         "lineVat": ["0.01", "0.01", "0.01", "0.01", "0.01", "0.01", "0.01", "0.01", "0.01", "0.02"],
         "lineWht": ["0.00", "0.00", "0.00", "0.00", "0.00", "0.00", "0.00", "0.00", "0.00", "0.00"]
       }
     },
     {
-      "id": "G34",
+      "id": "G33",
       "title": "ยกเว้น + อัตราศูนย์ + 7% ในใบเดียว",
       "lines": [
         {
@@ -1338,7 +1315,7 @@
         "deductions": "0.00",
         "netPayable": "8990.00",
         "whtBelowMinimum": false,
-        "whtMinimumTested": "6000.00",
+        "whtMinimumTested": null,
         "whtByRate": [
           {
             "ratePercent": "1.00",
@@ -1353,44 +1330,6 @@
         ],
         "lineVat": ["0.00", "0.00", "70.00"],
         "lineWht": ["50.00", "0.00", "30.00"]
-      }
-    },
-    {
-      "id": "G35",
-      "title": "ฐาน GRAND_TOTAL ต่ำกว่าขั้นต่ำ: ขนส่ง 900 → ไม่หัก",
-      "lines": [
-        {
-          "amount": "900.00",
-          "vatType": "EXEMPT_TRANSPORT",
-          "whtRate": "1.00"
-        }
-      ],
-      "options": {
-        "whtMinimumBasis": "GRAND_TOTAL"
-      },
-      "accountSystem": "DIFF_MINIMUM",
-      "pending": ["01§8.2 ข้อ 7"],
-      "expected": {
-        "exemptBase": "900.00",
-        "vatableBase": "0.00",
-        "zeroRatedBase": "0.00",
-        "vat": "0.00",
-        "grandTotal": "900.00",
-        "wht": "0.00",
-        "deductions": "0.00",
-        "netPayable": "900.00",
-        "whtBelowMinimum": true,
-        "whtMinimumTested": "900.00",
-        "whtByRate": [
-          {
-            "ratePercent": "1.00",
-            "base": "900.00",
-            "wht": "0.00"
-          }
-        ],
-        "lineVat": ["0.00"],
-        "lineWht": ["0.00"],
-        "accountSystemWht": "9.00"
       }
     }
   ]

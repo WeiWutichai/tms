@@ -7,10 +7,8 @@ import {
   DEFAULT_MAX_AUTO_RESCHEDULES,
   DEFAULT_POD_REQUIREMENTS,
   DEFAULT_WHT_MINIMUM_BAHT,
-  DEFAULT_WHT_MINIMUM_BASIS,
   MAX_AUTO_RESCHEDULES_LIMIT,
   parsePodRequirements,
-  WHT_MINIMUM_BASES,
 } from '@tms/domain';
 import { RETENTION_MAX, RETENTION_MIN } from '../retention/retention-policy';
 
@@ -97,20 +95,13 @@ export const SETTINGS = {
     description: 'เปิดใช้หัก ณ ที่จ่าย 3% (ค่าบริการ)',
   },
   // ST5-T02 (D-54 ยอดภาษีใน TMS = ประมาณการ) — ค่าตั้งต้นที่รอนักบัญชี (docs/01 §8.2 ข้อ 7) · ไม่มีหน้าจอ (ต้นแบบไม่มีช่อง — spec/12 §3)
-  // ใช้กับ computeDocumentTax ของ @tms/domain (whtMinimum = บาท × 100, whtMinimumBasis)
+  // ใช้กับ computeDocumentTax ของ @tms/domain ผ่าน taxOptionsFromSettings
   'tax.whtMinimumAmount': {
     group: 'tax',
     type: { kind: 'int', min: 0, max: SETTLEMENT_STEP_UP_MAX },
     default: DEFAULT_WHT_MINIMUM_BAHT,
     description:
-      'ขั้นต่ำหัก ณ ที่จ่าย (บาท) — ยอดที่เทียบตั้งแต่ค่านี้ขึ้นไปจึงแสดงยอดหัก (ท.ป.4/2528 ข้อ 12/5 ≥ 1,000 บาทต่อสัญญา — research §3.1) · 0 = ไม่ตรวจขั้นต่ำ · ยอดประมาณการ ยอดจริงคำนวณที่ระบบบัญชี (D-54)',
-  },
-  'tax.whtMinimumBasis': {
-    group: 'tax',
-    type: { kind: 'enum', values: WHT_MINIMUM_BASES },
-    default: DEFAULT_WHT_MINIMUM_BASIS,
-    description:
-      'ยอดที่ใช้เทียบขั้นต่ำหัก ณ ที่จ่าย เมื่อไม่รู้ยอดตามสัญญา: WHT_BASE = ยอดก่อน VAT ของบรรทัดที่มีอัตราหัก · GRAND_TOTAL = ยอดรวมทั้งใบรวม VAT [OPEN — นักบัญชี docs/01 §8.2 ข้อ 7]',
+      'ขั้นต่ำหัก ณ ที่จ่าย (บาท) — ฐานก่อน VAT ของใบ (หรือยอดตามสัญญา) ตั้งแต่ค่านี้ขึ้นไปจึงแสดงยอดหัก · ค่าเริ่ม 0 = หักทุกยอด (ตรงกับระบบบัญชี) · ท.ป.4/2528 ข้อ 12/5 ขั้นต่ำ 1,000 "ตามสัญญา" (research §3.1) แต่ฐานนับต่อเที่ยว/ต่อปียังรอนักบัญชี [OPEN docs/01 §8.2 ข้อ 7] · ยอดประมาณการ (D-54)',
   },
   'tax.separateVatDocs': {
     group: 'tax',

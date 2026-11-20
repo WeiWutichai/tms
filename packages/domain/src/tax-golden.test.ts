@@ -13,7 +13,6 @@ import {
   toCalcWhtRate,
   type ServiceItemVatType,
   type TaxCalcOptions,
-  type WhtMinimumBasis,
 } from './tax';
 
 /**
@@ -33,7 +32,6 @@ interface GoldenCase {
   lines: GoldenLine[];
   options: {
     whtMinimum?: string;
-    whtMinimumBasis?: WhtMinimumBasis;
     whtContractAmount?: string;
   };
   accountSystem: 'MATCH' | 'DIFF_MINIMUM' | 'N/A';
@@ -58,6 +56,7 @@ interface GoldenCase {
 interface GoldenFile {
   status: string;
   label: string;
+  defaults: { whtMinimum: string };
   cases: GoldenCase[];
 }
 
@@ -66,9 +65,9 @@ const golden = JSON.parse(
 ) as GoldenFile;
 
 function run(c: GoldenCase) {
-  const opts: TaxCalcOptions = {};
-  if (c.options.whtMinimum !== undefined) opts.whtMinimum = d(c.options.whtMinimum);
-  if (c.options.whtMinimumBasis !== undefined) opts.whtMinimumBasis = c.options.whtMinimumBasis;
+  const opts: TaxCalcOptions = {
+    whtMinimum: d(c.options.whtMinimum ?? golden.defaults.whtMinimum),
+  };
   if (c.options.whtContractAmount !== undefined)
     opts.whtContractAmount = d(c.options.whtContractAmount);
   return computeDocumentTax(

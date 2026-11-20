@@ -21,19 +21,13 @@ export type VatType = 'EXEMPT' | 'VAT7' | 'ZERO';
 export const VAT_RATE_7 = '0.07';
 
 /**
- * ขั้นต่ำหัก ณ ที่จ่าย (บาท) ค่าตั้งต้น — ท.ป.4/2528 ข้อ 12/5 "ตั้งแต่หนึ่งพันบาทขึ้นไป" (research §3.1, docs/04 F1)
- * แก้ได้ต่อ tenant (`tax.whtMinimumAmount`) — ฐานที่ใช้นับ "ต่อสัญญา" ยังรอนักบัญชี (docs/01 §8.2 ข้อ 7) [OPEN]
+ * ขั้นต่ำหัก ณ ที่จ่าย (บาท) ค่าตั้งต้น = **0 (หักทุกยอด — ตรงกับ AccountSystem)** — ยอดเป็นประมาณการ (D-54)
+ * ท.ป.4/2528 ข้อ 12/5 วัดขั้นต่ำ 1,000 "ตามสัญญา" (research §3.1) แต่จะนับต่อเที่ยว/ต่อใบ/ต่อปียังเปิด
+ * (research §6.2 ข้อ 8, docs/01 §8.2 ข้อ 7 — ถ้าต่อปี "ไม่ตรวจขั้นต่ำ") → วัดต่อใบเป็นค่าเริ่ม = เลือกคำตอบเอง จึงไม่ทำ
+ * tenant/นักบัญชีตั้ง `tax.whtMinimumAmount` = 1000 ได้ (เทียบกับฐานก่อน VAT รวมทุกอัตราของใบ หรือยอดตามสัญญาที่ผู้เรียกส่ง)
+ * [OPEN — นักบัญชี] ฐานนับขั้นต่ำ และการรวมฐานข้ามอัตรา 1%/3%
  */
-export const DEFAULT_WHT_MINIMUM_BAHT = 1000;
-
-/**
- * ยอดที่ใช้เทียบขั้นต่ำ WHT เมื่อผู้เรียกไม่ส่งยอดตามสัญญา (`whtContractAmount`) — [OPEN — นักบัญชี docs/01 §8.2 ข้อ 7]
- * - `WHT_BASE` (ค่าตั้งต้น): ยอดก่อน VAT ของบรรทัดที่มีอัตราหัก (ฐานเดียวกับที่ใช้คำนวณ WHT)
- * - `GRAND_TOTAL`: ยอดรวมทั้งใบรวม VAT (ไม่รวมบรรทัดหัก)
- */
-export const WHT_MINIMUM_BASES = ['WHT_BASE', 'GRAND_TOTAL'] as const;
-export type WhtMinimumBasis = (typeof WHT_MINIMUM_BASES)[number];
-export const DEFAULT_WHT_MINIMUM_BASIS: WhtMinimumBasis = 'WHT_BASE';
+export const DEFAULT_WHT_MINIMUM_BAHT = 0;
 
 export interface TaxableLine {
   /** จำนวนเงินก่อน VAT (สตางค์) หลังหักส่วนลดบรรทัดแล้ว · ติดลบได้ (ส่วนลดที่ลดฐานของอัตราเดียวกัน) */
@@ -49,22 +43,20 @@ export interface TaxableLine {
   kind?: 'CHARGE' | 'DEDUCTION';
 }
 
+/** ค่าบังคับ — ผู้เรียกส่งจาก `taxOptionsFromSettings()` หรือระบุชัด (ไม่มีค่าเริ่มซ่อนในฟังก์ชัน) */
 export interface TaxCalcOptions {
-  /** ขั้นต่ำ WHT (สตางค์) — ยอดที่เทียบ ≥ ค่านี้จึงหัก · `0n` = ไม่ตรวจขั้นต่ำ · ไม่ส่ง = DEFAULT_WHT_MINIMUM_BAHT */
-  whtMinimum?: Satang;
-  /** ยอดที่ใช้เทียบขั้นต่ำเมื่อไม่ส่ง `whtContractAmount` · ไม่ส่ง = DEFAULT_WHT_MINIMUM_BASIS */
-  whtMinimumBasis?: WhtMinimumBasis;
-  /** ยอดตามสัญญาที่ผู้เรียกรู้ (เช่น สัญญารายปี/รวมทุกงวด) — ส่งมาแล้วใช้เทียบขั้นต่ำแทน basis (ข้อ 12/5 วัดต่อสัญญา) */
+  /** ขั้นต่ำ WHT (สตางค์) — ยอดที่เทียบ ≥ ค่านี้จึงหัก · `0n` = ไม่ตรวจขั้นต่ำ (หักทุกยอด) */
+  whtMinimum: Satang;
+  /** ยอดตามสัญญาที่ผู้เรียกรู้ (เช่น สัญญารายปี/รวมทุกงวด) — ส่งมาแล้วใช้เทียบขั้นต่ำแทนฐานก่อน VAT ของใบ (ข้อ 12/5 วัดต่อสัญญา) */
   whtContractAmount?: Satang;
 }
 
 /**
- * ค่าตั้ง tenant (`tax.whtMinimumAmount` บาท, `tax.whtMinimumBasis`) → TaxCalcOptions — ที่เดียวของการแปลงหน่วย บาท → สตางค์
+ * ค่าตั้ง tenant (`tax.whtMinimumAmount` บาท) → TaxCalcOptions — ที่เดียวของการแปลงหน่วย บาท → สตางค์
  * `contractAmount` = ยอดตามสัญญาที่ผู้เรียกรู้ (ถ้ามี)
  */
 export function taxOptionsFromSettings(s: {
   whtMinimumAmount: number;
-  whtMinimumBasis: WhtMinimumBasis;
   contractAmount?: Satang;
 }): TaxCalcOptions {
   if (!Number.isSafeInteger(s.whtMinimumAmount) || s.whtMinimumAmount < 0)
@@ -73,7 +65,6 @@ export function taxOptionsFromSettings(s: {
     );
   return {
     whtMinimum: BigInt(s.whtMinimumAmount) * 100n,
-    whtMinimumBasis: s.whtMinimumBasis,
     ...(s.contractAmount !== undefined ? { whtContractAmount: s.contractAmount } : {}),
   };
 }
@@ -106,7 +97,7 @@ export interface DocumentTaxSummary {
   netPayable: Satang; // grandTotal − wht − deductions
   /** WHT แยกตามอัตรา (เรียงตามลำดับที่พบในบรรทัด) — ไม่มีกลุ่มของอัตรา 0 */
   whtByRate: WhtRateGroup[];
-  /** ยอดที่ใช้เทียบขั้นต่ำ (null = ไม่ตรวจขั้นต่ำ) */
+  /** ยอดที่ใช้เทียบขั้นต่ำ (null = ไม่ตรวจขั้นต่ำ หรือไม่มีบรรทัดที่มีอัตราหัก) */
   whtMinimumTested: Satang | null;
   /** true = ยอดต่ำกว่าขั้นต่ำ → ไม่หัก (wht ทุกบรรทัด = 0) */
   whtBelowMinimum: boolean;
@@ -138,7 +129,7 @@ function spreadToLast(target: Satang, perLine: Satang[], indexes: readonly numbe
  */
 export function computeDocumentTax(
   lines: readonly TaxableLine[],
-  opts: TaxCalcOptions = {},
+  opts: TaxCalcOptions,
 ): DocumentTaxSummary {
   // whtRate เป็นสัดส่วน (0.01) ไม่ใช่เปอร์เซ็นต์ (1.00) — กันพลาด 100 เท่า (ใช้ toCalcWhtRate แปลงจาก snapshot)
   for (const l of lines)
@@ -149,7 +140,7 @@ export function computeDocumentTax(
   for (const l of lines)
     if (l.kind === 'DEDUCTION' && l.amount < 0n)
       throw new RangeError('DEDUCTION amount must be >= 0 (it is subtracted from netPayable)');
-  const minimum = opts.whtMinimum ?? BigInt(DEFAULT_WHT_MINIMUM_BAHT) * 100n;
+  const minimum = opts.whtMinimum;
   if (minimum < 0n) throw new RangeError('whtMinimum must be >= 0');
 
   const isCharge = (l: TaxableLine) => l.kind !== 'DEDUCTION';
@@ -184,15 +175,10 @@ export function computeDocumentTax(
     groups.set(r, [...(groups.get(r) ?? []), i]);
   }
   const whtBaseTotal = sumSatang([...groups.values()].flat().map((i) => lines[i]!.amount));
+  // ฐานเทียบขั้นต่ำ = ยอดตามสัญญา (ถ้าส่ง) หรือ Σ ฐานก่อน VAT ทุกอัตราของใบ [OPEN — นักบัญชี: รวมข้ามอัตราได้ไหม]
   const whtMinimumTested =
-    minimum === 0n
-      ? null
-      : (opts.whtContractAmount ??
-        ((opts.whtMinimumBasis ?? DEFAULT_WHT_MINIMUM_BASIS) === 'GRAND_TOTAL'
-          ? grandTotal
-          : whtBaseTotal));
-  const whtBelowMinimum =
-    whtMinimumTested !== null && groups.size > 0 && whtMinimumTested < minimum;
+    minimum === 0n || groups.size === 0 ? null : (opts.whtContractAmount ?? whtBaseTotal);
+  const whtBelowMinimum = whtMinimumTested !== null && whtMinimumTested < minimum;
 
   const perLineWht: Satang[] = lines.map(() => 0n);
   const whtByRate: WhtRateGroup[] = [];
