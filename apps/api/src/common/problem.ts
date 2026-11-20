@@ -383,6 +383,24 @@ export const PROBLEMS = {
     th: 'บรรทัดต้นทุนนี้อยู่ในใบสำคัญจ่ายอื่นแล้ว — จ่ายซ้ำไม่ได้',
     en: 'Trip cost line is already in another active settlement',
   },
+  /** ST6-T07 separation of duties (docs/04 F6 Approve, A3): ผู้สร้างใบสำคัญจ่ายอนุมัติใบตัวเองไม่ได้ */
+  settlement_self_approval: {
+    status: 403,
+    th: 'ผู้เตรียมใบสำคัญจ่าย (สร้างใบ เพิ่มหรือนำรายการออก) อนุมัติใบนั้นไม่ได้ ต้องให้ผู้อนุมัติคนอื่น',
+    en: 'Whoever prepared a settlement cannot approve it',
+  },
+  /** ST6-T07: ใบไม่มีบรรทัดเที่ยวที่ยังใช้ — อนุมัติไม่ได้ */
+  settlement_empty: {
+    status: 409,
+    th: 'ใบสำคัญจ่ายยังไม่มีรายการเที่ยว อนุมัติไม่ได้',
+    en: 'The settlement has no trip lines',
+  },
+  /** ST6-T07 (spec/05 BIL-133): ยอดสุทธิติดลบ — ยกยอดหักส่วนเกินไปงวดถัดไปก่อนอนุมัติ */
+  settlement_net_negative: {
+    status: 409,
+    th: 'ยอดสุทธิติดลบ อนุมัติไม่ได้ — นำรายการหักส่วนเกินออกแล้วยกไปงวดถัดไป',
+    en: 'Net payable is negative — move the excess deductions to the next period',
+  },
   /** ST6-T03: เที่ยว/บรรทัดต้นทุนไม่อยู่ในคิวจ่ายของรถร่วมรายนี้ (ยังไม่ปิดต้นทุน / POD ไม่ครบ / ต่างรถร่วม / ยังไม่ยืนยัน) — extension `tripIds`, `tripCostIds` */
   trip_cost_not_payable: {
     status: 409,

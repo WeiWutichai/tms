@@ -11,6 +11,11 @@ import {
 } from '@tms/domain';
 import { RETENTION_MAX, RETENTION_MIN } from '../retention/retention-policy';
 
+/** ST6-T07 วงเงิน step-up อนุมัติใบสำคัญจ่าย (บาท, ยอดสุทธิ) — ค่าเริ่ม [DECISION spec/12 §3] */
+export const SETTLEMENT_STEP_UP_DEFAULT = 100_000;
+/** เพดาน = numeric(14,2) ส่วนจำนวนเต็ม */
+export const SETTLEMENT_STEP_UP_MAX = 999_999_999_999;
+
 export type SettingType =
   | { kind: 'string'; max: number }
   | { kind: 'enum'; values: readonly (string | number)[] }
@@ -28,7 +33,16 @@ export interface SettingDef {
   default: unknown;
   /** กลุ่มในหน้า ตั้งค่า (org / tax / sec / billing) */
   group:
-    'org' | 'tax' | 'sec' | 'billing' | 'routing' | 'dispatch' | 'pod' | 'tracking' | 'retention';
+    | 'org'
+    | 'tax'
+    | 'sec'
+    | 'billing'
+    | 'routing'
+    | 'dispatch'
+    | 'pod'
+    | 'tracking'
+    | 'retention'
+    | 'settlement';
   store?: { table: 'tenant'; column: 'name' | 'yearStyle' };
   description: string;
 }
@@ -170,6 +184,14 @@ export const SETTINGS = {
     type: { kind: 'enum', values: [30, 60, 480] },
     default: 480,
     description: 'เวลาไม่ใช้งานก่อนออกจากระบบ (นาที) — docs/04 A1 ค่าเริ่ม 8 ชม.',
+  },
+  // ST6-T07 (docs/04 F6 "Approve (separation of duties)": step-up 2FA เกินวงเงินที่ตั้ง) — ไม่มีหน้าจอ (ต้นแบบไม่มีช่อง — spec/12 §3)
+  'settlement.approvalStepUpAmount': {
+    group: 'settlement',
+    type: { kind: 'int', min: 0, max: SETTLEMENT_STEP_UP_MAX, nullable: true },
+    default: SETTLEMENT_STEP_UP_DEFAULT,
+    description:
+      'อนุมัติใบสำคัญจ่ายรถร่วมที่ยอดสุทธิเกินกี่บาท ต้องยืนยัน 2FA ซ้ำ (step-up) — 0 = ทุกใบ · null = ไม่บังคับ · เพิ่มค่า/ปิด = ลดความปลอดภัย ต้อง step-up',
   },
   // ST9-T14 ระยะเก็บ (docs/04 J — ตั้งต่อ tenant ไม่ต่ำกว่าขั้นต่ำ) · ค่าเริ่ม = ขั้นต่ำ · ต่ำกว่าขั้นต่ำ = 422 · ลดระยะต้อง step-up
   // ไม่มีหน้าจอ (ต้นแบบไม่มี — spec/12 §3) ตั้งผ่าน PATCH /v1/settings · เอกสารภาษีไม่อยู่ในกลุ่มนี้ (ST9-T15)

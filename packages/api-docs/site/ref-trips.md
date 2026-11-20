@@ -1,6 +1,6 @@
 # เที่ยววิ่ง (trips)
 
-34 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+32 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -28,8 +28,6 @@
 | [`POST /v1/do-surcharges/{id}/confirm`](#post-do-surcharges-id-confirm) | `invoices:draft` |
 | [`POST /v1/do-surcharges/{id}/reject`](#post-do-surcharges-id-reject) | `invoices:draft` |
 | [`POST /v1/do-surcharges/{id}/cancel`](#post-do-surcharges-id-cancel) | `prices.sell:write` |
-| [`POST /v1/trip-costs/{id}/confirm`](#post-trip-costs-id-confirm) | `settlements:approve` |
-| [`POST /v1/trip-costs/{id}/reject`](#post-trip-costs-id-reject) | `settlements:approve` |
 | [`POST /v1/trip-costs/{id}/cancel`](#post-trip-costs-id-cancel) | `prices.buy:write` / `trips:dispatch` |
 | [`GET /v1/trips/{id}/offer-link`](#get-trips-id-offer-link) | `trips:assign` |
 | [`POST /v1/trips/{id}/offer-link`](#post-trips-id-offer-link) | `trips:assign` |
@@ -1233,108 +1231,6 @@ curl -sS -X POST "$TMS_BASE_URL/v1/do-surcharges/<id>/cancel" \
 
 ```ts
 const { data, error } = await tms.POST('/v1/do-surcharges/{id}/cancel', {
-  params: { path: { id: "…" } },
-  body: {
-    "reason": "ตรวจใบเสร็จแล้ว ตรงกับที่ตกลงกับลูกค้า"
-  },
-});
-```
-
-## ยืนยันค่าใช้จ่ายหน้างานฝั่งซื้อ (ผู้อนุมัติ settlement — `settlements:approve` · ผู้บันทึกเองไม่ได้) — เหตุผล ≥ 10 ตัวอักษร {#post-trip-costs-id-confirm}
-
-`POST /v1/trip-costs/{id}/confirm`
-
-scope: `settlements:approve` · operationId: `TripCosts_confirm`
-
-**Parameters**
-
-| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
-|---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
-| `If-Match` | header |   | `string` | ETag (version) — ไม่ตรง → 412 |
-
-**Request body** `FieldChargeReasonDto`
-
-| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
-|---|---|---|---|---|---|
-| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `ตรวจใบเสร็จแล้ว ตรงกับที่ตกลงกับลูกค้า` |
-
-**Responses**
-
-| สถานะ | ความหมาย | body |
-|---|---|---|
-| `200` |   | `FieldChargeDto` |
-| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`settlements:approve`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
-| `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
-| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
-| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
-| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
-| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
-
-**ตัวอย่าง**
-
-```bash
-curl -sS -X POST "$TMS_BASE_URL/v1/trip-costs/<id>/confirm" \
-  -H "Authorization: Bearer $TMS_API_KEY" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -H "Content-Type: application/json" \
-  -d '{"reason":"ตรวจใบเสร็จแล้ว ตรงกับที่ตกลงกับลูกค้า"}'
-```
-
-```ts
-const { data, error } = await tms.POST('/v1/trip-costs/{id}/confirm', {
-  params: { path: { id: "…" } },
-  body: {
-    "reason": "ตรวจใบเสร็จแล้ว ตรงกับที่ตกลงกับลูกค้า"
-  },
-});
-```
-
-## ปฏิเสธค่าใช้จ่ายหน้างานฝั่งซื้อ (ผู้อนุมัติ settlement — `settlements:approve` · ผู้บันทึกเองไม่ได้) — เหตุผล ≥ 10 ตัวอักษร {#post-trip-costs-id-reject}
-
-`POST /v1/trip-costs/{id}/reject`
-
-scope: `settlements:approve` · operationId: `TripCosts_reject`
-
-**Parameters**
-
-| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
-|---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
-| `If-Match` | header |   | `string` | ETag (version) — ไม่ตรง → 412 |
-
-**Request body** `FieldChargeReasonDto`
-
-| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
-|---|---|---|---|---|---|
-| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `ตรวจใบเสร็จแล้ว ตรงกับที่ตกลงกับลูกค้า` |
-
-**Responses**
-
-| สถานะ | ความหมาย | body |
-|---|---|---|
-| `200` |   | `FieldChargeDto` |
-| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`settlements:approve`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
-| `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
-| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
-| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
-| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
-| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
-
-**ตัวอย่าง**
-
-```bash
-curl -sS -X POST "$TMS_BASE_URL/v1/trip-costs/<id>/reject" \
-  -H "Authorization: Bearer $TMS_API_KEY" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -H "Content-Type: application/json" \
-  -d '{"reason":"ตรวจใบเสร็จแล้ว ตรงกับที่ตกลงกับลูกค้า"}'
-```
-
-```ts
-const { data, error } = await tms.POST('/v1/trip-costs/{id}/reject', {
   params: { path: { id: "…" } },
   body: {
     "reason": "ตรวจใบเสร็จแล้ว ตรงกับที่ตกลงกับลูกค้า"

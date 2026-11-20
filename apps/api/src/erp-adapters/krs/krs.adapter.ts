@@ -1,4 +1,4 @@
-import type { ErpCapability } from '@tms/domain';
+import type { ErpCapability, ErpOperation } from '@tms/domain';
 import type { PullPage } from '../../modules/connectors/order-source.port';
 import {
   type CanonicalDocument,
@@ -8,11 +8,14 @@ import {
   type ErpContext,
   type ExternalRef,
   type HealthResult,
+  type MasterCodeReadiness,
+  type MasterCodeRef,
   notImplementedError,
   notImplementedResult,
   type PushResult,
 } from '../../modules/erp/erp-adapter';
 import { safeHttpRequest, type SendOptions } from '../../modules/webhooks/webhook-http';
+import { krsMasterCodeRefs, krsPushReadiness } from './krs-master-codes';
 
 /**
  * KrsAdapter — โครง (ST8-T03; docs/04 G4 KRS; docs/01 Appendix A.1–A.2, A.5) · KRS เป็นแค่ adapter หนึ่งหลัง `ErpAdapter`
@@ -21,6 +24,7 @@ import { safeHttpRequest, type SendOptions } from '../../modules/webhooks/webhoo
  * - capabilities ตาม docs/01 A.2: `{pullOrders, pushInvoice, fetchDocument, replaceDocument}` + ธง `ownsDocumentNumber`
  *   (KRS ออก `voucherNo` เอง) — **ไม่มี** pushCreditNote / pushSettlement / fetchPaymentStatus / postedStatus / listDocuments
  *   และไม่ดึงผังรหัส (`masterCodeKinds` ว่าง — plan/11 #8: ไม่มี getMasters → นำเข้าไฟล์ ST7-T18)
+ * - ST8-T06 `masterCodeRefs`: หน่วย/พนักงานขาย (บังคับ) + itemCode/accountCode ต้องอยู่ใน `erp_master_code` ก่อนส่ง (`krs-master-codes.ts`)
  * - method ของโครงยังไม่ทำ → `pendingCapabilities` + ตอบ CAPABILITY `not_implemented` (core พักคำสั่งไว้ ไม่ทิ้ง):
  *   pullOrders = ST8-T04 (SQL read-only view), pushInvoice = ST8-T08, replaceDocument = ST8-T09/T11, fetchDocument = ST8-T10
  * - ค่าตั้ง: `baseUrl` (เช่น `https://api-pueanphet.krs.co.th/api`), credential `apiKey` (header `X-API-Key` — เข้ารหัส FieldCipher, write-only),
@@ -55,6 +59,8 @@ export class KrsAdapter implements ErpAdapter {
     { key: 'baseUrl', secret: false, required: true, kind: 'url', maxLength: 300 },
     { key: 'apiKey', secret: true, required: true, kind: 'string', maxLength: 500 },
     { key: 'healthTransactionNo', secret: false, required: false, kind: 'string', maxLength: 40 },
+    /** ST8-T06 รหัสพนักงานขายของ KRS (`salePerson` หัวใบ — ต้องอยู่ในผังรหัส SALESPERSON; docs/01 A.3) */
+    { key: 'salePerson', secret: false, required: false, kind: 'string', maxLength: 64 },
     /** SQL Server read-only (docs/01 A.4) — ใช้ใน ST8-T04 */
     { key: 'sqlServer', secret: false, required: false, kind: 'string', maxLength: 200 },
     { key: 'sqlDatabase', secret: false, required: false, kind: 'string', maxLength: 128 },
@@ -74,6 +80,20 @@ export class KrsAdapter implements ErpAdapter {
    * (เอาออกจากรายการเมื่อทำเสร็จ: pullOrders ST8-T04, pushInvoice + ownsDocumentNumber ST8-T08, replaceDocument ST8-T09/T11, fetchDocument ST8-T10)
    */
   readonly pendingCapabilities: readonly ErpCapability[] = CAPS;
+
+  /** ST8-T06 ค่าที่ต้องอยู่ในผังรหัส KRS ก่อนส่ง (หน่วย/พนักงานขาย/itemCode/accountCode — `krs-master-codes.ts`) */
+  masterCodeRefs(
+    ctx: ErpContext,
+    operation: ErpOperation,
+    doc: CanonicalDocument,
+  ): readonly MasterCodeRef[] {
+    return krsMasterCodeRefs(ctx, operation, doc);
+  }
+
+  /** ST8-T06 ต้องมีพนักงานขายในผัง + ผังหน่วย ก่อนเปิดส่งใบ */
+  pushReadiness(ctx: ErpContext): MasterCodeReadiness {
+    return krsPushReadiness(ctx);
+  }
 
   async healthCheck(ctx: ErpContext): Promise<HealthResult> {
     const base = (ctx.config.baseUrl ?? '').trim().replace(/\/+$/, '');

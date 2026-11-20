@@ -1,17 +1,18 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
 import type { Connector } from '@prisma/client';
-import { ERP_OPERATION_CAPABILITY, isErpOperation, SOR_TAX_PUSH_CAPABILITIES } from '@tms/domain';
+import {
+  ERP_OPERATION_CAPABILITY,
+  type ErpOperation,
+  isErpOperation,
+  SOR_TAX_PUSH_CAPABILITIES,
+} from '@tms/domain';
 import { Clock } from '../../common/clock';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { OutboxSinkRegistry } from '../integration/outbox-sink.registry';
 import { OutboxSinkError, type OutboxDelivery, type OutboxSink } from '../integration/outbox.types';
 import { ConnectorResolver } from './connector-resolver';
 import { ConnectorsService, HEALTH_STOP_CLASSES, redactSecrets } from './connectors.service';
-import {
-  documentServiceItemIds,
-  ErpMasterCodesService,
-  withMappedItemCodes,
-} from './erp-master-codes.service';
+import { ErpMasterCodesService, type PushPreparation } from './erp-master-codes.service';
 import {
   type CanonicalDocument,
   type ErpAdapter,
@@ -24,6 +25,14 @@ import {
 } from './erp-adapter';
 
 export const ERP_SINK = 'erp';
+
+/** คำสั่งที่ส่งเอกสารเข้า ERP (ผ่านประตู mapping/ผังรหัสก่อน) */
+const PUSH_OPERATIONS: ReadonlySet<string> = new Set([
+  'PUSH_INVOICE',
+  'PUSH_CREDIT_NOTE',
+  'PUSH_SETTLEMENT',
+  'REPLACE_DOCUMENT',
+]);
 
 /** ST8-T03 คำสั่งของ capability ที่ adapter ยังไม่ได้ทำ = พัก (class AUTH = PENDING ไม่นับครั้ง — เหมือน `capability_off`) ไม่ใช่ SKIPPED */
 function parkedNotImplemented(cap: string): OutboxSinkError {
@@ -47,6 +56,8 @@ function parkedNotImplemented(cap: string): OutboxSinkError {
  * - ST7-T18 ประตู mapping: ค่าบริการในเอกสาร (`lines[].serviceItem.id`) ที่ยังไม่จับคู่รหัสสินค้า ERP → FAILED_FINAL
  *   (VALIDATION `erp_mapping_incomplete` + ลิงก์หน้า mapping — plan/11 #9: ไม่กันการออกเอกสาร) · ครบ = ใส่รหัสลง
  *   `serviceItem.externalId` ก่อนส่ง adapter (docs/01 §7.2)
+ * - ST8-T06 ค่าที่ adapter ประกาศใน `masterCodeRefs` (เช่น หน่วย/พนักงานขายของ KRS) ไม่อยู่ใน `erp_master_code` → FAILED_FINAL
+ *   (VALIDATION `erp_master_code_unknown` + ลิงก์) · ผ่าน = รหัสที่หาได้อยู่ใน `ctx.masterCodes`
  * การสร้างคำสั่งหลัง finalize + ประตู syncFromDate + external_mapping = ST7-T15/T16
  */
 @Injectable()
@@ -141,26 +152,41 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
       ref?: ExternalRef;
       branchId?: string;
     };
-    // ST7-T18 ประตู mapping (docs/01 §7.4) — ตรวจหลังเงื่อนไข "ส่งได้" ทั้งหมด (คำสั่งที่พัก/ข้ามไม่ถูกตัดสินว่าล้ม)
-    const doc = payload.document ?? (payload as CanonicalDocument);
-    const itemIds = documentServiceItemIds(doc);
-    if (itemIds.length) {
-      const check = await d.withTx((tx) =>
-        this.masterCodes.checkMapping(tx, connector.id, itemIds),
-      );
-      if (check.gaps.length) {
-        const problem = this.masterCodes.incompleteProblem(connector.id, check.gaps);
-        throw new OutboxSinkError(problem.message, 'VALIDATION', { ...problem });
-      }
-      if (payload.document) payload.document = withMappedItemCodes(payload.document, check.codes);
-      else Object.assign(payload, withMappedItemCodes(payload as CanonicalDocument, check.codes));
-    }
     const ctx = this.connectors.contextOf(connector, {
       idempotencyKey: d.idempotencyKey,
       signal: d.signal,
       branchId: typeof payload.branchId === 'string' ? payload.branchId : null,
     });
+    // ST7-T18 ประตู mapping + ST8-T06 ผังรหัสที่ adapter ประกาศ (docs/01 §7.4) — ตรวจหลังเงื่อนไข "ส่งได้" ทั้งหมด
+    // (คำสั่งที่พัก/ข้ามไม่ถูกตัดสินว่าล้ม) · คำสั่งดึงข้อมูล (FETCH_*) ไม่มีเอกสารให้ตรวจ
+    const operation = d.operation as ErpOperation; // ตรวจด้วย isErpOperation ข้างบนแล้ว
     const secrets = connector.credentialKeys.map((k) => ctx.config[k] ?? '');
+    if (PUSH_OPERATIONS.has(operation)) {
+      // รูปของ payload ก่อนเข้าประตู (REPLACE_DOCUMENT ต้องมีทั้ง ref และ document)
+      if (operation === 'REPLACE_DOCUMENT' && (!payload.ref || !payload.document))
+        throw new OutboxSinkError('ref and document required', 'VALIDATION', {
+          code: 'invalid_payload',
+        });
+      const doc = payload.document ?? (payload as CanonicalDocument);
+      let prep: PushPreparation;
+      try {
+        prep = await d.withTx((tx) =>
+          this.masterCodes.prepareForPush(tx, connector.id, adapter, ctx, operation, doc),
+        );
+      } catch (e) {
+        // adapter.masterCodeRefs พัง / ฐานข้อมูลล้ม — ลองใหม่ตาม policy · ข้อความตัด credential ก่อนเก็บ
+        const msg = redactSecrets(String((e as Error)?.message ?? e), secrets).slice(0, 500);
+        throw new OutboxSinkError(msg || 'master code check failed', 'TRANSIENT', {
+          code: 'erp_master_code_check_failed',
+          message: msg,
+        });
+      }
+      if (!prep.ok)
+        throw new OutboxSinkError(prep.problem.message, 'VALIDATION', { ...prep.problem });
+      if (payload.document) payload.document = prep.document;
+      else Object.assign(payload, prep.document);
+      ctx.masterCodes = prep.masterCodes;
+    }
     try {
       return await this.call(d, adapter, ctx, payload, secrets, connector);
     } catch (e) {

@@ -215,6 +215,12 @@ export function weakensSecurity(before: Record<string, unknown>, after: Record<s
     Number(after['security.idleTimeoutMinutes']) > Number(before['security.idleTimeoutMinutes'])
   )
     return true;
+  // ST6-T07 ยกวงเงิน step-up การอนุมัติใบสำคัญจ่าย (หรือปิด = null) = คุมการจ่ายเงินหลวมขึ้น — ต้อง step-up
+  if (has('settlement.approvalStepUpAmount')) {
+    const b = before['settlement.approvalStepUpAmount'];
+    const a = after['settlement.approvalStepUpAmount'];
+    if (b !== null && (a === null || Number(a) > Number(b))) return true;
+  }
   // ST9-T14 ลดระยะเก็บ = ข้อมูลเก่าถูกลบเร็วขึ้น (ย้อนคืนไม่ได้) — ต้อง step-up เหมือนลดความปลอดภัย
   for (const k of Object.keys(after))
     if (k.startsWith('retention.') && Number(after[k]) < Number(before[k])) return true;

@@ -140,6 +140,8 @@ export async function loginFull(
 export async function settleTripCostsForTest(
   db: PrismaClient,
   where: Prisma.TripCostWhereInput,
+  /** ผู้สร้างใบ/บรรทัด (ST6-T07 — อนุมัติต้องรู้ผู้เตรียม) · ไม่ระบุ = ว่าง */
+  createdBy: string | null = null,
 ): Promise<number> {
   return db.$transaction(async (tx) => {
     const costs = await tx.tripCost.findMany({
@@ -162,6 +164,7 @@ export async function settleTripCostsForTest(
           periodTo: new Date('2026-11-30T00:00:00Z'),
           grossAmount: gross,
           netPayable: gross,
+          createdBy,
         },
       });
       let no = 0;
@@ -176,6 +179,7 @@ export async function settleTripCostsForTest(
             tripId: c.tripId,
             description: c.description ?? c.costType,
             amount: c.amount,
+            createdBy,
           },
         });
         await tx.tripCost.update({ where: { id: c.id }, data: { settlementLineId: l.id } });

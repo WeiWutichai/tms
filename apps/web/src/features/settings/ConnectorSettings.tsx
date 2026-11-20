@@ -443,6 +443,7 @@ const FIELD_LABELS: Record<string, MessageKey> = {
   apiKey: 'cnx.fl.apiKey',
   baseUrl: 'cnx.fl.baseUrl',
   healthTransactionNo: 'cnx.fl.healthTransactionNo',
+  salePerson: 'cnx.fl.salePerson',
   sqlServer: 'cnx.fl.sqlServer',
   sqlDatabase: 'cnx.fl.sqlDatabase',
   sqlUser: 'cnx.fl.sqlUser',

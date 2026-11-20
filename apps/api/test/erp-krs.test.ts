@@ -312,6 +312,7 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
       'baseUrl',
       'apiKey',
       'healthTransactionNo',
+      'salePerson',
       'sqlServer',
       'sqlDatabase',
       'sqlUser',
