@@ -6619,7 +6619,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "ไฟล์ส่งออก (EXPORT) เห็นเฉพาะผู้สั่ง · ไฟล์นำเข้า (IMPORT) เห็นเฉพาะผู้อัปโหลด (API key เห็นเฉพาะไฟล์ที่ key นั้นอัปโหลด) หรือผู้ใช้ที่มีสิทธิ์จัดการการนำเข้าทุกชนิดที่ใช้ไฟล์นั้น; การเข้าใช้งานแทนไม่เห็น; `downloadUrl` ของไฟล์นำเข้าหมดอายุ 60 วินาที — ไม่มีสิทธิ์ = 404",
             "content": {
               "application/json": {
                 "schema": {
@@ -64651,7 +64651,7 @@
           },
           "downloadUrl": {
             "type": "string",
-            "description": "สถานะ ready: ลิงก์ดาวน์โหลด (หมดอายุ 5 นาที)"
+            "description": "สถานะ ready: ลิงก์ดาวน์โหลด (หมดอายุ 5 นาที · ไฟล์นำเข้า IMPORT 60 วินาที)"
           },
           "urlExpiresAt": {
             "type": "string",
@@ -67620,7 +67620,7 @@
           },
           "downloadUrl": {
             "type": "string",
-            "description": "สถานะ ready: ลิงก์ดาวน์โหลด (หมดอายุ 5 นาที)"
+            "description": "สถานะ ready: ลิงก์ดาวน์โหลด (หมดอายุ 5 นาที · ไฟล์นำเข้า IMPORT 60 วินาที)"
           },
           "urlExpiresAt": {
             "type": "string",
