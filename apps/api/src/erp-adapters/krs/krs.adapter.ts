@@ -16,6 +16,7 @@ import {
 } from '../../modules/erp/erp-adapter';
 import { safeHttpRequest, type SendOptions } from '../../modules/webhooks/webhook-http';
 import { krsMasterCodeRefs, krsPushReadiness } from './krs-master-codes';
+import { pullKrsOrders } from './krs-so-poller';
 
 /**
  * KrsAdapter — โครง (ST8-T03; docs/04 G4 KRS; docs/01 Appendix A.1–A.2, A.5) · KRS เป็นแค่ adapter หนึ่งหลัง `ErpAdapter`
@@ -25,10 +26,11 @@ import { krsMasterCodeRefs, krsPushReadiness } from './krs-master-codes';
  *   (KRS ออก `voucherNo` เอง) — **ไม่มี** pushCreditNote / pushSettlement / fetchPaymentStatus / postedStatus / listDocuments
  *   และไม่ดึงผังรหัส (`masterCodeKinds` ว่าง — plan/11 #8: ไม่มี getMasters → นำเข้าไฟล์ ST7-T18)
  * - ST8-T06 `masterCodeRefs`: หน่วย/พนักงานขาย (บังคับ) + itemCode/accountCode ต้องอยู่ใน `erp_master_code` ก่อนส่ง (`krs-master-codes.ts`)
+ * - pullOrders = ST8-T04 (ทำแล้ว — `krs-so-poller.ts`)
  * - method ของโครงยังไม่ทำ → `pendingCapabilities` + ตอบ CAPABILITY `not_implemented` (core พักคำสั่งไว้ ไม่ทิ้ง):
- *   pullOrders = ST8-T04 (SQL read-only view), pushInvoice = ST8-T08, replaceDocument = ST8-T09/T11, fetchDocument = ST8-T10
+ *   pushInvoice = ST8-T08, replaceDocument = ST8-T09/T11, fetchDocument = ST8-T10
  * - ค่าตั้ง: `baseUrl` (เช่น `https://api-pueanphet.krs.co.th/api`), credential `apiKey` (header `X-API-Key` — เข้ารหัส FieldCipher, write-only),
- *   SQL Server login แบบอ่านอย่างเดียว (`sqlServer`/`sqlDatabase`/`sqlUser` + credential `sqlPassword`) **เก็บไว้เฉย ๆ** จนถึง ST8-T04
+ *   SQL Server login แบบอ่านอย่างเดียว (`sqlServer`/`sqlDatabase`/`sqlUser` + credential `sqlPassword`) **เก็บไว้เฉย ๆ** จนกว่า KRS เลือกทาง view SQL (ST8-T04 อ่านผ่าน HTTP stub)
  *   (ยังไม่มี dependency SQL Server — ST8-T02 อ่าน SO ผ่าน HTTP stub `GET /salesorder?since=`: `krs-so-source.ts`) · `healthTransactionNo` = เลข `transactionNo` ของใบที่รู้จักแล้ว ใช้ทดสอบ (docs/01 A.2)
  * - healthCheck = `GET {baseUrl}/invoice/{healthTransactionNo | 0}` ผ่าน HTTP client กัน SSRF ตัวเดียวกับ webhook
  *   (resolve + ตรวจ IP + ต่อด้วย address ที่ตรวจแล้ว · ไม่ follow redirect · timeout 10 วิ):
@@ -61,7 +63,7 @@ export class KrsAdapter implements ErpAdapter {
     { key: 'healthTransactionNo', secret: false, required: false, kind: 'string', maxLength: 40 },
     /** ST8-T06 รหัสพนักงานขายของ KRS (`salePerson` หัวใบ — ต้องอยู่ในผังรหัส SALESPERSON; docs/01 A.3) */
     { key: 'salePerson', secret: false, required: false, kind: 'string', maxLength: 64 },
-    /** SQL Server read-only (docs/01 A.4) — ใช้ใน ST8-T04 */
+    /** SQL Server read-only (docs/01 A.4) — ใช้เมื่อ KRS เลือกทาง view SQL ([OPEN — KRS] KRS-11) */
     { key: 'sqlServer', secret: false, required: false, kind: 'string', maxLength: 200 },
     { key: 'sqlDatabase', secret: false, required: false, kind: 'string', maxLength: 128 },
     { key: 'sqlUser', secret: false, required: false, kind: 'string', maxLength: 128 },
@@ -77,9 +79,11 @@ export class KrsAdapter implements ErpAdapter {
 
   /**
    * โครง: ทุก capability ยังไม่ได้ทำ → core ไม่เปิดเป็นค่าเริ่มต้น เปิดไม่ได้ แสดง "ยังไม่รองรับ" และพักคำสั่งที่ค้าง
-   * (เอาออกจากรายการเมื่อทำเสร็จ: pullOrders ST8-T04, pushInvoice + ownsDocumentNumber ST8-T08, replaceDocument ST8-T09/T11, fetchDocument ST8-T10)
+   * (เอาออกจากรายการเมื่อทำเสร็จ — pullOrders ทำแล้ว ST8-T04; ค้าง: pushInvoice + ownsDocumentNumber ST8-T08, replaceDocument ST8-T09/T11, fetchDocument ST8-T10)
    */
-  readonly pendingCapabilities: readonly ErpCapability[] = CAPS;
+  readonly pendingCapabilities: readonly ErpCapability[] = Object.freeze(
+    CAPS.filter((c) => c !== 'pullOrders'),
+  );
 
   /** ST8-T06 ค่าที่ต้องอยู่ในผังรหัส KRS ก่อนส่ง (หน่วย/พนักงานขาย/itemCode/accountCode — `krs-master-codes.ts`) */
   masterCodeRefs(
@@ -139,12 +143,15 @@ export class KrsAdapter implements ErpAdapter {
     return fail('VALIDATION', `http_${r.status}`, `unexpected HTTP ${r.status} — check baseUrl`);
   }
 
-  // ---------- capability ที่ยังไม่ทำ (โครง) ----------
-
-  /** ST8-T04 — SO poller จาก SQL read-only view (docs/01 A.4) */
-  async pullOrders(_ctx: ErpContext, _since: string | null, _limit: number): Promise<PullPage> {
-    throw notImplementedError('pullOrders');
+  /**
+   * ST8-T04 SO poller (docs/01 A.2/A.4) — อ่านแหล่ง SO แบบ watermark (`krs-so-source.ts`) → ExternalOrder
+   * `KRS-{company}-{soNo}` (รายละเอียด/กรณีผิดปกติ: `krs-so-poller.ts`) · ทาง SQL read-only view ทำเมื่อ KRS เลือกทาง A
+   */
+  async pullOrders(ctx: ErpContext, since: string | null, limit: number): Promise<PullPage> {
+    return pullKrsOrders(ctx, since, limit, this.http);
   }
+
+  // ---------- capability ที่ยังไม่ทำ (โครง) ----------
 
   /** ST8-T08 — `POST /invoice` (docs/01 A.2/A.3) */
   async pushInvoice(_ctx: ErpContext, _inv: CanonicalInvoice): Promise<PushResult> {

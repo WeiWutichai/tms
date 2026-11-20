@@ -27,7 +27,7 @@ import {
 } from './connector-mapping';
 import { NotificationEvents } from '../notifications/notification-events';
 import { OrderSourceRegistry } from './order-source-registry';
-import type { ExternalOrder, PullPage } from './order-source.port';
+import type { ExternalOrder, PullPage, PullProblem } from './order-source.port';
 
 export const CONNECTOR_PULL_JOB = 'connector.pull';
 /** จำนวนใบต่อหน้าที่ขอจาก adapter */
@@ -132,6 +132,17 @@ export function pageShapeError(page: unknown, cursor: string | null, limit: numb
   if (typeof p.hasMore !== 'boolean') return 'invalid page from source: hasMore must be a boolean';
   if (p.hasMore && (p.nextCursor ?? cursor) === cursor)
     return 'invalid page from source: hasMore without advancing cursor';
+  if (p.problem !== undefined && p.problem !== null) {
+    const q = p.problem as Partial<PullProblem>;
+    if (
+      typeof q !== 'object' ||
+      (q.errorClass !== 'VALIDATION' && q.errorClass !== 'AUTH') ||
+      typeof q.code !== 'string' ||
+      !q.code ||
+      typeof q.message !== 'string'
+    )
+      return 'invalid page from source: problem must be {errorClass, code, message}';
+  }
   return null;
 }
 
@@ -363,6 +374,17 @@ export class ConnectorIntakeService implements OnModuleInit {
           this.logger.warn(
             `tenant ${tenantId} connector ${connector}: pull failed — ${run.sourceError}`,
           );
+          // ST8-T04 key ผิด (AUTH) / ต้นทางผิดโครงสร้าง (VALIDATION เช่น view หาย) = ลองซ้ำไม่หาย → หยุด connector
+          // (docs/01 §6.3 AUTH, A.2 "view หาย → connector ERROR") · TRANSIENT/อื่น ๆ = job ลองใหม่ตามเดิม
+          if (
+            e instanceof ErpAdapterError &&
+            (e.errorClass === 'AUTH' || e.errorClass === 'VALIDATION')
+          )
+            await this.stopConnector(tenantId, source, {
+              errorClass: e.errorClass,
+              code: e.problem.code,
+              message: run.sourceError,
+            });
           break;
         }
         // รูปหน้าที่ adapter คืนต้องถูก — ผิด = ต้นทางผิดพลาด (ไม่รับหน้า ไม่เลื่อน cursor; hasMore ที่ไม่เลื่อน = วนไม่จบ)
@@ -394,6 +416,22 @@ export class ConnectorIntakeService implements OnModuleInit {
                 `tenant ${tenantId} connector ${connector}: hold notify failed — ${show(e)}`,
               ),
             );
+        // ST8-T04 ต้นทางแจ้งปัญหาโครงสร้าง: รับใบแล้ว (ค้าง SOURCE_ERROR) แต่ไม่เลื่อน cursor + หยุด connector
+        // (แก้ต้นทางแล้วเปิดใช้ → ดึงหน้าเดิมซ้ำได้ข้อมูลครบ ทับใบค้างเดิม)
+        if (got.problem) {
+          const problem = {
+            errorClass: got.problem.errorClass,
+            code: got.problem.code.slice(0, 60),
+            message: redactSecrets(
+              `${got.problem.code}: ${got.problem.message}`,
+              source.secrets,
+            ).slice(0, 500),
+          };
+          run.sourceError = problem.message;
+          this.logger.warn(`tenant ${tenantId} connector ${connector}: ${problem.message}`);
+          await this.stopConnector(tenantId, source, problem);
+          break;
+        }
         // หน้านี้มีใบที่ไม่ได้ผลสุดท้าย → ไม่เลื่อน cursor (รอบหน้าดึงหน้าเดิมซ้ำ — idempotent)
         if (pageErrors) break;
         const next = got.nextCursor ?? run.cursor;
@@ -574,6 +612,31 @@ export class ConnectorIntakeService implements OnModuleInit {
         return failed(e2);
       }
     }
+  }
+
+  /**
+   * ST8-T04 หยุด connector จากปัญหาของรอบดึง (ใช้ `ConnectorsService.markError` ตัวเดียวกับ sink — ACTIVE → ERROR,
+   * audit `connector.error`, แจ้งผู้ดูแล, webhook) · ต้นทางทดสอบตามรหัส (ไม่มีแถว connector) = ไม่ทำอะไร · ล้ม = log เท่านั้น
+   */
+  private async stopConnector(tenantId: string, source: PullSource, problem: PullProblem) {
+    if (!source.connectorId) return;
+    const connectorId = source.connectorId;
+    await this.db
+      .withTenant(tenantId, async (tx) => {
+        const row = await tx.connector.findUnique({ where: { id: connectorId } });
+        if (row)
+          await this.connectors.markError(
+            tx,
+            row,
+            { code: problem.code, message: problem.message },
+            problem.errorClass,
+          );
+      })
+      .catch((e) =>
+        this.logger.warn(
+          `tenant ${tenantId} connector ${source.key}: cannot mark ERROR — ${show(e)}`,
+        ),
+      );
   }
 
   // ---------------------------------------------------------------------------------------------

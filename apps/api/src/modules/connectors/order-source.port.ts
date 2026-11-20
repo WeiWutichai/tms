@@ -66,6 +66,18 @@ export interface PullPage {
   nextCursor: string | null;
   /** ยังมีหน้าถัดไปทันที */
   hasMore: boolean;
+  /**
+   * ST8-T04 ต้นทางผิดโครงสร้างที่ต้องให้คนแก้ (เช่น view/คอลัมน์หาย, ข้อมูลผิดสัญญา) — ไม่ผูก ERP ใด:
+   * core รับใบใน `orders` ตามปกติ (adapter ใส่ `issues` → ใบค้าง SOURCE_ERROR) แต่ **ไม่เลื่อน cursor**
+   * และหยุด connector (`ERROR`, ไม่กู้คืนเอง — คนแก้ต้นทางแล้วกด "เปิดใช้") · ไม่มี credential ใน message
+   */
+  problem?: PullProblem | null;
+}
+
+export interface PullProblem {
+  errorClass: 'VALIDATION' | 'AUTH';
+  code: string;
+  message: string;
 }
 
 /** สัญญาฝั่งขาเข้าของ adapter (= `ErpAdapter.pullOrders` ใน modules/erp/erp-adapter.ts — ST7-T13) */

@@ -118,6 +118,11 @@ export type KrsSoReadResult =
       problem: { code: string; message: string };
       /** ชื่อคอลัมน์จริงที่หาย (code `source_columns_missing`) */
       missingColumns?: string[];
+      /**
+       * ST8-T04 (เฉพาะ `source_columns_missing`) ใบที่รวมได้จากแถวของหน้านี้ (ช่องที่คอลัมน์หาย = null)
+       * — poller รับเข้าเป็นใบค้าง SOURCE_ERROR (docs/01 A.2) · watermark ไม่เลื่อน
+       */
+      orders?: KrsSalesOrder[];
     };
 
 export const KRS_SO_TIMEOUT_MS = 30_000;
@@ -198,15 +203,6 @@ export async function readKrsSalesOrders(
   const missing = new Set<string>();
   for (const row of rows)
     for (const f of required) if (!(c[f].column in row)) missing.add(c[f].column);
-  if (missing.size)
-    return {
-      ...fail(
-        'VALIDATION',
-        'source_columns_missing',
-        `columns missing in ${mapping.view}: ${[...missing].join(', ')}`,
-      ),
-      missingColumns: [...missing],
-    };
 
   const v = (row: Record<string, unknown>, f: KrsSoField): unknown => row[c[f].column] ?? null;
   const orders: KrsSalesOrder[] = [];
@@ -260,6 +256,17 @@ export async function readKrsSalesOrders(
     });
     so.raw.push(row);
   }
+
+  if (missing.size)
+    return {
+      ...fail(
+        'VALIDATION',
+        'source_columns_missing',
+        `columns missing in ${mapping.view}: ${[...missing].join(', ')}`,
+      ),
+      missingColumns: [...missing],
+      orders,
+    };
 
   const serverNext =
     typeof body.next === 'string' && WATERMARK_RE.test(body.next) ? body.next : null;

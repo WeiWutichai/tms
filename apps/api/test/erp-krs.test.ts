@@ -49,7 +49,7 @@ describeErpAdapterContract('krs (KrsAdapter — โครง)', {
   make: () => new KrsAdapter({ allowPrivate: true }),
   config: good,
   badConfig: bad,
-  notImplemented: ['pullOrders', 'pushInvoice', 'fetchDocument', 'replaceDocument'],
+  notImplemented: ['pushInvoice', 'fetchDocument', 'replaceDocument'],
 });
 
 describe('KrsAdapter (ST8-T03) — ไม่แตะฐานข้อมูล', () => {
@@ -295,7 +295,7 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
         credentials: { ...credentials, sqlPassword: 'sql-ro-pass-55aa' },
       });
 
-  it('catalog มี KRS (ไม่ใช่ demo) · capability ทั้งหมดยังไม่รองรับ (pending) · ช่องตั้งค่า', async () => {
+  it('catalog มี KRS (ไม่ใช่ demo) · capability ที่ยังไม่ได้ทำ = pending (pullOrders ทำแล้ว — ST8-T04) · ช่องตั้งค่า', async () => {
     const cat = await api(app, token).get('/v1/connectors/adapters').expect(200);
     const k = cat.body.data.find((a: { key: string }) => a.key === 'krs');
     expect(k).toMatchObject({ key: 'krs', displayName: 'KRS', demo: false, masterCodeKinds: [] });
@@ -307,7 +307,8 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
       'ownsDocumentNumber',
     ];
     expect(k.capabilities).toEqual(all);
-    expect(k.capabilitiesPending).toEqual(all);
+    // ST8-T04 pullOrders ทำแล้ว — ที่เหลือยังเป็นโครง
+    expect(k.capabilitiesPending).toEqual(all.filter((c) => c !== 'pullOrders'));
     expect(k.configFields.map((f: { key: string }) => f.key)).toEqual([
       'baseUrl',
       'apiKey',
@@ -323,10 +324,11 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
   it('M1: capability ที่ยังไม่ได้ทำไม่เปิดเป็นค่าเริ่มต้น · ขอเปิด = 422 · คำสั่ง PUSH_INVOICE ที่ค้าง = PENDING (ไม่ SKIPPED ไม่เสียครั้ง)', async () => {
     const r = await createKrs();
     expect(r.status, JSON.stringify(r.body)).toBe(201);
+    // ST8-T04 pullOrders พร้อมแล้ว = เปิดเป็นค่าเริ่มต้น · ที่เหลือยังไม่รองรับ
     expect(r.body).toMatchObject({
-      capabilitiesSupported: [],
-      capabilitiesEnabled: [],
-      capabilities: [],
+      capabilitiesSupported: ['pullOrders'],
+      capabilitiesEnabled: ['pullOrders'],
+      capabilities: ['pullOrders'],
     });
     expect(r.body.capabilitiesPending).toContain('pushInvoice');
     const bad = await api(app, token)
