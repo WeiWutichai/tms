@@ -189,3 +189,35 @@ export function erpItemMappingStatus(
     return 'CODE_UNKNOWN';
   return 'MAPPED';
 }
+
+/** รหัส 1 ตัวในผังรหัส ERP ที่ใช้งานอยู่ (สำหรับ `resolveErpMasterCode`) */
+export interface ErpMasterCodeOption {
+  code: string;
+  name?: string | null;
+}
+
+/** ผลการหาค่าในผังรหัส ERP — `code` = รหัสตามตัวพิมพ์ในผัง */
+export type ErpMasterCodeResolution =
+  { status: 'FOUND'; code: string } | { status: 'MISSING' | 'UNKNOWN' | 'AMBIGUOUS' };
+
+/**
+ * ST8-T06 หาค่าจากเอกสารในผังรหัส ERP ชนิดหนึ่ง (กฎกลาง — ไม่ผูก ERP ใด; docs/01 §7.4 "validate ก่อนเข้า outbox")
+ * - ไม่มีค่า → MISSING
+ * - ตรงกับ **รหัส** (ไม่สนตัวพิมพ์/ช่องว่างหัวท้าย) → FOUND รหัสนั้น
+ * - ไม่ตรงรหัสแต่ตรงกับ **ชื่อ** ของรหัสเดียวพอดี → FOUND (เช่น หน่วย "เที่ยว" ↔ รหัส `TRIP` ชื่อ "เที่ยว")
+ *   ชื่อซ้ำหลายรหัส → AMBIGUOUS (ไม่เดา)
+ * - อื่น ๆ → UNKNOWN
+ * `options` = รหัสที่ใช้งาน (active) ของชนิดนั้นเท่านั้น
+ */
+export function resolveErpMasterCode(
+  value: string | null | undefined,
+  options: readonly ErpMasterCodeOption[],
+): ErpMasterCodeResolution {
+  const v = value?.trim().toLowerCase();
+  if (!v) return { status: 'MISSING' };
+  const byCode = options.find((o) => o.code.trim().toLowerCase() === v);
+  if (byCode) return { status: 'FOUND', code: byCode.code };
+  const byName = options.filter((o) => o.name?.trim().toLowerCase() === v);
+  if (byName.length === 1) return { status: 'FOUND', code: byName[0]!.code };
+  return { status: byName.length ? 'AMBIGUOUS' : 'UNKNOWN' };
+}

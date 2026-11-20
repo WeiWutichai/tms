@@ -4,7 +4,9 @@ import {
   ERP_MASTER_CODE_KINDS,
   type ErpItemMappingStatus,
   type ErpMasterCodeKind,
+  type ErpOperation,
   erpItemMappingStatus,
+  resolveErpMasterCode,
 } from '@tms/domain';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -24,7 +26,14 @@ import type {
   ErpMasterSyncResultDto,
   SetErpItemMappingDto,
 } from './erp-master-code.dto';
-import type { CanonicalDocument, ErpMasterCodeEntry } from './erp-adapter';
+import type {
+  CanonicalDocument,
+  ErpAdapter,
+  ErpContext,
+  ErpMasterCodeEntry,
+  MasterCodeRef,
+  ResolvedMasterCodes,
+} from './erp-adapter';
 import { ErpAdapterRegistry } from './erp-adapter.registry';
 
 /** เพดานเวลาดึงผังรหัส 1 ชนิด */
@@ -102,6 +111,38 @@ export function withMappedItemCodes<T extends CanonicalDocument>(
   }
   return copy;
 }
+
+/** ST8-T06 ค่าในเอกสารที่ไม่ผ่านผังรหัส ERP (รวมค่าเดียวกันหลายบรรทัดเป็นรายการเดียว) */
+export interface MasterCodeGap {
+  kind: ErpMasterCodeKind;
+  value: string | null;
+  /** ช่องที่ใช้ค่านี้ (สูงสุด 5) */
+  fields: string[];
+  /** MISSING = ไม่มีค่า · UNKNOWN = ไม่อยู่ในผัง · AMBIGUOUS = ชื่อตรงหลายรหัส · NO_CATALOGUE = ยังไม่มีผังรหัสชนิดนี้ */
+  status: 'MISSING' | 'UNKNOWN' | 'AMBIGUOUS' | 'NO_CATALOGUE';
+}
+
+/** ผลของประตูก่อนส่ง ERP เมื่อค่าในเอกสารไม่อยู่ในผังรหัส (เก็บใน last_error ของคำสั่ง) */
+export interface MasterCodeUnknownProblem {
+  code: 'erp_master_code_unknown';
+  message: string;
+  link: string;
+  missing: MasterCodeGap[];
+}
+
+/** ผลรวมของประตูก่อนส่ง ERP (ST7-T18 mapping ค่าบริการ + ST8-T06 ผังรหัสที่ adapter ประกาศ) */
+export type PushPreparation =
+  | { ok: true; document: CanonicalDocument; masterCodes: ResolvedMasterCodes }
+  | { ok: false; problem: MappingIncompleteProblem | MasterCodeUnknownProblem };
+
+const KIND_TH: Record<ErpMasterCodeKind, string> = {
+  UNIT: 'หน่วย',
+  SALESPERSON: 'พนักงานขาย',
+  ACCOUNT: 'ผังบัญชี',
+  ITEM: 'รหัสสินค้า/บริการ',
+  VAT_RATE: 'อัตรา VAT',
+};
+const MAX_FIELDS_PER_GAP = 5;
 
 const isUuid = (s: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
@@ -595,6 +636,101 @@ export class ErpMasterCodesService implements OnModuleInit {
         });
     }
     return { codes, gaps };
+  }
+
+  // ---------- ST8-T06 ผังรหัสที่ adapter ประกาศ (หน่วย/พนักงานขาย/บัญชี …) ----------
+
+  /**
+   * หาค่าจากเอกสารในผังรหัส ERP ของ connector (ใช้ใน tx ของ tenant) — กฎ `resolveErpMasterCode` (ตรงรหัส หรือชื่อของรหัสเดียว)
+   * strict: ต้องมีค่า + อยู่ในผังที่ใช้งาน · ไม่ strict: ตรวจเมื่อมีค่าและ connector เคยมีผังชนิดนั้น
+   */
+  async checkMasterCodes(
+    tx: Tx,
+    connectorId: string,
+    refs: readonly MasterCodeRef[],
+  ): Promise<{ resolved: ResolvedMasterCodes; gaps: MasterCodeGap[] }> {
+    const resolved: Partial<Record<ErpMasterCodeKind, Map<string, string>>> = {};
+    if (!refs.length) return { resolved, gaps: [] };
+    const kinds = [...new Set(refs.map((r) => r.kind))].filter((k) =>
+      (ERP_MASTER_CODE_KINDS as readonly string[]).includes(k),
+    );
+    const rows = await tx.erpMasterCode.findMany({
+      where: { connectorId, kind: { in: kinds } },
+      select: { kind: true, code: true, name: true, active: true },
+    });
+    const active = new Map<string, { code: string; name: string | null }[]>();
+    const exists = new Set<string>();
+    for (const r of rows) {
+      exists.add(r.kind);
+      if (r.active) active.set(r.kind, [...(active.get(r.kind) ?? []), r]);
+    }
+    const gaps = new Map<string, MasterCodeGap>();
+    for (const ref of refs) {
+      const value = typeof ref.value === 'string' && ref.value.trim() ? ref.value.trim() : null;
+      if (!ref.strict && (!value || !exists.has(ref.kind))) continue;
+      const opts = active.get(ref.kind) ?? [];
+      const r = resolveErpMasterCode(value, opts);
+      if (r.status === 'FOUND') {
+        (resolved[ref.kind] ??= new Map()).set(value!.toLowerCase(), r.code);
+        continue;
+      }
+      const status: MasterCodeGap['status'] =
+        r.status === 'MISSING' ? 'MISSING' : !exists.has(ref.kind) ? 'NO_CATALOGUE' : r.status;
+      const key = `${ref.kind}|${value?.toLowerCase() ?? ''}`;
+      const g = gaps.get(key) ?? { kind: ref.kind, value, fields: [], status };
+      const field = String(ref.field).slice(0, 120);
+      if (g.fields.length < MAX_FIELDS_PER_GAP && !g.fields.includes(field)) g.fields.push(field);
+      gaps.set(key, g);
+    }
+    return { resolved, gaps: [...gaps.values()] };
+  }
+
+  /** ปัญหา `erp_master_code_unknown` — ข้อความไทยสำหรับคิวเชื่อมระบบบัญชี */
+  masterCodeProblem(connectorId: string, gaps: MasterCodeGap[]): MasterCodeUnknownProblem {
+    const what = (g: MasterCodeGap) =>
+      g.status === 'MISSING'
+        ? `ไม่ได้ระบุ${KIND_TH[g.kind]}`
+        : g.status === 'NO_CATALOGUE'
+          ? `ยังไม่มีผังรหัส${KIND_TH[g.kind]}`
+          : `${KIND_TH[g.kind]} "${String(g.value).slice(0, 40)}"`;
+    const names = [...new Set(gaps.map(what))];
+    return {
+      code: 'erp_master_code_unknown',
+      message: `ค่าที่ไม่อยู่ในผังรหัสของระบบบัญชี: ${names.slice(0, 5).join(', ')}${names.length > 5 ? ` และอีก ${names.length - 5} รายการ` : ''}`,
+      link: mappingPageLink(connectorId),
+      missing: gaps.slice(0, 50).map((g) => ({
+        ...g,
+        value: g.value === null ? null : g.value.slice(0, 200),
+      })),
+    };
+  }
+
+  /**
+   * ประตูก่อนส่ง ERP ทั้งชุด (ใช้ใน tx ของ tenant) — ErpAdapterSink เรียกก่อนเรียก adapter และงานสร้างคำสั่ง push (ST7-T15/T16) เรียกซ้ำได้
+   * 1) ค่าบริการ ↔ รหัสสินค้า ERP (ST7-T18 `checkMapping`) → ใส่ `serviceItem.externalId`
+   * 2) ค่าที่ adapter ประกาศใน `masterCodeRefs` (ST8-T06) ต้องอยู่ใน `erp_master_code` → ผลใน `masterCodes` (ใส่ลง ctx)
+   * ไม่ผ่าน = `{ok:false, problem}` (VALIDATION — เอกสารยังออกได้ plan/11 #9) · ไม่แก้ `doc` ที่ส่งเข้ามา
+   */
+  async prepareForPush(
+    tx: Tx,
+    connectorId: string,
+    adapter: Pick<ErpAdapter, 'masterCodeRefs'>,
+    ctx: ErpContext,
+    operation: ErpOperation,
+    doc: CanonicalDocument,
+  ): Promise<PushPreparation> {
+    let document = doc;
+    const itemIds = documentServiceItemIds(doc);
+    if (itemIds.length) {
+      const check = await this.checkMapping(tx, connectorId, itemIds);
+      if (check.gaps.length)
+        return { ok: false, problem: this.incompleteProblem(connectorId, check.gaps) };
+      document = withMappedItemCodes(doc, check.codes);
+    }
+    const refs = adapter.masterCodeRefs?.(ctx, operation, document) ?? [];
+    const { resolved, gaps } = await this.checkMasterCodes(tx, connectorId, refs);
+    if (gaps.length) return { ok: false, problem: this.masterCodeProblem(connectorId, gaps) };
+    return { ok: true, document, masterCodes: resolved };
   }
 
   /** ปัญหา `erp_mapping_incomplete` (เก็บใน outbox last_error) — ข้อความไทยสำหรับคิวเชื่อมระบบบัญชี */

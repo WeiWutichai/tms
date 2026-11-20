@@ -10,6 +10,7 @@ import {
   ERP_OPERATION_CAPABILITY,
   isErpCapability,
   isErpOperation,
+  resolveErpMasterCode,
   unsupportedCapabilities,
 } from './erp';
 
@@ -111,5 +112,30 @@ describe('erpItemMappingStatus (ST7-T18)', () => {
   it('ชนิดรหัส', () => {
     expect(isErpMasterCodeKind('ITEM')).toBe(true);
     expect(isErpMasterCodeKind('item')).toBe(false);
+  });
+});
+
+describe('resolveErpMasterCode (ST8-T06)', () => {
+  const units = [
+    { code: 'TRIP', name: 'เที่ยว' },
+    { code: 'ตัน', name: null },
+    { code: 'KM', name: 'กม.' },
+    { code: 'H1', name: 'ชั่วโมง' },
+    { code: 'H2', name: 'ชั่วโมง' },
+  ];
+  it('ตรงรหัส (ไม่สนตัวพิมพ์/ช่องว่าง) → รหัสตามผัง', () => {
+    expect(resolveErpMasterCode(' trip ', units)).toEqual({ status: 'FOUND', code: 'TRIP' });
+    expect(resolveErpMasterCode('ตัน', units)).toEqual({ status: 'FOUND', code: 'ตัน' });
+  });
+  it('ตรงชื่อของรหัสเดียว → รหัสนั้น', () => {
+    expect(resolveErpMasterCode('เที่ยว', units)).toEqual({ status: 'FOUND', code: 'TRIP' });
+    expect(resolveErpMasterCode('กม.', units)).toEqual({ status: 'FOUND', code: 'KM' });
+  });
+  it('ชื่อซ้ำหลายรหัส = AMBIGUOUS · ไม่มีค่า = MISSING · ไม่พบ = UNKNOWN', () => {
+    expect(resolveErpMasterCode('ชั่วโมง', units).status).toBe('AMBIGUOUS');
+    expect(resolveErpMasterCode('', units).status).toBe('MISSING');
+    expect(resolveErpMasterCode(null, units).status).toBe('MISSING');
+    expect(resolveErpMasterCode('คืน', units).status).toBe('UNKNOWN');
+    expect(resolveErpMasterCode('เที่ยว', []).status).toBe('UNKNOWN');
   });
 });

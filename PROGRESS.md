@@ -39,6 +39,7 @@
 | ST9 (เฉพาะ T19 Monitoring + alert) | **dev เสร็จ** รอ review/QA/merge (`st9/t19-monitoring`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST9-T19) · UI Console รอต้นแบบ (spec/12 §3) |
 | ST8 (เฉพาะ T01 mock KRS) | **dev เสร็จ** รอ review/QA/merge (`st8/t01-mock-krs`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST8-T01) |
 | ST8 (เฉพาะ T03 โครง KrsAdapter) | **dev เสร็จ** รอ review/QA/merge (`st8/t03-krs-adapter`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST8-T03) |
+| ST8 (เฉพาะ T06 รหัส master ของ KRS) | **dev เสร็จ** รอ review/QA/merge (`st8/t06-krs-master-codes`) | 20 พ.ย. 2569 | — | ดูบันทึก 20 พ.ย. (ST8-T06) |
 | ST9 Dashboard / รายงาน (T01) | **กำลังทำ** — T01 dev เสร็จ (lane C) รอ review/QA | 18 พ.ย. 2569 | — | ST9-T01 Dashboard ปฏิบัติการ |
 
 ### งาน ST0 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
@@ -288,6 +289,11 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 20 พ.ย. 2569 (ST8-T06 รหัส master ของ KRS → erp_master_code — lane l8)
+- ทำ: ประตูผังรหัสกลาง (ไม่ผูก ERP): adapter ประกาศ `masterCodeRefs(ctx, operation, doc)` → `ErpMasterCodesService.prepareForPush` (รวม `checkMapping` ST7-T18 + `checkMasterCodes` ใหม่) ใน `ErpAdapterSink` ก่อนเรียก adapter: ค่าที่ไม่อยู่ใน `erp_master_code` = คำสั่ง FAILED_FINAL(VALIDATION) `erp_master_code_unknown` + `link` + `missing[]` (เอกสารยังออกได้ — plan/11 #9) · ผ่าน = `ctx.masterCodes` + `resolvedMasterCode()` ให้ payload builder (ST8-T08) · domain `resolveErpMasterCode` (ตรงรหัส หรือชื่อของรหัสเดียว; ชื่อซ้ำ = AMBIGUOUS) · KRS: `krs-master-codes.ts` (`krsMasterCodeRefs`: mainUnits + salePerson บังคับ, itemCode/accountCode ตรวจเมื่อมีผัง — เฉพาะ PUSH_INVOICE/REPLACE_DOCUMENT) + ค่าตั้งใหม่ `salePerson` + ไฟล์ตัวอย่าง `krs-master-codes.sample.csv` (หน่วย เที่ยว/ตัน/กม. + รหัส `SAMPLE-` — **[OPEN — KRS ให้รายการจริง]**) นำเข้าผ่าน import `erp_master_code` เดิม · ไม่มี migration
+- ไฟล์: `packages/domain/src/erp.ts` (+test), `apps/api/src/modules/erp/{erp-adapter.ts,erp-adapter.sink.ts,erp-master-codes.service.ts}`, `apps/api/src/erp-adapters/krs/{krs.adapter.ts,krs-master-codes.ts,krs-master-codes.sample.csv}`, `apps/api/test/erp-krs-master-codes.test.ts` (ใหม่ 5 — เกณฑ์ตรวจรับทั้ง 2 ข้อผ่านคิวจริง), `test/erp-krs.test.ts` (ช่องตั้งค่า), web `ConnectorSettings.tsx` + `th.ts` (`cnx.fl.salePerson`), spec/12 §3 แถว "รหัส master ของ KRS"
+- ค้าง: [OPEN — KRS] รายการรหัสจริง (mainUnits/salePerson/itemCode/accountCode/entryBy — plan/08) · [OPEN — KRS/PO] พนักงานขายต่อลูกค้า (ตอนนี้ค่าตั้ง connector ตัวเดียว) · ST7-T15/T16 เรียก `prepareForPush` ตอนสร้างคำสั่ง + `custOrSuppCode` จาก external_mapping(CUSTOMER) · ST7-T19 แสดง `missing[]` ของ `erp_master_code_unknown` ในคิว · ST8-T08 payload builder ใช้ `resolvedMasterCode` · mock KRS ยังไม่ตอบ 400 เมื่อรหัสไม่อยู่ใน master · ไม่มีหน้าจอใหม่ (ต้นแบบไม่มีหน้าผังรหัส) จึงไม่มีภาพเทียบ/E2E ใหม่
 
 ### 20 พ.ย. 2569 (ST5-T06 Lifecycle และ revert rules — lane l8)
 

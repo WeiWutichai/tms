@@ -4,6 +4,7 @@ import {
   ERP_FLAG_CAPABILITIES,
   type ErpCapability,
   type ErpMasterCodeKind,
+  type ErpOperation,
   isErpCapability,
   isErpMasterCodeKind,
 } from '@tms/domain';
@@ -64,6 +65,43 @@ export interface ErpContext {
   idempotencyKey?: string;
   /** ยกเลิกเมื่อ lease ของคำสั่งหลุด/ปิด worker */
   signal?: AbortSignal;
+  /**
+   * ST8-T06 ค่าจากเอกสารที่ core หาในผังรหัส ERP แล้ว (ตาม `masterCodeRefs` ของ adapter) — ชนิด → (ค่าในเอกสาร ตัวพิมพ์เล็ก → รหัสในผัง)
+   * มีเฉพาะตอนส่งคำสั่ง push · payload builder ใช้ `resolvedMasterCode()` แปลง เช่น หน่วย "เที่ยว" → รหัสหน่วยของ ERP
+   */
+  masterCodes?: ResolvedMasterCodes;
+}
+
+/** ST8-T06 ผลหาค่าในผังรหัส ERP ต่อชนิด (key = ค่าในเอกสารแบบ trim + ตัวพิมพ์เล็ก) */
+export type ResolvedMasterCodes = Readonly<
+  Partial<Record<ErpMasterCodeKind, ReadonlyMap<string, string>>>
+>;
+
+/** รหัสในผัง ERP ของค่าจากเอกสาร (ไม่พบ = null — core กันคำสั่งไว้ก่อนแล้วสำหรับค่าที่ adapter ประกาศ) */
+export function resolvedMasterCode(
+  ctx: Pick<ErpContext, 'masterCodes'>,
+  kind: ErpMasterCodeKind,
+  value: string | null | undefined,
+): string | null {
+  const v = value?.trim().toLowerCase();
+  return (v && ctx.masterCodes?.[kind]?.get(v)) || null;
+}
+
+/**
+ * ST8-T06 ค่า 1 ค่าในเอกสารที่ ERP บังคับให้เป็นรหัสในผังรหัส (`erp_master_code`) ของ connector — adapter ประกาศ core ตรวจก่อนส่ง
+ * (docs/01 §7.4 "รหัสที่ ERP ยอมรับ … validate ก่อนเข้า outbox", A.3 "Validation เฉพาะ KRS")
+ */
+export interface MasterCodeRef {
+  kind: ErpMasterCodeKind;
+  /** ค่าในเอกสาร · null/ว่าง = ไม่มีค่า (strict = ถูกกัน) */
+  value: string | null;
+  /** ช่องที่มาของค่า สำหรับแสดงในคิว เช่น `lines[2].unitLabel` · `salePerson` (ห้ามมี credential) */
+  field: string;
+  /**
+   * true = ต้องมีค่าและต้องอยู่ในผังรหัสที่ใช้งาน (ยังไม่มีผังชนิดนี้ = ถูกกัน — ให้นำเข้าผังรหัสก่อน)
+   * false = ช่องไม่บังคับ: ตรวจเฉพาะเมื่อมีค่า **และ** connector เคยมีผังชนิดนี้ (กฎเดียวกับ `erpItemMappingStatus`)
+   */
+  strict: boolean;
 }
 
 export interface Problem {
@@ -276,6 +314,17 @@ export interface ErpAdapter {
    * ห้ามมี credential ในข้อความ error
    */
   fetchMasterCodes?(ctx: ErpContext, kind: ErpMasterCodeKind): Promise<ErpMasterCodeEntry[]>;
+  /**
+   * ST8-T06 ค่าในเอกสารที่ต้องเป็นรหัสในผังรหัส ERP (เช่น หน่วย/พนักงานขาย) — core (`ErpMasterCodesService.prepareForPush`)
+   * ตรวจกับ `erp_master_code` ของ connector ก่อนส่ง: ไม่พบ = คำสั่ง FAILED_FINAL(VALIDATION) `erp_master_code_unknown`
+   * (เอกสารยังออกได้ — plan/11 #9) · พบ = ใส่ผลใน `ctx.masterCodes` · ฟังก์ชันบริสุทธิ์ ห้ามเรียกภายนอก/throw
+   * ไม่มี = ไม่ตรวจเพิ่ม (นอกจาก mapping ค่าบริการของ ST7-T18)
+   */
+  masterCodeRefs?(
+    ctx: ErpContext,
+    operation: ErpOperation,
+    doc: CanonicalDocument,
+  ): readonly MasterCodeRef[];
 }
 
 /** capability → ชื่อ method (ธงไม่มี method) */
