@@ -3,8 +3,9 @@ import type { PrismaClient } from '@prisma/client';
 import { type MockKrs, startMockKrs } from '@tms/mock-krs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import type { MockSalesOrder as MockSo } from '@tms/mock-krs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { tryDecodeId } from '../src/common/ids';
+import { encodeId, tryDecodeId } from '../src/common/ids';
 import { JobQueue } from '../src/jobs/job-queue.service';
 import { KrsAdapter } from '../src/erp-adapters/krs/krs.adapter';
 import { KRS_ISSUE, krsLinesIncomplete } from '../src/erp-adapters/krs/krs-so-poller';
@@ -293,11 +294,16 @@ describe('KRS SO poller ต่อ tenant (ST8-T04) — mock → order', () => {
     expect(all.some((o) => o.externalId === 'KRS-SAMPLE-SAMPLE-SO-6911-0009')).toBe(true);
   });
 
-  it('คอลัมน์หาย → ใบค้าง SOURCE_ERROR + connector ERROR · watermark ไม่เลื่อน · แก้ต้นทาง + เปิดใช้ → ดึงหน้าเดิมได้ข้อมูลครบ', async () => {
+  const rowsOf = (so: MockSo, rowVersion: number) => mock.salesOrders.toRows({ ...so, rowVersion });
+  const byExt = async (ext: string) => (await orders()).find((o) => o.externalId === ext)!;
+
+  it('M2 คอลัมน์หาย → ใบใหม่ค้าง SOURCE_ERROR · ใบเดิมไม่ถูกทับ (ตั้งปัญหาอย่างเดียว) · connector ERROR · watermark ไม่เลื่อน · ปุ่มทดสอบไม่ผ่านจนกว่าแก้ · แก้แล้วเปิดใช้ → ข้อมูลครบ', async () => {
     const m = loadKrsSoMapping();
-    const src = mock.salesOrders.get('SAMPLE', SO(1))!;
-    const fresh = { ...src, soNo: 'SAMPLE-SO-6911-0010', rowVersion: 900_001 };
-    const fullRows = mock.salesOrders.toRows(fresh);
+    const so1 = mock.salesOrders.get('SAMPLE', SO(1))!;
+    const fullRows = [
+      ...rowsOf(so1, 900_000),
+      ...rowsOf({ ...so1, soNo: 'SAMPLE-SO-6911-0010' }, 900_001),
+    ];
     const broken = fullRows.map((r) => {
       const x = { ...r };
       delete x[m.columns.qty.column];
@@ -305,15 +311,31 @@ describe('KRS SO poller ต่อ tenant (ST8-T04) — mock → order', () => {
     });
     customReply = { status: 200, body: { rows: broken, next: '900001', hasMore: false } };
     const wmBefore = (await cursor())!.cursor;
+    const before1 = await byExt(EXT(1));
     await setBase(customBase);
 
     const r = await svc.pullConnector(tenantId, connectorId);
     expect(r.sourceError).toContain('source_columns_missing');
-    expect(r.counts).toMatchObject({ created: 1, held: 1 });
-    const o = (await orders()).find((x) => x.externalId === 'KRS-SAMPLE-SAMPLE-SO-6911-0010')!;
+    expect(r.counts).toMatchObject({ created: 1, updated: 1, held: 2, error: 0 });
+    const issue = KRS_ISSUE.columnsMissing(m.view, ['qty']);
+    const o = await byExt('KRS-SAMPLE-SAMPLE-SO-6911-0010');
     expect(o.status).toBe('ON_HOLD');
     expect(o.holdReasonCode?.code).toBe('SOURCE_ERROR');
-    expect((o.sourceIssues as string[])[0]).toBe(KRS_ISSUE.columnsMissing(m.view, ['qty']));
+    expect((o.sourceIssues as string[])[0]).toBe(issue);
+    // ใบเดิม: ข้อมูล/รายการเดิมครบ แค่ค้าง SOURCE_ERROR พร้อมเหตุ
+    const held1 = await byExt(EXT(1));
+    expect(held1.status).toBe('ON_HOLD');
+    expect(held1.holdReasonCode?.code).toBe('SOURCE_ERROR');
+    expect(held1.sourceIssues).toContain(issue);
+    expect(held1.lines.map((l) => [l.lineNo, String(l.qtyOrdered)])).toEqual(
+      before1.lines.map((l) => [l.lineNo, String(l.qtyOrdered)]),
+    );
+    expect(held1.rawPayload).toEqual(before1.rawPayload);
+    expect(
+      await plat.auditLog.count({
+        where: { tenantId, entityId: held1.id, action: 'sales_order.source_held' },
+      }),
+    ).toBe(1);
     expect((await cursor())!.cursor).toBe(wmBefore);
     const c = await connector();
     expect(c.status).toBe('ERROR');
@@ -326,19 +348,28 @@ describe('KRS SO poller ต่อ tenant (ST8-T04) — mock → order', () => {
         where: { tenantId, entityId: connectorId, action: 'connector.error' },
       }),
     ).toBe(1);
-    // ERROR = ไม่ดึงจนกว่าคนเปิดใช้
     expect((await svc.pullConnector(tenantId, connectorId)).skipped).toBe('connector_not_active');
 
-    // KRS แก้ view → เปิดใช้ → หน้าเดิม (watermark ไม่เลื่อน) ได้แถวครบ → ใบเดิมพ้น SOURCE_ERROR
+    // M3 ปุ่มทดสอบ: แหล่ง SO ยังเสีย = ไม่ผ่าน คง ERROR พร้อมเหตุ · เปิดใช้ไม่ได้
+    const h = await api(app, token).post(`/v1/connectors/${publicId}/health`).expect(200);
+    expect(h.body).toMatchObject({ ok: false, code: 'source_columns_missing' });
+    expect(h.body.message).toContain('คอลัมน์');
+    expect((await connector()).status).toBe('ERROR');
+    expect((await connector()).lastHealthError).toMatchObject({ code: 'source_columns_missing' });
+    await resume().expect(409);
+
+    // KRS แก้ view → เปิดใช้ → หน้าเดิม (watermark ไม่เลื่อน) ได้แถวครบ → ทั้งสองใบพ้น SOURCE_ERROR
     customReply = { status: 200, body: { rows: fullRows, next: '900001', hasMore: false } };
     await resume().expect(200);
     const fixed = await svc.pullConnector(tenantId, connectorId);
     expect(fixed.sourceError).toBeUndefined();
-    expect(fixed.counts).toMatchObject({ updated: 1, error: 0 });
-    const o2 = (await orders()).find((x) => x.id === o.id)!;
-    expect(o2.sourceIssues ?? []).toEqual([]);
-    expect(o2.holdReasonCode?.code).not.toBe('SOURCE_ERROR');
-    expect(o2.lines).toHaveLength(1);
+    expect(fixed.counts).toMatchObject({ updated: 2, error: 0 });
+    for (const ext of [EXT(1), 'KRS-SAMPLE-SAMPLE-SO-6911-0010']) {
+      const x = await byExt(ext);
+      expect(x.sourceIssues ?? []).toEqual([]);
+      expect(x.holdReasonCode?.code).not.toBe('SOURCE_ERROR');
+      expect(x.lines).toHaveLength(1);
+    }
     expect((await cursor())!.cursor).toBe('900001');
   });
 
@@ -353,25 +384,84 @@ describe('KRS SO poller ต่อ tenant (ST8-T04) — mock → order', () => {
     expect((await connector()).lastHealthError).toMatchObject({ code: 'source_not_found' });
     expect((await orders()).length).toBe(n);
     expect((await cursor())!.cursor).toBe(wm);
+    await resume().expect(409); // ตรวจแหล่ง SO ด้วย — ยังหาย = เปิดไม่ได้
     customReply = { status: 200, body: { rows: [], next: null, hasMore: false } };
     await resume().expect(200);
   });
 
-  it('ใบไม่ครบ (ได้เฉพาะบางรายการ) → ไม่ทับ/ไม่ลบรายการเดิม · connector ERROR source_incomplete_order · ไม่เลื่อน watermark', async () => {
+  it('M1 รายการท้ายใบหาย (ได้ 1..1 จาก 2) → ใบเดิมไม่ถูกลดรายการ ค้าง SOURCE_ERROR · connector ACTIVE · watermark เดินต่อ', async () => {
     await setBase(customBase);
     const so2 = mock.salesOrders.get('SAMPLE', SO(2))!;
-    const rows = mock.salesOrders.toRows({ ...so2, rowVersion: 900_100 });
-    const onlyLine2 = rows.filter((r) => r[loadKrsSoMapping().columns.lineNo.column] === 2);
-    customReply = { status: 200, body: { rows: onlyLine2, next: '900100', hasMore: false } };
-    const wm = (await cursor())!.cursor;
-    const before = (await orders()).find((o) => o.externalId === EXT(2))!;
+    const line1 = rowsOf(so2, 900_050).filter(
+      (r) => r[loadKrsSoMapping().columns.lineNo.column] === 1,
+    );
+    customReply = { status: 200, body: { rows: line1, next: '900050', hasMore: false } };
     const r = await svc.pullConnector(tenantId, connectorId);
-    expect(r.sourceError).toContain('source_incomplete_order');
-    expect(r.counts.total).toBe(0);
-    const after = (await orders()).find((o) => o.externalId === EXT(2))!;
-    expect(after.version).toBe(before.version);
+    expect(r.sourceError).toBeUndefined();
+    expect(r.counts).toMatchObject({ updated: 1, held: 1, error: 0 });
+    const after = await byExt(EXT(2));
     expect(after.lines).toHaveLength(2);
-    expect((await cursor())!.cursor).toBe(wm);
-    expect((await connector()).lastHealthError).toMatchObject({ code: 'source_incomplete_order' });
+    expect(after.holdReasonCode?.code).toBe('SOURCE_ERROR');
+    expect((after.sourceIssues as string[]).join(' ')).toContain('น้อยกว่าที่มีอยู่ 2 รายการ');
+    expect((await connector()).status).toBe('ACTIVE');
+    expect((await cursor())!.cursor).toBe('900050');
+    // ต้นทางส่งใบครบภายหลัง → ข้อมูลเขียนจริง ปัญหาหาย
+    customReply = {
+      status: 200,
+      body: { rows: rowsOf(so2, 900_060), next: '900060', hasMore: false },
+    };
+    const ok = await svc.pullConnector(tenantId, connectorId);
+    expect(ok.counts).toMatchObject({ updated: 1, error: 0 });
+    const back = await byExt(EXT(2));
+    expect(back.sourceIssues ?? []).toEqual([]);
+    expect(back.lines).toHaveLength(2);
+  });
+
+  it('M1 เลขรายการเว้นช่อง (ได้เฉพาะรายการที่ 2) → ใบเดิมไม่ถูกทับ ค้าง SOURCE_ERROR · connector ไม่หยุด · watermark เดินต่อ · คนเคลียร์ได้ด้วยแก้มือ', async () => {
+    await setBase(customBase);
+    const so2 = mock.salesOrders.get('SAMPLE', SO(2))!;
+    const onlyLine2 = rowsOf(so2, 900_100).filter(
+      (r) => r[loadKrsSoMapping().columns.lineNo.column] === 2,
+    );
+    customReply = { status: 200, body: { rows: onlyLine2, next: '900100', hasMore: false } };
+    const before = await byExt(EXT(2));
+    const r = await svc.pullConnector(tenantId, connectorId);
+    expect(r.sourceError).toBeUndefined();
+    expect(r.counts).toMatchObject({ updated: 1, error: 0 });
+    const after = await byExt(EXT(2));
+    expect(after.lines.map((l) => l.itemCode)).toEqual(before.lines.map((l) => l.itemCode));
+    expect(after.holdReasonCode?.code).toBe('SOURCE_ERROR');
+    expect(after.sourceIssues).toContain(KRS_ISSUE.badLines('line_no 1 missing'));
+    expect((await connector()).status).toBe('ACTIVE');
+    expect((await cursor())!.cursor).toBe('900100');
+    // ทางออกโดยไม่แก้ฐานข้อมูล: หน้าใบค้าง "แก้มือ" (resolve-source-error)
+    await api(app, token)
+      .post(`/v1/orders/${encodeId('salesOrder', after.id)}/resolve-source-error`)
+      .send({ reason: 'ตรวจกับ KRS แล้ว รายการเดิมถูกต้อง' })
+      .expect(200);
+    expect((await byExt(EXT(2))).sourceIssues ?? []).toEqual([]);
+  });
+
+  it('Low: แถวที่รวมเป็นใบไม่ได้ → คำเตือนใน last_result + audit · ตอบไม่ใช่ JSON = TRANSIENT (ไม่หยุด connector, จดเวลาเริ่มล้ม)', async () => {
+    await setBase(customBase);
+    const so1 = mock.salesOrders.get('SAMPLE', SO(1))!;
+    const bad = { ...rowsOf(so1, 900_200)[0]!, [loadKrsSoMapping().columns.soNo.column]: '' };
+    customReply = { status: 200, body: { rows: [bad], next: '900200', hasMore: false } };
+    const r = await svc.pullConnector(tenantId, connectorId);
+    expect(r.warnings?.[0]).toContain('1 row(s)');
+    const cur = await cursor();
+    expect((cur!.lastResult as { warnings?: string[] }).warnings?.[0]).toContain('1 row(s)');
+    const aud = await plat.auditLog.findFirst({
+      where: { tenantId, action: 'connector.orders_pulled', entityId: cur!.id },
+      orderBy: { at: 'desc' },
+    });
+    expect(JSON.stringify(aud?.after)).toContain('1 row(s)');
+
+    customReply = { status: 200, body: '<html>proxy</html>' };
+    const t = await svc.pullConnector(tenantId, connectorId);
+    expect(t.sourceError).toBeTruthy();
+    const c = await connector();
+    expect(c.status).toBe('ACTIVE');
+    expect(c.healthFailingSince).toBeTruthy();
   });
 });

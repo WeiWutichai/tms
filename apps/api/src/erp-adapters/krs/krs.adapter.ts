@@ -16,7 +16,7 @@ import {
 } from '../../modules/erp/erp-adapter';
 import { safeHttpRequest, type SendOptions } from '../../modules/webhooks/webhook-http';
 import { krsMasterCodeRefs, krsPushReadiness } from './krs-master-codes';
-import { pullKrsOrders } from './krs-so-poller';
+import { probeKrsSoSource, pullKrsOrders } from './krs-so-poller';
 
 /**
  * KrsAdapter — โครง (ST8-T03; docs/04 G4 KRS; docs/01 Appendix A.1–A.2, A.5) · KRS เป็นแค่ adapter หนึ่งหลัง `ErpAdapter`
@@ -129,11 +129,17 @@ export class KrsAdapter implements ErpAdapter {
           return fail('VALIDATION', 'invalid_request', r.errorMessage ?? 'cannot build request');
       }
     }
-    if (r.status === 200 || r.status === 404)
+    if (r.status === 200 || r.status === 404) {
+      // ST8-T04 เปิด pullOrders = แหล่ง SO ต้องอ่านได้ด้วย (view/คอลัมน์เสีย → ไม่ผ่าน คง ERROR พร้อมเหตุเดิม)
+      if (ctx.capabilitiesEnabled?.includes('pullOrders')) {
+        const so = await probeKrsSoSource(ctx, this.http);
+        if (so) return fail(so.errorClass, so.code, so.message);
+      }
       return {
         ok: true,
         detail: { probe: r.status === 200 ? 'found' : 'not_found', durationMs: r.durationMs },
       };
+    }
     if (r.status === 401 || r.status === 403)
       return fail('AUTH', 'unauthorized', `KRS rejected the API key (HTTP ${r.status})`);
     if (r.status === 503)

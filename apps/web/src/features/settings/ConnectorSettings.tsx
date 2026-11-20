@@ -429,7 +429,6 @@ const HEALTH_CODES: Record<string, MessageKey> = {
   // ST8-T04 รอบดึง SO หยุด connector เพราะแหล่งข้อมูลผิดโครงสร้าง
   source_not_found: 'cnx.hc.source_not_found',
   source_columns_missing: 'cnx.hc.source_columns_missing',
-  source_incomplete_order: 'cnx.hc.source_incomplete_order',
 };
 export function healthText(t: T, code: string | null | undefined): string {
   const k = code ? HEALTH_CODES[code] : undefined;

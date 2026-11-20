@@ -96,8 +96,6 @@ const HEALTH_CODE_TH: Readonly<Record<string, string>> = {
     'ไม่พบแหล่งข้อมูล SO ที่ปลายทาง — ให้ปลายทางตรวจ view/endpoint แล้วเปิดใช้อีกครั้ง',
   source_columns_missing:
     'แหล่งข้อมูล SO ขาดคอลัมน์ที่จำเป็น — SO ที่ดึงได้ค้างรอแก้ต้นทาง แก้แล้วเปิดใช้อีกครั้ง',
-  source_incomplete_order:
-    'ปลายทางส่ง SO มาไม่ครบทุกรายการ — ไม่ได้รับใบเหล่านั้น ให้ปลายทางแก้แล้วเปิดใช้อีกครั้ง',
 };
 const HEALTH_CLASS_TH: Readonly<Partial<Record<ErrorClass, string>>> = {
   AUTH: 'ระบบปลายทางไม่ยอมรับข้อมูลยืนยันตัวตน — ตรวจ key แล้วทดสอบอีกครั้ง',
@@ -1212,6 +1210,7 @@ export class ConnectorsService {
       config: Object.freeze(this.configOf(c)),
       idempotencyKey: extra.idempotencyKey,
       signal: extra.signal,
+      capabilitiesEnabled: Object.freeze([...(c.capabilitiesEnabled ?? [])]),
     };
   }
 

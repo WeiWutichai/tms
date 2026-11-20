@@ -4359,7 +4359,6 @@ export const th = {
   'cnx.hc.url_not_allowed': 'ไม่อนุญาตให้เชื่อมต่อปลายทางนี้',
   'cnx.hc.source_not_found': 'ไม่พบแหล่งข้อมูล SO ที่ปลายทาง',
   'cnx.hc.source_columns_missing': 'แหล่งข้อมูล SO ขาดคอลัมน์ที่จำเป็น',
-  'cnx.hc.source_incomplete_order': 'ปลายทางส่ง SO มาไม่ครบทุกรายการ',
   'cnx.fl.apiKey': 'API key',
   'cnx.fl.baseUrl': 'URL ของ API',
   'cnx.fl.healthTransactionNo': 'เลขเอกสารสำหรับทดสอบการเชื่อมต่อ',

@@ -1,9 +1,5 @@
 import { Logger } from '@nestjs/common';
-import type {
-  ExternalOrder,
-  PullPage,
-  PullProblem,
-} from '../../modules/connectors/order-source.port';
+import type { ExternalOrder, PullPage } from '../../modules/connectors/order-source.port';
 import { ErpAdapterError, type ErpContext } from '../../modules/erp/erp-adapter';
 import type { SendOptions } from '../../modules/webhooks/webhook-http';
 import {
@@ -21,15 +17,18 @@ import {
  * - externalId = `KRS-{company}-{soNo}` (docs/01 A.4) · แถวดิบทั้งหมดของใบเก็บใน `raw_payload` (`{view, rowVersion, rows}`)
  * - หัวใบ: ลูกค้า = `cust_code` (จับคู่ `customer.external_id` — ไม่พบ = ใบค้าง CUSTOMER_UNMAPPED; mapping NSF↔PP = ST8-T05),
  *   PO = `cust_po`, วันรับของ = `delivery_date`, ประเภทรถ = `vehicle_type`, จุดรับ = origin, จุดส่ง = destination
- * - **ใบที่ KRS ยกเลิก** (`is_cancelled = 1`): ขั้นต่ำของ T04 = รับเข้าเป็นใบค้าง SOURCE_ERROR พร้อมเหตุ (กันไม่ให้วางแผนต่อ)
- *   — ยกเลิกใน TMS อัตโนมัติ/แจ้งเตือนเมื่อมี DO = ST8-T05
- * - **view/คอลัมน์หาย**: view หาย (404) / key ผิด = throw `ErpAdapterError` → core หยุด connector (ERROR) ·
- *   คอลัมน์บังคับหาย = ใบของหน้านั้นเข้าเป็นใบค้าง SOURCE_ERROR + `problem` → core ไม่เลื่อน watermark + หยุด connector
- * - **ใบไม่ครบ** ([OPEN — KRS] spec/12 §3 แถว ST8-T02: `rowversion` จริงเป็นค่าต่อแถว → view อาจส่งเฉพาะรายการที่แก้):
- *   สัญญาที่ใช้ = ทุกครั้งที่ใบเปลี่ยนต้นทางส่ง**ทุกรายการ**ของใบ และ `limit` นับเป็นใบ (stub ST8-T02) · ตรวจ `line_no`
- *   ต้องเป็น 1..n ไม่ซ้ำไม่ขาด — ไม่ตรง = **ไม่ส่งใบนั้นเข้า core** (upsert แทนที่รายการทั้งชุด — ห้ามลบรายการเดิมจากใบที่ได้มาบางส่วน)
- *   + `problem` `source_incomplete_order` → ไม่เลื่อน watermark + หยุด connector จนกว่าต้นทางแก้
- * - แถวที่ไม่มี company/soNo/watermark (`rejectedRows`) รวมเป็นใบไม่ได้ → log จำนวน (ไม่มีข้อมูลแถวใน log)
+ * - **ใบที่ KRS ยกเลิก** (`is_cancelled = 1`): ขั้นต่ำของ T04 = ใบค้าง SOURCE_ERROR พร้อมเหตุ (กันไม่ให้วางแผนต่อ)
+ *   — ยกเลิกใน TMS อัตโนมัติ/แจ้งเตือนเมื่อมี DO = ST8-T05 (ใบที่วางแผนแล้ว = core ตอบ locked ไม่แตะใบ)
+ * - **view หาย (404) / key ผิด** = throw `ErpAdapterError` → core หยุด connector (ERROR) · ตอบไม่ใช่ JSON
+ *   (`invalid_response` เช่นหน้า HTML จาก proxy) = TRANSIENT (ลองใหม่ — ล้มต่อเนื่อง 30 นาที = ERROR ตามกติกาเดียวกับ healthCheck)
+ * - **คอลัมน์บังคับหาย** = ใบของหน้านั้น `holdOnly` (ใบใหม่ = ใบค้าง SOURCE_ERROR, ใบเดิม = ตั้งปัญหาอย่างเดียว **ไม่ทับข้อมูล**)
+ *   + `problem` → core ไม่เลื่อน watermark + หยุด connector (แก้ view แล้วเปิดใช้ → ดึงหน้าเดิมซ้ำ)
+ * - **ใบไม่ครบ** ([OPEN — KRS] `rowversion` ต่อแถว → view อาจส่งเฉพาะรายการที่แก้): ทุกใบส่ง `noLineShrink` — รายการน้อยกว่า
+ *   ที่เก็บอยู่ = core ไม่ทับ ตั้งใบค้าง SOURCE_ERROR · `line_no` ไม่เป็น 1..n (ขาด/ซ้ำ/ไม่ใช่เลข) = `holdOnly` + เหตุ
+ *   **ทั้งสองกรณีไม่หยุด connector และ watermark เดินต่อ** (ใบเดียวค้างให้คนตรวจ — เคลียร์ด้วย "แก้มือ"/รอต้นทางส่งใบครบ)
+ *   ข้อจำกัด: ใบ**ใหม่**ที่ถูกตัดรายการท้ายตรวจไม่ได้ (ไม่มีจำนวนรายการ/ watermark ระดับใบจาก KRS — [OPEN — KRS])
+ * - แถวที่ไม่มี company/soNo/watermark (`rejectedRows`) รวมเป็นใบไม่ได้ → `warnings` (core เก็บใน last_result + audit)
+ * - healthCheck (เปิด pullOrders) อ่านแหล่ง SO 1 ใบด้วย (`probeKrsSoSource`) — view/คอลัมน์ยังเสีย = ทดสอบไม่ผ่าน
  * - ไม่เขียน/อ่านฐานข้อมูล TMS (สัญญา OrderSourcePort) · ข้อความ error ไม่มี key
  */
 
@@ -46,6 +45,8 @@ export const KRS_ISSUE = {
   cancelled: 'KRS ยกเลิก SO นี้แล้ว — ตรวจสอบและยกเลิกใบใน TMS (ยังไม่ยกเลิกอัตโนมัติ)',
   columnsMissing: (view: string, cols: string[]) =>
     `แหล่ง SO ของ KRS (${view}) ไม่มีคอลัมน์ ${cols.join(', ')} — ข้อมูลใบนี้อาจไม่ครบ รอแก้ต้นทางแล้วดึงใหม่`,
+  badLines: (why: string) =>
+    `เลขรายการสินค้าจาก KRS ไม่ครบหรือผิดรูป (${why}) — ข้อมูลรายการอาจไม่ครบ ไม่ทับข้อมูลเดิม ตรวจกับ KRS`,
 } as const;
 
 /** ช่องรายการ 1..n ไม่ซ้ำไม่ขาด (สัญญา "ส่งทั้งใบ") — null = ครบ · อื่น ๆ = เหตุ */
@@ -65,6 +66,7 @@ export function krsToExternalOrder(
   so: KrsSalesOrder,
   mapping: Pick<KrsSoMapping, 'view'>,
   extraIssues: string[] = [],
+  holdOnly = false,
 ): ExternalOrder {
   const issues = [...extraIssues];
   if (so.cancelled) issues.push(KRS_ISSUE.cancelled);
@@ -87,6 +89,9 @@ export function krsToExternalOrder(
     })),
     ...(issues.length ? { issues } : {}),
     raw: { view: mapping.view, rowVersion: so.rowVersion, rows: so.raw },
+    // view ระดับรายการอาจส่งใบมาไม่ครบ → ห้ามลดรายการของใบเดิมเงียบ ๆ (core ตั้งใบค้างแทน)
+    noLineShrink: true,
+    ...(holdOnly ? { holdOnly: true } : {}),
   };
 }
 
@@ -105,39 +110,58 @@ export async function pullKrsOrders(
   });
   if (!r.ok) {
     if (r.problem.code === 'source_columns_missing') {
-      const cols = r.missingColumns ?? [];
-      const issue = KRS_ISSUE.columnsMissing(mapping.view, cols);
+      const issue = KRS_ISSUE.columnsMissing(mapping.view, r.missingColumns ?? []);
       return {
         orders: (r.orders ?? [])
           .slice(0, limit)
-          .map((so) => krsToExternalOrder(so, mapping, [issue])),
+          .map((so) => krsToExternalOrder(so, mapping, [issue], true)),
         nextCursor: since,
         hasMore: false,
         problem: { errorClass: 'VALIDATION', code: r.problem.code, message: r.problem.message },
       };
     }
+    // ตอบไม่ใช่ JSON/ไม่มี rows (เช่น หน้า HTML จาก proxy) = ชั่วคราว — ไม่หยุด connector ทันที
+    if (r.problem.code === 'invalid_response') throw new ErpAdapterError('TRANSIENT', r.problem);
     throw new ErpAdapterError(r.errorClass, r.problem);
   }
-  if (r.rejectedRows.length)
-    logger.warn(
-      `connector ${ctx.connectorId}: ${r.rejectedRows.length} row(s) from ${mapping.view} without company/soNo/watermark — skipped`,
-    );
-  const orders: ExternalOrder[] = [];
-  const incomplete: string[] = [];
-  for (const so of r.orders) {
+  const warnings: string[] = [];
+  if (r.rejectedRows.length) {
+    const w = `${r.rejectedRows.length} row(s) from ${mapping.view} without company/soNo/watermark — skipped`;
+    warnings.push(w);
+    logger.warn(`connector ${ctx.connectorId}: ${w}`);
+  }
+  const orders = r.orders.map((so) => {
     const why = krsLinesIncomplete(so);
-    if (why) incomplete.push(`${so.company}/${so.soNo} (${why})`);
-    else orders.push(krsToExternalOrder(so, mapping));
-  }
-  if (incomplete.length) {
-    const problem: PullProblem = {
-      errorClass: 'VALIDATION',
-      code: 'source_incomplete_order',
-      message: `sales orders with incomplete lines in ${mapping.view}: ${incomplete
-        .slice(0, 10)
-        .join(', ')}${incomplete.length > 10 ? ` (+${incomplete.length - 10})` : ''}`.slice(0, 300),
-    };
-    return { orders, nextCursor: since, hasMore: false, problem };
-  }
-  return { orders, nextCursor: r.next, hasMore: r.hasMore };
+    return why
+      ? krsToExternalOrder(so, mapping, [KRS_ISSUE.badLines(why)], true)
+      : krsToExternalOrder(so, mapping);
+  });
+  return {
+    orders,
+    nextCursor: r.next,
+    hasMore: r.hasMore,
+    ...(warnings.length ? { warnings } : {}),
+  };
+}
+
+/**
+ * healthCheck ส่วนแหล่ง SO (เมื่อ tenant เปิด pullOrders) — อ่าน 1 ใบจากต้น · view หาย/คอลัมน์หาย/key ผิด = ไม่ผ่าน
+ * (connector ที่ ERROR เพราะแหล่ง SO เสีย จะไม่กลับเป็น ACTIVE จนกว่าต้นทางแก้) · null = ผ่าน
+ */
+export async function probeKrsSoSource(
+  ctx: ErpContext,
+  http: Pick<SendOptions, 'allowPrivate' | 'resolver'> = {},
+): Promise<{
+  errorClass: 'AUTH' | 'TRANSIENT' | 'VALIDATION';
+  code: string;
+  message: string;
+} | null> {
+  const r = await readKrsSalesOrders(ctx.config, null, 1, {
+    ...http,
+    ...(ctx.signal ? { signal: ctx.signal } : {}),
+    timeoutMs: 10_000,
+  });
+  if (r.ok) return null;
+  const errorClass = r.problem.code === 'invalid_response' ? 'TRANSIENT' : r.errorClass;
+  return { errorClass, code: r.problem.code, message: r.problem.message };
 }

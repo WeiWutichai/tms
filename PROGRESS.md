@@ -298,6 +298,12 @@
 
 ## บันทึกรายวัน
 
+### 20 พ.ย. 2569 (ST8-T04 แก้ตาม review/QA — lane lc)
+
+- **ทำ:** (M1) รอบดึงห้ามลดรายการของใบเดิมเงียบ ๆ (`ExternalOrder.noLineShrink`): รายการน้อยกว่าที่เก็บอยู่ → ไม่ทับ ใบค้าง SOURCE_ERROR · `line_no` ไม่เป็น 1..n → `holdOnly` ค้างเฉพาะใบนั้น **ไม่หยุด connector, watermark เดินต่อ** (เลิกใช้ `source_incomplete_order`) — เคลียร์ด้วย "แก้มือ" หรือรอ KRS ส่งครบ · (M2) คอลัมน์หาย: ใบเดิมไม่ถูกทับ ตั้งปัญหาอย่างเดียว (`OrderIntakeService.holdFromSource` + audit `sales_order.source_held`, ล้าง input_hash) · (M3) healthCheck ของ KRS ตรวจแหล่ง SO (1 ใบ) เมื่อเปิด pullOrders (`ErpContext.capabilitiesEnabled`) — แหล่งยังเสีย = ทดสอบไม่ผ่าน คง ERROR เปิดใช้ได้ 409 · (Low) แถวที่รวมไม่ได้ → `PullPage.warnings` ใน last_result + audit · `invalid_response` = TRANSIENT · รอบดึงที่ล้ม TRANSIENT นับกติกา 30 นาที (`applySystemHealth`) · spec/12 DECISION (3)–(6b) + [OPEN — KRS] line_count/watermark ระดับใบ + หมายเหตุใบยกเลิกที่วางแผนแล้ว = locked (T05)
+- **ไฟล์:** `apps/api/src/erp-adapters/krs/{krs-so-poller.ts,krs.adapter.ts}`, `apps/api/src/modules/connectors/{order-source.port.ts,connector-intake.service.ts}`, `apps/api/src/modules/orders/order-intake.service.ts`, `apps/api/src/modules/erp/{erp-adapter.ts,connectors.service.ts}`, `apps/api/test/krs-so-poller.test.ts`, web `ConnectorSettings.{tsx,test.tsx}` + `th.ts` (ลบข้อความรหัสที่เลิกใช้), spec/12
+- **ค้าง:** ยังไม่ได้รัน `pnpm ci:local` (lead รัน) · ใบใหม่ที่ถูกตัดรายการท้ายยังตรวจไม่ได้ ([OPEN — KRS])
+
 ### 20 พ.ย. 2569 (ST8-T04 SO poller ของ KRS — lane lc)
 
 - **ทำ:** `KrsAdapter.pullOrders` ทำจริง (ออกจาก `pendingCapabilities` → เปิดเป็นค่าเริ่มต้น): อ่านแหล่ง SO ด้วย `readKrsSalesOrders` (ST8-T02) ตาม watermark → `ExternalOrder` `KRS-{company}-{soNo}` + แถวดิบ `{view,rowVersion,rows}` → core เดิม (scheduler 5 นาที, cursor/lease, `upsertOrder` ทางเดียวกับ `PUT /v1/orders/external/{id}`) · view หาย/key ผิด → `ErpAdapterError` → core หยุด connector (ERROR) · คอลัมน์หาย → ใบในหน้าค้าง SOURCE_ERROR + connector ERROR + watermark ไม่เลื่อน (ช่องทางกลาง `PullPage.problem` — core ไม่รู้จัก KRS) · ใบไม่ครบ (`line_no` ไม่เป็น 1..n) → ไม่รับใบนั้น (ไม่ลบรายการเดิม) + ERROR `source_incomplete_order` · SO ที่ KRS ยกเลิก = ใบค้าง SOURCE_ERROR พร้อมเหตุ (ยกเลิกอัตโนมัติ = T05) · ข้อความไทยของรหัสใหม่ใน API + การ์ด connector · spec/12 §3 แถว ST8-T04 (DECISION 1–7)

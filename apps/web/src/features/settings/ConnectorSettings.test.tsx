@@ -366,6 +366,5 @@ describe('ตั้งค่า → การเชื่อมต่อ (ST7-T2
     const t = ((k: keyof typeof th) => th[k]) as Parameters<typeof healthText>[0];
     expect(healthText(t, 'source_columns_missing')).toBe('แหล่งข้อมูล SO ขาดคอลัมน์ที่จำเป็น');
     expect(healthText(t, 'source_not_found')).toBe('ไม่พบแหล่งข้อมูล SO ที่ปลายทาง');
-    expect(healthText(t, 'source_incomplete_order')).toBe('ปลายทางส่ง SO มาไม่ครบทุกรายการ');
   });
 });

@@ -27,6 +27,16 @@ export interface ExternalOrder {
   issues?: unknown;
   /** แถวดิบจากต้นทาง (docs/01 §3.3 raw_payload) */
   raw?: unknown;
+  /**
+   * ST8-T04 (`true`) ข้อมูลใบนี้อาจไม่ครบ (เช่น คอลัมน์หาย / เลขรายการผิด) — ใบที่มีอยู่แล้ว: **ไม่ทับข้อมูล**
+   * ตั้งเฉพาะปัญหา (`issues`) → ใบค้าง SOURCE_ERROR · ยังไม่มีใบ: สร้างใบค้างตามปกติ
+   */
+  holdOnly?: unknown;
+  /**
+   * ST8-T04 (`true`) ห้ามรอบดึง "ลด" จำนวนรายการสินค้าของใบเดิมเงียบ ๆ — รายการที่รับได้น้อยกว่าที่เก็บอยู่
+   * = ถือเป็น `holdOnly` (ไม่ทับ ใบค้าง SOURCE_ERROR ให้คนตรวจ) · ใช้กับต้นทางที่อาจส่งใบมาไม่ครบ (view ระดับรายการ)
+   */
+  noLineShrink?: unknown;
 }
 
 /** จุดรับ/ส่งตามต้นทาง (ใน `ExternalOrder.stops[]`) */
@@ -72,6 +82,11 @@ export interface PullPage {
    * และหยุด connector (`ERROR`, ไม่กู้คืนเอง — คนแก้ต้นทางแล้วกด "เปิดใช้") · ไม่มี credential ใน message
    */
   problem?: PullProblem | null;
+  /**
+   * ST8-T04 คำเตือนของหน้านี้ที่ไม่หยุดรอบ (เช่น แถวที่รวมเป็นใบไม่ได้ถูกข้าม) — core เก็บใน `last_result` + audit
+   * สรุปรอบให้ผู้ดูแลเห็น · ข้อความสั้น ไม่มีข้อมูลแถว/credential
+   */
+  warnings?: string[];
 }
 
 export interface PullProblem {
