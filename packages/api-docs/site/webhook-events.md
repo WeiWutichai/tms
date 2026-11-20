@@ -69,6 +69,7 @@
 | `activatedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
 | `disconnectedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
 | `inbound` | ใช่ | `ConnectorInboundDto` |   |   |   |
+| `systemOfRecord` | ใช่ | `SystemOfRecordDto` |   |   |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string (date-time)` |   |   |   |
 | `updatedAt` | ใช่ | `string (date-time)` |   |   |   |

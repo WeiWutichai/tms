@@ -46201,6 +46201,9 @@
           "inbound": {
             "$ref": "#/components/schemas/ConnectorInboundDto"
           },
+          "systemOfRecord": {
+            "$ref": "#/components/schemas/SystemOfRecordDto"
+          },
           "version": {
             "type": "number"
           },
@@ -46237,6 +46240,7 @@
           "activatedAt",
           "disconnectedAt",
           "inbound",
+          "systemOfRecord",
           "version",
           "createdAt",
           "updatedAt"
@@ -49626,6 +49630,14 @@
             "type": "string",
             "nullable": true,
             "example": "brn_…"
+          },
+          "systemOfRecord": {
+            "description": "system-of-record ที่ใช้กับนิติบุคคลนี้ — connector ที่ยังไม่ยกเลิก (แม้หยุดชั่วคราว/แพ็กเกจปิดการเชื่อมต่อ) ใช้กฎของ connector · ไม่มี = TMS ทั้งหมด",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EffectiveSystemOfRecordDto"
+              }
+            ]
           }
         },
         "required": [
@@ -49641,7 +49653,8 @@
           "scope",
           "erpCompanyCode",
           "companyId",
-          "branchId"
+          "branchId",
+          "systemOfRecord"
         ]
       },
       "EffectivePodChecklistDto": {
@@ -49682,6 +49695,45 @@
           "source",
           "fields",
           "tenantFields"
+        ]
+      },
+      "EffectiveSystemOfRecordDto": {
+        "type": "object",
+        "properties": {
+          "customerOwner": {
+            "type": "string",
+            "enum": [
+              "TMS",
+              "ERP"
+            ],
+            "description": "เจ้าของข้อมูลลูกค้า(หลัก)"
+          },
+          "taxDocumentOwner": {
+            "type": "string",
+            "enum": [
+              "TMS",
+              "ERP"
+            ],
+            "description": "เจ้าของเอกสารภาษี — ERP = TMS ไม่ออกเลขใบกำกับภาษี (ออกเฉพาะใบแจ้งหนี้/ใบวางบิล) · TMS ออกเลขเอกสารของตัวเองเสมอ"
+          },
+          "fieldSync": {
+            "$ref": "#/components/schemas/SorFieldSyncDto"
+          },
+          "editableUntilPaid": {
+            "type": "boolean",
+            "description": "แก้แล้ว sync ไป ERP ได้จนรับชำระ (รับบางส่วนก็นับ)"
+          },
+          "canIssueTaxDocumentNumber": {
+            "type": "boolean",
+            "description": "TMS ออกเลขใบกำกับภาษีให้เอกสารของนิติบุคคลนี้ได้ไหม (false เมื่อ taxDocumentOwner = ERP) — หน้าจอซ่อนเลขใบกำกับภาษีเมื่อ false"
+          }
+        },
+        "required": [
+          "customerOwner",
+          "taxDocumentOwner",
+          "fieldSync",
+          "editableUntilPaid",
+          "canIssueTaxDocumentNumber"
         ]
       },
       "EligibilityDayLevelDto": {
@@ -58376,6 +58428,49 @@
           "count"
         ]
       },
+      "SorFieldSyncDto": {
+        "type": "object",
+        "properties": {
+          "PRICE": {
+            "type": "string",
+            "enum": [
+              "AUTO_SYNC",
+              "REGENERATE"
+            ],
+            "description": "ราคา"
+          },
+          "DATES": {
+            "type": "string",
+            "enum": [
+              "AUTO_SYNC",
+              "REGENERATE"
+            ],
+            "description": "วันที่"
+          },
+          "ACCESSORIAL": {
+            "type": "string",
+            "enum": [
+              "AUTO_SYNC",
+              "REGENERATE"
+            ],
+            "description": "ค่าใช้จ่ายเพิ่มเติม (accessorial)"
+          },
+          "CUSTOMER": {
+            "type": "string",
+            "enum": [
+              "AUTO_SYNC",
+              "REGENERATE"
+            ],
+            "description": "เปลี่ยนลูกค้า — REGENERATE เสมอ"
+          }
+        },
+        "required": [
+          "PRICE",
+          "DATES",
+          "ACCESSORIAL",
+          "CUSTOMER"
+        ]
+      },
       "SourceChangeDecisionDto": {
         "type": "object",
         "properties": {
@@ -59417,6 +59512,40 @@
             "description": "เหตุผลการแก้ — **บังคับเมื่อมีหลักฐานอยู่แล้ว** (ฉบับที่ 2 ขึ้นไป, ≥ 10 ตัวอักษร) ลง audit"
           }
         }
+      },
+      "SystemOfRecordDto": {
+        "type": "object",
+        "properties": {
+          "customerOwner": {
+            "type": "string",
+            "enum": [
+              "TMS",
+              "ERP"
+            ],
+            "description": "เจ้าของข้อมูลลูกค้า(หลัก)"
+          },
+          "taxDocumentOwner": {
+            "type": "string",
+            "enum": [
+              "TMS",
+              "ERP"
+            ],
+            "description": "เจ้าของเอกสารภาษี — ERP = TMS ไม่ออกเลขใบกำกับภาษี (ออกเฉพาะใบแจ้งหนี้/ใบวางบิล) · TMS ออกเลขเอกสารของตัวเองเสมอ"
+          },
+          "fieldSync": {
+            "$ref": "#/components/schemas/SorFieldSyncDto"
+          },
+          "editableUntilPaid": {
+            "type": "boolean",
+            "description": "แก้แล้ว sync ไป ERP ได้จนรับชำระ (รับบางส่วนก็นับ)"
+          }
+        },
+        "required": [
+          "customerOwner",
+          "taxDocumentOwner",
+          "fieldSync",
+          "editableUntilPaid"
+        ]
       },
       "TokenDto": {
         "type": "object",
@@ -65663,6 +65792,9 @@
           "inbound": {
             "$ref": "#/components/schemas/ConnectorInboundDto"
           },
+          "systemOfRecord": {
+            "$ref": "#/components/schemas/SystemOfRecordDto"
+          },
           "version": {
             "type": "number"
           },
@@ -65699,6 +65831,7 @@
           "activatedAt",
           "disconnectedAt",
           "inbound",
+          "systemOfRecord",
           "version",
           "createdAt",
           "updatedAt"
@@ -70131,6 +70264,11 @@
       "title": "ระบบกำลังมีผู้ใช้งานมาก กรุณาลองใหม่อีกครั้ง",
       "titleEn": "Service busy — please retry"
     },
+    "sor_locked": {
+      "status": 409,
+      "title": "เปลี่ยนเจ้าของเอกสารไม่ได้ เพราะส่งเอกสารเข้าระบบบัญชีแล้ว — ยกเลิกการเชื่อมแล้วตั้งใหม่",
+      "titleEn": "Ownership cannot change after documents were synced — disconnect and set up again"
+    },
     "source_change_not_pending": {
       "status": 409,
       "title": "การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่",
@@ -70180,6 +70318,11 @@
       "status": 409,
       "title": "จุดนี้ไม่มีใบส่งของแล้ว (นัดส่งใหม่ไปเที่ยวอื่น) — ไม่ต้องบันทึกที่จุดนี้",
       "titleEn": "This stop has no delivery orders left (rescheduled) — nothing to record here"
+    },
+    "tax_document_owned_by_erp": {
+      "status": 409,
+      "title": "นิติบุคคลนี้ให้ระบบบัญชีเป็นผู้ออกใบกำกับภาษี — TMS ออกได้เฉพาะใบแจ้งหนี้/ใบวางบิล",
+      "titleEn": "Tax documents for this legal entity are issued by the ERP — TMS issues invoices/billing notes only"
     },
     "tenant_selection_required": {
       "status": 409,
