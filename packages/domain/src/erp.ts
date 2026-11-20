@@ -228,6 +228,7 @@ export function resolveErpMasterCode(
   const v = raw.toLowerCase();
   const ci = options.filter((o) => o.code.trim().toLowerCase() === v);
   if (ci.length === 1) return found(ci[0]!);
+  // กันไว้ก่อน: ผังรหัสใน DB มี unique lower(code) ต่อ (connector, ชนิด) (migration 0110) — หลายตัวเกิดได้เฉพาะ options จากที่อื่น
   if (ci.length > 1) return { status: 'AMBIGUOUS' };
   if (!opts.matchByName) return { status: 'UNKNOWN' };
   const byName = options.filter((o) => o.name?.trim().toLowerCase() === v);

@@ -598,7 +598,7 @@ export class ConnectorsService {
     const companyId = await this.checkCompany(tx, body.companyId);
     const settings = this.checkGroup(adapter, 'settings', body.settings);
     const credentials = this.checkGroup(adapter, 'credentials', body.credentials);
-    const caps = this.checkCapabilities(adapter, body.capabilitiesEnabled);
+    let caps = this.checkCapabilities(adapter, body.capabilitiesEnabled);
     const syncFromDate = this.checkSyncFromDate(body.syncFromDate);
     const branchMap = (await this.checkBranchMap(tx, companyId, body.branchMap)) ?? {};
     // จำนวน/ขอบเขตต่อ tenant — serialize การสร้างพร้อมกัน (partial unique index กันซ้ำอีกชั้น)
@@ -606,6 +606,23 @@ export class ConnectorsService {
     await this.assertScopeFree(tx, companyId);
     await this.assertLimit(tx, tenantId);
     const id = randomUUID();
+    // ST8-T06 ส่งเอกสารต้องพร้อมผังรหัสก่อน (connector ใหม่ยังไม่มีผัง): ค่าเริ่มต้น = ไม่เปิด capability ส่งเอกสารที่ยังไม่พร้อม ·
+    // ขอเปิดชัด ๆ = 422 เหมือน update (เปิดได้หลังนำเข้าผังรหัส)
+    if (caps.some((c) => PUSH_CAPABILITIES.has(c))) {
+      const gaps = await this.readinessGapsFor(tx, id, adapter.key, {
+        ...settings,
+        ...credentials,
+      });
+      if (gaps.length) {
+        if (body.capabilitiesEnabled !== undefined)
+          throw field422(
+            'capabilitiesEnabled',
+            'erp_master_codes_not_ready',
+            `ผังรหัสยังไม่พร้อมสำหรับส่งเอกสาร: ${readinessText(gaps)}`,
+          );
+        caps = caps.filter((c) => !PUSH_CAPABILITIES.has(c));
+      }
+    }
     const credKeys = Object.keys(credentials).sort();
     let row: Connector;
     try {
@@ -1040,15 +1057,38 @@ export class ConnectorsService {
    * ใช้ตอนเปิด capability ส่งเอกสาร (422) และแสดงในผลทดสอบการเชื่อมต่อ (ไม่ทำให้ทดสอบล้ม/ไม่หยุดคิว)
    */
   async pushReadinessGaps(tx: Tx, c: Connector): Promise<MasterCodeGap[]> {
-    const adapter = this.adapters.get(c.adapterKey);
-    if (!adapter?.pushReadiness) return [];
-    let need;
+    let config: Record<string, string>;
     try {
-      need = adapter.pushReadiness(this.contextOf(c));
+      config = this.configOf(c);
     } catch {
       return [];
     }
-    return (await checkMasterCodeRefs(tx, c.id, need?.refs ?? [], need?.catalogues ?? [])).gaps;
+    return this.readinessGapsFor(tx, c.id, c.adapterKey, config);
+  }
+
+  /** ความพร้อมจากค่าตั้งโดยตรง (ใช้ตอนสร้าง — ยังไม่มีแถว connector) */
+  private async readinessGapsFor(
+    tx: Tx,
+    connectorId: string,
+    adapterKey: string,
+    config: Record<string, string>,
+  ): Promise<MasterCodeGap[]> {
+    const adapter = this.adapters.get(adapterKey);
+    if (!adapter?.pushReadiness) return [];
+    let need;
+    try {
+      need = adapter.pushReadiness({
+        tenantId: requestContext.get()?.tenantId ?? '',
+        connectorId,
+        companyId: null,
+        erpCompanyCode: null,
+        config: Object.freeze({ ...config }),
+      });
+    } catch {
+      return [];
+    }
+    return (await checkMasterCodeRefs(tx, connectorId, need?.refs ?? [], need?.catalogues ?? []))
+      .gaps;
   }
 
   /** เรียก healthCheck แบบมีเพดานเวลา — ไม่ throw · ข้อความตัด credential แล้ว */

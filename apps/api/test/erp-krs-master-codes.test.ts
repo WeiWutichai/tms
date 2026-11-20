@@ -236,6 +236,19 @@ describe('ผังรหัส KRS + ประตูก่อนส่ง (ST8-
     reg.replace(ready);
     const con = await krsConnector({ salePerson });
     await api(app, token).post(`/v1/connectors/${con}/resume`).send({}).expect(200);
+    // connector ใหม่ไม่เปิดส่งเอกสารจนกว่าผังรหัสพร้อม — test ประตูก่อนส่งจึงเปิดตรงในฐาน (เทียบเท่าเปิดไว้ก่อนผังเปลี่ยน)
+    await plat.connector.update({
+      where: { id: uuid(con) },
+      data: {
+        capabilitiesEnabled: [
+          'pullOrders',
+          'pushInvoice',
+          'fetchDocument',
+          'replaceDocument',
+          'ownsDocumentNumber',
+        ],
+      },
+    });
     return con;
   };
   const header = 'ระบบบัญชี,ชนิดรหัส,รหัส,ชื่อ,อัตรา (%),ใช้งาน';
@@ -520,5 +533,44 @@ describe('ผังรหัส KRS + ประตูก่อนส่ง (ST8-
       .expect(200);
     const h1 = await api(app, token).post(`/v1/connectors/${con}/health`).send({}).expect(200);
     expect(h1.body.masterCodeGaps).toEqual([]);
+  });
+
+  it('Low-1 สร้าง connector: ค่าเริ่มต้นไม่เปิด capability ส่งเอกสารที่ผังรหัสยังไม่พร้อม (ที่เหลือเปิดตามเดิม)', async () => {
+    ready = new ReadyKrs();
+    reg.replace(ready);
+    const r = await api(app, token)
+      .post('/v1/connectors')
+      .send({
+        adapterKey: 'krs',
+        settings: { baseUrl: 'https://krs.example.com/api', salePerson: 'S01' },
+        credentials: { apiKey: 'krs-key-0123456789' },
+      })
+      .expect(201);
+    expect(r.body.capabilitiesEnabled).toEqual([
+      'pullOrders',
+      'fetchDocument',
+      'ownsDocumentNumber',
+    ]);
+    expect(r.body.capabilitiesEnabled).not.toContain('pushInvoice');
+  });
+
+  it('Low-1 สร้าง connector โดยขอเปิดส่งใบชัด ๆ ตอนผังรหัสยังไม่พร้อม → 422 erp_master_codes_not_ready (ไม่สร้าง)', async () => {
+    ready = new ReadyKrs();
+    reg.replace(ready);
+    const before = await plat.connector.count({ where: { tenantId } });
+    const r = await api(app, token)
+      .post('/v1/connectors')
+      .send({
+        adapterKey: 'krs',
+        settings: { baseUrl: 'https://krs.example.com/api', salePerson: 'S01' },
+        credentials: { apiKey: 'krs-key-0123456789' },
+        capabilitiesEnabled: ['pushInvoice'],
+      });
+    expect(r.status).toBe(422);
+    expect(r.body.errors[0]).toMatchObject({
+      field: 'capabilitiesEnabled',
+      code: 'erp_master_codes_not_ready',
+    });
+    expect(await plat.connector.count({ where: { tenantId } })).toBe(before);
   });
 });
