@@ -254,6 +254,12 @@ export function weakensSecurity(before: Record<string, unknown>, after: Record<s
     after['billing.allowSelfFinalize'] === true
   )
     return true;
+  // ST5-T13 ยกวงเงินส่วนต่างที่บัญชีตัดยอดเองได้ = คุมหลวมขึ้น — ต้อง step-up
+  if (
+    has('payments.maxDifferenceAmount') &&
+    Number(after['payments.maxDifferenceAmount']) > Number(before['payments.maxDifferenceAmount'])
+  )
+    return true;
   // ST9-T14 ลดระยะเก็บ = ข้อมูลเก่าถูกลบเร็วขึ้น (ย้อนคืนไม่ได้) — ต้อง step-up เหมือนลดความปลอดภัย
   for (const k of Object.keys(after))
     if (k.startsWith('retention.') && Number(after[k]) < Number(before[k])) return true;

@@ -302,6 +302,11 @@
 
 ## บันทึกรายวัน
 
+### 21 พ.ย. 2569 (ST5-T13 แก้ตาม review/QA — lane lj)
+
+- **ทำ:** M1 ส่วนต่างเกิน `payments.maxDifferenceAmount` (ค่าตั้งใหม่ ค่าเริ่ม 10 บาท, API-only, เพิ่มค่าต้อง step-up) ต้องมี `payments:reverse` → 403 `payment_difference_over_limit` (BIL-059) · KPI "รับชำระเดือนนี้" นับเฉพาะ `amount_received` · L2 ปิด OFFSET (ซ่อนตัวเลือก + 422 `method_not_available`) · L4 วันที่รับก่อนวันออกใบ → 422 `before_invoice_issue` · plan/12 checklist เพิ่มแถว 29–31 (รวม 2 key ของ T02/T09 ที่ test checklist แดงอยู่) · DECISION spec/12 §3 แถว ST5-T13 (3)–(3d)
+- **ค้าง/ส่งต่อ:** L3 เช็คผ่านยังไม่มี webhook (audit อย่างเดียว) · L6 BIL-052 เตือน WHT ต่างจากประมาณการ > 1 บาท ยังไม่ทำ
+
 ### 21 พ.ย. 2569 (ST5-T13 รับชำระ + เช็ค — บัญชีเบา D-54/D-56/D-57 — lane lj)
 
 - **ทำ:** migration `0143_payment` (`payment`, `payment_allocation` + RLS · trigger ห้ามแก้/ลบ — แก้ด้วยกลับรายการ · CHECK เช็คครบ/ส่วนต่างมีเหตุผล/BOUNCED = REVERSED · `invoice.paid_amount` CHECK 0 ≤ paid ≤ total · `doc_type` PAY) · `PaymentsService` (ล็อกใบเรียง id → ตรวจคงค้าง: พร้อมกันตัดเกินไม่ได้, สมการ BIL-051 ไม่มีเงินเกิน, วันที่ ≤ วันนี้ไทย, เลข PAY, audit + webhook) · ฟังก์ชันเดียวคำนวณสถานะใบ `applyInvoicePayments` + `invoicePaymentStatus` (domain — ST5-T18 ต่อยอด) + DO `paid_at` · `GET /v1/invoices?receivable=all|open|overdue` + `sellPaidAmount/sellOutstanding` · scope `payments:record`/`payments:reverse` · หน้า `/pay` (แถบสรุป, แท็บ, ตาราง, มุมมอง) + `PayDrawer` + InvoiceDrawer/BillPage (ปุ่มบันทึกรับชำระ, รับแล้ว/คงค้างจริง, ส่วนรับชำระแล้ว)

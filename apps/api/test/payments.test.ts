@@ -412,6 +412,48 @@ describe('payments (ST5-T13)', { timeout: 300_000 }, () => {
       .expect((x) => expect(x.body.errors[0].code).toBe('mixed_customers'));
   });
 
+  it('review M1/L2/L4: ส่วนต่างเกินวงเงิน (BIL-059) ต้องผู้จัดการ · OFFSET ปิด · วันที่รับก่อนวันออกใบไม่ได้ · KPI นับเงินเข้าจริง', async () => {
+    const id = await issued('1000.00');
+    const reason = { differenceReason: 'ลูกค้าขอส่วนลดพิเศษ ผู้จัดการอนุมัติ' };
+    const before = (await api(app, admin).get('/v1/payments/summary').expect(200)).body;
+    await pay(
+      accounting,
+      one(id, '1000.00', { amountReceived: '0.00', differenceAmount: '1000.00', ...reason }),
+    )
+      .expect(403)
+      .expect((x) =>
+        expect(x.body).toMatchObject({
+          code: 'payment_difference_over_limit',
+          maxDifferenceAmount: '10.00',
+        }),
+      );
+    // ≤ วงเงิน (10 บาท) บัญชีทำเองได้
+    await pay(
+      accounting,
+      one(id, '100.00', { amountReceived: '90.00', differenceAmount: '10.00', ...reason }),
+    ).expect(201);
+    // ผู้จัดการ (payments:reverse) เกินวงเงินได้ — ไม่นับเป็นเงินรับเดือนนี้
+    await pay(
+      manager,
+      one(id, '900.00', { amountReceived: '0.00', differenceAmount: '900.00', ...reason }),
+    ).expect(201);
+    expect((await inv(id)).status).toBe('PAID');
+    const after = (await api(app, admin).get('/v1/payments/summary').expect(200)).body;
+    expect(Number(after.sellReceivedThisMonth) - Number(before.sellReceivedThisMonth)).toBe(90);
+    // OFFSET (หักกลบลบหนี้) ปิดจนมีเครดิตลูกค้า (BIL-058)
+    const id2 = await issued('500.00');
+    await pay(accounting, one(id2, '500.00', { method: 'OFFSET', amountReceived: '500.00' }))
+      .expect(422)
+      .expect((x) => expect(x.body.errors[0].code).toBe('method_not_available'));
+    // วันที่รับก่อนวันออกใบ (issuedTestFields = 2026-11-20)
+    await pay(
+      accounting,
+      one(id2, '500.00', { amountReceived: '500.00', receivedDate: '2026-11-19' }),
+    )
+      .expect(422)
+      .expect((x) => expect(x.body.errors[0].code).toBe('before_invoice_issue'));
+  });
+
   it('พร้อมกัน: 2 การรับชำระตัดใบเดียวกันเกินคงค้าง → สำเร็จ 1 อีก 1 ได้ 409', async () => {
     const id = await issued('1000.00');
     const body = one(id, '600.00', { amountReceived: '600.00' });

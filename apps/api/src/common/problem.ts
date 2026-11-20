@@ -569,6 +569,12 @@ export const PROBLEMS = {
     th: 'ยอดตัดหนี้เกินยอดคงค้าง',
     en: 'The amount applied exceeds the outstanding balance',
   },
+  /** ST5-T13 review M1 (spec/05 BIL-059): ส่วนต่างที่ตัดยอดเกิน `payments.maxDifferenceAmount` ต้องมีสิทธิ์ `payments:reverse` (ผู้จัดการ) */
+  payment_difference_over_limit: {
+    status: 403,
+    th: 'ส่วนต่างเกินวงเงินที่ตั้งไว้ ต้องให้ผู้จัดการบันทึก',
+    en: 'The write-off difference exceeds the limit — a manager must record it',
+  },
   sandbox_finalize_disabled: {
     status: 409,
     th: 'โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้',

@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type ChequeStatus, type PaymentMethod } from '@prisma/client';
-import { PAYABLE_INVOICE_STATUSES, eventDefinition, type InvoiceStatus } from '@tms/domain';
+import {
+  PAYABLE_INVOICE_STATUSES,
+  eventDefinition,
+  scopeAllows,
+  type InvoiceStatus,
+} from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { Clock } from '../../common/clock';
 import { EXT_PREFIX, EXTERNAL_ID_RE } from '../../common/external-id';
@@ -10,6 +15,7 @@ import { redactPrices } from '../../common/price-fields';
 import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { readSettings } from '../settings/settings.service';
 import { applyInvoicePayments } from '../invoices/invoice-payments';
 import { issueNumber } from '../sequences/sequences.service';
 import { addDays, bangkokToday, isRealDate } from '../vehicle-documents/expiry';
@@ -168,9 +174,10 @@ export class PaymentsService {
              COALESCE(SUM(total_amount - paid_amount)
                FILTER (WHERE status IN ('ISSUED', 'PARTIALLY_PAID') AND due_date < ${day(today)}::date), 0) AS overdue_outstanding
         FROM invoice WHERE status IN ('ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED')`;
+    // review M1: นับเฉพาะเงินเข้าจริง (amount_received) — ไม่นับ WHT/ค่าธรรมเนียม/ส่วนต่างที่ตัดยอด
     const rec = await tx.$queryRaw<{ amt: Prisma.Decimal }[]>`
-      SELECT COALESCE(SUM(a.amount), 0) AS amt
-        FROM payment_allocation a JOIN payment p ON p.id = a.payment_id
+      SELECT COALESCE(SUM(p.amount_received), 0) AS amt
+        FROM payment p
        WHERE p.status = 'RECORDED' AND p.received_date >= ${day(monthStart)}::date
          AND p.received_date <= ${day(today)}::date`;
     const r = rows[0]!;
@@ -207,6 +214,7 @@ export class PaymentsService {
         customerId: true,
         totalAmount: true,
         paidAmount: true,
+        issueDate: true,
       },
     });
     const byId = new Map(invoices.map((i) => [i.id, i]));
@@ -241,6 +249,35 @@ export class PaymentsService {
           invoiceId: encodeId('invoice', inv.id),
           invoiceNo: inv.invoiceNo,
           outstanding: money(outstanding),
+        });
+    }
+    // review L4: วันที่รับต้องไม่ก่อนวันที่ออกใบแจ้งหนี้
+    const early = input.allocations.findIndex((a) => {
+      const d = byId.get(a.invoiceId)!.issueDate;
+      return d !== null && input.receivedDate < ymd(d);
+    });
+    if (early >= 0)
+      throw invalid([
+        {
+          field: 'receivedDate',
+          code: 'before_invoice_issue',
+          message: `receivedDate must not be before the issue date of allocations[${early}]`,
+        },
+      ]);
+    // review M1 (spec/05 BIL-059 "ผลต่างเล็กน้อย ≤ ค่าที่ตั้ง → manager อนุมัติ"): ส่วนต่างเกินวงเงินของ tenant ต้องมีสิทธิ์ผู้จัดการ
+    if (input.differenceAmount.greaterThan(0)) {
+      const cap = Number(
+        (await readSettings(tx, ctx.tenantId!, ['payments.maxDifferenceAmount']))[
+          'payments.maxDifferenceAmount'
+        ] ?? 10,
+      );
+      if (
+        input.differenceAmount.greaterThan(cap) &&
+        !scopeAllows(ctx.scopes ?? [], 'payments:reverse')
+      )
+        throw new ProblemException('payment_difference_over_limit', undefined, undefined, {
+          maxDifferenceAmount: money(cap),
+          requiredScope: 'payments:reverse',
         });
     }
     const customerId = invoices[0]!.customerId;
@@ -464,6 +501,13 @@ export class PaymentsService {
         field: 'receivedDate',
         code: 'date_in_future',
         message: 'receivedDate must not be after today (Asia/Bangkok)',
+      });
+    // review L2: หักกลบลบหนี้ต้องมีเครดิตลูกค้า (BIL-058) ซึ่งยังไม่มี — ปิดไว้ก่อน
+    if (b.method === 'OFFSET')
+      errors.push({
+        field: 'method',
+        code: 'method_not_available',
+        message: 'OFFSET is not available until customer credit (BIL-058) exists',
       });
     const cheque = b.method === 'CHEQUE';
     for (const f of ['chequeNo', 'chequeBank', 'chequeDate'] as const) {

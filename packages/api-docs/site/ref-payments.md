@@ -72,8 +72,8 @@ scope: `payments:record` · operationId: `Payments_record`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `receivedDate` | ใช่ | `string` |   | วันที่รับ (เวลาไทย) ≤ วันนี้ | `2026-11-21` |
-| `method` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH`, `OFFSET` | โอนเงิน / เช็ค / เงินสด / หักกลบลบหนี้ |   |
+| `receivedDate` | ใช่ | `string` |   | วันที่รับ (เวลาไทย) ≤ วันนี้ และไม่ก่อนวันที่ออกใบแจ้งหนี้ (422 `before_invoice_issue`) | `2026-11-21` |
+| `method` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH`, `OFFSET` | โอนเงิน / เช็ค / เงินสด · `OFFSET` (หักกลบลบหนี้) ยังปิด → 422 `method_not_available` (รอเครดิตลูกค้า BIL-058) |   |
 | `reference` |   | `string` | ยาว ≤ 100 | เลขอ้างอิงการโอน / หักกลบ (เช็คใช้ `chequeNo`) |   |
 | `chequeNo` |   | `string` | ยาว ≤ 30 | เลขที่เช็ค — **บังคับเมื่อ `CHEQUE`** |   |
 | `chequeBank` |   | `string` | ยาว ≤ 100 | ธนาคาร (สาขา) — **บังคับเมื่อ `CHEQUE`** |   |
@@ -82,7 +82,7 @@ scope: `payments:record` · operationId: `Payments_record`
 | `whtAmount` |   | `string` |   | WHT ที่ลูกค้าหักไว้ | `250.00` |
 | `whtCertificateNo` |   | `string` | ยาว ≤ 40 | เลขที่หนังสือรับรอง 50 ทวิ ที่ลูกค้าแจ้ง |   |
 | `feeAmount` |   | `string` |   | ค่าธรรมเนียมโอนที่ลูกค้าหัก | `0.00` |
-| `differenceAmount` |   | `string` |   | ส่วนต่างที่ยอมตัดยอด (ลูกค้าจ่ายขาด) — > 0 ต้องมี `differenceReason` | `0.00` |
+| `differenceAmount` |   | `string` |   | ส่วนต่างที่ยอมตัดยอด (ลูกค้าจ่ายขาด) — > 0 ต้องมี `differenceReason` · เกินค่าตั้ง `payments.maxDifferenceAmount` (ค่าเริ่ม 10 บาท) ต้องมีสิทธิ์ `payments:reverse` ไม่มี = 403 `payment_difference_over_limit` (BIL-059) | `0.00` |
 | `differenceReason` |   | `string` | ยาว ≤ 500 · ยาว ≥ 10 | เหตุผลของส่วนต่าง |   |
 | `note` |   | `string` | ยาว ≤ 500 |   |   |
 | `allocations` | ใช่ | `array<PaymentAllocationInputDto>` | ≤ 50 รายการ |   |   |
@@ -96,7 +96,7 @@ scope: `payments:record` · operationId: `Payments_record`
 |---|---|---|
 | `201` |   | `PaymentDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`payments:record`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ `payments:record` / ส่วนต่างเกิน `payments.maxDifferenceAmount` โดยไม่มี `payments:reverse` (`payment_difference_over_limit`) — [permission_denied](errors.md#permission_denied), [payment_difference_over_limit](errors.md#payment_difference_over_limit) | `ProblemDto` |
 | `409` | `invoice_not_payable` · `payment_exceeds_outstanding` (`outstanding`) — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress), [invoice_not_payable](errors.md#invoice_not_payable), [payment_exceeds_outstanding](errors.md#payment_exceeds_outstanding) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
@@ -398,7 +398,7 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 |---|---|---|---|---|---|
 | `sellOutstanding` |   | `string` |   | ยอดค้างรับรวม (ใบที่ออกแล้ว) — `prices.sell:read` |   |
 | `sellOverdueOutstanding` |   | `string` |   | ยอดค้างของใบที่เลยวันครบกำหนด (เวลาไทย) — `prices.sell:read` |   |
-| `sellReceivedThisMonth` |   | `string` |   | ยอดตัดหนี้ของการรับชำระเดือนนี้ (เวลาไทย ไม่รวมที่กลับรายการ) — `prices.sell:read` |   |
+| `sellReceivedThisMonth` |   | `string` |   | เงินเข้าจริง (`amountReceived`) ของการรับชำระเดือนนี้ — ไม่รวม WHT/ค่าธรรมเนียม/ส่วนต่าง และที่กลับรายการ (เวลาไทย) — `prices.sell:read` |   |
 | `dueSoon` | ใช่ | `number` |   | ใบที่ค้างรับและครบกำหนดภายใน 7 วัน |   |
 | `total` | ใช่ | `number` |   | ใบที่ออกแล้วทั้งหมด (ไม่รวมร่าง/ยกเลิก) |   |
 | `open` | ใช่ | `number` |   | ค้างรับ (ISSUED + PARTIALLY_PAID) |   |

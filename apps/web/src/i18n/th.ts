@@ -1856,6 +1856,9 @@ export const th = {
   'field.subcontract_depreciation': 'รถร่วมไม่มีค่าเสื่อม — ล้างช่องค่าเสื่อมก่อน',
   'field.trip_running': 'เปลี่ยนประเภทรถระหว่างเที่ยววิ่งไม่ได้',
   'field.required': 'กรุณากรอกข้อมูล',
+  'field.before_invoice_issue': 'วันที่รับต้องไม่ก่อนวันที่ออกใบแจ้งหนี้',
+  'field.date_in_future': 'วันที่ต้องไม่เกินวันนี้',
+  'field.payment_unbalanced': 'ยอดรับไม่ตรงยอดตัดหนี้',
   'field.invalid': 'ข้อมูลในช่องนี้ไม่ถูกต้อง',
   'field.locked': 'แก้ช่องนี้ไม่ได้ในสถานะปัจจุบัน',
   'prov.TH-10': 'กรุงเทพมหานคร',
@@ -4736,6 +4739,7 @@ export const th = {
     'แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ',
   'problem.invoice_not_payable': 'ใบแจ้งหนี้นี้รับชำระไม่ได้ในสถานะปัจจุบัน',
   'problem.payment_exceeds_outstanding': 'ยอดตัดหนี้เกินยอดคงค้าง',
+  'problem.payment_difference_over_limit': 'ส่วนต่างเกินวงเงินที่ตั้งไว้ ต้องให้ผู้จัดการบันทึก',
   'problem.sandbox_finalize_disabled': 'โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้',
   'problem.do_in_invoice':
     'ใบส่งของนี้อยู่ในใบแจ้งหนี้แล้ว — แก้ที่ใบแจ้งหนี้ หรือถอดออกจากร่างก่อน',

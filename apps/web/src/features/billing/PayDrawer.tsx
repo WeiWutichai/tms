@@ -10,7 +10,7 @@ import {
 } from '@tms/ui';
 import { useState, type ReactNode } from 'react';
 import { formatDateTime, useI18n, type T } from '../../i18n';
-import { problemText } from '../master/problems';
+import { fieldErrors, problemText } from '../master/problems';
 import { bangkokToday, money, useDateText } from '../rate-cards/rateFormat';
 import { invoiceDisplayStatus, methodLabel, overdueDays } from './billing';
 import { invoiceStatusLabel } from './InvoiceDrawer';
@@ -23,7 +23,8 @@ import {
 } from './usePayments';
 
 type Method = 'TRANSFER' | 'CHEQUE' | 'CASH' | 'OFFSET';
-const METHODS: Method[] = ['TRANSFER', 'CHEQUE', 'CASH', 'OFFSET'];
+// ต้นแบบมี "หักกลบลบหนี้" (OFFSET) — ปิดไว้จนมีเครดิตลูกค้า (BIL-058) [DECISION spec/12 §3 แถว ST5-T13 review L2]
+const METHODS: Method[] = ['TRANSFER', 'CHEQUE', 'CASH'];
 
 /** บาท "1,234.50" / "1234.5" → สตางค์ (ไม่ใช้ float) · ว่าง/ผิดรูป = 0 */
 export function toSatang(v: string | null | undefined): number {
@@ -270,7 +271,8 @@ export function PayDrawer({
           setDiff('');
           setDiffReason('');
         },
-        onError: (e) => onToast(problemText(e, t) ?? t('pay.fail')),
+        onError: (e) =>
+          onToast(Object.values(fieldErrors(e, t))[0] ?? problemText(e, t) ?? t('pay.fail')),
       },
     );
   };

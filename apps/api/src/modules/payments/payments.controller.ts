@@ -110,7 +110,22 @@ export class PaymentsController {
       'แก้/ลบไม่ได้ — กลับรายการด้วย `POST /payments/{id}/reverse`',
   })
   @ApiProblems(
-    T403('payments:record'),
+    {
+      ...T403('payments:record'),
+      description:
+        'ไม่มีสิทธิ์ `payments:record` / ส่วนต่างเกิน `payments.maxDifferenceAmount` โดยไม่มี `payments:reverse` (`payment_difference_over_limit`)',
+      examples: {
+        ...T403('payments:record').examples,
+        payment_difference_over_limit: {
+          type: 'https://docs.tms.example/problems/payment_difference_over_limit',
+          title: PROBLEMS.payment_difference_over_limit.th,
+          status: 403,
+          code: 'payment_difference_over_limit',
+          maxDifferenceAmount: '10.00',
+          requiredScope: 'payments:reverse',
+        },
+      },
+    },
     {
       status: 409,
       description: '`invoice_not_payable` · `payment_exceeds_outstanding` (`outstanding`)',

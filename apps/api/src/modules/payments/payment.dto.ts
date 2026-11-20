@@ -64,11 +64,19 @@ export class PaymentAllocationInputDto {
  * บันทึกรับชำระ (spec/05 §4; D-57) — สมการ (BIL-051 แบบไม่มีเงินเกิน): `amountReceived + whtAmount + feeAmount + differenceAmount = Σ allocations.amount`
  */
 export class CreatePaymentDto {
-  @ApiProperty({ example: '2026-11-21', description: 'วันที่รับ (เวลาไทย) ≤ วันนี้' })
+  @ApiProperty({
+    example: '2026-11-21',
+    description:
+      'วันที่รับ (เวลาไทย) ≤ วันนี้ และไม่ก่อนวันที่ออกใบแจ้งหนี้ (422 `before_invoice_issue`)',
+  })
   @Matches(DATE_RE, { message: 'receivedDate must be YYYY-MM-DD' })
   receivedDate!: string;
 
-  @ApiProperty({ enum: PAYMENT_METHODS, description: 'โอนเงิน / เช็ค / เงินสด / หักกลบลบหนี้' })
+  @ApiProperty({
+    enum: PAYMENT_METHODS,
+    description:
+      'โอนเงิน / เช็ค / เงินสด · `OFFSET` (หักกลบลบหนี้) ยังปิด → 422 `method_not_available` (รอเครดิตลูกค้า BIL-058)',
+  })
   @IsIn(PAYMENT_METHODS)
   method!: PaymentMethodDto;
 
@@ -130,7 +138,8 @@ export class CreatePaymentDto {
 
   @ApiPropertyOptional({
     example: '0.00',
-    description: 'ส่วนต่างที่ยอมตัดยอด (ลูกค้าจ่ายขาด) — > 0 ต้องมี `differenceReason`',
+    description:
+      'ส่วนต่างที่ยอมตัดยอด (ลูกค้าจ่ายขาด) — > 0 ต้องมี `differenceReason` · เกินค่าตั้ง `payments.maxDifferenceAmount` (ค่าเริ่ม 10 บาท) ต้องมีสิทธิ์ `payments:reverse` ไม่มี = 403 `payment_difference_over_limit` (BIL-059)',
   })
   @IsOptional()
   @Matches(MONEY, { message: 'differenceAmount must be a baht amount (≤ 2 decimals)' })
@@ -274,7 +283,7 @@ export class PaymentSummaryDto {
   sellOverdueOutstanding?: string;
   @ApiPropertyOptional({
     description:
-      'ยอดตัดหนี้ของการรับชำระเดือนนี้ (เวลาไทย ไม่รวมที่กลับรายการ) — `prices.sell:read`',
+      'เงินเข้าจริง (`amountReceived`) ของการรับชำระเดือนนี้ — ไม่รวม WHT/ค่าธรรมเนียม/ส่วนต่าง และที่กลับรายการ (เวลาไทย) — `prices.sell:read`',
   })
   @PriceField('sell')
   sellReceivedThisMonth?: string;

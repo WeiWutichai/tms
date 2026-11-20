@@ -25,6 +25,7 @@
 | [`impersonation_read_only`](#impersonation_read_only) | 403 | กำลังเข้าใช้งานแทนแบบอ่านอย่างเดียว — แก้ไขข้อมูลไม่ได้ |
 | [`invoice_self_finalize`](#invoice_self_finalize) | 403 | ผู้สร้างหรือผู้แก้ร่างใบแจ้งหนี้ ออกเอกสารใบนั้นเองไม่ได้ ต้องให้ผู้อื่นออก |
 | [`ip_not_allowed`](#ip_not_allowed) | 403 | IP นี้ไม่ได้รับอนุญาตให้ใช้ API key นี้ |
+| [`payment_difference_over_limit`](#payment_difference_over_limit) | 403 | ส่วนต่างเกินวงเงินที่ตั้งไว้ ต้องให้ผู้จัดการบันทึก |
 | [`permission_denied`](#permission_denied) | 403 | ไม่มีสิทธิ์ทำรายการนี้ |
 | [`sandbox_only`](#sandbox_only) | 403 | ใช้ได้เฉพาะโหมด Sandbox (key tk_test_ หรือสลับเป็น Sandbox) |
 | [`sandbox_unsupported`](#sandbox_unsupported) | 403 | ใช้ใน Sandbox ไม่ได้ (เชื่อมระบบภายนอกจริง) |
@@ -251,6 +252,12 @@ HTTP `403` · ผู้สร้างหรือผู้แก้ร่าง
 HTTP `403` · IP นี้ไม่ได้รับอนุญาตให้ใช้ API key นี้
 
 อาจตอบได้จากหลาย endpoint
+
+## payment_difference_over_limit {#payment_difference_over_limit}
+
+HTTP `403` · ส่วนต่างเกินวงเงินที่ตั้งไว้ ต้องให้ผู้จัดการบันทึก
+
+พบใน: [`POST /v1/payments`](ref-payments.md#post-payments)
 
 ## permission_denied {#permission_denied}
 

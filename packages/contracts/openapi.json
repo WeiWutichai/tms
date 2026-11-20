@@ -44087,7 +44087,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`payments:record`)",
+            "description": "ไม่มีสิทธิ์ `payments:record` / ส่วนต่างเกิน `payments.maxDifferenceAmount` โดยไม่มี `payments:reverse` (`payment_difference_over_limit`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -44107,6 +44107,16 @@
                       "required": [
                         "payments:record"
                       ]
+                    }
+                  },
+                  "payment_difference_over_limit": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/payment_difference_over_limit",
+                      "title": "ส่วนต่างเกินวงเงินที่ตั้งไว้ ต้องให้ผู้จัดการบันทึก",
+                      "status": 403,
+                      "code": "payment_difference_over_limit",
+                      "maxDifferenceAmount": "10.00",
+                      "requiredScope": "payments:reverse"
                     }
                   }
                 }
@@ -83316,7 +83326,7 @@
           },
           "sellReceivedThisMonth": {
             "type": "string",
-            "description": "ยอดตัดหนี้ของการรับชำระเดือนนี้ (เวลาไทย ไม่รวมที่กลับรายการ) — `prices.sell:read`"
+            "description": "เงินเข้าจริง (`amountReceived`) ของการรับชำระเดือนนี้ — ไม่รวม WHT/ค่าธรรมเนียม/ส่วนต่าง และที่กลับรายการ (เวลาไทย) — `prices.sell:read`"
           },
           "dueSoon": {
             "type": "number",
@@ -83380,7 +83390,7 @@
           "receivedDate": {
             "type": "string",
             "example": "2026-11-21",
-            "description": "วันที่รับ (เวลาไทย) ≤ วันนี้"
+            "description": "วันที่รับ (เวลาไทย) ≤ วันนี้ และไม่ก่อนวันที่ออกใบแจ้งหนี้ (422 `before_invoice_issue`)"
           },
           "method": {
             "type": "string",
@@ -83390,7 +83400,7 @@
               "CASH",
               "OFFSET"
             ],
-            "description": "โอนเงิน / เช็ค / เงินสด / หักกลบลบหนี้"
+            "description": "โอนเงิน / เช็ค / เงินสด · `OFFSET` (หักกลบลบหนี้) ยังปิด → 422 `method_not_available` (รอเครดิตลูกค้า BIL-058)"
           },
           "reference": {
             "type": "string",
@@ -83435,7 +83445,7 @@
           "differenceAmount": {
             "type": "string",
             "example": "0.00",
-            "description": "ส่วนต่างที่ยอมตัดยอด (ลูกค้าจ่ายขาด) — > 0 ต้องมี `differenceReason`"
+            "description": "ส่วนต่างที่ยอมตัดยอด (ลูกค้าจ่ายขาด) — > 0 ต้องมี `differenceReason` · เกินค่าตั้ง `payments.maxDifferenceAmount` (ค่าเริ่ม 10 บาท) ต้องมีสิทธิ์ `payments:reverse` ไม่มี = 403 `payment_difference_over_limit` (BIL-059)"
           },
           "differenceReason": {
             "type": "string",
@@ -97315,6 +97325,11 @@
       "status": 413,
       "title": "ไฟล์หรือข้อมูลมีขนาดใหญ่เกินกำหนด",
       "titleEn": "Payload too large"
+    },
+    "payment_difference_over_limit": {
+      "status": 403,
+      "title": "ส่วนต่างเกินวงเงินที่ตั้งไว้ ต้องให้ผู้จัดการบันทึก",
+      "titleEn": "The write-off difference exceeds the limit — a manager must record it"
     },
     "payment_exceeds_outstanding": {
       "status": 409,
