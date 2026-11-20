@@ -165,11 +165,13 @@ const TYPE_RANK: Record<StopEventType, number> = { DEPART: 0, ARRIVE: 1, COMPLET
 /**
  * เหตุที่ event มาหลังเที่ยว/จุดปิดไปแล้ว (spec/04 DRV-072/075 — รับเก็บเป็นประวัติ ไม่ทิ้งหลักฐาน + ธงให้ dispatcher ตัดสิน)
  * STOP_REMOVED จุดถูกถอดออกจากเที่ยว (ยกเลิก/ย้าย DO) · TRIP_CANCELLED เที่ยวถูกยกเลิก · TRIP_COMPLETED เที่ยวจบแล้ว (COMPLETED ขึ้นไป)
+ * · BILLING_LOCKED (ST5-T06) DO ของจุดส่งบัญชีแล้ว/อยู่ในใบแจ้งหนี้ — event จากเครื่อง/ลิงก์/API (เช่น offline) รับเก็บ ไม่นับ
  */
 export const STOP_EVENT_LATE_REASONS = [
   'STOP_REMOVED',
   'TRIP_CANCELLED',
   'TRIP_COMPLETED',
+  'BILLING_LOCKED',
 ] as const;
 export type StopEventLateReason = (typeof STOP_EVENT_LATE_REASONS)[number];
 

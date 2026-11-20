@@ -19,6 +19,7 @@ import {
 import { AuditService } from '../../audit/audit.service';
 import { FieldCipher } from '../../common/crypto';
 import { encodeId, tryDecodeId } from '../../common/ids';
+import { assertDeliveryUnlocked } from '../invoices/billing-lock';
 import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
@@ -406,6 +407,13 @@ export class PodService {
         { missing: check.missing, doStatus: status },
       );
 
+    // ST5-T06 (docs/04 F4 RELEASED "แก้ stop/qty ไม่ได้"): ยอดส่งจริง/ปฏิเสธรับเปลี่ยน หลังส่งบัญชี/อยู่ในใบแจ้งหนี้ → 409
+    // (แนบรูป/เอกสารเพิ่มโดยยอดเดิมยังได้)
+    const linesChanged =
+      stableLines(lines) !== stableLines(prevLines) || (!latest && lines.length > 0);
+    // เทียบกับยอดที่มีผลอยู่ (ฉบับก่อน หรือตามแผนเมื่อยังไม่เคยบันทึก) — ฉบับแรกที่ส่งครบตามแผนไม่นับว่าแก้ยอด (QA)
+    if (linesChanged && qtyDiffers(lines, prevLines, doLines)) assertDeliveryUnlocked(d, 'lines');
+
     // ผูกไฟล์กับ DO นี้ (ล็อกแถวไฟล์ — สองคำขอแย่งไฟล์เดียวกันได้ผลเดียว)
     if (all.length) {
       const bound = await tx.storedDocument.updateMany({
@@ -456,7 +464,7 @@ export class PodService {
       },
     });
     // ฉายยอดส่งจริงลงบรรทัด DO (ค่าปัจจุบันสำหรับวางบิล/ตีกลับ — ST5-T01, ST4-T11)
-    if (stableLines(lines) !== stableLines(prevLines) || (!latest && lines.length))
+    if (linesChanged)
       await this.dos.applyActualQty(
         tx,
         deliveryOrderId,
@@ -733,6 +741,26 @@ interface StoredLine {
   rejectQty: string;
   reason: ReasonSnapshot | null;
   note: string | null;
+}
+
+/** ST5-T06 ยอดส่งจริง/ปฏิเสธรับต่างจากยอดที่มีผลอยู่ไหม (ไม่มีฉบับก่อน = ส่งจริงตามแผน ปฏิเสธ 0) */
+function qtyDiffers(
+  lines: StoredLine[],
+  prev: StoredLine[],
+  doLines: { lineNo: number; qtyPlanned: Prisma.Decimal }[],
+): boolean {
+  const prevBy = new Map(prev.map((l) => [l.lineNo, l]));
+  const planBy = new Map(doLines.map((l) => [l.lineNo, l.qtyPlanned]));
+  return lines.some((l) => {
+    const p = prevBy.get(l.lineNo);
+    const actual = p ? new Prisma.Decimal(p.qtyActual) : (planBy.get(l.lineNo) ?? null);
+    const reject = new Prisma.Decimal(p ? p.rejectQty : '0');
+    return (
+      actual === null ||
+      !new Prisma.Decimal(l.qtyActual).eq(actual) ||
+      !new Prisma.Decimal(l.rejectQty || '0').eq(reject)
+    );
+  });
 }
 
 const storedLines = (r: DeliveryOrderPod): StoredLine[] =>

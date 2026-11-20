@@ -35,6 +35,7 @@ export const SO_EVENTS = [
   'close',
   'unplan',
   'recall',
+  'reopen',
 ] as const;
 export type SoEvent = (typeof SO_EVENTS)[number];
 
@@ -54,7 +55,9 @@ export const SO_TRANSITIONS: TransitionTable<SoStatus, SoEvent> = {
   PLANNED: { hold: 'ON_HOLD', dispatch: 'IN_TRANSIT', cancel: 'CANCELLED', unplan: 'RECEIVED' },
   IN_TRANSIT: { deliver_partial: 'PARTIALLY_DELIVERED', deliver: 'DELIVERED', recall: 'PLANNED' },
   PARTIALLY_DELIVERED: { resume: 'IN_TRANSIT', deliver: 'DELIVERED' },
-  DELIVERED: { close: 'CLOSED' },
+  // ST5-T06 [DECISION spec/12 §3]: ผู้จัดรถย้อนผลส่งถึงของ DO (F4) → ใบสั่งกลับเป็นกำลังขนส่ง แล้วไล่ต่อด้วยกฎเดิม
+  // เหมือน DO ส่งไม่สำเร็จตั้งแต่แรก (ใบอื่นส่งแล้ว → ส่งบางส่วน · คืนคลังทั้งหมด → recall + ค้าง ALL_RETURNED · ส่งซ้ำ → ส่งครบ)
+  DELIVERED: { close: 'CLOSED', reopen: 'IN_TRANSIT' },
   // CLOSED / CANCELLED = สถานะสิ้นสุด
 };
 

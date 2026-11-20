@@ -530,7 +530,7 @@ const { data, error } = await tms.POST('/v1/stop-event-flags/{id}/resolve', {
 | `note` | ใช่ | `string` | null ได้ |   |   |
 | `sequenceConflict` | ใช่ | `boolean` |   | ขัด state machine ของจุดเมื่อเรียงตาม occurredAt (เช่น ปิดงานก่อนถึงจุด) — คำนวณใหม่ทุกครั้งที่มี event/การตัดสินใหม่ของจุด |   |
 | `clockSkew` | ใช่ | `boolean` |   | occurredAt อนาคตเกิน 5 นาที หรือย้อนหลังเกิน 24 ชม. จาก receivedAt (ธง ไม่แก้เวลา) |   |
-| `lateReason` | ใช่ | `string` | ค่า: `STOP_REMOVED`, `TRIP_CANCELLED`, `TRIP_COMPLETED` · null ได้ | event มาหลังจุดถูกถอด / เที่ยวยกเลิก / เที่ยวจบ — รับเก็บเป็นประวัติ ไม่นับจนกว่าผู้จัดรถยอมรับ |   |
+| `lateReason` | ใช่ | `string` | ค่า: `STOP_REMOVED`, `TRIP_CANCELLED`, `TRIP_COMPLETED`, `BILLING_LOCKED` · null ได้ | event มาหลังจุดถูกถอด / เที่ยวยกเลิก / เที่ยวจบ — รับเก็บเป็นประวัติ ไม่นับจนกว่าผู้จัดรถยอมรับ |   |
 | `flags` | ใช่ | `array<string>` |   | ธงที่รอผู้จัดรถตัดสิน (หน้า ศูนย์ข้อยกเว้น) — ว่าง = ปกติ |   |
 
 ### StopEventFlagDto {#schema-StopEventFlagDto}

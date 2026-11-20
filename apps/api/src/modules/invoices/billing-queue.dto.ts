@@ -9,6 +9,7 @@ import {
   IsString,
   Matches,
   MaxLength,
+  MinLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -161,6 +162,20 @@ export class ReleaseDeliveryOrderDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+}
+
+/** ST5-T06 ย้อนการส่งบัญชี (If-Match = version) — เหตุผลบังคับ */
+export class UnreleaseDeliveryOrderDto {
+  @ApiProperty({
+    minLength: 10,
+    maxLength: 500,
+    example: 'ยอดส่งจริงต้องแก้ตามใบรับของลูกค้า',
+    description: 'เหตุผล (บังคับ ≥ 10 ตัวอักษร — ลง audit)',
+  })
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason!: string;
 }
 
 export class BulkReleaseItemDto {

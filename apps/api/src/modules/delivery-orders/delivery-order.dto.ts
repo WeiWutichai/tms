@@ -15,12 +15,27 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { BILLING_STATUSES, DO_STATUSES, type BillingStatus, type DoStatus } from '@tms/domain';
+import {
+  BILLING_STATUSES,
+  DO_STATUSES,
+  type BillingStage,
+  type BillingStatus,
+  type DoStatus,
+} from '@tms/domain';
 import { ListQuery } from '../../common/pagination';
 import { CleanText, IsNullable } from '../master/master-kit';
 
 /** ทศนิยมเป็นสตริง ≤ 3 ตำแหน่ง (numeric(14,3)) — ไม่รับ number กัน float */
 const QTY_RE = /^\d{1,11}(\.\d{1,3})?$/;
+const BILLING_STAGES = [
+  'DELIVERED',
+  'RELEASED',
+  'IN_DRAFT',
+  'INVOICED',
+  'PARTIALLY_PAID',
+  'PAID',
+  'CREDITED',
+] as const satisfies readonly BillingStage[];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export class DeliveryOrderListQuery extends ListQuery {
@@ -160,6 +175,32 @@ export class CancelDeliveryOrderDto {
   reasonCodeId?: string | null;
 }
 
+/** ST5-T06 ย้อนผลส่งถึง (docs/04 F4 DELIVERED) — If-Match = version */
+export class RevertDeliveryDto {
+  @ApiProperty({
+    minLength: 10,
+    maxLength: 500,
+    example: 'คนขับกดปิดงานผิดจุด ของยังไม่ถึงลูกค้า',
+    description: 'เหตุผล (บังคับ ≥ 10 ตัวอักษร — ลง audit + ประวัติสถานะ)',
+  })
+  @CleanText()
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason!: string;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'rsn_3f2a…',
+    description: 'เหตุผลมาตรฐานหมวด DELIVERY_FAILED (ส่งไม่สำเร็จ) — ใช้ต่อกับส่งซ้ำ/คืนคลัง',
+  })
+  @IsOptional()
+  @IsNullable()
+  @Matches(/^rsn_[0-9a-f]{32}$/)
+  reasonCodeId?: string | null;
+}
+
 export class DeliveryOrderLineDto {
   @ApiProperty() lineNo!: number;
   @ApiProperty({ description: 'ลำดับบรรทัดของ SO' }) soLineNo!: number;
@@ -268,6 +309,29 @@ export class DeliveryOrderDto {
       'INVOICED ใบออกเลขแล้ว · CREDITED ใบถูกลดหนี้เต็มใบ (วางบิลใหม่ได้) — DO หนึ่งใบอยู่ในใบแจ้งหนี้ที่ active ได้ใบเดียว',
   })
   billingStatus!: BillingStatus;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'ST5-T06 เวลาใบแจ้งหนี้ของ DO ออกเลข (INVOICED — docs/04 F4) · null = ยังไม่ออก/ดึงเข้าร่างใหม่หลังลดหนี้',
+  })
+  invoicedAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'ST5-T06 เวลารับชำระครบ (PAID — docs/04 F4; บันทึกรับชำระ ST5-T22) · null = ยังไม่ชำระครบ',
+  })
+  paidAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    enum: BILLING_STAGES,
+    example: 'RELEASED',
+    description:
+      'ST5-T06 ขั้น lifecycle วางบิล (docs/04 F4 — คำนวณ ไม่เก็บ): DELIVERED ส่งถึง · RELEASED ส่งบัญชีแล้ว · IN_DRAFT อยู่ในร่าง · ' +
+      'INVOICED ออกใบแล้ว · PAID ชำระครบ · CREDITED ลดหนี้เต็มใบ · null = ยังไม่ส่งถึง/ส่งไม่สำเร็จ/ยกเลิก',
+  })
+  billingStage!: BillingStage | null;
   @ApiProperty({ type: [DeliveryOrderLineDto] }) lines!: DeliveryOrderLineDto[];
   @ApiProperty() version!: number;
   @ApiProperty() createdAt!: string;
