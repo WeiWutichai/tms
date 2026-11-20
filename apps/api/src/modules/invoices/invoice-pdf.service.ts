@@ -88,8 +88,21 @@ export class InvoicePdfService {
    * ยอดจาก**บรรทัดจริงที่ยังใช้** ด้วย computeDocumentTax + ค่าตั้ง tenant ชุดเดียวกับตอนบันทึก (ตรงกับหัวใบ)
    * ร่าง: วันที่ = วันพิมพ์ (เวลาไทย) · ครบกำหนด = วันพิมพ์ + เครดิต (ถ้าออกวันนี้)
    */
-  async loadModel(tx: Tx, id: string): Promise<{ status: string; model: InvoicePrintModel }> {
+  async loadModel(
+    tx: Tx,
+    id: string,
+    /**
+     * ใบที่ออกแล้ว (ไม่ใช่ DRAFT) **ต้องส่ง** วันที่ออก/ครบกำหนด/ฉบับ จาก snapshot ตอนออกเลข — hand-off ST5-T09:
+     * T09 เพิ่มคอลัมน์ `issued_on`/`due_on` แล้วส่งค่าจากใบ (ห้ามใช้วันพิมพ์) · ไม่ส่ง → error (กันพิมพ์วันผิดบนใบจริง — review L2)
+     */
+    issued?: { issueDate: string; dueDate: string; copy: 'ORIGINAL' | 'COPY' },
+  ): Promise<{ status: string; model: InvoicePrintModel }> {
     const inv = await this.invoices.get(id, tx);
+    // ไม่มี snapshot ของใบที่ออกแล้ว → 409 (pro forma ของใบที่ไม่ใช่ร่าง) — ไม่พิมพ์วันพิมพ์แทนวันที่ออกจริง
+    if (inv.status !== 'DRAFT' && !issued)
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        currentStatus: inv.status,
+      });
     const row = await tx.invoice.findUniqueOrThrow({
       where: { id },
       include: {
@@ -125,15 +138,16 @@ export class InvoicePdfService {
             l.deliveryOrder.trip?.vehicle?.plate ??
             null,
         );
-    const issueDate = todayBkk();
+    // ร่าง: วันที่ = วันพิมพ์ (เวลาไทย) · ครบกำหนด = วันพิมพ์ + เครดิต
+    const issueDate = issued?.issueDate ?? todayBkk();
     return {
       status: inv.status,
       model: {
         yearStyle: tenant?.yearStyle === 'CE' ? 'CE' : 'BE',
         invoiceNo: inv.invoiceNo,
-        copy: inv.invoiceNo ? 'ORIGINAL' : null,
+        copy: issued?.copy ?? null,
         issueDate,
-        dueDate: addDays(issueDate, inv.creditTermDays),
+        dueDate: issued?.dueDate ?? addDays(issueDate, inv.creditTermDays),
         issuer: {
           name: row.issuingCompany.legalName,
           taxId: row.issuingCompany.taxId,

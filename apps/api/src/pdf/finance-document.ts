@@ -56,6 +56,8 @@ export interface FinanceDocument {
   amountInWords: string | null;
   /** ข้อความเล็กใต้จำนวนเงินตัวอักษร (ข้อความธรรมดา) */
   notes: string[];
+  /** คำเตือนสีแดงใต้จำนวนเงินตัวอักษร (เช่น ข้อมูลภาษีที่ยังขัดกัน — ร่างเท่านั้น) */
+  warnings?: string[];
   totals: FinanceTotal[];
   /** ย่อหน้าใต้เส้นรวม (ข้อความธรรมดา) เช่น หมายเหตุของเอกสาร / วันนัดรับเช็ค */
   remarks: string[];
@@ -137,11 +139,11 @@ function headBlock(d: FinanceDocument): string {
   }${i.taxId ? `<span style="font-size:14px;color:#3B424C">เลขประจำตัวผู้เสียภาษี ${e(i.taxId)}</span>` : ''}</div></div>
 <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0;text-align:right">${right}</div>
 </div>
-<div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px">
+<div style="display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px">
 <div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px"><span style="font-size:14px;font-weight:500;color:#3B424C">ลูกค้า / Customer</span><span style="font-weight:600">${partyName(c)}</span>${
     c.address ? `<span>${e(c.address)}</span>` : ''
   }${c.taxId ? `<span>เลขประจำตัวผู้เสียภาษี <span style="${NUM}">${e(c.taxId)}</span></span>` : ''}</div>
-<div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:auto 1fr;gap:2px 14px;align-content:start">${info}</div>
+<div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 14px;align-content:start">${info}</div>
 </div>
 </div>`;
 }
@@ -186,6 +188,10 @@ function endBlock(d: FinanceDocument): string {
       ? `<div style="background:#EBEDE8;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px"><span style="font-size:14px;color:#3B424C">จำนวนเงินตัวอักษร / Amount in words</span><span style="font-weight:600">${e(d.amountInWords)}</span></div>`
       : '',
     ...d.notes.map((n) => `<span style="font-size:14px;color:#3B424C">${e(n)}</span>`),
+    ...(d.warnings ?? []).map(
+      (w) =>
+        `<span class="warn" style="font-size:14px;font-weight:600;color:#B3322A">${e(w)}</span>`,
+    ),
   ].join('');
   const sig = d.signatures
     .map(
@@ -209,12 +215,14 @@ ${d.remarks.map((r) => `<p style="margin:0;color:#3B424C">${e(r)}</p>`).join('')
 
 /**
  * ตัวแบ่งหน้า (รันใน Chromium หลังฟอนต์โหลด — PdfRenderer รอ `data-paged`) แบบเดียวกับใบคุมรถ (ST3-T20):
- * หน้า A4 สูงคงที่ · หน้าแรก = หัวเต็ม · หน้าต่อ = หัวย่อ "{ผู้ออก} · {ชื่อเอกสาร} {เลข} (ต่อ)" + หัวตาราง · แถวไม่ถูกตัดกลาง
+ * หน้า A4 สูงคงที่ · หน้าแรก = หัวเต็ม · หน้าต่อ = หัวย่อ "{ผู้ออก} · {ชื่อเอกสาร} {เลข} (ต่อ)" + หัวตาราง
+ * แถวที่สูงเกินที่เหลือ → แยกตามหน่วยย่อย `.dob` (เช่น รายการ DO) ส่วนที่เหลือไปหน้าถัดไปเป็นแถว "(ต่อ)" (เฉพาะช่องที่มี `.desc`; `.mn` อยู่แถวแรก)
+ * ไม่วางแถวอื่นซ้อนบนหน้าที่ยืด (review M1) — เลขหน้า x/y = จำนวนหน้า PDF จริง
  * เส้นรวม/ลายเซ็นอยู่หน้าสุดท้าย (ลายเซ็นชิดล่างตามต้นแบบ `margin-top:auto`) · ท้ายทุกหน้า "{เลข} · หน้า x/y"
  */
 const PAGINATE = `(function(){
 function run(){
-var FOOT=40;
+var FOOT=48;
 var doc=document.querySelector('.fdoc');
 var no=doc.getAttribute('data-no'),draft=doc.hasAttribute('data-draft');
 var head=doc.querySelector('.head'),cont=doc.querySelector('.cont'),table=doc.querySelector('table'),end=doc.querySelector('.end'),sig=doc.querySelector('.sig');
@@ -231,13 +239,32 @@ function newPage(withTable){
   tbody=null;
   if(withTable){var t=table.cloneNode(false);t.appendChild(table.tHead.cloneNode(true));tbody=document.createElement('tbody');t.appendChild(tbody);inner.appendChild(t);}
 }
+function pieces(row){return row.querySelectorAll('.dob').length;}
+function cut(row,keep){
+  var a=row.cloneNode(true);[].slice.call(a.querySelectorAll('.dob')).slice(keep).forEach(function(x){x.remove();});
+  var b=row.cloneNode(true);[].slice.call(b.querySelectorAll('.dob')).slice(0,keep).forEach(function(x){x.remove();});
+  [].slice.call(b.querySelectorAll('.mn')).forEach(function(x){x.remove();});
+  [].slice.call(b.cells).forEach(function(td){if(!td.querySelector('.desc'))td.innerHTML='';});
+  var d=b.querySelector('.desc');if(d&&!d.hasAttribute('data-cont')){d.setAttribute('data-cont','');d.insertAdjacentHTML('beforeend',' (ต่อ)');}
+  return [a,b];
+}
 function place(row){
-  tbody.appendChild(row);if(fits())return;
-  if(tbody.rows.length===1){pg.classList.add('grow');return;}
-  row.remove();newPage(true);place(row);
+  tbody.appendChild(row);if(fits())return;row.remove();
+  var n=pieces(row);
+  if(n>1){
+    var lo=0,hi=n-1,best=null;
+    while(lo<hi){var mid=Math.ceil((lo+hi)/2);var ab=cut(row,mid);tbody.appendChild(ab[0]);var ok=fits();ab[0].remove();if(ok){lo=mid;best=ab;}else hi=mid-1;}
+    if(best&&lo>=1){tbody.appendChild(best[0]);newPage(true);place(best[1]);return;}
+  }
+  if(tbody.rows.length===0){
+    if(n>1){var c=cut(row,1);tbody.appendChild(c[0]);newPage(true);place(c[1]);return;}
+    tbody.appendChild(row);pg.classList.add('grow');newPage(true);return;
+  }
+  newPage(true);place(row);
 }
 newPage(true);
 rows.forEach(place);
+if(tbody&&tbody.rows.length===0&&pages.length>1){pages.pop().remove();pg=pages[pages.length-1];inner=pg.querySelector('.in');}
 inner.appendChild(end);inner.appendChild(sig);
 if(!fits()){end.remove();sig.remove();newPage(false);inner.appendChild(end);inner.appendChild(sig);}
 pages.forEach(function(p,i){p.querySelector('.foot').textContent=no+' · หน้า '+(i+1)+'/'+pages.length;});
@@ -250,10 +277,12 @@ const CSS = `
 .page{width:210mm;height:296mm;box-sizing:border-box;position:relative;overflow:hidden;break-after:page;display:flex;flex-direction:column}
 .page.grow{height:auto;min-height:296mm;overflow:visible}
 .page:last-child{break-after:auto}
-.in{flex:1;padding:44px 48px 48px;display:flex;flex-direction:column;gap:20px;font-size:16px;line-height:1.6}
+.in{flex:1;min-width:0;overflow-wrap:break-word;padding:44px 48px 48px;display:flex;flex-direction:column;gap:20px;font-size:16px;line-height:1.6}
 .in .sig{margin-top:auto}
 .foot{position:absolute;left:48px;right:48px;bottom:18px;font-size:12px;color:#59606B;text-align:right;font-variant-numeric:tabular-nums}
 .wm{position:absolute;top:38%;left:0;right:0;text-align:center;font-size:120px;font-weight:700;color:rgba(143,85,0,.08);transform:rotate(-24deg);letter-spacing:8px;pointer-events:none}
+.in *{min-width:0}
+.dob{display:inline-block;max-width:100%;margin-right:5px}.dob:not(:last-child)::after{content:','}
 .fdoc .cont{display:none!important}.page .cont{display:flex!important}`;
 
 /** HTML ของเอกสารการเงิน (แบ่งหน้าเอง) สำหรับ PdfRenderer */

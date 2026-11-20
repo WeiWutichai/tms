@@ -124,14 +124,17 @@ function lineCells(l: InvoicePrintLine): string[] {
   const e = escapeHtml;
   const dos = l.deliveryOrders.length
     ? `<div style="${MINOR}">${l.deliveryOrders
-        .map((d) => e(d.plate ? `${d.doNo} · ${d.plate}` : d.doNo))
-        .join(', ')}</div>`
+        .map((d) => `<span class="dob">${e(d.plate ? `${d.doNo} · ${d.plate}` : d.doNo)}</span>`)
+        .join('')}</div>`
     : '';
   const disc =
-    l.discount !== '0.00' ? `<div style="${MINOR}">ส่วนลด ${e(bahtFormat(l.discount))}</div>` : '';
+    l.discount !== '0.00'
+      ? `<div class="mn" style="${MINOR}">ส่วนลด ${e(bahtFormat(l.discount))}</div>`
+      : '';
   return [
     String(l.no),
-    `${e(l.description)}${dos}${disc}`,
+    // .desc/.dob/.mn = ตัวแบ่งหน้าแยกแถวที่ DO ยาวเกินหน้า → แถว "(ต่อ)" (finance-document PAGINATE)
+    `<span class="desc">${e(l.description)}</span>${dos}${disc}`,
     l.quantity !== null ? e(`${qtyText(l.quantity)} ${l.unitLabel ?? ''}`.trim()) : '',
     l.unitPrice !== null ? `<span style="${NUM}">${e(bahtFormat(l.unitPrice))}</span>` : '',
     VAT_LABEL[l.vatType],
@@ -143,7 +146,9 @@ function lineCells(l: InvoicePrintLine): string[] {
 export function invoiceTotalRows(m: InvoicePrintModel): FinanceTotal[] {
   const t = m.totals;
   const rows: FinanceTotal[] = [];
-  if (m.issuer.vatRegistered) {
+  // BIL-190: ผู้ออกไม่จด VAT → รวมทั้งสิ้นอย่างเดียว · แต่ถ้ามี VAT จริง (ข้อมูลขัดกัน) ต้องแสดงเส้นรวมเต็มเสมอ
+  // ไม่ซ่อนส่วนต่าง (review M2) — จะออกใบแบบนี้ได้ไหมเป็นคำถามนักบัญชี [OPEN] · ST5-T09 ต้องบล็อก finalize จนได้คำตอบ
+  if (m.issuer.vatRegistered || t.vat !== 0n || t.vatable !== 0n) {
     if (t.exempt !== 0n)
       rows.push({
         label: 'รวมค่าขนส่ง (ยกเว้น VAT) / Freight (VAT exempt)',
@@ -163,6 +168,15 @@ export function invoiceTotalRows(m: InvoicePrintModel): FinanceTotal[] {
     rows.push({ label: 'ยอดชำระสุทธิ*', value: money(t.net), muted: true });
   }
   return rows;
+}
+
+/** ผู้ออกยังไม่จด VAT แต่มีบรรทัด VAT 7% (review M2 — [OPEN นักบัญชี]) — คำเตือนบนร่างเท่านั้น (ใบออกแล้ว: ST5-T09 บล็อกก่อน) */
+export const NON_VAT_ISSUER_WARNING =
+  'ผู้ออกยังไม่จดทะเบียน VAT แต่มีรายการ VAT 7% — ตรวจสอบกับฝ่ายบัญชีก่อนออกเอกสาร';
+export function invoiceWarnings(m: InvoicePrintModel): string[] {
+  return m.invoiceNo === null && !m.issuer.vatRegistered && m.totals.vatable !== 0n
+    ? [NON_VAT_ISSUER_WARNING]
+    : [];
 }
 
 /** HTML ของใบแจ้งหนี้สำหรับ PdfRenderer */
@@ -196,7 +210,7 @@ export function invoiceDocument(m: InvoicePrintModel) {
       { th: 'รายการ', en: 'Description' },
       { th: 'จำนวน', en: 'Qty', align: 'right', width: 88 },
       { th: 'ราคา/หน่วย', en: 'Unit price', align: 'right', width: 108 },
-      { th: 'ภาษี', en: 'VAT', width: 60 },
+      { th: 'ภาษี', en: 'VAT', width: 68 },
       { th: 'จำนวนเงิน', en: 'Amount', align: 'right', width: 116 },
     ],
     rows: m.lines.map(lineCells),
@@ -204,6 +218,7 @@ export function invoiceDocument(m: InvoicePrintModel) {
     notes: estimated
       ? ['* ยอดภาษีมูลค่าเพิ่มและภาษีหัก ณ ที่จ่ายเป็นยอดประมาณการ / Estimated tax amounts']
       : [],
+    warnings: invoiceWarnings(m),
     totals,
     remarks: m.note ? [m.note] : [],
     signatures: [

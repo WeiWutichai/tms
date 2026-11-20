@@ -19,4 +19,4 @@
 | ไฟล์ | สร้างบน |
 | --- | --- |
 | `invoice-{exempt,mixed,long}-th.darwin.png` | ใบตัวอย่าง `sampleInvoiceExempt/Mixed/Long()` (`src/modules/invoices/invoice.sample.ts`, ภาพ fullPage) — `UPDATE_GOLDEN=1 pnpm --filter @tms/api exec vitest run test/invoice-pdf.test.ts` |
-| `invoice-{exempt,mixed,long}-th.linux.png` | **ยังไม่สร้าง** — ทำตามขั้นตอนด้านบน (dump HTML จาก `invoiceDocument(sample…())`, render หลัง `html[data-paged]` เหมือน `PdfRenderer.withPage`) |
+| `invoice-{exempt,mixed,long}-th.linux.png` | image `mcr.microsoft.com/playwright:v1.65.0-noble` แบบ **linux/amd64** — dump HTML จาก `new PdfRenderer().html(invoiceDocument(sampleInvoice…()))` แล้ว render หลัง `html[data-paged]` เหมือน `PdfRenderer.withPage` (viewport 794×1123, scale 1, th-TH, Asia/Bangkok, `--font-render-hinting=none`, ภาพ fullPage) |

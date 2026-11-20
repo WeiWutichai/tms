@@ -8,7 +8,11 @@ import {
   sampleInvoiceLong,
   sampleInvoiceMixed,
 } from '../src/modules/invoices/invoice.sample';
-import { invoiceDocument, invoiceTotalRows } from '../src/modules/invoices/invoice.template';
+import {
+  NON_VAT_ISSUER_WARNING,
+  invoiceDocument,
+  invoiceTotalRows,
+} from '../src/modules/invoices/invoice.template';
 import { branchText, dateRangeShort } from '../src/pdf/finance-document';
 import { PdfRenderer } from '../src/pdf/pdf-renderer';
 
@@ -190,4 +194,86 @@ describe('ใบแจ้งหนี้ PDF (ST5-T08)', () => {
     expect(dateRangeShort('2026-12-20', '2027-01-05', 'BE')).toBe('20 ธ.ค. 2569 – 5 ม.ค. 2570');
     expect(dateRangeShort('2026-11-03', '2026-11-03', 'CE')).toBe('3 พ.ย. 2026');
   });
+
+  it('review M1: บรรทัดเดียวมี DO 400 ใบ → แยกเป็นแถว "(ต่อ)" ข้ามหน้า ไม่มีหน้ายืด · จำนวนหน้า PDF = "หน้า x/y"', async () => {
+    const m = sampleInvoiceLong();
+    m.lines[3]!.deliveryOrders = Array.from({ length: 400 }, (_, k) => ({
+      doNo: `DO-2611-${String(1000 + k).padStart(5, '0')}`,
+      plate: '70-1234 กทม.',
+    }));
+    const doc = invoiceDocument(m);
+    const i = await info(doc);
+    const grow = await r.withPage(
+      doc,
+      (p) => p.evaluate(`document.querySelectorAll('section.page.grow').length`) as Promise<number>,
+    );
+    expect(grow).toBe(0);
+    expect(i.over).toBe(false);
+    expect(i.n).toBeGreaterThanOrEqual(4);
+    expect(i.foot).toEqual(
+      Array.from({ length: i.n }, (_, k) => `INV-2611-0027 · หน้า ${k + 1}/${i.n}`),
+    );
+    for (const c of i.cont) expect(c).toContain('(ต่อ)');
+    // DO ครบ 400 ใบ ไม่ซ้ำ ไม่ตก · ยอดเงินของบรรทัดพิมพ์ครั้งเดียว
+    const dos = (i.text.match(/DO-2611-01\d{3}/g) ?? []).length;
+    expect(dos).toBe(400);
+    expect(i.text).toContain('(ต่อ)');
+    const pdf = await r.pdf(doc);
+    expect(pageCount(pdf)).toBe(i.n);
+  }, 120_000);
+
+  it('review M2: ผู้ออกไม่จด VAT แต่มีบรรทัด 7% → แสดงเส้น VAT (ไม่ซ่อนส่วนต่าง) + คำเตือนบนร่าง · ยอดกระทบกันได้', async () => {
+    const m = sampleInvoiceMixed();
+    m.issuer = { ...m.issuer, vatRegistered: false };
+    const rows = invoiceTotalRows(m);
+    const val = (l: string) => rows.find((t) => t.label.startsWith(l))!.value;
+    const n = (v: string) => Number(v.replace(/,/g, ''));
+    expect(n(val('รวมค่าขนส่ง')) + n(val('ฐาน VAT 7%')) + n(val('ภาษีมูลค่าเพิ่ม'))).toBe(
+      n(val('รวมทั้งสิ้น')),
+    );
+    const items = m.lines.reduce((a, l) => a + Number(l.amount), 0);
+    expect(items + n(val('ภาษีมูลค่าเพิ่ม'))).toBe(n(val('รวมทั้งสิ้น')));
+    const i = await info(invoiceDocument(m));
+    expect(i.text).toContain(NON_VAT_ISSUER_WARNING);
+    expect(i.text).toContain('ภาษีมูลค่าเพิ่ม 7%*');
+    // ใบออกแล้วไม่มีคำเตือน (ST5-T09 บล็อกก่อนออก)
+    expect(invoiceDocument({ ...m, invoiceNo: 'INV-1', copy: 'ORIGINAL' }).body).not.toContain(
+      NON_VAT_ISSUER_WARNING,
+    );
+    // ไม่จด VAT + ยกเว้นล้วน → รวมทั้งสิ้นอย่างเดียว (BIL-190) ไม่มีคำเตือน
+    const ex = sampleInvoiceExempt();
+    ex.issuer = { ...ex.issuer, vatRegistered: false };
+    expect(invoiceDocument({ ...ex, invoiceNo: null }).body).not.toContain(NON_VAT_ISSUER_WARNING);
+  }, 60_000);
+
+  it('review L1: ข้อความยาวไม่มีช่องว่าง (ที่อยู่ 300 ตัว / รายการ 120 ตัว) ตัดบรรทัด ไม่ล้นหน้า ไม่ทับคอลัมน์เงิน', async () => {
+    const m = sampleInvoiceMixed();
+    m.customer = { ...m.customer, address: 'ก'.repeat(150) + 'A'.repeat(150) };
+    m.lines[0]!.description = 'X'.repeat(120);
+    const doc = invoiceDocument(m);
+    const g = await r.withPage(
+      doc,
+      (p) =>
+        p.evaluate(`(() => {
+      const pg = document.querySelector('section.page').getBoundingClientRect();
+      const boxes = [...document.querySelectorAll('.head > div:last-child > div')].map((b) => b.getBoundingClientRect());
+      const row = document.querySelector('tbody tr');
+      const desc = row.cells[1].querySelector('.desc').getBoundingClientRect();
+      const amt = row.cells[5].getBoundingClientRect();
+      const rightMax = Math.max(...[...document.querySelectorAll('section.page .in *')].map((e) => e.getBoundingClientRect().right));
+      return { pgRight: pg.right, boxRight: boxes[1].right, descRight: desc.right, amtLeft: amt.left, rightMax };
+    })()`) as Promise<{
+          pgRight: number;
+          boxRight: number;
+          descRight: number;
+          amtLeft: number;
+          rightMax: number;
+        }>,
+    );
+    expect(g.boxRight).toBeLessThanOrEqual(g.pgRight - 40);
+    expect(g.descRight).toBeLessThanOrEqual(g.amtLeft);
+    expect(g.rightMax).toBeLessThanOrEqual(g.pgRight);
+    const i = await info(doc);
+    expect(i.over).toBe(false);
+  }, 60_000);
 });
