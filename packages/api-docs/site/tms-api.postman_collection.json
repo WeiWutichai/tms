@@ -16684,6 +16684,799 @@
             },
             "description": "scope: invoices:read\n\nDO ที่ส่งถึงแล้ว (DELIVERED/POD_PENDING/UNBILLED) ที่ใบสั่ง `pricingStatus = AVAILABLE` และมีบรรทัดรายได้ที่ยืนยันแล้ว (ไม่มีบรรทัดยอดชั่วคราว/ล็อก ไม่มีค่าใช้จ่ายหน้างานฝั่งขายรอยืนยัน) และไม่ถูกระงับวางบิล · ลูกค้าที่เปิด \"ไม่มี POD ไม่วางบิล\" (`requirePodToBill`, ค่าเริ่มต้นเปิด) → DO ที่หลักฐานส่งยังไม่ครบตาม checklist ไม่ขึ้นคิว · กรองลูกค้า (`customerId` รับ `ext:`) / ช่วงวันที่ส่ง (`doDate`) / หลักฐานครบ / ส่งบัญชีแล้ว · `customers` = ยอดรวมต่อลูกค้าของทุกแถวที่ตรงตัวกรอง · ยอดเงิน (`sell*`) เห็นเมื่อมี `prices.sell:read`"
           }
+        },
+        {
+          "name": "จำนวนใบแจ้งหนี้ตามสถานะ (แท็บ/KPI)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                "summary"
+              ]
+            },
+            "description": "scope: invoices:read\n\nนับทั้ง tenant · เกินกำหนดเป็น 0 จนกว่าจะมีวันครบกำหนด/รับชำระ"
+          }
+        },
+        {
+          "name": "PDF ตัวอย่างจาก DO ที่เลือก — ไม่บันทึกอะไร",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/preview",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                "preview"
+              ]
+            },
+            "description": "scope: invoices:draft\n\nbody เดียวกับ `POST /invoices` · ตรวจกติกาชุดเดียวกัน (ลูกค้าเดียว, เงื่อนไขส่งบัญชี + คิวพร้อมวางบิล, กันวางบิลซ้ำ) แต่ **ไม่สร้างร่าง ไม่ส่งบัญชี ไม่ลง audit** (ทำใน transaction แล้วย้อนทั้งหมด) · ไม่มีเลข มีลายน้ำ \"ร่าง\" ไม่มีคำว่า \"ใบกำกับภาษี\" · ต้องมี `prices.sell:read`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"cus_…\",\n  \"deliveryOrderIds\": [\n    \"do_…\"\n  ],\n  \"periodFrom\": \"2026-11-01\",\n  \"periodTo\": \"2026-11-15\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "รายการใบแจ้งหนี้",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "ค่า nextCursor จากหน้าก่อน",
+                  "disabled": true
+                },
+                {
+                  "key": "updatedAfter",
+                  "value": "",
+                  "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+                  "disabled": true
+                },
+                {
+                  "key": "sort",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "fields",
+                  "value": "",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
+                  "disabled": true
+                },
+                {
+                  "key": "customerId",
+                  "value": "cus_…",
+                  "description": "ลูกค้า — id หรือ `ext:{externalId}`",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "scope: invoices:read\n\nกรองลูกค้า (`customerId` รับ `ext:` — ไม่พบ = ว่าง) / สถานะ · cursor มาตรฐาน (updatedAt, id) · ร่างไม่มีเลข (`invoiceNo` = null) · ยอด `sell*` เห็นเมื่อมี `prices.sell:read`"
+          }
+        },
+        {
+          "name": "สร้างร่างใบแจ้งหนี้จาก DO หลายใบของลูกค้าเดียว (ไม่มีเลข)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices"
+              ]
+            },
+            "description": "scope: invoices:draft\n\nบัญชีเบา: **ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี** · ทุก DO ต้องเป็นของลูกค้ารายนี้ **ส่งบัญชีแล้ว** (`POST /delivery-orders/{id}/release`) และ **ตรวจความพร้อมซ้ำตอนดึง** (เงื่อนไขเดียวกับคิว `GET /invoices/queue` + เวลาจุดส่ง + หลักฐานตาม checklist ปัจจุบัน — ไม่เชื่อเวลาส่งบัญชีอย่างเดียว) ไม่ผ่าน → 409 `not_ready_to_bill` · DO อยู่ในใบอื่นที่ active → 409 `do_already_drafted` (กันวางบิลซ้ำ — ระดับ DB) · 1 บรรทัด = 1 บรรทัดรายได้ของ DO (ค่าขนส่ง/บริการประกอบ/ค่าใช้จ่ายหน้างาน — `vatType`/`whtRate` ต่อบรรทัด) · DO → `billingStatus` IN_DRAFT (ราคาที่ order ล็อก) · ยอด VAT/WHT **ประมาณการ** (computeDocumentTax) · ผู้ออก = บริษัทวางบิลตั้งต้นของลูกค้า + สาขาผู้ออกตั้งต้น · เครดิตจากลูกค้า · งวดไม่ส่ง = ช่วงวันที่ DO · **ไม่เข้า outbox/webhook** (ส่งระบบบัญชีหลังออกเลข) · audit `invoice.draft_created`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"cus_…\",\n  \"deliveryOrderIds\": [\n    \"do_…\"\n  ],\n  \"periodFrom\": \"2026-11-01\",\n  \"periodTo\": \"2026-11-15\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ใบแจ้งหนี้ + บรรทัด + บรรทัดบนเอกสาร (Group / Merge / Single)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:read\n\n`lines` = บรรทัดจริง (รวมที่ถอดออกแล้ว `active=false`) · `printLines` = รูปบนเอกสารตาม `lineMode` + กลุ่มที่รวมเอง · ยอดภาษีเป็นประมาณการ (`taxEstimated`) · `sell*` เห็นเมื่อมี `prices.sell:read`"
+          }
+        },
+        {
+          "name": "แก้หัวร่าง — รูปบรรทัด (Group / Merge / Single) งวด เครดิต เลข หมายเหตุ",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:draft\n\nเฉพาะ DRAFT (อื่น ๆ → 409) · audit `invoice.draft_updated` (เฉพาะช่องที่เปลี่ยน)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"periodFrom\": \"2026-11-01\",\n  \"periodTo\": \"2026-11-15\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PDF ตัวอย่าง (pro forma) ของร่าง — ไม่มีเลข มีลายน้ำ \"ร่าง\"",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/:id/proforma",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                ":id",
+                "proforma"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:read\n\nเฉพาะใบ DRAFT · แม่แบบใบแจ้งหนี้เต็ม · render ใหม่ทุกครั้งตามร่างล่าสุด (ไม่เก็บไฟล์) · ไม่มีคำว่า \"ใบกำกับภาษี\" · ยอด VAT/WHT ประมาณการ · ต้องมี `prices.sell:read` (มีราคา) ไม่งั้น 403"
+          }
+        },
+        {
+          "name": "เพิ่ม DO เข้าร่าง",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/:id/delivery-orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                ":id",
+                "delivery-orders"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:draft\n\nกฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 `customer_mismatch` · audit `invoice.delivery_orders_added`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deliveryOrderIds\": [\n    \"do_…\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ถอด DO ออกจากร่าง — เหตุผล ≥ 10 ตัวอักษร",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/:id/delivery-orders/remove",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                ":id",
+                "delivery-orders",
+                "remove"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:draft\n\nบรรทัดของ DO คงอยู่ (`active` false + เหตุผล — ไม่มีการลบ) · DO กลับ UNBILLED (ขึ้นคิวพร้อมวางบิลอีก ราคาที่ order ปลดล็อก) · DO ไม่อยู่ในร่างนี้ → 422 `not_on_invoice` · audit `invoice.delivery_orders_removed`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deliveryOrderIds\": [\n    \"do_…\"\n  ],\n  \"reason\": \"ลูกค้าขอวางบิล DO นี้งวดหน้า\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ย้าย DO ไปร่างอื่น (ลูกค้า + สาขาผู้ออกเดียวกัน)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/:id/delivery-orders/move",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                ":id",
+                "delivery-orders",
+                "move"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:draft\n\nถอดจากร่างนี้แล้วดึงเข้าร่างปลายทางใน transaction เดียว (ตรวจความพร้อมซ้ำ — ไม่ผ่าน = ไม่ย้ายเลย) · ปลายทางไม่ใช่ร่าง → 409 · ลูกค้า/สาขาต่างกัน → 422 `customer_mismatch` · If-Match = version ของร่างต้นทาง · ETag ตอบกลับ = ต้นทาง · audit ทั้งสองใบ",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deliveryOrderIds\": [\n    \"do_…\"\n  ],\n  \"targetInvoiceId\": \"ivc_…\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "เพิ่มบรรทัดเอง (ไม่ผูก DO) — เหตุผล ≥ 10 ตัวอักษร",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/:id/lines",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                ":id",
+                "lines"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:draft\n\nประเภท VAT / อัตราหัก ณ ที่จ่าย / หน่วย ตามรายการบริการ (snapshot) · ยอด = จำนวน × ราคา ปัดครึ่งขึ้น 2 ตำแหน่ง · ราคาต้องมี `prices.sell:write` · audit `invoice.line_added`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceItemId\": \"svc_…\",\n  \"quantity\": \"1\",\n  \"sellUnitPrice\": \"500.00\",\n  \"reason\": \"ค่ายกขนเพิ่มตามที่ลูกค้าตกลงทางอีเมล\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "รวมบรรทัด (Merge) บนเอกสาร",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/:id/lines/merge",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                ":id",
+                "lines",
+                "merge"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:draft\n\n≥ 2 บรรทัดที่ยังใช้ ประเภท VAT + อัตราหักเดียวกัน (ปน → 422 `mixed_tax_treatment`) · รวมเป็นบรรทัดเดียวบนเอกสาร — ยอดเงิน/ภาษีไม่เปลี่ยน · audit `invoice.lines_merged`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lineIds\": [\n    \"ivl_…\",\n    \"ivl_…\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "แยกบรรทัดที่รวมไว้ — กลับไปตามรูปบรรทัดของใบ",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/:id/lines/split",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                ":id",
+                "lines",
+                "split"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:draft\n\naudit `invoice.lines_split`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lineIds\": [\n    \"ivl_…\",\n    \"ivl_…\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "แก้บรรทัดในร่าง — คำอธิบาย / ส่วนลด",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/:id/lines/:lineId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                ":id",
+                "lines",
+                ":lineId"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                },
+                {
+                  "key": "lineId",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:draft\n\nส่วนลด = แก้ราคาที่ร่าง (ราคาที่ order ล็อก) — ≥ 0 และ ≤ ยอดก่อนส่วนลด · ต้องมี `prices.sell:write` + `reason` · ยอดบรรทัด = ยอดก่อนส่วนลด − ส่วนลด · audit `invoice.line_updated`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sellDiscount\": \"100.00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ถอดบรรทัดที่เพิ่มเอง — เหตุผล ≥ 10 ตัวอักษร",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/:id/lines/:lineId/remove",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                ":id",
+                "lines",
+                ":lineId",
+                "remove"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                },
+                {
+                  "key": "lineId",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:draft\n\nบรรทัดคงอยู่ (`active` false + เหตุผล) · บรรทัดของ DO ถอดทั้ง DO ด้วย `POST /invoices/{id}/delivery-orders/remove` (422 `delivery_order_line`) · audit `invoice.line_removed`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"ลูกค้าขอแยกวางบิลงวดหน้า\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ยกเลิกร่าง — เหตุผล ≥ 10 ตัวอักษร",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/:id/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                ":id",
+                "cancel"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:draft\n\nDRAFT → CANCELLED · บรรทัดหยุดนับ · DO กลับ UNBILLED (ขึ้นคิวอีก) · ใบที่ออกแล้วยกเลิกที่นี่ไม่ได้ · audit `invoice.draft_cancelled`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"ลูกค้าขอแยกวางบิลงวดหน้า\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
         }
       ]
     }

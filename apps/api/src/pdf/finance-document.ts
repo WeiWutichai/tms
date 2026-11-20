@@ -1,0 +1,264 @@
+import { escapeHtml } from './pdf-renderer';
+import { docDateShort } from '../common/thai-date';
+import { companyInitials } from '../modules/trip-sheets/trip-sheet.template';
+
+/**
+ * แม่แบบ A4 ของเอกสารการเงิน (ST5-T08) — ใบแจ้งหนี้ใช้ตอนนี้ · **ใบวางบิล (ST5-T11) ใช้แม่แบบเดียวกัน** (คอลัมน์/เส้นรวม/ลายเซ็นต่างกัน)
+ * ตามต้นแบบ `design/prototype/TMS Print.dc.html` #bill / #inv (ค่า CSS/ข้อความจากต้นแบบ): หัวบริษัท + กล่องตัวย่อ,
+ * ชื่อเอกสารไทย/อังกฤษ มุมขวา, กล่องลูกค้า 1.4fr + กล่องข้อมูล 1fr, ตารางหัว 2 ภาษา, จำนวนเงินตัวอักษร + เส้นรวม 300 px, ลายเซ็น 2 ช่อง
+ * **D-54 บัญชีเบา: ไม่ใช่เอกสารภาษี** — แม่แบบนี้ไม่มีคำว่า "ใบกำกับภาษี" (test) · แบ่งหน้าเอง (spec/05 BIL-199 หัว/ท้ายซ้ำ + "หน้า n/N")
+ */
+export interface FinanceParty {
+  name: string;
+  taxId: string | null;
+  /** "00000" = สำนักงานใหญ่ · null = ไม่ระบุ (บุคคลธรรมดา/ไม่มีเลขผู้เสียภาษี) */
+  branchCode: string | null;
+  address: string;
+}
+
+export interface FinanceColumn {
+  th: string;
+  en: string;
+  align?: 'left' | 'right';
+  /** ความกว้าง px (ไม่ส่ง = ยืด) */
+  width?: number;
+}
+
+export interface FinanceTotal {
+  label: string;
+  value: string;
+  /** เส้นรวมทั้งสิ้น (ตัวหนา + เส้นบน) */
+  grand?: boolean;
+  /** บรรทัดรอง (สีเทา — หัก ณ ที่จ่าย / ยอดสุทธิ ตามต้นแบบ) */
+  muted?: boolean;
+}
+
+export interface FinanceDocument {
+  yearStyle: 'BE' | 'CE';
+  /** "ใบแจ้งหนี้" */
+  title: string;
+  /** "INVOICE" */
+  titleEn: string;
+  /** null = ร่าง (ยังไม่มีเลข — ลายน้ำ "ร่าง") */
+  docNo: string | null;
+  /** "ต้นฉบับ / Original" หรือ "สำเนา / Copy" — null = ไม่แสดง */
+  copyLabel: string | null;
+  /** YYYY-MM-DD */
+  docDate: string;
+  issuer: FinanceParty;
+  customer: FinanceParty;
+  /** กล่องขวา: [ป้าย, ค่า (ข้อความธรรมดา), ตัวเลข?] */
+  info: [string, string, boolean?][];
+  columns: FinanceColumn[];
+  /** HTML ของเซลล์ (escape แล้ว) ต่อแถว */
+  rows: string[][];
+  /** จำนวนเงินตัวอักษร (ไม่มี = ไม่แสดงกล่อง) */
+  amountInWords: string | null;
+  /** ข้อความเล็กใต้จำนวนเงินตัวอักษร (ข้อความธรรมดา) */
+  notes: string[];
+  totals: FinanceTotal[];
+  /** ย่อหน้าใต้เส้นรวม (ข้อความธรรมดา) เช่น หมายเหตุของเอกสาร / วันนัดรับเช็ค */
+  remarks: string[];
+  signatures: { label: string; dated: boolean }[];
+}
+
+const e = escapeHtml;
+
+/** "00000" → "สำนักงานใหญ่" · "00001" → "สาขาที่ 00001" (spec/05 BIL-191) */
+export function branchText(code: string | null): string {
+  if (!code) return '';
+  return code === '00000' ? 'สำนักงานใหญ่' : `สาขาที่ ${code}`;
+}
+
+const partyName = (p: FinanceParty) =>
+  `${e(p.name)}${p.branchCode ? ` (${e(branchText(p.branchCode))})` : ''}`;
+
+/** "1234.5" → "1,234.50" · ติดลบใช้เครื่องหมายลบ */
+export function bahtFormat(v: string): string {
+  const [w, f = '00'] = v.split('.') as [string, string?];
+  const neg = w.startsWith('-');
+  const digits = (neg ? w.slice(1) : w).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${neg ? '−' : ''}${digits}.${(f + '00').slice(0, 2)}`;
+}
+
+const MONTHS = [
+  'ม.ค.',
+  'ก.พ.',
+  'มี.ค.',
+  'เม.ย.',
+  'พ.ค.',
+  'มิ.ย.',
+  'ก.ค.',
+  'ส.ค.',
+  'ก.ย.',
+  'ต.ค.',
+  'พ.ย.',
+  'ธ.ค.',
+];
+
+/** ช่วงวันที่แบบต้นแบบ: "16–31 ต.ค. 2569" / "16 ต.ค. – 3 พ.ย. 2569" / ข้ามปีเขียนเต็มทั้งสองฝั่ง */
+export function dateRangeShort(from: string, to: string, yearStyle: 'BE' | 'CE'): string {
+  const [fy, fm, fd] = from.split('-').map(Number) as [number, number, number];
+  const [ty, tm, td] = to.split('-').map(Number) as [number, number, number];
+  if (from === to) return docDateShort(from, yearStyle);
+  const y = ty + (yearStyle === 'BE' ? 543 : 0);
+  if (fy === ty && fm === tm) return `${fd}–${td} ${MONTHS[tm - 1]} ${y}`;
+  if (fy === ty) return `${fd} ${MONTHS[fm - 1]} – ${td} ${MONTHS[tm - 1]} ${y}`;
+  return `${docDateShort(from, yearStyle)} – ${docDateShort(to, yearStyle)}`;
+}
+
+const TH = 'padding:8px 10px;font-weight:600;border-bottom:1px solid #D9DCD4;box-sizing:border-box';
+const SUB = 'font-weight:400;font-size:13px;color:#3B424C';
+const TD = 'padding:9px 10px;border-bottom:1px solid #E4E6E0;vertical-align:top';
+const NUM = 'font-variant-numeric:tabular-nums;font-size:15px';
+
+function headBlock(d: FinanceDocument): string {
+  const i = d.issuer;
+  const right = [
+    `<span style="font-size:24px;font-weight:600;color:#13213F">${e(d.title)}</span>`,
+    `<span style="font-size:14px;font-weight:500;color:#3B424C;">${e(d.titleEn)}</span>`,
+    d.copyLabel ? `<span style="font-size:14px;color:#3B424C">${e(d.copyLabel)}</span>` : '',
+    d.docNo
+      ? `<span style="font-variant-numeric:tabular-nums;font-size:15px;font-weight:500">${e(d.docNo)}</span>`
+      : `<span style="font-size:15px;font-weight:600;color:#8F5500">ร่าง · ยังไม่มีเลขที่</span>`,
+    `<span style="font-size:15px">วันที่ ${e(docDateShort(d.docDate, d.yearStyle))}</span>`,
+  ].join('');
+  const c = d.customer;
+  const info = d.info
+    .map(
+      ([l, v, num]) =>
+        `<span style="color:#3B424C">${e(l)}</span><span${num ? ` style="${NUM}"` : ''}>${e(v)}</span>`,
+    )
+    .join('');
+  return `<div class="head" style="display:flex;flex-direction:column;gap:20px">
+<div style="display:flex;justify-content:space-between;gap:24px;align-items:flex-start;padding-bottom:16px;border-bottom:2px solid #13213F">
+<div style="display:flex;gap:12px"><div style="width:44px;height:44px;border-radius:10px;background:#13213F;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0">${e(companyInitials(i.name))}</div><div style="display:flex;flex-direction:column"><span style="font-weight:600;font-size:17px">${partyName(i)}</span>${
+    i.address ? `<span style="font-size:14px;color:#3B424C">${e(i.address)}</span>` : ''
+  }${i.taxId ? `<span style="font-size:14px;color:#3B424C">เลขประจำตัวผู้เสียภาษี ${e(i.taxId)}</span>` : ''}</div></div>
+<div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0;text-align:right">${right}</div>
+</div>
+<div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px">
+<div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px"><span style="font-size:14px;font-weight:500;color:#3B424C">ลูกค้า / Customer</span><span style="font-weight:600">${partyName(c)}</span>${
+    c.address ? `<span>${e(c.address)}</span>` : ''
+  }${c.taxId ? `<span>เลขประจำตัวผู้เสียภาษี <span style="${NUM}">${e(c.taxId)}</span></span>` : ''}</div>
+<div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:auto 1fr;gap:2px 14px;align-content:start">${info}</div>
+</div>
+</div>`;
+}
+
+function contBlock(d: FinanceDocument): string {
+  return `<div class="cont" style="display:flex;justify-content:space-between;gap:24px;align-items:flex-end;padding-bottom:10px;border-bottom:2px solid #13213F"><span style="font-weight:600;font-size:15px">${partyName(d.issuer)}</span><span style="font-size:15px"><b style="color:#13213F">${e(d.title)}</b> <span style="font-variant-numeric:tabular-nums;font-weight:500">${e(d.docNo ?? 'ร่าง')}</span> (ต่อ)</span></div>`;
+}
+
+function table(d: FinanceDocument): string {
+  const align = (c: FinanceColumn) => `text-align:${c.align ?? 'left'}`;
+  const head = d.columns
+    .map(
+      (c) =>
+        `<th style="${TH};${align(c)}${c.width ? `;width:${c.width}px` : ''}">${e(c.th)}<div style="${SUB}">${e(c.en)}</div></th>`,
+    )
+    .join('');
+  const body = d.rows
+    .map(
+      (r) =>
+        `<tr>${r.map((cell, i) => `<td style="${TD};${align(d.columns[i]!)}">${cell}</td>`).join('')}</tr>`,
+    )
+    .join('');
+  return `<table style="width:100%;border-collapse:collapse;font-size:16px;table-layout:fixed"><thead><tr style="background:#EBEDE8">${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function endBlock(d: FinanceDocument): string {
+  const totals = d.totals
+    .map((t) => {
+      const lbl = t.grand
+        ? 'font-weight:600;padding-top:6px;border-top:1px solid #101418'
+        : t.muted
+          ? 'color:#3B424C'
+          : '';
+      const val = t.grand
+        ? 'font-variant-numeric:tabular-nums;font-size:16px;font-weight:600;text-align:right;padding-top:6px;border-top:1px solid #101418'
+        : `${NUM};text-align:right`;
+      return `<span${lbl ? ` style="${lbl}"` : ''}>${e(t.label)}</span><span style="${val}">${e(t.value)}</span>`;
+    })
+    .join('');
+  const left = [
+    d.amountInWords
+      ? `<div style="background:#EBEDE8;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px"><span style="font-size:14px;color:#3B424C">จำนวนเงินตัวอักษร / Amount in words</span><span style="font-weight:600">${e(d.amountInWords)}</span></div>`
+      : '',
+    ...d.notes.map((n) => `<span style="font-size:14px;color:#3B424C">${e(n)}</span>`),
+  ].join('');
+  const sig = d.signatures
+    .map(
+      (s) =>
+        `<div style="display:flex;flex-direction:column;align-items:center;gap:4px"><div style="width:100%;height:56px;border-bottom:1px solid #101418"></div><span>${e(s.label)}</span>${
+          s.dated
+            ? `<span style="font-size:14px;color:#3B424C">วันที่ ...... / ...... / ......</span>`
+            : ''
+        }</div>`,
+    )
+    .join('');
+  return `<div class="end" style="display:flex;flex-direction:column;gap:20px">
+<div style="display:flex;justify-content:space-between;gap:24px;align-items:flex-start">
+<div style="flex:1;display:flex;flex-direction:column;gap:10px">${left}</div>
+<div style="width:300px;display:grid;grid-template-columns:1fr auto;gap:4px 16px">${totals}</div>
+</div>
+${d.remarks.map((r) => `<p style="margin:0;color:#3B424C">${e(r)}</p>`).join('')}
+</div>
+<div class="sig" style="display:grid;grid-template-columns:repeat(${d.signatures.length},1fr);gap:40px;padding-top:28px">${sig}</div>`;
+}
+
+/**
+ * ตัวแบ่งหน้า (รันใน Chromium หลังฟอนต์โหลด — PdfRenderer รอ `data-paged`) แบบเดียวกับใบคุมรถ (ST3-T20):
+ * หน้า A4 สูงคงที่ · หน้าแรก = หัวเต็ม · หน้าต่อ = หัวย่อ "{ผู้ออก} · {ชื่อเอกสาร} {เลข} (ต่อ)" + หัวตาราง · แถวไม่ถูกตัดกลาง
+ * เส้นรวม/ลายเซ็นอยู่หน้าสุดท้าย (ลายเซ็นชิดล่างตามต้นแบบ `margin-top:auto`) · ท้ายทุกหน้า "{เลข} · หน้า x/y"
+ */
+const PAGINATE = `(function(){
+function run(){
+var FOOT=40;
+var doc=document.querySelector('.fdoc');
+var no=doc.getAttribute('data-no'),draft=doc.hasAttribute('data-draft');
+var head=doc.querySelector('.head'),cont=doc.querySelector('.cont'),table=doc.querySelector('table'),end=doc.querySelector('.end'),sig=doc.querySelector('.sig');
+var rows=[].slice.call(table.tBodies[0].rows);
+var host=document.createElement('div');doc.parentNode.insertBefore(host,doc);doc.remove();
+var pages=[],pg,inner,tbody;
+function fits(){var last=inner.lastElementChild;if(!last)return true;var r=pg.getBoundingClientRect();return last.getBoundingClientRect().bottom<=r.top+pg.clientHeight-FOOT;}
+function newPage(withTable){
+  pg=document.createElement('section');pg.className='page';
+  if(draft){var w=document.createElement('div');w.className='wm';w.textContent='ร่าง';pg.appendChild(w);}
+  inner=document.createElement('div');inner.className='in';pg.appendChild(inner);
+  var f=document.createElement('div');f.className='foot';pg.appendChild(f);host.appendChild(pg);pages.push(pg);
+  inner.appendChild(pages.length===1?head:cont.cloneNode(true));
+  tbody=null;
+  if(withTable){var t=table.cloneNode(false);t.appendChild(table.tHead.cloneNode(true));tbody=document.createElement('tbody');t.appendChild(tbody);inner.appendChild(t);}
+}
+function place(row){
+  tbody.appendChild(row);if(fits())return;
+  if(tbody.rows.length===1){pg.classList.add('grow');return;}
+  row.remove();newPage(true);place(row);
+}
+newPage(true);
+rows.forEach(place);
+inner.appendChild(end);inner.appendChild(sig);
+if(!fits()){end.remove();sig.remove();newPage(false);inner.appendChild(end);inner.appendChild(sig);}
+pages.forEach(function(p,i){p.querySelector('.foot').textContent=no+' · หน้า '+(i+1)+'/'+pages.length;});
+document.documentElement.setAttribute('data-paged','1');
+}
+document.fonts.ready.then(run);
+})();`;
+
+const CSS = `
+.page{width:210mm;height:296mm;box-sizing:border-box;position:relative;overflow:hidden;break-after:page;display:flex;flex-direction:column}
+.page.grow{height:auto;min-height:296mm;overflow:visible}
+.page:last-child{break-after:auto}
+.in{flex:1;padding:44px 48px 48px;display:flex;flex-direction:column;gap:20px;font-size:16px;line-height:1.6}
+.in .sig{margin-top:auto}
+.foot{position:absolute;left:48px;right:48px;bottom:18px;font-size:12px;color:#59606B;text-align:right;font-variant-numeric:tabular-nums}
+.wm{position:absolute;top:38%;left:0;right:0;text-align:center;font-size:120px;font-weight:700;color:rgba(143,85,0,.08);transform:rotate(-24deg);letter-spacing:8px;pointer-events:none}
+.fdoc .cont{display:none!important}.page .cont{display:flex!important}`;
+
+/** HTML ของเอกสารการเงิน (แบ่งหน้าเอง) สำหรับ PdfRenderer */
+export function financeDocument(d: FinanceDocument) {
+  const no = d.docNo ?? 'ร่าง';
+  const body = `<div data-paginate><div class="fdoc" data-no="${e(no)}"${d.docNo ? '' : ' data-draft'}>${headBlock(d)}${contBlock(d)}${table(d)}${endBlock(d)}</div></div><script>${PAGINATE}</script>`;
+  return { body, css: CSS, title: d.docNo ? `${d.title} ${d.docNo}` : `${d.title} (ร่าง)` };
+}
