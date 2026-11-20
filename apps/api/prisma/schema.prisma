@@ -2141,7 +2141,7 @@ model CarrierSettlement {
   whtMinimumAmount   Decimal?                @map("wht_minimum_amount") @db.Decimal(14, 2)
   /// ค่าตั้งต้นอัตราหัก ณ ที่จ่ายของรถร่วม (%) ณ วันสร้างใบ — ใช้กับบรรทัดที่ไม่มีธง · ใบเก่า = null จนอนุมัติ (ตรึงตอนอนุมัติ)
   whtRateDefault     Decimal?                @map("wht_rate_default") @db.Decimal(5, 2)
-  /// DRAFT / SENT_TO_CARRIER / DISPUTED / APPROVED / CANCELLED (CHECK ใน migration 0122/0124/0127/0130 — PAID เพิ่มใน ST6-T09)
+  /// DRAFT / SENT_TO_CARRIER / DISPUTED / APPROVED / PAID / CANCELLED (CHECK ใน migration 0122/0124/0127/0130/0139 — PAID = ST6-T09)
   /// DISPUTED (ST6-T06) = ส่งตรวจแล้วมีรายการโต้แย้งที่ยังไม่เคลียร์ (รถร่วม/บริษัท) — อนุมัติไม่ได้ · เคลียร์ครบ → SENT_TO_CARRIER · เรียกกลับ → DRAFT
   status             String                  @default("DRAFT")
   /// ส่งให้รถร่วมตรวจล่าสุด (ST6-T05) — ผู้ส่งนับเป็นผู้เตรียมใบ (SoD) · รอบตรวจ +1 ทุกครั้งที่ส่ง (คำตอบของรถร่วมผูกกับรอบ)
@@ -2155,6 +2155,17 @@ model CarrierSettlement {
   approvedBy         String?                 @map("approved_by")
   /// ผู้แก้หัวใบล่าสุด (PATCH) — นับเป็นผู้เตรียมใบ (SoD ST6-T07)
   updatedBy          String?                 @map("updated_by")
+  /// บันทึกจ่าย (ST6-T09; docs/04 F6 "จ่าย" — วันโอน/เลขอ้างอิง/ธนาคาร) — APPROVED → PAID ครั้งเดียว แก้ไม่ได้ (trigger 0139)
+  /// วันที่จ่ายจริง (วันโอน/วันที่เช็ค/วันจ่ายเงินสด — วันที่ไทย) · เวลาที่บันทึก + ผู้บันทึก
+  paidDate           DateTime?               @map("paid_date") @db.Date
+  paidAt             DateTime?               @map("paid_at") @db.Timestamptz(6)
+  paidBy             String?                 @map("paid_by")
+  /// TRANSFER / CHEQUE / CASH (ต้นแบบ "วิธีจ่าย": โอนเงิน / เช็ค / เงินสด)
+  paymentMethod      String?                 @map("payment_method")
+  /// เลขอ้างอิงการโอน / เลขที่เช็ค (บังคับเมื่อโอน/เช็ค)
+  paymentReference   String?                 @map("payment_reference")
+  /// ธนาคาร (ข้อความ — ไม่บังคับ; ต้นแบบไม่มีช่องนี้ — spec/12 §3)
+  paymentBank        String?                 @map("payment_bank")
   cancelledAt        DateTime?               @map("cancelled_at") @db.Timestamptz(6)
   cancelledBy        String?                 @map("cancelled_by")
   cancelReason       String?                 @map("cancel_reason")

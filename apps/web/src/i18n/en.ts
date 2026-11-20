@@ -908,6 +908,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'sub.wo.reject': 'Rejected',
   'stl.tab': 'Finance',
   'stl.st.SENT_TO_CARRIER': 'To review',
+  'stl.st.PAID': 'Paid',
   'stl.gross': 'Total',
   'stl.secTrips': 'Trips',
   'stl.ln.st.PENDING': 'To review',
