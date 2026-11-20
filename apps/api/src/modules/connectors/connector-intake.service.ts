@@ -15,9 +15,11 @@ import { ConnectorResolver } from '../erp/connector-resolver';
 import { ConnectorsService, redactSecrets } from '../erp/connectors.service';
 import { ErpAdapterError } from '../erp/erp-adapter';
 import { OrderIntakeService } from '../orders/order-intake.service';
+import { OrderStateService } from '../orders/order-state.service';
 import { bangkokToday } from '../vehicle-documents/expiry';
 import {
   externalCodes,
+  externalKey,
   fallbackInput,
   mapExternalOrder,
   minimalOrder,
@@ -47,10 +49,21 @@ const MAX_STORED_RESULTS = 200;
  *   (ส่งชุดเดิมซ้ำ / ชุดที่คนไม่รับแล้ว = unchanged + `reason`) ·
  * conflict = externalId เดียวกันเป็นของช่องทางอื่น (409 `external_id_conflict` — ไม่ทับ) ·
  * locked = ใบปิด/ยกเลิกแล้ว หรือใบสำรองที่แก้ช่องที่ล็อก (409 `order_locked_for_update` — ไม่ทับ ไม่เก็บ diff) ·
- * error = ล้มเหลวที่ไม่คาดคิด (เช่น ฐานข้อมูล) → ไม่เลื่อน cursor รอบหน้าดึงซ้ำ (ไม่ทิ้งใบ)
+ * error = ล้มเหลวที่ไม่คาดคิด (เช่น ฐานข้อมูล) → ไม่เลื่อน cursor รอบหน้าดึงซ้ำ (ไม่ทิ้งใบ) ·
+ * ST8-T05 ต้นทางยกเลิกใบ (`ExternalOrder.cancelled`): cancelled = ยกเลิกใน TMS แล้ว (ยังไม่มี DO) ·
+ * cancel_alert = มี DO แล้ว ไม่ยกเลิก แจ้งเตือนผู้วางแผน · skipped = ยังไม่มีใบใน TMS (ไม่สร้าง)
  */
 export type PullOutcome =
-  'created' | 'updated' | 'unchanged' | 'source_changed' | 'conflict' | 'locked' | 'error';
+  | 'created'
+  | 'updated'
+  | 'unchanged'
+  | 'source_changed'
+  | 'conflict'
+  | 'locked'
+  | 'cancelled'
+  | 'cancel_alert'
+  | 'skipped'
+  | 'error';
 
 export interface PullItemResult {
   externalId: string;
@@ -67,8 +80,8 @@ export interface PullItemResult {
   fallback?: boolean;
   /** ชุดการเปลี่ยนแปลงจากต้นทาง (ST3-T10) — source_changed / unchanged ที่เป็นชุดเดิม */
   sourceChangeId?: string;
-  /** เหตุที่ unchanged: ชุดเดิมยังรอตัดสิน / ชุดนี้คนไม่รับไปแล้ว */
-  reason?: 'source_change_pending' | 'source_change_rejected';
+  /** เหตุที่ unchanged: ชุดเดิมยังรอตัดสิน / ชุดนี้คนไม่รับไปแล้ว · ST8-T05 ต้นทางยกเลิกใบ (cancelled/cancel_alert/skipped/unchanged) */
+  reason?: 'source_change_pending' | 'source_change_rejected' | 'source_cancelled';
   error?: { code: string; message: string };
 }
 
@@ -168,6 +181,9 @@ const emptyCounts = (): PullCounts => ({
   source_changed: 0,
   conflict: 0,
   locked: 0,
+  cancelled: 0,
+  cancel_alert: 0,
+  skipped: 0,
   error: 0,
   held: 0,
   total: 0,
@@ -207,6 +223,7 @@ export class ConnectorIntakeService implements OnModuleInit {
     private readonly resolver: ConnectorResolver,
     private readonly entitlements: EntitlementService,
     private readonly events: NotificationEvents,
+    private readonly orderState: OrderStateService,
   ) {}
 
   onModuleInit() {
@@ -469,6 +486,8 @@ export class ConnectorIntakeService implements OnModuleInit {
     ext: ExternalOrder,
     today: string,
   ): Promise<PullItemResult> {
+    // ST8-T05 ต้นทางยกเลิกใบ → ยกเลิก/แจ้งเตือน (ไม่ upsert ข้อมูลของใบที่ยกเลิกแล้ว)
+    if (ext?.cancelled === true) return this.cancelOne(tenantId, connector, runId, ext);
     let mapped: MappedOrder | null = null;
     const label = () => mapped?.input.externalId ?? String(ext?.externalId ?? '');
     /** `recover` = ข้อผิดพลาดของรอบแรก → รับเป็นใบสำรอง (หัวใบ + จุดข้อความ + ปัญหา) */
@@ -531,6 +550,8 @@ export class ConnectorIntakeService implements OnModuleInit {
                 if (held) return held;
               }
             }
+            // ST8-T05 ต้นทางส่งใบนี้แบบปกติ → ล้างธง "ต้นทางยกเลิก" ของใบที่ยังไม่ถูกยกเลิก (ถ้ามี)
+            if (m.input.externalId) await this.intake.clearSourceCancelled(tx, m.input.externalId);
             const input = recover ? fallbackInput(m, recover.errors) : m.input;
             // ใบสำรองแก้ใบที่พ้นช่วงรับงานไม่ได้ (→ 409 locked) — ไม่เก็บข้อมูลลดรูปเป็นชุดรอตัดสิน
             return this.intake.upsertOrder(input, tx, recover ? { forbidStaging: true } : {});
@@ -629,6 +650,58 @@ export class ConnectorIntakeService implements OnModuleInit {
       } catch (e2) {
         return failed(e2);
       }
+    }
+  }
+
+  /**
+   * ST8-T05 ใบที่ต้นทางยกเลิก (`ExternalOrder.cancelled`) → `OrderStateService.cancelFromSource` ใน transaction ของใบ
+   * (ผู้กระทำ `connector:{key}`) · ฐานข้อมูลใช้ไม่ได้ชั่วคราว = `error` (ไม่เลื่อน cursor) · อื่น ๆ = `error` พร้อมรหัส
+   */
+  private async cancelOne(
+    tenantId: string,
+    connector: string,
+    runId: string,
+    ext: ExternalOrder,
+  ): Promise<PullItemResult> {
+    const externalId = externalKey(ext, connector).value;
+    try {
+      const r = await this.db.withTenant(tenantId, (tx) =>
+        requestContext.run(
+          {
+            requestId: `connector:${connector}:${runId}`,
+            tenantId,
+            actorId: `connector:${connector}`,
+            principalType: 'connector',
+            scopes: [],
+            locale: 'th',
+            tx,
+          },
+          () => this.orderState.cancelFromSource(tx, { externalId, connector }),
+        ),
+      );
+      if (r.outcome === 'cancel_alert')
+        this.logger.warn(
+          `tenant ${tenantId} connector ${connector}: order ${externalId} cancelled at source but has delivery orders — alerted`,
+        );
+      return {
+        externalId,
+        outcome: r.outcome,
+        reason: 'source_cancelled',
+        ...(r.orderId ? { orderId: r.orderId, soNo: r.soNo ?? null, status: r.status } : {}),
+        ...(r.outcome === 'conflict'
+          ? { error: { code: 'external_id_conflict', message: 'order belongs to another source' } }
+          : {}),
+      };
+    } catch (e) {
+      const msg = (e instanceof Error ? e.message : show(e)).slice(0, 300);
+      this.logger.error(
+        `tenant ${tenantId} connector ${connector}: cancel ${externalId} failed — ${msg}`,
+      );
+      return {
+        externalId,
+        outcome: 'error',
+        error: { code: e instanceof ProblemException ? e.code : 'internal_error', message: msg },
+      };
     }
   }
 

@@ -27853,6 +27853,252 @@
         ]
       }
     },
+    "/v1/customers/{id}/erp-codes": {
+      "get": {
+        "operationId": "CustomerErpCodes_list",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "รหัสลูกค้านี้ในระบบบัญชีแต่ละตัวที่เชื่อมต่อ (connector ที่ยังไม่ยกเลิก) — ยังไม่ map = ใบแจ้งหนี้ของลูกค้านี้ส่งเข้าระบบบัญชีนั้นไม่ได้",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerErpCodeListDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_master.read"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customers"
+        ],
+        "x-required-scopes": [
+          "master:read"
+        ]
+      }
+    },
+    "/v1/customers/{id}/erp-codes/{connectorId}": {
+      "put": {
+        "operationId": "CustomerErpCodes_set",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+          },
+          {
+            "name": "connectorId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "`version` จาก GET (ยังไม่เคยตั้ง = \"0\") — ไม่ตรง → 412 · ไม่ส่ง = เขียนทับ",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCustomerErpCodeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ตั้ง/ยกเลิก (null) รหัสลูกค้าในระบบบัญชีของ connector 1 ตัว (คนกรอก — ระบบไม่เดา) · เปลี่ยน/ยกเลิกรหัสที่ตั้งไว้แล้วต้องมี `reason` (422) · รหัสผูกกับลูกค้าอื่น → 409 `external_id_conflict` · connector ยกเลิกแล้ว → 409 `invalid_state_transition` · audit `external_mapping.changed`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerErpCodeDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.write"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "`external_id_conflict` — รหัสนี้ผูกกับลูกค้าอื่นแล้วใน connector เดียวกัน · `invalid_state_transition` — connector ยกเลิกการเชื่อมแล้ว",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "external_id_conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/external_id_conflict",
+                      "title": "รหัสนี้ผูกกับข้อมูลอื่นแล้ว",
+                      "status": 409,
+                      "code": "external_id_conflict",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "duplicate",
+                          "message": "รหัสนี้ผูกกับลูกค้าอื่นแล้ว"
+                        }
+                      ],
+                      "mappedCustomerId": "cus_3f2a…"
+                    }
+                  },
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "`precondition_failed` — If-Match ไม่ตรง `version` ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่น",
+                      "status": 412,
+                      "code": "precondition_failed"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation_failed` — รหัสผิดรูปแบบ (`externalId` invalid_format) หรือเปลี่ยน/ยกเลิกรหัสที่ตั้งไว้แล้วโดยไม่มีเหตุผล (`reason` required)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "errors": [
+                        {
+                          "field": "reason",
+                          "code": "required",
+                          "message": "เปลี่ยนหรือยกเลิกรหัสที่ตั้งไว้แล้วต้องระบุเหตุผลอย่างน้อย 10 ตัวอักษร"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customers"
+        ],
+        "x-required-scopes": [
+          "settings:write"
+        ]
+      }
+    },
     "/v1/inbound/{provider}/{token}": {
       "post": {
         "description": "ตรวจ token ใน URL + ลายเซ็นของผู้ให้บริการ (ตามรูปแบบของ adapter) **ก่อน** บันทึก · event เดิม (provider + รหัส event) ส่งซ้ำ/พร้อมกันได้ — บันทึกและประมวลผลครั้งเดียว (`duplicate: true`) · ประมวลผลแบบ async ใน worker · body ≤ 256 KB · token ผิด/หมุนแล้ว/ลายเซ็นผิด = 401 รูปเดียวกัน · rate limit ต่อ IP และต่อ token (หน้าต่าง 1 นาที)",
@@ -63440,6 +63686,12 @@
             "type": "boolean",
             "description": "ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน (docs/01 §4.1)"
           },
+          "sourceCancelledAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ST8-T05 ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก"
+          },
           "sourceChange": {
             "nullable": true,
             "description": "ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject)",
@@ -63491,6 +63743,7 @@
           "stops",
           "lines",
           "sourceChangedAfterPlan",
+          "sourceCancelledAt",
           "sourceChange",
           "version",
           "createdAt",
@@ -63851,6 +64104,12 @@
             "type": "boolean",
             "description": "ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน (docs/01 §4.1)"
           },
+          "sourceCancelledAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ST8-T05 ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก"
+          },
           "sourceChange": {
             "nullable": true,
             "description": "ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject)",
@@ -63917,6 +64176,7 @@
           "stops",
           "lines",
           "sourceChangedAfterPlan",
+          "sourceCancelledAt",
           "sourceChange",
           "version",
           "createdAt",
@@ -70649,6 +70909,122 @@
         },
         "required": [
           "itemCode"
+        ]
+      },
+      "CustomerErpCodeConnectorDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "con_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e"
+          },
+          "adapterKey": {
+            "type": "string",
+            "example": "krs",
+            "description": "รหัส adapter (ป้ายที่มา `ERP:{key}` ของใบ)"
+          },
+          "displayName": {
+            "type": "string",
+            "example": "KRS",
+            "description": "ชื่อระบบบัญชี"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED",
+              "ERROR"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "adapterKey",
+          "displayName",
+          "status"
+        ]
+      },
+      "CustomerErpCodeDto": {
+        "type": "object",
+        "properties": {
+          "connector": {
+            "$ref": "#/components/schemas/CustomerErpCodeConnectorDto"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "example": "C0001",
+            "description": "รหัสลูกค้าในระบบบัญชี (ใช้ส่งเอกสาร — KRS: `custOrSuppCode` ของบริษัทที่ออก Invoice) · null = ยังไม่ map → ใบแจ้งหนี้ของลูกค้านี้ส่งเข้าระบบบัญชีไม่ได้"
+          },
+          "sourceCode": {
+            "type": "string",
+            "nullable": true,
+            "example": "C0001",
+            "description": "รหัสลูกค้าในข้อมูลขาเข้าของ connector (KRS: รหัสใน SO ของบริษัทที่เปิด SO) — ใบที่ดึงมาด้วยรหัสนี้จับคู่ลูกค้านี้เอง · ได้จากการ \"จับคู่ลูกค้า\" ที่หน้าใบค้าง (รหัสในระบบบัญชีต้องกรอกเองที่นี่ — [OPEN — KRS A.6] ยังไม่ยืนยันว่าเป็นรหัสเดียวกัน)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "SYNCED",
+              "PENDING",
+              "FAILED",
+              "MISMATCH",
+              "RETIRED",
+              "UNMAPPED"
+            ],
+            "description": "UNMAPPED = ยังไม่มีแถว · PENDING = มีรหัสต้นทางแต่ยังไม่มีรหัสในระบบบัญชี · SYNCED = มีรหัสในระบบบัญชี"
+          },
+          "updatedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "version": {
+            "type": "number",
+            "description": "version ของแถว (ส่งเป็น If-Match ตอน PUT) — ยังไม่เคยตั้ง = 0"
+          }
+        },
+        "required": [
+          "connector",
+          "externalId",
+          "sourceCode",
+          "status",
+          "updatedAt",
+          "version"
+        ]
+      },
+      "CustomerErpCodeListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomerErpCodeDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "SetCustomerErpCodeDto": {
+        "type": "object",
+        "properties": {
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "example": "C0001",
+            "description": "รหัสลูกค้าในระบบบัญชี (1–64 ตัว ไม่มีอักขระควบคุม) · null/ว่าง = ยกเลิก (ใบแจ้งหนี้ส่งเข้าระบบบัญชีไม่ได้จนกว่าตั้งใหม่) · รหัสผูกกับลูกค้าอื่นแล้ว → 409 `external_id_conflict`"
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "example": "บัญชียืนยันรหัสลูกค้าใหม่ในระบบบัญชีแล้ว",
+            "description": "บังคับ (≥ 10 ตัวอักษร) เมื่อเปลี่ยนหรือยกเลิกรหัสที่ตั้งไว้แล้ว (422) — บันทึกใน audit"
+          }
+        },
+        "required": [
+          "externalId"
         ]
       },
       "InboundReceiptDto": {
@@ -86444,6 +86820,12 @@
             "type": "boolean",
             "description": "ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน (docs/01 §4.1)"
           },
+          "sourceCancelledAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ST8-T05 ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก"
+          },
           "sourceChange": {
             "nullable": true,
             "description": "ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject)",
@@ -86485,6 +86867,7 @@
           "stops",
           "lines",
           "sourceChangedAfterPlan",
+          "sourceCancelledAt",
           "sourceChange",
           "version",
           "createdAt",
@@ -86624,6 +87007,12 @@
             "type": "boolean",
             "description": "ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน (docs/01 §4.1)"
           },
+          "sourceCancelledAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ST8-T05 ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก"
+          },
           "sourceChange": {
             "nullable": true,
             "description": "ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject)",
@@ -86665,6 +87054,7 @@
           "stops",
           "lines",
           "sourceChangedAfterPlan",
+          "sourceCancelledAt",
           "sourceChange",
           "version",
           "createdAt",
@@ -86804,6 +87194,12 @@
             "type": "boolean",
             "description": "ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน (docs/01 §4.1)"
           },
+          "sourceCancelledAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ST8-T05 ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก"
+          },
           "sourceChange": {
             "nullable": true,
             "description": "ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject)",
@@ -86845,6 +87241,7 @@
           "stops",
           "lines",
           "sourceChangedAfterPlan",
+          "sourceCancelledAt",
           "sourceChange",
           "version",
           "createdAt",
@@ -86984,6 +87381,12 @@
             "type": "boolean",
             "description": "ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน (docs/01 §4.1)"
           },
+          "sourceCancelledAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ST8-T05 ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก"
+          },
           "sourceChange": {
             "nullable": true,
             "description": "ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject)",
@@ -87025,6 +87428,7 @@
           "stops",
           "lines",
           "sourceChangedAfterPlan",
+          "sourceCancelledAt",
           "sourceChange",
           "version",
           "createdAt",
@@ -87164,6 +87568,12 @@
             "type": "boolean",
             "description": "ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน (docs/01 §4.1)"
           },
+          "sourceCancelledAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ST8-T05 ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก"
+          },
           "sourceChange": {
             "nullable": true,
             "description": "ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject)",
@@ -87205,6 +87615,7 @@
           "stops",
           "lines",
           "sourceChangedAfterPlan",
+          "sourceCancelledAt",
           "sourceChange",
           "version",
           "createdAt",
