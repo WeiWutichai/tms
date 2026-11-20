@@ -4310,6 +4310,38 @@
           }
         },
         {
+          "name": "หน้าเทียบ planned vs executed vs claimed + POD",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/settlements/:id/comparison",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "settlements",
+                ":id",
+                "comparison"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settlements:read\n\n\"Dispute — หน้าเอกสารคู่ยอด\" · ต่อบรรทัดที่ยังใช้: ยอดตามแผน (ราคาที่ตกลงตอนจ้างรถร่วม) / ยอดในใบ / ยอดที่รถร่วมเรียก + ส่วนต่าง + สถานะรายการ (OPEN/DISPUTED/APPROVED) + คำตอบของรถร่วม + การตัดสินของบริษัท · ต่อเที่ยว: POD ล่าสุดต่อ DO (ผ่านเกณฑ์จ่ายไหม, ปริมาณตามแผน/ส่งจริง/ปฏิเสธ, เอกสาร) · ยอด `buy*` เห็นเมื่อมี `prices.buy:read`"
+          }
+        },
+        {
           "name": "เพิ่มเที่ยว/บรรทัดต้นทุน/บรรทัดหักเข้าใบร่าง",
           "request": {
             "method": "POST",
@@ -4556,11 +4588,11 @@
                 }
               ]
             },
-            "description": "scope: settlements:create\n\nเฉพาะใบ SENT_TO_CARRIER · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued`"
+            "description": "scope: settlements:create\n\nเฉพาะใบ SENT_TO_CARRIER / DISPUTED · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued`"
           }
         },
         {
-          "name": "เรียกใบกลับมาแก้ (SENT_TO_CARRIER → DRAFT) — เหตุผล ≥ 10 ตัวอักษร",
+          "name": "เรียกใบกลับมาแก้ (SENT_TO_CARRIER / DISPUTED → DRAFT) — เหตุผล ≥ 10 ตัวอักษร",
           "request": {
             "method": "POST",
             "header": [
@@ -4602,7 +4634,131 @@
                 }
               ]
             },
-            "description": "scope: settlements:create\n\nเช่น รถร่วมโต้แย้งรายการ แล้วต้องแก้/นำบรรทัดออก · เพิกถอนลิงก์ตรวจ · คำตอบของรถร่วมเก็บเป็นประวัติ (ส่งใหม่ = รอบใหม่) · audit `settlement.recalled`",
+            "description": "scope: settlements:create\n\nเช่น รถร่วมโต้แย้งรายการ แล้วต้องแก้/นำบรรทัดออก · เพิกถอนลิงก์ตรวจ · คำตอบของรถร่วมเก็บเป็นประวัติ (ส่งใหม่ = รอบใหม่) · รายการที่โต้แย้งค้างยังบล็อกอนุมัติร่างตรง (นำออก / ยืนยันยอดเดิม / ส่งรอบใหม่) · audit `settlement.recalled`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"รถร่วมขอแยกวางบิลเที่ยวนี้งวดหน้า\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "บัญชีติด dispute รายการ — เหตุผล ≥ 10 ตัวอักษร",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+                "disabled": false
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/settlements/:id/lines/:lineId/dispute",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "settlements",
+                ":id",
+                "lines",
+                ":lineId",
+                "dispute"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                },
+                {
+                  "key": "lineId",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settlements:create\n\n\"SENT_TO_CARRIER → DISPUTED: รถร่วม/บัญชีติด dispute รายการ\" · เฉพาะใบ SENT_TO_CARRIER / DISPUTED (อื่น ๆ → 409) · บรรทัดที่โต้แย้งค้างอยู่แล้ว / นำออกแล้ว → 409 · หัวใบ → DISPUTED (อนุมัติไม่ได้จนเคลียร์) · ไม่แสดงให้รถร่วมเห็น · audit `settlement.line_flagged`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"รถร่วมขอแยกวางบิลเที่ยวนี้งวดหน้า\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "เคลียร์ dispute — ยืนยันยอดเดิมพร้อมเหตุผล ≥ 10 ตัวอักษร",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+                "disabled": false
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/settlements/:id/lines/:lineId/resolve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "settlements",
+                ":id",
+                "lines",
+                ":lineId",
+                "resolve"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                },
+                {
+                  "key": "lineId",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settlements:create\n\nBIL-136 · เฉพาะบรรทัดที่โต้แย้งค้าง ของใบ DISPUTED / ร่างที่เรียกกลับ / SENT_TO_CARRIER ที่มีโต้แย้งค้าง (อื่น ๆ → 409) · ปิดทุก dispute ก่อนหน้าของบรรทัดในรอบนี้ (รถร่วม + บัญชี) → สถานะรายการ APPROVED · ถ้าปิดข้อโต้แย้งของรถร่วม: **รถร่วมตอบบรรทัดนี้ในรอบนี้ไม่ได้อีก** (409 `settlement_line_resolved`) และเห็นเหตุผลนี้บนลิงก์ตรวจ · ปิดแค่ธงภายในของบัญชี: รถร่วมยังตอบได้และไม่เห็นเหตุผล · เคลียร์ครบ → DISPUTED กลับเป็น SENT_TO_CARRIER (อนุมัติได้) · **ผู้เคลียร์นับเป็นผู้เตรียมใบ — อนุมัติใบนี้ไม่ได้** (separation of duties) · แก้ยอด = เรียกกลับแล้วนำบรรทัดออก/เพิ่มใหม่ · audit `settlement.line_resolved`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"reason\": \"รถร่วมขอแยกวางบิลเที่ยวนี้งวดหน้า\"\n}",

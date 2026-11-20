@@ -153,12 +153,12 @@ export class MessagingService {
       ref = offer.trip.tripNo;
     }
     if (kind === 'settlement_review') {
-      // ST6-T05: รถร่วมของใบ · ใบต้องยังรอรถร่วมตรวจ
+      // ST6-T05: รถร่วมของใบ · ใบต้องยังรอรถร่วมตรวจ (ST6-T06: DISPUTED ยังตอบได้)
       const st = await tx.carrierSettlement.findFirst({
         where: { id: link.entityId },
         select: { carrierId: true, status: true },
       });
-      if (!st || st.status !== 'SENT_TO_CARRIER')
+      if (!st || (st.status !== 'SENT_TO_CARRIER' && st.status !== 'DISPUTED'))
         throw bad(
           'url',
           'settlement_not_sent',

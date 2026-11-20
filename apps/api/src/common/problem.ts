@@ -401,11 +401,17 @@ export const PROBLEMS = {
     th: 'ยอดสุทธิติดลบ อนุมัติไม่ได้ — นำรายการหักส่วนเกินออกแล้วยกไปงวดถัดไป',
     en: 'Net payable is negative — move the excess deductions to the next period',
   },
-  /** ST6-T05 (docs/01 §4.5 "dispute ใด ๆ บล็อก approve", spec/05 BIL-136): มีบรรทัดที่รถร่วมโต้แย้งในรอบตรวจปัจจุบัน — extension `disputedCount` */
+  /** ST6-T05/T06 (docs/01 §4.5 "dispute ใด ๆ บล็อก approve", spec/05 BIL-136): มีรายการโต้แย้งค้าง (รถร่วมโต้แย้ง/บัญชีติด dispute ที่ยังไม่เคลียร์) ในรอบตรวจปัจจุบัน — extension `disputedCount` */
   settlement_disputed: {
     status: 409,
-    th: 'มีรายการที่รถร่วมโต้แย้ง อนุมัติไม่ได้ — เรียกใบกลับมาแก้แล้วส่งให้รถร่วมตรวจใหม่',
-    en: 'The carrier disputed lines of this settlement — it cannot be approved',
+    th: 'มีรายการโต้แย้งที่ยังไม่เคลียร์ อนุมัติไม่ได้ — ยืนยันยอดเดิมพร้อมเหตุผล หรือเรียกใบกลับมาแก้รายการ',
+    en: 'The settlement has unresolved disputed lines — it cannot be approved',
+  },
+  /** ST6-T06: บริษัทยืนยันยอดเดิมของรายการนี้แล้วในรอบตรวจนี้ — รถร่วมตอบซ้ำไม่ได้ */
+  settlement_line_resolved: {
+    status: 409,
+    th: 'บริษัทยืนยันยอดของรายการนี้แล้ว ตอบรายการนี้ไม่ได้อีก',
+    en: 'The company already resolved this line — it cannot be answered again',
   },
   /** ST6-T05 (docs/01 §4.5): บริษัทตั้งให้รถร่วมตรวจก่อนอนุมัติ (`settlement.carrierReviewRequired`) — ร่างอนุมัติตรงไม่ได้ */
   settlement_review_required: {

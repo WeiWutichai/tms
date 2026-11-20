@@ -1,4 +1,4 @@
-// ภาพเทียบ "ต้นแบบ | ของจริง" ของ ST6-T05 (รถร่วมตรวจใบสำคัญจ่ายผ่านลิงก์) — เครื่อง dev เท่านั้น
+// ภาพเทียบ "ต้นแบบ | ของจริง" ของ ST6-T05 (รถร่วมตรวจใบสำคัญจ่ายผ่านลิงก์) + ST6-T06 (ใบมีรายการโต้แย้ง / บริษัทยืนยันยอดเดิม) — เครื่อง dev เท่านั้น
 // หน้าลิงก์ (public) เทียบ TMS Subcon แท็บ "การเงิน" ที่ 390 + 1440 px
 // ต้นแบบไม่มีหน้ารายการให้ตรวจ (มีแค่การ์ดงวด) — ชิ้นที่ใช้: การ์ดงวด/ใบสั่งงาน/เหตุผลที่ปฏิเสธ/รูปแบบส่ง POD (spec/12 §3)
 // ต้องมี web dev (vite) เท่านั้น — ข้อมูลของหน้าลิงก์จำลองด้วย page.route (ข้อมูลสมมติ ชุดเดียวกับ unit test):
@@ -36,6 +36,8 @@ const line = (o) => ({
   reference: null,
   amount: '5600.00',
   review: null,
+  resolution: null,
+  canRespond: true,
   ...o,
 });
 const VIEW = {
@@ -58,6 +60,7 @@ const VIEW = {
         response: 'ACCEPTED',
         reason: null,
         photoCount: 0,
+        claimedAmount: null,
         respondedAt: '2026-11-20T03:00:00.000Z',
       },
     }),
@@ -141,12 +144,17 @@ for (const vp of [
       response: body.response,
       reason: body.reason ?? null,
       photoCount: (body.photoDocumentIds ?? []).length,
+      claimedAmount: null,
       respondedAt: new Date().toISOString(),
     };
+    const status = view.lines.some((x) => x.review?.response === 'DISPUTED' && !x.resolution)
+      ? 'DISPUTED'
+      : 'SENT_TO_CARRIER';
+    view.status = status;
     return route.fulfill({
       status: 201,
       contentType: 'application/json',
-      body: JSON.stringify({ line: l }),
+      body: JSON.stringify({ line: l, status }),
     });
   });
   const W = await ctx.newPage();
@@ -160,6 +168,31 @@ for (const vp of [
   await W.getByTestId('stl-dispute-ok').click();
   await W.waitForTimeout(400);
   const cDone = await W.screenshot({ fullPage: true });
+  // ST6-T06: ใบมีรายการโต้แย้ง (หัว "มีรายการโต้แย้ง") + บรรทัดที่บริษัทยืนยันยอดเดิม (ป้าย + เหตุผล ไม่มีปุ่ม)
+  view = structuredClone(VIEW);
+  view.status = 'DISPUTED';
+  view.lines[1].review = {
+    response: 'DISPUTED',
+    reason: 'ค่ารอไม่ตรง รอ 3 ชม. ที่ท่าเรือ',
+    photoCount: 1,
+    claimedAmount: null,
+    respondedAt: '2026-11-20T03:00:00.000Z',
+  };
+  view.lines[2].review = {
+    response: 'DISPUTED',
+    reason: 'เที่ยวนี้วิ่งไม่ครบจุด',
+    photoCount: 0,
+    claimedAmount: null,
+    respondedAt: '2026-11-20T03:10:00.000Z',
+  };
+  view.lines[2].resolution = {
+    reason: 'ตรวจ POD แล้ว ส่งครบทุกจุด ยอดตามสัญญาเดิม',
+    resolvedAt: '2026-11-20T05:00:00.000Z',
+  };
+  view.lines[2].canRespond = false;
+  await W.reload();
+  await W.waitForTimeout(1200);
+  const cDisp = await W.screenshot({ fullPage: true });
   view = {
     ...structuredClone(VIEW),
     status: 'APPROVED',
@@ -174,6 +207,10 @@ for (const vp of [
   await pair(`list-${vp.width}`, aPay, cList, vp.width, h, [
     'ต้นแบบ (TMS Subcon · การเงิน)',
     'ของจริง (ใบที่ส่งให้ตรวจ)',
+  ]);
+  await pair(`disputed-${vp.width}`, aPay, cDisp, vp.width, h, [
+    'ต้นแบบ (TMS Subcon · การเงิน)',
+    'ของจริง (มีรายการโต้แย้ง · บริษัทยืนยันยอดเดิม — ST6-T06)',
   ]);
   await pair(`dispute-${vp.width}`, aDec, cForm, vp.width, h, [
     'ต้นแบบ (TMS Subcon · เหตุผลที่ปฏิเสธ)',

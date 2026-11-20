@@ -36884,6 +36884,7 @@
               "enum": [
                 "DRAFT",
                 "SENT_TO_CARRIER",
+                "DISPUTED",
                 "APPROVED",
                 "CANCELLED"
               ]
@@ -37555,6 +37556,118 @@
         ],
         "x-required-scopes": [
           "settlements:create"
+        ]
+      }
+    },
+    "/v1/settlements/{id}/comparison": {
+      "get": {
+        "description": "docs/04 F6 \"Dispute — หน้าเอกสารคู่ยอด\" · ต่อบรรทัดที่ยังใช้: ยอดตามแผน (ราคาที่ตกลงตอนจ้างรถร่วม) / ยอดในใบ / ยอดที่รถร่วมเรียก + ส่วนต่าง + สถานะรายการ (OPEN/DISPUTED/APPROVED) + คำตอบของรถร่วม + การตัดสินของบริษัท · ต่อเที่ยว: POD ล่าสุดต่อ DO (ผ่านเกณฑ์จ่ายไหม, ปริมาณตามแผน/ส่งจริง/ปฏิเสธ, เอกสาร) · ยอด `buy*` เห็นเมื่อมี `prices.buy:read`",
+        "operationId": "Settlements_compare",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettlementComparisonDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`settlements:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settlements",
+                      "action": "read",
+                      "required": [
+                        "settlements:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "หน้าเทียบ planned vs executed vs claimed + POD (ST6-T06)",
+        "tags": [
+          "settlements"
+        ],
+        "x-required-scopes": [
+          "settlements:read"
         ]
       }
     },
@@ -38562,7 +38675,7 @@
     },
     "/v1/settlements/{id}/review-link": {
       "post": {
-        "description": "เฉพาะใบ SENT_TO_CARRIER · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued`",
+        "description": "เฉพาะใบ SENT_TO_CARRIER / DISPUTED · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued`",
         "operationId": "Settlements_reissueLink",
         "parameters": [
           {
@@ -38718,7 +38831,7 @@
     },
     "/v1/settlements/{id}/recall": {
       "post": {
-        "description": "เช่น รถร่วมโต้แย้งรายการ แล้วต้องแก้/นำบรรทัดออก · เพิกถอนลิงก์ตรวจ · คำตอบของรถร่วมเก็บเป็นประวัติ (ส่งใหม่ = รอบใหม่) · audit `settlement.recalled`",
+        "description": "เช่น รถร่วมโต้แย้งรายการ แล้วต้องแก้/นำบรรทัดออก (docs/01 §4.5 DISPUTED → DRAFT \"แก้รายการ\") · เพิกถอนลิงก์ตรวจ · คำตอบของรถร่วมเก็บเป็นประวัติ (ส่งใหม่ = รอบใหม่) · รายการที่โต้แย้งค้างยังบล็อกอนุมัติร่างตรง (นำออก / ยืนยันยอดเดิม / ส่งรอบใหม่) · audit `settlement.recalled`",
         "operationId": "Settlements_recall",
         "parameters": [
           {
@@ -38948,7 +39061,505 @@
             "bearer": []
           }
         ],
-        "summary": "เรียกใบกลับมาแก้ (SENT_TO_CARRIER → DRAFT) — เหตุผล ≥ 10 ตัวอักษร",
+        "summary": "เรียกใบกลับมาแก้ (SENT_TO_CARRIER / DISPUTED → DRAFT) — เหตุผล ≥ 10 ตัวอักษร",
+        "tags": [
+          "settlements"
+        ],
+        "x-required-scopes": [
+          "settlements:create"
+        ]
+      }
+    },
+    "/v1/settlements/{id}/lines/{lineId}/dispute": {
+      "post": {
+        "description": "docs/01 §4.5 \"SENT_TO_CARRIER → DISPUTED : รถร่วม/บัญชีติด dispute รายการ\" · เฉพาะใบ SENT_TO_CARRIER / DISPUTED (อื่น ๆ → 409) · บรรทัดที่โต้แย้งค้างอยู่แล้ว / นำออกแล้ว → 409 · หัวใบ → DISPUTED (อนุมัติไม่ได้จนเคลียร์) · ไม่แสดงให้รถร่วมเห็น · audit `settlement.line_flagged`",
+        "operationId": "Settlements_disputeLine",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lineId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettlementReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettlementDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`settlements:create`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settlements",
+                      "action": "create",
+                      "required": [
+                        "settlements:create"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "บัญชีติด dispute รายการ (ST6-T06) — เหตุผล ≥ 10 ตัวอักษร",
+        "tags": [
+          "settlements"
+        ],
+        "x-required-scopes": [
+          "settlements:create"
+        ]
+      }
+    },
+    "/v1/settlements/{id}/lines/{lineId}/resolve": {
+      "post": {
+        "description": "spec/05 BIL-136 · เฉพาะบรรทัดที่โต้แย้งค้าง ของใบ DISPUTED / ร่างที่เรียกกลับ / SENT_TO_CARRIER ที่มีโต้แย้งค้าง (อื่น ๆ → 409) · ปิดทุก dispute ก่อนหน้าของบรรทัดในรอบนี้ (รถร่วม + บัญชี) → สถานะรายการ APPROVED · ถ้าปิดข้อโต้แย้งของรถร่วม: **รถร่วมตอบบรรทัดนี้ในรอบนี้ไม่ได้อีก** (409 `settlement_line_resolved`) และเห็นเหตุผลนี้บนลิงก์ตรวจ · ปิดแค่ธงภายในของบัญชี: รถร่วมยังตอบได้และไม่เห็นเหตุผล · เคลียร์ครบ → DISPUTED กลับเป็น SENT_TO_CARRIER (อนุมัติได้) · **ผู้เคลียร์นับเป็นผู้เตรียมใบ — อนุมัติใบนี้ไม่ได้** (separation of duties) · แก้ยอด = เรียกกลับแล้วนำบรรทัดออก/เพิ่มใหม่ · audit `settlement.line_resolved`",
+        "operationId": "Settlements_resolveLine",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lineId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettlementReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettlementDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`settlements:create`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settlements",
+                      "action": "create",
+                      "required": [
+                        "settlements:create"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "เคลียร์ dispute — ยืนยันยอดเดิมพร้อมเหตุผล ≥ 10 ตัวอักษร (ST6-T06)",
         "tags": [
           "settlements"
         ],
@@ -38959,7 +39570,7 @@
     },
     "/v1/settlements/{id}/approve": {
       "post": {
-        "description": "SENT_TO_CARRIER → APPROVED หรือ DRAFT → APPROVED (docs/01 §4.5 — DRAFT ตรงได้เมื่อไม่ตั้ง `settlement.carrierReviewRequired` ไม่งั้น 409 `settlement_review_required`) · รถร่วมโต้แย้งบรรทัดในรอบตรวจปัจจุบัน → 409 `settlement_disputed` (`disputedCount`) · **ผู้ใช้ที่ login เท่านั้น** (API key / OAuth client / ลิงก์ ไม่มี scope นี้) · **ผู้เตรียมใบ (ผู้สร้าง / ผู้แก้หัวใบ / ผู้เพิ่มหรือนำบรรทัดออก / ผู้ส่งให้รถร่วมตรวจ — key = ผู้ออก key) อนุมัติไม่ได้ → 403 `settlement_self_approval`** (ระบุผู้เตรียมไม่ได้ = ปฏิเสธ) · ยอดสุทธิเกินวงเงินที่ตั้ง (`settlement.approvalStepUpAmount` — ค่าเริ่ม 100,000 บาท; 0 = ทุกใบ) ต้องส่ง `X-Step-Up` ของผู้อนุมัติ (จาก `POST /v1/auth/step-up` ยืนยัน TOTP) ไม่งั้น 403 `step_up_required` · ไม่มีบรรทัดค่าขนส่ง (FREIGHT) → 409 `settlement_empty` · ยอดสุทธิติดลบ → 409 `settlement_net_negative` · ออกเลขชุด STL ตอนนี้เท่านั้น (ร่างไม่กินเลข; ออกแล้วแก้ไม่ได้) · ใบที่อนุมัติแล้วแก้/เพิ่ม/นำบรรทัดออก/ยกเลิกไม่ได้ (409) · ยังไม่หัก ณ ที่จ่าย (ST6-T08) · audit `settlement.approved` + webhook `settlement.approved`",
+        "description": "SENT_TO_CARRIER → APPROVED หรือ DRAFT → APPROVED (docs/01 §4.5 — DRAFT ตรงได้เมื่อไม่ตั้ง `settlement.carrierReviewRequired` ไม่งั้น 409 `settlement_review_required`) · ใบ DISPUTED / มีรายการโต้แย้งค้างในรอบตรวจปัจจุบัน (รถร่วมโต้แย้ง/บัญชีติด dispute ที่ยังไม่เคลียร์) → 409 `settlement_disputed` (`disputedCount`) · **ผู้ใช้ที่ login เท่านั้น** (API key / OAuth client / ลิงก์ ไม่มี scope นี้) · **ผู้เตรียมใบ (ผู้สร้าง / ผู้แก้หัวใบ / ผู้เพิ่มหรือนำบรรทัดออก / ผู้ส่งให้รถร่วมตรวจ / ผู้เคลียร์ dispute — key = ผู้ออก key) อนุมัติไม่ได้ → 403 `settlement_self_approval`** (ระบุผู้เตรียมไม่ได้ = ปฏิเสธ) · ยอดสุทธิเกินวงเงินที่ตั้ง (`settlement.approvalStepUpAmount` — ค่าเริ่ม 100,000 บาท; 0 = ทุกใบ) ต้องส่ง `X-Step-Up` ของผู้อนุมัติ (จาก `POST /v1/auth/step-up` ยืนยัน TOTP) ไม่งั้น 403 `step_up_required` · ไม่มีบรรทัดค่าขนส่ง (FREIGHT) → 409 `settlement_empty` · ยอดสุทธิติดลบ → 409 `settlement_net_negative` · ออกเลขชุด STL ตอนนี้เท่านั้น (ร่างไม่กินเลข; ออกแล้วแก้ไม่ได้) · ใบที่อนุมัติแล้วแก้/เพิ่ม/นำบรรทัดออก/ยกเลิกไม่ได้ (409) · ยังไม่หัก ณ ที่จ่าย (ST6-T08) · audit `settlement.approved` + webhook `settlement.approved`",
         "operationId": "Settlements_approve",
         "parameters": [
           {
@@ -39151,7 +39762,7 @@
                   "settlement_disputed": {
                     "value": {
                       "type": "https://docs.tms.example/problems/settlement_disputed",
-                      "title": "มีรายการที่รถร่วมโต้แย้ง อนุมัติไม่ได้ — เรียกใบกลับมาแก้แล้วส่งให้รถร่วมตรวจใหม่",
+                      "title": "มีรายการโต้แย้งที่ยังไม่เคลียร์ อนุมัติไม่ได้ — ยืนยันยอดเดิมพร้อมเหตุผล หรือเรียกใบกลับมาแก้รายการ",
                       "status": 409,
                       "code": "settlement_disputed",
                       "instance": "/v1/trips/trp_3f2a…",
@@ -75097,6 +75708,7 @@
             "enum": [
               "DRAFT",
               "SENT_TO_CARRIER",
+              "DISPUTED",
               "APPROVED",
               "CANCELLED"
             ]
@@ -75332,6 +75944,12 @@
               "type": "string"
             }
           },
+          "buyClaimedAmount": {
+            "type": "string",
+            "nullable": true,
+            "example": "5200.00",
+            "description": "ยอดที่รถร่วมเรียก (ST6-T06 — เฉพาะโต้แย้ง ไม่บังคับ; null = ไม่ระบุ) — เห็นเมื่อมี `prices.buy:read`"
+          },
           "round": {
             "type": "number",
             "description": "รอบตรวจ (เพิ่มทุกครั้งที่ส่งให้รถร่วมตรวจ)"
@@ -75347,6 +75965,42 @@
           "photoIds",
           "round",
           "respondedAt"
+        ]
+      },
+      "SettlementLineCompanyReviewDto": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "DISPUTED",
+              "RESOLVED"
+            ],
+            "description": "DISPUTED = บริษัท (บัญชี) ติด dispute รายการเอง · RESOLVED = เคลียร์ — ยืนยันยอดเดิมพร้อมเหตุผล"
+          },
+          "reason": {
+            "type": "string",
+            "description": "เหตุผล (RESOLVED: แสดงให้รถร่วมเห็นบนลิงก์ตรวจ)"
+          },
+          "round": {
+            "type": "number",
+            "description": "รอบตรวจ"
+          },
+          "by": {
+            "type": "string",
+            "description": "ผู้บันทึก"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "action",
+          "reason",
+          "round",
+          "by",
+          "at"
         ]
       },
       "SettlementLineDto": {
@@ -75453,6 +76107,26 @@
                 "$ref": "#/components/schemas/SettlementLineReviewDto"
               }
             ]
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "OPEN",
+              "DISPUTED",
+              "APPROVED"
+            ],
+            "description": "สถานะรายการ (ST6-T06; docs/04 F6) ในรอบตรวจปัจจุบัน — OPEN = ยังไม่มีคำตอบ · DISPUTED = โต้แย้งค้าง (บล็อกอนุมัติทั้งใบ) · APPROVED = รถร่วมยอมรับ/บริษัทเคลียร์แล้ว · null = บรรทัดที่นำออกแล้ว"
+          },
+          "companyReview": {
+            "nullable": true,
+            "description": "การตัดสินล่าสุดของบริษัทในรอบตรวจปัจจุบัน (ST6-T06) — null = ไม่มี",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SettlementLineCompanyReviewDto"
+              }
+            ]
           }
         },
         "required": [
@@ -75474,7 +76148,9 @@
           "voidReason",
           "createdBy",
           "createdAt",
-          "carrierReview"
+          "carrierReview",
+          "status",
+          "companyReview"
         ]
       },
       "SettlementCarrierReviewDto": {
@@ -75503,6 +76179,28 @@
           "pending"
         ]
       },
+      "SettlementDisputeSummaryDto": {
+        "type": "object",
+        "properties": {
+          "disputed": {
+            "type": "number",
+            "description": "รายการโต้แย้งค้าง (`disputed_count` — รถร่วมโต้แย้งหรือบริษัทติด dispute ที่ยังไม่เคลียร์) · > 0 = อนุมัติไม่ได้ (409 `settlement_disputed`)"
+          },
+          "approved": {
+            "type": "number",
+            "description": "รายการที่ยอมรับ/เคลียร์แล้ว (APPROVED)"
+          },
+          "open": {
+            "type": "number",
+            "description": "รายการที่ยังไม่มีคำตอบ (OPEN)"
+          }
+        },
+        "required": [
+          "disputed",
+          "approved",
+          "open"
+        ]
+      },
       "SettlementDto": {
         "type": "object",
         "properties": {
@@ -75520,6 +76218,7 @@
             "enum": [
               "DRAFT",
               "SENT_TO_CARRIER",
+              "DISPUTED",
               "APPROVED",
               "CANCELLED"
             ]
@@ -75604,6 +76303,9 @@
           "carrierReview": {
             "$ref": "#/components/schemas/SettlementCarrierReviewDto"
           },
+          "dispute": {
+            "$ref": "#/components/schemas/SettlementDisputeSummaryDto"
+          },
           "cancelledAt": {
             "type": "string",
             "nullable": true
@@ -75649,6 +76351,7 @@
           "sentAt",
           "sentBy",
           "carrierReview",
+          "dispute",
           "cancelledAt",
           "cancelledBy",
           "cancelReason",
@@ -75656,6 +76359,348 @@
           "version",
           "createdAt",
           "updatedAt"
+        ]
+      },
+      "ComparisonClaimDto": {
+        "type": "object",
+        "properties": {
+          "response": {
+            "type": "string",
+            "enum": [
+              "ACCEPTED",
+              "DISPUTED"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "photoIds": {
+            "example": [
+              "doc_…"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "respondedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "response",
+          "reason",
+          "photoIds",
+          "respondedAt"
+        ]
+      },
+      "ComparisonLineDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "stln_…"
+          },
+          "lineNo": {
+            "type": "number"
+          },
+          "lineType": {
+            "type": "string",
+            "enum": [
+              "FREIGHT",
+              "SURCHARGE",
+              "DEDUCTION"
+            ]
+          },
+          "tripId": {
+            "type": "string",
+            "nullable": true,
+            "example": "trp_…"
+          },
+          "tripNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "costType": {
+            "type": "string",
+            "nullable": true
+          },
+          "deductionType": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string",
+            "nullable": true,
+            "description": "เอกสารอ้างอิงของบรรทัดหัก"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "OPEN",
+              "DISPUTED",
+              "APPROVED"
+            ],
+            "description": "สถานะรายการในรอบตรวจปัจจุบัน"
+          },
+          "plannedSource": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "SUBCON_OFFER"
+            ],
+            "description": "ที่มาของยอดตามแผน — SUBCON_OFFER = ราคาที่ตกลงตอนจ้างรถร่วม · null = ไม่มีแผน (ค่าใช้จ่ายหน้างาน/รายการหัก/บรรทัดก่อน ST3-T22)"
+          },
+          "plannedRateCardCode": {
+            "type": "string",
+            "nullable": true,
+            "description": "rate card ที่ใช้ตอนจ้าง (ถ้ามี)"
+          },
+          "buyPlannedAmount": {
+            "type": "string",
+            "nullable": true,
+            "example": "4500.00",
+            "description": "ยอดตามแผน (planned) — เห็นเมื่อมี `prices.buy:read`"
+          },
+          "buyExecutedAmount": {
+            "type": "string",
+            "example": "4500.00",
+            "description": "ยอดที่วิ่งจริงในใบ (executed — ยอดบรรทัด, รายการหัก = ติดลบ) — เห็นเมื่อมี `prices.buy:read`"
+          },
+          "buyClaimedAmount": {
+            "type": "string",
+            "nullable": true,
+            "example": "5200.00",
+            "description": "ยอดที่รถร่วมเรียก (claimed) — ยอมรับ = ยอดในใบ · โต้แย้งพร้อมยอด = ยอดนั้น · ยังไม่ตอบ/โต้แย้งไม่ระบุยอด = null — เห็นเมื่อมี `prices.buy:read`"
+          },
+          "buyClaimedDifference": {
+            "type": "string",
+            "nullable": true,
+            "example": "700.00",
+            "description": "ส่วนต่าง claimed − executed (null = ไม่มียอดที่เรียก) — เห็นเมื่อมี `prices.buy:read`"
+          },
+          "claim": {
+            "nullable": true,
+            "description": "คำตอบล่าสุดของรถร่วมในรอบตรวจปัจจุบัน",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ComparisonClaimDto"
+              }
+            ]
+          },
+          "companyReview": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SettlementLineCompanyReviewDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "lineNo",
+          "lineType",
+          "tripId",
+          "tripNo",
+          "costType",
+          "deductionType",
+          "description",
+          "reference",
+          "status",
+          "plannedSource",
+          "plannedRateCardCode",
+          "claim",
+          "companyReview"
+        ]
+      },
+      "ComparisonPodDto": {
+        "type": "object",
+        "properties": {
+          "deliveryOrderId": {
+            "type": "string",
+            "example": "do_…"
+          },
+          "doNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "description": "สถานะ DO"
+          },
+          "podStatus": {
+            "type": "string",
+            "description": "สถานะหลักฐาน (NONE / PARTIAL / COMPLETE)"
+          },
+          "passed": {
+            "type": "boolean",
+            "description": "หลักฐานผ่านเกณฑ์จ่ายรถร่วม (กฎเดียวกับคิวจ่าย: ส่งสำเร็จผ่านเกณฑ์ POD ลูกค้าและไม่ PARTIAL · ส่งไม่สำเร็จ/ตีกลับ = หลักฐานครบ)"
+          },
+          "podVersion": {
+            "type": "number",
+            "nullable": true,
+            "description": "ฉบับ POD ล่าสุด (null = ยังไม่บันทึก)"
+          },
+          "outcome": {
+            "type": "string",
+            "nullable": true,
+            "description": "SUCCESS / FAILURE"
+          },
+          "receiverName": {
+            "type": "string",
+            "nullable": true
+          },
+          "recordedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "qtyPlanned": {
+            "type": "string",
+            "nullable": true,
+            "example": "10",
+            "description": "ปริมาณตามแผนรวม (จาก POD ล่าสุด — null = ไม่ได้บันทึกยอดส่งจริง ถือว่าตามแผน)"
+          },
+          "qtyActual": {
+            "type": "string",
+            "nullable": true,
+            "example": "9",
+            "description": "ปริมาณส่งจริงรวม"
+          },
+          "rejectQty": {
+            "type": "string",
+            "nullable": true,
+            "example": "1",
+            "description": "ปริมาณปฏิเสธรับรวม"
+          },
+          "documentIds": {
+            "example": [
+              "doc_…"
+            ],
+            "description": "รูป/ลายเซ็น/ไฟล์ของ POD ล่าสุด — เปิดผ่าน GET /v1/documents/{id}",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "deliveryOrderId",
+          "doNo",
+          "status",
+          "podStatus",
+          "passed",
+          "podVersion",
+          "outcome",
+          "receiverName",
+          "recordedAt",
+          "qtyPlanned",
+          "qtyActual",
+          "rejectQty",
+          "documentIds"
+        ]
+      },
+      "ComparisonTripDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "trp_…"
+          },
+          "tripNo": {
+            "type": "string"
+          },
+          "tripDate": {
+            "type": "string",
+            "example": "2026-11-03",
+            "description": "วันที่วางแผน"
+          },
+          "completedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "วิ่งจบเมื่อ"
+          },
+          "podComplete": {
+            "type": "boolean",
+            "description": "POD ผ่านเกณฑ์ครบทุก DO ของเที่ยว"
+          },
+          "deliveryOrders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComparisonPodDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "tripNo",
+          "tripDate",
+          "completedAt",
+          "podComplete",
+          "deliveryOrders"
+        ]
+      },
+      "SettlementComparisonDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "stl_…"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "SENT_TO_CARRIER",
+              "DISPUTED",
+              "APPROVED",
+              "CANCELLED"
+            ]
+          },
+          "round": {
+            "type": "number",
+            "description": "รอบตรวจปัจจุบัน (0 = ยังไม่เคยส่ง)"
+          },
+          "carrierInvoiceNo": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขใบแจ้งหนี้ของรถร่วม"
+          },
+          "dispute": {
+            "$ref": "#/components/schemas/SettlementDisputeSummaryDto"
+          },
+          "lines": {
+            "description": "บรรทัดที่ยังใช้ เรียงตามลำดับในใบ",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComparisonLineDto"
+            }
+          },
+          "trips": {
+            "description": "เที่ยวของบรรทัด + POD ต่อ DO",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComparisonTripDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "round",
+          "carrierInvoiceNo",
+          "dispute",
+          "lines",
+          "trips"
         ]
       },
       "UpdateSettlementDto": {
@@ -78582,6 +79627,12 @@
             "type": "number",
             "description": "จำนวนรูปที่แนบ"
           },
+          "claimedAmount": {
+            "type": "string",
+            "nullable": true,
+            "example": "5200.00",
+            "description": "ยอดที่ท่านเรียก (ST6-T06 — เฉพาะโต้แย้ง ไม่บังคับ)"
+          },
           "respondedAt": {
             "type": "string",
             "format": "date-time"
@@ -78591,7 +79642,25 @@
           "response",
           "reason",
           "photoCount",
+          "claimedAmount",
           "respondedAt"
+        ]
+      },
+      "ReviewLinkLineResolutionDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "เหตุผลที่บริษัทยืนยันยอดเดิม"
+          },
+          "resolvedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "reason",
+          "resolvedAt"
         ]
       },
       "ReviewLinkLineDto": {
@@ -78658,6 +79727,20 @@
                 "$ref": "#/components/schemas/ReviewLinkLineReviewDto"
               }
             ]
+          },
+          "resolution": {
+            "nullable": true,
+            "description": "บริษัทยืนยันยอดเดิมแล้ว (ST6-T06) — null = ยังไม่ได้ยืนยัน",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReviewLinkLineResolutionDto"
+              }
+            ]
+          },
+          "canRespond": {
+            "type": "boolean",
+            "description": "ตอบบรรทัดนี้ได้อยู่ไหม (ใบรอตรวจ และบริษัทยังไม่ยืนยันยอดเดิม)"
           }
         },
         "required": [
@@ -78672,7 +79755,9 @@
           "deductionType",
           "reference",
           "amount",
-          "review"
+          "review",
+          "resolution",
+          "canRespond"
         ]
       },
       "ReviewLinkViewDto": {
@@ -78690,9 +79775,10 @@
             "type": "string",
             "enum": [
               "SENT_TO_CARRIER",
+              "DISPUTED",
               "APPROVED"
             ],
-            "description": "SENT_TO_CARRIER = รอรถร่วมตรวจ (ตอบได้) · APPROVED = อนุมัติแล้ว (ดูอย่างเดียว)"
+            "description": "SENT_TO_CARRIER = รอรถร่วมตรวจ (ตอบได้) · DISPUTED = มีรายการที่ท่านโต้แย้งรอบริษัทตรวจ (ยังตอบได้ — ST6-T06) · APPROVED = อนุมัติแล้ว (ดูอย่างเดียว)"
           },
           "settlementNo": {
             "type": "string",
@@ -78843,6 +79929,12 @@
             "items": {
               "type": "string"
             }
+          },
+          "claimedAmount": {
+            "type": "string",
+            "nullable": true,
+            "example": "5200.00",
+            "description": "ยอดที่รถร่วมเรียก (ST6-T06 — เฉพาะโต้แย้ง ไม่บังคับ · บาท ทศนิยม ≤ 2 · ≥ 0) ใช้ในหน้าเทียบ planned / executed / claimed ของบริษัท"
           }
         },
         "required": [
@@ -78854,10 +79946,19 @@
         "properties": {
           "line": {
             "$ref": "#/components/schemas/ReviewLinkLineDto"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "SENT_TO_CARRIER",
+              "DISPUTED"
+            ],
+            "description": "สถานะใบหลังตอบ (ST6-T06 — โต้แย้งค้าง = DISPUTED)"
           }
         },
         "required": [
-          "line"
+          "line",
+          "status"
         ]
       },
       "TrackingCompanyDto": {
@@ -87725,6 +88826,7 @@
             "enum": [
               "DRAFT",
               "SENT_TO_CARRIER",
+              "DISPUTED",
               "APPROVED",
               "CANCELLED"
             ]
@@ -87774,6 +88876,9 @@
           "carrierReview": {
             "$ref": "#/components/schemas/SettlementCarrierReviewDto"
           },
+          "dispute": {
+            "$ref": "#/components/schemas/SettlementDisputeSummaryDto"
+          },
           "cancelledAt": {
             "type": "string",
             "nullable": true
@@ -87803,6 +88908,7 @@
           "approvedAt",
           "sentAt",
           "carrierReview",
+          "dispute",
           "cancelledAt",
           "version",
           "createdAt",
@@ -89478,13 +90584,18 @@
     },
     "settlement_disputed": {
       "status": 409,
-      "title": "มีรายการที่รถร่วมโต้แย้ง อนุมัติไม่ได้ — เรียกใบกลับมาแก้แล้วส่งให้รถร่วมตรวจใหม่",
-      "titleEn": "The carrier disputed lines of this settlement — it cannot be approved"
+      "title": "มีรายการโต้แย้งที่ยังไม่เคลียร์ อนุมัติไม่ได้ — ยืนยันยอดเดิมพร้อมเหตุผล หรือเรียกใบกลับมาแก้รายการ",
+      "titleEn": "The settlement has unresolved disputed lines — it cannot be approved"
     },
     "settlement_empty": {
       "status": 409,
       "title": "ใบสำคัญจ่ายยังไม่มีรายการเที่ยว อนุมัติไม่ได้",
       "titleEn": "The settlement has no trip lines"
+    },
+    "settlement_line_resolved": {
+      "status": 409,
+      "title": "บริษัทยืนยันยอดของรายการนี้แล้ว ตอบรายการนี้ไม่ได้อีก",
+      "titleEn": "The company already resolved this line — it cannot be answered again"
     },
     "settlement_net_negative": {
       "status": 409,

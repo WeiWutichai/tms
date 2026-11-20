@@ -7,6 +7,7 @@ import { E2E_WEB, expect, test } from './fixtures';
 /**
  * E2E ST6-T05 รถร่วมตรวจใบสำคัญจ่ายผ่านลิงก์ (docs/04 F6 "รถร่วมตรวจผ่านลิงก์") — เกณฑ์ตรวจรับ:
  * รถร่วมเปิดลิงก์เห็นเฉพาะเที่ยวและราคาซื้อของตัวเอง · กดโต้แย้งแล้วรายการติดธง (บริษัทเห็นธง + อนุมัติไม่ได้)
+ * ST6-T06 (Dispute): ใบมีรายการโต้แย้ง → หัวใบ DISPUTED อนุมัติไม่ได้ (409) → บริษัทยืนยันยอดเดิมพร้อมเหตุผล → รถร่วมเห็นเหตุผล ตอบซ้ำไม่ได้ → อนุมัติได้
  * เตรียมข้อมูลผ่าน /v1 จริง (ฐาน e2e) — จำลองเที่ยววิ่งจบในฐาน (flow วิ่งงานทดสอบใน ST3/ST4) แล้วปิดต้นทุนผ่าน API · ข้อมูลสมมติ
  */
 const env = Object.fromEntries(
@@ -36,11 +37,11 @@ function jurTax(n: number): string {
   return base + String((11 - (sum % 11)) % 10);
 }
 
-async function token(page: Page): Promise<string> {
+async function token(page: Page, email = 'owner@demo-a.test'): Promise<string> {
   const v = randomBytes(32).toString('base64url');
   const r1 = await page.request.post('/v1/auth/login', {
     data: {
-      email: 'owner@demo-a.test',
+      email,
       password: 'demo-password-2569',
       codeChallenge: createHash('sha256').update(v).digest('base64url'),
     },
@@ -62,7 +63,7 @@ type Settlement = {
 test.describe.serial('รถร่วมตรวจใบสำคัญจ่ายผ่านลิงก์ (ST6-T05)', () => {
   test.describe.configure({ timeout: 90_000 });
   let H: Record<string, string> = {};
-  const S: { url?: string; id?: string; other?: string } = {};
+  const S: { url?: string; id?: string; other?: string; otherUrl?: string } = {};
 
   const get = async <X>(page: Page, path: string) =>
     (await (await page.request.get(path, { headers: H })).json()) as X;
@@ -183,6 +184,7 @@ test.describe.serial('รถร่วมตรวจใบสำคัญจ่�
     S.url = mine.url;
     S.id = mine.id;
     S.other = other.id;
+    S.otherUrl = other.url;
   });
 
   const mobile = async (browser: Browser, url: string) => {
@@ -256,5 +258,56 @@ test.describe.serial('รถร่วมตรวจใบสำคัญจ่�
     const { ctx, p } = await mobile(browser, S.url!);
     await expect(p.getByText('ลิงก์นี้ใช้ไม่ได้')).toBeVisible();
     await ctx.close();
+  });
+
+  test('ST6-T06 เกณฑ์ตรวจรับ: รายการโต้แย้ง → หัวใบ "มีรายการโต้แย้ง" + อนุมัติ 409 → บริษัทยืนยันยอดเดิม → รถร่วมเห็นเหตุผล ตอบซ้ำไม่ได้ → อนุมัติได้', async ({
+    page,
+    browser,
+  }) => {
+    const { ctx, p } = await mobile(browser, S.otherUrl!);
+    await expect(p.getByTestId('stl-status')).toHaveText('รอตรวจ');
+    await p.getByTestId('stl-dispute-1').click();
+    await p.getByTestId('stl-why').fill('เที่ยวนี้รอขึ้นของ 4 ชม. ยังไม่รวมค่ารอ');
+    await p.getByTestId('stl-dispute-ok').click();
+    await expect(p.getByTestId('stl-line-1')).toContainText('โต้แย้ง');
+    await expect(p.getByTestId('stl-status')).toHaveText('มีรายการโต้แย้ง');
+
+    // ผู้อนุมัติ (ไม่ใช่ผู้เตรียมใบ) กดอนุมัติไม่ได้ — 409 settlement_disputed
+    const A = { Authorization: `Bearer ${await token(page, 'approver@demo-a.test')}` };
+    const approve = async () => {
+      const s = await get<Settlement & { status: string }>(page, `/v1/settlements/${S.other}`);
+      return page.request.post(`/v1/settlements/${S.other}/approve`, {
+        headers: { ...A, 'If-Match': `"${s.version}"` },
+        data: { reason: 'ตรวจยอดตรงใบแจ้งหนี้รถร่วมแล้ว' },
+      });
+    };
+    const blocked = await approve();
+    expect(blocked.status(), await blocked.text()).toBe(409);
+    expect(await blocked.json()).toMatchObject({ code: 'settlement_disputed', disputedCount: 1 });
+
+    // บริษัทยืนยันยอดเดิมพร้อมเหตุผล (ผู้เตรียมใบ)
+    const s = await get<Settlement & { status: string }>(page, `/v1/settlements/${S.other}`);
+    expect(s.status).toBe('DISPUTED');
+    const line = s.lines.find((l) => l.lineType === 'FREIGHT')!;
+    const r = await page.request.post(`/v1/settlements/${S.other}/lines/${line.id}/resolve`, {
+      headers: { ...H, 'If-Match': `"${s.version}"` },
+      data: { reason: 'ตรวจเวลาเข้าออกคลังแล้ว ค่ารอรวมในราคาเหมาตามสัญญา' },
+    });
+    expect(r.status(), await r.text()).toBe(200);
+    expect((await r.json()).status).toBe('SENT_TO_CARRIER');
+
+    await p.reload();
+    await expect(p.getByTestId('stl-status')).toHaveText('รอตรวจ');
+    await expect(p.getByTestId('stl-line-1')).toContainText('ยืนยันยอดเดิม');
+    await expect(p.getByTestId('stl-resolved-1')).toHaveText(
+      'บริษัทยืนยันยอดเดิม: ตรวจเวลาเข้าออกคลังแล้ว ค่ารอรวมในราคาเหมาตามสัญญา',
+    );
+    await expect(p.getByTestId('stl-dispute-1')).toHaveCount(0);
+    await expect(p.getByTestId('stl-accept-2')).toBeVisible();
+    await ctx.close();
+
+    const ok = await approve();
+    expect(ok.status(), await ok.text()).toBe(200);
+    expect((await ok.json()).status).toBe('APPROVED');
   });
 });

@@ -14,14 +14,26 @@ import {
 import { ListQuery } from '../../common/pagination';
 import { PriceField } from '../../common/price-fields';
 import { CleanText } from '../master/master-kit';
+import {
+  COMPANY_DISPUTE_ACTIONS,
+  LINE_STATUSES,
+  type CompanyDisputeAction,
+  type LineStatus,
+} from './settlement-dispute';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** ยอดหักติดลบ (บาท ทศนิยม ≤ 2) — numeric(14,2) */
 /** ยอดหักติดลบ ≠ 0 ("-0", "-0.00", "-00.00" ไม่ผ่าน) */
 const NEG_MONEY = /^-(?!0+(\.0{1,2})?$)\d{1,12}(\.\d{1,2})?$/;
 
-/** docs/01 §4.5 — SENT_TO_CARRIER (ST6-T05) · DISPUTED (ST6-T06) และ PAID (ST6-T09) เพิ่มภายหลัง */
-export const SETTLEMENT_STATUSES = ['DRAFT', 'SENT_TO_CARRIER', 'APPROVED', 'CANCELLED'] as const;
+/** docs/01 §4.5 — SENT_TO_CARRIER (ST6-T05) · DISPUTED (ST6-T06) · PAID (ST6-T09) เพิ่มภายหลัง */
+export const SETTLEMENT_STATUSES = [
+  'DRAFT',
+  'SENT_TO_CARRIER',
+  'DISPUTED',
+  'APPROVED',
+  'CANCELLED',
+] as const;
 /** คำตอบของรถร่วมต่อบรรทัด (ST6-T05) */
 export const CARRIER_REVIEW_RESPONSES = ['ACCEPTED', 'DISPUTED'] as const;
 export type CarrierReviewResponse = (typeof CARRIER_REVIEW_RESPONSES)[number];
@@ -257,8 +269,31 @@ export class SettlementLineReviewDto {
     description: 'รูปประกอบ — เปิดดูผ่าน GET /v1/documents/{id}',
   })
   photoIds!: string[];
+  @ApiPropertyOptional({
+    nullable: true,
+    type: String,
+    example: '5200.00',
+    description:
+      'ยอดที่รถร่วมเรียก (ST6-T06 — เฉพาะโต้แย้ง ไม่บังคับ; null = ไม่ระบุ) — เห็นเมื่อมี `prices.buy:read`',
+  })
+  @PriceField('buy')
+  buyClaimedAmount?: string | null;
   @ApiProperty({ description: 'รอบตรวจ (เพิ่มทุกครั้งที่ส่งให้รถร่วมตรวจ)' }) round!: number;
   @ApiProperty({ format: 'date-time' }) respondedAt!: string;
+}
+
+/** การตัดสินล่าสุดของบริษัทต่อบรรทัดในรอบตรวจปัจจุบัน (ST6-T06) */
+export class SettlementLineCompanyReviewDto {
+  @ApiProperty({
+    enum: COMPANY_DISPUTE_ACTIONS,
+    description:
+      'DISPUTED = บริษัท (บัญชี) ติด dispute รายการเอง · RESOLVED = เคลียร์ — ยืนยันยอดเดิมพร้อมเหตุผล',
+  })
+  action!: CompanyDisputeAction;
+  @ApiProperty({ description: 'เหตุผล (RESOLVED: แสดงให้รถร่วมเห็นบนลิงก์ตรวจ)' }) reason!: string;
+  @ApiProperty({ description: 'รอบตรวจ' }) round!: number;
+  @ApiProperty({ description: 'ผู้บันทึก' }) by!: string;
+  @ApiProperty({ format: 'date-time' }) at!: string;
 }
 
 /** สรุปการตรวจของรถร่วมในรอบปัจจุบัน (ST6-T05) — นับเฉพาะบรรทัดที่ยังใช้ */
@@ -270,6 +305,17 @@ export class SettlementCarrierReviewDto {
   })
   disputed!: number;
   @ApiProperty({ description: 'บรรทัดที่รถร่วมยังไม่ตอบ' }) pending!: number;
+}
+
+/** สรุป dispute ของใบในรอบปัจจุบัน (ST6-T06) — นับเฉพาะบรรทัดที่ยังใช้ */
+export class SettlementDisputeSummaryDto {
+  @ApiProperty({
+    description:
+      'รายการโต้แย้งค้าง (`disputed_count` — รถร่วมโต้แย้งหรือบริษัทติด dispute ที่ยังไม่เคลียร์) · > 0 = อนุมัติไม่ได้ (409 `settlement_disputed`)',
+  })
+  disputed!: number;
+  @ApiProperty({ description: 'รายการที่ยอมรับ/เคลียร์แล้ว (APPROVED)' }) approved!: number;
+  @ApiProperty({ description: 'รายการที่ยังไม่มีคำตอบ (OPEN)' }) open!: number;
 }
 
 export class SettlementLineDto {
@@ -318,6 +364,19 @@ export class SettlementLineDto {
     description: 'คำตอบล่าสุดของรถร่วมในรอบตรวจปัจจุบัน (ST6-T05) — null = ยังไม่ตอบ/ไม่ได้ส่งตรวจ',
   })
   carrierReview!: SettlementLineReviewDto | null;
+  @ApiProperty({
+    nullable: true,
+    enum: LINE_STATUSES,
+    description:
+      'สถานะรายการ (ST6-T06; docs/04 F6) ในรอบตรวจปัจจุบัน — OPEN = ยังไม่มีคำตอบ · DISPUTED = โต้แย้งค้าง (บล็อกอนุมัติทั้งใบ) · APPROVED = รถร่วมยอมรับ/บริษัทเคลียร์แล้ว · null = บรรทัดที่นำออกแล้ว',
+  })
+  status!: LineStatus | null;
+  @ApiProperty({
+    nullable: true,
+    type: SettlementLineCompanyReviewDto,
+    description: 'การตัดสินล่าสุดของบริษัทในรอบตรวจปัจจุบัน (ST6-T06) — null = ไม่มี',
+  })
+  companyReview!: SettlementLineCompanyReviewDto | null;
 }
 
 /** ใบสำคัญจ่ายรถร่วม (ร่าง) */
@@ -389,6 +448,7 @@ export class SettlementDto {
   sentAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) sentBy!: string | null;
   @ApiProperty({ type: SettlementCarrierReviewDto }) carrierReview!: SettlementCarrierReviewDto;
+  @ApiProperty({ type: SettlementDisputeSummaryDto }) dispute!: SettlementDisputeSummaryDto;
   @ApiProperty({ nullable: true, type: String }) cancelledAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) cancelledBy!: string | null;
   @ApiProperty({ nullable: true, type: String }) cancelReason!: string | null;

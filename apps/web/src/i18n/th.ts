@@ -3268,6 +3268,7 @@ export const th = {
   'stl.eyebrow': 'ใบสรุปค่าขนส่ง',
   'stl.st.SENT_TO_CARRIER': 'รอตรวจ',
   'stl.st.APPROVED': 'อนุมัติแล้ว · รอจ่าย',
+  'stl.st.DISPUTED': 'มีรายการโต้แย้ง',
   'stl.draftNo': 'รอออกเลขเมื่ออนุมัติ',
   'stl.period': 'งวด {a} – {b}',
   'stl.trips': '{n} เที่ยว',
@@ -3283,6 +3284,8 @@ export const th = {
   'stl.ln.st.PENDING': 'รอตรวจ',
   'stl.ln.st.ACCEPTED': 'ยอมรับแล้ว',
   'stl.ln.st.DISPUTED': 'โต้แย้ง',
+  'stl.ln.st.RESOLVED': 'ยืนยันยอดเดิม',
+  'stl.ln.resolvedWhy': 'บริษัทยืนยันยอดเดิม: {r}',
   'stl.ln.surcharge': 'ค่าใช้จ่ายหน้างาน',
   'stl.ln.ref': 'อ้างอิง {r}',
   'stl.ln.photos': 'แนบรูป {n} รูป',
@@ -3298,6 +3301,7 @@ export const th = {
   'stl.toast.DISPUTED': 'แจ้งโต้แย้งรายการ {n} แล้ว · {c} จะติดต่อกลับ',
   'stl.e.failed': 'บันทึกไม่สำเร็จ ลองอีกครั้ง',
   'stl.e.closed': 'ใบนี้ไม่อยู่ในสถานะรอตรวจแล้ว',
+  'stl.e.resolved': 'บริษัทยืนยันยอดของรายการนี้แล้ว ตอบไม่ได้อีก',
   'stl.ln.deduct.CASH_ADVANCE': 'เงินเบิกล่วงหน้า',
   'stl.ln.deduct.FUEL_PROVIDED': 'ค่าน้ำมันที่บริษัทจ่าย',
   'stl.ln.deduct.FINE': 'ค่าปรับ',
@@ -4521,7 +4525,8 @@ export const th = {
   'problem.settlement_net_negative':
     'ยอดสุทธิติดลบ อนุมัติไม่ได้ — นำรายการหักส่วนเกินออกแล้วยกไปงวดถัดไป',
   'problem.settlement_disputed':
-    'มีรายการที่รถร่วมโต้แย้ง อนุมัติไม่ได้ — เรียกใบกลับมาแก้แล้วส่งให้รถร่วมตรวจใหม่',
+    'มีรายการโต้แย้งที่ยังไม่เคลียร์ อนุมัติไม่ได้ — ยืนยันยอดเดิมพร้อมเหตุผล หรือเรียกใบกลับมาแก้รายการ',
+  'problem.settlement_line_resolved': 'บริษัทยืนยันยอดของรายการนี้แล้ว ตอบรายการนี้ไม่ได้อีก',
   'problem.settlement_review_required': 'ต้องส่งให้รถร่วมตรวจก่อนอนุมัติ (ตั้งค่าบริษัท)',
   'problem.trip_cost_not_payable':
     'เที่ยวหรือบรรทัดต้นทุนนี้ยังไม่อยู่ในคิวจ่ายของรถร่วมรายนี้ (ต้องปิดต้นทุนแล้ว หลักฐานส่งครบตามเงื่อนไข และเป็นของรถร่วมรายนี้)',

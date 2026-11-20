@@ -174,6 +174,7 @@ import { BillingQueueService } from './modules/invoices/billing-queue.service';
 import { BillingReleaseService } from './modules/invoices/billing-release.service';
 import { InvoiceBillingGuard } from './modules/invoices/billing-guard.service';
 import { SettlementQueueService } from './modules/settlements/settlement-queue.service';
+import { SettlementComparisonService } from './modules/settlements/settlement-comparison.service';
 import { SettlementsService } from './modules/settlements/settlements.service';
 import { StopEventFlagsController } from './modules/stops/stop-event-flags.controller';
 import { StopsController, TripEventsController } from './modules/stops/stops.controller';
@@ -393,6 +394,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     SettlementQueueService,
     SettlementsService,
     SettlementReviewService,
+    SettlementComparisonService,
     BillingQueueService,
     BillingReleaseService,
     InvoiceBillingGuard,

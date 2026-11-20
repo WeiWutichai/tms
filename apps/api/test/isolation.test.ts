@@ -977,6 +977,8 @@ const BODY_FOR_PATH: Record<string, object> = {
   '/v1/revenue-lines/:id/void': { reason: 'isolation test reason' }, // ST5-T01
   '/v1/settlements/:id/lines/:lineId/remove': { reason: 'isolation test reason' }, // ST6-T03
   '/v1/settlements/:id/recall': { reason: 'isolation test reason' }, // ST6-T05
+  '/v1/settlements/:id/lines/:lineId/dispute': { reason: 'isolation test reason' }, // ST6-T06
+  '/v1/settlements/:id/lines/:lineId/resolve': { reason: 'isolation test reason' }, // ST6-T06
   '/v1/api-keys/:id/rotate': { reason: 'isolation test reason' }, // ST7-T01
   '/v1/webhooks/:id/disable': { reason: 'isolation test reason' }, // ST7-T04
   '/v1/connectors/:id/credentials': { credentials: { apiKey: 'isolation' } }, // ST7-T13
