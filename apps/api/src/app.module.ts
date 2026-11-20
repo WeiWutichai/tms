@@ -176,6 +176,8 @@ import { InvoicesService } from './modules/invoices/invoices.service';
 import { InvoicePdfService } from './modules/invoices/invoice-pdf.service';
 import { InvoiceFinalizeService } from './modules/invoices/invoice-finalize.service';
 import { InvoiceBillingGuard } from './modules/invoices/billing-guard.service';
+import { BillingNotesController } from './modules/billing-notes/billing-notes.controller';
+import { BillingNotesService } from './modules/billing-notes/billing-notes.service';
 import { SettlementQueueService } from './modules/settlements/settlement-queue.service';
 import { SettlementComparisonService } from './modules/settlements/settlement-comparison.service';
 import { SettlementsService } from './modules/settlements/settlements.service';
@@ -312,6 +314,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     RevenueLinesController,
     SettlementsController,
     InvoicesController,
+    BillingNotesController,
     DeliveryOrderReleaseController,
     DeliveryOrderRevenueLinesController,
     DoSurchargesController,
@@ -404,6 +407,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     InvoicesService,
     InvoicePdfService,
     InvoiceFinalizeService,
+    BillingNotesService,
     StopEventsService,
     StopProjectionService,
     SubconHireService,

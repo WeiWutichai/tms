@@ -122,7 +122,7 @@ export function useFinalize() {
 /**
  * เปิด PDF ในแท็บใหม่ — เปิดหน้าต่าง **ทันทีตอนกด** (ก่อน await — กัน popup blocker) แล้วค่อยใส่ไฟล์ · เปิดไม่ได้ = ดาวน์โหลด
  */
-async function showPdf(
+export async function showPdf(
   load: () => Promise<{ response: Response; data?: unknown; error?: unknown }>,
   filename: string,
 ): Promise<void> {
