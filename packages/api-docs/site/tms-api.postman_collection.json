@@ -4216,7 +4216,7 @@
                 "settlements"
               ]
             },
-            "description": "scope: settlements:create\n\nรถร่วม 1 ราย หลายเที่ยว: `tripIds` (ทุกบรรทัดที่รอจ่ายของเที่ยว) และ/หรือ `tripCostIds` (รายบรรทัด) — ต้องอยู่ในคิวจ่าย (`GET /settlements/queue`) ของรถร่วมรายนี้ มิฉะนั้น 409 `trip_cost_not_payable` · บรรทัดที่อยู่ในใบอื่นที่ยังใช้แล้ว → **409 `trip_cost_already_settled`** (กันจ่ายซ้ำ — unique ระดับ DB) · บรรทัดหัก (`deductions`) กรอกมือ ยอดติดลบ + เอกสารอ้างอิง · ยอดสุทธิ = ยอดรวม − รายการหัก · งวดไม่ส่ง = ช่วงวันที่เที่ยวจบ (เวลาไทย) · audit `settlement.created`",
+            "description": "scope: settlements:create\n\nรถร่วม 1 ราย หลายเที่ยว: `tripIds` (ทุกบรรทัดที่รอจ่ายของเที่ยว) และ/หรือ `tripCostIds` (รายบรรทัด) — ต้องอยู่ในคิวจ่าย (`GET /settlements/queue`) ของรถร่วมรายนี้ มิฉะนั้น 409 `trip_cost_not_payable` · บรรทัดที่อยู่ในใบอื่นที่ยังใช้แล้ว → **409 `trip_cost_already_settled`** (กันจ่ายซ้ำ — unique ระดับ DB) · บรรทัดหัก (`deductions`) กรอกมือ ยอดติดลบ + เอกสารอ้างอิง · ยอดสุทธิ `buyNetPayable` = ยอดรวม − รายการหัก (ก่อนหัก ณ ที่จ่าย) · หัก ณ ที่จ่าย**ประมาณการ** `buyWhtAmount` = ยอดก่อนหัก × อัตราของบรรทัด (`whtRate` ที่คัดลอกจากต้นทุน — ไม่มีธงใช้ค่าตั้งต้นของรถร่วม) ปัดครั้งเดียวต่อกลุ่มอัตรา + ขั้นต่ำ `tax.whtMinimumAmount` · `buyNetAfterWht` = ยอดจ่ายหลังหัก · `whtEstimate` แยกอัตรา + แบบ ภ.ง.ด.3/53 (ร่าง — ยังไม่ผ่านนักบัญชี) · งวดไม่ส่ง = ช่วงวันที่เที่ยวจบ (เวลาไทย) · audit `settlement.created`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"tripIds\": [\n    \"trp_…\"\n  ],\n  \"tripCostIds\": [\n    \"tco_…\"\n  ],\n  \"periodFrom\": \"2026-11-01\",\n  \"periodTo\": \"2026-11-15\",\n  \"carrierId\": \"car_…\"\n}",

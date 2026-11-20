@@ -421,6 +421,7 @@
 | `carrierInvoiceDate` | ใช่ | `string` | null ได้ |   |   |
 | `carrierReceiptNo` | ใช่ | `string` | null ได้ |   |   |
 | `tripCount` | ใช่ | `number` |   | จำนวนเที่ยวในใบ (บรรทัดที่ยังใช้) |   |
+| `whtEstimate` | ใช่ | `SettlementWhtEstimateDto` |   |   |   |
 | `approvedAt` | ใช่ | `string` | null ได้ | เวลาอนุมัติ — ออกเลข `settlementNo` พร้อมกัน |   |
 | `sentAt` | ใช่ | `string` | null ได้ | ส่งให้รถร่วมตรวจล่าสุด — ผู้ส่งนับเป็นผู้เตรียมใบ (อนุมัติใบนี้ไม่ได้) |   |
 | `carrierReview` | ใช่ | `SettlementCarrierReviewDto` |   |   |   |

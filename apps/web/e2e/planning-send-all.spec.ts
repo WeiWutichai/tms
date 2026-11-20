@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import type { Page } from '@playwright/test';
-import { expect, test } from './fixtures';
+import type { Page, Response } from '@playwright/test';
+import { DEMO_IDS, DEMO_TRUSTED_DEVICE, E2E_WEB, expect, test } from './fixtures';
 
 /**
  * E2E ST3-T18 Send all (docs/04 D2 "checkbox ส่งงานทั้งวันของทุกรถทีเดียว; ปฏิทินขึ้นเขียวเมื่อส่งครบ"; spec/03 §9) — เกณฑ์ตรวจรับ:
@@ -9,6 +9,12 @@ import { expect, test } from './fixtures';
  *     ขึ้น dialog "ทำไม่สำเร็จ" ไม่ข้ามเงียบ — วันยังไม่เขียว
  * (2) แก้ (ใส่คนขับประจำ) แล้ว Send all อีกครั้ง → ทุกเที่ยว DISPATCHED (DO ทุกใบ) และหัววันในมุมมอง 7 วันเป็นสีเขียว
  * ใช้วัน +5 (วันที่ spec อื่นไม่สร้างเที่ยว) ผ่าน /v1 จริง (ฐาน e2e) · ข้อมูลสมมติ
+ *
+ * กัน flaky ตอนเครื่องโหลดสูง (ci:local):
+ * - dialog ยิง `dryRun` (ตรวจล่วงหน้า) ของวันที่เลือก — dryRun ทำจริงทุกขั้นใน transaction แล้วย้อน จึงถือ row lock ของเที่ยวชุดเดียวกัน
+ *   ถ้ากดส่งระหว่าง dryRun ยังไม่จบ คำขอส่งจริงต้องรอ lock (เวลา dryRun + เวลาส่ง > 5 วินาทีของ expect) → รอผลตรวจล่วงหน้าก่อนกดส่ง
+ *   และรอ response ของการส่งจริง (207) ก่อนตรวจ dialog/toast
+ * - สร้างข้อมูลตั้งต้นใน beforeAll (งบเวลาของตัวเอง) ไม่กินงบ 30 วินาทีของ test แรก
  */
 const RUN = String(Date.now()).slice(-6);
 const CUST = `ลูกค้าส่งแผนอีทูอี ${RUN}`;
@@ -70,10 +76,32 @@ test.describe.serial('ส่งแผนทั้งวัน (ST3-T18)', () => 
       licenceExpiresOn: '2030-03-31',
       defaultVehicleId: vehicleId,
     });
+  /** response ของ POST /v1/trips/send-all ของวัน DAY — dryRun (ตรวจล่วงหน้าของ dialog) หรือส่งจริง */
+  const sendAllOf =
+    (dryRun: boolean) =>
+    (r: Response): boolean => {
+      const q = r.request();
+      if (q.method() !== 'POST' || !r.url().endsWith('/v1/trips/send-all')) return false;
+      const b = q.postDataJSON() as { date?: string; dryRun?: boolean } | null;
+      return b?.date === DAY && (b.dryRun === true) === dryRun;
+    };
 
-  test.beforeEach(async ({ page }) => {
+  test.beforeAll(async ({ browser }) => {
+    // งบเวลาของ beforeAll แยกจาก test — ข้อมูลตั้งต้น ~25 คำขอ API ต่อกัน: วัดตอนเครื่องโหลด ~80 ได้ 0.1–5.5 วินาที/คำขอ
+    // (login 5.5 s, POST /orders 4.1 s, POST /trips 4.5 s) รวมเกิน 30 วินาทีได้จริง → ให้ 90 วินาทีเฉพาะ hook นี้
+    test.setTimeout(90_000);
+    const page = await browser.newPage();
+    // เจ้าของบริษัทบังคับ 2FA — cookie อุปกรณ์ที่จำไว้จาก seed (แบบเดียวกับ fixtures.ts)
+    await page.context().addCookies([
+      {
+        name: 'tms_td',
+        value: `${DEMO_TRUSTED_DEVICE}:${DEMO_IDS['owner@demo-a.test']}`,
+        url: `${E2E_WEB}/v1/auth`,
+        httpOnly: true,
+        sameSite: 'Strict',
+      },
+    ]);
     H = { Authorization: `Bearer ${await token(page)}` };
-    if (T.a) return;
     const get = async <X>(path: string) =>
       (await (await page.request.get(path, { headers: H })).json()) as X;
     type Page1 = { data: { id: string; code?: string }[] };
@@ -146,6 +174,11 @@ test.describe.serial('ส่งแผนทั้งวัน (ST3-T18)', () => 
     T.c = await trip([await doOf((await so()).id)], vc.id, '09', '11');
     // B จัดรถไว้แล้ว (ASSIGNED) — Send all ปล่อยอย่างเดียว
     T.b = await post<Trip>(page, `/v1/trips/${T.b.id}/assign`, { vehicleId: vb.id });
+    await page.close();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    H = { Authorization: `Bearer ${await token(page)}` };
   });
 
   test('ปุ่ม "ส่งแผนให้คนขับ" → checkbox ส่งงานทั้งวัน → เที่ยวที่ส่งไม่ได้ขึ้นพร้อมเหตุผล (ไม่ข้ามเงียบ) · วันยังไม่เขียว', async ({
@@ -157,10 +190,14 @@ test.describe.serial('ส่งแผนทั้งวัน (ST3-T18)', () => 
     await expect(head).toBeVisible();
     await expect(head).not.toHaveAttribute('data-done', 'true');
 
+    // ฟังก่อนเปิด dialog — วันเริ่มต้นของ dialog อาจเป็น DAY อยู่แล้ว (dryRun ยิงตอนเปิด)
+    const checked = page.waitForResponse(sendAllOf(true));
     await page.getByRole('button', { name: 'ส่งแผนให้คนขับ' }).click();
     const dlg = page.getByRole('dialog', { name: 'ส่งแผนให้คนขับ' });
     await expect(dlg).toBeVisible();
     await dlg.getByRole('combobox', { name: 'วันที่' }).selectOption(DAY);
+    // ผลตรวจล่วงหน้า (dryRun) ของวันนั้นกลับมาก่อน — ไม่งั้นการส่งจริงต้องรอ row lock ของ dryRun
+    expect((await checked).status()).toBe(207);
     const master = dlg.getByTestId('send-all-master');
     await expect(master).toBeChecked();
     await expect(dlg).toContainText('ส่งงานทั้งวันของทุกรถ (3 เที่ยว · 3 คัน)');
@@ -170,7 +207,10 @@ test.describe.serial('ส่งแผนทั้งวัน (ST3-T18)', () => 
       'ยังไม่กำหนดคนขับ',
     );
     await page.screenshot({ path: 'test-results/st3-send-all-dialog.png' });
+    const sent = page.waitForResponse(sendAllOf(false));
     await dlg.getByRole('button', { name: 'ส่งแผน 3 เที่ยว' }).click();
+    // ส่งจริง 3 เที่ยว (ปล่อยรถ + DO + audit/event) ใช้หลายวินาทีเมื่อเครื่องโหลดสูง — รอ response ก่อนตรวจ dialog ผล
+    expect((await sent).status()).toBe(207);
 
     const fail = page.getByRole('dialog', { name: 'ทำไม่สำเร็จ 1 เที่ยว' });
     await expect(fail).toBeVisible();
@@ -190,10 +230,12 @@ test.describe.serial('ส่งแผนทั้งวัน (ST3-T18)', () => 
     await driver(page, 'คนขับส่งแผน ค', vcId, 5);
     await page.goto('/plan');
     await page.getByRole('tab', { name: /^7 วัน/ }).click();
+    const checked = page.waitForResponse(sendAllOf(true));
     await page.getByRole('button', { name: 'ส่งแผนให้คนขับ' }).click();
     const dlg = page.getByRole('dialog', { name: 'ส่งแผนให้คนขับ' });
     await dlg.getByRole('combobox', { name: 'วันที่' }).selectOption(DAY);
     await expect(dlg).toContainText('ส่งแล้ว 2 / 3 เที่ยว');
+    expect((await checked).status()).toBe(207);
     await expect(dlg.getByTestId('send-all-row')).toHaveCount(1);
     // QA M1: ดับเบิลคลิก = ส่งครั้งเดียว (audit trip.sent_all ของวันนั้นเพิ่ม 1 แถว)
     const sentAudits = async () =>
@@ -203,7 +245,9 @@ test.describe.serial('ส่งแผนทั้งวัน (ST3-T18)', () => 
         ).json()) as { data: { action: string; after: { date?: string } | null }[] }
       ).data.filter((x) => x.action === 'trip.sent_all' && x.after?.date === DAY).length;
     const before = await sentAudits();
+    const sent = page.waitForResponse(sendAllOf(false));
     await dlg.getByRole('button', { name: 'ส่งแผน 1 เที่ยว' }).dblclick();
+    expect((await sent).status()).toBe(207);
     await expect(page.getByRole('status').filter({ hasText: 'ส่งแผน 1 เที่ยวแล้ว' })).toContainText(
       'ส่งครบแล้ว',
     );

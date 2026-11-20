@@ -66,6 +66,11 @@ export interface ErpContext {
   /** ยกเลิกเมื่อ lease ของคำสั่งหลุด/ปิด worker */
   signal?: AbortSignal;
   /**
+   * ST8-T04 capability ที่ tenant เปิดกับ connector นี้ (`capabilities_enabled`) — adapter ใช้ตัดสินว่า healthCheck
+   * ต้องตรวจส่วนไหน (เช่น เปิด pullOrders = ตรวจแหล่ง SO ด้วย) · ไม่มี = ไม่รู้ (contract test / Standalone)
+   */
+  capabilitiesEnabled?: readonly string[];
+  /**
    * ST8-T06 ค่าจากเอกสารที่ core ตรวจตาม `masterCodeRefs` ของ adapter แล้ว — ชนิด → (ค่าในเอกสาร trim + ตัวพิมพ์เล็ก → รหัส/ชื่อ)
    * มีเฉพาะตอนส่งคำสั่ง push · payload builder ใช้ `resolvedMasterCode()` / `resolvedMasterCodeName()`
    * ทุกค่าที่ประกาศและไม่ถูกกันอยู่ในนี้: หาเจอในผัง = รหัสตามผัง · ไม่ได้ตรวจ (ช่องไม่บังคับที่ยังไม่มีผัง / CUSTOMER) = **ค่าดิบ** (name null)
