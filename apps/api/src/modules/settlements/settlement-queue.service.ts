@@ -17,6 +17,8 @@ interface Filter {
   from?: string;
   to?: string;
   pod?: boolean;
+  /** เฉพาะเที่ยวเหล่านี้ (ST6-T03 ตรวจบรรทัดที่จะใส่ใบสำคัญจ่าย) */
+  tripIds?: string[];
 }
 
 /** แถวของหน้า (ข้อมูลเที่ยว + ยอดรอจ่าย + จำนวน DO / DO ที่หลักฐานครบ) */
@@ -96,6 +98,7 @@ export class SettlementQueueService {
       Prisma.sql`t.carrier_id IS NOT NULL`,
     ];
     if (f.carrierId) conds.push(Prisma.sql`t.carrier_id = ${f.carrierId}::uuid`);
+    if (f.tripIds) conds.push(Prisma.sql`t.id = ANY(${f.tripIds}::uuid[])`);
     if (f.from)
       conds.push(
         Prisma.sql`t.completed_at >= ((${f.from}::date)::timestamp AT TIME ZONE 'Asia/Bangkok')`,
@@ -218,6 +221,18 @@ export class SettlementQueueService {
       hasMore: page.hasMore,
       carriers: await this.totals(tx, cte),
     };
+  }
+
+  /**
+   * ST6-T03: บรรทัดที่รอจ่ายของเที่ยวที่ขึ้นคิว (กฎเดียวกับคิว — สถานะ COSTED, รถร่วมรายปัจจุบัน, "ไม่มี POD ไม่จ่าย", คู่กลับรายการ)
+   * ของรถร่วม `carrierId` เฉพาะเที่ยว `tripIds` — ผู้เรียกต้องล็อกบรรทัด (FOR UPDATE) ก่อน
+   */
+  async payableCostLines(tx: Tx, carrierId: string, tripIds: string[]) {
+    if (!tripIds.length) return [];
+    const cte = this.queueCte({ carrierId, tripIds });
+    return tx.$queryRaw<{ id: string; trip_id: string }[]>`
+      WITH ${cte}
+      SELECT pay.id, pay.trip_id FROM pay JOIN q ON q.id = pay.trip_id`;
   }
 
   /** ยอดรวมต่อรถร่วมของทุกเที่ยวที่ตรงตัวกรอง — aggregate ใน SQL (Decimal — ไม่ใช้ float) */

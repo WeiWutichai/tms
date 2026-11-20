@@ -13,7 +13,15 @@ import {
 } from '../src/modules/orders/order-intake.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
-import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
+import {
+  api,
+  bootApp,
+  platform,
+  settleTripCostsForTest,
+  tokenFor,
+  truncateAll,
+  validTaxId,
+} from './helpers';
 
 /**
  * ST6-T02 คิวจ่ายรถร่วม — เกณฑ์ตรวจรับ: เที่ยวที่ POD ไม่ครบไม่ขึ้นคิวเมื่อรถร่วมตั้ง `require_pod_to_pay`;
@@ -331,21 +339,15 @@ describe('settlement queue (ST6-T02)', () => {
     const fee2 = await db.tripCost.findFirstOrThrow({
       where: { tripId: uuid('trip', t2.id), costType: 'CARRIER_FEE' },
     });
-    await db.tripCost.update({ where: { id: fee2.id }, data: { settlementLineId: randomUUID() } });
+    await settleTripCostsForTest(db, { id: fee2.id });
     const r2 = await queue({ carrierId: C.id }).expect(200);
     const row2 = r2.body.data.find((x: Row) => x.id === t2.id) as Row;
     expect(row2.lines.map((l) => [l.costType, l.buyAmount])).toEqual([['TOLL', '180.25']]);
     expect(r2.body.carriers[0]).toMatchObject({ tripCount: 2, buyTotal: '1180.35' });
 
     // ทั้งเที่ยวอยู่ในใบสำคัญจ่ายแล้ว → ไม่ขึ้นคิว
-    await db.tripCost.updateMany({
-      where: { tripId: uuid('trip', t2.id), settlementLineId: null, status: 'CONFIRMED' },
-      data: { settlementLineId: randomUUID() },
-    });
-    await db.tripCost.updateMany({
-      where: { tripId: uuid('trip', t1.id) },
-      data: { settlementLineId: randomUUID() },
-    });
+    await settleTripCostsForTest(db, { tripId: uuid('trip', t2.id), status: 'CONFIRMED' });
+    await settleTripCostsForTest(db, { tripId: uuid('trip', t1.id) });
     const r3 = await queue({ carrierId: C.id }).expect(200);
     expect(r3.body).toMatchObject({ data: [], hasMore: false, nextCursor: null, carriers: [] });
   });
