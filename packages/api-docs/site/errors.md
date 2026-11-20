@@ -78,6 +78,7 @@
 | [`settlement_empty`](#settlement_empty) | 409 | ใบสำคัญจ่ายยังไม่มีรายการเที่ยว อนุมัติไม่ได้ |
 | [`settlement_net_negative`](#settlement_net_negative) | 409 | ยอดสุทธิติดลบ อนุมัติไม่ได้ — นำรายการหักส่วนเกินออกแล้วยกไปงวดถัดไป |
 | [`settlement_review_required`](#settlement_review_required) | 409 | ต้องส่งให้รถร่วมตรวจก่อนอนุมัติ (ตั้งค่าบริษัท) |
+| [`sor_locked`](#sor_locked) | 409 | เปลี่ยนเจ้าของเอกสารไม่ได้ เพราะมีเอกสารส่งหรือรอส่งเข้าระบบบัญชีแล้ว — ยกเลิกการเชื่อมแล้วตั้งใหม่ |
 | [`source_change_not_pending`](#source_change_not_pending) | 409 | การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่ |
 | [`stop_already_closed`](#stop_already_closed) | 409 | จุดนี้ถูกปิดแล้ว — ส่ง POD ของ DO นี้ได้ |
 | [`stop_event_already_resolved`](#stop_event_already_resolved) | 409 | เหตุการณ์นี้ถูกตัดสินไปแล้ว |
@@ -86,6 +87,7 @@
 | [`stop_not_arrived`](#stop_not_arrived) | 409 | ยังไม่ได้บันทึกถึงจุดนี้ |
 | [`stop_not_ready`](#stop_not_ready) | 409 | ปิดงานจุดก่อนหน้าก่อน |
 | [`stop_skipped`](#stop_skipped) | 409 | จุดนี้ไม่มีใบส่งของแล้ว (นัดส่งใหม่ไปเที่ยวอื่น) — ไม่ต้องบันทึกที่จุดนี้ |
+| [`tax_document_owned_by_erp`](#tax_document_owned_by_erp) | 409 | นิติบุคคลนี้ให้ระบบบัญชีเป็นผู้ออกใบกำกับภาษี — TMS ออกได้เฉพาะใบแจ้งหนี้/ใบวางบิล |
 | [`tenant_selection_required`](#tenant_selection_required) | 409 | อีเมลนี้เป็นสมาชิกหลายบริษัท เลือกบริษัทที่ต้องการเข้า |
 | [`trip_cost_already_settled`](#trip_cost_already_settled) | 409 | บรรทัดต้นทุนนี้อยู่ในใบสำคัญจ่ายอื่นแล้ว — จ่ายซ้ำไม่ได้ |
 | [`trip_cost_not_payable`](#trip_cost_not_payable) | 409 | เที่ยวหรือบรรทัดต้นทุนนี้ยังไม่อยู่ในคิวจ่ายของรถร่วมรายนี้ (ต้องปิดต้นทุนแล้ว หลักฐานส่งครบตามเงื่อนไข และเป็นของรถร่วมรายนี้) |
@@ -104,6 +106,7 @@
 | [`idempotency_mismatch`](#idempotency_mismatch) | 422 | Idempotency-Key นี้เคยใช้กับข้อมูลอื่น |
 | [`pod_incomplete`](#pod_incomplete) | 422 | หลักฐานการส่ง (POD) ยังไม่ครบตามที่ลูกค้ากำหนด |
 | [`routing_not_configured`](#routing_not_configured) | 422 | บริษัทมีหลายนิติบุคคลแต่ยังไม่ได้กำหนดนิติบุคคลออกบิล — ส่ง billingCompanyId (จาก GET /v1/companies) หรือตั้ง "ออกบิลในนาม" ที่ลูกค้า/ค่าตั้งต้นของบริษัท |
+| [`sor_not_chosen`](#sor_not_chosen) | 422 | เลือก "ใครออกเลขเอกสาร" ก่อนเปิดการส่งเอกสารเข้าระบบบัญชี |
 | [`stop_order_invalid`](#stop_order_invalid) | 422 | ลำดับจุดไม่ถูกต้อง — จุดส่งของใบส่งของต้องอยู่หลังจุดรับของใบเดียวกัน |
 | [`validation_failed`](#validation_failed) | 422 | ข้อมูลไม่ถูกต้อง |
 | [`webhook_event_expired`](#webhook_event_expired) | 422 | event เกิน 30 วันแล้ว ส่งซ้ำไม่ได้ |
@@ -560,6 +563,12 @@ HTTP `409` · ต้องส่งให้รถร่วมตรวจก่
 
 อาจตอบได้จากหลาย endpoint
 
+## sor_locked {#sor_locked}
+
+HTTP `409` · เปลี่ยนเจ้าของเอกสารไม่ได้ เพราะมีเอกสารส่งหรือรอส่งเข้าระบบบัญชีแล้ว — ยกเลิกการเชื่อมแล้วตั้งใหม่
+
+อาจตอบได้จากหลาย endpoint
+
 ## source_change_not_pending {#source_change_not_pending}
 
 HTTP `409` · การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่
@@ -605,6 +614,12 @@ HTTP `409` · ปิดงานจุดก่อนหน้าก่อน
 ## stop_skipped {#stop_skipped}
 
 HTTP `409` · จุดนี้ไม่มีใบส่งของแล้ว (นัดส่งใหม่ไปเที่ยวอื่น) — ไม่ต้องบันทึกที่จุดนี้
+
+อาจตอบได้จากหลาย endpoint
+
+## tax_document_owned_by_erp {#tax_document_owned_by_erp}
+
+HTTP `409` · นิติบุคคลนี้ให้ระบบบัญชีเป็นผู้ออกใบกำกับภาษี — TMS ออกได้เฉพาะใบแจ้งหนี้/ใบวางบิล
 
 อาจตอบได้จากหลาย endpoint
 
@@ -715,6 +730,12 @@ HTTP `422` · หลักฐานการส่ง (POD) ยังไม่�
 HTTP `422` · บริษัทมีหลายนิติบุคคลแต่ยังไม่ได้กำหนดนิติบุคคลออกบิล — ส่ง billingCompanyId (จาก GET /v1/companies) หรือตั้ง "ออกบิลในนาม" ที่ลูกค้า/ค่าตั้งต้นของบริษัท
 
 อยู่ใน `errors[].code` ของ `422 validation_failed` (`errors[].field` = ช่องที่ต้องแก้)
+
+## sor_not_chosen {#sor_not_chosen}
+
+HTTP `422` · เลือก "ใครออกเลขเอกสาร" ก่อนเปิดการส่งเอกสารเข้าระบบบัญชี
+
+อาจตอบได้จากหลาย endpoint
 
 ## stop_order_invalid {#stop_order_invalid}
 
