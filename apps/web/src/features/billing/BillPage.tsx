@@ -5,10 +5,10 @@ import {
   DocNo,
   EmptyState,
   Icon,
+  KpiCard,
   RouteChip,
   StatusDot,
   StatusTabs,
-  SummaryStrip,
   Toast,
   statusOf,
   type Column,
@@ -21,16 +21,19 @@ import { PageHeader } from '../../shell/Header';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
 import { problemText } from '../master/problems';
-import { listTotal } from '../master/useCursorList';
+import { listTotal, useSessionState } from '../master/useCursorList';
+import { SavedViewMenu } from '../views/SavedViewMenu';
+import { pick, useSavedViews } from '../views/useSavedViews';
 import { bangkokToday, money, useDateText } from '../rate-cards/rateFormat';
 import { billRanges, selectionTotals } from './billing';
 import { InvoiceDrawer, invoiceStatusLabel } from './InvoiceDrawer';
 import {
   openProforma,
+  previewDraft,
   useBillQueue,
   useCreateDraft,
   useCustomerTerms,
-  useDraftCount,
+  useInvoiceCounts,
   useInvoiceList,
   useQueueCustomers,
   type InvoiceSummary,
@@ -39,6 +42,7 @@ import {
 
 type Tab = 'all' | 'DRAFT' | 'ISSUED' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'CANCELLED';
 const TABS: Tab[] = ['all', 'DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'OVERDUE', 'CANCELLED'];
+const EMPTY_VIEW = { tab: 'all', q: '', type: '' };
 const STEPS: MessageKey[] = ['bill.step.1', 'bill.step.2', 'bill.step.3', 'bill.step.4'];
 
 const card = {
@@ -89,8 +93,22 @@ export function BillPage() {
   const [cust, setCust] = useState('');
   const [range, setRange] = useState(0);
   const [picked, setPicked] = useState<string[]>([]);
-  const [tab, setTab] = useState<Tab>('all');
-  const [col, setCol] = useState({ q: '', type: '', cust: '' });
+  const [tab, setTab] = useSessionState<Tab>('bill.tab', 'all');
+  const [col, setCol] = useSessionState('bill.cols', { q: '', type: '' });
+  const [hidden, setHidden] = useSessionState<string[] | null>('bill.hidden', null);
+  // มุมมองที่บันทึกไว้ (ST9-T11 — ต้นแบบ "มุมมอง: ของฉันวันนี้"): แท็บ + ตัวกรองคอลัมน์ + คอลัมน์ที่ซ่อน
+  const views = useSavedViews({
+    page: 'invoices',
+    state: { tab, ...col },
+    hidden,
+    empty: EMPTY_VIEW,
+    apply: (v) => {
+      const x = pick(v.state, EMPTY_VIEW);
+      setTab(TABS.includes(x.tab as Tab) ? (x.tab as Tab) : 'all');
+      setCol({ q: x.q, type: x.type });
+      setHidden(v.hidden);
+    },
+  });
   const [openId, setOpenId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -106,17 +124,16 @@ export function BillPage() {
   const chosen = rows.filter((x) => picked.includes(x.id));
   const totals = selectionTotals(chosen);
   const create = useCreateDraft();
-  const drafts = useDraftCount();
+  const counts = useInvoiceCounts().data;
+  const [busy, setBusy] = useState(false);
 
   const allVat = terms.data?.defaultVatType === 'VAT_7';
   const step = chosen.length ? 3 : 2;
   const reset = () => setPicked([]);
 
-  const run = (print: boolean) => {
-    if (!chosen.length) {
-      if (print) setToast(t('bill.pickFirst'));
-      return;
-    }
+  /** ออกเอกสาร = ส่งบัญชี + สร้างร่าง (คำขอเดียว) → เปิด drawer ร่าง */
+  const create1 = () => {
+    if (!chosen.length) return;
     create.mutate(
       { customerId: cust, rows: chosen, from: r.from, to: r.to },
       {
@@ -124,26 +141,54 @@ export function BillPage() {
           reset();
           setOpenId(inv.id);
           setToast(t('bill.toast.drafted', { n: inv.deliveryOrderCount }));
-          if (print) void openProforma(inv.id).catch(() => setToast(t('bill.pdfFail')));
         },
-        onError: (e) => setToast(problemText(e, t) ?? (e as Error).message ?? t('bill.createFail')),
+        onError: (e) => setToast(problemText(e, t) ?? t('bill.createFail')),
       },
     );
+  };
+  /** พิมพ์ตัวอย่าง = PDF จาก DO ที่ติ๊ก — ไม่บันทึกอะไร (review M2) */
+  const preview = () => {
+    if (!chosen.length) {
+      setToast(t('bill.pickFirst'));
+      return;
+    }
+    setBusy(true);
+    void previewDraft({ customerId: cust, rows: chosen, from: r.from, to: r.to })
+      .catch((e) => setToast(problemText(e, t) ?? t('bill.pdfFail')))
+      .finally(() => setBusy(false));
+  };
+  const printMany = (ids: string[]) => {
+    const drafts = shownRowsQ.filter((x) => ids.includes(x.id) && x.status === 'DRAFT');
+    if (!drafts.length) setToast(t('bill.pdfDraftOnly'));
+    for (const x of drafts) void openProforma(x.id).catch(() => setToast(t('bill.pdfFail')));
   };
 
   const filters = useMemo(() => {
     const f: Record<string, string> = {};
     if (tab !== 'all' && tab !== 'OVERDUE') f.status = tab;
-    if (col.cust) f.customerId = col.cust;
     return f;
-  }, [tab, col.cust]);
+  }, [tab]);
   const list = useInvoiceList(filters);
   // เกินกำหนด: ยังไม่มีใบที่ออกแล้ว/ครบกำหนด (ST5-T09/T22) — แท็บว่าง · ตัวกรองประเภทมีแค่ใบแจ้งหนี้ (D-54)
   const shownRows = tab === 'OVERDUE' || (col.type && col.type !== 'INV') ? [] : list.rows;
   const shownRowsQ = col.q
     ? shownRows.filter((x) => (x.invoiceNo ?? t('bill.draftNo')).includes(col.q))
     : shownRows;
-  const shownTotal = listTotal(list, { tab, ...col }, ['tab'], undefined);
+  const tabCount: Record<Tab, number | undefined> = {
+    all: counts?.total,
+    DRAFT: counts?.draft,
+    ISSUED: counts?.issued,
+    PARTIALLY_PAID: counts?.partiallyPaid,
+    PAID: counts?.paid,
+    OVERDUE: counts?.overdue,
+    CANCELLED: counts?.cancelled,
+  };
+  const shownTotal = listTotal(
+    list,
+    { tab, ...col },
+    ['tab'],
+    col.q || col.type ? undefined : tabCount[tab],
+  );
 
   const columns: Column<InvoiceSummary>[] = [
     {
@@ -247,26 +292,41 @@ export function BillPage() {
 
   return (
     <>
-      <PageHeader title={t('page.bill.title')} sub={t('page.bill.sub')} />
-      <SummaryStrip
-        items={[
-          {
-            value: custQ.data ? customers.reduce((a, c) => a + c.deliveryOrderCount, 0) : '—',
-            label: t('bill.kpi.ready'),
-            color: '#8F5500',
-          },
-          {
-            value: drafts.data ?? '—',
-            label: t('bill.kpi.drafts'),
-            color: '#101418',
-            onClick: () => setTab('DRAFT'),
-            pressed: tab === 'DRAFT',
-          },
-          // เกินกำหนด / ยอดค้าง: ต้องมีใบที่ออกแล้ว + รับชำระ (ST5-T09/T22) — ยังไม่มีข้อมูล
-          { value: '—', label: t('bill.kpi.overdue'), color: '#B3322A' },
-          { value: '—', label: t('bill.kpi.outstanding'), color: '#101418' },
-        ]}
+      <PageHeader
+        title={t('page.bill.title')}
+        sub={t('page.bill.sub')}
+        actions={
+          // ส่งออกให้นักบัญชี (spec/05 §14) — ต้องมีใบที่ออกแล้ว (ST5-T09) จึงยังปิด [DECISION spec/12 §3]
+          <Button variant="secondary" icon="file-down" disabled title={t('bill.xpSoon')}>
+            {t('bill.xp')}
+          </Button>
+        }
       />
+      <div className="tms-kpis">
+        <KpiCard
+          label={t('bill.kpi.ready')}
+          tone="warn"
+          value={custQ.data ? customers.reduce((a, c) => a + c.deliveryOrderCount, 0) : '—'}
+          sub={t('bill.kpi.asOf', { d: dateText(today) })}
+        />
+        <KpiCard
+          label={t('bill.kpi.drafts')}
+          value={counts?.draft ?? '—'}
+          sub={t('bill.kpi.click')}
+          active={tab === 'DRAFT'}
+          onClick={() => setTab(tab === 'DRAFT' ? 'all' : 'DRAFT')}
+        />
+        {/* เกินกำหนด / ยอดค้าง: ต้องมีใบที่ออกแล้ว + รับชำระ (ST5-T09/T22) — ยังไม่มีข้อมูล */}
+        <KpiCard
+          label={t('bill.kpi.overdue')}
+          tone="err"
+          value="—"
+          sub={t('bill.kpi.click')}
+          active={tab === 'OVERDUE'}
+          onClick={() => setTab(tab === 'OVERDUE' ? 'all' : 'OVERDUE')}
+        />
+        <KpiCard label={t('bill.kpi.outstanding')} value="—" sub={t('bill.kpi.click')} />
+      </div>
 
       <div style={card} data-testid="bill-create">
         <div
@@ -524,18 +584,13 @@ export function BillPage() {
           </div>
           {canDraft && (
             <div style={{ display: 'flex', gap: 8 }}>
-              <Button
-                variant="ghost"
-                icon="printer"
-                onClick={() => run(true)}
-                disabled={create.isPending}
-              >
+              <Button variant="ghost" icon="printer" onClick={preview} disabled={busy}>
                 {t('bill.print')}
               </Button>
               <Button
                 variant="primary"
                 icon="lock"
-                onClick={() => run(false)}
+                onClick={create1}
                 disabled={!chosen.length || create.isPending}
               >
                 {t('bill.create')}
@@ -554,9 +609,11 @@ export function BillPage() {
           items={TABS.map((k) => ({
             key: k,
             label: k === 'all' ? t('table.all') : invoiceStatusLabel(t, k),
+            ...(tabCount[k] !== undefined ? { count: tabCount[k]! } : {}),
           }))}
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
+          <SavedViewMenu b={views} onToast={setToast} />
           <span style={{ marginLeft: 'auto', color: '#3B424C', fontSize: 13 }}>
             {shownTotal !== undefined && t('table.total', { n: shownTotal })}
           </span>
@@ -580,8 +637,13 @@ export function BillPage() {
             activeId={openId}
             loading={list.loading}
             labels={tableLabels(t)}
-            selectable={false}
+            bulkActions={[
+              { label: t('bill.menu.pdf'), icon: 'printer', run: printMany },
+              { label: t('bill.xp'), icon: 'file-down', run: () => setToast(t('bill.xpSoon')) },
+            ]}
             filters={{ q: col.q, type: col.type }}
+            hiddenColumns={hidden}
+            onHiddenColumnsChange={setHidden}
             onFilterChange={(k, v) => setCol((c) => ({ ...c, [k]: v }))}
             onRowClick={(x) => setOpenId(x.id)}
             rowMenu={(x) => [
@@ -677,10 +739,29 @@ function QueueTr({
       <td style={{ ...td, ...num, fontWeight: 500, color: '#2257C4' }}>{x.doNo}</td>
       <td style={td}>{dateText(x.doDate)}</td>
       <td style={{ ...td, whiteSpace: undefined }}>
-        <RouteChip from={x.originSiteName} to={x.destSiteName} />
+        <span className="tms-route-cell" title={`${x.originSiteName} → ${x.destSiteName}`}>
+          <RouteChip
+            from={
+              <span className="tms-ellipsis" style={{ maxWidth: 110 }}>
+                {x.originSiteName}
+              </span>
+            }
+            to={
+              <span className="tms-ellipsis" style={{ maxWidth: 110 }}>
+                {x.destSiteName}
+              </span>
+            }
+          />
+        </span>
       </td>
-      <td style={td}>{x.goods ?? '—'}</td>
-      <td style={{ ...td, textAlign: 'right' }}>{x.freightQty ?? '—'}</td>
+      <td style={td}>
+        <span className="tms-ellipsis" style={{ maxWidth: 140 }} title={x.goods ?? ''}>
+          {x.goods ?? '—'}
+        </span>
+      </td>
+      <td style={{ ...td, textAlign: 'right' }}>
+        {x.freightQty ? `${x.freightQty} ${x.freightUnit ?? ''}`.trim() : '—'}
+      </td>
       <td style={{ ...td, ...num, textAlign: 'right' }}>
         {x.sellFreightUnitPrice ? money(x.sellFreightUnitPrice) : '—'}
       </td>

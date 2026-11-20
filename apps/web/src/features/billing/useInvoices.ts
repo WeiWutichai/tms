@@ -1,6 +1,6 @@
 import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, unwrap } from '../../api';
+import { api, ApiError, unwrap } from '../../api';
 import { useCursorList } from '../master/useCursorList';
 
 export type Invoice = Schemas['InvoiceDto'];
@@ -49,17 +49,6 @@ export function useInvoiceList(filters: Record<string, string>) {
   );
 }
 
-/** จำนวนร่าง (KPI "ใบแจ้งหนี้ร่าง") */
-export function useDraftCount() {
-  return useQuery({
-    queryKey: [KEY, 'drafts'],
-    queryFn: () =>
-      unwrap(api.GET('/v1/invoices', { params: { query: { status: 'DRAFT', limit: 200 } } })).then(
-        (p) => (p.hasMore ? `${p.data.length}+` : String(p.data.length)),
-      ),
-  });
-}
-
 export function useInvoice(id: string | null) {
   return useQuery({
     queryKey: [KEY, 'one', id],
@@ -69,35 +58,32 @@ export function useInvoice(id: string | null) {
 }
 
 /**
- * ออกเอกสาร (ขั้นของ T07): ส่งบัญชี DO ที่ยังไม่ส่ง (bulk-release — ไม่ส่งซ้ำ) แล้วสร้างร่างใบแจ้งหนี้ (ไม่มีเลข)
+ * ออกเอกสาร (ขั้นของ T07): ส่งบัญชี DO ที่ยังไม่ส่ง + สร้างร่างใบแจ้งหนี้ (ไม่มีเลข) **ในคำขอเดียว** (atomic — review M2)
  * API ตรวจความพร้อมซ้ำตอนดึง · ออกเลขจริง = ST5-T09
  */
 export function useCreateDraft() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (v: { customerId: string; rows: QueueRow[]; from: string; to: string }) => {
-      const pending = v.rows.filter((r) => !r.releasedAt);
-      if (pending.length) {
-        const res = await unwrap(
-          api.POST('/v1/delivery-orders/bulk-release', {
-            body: { items: pending.map((r) => ({ deliveryOrderId: r.id, version: r.version })) },
-          }),
-        );
-        const bad = res.results.find((x) => x.outcome === 'FAILED');
-        if (bad) throw Object.assign(new Error(bad.problem?.title ?? ''), { problem: bad.problem });
-      }
-      return unwrap(
+    mutationFn: (v: { customerId: string; rows: QueueRow[]; from: string; to: string }) =>
+      unwrap(
         api.POST('/v1/invoices', {
           body: {
             customerId: v.customerId,
             deliveryOrderIds: v.rows.map((r) => r.id),
             periodFrom: v.from,
             periodTo: v.to,
+            releaseDeliveryOrders: true,
           },
         }),
-      );
-    },
+      ),
     onSettled: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+export function useInvoiceCounts() {
+  return useQuery({
+    queryKey: [KEY, 'summary'],
+    queryFn: () => unwrap(api.GET('/v1/invoices/summary')),
   });
 }
 
@@ -116,14 +102,66 @@ export function useCancelDraft() {
   });
 }
 
-/** PDF ตัวอย่างของร่าง (pro forma) — เปิดแท็บใหม่ */
-export async function openProforma(id: string): Promise<void> {
-  const res = await api.GET('/v1/invoices/{id}/proforma', {
-    params: { path: { id } },
-    parseAs: 'blob',
-  });
-  if (!res.response.ok) throw new Error(String(res.response.status));
-  const url = URL.createObjectURL(res.data as unknown as Blob);
-  window.open(url, '_blank', 'noopener');
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+/**
+ * เปิด PDF ในแท็บใหม่ — เปิดหน้าต่าง **ทันทีตอนกด** (ก่อน await — กัน popup blocker) แล้วค่อยใส่ไฟล์ · เปิดไม่ได้ = ดาวน์โหลด
+ */
+async function showPdf(
+  load: () => Promise<{ response: Response; data?: unknown; error?: unknown }>,
+  filename: string,
+): Promise<void> {
+  const w = window.open('', '_blank');
+  try {
+    const r = await load();
+    if (!r.response.ok)
+      throw new ApiError(
+        (r.error ?? {
+          code: 'internal_error',
+          status: r.response.status,
+          title: '',
+          type: '',
+        }) as never,
+      );
+    const url = URL.createObjectURL(r.data as Blob);
+    if (w) w.location.href = url;
+    else {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (e) {
+    w?.close();
+    throw e;
+  }
+}
+
+/** PDF ตัวอย่างของร่าง (pro forma) */
+export function openProforma(id: string): Promise<void> {
+  return showPdf(
+    () => api.GET('/v1/invoices/{id}/proforma', { params: { path: { id } }, parseAs: 'blob' }),
+    'proforma.pdf',
+  );
+}
+
+/** PDF ตัวอย่างจาก DO ที่ติ๊ก — ไม่บันทึกอะไร (POST /v1/invoices/preview — review M2) */
+export function previewDraft(v: {
+  customerId: string;
+  rows: QueueRow[];
+  from: string;
+  to: string;
+}): Promise<void> {
+  return showPdf(
+    () =>
+      api.POST('/v1/invoices/preview', {
+        body: {
+          customerId: v.customerId,
+          deliveryOrderIds: v.rows.map((r) => r.id),
+          periodFrom: v.from,
+          periodTo: v.to,
+        },
+        parseAs: 'blob',
+      }),
+    'proforma-preview.pdf',
+  );
 }

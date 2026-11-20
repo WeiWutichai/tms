@@ -122,6 +122,10 @@ export async function rebuildRevenueLines(
   log: (msg: string) => void = () => undefined,
 ): Promise<boolean> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(${REVENUE_LOCK_NS}::int, hashtext(${salesOrderId}))`;
+  // ST5-T07 review M1: ล็อก DO ของใบสั่งแบบ FOR SHARE (เรียง id — ลำดับเดียวกับ InvoiceBillingGuard ที่ล็อก FOR UPDATE)
+  // ดึงเข้าร่างพร้อมกัน → รายหนึ่งรออีกรายจบก่อน: rebuild เห็น billing_status ล่าสุด (แช่แข็ง DO ในร่าง) /
+  // การดึงเข้าร่างเห็นบรรทัดรายได้หลัง rebuild — ไม่มีบรรทัดใบที่ยอดไม่ตรง/อ้างบรรทัดที่ถูกลบ
+  await tx.$queryRaw`SELECT id FROM delivery_order WHERE sales_order_id = ${salesOrderId}::uuid ORDER BY id FOR SHARE`;
   const so = await tx.salesOrder.findUnique({
     where: { id: salesOrderId },
     select: {

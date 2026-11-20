@@ -1,5 +1,6 @@
 // ภาพเทียบ "ต้นแบบ | ของจริง" หน้า บัญชี → วางบิลและใบแจ้งหนี้ (ST5-T07) ที่ 1440 px — เครื่อง dev เท่านั้น
-// ภาพของจริงมาจาก E2E `e2e/invoice-draft.spec.ts` (design/compare/st5-t07-*-actual-1440.png) — สคริปต์นี้ถ่ายต้นแบบแล้วต่อภาพคู่
+// ภาพของจริงมาจาก E2E `e2e/invoice-draft.spec.ts` (apps/web/test-results/st5-t07-*-actual-1440.png — E2E ไม่เขียนทับ design/compare)
+// สคริปต์นี้ถ่ายต้นแบบ แล้วคัดลอกภาพของจริงมาต่อเป็นภาพคู่ใน design/compare (ตั้งใจรันเอง)
 // ใช้: node scripts/compare-bill.mjs
 import { chromium } from '@playwright/test';
 import { createReadStream, existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -39,8 +40,12 @@ writeFileSync(`${out}st5-t07-drawer-proto-1440.png`, await P.screenshot());
 // ต่อภาพ ต้นแบบ | ของจริง
 const pair = async (name) => {
   const a = `${out}st5-t07-${name}-proto-1440.png`;
+  const src = fileURLToPath(
+    new URL(`../test-results/st5-t07-${name}-actual-1440.png`, import.meta.url),
+  );
+  if (!existsSync(src)) return;
   const c = `${out}st5-t07-${name}-actual-1440.png`;
-  if (!existsSync(c)) return;
+  writeFileSync(c, readFileSync(src));
   const img = (f) => `data:image/png;base64,${readFileSync(f).toString('base64')}`;
   const page = await (await b.newContext({ viewport: { width: 2900, height: 900 } })).newPage();
   await page.setContent(

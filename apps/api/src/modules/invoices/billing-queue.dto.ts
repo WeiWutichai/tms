@@ -112,6 +112,14 @@ export class BillingQueueRowDto {
     description: 'ST5-T07 จำนวนรวมของบรรทัดค่าขนส่ง (FREIGHT) — null = ไม่มีบรรทัดค่าขนส่ง',
   })
   freightQty!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'ตัน',
+    description:
+      'ST5-T07 หน่วยของจำนวนค่าขนส่ง (สูตรตัน/ลบ.ม./หน่วยนับของ rate card หรือหน่วยของรายการบริการ เช่น เที่ยว)',
+  })
+  freightUnit!: string | null;
   @ApiPropertyOptional({
     nullable: true,
     type: String,

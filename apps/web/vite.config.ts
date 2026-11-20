@@ -8,6 +8,9 @@ const rootEnv = loadEnv('development', fileURLToPath(new URL('../..', import.met
 
 export default defineConfig({
   plugins: [react()],
+  // @tms/domain (workspace, dist เป็น CommonJS) — ให้ vite แปลงเป็น ESM ทั้งตอน dev (pre-bundle) และ build (ST5-T07: computeDocumentTax ในหน้าวางบิล)
+  optimizeDeps: { include: ['@tms/domain'] },
+  build: { commonjsOptions: { include: [/packages\/domain/, /node_modules/] } },
   // dev: WEB_PORT (4420) + proxy /v1 → VITE_API_TARGET หรือ API_PORT (4410) — ตั้งต่อ worktree ได้ (HANDOFF §ทำงานขนาน)
   // E2E ส่ง --port และ VITE_API_TARGET เอง (playwright.config.ts)
   server: {

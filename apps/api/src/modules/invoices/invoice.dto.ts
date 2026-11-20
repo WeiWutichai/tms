@@ -4,6 +4,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -82,6 +83,14 @@ export class CreateInvoiceDto {
   @IsOptional()
   @IsIn(INVOICE_LINE_MODES)
   lineMode?: InvoiceLineMode;
+
+  @ApiPropertyOptional({
+    description:
+      'true = ส่งบัญชี DO ที่ยังไม่ส่งในคำขอเดียวกัน (atomic — ส่งไม่ผ่าน = 409 และไม่มีอะไรเปลี่ยน) · ไม่ส่ง/false = DO ต้องส่งบัญชีแล้ว',
+  })
+  @IsOptional()
+  @IsBoolean()
+  releaseDeliveryOrders?: boolean;
 
   @ApiPropertyOptional({
     maxLength: 60,
@@ -440,4 +449,18 @@ export class InvoicePageDto {
 export class InvoiceMoveResultDto {
   @ApiProperty({ type: InvoiceDto, description: 'ร่างต้นทาง (หลังย้าย)' }) source!: InvoiceDto;
   @ApiProperty({ type: InvoiceDto, description: 'ร่างปลายทาง (หลังย้าย)' }) target!: InvoiceDto;
+}
+
+/** จำนวนใบแจ้งหนี้ตามสถานะ — แท็บ/KPI ของหน้า "วางบิลและใบแจ้งหนี้" */
+export class InvoiceSummaryCountsDto {
+  @ApiProperty() total!: number;
+  @ApiProperty() draft!: number;
+  @ApiProperty({ description: 'ISSUED + ADJUSTED' }) issued!: number;
+  @ApiProperty() partiallyPaid!: number;
+  @ApiProperty() paid!: number;
+  @ApiProperty({
+    description: 'เกินกำหนด — คำนวณเมื่อมีวันครบกำหนด/รับชำระ (ST5-T09/T22) ตอนนี้ 0 เสมอ',
+  })
+  overdue!: number;
+  @ApiProperty({ description: 'CANCELLED + VOIDED' }) cancelled!: number;
 }

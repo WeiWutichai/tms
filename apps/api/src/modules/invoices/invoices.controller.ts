@@ -59,6 +59,7 @@ import {
   InvoiceMoveResultDto,
   InvoicePageDto,
   InvoiceReasonDto,
+  InvoiceSummaryCountsDto,
   MoveInvoiceDeliveryOrdersDto,
   RemoveInvoiceDeliveryOrdersDto,
   UpdateInvoiceDto,
@@ -184,6 +185,47 @@ export class InvoicesController {
   }
 
   // ---------- ST5-T07 ร่างใบแจ้งหนี้ (D-54: ใบแจ้งหนี้ — ไม่ใช่ใบกำกับภาษี) ----------
+
+  @Get('summary')
+  @RequireScope('invoices:read')
+  @ApiOperation({
+    summary: 'จำนวนใบแจ้งหนี้ตามสถานะ (แท็บ/KPI)',
+    description: 'นับทั้ง tenant · เกินกำหนดเป็น 0 จนกว่าจะมีวันครบกำหนด/รับชำระ (ST5-T09/T22)',
+  })
+  @ApiProblems(T403('invoices:read'))
+  @ApiOkResponse({ type: InvoiceSummaryCountsDto })
+  summary(): Promise<InvoiceSummaryCountsDto> {
+    return this.svc.summary();
+  }
+
+  @Post('preview')
+  @HttpCode(200)
+  @NoTransaction()
+  @RequireScope('invoices:draft')
+  @Header('Cache-Control', 'no-store')
+  @ApiOperation({
+    summary: 'PDF ตัวอย่างจาก DO ที่เลือก — ไม่บันทึกอะไร',
+    description:
+      'body เดียวกับ `POST /invoices` · ตรวจกติกาชุดเดียวกัน (ลูกค้าเดียว, เงื่อนไขส่งบัญชี + คิวพร้อมวางบิล, กันวางบิลซ้ำ) แต่ **ไม่สร้างร่าง ไม่ส่งบัญชี ไม่ลง audit** ' +
+      '(ทำใน transaction แล้วย้อนทั้งหมด) · ไม่มีเลข มีลายน้ำ "ร่าง" ไม่มีคำว่า "ใบกำกับภาษี" · ต้องมี `prices.sell:read`',
+  })
+  @ApiProduces('application/pdf')
+  @ApiProblems(T403('invoices:draft'), PULL_409, T422)
+  @ApiOkResponse({ description: 'application/pdf' })
+  async preview(
+    @Body() body: CreateInvoiceDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const ctx = requestContext.require();
+    if (!scopeAllows(ctx.scopes ?? [], 'prices.sell:read'))
+      throw new ProblemException('permission_denied', undefined, undefined, {
+        requiredScope: 'prices.sell:read',
+      });
+    const { pdf } = await this.pdf.preview(body);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="proforma-preview.pdf"');
+    return new StreamableFile(pdf);
+  }
 
   @Get()
   @RequireScope('invoices:read')

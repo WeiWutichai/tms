@@ -227,6 +227,9 @@ describe('invoice drafts (ST5-T07)', { timeout: 600_000 }, () => {
     expect(names.indexOf('list')).toBeGreaterThan(-1);
     expect(names.indexOf('list')).toBeLessThan(names.indexOf('get'));
     expect(names.indexOf('list')).toBeLessThan(names.indexOf('proforma'));
+    expect(names.indexOf('summary')).toBeLessThan(names.indexOf('get'));
+    const sum = await api(app, invoicer).get('/v1/invoices/summary').expect(200);
+    expect(sum.body).toMatchObject({ overdue: 0 });
     const q = await api(app, invoicer).get('/v1/invoices/queue').expect(200);
     expect(q.body).toHaveProperty('customers');
     await api(app, invoicer)
@@ -628,5 +631,111 @@ describe('invoice drafts (ST5-T07)', { timeout: 600_000 }, () => {
     expect(html).toContain('ร่าง');
     expect(html).not.toContain('ใบกำกับภาษี');
     expect(html).toContain('1,750.00');
+  });
+
+  // ---------- review/QA ST5-T07 ----------
+
+  it('review M1: ดึงเข้าร่างพร้อม rebuild บรรทัดรายได้ (ราคาใบสั่งเปลี่ยน) — บรรทัดใบตรงบรรทัดรายได้เสมอ ไม่มี 500', async () => {
+    const cus = await newCustomer();
+    for (let i = 0; i < 3; i++) {
+      const d = await delivered(cus);
+      await db.salesOrderCharge.updateMany({
+        where: { salesOrderId: d.soId },
+        data: { unitPrice: '400.00', amount: '2000.00', calculatedAmount: '2000.00' },
+      });
+      const [c] = await Promise.all([
+        create(cus, [d.doId]),
+        run((tx) => app.get(RevenueLinesService).rebuild(d.soId, tx)),
+      ]);
+      expect(c.status).toBe(201);
+      const il = await db.invoiceLine.findFirstOrThrow({
+        where: { invoiceId: uuid('invoice', c.body.id), active: true },
+      });
+      const rl = await db.revenueLine.findUniqueOrThrow({ where: { id: il.revenueLineId! } });
+      expect(rl.status).toBe('ACTIVE');
+      expect(il.amount.toFixed(2)).toBe(rl.amount.toFixed(2));
+    }
+  });
+
+  it('QA1: สร้างร่างจาก DO เดียวกันพร้อมกัน 3 คำขอ → สำเร็จ 1 ที่เหลือ 409', async () => {
+    const cus = await newCustomer();
+    const d = await delivered(cus);
+    const rs = await Promise.all([
+      create(cus, [d.doId]),
+      create(cus, [d.doId]),
+      create(cus, [d.doId]),
+    ]);
+    expect(rs.filter((r) => r.status === 201)).toHaveLength(1);
+    expect(rs.filter((r) => r.status === 409)).toHaveLength(2);
+    expect(
+      await db.invoiceLine.count({
+        where: { deliveryOrderId: d.uuid, active: true, doAnchor: true },
+      }),
+    ).toBe(1);
+  });
+
+  it('review M2: ส่งบัญชี + สร้างร่างในคำขอเดียว (atomic) · ตัวอย่าง PDF ไม่บันทึกอะไร', async () => {
+    const cus = await newCustomer();
+    const a = await delivered(cus, false);
+    const b = await delivered(cus, false);
+    // b ติดระงับวางบิล → ทั้งคำขอ 409 และ a ยังไม่ถูกส่งบัญชี
+    await db.deliveryOrder.update({ where: { id: b.uuid }, data: { billingHold: true } });
+    const bad = await create(cus, [a.doId, b.doId], invoicer, {
+      releaseDeliveryOrders: true,
+    }).expect(409);
+    expect(bad.body.code).toBe('not_ready_to_bill');
+    expect((await getDo(a.doId)).releasedAt).toBeNull();
+    // ตัวอย่าง: PDF ได้ แต่ไม่มีร่าง/การส่งบัญชี/audit ค้าง
+    const before = await db.invoice.count({ where: { tenantId } });
+    const audits = await db.auditLog.count({ where: { tenantId } });
+    const pv = await api(app, invoicer)
+      .post('/v1/invoices/preview')
+      .send({ customerId: cus, deliveryOrderIds: [a.doId] })
+      .buffer(true)
+      .parse((res, cb) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (x: Buffer) => chunks.push(x));
+        res.on('end', () => cb(null, Buffer.concat(chunks)));
+      })
+      .expect(200);
+    expect((pv.body as Buffer).subarray(0, 4).toString()).toBe('%PDF');
+    expect(await db.invoice.count({ where: { tenantId } })).toBe(before);
+    expect(await db.auditLog.count({ where: { tenantId } })).toBe(audits);
+    expect((await getDo(a.doId)).releasedAt).toBeNull();
+    expect((await getDo(a.doId)).billingStatus).toBe('UNBILLED');
+    await api(app, invoicer)
+      .post('/v1/invoices/preview')
+      .send({ customerId: cus, deliveryOrderIds: [b.doId] })
+      .expect(409);
+    // ไม่ติดแล้ว → สำเร็จ ส่งบัญชีให้ในคำขอเดียว
+    const ok = await create(cus, [a.doId], invoicer, { releaseDeliveryOrders: true }).expect(201);
+    expect(ok.body.deliveryOrderCount).toBe(1);
+    expect((await getDo(a.doId)).releasedAt).toBeTruthy();
+  });
+
+  it('review L1: ถอด DO ออกจากร่าง → คิดบรรทัดรายได้ของใบสั่งใหม่ (ราคาที่เปลี่ยนระหว่างแช่แข็งมีผล) · หน่วยค่าขนส่ง = ตัน', async () => {
+    const cus = await newCustomer();
+    const d = await delivered(cus);
+    const q = await api(app, admin).get(`/v1/invoices/queue?customerId=${cus}`).expect(200);
+    expect(q.body.data[0]).toMatchObject({ freightQty: '5', freightUnit: 'ตัน' });
+    const inv = (await create(cus, [d.doId]).expect(201)).body;
+    expect(inv.lines[0].unitLabel).toBe('ตัน');
+    await db.salesOrderCharge.updateMany({
+      where: { salesOrderId: d.soId },
+      data: { unitPrice: '400.00', amount: '2000.00', calculatedAmount: '2000.00' },
+    });
+    await run((tx) => app.get(RevenueLinesService).rebuild(d.soId, tx));
+    const frozen = await db.revenueLine.findFirstOrThrow({
+      where: { deliveryOrderId: d.uuid, status: 'ACTIVE' },
+    });
+    expect(frozen.amount.toFixed(2)).toBe('1750.00');
+    await api(app, invoicer)
+      .post(`/v1/invoices/${inv.id}/delivery-orders/remove`)
+      .send({ deliveryOrderIds: [d.doId], reason: 'ลูกค้าขอแก้ราคาก่อนวางบิล' })
+      .expect(200);
+    const after = await db.revenueLine.findFirstOrThrow({
+      where: { deliveryOrderId: d.uuid, status: 'ACTIVE' },
+    });
+    expect(after.amount.toFixed(2)).toBe('2000.00');
   });
 });

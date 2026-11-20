@@ -21,6 +21,9 @@ import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import type { BillingDoRow } from '../delivery-orders/delivery-order.service';
+import { LINE_UNIT_EXPR, LINE_UNIT_JOINS } from './line-units';
+import { REVENUE_LOCK_NS } from '../revenue-lines/revenue-rebuild';
+import { RevenueLinesService } from '../revenue-lines/revenue-lines.service';
 import { readSettings } from '../settings/settings.service';
 import { InvoiceBillingGuard, type RevenueInvoiceLineInput } from './billing-guard.service';
 import { BillingReleaseService } from './billing-release.service';
@@ -32,6 +35,7 @@ import type {
   InvoiceLineDto,
   InvoiceListQuery,
   InvoicePageDto,
+  InvoiceSummaryCountsDto,
   InvoiceSummaryDto,
   MoveInvoiceDeliveryOrdersDto,
   UpdateInvoiceDto,
@@ -94,6 +98,7 @@ export class InvoicesService {
     private readonly guard: InvoiceBillingGuard,
     private readonly release: BillingReleaseService,
     private readonly clock: Clock,
+    private readonly revenue: RevenueLinesService,
   ) {}
 
   // ---------- อ่าน ----------
@@ -146,6 +151,15 @@ export class InvoicesService {
     this.checkPeriod(body.periodFrom, body.periodTo);
     const issuer = await this.issuer(tx, customer.defaultBillingCompanyId);
     const doIds = this.decodeDos(body.deliveryOrderIds);
+    // review M2: ส่งบัญชี + สร้างร่างในคำขอเดียว (atomic) — ส่งบัญชีไม่ผ่าน = ไม่มีอะไรเปลี่ยน (ตรวจเงื่อนไขชุดเดียวกับส่งบัญชีปกติ + ตรวจซ้ำตอนดึง)
+    if (body.releaseDeliveryOrders) {
+      const pending = await tx.deliveryOrder.findMany({
+        where: { id: { in: doIds }, customerId: customer.id, releasedAt: null },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+      });
+      for (const d of pending) await this.release.release(d.id, { note: null }, tx);
+    }
     const inv = await tx.invoice.create({
       data: {
         tenantId: ctx.tenantId!,
@@ -245,7 +259,9 @@ export class InvoicesService {
     const tx = this.db.tx;
     await this.lock(tx, id, expected);
     const doIds = this.decodeDos(ids);
+    const orders = await this.lockOrders(tx, doIds);
     await this.guard.detach(id, doIds, tx, reason);
+    await this.rebuildOrders(tx, orders);
     await this.recompute(tx, id, true);
     const out = await this.get(id);
     await this.audit.record({
@@ -556,6 +572,13 @@ export class InvoicesService {
   async cancel(id: string, reason: string, expected?: number): Promise<InvoiceDto> {
     const tx = this.db.tx;
     await this.lock(tx, id, expected);
+    const doIds = (
+      await tx.invoiceLine.findMany({
+        where: { invoiceId: id, active: true, deliveryOrderId: { not: null } },
+        select: { deliveryOrderId: true },
+      })
+    ).map((l) => l.deliveryOrderId!);
+    const orders = await this.lockOrders(tx, doIds);
     const ctx = requestContext.require();
     await tx.invoice.update({
       where: { id },
@@ -569,6 +592,7 @@ export class InvoicesService {
       },
     });
     const released = await this.guard.syncFromInvoice(id, tx);
+    await this.rebuildOrders(tx, orders);
     const out = await this.get(id);
     await this.audit.record({
       action: 'invoice.draft_cancelled',
@@ -582,6 +606,43 @@ export class InvoicesService {
   }
 
   // ---------- ภายใน ----------
+
+  /**
+   * review L1: ถอด DO ออกจากร่าง/ยกเลิกร่าง → DO ไม่แช่แข็งแล้ว ต้องคิดบรรทัดรายได้ของใบสั่งใหม่ (ยอดเหมา/ขั้นต่ำแบ่งใหม่ — ไม่หายเงียบ)
+   * ล็อกตามลำดับเดียวกับ rebuild: advisory lock ของใบสั่ง (เรียง id) → DO ทุกใบของใบสั่ง FOR UPDATE (เรียง id) — ก่อนถอด
+   */
+  private async lockOrders(tx: Tx, doIds: string[]): Promise<string[]> {
+    if (!doIds.length) return [];
+    const rows = await tx.deliveryOrder.findMany({
+      where: { id: { in: doIds } },
+      select: { salesOrderId: true },
+    });
+    const orders = [...new Set(rows.map((r) => r.salesOrderId))].sort();
+    for (const so of orders)
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${REVENUE_LOCK_NS}::int, hashtext(${so}))`;
+    await tx.$queryRaw`SELECT id FROM delivery_order WHERE sales_order_id = ANY(${orders}::uuid[]) ORDER BY id FOR UPDATE`;
+    return orders;
+  }
+
+  private async rebuildOrders(tx: Tx, orders: string[]) {
+    for (const so of orders) await this.revenue.rebuild(so, tx);
+  }
+
+  /** รายงานจำนวนตามสถานะ (แท็บ/KPI ของหน้า "วางบิลและใบแจ้งหนี้") */
+  async summary(): Promise<InvoiceSummaryCountsDto> {
+    const rows = await this.db.tx.invoice.groupBy({ by: ['status'], _count: { _all: true } });
+    const n = (...st: string[]) =>
+      rows.filter((r) => st.includes(r.status)).reduce((a, r) => a + r._count._all, 0);
+    return {
+      total: n('DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED', 'VOIDED', 'CANCELLED'),
+      draft: n('DRAFT'),
+      issued: n('ISSUED', 'ADJUSTED'),
+      partiallyPaid: n('PARTIALLY_PAID'),
+      paid: n('PAID'),
+      overdue: 0,
+      cancelled: n('CANCELLED', 'VOIDED'),
+    };
+  }
 
   /** ล็อกใบ (FOR UPDATE) + ต้องเป็นร่าง (409) + If-Match (412) */
   private async lock(tx: Tx, id: string, expected?: number) {
@@ -653,6 +714,13 @@ export class InvoicesService {
       orderBy: [{ salesOrderId: 'asc' }, { lineNo: 'asc' }],
       include: { serviceItem: { select: { unitLabel: true, defaultAccountCode: true } } },
     });
+    const units = new Map(
+      (
+        await tx.$queryRaw<{ id: string; unit: string | null }[]>`
+          SELECT l.id, ${LINE_UNIT_EXPR} AS unit FROM revenue_line l ${LINE_UNIT_JOINS}
+           WHERE l.id = ANY(${lines.map((l) => l.id)}::uuid[])`
+      ).map((r) => [r.id, r.unit]),
+    );
     return lines.map((l) => ({
       deliveryOrderId: l.deliveryOrderId!,
       revenueLineId: l.id,
@@ -661,7 +729,9 @@ export class InvoicesService {
       description: l.description,
       quantity: l.qty.toFixed(4),
       unitLabel:
-        (l.serviceItemSnapshot as ServiceItemSnapshot | null)?.unitLabel ?? l.serviceItem.unitLabel,
+        units.get(l.id) ??
+        (l.serviceItemSnapshot as ServiceItemSnapshot | null)?.unitLabel ??
+        l.serviceItem.unitLabel,
       unitPrice: money(l.unitPrice),
       amount: money(l.amount),
       vatType: l.vatType,

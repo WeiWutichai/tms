@@ -154,16 +154,21 @@ test.describe.serial('ร่างใบแจ้งหนี้จากคิ�
     await card.getByLabel('เลือกทั้งหมด').check();
     await expect(card.getByText('3,500.00').first()).toBeVisible();
     await page.screenshot({
-      path: '../../design/compare/st5-t07-bill-actual-1440.png',
+      path: 'test-results/st5-t07-bill-actual-1440.png',
       fullPage: true,
     });
+    // พิมพ์ตัวอย่าง = PDF จาก DO ที่ติ๊ก ไม่บันทึกอะไร (review M2) — แท็บใหม่ · DO ยังอยู่ในคิว
+    const popup = page.waitForEvent('popup');
+    await card.getByRole('button', { name: 'พิมพ์ตัวอย่าง' }).click();
+    await (await popup).close();
+    await expect(rows).toHaveCount(2);
     await card.getByRole('button', { name: 'ออกเอกสาร' }).click();
     const d = page.getByRole('dialog');
     await expect(d.getByText('ร่าง (ยังไม่มีเลข)').first()).toBeVisible();
     await expect(d.getByText('ใบกำกับภาษี')).toHaveCount(0);
     await expect(d.getByText('2 รายการ')).toBeVisible();
     await expect(d.getByRole('button', { name: 'ออกเอกสาร' })).toBeDisabled();
-    await page.screenshot({ path: '../../design/compare/st5-t07-drawer-actual-1440.png' });
+    await page.screenshot({ path: 'test-results/st5-t07-drawer-actual-1440.png' });
     // ออกจากคิวแล้ว
     await expect(rows).toHaveCount(0);
     await d.getByRole('button', { name: 'ยกเลิกร่าง' }).click();

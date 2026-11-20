@@ -5,6 +5,7 @@ import { encodeId, tryDecodeId } from '../../common/ids';
 import { decodeCursor, toPage } from '../../common/pagination';
 import { DbService, type Tx } from '../../db/db.service';
 import { PodService } from '../pod/pod.service';
+import { LINE_UNIT_EXPR, LINE_UNIT_JOINS } from './line-units';
 import type {
   BillingQueueCustomerDto,
   BillingQueuePageDto,
@@ -86,6 +87,7 @@ interface PageRow {
   goods: string | null;
   goods_more: number;
   freight_qty: Prisma.Decimal | null;
+  freight_unit: string | null;
   freight_price: Prisma.Decimal | null;
   freight_total: Prisma.Decimal;
   svc_total: Prisma.Decimal;
@@ -249,7 +251,7 @@ export class BillingQueueService {
              s.so_no, d.customer_id, c.code AS customer_code, c.legal_name AS customer_name,
              d.customer_ref, ds.name AS dest_site_name, os.name AS origin_site_name,
              g.goods, coalesce(g.more, 0)::int AS goods_more,
-             m.freight_qty, m.freight_price, coalesce(m.freight_total, 0) AS freight_total,
+             m.freight_qty, m.freight_unit, m.freight_price, coalesce(m.freight_total, 0) AS freight_total,
              coalesce(m.svc_total, 0) AS svc_total, coalesce(m.exempt_base, 0) AS exempt_base,
              coalesce(m.vat_base, 0) AS vat_base,
              t.trip_no, t.vehicle_plate_snapshot AS vehicle_plate, t.carrier_name_snapshot AS carrier_name,
@@ -266,13 +268,15 @@ export class BillingQueueService {
         ) g ON true
         LEFT JOIN LATERAL (
           SELECT sum(l.qty) FILTER (WHERE l.kind = 'FREIGHT') AS freight_qty,
+                 max(${LINE_UNIT_EXPR}) FILTER (WHERE l.kind = 'FREIGHT') AS freight_unit,
                  CASE WHEN count(DISTINCT l.unit_price) FILTER (WHERE l.kind = 'FREIGHT') = 1
                       THEN max(l.unit_price) FILTER (WHERE l.kind = 'FREIGHT') END AS freight_price,
                  sum(l.amount) FILTER (WHERE l.kind = 'FREIGHT') AS freight_total,
                  sum(l.amount) FILTER (WHERE l.kind <> 'FREIGHT') AS svc_total,
                  sum(l.amount) FILTER (WHERE l.vat_type = 'EXEMPT_TRANSPORT') AS exempt_base,
                  sum(l.amount) FILTER (WHERE l.vat_type = 'VAT_7') AS vat_base
-            FROM revenue_line l WHERE l.delivery_order_id = d.id AND l.status = 'ACTIVE'
+            FROM revenue_line l ${LINE_UNIT_JOINS}
+           WHERE l.delivery_order_id = d.id AND l.status = 'ACTIVE'
         ) m ON true
         LEFT JOIN trip t ON t.id = d.trip_id
         LEFT JOIN app_user u ON u.id::text = d.released_by
@@ -307,6 +311,7 @@ export class BillingQueueService {
         originSiteName: r.origin_site_name,
         goods: r.goods ? (r.goods_more > 0 ? `${r.goods} +${r.goods_more}` : r.goods) : null,
         freightQty: r.freight_qty === null ? null : new Prisma.Decimal(r.freight_qty).toString(),
+        freightUnit: r.freight_qty === null ? null : r.freight_unit,
         sellFreightUnitPrice:
           r.freight_price === null ? null : new Prisma.Decimal(r.freight_price).toFixed(2),
         sellFreightAmount: new Prisma.Decimal(r.freight_total).toFixed(2),

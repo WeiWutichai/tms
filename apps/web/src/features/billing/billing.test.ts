@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeDocumentTax, taxOptionsFromSettings } from '@tms/domain';
-import { billRanges, selectionTotals, vat7 } from './billing';
+import { billRanges, selectionTotals } from './billing';
 
 describe('billRanges (ต้นแบบ vBill ranges)', () => {
   it('งวดครึ่งเดือน · เดือนก่อน · 7 วันล่าสุด', () => {
@@ -41,15 +40,5 @@ describe('selectionTotals — VAT ประมาณการจากฐาน 
       vat: '0.00',
       net: '0.00',
     });
-  });
-});
-
-describe('vat7 = computeDocumentTax (กติกาเดียวกับ API)', () => {
-  it.each([0n, 1n, 7n, 50n, 71n, 143n, 50000n, 123456789n, -150n])('ฐาน %s สตางค์', (b) => {
-    const ref = computeDocumentTax(
-      [{ amount: b, vatType: 'VAT7', whtRate: '0' }],
-      taxOptionsFromSettings({ whtMinimumAmount: 0 }),
-    ).vat;
-    expect(vat7(b)).toBe(ref);
   });
 });

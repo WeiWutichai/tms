@@ -180,6 +180,20 @@ export function InvoiceDrawer({
       title={no}
       badge={<Badge label={st} tone={b.tone} icon={b.icon} />}
       subtitle={[inv.customer.legalName, inv.periodFrom ? per : ''].filter(Boolean).join(' · ')}
+      // ต้นแบบ ⋯: แก้ไข · คัดลอกเป็นใบใหม่ · พิมพ์ · ยกเลิกเอกสาร — แก้ไข/คัดลอกยังไม่มีหน้าจอ [OPEN — Claude Design spec/12 §3]
+      menu={[
+        ...(draft ? [{ label: t('bill.menu.print'), icon: 'printer', onClick: print }] : []),
+        ...(draft && canDraft
+          ? [
+              {
+                label: t('bill.menu.cancel'),
+                icon: 'ban',
+                danger: true,
+                onClick: () => setDlg(true),
+              },
+            ]
+          : []),
+      ]}
       tabs={[
         { key: 'sum', label: t('bill.tab.sum') },
         { key: 'docs', label: t('bill.tab.docs') },

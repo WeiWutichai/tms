@@ -40100,6 +40100,260 @@
         ]
       }
     },
+    "/v1/invoices/summary": {
+      "get": {
+        "description": "นับทั้ง tenant · เกินกำหนดเป็น 0 จนกว่าจะมีวันครบกำหนด/รับชำระ (ST5-T09/T22)",
+        "operationId": "Invoices_summary",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceSummaryCountsDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`invoices:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "invoices",
+                      "action": "read",
+                      "required": [
+                        "invoices:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "จำนวนใบแจ้งหนี้ตามสถานะ (แท็บ/KPI)",
+        "tags": [
+          "invoices"
+        ],
+        "x-required-scopes": [
+          "invoices:read"
+        ]
+      }
+    },
+    "/v1/invoices/preview": {
+      "post": {
+        "description": "body เดียวกับ `POST /invoices` · ตรวจกติกาชุดเดียวกัน (ลูกค้าเดียว, เงื่อนไขส่งบัญชี + คิวพร้อมวางบิล, กันวางบิลซ้ำ) แต่ **ไม่สร้างร่าง ไม่ส่งบัญชี ไม่ลง audit** (ทำใน transaction แล้วย้อนทั้งหมด) · ไม่มีเลข มีลายน้ำ \"ร่าง\" ไม่มีคำว่า \"ใบกำกับภาษี\" · ต้องมี `prices.sell:read`",
+        "operationId": "Invoices_preview",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInvoiceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "application/pdf",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`invoices:draft`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "invoices",
+                      "action": "draft",
+                      "required": [
+                        "invoices:draft"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`not_ready_to_bill` — DO ยังไม่พร้อม (ตรวจซ้ำตอนดึง): `reasons[]` + `deliveryOrders[]` (ต่อ DO: `reasons`, `missing`) — รวม `NOT_RELEASED` (ยังไม่ส่งบัญชี) · `do_already_drafted` — DO อยู่ในใบแจ้งหนี้อื่นที่ยัง active · `invalid_state_transition` — ใบไม่ใช่ร่าง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_ready_to_bill": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_ready_to_bill",
+                      "title": "ใบส่งของนี้ยังไม่พร้อมวางบิล",
+                      "status": 409,
+                      "code": "not_ready_to_bill",
+                      "reasons": [
+                        "NOT_RELEASED"
+                      ],
+                      "deliveryOrders": [
+                        {
+                          "deliveryOrderId": "do_3f2a…",
+                          "doNo": "DO-2611-00012",
+                          "reasons": [
+                            "NOT_RELEASED"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "do_already_drafted": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/do_already_drafted",
+                      "title": "ใบส่งของนี้อยู่ในใบแจ้งหนี้อื่นแล้ว",
+                      "status": 409,
+                      "code": "do_already_drafted",
+                      "deliveryOrderId": "do_3f2a…",
+                      "doNo": "DO-2611-00012",
+                      "billingStatus": "IN_DRAFT"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PDF ตัวอย่างจาก DO ที่เลือก — ไม่บันทึกอะไร",
+        "tags": [
+          "invoices"
+        ],
+        "x-required-scopes": [
+          "invoices:draft"
+        ]
+      }
+    },
     "/v1/invoices": {
       "get": {
         "description": "กรองลูกค้า (`customerId` รับ `ext:` — ไม่พบ = ว่าง) / สถานะ · cursor มาตรฐาน (updatedAt, id) · ร่างไม่มีเลข (`invoiceNo` = null) · ยอด `sell*` เห็นเมื่อมี `prices.sell:read`",
@@ -79977,6 +80231,12 @@
             "example": "5",
             "description": "ST5-T07 จำนวนรวมของบรรทัดค่าขนส่ง (FREIGHT) — null = ไม่มีบรรทัดค่าขนส่ง"
           },
+          "freightUnit": {
+            "type": "string",
+            "nullable": true,
+            "example": "ตัน",
+            "description": "ST5-T07 หน่วยของจำนวนค่าขนส่ง (สูตรตัน/ลบ.ม./หน่วยนับของ rate card หรือหน่วยของรายการบริการ เช่น เที่ยว)"
+          },
           "sellFreightUnitPrice": {
             "type": "string",
             "nullable": true,
@@ -80070,6 +80330,7 @@
           "originSiteName",
           "goods",
           "freightQty",
+          "freightUnit",
           "tripNo",
           "vehiclePlate",
           "carrierName",
@@ -80152,6 +80413,102 @@
           "nextCursor",
           "hasMore",
           "customers"
+        ]
+      },
+      "InvoiceSummaryCountsDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number"
+          },
+          "draft": {
+            "type": "number"
+          },
+          "issued": {
+            "type": "number",
+            "description": "ISSUED + ADJUSTED"
+          },
+          "partiallyPaid": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "overdue": {
+            "type": "number",
+            "description": "เกินกำหนด — คำนวณเมื่อมีวันครบกำหนด/รับชำระ (ST5-T09/T22) ตอนนี้ 0 เสมอ"
+          },
+          "cancelled": {
+            "type": "number",
+            "description": "CANCELLED + VOIDED"
+          }
+        },
+        "required": [
+          "total",
+          "draft",
+          "issued",
+          "partiallyPaid",
+          "paid",
+          "overdue",
+          "cancelled"
+        ]
+      },
+      "CreateInvoiceDto": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "example": "cus_…",
+            "description": "ลูกค้า — id หรือ `ext:{externalId}`"
+          },
+          "deliveryOrderIds": {
+            "example": [
+              "do_…"
+            ],
+            "description": "ใบส่งของ (≤ 200) ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "periodFrom": {
+            "type": "string",
+            "example": "2026-11-01",
+            "description": "งวดตั้งแต่ — ไม่ส่ง = วันที่ DO แรก"
+          },
+          "periodTo": {
+            "type": "string",
+            "example": "2026-11-15",
+            "description": "งวดถึง — ไม่ส่ง = วันที่ DO สุดท้าย"
+          },
+          "lineMode": {
+            "type": "string",
+            "enum": [
+              "SINGLE",
+              "GROUP",
+              "MERGE"
+            ],
+            "description": "ไม่ส่ง = SINGLE"
+          },
+          "releaseDeliveryOrders": {
+            "type": "boolean",
+            "description": "true = ส่งบัญชี DO ที่ยังไม่ส่งในคำขอเดียวกัน (atomic — ส่งไม่ผ่าน = 409 และไม่มีอะไรเปลี่ยน) · ไม่ส่ง/false = DO ต้องส่งบัญชีแล้ว"
+          },
+          "customerPoNo": {
+            "type": "string",
+            "maxLength": 60,
+            "nullable": true,
+            "description": "เลข PO ลูกค้า"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          }
+        },
+        "required": [
+          "customerId",
+          "deliveryOrderIds"
         ]
       },
       "InvoiceCustomerDto": {
@@ -80284,60 +80641,6 @@
           "data",
           "nextCursor",
           "hasMore"
-        ]
-      },
-      "CreateInvoiceDto": {
-        "type": "object",
-        "properties": {
-          "customerId": {
-            "type": "string",
-            "example": "cus_…",
-            "description": "ลูกค้า — id หรือ `ext:{externalId}`"
-          },
-          "deliveryOrderIds": {
-            "example": [
-              "do_…"
-            ],
-            "description": "ใบส่งของ (≤ 200) ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง)",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "periodFrom": {
-            "type": "string",
-            "example": "2026-11-01",
-            "description": "งวดตั้งแต่ — ไม่ส่ง = วันที่ DO แรก"
-          },
-          "periodTo": {
-            "type": "string",
-            "example": "2026-11-15",
-            "description": "งวดถึง — ไม่ส่ง = วันที่ DO สุดท้าย"
-          },
-          "lineMode": {
-            "type": "string",
-            "enum": [
-              "SINGLE",
-              "GROUP",
-              "MERGE"
-            ],
-            "description": "ไม่ส่ง = SINGLE"
-          },
-          "customerPoNo": {
-            "type": "string",
-            "maxLength": 60,
-            "nullable": true,
-            "description": "เลข PO ลูกค้า"
-          },
-          "note": {
-            "type": "string",
-            "maxLength": 1000,
-            "nullable": true
-          }
-        },
-        "required": [
-          "customerId",
-          "deliveryOrderIds"
         ]
       },
       "InvoiceDeliveryOrderDto": {

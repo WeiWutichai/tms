@@ -25,7 +25,9 @@ ALTER TABLE "invoice" ADD CONSTRAINT "invoice_line_mode_check" CHECK ("line_mode
 ALTER TABLE "invoice" ADD CONSTRAINT "invoice_credit_term_days_check" CHECK ("credit_term_days" >= 0 AND "credit_term_days" <= 365);
 ALTER TABLE "invoice" ADD CONSTRAINT "invoice_period_check" CHECK ("period_from" IS NULL OR "period_to" IS NULL OR "period_from" <= "period_to");
 ALTER TABLE "invoice" ADD CONSTRAINT "invoice_discount_amount_check" CHECK ("discount_amount" >= 0);
--- ยกเลิกร่าง: ข้อมูลการยกเลิกครบชุดเมื่อ CANCELLED (ใบ CANCELLED ก่อน ST5-T07 ไม่มี — ไม่มีข้อมูลจริง)
+-- ยกเลิกร่าง: ข้อมูลการยกเลิก (เวลา + เหตุผล) มาคู่กันเสมอ — CHECK นี้ **ไม่ได้บังคับว่าใบ CANCELLED ต้องมีข้อมูลการยกเลิก**
+--   (สมมติฐาน: ก่อน ST5-T07 ไม่มีทางยกเลิกใบผ่าน API — ใบ CANCELLED/VOIDED ที่อาจมีจาก ST5-T05 (ทดสอบ/สคริปต์) ไม่มีเวลา/เหตุผล
+--   จึงไม่บังคับย้อนหลัง ไม่งั้น migration ล้มบนฐานที่มีแถวแบบนั้น) · ทางยกเลิกร่างของ API (ST5-T07) เขียนครบเสมอ
 ALTER TABLE "invoice" ADD CONSTRAINT "invoice_cancel_fields_check" CHECK (
   ("cancelled_at" IS NULL AND "cancel_reason" IS NULL) OR ("cancelled_at" IS NOT NULL AND "cancel_reason" IS NOT NULL));
 

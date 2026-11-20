@@ -4,7 +4,8 @@ import { docDate, docDateShort } from '../../common/thai-date';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { escapeHtml, PdfRenderer } from '../../pdf/pdf-renderer';
-import type { InvoiceDto } from './invoice.dto';
+import { decodeIdOr404 } from '../../common/ids';
+import type { CreateInvoiceDto, InvoiceDto } from './invoice.dto';
 import { InvoicesService } from './invoices.service';
 
 /** "1234.5" → "1,234.50" */
@@ -151,29 +152,7 @@ export class InvoicePdfService {
     const doc = await this.db.withTenant(ctx.tenantId!, async (tx: Tx) => {
       ctx.tx = tx as never;
       try {
-        const inv = await this.invoices.get(id, tx);
-        const row = await tx.invoice.findUniqueOrThrow({
-          where: { id },
-          include: { issuingCompany: true, issuingBranch: true, customer: true },
-        });
-        const tenant = await tx.tenant.findFirst({ select: { yearStyle: true } });
-        return {
-          yearStyle: (tenant?.yearStyle === 'CE' ? 'CE' : 'BE') as 'BE' | 'CE',
-          issuedOn: new Date(),
-          issuer: {
-            name: row.issuingCompany.legalName,
-            taxId: row.issuingCompany.taxId,
-            branch: branchLabel(row.issuingBranch.branchCode),
-            address: addressText(row.issuingBranch.address),
-          },
-          customer: {
-            name: row.customer.legalName,
-            taxId: row.customer.taxId,
-            branch: branchLabel(row.customer.branchCode),
-            address: addressText(row.customer.billingAddress),
-          },
-          inv,
-        };
+        return await this.loadDoc(tx, id);
       } finally {
         ctx.tx = undefined;
       }
@@ -182,11 +161,63 @@ export class InvoicePdfService {
       throw new ProblemException('invalid_state_transition', undefined, undefined, {
         currentStatus: doc.inv.status,
       });
-    const pdf = await this.renderer.pdf({
-      body: proformaHtml(doc),
-      css: CSS,
-      title: 'ใบแจ้งหนี้ (ร่าง)',
+    return { doc, pdf: await this.render(doc) };
+  }
+
+  /**
+   * review M2: PDF ตัวอย่างจาก DO ที่ติ๊ก **โดยไม่บันทึกอะไร** — สร้างร่าง (รวมส่งบัญชี) ด้วยกติกาเดียวกับ `POST /invoices`
+   * ใน transaction แล้วย้อนทั้งหมด (rollback) ก่อน render — ไม่มีร่าง/การส่งบัญชี/audit ค้าง
+   */
+  async preview(body: CreateInvoiceDto): Promise<{ doc: ProformaDoc; pdf: Buffer }> {
+    const ctx = requestContext.require();
+    let doc: ProformaDoc | null = null;
+    try {
+      await this.db.withTenant(ctx.tenantId!, async (tx: Tx) => {
+        ctx.tx = tx as never;
+        try {
+          const inv = await this.invoices.create({ ...body, releaseDeliveryOrders: true });
+          doc = await this.loadDoc(tx, decodeIdOr404('invoice', inv.id));
+        } finally {
+          ctx.tx = undefined;
+        }
+        throw ROLLBACK;
+      });
+    } catch (e) {
+      if (e !== ROLLBACK) throw e;
+    }
+    return { doc: doc!, pdf: await this.render(doc!) };
+  }
+
+  private render(doc: ProformaDoc) {
+    return this.renderer.pdf({ body: proformaHtml(doc), css: CSS, title: 'ใบแจ้งหนี้ (ร่าง)' });
+  }
+
+  private async loadDoc(tx: Tx, id: string): Promise<ProformaDoc> {
+    const inv = await this.invoices.get(id, tx);
+    const row = await tx.invoice.findUniqueOrThrow({
+      where: { id },
+      include: { issuingCompany: true, issuingBranch: true, customer: true },
     });
-    return { doc, pdf };
+    const tenant = await tx.tenant.findFirst({ select: { yearStyle: true } });
+    return {
+      yearStyle: (tenant?.yearStyle === 'CE' ? 'CE' : 'BE') as 'BE' | 'CE',
+      issuedOn: new Date(),
+      issuer: {
+        name: row.issuingCompany.legalName,
+        taxId: row.issuingCompany.taxId,
+        branch: branchLabel(row.issuingBranch.branchCode),
+        address: addressText(row.issuingBranch.address),
+      },
+      customer: {
+        name: row.customer.legalName,
+        taxId: row.customer.taxId,
+        branch: branchLabel(row.customer.branchCode),
+        address: addressText(row.customer.billingAddress),
+      },
+      inv,
+    };
   }
 }
+
+/** ใช้ย้อน transaction ของตัวอย่าง (ไม่ใช่ข้อผิดพลาด) */
+const ROLLBACK = Symbol('preview-rollback');
