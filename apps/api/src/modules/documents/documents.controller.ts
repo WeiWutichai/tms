@@ -37,7 +37,13 @@ import { EntitlementService } from '../entitlements/entitlement.service';
 import { ImportRegistry, importSpecAllowed } from '../imports/import-spec';
 import { POD_LINK_PURPOSE, podLinkUsable } from '../trips/offer-links';
 import { ALLOWED_MIME, EXT, IMPORT_MIME, sniffMime, type AllowedMime } from './mime';
-import { DOWNLOAD_TTL_S, signDocumentUrl, UPLOAD_TTL_S, verifyDocumentUrl } from './signed-url';
+import {
+  DOWNLOAD_TTL_S,
+  IMPORT_DOWNLOAD_TTL_S,
+  signDocumentUrl,
+  UPLOAD_TTL_S,
+  verifyDocumentUrl,
+} from './signed-url';
 
 /** docs/04 I "10 MB/ไฟล์" (POD ของแอปคนขับมีเพดานเล็กกว่า — กำหนดตอน ST4) */
 export const MAX_BYTES = 10 * 1024 * 1024;
@@ -103,7 +109,9 @@ export class DocumentDto {
   @ApiProperty({ format: 'date-time' }) createdAt!: string;
   @ApiPropertyOptional({ description: 'สถานะ pending: PUT เนื้อไฟล์ไปที่นี่ (หมดอายุ 15 นาที)' })
   uploadUrl?: string;
-  @ApiPropertyOptional({ description: 'สถานะ ready: ลิงก์ดาวน์โหลด (หมดอายุ 5 นาที)' })
+  @ApiPropertyOptional({
+    description: 'สถานะ ready: ลิงก์ดาวน์โหลด (หมดอายุ 5 นาที · ไฟล์นำเข้า IMPORT 60 วินาที)',
+  })
   downloadUrl?: string;
   @ApiPropertyOptional({ format: 'date-time' }) urlExpiresAt?: string;
 }
@@ -232,8 +240,11 @@ export class DocumentsController {
 
   /**
    * ไฟล์ต้นฉบับที่นำเข้า (kind IMPORT) อาจมีข้อมูลส่วนบุคคลเต็ม (เลขบัตรคนขับ เบอร์โทร ฯลฯ — ST9-T16 R-1)
-   * เห็นได้เฉพาะ: ผู้อัปโหลดเอง หรือผู้ใช้ที่มีสิทธิ์จัดการการนำเข้าชนิดที่ใช้ไฟล์นี้ (scope ของ ImportSpec + แพ็กเกจ)
-   * การเข้าใช้งานแทน (ทีม Innovera) ไม่เห็นเลย · API key เห็นเฉพาะไฟล์ที่ตัวเองอัปโหลด
+   * เห็นได้เฉพาะ:
+   * - ผู้อัปโหลดเอง — เห็นเสมอ แม้ภายหลังถูกลดสิทธิ์ (เป็นไฟล์ที่เขาถืออยู่แล้ว) · API key ก็เห็นเฉพาะไฟล์ที่ key นั้นอัปโหลด
+   * - ผู้ใช้ (pt user/dev) ที่มีสิทธิ์จัดการการนำเข้า **ทุกชนิด** ที่อ้างไฟล์นี้ (scope ของ ImportSpec + แพ็กเกจ)
+   *   — ไฟล์เดียวถูกใช้กับหลายชนิดได้ ผ่านชนิดเดียวไม่พอ · ยังไม่มีงานนำเข้าอ้างถึง = ไม่เห็น
+   * การเข้าใช้งานแทน (ทีม Innovera) ไม่เห็นเลย แม้สวมผู้อัปโหลด
    */
   private async canSeeImportFile(doc: StoredDocument): Promise<boolean> {
     const ctx = requestContext.require();
@@ -245,12 +256,13 @@ export class DocumentsController {
       select: { kind: true },
       distinct: ['kind'],
     });
+    if (!jobs.length) return false;
     for (const j of jobs) {
       const spec = this.importSpecs.get(j.kind);
-      if (await importSpecAllowed(spec, ctx.scopes ?? [], ctx.tenantId!, this.entitlements))
-        return true;
+      if (!(await importSpecAllowed(spec, ctx.scopes ?? [], ctx.tenantId!, this.entitlements)))
+        return false;
     }
-    return false;
+    return true;
   }
 
   /**
@@ -316,7 +328,7 @@ export class DocumentsController {
   @ApiOkResponse({
     type: DocumentDto,
     description:
-      'ไฟล์ส่งออก (EXPORT) เห็นเฉพาะผู้สั่ง · ไฟล์นำเข้า (IMPORT) เห็นเฉพาะผู้อัปโหลด หรือผู้ใช้ที่มีสิทธิ์จัดการการนำเข้าชนิดนั้น (API key เฉพาะไฟล์ของตัวเอง, การเข้าใช้งานแทนไม่เห็น) — ไม่มีสิทธิ์ = 404',
+      'ไฟล์ส่งออก (EXPORT) เห็นเฉพาะผู้สั่ง · ไฟล์นำเข้า (IMPORT) เห็นเฉพาะผู้อัปโหลด (API key เห็นเฉพาะไฟล์ที่ key นั้นอัปโหลด) หรือผู้ใช้ที่มีสิทธิ์จัดการการนำเข้าทุกชนิดที่ใช้ไฟล์นั้น; การเข้าใช้งานแทนไม่เห็น; `downloadUrl` ของไฟล์นำเข้าหมดอายุ 60 วินาที — ไม่มีสิทธิ์ = 404',
   })
   async get(@Param('id') id: string, @Req() req: Request): Promise<DocumentDto> {
     const doc = await this.db.tx.storedDocument.findUnique({
@@ -448,7 +460,9 @@ export class DocumentsController {
       dto.urlExpiresAt = s.expiresAt.toISOString();
     } else if (doc.status === 'READY') {
       // PURGED (ST9-T14) = ไฟล์ถูกลบตามระยะเก็บ — ไม่มีลิงก์ดาวน์โหลด
-      const s = signDocumentUrl('download', doc.tenantId, doc.id, DOWNLOAD_TTL_S);
+      // ไฟล์นำเข้า (มีข้อมูลส่วนบุคคลเต็ม — ST9-T16 R-1) ลิงก์อายุสั้นกว่า: หน้าเว็บไม่ดาวน์โหลดไฟล์นี้ ใช้แค่ผ่าน API
+      const ttl = doc.kind === 'IMPORT' ? IMPORT_DOWNLOAD_TTL_S : DOWNLOAD_TTL_S;
+      const s = signDocumentUrl('download', doc.tenantId, doc.id, ttl);
       dto.downloadUrl = `${base}?${s.query}`;
       dto.urlExpiresAt = s.expiresAt.toISOString();
     }

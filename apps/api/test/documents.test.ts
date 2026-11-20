@@ -252,14 +252,21 @@ describe('documents: ไฟล์นำเข้า (IMPORT) เห็นเฉ�
     process.env.FILES_ROOT = mkdtempSync(join(tmpdir(), 'tms-files-'));
     await truncateAll();
     app = await bootApp();
-    app.get(ImportRegistry).register({
-      kind: 'doc_access_test',
-      label: 'ทดสอบสิทธิ์ไฟล์นำเข้า',
-      scope: 'settings:write',
-      columns: [{ key: 'code', header: 'รหัส', required: true }],
-      validate: async (_ctx: unknown, rows: unknown[]) => rows.map(() => ({ issues: [] })),
-      commit: async () => ({ created: 0 }),
-    } as never);
+    const spec = (kind: string, scope: string, feature?: string) =>
+      ({
+        kind,
+        label: 'ทดสอบสิทธิ์ไฟล์นำเข้า',
+        scope,
+        ...(feature ? { feature } : {}),
+        columns: [{ key: 'code', header: 'รหัส', required: true }],
+        validate: async (_ctx: unknown, rows: unknown[]) => rows.map(() => ({ issues: [] })),
+        commit: async () => ({ created: 0 }),
+      }) as never;
+    const reg = app.get(ImportRegistry);
+    reg.register(spec('doc_access_test', 'settings:write'));
+    reg.register(spec('doc_access_master', 'master:write'));
+    // ฟีเจอร์ที่ไม่มีแพ็กเกจไหนเปิด = แพ็กเกจปิด
+    reg.register(spec('doc_access_feature', 'settings:write', 'test.not_in_any_plan'));
     tenantId = (await createTenantWithDefaults(db, { name: 'บริษัท นำเข้า' })).id;
     uploaderId = await user('uploader@a.test');
     uploader = await tokenFor(
@@ -267,6 +274,9 @@ describe('documents: ไฟล์นำเข้า (IMPORT) เห็นเฉ�
       'documents:read documents:write settings:write',
       uploaderId,
     );
+    docId = await upload();
+  });
+  async function upload(): Promise<string> {
     const r = await api(app, uploader)
       .post('/v1/documents')
       .send({ kind: 'IMPORT', mime: 'text/csv', bytes: CSV.length, filename: 'คนขับ.csv' })
@@ -276,8 +286,18 @@ describe('documents: ไฟล์นำเข้า (IMPORT) เห็นเฉ�
       .set('Content-Type', 'application/octet-stream')
       .send(CSV)
       .expect(200);
-    docId = r.body.id;
-  });
+    return r.body.id;
+  }
+  const jobFor = (id: string, kind: string) =>
+    db.importJob.create({
+      data: {
+        tenantId,
+        kind,
+        documentId: tryDecodeId('document', id)!,
+        expiresAt: new Date(Date.now() + 3600_000),
+        createdBy: uploaderId,
+      },
+    });
   afterAll(async () => {
     await app.close();
     await db.$disconnect();
@@ -288,6 +308,10 @@ describe('documents: ไฟล์นำเข้า (IMPORT) เห็นเฉ�
   it('ผู้อัปโหลด → 200 พร้อม downloadUrl ที่ดาวน์โหลดได้', async () => {
     const r = await get(uploader).expect(200);
     expect(r.body.kind).toBe('IMPORT');
+    // ลิงก์ไฟล์นำเข้าอายุสั้น (60 วินาที — review L-b)
+    const ttl = (new Date(r.body.urlExpiresAt).getTime() - Date.now()) / 1000;
+    expect(ttl).toBeGreaterThan(0);
+    expect(ttl).toBeLessThanOrEqual(61);
     await request(app.getHttpServer()).get(path(r.body.downloadUrl)).expect(200);
   });
 
@@ -315,20 +339,50 @@ describe('documents: ไฟล์นำเข้า (IMPORT) เห็นเฉ�
       await user('manager@a.test'),
     );
     expect((await get(manager)).status).toBe(404);
-    const uuid = tryDecodeId('document', docId)!;
-    await db.importJob.create({
-      data: {
-        tenantId,
-        kind: 'doc_access_test',
-        documentId: uuid,
-        expiresAt: new Date(Date.now() + 3600_000),
-        createdBy: uploaderId,
-      },
-    });
+    await jobFor(docId, 'doc_access_test');
     expect((await get(manager)).status).toBe(200);
     // ชนิดที่ไม่รู้จัก/ไม่มีสิทธิ์ของงานนำเข้า ไม่เปิดให้ role ที่ไม่มี scope ของชนิดนั้น
     const other = await tokenFor(tenantId, 'documents:read master:write', await user('m2@a.test'));
     expect((await get(other)).status).toBe(404);
+  });
+
+  it('ไฟล์เดียวถูกอ้างโดยหลายชนิดการนำเข้า → ต้องมีสิทธิ์ทุกชนิด (ผู้อัปโหลดเห็นเสมอ)', async () => {
+    const id = await upload();
+    await jobFor(id, 'doc_access_test');
+    await jobFor(id, 'doc_access_master');
+    const at = (t: string) => api(app, t).get(`/v1/documents/${id}`);
+    const settingsOnly = await tokenFor(
+      tenantId,
+      'documents:read settings:write',
+      await user('multi1@a.test'),
+    );
+    const masterOnly = await tokenFor(
+      tenantId,
+      'documents:read master:write',
+      await user('multi2@a.test'),
+    );
+    const both = await tokenFor(
+      tenantId,
+      'documents:read settings:write master:write',
+      await user('multi3@a.test'),
+    );
+    expect((await at(settingsOnly)).status).toBe(404);
+    expect((await at(masterOnly)).status).toBe(404);
+    expect((await at(both)).status).toBe(200);
+    // ผู้อัปโหลดไม่มี master:write แต่ยังเห็นไฟล์ของตัวเอง
+    expect((await at(uploader)).status).toBe(200);
+  });
+
+  it('ชนิดการนำเข้าที่ฟีเจอร์ไม่อยู่ในแพ็กเกจ → 404 แม้มี scope', async () => {
+    const id = await upload();
+    await jobFor(id, 'doc_access_feature');
+    const manager = await tokenFor(
+      tenantId,
+      'documents:read settings:write',
+      await user('feat@a.test'),
+    );
+    expect((await api(app, manager).get(`/v1/documents/${id}`)).status).toBe(404);
+    expect((await api(app, uploader).get(`/v1/documents/${id}`)).status).toBe(200);
   });
 
   it('API key (มี documents:read) อ่านไฟล์นำเข้าของผู้ใช้ไม่ได้ → 404', async () => {
