@@ -1617,6 +1617,8 @@ model RevenueLine {
   createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  invoiceLines InvoiceLine[]
+
   @@unique([tenantId, salesOrderId, lineNo])
   @@index([tenantId, deliveryOrderId])
   @@index([tenantId, serviceItemId])
@@ -3619,6 +3621,23 @@ model Invoice {
   vatAmount         Decimal       @default(0) @map("vat_amount") @db.Decimal(14, 2)
   totalAmount       Decimal       @default(0) @map("total_amount") @db.Decimal(14, 2)
   whtExpectedAmount Decimal       @default(0) @map("wht_expected_amount") @db.Decimal(14, 2)
+  /// ST5-T07 ร่าง (docs/04 F3 "Draft (แก้ได้)", spec/05 §3) — ยอด VAT/WHT เป็นประมาณการ (D-54 · computeDocumentTax)
+  subtotalZeroRated Decimal       @default(0) @map("subtotal_zero_rated") @db.Decimal(14, 2)
+  /// Σ ส่วนลดบรรทัดที่ยังใช้ (ยอดบรรทัด `amount` = หลังหักส่วนลดแล้ว)
+  discountAmount    Decimal       @default(0) @map("discount_amount") @db.Decimal(14, 2)
+  /// ยอดรวม − WHT ที่คาดว่าจะถูกหัก (ประมาณการ)
+  netExpectedAmount Decimal       @default(0) @map("net_expected_amount") @db.Decimal(14, 2)
+  periodFrom        DateTime?     @map("period_from") @db.Date
+  periodTo          DateTime?     @map("period_to") @db.Date
+  creditTermDays    Int           @default(30) @map("credit_term_days")
+  customerPoNo      String?       @map("customer_po_no")
+  note              String?
+  /// รูปบรรทัดบนเอกสาร: SINGLE (บรรทัดละรายการ) / GROUP (รวมรายการเดียวกัน ราคาเดียวกัน) / MERGE (รวมตามรายการบริการ) — CHECK
+  lineMode          String        @default("SINGLE") @map("line_mode")
+  updatedBy         String?       @map("updated_by")
+  cancelledAt       DateTime?     @map("cancelled_at") @db.Timestamptz(6)
+  cancelledBy       String?       @map("cancelled_by")
+  cancelReason      String?       @map("cancel_reason")
   createdBy         String?       @map("created_by")
   version           Int           @default(1)
   createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -3659,9 +3678,22 @@ model InvoiceLine {
   accountCode     String?        @map("account_code")
   isUserAdded     Boolean        @default(false) @map("is_user_added")
   active          Boolean        @default(true)
+  /// ST5-T07 บรรทัดรายได้ต้นทาง (1 บรรทัด = 1 บรรทัดรายได้ของ DO) — unique partial ต่อบรรทัดที่ active (migration 0135)
+  revenueLineId   String?        @map("revenue_line_id") @db.Uuid
+  revenueLine     RevenueLine?   @relation(fields: [revenueLineId], references: [id], onDelete: Restrict)
+  /// บรรทัดแรกของ DO ในใบ = ตัวกันวางบิลซ้ำต่อ DO (unique partial `(tenant_id, delivery_order_id) WHERE active AND do_anchor`)
+  doAnchor        Boolean        @default(true) @map("do_anchor")
+  /// ส่วนลดของบรรทัด (≥ 0) — `amount` = ยอดหลังหักส่วนลด · ยอดก่อนส่วนลด = amount + discount
+  discount        Decimal        @default(0) @db.Decimal(14, 2)
+  /// กลุ่มบรรทัดที่ผู้ใช้รวมเอง (Merge) — null = ตามรูปบรรทัดของใบ (`invoice.line_mode`)
+  printGroup      Int?           @map("print_group")
+  removedAt       DateTime?      @map("removed_at") @db.Timestamptz(6)
+  removedBy       String?        @map("removed_by")
+  removeReason    String?        @map("remove_reason")
   createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@unique([tenantId, invoiceId, lineNo])
+  @@index([tenantId, revenueLineId])
   @@index([tenantId, deliveryOrderId])
   @@index([tenantId, doSurchargeId])
   @@index([tenantId, serviceItemId])

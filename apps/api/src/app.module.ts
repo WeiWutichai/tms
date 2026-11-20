@@ -174,6 +174,8 @@ import {
 } from './modules/invoices/invoices.controller';
 import { BillingQueueService } from './modules/invoices/billing-queue.service';
 import { BillingReleaseService } from './modules/invoices/billing-release.service';
+import { InvoicesService } from './modules/invoices/invoices.service';
+import { InvoicePdfService } from './modules/invoices/invoice-pdf.service';
 import { InvoiceBillingGuard } from './modules/invoices/billing-guard.service';
 import { SettlementQueueService } from './modules/settlements/settlement-queue.service';
 import { SettlementComparisonService } from './modules/settlements/settlement-comparison.service';
@@ -401,6 +403,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     BillingQueueService,
     BillingReleaseService,
     InvoiceBillingGuard,
+    InvoicesService,
+    InvoicePdfService,
     StopEventsService,
     StopProjectionService,
     SubconHireService,

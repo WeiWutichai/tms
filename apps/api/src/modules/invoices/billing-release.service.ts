@@ -42,8 +42,23 @@ export class BillingReleaseService {
   ): Promise<ReleaseOutcome> {
     const d = await this.dos.lockForRelease(tx, id, o.version);
     if (d.releasedAt) return { d, outcome: 'UNCHANGED' };
+    const { reasons, missing } = await this.check(tx, d);
+    if (reasons.length)
+      throw notReady(reasons, { doStatus: d.status, ...(missing ? { missing } : {}) });
+    const note = o.note ? cleanLine(o.note).trim() || null : null;
+    return { d: await this.dos.markReleased(tx, d, this.clock.now(), note), outcome: 'RELEASED' };
+  }
+
+  /**
+   * ผลตรวจความพร้อมวางบิลของ DO (กฎเดียวกับคิว + จุดส่งมีเวลาถึง/ออก + หลักฐานผ่าน checklist **ปัจจุบัน**) — ผู้เรียกถือล็อก DO
+   * ST5-T07 ใช้ตอนดึง DO เข้าร่าง (ตรวจซ้ำทุกครั้ง ไม่เชื่อ `released_at`) · `released` = ส่งบัญชีแล้ว
+   */
+  async check(
+    tx: Tx,
+    d: { id: string; customerId: string },
+  ): Promise<{ reasons: NotReadyReason[]; missing?: unknown[]; released: boolean }> {
     const r = await this.queue.readiness(tx, d.id);
-    if (!r) throw notReady(['NOT_DELIVERED'], { doStatus: d.status });
+    if (!r) return { reasons: ['NOT_DELIVERED'], released: false };
     const reasons = BillingQueueService.blockers(r);
     let missing: unknown[] | undefined;
     if (r.req_pod) {
@@ -53,10 +68,7 @@ export class BillingReleaseService {
         missing = now.missing;
       }
     }
-    if (reasons.length)
-      throw notReady(reasons, { doStatus: d.status, ...(missing ? { missing } : {}) });
-    const note = o.note ? cleanLine(o.note).trim() || null : null;
-    return { d: await this.dos.markReleased(tx, d, this.clock.now(), note), outcome: 'RELEASED' };
+    return { reasons, ...(missing ? { missing } : {}), released: r.released };
   }
 
   /**

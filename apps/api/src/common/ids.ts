@@ -68,6 +68,13 @@ export const ID_PREFIX = {
   settlement: 'stl',
   /** ST6-T03 บรรทัดใบสำคัญจ่าย (settlement_line) */
   settlementLine: 'stln',
+  /**
+   * ST5-T07 ใบแจ้งหนี้ — docs/01 §3.4 ใช้ `inv_` แต่ `inv` เป็นของคำเชิญผู้ใช้แล้ว (ลิงก์/ลูกค้า API ที่มีอยู่)
+   * → `ivc` [DECISION spec/12 §3 — ย้อนได้ก่อนเปิดใช้จริง]
+   */
+  invoice: 'ivc',
+  /** ST5-T07 บรรทัดใบแจ้งหนี้ (invoice_line) */
+  invoiceLine: 'ivl',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 
