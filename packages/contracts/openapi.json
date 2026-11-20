@@ -75741,6 +75741,22 @@
             "type": "string",
             "description": "เห็นเมื่อมี `prices.buy:read`"
           },
+          "buyWhtAmount": {
+            "type": "string",
+            "description": "หัก ณ ที่จ่ายประมาณการ (ST6-T08) — เห็นเมื่อมี `prices.buy:read`"
+          },
+          "buyNetAfterWht": {
+            "type": "string",
+            "description": "ยอดจ่ายหลังหัก ณ ที่จ่าย (ประมาณการ) — เห็นเมื่อมี `prices.buy:read`"
+          },
+          "whtForm": {
+            "type": "string",
+            "enum": [
+              "PND3",
+              "PND53"
+            ],
+            "description": "แบบยื่น ภ.ง.ด.3 (บุคคล) / ภ.ง.ด.53 (นิติบุคคล)"
+          },
           "approvedAt": {
             "type": "string",
             "nullable": true,
@@ -75774,6 +75790,7 @@
           "periodTo",
           "carrierInvoiceNo",
           "tripCount",
+          "whtForm",
           "approvedAt",
           "sentAt",
           "createdBy",
@@ -75916,6 +75933,77 @@
         },
         "required": [
           "carrierId"
+        ]
+      },
+      "SettlementWhtRateDto": {
+        "type": "object",
+        "properties": {
+          "whtRate": {
+            "type": "string",
+            "example": "1.00",
+            "description": "อัตรา (%)"
+          },
+          "buyBaseAmount": {
+            "type": "string",
+            "example": "15000.00",
+            "description": "ฐานก่อนหักของกลุ่มอัตรา — เห็นเมื่อมี `prices.buy:read`"
+          },
+          "buyWhtAmount": {
+            "type": "string",
+            "example": "150.00",
+            "description": "round_half_up(ฐานกลุ่ม × อัตรา) ครั้งเดียวต่อกลุ่ม — เห็นเมื่อมี `prices.buy:read`"
+          }
+        },
+        "required": [
+          "whtRate"
+        ]
+      },
+      "SettlementWhtEstimateDto": {
+        "type": "object",
+        "properties": {
+          "review": {
+            "type": "string",
+            "enum": [
+              "NOT_REVIEWED_BY_ACCOUNTANT"
+            ],
+            "description": "วิธีคำนวณ **ร่าง — ยังไม่ผ่านนักบัญชี** (ยอดประมาณการ; ยอดจริงคำนวณที่ระบบบัญชี)"
+          },
+          "form": {
+            "type": "string",
+            "enum": [
+              "PND3",
+              "PND53"
+            ],
+            "description": "แบบยื่นตามประเภทรถร่วม (snapshot ตอนสร้างใบ): INDIVIDUAL → PND3 (ภ.ง.ด.3) · JURISTIC → PND53 (ภ.ง.ด.53) — ส่งไปกับ AP ร่าง"
+          },
+          "frozen": {
+            "type": "boolean",
+            "description": "true = ตรึงยอดแล้วตอนอนุมัติ (`buyWhtAmount` และขั้นต่ำไม่เปลี่ยนตามค่าตั้งอีก) · false = คำนวณสดจากบรรทัดที่ยังใช้ + ค่าตั้งปัจจุบัน"
+          },
+          "minimumAmount": {
+            "type": "string",
+            "example": "0.00",
+            "description": "ขั้นต่ำหัก ณ ที่จ่าย (บาท) ที่ใช้ — ค่าตั้ง `tax.whtMinimumAmount` (ค่าเริ่ม 0 = หักทุกยอด) เทียบกับฐานก่อนหักรวมทุกอัตราของใบ"
+          },
+          "belowMinimum": {
+            "type": "boolean",
+            "description": "true = ฐานต่ำกว่าขั้นต่ำ → ไม่หัก (ยอด 0)"
+          },
+          "byRate": {
+            "description": "แยกตามอัตรา (ไม่มีกลุ่มอัตรา 0)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettlementWhtRateDto"
+            }
+          }
+        },
+        "required": [
+          "review",
+          "form",
+          "frozen",
+          "minimumAmount",
+          "belowMinimum",
+          "byRate"
         ]
       },
       "SettlementLineReviewDto": {
@@ -76073,7 +76161,28 @@
             "type": "string",
             "nullable": true,
             "example": "1.00",
-            "description": "อัตราหัก ณ ที่จ่ายที่คัดลอกจาก trip_cost (ข้อมูลเท่านั้น — คำนวณ WHT ใน ST6-T08)"
+            "description": "อัตราหัก ณ ที่จ่าย (%) ที่คัดลอกจาก trip_cost ตอนจ้าง — null = ไม่มีธง (ราคากรอกเอง) → ใช้ค่าตั้งต้นของรถร่วม (`whtRateApplied`)"
+          },
+          "whtRateApplied": {
+            "type": "string",
+            "nullable": true,
+            "example": "1.00",
+            "description": "อัตราหัก ณ ที่จ่าย (%) ที่ใช้คำนวณประมาณการ (ST6-T08) = `whtRate` ของบรรทัด หรือค่าตั้งต้นของรถร่วม (`wht_rate_default`) เมื่อบรรทัดไม่มีธง · null = บรรทัดหัก/บรรทัดที่นำออกแล้ว"
+          },
+          "whtRateSource": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "LINE",
+              "CARRIER_DEFAULT"
+            ],
+            "description": "ที่มาของ `whtRateApplied`: LINE = ธงของบรรทัด · CARRIER_DEFAULT = ค่าตั้งต้นของรถร่วม"
+          },
+          "buyWhtAmount": {
+            "type": "string",
+            "nullable": true,
+            "example": "45.00",
+            "description": "หัก ณ ที่จ่ายประมาณการรายบรรทัด (ค่าแสดงผล — ปัดรายบรรทัด เศษไปบรรทัดสุดท้ายของกลุ่มอัตรา; ผลรวม = `buyWhtAmount` ของใบ) · null = บรรทัดหัก/นำออกแล้ว — เห็นเมื่อมี `prices.buy:read`"
           },
           "active": {
             "type": "boolean",
@@ -76142,6 +76251,8 @@
           "reference",
           "vatType",
           "whtRate",
+          "whtRateApplied",
+          "whtRateSource",
           "active",
           "voidedAt",
           "voidedBy",
@@ -76272,7 +76383,20 @@
           "buyNetPayable": {
             "type": "string",
             "example": "11000.00",
-            "description": "ยอดสุทธิ = ยอดรวม − รายการหัก (ยังไม่หัก ณ ที่จ่าย — ST6-T08) — เห็นเมื่อมี `prices.buy:read`"
+            "description": "ยอดสุทธิ = ยอดรวม − รายการหัก (**ก่อนหัก ณ ที่จ่าย** — ใช้เทียบวงเงิน step-up ตอนอนุมัติ) — เห็นเมื่อมี `prices.buy:read`"
+          },
+          "buyWhtAmount": {
+            "type": "string",
+            "example": "150.00",
+            "description": "หัก ณ ที่จ่าย **ประมาณการ** (ST6-T08) = Σ ต่ออัตรา round_half_up(ฐานก่อนหักของกลุ่ม × อัตรา) — ร่าง ยังไม่ผ่านนักบัญชี · เห็นเมื่อมี `prices.buy:read`"
+          },
+          "buyNetAfterWht": {
+            "type": "string",
+            "example": "10850.00",
+            "description": "ยอดจ่ายรถร่วมหลังหัก ณ ที่จ่าย = ยอดรวม − หัก ณ ที่จ่าย − รายการหัก (ประมาณการ) — เห็นเมื่อมี `prices.buy:read`"
+          },
+          "whtEstimate": {
+            "$ref": "#/components/schemas/SettlementWhtEstimateDto"
           },
           "lines": {
             "description": "ทุกบรรทัด รวมบรรทัดที่นำออกแล้ว (`active` false)",
@@ -76345,6 +76469,7 @@
           "carrierReceiptNo",
           "note",
           "tripCount",
+          "whtEstimate",
           "lines",
           "approvedAt",
           "approvedBy",
@@ -88810,7 +88935,7 @@
       },
       "WebhookEvent_settlement_approved": {
         "type": "object",
-        "description": "`data.object` ของ settlement.approved — อนุมัติใบสำคัญจ่ายรถร่วม (ออกเลข STL แล้ว — ผู้อนุมัติไม่ใช่ผู้สร้าง) · รูปเดียวกับ SettlementDto (ไม่มี field ราคา, lines, createdBy, approvedBy, cancelledBy, cancelReason, note, sentBy)",
+        "description": "`data.object` ของ settlement.approved — อนุมัติใบสำคัญจ่ายรถร่วม (ออกเลข STL แล้ว — ผู้อนุมัติไม่ใช่ผู้สร้าง) · รูปเดียวกับ SettlementDto (ไม่มี field ราคา, lines, createdBy, approvedBy, cancelledBy, cancelReason, note, sentBy, whtEstimate)",
         "properties": {
           "id": {
             "type": "string",

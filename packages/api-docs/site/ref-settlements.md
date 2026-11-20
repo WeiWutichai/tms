@@ -748,7 +748,10 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/lines/{lineId}/reso
 | `tripCount` | ใช่ | `number` |   | จำนวนเที่ยวในใบ (บรรทัดที่ยังใช้) |   |
 | `buyGrossAmount` |   | `string` |   | ยอดรวม = Σ บรรทัดเที่ยวที่ยังใช้ (ก่อน VAT ก่อนหัก ณ ที่จ่าย) — เห็นเมื่อมี `prices.buy:read` | `13500.00` |
 | `buyDeductionAmount` |   | `string` |   | รวมรายการหัก (ค่าบวก = Σ \|บรรทัดหัก\|) — เห็นเมื่อมี `prices.buy:read` | `2500.00` |
-| `buyNetPayable` |   | `string` |   | ยอดสุทธิ = ยอดรวม − รายการหัก — เห็นเมื่อมี `prices.buy:read` | `11000.00` |
+| `buyNetPayable` |   | `string` |   | ยอดสุทธิ = ยอดรวม − รายการหัก (**ก่อนหัก ณ ที่จ่าย** — ใช้เทียบวงเงิน step-up ตอนอนุมัติ) — เห็นเมื่อมี `prices.buy:read` | `11000.00` |
+| `buyWhtAmount` |   | `string` |   | หัก ณ ที่จ่าย **ประมาณการ** = Σ ต่ออัตรา round_half_up(ฐานก่อนหักของกลุ่ม × อัตรา) — ร่าง ยังไม่ผ่านนักบัญชี · เห็นเมื่อมี `prices.buy:read` | `150.00` |
+| `buyNetAfterWht` |   | `string` |   | ยอดจ่ายรถร่วมหลังหัก ณ ที่จ่าย = ยอดรวม − หัก ณ ที่จ่าย − รายการหัก (ประมาณการ) — เห็นเมื่อมี `prices.buy:read` | `10850.00` |
+| `whtEstimate` | ใช่ | `SettlementWhtEstimateDto` |   |   |   |
 | `lines` | ใช่ | `array<SettlementLineDto>` |   | ทุกบรรทัด รวมบรรทัดที่นำออกแล้ว (`active` false) |   |
 | `approvedAt` | ใช่ | `string` | null ได้ | เวลาอนุมัติ — ออกเลข `settlementNo` พร้อมกัน |   |
 | `approvedBy` | ใช่ | `string` | null ได้ | ผู้อนุมัติ (ไม่ใช่ผู้สร้าง — separation of duties) |   |

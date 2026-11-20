@@ -818,6 +818,240 @@ describe('settlements (ST6-T03)', () => {
     expect((a.lines as Line[])[0]!.active).toBe(true);
   });
   // ---------------- ST6-T07 อนุมัติ (separation of duties) ----------------
+  describe('หัก ณ ที่จ่ายประมาณการ (ST6-T08)', () => {
+    const setMin = (value: number) =>
+      db.tenantSetting.upsert({
+        where: { tenantId_key: { tenantId, key: 'tax.whtMinimumAmount' } },
+        create: { tenantId, key: 'tax.whtMinimumAmount', value: value as never },
+        update: { value: value as never },
+      });
+    const idCard = (n: number) => {
+      const base = `1${String(10_000_000_000 + n).slice(-11)}`;
+      let sum = 0;
+      for (let i = 0; i < 12; i++) sum += Number(base[i]) * (13 - i);
+      return base + String((11 - (sum % 11)) % 10);
+    };
+    type WhtLine = Line & {
+      whtRateApplied: string | null;
+      whtRateSource: string | null;
+      buyWhtAmount?: string | null;
+    };
+    afterAll(() => setMin(0));
+
+    it('เกณฑ์: ยอดก่อนหัก × อัตราบรรทัด (1%) · บรรทัดหักไม่ใช่ฐาน · ภ.ง.ด.53 · ติดธงยังไม่ผ่านนักบัญชี · รายการมียอด', async () => {
+      const { C, trips } = await setup(3, '1234.56');
+      const r = await create({
+        carrierId: C.id,
+        tripIds: trips.map((t) => t.id),
+        deductions: [ADV, FINE],
+      }).expect(201);
+      // ฐาน 3,703.68 × 1% = 37.0368 → 37.04 (ปัดครั้งเดียวทั้งกลุ่ม) · สุทธิ = 3,703.68 − 37.04 − 2,500
+      expect(r.body).toMatchObject({
+        buyGrossAmount: '3703.68',
+        buyDeductionAmount: '2500.00',
+        buyNetPayable: '1203.68',
+        buyWhtAmount: '37.04',
+        buyNetAfterWht: '1166.64',
+        whtEstimate: {
+          review: 'NOT_REVIEWED_BY_ACCOUNTANT',
+          form: 'PND53',
+          frozen: false,
+          minimumAmount: '0.00',
+          belowMinimum: false,
+          byRate: [{ whtRate: '1.00', buyBaseAmount: '3703.68', buyWhtAmount: '37.04' }],
+        },
+      });
+      const lines = r.body.lines as WhtLine[];
+      expect(lines.map((l) => [l.whtRateApplied, l.whtRateSource, l.buyWhtAmount])).toEqual([
+        ['1.00', 'LINE', '12.35'],
+        ['1.00', 'LINE', '12.35'],
+        ['1.00', 'LINE', '12.34'], // เศษไปบรรทัดสุดท้ายของกลุ่ม (ผลรวม = ยอดใบ)
+        [null, null, null],
+        [null, null, null],
+      ]);
+      const row = (
+        (await api(app, admin).get('/v1/settlements').query({ carrierId: C.id }).expect(200)).body
+          .data as Record<string, unknown>[]
+      )[0];
+      expect(row).toMatchObject({
+        buyWhtAmount: '37.04',
+        buyNetAfterWht: '1166.64',
+        whtForm: 'PND53',
+        tripCount: 3,
+      });
+      // นำบรรทัดเที่ยวออก → คิดใหม่จากบรรทัดที่ยังใช้
+      const removed = await api(app, admin)
+        .post(`/v1/settlements/${r.body.id}/lines/${lines[0]!.id}/remove`)
+        .set('If-Match', '"1"')
+        .send({ reason: 'เที่ยวนี้จ่ายรอบหน้าแทน' })
+        .expect(200);
+      expect(removed.body).toMatchObject({
+        buyWhtAmount: '24.69',
+        whtEstimate: { byRate: [{ buyBaseAmount: '2469.12', buyWhtAmount: '24.69' }] },
+      });
+      expect((removed.body.lines as WhtLine[])[0]).toMatchObject({
+        active: false,
+        whtRateApplied: null,
+        buyWhtAmount: null,
+      });
+    });
+
+    it('บรรทัดไม่มีธงอัตรา (ราคากรอกเอง) → ค่าตั้งต้นรถร่วม (3%) · บรรทัด 3% ปน 1% · บุคคลธรรมดา = ภ.ง.ด.3', async () => {
+      const { C, trips } = await setup(2, '5000', {
+        entityType: 'INDIVIDUAL',
+        taxId: idCard(++seed),
+        whtRate: '3.00',
+      });
+      // เที่ยวแรก: ราคากรอกเอง (ไม่มีธง) · เที่ยวสอง: ธงของบรรทัด 1% ชนะค่าตั้งต้นรถร่วม
+      await db.tripCost.updateMany({
+        where: { tripId: uuid('trip', trips[0]!.id), costType: 'CARRIER_FEE' },
+        data: { whtRate: null },
+      });
+      await db.tripCost.updateMany({
+        where: { tripId: uuid('trip', trips[1]!.id), costType: 'CARRIER_FEE' },
+        data: { whtRate: 1 },
+      });
+      const r = await create({ carrierId: C.id, tripIds: trips.map((t) => t.id) }).expect(201);
+      expect(r.body.carrier.entityType).toBe('INDIVIDUAL');
+      expect(r.body).toMatchObject({
+        buyWhtAmount: '200.00', // 5,000 × 3% + 5,000 × 1%
+        buyNetAfterWht: '9800.00',
+        whtEstimate: {
+          form: 'PND3',
+          byRate: [
+            { whtRate: '3.00', buyBaseAmount: '5000.00', buyWhtAmount: '150.00' },
+            { whtRate: '1.00', buyBaseAmount: '5000.00', buyWhtAmount: '50.00' },
+          ],
+        },
+      });
+      expect(
+        (r.body.lines as WhtLine[]).map((l) => [l.whtRate, l.whtRateApplied, l.whtRateSource]),
+      ).toEqual([
+        [null, '3.00', 'CARRIER_DEFAULT'],
+        ['1.00', '1.00', 'LINE'],
+      ]);
+      // ค่าตั้งต้นของรถร่วม = snapshot ตอนสร้างใบ — แก้รถร่วมทีหลังไม่เปลี่ยนใบ
+      await db.carrier.update({
+        where: { id: uuid('carrier', C.id) },
+        data: { whtRateDefault: 1 },
+      });
+      const again = (await api(app, admin).get(`/v1/settlements/${r.body.id}`).expect(200)).body;
+      expect(again.buyWhtAmount).toBe('200.00');
+    });
+
+    it('ขั้นต่ำตั้งได้ต่อ tenant (tax.whtMinimumAmount): ต่ำกว่า → ไม่หัก · เท่ากับ → หัก · ค่าเริ่ม 0 หักทุกยอด', async () => {
+      const { C, trips } = await setup(2, '999.99');
+      const one = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }).expect(201)).body;
+      expect(one).toMatchObject({ buyWhtAmount: '10.00', whtEstimate: { minimumAmount: '0.00' } });
+      await setMin(1000);
+      const below = (await api(app, admin).get(`/v1/settlements/${one.id}`).expect(200)).body;
+      expect(below).toMatchObject({
+        buyWhtAmount: '0.00',
+        buyNetAfterWht: '999.99',
+        whtEstimate: {
+          minimumAmount: '1000.00',
+          belowMinimum: true,
+          byRate: [{ whtRate: '1.00', buyBaseAmount: '999.99', buyWhtAmount: '0.00' }],
+        },
+      });
+      // สองเที่ยว 1,999.98 ≥ 1,000 → หัก 20.00
+      const two = await api(app, admin)
+        .post(`/v1/settlements/${one.id}/lines`)
+        .set('If-Match', `"${one.version}"`)
+        .send({ tripIds: [trips[1]!.id] })
+        .expect(200);
+      expect(two.body).toMatchObject({
+        buyWhtAmount: '20.00',
+        whtEstimate: { belowMinimum: false },
+      });
+      await setMin(0);
+    });
+
+    it('อนุมัติ → ตรึงยอด WHT + ขั้นต่ำ (ค่าตั้งเปลี่ยนทีหลังไม่กระทบ) · audit + webhook ไม่มียอดเงิน · ไม่มีสิทธิ์ราคา = ไม่เห็นยอด', async () => {
+      const approver = await tokenFor(
+        tenantId,
+        SYSTEM_ROLES.approver.permissions.join(' '),
+        'u-appr-wht',
+      );
+      const { C, trips } = await setup(2, '4500');
+      const s = (
+        await create({
+          carrierId: C.id,
+          tripIds: trips.map((t) => t.id),
+          deductions: [ADV],
+        }).expect(201)
+      ).body;
+      const ok = await api(app, approver)
+        .post(`/v1/settlements/${s.id}/approve`)
+        .set('If-Match', `"${s.version}"`)
+        .send({ reason: 'ตรวจยอดตรงใบแจ้งหนี้รถร่วมแล้ว' })
+        .expect(200);
+      expect(ok.body).toMatchObject({
+        status: 'APPROVED',
+        buyWhtAmount: '90.00',
+        buyNetAfterWht: '6910.00',
+        whtEstimate: { frozen: true, minimumAmount: '0.00' },
+      });
+      const sid = uuid('settlement', s.id);
+      const row = await db.carrierSettlement.findUniqueOrThrow({ where: { id: sid } });
+      expect([row.whtAmount?.toFixed(2), row.whtMinimumAmount?.toFixed(2)]).toEqual([
+        '90.00',
+        '0.00',
+      ]);
+      expect((row.carrierSnapshot as { whtRateDefault?: string }).whtRateDefault).toBe('1.00');
+      expect(row.status).toBe('APPROVED');
+      const audit = await db.auditLog.findFirstOrThrow({
+        where: { entityId: sid, action: 'settlement.approved' },
+      });
+      expect(audit.after).toMatchObject({
+        buyWhtAmount: '90.00',
+        whtMinimumAmount: '0.00',
+        whtForm: 'PND53',
+      });
+      const ev = await db.domainEvent.findFirstOrThrow({
+        where: { localId: sid, type: 'settlement.approved' },
+      });
+      const snap = ev.snapshot as Record<string, unknown>;
+      expect(snap.buyWhtAmount).toBeUndefined();
+      expect(snap.whtEstimate).toBeUndefined(); // ดูผ่าน REST (สิทธิ์ราคา)
+      expect(JSON.stringify(snap)).not.toContain('buy');
+
+      // ตั้งขั้นต่ำสูงทีหลัง → ใบที่อนุมัติแล้วคงยอด · ใบร่างคิดตามค่าตั้งใหม่
+      await setMin(1_000_000);
+      const frozen = (await api(app, admin).get(`/v1/settlements/${s.id}`).expect(200)).body;
+      expect(frozen).toMatchObject({ buyWhtAmount: '90.00', whtEstimate: { belowMinimum: false } });
+      await setMin(0);
+
+      // ไม่มี prices.buy:read → ไม่เห็นยอดทุกระดับ แต่เห็นแบบยื่น/ธง
+      const v = (await api(app, viewer).get(`/v1/settlements/${s.id}`).expect(200)).body;
+      expect(v.buyWhtAmount).toBeUndefined();
+      expect(v.buyNetAfterWht).toBeUndefined();
+      expect(v.whtEstimate.byRate[0]).toEqual({ whtRate: '1.00' });
+      expect(v.lines[0].buyWhtAmount).toBeUndefined();
+      expect(v.lines[0].whtRateApplied).toBe('1.00');
+      expect(v.whtEstimate.review).toBe('NOT_REVIEWED_BY_ACCOUNTANT');
+      const vl = (
+        await api(app, viewer).get('/v1/settlements').query({ carrierId: C.id }).expect(200)
+      ).body.data[0];
+      expect(vl.buyWhtAmount).toBeUndefined();
+      expect(vl.whtForm).toBe('PND53');
+    });
+
+    it('กติกา DB (role แอป): ใบที่ยังไม่อนุมัติตรึง WHT ไม่ได้ · ยอดติดลบไม่ได้ · ต้องมีคู่ยอด/ขั้นต่ำ', async () => {
+      const { C, trips } = await setup(1, '1000');
+      const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }).expect(201)).body;
+      const sid = uuid('settlement', s.id);
+      for (const data of [
+        { whtAmount: 10, whtMinimumAmount: 0 },
+        { whtAmount: 10 },
+        { whtAmount: -1, whtMinimumAmount: 0 },
+      ])
+        await expect(
+          run((tx) => tx.carrierSettlement.update({ where: { id: sid }, data })),
+        ).rejects.toThrow(/carrier_settlement_wht_check/);
+    });
+  });
+
   describe('อนุมัติ (ST6-T07)', () => {
     const APPROVE = { reason: 'ตรวจยอดตรงใบแจ้งหนี้รถร่วมแล้ว' };
     let approver: string;

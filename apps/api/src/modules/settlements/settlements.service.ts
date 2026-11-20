@@ -1,6 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { eventDefinition } from '@tms/domain';
+import {
+  decimalFromSatang,
+  estimateSettlementWht,
+  eventDefinition,
+  satangFromDecimal,
+  type SettlementLineKind,
+  type SettlementWhtEstimate,
+} from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { EXT_PREFIX, EXTERNAL_ID_RE } from '../../common/external-id';
 import { resolveActors } from '../../common/actors';
@@ -42,6 +49,7 @@ const MAX_AMOUNT = '999999999999.99';
 
 type SettlementRow = Prisma.CarrierSettlementGetPayload<{
   include: {
+    carrier: { select: { whtRateDefault: true } };
     lines: {
       include: { tripCost: { select: { costType: true } }; trip: { select: { tripNo: true } } };
     };
@@ -58,6 +66,8 @@ interface CarrierSnapshot {
   taxIdLast4: string | null;
   branchCode: string | null;
   address: unknown;
+  /** ค่าตั้งต้นหัก ณ ที่จ่ายของรถร่วม ณ วันสร้างใบ (%) — ST6-T08 · ใบที่สร้างก่อนหน้าไม่มี → ใช้ค่าปัจจุบันของรถร่วม */
+  whtRateDefault?: string;
 }
 
 /** บรรทัดต้นทุนที่จะใส่ใบ (ผ่านกฎคิวจ่ายแล้ว) */
@@ -83,7 +93,8 @@ const isRealDay = (s: string) => !Number.isNaN(day(s).getTime()) && ymd(day(s)) 
  * - บรรทัดหัก (DEDUCTION) กรอกมือ ยอดติดลบ + เอกสารอ้างอิง
  * - กันจ่ายซ้ำ (K11): ล็อกบรรทัดต้นทุนของเที่ยว (FOR UPDATE) แล้วตรวจ `settlement_line_id` → 409 `trip_cost_already_settled` ·
  *   ชั้น DB = partial unique index `settlement_line_active_trip_cost_key` (บรรทัดที่ยังใช้) — ชนกันพร้อมกัน = 409 เดียวกัน
- * - ยอด: gross = Σ บรรทัดเที่ยวที่ยังใช้ · deduction = Σ |บรรทัดหัก| · net = gross − deduction (CHECK ใน DB) · ไม่คำนวณ VAT/WHT (ST6-T08)
+ * - ยอด: gross = Σ บรรทัดเที่ยวที่ยังใช้ · deduction = Σ |บรรทัดหัก| · net = gross − deduction (CHECK ใน DB) · ไม่คิด VAT ขาซื้อ (#58)
+ * - หัก ณ ที่จ่ายประมาณการ (ST6-T08): `estimateSettlementWht` (@tms/domain → computeDocumentTax ของ ST5-T02) — คำนวณสดจนอนุมัติ แล้วตรึง
  * - ร่างไม่มีเลขเอกสาร (เลข STL ออกตอนอนุมัติ — ST6-T07) · นำบรรทัดออก / ยกเลิกใบ = void + เหตุผล + audit → บรรทัดต้นทุนกลับคิว
  */
 @Injectable()
@@ -113,34 +124,43 @@ export class SettlementsService {
       orderBy: k.orderBy as unknown as Prisma.CarrierSettlementOrderByWithRelationInput[],
       take: k.take,
       include: {
+        carrier: { select: { whtRateDefault: true } },
         lines: {
-          where: { voidedAt: null, lineType: { not: 'DEDUCTION' } },
-          select: { tripId: true },
+          where: { voidedAt: null },
+          select: { tripId: true, lineType: true, amount: true, whtRate: true, voidedAt: true },
         },
       },
     });
+    const minimum = await this.liveWhtMinimum(tx);
     const page = toPage(
       rows,
       k,
-      (r): SettlementSummaryDto => ({
-        id: encodeId('settlement', r.id),
-        settlementNo: r.settlementNo,
-        status: r.status as SettlementStatus,
-        carrier: carrierDto(r.carrierId, r.carrierSnapshot),
-        periodFrom: ymd(r.periodFrom),
-        periodTo: ymd(r.periodTo),
-        carrierInvoiceNo: r.carrierInvoiceNo,
-        tripCount: new Set(r.lines.map((l) => l.tripId)).size,
-        buyGrossAmount: r.grossAmount.toFixed(2),
-        buyDeductionAmount: r.deductionAmount.toFixed(2),
-        buyNetPayable: r.netPayable.toFixed(2),
-        approvedAt: r.approvedAt?.toISOString() ?? null,
-        sentAt: r.sentAt?.toISOString() ?? null,
-        createdBy: r.createdBy,
-        version: r.version,
-        createdAt: r.createdAt.toISOString(),
-        updatedAt: r.updatedAt.toISOString(),
-      }),
+      (r): SettlementSummaryDto => {
+        const wht = whtOf(r, r.lines, minimum);
+        return {
+          id: encodeId('settlement', r.id),
+          settlementNo: r.settlementNo,
+          status: r.status as SettlementStatus,
+          carrier: carrierDto(r.carrierId, r.carrierSnapshot),
+          periodFrom: ymd(r.periodFrom),
+          periodTo: ymd(r.periodTo),
+          carrierInvoiceNo: r.carrierInvoiceNo,
+          tripCount: new Set(r.lines.filter((l) => l.lineType !== 'DEDUCTION').map((l) => l.tripId))
+            .size,
+          buyGrossAmount: r.grossAmount.toFixed(2),
+          buyDeductionAmount: r.deductionAmount.toFixed(2),
+          buyNetPayable: r.netPayable.toFixed(2),
+          buyWhtAmount: decimalFromSatang(wht.wht),
+          buyNetAfterWht: decimalFromSatang(wht.netAfterWht),
+          whtForm: wht.form,
+          approvedAt: r.approvedAt?.toISOString() ?? null,
+          sentAt: r.sentAt?.toISOString() ?? null,
+          createdBy: r.createdBy,
+          version: r.version,
+          createdAt: r.createdAt.toISOString(),
+          updatedAt: r.updatedAt.toISOString(),
+        };
+      },
       q.fields,
     );
     return page as SettlementPageDto;
@@ -151,7 +171,16 @@ export class SettlementsService {
     const r = await this.load(tx, id);
     if (!r) throw new ProblemException('not_found');
     // รายการโต้แย้งค้าง — นิยามเดียวกับ trigger ที่บล็อกอนุมัติ (ST6-T06)
-    return toDto(r, await disputedLines(tx, id, r.reviewRound));
+    const wht = whtOf(r, r.lines, await this.liveWhtMinimum(tx));
+    return toDto(r, await disputedLines(tx, id, r.reviewRound), wht);
+  }
+
+  /** ค่าตั้ง `tax.whtMinimumAmount` (บาท) ปัจจุบัน — ใช้กับใบที่ยังไม่ตรึง (ยังไม่อนุมัติ) */
+  private async liveWhtMinimum(tx: Tx): Promise<number> {
+    const ctx = requestContext.require();
+    return (await readSettings(tx, ctx.tenantId!, ['tax.whtMinimumAmount']))[
+      'tax.whtMinimumAmount'
+    ] as number;
   }
 
   // ---------- เขียน ----------
@@ -186,6 +215,7 @@ export class SettlementsService {
       taxIdLast4: carrier.entityType === 'JURISTIC' ? null : carrier.taxIdLast4,
       branchCode: carrier.branchCode,
       address: carrier.address ?? null,
+      whtRateDefault: carrier.whtRateDefault.toFixed(2),
     };
     const s = await tx.carrierSettlement.create({
       data: {
@@ -431,6 +461,10 @@ export class SettlementsService {
     const needStepUp = limit !== null && (limit === 0 || s.netPayable.greaterThan(limit));
     if (needStepUp && !steppedUp) throw new ProblemException('step_up_required');
 
+    // ST6-T08: ตรึงหัก ณ ที่จ่ายประมาณการ + ขั้นต่ำที่ใช้ ในคำสั่งเดียวกับการอนุมัติ (หัวใบแข็งระหว่างรอตรวจ — trigger 0136 ยกเว้นสองช่องนี้)
+    const row = (await this.load(tx, id))!;
+    const minimum = await this.liveWhtMinimum(tx);
+    const wht = whtOf(row, row.lines, minimum);
     const settlementNo = await issueNumber(tx, ctx.tenantId!, { docType: 'STL' });
     await tx.carrierSettlement.update({
       where: { id },
@@ -439,6 +473,8 @@ export class SettlementsService {
         settlementNo,
         approvedAt: new Date(),
         approvedBy: actor,
+        whtAmount: decimalFromSatang(wht.wht),
+        whtMinimumAmount: minimum,
         version: { increment: 1 },
       },
     });
@@ -454,6 +490,9 @@ export class SettlementsService {
         settlementNo,
         stepUp: needStepUp,
         buyNetPayable: out.buyNetPayable,
+        buyWhtAmount: out.buyWhtAmount,
+        whtMinimumAmount: out.whtEstimate.minimumAmount,
+        whtForm: out.whtEstimate.form,
       },
     });
     await tx.domainEvent.create({
@@ -792,6 +831,7 @@ export class SettlementsService {
     return tx.carrierSettlement.findUnique({
       where: { id },
       include: {
+        carrier: { select: { whtRateDefault: true } },
         lines: {
           orderBy: { lineNo: 'asc' },
           include: { tripCost: { select: { costType: true } }, trip: { select: { tripNo: true } } },
@@ -1239,6 +1279,7 @@ function lineDto(
   r: SettlementRow['reviews'][number] | undefined,
   co: SettlementRow['disputes'][number] | undefined,
   status: SettlementLineDto['status'],
+  wht: SettlementWhtEstimate['lines'][number] | undefined,
 ): SettlementLineDto {
   return {
     id: encodeId('settlementLine', l.id),
@@ -1254,6 +1295,9 @@ function lineDto(
     reference: l.reference,
     vatType: l.vatType,
     whtRate: l.whtRate?.toFixed(2) ?? null,
+    whtRateApplied: wht?.ratePercent ?? null,
+    whtRateSource: wht?.rateSource ?? null,
+    buyWhtAmount: wht && wht.ratePercent !== null ? decimalFromSatang(wht.wht) : null,
     active: l.voidedAt === null,
     voidedAt: l.voidedAt?.toISOString() ?? null,
     voidedBy: l.voidedBy,
@@ -1283,7 +1327,43 @@ function lineDto(
   };
 }
 
-function toDto(r: SettlementRow, disputed: Set<string>): SettlementDto {
+/**
+ * หัก ณ ที่จ่ายประมาณการของใบ (ST6-T08) จากบรรทัดที่ยังใช้ — ใบที่ตรึงแล้ว (อนุมัติ) ใช้ขั้นต่ำที่ตรึงไว้
+ * อัตราบรรทัดว่าง → ค่าตั้งต้นรถร่วมใน snapshot (ใบที่สร้างก่อน ST6-T08: ค่าปัจจุบันของรถร่วม — ยอดรวมที่อนุมัติแล้วใช้ `wht_amount` ที่ตรึง)
+ */
+function whtOf(
+  r: {
+    carrierSnapshot: Prisma.JsonValue;
+    carrier: { whtRateDefault: Prisma.Decimal };
+    whtMinimumAmount: Prisma.Decimal | null;
+  },
+  lines: readonly {
+    lineType: string;
+    amount: Prisma.Decimal;
+    whtRate: Prisma.Decimal | null;
+    voidedAt: Date | null;
+  }[],
+  liveMinimum: number,
+): SettlementWhtEstimate {
+  const snap = r.carrierSnapshot as unknown as CarrierSnapshot;
+  return estimateSettlementWht({
+    lines: lines
+      .filter((l) => !l.voidedAt)
+      .map((l) => ({
+        lineType: l.lineType as SettlementLineKind,
+        amount: satangFromDecimal(l.amount.toFixed(2)),
+        whtRate: l.whtRate?.toFixed(2) ?? null,
+      })),
+    carrierWhtRateDefault: snap.whtRateDefault ?? r.carrier.whtRateDefault.toFixed(2),
+    entityType: snap.entityType,
+    whtMinimumAmount: r.whtMinimumAmount ? Number(r.whtMinimumAmount.toFixed(0)) : liveMinimum,
+  });
+}
+
+function toDto(r: SettlementRow, disputed: Set<string>, wht: SettlementWhtEstimate): SettlementDto {
+  // ผล WHT ของบรรทัดที่ยังใช้ เรียงตามลำดับบรรทัด (whtOf กรองบรรทัดที่นำออกแล้ว)
+  const activeIds = r.lines.filter((l) => !l.voidedAt).map((l) => l.id);
+  const whtLine = new Map(activeIds.map((id, i) => [id, wht.lines[i]!]));
   const tripLines = r.lines.filter((l) => !l.voidedAt && l.lineType !== 'DEDUCTION');
   // คำตอบของรถร่วม = รอบตรวจปัจจุบันเท่านั้น (เรียกกลับแล้วส่งใหม่ = เริ่มนับใหม่ · รอบก่อนเก็บเป็นประวัติ)
   const latest = latestReviews(r.reviews, r.reviewRound);
@@ -1313,7 +1393,23 @@ function toDto(r: SettlementRow, disputed: Set<string>): SettlementDto {
     buyGrossAmount: r.grossAmount.toFixed(2),
     buyDeductionAmount: r.deductionAmount.toFixed(2),
     buyNetPayable: r.netPayable.toFixed(2),
-    lines: r.lines.map((l) => lineDto(l, latest.get(l.id), company.get(l.id), statusOf(l))),
+    buyWhtAmount: r.whtAmount ? r.whtAmount.toFixed(2) : decimalFromSatang(wht.wht),
+    buyNetAfterWht: decimalFromSatang(wht.netAfterWht),
+    whtEstimate: {
+      review: wht.review,
+      form: wht.form,
+      frozen: r.whtAmount !== null,
+      minimumAmount: decimalFromSatang(wht.minimum),
+      belowMinimum: wht.belowMinimum,
+      byRate: wht.byRate.map((g) => ({
+        whtRate: g.ratePercent,
+        buyBaseAmount: decimalFromSatang(g.base),
+        buyWhtAmount: decimalFromSatang(g.wht),
+      })),
+    },
+    lines: r.lines.map((l) =>
+      lineDto(l, latest.get(l.id), company.get(l.id), statusOf(l), whtLine.get(l.id)),
+    ),
     approvedAt: r.approvedAt?.toISOString() ?? null,
     approvedBy: r.approvedBy,
     sentAt: r.sentAt?.toISOString() ?? null,
