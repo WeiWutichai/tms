@@ -552,8 +552,18 @@ export class SettlementsService {
         message:
           'reference (transfer reference / cheque number) is required for TRANSFER and CHEQUE',
       });
-    const s = await this.lockFor(tx, id, expected, ['APPROVED']);
+    // สถานะก่อน version (review QA): ใบที่จ่ายแล้ว/ไม่ใช่ APPROVED → 409 เสมอ (คำขอซ้ำพร้อมกัน — ผู้แพ้ได้ 409 ไม่ใช่ 412)
+    const s = await this.lockFor(tx, id, undefined, ['APPROVED']);
     requireIfMatch(expected);
+    if (expected !== s.version) throw new ProblemException('precondition_failed');
+    // วันที่จ่าย = วันที่หักภาษี (spec/05 §11.7 — วันที่บน 50 ทวิ / เดือนยื่น ภ.ง.ด. ที่ ST8-T16 ส่ง) — ต้องไม่ก่อนวันอนุมัติ (เวลาไทย)
+    const approvedDay = s.approvedAt ? bangkokDay(s.approvedAt.toISOString()) : null;
+    if (!bad.some((e) => e.field === 'paidDate') && approvedDay && body.paidDate < approvedDay)
+      bad.push({
+        field: 'paidDate',
+        code: 'before_approval',
+        message: `paidDate must be on or after the approval date (${approvedDay})`,
+      });
     if (bad.length) throw invalid(bad);
     const actor = ctx.actorId ?? 'system';
     // ใบที่อนุมัติก่อน ST6-T08 (ยังไม่ตรึง WHT) → ตรึงในคำสั่งเดียวกับการบันทึกจ่าย (trigger 0139 ยอมครั้งเดียว)
@@ -583,6 +593,11 @@ export class SettlementsService {
     });
     const settledTrips = await this.settleTrips(tx, id);
     const out = await this.get(id);
+    // ยอดใน audit จากแถวจริง (ไม่ผ่านการตัดราคาตามสิทธิ์ผู้เรียก — review QA L3)
+    const paidRow = await tx.carrierSettlement.findUniqueOrThrow({
+      where: { id },
+      select: { netPayable: true, whtAmount: true },
+    });
     await this.audit.record({
       action: 'settlement.paid',
       entityType: ENTITY,
@@ -595,9 +610,9 @@ export class SettlementsService {
         paymentMethod: out.paymentMethod,
         paymentReference: out.paymentReference,
         paymentBank: out.paymentBank,
-        buyNetPayable: out.buyNetPayable,
-        buyWhtAmount: out.buyWhtAmount,
-        buyNetAfterWht: out.buyNetAfterWht,
+        buyNetPayable: paidRow.netPayable.toFixed(2),
+        buyWhtAmount: paidRow.whtAmount!.toFixed(2),
+        buyNetAfterWht: paidRow.netPayable.minus(paidRow.whtAmount!).toFixed(2),
         whtFrozenNow: s.whtAmount === null,
         settledTripIds: settledTrips.map((t) => encodeId('trip', t)),
       },

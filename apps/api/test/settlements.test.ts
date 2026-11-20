@@ -1777,6 +1777,13 @@ describe('settlements (ST6-T03)', () => {
       expect(await codes({ paidDate: '2026-02-30', method: 'CASH' })).toEqual([
         'paidDate:invalid_date',
       ]);
+      // วันที่จ่าย = วันที่หักภาษี — ก่อนวันอนุมัติ (เวลาไทย) ไม่ได้ (review QA L2)
+      const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      expect(await codes({ paidDate: yesterday, method: 'CASH' })).toEqual([
+        'paidDate:before_approval',
+      ]);
       expect((await pay(s.id, { paidDate: today, method: 'WIRE' })).status).toBe(422);
       expect((await pay(s.id, { method: 'CASH' })).status).toBe(422);
       const noIf = await pay(s.id, { paidDate: today, method: 'CASH' }, accounting, null);
@@ -1945,6 +1952,96 @@ describe('settlements (ST6-T03)', () => {
           (tx) => tx.carrierSettlement.update({ where: { id: sid }, data }),
           /carrier_settlement_terminal/,
         );
+    });
+
+    it('ยอดใน audit = ยอดจริง แม้ผู้บันทึกไม่มีสิทธิ์ดูราคาซื้อ (review QA L3)', async () => {
+      const { C, trips } = await setup(1, '3000');
+      const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
+        .body;
+      await approve(s.id);
+      const payOnly = await tokenFor(tenantId, 'settlements:read settlements:pay', 'u-payer');
+      const r = await pay(s.id, PAY, payOnly);
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+      expect(r.body.buyNetPayable).toBeUndefined();
+      const audit = await db.auditLog.findFirstOrThrow({
+        where: { entityId: uuid('settlement', s.id), action: 'settlement.paid' },
+      });
+      expect(audit.after).toMatchObject({
+        buyNetPayable: '3000.00',
+        buyWhtAmount: '30.00',
+        buyNetAfterWht: '2970.00',
+      });
+    });
+
+    it('พร้อมกัน: บันทึกจ่ายใบเดียวกันสองคำขอ → 200 หนึ่ง + 409 หนึ่ง · บันทึกจ่ายครั้งเดียว', async () => {
+      const { C, trips } = await setup(1, '1200');
+      const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
+        .body;
+      await approve(s.id);
+      const tag = await etag(s.id);
+      const rs = await Promise.all([
+        pay(s.id, PAY, accounting, tag),
+        pay(s.id, { paidDate: today, method: 'CASH' }, admin, tag),
+      ]);
+      expect(rs.map((r) => r.status).sort()).toEqual([200, 409]);
+      expect(rs.find((r) => r.status === 409)!.body.code).toBe('invalid_state_transition');
+      expect(
+        await db.auditLog.count({
+          where: { entityId: uuid('settlement', s.id), action: 'settlement.paid' },
+        }),
+      ).toBe(1);
+      expect(
+        await db.domainEvent.count({
+          where: { tenantId, type: 'settlement.paid', localId: uuid('settlement', s.id) },
+        }),
+      ).toBe(1);
+      expect(await tripStatus(trips[0]!.id)).toBe('SETTLED');
+    });
+
+    it('พร้อมกัน: สองใบที่มีบรรทัดของเที่ยวเดียวกันจ่ายพร้อมกัน → เที่ยว SETTLED', async () => {
+      const { C, trips } = await setup(2, '2500');
+      const [t, t2] = [trips[0]!, trips[1]!];
+      const toll = await db.tripCost.create({
+        data: {
+          tenantId,
+          tripId: uuid('trip', t.id),
+          costType: 'TOLL',
+          amount: '80.00',
+          source: 'MANUAL',
+          sourceType: 'FIELD',
+          status: 'CONFIRMED',
+          carrierId: uuid('carrier', C.id),
+          description: 'ค่าทางด่วน',
+          createdBy: 'u-disp',
+          decidedBy: 'u-acc',
+          decidedAt: new Date(),
+          decisionReason: 'ตรวจใบเสร็จค่าทางด่วนแล้ว',
+        },
+      });
+      // ใบ A = ค่าจ้างของเที่ยว t · ใบ B = เที่ยว t2 + ค่าทางด่วนของเที่ยว t
+      const A = (
+        await create({ carrierId: C.id, tripCostIds: [await feeOf(t.id)] }, accounting).expect(201)
+      ).body;
+      const B = (
+        await create(
+          { carrierId: C.id, tripIds: [t2.id], tripCostIds: [encodeId('tripCost', toll.id)] },
+          accounting,
+        ).expect(201)
+      ).body;
+      await approve(A.id);
+      await approve(B.id);
+      expect(await tripStatus(t.id)).toBe('COSTED');
+      const [ra, rb] = await Promise.all([pay(A.id), pay(B.id)]);
+      expect(ra.status, JSON.stringify(ra.body)).toBe(200);
+      expect(rb.status, JSON.stringify(rb.body)).toBe(200);
+      expect(await tripStatus(t.id)).toBe('SETTLED');
+      expect(await tripStatus(t2.id)).toBe('SETTLED');
+      expect(await queued(C.id)).toEqual([]);
+      expect(
+        await db.docStatusHistory.count({
+          where: { docType: 'trip', docId: uuid('trip', t.id), toStatus: 'SETTLED' },
+        }),
+      ).toBe(1);
     });
   });
 });

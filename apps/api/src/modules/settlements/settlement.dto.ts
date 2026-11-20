@@ -242,7 +242,7 @@ export class SettlementPayDto {
   @ApiProperty({
     example: '2026-11-20',
     description:
-      'วันที่จ่ายจริง (วันโอน / วันที่เช็ค / วันจ่ายเงินสด — YYYY-MM-DD วันที่ไทย) — ไม่เกินวันนี้',
+      'วันที่จ่ายจริง (วันโอน / วันที่เช็ค / วันจ่ายเงินสด — YYYY-MM-DD วันที่ไทย) = วันที่หักภาษี — ตั้งแต่วันอนุมัติถึงวันนี้',
   })
   @Matches(DATE_RE)
   paidDate!: string;

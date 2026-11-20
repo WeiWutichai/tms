@@ -591,7 +591,7 @@ describe('event registry contract (ST7-T06)', () => {
         `"${(await db.carrierSettlement.findUniqueOrThrow({ where: { id: stl.id } })).version}"`,
       )
       .send({
-        paidDate: '2026-01-05',
+        paidDate: today,
         method: 'TRANSFER',
         reference: 'KBANK-0001',
         bank: 'กสิกรไทย',
@@ -705,7 +705,7 @@ describe('event registry contract (ST7-T06)', () => {
     });
     expect(one('settlement.paid').snapshot).toMatchObject({
       status: 'PAID',
-      paidDate: '2026-01-05',
+      paidDate: today,
       paymentMethod: 'TRANSFER',
       paymentReference: 'KBANK-0001',
     });

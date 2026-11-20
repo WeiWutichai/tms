@@ -317,13 +317,13 @@ test.describe.serial('รถร่วมตรวจใบสำคัญจ่�
     );
     const paid = await page.request.post(`/v1/settlements/${S.other}/mark-paid`, {
       headers: { ...H, 'If-Match': `"${approved.version}"` },
-      data: { paidDate: '2026-01-05', method: 'TRANSFER', reference: 'KBANK-2611-0091' },
+      data: { paidDate: today, method: 'TRANSFER', reference: 'KBANK-2611-0091' },
     });
     expect(paid.status(), await paid.text()).toBe(200);
     expect(await paid.json()).toMatchObject({ status: 'PAID', paymentMethod: 'TRANSFER' });
     const again = await page.request.post(`/v1/settlements/${S.other}/mark-paid`, {
       headers: { ...H, 'If-Match': `"${approved.version + 1}"` },
-      data: { paidDate: '2026-01-05', method: 'CASH' },
+      data: { paidDate: today, method: 'CASH' },
     });
     expect(again.status()).toBe(409);
     const tripIds = [
