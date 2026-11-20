@@ -171,6 +171,7 @@
 | `taxEstimated` | ใช่ | `boolean` |   | ยอด VAT/WHT เป็นประมาณการ — true เสมอ |   |
 | `deliveryOrders` | ใช่ | `array<InvoiceDeliveryOrderDto>` |   |   |   |
 | `issuedAt` | ใช่ | `string` | null ได้ | เวลาออกเอกสาร (ออกเลข) — ร่าง = null |   |
+| `billingNoteId` | ใช่ | `string` | null ได้ | ใบวางบิลที่ใบนี้อยู่ · null = ไม่อยู่ในใบวางบิล | `bn_…` |
 
 ## invoice.paid {#invoice-paid}
 

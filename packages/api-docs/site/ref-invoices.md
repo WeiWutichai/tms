@@ -1022,6 +1022,7 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
 | `issuedAt` | ใช่ | `string` | null ได้ | เวลาออกเอกสาร (ออกเลข) — ร่าง = null |   |
 | `issuedBy` | ใช่ | `string` | null ได้ | ผู้ออกเอกสาร |   |
 | `pdf` | ใช่ | `InvoicePdfDto` | null ได้ | PDF ต้นฉบับที่เก็บ ณ วันออก — null = ร่าง หรือยังไม่ได้ render (render หลังออกเลข; `GET /v1/invoices/{id}/pdf` สร้างให้ถ้ายังไม่มี) |   |
+| `billingNoteId` | ใช่ | `string` | null ได้ | ใบวางบิลที่ใบนี้อยู่ · null = ไม่อยู่ในใบวางบิล | `bn_…` |
 
 ### InvoiceMoveResultDto {#schema-InvoiceMoveResultDto}
 

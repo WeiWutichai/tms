@@ -75,7 +75,9 @@ model Company {
   salesOrders SalesOrder[]
   settlements CarrierSettlement[]
 
-  invoices Invoice[]
+  invoices     Invoice[]
+  /// ST5-T11 ใบวางบิล
+  billingNotes BillingNote[]
 
   @@unique([tenantId, taxId])
   @@unique([tenantId, externalId])
@@ -296,7 +298,9 @@ model Branch {
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   /// + partial unique `branch_one_default_issuer_per_company` (company_id) WHERE is_default_issuer (migration 0008)
-  invoices Invoice[]
+  invoices     Invoice[]
+  /// ST5-T11 ใบวางบิล
+  billingNotes BillingNote[]
 
   @@unique([tenantId, companyId, branchCode])
   @@map("branch")
@@ -457,8 +461,10 @@ model Customer {
   salesOrders    SalesOrder[]
   deliveryOrders DeliveryOrder[]
 
-  invoices Invoice[]
-  payments Payment[]
+  invoices     Invoice[]
+  payments     Payment[]
+  /// ST5-T11 ใบวางบิล
+  billingNotes BillingNote[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -2440,6 +2446,8 @@ model StoredDocument {
   doSurcharges DoSurcharge[]
   tripCosts    TripCost[]
   invoices     Invoice[]
+  /// ST5-T11 ใบวางบิล
+  billingNotes BillingNote[]
 
   @@unique([tenantId, clientDocumentId])
   @@index([tenantId, entityType, entityId])
@@ -3582,8 +3590,10 @@ model Invoice {
   createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  lines       InvoiceLine[]
-  allocations PaymentAllocation[]
+  lines            InvoiceLine[]
+  allocations      PaymentAllocation[]
+  /// ST5-T11 ใบวางบิลที่ใบนี้เคยอยู่ (ตัวกัน: active ได้ใบเดียว)
+  billingNoteLinks BillingNoteInvoice[]
 
   @@unique([tenantId, issuingBranchId, invoiceNo])
   @@index([tenantId, customerId, status])
@@ -3742,4 +3752,97 @@ model PaymentAllocation {
   @@unique([paymentId, invoiceId])
   @@index([tenantId, invoiceId])
   @@map("payment_allocation")
+}
+
+/// ใบวางบิล (ST5-T11; docs/01 §3.4 `billing_note`, docs/04 F2) — สรุปใบแจ้งหนี้ค้างของลูกค้าหนึ่งราย **ไม่กระทบ VAT/WHT** (ไม่ใช่เอกสารภาษี)
+/// DRAFT → ISSUED (ออกเลข BN + PDF) → COLLECTED (รับเช็ค/โอนแล้ว) · DRAFT/ISSUED → CANCELLED (เหตุผล + audit; เลขคงอยู่)
+/// "ผู้รับวางบิล" = `acknowledged_*` (ไม่ใช่สถานะ — plan/00a §4.4) · ไม่มี hard delete (REVOKE DELETE) · หลัง ISSUED เนื้อหาแก้ไม่ได้ (trigger)
+enum BillingNoteStatus {
+  DRAFT
+  ISSUED
+  COLLECTED
+  CANCELLED
+
+  @@map("billing_note_status")
+}
+
+model BillingNote {
+  id                 String            @id @default(uuid()) @db.Uuid
+  tenantId           String            @map("tenant_id") @db.Uuid
+  /// ชุดเลข `BN` ออกตอน ISSUED — ร่างไม่มีเลข · unique(tenant_id, billing_note_no)
+  billingNoteNo      String?           @map("billing_note_no")
+  customerId         String            @map("customer_id") @db.Uuid
+  customer           Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  issuingCompanyId   String            @map("issuing_company_id") @db.Uuid
+  issuingCompany     Company           @relation(fields: [issuingCompanyId], references: [id], onDelete: Restrict)
+  issuingBranchId    String            @map("issuing_branch_id") @db.Uuid
+  issuingBranch      Branch            @relation(fields: [issuingBranchId], references: [id], onDelete: Restrict)
+  status             BillingNoteStatus @default(DRAFT)
+  /// วันวางบิล (เวลาไทย) — ออกตอน ISSUED
+  billingDate        DateTime?         @map("billing_date") @db.Date
+  /// วันนัดรับเช็ค/โอน (≥ วันวางบิล — ตรวจตอนออก)
+  collectionDate     DateTime?         @map("collection_date") @db.Date
+  /// Σ ยอดรวมของใบแจ้งหนี้ในใบ (ณ วันออก = snapshot ต่อใบใน billing_note_invoice)
+  totalAmount        Decimal           @default(0) @map("total_amount") @db.Decimal(14, 2)
+  /// Σ WHT ที่คาดว่าจะถูกหัก (ประมาณการ — D-54)
+  totalWhtExpected   Decimal           @default(0) @map("total_wht_expected") @db.Decimal(14, 2)
+  netExpected        Decimal           @default(0) @map("net_expected") @db.Decimal(14, 2)
+  note               String?
+  /// ผู้รับวางบิล (ชื่อฝั่งลูกค้า) + วันที่รับ — บันทึกหลังออก
+  acknowledgedByName String?           @map("acknowledged_by_name")
+  acknowledgedOn     DateTime?         @map("acknowledged_on") @db.Date
+  acknowledgedAt     DateTime?         @map("acknowledged_at") @db.Timestamptz(6)
+  acknowledgedBy     String?           @map("acknowledged_by")
+  collectedAt        DateTime?         @map("collected_at") @db.Timestamptz(6)
+  collectedBy        String?           @map("collected_by")
+  collectNote        String?           @map("collect_note")
+  cancelledAt        DateTime?         @map("cancelled_at") @db.Timestamptz(6)
+  cancelledBy        String?           @map("cancelled_by")
+  cancelReason       String?           @map("cancel_reason")
+  createdBy          String?           @map("created_by")
+  updatedBy          String?           @map("updated_by")
+  issuedAt           DateTime?         @map("issued_at") @db.Timestamptz(6)
+  issuedBy           String?           @map("issued_by")
+  /// snapshot ณ วันออก (PDF ต้นฉบับ/สำเนา render จากค่านี้เท่านั้น)
+  customerSnapshot   Json?             @map("customer_snapshot")
+  issuerSnapshot     Json?             @map("issuer_snapshot")
+  printOptions       Json?             @map("print_options")
+  pdfDocumentId      String?           @map("pdf_document_id") @db.Uuid
+  pdfDocument        StoredDocument?   @relation(fields: [pdfDocumentId], references: [id], onDelete: Restrict)
+  version            Int               @default(1)
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  invoices BillingNoteInvoice[]
+
+  @@unique([tenantId, billingNoteNo])
+  @@index([tenantId, customerId, status])
+  @@index([tenantId, status])
+  @@map("billing_note")
+}
+
+/// ใบแจ้งหนี้ในใบวางบิล + ยอด ณ วันที่ใส่/ออก (snapshot) — **กัน 1 ใบแจ้งหนี้อยู่ 2 ใบวางบิลที่ active**:
+/// unique partial `(tenant_id, invoice_id) WHERE active` · active = ใบวางบิล DRAFT/ISSUED (trigger ตั้ง false เมื่อ COLLECTED/CANCELLED หรือถอดออกจากร่าง)
+model BillingNoteInvoice {
+  id                String      @id @default(uuid()) @db.Uuid
+  tenantId          String      @map("tenant_id") @db.Uuid
+  billingNoteId     String      @map("billing_note_id") @db.Uuid
+  billingNote       BillingNote @relation(fields: [billingNoteId], references: [id], onDelete: Restrict)
+  invoiceId         String      @map("invoice_id") @db.Uuid
+  invoice           Invoice     @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  lineNo            Int         @map("line_no")
+  invoiceNo         String      @map("invoice_no")
+  issueDate         DateTime    @map("issue_date") @db.Date
+  dueDate           DateTime    @map("due_date") @db.Date
+  totalAmount       Decimal     @map("total_amount") @db.Decimal(14, 2)
+  whtExpectedAmount Decimal     @map("wht_expected_amount") @db.Decimal(14, 2)
+  /// ยอดค้าง ณ วันใส่/ออก (ยังไม่มีรับชำระ = ยอดรวม — ST5-T13 จะหักยอดรับแล้ว)
+  outstandingAmount Decimal     @map("outstanding_amount") @db.Decimal(14, 2)
+  active            Boolean     @default(true)
+  removedAt         DateTime?   @map("removed_at") @db.Timestamptz(6)
+  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, billingNoteId])
+  @@index([tenantId, invoiceId])
+  @@map("billing_note_invoice")
 }

@@ -29,6 +29,19 @@ import { billRanges, selectionTotals } from './billing';
 import { finalizeErrorText, InvoiceDrawer, invoiceStatusLabel } from './InvoiceDrawer';
 import { PayDrawer } from './PayDrawer';
 import {
+  BillingNoteDrawer,
+  BillingNoteForm,
+  billingNoteErrorText,
+  billingNoteStatusLabel,
+} from './BillingNoteDrawer';
+import {
+  openBillingNotePdf,
+  useBillingNoteCounts,
+  useBillingNoteList,
+  useFinalizeBillingNote,
+  type BillingNoteSummary,
+} from './useBillingNotes';
+import {
   openIssuedPdf,
   openProforma,
   previewDraft,
@@ -46,6 +59,13 @@ import {
 type Tab = 'all' | 'DRAFT' | 'ISSUED' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'CANCELLED';
 const TABS: Tab[] = ['all', 'DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'OVERDUE', 'CANCELLED'];
 const EMPTY_VIEW = { tab: 'all', q: '', type: '' };
+/** แท็บของต้นแบบ → สถานะใบวางบิล (ST5-T11) — ชำระบางส่วน/เกินกำหนด ไม่มีในใบวางบิล (ว่าง) · COLLECTED = แท็บ "ชำระแล้ว" */
+const BN_STATUS: Partial<Record<Tab, string>> = {
+  DRAFT: 'DRAFT',
+  ISSUED: 'ISSUED',
+  PAID: 'COLLECTED',
+  CANCELLED: 'CANCELLED',
+};
 const STEPS: MessageKey[] = ['bill.step.1', 'bill.step.2', 'bill.step.3', 'bill.step.4'];
 
 const card = {
@@ -111,13 +131,21 @@ export function BillPage() {
     apply: (v) => {
       const x = pick(v.state, EMPTY_VIEW);
       setTab(TABS.includes(x.tab as Tab) ? (x.tab as Tab) : 'all');
-      setCol({ q: x.q, type: x.type });
+      // ประเภทเอกสาร: ใบแจ้งหนี้ (ค่าเริ่ม) / ใบวางบิล (ST5-T11) — มุมมองเก่าที่เก็บ 'INV' = ใบแจ้งหนี้
+      setCol({ q: x.q, type: x.type === 'BN' ? 'BN' : '' });
       setHidden(v.hidden);
     },
   });
   const [openId, setOpenId] = useState<string | null>(null);
   /** ST5-T13 drawer รับชำระ (จากปุ่ม "บันทึกรับชำระ" ใน drawer ใบแจ้งหนี้) */
   const [payId, setPayId] = useState<string | null>(null);
+  const [openBn, setOpenBn] = useState<string | null>(null);
+  const [bnForm, setBnForm] = useState<{
+    customerId: string;
+    customerName: string;
+    preselected: string[];
+  } | null>(null);
+  const isBn = col.type === 'BN';
   const [toast, setToast] = useState<string | null>(null);
 
   const custQ = useQueueCustomers();
@@ -133,6 +161,33 @@ export function BillPage() {
   const totals = selectionTotals(chosen);
   const create = useCreateDraft();
   const finalize = useFinalize();
+  const finalizeBn = useFinalizeBillingNote();
+  /** ออกเอกสารใบวางบิลจากเมนูแถว */
+  const issueBn = (x: BillingNoteSummary) =>
+    finalizeBn.mutate(
+      { id: x.id, version: x.version },
+      {
+        onSuccess: (r) => setToast(t('bill.toast.issued', { no: r.billingNoteNo ?? '' })),
+        onError: (e) => setToast(billingNoteErrorText(e, t)),
+      },
+    );
+  /** สร้างใบวางบิลจากใบแจ้งหนี้ที่ออกแล้ว (ลูกค้าเดียว) — เปิดฟอร์ม (ติ๊กใบ + วันนัดรับเช็ค) */
+  const startBn = (rows: InvoiceSummary[]) => {
+    const ok = rows.filter((x) => x.status === 'ISSUED');
+    if (!ok.length || ok.length !== rows.length) {
+      setToast(t('bn.pickIssued'));
+      return;
+    }
+    if (new Set(ok.map((x) => x.customer.id)).size > 1) {
+      setToast(t('bn.oneCustomer'));
+      return;
+    }
+    setBnForm({
+      customerId: ok[0]!.customer.id,
+      customerName: ok[0]!.customer.legalName,
+      preselected: ok.map((x) => x.id),
+    });
+  };
   /** ออกเอกสารจากเมนูแถว (ต้นแบบ specInv menu "ออกเอกสาร" → issueInv) */
   const issue = (x: InvoiceSummary) =>
     finalize.mutate(
@@ -193,25 +248,72 @@ export function BillPage() {
     return f;
   }, [tab]);
   const list = useInvoiceList(filters);
-  // เกินกำหนด: ยังไม่มีใบที่ออกแล้ว/ครบกำหนด (ST5-T09/T22) — แท็บว่าง · ตัวกรองประเภทมีแค่ใบแจ้งหนี้ (D-54)
-  const shownRows = tab === 'OVERDUE' || (col.type && col.type !== 'INV') ? [] : list.rows;
+  // ST5-T11 ใบวางบิล: ตัวกรองประเภท "ใบวางบิล" สลับตารางเป็นรายการใบวางบิล (แท็บเดียวกัน — BN_STATUS)
+  const bnFilters = useMemo(() => {
+    const f: Record<string, string> = {};
+    if (tab !== 'all' && BN_STATUS[tab]) f.status = BN_STATUS[tab]!;
+    return f;
+  }, [tab]);
+  const bnList = useBillingNoteList(bnFilters, isBn);
+  const bnCounts = useBillingNoteCounts().data;
+  // เกินกำหนด: ยังไม่มีใบที่ออกแล้ว/ครบกำหนด (ST5-T09/T22) — แท็บว่าง
+  const shownRows = isBn || tab === 'OVERDUE' ? [] : list.rows;
   const shownRowsQ = col.q
     ? shownRows.filter((x) => (x.invoiceNo ?? t('bill.draftNo')).includes(col.q))
     : shownRows;
-  const tabCount: Record<Tab, number | undefined> = {
-    all: counts?.total,
-    DRAFT: counts?.draft,
-    ISSUED: counts?.issued,
-    PARTIALLY_PAID: counts?.partiallyPaid,
-    PAID: counts?.paid,
-    OVERDUE: counts?.overdue,
-    CANCELLED: counts?.cancelled,
-  };
+  const bnRows = !isBn || (tab !== 'all' && !BN_STATUS[tab]) ? [] : bnList.rows;
+  const bnRowsQ = col.q
+    ? bnRows.filter((x) => (x.billingNoteNo ?? t('bill.draftNo')).includes(col.q))
+    : bnRows;
+  const tabCount: Record<Tab, number | undefined> = isBn
+    ? {
+        all: bnCounts?.total,
+        DRAFT: bnCounts?.draft,
+        ISSUED: bnCounts?.issued,
+        PARTIALLY_PAID: bnCounts ? 0 : undefined,
+        PAID: bnCounts?.collected,
+        OVERDUE: bnCounts ? 0 : undefined,
+        CANCELLED: bnCounts?.cancelled,
+      }
+    : {
+        all: counts?.total,
+        DRAFT: counts?.draft,
+        ISSUED: counts?.issued,
+        PARTIALLY_PAID: counts?.partiallyPaid,
+        PAID: counts?.paid,
+        OVERDUE: counts?.overdue,
+        CANCELLED: counts?.cancelled,
+      };
   const shownTotal = listTotal(
-    list,
+    isBn ? bnList : list,
     { tab, ...col },
-    ['tab'],
-    col.q || col.type ? undefined : tabCount[tab],
+    ['tab', 'type'],
+    col.q ? undefined : tabCount[tab],
+  );
+  const typeFilter = {
+    type: 'select' as const,
+    // ต้นแบบ: ทั้งหมด · ใบแจ้งหนี้ · ใบลดหนี้ · ใบเพิ่มหนี้ — ใบลด/เพิ่มหนี้ไม่ทำ (D-54) · ใบวางบิล (ST5-T11) เป็นรายการแยก
+    // จึงเป็นตัวเลือกประเภทเอกสารของตาราง (ไม่มี "ทั้งหมด") [DECISION spec/12 §3 — ST5-T11]
+    options: [
+      { value: '', label: t('bill.type.inv') },
+      { value: 'BN', label: t('bn.kind') },
+    ],
+  };
+  const chip = (label: string) => (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        height: 24,
+        padding: '0 8px',
+        borderRadius: 999,
+        background: '#EBEDE8',
+        fontSize: 12.5,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {label}
+    </span>
   );
 
   const columns: Column<InvoiceSummary>[] = [
@@ -232,29 +334,8 @@ export function BillPage() {
       key: 'type',
       label: t('bill.col.type'),
       width: '1%',
-      filter: {
-        type: 'select',
-        options: [
-          { value: '', label: t('table.all') },
-          { value: 'INV', label: t('bill.type.inv') },
-        ],
-      },
-      render: () => (
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            height: 24,
-            padding: '0 8px',
-            borderRadius: 999,
-            background: '#EBEDE8',
-            fontSize: 12.5,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {t('bill.type.inv')}
-        </span>
-      ),
+      filter: typeFilter,
+      render: () => chip(t('bill.type.inv')),
       csv: () => t('bill.type.inv'),
     },
     {
@@ -317,6 +398,90 @@ export function BillPage() {
       width: '1%',
       render: (x) => <StatusDot label={invoiceStatusLabel(t, x.status)} />,
       csv: (x) => invoiceStatusLabel(t, x.status),
+    },
+  ];
+
+  /** ใบวางบิลในตารางเดียวกัน (คอลัมน์ต้นแบบ specInv): งวด / อ้างอิง = จำนวนใบแจ้งหนี้ · ครบกำหนด = วันนัดรับเช็ค/โอน · คงค้าง = ยอดของใบที่ออกแล้ว */
+  const bnColumns: Column<BillingNoteSummary>[] = [
+    {
+      key: 'q',
+      label: t('bill.col.no'),
+      width: '1%',
+      filter: { type: 'text', placeholder: t('table.search') },
+      render: (x) =>
+        x.billingNoteNo ? (
+          <DocNo>{x.billingNoteNo}</DocNo>
+        ) : (
+          <span style={{ color: '#59606B' }}>{t('bill.draftNo')}</span>
+        ),
+      csv: (x) => x.billingNoteNo ?? '',
+    },
+    {
+      key: 'type',
+      label: t('bill.col.type'),
+      width: '1%',
+      filter: typeFilter,
+      render: () => chip(t('bn.kind')),
+      csv: () => t('bn.kind'),
+    },
+    {
+      key: 'cust',
+      label: t('bill.col.cust'),
+      render: (x) => <span style={{ color: '#101418' }}>{x.customer.legalName}</span>,
+      csv: (x) => x.customer.legalName,
+    },
+    {
+      key: 'per',
+      label: t('bill.col.per'),
+      render: (x) => (
+        <span style={{ whiteSpace: 'nowrap' }}>{t('bn.kv.nInv', { n: x.invoiceCount })}</span>
+      ),
+      csv: (x) => String(x.invoiceCount),
+    },
+    {
+      key: 'due',
+      label: t('bill.col.due'),
+      width: '1%',
+      render: (x) =>
+        x.collectionDate && x.status !== 'CANCELLED' ? (
+          <span style={{ whiteSpace: 'nowrap' }} title={t('bn.kv.collect')}>
+            {dateText(x.collectionDate)}
+          </span>
+        ) : (
+          <span style={{ color: '#3B424C' }}>—</span>
+        ),
+      csv: (x) => x.collectionDate ?? '',
+    },
+    {
+      key: 'amt',
+      label: t('bill.col.amt'),
+      align: 'right',
+      width: '1%',
+      render: (x) => (
+        <span className="tms-num" style={{ fontWeight: 500 }}>
+          {money(x.sellTotal)}
+        </span>
+      ),
+      csv: (x) => x.sellTotal ?? '',
+    },
+    {
+      key: 'out',
+      label: t('bill.col.out'),
+      align: 'right',
+      width: '1%',
+      render: (x) => (
+        <span className="tms-num" style={{ color: x.status === 'ISSUED' ? '#101418' : '#3B424C' }}>
+          {x.status === 'ISSUED' ? money(x.sellTotal) : '0.00'}
+        </span>
+      ),
+      csv: () => '',
+    },
+    {
+      key: 'st',
+      label: t('bill.col.st'),
+      width: '1%',
+      render: (x) => <StatusDot label={billingNoteStatusLabel(t, x.status)} />,
+      csv: (x) => billingNoteStatusLabel(t, x.status),
     },
   ];
 
@@ -648,7 +813,80 @@ export function BillPage() {
             {shownTotal !== undefined && t('table.total', { n: shownTotal })}
           </span>
         </div>
-        {list.q.isError ? (
+        {isBn ? (
+          bnList.q.isError ? (
+            <EmptyState
+              icon="circle-alert"
+              title={t('bn.loadError')}
+              description={problemText(bnList.q.error, t) ?? ''}
+              action={
+                <Button variant="secondary" icon="refresh-cw" onClick={() => bnList.q.refetch()}>
+                  {t('cust.retry')}
+                </Button>
+              }
+            />
+          ) : (
+            <DataTable
+              key="bn"
+              columns={bnColumns}
+              rows={bnRowsQ}
+              rowId={(x) => x.id}
+              activeId={openBn}
+              loading={bnList.loading}
+              labels={tableLabels(t)}
+              bulkActions={[
+                {
+                  label: t('bill.menu.pdf'),
+                  icon: 'printer',
+                  run: (ids) => {
+                    const docs = bnRowsQ.filter(
+                      (x) => ids.includes(x.id) && x.status !== 'CANCELLED',
+                    );
+                    if (!docs.length) setToast(t('bill.pdfDraftOnly'));
+                    for (const x of docs)
+                      void openBillingNotePdf(x).catch(() => setToast(t('bill.pdfFail')));
+                  },
+                },
+              ]}
+              filters={{ q: col.q, type: col.type }}
+              hiddenColumns={hidden}
+              onHiddenColumnsChange={setHidden}
+              onFilterChange={(k, v) => setCol((c) => ({ ...c, [k]: v }))}
+              onRowClick={(x) => setOpenBn(x.id)}
+              rowMenu={(x) => [
+                { label: t('bill.menu.view'), icon: 'eye', run: () => setOpenBn(x.id) },
+                ...(x.status === 'DRAFT' && canFinalize
+                  ? [{ label: t('bill.create'), icon: 'lock', run: () => issueBn(x) }]
+                  : []),
+                ...(x.status !== 'CANCELLED'
+                  ? [
+                      {
+                        label: t('bill.menu.pdf'),
+                        icon: 'printer',
+                        run: () =>
+                          void openBillingNotePdf(x).catch(() => setToast(t('bill.pdfFail'))),
+                      },
+                    ]
+                  : []),
+              ]}
+              empty={
+                <EmptyState
+                  icon="receipt"
+                  title={t('bn.list.emptyTitle')}
+                  description={t('bn.list.emptyDesc')}
+                />
+              }
+              page={{
+                ...bnList.page,
+                ...(shownTotal !== undefined ? { total: shownTotal } : {}),
+              }}
+              onPageSize={bnList.setSize}
+              onNext={bnList.next}
+              onPrev={bnList.prev}
+              onGoto={bnList.goto}
+            />
+          )
+        ) : list.q.isError ? (
           <EmptyState
             icon="circle-alert"
             title={t('bill.loadError')}
@@ -661,6 +899,7 @@ export function BillPage() {
           />
         ) : (
           <DataTable
+            key="inv"
             columns={columns}
             rows={shownRowsQ}
             rowId={(x) => x.id}
@@ -668,6 +907,15 @@ export function BillPage() {
             loading={list.loading}
             labels={tableLabels(t)}
             bulkActions={[
+              ...(canDraft
+                ? [
+                    {
+                      label: t('bill.title'),
+                      icon: 'receipt',
+                      run: (ids: string[]) => startBn(shownRowsQ.filter((x) => ids.includes(x.id))),
+                    },
+                  ]
+                : []),
               { label: t('bill.menu.pdf'), icon: 'printer', run: printMany },
               { label: t('bill.xp'), icon: 'file-down', run: () => setToast(t('bill.xpSoon')) },
             ]}
@@ -680,6 +928,9 @@ export function BillPage() {
               { label: t('bill.menu.view'), icon: 'eye', run: () => setOpenId(x.id) },
               ...(x.status === 'DRAFT' && canFinalize
                 ? [{ label: t('bill.create'), icon: 'lock', run: () => issue(x) }]
+                : []),
+              ...(x.status === 'ISSUED' && canDraft
+                ? [{ label: t('bill.title'), icon: 'receipt', run: () => startBn([x]) }]
                 : []),
               ...(printable(x)
                 ? [{ label: t('bill.menu.pdf'), icon: 'printer', run: () => printOne(x) }]
@@ -728,6 +979,27 @@ export function BillPage() {
             setPayId(null);
           }}
           onToast={setToast}
+        />
+      )}
+      {openBn && (
+        <BillingNoteDrawer
+          id={openBn}
+          canDraft={canDraft}
+          canFinalize={canFinalize}
+          onClose={() => setOpenBn(null)}
+          onToast={setToast}
+        />
+      )}
+      {bnForm && (
+        <BillingNoteForm
+          {...bnForm}
+          onClose={() => setBnForm(null)}
+          onSaved={(bn) => {
+            setBnForm(null);
+            setCol((c) => ({ ...c, type: 'BN', q: '' }));
+            setOpenBn(bn.id);
+            setToast(t('bn.toast.drafted', { n: bn.invoiceCount }));
+          }}
         />
       )}
       {toast && (

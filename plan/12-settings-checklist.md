@@ -39,9 +39,9 @@
 | 26 | ระยะเก็บ GPS log (วัน) | `retention.gpsLogDays` | — | API-only | ST9-T14 — ต้นแบบไม่มีช่อง; ลดค่า = step-up · ขั้นต่ำ 90 วัน |
 | 27 | วงเงิน step-up อนุมัติใบสำคัญจ่ายรถร่วม (บาท) | `settlement.approvalStepUpAmount` | — | API-only | ST6-T07 — ต้นแบบไม่มีช่อง; ค่าเริ่ม 100,000 · null = ไม่บังคับ · เพิ่มค่า/ปิด = step-up |
 | 28 | ต้องให้รถร่วมตรวจใบสำคัญจ่ายก่อนอนุมัติ | `settlement.carrierReviewRequired` | — | API-only | ST6-T05 — ต้นแบบไม่มีช่อง; ค่าเริ่ม ปิด · เปิด = ร่างอนุมัติตรงไม่ได้ (409 `settlement_review_required`) · ปิดจากที่เปิด = step-up |
-| 29 | ส่วนต่างที่บัญชีตัดยอดเองได้ต่อการรับชำระ (บาท) | `payments.maxDifferenceAmount` | — | API-only | ST5-T13 review M1 (spec/05 BIL-059) — ต้นแบบไม่มีช่อง; ค่าเริ่ม 10 · เกินต้องมี `payments:reverse` (ผู้จัดการ) · เพิ่มค่า = step-up |
-| 30 | ขั้นต่ำหัก ณ ที่จ่าย (บาท — ยอดประมาณการ) | `tax.whtMinimumAmount` | — | API-only | ST5-T02 (D-54) — ต้นแบบไม่มีช่อง; ค่าเริ่ม 0 · รอนักบัญชี (docs/01 §8.2 ข้อ 7) — เพิ่มแถวใน ST5-T13 (test checklist แดงจาก T02) |
-| 31 | ให้ผู้สร้างร่างออกเอกสารใบแจ้งหนี้เองได้ | `billing.allowSelfFinalize` | — | API-only | ST5-T09 (A3) — ต้นแบบไม่มีช่อง; ค่าเริ่ม ปิด · แก้ได้เฉพาะ owner + step-up — เพิ่มแถวใน ST5-T13 |
+| 29 | ขั้นต่ำหัก ณ ที่จ่าย (บาท, ประมาณการ) | `tax.whtMinimumAmount` | — | API-only | ST5-T02 · ค่าเริ่ม 0 = หักทุกยอด (ตรงกับ AccountSystem, D-54) · ฐานนับขั้นต่ำ 1,000 รอนักบัญชี [OPEN #62] · ต้นแบบไม่มีช่อง |
+| 30 | ให้ผู้สร้างร่างออกเอกสารใบแจ้งหนี้เองได้ | `billing.allowSelfFinalize` | — | API-only | ST5-T09 (A3) — ต้นแบบไม่มีช่อง; ค่าเริ่ม ปิด · แก้ได้เฉพาะ owner + step-up |
+| 31 | ส่วนต่างที่บัญชีตัดยอดเองได้ต่อการรับชำระ (บาท) | `payments.maxDifferenceAmount` | — | API-only | ST5-T13 review M1 (spec/05 BIL-059) — ต้นแบบไม่มีช่อง; ค่าเริ่ม 10 · เกินต้องมี `payments:reverse` (ผู้จัดการ) · เพิ่มค่า = step-up |
 
 ## 2. ค่าตั้งองค์กรที่เป็น resource แยก (ไม่อยู่ใน registry)
 

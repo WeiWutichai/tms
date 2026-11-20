@@ -497,6 +497,14 @@ export class InvoiceDto extends InvoiceSummaryDto {
       'PDF ต้นฉบับที่เก็บ ณ วันออก — null = ร่าง หรือยังไม่ได้ render (render หลังออกเลข; `GET /v1/invoices/{id}/pdf` สร้างให้ถ้ายังไม่มี)',
   })
   pdf!: InvoicePdfDto | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'bn_…',
+    description:
+      'ใบวางบิลที่ใบนี้อยู่ (ร่าง/ออกแล้ว/เก็บเงินแล้ว — ST5-T11; docs/01 §3.4 `billing_note_id`) · null = ไม่อยู่ในใบวางบิล',
+  })
+  billingNoteId!: string | null;
 }
 
 export class InvoicePageDto {

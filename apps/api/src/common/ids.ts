@@ -77,6 +77,8 @@ export const ID_PREFIX = {
   invoiceLine: 'ivl',
   /** ST5-T13 การรับชำระ (payment — docs/01 §3.4 `pay_`) */
   payment: 'pay',
+  /** ST5-T11 ใบวางบิล (billing_note — docs/01 §3.4 `bn_`) */
+  billingNote: 'bn',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 
