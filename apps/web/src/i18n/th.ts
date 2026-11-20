@@ -1041,6 +1041,14 @@ export const th = {
   'hist.geocodeRejected': 'ปฏิเสธพิกัด',
   'hist.geocodeRetried': 'ลองหาพิกัดอีกครั้ง',
   'cust.tab.addr': 'ที่อยู่ส่ง',
+  // ST8-T05 รหัสลูกค้าในระบบบัญชีที่เชื่อมต่อ (ต้นแบบ TMS v4 drawer ลูกค้า แท็บ erpc)
+  'cust.tab.erpc': 'รหัสระบบบัญชี',
+  'cust.erp.title': 'รหัสลูกค้าในระบบบัญชีที่เชื่อมต่อ',
+  'cust.erp.code': 'รหัสลูกค้าใน {erp}',
+  'cust.erp.unmapped': 'ยังไม่ map',
+  'cust.erp.ok': 'สำเร็จ',
+  'cust.erp.warn':
+    'ยังไม่ได้ map รหัสลูกค้าใน {erp} · ใบแจ้งหนี้ของลูกค้านี้จะส่งเข้า {erp} ไม่ได้',
   'cust.addr.none': 'ยังไม่มีที่อยู่ส่ง',
   'cust.addr.add': 'เพิ่มที่อยู่ส่ง',
   // ข้อมูลหลัก → ประเภทรถ (ST2-T04) — ต้นแบบ TMS v4 specVt() / cfVt() / vPanelApi vt

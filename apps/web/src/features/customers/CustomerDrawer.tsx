@@ -17,13 +17,20 @@ import {
 import { podSummary } from '../pod/PodChecklistTable';
 import { fieldErrors, problemText } from '../master/problems';
 import {
+  CustomerErpCodesTab,
+  CustomerErpWarn,
+  erpCodeChanges,
+  useCustomerErpCodes,
+  useSaveCustomerErpCodes,
+} from './CustomerErpCodes';
+import {
   useCompanyOptions,
   useUpdateCustomer,
   type Customer,
   type CustomerInput,
 } from './useCustomers';
 
-type Tab = 'sum' | 'addr' | 'rate' | 'cond' | 'act';
+type Tab = 'sum' | 'addr' | 'erpc' | 'rate' | 'cond' | 'act';
 const CYCLES = ['PER_DO', 'WEEKLY', 'MONTHLY', 'MANUAL'] as const;
 
 interface Form {
@@ -179,6 +186,7 @@ export function CustomerDrawer({
   canWrite,
   canListUsers,
   canBillBasis = false,
+  erp = false,
   onSaved,
   onToggleStatus,
   onDelete,
@@ -189,6 +197,8 @@ export function CustomerDrawer({
   canListUsers: boolean;
   /** ST4-T10 `prices.sell:write` — เปลี่ยน "วางบิลตามปริมาณ" ได้ */
   canBillBasis?: boolean;
+  /** ST8-T05 แพ็กเกจมีการเชื่อมต่อระบบบัญชี (`conn`) — แท็บ "รหัสระบบบัญชี" แสดงเมื่อมี connector */
+  erp?: boolean;
   onSaved: (c: Customer) => void;
   onToggleStatus: () => void;
   onDelete: () => void;
@@ -204,6 +214,22 @@ export function CustomerDrawer({
   const [editExt, setEditExt] = useState(false);
   const save = useUpdateCustomer();
   const companies = useCompanyOptions();
+  // ST8-T05 รหัสลูกค้าในระบบบัญชีที่เชื่อมต่อ (ต้นแบบ แท็บ `erpc` — มีเมื่อมี connector)
+  const erpQ = useCustomerErpCodes(c.id, erp);
+  const erpRows = erpQ.data ?? [];
+  const hasErp = erpRows.length > 0;
+  const [erpDraft, setErpDraft] = useState<Record<string, string>>({});
+  const erpSave = useSaveCustomerErpCodes(c.id);
+  const submitErp = () => {
+    const items = erpCodeChanges(erpRows, erpDraft);
+    if (!items.length || erpSave.isPending) return;
+    erpSave.mutate(items, {
+      onSuccess: () => {
+        setErpDraft({});
+        onSaved(c);
+      },
+    });
+  };
   const users = useQuery({
     queryKey: ['users', 'options'],
     enabled: canListUsers && canWrite,
@@ -305,6 +331,7 @@ export function CustomerDrawer({
       tabs={[
         { key: 'sum', label: t('cust.tab.sum') },
         { key: 'addr', label: t('cust.tab.addr') },
+        ...(hasErp ? [{ key: 'erpc', label: t('cust.tab.erpc') }] : []),
         { key: 'rate', label: t('cust.tab.rate') },
         { key: 'cond', label: t('cust.tab.cond') },
         { key: 'act', label: t('cust.tab.act') },
@@ -314,12 +341,21 @@ export function CustomerDrawer({
       footer={
         canWrite && tab !== 'act' && tab !== 'addr' && tab !== 'rate' ? (
           <DrawerFooterButtons
-            primary={{
-              label: t('common.save'),
-              icon: 'save',
-              onClick: submit,
-              disabled: save.isPending || podBad,
-            }}
+            primary={
+              tab === 'erpc'
+                ? {
+                    label: t('common.save'),
+                    icon: 'save',
+                    onClick: submitErp,
+                    disabled: erpSave.isPending,
+                  }
+                : {
+                    label: t('common.save'),
+                    icon: 'save',
+                    onClick: submit,
+                    disabled: save.isPending || podBad,
+                  }
+            }
           />
         ) : undefined
       }
@@ -337,6 +373,9 @@ export function CustomerDrawer({
         !(save.error instanceof ApiError && save.error.problem.code === 'precondition_failed') && (
           <div className="tms-alert">{top}</div>
         )}
+      {tab === 'erpc' && erpSave.error && (
+        <div className="tms-alert">{problemText(erpSave.error, t)}</div>
+      )}
       {tab === 'sum' && (
         <>
           <section className="tms-kv">
@@ -374,6 +413,8 @@ export function CustomerDrawer({
               )}
             </div>
           </section>
+          {/* ต้นแบบ: กล่องเตือนอยู่ใต้ "ข้อมูลเพิ่มเติม" ก่อนฟอร์ม */}
+          <CustomerErpWarn rows={erpRows} />
           <div className="tms-fgrid">
             <Fld label={t('cust.f.name')} span={2} error={errs.legalName}>
               {(id) => (
@@ -589,6 +630,14 @@ export function CustomerDrawer({
       )}
       {tab === 'addr' && (
         <CustomerSitesTab customerId={c.id} customerName={c.legalName} canWrite={canWrite} />
+      )}
+      {tab === 'erpc' && hasErp && (
+        <CustomerErpCodesTab
+          rows={erpRows}
+          draft={erpDraft}
+          onChange={(id, v) => setErpDraft((d) => ({ ...d, [id]: v }))}
+          readOnly={ro}
+        />
       )}
       {tab === 'rate' && <CustomerRatesTab customerId={c.id} customerName={c.legalName} />}
       {tab === 'act' && (

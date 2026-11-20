@@ -350,6 +350,8 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'loc.dlg.reason': '原因',
   'loc.geo.f.PENDING': '未标记',
   'cust.tab.addr': '收货地址',
+  'cust.tab.erpc': '财务代码',
+  'cust.erp.ok': '成功',
   'vt.kind': '车型',
   'vt.add': '新增车型',
   'vt.sum.types': '车型',
