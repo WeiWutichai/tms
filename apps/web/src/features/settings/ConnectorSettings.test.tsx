@@ -66,7 +66,7 @@ vi.mock('../../api', () => ({
   },
 }));
 
-const { ConnectorSettingsSection } = await import('./ConnectorSettings');
+const { ConnectorSettingsSection, healthText } = await import('./ConnectorSettings');
 
 const wrap = (canWrite = true) =>
   render(
@@ -359,5 +359,12 @@ describe('ตั้งค่า → การเชื่อมต่อ (ST7-T2
     fireEvent.click(within(detail).getByRole('tab', { name: 'ประวัติ' }));
     expect(await within(detail).findByText('เปลี่ยน key')).toBeInTheDocument();
     expect(within(detail).getByText(/ทีม Innovera · กิตติ/)).toBeInTheDocument();
+  });
+
+  it('ST8-T04 รหัสที่รอบดึง SO หยุด connector แสดงเป็นข้อความไทย (ไม่ใช่รหัสดิบ)', async () => {
+    const { th } = await import('../../i18n/th');
+    const t = ((k: keyof typeof th) => th[k]) as Parameters<typeof healthText>[0];
+    expect(healthText(t, 'source_columns_missing')).toBe('แหล่งข้อมูล SO ขาดคอลัมน์ที่จำเป็น');
+    expect(healthText(t, 'source_not_found')).toBe('ไม่พบแหล่งข้อมูล SO ที่ปลายทาง');
   });
 });
