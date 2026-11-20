@@ -443,7 +443,7 @@ scope: `settlements:create` · operationId: `Settlements_send`
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
 | `id` | path | ใช่ | `string` |   |
-| `If-Match` | header |   | `string` | ETag (version) — ไม่ตรง → 412 |
+| `If-Match` | header | ใช่ | `string` | ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
 
 **Responses**
 
@@ -455,6 +455,7 @@ scope: `settlements:create` · operationId: `Settlements_send`
 | `404` | ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
 | `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress), [settlement_empty](errors.md#settlement_empty), [settlement_net_negative](errors.md#settlement_net_negative) | `ProblemDto` |
 | `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
 
 **ตัวอย่าง**
@@ -523,7 +524,7 @@ scope: `settlements:create` · operationId: `Settlements_recall`
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
 | `id` | path | ใช่ | `string` |   |
-| `If-Match` | header |   | `string` | ETag (version) — ไม่ตรง → 412 |
+| `If-Match` | header | ใช่ | `string` | ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
 
 **Request body** `SettlementReasonDto`
 

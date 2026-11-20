@@ -4493,8 +4493,8 @@
               {
                 "key": "If-Match",
                 "value": "",
-                "description": "ETag (version) — ไม่ตรง → 412",
-                "disabled": true
+                "description": "ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+                "disabled": false
               },
               {
                 "key": "Idempotency-Key",
@@ -4571,8 +4571,8 @@
               {
                 "key": "If-Match",
                 "value": "",
-                "description": "ETag (version) — ไม่ตรง → 412",
-                "disabled": true
+                "description": "ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+                "disabled": false
               },
               {
                 "key": "Idempotency-Key",

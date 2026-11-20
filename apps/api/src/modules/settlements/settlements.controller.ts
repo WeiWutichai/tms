@@ -266,12 +266,17 @@ export class SettlementsController {
       'ออกลิงก์อายุ 7 วัน (`link.url` แสดงครั้งเดียว — ส่งทาง LINE/SMS ด้วย POST /v1/messages/send-link หรือคัดลอกไปส่งเอง) · รอบตรวจ +1 · ' +
       'ใบที่ส่งแล้วแก้/เพิ่ม/นำบรรทัดออก/ยกเลิกไม่ได้ (409) จนกว่าจะเรียกกลับ · **ผู้ส่งนับเป็นผู้เตรียมใบ — อนุมัติใบนี้ไม่ได้** · audit `settlement.sent`',
   })
-  @ApiHeader(IF_MATCH)
+  @ApiHeader({
+    ...IF_MATCH,
+    required: true,
+    description: 'ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412',
+  })
   @ApiProblems(
     T403('settlements:create'),
     NF,
     T409('settlement_empty', 'settlement_net_negative'),
     T412,
+    T422,
   )
   @ApiOkResponse({ type: SettlementSentDto })
   async send(
@@ -308,7 +313,11 @@ export class SettlementsController {
     description:
       'เช่น รถร่วมโต้แย้งรายการ แล้วต้องแก้/นำบรรทัดออก · เพิกถอนลิงก์ตรวจ · คำตอบของรถร่วมเก็บเป็นประวัติ (ส่งใหม่ = รอบใหม่) · audit `settlement.recalled`',
   })
-  @ApiHeader(IF_MATCH)
+  @ApiHeader({
+    ...IF_MATCH,
+    required: true,
+    description: 'ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412',
+  })
   @ApiProblems(T403('settlements:create'), NF, T409(), T412, T422)
   @ApiOkResponse({ type: SettlementDto })
   async recall(

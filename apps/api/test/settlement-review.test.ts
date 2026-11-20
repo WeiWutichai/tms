@@ -441,6 +441,12 @@ describe('settlement carrier review (ST6-T05)', () => {
       .send({ reason: 'ยกเลิกระหว่างรอตรวจ' })
       .expect(409);
     await send(s.id).expect(409);
+    // QA L1: If-Match บังคับ (ไม่ส่ง → 422 if_match_required)
+    const noIfMatch = await api(app, accounting)
+      .post(`/v1/settlements/${s.id}/recall`)
+      .send(RECALL)
+      .expect(422);
+    expect(noIfMatch.body.errors[0].code).toBe('if_match_required');
     await respond(token, s.lines[1]!.id, {
       response: 'DISPUTED',
       reason: 'เที่ยวนี้วิ่งไม่ครบ',
@@ -578,6 +584,11 @@ describe('settlement carrier review (ST6-T05)', () => {
       ).expect(201)
     ).body;
     expect((await send(neg.id).expect(409)).body.code).toBe('settlement_net_negative');
+    // QA L1: ส่งตรวจต้องมี If-Match
+    const noIfMatch = await api(app, accounting)
+      .post(`/v1/settlements/${neg.id}/send-to-carrier`)
+      .expect(422);
+    expect(noIfMatch.body.errors[0].code).toBe('if_match_required');
     // viewer ส่งไม่ได้ · บริษัทอื่น 404 · ออกลิงก์ใหม่เฉพาะใบที่รอตรวจ
     const s3 = (await create({ carrierId: C.id, tripIds: [trips[2]!.id] }, accounting).expect(201))
       .body;

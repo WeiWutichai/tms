@@ -537,6 +537,7 @@ export class SettlementsService {
     const tx = this.db.tx;
     const ctx = requestContext.require();
     const s = await this.lockDraft(tx, id, expected);
+    requireIfMatch(expected);
     const trips = await tx.settlementLine.count({
       where: { settlementId: id, voidedAt: null, lineType: 'FREIGHT' },
     });
@@ -605,6 +606,7 @@ export class SettlementsService {
   async recall(id: string, reason: string, expected: number | undefined): Promise<SettlementDto> {
     const tx = this.db.tx;
     const s = await this.lockFor(tx, id, expected, ['SENT_TO_CARRIER']);
+    requireIfMatch(expected);
     await tx.carrierSettlement.update({
       where: { id },
       // ผู้เรียกกลับ = ผู้เตรียมใบ (review M1/L3)
@@ -1025,6 +1027,18 @@ function settlementEventObject(dto: SettlementDto): Record<string, unknown> {
   const o = JSON.parse(JSON.stringify(redactPrices(dto, []))) as Record<string, unknown>;
   for (const k of eventDefinition('settlement.approved')!.object!.omit) delete o[k];
   return o;
+}
+
+/** If-Match บังคับ (แบบ approve — review L5 ของ T07 / QA L1 ของ T05) — ตรวจหลังหาใบเจอ (ใบของบริษัทอื่น = 404 ก่อน) */
+function requireIfMatch(expected: number | undefined): void {
+  if (expected === undefined)
+    throw invalid([
+      {
+        field: 'If-Match',
+        code: 'if_match_required',
+        message: 'send If-Match (ETag of the settlement)',
+      },
+    ]);
 }
 
 function invalid(errors: FieldError[]) {

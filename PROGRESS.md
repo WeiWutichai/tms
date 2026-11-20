@@ -291,6 +291,11 @@
 
 ## บันทึกรายวัน
 
+### 20 พ.ย. 2569 (ST6-T05 แก้ตาม QA — lane l5)
+
+- **ทำ:** (L1) If-Match บังคับที่ `POST /settlements/{id}/send-to-carrier` และ `/recall` (ไม่ส่ง → 422 `if_match_required` หลังหาใบเจอ — แบบ approve) + test 2 ข้อ · OpenAPI/api-docs export · (L2 — ไม่แก้, พฤติกรรมเดิมของ ST3-T21) `POST /v1/messages/send-link` ด้วย URL ลิงก์ของบริษัทอื่นได้ 422 `link_invalid` (ไม่ใช่ 404) — RLS มองไม่เห็นลิงก์จึงตอบว่า URL ไม่ถูกต้อง ไม่รั่วข้อมูล
+- **ไฟล์:** `settlements/{settlements.service,settlements.controller}.ts`, `test/settlement-review.test.ts`, openapi + api-docs
+
 ### 20 พ.ย. 2569 (ST6-T05 แก้ตาม review — lane l5)
 
 - **ทำ:** (M1) dispute บล็อกอนุมัติทั้งใบรอตรวจและร่างที่เรียกกลับ (คำตอบล่าสุดของรอบล่าสุด, บรรทัดที่ยังใช้) + ผู้เรียกกลับเป็นผู้เตรียม · (L3) `carrier_settlement.preparers` (ผู้ส่งทุกรอบ/ผู้เรียกกลับ/ผู้ออกลิงก์ใหม่ — เพิ่มอย่างเดียว) ใน service + trigger · (L4) trigger ตอน → APPROVED ตรวจบรรทัดที่โต้แย้ง + หัวใบแข็งระหว่าง SENT_TO_CARRIER · (L2) ตรวจลิงก์ซ้ำหลังล็อกใบ · (L5) ลำดับคำตอบ (createdAt, id) · (L1/L6) docstring + spec/12 [OPEN — PO] pending=0 / ชื่อสถานที่บนลิงก์ · test +4 (M1, L3/DB, ลิงก์หมดอายุ + รูปลิงก์เดิมหลังออกใหม่, 429) · แก้ใน 0127 (ยังไม่ merge — ฐาน tms_l5* ปรับมือ + checksum)
