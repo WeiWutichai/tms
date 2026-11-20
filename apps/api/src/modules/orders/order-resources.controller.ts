@@ -177,7 +177,7 @@ export class OrderResourcesController {
     const dos = await this.deliveryOrders(o.id);
     const rows = await this.db.tx.storedDocument.findMany({
       where: {
-        kind: { not: 'EXPORT' },
+        kind: { notIn: ['EXPORT', 'IMPORT'] },
         OR: [
           { entityType: 'sales_order', entityId: o.id },
           ...(dos.length
