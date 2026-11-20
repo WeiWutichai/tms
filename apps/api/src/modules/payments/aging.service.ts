@@ -61,30 +61,22 @@ function buckets(r: AggRow): AgingBucketDto[] {
   }));
 }
 
-interface AgingCursor {
-  n: string;
-  i: string;
+/**
+ * cursor = id ลูกค้าแถวสุดท้ายเท่านั้น (สั้นคงที่ — ไม่ใส่ชื่อ: ชื่อไทยยาวทำให้เกิน MaxLength) · ชื่อสำหรับเรียง (legal_name, id) อ่านจากฐานตอนเดินหน้าถัดไป
+ * (review M1) — เปลี่ยนชื่อลูกค้าระหว่างเดิน = ลำดับตามชื่อใหม่ (เหมือน cursor ทั่วไปเมื่อแถวถูกแก้)
+ */
+function encodeCursor(id: string): string {
+  return Buffer.from(JSON.stringify({ i: id, s: CURSOR_KIND })).toString('base64url');
 }
 
-function encodeCursor(c: AgingCursor): string {
-  return Buffer.from(JSON.stringify({ ...c, s: CURSOR_KIND })).toString('base64url');
-}
-
-function decodeCursor(raw: string): AgingCursor {
+function decodeCursor(raw: string): string {
   try {
     const v = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as {
-      n?: unknown;
       i?: unknown;
       s?: unknown;
     };
-    if (
-      v.s !== CURSOR_KIND ||
-      typeof v.n !== 'string' ||
-      typeof v.i !== 'string' ||
-      !UUID.test(v.i)
-    )
-      throw new Error();
-    return { n: v.n, i: v.i };
+    if (v.s !== CURSOR_KIND || typeof v.i !== 'string' || !UUID.test(v.i)) throw new Error();
+    return v.i;
   } catch {
     throw new ProblemException('validation_failed', undefined, [
       { field: 'cursor', code: 'invalid_cursor', message: 'cursor is invalid' },
@@ -125,8 +117,8 @@ export class AgingService {
 
     const after = q.cursor
       ? (() => {
-          const c = decodeCursor(q.cursor);
-          return Prisma.sql`AND (c.legal_name, c.id) > (${c.n}, ${c.i}::uuid)`;
+          const id = decodeCursor(q.cursor);
+          return Prisma.sql`AND (c.legal_name, c.id) > ((SELECT legal_name FROM customer WHERE id = ${id}::uuid), ${id}::uuid)`;
         })()
       : Prisma.empty;
     const rows = await tx.$queryRaw<
@@ -171,8 +163,7 @@ export class AgingService {
         sellOutstanding: money(r.amt),
         buckets: buckets(r),
       })),
-      nextCursor:
-        hasMore && last ? encodeCursor({ n: last.legal_name, i: last.customer_id }) : null,
+      nextCursor: hasMore && last ? encodeCursor(last.customer_id) : null,
       hasMore,
     };
   }

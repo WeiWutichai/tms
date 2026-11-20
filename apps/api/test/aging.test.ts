@@ -301,6 +301,72 @@ describe('อายุลูกหนี้ + เตือนครบกำห�
     expect(x).toMatchObject({ count: 0, data: [] });
   });
 
+  it('review M1: ชื่อลูกค้าไทย 200 ตัวอักษรที่รอยต่อหน้า — cursor สั้น เดินครบทุกหน้า ไม่ซ้ำ ไม่ขาด เรียงตามชื่อ', async () => {
+    const long = (ch: string) => `${ch}${'บริษัทขนส่งสินค้าไทย'.repeat(10)}`.slice(0, 200);
+    for (const [code, name] of [
+      ['C-L1', long('ค')],
+      ['C-L2', long('ง')],
+    ] as const) {
+      const c = await db.customer.create({ data: { tenantId, code, legalName: name } });
+      await issued(c.id, '10.00', addDays(today, -5));
+    }
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let i = 0; i < 10; i++) {
+      const r = await api(app, admin)
+        .get('/v1/payments/aging')
+        .query({ limit: 1, ...(cursor ? { cursor } : {}) });
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+      seen.push(...r.body.data.map((c: { customer: { code: string } }) => c.customer.code));
+      if (!r.body.hasMore) break;
+      expect(r.body.nextCursor.length).toBeLessThan(120);
+      cursor = r.body.nextCursor;
+    }
+    expect(seen).toEqual(['C-A', 'C-B', 'C-L1', 'C-L2']);
+  });
+
+  it('review L2: ขอบ 60/61 และ 90/91 วัน · นาฬิกาใกล้เที่ยงคืนเวลาไทย (23:59:59 → 00:00) เลื่อนช่วง', async () => {
+    const D = '2027-01-31';
+    const c = await db.customer.create({
+      data: { tenantId, code: 'C-EDGE', legalName: 'ฮ ขอบช่วง' },
+    });
+    await issued(c.id, '60.00', addDays(D, -60));
+    await issued(c.id, '90.00', addDays(D, -90));
+    const get = async () =>
+      (
+        await api(app, admin)
+          .get('/v1/payments/aging')
+          .query({ customerId: encodeId('customer', c.id) })
+          .expect(200)
+      ).body;
+    const amt = (r: { buckets: Bucket[] }) =>
+      Object.fromEntries(r.buckets.map((b) => [b.bucket, b.sellOutstanding]));
+    clock.set(new Date(`${D}T16:59:59Z`)); // 23:59:59 ไทย วันที่ D
+    const a = await get();
+    expect(a.asOf).toBe(D);
+    expect(amt(a)).toMatchObject({
+      DAYS_31_60: '60.00',
+      DAYS_61_90: '90.00',
+      DAYS_OVER_90: '0.00',
+    });
+    clock.set(new Date(`${D}T17:00:00Z`)); // 00:00 ไทย วันถัดไป
+    const b = await get();
+    expect(b.asOf).toBe(addDays(D, 1));
+    expect(amt(b)).toMatchObject({
+      DAYS_31_60: '0.00',
+      DAYS_61_90: '60.00',
+      DAYS_OVER_90: '90.00',
+    });
+    // ตัวกรองรายการตามวันเดียวกัน
+    const l = (
+      await api(app, admin)
+        .get('/v1/invoices')
+        .query({ customerId: encodeId('customer', c.id), aging: 'DAYS_OVER_90' })
+        .expect(200)
+    ).body;
+    expect(l.data.map((x: { sellTotal: string }) => x.sellTotal)).toEqual(['90.00']);
+  });
+
   // ---------- เตือนครบกำหนดชำระ ----------
 
   describe('เตือนครบกำหนดชำระ (BIL-121)', () => {
@@ -491,6 +557,36 @@ describe('อายุลูกหนี้ + เตือนครบกำห�
         where: { tenantId: { not: tR }, entityType: 'INVOICE' },
       });
       expect(leaked).toBe(0);
+    });
+
+    it('review L1/L2: job ลองใหม่วันเดียวกันหลังมีใบใหม่ → ไม่ส่งฉบับที่สอง (จองวันถัดไป) · ปิดรับ payment.due = ไม่ได้ข้อความ', async () => {
+      const day = '2030-03-10';
+      const c = await cust(owner);
+      await inv(c, day);
+      expect(await reminders.runForTenant(tR, day)).toMatchObject({ digests: 1, reminders: 1 });
+      const before = (await inbox(owner)).length;
+      const late = await inv(c, addDays(day, 2)); // เข้าเงื่อนไขหลังรอบแรก (ก่อนครบ 3 วัน)
+      expect(await reminders.runForTenant(tR, day)).toMatchObject({ digests: 0, reminders: 0 });
+      expect(await inbox(owner)).toHaveLength(before);
+      const next = await reminders.runForTenant(tR, addDays(day, 1));
+      expect(next).toMatchObject({ digests: 1, reminders: 1 });
+      expect(
+        await db.expiryReminder.count({ where: { entityId: late.id, recipientId: owner } }),
+      ).toBe(1);
+
+      // ปิดรับทั้งกระดิ่งและอีเมลของ event payment.due → สมุดเตือนจอง แต่ไม่มีข้อความ
+      const quiet = await member('invoicer');
+      await db.userPreference.create({
+        data: {
+          tenantId: tR,
+          userId: quiet,
+          key: 'notifications',
+          value: { events: { 'payment.due': { in_app: false, email: false } } },
+        },
+      });
+      await inv(await cust(quiet), '2030-07-01');
+      expect(await reminders.runForTenant(tR, '2030-07-01')).toMatchObject({ reminders: 1 });
+      expect(await inbox(quiet)).toHaveLength(0);
     });
 
     it('ข้อความ (ไทย): รายการเป็นกลุ่มตามระดับ · "และอีก N ใบ"', () => {

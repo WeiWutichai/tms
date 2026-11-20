@@ -290,6 +290,13 @@ export class PaymentDueReminderService implements OnModuleInit {
     userId: string,
     items: PaymentDueCandidate[],
   ): Promise<number> {
+    // review L1: วันละฉบับต่อคน — job ลองใหม่ (ผู้รับอื่นล้ม) หลังมีใบใหม่เข้าเงื่อนไข ต้องไม่ส่งฉบับที่สอง
+    // ใบที่เพิ่งเข้าเงื่อนไขจะถูกจองรอบวันถัดไป (ช่วงระดับยาวหลายวัน — DUE_IN_3 วันสุดท้ายข้ามไปเป็น DUE_TODAY)
+    const sentToday = await tx.expiryReminder.findFirst({
+      where: { tenantId, entityType: ENTITY, recipientId: userId, sentOn: toDate(today) },
+      select: { id: true },
+    });
+    if (sentToday) return 0;
     const claimed = await tx.expiryReminder.createManyAndReturn({
       data: items.map((c) => ({
         tenantId,
