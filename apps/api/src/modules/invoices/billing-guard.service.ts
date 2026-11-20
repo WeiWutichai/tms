@@ -27,8 +27,29 @@ export interface DoInvoiceLineInput {
   isUserAdded?: boolean;
 }
 
-/** ชื่อ unique partial index ของ migration 0123 */
+/**
+ * ST5-T07 บรรทัดจากบรรทัดรายได้ของ DO — DO หนึ่งใบมีได้หลายบรรทัด (ค่าขนส่ง + บริการประกอบ + ค่าใช้จ่ายหน้างาน)
+ * บรรทัดแรกของแต่ละ DO = บรรทัดหลัก (`do_anchor`) ที่ unique partial ต่อ DO นับ
+ */
+export interface RevenueInvoiceLineInput extends DoInvoiceLineInput {
+  revenueLineId: string;
+  doSurchargeId?: string | null;
+}
+
+/** ตรวจ/สร้างบรรทัดของ DO ที่ล็อกแล้ว (ใน transaction เดียวกัน หลังตรวจลูกค้า/สถานะวางบิล) */
+export interface AttachHooks {
+  /** ตรวจความพร้อมวางบิลซ้ำ (ST5-T07 — ห้ามเชื่อ `released_at` อย่างเดียว) — โยน ProblemException เมื่อไม่พร้อม */
+  verify(tx: Tx, rows: BillingDoRow[]): Promise<void>;
+  build(tx: Tx, rows: BillingDoRow[]): Promise<RevenueInvoiceLineInput[]>;
+}
+
+/** ชื่อ unique partial index ของ migration 0123 (0135 นับเฉพาะบรรทัดหลักของ DO) */
 const ACTIVE_DO_INDEX = 'invoice_line_active_delivery_order_key';
+/** ST5-T07 (migration 0135) กันซ้ำต่อบรรทัดรายได้ / ค่าใช้จ่ายหน้างาน */
+const ACTIVE_LINE_INDEXES = [
+  'invoice_line_active_revenue_line_key',
+  'invoice_line_active_do_surcharge_key',
+];
 
 /**
  * กันวางบิลซ้ำ (ST5-T05; docs/04 F3 "Flag กันวางบิลซ้ำ", docs/01 §3.4 `invoice_line.delivery_order_id` unique partial, spec/05 BIL-022)
@@ -132,8 +153,127 @@ export class InvoiceBillingGuard {
     });
   }
 
-  /** ถอด DO ออกจากร่าง: บรรทัดของ DO นั้น active → false (ไม่ลบแถว) + DO IN_DRAFT → UNBILLED · ไม่อยู่ในร่างนี้ → 422 */
-  async detach(invoiceId: string, deliveryOrderIds: string[], tx: Tx = this.db.tx): Promise<void> {
+  /**
+   * ST5-T07 ดึง DO เข้าร่างจากบรรทัดรายได้: ล็อกใบ → ล็อก DO (เรียง id) → ลูกค้าเดียวกัน → ยังไม่อยู่ในใบที่ active (409 `do_already_drafted`)
+   * → ส่งถึงแล้ว → `hooks.verify` (ความพร้อมเต็มรูปของคิว ST5-T04) → `hooks.build` → เพิ่มบรรทัด (บรรทัดแรกของ DO = บรรทัดหลัก) → DO → IN_DRAFT
+   */
+  async attachDos(
+    invoiceId: string,
+    deliveryOrderIds: string[],
+    hooks: AttachHooks,
+    tx: Tx = this.db.tx,
+  ): Promise<InvoiceLine[]> {
+    const ids = deliveryOrderIds;
+    const errors = ids.flatMap((x, i) =>
+      ids.indexOf(x) !== i
+        ? [{ field: `deliveryOrderIds[${i}]`, code: 'duplicate', message: 'listed twice' }]
+        : [],
+    );
+    if (!ids.length)
+      errors.push({
+        field: 'deliveryOrderIds',
+        code: 'empty',
+        message: 'at least one delivery order is required',
+      });
+    if (errors.length) throw new ProblemException('validation_failed', undefined, errors);
+
+    const inv = await this.lockDraft(tx, invoiceId);
+    const rows = await this.dos.lockForBilling(tx, ids);
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const bad = ids.flatMap((id, i) => {
+      const d = byId.get(id);
+      if (!d) return [{ field: `deliveryOrderIds[${i}]`, code: 'not_found', message: 'not found' }];
+      if (d.customerId !== inv.customerId)
+        return [
+          {
+            field: `deliveryOrderIds[${i}]`,
+            code: 'customer_mismatch',
+            message: 'delivery order belongs to another customer',
+          },
+        ];
+      return [];
+    });
+    if (bad.length) throw new ProblemException('validation_failed', undefined, bad);
+    for (const d of rows) if (!isBillable(d.billingStatus)) throw this.already(d);
+    for (const d of rows)
+      if (!BILLABLE_DO_STATUSES.includes(d.status))
+        throw new ProblemException('not_ready_to_bill', undefined, undefined, {
+          reasons: ['NOT_DELIVERED'],
+          doStatus: d.status,
+          deliveryOrderId: encodeId('deliveryOrder', d.id),
+          doNo: d.doNo,
+        });
+    await hooks.verify(tx, rows);
+    const built = await hooks.build(tx, rows);
+
+    const top = await tx.invoiceLine.aggregate({ where: { invoiceId }, _max: { lineNo: true } });
+    let lineNo = top._max.lineNo ?? 0;
+    const tenantId = requestContext.require().tenantId!;
+    const anchored = new Set<string>();
+    // เรียงตามลำดับ DO ที่ส่งมา แล้วตามลำดับบรรทัดรายได้ที่ build คืน
+    const order = new Map(ids.map((id, i) => [id, i]));
+    const sorted = built
+      .map((l, i) => ({ l, i }))
+      .sort(
+        (a, b) =>
+          (order.get(a.l.deliveryOrderId) ?? 0) - (order.get(b.l.deliveryOrderId) ?? 0) ||
+          a.i - b.i,
+      )
+      .map((x) => x.l);
+    const data = sorted.map((l) => {
+      const anchor = !anchored.has(l.deliveryOrderId);
+      anchored.add(l.deliveryOrderId);
+      return {
+        tenantId,
+        invoiceId,
+        lineNo: ++lineNo,
+        deliveryOrderId: l.deliveryOrderId,
+        doSurchargeId: l.doSurchargeId ?? null,
+        revenueLineId: l.revenueLineId,
+        doAnchor: anchor,
+        serviceItemId: l.serviceItemId,
+        description: l.description,
+        quantity: l.quantity,
+        unitLabel: l.unitLabel,
+        unitPrice: l.unitPrice,
+        amount: l.amount,
+        vatType: l.vatType,
+        vatAmount: l.vatAmount ?? '0',
+        whtRate: l.whtRate,
+        accountCode: l.accountCode ?? null,
+        isUserAdded: false,
+      };
+    });
+    const missing = rows.filter((r) => !anchored.has(r.id));
+    if (missing.length)
+      throw new ProblemException('not_ready_to_bill', undefined, undefined, {
+        reasons: ['NO_REVENUE'],
+        deliveryOrderId: encodeId('deliveryOrder', missing[0]!.id),
+        doNo: missing[0]!.doNo,
+      });
+    try {
+      await tx.invoiceLine.createMany({ data });
+    } catch (e) {
+      if (isActiveDoViolation(e)) throw new ProblemException('do_already_drafted');
+      throw e;
+    }
+    await this.dos.moveBilling(tx, rows, 'draft', `invoice:${invoiceId}`, this.clock.now());
+    return tx.invoiceLine.findMany({
+      where: { invoiceId, deliveryOrderId: { in: ids }, active: true },
+      orderBy: { lineNo: 'asc' },
+    });
+  }
+
+  /**
+   * ถอด DO ออกจากร่าง: บรรทัดของ DO นั้น active → false (ไม่ลบแถว) + DO IN_DRAFT → UNBILLED · ไม่อยู่ในร่างนี้ → 422
+   * ST5-T07: `reason` (ถ้ามี) บันทึกที่บรรทัด (`removed_*`)
+   */
+  async detach(
+    invoiceId: string,
+    deliveryOrderIds: string[],
+    tx: Tx = this.db.tx,
+    reason: string | null = null,
+  ): Promise<void> {
     await this.lockDraft(tx, invoiceId);
     const rows = await this.dos.lockForBilling(tx, [...new Set(deliveryOrderIds)]);
     const on = await tx.invoiceLine.findMany({
@@ -155,7 +295,16 @@ export class InvoiceBillingGuard {
     if (errors.length) throw new ProblemException('validation_failed', undefined, errors);
     await tx.invoiceLine.updateMany({
       where: { invoiceId, active: true, deliveryOrderId: { in: [...inDraft] as string[] } },
-      data: { active: false },
+      data: {
+        active: false,
+        ...(reason
+          ? {
+              removedAt: this.clock.now(),
+              removedBy: requestContext.require().actorId ?? 'system',
+              removeReason: reason,
+            }
+          : {}),
+      },
     });
     await this.dos.moveBilling(tx, rows, 'undraft', `invoice:${invoiceId}`);
   }
@@ -238,8 +387,12 @@ export function isActiveDoViolation(e: unknown): boolean {
   if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
     const t = e.meta?.target;
     const s = Array.isArray(t) ? t.join(',') : String(t ?? '');
-    if (s.includes(ACTIVE_DO_INDEX) || s.includes('delivery_order_id')) return true;
+    if ([ACTIVE_DO_INDEX, ...ACTIVE_LINE_INDEXES].some((x) => s.includes(x))) return true;
+    if (s.includes('delivery_order_id') || s.includes('revenue_line_id')) return true;
     return e.meta?.modelName === 'InvoiceLine' && !s.includes('line_no');
   }
-  return e instanceof Error && e.message.includes(ACTIVE_DO_INDEX);
+  return (
+    e instanceof Error &&
+    [ACTIVE_DO_INDEX, ...ACTIVE_LINE_INDEXES].some((x) => e.message.includes(x))
+  );
 }

@@ -98,6 +98,54 @@ export class BillingQueueRowDto {
   @ApiProperty({ nullable: true, type: String, description: 'เลข PO ลูกค้า' })
   customerRef!: string | null;
   @ApiProperty({ description: 'ปลายทาง (ชื่อจุดส่ง)' }) destSiteName!: string;
+  @ApiProperty({ description: 'ST5-T07 ต้นทาง (ชื่อจุดรับ)' }) originSiteName!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'ST5-T07 สินค้า (คำอธิบายบรรทัดแรกของ DO + จำนวนบรรทัดที่เหลือ)',
+  })
+  goods!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '5',
+    description: 'ST5-T07 จำนวนรวมของบรรทัดค่าขนส่ง (FREIGHT) — null = ไม่มีบรรทัดค่าขนส่ง',
+  })
+  freightQty!: string | null;
+  @ApiPropertyOptional({
+    nullable: true,
+    type: String,
+    example: '350.00',
+    description:
+      'ST5-T07 ค่าขนส่งต่อหน่วย (บรรทัด FREIGHT ราคาเดียว — ต่างกัน = null) — `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellFreightUnitPrice?: string | null;
+  @ApiPropertyOptional({
+    example: '1750.00',
+    description: 'ST5-T07 ยอดค่าขนส่ง (บรรทัด FREIGHT) — `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellFreightAmount?: string;
+  @ApiPropertyOptional({
+    example: '500.00',
+    description:
+      'ST5-T07 ยอดบริการประกอบ/ค่าใช้จ่ายหน้างาน (บรรทัดอื่นที่ไม่ใช่ FREIGHT) — `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellServiceAmount?: string;
+  @ApiPropertyOptional({
+    example: '1750.00',
+    description: 'ST5-T07 ฐานยกเว้น VAT ของ DO (บรรทัด EXEMPT_TRANSPORT) — `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellExemptBase?: string;
+  @ApiPropertyOptional({
+    example: '500.00',
+    description: 'ST5-T07 ฐาน VAT 7% ของ DO (บรรทัด VAT_7) — `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellVatableBase?: string;
   @ApiProperty({ nullable: true, type: String }) tripNo!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'ทะเบียน (snapshot ของเที่ยว)' })
   vehiclePlate!: string | null;

@@ -144,6 +144,7 @@ export async function rebuildRevenueLines(
       select: {
         id: true,
         status: true,
+        billingStatus: true,
         rejectedFromId: true,
         lines: { select: { salesOrderLineId: true, qtyPlanned: true, qtyActual: true } },
       },
@@ -172,9 +173,18 @@ export async function rebuildRevenueLines(
 
   // บรรทัดที่ยกเลิก (VOIDED) เป็นประวัติ — ไม่นับในการเทียบแหล่ง แต่นับเลขบรรทัด
   const existing = all.filter((l) => l.status === 'ACTIVE');
-  const lockedCharges = existing.filter((l) => l.sourceType === 'SO_CHARGE' && l.lockedAt);
+  // ST5-T07 "order ใน draft ล็อกราคา" (docs/04 F3/F4 IN_DRAFT "แก้ราคาใน order ไม่ได้ (แก้ที่ draft)"): DO ที่อยู่ในใบแจ้งหนี้ที่ active
+  // (IN_DRAFT / INVOICED) = แช่แข็งแบบเดียวกับบรรทัดที่ล็อก — ยอดของ DO นั้นไม่ถูกคิดใหม่ และหักออกก่อนแบ่งให้ DO ที่เหลือ
+  const inInvoice = new Set(
+    dos
+      .filter((d) => d.billingStatus === 'IN_DRAFT' || d.billingStatus === 'INVOICED')
+      .map((d) => d.id),
+  );
+  const isFrozen = (l: RevenueLine) =>
+    !!l.lockedAt || (l.deliveryOrderId !== null && inInvoice.has(l.deliveryOrderId));
+  const lockedCharges = existing.filter((l) => l.sourceType === 'SO_CHARGE' && isFrozen(l));
   // หลัง finalize ไม่ rebuild ราคา (docs/04 F3): ระดับใบสั่ง (ข้อมูลก่อน T01b) = ทั้งใบ · ต่อ DO = เฉพาะ DO นั้น
-  const orderFrozen = lockedCharges.some((l) => l.deliveryOrderId === null);
+  const orderFrozen = lockedCharges.some((l) => l.deliveryOrderId === null && l.lockedAt);
   const frozenDos = new Set(
     lockedCharges.flatMap((l) => (l.deliveryOrderId ? [l.deliveryOrderId] : [])),
   );
@@ -260,7 +270,7 @@ export async function rebuildRevenueLines(
   const stale = existing.filter(
     (l) =>
       !l.isUserAdded &&
-      !l.lockedAt &&
+      !isFrozen(l) &&
       !want.has(key(l.sourceType, l.sourceId, l.deliveryOrderId)) &&
       !(l.sourceType === 'SO_CHARGE' && (orderFrozen || frozenDos.has(l.deliveryOrderId ?? ''))),
   );
@@ -320,7 +330,7 @@ export async function rebuildRevenueLines(
       provisional: d.provisional,
     };
     if (cur) {
-      if (cur.lockedAt || sameContent(cur, d)) continue;
+      if (isFrozen(cur) || sameContent(cur, d)) continue;
       // แหล่ง/ปริมาณเปลี่ยน (ยอดส่งจริง, แยก/รวม DO, ราคาที่กำหนดเองเปลี่ยน) → ปรับบรรทัดเดิม
       await tx.revenueLine.update({
         where: { id: cur.id },

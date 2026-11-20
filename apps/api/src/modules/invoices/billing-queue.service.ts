@@ -26,7 +26,9 @@ export type NotReadyReason =
   | 'STOP_TIMES_MISSING'
   | 'POD_INCOMPLETE'
   /** ST5-T05: อยู่ในใบแจ้งหนี้ที่ยัง active แล้ว (billingStatus IN_DRAFT / INVOICED) */
-  | 'IN_INVOICE';
+  | 'IN_INVOICE'
+  /** ST5-T07: ยังไม่ส่งบัญชี (RELEASED — docs/04 F4 DELIVERED → RELEASED → IN_DRAFT) */
+  | 'NOT_RELEASED';
 
 /** ผลประเมินความพร้อมต่อ DO (แถวของ CTE `r`) */
 export interface Readiness {
@@ -80,6 +82,15 @@ interface PageRow {
   customer_name: string;
   customer_ref: string | null;
   dest_site_name: string;
+  origin_site_name: string;
+  goods: string | null;
+  goods_more: number;
+  freight_qty: Prisma.Decimal | null;
+  freight_price: Prisma.Decimal | null;
+  freight_total: Prisma.Decimal;
+  svc_total: Prisma.Decimal;
+  exempt_base: Prisma.Decimal;
+  vat_base: Prisma.Decimal;
   trip_no: string | null;
   vehicle_plate: string | null;
   carrier_name: string | null;
@@ -236,7 +247,11 @@ export class BillingQueueService {
       SELECT q.id, q.updated_at, q.pod_ok, q.req_pod, q.stop_ok, q.lines, q.total,
              d.do_no, d.do_date, d.status::text AS status, d.pod_status, d.version, d.sales_order_id,
              s.so_no, d.customer_id, c.code AS customer_code, c.legal_name AS customer_name,
-             d.customer_ref, ds.name AS dest_site_name,
+             d.customer_ref, ds.name AS dest_site_name, os.name AS origin_site_name,
+             g.goods, coalesce(g.more, 0)::int AS goods_more,
+             m.freight_qty, m.freight_price, coalesce(m.freight_total, 0) AS freight_total,
+             coalesce(m.svc_total, 0) AS svc_total, coalesce(m.exempt_base, 0) AS exempt_base,
+             coalesce(m.vat_base, 0) AS vat_base,
              t.trip_no, t.vehicle_plate_snapshot AS vehicle_plate, t.carrier_name_snapshot AS carrier_name,
              d.released_at, u.name AS released_by_name
         FROM q
@@ -244,6 +259,21 @@ export class BillingQueueService {
         JOIN sales_order s ON s.id = d.sales_order_id
         JOIN customer c ON c.id = d.customer_id
         JOIN customer_site ds ON ds.id = d.dest_site_id
+        JOIN customer_site os ON os.id = d.origin_site_id
+        LEFT JOIN LATERAL (
+          SELECT (array_agg(x.description ORDER BY x.line_no))[1] AS goods, count(*) - 1 AS more
+            FROM delivery_order_line x WHERE x.delivery_order_id = d.id
+        ) g ON true
+        LEFT JOIN LATERAL (
+          SELECT sum(l.qty) FILTER (WHERE l.kind = 'FREIGHT') AS freight_qty,
+                 CASE WHEN count(DISTINCT l.unit_price) FILTER (WHERE l.kind = 'FREIGHT') = 1
+                      THEN max(l.unit_price) FILTER (WHERE l.kind = 'FREIGHT') END AS freight_price,
+                 sum(l.amount) FILTER (WHERE l.kind = 'FREIGHT') AS freight_total,
+                 sum(l.amount) FILTER (WHERE l.kind <> 'FREIGHT') AS svc_total,
+                 sum(l.amount) FILTER (WHERE l.vat_type = 'EXEMPT_TRANSPORT') AS exempt_base,
+                 sum(l.amount) FILTER (WHERE l.vat_type = 'VAT_7') AS vat_base
+            FROM revenue_line l WHERE l.delivery_order_id = d.id AND l.status = 'ACTIVE'
+        ) m ON true
         LEFT JOIN trip t ON t.id = d.trip_id
         LEFT JOIN app_user u ON u.id::text = d.released_by
        WHERE ${Prisma.join(keyset, ' AND ')}
@@ -274,6 +304,15 @@ export class BillingQueueService {
         customerName: r.customer_name,
         customerRef: r.customer_ref,
         destSiteName: r.dest_site_name,
+        originSiteName: r.origin_site_name,
+        goods: r.goods ? (r.goods_more > 0 ? `${r.goods} +${r.goods_more}` : r.goods) : null,
+        freightQty: r.freight_qty === null ? null : new Prisma.Decimal(r.freight_qty).toString(),
+        sellFreightUnitPrice:
+          r.freight_price === null ? null : new Prisma.Decimal(r.freight_price).toFixed(2),
+        sellFreightAmount: new Prisma.Decimal(r.freight_total).toFixed(2),
+        sellServiceAmount: new Prisma.Decimal(r.svc_total).toFixed(2),
+        sellExemptBase: new Prisma.Decimal(r.exempt_base).toFixed(2),
+        sellVatableBase: new Prisma.Decimal(r.vat_base).toFixed(2),
         tripNo: r.trip_no,
         vehiclePlate: r.vehicle_plate,
         carrierName: r.carrier_name,
