@@ -3,7 +3,7 @@ import { ProblemException } from '../../common/problem';
 import { docDate, docDateShort } from '../../common/thai-date';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
-import { escapeHtml, PdfRenderer } from '../../pdf/pdf-renderer';
+import { escapeHtml, PdfRenderer, type RenderOptions } from '../../pdf/pdf-renderer';
 import { decodeIdOr404 } from '../../common/ids';
 import type { CreateInvoiceDto, InvoiceDto } from './invoice.dto';
 import { InvoicesService } from './invoices.service';
@@ -134,6 +134,11 @@ export function proformaHtml(d: ProformaDoc): string {
   );
 }
 
+/** RenderOptions ของ PDF ตัวอย่าง (pro forma) — ใช้ทั้ง service และ test ฟอนต์ไทย (test/pdf-thai.test.ts KINDS) */
+export function proformaDocument(d: ProformaDoc): RenderOptions {
+  return { body: proformaHtml(d), css: CSS, title: 'ใบแจ้งหนี้ (ร่าง)' };
+}
+
 /**
  * PDF ตัวอย่างของร่างใบแจ้งหนี้ (ST5-T07 "pro forma PDF อัปเดตตามแก้") — render ใหม่ทุกครั้ง ไม่เก็บไฟล์ (ร่างไม่ใช่เอกสาร)
  * ไม่ถือ transaction ระหว่าง render (แบบใบคุมรถ ST3-T20) · แบบเต็ม/golden ของใบที่ออกแล้ว = ST5-T08
@@ -189,7 +194,7 @@ export class InvoicePdfService {
   }
 
   private render(doc: ProformaDoc) {
-    return this.renderer.pdf({ body: proformaHtml(doc), css: CSS, title: 'ใบแจ้งหนี้ (ร่าง)' });
+    return this.renderer.pdf(proformaDocument(doc));
   }
 
   private async loadDoc(tx: Tx, id: string): Promise<ProformaDoc> {

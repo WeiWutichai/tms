@@ -25,7 +25,8 @@ import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './hel
  * - ทุก endpoint ใน MATRIX: scope ใน OpenAPI (`x-required-scopes`) ตรงกับตาราง · key ไม่มี scope → 403 `permission_denied`
  *   (`required` ตรง) · key ของบริษัทอื่น → 404 · ไม่มี credential → 401 · OpenAPI มีตัวอย่าง 403/404
  * - list: cursor pagination (`limit`/`nextCursor`/`hasMore`) · GET ใบเดียวมี ETag · If-Match ไม่ตรง → 412
- * - แถว #6 invoices / invoice-runs / payments = DEFERRED (ST5 ยังไม่สร้าง) — ตรวจว่ายังไม่มี path (กันลืมย้ายเข้าตาราง)
+ * - แถว #6 invoices / invoice-runs / payments = DEFERRED (ST5 ยังไม่ครบ) — ตรวจว่ายังไม่มี path (กันลืมย้ายเข้าตาราง)
+ *   (ST5-T07 สร้าง `GET/POST /v1/invoices` + `GET /v1/invoices/{id}` แล้ว แต่ยังไม่มี finalize — ทั้งแถวย้ายเข้า MATRIX ที่ ST5-T09)
  */
 
 type Method = 'get' | 'post' | 'put' | 'patch' | 'delete';
@@ -149,12 +150,8 @@ export const DEFERRED: { g2: string; resource: string; paths: string[]; task: st
   {
     g2: '#6',
     resource: 'invoices',
-    paths: [
-      '/v1/invoices',
-      '/v1/invoices/{id}',
-      '/v1/invoices/{id}/finalize',
-      '/v1/invoices/{id}/void',
-    ],
+    // list/สร้างร่าง/อ่าน มีแล้วตั้งแต่ ST5-T07 (ร่าง) — ย้ายเข้า MATRIX พร้อม finalize ที่ ST5-T09
+    paths: ['/v1/invoices/{id}/finalize', '/v1/invoices/{id}/void'],
     task: 'ST5-T09',
   },
   { g2: '#6', resource: 'invoice-runs', paths: ['/v1/invoice-runs'], task: 'ST5-T12' },

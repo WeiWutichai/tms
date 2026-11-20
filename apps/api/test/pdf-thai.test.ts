@@ -2,6 +2,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { inflateSync } from 'node:zlib';
 import { afterAll, describe, expect, it } from 'vitest';
+import type { InvoiceDto } from '../src/modules/invoices/invoice.dto';
+import { proformaDocument, type ProformaDoc } from '../src/modules/invoices/invoice-pdf.service';
 import { sampleLongTripSheet, sampleTripSheet } from '../src/modules/trip-sheets/trip-sheet.sample';
 import { tripSheetDocument } from '../src/modules/trip-sheets/trip-sheet.template';
 import { sarabunFontCss } from '../src/pdf/fonts';
@@ -39,7 +41,68 @@ const KINDS: Array<{
     },
     labels: ['ใบคุมรถ'],
   },
+  {
+    kind: 'ใบแจ้งหนี้ (ร่าง / pro forma — ST5-T07)',
+    module: 'src/modules/invoices',
+    docs: () => {
+      const ce = sampleProforma();
+      ce.yearStyle = 'CE';
+      return [proformaDocument(sampleProforma()), proformaDocument(ce)];
+    },
+    labels: ['ใบแจ้งหนี้', 'ร่าง', 'รวมทั้งสิ้น'],
+  },
 ];
+
+/** ร่างใบแจ้งหนี้ตัวอย่าง (ยกเว้น VAT + VAT 7% + WHT 1%) — แบบเต็มของใบที่ออกแล้ว + golden = ST5-T08 */
+function sampleProforma(): ProformaDoc {
+  const line = (no: number, description: string, vatType: string, amount: string) => ({
+    no,
+    lineIds: [],
+    description,
+    quantity: '1',
+    unitLabel: 'เที่ยว',
+    sellUnitPrice: amount,
+    sellDiscount: '0.00',
+    sellAmount: amount,
+    vatType,
+    whtRate: '1.00',
+    deliveryOrderNos: [`DO-2569-11-00${no}`],
+    manual: false,
+  });
+  const inv = {
+    status: 'DRAFT',
+    periodFrom: '2026-11-01',
+    periodTo: '2026-11-15',
+    creditTermDays: 30,
+    customerPoNo: 'PO-6911-0042',
+    deliveryOrderCount: 2,
+    note: 'โปรดชำระภายในกำหนด',
+    printLines: [
+      line(1, 'ค่าขนส่ง ลาดกระบัง – แหลมฉบัง (6 ล้อ)', 'EXEMPT_TRANSPORT', '4500.00'),
+      line(2, 'ค่ายกสินค้าขึ้น-ลง', 'VAT_7', '1000.00'),
+    ],
+    sellSubtotalExempt: '4500.00',
+    sellSubtotalVatable: '1000.00',
+    sellSubtotalZeroRated: '0.00',
+    sellVatAmount: '70.00',
+    sellTotal: '5570.00',
+    sellWhtExpected: '55.00',
+    sellNetExpected: '5515.00',
+  } as unknown as InvoiceDto;
+  const party = (name: string, taxId: string) => ({
+    name,
+    taxId,
+    branch: 'สำนักงานใหญ่',
+    address: '22 หมู่ 3 ต.บางพลีใหญ่ อ.บางพลี จ.สมุทรปราการ 10540',
+  });
+  return {
+    yearStyle: 'BE',
+    issuedOn: new Date('2026-11-16T03:00:00Z'),
+    issuer: party('บริษัท ขนส่งตัวอย่าง จำกัด', '0105561234567'),
+    customer: party('บริษัท ลูกค้าตัวอย่าง จำกัด', '0105559876543'),
+    inv,
+  };
+}
 
 const THAI = /[ก-๛]/;
 
