@@ -1,6 +1,7 @@
 export * from './money';
 export * from './cost-allocation';
 export * from './tax';
+export * from './settlement-wht';
 export * from './state-machine';
 export * from './permissions';
 export * from './pricing';

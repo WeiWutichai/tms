@@ -1,0 +1,847 @@
+{
+  "status": "DRAFT_UNREVIEWED",
+  "label": "ร่าง — ยังไม่ผ่านนักบัญชี",
+  "task": "ST6-T08 หัก ณ ที่จ่ายประมาณการบนใบสำคัญจ่ายรถร่วม",
+  "decision": "D-54/D-58 (PO 20 พ.ย. 2569): ยอดประมาณการ — 50 ทวิ / ภ.ง.ด.3/53 ออกและยื่นที่ AccountSystem",
+  "engine": "computeDocumentTax (ST5-T02) — half-up 2 ตำแหน่ง · WHT ครั้งเดียวต่อกลุ่มอัตราจากฐานก่อนหัก · บรรทัดหักไม่ใช่ฐาน · ค่ารายบรรทัด = ปัดรายบรรทัด เศษไปบรรทัดสุดท้ายของกลุ่ม",
+  "units": "amount = บาท 2 ตำแหน่ง (บรรทัดหักติดลบแบบ settlement_line.amount) · whtRate = เปอร์เซ็นต์แบบ DB (\"1.00\") หรือ null = ค่าตั้งต้นของรถร่วม · whtMinimumAmount = บาท (tax.whtMinimumAmount ค่าเริ่ม 0)",
+  "accountSystemLegend": {
+    "MATCH": "WHT ตรงกับ **แบบจำลอง** วิธีของ AccountSystem (expectedWht: Σ round_half_up(ฐาน × อัตรา)) — AccountSystem จัดกลุ่มตาม \"ประเภทเงินได้\" ส่วน TMS จัดกลุ่มตาม \"อัตรา\" (แบบจำลองถือว่า 1 อัตรา = 1 ประเภทเงินได้) → ยังไม่ใช่ผลจริงจาก AccountSystem [OPEN — นักบัญชี #62 ข้อ ง]",
+    "DIFF_MINIMUM": "tenant ตั้งขั้นต่ำ 1,000 ชัด ๆ: AccountSystem ไม่มีกฎขั้นต่ำ — ค่าของ AccountSystem อยู่ที่ expected.accountSystemWht"
+  },
+  "cases": [
+    {
+      "id": "SW01",
+      "title": "ค่าขนส่ง 1 เที่ยว หัก 1% (นิติบุคคล ภ.ง.ด.53)",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 0,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "10000.00",
+          "whtRate": "1.00"
+        }
+      ],
+      "accountSystem": "MATCH",
+      "expected": {
+        "form": "PND53",
+        "gross": "10000.00",
+        "deductions": "0.00",
+        "whtBase": "10000.00",
+        "wht": "100.00",
+        "netAfterWht": "9900.00",
+        "belowMinimum": false,
+        "byRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "10000.00",
+            "wht": "100.00"
+          }
+        ],
+        "lineRate": ["1.00"],
+        "lineRateSource": ["LINE"],
+        "lineWht": ["100.00"]
+      }
+    },
+    {
+      "id": "SW02",
+      "title": "หลายเที่ยว 1% ปัดครั้งเดียวทั้งกลุ่ม",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 0,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "1234.56",
+          "whtRate": "1.00"
+        },
+        {
+          "lineType": "FREIGHT",
+          "amount": "2345.67",
+          "whtRate": "1.00"
+        },
+        {
+          "lineType": "FREIGHT",
+          "amount": "999.99",
+          "whtRate": "1.00"
+        }
+      ],
+      "accountSystem": "MATCH",
+      "expected": {
+        "form": "PND53",
+        "gross": "4580.22",
+        "deductions": "0.00",
+        "whtBase": "4580.22",
+        "wht": "45.80",
+        "netAfterWht": "4534.42",
+        "belowMinimum": false,
+        "byRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "4580.22",
+            "wht": "45.80"
+          }
+        ],
+        "lineRate": ["1.00", "1.00", "1.00"],
+        "lineRateSource": ["LINE", "LINE", "LINE"],
+        "lineWht": ["12.35", "23.46", "9.99"]
+      }
+    },
+    {
+      "id": "SW03",
+      "title": "ค่าบริการล้วน หัก 3%",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 0,
+      "lines": [
+        {
+          "lineType": "SURCHARGE",
+          "amount": "2000.00",
+          "whtRate": "3.00"
+        }
+      ],
+      "accountSystem": "MATCH",
+      "expected": {
+        "form": "PND53",
+        "gross": "2000.00",
+        "deductions": "0.00",
+        "whtBase": "2000.00",
+        "wht": "60.00",
+        "netAfterWht": "1940.00",
+        "belowMinimum": false,
+        "byRate": [
+          {
+            "ratePercent": "3.00",
+            "base": "2000.00",
+            "wht": "60.00"
+          }
+        ],
+        "lineRate": ["3.00"],
+        "lineRateSource": ["LINE"],
+        "lineWht": ["60.00"]
+      }
+    },
+    {
+      "id": "SW04",
+      "title": "ปน 1% ค่าขนส่ง + 3% ค่าบริการ",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 0,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "15000.00",
+          "whtRate": "1.00"
+        },
+        {
+          "lineType": "SURCHARGE",
+          "amount": "1500.00",
+          "whtRate": "3.00"
+        }
+      ],
+      "accountSystem": "MATCH",
+      "expected": {
+        "form": "PND53",
+        "gross": "16500.00",
+        "deductions": "0.00",
+        "whtBase": "16500.00",
+        "wht": "195.00",
+        "netAfterWht": "16305.00",
+        "belowMinimum": false,
+        "byRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "15000.00",
+            "wht": "150.00"
+          },
+          {
+            "ratePercent": "3.00",
+            "base": "1500.00",
+            "wht": "45.00"
+          }
+        ],
+        "lineRate": ["1.00", "3.00"],
+        "lineRateSource": ["LINE", "LINE"],
+        "lineWht": ["150.00", "45.00"]
+      }
+    },
+    {
+      "id": "SW05",
+      "title": "บรรทัดไม่มีอัตรา (ราคากรอกเอง) → ค่าตั้งต้นรถร่วม 1%",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 0,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "8000.00",
+          "whtRate": null
+        }
+      ],
+      "accountSystem": "MATCH",
+      "expected": {
+        "form": "PND53",
+        "gross": "8000.00",
+        "deductions": "0.00",
+        "whtBase": "8000.00",
+        "wht": "80.00",
+        "netAfterWht": "7920.00",
+        "belowMinimum": false,
+        "byRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "8000.00",
+            "wht": "80.00"
+          }
+        ],
+        "lineRate": ["1.00"],
+        "lineRateSource": ["CARRIER_DEFAULT"],
+        "lineWht": ["80.00"]
+      }
+    },
+    {
+      "id": "SW06",
+      "title": "บรรทัดไม่มีอัตรา → ค่าตั้งต้นรถร่วม 3%",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "3.00",
+      "whtMinimumAmount": 0,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "8000.00",
+          "whtRate": null
+        }
+      ],
+      "accountSystem": "MATCH",
+      "expected": {
+        "form": "PND53",
+        "gross": "8000.00",
+        "deductions": "0.00",
+        "whtBase": "8000.00",
+        "wht": "240.00",
+        "netAfterWht": "7760.00",
+        "belowMinimum": false,
+        "byRate": [
+          {
+            "ratePercent": "3.00",
+            "base": "8000.00",
+            "wht": "240.00"
+          }
+        ],
+        "lineRate": ["3.00"],
+        "lineRateSource": ["CARRIER_DEFAULT"],
+        "lineWht": ["240.00"]
+      }
+    },
+    {
+      "id": "SW07",
+      "title": "อัตราบรรทัดชนะค่าตั้งต้นรถร่วม (บรรทัด 1% · รถร่วม 3%) + บรรทัดว่างใช้ 3%",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "3.00",
+      "whtMinimumAmount": 0,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "5000.00",
+          "whtRate": "1.00"
+        },
+        {
+          "lineType": "SURCHARGE",
+          "amount": "700.00",
+          "whtRate": null
+        }
+      ],
+      "accountSystem": "MATCH",
+      "expected": {
+        "form": "PND53",
+        "gross": "5700.00",
+        "deductions": "0.00",
+        "whtBase": "5700.00",
+        "wht": "71.00",
+        "netAfterWht": "5629.00",
+        "belowMinimum": false,
+        "byRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "5000.00",
+            "wht": "50.00"
+          },
+          {
+            "ratePercent": "3.00",
+            "base": "700.00",
+            "wht": "21.00"
+          }
+        ],
+        "lineRate": ["1.00", "3.00"],
+        "lineRateSource": ["LINE", "CARRIER_DEFAULT"],
+        "lineWht": ["50.00", "21.00"]
+      }
+    },
+    {
+      "id": "SW08",
+      "title": "บรรทัดอัตรา 0 = ไม่หัก (ไม่ใช้ค่าตั้งต้น)",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 0,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "4000.00",
+          "whtRate": "0.00"
+        },
+        {
+          "lineType": "FREIGHT",
+          "amount": "6000.00",
+          "whtRate": "1.00"
+        }
+      ],
+      "accountSystem": "MATCH",
+      "expected": {
+        "form": "PND53",
+        "gross": "10000.00",
+        "deductions": "0.00",
+        "whtBase": "6000.00",
+        "wht": "60.00",
+        "netAfterWht": "9940.00",
+        "belowMinimum": false,
+        "byRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "6000.00",
+            "wht": "60.00"
+          }
+        ],
+        "lineRate": ["0.00", "1.00"],
+        "lineRateSource": ["LINE", "LINE"],
+        "lineWht": ["0.00", "60.00"]
+      }
+    },
+    {
+      "id": "SW09",
+      "title": "ต่ำกว่าขั้นต่ำ 1,000 (tenant ตั้ง) → ไม่หัก",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 1000,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "900.00",
+          "whtRate": "1.00"
+        }
+      ],
+      "accountSystem": "DIFF_MINIMUM",
+      "expected": {
+        "form": "PND53",
+        "gross": "900.00",
+        "deductions": "0.00",
+        "whtBase": "900.00",
+        "wht": "0.00",
+        "netAfterWht": "900.00",
+        "belowMinimum": true,
+        "byRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "900.00",
+            "wht": "0.00"
+          }
+        ],
+        "lineRate": ["1.00"],
+        "lineRateSource": ["LINE"],
+        "lineWht": ["0.00"],
+        "accountSystemWht": "9.00"
+      }
+    },
+    {
+      "id": "SW10",
+      "title": "เท่าขั้นต่ำ 1,000 พอดี → หัก",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 1000,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "1000.00",
+          "whtRate": "1.00"
+        }
+      ],
+      "accountSystem": "MATCH",
+      "expected": {
+        "form": "PND53",
+        "gross": "1000.00",
+        "deductions": "0.00",
+        "whtBase": "1000.00",
+        "wht": "10.00",
+        "netAfterWht": "990.00",
+        "belowMinimum": false,
+        "byRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "1000.00",
+            "wht": "10.00"
+          }
+        ],
+        "lineRate": ["1.00"],
+        "lineRateSource": ["LINE"],
+        "lineWht": ["10.00"]
+      }
+    },
+    {
+      "id": "SW11",
+      "title": "ขั้นต่ำ 1,000 รวมฐานข้ามอัตรา 1%+3% ถึงขั้นต่ำ → หักทั้งสองกลุ่ม",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 1000,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "600.00",
+          "whtRate": "1.00"
+        },
+        {
+          "lineType": "SURCHARGE",
+          "amount": "500.00",
+          "whtRate": "3.00"
+        }
+      ],
+      "accountSystem": "MATCH",
+      "expected": {
+        "form": "PND53",
+        "gross": "1100.00",
+        "deductions": "0.00",
+        "whtBase": "1100.00",
+        "wht": "21.00",
+        "netAfterWht": "1079.00",
+        "belowMinimum": false,
+        "byRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "600.00",
+            "wht": "6.00"
+          },
+          {
+            "ratePercent": "3.00",
+            "base": "500.00",
+            "wht": "15.00"
+          }
+        ],
+        "lineRate": ["1.00", "3.00"],
+        "lineRateSource": ["LINE", "LINE"],
+        "lineWht": ["6.00", "15.00"]
+      }
+    },
+    {
+      "id": "SW12",
+      "title": "มีบรรทัดหักเงินเบิก — ฐาน WHT = ยอดก่อนหัก",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 0,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "10000.00",
+          "whtRate": "1.00"
+        },
+        {
+          "lineType": "DEDUCTION",
+          "amount": "-2000.00",
+          "whtRate": null
+        }
+      ],
+      "accountSystem": "MATCH",
+      "expected": {
+        "form": "PND53",
+        "gross": "10000.00",
+        "deductions": "2000.00",
+        "whtBase": "10000.00",
+        "wht": "100.00",
+        "netAfterWht": "7900.00",
+        "belowMinimum": false,
+        "byRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "10000.00",
+            "wht": "100.00"
+          }
+        ],
+        "lineRate": ["1.00", null],
+        "lineRateSource": ["LINE", null],
+        "lineWht": ["100.00", "0.00"]
+      }
+    },
+    {
+      "id": "SW13",
+      "title": "ปน 1%/3% + หักค่าปรับ + ค่าน้ำมันที่เราจ่าย",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 0,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "12345.67",
+          "whtRate": "1.00"
+        },
+        {
+          "lineType": "SURCHARGE",
+          "amount": "1000.00",
+          "whtRate": "3.00"
+        },
+        {
+          "lineType": "DEDUCTION",
+          "amount": "-500.00",
+          "whtRate": null
+        },
+        {
+          "lineType": "DEDUCTION",
+          "amount": "-1234.50",
+          "whtRate": null
+        }
+      ],
+      "accountSystem": "MATCH",
+      "expected": {
+        "form": "PND53",
+        "gross": "13345.67",
+        "deductions": "1734.50",
+        "whtBase": "13345.67",
+        "wht": "153.46",
+        "netAfterWht": "11457.71",
+        "belowMinimum": false,
+        "byRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "12345.67",
+            "wht": "123.46"
+          },
+          {
+            "ratePercent": "3.00",
+            "base": "1000.00",
+            "wht": "30.00"
+          }
+        ],
+        "lineRate": ["1.00", "3.00", null, null],
+        "lineRateSource": ["LINE", "LINE", null, null],
+        "lineWht": ["123.46", "30.00", "0.00", "0.00"]
+      }
+    },
+    {
+      "id": "SW14",
+      "title": "มีบรรทัดหัก + ต่ำกว่าขั้นต่ำ → ไม่หัก WHT แต่ยังหักเงินเบิก",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 1000,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "900.00",
+          "whtRate": "1.00"
+        },
+        {
+          "lineType": "DEDUCTION",
+          "amount": "-100.00",
+          "whtRate": null
+        }
+      ],
+      "accountSystem": "DIFF_MINIMUM",
+      "expected": {
+        "form": "PND53",
+        "gross": "900.00",
+        "deductions": "100.00",
+        "whtBase": "900.00",
+        "wht": "0.00",
+        "netAfterWht": "800.00",
+        "belowMinimum": true,
+        "byRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "900.00",
+            "wht": "0.00"
+          }
+        ],
+        "lineRate": ["1.00", null],
+        "lineRateSource": ["LINE", null],
+        "lineWht": ["0.00", "0.00"],
+        "accountSystemWht": "9.00"
+      }
+    },
+    {
+      "id": "SW15",
+      "title": "บรรทัดหักไม่ทำให้ฐานต่ำกว่าขั้นต่ำ (ฐานก่อนหัก 1,200)",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 1000,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "1200.00",
+          "whtRate": "1.00"
+        },
+        {
+          "lineType": "DEDUCTION",
+          "amount": "-500.00",
+          "whtRate": null
+        }
+      ],
+      "accountSystem": "MATCH",
+      "expected": {
+        "form": "PND53",
+        "gross": "1200.00",
+        "deductions": "500.00",
+        "whtBase": "1200.00",
+        "wht": "12.00",
+        "netAfterWht": "688.00",
+        "belowMinimum": false,
+        "byRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "1200.00",
+            "wht": "12.00"
+          }
+        ],
+        "lineRate": ["1.00", null],
+        "lineRateSource": ["LINE", null],
+        "lineWht": ["12.00", "0.00"]
+      }
+    },
+    {
+      "id": "SW16",
+      "title": "ปัดเศษ half-up .005 ขึ้น",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 0,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "1234.50",
+          "whtRate": "1.00"
+        }
+      ],
+      "accountSystem": "MATCH",
+      "expected": {
+        "form": "PND53",
+        "gross": "1234.50",
+        "deductions": "0.00",
+        "whtBase": "1234.50",
+        "wht": "12.35",
+        "netAfterWht": "1222.15",
+        "belowMinimum": false,
+        "byRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "1234.50",
+            "wht": "12.35"
+          }
+        ],
+        "lineRate": ["1.00"],
+        "lineRateSource": ["LINE"],
+        "lineWht": ["12.35"]
+      }
+    },
+    {
+      "id": "SW17",
+      "title": "ปัดเศษต่อกลุ่ม ไม่ใช่ต่อบรรทัด (3 × 150.50 ที่ 1%)",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 0,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "150.50",
+          "whtRate": "1.00"
+        },
+        {
+          "lineType": "FREIGHT",
+          "amount": "150.50",
+          "whtRate": "1.00"
+        },
+        {
+          "lineType": "FREIGHT",
+          "amount": "150.50",
+          "whtRate": "1.00"
+        }
+      ],
+      "accountSystem": "MATCH",
+      "expected": {
+        "form": "PND53",
+        "gross": "451.50",
+        "deductions": "0.00",
+        "whtBase": "451.50",
+        "wht": "4.52",
+        "netAfterWht": "446.98",
+        "belowMinimum": false,
+        "byRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "451.50",
+            "wht": "4.52"
+          }
+        ],
+        "lineRate": ["1.00", "1.00", "1.00"],
+        "lineRateSource": ["LINE", "LINE", "LINE"],
+        "lineWht": ["1.51", "1.51", "1.50"]
+      }
+    },
+    {
+      "id": "SW18",
+      "title": "รถร่วมบุคคลธรรมดา → ภ.ง.ด.3",
+      "entityType": "INDIVIDUAL",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 0,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "7500.00",
+          "whtRate": "1.00"
+        },
+        {
+          "lineType": "DEDUCTION",
+          "amount": "-1500.00",
+          "whtRate": null
+        }
+      ],
+      "accountSystem": "MATCH",
+      "expected": {
+        "form": "PND3",
+        "gross": "7500.00",
+        "deductions": "1500.00",
+        "whtBase": "7500.00",
+        "wht": "75.00",
+        "netAfterWht": "5925.00",
+        "belowMinimum": false,
+        "byRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "7500.00",
+            "wht": "75.00"
+          }
+        ],
+        "lineRate": ["1.00", null],
+        "lineRateSource": ["LINE", null],
+        "lineWht": ["75.00", "0.00"]
+      }
+    },
+    {
+      "id": "SW19",
+      "title": "บรรทัดกลับรายการติดลบในอัตราเดียวกัน ลดฐาน",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 0,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "10000.00",
+          "whtRate": "1.00"
+        },
+        {
+          "lineType": "SURCHARGE",
+          "amount": "-1000.00",
+          "whtRate": "1.00"
+        }
+      ],
+      "accountSystem": "MATCH",
+      "expected": {
+        "form": "PND53",
+        "gross": "9000.00",
+        "deductions": "0.00",
+        "whtBase": "9000.00",
+        "wht": "90.00",
+        "netAfterWht": "8910.00",
+        "belowMinimum": false,
+        "byRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "9000.00",
+            "wht": "90.00"
+          }
+        ],
+        "lineRate": ["1.00", "1.00"],
+        "lineRateSource": ["LINE", "LINE"],
+        "lineWht": ["100.00", "-10.00"]
+      }
+    },
+    {
+      "id": "SW20",
+      "title": "ค่าบริการ 3% ปัดเศษ (333.33 × 3%)",
+      "entityType": "JURISTIC",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 0,
+      "lines": [
+        {
+          "lineType": "SURCHARGE",
+          "amount": "333.33",
+          "whtRate": "3.00"
+        },
+        {
+          "lineType": "SURCHARGE",
+          "amount": "333.33",
+          "whtRate": "3.00"
+        }
+      ],
+      "accountSystem": "MATCH",
+      "expected": {
+        "form": "PND53",
+        "gross": "666.66",
+        "deductions": "0.00",
+        "whtBase": "666.66",
+        "wht": "20.00",
+        "netAfterWht": "646.66",
+        "belowMinimum": false,
+        "byRate": [
+          {
+            "ratePercent": "3.00",
+            "base": "666.66",
+            "wht": "20.00"
+          }
+        ],
+        "lineRate": ["3.00", "3.00"],
+        "lineRateSource": ["LINE", "LINE"],
+        "lineWht": ["10.00", "10.00"]
+      }
+    },
+    {
+      "id": "SW21",
+      "title": "ต่ำกว่าขั้นต่ำ — บุคคลธรรมดา ภ.ง.ด.3 ปน 1%/3%",
+      "entityType": "INDIVIDUAL",
+      "carrierWhtRateDefault": "1.00",
+      "whtMinimumAmount": 1000,
+      "lines": [
+        {
+          "lineType": "FREIGHT",
+          "amount": "500.00",
+          "whtRate": "1.00"
+        },
+        {
+          "lineType": "SURCHARGE",
+          "amount": "400.00",
+          "whtRate": "3.00"
+        }
+      ],
+      "accountSystem": "DIFF_MINIMUM",
+      "expected": {
+        "form": "PND3",
+        "gross": "900.00",
+        "deductions": "0.00",
+        "whtBase": "900.00",
+        "wht": "0.00",
+        "netAfterWht": "900.00",
+        "belowMinimum": true,
+        "byRate": [
+          {
+            "ratePercent": "1.00",
+            "base": "500.00",
+            "wht": "0.00"
+          },
+          {
+            "ratePercent": "3.00",
+            "base": "400.00",
+            "wht": "0.00"
+          }
+        ],
+        "lineRate": ["1.00", "3.00"],
+        "lineRateSource": ["LINE", "LINE"],
+        "lineWht": ["0.00", "0.00"],
+        "accountSystemWht": "17.00"
+      }
+    }
+  ],
+  "referenceNote": "การเทียบกับ AccountSystem ในชุดนี้เป็นแบบจำลอง (เขียนใหม่ใน test ด้วยจำนวนเต็ม) ไม่ได้เรียกระบบจริง — ถ้า 1 ประเภทเงินได้มีหลายอัตรา หรือ 1 อัตรามีหลายประเภทเงินได้ ผลอาจต่างกัน"
+}

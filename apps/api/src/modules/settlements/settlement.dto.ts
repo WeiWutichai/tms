@@ -42,6 +42,10 @@ export const SETTLEMENT_LINE_TYPES = ['FREIGHT', 'SURCHARGE', 'DEDUCTION'] as co
 /** ชนิดบรรทัดหัก (docs/04 F6: เงินเบิกล่วงหน้า, ค่าน้ำมันที่เราจ่าย, ค่าปรับ, ค่าเสียหาย — ชื่อตาม spec/05 §11.4 sourceType) */
 export const DEDUCTION_TYPES = ['CASH_ADVANCE', 'FUEL_PROVIDED', 'FINE', 'DAMAGE'] as const;
 export type DeductionType = (typeof DEDUCTION_TYPES)[number];
+/** ที่มาของอัตราหัก ณ ที่จ่ายที่ใช้ (ST6-T08) · แบบยื่น ภ.ง.ด. */
+export const WHT_RATE_SOURCES = ['LINE', 'CARRIER_DEFAULT'] as const;
+export type WhtRateSource = (typeof WHT_RATE_SOURCES)[number];
+export const WHT_FORMS = ['PND3', 'PND53'] as const;
 
 /** ข้อความเหตุผล 10–500 ตัวอักษร — error เดียวต่อช่อง */
 const IsReason = () =>
@@ -349,9 +353,34 @@ export class SettlementLineDto {
     nullable: true,
     type: String,
     example: '1.00',
-    description: 'อัตราหัก ณ ที่จ่ายที่คัดลอกจาก trip_cost (ข้อมูลเท่านั้น — คำนวณ WHT ใน ST6-T08)',
+    description:
+      'อัตราหัก ณ ที่จ่าย (%) ที่คัดลอกจาก trip_cost ตอนจ้าง — null = ไม่มีธง (ราคากรอกเอง) → ใช้ค่าตั้งต้นของรถร่วม (`whtRateApplied`)',
   })
   whtRate!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '1.00',
+    description:
+      'อัตราหัก ณ ที่จ่าย (%) ที่ใช้คำนวณประมาณการ (ST6-T08) = `whtRate` ของบรรทัด หรือค่าตั้งต้นของรถร่วม (`wht_rate_default`) เมื่อบรรทัดไม่มีธง · null = บรรทัดหัก/บรรทัดที่นำออกแล้ว',
+  })
+  whtRateApplied!: string | null;
+  @ApiProperty({
+    nullable: true,
+    enum: WHT_RATE_SOURCES,
+    description:
+      'ที่มาของ `whtRateApplied`: LINE = ธงของบรรทัด · CARRIER_DEFAULT = ค่าตั้งต้นของรถร่วม',
+  })
+  whtRateSource!: WhtRateSource | null;
+  @ApiPropertyOptional({
+    nullable: true,
+    type: String,
+    example: '45.00',
+    description:
+      'หัก ณ ที่จ่ายประมาณการรายบรรทัด (ค่าแสดงผล — ปัดรายบรรทัด เศษไปบรรทัดสุดท้ายของกลุ่มอัตรา; ผลรวม = `buyWhtAmount` ของใบ) · null = บรรทัดหัก/นำออกแล้ว — เห็นเมื่อมี `prices.buy:read`',
+  })
+  @PriceField('buy')
+  buyWhtAmount?: string | null;
   @ApiProperty({ description: 'false = ถูกนำออกจากใบแล้ว (ดู voidReason)' }) active!: boolean;
   @ApiProperty({ nullable: true, type: String }) voidedAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) voidedBy!: string | null;
@@ -377,6 +406,54 @@ export class SettlementLineDto {
     description: 'การตัดสินล่าสุดของบริษัทในรอบตรวจปัจจุบัน (ST6-T06) — null = ไม่มี',
   })
   companyReview!: SettlementLineCompanyReviewDto | null;
+}
+
+export class SettlementWhtRateDto {
+  @ApiProperty({ example: '1.00', description: 'อัตรา (%)' }) whtRate!: string;
+  @ApiPropertyOptional({
+    example: '15000.00',
+    description: 'ฐานก่อนหักของกลุ่มอัตรา — เห็นเมื่อมี `prices.buy:read`',
+  })
+  @PriceField('buy')
+  buyBaseAmount?: string;
+  @ApiPropertyOptional({
+    example: '150.00',
+    description:
+      'round_half_up(ฐานกลุ่ม × อัตรา) ครั้งเดียวต่อกลุ่ม — เห็นเมื่อมี `prices.buy:read`',
+  })
+  @PriceField('buy')
+  buyWhtAmount?: string;
+}
+
+/**
+ * หัก ณ ที่จ่ายประมาณการ (ST6-T08; D-54/D-58) — 50 ทวิ และการยื่น ภ.ง.ด.3/53 ทำที่ระบบบัญชี (AccountSystem / โปรแกรมบัญชีของ tenant)
+ */
+export class SettlementWhtEstimateDto {
+  @ApiProperty({
+    enum: ['NOT_REVIEWED_BY_ACCOUNTANT'],
+    description: 'วิธีคำนวณ **ร่าง — ยังไม่ผ่านนักบัญชี** (ยอดประมาณการ; ยอดจริงคำนวณที่ระบบบัญชี)',
+  })
+  review!: 'NOT_REVIEWED_BY_ACCOUNTANT';
+  @ApiProperty({
+    enum: WHT_FORMS,
+    description:
+      'แบบยื่นตามประเภทรถร่วม (snapshot ตอนสร้างใบ): INDIVIDUAL → PND3 (ภ.ง.ด.3) · JURISTIC → PND53 (ภ.ง.ด.53) — ส่งไปกับ AP ร่าง',
+  })
+  form!: (typeof WHT_FORMS)[number];
+  @ApiProperty({
+    description:
+      'true = ตรึงยอดแล้วตอนอนุมัติ (`buyWhtAmount` และขั้นต่ำไม่เปลี่ยนตามค่าตั้งอีก) · false = คำนวณสดจากบรรทัดที่ยังใช้ + ค่าตั้งปัจจุบัน',
+  })
+  frozen!: boolean;
+  @ApiProperty({
+    example: '0.00',
+    description:
+      'ขั้นต่ำหัก ณ ที่จ่าย (บาท) ที่ใช้ — ค่าตั้ง `tax.whtMinimumAmount` (ค่าเริ่ม 0 = หักทุกยอด) เทียบกับฐานก่อนหักรวมทุกอัตราของใบ',
+  })
+  minimumAmount!: string;
+  @ApiProperty({ description: 'true = ฐานต่ำกว่าขั้นต่ำ → ไม่หัก (ยอด 0)' }) belowMinimum!: boolean;
+  @ApiProperty({ type: [SettlementWhtRateDto], description: 'แยกตามอัตรา (ไม่มีกลุ่มอัตรา 0)' })
+  byRate!: SettlementWhtRateDto[];
 }
 
 /** ใบสำคัญจ่ายรถร่วม (ร่าง) */
@@ -419,10 +496,26 @@ export class SettlementDto {
   @ApiPropertyOptional({
     example: '11000.00',
     description:
-      'ยอดสุทธิ = ยอดรวม − รายการหัก (ยังไม่หัก ณ ที่จ่าย — ST6-T08) — เห็นเมื่อมี `prices.buy:read`',
+      'ยอดสุทธิ = ยอดรวม − รายการหัก (**ก่อนหัก ณ ที่จ่าย** — ใช้เทียบวงเงิน step-up ตอนอนุมัติ) — เห็นเมื่อมี `prices.buy:read`',
   })
   @PriceField('buy')
   buyNetPayable?: string;
+  @ApiPropertyOptional({
+    example: '150.00',
+    description:
+      'หัก ณ ที่จ่าย **ประมาณการ** (ST6-T08) = Σ ต่ออัตรา round_half_up(ฐานก่อนหักของกลุ่ม × อัตรา) — ร่าง ยังไม่ผ่านนักบัญชี · เห็นเมื่อมี `prices.buy:read`',
+  })
+  @PriceField('buy')
+  buyWhtAmount?: string;
+  @ApiPropertyOptional({
+    example: '10850.00',
+    description:
+      'ยอดจ่ายรถร่วมหลังหัก ณ ที่จ่าย = ยอดรวม − หัก ณ ที่จ่าย − รายการหัก (ประมาณการ) — เห็นเมื่อมี `prices.buy:read`',
+  })
+  @PriceField('buy')
+  buyNetAfterWht?: string;
+  @ApiProperty({ type: SettlementWhtEstimateDto })
+  whtEstimate!: SettlementWhtEstimateDto;
   @ApiProperty({
     type: [SettlementLineDto],
     description: 'ทุกบรรทัด รวมบรรทัดที่นำออกแล้ว (`active` false)',
@@ -477,6 +570,18 @@ export class SettlementSummaryDto {
   @ApiPropertyOptional({ description: 'เห็นเมื่อมี `prices.buy:read`' })
   @PriceField('buy')
   buyNetPayable?: string;
+  @ApiPropertyOptional({
+    description: 'หัก ณ ที่จ่ายประมาณการ (ST6-T08) — เห็นเมื่อมี `prices.buy:read`',
+  })
+  @PriceField('buy')
+  buyWhtAmount?: string;
+  @ApiPropertyOptional({
+    description: 'ยอดจ่ายหลังหัก ณ ที่จ่าย (ประมาณการ) — เห็นเมื่อมี `prices.buy:read`',
+  })
+  @PriceField('buy')
+  buyNetAfterWht?: string;
+  @ApiProperty({ enum: WHT_FORMS, description: 'แบบยื่น ภ.ง.ด.3 (บุคคล) / ภ.ง.ด.53 (นิติบุคคล)' })
+  whtForm!: (typeof WHT_FORMS)[number];
   @ApiProperty({ nullable: true, type: String, description: 'เวลาอนุมัติ (ST6-T07)' })
   approvedAt!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'ส่งให้รถร่วมตรวจล่าสุด (ST6-T05)' })
