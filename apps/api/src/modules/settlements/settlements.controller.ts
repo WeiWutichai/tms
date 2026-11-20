@@ -39,6 +39,7 @@ import {
   SettlementItemsInput,
   SettlementListQuery,
   SettlementPageDto,
+  SettlementPayDto,
   SettlementReasonDto,
   UpdateSettlementDto,
 } from './settlement.dto';
@@ -54,8 +55,8 @@ const IF_MATCH = {
 
 /**
  * Settlement รถร่วม (AP — docs/04 F6, docs/01 §4.5, §5.2 #12 `settlements`)
- * ST6-T02 คิวจ่ายรถร่วม · ST6-T03 ใบสำคัญจ่าย (ร่าง) · ST6-T05 ส่งรถร่วมตรวจผ่านลิงก์ · ST6-T06 dispute + หน้าเทียบ · ST6-T07 อนุมัติ — จ่าย = ST6-T09
- * อ่าน `settlements:read` (ยอดเห็นเมื่อมี `prices.buy:read`) · สร้าง/แก้ร่าง/ยกเลิกร่าง `settlements:create` · อนุมัติ `settlements:approve`
+ * ST6-T02 คิวจ่ายรถร่วม · ST6-T03 ใบสำคัญจ่าย (ร่าง) · ST6-T05 ส่งรถร่วมตรวจผ่านลิงก์ · ST6-T06 dispute + หน้าเทียบ · ST6-T07 อนุมัติ · ST6-T09 บันทึกจ่าย
+ * อ่าน `settlements:read` (ยอดเห็นเมื่อมี `prices.buy:read`) · สร้าง/แก้ร่าง/ยกเลิกร่าง `settlements:create` · อนุมัติ `settlements:approve` · จ่าย `settlements:pay`
  */
 @ApiTags('settlements')
 @ApiBearerAuth()
@@ -496,6 +497,43 @@ export class SettlementsController {
       body.reason,
       expectedVersion(req),
       steppedUp,
+    );
+    setEtag(res, out.version);
+    return out;
+  }
+
+  @Post(':id/mark-paid')
+  @HttpCode(200)
+  @TenantResource('settlement')
+  @RequireScope('settlements:pay')
+  @ApiOperation({
+    summary: 'บันทึกจ่ายใบสำคัญจ่ายรถร่วม (APPROVED → PAID) — วันที่จ่าย วิธี เลขอ้างอิง ธนาคาร',
+    description:
+      'docs/04 F6 "จ่าย" + docs/01 §4.5 APPROVED → PAID · **เฉพาะใบ APPROVED** (ร่าง/รอตรวจ/โต้แย้ง/ยกเลิก/จ่ายแล้ว → 409 `invalid_state_transition`) · ' +
+      'จ่ายเต็มยอดครั้งเดียว — ยอดที่จ่าย = `buyNetAfterWht` (ยอดสุทธิ − หัก ณ ที่จ่ายประมาณการที่ตรึงตอนอนุมัติ — ไม่เปลี่ยน) · ' +
+      '`paidDate` (= วันที่หักภาษี) ตั้งแต่วันอนุมัติถึงวันนี้ (เวลาไทย) — ก่อนวันอนุมัติ → 422 `before_approval` · `reference` บังคับเมื่อ TRANSFER / CHEQUE · ' +
+      'ใบที่ไม่ใช่ APPROVED (รวมจ่ายแล้ว/คำขอซ้ำพร้อมกัน) → 409 ก่อนตรวจ If-Match · ' +
+      'เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · ' +
+      'audit `settlement.paid` + webhook `settlement.paid` (ระบบบัญชีสร้างเจ้าหนี้/AP ร่างจาก event นี้ — 50 ทวิ ออกที่ระบบบัญชี, D-58) · ' +
+      'ไฟล์โอนธนาคาร (bulk payment) = P1',
+  })
+  @ApiHeader({
+    ...IF_MATCH,
+    required: true,
+    description: 'ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412',
+  })
+  @ApiProblems(T403('settlements:pay'), NF, T409(), T412, T422)
+  @ApiOkResponse({ type: SettlementDto })
+  async markPaid(
+    @Param('id') id: string,
+    @Body() body: SettlementPayDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SettlementDto> {
+    const out = await this.svc.markPaid(
+      decodeIdOr404('settlement', id),
+      body,
+      expectedVersion(req),
     );
     setEtag(res, out.version);
     return out;
