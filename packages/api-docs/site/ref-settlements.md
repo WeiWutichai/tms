@@ -74,7 +74,7 @@ scope: `settlements:read` · operationId: `Settlements_listSettlements`
 | `sort` | query |   | `string` ค่า: `updatedAt`, `-updatedAt` |   |
 | `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `carrierId` | query |   | `string` | รถร่วม — id หรือ `ext:{externalId}` |
-| `status` | query |   | `string` ค่า: `DRAFT`, `CANCELLED` |   |
+| `status` | query |   | `string` ค่า: `DRAFT`, `APPROVED`, `CANCELLED` |   |
 
 **Responses**
 
@@ -437,7 +437,7 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/cancel', {
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `stl_…` |
 | `settlementNo` | ใช่ | `string` | null ได้ | เลขเอกสาร (ชุด STL) — ร่างยังไม่มีเลข · ออกตอนอนุมัติ |   |
-| `status` | ใช่ | `string` | ค่า: `DRAFT`, `CANCELLED` |   |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `APPROVED`, `CANCELLED` |   |   |
 | `carrier` | ใช่ | `SettlementCarrierDto` |   |   |   |
 | `payingCompanyId` | ใช่ | `string` | null ได้ | นิติบุคคลที่จ่าย ("จ้างในนาม" ของรถร่วม — null = ค่าเริ่มต้นองค์กร) |   |
 | `periodFrom` | ใช่ | `string` |   |   | `2026-11-01` |
@@ -451,6 +451,8 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/cancel', {
 | `buyDeductionAmount` |   | `string` |   | รวมรายการหัก (ค่าบวก = Σ \|บรรทัดหัก\|) — เห็นเมื่อมี `prices.buy:read` | `2500.00` |
 | `buyNetPayable` |   | `string` |   | ยอดสุทธิ = ยอดรวม − รายการหัก — เห็นเมื่อมี `prices.buy:read` | `11000.00` |
 | `lines` | ใช่ | `array<SettlementLineDto>` |   | ทุกบรรทัด รวมบรรทัดที่นำออกแล้ว (`active` false) |   |
+| `approvedAt` | ใช่ | `string` | null ได้ | เวลาอนุมัติ — ออกเลข `settlementNo` พร้อมกัน |   |
+| `approvedBy` | ใช่ | `string` | null ได้ | ผู้อนุมัติ (ไม่ใช่ผู้สร้าง — separation of duties) |   |
 | `cancelledAt` | ใช่ | `string` | null ได้ |   |   |
 | `cancelledBy` | ใช่ | `string` | null ได้ |   |   |
 | `cancelReason` | ใช่ | `string` | null ได้ |   |   |

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -255,6 +256,26 @@ describe('field charges (ST4-T13)', () => {
       .send({ reason: REASON })
       .expect(403);
     expect(self.body.code).toBe('self_approval_forbidden');
+    // ST6-T07 review H1: บันทึกด้วย API key → ผู้ออก key = ผู้บันทึก (ยืนยันเองไม่ได้)
+    const k = await db.apiKey.create({
+      data: {
+        tenantId,
+        name: 'ERP บันทึกค่าหน้างาน',
+        mode: 'live',
+        prefix: 'tk_live_fc01',
+        secretHash: `test-${randomUUID()}`,
+        scopes: ['trips:read'],
+        ipAllowlist: [],
+        createdBy: 'user-keyowner',
+      },
+    });
+    await db.doSurcharge.update({ where: { id: row.id }, data: { createdBy: `apikey:${k.id}` } });
+    const viaKey = await api(app, await as('invoicer', 'user-keyowner'))
+      .post(`${D(line)}/confirm`)
+      .send({ reason: REASON })
+      .expect(403);
+    expect(viaKey.body.code).toBe('self_approval_forbidden');
+    await db.doSurcharge.update({ where: { id: row.id }, data: { createdBy: 'user-test' } });
 
     // ผู้วางบิลยืนยัน (เหตุผล + audit)
     const inv = await as('invoicer');

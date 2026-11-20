@@ -273,6 +273,9 @@ export const API_KEY_DENIED_SCOPES: readonly Permission[] = [
   'users:read',
   'users:write',
   'settings:write',
+  // ST6-T07 review H1: อนุมัติใบสำคัญจ่าย (+ ยืนยันค่าใช้จ่ายหน้างานฝั่งซื้อ) = คนที่ login เท่านั้น — กันออก key ให้ตัวเองแล้วอนุมัติใบตัวเอง
+  // [DECISION — เข้มกว่า, ย้อนได้; PO ผ่อนได้ — spec/12 §3]
+  'settlements:approve',
 ];
 
 /** scope ที่ให้ API key ได้ = PERMISSIONS − API_KEY_DENIED_SCOPES */

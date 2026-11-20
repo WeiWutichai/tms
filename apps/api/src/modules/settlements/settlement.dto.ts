@@ -20,7 +20,8 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** ยอดหักติดลบ ≠ 0 ("-0", "-0.00", "-00.00" ไม่ผ่าน) */
 const NEG_MONEY = /^-(?!0+(\.0{1,2})?$)\d{1,12}(\.\d{1,2})?$/;
 
-export const SETTLEMENT_STATUSES = ['DRAFT', 'CANCELLED'] as const;
+/** docs/01 §4.5 — SENT_TO_CARRIER / DISPUTED (ST6-T05/T06) และ PAID (ST6-T09) เพิ่มภายหลัง */
+export const SETTLEMENT_STATUSES = ['DRAFT', 'APPROVED', 'CANCELLED'] as const;
 export type SettlementStatus = (typeof SETTLEMENT_STATUSES)[number];
 export const SETTLEMENT_LINE_TYPES = ['FREIGHT', 'SURCHARGE', 'DEDUCTION'] as const;
 /** ชนิดบรรทัดหัก (docs/04 F6: เงินเบิกล่วงหน้า, ค่าน้ำมันที่เราจ่าย, ค่าปรับ, ค่าเสียหาย — ชื่อตาม spec/05 §11.4 sourceType) */
@@ -329,6 +330,18 @@ export class SettlementDto {
     description: 'ทุกบรรทัด รวมบรรทัดที่นำออกแล้ว (`active` false)',
   })
   lines!: SettlementLineDto[];
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'เวลาอนุมัติ (ST6-T07) — ออกเลข `settlementNo` พร้อมกัน',
+  })
+  approvedAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'ผู้อนุมัติ (ไม่ใช่ผู้สร้าง — separation of duties)',
+  })
+  approvedBy!: string | null;
   @ApiProperty({ nullable: true, type: String }) cancelledAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) cancelledBy!: string | null;
   @ApiProperty({ nullable: true, type: String }) cancelReason!: string | null;
@@ -357,6 +370,9 @@ export class SettlementSummaryDto {
   @ApiPropertyOptional({ description: 'เห็นเมื่อมี `prices.buy:read`' })
   @PriceField('buy')
   buyNetPayable?: string;
+  @ApiProperty({ nullable: true, type: String, description: 'เวลาอนุมัติ (ST6-T07)' })
+  approvedAt!: string | null;
+  @ApiProperty({ nullable: true, type: String }) createdBy!: string | null;
   @ApiProperty() version!: number;
   @ApiProperty() createdAt!: string;
   @ApiProperty() updatedAt!: string;

@@ -89,6 +89,10 @@ const DELIVERY_ORDER = shape('DeliveryOrderDto');
 /** pod: รูปเดียวกับ `GET /v1/delivery-orders/{id}/pod` */
 const POD = shape('DeliveryOrderPodDto');
 const CONNECTOR = shape('ConnectorDto');
+/** settlement: `GET /v1/settlements/{id}` − บรรทัด − id ผู้ใช้ − ข้อความอิสระ (`note`, `cancelReason`) (ยอด `buy*` ตัดอัตโนมัติ — ดูยอดผ่าน REST ด้วยสิทธิ์ `prices.buy:read`) */
+const SETTLEMENT = shape('SettlementDto', {
+  omit: ['lines', 'createdBy', 'approvedBy', 'cancelledBy', 'cancelReason', 'note'],
+});
 const JOB = shape('JobDto');
 
 const active = (
@@ -204,7 +208,12 @@ const DEFS: Record<WebhookEventType, Omit<EventDefinition, 'type'>> = {
   'payment.recorded': pending('payment', 'บันทึกรับชำระเงิน', 'ST5-T13'),
   'payment.reversed': pending('payment', 'กลับรายการรับชำระเงิน', 'ST5-T13'),
   'receipt.issued': pending('receipt', 'ออกใบเสร็จรับเงินแล้ว', 'ST5-T14'),
-  'settlement.approved': pending('settlement', 'อนุมัติใบสรุปค่าขนส่งรถร่วม', 'ST6-T07'),
+  'settlement.approved': active(
+    'settlement',
+    'อนุมัติใบสำคัญจ่ายรถร่วม (ออกเลข STL แล้ว — ผู้อนุมัติไม่ใช่ผู้สร้าง)',
+    'SettlementsService.approve',
+    SETTLEMENT,
+  ),
   'settlement.paid': pending('settlement', 'จ่ายเงินตามใบสรุปค่าขนส่งรถร่วมแล้ว', 'ST6-T09'),
   'wht_certificate.issued': pending(
     'wht_certificate',
