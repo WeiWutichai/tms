@@ -36408,7 +36408,7 @@
     },
     "/v1/billing-notes/{id}/collect": {
       "post": {
-        "description": "ใบแจ้งหนี้ในใบหยุดนับว่าอยู่ในใบวางบิลที่ active (ใบที่ยังค้างวางบิลใหม่ได้) · ไม่เปลี่ยนสถานะ/ยอดของใบแจ้งหนี้ · audit `billing_note.collected`",
+        "description": "สถานะสิ้นสุด · ใบแจ้งหนี้ในใบ**ยังนับว่าวางบิลแล้ว** · ไม่เปลี่ยนสถานะ/ยอดของใบแจ้งหนี้ · audit `billing_note.collected`",
         "operationId": "BillingNotes_collect",
         "parameters": [
           {
@@ -50622,7 +50622,11 @@
           },
           "active": {
             "type": "boolean",
-            "description": "false = ถอดออกจากร่างแล้ว"
+            "description": "ผูกนับกันวางบิลซ้ำอยู่ (ตรงกับฐานข้อมูล) — false เมื่อถอดออกจากร่าง หรือใบวางบิลถูกยกเลิก"
+          },
+          "removed": {
+            "type": "boolean",
+            "description": "true = ถอดออกจากร่างแล้ว (ไม่อยู่ในใบ)"
           },
           "sellTotal": {
             "type": "string",
@@ -50642,7 +50646,8 @@
           "invoiceNo",
           "issueDate",
           "dueDate",
-          "active"
+          "active",
+          "removed"
         ]
       },
       "BillingNotePageDto": {
@@ -58919,6 +58924,12 @@
                 "$ref": "#/components/schemas/InvoicePdfDto"
               }
             ]
+          },
+          "billingNoteId": {
+            "type": "string",
+            "nullable": true,
+            "example": "bn_…",
+            "description": "ใบวางบิลที่ใบนี้อยู่ · null = ไม่อยู่ในใบวางบิล"
           }
         },
         "required": [
@@ -58948,7 +58959,8 @@
           "createdBy",
           "issuedAt",
           "issuedBy",
-          "pdf"
+          "pdf",
+          "billingNoteId"
         ]
       },
       "InvoiceLineDto": {
@@ -74967,6 +74979,12 @@
             "type": "string",
             "nullable": true,
             "description": "เวลาออกเอกสาร (ออกเลข) — ร่าง = null"
+          },
+          "billingNoteId": {
+            "type": "string",
+            "nullable": true,
+            "example": "bn_…",
+            "description": "ใบวางบิลที่ใบนี้อยู่ · null = ไม่อยู่ในใบวางบิล"
           }
         },
         "required": [
@@ -74989,7 +75007,8 @@
           "customerPoNo",
           "taxEstimated",
           "deliveryOrders",
-          "issuedAt"
+          "issuedAt",
+          "billingNoteId"
         ]
       },
       "WebhookEvent_job_completed": {

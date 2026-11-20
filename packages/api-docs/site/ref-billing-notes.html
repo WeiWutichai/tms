@@ -165,7 +165,7 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <h2 id="post-billing-notes-id-collect">รับเช็ค/โอนแล้ว — ISSUED → COLLECTED</h2>
 <p><code>POST /v1/billing-notes/{id}/collect</code></p>
 <p>scope: <code>invoices:finalize</code> · operationId: <code>BillingNotes_collect</code></p>
-<p>ใบแจ้งหนี้ในใบหยุดนับว่าอยู่ในใบวางบิลที่ active (ใบที่ยังค้างวางบิลใหม่ได้) · ไม่เปลี่ยนสถานะ/ยอดของใบแจ้งหนี้ · audit <code>billing_note.collected</code></p>
+<p>สถานะสิ้นสุด · ใบแจ้งหนี้ในใบ<strong>ยังนับว่าวางบิลแล้ว</strong> · ไม่เปลี่ยนสถานะ/ยอดของใบแจ้งหนี้ · audit <code>billing_note.collected</code></p>
 <p><strong>Parameters</strong></p>
 <div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag (version) จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
 <p><strong>Request body</strong> <code>CollectBillingNoteDto</code></p>

@@ -172,7 +172,12 @@ export class BillingNoteInvoiceDto {
   @ApiProperty({ example: 'INV-00000-2611-0013' }) invoiceNo!: string;
   @ApiProperty({ example: '2026-11-03' }) issueDate!: string;
   @ApiProperty({ example: '2026-12-03' }) dueDate!: string;
-  @ApiProperty({ description: 'false = ถอดออกจากร่างแล้ว' }) active!: boolean;
+  @ApiProperty({
+    description:
+      'ผูกนับกันวางบิลซ้ำอยู่ (ตรงกับฐานข้อมูล) — false เมื่อถอดออกจากร่าง หรือใบวางบิลถูกยกเลิก',
+  })
+  active!: boolean;
+  @ApiProperty({ description: 'true = ถอดออกจากร่างแล้ว (ไม่อยู่ในใบ)' }) removed!: boolean;
   @ApiPropertyOptional({ description: 'ยอดรวมของใบแจ้งหนี้ — `prices.sell:read`' })
   @PriceField('sell')
   sellTotal?: string;

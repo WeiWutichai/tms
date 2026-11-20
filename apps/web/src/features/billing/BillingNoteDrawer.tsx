@@ -140,7 +140,7 @@ export function BillingNoteDrawer({
   const no = bn.billingNoteNo ?? t('bill.draftNo');
   const st = billingNoteStatusLabel(t, bn.status);
   const b = statusOf(st);
-  const items = bn.invoices.filter((i) => i.active);
+  const items = bn.invoices.filter((i) => !i.removed);
   const print = () => void openBillingNotePdf(bn).catch(() => onToast(t('bill.pdfFail')));
   const issue = () =>
     finalize.mutate(
@@ -630,7 +630,7 @@ export function BillingNoteForm({
   const err = create.error ?? update.error;
   const rows = useMemo(() => {
     const own = (note?.invoices ?? [])
-      .filter((i) => i.active)
+      .filter((i) => !i.removed)
       .map((i) => ({
         invoiceId: i.invoiceId,
         invoiceNo: i.invoiceNo,
@@ -644,7 +644,7 @@ export function BillingNoteForm({
     return [...own, ...others];
   }, [note, cand.data]);
   const [picked, setPicked] = useState<string[]>(
-    note ? note.invoices.filter((i) => i.active).map((i) => i.invoiceId) : (preselected ?? []),
+    note ? note.invoices.filter((i) => !i.removed).map((i) => i.invoiceId) : (preselected ?? []),
   );
   const [collectOn, setCollectOn] = useState(note?.collectionDate ?? '');
   const [memo, setMemo] = useState(note?.note ?? '');

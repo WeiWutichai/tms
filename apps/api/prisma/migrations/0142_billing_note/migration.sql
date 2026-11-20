@@ -2,9 +2,11 @@
 -- สรุปใบแจ้งหนี้ค้างของลูกค้าหนึ่งราย + ยอดรวม + วันนัดรับเช็ค/โอน + ผู้รับวางบิล · **ไม่กระทบ VAT/WHT** (ไม่ใช่เอกสารภาษี)
 -- (1) billing_note: DRAFT → ISSUED (ออกเลขชุด BN + snapshot + PDF) → COLLECTED · DRAFT/ISSUED → CANCELLED (เลขคงอยู่)
 -- (2) billing_note_invoice: ใบแจ้งหนี้ในใบวางบิล + ยอด ณ วันใส่/ออก — **unique partial (tenant_id, invoice_id) WHERE active**
---     = ใบแจ้งหนี้หนึ่งใบอยู่ในใบวางบิลที่ active (DRAFT/ISSUED) ได้ใบเดียว (BIL-039) — ใช้ตารางผูกแทน `invoice.billing_note_id`
+--     = ใบแจ้งหนี้หนึ่งใบอยู่ในใบวางบิลที่ active (DRAFT/ISSUED/COLLECTED) ได้ใบเดียว (BIL-039) — ปล่อยเฉพาะเมื่อใบวางบิลถูกยกเลิก — ใช้ตารางผูกแทน `invoice.billing_note_id`
 --     ของ docs/01 (เก็บประวัติใบวางบิลที่ยกเลิก/เก็บเงินแล้วได้ ไม่แตะตาราง invoice) [DECISION spec/12 §3 — ST5-T11]
--- (3) trigger: เลขออกได้ครั้งเดียวตอน DRAFT → ISSUED · หลัง ISSUED เนื้อหาแก้ไม่ได้ · สถานะเดินตามตาราง · ปิดใบ → ผูกหยุดนับ
+-- (3) trigger: เลขออกได้ครั้งเดียวตอน DRAFT → ISSUED · หลัง ISSUED เนื้อหาแก้ไม่ได้ · สถานะเดินตามตาราง · ยกเลิกใบวางบิล → ผูกหยุดนับ
+--     (COLLECTED คงผูกไว้ — กันวางบิลซ้ำจนกว่า ST5-T13/T18 กำหนดกติกาเช็คคืน/รับบางส่วน — review M1)
+-- (4) ใบแจ้งหนี้ที่อยู่ในใบวางบิลที่ออกแล้ว (ISSUED/COLLECTED) ยกเลิก/void ไม่ได้ จนกว่าจะยกเลิกใบวางบิลก่อน (review M2 — guard ระดับ DB)
 -- CreateEnum
 CREATE TYPE "billing_note_status" AS ENUM ('DRAFT', 'ISSUED', 'COLLECTED', 'CANCELLED');
 
@@ -172,12 +174,12 @@ $$;
 CREATE TRIGGER billing_note_guard BEFORE UPDATE ON "billing_note"
   FOR EACH ROW EXECUTE FUNCTION tms_billing_note_guard();
 
--- ใบวางบิลเป็น COLLECTED / CANCELLED → ผูกหยุดนับ (ใบแจ้งหนี้ที่ยังค้างวางบิลใหม่ได้)
+-- ใบวางบิลถูกยกเลิก → ผูกหยุดนับ (ใบแจ้งหนี้วางบิลใหม่ได้ — BIL-039) · COLLECTED คงผูกไว้ (กันวางบิลซ้ำ — review M1)
 CREATE OR REPLACE FUNCTION tms_billing_note_release() RETURNS trigger
   LANGUAGE plpgsql SET search_path = pg_catalog, public AS
 $$
 BEGIN
-  IF NEW.status IN ('COLLECTED', 'CANCELLED') AND OLD.status IS DISTINCT FROM NEW.status THEN
+  IF NEW.status = 'CANCELLED' AND OLD.status IS DISTINCT FROM NEW.status THEN
     UPDATE billing_note_invoice SET active = false WHERE billing_note_id = NEW.id AND active;
   END IF;
   RETURN NEW;
@@ -208,8 +210,8 @@ BEGIN
       RAISE EXCEPTION 'billing_note_invoice %: billing note is % — lines cannot change', OLD.id, bn.status
         USING ERRCODE = 'check_violation', CONSTRAINT = 'billing_note_invoice_issued_immutable';
     END IF;
-    -- ถอดออกจากใบที่ออกแล้ว: ได้เฉพาะเมื่อใบวางบิลปิด (trigger ปล่อยผูก) — ถอดรายใบหลังออกไม่ได้
-    IF OLD.active AND NOT NEW.active AND bn.status = 'ISSUED' THEN
+    -- ถอดออกจากใบที่ออกแล้ว: ได้เฉพาะเมื่อใบวางบิลถูกยกเลิก (trigger ปล่อยผูก) — ถอดรายใบหลังออกไม่ได้
+    IF OLD.active AND NOT NEW.active AND bn.status IN ('ISSUED', 'COLLECTED') THEN
       RAISE EXCEPTION 'billing_note_invoice %: cannot remove an invoice from an issued billing note', OLD.id
         USING ERRCODE = 'check_violation', CONSTRAINT = 'billing_note_invoice_issued_immutable';
     END IF;
@@ -229,6 +231,29 @@ END
 $$;
 CREATE TRIGGER billing_note_invoice_guard BEFORE INSERT OR UPDATE ON "billing_note_invoice"
   FOR EACH ROW EXECUTE FUNCTION tms_billing_note_invoice_guard();
+
+-- review M2: ใบแจ้งหนี้ในใบวางบิลที่ออกแล้ว (ISSUED/COLLECTED, ผูก active) ยกเลิก/void ไม่ได้ — ยกเลิกใบวางบิลก่อน (ST5-T10)
+CREATE OR REPLACE FUNCTION tms_invoice_billing_note_guard() RETURNS trigger
+  LANGUAGE plpgsql SET search_path = pg_catalog, public AS
+$$
+DECLARE
+  note record;
+BEGIN
+  IF NEW.status IN ('CANCELLED', 'VOIDED') AND OLD.status IS DISTINCT FROM NEW.status THEN
+    SELECT b.id, b.billing_note_no, b.status INTO note
+      FROM billing_note_invoice l JOIN billing_note b ON b.id = l.billing_note_id
+     WHERE l.invoice_id = NEW.id AND l.active AND b.status IN ('ISSUED', 'COLLECTED')
+     LIMIT 1;
+    IF FOUND THEN
+      RAISE EXCEPTION 'invoice % is on issued billing note % (%) — cancel the billing note first', OLD.id, note.billing_note_no, note.id
+        USING ERRCODE = 'check_violation', CONSTRAINT = 'invoice_on_issued_billing_note';
+    END IF;
+  END IF;
+  RETURN NEW;
+END
+$$;
+CREATE TRIGGER invoice_billing_note_guard BEFORE UPDATE OF "status" ON "invoice"
+  FOR EACH ROW EXECUTE FUNCTION tms_invoice_billing_note_guard();
 
 -- ไม่มี hard delete (ยกเลิก = CANCELLED · ถอดใบแจ้งหนี้ออกจากร่าง = active false)
 REVOKE DELETE ON "billing_note", "billing_note_invoice" FROM tms_app;

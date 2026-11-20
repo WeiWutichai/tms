@@ -309,6 +309,17 @@ describe('billing notes (ST5-T11)', { timeout: 600_000 }, () => {
     expect(audit?.after).toMatchObject({ billingNoteNo: iss.body.billingNoteNo });
     // ใบแจ้งหนี้ใน BN ที่ออกแล้ว ยังใส่ใบใหม่ไม่ได้
     expect((await create(drafter, [ids[0]!]).expect(409)).body.code).toBe('invoice_already_billed');
+    // L1: ใบแจ้งหนี้บอกใบวางบิลที่อยู่ (docs/01 invoice.billing_note_id)
+    expect(
+      (await api(app, admin).get(`/v1/invoices/${ids[0]}`).expect(200)).body.billingNoteId,
+    ).toBe(id);
+    // M2: ใบแจ้งหนี้ในใบวางบิลที่ออกแล้ว ยกเลิก/void ไม่ได้ (guard ระดับ DB — ยกเลิกใบวางบิลก่อน)
+    await expect(
+      db.invoice.update({
+        where: { id: tryDecodeId('invoice', ids[0]!)! },
+        data: { status: 'VOIDED' },
+      }),
+    ).rejects.toThrow(/invoice_on_issued_billing_note|cancel the billing note first/);
 
     // ผู้รับวางบิล
     const fut = await api(app, admin)
@@ -324,7 +335,7 @@ describe('billing notes (ST5-T11)', { timeout: 600_000 }, () => {
     expect(ack.body.acknowledgement).toMatchObject({ name: 'คุณสมศรี (บัญชี)', receivedOn: today });
     expect(ack.body.status).toBe('ISSUED');
 
-    // รับเช็ค/โอนแล้ว → COLLECTED · ผูกหยุดนับ → วางบิลใหม่ได้ · ยกเลิกไม่ได้
+    // รับเช็ค/โอนแล้ว → COLLECTED (สิ้นสุด) · ผูกคงไว้ → วางบิลซ้ำไม่ได้ (review M1) · ยกเลิกไม่ได้
     const col = await api(app, admin)
       .post(`/v1/billing-notes/${id}/collect`)
       .set('If-Match', `"${ack.body.version}"`)
@@ -338,7 +349,20 @@ describe('billing notes (ST5-T11)', { timeout: 600_000 }, () => {
       .send({ reason: 'ทดสอบยกเลิกหลังเก็บเงิน' })
       .expect(409);
     await api(app, admin).post(`/v1/billing-notes/${id}/collect`).expect(409);
-    await create(drafter, [ids[0]!]).expect(201);
+    expect((await create(drafter, [ids[0]!]).expect(409)).body.code).toBe('invoice_already_billed');
+    const cand = (
+      await api(app, drafter).get(`/v1/billing-notes/candidates?customerId=${cus()}`).expect(200)
+    ).body.data.map((x: { invoiceId: string }) => x.invoiceId);
+    expect(cand).not.toContain(ids[0]);
+    expect(await db.billingNoteInvoice.count({ where: { billingNoteId: uid, active: true } })).toBe(
+      2,
+    );
+    await expect(
+      db.invoice.update({
+        where: { id: tryDecodeId('invoice', ids[1]!)! },
+        data: { status: 'VOIDED' },
+      }),
+    ).rejects.toThrow(/cancel the billing note first/);
     // PDF ต้นฉบับยังได้หลังเก็บเงิน (ไฟล์เดิม)
     const again = await api(app, admin).get(`/v1/billing-notes/${id}/pdf`).expect(200);
     expect(again.headers['x-content-sha256']).toBe(iss.body.pdf.sha256);
@@ -368,6 +392,8 @@ describe('billing notes (ST5-T11)', { timeout: 600_000 }, () => {
     expect(c.body.status).toBe('CANCELLED');
     expect(c.body.billingNoteNo).toBe(iss.body.billingNoteNo);
     expect(c.body.cancelReason).toBe('ลูกค้าขอแยกวางบิลตามสาขา');
+    // DTO ตรงกับฐาน: ยกเลิกแล้วผูกหยุดนับ (active=false) แต่ยังอยู่ในใบ (removed=false)
+    expect(c.body.invoices).toEqual([expect.objectContaining({ active: false, removed: false })]);
     const audit = await db.auditLog.findFirst({
       where: {
         tenantId,
@@ -411,7 +437,10 @@ describe('billing notes (ST5-T11)', { timeout: 600_000 }, () => {
     expect(u.body.sellTotal).toBe('500.00');
     expect(u.body.invoiceCount).toBe(2);
     expect(
-      u.body.invoices.map((i: { invoiceId: string; active: boolean }) => [i.invoiceId, i.active]),
+      u.body.invoices.map((i: { invoiceId: string; removed: boolean }) => [
+        i.invoiceId,
+        !i.removed,
+      ]),
     ).toEqual([
       [a, false],
       [b, true],

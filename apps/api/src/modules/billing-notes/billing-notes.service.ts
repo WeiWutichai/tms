@@ -88,7 +88,7 @@ function invalid(errors: FieldError[]): ProblemException {
  *
  * - DRAFT (ไม่มีเลข แก้ได้) → ISSUED (`/finalize`: ออกเลขชุด BN + snapshot ลูกค้า/ผู้ออก + PDF ต้นฉบับเก็บ ณ วันออก) → COLLECTED (`/collect`)
  * - DRAFT/ISSUED → CANCELLED (เหตุผล ≥ 10 + audit; เลขคงอยู่ — ยกเลิกใบวางบิลไม่กระทบใบแจ้งหนี้ BIL-039)
- * - ใบแจ้งหนี้หนึ่งใบอยู่ในใบวางบิลที่ active (DRAFT/ISSUED) ได้ใบเดียว — unique partial ระดับ DB (migration 0142) → 409 `invoice_already_billed`
+ * - ใบแจ้งหนี้หนึ่งใบอยู่ในใบวางบิลที่ active (DRAFT/ISSUED/COLLECTED — ปล่อยเฉพาะเมื่อยกเลิก, review M1) ได้ใบเดียว — unique partial ระดับ DB (migration 0142) → 409 `invoice_already_billed`
  * - ไม่แตะตาราง/สถานะใบแจ้งหนี้ (สถานะใบจากการรับชำระ = ST5-T13/T18)
  */
 @Injectable()
@@ -361,7 +361,11 @@ export class BillingNotesService implements OnModuleInit {
           message: 'collectionDate must be on or after the billing date (today)',
         },
       ]);
-    const billingNoteNo = await issueNumber(tx, ctx.tenantId!, { docType: 'BN', at: now });
+    const billingNoteNo = await issueNumber(tx, ctx.tenantId!, {
+      docType: 'BN',
+      branchId: bn.issuingBranchId,
+      at: now,
+    });
     const tenant = await tx.tenant.findFirst({ select: { yearStyle: true } });
     const customer: InvoicePartySnapshot = { code: bn.customer.code, ...customerParty(bn) };
     const issuer: InvoicePartySnapshot = issuerParty(bn);
@@ -394,7 +398,7 @@ export class BillingNotesService implements OnModuleInit {
         billingNoteNo,
         billingDate,
         collectionDate: out.collectionDate,
-        invoices: out.invoices.filter((i) => i.active).map((i) => i.invoiceNo),
+        invoices: out.invoices.filter((i) => !i.removed).map((i) => i.invoiceNo),
         total: out.sellTotal,
       },
     });
@@ -451,7 +455,7 @@ export class BillingNotesService implements OnModuleInit {
     return this.get(id);
   }
 
-  /** รับเช็ค/โอนแล้ว: ISSUED → COLLECTED (ผูกใบแจ้งหนี้หยุดนับ — ใบที่ยังค้างวางบิลใหม่ได้) */
+  /** รับเช็ค/โอนแล้ว: ISSUED → COLLECTED — ผูกใบแจ้งหนี้คงไว้ (กันวางบิลซ้ำ จน ST5-T13/T18 กำหนดกติกาเช็คคืน/รับบางส่วน — review M1) · COLLECTED = สถานะสิ้นสุด */
   async collect(
     id: string,
     body: CollectBillingNoteDto,
@@ -956,7 +960,8 @@ function toDto(r: Row): BillingNoteDto {
       invoiceNo: l.invoiceNo,
       issueDate: ymd(l.issueDate),
       dueDate: ymd(l.dueDate),
-      active: l.removedAt === null,
+      active: l.active,
+      removed: l.removedAt !== null,
       sellTotal: money(l.totalAmount),
       sellWhtExpected: money(l.whtExpectedAmount),
       sellOutstanding: money(l.outstandingAmount),
@@ -995,7 +1000,7 @@ function headerOf(d: BillingNoteDto): Record<string, unknown> {
   return {
     collectionDate: d.collectionDate,
     note: d.note,
-    invoices: d.invoices.filter((i) => i.active).map((i) => i.invoiceNo),
+    invoices: d.invoices.filter((i) => !i.removed).map((i) => i.invoiceNo),
     total: d.sellTotal,
   };
 }

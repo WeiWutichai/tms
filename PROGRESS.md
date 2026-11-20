@@ -301,6 +301,11 @@
 
 ## บันทึกรายวัน
 
+### 21 พ.ย. 2569 (ST5-T11 แก้ตาม review/QA — lane li)
+
+- **ทำ:** (M1) COLLECTED คงผูกใบแจ้งหนี้ไว้ — ปล่อยเฉพาะเมื่อยกเลิกใบวางบิล (กันวางบิลซ้ำ) · DTO `invoices[].active` ตรงกับฐาน + เพิ่ม `removed` (ถอดจากร่าง) (M2) trigger `invoice_billing_note_guard` — ใบแจ้งหนี้ในใบวางบิล ISSUED/COLLECTED ยกเลิก/void ไม่ได้ + บรรทัดเกณฑ์ใน plan/01 ST5-T10 (M3) [OPEN] เช็คคืนหลัง COLLECTED ใน spec/12 §3 → ST5-T13/T18 (L1) `InvoiceDto.billingNoteId` (L2) ส่ง `branchId` ให้ `issueNumber` ของ BN · แก้ใน migration 0142 เดิม (ยังไม่ merge — ฐานของ lane li ปรับ function + checksum แล้ว)
+- **หมายเหตุ:** drawer/ฟอร์มใบวางบิล**ไม่มีในต้นแบบ** (ใช้โครง drawer ใบแจ้งหนี้ + FormDrawer มาตรฐาน) — [OPEN — Claude Design] ห้ามขยายเพิ่มจนกว่าจะได้แบบ
+
 ### 21 พ.ย. 2569 (ST5-T11 ใบวางบิล `billing_note` — lane li)
 
 - **ทำ:** ใบวางบิล (D-54 ไม่ใช่เอกสารภาษี ไม่กระทบ VAT/WHT): migration `0142_billing_note` (`billing_note` + `billing_note_invoice` — unique partial `(tenant_id, invoice_id) WHERE active` = ใบแจ้งหนี้เดียวอยู่ใบวางบิลที่ active ได้ใบเดียว, trigger สถานะ/เลขครั้งเดียว/เนื้อหาล็อกหลังออก/ปล่อยผูกเมื่อ COLLECTED·CANCELLED, REVOKE DELETE, RLS) · API `/v1/billing-notes` (สร้าง/แก้ร่าง/candidates/summary/finalize ออกเลขชุด BN + PDF ต้นฉบับ·สำเนาเก็บ ณ วันออก (งาน `billing_note.render_pdf`)/acknowledge ผู้รับวางบิล/collect/cancel/proforma/pdf) · PDF แม่แบบกลาง `finance-document.ts` (#bill, ตารางใบแจ้งหนี้) golden darwin+linux · หน้า `bill`: ตัวกรองประเภท ใบแจ้งหนี้/ใบวางบิล, bulk/เมนูแถว "สร้างใบวางบิล" → FormDrawer → drawer ใบวางบิล · DECISION spec/12 §3 แถว "ใบวางบิล (ST5-T11)"

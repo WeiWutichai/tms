@@ -45227,7 +45227,7 @@
     },
     "/v1/billing-notes/{id}/collect": {
       "post": {
-        "description": "ใบแจ้งหนี้ในใบหยุดนับว่าอยู่ในใบวางบิลที่ active (ใบที่ยังค้างวางบิลใหม่ได้) · ไม่เปลี่ยนสถานะ/ยอดของใบแจ้งหนี้ (บันทึกรับชำระ = ST5-T13) · audit `billing_note.collected`",
+        "description": "สถานะสิ้นสุด · ใบแจ้งหนี้ในใบ**ยังนับว่าวางบิลแล้ว** (ใส่ใบวางบิลใหม่ไม่ได้ — กติกาเช็คคืน/รับบางส่วน = ST5-T13/T18) · ไม่เปลี่ยนสถานะ/ยอดของใบแจ้งหนี้ · audit `billing_note.collected`",
         "operationId": "BillingNotes_collect",
         "parameters": [
           {
@@ -83689,6 +83689,12 @@
                 "$ref": "#/components/schemas/InvoicePdfDto"
               }
             ]
+          },
+          "billingNoteId": {
+            "type": "string",
+            "nullable": true,
+            "example": "bn_…",
+            "description": "ใบวางบิลที่ใบนี้อยู่ (ร่าง/ออกแล้ว/เก็บเงินแล้ว — ST5-T11; docs/01 §3.4 `billing_note_id`) · null = ไม่อยู่ในใบวางบิล"
           }
         },
         "required": [
@@ -83718,7 +83724,8 @@
           "createdBy",
           "issuedAt",
           "issuedBy",
-          "pdf"
+          "pdf",
+          "billingNoteId"
         ]
       },
       "UpdateInvoiceDto": {
@@ -84181,7 +84188,11 @@
           },
           "active": {
             "type": "boolean",
-            "description": "false = ถอดออกจากร่างแล้ว"
+            "description": "ผูกนับกันวางบิลซ้ำอยู่ (ตรงกับฐานข้อมูล) — false เมื่อถอดออกจากร่าง หรือใบวางบิลถูกยกเลิก"
+          },
+          "removed": {
+            "type": "boolean",
+            "description": "true = ถอดออกจากร่างแล้ว (ไม่อยู่ในใบ)"
           },
           "sellTotal": {
             "type": "string",
@@ -84201,7 +84212,8 @@
           "invoiceNo",
           "issueDate",
           "dueDate",
-          "active"
+          "active",
+          "removed"
         ]
       },
       "BillingNoteAcknowledgementDto": {
@@ -96315,6 +96327,12 @@
             "type": "string",
             "nullable": true,
             "description": "เวลาออกเอกสาร (ออกเลข) — ร่าง = null"
+          },
+          "billingNoteId": {
+            "type": "string",
+            "nullable": true,
+            "example": "bn_…",
+            "description": "ใบวางบิลที่ใบนี้อยู่ (ร่าง/ออกแล้ว/เก็บเงินแล้ว — ST5-T11; docs/01 §3.4 `billing_note_id`) · null = ไม่อยู่ในใบวางบิล"
           }
         },
         "required": [
@@ -96337,7 +96355,8 @@
           "customerPoNo",
           "taxEstimated",
           "deliveryOrders",
-          "issuedAt"
+          "issuedAt",
+          "billingNoteId"
         ]
       },
       "WebhookEvent_settlement_approved": {

@@ -67,6 +67,8 @@ const LOAD = {
     },
   },
   pdfDocument: { select: { id: true, filename: true, sha256: true, sizeBytes: true } },
+  // ST5-T11 ใบวางบิลที่ใบนี้อยู่ (ผูก active ได้ใบเดียว — docs/01 §3.4 `invoice.billing_note_id`)
+  billingNoteLinks: { where: { active: true }, select: { billingNoteId: true }, take: 1 },
 } as const satisfies Prisma.InvoiceInclude;
 type InvoiceRow = Prisma.InvoiceGetPayload<{ include: typeof LOAD }>;
 type LineRow = InvoiceRow['lines'][number];
@@ -1081,5 +1083,8 @@ function toDto(r: InvoiceRow): InvoiceDto {
             sizeBytes: r.pdfDocument.sizeBytes,
           }
         : null,
+    billingNoteId: r.billingNoteLinks[0]
+      ? encodeId('billingNote', r.billingNoteLinks[0].billingNoteId)
+      : null,
   };
 }

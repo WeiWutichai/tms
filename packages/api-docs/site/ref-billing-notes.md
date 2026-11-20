@@ -363,7 +363,7 @@ const { data, error } = await tms.POST('/v1/billing-notes/{id}/acknowledge', {
 
 scope: `invoices:finalize` · operationId: `BillingNotes_collect`
 
-ใบแจ้งหนี้ในใบหยุดนับว่าอยู่ในใบวางบิลที่ active (ใบที่ยังค้างวางบิลใหม่ได้) · ไม่เปลี่ยนสถานะ/ยอดของใบแจ้งหนี้ · audit `billing_note.collected`
+สถานะสิ้นสุด · ใบแจ้งหนี้ในใบ**ยังนับว่าวางบิลแล้ว** · ไม่เปลี่ยนสถานะ/ยอดของใบแจ้งหนี้ · audit `billing_note.collected`
 
 **Parameters**
 

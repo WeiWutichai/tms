@@ -19725,7 +19725,7 @@ const { data, error } = await tms.POST('/v1/billing-notes/{id}/acknowledge', {
 
 scope: `invoices:finalize` · operationId: `BillingNotes_collect`
 
-ใบแจ้งหนี้ในใบหยุดนับว่าอยู่ในใบวางบิลที่ active (ใบที่ยังค้างวางบิลใหม่ได้) · ไม่เปลี่ยนสถานะ/ยอดของใบแจ้งหนี้ · audit `billing_note.collected`
+สถานะสิ้นสุด · ใบแจ้งหนี้ในใบ**ยังนับว่าวางบิลแล้ว** · ไม่เปลี่ยนสถานะ/ยอดของใบแจ้งหนี้ · audit `billing_note.collected`
 
 **Parameters**
 
@@ -20991,6 +20991,7 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
 | `issuedAt` | ใช่ | `string` | null ได้ | เวลาออกเอกสาร (ออกเลข) — ร่าง = null |   |
 | `issuedBy` | ใช่ | `string` | null ได้ | ผู้ออกเอกสาร |   |
 | `pdf` | ใช่ | `InvoicePdfDto` | null ได้ | PDF ต้นฉบับที่เก็บ ณ วันออก — null = ร่าง หรือยังไม่ได้ render (render หลังออกเลข; `GET /v1/invoices/{id}/pdf` สร้างให้ถ้ายังไม่มี) |   |
+| `billingNoteId` | ใช่ | `string` | null ได้ | ใบวางบิลที่ใบนี้อยู่ · null = ไม่อยู่ในใบวางบิล | `bn_…` |
 
 ### InvoiceMoveResultDto {#schema-InvoiceMoveResultDto}
 
@@ -21201,6 +21202,7 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
 | `taxEstimated` | ใช่ | `boolean` |   | ยอด VAT/WHT เป็นประมาณการ — true เสมอ |   |
 | `deliveryOrders` | ใช่ | `array<InvoiceDeliveryOrderDto>` |   |   |   |
 | `issuedAt` | ใช่ | `string` | null ได้ | เวลาออกเอกสาร (ออกเลข) — ร่าง = null |   |
+| `billingNoteId` | ใช่ | `string` | null ได้ | ใบวางบิลที่ใบนี้อยู่ · null = ไม่อยู่ในใบวางบิล | `bn_…` |
 
 ## invoice.paid {#invoice-paid}
 
