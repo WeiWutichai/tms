@@ -37,7 +37,14 @@ export function useCustomerErpCodes(customerId: string, enabled: boolean) {
 export function useSaveCustomerErpCodes(customerId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (items: { row: CustomerErpCode; value: string }[]) => {
+    mutationFn: async ({
+      items,
+      reason,
+    }: {
+      items: { row: CustomerErpCode; value: string }[];
+      /** เปลี่ยน/ยกเลิกรหัสที่ตั้งไว้แล้ว (API บังคับ ≥ 10 ตัวอักษร) */
+      reason: string | null;
+    }) => {
       for (const { row, value } of items)
         await unwrap(
           api.PUT('/v1/customers/{id}/erp-codes/{connectorId}', {
@@ -45,7 +52,10 @@ export function useSaveCustomerErpCodes(customerId: string) {
               path: { id: customerId, connectorId: row.connector.id },
               header: { 'If-Match': `"${row.version}"` } as never,
             },
-            body: { externalId: value.trim() || null },
+            body: {
+              externalId: value.trim() || null,
+              ...(row.externalId && reason ? { reason } : {}),
+            },
           }),
         );
     },

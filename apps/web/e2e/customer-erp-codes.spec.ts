@@ -75,6 +75,17 @@ test('ลูกค้า: แท็บรหัสระบบบัญชี �
     await expect(page.getByRole('dialog').getByLabel('รหัสลูกค้าใน ERP จำลอง (Demo)')).toHaveValue(
       `C-${RUN}`,
     );
+    // เปลี่ยนรหัสที่ตั้งแล้ว → ต้องกรอกเหตุผล (ตาราง เดิม | ใหม่)
+    const d2 = page.getByRole('dialog').first();
+    await d2.getByLabel('รหัสลูกค้าใน ERP จำลอง (Demo)').fill(`D-${RUN}`);
+    await d2.getByRole('button', { name: 'บันทึก' }).click();
+    const rd = page.getByRole('dialog', { name: 'เปลี่ยนรหัสลูกค้าในระบบบัญชี' });
+    await expect(rd).toContainText(`C-${RUN}`);
+    await expect(rd).toContainText(`D-${RUN}`);
+    await rd.getByLabel('เหตุผล').fill('บัญชียืนยันรหัสใหม่แล้ว ทดสอบ');
+    await rd.getByRole('button', { name: 'บันทึก' }).click();
+    await expect(page.getByRole('status')).toContainText(`บันทึกข้อมูล ${NAME} แล้ว`);
+    await expect(rd).toHaveCount(0);
   } finally {
     await page.request.post(`/v1/connectors/${conId}/disconnect`, {
       headers: auth,

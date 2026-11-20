@@ -352,6 +352,8 @@ export const en: Partial<Record<MessageKey, string>> = {
   'cust.tab.addr': 'Delivery addresses',
   'cust.tab.erpc': 'Accounting codes',
   'cust.erp.ok': 'Success',
+  'cust.erp.dlgSys': 'Accounting system',
+  'cust.erp.dlgNew': 'New',
   'vt.kind': 'Vehicle type',
   'vt.add': 'Add vehicle type',
   'vt.sum.types': 'Vehicle type',

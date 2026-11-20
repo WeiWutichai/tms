@@ -7,7 +7,6 @@ import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { lockKey, lockReferenced } from '../master/master-kit';
-import { ConnectorsService } from './connectors.service';
 import { ErpAdapterRegistry } from './erp-adapter.registry';
 import { ERP_CODE_RE } from './erp-master-codes.service';
 
@@ -32,18 +31,18 @@ export function connectorKeyOfSource(source: string): string | null {
 }
 
 /**
- * `external_mapping` ของลูกค้า (ST8-T05; docs/01 §3.7, A.4) — **ไม่ผูก ERP ใด** (KRS เป็นแค่ adapter ที่ประกาศ `deriveCustomerCode`)
+ * `external_mapping` ของลูกค้า (ST8-T05; docs/01 §3.7, A.4) — **ไม่ผูก ERP ใด**
  *
  * 1 แถวต่อ (connector, ลูกค้า): `external_id` = รหัสลูกค้าในระบบบัญชี (ใช้ส่งเอกสาร — KRS `custOrSuppCode` ของ PP) ·
  * `source_code` = รหัสลูกค้าในข้อมูลขาเข้าของ connector (ใช้จับคู่ตอนดึง — KRS รหัส NSF ใน SO)
  *
  * - **จับคู่ตอนดึง** (`matchCustomer`): ใบที่มา `ERP:{key}` + รหัสลูกค้าต้นทาง → แถวที่ `source_code` ตรง ของ connector ที่ยังไม่ยกเลิก
  *   ที่ adapter เดียวกัน (2 นิติบุคคลใช้ adapter เดียวกันแล้วรหัสเดียวกันชี้คนละลูกค้า = กำกวม → ไม่จับคู่ ให้คนตัดสิน)
- * - **คน map ครั้งเดียวได้สองรหัส** (`learnCustomerSourceCode` — จากหน้าใบค้าง "จับคู่ลูกค้า"): ตั้ง `source_code` และถ้ายังไม่มี
- *   `external_id` ให้ adapter เดา (`deriveCustomerCode(ctx, 'erp', code)` — KRS: รหัสเดียวกัน [OPEN — KRS] A.6) · เดาไม่ได้/ชนกับลูกค้าอื่น
- *   = PENDING (กรอกเองในแท็บ "รหัสระบบบัญชี") · รหัสเดิมเป็นของลูกค้าอื่น → 409 `alias_conflict` เว้นยืนยัน + เหตุผล (ย้าย — audit)
- *   · ลูกค้ามี `source_code` อื่นอยู่แล้ว = คืน null (ผู้เรียกจำเป็น alias ของช่องทาง — ลูกค้า 1 รายมีหลายรหัสต้นทางได้)
- * - **หน้าลูกค้า** (`setForCustomer`): กรอกรหัสในระบบบัญชี — ยังไม่มี `source_code` ให้ adapter เดากลับ (`'source'`) ถ้ายังไม่เป็นของลูกค้าอื่น
+ * - **หน้าใบค้าง "จับคู่ลูกค้า"** (`learnCustomerSourceCode`, สิทธิ์ orders:write): ตั้ง **`source_code` อย่างเดียว** — ไม่ตั้งรหัสในระบบบัญชี
+ *   (review H1: รหัส NSF = PP หรือไม่ ยังไม่ยืนยัน [OPEN — KRS A.6] → ไม่เดา) · รหัสเป็นของลูกค้าอื่น (mapping หรือ alias เดิมของช่องทาง)
+ *   → 409 `alias_conflict` เว้นยืนยัน + เหตุผล (ย้ายทั้งคู่ — audit) · ลูกค้ามี `source_code` อื่นแล้ว / รหัสยาวเกิน = คืน null (ผู้เรียกจำเป็น alias)
+ * - **หน้าลูกค้า แท็บ "รหัสระบบบัญชี"** (`setForCustomer`, สิทธิ์ settings:write): คนกรอกรหัสในระบบบัญชีเอง · เปลี่ยน/ล้างรหัสที่ตั้งแล้ว
+ *   ต้องมีเหตุผล (≥ 10 — audit) · ไม่แตะ `source_code`
  * - ไม่มี hard delete · audit ทุกการเปลี่ยน (`external_mapping.changed`)
  */
 @Injectable()
@@ -54,7 +53,6 @@ export class ExternalMappingService {
     private readonly db: DbService,
     private readonly audit: AuditService,
     private readonly adapters: ErpAdapterRegistry,
-    private readonly connectors: ConnectorsService,
   ) {}
 
   /** connector ที่ยังไม่ยกเลิกของ adapter ตามป้ายที่มา — ช่องทางอื่น = [] */
@@ -104,7 +102,29 @@ export class ExternalMappingService {
     if (!code) return 'empty';
     const cons = await this.connectorsOfSource(tx, q.source);
     if (!cons.length) return null;
-    if (code.length > MAX_CODE || !ERP_CODE_RE.test(code)) return 'too_long';
+    // รหัสยาว/รูปแบบที่ external_mapping เก็บไม่ได้ → ใช้ alias ของช่องทางแบบเดิม (ST3-T06)
+    if (code.length > MAX_CODE || !ERP_CODE_RE.test(code)) return null;
+    // alias เดิมของช่องทางนี้ชี้ลูกค้าอื่น → ห้ามทับเงียบ (mapping ชนะ alias ตอนจับคู่) — ยืนยันแล้วย้าย alias มาด้วย
+    await lockKey(tx, `customer_alias:EXTERNAL_ID:${q.source}:${code}`);
+    const alias = await tx.customerAlias.findFirst({
+      where: { kind: 'EXTERNAL_ID', source: q.source, valueKey: code },
+      select: { id: true, customerId: true },
+    });
+    if (alias && alias.customerId !== q.customerId) {
+      this.conflict(alias.customerId, code, q);
+      const ctx = requestContext.require();
+      await tx.$executeRaw`
+        UPDATE customer_alias SET customer_id = ${q.customerId}::uuid, created_by = ${ctx.actorId ?? null},
+               updated_at = now() WHERE id = ${alias.id}::uuid`;
+      await this.audit.record({
+        action: 'customer.alias_reassigned',
+        entityType: 'customer',
+        entityId: q.customerId,
+        before: { aliasOf: encodeId('customer', alias.customerId) },
+        after: { kind: 'EXTERNAL_ID', source: q.source, value: code },
+        reason: q.reason!,
+      });
+    }
     let result: SourceCodeLearnResult | null = 'exists';
     for (const c of cons) {
       await lockKey(tx, `external_mapping:${c.id}:${ENTITY}:src:${code}`);
@@ -124,7 +144,7 @@ export class ExternalMappingService {
       });
       // รหัสนี้เป็นของลูกค้าอื่น → ต้องยืนยัน + เหตุผล แล้วย้าย (ถอดจากลูกค้าเดิม)
       if (owner) {
-        this.conflict(owner, code, q);
+        this.conflict(owner.localId, code, q);
         await this.write(tx, owner, { sourceCode: null }, q.reason ?? null);
       }
       // ลูกค้ามีรหัสต้นทางอื่นอยู่แล้ว → ไม่ทับ (ใบที่ใช้รหัสเดิมยังจับคู่ได้) — ผู้เรียกจำเป็น alias ของช่องทาง
@@ -132,19 +152,16 @@ export class ExternalMappingService {
         result = null;
         continue;
       }
-      if (mine) {
-        const patch: Partial<Pick<ExternalMapping, 'sourceCode' | 'externalId'>> = {
-          sourceCode: code,
-        };
-        if (!mine.externalId) {
-          const erp = await this.derive(tx, c, 'erp', code, q.customerId);
-          if (erp) patch.externalId = erp;
-        }
-        await this.write(tx, mine, patch, owner ? (q.reason ?? null) : null);
-      } else {
-        const erp = await this.derive(tx, c, 'erp', code, q.customerId);
-        await this.create(tx, c, q.customerId, { sourceCode: code, externalId: erp });
-      }
+      // รหัสต้นทางอย่างเดียว — รหัสในระบบบัญชีคนกรอกเองที่หน้าลูกค้า (ไม่เดา — [OPEN — KRS A.6])
+      if (mine) await this.write(tx, mine, { sourceCode: code }, owner ? (q.reason ?? null) : null);
+      else
+        await this.create(
+          tx,
+          c,
+          q.customerId,
+          { sourceCode: code, externalId: null },
+          owner ? (q.reason ?? null) : null,
+        );
       if (result !== null) result = 'learned';
     }
     return result;
@@ -152,7 +169,7 @@ export class ExternalMappingService {
 
   /** รหัสเดิมเป็นของลูกค้าอื่น — ต้องยืนยัน + เหตุผล (กติกาเดียวกับย้าย alias — ST3-T06) */
   private conflict(
-    owner: ExternalMapping,
+    ownerCustomerId: string,
     code: string,
     q: { confirmReassign?: boolean; reason?: string | null },
   ): void {
@@ -160,40 +177,8 @@ export class ExternalMappingService {
       throw new ProblemException('alias_conflict', undefined, undefined, {
         aliasKind: 'EXTERNAL_ID',
         aliasValue: code,
-        mappedCustomerId: encodeId('customer', owner.localId),
+        mappedCustomerId: encodeId('customer', ownerCustomerId),
       });
-  }
-
-  /** รหัสอีกฝั่งจาก adapter — ไม่ประกาศ/ล้ม/ผิดรูป/เป็นของลูกค้าอื่นแล้ว = null */
-  private async derive(
-    tx: Tx,
-    c: Connector,
-    target: 'erp' | 'source',
-    code: string,
-    customerId: string,
-  ): Promise<string | null> {
-    const adapter = this.adapters.get(c.adapterKey);
-    if (!adapter?.deriveCustomerCode) return null;
-    let v: unknown;
-    try {
-      v = adapter.deriveCustomerCode(this.connectors.contextOf(c), target, code);
-    } catch (e) {
-      this.logger.warn(`connector ${c.id}: deriveCustomerCode failed — ${String(e)}`);
-      return null;
-    }
-    if (typeof v !== 'string') return null;
-    const out = v.trim();
-    if (!out || out.length > MAX_CODE || !ERP_CODE_RE.test(out)) return null;
-    const taken = await tx.externalMapping.findFirst({
-      where: {
-        connectorId: c.id,
-        entityType: ENTITY,
-        ...(target === 'erp' ? { externalId: out } : { sourceCode: out }),
-        localId: { not: customerId },
-      },
-      select: { id: true },
-    });
-    return taken ? null : out;
   }
 
   private async create(
@@ -201,6 +186,7 @@ export class ExternalMappingService {
     c: Connector,
     customerId: string,
     v: { sourceCode: string | null; externalId: string | null },
+    reason: string | null = null,
   ): Promise<ExternalMapping> {
     const ctx = requestContext.require();
     const row = await tx.externalMapping.create({
@@ -222,6 +208,7 @@ export class ExternalMappingService {
       entityId: customerId,
       before: { connectorId: c.id, externalId: null, sourceCode: null },
       after: { connectorId: c.id, externalId: v.externalId, sourceCode: v.sourceCode },
+      ...(reason ? { reason } : {}),
     });
     return row;
   }
@@ -251,7 +238,11 @@ export class ExternalMappingService {
       action: 'external_mapping.changed',
       entityType: 'customer',
       entityId: row.localId,
-      before: { connectorId: row.connectorId, externalId: row.externalId, sourceCode: row.sourceCode },
+      before: {
+        connectorId: row.connectorId,
+        externalId: row.externalId,
+        sourceCode: row.sourceCode,
+      },
       after: { connectorId: row.connectorId, ...next },
       ...(reason ? { reason } : {}),
     });
@@ -269,7 +260,11 @@ export class ExternalMappingService {
       orderBy: { createdAt: 'asc' },
     });
     const rows = await tx.externalMapping.findMany({
-      where: { entityType: ENTITY, localId: customerId, connectorId: { in: cons.map((c) => c.id) } },
+      where: {
+        entityType: ENTITY,
+        localId: customerId,
+        connectorId: { in: cons.map((c) => c.id) },
+      },
     });
     return cons.map((c) => ({
       connector: c,
@@ -285,7 +280,7 @@ export class ExternalMappingService {
   async setForCustomer(
     customerRef: string,
     connectorRef: string,
-    body: { externalId?: string | null },
+    body: { externalId?: string | null; reason?: string | null },
     expected?: number,
     tx: Tx = this.db.tx,
   ): Promise<CustomerErpCodeView> {
@@ -301,14 +296,22 @@ export class ExternalMappingService {
     const raw = body.externalId?.trim() ?? '';
     if (raw && (raw.length > MAX_CODE || !ERP_CODE_RE.test(raw)))
       throw new ProblemException('validation_failed', undefined, [
-        { field: 'externalId', code: 'invalid_format', message: 'รหัสยาว 1–64 ตัว ไม่มีอักขระควบคุม' },
+        {
+          field: 'externalId',
+          code: 'invalid_format',
+          message: 'รหัสยาว 1–64 ตัว ไม่มีอักขระควบคุม',
+        },
       ]);
     const [ref] = await lockReferenced(tx, 'customer', [customerId]);
     if (!ref) throw new ProblemException('not_found');
     await lockKey(tx, `external_mapping:${c.id}:${ENTITY}:local:${customerId}`);
     if (raw) await lockKey(tx, `external_mapping:${c.id}:${ENTITY}:ext:${raw}`);
     const key = {
-      connectorId_entityType_localId: { connectorId: c.id, entityType: ENTITY, localId: customerId },
+      connectorId_entityType_localId: {
+        connectorId: c.id,
+        entityType: ENTITY,
+        localId: customerId,
+      },
     };
     const before = await tx.externalMapping.findUnique({ where: key });
     if (expected !== undefined && (before?.version ?? 0) !== expected)
@@ -320,22 +323,34 @@ export class ExternalMappingService {
         select: { localId: true },
       });
       if (other)
-        throw new ProblemException('external_id_conflict', undefined, [
-          { field: 'externalId', code: 'duplicate', message: 'รหัสนี้ผูกกับลูกค้าอื่นแล้ว' },
-        ], { mappedCustomerId: encodeId('customer', other.localId) });
+        throw new ProblemException(
+          'external_id_conflict',
+          undefined,
+          [{ field: 'externalId', code: 'duplicate', message: 'รหัสนี้ผูกกับลูกค้าอื่นแล้ว' }],
+          { mappedCustomerId: encodeId('customer', other.localId) },
+        );
     }
+    // เปลี่ยน/ล้างรหัสที่ตั้งไว้แล้ว = ต้องมีเหตุผล (review M2 — ใบแจ้งหนี้ถัดไปส่งด้วยรหัสใหม่ · audit)
+    const reason = body.reason?.trim() || null;
+    if (before?.externalId && before.externalId !== externalId && (!reason || reason.length < 10))
+      throw new ProblemException('validation_failed', undefined, [
+        {
+          field: 'reason',
+          code: 'required',
+          message: 'เปลี่ยนหรือยกเลิกรหัสที่ตั้งไว้แล้วต้องระบุเหตุผลอย่างน้อย 10 ตัวอักษร',
+        },
+      ]);
     let row: ExternalMapping;
     if (!before) {
-      const src = externalId ? await this.derive(tx, c, 'source', externalId, customerId) : null;
-      row = await this.create(tx, c, customerId, { externalId, sourceCode: src });
+      if (!externalId) return this.view(c, null);
+      row = await this.create(tx, c, customerId, { externalId, sourceCode: null }, reason);
     } else {
-      const patch: Partial<Pick<ExternalMapping, 'sourceCode' | 'externalId'>> = { externalId };
-      if (!before.sourceCode && externalId) {
-        const src = await this.derive(tx, c, 'source', externalId, customerId);
-        if (src) patch.sourceCode = src;
-      }
-      row = await this.write(tx, before, patch, null);
+      row = await this.write(tx, before, { externalId }, reason);
     }
+    return this.view(c, row);
+  }
+
+  private view(c: Connector, row: ExternalMapping | null): CustomerErpCodeView {
     return {
       connector: c,
       displayName: this.adapters.get(c.adapterKey)?.displayName ?? c.adapterKey,

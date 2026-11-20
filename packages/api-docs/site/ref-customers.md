@@ -1,6 +1,6 @@
 # ลูกค้า (customers)
 
-19 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+18 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -19,7 +19,6 @@
 | [`POST /v1/customers/{id}/activate`](#post-customers-id-activate) | `master:write` |
 | [`POST /v1/customers/{id}/delete`](#post-customers-id-delete) | `master:write` |
 | [`GET /v1/customers/{id}/erp-codes`](#get-customers-id-erp-codes) | `master:read` |
-| [`PUT /v1/customers/{id}/erp-codes/{connectorId}`](#put-customers-id-erp-codes-connectorId) | `master:write` |
 | [`GET /v1/customers/{id}/tracking-link`](#get-customers-id-tracking-link) | `master:write` |
 | [`POST /v1/customers/{id}/tracking-link`](#post-customers-id-tracking-link) | `master:write` |
 | [`POST /v1/customers/{id}/tracking-link/revoke`](#post-customers-id-tracking-link-revoke) | `master:write` |
@@ -793,56 +792,6 @@ const { data, error } = await tms.GET('/v1/customers/{id}/erp-codes', {
 });
 ```
 
-## PUT /v1/customers/{id}/erp-codes/{connectorId} {#put-customers-id-erp-codes-connectorId}
-
-`PUT /v1/customers/{id}/erp-codes/{connectorId}`
-
-scope: `master:write` · operationId: `CustomerErpCodes_set`
-
-**Parameters**
-
-| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
-|---|---|---|---|---|
-| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
-| `connectorId` | path | ใช่ | `string` |   |
-| `If-Match` | header |   | `string` | `version` จาก GET (ยังไม่เคยตั้ง = "0") — ไม่ตรง → 412 · ไม่ส่ง = เขียนทับ |
-
-**Request body** `SetCustomerErpCodeDto`
-
-| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
-|---|---|---|---|---|---|
-| `externalId` | ใช่ | `string` | null ได้ | รหัสลูกค้าในระบบบัญชี (1–64 ตัว ไม่มีอักขระควบคุม) · null/ว่าง = ยกเลิก (ใบแจ้งหนี้ส่งเข้าระบบบัญชีไม่ได้จนกว่าตั้งใหม่) · รหัสผูกกับลูกค้าอื่นแล้ว → 409 `external_id_conflict` | `C0001` |
-
-**Responses**
-
-| สถานะ | ความหมาย | body |
-|---|---|---|
-| `200` | ตั้ง/ยกเลิก (null) รหัสลูกค้าในระบบบัญชีของ connector 1 ตัว · ยังไม่มีรหัสต้นทาง → adapter เดาให้ (เช่น KRS ใช้รหัสเดียวกัน) · รหัสผูกกับลูกค้าอื่น → 409 `external_id_conflict` · connector ยกเลิกแล้ว → 409 `invalid_state_transition` · audit `external_mapping.changed` | `CustomerErpCodeDto` |
-| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
-| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
-| `412` | If-Match ไม่ตรงกับ version ปัจจุบัน (ETag จาก GET) — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
-| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
-| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
-
-**ตัวอย่าง**
-
-```bash
-curl -sS -X PUT "$TMS_BASE_URL/v1/customers/<id>/erp-codes/<connectorId>" \
-  -H "Authorization: Bearer $TMS_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"externalId":"C0001"}'
-```
-
-```ts
-const { data, error } = await tms.PUT('/v1/customers/{id}/erp-codes/{connectorId}', {
-  params: { path: { id: "…", connectorId: "…" } },
-  body: {
-    "externalId": "C0001"
-  },
-});
-```
-
 ## GET /v1/customers/{id}/tracking-link {#get-customers-id-tracking-link}
 
 `GET /v1/customers/{id}/tracking-link`
@@ -1007,19 +956,6 @@ const { data, error } = await tms.POST('/v1/customers/{id}/tracking-link/revoke'
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string (date-time)` |   |   |   |
 | `updatedAt` | ใช่ | `string (date-time)` |   |   |   |
-
-### CustomerErpCodeDto {#schema-CustomerErpCodeDto}
-
-
-
-| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
-|---|---|---|---|---|---|
-| `connector` | ใช่ | `CustomerErpCodeConnectorDto` |   |   |   |
-| `externalId` | ใช่ | `string` | null ได้ | รหัสลูกค้าในระบบบัญชี (ใช้ส่งเอกสาร — KRS: `custOrSuppCode` ของบริษัทที่ออก Invoice) · null = ยังไม่ map → ใบแจ้งหนี้ของลูกค้านี้ส่งเข้าระบบบัญชีไม่ได้ | `C0001` |
-| `sourceCode` | ใช่ | `string` | null ได้ | รหัสลูกค้าในข้อมูลขาเข้าของ connector (KRS: รหัสใน SO ของบริษัทที่เปิด SO) — ใบที่ดึงมาด้วยรหัสนี้จับคู่ลูกค้านี้เอง · ได้จากการ "จับคู่ลูกค้า" ที่หน้าใบค้าง (ครั้งเดียวได้ทั้งสองรหัส) หรือเดาจากรหัสในระบบบัญชีตอนตั้งครั้งแรก | `C0001` |
-| `status` | ใช่ | `string` | ค่า: `SYNCED`, `PENDING`, `FAILED`, `MISMATCH`, `RETIRED`, `UNMAPPED` | UNMAPPED = ยังไม่มีแถว · PENDING = มีรหัสต้นทางแต่ยังไม่มีรหัสในระบบบัญชี · SYNCED = มีรหัสในระบบบัญชี |   |
-| `updatedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
-| `version` | ใช่ | `number` |   | version ของแถว (ส่งเป็น If-Match ตอน PUT) — ยังไม่เคยตั้ง = 0 |   |
 
 ### CustomerErpCodeListDto {#schema-CustomerErpCodeListDto}
 

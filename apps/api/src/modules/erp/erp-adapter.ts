@@ -367,12 +367,6 @@ export interface ErpAdapter {
   ): readonly MasterCodeRef[];
   /** ST8-T06 ความพร้อมของผังรหัสก่อนส่งเอกสาร (ฟังก์ชันบริสุทธิ์ จากค่าตั้ง) — ไม่มี = ไม่ตรวจ */
   pushReadiness?(ctx: ErpContext): MasterCodeReadiness;
-  /**
-   * ST8-T05 รหัสลูกค้าอีกฝั่งของ connector (docs/01 A.4 "คน map ครั้งเดียว ระบบสร้าง mapping ทั้งสองรหัส") — ฟังก์ชันบริสุทธิ์
-   * `target = 'erp'`: จากรหัสลูกค้าในข้อมูลขาเข้า (เช่น SO) → รหัสในระบบบัญชีที่ใช้ส่งเอกสาร (`external_mapping.external_id`)
-   * `target = 'source'`: กลับกัน (`external_mapping.source_code`) · null = เดาไม่ได้ (คนกรอกเอง) · ไม่ประกาศ = ไม่เดา
-   */
-  deriveCustomerCode?(ctx: ErpContext, target: 'erp' | 'source', code: string): string | null;
 }
 
 /** capability → ชื่อ method (ธงไม่มี method) */

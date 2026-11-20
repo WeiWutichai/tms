@@ -1,4 +1,5 @@
-import { Badge, ChoiceGroup, Drawer, DrawerFooterButtons, TextInput } from '@tms/ui';
+import { Badge, ChoiceGroup, Drawer, DrawerFooterButtons, ReasonDialog, TextInput } from '@tms/ui';
+import { adapterName } from '../settings/ConnectorSettings';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { api, ApiError, unwrap } from '../../api';
@@ -187,6 +188,7 @@ export function CustomerDrawer({
   canListUsers,
   canBillBasis = false,
   erp = false,
+  canErpWrite = false,
   onSaved,
   onToggleStatus,
   onDelete,
@@ -199,6 +201,8 @@ export function CustomerDrawer({
   canBillBasis?: boolean;
   /** ST8-T05 แพ็กเกจมีการเชื่อมต่อระบบบัญชี (`conn`) — แท็บ "รหัสระบบบัญชี" แสดงเมื่อมี connector */
   erp?: boolean;
+  /** ST8-T05 แก้รหัสลูกค้าในระบบบัญชีได้ (`settings:write` — ค่าตั้งระบบบัญชี) */
+  canErpWrite?: boolean;
   onSaved: (c: Customer) => void;
   onToggleStatus: () => void;
   onDelete: () => void;
@@ -220,15 +224,26 @@ export function CustomerDrawer({
   const hasErp = erpRows.length > 0;
   const [erpDraft, setErpDraft] = useState<Record<string, string>>({});
   const erpSave = useSaveCustomerErpCodes(c.id);
+  // เปลี่ยน/ยกเลิกรหัสที่ตั้งไว้แล้ว = ต้องมีเหตุผล (API 422 — review M2) → กล่องเหตุผลพร้อมตาราง เดิม | ใหม่
+  const [erpReason, setErpReason] = useState<ReturnType<typeof erpCodeChanges> | null>(null);
+  const saveErp = (items: ReturnType<typeof erpCodeChanges>, reason: string | null) =>
+    erpSave.mutate(
+      { items, reason },
+      {
+        onSuccess: () => {
+          setErpDraft({});
+          setErpReason(null);
+          onSaved(c);
+        },
+      },
+    );
   const submitErp = () => {
     const items = erpCodeChanges(erpRows, erpDraft);
     if (!items.length || erpSave.isPending) return;
-    erpSave.mutate(items, {
-      onSuccess: () => {
-        setErpDraft({});
-        onSaved(c);
-      },
-    });
+    if (items.some((i) => i.row.externalId)) {
+      erpSave.reset();
+      setErpReason(items);
+    } else saveErp(items, null);
   };
   const users = useQuery({
     queryKey: ['users', 'options'],
@@ -339,7 +354,11 @@ export function CustomerDrawer({
       tab={tab}
       onTab={(k) => setTab(k as Tab)}
       footer={
-        canWrite && tab !== 'act' && tab !== 'addr' && tab !== 'rate' ? (
+        (
+          tab === 'erpc'
+            ? canErpWrite
+            : canWrite && tab !== 'act' && tab !== 'addr' && tab !== 'rate'
+        ) ? (
           <DrawerFooterButtons
             primary={
               tab === 'erpc'
@@ -373,7 +392,7 @@ export function CustomerDrawer({
         !(save.error instanceof ApiError && save.error.problem.code === 'precondition_failed') && (
           <div className="tms-alert">{top}</div>
         )}
-      {tab === 'erpc' && erpSave.error && (
+      {tab === 'erpc' && erpSave.error && !erpReason && (
         <div className="tms-alert">{problemText(erpSave.error, t)}</div>
       )}
       {tab === 'sum' && (
@@ -636,9 +655,34 @@ export function CustomerDrawer({
           rows={erpRows}
           draft={erpDraft}
           onChange={(id, v) => setErpDraft((d) => ({ ...d, [id]: v }))}
-          readOnly={ro}
+          readOnly={!canErpWrite}
         />
       )}
+      <ReasonDialog
+        open={!!erpReason}
+        title={t('cust.erp.dlgT')}
+        description={t('cust.erp.dlgD')}
+        label={t('cust.dlg.reason')}
+        placeholder={t('cust.erp.reasonPh')}
+        okLabel={t('common.save')}
+        cancelLabel={t('common.cancel')}
+        closeLabel={t('drawer.close')}
+        busy={erpSave.isPending}
+        error={erpReason ? problemText(erpSave.error, t) : null}
+        diff={{
+          labels: [t('cust.erp.dlgSys'), t('cust.erp.dlgOld'), t('cust.erp.dlgNew')],
+          rows: (erpReason ?? []).map((i) => ({
+            f: adapterName(t, i.row.connector.adapterKey, i.row.connector.displayName),
+            b: i.row.externalId ?? '—',
+            a: i.value.trim() || '—',
+          })),
+        }}
+        onClose={() => {
+          setErpReason(null);
+          erpSave.reset();
+        }}
+        onOk={(reason) => erpReason && saveErp(erpReason, reason)}
+      />
       {tab === 'rate' && <CustomerRatesTab customerId={c.id} customerName={c.legalName} />}
       {tab === 'act' && (
         <HistoryTab

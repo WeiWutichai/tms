@@ -19645,107 +19645,6 @@
         ]
       }
     },
-    "/v1/customers/{id}/erp-codes/{connectorId}": {
-      "put": {
-        "operationId": "CustomerErpCodes_set",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
-          },
-          {
-            "name": "connectorId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "If-Match",
-            "in": "header",
-            "description": "`version` จาก GET (ยังไม่เคยตั้ง = \"0\") — ไม่ตรง → 412 · ไม่ส่ง = เขียนทับ",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "$ref": "#/components/parameters/ApiVersion"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetCustomerErpCodeDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "ตั้ง/ยกเลิก (null) รหัสลูกค้าในระบบบัญชีของ connector 1 ตัว · ยังไม่มีรหัสต้นทาง → adapter เดาให้ (เช่น KRS ใช้รหัสเดียวกัน) · รหัสผูกกับลูกค้าอื่น → 409 `external_id_conflict` · connector ยกเลิกแล้ว → 409 `invalid_state_transition` · audit `external_mapping.changed`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CustomerErpCodeDto"
-                }
-              }
-            },
-            "headers": {
-              "RateLimit-Limit": {
-                "$ref": "#/components/headers/RateLimit-Limit"
-              },
-              "RateLimit-Remaining": {
-                "$ref": "#/components/headers/RateLimit-Remaining"
-              },
-              "RateLimit-Reset": {
-                "$ref": "#/components/headers/RateLimit-Reset"
-              },
-              "X-Api-Version": {
-                "$ref": "#/components/headers/X-Api-Version"
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden_master.write"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          },
-          "412": {
-            "$ref": "#/components/responses/PreconditionFailed"
-          },
-          "422": {
-            "$ref": "#/components/responses/ValidationFailed"
-          },
-          "429": {
-            "$ref": "#/components/responses/RateLimited"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "tags": [
-          "customers"
-        ],
-        "x-required-scopes": [
-          "master:write"
-        ]
-      }
-    },
     "/v1/webhook-deliveries": {
       "get": {
         "operationId": "WebhookDeliveries_list",
@@ -49678,7 +49577,7 @@
             "type": "string",
             "nullable": true,
             "example": "C0001",
-            "description": "รหัสลูกค้าในข้อมูลขาเข้าของ connector (KRS: รหัสใน SO ของบริษัทที่เปิด SO) — ใบที่ดึงมาด้วยรหัสนี้จับคู่ลูกค้านี้เอง · ได้จากการ \"จับคู่ลูกค้า\" ที่หน้าใบค้าง (ครั้งเดียวได้ทั้งสองรหัส) หรือเดาจากรหัสในระบบบัญชีตอนตั้งครั้งแรก"
+            "description": "รหัสลูกค้าในข้อมูลขาเข้าของ connector (KRS: รหัสใน SO ของบริษัทที่เปิด SO) — ใบที่ดึงมาด้วยรหัสนี้จับคู่ลูกค้านี้เอง · ได้จากการ \"จับคู่ลูกค้า\" ที่หน้าใบค้าง (รหัสในระบบบัญชีต้องกรอกเองที่นี่ — ยังไม่ยืนยันว่าเป็นรหัสเดียวกัน)"
           },
           "status": {
             "type": "string",
@@ -58533,20 +58432,6 @@
           "createdAt",
           "updatedAt",
           "warnings"
-        ]
-      },
-      "SetCustomerErpCodeDto": {
-        "type": "object",
-        "properties": {
-          "externalId": {
-            "type": "string",
-            "nullable": true,
-            "example": "C0001",
-            "description": "รหัสลูกค้าในระบบบัญชี (1–64 ตัว ไม่มีอักขระควบคุม) · null/ว่าง = ยกเลิก (ใบแจ้งหนี้ส่งเข้าระบบบัญชีไม่ได้จนกว่าตั้งใหม่) · รหัสผูกกับลูกค้าอื่นแล้ว → 409 `external_id_conflict`"
-          }
-        },
-        "required": [
-          "externalId"
         ]
       },
       "SettingDto": {

@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, MaxLength } from 'class-validator';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 import { IsNullable } from '../master/master-kit';
 
 /** connector ที่แสดงในแท็บ "รหัสระบบบัญชี" ของลูกค้า (ST8-T05) */
@@ -31,12 +31,13 @@ export class CustomerErpCodeDto {
     example: 'C0001',
     description:
       'รหัสลูกค้าในข้อมูลขาเข้าของ connector (KRS: รหัสใน SO ของบริษัทที่เปิด SO) — ใบที่ดึงมาด้วยรหัสนี้จับคู่ลูกค้านี้เอง · ' +
-      'ได้จากการ "จับคู่ลูกค้า" ที่หน้าใบค้าง (ครั้งเดียวได้ทั้งสองรหัส) หรือเดาจากรหัสในระบบบัญชีตอนตั้งครั้งแรก',
+      'ได้จากการ "จับคู่ลูกค้า" ที่หน้าใบค้าง (รหัสในระบบบัญชีต้องกรอกเองที่นี่ — [OPEN — KRS A.6] ยังไม่ยืนยันว่าเป็นรหัสเดียวกัน)',
   })
   sourceCode!: string | null;
   @ApiProperty({
     enum: ['SYNCED', 'PENDING', 'FAILED', 'MISMATCH', 'RETIRED', 'UNMAPPED'],
-    description: 'UNMAPPED = ยังไม่มีแถว · PENDING = มีรหัสต้นทางแต่ยังไม่มีรหัสในระบบบัญชี · SYNCED = มีรหัสในระบบบัญชี',
+    description:
+      'UNMAPPED = ยังไม่มีแถว · PENDING = มีรหัสต้นทางแต่ยังไม่มีรหัสในระบบบัญชี · SYNCED = มีรหัสในระบบบัญชี',
   })
   status!: string;
   @ApiProperty({ nullable: true, type: String, format: 'date-time' }) updatedAt!: string | null;
@@ -61,4 +62,17 @@ export class SetCustomerErpCodeDto {
   @IsString()
   @MaxLength(64)
   externalId!: string | null;
+
+  @ApiProperty({
+    required: false,
+    nullable: true,
+    type: String,
+    example: 'บัญชียืนยันรหัสลูกค้าใหม่ในระบบบัญชีแล้ว',
+    description:
+      'บังคับ (≥ 10 ตัวอักษร) เมื่อเปลี่ยนหรือยกเลิกรหัสที่ตั้งไว้แล้ว (422) — บันทึกใน audit',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string | null;
 }
