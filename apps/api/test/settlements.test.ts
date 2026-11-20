@@ -1609,4 +1609,439 @@ describe('settlements (ST6-T03)', () => {
       );
     });
   });
+
+  describe('บันทึกจ่าย (ST6-T09)', () => {
+    const APPROVE = { reason: 'ตรวจยอดตรงใบแจ้งหนี้รถร่วมแล้ว' };
+    const PAY = {
+      paidDate: today,
+      method: 'TRANSFER',
+      reference: 'KBANK-2611-0091',
+      bank: 'กสิกรไทย',
+    };
+    let approver: string;
+    let accounting: string;
+    beforeAll(async () => {
+      approver = await tokenFor(tenantId, SYSTEM_ROLES.approver.permissions.join(' '), 'u-appr');
+      accounting = await tokenFor(tenantId, SYSTEM_ROLES.accounting.permissions.join(' '), 'u-acc');
+    });
+    const etag = async (id: string) =>
+      `"${(await db.carrierSettlement.findUniqueOrThrow({ where: { id: uuid('settlement', id) } })).version}"`;
+    const approve = async (id: string) =>
+      api(app, approver)
+        .post(`/v1/settlements/${id}/approve`)
+        .set('If-Match', await etag(id))
+        .send(APPROVE)
+        .expect(200);
+    const pay = async (
+      id: string,
+      body: object = PAY,
+      token = accounting,
+      ifMatch?: string | null,
+    ) => {
+      const r = api(app, token).post(`/v1/settlements/${id}/mark-paid`);
+      if (ifMatch !== null) r.set('If-Match', ifMatch ?? (await etag(id).catch(() => '"1"')));
+      return r.send(body);
+    };
+    const tripStatus = async (id: string) =>
+      (await db.trip.findUniqueOrThrow({ where: { id: uuid('trip', id) } })).status;
+
+    it('เกณฑ์ตรวจรับ: จ่ายได้เฉพาะใบ APPROVED → PAID + ข้อมูลการจ่าย · เที่ยวเป็น SETTLED ไม่กลับเข้าคิว · WHT ที่ตรึงคงเดิม · audit + event', async () => {
+      const { C, trips } = await setup(2, '4500');
+      const s = (
+        await create(
+          { carrierId: C.id, tripIds: trips.map((t) => t.id), deductions: [ADV] },
+          accounting,
+        ).expect(201)
+      ).body;
+      // ร่าง → 409 (ยังไม่อนุมัติ)
+      const draft = await pay(s.id);
+      expect(draft.status, JSON.stringify(draft.body)).toBe(409);
+      expect(draft.body.code).toBe('invalid_state_transition');
+      const ap = (await approve(s.id)).body;
+      expect(ap).toMatchObject({
+        status: 'APPROVED',
+        buyWhtAmount: '90.00',
+        paidDate: null,
+        paymentMethod: null,
+      });
+
+      // ผู้สร้างใบ (บัญชี) บันทึกจ่ายได้ — ไม่มีกติกา SoD ของการจ่ายใน docs (spec/12 §3)
+      const r = await pay(s.id);
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+      expect(r.headers.etag).toBe(`"${ap.version + 1}"`);
+      expect(r.body).toMatchObject({
+        status: 'PAID',
+        settlementNo: ap.settlementNo,
+        paidDate: today,
+        paidBy: 'u-acc',
+        paymentMethod: 'TRANSFER',
+        paymentReference: 'KBANK-2611-0091',
+        paymentBank: 'กสิกรไทย',
+        buyNetPayable: '7000.00',
+        buyWhtAmount: '90.00',
+        buyNetAfterWht: '6910.00',
+        approvedBy: 'u-appr',
+      });
+      expect(r.body.paidAt).toBeTruthy();
+      expect(r.body.whtEstimate.frozen).toBe(true);
+      const row = await db.carrierSettlement.findUniqueOrThrow({
+        where: { id: uuid('settlement', s.id) },
+      });
+      expect(row.whtAmount!.toFixed(2)).toBe('90.00');
+
+      // เที่ยว COSTED → SETTLED + ประวัติสถานะ · ไม่อยู่ในคิวจ่าย
+      for (const t of trips) expect(await tripStatus(t.id)).toBe('SETTLED');
+      expect(await queued(C.id)).toEqual([]);
+      const hist = await db.docStatusHistory.findMany({
+        where: { docType: 'trip', docId: uuid('trip', trips[0]!.id), toStatus: 'SETTLED' },
+      });
+      expect(hist).toHaveLength(1);
+      expect(hist[0]).toMatchObject({ fromStatus: 'COSTED', event: 'settle', actorId: 'u-acc' });
+      // บรรทัดต้นทุนยังผูกกับใบ (ใส่ใบใหม่ไม่ได้)
+      const again = await create({ carrierId: C.id, tripCostIds: [await feeOf(trips[0]!.id)] });
+      expect(again.status).toBe(409);
+
+      // จ่ายซ้ำ → 409 · ใบ PAID แก้/ยกเลิกไม่ได้
+      const twice = await pay(s.id);
+      expect(twice.status).toBe(409);
+      expect(twice.body).toMatchObject({ code: 'invalid_state_transition', status: 'PAID' });
+      await api(app, admin)
+        .post(`/v1/settlements/${s.id}/cancel`)
+        .set('If-Match', await etag(s.id))
+        .send({ reason: 'ยกเลิกหลังจ่ายแล้วไม่ได้' })
+        .expect(409);
+
+      // รายการ + กรองสถานะ PAID
+      const list = (
+        await api(app, admin).get('/v1/settlements').query({ status: 'PAID' }).expect(200)
+      ).body.data as { id: string; paidDate: string | null }[];
+      expect(list.find((x) => x.id === s.id)?.paidDate).toBe(today);
+
+      // audit
+      const audit = await db.auditLog.findFirstOrThrow({
+        where: { entityId: uuid('settlement', s.id), action: 'settlement.paid' },
+      });
+      expect(audit.actorId).toBe('u-acc');
+      expect(audit.before).toEqual({ status: 'APPROVED' });
+      expect(audit.after).toMatchObject({
+        status: 'PAID',
+        paidDate: today,
+        paymentMethod: 'TRANSFER',
+        paymentReference: 'KBANK-2611-0091',
+        buyNetAfterWht: '6910.00',
+        whtFrozenNow: false,
+        settledTripIds: trips.map((t) => t.id).sort(),
+      });
+
+      // event settlement.paid (webhook — ไม่มียอดเงิน/ไม่มี id ผู้ใช้) — ST8-T16 ใช้สร้าง AP ร่าง
+      const ev = await db.domainEvent.findFirstOrThrow({
+        where: { tenantId, type: 'settlement.paid', localId: uuid('settlement', s.id) },
+      });
+      expect(ev.snapshot).toMatchObject({
+        id: s.id,
+        status: 'PAID',
+        settlementNo: ap.settlementNo,
+        paidDate: today,
+        paymentMethod: 'TRANSFER',
+        paymentReference: 'KBANK-2611-0091',
+        paymentBank: 'กสิกรไทย',
+      });
+      expect(JSON.stringify(ev.snapshot)).not.toMatch(/"buy|"paidBy"|"lines"/);
+      expect(ev.previousAttributes).toMatchObject({ status: 'APPROVED', paidDate: null });
+      const tripEv = await db.domainEvent.count({
+        where: { tenantId, type: 'trip.settled', localId: uuid('trip', trips[0]!.id) },
+      });
+      expect(tripEv).toBe(1);
+    });
+
+    it('ตรวจข้อมูล: โอน/เช็คต้องมีเลขอ้างอิง · เงินสดไม่ต้อง · วันที่ในอนาคต/ไม่จริง 422 · If-Match บังคับ (422) / ไม่ตรง 412', async () => {
+      const { C, trips } = await setup(1, '1000');
+      const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
+        .body;
+      await approve(s.id);
+      const codes = async (body: object) => {
+        const r = await pay(s.id, body);
+        expect(r.status, JSON.stringify(r.body)).toBe(422);
+        return (r.body.errors as { field: string; code: string }[]).map(
+          (e) => `${e.field}:${e.code}`,
+        );
+      };
+      expect(await codes({ paidDate: today, method: 'TRANSFER' })).toEqual(['reference:required']);
+      expect(await codes({ paidDate: today, method: 'CHEQUE', reference: '   ' })).toEqual([
+        'reference:required',
+      ]);
+      const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      expect(await codes({ paidDate: tomorrow, method: 'CASH' })).toEqual(['paidDate:future_date']);
+      expect(await codes({ paidDate: '2026-02-30', method: 'CASH' })).toEqual([
+        'paidDate:invalid_date',
+      ]);
+      // วันที่จ่าย = วันที่หักภาษี — ก่อนวันอนุมัติ (เวลาไทย) ไม่ได้ (review QA L2)
+      const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      expect(await codes({ paidDate: yesterday, method: 'CASH' })).toEqual([
+        'paidDate:before_approval',
+      ]);
+      expect((await pay(s.id, { paidDate: today, method: 'WIRE' })).status).toBe(422);
+      expect((await pay(s.id, { method: 'CASH' })).status).toBe(422);
+      const noIf = await pay(s.id, { paidDate: today, method: 'CASH' }, accounting, null);
+      expect(noIf.status).toBe(422);
+      expect(noIf.body.errors[0].code).toBe('if_match_required');
+      expect((await pay(s.id, { paidDate: today, method: 'CASH' }, accounting, '"1"')).status).toBe(
+        412,
+      );
+      // เงินสด: ไม่มีเลขอ้างอิง/ธนาคารได้
+      const ok = await pay(s.id, { paidDate: today, method: 'CASH' });
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+      expect(ok.body).toMatchObject({
+        status: 'PAID',
+        paymentMethod: 'CASH',
+        paymentReference: null,
+        paymentBank: null,
+      });
+    });
+
+    it('สิทธิ์ settlements:pay (บัญชี/ผู้ดูแล) — ผู้อนุมัติ/ผู้จัดการ/ผู้จ่ายงาน/viewer 403 · บริษัทอื่น 404', async () => {
+      const { C, trips } = await setup(1, '1000');
+      const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
+        .body;
+      await approve(s.id);
+      const manager = await tokenFor(tenantId, SYSTEM_ROLES.manager.permissions.join(' '), 'u-mgr');
+      for (const t of [approver, manager, dispatcher, viewer]) {
+        const r = await pay(s.id, PAY, t);
+        expect(r.status).toBe(403);
+      }
+      expect((await pay(s.id, PAY, other)).status).toBe(404);
+      expect(
+        (await db.carrierSettlement.findUniqueOrThrow({ where: { id: uuid('settlement', s.id) } }))
+          .status,
+      ).toBe('APPROVED');
+      expect((await pay(s.id, PAY, admin)).status).toBe(200);
+    });
+
+    it('เที่ยวที่บรรทัดต้นทุนอยู่หลายใบ: SETTLED เมื่อจ่ายใบสุดท้าย · ระหว่างนั้นบรรทัดที่เหลือยังอยู่ในคิว', async () => {
+      const { C, trips } = await setup(1, '2000');
+      const t = trips[0]!;
+      const toll = await db.tripCost.create({
+        data: {
+          tenantId,
+          tripId: uuid('trip', t.id),
+          costType: 'TOLL',
+          amount: '150.00',
+          source: 'MANUAL',
+          sourceType: 'FIELD',
+          status: 'CONFIRMED',
+          carrierId: uuid('carrier', C.id),
+          description: 'ค่าทางด่วน',
+          createdBy: 'u-disp',
+          decidedBy: 'u-acc',
+          decidedAt: new Date(),
+          decisionReason: 'ตรวจใบเสร็จค่าทางด่วนแล้ว',
+        },
+      });
+      const a = (
+        await create({ carrierId: C.id, tripCostIds: [await feeOf(t.id)] }, accounting).expect(201)
+      ).body;
+      await approve(a.id);
+      expect((await pay(a.id)).status).toBe(200);
+      // ค่าทางด่วนยังรอจ่าย → เที่ยวยัง COSTED และอยู่ในคิว
+      expect(await tripStatus(t.id)).toBe('COSTED');
+      expect(await queued(C.id)).toEqual([t.id]);
+      const b = (
+        await create(
+          { carrierId: C.id, tripCostIds: [encodeId('tripCost', toll.id)] },
+          accounting,
+        ).expect(201)
+      ).body;
+      // ใบ b ยังไม่จ่าย → ยังไม่ SETTLED (ไม่อยู่ในคิวเพราะบรรทัดอยู่ในใบแล้ว)
+      expect(await tripStatus(t.id)).toBe('COSTED');
+      expect(await queued(C.id)).toEqual([]);
+      // ใบ b ไม่มีค่าขนส่ง (FREIGHT) อนุมัติไม่ได้ (ST6-T07) → ยกเลิกใบ b แล้วจ่ายค่าทางด่วนพร้อมเที่ยวใหม่
+      await api(app, accounting)
+        .post(`/v1/settlements/${b.id}/cancel`)
+        .set('If-Match', await etag(b.id))
+        .send({ reason: 'รวมค่าทางด่วนกับงวดถัดไป' })
+        .expect(200);
+      const [x, y] = [await newSite(), await newSite()];
+      await buyRate(C.id, x, y, '1500');
+      const t2 = await newTrip(x, y);
+      await hire(t2.id, { carrierId: C.id });
+      await setDo(t2.doId, 'UNBILLED', 'COMPLETE');
+      await finish(t2.id, C.id);
+      const c = (
+        await create(
+          { carrierId: C.id, tripIds: [t2.id], tripCostIds: [encodeId('tripCost', toll.id)] },
+          accounting,
+        ).expect(201)
+      ).body;
+      await approve(c.id);
+      const paid = await pay(c.id);
+      expect(paid.status, JSON.stringify(paid.body)).toBe(200);
+      expect(await tripStatus(t.id)).toBe('SETTLED');
+      expect(await tripStatus(t2.id)).toBe('SETTLED');
+      expect(await queued(C.id)).toEqual([]);
+    });
+
+    it('กติการะดับ DB (role แอป): APPROVED → PAID ต้องมีข้อมูลการจ่าย · เปลี่ยนได้เฉพาะช่องการจ่าย (WHT ที่ตรึง/ยอด/เลขคงเดิม) · PAID = สิ้นสุด', async () => {
+      const { C, trips } = await setup(1, '900');
+      const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
+        .body;
+      await approve(s.id);
+      const sid = uuid('settlement', s.id);
+      const fails = (fn: (tx: Tx) => Promise<unknown>, re: RegExp) =>
+        expect(run(fn)).rejects.toThrow(re);
+      const paidData = {
+        status: 'PAID',
+        paidDate: new Date(`${today}T00:00:00Z`),
+        paidAt: new Date(),
+        paidBy: 'u-acc',
+        paymentMethod: 'TRANSFER',
+        paymentReference: 'REF-1',
+      };
+      // ไม่มีข้อมูลการจ่าย / โอนไม่มีเลขอ้างอิง / วิธีไม่รู้จัก
+      await fails(
+        (tx) => tx.carrierSettlement.update({ where: { id: sid }, data: { status: 'PAID' } }),
+        /carrier_settlement_paid_check/,
+      );
+      await fails(
+        (tx) =>
+          tx.carrierSettlement.update({
+            where: { id: sid },
+            data: { ...paidData, paymentReference: null },
+          }),
+        /carrier_settlement_paid_check/,
+      );
+      await fails(
+        (tx) =>
+          tx.carrierSettlement.update({
+            where: { id: sid },
+            data: { ...paidData, paymentMethod: 'WIRE' },
+          }),
+        /carrier_settlement_paid_check/,
+      );
+      // ใบ APPROVED: ใส่ข้อมูลการจ่ายโดยไม่เปลี่ยนสถานะ = ไม่ได้
+      await fails(
+        (tx) => tx.carrierSettlement.update({ where: { id: sid }, data: { paymentBank: 'X' } }),
+        /carrier_settlement_terminal/,
+      );
+      // คำสั่งที่บันทึกจ่ายแก้ WHT ที่ตรึง / ยอด / หมายเหตุ / ผู้อนุมัติ ไม่ได้
+      for (const extra of [
+        { whtAmount: '0.00' },
+        { whtMinimumAmount: '5000.00' },
+        { whtRateDefault: '3.00' },
+        { note: 'แก้' },
+        { approvedBy: 'u-x' },
+      ])
+        await fails(
+          (tx) =>
+            tx.carrierSettlement.update({ where: { id: sid }, data: { ...paidData, ...extra } }),
+          /carrier_settlement_paid_frozen/,
+        );
+      // ผ่าน
+      await run((tx) => tx.carrierSettlement.update({ where: { id: sid }, data: paidData }));
+      // PAID = สิ้นสุด
+      for (const data of [
+        { paymentReference: 'REF-2' },
+        { status: 'APPROVED' },
+        { note: 'หลังจ่าย' },
+        { status: 'CANCELLED' },
+      ])
+        await fails(
+          (tx) => tx.carrierSettlement.update({ where: { id: sid }, data }),
+          /carrier_settlement_terminal/,
+        );
+    });
+
+    it('ยอดใน audit = ยอดจริง แม้ผู้บันทึกไม่มีสิทธิ์ดูราคาซื้อ (review QA L3)', async () => {
+      const { C, trips } = await setup(1, '3000');
+      const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
+        .body;
+      await approve(s.id);
+      const payOnly = await tokenFor(tenantId, 'settlements:read settlements:pay', 'u-payer');
+      const r = await pay(s.id, PAY, payOnly);
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+      expect(r.body.buyNetPayable).toBeUndefined();
+      const audit = await db.auditLog.findFirstOrThrow({
+        where: { entityId: uuid('settlement', s.id), action: 'settlement.paid' },
+      });
+      expect(audit.after).toMatchObject({
+        buyNetPayable: '3000.00',
+        buyWhtAmount: '30.00',
+        buyNetAfterWht: '2970.00',
+      });
+    });
+
+    it('พร้อมกัน: บันทึกจ่ายใบเดียวกันสองคำขอ → 200 หนึ่ง + 409 หนึ่ง · บันทึกจ่ายครั้งเดียว', async () => {
+      const { C, trips } = await setup(1, '1200');
+      const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
+        .body;
+      await approve(s.id);
+      const tag = await etag(s.id);
+      const rs = await Promise.all([
+        pay(s.id, PAY, accounting, tag),
+        pay(s.id, { paidDate: today, method: 'CASH' }, admin, tag),
+      ]);
+      expect(rs.map((r) => r.status).sort()).toEqual([200, 409]);
+      expect(rs.find((r) => r.status === 409)!.body.code).toBe('invalid_state_transition');
+      expect(
+        await db.auditLog.count({
+          where: { entityId: uuid('settlement', s.id), action: 'settlement.paid' },
+        }),
+      ).toBe(1);
+      expect(
+        await db.domainEvent.count({
+          where: { tenantId, type: 'settlement.paid', localId: uuid('settlement', s.id) },
+        }),
+      ).toBe(1);
+      expect(await tripStatus(trips[0]!.id)).toBe('SETTLED');
+    });
+
+    it('พร้อมกัน: สองใบที่มีบรรทัดของเที่ยวเดียวกันจ่ายพร้อมกัน → เที่ยว SETTLED', async () => {
+      const { C, trips } = await setup(2, '2500');
+      const [t, t2] = [trips[0]!, trips[1]!];
+      const toll = await db.tripCost.create({
+        data: {
+          tenantId,
+          tripId: uuid('trip', t.id),
+          costType: 'TOLL',
+          amount: '80.00',
+          source: 'MANUAL',
+          sourceType: 'FIELD',
+          status: 'CONFIRMED',
+          carrierId: uuid('carrier', C.id),
+          description: 'ค่าทางด่วน',
+          createdBy: 'u-disp',
+          decidedBy: 'u-acc',
+          decidedAt: new Date(),
+          decisionReason: 'ตรวจใบเสร็จค่าทางด่วนแล้ว',
+        },
+      });
+      // ใบ A = ค่าจ้างของเที่ยว t · ใบ B = เที่ยว t2 + ค่าทางด่วนของเที่ยว t
+      const A = (
+        await create({ carrierId: C.id, tripCostIds: [await feeOf(t.id)] }, accounting).expect(201)
+      ).body;
+      const B = (
+        await create(
+          { carrierId: C.id, tripIds: [t2.id], tripCostIds: [encodeId('tripCost', toll.id)] },
+          accounting,
+        ).expect(201)
+      ).body;
+      await approve(A.id);
+      await approve(B.id);
+      expect(await tripStatus(t.id)).toBe('COSTED');
+      const [ra, rb] = await Promise.all([pay(A.id), pay(B.id)]);
+      expect(ra.status, JSON.stringify(ra.body)).toBe(200);
+      expect(rb.status, JSON.stringify(rb.body)).toBe(200);
+      expect(await tripStatus(t.id)).toBe('SETTLED');
+      expect(await tripStatus(t2.id)).toBe('SETTLED');
+      expect(await queued(C.id)).toEqual([]);
+      expect(
+        await db.docStatusHistory.count({
+          where: { docType: 'trip', docId: uuid('trip', t.id), toStatus: 'SETTLED' },
+        }),
+      ).toBe(1);
+    });
+  });
 });
