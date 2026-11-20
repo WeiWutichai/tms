@@ -89,6 +89,7 @@ export const AUDIT_PROTECTED_ENTITY_TYPES = [
   'wht_certificate',
   'settlement',
   'settlement_line',
+  'carrier_settlement',
   'advance',
   'cod',
   'expense',

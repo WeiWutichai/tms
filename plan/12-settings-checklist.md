@@ -38,6 +38,7 @@
 | 25 | ระยะเก็บไฟล์ POD (ปี) | `retention.podFileYears` | — | API-only | ST9-T14 — ต้นแบบไม่มีช่อง; ลดค่า = step-up · ขั้นต่ำ 2 ปี · job ยังไม่ลบ ([OPEN — PO/นักบัญชี] ม.87/3) |
 | 26 | ระยะเก็บ GPS log (วัน) | `retention.gpsLogDays` | — | API-only | ST9-T14 — ต้นแบบไม่มีช่อง; ลดค่า = step-up · ขั้นต่ำ 90 วัน |
 | 27 | วงเงิน step-up อนุมัติใบสำคัญจ่ายรถร่วม (บาท) | `settlement.approvalStepUpAmount` | — | API-only | ST6-T07 — ต้นแบบไม่มีช่อง; ค่าเริ่ม 100,000 · null = ไม่บังคับ · เพิ่มค่า/ปิด = step-up |
+| 28 | ต้องให้รถร่วมตรวจใบสำคัญจ่ายก่อนอนุมัติ | `settlement.carrierReviewRequired` | — | API-only | ST6-T05 — ต้นแบบไม่มีช่อง; ค่าเริ่ม ปิด · เปิด = ร่างอนุมัติตรงไม่ได้ (409 `settlement_review_required`) · ปิดจากที่เปิด = step-up |
 
 ## 2. ค่าตั้งองค์กรที่เป็น resource แยก (ไม่อยู่ใน registry)
 

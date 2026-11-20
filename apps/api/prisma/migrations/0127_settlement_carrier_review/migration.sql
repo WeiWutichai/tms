@@ -148,3 +148,62 @@ DO $$ BEGIN
     EXECUTE 'REVOKE UPDATE, DELETE ON "settlement_line_review" FROM tms_app';
   END IF;
 END $$;
+
+-- (4) audit ของใบสำคัญจ่ายรถร่วม (entity_type `carrier_settlement` — ST6-T03/T05/T07) เป็นเหตุการณ์ของเอกสารการเงิน
+--     → retention job ไม่ลบ (ตกหล่นจากรายการ 0108 เพราะ ST6-T03 ใช้ชื่อ `carrier_settlement` ไม่ใช่ `settlement`)
+CREATE OR REPLACE FUNCTION tms_audit_retention_purge(p_tenant uuid, p_limit integer) RETURNS integer
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS
+$$
+DECLARE
+  protected text[] := ARRAY[
+    'audit_log', 'retention',
+    'tenant', 'tenant_setting', 'company', 'legal_entity', 'branch', 'document_sequence', 'document_series',
+    'customer', 'customer_site', 'carrier', 'service_item',
+    'rate_card', 'rate_card_accessorial', 'rate_card_line',
+    'sales_order', 'sales_order_line', 'sales_order_charge', 'sales_order_stop', 'order_charge',
+    'delivery_order', 'delivery_order_line', 'delivery_order_pod', 'do_surcharge', 'field_charge',
+    'trip', 'trip_stop', 'trip_cost', 'subcon_offer', 'stop_event',
+    'vehicle', 'vehicle_cost', 'depreciation',
+    'sales_document', 'invoice', 'tax_invoice', 'receipt', 'credit_note', 'debit_note', 'billing_note',
+    'payment', 'wht_certificate', 'settlement', 'settlement_line', 'carrier_settlement', 'advance', 'cod', 'expense',
+    'platform_invoice', 'platform_payment', 'etax_submission',
+    'stored_document'
+  ];
+  v_years integer;
+  v_raw jsonb;
+  v_cutoff timestamptz;
+  v_n integer;
+  v_prev_tenant text := pg_catalog.current_setting('app.tenant_id', true);
+BEGIN
+  IF p_tenant IS NULL OR p_limit IS NULL OR p_limit < 1 OR p_limit > 10000 THEN
+    RAISE EXCEPTION 'tms_audit_retention_purge: invalid arguments' USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+  -- FORCE RLS: เจ้าของตารางก็ต้องตั้ง tenant (กรณีเจ้าของไม่ใช่ superuser ใน production)
+  PERFORM pg_catalog.set_config('app.tenant_id', p_tenant::text, true);
+  SELECT value INTO v_raw FROM public.tenant_setting WHERE tenant_id = p_tenant AND key = 'retention.auditLogYears';
+  IF v_raw IS NOT NULL AND pg_catalog.jsonb_typeof(v_raw) = 'number' THEN
+    v_years := pg_catalog.floor((v_raw #>> '{}')::numeric)::integer;
+  END IF;
+  v_years := greatest(5, coalesce(v_years, 5));
+  v_cutoff := pg_catalog.now() - pg_catalog.make_interval(years => v_years);
+  PERFORM pg_catalog.set_config('tms.audit_retention_purge', 'on', true);
+  WITH d AS (
+    DELETE FROM public.audit_log
+     WHERE id IN (SELECT id FROM public.audit_log
+                   WHERE tenant_id = p_tenant AND at < v_cutoff
+                     AND pg_catalog.lower(entity_type) <> ALL (protected)
+                   ORDER BY at LIMIT p_limit)
+    RETURNING 1
+  )
+  SELECT count(*)::integer INTO v_n FROM d;
+  PERFORM pg_catalog.set_config('tms.audit_retention_purge', 'off', true);
+  IF v_n > 0 THEN
+    INSERT INTO public.audit_log (id, tenant_id, actor_id, action, entity_type, entity_id, after, reason)
+    VALUES (pg_catalog.gen_random_uuid(), p_tenant, 'system:retention', 'retention.purged', 'retention', 'audit_log',
+            pg_catalog.jsonb_build_object('count', v_n, 'olderThan', v_cutoff, 'years', v_years),
+            'ลบตามระยะเก็บ audit log (ST9-T14)');
+  END IF;
+  PERFORM pg_catalog.set_config('app.tenant_id', coalesce(v_prev_tenant, ''), true);
+  RETURN v_n;
+END
+$$;
