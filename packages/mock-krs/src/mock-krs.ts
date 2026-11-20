@@ -549,7 +549,7 @@ export class MockKrs {
   private readSalesOrders(url: string): Outcome {
     const q = new URL(url, 'http://mock.local').searchParams;
     const sinceRaw = q.get('since') ?? '';
-    if (sinceRaw !== '' && !/^\d{1,15}$/.test(sinceRaw))
+    if (sinceRaw !== '' && !/^\d{1,19}$/.test(sinceRaw))
       throw new HttpError(400, 'since must be a watermark (digits) or empty');
     const limitRaw = q.get('limit');
     let limit = SO_PAGE_LIMIT_DEFAULT;

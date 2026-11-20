@@ -297,6 +297,11 @@
 
 ## บันทึกรายวัน
 
+### 20 พ.ย. 2569 (ST8-T02 แก้ตาม review/QA — lane l7)
+
+- **ทำ:** (M1) `reset()` ของแหล่ง SO ไม่ถอยตัวนับ `row_ver` (SO ตัวอย่างหลัง reset ได้เลขต่อ — client ที่ถือ watermark เดิมยังเห็น) · (M2) [OPEN — KRS] rowversion ต่อแถวของ SQL Server (ใบไม่ครบ / รายการถูกลบ / TOP n ตัดกลางใบ / MIN_ACTIVE_ROWVERSION) ใน spec/12 แถว ST8-T02 + docstring `krs-so-source.ts` ว่าเป็นสมมติฐานของ mock และ T04 ต้องจัดการใบไม่ครบ · (Low) mock รับ `since` 19 หลัก (เทียบด้วย BigInt), upsert ไม่ส่งช่องไม่บังคับ = null, body array = 400, วันที่ไม่มีจริง = 400 · client: แถวที่ไม่ใช่ object เข้า `rejectedRows`, 408 = TRANSIENT, timezone ไม่รู้จัก = `unsupported_timezone`, `timeoutMs` ตั้งได้, หน้าเปล่าตรวจคอลัมน์ไม่ได้ (docstring) · test เพิ่ม (rejectedRows, 408, timezone, SSRF, timeout, reset, upsert null, วันที่)
+- **ค้าง:** ยังไม่ได้รัน `pnpm ci:local` (lead รัน) — รันแล้ว: mock-krs vitest (78) + typecheck, api typecheck, vitest krs-so-source (7) / erp-krs / krs-contract
+
 ### 20 พ.ย. 2569 (ST8-T02 Mock แหล่ง SO — lane l7)
 
 - **ทำ:** แหล่ง SO จำลองใน `packages/mock-krs`: `GET /api/salesorder?since=&limit=` (+ `X-API-Key`) คืนแถวแบบ view `vw_TMS_SalesOrder` (1 แถว = 1 รายการ, watermark `row_ver` ทั้งใบ, `since` ไม่รวมตัวเอง, `limit` นับเป็นใบ) + ข้อมูลตัวอย่างปลอม 5 ใบ (`SAMPLE-SO-6911-000x` — ปกติ / 2 รายการ / ลูกค้ายังไม่จับคู่ / แก้ไข / **ยกเลิก** `is_cancelled = 1`) + control `/__mock/salesorders` เพิ่ม/แก้/ยกเลิก (rowVersion + updated_at ใหม่) + env `MOCK_KRS_SO_SAMPLE` · **ชื่อ view/คอลัมน์/path/watermark อยู่ไฟล์เดียว** `packages/contracts/krs/salesorder-source.json` ([OPEN — KRS]) · client ขั้นต่ำ `readKrsSalesOrders` (ผ่าน `safeHttpRequest`, รวมแถวเป็นใบ, แถวดิบ, AUTH/TRANSIENT/VALIDATION, `source_not_found` / `source_columns_missing` สำหรับ SOURCE_ERROR ของ T04) — ยังไม่ต่อกับ `pullOrders` (pending จนถึง ST8-T04) · DECISION ใช้ stub HTTP แทน SQL Server docker (image ทางการไม่มี arm64) บันทึกใน spec/12 §3

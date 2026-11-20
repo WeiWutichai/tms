@@ -112,10 +112,16 @@ export interface MockSalesOrder {
 }
 
 /** ข้อมูลที่แก้ได้ผ่าน control (ห้ามแก้ company/soNo/rowVersion เอง) */
-export type MockSalesOrderInput = Omit<MockSalesOrder, 'rowVersion' | 'updatedAt' | 'cancelled'> & {
-  cancelled?: boolean;
-  updatedAt?: string;
-};
+type OptionalSoField = 'customerPo' | 'vehicleType' | 'originCode' | 'destinationCode' | 'remark';
+/** ช่องที่ไม่บังคับ ไม่ส่ง = null */
+export type MockSalesOrderInput = Omit<
+  MockSalesOrder,
+  'rowVersion' | 'updatedAt' | 'cancelled' | OptionalSoField
+> &
+  Partial<Pick<MockSalesOrder, OptionalSoField>> & {
+    cancelled?: boolean;
+    updatedAt?: string;
+  };
 export type MockSalesOrderPatch = Partial<
   Omit<MockSalesOrder, 'company' | 'soNo' | 'rowVersion' | 'updatedAt'>
 > & { updatedAt?: string };
@@ -279,10 +285,16 @@ export class MockSalesOrderStore {
     this.reset();
   }
 
+  /**
+   * ล้างแล้วใส่ข้อมูลตัวอย่างใหม่ — **ตัวนับ rowVersion เดินต่อ ไม่ถอยหลัง** (เหมือน rowversion ของ SQL Server)
+   * ครั้งแรก SO ตัวอย่างได้ 1001–1005 · หลังจากนั้นได้เลขต่อจากตัวนับ → client ที่ถือ watermark เดิมยังเห็นข้อมูลหลัง reset
+   */
   reset(): void {
     this.orders = new Map();
-    this.nextRowVersion = 1;
-    if (this.sample) for (const so of sampleSalesOrders()) this.put(so);
+    if (!this.sample) return;
+    const sample = sampleSalesOrders();
+    const shift = Math.max(0, this.nextRowVersion - sample[0]!.rowVersion);
+    for (const so of sample) this.put({ ...so, rowVersion: so.rowVersion + shift });
   }
 
   list(): MockSalesOrder[] {
@@ -296,7 +308,15 @@ export class MockSalesOrderStore {
 
   /** เพิ่มหรือแทนที่ทั้งใบ (rowVersion ใหม่เสมอ) */
   upsert(input: MockSalesOrderInput): MockSalesOrder {
+    if (!input || typeof input !== 'object' || Array.isArray(input))
+      throw new SoHttpError(400, 'body must be a sales order object');
     const so: MockSalesOrder = {
+      // ช่องที่ไม่บังคับและไม่ส่งมา = null (คอลัมน์ครบทุกแถวเหมือน view)
+      customerPo: null,
+      vehicleType: null,
+      originCode: null,
+      destinationCode: null,
+      remark: null,
       ...clone(input),
       cancelled: input.cancelled ?? false,
       updatedAt: input.updatedAt ?? bangkokStamp(this.now()),
@@ -311,6 +331,8 @@ export class MockSalesOrderStore {
   edit(company: string, soNo: string, patch: MockSalesOrderPatch): MockSalesOrder {
     const cur = this.orders.get(key(company, soNo));
     if (!cur) throw new SoHttpError(404, 'sales order not found');
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch))
+      throw new SoHttpError(400, 'body must be an object');
     const p = clone(patch) as Record<string, unknown>;
     for (const k of ['company', 'soNo', 'rowVersion']) {
       if (k in p) throw new SoHttpError(400, `${k} cannot be changed`);
@@ -333,8 +355,8 @@ export class MockSalesOrderStore {
 
   /** แถวที่ `watermark > since` เรียงตาม watermark แล้ว lineNo · `limit` นับเป็นจำนวนใบ (ไม่ตัดกลางใบ) */
   page(since: string | null, limit: number): SalesOrderPage {
-    const after = since === null ? 0 : Number(since);
-    const all = this.list().filter((so) => so.rowVersion > after);
+    const after = since === null ? 0n : BigInt(since);
+    const all = this.list().filter((so) => BigInt(so.rowVersion) > after);
     const taken = all.slice(0, limit);
     const rows = taken.flatMap((so) => this.toRows(so));
     const last = taken[taken.length - 1];
@@ -405,10 +427,9 @@ export class MockSalesOrderStore {
       'remark',
     ] as const)
       str(so[f] ?? null, f, false);
-    if (!DATE_RE.test(String(so.soDate))) throw new SoHttpError(400, 'soDate must be YYYY-MM-DD');
-    if (!DATE_RE.test(String(so.deliveryDate)))
-      throw new SoHttpError(400, 'deliveryDate must be YYYY-MM-DD');
-    if (!DATETIME_RE.test(String(so.updatedAt)))
+    if (!isRealDate(so.soDate)) throw new SoHttpError(400, 'soDate must be YYYY-MM-DD');
+    if (!isRealDate(so.deliveryDate)) throw new SoHttpError(400, 'deliveryDate must be YYYY-MM-DD');
+    if (!DATETIME_RE.test(String(so.updatedAt)) || !isRealDate(String(so.updatedAt).slice(0, 10)))
       throw new SoHttpError(400, 'updatedAt must be YYYY-MM-DDTHH:mm:ss.SSS');
     if (typeof so.cancelled !== 'boolean') throw new SoHttpError(400, 'cancelled must be boolean');
     if (!Array.isArray(so.lines) || so.lines.length === 0)
@@ -425,6 +446,13 @@ export class MockSalesOrderStore {
         throw new SoHttpError(400, 'qty must be a decimal string');
     }
   }
+}
+
+/** วันที่มีจริงในปฏิทิน (2026-02-31 = ไม่ใช่) */
+function isRealDate(v: unknown): boolean {
+  if (typeof v !== 'string' || !DATE_RE.test(v)) return false;
+  const d = new Date(`${v}T00:00:00.000Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
 }
 
 function key(company: string, soNo: string): string {

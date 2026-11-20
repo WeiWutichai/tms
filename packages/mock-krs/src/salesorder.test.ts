@@ -225,4 +225,52 @@ describe('GET /salesorder?since=', () => {
     expect(empty.salesOrders.list()).toEqual([]);
     expect(optionsFromEnv({ MOCK_KRS_SO_SAMPLE: 'false' }).options.salesOrderSample).toBe(false);
   });
+
+  it('reset ไม่ทำให้ watermark ถอยหลัง — client ที่ถือ watermark เดิมยังเห็นข้อมูลหลัง reset', async () => {
+    const before = await get();
+    mock.salesOrders.cancel('SAMPLE', 'SAMPLE-SO-6911-0001');
+    const wm = (await get(`?since=${before.body.next}`)).body.next as string;
+    mock.reset();
+    const after = await get(`?since=${wm}`);
+    expect(soNos(after.body.rows)).toHaveLength(5);
+    const added = mock.salesOrders.edit('SAMPLE', 'SAMPLE-SO-6911-0002', { remark: 'x' });
+    expect(added.rowVersion).toBeGreaterThan(Number(after.body.next));
+  });
+
+  it('upsert ไม่ส่งช่องที่ไม่บังคับ = null (คอลัมน์ครบ) · body array / วันที่ไม่มีจริง = 400 · since 19 หลักได้', async () => {
+    const r = await control('POST', '/salesorders', {
+      company: 'SAMPLE',
+      soNo: 'SAMPLE-SO-6911-0007',
+      soDate: '2026-11-20',
+      customerCode: 'SAMPLE-C001',
+      customerName: 'บริษัทตัวอย่าง ก จำกัด',
+      deliveryDate: '2026-11-21',
+      originName: 'คลังตัวอย่าง บางนา',
+      destinationName: 'ร้านตัวอย่าง สาขา 3',
+      lines: [
+        { lineNo: 1, itemCode: 'SAMPLE-ITEM-01', itemName: 'ค่าขนส่ง', qty: '1', unit: 'เที่ยว' },
+      ],
+    });
+    expect(r.status).toBe(200);
+    const rows = (await get(`?since=${r.body.rowVersion - 1}`)).body.rows;
+    expect(rows).toHaveLength(1);
+    expect(Object.keys(rows[0]).sort()).toEqual(SO_FIELDS.map(col).sort());
+    expect(rows[0][col('remark')]).toBeNull();
+    expect(rows[0][col('customerPo')]).toBeNull();
+
+    expect((await control('PATCH', '/salesorders/SAMPLE/SAMPLE-SO-6911-0001', [1])).status).toBe(
+      400,
+    );
+    expect((await control('POST', '/salesorders', [1])).status).toBe(400);
+    expect(
+      (
+        await control('PATCH', '/salesorders/SAMPLE/SAMPLE-SO-6911-0001', {
+          deliveryDate: '2026-02-31',
+        })
+      ).status,
+    ).toBe(400);
+    const big = await get('?since=9223372036854775806');
+    expect(big.status).toBe(200);
+    expect(big.body.rows).toEqual([]);
+  });
 });

@@ -14,7 +14,15 @@ import { safeHttpRequest, type SendOptions } from '../../modules/webhooks/webhoo
  * - watermark ทึบ (สตริงตัวเลข) ไม่รวมตัวเอง — ผู้เรียกเก็บ `next` หลังรับทุกใบของหน้าแล้ว (connector_cursor)
  * - ค่าจากต้นทางไม่เชื่อ: ช่องข้อมูลส่งต่อตามที่ได้ (`unknown`) ให้ core ตรวจ · แถวที่ไม่มี company/soNo/watermark = `rejectedRows`
  * - คอลัมน์ที่ mapping บังคับหายจากแถว = `source_columns_missing` (ST8-T04 → SO ค้าง SOURCE_ERROR + connector ERROR)
- * - ไม่โยน error (คืน `ok: false` + errorClass เหมือน healthCheck) · ข้อความไม่มี key
+ *   (หน้าที่ไม่มีแถวตรวจคอลัมน์ไม่ได้ — จะรู้ในรอบแรกที่มีแถว)
+ * - ไม่โยน error (คืน `ok: false` + errorClass เหมือน healthCheck) · ข้อความไม่มี key · 408/429/5xx/timeout = TRANSIENT
+ * - `mapping.timezone` ที่ไม่รู้จัก = VALIDATION `unsupported_timezone` (ไม่แปลงเวลาเงียบ ๆ)
+ *
+ * **สมมติฐานของ mock ไม่ใช่ข้อเท็จจริงของ KRS** ([OPEN — KRS] spec/12 §3 แถว ST8-T02): mock ให้ `row_ver` เท่ากันทั้งใบ
+ * และส่งทุกรายการของใบที่เปลี่ยน แต่ `rowversion` จริงของ SQL Server เป็นค่า**ต่อแถว** — view ระดับรายการอาจส่งเฉพาะ
+ * รายการที่แก้ (ใบไม่ครบ), รายการที่ถูกลบหายไปเฉย ๆ, `TOP n` ตัดกลางใบ, และ transaction ที่ยังไม่ commit ทำให้เลขข้ามได้
+ * (ต้องอ่านไม่เกิน `MIN_ACTIVE_ROWVERSION()`) → **ST8-T04 ต้องจัดการใบไม่ครบ**: ห้ามถือว่ารายการที่ได้ในรอบนี้คือทั้งใบ
+ * (ไม่เขียนทับ/ไม่ลบรายการเดิมจากหน้าที่ไม่ครบ) จนกว่า KRS ยืนยันรูปข้อมูล
  */
 
 export type KrsSoField =
@@ -101,8 +109,8 @@ export type KrsSoReadResult =
       /** watermark ถัดไป (ไม่มีแถว = since เดิม) */
       next: string | null;
       hasMore: boolean;
-      /** แถวที่ไม่มี company/soNo/watermark — ไม่รวมเป็นใบ */
-      rejectedRows: Array<Record<string, unknown>>;
+      /** แถวที่ไม่ใช่ object หรือไม่มี company/soNo/watermark — ไม่รวมเป็นใบ */
+      rejectedRows: unknown[];
     }
   | {
       ok: false;
@@ -120,13 +128,22 @@ export async function readKrsSalesOrders(
   config: { baseUrl?: string; apiKey?: string },
   since: string | null,
   limit: number,
-  opts: Pick<SendOptions, 'allowPrivate' | 'resolver' | 'signal'> & { mapping?: KrsSoMapping } = {},
+  opts: Pick<SendOptions, 'allowPrivate' | 'resolver' | 'signal' | 'timeoutMs'> & {
+    mapping?: KrsSoMapping;
+  } = {},
 ): Promise<KrsSoReadResult> {
   const mapping = opts.mapping ?? loadKrsSoMapping();
   const base = (config.baseUrl ?? '').trim().replace(/\/+$/, '');
   const key = config.apiKey ?? '';
   if (!base) return fail('VALIDATION', 'config_missing', 'baseUrl is not set');
   if (!key) return fail('AUTH', 'credentials_missing', 'apiKey is not set');
+  const offset = tzOffset(mapping.timezone);
+  if (offset === null)
+    return fail(
+      'VALIDATION',
+      'unsupported_timezone',
+      `mapping timezone ${String(mapping.timezone)} is not supported`,
+    );
   if (since !== null && !WATERMARK_RE.test(since))
     return fail('VALIDATION', 'invalid_watermark', 'since must be a numeric watermark');
   const q = new URLSearchParams({ since: since ?? '', limit: String(limit) });
@@ -136,7 +153,7 @@ export async function readKrsSalesOrders(
     { 'X-API-Key': key, Accept: 'application/json' },
     '',
     {
-      timeoutMs: KRS_SO_TIMEOUT_MS,
+      timeoutMs: opts.timeoutMs ?? KRS_SO_TIMEOUT_MS,
       maxResponseBytes: KRS_SO_MAX_RESPONSE_BYTES,
       ...(opts.signal ? { signal: opts.signal } : {}),
       ...(opts.allowPrivate !== undefined ? { allowPrivate: opts.allowPrivate } : {}),
@@ -154,7 +171,7 @@ export async function readKrsSalesOrders(
   }
   if (r.status === 401 || r.status === 403)
     return fail('AUTH', 'unauthorized', `KRS rejected the API key (HTTP ${r.status})`);
-  if (r.status === 429 || r.status >= 500)
+  if (r.status === 408 || r.status === 429 || r.status >= 500)
     return fail('TRANSIENT', `http_${r.status}`, `KRS answered HTTP ${r.status}`);
   if (r.status === 404)
     return fail('VALIDATION', 'source_not_found', `sales order source ${mapping.view} not found`);
@@ -169,9 +186,12 @@ export async function readKrsSalesOrders(
   }
   if (!body || typeof body !== 'object' || !Array.isArray(body.rows))
     return fail('VALIDATION', 'invalid_response', 'response has no rows[]');
-  const rows = body.rows.filter(
-    (x): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x),
-  );
+  const rejectedRows: unknown[] = [];
+  const rows: Array<Record<string, unknown>> = [];
+  for (const x of body.rows) {
+    if (!!x && typeof x === 'object' && !Array.isArray(x)) rows.push(x as Record<string, unknown>);
+    else rejectedRows.push(x);
+  }
 
   const c = mapping.columns;
   const required = (Object.keys(c) as KrsSoField[]).filter((f) => c[f].required);
@@ -191,7 +211,6 @@ export async function readKrsSalesOrders(
   const v = (row: Record<string, unknown>, f: KrsSoField): unknown => row[c[f].column] ?? null;
   const orders: KrsSalesOrder[] = [];
   const byKey = new Map<string, KrsSalesOrder>();
-  const rejectedRows: Array<Record<string, unknown>> = [];
   let maxWm: string | null = null;
   for (const row of rows) {
     const company = text(v(row, 'company'));
@@ -220,7 +239,7 @@ export async function readKrsSalesOrders(
         destinationName: v(row, 'destinationName'),
         remark: v(row, 'remark'),
         cancelled: bit(v(row, 'cancelled')),
-        updatedAt: localToIso(v(row, 'updatedAt'), mapping.timezone),
+        updatedAt: localToIso(v(row, 'updatedAt'), offset),
         rowVersion: wm,
         lines: [],
         raw: [],
@@ -264,15 +283,19 @@ function bit(x: unknown): boolean {
 }
 
 /** datetime2 ไม่มี offset (เวลาท้องถิ่นของต้นทาง) → ISO 8601 พร้อม offset · มี offset อยู่แล้ว = คงไว้ */
-function localToIso(x: unknown, timezone: string): string | null {
+/** offset ของเขตเวลาที่รองรับ (ไม่มี DST) — KRS อยู่ไทย ([OPEN — KRS] เขตเวลาของ updated_at) · ไม่รู้จัก = null */
+function tzOffset(timezone: unknown): string | null {
+  if (timezone === 'Asia/Bangkok') return '+07:00';
+  if (timezone === 'UTC') return 'Z';
+  return null;
+}
+
+function localToIso(x: unknown, offset: string): string | null {
   if (typeof x !== 'string') return null;
   const s = x.trim();
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?(Z|[+-]\d{2}:\d{2})$/.test(s)) return s;
   const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(\.\d{1,7})?$/.exec(s);
   if (!m) return null;
-  // เฟส 0 รองรับเฉพาะเขตเวลาไม่มี DST ที่รู้จัก — KRS อยู่ไทย ([OPEN — KRS] เขตเวลาของ updated_at)
-  const offset = timezone === 'Asia/Bangkok' ? '+07:00' : timezone === 'UTC' ? 'Z' : null;
-  if (!offset) return null;
   const frac = (m[3] ?? '.000').slice(0, 4).padEnd(4, '0');
   return `${m[1]}T${m[2]}${frac}${offset}`;
 }

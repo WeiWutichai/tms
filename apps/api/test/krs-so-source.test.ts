@@ -161,4 +161,61 @@ describe('readKrsSalesOrders (ST8-T02) กับ mock แหล่ง SO', () =>
       await new Promise<void>((ok) => srv.close(() => ok()));
     }
   });
+
+  it('แถวที่ไม่ใช่ object / ไม่มี soNo → rejectedRows · 408 = TRANSIENT · timezone ไม่รู้จัก = VALIDATION', async () => {
+    const m = loadKrsSoMapping();
+    const good = mock.salesOrders.toRows(mock.salesOrders.list()[0]!);
+    const noSo = { ...good[0]!, [m.columns.soNo.column]: '' };
+    let status = 200;
+    const srv: Server = createServer((_req, res) => {
+      res.statusCode = status;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ rows: [...good, 'oops', null, noSo], next: null, hasMore: false }));
+    });
+    await new Promise<void>((ok) => srv.listen(0, '127.0.0.1', ok));
+    try {
+      const base = `http://127.0.0.1:${(srv.address() as AddressInfo).port}/api`;
+      const r = await readKrsSalesOrders({ baseUrl: base, apiKey: KEY }, null, 10, opts);
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.orders.map((o) => o.soNo)).toEqual(['SAMPLE-SO-6911-0001']);
+      expect(r.rejectedRows).toEqual(['oops', null, noSo]);
+      expect(r.next).toBe(r.orders[0]!.rowVersion);
+      status = 408;
+      expect(
+        await readKrsSalesOrders({ baseUrl: base, apiKey: KEY }, null, 10, opts),
+      ).toMatchObject({
+        ok: false,
+        errorClass: 'TRANSIENT',
+        problem: { code: 'http_408' },
+      });
+      expect(
+        await readKrsSalesOrders({ baseUrl: base, apiKey: KEY }, null, 10, {
+          ...opts,
+          mapping: { ...m, timezone: 'Mars/Olympus' },
+        }),
+      ).toMatchObject({
+        ok: false,
+        errorClass: 'VALIDATION',
+        problem: { code: 'unsupported_timezone' },
+      });
+    } finally {
+      srv.closeAllConnections();
+      await new Promise<void>((ok) => srv.close(() => ok()));
+    }
+  });
+
+  it('ปลายทาง private เมื่อไม่อนุญาต = ssrf_blocked · ไม่ตอบ = TRANSIENT timeout', async () => {
+    expect(await readKrsSalesOrders(cfg(), null, 10, { allowPrivate: false })).toMatchObject({
+      ok: false,
+      errorClass: 'VALIDATION',
+      problem: { code: 'ssrf_blocked' },
+    });
+    mock.injectFault({ kind: 'timeout', method: 'GET' });
+    expect(await readKrsSalesOrders(cfg(), null, 10, { ...opts, timeoutMs: 300 })).toMatchObject({
+      ok: false,
+      errorClass: 'TRANSIENT',
+      problem: { code: 'timeout' },
+    });
+  });
 });
