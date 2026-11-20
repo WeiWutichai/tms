@@ -10,13 +10,21 @@ import {
   withSyncHash,
 } from './canonical';
 import { ConnectorResolver } from './connector-resolver';
+import { ExternalMappingService } from './external-mapping.service';
 import { ERP_SINK } from './erp-adapter.sink';
 
 const money = (d: Prisma.Decimal | number | string | null | undefined) =>
   new Prisma.Decimal(d ?? 0).toFixed(2);
 const ymd = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
 
-/** entity ใน external_mapping / integration_outbox */
+/** entity_type ของ external_mapping (enum `ExternalEntityType` — ตารางของ ST8-T05/0141) */
+export const MAP_ENTITY = {
+  invoice: 'INVOICE',
+  settlement: 'SETTLEMENT',
+  payment: 'PAYMENT',
+} as const;
+
+/** entity_type ของคำสั่งใน integration_outbox */
 export const ERP_ENTITY = {
   invoice: 'invoice',
   settlement: 'settlement',
@@ -38,6 +46,7 @@ export class ErpSyncService {
   constructor(
     private readonly resolver: ConnectorResolver,
     private readonly outbox: OutboxService,
+    private readonly mappings: ExternalMappingService,
   ) {}
 
   /** ใบแจ้งหนี้ที่ออกเลขแล้ว (ST5-T09) → PUSH_INVOICE */
@@ -63,6 +72,12 @@ export class ErpSyncService {
       taxId?: string | null;
       branchCode?: string | null;
     };
+    // ST8-T05 รหัสลูกค้าฝั่ง ERP ที่ผู้ใช้ map ไว้ (null = adapter จับคู่เอง เช่น ด้วยเลขภาษี+สาขา)
+    const customerExternalId = await this.mappings.customerErpCode(
+      tx,
+      r.connector.id,
+      inv.customerId,
+    );
     const doc: CanonicalInvoicePayload = withSyncHash({
       kind: 'invoice',
       id: inv.id,
@@ -80,6 +95,7 @@ export class ErpSyncService {
         legalName: snap.name ?? inv.customer.legalName,
         taxId: snap.taxId ?? null,
         branchCode: snap.branchCode ?? null,
+        externalId: customerExternalId,
       },
       customerPoNo: inv.customerPoNo,
       totals: {
@@ -124,7 +140,7 @@ export class ErpSyncService {
    */
   async invoiceVoided(tx: Tx, invoiceId: string): Promise<string[]> {
     const maps = await tx.externalMapping.findMany({
-      where: { entityType: ERP_ENTITY.invoice, localId: invoiceId },
+      where: { entityType: MAP_ENTITY.invoice, localId: invoiceId },
     });
     const out: string[] = [];
     for (const m of maps) {

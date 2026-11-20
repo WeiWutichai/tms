@@ -4,7 +4,7 @@ import { tryDecodeId } from '../../common/ids';
 import type { Tx } from '../../db/db.service';
 import { PaymentsService } from '../payments/payments.service';
 import type { InboundEffect } from './erp-adapter';
-import { ERP_ENTITY } from './erp-sync.service';
+import { MAP_ENTITY } from './erp-sync.service';
 
 const MONEY_RE = /^\d{1,12}\.\d{2}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -62,13 +62,13 @@ export class ErpInboundEffects {
   private async findMapping(
     tx: Tx,
     c: Connector,
-    entityType: string,
+    entityType: (typeof MAP_ENTITY)[keyof typeof MAP_ENTITY],
     externalId: string | null | undefined,
     localNumber: string | null | undefined,
   ) {
     if (externalId) {
       const m = await tx.externalMapping.findFirst({
-        where: { connectorId: c.id, entityType, externalId: externalId.slice(0, 200) },
+        where: { connectorId: c.id, entityType, externalId: externalId.slice(0, 100) },
       });
       if (m) return m;
     }
@@ -88,7 +88,7 @@ export class ErpInboundEffects {
   ) {
     if (e.entityType !== 'invoice' && e.entityType !== 'settlement')
       return review('unknown_entity', 'unknown entity type');
-    const m = await this.findMapping(tx, c, e.entityType, e.externalId, e.localNumber);
+    const m = await this.findMapping(tx, c, MAP_ENTITY[e.entityType], e.externalId, e.localNumber);
     if (!m) {
       // เอกสารที่ไม่ได้มาจาก TMS (ไม่มีเลข TMS) = ไม่ใช่ของเรา ข้าม · มีเลข TMS แต่หาไม่เจอ = ให้คนดู
       if (!e.localNumber) {
@@ -105,7 +105,7 @@ export class ErpInboundEffects {
       data: {
         externalDocNo: e.externalDocNo?.slice(0, 100) ?? m.externalDocNo,
         externalStatus: e.status,
-        ...(e.externalId && !m.externalId ? { externalId: e.externalId.slice(0, 200) } : {}),
+        ...(e.externalId && !m.externalId ? { externalId: e.externalId.slice(0, 100) } : {}),
         ...(e.status === 'VOIDED'
           ? {
               detail: {
@@ -154,7 +154,7 @@ export class ErpInboundEffects {
     if (!e.externalId || !DATE_RE.test(e.receivedDate))
       return review('invalid_effect', 'payment without id/date');
     const dup = await tx.externalMapping.findFirst({
-      where: { connectorId: c.id, entityType: ERP_ENTITY.payment, externalId: e.externalId },
+      where: { connectorId: c.id, entityType: MAP_ENTITY.payment, externalId: e.externalId },
     });
     if (dup) {
       out.applied.push({ kind: e.kind, skipped: 'already_recorded' });
@@ -162,10 +162,10 @@ export class ErpInboundEffects {
     }
     const allocations: { invoiceId: string; amount: Prisma.Decimal; whtAmount: Prisma.Decimal }[] =
       [];
-    for (const a of e.allocations.slice(0, 200)) {
+    for (const a of e.allocations.slice(0, 100)) {
       if (!MONEY_RE.test(a.amount) || !MONEY_RE.test(a.whtAmount))
         return review('invalid_effect', 'payment amount is not a money string');
-      const m = await this.findMapping(tx, c, ERP_ENTITY.invoice, a.externalId, a.localNumber);
+      const m = await this.findMapping(tx, c, MAP_ENTITY.invoice, a.externalId, a.localNumber);
       if (!m) {
         if (!a.localNumber) continue; // ใบที่ไม่ได้มาจาก TMS
         return review(
@@ -200,13 +200,15 @@ export class ErpInboundEffects {
       data: {
         tenantId: c.tenantId,
         connectorId: c.id,
-        entityType: ERP_ENTITY.payment,
+        entityType: MAP_ENTITY.payment,
         localId,
         localNumber: r.payment.paymentNo,
-        externalId: e.externalId.slice(0, 200),
+        externalId: e.externalId.slice(0, 100),
         externalDocNo: e.externalDocNo?.slice(0, 100) ?? null,
         externalStatus: 'POSTED',
-        syncedAt: new Date(),
+        status: 'SYNCED',
+        lastSyncedAt: new Date(),
+        createdBy: 'system:connector-inbound',
       },
     });
     out.applied.push({ kind: e.kind, paymentId, paymentNo: r.payment.paymentNo });
@@ -220,8 +222,8 @@ export class ErpInboundEffects {
     review: (code: string, message: string) => void,
   ) {
     let matched = 0;
-    for (const a of e.allocations.slice(0, 200)) {
-      const m = await this.findMapping(tx, c, ERP_ENTITY.settlement, a.externalId, null);
+    for (const a of e.allocations.slice(0, 100)) {
+      const m = await this.findMapping(tx, c, MAP_ENTITY.settlement, a.externalId, null);
       if (!m) continue; // บิลที่ไม่ได้มาจาก TMS
       matched++;
       const s = await tx.carrierSettlement.findUnique({
@@ -234,7 +236,7 @@ export class ErpInboundEffects {
           externalStatus: 'PAID',
           detail: {
             ...((m.detail as Record<string, unknown> | null) ?? {}),
-            paymentExternalId: e.externalId.slice(0, 200),
+            paymentExternalId: e.externalId.slice(0, 100),
             paymentDocNo: e.externalDocNo?.slice(0, 100) ?? null,
             paidAmount: MONEY_RE.test(a.amount) ? a.amount : null,
             whtAmount: MONEY_RE.test(a.whtAmount) ? a.whtAmount : null,

@@ -27,7 +27,10 @@ import {
 export const ERP_SINK = 'erp';
 
 /** entity ที่เก็บ external_mapping หลัง push สำเร็จ (ST8-T16) */
-const MAPPED_ENTITIES: ReadonlySet<string> = new Set(['invoice', 'settlement']);
+const MAPPED_ENTITIES: Readonly<Record<string, string>> = {
+  invoice: 'INVOICE',
+  settlement: 'SETTLEMENT',
+};
 
 /** คำสั่งที่ส่งเอกสารเข้า ERP (ผ่านประตู mapping/ผังรหัสก่อน) */
 const PUSH_OPERATIONS: ReadonlySet<string> = new Set([
@@ -61,7 +64,7 @@ function parkedNotImplemented(cap: string): OutboxSinkError {
  *   `serviceItem.externalId` ก่อนส่ง adapter (docs/01 §7.2)
  * - ST8-T06 ค่าที่ adapter ประกาศใน `masterCodeRefs` (เช่น หน่วย/พนักงานขายของ KRS) ไม่อยู่ใน `erp_master_code` → FAILED_FINAL
  *   (VALIDATION `erp_master_code_unknown` + ลิงก์) · ผ่าน = รหัสที่หาได้อยู่ใน `ctx.masterCodes`
- * การสร้างคำสั่งหลัง finalize + ประตู syncFromDate + external_mapping = ST7-T15/T16
+ * ST8-T16 (ส่วนหนึ่งของ ST7-T15/T16): คำสั่งหลัง finalize/บันทึกจ่าย/ยกเลิก = `ErpSyncService` · push สำเร็จ → external_mapping · ประตู syncFromDate = ST7-T16
  */
 @Injectable()
 export class ErpAdapterSink implements OutboxSink, OnModuleInit {
@@ -252,24 +255,29 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     payload: { document?: CanonicalDocument },
     r: Extract<PushResult, { ok: true }>,
   ): Promise<void> {
-    if (!MAPPED_ENTITIES.has(d.entityType)) return;
+    const entity = MAPPED_ENTITIES[d.entityType];
+    if (!entity) return;
     const doc = payload.document ?? (payload as CanonicalDocument);
     const number = typeof doc?.number === 'string' ? doc.number.slice(0, 60) : null;
     const hash = typeof doc?.sync?.hash === 'string' ? doc.sync.hash.slice(0, 64) : null;
     const now = this.clock.now();
     await d.withTx(async (tx) => {
       await tx.$executeRaw`
-        INSERT INTO external_mapping (tenant_id, connector_id, entity_type, local_id, local_number, external_id,
-                                      external_doc_no, external_status, payload_hash, synced_at, updated_at)
-        VALUES (${d.tenantId}::uuid, ${c.id}::uuid, ${d.entityType}, ${d.localId}::uuid, ${number},
-                ${String(r.externalId).slice(0, 200)}, ${r.externalDocNo?.slice(0, 100) ?? null}, 'DRAFT',
-                ${hash}, ${now}, now())
-        ON CONFLICT (tenant_id, connector_id, entity_type, local_id) DO UPDATE
+        INSERT INTO external_mapping (id, tenant_id, connector_id, entity_type, local_id, local_number, external_id,
+                                      external_doc_no, external_status, status, last_synced_hash, last_synced_at,
+                                      created_by, updated_at)
+        VALUES (gen_random_uuid(), ${d.tenantId}::uuid, ${c.id}::uuid, ${entity}::"ExternalEntityType",
+                ${d.localId}::uuid, ${number}, ${String(r.externalId).slice(0, 100)},
+                ${r.externalDocNo?.slice(0, 100) ?? null}, 'DRAFT', 'SYNCED', ${hash}, ${now},
+                'system:erp-sink', now())
+        ON CONFLICT (connector_id, entity_type, local_id) DO UPDATE
            SET external_id = EXCLUDED.external_id,
                local_number = coalesce(EXCLUDED.local_number, external_mapping.local_number),
                external_doc_no = coalesce(external_mapping.external_doc_no, EXCLUDED.external_doc_no),
                external_status = coalesce(external_mapping.external_status, EXCLUDED.external_status),
-               payload_hash = EXCLUDED.payload_hash, synced_at = EXCLUDED.synced_at, updated_at = now()`;
+               status = 'SYNCED', last_error = NULL,
+               last_synced_hash = EXCLUDED.last_synced_hash, last_synced_at = EXCLUDED.last_synced_at,
+               updated_by = 'system:erp-sink', version = external_mapping.version + 1, updated_at = now()`;
     });
   }
 

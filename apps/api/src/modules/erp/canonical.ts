@@ -47,7 +47,8 @@ export interface CanonicalInvoicePayload extends CanonicalDocument {
   issueDate: string;
   dueDate: string | null;
   issuer: { companyId: string; branchId: string; branchCode: string | null };
-  customer: CanonicalParty;
+  /** `externalId` = รหัสลูกค้าฝั่ง ERP จาก external_mapping CUSTOMER (ST8-T05 `customerErpCode`) — null = ยังไม่ map */
+  customer: CanonicalParty & { externalId: string | null };
   customerPoNo: string | null;
   totals: {
     subtotalVatable: string;

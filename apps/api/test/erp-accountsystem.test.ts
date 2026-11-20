@@ -40,6 +40,7 @@ export const sampleInvoice = (n = 1): CanonicalInvoicePayload =>
       legalName: 'บริษัท ลูกค้า จำกัด',
       taxId: '0105555000001',
       branchCode: '00000',
+      externalId: null,
     },
     customerPoNo: null,
     totals: {
@@ -297,6 +298,15 @@ describe('AccountSystemAdapter (ST8-T16) — กับ mock จาก contract',
     expect(d!.lines.some((l) => l.line_type === 'note' && l.description.includes('90.00'))).toBe(
       true,
     );
+  });
+
+  it('รหัสลูกค้าฝั่ง ERP ที่ map ไว้ (ST8-T05 customerErpCode → customer.externalId) ใช้ก่อน ไม่เรียก contacts', async () => {
+    const inv = sampleInvoice(5);
+    inv.customer.externalId = 'C-0001';
+    const r = await as.pushInvoice(ctxOf(cfg()), inv);
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    expect(m.requests.some((q) => q.method === 'PUT')).toBe(false);
+    expect(m.byRef(inv.number)[0]!.contact_code).toBe('C-0001');
   });
 
   it('contactMatch=tmsCode ใช้รหัส TMS ตรง (ไม่เรียก contacts) · ไม่พบคู่ค้า = 422 → VALIDATION contact_not_found', async () => {

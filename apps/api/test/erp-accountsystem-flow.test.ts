@@ -76,7 +76,7 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
       where: { tenantId, sink: 'erp', ...(op ? { operation: op } : {}) },
       orderBy: { seq: 'asc' },
     });
-  const mapping = (entityType: string, localId: string) =>
+  const mapping = (entityType: 'INVOICE' | 'SETTLEMENT' | 'PAYMENT', localId: string) =>
     plat.externalMapping.findFirst({ where: { tenantId, entityType, localId } });
   const send = (w: { headers: Record<string, string>; body: string }, path = inboundPath) =>
     request(app.getHttpServer()).post(path).set(w.headers).send(w.body);
@@ -313,14 +313,15 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
       branch_code: '00000',
     });
     expect(docs[0]!.lines[0]).toMatchObject({ amount: '1000.00', product_code: 'FREIGHT' });
-    const m = await mapping('invoice', inv.uuid);
+    const m = await mapping('INVOICE', inv.uuid);
     expect(m).toMatchObject({
       connectorId: conUuid,
       localNumber: inv.invoiceNo,
       externalId: docs[0]!.id,
       externalStatus: 'DRAFT',
+      status: 'SYNCED',
     });
-    expect(m!.payloadHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(m!.lastSyncedHash).toMatch(/^[0-9a-f]{64}$/);
     // enqueue ซ้ำด้วย payload เดิม = คำสั่งเดิม · ส่งซ้ำ (เช่น ลองใหม่หลัง timeout) = id เดิมฝั่งระบบบัญชี
     const { ErpSyncService } = await import('../src/modules/erp/erp-sync.service');
     await db.withTenant(tenantId, (tx) => app.get(ErpSyncService).invoiceFinalized(tx, inv.uuid));
@@ -329,7 +330,23 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
                             WHERE tenant_id = ${tenantId}::uuid AND operation = 'PUSH_INVOICE'`;
     await drainOutbox();
     expect(mock.byRef(inv.invoiceNo, 'tms.invoice')).toHaveLength(1);
-    expect((await mapping('invoice', inv.uuid))!.externalId).toBe(docs[0]!.id);
+    expect((await mapping('INVOICE', inv.uuid))!.externalId).toBe(docs[0]!.id);
+    // ST8-T05 รหัสลูกค้าฝั่งระบบบัญชีที่ map ไว้ (customerErpCode) ชนะการจับคู่ด้วยเลขภาษี
+    mock.addContact({ code: 'AR-777', name: 'ลูกค้ารหัสที่ map', kind: 'customer' });
+    const set = await api(app, admin)
+      .put(`/v1/customers/${encodeId('customer', customerId)}/erp-codes/${conId}`)
+      .send({ externalId: 'AR-777' });
+    expect(set.status, JSON.stringify(set.body)).toBe(200);
+    const puts = mock.requests.filter((q) => q.method === 'PUT').length;
+    const inv2 = await issuedInvoice('200.00');
+    await drainOutbox();
+    expect(mock.byRef(inv2.invoiceNo, 'tms.invoice')[0]!.contact_code).toBe('AR-777');
+    expect(mock.requests.filter((q) => q.method === 'PUT').length).toBe(puts);
+    // คืนค่าเดิม (ข้อถัดไปใช้การจับคู่ด้วยเลขภาษี)
+    await api(app, admin)
+      .put(`/v1/customers/${encodeId('customer', customerId)}/erp-codes/${conId}`)
+      .send({ externalId: null, reason: 'คืนค่าเพื่อทดสอบจับคู่ด้วยเลขภาษี' })
+      .expect(200);
   });
 
   it('(3) document.posted → เลขเอกสารฝั่งระบบบัญชีใน external_mapping · webhook ซ้ำไม่มีผล · ลายเซ็นผิด 401 ไม่เข้า ledger', async () => {
@@ -349,7 +366,7 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
     expect((await send(forged)).status).toBe(401);
     expect((await events()).length).toBe(before);
     await drainJobs();
-    const m = await mapping('invoice', inv.uuid);
+    const m = await mapping('INVOICE', inv.uuid);
     expect(m).toMatchObject({ externalDocNo: doc!.doc_no, externalStatus: 'POSTED' });
     const ev = (await events()).find((e) => e.eventKey === w.event.id)!;
     expect(ev).toMatchObject({ status: 'PROCESSED', duplicateCount: 1 });
@@ -413,7 +430,7 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
     const ev = (await events()).find((e) => e.eventKey === v.event.id)!;
     expect(ev.status).toBe('FAILED');
     expect(ev.lastError).toMatchObject({ code: 'external_document_voided', review: true });
-    expect(await mapping('invoice', inv.uuid)).toMatchObject({ externalStatus: 'VOIDED' });
+    expect(await mapping('INVOICE', inv.uuid)).toMatchObject({ externalStatus: 'VOIDED' });
   });
 
   it('ยกเลิกใบใน TMS ที่ส่งเป็นร่างแล้ว → คำสั่ง VOID_DOCUMENT ถูกข้าม void_manual_required (ระบบบัญชีไม่มี API ยกเลิก) + audit แจ้งบัญชี', async () => {
@@ -461,14 +478,14 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
     expect(ap[0]!.lines[0]).toMatchObject({ line_type: 'item', amount: '9000.00' });
     const note = ap[0]!.lines.find((l) => l.line_type === 'note')!;
     expect(note.description).toContain('90.00 บาท (ภ.ง.ด.53)');
-    expect(await mapping('settlement', s.uuid)).toMatchObject({ externalId: ap[0]!.id });
+    expect(await mapping('SETTLEMENT', s.uuid)).toMatchObject({ externalId: ap[0]!.id });
     // ระบบบัญชีลงบัญชีแล้วจ่าย (ออก 50 ทวิ) → TMS เก็บเลข
     await send(mock.post(ap[0]!.id)).expect(200);
     await send(
       mock.pay([{ documentId: ap[0]!.id, applied: '8910.00', wht: '90.00' }], ['WHT-6911-0001']),
     ).expect(200);
     await drainJobs();
-    const m = await mapping('settlement', s.uuid);
+    const m = await mapping('SETTLEMENT', s.uuid);
     expect(m).toMatchObject({ externalStatus: 'PAID' });
     expect(m!.detail).toMatchObject({
       whtCertificates: ['WHT-6911-0001'],
