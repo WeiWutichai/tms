@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ensureSystemRoles } from '../src/auth/system-roles';
+import { signAccessToken } from '../src/auth/tokens';
+import { tryDecodeId } from '../src/common/ids';
 import { signDocumentUrl } from '../src/modules/documents/signed-url';
+import { ImportRegistry } from '../src/modules/imports/import-spec';
+import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { api, bootApp, createTenant, platform, tokenFor, truncateAll } from './helpers';
 
 const PDF = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n');
@@ -221,5 +226,217 @@ describe('documents (presigned upload/download)', () => {
       .set('Content-Type', 'application/octet-stream')
       .send(PDF);
     expect(small.status).toBe(404);
+  });
+});
+
+/**
+ * ST9-T16 R-1: ไฟล์ต้นฉบับที่นำเข้า (kind IMPORT — อาจมีเลขบัตร/เบอร์โทรเต็ม) ต้องไม่เปิดให้ทุก role ที่มี documents:read
+ * เห็นได้เฉพาะผู้อัปโหลด หรือผู้ใช้ที่มีสิทธิ์จัดการการนำเข้าชนิดนั้น · API key/การเข้าใช้งานแทน/role อื่น/tenant อื่น → 404
+ */
+describe('documents: ไฟล์นำเข้า (IMPORT) เห็นเฉพาะผู้มีสิทธิ์ — ST9-T16 R-1', () => {
+  let app: NestExpressApplication;
+  const db = platform();
+  let tenantId: string;
+  let uploaderId: string;
+  let uploader: string;
+  let docId: string;
+  const CSV = Buffer.from('รหัส,ชื่อ,เลขบัตร\nD001,สมชาย,1101700203451\n');
+  const path = (url: string) => new URL(url).pathname + new URL(url).search;
+
+  async function user(email: string) {
+    return (await db.appUser.create({ data: { tenantId, email, name: email, status: 'ACTIVE' } }))
+      .id;
+  }
+
+  beforeAll(async () => {
+    process.env.FILES_ROOT = mkdtempSync(join(tmpdir(), 'tms-files-'));
+    await truncateAll();
+    app = await bootApp();
+    const spec = (kind: string, scope: string, feature?: string) =>
+      ({
+        kind,
+        label: 'ทดสอบสิทธิ์ไฟล์นำเข้า',
+        scope,
+        ...(feature ? { feature } : {}),
+        columns: [{ key: 'code', header: 'รหัส', required: true }],
+        validate: async (_ctx: unknown, rows: unknown[]) => rows.map(() => ({ issues: [] })),
+        commit: async () => ({ created: 0 }),
+      }) as never;
+    const reg = app.get(ImportRegistry);
+    reg.register(spec('doc_access_test', 'settings:write'));
+    reg.register(spec('doc_access_master', 'master:write'));
+    // ฟีเจอร์ที่ไม่มีแพ็กเกจไหนเปิด = แพ็กเกจปิด
+    reg.register(spec('doc_access_feature', 'settings:write', 'test.not_in_any_plan'));
+    tenantId = (await createTenantWithDefaults(db, { name: 'บริษัท นำเข้า' })).id;
+    uploaderId = await user('uploader@a.test');
+    uploader = await tokenFor(
+      tenantId,
+      'documents:read documents:write settings:write',
+      uploaderId,
+    );
+    docId = await upload();
+  });
+  async function upload(): Promise<string> {
+    const r = await api(app, uploader)
+      .post('/v1/documents')
+      .send({ kind: 'IMPORT', mime: 'text/csv', bytes: CSV.length, filename: 'คนขับ.csv' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .put(path(r.body.uploadUrl))
+      .set('Content-Type', 'application/octet-stream')
+      .send(CSV)
+      .expect(200);
+    return r.body.id;
+  }
+  const jobFor = (id: string, kind: string) =>
+    db.importJob.create({
+      data: {
+        tenantId,
+        kind,
+        documentId: tryDecodeId('document', id)!,
+        expiresAt: new Date(Date.now() + 3600_000),
+        createdBy: uploaderId,
+      },
+    });
+  afterAll(async () => {
+    await app.close();
+    await db.$disconnect();
+  });
+
+  const get = (token: string) => api(app, token).get(`/v1/documents/${docId}`);
+
+  it('ผู้อัปโหลด → 200 พร้อม downloadUrl ที่ดาวน์โหลดได้', async () => {
+    const r = await get(uploader).expect(200);
+    expect(r.body.kind).toBe('IMPORT');
+    // ลิงก์ไฟล์นำเข้าอายุสั้น (60 วินาที — review L-b)
+    const ttl = (new Date(r.body.urlExpiresAt).getTime() - Date.now()) / 1000;
+    expect(ttl).toBeGreaterThan(0);
+    expect(ttl).toBeLessThanOrEqual(61);
+    await request(app.getHttpServer()).get(path(r.body.downloadUrl)).expect(200);
+  });
+
+  it('viewer / role อื่นที่มี documents:read แต่ไม่มีสิทธิ์จัดการการนำเข้า → 404', async () => {
+    const viewer = await tokenFor(
+      tenantId,
+      SYSTEM_ROLES.viewer.permissions.join(' '),
+      await user('viewer@a.test'),
+    );
+    expect((await get(viewer)).status).toBe(404);
+    const dispatcher = await tokenFor(
+      tenantId,
+      'documents:read documents:write orders:read',
+      await user('disp@a.test'),
+    );
+    const r = await get(dispatcher);
+    expect(r.status).toBe(404);
+    expect(r.body.downloadUrl).toBeUndefined();
+  });
+
+  it('ผู้มีสิทธิ์จัดการการนำเข้าชนิดที่ใช้ไฟล์นี้ → 200 (ยังไม่มีงานนำเข้าอ้างถึง → 404)', async () => {
+    const manager = await tokenFor(
+      tenantId,
+      'documents:read settings:write',
+      await user('manager@a.test'),
+    );
+    expect((await get(manager)).status).toBe(404);
+    await jobFor(docId, 'doc_access_test');
+    expect((await get(manager)).status).toBe(200);
+    // ชนิดที่ไม่รู้จัก/ไม่มีสิทธิ์ของงานนำเข้า ไม่เปิดให้ role ที่ไม่มี scope ของชนิดนั้น
+    const other = await tokenFor(tenantId, 'documents:read master:write', await user('m2@a.test'));
+    expect((await get(other)).status).toBe(404);
+  });
+
+  it('ไฟล์เดียวถูกอ้างโดยหลายชนิดการนำเข้า → ต้องมีสิทธิ์ทุกชนิด (ผู้อัปโหลดเห็นเสมอ)', async () => {
+    const id = await upload();
+    await jobFor(id, 'doc_access_test');
+    await jobFor(id, 'doc_access_master');
+    const at = (t: string) => api(app, t).get(`/v1/documents/${id}`);
+    const settingsOnly = await tokenFor(
+      tenantId,
+      'documents:read settings:write',
+      await user('multi1@a.test'),
+    );
+    const masterOnly = await tokenFor(
+      tenantId,
+      'documents:read master:write',
+      await user('multi2@a.test'),
+    );
+    const both = await tokenFor(
+      tenantId,
+      'documents:read settings:write master:write',
+      await user('multi3@a.test'),
+    );
+    expect((await at(settingsOnly)).status).toBe(404);
+    expect((await at(masterOnly)).status).toBe(404);
+    expect((await at(both)).status).toBe(200);
+    // ผู้อัปโหลดไม่มี master:write แต่ยังเห็นไฟล์ของตัวเอง
+    expect((await at(uploader)).status).toBe(200);
+  });
+
+  it('ชนิดการนำเข้าที่ฟีเจอร์ไม่อยู่ในแพ็กเกจ → 404 แม้มี scope', async () => {
+    const id = await upload();
+    await jobFor(id, 'doc_access_feature');
+    const manager = await tokenFor(
+      tenantId,
+      'documents:read settings:write',
+      await user('feat@a.test'),
+    );
+    expect((await api(app, manager).get(`/v1/documents/${id}`)).status).toBe(404);
+    expect((await api(app, uploader).get(`/v1/documents/${id}`)).status).toBe(200);
+  });
+
+  it('API key (มี documents:read) อ่านไฟล์นำเข้าของผู้ใช้ไม่ได้ → 404', async () => {
+    const admin = await tokenFor(tenantId, '*', uploaderId);
+    const k = await api(app, admin)
+      .post('/v1/api-keys')
+      .send({ name: 'ERP', scopes: ['documents:read', 'documents:write', 'master:write'] });
+    expect(k.status, JSON.stringify(k.body)).toBe(201);
+    const r = await request(app.getHttpServer())
+      .get(`/v1/documents/${docId}`)
+      .set('Authorization', `Bearer ${k.body.secret}`);
+    expect(r.status).toBe(404);
+  });
+
+  it('การเข้าใช้งานแทน (ทีม Innovera) ในนามผู้อัปโหลด → 404', async () => {
+    const staff = await db.platformUser.create({
+      data: {
+        email: `support-${Date.now()}@innovera.test`,
+        name: 'ทีม SUPPORT',
+        role: 'SUPPORT',
+        passwordHash: 'x',
+        totpSecret: 'x',
+      },
+    });
+    const roles = await ensureSystemRoles(db, tenantId);
+    await db.userRole.create({ data: { tenantId, userId: uploaderId, roleId: roles.admin! } });
+    const s = await db.impersonationSession.create({
+      data: {
+        platformUserId: staff.id,
+        tenantId,
+        asUserId: uploaderId,
+        reason: 'ลูกค้าแจ้งนำเข้า Excel ไม่ผ่าน',
+        expiresAt: new Date(Date.now() + 30 * 60_000),
+      },
+    });
+    const imp = await signAccessToken({
+      sub: uploaderId,
+      tid: tenantId,
+      scope: '',
+      pt: 'imp',
+      act: staff.id,
+      sid: s.id,
+    });
+    // token ใช้งานได้จริง (อ่านเอกสารชนิดอื่นได้) แต่ไฟล์นำเข้า → 404
+    const pdf = await api(app, uploader)
+      .post('/v1/documents')
+      .send({ kind: 'PDF', mime: 'application/pdf', bytes: 10 })
+      .expect(201);
+    expect((await api(app, imp).get(`/v1/documents/${pdf.body.id}`)).status).toBe(200);
+    expect((await get(imp)).status).toBe(404);
+  });
+
+  it('tenant อื่น → 404', async () => {
+    const other = await tokenFor((await createTenant(db)).id, '*', uploaderId);
+    expect((await get(other)).status).toBe(404);
   });
 });

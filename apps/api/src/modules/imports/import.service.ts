@@ -1,6 +1,5 @@
 import { Injectable, OnModuleInit, Optional } from '@nestjs/common';
 import type { ImportJob, Prisma } from '@prisma/client';
-import { scopeAllows } from '@tms/domain';
 import { isLocalEnv } from '../../auth/tokens';
 import { requestContext } from '../../common/request-context';
 import { encodeId } from '../../common/ids';
@@ -13,6 +12,7 @@ import { EntitlementService } from '../entitlements/entitlement.service';
 import { NotificationService } from '../notifications/notification.service';
 import {
   ImportRegistry,
+  importSpecAllowed,
   maskSensitive,
   type ImportContext,
   type ErrorPolicy,
@@ -241,8 +241,7 @@ export class ImportService implements OnModuleInit {
   /** spec ที่ผู้เรียกใช้ได้: มี kind, มี scope และแพ็กเกจเปิดฟีเจอร์ (ถ้ากำหนด) — ไม่ผ่าน = 404 เหมือนไม่มี */
   async spec(kind: string, scopes: string[], tenantId: string): Promise<ImportSpec<unknown>> {
     const s = this.registry.get(kind);
-    if (!s || !scopeAllows(scopes, s.scope)) throw new ProblemException('not_found');
-    if (s.feature && this.entitlements && !(await this.entitlements.enabled(tenantId, s.feature)))
+    if (!s || !(await importSpecAllowed(s, scopes, tenantId, this.entitlements)))
       throw new ProblemException('not_found');
     return s;
   }

@@ -27,7 +27,7 @@ import {
 } from './connector-mapping';
 import { NotificationEvents } from '../notifications/notification-events';
 import { OrderSourceRegistry } from './order-source-registry';
-import type { ExternalOrder, PullPage } from './order-source.port';
+import type { ExternalOrder, PullPage, PullProblem } from './order-source.port';
 
 export const CONNECTOR_PULL_JOB = 'connector.pull';
 /** จำนวนใบต่อหน้าที่ขอจาก adapter */
@@ -100,6 +100,8 @@ export interface PullRunResult {
   results: PullItemResult[];
   /** ดึงจากต้นทางไม่สำเร็จ */
   sourceError?: string;
+  /** ST8-T04 คำเตือนจากต้นทางที่ไม่หยุดรอบ (`PullPage.warnings`) */
+  warnings?: string[];
 }
 
 /** Prisma: ต่อฐานไม่ได้ / pool เต็ม / transaction หมดเวลา / deadlock-serialization */
@@ -132,6 +134,17 @@ export function pageShapeError(page: unknown, cursor: string | null, limit: numb
   if (typeof p.hasMore !== 'boolean') return 'invalid page from source: hasMore must be a boolean';
   if (p.hasMore && (p.nextCursor ?? cursor) === cursor)
     return 'invalid page from source: hasMore without advancing cursor';
+  if (p.problem !== undefined && p.problem !== null) {
+    const q = p.problem as Partial<PullProblem>;
+    if (
+      typeof q !== 'object' ||
+      (q.errorClass !== 'VALIDATION' && q.errorClass !== 'AUTH') ||
+      typeof q.code !== 'string' ||
+      !q.code ||
+      typeof q.message !== 'string'
+    )
+      return 'invalid page from source: problem must be {errorClass, code, message}';
+  }
   return null;
 }
 
@@ -363,6 +376,20 @@ export class ConnectorIntakeService implements OnModuleInit {
           this.logger.warn(
             `tenant ${tenantId} connector ${connector}: pull failed — ${run.sourceError}`,
           );
+          // ST8-T04 key ผิด (AUTH) / ต้นทางผิดโครงสร้าง (VALIDATION เช่น view หาย) = ลองซ้ำไม่หาย → หยุด connector
+          // (docs/01 §6.3 AUTH, A.2 "view หาย → connector ERROR") · TRANSIENT/อื่น ๆ = job ลองใหม่ตามเดิม
+          if (
+            e instanceof ErpAdapterError &&
+            (e.errorClass === 'AUTH' || e.errorClass === 'VALIDATION')
+          )
+            await this.stopConnector(tenantId, source, {
+              errorClass: e.errorClass,
+              code: e.problem.code,
+              message: run.sourceError,
+            });
+          // ST8-T04 ปลายทางล่มชั่วคราว (TRANSIENT) นับรวมกติกา 30 นาทีของ spec/07 §1 (เหมือนผล healthCheck ที่ระบบตรวจเอง)
+          else if (e instanceof ErpAdapterError && e.errorClass === 'TRANSIENT')
+            await this.noteTransient(tenantId, source, e.problem.code, run.sourceError);
           break;
         }
         // รูปหน้าที่ adapter คืนต้องถูก — ผิด = ต้นทางผิดพลาด (ไม่รับหน้า ไม่เลื่อน cursor; hasMore ที่ไม่เลื่อน = วนไม่จบ)
@@ -373,6 +400,11 @@ export class ConnectorIntakeService implements OnModuleInit {
           break;
         }
         run.pages += 1;
+        if (got.warnings?.length)
+          run.warnings = [
+            ...(run.warnings ?? []),
+            ...got.warnings.map((w) => redactSecrets(String(w), source.secrets).slice(0, 300)),
+          ].slice(0, 20);
         const today = bangkokToday(this.clock.now());
         let pageErrors = 0;
         // ST9-T08: ใบค้างของหน้านี้แจ้งรวมฉบับเดียว (ไม่ใช่ทีละใบ) — แจ้งไม่สำเร็จไม่กระทบใบที่รับแล้ว
@@ -394,6 +426,22 @@ export class ConnectorIntakeService implements OnModuleInit {
                 `tenant ${tenantId} connector ${connector}: hold notify failed — ${show(e)}`,
               ),
             );
+        // ST8-T04 ต้นทางแจ้งปัญหาโครงสร้าง: รับใบแล้ว (ค้าง SOURCE_ERROR) แต่ไม่เลื่อน cursor + หยุด connector
+        // (แก้ต้นทางแล้วเปิดใช้ → ดึงหน้าเดิมซ้ำได้ข้อมูลครบ ทับใบค้างเดิม)
+        if (got.problem) {
+          const problem = {
+            errorClass: got.problem.errorClass,
+            code: got.problem.code.slice(0, 60),
+            message: redactSecrets(
+              `${got.problem.code}: ${got.problem.message}`,
+              source.secrets,
+            ).slice(0, 500),
+          };
+          run.sourceError = problem.message;
+          this.logger.warn(`tenant ${tenantId} connector ${connector}: ${problem.message}`);
+          await this.stopConnector(tenantId, source, problem);
+          break;
+        }
         // หน้านี้มีใบที่ไม่ได้ผลสุดท้าย → ไม่เลื่อน cursor (รอบหน้าดึงหน้าเดิมซ้ำ — idempotent)
         if (pageErrors) break;
         const next = got.nextCursor ?? run.cursor;
@@ -474,6 +522,14 @@ export class ConnectorIntakeService implements OnModuleInit {
                 select: { requestedDate: true },
               });
               if (cur) m.input.requestedDate = cur.requestedDate.toISOString().slice(0, 10);
+            }
+            // ST8-T04 ข้อมูลอาจไม่ครบ (holdOnly) หรือรายการน้อยกว่าที่เก็บอยู่ (noLineShrink) → ใบเดิม: ไม่ทับ ตั้งปัญหาอย่างเดียว
+            if (!recover && m.input.externalId) {
+              const hold = await this.holdIssues(tx, ext, m);
+              if (hold) {
+                const held = await this.intake.holdFromSource(m.input.externalId, hold, tx);
+                if (held) return held;
+              }
             }
             const input = recover ? fallbackInput(m, recover.errors) : m.input;
             // ใบสำรองแก้ใบที่พ้นช่วงรับงานไม่ได้ (→ 409 locked) — ไม่เก็บข้อมูลลดรูปเป็นชุดรอตัดสิน
@@ -576,6 +632,80 @@ export class ConnectorIntakeService implements OnModuleInit {
     }
   }
 
+  /**
+   * ST8-T04 หยุด connector จากปัญหาของรอบดึง (ใช้ `ConnectorsService.markError` ตัวเดียวกับ sink — ACTIVE → ERROR,
+   * audit `connector.error`, แจ้งผู้ดูแล, webhook) · ต้นทางทดสอบตามรหัส (ไม่มีแถว connector) = ไม่ทำอะไร · ล้ม = log เท่านั้น
+   */
+  private async stopConnector(tenantId: string, source: PullSource, problem: PullProblem) {
+    if (!source.connectorId) return;
+    const connectorId = source.connectorId;
+    await this.db
+      .withTenant(tenantId, async (tx) => {
+        const row = await tx.connector.findUnique({ where: { id: connectorId } });
+        if (row)
+          await this.connectors.markError(
+            tx,
+            row,
+            { code: problem.code, message: problem.message },
+            problem.errorClass,
+          );
+      })
+      .catch((e) =>
+        this.logger.warn(
+          `tenant ${tenantId} connector ${source.key}: cannot mark ERROR — ${show(e)}`,
+        ),
+      );
+  }
+
+  /**
+   * ST8-T04 ปัญหาที่ต้องตั้งบนใบเดิมแทนการทับ — null = upsert ตามปกติ
+   * `holdOnly` = ปัญหาของใบ (อย่างน้อย 1 ข้อ) · `noLineShrink` + รายการที่รับได้น้อยกว่าที่เก็บอยู่ = ปัญหา + ข้อความจำนวนรายการ
+   */
+  private async holdIssues(tx: Tx, ext: ExternalOrder, m: MappedOrder): Promise<string[] | null> {
+    const holdOnly = ext?.holdOnly === true;
+    if (!holdOnly && ext?.noLineShrink !== true) return null;
+    const cur = await tx.salesOrder.findUnique({
+      where: {
+        tenantId_externalId: {
+          tenantId: requestContext.require().tenantId!,
+          externalId: m.input.externalId!,
+        },
+      },
+      select: { _count: { select: { lines: true } } },
+    });
+    if (!cur) return null;
+    const got = m.input.lines?.length ?? 0;
+    const shrink = cur._count.lines > got;
+    if (!holdOnly && !shrink) return null;
+    const issues = [...m.issues];
+    if (shrink)
+      issues.push(
+        `ต้นทางส่งรายการสินค้ามา ${got} รายการ น้อยกว่าที่มีอยู่ ${cur._count.lines} รายการ — ไม่ทับข้อมูลเดิม ตรวจกับต้นทาง`,
+      );
+    if (!issues.length) issues.push('ข้อมูลจากต้นทางอาจไม่ครบ — ไม่ทับข้อมูลเดิม ตรวจกับต้นทาง');
+    return issues;
+  }
+
+  /** ST8-T04 รอบดึงล้ม TRANSIENT → จดเวลาเริ่มล้ม (ครบ 30 นาที = ERROR; worker ตรวจซ้ำ/กู้คืนเอง — `applySystemHealth`) */
+  private async noteTransient(tenantId: string, source: PullSource, code: string, message: string) {
+    if (!source.connectorId) return;
+    const connectorId = source.connectorId;
+    await this.db
+      .withTenant(tenantId, (tx) =>
+        this.connectors.applySystemHealth(
+          tx,
+          connectorId,
+          { ok: false, errorClass: 'TRANSIENT', problem: { code, message } },
+          this.clock.now(),
+        ),
+      )
+      .catch((e) =>
+        this.logger.warn(
+          `tenant ${tenantId} connector ${source.key}: cannot record transient failure — ${show(e)}`,
+        ),
+      );
+  }
+
   // ---------------------------------------------------------------------------------------------
 
   /** จับคู่รหัสต้นทาง (อ่านอย่างเดียว — RLS จำกัด tenant) */
@@ -665,6 +795,7 @@ export class ConnectorIntakeService implements OnModuleInit {
       pages: run.pages,
       counts: run.counts,
       ...(run.sourceError ? { sourceError: run.sourceError } : {}),
+      ...(run.warnings?.length ? { warnings: run.warnings } : {}),
       results: run.results.filter((r) => r.outcome !== 'unchanged').slice(0, MAX_STORED_RESULTS),
     };
     await this.db
@@ -697,7 +828,7 @@ export class ConnectorIntakeService implements OnModuleInit {
               },
             });
             const c = run.counts;
-            if (c.total - c.unchanged > 0 || !ok)
+            if (c.total - c.unchanged > 0 || !ok || run.warnings?.length)
               await this.audit.record({
                 action: 'connector.orders_pulled',
                 entityType: 'connector_cursor',
@@ -709,6 +840,7 @@ export class ConnectorIntakeService implements OnModuleInit {
                   cursor: run.cursor,
                   counts: c,
                   ...(run.sourceError ? { sourceError: run.sourceError } : {}),
+                  ...(run.warnings?.length ? { warnings: run.warnings } : {}),
                   // ใบที่มีผล (ไม่รวม unchanged) จนกว่าจะมีหน้า error queue (ST7-T19) — จำกัด 100 ใบ
                   items: run.results
                     .filter((r) => r.outcome !== 'unchanged')
