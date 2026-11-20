@@ -113,7 +113,7 @@ export class SettlementsController {
       'รถร่วม 1 ราย หลายเที่ยว: `tripIds` (ทุกบรรทัดที่รอจ่ายของเที่ยว) และ/หรือ `tripCostIds` (รายบรรทัด) — ต้องอยู่ในคิวจ่าย (`GET /settlements/queue`) ' +
       'ของรถร่วมรายนี้ มิฉะนั้น 409 `trip_cost_not_payable` · บรรทัดที่อยู่ในใบอื่นที่ยังใช้แล้ว → **409 `trip_cost_already_settled`** (กันจ่ายซ้ำ — unique ระดับ DB) · ' +
       'บรรทัดหัก (`deductions`) กรอกมือ ยอดติดลบ + เอกสารอ้างอิง · ' +
-      'ยอดสุทธิ = ยอดรวม − รายการหัก (ยังไม่หัก ณ ที่จ่าย — ST6-T08; บรรทัดเก็บ `vatType`/`whtRate` ที่คัดลอกจากต้นทุน) · ' +
+      'ยอดสุทธิ `buyNetPayable` = ยอดรวม − รายการหัก (ก่อนหัก ณ ที่จ่าย) · หัก ณ ที่จ่าย**ประมาณการ** (ST6-T08) `buyWhtAmount` = ยอดก่อนหัก × อัตราของบรรทัด (`whtRate` ที่คัดลอกจากต้นทุน — ไม่มีธงใช้ค่าตั้งต้นของรถร่วม) ปัดครั้งเดียวต่อกลุ่มอัตรา + ขั้นต่ำ `tax.whtMinimumAmount` · `buyNetAfterWht` = ยอดจ่ายหลังหัก · `whtEstimate` แยกอัตรา + แบบ ภ.ง.ด.3/53 (ร่าง — ยังไม่ผ่านนักบัญชี) · ' +
       'งวดไม่ส่ง = ช่วงวันที่เที่ยวจบ (เวลาไทย) · audit `settlement.created`',
   })
   @ApiProblems(
@@ -438,7 +438,7 @@ export class SettlementsController {
       'ยอดสุทธิเกินวงเงินที่ตั้ง (`settlement.approvalStepUpAmount` — ค่าเริ่ม 100,000 บาท; 0 = ทุกใบ) ต้องส่ง `X-Step-Up` ของผู้อนุมัติ ' +
       '(จาก `POST /v1/auth/step-up` ยืนยัน TOTP) ไม่งั้น 403 `step_up_required` · ไม่มีบรรทัดค่าขนส่ง (FREIGHT) → 409 `settlement_empty` · ' +
       'ยอดสุทธิติดลบ → 409 `settlement_net_negative` · ออกเลขชุด STL ตอนนี้เท่านั้น (ร่างไม่กินเลข; ออกแล้วแก้ไม่ได้) · ใบที่อนุมัติแล้วแก้/เพิ่ม/นำบรรทัดออก/ยกเลิกไม่ได้ (409) · ' +
-      'ยังไม่หัก ณ ที่จ่าย (ST6-T08) · audit `settlement.approved` + webhook `settlement.approved`',
+      '**ตรึงหัก ณ ที่จ่ายประมาณการ** (ST6-T08: ยอด + ขั้นต่ำที่ใช้ + ค่าตั้งต้นอัตราของรถร่วม — ค่าตั้ง/รถร่วมเปลี่ยนทีหลังไม่กระทบใบ; `whtEstimate.frozen` = true) · วงเงิน step-up เทียบยอดสุทธิก่อนหัก ณ ที่จ่าย · audit `settlement.approved` (+ `buyWhtAmount`) + webhook `settlement.approved`',
   })
   @ApiHeader({
     ...IF_MATCH,
