@@ -49706,7 +49706,8 @@
               "TMS",
               "ERP"
             ],
-            "description": "เจ้าของข้อมูลลูกค้า(หลัก)"
+            "nullable": true,
+            "description": "เจ้าของข้อมูลลูกค้า(หลัก) · null = ยังไม่เลือก"
           },
           "taxDocumentOwner": {
             "type": "string",
@@ -49714,14 +49715,16 @@
               "TMS",
               "ERP"
             ],
-            "description": "เจ้าของเอกสารภาษี — ERP = TMS ไม่ออกเลขใบกำกับภาษี (ออกเฉพาะใบแจ้งหนี้/ใบวางบิล) · TMS ออกเลขเอกสารของตัวเองเสมอ"
+            "nullable": true,
+            "description": "เจ้าของเอกสารภาษี — ERP (และใบแจ้งหนี้ไปถึง ERP) = TMS ไม่ออกเลขใบกำกับภาษี (ออกเฉพาะใบแจ้งหนี้/ใบวางบิล) · TMS ออกเลขเอกสารของตัวเองเสมอ · null = ยังไม่เลือก: TMS ออกเลขตามปกติ แต่เปิด pushInvoice/pushCreditNote/replaceDocument ไม่ได้ (422 `sor_not_chosen`) และคำสั่งส่งเอกสารภาษีถูกพัก"
           },
           "fieldSync": {
-            "$ref": "#/components/schemas/SorFieldSyncDto"
-          },
-          "editableUntilPaid": {
-            "type": "boolean",
-            "description": "แก้แล้ว sync ไป ERP ได้จนรับชำระ (รับบางส่วนก็นับ)"
+            "description": "แก้แล้วส่งไป ERP ได้จนรับชำระ",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SorFieldSyncDto"
+              }
+            ]
           },
           "canIssueTaxDocumentNumber": {
             "type": "boolean",
@@ -49732,7 +49735,6 @@
           "customerOwner",
           "taxDocumentOwner",
           "fieldSync",
-          "editableUntilPaid",
           "canIssueTaxDocumentNumber"
         ]
       },
@@ -59522,7 +59524,8 @@
               "TMS",
               "ERP"
             ],
-            "description": "เจ้าของข้อมูลลูกค้า(หลัก)"
+            "nullable": true,
+            "description": "เจ้าของข้อมูลลูกค้า(หลัก) · null = ยังไม่เลือก"
           },
           "taxDocumentOwner": {
             "type": "string",
@@ -59530,21 +59533,22 @@
               "TMS",
               "ERP"
             ],
-            "description": "เจ้าของเอกสารภาษี — ERP = TMS ไม่ออกเลขใบกำกับภาษี (ออกเฉพาะใบแจ้งหนี้/ใบวางบิล) · TMS ออกเลขเอกสารของตัวเองเสมอ"
+            "nullable": true,
+            "description": "เจ้าของเอกสารภาษี — ERP (และใบแจ้งหนี้ไปถึง ERP) = TMS ไม่ออกเลขใบกำกับภาษี (ออกเฉพาะใบแจ้งหนี้/ใบวางบิล) · TMS ออกเลขเอกสารของตัวเองเสมอ · null = ยังไม่เลือก: TMS ออกเลขตามปกติ แต่เปิด pushInvoice/pushCreditNote/replaceDocument ไม่ได้ (422 `sor_not_chosen`) และคำสั่งส่งเอกสารภาษีถูกพัก"
           },
           "fieldSync": {
-            "$ref": "#/components/schemas/SorFieldSyncDto"
-          },
-          "editableUntilPaid": {
-            "type": "boolean",
-            "description": "แก้แล้ว sync ไป ERP ได้จนรับชำระ (รับบางส่วนก็นับ)"
+            "description": "แก้แล้วส่งไป ERP ได้จนรับชำระ",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SorFieldSyncDto"
+              }
+            ]
           }
         },
         "required": [
           "customerOwner",
           "taxDocumentOwner",
-          "fieldSync",
-          "editableUntilPaid"
+          "fieldSync"
         ]
       },
       "TokenDto": {
@@ -65605,7 +65609,7 @@
       },
       "WebhookEvent_connector_health_changed": {
         "type": "object",
-        "description": "`data.object` ของ connector.health_changed — สถานะการเชื่อมต่อระบบภายนอกเปลี่ยน · รูปเดียวกับ ConnectorDto (ไม่มี field ราคา)",
+        "description": "`data.object` ของ connector.health_changed — สถานะการเชื่อมต่อระบบภายนอกเปลี่ยน · รูปเดียวกับ ConnectorDto (ไม่มี field ราคา, systemOfRecord)",
         "properties": {
           "id": {
             "type": "string",
@@ -65792,9 +65796,6 @@
           "inbound": {
             "$ref": "#/components/schemas/ConnectorInboundDto"
           },
-          "systemOfRecord": {
-            "$ref": "#/components/schemas/SystemOfRecordDto"
-          },
           "version": {
             "type": "number"
           },
@@ -65831,7 +65832,6 @@
           "activatedAt",
           "disconnectedAt",
           "inbound",
-          "systemOfRecord",
           "version",
           "createdAt",
           "updatedAt"
@@ -70266,8 +70266,13 @@
     },
     "sor_locked": {
       "status": 409,
-      "title": "เปลี่ยนเจ้าของเอกสารไม่ได้ เพราะส่งเอกสารเข้าระบบบัญชีแล้ว — ยกเลิกการเชื่อมแล้วตั้งใหม่",
+      "title": "เปลี่ยนเจ้าของเอกสารไม่ได้ เพราะมีเอกสารส่งหรือรอส่งเข้าระบบบัญชีแล้ว — ยกเลิกการเชื่อมแล้วตั้งใหม่",
       "titleEn": "Ownership cannot change after documents were synced — disconnect and set up again"
+    },
+    "sor_not_chosen": {
+      "status": 422,
+      "title": "เลือก \"ใครออกเลขเอกสาร\" ก่อนเปิดการส่งเอกสารเข้าระบบบัญชี",
+      "titleEn": "Choose the tax document owner before enabling document push"
     },
     "source_change_not_pending": {
       "status": 409,

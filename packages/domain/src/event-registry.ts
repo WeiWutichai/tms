@@ -88,7 +88,7 @@ const STOP = shape('TripStopDto', {
 const DELIVERY_ORDER = shape('DeliveryOrderDto');
 /** pod: รูปเดียวกับ `GET /v1/delivery-orders/{id}/pod` */
 const POD = shape('DeliveryOrderPodDto');
-const CONNECTOR = shape('ConnectorDto');
+const CONNECTOR = shape('ConnectorDto', { omit: ['systemOfRecord'] }); // ST7-T17: ค่าตั้ง SoR ไม่ใช่เรื่องสุขภาพการเชื่อมต่อ
 const JOB = shape('JobDto');
 
 const active = (

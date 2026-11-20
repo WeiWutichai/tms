@@ -85814,7 +85814,7 @@
       },
       "WebhookEvent_connector_health_changed": {
         "type": "object",
-        "description": "`data.object` ของ connector.health_changed — สถานะการเชื่อมต่อระบบภายนอกเปลี่ยน · รูปเดียวกับ ConnectorDto (ไม่มี field ราคา)",
+        "description": "`data.object` ของ connector.health_changed — สถานะการเชื่อมต่อระบบภายนอกเปลี่ยน · รูปเดียวกับ ConnectorDto (ไม่มี field ราคา, systemOfRecord)",
         "properties": {
           "id": {
             "type": "string",
@@ -86001,9 +86001,6 @@
           "inbound": {
             "$ref": "#/components/schemas/ConnectorInboundDto"
           },
-          "systemOfRecord": {
-            "$ref": "#/components/schemas/SystemOfRecordDto"
-          },
           "version": {
             "type": "number"
           },
@@ -86040,7 +86037,6 @@
           "activatedAt",
           "disconnectedAt",
           "inbound",
-          "systemOfRecord",
           "version",
           "createdAt",
           "updatedAt"

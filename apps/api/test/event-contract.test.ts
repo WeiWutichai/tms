@@ -470,7 +470,8 @@ describe('event registry contract (ST7-T06)', () => {
       .send({ reason: 'ปิดชั่วคราวระหว่างทดสอบ' })
       .expect(200);
     expect((await latest('connector.health_changed', uuid('connector', con.id)))!.snapshot).toEqual(
-      await rest(`/v1/connectors/${con.id}`),
+      // ST7-T17: event สุขภาพไม่รวมค่าตั้ง system-of-record (registry `omit`)
+      await rest(`/v1/connectors/${con.id}`, ['systemOfRecord']),
     );
 
     // ---- job.completed: งานนำเข้า (publicEvent) — งานระบบอื่นไม่ยิง ----

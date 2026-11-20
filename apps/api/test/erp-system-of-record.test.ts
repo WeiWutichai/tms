@@ -232,7 +232,7 @@ describe('system-of-record (ST7-T17)', () => {
     });
     expect(await canIssue(b.id)).toBe(true);
 
-    // แพ็กเกจไม่มี conn แต่ยังมี connector ค้าง (เคยเปิดใช้ + ERP) → effective standalone และ TMS ออกเลขเอง
+    // แพ็กเกจไม่มี conn แต่ยังมี connector ค้าง (เคยเปิดใช้ + ERP) → effective standalone (SoR แบบ Standalone TMS/TMS) และ TMS ออกเลขเอง
     const t2 = (await createTenant(plat, 'บริษัท ลดแพ็กเกจ')).id;
     const tok2 = await tokenFor(t2, '*', randomUUID());
     const c3 = await connector({ taxDocumentOwner: 'ERP' }, tok2);
@@ -243,7 +243,11 @@ describe('system-of-record (ST7-T17)', () => {
     const eff = await api(app, tok2).get('/v1/connectors/effective').expect(200);
     expect(eff.body).toMatchObject({
       standalone: true,
-      systemOfRecord: { taxDocumentOwner: 'ERP', canIssueTaxDocumentNumber: true },
+      systemOfRecord: {
+        customerOwner: 'TMS',
+        taxDocumentOwner: 'TMS',
+        canIssueTaxDocumentNumber: true,
+      },
     });
     expect(await canIssue(null, t2)).toBe(true);
   });

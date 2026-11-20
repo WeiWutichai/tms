@@ -173,6 +173,12 @@ function auditView(c: Connector) {
   };
 }
 
+/** data.object ของ webhook `connector.health_changed` = ConnectorDto ไม่รวม `systemOfRecord` (ST7-T17) */
+function healthSnapshot(d: ConnectorDto): Omit<ConnectorDto, 'systemOfRecord'> {
+  const { systemOfRecord: _sor, ...rest } = d;
+  return rest;
+}
+
 /** system-of-record แบบ DTO (+ ธงออกเลขใบกำกับภาษี) */
 function sorDto(s: SystemOfRecord) {
   return {
@@ -366,14 +372,9 @@ export class ConnectorsService {
     let companyId = decode('company', 'companyId', q.companyId);
     const branchId = decode('branch', 'branchId', q.branchId);
     // แพ็กเกจไม่มี connector → Standalone เสมอ (ไม่ 403 — หน้าจอทุกแพ็กเกจถามได้)
-    // ยกเว้น system-of-record (ST7-T17): connector ที่ยังไม่ยกเลิกยังเป็นเจ้าของเอกสารภาษี (กันใบกำกับภาษีซ้ำ — SystemOfRecordPolicy)
+    // system-of-record (ST7-T17) = แบบ Standalone (TMS/TMS) — ใบแจ้งหนี้ไม่ไป ERP จึงไม่มีเหตุให้ TMS หยุดออกเลขใบกำกับภาษี
+    //   (ค่าที่เก็บในแถว connector ไม่เปลี่ยน — กลับมาใช้เมื่อแพ็กเกจมี `conn` อีกครั้ง)
     if (!(await this.entitlements.enabled(tenantId, 'conn'))) {
-      let sorCompany = companyId;
-      if (branchId && !sorCompany)
-        sorCompany =
-          (await tx.branch.findUnique({ where: { id: branchId }, select: { companyId: true } }))
-            ?.companyId ?? null;
-      const s = await this.sor.forCompany(tx, sorCompany);
       return {
         standalone: true,
         connectorId: null,
@@ -388,7 +389,7 @@ export class ConnectorsService {
         erpCompanyCode: null,
         companyId: q.companyId ?? null,
         branchId: q.branchId ?? null,
-        systemOfRecord: { ...sorDto(s), canIssueTaxDocumentNumber: s.canIssueTaxDocumentNumber },
+        systemOfRecord: { ...sorDto(sorOf(null)), canIssueTaxDocumentNumber: true },
       };
     }
     // ระบุแค่สาขา → นิติบุคคลของสาขานั้น
@@ -1009,7 +1010,10 @@ export class ConnectorsService {
         entityType: 'connector',
         localId: c.id,
         // ST7-T06 (QA): data.object = ConnectorDto เดียวกับ `GET /v1/connectors/{id}` (credential แสดงแค่ชื่อช่อง)
-        snapshot: JSON.parse(JSON.stringify(this.toDto(c))) as Prisma.InputJsonValue,
+        // ST7-T17 (QA): ไม่ใส่ `systemOfRecord` — event นี้เป็นเรื่องสุขภาพ ไม่ใช่ค่าตั้ง SoR (event contract สาธารณะเดิม)
+        snapshot: JSON.parse(
+          JSON.stringify(healthSnapshot(this.toDto(c))),
+        ) as Prisma.InputJsonValue,
         previousAttributes: { status: from },
         requestId,
         actorId,

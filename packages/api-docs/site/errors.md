@@ -73,7 +73,7 @@
 | [`saved_view_limit`](#saved_view_limit) | 409 | บันทึกได้สูงสุด 50 มุมมองต่อหน้า |
 | [`seat_limit_reached`](#seat_limit_reached) | 409 | จำนวนผู้ใช้ครบตามแพ็กเกจแล้ว |
 | [`secret_unreadable`](#secret_unreadable) | 409 | อ่านข้อมูลลับเดิมไม่ได้ (กุญแจเข้ารหัสเดิมถูกถอดออกแล้ว) — กรอกเลขใหม่แทน |
-| [`sor_locked`](#sor_locked) | 409 | เปลี่ยนเจ้าของเอกสารไม่ได้ เพราะส่งเอกสารเข้าระบบบัญชีแล้ว — ยกเลิกการเชื่อมแล้วตั้งใหม่ |
+| [`sor_locked`](#sor_locked) | 409 | เปลี่ยนเจ้าของเอกสารไม่ได้ เพราะมีเอกสารส่งหรือรอส่งเข้าระบบบัญชีแล้ว — ยกเลิกการเชื่อมแล้วตั้งใหม่ |
 | [`source_change_not_pending`](#source_change_not_pending) | 409 | การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่ |
 | [`stop_already_closed`](#stop_already_closed) | 409 | จุดนี้ถูกปิดแล้ว — ส่ง POD ของ DO นี้ได้ |
 | [`stop_event_already_resolved`](#stop_event_already_resolved) | 409 | เหตุการณ์นี้ถูกตัดสินไปแล้ว |
@@ -101,6 +101,7 @@
 | [`idempotency_mismatch`](#idempotency_mismatch) | 422 | Idempotency-Key นี้เคยใช้กับข้อมูลอื่น |
 | [`pod_incomplete`](#pod_incomplete) | 422 | หลักฐานการส่ง (POD) ยังไม่ครบตามที่ลูกค้ากำหนด |
 | [`routing_not_configured`](#routing_not_configured) | 422 | บริษัทมีหลายนิติบุคคลแต่ยังไม่ได้กำหนดนิติบุคคลออกบิล — ส่ง billingCompanyId (จาก GET /v1/companies) หรือตั้ง "ออกบิลในนาม" ที่ลูกค้า/ค่าตั้งต้นของบริษัท |
+| [`sor_not_chosen`](#sor_not_chosen) | 422 | เลือก "ใครออกเลขเอกสาร" ก่อนเปิดการส่งเอกสารเข้าระบบบัญชี |
 | [`stop_order_invalid`](#stop_order_invalid) | 422 | ลำดับจุดไม่ถูกต้อง — จุดส่งของใบส่งของต้องอยู่หลังจุดรับของใบเดียวกัน |
 | [`validation_failed`](#validation_failed) | 422 | ข้อมูลไม่ถูกต้อง |
 | [`webhook_event_expired`](#webhook_event_expired) | 422 | event เกิน 30 วันแล้ว ส่งซ้ำไม่ได้ |
@@ -529,7 +530,7 @@ HTTP `409` · อ่านข้อมูลลับเดิมไม่ได
 
 ## sor_locked {#sor_locked}
 
-HTTP `409` · เปลี่ยนเจ้าของเอกสารไม่ได้ เพราะส่งเอกสารเข้าระบบบัญชีแล้ว — ยกเลิกการเชื่อมแล้วตั้งใหม่
+HTTP `409` · เปลี่ยนเจ้าของเอกสารไม่ได้ เพราะมีเอกสารส่งหรือรอส่งเข้าระบบบัญชีแล้ว — ยกเลิกการเชื่อมแล้วตั้งใหม่
 
 อาจตอบได้จากหลาย endpoint
 
@@ -694,6 +695,12 @@ HTTP `422` · หลักฐานการส่ง (POD) ยังไม่�
 HTTP `422` · บริษัทมีหลายนิติบุคคลแต่ยังไม่ได้กำหนดนิติบุคคลออกบิล — ส่ง billingCompanyId (จาก GET /v1/companies) หรือตั้ง "ออกบิลในนาม" ที่ลูกค้า/ค่าตั้งต้นของบริษัท
 
 อยู่ใน `errors[].code` ของ `422 validation_failed` (`errors[].field` = ช่องที่ต้องแก้)
+
+## sor_not_chosen {#sor_not_chosen}
+
+HTTP `422` · เลือก "ใครออกเลขเอกสาร" ก่อนเปิดการส่งเอกสารเข้าระบบบัญชี
+
+อาจตอบได้จากหลาย endpoint
 
 ## stop_order_invalid {#stop_order_invalid}
 
