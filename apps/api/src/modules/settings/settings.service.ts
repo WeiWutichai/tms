@@ -228,6 +228,13 @@ export function weakensSecurity(before: Record<string, unknown>, after: Record<s
     after['settlement.carrierReviewRequired'] === false
   )
     return true;
+  // ST5-T09 ปิดกฎแบ่งหน้าที่ของใบแจ้งหนี้ (ผู้สร้างออกเอกสารเองได้) = คุมหลวมขึ้น — ต้อง step-up (A3 "owner ยอมรับความเสี่ยง")
+  if (
+    has('billing.allowSelfFinalize') &&
+    before['billing.allowSelfFinalize'] !== true &&
+    after['billing.allowSelfFinalize'] === true
+  )
+    return true;
   // ST9-T14 ลดระยะเก็บ = ข้อมูลเก่าถูกลบเร็วขึ้น (ย้อนคืนไม่ได้) — ต้อง step-up เหมือนลดความปลอดภัย
   for (const k of Object.keys(after))
     if (k.startsWith('retention.') && Number(after[k]) < Number(before[k])) return true;

@@ -94,6 +94,14 @@ const SETTLEMENT = shape('SettlementDto', {
   omit: ['lines', 'createdBy', 'approvedBy', 'cancelledBy', 'cancelReason', 'note', 'sentBy'],
 });
 const JOB = shape('JobDto');
+/**
+ * invoice (ST5-T09; D-54 ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี): `GET /v1/invoices/{id}` − บรรทัด (`lines`/`printLines` — ดูผ่าน REST) − id ผู้ใช้ −
+ * ข้อความอิสระ (`note`, `cancelReason`) − `pdf` (render หลัง commit) · ยอด `sell*` ตัดอัตโนมัติ (ดูยอดผ่าน REST ด้วย `prices.sell:read`)
+ */
+const INVOICE = shape('InvoiceDto', {
+  omit: ['lines', 'printLines', 'createdBy', 'issuedBy', 'cancelReason', 'note', 'pdf'],
+  require: ['invoiceNo', 'issueDate', 'dueDate', 'issuedAt'],
+});
 
 const active = (
   resource: string,
@@ -199,7 +207,12 @@ const DEFS: Record<WebhookEventType, Omit<EventDefinition, 'type'>> = {
     'PodService.save (เว็บ / ลิงก์รถร่วม / API)',
     POD,
   ),
-  'invoice.finalized': pending('invoice', 'ออกเลขใบแจ้งหนี้/ใบกำกับภาษีแล้ว', 'ST5-T09'),
+  'invoice.finalized': active(
+    'invoice',
+    'ออกเอกสารใบแจ้งหนี้แล้ว (ออกเลข + ล็อก — ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี D-54)',
+    'InvoiceFinalizeService.finalize',
+    INVOICE,
+  ),
   'invoice.adjusted': pending('invoice', 'ปรับยอดใบแจ้งหนี้ด้วยใบลดหนี้/เพิ่มหนี้', 'ST5-T19'),
   'invoice.paid': pending('invoice', 'ใบแจ้งหนี้ได้รับชำระครบ', 'ST5-T18'),
   'invoice.voided': pending('invoice', 'ยกเลิกใบแจ้งหนี้', 'ST5-T10'),

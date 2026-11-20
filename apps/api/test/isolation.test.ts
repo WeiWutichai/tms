@@ -6,10 +6,19 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { IS_PUBLIC, PLATFORM_ROLES, TENANT_RESOURCE } from '../src/common/decorators';
-import { encodeId } from '../src/common/ids';
+import { encodeId, tryDecodeId } from '../src/common/ids';
 import { store } from '../src/modules/documents/documents.controller';
 import { signStepUpToken } from '../src/auth/tokens';
-import { api, bootApp, createTenant, platform, tokenFor, truncateAll, validTaxId } from './helpers';
+import {
+  api,
+  bootApp,
+  createTenant,
+  issuedTestFields,
+  platform,
+  tokenFor,
+  truncateAll,
+  validTaxId,
+} from './helpers';
 
 /**
  * Harness แยก tenant (ST0-T05) — CI แดงเมื่อ:
@@ -876,6 +885,15 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
         data: { tenantId, customerId: cus.id, issuingCompanyId: c.id, issuingBranchId: b.id },
       });
       return encodeId('invoice', inv.id);
+    },
+    // ST5-T09 ใบแจ้งหนี้ที่ออกแล้ว (/invoices/:id/pdf — ร่าง = 409) — ข้อมูล ณ วันออกครบตาม CHECK 0140
+    issuedInvoice: async (db, tenantId, n) => {
+      const id = tryDecodeId('invoice', await FIXTURES.invoice!(db, tenantId, n + 500))!;
+      await db.invoice.update({
+        where: { id },
+        data: { status: 'ISSUED', ...issuedTestFields(`INV-ISO-${n}`) },
+      });
+      return encodeId('invoice', id);
     },
     // ST3-T11 เที่ยวรถ (PLANNING ว่าง)
     trip: async (db, tenantId, n) =>

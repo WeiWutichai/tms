@@ -121,6 +121,15 @@ export const SETTINGS = {
     default: null,
     description: 'free time ค่ารอเริ่มต้น (นาที) — null = ไม่ตั้ง (จุดส่ง/ลูกค้ากำหนดเอง)',
   },
+  // ST5-T09 (docs/04 A3 "ผู้สร้างใบแจ้งหนี้ finalize ใบตัวเองไม่ได้ (ปิดได้สำหรับ tenant เล็กโดย owner ยอมรับความเสี่ยง)") —
+  // ไม่มีหน้าจอ (ต้นแบบไม่มีช่อง — spec/12 §3) ตั้งผ่าน PATCH /v1/settings · เปิด = ลดการควบคุม ต้อง step-up 2FA
+  'billing.allowSelfFinalize': {
+    group: 'billing',
+    type: { kind: 'bool' },
+    default: false,
+    description:
+      'ให้ผู้สร้าง/ผู้แก้ร่างใบแจ้งหนี้ ออกเอกสารใบนั้นเองได้ (ปิดกฎแบ่งหน้าที่ — สำหรับบริษัทเล็กที่ owner ยอมรับความเสี่ยง) · ค่าเริ่ม ปิด · เปิด = ลดการควบคุม ต้อง step-up',
+  },
   'routing.invoiceAsCompanyId': {
     group: 'routing',
     type: { kind: 'ref', entity: 'company', nullable: true },

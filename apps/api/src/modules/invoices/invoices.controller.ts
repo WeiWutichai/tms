@@ -64,7 +64,9 @@ import {
   RemoveInvoiceDeliveryOrdersDto,
   UpdateInvoiceDto,
   UpdateInvoiceLineDto,
+  InvoicePdfQuery,
 } from './invoice.dto';
+import { InvoiceFinalizeService } from './invoice-finalize.service';
 import { InvoicePdfService } from './invoice-pdf.service';
 import { InvoicesService } from './invoices.service';
 
@@ -156,6 +158,7 @@ export class InvoicesController {
     private readonly queue: BillingQueueService,
     private readonly svc: InvoicesService,
     private readonly pdf: InvoicePdfService,
+    private readonly finalizer: InvoiceFinalizeService,
   ) {}
 
   // ประกาศ `queue` ก่อน `:id` เสมอ (ไม่งั้น /invoices/queue ถูกจับเป็น id) — test/invoices-draft.test.ts ตรวจลำดับ route
@@ -312,6 +315,118 @@ export class InvoicesController {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="proforma-${id}.pdf"`);
     return new StreamableFile(pdf);
+  }
+
+  @Post(':id/finalize')
+  @HttpCode(200)
+  @NoTransaction()
+  @TenantResource('invoice')
+  @RequireScope('invoices:finalize')
+  @ApiOperation({
+    summary: 'ออกเอกสาร (finalize) — ออกเลขใบแจ้งหนี้ + ล็อก (D-54: ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี)',
+    description:
+      'DRAFT → ISSUED (docs/01 §4.4, docs/04 F3) · ตรวจ (spec/05 BIL-037/038) → ไม่ผ่าน 409 `invoice_not_finalizable` + `reasons[]`: ' +
+      '`no_lines` · `total_not_positive` · `customer_tax_id_missing` · `customer_branch_missing` · `line_vat_type_missing` · ' +
+      '`revenue_line_provisional` (+ `lines[]` — ยอดยังไม่ยืนยัน บันทึกยอดส่งจริงก่อน) · `issuer_not_vat_registered` (ผู้ออกไม่จด VAT แต่มีบรรทัด VAT 7%) · ' +
+      '**แบ่งหน้าที่ (docs/04 A3):** ผู้สร้าง/ผู้แก้ร่างล่าสุด (API key = ผู้ออก key) ออกใบนั้นเองไม่ได้ → 403 `invoice_self_finalize` ' +
+      '(เว้น tenant ตั้ง `billing.allowSelfFinalize`) · ออกเลขชุด INV ต่อสาขาผู้ออก (เรียงไม่ข้าม พร้อมกันได้) · วันที่ออก = วันนี้ (เวลาไทย) · ' +
+      'ครบกำหนด = วันที่ออก + เครดิต · เก็บ snapshot ลูกค้า/ผู้ออก · DO → INVOICED (+ UNBILLED → BILLED) · ล็อกบรรทัดรายได้ · ' +
+      'audit + webhook `invoice.finalized` (transaction เดียว) · แล้ว render PDF ต้นฉบับเก็บแบบเขียนครั้งเดียว (`pdf`) · ' +
+      '**ไม่มีเลขใบกำกับภาษี** (D-54/D-55 — ไม่ว่า connector ตั้งเจ้าของเอกสารภาษีเป็นใคร) · หลังนี้แก้/ยกเลิกร่าง/PATCH ไม่ได้ (409) · sandbox → 409 `sandbox_finalize_disabled`',
+  })
+  @ApiHeader({
+    ...IF_MATCH,
+    required: true,
+    description: 'ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412',
+  })
+  @ApiProblems(
+    {
+      status: 403,
+      description:
+        'ไม่มีสิทธิ์ `invoices:finalize` / ผู้เตรียมร่างออกเอง (`invoice_self_finalize`)',
+      examples: {
+        ...T403('invoices:finalize').examples,
+        invoice_self_finalize: {
+          type: 'https://docs.tms.example/problems/invoice_self_finalize',
+          title: PROBLEMS.invoice_self_finalize.th,
+          status: 403,
+          code: 'invoice_self_finalize',
+        },
+      },
+    },
+    NF,
+    {
+      status: 409,
+      description:
+        '`invoice_not_finalizable` (`reasons[]`) · `invalid_state_transition` (ไม่ใช่ร่าง) · `sandbox_finalize_disabled`',
+      examples: {
+        invoice_not_finalizable: {
+          type: 'https://docs.tms.example/problems/invoice_not_finalizable',
+          title: PROBLEMS.invoice_not_finalizable.th,
+          status: 409,
+          code: 'invoice_not_finalizable',
+          reasons: ['customer_branch_missing', 'revenue_line_provisional'],
+          lines: [
+            {
+              id: 'ivl_…',
+              lineNo: 2,
+              deliveryOrderNo: 'DO-2611-00012',
+              revenueLineId: 'rvl_…',
+            },
+          ],
+        },
+      },
+    },
+    T412,
+    T422,
+  )
+  @ApiOkResponse({ type: InvoiceDto })
+  async finalize(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<InvoiceDto> {
+    const out = await this.finalizer.finalize(decodeIdOr404('invoice', id), expectedVersion(req));
+    setEtag(res, out.version);
+    return out;
+  }
+
+  @Get(':id/pdf')
+  @NoTransaction()
+  @TenantResource('issuedInvoice')
+  @RequireScope('invoices:read')
+  @Header('Cache-Control', 'no-store')
+  @ApiOperation({
+    summary: 'PDF ใบแจ้งหนี้ที่ออกแล้ว — ต้นฉบับ / สำเนา (ไฟล์ที่เก็บ ณ วันออก)',
+    description:
+      'ใบที่ออกเลขแล้วเท่านั้น (ร่าง → 409 ใช้ `/proforma`) · `copy=ORIGINAL` (ค่าเริ่ม) = ไฟล์ต้นฉบับที่เก็บตอนออก · `copy=COPY` = สำเนา ' +
+      'render จาก snapshot ณ วันออกครั้งแรกที่ขอแล้วเก็บ (spec/05 BIL-195/196) — ไม่ render ตามข้อมูลลูกค้าปัจจุบัน · ยังไม่มีไฟล์ (render ตอนออกล้ม) → สร้างให้แล้วเก็บ · ' +
+      'header `X-Content-SHA256` · ไม่มีคำว่า "ใบกำกับภาษี" (D-54) · ต้องมี `prices.sell:read` ไม่งั้น 403',
+  })
+  @ApiProduces('application/pdf')
+  @ApiProblems(T403('invoices:read'), NF, T409())
+  @ApiOkResponse({ description: 'application/pdf' })
+  async issuedPdf(
+    @Param('id') id: string,
+    @Query() q: InvoicePdfQuery,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const ctx = requestContext.require();
+    if (!scopeAllows(ctx.scopes ?? [], 'prices.sell:read'))
+      throw new ProblemException('permission_denied', undefined, undefined, {
+        requiredScope: 'prices.sell:read',
+      });
+    const { doc, data } = await this.finalizer.ensurePdf(
+      decodeIdOr404('invoice', id),
+      q.copy ?? 'ORIGINAL',
+    );
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('X-Content-SHA256', doc.sha256 ?? '');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${encodeURIComponent(doc.filename ?? 'invoice.pdf')}"`,
+    );
+    return new StreamableFile(data);
   }
 
   @Patch(':id')

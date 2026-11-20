@@ -26,13 +26,15 @@ import { SavedViewMenu } from '../views/SavedViewMenu';
 import { pick, useSavedViews } from '../views/useSavedViews';
 import { bangkokToday, money, useDateText } from '../rate-cards/rateFormat';
 import { billRanges, selectionTotals } from './billing';
-import { InvoiceDrawer, invoiceStatusLabel } from './InvoiceDrawer';
+import { finalizeErrorText, InvoiceDrawer, invoiceStatusLabel } from './InvoiceDrawer';
 import {
+  openIssuedPdf,
   openProforma,
   previewDraft,
   useBillQueue,
   useCreateDraft,
   useCustomerTerms,
+  useFinalize,
   useInvoiceCounts,
   useInvoiceList,
   useQueueCustomers,
@@ -87,6 +89,7 @@ export function BillPage() {
   const me = useMe();
   const scopes = me.data?.scopes ?? [];
   const canDraft = can(scopes, 'invoices:draft');
+  const canFinalize = can(scopes, 'invoices:finalize');
   const dateText = useDateText();
   const today = bangkokToday();
   const ranges = useMemo(() => billRanges(today), [today]);
@@ -124,6 +127,16 @@ export function BillPage() {
   const chosen = rows.filter((x) => picked.includes(x.id));
   const totals = selectionTotals(chosen);
   const create = useCreateDraft();
+  const finalize = useFinalize();
+  /** ออกเอกสารจากเมนูแถว (ต้นแบบ specInv menu "ออกเอกสาร" → issueInv) */
+  const issue = (x: InvoiceSummary) =>
+    finalize.mutate(
+      { id: x.id, version: x.version },
+      {
+        onSuccess: (r) => setToast(t('bill.toast.issued', { no: r.invoiceNo ?? '' })),
+        onError: (e) => setToast(finalizeErrorText(e, t)),
+      },
+    );
   const counts = useInvoiceCounts().data;
   const [busy, setBusy] = useState(false);
 
@@ -157,10 +170,16 @@ export function BillPage() {
       .catch((e) => setToast(problemText(e, t) ?? t('bill.pdfFail')))
       .finally(() => setBusy(false));
   };
+  /** ร่าง = PDF ตัวอย่าง · ใบที่ออกแล้ว = ไฟล์ต้นฉบับที่เก็บ · ยกเลิก = ไม่มี */
+  const printOne = (x: InvoiceSummary) =>
+    void (
+      x.status === 'DRAFT' ? openProforma(x.id) : openIssuedPdf(x.id, `${x.invoiceNo}.pdf`)
+    ).catch(() => setToast(t('bill.pdfFail')));
+  const printable = (x: InvoiceSummary) => !['CANCELLED', 'VOIDED'].includes(x.status);
   const printMany = (ids: string[]) => {
-    const drafts = shownRowsQ.filter((x) => ids.includes(x.id) && x.status === 'DRAFT');
-    if (!drafts.length) setToast(t('bill.pdfDraftOnly'));
-    for (const x of drafts) void openProforma(x.id).catch(() => setToast(t('bill.pdfFail')));
+    const docs = shownRowsQ.filter((x) => ids.includes(x.id) && printable(x));
+    if (!docs.length) setToast(t('bill.pdfDraftOnly'));
+    for (const x of docs) printOne(x);
   };
 
   const filters = useMemo(() => {
@@ -253,8 +272,14 @@ export function BillPage() {
       key: 'due',
       label: t('bill.col.due'),
       width: '1%',
-      render: () => <span style={{ color: '#3B424C' }}>—</span>,
-      csv: () => '',
+      // วันครบกำหนด (ใบที่ออกแล้ว — ST5-T09) · เกินกำหนด (สีแดง + "เกิน n วัน") = ST5-T22
+      render: (x) =>
+        x.dueDate ? (
+          <span style={{ whiteSpace: 'nowrap' }}>{dateText(x.dueDate)}</span>
+        ) : (
+          <span style={{ color: '#3B424C' }}>—</span>
+        ),
+      csv: (x) => x.dueDate ?? '',
     },
     {
       key: 'amt',
@@ -648,14 +673,11 @@ export function BillPage() {
             onRowClick={(x) => setOpenId(x.id)}
             rowMenu={(x) => [
               { label: t('bill.menu.view'), icon: 'eye', run: () => setOpenId(x.id) },
-              ...(x.status === 'DRAFT'
-                ? [
-                    {
-                      label: t('bill.menu.pdf'),
-                      icon: 'printer',
-                      run: () => void openProforma(x.id).catch(() => setToast(t('bill.pdfFail'))),
-                    },
-                  ]
+              ...(x.status === 'DRAFT' && canFinalize
+                ? [{ label: t('bill.create'), icon: 'lock', run: () => issue(x) }]
+                : []),
+              ...(printable(x)
+                ? [{ label: t('bill.menu.pdf'), icon: 'printer', run: () => printOne(x) }]
                 : []),
             ]}
             empty={
@@ -680,6 +702,7 @@ export function BillPage() {
         <InvoiceDrawer
           id={openId}
           canDraft={canDraft}
+          canFinalize={canFinalize}
           onClose={() => setOpenId(null)}
           onToast={setToast}
         />

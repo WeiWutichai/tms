@@ -1070,6 +1070,23 @@ export class DeliveryOrderService {
   }
 
   /**
+   * ST5-T09 ออกเอกสารใบแจ้งหนี้: DO ในใบ (ผู้เรียกล็อกแล้ว — `lockForBilling`) ที่ `status` = UNBILLED → `bill` → BILLED
+   * (docs/01 §4.3 "UNBILLED → BILLED: อยู่ใน invoice_line ของ invoice ที่ ISSUED") ผ่าน StateService (history + event สถานะ DO)
+   * DO ที่วางบิลได้ก่อนเป็น UNBILLED (ลูกค้าไม่บังคับหลักฐาน — DELIVERED/POD_PENDING) **ไม่เปลี่ยน `status`** (ตาราง transition ไม่มีทางนั้น
+   * — แกนวางบิลจริงคือ `billing_status` = INVOICED) [DECISION spec/12 §3 แถว ST5-T09] · คืนจำนวนที่เปลี่ยน
+   */
+  async billForInvoice(tx: Tx, ids: string[], note: string): Promise<number> {
+    if (!ids.length) return 0;
+    const rows = await tx.deliveryOrder.findMany({
+      where: { id: { in: ids }, status: 'UNBILLED' },
+      select: { id: true, status: true, version: true },
+      orderBy: { id: 'asc' },
+    });
+    for (const d of rows) await this.move(tx, d, 'bill', {}, note);
+    return rows.length;
+  }
+
+  /**
    * ปลด DO ออกจากเที่ยว (ถอด DO / ยกเลิกเที่ยว): ล้าง trip_id + จุด (สัญญากับ T09) แล้ว
    * DRAFT คงเดิม · PLANNED → `unplan` → DRAFT · DISPATCHED → `recall` → DRAFT (ยกเลิกเที่ยวที่ปล่อยแล้วก่อนรับของ)
    * PICKED_UP ขึ้นไป (ของอยู่บนรถ/ส่งแล้ว) → 409 `trip_has_loaded_orders` (ปิดเที่ยวบางส่วน + เที่ยวใหม่ — ST4)
@@ -1403,6 +1420,7 @@ export class DeliveryOrderService {
       | 'pod_accept'
       | 'return'
       | 'revert_delivery'
+      | 'bill'
     >,
     data: Prisma.DeliveryOrderUncheckedUpdateManyInput,
     note: string | null,
