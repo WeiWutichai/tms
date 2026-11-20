@@ -174,6 +174,7 @@ scope: `invoices:read` · operationId: `Invoices_listInvoices`
 | `customerId` | query |   | `string` | ลูกค้า — id หรือ `ext:{externalId}` |
 | `status` | query |   | `string` ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |
 | `receivable` | query |   | `string` ค่า: `all`, `open`, `overdue` | หน้า "รับชำระ": `all` = ใบที่ออกแล้ว (ไม่รวมร่าง/ยกเลิก) · `open` = ค้างรับ (ISSUED + PARTIALLY_PAID) · `overdue` = ใบที่มีธงเกินกำหนด — ใช้ร่วมกับ `status` ได้ |
+| `overdue` | query |   | `string` ค่า: `true`, `false` | ธงเกินกำหนด — `false` = ไม่รวมใบเกินกำหนด (แท็บ "ออกแล้ว"/"ชำระบางส่วน" ของต้นแบบ: เกินกำหนดแสดงก่อน) · `true` = เฉพาะเกินกำหนด |
 
 **Responses**
 
@@ -1208,8 +1209,8 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/unmark-sent', {
 |---|---|---|---|---|---|
 | `total` | ใช่ | `number` |   |   |   |
 | `draft` | ใช่ | `number` |   |   |   |
-| `issued` | ใช่ | `number` |   | ISSUED + ADJUSTED |   |
-| `partiallyPaid` | ใช่ | `number` |   |   |   |
+| `issued` | ใช่ | `number` |   | ISSUED + ADJUSTED ที่ไม่เกินกำหนด |   |
+| `partiallyPaid` | ใช่ | `number` |   | PARTIALLY_PAID ที่ไม่เกินกำหนด |   |
 | `paid` | ใช่ | `number` |   |   |   |
 | `overdue` | ใช่ | `number` |   | เกินกำหนด — ใบที่มีธง `overdue` |   |
 | `cancelled` | ใช่ | `number` |   | CANCELLED + VOIDED |   |

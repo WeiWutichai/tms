@@ -224,7 +224,7 @@ const DEFS: Record<WebhookEventType, Omit<EventDefinition, 'type'>> = {
   'invoice.paid': active(
     'invoice',
     'ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · ' +
-      '`previousAttributes` = { status, version } ก่อนชำระ · กลับรายการภายหลังไม่ยิงซ้ำ (ดู `payment.reversed`) · ' +
+      '`previousAttributes` = { status, version } ก่อนชำระ · ยิงทุกครั้งที่ใบเปลี่ยนเป็น PAID — กลับรายการ (`payment.reversed`) แล้วรับชำระครบอีกครั้ง = ยิงอีกครั้ง · ' +
       'สถานะชำระจากระบบบัญชี (D-57) ยิงผ่านทางเดียวกัน',
     'InvoiceStatusService.apply (รับชำระ / ระบบบัญชี)',
     INVOICE,

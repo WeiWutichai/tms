@@ -403,5 +403,5 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 | `total` | ใช่ | `number` |   | ใบที่ออกแล้วทั้งหมด (ไม่รวมร่าง/ยกเลิก) |   |
 | `open` | ใช่ | `number` |   | ค้างรับ (ISSUED + PARTIALLY_PAID) |   |
 | `overdue` | ใช่ | `number` |   | เกินกำหนด — ธง `overdue` ของใบ |   |
-| `partiallyPaid` | ใช่ | `number` |   |   |   |
+| `partiallyPaid` | ใช่ | `number` |   | ชำระบางส่วนที่ไม่เกินกำหนด |   |
 | `paid` | ใช่ | `number` |   |   |   |

@@ -105,10 +105,11 @@ test.describe('ใบแจ้งหนี้เกินกำหนด (ST5-T1
     await db.job.deleteMany({ where: { tenantId, type: 'invoice.overdue' } });
 
     await page.setViewportSize({ width: 1440, height: 900 });
-    // ก่อน job: ไม่คำนวณตอนอ่าน — ยังเป็น "ออกแล้ว"
+    // ก่อน job (worker ยังไม่รัน): การอ่านเห็นเกินกำหนดแล้ว (review M1) — ธงที่เก็บยังว่าง
     await page.goto('/pay');
     const payRow = page.locator('tbody tr').filter({ hasText: invNo });
-    await expect(payRow).toContainText('ออกแล้ว');
+    await expect(payRow).toContainText('เกินกำหนด');
+    expect((await db.invoice.findUniqueOrThrow({ where: { id: inv.id } })).overdueAt).toBeNull();
 
     await runWorker(
       async () => !!(await db.invoice.findUniqueOrThrow({ where: { id: inv.id } })).overdueAt,

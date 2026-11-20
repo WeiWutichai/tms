@@ -4,6 +4,7 @@ import {
   canMergeInvoiceLines,
   computeDocumentTax,
   decimalFromSatang,
+  invoiceOverdue,
   invoicePrintLines,
   satangFromDecimal,
   taxOptionsFromSettings,
@@ -21,6 +22,7 @@ import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { bangkokToday } from '../vehicle-documents/expiry';
 import type { BillingDoRow } from '../delivery-orders/delivery-order.service';
 import { LINE_UNIT_EXPR, LINE_UNIT_JOINS } from './line-units';
 import { REVENUE_LOCK_NS } from '../revenue-lines/revenue-rebuild';
@@ -124,11 +126,13 @@ export class InvoicesService {
     if (q.receivable === 'all')
       and.push({ status: { in: RECEIVABLE_STATUSES as InvoiceStatus[] } });
     if (q.receivable === 'open') and.push({ status: { in: ['ISSUED', 'PARTIALLY_PAID'] } });
-    // ST5-T18 ธงที่เก็บ (job รายวัน / ตอนรับชำระ) — ไม่คำนวณตอนอ่าน
-    if (q.receivable === 'overdue' || q.overdue === 'true') and.push({ overdueAt: { not: null } });
-    if (q.overdue === 'false') and.push({ overdueAt: null });
+    // ST5-T18 เกินกำหนด = ธงที่เก็บ หรือเข้าเงื่อนไขแล้วแต่ job ยังไม่รัน (worker ล่ม / ช่วง 00:00–00:05) — review M1
+    const od = overdueWhere(tx, bangkokToday(this.clock.now()));
+    if (q.receivable === 'overdue' || q.overdue === 'true') and.push(od);
+    if (q.overdue === 'false') and.push({ NOT: od });
     if (q.customerId !== undefined)
       and.push({ customerId: (await this.customerRef(tx, q.customerId)) ?? NONE });
+    const today = bangkokToday(this.clock.now());
     const rows = await tx.invoice.findMany({
       where: { AND: and },
       orderBy: k.orderBy as unknown as Prisma.InvoiceOrderByWithRelationInput[],
@@ -142,7 +146,7 @@ export class InvoicesService {
     const page = toPage(
       rows,
       k,
-      (r): InvoiceSummaryDto => summary(r, counts.get(r.id) ?? 0),
+      (r): InvoiceSummaryDto => summary(r, counts.get(r.id) ?? 0, today),
       q.fields,
     );
     return page as InvoicePageDto;
@@ -151,7 +155,7 @@ export class InvoicesService {
   async get(id: string, tx: Tx = this.db.tx): Promise<InvoiceDto> {
     const r = await tx.invoice.findUnique({ where: { id }, include: LOAD });
     if (!r) throw new ProblemException('not_found');
-    return toDto(r);
+    return toDto(r, bangkokToday(this.clock.now()));
   }
 
   // ---------- เขียน ----------
@@ -650,12 +654,14 @@ export class InvoicesService {
   /** รายงานจำนวนตามสถานะ (แท็บ/KPI ของหน้า "วางบิลและใบแจ้งหนี้") */
   async summary(): Promise<InvoiceSummaryCountsDto> {
     // ST5-T18 เกินกำหนดเป็นแท็บของตัวเอง (ต้นแบบ invSt: เกินกำหนดมาก่อนออกแล้ว/ชำระบางส่วน) — นับแยกจากสถานะ
-    const rows = await this.db.tx.invoice.groupBy({
+    const tx = this.db.tx;
+    const od = overdueWhere(tx, bangkokToday(this.clock.now()));
+    const rows = await tx.invoice.groupBy({
       by: ['status'],
-      where: { overdueAt: null },
+      where: { NOT: od },
       _count: { _all: true },
     });
-    const overdue = await this.db.tx.invoice.count({ where: { overdueAt: { not: null } } });
+    const overdue = await tx.invoice.count({ where: od });
     const n = (...st: string[]) =>
       rows.filter((r) => st.includes(r.status)).reduce((a, r) => a + r._count._all, 0);
     return {
@@ -978,9 +984,47 @@ function customerDto(c: InvoiceRow['customer'], snap?: unknown) {
   };
 }
 
+/**
+ * ST5-T18 (review M1) เกินกำหนดที่อ่าน = ธงที่ job/การรับชำระตั้งไว้ **หรือ** ค้างรับ + ยอดตัด < ยอดรวม + ครบกำหนด < วันนี้ (เวลาไทย)
+ * — หน้าจอไม่พลาดเมื่อ worker ล่มหรือช่วงก่อน job 00:05 (ธงที่เก็บยังใช้กับ audit/การล้างธง)
+ */
+export function overdueWhere(tx: Tx, today: string): Prisma.InvoiceWhereInput {
+  return {
+    OR: [
+      { overdueAt: { not: null } },
+      {
+        status: { in: ['ISSUED', 'PARTIALLY_PAID'] },
+        dueDate: { lt: day(today) },
+        paidAmount: { lt: tx.invoice.fields.totalAmount },
+      },
+    ],
+  };
+}
+
+function isOverdue(
+  r: {
+    status: string;
+    overdueAt: Date | null;
+    totalAmount: Prisma.Decimal;
+    paidAmount: Prisma.Decimal;
+    dueDate: Date | null;
+  },
+  today: string,
+): boolean {
+  if (r.overdueAt) return true;
+  return invoiceOverdue(
+    r.status as InvoiceStatus,
+    satangFromDecimal(r.totalAmount.toFixed(2)),
+    satangFromDecimal(r.paidAmount.toFixed(2)),
+    r.dueDate ? ymd(r.dueDate) : null,
+    today,
+  );
+}
+
 function summary(
   r: Prisma.InvoiceGetPayload<{ include: { customer: typeof LOAD.customer } }>,
   doCount: number,
+  today: string,
 ): InvoiceSummaryDto {
   return {
     id: encodeId('invoice', r.id),
@@ -999,7 +1043,7 @@ function summary(
       : '0.00',
     issueDate: r.issueDate ? ymd(r.issueDate) : null,
     dueDate: r.dueDate ? ymd(r.dueDate) : null,
-    overdue: r.overdueAt !== null,
+    overdue: isOverdue(r, today),
     overdueAt: r.overdueAt ? r.overdueAt.toISOString() : null,
     sentToCustomerAt: r.sentToCustomerAt ? r.sentToCustomerAt.toISOString() : null,
     sentToCustomerChannel: (r.sentToCustomerChannel as InvoiceSentChannel | null) ?? null,
@@ -1035,7 +1079,7 @@ function lineDto(l: LineRow): InvoiceLineDto {
   };
 }
 
-function toDto(r: InvoiceRow): InvoiceDto {
+function toDto(r: InvoiceRow, today: string): InvoiceDto {
   // บรรทัดของเอกสาร: ที่ยังใช้ + ที่หยุดนับเพราะใบถูกยกเลิก (ST5-T10 — ใบที่ยกเลิกยังแสดงรายการเดิม) — ไม่รวมที่ถอดออกจากร่าง
   const active = r.lines.filter((l) => l.active || l.releasedWithInvoice);
   const dos = new Map<string, InvoiceDto['deliveryOrders'][number]>();
@@ -1076,7 +1120,7 @@ function toDto(r: InvoiceRow): InvoiceDto {
     r.lineMode as InvoiceLineMode,
   );
   return {
-    ...summary(r, dos.size),
+    ...summary(r, dos.size, today),
     issuingCompanyId: encodeId('company', r.issuingCompanyId),
     issuingBranchId: encodeId('branch', r.issuingBranchId),
     creditTermDays: r.creditTermDays,

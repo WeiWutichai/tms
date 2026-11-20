@@ -156,8 +156,13 @@ describe('invoice status / overdue / sent (ST5-T18)', { timeout: 300_000 }, () =
     const over = await issued('1000.00', addDays(today, -1));
     const dueToday = await issued('500.00', today);
     const later = await issued('300.00', addDays(today, 5));
-    // ก่อน job: ยังไม่เกิน (ไม่คำนวณตอนอ่าน)
-    expect(await get(over)).toMatchObject({ status: 'ISSUED', overdue: false, overdueAt: null });
+    // ก่อน job: ยังไม่มีธงที่เก็บ แต่การอ่านเห็นว่าเกินกำหนดแล้ว (review M1 — ไม่พึ่ง worker)
+    expect(await get(over)).toMatchObject({
+      status: 'ISSUED',
+      overdue: true,
+      overdueAt: null,
+      version: 1,
+    });
     // ก่อน 00:05 เวลาไทย ยังไม่สร้าง job
     clock.set(at(today, '00:04'));
     expect(await svc.scheduleDue()).toBe(0);
@@ -211,10 +216,12 @@ describe('invoice status / overdue / sent (ST5-T18)', { timeout: 300_000 }, () =
     expect(await svc.runOverdue(tenantId, new Date(`${due}T16:59:00.000Z`))).toMatchObject({
       marked: 0,
     });
-    expect(await get(x)).toMatchObject({ overdue: false });
+    const flag = async () =>
+      (await db.invoice.findUniqueOrThrow({ where: { id: id(x) } })).overdueAt;
+    expect(await flag()).toBeNull();
     // 17:00 UTC = 00:00 ไทยของวันถัดไป → เกิน
     await svc.runOverdue(tenantId, new Date(`${due}T17:00:00.000Z`));
-    expect(await get(x)).toMatchObject({ overdue: true });
+    expect(await flag()).not.toBeNull();
   });
 
   it('แยก tenant: job ของ tenant หนึ่งไม่แตะใบของอีก tenant (RLS)', async () => {
@@ -421,5 +428,30 @@ describe('invoice status / overdue / sent (ST5-T18)', { timeout: 300_000 }, () =
       .set('If-Match', `"${(await get(b)).version}"`)
       .send({ reason: 'ทดสอบยกเลิกหลังยกเลิกใบวางบิล' })
       .expect(409);
+  });
+
+  it('review M1: job ไม่ได้รัน (worker ล่ม / ก่อน 00:05) → รายการ/ตัวนับ/DTO ยังเห็นเกินกำหนด · ยอดรวม 0 ไม่เกิน · job ไม่ค้างลูป', async () => {
+    const x = await issued('700.00', addDays(today, -4));
+    const zero = await issued('0.00', addDays(today, -4));
+    const before = (await api(app, admin).get('/v1/invoices/summary').expect(200)).body;
+    expect(await get(x)).toMatchObject({ overdue: true, overdueAt: null });
+    expect(await get(zero)).toMatchObject({ overdue: false });
+    const list = (
+      await api(app, admin).get('/v1/invoices?receivable=overdue&limit=200').expect(200)
+    ).body.data.map((r: { id: string }) => r.id);
+    expect(list).toContain(x);
+    expect(list).not.toContain(zero);
+    const notOver = (
+      await api(app, admin).get('/v1/invoices?status=ISSUED&overdue=false&limit=200').expect(200)
+    ).body.data.map((r: { id: string }) => r.id);
+    expect(notOver).not.toContain(x);
+    expect(notOver).toContain(zero);
+    expect(before.overdue).toBeGreaterThanOrEqual(1);
+    const ps = (await api(app, admin).get('/v1/payments/summary').expect(200)).body;
+    expect(Number(ps.sellOverdueOutstanding)).toBeGreaterThanOrEqual(700);
+    // job: ตั้งธงใบ x · ใบยอด 0 ไม่ถูกหยิบ (ไม่ค้างลูป) · รันซ้ำ = 0
+    expect((await svc.runOverdue(tenantId, new Date())).marked).toBeGreaterThanOrEqual(1);
+    expect((await db.invoice.findUniqueOrThrow({ where: { id: id(zero) } })).overdueAt).toBeNull();
+    expect(await svc.runOverdue(tenantId, new Date())).toMatchObject({ marked: 0, cleared: 0 });
   });
 });

@@ -314,7 +314,18 @@ export function InvoiceDrawer({
                 label: t('bill.menu.cancel'),
                 icon: 'ban',
                 danger: true,
+                // ST5-T18 ส่งลูกค้าแล้วยกเลิกไม่ได้ (docs/04 F3) — ไม่เปิดกล่องยกเลิก แจ้งวิธีแก้แทน (review L4)
                 onClick: () => {
+                  if (inv.sentToCustomerAt) {
+                    onToast(
+                      t(
+                        inv.sentToCustomerChannel === 'BILLING_NOTE'
+                          ? 'bill.void.sentByNote'
+                          : 'bill.void.sentHint',
+                      ),
+                    );
+                    return;
+                  }
                   voider.reset();
                   setReissue(false);
                   setVoidDlg(true);

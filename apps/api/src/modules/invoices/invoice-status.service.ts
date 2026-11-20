@@ -116,7 +116,7 @@ export class InvoiceStatusService implements OnModuleInit {
         where: {
           tenantId: { in: tenants.map((t) => t.id) },
           type: INVOICE_OVERDUE_JOB,
-          createdAt: { gte: new Date(Date.now() - 3 * 86_400_000) },
+          createdAt: { gte: new Date(now.getTime() - 3 * 86_400_000) }, // review L2: นาฬิกาที่ฉีด
           payload: { path: ['day'], equals: today },
         },
         select: { tenantId: true },
@@ -174,6 +174,8 @@ export class InvoiceStatusService implements OnModuleInit {
                     status: { in: ['ISSUED', 'PARTIALLY_PAID'] },
                     overdueAt: null,
                     dueDate: { lt: todayDate },
+                    // review L1: ยอดรวม 0 / ตัดครบแล้วไม่เข้าเงื่อนไข — กันชุด 200 ใบที่ apply ไม่เปลี่ยนค้างลูป
+                    paidAmount: { lt: tx.invoice.fields.totalAmount },
                   },
                   { overdueAt: { not: null }, dueDate: { gte: todayDate } },
                 ],

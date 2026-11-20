@@ -166,14 +166,14 @@ export class PaymentsService {
     >`
       SELECT COUNT(*) AS total,
              COUNT(*) FILTER (WHERE status IN ('ISSUED', 'PARTIALLY_PAID')) AS open,
-             COUNT(*) FILTER (WHERE overdue_at IS NOT NULL) AS overdue,
-             COUNT(*) FILTER (WHERE status = 'PARTIALLY_PAID' AND overdue_at IS NULL) AS partially_paid,
+             COUNT(*) FILTER (WHERE (overdue_at IS NOT NULL OR (status IN ('ISSUED', 'PARTIALLY_PAID') AND paid_amount < total_amount AND due_date < ${day(today)}::date))) AS overdue,
+             COUNT(*) FILTER (WHERE status = 'PARTIALLY_PAID' AND NOT (overdue_at IS NOT NULL OR (status IN ('ISSUED', 'PARTIALLY_PAID') AND paid_amount < total_amount AND due_date < ${day(today)}::date))) AS partially_paid,
              COUNT(*) FILTER (WHERE status = 'PAID') AS paid,
              COUNT(*) FILTER (WHERE status IN ('ISSUED', 'PARTIALLY_PAID')
                                 AND due_date >= ${day(today)}::date AND due_date <= ${day(soon)}::date) AS due_soon,
              COALESCE(SUM(total_amount - paid_amount) FILTER (WHERE status IN ('ISSUED', 'PARTIALLY_PAID')), 0) AS outstanding,
              COALESCE(SUM(total_amount - paid_amount)
-               FILTER (WHERE overdue_at IS NOT NULL), 0) AS overdue_outstanding
+               FILTER (WHERE (overdue_at IS NOT NULL OR (status IN ('ISSUED', 'PARTIALLY_PAID') AND paid_amount < total_amount AND due_date < ${day(today)}::date))), 0) AS overdue_outstanding
         FROM invoice WHERE status IN ('ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED')`;
     // review M1: นับเฉพาะเงินเข้าจริง (amount_received) — ไม่นับ WHT/ค่าธรรมเนียม/ส่วนต่างที่ตัดยอด
     const rec = await tx.$queryRaw<{ amt: Prisma.Decimal }[]>`

@@ -40452,6 +40452,19 @@
             }
           },
           {
+            "name": "overdue",
+            "required": false,
+            "in": "query",
+            "description": "ST5-T18 ธงเกินกำหนด — `false` = ไม่รวมใบเกินกำหนด (แท็บ \"ออกแล้ว\"/\"ชำระบางส่วน\" ของต้นแบบ: เกินกำหนดแสดงก่อน) · `true` = เฉพาะเกินกำหนด",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -85011,17 +85024,18 @@
           },
           "issued": {
             "type": "number",
-            "description": "ISSUED + ADJUSTED"
+            "description": "ISSUED + ADJUSTED ที่ไม่เกินกำหนด (ST5-T18 — เกินกำหนดนับใน `overdue`)"
           },
           "partiallyPaid": {
-            "type": "number"
+            "type": "number",
+            "description": "PARTIALLY_PAID ที่ไม่เกินกำหนด (ST5-T18)"
           },
           "paid": {
             "type": "number"
           },
           "overdue": {
             "type": "number",
-            "description": "เกินกำหนด — ใบที่มีธง `overdue` (นับซ้อนกับ issued/partiallyPaid — ST5-T18)"
+            "description": "เกินกำหนด — ใบที่มีธง `overdue` (ST5-T18 · แท็บของต้นแบบ: ทั้งหมด = ผลรวมทุกแท็บ)"
           },
           "cancelled": {
             "type": "number",
@@ -86373,7 +86387,8 @@
             "description": "เกินกำหนด — ธง `overdue` ของใบ (job รายวัน 00:05 เวลาไทย + ตอนรับชำระ/กลับรายการ — ST5-T18)"
           },
           "partiallyPaid": {
-            "type": "number"
+            "type": "number",
+            "description": "ชำระบางส่วนที่ไม่เกินกำหนด (ST5-T18 — แท็บต้นแบบ: เกินกำหนดแสดงก่อน)"
           },
           "paid": {
             "type": "number"
@@ -98986,7 +99001,7 @@
       },
       "WebhookEvent_invoice_paid": {
         "type": "object",
-        "description": "`data.object` ของ invoice.paid — ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · `previousAttributes` = { status, version } ก่อนชำระ · กลับรายการภายหลังไม่ยิงซ้ำ (ดู `payment.reversed`) · สถานะชำระจากระบบบัญชี (D-57) ยิงผ่านทางเดียวกัน · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf)",
+        "description": "`data.object` ของ invoice.paid — ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · `previousAttributes` = { status, version } ก่อนชำระ · ยิงทุกครั้งที่ใบเปลี่ยนเป็น PAID — กลับรายการ (`payment.reversed`) แล้วรับชำระครบอีกครั้ง = ยิงอีกครั้ง · สถานะชำระจากระบบบัญชี (D-57) ยิงผ่านทางเดียวกัน · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf)",
         "properties": {
           "id": {
             "type": "string",
@@ -100895,7 +100910,7 @@
       "pendingTask": "ST5-T19"
     },
     "invoice.paid": {
-      "description": "ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · `previousAttributes` = { status, version } ก่อนชำระ · กลับรายการภายหลังไม่ยิงซ้ำ (ดู `payment.reversed`) · สถานะชำระจากระบบบัญชี (D-57) ยิงผ่านทางเดียวกัน",
+      "description": "ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · `previousAttributes` = { status, version } ก่อนชำระ · ยิงทุกครั้งที่ใบเปลี่ยนเป็น PAID — กลับรายการ (`payment.reversed`) แล้วรับชำระครบอีกครั้ง = ยิงอีกครั้ง · สถานะชำระจากระบบบัญชี (D-57) ยิงผ่านทางเดียวกัน",
       "phase": "active",
       "dto": "InvoiceDto",
       "schema": {

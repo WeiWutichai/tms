@@ -31633,6 +31633,19 @@
             }
           },
           {
+            "name": "overdue",
+            "required": false,
+            "in": "query",
+            "description": "ธงเกินกำหนด — `false` = ไม่รวมใบเกินกำหนด (แท็บ \"ออกแล้ว\"/\"ชำระบางส่วน\" ของต้นแบบ: เกินกำหนดแสดงก่อน) · `true` = เฉพาะเกินกำหนด",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -61444,10 +61457,11 @@
           },
           "issued": {
             "type": "number",
-            "description": "ISSUED + ADJUSTED"
+            "description": "ISSUED + ADJUSTED ที่ไม่เกินกำหนด"
           },
           "partiallyPaid": {
-            "type": "number"
+            "type": "number",
+            "description": "PARTIALLY_PAID ที่ไม่เกินกำหนด"
           },
           "paid": {
             "type": "number"
@@ -64702,7 +64716,8 @@
             "description": "เกินกำหนด — ธง `overdue` ของใบ"
           },
           "partiallyPaid": {
-            "type": "number"
+            "type": "number",
+            "description": "ชำระบางส่วนที่ไม่เกินกำหนด"
           },
           "paid": {
             "type": "number"
@@ -77638,7 +77653,7 @@
       },
       "WebhookEvent_invoice_paid": {
         "type": "object",
-        "description": "`data.object` ของ invoice.paid — ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · `previousAttributes` = { status, version } ก่อนชำระ · กลับรายการภายหลังไม่ยิงซ้ำ (ดู `payment.reversed`) · สถานะชำระจากระบบบัญชี ยิงผ่านทางเดียวกัน · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf)",
+        "description": "`data.object` ของ invoice.paid — ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · `previousAttributes` = { status, version } ก่อนชำระ · ยิงทุกครั้งที่ใบเปลี่ยนเป็น PAID — กลับรายการ (`payment.reversed`) แล้วรับชำระครบอีกครั้ง = ยิงอีกครั้ง · สถานะชำระจากระบบบัญชี ยิงผ่านทางเดียวกัน · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf)",
         "properties": {
           "id": {
             "type": "string",
@@ -82090,7 +82105,7 @@
       "phase": "pending"
     },
     "invoice.paid": {
-      "description": "ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · `previousAttributes` = { status, version } ก่อนชำระ · กลับรายการภายหลังไม่ยิงซ้ำ (ดู `payment.reversed`) · สถานะชำระจากระบบบัญชี ยิงผ่านทางเดียวกัน",
+      "description": "ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · `previousAttributes` = { status, version } ก่อนชำระ · ยิงทุกครั้งที่ใบเปลี่ยนเป็น PAID — กลับรายการ (`payment.reversed`) แล้วรับชำระครบอีกครั้ง = ยิงอีกครั้ง · สถานะชำระจากระบบบัญชี ยิงผ่านทางเดียวกัน",
       "phase": "active",
       "dto": "InvoiceDto",
       "schema": {
