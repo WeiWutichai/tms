@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  Optional,
   Param,
   Post,
   Put,
@@ -32,6 +33,8 @@ import { ApiProblems } from '../../common/problem.dto';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { LocalFileStore, fileKeyFor, type StoredFile } from '../../pdf/file-store';
+import { EntitlementService } from '../entitlements/entitlement.service';
+import { ImportRegistry, importSpecAllowed } from '../imports/import-spec';
 import { POD_LINK_PURPOSE, podLinkUsable } from '../trips/offer-links';
 import { ALLOWED_MIME, EXT, IMPORT_MIME, sniffMime, type AllowedMime } from './mime';
 import { DOWNLOAD_TTL_S, signDocumentUrl, UPLOAD_TTL_S, verifyDocumentUrl } from './signed-url';
@@ -223,7 +226,32 @@ export class DocumentsController {
   constructor(
     private readonly db: DbService,
     private readonly limiter: RateLimitService,
+    private readonly importSpecs: ImportRegistry,
+    @Optional() private readonly entitlements?: EntitlementService,
   ) {}
+
+  /**
+   * ไฟล์ต้นฉบับที่นำเข้า (kind IMPORT) อาจมีข้อมูลส่วนบุคคลเต็ม (เลขบัตรคนขับ เบอร์โทร ฯลฯ — ST9-T16 R-1)
+   * เห็นได้เฉพาะ: ผู้อัปโหลดเอง หรือผู้ใช้ที่มีสิทธิ์จัดการการนำเข้าชนิดที่ใช้ไฟล์นี้ (scope ของ ImportSpec + แพ็กเกจ)
+   * การเข้าใช้งานแทน (ทีม Innovera) ไม่เห็นเลย · API key เห็นเฉพาะไฟล์ที่ตัวเองอัปโหลด
+   */
+  private async canSeeImportFile(doc: StoredDocument): Promise<boolean> {
+    const ctx = requestContext.require();
+    if (ctx.principalType === 'imp') return false;
+    if (doc.createdBy !== null && doc.createdBy === (ctx.actorId ?? null)) return true;
+    if (ctx.principalType !== 'user' && ctx.principalType !== 'dev') return false;
+    const jobs = await this.db.tx.importJob.findMany({
+      where: { documentId: doc.id },
+      select: { kind: true },
+      distinct: ['kind'],
+    });
+    for (const j of jobs) {
+      const spec = this.importSpecs.get(j.kind);
+      if (await importSpecAllowed(spec, ctx.scopes ?? [], ctx.tenantId!, this.entitlements))
+        return true;
+    }
+    return false;
+  }
 
   /**
    * ST7-T08 (review L1): URL ลายเซ็นผิด/หมดอายุ → นับต่อ IP (30 ครั้ง/นาที) เกินแล้วตอบ 429 แทน 404 — กันสแกน id/ลายเซ็น
@@ -285,7 +313,11 @@ export class DocumentsController {
   @ApiBearerAuth()
   @TenantResource('document')
   @RequireScope('documents:read')
-  @ApiOkResponse({ type: DocumentDto })
+  @ApiOkResponse({
+    type: DocumentDto,
+    description:
+      'ไฟล์ส่งออก (EXPORT) เห็นเฉพาะผู้สั่ง · ไฟล์นำเข้า (IMPORT) เห็นเฉพาะผู้อัปโหลด หรือผู้ใช้ที่มีสิทธิ์จัดการการนำเข้าชนิดนั้น (API key เฉพาะไฟล์ของตัวเอง, การเข้าใช้งานแทนไม่เห็น) — ไม่มีสิทธิ์ = 404',
+  })
   async get(@Param('id') id: string, @Req() req: Request): Promise<DocumentDto> {
     const doc = await this.db.tx.storedDocument.findUnique({
       where: { id: decodeIdOr404('document', id) },
@@ -293,6 +325,9 @@ export class DocumentsController {
     if (!doc) throw new ProblemException('not_found');
     // ไฟล์ส่งออก (ST9-T10) มีข้อมูลตามสิทธิ์ของผู้สั่ง — เฉพาะผู้สั่งเท่านั้น (ดาวน์โหลดผ่าน GET /v1/exports/{id})
     if (doc.kind === 'EXPORT' && doc.createdBy !== (requestContext.require().actorId ?? null))
+      throw new ProblemException('not_found');
+    // ไฟล์นำเข้า (ST9-T16 R-1) — ไม่มีสิทธิ์ตอบ 404 เหมือนไม่มี (ไม่บอกใบ้ว่ามีอยู่) แบบเดียวกับไฟล์ส่งออก
+    if (doc.kind === 'IMPORT' && !(await this.canSeeImportFile(doc)))
       throw new ProblemException('not_found');
     return this.withUrl(doc, req);
   }

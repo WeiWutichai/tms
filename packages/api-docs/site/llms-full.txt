@@ -6513,7 +6513,7 @@ scope: `documents:read` · operationId: `Documents_get`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` |   | `DocumentDto` |
+| `200` | ไฟล์ส่งออก (EXPORT) เห็นเฉพาะผู้สั่ง · ไฟล์นำเข้า (IMPORT) เห็นเฉพาะผู้อัปโหลด หรือผู้ใช้ที่มีสิทธิ์จัดการการนำเข้าชนิดนั้น (API key เฉพาะไฟล์ของตัวเอง, การเข้าใช้งานแทนไม่เห็น) — ไม่มีสิทธิ์ = 404 | `DocumentDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`documents:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |

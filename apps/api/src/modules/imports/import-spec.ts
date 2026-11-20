@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { scopeAllows } from '@tms/domain';
 import type { Tx } from '../../db/db.service';
 
 /**
@@ -133,6 +134,22 @@ export interface ImportSpec<T = unknown> {
   validate(ctx: ImportContext, rows: RowInput[]): Promise<RowResult<T>[]>;
   /** เขียนแถวที่ผ่าน (ใน transaction เดียวกับการยืนยัน) — คืนจำนวนที่เขียน */
   commit(ctx: ImportContext, rows: { row: number; value: T }[]): Promise<number>;
+}
+
+/**
+ * ผู้เรียกจัดการการนำเข้าชนิดนี้ได้ไหม = scope ของ spec + ฟีเจอร์ในแพ็กเกจ (ใช้ร่วม ImportService.spec และสิทธิ์ไฟล์นำเข้า ST9-T16 R-1)
+ * แยกไว้ที่นี่ (ไม่อยู่ใน import.service) — documents.controller ใช้ได้โดยไม่ import วนกัน
+ */
+export async function importSpecAllowed(
+  spec: ImportSpec<unknown> | undefined,
+  scopes: string[],
+  tenantId: string,
+  entitlements?: { enabled(tenantId: string, feature: string): Promise<boolean> },
+): Promise<boolean> {
+  if (!spec || !scopeAllows(scopes, spec.scope)) return false;
+  if (spec.feature && entitlements && !(await entitlements.enabled(tenantId, spec.feature)))
+    return false;
+  return true;
 }
 
 @Injectable()
