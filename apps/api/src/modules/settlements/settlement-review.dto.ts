@@ -106,9 +106,9 @@ export class ReviewLinkViewDto {
   @ApiProperty({ description: 'ชื่อบริษัทขนส่ง (ผู้จ่าย)' }) company!: string;
   @ApiProperty({ description: 'ชื่อรถร่วม (ตามใบ)' }) carrierName!: string;
   @ApiProperty({
-    enum: ['SENT_TO_CARRIER', 'DISPUTED', 'APPROVED'],
+    enum: ['SENT_TO_CARRIER', 'DISPUTED', 'APPROVED', 'PAID'],
     description:
-      'SENT_TO_CARRIER = รอรถร่วมตรวจ (ตอบได้) · DISPUTED = มีรายการที่ท่านโต้แย้งรอบริษัทตรวจ (ยังตอบได้ — ST6-T06) · APPROVED = อนุมัติแล้ว (ดูอย่างเดียว)',
+      'SENT_TO_CARRIER = รอรถร่วมตรวจ (ตอบได้) · DISPUTED = มีรายการที่ท่านโต้แย้งรอบริษัทตรวจ (ยังตอบได้ — ST6-T06) · APPROVED = อนุมัติแล้ว รอจ่าย (ดูอย่างเดียว) · PAID = จ่ายแล้ว (ST6-T09 — ดูอย่างเดียว)',
   })
   status!: string;
   @ApiProperty({ nullable: true, type: String, description: 'เลขใบ (ออกตอนอนุมัติ)' })

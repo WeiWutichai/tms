@@ -44,7 +44,7 @@ describe('KrsAdapter.pullOrders (ST8-T04) — ไม่แตะฐานข้�
     await mock.stop();
   });
 
-  it('แปลงเป็น ExternalOrder KRS-{company}-{soNo} + แถวดิบ · ใบยกเลิกมีเหตุ · หน้าละไม่เกิน limit', async () => {
+  it('แปลงเป็น ExternalOrder KRS-{company}-{soNo} + แถวดิบ · ใบยกเลิก = cancelled (ST8-T05) · หน้าละไม่เกิน limit', async () => {
     const p1 = await krs.pullOrders(ctxOf({ baseUrl: mock.apiBaseUrl, apiKey: KEY }), null, 2);
     expect(p1.orders.map((o) => o.externalId)).toEqual([EXT(1), EXT(2)]);
     expect(p1.hasMore).toBe(true);
@@ -72,8 +72,10 @@ describe('KrsAdapter.pullOrders (ST8-T04) — ไม่แตะฐานข้�
     );
     expect(p2.orders.map((o) => o.externalId)).toEqual([EXT(3), EXT(4), EXT(5)]);
     expect(p2.hasMore).toBe(false);
-    expect(p2.orders[2]!.issues).toEqual([KRS_ISSUE.cancelled]);
+    expect(p2.orders[2]!.cancelled).toBe(true);
+    expect(p2.orders[2]!.issues).toBeUndefined();
     expect(p2.orders[0]!.issues).toBeUndefined();
+    expect(p2.orders[0]!.cancelled).toBeUndefined();
   });
 
   it('key ผิด = ErpAdapterError AUTH · ปลายทางล่ม = TRANSIENT (ไม่มี key ในข้อความ)', async () => {
@@ -205,7 +207,7 @@ describe('KRS SO poller ต่อ tenant (ST8-T04) — mock → order', () => {
     await plat.$disconnect();
   });
 
-  it('เกณฑ์ตรวจรับ: scheduler 1 รอบ → SO ตัวอย่างทั้ง 5 ใบเป็น order (แถวดิบ · ลูกค้าไม่รู้จักค้าง · ใบยกเลิกค้าง SOURCE_ERROR)', async () => {
+  it('เกณฑ์ตรวจรับ: scheduler 1 รอบ → SO ตัวอย่าง 4 ใบเป็น order (แถวดิบ · ลูกค้าไม่รู้จักค้าง) · ใบที่ KRS ยกเลิกก่อนเข้าระบบไม่ถูกสร้าง (ST8-T05)', async () => {
     expect(await app.get(ConnectorPullScheduler).scheduleDue()).toBe(1);
     const queue = app.get(JobQueue);
     while (await queue.runOnce()) {
@@ -216,16 +218,19 @@ describe('KRS SO poller ต่อ tenant (ST8-T04) — mock → order', () => {
       orderBy: { createdAt: 'desc' },
     });
     expect(job.status).toBe('SUCCEEDED');
-    expect(job.result).toMatchObject({ connector: 'krs', counts: { created: 5, error: 0 } });
+    expect(job.result).toMatchObject({
+      connector: 'krs',
+      counts: { created: 4, skipped: 1, error: 0 },
+    });
 
     const all = await orders();
-    expect(all.map((o) => o.externalId)).toEqual([1, 2, 3, 4, 5].map(EXT));
+    expect(all.map((o) => o.externalId)).toEqual([1, 2, 3, 4].map(EXT));
     for (const o of all) {
       expect(o.source).toBe('CONNECTOR');
       expect(o.sourceConnector).toBe('krs');
       expect((o.rawPayload as { view: string; rows: unknown[] }).view).toBe('vw_TMS_SalesOrder');
     }
-    const [o1, o2, o3, o4, o5] = all;
+    const [o1, o2, o3, o4] = all;
     expect(o1!.customerId).toBeTruthy();
     expect(o1!.customerRef).toBe('SAMPLE-PO-1001');
     expect(o1!.requestedDate.toISOString().slice(0, 10)).toBe('2026-11-04');
@@ -238,9 +243,6 @@ describe('KRS SO poller ต่อ tenant (ST8-T04) — mock → order', () => {
     expect(o3!.holdReasonCode?.code).toBe('CUSTOMER_UNMAPPED');
     expect(o3!.customerExternalId).toBe('SAMPLE-C999');
     expect(o4!.lines.map((l) => String(l.qtyOrdered))).toEqual(['15']);
-    expect(o5!.status).toBe('ON_HOLD');
-    expect(o5!.sourceIssues).toContain(KRS_ISSUE.cancelled);
-    expect(o1!.sourceIssues ?? []).not.toContain(KRS_ISSUE.cancelled);
     const cur = await cursor();
     expect(cur).toMatchObject({ connectorKey: 'krs', leaseId: null });
     expect(cur!.cursor).toBe(mock.salesOrders.list().at(-1)!.rowVersion.toString());
@@ -259,7 +261,8 @@ describe('KRS SO poller ต่อ tenant (ST8-T04) — mock → order', () => {
       total: 5,
       created: 0,
       updated: 0,
-      unchanged: 5,
+      unchanged: 4,
+      skipped: 1,
       error: 0,
     });
     const after = await orders();
@@ -284,7 +287,7 @@ describe('KRS SO poller ต่อ tenant (ST8-T04) — mock → order', () => {
     const r = await svc.pullConnector(tenantId, connectorId);
     expect(r.counts).toMatchObject({ total: 2, created: 1, updated: 1, error: 0 });
     const all = await orders();
-    expect(all).toHaveLength(6);
+    expect(all).toHaveLength(5);
     expect(
       all
         .find((o) => o.externalId === EXT(4))!

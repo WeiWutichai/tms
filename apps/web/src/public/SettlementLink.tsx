@@ -9,6 +9,7 @@ import {
   lineState,
   REVIEW_IMAGE_MIME,
   REVIEW_PHOTOS_MAX,
+  settlementPdfUrl,
   uploadReviewPhoto,
   useRespond,
   useReviewView,
@@ -23,6 +24,8 @@ import './settlement-link.css';
 const CHIP: Record<string, { bg: string; c: string }> = {
   SENT_TO_CARRIER: { bg: '#FCF0DC', c: '#8F5500' },
   APPROVED: { bg: '#E9F0FA', c: '#2257C4' },
+  // ST6-T09 จ่ายแล้ว — ต้นแบบ TMS Subcon การ์ดงวด "จ่ายแล้ว" (#E6F4EC / #17733F)
+  PAID: { bg: '#E6F4EC', c: '#17733F' },
   PENDING: { bg: '#FCF0DC', c: '#8F5500' },
   ACCEPTED: { bg: '#E6F4EC', c: '#17733F' },
   DISPUTED: { bg: '#FBE9E7', c: '#B3322A' },
@@ -374,7 +377,21 @@ export function SettlementLinkPage() {
                 </div>
               ) : (
                 <div className="ofl__done">
-                  <b>{t('stl.doneNote')}</b>
+                  <b>{t(v.status === 'PAID' ? 'stl.doneNote.PAID' : 'stl.doneNote')}</b>
+                </div>
+              )}
+              {v.status === 'PAID' && (
+                // ST6-T04 ต้นแบบ TMS Subcon การ์ดงวด "จ่ายแล้ว": ปุ่ม "ใบจ่ายเงิน" (PDF ใบสำคัญจ่าย) · "หนังสือ 50 ทวิ" ออกที่ระบบบัญชี (D-58) — ไม่ทำ
+                <div className="stl__acts">
+                  <a
+                    className="stl__acc stl__pv"
+                    href={settlementPdfUrl(token)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-testid="stl-pdf"
+                  >
+                    {t('stl.pdf')}
+                  </a>
                 </div>
               )}
               <span className="cdl__senthd">{t('stl.secTrips')}</span>

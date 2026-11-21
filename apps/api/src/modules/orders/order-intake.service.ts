@@ -649,6 +649,29 @@ export class OrderIntakeService {
   }
 
   /**
+   * ST8-T05 ต้นทางกลับมาส่งใบนี้แบบปกติ (ไม่ยกเลิกแล้ว) → ล้าง `source_cancelled_at` ของใบที่ยังไม่ถูกยกเลิกใน TMS (audit)
+   * ใบที่ยกเลิกไปแล้วคงสถานะเดิม (สิ้นสุด — docs/01 §4.1) · ไม่มีธง = ไม่ทำอะไร
+   */
+  async clearSourceCancelled(tx: Tx, externalId: string): Promise<void> {
+    const r = await tx.salesOrder.findFirst({
+      where: { externalId, sourceCancelledAt: { not: null }, status: { not: 'CANCELLED' } },
+      select: { id: true, sourceCancelledAt: true },
+    });
+    if (!r) return;
+    await tx.salesOrder.update({
+      where: { id: r.id },
+      data: { sourceCancelledAt: null, version: { increment: 1 } },
+    });
+    await this.audit.record({
+      action: `${ENTITY}.source_cancel_cleared`,
+      entityType: ENTITY,
+      entityId: r.id,
+      before: { sourceCancelledAt: r.sourceCancelledAt?.toISOString() ?? null },
+      after: { sourceCancelledAt: null },
+    });
+  }
+
+  /**
    * ST8-T04 ต้นทาง (connector) ส่งข้อมูลที่อาจไม่ครบมาให้ใบที่มีอยู่แล้ว (คอลัมน์หาย / รายการน้อยกว่าเดิม / เลขรายการผิด)
    * → **ไม่ทับข้อมูลเดิม** ตั้งเฉพาะ `source_issues` (→ ใบค้าง SOURCE_ERROR) แล้วประเมินใบค้างใหม่ · ล้าง `input_hash`
    * (ต้นทางส่งข้อมูลครบชุดเดิมมาภายหลัง = upsert เขียนจริงและล้างปัญหา ไม่ถูกข้ามเพราะ hash เท่าเดิม)
