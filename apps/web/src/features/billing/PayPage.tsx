@@ -54,6 +54,8 @@ export function PayPage() {
   const canReverse = can(scopes, 'payments:reverse');
   const canDraft = can(scopes, 'invoices:draft');
   const canFinalize = can(scopes, 'invoices:finalize');
+  // ST5-T10 ยกเลิกใบที่ออกแล้ว (owner/admin/manager — spec/05 §19)
+  const canVoid = can(scopes, 'invoices:void');
   const dateText = useDateText();
   const today = bangkokToday();
   const [tab, setTab] = useSessionState<Tab>('pay.tab', 'all');
@@ -316,8 +318,10 @@ export function PayPage() {
           id={open.id}
           canDraft={canDraft}
           canFinalize={canFinalize}
+          canVoid={canVoid}
           canRecord={canRecord}
           onPay={() => setOpen({ id: open.id, kind: 'pay' })}
+          onOpenInvoice={(id) => setOpen({ id, kind: 'inv' })}
           onClose={() => setOpen(null)}
           onToast={setToast}
         />

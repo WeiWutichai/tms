@@ -327,7 +327,6 @@ describe('event registry contract (ST7-T06)', () => {
     expect(PENDING_EVENT_TYPES).toEqual([
       'invoice.adjusted',
       'invoice.paid',
-      'invoice.voided',
       'credit_note.finalized',
       'debit_note.finalized',
       'receipt.issued',
@@ -699,6 +698,19 @@ describe('event registry contract (ST7-T06)', () => {
     ).toBeNull();
     expect((await latest('payment.reversed', uuid('payment', paid.id)))!.snapshot).toEqual(
       await rest(`/v1/payments/${paid.id}`, [...eventDefinition('payment.reversed')!.object!.omit]),
+    );
+
+    // ---- invoice.voided (ST5-T10): ใบที่ยังไม่รับชำระ (กลับรายการแล้ว) → ยกเลิก คงเลข ----
+    const toCancel = (await api(app, admin).get(`/v1/invoices/${draft.id}`).expect(200)).body as {
+      version: number;
+    };
+    await api(app, finalizer)
+      .post(`/v1/invoices/${draft.id}/void`)
+      .set('If-Match', `"${toCancel.version}"`)
+      .send({ reason: 'ทดสอบยกเลิกใบแจ้งหนี้' })
+      .expect(200);
+    expect((await latest('invoice.voided', uuid('invoice', draft.id)))!.snapshot).toEqual(
+      await rest(`/v1/invoices/${draft.id}`, [...eventDefinition('invoice.voided')!.object!.omit]),
     );
 
     // ---------------- ตรวจ ----------------

@@ -111,6 +111,8 @@ export function BillPage() {
   const scopes = me.data?.scopes ?? [];
   const canDraft = can(scopes, 'invoices:draft');
   const canFinalize = can(scopes, 'invoices:finalize');
+  // ST5-T10 ยกเลิกใบที่ออกแล้ว (owner/admin/manager — spec/05 §19)
+  const canVoid = can(scopes, 'invoices:void');
   const canRecord = can(scopes, 'payments:record');
   const canReverse = can(scopes, 'payments:reverse');
   const dateText = useDateText();
@@ -959,11 +961,13 @@ export function BillPage() {
           id={openId}
           canDraft={canDraft}
           canFinalize={canFinalize}
+          canVoid={canVoid}
           canRecord={canRecord}
           onPay={() => {
             setPayId(openId);
             setOpenId(null);
           }}
+          onOpenInvoice={setOpenId}
           onClose={() => setOpenId(null)}
           onToast={setToast}
         />

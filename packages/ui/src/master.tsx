@@ -346,10 +346,13 @@ export function ReasonDialog({
   okIcon,
   diff,
   hint,
+  extra,
   onOk,
   onClose,
 }: {
   open: boolean;
+  /** ช่องเพิ่มใต้เหตุผล (เช่น ติ๊ก "ออกฉบับใหม่แทน" ของ spec/05 §7 — ST5-T10) */
+  extra?: ReactNode;
   /**
    * ตารางเทียบ "ฟิลด์ | เดิม | ใหม่" เหนือช่องเหตุผล (ต้นแบบ TMS v4 vDialog `diff` — แถวพื้นแดงอ่อน ค่าเดิมขีดฆ่า)
    * `labels` = หัวคอลัมน์ [ฟิลด์, เดิม, ใหม่]
@@ -498,6 +501,7 @@ export function ReasonDialog({
               {hint(reason.trim().length, reason.trim().length >= minLength)}
             </span>
           )}
+          {extra}
           {error && <span className="tms-field-error">{error}</span>}
         </div>
         <div className="tms-dialog__foot">

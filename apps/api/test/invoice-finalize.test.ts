@@ -404,7 +404,7 @@ describe('invoice finalize (ST5-T09)', { timeout: 900_000 }, () => {
       .post(`/v1/invoices/${inv.id}/cancel`)
       .set(im)
       .send({ reason: 'ยกเลิกใบที่ออกแล้วตรงนี้ไม่ได้' })
-      .expect(409);
+      .expect(409); // ใบที่ออกแล้วยกเลิกด้วย /void (ST5-T10 — test/invoice-cancel.test.ts)
     await finalize(inv.id, out.version).expect(409);
     const iid = uuid('invoice', inv.id);
     await expect(

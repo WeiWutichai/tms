@@ -25,9 +25,11 @@ describe('billing status (ST5-T05)', () => {
       );
     expect(BILLING_STATUSES.filter(isBillable)).toEqual(['UNBILLED', 'CREDITED']);
   });
-  it('ร่าง → ถอด (UNBILLED) / ออกเลข (INVOICED) · INVOICED ย้อนไม่ได้ ไปได้แค่ CREDITED', () => {
+  it('ร่าง → ถอด (UNBILLED) / ออกเลข (INVOICED) · INVOICED ไปได้แค่ CREDITED (ลดหนี้เต็มใบ) / UNBILLED (ยกเลิกใบ ST5-T10)', () => {
     expect(BILLING_TRANSITIONS.IN_DRAFT).toEqual({ undraft: 'UNBILLED', invoice: 'INVOICED' });
-    expect(BILLING_TRANSITIONS.INVOICED).toEqual({ credit: 'CREDITED' });
+    expect(BILLING_TRANSITIONS.INVOICED).toEqual({ credit: 'CREDITED', uninvoice: 'UNBILLED' });
+    expect(transition('do.billing', BILLING_TRANSITIONS, 'INVOICED', 'uninvoice')).toBe('UNBILLED');
+    expect(() => transition('do.billing', BILLING_TRANSITIONS, 'IN_DRAFT', 'uninvoice')).toThrow();
     expect(() => transition('do.billing', BILLING_TRANSITIONS, 'INVOICED', 'undraft')).toThrow();
     expect(() => transition('do.billing', BILLING_TRANSITIONS, 'UNBILLED', 'invoice')).toThrow();
   });

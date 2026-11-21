@@ -68,6 +68,11 @@ const A3: Array<[string, string, RoleCode[]]> = [
     ['owner', 'admin', 'manager', 'invoicer', 'accounting', 'approver'],
   ],
   [
+    'Invoice: ยกเลิกใบที่ออกแล้ว (ST5-T10, spec/05 §19)',
+    'invoices:void',
+    ['owner', 'admin', 'manager'],
+  ],
+  [
     'Invoice: อ่าน',
     'invoices:read',
     ['owner', 'admin', 'manager', 'invoicer', 'accounting', 'approver', 'viewer'],

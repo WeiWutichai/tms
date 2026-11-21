@@ -1058,11 +1058,11 @@ export class DeliveryOrderService {
     at: Date = new Date(),
   ): Promise<void> {
     const ctx = requestContext.require();
-    // ST5-T06 timestamp ต่อขั้น (docs/04 F4): ออกเลข → invoiced_at · ดึงเข้าร่างใหม่ (หลังลดหนี้เต็มใบ) → ล้าง invoiced_at/paid_at
+    // ST5-T06 timestamp ต่อขั้น (docs/04 F4): ออกเลข → invoiced_at · ดึงเข้าร่างใหม่ (หลังลดหนี้เต็มใบ) / ใบถูกยกเลิก (ST5-T10) → ล้าง invoiced_at/paid_at
     const stamp: Prisma.DeliveryOrderUncheckedUpdateManyInput =
       event === 'invoice'
         ? { invoicedAt: at }
-        : event === 'draft'
+        : event === 'draft' || event === 'uninvoice'
           ? { invoicedAt: null, paidAt: null }
           : {};
     for (const d of rows) {
@@ -1106,6 +1106,29 @@ export class DeliveryOrderService {
       orderBy: { id: 'asc' },
     });
     for (const d of rows) await this.move(tx, d, 'bill', {}, note);
+    return rows.length;
+  }
+
+  /**
+   * ST5-T10 ใบแจ้งหนี้ที่ออกแล้วถูกยกเลิก: DO BILLED → `unbill` → UNBILLED (docs/01 §4.3 "BILLED → UNBILLED") — เฉพาะ DO ที่ไม่อยู่ใน
+   * บรรทัด active ของใบอื่น · ผู้เรียกถือล็อก DO แล้ว (ลำดับเดียวกับ `billForInvoice`) · คืนจำนวน DO ที่เปลี่ยน
+   */
+  async unbillForInvoice(tx: Tx, ids: string[], note: string): Promise<number> {
+    if (!ids.length) return 0;
+    const busy = new Set(
+      (
+        await tx.invoiceLine.findMany({
+          where: { deliveryOrderId: { in: ids }, active: true },
+          select: { deliveryOrderId: true },
+        })
+      ).map((l) => l.deliveryOrderId),
+    );
+    const rows = await tx.deliveryOrder.findMany({
+      where: { id: { in: ids.filter((x) => !busy.has(x)) }, status: 'BILLED' },
+      select: { id: true, status: true, version: true },
+      orderBy: { id: 'asc' },
+    });
+    for (const d of rows) await this.move(tx, d, 'unbill', {}, note);
     return rows.length;
   }
 
@@ -1444,6 +1467,7 @@ export class DeliveryOrderService {
       | 'return'
       | 'revert_delivery'
       | 'bill'
+      | 'unbill'
     >,
     data: Prisma.DeliveryOrderUncheckedUpdateManyInput,
     note: string | null,

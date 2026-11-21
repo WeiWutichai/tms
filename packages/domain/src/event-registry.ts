@@ -233,7 +233,14 @@ const DEFS: Record<WebhookEventType, Omit<EventDefinition, 'type'>> = {
   ),
   'invoice.adjusted': pending('invoice', 'ปรับยอดใบแจ้งหนี้ด้วยใบลดหนี้/เพิ่มหนี้', 'ST5-T19'),
   'invoice.paid': pending('invoice', 'ใบแจ้งหนี้ได้รับชำระครบ', 'ST5-T18'),
-  'invoice.voided': pending('invoice', 'ยกเลิกใบแจ้งหนี้', 'ST5-T10'),
+  'invoice.voided': active(
+    'invoice',
+    'ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (`POST /invoices/{id}/void`) — `data.object` = ใบหลังยกเลิก: `status` CANCELLED + `invoiceNo` เดิม + ' +
+      '`cancelledAt` (ไม่มีเหตุผล/ผู้ยกเลิก — ข้อความอิสระ) · `replacedByInvoice` = null เสมอตอนยิง (ร่างฉบับใหม่แทนสร้างหลัง event — ' +
+      'ดูผ่าน GET) · `previousAttributes` = { status: ISSUED, version } · ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม (ST8-T16)',
+    'InvoiceCancelService.void',
+    INVOICE,
+  ),
   'credit_note.finalized': pending('credit_note', 'ออกเลขใบลดหนี้แล้ว', 'ST5-T19'),
   'debit_note.finalized': pending('debit_note', 'ออกเลขใบเพิ่มหนี้แล้ว', 'ST5-T20'),
   'payment.recorded': active(

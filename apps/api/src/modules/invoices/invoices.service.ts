@@ -73,6 +73,12 @@ const LOAD = {
   pdfDocument: { select: { id: true, filename: true, sha256: true, sizeBytes: true } },
   // ST5-T11 ใบวางบิลที่ใบนี้อยู่ (ผูก active ได้ใบเดียว — docs/01 §3.4 `invoice.billing_note_id`)
   billingNoteLinks: { where: { active: true }, select: { billingNoteId: true }, take: 1 },
+  // ST5-T10 ยกเลิกแล้วออกใหม่: ใบเดิมที่ใบนี้ออกแทน / ใบที่ออกแทนใบนี้ (ล่าสุดที่ยังไม่ยกเลิก ก่อน)
+  replaces: { select: { id: true, invoiceNo: true, issueDate: true } },
+  replacedBy: {
+    select: { id: true, invoiceNo: true, status: true },
+    orderBy: { createdAt: 'desc' },
+  },
 } as const satisfies Prisma.InvoiceInclude;
 type InvoiceRow = Prisma.InvoiceGetPayload<{ include: typeof LOAD }>;
 type LineRow = InvoiceRow['lines'][number];
@@ -624,7 +630,7 @@ export class InvoicesService {
    * review L1: ถอด DO ออกจากร่าง/ยกเลิกร่าง → DO ไม่แช่แข็งแล้ว ต้องคิดบรรทัดรายได้ของใบสั่งใหม่ (ยอดเหมา/ขั้นต่ำแบ่งใหม่ — ไม่หายเงียบ)
    * ล็อกตามลำดับเดียวกับ rebuild: advisory lock ของใบสั่ง (เรียง id) → DO ทุกใบของใบสั่ง FOR UPDATE (เรียง id) — ก่อนถอด
    */
-  private async lockOrders(tx: Tx, doIds: string[]): Promise<string[]> {
+  async lockOrders(tx: Tx, doIds: string[]): Promise<string[]> {
     if (!doIds.length) return [];
     const rows = await tx.deliveryOrder.findMany({
       where: { id: { in: doIds } },
@@ -637,7 +643,7 @@ export class InvoicesService {
     return orders;
   }
 
-  private async rebuildOrders(tx: Tx, orders: string[]) {
+  async rebuildOrders(tx: Tx, orders: string[]) {
     for (const so of orders) await this.revenue.rebuild(so, tx);
   }
 
@@ -682,7 +688,8 @@ export class InvoicesService {
   }
 
   /** ดึง DO เข้าร่าง: ตรวจความพร้อมซ้ำ + สร้างบรรทัดจากบรรทัดรายได้ (ผ่าน InvoiceBillingGuard — ตัวกันวางบิลซ้ำ) */
-  private async pull(tx: Tx, invoiceId: string, doIds: string[]) {
+  /** ดึง DO เข้าร่าง (ตรวจความพร้อมซ้ำ + บรรทัดจากบรรทัดรายได้) — ใช้ร่วมกับออกใบแทน (ST5-T10) */
+  async pull(tx: Tx, invoiceId: string, doIds: string[]) {
     await this.guard.attachDos(
       invoiceId,
       doIds,
@@ -759,7 +766,7 @@ export class InvoicesService {
   }
 
   /** ยอดหัวใบ + VAT รายบรรทัด (แสดงผล) จากบรรทัดที่ยังใช้ — computeDocumentTax (ประมาณการ D-54) */
-  private async recompute(tx: Tx, id: string, bump: boolean) {
+  async recompute(tx: Tx, id: string, bump: boolean) {
     const lines = await tx.invoiceLine.findMany({
       where: { invoiceId: id, active: true },
       orderBy: { lineNo: 'asc' },
@@ -858,7 +865,8 @@ export class InvoicesService {
       by: ['invoiceId'],
       where: {
         invoiceId: { in: ids },
-        active: true,
+        // ST5-T10 ใบที่ยกเลิก/ลดหนี้เต็มใบ นับ DO ของเอกสาร ณ วันยกเลิก
+        OR: [{ active: true }, { releasedWithInvoice: true }],
         doAnchor: true,
         deliveryOrderId: { not: null },
       },
@@ -1011,12 +1019,14 @@ function lineDto(l: LineRow): InvoiceLineDto {
     printGroup: l.printGroup,
     isUserAdded: l.isUserAdded,
     active: l.active,
+    releasedWithInvoice: l.releasedWithInvoice,
     removeReason: l.removeReason,
   };
 }
 
 function toDto(r: InvoiceRow): InvoiceDto {
-  const active = r.lines.filter((l) => l.active);
+  // บรรทัดของเอกสาร: ที่ยังใช้ + ที่หยุดนับเพราะใบถูกยกเลิก (ST5-T10 — ใบที่ยกเลิกยังแสดงรายการเดิม) — ไม่รวมที่ถอดออกจากร่าง
+  const active = r.lines.filter((l) => l.active || l.releasedWithInvoice);
   const dos = new Map<string, InvoiceDto['deliveryOrders'][number]>();
   const perDo = new Map<string, Prisma.Decimal>();
   for (const l of active) {
@@ -1085,6 +1095,24 @@ function toDto(r: InvoiceRow): InvoiceDto {
       manual: p.manual,
     })),
     cancelReason: r.cancelReason,
+    cancelledAt: r.cancelledAt?.toISOString() ?? null,
+    replacesInvoice: r.replaces
+      ? {
+          id: encodeId('invoice', r.replaces.id),
+          invoiceNo: r.replaces.invoiceNo,
+          issueDate: r.replaces.issueDate ? ymd(r.replaces.issueDate) : null,
+        }
+      : null,
+    replacedByInvoice: (() => {
+      const x = r.replacedBy.find((i) => i.status !== 'CANCELLED') ?? r.replacedBy[0];
+      return x
+        ? {
+            id: encodeId('invoice', x.id),
+            invoiceNo: x.invoiceNo,
+            status: x.status as InvoiceStatus,
+          }
+        : null;
+    })(),
     createdBy: r.createdBy,
     issuedAt: r.issuedAt?.toISOString() ?? null,
     issuedBy: r.issuedBy,

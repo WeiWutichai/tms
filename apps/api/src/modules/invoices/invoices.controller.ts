@@ -65,7 +65,9 @@ import {
   UpdateInvoiceDto,
   UpdateInvoiceLineDto,
   InvoicePdfQuery,
+  VoidInvoiceDto,
 } from './invoice.dto';
+import { InvoiceCancelService } from './invoice-cancel.service';
 import { InvoiceFinalizeService } from './invoice-finalize.service';
 import { InvoicePdfService } from './invoice-pdf.service';
 import { InvoicesService } from './invoices.service';
@@ -159,6 +161,7 @@ export class InvoicesController {
     private readonly svc: InvoicesService,
     private readonly pdf: InvoicePdfService,
     private readonly finalizer: InvoiceFinalizeService,
+    private readonly canceller: InvoiceCancelService,
   ) {}
 
   // ประกาศ `queue` ก่อน `:id` เสมอ (ไม่งั้น /invoices/queue ถูกจับเป็น id) — test/invoices-draft.test.ts ตรวจลำดับ route
@@ -401,7 +404,9 @@ export class InvoicesController {
     description:
       'ใบที่ออกเลขแล้วเท่านั้น (ร่าง → 409 ใช้ `/proforma`) · `copy=ORIGINAL` (ค่าเริ่ม) = ไฟล์ต้นฉบับที่เก็บตอนออก · `copy=COPY` = สำเนา ' +
       'render จาก snapshot ณ วันออกครั้งแรกที่ขอแล้วเก็บ (spec/05 BIL-195/196) — ไม่ render ตามข้อมูลลูกค้าปัจจุบัน · ยังไม่มีไฟล์ (render ตอนออกล้ม) → สร้างให้แล้วเก็บ · ' +
-      'header `X-Content-SHA256` · ไม่มีคำว่า "ใบกำกับภาษี" (D-54) · ต้องมี `prices.sell:read` ไม่งั้น 403',
+      'header `X-Content-SHA256` · ไม่มีคำว่า "ใบกำกับภาษี" (D-54) · ต้องมี `prices.sell:read` ไม่งั้น 403 · ' +
+      '**ใบที่ยกเลิกแล้ว (ST5-T10)** = ไฟล์ลายน้ำ "ยกเลิก" (spec/05 BIL-195) ที่ render ด้วยแม่แบบวันออกแล้วเก็บตอนยกเลิก · ' +
+      'แม่แบบเปลี่ยนแล้วและยังไม่มีไฟล์ลายน้ำ → ส่งไฟล์ต้นฉบับที่เก็บแทน + header `X-Invoice-Pdf-Note: cancelled-watermark-unavailable` · ไฟล์ต้นฉบับ/สำเนาคงเดิม',
   })
   @ApiProduces('application/pdf')
   @ApiProblems(T403('invoices:read'), NF, T409())
@@ -416,16 +421,12 @@ export class InvoicesController {
       throw new ProblemException('permission_denied', undefined, undefined, {
         requiredScope: 'prices.sell:read',
       });
-    const { doc, data } = await this.finalizer.ensurePdf(
-      decodeIdOr404('invoice', id),
-      q.copy ?? 'ORIGINAL',
-    );
+    const f = await this.finalizer.downloadPdf(decodeIdOr404('invoice', id), q.copy ?? 'ORIGINAL');
+    const data = f.data;
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('X-Content-SHA256', doc.sha256 ?? '');
-    res.setHeader(
-      'Content-Disposition',
-      `inline; filename="${encodeURIComponent(doc.filename ?? 'invoice.pdf')}"`,
-    );
+    res.setHeader('X-Content-SHA256', f.sha256);
+    if (f.note) res.setHeader('X-Invoice-Pdf-Note', f.note);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(f.filename)}"`);
     return new StreamableFile(data);
   }
 
@@ -678,8 +679,8 @@ export class InvoicesController {
   @ApiOperation({
     summary: 'ยกเลิกร่าง — เหตุผล ≥ 10 ตัวอักษร',
     description:
-      'DRAFT → CANCELLED (docs/01 §4.4 — ไม่มีการลบ) · บรรทัดหยุดนับ · DO กลับ UNBILLED (ขึ้นคิวอีก) · ใบที่ออกแล้วยกเลิกที่นี่ไม่ได้ (409 — ST5-T10) · ' +
-      'audit `invoice.draft_cancelled`',
+      'DRAFT → CANCELLED (docs/01 §4.4 — ไม่มีการลบ) · บรรทัดหยุดนับ · DO กลับ UNBILLED (ขึ้นคิวอีก) · ' +
+      'ใบที่ออกแล้วยกเลิกที่นี่ไม่ได้ (409 — ใช้ `POST /v1/invoices/{id}/void`) · audit `invoice.draft_cancelled`',
   })
   @ApiHeader(IF_MATCH)
   @ApiProblems(T403('invoices:draft'), NF, T409(), T412, T422)
@@ -693,6 +694,74 @@ export class InvoicesController {
     const out = await this.svc.cancel(
       decodeIdOr404('invoice', id),
       body.reason,
+      expectedVersion(req),
+    );
+    setEtag(res, out.version);
+    return out;
+  }
+
+  @Post(':id/void')
+  @HttpCode(200)
+  @TenantResource('issuedInvoice')
+  @RequireScope('invoices:void')
+  @ApiOperation({
+    summary: 'ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (void) — คงเลข · ยังไม่รับชำระ · เหตุผล ≥ 10 ตัวอักษร',
+    description:
+      'ST5-T10 (docs/04 F3 "ยกเลิกใบ" + G1/G2 `/invoices/{id}/void`; spec/05 §3.6/§7; D-54 ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี) · สิทธิ์ `invoices:void` (owner/admin/manager — spec/05 §19) · **If-Match บังคับ** ' +
+      '(ไม่ส่ง → 422 `if_match_required`) · ISSUED → **CANCELLED คงเลข** (เลขไม่ถูกออกซ้ำ · record ไม่ถูกลบ) · ' +
+      'รับชำระแล้ว (บางส่วน/ครบ) → 409 `invoice_has_payments` (`payments[]` — กลับรายการก่อน) · ' +
+      'อยู่ในใบวางบิลที่ออกแล้ว/เก็บเงินแล้ว → 409 `invoice_on_billing_note` (`billingNoteNo` — ยกเลิกใบวางบิลก่อน) · ร่าง → 409 (ใช้ `/cancel`) · ' +
+      'ผล: DO INVOICED/BILLED → UNBILLED (วางบิลใหม่ได้) · ปลดล็อกบรรทัดรายได้ · ถอดออกจากใบวางบิลที่ยังเป็นร่าง · ' +
+      'audit `invoice.cancelled` + webhook `invoice.voided` (ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม — ST8-T16) · ' +
+      '`reissue: true` = สร้างร่างฉบับใหม่แทน (DO ชุดเดิม + บรรทัดที่เพิ่มเอง) อ้างเลขเดิม (`replacedByInvoice` / `replacesInvoice`) — ออกเลขใหม่ตามปกติ · ' +
+      'PDF ของใบที่ยกเลิกมีลายน้ำ "ยกเลิก" (spec/05 BIL-195)',
+  })
+  @ApiHeader({
+    ...IF_MATCH,
+    required: true,
+    description: 'ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412',
+  })
+  @ApiProblems(
+    T403('invoices:void'),
+    NF,
+    {
+      status: 409,
+      description:
+        '`invalid_state_transition` (ร่าง/ยกเลิกแล้ว/สถานะอื่น) · `invoice_has_payments` · `invoice_on_billing_note` · `not_ready_to_bill` (ออกฉบับใหม่แทน — DO ไม่พร้อม)',
+      examples: {
+        invoice_on_billing_note: {
+          type: 'https://docs.tms.example/problems/invoice_on_billing_note',
+          title: PROBLEMS.invoice_on_billing_note.th,
+          status: 409,
+          code: 'invoice_on_billing_note',
+          billingNoteId: 'bn_…',
+          billingNoteNo: 'BN-00000-6911-0001',
+          billingNoteStatus: 'ISSUED',
+        },
+        invoice_has_payments: {
+          type: 'https://docs.tms.example/problems/invoice_has_payments',
+          title: PROBLEMS.invoice_has_payments.th,
+          status: 409,
+          code: 'invoice_has_payments',
+          currentStatus: 'PARTIALLY_PAID',
+          payments: [{ paymentId: 'pay_…', paymentNo: 'PAY-6911-0001' }],
+        },
+      },
+    },
+    T412,
+    T422,
+  )
+  @ApiOkResponse({ type: InvoiceDto })
+  async void(
+    @Param('id') id: string,
+    @Body() body: VoidInvoiceDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<InvoiceDto> {
+    const out = await this.canceller.void(
+      decodeIdOr404('invoice', id),
+      body.reason,
+      body.reissue === true,
       expectedVersion(req),
     );
     setEtag(res, out.version);
