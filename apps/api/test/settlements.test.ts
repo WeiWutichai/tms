@@ -1920,6 +1920,70 @@ describe('settlements (ST6-T03)', () => {
       expect((await pay(c, PAY, both)).body.code).toBe('settlement_self_payment');
     });
 
+    it('D-60 review: key ที่ผู้อนุมัติออก บันทึกจ่ายไม่ได้ · ผู้จ่ายระบุตัวไม่ได้ → 403 แม้ปิดกฎ · ผู้ใช้จริงที่ไม่ใช่ owner เปลี่ยนค่าไม่ได้', async () => {
+      const key = 'settlement.allowApproverMarkPaid';
+      // ผู้ใช้จริง (uuid) role admin — ไม่ใช่ owner → ผ่าน guard uuid ไปถึงการตรวจ role แล้วถูกปฏิเสธ
+      const adminRole = await db.role.findFirstOrThrow({ where: { tenantId, code: 'admin' } });
+      const u = await db.appUser.create({
+        data: {
+          tenantId,
+          email: `stl-paysod-${randomUUID().slice(0, 8)}@a.test`,
+          name: 'ผู้ดูแลผู้อนุมัติ',
+          status: 'ACTIVE',
+        },
+      });
+      await db.userRole.create({ data: { tenantId, userId: u.id, roleId: adminRole.id } });
+      const ut = await tokenFor(tenantId, '*', u.id);
+      const denied = await api(app, ut)
+        .patch('/v1/settings')
+        .set('X-Step-Up', await signStepUpToken(u.id, tenantId))
+        .send({ values: { [key]: true } })
+        .expect(403);
+      expect(denied.body).toMatchObject({ code: 'permission_denied', required: ['owner'] });
+
+      // ผู้ใช้นี้อนุมัติใบ แล้วออก API key ที่มี settlements:pay → key = ผู้อนุมัติ → 403
+      const { C, trips } = await setup(1, '1300');
+      const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
+        .body;
+      await api(app, ut)
+        .post(`/v1/settlements/${s.id}/approve`)
+        .set('If-Match', await etag(s.id))
+        .send(APPROVE)
+        .expect(200);
+      const keyName = `ERP จ่าย ${randomUUID().slice(0, 8)}`;
+      const k = (
+        await api(app, ut)
+          .post('/v1/api-keys')
+          .send({ name: keyName, scopes: ['settlements:read', 'settlements:pay'] })
+          .expect(201)
+      ).body as { secret: string };
+      const byKey = await pay(s.id, PAY, k.secret);
+      expect(byKey.status, JSON.stringify(byKey.body)).toBe(403);
+      expect(byKey.body.code).toBe('settlement_self_payment');
+
+      // key ที่ไม่รู้ผู้ออก (created_by ว่าง) = ระบุตัวไม่ได้ → 403 แม้ tenant ปิดกฎ (fail closed)
+      const row = await db.apiKey.findFirstOrThrow({ where: { tenantId, name: keyName } });
+      await db.apiKey.update({ where: { id: row.id }, data: { createdBy: null } });
+      await db.tenantSetting.upsert({
+        where: { tenantId_key: { tenantId, key } },
+        create: { tenantId, key, value: true },
+        update: { value: true },
+      });
+      try {
+        const anon = await pay(s.id, PAY, k.secret);
+        expect(anon.status, JSON.stringify(anon.body)).toBe(403);
+        expect(anon.body.code).toBe('settlement_self_payment');
+      } finally {
+        await db.tenantSetting.deleteMany({ where: { tenantId, key } });
+      }
+      expect(
+        (await db.carrierSettlement.findUniqueOrThrow({ where: { id: uuid('settlement', s.id) } }))
+          .status,
+      ).toBe('APPROVED');
+      // คนอื่นจ่ายได้
+      expect((await pay(s.id, PAY, accounting)).status).toBe(200);
+    });
+
     it('เที่ยวที่บรรทัดต้นทุนอยู่หลายใบ: SETTLED เมื่อจ่ายใบสุดท้าย · ระหว่างนั้นบรรทัดที่เหลือยังอยู่ในคิว', async () => {
       const { C, trips } = await setup(1, '2000');
       const t = trips[0]!;

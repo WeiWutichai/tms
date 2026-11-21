@@ -710,7 +710,7 @@ export class SettlementsService {
 
   /**
    * D-60 separation of duties ของการจ่าย: ผู้บันทึกจ่ายต้องไม่ใช่ผู้อนุมัติ (`approvedBy`) — API key = ผู้ออก key ·
-   * ผู้บันทึกที่ระบุตัวไม่ได้ = ปฏิเสธ (fail closed) · tenant ที่ owner ปิดกฎ (`settlement.allowApproverMarkPaid`) → ผ่าน
+   * ผู้บันทึกที่ระบุตัวไม่ได้ = ปฏิเสธเสมอ (fail closed — ปิดกฎก็ไม่ผ่าน) · tenant ที่ owner ปิดกฎ (`settlement.allowApproverMarkPaid`) → ผู้อนุมัติผ่าน
    * @returns true = เป็นผู้อนุมัติแต่ผ่านเพราะปิดกฎ (ลง audit)
    */
   private async assertNotApprover(
@@ -719,7 +719,9 @@ export class SettlementsService {
     actor: string | null | undefined,
   ): Promise<boolean> {
     const [me, approver] = await resolveActors(tx, [actor, approvedBy]);
-    if (me !== null && (approver === null || approver !== me)) return false;
+    // ผู้บันทึกจ่ายที่ระบุตัวไม่ได้ (key หาไม่พบ/ไม่มีผู้ออก) = ปฏิเสธเสมอ แม้ปิดกฎ (fail closed — review D-60)
+    if (me === null) throw new ProblemException('settlement_self_payment');
+    if (approver === null || approver !== me) return false;
     const allowed = (
       await readSettings(tx, requestContext.require().tenantId!, [
         'settlement.allowApproverMarkPaid',
