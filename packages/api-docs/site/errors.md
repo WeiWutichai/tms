@@ -896,7 +896,7 @@ HTTP `429` · ใส่รหัสผ่านผิดหลายครั้
 
 HTTP `429` · เรียกถี่เกินไป
 
-อาจตอบได้จากหลาย endpoint
+พบใน: [`POST /v1/invoices/{id}/send`](ref-invoices.md#post-invoices-id-send), [`POST /v1/billing-notes/{id}/send`](ref-billing-notes.md#post-billing-notes-id-send)
 
 ## internal_error {#internal_error}
 

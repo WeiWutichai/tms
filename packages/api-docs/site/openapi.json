@@ -36343,7 +36343,41 @@
             }
           },
           "429": {
-            "$ref": "#/components/responses/RateLimited"
+            "description": "`rate_limited` — อีเมลเอกสารของบริษัทเกิน 200 ผู้รับต่อชั่วโมง (`limit`, `sentLastHour`) — ลองใหม่ภายหลังหรือดาวน์โหลดแล้วส่งเอง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/rate_limited",
+                      "title": "เรียกถี่เกินไป",
+                      "status": 429,
+                      "code": "rate_limited",
+                      "limit": 200,
+                      "window": "1h",
+                      "sentLastHour": 199
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            }
           }
         },
         "security": [
@@ -40565,7 +40599,41 @@
             }
           },
           "429": {
-            "$ref": "#/components/responses/RateLimited"
+            "description": "`rate_limited` — อีเมลเอกสารของบริษัทเกิน 200 ผู้รับต่อชั่วโมง (`limit`, `sentLastHour`) — ลองใหม่ภายหลังหรือดาวน์โหลดแล้วส่งเอง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/rate_limited",
+                      "title": "เรียกถี่เกินไป",
+                      "status": 429,
+                      "code": "rate_limited",
+                      "limit": 200,
+                      "window": "1h",
+                      "sentLastHour": 199
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            }
           }
         },
         "security": [

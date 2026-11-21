@@ -77,6 +77,7 @@ import {
   DocumentEmailListDto,
   DocumentEmailResultDto,
   SEND_422,
+  SEND_429,
   SendInvoiceDto,
 } from './document-email.dto';
 import { DocumentEmailService } from './document-email.service';
@@ -858,6 +859,7 @@ export class InvoicesController {
     NF,
     T409('invoice_pdf_template_changed', 'document_email_pending'),
     SEND_422,
+    SEND_429,
   )
   @ApiOkResponse({ type: DocumentEmailResultDto })
   async send(

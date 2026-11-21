@@ -10,7 +10,7 @@ import { docDateShort } from '../../common/thai-date';
 import { DbService, type Tx } from '../../db/db.service';
 import { mergePdfs } from '../../pdf/pdf-bundle';
 import { BillingNotesService } from '../billing-notes/billing-notes.service';
-import { putFileLocked } from '../documents/documents.controller';
+import { putFileLocked } from '../../pdf/file-store';
 import { EmailService } from '../email/email.service';
 import type { TemplateVars } from '../email/templates';
 import {
@@ -31,8 +31,13 @@ const envInt = (k: string, d: number) => {
 /** ขนาดไฟล์แนบสูงสุด (ผู้ให้บริการอีเมลส่วนใหญ่รับ 10–25 MB — เผื่อ base64 +33%) */
 export const EMAIL_ATTACHMENT_MAX_BYTES = () =>
   envInt('EMAIL_ATTACHMENT_MAX_BYTES', 10 * 1024 * 1024);
-/** ส่งเอกสารเดิมถึงผู้รับเดิมซ้ำระหว่างที่ยังรอส่ง (QUEUED) ภายในช่วงนี้ → 409 `document_email_pending` */
-const PENDING_WINDOW_MS = 10 * 60_000;
+/** ส่งเอกสารเดิมถึงผู้รับเดิมซ้ำระหว่างที่ยังรอส่ง (QUEUED) ภายในช่วงนี้ → 409 `document_email_pending` (นาฬิกาฐานข้อมูล — review L4) */
+const PENDING_WINDOW_MIN = 10;
+/**
+ * review L3 [DECISION spec/12 §3 แถว ST5-T21 — ย้อนได้]: อีเมลเอกสารถึงลูกค้าต่อ tenant ต่อชั่วโมง (นับผู้รับ — แถว document_email)
+ * เกิน → 429 `rate_limited` (กันระบบถูกใช้ส่งอีเมลจำนวนมากไปที่อยู่ภายนอก)
+ */
+export const DOCUMENT_EMAILS_PER_HOUR = 200;
 /** สถานะใบวางบิลที่ส่งได้ (มีเลขแล้ว ไม่ยกเลิก) */
 const BN_SENDABLE = ['ISSUED', 'COLLECTED'];
 /** ใบแจ้งเตือนชำระ — ใบที่ยังค้างรับ */
@@ -86,6 +91,8 @@ interface Prepared {
   file: { stored: StoredDocument; data: Buffer } | { bundle: Buffer; filename: string };
   contents: string[];
   meta: Record<string, unknown>;
+  /** ผู้เรียกระบุ `to` เอง (ไม่ใช้ผู้ติดต่อของลูกค้า) — audit `toOverride` */
+  toOverride: boolean;
 }
 
 /**
@@ -173,7 +180,15 @@ export class DocumentEmailService {
   // ---------- ส่ง ----------
 
   async sendBillingNote(id: string, to: string[] | undefined): Promise<DocumentEmailResultDto> {
-    const bn = await this.inTx((tx) => this.loadBillingNote(tx, id));
+    const bn = await this.inTx(async (tx) => {
+      const row = await this.loadBillingNote(tx, id);
+      await this.precheckBundleSize(
+        tx,
+        row.pdfDocumentId,
+        row.invoices.map((l) => l.invoiceId),
+      );
+      return row;
+    });
     const recipients = this.recipients(to, bn.customer.contacts);
     const bundle = await this.billingNoteBundle(id);
     const print = bn.printOptions;
@@ -187,6 +202,7 @@ export class DocumentEmailService {
       file: { bundle: bundle.data, filename: bundle.filename },
       contents: bundle.contents,
       meta: { parts: bundle.parts },
+      toOverride: !!to?.length,
       vars: {
         kind: 'BILLING_NOTE',
         issuerName: nameOf(bn.issuerSnapshot, ''),
@@ -221,6 +237,7 @@ export class DocumentEmailService {
       file: { stored: got.doc, data: got.data },
       contents: [inv.invoiceNo],
       meta: {},
+      toOverride: !!to?.length,
       vars: {
         kind: purpose === 'PAYMENT_REMINDER' ? 'PAYMENT_REMINDER' : 'INVOICE',
         issuerName: nameOf(inv.issuerSnapshot, ''),
@@ -252,6 +269,32 @@ export class DocumentEmailService {
     return { ...inv, invoiceNo: inv.invoiceNo };
   }
 
+  /**
+   * review L1: ต้นฉบับทุกใบเก็บไว้แล้ว → ผลรวมขนาดไฟล์เกินเพดานตั้งแต่ก่อนรวมไฟล์ → 422 ทันที (ไม่อ่าน/รวมไฟล์ใหญ่ในหน่วยความจำ)
+   * ยังไม่มีบางไฟล์ → ตรวจหลังรวมตามเดิม · ใบวางบิลที่ใหญ่มาก = ดาวน์โหลดไฟล์รวม/รายใบแล้วส่งเอง
+   */
+  private async precheckBundleSize(tx: Tx, bnPdfId: string | null, invoiceIds: string[]) {
+    if (!bnPdfId) return;
+    const invs = await tx.invoice.findMany({
+      where: { id: { in: invoiceIds } },
+      select: { pdfDocumentId: true },
+    });
+    const ids = invs.map((x) => x.pdfDocumentId);
+    if (ids.some((x) => !x)) return;
+    const docs = await tx.storedDocument.findMany({
+      where: { id: { in: [bnPdfId, ...(ids as string[])] } },
+      select: { sizeBytes: true },
+    });
+    if (docs.length !== ids.length + 1) return;
+    const sum = docs.reduce((a, d) => a + d.sizeBytes, 0);
+    const max = EMAIL_ATTACHMENT_MAX_BYTES();
+    if (sum > max)
+      throw new ProblemException('email_attachment_too_large', undefined, undefined, {
+        sizeBytes: sum,
+        maxBytes: max,
+      });
+  }
+
   private recipients(to: string[] | undefined, contacts: unknown): string[] {
     const list = to?.length ? dedupe(to.map((x) => x.trim())) : defaultRecipients(contacts);
     if (!list.length) throw new ProblemException('document_email_no_recipient');
@@ -279,21 +322,25 @@ export class DocumentEmailService {
         await this.loadInvoice(tx, p.entityId, p.purpose);
       }
       const now = this.clock.now();
-      const pending = await tx.documentEmail.findMany({
-        where: {
-          entityType: p.entityType,
-          entityId: p.entityId,
-          purpose: p.purpose,
-          status: 'QUEUED',
-          createdAt: { gt: new Date(now.getTime() - PENDING_WINDOW_MS) },
-        },
-        select: { toAddress: true, createdAt: true },
-      });
+      // เวลาตามนาฬิกาฐานข้อมูล (created_at ใช้ now() ของฐาน — review L4)
+      const pending = await tx.$queryRaw<{ toAddress: string; createdAt: Date }[]>`
+        SELECT to_address AS "toAddress", created_at AS "createdAt" FROM document_email
+         WHERE entity_type = ${p.entityType} AND entity_id = ${p.entityId}::uuid AND purpose = ${p.purpose}
+           AND status = 'QUEUED' AND created_at > now() - (${PENDING_WINDOW_MIN}::int * interval '1 minute')`;
       const want = new Set(p.recipients.map((r) => r.toLowerCase()));
       const dup = pending.filter((x) => want.has(x.toAddress.toLowerCase()));
       if (dup.length)
         throw new ProblemException('document_email_pending', undefined, undefined, {
           pending: dup.map((x) => ({ to: x.toAddress, queuedAt: x.createdAt.toISOString() })),
+        });
+      const [hour] = await tx.$queryRaw<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM document_email WHERE created_at > now() - interval '1 hour'`;
+      const lastHour = hour?.n ?? 0;
+      if (lastHour + p.recipients.length > DOCUMENT_EMAILS_PER_HOUR)
+        throw new ProblemException('rate_limited', undefined, undefined, {
+          limit: DOCUMENT_EMAILS_PER_HOUR,
+          window: '1h',
+          sentLastHour: lastHour,
         });
 
       const doc =
@@ -320,6 +367,12 @@ export class DocumentEmailService {
           ],
         })),
       );
+      const flagged = await this.status.markSentByEmail(
+        tx,
+        p.invoiceIds,
+        { entityType: p.entityType, documentNo: p.documentNo },
+        now,
+      );
       for (const o of outbox)
         rows.push(
           await tx.documentEmail.create({
@@ -333,16 +386,13 @@ export class DocumentEmailService {
               toAddress: o.to,
               attachmentDocumentId: doc.id,
               emailOutboxId: o.id,
+              invoiceIds: p.invoiceIds,
+              flaggedInvoiceIds: flagged,
+              flaggedAt: flagged.length ? now : null,
               createdBy: ctx.actorId ?? null,
             },
           }),
         );
-      await this.status.markSentByEmail(
-        tx,
-        p.invoiceIds,
-        { entityType: p.entityType, documentNo: p.documentNo },
-        now,
-      );
       await this.audit.record({
         action: p.entityType === 'billing_note' ? 'billing_note.emailed' : 'invoice.emailed',
         entityType: p.entityType,
@@ -351,6 +401,7 @@ export class DocumentEmailService {
           documentNo: p.documentNo,
           purpose: p.purpose,
           to: p.recipients,
+          ...(p.toOverride ? { toOverride: true } : {}),
           attachment: {
             documentId: encodeId('document', doc.id),
             filename: p.vars.filename,

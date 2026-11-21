@@ -20126,7 +20126,7 @@ scope: `invoices:finalize` · operationId: `BillingNotes_send`
 | `404` | ไม่พบใบวางบิล (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
 | `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress), [invoice_pdf_template_changed](errors.md#invoice_pdf_template_changed), [document_email_pending](errors.md#document_email_pending) | `ProblemDto` |
 | `422` | `validation_failed` — `to` ผิดรูปแบบ/ซ้ำ/เกิน 5 · `document_email_no_recipient` — ไม่ระบุ `to` และลูกค้าไม่มีอีเมลผู้ติดต่อ · `email_attachment_too_large` — ไฟล์แนบเกินขนาด (`sizeBytes`, `maxBytes`) → ดาวน์โหลดแล้วส่งเอง — [validation_failed](errors.md#validation_failed), [document_email_no_recipient](errors.md#document_email_no_recipient), [email_attachment_too_large](errors.md#email_attachment_too_large) | `ProblemDto` |
-| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+| `429` | `rate_limited` — อีเมลเอกสารของบริษัทเกิน 200 ผู้รับต่อชั่วโมง (`limit`, `sentLastHour`) — ลองใหม่ภายหลังหรือดาวน์โหลดแล้วส่งเอง — [rate_limited](errors.md#rate_limited) | `ProblemDto` |
 
 **ตัวอย่าง**
 
@@ -21426,7 +21426,7 @@ scope: `invoices:finalize` · operationId: `Invoices_send`
 | `404` | ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
 | `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress), [invoice_pdf_template_changed](errors.md#invoice_pdf_template_changed), [document_email_pending](errors.md#document_email_pending) | `ProblemDto` |
 | `422` | `validation_failed` — `to` ผิดรูปแบบ/ซ้ำ/เกิน 5 · `document_email_no_recipient` — ไม่ระบุ `to` และลูกค้าไม่มีอีเมลผู้ติดต่อ · `email_attachment_too_large` — ไฟล์แนบเกินขนาด (`sizeBytes`, `maxBytes`) → ดาวน์โหลดแล้วส่งเอง — [validation_failed](errors.md#validation_failed), [document_email_no_recipient](errors.md#document_email_no_recipient), [email_attachment_too_large](errors.md#email_attachment_too_large) | `ProblemDto` |
-| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+| `429` | `rate_limited` — อีเมลเอกสารของบริษัทเกิน 200 ผู้รับต่อชั่วโมง (`limit`, `sentLastHour`) — ลองใหม่ภายหลังหรือดาวน์โหลดแล้วส่งเอง — [rate_limited](errors.md#rate_limited) | `ProblemDto` |
 
 **ตัวอย่าง**
 
@@ -23893,7 +23893,7 @@ HTTP `429` · ใส่รหัสผ่านผิดหลายครั้
 
 HTTP `429` · เรียกถี่เกินไป
 
-อาจตอบได้จากหลาย endpoint
+พบใน: [`POST /v1/invoices/{id}/send`](ref-invoices.md#post-invoices-id-send), [`POST /v1/billing-notes/{id}/send`](ref-billing-notes.md#post-billing-notes-id-send)
 
 ## internal_error {#internal_error}
 

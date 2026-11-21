@@ -50,6 +50,7 @@ import {
   DocumentEmailListDto,
   DocumentEmailResultDto,
   SEND_422,
+  SEND_429,
   SendBillingNoteDto,
 } from '../invoices/document-email.dto';
 import { DocumentEmailService } from '../invoices/document-email.service';
@@ -396,7 +397,10 @@ export class BillingNotesController {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('X-Content-SHA256', createHash('sha256').update(b.data).digest('hex'));
     res.setHeader('X-Bundle-Contents', b.contents.map(encodeURIComponent).join(','));
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(b.filename)}"`);
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${encodeURIComponent(b.filename)}"; filename*=UTF-8''${encodeURIComponent(b.filename)}`,
+    );
     return new StreamableFile(b.data);
   }
 
@@ -425,6 +429,7 @@ export class BillingNotesController {
     NF,
     T409('invoice_pdf_template_changed', 'document_email_pending'),
     SEND_422,
+    SEND_429,
   )
   @ApiOkResponse({ type: DocumentEmailResultDto })
   async send(

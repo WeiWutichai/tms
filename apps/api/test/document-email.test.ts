@@ -7,7 +7,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { EmailDispatcher } from '../src/modules/email/email.service';
 import { MemoryTransport } from '../src/modules/email/transport';
-import { defaultRecipients } from '../src/modules/invoices/document-email.service';
+import {
+  DOCUMENT_EMAILS_PER_HOUR,
+  defaultRecipients,
+} from '../src/modules/invoices/document-email.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import {
@@ -178,6 +181,25 @@ describe('ส่งเอกสารทางอีเมล (ST5-T21)', { time
     return doc.getPages().map(streamOf);
   }
 
+  /** ส่งอีเมลที่ค้างด้วย transport ที่ล้มสำหรับผู้รับใน `bad` จนครบ 5 ครั้ง (ข้าม backoff ด้วยการเลื่อน run_at) */
+  async function drainFailing(bad: string[]) {
+    const ok = new MemoryTransport();
+    dispatcher.use({
+      name: 'partial',
+      send: async (m) => (bad.includes(m.to) ? Promise.reject(new Error('smtp down')) : ok.send(m)),
+    });
+    for (let i = 0; i < 6; i++) {
+      await db.emailOutbox.updateMany({
+        where: { status: 'PENDING' },
+        data: { runAt: new Date(0) },
+      });
+      await dispatcher.drain();
+    }
+    return ok;
+  }
+  const invRow = (id: string) =>
+    db.invoice.findUniqueOrThrow({ where: { id: tryDecodeId('invoice', id)! } });
+
   const emailRows = (entityId: string) =>
     db.documentEmail.findMany({ where: { entityId }, orderBy: { createdAt: 'asc' } });
 
@@ -282,6 +304,10 @@ describe('ส่งเอกสารทางอีเมล (ST5-T21)', { time
     const replay = await send(['x1@cust.test', 'x2@cust.test'], key).expect(200);
     expect(replay.headers['idempotent-replayed']).toBe('true');
     expect(await emailRows(tryDecodeId('billingNote', bn.id)!)).toHaveLength(2);
+    const sentAudit = await db.auditLog.findFirstOrThrow({
+      where: { entityId: tryDecodeId('billingNote', bn.id)!, action: 'billing_note.emailed' },
+    });
+    expect(sentAudit.after).toMatchObject({ toOverride: true });
     const dup = await send(['X1@cust.test']).expect(409);
     expect(dup.body.code).toBe('document_email_pending');
     expect(dup.body.pending[0].to).toBe('x1@cust.test');
@@ -412,26 +438,76 @@ describe('ส่งเอกสารทางอีเมล (ST5-T21)', { time
     expect(audit).toBe(2);
   });
 
-  it('สถานะการส่ง: ส่งไม่สำเร็จ → FAILED ไม่กระทบสถานะเอกสาร · sandbox ไม่ส่งออกจริง (sandbox_suppressed)', async () => {
+  it('review M1: ส่งไม่สำเร็จ → FAILED + ล้างธง "ส่งลูกค้าแล้ว" ที่การส่งนี้ตั้ง (ยกเลิกใบได้อีก) · ธงคงไว้ถ้ามีการส่งอื่นสำเร็จ · ธง BILLING_NOTE ไม่แตะ · sandbox ล้างธงด้วย', async () => {
+    // (1) ผู้รับเดียวล้ม → ล้างธง + audit (actor ระบบ, reason email_failed) → ยกเลิกใบได้
     const id = await issuedInvoice('800.00');
     await api(app, admin)
       .post(`/v1/invoices/${id}/send`)
       .send({ to: ['fail@cust.test'] })
       .expect(200);
-    const failing = { name: 'fail', send: async () => Promise.reject(new Error('smtp down')) };
-    dispatcher.use(failing);
-    // ลองครบ 5 ครั้ง (ข้าม backoff ด้วยการเลื่อน run_at)
-    for (let i = 0; i < 5; i++) {
-      await db.emailOutbox.updateMany({
-        where: { tenantId, status: 'PENDING' },
-        data: { runAt: new Date(0) },
-      });
-      await dispatcher.drain();
-    }
+    expect((await invRow(id)).sentToCustomerChannel).toBe('EMAIL');
+    await drainFailing(['fail@cust.test']);
     const [row] = await emailRows(tryDecodeId('invoice', id)!);
     expect(row).toMatchObject({ status: 'FAILED', failedReason: 'email_failed' });
-    const inv = await db.invoice.findUniqueOrThrow({ where: { id: tryDecodeId('invoice', id)! } });
-    expect(inv.status).toBe('ISSUED');
+    const inv = await invRow(id);
+    expect(inv).toMatchObject({
+      status: 'ISSUED',
+      sentToCustomerAt: null,
+      sentToCustomerBy: null,
+      sentToCustomerChannel: null,
+    });
+    const cleared = await db.auditLog.findFirstOrThrow({
+      where: { entityId: inv.id, action: 'invoice.sent_to_customer_cleared' },
+    });
+    expect(cleared).toMatchObject({ actorId: 'system:email-dispatcher', reason: 'email_failed' });
+    expect(cleared.after).toMatchObject({ sentToCustomerAt: null, invoiceNo: inv.invoiceNo });
+    await api(app, admin)
+      .post(`/v1/invoices/${id}/void`)
+      .set('If-Match', `"${inv.version}"`)
+      .send({ reason: 'ส่งอีเมลไม่สำเร็จ ยกเลิกออกใหม่', reissue: false })
+      .expect(200);
+
+    // (2) 2 ผู้รับ: คนหนึ่งสำเร็จ อีกคนล้ม → ธงคงไว้
+    const id2 = await issuedInvoice('900.00');
+    await api(app, admin)
+      .post(`/v1/invoices/${id2}/send`)
+      .send({ to: ['ok@cust.test', 'bad@cust.test'] })
+      .expect(200);
+    const ok = await drainFailing(['bad@cust.test']);
+    expect(ok.sent.map((m) => m.to)).toEqual(['ok@cust.test']);
+    expect(
+      (await emailRows(tryDecodeId('invoice', id2)!)).map((r) => [r.toAddress, r.status]),
+    ).toEqual(
+      expect.arrayContaining([
+        ['ok@cust.test', 'SENT'],
+        ['bad@cust.test', 'FAILED'],
+      ]),
+    );
+    expect((await invRow(id2)).sentToCustomerChannel).toBe('EMAIL');
+
+    // (3) ชุดใบวางบิล: ใบที่ธงมาจากการออกใบวางบิล (BILLING_NOTE) ไม่แตะ · ใบที่การส่งนี้ตั้งธง (EMAIL) ถูกล้าง
+    const a = await issuedInvoice('100.00');
+    const b = await issuedInvoice('200.00');
+    const bn = await issuedNote([a, b]);
+    const bRow = await invRow(b);
+    await api(app, admin)
+      .post(`/v1/invoices/${b}/unmark-sent`)
+      .set('If-Match', `"${bRow.version}"`)
+      .send({ reason: 'ทดสอบล้างธงก่อนส่งอีเมล' })
+      .expect(200);
+    const sent = await api(app, admin)
+      .post(`/v1/billing-notes/${bn.id}/send`)
+      .send({ to: ['bnfail@cust.test'] })
+      .expect(200);
+    expect(sent.body.emails).toHaveLength(1);
+    const de = await db.documentEmail.findFirstOrThrow({
+      where: { entityId: tryDecodeId('billingNote', bn.id)! },
+    });
+    expect(de.flaggedInvoiceIds).toEqual([tryDecodeId('invoice', b)]);
+    expect((await invRow(b)).sentToCustomerChannel).toBe('EMAIL');
+    await drainFailing(['bnfail@cust.test']);
+    expect((await invRow(a)).sentToCustomerChannel).toBe('BILLING_NOTE');
+    expect((await invRow(b)).sentToCustomerAt).toBeNull();
 
     // sandbox: tenant mode=test → dispatcher ไม่ส่ง · document_email = FAILED sandbox_suppressed
     const sb = (
@@ -455,26 +531,71 @@ describe('ส่งเอกสารทางอีเมล (ST5-T21)', { time
         ],
       },
     });
-    const de = await db.documentEmail.create({
+    // ใบใน sandbox ที่การส่งนี้ตั้งธง EMAIL
+    const sbCo = await db.company.create({
+      data: { tenantId: sb, legalName: 'บจก. ทดสอบ sandbox', taxId: validTaxId(941) },
+    });
+    const sbBr = await db.branch.create({
+      data: {
+        tenantId: sb,
+        companyId: sbCo.id,
+        branchCode: '00000',
+        branchLabel: 'สำนักงานใหญ่',
+        address: ADDR,
+      },
+    });
+    const sbCu = await db.customer.create({
+      data: { tenantId: sb, code: 'SB-1', legalName: 'ลูกค้า sandbox' },
+    });
+    const flaggedAt = new Date();
+    const sbInv = await db.invoice.create({
+      data: {
+        tenantId: sb,
+        customerId: sbCu.id,
+        issuingCompanyId: sbCo.id,
+        issuingBranchId: sbBr.id,
+        status: 'ISSUED',
+        totalAmount: '10.00',
+        subtotalExempt: '10.00',
+        netExpectedAmount: '10.00',
+        ...issuedTestFields('TEST-INV-00000-2611-0001'),
+        sentToCustomerAt: flaggedAt,
+        sentToCustomerBy: 'u-sb',
+        sentToCustomerChannel: 'EMAIL',
+      },
+    });
+    const sbDe = await db.documentEmail.create({
       data: {
         tenantId: sb,
         entityType: 'invoice',
-        entityId: randomUUID(),
+        entityId: sbInv.id,
         purpose: 'DOCUMENT',
-        documentNo: 'TEST-INV-1',
+        documentNo: 'TEST-INV-00000-2611-0001',
         toAddress: 'customer@cust.test',
         attachmentDocumentId: randomUUID(),
         emailOutboxId: outboxId,
+        invoiceIds: [sbInv.id],
+        flaggedInvoiceIds: [sbInv.id],
+        flaggedAt,
       },
     });
     mail = new MemoryTransport();
     dispatcher.use(mail);
     await dispatcher.drain();
     expect(mail.sent).toEqual([]);
-    expect(await db.documentEmail.findUniqueOrThrow({ where: { id: de.id } })).toMatchObject({
+    expect(await db.documentEmail.findUniqueOrThrow({ where: { id: sbDe.id } })).toMatchObject({
       status: 'FAILED',
       failedReason: 'sandbox_suppressed',
     });
+    expect(await db.invoice.findUniqueOrThrow({ where: { id: sbInv.id } })).toMatchObject({
+      sentToCustomerAt: null,
+      sentToCustomerChannel: null,
+    });
+    expect(
+      await db.auditLog.findFirstOrThrow({
+        where: { entityId: sbInv.id, action: 'invoice.sent_to_customer_cleared' },
+      }),
+    ).toMatchObject({ tenantId: sb, reason: 'sandbox_suppressed' });
   });
 
   it('dispatcher ไม่แนบไฟล์นอก tenant ของอีเมล', async () => {
@@ -501,6 +622,30 @@ describe('ส่งเอกสารทางอีเมล (ST5-T21)', { time
       status: 'FAILED',
       error: 'attachment outside tenant',
     });
+  });
+
+  it('review L3: เกิน 200 ผู้รับต่อชั่วโมงต่อบริษัท → 429 rate_limited (บริษัทอื่นไม่นับ)', async () => {
+    const id = await issuedInvoice('50.00');
+    const recent = await db.documentEmail.count({
+      where: { tenantId, createdAt: { gt: new Date(Date.now() - 3600_000) } },
+    });
+    const fill = DOCUMENT_EMAILS_PER_HOUR - recent;
+    await db.documentEmail.createMany({
+      data: Array.from({ length: fill }, (_, i) => ({
+        tenantId,
+        entityType: 'invoice',
+        entityId: randomUUID(),
+        purpose: 'DOCUMENT',
+        documentNo: `X-${i}`,
+        toAddress: `x${i}@cust.test`,
+        attachmentDocumentId: randomUUID(),
+        emailOutboxId: randomUUID(),
+        status: 'SENT',
+      })),
+    });
+    const r = await api(app, admin).post(`/v1/invoices/${id}/send`).send({}).expect(429);
+    expect(r.body).toMatchObject({ code: 'rate_limited', limit: DOCUMENT_EMAILS_PER_HOUR });
+    expect((await invRow(id)).sentToCustomerAt).toBeNull();
   });
 
   it('ผู้รับตั้งต้น: ผู้ติดต่อหลักที่มีอีเมล · ไม่มี → ทุกคนที่มีอีเมล (ไม่ซ้ำ สูงสุด 5)', () => {

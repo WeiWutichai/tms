@@ -63,3 +63,21 @@ export class LocalFileStore implements FileStore {
 /** ที่เก็บไฟล์ของระบบ (`FILES_ROOT`) — ใช้ร่วมกับ worker อีเมล (ไฟล์แนบ ST5-T21) โดยไม่ต้อง import controller */
 export const defaultFileStore = () =>
   new LocalFileStore(process.env.FILES_ROOT ?? join(process.cwd(), '.data', 'files'));
+
+/** namespace ของ advisory lock ต่อ key ไฟล์ (ST9-T14 — retention job ใช้ค่าเดียวกัน) */
+export const FILE_KEY_LOCK_NS = 0x7f11e;
+
+/**
+ * เขียนไฟล์ + ล็อก key ใน transaction ที่จะสร้าง/อัปเดตแถว stored_document (ST9-T14 review)
+ * retention job ลบไฟล์ภายใต้ล็อกเดียวกันหลังตรวจว่าไม่มีแถวอ้าง — ล็อกก่อนเขียน (เขียนซ้ำเนื้อเดิมได้) ทำให้ไฟล์ที่เนื้อซ้ำกับไฟล์ที่กำลังถูกลบไม่หาย
+ */
+export async function putFileLocked(
+  tx: { $queryRaw: (q: TemplateStringsArray, ...v: unknown[]) => PromiseLike<unknown> },
+  tenantId: string,
+  data: Buffer,
+  ext: string,
+): Promise<StoredFile> {
+  const key = fileKeyFor(tenantId, data, ext);
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(${FILE_KEY_LOCK_NS}::int, hashtext(${key}))::text`;
+  return defaultFileStore().put(tenantId, data, ext);
+}

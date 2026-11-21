@@ -134,3 +134,11 @@ export const SEND_422 = {
     }),
   },
 };
+
+/** 429 — เกินเพดานอีเมลเอกสารต่อ tenant ต่อชั่วโมง (review L3) */
+export const SEND_429 = {
+  status: 429,
+  description:
+    '`rate_limited` — อีเมลเอกสารของบริษัทเกิน 200 ผู้รับต่อชั่วโมง (`limit`, `sentLastHour`) — ลองใหม่ภายหลังหรือดาวน์โหลดแล้วส่งเอง',
+  examples: { rate_limited: prob('rate_limited', { limit: 200, window: '1h', sentLastHour: 199 }) },
+};

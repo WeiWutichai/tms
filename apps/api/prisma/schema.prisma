@@ -2758,6 +2758,12 @@ model DocumentEmail {
   /// ไฟล์ที่แนบ (stored_document — PDF รายใบ หรือไฟล์รวมชุดใบวางบิล)
   attachmentDocumentId String    @map("attachment_document_id") @db.Uuid
   emailOutboxId        String    @map("email_outbox_id") @db.Uuid
+  /// ใบแจ้งหนี้ทั้งหมดในไฟล์แนบ (ใบเดียว หรือทุกใบในชุดใบวางบิล) — ใช้ตรวจ "ยังมีการส่งอื่นที่ส่ง/รอส่งอยู่" ตอนล้างธง
+  invoiceIds           String[]  @default([]) @map("invoice_ids") @db.Uuid
+  /// ใบแจ้งหนี้ที่การส่งครั้งนี้ตั้งธง "ส่งลูกค้าแล้ว" (ช่องทาง EMAIL) — ส่งไม่สำเร็จ/sandbox → worker ล้างธงคืน (review M1)
+  flaggedInvoiceIds    String[]  @default([]) @map("flagged_invoice_ids") @db.Uuid
+  /// เวลาที่ตั้งธง (= invoice.sent_to_customer_at ที่การส่งนี้ตั้ง) — ล้างเฉพาะเมื่อธงยังเป็นของการส่งนี้
+  flaggedAt            DateTime? @map("flagged_at") @db.Timestamptz(6)
   /// QUEUED · SENT · FAILED
   status               String    @default("QUEUED")
   failedReason         String?   @map("failed_reason")
@@ -2768,6 +2774,8 @@ model DocumentEmail {
 
   @@index([tenantId, entityType, entityId, createdAt])
   @@index([emailOutboxId])
+  @@index([invoiceIds], type: Gin)
+  @@index([tenantId, createdAt])
   @@map("document_email")
 }
 

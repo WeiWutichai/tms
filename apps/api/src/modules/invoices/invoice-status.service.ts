@@ -302,15 +302,20 @@ export class InvoiceStatusService implements OnModuleInit {
 
   /**
    * ส่งอีเมลถึงลูกค้า = ส่งลูกค้าแล้ว (ช่องทาง EMAIL — ST5-T21) — ใบที่ยังไม่มีธง · transaction ของผู้ส่ง (ผู้เรียกล็อกเอกสารแล้ว)
-   * ใบที่มีธงอยู่แล้ว (ทำเครื่องหมายเอง / ออกใบวางบิล) ไม่เปลี่ยนช่องทาง · คืนจำนวนใบที่ตั้ง
+   * ใบที่มีธงอยู่แล้ว (ทำเครื่องหมายเอง / ออกใบวางบิล) ไม่เปลี่ยนช่องทาง · คืน id ใบที่ตั้ง (เก็บใน document_email — ส่งไม่สำเร็จ
+   * worker ล้างคืนเฉพาะใบเหล่านี้: review M1)
    */
   async markSentByEmail(
     tx: Tx,
     invoiceIds: readonly string[],
     via: { entityType: 'invoice' | 'billing_note'; documentNo: string },
     now: Date,
-  ): Promise<number> {
+  ): Promise<string[]> {
+    if (!invoiceIds.length) return [];
     const ctx = requestContext.require();
+    const by = ctx.actorId ?? 'system';
+    // review L2: ล็อกใบตามลำดับ id ก่อนอ่าน + ตั้งแบบมีเงื่อนไข (คำขออื่นตั้ง/ล้างพร้อมกันไม่ทับ)
+    await tx.$queryRaw`SELECT id FROM invoice WHERE id = ANY(${[...invoiceIds]}::uuid[]) ORDER BY id FOR UPDATE`;
     const rows = await tx.invoice.findMany({
       where: {
         id: { in: [...invoiceIds] },
@@ -321,8 +326,19 @@ export class InvoiceStatusService implements OnModuleInit {
       select: { id: true, invoiceNo: true },
       orderBy: { id: 'asc' },
     });
+    const flagged: string[] = [];
     for (const r of rows) {
-      await this.setSent(tx, r.id, now, ctx.actorId ?? 'system', 'EMAIL');
+      const n = await tx.invoice.updateMany({
+        where: { id: r.id, sentToCustomerAt: null },
+        data: {
+          sentToCustomerAt: now,
+          sentToCustomerBy: by,
+          sentToCustomerChannel: 'EMAIL',
+          version: { increment: 1 },
+        },
+      });
+      if (!n.count) continue;
+      flagged.push(r.id);
       await this.audit.record({
         action: 'invoice.sent_to_customer',
         entityType: ENTITY,
@@ -336,7 +352,7 @@ export class InvoiceStatusService implements OnModuleInit {
         },
       });
     }
-    return rows.length;
+    return flagged;
   }
 
   /**
