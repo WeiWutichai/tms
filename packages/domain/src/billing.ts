@@ -114,3 +114,26 @@ export function revertDeliveryWindow(
   const deadline = new Date(deliveredAt.getTime() + REVERT_DELIVERY_WINDOW_MS);
   return { deadline, within: now.getTime() <= deadline.getTime() };
 }
+
+/** ใบที่รับชำระได้ (ST5-T13) — ออกเลขแล้วและยังมียอดค้าง (ร่าง/ยกเลิก/ปรับยอด/ชำระครบ ไม่รับ) */
+export const PAYABLE_INVOICE_STATUSES: readonly InvoiceStatus[] = ['ISSUED', 'PARTIALLY_PAID'];
+/** สถานะที่ "สถานะจากการรับชำระ" คำนวณได้ (ISSUED / PARTIALLY_PAID / PAID สลับกันตามยอดตัด) */
+const PAYMENT_DRIVEN: readonly InvoiceStatus[] = ['ISSUED', 'PARTIALLY_PAID', 'PAID'];
+
+/**
+ * สถานะใบแจ้งหนี้จากยอดรับชำระ (ST5-T13 — **ที่เดียว**; docs/01 §4.4 "PARTIALLY_PAID / PAID ตาม payment_allocation",
+ * docs/04 F5 "สถานะ invoice คำนวณจาก Payment") — หน่วยสตางค์ (ไม่ใช้ float)
+ * - ยอดตัดรวม (เงินรับ + WHT ที่ถูกหัก + ค่าธรรมเนียม + ส่วนต่าง ที่ตัดใบนี้ — เฉพาะ payment ที่ยังไม่กลับรายการ) = 0 → ISSUED
+ * - 0 < ยอดตัด < ยอดรวม → PARTIALLY_PAID · ยอดตัด ≥ ยอดรวม → PAID
+ * - สถานะอื่น (DRAFT / CANCELLED / VOIDED / ADJUSTED) ไม่เปลี่ยน
+ * ST5-T18 ต่อยอดที่นี่ (OVERDUE จาก due date + job, ธง "ส่งลูกค้าแล้ว")
+ */
+export function invoicePaymentStatus(
+  current: InvoiceStatus,
+  totalSatang: bigint,
+  paidSatang: bigint,
+): InvoiceStatus {
+  if (!PAYMENT_DRIVEN.includes(current)) return current;
+  if (paidSatang <= 0n) return 'ISSUED';
+  return paidSatang >= totalSatang ? 'PAID' : 'PARTIALLY_PAID';
+}

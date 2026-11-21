@@ -895,6 +895,37 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('invoice', id);
     },
+    // ST5-T13 การรับชำระ (/payments/:id, /reverse, /bounce, /clear) — เช็ครอเคลียร์ ตัดใบที่ออกแล้วเต็มยอด
+    payment: async (db, tenantId, n) => {
+      const invoiceId = tryDecodeId('invoice', await FIXTURES.invoice!(db, tenantId, n + 900))!;
+      const inv = await db.invoice.update({
+        where: { id: invoiceId },
+        data: {
+          totalAmount: '100.00',
+          subtotalExempt: '100.00',
+          status: 'ISSUED',
+          ...issuedTestFields(`INV-ISO-PAY-${n}`),
+        },
+      });
+      const p = await db.payment.create({
+        data: {
+          tenantId,
+          paymentNo: `PAY-ISO-${n}`,
+          customerId: inv.customerId,
+          receivedDate: new Date('2026-11-20'),
+          method: 'CHEQUE',
+          chequeNo: `CHQ-${n}`,
+          chequeBank: 'ธนาคารทดสอบ',
+          chequeDate: new Date('2026-11-25'),
+          chequeStatus: 'PENDING',
+          amountReceived: '100.00',
+        },
+      });
+      await db.paymentAllocation.create({
+        data: { tenantId, paymentId: p.id, invoiceId, amount: '100.00' },
+      });
+      return encodeId('payment', p.id);
+    },
     // ST5-T11 ใบวางบิล (/billing-notes/:id, PATCH, /finalize, /acknowledge, /collect, /cancel, /proforma)
     billingNote: async (db, tenantId, n) => {
       const inv = await db.invoice.findUniqueOrThrow({
@@ -1062,6 +1093,8 @@ const BODY_FOR_PATH: Record<string, object> = {
     reason: 'isolation test reason',
   },
   '/v1/revenue-lines/:id/void': { reason: 'isolation test reason' }, // ST5-T01
+  '/v1/payments/:id/reverse': { reason: 'isolation test reason' }, // ST5-T13
+  '/v1/payments/:id/bounce': { reason: 'isolation test reason' }, // ST5-T13
   '/v1/settlements/:id/lines/:lineId/remove': { reason: 'isolation test reason' }, // ST6-T03
   // ST5-T07 ร่างใบแจ้งหนี้
   '/v1/invoices/:id/delivery-orders': { deliveryOrderIds: [`do_${'0'.repeat(32)}`] },

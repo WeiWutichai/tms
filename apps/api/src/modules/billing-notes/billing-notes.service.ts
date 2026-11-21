@@ -41,8 +41,8 @@ export const BILLING_NOTE_PDF_JOB = 'billing_note.render_pdf';
 const PDF_RETRY_MS = [10_000, 60_000, 300_000, 900_000, 3_600_000, 10_800_000, 21_600_000];
 /** advisory lock ของการออกเลข BN ต่อ tenant — อ่านเวลาหลังได้ล็อก (วันที่เรียงตามเลข) */
 const BN_NO_LOCK_NS = 0x1a11;
-/** สถานะใบแจ้งหนี้ที่ใส่ในใบวางบิลได้ (ออกแล้ว ค้างชำระ) — PARTIALLY_PAID รอยอดคงค้างจาก ST5-T13 (hand-off) */
-const BILLABLE_INVOICE = ['ISSUED'] as const;
+/** สถานะใบแจ้งหนี้ที่ใส่ในใบวางบิลได้ (ออกแล้ว ค้างชำระ — ST5-T13: รวมชำระบางส่วน · ชำระครบ/ยกเลิก ไม่ได้) */
+const BILLABLE_INVOICE = ['ISSUED', 'PARTIALLY_PAID'] as const;
 
 const day = (s: string) => new Date(`${s}T00:00:00.000Z`);
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
@@ -67,15 +67,35 @@ type InvoiceForNote = {
   issueDate: Date | null;
   dueDate: Date | null;
   totalAmount: Prisma.Decimal;
+  paidAmount: Prisma.Decimal;
   whtExpectedAmount: Prisma.Decimal;
 };
 
-/**
- * ยอดค้างของใบแจ้งหนี้ ณ ตอนนี้ — ยังไม่มีการรับชำระ (ST5-T13) จึงเท่ากับยอดรวม
- * **hand-off ST5-T13/T18:** เมื่อมี `paid_amount`/balance ให้คืนยอดคงค้างจริง และเปิด PARTIALLY_PAID ใน `BILLABLE_INVOICE`
- */
-function outstandingOf(inv: Pick<InvoiceForNote, 'totalAmount'>): Prisma.Decimal {
-  return inv.totalAmount;
+/** ยอดค้างของใบแจ้งหนี้ ณ ตอนนี้ = ยอดรวม − รับชำระแล้ว (`paid_amount` — ST5-T13 ไม่นับที่กลับรายการ) */
+function outstandingOf(inv: Pick<InvoiceForNote, 'totalAmount' | 'paidAmount'>): Prisma.Decimal {
+  return inv.totalAmount.sub(inv.paidAmount);
+}
+
+/** WHT ประมาณการที่ยังเหลือ = ประมาณการของใบ − WHT ที่ลูกค้าหักไปแล้วในการรับชำระที่ยังไม่กลับรายการ (ไม่ติดลบ) */
+async function whtRemaining(
+  tx: Tx,
+  invoices: InvoiceForNote[],
+): Promise<Map<string, Prisma.Decimal>> {
+  const ids = invoices.map((x) => x.id);
+  const rows = ids.length
+    ? await tx.$queryRaw<{ invoice_id: string; wht: Prisma.Decimal }[]>`
+        SELECT a.invoice_id, COALESCE(SUM(a.wht_amount), 0) AS wht
+          FROM payment_allocation a JOIN payment p ON p.id = a.payment_id
+         WHERE a.invoice_id = ANY(${ids}::uuid[]) AND p.status = 'RECORDED'
+         GROUP BY a.invoice_id`
+    : [];
+  const done = new Map(rows.map((r) => [r.invoice_id, new Prisma.Decimal(r.wht)]));
+  return new Map(
+    invoices.map((x) => {
+      const left = x.whtExpectedAmount.sub(done.get(x.id) ?? 0);
+      return [x.id, left.isNegative() ? new Prisma.Decimal(0) : left];
+    }),
+  );
 }
 
 function invalid(errors: FieldError[]): ProblemException {
@@ -205,6 +225,7 @@ export class BillingNotesService implements OnModuleInit {
       orderBy: [{ issueDate: 'asc' }, { invoiceNo: 'asc' }],
       take: 500,
     });
+    const whtLeft = await whtRemaining(tx, rows);
     return {
       data: rows.map((i) => ({
         invoiceId: encodeId('invoice', i.id),
@@ -215,7 +236,7 @@ export class BillingNotesService implements OnModuleInit {
         issuingCompanyId: encodeId('company', i.issuingCompanyId),
         issuingBranchId: encodeId('branch', i.issuingBranchId),
         sellTotal: money(i.totalAmount),
-        sellWhtExpected: money(i.whtExpectedAmount),
+        sellWhtExpected: money(whtLeft.get(i.id)!),
         sellOutstanding: money(outstandingOf(i)),
       })),
     };
@@ -365,6 +386,8 @@ export class BillingNotesService implements OnModuleInit {
       docType: 'BN',
       branchId: bn.issuingBranchId,
       at: now,
+      // D-61 (ขยายโดย lead — ย้อนได้): sandbox → TEST-BN-…
+      markSandbox: true,
     });
     const tenant = await tx.tenant.findFirst({ select: { yearStyle: true, mode: true } });
     const customer: InvoicePartySnapshot = { code: bn.customer.code, ...customerParty(bn) };
@@ -382,7 +405,7 @@ export class BillingNotesService implements OnModuleInit {
         printOptions: {
           yearStyle: tenant?.yearStyle === 'CE' ? 'CE' : 'BE',
           templateVersion: BILLING_NOTE_TEMPLATE_VERSION,
-          // D-61: ใบวางบิลใน sandbox (รวมใบแจ้งหนี้ `TEST-`) → PDF ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" (เลขใบวางบิลยังตามชุดเลขของ sandbox)
+          // D-61: ใบวางบิลใน sandbox (รวมใบแจ้งหนี้ `TEST-`) → PDF ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" (เลข `TEST-` จากชุดเลขของ sandbox)
           ...(tenant?.mode === 'test' ? { sandbox: true } : {}),
         },
         updatedBy: ctx.actorId ?? null,
@@ -783,13 +806,15 @@ export class BillingNotesService implements OnModuleInit {
         data: { active: false, removedAt: now },
       });
     let lineNo = current.reduce((a, l) => Math.max(a, l.lineNo), 0);
+    const whtLeft = await whtRemaining(tx, invoices);
     for (const inv of invoices) {
       const snap = {
         invoiceNo: inv.invoiceNo!,
         issueDate: inv.issueDate!,
         dueDate: inv.dueDate!,
         totalAmount: inv.totalAmount,
-        whtExpectedAmount: inv.whtExpectedAmount,
+        // ST5-T13: ชำระบางส่วนแล้ว → WHT ที่ยังคาดว่าจะถูกหัก = ส่วนที่เหลือ (สุทธิคาดรับ = คงค้าง − WHT ที่เหลือ)
+        whtExpectedAmount: whtLeft.get(inv.id)!,
         outstandingAmount: outstandingOf(inv),
       };
       const have = current.find((l) => l.active && l.invoiceId === inv.id);

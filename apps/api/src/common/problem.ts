@@ -557,6 +557,24 @@ export const PROBLEMS = {
     th: 'แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ',
     en: 'The invoice template changed after issue — the issued PDF cannot be re-rendered',
   },
+  /** ST5-T13 รับชำระได้เฉพาะใบที่ออกแล้วและยังค้างชำระ (ISSUED / PARTIALLY_PAID) — `invoiceId`, `currentStatus` */
+  invoice_not_payable: {
+    status: 409,
+    th: 'ใบแจ้งหนี้นี้รับชำระไม่ได้ในสถานะปัจจุบัน',
+    en: 'This invoice cannot take a payment in its current status',
+  },
+  /** ST5-T13 ยอดตัดหนี้เกินยอดคงค้างของใบ (ตรวจใต้ล็อกใบ — 2 คำขอพร้อมกันตัดเกินไม่ได้) — `invoiceId`, `invoiceNo`, `outstanding` */
+  payment_exceeds_outstanding: {
+    status: 409,
+    th: 'ยอดตัดหนี้เกินยอดคงค้าง',
+    en: 'The amount applied exceeds the outstanding balance',
+  },
+  /** ST5-T13 review M1 (spec/05 BIL-059): ส่วนต่างที่ตัดยอดเกิน `payments.maxDifferenceAmount` ต้องมีสิทธิ์ `payments:reverse` (ผู้จัดการ) */
+  payment_difference_over_limit: {
+    status: 403,
+    th: 'ส่วนต่างเกินวงเงินที่ตั้งไว้ ต้องให้ผู้จัดการบันทึก',
+    en: 'The write-off difference exceeds the limit — a manager must record it',
+  },
   /** D-61 (21 พ.ย. 2569): **ไม่ถูกส่งแล้ว** — sandbox ออกใบแจ้งหนี้ได้ (เลข `TEST-` + ลายน้ำ) · คงไว้เพื่อสัญญา API ไม่เปลี่ยนแบบ breaking */
   sandbox_finalize_disabled: {
     status: 409,

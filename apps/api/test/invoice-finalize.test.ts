@@ -734,7 +734,7 @@ describe('invoice finalize (ST5-T09)', { timeout: 900_000 }, () => {
     });
     expect(copy.filename).toBe(`${sr.body.invoiceNo}-copy.pdf`);
 
-    // ใบวางบิลใน sandbox (รวมใบ TEST-) → PDF ลายน้ำเดียวกัน (เลขใบวางบิลตามชุดเลขของ sandbox — ไม่เติม TEST-)
+    // ใบวางบิลใน sandbox (รวมใบ TEST-) → PDF ลายน้ำเดียวกัน (เลข TEST-BN- จากชุดเลขของ sandbox)
     const bnSpy = vi.spyOn(renderer, 'pdf');
     const bn = (
       await api(app, sbToken)
@@ -752,7 +752,19 @@ describe('invoice finalize (ST5-T09)', { timeout: 900_000 }, () => {
         .set('If-Match', `"${bn.version}"`)
         .expect(200)
     ).body;
+    expect(bni.billingNoteNo).toMatch(/^TEST-BN-/);
     await api(app, sbToken).get(`/v1/billing-notes/${bn.id}/pdf?copy=COPY`).expect(200);
+    // รับชำระใน sandbox → เลข TEST-PAY- (D-61 ขยายโดย lead)
+    const pay = await api(app, sbToken)
+      .post('/v1/payments')
+      .send({
+        receivedDate: today,
+        method: 'TRANSFER',
+        amountReceived: '100.00',
+        allocations: [{ invoiceId: sid, amount: '100.00' }],
+      });
+    expect(pay.status, JSON.stringify(pay.body)).toBe(201);
+    expect(pay.body.paymentNo).toMatch(/^TEST-PAY-\d{4}-0001$/);
     const bnBodies = bnSpy.mock.calls
       .map((c) => c[0].body ?? '')
       .filter((b) => b.includes(`data-no="${bni.billingNoteNo}"`));
@@ -768,7 +780,7 @@ describe('invoice finalize (ST5-T09)', { timeout: 900_000 }, () => {
                          WHERE tenant_id = ${sb}::uuid AND status IN ('PENDING', 'FAILED_RETRYABLE')`;
     await app.get(OutboxDispatcher).drain();
     const cmds = await db.integrationOutbox.findMany({ where: { tenantId: sb, sink: ERP_SINK } });
-    expect(cmds.map((c) => c.eventType)).toEqual(['invoice.finalized']);
+    expect(cmds.map((c) => c.eventType)).toContain('invoice.finalized');
     for (const c of cmds) {
       expect(c).toMatchObject({ status: 'SKIPPED', errorClass: 'CAPABILITY' });
       expect(c.lastError).toMatchObject({ code: 'sandbox_unsupported' });

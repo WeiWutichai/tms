@@ -170,6 +170,7 @@ scope: `invoices:read` · operationId: `Invoices_listInvoices`
 | `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `customerId` | query |   | `string` | ลูกค้า — id หรือ `ext:{externalId}` |
 | `status` | query |   | `string` ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |
+| `receivable` | query |   | `string` ค่า: `all`, `open`, `overdue` | หน้า "รับชำระ": `all` = ใบที่ออกแล้ว (ไม่รวมร่าง/ยกเลิก) · `open` = ค้างรับ (ISSUED + PARTIALLY_PAID) · `overdue` = ค้างรับและเลยวันครบกำหนด (เวลาไทย) — ใช้ร่วมกับ `status` ได้ |
 
 **Responses**
 
@@ -996,6 +997,8 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
 | `sellNetExpected` |   | `string` |   | ยอดรวม − WHT ที่คาดว่าจะถูกหัก (ประมาณการ) — `prices.sell:read` |   |
 | `issueDate` | ใช่ | `string` | null ได้ | วันที่ออก (เวลาไทย) — ร่าง = null | `2026-11-20` |
 | `dueDate` | ใช่ | `string` | null ได้ | ครบกำหนดชำระ = วันที่ออก + เครดิต — ร่าง = null | `2026-12-20` |
+| `sellPaidAmount` |   | `string` |   | ยอดรับชำระแล้ว — `prices.sell:read` |   |
+| `sellOutstanding` |   | `string` |   | คงค้าง = ยอดรวม − รับชำระแล้ว (ร่าง/ยกเลิก = 0.00) — `prices.sell:read` |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
 | `updatedAt` | ใช่ | `string` |   |   |   |

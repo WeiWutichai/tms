@@ -27,6 +27,7 @@ import { pick, useSavedViews } from '../views/useSavedViews';
 import { bangkokToday, money, useDateText } from '../rate-cards/rateFormat';
 import { billRanges, selectionTotals } from './billing';
 import { finalizeErrorText, InvoiceDrawer, invoiceStatusLabel } from './InvoiceDrawer';
+import { PayDrawer } from './PayDrawer';
 import {
   BillingNoteDrawer,
   BillingNoteForm,
@@ -110,6 +111,8 @@ export function BillPage() {
   const scopes = me.data?.scopes ?? [];
   const canDraft = can(scopes, 'invoices:draft');
   const canFinalize = can(scopes, 'invoices:finalize');
+  const canRecord = can(scopes, 'payments:record');
+  const canReverse = can(scopes, 'payments:reverse');
   const dateText = useDateText();
   const today = bangkokToday();
   const ranges = useMemo(() => billRanges(today), [today]);
@@ -134,6 +137,8 @@ export function BillPage() {
     },
   });
   const [openId, setOpenId] = useState<string | null>(null);
+  /** ST5-T13 drawer รับชำระ (จากปุ่ม "บันทึกรับชำระ" ใน drawer ใบแจ้งหนี้) */
+  const [payId, setPayId] = useState<string | null>(null);
   const [openBn, setOpenBn] = useState<string | null>(null);
   const [bnForm, setBnForm] = useState<{
     customerId: string;
@@ -379,13 +384,13 @@ export function BillPage() {
       label: t('bill.col.out'),
       align: 'right',
       width: '1%',
-      // ร่าง/ยกเลิก = ไม่มียอดค้าง (ต้นแบบ closed → 0) · ใบที่ออกแล้ว: ยอดค้างจากการรับชำระ = ST5-T22
+      // ร่าง/ยกเลิก = ไม่มียอดค้าง (ต้นแบบ closed → 0) · ใบที่ออกแล้ว: ยอดรวม − รับชำระแล้ว (ST5-T13)
       render: (x) => (
         <span className="tms-num" style={{ color: '#3B424C' }}>
-          {['DRAFT', 'CANCELLED', 'VOIDED'].includes(x.status) ? '0.00' : money(x.sellTotal)}
+          {money(x.sellOutstanding)}
         </span>
       ),
-      csv: () => '',
+      csv: (x) => x.sellOutstanding ?? '',
     },
     {
       key: 'st',
@@ -954,7 +959,25 @@ export function BillPage() {
           id={openId}
           canDraft={canDraft}
           canFinalize={canFinalize}
+          canRecord={canRecord}
+          onPay={() => {
+            setPayId(openId);
+            setOpenId(null);
+          }}
           onClose={() => setOpenId(null)}
+          onToast={setToast}
+        />
+      )}
+      {payId && (
+        <PayDrawer
+          id={payId}
+          canRecord={canRecord}
+          canReverse={canReverse}
+          onClose={() => setPayId(null)}
+          onOpenInvoice={() => {
+            setOpenId(payId);
+            setPayId(null);
+          }}
           onToast={setToast}
         />
       )}

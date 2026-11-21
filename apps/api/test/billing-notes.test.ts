@@ -162,6 +162,48 @@ describe('billing notes (ST5-T11)', { timeout: 600_000 }, () => {
     expect(audit).not.toBeNull();
   });
 
+  it('ST5-T13: ใบที่ชำระบางส่วน ใส่ใบวางบิลได้ · ยอดในใบวางบิล = คงค้าง · WHT = ส่วนที่ยังไม่ถูกหัก · ชำระครบแล้วใส่ไม่ได้', async () => {
+    const id = await issuedInvoice('10000.00', '100.00');
+    const paid = await issuedInvoice('500.00');
+    const pay = (invoiceId: string, amount: string, wht = '0.00') =>
+      api(app, admin)
+        .post('/v1/payments')
+        .send({
+          receivedDate: today,
+          method: 'TRANSFER',
+          amountReceived: new Prisma.Decimal(amount).minus(wht).toFixed(2),
+          whtAmount: wht,
+          allocations: [{ invoiceId, amount }],
+        })
+        .expect(201);
+    await pay(id, '4000.00', '40.00');
+    await pay(paid, '500.00');
+    const cand = (
+      await api(app, admin).get(`/v1/billing-notes/candidates?customerId=${cus()}`).expect(200)
+    ).body.data as {
+      invoiceId: string;
+      status: string;
+      sellOutstanding: string;
+      sellWhtExpected: string;
+    }[];
+    expect(cand.find((c) => c.invoiceId === id)).toMatchObject({
+      status: 'PARTIALLY_PAID',
+      sellOutstanding: '6000.00',
+      sellWhtExpected: '60.00',
+    });
+    expect(cand.map((c) => c.invoiceId)).not.toContain(paid);
+    const r = await create(drafter, [id]).expect(201);
+    expect(r.body).toMatchObject({
+      sellTotal: '6000.00',
+      sellWhtExpected: '60.00',
+      sellNetExpected: '5940.00',
+    });
+    expect(r.body.invoices[0]).toMatchObject({ sellTotal: '10000.00', sellOutstanding: '6000.00' });
+    await create(drafter, [paid])
+      .expect(409)
+      .expect((x) => expect(x.body.code).toBe('invoice_not_billable'));
+  });
+
   it('เกณฑ์ตรวจรับ: ใบแจ้งหนี้เดียวอยู่ 2 ใบวางบิลที่ active ไม่ได้ (409 + พร้อมกัน) · candidates ไม่แสดงใบที่ติดแล้ว', async () => {
     const a = await issuedInvoice('1000.00');
     const b = await issuedInvoice('2000.00');
