@@ -232,7 +232,14 @@ const DEFS: Record<WebhookEventType, Omit<EventDefinition, 'type'>> = {
     INVOICE,
   ),
   'invoice.adjusted': pending('invoice', 'ปรับยอดใบแจ้งหนี้ด้วยใบลดหนี้/เพิ่มหนี้', 'ST5-T19'),
-  'invoice.paid': pending('invoice', 'ใบแจ้งหนี้ได้รับชำระครบ', 'ST5-T18'),
+  'invoice.paid': active(
+    'invoice',
+    'ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · ' +
+      '`previousAttributes` = { status, version } ก่อนชำระ · ยิงทุกครั้งที่ใบเปลี่ยนเป็น PAID — กลับรายการ (`payment.reversed`) แล้วรับชำระครบอีกครั้ง = ยิงอีกครั้ง · ' +
+      'สถานะชำระจากระบบบัญชี (D-57) ยิงผ่านทางเดียวกัน',
+    'InvoiceStatusService.apply (รับชำระ / ระบบบัญชี)',
+    INVOICE,
+  ),
   'invoice.voided': active(
     'invoice',
     'ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (`POST /invoices/{id}/void`) — `data.object` = ใบหลังยกเลิก: `status` CANCELLED + `invoiceNo` เดิม + ' +

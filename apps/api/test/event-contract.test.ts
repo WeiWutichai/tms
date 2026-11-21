@@ -326,7 +326,6 @@ describe('event registry contract (ST7-T06)', () => {
     }
     expect(PENDING_EVENT_TYPES).toEqual([
       'invoice.adjusted',
-      'invoice.paid',
       'credit_note.finalized',
       'debit_note.finalized',
       'receipt.issued',
@@ -688,6 +687,12 @@ describe('event registry contract (ST7-T06)', () => {
     expect((await latest('payment.recorded', uuid('payment', paid.id)))!.snapshot).toEqual(
       await rest(`/v1/payments/${paid.id}`, [...eventDefinition('payment.recorded')!.object!.omit]),
     );
+    // ---- invoice.paid (ST5-T18): ชำระครบ → ใบ PAID (data.object = ใบหลังชำระ) ----
+    const paidEv = (await latest('invoice.paid', uuid('invoice', draft.id)))!;
+    expect(paidEv.snapshot).toEqual(
+      await rest(`/v1/invoices/${draft.id}`, [...eventDefinition('invoice.paid')!.object!.omit]),
+    );
+    expect(paidEv.previousAttributes).toMatchObject({ status: 'ISSUED' });
     await api(app, admin)
       .post(`/v1/payments/${paid.id}/reverse`)
       .set('If-Match', `"${paid.version}"`)

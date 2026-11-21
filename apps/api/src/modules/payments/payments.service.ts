@@ -16,7 +16,7 @@ import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { readSettings } from '../settings/settings.service';
-import { applyInvoicePayments } from '../invoices/invoice-payments';
+import { InvoiceStatusService } from '../invoices/invoice-status.service';
 import { issueNumber } from '../sequences/sequences.service';
 import { addDays, bangkokToday, isRealDate } from '../vehicle-documents/expiry';
 import type {
@@ -103,7 +103,7 @@ function eventObject(dto: PaymentDto): Record<string, unknown> {
  *
  * - บันทึก: ใบแจ้งหนี้ที่ออกแล้วของลูกค้ารายเดียว (หลายใบได้ — BIL-050) · ยอดตัดต่อใบ ≤ คงค้าง (**ล็อกใบเรียงตาม id** — 2 คำขอพร้อมกัน
  *   ตัดใบเดียวกันเกินไม่ได้; CHECK `invoice_paid_amount_check` เป็นด่านสุดท้าย) · เงินรับ + WHT + ค่าธรรมเนียม + ส่วนต่าง = Σ ยอดตัด (BIL-051)
- *   · ออกเลขภายใน PAY · สถานะใบจาก `applyInvoicePayments` · audit + event `payment.recorded` (transaction เดียว)
+ *   · ออกเลขภายใน PAY · สถานะใบจาก `InvoiceStatusService.apply` (ST5-T18 + webhook `invoice.paid`) · audit + event `payment.recorded` (transaction เดียว)
  * - แก้/ลบไม่ได้ (trigger) → กลับรายการ (`payments:reverse` + เหตุผล + If-Match) — ยอดค้างของใบกลับมา · event `payment.reversed`
  * - เช็ค: เลขเช็ค ธนาคาร วันที่เช็ค สถานะ (รอเคลียร์ → ผ่าน) · เช็คคืน = กลับรายการ + `chequeStatus` BOUNCED (BIL-060)
  * - WHT ที่ลูกค้าหัก = บันทึกยอด (+ เลขที่ 50 ทวิ ที่ลูกค้าแจ้ง) — รับ/ตรวจ 50 ทวิ อยู่ที่ระบบบัญชี (D-54 ย้าย ST5-T17)
@@ -115,6 +115,7 @@ export class PaymentsService {
     private readonly db: DbService,
     private readonly audit: AuditService,
     private readonly clock: Clock,
+    private readonly status: InvoiceStatusService,
   ) {}
 
   // ---------- อ่าน ----------
@@ -165,14 +166,14 @@ export class PaymentsService {
     >`
       SELECT COUNT(*) AS total,
              COUNT(*) FILTER (WHERE status IN ('ISSUED', 'PARTIALLY_PAID')) AS open,
-             COUNT(*) FILTER (WHERE status IN ('ISSUED', 'PARTIALLY_PAID') AND due_date < ${day(today)}::date) AS overdue,
-             COUNT(*) FILTER (WHERE status = 'PARTIALLY_PAID') AS partially_paid,
+             COUNT(*) FILTER (WHERE (overdue_at IS NOT NULL OR (status IN ('ISSUED', 'PARTIALLY_PAID') AND paid_amount < total_amount AND due_date < ${day(today)}::date))) AS overdue,
+             COUNT(*) FILTER (WHERE status = 'PARTIALLY_PAID' AND NOT (overdue_at IS NOT NULL OR (status IN ('ISSUED', 'PARTIALLY_PAID') AND paid_amount < total_amount AND due_date < ${day(today)}::date))) AS partially_paid,
              COUNT(*) FILTER (WHERE status = 'PAID') AS paid,
              COUNT(*) FILTER (WHERE status IN ('ISSUED', 'PARTIALLY_PAID')
                                 AND due_date >= ${day(today)}::date AND due_date <= ${day(soon)}::date) AS due_soon,
              COALESCE(SUM(total_amount - paid_amount) FILTER (WHERE status IN ('ISSUED', 'PARTIALLY_PAID')), 0) AS outstanding,
              COALESCE(SUM(total_amount - paid_amount)
-               FILTER (WHERE status IN ('ISSUED', 'PARTIALLY_PAID') AND due_date < ${day(today)}::date), 0) AS overdue_outstanding
+               FILTER (WHERE (overdue_at IS NOT NULL OR (status IN ('ISSUED', 'PARTIALLY_PAID') AND paid_amount < total_amount AND due_date < ${day(today)}::date))), 0) AS overdue_outstanding
         FROM invoice WHERE status IN ('ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED')`;
     // review M1: นับเฉพาะเงินเข้าจริง (amount_received) — ไม่นับ WHT/ค่าธรรมเนียม/ส่วนต่างที่ตัดยอด
     const rec = await tx.$queryRaw<{ amt: Prisma.Decimal }[]>`
@@ -314,7 +315,7 @@ export class PaymentsService {
           whtAmount: a.whtAmount,
         },
       });
-    const changes = await applyInvoicePayments(tx, ids, now);
+    const changes = await this.status.apply(tx, ids, now);
     const out = await this.get(created.id, tx);
     await this.audit.record({
       action: 'payment.recorded',
@@ -427,7 +428,7 @@ export class PaymentsService {
         version: { increment: 1 },
       },
     });
-    const changes = await applyInvoicePayments(tx, invoiceIds, now);
+    const changes = await this.status.apply(tx, invoiceIds, now);
     const out = await this.get(id, tx);
     await this.audit.record({
       action: bounce ? 'payment.cheque_bounced' : 'payment.reversed',

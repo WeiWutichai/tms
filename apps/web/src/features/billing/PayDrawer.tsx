@@ -198,7 +198,7 @@ export function PayDrawer({
     );
   const list = pays.data?.data ?? [];
   const recorded = list.filter((p) => p.status === 'RECORDED');
-  const st = invoiceDisplayStatus(inv, today);
+  const st = invoiceDisplayStatus(inv);
   const stLabel = invoiceStatusLabel(t, st);
   const b = statusOf(stLabel);
   const late = overdueDays(inv, today);

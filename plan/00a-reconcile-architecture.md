@@ -225,7 +225,7 @@
 | ประเด็น | docs | spec | ประเภท | ข้อเสนอ |
 |---|---|---|---|---|
 | `SENT/ACCEPTED/MISMATCH` | อยู่ใน diagram แต่ข้อความบอกให้แยกเป็น `sync` | ไม่อยู่ในสถานะเอกสาร (D3, DM-010) | docs ขัดกันเอง | ตัดออกจาก enum invoice; อยู่ที่ `external_mapping.status` |
-| เกินกำหนด | ไม่มี | spec/05 เป็นสถานะ `OVERDUE` (job รายวัน BIL-040); spec/10 DM-051 เป็นค่าคำนวณ | spec ขัดกันเอง | ค่าคำนวณ (DM-051) — ไม่เป็นสถานะ |
+| เกินกำหนด | docs/01 §4.4 ไม่มี; docs/04 F5 มี `OVERDUE` ในรายการสถานะ ("คำนวณจาก Payment") | spec/05 เป็นสถานะ `OVERDUE` (job รายวัน BIL-040); spec/10 DM-051 เป็นค่าคำนวณ | docs ขัดกันเอง + spec ขัดกันเอง | ค่าคำนวณ (DM-051) — ไม่เป็นสถานะ · **ทำแล้ว ST5-T18:** ธง `overdue_at` ที่ job รายวันตั้ง + อ่านแบบ ธง หรือ เข้าเงื่อนไข — ดู spec/12 §3 แถว ST5-T18 |
 | ปรับยอดแล้ว | `ADJUSTED` (+ `adjustments[]`) | ไม่มี | docs เพิ่ม | ตาม docs |
 | ยกเลิกหลังออกเลข | ไม่ได้ — `VOIDED` ผ่าน credit note เต็มใบเท่านั้น; ยกเลิกแล้วออกใหม่เป็นคำถามเปิด §8.2 ข้อ 8 | `ISSUED → CANCELLED` ได้ถ้าไม่มี payment/RT active (spec/05 §3.6); RT ยกเลิกแล้วออกใหม่อ้างเดิม (BIL-101) | ขัดกัน | RA-2 |
 | ย้อนจาก PAID | "ทำ reversal payment" (§4.4 ตาราง) แต่ไม่มี transition ใน diagram | `PAID → ISSUED/PARTIALLY_PAID` | spec เพิ่ม | รับ transition ของ spec (สอดคล้องกับ `payment.REVERSED` ของ docs) |

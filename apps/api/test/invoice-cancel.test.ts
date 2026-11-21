@@ -470,7 +470,10 @@ describe('invoice cancel (ST5-T10)', { timeout: 900_000 }, () => {
         .set('If-Match', `"${bn.version}"`)
         .expect(200)
     ).body;
-    const r = await cancel(a.id, a.version).expect(409);
+    // ST5-T18: ออกใบวางบิล = ส่งลูกค้าแล้ว (version ของใบเปลี่ยน) — ใช้ version ปัจจุบัน
+    const cur = async (x: string) =>
+      (await api(app, admin).get(`/v1/invoices/${x}`).expect(200)).body.version as number;
+    const r = await cancel(a.id, await cur(a.id)).expect(409);
     expect(r.body).toMatchObject({
       code: 'invoice_on_billing_note',
       billingNoteId: bn.id,
@@ -483,7 +486,8 @@ describe('invoice cancel (ST5-T10)', { timeout: 900_000 }, () => {
       .set('If-Match', `"${bnIssued.version}"`)
       .send({ reason: 'ลูกค้าขอแก้ใบแจ้งหนี้ก่อน' })
       .expect(200);
-    await cancel(a.id, a.version).expect(200);
+    // ยกเลิกใบวางบิล → ธง "ส่งลูกค้าแล้ว" จากใบวางบิลถูกล้าง → ยกเลิกใบได้ตามเดิม
+    await cancel(a.id, await cur(a.id)).expect(200);
 
     // ใบวางบิลร่างที่มีใบ b + ใบ c → ยกเลิก b → ร่างเหลือ c ยอดรวมคิดใหม่
     const c = await issued(cus, [(await delivered(cus)).doId]);
@@ -675,12 +679,13 @@ describe('invoice cancel (ST5-T10)', { timeout: 900_000 }, () => {
           .set('If-Match', `"${bn.version}"`),
       ]);
       // ไม่มี 500/deadlock: ยกเลิกชนะ → ใบวางบิลร่างถูกถอดใบออก (version เปลี่ยน → 412) · ออกใบวางบิลชนะ → ยกเลิก 409 บอกเลขใบวางบิล
+      // หรือ 412 (ST5-T18: ออกใบวางบิลตั้งธง "ส่งลูกค้าแล้ว" → version ของใบแจ้งหนี้เปลี่ยน)
       const ctx = JSON.stringify([v.status, v.body, b.status, b.body]);
       if (v.status === 200) expect([409, 412, 422], ctx).toContain(b.status);
       else {
         expect(b.status, ctx).toBe(200);
-        expect(v.status, ctx).toBe(409);
-        expect(v.body.code).toBe('invoice_on_billing_note');
+        expect([409, 412], ctx).toContain(v.status);
+        if (v.status === 409) expect(v.body.code).toBe('invoice_on_billing_note');
       }
     }
   });

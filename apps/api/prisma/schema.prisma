@@ -3619,64 +3619,73 @@ enum InvoiceStatus {
 /// ใบแจ้งหนี้ (docs/01 §3.4) — ST5-T05 สร้าง**เฉพาะคอลัมน์ขั้นต่ำ**ที่การกันวางบิลซ้ำต้องใช้ (ร่าง/ออกเลข/PDF/ชำระ เพิ่มใน ST5-T07/T08/T09/T22)
 /// ไม่มี hard delete (REVOKE DELETE) · ยกเลิกร่าง = CANCELLED · บรรทัดหยุดนับ (active=false) อัตโนมัติเมื่อใบเป็น CANCELLED/VOIDED (trigger)
 model Invoice {
-  id                String          @id @default(uuid()) @db.Uuid
-  tenantId          String          @map("tenant_id") @db.Uuid
+  id                    String          @id @default(uuid()) @db.Uuid
+  tenantId              String          @map("tenant_id") @db.Uuid
   /// ออกตอน ISSUED (ST5-T09) — ร่างไม่มีเลข · unique(tenant_id, issuing_branch_id, invoice_no)
-  invoiceNo         String?         @map("invoice_no")
-  customerId        String          @map("customer_id") @db.Uuid
-  customer          Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  issuingCompanyId  String          @map("issuing_company_id") @db.Uuid
-  issuingCompany    Company         @relation(fields: [issuingCompanyId], references: [id], onDelete: Restrict)
-  issuingBranchId   String          @map("issuing_branch_id") @db.Uuid
-  issuingBranch     Branch          @relation(fields: [issuingBranchId], references: [id], onDelete: Restrict)
-  status            InvoiceStatus   @default(DRAFT)
-  subtotalVatable   Decimal         @default(0) @map("subtotal_vatable") @db.Decimal(14, 2)
-  subtotalExempt    Decimal         @default(0) @map("subtotal_exempt") @db.Decimal(14, 2)
-  vatAmount         Decimal         @default(0) @map("vat_amount") @db.Decimal(14, 2)
-  totalAmount       Decimal         @default(0) @map("total_amount") @db.Decimal(14, 2)
-  whtExpectedAmount Decimal         @default(0) @map("wht_expected_amount") @db.Decimal(14, 2)
+  invoiceNo             String?         @map("invoice_no")
+  customerId            String          @map("customer_id") @db.Uuid
+  customer              Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  issuingCompanyId      String          @map("issuing_company_id") @db.Uuid
+  issuingCompany        Company         @relation(fields: [issuingCompanyId], references: [id], onDelete: Restrict)
+  issuingBranchId       String          @map("issuing_branch_id") @db.Uuid
+  issuingBranch         Branch          @relation(fields: [issuingBranchId], references: [id], onDelete: Restrict)
+  status                InvoiceStatus   @default(DRAFT)
+  subtotalVatable       Decimal         @default(0) @map("subtotal_vatable") @db.Decimal(14, 2)
+  subtotalExempt        Decimal         @default(0) @map("subtotal_exempt") @db.Decimal(14, 2)
+  vatAmount             Decimal         @default(0) @map("vat_amount") @db.Decimal(14, 2)
+  totalAmount           Decimal         @default(0) @map("total_amount") @db.Decimal(14, 2)
+  whtExpectedAmount     Decimal         @default(0) @map("wht_expected_amount") @db.Decimal(14, 2)
   /// ST5-T07 ร่าง (docs/04 F3 "Draft (แก้ได้)", spec/05 §3) — ยอด VAT/WHT เป็นประมาณการ (D-54 · computeDocumentTax)
-  subtotalZeroRated Decimal         @default(0) @map("subtotal_zero_rated") @db.Decimal(14, 2)
+  subtotalZeroRated     Decimal         @default(0) @map("subtotal_zero_rated") @db.Decimal(14, 2)
   /// Σ ส่วนลดบรรทัดที่ยังใช้ (ยอดบรรทัด `amount` = หลังหักส่วนลดแล้ว)
-  discountAmount    Decimal         @default(0) @map("discount_amount") @db.Decimal(14, 2)
+  discountAmount        Decimal         @default(0) @map("discount_amount") @db.Decimal(14, 2)
   /// ยอดรวม − WHT ที่คาดว่าจะถูกหัก (ประมาณการ)
-  netExpectedAmount Decimal         @default(0) @map("net_expected_amount") @db.Decimal(14, 2)
-  periodFrom        DateTime?       @map("period_from") @db.Date
-  periodTo          DateTime?       @map("period_to") @db.Date
-  creditTermDays    Int             @default(30) @map("credit_term_days")
-  customerPoNo      String?         @map("customer_po_no")
-  note              String?
+  netExpectedAmount     Decimal         @default(0) @map("net_expected_amount") @db.Decimal(14, 2)
+  periodFrom            DateTime?       @map("period_from") @db.Date
+  periodTo              DateTime?       @map("period_to") @db.Date
+  creditTermDays        Int             @default(30) @map("credit_term_days")
+  customerPoNo          String?         @map("customer_po_no")
+  note                  String?
   /// รูปบรรทัดบนเอกสาร: SINGLE (บรรทัดละรายการ) / GROUP (รวมรายการเดียวกัน ราคาเดียวกัน) / MERGE (รวมตามรายการบริการ) — CHECK
-  lineMode          String          @default("SINGLE") @map("line_mode")
-  updatedBy         String?         @map("updated_by")
-  cancelledAt       DateTime?       @map("cancelled_at") @db.Timestamptz(6)
-  cancelledBy       String?         @map("cancelled_by")
-  cancelReason      String?         @map("cancel_reason")
-  createdBy         String?         @map("created_by")
+  lineMode              String          @default("SINGLE") @map("line_mode")
+  updatedBy             String?         @map("updated_by")
+  cancelledAt           DateTime?       @map("cancelled_at") @db.Timestamptz(6)
+  cancelledBy           String?         @map("cancelled_by")
+  cancelReason          String?         @map("cancel_reason")
+  createdBy             String?         @map("created_by")
   /// ST5-T09 ออกเอกสาร (D-54 ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี) — ข้อมูล ณ วันออก แก้ไม่ได้ (trigger `invoice_issued_guard` migration 0140)
-  issuedAt          DateTime?       @map("issued_at") @db.Timestamptz(6)
-  issuedBy          String?         @map("issued_by")
+  issuedAt              DateTime?       @map("issued_at") @db.Timestamptz(6)
+  issuedBy              String?         @map("issued_by")
   /// วันที่ออก (เวลาไทย) · ครบกำหนด = วันที่ออก + เครดิต (spec/05 BIL-031)
-  issueDate         DateTime?       @map("issue_date") @db.Date
-  dueDate           DateTime?       @map("due_date") @db.Date
+  issueDate             DateTime?       @map("issue_date") @db.Date
+  dueDate               DateTime?       @map("due_date") @db.Date
   /// snapshot ลูกค้า/ผู้ออก ณ วันออก (ชื่อ เลขผู้เสียภาษี สาขา ที่อยู่) — PDF ต้นฉบับ/สำเนา render จากค่านี้เท่านั้น (BIL-196)
-  customerSnapshot  Json?           @map("customer_snapshot")
-  issuerSnapshot    Json?           @map("issuer_snapshot")
+  customerSnapshot      Json?           @map("customer_snapshot")
+  issuerSnapshot        Json?           @map("issuer_snapshot")
   /// ค่าพิมพ์ ณ วันออก: { yearStyle, whtMinimumAmount }
-  printOptions      Json?           @map("print_options")
+  printOptions          Json?           @map("print_options")
   /// PDF ต้นฉบับที่เก็บ (render หลัง commit — ผูกได้ครั้งเดียว)
-  pdfDocumentId     String?         @map("pdf_document_id") @db.Uuid
-  pdfDocument       StoredDocument? @relation(fields: [pdfDocumentId], references: [id], onDelete: Restrict)
+  pdfDocumentId         String?         @map("pdf_document_id") @db.Uuid
+  pdfDocument           StoredDocument? @relation(fields: [pdfDocumentId], references: [id], onDelete: Restrict)
   /// ST5-T13 ยอดตัดชำระรวม (Σ payment_allocation.amount ของ payment ที่ยังไม่กลับรายการ — รวม WHT ที่ถูกหัก) · CHECK 0 ≤ paid ≤ total
   /// เขียนโดย `applyInvoicePayments` ที่เดียว (ใต้ล็อกใบ) · คงค้าง = total_amount − paid_amount
-  paidAmount        Decimal         @default(0) @map("paid_amount") @db.Decimal(14, 2)
+  paidAmount            Decimal         @default(0) @map("paid_amount") @db.Decimal(14, 2)
   /// ST5-T10 ยกเลิกแล้วออกใหม่ (docs/04 F3 "ฉบับใหม่อ้างเลขเดิม"): ใบนี้ออกแทนใบที่ยกเลิก (CANCELLED มีเลข · ลูกค้าเดียวกัน — trigger 0144)
-  replacesInvoiceId String?         @map("replaces_invoice_id") @db.Uuid
-  replaces          Invoice?        @relation("InvoiceReissue", fields: [replacesInvoiceId], references: [id], onDelete: Restrict)
-  replacedBy        Invoice[]       @relation("InvoiceReissue")
-  version           Int             @default(1)
-  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  replacesInvoiceId     String?         @map("replaces_invoice_id") @db.Uuid
+  replaces              Invoice?        @relation("InvoiceReissue", fields: [replacesInvoiceId], references: [id], onDelete: Restrict)
+  replacedBy            Invoice[]       @relation("InvoiceReissue")
+  /// ST5-T18 เกินกำหนด (ธงที่เก็บ — ไม่ใช่สถานะ: plan/11 #5 · plan/00a "เกินกำหนด = ค่าคำนวณ") — ค้างรับ (ISSUED/PARTIALLY_PAID)
+  /// และวันครบกำหนด < วันนี้ (เวลาไทย) · ตั้ง/ล้างโดย `applyInvoicePayments` ที่เดียว (รับชำระ/กลับรายการ + job รายวัน 00:05)
+  /// CHECK: มีค่าได้เฉพาะ ISSUED/PARTIALLY_PAID · trigger ล้างเองเมื่อสถานะออกจากค้างรับ
+  overdueAt             DateTime?       @map("overdue_at") @db.Timestamptz(6)
+  /// ST5-T18 ธง "ส่งลูกค้าแล้ว" (plan/11 #5 `sent_to_customer_at`) — ตั้งเอง (MANUAL) / ออกใบวางบิล (BILLING_NOTE) / อีเมล (EMAIL — ST5-T21)
+  /// ส่งแล้วยกเลิกใบไม่ได้ (docs/04 F3 "เฉพาะยังไม่ส่งลูกค้า" — trigger `invoice_cancel_guard`)
+  sentToCustomerAt      DateTime?       @map("sent_to_customer_at") @db.Timestamptz(6)
+  sentToCustomerBy      String?         @map("sent_to_customer_by")
+  sentToCustomerChannel String?         @map("sent_to_customer_channel")
+  version               Int             @default(1)
+  createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   lines            InvoiceLine[]
   allocations      PaymentAllocation[]
@@ -3688,6 +3697,8 @@ model Invoice {
   @@index([tenantId, status])
   @@index([tenantId, issueDate])
   @@index([tenantId, replacesInvoiceId])
+  @@index([tenantId, overdueAt])
+  @@index([tenantId, dueDate])
   @@map("invoice")
 }
 

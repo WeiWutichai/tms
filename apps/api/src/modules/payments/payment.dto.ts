@@ -290,7 +290,14 @@ export class PaymentSummaryDto {
   @ApiProperty({ description: 'ใบที่ค้างรับและครบกำหนดภายใน 7 วัน' }) dueSoon!: number;
   @ApiProperty({ description: 'ใบที่ออกแล้วทั้งหมด (ไม่รวมร่าง/ยกเลิก)' }) total!: number;
   @ApiProperty({ description: 'ค้างรับ (ISSUED + PARTIALLY_PAID)' }) open!: number;
-  @ApiProperty({ description: 'เกินกำหนด (ค้างรับและเลยวันครบกำหนด)' }) overdue!: number;
-  @ApiProperty() partiallyPaid!: number;
+  @ApiProperty({
+    description:
+      'เกินกำหนด — ธง `overdue` ของใบ (job รายวัน 00:05 เวลาไทย + ตอนรับชำระ/กลับรายการ — ST5-T18)',
+  })
+  overdue!: number;
+  @ApiProperty({
+    description: 'ชำระบางส่วนที่ไม่เกินกำหนด (ST5-T18 — แท็บต้นแบบ: เกินกำหนดแสดงก่อน)',
+  })
+  partiallyPaid!: number;
   @ApiProperty() paid!: number;
 }

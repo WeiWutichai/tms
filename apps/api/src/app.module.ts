@@ -179,6 +179,7 @@ import { PaymentsController } from './modules/payments/payments.controller';
 import { PaymentsService } from './modules/payments/payments.service';
 import { InvoicePdfService } from './modules/invoices/invoice-pdf.service';
 import { InvoiceCancelService } from './modules/invoices/invoice-cancel.service';
+import { InvoiceStatusService } from './modules/invoices/invoice-status.service';
 import { InvoiceFinalizeService } from './modules/invoices/invoice-finalize.service';
 import { InvoiceBillingGuard } from './modules/invoices/billing-guard.service';
 import { BillingNotesController } from './modules/billing-notes/billing-notes.controller';
@@ -417,6 +418,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     InvoicePdfService,
     InvoiceFinalizeService,
     InvoiceCancelService,
+    InvoiceStatusService,
     PaymentsService,
     BillingNotesService,
     StopEventsService,

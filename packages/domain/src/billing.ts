@@ -127,7 +127,7 @@ const PAYMENT_DRIVEN: readonly InvoiceStatus[] = ['ISSUED', 'PARTIALLY_PAID', 'P
  * - ยอดตัดรวม (เงินรับ + WHT ที่ถูกหัก + ค่าธรรมเนียม + ส่วนต่าง ที่ตัดใบนี้ — เฉพาะ payment ที่ยังไม่กลับรายการ) = 0 → ISSUED
  * - 0 < ยอดตัด < ยอดรวม → PARTIALLY_PAID · ยอดตัด ≥ ยอดรวม → PAID
  * - สถานะอื่น (DRAFT / CANCELLED / VOIDED / ADJUSTED) ไม่เปลี่ยน
- * ST5-T18 ต่อยอดที่นี่ (OVERDUE จาก due date + job, ธง "ส่งลูกค้าแล้ว")
+ * ST5-T18: "เกินกำหนด" เป็นธงแยก (`invoiceOverdue`) ไม่ใช่สถานะ — plan/11 #5, plan/00a §2.4.5 · ธง "ส่งลูกค้าแล้ว" = `sent_to_customer_at`
  */
 export function invoicePaymentStatus(
   current: InvoiceStatus,
@@ -138,3 +138,26 @@ export function invoicePaymentStatus(
   if (paidSatang <= 0n) return 'ISSUED';
   return paidSatang >= totalSatang ? 'PAID' : 'PARTIALLY_PAID';
 }
+
+/**
+ * เกินกำหนดชำระ (ST5-T18 — **ที่เดียว**; docs/04 F5 "OVERDUE … คำนวณจาก Payment", spec/05 BIL-040 `dueDate < today และ outstanding > 0`)
+ * - เป็น**ธงแยกจากสถานะ** (plan/11 #5 · plan/00a §2.4.5 "เกินกำหนด = ค่าคำนวณ ไม่เป็นสถานะ") — ใบชำระบางส่วนที่เลยกำหนดยังเป็น
+ *   PARTIALLY_PAID + ธงเกินกำหนด (หน้าจอแสดง "เกินกำหนด" ก่อน — ต้นแบบ invSt)
+ * - ใช้กับสถานะ **หลังคำนวณจากยอดตัด** (`invoicePaymentStatus`) — ค้างรับ (ISSUED/PARTIALLY_PAID) + ยอดตัด < ยอดรวม + ครบกำหนด < วันนี้
+ * - `dueDate` / `today` = YYYY-MM-DD เวลาไทย (Asia/Bangkok) · ครบกำหนดวันนี้ = ยังไม่เกิน
+ */
+export function invoiceOverdue(
+  status: InvoiceStatus,
+  totalSatang: bigint,
+  paidSatang: bigint,
+  dueDate: string | null,
+  today: string,
+): boolean {
+  if (!PAYABLE_INVOICE_STATUSES.includes(status)) return false;
+  if (paidSatang >= totalSatang) return false;
+  return !!dueDate && dueDate < today;
+}
+
+/** ช่องทางที่ทำให้ใบ "ส่งลูกค้าแล้ว" (ST5-T18): ทำเครื่องหมายเอง · ออกใบวางบิล · ส่งอีเมล (ST5-T21) */
+export const INVOICE_SENT_CHANNELS = ['MANUAL', 'BILLING_NOTE', 'EMAIL'] as const;
+export type InvoiceSentChannel = (typeof INVOICE_SENT_CHANNELS)[number];

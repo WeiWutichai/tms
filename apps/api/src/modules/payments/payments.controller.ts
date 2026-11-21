@@ -67,7 +67,7 @@ export class PaymentsController {
     summary:
       'KPI หน้า "รับชำระ" — ยอดค้างรับ / เกินกำหนด / รับชำระเดือนนี้ / ครบกำหนดใน 7 วัน + จำนวนต่อแท็บ',
     description:
-      'วันครบกำหนดและเดือน ตามเวลาไทย (Asia/Bangkok) · เกินกำหนด = ค้างรับและเลยวันครบกำหนด (คำนวณตอนอ่าน — สถานะ OVERDUE + job = ST5-T18)',
+      'วันครบกำหนดและเดือน ตามเวลาไทย (Asia/Bangkok) · เกินกำหนด = ใบที่มีธง `overdue` (ค้างรับและเลยวันครบกำหนด — job รายวัน 00:05 เวลาไทย, ST5-T18)',
   })
   @ApiProblems(T403('invoices:read'))
   @ApiOkResponse({ type: PaymentSummaryDto })

@@ -613,6 +613,15 @@ export const PROBLEMS = {
     th: 'ใบแจ้งหนี้นี้อยู่ในใบวางบิลที่ออกแล้ว ยกเลิกไม่ได้ — ยกเลิกใบวางบิลก่อน',
     en: 'This invoice is on an issued billing note — cancel the billing note first',
   },
+  /**
+   * ST5-T18 ใบแจ้งหนี้ที่ส่งลูกค้าแล้วยกเลิกไม่ได้ (docs/04 F3 "ยกเลิกใบ — เฉพาะยังไม่ส่งลูกค้า/ยังไม่รับชำระ") —
+   * `sentToCustomerAt`, `sentToCustomerChannel` (MANUAL / BILLING_NOTE / EMAIL) · ผิดพลาด = ผู้มีสิทธิ์ยกเลิกล้างธงพร้อมเหตุผลก่อน
+   */
+  invoice_sent_to_customer: {
+    status: 409,
+    th: 'ใบแจ้งหนี้นี้ส่งลูกค้าแล้ว ยกเลิกไม่ได้',
+    en: 'This invoice was sent to the customer — it cannot be cancelled',
+  },
   /** ST4-T07 บันทึก/แก้หลักฐานส่งได้เฉพาะ DO ที่ส่งแล้ว/ส่งไม่สำเร็จและยังไม่วางบิล — `doStatus` บอกสถานะปัจจุบัน */
   pod_not_allowed: {
     status: 409,
