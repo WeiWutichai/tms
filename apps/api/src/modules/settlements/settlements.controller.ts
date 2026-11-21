@@ -555,6 +555,7 @@ export class SettlementsController {
       'จ่ายเต็มยอดครั้งเดียว — ยอดที่จ่าย = `buyNetAfterWht` (ยอดสุทธิ − หัก ณ ที่จ่ายประมาณการที่ตรึงตอนอนุมัติ — ไม่เปลี่ยน) · ' +
       '`paidDate` (= วันที่หักภาษี) ตั้งแต่วันอนุมัติถึงวันนี้ (เวลาไทย) — ก่อนวันอนุมัติ → 422 `before_approval` · `reference` บังคับเมื่อ TRANSFER / CHEQUE · ' +
       'ใบที่ไม่ใช่ APPROVED (รวมจ่ายแล้ว/คำขอซ้ำพร้อมกัน) → 409 ก่อนตรวจ If-Match · ' +
+      '**ผู้อนุมัติใบนี้บันทึกจ่ายเองไม่ได้ → 403 `settlement_self_payment`** (D-60 — key = ผู้ออก key; owner ปิดกฎได้ด้วยค่าตั้ง `settlement.allowApproverMarkPaid` — audit `sodWaived`) · ' +
       'เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · ' +
       'audit `settlement.paid` + webhook `settlement.paid` (ระบบบัญชีสร้างเจ้าหนี้/AP ร่างจาก event นี้ — 50 ทวิ ออกที่ระบบบัญชี, D-58) · ' +
       'ไฟล์โอนธนาคาร (bulk payment) = P1',
@@ -564,7 +565,28 @@ export class SettlementsController {
     required: true,
     description: 'ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412',
   })
-  @ApiProblems(T403('settlements:pay'), NF, T409(), T412, T422)
+  @ApiProblems(
+    {
+      status: 403,
+      description:
+        'ไม่มีสิทธิ์ `settlements:pay` / ผู้อนุมัติใบนี้บันทึกจ่ายเอง (`settlement_self_payment` — D-60)',
+      examples: Object.fromEntries(
+        (['permission_denied', 'settlement_self_payment'] as const).map((code) => [
+          code,
+          {
+            type: `https://docs.tms.example/problems/${code}`,
+            title: PROBLEMS[code].th,
+            status: 403,
+            code,
+          },
+        ]),
+      ),
+    },
+    NF,
+    T409(),
+    T412,
+    T422,
+  )
   @ApiOkResponse({ type: SettlementDto })
   async markPaid(
     @Param('id') id: string,

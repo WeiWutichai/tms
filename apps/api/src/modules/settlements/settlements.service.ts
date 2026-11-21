@@ -562,6 +562,9 @@ export class SettlementsService {
     const s = await this.lockFor(tx, id, undefined, ['APPROVED']);
     requireIfMatch(expected);
     if (expected !== s.version) throw new ProblemException('precondition_failed');
+    // D-60 (PO 21 พ.ย. 2569) แบ่งหน้าที่: ผู้บันทึกจ่ายต้องไม่ใช่ผู้อนุมัติใบนี้ (key = ผู้ออก key; ระบุตัวไม่ได้ = ปฏิเสธ)
+    // owner ปิดกฎได้ด้วย `settlement.allowApproverMarkPaid` (audit `sodWaived`)
+    const sodWaived = await this.assertNotApprover(tx, s.approvedBy, ctx.actorId);
     // วันที่จ่าย = วันที่หักภาษี (spec/05 §11.7 — วันที่บน 50 ทวิ / เดือนยื่น ภ.ง.ด. ที่ ST8-T16 ส่ง) — ต้องไม่ก่อนวันอนุมัติ (เวลาไทย)
     const approvedDay = s.approvedAt ? bangkokDay(s.approvedAt.toISOString()) : null;
     if (!bad.some((e) => e.field === 'paidDate') && approvedDay && body.paidDate < approvedDay)
@@ -620,6 +623,7 @@ export class SettlementsService {
         buyWhtAmount: paidRow.whtAmount!.toFixed(2),
         buyNetAfterWht: paidRow.netPayable.minus(paidRow.whtAmount!).toFixed(2),
         whtFrozenNow: s.whtAmount === null,
+        ...(sodWaived ? { sodWaived: true } : {}),
         settledTripIds: settledTrips.map((t) => encodeId('trip', t)),
       },
     });
@@ -702,6 +706,27 @@ export class SettlementsService {
     const [me, ...preparers] = await resolveActors(tx, [actor, ...raw]);
     if (me === null || preparers.some((p) => p === null || p === me))
       throw new ProblemException('settlement_self_approval');
+  }
+
+  /**
+   * D-60 separation of duties ของการจ่าย: ผู้บันทึกจ่ายต้องไม่ใช่ผู้อนุมัติ (`approvedBy`) — API key = ผู้ออก key ·
+   * ผู้บันทึกที่ระบุตัวไม่ได้ = ปฏิเสธ (fail closed) · tenant ที่ owner ปิดกฎ (`settlement.allowApproverMarkPaid`) → ผ่าน
+   * @returns true = เป็นผู้อนุมัติแต่ผ่านเพราะปิดกฎ (ลง audit)
+   */
+  private async assertNotApprover(
+    tx: Tx,
+    approvedBy: string | null,
+    actor: string | null | undefined,
+  ): Promise<boolean> {
+    const [me, approver] = await resolveActors(tx, [actor, approvedBy]);
+    if (me !== null && (approver === null || approver !== me)) return false;
+    const allowed = (
+      await readSettings(tx, requestContext.require().tenantId!, [
+        'settlement.allowApproverMarkPaid',
+      ])
+    )['settlement.allowApproverMarkPaid'];
+    if (allowed === true) return true;
+    throw new ProblemException('settlement_self_payment');
   }
 
   /**

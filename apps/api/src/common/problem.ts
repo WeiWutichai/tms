@@ -389,6 +389,12 @@ export const PROBLEMS = {
     th: 'ผู้เตรียมใบสำคัญจ่าย (สร้างใบ เพิ่มหรือนำรายการออก) อนุมัติใบนั้นไม่ได้ ต้องให้ผู้อนุมัติคนอื่น',
     en: 'Whoever prepared a settlement cannot approve it',
   },
+  /** D-60 (PO 21 พ.ย. 2569) separation of duties: ผู้อนุมัติใบสำคัญจ่ายบันทึกจ่ายใบนั้นเองไม่ได้ (เว้น owner ปิดกฎ `settlement.allowApproverMarkPaid`) */
+  settlement_self_payment: {
+    status: 403,
+    th: 'ผู้อนุมัติใบสำคัญจ่าย บันทึกจ่ายใบนั้นเองไม่ได้ ต้องให้ผู้อื่นบันทึกจ่าย',
+    en: 'Whoever approved a settlement cannot record its payment',
+  },
   /** ST6-T07: ใบไม่มีบรรทัดเที่ยวที่ยังใช้ — อนุมัติไม่ได้ */
   settlement_empty: {
     status: 409,
