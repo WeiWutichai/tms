@@ -88,6 +88,7 @@ export function billingNoteDocument(m: BillingNotePrintModel) {
           ? 'ต้นฉบับ / Original'
           : 'สำเนา / Copy',
     watermark: m.sandbox ? SANDBOX_WATERMARK : null,
+    watermarkKind: 'sample',
     docDate: m.billingDate,
     issuer: m.issuer,
     customer: m.customer,

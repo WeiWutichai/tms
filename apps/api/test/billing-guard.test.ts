@@ -26,6 +26,13 @@ import {
   validTaxId,
 } from './helpers';
 
+/** ใบที่ยกเลิกต้องมีเวลา/ผู้ยกเลิก/เหตุผล (CHECK `invoice_cancelled_fields_check` — ST5-T10) */
+const CANCEL = {
+  cancelledAt: new Date(),
+  cancelledBy: 'user-test',
+  cancelReason: 'ยกเลิกร่างในการทดสอบ',
+};
+
 /**
  * ST5-T05 กันวางบิลซ้ำ — เกณฑ์ตรวจรับ: 2 request พร้อมกันดึง DO เดียวเข้า 2 draft → สำเร็จ 1 อีก 1 ได้ 409
  * พิสูจน์ด้วย transaction จริงพร้อมกันบน PostgreSQL (คนละ connection): (ก) จัดลำดับให้รายที่สองรอล็อกจริง (ดูจาก pg_stat_activity)
@@ -308,7 +315,7 @@ describe('billing guard — กันวางบิลซ้ำ (ST5-T05)', { t
 
     // ยกเลิกร่าง b (trigger ปิดบรรทัด) + sync → d2 UNBILLED
     await run(async (tx) => {
-      await tx.invoice.update({ where: { id: b }, data: { status: 'CANCELLED' } });
+      await tx.invoice.update({ where: { id: b }, data: { status: 'CANCELLED', ...CANCEL } });
       expect(await guard().syncFromInvoice(b, tx)).toBe(1);
     });
     expect(await billing(d2)).toBe('UNBILLED');
@@ -477,7 +484,9 @@ describe('billing guard — กันวางบิลซ้ำ (ST5-T05)', { t
       run((tx) => tx.invoice.update({ where: { id: a }, data: { status: 'ISSUED' } })),
     ).rejects.toThrow(/invoice_status_terminal|terminal/);
     const c = await draft(cus);
-    await run((tx) => tx.invoice.update({ where: { id: c }, data: { status: 'CANCELLED' } }));
+    await run((tx) =>
+      tx.invoice.update({ where: { id: c }, data: { status: 'CANCELLED', ...CANCEL } }),
+    );
     for (const to of ['DRAFT', 'ISSUED', 'VOIDED'] as const)
       await expect(db.invoice.update({ where: { id: c }, data: { status: to } })).rejects.toThrow(
         /invoice_status_terminal|terminal/,

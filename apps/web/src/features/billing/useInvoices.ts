@@ -103,6 +103,26 @@ export function useCancelDraft() {
 }
 
 /**
+ * ยกเลิกใบที่ออกแล้ว (ST5-T10 `POST /invoices/{id}/void`): CANCELLED คงเลข — If-Match บังคับ · `invoices:void` (owner/admin/manager)
+ * รับชำระแล้ว → 409 `invoice_has_payments` · อยู่ในใบวางบิลที่ออกแล้ว → 409 `invoice_on_billing_note` (`billingNoteNo`)
+ * `reissue` = สร้างร่างฉบับใหม่แทน (ตอบ `replacedByInvoice`)
+ */
+export function useVoidInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number; reason: string; reissue: boolean }) =>
+      unwrap(
+        api.POST('/v1/invoices/{id}/void', {
+          params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } },
+          body: { reason: v.reason, reissue: v.reissue },
+        }),
+      ),
+    // ทุกคิวรี: ใบแจ้งหนี้ + ใบวางบิลร่างที่ถูกถอดใบนี้ออก + คิวพร้อมวางบิล (DO กลับมา)
+    onSettled: () => qc.invalidateQueries(),
+  });
+}
+
+/**
  * ออกเอกสาร (ST5-T09): ออกเลขใบแจ้งหนี้ + ล็อก — If-Match บังคับ · ผู้สร้าง/ผู้แก้ร่างล่าสุดออกเองไม่ได้ (403 `invoice_self_finalize`)
  * ตรวจไม่ผ่าน → 409 `invoice_not_finalizable` (`reasons[]`)
  */

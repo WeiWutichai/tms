@@ -8,19 +8,20 @@ import type { DoStatus } from './delivery-order';
  * - `undraft` IN_DRAFT → UNBILLED — ถอดออกจากร่าง / ยกเลิกร่าง (docs/01 §4.4 DRAFT → CANCELLED "DO กลับ UNBILLED")
  * - `invoice` IN_DRAFT → INVOICED — ใบออกเลข (ST5-T09) · **ย้อนไม่ได้** (docs/04 F4 → ใบลดหนี้)
  * - `credit`  INVOICED → CREDITED — ใบถูกลดหนี้เต็มใบ (VOIDED — docs/01 §4.3 "credit note เต็มใบ" DO วางบิลใหม่ได้)
+ * - `uninvoice` INVOICED → UNBILLED — ใบที่ออกแล้วถูกยกเลิก (ST5-T10; docs/04 F3 "ยกเลิกใบ" ยังไม่รับชำระ — DO กลับรอวางบิล)
  * ลดหนี้บางส่วน = คง INVOICED (ใบเป็น ADJUSTED)
  */
 export const BILLING_STATUSES = ['UNBILLED', 'IN_DRAFT', 'INVOICED', 'CREDITED'] as const;
 export type BillingStatus = (typeof BILLING_STATUSES)[number];
 
-export const BILLING_EVENTS = ['draft', 'undraft', 'invoice', 'credit'] as const;
+export const BILLING_EVENTS = ['draft', 'undraft', 'invoice', 'credit', 'uninvoice'] as const;
 export type BillingEvent = (typeof BILLING_EVENTS)[number];
 
 export const BILLING_TRANSITIONS: TransitionTable<BillingStatus, BillingEvent> = {
   UNBILLED: { draft: 'IN_DRAFT' },
   CREDITED: { draft: 'IN_DRAFT' },
   IN_DRAFT: { undraft: 'UNBILLED', invoice: 'INVOICED' },
-  INVOICED: { credit: 'CREDITED' },
+  INVOICED: { credit: 'CREDITED', uninvoice: 'UNBILLED' },
 };
 
 /** DO ดึงเข้าร่างใบแจ้งหนี้ได้ (ยังไม่อยู่ในใบที่ active) */

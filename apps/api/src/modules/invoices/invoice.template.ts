@@ -81,6 +81,10 @@ export interface InvoicePrintModel {
   note: string | null;
   lines: InvoicePrintLine[];
   totals: InvoiceTotals;
+  /** ST5-T10 ใบที่ยกเลิกแล้ว (มีเลข) — ลายน้ำ "ยกเลิก" (spec/05 BIL-195) */
+  cancelled?: boolean;
+  /** ST5-T10 ใบนี้ออกแทนใบที่ยกเลิก — หมายเหตุ "ออกแทนใบแจ้งหนี้เลขที่ … ลงวันที่ …" (docs/04 F3, spec/05 BIL-101 แบบเดียวกัน) */
+  replaces?: { invoiceNo: string; issueDate: string } | null;
 }
 
 /**
@@ -201,13 +205,21 @@ export function invoiceDocument(m: InvoicePrintModel) {
     title: 'ใบแจ้งหนี้',
     titleEn: 'INVOICE',
     docNo: m.invoiceNo,
+    // ST5-T10 ยกเลิก + D-61 sandbox — ยกเลิกใน sandbox แสดงทั้งสองข้อความ
+    watermark: m.cancelled
+      ? m.sandbox
+        ? `ยกเลิก — ${SANDBOX_WATERMARK}`
+        : 'ยกเลิก'
+      : m.sandbox
+        ? SANDBOX_WATERMARK
+        : null,
+    watermarkKind: m.cancelled ? (m.sandbox ? 'void-sample' : 'void') : 'sample',
     copyLabel:
       m.invoiceNo === null || m.copy === null
         ? null
         : m.copy === 'ORIGINAL'
           ? 'ต้นฉบับ / Original'
           : 'สำเนา / Copy',
-    watermark: m.sandbox ? SANDBOX_WATERMARK : null,
     docDate: m.issueDate,
     issuer: m.issuer,
     customer: m.customer,
@@ -232,7 +244,14 @@ export function invoiceDocument(m: InvoicePrintModel) {
       : [],
     warnings: invoiceWarnings(m),
     totals,
-    remarks: m.note ? [m.note] : [],
+    remarks: [
+      ...(m.replaces
+        ? [
+            `ออกแทนใบแจ้งหนี้เลขที่ ${m.replaces.invoiceNo} ลงวันที่ ${docDateShort(m.replaces.issueDate, m.yearStyle)}`,
+          ]
+        : []),
+      ...(m.note ? [m.note] : []),
+    ],
     signatures: [
       { label: 'ผู้รับใบแจ้งหนี้ / Received by', dated: true },
       { label: 'ผู้มีอำนาจลงนาม / Authorized signatory', dated: false },

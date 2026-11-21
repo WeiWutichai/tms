@@ -110,7 +110,8 @@ export class InvoicePdfService {
         issuingBranch: true,
         customer: true,
         lines: {
-          where: { active: true },
+          // ST5-T10 ใบที่ยกเลิก: บรรทัดของเอกสาร ณ วันยกเลิก (ไม่ใช่ที่ถอดออกจากร่าง)
+          where: { OR: [{ active: true }, { releasedWithInvoice: true }] },
           orderBy: { lineNo: 'asc' },
           include: {
             deliveryOrder: {
@@ -178,6 +179,14 @@ export class InvoicePdfService {
         creditTermDays: inv.creditTermDays,
         customerPoNo: inv.customerPoNo,
         note: inv.note,
+        cancelled: inv.status === 'CANCELLED' && inv.invoiceNo !== null,
+        replaces:
+          inv.replacesInvoice?.invoiceNo && inv.replacesInvoice.issueDate
+            ? {
+                invoiceNo: inv.replacesInvoice.invoiceNo,
+                issueDate: inv.replacesInvoice.issueDate,
+              }
+            : null,
         lines: inv.printLines.map((p) => ({
           no: p.no,
           description: p.description,

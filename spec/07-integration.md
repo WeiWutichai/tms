@@ -236,8 +236,8 @@ FACT: ทุกแถวทดสอบใน `apps/api/test/api-conformance.tes
 | #4 | `documents` | `POST /documents` (presigned) · `GET /documents/{id}` (metadata + URL หมดอายุ) · `PUT`/`GET /documents/{id}/content` (ลายเซ็นของ URL) | `documents:write` / `documents:read` / — | ✅ |
 | #5 | `customers` | `GET`/`POST /customers` · `GET`/`PATCH /customers/{id}` · `PUT`/`PATCH /customers/external/{externalId}` · `POST /customers/{id}/delete` (soft) | `master:read` / `master:write` | ✅ |
 | #5 | `locations` = `customer-sites` | เหมือน customers (`/customer-sites…`) | `master:read` / `master:write` | ✅ (ชื่อ path ตาม ST7-T02) |
-| #6 | `invoices` | `GET`/`POST /invoices` (ร่าง) · `GET /invoices/{id}` · `POST /invoices/{id}/finalize` (If-Match บังคับ — D-54 ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี) | `invoices:read` / `invoices:draft` / `invoices:finalize` | ✅ (ST5-T09) |
-| #6 | `invoices` (void), `invoice-runs`, `payments` | `/void`, `POST /invoice-runs`, `POST /payments` | — | ⏸ DEFERRED → ST5-T10 / ST5-T12 / ST5-T13 (test ตรวจว่ายังไม่มี path; มีแล้วต้องย้ายเข้าตาราง) |
+| #6 | `invoices` | `GET`/`POST /invoices` (ร่าง) · `GET /invoices/{id}` · `POST /invoices/{id}/finalize` (If-Match บังคับ — D-54 ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี) · `POST /invoices/{id}/void` (ยกเลิกใบที่ออกแล้ว คงเลข — If-Match บังคับ) | `invoices:read` / `invoices:draft` / `invoices:finalize` | ✅ (ST5-T09, void ST5-T10) |
+| #6 | `invoice-runs`, `payments` | `POST /invoice-runs`, `POST /payments` | — | ⏸ DEFERRED → ST5-T12 / ST5-T13 (test ตรวจว่ายังไม่มี path; มีแล้วต้องย้ายเข้าตาราง) |
 | #7 | `trips` | `GET`/`POST /trips` · `GET /trips/{id}` · `POST /trips/{id}/assign` `/dispatch` `/complete` | `trips:read` / `trips:assign` / `trips:dispatch` / `trips:close` | ✅ |
 | #8 | `drivers`, `vehicles`, `carriers` | `GET`/`POST /{r}` · `GET`/`PATCH /{r}/{id}` · `PUT`/`PATCH /{r}/external/{externalId}` | `master:read` / `master:write` | ✅ |
 | #10 | `jobs`, `openapi.json` | `GET /jobs/{id}` · `GET /openapi.json` | `jobs:read` (หรือผู้สั่งงาน) / — | ✅ · `api-keys` จัดการได้เฉพาะคนที่ login (ST7-T01) → key ได้ 403 `permission_denied` (`module: api-keys`) ตามที่ test ตรวจ |
