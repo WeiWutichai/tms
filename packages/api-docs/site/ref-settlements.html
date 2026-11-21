@@ -232,10 +232,10 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <pre><code class="language-ts">const { data, error } = await tms.POST('/v1/settlements/{id}/send-to-carrier', {
   params: { path: { id: &quot;…&quot; } },
 });</code></pre>
-<h2 id="post-settlements-id-review-link">ออกลิงก์ให้รถร่วมตรวจใหม่ (ลิงก์เดิมหมดอายุ/หาย)</h2>
+<h2 id="post-settlements-id-review-link">ออกลิงก์ให้รถร่วมใหม่ (ลิงก์เดิมหมดอายุ/หาย)</h2>
 <p><code>POST /v1/settlements/{id}/review-link</code></p>
 <p>scope: <code>settlements:create</code> · operationId: <code>Settlements_reissueLink</code></p>
-<p>เฉพาะใบ SENT_TO_CARRIER / DISPUTED · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit <code>settlement.review_link_reissued</code></p>
+<p>ใบ SENT_TO_CARRIER / DISPUTED = ลิงก์ตรวจ (ดู + ยอมรับ/โต้แย้ง) — ผู้ออกนับเป็นผู้เตรียมใบ · ใบ APPROVED / PAID = ลิงก์<strong>ดูอย่างเดียว</strong> — ไม่เพิ่มผู้เตรียม หัวใบไม่เปลี่ยน · ร่าง/ยกเลิก → 409 · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit <code>settlement.review_link_reissued</code> (<code>viewOnly</code>)</p>
 <p><strong>Parameters</strong></p>
 <div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr></tbody></table></div>
 <p><strong>Responses</strong></p>

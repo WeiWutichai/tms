@@ -30381,7 +30381,7 @@
     },
     "/v1/settlements/{id}/review-link": {
       "post": {
-        "description": "เฉพาะใบ SENT_TO_CARRIER / DISPUTED · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued`",
+        "description": "ใบ SENT_TO_CARRIER / DISPUTED = ลิงก์ตรวจ (ดู + ยอมรับ/โต้แย้ง) — ผู้ออกนับเป็นผู้เตรียมใบ · ใบ APPROVED / PAID = ลิงก์**ดูอย่างเดียว** — ไม่เพิ่มผู้เตรียม หัวใบไม่เปลี่ยน · ร่าง/ยกเลิก → 409 · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued` (`viewOnly`)",
         "operationId": "Settlements_reissueLink",
         "parameters": [
           {
@@ -30526,7 +30526,7 @@
             "bearer": []
           }
         ],
-        "summary": "ออกลิงก์ให้รถร่วมตรวจใหม่ (ลิงก์เดิมหมดอายุ/หาย)",
+        "summary": "ออกลิงก์ให้รถร่วมใหม่ (ลิงก์เดิมหมดอายุ/หาย)",
         "tags": [
           "settlements"
         ],
