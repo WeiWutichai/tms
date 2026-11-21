@@ -9,7 +9,8 @@ import {
   Toast,
   type Column,
 } from '@tms/ui';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
@@ -17,7 +18,7 @@ import { PageHeader } from '../../shell/Header';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
 import { problemText } from '../master/problems';
-import { listTotal, useSessionState } from '../master/useCursorList';
+import { listTotal, useSessionState, useUrlSeed } from '../master/useCursorList';
 import { money, useDateText } from '../rate-cards/rateFormat';
 import { SavedViewMenu } from '../views/SavedViewMenu';
 import { pick, useSavedViews } from '../views/useSavedViews';
@@ -29,7 +30,9 @@ import {
   canPrintStatus,
   canRelinkStatus,
   viewOnlyLink,
+  countOf,
   deductTotal,
+  listStatus,
   statusLabel,
   statusTone,
   TAB_STATUS,
@@ -64,6 +67,30 @@ export function SettlePage() {
   const canPay = can(scopes, 'settlements:pay');
   const canRelink = can(scopes, 'settlements:create');
   const dateText = useDateText();
+  // ST9-T03 drill-down จาก Dashboard AP รถร่วม (`/settle?tab=chk`, `/settle?tab=chk&st=DISPUTED`) — เขียนแท็บ/ตัวกรองลง session
+  // ก่อน `useSessionState` อ่าน (ยิง API ครั้งแรกด้วยตัวกรองจากลิงก์) · ล้างตัวกรองคอลัมน์อื่น + ไม่ผูกมุมมองที่บันทึกไว้ (แบบ ST9-T01/T11)
+  const [params, setParams] = useSearchParams();
+  useUrlSeed(params, ['tab', 'st'], (p) => {
+    const k = p.get('tab') ?? '';
+    const st = p.get('st') ?? '';
+    return {
+      'tms.view.settlements.active': null,
+      'tms.view.settlements.init': 1,
+      'settle.tab': TABS.includes(k as Tab) ? k : 'all',
+      'settle.cols': { no: '', who: '', st: (ST_OPTS as readonly string[]).includes(st) ? st : '' },
+      'settle.hidden': null,
+    };
+  });
+  useEffect(() => {
+    // ลิงก์ใช้ครั้งเดียว — ลบออกจาก URL (แท็บ/ตัวกรองยังจำใน session ตามเดิม)
+    if (params.has('tab') || params.has('st')) {
+      const next = new URLSearchParams(params);
+      next.delete('tab');
+      next.delete('st');
+      setParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ครั้งเดียวตอนเปิดหน้า
+  }, []);
   const [tab, setTab] = useSessionState<Tab>('settle.tab', 'all');
   const [col, setCol] = useSessionState('settle.cols', { no: '', who: '', st: '' });
   const [hidden, setHidden] = useSessionState<string[] | null>('settle.hidden', null);
@@ -93,7 +120,9 @@ export function SettlePage() {
   const kpi = useSettlementKpi().data;
   const reissue = useReissueLink();
   const curTab = TABS.includes(tab) ? tab : 'all';
-  const list = useSettlementList(TAB_STATUS[curTab] ? { status: TAB_STATUS[curTab] } : {});
+  // ตัวกรองสถานะ = แท็บ ∩ คอลัมน์ "สถานะ" ที่ server (ST9-T03 — ยอดรวมตรงการ์ด dashboard)
+  const status = listStatus(curTab, col.st);
+  const list = useSettlementList(status ? { status } : {}, status !== null);
   const shown = list.rows.filter(
     (x) =>
       (!col.no || (x.settlementNo ?? '').includes(col.no)) &&
@@ -102,14 +131,17 @@ export function SettlePage() {
   );
   const tabCount: Record<Tab, number | undefined> = kpi
     ? {
-        all: kpi.total,
-        chk: kpi.draft + kpi.disputed,
-        appr: kpi.sentToCarrier,
-        ok: kpi.approved,
-        paid: kpi.paid,
+        all: countOf(kpi, TAB_STATUS.all),
+        chk: countOf(kpi, TAB_STATUS.chk),
+        appr: countOf(kpi, TAB_STATUS.appr),
+        ok: countOf(kpi, TAB_STATUS.ok),
+        paid: countOf(kpi, TAB_STATUS.paid),
       }
     : { all: undefined, chk: undefined, appr: undefined, ok: undefined, paid: undefined };
-  const shownTotal = listTotal(list, { tab: curTab, ...col }, ['tab'], tabCount[curTab]);
+  // แท็บ + ตัวกรองสถานะ นับจาก summary ได้ (ไม่มีส่วนร่วม = 0) · ตัวกรองข้อความ = ยอดจากรายการ
+  const statusTotal =
+    kpi && status !== null ? countOf(kpi, status) : status === null ? 0 : undefined;
+  const shownTotal = listTotal(list, { tab: curTab, ...col }, ['tab', 'st'], statusTotal);
   const pickTab = (k: Tab) => setTab(curTab === k ? 'all' : k);
   const kpiSub = (k: Tab) => t(curTab === k ? 'dash.kpi.clear' : 'bill.kpi.click');
 

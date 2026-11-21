@@ -46,6 +46,7 @@ import {
 import type { Order } from '../features/orders/orderForm';
 import { useDateText } from '../features/rate-cards/rateFormat';
 import { SetupChecklist } from '../features/setup/SetupChecklist';
+import { SettleDash } from '../features/dashboard/SettleDash';
 import { TripDrawer } from '../features/trips/TripDrawer';
 
 type Trip = Schemas['TripDto'];
@@ -657,6 +658,8 @@ export function Dashboard() {
           onClose={() => setOpenTrip(null)}
         />
       )}
+      {/* ST9-T03 Dashboard AP รถร่วม — ตรวจสิทธิ์/แพ็กเกจในตัว (ไม่มีสิทธิ์ = ไม่ render ไม่เรียก API) */}
+      <SettleDash />
       <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />
     </>
   );

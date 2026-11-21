@@ -325,6 +325,12 @@
 
 ## บันทึกรายวัน
 
+### 22 พ.ย. 2569 (ST9-T03 Dashboard AP รถร่วม — lane ly, `st9/t03-ap-dashboard`)
+
+- **ทำ:** การ์ด "Settlement รถร่วม" บนภาพรวม 5 ช่อง รอตรวจ (DRAFT+DISPUTED) / มีรายการโต้แย้ง (DISPUTED) / รออนุมัติ / รอจ่าย (APPROVED) / จ่ายแล้ว (PAID) + จ่ายแล้วเดือนนี้ (฿, `prices.buy:read`) จาก `GET /settlements/summary` เดิม (ไม่แก้ API) · ไม่มี 50 ทวิ (D-54) · คลิก = `/settle?tab=…(&st=DISPUTED)` · หน้า settle อ่าน `?tab=&st=` + ตัวกรองคอลัมน์สถานะกรองที่ server (ยอดรวมถูกต้อง) · DECISION + [OPEN Claude Design] ใน spec/12 §3 แถว "Dashboard AP รถร่วม"
+- **ไฟล์:** `apps/web/src/features/dashboard/{SettleDash,apCards}.ts(x)` + `SettleDash.test.tsx` (11), `apps/web/src/features/settlements/{SettlePage,settle,useSettlements}.ts(x)`, `apps/web/src/pages/Dashboard.tsx` (+2 บรรทัด — แยกจาก ST9-T02 ให้ merge สะอาด), i18n `dash.ap.*`, `apps/api/test/ap-dashboard.test.ts` (4: ช่อง = นับตรงจากฐาน = แถวรายการเดินครบทุกหน้า, ยอดเดือนนี้, สิทธิ์, แยก tenant), `apps/web/scripts/compare-ap-dashboard.mjs`, `design/compare/st9-ap-dashboard-{dash,settle}-1440.png`
+- **ค้าง:** หน้าตาการ์ดรอ Claude Design · ยอดค้างจ่ายต่อช่อง = รายงาน AP aging (ไม่อยู่ใน T03) · ถ้า ST9-T02 merge ก่อน: Dashboard.tsx ต่างตำแหน่งกัน ไม่ชน
+
 ### 22 พ.ย. 2569 (หน้า `settle` ชิ้นแรก + D-63 ออกลิงก์ใหม่ + error บันทึกจ่าย — lane ly)
 
 - **ก่อนทำ:** เว็บไม่มีหน้า `settle` เลย (เมนู "Settlement รถร่วม" = "ยังไม่เปิดใช้") — ST6-T03/T04/T05/T06/T07/T08/T09 + D-59/D-60/D-62 merge แบบ API-only (UI ค้างตามแถว spec/12 §3 ST6-T02/T03/T07/T08/T09) · มีแค่หน้าลิงก์รถร่วม (`public/SettlementLink.tsx`)

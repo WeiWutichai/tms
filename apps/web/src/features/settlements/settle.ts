@@ -3,7 +3,7 @@ import type { MessageKey } from '../../i18n/th';
 import { ApiError } from '../../api';
 import { fieldErrors, problemText } from '../master/problems';
 import { money } from '../rate-cards/rateFormat';
-import type { Settlement } from './useSettlements';
+import type { Settlement, SettlementKpi } from './useSettlements';
 
 export type SettleStatus =
   'DRAFT' | 'SENT_TO_CARRIER' | 'DISPUTED' | 'APPROVED' | 'PAID' | 'CANCELLED';
@@ -23,6 +23,40 @@ export const TAB_STATUS: Record<Tab, string> = {
   ok: 'APPROVED',
   paid: 'PAID',
 };
+
+/** จำนวนใบของสถานะหนึ่งจาก `GET /settlements/summary` (ตัวนับเดียวกับแท็บ/การ์ด — หน้า settle และ Dashboard AP ST9-T03) */
+export function statusCount(kpi: SettlementKpi, status: string): number {
+  switch (status) {
+    case 'DRAFT':
+      return kpi.draft;
+    case 'SENT_TO_CARRIER':
+      return kpi.sentToCarrier;
+    case 'DISPUTED':
+      return kpi.disputed;
+    case 'APPROVED':
+      return kpi.approved;
+    case 'PAID':
+      return kpi.paid;
+    case 'CANCELLED':
+      return kpi.cancelled;
+    default:
+      return 0;
+  }
+}
+/** จำนวนใบของชุดสถานะคั่นด้วย , (ค่าของ `TAB_STATUS`) — '' = ทุกใบ */
+export const countOf = (kpi: SettlementKpi, statuses: string): number =>
+  statuses ? statuses.split(',').reduce((n, s) => n + statusCount(kpi, s), 0) : kpi.total;
+
+/**
+ * ST9-T03 ตัวกรอง `status` ที่ส่งให้ `GET /settlements` = แท็บ ∩ ตัวกรองคอลัมน์ "สถานะ" (กรองที่ server — ยอดรวม/หน้าถูกต้อง
+ * เดิมกรองเฉพาะแถวในหน้าปัจจุบัน) · ไม่มีส่วนร่วม (เช่น แท็บรอตรวจ + จ่ายแล้ว) = null → ไม่ยิง API รายการว่าง
+ */
+export function listStatus(tab: Tab, st: string): string | null {
+  const base = TAB_STATUS[tab];
+  if (!st) return base;
+  if (!base) return st;
+  return base.split(',').includes(st) ? st : null;
+}
 
 export const statusLabel = (t: T, s: string) => t(`settle.st.${s}` as MessageKey);
 
