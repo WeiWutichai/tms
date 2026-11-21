@@ -45118,6 +45118,142 @@
         ]
       }
     },
+    "/v1/invoice-runs": {
+      "post": {
+        "description": "D-54 บัญชีเบา: ร่าง **ไม่มีเลข ไม่ใช่เอกสารภาษี** · ลูกค้าที่ `billingCycle` = รอบที่สั่ง (ไม่รวม `MANUAL`) ที่มี DO พร้อมวางบิล (กฎเดียวกับ `GET /invoices/queue` + เวลาจุดส่งครบ) วันที่ DO อยู่ในงวด → ร่างผ่านทางเดียวกับ `POST /invoices` (ตรวจซ้ำตอนดึง · กันวางบิลซ้ำระดับ DB · audit `invoice.draft_created`) · `MONTHLY`/`WEEKLY` = 1 ร่างต่อลูกค้า งวด = ที่สั่ง (เกิน 200 DO แบ่งหลายร่าง) · `PER_DO` = 1 ร่างต่อ DO · `billingNotes` (ค่าเริ่มต้น true) = ร่างใบวางบิลจากใบแจ้งหนี้ที่ออกแล้วยังค้าง และยังไม่อยู่ในใบวางบิลที่ active (1 ร่างต่อผู้ออก/สาขาผู้ออก) · **สั่งซ้ำไม่สร้างซ้ำ:** DO/ใบแจ้งหนี้ที่ถูกดึงแล้วไม่ถูกเลือกอีก · **ร่างละ transaction** (รวมการส่งบัญชีของ DO ในกลุ่ม) — กลุ่มที่ล้มย้อนทั้งกลุ่ม กลุ่ม/ลูกค้าอื่นไม่ล้มตาม · DO ที่ไม่ผ่านตอนดึง (ระบุตัวได้) ถูกข้าม (`skippedDeliveryOrders`) · ร่างลงชื่อผู้สั่งเป็นผู้สร้าง (กฎแบ่งหน้าที่ของ finalize ใช้เหมือนสร้างมือ) · 202 `{jobId, statusUrl}` → `GET /v1/jobs/{id}`: `progress` ต่อร่าง · `result` = `InvoiceRunResult` (ผลต่อลูกค้า SUCCEEDED/PARTIAL/FAILED/NOTHING_TO_BILL + ลิงก์ร่าง ≤ 50 ต่อลูกค้า — ไม่มียอดเงิน) · ไม่มีลูกค้า PARTIAL/FAILED = `succeeded`, มี = `succeeded_with_errors` · จบ = webhook `job.completed` · ผู้สั่งดู `statusUrl` ได้แม้ไม่มี `jobs:read` · job เก็บ 7 วัน · นับเป็นคำขอหนัก (rate limit ชั้น heavy)",
+        "operationId": "InvoiceRuns_create",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInvoiceRunDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "รับงานแล้ว ติดตามที่ `statusUrl`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceRunAcceptedDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`invoices:draft`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "invoices",
+                      "action": "draft",
+                      "required": [
+                        "invoices:draft"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "สั่งรอบวางบิล (async) — สร้างร่างใบแจ้งหนี้ทุกลูกค้าตาม billing_cycle (+ ร่างใบวางบิล)",
+        "tags": [
+          "invoices"
+        ],
+        "x-required-scopes": [
+          "invoices:draft"
+        ]
+      }
+    },
     "/v1/payments": {
       "get": {
         "description": "กรองใบแจ้งหนี้ (`invoiceId`) / ลูกค้า (`customerId` รับ `ext:`) / สถานะ · cursor มาตรฐาน (updatedAt, id) · ยอด `sell*` เห็นเมื่อมี `prices.sell:read`",
@@ -87416,6 +87552,241 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "InvoiceRunDocRefDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "inv_…"
+          },
+          "url": {
+            "type": "string",
+            "example": "/v1/invoices/inv_…"
+          },
+          "deliveryOrderCount": {
+            "type": "number",
+            "description": "จำนวน DO ในร่าง (เฉพาะใบแจ้งหนี้)"
+          },
+          "invoiceCount": {
+            "type": "number",
+            "description": "จำนวนใบแจ้งหนี้ในร่าง (เฉพาะใบวางบิล)"
+          }
+        },
+        "required": [
+          "id",
+          "url"
+        ]
+      },
+      "InvoiceRunSkippedDoDto": {
+        "type": "object",
+        "properties": {
+          "deliveryOrderId": {
+            "type": "string",
+            "example": "do_…"
+          },
+          "doNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "reasons": {
+            "example": [
+              "POD_INCOMPLETE"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "deliveryOrderId",
+          "doNo",
+          "reasons"
+        ]
+      },
+      "InvoiceRunCustomerResultDto": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "example": "cus_…"
+          },
+          "customerCode": {
+            "type": "string"
+          },
+          "customerName": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED",
+              "NOTHING_TO_BILL"
+            ],
+            "description": "`SUCCEEDED` = ทุกกลุ่มผ่าน (สร้าง ≥ 1 ร่าง) · `PARTIAL` = บางกลุ่มล้ม (กลุ่มที่ล้มย้อนทั้งกลุ่ม) · `FAILED` = ทุกกลุ่มที่ทำล้ม · `NOTHING_TO_BILL` = ไม่มีร่างที่ต้องสร้าง (DO ที่ข้ามดูใน `skippedDeliveryOrders`) · client ต้องรับค่าที่ไม่รู้จักได้"
+          },
+          "invoiceCount": {
+            "type": "number",
+            "description": "จำนวนร่างใบแจ้งหนี้ที่สร้างของลูกค้านี้ (ทั้งหมด)"
+          },
+          "invoices": {
+            "description": "ร่างใบแจ้งหนี้ที่สร้าง — แสดงไม่เกิน 50 รายการ (ครบใน `invoiceCount` + `invoicesListUrl`)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceRunDocRefDto"
+            }
+          },
+          "invoicesListUrl": {
+            "type": "string",
+            "example": "/v1/invoices?customerId=cus_…&status=DRAFT"
+          },
+          "billingNotes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceRunDocRefDto"
+            }
+          },
+          "skippedCount": {
+            "type": "number",
+            "description": "จำนวน DO ที่ข้าม (ทั้งหมด)"
+          },
+          "skippedDeliveryOrders": {
+            "description": "DO ที่ขึ้นคิวแต่ไม่ผ่านตอนส่งบัญชี/ดึงเข้าร่าง (เช่น หลักฐานไม่ครบตาม checklist ปัจจุบัน, อยู่ในร่างอื่นแล้ว `IN_INVOICE`) — ไม่อยู่ในร่าง · แสดงไม่เกิน 50 รายการ",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceRunSkippedDoDto"
+            }
+          },
+          "failedGroups": {
+            "type": "number",
+            "description": "จำนวนกลุ่ม (ร่าง) ที่ล้ม"
+          },
+          "problem": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true,
+            "description": "problem+json ของกลุ่มแรกที่ล้ม (กลุ่ม/ลูกค้าอื่นไม่ล้มตาม)"
+          }
+        },
+        "required": [
+          "customerId",
+          "customerCode",
+          "customerName",
+          "outcome",
+          "invoiceCount",
+          "invoices",
+          "invoicesListUrl",
+          "billingNotes",
+          "skippedCount",
+          "skippedDeliveryOrders",
+          "failedGroups",
+          "problem"
+        ]
+      },
+      "InvoiceRunResultDto": {
+        "type": "object",
+        "properties": {
+          "billingCycle": {
+            "type": "string",
+            "enum": [
+              "PER_DO",
+              "WEEKLY",
+              "MONTHLY"
+            ]
+          },
+          "periodFrom": {
+            "type": "string"
+          },
+          "periodTo": {
+            "type": "string"
+          },
+          "customers": {
+            "type": "number"
+          },
+          "invoicesCreated": {
+            "type": "number"
+          },
+          "billingNotesCreated": {
+            "type": "number"
+          },
+          "failed": {
+            "type": "number",
+            "description": "จำนวนลูกค้าที่ PARTIAL/FAILED"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceRunCustomerResultDto"
+            }
+          }
+        },
+        "required": [
+          "billingCycle",
+          "periodFrom",
+          "periodTo",
+          "customers",
+          "invoicesCreated",
+          "billingNotesCreated",
+          "failed",
+          "results"
+        ]
+      },
+      "CreateInvoiceRunDto": {
+        "type": "object",
+        "properties": {
+          "billingCycle": {
+            "type": "string",
+            "enum": [
+              "PER_DO",
+              "WEEKLY",
+              "MONTHLY"
+            ],
+            "description": "รอบวางบิลของลูกค้าที่เข้ารอบนี้ (`customer.billingCycle`) · `MANUAL` ไม่เข้ารอบ · `MONTHLY`/`WEEKLY` = 1 ร่างต่อลูกค้า (เกิน 200 DO แบ่งเป็นหลายร่าง) · `PER_DO` = 1 ร่างต่อ DO"
+          },
+          "periodFrom": {
+            "type": "string",
+            "example": "2026-10-01",
+            "description": "งวดตั้งแต่ (วันที่ DO — `doDate`)"
+          },
+          "periodTo": {
+            "type": "string",
+            "example": "2026-10-31",
+            "description": "งวดถึง (วันที่ DO — `doDate`) ≥ periodFrom"
+          },
+          "releaseDeliveryOrders": {
+            "type": "boolean",
+            "description": "true = ส่งบัญชี DO ที่ยังไม่ส่งพร้อมสร้างร่าง (เหมือน `POST /invoices` `releaseDeliveryOrders`) · ไม่ส่ง/false = ดึงเฉพาะ DO ที่ส่งบัญชีแล้ว"
+          },
+          "billingNotes": {
+            "type": "boolean",
+            "description": "สร้างร่างใบวางบิลอัตโนมัติ (docs/04 F2) จากใบแจ้งหนี้ที่ออกแล้วยังค้างและยังไม่อยู่ในใบวางบิลที่ active ของลูกค้าในรอบนี้ (1 ร่างต่อผู้ออก/สาขาผู้ออก) · ไม่ส่ง = true"
+          }
+        },
+        "required": [
+          "billingCycle",
+          "periodFrom",
+          "periodTo"
+        ]
+      },
+      "InvoiceRunAcceptedDto": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "example": "job_3f2a…"
+          },
+          "statusUrl": {
+            "type": "string",
+            "example": "/v1/jobs/job_3f2a…"
+          }
+        },
+        "required": [
+          "jobId",
+          "statusUrl"
         ]
       },
       "PaymentCustomerDto": {
