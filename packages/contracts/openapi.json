@@ -44736,7 +44736,7 @@
     },
     "/v1/invoices/{id}/mark-sent": {
       "post": {
-        "description": "ST5-T18 (plan/11 #5 `sent_to_customer_at`; docs/04 F3) · สิทธิ์ `invoices:finalize` · ใบที่ออกเลขแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — อื่น ๆ 409 `invalid_state_transition`) · ส่งแล้วอยู่แล้ว = คืนค่าเดิม (ไม่เปลี่ยน) · audit `invoice.sent_to_customer` · ส่งแล้ว**ยกเลิกใบไม่ได้** (`/void` → 409 `invoice_sent_to_customer`) · ออกใบวางบิลตั้งธงนี้ให้อัตโนมัติ (ช่องทาง BILLING_NOTE) · ส่งอีเมล = ST5-T21",
+        "description": "ST5-T18 (plan/11 #5 `sent_to_customer_at`; docs/04 F3) · สิทธิ์ `invoices:finalize` · ใบที่ออกเลขแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — อื่น ๆ 409 `invalid_state_transition`) · ส่งแล้วอยู่แล้ว = คืนค่าเดิม (ไม่เปลี่ยน) · audit `invoice.sent_to_customer` · ส่งแล้ว**ยกเลิกใบไม่ได้** (`/void` → 409 `invoice_sent_to_customer`) · ออกใบวางบิลตั้งธงนี้ให้อัตโนมัติ (ช่องทาง BILLING_NOTE) · ส่งอีเมล (`POST /invoices/{id}/send`, ชุดใบวางบิล) ตั้งช่องทาง EMAIL (ST5-T21)",
         "operationId": "Invoices_markSent",
         "parameters": [
           {
@@ -45115,6 +45115,392 @@
         ],
         "x-required-scopes": [
           "invoices:void"
+        ]
+      }
+    },
+    "/v1/invoices/{id}/send": {
+      "post": {
+        "description": "ST5-T21 (docs/04 F3; spec/05 BIL-041) · สิทธิ์ `invoices:finalize` + `prices.sell:read` · `purpose=DOCUMENT` (ค่าเริ่ม): ใบที่ออกเลขแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED) · `purpose=PAYMENT_REMINDER` (ต้นแบบหน้า \"รับชำระ\" เมนู \"ส่งใบแจ้งเตือนชำระ\"): เฉพาะใบที่ยังมียอดค้าง (ISSUED / PARTIALLY_PAID) — อื่น ๆ 409 `reason: not_outstanding` · แนบไฟล์ต้นฉบับที่เก็บ ณ วันออก (`GET /invoices/{id}/pdf`) · ผู้รับ = `to` หรือผู้ติดต่อของลูกค้าที่มีอีเมล · อีเมล 1 ฉบับต่อผู้รับผ่าน outbox (สถานะการส่งที่ `GET /invoices/{id}/emails`) · ผู้รับเดิมยังรอส่ง (ภายใน 10 นาที) → 409 `document_email_pending` · ยังไม่มีธง \"ส่งลูกค้าแล้ว\" → ตั้งช่องทาง EMAIL (ส่งแล้วยกเลิกใบไม่ได้ — ST5-T18) · audit `invoice.emailed` · sandbox ไม่ส่งออกจริง",
+        "operationId": "Invoices_send",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "ส่งซ้ำ key เดิม + body เดิม = ผลเดิม (ไม่ส่งอีเมลซ้ำ) เก็บ 24 ชม.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendInvoiceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentEmailResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`invoices:finalize`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "invoices",
+                      "action": "finalize",
+                      "required": [
+                        "invoices:finalize"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "invoice_pdf_template_changed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invoice_pdf_template_changed",
+                      "title": "แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ",
+                      "status": 409,
+                      "code": "invoice_pdf_template_changed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "document_email_pending": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/document_email_pending",
+                      "title": "เอกสารนี้กำลังรอส่งถึงผู้รับเดิมอยู่ — รอสักครู่แล้วตรวจสถานะการส่ง",
+                      "status": 409,
+                      "code": "document_email_pending",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation_failed` — `to` ผิดรูปแบบ/ซ้ำ/เกิน 5 · `document_email_no_recipient` — ไม่ระบุ `to` และลูกค้าไม่มีอีเมลผู้ติดต่อ · `email_attachment_too_large` — ไฟล์แนบเกินขนาด (`sizeBytes`, `maxBytes`) → ดาวน์โหลดแล้วส่งเอง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "errors": [
+                        {
+                          "field": "to.0",
+                          "code": "isEmail",
+                          "message": "each value in to must be an email"
+                        }
+                      ]
+                    }
+                  },
+                  "document_email_no_recipient": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/document_email_no_recipient",
+                      "title": "ลูกค้ายังไม่มีอีเมลผู้ติดต่อ — เพิ่มอีเมลในข้อมูลลูกค้า หรือดาวน์โหลด PDF แล้วส่งเอง",
+                      "status": 422,
+                      "code": "document_email_no_recipient"
+                    }
+                  },
+                  "email_attachment_too_large": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/email_attachment_too_large",
+                      "title": "ไฟล์ใหญ่เกินกว่าจะส่งทางอีเมล — ดาวน์โหลด PDF แล้วส่งเอง",
+                      "status": 422,
+                      "code": "email_attachment_too_large",
+                      "sizeBytes": 12582912,
+                      "maxBytes": 10485760
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` — อีเมลเอกสารของบริษัทเกิน 200 ผู้รับต่อชั่วโมง (`limit`, `sentLastHour`) — ลองใหม่ภายหลังหรือดาวน์โหลดแล้วส่งเอง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/rate_limited",
+                      "title": "เรียกถี่เกินไป",
+                      "status": 429,
+                      "code": "rate_limited",
+                      "limit": 200,
+                      "window": "1h",
+                      "sentLastHour": 199
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ส่งใบแจ้งหนี้ / ใบแจ้งเตือนชำระ ทางอีเมลถึงลูกค้า (แนบ PDF ต้นฉบับ)",
+        "tags": [
+          "invoices"
+        ],
+        "x-required-scopes": [
+          "invoices:finalize"
+        ]
+      }
+    },
+    "/v1/invoices/{id}/emails": {
+      "get": {
+        "description": "ST5-T21 · การส่งรายใบ (`POST /invoices/{id}/send`) เท่านั้น — ส่งเป็นชุดใบวางบิลดูที่ `GET /billing-notes/{id}/emails` · ใหม่สุดก่อน (สูงสุด 100)",
+        "operationId": "Invoices_emails",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentEmailListDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`invoices:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "invoices",
+                      "action": "read",
+                      "required": [
+                        "invoices:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ประวัติการส่งใบแจ้งหนี้ทางอีเมล + สถานะการส่งต่อผู้รับ",
+        "tags": [
+          "invoices"
+        ],
+        "x-required-scopes": [
+          "invoices:read"
         ]
       }
     },
@@ -48957,6 +49343,551 @@
           }
         ],
         "summary": "PDF ใบวางบิลที่ออกแล้ว — ต้นฉบับ / สำเนา (ไฟล์ที่เก็บ ณ วันออก)",
+        "tags": [
+          "billing-notes"
+        ],
+        "x-required-scopes": [
+          "invoices:read"
+        ]
+      }
+    },
+    "/v1/billing-notes/{id}/pdf-bundle": {
+      "get": {
+        "description": "ST5-T21 (docs/04 F3) · ใบวางบิลที่ออกแล้ว (ISSUED / COLLECTED — อื่น ๆ 409) · หน้าแรก = ใบวางบิล**ต้นฉบับ** ตามด้วยใบแจ้งหนี้**ต้นฉบับ**ตามลำดับในใบวางบิล · คัดลอกหน้าจาก PDF ที่เก็บ ณ วันออก (ไม่ render ใหม่ — ยังไม่มีไฟล์ = สร้างตามกติกาเดิมของแต่ละใบ; แม่แบบเปลี่ยนแล้ว → 409 `invoice_pdf_template_changed`) · header `X-Content-SHA256`, `X-Bundle-Contents` (เลขเอกสารตามลำดับ คั่นด้วย `,`) · ต้องมี `prices.sell:read`",
+        "operationId": "BillingNotes_pdfBundle",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "application/pdf",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`invoices:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "invoices",
+                      "action": "read",
+                      "required": [
+                        "invoices:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบวางบิล (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "invoice_pdf_template_changed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invoice_pdf_template_changed",
+                      "title": "แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ",
+                      "status": 409,
+                      "code": "invoice_pdf_template_changed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ไฟล์รวมชุด \"ใบวางบิล + ใบแจ้งหนี้\" (PDF เดียว) — ดาวน์โหลดไปส่งเอง",
+        "tags": [
+          "billing-notes"
+        ],
+        "x-required-scopes": [
+          "invoices:read"
+        ]
+      }
+    },
+    "/v1/billing-notes/{id}/send": {
+      "post": {
+        "description": "ST5-T21 (docs/04 F3; spec/05 BIL-041) · สิทธิ์ `invoices:finalize` + `prices.sell:read` · ใบวางบิล ISSUED / COLLECTED (อื่น ๆ 409) · แนบไฟล์เดียวกับ `GET /billing-notes/{id}/pdf-bundle` · ผู้รับ = `to` หรือผู้ติดต่อของลูกค้าที่มีอีเมล (ไม่มี → 422 `document_email_no_recipient`) · อีเมล 1 ฉบับต่อผู้รับผ่าน outbox (ส่งโดย worker; สถานะการส่งดูที่ `GET /billing-notes/{id}/emails` — แยกจากสถานะเอกสาร) · ผู้รับเดิมยังรอส่งอยู่ (ภายใน 10 นาที) → 409 `document_email_pending` · ไฟล์เกิน 10 MB → 422 `email_attachment_too_large` (ดาวน์โหลดแล้วส่งเอง) · ใบแจ้งหนี้ในชุดที่ยังไม่มีธง \"ส่งลูกค้าแล้ว\" → ตั้งช่องทาง EMAIL · audit `billing_note.emailed` · บริษัททดสอบ (sandbox) ไม่ส่งออกจริง (`sandbox_suppressed`) · ส่ง `Idempotency-Key` ได้ (กดซ้ำ = ผลเดิม)",
+        "operationId": "BillingNotes_send",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "ส่งซ้ำ key เดิม + body เดิม = ผลเดิม (ไม่ส่งอีเมลซ้ำ) เก็บ 24 ชม.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendBillingNoteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentEmailResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`invoices:finalize`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "invoices",
+                      "action": "finalize",
+                      "required": [
+                        "invoices:finalize"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบวางบิล (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "invoice_pdf_template_changed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invoice_pdf_template_changed",
+                      "title": "แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ",
+                      "status": 409,
+                      "code": "invoice_pdf_template_changed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "document_email_pending": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/document_email_pending",
+                      "title": "เอกสารนี้กำลังรอส่งถึงผู้รับเดิมอยู่ — รอสักครู่แล้วตรวจสถานะการส่ง",
+                      "status": 409,
+                      "code": "document_email_pending",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation_failed` — `to` ผิดรูปแบบ/ซ้ำ/เกิน 5 · `document_email_no_recipient` — ไม่ระบุ `to` และลูกค้าไม่มีอีเมลผู้ติดต่อ · `email_attachment_too_large` — ไฟล์แนบเกินขนาด (`sizeBytes`, `maxBytes`) → ดาวน์โหลดแล้วส่งเอง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "errors": [
+                        {
+                          "field": "to.0",
+                          "code": "isEmail",
+                          "message": "each value in to must be an email"
+                        }
+                      ]
+                    }
+                  },
+                  "document_email_no_recipient": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/document_email_no_recipient",
+                      "title": "ลูกค้ายังไม่มีอีเมลผู้ติดต่อ — เพิ่มอีเมลในข้อมูลลูกค้า หรือดาวน์โหลด PDF แล้วส่งเอง",
+                      "status": 422,
+                      "code": "document_email_no_recipient"
+                    }
+                  },
+                  "email_attachment_too_large": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/email_attachment_too_large",
+                      "title": "ไฟล์ใหญ่เกินกว่าจะส่งทางอีเมล — ดาวน์โหลด PDF แล้วส่งเอง",
+                      "status": 422,
+                      "code": "email_attachment_too_large",
+                      "sizeBytes": 12582912,
+                      "maxBytes": 10485760
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` — อีเมลเอกสารของบริษัทเกิน 200 ผู้รับต่อชั่วโมง (`limit`, `sentLastHour`) — ลองใหม่ภายหลังหรือดาวน์โหลดแล้วส่งเอง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/rate_limited",
+                      "title": "เรียกถี่เกินไป",
+                      "status": 429,
+                      "code": "rate_limited",
+                      "limit": 200,
+                      "window": "1h",
+                      "sentLastHour": 199
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ส่งชุดใบวางบิล + ใบแจ้งหนี้ทางอีเมลถึงลูกค้า (ไฟล์รวม 1 ไฟล์)",
+        "tags": [
+          "billing-notes"
+        ],
+        "x-required-scopes": [
+          "invoices:finalize"
+        ]
+      }
+    },
+    "/v1/billing-notes/{id}/emails": {
+      "get": {
+        "description": "ST5-T21 · ใหม่สุดก่อน (สูงสุด 100) · สถานะ QUEUED / SENT / FAILED แยกจากสถานะเอกสาร",
+        "operationId": "BillingNotes_emails",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentEmailListDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`invoices:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "invoices",
+                      "action": "read",
+                      "required": [
+                        "invoices:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบวางบิล (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ประวัติการส่งใบวางบิลทางอีเมล + สถานะการส่งต่อผู้รับ",
         "tags": [
           "billing-notes"
         ],
@@ -87554,6 +88485,188 @@
           "reason"
         ]
       },
+      "SendInvoiceDto": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "example": [
+              "ap@example.co.th"
+            ],
+            "description": "อีเมลผู้รับ 1–5 คน (ไม่ซ้ำ) · ไม่ระบุ = อีเมลผู้ติดต่อของลูกค้า (ผู้ติดต่อหลักที่มีอีเมล · ไม่มีผู้ติดต่อหลักที่มีอีเมล = ผู้ติดต่อทุกคนที่มีอีเมล สูงสุด 5) · ไม่มีเลย → 422 `document_email_no_recipient`",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "DOCUMENT",
+              "PAYMENT_REMINDER"
+            ],
+            "default": "DOCUMENT",
+            "description": "DOCUMENT = ส่งใบแจ้งหนี้ · PAYMENT_REMINDER = ใบแจ้งเตือนชำระ (ต้นแบบหน้า \"รับชำระ\") — เฉพาะใบที่ยังมียอดค้าง (ISSUED / PARTIALLY_PAID) · ทั้งสองแบบแนบ PDF ต้นฉบับของใบ"
+          }
+        }
+      },
+      "DocumentEmailAttachmentDto": {
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "example": "doc_…"
+          },
+          "filename": {
+            "type": "string",
+            "example": "BN-2611-0004-ชุดเอกสาร.pdf"
+          },
+          "sizeBytes": {
+            "type": "number",
+            "example": 184320
+          },
+          "sha256": {
+            "type": "string",
+            "example": "e3b0c442…"
+          },
+          "contents": {
+            "example": [
+              "BN-2611-0004",
+              "INV-00000-2611-0013"
+            ],
+            "description": "เอกสารในไฟล์ตามลำดับหน้า (ใบวางบิลก่อน แล้วใบแจ้งหนี้ตามลำดับในใบวางบิล)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "documentId",
+          "filename",
+          "sizeBytes",
+          "sha256",
+          "contents"
+        ]
+      },
+      "DocumentEmailDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "dem_…"
+          },
+          "entityType": {
+            "type": "string",
+            "enum": [
+              "invoice",
+              "billing_note"
+            ]
+          },
+          "entityId": {
+            "type": "string",
+            "example": "bn_…",
+            "description": "id ของใบแจ้งหนี้ (`ivc_`) หรือใบวางบิล (`bn_`)"
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "DOCUMENT",
+              "PAYMENT_REMINDER"
+            ]
+          },
+          "documentNo": {
+            "type": "string",
+            "example": "BN-2611-0004",
+            "description": "เลขเอกสาร ณ วันส่ง"
+          },
+          "to": {
+            "type": "string",
+            "example": "ap@example.co.th"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "QUEUED",
+              "SENT",
+              "FAILED"
+            ],
+            "description": "สถานะการส่ง (แยกจากสถานะเอกสาร — spec/05 §3 ข้อ 8): QUEUED = รอส่ง · SENT = ส่งออกจากระบบแล้ว · FAILED = ส่งไม่สำเร็จ"
+          },
+          "failedReason": {
+            "type": "string",
+            "nullable": true,
+            "example": null,
+            "description": "`email_failed` = ลองครบแล้วไม่สำเร็จ · `sandbox_suppressed` = บริษัททดสอบ (sandbox) ไม่ส่งอีเมลออกไปหาคนจริง (ST7-T09)"
+          },
+          "sentAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "attachmentDocumentId": {
+            "type": "string",
+            "example": "doc_…",
+            "description": "ไฟล์ที่แนบ (stored document)"
+          },
+          "createdBy": {
+            "type": "string",
+            "nullable": true,
+            "description": "ผู้ส่ง"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "entityType",
+          "entityId",
+          "purpose",
+          "documentNo",
+          "to",
+          "status",
+          "failedReason",
+          "sentAt",
+          "attachmentDocumentId",
+          "createdBy",
+          "createdAt"
+        ]
+      },
+      "DocumentEmailResultDto": {
+        "type": "object",
+        "properties": {
+          "attachment": {
+            "$ref": "#/components/schemas/DocumentEmailAttachmentDto"
+          },
+          "emails": {
+            "description": "1 แถวต่อผู้รับ (สถานะเริ่ม QUEUED)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentEmailDto"
+            }
+          }
+        },
+        "required": [
+          "attachment",
+          "emails"
+        ]
+      },
+      "DocumentEmailListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "description": "ใหม่สุดก่อน (สูงสุด 100 รายการ)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentEmailDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
       "InvoiceRunDocRefDto": {
         "type": "object",
         "properties": {
@@ -88856,6 +89969,21 @@
         "required": [
           "reason"
         ]
+      },
+      "SendBillingNoteDto": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "example": [
+              "ap@example.co.th"
+            ],
+            "description": "อีเมลผู้รับ 1–5 คน (ไม่ซ้ำ) · ไม่ระบุ = อีเมลผู้ติดต่อของลูกค้า (ผู้ติดต่อหลักที่มีอีเมล · ไม่มีผู้ติดต่อหลักที่มีอีเมล = ผู้ติดต่อทุกคนที่มีอีเมล สูงสุด 5) · ไม่มีเลย → 422 `document_email_no_recipient`",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
       },
       "ReleaseDeliveryOrderDto": {
         "type": "object",
@@ -103123,6 +104251,16 @@
       "title": "ใบส่งของนี้ส่งบัญชีแล้ว — แก้จุดแวะ/ยอดส่งจริงไม่ได้ ให้ฝ่ายวางบิลย้อนการส่งบัญชีก่อน",
       "titleEn": "This delivery order was released to billing — ask billing to undo the release first"
     },
+    "document_email_no_recipient": {
+      "status": 422,
+      "title": "ลูกค้ายังไม่มีอีเมลผู้ติดต่อ — เพิ่มอีเมลในข้อมูลลูกค้า หรือดาวน์โหลด PDF แล้วส่งเอง",
+      "titleEn": "The customer has no contact email — add one to the customer or download the PDF and send it yourself"
+    },
+    "document_email_pending": {
+      "status": 409,
+      "title": "เอกสารนี้กำลังรอส่งถึงผู้รับเดิมอยู่ — รอสักครู่แล้วตรวจสถานะการส่ง",
+      "titleEn": "This document is already queued for the same recipient — wait and check the delivery status"
+    },
     "duplicate": {
       "status": 409,
       "title": "ข้อมูลซ้ำกับที่มีอยู่",
@@ -103132,6 +104270,11 @@
       "status": 403,
       "title": "การล็อกเพื่อแก้ไขใช้ได้เฉพาะผู้ใช้ในระบบ",
       "titleEn": "Edit locks are only available to signed-in users"
+    },
+    "email_attachment_too_large": {
+      "status": 422,
+      "title": "ไฟล์ใหญ่เกินกว่าจะส่งทางอีเมล — ดาวน์โหลด PDF แล้วส่งเอง",
+      "titleEn": "The file is too large to email — download the PDF and send it yourself"
     },
     "external_id_conflict": {
       "status": 409,

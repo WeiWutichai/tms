@@ -8,11 +8,18 @@ import { isLocalEnv } from '../../auth/tokens';
  * - `smtp` : SMTP มาตรฐาน (`EMAIL_SMTP_URL` เช่น smtps://user:pass@host:465) — ใช้กับ SES/SendGrid/Mailgun/Postmark ได้ทุกเจ้า
  * ผู้ให้บริการที่มี API เฉพาะเพิ่มเป็น transport ใหม่ได้โดยไม่แตะผู้เรียก
  */
+/** ไฟล์แนบ (ST5-T21 PDF เอกสารถึงลูกค้า) */
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+}
 export interface EmailMessage {
   to: string;
   subject: string;
   text: string;
   html: string;
+  attachments?: EmailAttachment[];
 }
 export interface EmailTransport {
   readonly name: string;
@@ -27,8 +34,11 @@ export class LogTransport implements EmailTransport {
   private readonly log = new Logger('Email');
   async send(m: EmailMessage) {
     // นอกเครื่อง dev ห้ามเขียนเนื้อหา (มี token/ลิงก์) ลง log
-    if (isLocalEnv()) this.log.log(`to=${m.to} subject=${m.subject}\n${m.text}`);
-    else this.log.log(`to=${maskEmail(m.to)} subject=${m.subject} (body hidden)`);
+    const files = m.attachments?.length
+      ? ` attachments=${m.attachments.map((a) => `${a.filename}(${a.content.length}B)`).join(',')}`
+      : '';
+    if (isLocalEnv()) this.log.log(`to=${m.to} subject=${m.subject}${files}\n${m.text}`);
+    else this.log.log(`to=${maskEmail(m.to)} subject=${m.subject}${files} (body hidden)`);
     return {};
   }
 }

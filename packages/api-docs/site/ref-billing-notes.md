@@ -1,6 +1,6 @@
 # billing-notes
 
-12 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+15 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -16,6 +16,9 @@
 | [`POST /v1/billing-notes/{id}/cancel`](#post-billing-notes-id-cancel) | `invoices:draft` |
 | [`GET /v1/billing-notes/{id}/proforma`](#get-billing-notes-id-proforma) | `invoices:read` |
 | [`GET /v1/billing-notes/{id}/pdf`](#get-billing-notes-id-pdf) | `invoices:read` |
+| [`GET /v1/billing-notes/{id}/pdf-bundle`](#get-billing-notes-id-pdf-bundle) | `invoices:read` |
+| [`POST /v1/billing-notes/{id}/send`](#post-billing-notes-id-send) | `invoices:finalize` |
+| [`GET /v1/billing-notes/{id}/emails`](#get-billing-notes-id-emails) | `invoices:read` |
 
 ## จำนวนใบวางบิลตามสถานะ (แท็บ) {#get-billing-notes-summary}
 
@@ -539,6 +542,135 @@ const { data, error } = await tms.GET('/v1/billing-notes/{id}/pdf', {
 });
 ```
 
+## ไฟล์รวมชุด "ใบวางบิล + ใบแจ้งหนี้" (PDF เดียว) — ดาวน์โหลดไปส่งเอง {#get-billing-notes-id-pdf-bundle}
+
+`GET /v1/billing-notes/{id}/pdf-bundle`
+
+scope: `invoices:read` · operationId: `BillingNotes_pdfBundle`
+
+ใบวางบิลที่ออกแล้ว (ISSUED / COLLECTED — อื่น ๆ 409) · หน้าแรก = ใบวางบิล**ต้นฉบับ** ตามด้วยใบแจ้งหนี้**ต้นฉบับ**ตามลำดับในใบวางบิล · คัดลอกหน้าจาก PDF ที่เก็บ ณ วันออก (ไม่ render ใหม่ — ยังไม่มีไฟล์ = สร้างตามกติกาเดิมของแต่ละใบ; แม่แบบเปลี่ยนแล้ว → 409 `invoice_pdf_template_changed`) · header `X-Content-SHA256`, `X-Bundle-Contents` (เลขเอกสารตามลำดับ คั่นด้วย `,`) · ต้องมี `prices.sell:read`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | application/pdf |   |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบวางบิล (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress), [invoice_pdf_template_changed](errors.md#invoice_pdf_template_changed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/billing-notes/<id>/pdf-bundle" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/billing-notes/{id}/pdf-bundle', {
+  params: { path: { id: "…" } },
+});
+```
+
+## ส่งชุดใบวางบิล + ใบแจ้งหนี้ทางอีเมลถึงลูกค้า (ไฟล์รวม 1 ไฟล์) {#post-billing-notes-id-send}
+
+`POST /v1/billing-notes/{id}/send`
+
+scope: `invoices:finalize` · operationId: `BillingNotes_send`
+
+สิทธิ์ `invoices:finalize` + `prices.sell:read` · ใบวางบิล ISSUED / COLLECTED (อื่น ๆ 409) · แนบไฟล์เดียวกับ `GET /billing-notes/{id}/pdf-bundle` · ผู้รับ = `to` หรือผู้ติดต่อของลูกค้าที่มีอีเมล (ไม่มี → 422 `document_email_no_recipient`) · อีเมล 1 ฉบับต่อผู้รับผ่าน outbox (ส่งโดย worker; สถานะการส่งดูที่ `GET /billing-notes/{id}/emails` — แยกจากสถานะเอกสาร) · ผู้รับเดิมยังรอส่งอยู่ (ภายใน 10 นาที) → 409 `document_email_pending` · ไฟล์เกิน 10 MB → 422 `email_attachment_too_large` (ดาวน์โหลดแล้วส่งเอง) · ใบแจ้งหนี้ในชุดที่ยังไม่มีธง "ส่งลูกค้าแล้ว" → ตั้งช่องทาง EMAIL · audit `billing_note.emailed` · บริษัททดสอบ (sandbox) ไม่ส่งออกจริง (`sandbox_suppressed`) · ส่ง `Idempotency-Key` ได้ (กดซ้ำ = ผลเดิม)
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `Idempotency-Key` | header |   | `string` | ส่งซ้ำ key เดิม + body เดิม = ผลเดิม (ไม่ส่งอีเมลซ้ำ) เก็บ 24 ชม. |
+
+**Request body** `SendBillingNoteDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `to` |   | `array<string>` |   | อีเมลผู้รับ 1–5 คน (ไม่ซ้ำ) · ไม่ระบุ = อีเมลผู้ติดต่อของลูกค้า (ผู้ติดต่อหลักที่มีอีเมล · ไม่มีผู้ติดต่อหลักที่มีอีเมล = ผู้ติดต่อทุกคนที่มีอีเมล สูงสุด 5) · ไม่มีเลย → 422 `document_email_no_recipient` | `["ap@example.co.th"]` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `DocumentEmailResultDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:finalize`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบวางบิล (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress), [invoice_pdf_template_changed](errors.md#invoice_pdf_template_changed), [document_email_pending](errors.md#document_email_pending) | `ProblemDto` |
+| `422` | `validation_failed` — `to` ผิดรูปแบบ/ซ้ำ/เกิน 5 · `document_email_no_recipient` — ไม่ระบุ `to` และลูกค้าไม่มีอีเมลผู้ติดต่อ · `email_attachment_too_large` — ไฟล์แนบเกินขนาด (`sizeBytes`, `maxBytes`) → ดาวน์โหลดแล้วส่งเอง — [validation_failed](errors.md#validation_failed), [document_email_no_recipient](errors.md#document_email_no_recipient), [email_attachment_too_large](errors.md#email_attachment_too_large) | `ProblemDto` |
+| `429` | `rate_limited` — อีเมลเอกสารของบริษัทเกิน 200 ผู้รับต่อชั่วโมง (`limit`, `sentLastHour`) — ลองใหม่ภายหลังหรือดาวน์โหลดแล้วส่งเอง — [rate_limited](errors.md#rate_limited) | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/billing-notes/<id>/send" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"to":["ap@example.co.th"]}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/billing-notes/{id}/send', {
+  params: { path: { id: "…" } },
+  body: {
+    "to": [
+      "ap@example.co.th"
+    ]
+  },
+});
+```
+
+## ประวัติการส่งใบวางบิลทางอีเมล + สถานะการส่งต่อผู้รับ {#get-billing-notes-id-emails}
+
+`GET /v1/billing-notes/{id}/emails`
+
+scope: `invoices:read` · operationId: `BillingNotes_emails`
+
+ใหม่สุดก่อน (สูงสุด 100) · สถานะ QUEUED / SENT / FAILED แยกจากสถานะเอกสาร
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `DocumentEmailListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบวางบิล (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/billing-notes/<id>/emails" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/billing-notes/{id}/emails', {
+  params: { path: { id: "…" } },
+});
+```
+
 ## Schema ของ response {#schemas}
 
 ### BillingNoteCandidatesDto {#schema-BillingNoteCandidatesDto}
@@ -604,3 +736,20 @@ const { data, error } = await tms.GET('/v1/billing-notes/{id}/pdf', {
 | `issued` | ใช่ | `number` |   |   |   |
 | `collected` | ใช่ | `number` |   |   |   |
 | `cancelled` | ใช่ | `number` |   |   |   |
+
+### DocumentEmailListDto {#schema-DocumentEmailListDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<DocumentEmailDto>` |   | ใหม่สุดก่อน (สูงสุด 100 รายการ) |   |
+
+### DocumentEmailResultDto {#schema-DocumentEmailResultDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `attachment` | ใช่ | `DocumentEmailAttachmentDto` |   |   |   |
+| `emails` | ใช่ | `array<DocumentEmailDto>` |   | 1 แถวต่อผู้รับ (สถานะเริ่ม QUEUED) |   |
