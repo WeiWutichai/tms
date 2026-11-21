@@ -23,6 +23,7 @@ import {
 import { settlementVoucherDocument } from '../src/modules/settlements/settlement-pdf.template';
 import { sampleLongTripSheet, sampleTripSheet } from '../src/modules/trip-sheets/trip-sheet.sample';
 import { tripSheetDocument } from '../src/modules/trip-sheets/trip-sheet.template';
+import { sampleRevenueRoutePdf } from '../src/modules/exports/export-pdf.sample';
 import { sarabunFontCss } from '../src/pdf/fonts';
 import { PdfRenderer, type RenderOptions } from '../src/pdf/pdf-renderer';
 import { woff2CodePoints } from './woff2-cmap';
@@ -46,6 +47,20 @@ const KINDS: Array<{
   /** ข้อความไทยที่ต้องอยู่บนเอกสาร */
   labels: string[];
 }> = [
+  {
+    kind: 'ไฟล์ส่งออกรายงาน PDF — รายงานรายได้ต่อเส้นทาง (ST9-T05)',
+    module: 'src/modules/exports',
+    docs: () => [sampleRevenueRoutePdf()],
+    labels: [
+      'รายงานรายได้ต่อเส้นทาง',
+      'งวด',
+      'รวม',
+      'พิมพ์เมื่อ',
+      'ไม่ระบุ',
+      '125,000.50',
+      '1,750.00',
+    ],
+  },
   {
     kind: 'ใบคุมรถ / ใบงานประจำวัน (ST3-T20)',
     module: 'src/modules/trip-sheets',

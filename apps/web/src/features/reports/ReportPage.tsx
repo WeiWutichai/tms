@@ -102,7 +102,10 @@ export function ReportPage() {
   const current = bangkokMonth();
   const wantMonth = params.get('month');
   const month =
-    wantMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(wantMonth) && wantMonth <= current
+    wantMonth &&
+    /^\d{4}-(0[1-9]|1[0-2])$/.test(wantMonth) &&
+    wantMonth <= current &&
+    wantMonth >= shiftMonth(current, -(MONTHS_BACK - 1))
       ? wantMonth
       : current;
   const revQ = {
@@ -172,7 +175,9 @@ export function ReportPage() {
             ? { v: monthText(x.label), fw: 500 }
             : g === 'vehicle'
               ? { v: x.label, mono: true, fw: 500 }
-              : { v: x.label },
+              : g === 'route' && x.originName && x.destinationName
+                ? { v: `${x.originName} → ${x.destinationName}` }
+                : { v: x.label },
         ...(g === 'vehicle' ? [{ v: x.detail ?? '—' }] : []),
         { v: n(x), r: true },
         last(x),

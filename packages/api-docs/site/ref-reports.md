@@ -19,7 +19,7 @@ scope: `reports.finance:read` · operationId: `Reports_revenueReport`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `groupBy` | query |   | `string` ค่า: `customer`, `route`, `vehicle`, `vehicleType`, `legalEntity`, `month` | จัดกลุ่มตาม: `customer` ลูกค้า · `route` เส้นทาง (ต้นทาง → ปลายทางของ DO) · `vehicle` รถ · `vehicleType` ประเภทรถ · `legalEntity` นิติบุคคลผู้ออกใบ · `month` เดือนที่ออกใบ |
+| `groupBy` | query |   | `string` ค่า: `customer`, `route`, `vehicle`, `vehicleType`, `legalEntity`, `month` | จัดกลุ่มตาม: `customer` ลูกค้า · `route` เส้นทาง (ต้นทาง – ปลายทางของ DO) · `vehicle` รถ · `vehicleType` ประเภทรถ · `legalEntity` นิติบุคคลผู้ออกใบ · `month` เดือนที่ออกใบ |
 | `fromMonth` | query |   | `string` | เดือนแรก (YYYY-MM ตามวันที่ออกใบ เวลาไทย) — ไม่ส่ง = เท่ากับ `toMonth` · ช่วงยาวสุด 24 เดือน |
 | `toMonth` | query |   | `string` | เดือนสุดท้าย (YYYY-MM รวมเดือนนี้) — ไม่ส่ง = เดือนปัจจุบัน (เวลาไทย) |
 

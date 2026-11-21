@@ -460,7 +460,6 @@ export const th = {
   'rpt.col.revenue': 'รายได้',
   'rpt.col.lines': 'บรรทัด',
   'rpt.unassigned': 'ไม่ระบุ',
-  'rpt.revNote': 'รายได้ก่อน VAT จากใบแจ้งหนี้ที่ออกแล้วในงวด (ไม่รวมใบที่ยกเลิก)',
   'rpt.tab.ar': 'ลูกหนี้คงค้าง',
   'rpt.tab.unbilled': 'DO ยังไม่วางบิล',
   'rpt.tab.unbilledN': 'DO ยังไม่วางบิลเกิน {n} วัน',

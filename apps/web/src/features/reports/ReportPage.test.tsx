@@ -351,6 +351,23 @@ describe('หน้า รายงาน (ST9-T06)', () => {
     expect(screen.queryByText('รายได้')).toBeNull();
   });
 
+  it('รายได้: ?month= นอก 24 เดือนล่าสุด/อนาคต → เดือนนี้ · เส้นทางแสดง ต้นทาง → ปลายทาง จากชื่อจุดที่แยกมา', async () => {
+    const now = bangkokMonth();
+    revenue = (q) =>
+      REV(q.groupBy!, [
+        rrow('loc_a>loc_b', 'คลัง ก – ร้าน ข', '100.00', {
+          originName: 'คลัง ก',
+          destinationName: 'ร้าน ข',
+        }),
+      ]);
+    wrap(`/reports?tab=rroute&month=${shiftMonth(now, -24)}`);
+    expect(await screen.findByText('คลัง ก → ร้าน ข')).toBeInTheDocument();
+    expect(screen.getByLabelText('งวดของรายงาน')).toHaveValue(now);
+    expect(GET).toHaveBeenCalledWith('/v1/reports/revenue', {
+      params: { query: { groupBy: 'route', fromMonth: now, toMonth: now } },
+    });
+  });
+
   it('sortAging: ยอดมากก่อน → จำนวนใบ → ชื่อ', () => {
     const r = sortAging([
       cust('a', 'ข', '10.00', []),

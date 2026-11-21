@@ -34,6 +34,10 @@ export const overSyncCap = (n: number, page?: ExportPage) => !page && n > EXPORT
 export interface ExportColumn<R> {
   header: string;
   value: (r: R) => string | number | null | undefined;
+  /** เงิน (ST9-T05) — PDF แสดงทศนิยม 2 ตำแหน่งเสมอ · xlsx/csv ไม่เปลี่ยน */
+  money?: boolean;
+  /** ค่าเงินต้นฉบับ (Decimal string จาก DTO) — PDF ใช้ค่านี้แทน `value` (ไม่ผ่าน float) */
+  raw?: (r: R) => string | null | undefined;
 }
 
 /**

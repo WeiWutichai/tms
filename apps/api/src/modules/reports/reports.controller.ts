@@ -14,13 +14,14 @@ import {
   type UnbilledDeliveryOrderDto,
 } from './unbilled-report.dto';
 import { UnbilledReportService } from './unbilled-report.service';
-import {
-  RevenueReportDto,
-  RevenueReportQuery,
-  type RevenueGroupBy,
-  type RevenueRowDto,
-} from './revenue-report.dto';
+import { RevenueReportDto, RevenueReportQuery, type RevenueRowDto } from './revenue-report.dto';
 import { RevenueReportService } from './revenue-report.service';
+import {
+  revenueExportColumns,
+  revenuePdfSubtitle,
+  revenuePdfTitle,
+  revenuePeriodText,
+} from './revenue-export';
 
 /**
  * รายงาน (ST9-T06; docs/04 H "DO ยังไม่วางบิลเกิน N วัน", "ค้างชำระ / aging ต่อลูกค้า")
@@ -147,39 +148,10 @@ export const agingExportSpec = (svc: AgingService): ExportSpec<AgingQuery, Aging
   },
 });
 
-const TH_MONTH = [
-  'มกราคม',
-  'กุมภาพันธ์',
-  'มีนาคม',
-  'เมษายน',
-  'พฤษภาคม',
-  'มิถุนายน',
-  'กรกฎาคม',
-  'สิงหาคม',
-  'กันยายน',
-  'ตุลาคม',
-  'พฤศจิกายน',
-  'ธันวาคม',
-];
-/** 2026-11 → "พฤศจิกายน 2569" */
-const thMonth = (m: string) =>
-  `${TH_MONTH[Number(m.slice(5, 7)) - 1]} ${Number(m.slice(0, 4)) + 543}`;
-
-const REVENUE_DIM: Record<RevenueGroupBy, { label: string; key: string; detail?: string }> = {
-  customer: { label: 'ลูกค้า', key: 'ลูกค้า', detail: 'รหัสลูกค้า' },
-  route: { label: 'เส้นทาง', key: 'เส้นทาง' },
-  vehicle: { label: 'รถ', key: 'ทะเบียนรถ', detail: 'ประเภทรถ' },
-  vehicleType: { label: 'ประเภทรถ', key: 'ประเภทรถ', detail: 'รหัสประเภทรถ' },
-  legalEntity: { label: 'นิติบุคคล', key: 'นิติบุคคล', detail: 'เลขประจำตัวผู้เสียภาษี' },
-  month: { label: 'เดือน', key: 'เดือน' },
-};
-
 /** ช่วงเดือนที่ใช้จริง (ค่าเริ่ม = เดือนปัจจุบัน — ตรงกับ service) */
 const revenuePeriod = (svc: RevenueReportService, q: RevenueReportQuery) => {
   const f = svc.filter(q);
-  return f.fromMonth === f.toMonth
-    ? thMonth(f.fromMonth)
-    : `${thMonth(f.fromMonth)} – ${thMonth(f.toMonth)}`;
+  return revenuePeriodText(f.fromMonth, f.toMonth);
 };
 
 /**
@@ -199,29 +171,8 @@ export const revenueExportSpec = (
   query: RevenueReportQuery,
   fetch: (q) => svc.exportRows(q),
   pdf: {
-    title: (q) => `รายงานรายได้ต่อ${REVENUE_DIM[q.groupBy ?? 'customer'].label}`,
-    subtitle: (q) => `งวด ${revenuePeriod(svc, q)} · ตามวันที่ออกใบแจ้งหนี้ · ยอดก่อน VAT`,
+    title: (q) => revenuePdfTitle(q.groupBy ?? 'customer'),
+    subtitle: (q) => revenuePdfSubtitle(revenuePeriod(svc, q)),
   },
-  columns: (scopes, q) => {
-    const g = q.groupBy ?? 'customer';
-    const dim = REVENUE_DIM[g];
-    const name = (r: RevenueRowDto) =>
-      r.id === 'total'
-        ? 'รวม'
-        : r.id === 'none'
-          ? 'ไม่ระบุ'
-          : g === 'month' && r.label
-            ? thMonth(r.label)
-            : r.label;
-    const cols: ExportColumn<RevenueRowDto>[] = [{ header: dim.key, value: name }];
-    if (dim.detail) cols.push({ header: dim.detail, value: (r) => r.detail });
-    cols.push(
-      { header: 'ใบแจ้งหนี้', value: (r) => r.invoiceCount },
-      { header: 'DO', value: (r) => r.deliveryOrderCount },
-      { header: 'บรรทัด', value: (r) => r.lineCount },
-    );
-    if (canSell(scopes))
-      cols.push({ header: 'รายได้ (ก่อน VAT)', value: (r) => money(r.sellAmount) });
-    return cols;
-  },
+  columns: (scopes, q) => revenueExportColumns(q.groupBy ?? 'customer', canSell(scopes)),
 });

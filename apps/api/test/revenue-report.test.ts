@@ -6,6 +6,7 @@ import { Prisma } from '@prisma/client';
 import { SYSTEM_ROLES, addMonths, billingMonthRanges, monthRange } from '@tms/domain';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ensureSystemRoles } from '../src/auth/system-roles';
+import { Clock } from '../src/common/clock';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { requestContext } from '../src/common/request-context';
 import { DbService, type Tx } from '../src/db/db.service';
@@ -56,7 +57,9 @@ describe('รายงานรายได้ (ST9-T05)', { timeout: 600_000 },
   let unitTon: string;
   let vt6: string;
   let serviceItem: string;
-  const today = bangkokToday();
+  // นาฬิกาคงที่ทั้งชุด (ออกเลข/รายงานใช้ Clock เดียวกัน — ไม่แกว่งเมื่อรันคร่อมเที่ยงคืน/สิ้นเดือน)
+  const NOW = new Date();
+  const today = bangkokToday(NOW);
   const thisMonth = today.slice(0, 7);
   const lastMonth = billingMonthRanges(today).lastMonth;
   const uuid = (kind: Parameters<typeof tryDecodeId>[0], id: string) => tryDecodeId(kind, id)!;
@@ -66,6 +69,7 @@ describe('รายงานรายได้ (ST9-T05)', { timeout: 600_000 },
   beforeAll(async () => {
     await truncateAll();
     app = await bootApp();
+    app.get(Clock).set(NOW);
     tenantId = (await createTenantWithDefaults(db, { name: 'บริษัท รายงานรายได้' })).id;
     otherId = (await createTenantWithDefaults(db, { name: 'บริษัท อื่น' })).id;
     const c1 = await db.company.create({
@@ -102,6 +106,7 @@ describe('รายงานรายได้ (ST9-T05)', { timeout: 600_000 },
     ).id;
   });
   afterAll(async () => {
+    app.get(Clock).set(null);
     await app.close();
     await db.$disconnect();
   });
@@ -367,7 +372,10 @@ describe('รายงานรายได้ (ST9-T05)', { timeout: 600_000 },
   let v2: { id: string; plate: string };
   const routes: { origin: string; dest: string }[] = [];
 
-  it('เกณฑ์ตรวจรับ: ยอดรวมเดือน = Σ ใบที่ออกในเดือน (ยกเลิก/ร่าง/เดือนอื่น/บริษัทอื่นไม่นับ) และทุกมิติรวมได้ยอดเดียวกัน', async () => {
+  let issuedA: Row;
+  let issuedB: Row;
+  /** ข้อมูลชุดเดียวของทุก test (สร้างครั้งเดียว — แต่ละ it ไม่พึ่งลำดับกัน) */
+  beforeAll(async () => {
     cus1 = await newCustomer('ลูกค้า ก รายได้');
     cus2 = await newCustomer('ลูกค้า ข รายได้');
     v1 = await newVehicle();
@@ -379,14 +387,8 @@ describe('รายงานรายได้ (ST9-T05)', { timeout: 600_000 },
     routes.push(d1, d2, d3);
     const a = await issueViaApi(cus1, [d1.doId, d2.doId]);
     const b = await issueViaApi(cus2, [d3.doId]);
-    expect(a.issueDate).toBe(today);
-    // ทางจริงคิดยอดหัวใบจากบรรทัด — ยอดก่อน VAT ของใบ A = 1,750.00 + 2,061.75
-    const aSub = D(a.sellSubtotalVatable ?? 0)
-      .add(D(a.sellSubtotalExempt ?? 0))
-      .add(D(a.sellSubtotalZeroRated ?? 0))
-      .toFixed(2);
-    expect(aSub).toBe('3811.75');
-    expect(b.status).toBe('ISSUED');
+    issuedA = a;
+    issuedB = b;
     // นิติบุคคลที่สอง — สร้างหลังออกใบทางจริง (มีหลายนิติบุคคลแล้วใบสั่ง/ร่างต้องตั้ง routing)
     const c2 = await db.company.create({
       data: { tenantId, legalName: 'บริษัท ขนส่งสอง จำกัด', taxId: validTaxId(972) },
@@ -444,7 +446,18 @@ describe('รายงานรายได้ (ST9-T05)', { timeout: 600_000 },
       companyId: oco.id,
       branchId: obr.id,
     });
+  }, 600_000);
 
+  it('เกณฑ์ตรวจรับ: ยอดรวมเดือน = Σ ใบที่ออกในเดือน (ยกเลิก/ร่าง/เดือนอื่น/บริษัทอื่นไม่นับ) และทุกมิติรวมได้ยอดเดียวกัน', async () => {
+    expect(issuedA.issueDate).toBe(today);
+    // ทางจริงคิดยอดหัวใบจากบรรทัด — ยอดก่อน VAT ของใบ A = 1,750.00 + 2,061.75
+    expect(
+      D(issuedA.sellSubtotalVatable ?? 0)
+        .add(D(issuedA.sellSubtotalExempt ?? 0))
+        .add(D(issuedA.sellSubtotalZeroRated ?? 0))
+        .toFixed(2),
+    ).toBe('3811.75');
+    expect(issuedB.status).toBe('ISSUED');
     // query อิสระ (หัวใบ) — เดือนนี้ 3 ใบ: 3,811.75 + 1,500.00 + 1,234.66
     const expected = await issuedTotal(monthRange(thisMonth).from, monthRange(thisMonth).to);
     expect(expected).toEqual({ n: 3, amount: '6546.41' });
@@ -514,7 +527,9 @@ describe('รายงานรายได้ (ST9-T05)', { timeout: 600_000 },
     // เส้นทาง — ต้นทาง → ปลายทางของ DO
     const rk = (r: { origin: string; dest: string }) => `${r.origin}>${r.dest}`;
     expect(by('route')[rk(routes[0]!)]).toMatchObject({
-      label: expect.stringMatching(/^ต้นทาง \d+ → ปลายทาง \d+$/),
+      label: expect.stringMatching(/^ต้นทาง \d+ – ปลายทาง \d+$/),
+      originName: expect.stringMatching(/^ต้นทาง \d+$/),
+      destinationName: expect.stringMatching(/^ปลายทาง \d+$/),
       sellAmount: '1750.00',
     });
     expect(by('route')[rk(routes[1]!)]!.sellAmount).toBe('2061.75');
@@ -625,7 +640,7 @@ describe('รายงานรายได้ (ST9-T05)', { timeout: 600_000 },
         format: 'xlsx',
         filter: { groupBy: 'customer' },
       });
-      expect(st).toMatchObject({ status: 'succeeded', resource: 'revenue', rows: 3 });
+      expect(st).toMatchObject({ status: 'succeeded', resource: 'revenue', rows: 2 });
       expect(st.fileName).toMatch(/^revenue-\d{8}-\d{4}\.xlsx$/);
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load((await download(st.downloadUrl)) as unknown as ArrayBuffer);
@@ -668,7 +683,7 @@ describe('รายงานรายได้ (ST9-T05)', { timeout: 600_000 },
         format: 'pdf',
         filter: { groupBy: 'vehicle' },
       });
-      expect(st).toMatchObject({ status: 'succeeded', format: 'pdf', rows: 4 });
+      expect(st).toMatchObject({ status: 'succeeded', format: 'pdf', rows: 3 });
       expect(st.fileName).toMatch(/\.pdf$/);
       const buf = await download(st.downloadUrl);
       expect(buf.subarray(0, 5).toString('latin1')).toBe('%PDF-');

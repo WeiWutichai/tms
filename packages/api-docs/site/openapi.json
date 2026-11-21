@@ -38357,7 +38357,7 @@
             "name": "groupBy",
             "required": false,
             "in": "query",
-            "description": "จัดกลุ่มตาม: `customer` ลูกค้า · `route` เส้นทาง (ต้นทาง → ปลายทางของ DO) · `vehicle` รถ · `vehicleType` ประเภทรถ · `legalEntity` นิติบุคคลผู้ออกใบ · `month` เดือนที่ออกใบ",
+            "description": "จัดกลุ่มตาม: `customer` ลูกค้า · `route` เส้นทาง (ต้นทาง – ปลายทางของ DO) · `vehicle` รถ · `vehicleType` ประเภทรถ · `legalEntity` นิติบุคคลผู้ออกใบ · `month` เดือนที่ออกใบ",
             "schema": {
               "default": "customer",
               "type": "string",
@@ -69774,12 +69774,22 @@
           "label": {
             "type": "string",
             "nullable": true,
-            "description": "ชื่อที่แสดง — ลูกค้า/นิติบุคคล = ชื่อ ณ วันออกใบล่าสุดในช่วง (snapshot) · เส้นทาง = ชื่อจุดต้นทาง → ปลายทาง · รถ = ทะเบียน ณ วันจ่ายงาน · ประเภทรถ = ชื่อ ณ วันจ่ายงาน · เดือน = YYYY-MM · null = ไม่ระบุ (บรรทัดไม่ผูก DO / DO ไม่มีเที่ยวหรือรถ)"
+            "description": "ชื่อที่แสดง — ลูกค้า/นิติบุคคล = ชื่อ ณ วันออกใบล่าสุดในช่วง (snapshot) · เส้นทาง = \"ต้นทาง – ปลายทาง\" (แยกใน `originName`/`destinationName`) · รถ = ทะเบียน ณ วันจ่ายงาน · ประเภทรถ = ชื่อ ณ วันจ่ายงาน · เดือน = YYYY-MM · null = ไม่ระบุ (บรรทัดไม่ผูก DO / DO ไม่มีเที่ยวหรือรถ)"
           },
           "detail": {
             "type": "string",
             "nullable": true,
             "description": "รหัสประกอบ — ลูกค้า: รหัสลูกค้า · นิติบุคคล: เลขผู้เสียภาษี · ประเภทรถ: รหัสประเภท · รถ: ประเภทรถ · อื่น ๆ null"
+          },
+          "originName": {
+            "type": "string",
+            "nullable": true,
+            "description": "เฉพาะ `groupBy=route`: ชื่อจุดต้นทาง (ข้อมูลหลักปัจจุบัน) · ไม่ระบุ = null"
+          },
+          "destinationName": {
+            "type": "string",
+            "nullable": true,
+            "description": "เฉพาะ `groupBy=route`: ชื่อจุดปลายทาง · ไม่ระบุ = null"
           },
           "invoiceCount": {
             "type": "number",

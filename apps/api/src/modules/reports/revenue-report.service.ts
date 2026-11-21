@@ -34,6 +34,9 @@ interface GroupRow {
   dos: bigint;
   lines: bigint;
   amount: Prisma.Decimal | null;
+  /** เฉพาะ route */
+  o_name?: string | null;
+  d_name?: string | null;
 }
 
 /**
@@ -95,7 +98,8 @@ function groupSql(g: RevenueGroupBy): Prisma.Sql {
     case 'route':
       return Prisma.sql`
         SELECT CASE WHEN d.id IS NULL THEN NULL ELSE d.origin_site_id::text || '>' || d.dest_site_id::text END AS k,
-               max(o.name) || ' → ' || max(ds.name) AS label, NULL::text AS detail, ${AGG}
+               max(o.name) || ' – ' || max(ds.name) AS label, NULL::text AS detail,
+               max(o.name) AS o_name, max(ds.name) AS d_name, ${AGG}
           FROM l
           LEFT JOIN delivery_order d ON d.id = l.delivery_order_id
           LEFT JOIN customer_site o ON o.id = d.origin_site_id
@@ -213,6 +217,12 @@ export class RevenueReportService {
       id: rowId(f.groupBy, r.k),
       label: r.k === null ? null : r.label,
       detail: r.k === null ? null : r.detail,
+      ...(f.groupBy === 'route'
+        ? {
+            originName: r.k === null ? null : (r.o_name ?? null),
+            destinationName: r.k === null ? null : (r.d_name ?? null),
+          }
+        : {}),
       invoiceCount: Number(r.invoices),
       deliveryOrderCount: Number(r.dos),
       lineCount: Number(r.lines),

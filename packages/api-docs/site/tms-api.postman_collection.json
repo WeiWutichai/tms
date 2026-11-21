@@ -19075,7 +19075,7 @@
                 {
                   "key": "groupBy",
                   "value": "",
-                  "description": "จัดกลุ่มตาม: `customer` ลูกค้า · `route` เส้นทาง (ต้นทาง → ปลายทางของ DO) · `vehicle` รถ · `vehicleType` ประเภทรถ · `legalEntity` นิติบุคคลผู้ออกใบ · `month` เดือนที่ออกใบ",
+                  "description": "จัดกลุ่มตาม: `customer` ลูกค้า · `route` เส้นทาง (ต้นทาง – ปลายทางของ DO) · `vehicle` รถ · `vehicleType` ประเภทรถ · `legalEntity` นิติบุคคลผู้ออกใบ · `month` เดือนที่ออกใบ",
                   "disabled": true
                 },
                 {

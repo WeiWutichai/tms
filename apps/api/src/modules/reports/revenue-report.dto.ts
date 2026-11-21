@@ -23,7 +23,7 @@ export class RevenueReportQuery {
     enum: REVENUE_GROUP_BY,
     default: 'customer',
     description:
-      'จัดกลุ่มตาม: `customer` ลูกค้า · `route` เส้นทาง (ต้นทาง → ปลายทางของ DO) · `vehicle` รถ · `vehicleType` ประเภทรถ · ' +
+      'จัดกลุ่มตาม: `customer` ลูกค้า · `route` เส้นทาง (ต้นทาง – ปลายทางของ DO) · `vehicle` รถ · `vehicleType` ประเภทรถ · ' +
       '`legalEntity` นิติบุคคลผู้ออกใบ · `month` เดือนที่ออกใบ',
   })
   @IsOptional()
@@ -62,7 +62,7 @@ export class RevenueRowDto {
     nullable: true,
     type: String,
     description:
-      'ชื่อที่แสดง — ลูกค้า/นิติบุคคล = ชื่อ ณ วันออกใบล่าสุดในช่วง (snapshot) · เส้นทาง = ชื่อจุดต้นทาง → ปลายทาง · รถ = ทะเบียน ณ วันจ่ายงาน · ' +
+      'ชื่อที่แสดง — ลูกค้า/นิติบุคคล = ชื่อ ณ วันออกใบล่าสุดในช่วง (snapshot) · เส้นทาง = "ต้นทาง – ปลายทาง" (แยกใน `originName`/`destinationName`) · รถ = ทะเบียน ณ วันจ่ายงาน · ' +
       'ประเภทรถ = ชื่อ ณ วันจ่ายงาน · เดือน = YYYY-MM · null = ไม่ระบุ (บรรทัดไม่ผูก DO / DO ไม่มีเที่ยวหรือรถ)',
   })
   label!: string | null;
@@ -73,6 +73,18 @@ export class RevenueRowDto {
       'รหัสประกอบ — ลูกค้า: รหัสลูกค้า · นิติบุคคล: เลขผู้เสียภาษี · ประเภทรถ: รหัสประเภท · รถ: ประเภทรถ · อื่น ๆ null',
   })
   detail!: string | null;
+  @ApiPropertyOptional({
+    nullable: true,
+    type: String,
+    description: 'เฉพาะ `groupBy=route`: ชื่อจุดต้นทาง (ข้อมูลหลักปัจจุบัน) · ไม่ระบุ = null',
+  })
+  originName?: string | null;
+  @ApiPropertyOptional({
+    nullable: true,
+    type: String,
+    description: 'เฉพาะ `groupBy=route`: ชื่อจุดปลายทาง · ไม่ระบุ = null',
+  })
+  destinationName?: string | null;
   @ApiProperty({
     description: 'จำนวนใบแจ้งหนี้ที่มีบรรทัดในแถวนี้ (ใบเดียวอาจอยู่หลายแถว — รวมไม่ได้)',
   })

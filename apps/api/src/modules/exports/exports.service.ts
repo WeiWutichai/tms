@@ -12,7 +12,8 @@ import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { JobQueue, type JobContext } from '../../jobs/job-queue.service';
 import { putFileLocked } from '../documents/documents.controller';
-import { escapeHtml, PdfRenderer } from '../../pdf/pdf-renderer';
+import { PdfRenderer } from '../../pdf/pdf-renderer';
+import { exportTableDocument } from './export-pdf';
 import { csvCell, type ExportColumn } from '../master/export';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { NotificationService } from '../notifications/notification.service';
@@ -123,51 +124,19 @@ async function xlsxWriter<R>(columns: ExportColumn<R>[], sheet: string): Promise
   };
 }
 
-/** วันเวลาไทยแบบอ่าน (หัว PDF) เช่น 22/11/2569 09:30 */
-function thaiStamp(d = new Date()): string {
-  const b = new Date(d.getTime() + 7 * 3600_000).toISOString();
-  return `${b.slice(8, 10)}/${b.slice(5, 7)}/${Number(b.slice(0, 4)) + 543} ${b.slice(11, 16)}`;
-}
-
-/** PDF ตาราง A4 แนวนอน (ST9-T05) — แถว id `total` = แถวรวม (ตัวหนา) — เก็บแถวในหน่วยความจำ (≤ EXPORT_PDF_MAX_ROWS) แล้ว render ครั้งเดียวด้วย PdfRenderer (ฟอนต์ Sarabun ฝัง) */
+/** PDF (ST9-T05) — เก็บแถวในหน่วยความจำ (≤ EXPORT_PDF_MAX_ROWS) แล้ว render ครั้งเดียวด้วยแม่แบบ `exportTableDocument` */
 function pdfWriter<R>(
   columns: ExportColumn<R>[],
   pdf: PdfRenderer,
   head: { title: string; subtitle?: string },
 ): FileWriter<R> {
-  const body: string[] = [];
-  const isNum = (v: unknown) => typeof v === 'number';
-  const cell = (v: string | number | null | undefined) =>
-    v === null || v === undefined
-      ? ''
-      : typeof v === 'number' && !Number.isInteger(v)
-        ? v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-        : escapeHtml(typeof v === 'number' ? v.toLocaleString('en-US') : String(v));
+  const rows: R[] = [];
   return {
-    add(rows) {
-      if (body.length + rows.length > EXPORT_PDF_MAX_ROWS) throw new ExportError('too_many_rows');
-      for (const r of rows)
-        body.push(
-          `<tr${(r as { id?: unknown }).id === 'total' ? ' class="t"' : ''}>${columns
-            .map((c) => {
-              const v = c.value(r);
-              return `<td${isNum(v) ? ' class="r"' : ''}>${cell(v)}</td>`;
-            })
-            .join('')}</tr>`,
-        );
+    add(batch) {
+      if (rows.length + batch.length > EXPORT_PDF_MAX_ROWS) throw new ExportError('too_many_rows');
+      rows.push(...batch);
     },
-    async finish() {
-      const html = `<div class="page"><h1>${escapeHtml(head.title)}</h1>
-<p class="sub">${head.subtitle ? `${escapeHtml(head.subtitle)} · ` : ''}พิมพ์เมื่อ ${escapeHtml(thaiStamp())}</p>
-<table><thead><tr>${columns.map((c) => `<th>${escapeHtml(c.header)}</th>`).join('')}</tr></thead>
-<tbody>${body.join('')}</tbody></table></div>`;
-      const css = `@page{size:A4 landscape;margin:12mm}.page{font-size:12px}h1{font-size:18px;margin:0 0 4px}
-.sub{color:#3B424C;margin:0 0 10px}table{width:100%;border-collapse:collapse}
-th,td{border:1px solid #CDD1C8;padding:4px 6px;text-align:left;vertical-align:top}th{background:#EEF0EC;font-weight:600}
-thead{display:table-header-group}tr{break-inside:avoid}.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-tr.t td{font-weight:700;background:#F4F5F2}`;
-      return pdf.pdf({ body: html, css, title: head.title });
-    },
+    finish: () => pdf.pdf(exportTableDocument(columns, rows, { ...head, printedAt: new Date() })),
   };
 }
 
@@ -321,6 +290,9 @@ export class ExportsService implements OnModuleInit {
     const scopes = await this.effectiveScopes(ctx.tx, p);
     if (!scopeAllows(scopes, 'export:run') || !anyScope(scopes, spec.scope))
       throw new ExportError('permission_denied');
+    // แพ็กเกจถูกลดระหว่างรอคิว → ไม่สร้างไฟล์ (ตรวจซ้ำกับตอนสั่ง)
+    if (spec.feature && !(await this.entitlements.enabled(ctx.tenantId, spec.feature)))
+      throw new ExportError('permission_denied');
     const jobRef = encodeId('job', ctx.job.id);
     return requestContext.run(
       {
@@ -352,7 +324,8 @@ export class ExportsService implements OnModuleInit {
         if (spec.single) {
           // รายงานสรุป: อ่านครั้งเดียวทั้งชุด (ST9-T05)
           const batch = await spec.fetch(q, { after: null, take: this.maxRows + 1 });
-          rows = batch.length;
+          // จำนวนแถวข้อมูล — ไม่นับแถวสรุป "รวม" (id `total`) ที่ spec ต่อท้าย
+          rows = batch.filter((r) => r.id !== 'total').length;
           if (rows > this.maxRows) throw new ExportError('too_many_rows');
           w.add(redactPrices(batch, scopes, p.principalType ?? 'user') as typeof batch);
         }
