@@ -28,6 +28,7 @@ import { bangkokToday, money, useDateText } from '../rate-cards/rateFormat';
 import { billRanges, invoiceDisplayStatus, overdueDays, selectionTotals } from './billing';
 import { finalizeErrorText, InvoiceDrawer, invoiceStatusLabel } from './InvoiceDrawer';
 import { PayDrawer } from './PayDrawer';
+import { useUrlTab } from './useUrlTab';
 import { usePaymentSummary } from './usePayments';
 import {
   BillingNoteDrawer,
@@ -138,6 +139,11 @@ export function BillPage() {
       setCol({ q: x.q, type: x.type === 'BN' ? 'BN' : '' });
       setHidden(v.hidden);
     },
+  });
+  // ST9-T02 drill-down จาก Dashboard บิล (`/bill?tab=DRAFT|ISSUED`) — ล้างตัวกรองคอลัมน์ + ประเภทใบแจ้งหนี้ (ไม่ใช่ใบวางบิล)
+  useUrlTab(TABS, (x) => {
+    setTab(x);
+    setCol({ q: '', type: '' });
   });
   const [openId, setOpenId] = useState<string | null>(null);
   /** ST5-T13 drawer รับชำระ (จากปุ่ม "บันทึกรับชำระ" ใน drawer ใบแจ้งหนี้) */

@@ -1901,9 +1901,49 @@ body:has(.tms-drawer__foot) .tms-toast {
 .tms-dash-row:hover {
   background: #eef0ec;
 }
+/* ST9-T02 Dashboard บิล: ช่องตัวเลขแบบการ์ดลูกหนี้ของต้นแบบ (dash.ar — grid gap 12) 5 ช่อง + ตารางเดือนนี้/เดือนก่อน
+   (กรอบรายการแบบ dash.ar.top: border #D9DCD4 r8 · แถว padding 8px 12px เส้นคั่น #E4E6E0) */
+.tms-dash-bill {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+.tms-dash-month {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #d9dcd4;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.tms-dash-month__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 160px) minmax(0, 160px);
+  gap: 0 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e4e6e0;
+  align-items: center;
+  color: #101418;
+}
+.tms-dash-month__row:last-child {
+  border-bottom: 0;
+}
+.tms-dash-month__head {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #3b424c;
+  background: #eef0ec;
+}
+@media (max-width: 1200px) {
+  .tms-dash-bill {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
 @media (max-width: 900px) {
   .tms-dash-bottom {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .tms-dash-bill {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

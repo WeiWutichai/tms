@@ -31751,7 +31751,7 @@
     },
     "/v1/invoices/summary": {
       "get": {
-        "description": "นับทั้ง tenant · เกินกำหนดเป็น 0 จนกว่าจะมีวันครบกำหนด/รับชำระ",
+        "description": "นับทั้ง tenant · แท็บแยกกันไม่ซ้อน: เกินกำหนด มาก่อน \"ออกแล้ว\"/\"ชำระบางส่วน\" Dashboard บิล: ยอดต่อแท็บ (`sellDraftTotal` = ยอดรวมร่าง · `sell*Outstanding` = ยอดรวม − ยอดตัดชำระ — ตรงกับ Σ ของ `GET /invoices` ตัวกรองเดียวกัน) + ใบที่ออกเดือนนี้ (ถึงวันนี้) vs เดือนก่อน (ทั้งเดือน) ตาม `issueDate` เวลาไทย ไม่รวมร่าง/ยกเลิก · ค้างวางบิล = `GET /invoices/queue` `totals` · รับชำระเดือนนี้/ก่อน = `GET /payments/summary` · ยอด `sell*` เห็นเมื่อมี `prices.sell:read` (จำนวนเห็นเสมอ): ใบแจ้งหนี้ไม่ใช่ใบกำกับภาษี ยอด VAT/WHT เป็นประมาณการ",
         "operationId": "Invoices_summary",
         "parameters": [
           {
@@ -31822,7 +31822,7 @@
             "bearer": []
           }
         ],
-        "summary": "จำนวนใบแจ้งหนี้ตามสถานะ (แท็บ/KPI)",
+        "summary": "จำนวนและยอดใบแจ้งหนี้ตามสถานะ (แท็บ/KPI + Dashboard บิล)",
         "tags": [
           "invoices"
         ],
@@ -53741,13 +53741,22 @@
             "items": {
               "$ref": "#/components/schemas/BillingQueueCustomerDto"
             }
+          },
+          "totals": {
+            "description": "ยอดรวมของทุกแถวที่ตรงตัวกรอง (ไม่ขึ้นกับ cursor/limit) = Σ `customers[]`",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BillingQueueTotalsDto"
+              }
+            ]
           }
         },
         "required": [
           "data",
           "nextCursor",
           "hasMore",
-          "customers"
+          "customers",
+          "totals"
         ]
       },
       "BillingQueuePodDto": {
@@ -53956,6 +53965,28 @@
           "releasedByName",
           "version",
           "updatedAt"
+        ]
+      },
+      "BillingQueueTotalsDto": {
+        "type": "object",
+        "properties": {
+          "deliveryOrderCount": {
+            "type": "number",
+            "description": "จำนวน DO ในคิว"
+          },
+          "releasedCount": {
+            "type": "number",
+            "description": "จำนวน DO ที่ส่งบัญชีแล้ว"
+          },
+          "sellTotal": {
+            "type": "string",
+            "example": "24902.50",
+            "description": "ยอดรายได้รวม (ก่อน VAT) = Σ `customers[].sellTotal` — เห็นเมื่อมี `prices.sell:read`"
+          }
+        },
+        "required": [
+          "deliveryOrderCount",
+          "releasedCount"
         ]
       },
       "BoardBlockDayDto": {
@@ -62301,6 +62332,28 @@
           "lineIds"
         ]
       },
+      "InvoiceMonthTotalDto": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string",
+            "example": "2026-11"
+          },
+          "count": {
+            "type": "number",
+            "description": "จำนวนใบ"
+          },
+          "sellTotal": {
+            "type": "string",
+            "example": "96300.00",
+            "description": "Σ ยอดรวมใบ — `prices.sell:read`"
+          }
+        },
+        "required": [
+          "month",
+          "count"
+        ]
+      },
       "InvoiceMoveResultDto": {
         "type": "object",
         "properties": {
@@ -62552,6 +62605,47 @@
           "cancelled": {
             "type": "number",
             "description": "CANCELLED + VOIDED"
+          },
+          "today": {
+            "type": "string",
+            "example": "2026-11-22",
+            "description": "วันนี้ตามเวลาไทยของ server (ใช้ตัดเกินกำหนด/เดือน)"
+          },
+          "sellDraftTotal": {
+            "type": "string",
+            "example": "12500.00",
+            "description": "Σ ยอดรวมของร่าง (ประมาณการ — ยังไม่ออกเลข) — `prices.sell:read`"
+          },
+          "sellIssuedOutstanding": {
+            "type": "string",
+            "example": "48000.00",
+            "description": "Σ ยอดค้าง (ยอดรวม − ยอดตัดชำระ) ของใบในแท็บ \"ออกแล้ว\" (ISSUED + ADJUSTED ที่ไม่เกินกำหนด) — `prices.sell:read`"
+          },
+          "sellPartiallyPaidOutstanding": {
+            "type": "string",
+            "example": "3200.00",
+            "description": "Σ ยอดค้างของใบชำระบางส่วนที่ไม่เกินกำหนด — `prices.sell:read`"
+          },
+          "sellOverdueOutstanding": {
+            "type": "string",
+            "example": "12500.00",
+            "description": "Σ ยอดค้างของใบเกินกำหนด (ชุดเดียวกับ `overdue` และ `GET /payments/summary` `sellOverdueOutstanding`) — `prices.sell:read`"
+          },
+          "issuedThisMonth": {
+            "description": "ใบที่ออกเลขเดือนนี้ (วันที่ 1 ถึงวันนี้ ตาม `issueDate` เวลาไทย) ไม่รวมร่าง/ยกเลิก",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InvoiceMonthTotalDto"
+              }
+            ]
+          },
+          "issuedLastMonth": {
+            "description": "ใบที่ออกเลขเดือนก่อน (ทั้งเดือน) ไม่รวมร่าง/ยกเลิก",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InvoiceMonthTotalDto"
+              }
+            ]
           }
         },
         "required": [
@@ -62561,7 +62655,10 @@
           "partiallyPaid",
           "paid",
           "overdue",
-          "cancelled"
+          "cancelled",
+          "today",
+          "issuedThisMonth",
+          "issuedLastMonth"
         ]
       },
       "InvoiceSummaryDto": {
@@ -65792,6 +65889,18 @@
             "type": "string",
             "description": "เงินเข้าจริง (`amountReceived`) ของการรับชำระเดือนนี้ — ไม่รวม WHT/ค่าธรรมเนียม/ส่วนต่าง และที่กลับรายการ (เวลาไทย) — `prices.sell:read`"
           },
+          "sellReceivedLastMonth": {
+            "type": "string",
+            "description": "เงินเข้าจริงของการรับชำระเดือนก่อน (ทั้งเดือน — นิยามเดียวกับ `sellReceivedThisMonth`) — `prices.sell:read`"
+          },
+          "receivedThisMonth": {
+            "type": "number",
+            "description": "จำนวนการรับชำระเดือนนี้ (ไม่รวมที่กลับรายการ — เวลาไทย)"
+          },
+          "receivedLastMonth": {
+            "type": "number",
+            "description": "จำนวนการรับชำระเดือนก่อน (ทั้งเดือน)"
+          },
           "dueSoon": {
             "type": "number",
             "description": "ใบที่ค้างรับและครบกำหนดภายใน 7 วัน"
@@ -65817,6 +65926,8 @@
           }
         },
         "required": [
+          "receivedThisMonth",
+          "receivedLastMonth",
           "dueSoon",
           "total",
           "open",

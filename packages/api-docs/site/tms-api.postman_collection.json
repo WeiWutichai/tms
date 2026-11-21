@@ -17333,7 +17333,7 @@
           }
         },
         {
-          "name": "จำนวนใบแจ้งหนี้ตามสถานะ (แท็บ/KPI)",
+          "name": "จำนวนและยอดใบแจ้งหนี้ตามสถานะ (แท็บ/KPI + Dashboard บิล)",
           "request": {
             "method": "GET",
             "header": [
@@ -17353,7 +17353,7 @@
                 "summary"
               ]
             },
-            "description": "scope: invoices:read\n\nนับทั้ง tenant · เกินกำหนดเป็น 0 จนกว่าจะมีวันครบกำหนด/รับชำระ"
+            "description": "scope: invoices:read\n\nนับทั้ง tenant · แท็บแยกกันไม่ซ้อน: เกินกำหนด มาก่อน \"ออกแล้ว\"/\"ชำระบางส่วน\" Dashboard บิล: ยอดต่อแท็บ (`sellDraftTotal` = ยอดรวมร่าง · `sell*Outstanding` = ยอดรวม − ยอดตัดชำระ — ตรงกับ Σ ของ `GET /invoices` ตัวกรองเดียวกัน) + ใบที่ออกเดือนนี้ (ถึงวันนี้) vs เดือนก่อน (ทั้งเดือน) ตาม `issueDate` เวลาไทย ไม่รวมร่าง/ยกเลิก · ค้างวางบิล = `GET /invoices/queue` `totals` · รับชำระเดือนนี้/ก่อน = `GET /payments/summary` · ยอด `sell*` เห็นเมื่อมี `prices.sell:read` (จำนวนเห็นเสมอ): ใบแจ้งหนี้ไม่ใช่ใบกำกับภาษี ยอด VAT/WHT เป็นประมาณการ"
           }
         },
         {
