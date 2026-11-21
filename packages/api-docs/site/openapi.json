@@ -45012,6 +45012,119 @@
         ]
       }
     },
+    "/v1/carriers/{id}/pay-link": {
+      "post": {
+        "description": "ลิงก์ดูอย่างเดียว อายุ 30 วัน (ไม่ต้อง login) — รถร่วมเห็นเฉพาะงวด/เที่ยว/ราคาซื้อของตัวเอง (ไม่มีราคาขาย/ลูกค้า) · ออกใหม่ = เพิกถอนลิงก์เดิมที่ยังใช้ได้ของรถร่วมรายนี้ · ส่งทาง LINE/SMS ด้วย POST /v1/messages/send-link หรือคัดลอกไปส่งเอง · ไม่มีหนังสือ 50 ทวิ · audit `carrier.pay_link_issued`",
+        "operationId": "CarrierPayLink_issue",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierPayLinkDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`settlements:create`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settlements",
+                      "action": "create",
+                      "required": [
+                        "settlements:create"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบผู้รับเหมา (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ออกลิงก์ \"ค่าเที่ยวของฉัน\" ให้รถร่วม (ดูอย่างเดียว — เที่ยวที่จบ / ยอด / สถานะจ่าย)",
+        "tags": [
+          "settlements"
+        ],
+        "x-required-scopes": [
+          "settlements:create"
+        ]
+      }
+    },
     "/v1/delivery-orders/{id}/tracking-link": {
       "get": {
         "operationId": "DeliveryOrderTracking_get",
@@ -57010,6 +57123,28 @@
           "data",
           "nextCursor",
           "hasMore"
+        ]
+      },
+      "CarrierPayLinkDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "mlk_…"
+          },
+          "url": {
+            "type": "string",
+            "description": "ลิงก์หน้า \"ค่าเที่ยวของฉัน\" ของรถร่วม (`/link/carrier-pay/{token}`) — ส่งทาง LINE/SMS ด้วย POST /v1/messages/send-link หรือคัดลอกไปส่งเอง · แสดงครั้งเดียว"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "expiresAt"
         ]
       },
       "CarrierRecentPriceDto": {
