@@ -99,7 +99,7 @@ describe('ใบสำคัญจ่าย PDF (ST6-T04)', () => {
     expect(i.text).toMatch(/งวด\s*1–15 ต.ค. 2569/);
     expect(i.text).toMatch(/จ่ายโดย\s*โอนเงิน/);
     expect(i.text).toMatch(/เลขอ้างอิง\s*KBANK-2610-8841/);
-    expect(i.text).toMatch(/TRP-2610-0300\s*4 ต.ค. 2569\s*กรุงเทพ → ชลบุรี\s*5,100.00\s*180.00/);
+    expect(i.text).toMatch(/TRP-2610-0300\s*4 ต.ค. 2569\s*กรุงเทพ – ชลบุรี\s*5,100.00\s*180.00/);
     expect(i.totals).toEqual([
       'ยอดซื้อรวม / Subtotal',
       '15,550.00',

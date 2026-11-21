@@ -21,7 +21,7 @@ export interface SettlementPrintTrip {
   tripNo: string;
   /** YYYY-MM-DD — วันที่เที่ยวจบ (เวลาไทย) หรือวันที่เที่ยว · null = บรรทัดไม่ผูกเที่ยว */
   date: string | null;
-  /** "ต้นทาง → ปลายทาง" (ชื่อจุดแรก/สุดท้าย) — null = ไม่มีจุด */
+  /** "ต้นทาง – ปลายทาง" (ขีด en dash — Sarabun ไม่มี "→" ของต้นแบบ, spec/12 §3) (ชื่อจุดแรก/สุดท้าย) — null = ไม่มีจุด */
   route: string | null;
   /** Σ บรรทัด FREIGHT ของเที่ยว (ค่าจ้างรถร่วม) */
   tripFee: string;

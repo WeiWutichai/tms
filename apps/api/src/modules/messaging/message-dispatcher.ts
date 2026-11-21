@@ -83,7 +83,16 @@ export class MessageDispatcher {
       throw new MessagingError('message data missing', 'body_missing', false);
     const link = await this.prisma.platform.magicLink.findUnique({
       where: { id: m.magicLinkId },
-      select: { id: true, tenantId: true, purpose: true, revokedAt: true, expiresAt: true },
+      select: {
+        id: true,
+        tenantId: true,
+        purpose: true,
+        entityType: true,
+        entityId: true,
+        actions: true,
+        revokedAt: true,
+        expiresAt: true,
+      },
     });
     if (
       !link ||
@@ -93,6 +102,7 @@ export class MessageDispatcher {
       link.expiresAt.getTime() <= Date.now()
     )
       throw new MessagingError('link is no longer active', 'link_inactive', false);
+    const paid = await this.checkEntityState(m, link);
     return renderMessage(m.template as MessageTemplate, m.channel, m.locale, {
       sender: m.vars.sender ?? 'TMS',
       recipientName: m.vars.recipientName ?? null,
@@ -100,7 +110,38 @@ export class MessageDispatcher {
       url: linkUrl(link.purpose, link),
       expiresAt: link.expiresAt,
       yearStyle: m.vars.yearStyle === 'CE' ? 'CE' : 'BE',
+      paid,
     });
+  }
+
+  /**
+   * ใบสำคัญจ่าย (D-62 review): สถานะใบ ณ ตอนส่งต้องยังตรงกับข้อความ — ข้อความ "ให้ตรวจ" ส่งได้เฉพาะใบที่รอรถร่วมตรวจ
+   * (SENT_TO_CARRIER/DISPUTED) · ข้อความ "ดูสถานะการจ่าย" เฉพาะใบ APPROVED/PAID · ไม่ตรง (เช่น อนุมัติระหว่างรอส่ง) =
+   * FAILED `entity_state_changed` ไม่ลองใหม่ · คืน true เมื่อใบจ่ายแล้ว (ข้อความตามสถานะ)
+   */
+  private async checkEntityState(
+    m: Claimed,
+    link: { purpose: string; entityType: string; entityId: string; actions: string[] },
+  ): Promise<boolean> {
+    if (link.purpose !== 'settlement_review') return false;
+    const st =
+      link.entityType === 'carrier_settlement'
+        ? await this.prisma.platform.carrierSettlement.findFirst({
+            where: { id: link.entityId, tenantId: m.tenantId },
+            select: { status: true },
+          })
+        : null;
+    const allowed: readonly string[] =
+      m.template === 'settlement_payment_status_link'
+        ? ['APPROVED', 'PAID']
+        : ['SENT_TO_CARRIER', 'DISPUTED'];
+    if (!st || !allowed.includes(st.status))
+      throw new MessagingError(
+        `settlement is ${st?.status ?? 'missing'} — message no longer applies`,
+        'entity_state_changed',
+        false,
+      );
+    return st.status === 'PAID';
   }
 
   /** ส่ง 1 ข้อความ — คืน true ถ้ามีงาน */

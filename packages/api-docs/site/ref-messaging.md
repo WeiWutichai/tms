@@ -21,7 +21,7 @@ scope: `master:write` หรือ `trips:assign` หรือ `settlements:crea
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `channel` | ใช่ | `string` | ค่า: `line`, `sms` | ช่องทาง |   |
-| `url` | ใช่ | `string` |   | URL ลิงก์ที่ระบบออกให้ (เช่น `url` จาก POST /v1/carriers/{id}/upload-links) — ต้องเป็นลิงก์ที่ยังใช้ได้ของบริษัทนี้ ระบบเลือก template + สิทธิ์ตามชนิดลิงก์ · ผู้รับ = ช่องทางที่บันทึกไว้ของผู้รับเหมาเจ้าของลิงก์ (เบอร์มือถือ / LINE userId) — ระบุผู้รับเองไม่ได้ |   |
+| `url` | ใช่ | `string` |   | URL ลิงก์ที่ระบบออกให้ (เช่น `url` จาก POST /v1/carriers/{id}/upload-links) — ต้องเป็นลิงก์ที่ยังใช้ได้ของบริษัทนี้ ระบบเลือก template + สิทธิ์ตามชนิดลิงก์ (carrier_docs → `master:write`; trip_offer → `trips:assign`; settlement_review → `settlements:create` — ลิงก์ตรวจของใบที่รอรถร่วมตรวจใช้ `settlement_review_link`, ลิงก์ดูอย่างเดียวของใบ APPROVED/PAID ใช้ `settlement_payment_status_link`) · ผู้รับ = ช่องทางที่บันทึกไว้ของผู้รับเหมาเจ้าของลิงก์ (เบอร์มือถือ / LINE userId) — ระบุผู้รับเองไม่ได้ |   |
 
 **Responses**
 
@@ -206,7 +206,7 @@ const { data, error } = await tms.GET('/v1/settings/messaging');
 | `attempts` | ใช่ | `number` |   |   |   |
 | `provider` | ใช่ | `string` | null ได้ |   | `mock` |
 | `providerMessageId` | ใช่ | `string` | null ได้ |   |   |
-| `errorCode` | ใช่ | `string` | null ได้ | สาเหตุที่ส่งไม่สำเร็จ: provider_unavailable · provider_auth_failed · provider_rejected · not_configured · channel_disabled · lease_expired |   |
+| `errorCode` | ใช่ | `string` | null ได้ | สาเหตุที่ส่งไม่สำเร็จ: provider_unavailable · provider_auth_failed · provider_rejected · not_configured · channel_disabled · lease_expired · link_inactive · entity_state_changed (สถานะเอกสารเปลี่ยนระหว่างรอส่ง เช่น ใบสำคัญจ่ายอนุมัติแล้ว) |   |
 | `createdAt` | ใช่ | `string (date-time)` |   |   |   |
 | `sentAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
 | `failedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
