@@ -48,7 +48,7 @@ export function sampleSettlementPaid(): SettlementPrintModel {
 }
 
 export function sampleSettlementDraft(): SettlementPrintModel {
-  // 1%: 4,200 + 6,950 = 11,150 – 111.50 · 3% (ค่าบริการยก): 1,200 – 36.00 · หัก 2,000 + 450 + 300
+  // 1%: 4,200 + 6,950 = 11,150 ⇒ 111.50 · 3% (ค่าบริการยก): 1,200 ⇒ 36.00 · หัก 2,000 + 450 + 300
   return {
     yearStyle: 'BE',
     settlementNo: null,
@@ -93,7 +93,7 @@ export function sampleSettlementLong(): SettlementPrintModel {
       ),
     );
   }
-  // Σ ค่าเที่ยว 20×5,100 + 20×4,300 = 188,000 · หน้างาน 14×250 = 3,500 – 191,500 · 1% = 1,915.00
+  // Σ ค่าเที่ยว 20×5,100 + 20×4,300 = 188,000 · หน้างาน 14×250 = 3,500 ⇒ 191,500 · 1% = 1,915.00
   return {
     yearStyle: 'CE',
     settlementNo: 'SA-2611-0021',

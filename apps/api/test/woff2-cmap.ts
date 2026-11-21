@@ -114,6 +114,7 @@ export function woff2CodePoints(file: string): Set<number> {
     const o = cmap.readUInt32BE(4 + i * 8 + 4);
     const format = cmap.readUInt16BE(o);
     if (format === 4) {
+      // หมายเหตุ: นับทุก code point ในช่วง segment โดยไม่ดู idDelta/idRangeOffset — ถ้าฟอนต์ map ไป glyph 0 (.notdef) จะนับว่ามี (Sarabun ไม่มีกรณีนี้ ตรวจด้วย mutation test แล้ว)
       const segX2 = cmap.readUInt16BE(o + 6);
       const ends = o + 14;
       const starts = ends + segX2 + 2;
