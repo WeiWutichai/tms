@@ -7,6 +7,7 @@ import {
   SOR_TAX_PUSH_CAPABILITIES,
 } from '@tms/domain';
 import { Clock } from '../../common/clock';
+import type { Tx } from '../../db/db.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { OutboxSinkRegistry } from '../integration/outbox-sink.registry';
 import { OutboxSinkError, type OutboxDelivery, type OutboxSink } from '../integration/outbox.types';
@@ -25,6 +26,35 @@ import {
 } from './erp-adapter';
 
 export const ERP_SINK = 'erp';
+
+/**
+ * ST8-T16 สถานะของเอกสารต้นทางตอนจะส่ง — `CANCELLED` = ไม่ส่ง · ไม่พบ/ชนิดอื่น = `OK` (ไม่ตัดสินแทน)
+ * ใบแจ้งหนี้: CANCELLED (ST5-T10) · ใบสำคัญจ่าย: ส่งได้เฉพาะ PAID (D-58) อื่น ๆ (ยกเลิก) = CANCELLED
+ */
+async function sourceState(
+  tx: Tx,
+  entityType: string,
+  localId: string,
+): Promise<'OK' | 'CANCELLED'> {
+  if (entityType === 'invoice') {
+    const r = await tx.invoice.findUnique({ where: { id: localId }, select: { status: true } });
+    return r?.status === 'CANCELLED' ? 'CANCELLED' : 'OK';
+  }
+  if (entityType === 'settlement') {
+    const r = await tx.carrierSettlement.findUnique({
+      where: { id: localId },
+      select: { status: true },
+    });
+    return r && r.status !== 'PAID' ? 'CANCELLED' : 'OK';
+  }
+  return 'OK';
+}
+
+/** entity ที่เก็บ external_mapping หลัง push สำเร็จ (ST8-T16) */
+const MAPPED_ENTITIES: Readonly<Record<string, string>> = {
+  invoice: 'INVOICE',
+  settlement: 'SETTLEMENT',
+};
 
 /** คำสั่งที่ส่งเอกสารเข้า ERP (ผ่านประตู mapping/ผังรหัสก่อน) */
 const PUSH_OPERATIONS: ReadonlySet<string> = new Set([
@@ -58,7 +88,7 @@ function parkedNotImplemented(cap: string): OutboxSinkError {
  *   `serviceItem.externalId` ก่อนส่ง adapter (docs/01 §7.2)
  * - ST8-T06 ค่าที่ adapter ประกาศใน `masterCodeRefs` (เช่น หน่วย/พนักงานขายของ KRS) ไม่อยู่ใน `erp_master_code` → FAILED_FINAL
  *   (VALIDATION `erp_master_code_unknown` + ลิงก์) · ผ่าน = รหัสที่หาได้อยู่ใน `ctx.masterCodes`
- * การสร้างคำสั่งหลัง finalize + ประตู syncFromDate + external_mapping = ST7-T15/T16
+ * ST8-T16 (ส่วนหนึ่งของ ST7-T15/T16): คำสั่งหลัง finalize/บันทึกจ่าย/ยกเลิก = `ErpSyncService` · push สำเร็จ → external_mapping · ประตู syncFromDate = ST7-T16
  */
 @Injectable()
 export class ErpAdapterSink implements OutboxSink, OnModuleInit {
@@ -119,6 +149,16 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         code: 'unknown_operation',
       });
     const cap = ERP_OPERATION_CAPABILITY[d.operation];
+    // ST8-T16 (review L3) แจ้งยกเลิกเอกสารที่ส่งไปแล้ว: ยังไม่มี adapter ใดยกเลิกผ่าน API (void ผ่านใบลดหนี้ = ST7-T16)
+    // → งานที่บัญชีต้องตรวจ/ยกเลิกในระบบบัญชีเอง (SKIPPED + audit แจ้งบัญชี) ทุก adapter
+    if (d.operation === 'VOID_DOCUMENT') {
+      await this.skipped(d, connector, 'void_manual_required');
+      throw new OutboxSinkError(
+        'document was cancelled in TMS — check and cancel it in the accounting system manually',
+        'CAPABILITY',
+        { code: 'void_manual_required', capability: cap },
+      );
+    }
     // ST8-T03 adapter ประกาศแต่ยังไม่ได้ทำ → พักไว้ (ไม่ทิ้ง ไม่เสียจำนวนครั้ง) จนกว่า deploy ตัวที่ทำแล้ว
     if (isPendingCapability(adapter, cap)) throw parkedNotImplemented(cap);
     if (!adapter.capabilities().has(cap)) {
@@ -145,6 +185,17 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         code: 'sor_not_chosen',
         capability: cap,
       });
+
+    // ST8-T16 (review M1) ตรวจสถานะเอกสารต้นทางก่อนส่งทุกครั้ง — ยกเลิกแล้ว (เช่น ยกเลิกใบระหว่างคำสั่งรอคิว/พักไว้) = ไม่ส่ง
+    if (d.operation === 'PUSH_INVOICE' || d.operation === 'PUSH_SETTLEMENT') {
+      const state = await d.withTx((tx) => sourceState(tx, d.entityType, d.localId));
+      if (state === 'CANCELLED') {
+        await this.skipped(d, connector, 'document_cancelled');
+        throw new OutboxSinkError('source document was cancelled — not sent', 'CAPABILITY', {
+          code: 'document_cancelled',
+        });
+      }
+    }
 
     // สำเนาตื้น — ใส่รหัส ERP ที่จับคู่โดยไม่แก้ payload ที่เก็บในคิว
     const payload = { ...((d.payload ?? {}) as Record<string, unknown>) } as {
@@ -233,6 +284,42 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     }
   }
 
+  /**
+   * ST8-T16 push สำเร็จ → `external_mapping` (เลข/สถานะฝั่ง ERP + hash ของ payload ที่ส่ง) — ส่งซ้ำ = อัปเดตแถวเดิม
+   * ไม่ทับเลขเอกสาร/สถานะที่ได้จาก webhook แล้ว (ERP ตอบ "มีอยู่แล้ว" กับร่างที่ลงบัญชีไปแล้ว)
+   */
+  private async recordMapping(
+    d: OutboxDelivery,
+    c: Connector,
+    payload: { document?: CanonicalDocument },
+    r: Extract<PushResult, { ok: true }>,
+  ): Promise<void> {
+    const entity = MAPPED_ENTITIES[d.entityType];
+    if (!entity) return;
+    const doc = payload.document ?? (payload as CanonicalDocument);
+    const number = typeof doc?.number === 'string' ? doc.number.slice(0, 60) : null;
+    const hash = typeof doc?.sync?.hash === 'string' ? doc.sync.hash.slice(0, 64) : null;
+    const now = this.clock.now();
+    await d.withTx(async (tx) => {
+      await tx.$executeRaw`
+        INSERT INTO external_mapping (id, tenant_id, connector_id, entity_type, local_id, local_number, external_id,
+                                      external_doc_no, external_status, status, last_synced_hash, last_synced_at,
+                                      created_by, updated_at)
+        VALUES (gen_random_uuid(), ${d.tenantId}::uuid, ${c.id}::uuid, ${entity}::"ExternalEntityType",
+                ${d.localId}::uuid, ${number}, ${String(r.externalId).slice(0, 100)},
+                ${r.externalDocNo?.slice(0, 100) ?? null}, 'DRAFT', 'SYNCED', ${hash}, ${now},
+                'system:erp-sink', now())
+        ON CONFLICT (connector_id, entity_type, local_id) DO UPDATE
+           SET external_id = EXCLUDED.external_id,
+               local_number = coalesce(EXCLUDED.local_number, external_mapping.local_number),
+               external_doc_no = coalesce(external_mapping.external_doc_no, EXCLUDED.external_doc_no),
+               external_status = coalesce(external_mapping.external_status, EXCLUDED.external_status),
+               status = 'SYNCED', last_error = NULL,
+               last_synced_hash = EXCLUDED.last_synced_hash, last_synced_at = EXCLUDED.last_synced_at,
+               updated_by = 'system:erp-sink', version = external_mapping.version + 1, updated_at = now()`;
+    });
+  }
+
   private async skipped(d: OutboxDelivery, c: Connector, code: string) {
     await d.withTx((tx) =>
       this.connectors.recordSkipped(
@@ -282,12 +369,18 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         const st = await adapter.fetchPaymentStatus!(ctx, payload.ref);
         return { result: { found: !!st, paymentStatus: st } };
       }
+      case 'VOID_DOCUMENT':
+        // ERP ที่มี pushCreditNote: ส่งการยกเลิกเป็นใบลดหนี้ — ออกแบบใน ST7-T16 (ยังไม่ส่ง ไม่เดา)
+        throw new OutboxSinkError('void via credit note is not implemented yet', 'VALIDATION', {
+          code: 'void_not_implemented',
+        });
       default:
         throw new OutboxSinkError(`unknown operation ${d.operation}`, 'VALIDATION', {
           code: 'unknown_operation',
         });
     }
-    if (r.ok)
+    if (r.ok) {
+      await this.recordMapping(d, connector, payload, r);
       return {
         result: {
           externalId: r.externalId,
@@ -295,6 +388,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
           externalVersion: r.externalVersion ?? null,
         },
       };
+    }
     if (r.problem?.code === NOT_IMPLEMENTED)
       throw parkedNotImplemented(
         ERP_OPERATION_CAPABILITY[d.operation as keyof typeof ERP_OPERATION_CAPABILITY],

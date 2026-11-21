@@ -72,6 +72,12 @@ export const ERP_OPERATION_CAPABILITY = {
   REPLACE_DOCUMENT: 'replaceDocument',
   FETCH_DOCUMENT: 'fetchDocument',
   FETCH_PAYMENT_STATUS: 'fetchPaymentStatus',
+  /**
+   * ST8-T16 แจ้ง ERP ว่าเอกสารที่ส่งไปแล้วถูกยกเลิกใน TMS (ST5-T10) — docs/01 §6.1: ทางแก้ของ ERP คือใบลดหนี้ (`pushCreditNote`)
+   * adapter ไม่มี capability นี้ = SKIPPED `void_manual_required` (ต้องยกเลิกในระบบบัญชีเอง — docs/01 §6.3 CAPABILITY "แจ้งบัญชี")
+   * การส่งจริงผ่าน pushCreditNote ออกแบบใน ST7-T16
+   */
+  VOID_DOCUMENT: 'pushCreditNote',
 } as const satisfies Record<string, ErpCapability>;
 export type ErpOperation = keyof typeof ERP_OPERATION_CAPABILITY;
 

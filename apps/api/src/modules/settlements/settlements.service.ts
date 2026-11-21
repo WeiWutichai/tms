@@ -18,6 +18,7 @@ import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { ErpSyncService } from '../erp/erp-sync.service';
 import { issueNumber } from '../sequences/sequences.service';
 import { TripService } from '../trips/trip.service';
 import { readSettings } from '../settings/settings.service';
@@ -107,6 +108,7 @@ export class SettlementsService {
     private readonly queue: SettlementQueueService,
     private readonly review: SettlementReviewService,
     private readonly trips: TripService,
+    private readonly erpSync: ErpSyncService,
   ) {}
 
   // ---------- อ่าน ----------
@@ -642,6 +644,8 @@ export class SettlementsService {
         actorId: actor,
       },
     });
+    // ST8-T16 (D-58) connector ที่เปิด pushSettlement → ส่งเป็นเจ้าหนี้ร่าง + WHT ประมาณการ (outbox — หลัง commit)
+    await this.erpSync.settlementPaid(tx, out);
     return out;
   }
 

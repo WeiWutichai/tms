@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "accountsystem/document-draft-create.schema.json",
+  "title": "AccountSystem DocumentDraftCreate (packages/contracts/src/index.ts — zod)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["doc_type", "issue_date", "contact_code", "lines"],
+  "properties": {
+    "doc_type": { "enum": ["QO", "SO", "BL", "IV", "CN", "DN", "DP", "RV", "PR", "PO", "AP", "EXP", "CNR", "DNR", "PV", "JV"] },
+    "issue_date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "due_date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "contact_code": { "type": "string", "minLength": 1 },
+    "price_incl_vat": { "type": "boolean", "default": false },
+    "branch_code": { "type": "string", "pattern": "^\\d{5}$", "default": "00000" },
+    "lines": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["description"],
+        "properties": {
+          "line_type": { "enum": ["item", "heading", "note"], "default": "item" },
+          "product_code": { "type": "string" },
+          "description": { "type": "string", "minLength": 1 },
+          "qty": { "type": "string", "pattern": "^-?\\d{1,14}(\\.\\d{1,4})?$" },
+          "unit_price": { "type": "string", "pattern": "^-?\\d{1,14}(\\.\\d{1,4})?$" },
+          "discount": { "type": "string", "pattern": "^-?\\d{1,16}\\.\\d{2}$" },
+          "amount": { "type": "string", "pattern": "^-?\\d{1,16}\\.\\d{2}$" },
+          "vat_rate": { "type": "string", "pattern": "^\\d{1,3}(\\.\\d{1,4})?$" },
+          "account_code": { "type": "string", "pattern": "^\\d{7}$" }
+        }
+      }
+    },
+    "external_source": { "type": "string", "minLength": 1 },
+    "external_ref": { "type": "string", "minLength": 1 }
+  },
+  "dependentRequired": { "external_source": ["external_ref"], "external_ref": ["external_source"] }
+}

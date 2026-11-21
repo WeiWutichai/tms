@@ -100,6 +100,9 @@ importers:
       '@tms/api-docs':
         specifier: workspace:*
         version: link:../../packages/api-docs
+      '@tms/mock-accountsystem':
+        specifier: workspace:*
+        version: link:../../packages/mock-accountsystem
       '@tms/mock-krs':
         specifier: workspace:*
         version: link:../../packages/mock-krs
@@ -250,6 +253,18 @@ importers:
 
   packages/domain:
     devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@types/node@20.19.43)(jsdom@25.0.1)(vite@6.4.6(@types/node@20.19.43)(jiti@2.7.0))
+
+  packages/mock-accountsystem:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.17.0
+        version: 20.19.43
       typescript:
         specifier: ^5.6.3
         version: 5.9.3
