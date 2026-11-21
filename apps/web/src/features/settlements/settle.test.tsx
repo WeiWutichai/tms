@@ -202,18 +202,28 @@ describe('dialog บันทึกจ่าย / อนุมัติ', () => 
 });
 
 describe('drawer: ปุ่มตามสิทธิ์ (review L7) · ขั้นอนุมัติของร่าง = รอดำเนินการ (L4) · ซ่อนยอดเมื่อไม่มีสิทธิ์ราคา (L1)', () => {
-  const drawer = (x: Partial<Settlement>, can: { a?: boolean; p?: boolean; r?: boolean }) => {
+  const drawer = (
+    x: Partial<Settlement>,
+    can: { a?: boolean; p?: boolean; r?: boolean },
+    link: {
+      link: { id: string; url: string; expiresAt: string };
+      viewOnly: boolean;
+      pay?: boolean;
+    } | null = null,
+    onPayLink: (s: Settlement) => void = () => {},
+  ) => {
     state.settlement = { ...S, createdAt: '2026-11-20T03:00:00Z', ...x } as Settlement;
     return wrap(
       <SettlementDrawer
         id="stl_1"
-        link={null}
+        link={link}
         canApprove={!!can.a}
         canPay={!!can.p}
         canRelink={!!can.r}
         onApprove={() => {}}
         onPay={() => {}}
         onRelink={() => {}}
+        onPayLink={onPayLink}
         onClose={() => {}}
         onToast={() => {}}
       />,
@@ -224,10 +234,35 @@ describe('drawer: ปุ่มตามสิทธิ์ (review L7) · ขั�
     return !!screen.queryByRole('menuitem', { name });
   };
 
-  it('ไม่มีสิทธิ์ = ไม่มีปุ่มอนุมัติ / บันทึกจ่าย / ออกลิงก์ใหม่', () => {
+  it('ไม่มีสิทธิ์ = ไม่มีปุ่มอนุมัติ / บันทึกจ่าย / ออกลิงก์ใหม่ / ลิงก์ค่าเที่ยว', () => {
     drawer({ status: 'SENT_TO_CARRIER' }, {});
     expect(screen.queryByRole('button', { name: 'อนุมัติ' })).toBeNull();
     expect(menuHas('ออกลิงก์ใหม่')).toBe(false);
+    expect(screen.queryByRole('menuitem', { name: th['settle.menu.payLink'] })).toBeNull();
+  });
+  it('ST6-T11 เมนู "ลิงก์ค่าเที่ยวของรถร่วม" (สิทธิ์ออกลิงก์) ทุกสถานะ → เรียก onPayLink · กล่องลิงก์บอกว่าเป็นลิงก์ค่าเที่ยว', () => {
+    const go = vi.fn();
+    const v = drawer({ status: 'PAID' }, { r: true }, null, go);
+    expect(menuHas(th['settle.menu.payLink'])).toBe(true);
+    fireEvent.click(screen.getByRole('menuitem', { name: th['settle.menu.payLink'] }));
+    expect(go).toHaveBeenCalledWith(expect.objectContaining({ id: 'stl_1' }));
+    v.unmount();
+    drawer(
+      { status: 'DRAFT' },
+      { r: true },
+      {
+        link: {
+          id: 'mlk_1',
+          url: 'http://localhost/link/carrier-pay/ml1.x',
+          expiresAt: '2026-12-22T03:00:00Z',
+        },
+        viewOnly: true,
+        pay: true,
+      },
+    );
+    const box = screen.getByTestId('settle-link');
+    expect(box.textContent).toContain('/link/carrier-pay/');
+    expect(box.textContent).toContain('ลิงก์ค่าเที่ยวของฉัน (ดูอย่างเดียว)');
   });
   it('มีสิทธิ์อนุมัติ + ออกลิงก์ → มีปุ่ม/เมนู', () => {
     drawer({ status: 'SENT_TO_CARRIER' }, { a: true, r: true });

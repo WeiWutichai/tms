@@ -83,6 +83,14 @@ export function useReissueLink() {
   });
 }
 
+/** ST6-T11 ลิงก์ "ค่าเที่ยวของฉัน" ของรถร่วม (ดูอย่างเดียว) — เพิกถอนลิงก์ค่าเที่ยวเดิมของรถร่วมรายนั้น */
+export function useIssuePayLink() {
+  return useMutation({
+    mutationFn: (carrierId: string) =>
+      unwrap(api.POST('/v1/carriers/{id}/pay-link', { params: { path: { id: carrierId } } })),
+  });
+}
+
 /** PDF ใบสำคัญจ่าย (ST6-T04) — แท็บใหม่ */
 export function openVoucherPdf(id: string, no: string | null): Promise<void> {
   return showPdf(

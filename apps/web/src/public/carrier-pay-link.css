@@ -1,0 +1,36 @@
+/* ST6-T11 หน้า "ค่าเที่ยวของฉัน" ของรถร่วม — ค่าจาก design/prototype/TMS Subcon.dc.html แท็บ "การเงิน" (ต่อจาก carrier-link.css / settlement-link.css)
+   การ์ด "รอรับเงิน": #FFF ขอบ #CDD1C8 radius 12 เงา 2 ชั้น padding 16 gap 2 · ป้าย 12.5/500 #3B424C · ยอด 26/600 #2257C4 tabular · บรรทัดล่าง #3B424C
+   การ์ดงวด = .cdl__card + .stl__top/.stl__no/.stl__amt (ST6-T05) · ปุ่ม "ใบจ่ายเงิน" = .stl__acc.stl__pv */
+.cpl__due {
+  background: #ffffff;
+  border: 1px solid #cdd1c8;
+  border-radius: 12px;
+  box-shadow:
+    0 1px 2px rgba(16, 20, 24, 0.06),
+    0 2px 6px rgba(16, 20, 24, 0.04);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cpl__due > span:first-child {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #3b424c;
+}
+.cpl__dueamt {
+  font-variant-numeric: tabular-nums;
+  font-size: 26px;
+  font-weight: 600;
+  color: #2257c4;
+}
+.cpl__per {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: #3b424c;
+}
+.cpl__note {
+  font-size: 13px;
+  color: #3b424c;
+}

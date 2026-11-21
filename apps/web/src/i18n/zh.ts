@@ -1076,6 +1076,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'settle.pay.ok': '登记付款',
   'settle.step.approve': '已批准',
   'settle.step.pay': '登记付款',
+  'cpl.due': '待收款',
   'stl.tab': '财务',
   'stl.st.SENT_TO_CARRIER': '待审核',
   'stl.st.PAID': '已支付',
