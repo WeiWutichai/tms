@@ -80,9 +80,10 @@ export function useCreateDraft() {
   });
 }
 
-export function useInvoiceCounts() {
+export function useInvoiceCounts(enabled = true) {
   return useQuery({
     queryKey: [KEY, 'summary'],
+    enabled,
     queryFn: () => unwrap(api.GET('/v1/invoices/summary')),
   });
 }

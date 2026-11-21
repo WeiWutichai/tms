@@ -291,6 +291,18 @@ export class PaymentSummaryDto {
   })
   @PriceField('sell')
   sellReceivedThisMonth?: string;
+  @ApiPropertyOptional({
+    description:
+      'ST9-T02 เงินเข้าจริงของการรับชำระเดือนก่อน (ทั้งเดือน — นิยามเดียวกับ `sellReceivedThisMonth`) — `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellReceivedLastMonth?: string;
+  @ApiProperty({
+    description: 'ST9-T02 จำนวนการรับชำระเดือนนี้ (ไม่รวมที่กลับรายการ — เวลาไทย)',
+  })
+  receivedThisMonth!: number;
+  @ApiProperty({ description: 'ST9-T02 จำนวนการรับชำระเดือนก่อน (ทั้งเดือน)' })
+  receivedLastMonth!: number;
   @ApiProperty({ description: 'ใบที่ค้างรับและครบกำหนดภายใน 7 วัน' }) dueSoon!: number;
   @ApiProperty({ description: 'ใบที่ออกแล้วทั้งหมด (ไม่รวมร่าง/ยกเลิก)' }) total!: number;
   @ApiProperty({ description: 'ค้างรับ (ISSUED + PARTIALLY_PAID)' }) open!: number;

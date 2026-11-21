@@ -24,6 +24,7 @@ import { invoiceDisplayStatus, overdueDays } from './billing';
 import { AGING_ORDER, AgingCard, agingLabel, type AgingBucket } from './AgingCard';
 import { InvoiceDrawer, invoiceStatusLabel } from './InvoiceDrawer';
 import { PayDrawer } from './PayDrawer';
+import { useUrlTab } from './useUrlTab';
 import { SavedViewMenu } from '../views/SavedViewMenu';
 import { pick, useSavedViews } from '../views/useSavedViews';
 import { useSendInvoiceEmail, type InvoiceSummary } from './useInvoices';
@@ -85,6 +86,14 @@ export function PayPage() {
       setCol({ no: x.no, cust: x.cust, st: x.st });
       setHidden(v.hidden);
     },
+  });
+  // ST9-T02 drill-down จาก Dashboard บิล / KPI / เมนูโปรด (`/pay?tab=over|part|open`) — ล้างตัวกรองคอลัมน์ + ช่วงอายุ
+  useUrlTab(TABS, (x) => {
+    setTab(x);
+    setCol({ no: '', cust: '', st: '' });
+    // review L1: มาจากลิงก์ = มุมมอง "กำหนดเอง" — ไม่ผูกมุมมองที่บันทึกไว้ + คอลัมน์ค่าเริ่มต้น
+    views.setActiveId(null);
+    setHidden(null);
   });
   const [open, setOpen] = useState<{ id: string; kind: 'pay' | 'inv' } | null>(null);
   const [toast, setToast] = useState<string | null>(null);

@@ -625,11 +625,21 @@ export class InvoiceMoveResultDto {
 }
 
 /** จำนวนใบแจ้งหนี้ตามสถานะ — แท็บ/KPI ของหน้า "วางบิลและใบแจ้งหนี้" */
+/** ST9-T02 ยอดใบแจ้งหนี้ที่ออกในเดือน (Dashboard บิล — เดือนนี้ vs เดือนก่อน) */
+export class InvoiceMonthTotalDto {
+  @ApiProperty({ example: '2026-11' }) month!: string;
+  @ApiProperty({ description: 'จำนวนใบ' }) count!: number;
+  @ApiPropertyOptional({ example: '96300.00', description: 'Σ ยอดรวมใบ — `prices.sell:read`' })
+  @PriceField('sell')
+  sellTotal?: string;
+}
+
 export class InvoiceSummaryCountsDto {
   @ApiProperty() total!: number;
   @ApiProperty() draft!: number;
   @ApiProperty({
-    description: 'ISSUED + ADJUSTED ที่ไม่เกินกำหนด (ST5-T18 — เกินกำหนดนับใน `overdue`)',
+    description:
+      'ISSUED ที่ไม่เกินกำหนด (ST5-T18 — เกินกำหนดนับใน `overdue`) · ST9-T02: ไม่รวม ADJUSTED (นิยามลูกหนี้เดียวกับ `GET /payments/summary` — ADJUSTED นับใน `total` เท่านั้น)',
   })
   issued!: number;
   @ApiProperty({ description: 'PARTIALLY_PAID ที่ไม่เกินกำหนด (ST5-T18)' }) partiallyPaid!: number;
@@ -640,6 +650,48 @@ export class InvoiceSummaryCountsDto {
   })
   overdue!: number;
   @ApiProperty({ description: 'CANCELLED + VOIDED' }) cancelled!: number;
+  @ApiProperty({
+    example: '2026-11-22',
+    description: 'ST9-T02 วันนี้ตามเวลาไทยของ server (ใช้ตัดเกินกำหนด/เดือน)',
+  })
+  today!: string;
+  @ApiPropertyOptional({
+    example: '12500.00',
+    description: 'ST9-T02 Σ ยอดรวมของร่าง (ประมาณการ — ยังไม่ออกเลข) — `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellDraftTotal?: string;
+  @ApiPropertyOptional({
+    example: '48000.00',
+    description:
+      'ST9-T02 Σ ยอดค้าง (ยอดรวม − ยอดตัดชำระ) ของใบในแท็บ "ออกแล้ว" (ISSUED ที่ไม่เกินกำหนด) — `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellIssuedOutstanding?: string;
+  @ApiPropertyOptional({
+    example: '3200.00',
+    description: 'ST9-T02 Σ ยอดค้างของใบชำระบางส่วนที่ไม่เกินกำหนด — `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellPartiallyPaidOutstanding?: string;
+  @ApiPropertyOptional({
+    example: '12500.00',
+    description:
+      'ST9-T02 Σ ยอดค้างของใบเกินกำหนด (ชุดเดียวกับ `overdue` และ `GET /payments/summary` `sellOverdueOutstanding`) — `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellOverdueOutstanding?: string;
+  @ApiProperty({
+    type: InvoiceMonthTotalDto,
+    description:
+      'ST9-T02 ใบที่ออกเลขเดือนนี้ (วันที่ 1 ถึงวันนี้ ตาม `issueDate` เวลาไทย) ไม่รวมร่าง/ยกเลิก',
+  })
+  issuedThisMonth!: InvoiceMonthTotalDto;
+  @ApiProperty({
+    type: InvoiceMonthTotalDto,
+    description: 'ST9-T02 ใบที่ออกเลขเดือนก่อน (ทั้งเดือน) ไม่รวมร่าง/ยกเลิก',
+  })
+  issuedLastMonth!: InvoiceMonthTotalDto;
 }
 
 /** ฉบับของ PDF ใบที่ออกแล้ว (BIL-195): ต้นฉบับ / สำเนา */
