@@ -23,6 +23,7 @@ import {
 } from '@nestjs/swagger';
 import { scopeAllows } from '@tms/domain';
 import type { Request, Response } from 'express';
+import { createHash } from 'node:crypto';
 import { NoTransaction, RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
@@ -45,6 +46,14 @@ import {
   UpdateBillingNoteDto,
 } from './billing-note.dto';
 import { BillingNotesService } from './billing-notes.service';
+import {
+  DocumentEmailListDto,
+  DocumentEmailResultDto,
+  SEND_422,
+  SEND_429,
+  SendBillingNoteDto,
+} from '../invoices/document-email.dto';
+import { DocumentEmailService } from '../invoices/document-email.service';
 
 const NF = { ...T404, description: 'ไม่พบใบวางบิล (รวมของบริษัทอื่น)' };
 const IF_MATCH = {
@@ -98,7 +107,10 @@ const sellOnly = () => {
 @ApiBearerAuth()
 @Controller('billing-notes')
 export class BillingNotesController {
-  constructor(private readonly svc: BillingNotesService) {}
+  constructor(
+    private readonly svc: BillingNotesService,
+    private readonly mail: DocumentEmailService,
+  ) {}
 
   // ประกาศ `summary` / `candidates` ก่อน `:id` เสมอ — test/billing-notes.test.ts ตรวจลำดับ route
   @Get('summary')
@@ -360,5 +372,86 @@ export class BillingNotesController {
       `inline; filename="${encodeURIComponent(doc.filename ?? 'billing-note.pdf')}"`,
     );
     return new StreamableFile(data);
+  }
+  @Get(':id/pdf-bundle')
+  @NoTransaction()
+  @TenantResource('issuedBillingNote')
+  @RequireScope('invoices:read')
+  @Header('Cache-Control', 'no-store')
+  @ApiOperation({
+    summary: 'ไฟล์รวมชุด "ใบวางบิล + ใบแจ้งหนี้" (PDF เดียว) — ดาวน์โหลดไปส่งเอง',
+    description:
+      'ST5-T21 (docs/04 F3) · ใบวางบิลที่ออกแล้ว (ISSUED / COLLECTED — อื่น ๆ 409) · หน้าแรก = ใบวางบิล**ต้นฉบับ** ตามด้วยใบแจ้งหนี้**ต้นฉบับ**ตามลำดับในใบวางบิล · ' +
+      'คัดลอกหน้าจาก PDF ที่เก็บ ณ วันออก (ไม่ render ใหม่ — ยังไม่มีไฟล์ = สร้างตามกติกาเดิมของแต่ละใบ; แม่แบบเปลี่ยนแล้ว → 409 `invoice_pdf_template_changed`) · ' +
+      'header `X-Content-SHA256`, `X-Bundle-Contents` (เลขเอกสารตามลำดับ คั่นด้วย `,`) · ต้องมี `prices.sell:read`',
+  })
+  @ApiProduces('application/pdf')
+  @ApiProblems(T403('invoices:read'), NF, T409('invoice_pdf_template_changed'))
+  @ApiOkResponse({ description: 'application/pdf' })
+  async pdfBundle(
+    @Param('id') id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    sellOnly();
+    const b = await this.mail.billingNoteBundle(decodeIdOr404('billingNote', id));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('X-Content-SHA256', createHash('sha256').update(b.data).digest('hex'));
+    res.setHeader('X-Bundle-Contents', b.contents.map(encodeURIComponent).join(','));
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${encodeURIComponent(b.filename)}"; filename*=UTF-8''${encodeURIComponent(b.filename)}`,
+    );
+    return new StreamableFile(b.data);
+  }
+
+  @Post(':id/send')
+  @HttpCode(200)
+  @NoTransaction()
+  @TenantResource('issuedBillingNote')
+  @RequireScope('invoices:finalize')
+  @ApiOperation({
+    summary: 'ส่งชุดใบวางบิล + ใบแจ้งหนี้ทางอีเมลถึงลูกค้า (ไฟล์รวม 1 ไฟล์)',
+    description:
+      'ST5-T21 (docs/04 F3; spec/05 BIL-041) · สิทธิ์ `invoices:finalize` + `prices.sell:read` · ใบวางบิล ISSUED / COLLECTED (อื่น ๆ 409) · ' +
+      'แนบไฟล์เดียวกับ `GET /billing-notes/{id}/pdf-bundle` · ผู้รับ = `to` หรือผู้ติดต่อของลูกค้าที่มีอีเมล (ไม่มี → 422 `document_email_no_recipient`) · ' +
+      'อีเมล 1 ฉบับต่อผู้รับผ่าน outbox (ส่งโดย worker; สถานะการส่งดูที่ `GET /billing-notes/{id}/emails` — แยกจากสถานะเอกสาร) · ' +
+      'ผู้รับเดิมยังรอส่งอยู่ (ภายใน 10 นาที) → 409 `document_email_pending` · ไฟล์เกิน 10 MB → 422 `email_attachment_too_large` (ดาวน์โหลดแล้วส่งเอง) · ' +
+      'ใบแจ้งหนี้ในชุดที่ยังไม่มีธง "ส่งลูกค้าแล้ว" → ตั้งช่องทาง EMAIL · audit `billing_note.emailed` · บริษัททดสอบ (sandbox) ไม่ส่งออกจริง (`sandbox_suppressed`) · ' +
+      'ส่ง `Idempotency-Key` ได้ (กดซ้ำ = ผลเดิม)',
+  })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: false,
+    description: 'ส่งซ้ำ key เดิม + body เดิม = ผลเดิม (ไม่ส่งอีเมลซ้ำ) เก็บ 24 ชม.',
+  })
+  @ApiProblems(
+    T403('invoices:finalize'),
+    NF,
+    T409('invoice_pdf_template_changed', 'document_email_pending'),
+    SEND_422,
+    SEND_429,
+  )
+  @ApiOkResponse({ type: DocumentEmailResultDto })
+  async send(
+    @Param('id') id: string,
+    @Body() body: SendBillingNoteDto,
+  ): Promise<DocumentEmailResultDto> {
+    sellOnly();
+    return this.mail.sendBillingNote(decodeIdOr404('billingNote', id), body.to);
+  }
+
+  @Get(':id/emails')
+  @NoTransaction()
+  @TenantResource('billingNote')
+  @RequireScope('invoices:read')
+  @ApiOperation({
+    summary: 'ประวัติการส่งใบวางบิลทางอีเมล + สถานะการส่งต่อผู้รับ',
+    description:
+      'ST5-T21 · ใหม่สุดก่อน (สูงสุด 100) · สถานะ QUEUED / SENT / FAILED แยกจากสถานะเอกสาร',
+  })
+  @ApiProblems(T403('invoices:read'), NF)
+  @ApiOkResponse({ type: DocumentEmailListDto })
+  emails(@Param('id') id: string): Promise<DocumentEmailListDto> {
+    return this.mail.list('billing_note', decodeIdOr404('billingNote', id));
   }
 }

@@ -73,6 +73,14 @@ import { InvoiceStatusService } from './invoice-status.service';
 import { InvoiceFinalizeService } from './invoice-finalize.service';
 import { InvoicePdfService } from './invoice-pdf.service';
 import { InvoicesService } from './invoices.service';
+import {
+  DocumentEmailListDto,
+  DocumentEmailResultDto,
+  SEND_422,
+  SEND_429,
+  SendInvoiceDto,
+} from './document-email.dto';
+import { DocumentEmailService } from './document-email.service';
 
 const NF = { ...T404, description: 'ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น)' };
 const IF_MATCH = {
@@ -165,6 +173,7 @@ export class InvoicesController {
     private readonly finalizer: InvoiceFinalizeService,
     private readonly canceller: InvoiceCancelService,
     private readonly status: InvoiceStatusService,
+    private readonly mail: DocumentEmailService,
   ) {}
 
   // ประกาศ `queue` ก่อน `:id` เสมอ (ไม่งั้น /invoices/queue ถูกจับเป็น id) — test/invoices-draft.test.ts ตรวจลำดับ route
@@ -787,7 +796,7 @@ export class InvoicesController {
       'ST5-T18 (plan/11 #5 `sent_to_customer_at`; docs/04 F3) · สิทธิ์ `invoices:finalize` · ใบที่ออกเลขแล้วและไม่ถูกยกเลิก ' +
       '(ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — อื่น ๆ 409 `invalid_state_transition`) · ส่งแล้วอยู่แล้ว = คืนค่าเดิม (ไม่เปลี่ยน) · ' +
       'audit `invoice.sent_to_customer` · ส่งแล้ว**ยกเลิกใบไม่ได้** (`/void` → 409 `invoice_sent_to_customer`) · ' +
-      'ออกใบวางบิลตั้งธงนี้ให้อัตโนมัติ (ช่องทาง BILLING_NOTE) · ส่งอีเมล = ST5-T21',
+      'ออกใบวางบิลตั้งธงนี้ให้อัตโนมัติ (ช่องทาง BILLING_NOTE) · ส่งอีเมล (`POST /invoices/{id}/send`, ชุดใบวางบิล) ตั้งช่องทาง EMAIL (ST5-T21)',
   })
   @ApiHeader(IF_MATCH)
   @ApiProblems(T403('invoices:finalize'), NF, T409(), T412)
@@ -828,6 +837,61 @@ export class InvoicesController {
     );
     setEtag(res, out.version);
     return out;
+  }
+
+  @Post(':id/send')
+  @HttpCode(200)
+  @NoTransaction()
+  @TenantResource('issuedInvoice')
+  @RequireScope('invoices:finalize')
+  @ApiOperation({
+    summary: 'ส่งใบแจ้งหนี้ / ใบแจ้งเตือนชำระ ทางอีเมลถึงลูกค้า (แนบ PDF ต้นฉบับ)',
+    description:
+      'ST5-T21 (docs/04 F3; spec/05 BIL-041) · สิทธิ์ `invoices:finalize` + `prices.sell:read` · ' +
+      '`purpose=DOCUMENT` (ค่าเริ่ม): ใบที่ออกเลขแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED) · ' +
+      '`purpose=PAYMENT_REMINDER` (ต้นแบบหน้า "รับชำระ" เมนู "ส่งใบแจ้งเตือนชำระ"): เฉพาะใบที่ยังมียอดค้าง (ISSUED / PARTIALLY_PAID) — อื่น ๆ 409 `reason: not_outstanding` · ' +
+      'แนบไฟล์ต้นฉบับที่เก็บ ณ วันออก (`GET /invoices/{id}/pdf`) · ผู้รับ = `to` หรือผู้ติดต่อของลูกค้าที่มีอีเมล · ' +
+      'อีเมล 1 ฉบับต่อผู้รับผ่าน outbox (สถานะการส่งที่ `GET /invoices/{id}/emails`) · ผู้รับเดิมยังรอส่ง (ภายใน 10 นาที) → 409 `document_email_pending` · ' +
+      'ยังไม่มีธง "ส่งลูกค้าแล้ว" → ตั้งช่องทาง EMAIL (ส่งแล้วยกเลิกใบไม่ได้ — ST5-T18) · audit `invoice.emailed` · sandbox ไม่ส่งออกจริง',
+  })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: false,
+    description: 'ส่งซ้ำ key เดิม + body เดิม = ผลเดิม (ไม่ส่งอีเมลซ้ำ) เก็บ 24 ชม.',
+  })
+  @ApiProblems(
+    T403('invoices:finalize'),
+    NF,
+    T409('invoice_pdf_template_changed', 'document_email_pending'),
+    SEND_422,
+    SEND_429,
+  )
+  @ApiOkResponse({ type: DocumentEmailResultDto })
+  async send(
+    @Param('id') id: string,
+    @Body() body: SendInvoiceDto,
+  ): Promise<DocumentEmailResultDto> {
+    const ctx = requestContext.require();
+    if (!scopeAllows(ctx.scopes ?? [], 'prices.sell:read'))
+      throw new ProblemException('permission_denied', undefined, undefined, {
+        requiredScope: 'prices.sell:read',
+      });
+    return this.mail.sendInvoice(decodeIdOr404('invoice', id), body.to, body.purpose ?? 'DOCUMENT');
+  }
+
+  @Get(':id/emails')
+  @NoTransaction()
+  @TenantResource('invoice')
+  @RequireScope('invoices:read')
+  @ApiOperation({
+    summary: 'ประวัติการส่งใบแจ้งหนี้ทางอีเมล + สถานะการส่งต่อผู้รับ',
+    description:
+      'ST5-T21 · การส่งรายใบ (`POST /invoices/{id}/send`) เท่านั้น — ส่งเป็นชุดใบวางบิลดูที่ `GET /billing-notes/{id}/emails` · ใหม่สุดก่อน (สูงสุด 100)',
+  })
+  @ApiProblems(T403('invoices:read'), NF)
+  @ApiOkResponse({ type: DocumentEmailListDto })
+  emails(@Param('id') id: string): Promise<DocumentEmailListDto> {
+    return this.mail.list('invoice', decodeIdOr404('invoice', id));
   }
 }
 

@@ -27,7 +27,7 @@ import { PayDrawer } from './PayDrawer';
 import { useUrlTab } from './useUrlTab';
 import { SavedViewMenu } from '../views/SavedViewMenu';
 import { pick, useSavedViews } from '../views/useSavedViews';
-import type { InvoiceSummary } from './useInvoices';
+import { useSendInvoiceEmail, type InvoiceSummary } from './useInvoices';
 import { useAgingSummary, usePaymentSummary, useReceivableList } from './usePayments';
 
 type Tab = 'all' | 'open' | 'over' | 'part' | 'paid';
@@ -49,7 +49,9 @@ const ST_OPTS = ['ISSUED', 'PARTIALLY_PAID', 'PAID', 'OVERDUE'] as const;
  * บัญชี → รับชำระ (ST5-T13; ต้นแบบ TMS v4 `pay` = kpisPay + ตาราง specPay + drawer vPanel 'pay')
  * D-54/D-56 บัญชีเบา: บันทึกเงิน/เช็ค ไม่ออกใบเสร็จ — คำบรรยายหน้าตัด "ออกใบเสร็จ" [DECISION spec/12 §3]
  * ST5-T22 การ์ด "อายุลูกหนี้" (vPay) — กดช่วงอายุ = ตัวกรอง `aging` ของรายการ (ต้นแบบ kf + ชิป "อายุหนี้ …") · เตือนครบกำหนดภายใน = job รายวัน
- * "ส่งใบแจ้งเตือนชำระ" (อีเมลถึงลูกค้า) = ST5-T21 ช่องส่งอีเมลลูกค้า [DECISION spec/12 §3] · คอลัมน์ "ระบบบัญชี" = ST8-T16
+ * "ส่งใบแจ้งเตือนชำระ" (ST5-T21 — ต้นแบบ menu/bulk ของ specPay, toast): อีเมลถึงผู้ติดต่อของลูกค้าแนบ PDF ต้นฉบับ (`POST /invoices/{id}/send`
+ * purpose PAYMENT_REMINDER) · แสดงเฉพาะผู้มี `invoices:finalize` และใบที่ยังค้าง (API ตอบ 409 กับใบที่ไม่ค้าง) [DECISION spec/12 §3 แถว ST5-T21]
+ * · คอลัมน์ "ระบบบัญชี" = ST8-T16
  */
 export function PayPage() {
   const { t } = useI18n();
@@ -95,6 +97,39 @@ export function PayPage() {
   });
   const [open, setOpen] = useState<{ id: string; kind: 'pay' | 'inv' } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const sendMail = useSendInvoiceEmail();
+  /** ต้นแบบ: แถว → "ส่งใบแจ้งเตือนชำระ {เลข} ทางอีเมลแล้ว" · bulk → "ส่งใบแจ้งเตือนชำระ {n} ใบแล้ว" (ข้ามใบที่ไม่ค้าง) */
+  const remind = async (rows: InvoiceSummary[]) => {
+    const due = rows.filter((x) => outOf(x) > 0);
+    let ok = 0;
+    let firstErr: unknown = null;
+    for (const x of due) {
+      try {
+        await sendMail.mutateAsync({
+          id: x.id,
+          purpose: 'PAYMENT_REMINDER',
+          key: crypto.randomUUID(),
+        });
+        ok++;
+      } catch (e) {
+        firstErr ??= e;
+      }
+    }
+    if (rows.length === 1 && due.length === 1)
+      setToast(
+        ok ? t('pay.remind.done', { no: due[0]!.invoiceNo ?? '' }) : problemText(firstErr, t),
+      );
+    else if (!due.length) setToast(t('pay.remind.none'));
+    else if (ok === due.length) setToast(t('pay.remind.doneN', { n: ok }));
+    else
+      setToast(
+        t('pay.remind.partial', {
+          n: ok,
+          m: due.length - ok,
+          reason: problemText(firstErr, t) ?? '',
+        }),
+      );
+  };
   const sum = usePaymentSummary().data;
   const aging = useAgingSummary().data;
   const kfOn = kf && AGING_ORDER.includes(kf) ? kf : '';
@@ -329,6 +364,16 @@ export function PayPage() {
               loading={list.loading}
               labels={tableLabels(t)}
               bulkActions={[
+                ...(canFinalize
+                  ? [
+                      {
+                        label: t('pay.remind'),
+                        icon: 'mail',
+                        run: (ids: string[]) =>
+                          void remind(shown.filter((x) => ids.includes(x.id))),
+                      },
+                    ]
+                  : []),
                 { label: t('bill.xp'), icon: 'file-down', run: () => setToast(t('bill.xpSoon')) },
               ]}
               filters={col}
@@ -351,6 +396,9 @@ export function PayPage() {
                   icon: 'eye',
                   run: () => setOpen({ id: x.id, kind: 'inv' }),
                 },
+                ...(canFinalize && outOf(x) > 0
+                  ? [{ label: t('pay.remind'), icon: 'mail', run: () => void remind([x]) }]
+                  : []),
               ]}
               empty={
                 <EmptyState
