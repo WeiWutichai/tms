@@ -354,7 +354,8 @@ export class PaymentsService {
       },
       update: {},
     });
-    return issueNumber(tx, tenantId, { docType: 'PAY', at });
+    // D-61 (ขยายโดย lead — ย้อนได้): sandbox → TEST-PAY-…
+    return issueNumber(tx, tenantId, { docType: 'PAY', at, markSandbox: true });
   }
 
   // ---------- กลับรายการ / เช็ค ----------

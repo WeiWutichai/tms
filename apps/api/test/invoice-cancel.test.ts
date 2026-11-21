@@ -10,7 +10,7 @@ import { requestContext } from '../src/common/request-context';
 import { DbService, type Tx } from '../src/db/db.service';
 import { DeliveryOrderService } from '../src/modules/delivery-orders/delivery-order.service';
 import { invoiceDocument } from '../src/modules/invoices/invoice.template';
-import { sampleInvoiceExempt } from '../src/modules/invoices/invoice.sample';
+import { sampleInvoiceExempt, sampleInvoiceSandbox } from '../src/modules/invoices/invoice.sample';
 import {
   OrderIntakeService,
   type UpsertOrderInput,
@@ -613,6 +613,15 @@ describe('invoice cancel (ST5-T10)', { timeout: 900_000 }, () => {
     expect(plain).not.toMatch(/class="fdoc"[^>]*data-wm/);
     const voided = invoiceDocument({ ...sampleInvoiceExempt(), cancelled: true }).body;
     expect(voided).toMatch(/class="fdoc"[^>]*data-wm="ยกเลิก"/);
+    expect(voided).not.toMatch(/class="fdoc"[^>]*data-wm-kind/);
+    // D-61: ยกเลิกใน sandbox = ลายน้ำทั้งสองข้อความ (แบบ void-sample) · sandbox ไม่ยกเลิก = แบบ sample
+    const voidedSandbox = invoiceDocument({ ...sampleInvoiceSandbox(), cancelled: true }).body;
+    expect(voidedSandbox).toMatch(
+      /data-wm="ยกเลิก — ตัวอย่าง — ใช้ไม่ได้จริง" data-wm-kind="void-sample"/,
+    );
+    expect(invoiceDocument(sampleInvoiceSandbox()).body).toMatch(
+      /data-wm="ตัวอย่าง — ใช้ไม่ได้จริง" data-wm-kind="sample"/,
+    );
     const re = invoiceDocument({
       ...sampleInvoiceExempt(),
       replaces: { invoiceNo: 'INV-00000-6911-0007', issueDate: '2026-11-03' },

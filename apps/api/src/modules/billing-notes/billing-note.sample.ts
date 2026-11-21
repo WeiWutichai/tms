@@ -85,3 +85,13 @@ export function sampleBillingNoteLong(): BillingNotePrintModel {
     note: 'กรุณาโอนเข้าบัญชีบริษัท และส่งหลักฐานการโอนพร้อมหนังสือรับรองการหักภาษี ณ ที่จ่ายทางอีเมล',
   };
 }
+
+/** D-61: ใบวางบิลที่ออกใน sandbox (รวมใบแจ้งหนี้ `TEST-`) — ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" */
+export function sampleBillingNoteSandbox(): BillingNotePrintModel {
+  const m = sampleBillingNote();
+  return {
+    ...m,
+    sandbox: true,
+    invoices: m.invoices.map((i) => ({ ...i, invoiceNo: `TEST-${i.invoiceNo}` })),
+  };
+}
