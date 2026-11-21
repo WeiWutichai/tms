@@ -16,9 +16,11 @@ import {
   ValidateBy,
 } from 'class-validator';
 import {
+  AGING_BUCKETS,
   INVOICE_LINE_MODES,
   INVOICE_SENT_CHANNELS,
   INVOICE_STATUSES,
+  type AgingBucket,
   type InvoiceLineMode,
   type InvoiceSentChannel,
 } from '@tms/domain';
@@ -308,6 +310,16 @@ export class InvoiceListQuery extends ListQuery {
   @IsOptional()
   @IsIn(['true', 'false'])
   overdue?: 'true' | 'false';
+
+  @ApiPropertyOptional({
+    enum: AGING_BUCKETS,
+    description:
+      'ST5-T22 ช่วงอายุลูกหนี้ (การ์ด "อายุลูกหนี้" ของหน้ารับชำระ) — เฉพาะใบค้างรับที่ยังมียอดค้าง และ `daysPastDue = วันนี้ − dueDate` (เวลาไทย) อยู่ในช่วง · ' +
+      'ชุดเดียวกับ `GET /payments/aging`',
+  })
+  @IsOptional()
+  @IsIn(AGING_BUCKETS)
+  aging?: AgingBucket;
 }
 
 // ---------- คำตอบ ----------

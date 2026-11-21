@@ -161,3 +161,64 @@ export function invoiceOverdue(
 /** ช่องทางที่ทำให้ใบ "ส่งลูกค้าแล้ว" (ST5-T18): ทำเครื่องหมายเอง · ออกใบวางบิล · ส่งอีเมล (ST5-T21) */
 export const INVOICE_SENT_CHANNELS = ['MANUAL', 'BILLING_NOTE', 'EMAIL'] as const;
 export type InvoiceSentChannel = (typeof INVOICE_SENT_CHANNELS)[number];
+
+/**
+ * อายุลูกหนี้ (ST5-T22; docs/04 F5 "Aging 0–30 / 31–60 / 61–90 / > 90 ต่อลูกค้า"; spec/05 §10 + spec/09 §3 `daysPastDue = asOf − dueDate`
+ * "≤ 0 = ยังไม่ครบกำหนด"; ต้นแบบ TMS v4 agingB) — 5 ช่วง: ยังไม่ครบกำหนด · 1–30 · 31–60 · 61–90 · เกิน 90 วัน
+ * [DECISION spec/12 §3 แถว ST5-T22 — นับจากวันครบกำหนด ไม่ใช่วันที่ออก]
+ */
+export const AGING_BUCKETS = [
+  'NOT_DUE',
+  'DAYS_1_30',
+  'DAYS_31_60',
+  'DAYS_61_90',
+  'DAYS_OVER_90',
+] as const;
+export type AgingBucket = (typeof AGING_BUCKETS)[number];
+
+/** ขอบล่าง/บนของ daysPastDue ต่อช่วง (รวมขอบ · null = ไม่จำกัด) */
+export const AGING_BUCKET_RANGE: Record<AgingBucket, readonly [number | null, number | null]> = {
+  NOT_DUE: [null, 0],
+  DAYS_1_30: [1, 30],
+  DAYS_31_60: [31, 60],
+  DAYS_61_90: [61, 90],
+  DAYS_OVER_90: [91, null],
+};
+
+/** จำนวนวันที่เลยกำหนด ณ `asOf` (YYYY-MM-DD เวลาไทย) — ไม่มีวันครบกำหนด = 0 (ยังไม่ครบกำหนด) · ติดลบ = ยังไม่ถึง */
+export function daysPastDue(dueDate: string | null, asOf: string): number {
+  if (!dueDate) return 0;
+  return Math.round(
+    (Date.parse(`${asOf}T00:00:00Z`) - Date.parse(`${dueDate}T00:00:00Z`)) / 86_400_000,
+  );
+}
+
+export function agingBucketOf(days: number): AgingBucket {
+  if (days <= 0) return 'NOT_DUE';
+  if (days <= 30) return 'DAYS_1_30';
+  if (days <= 60) return 'DAYS_31_60';
+  if (days <= 90) return 'DAYS_61_90';
+  return 'DAYS_OVER_90';
+}
+
+/**
+ * ระดับเตือนครบกำหนดชำระ (ST5-T22; spec/05 BIL-121 "ก่อนครบกำหนด 3 วัน, วันครบกำหนด, เกิน 7/30 วัน") — ช่วงต่อเนื่องของ daysPastDue
+ * แต่ละระดับเตือนครั้งเดียวต่อใบต่อวันครบกำหนด (สมุดเตือน) · job หยุดไปหลายวัน = ส่งระดับของวันนี้ (ไม่ส่งย้อนระดับที่ข้ามไป)
+ * เกิน 30 วันเตือนถึงวันที่ 59 เท่านั้น — เปิดใช้ครั้งแรกไม่เตือนหนี้เก่าทั้งก้อน (แบบ EXPIRED_NOTICE_WINDOW_DAYS ของ ST2-T18)
+ */
+export const PAYMENT_DUE_LEVELS = ['DUE_IN_3', 'DUE_TODAY', 'OVERDUE_7', 'OVERDUE_30'] as const;
+export type PaymentDueLevel = (typeof PAYMENT_DUE_LEVELS)[number];
+export const PAYMENT_DUE_WINDOW: Record<PaymentDueLevel, readonly [number, number]> = {
+  DUE_IN_3: [-3, -1],
+  DUE_TODAY: [0, 6],
+  OVERDUE_7: [7, 29],
+  OVERDUE_30: [30, 59],
+};
+
+export function paymentDueLevel(days: number): PaymentDueLevel | null {
+  for (const l of PAYMENT_DUE_LEVELS) {
+    const [lo, hi] = PAYMENT_DUE_WINDOW[l];
+    if (days >= lo && days <= hi) return l;
+  }
+  return null;
+}

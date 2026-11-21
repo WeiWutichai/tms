@@ -119,7 +119,8 @@ const QUEUE_READY = Prisma.sql`
  * - หลักฐานส่ง: ลูกค้าเปิด "ไม่มี POD ไม่วางบิล" (`customer.require_pod_to_bill`, ค่าเริ่มต้นเปิด) → DO ต้องผ่านเกณฑ์ POD ของลูกค้าแล้ว
  *   (UNBILLED — ST4-T07) **และ** ฉบับล่าสุดไม่ใช่ PARTIAL (แก้ภายหลังจนไม่ครบ DO ไม่ถอยสถานะ) · ปิด = ขึ้นคิวพร้อม `pod.complete = false`
  *   (ตอนส่งบัญชีตรวจซ้ำกับ checklist ปัจจุบัน — `BillingReleaseService`)
- * - ราคา: ใบสั่ง `pricing_status = AVAILABLE` (RATE_MISSING/CALCULATION_FAILURE ไม่ขึ้น) และ DO มีบรรทัดรายได้ที่ยังใช้ ≥ 1 ·
+ * - ราคา: ใบสั่ง `pricing_status = AVAILABLE` หรือมีค่าขนส่งที่กำหนดเอง (ORD-043 — บรรทัด FREIGHT ที่มา MANUAL)
+ *   (RATE_MISSING/CALCULATION_FAILURE ที่ไม่มีราคากำหนดเองไม่ขึ้น) และ DO มีบรรทัดรายได้ที่ยังใช้ ≥ 1 ·
  *   ไม่มีบรรทัด `provisional` (ยอดยังไม่ยืนยัน — ST5-T01b) · ไม่มีบรรทัดที่ล็อก (ออกใบแล้ว) · ไม่มีค่าใช้จ่ายหน้างานฝั่งขายที่รอยืนยัน
  * - ไม่มีป้ายระงับวางบิล (`billing_hold`)
  * - ยังไม่อยู่ในใบแจ้งหนี้ที่ active (`billing_status` UNBILLED / CREDITED — ST5-T05, spec/05 BIL-020 (จ))
@@ -174,7 +175,11 @@ export class BillingQueueService {
                (d0.status = 'UNBILLED' AND d0.pod_status <> 'PARTIAL') AS pod_ok,
                c.require_pod_to_bill AS req_pod,
                d0.billing_hold AS held,
-               (s.pricing_status = 'AVAILABLE') AS priced,
+               -- มีราคา = หา rate card ได้ (AVAILABLE) **หรือ** มีค่าขนส่งที่กำหนดเอง (ORD-043 บรรทัด FREIGHT ที่มา MANUAL —
+               -- pricing_status คงเป็นผลหา rate card เช่น RATE_MISSING) · กฎเดียวกับใบค้าง RATE_MISSING (evaluateIntakeHolds)
+               (s.pricing_status = 'AVAILABLE' OR EXISTS (
+                  SELECT 1 FROM sales_order_charge ch
+                   WHERE ch.sales_order_id = s.id AND ch.origin = 'MANUAL' AND ch.kind = 'FREIGHT')) AS priced,
                coalesce(rl.n, 0)::int AS lines, coalesce(rl.total, 0) AS total,
                coalesce(rl.prov, false) AS prov, coalesce(rl.locked, false) AS locked,
                EXISTS (SELECT 1 FROM do_surcharge x

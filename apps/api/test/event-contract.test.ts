@@ -818,6 +818,13 @@ describe('event registry contract (ST7-T06)', () => {
       status: 'DRAFT',
       settlementNo: null,
     });
+    expect(one('settlement.paid').snapshot).toMatchObject({
+      status: 'PAID',
+      paidDate: today,
+      paymentMethod: 'TRANSFER',
+      paymentReference: 'KBANK-0001',
+    });
+    expect(one('settlement.paid').previousAttributes).toMatchObject({ status: 'APPROVED' });
     expect(one('invoice.finalized').snapshot).toMatchObject({
       status: 'ISSUED',
       invoiceNo: expect.stringMatching(/^INV-00000-\d{4}-0001$/),
@@ -827,13 +834,6 @@ describe('event registry contract (ST7-T06)', () => {
       status: 'DRAFT',
       invoiceNo: null,
     });
-    expect(one('settlement.paid').snapshot).toMatchObject({
-      status: 'PAID',
-      paidDate: today,
-      paymentMethod: 'TRANSFER',
-      paymentReference: 'KBANK-0001',
-    });
-    expect(one('settlement.paid').previousAttributes).toMatchObject({ status: 'APPROVED' });
     expect(registered.filter((e) => e.type === 'job.completed').map((e) => e.snapshot)).toEqual([
       expect.objectContaining({ id: encodeId('job', job.id), status: 'succeeded' }),
       expect.objectContaining({ id: encodeId('job', failed.id), status: 'failed' }),

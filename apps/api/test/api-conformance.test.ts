@@ -153,6 +153,7 @@ export const MATRIX: Row[] = [
     endpoints: [
       E('get', '/v1/payments', 'invoices:read'),
       E('get', '/v1/payments/summary', 'invoices:read'),
+      E('get', '/v1/payments/aging', 'invoices:read'), // ST5-T22
       E('post', '/v1/payments', 'payments:record'),
       E('get', '/v1/payments/{id}', 'invoices:read'),
       E('post', '/v1/payments/{id}/reverse', 'payments:reverse'),
@@ -1038,6 +1039,7 @@ describe(
       });
       await call(full, 'get', '/v1/payments', { query: { invoiceId: draft.id }, expect: 200 });
       await call(full, 'get', '/v1/payments/summary', { expect: 200 });
+      await call(full, 'get', '/v1/payments/aging', { expect: 200 });
       const pg = await call(full, 'get', '/v1/payments/{id}', {
         params: { id: paid.body.id },
         expect: 200,

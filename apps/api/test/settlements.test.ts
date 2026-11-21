@@ -14,6 +14,10 @@ import {
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { signStepUpToken } from '../src/auth/tokens';
+import { SettlementPdfService } from '../src/modules/settlements/settlement-pdf.service';
+import { settlementVoucherDocument } from '../src/modules/settlements/settlement-pdf.template';
+import { bahtFormat } from '../src/pdf/finance-document';
+import { PdfRenderer } from '../src/pdf/pdf-renderer';
 import {
   api,
   bootApp,
@@ -2043,5 +2047,129 @@ describe('settlements (ST6-T03)', () => {
         }),
       ).toBe(1);
     });
+
+    // ---------- ST6-T04 PDF ใบสำคัญจ่าย ----------
+    const pdfOf = (id: string, token = admin) =>
+      api(app, token)
+        .get(`/v1/settlements/${id}/pdf`)
+        .buffer(true)
+        .parse((res, cb) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => cb(null, Buffer.concat(chunks)));
+        });
+    const fmt = (v: string) => bahtFormat(v);
+
+    it('ST6-T04 เกณฑ์ตรวจรับ: PDF ใบสำคัญจ่าย — ยอดบน PDF ตรงกับ API (ร่าง → อนุมัติ → จ่าย) · ใช้ WHT ที่ตรึง · ข้อมูลการจ่าย', async () => {
+      const { C, trips } = await setup(2, '4500');
+      const s = (
+        await create(
+          { carrierId: C.id, tripIds: trips.map((t) => t.id), deductions: [ADV, FINE] },
+          accounting,
+        ).expect(201)
+      ).body;
+      const svc = app.get(SettlementPdfService);
+      const renderer = app.get(PdfRenderer);
+      const check = async (status: string) => {
+        const res = await pdfOf(s.id);
+        expect(res.status, String(res.body)).toBe(200);
+        expect(res.headers['content-type']).toContain('application/pdf');
+        expect(res.headers['cache-control']).toContain('no-store');
+        expect((res.body as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
+        const dto = (await api(app, admin).get(`/v1/settlements/${s.id}`).expect(200)).body;
+        expect(dto.status).toBe(status);
+        const { model } = await run((tx) => svc.loadModel(tx, uuid('settlement', s.id)));
+        // ทุกตัวเลขบนใบ = ค่าจาก API
+        expect(model.gross).toBe(dto.buyGrossAmount);
+        expect(model.whtTotal).toBe(dto.buyWhtAmount);
+        expect(model.net).toBe(dto.buyNetAfterWht);
+        expect(model.settlementNo).toBe(dto.settlementNo);
+        const tripSum = model.trips.reduce(
+          (x, t) => x + Number(t.tripFee) * 100 + Number(t.siteExpenses) * 100,
+          0,
+        );
+        expect(tripSum).toBe(Math.round(Number(dto.buyGrossAmount) * 100));
+        expect(model.deductions).toEqual([
+          { type: 'CASH_ADVANCE', amount: '2000.00' },
+          { type: 'FINE', amount: '500.00' },
+        ]);
+        const text = (await renderer.withPage(settlementVoucherDocument(model), (p) =>
+          p.evaluate('document.body.innerText'),
+        )) as string;
+        for (const v of [dto.buyGrossAmount, dto.buyWhtAmount, dto.buyNetAfterWht])
+          expect(text).toContain(fmt(v));
+        expect(text).toContain(`หัก ณ ที่จ่าย 1%* / WHT 1%*`);
+        expect(text).toContain(dto.carrier.legalName);
+        expect(model.trips.map((t) => t.tripNo).sort()).toEqual(
+          dto.lines
+            .filter((l: { lineType: string }) => l.lineType !== 'DEDUCTION')
+            .map((l: { tripNo: string }) => l.tripNo)
+            .sort(),
+        );
+        expect(model.trips[0]!.route).toMatch(/ → /);
+        return { dto, model, text };
+      };
+      const d = await check('DRAFT');
+      expect(d.model.settlementNo).toBeNull();
+      expect(d.text).toContain('ร่าง · ยังไม่มีเลขที่');
+      await approve(s.id);
+      const ap = await check('APPROVED');
+      expect(ap.dto.whtEstimate.frozen).toBe(true);
+      expect(ap.text).toContain(ap.dto.settlementNo);
+      // ค่าตั้งต้นรถร่วมเปลี่ยนหลังอนุมัติ → ยอดบนใบคงเดิม (ตรึง)
+      await db.carrier.update({
+        where: { id: uuid('carrier', C.id) },
+        data: { whtRateDefault: '3.00' },
+      });
+      // review L1: ผู้จ่ายตรึงตอนอนุมัติ — เปลี่ยนชื่อบริษัททีหลัง ใบเดิมยังพิมพ์ชื่อเดิม
+      const row = await db.carrierSettlement.findUniqueOrThrow({
+        where: { id: uuid('settlement', s.id) },
+      });
+      const snap = row.payerSnapshot as { companyId: string; name: string; branchCode: string };
+      expect(snap.name).toBe(ap.model.payer.name);
+      expect(snap.branchCode).toBe('00000');
+      const co = await db.company.findUniqueOrThrow({ where: { id: snap.companyId } });
+      await db.company.update({
+        where: { id: co.id },
+        data: { legalName: 'บริษัท ชื่อใหม่ จำกัด' },
+      });
+      const after = await check('APPROVED');
+      expect(after.model.whtTotal).toBe(ap.model.whtTotal);
+      expect(after.model.payer.name).toBe(co.legalName);
+      expect(after.text).not.toContain('บริษัท ชื่อใหม่ จำกัด');
+      await db.company.update({ where: { id: co.id }, data: { legalName: co.legalName } });
+      expect((await pay(s.id)).status).toBe(200);
+      const paid = await check('PAID');
+      expect(paid.model.docDate).toBe(today);
+      expect(paid.model.paymentMethod).toBe('TRANSFER');
+      expect(paid.text).toMatch(/จ่ายโดย\s*โอนเงิน/);
+      expect(paid.text).toContain('KBANK-2611-0091');
+      expect(paid.model.payer.name).toMatch(/^บริษัท ผู้ออกบิล/);
+      expect(paid.model.payer.branchCode).toBe('00000');
+    }, 120_000);
+
+    it('ST6-T04 สิทธิ์: ไม่มี prices.buy:read → 403 · ไม่มี settlements:read → 403 · บริษัทอื่น 404 · ใบยกเลิก 409', async () => {
+      const { C, trips } = await setup(1, '1000');
+      const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
+        .body;
+      const noBuy = await tokenFor(tenantId, 'settlements:read', 'u-nobuy');
+      const r1 = await pdfOf(s.id, noBuy);
+      expect(r1.status).toBe(403);
+      const noRead = await tokenFor(tenantId, 'prices.buy:read', 'u-noread');
+      expect((await pdfOf(s.id, noRead)).status).toBe(403);
+      expect((await pdfOf(s.id, other)).status).toBe(404);
+      expect((await pdfOf('stl_nope')).status).toBe(404);
+      await api(app, accounting)
+        .post(`/v1/settlements/${s.id}/cancel`)
+        .set('If-Match', await etag(s.id))
+        .send({ reason: 'ยกเลิกเพื่อทดสอบ PDF ใบสำคัญจ่าย' })
+        .expect(200);
+      const c = await pdfOf(s.id);
+      expect(c.status).toBe(409);
+      // review L1: ผู้จ่ายตรึงได้เฉพาะใบที่พ้นร่าง (CHECK) — ใบยกเลิก/ร่างไม่มี snapshot
+      await expect(
+        db.$executeRaw`UPDATE carrier_settlement SET payer_snapshot = '{}'::jsonb WHERE id = ${uuid('settlement', s.id)}::uuid`,
+      ).rejects.toThrow();
+    }, 60_000);
   });
 });

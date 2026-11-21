@@ -35,6 +35,7 @@ import type {
   SettlementSummaryDto,
   UpdateSettlementDto,
 } from './settlement.dto';
+import { resolvePayer } from './settlement-payer';
 import { payableLines, SettlementQueueService } from './settlement-queue.service';
 import { disputedCount, disputedLines, latestBy, lineStatus } from './settlement-dispute';
 import type { SettlementSentDto, SettlementReviewLinkDto } from './settlement-review.dto';
@@ -482,6 +483,11 @@ export class SettlementsService {
         whtMinimumAmount: minimum,
         // ใบที่สร้างก่อน ST6-T08: ตรึงค่าตั้งต้นของรถร่วมที่ใช้คำนวณ → ทุกตัวเลข (แยกอัตรา/รายบรรทัด) ทำซ้ำได้
         whtRateDefault: row.whtRateDefault ?? row.carrier.whtRateDefault,
+        // ST6-T04 (review L1): ผู้จ่ายบนใบสำคัญจ่าย ตรึง ณ วันอนุมัติ (PDF ไม่อ่านชื่อบริษัทปัจจุบัน)
+        payerSnapshot: (await resolvePayer(
+          tx,
+          row.payingCompanyId,
+        )) as unknown as Prisma.InputJsonValue,
         version: { increment: 1 },
       },
     });
@@ -766,29 +772,44 @@ export class SettlementsService {
     return { settlement: out, link };
   }
 
-  /** ออกลิงก์ตรวจใหม่ (ลิงก์หมดอายุ/หาย — spec/05 §11.9) · เพิกถอนลิงก์เดิม · คำตอบที่มีแล้วของรอบนี้คงอยู่ */
+  /**
+   * ออกลิงก์ตรวจใหม่ (ลิงก์หมดอายุ/หาย — spec/05 §11.9) · เพิกถอนลิงก์เดิม · คำตอบที่มีแล้วของรอบนี้คงอยู่
+   * - SENT_TO_CARRIER / DISPUTED: ลิงก์ตรวจ (ดู + ตอบ) · ผู้ออกลิงก์ใหม่ = ผู้เตรียมใบ (review L3)
+   * - APPROVED / PAID (D-59 — PO 21 พ.ย. 2569): ลิงก์**ดูอย่างเดียว** ให้รถร่วมดูสถานะ/ใบจ่ายเงินหลังลิงก์เดิมหมดอายุ ·
+   *   **ไม่เพิ่มผู้เตรียม** (อนุมัติไปแล้ว — ไม่แตะ SoD ย้อนหลัง และหัวใบไม่เปลี่ยน/version คงเดิม)
+   * - DRAFT / CANCELLED → 409
+   */
   async reissueLink(id: string): Promise<SettlementReviewLinkDto> {
     const tx = this.db.tx;
     const [r] = await tx.$queryRaw<{ id: string }[]>`
       SELECT id FROM carrier_settlement WHERE id = ${id}::uuid FOR UPDATE`;
     if (!r) throw new ProblemException('not_found');
     const s = await tx.carrierSettlement.findUniqueOrThrow({ where: { id } });
-    // ST6-T06: ใบ DISPUTED ยังรอรถร่วมตอบ — ออกลิงก์ใหม่ได้
-    if (s.status !== 'SENT_TO_CARRIER' && s.status !== 'DISPUTED')
+    // ST6-T06: ใบ DISPUTED ยังรอรถร่วมตรวจ — ออกลิงก์ใหม่ได้ · D-59: APPROVED/PAID = ลิงก์ดูอย่างเดียว
+    const underReview = s.status === 'SENT_TO_CARRIER' || s.status === 'DISPUTED';
+    const viewOnly = s.status === 'APPROVED' || s.status === 'PAID';
+    if (!underReview && !viewOnly)
       throw new ProblemException('invalid_state_transition', undefined, undefined, {
         status: s.status,
       });
-    // ผู้ออกลิงก์ใหม่ = ผู้เตรียมใบ (review L3)
-    await tx.carrierSettlement.update({
-      where: { id },
-      data: { preparers: { push: requestContext.require().actorId ?? 'system' } },
-    });
-    const link = await this.review.issueLink(tx, id);
+    // ผู้ออกลิงก์ใหม่ระหว่างรอตรวจ = ผู้เตรียมใบ (review L3)
+    if (underReview)
+      await tx.carrierSettlement.update({
+        where: { id },
+        data: { preparers: { push: requestContext.require().actorId ?? 'system' } },
+      });
+    const link = await this.review.issueLink(tx, id, { viewOnly });
     await this.audit.record({
       action: 'settlement.review_link_reissued',
       entityType: ENTITY,
       entityId: id,
-      after: { round: s.reviewRound, linkId: link.id, linkExpiresAt: link.expiresAt },
+      after: {
+        status: s.status,
+        round: s.reviewRound,
+        viewOnly,
+        linkId: link.id,
+        linkExpiresAt: link.expiresAt,
+      },
     });
     return link;
   }

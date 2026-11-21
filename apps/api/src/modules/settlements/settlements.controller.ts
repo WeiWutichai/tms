@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   Param,
   Patch,
@@ -9,6 +10,7 @@ import {
   Query,
   Req,
   Res,
+  StreamableFile,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -16,12 +18,14 @@ import {
   ApiHeader,
   ApiOkResponse,
   ApiOperation,
+  ApiProduces,
   ApiTags,
 } from '@nestjs/swagger';
+import { scopeAllows } from '@tms/domain';
 import type { Request, Response } from 'express';
 import { verifyStepUpToken } from '../../auth/tokens';
 import { requestContext } from '../../common/request-context';
-import { RequireScope, TenantResource } from '../../common/decorators';
+import { NoTransaction, RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -44,6 +48,7 @@ import {
   UpdateSettlementDto,
 } from './settlement.dto';
 import { SettlementReviewLinkDto, SettlementSentDto } from './settlement-review.dto';
+import { SettlementPdfService } from './settlement-pdf.service';
 import { SettlementsService } from './settlements.service';
 
 const NF = { ...T404, description: 'ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น)' };
@@ -66,6 +71,7 @@ export class SettlementsController {
     private readonly queue: SettlementQueueService,
     private readonly svc: SettlementsService,
     private readonly comparison: SettlementComparisonService,
+    private readonly pdf: SettlementPdfService,
   ) {}
 
   @Get('queue')
@@ -147,6 +153,42 @@ export class SettlementsController {
     const out = await this.svc.get(decodeIdOr404('settlement', id));
     setEtag(res, out.version);
     return out;
+  }
+
+  @Get(':id/pdf')
+  @NoTransaction()
+  @TenantResource('settlement')
+  @RequireScope('settlements:read')
+  @Header('Cache-Control', 'private, no-store')
+  @ApiOperation({
+    summary: 'PDF ใบสำคัญจ่ายรถร่วม (ST6-T04) — รายการเที่ยว ยอด หัก ณ ที่จ่าย (ประมาณการ) สุทธิ',
+    description:
+      'แม่แบบตามต้นแบบ TMS Print #pv (แม่แบบการเงินร่วมกับใบแจ้งหนี้) · ทุกตัวเลขมาจาก `GET /v1/settlements/{id}` ชุดเดียวกัน: ' +
+      'ยอดซื้อรวม = `buyGrossAmount` · หัก ณ ที่จ่ายแยกอัตรา = `whtEstimate.byRate` (รวม = `buyWhtAmount`; ใบที่อนุมัติแล้ว = ยอดที่ตรึง) · ' +
+      'บรรทัดหักรวมต่อชนิด · จ่ายสุทธิ = `buyNetAfterWht` · ยอดหัก ณ ที่จ่ายติด * (ประมาณการ D-54 — 50 ทวิ ออกที่ระบบบัญชี D-58) · ' +
+      'ยังไม่อนุมัติ = ลายน้ำ "ร่าง" ไม่มีเลข · จ่ายแล้ว = วันที่จ่าย + วิธีจ่าย + เลขอ้างอิง · render ตามคำขอ (ไม่ใช่เอกสารภาษี — ไม่เก็บไฟล์) · ' +
+      'ใบที่ยกเลิก → 409 · ต้องมี `prices.buy:read` ไม่งั้น 403',
+  })
+  @ApiProduces('application/pdf')
+  @ApiProblems(T403('settlements:read'), NF, T409())
+  @ApiOkResponse({ description: 'application/pdf', schema: { type: 'string', format: 'binary' } })
+  async voucherPdf(
+    @Param('id') id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const ctx = requestContext.require();
+    if (!scopeAllows(ctx.scopes ?? [], 'prices.buy:read'))
+      throw new ProblemException('permission_denied', undefined, undefined, {
+        requiredScope: 'prices.buy:read',
+      });
+    const { dto, pdf } = await this.pdf.render(decodeIdOr404('settlement', id));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${(dto.settlementNo ?? `settlement-draft-${id}`).replace(/[^\w.-]/g, '_')}.pdf"`,
+    );
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    return new StreamableFile(pdf);
   }
 
   @Get(':id/comparison')
@@ -313,9 +355,11 @@ export class SettlementsController {
   @TenantResource('settlement')
   @RequireScope('settlements:create')
   @ApiOperation({
-    summary: 'ออกลิงก์ให้รถร่วมตรวจใหม่ (ลิงก์เดิมหมดอายุ/หาย)',
+    summary: 'ออกลิงก์ให้รถร่วมใหม่ (ลิงก์เดิมหมดอายุ/หาย)',
     description:
-      'เฉพาะใบ SENT_TO_CARRIER / DISPUTED · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued`',
+      'ใบ SENT_TO_CARRIER / DISPUTED = ลิงก์ตรวจ (ดู + ยอมรับ/โต้แย้ง) — ผู้ออกนับเป็นผู้เตรียมใบ · ' +
+      'ใบ APPROVED / PAID = ลิงก์**ดูอย่างเดียว** (ดูสถานะ/ใบจ่ายเงิน — ตอบ/แนบรูปไม่ได้; D-59) — ไม่เพิ่มผู้เตรียม หัวใบไม่เปลี่ยน · ' +
+      'ร่าง/ยกเลิก → 409 · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued` (`viewOnly`)',
   })
   @ApiProblems(T403('settlements:create'), NF, T409())
   @ApiCreatedResponse({ type: SettlementReviewLinkDto })
