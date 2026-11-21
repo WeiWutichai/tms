@@ -524,7 +524,11 @@ export class SettlementsService {
     const row = (await this.load(tx, id))!;
     const minimum = await this.liveWhtMinimum(tx);
     const wht = whtOf(row, row.lines, minimum);
-    const settlementNo = await issueNumber(tx, ctx.tenantId!, { docType: 'STL' });
+    // ตามแนว D-61 (lead — ย้อนได้): sandbox → TEST-STL-… (issueNumber ตรวจ tenant.mode ในฐานเอง)
+    const settlementNo = await issueNumber(tx, ctx.tenantId!, {
+      docType: 'STL',
+      markSandbox: true,
+    });
     await tx.carrierSettlement.update({
       where: { id },
       data: {

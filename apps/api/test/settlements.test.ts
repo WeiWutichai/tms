@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaClient } from '@prisma/client';
 import { SYSTEM_ROLES } from '@tms/domain';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { requestContext } from '../src/common/request-context';
 import { DbService, type Tx } from '../src/db/db.service';
@@ -14,9 +14,11 @@ import {
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { signStepUpToken } from '../src/auth/tokens';
+import { ERP_SINK } from '../src/modules/erp/erp-adapter.sink';
+import { SandboxService } from '../src/modules/sandbox/sandbox.service';
 import { SettlementPdfService } from '../src/modules/settlements/settlement-pdf.service';
 import { settlementVoucherDocument } from '../src/modules/settlements/settlement-pdf.template';
-import { bahtFormat } from '../src/pdf/finance-document';
+import { SANDBOX_WATERMARK, bahtFormat } from '../src/pdf/finance-document';
 import { PdfRenderer } from '../src/pdf/pdf-renderer';
 import {
   api,
@@ -2314,6 +2316,97 @@ describe('settlements (ST6-T03)', () => {
         }),
       ).toBe(1);
     });
+
+    it('ตามแนว D-61 (lead — ย้อนได้): sandbox อนุมัติ → เลข TEST-STL จากชุดเลขของ sandbox (ตัวนับจริงไม่ขยับ) · PDF ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" · จ่ายแล้วไม่ถึง ERP · live ไม่มีลายน้ำ', async () => {
+      const renderer = app.get(PdfRenderer);
+      // live: เลขแบบเดิม (ไม่มี TEST-) · PDF ไม่มีลายน้ำ (ร่าง = "ร่าง" ตามเดิม)
+      const live = await setup(1, '1500');
+      const ls = (
+        await create({ carrierId: live.C.id, tripIds: [live.trips[0]!.id] }, accounting).expect(201)
+      ).body;
+      const la = await approve(ls.id);
+      expect(la.body.settlementNo).toMatch(/^SA-\d{4}-\d{4}$/);
+      const liveSpy = vi.spyOn(renderer, 'pdf');
+      expect((await pdfOf(ls.id)).status).toBe(200);
+      const liveBody = liveSpy.mock.calls.map((c) => c[0].body ?? '').join('');
+      liveSpy.mockRestore();
+      expect(liveBody).toContain(la.body.settlementNo);
+      expect(liveBody).not.toContain('data-wm=');
+      expect(liveBody).not.toContain(SANDBOX_WATERMARK);
+      const liveSeq = () =>
+        db.documentSequence.findMany({
+          where: { tenantId, docType: 'STL' },
+          select: { id: true, nextValue: true },
+          orderBy: { id: 'asc' },
+        });
+      const liveBefore = await liveSeq();
+
+      // sandbox ของบริษัทนี้ — สร้างเที่ยว/ใบผ่าน API ของ sandbox (สลับ token/tenant ของ helper ชั่วคราว)
+      const sb = await app.get(SandboxService).ensure(tenantId);
+      const sbAdmin = await tokenFor(sb, '*', 'u-sb-admin');
+      const sbAcc = await tokenFor(sb, SYSTEM_ROLES.accounting.permissions.join(' '), 'u-sb-acc');
+      const sbAppr = await tokenFor(sb, SYSTEM_ROLES.approver.permissions.join(' '), 'u-sb-appr');
+      const saved = { admin, tenantId, unitTon, vt6 };
+      let sid: string;
+      try {
+        admin = sbAdmin;
+        tenantId = sb;
+        const us = (await api(app, sbAdmin).get('/v1/units?limit=50').expect(200)).body.data as {
+          id: string;
+          code: string;
+        }[];
+        unitTon = uuid('unit', us.find((u) => u.code === 'TON')!.id);
+        const types = (await api(app, sbAdmin).get('/v1/vehicle-types?limit=50').expect(200)).body
+          .data as { id: string; code: string }[];
+        vt6 = types.find((t) => t.code === '6W')!.id;
+        const { C, trips } = await setup(1, '1500');
+        sid = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, sbAcc).expect(201)).body
+          .id as string;
+      } finally {
+        ({ admin, tenantId, unitTon, vt6 } = saved);
+      }
+      // ข้าม tenant: บริษัทจริงอนุมัติ/เปิด PDF ใบของ sandbox ไม่ได้ (404)
+      await api(app, approver)
+        .post(`/v1/settlements/${sid}/approve`)
+        .set('If-Match', '"1"')
+        .send(APPROVE)
+        .expect(404);
+      await pdfOf(sid).expect(404);
+
+      // ร่างใน sandbox: ลายน้ำ "ร่าง" ตามเดิม (ไม่ใช่ลายน้ำ sandbox)
+      const draftSpy = vi.spyOn(renderer, 'pdf');
+      expect((await pdfOf(sid, sbAdmin)).status).toBe(200);
+      const draftBody = draftSpy.mock.calls.map((c) => c[0].body ?? '').join('');
+      draftSpy.mockRestore();
+      expect(draftBody).not.toContain(SANDBOX_WATERMARK);
+
+      const sa = await api(app, sbAppr)
+        .post(`/v1/settlements/${sid}/approve`)
+        .set('If-Match', '"1"')
+        .send(APPROVE);
+      expect(sa.status, JSON.stringify(sa.body)).toBe(200);
+      expect(sa.body.settlementNo).toMatch(/^TEST-SA-\d{4}-0001$/);
+      // ชุดเลขของแถว sandbox เอง · ตัวนับของบริษัทจริงไม่ขยับ
+      const sseq = await db.documentSequence.findMany({ where: { tenantId: sb, docType: 'STL' } });
+      expect(sseq.map((q) => q.nextValue)).toEqual([2n]);
+      expect(await liveSeq()).toEqual(liveBefore);
+
+      // จ่ายแล้ว → PDF ลายน้ำ sandbox (แบบ sample) · ไม่มีคำสั่ง ERP (sandbox สร้าง connector ไม่ได้ + sink ข้าม sandbox)
+      const paid = await api(app, sbAcc)
+        .post(`/v1/settlements/${sid}/mark-paid`)
+        .set('If-Match', '"2"')
+        .send(PAY);
+      expect(paid.status, JSON.stringify(paid.body)).toBe(200);
+      const spy = vi.spyOn(renderer, 'pdf');
+      expect((await pdfOf(sid, sbAdmin)).status).toBe(200);
+      const bodies = spy.mock.calls.map((c) => c[0].body ?? '');
+      spy.mockRestore();
+      expect(bodies.length).toBe(1);
+      expect(bodies[0]).toContain(sa.body.settlementNo);
+      expect(bodies[0]).toContain(`data-wm="${SANDBOX_WATERMARK}"`);
+      expect(bodies[0]).toContain('data-wm-kind="sample"');
+      expect(await db.integrationOutbox.count({ where: { tenantId: sb, sink: ERP_SINK } })).toBe(0);
+    }, 120_000);
 
     // ---------- ST6-T04 PDF ใบสำคัญจ่าย ----------
     const pdfOf = (id: string, token = admin) =>
