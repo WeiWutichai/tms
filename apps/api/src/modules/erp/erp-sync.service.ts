@@ -199,6 +199,9 @@ export class ErpSyncService {
   async settlementPaid(tx: Tx, s: SettlementDto): Promise<string[]> {
     const id = tryDecodeId('settlement', s.id);
     if (!id || s.status !== 'PAID' || !s.settlementNo || !s.paidDate) return [];
+    // ใบ PAID ต้องผ่านอนุมัติ (requireWhtEntityType) — ไม่มีผลประมาณการ = ข้อมูลเขียนฐานตรง → ไม่ส่ง AP ร่างที่ไม่มีแบบยื่น
+    const est = s.whtEstimate;
+    if (!est) return [];
     const row = await tx.carrierSettlement.findUnique({
       where: { id },
       select: {
@@ -245,8 +248,8 @@ export class ErpSyncService {
         netAfterWht: money(row.netPayable.minus(wht)),
       },
       whtEstimate: {
-        pndForm: s.whtEstimate.form,
-        byRate: s.whtEstimate.byRate.map((b) => ({
+        pndForm: est.form,
+        byRate: est.byRate.map((b) => ({
           whtRate: b.whtRate,
           base: b.buyBaseAmount ?? '0.00',
           amount: b.buyWhtAmount ?? '0.00',

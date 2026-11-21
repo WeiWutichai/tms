@@ -401,6 +401,12 @@ export const PROBLEMS = {
     th: 'ผู้อนุมัติใบสำคัญจ่าย บันทึกจ่ายใบนั้นเองไม่ได้ ต้องให้ผู้อื่นบันทึกจ่าย',
     en: 'Whoever approved a settlement cannot record its payment',
   },
+  /** ใบที่ snapshot รถร่วมไม่มีประเภท (บุคคล/นิติบุคคล) — คำนวณ/ตรึงหัก ณ ที่จ่ายไม่ได้ (ไม่เดาประเภท) */
+  settlement_carrier_type_missing: {
+    status: 409,
+    th: 'ข้อมูลรถร่วมในใบสำคัญจ่ายไม่มีประเภท (บุคคลธรรมดา/นิติบุคคล) คำนวณหัก ณ ที่จ่ายไม่ได้ — ยกเลิกใบแล้วสร้างใหม่',
+    en: 'The carrier on this settlement has no entity type; withholding tax cannot be estimated',
+  },
   /** ST6-T07: ใบไม่มีบรรทัดเที่ยวที่ยังใช้ — อนุมัติไม่ได้ */
   settlement_empty: {
     status: 409,
@@ -634,6 +640,27 @@ export const PROBLEMS = {
     status: 409,
     th: 'ใบแจ้งหนี้นี้ส่งลูกค้าแล้ว ยกเลิกไม่ได้',
     en: 'This invoice was sent to the customer — it cannot be cancelled',
+  },
+  /**
+   * ST5-T21 ส่งเอกสารทางอีเมล: ไม่ระบุ `to` และลูกค้าไม่มีผู้ติดต่อที่มีอีเมล — เพิ่มอีเมลผู้ติดต่อในข้อมูลลูกค้า หรือระบุ `to`
+   * (ทางเลือก: ดาวน์โหลด PDF แล้วส่งเอง)
+   */
+  document_email_no_recipient: {
+    status: 422,
+    th: 'ลูกค้ายังไม่มีอีเมลผู้ติดต่อ — เพิ่มอีเมลในข้อมูลลูกค้า หรือดาวน์โหลด PDF แล้วส่งเอง',
+    en: 'The customer has no contact email — add one to the customer or download the PDF and send it yourself',
+  },
+  /** ST5-T21 เอกสารนี้กำลังรอส่งถึงผู้รับเดิมอยู่ (ยังไม่ส่งออก) — กันกดส่งซ้ำ · `pending[]` (`to`, `queuedAt`) */
+  document_email_pending: {
+    status: 409,
+    th: 'เอกสารนี้กำลังรอส่งถึงผู้รับเดิมอยู่ — รอสักครู่แล้วตรวจสถานะการส่ง',
+    en: 'This document is already queued for the same recipient — wait and check the delivery status',
+  },
+  /** ST5-T21 ไฟล์แนบใหญ่เกินที่ส่งทางอีเมลได้ · `sizeBytes`, `maxBytes` — ดาวน์โหลดแล้วส่งเอง */
+  email_attachment_too_large: {
+    status: 422,
+    th: 'ไฟล์ใหญ่เกินกว่าจะส่งทางอีเมล — ดาวน์โหลด PDF แล้วส่งเอง',
+    en: 'The file is too large to email — download the PDF and send it yourself',
   },
   /** ST4-T07 บันทึก/แก้หลักฐานส่งได้เฉพาะ DO ที่ส่งแล้ว/ส่งไม่สำเร็จและยังไม่วางบิล — `doStatus` บอกสถานะปัจจุบัน */
   pod_not_allowed: {

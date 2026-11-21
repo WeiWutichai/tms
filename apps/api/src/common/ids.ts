@@ -79,6 +79,8 @@ export const ID_PREFIX = {
   payment: 'pay',
   /** ST5-T11 ใบวางบิล (billing_note — docs/01 §3.4 `bn_`) */
   billingNote: 'bn',
+  /** ST5-T21 การส่งเอกสารทางอีเมลถึงผู้รับ 1 คน (document_email) */
+  documentEmail: 'dem',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 
