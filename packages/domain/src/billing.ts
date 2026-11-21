@@ -44,6 +44,17 @@ export const INVOICE_STATUSES = [
 ] as const;
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
 
+/**
+ * ใบที่ "ออกเลขแล้วและไม่ถูกยกเลิก" (finalize แล้ว) — ชุดเดียวกับ "ออกใบแจ้งหนี้เดือนนี้" ของ Dashboard บิล (ST9-T02)
+ * และรายงานรายได้ (ST9-T05) · ไม่รวม DRAFT / CANCELLED / VOIDED · ADJUSTED ไม่เกิดในเฟส 0 (ใบลดหนี้อยู่ AccountSystem — D-54)
+ */
+export const ISSUED_INVOICE_STATUSES: readonly InvoiceStatus[] = [
+  'ISSUED',
+  'PARTIALLY_PAID',
+  'PAID',
+  'ADJUSTED',
+];
+
 /** ใบที่บรรทัดยังนับเป็นการวางบิล DO (docs/01 §3.4 "where invoice.status ≠ CANCELLED" + VOIDED ตาม §4.3) */
 export function isInvoiceActive(s: InvoiceStatus): boolean {
   return s !== 'CANCELLED' && s !== 'VOIDED';

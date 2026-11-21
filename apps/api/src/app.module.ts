@@ -184,6 +184,7 @@ import { PaymentsService } from './modules/payments/payments.service';
 import { AgingService } from './modules/payments/aging.service';
 import { ReportsController } from './modules/reports/reports.controller';
 import { UnbilledReportService } from './modules/reports/unbilled-report.service';
+import { RevenueReportService } from './modules/reports/revenue-report.service';
 import { UnbilledReminderService } from './modules/reminders/unbilled-reminder.service';
 import { InvoicePdfService } from './modules/invoices/invoice-pdf.service';
 import { InvoiceCancelService } from './modules/invoices/invoice-cancel.service';
@@ -438,6 +439,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     PaymentsService,
     AgingService,
     UnbilledReportService,
+    RevenueReportService,
     BillingNotesService,
     InvoiceRunService,
     StopEventsService,

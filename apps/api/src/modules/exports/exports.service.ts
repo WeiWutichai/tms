@@ -12,7 +12,9 @@ import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { JobQueue, type JobContext } from '../../jobs/job-queue.service';
 import { putFileLocked } from '../documents/documents.controller';
+import { escapeHtml, PdfRenderer } from '../../pdf/pdf-renderer';
 import { csvCell, type ExportColumn } from '../master/export';
+import { EntitlementService } from '../entitlements/entitlement.service';
 import { NotificationService } from '../notifications/notification.service';
 import { EXPORT_RETENTION_DAYS } from '../retention/retention-policy';
 import { ExportRegistry, type ExportSpec } from './export-spec';
@@ -32,7 +34,10 @@ const PAGING_KEYS = ['limit', 'cursor', 'sort', 'fields', 'updatedAfter'] as con
 export const EXPORT_MIME = {
   csv: 'text/csv',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pdf: 'application/pdf',
 } as const;
+/** [DECISION ST9-T05] เพดานแถวของไฟล์ PDF (ตาราง A4 — รายงานสรุปเท่านั้น) · เกิน = `too_many_rows` ให้ใช้ Excel */
+export const EXPORT_PDF_MAX_ROWS = 2_000;
 export type ExportFormat = keyof typeof EXPORT_MIME;
 
 /** ข้อผิดพลาดที่ผู้ใช้แก้ได้ — `String(err)` = `ExportError: <code>` (เก็บใน job.error แล้วแปลงกลับเป็น code) */
@@ -118,6 +123,54 @@ async function xlsxWriter<R>(columns: ExportColumn<R>[], sheet: string): Promise
   };
 }
 
+/** วันเวลาไทยแบบอ่าน (หัว PDF) เช่น 22/11/2569 09:30 */
+function thaiStamp(d = new Date()): string {
+  const b = new Date(d.getTime() + 7 * 3600_000).toISOString();
+  return `${b.slice(8, 10)}/${b.slice(5, 7)}/${Number(b.slice(0, 4)) + 543} ${b.slice(11, 16)}`;
+}
+
+/** PDF ตาราง A4 แนวนอน (ST9-T05) — แถว id `total` = แถวรวม (ตัวหนา) — เก็บแถวในหน่วยความจำ (≤ EXPORT_PDF_MAX_ROWS) แล้ว render ครั้งเดียวด้วย PdfRenderer (ฟอนต์ Sarabun ฝัง) */
+function pdfWriter<R>(
+  columns: ExportColumn<R>[],
+  pdf: PdfRenderer,
+  head: { title: string; subtitle?: string },
+): FileWriter<R> {
+  const body: string[] = [];
+  const isNum = (v: unknown) => typeof v === 'number';
+  const cell = (v: string | number | null | undefined) =>
+    v === null || v === undefined
+      ? ''
+      : typeof v === 'number' && !Number.isInteger(v)
+        ? v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : escapeHtml(typeof v === 'number' ? v.toLocaleString('en-US') : String(v));
+  return {
+    add(rows) {
+      if (body.length + rows.length > EXPORT_PDF_MAX_ROWS) throw new ExportError('too_many_rows');
+      for (const r of rows)
+        body.push(
+          `<tr${(r as { id?: unknown }).id === 'total' ? ' class="t"' : ''}>${columns
+            .map((c) => {
+              const v = c.value(r);
+              return `<td${isNum(v) ? ' class="r"' : ''}>${cell(v)}</td>`;
+            })
+            .join('')}</tr>`,
+        );
+    },
+    async finish() {
+      const html = `<div class="page"><h1>${escapeHtml(head.title)}</h1>
+<p class="sub">${head.subtitle ? `${escapeHtml(head.subtitle)} · ` : ''}พิมพ์เมื่อ ${escapeHtml(thaiStamp())}</p>
+<table><thead><tr>${columns.map((c) => `<th>${escapeHtml(c.header)}</th>`).join('')}</tr></thead>
+<tbody>${body.join('')}</tbody></table></div>`;
+      const css = `@page{size:A4 landscape;margin:12mm}.page{font-size:12px}h1{font-size:18px;margin:0 0 4px}
+.sub{color:#3B424C;margin:0 0 10px}table{width:100%;border-collapse:collapse}
+th,td{border:1px solid #CDD1C8;padding:4px 6px;text-align:left;vertical-align:top}th{background:#EEF0EC;font-weight:600}
+thead{display:table-header-group}tr{break-inside:avoid}.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.t td{font-weight:700;background:#F4F5F2}`;
+      return pdf.pdf({ body: html, css, title: head.title });
+    },
+  };
+}
+
 /**
  * ส่งออกตามตัวกรองของหน้ารายการเป็นงานเบื้องหลัง (ST9-T10; docs/04 I, docs/01 §5.1 Bulk/async)
  * - `POST /v1/exports` ตรวจตัวกรองด้วย class ตัวกรองของรายการ + ลองอ่าน 1 แถว (ตัวกรองผิดตอบ 422 ทันที) → 202 + job
@@ -136,6 +189,8 @@ export class ExportsService implements OnModuleInit {
     private readonly db: DbService,
     private readonly notifications: NotificationService,
     private readonly audit: AuditService,
+    private readonly pdf: PdfRenderer,
+    private readonly entitlements: EntitlementService,
   ) {}
 
   onModuleInit() {
@@ -197,6 +252,14 @@ export class ExportsService implements OnModuleInit {
         required: need,
       });
     }
+    if (spec.feature && !(await this.entitlements.enabled(ctx.tenantId!, spec.feature)))
+      throw new ProblemException('feature_not_in_plan', undefined, undefined, {
+        featureKey: spec.feature,
+      });
+    if (input.format === 'pdf' && !spec.pdf)
+      throw new ProblemException('validation_failed', undefined, [
+        { field: 'format', code: 'isIn', message: `pdf is not available for ${spec.resource}` },
+      ]);
     const q = await this.parseFilter(spec, input.filter);
     // ลองอ่าน 1 แถว: ค่าตัวกรองที่ where-builder ปฏิเสธ (เช่น วันที่ผิด) ตอบ 422 ตอนสั่ง ไม่ใช่ตอน job ล้ม
     await spec.fetch(q, { after: null, take: 1 });
@@ -273,11 +336,27 @@ export class ExportsService implements OnModuleInit {
       async () => {
         const q = await this.parseFilter(spec, p.filter);
         const columns = spec.columns(scopes, q);
-        const format: ExportFormat = p.format === 'csv' ? 'csv' : 'xlsx';
-        const w = format === 'csv' ? csvWriter(columns) : await xlsxWriter(columns, spec.fileBase);
+        const format: ExportFormat =
+          p.format === 'csv' ? 'csv' : p.format === 'pdf' && spec.pdf ? 'pdf' : 'xlsx';
+        const w =
+          format === 'csv'
+            ? csvWriter(columns)
+            : format === 'pdf'
+              ? pdfWriter(columns, this.pdf, {
+                  title: spec.pdf!.title(q),
+                  ...(spec.pdf!.subtitle ? { subtitle: spec.pdf!.subtitle(q) } : {}),
+                })
+              : await xlsxWriter(columns, spec.fileBase);
         let after: string | null = null;
         let rows = 0;
-        for (;;) {
+        if (spec.single) {
+          // รายงานสรุป: อ่านครั้งเดียวทั้งชุด (ST9-T05)
+          const batch = await spec.fetch(q, { after: null, take: this.maxRows + 1 });
+          rows = batch.length;
+          if (rows > this.maxRows) throw new ExportError('too_many_rows');
+          w.add(redactPrices(batch, scopes, p.principalType ?? 'user') as typeof batch);
+        }
+        for (; !spec.single;) {
           const batch = await spec.fetch(q, { after, take: EXPORT_BATCH });
           if (!batch.length) break;
           rows += batch.length;

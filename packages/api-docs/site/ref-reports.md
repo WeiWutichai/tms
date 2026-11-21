@@ -1,10 +1,48 @@
 # reports
 
-1 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+2 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
+| [`GET /v1/reports/revenue`](#get-reports-revenue) | `reports.finance:read` |
 | [`GET /v1/reports/unbilled-delivery-orders`](#get-reports-unbilled-delivery-orders) | `reports.finance:read` |
+
+## รายงานรายได้ {#get-reports-revenue}
+
+`GET /v1/reports/revenue`
+
+scope: `reports.finance:read` · operationId: `Reports_revenueReport`
+
+รายได้จาก**บรรทัดใบแจ้งหนี้ที่ออกเลขแล้ว** (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — ไม่รวมร่างและใบที่ยกเลิก/void) ตามวันที่ออกใบ (เวลาไทย) ในช่วง `fromMonth`–`toMonth` จัดกลุ่มตาม `groupBy` (ลูกค้า / เส้นทาง / รถ / ประเภทรถ / นิติบุคคล / เดือน) · รายได้ = Σ ยอดบรรทัดหลังส่วนลด **ก่อน VAT** · Σ แถว = `sellAmount` รวม ทุกมิติ · บรรทัดที่ไม่ผูก DO / DO ที่ไม่มีเที่ยวหรือรถ อยู่แถว "ไม่ระบุ" (`id: none`) · `sell*` เห็นเมื่อมี `prices.sell:read` (ไม่มี = เห็นจำนวน) · ส่งออก: `POST /v1/exports` resource `revenue` (xlsx / csv / pdf) · แพ็กเกจต้องมีโมดูลรายงาน (`report`)
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `groupBy` | query |   | `string` ค่า: `customer`, `route`, `vehicle`, `vehicleType`, `legalEntity`, `month` | จัดกลุ่มตาม: `customer` ลูกค้า · `route` เส้นทาง (ต้นทาง → ปลายทางของ DO) · `vehicle` รถ · `vehicleType` ประเภทรถ · `legalEntity` นิติบุคคลผู้ออกใบ · `month` เดือนที่ออกใบ |
+| `fromMonth` | query |   | `string` | เดือนแรก (YYYY-MM ตามวันที่ออกใบ เวลาไทย) — ไม่ส่ง = เท่ากับ `toMonth` · ช่วงยาวสุด 24 เดือน |
+| `toMonth` | query |   | `string` | เดือนสุดท้าย (YYYY-MM รวมเดือนนี้) — ไม่ส่ง = เดือนปัจจุบัน (เวลาไทย) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `RevenueReportDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`reports.finance:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/reports/revenue" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/reports/revenue');
+```
 
 ## DO ยังไม่วางบิลเกิน N วัน {#get-reports-unbilled-delivery-orders}
 
@@ -45,6 +83,24 @@ const { data, error } = await tms.GET('/v1/reports/unbilled-delivery-orders');
 ```
 
 ## Schema ของ response {#schemas}
+
+### RevenueReportDto {#schema-RevenueReportDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `groupBy` | ใช่ | `string` | ค่า: `customer`, `route`, `vehicle`, `vehicleType`, `legalEntity`, `month` |   |   |
+| `fromMonth` | ใช่ | `string` |   |   | `2026-11` |
+| `toMonth` | ใช่ | `string` |   |   | `2026-11` |
+| `from` | ใช่ | `string` |   | วันที่ออกใบตั้งแต่ (เวลาไทย) | `2026-11-01` |
+| `to` | ใช่ | `string` |   | วันที่ออกใบถึง (รวม) | `2026-11-30` |
+| `asOf` | ใช่ | `string` |   | วันที่คำนวณ (วันนี้ เวลาไทย) | `2026-11-22` |
+| `invoiceCount` | ใช่ | `number` |   | จำนวนใบแจ้งหนี้ที่ออกในช่วง (ไม่รวมร่าง/ยกเลิก) |   |
+| `deliveryOrderCount` | ใช่ | `number` |   | จำนวน DO ทั้งหมดที่มีบรรทัดในช่วง |   |
+| `lineCount` | ใช่ | `number` |   | จำนวนบรรทัดทั้งหมด |   |
+| `sellAmount` |   | `string` |   | รายได้รวมทั้งช่วง (ก่อน VAT) = Σ `sellAmount` ของทุกแถวในทุกมิติ = Σ ยอดก่อน VAT ของใบที่ออกในช่วง — `prices.sell:read` | `480000.00` |
+| `data` | ใช่ | `array<RevenueRowDto>` |   |   |   |
 
 ### UnbilledReportDto {#schema-UnbilledReportDto}
 
