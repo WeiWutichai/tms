@@ -469,6 +469,8 @@ model Customer {
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
   @@index([tenantId, updatedAt, id])
+  @@index([legalName(ops: raw("gin_trgm_ops"))], type: Gin, map: "customer_legal_name_trgm_idx") /// ST9-T09 ค้นหา ⌘K (ILIKE '%q%')
+  @@index([code(ops: raw("gin_trgm_ops"))], type: Gin, map: "customer_code_trgm_idx") /// ST9-T09 ค้นหา ⌘K (ILIKE '%q%')
   @@map("customer")
 }
 
@@ -882,6 +884,7 @@ model Vehicle {
   @@index([tenantId, plateNorm])
   @@index([tenantId, vehicleTypeId])
   @@index([tenantId, carrierId])
+  @@index([plateNorm(ops: raw("gin_trgm_ops"))], type: Gin, map: "vehicle_plate_norm_trgm_idx") /// ST9-T09 ค้นหา ⌘K (ILIKE '%q%')
   @@map("vehicle")
 }
 
@@ -1421,6 +1424,8 @@ model SalesOrder {
   @@index([tenantId, status, requestedDate])
   @@index([tenantId, customerId])
   @@index([tenantId, updatedAt, id])
+  @@index([soNo(ops: raw("gin_trgm_ops"))], type: Gin, map: "sales_order_so_no_trgm_idx") /// ST9-T09 ค้นหา ⌘K (ILIKE '%q%')
+  @@index([customerRef(ops: raw("gin_trgm_ops"))], type: Gin, map: "sales_order_customer_ref_trgm_idx") /// ST9-T09 ค้นหา ⌘K (ILIKE '%q%')
   @@map("sales_order")
 }
 
@@ -1791,6 +1796,7 @@ model Trip {
   @@index([tenantId, updatedAt, id])
   @@index([tenantId, vehicleId, tripDate])
   @@index([tenantId, driverId, tripDate])
+  @@index([tripNo(ops: raw("gin_trgm_ops"))], type: Gin, map: "trip_trip_no_trgm_idx") /// ST9-T09 ค้นหา ⌘K (ILIKE '%q%')
   @@map("trip")
 }
 
@@ -1947,6 +1953,8 @@ model DeliveryOrder {
   @@index([tenantId, redeliveryOfId])
   @@index([tenantId, rejectedFromId])
   @@index([tenantId, updatedAt, id])
+  @@index([doNo(ops: raw("gin_trgm_ops"))], type: Gin, map: "delivery_order_do_no_trgm_idx") /// ST9-T09 ค้นหา ⌘K (ILIKE '%q%')
+  @@index([customerRef(ops: raw("gin_trgm_ops"))], type: Gin, map: "delivery_order_customer_ref_trgm_idx") /// ST9-T09 ค้นหา ⌘K (ILIKE '%q%')
   @@map("delivery_order")
 }
 
@@ -3709,6 +3717,8 @@ model Invoice {
   @@index([tenantId, replacesInvoiceId])
   @@index([tenantId, overdueAt])
   @@index([tenantId, dueDate])
+  @@index([invoiceNo(ops: raw("gin_trgm_ops"))], type: Gin, map: "invoice_invoice_no_trgm_idx") /// ST9-T09 ค้นหา ⌘K (ILIKE '%q%')
+  @@index([customerPoNo(ops: raw("gin_trgm_ops"))], type: Gin, map: "invoice_customer_po_no_trgm_idx") /// ST9-T09 ค้นหา ⌘K (ILIKE '%q%')
   @@map("invoice")
 }
 
@@ -3931,6 +3941,7 @@ model BillingNote {
   @@unique([tenantId, billingNoteNo])
   @@index([tenantId, customerId, status])
   @@index([tenantId, status])
+  @@index([billingNoteNo(ops: raw("gin_trgm_ops"))], type: Gin, map: "billing_note_billing_note_no_trgm_idx") /// ST9-T09 ค้นหา ⌘K (ILIKE '%q%')
   @@map("billing_note")
 }
 

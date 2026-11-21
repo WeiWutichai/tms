@@ -11,6 +11,7 @@ import { canAny, isLocked, navFor, NAV, parentOf, type NavGroup } from '../nav';
 export function Sidebar({
   mini,
   onToggle,
+  onSearch,
   tenantName,
   actor,
   role,
@@ -20,6 +21,8 @@ export function Sidebar({
 }: {
   mini: boolean;
   onToggle: () => void;
+  /** เปิดค้นหา ⌘K (ST9-T09) */
+  onSearch?: () => void;
   tenantName: string;
   actor: string;
   role?: string;
@@ -193,6 +196,9 @@ export function Sidebar({
               type="button"
               title={t('shell.searchTitle')}
               aria-label={t('shell.search')}
+              aria-haspopup="dialog"
+              aria-keyshortcuts="Meta+K Control+K"
+              onClick={onSearch}
               className="tms-sb-search"
               style={{
                 width: 44,
@@ -215,6 +221,9 @@ export function Sidebar({
           ) : (
             <button
               type="button"
+              aria-haspopup="dialog"
+              aria-keyshortcuts="Meta+K Control+K"
+              onClick={onSearch}
               className="tms-sb-search"
               style={{
                 width: '100%',

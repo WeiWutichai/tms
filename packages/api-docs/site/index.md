@@ -1,6 +1,6 @@
 # TMS API v1
 
-เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 373 endpoint
+เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 374 endpoint
 
 เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
 
@@ -31,6 +31,7 @@
 - [Webhooks และ events](ref-webhooks.md) — 9 endpoint: GET /v1/webhooks, GET /v1/webhooks/summary, GET /v1/webhooks/event-types, GET /v1/webhooks/{id}, GET /v1/webhooks/{id}/history, GET /v1/webhook-deliveries, …
 - [Sandbox](ref-sandbox.md) — 1 endpoint: POST /v1/test/events/trigger
 - [งานเบื้องหลัง (jobs)](ref-jobs.md) — 1 endpoint: GET /v1/jobs/{id}
+- [ค้นหา (search)](ref-search.md) — 1 endpoint: GET /v1/search
 - [ลูกค้า (customers)](ref-customers.md) — 18 endpoint: GET /v1/customers, POST /v1/customers, GET /v1/customers/summary, GET /v1/customers/next-code, GET /v1/customers/export, PUT /v1/customers/external/{externalId}, …
 - [สถานที่ (customer-sites)](ref-customer-sites.md) — 17 endpoint: GET /v1/customer-sites, POST /v1/customer-sites, GET /v1/customer-sites/summary, GET /v1/customer-sites/next-code, GET /v1/customer-sites/export, POST /v1/customer-sites/geocode, …
 - [สินค้า (products)](ref-products.md) — 13 endpoint: GET /v1/products, POST /v1/products, GET /v1/products/summary, GET /v1/products/next-code, GET /v1/products/export, PUT /v1/products/external/{externalId}, …

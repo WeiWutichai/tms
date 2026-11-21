@@ -319,6 +319,11 @@ export function PlanningPage() {
     const x = params.get('trip');
     return x && /^trp_[0-9a-f]{32}$/.test(x) ? x : null;
   });
+  // ST9-T09: อยู่หน้ากระดานอยู่แล้วแล้วกดผลค้นหา ⌘K (`/plan?trip=…` ใหม่) → เปิด drawer เที่ยวนั้น
+  const deepTrip = params.get('trip');
+  useEffect(() => {
+    if (deepTrip && /^trp_[0-9a-f]{32}$/.test(deepTrip)) setTripIdState(deepTrip);
+  }, [deepTrip]);
   const setTripId = (x: string | null) => {
     setTripIdState(x);
     if (!x && params.has('trip')) {

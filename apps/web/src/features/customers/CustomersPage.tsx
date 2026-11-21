@@ -24,7 +24,9 @@ import { problemText } from '../master/problems';
 import { listTotal } from '../master/useCursorList';
 import { CustomerCreateDrawer } from './CustomerCreateDrawer';
 import { CustomerDrawer } from './CustomerDrawer';
+import { useDeepOpen } from '../../shell/deepLink';
 import {
+  fetchCustomer,
   useCustomerAction,
   useCustomerList,
   useCustomerSummary,
@@ -69,6 +71,12 @@ export function CustomersPage() {
     setOpenId(c.id);
     setSelected(c);
   };
+  // ST9-T09 ค้นหา ⌘K → `/master/customers?open=cus_…` เปิด drawer ลูกค้า
+  useDeepOpen('open', 'cus', (id) => {
+    fetchCustomer(id)
+      .then(open)
+      .catch(() => setToast(t('problem.not_found')));
+  });
 
   const exportFile = (query: Record<string, string>, n?: number) =>
     downloadFile('/v1/customers/export', query).then(
