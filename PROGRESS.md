@@ -326,6 +326,13 @@
 
 ## บันทึกรายวัน
 
+### 22 พ.ย. 2569 (ใบสำคัญจ่ายรถร่วม (STL) ใน sandbox: เลข `TEST-` + ลายน้ำ PDF ตามแนว D-61 — lane lw)
+
+- **ทำ:** ปิดแถว spec/12 §3 "Sandbox: ใบสำคัญจ่ายรถร่วม (STL) PDF ไม่มีลายน้ำ" → **[DECISION — lead, ย้อนได้ ตามแนว D-61]** · (1) อนุมัติใบใน sandbox → เลข STL `TEST-…` (`issueNumber({ docType: 'STL', markSandbox: true })` — ตรวจ `tenant.mode` ในฐาน · ตัวนับบริษัทจริงไม่ขยับ) (2) PDF ใบที่มีเลขแล้วของ sandbox ลายน้ำ `SANDBOX_WATERMARK` ทุกหน้า (`watermarkKind: 'sample'`) · ร่างยังเป็น "ร่าง" · ธงอ่าน `tenant.mode` ตอน render (mode แก้ไม่ได้ — trigger 0107 → เท่ากับค่า ณ วันอนุมัติ; ไม่มี print_options บนใบ ไม่ต้อง migration) (3) AP ไม่ถึง ERP: sandbox ไม่มี connector → ไม่มีคำสั่ง `PUSH_SETTLEMENT` (test ยืนยัน 0 แถว `erp`) + sink ข้าม sandbox อยู่แล้ว · live ผลพิมพ์เดิม (golden darwin 3 ภาพผ่าน — ไม่เพิ่ม `SETTLEMENT_PDF_TEMPLATE_VERSION`; cache PDF เป็นหน่วยความจำ ล้างเมื่อ deploy) · plan/05 D-61 ขอบเขตเพิ่มใบสำคัญจ่าย
+- **ไฟล์:** `apps/api/src/modules/settlements/{settlements.service,settlement-pdf.service,settlement-pdf.template,settlement-pdf.sample}.ts`, `apps/api/src/modules/sequences/sequences.service.ts` (คอมเมนต์), test: `settlements.test.ts` (+1: sandbox อนุมัติ → `TEST-SA-…-0001` ตัวนับ sandbox/live, PDF ร่าง/จ่ายแล้ว, ข้าม tenant 404, ไม่มีคำสั่ง ERP · live ไม่มีลายน้ำ), `settlement-pdf.test.ts` (+1: ลายน้ำทุกหน้า/หลายหน้า, live/ร่างไม่เปลี่ยน), `pdf-thai.test.ts` (KINDS + ตัวอย่าง sandbox), `spec/12` §3, `plan/05` D-61
+- **ทดสอบ:** vitest `settlements`, `settlement-pdf`, `pdf-thai`, `sandbox`, `erp-accountsystem-flow`, `org`, `settlement-review` ผ่าน · tsc · prettier
+- **ค้าง:** ไม่มี golden PNG ของลายน้ำบนใบสำคัญจ่าย (ตรวจด้วย DOM test แบบ D-61 เดิม) · ไม่มีการเปลี่ยน OpenAPI
+
 ### 22 พ.ย. 2569 (ST9-T06 รายงาน DO ยังไม่วางบิลเกิน N วัน + แจ้งผู้วางบิล + ลูกหนี้คงค้างต่อลูกค้า + ส่งออก — lane lx)
 
 - **มีอยู่แล้ว (ใช้ซ้ำ ไม่ทำซ้ำ):** อายุลูกหนี้ต่อลูกค้า `GET /v1/payments/aging` (ST5-T22) · นิยามกันวางบิลซ้ำ `billing_status` (ST5-T05) · งานส่งออก `POST /v1/exports` (ST9-T10) · ศูนย์แจ้งเตือน + event `delivery_order.unbilled` ที่รอ ST9-T06 (ST9-T08) · โครง job 08:00 + สมุดเตือน `expiry_reminder` (ST2-T18/ST5-T22) · หน้า รายงาน ยังเป็น "ยังไม่เปิดใช้" (ST9-T05 ยังไม่ทำ)
