@@ -57,6 +57,20 @@ export interface TemplateVars {
     resolvedAt?: string;
   };
   password_reset: { link: string; minutes: number };
+  /**
+   * ST5-T21 เอกสารถึงลูกค้า (แนบ PDF) — ไม่ใส่ยอดเงินในเนื้ออีเมล (ยอดอยู่ใน PDF) · วันที่จัดรูปแบบตามที่ tenant ตั้งแล้ว
+   * BILLING_NOTE = ไฟล์รวม "ใบวางบิล + ใบแจ้งหนี้" · INVOICE = ใบแจ้งหนี้ · PAYMENT_REMINDER = ใบแจ้งเตือนชำระ (แนบใบแจ้งหนี้)
+   */
+  customer_document: {
+    kind: 'BILLING_NOTE' | 'INVOICE' | 'PAYMENT_REMINDER';
+    issuerName: string;
+    customerName: string;
+    documentNo: string;
+    invoiceNos: string[];
+    dueDate: string | null;
+    collectionDate: string | null;
+    filename: string;
+  };
   user_invitation: {
     link: string;
     days: number;
@@ -70,6 +84,66 @@ export type TemplateName = keyof TemplateVars;
 type Renderer<K extends TemplateName> = (v: TemplateVars[K]) => RenderedEmail;
 
 const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
+  customer_document: {
+    th: (v) => {
+      const title =
+        v.kind === 'BILLING_NOTE'
+          ? `ใบวางบิล ${v.documentNo}`
+          : v.kind === 'INVOICE'
+            ? `ใบแจ้งหนี้ ${v.documentNo}`
+            : `แจ้งเตือนชำระ ใบแจ้งหนี้ ${v.documentNo}`;
+      const paras = [
+        `เรียน ${v.customerName}`,
+        v.kind === 'BILLING_NOTE'
+          ? `${v.issuerName} ขอส่งใบวางบิลเลขที่ ${v.documentNo} พร้อมใบแจ้งหนี้ ${v.invoiceNos.length} ฉบับ (${v.invoiceNos.join(', ')}) ตามไฟล์แนบ`
+          : v.kind === 'INVOICE'
+            ? `${v.issuerName} ขอส่งใบแจ้งหนี้เลขที่ ${v.documentNo} ตามไฟล์แนบ`
+            : `${v.issuerName} ขอแจ้งเตือนการชำระเงินตามใบแจ้งหนี้เลขที่ ${v.documentNo} (แนบใบแจ้งหนี้)`,
+        ...(v.collectionDate ? [`นัดรับเช็ค / โอนเงิน ภายในวันที่ ${v.collectionDate}`] : []),
+        ...(v.dueDate ? [`ครบกำหนดชำระวันที่ ${v.dueDate}`] : []),
+        v.kind === 'BILLING_NOTE'
+          ? `ไฟล์แนบ ${v.filename} — หน้าแรกเป็นใบวางบิล ตามด้วยใบแจ้งหนี้ตามลำดับในใบวางบิล`
+          : `ไฟล์แนบ ${v.filename}`,
+        ...(v.kind === 'PAYMENT_REMINDER'
+          ? ['หากท่านชำระเงินแล้ว ขออภัยและขอบคุณมา ณ ที่นี้']
+          : []),
+        `อีเมลนี้ส่งจากระบบอัตโนมัติ หากมีข้อสงสัยกรุณาติดต่อ ${v.issuerName}`,
+      ];
+      return {
+        subject: `${title} — ${v.issuerName}`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('th', title, paras),
+      };
+    },
+    en: (v) => {
+      const title =
+        v.kind === 'BILLING_NOTE'
+          ? `Billing note ${v.documentNo}`
+          : v.kind === 'INVOICE'
+            ? `Invoice ${v.documentNo}`
+            : `Payment reminder: invoice ${v.documentNo}`;
+      const paras = [
+        `Dear ${v.customerName}`,
+        v.kind === 'BILLING_NOTE'
+          ? `${v.issuerName} sends billing note ${v.documentNo} with ${v.invoiceNos.length} invoice(s) (${v.invoiceNos.join(', ')}) attached.`
+          : v.kind === 'INVOICE'
+            ? `${v.issuerName} sends invoice ${v.documentNo} attached.`
+            : `${v.issuerName} reminds you of the payment for invoice ${v.documentNo} (attached).`,
+        ...(v.collectionDate ? [`Cheque collection / transfer by ${v.collectionDate}`] : []),
+        ...(v.dueDate ? [`Due date ${v.dueDate}`] : []),
+        `Attachment: ${v.filename}`,
+        ...(v.kind === 'PAYMENT_REMINDER'
+          ? ['If you have already paid, thank you and please ignore this email.']
+          : []),
+        `This email was sent automatically. Please contact ${v.issuerName} with any questions.`,
+      ];
+      return {
+        subject: `${title} — ${v.issuerName}`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('en', title, paras),
+      };
+    },
+  },
   impersonation_started: {
     th: (v) => {
       const title = `ทีมงาน TMS เข้าใช้งานบัญชี ${v.tenantName}`;

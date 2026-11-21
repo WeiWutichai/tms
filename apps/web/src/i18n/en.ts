@@ -174,6 +174,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'pay.sum.diff': 'Variance',
   'pay.save': 'Record payment',
   'pay.viewInv': 'View invoice',
+  'pay.remind': 'Send payment reminder',
   'pay.chq.PENDING': 'To clear',
   'page.settle.title': 'Subcontractor settlement',
   'page.settle.group': 'Accounting',

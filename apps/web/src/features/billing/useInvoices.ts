@@ -1,6 +1,6 @@
 import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, ApiError, unwrap } from '../../api';
+import { api, ApiError, idempotent, unwrap } from '../../api';
 import { useCursorList } from '../master/useCursorList';
 
 export type Invoice = Schemas['InvoiceDto'];
@@ -209,4 +209,23 @@ export function previewDraft(v: {
       }),
     'proforma-preview.pdf',
   );
+}
+
+/**
+ * ส่งใบแจ้งหนี้ / ใบแจ้งเตือนชำระ ทางอีเมลถึงลูกค้า (ST5-T21 `POST /invoices/{id}/send`) — แนบ PDF ต้นฉบับ · ผู้รับ = อีเมลผู้ติดต่อของลูกค้า
+ * 1 การกด = 1 Idempotency-Key (กดซ้ำ/เน็ตช้า = ไม่ส่งซ้ำ) · ตั้งธง "ส่งลูกค้าแล้ว" (EMAIL) → โหลดรายการใหม่
+ */
+export function useSendInvoiceEmail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; purpose: 'DOCUMENT' | 'PAYMENT_REMINDER'; key: string }) =>
+      idempotent(() =>
+        api.POST('/v1/invoices/{id}/send', {
+          params: { path: { id: v.id } },
+          headers: { 'Idempotency-Key': v.key },
+          body: { purpose: v.purpose },
+        }),
+      ),
+    onSettled: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
 }

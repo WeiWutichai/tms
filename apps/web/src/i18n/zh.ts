@@ -174,6 +174,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'pay.sum.diff': '差异',
   'pay.save': '登记收款',
   'pay.viewInv': '查看发票',
+  'pay.remind': '发送付款提醒',
   'pay.chq.PENDING': '待核销',
   'page.settle.title': '外包结算',
   'page.settle.group': '财务',
