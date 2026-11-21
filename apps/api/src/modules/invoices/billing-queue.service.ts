@@ -11,6 +11,7 @@ import type {
   BillingQueuePageDto,
   BillingQueueQuery,
   BillingQueueRowDto,
+  BillingQueueTotalsDto,
 } from './billing-queue.dto';
 
 const NONE = '00000000-0000-0000-0000-000000000000';
@@ -365,11 +366,27 @@ export class BillingQueueService {
       }),
       q.fields,
     );
+    const customers = await this.totals(tx, cte);
     return {
       data: page.data as BillingQueueRowDto[],
       nextCursor: page.nextCursor,
       hasMore: page.hasMore,
-      customers: await this.totals(tx, cte),
+      customers,
+      totals: BillingQueueService.grandTotal(customers),
+    };
+  }
+
+  /**
+   * ST9-T02 ยอดรวมทุกลูกค้า (= การ์ด "ค้างวางบิล" ของ Dashboard บิล) — รวมจาก `customers[]` ชุดเดียวกัน (Decimal)
+   * ยอดเงินของลูกค้าที่ถูกตัด (ไม่มีสิทธิ์ราคาขาย) ไม่มีผล — ฟิลด์ `sellTotal` ของผลรวมถูกตัดด้วย `@PriceField` เช่นกัน
+   */
+  static grandTotal(customers: BillingQueueCustomerDto[]): BillingQueueTotalsDto {
+    return {
+      deliveryOrderCount: customers.reduce((a, c) => a + c.deliveryOrderCount, 0),
+      releasedCount: customers.reduce((a, c) => a + c.releasedCount, 0),
+      sellTotal: customers
+        .reduce((a, c) => a.add(new Prisma.Decimal(c.sellTotal ?? 0)), new Prisma.Decimal(0))
+        .toFixed(2),
     };
   }
 

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, type VatType } from '@prisma/client';
 import {
   AGING_BUCKET_RANGE,
+  billingMonthRanges,
   canMergeInvoiceLines,
   computeDocumentTax,
   decimalFromSatang,
@@ -659,15 +660,42 @@ export class InvoicesService {
   async summary(): Promise<InvoiceSummaryCountsDto> {
     // ST5-T18 เกินกำหนดเป็นแท็บของตัวเอง (ต้นแบบ invSt: เกินกำหนดมาก่อนออกแล้ว/ชำระบางส่วน) — นับแยกจากสถานะ
     const tx = this.db.tx;
-    const od = overdueWhere(tx, bangkokToday(this.clock.now()));
+    const today = bangkokToday(this.clock.now());
+    const od = overdueWhere(tx, today);
     const rows = await tx.invoice.groupBy({
       by: ['status'],
       where: { NOT: od },
       _count: { _all: true },
+      _sum: { totalAmount: true, paidAmount: true },
     });
-    const overdue = await tx.invoice.count({ where: od });
-    const n = (...st: string[]) =>
-      rows.filter((r) => st.includes(r.status)).reduce((a, r) => a + r._count._all, 0);
+    const odAgg = await tx.invoice.aggregate({
+      where: od,
+      _count: { _all: true },
+      _sum: { totalAmount: true, paidAmount: true },
+    });
+    const overdue = odAgg._count._all;
+    const pick = (st: string[]) => rows.filter((r) => st.includes(r.status));
+    const n = (...st: string[]) => pick(st).reduce((a, r) => a + r._count._all, 0);
+    const ZERO = new Prisma.Decimal(0);
+    const dec = (v: Prisma.Decimal | null) => v ?? ZERO;
+    // ST9-T02 ยอดต่อแท็บ (Decimal — ไม่ใช้ float): ร่าง = ยอดรวมใบ · ใบที่ออกแล้ว = ยอดค้าง (ยอดรวม − ยอดตัดชำระ)
+    // ชุดเดียวกับจำนวน (แท็บของหน้า "วางบิลและใบแจ้งหนี้") — Σ ออกแล้ว + ชำระบางส่วน + เกินกำหนด = ยอดค้างรับ
+    const total = (...st: string[]) =>
+      pick(st).reduce((a, r) => a.add(dec(r._sum.totalAmount)), ZERO);
+    const outstanding = (...st: string[]) =>
+      pick(st).reduce((a, r) => a.add(dec(r._sum.totalAmount).sub(dec(r._sum.paidAmount))), ZERO);
+    // เดือนนี้ vs เดือนก่อน: ใบที่ออกเลขในเดือน (issue_date เวลาไทย) ไม่รวมร่าง/ยกเลิก (CANCELLED/VOIDED)
+    const m = billingMonthRanges(today);
+    const issuedIn = (r: { from: string; to: string }) =>
+      tx.invoice.aggregate({
+        where: {
+          status: { in: ['ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED'] },
+          issueDate: { gte: day(r.from), lte: day(r.to) },
+        },
+        _count: { _all: true },
+        _sum: { totalAmount: true },
+      });
+    const [cur, prev] = [await issuedIn(m.thisMonth), await issuedIn(m.lastMonth)];
     return {
       total:
         n('DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED', 'VOIDED', 'CANCELLED') + overdue,
@@ -677,6 +705,21 @@ export class InvoicesService {
       paid: n('PAID'),
       overdue,
       cancelled: n('CANCELLED', 'VOIDED'),
+      today,
+      sellDraftTotal: money(total('DRAFT')),
+      sellIssuedOutstanding: money(outstanding('ISSUED', 'ADJUSTED')),
+      sellPartiallyPaidOutstanding: money(outstanding('PARTIALLY_PAID')),
+      sellOverdueOutstanding: money(dec(odAgg._sum.totalAmount).sub(dec(odAgg._sum.paidAmount))),
+      issuedThisMonth: {
+        month: m.thisMonth.month,
+        count: cur._count._all,
+        sellTotal: money(dec(cur._sum.totalAmount)),
+      },
+      issuedLastMonth: {
+        month: m.lastMonth.month,
+        count: prev._count._all,
+        sellTotal: money(dec(prev._sum.totalAmount)),
+      },
     };
   }
 
