@@ -33,6 +33,7 @@ import {
   countOf,
   deductTotal,
   listStatus,
+  statusForTab,
   statusLabel,
   statusTone,
   TAB_STATUS,
@@ -68,7 +69,7 @@ export function SettlePage() {
   const canRelink = can(scopes, 'settlements:create');
   const dateText = useDateText();
   // ST9-T03 drill-down จาก Dashboard AP รถร่วม (`/settle?tab=chk`, `/settle?tab=chk&st=DISPUTED`) — เขียนแท็บ/ตัวกรองลง session
-  // ก่อน `useSessionState` อ่าน (ยิง API ครั้งแรกด้วยตัวกรองจากลิงก์) · ล้างตัวกรองคอลัมน์อื่น + ไม่ผูกมุมมองที่บันทึกไว้ (แบบ ST9-T01/T11)
+  // ก่อน `useSessionState` อ่าน (ยิง API ครั้งแรกด้วยตัวกรองจากลิงก์) · ล้างตัวกรองคอลัมน์อื่น + ไม่ผูกมุมมองที่บันทึกไว้ · คงคอลัมน์ที่ซ่อน (แบบ VehiclesPage/HoldPage)
   const [params, setParams] = useSearchParams();
   useUrlSeed(params, ['tab', 'st'], (p) => {
     const k = p.get('tab') ?? '';
@@ -78,7 +79,6 @@ export function SettlePage() {
       'tms.view.settlements.init': 1,
       'settle.tab': TABS.includes(k as Tab) ? k : 'all',
       'settle.cols': { no: '', who: '', st: (ST_OPTS as readonly string[]).includes(st) ? st : '' },
-      'settle.hidden': null,
     };
   });
   useEffect(() => {
@@ -142,7 +142,11 @@ export function SettlePage() {
   const statusTotal =
     kpi && status !== null ? countOf(kpi, status) : status === null ? 0 : undefined;
   const shownTotal = listTotal(list, { tab: curTab, ...col }, ['tab', 'st'], statusTotal);
-  const pickTab = (k: Tab) => setTab(curTab === k ? 'all' : k);
+  const changeTab = (k: Tab) => {
+    setTab(k);
+    setCol((c) => (statusForTab(k, c.st) === c.st ? c : { ...c, st: '' }));
+  };
+  const pickTab = (k: Tab) => changeTab(curTab === k ? 'all' : k);
   const kpiSub = (k: Tab) => t(curTab === k ? 'dash.kpi.clear' : 'bill.kpi.click');
 
   const relink = (id: string, status: string) => {
@@ -322,7 +326,7 @@ export function SettlePage() {
       <div className="tms-listbody">
         <StatusTabs
           value={curTab}
-          onChange={(k) => setTab(k as Tab)}
+          onChange={(k) => changeTab(k as Tab)}
           items={TABS.map((k) => ({
             key: k,
             label: t(`settle.tab.${k}` as MessageKey),

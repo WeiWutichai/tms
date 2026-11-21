@@ -624,6 +624,8 @@ export function Dashboard() {
           )}
         </div>
       )}
+      {/* ST9-T03 Dashboard AP รถร่วม — ตรวจสิทธิ์/แพ็กเกจในตัว (ไม่มีสิทธิ์ = ไม่ render ไม่เรียก API) */}
+      <SettleDash />
       {openOrder && (
         <OrderDrawer
           key={openOrder}
@@ -658,8 +660,6 @@ export function Dashboard() {
           onClose={() => setOpenTrip(null)}
         />
       )}
-      {/* ST9-T03 Dashboard AP รถร่วม — ตรวจสิทธิ์/แพ็กเกจในตัว (ไม่มีสิทธิ์ = ไม่ render ไม่เรียก API) */}
-      <SettleDash />
       <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />
     </>
   );

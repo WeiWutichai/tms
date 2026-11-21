@@ -178,14 +178,15 @@ describe('Dashboard AP รถร่วม (ST9-T03)', () => {
     expect(screen.getByTestId('dash-ap')).not.toHaveTextContent('12,345.60');
   });
 
-  it('summary โหลดไม่สำเร็จ → ทุกช่อง "—" + "โหลดไม่สำเร็จ · ลองใหม่" (คลิก = โหลดใหม่ ไม่เปลี่ยนหน้า)', async () => {
+  it('summary โหลดไม่สำเร็จ → ปุ่มเดียว "โหลดไม่สำเร็จ · ลองใหม่" แทนช่อง (แบบการ์ดรถบริษัท) · คลิก = โหลดใหม่ ไม่เปลี่ยนหน้า', async () => {
     failSummary = true;
     mount();
-    await waitFor(() => expect(screen.getByTestId('ap-chk')).toHaveTextContent('โหลดไม่สำเร็จ'));
-    expect(screen.getByTestId('ap-paid-n')).toHaveTextContent('—');
+    await waitFor(() => expect(screen.getByTestId('ap-retry')).toHaveTextContent('โหลดไม่สำเร็จ'));
+    expect(screen.queryByTestId('ap-chk')).toBeNull();
+    expect(screen.getAllByText('โหลดไม่สำเร็จ · ลองใหม่')).toHaveLength(1);
     const before = calls.filter((c) => c.path === '/v1/settlements/summary').length;
     failSummary = false;
-    fireEvent.click(screen.getByTestId('ap-chk'));
+    fireEvent.click(screen.getByTestId('ap-retry'));
     await waitFor(() => expect(screen.getByTestId('ap-chk-n')).toHaveTextContent('4'));
     expect(calls.filter((c) => c.path === '/v1/settlements/summary').length).toBeGreaterThan(
       before,
@@ -198,5 +199,21 @@ describe('Dashboard AP รถร่วม (ST9-T03)', () => {
     await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent(/^\/settle$/));
     await waitFor(() => expect(screen.getAllByText('0 รายการ').length).toBeGreaterThan(0));
     expect(calls.some((c) => c.path === '/v1/settlements')).toBe(false);
+  });
+
+  it('หน้า settle: มาจากช่องโต้แย้ง แล้วเปลี่ยนไปแท็บจ่ายแล้ว → ล้างตัวกรองสถานะ (รายการ = PAID ไม่ใช่ว่าง)', async () => {
+    mount('/settle?tab=chk&st=DISPUTED');
+    await waitFor(() =>
+      expect(
+        calls.some((c) => c.path === '/v1/settlements' && c.query?.status === 'DISPUTED'),
+      ).toBe(true),
+    );
+    fireEvent.click(screen.getByRole('tab', { name: /จ่ายแล้ว/ }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.path === '/v1/settlements' && c.query?.status === 'PAID')).toBe(
+        true,
+      ),
+    );
+    await waitFor(() => expect(screen.getAllByText('6 รายการ').length).toBeGreaterThan(0));
   });
 });

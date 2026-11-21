@@ -66,28 +66,40 @@ function SettleDashCard({ canBuy }: { canBuy: boolean }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h2 style={h2}>{t('dash.ap.title')}</h2>
       </div>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-          gap: 12,
-        }}
-      >
-        {AP_TILES.map((x) => (
-          <button
-            key={x.key}
-            type="button"
-            style={tile}
-            data-testid={`ap-${x.key}`}
-            onClick={() => (q.isError ? void q.refetch() : nav(x.link))}
-          >
-            <span style={tileN(x.color)} data-testid={`ap-${x.key}-n`}>
-              {k && !q.isError ? num(countOf(k, x.statuses)) : '—'}
-            </span>
-            <span style={tileL}>{q.isError ? t('dash.kpi.err') : t(x.label)}</span>
-          </button>
-        ))}
-      </div>
+      {q.isError ? (
+        // แบบการ์ดรถบริษัท (ST9-T01): ปุ่มเดียว "โหลดไม่สำเร็จ · ลองใหม่" แทนช่องตัวเลข
+        <Button
+          variant="secondary"
+          icon="refresh-cw"
+          data-testid="ap-retry"
+          onClick={() => void q.refetch()}
+        >
+          {t('dash.kpi.err')}
+        </Button>
+      ) : (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+            gap: 12,
+          }}
+        >
+          {AP_TILES.map((x) => (
+            <button
+              key={x.key}
+              type="button"
+              style={tile}
+              data-testid={`ap-${x.key}`}
+              onClick={() => nav(x.link)}
+            >
+              <span style={tileN(x.color)} data-testid={`ap-${x.key}-n`}>
+                {k ? num(countOf(k, x.statuses)) : '—'}
+              </span>
+              <span style={tileL}>{t(x.label)}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {canBuy && k?.buyPaidThisMonth !== undefined && !q.isError && (
         // แถวข้อมูลแบบ "ซิงก์ล่าสุด" ของการ์ดการเชื่อมต่อในต้นแบบ — ยอดเดียวกับ KPI "จ่ายแล้วเดือนนี้ (฿)" ของหน้า settle
         <div style={{ display: 'flex', justifyContent: 'space-between', color: '#3B424C' }}>

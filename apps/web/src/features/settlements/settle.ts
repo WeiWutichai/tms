@@ -58,6 +58,10 @@ export function listStatus(tab: Tab, st: string): string | null {
   return base.split(',').includes(st) ? st : null;
 }
 
+/** เปลี่ยนแท็บ: ตัวกรองสถานะที่ไม่อยู่ในแท็บใหม่ถูกล้าง (ไม่ค้างเป็นรายการว่าง — review ST9-T03 L1) */
+export const statusForTab = (tab: Tab, st: string): string =>
+  st && listStatus(tab, st) === null ? '' : st;
+
 export const statusLabel = (t: T, s: string) => t(`settle.st.${s}` as MessageKey);
 
 /** โทนป้าย: ใช้แผนที่ป้ายของต้นแบบ (status-map) · "มีรายการโต้แย้ง" ไม่อยู่ในแผนที่ → แดงแบบ "ไม่ตรง" */
