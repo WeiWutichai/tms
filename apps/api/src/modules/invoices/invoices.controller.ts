@@ -207,8 +207,13 @@ export class InvoicesController {
   @Get('summary')
   @RequireScope('invoices:read')
   @ApiOperation({
-    summary: 'จำนวนใบแจ้งหนี้ตามสถานะ (แท็บ/KPI)',
-    description: 'นับทั้ง tenant · เกินกำหนดเป็น 0 จนกว่าจะมีวันครบกำหนด/รับชำระ (ST5-T09/T22)',
+    summary: 'จำนวนและยอดใบแจ้งหนี้ตามสถานะ (แท็บ/KPI + Dashboard บิล)',
+    description:
+      'นับทั้ง tenant · แท็บแยกกันไม่ซ้อน: เกินกำหนด (ธง `overdue` — ST5-T18) มาก่อน "ออกแล้ว"/"ชำระบางส่วน" · ' +
+      'ST9-T02 Dashboard บิล: ยอดต่อแท็บ (`sellDraftTotal` = ยอดรวมร่าง · `sell*Outstanding` = ยอดรวม − ยอดตัดชำระ — ' +
+      'ตรงกับ Σ ของ `GET /invoices` ตัวกรองเดียวกัน) + ใบที่ออกเดือนนี้ (ถึงวันนี้) vs เดือนก่อน (ทั้งเดือน) ตาม `issueDate` เวลาไทย ไม่รวมร่าง/ยกเลิก · ' +
+      'ค้างวางบิล = `GET /invoices/queue` `totals` · รับชำระเดือนนี้/ก่อน = `GET /payments/summary` · ' +
+      'ยอด `sell*` เห็นเมื่อมี `prices.sell:read` (จำนวนเห็นเสมอ) · D-54: ใบแจ้งหนี้ไม่ใช่ใบกำกับภาษี ยอด VAT/WHT เป็นประมาณการ',
   })
   @ApiProblems(T403('invoices:read'))
   @ApiOkResponse({ type: InvoiceSummaryCountsDto })

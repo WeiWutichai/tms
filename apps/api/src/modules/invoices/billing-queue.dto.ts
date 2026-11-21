@@ -199,6 +199,19 @@ export class BillingQueueCustomerDto {
   sellTotal?: string;
 }
 
+/** ST9-T02 ยอดรวมของทุกแถวที่ตรงตัวกรอง (การ์ด "ค้างวางบิล (มูลค่า)" ของ Dashboard บิล) */
+export class BillingQueueTotalsDto {
+  @ApiProperty({ description: 'จำนวน DO ในคิว' }) deliveryOrderCount!: number;
+  @ApiProperty({ description: 'จำนวน DO ที่ส่งบัญชีแล้ว' }) releasedCount!: number;
+  @ApiPropertyOptional({
+    example: '24902.50',
+    description:
+      'ยอดรายได้รวม (ก่อน VAT) = Σ `customers[].sellTotal` — เห็นเมื่อมี `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellTotal?: string;
+}
+
 export class BillingQueuePageDto {
   @ApiProperty({ type: [BillingQueueRowDto] }) data!: BillingQueueRowDto[];
   @ApiProperty({ nullable: true, type: String }) nextCursor!: string | null;
@@ -209,6 +222,11 @@ export class BillingQueuePageDto {
       'สรุปต่อลูกค้าของทุกแถวที่ตรงตัวกรอง (ไม่ขึ้นกับ cursor/limit) — เรียงตามรหัสลูกค้า',
   })
   customers!: BillingQueueCustomerDto[];
+  @ApiProperty({
+    type: BillingQueueTotalsDto,
+    description: 'ST9-T02 ยอดรวมของทุกแถวที่ตรงตัวกรอง (ไม่ขึ้นกับ cursor/limit) = Σ `customers[]`',
+  })
+  totals!: BillingQueueTotalsDto;
 }
 
 /** ส่งบัญชี DO เดียว (If-Match = version) */

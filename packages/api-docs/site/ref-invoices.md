@@ -74,13 +74,13 @@ curl -sS -X GET "$TMS_BASE_URL/v1/invoices/queue" \
 const { data, error } = await tms.GET('/v1/invoices/queue');
 ```
 
-## จำนวนใบแจ้งหนี้ตามสถานะ (แท็บ/KPI) {#get-invoices-summary}
+## จำนวนและยอดใบแจ้งหนี้ตามสถานะ (แท็บ/KPI + Dashboard บิล) {#get-invoices-summary}
 
 `GET /v1/invoices/summary`
 
 scope: `invoices:read` · operationId: `Invoices_summary`
 
-นับทั้ง tenant · เกินกำหนดเป็น 0 จนกว่าจะมีวันครบกำหนด/รับชำระ
+นับทั้ง tenant · แท็บแยกกันไม่ซ้อน: เกินกำหนด มาก่อน "ออกแล้ว"/"ชำระบางส่วน" Dashboard บิล: ยอดต่อแท็บ (`sellDraftTotal` = ยอดรวมร่าง · `sell*Outstanding` = ยอดรวม − ยอดตัดชำระ — ตรงกับ Σ ของ `GET /invoices` ตัวกรองเดียวกัน) + ใบที่ออกเดือนนี้ (ถึงวันนี้) vs เดือนก่อน (ทั้งเดือน) ตาม `issueDate` เวลาไทย ไม่รวมร่าง/ยกเลิก · ค้างวางบิล = `GET /invoices/queue` `totals` · รับชำระเดือนนี้/ก่อน = `GET /payments/summary` · ยอด `sell*` เห็นเมื่อมี `prices.sell:read` (จำนวนเห็นเสมอ): ใบแจ้งหนี้ไม่ใช่ใบกำกับภาษี ยอด VAT/WHT เป็นประมาณการ
 
 **Responses**
 
@@ -1273,6 +1273,7 @@ const { data, error } = await tms.POST('/v1/invoice-runs', {
 | `nextCursor` | ใช่ | `string` | null ได้ |   |   |
 | `hasMore` | ใช่ | `boolean` |   |   |   |
 | `customers` | ใช่ | `array<BillingQueueCustomerDto>` |   | สรุปต่อลูกค้าของทุกแถวที่ตรงตัวกรอง (ไม่ขึ้นกับ cursor/limit) — เรียงตามรหัสลูกค้า |   |
+| `totals` | ใช่ | `BillingQueueTotalsDto` |   | ยอดรวมของทุกแถวที่ตรงตัวกรอง (ไม่ขึ้นกับ cursor/limit) = Σ `customers[]` |   |
 
 ### DocumentEmailListDto {#schema-DocumentEmailListDto}
 
@@ -1379,8 +1380,15 @@ const { data, error } = await tms.POST('/v1/invoice-runs', {
 |---|---|---|---|---|---|
 | `total` | ใช่ | `number` |   |   |   |
 | `draft` | ใช่ | `number` |   |   |   |
-| `issued` | ใช่ | `number` |   | ISSUED + ADJUSTED ที่ไม่เกินกำหนด |   |
+| `issued` | ใช่ | `number` |   | ISSUED ที่ไม่เกินกำหนด: ไม่รวม ADJUSTED (นิยามลูกหนี้เดียวกับ `GET /payments/summary` — ADJUSTED นับใน `total` เท่านั้น) |   |
 | `partiallyPaid` | ใช่ | `number` |   | PARTIALLY_PAID ที่ไม่เกินกำหนด |   |
 | `paid` | ใช่ | `number` |   |   |   |
 | `overdue` | ใช่ | `number` |   | เกินกำหนด — ใบที่มีธง `overdue` |   |
 | `cancelled` | ใช่ | `number` |   | CANCELLED + VOIDED |   |
+| `today` | ใช่ | `string` |   | วันนี้ตามเวลาไทยของ server (ใช้ตัดเกินกำหนด/เดือน) | `2026-11-22` |
+| `sellDraftTotal` |   | `string` |   | Σ ยอดรวมของร่าง (ประมาณการ — ยังไม่ออกเลข) — `prices.sell:read` | `12500.00` |
+| `sellIssuedOutstanding` |   | `string` |   | Σ ยอดค้าง (ยอดรวม − ยอดตัดชำระ) ของใบในแท็บ "ออกแล้ว" (ISSUED ที่ไม่เกินกำหนด) — `prices.sell:read` | `48000.00` |
+| `sellPartiallyPaidOutstanding` |   | `string` |   | Σ ยอดค้างของใบชำระบางส่วนที่ไม่เกินกำหนด — `prices.sell:read` | `3200.00` |
+| `sellOverdueOutstanding` |   | `string` |   | Σ ยอดค้างของใบเกินกำหนด (ชุดเดียวกับ `overdue` และ `GET /payments/summary` `sellOverdueOutstanding`) — `prices.sell:read` | `12500.00` |
+| `issuedThisMonth` | ใช่ | `InvoiceMonthTotalDto` |   | ใบที่ออกเลขเดือนนี้ (วันที่ 1 ถึงวันนี้ ตาม `issueDate` เวลาไทย) ไม่รวมร่าง/ยกเลิก |   |
+| `issuedLastMonth` | ใช่ | `InvoiceMonthTotalDto` |   | ใบที่ออกเลขเดือนก่อน (ทั้งเดือน) ไม่รวมร่าง/ยกเลิก |   |

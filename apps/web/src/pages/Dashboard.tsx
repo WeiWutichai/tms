@@ -33,6 +33,9 @@ import {
   type CardKey,
   type ListKind,
 } from '../features/dashboard/opsCards';
+import { BillingDash } from '../features/dashboard/BillingDash';
+import { OVERDUE_KPI_LINK } from '../features/dashboard/billCards';
+import { useInvoiceCounts } from '../features/billing/useInvoices';
 import { ImportExcelButton } from '../features/imports/ImportExcelButton';
 import { problemText } from '../features/master/problems';
 import { listTotal, useCursorList } from '../features/master/useCursorList';
@@ -44,7 +47,7 @@ import {
   statusTone,
 } from '../features/orders/OrderDrawer';
 import type { Order } from '../features/orders/orderForm';
-import { useDateText } from '../features/rate-cards/rateFormat';
+import { money, useDateText } from '../features/rate-cards/rateFormat';
 import { SetupChecklist } from '../features/setup/SetupChecklist';
 import { SettleDash } from '../features/dashboard/SettleDash';
 import { TripDrawer } from '../features/trips/TripDrawer';
@@ -182,7 +185,7 @@ const num = (n: number) => n.toLocaleString('th-TH');
  * ภาพรวม = Dashboard ปฏิบัติการ (ST9-T01; docs/04 H, spec/09 §1) — ต้นแบบ TMS v4 `is.dash`:
  * หัว → KPI (kpis('dash'), คลิก = กรองตาราง) → เริ่มต้นใช้งาน → ทางลัด → ตาราง "ต้องทำวันนี้" → การ์ดล่าง
  * ตัวเลขทุกใบมาจาก summary ของรายการต้นทาง (นับด้วยตัวกรองเดียวกับรายการ) และตารางใช้ `/v1` รายการเดียวกันกับตัวกรองนั้น
- * การ์ดที่ไม่มีสิทธิ์ไม่ render · ไม่มีตัวเลขเงิน (RPT-011) · การ์ดที่โหลดไม่สำเร็จแสดง "โหลดไม่สำเร็จ · ลองใหม่" การ์ดอื่นยังแสดง
+ * การ์ดที่ไม่มีสิทธิ์ไม่ render (RPT-011 — การ์ดเงิน ST9-T02 ต้องมี `invoices:read`, ยอดเงินต้อง `prices.sell:read`) · การ์ดที่โหลดไม่สำเร็จแสดง "โหลดไม่สำเร็จ · ลองใหม่" การ์ดอื่นยังแสดง
  */
 export function Dashboard() {
   const { t, lang } = useI18n();
@@ -194,6 +197,9 @@ export function Dashboard() {
   const canTrips = can(scopes, 'trips:read');
   const canFleet = can(scopes, 'master:read');
   const canWrite = can(scopes, 'orders:write');
+  // ST9-T02 การ์ดเงิน (RPT-011): ไม่มี `invoices:read` = ไม่ render และไม่เรียก API · ยอดเงินต้อง `prices.sell:read`
+  const canBill = can(scopes, 'invoices:read');
+  const canSell = can(scopes, 'prices.sell:read');
   const [params, setParams] = useSearchParams();
   const [toast, setToast] = useState<string | null>(null);
   const [openOrder, setOpenOrder] = useState<string | null>(null);
@@ -214,6 +220,7 @@ export function Dashboard() {
     enabled: canTrips,
     queryFn: () => unwrap(api.GET('/v1/trips/summary')),
   });
+  const invSum = useInvoiceCounts(canBill);
   const veh = useQuery({
     queryKey: ['vehicles', 'summary'],
     enabled: canFleet,
@@ -372,7 +379,44 @@ export function Dashboard() {
 
   const holds = (so.data?.holdReasons ?? []).filter((h) => h.count > 0);
   const fleet = veh.data?.fleet;
-  const anyOps = cards.length > 0;
+  const anyOps = cards.length > 0 || canBill;
+
+  /**
+   * ST9-T02 KPI "ใบแจ้งหนี้เกินกำหนด" — ตำแหน่งที่ 4 ของต้นแบบ (kpis('dash') เมื่อไม่ได้เชื่อมระบบบัญชี → หน้ารับชำระ แท็บเกินกำหนด)
+   * จำนวน = `invoices/summary.overdue` · บรรทัดรอง = ยอดค้าง (spec/09 §1 "2 ใบ · 12,500.00") เมื่อมีสิทธิ์ราคาขาย
+   */
+  const withInvoiceKpi = (nodes: JSX.Element[]) => {
+    if (!canBill) return nodes;
+    const d = invSum.data;
+    const kpi = invSum.isError ? (
+      <KpiCard
+        key="invOver"
+        label={t('dash.kpi.invOver')}
+        tone="err"
+        value="—"
+        sub={t('dash.kpi.err')}
+        onClick={() => void invSum.refetch()}
+      />
+    ) : (
+      <KpiCard
+        key="invOver"
+        label={<span data-testid="kpi-invOver-label">{t('dash.kpi.invOver')}</span>}
+        tone="err"
+        value={<span data-testid="kpi-invOver">{d ? num(d.overdue) : '—'}</span>}
+        sub={
+          canSell && d?.sellOverdueOutstanding !== undefined ? (
+            <span data-testid="kpi-invOver-sub">
+              {t('dash.kpi.invOverSub', { amt: money(d.sellOverdueOutstanding) })}
+            </span>
+          ) : (
+            t('dash.kpi.open')
+          )
+        }
+        onClick={() => nav(OVERDUE_KPI_LINK)}
+      />
+    );
+    return [...nodes.slice(0, 3), kpi, ...nodes.slice(3)];
+  };
 
   return (
     <>
@@ -385,46 +429,48 @@ export function Dashboard() {
       />
       {anyOps && (
         <div className="tms-kpis" data-testid="dash-kpis">
-          {cards.map((c) => {
-            const { v, q } = value(c.key);
-            const active = sel?.key === c.key && c.key !== 'today';
-            if (q.isError)
+          {withInvoiceKpi(
+            cards.map((c) => {
+              const { v, q } = value(c.key);
+              const active = sel?.key === c.key && c.key !== 'today';
+              if (q.isError)
+                return (
+                  <KpiCard
+                    key={c.key}
+                    label={t(c.label)}
+                    tone={c.tone}
+                    value="—"
+                    sub={t('dash.kpi.err')}
+                    onClick={() => void q.refetch()}
+                  />
+                );
               return (
                 <KpiCard
                   key={c.key}
-                  label={t(c.label)}
+                  label={<span data-testid={`kpi-${c.key}-label`}>{t(c.label)}</span>}
                   tone={c.tone}
-                  value="—"
-                  sub={t('dash.kpi.err')}
-                  onClick={() => void q.refetch()}
+                  value={<span data-testid={`kpi-${c.key}`}>{v === undefined ? '—' : num(v)}</span>}
+                  sub={
+                    c.key === 'today' && dos.data ? (
+                      t('dash.kpi.todaySub', { x: num(dos.data.delivered), y: num(dos.data.today) })
+                    ) : c.key === 'waiting' && so.data && so.data.waitingOverdue > 0 ? (
+                      // spec/09 §1: บรรทัดรอง "เลยกำหนดรับ n" สีแดง
+                      <span style={{ color: '#B3322A' }} data-testid="kpi-waiting-over">
+                        {t('dash.kpi.waitingOver', { n: num(so.data.waitingOverdue) })}
+                      </span>
+                    ) : active ? (
+                      t('dash.kpi.clear')
+                    ) : (
+                      t('dash.kpi.click')
+                    )
+                  }
+                  active={active}
+                  activeLabel={t('dash.kpi.on')}
+                  onClick={() => pick(c.key)}
                 />
               );
-            return (
-              <KpiCard
-                key={c.key}
-                label={<span data-testid={`kpi-${c.key}-label`}>{t(c.label)}</span>}
-                tone={c.tone}
-                value={<span data-testid={`kpi-${c.key}`}>{v === undefined ? '—' : num(v)}</span>}
-                sub={
-                  c.key === 'today' && dos.data ? (
-                    t('dash.kpi.todaySub', { x: num(dos.data.delivered), y: num(dos.data.today) })
-                  ) : c.key === 'waiting' && so.data && so.data.waitingOverdue > 0 ? (
-                    // spec/09 §1: บรรทัดรอง "เลยกำหนดรับ n" สีแดง
-                    <span style={{ color: '#B3322A' }} data-testid="kpi-waiting-over">
-                      {t('dash.kpi.waitingOver', { n: num(so.data.waitingOverdue) })}
-                    </span>
-                  ) : active ? (
-                    t('dash.kpi.clear')
-                  ) : (
-                    t('dash.kpi.click')
-                  )
-                }
-                active={active}
-                activeLabel={t('dash.kpi.on')}
-                onClick={() => pick(c.key)}
-              />
-            );
-          })}
+            }),
+          )}
         </div>
       )}
       <SetupChecklist />
@@ -624,6 +670,7 @@ export function Dashboard() {
           )}
         </div>
       )}
+      {canBill && <BillingDash canSell={canSell} />}
       {/* ST9-T03 Dashboard AP รถร่วม — ตรวจสิทธิ์/แพ็กเกจในตัว (ไม่มีสิทธิ์ = ไม่ render ไม่เรียก API) */}
       <SettleDash />
       {openOrder && (
