@@ -6,7 +6,8 @@ import { encodeId, tryDecodeId } from '../src/common/ids';
 import { requestContext } from '../src/common/request-context';
 import { DbService, type Tx } from '../src/db/db.service';
 import { DeliveryOrderService } from '../src/modules/delivery-orders/delivery-order.service';
-import { proformaHtml } from '../src/modules/invoices/invoice-pdf.service';
+import { InvoicePdfService } from '../src/modules/invoices/invoice-pdf.service';
+import { invoiceDocument } from '../src/modules/invoices/invoice.template';
 import { InvoicesController } from '../src/modules/invoices/invoices.controller';
 import {
   OrderIntakeService,
@@ -615,22 +616,20 @@ describe('invoice drafts (ST5-T07)', { timeout: 600_000 }, () => {
       .expect(200);
     expect(r.headers['content-type']).toContain('application/pdf');
     expect((r.body as Buffer).subarray(0, 4).toString()).toBe('%PDF');
-    const html = proformaHtml({
-      yearStyle: 'BE',
-      issuedOn: new Date('2026-11-20T03:00:00Z'),
-      issuer: {
-        name: 'บริษัท ผู้ออกบิล จำกัด',
-        taxId: '0105560000001',
-        branch: 'สำนักงานใหญ่',
-        address: '',
-      },
-      customer: { name: 'ลูกค้า', taxId: null, branch: '', address: '' },
-      inv: (await getInv(inv.id)) as never,
-    });
-    expect(html).toContain('ใบแจ้งหนี้');
-    expect(html).toContain('ร่าง');
-    expect(html).not.toContain('ใบกำกับภาษี');
-    expect(html).toContain('1,750.00');
+    // ST5-T08: แม่แบบเต็ม — ยอดจากบรรทัดจริง (computeDocumentTax) ตรงกับหัวใบ · ร่าง = ไม่มีเลข + ลายน้ำ
+    const full = await getInv(inv.id);
+    const { model, status } = await run((tx) =>
+      app.get(InvoicePdfService).loadModel(tx, tryDecodeId('invoice', inv.id)!),
+    );
+    expect(status).toBe('DRAFT');
+    expect(model.invoiceNo).toBeNull();
+    expect(model.totals.grandTotal).toBe(BigInt(full.sellTotal.replace('.', '')));
+    expect(model.totals.net).toBe(BigInt(full.sellNetExpected.replace('.', '')));
+    const { body } = invoiceDocument(model);
+    expect(body).toContain('ใบแจ้งหนี้');
+    expect(body).toContain('ร่าง · ยังไม่มีเลขที่');
+    expect(body).not.toContain('ใบกำกับภาษี');
+    expect(body).toContain('1,750.00');
   });
 
   // ---------- review/QA ST5-T07 ----------

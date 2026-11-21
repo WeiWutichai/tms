@@ -153,7 +153,7 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <h2 id="get-invoices-id-proforma">PDF ตัวอย่าง (pro forma) ของร่าง — ไม่มีเลข มีลายน้ำ &quot;ร่าง&quot;</h2>
 <p><code>GET /v1/invoices/{id}/proforma</code></p>
 <p>scope: <code>invoices:read</code> · operationId: <code>Invoices_proforma</code></p>
-<p>เฉพาะใบ DRAFT · render ใหม่ทุกครั้งตามร่างล่าสุด (ไม่เก็บไฟล์) · ไม่มีคำว่า &quot;ใบกำกับภาษี&quot; · ยอด VAT/WHT ประมาณการ · ต้องมี <code>prices.sell:read</code> (มีราคา) ไม่งั้น 403</p>
+<p>เฉพาะใบ DRAFT · แม่แบบใบแจ้งหนี้เต็ม · render ใหม่ทุกครั้งตามร่างล่าสุด (ไม่เก็บไฟล์) · ไม่มีคำว่า &quot;ใบกำกับภาษี&quot; · ยอด VAT/WHT ประมาณการ · ต้องมี <code>prices.sell:read</code> (มีราคา) ไม่งั้น 403</p>
 <p><strong>Parameters</strong></p>
 <div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr></tbody></table></div>
 <p><strong>Responses</strong></p>
