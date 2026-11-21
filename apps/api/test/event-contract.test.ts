@@ -330,8 +330,6 @@ describe('event registry contract (ST7-T06)', () => {
       'invoice.voided',
       'credit_note.finalized',
       'debit_note.finalized',
-      'payment.recorded',
-      'payment.reversed',
       'receipt.issued',
       'wht_certificate.issued',
       'reconcile.mismatch_found',
@@ -668,6 +666,39 @@ describe('event registry contract (ST7-T06)', () => {
       await rest(`/v1/invoices/${draft.id}`, [
         ...eventDefinition('invoice.finalized')!.object!.omit,
       ]),
+    );
+
+    // ---- payment.recorded / payment.reversed (ST5-T13): รับชำระเต็มยอด (DO → paid_at) → กลับรายการ (ยอดค้างกลับมา) ----
+    const issuedInv = (await api(app, admin).get(`/v1/invoices/${draft.id}`).expect(200)).body as {
+      sellTotal: string;
+    };
+    const paid = (
+      await api(app, admin)
+        .post('/v1/payments')
+        .send({
+          receivedDate: today,
+          method: 'TRANSFER',
+          amountReceived: issuedInv.sellTotal,
+          allocations: [{ invoiceId: draft.id, amount: issuedInv.sellTotal }],
+        })
+        .expect(201)
+    ).body as { id: string; version: number };
+    expect(
+      (await db.deliveryOrder.findUniqueOrThrow({ where: { id: ido!.id } })).paidAt,
+    ).not.toBeNull();
+    expect((await latest('payment.recorded', uuid('payment', paid.id)))!.snapshot).toEqual(
+      await rest(`/v1/payments/${paid.id}`, [...eventDefinition('payment.recorded')!.object!.omit]),
+    );
+    await api(app, admin)
+      .post(`/v1/payments/${paid.id}/reverse`)
+      .set('If-Match', `"${paid.version}"`)
+      .send({ reason: 'บันทึกผิดใบ กลับรายการ' })
+      .expect(200);
+    expect(
+      (await db.deliveryOrder.findUniqueOrThrow({ where: { id: ido!.id } })).paidAt,
+    ).toBeNull();
+    expect((await latest('payment.reversed', uuid('payment', paid.id)))!.snapshot).toEqual(
+      await rest(`/v1/payments/${paid.id}`, [...eventDefinition('payment.reversed')!.object!.omit]),
     );
 
     // ---------------- ตรวจ ----------------

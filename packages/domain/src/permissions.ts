@@ -46,6 +46,10 @@ export const PERMISSIONS = [
   'invoices:read',
   'invoices:draft',
   'invoices:finalize',
+  /** ST5-T13 บันทึกรับชำระ + เช็คผ่าน (spec/05 §19 "รับชำระ": owner/admin/manager/accounting) — D-57 */
+  'payments:record',
+  /** ST5-T13 กลับรายการรับชำระ / เช็คคืน (spec/05 §19 "void payment": owner/admin/manager) */
+  'payments:reverse',
   'credit-notes:request',
   'credit-notes:approve',
   'settlements:read',
@@ -121,6 +125,8 @@ export const SYSTEM_ROLES: Record<RoleCode, { th: string; en: string; permission
         'trips:close',
         'invoices:read',
         'invoices:finalize',
+        'payments:record',
+        'payments:reverse',
         'credit-notes:approve',
         'settlements:read',
         'settlements:approve',
@@ -204,6 +210,7 @@ export const SYSTEM_ROLES: Record<RoleCode, { th: string; en: string; permission
         'invoices:read',
         'invoices:draft',
         'invoices:finalize',
+        'payments:record',
         'credit-notes:request',
         'settlements:read',
         'settlements:create',

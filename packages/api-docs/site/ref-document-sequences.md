@@ -77,7 +77,7 @@ const { data, error } = await tms.GET('/v1/document-sequences/{id}', {
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `seq_…` |
-| `docType` | ใช่ | `string` | ค่า: `SO`, `TRIP`, `DO`, `BN`, `INV`, `TXINV`, `RCP`, `CN`, `DN`, `STL`, `WHT`, `WO`, `INC` |   |   |
+| `docType` | ใช่ | `string` | ค่า: `SO`, `TRIP`, `DO`, `BN`, `INV`, `TXINV`, `RCP`, `CN`, `DN`, `STL`, `WHT`, `WO`, `INC`, `PAY` |   |   |
 | `prefix` | ใช่ | `string` |   |   | `INV-{BR}` |
 | `resetPolicy` | ใช่ | `string` | ค่า: `monthly`, `yearly`, `never` |   |   |
 | `padding` | ใช่ | `number` |   |   |   |

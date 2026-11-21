@@ -28,6 +28,8 @@ export const DEFAULT_SERIES: Array<{
   { docType: 'DN', prefix: 'DN-{BR}-', resetPolicy: 'YEARLY', perBranch: true },
   { docType: 'STL', prefix: 'SA-', resetPolicy: 'MONTHLY', perBranch: false },
   { docType: 'WHT', prefix: 'WHT-{BR}-', resetPolicy: 'YEARLY', perBranch: true },
+  // ST5-T13 เลขภายในของการรับชำระ (spec/05 §4 docNo series PAY) — ไม่ใช่ใบเสร็จ (D-56) จึงไม่แยกสาขา
+  { docType: 'PAY', prefix: 'PAY-', resetPolicy: 'MONTHLY', perBranch: false },
 ];
 const ORDER = DEFAULT_SERIES.map((s) => s.docType as string);
 
