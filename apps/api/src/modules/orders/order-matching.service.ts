@@ -17,6 +17,7 @@ import { requestContext } from '../../common/request-context';
 import type { Tx } from '../../db/db.service';
 import { cleanLine, lockKey, lockReferenced } from '../master/master-kit';
 import { SitesService } from '../sites/sites.service';
+import { ExternalMappingService } from '../erp/external-mapping.service';
 
 /** รายการแนะนำ (เก็บใน `match_candidates` / `customer_candidates` — id เป็น uuid; API แปลงเป็น public id) */
 export interface MatchSuggestion {
@@ -86,6 +87,7 @@ export class OrderMatchingService {
   constructor(
     private readonly sites: SitesService,
     private readonly audit: AuditService,
+    private readonly mappings: ExternalMappingService,
   ) {}
 
   async matchCustomer(
@@ -95,6 +97,9 @@ export class OrderMatchingService {
     const active = async (id: string | undefined) =>
       id && (await lockReferenced(tx, 'customer', [id]))[0]?.status === 'ACTIVE' ? id : null;
     if (q.externalId) {
+      // ST8-T05 ใบจาก connector: external_mapping(CUSTOMER).source_code ของ connector นั้นก่อน (คนตัดสินแล้ว — docs/01 A.4)
+      const viaMapping = await this.mappings.matchCustomer(tx, q.source, q.externalId);
+      if (viaMapping) return { customerId: viaMapping, method: 'ALIAS', candidates: [] };
       const alias = await tx.customerAlias.findFirst({
         where: { kind: 'EXTERNAL_ID', source: q.source, valueKey: q.externalId },
         select: { customerId: true },
@@ -256,6 +261,18 @@ export class OrderMatchingService {
     if (value.length > 500) return 'too_long';
     if (kind === 'NAME' && !isLearnableKey(valueKey, 'customer')) return 'generic';
     const source = kind === 'EXTERNAL_ID' ? q.source : '';
+    // ST8-T05 รหัสลูกค้าของใบจาก connector → external_mapping (ได้ทั้งรหัสต้นทางและรหัสในระบบบัญชีในครั้งเดียว — docs/01 A.4)
+    // null = ไม่ใช่ช่องทาง connector / ลูกค้ามีรหัสต้นทางอื่นแล้ว → จำเป็น alias ของช่องทางตามเดิม (ST3-T06)
+    if (kind === 'EXTERNAL_ID') {
+      const viaMapping = await this.mappings.learnCustomerSourceCode(tx, {
+        source,
+        code: value,
+        customerId: q.customerId,
+        confirmReassign: q.confirmReassign,
+        reason: q.reason,
+      });
+      if (viaMapping) return viaMapping;
+    }
     await lockKey(tx, `customer_alias:${kind}:${source}:${valueKey}`);
     const owner = async () =>
       (

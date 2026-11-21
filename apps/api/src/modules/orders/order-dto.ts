@@ -132,6 +132,7 @@ export function toOrderDto(o: OrderRow): OrderDto {
       tempMax: dec(l.tempMax),
     })),
     sourceChangedAfterPlan: o.sourceChangedAfterPlan,
+    sourceCancelledAt: o.sourceCancelledAt?.toISOString() ?? null,
     sourceChange: o.sourceChanges[0]
       ? {
           id: encodeId('orderSourceChange', o.sourceChanges[0].id),

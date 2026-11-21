@@ -253,6 +253,15 @@ const EXT_ONLY: Record<string, { path: string; reason: string }> = {
 };
 
 /**
+ * ตารางที่มีฟิลด์ชื่อ `externalId` แต่**ไม่ใช่ resource** (ไม่มี `ext:` ใน path) — เหตุผลกำกับ
+ */
+const NOT_RESOURCE: Record<string, string> = {
+  ExternalMapping:
+    'ST8-T05 external_mapping (docs/01 §3.7) — `external_id` คือ id/รหัสฝั่ง ERP ของ entity อื่น (ลูกค้า/เอกสาร) ต่อ connector ' +
+    'ไม่ใช่ externalId ของ resource (แก้ผ่าน /customers/{id}/erp-codes)',
+};
+
+/**
  * resource ใน G2 (docs/04) ที่ไม่มี external id ในเฟส 0 — เหตุผลกำกับ (spec/12 §3 ST7-T02)
  * G2 กำหนด `PUT /external/{id}` เฉพาะ #1 orders, #5 customers/locations, #8 drivers/vehicles/carriers
  */
@@ -377,7 +386,11 @@ describe('external id conformance (ST7-T02)', () => {
     const withExt = Prisma.dmmf.datamodel.models
       .filter((m) => m.fields.some((f) => f.name === 'externalId'))
       .map((m) => m.name);
-    const known = new Set([...REGISTRY.map((r) => r.model), ...Object.keys(EXT_ONLY)]);
+    const known = new Set([
+      ...REGISTRY.map((r) => r.model),
+      ...Object.keys(EXT_ONLY),
+      ...Object.keys(NOT_RESOURCE),
+    ]);
     expect(withExt.filter((m) => !known.has(m))).toEqual([]);
     // ทะเบียนไม่ชี้ model ที่ไม่มี externalId
     expect([...known].filter((m) => !withExt.includes(m))).toEqual([]);

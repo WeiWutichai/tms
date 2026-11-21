@@ -1153,6 +1153,20 @@ export const th = {
   'hist.geocodeRejected': 'ปฏิเสธพิกัด',
   'hist.geocodeRetried': 'ลองหาพิกัดอีกครั้ง',
   'cust.tab.addr': 'ที่อยู่ส่ง',
+  // ST8-T05 รหัสลูกค้าในระบบบัญชีที่เชื่อมต่อ (ต้นแบบ TMS v4 drawer ลูกค้า แท็บ erpc)
+  'cust.tab.erpc': 'รหัสระบบบัญชี',
+  'cust.erp.title': 'รหัสลูกค้าในระบบบัญชีที่เชื่อมต่อ',
+  'cust.erp.code': 'รหัสลูกค้าใน {erp}',
+  'cust.erp.unmapped': 'ยังไม่ map',
+  'cust.erp.ok': 'สำเร็จ',
+  'cust.erp.dlgT': 'เปลี่ยนรหัสลูกค้าในระบบบัญชี',
+  'cust.erp.dlgD': 'ใบแจ้งหนี้ที่ส่งเข้าระบบบัญชีหลังจากนี้จะใช้รหัสใหม่ ใบที่ส่งไปแล้วไม่เปลี่ยน',
+  'cust.erp.dlgSys': 'ระบบบัญชี',
+  'cust.erp.dlgOld': 'เดิม',
+  'cust.erp.dlgNew': 'ใหม่',
+  'cust.erp.reasonPh': 'อย่างน้อย 10 ตัวอักษร เช่น บัญชียืนยันรหัสใหม่แล้ว',
+  'cust.erp.warn':
+    'ยังไม่ได้ map รหัสลูกค้าใน {erp} · ใบแจ้งหนี้ของลูกค้านี้จะส่งเข้า {erp} ไม่ได้',
   'cust.addr.none': 'ยังไม่มีที่อยู่ส่ง',
   'cust.addr.add': 'เพิ่มที่อยู่ส่ง',
   // ข้อมูลหลัก → ประเภทรถ (ST2-T04) — ต้นแบบ TMS v4 specVt() / cfVt() / vPanelApi vt
