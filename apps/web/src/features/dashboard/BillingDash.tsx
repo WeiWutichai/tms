@@ -107,20 +107,16 @@ export function BillingDash({ canSell }: { canSell: boolean }) {
     prev: { count: number; amt: string | undefined } | undefined,
   ) => {
     const cell = (x: typeof cur, which: string) => (
-      <span
-        className="tms-num"
-        style={{ textAlign: 'right', whiteSpace: 'nowrap' }}
-        data-testid={`${id}-${which}`}
-      >
+      <td className="tms-num" data-testid={`${id}-${which}`}>
         {x === undefined ? '—' : canSell ? baht(x.amt) : t('dash.bill.nInv', { n: num(x.count) })}
-      </span>
+      </td>
     );
     return (
-      <div className="tms-dash-month__row">
-        <span>{label}</span>
+      <tr>
+        <th scope="row">{label}</th>
         {cell(cur, 'this')}
         {cell(prev, 'last')}
-      </div>
+      </tr>
     );
   };
 
@@ -167,38 +163,47 @@ export function BillingDash({ canSell }: { canSell: boolean }) {
             );
           })}
         </div>
-        <div className="tms-dash-month" data-testid="dash-month">
-          <div className="tms-dash-month__row tms-dash-month__head">
-            <span>{t('dash.month.title')}</span>
-            <span style={{ textAlign: 'right' }}>{t('dash.month.this')}</span>
-            <span style={{ textAlign: 'right' }}>{t('dash.month.last')}</span>
-          </div>
-          {inv.isError || pay.isError ? (
-            <div className="tms-dash-month__row">
-              <Button
-                variant="secondary"
-                icon="refresh-cw"
-                onClick={() => void (inv.isError ? inv.refetch() : pay.refetch())}
-              >
-                {t('dash.kpi.err')}
-              </Button>
-            </div>
-          ) : (
-            <>
-              {month(
-                t('dash.month.issued'),
-                'month-issued',
-                s && { count: s.issuedThisMonth.count, amt: s.issuedThisMonth.sellTotal },
-                s && { count: s.issuedLastMonth.count, amt: s.issuedLastMonth.sellTotal },
+        {/* review L3: ตารางจริง (หัวคอลัมน์/หัวแถว) — หน้าตาแบบกรอบรายการของต้นแบบ */}
+        <div className="tms-dash-month">
+          <table data-testid="dash-month">
+            <thead>
+              <tr>
+                <th scope="col">{t('dash.month.title')}</th>
+                <th scope="col">{t('dash.month.this')}</th>
+                <th scope="col">{t('dash.month.last')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {inv.isError || pay.isError ? (
+                <tr>
+                  <td colSpan={3}>
+                    <Button
+                      variant="secondary"
+                      icon="refresh-cw"
+                      onClick={() => void (inv.isError ? inv.refetch() : pay.refetch())}
+                    >
+                      {t('dash.kpi.err')}
+                    </Button>
+                  </td>
+                </tr>
+              ) : (
+                <>
+                  {month(
+                    t('dash.month.issued'),
+                    'month-issued',
+                    s && { count: s.issuedThisMonth.count, amt: s.issuedThisMonth.sellTotal },
+                    s && { count: s.issuedLastMonth.count, amt: s.issuedLastMonth.sellTotal },
+                  )}
+                  {month(
+                    t('dash.month.received'),
+                    'month-received',
+                    p && { count: p.receivedThisMonth, amt: p.sellReceivedThisMonth },
+                    p && { count: p.receivedLastMonth, amt: p.sellReceivedLastMonth },
+                  )}
+                </>
               )}
-              {month(
-                t('dash.month.received'),
-                'month-received',
-                p && { count: p.receivedThisMonth, amt: p.sellReceivedThisMonth },
-                p && { count: p.receivedLastMonth, amt: p.sellReceivedLastMonth },
-              )}
-            </>
-          )}
+            </tbody>
+          </table>
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
           <Button variant="secondary" onClick={() => nav('/bill')}>

@@ -62589,7 +62589,7 @@
           },
           "issued": {
             "type": "number",
-            "description": "ISSUED + ADJUSTED ที่ไม่เกินกำหนด"
+            "description": "ISSUED ที่ไม่เกินกำหนด: ไม่รวม ADJUSTED (นิยามลูกหนี้เดียวกับ `GET /payments/summary` — ADJUSTED นับใน `total` เท่านั้น)"
           },
           "partiallyPaid": {
             "type": "number",
@@ -62619,7 +62619,7 @@
           "sellIssuedOutstanding": {
             "type": "string",
             "example": "48000.00",
-            "description": "Σ ยอดค้าง (ยอดรวม − ยอดตัดชำระ) ของใบในแท็บ \"ออกแล้ว\" (ISSUED + ADJUSTED ที่ไม่เกินกำหนด) — `prices.sell:read`"
+            "description": "Σ ยอดค้าง (ยอดรวม − ยอดตัดชำระ) ของใบในแท็บ \"ออกแล้ว\" (ISSUED ที่ไม่เกินกำหนด) — `prices.sell:read`"
           },
           "sellPartiallyPaidOutstanding": {
             "type": "string",

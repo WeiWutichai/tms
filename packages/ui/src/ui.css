@@ -1915,19 +1915,32 @@ body:has(.tms-drawer__foot) .tms-toast {
   border-radius: 8px;
   overflow: hidden;
 }
-.tms-dash-month__row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 160px) minmax(0, 160px);
-  gap: 0 10px;
+.tms-dash-month table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.tms-dash-month th,
+.tms-dash-month td {
   padding: 8px 12px;
   border-bottom: 1px solid #e4e6e0;
-  align-items: center;
+  text-align: right;
+  white-space: nowrap;
+  font-weight: 400;
   color: #101418;
 }
-.tms-dash-month__row:last-child {
+.tms-dash-month th:first-child {
+  text-align: left;
+  width: auto;
+}
+.tms-dash-month th:not(:first-child),
+.tms-dash-month td {
+  width: 160px;
+}
+.tms-dash-month tbody tr:last-child > * {
   border-bottom: 0;
 }
-.tms-dash-month__head {
+.tms-dash-month thead th {
   font-size: 12.5px;
   font-weight: 500;
   color: #3b424c;

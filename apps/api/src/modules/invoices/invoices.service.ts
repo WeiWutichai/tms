@@ -700,14 +700,16 @@ export class InvoicesService {
       total:
         n('DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED', 'VOIDED', 'CANCELLED') + overdue,
       draft: n('DRAFT'),
-      issued: n('ISSUED', 'ADJUSTED'),
+      // ST9-T02 (review M2) นิยามลูกหนี้เดียว = PAYABLE_INVOICE_STATUSES (ISSUED/PARTIALLY_PAID) เหมือน payments/summary + แท็บ
+      // "ออกแล้ว" (`status=ISSUED&overdue=false`) — ADJUSTED (ลดหนี้บางส่วน) ไม่เกิดในเฟส 0 (ใบลดหนี้ย้ายไป AccountSystem — D-54) นับใน `total` เท่านั้น
+      issued: n('ISSUED'),
       partiallyPaid: n('PARTIALLY_PAID'),
       paid: n('PAID'),
       overdue,
       cancelled: n('CANCELLED', 'VOIDED'),
       today,
       sellDraftTotal: money(total('DRAFT')),
-      sellIssuedOutstanding: money(outstanding('ISSUED', 'ADJUSTED')),
+      sellIssuedOutstanding: money(outstanding('ISSUED')),
       sellPartiallyPaidOutstanding: money(outstanding('PARTIALLY_PAID')),
       sellOverdueOutstanding: money(dec(odAgg._sum.totalAmount).sub(dec(odAgg._sum.paidAmount))),
       issuedThisMonth: {

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../i18n';
@@ -328,6 +328,20 @@ describe('Dashboard บิล (ST9-T02)', () => {
       v('bill-overdue-n'),
       v('bill-partial-n'),
     ]).toEqual(['2 ใบ', '2 ใบส่งของ', '3 ใบ', '2 ใบ', '1 ใบ']);
+    expect(screen.getByTestId('bill-ready')).toHaveTextContent('ค้างวางบิล (ก่อน VAT)');
+    // ตารางจริง: หัวคอลัมน์ + หัวแถว (review L3)
+    const tbl = screen.getByTestId('dash-month');
+    expect(tbl.tagName).toBe('TABLE');
+    expect(
+      within(tbl)
+        .getAllByRole('columnheader')
+        .map((e) => e.textContent),
+    ).toEqual(['ยอดเดือนนี้ เทียบเดือนก่อน', 'เดือนนี้', 'เดือนก่อน']);
+    expect(
+      within(tbl)
+        .getAllByRole('rowheader')
+        .map((e) => e.textContent),
+    ).toEqual(['ออกใบแจ้งหนี้', 'รับชำระ']);
     expect(v('month-issued-this')).toBe('1,234,567.89');
     expect(v('month-issued-last')).toBe('4,400.00');
     expect(v('month-received-this')).toBe('2,733.56');

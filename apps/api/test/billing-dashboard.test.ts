@@ -218,7 +218,7 @@ describe('Dashboard บิล (ST9-T02)', { timeout: 300_000 }, () => {
   const inv = async (
     total: string,
     o: {
-      status?: 'DRAFT' | 'ISSUED' | 'CANCELLED' | 'VOIDED';
+      status?: 'DRAFT' | 'ISSUED' | 'ADJUSTED' | 'CANCELLED' | 'VOIDED';
       issue?: string;
       due?: string | null;
       tenant?: string;
@@ -292,8 +292,10 @@ describe('Dashboard บิล (ST9-T02)', { timeout: 300_000 }, () => {
     let cursor: string | null = null;
     do {
       const sep = path.includes('?') ? '&' : '?';
-      const q = `${path}${sep}limit=200${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
-      const b = (await api(app, token).get(q).expect(200)).body;
+      const q: string = `${path}${sep}limit=200${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+      const b: { data: Row[]; nextCursor: string | null } = (
+        await api(app, token).get(q).expect(200)
+      ).body;
       out.push(...b.data);
       cursor = b.nextCursor;
     } while (cursor);
@@ -325,6 +327,8 @@ describe('Dashboard บิล (ST9-T02)', { timeout: 300_000 }, () => {
     const prevPaid = await inv('200.00', { issue: m.lastMonth.from, due: addDays(today, 30) });
     await pay(prevPaid, '200.00', m.lastMonth.to);
     await inv('666.00', { tenant: otherId });
+    // review M2: ADJUSTED (ลดหนี้บางส่วน — ไม่เกิดในเฟส 0, D-54) ไม่อยู่ในการ์ดลูกหนี้ใด ๆ แต่นับใน total
+    await inv('1500.00', { status: 'ADJUSTED' });
 
     const s = (await api(app, admin).get('/v1/invoices/summary').expect(200)).body;
     const p = (await api(app, admin).get('/v1/payments/summary').expect(200)).body;
@@ -361,6 +365,11 @@ describe('Dashboard บิล (ST9-T02)', { timeout: 300_000 }, () => {
       partial.length,
     ]);
     expect([s.issued, s.overdue, s.partiallyPaid]).toEqual([3, 2, 1]);
+    // แท็บ "ออกแล้ว" ของหน้าวางบิล (`/bill?tab=ISSUED`) = ตัวกรองเดียวกัน · ADJUSTED อยู่ใน total เท่านั้น
+    expect(issued.some((x) => x.status === 'ADJUSTED')).toBe(false);
+    expect(s.total).toBe(
+      s.draft + s.issued + s.partiallyPaid + s.paid + s.overdue + s.cancelled + 1,
+    );
     expect(s.sellIssuedOutstanding).toBe(sum(issued.map((x) => x.sellOutstanding)));
     expect(s.sellOverdueOutstanding).toBe(sum(over.map((x) => x.sellOutstanding)));
     expect(s.sellPartiallyPaidOutstanding).toBe(sum(partial.map((x) => x.sellOutstanding)));

@@ -144,6 +144,9 @@ export function BillPage() {
   useUrlTab(TABS, (x) => {
     setTab(x);
     setCol({ q: '', type: '' });
+    // review L1: มาจากลิงก์ = มุมมอง "กำหนดเอง" — ไม่ผูกมุมมองที่บันทึกไว้ + คอลัมน์ค่าเริ่มต้น
+    views.setActiveId(null);
+    setHidden(null);
   });
   const [openId, setOpenId] = useState<string | null>(null);
   /** ST5-T13 drawer รับชำระ (จากปุ่ม "บันทึกรับชำระ" ใน drawer ใบแจ้งหนี้) */

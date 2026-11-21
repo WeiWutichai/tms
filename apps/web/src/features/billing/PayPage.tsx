@@ -89,6 +89,9 @@ export function PayPage() {
   useUrlTab(TABS, (x) => {
     setTab(x);
     setCol({ no: '', cust: '', st: '' });
+    // review L1: มาจากลิงก์ = มุมมอง "กำหนดเอง" — ไม่ผูกมุมมองที่บันทึกไว้ + คอลัมน์ค่าเริ่มต้น
+    views.setActiveId(null);
+    setHidden(null);
   });
   const [open, setOpen] = useState<{ id: string; kind: 'pay' | 'inv' } | null>(null);
   const [toast, setToast] = useState<string | null>(null);

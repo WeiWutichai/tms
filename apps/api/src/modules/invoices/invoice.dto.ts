@@ -638,7 +638,8 @@ export class InvoiceSummaryCountsDto {
   @ApiProperty() total!: number;
   @ApiProperty() draft!: number;
   @ApiProperty({
-    description: 'ISSUED + ADJUSTED ที่ไม่เกินกำหนด (ST5-T18 — เกินกำหนดนับใน `overdue`)',
+    description:
+      'ISSUED ที่ไม่เกินกำหนด (ST5-T18 — เกินกำหนดนับใน `overdue`) · ST9-T02: ไม่รวม ADJUSTED (นิยามลูกหนี้เดียวกับ `GET /payments/summary` — ADJUSTED นับใน `total` เท่านั้น)',
   })
   issued!: number;
   @ApiProperty({ description: 'PARTIALLY_PAID ที่ไม่เกินกำหนด (ST5-T18)' }) partiallyPaid!: number;
@@ -663,7 +664,7 @@ export class InvoiceSummaryCountsDto {
   @ApiPropertyOptional({
     example: '48000.00',
     description:
-      'ST9-T02 Σ ยอดค้าง (ยอดรวม − ยอดตัดชำระ) ของใบในแท็บ "ออกแล้ว" (ISSUED + ADJUSTED ที่ไม่เกินกำหนด) — `prices.sell:read`',
+      'ST9-T02 Σ ยอดค้าง (ยอดรวม − ยอดตัดชำระ) ของใบในแท็บ "ออกแล้ว" (ISSUED ที่ไม่เกินกำหนด) — `prices.sell:read`',
   })
   @PriceField('sell')
   sellIssuedOutstanding?: string;

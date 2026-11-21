@@ -21394,14 +21394,14 @@ const { data, error } = await tms.POST('/v1/invoice-runs', {
 |---|---|---|---|---|---|
 | `total` | ใช่ | `number` |   |   |   |
 | `draft` | ใช่ | `number` |   |   |   |
-| `issued` | ใช่ | `number` |   | ISSUED + ADJUSTED ที่ไม่เกินกำหนด |   |
+| `issued` | ใช่ | `number` |   | ISSUED ที่ไม่เกินกำหนด: ไม่รวม ADJUSTED (นิยามลูกหนี้เดียวกับ `GET /payments/summary` — ADJUSTED นับใน `total` เท่านั้น) |   |
 | `partiallyPaid` | ใช่ | `number` |   | PARTIALLY_PAID ที่ไม่เกินกำหนด |   |
 | `paid` | ใช่ | `number` |   |   |   |
 | `overdue` | ใช่ | `number` |   | เกินกำหนด — ใบที่มีธง `overdue` |   |
 | `cancelled` | ใช่ | `number` |   | CANCELLED + VOIDED |   |
 | `today` | ใช่ | `string` |   | วันนี้ตามเวลาไทยของ server (ใช้ตัดเกินกำหนด/เดือน) | `2026-11-22` |
 | `sellDraftTotal` |   | `string` |   | Σ ยอดรวมของร่าง (ประมาณการ — ยังไม่ออกเลข) — `prices.sell:read` | `12500.00` |
-| `sellIssuedOutstanding` |   | `string` |   | Σ ยอดค้าง (ยอดรวม − ยอดตัดชำระ) ของใบในแท็บ "ออกแล้ว" (ISSUED + ADJUSTED ที่ไม่เกินกำหนด) — `prices.sell:read` | `48000.00` |
+| `sellIssuedOutstanding` |   | `string` |   | Σ ยอดค้าง (ยอดรวม − ยอดตัดชำระ) ของใบในแท็บ "ออกแล้ว" (ISSUED ที่ไม่เกินกำหนด) — `prices.sell:read` | `48000.00` |
 | `sellPartiallyPaidOutstanding` |   | `string` |   | Σ ยอดค้างของใบชำระบางส่วนที่ไม่เกินกำหนด — `prices.sell:read` | `3200.00` |
 | `sellOverdueOutstanding` |   | `string` |   | Σ ยอดค้างของใบเกินกำหนด (ชุดเดียวกับ `overdue` และ `GET /payments/summary` `sellOverdueOutstanding`) — `prices.sell:read` | `12500.00` |
 | `issuedThisMonth` | ใช่ | `InvoiceMonthTotalDto` |   | ใบที่ออกเลขเดือนนี้ (วันที่ 1 ถึงวันนี้ ตาม `issueDate` เวลาไทย) ไม่รวมร่าง/ยกเลิก |   |

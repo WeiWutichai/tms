@@ -84,7 +84,7 @@ export const th = {
   'dash.kpi.open': 'คลิกเพื่อดูรายการ',
   'dash.bill.title': 'สถานะบิล',
   'dash.bill.draft': 'ร่าง',
-  'dash.bill.ready': 'ค้างวางบิล',
+  'dash.bill.ready': 'ค้างวางบิล (ก่อน VAT)',
   'dash.bill.issued': 'ออกแล้วรอชำระ',
   'dash.bill.overdue': 'เกินกำหนด',
   'dash.bill.partial': 'ชำระบางส่วน',
