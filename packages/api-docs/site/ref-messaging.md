@@ -21,7 +21,7 @@ scope: `master:write` หรือ `trips:assign` หรือ `settlements:crea
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `channel` | ใช่ | `string` | ค่า: `line`, `sms` | ช่องทาง |   |
-| `url` | ใช่ | `string` |   | URL ลิงก์ที่ระบบออกให้ (เช่น `url` จาก POST /v1/carriers/{id}/upload-links) — ต้องเป็นลิงก์ที่ยังใช้ได้ของบริษัทนี้ ระบบเลือก template + สิทธิ์ตามชนิดลิงก์ · ผู้รับ = ช่องทางที่บันทึกไว้ของผู้รับเหมาเจ้าของลิงก์ (เบอร์มือถือ / LINE userId) — ระบุผู้รับเองไม่ได้ |   |
+| `url` | ใช่ | `string` |   | URL ลิงก์ที่ระบบออกให้ (เช่น `url` จาก POST /v1/carriers/{id}/upload-links) — ต้องเป็นลิงก์ที่ยังใช้ได้ของบริษัทนี้ ระบบเลือก template + สิทธิ์ตามชนิดลิงก์ (carrier_docs → `master:write`; trip_offer → `trips:assign`; settlement_review → `settlements:create` — ลิงก์ตรวจของใบที่รอรถร่วมตรวจใช้ `settlement_review_link`, ลิงก์ดูอย่างเดียวของใบ APPROVED/PAID ใช้ `settlement_payment_status_link`) · ผู้รับ = ช่องทางที่บันทึกไว้ของผู้รับเหมาเจ้าของลิงก์ (เบอร์มือถือ / LINE userId) — ระบุผู้รับเองไม่ได้ |   |
 
 **Responses**
 

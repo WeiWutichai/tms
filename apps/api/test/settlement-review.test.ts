@@ -941,4 +941,102 @@ describe('settlement carrier review (ST6-T05)', () => {
     await api(app, accounting).post(`/v1/settlements/${d.id}/review-link`).expect(409);
     await resetLinkWriteRate();
   }, 90_000);
+
+  it('D-62 ส่งลิงก์ดูอย่างเดียว (APPROVED/PAID) ทาง SMS ใช้ template settlement_payment_status_link · ลิงก์ตรวจใช้ template เดิม · ลิงก์ตรวจเดิมหลังอนุมัติ/เพิกถอนส่งไม่ได้ · เหตุผลเพิกถอนแยก', async () => {
+    await resetLinkWriteRate();
+    await db.messagingSetting.upsert({
+      where: { tenantId },
+      create: { tenantId, lineEnabled: true, smsEnabled: true },
+      update: { smsEnabled: true },
+    });
+    const { s, r, token } = await sent(1, '2100');
+    const sid = uuid('settlement', s.id);
+    const st = await db.carrierSettlement.findUniqueOrThrow({ where: { id: sid } });
+    await db.carrier.update({ where: { id: st.carrierId }, data: { phone: '0812345679' } });
+    const sendSms = (url: string, key: string) =>
+      api(app, accounting)
+        .post('/v1/messages/send-link')
+        .set('Idempotency-Key', `d62-${key}-${s.id}`)
+        .send({ channel: 'sms', url });
+    const reviewUrl = r.body.link.url as string;
+    // ลิงก์ตรวจ (รอรถร่วมตรวจ) = template เดิม
+    expect((await sendSms(reviewUrl, 'review').expect(202)).body.template).toBe(
+      'settlement_review_link',
+    );
+    for (const l of r.body.settlement.lines as Line[])
+      await respond(token, l.id, { response: 'ACCEPTED' }).expect(201);
+    await approve(s.id).expect(200);
+    // ลิงก์ตรวจเดิมยังเปิดดูได้หลังอนุมัติ แต่ส่งข้อความ "ให้ตรวจ" ไม่ได้ (ต้องออกลิงก์ดูอย่างเดียวใหม่)
+    const stale = await sendSms(reviewUrl, 'stale').expect(422);
+    expect(stale.body.errors[0]).toMatchObject({ field: 'url', code: 'settlement_not_sent' });
+    const a1 = await api(app, accounting).post(`/v1/settlements/${s.id}/review-link`).expect(201);
+    // L2: เหตุผลเพิกถอนตอนออกลิงก์ดูอย่างเดียวใหม่ แยกจากลิงก์ตรวจ
+    const old = await db.magicLink.findUniqueOrThrow({
+      where: { id: uuid('magicLink', r.body.link.id as string) },
+    });
+    expect(old.revokedReason).toBe('ออกลิงก์ดูสถานะการจ่ายใหม่ — ลิงก์เดิมใช้ไม่ได้แล้ว');
+    await sendSms(reviewUrl, 'revoked').expect(422);
+    const m1 = await sendSms(a1.body.url as string, 'approved').expect(202);
+    expect(m1.body).toMatchObject({
+      channel: 'sms',
+      template: 'settlement_payment_status_link',
+      status: 'queued',
+    });
+    const row1 = await db.messageDelivery.findUniqueOrThrow({
+      where: { id: uuid('messageDelivery', m1.body.id as string) },
+    });
+    expect(row1).toMatchObject({
+      template: 'settlement_payment_status_link',
+      magicLinkId: uuid('magicLink', a1.body.id as string),
+      entityId: sid,
+    });
+    const q1 = await db.auditLog.findFirstOrThrow({
+      where: { entityId: sid, action: 'message.queued' },
+      orderBy: { seq: 'desc' },
+    });
+    expect(q1.after).toMatchObject({ template: 'settlement_payment_status_link' });
+    // บันทึกการส่งเห็น template ใหม่ (ผู้มีสิทธิ์ดูใบ)
+    const list = await api(app, accounting).get('/v1/messages').query({ limit: 50 }).expect(200);
+    expect(
+      (list.body.data as { id: string; template: string }[]).find((x) => x.id === m1.body.id),
+    ).toMatchObject({ template: 'settlement_payment_status_link' });
+    await api(app, accounting).get(`/v1/messages/${m1.body.id}`).expect(200);
+    // บริษัทอื่น: ส่งลิงก์นี้ไม่ได้ (มองไม่เห็นลิงก์ → 422) · ดูบันทึกไม่ได้ (404)
+    await api(app, other)
+      .post('/v1/messages/send-link')
+      .set('Idempotency-Key', `d62-other-${s.id}`)
+      .send({ channel: 'sms', url: a1.body.url })
+      .expect(422);
+    await api(app, other).get(`/v1/messages/${m1.body.id}`).expect(404);
+    // จ่ายแล้ว → ออกใหม่ → template ใหม่ · ลิงก์ก่อนหน้า (เพิกถอน) ส่งไม่ได้
+    await withVersion(s.id, (v) =>
+      api(app, accounting)
+        .post(`/v1/settlements/${s.id}/mark-paid`)
+        .set('If-Match', `"${v}"`)
+        .send({ paidDate: today, method: 'CASH' }),
+    ).expect(200);
+    const a2 = await api(app, accounting).post(`/v1/settlements/${s.id}/review-link`).expect(201);
+    await sendSms(a1.body.url as string, 'a1-revoked').expect(422);
+    expect((await sendSms(a2.body.url as string, 'paid').expect(202)).body.template).toBe(
+      'settlement_payment_status_link',
+    );
+    // ลิงก์ดูอย่างเดียวที่หมดอายุแล้ว (อายุในแถวแก้ไม่ได้ — สร้างแถวที่หมดอายุไว้ก่อน) → ส่งไม่ได้
+    const exp = new Date(Math.floor(Date.now() / 1000 - 60) * 1000);
+    const gone = await db.magicLink.create({
+      data: {
+        tenantId,
+        purpose: 'settlement_review',
+        entityType: 'carrier_settlement',
+        entityId: sid,
+        actions: ['settlement.view'],
+        scopes: ['prices.buy:read'],
+        expiresAt: exp,
+      },
+    });
+    const goneUrl = `${new URL(a2.body.url as string).origin}/link/settlement/${encodeLinkToken(gone.id, exp.getTime() / 1000)}`;
+    expect((await sendSms(goneUrl, 'expired').expect(422)).body.errors[0].code).toBe(
+      'link_invalid',
+    );
+    await resetLinkWriteRate();
+  }, 90_000);
 });

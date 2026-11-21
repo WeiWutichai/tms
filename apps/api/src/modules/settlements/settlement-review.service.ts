@@ -40,6 +40,8 @@ export const REVIEW_FILES_PER_LINE = 20;
 export const REVIEW_FILES_PER_HOUR = 60;
 export const REVIEW_REVOKE_REASON = {
   REISSUED: 'ออกลิงก์ให้รถร่วมตรวจใหม่ — ลิงก์เดิมใช้ไม่ได้แล้ว',
+  /** ออกลิงก์ดูอย่างเดียวใหม่ (ใบ APPROVED/PAID — D-59 · review L2) */
+  REISSUED_VIEW: 'ออกลิงก์ดูสถานะการจ่ายใหม่ — ลิงก์เดิมใช้ไม่ได้แล้ว',
   RECALLED: 'เรียกใบสำคัญจ่ายกลับมาแก้ — ลิงก์ให้รถร่วมตรวจใช้ไม่ได้แล้ว',
 } as const;
 
@@ -111,7 +113,11 @@ export class SettlementReviewService {
     opts: { viewOnly?: boolean } = {},
   ): Promise<SettlementReviewLinkDto> {
     const ctx = requestContext.require();
-    await this.revokeActive(tx, settlementId, REVIEW_REVOKE_REASON.REISSUED);
+    await this.revokeActive(
+      tx,
+      settlementId,
+      opts.viewOnly ? REVIEW_REVOKE_REASON.REISSUED_VIEW : REVIEW_REVOKE_REASON.REISSUED,
+    );
     const l = await this.links.issue(tx, ctx.tenantId!, {
       purpose: REVIEW_LINK_PURPOSE,
       entityType: REVIEW_LINK_ENTITY,

@@ -12,6 +12,7 @@ export const MESSAGE_TEMPLATES = [
   'carrier_docs_link',
   'job_offer_link',
   'settlement_review_link',
+  'settlement_payment_status_link',
 ] as const;
 export type MessageTemplate = (typeof MESSAGE_TEMPLATES)[number];
 
@@ -66,6 +67,20 @@ const T: Record<MessageTemplate, Record<'th' | 'en', Record<MessageChannel, Rend
       LINE: (v) =>
         `${v.name ? `Dear ${v.name}\n` : ''}${v.sender} sent you a payment statement to check. Accept or dispute lines via this link — no login needed\n${v.url}\nValid until ${v.until}`,
       SMS: (v) => `TMS: check your payment statement ${v.url} (until ${v.until})`,
+    },
+  },
+  // D-62: ลิงก์ดูอย่างเดียวของใบ APPROVED/PAID (D-59) — ดูสถานะการจ่าย/ดาวน์โหลดใบจ่ายเงิน ไม่ใช่การเชิญตรวจ ·
+  // ตัวแปรชุดเดียวกับ settlement_review_link (ไม่มียอดเงิน/เลขภาษี/บัญชีธนาคาร)
+  settlement_payment_status_link: {
+    th: {
+      LINE: (v) =>
+        `${v.name ? `เรียน ${v.name}\n` : ''}${v.sender} แจ้งลิงก์ดูสถานะการจ่ายและดาวน์โหลดใบจ่ายเงินของใบสรุปค่าขนส่ง ไม่ต้อง login\n${v.url}\nลิงก์ใช้ได้ถึง ${v.until}`,
+      SMS: (v) => `TMS: ดูสถานะการจ่าย/ดาวน์โหลดใบจ่ายเงิน ${v.url} (ถึง ${v.until})`,
+    },
+    en: {
+      LINE: (v) =>
+        `${v.name ? `Dear ${v.name}\n` : ''}${v.sender} shared a link to view the payment status and download the payment voucher of your payment statement — no login needed\n${v.url}\nValid until ${v.until}`,
+      SMS: (v) => `TMS: view payment status / download voucher ${v.url} (until ${v.until})`,
     },
   },
 };

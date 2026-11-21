@@ -2968,7 +2968,7 @@ model MessageDelivery {
   id                String    @id @default(uuid()) @db.Uuid
   tenantId          String    @map("tenant_id") @db.Uuid
   channel           String /// LINE | SMS
-  template          String /// carrier_docs_link | job_offer_link
+  template          String /// carrier_docs_link | job_offer_link | settlement_review_link | settlement_payment_status_link
   locale            String    @default("th")
   recipientEnc      String?   @map("recipient_enc")
   recipientMasked   String    @map("recipient_masked")

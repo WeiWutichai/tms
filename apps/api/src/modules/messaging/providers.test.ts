@@ -9,7 +9,8 @@ import {
   safeError,
   smsProviderFromEnv,
 } from './providers';
-import { messageName, renderMessage } from './templates';
+import { kindTemplates, LINK_KINDS } from './link-kinds';
+import { MESSAGE_TEMPLATES, messageName, renderMessage } from './templates';
 
 const env0 = process.env.NODE_ENV;
 afterEach(() => {
@@ -132,6 +133,30 @@ describe('template ข้อความ (ไทย)', () => {
       '20 พฤศจิกายน 2026',
     );
     expect(renderMessage('carrier_docs_link', 'SMS', 'en', v)).toContain('until 20 Nov 2026 10:14');
+  });
+  it('D-62 settlement_payment_status_link: ดูสถานะการจ่าย/ดาวน์โหลดใบจ่ายเงิน — ไม่เชิญตรวจ ไม่มียอดเงิน/บัญชี', () => {
+    expect(MESSAGE_TEMPLATES).toContain('settlement_payment_status_link');
+    expect(renderMessage('settlement_payment_status_link', 'LINE', 'th', v)).toBe(
+      'เรียน หจก. รถร่วมสมมติ\nศรีสมมติขนส่ง แจ้งลิงก์ดูสถานะการจ่ายและดาวน์โหลดใบจ่ายเงินของใบสรุปค่าขนส่ง ไม่ต้อง login\nhttps://tms.test/link/carrier-docs/ml1.x\nลิงก์ใช้ได้ถึง 20 พฤศจิกายน 2569 10:14 น.',
+    );
+    expect(renderMessage('settlement_payment_status_link', 'SMS', 'th', v)).toBe(
+      'TMS: ดูสถานะการจ่าย/ดาวน์โหลดใบจ่ายเงิน https://tms.test/link/carrier-docs/ml1.x (ถึง 20 พฤศจิกายน 2569 10:14 น.)',
+    );
+    for (const ch of ['LINE', 'SMS'] as const)
+      for (const loc of ['th', 'en']) {
+        const t = renderMessage('settlement_payment_status_link', ch, loc, v);
+        expect(t).not.toMatch(/ตรวจ|โต้แย้ง|ยอมรับ|dispute|check|accept|บาท|บัญชี/i);
+      }
+    // ทะเบียนชนิดลิงก์: ลิงก์ตรวจ = template เดิม · ลิงก์ดูอย่างเดียว = template ใหม่ (บันทึกการส่งกรองได้ทั้งสอง)
+    expect(LINK_KINDS.settlement_review.template).toBe('settlement_review_link');
+    expect(LINK_KINDS.settlement_review.viewTemplate).toBe('settlement_payment_status_link');
+    expect(kindTemplates('settlement_review')).toEqual([
+      'settlement_review_link',
+      'settlement_payment_status_link',
+    ]);
+    expect(kindTemplates('carrier_docs')).toEqual(['carrier_docs_link']);
+    for (const k of Object.keys(LINK_KINDS) as (keyof typeof LINK_KINDS)[])
+      for (const t of kindTemplates(k)) expect(MESSAGE_TEMPLATES).toContain(t);
   });
   it('sanitiser: ตัด URL/โดเมนใด ๆ (คำที่มีจุด + ตัวอักษร ≥ 2) และตัวเลขยาว ≥ 6 หลักออกจากชื่อ', () => {
     expect(messageName('โปรโมชั่น https://evil.example/x evil.com bit.ly/a x.zz')).toBe(
