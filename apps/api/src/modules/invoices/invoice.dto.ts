@@ -15,7 +15,15 @@ import {
   Min,
   ValidateBy,
 } from 'class-validator';
-import { INVOICE_LINE_MODES, INVOICE_STATUSES, type InvoiceLineMode } from '@tms/domain';
+import {
+  AGING_BUCKETS,
+  INVOICE_LINE_MODES,
+  INVOICE_SENT_CHANNELS,
+  INVOICE_STATUSES,
+  type AgingBucket,
+  type InvoiceLineMode,
+  type InvoiceSentChannel,
+} from '@tms/domain';
 import { ListQuery } from '../../common/pagination';
 import { PriceField } from '../../common/price-fields';
 import { CleanText } from '../master/master-kit';
@@ -46,6 +54,7 @@ const IdList = (max: number, example: string, description: string) => (t: object
 };
 
 export type InvoiceStatusDto = (typeof INVOICE_STATUSES)[number];
+export const INVOICE_RECEIVABLE = ['all', 'open', 'overdue'] as const;
 
 // ---------- คำขอ ----------
 
@@ -166,6 +175,19 @@ export class InvoiceReasonDto {
   reason!: string;
 }
 
+/** ยกเลิกใบที่ออกแล้ว (ST5-T10 `POST /invoices/{id}/void`) — CANCELLED คงเลข (+ ออกฉบับใหม่แทนอ้างเลขเดิม — spec/05 §7) */
+export class VoidInvoiceDto extends InvoiceReasonDto {
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'สร้าง**ร่างฉบับใหม่แทน**ใน transaction เดียวกัน (DO ชุดเดิม + บรรทัดที่เพิ่มเอง · อ้างเลขเดิม `replacesInvoice`) — ' +
+      'ร่างใหม่ต้องออกเอกสารตามปกติ (ได้เลขถัดไป ไม่ใช้เลขเดิม)',
+  })
+  @IsOptional()
+  @IsBoolean()
+  reissue?: boolean;
+}
+
 export class InvoiceDeliveryOrdersDto {
   @IdList(200, 'do_…', 'ใบส่งของ (≤ 200)')
   deliveryOrderIds!: string[];
@@ -269,6 +291,35 @@ export class InvoiceListQuery extends ListQuery {
   @IsOptional()
   @IsIn(INVOICE_STATUSES)
   status?: InvoiceStatusDto;
+
+  @ApiPropertyOptional({
+    enum: INVOICE_RECEIVABLE,
+    description:
+      'หน้า "รับชำระ" (ST5-T13): `all` = ใบที่ออกแล้ว (ไม่รวมร่าง/ยกเลิก) · `open` = ค้างรับ (ISSUED + PARTIALLY_PAID) · ' +
+      '`overdue` = ใบที่มีธงเกินกำหนด (`overdue: true` — ST5-T18) — ใช้ร่วมกับ `status` ได้',
+  })
+  @IsOptional()
+  @IsIn(INVOICE_RECEIVABLE)
+  receivable?: (typeof INVOICE_RECEIVABLE)[number];
+
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description:
+      'ST5-T18 ธงเกินกำหนด — `false` = ไม่รวมใบเกินกำหนด (แท็บ "ออกแล้ว"/"ชำระบางส่วน" ของต้นแบบ: เกินกำหนดแสดงก่อน) · `true` = เฉพาะเกินกำหนด',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  overdue?: 'true' | 'false';
+
+  @ApiPropertyOptional({
+    enum: AGING_BUCKETS,
+    description:
+      'ST5-T22 ช่วงอายุลูกหนี้ (การ์ด "อายุลูกหนี้" ของหน้ารับชำระ) — เฉพาะใบค้างรับที่ยังมียอดค้าง และ `daysPastDue = วันนี้ − dueDate` (เวลาไทย) อยู่ในช่วง · ' +
+      'ชุดเดียวกับ `GET /payments/aging`',
+  })
+  @IsOptional()
+  @IsIn(AGING_BUCKETS)
+  aging?: AgingBucket;
 }
 
 // ---------- คำตอบ ----------
@@ -329,6 +380,11 @@ export class InvoiceLineDto {
   printGroup!: number | null;
   @ApiProperty({ description: 'บรรทัดที่เพิ่มเอง (ไม่ผูก DO)' }) isUserAdded!: boolean;
   @ApiProperty({ description: 'false = ถอดออกแล้ว (เก็บเป็นประวัติ)' }) active!: boolean;
+  @ApiProperty({
+    description:
+      'หยุดนับเพราะใบถูกยกเลิก (ST5-T10) — เป็นบรรทัดของเอกสาร ณ วันยกเลิก (≠ ถอดออกจากร่าง) · บรรทัดบนเอกสาร = `active || releasedWithInvoice`',
+  })
+  releasedWithInvoice!: boolean;
   @ApiProperty({ nullable: true, type: String }) removeReason!: string | null;
 }
 
@@ -390,9 +446,84 @@ export class InvoiceSummaryDto {
   })
   @PriceField('sell')
   sellNetExpected?: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '2026-11-20',
+    description: 'วันที่ออก (เวลาไทย) — ร่าง = null',
+  })
+  issueDate!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '2026-12-20',
+    description: 'ครบกำหนดชำระ = วันที่ออก + เครดิต (spec/05 BIL-031) — ร่าง = null',
+  })
+  dueDate!: string | null;
+  @ApiPropertyOptional({
+    description:
+      'ยอดรับชำระแล้ว (ยอดตัดหนี้รวม WHT ที่ถูกหัก — ไม่นับที่กลับรายการ, ST5-T13) — `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellPaidAmount?: string;
+  @ApiPropertyOptional({
+    description: 'คงค้าง = ยอดรวม − รับชำระแล้ว (ร่าง/ยกเลิก = 0.00) — `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellOutstanding?: string;
+  @ApiProperty({
+    description:
+      'เกินกำหนด (ST5-T18) — ค้างรับ (ISSUED/PARTIALLY_PAID) และเลยวันครบกำหนด (เวลาไทย) · **ธงแยกจาก `status`** ' +
+      '(ใบชำระบางส่วนที่เลยกำหนด = `PARTIALLY_PAID` + `overdue: true`) · ตั้งโดย job รายวัน 00:05 และตอนรับชำระ/กลับรายการ · ชำระครบแล้วหลุดเอง',
+  })
+  overdue!: boolean;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '2026-11-21T17:05:00.000Z',
+    description: 'เวลาที่ระบบตั้งธงเกินกำหนด — ไม่เกิน = null',
+  })
+  overdueAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'ส่งลูกค้าแล้วเมื่อ (ST5-T18 — ทำเครื่องหมายเอง / ออกใบวางบิล / อีเมล) — ส่งแล้วยกเลิกใบไม่ได้ (409 `invoice_sent_to_customer`)',
+  })
+  sentToCustomerAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    enum: INVOICE_SENT_CHANNELS,
+    description:
+      'ช่องทางที่ทำให้ "ส่งลูกค้าแล้ว": MANUAL = ทำเครื่องหมายเอง · BILLING_NOTE = ออกใบวางบิล · EMAIL = ส่งอีเมล (ST5-T21)',
+  })
+  sentToCustomerChannel!: InvoiceSentChannel | null;
   @ApiProperty() version!: number;
   @ApiProperty() createdAt!: string;
   @ApiProperty() updatedAt!: string;
+}
+
+/** PDF ต้นฉบับ ณ วันออก (เก็บแบบเขียนครั้งเดียว — BIL-196) */
+export class InvoicePdfDto {
+  @ApiProperty({ example: 'doc_…' }) documentId!: string;
+  @ApiProperty({ example: 'INV-00000-6911-0001.pdf' }) filename!: string;
+  @ApiProperty({ description: 'SHA-256 ของไฟล์' }) sha256!: string;
+  @ApiProperty() sizeBytes!: number;
+}
+
+/** ST5-T10 ใบเดิมที่ใบนี้ออกแทน (ยกเลิกแล้ว) */
+export class InvoiceReplacesDto {
+  @ApiProperty({ example: 'ivc_…' }) id!: string;
+  @ApiProperty({ nullable: true, type: String, example: 'INV-00000-6911-0001' })
+  invoiceNo!: string | null;
+  @ApiProperty({ nullable: true, type: String, example: '2026-11-03' }) issueDate!: string | null;
+}
+
+/** ST5-T10 ใบที่ออกแทนใบนี้ (ร่าง = ยังไม่มีเลข) */
+export class InvoiceReplacedByDto {
+  @ApiProperty({ example: 'ivc_…' }) id!: string;
+  @ApiProperty({ nullable: true, type: String }) invoiceNo!: string | null;
+  @ApiProperty({ enum: INVOICE_STATUSES }) status!: InvoiceStatusDto;
 }
 
 export class InvoiceDto extends InvoiceSummaryDto {
@@ -437,7 +568,49 @@ export class InvoiceDto extends InvoiceSummaryDto {
   })
   printLines!: InvoicePrintLineDto[];
   @ApiProperty({ nullable: true, type: String }) cancelReason!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'เวลายกเลิก (ร่าง/ใบที่ออกแล้ว — ST5-T10) · null = ไม่ถูกยกเลิก',
+  })
+  cancelledAt!: string | null;
+  @ApiProperty({
+    type: InvoiceReplacesDto,
+    nullable: true,
+    description:
+      'ใบนี้ออกแทนใบที่ยกเลิก (docs/04 F3 "ฉบับใหม่อ้างเลขเดิม" — ST5-T10) · PDF พิมพ์หมายเหตุอ้างเลข/วันที่เดิม',
+  })
+  replacesInvoice!: InvoiceReplacesDto | null;
+  @ApiProperty({
+    type: InvoiceReplacedByDto,
+    nullable: true,
+    description: 'ใบที่ออกแทนใบนี้ (ใบที่ยกเลิกแล้วออกใหม่ — ล่าสุดที่ยังไม่ยกเลิก)',
+  })
+  replacedByInvoice!: InvoiceReplacedByDto | null;
   @ApiProperty({ nullable: true, type: String }) createdBy!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'เวลาออกเอกสาร (ออกเลข) — ร่าง = null',
+  })
+  issuedAt!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'ผู้ออกเอกสาร' })
+  issuedBy!: string | null;
+  @ApiProperty({
+    type: InvoicePdfDto,
+    nullable: true,
+    description:
+      'PDF ต้นฉบับที่เก็บ ณ วันออก — null = ร่าง หรือยังไม่ได้ render (render หลังออกเลข; `GET /v1/invoices/{id}/pdf` สร้างให้ถ้ายังไม่มี)',
+  })
+  pdf!: InvoicePdfDto | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'bn_…',
+    description:
+      'ใบวางบิลที่ใบนี้อยู่ (ร่าง/ออกแล้ว/เก็บเงินแล้ว — ST5-T11; docs/01 §3.4 `billing_note_id`) · null = ไม่อยู่ในใบวางบิล',
+  })
+  billingNoteId!: string | null;
 }
 
 export class InvoicePageDto {
@@ -455,12 +628,27 @@ export class InvoiceMoveResultDto {
 export class InvoiceSummaryCountsDto {
   @ApiProperty() total!: number;
   @ApiProperty() draft!: number;
-  @ApiProperty({ description: 'ISSUED + ADJUSTED' }) issued!: number;
-  @ApiProperty() partiallyPaid!: number;
+  @ApiProperty({
+    description: 'ISSUED + ADJUSTED ที่ไม่เกินกำหนด (ST5-T18 — เกินกำหนดนับใน `overdue`)',
+  })
+  issued!: number;
+  @ApiProperty({ description: 'PARTIALLY_PAID ที่ไม่เกินกำหนด (ST5-T18)' }) partiallyPaid!: number;
   @ApiProperty() paid!: number;
   @ApiProperty({
-    description: 'เกินกำหนด — คำนวณเมื่อมีวันครบกำหนด/รับชำระ (ST5-T09/T22) ตอนนี้ 0 เสมอ',
+    description:
+      'เกินกำหนด — ใบที่มีธง `overdue` (ST5-T18 · แท็บของต้นแบบ: ทั้งหมด = ผลรวมทุกแท็บ)',
   })
   overdue!: number;
   @ApiProperty({ description: 'CANCELLED + VOIDED' }) cancelled!: number;
 }
+
+/** ฉบับของ PDF ใบที่ออกแล้ว (BIL-195): ต้นฉบับ / สำเนา */
+export class InvoicePdfQuery {
+  @ApiPropertyOptional({ enum: ['ORIGINAL', 'COPY'], default: 'ORIGINAL' })
+  @IsOptional()
+  @IsIn(['ORIGINAL', 'COPY'])
+  copy?: 'ORIGINAL' | 'COPY';
+}
+
+/** ST5-T18 ล้างธง "ส่งลูกค้าแล้ว" (ทำเครื่องหมายผิด) — เหตุผล ≥ 10 ตัวอักษร */
+export class UnmarkInvoiceSentDto extends InvoiceReasonDto {}

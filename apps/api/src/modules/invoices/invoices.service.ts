@@ -1,15 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type VatType } from '@prisma/client';
 import {
+  AGING_BUCKET_RANGE,
   canMergeInvoiceLines,
   computeDocumentTax,
   decimalFromSatang,
+  invoiceOverdue,
   invoicePrintLines,
   satangFromDecimal,
   taxOptionsFromSettings,
   toCalcVatType,
   toCalcWhtRate,
+  type AgingBucket,
   type InvoiceLineMode,
+  type InvoiceSentChannel,
   type InvoiceStatus,
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
@@ -20,6 +24,7 @@ import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { addDays, bangkokToday } from '../vehicle-documents/expiry';
 import type { BillingDoRow } from '../delivery-orders/delivery-order.service';
 import { LINE_UNIT_EXPR, LINE_UNIT_JOINS } from './line-units';
 import { REVENUE_LOCK_NS } from '../revenue-lines/revenue-rebuild';
@@ -49,6 +54,9 @@ const ymd = (d: Date) => d.toISOString().slice(0, 10);
 const isRealDay = (s: string) => !Number.isNaN(day(s).getTime()) && ymd(day(s)) === s;
 const money = (d: Prisma.Decimal | string) => new Prisma.Decimal(d).toFixed(2);
 
+/** ใบที่ออกแล้วและนับยอดค้าง (หน้า "รับชำระ" — ไม่รวมร่าง/ยกเลิก) */
+const RECEIVABLE_STATUSES: readonly string[] = ['ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED'];
+
 const LOAD = {
   customer: { select: { id: true, code: true, legalName: true, taxId: true, branchCode: true } },
   lines: {
@@ -65,6 +73,15 @@ const LOAD = {
       },
       revenueLine: { select: { kind: true } },
     },
+  },
+  pdfDocument: { select: { id: true, filename: true, sha256: true, sizeBytes: true } },
+  // ST5-T11 ใบวางบิลที่ใบนี้อยู่ (ผูก active ได้ใบเดียว — docs/01 §3.4 `invoice.billing_note_id`)
+  billingNoteLinks: { where: { active: true }, select: { billingNoteId: true }, take: 1 },
+  // ST5-T10 ยกเลิกแล้วออกใหม่: ใบเดิมที่ใบนี้ออกแทน / ใบที่ออกแทนใบนี้ (ล่าสุดที่ยังไม่ยกเลิก ก่อน)
+  replaces: { select: { id: true, invoiceNo: true, issueDate: true } },
+  replacedBy: {
+    select: { id: true, invoiceNo: true, status: true },
+    orderBy: { createdAt: 'desc' },
   },
 } as const satisfies Prisma.InvoiceInclude;
 type InvoiceRow = Prisma.InvoiceGetPayload<{ include: typeof LOAD }>;
@@ -108,8 +125,17 @@ export class InvoicesService {
     const k = keysetArgs(q);
     const and: Prisma.InvoiceWhereInput[] = [k.where as Prisma.InvoiceWhereInput];
     if (q.status) and.push({ status: q.status });
+    if (q.receivable === 'all')
+      and.push({ status: { in: RECEIVABLE_STATUSES as InvoiceStatus[] } });
+    if (q.receivable === 'open') and.push({ status: { in: ['ISSUED', 'PARTIALLY_PAID'] } });
+    // ST5-T18 เกินกำหนด = ธงที่เก็บ หรือเข้าเงื่อนไขแล้วแต่ job ยังไม่รัน (worker ล่ม / ช่วง 00:00–00:05) — review M1
+    const od = overdueWhere(tx, bangkokToday(this.clock.now()));
+    if (q.receivable === 'overdue' || q.overdue === 'true') and.push(od);
+    if (q.overdue === 'false') and.push({ NOT: od });
+    if (q.aging) and.push(agingWhere(tx, q.aging, bangkokToday(this.clock.now())));
     if (q.customerId !== undefined)
       and.push({ customerId: (await this.customerRef(tx, q.customerId)) ?? NONE });
+    const today = bangkokToday(this.clock.now());
     const rows = await tx.invoice.findMany({
       where: { AND: and },
       orderBy: k.orderBy as unknown as Prisma.InvoiceOrderByWithRelationInput[],
@@ -123,7 +149,7 @@ export class InvoicesService {
     const page = toPage(
       rows,
       k,
-      (r): InvoiceSummaryDto => summary(r, counts.get(r.id) ?? 0),
+      (r): InvoiceSummaryDto => summary(r, counts.get(r.id) ?? 0, today),
       q.fields,
     );
     return page as InvoicePageDto;
@@ -132,7 +158,7 @@ export class InvoicesService {
   async get(id: string, tx: Tx = this.db.tx): Promise<InvoiceDto> {
     const r = await tx.invoice.findUnique({ where: { id }, include: LOAD });
     if (!r) throw new ProblemException('not_found');
-    return toDto(r);
+    return toDto(r, bangkokToday(this.clock.now()));
   }
 
   // ---------- เขียน ----------
@@ -611,7 +637,7 @@ export class InvoicesService {
    * review L1: ถอด DO ออกจากร่าง/ยกเลิกร่าง → DO ไม่แช่แข็งแล้ว ต้องคิดบรรทัดรายได้ของใบสั่งใหม่ (ยอดเหมา/ขั้นต่ำแบ่งใหม่ — ไม่หายเงียบ)
    * ล็อกตามลำดับเดียวกับ rebuild: advisory lock ของใบสั่ง (เรียง id) → DO ทุกใบของใบสั่ง FOR UPDATE (เรียง id) — ก่อนถอด
    */
-  private async lockOrders(tx: Tx, doIds: string[]): Promise<string[]> {
+  async lockOrders(tx: Tx, doIds: string[]): Promise<string[]> {
     if (!doIds.length) return [];
     const rows = await tx.deliveryOrder.findMany({
       where: { id: { in: doIds } },
@@ -624,22 +650,31 @@ export class InvoicesService {
     return orders;
   }
 
-  private async rebuildOrders(tx: Tx, orders: string[]) {
+  async rebuildOrders(tx: Tx, orders: string[]) {
     for (const so of orders) await this.revenue.rebuild(so, tx);
   }
 
   /** รายงานจำนวนตามสถานะ (แท็บ/KPI ของหน้า "วางบิลและใบแจ้งหนี้") */
   async summary(): Promise<InvoiceSummaryCountsDto> {
-    const rows = await this.db.tx.invoice.groupBy({ by: ['status'], _count: { _all: true } });
+    // ST5-T18 เกินกำหนดเป็นแท็บของตัวเอง (ต้นแบบ invSt: เกินกำหนดมาก่อนออกแล้ว/ชำระบางส่วน) — นับแยกจากสถานะ
+    const tx = this.db.tx;
+    const od = overdueWhere(tx, bangkokToday(this.clock.now()));
+    const rows = await tx.invoice.groupBy({
+      by: ['status'],
+      where: { NOT: od },
+      _count: { _all: true },
+    });
+    const overdue = await tx.invoice.count({ where: od });
     const n = (...st: string[]) =>
       rows.filter((r) => st.includes(r.status)).reduce((a, r) => a + r._count._all, 0);
     return {
-      total: n('DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED', 'VOIDED', 'CANCELLED'),
+      total:
+        n('DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED', 'VOIDED', 'CANCELLED') + overdue,
       draft: n('DRAFT'),
       issued: n('ISSUED', 'ADJUSTED'),
       partiallyPaid: n('PARTIALLY_PAID'),
       paid: n('PAID'),
-      overdue: 0,
+      overdue,
       cancelled: n('CANCELLED', 'VOIDED'),
     };
   }
@@ -669,7 +704,8 @@ export class InvoicesService {
   }
 
   /** ดึง DO เข้าร่าง: ตรวจความพร้อมซ้ำ + สร้างบรรทัดจากบรรทัดรายได้ (ผ่าน InvoiceBillingGuard — ตัวกันวางบิลซ้ำ) */
-  private async pull(tx: Tx, invoiceId: string, doIds: string[]) {
+  /** ดึง DO เข้าร่าง (ตรวจความพร้อมซ้ำ + บรรทัดจากบรรทัดรายได้) — ใช้ร่วมกับออกใบแทน (ST5-T10) */
+  async pull(tx: Tx, invoiceId: string, doIds: string[]) {
     await this.guard.attachDos(
       invoiceId,
       doIds,
@@ -740,8 +776,13 @@ export class InvoicesService {
     }));
   }
 
+  /** ST5-T09: คำนวณยอดหัวใบใหม่ก่อนออกเลข (ค่าตั้ง WHT อาจเปลี่ยนหลังแก้ร่างครั้งล่าสุด) — ไม่เพิ่ม version */
+  async refreshTotals(tx: Tx, id: string): Promise<void> {
+    await this.recompute(tx, id, false);
+  }
+
   /** ยอดหัวใบ + VAT รายบรรทัด (แสดงผล) จากบรรทัดที่ยังใช้ — computeDocumentTax (ประมาณการ D-54) */
-  private async recompute(tx: Tx, id: string, bump: boolean) {
+  async recompute(tx: Tx, id: string, bump: boolean) {
     const lines = await tx.invoiceLine.findMany({
       where: { invoiceId: id, active: true },
       orderBy: { lineNo: 'asc' },
@@ -840,7 +881,8 @@ export class InvoicesService {
       by: ['invoiceId'],
       where: {
         invoiceId: { in: ids },
-        active: true,
+        // ST5-T10 ใบที่ยกเลิก/ลดหนี้เต็มใบ นับ DO ของเอกสาร ณ วันยกเลิก
+        OR: [{ active: true }, { releasedWithInvoice: true }],
         doAnchor: true,
         deliveryOrderId: { not: null },
       },
@@ -923,31 +965,107 @@ function headerOf(i: {
   };
 }
 
-function customerDto(c: InvoiceRow['customer']) {
+/** snapshot ลูกค้า/ผู้ออก ณ วันออก (ST5-T09 — `invoice.customer_snapshot` / `issuer_snapshot`) */
+export interface InvoicePartySnapshot {
+  code?: string;
+  name: string;
+  taxId: string | null;
+  branchCode: string | null;
+  address: string;
+  vatRegistered?: boolean;
+}
+
+/** ใบที่ออกแล้ว = ชื่อ/เลขผู้เสียภาษี/สาขา ณ วันออก (snapshot) · ร่าง = ข้อมูลลูกค้าปัจจุบัน */
+function customerDto(c: InvoiceRow['customer'], snap?: unknown) {
+  const x = snap as InvoicePartySnapshot | null | undefined;
   return {
     id: encodeId('customer', c.id),
-    code: c.code,
-    legalName: c.legalName,
-    taxId: c.taxId,
-    branchCode: c.branchCode,
+    code: x?.code ?? c.code,
+    legalName: x?.name ?? c.legalName,
+    taxId: x ? x.taxId : c.taxId,
+    branchCode: x ? x.branchCode : c.branchCode,
   };
+}
+
+/**
+ * ST5-T18 (review M1) เกินกำหนดที่อ่าน = ธงที่ job/การรับชำระตั้งไว้ **หรือ** ค้างรับ + ยอดตัด < ยอดรวม + ครบกำหนด < วันนี้ (เวลาไทย)
+ * — หน้าจอไม่พลาดเมื่อ worker ล่มหรือช่วงก่อน job 00:05 (ธงที่เก็บยังใช้กับ audit/การล้างธง)
+ */
+export function overdueWhere(tx: Tx, today: string): Prisma.InvoiceWhereInput {
+  return {
+    OR: [
+      { overdueAt: { not: null } },
+      {
+        status: { in: ['ISSUED', 'PARTIALLY_PAID'] },
+        dueDate: { lt: day(today) },
+        paidAmount: { lt: tx.invoice.fields.totalAmount },
+      },
+    ],
+  };
+}
+
+/**
+ * ST5-T22 ใบค้างรับในช่วงอายุ (ชุดเดียวกับ `AgingService` — ยอดในการ์ด "อายุลูกหนี้" ตรงกับตารางที่กรอง)
+ * daysPastDue = วันนี้ − dueDate ∈ [lo, hi] ⇔ dueDate ∈ [วันนี้ − hi, วันนี้ − lo] · ไม่มีวันครบกำหนด = ยังไม่ครบกำหนด
+ */
+export function agingWhere(tx: Tx, bucket: AgingBucket, today: string): Prisma.InvoiceWhereInput {
+  const [lo, hi] = AGING_BUCKET_RANGE[bucket];
+  const due: Prisma.DateTimeNullableFilter = {};
+  if (hi !== null) due.gte = day(addDays(today, -hi));
+  if (lo !== null) due.lte = day(addDays(today, -lo));
+  return {
+    status: { in: ['ISSUED', 'PARTIALLY_PAID'] },
+    paidAmount: { lt: tx.invoice.fields.totalAmount },
+    ...(lo === null ? { OR: [{ dueDate: null }, { dueDate: due }] } : { dueDate: due }),
+  };
+}
+
+function isOverdue(
+  r: {
+    status: string;
+    overdueAt: Date | null;
+    totalAmount: Prisma.Decimal;
+    paidAmount: Prisma.Decimal;
+    dueDate: Date | null;
+  },
+  today: string,
+): boolean {
+  if (r.overdueAt) return true;
+  return invoiceOverdue(
+    r.status as InvoiceStatus,
+    satangFromDecimal(r.totalAmount.toFixed(2)),
+    satangFromDecimal(r.paidAmount.toFixed(2)),
+    r.dueDate ? ymd(r.dueDate) : null,
+    today,
+  );
 }
 
 function summary(
   r: Prisma.InvoiceGetPayload<{ include: { customer: typeof LOAD.customer } }>,
   doCount: number,
+  today: string,
 ): InvoiceSummaryDto {
   return {
     id: encodeId('invoice', r.id),
     invoiceNo: r.invoiceNo,
     status: r.status as InvoiceStatus,
-    customer: customerDto(r.customer),
+    customer: customerDto(r.customer, r.customerSnapshot),
     periodFrom: r.periodFrom ? ymd(r.periodFrom) : null,
     periodTo: r.periodTo ? ymd(r.periodTo) : null,
     deliveryOrderCount: doCount,
     lineMode: r.lineMode as InvoiceLineMode,
     sellTotal: money(r.totalAmount),
     sellNetExpected: money(r.netExpectedAmount),
+    sellPaidAmount: money(r.paidAmount),
+    sellOutstanding: RECEIVABLE_STATUSES.includes(r.status)
+      ? money(r.totalAmount.sub(r.paidAmount))
+      : '0.00',
+    issueDate: r.issueDate ? ymd(r.issueDate) : null,
+    dueDate: r.dueDate ? ymd(r.dueDate) : null,
+    overdue: isOverdue(r, today),
+    overdueAt: r.overdueAt ? r.overdueAt.toISOString() : null,
+    sentToCustomerAt: r.sentToCustomerAt ? r.sentToCustomerAt.toISOString() : null,
+    sentToCustomerChannel: (r.sentToCustomerChannel as InvoiceSentChannel | null) ?? null,
     version: r.version,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
@@ -975,12 +1093,14 @@ function lineDto(l: LineRow): InvoiceLineDto {
     printGroup: l.printGroup,
     isUserAdded: l.isUserAdded,
     active: l.active,
+    releasedWithInvoice: l.releasedWithInvoice,
     removeReason: l.removeReason,
   };
 }
 
-function toDto(r: InvoiceRow): InvoiceDto {
-  const active = r.lines.filter((l) => l.active);
+function toDto(r: InvoiceRow, today: string): InvoiceDto {
+  // บรรทัดของเอกสาร: ที่ยังใช้ + ที่หยุดนับเพราะใบถูกยกเลิก (ST5-T10 — ใบที่ยกเลิกยังแสดงรายการเดิม) — ไม่รวมที่ถอดออกจากร่าง
+  const active = r.lines.filter((l) => l.active || l.releasedWithInvoice);
   const dos = new Map<string, InvoiceDto['deliveryOrders'][number]>();
   const perDo = new Map<string, Prisma.Decimal>();
   for (const l of active) {
@@ -1019,7 +1139,7 @@ function toDto(r: InvoiceRow): InvoiceDto {
     r.lineMode as InvoiceLineMode,
   );
   return {
-    ...summary(r, dos.size),
+    ...summary(r, dos.size, today),
     issuingCompanyId: encodeId('company', r.issuingCompanyId),
     issuingBranchId: encodeId('branch', r.issuingBranchId),
     creditTermDays: r.creditTermDays,
@@ -1049,6 +1169,38 @@ function toDto(r: InvoiceRow): InvoiceDto {
       manual: p.manual,
     })),
     cancelReason: r.cancelReason,
+    cancelledAt: r.cancelledAt?.toISOString() ?? null,
+    replacesInvoice: r.replaces
+      ? {
+          id: encodeId('invoice', r.replaces.id),
+          invoiceNo: r.replaces.invoiceNo,
+          issueDate: r.replaces.issueDate ? ymd(r.replaces.issueDate) : null,
+        }
+      : null,
+    replacedByInvoice: (() => {
+      const x = r.replacedBy.find((i) => i.status !== 'CANCELLED') ?? r.replacedBy[0];
+      return x
+        ? {
+            id: encodeId('invoice', x.id),
+            invoiceNo: x.invoiceNo,
+            status: x.status as InvoiceStatus,
+          }
+        : null;
+    })(),
     createdBy: r.createdBy,
+    issuedAt: r.issuedAt?.toISOString() ?? null,
+    issuedBy: r.issuedBy,
+    pdf:
+      r.pdfDocument && r.pdfDocument.sha256
+        ? {
+            documentId: encodeId('document', r.pdfDocument.id),
+            filename: r.pdfDocument.filename ?? `${r.invoiceNo ?? 'invoice'}.pdf`,
+            sha256: r.pdfDocument.sha256,
+            sizeBytes: r.pdfDocument.sizeBytes,
+          }
+        : null,
+    billingNoteId: r.billingNoteLinks[0]
+      ? encodeId('billingNote', r.billingNoteLinks[0].billingNoteId)
+      : null,
   };
 }

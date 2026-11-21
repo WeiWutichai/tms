@@ -20,7 +20,10 @@ import {
  * ค่าตั้งที่เปลี่ยนได้เฉพาะ owner (docs/04 A3 "ปิดได้สำหรับ tenant เล็กโดย owner ยอมรับความเสี่ยง") — กฎแบ่งหน้าที่ที่ปิดได้
  * D-60 `settlement.allowApproverMarkPaid` (ST5-T09 `billing.allowSelfFinalize` ใช้กติกาเดียวกัน — รวมเข้ารายการนี้เมื่อ merge)
  */
-export const OWNER_ONLY_SETTINGS: readonly SettingKey[] = ['settlement.allowApproverMarkPaid'];
+export const OWNER_ONLY_SETTINGS: readonly SettingKey[] = [
+  'settlement.allowApproverMarkPaid',
+  'billing.allowSelfFinalize', // ST5-T09 review L3
+];
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -264,6 +267,19 @@ export function weakensSecurity(before: Record<string, unknown>, after: Record<s
     has('settlement.allowApproverMarkPaid') &&
     before['settlement.allowApproverMarkPaid'] !== true &&
     after['settlement.allowApproverMarkPaid'] === true
+  )
+    return true;
+  // ST5-T09 ปิดกฎแบ่งหน้าที่ของใบแจ้งหนี้ (ผู้สร้างออกเอกสารเองได้) = คุมหลวมขึ้น — ต้อง step-up (A3 "owner ยอมรับความเสี่ยง")
+  if (
+    has('billing.allowSelfFinalize') &&
+    before['billing.allowSelfFinalize'] !== true &&
+    after['billing.allowSelfFinalize'] === true
+  )
+    return true;
+  // ST5-T13 ยกวงเงินส่วนต่างที่บัญชีตัดยอดเองได้ = คุมหลวมขึ้น — ต้อง step-up
+  if (
+    has('payments.maxDifferenceAmount') &&
+    Number(after['payments.maxDifferenceAmount']) > Number(before['payments.maxDifferenceAmount'])
   )
     return true;
   // ST9-T14 ลดระยะเก็บ = ข้อมูลเก่าถูกลบเร็วขึ้น (ย้อนคืนไม่ได้) — ต้อง step-up เหมือนลดความปลอดภัย

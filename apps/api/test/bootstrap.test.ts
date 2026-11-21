@@ -19,13 +19,13 @@ describe('tenant bootstrap', () => {
   beforeAll(() => truncateAll());
   afterAll(() => db.$disconnect());
 
-  it('tenant ใหม่: role ระบบครบ, ชุดเลข 11 ประเภท, ค่าภาษี/วางบิลเป็นแถวจริง', async () => {
+  it('tenant ใหม่: role ระบบครบ, ชุดเลข 12 ประเภท, ค่าภาษี/วางบิลเป็นแถวจริง', async () => {
     const t = await createTenantWithDefaults(db, { name: 'บริษัท ใหม่' });
     const roles = await db.role.findMany({ where: { tenantId: t.id } });
     expect(roles.map((r) => r.code).sort()).toEqual([...ROLE_CODES].sort());
     const series = await db.documentSeries.findMany({ where: { tenantId: t.id } });
     expect(series.map((s) => s.docType).sort()).toEqual(
-      ['BN', 'CN', 'DN', 'DO', 'INV', 'RCP', 'SO', 'STL', 'TRIP', 'TXINV', 'WHT'].sort(),
+      ['BN', 'CN', 'DN', 'DO', 'INV', 'PAY', 'RCP', 'SO', 'STL', 'TRIP', 'TXINV', 'WHT'].sort(),
     );
     const rows = await db.tenantSetting.findMany({ where: { tenantId: t.id } });
     expect(rows.map((r) => r.key)).toEqual(

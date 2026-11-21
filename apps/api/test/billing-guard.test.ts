@@ -16,7 +16,22 @@ import { BillingQueueService } from '../src/modules/invoices/billing-queue.servi
 import { OrderIntakeService } from '../src/modules/orders/order-intake.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
-import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
+import {
+  api,
+  bootApp,
+  issuedTestFields,
+  platform,
+  tokenFor,
+  truncateAll,
+  validTaxId,
+} from './helpers';
+
+/** ใบที่ยกเลิกต้องมีเวลา/ผู้ยกเลิก/เหตุผล (CHECK `invoice_cancelled_fields_check` — ST5-T10) */
+const CANCEL = {
+  cancelledAt: new Date(),
+  cancelledBy: 'user-test',
+  cancelReason: 'ยกเลิกร่างในการทดสอบ',
+};
 
 /**
  * ST5-T05 กันวางบิลซ้ำ — เกณฑ์ตรวจรับ: 2 request พร้อมกันดึง DO เดียวเข้า 2 draft → สำเร็จ 1 อีก 1 ได้ 409
@@ -300,7 +315,7 @@ describe('billing guard — กันวางบิลซ้ำ (ST5-T05)', { t
 
     // ยกเลิกร่าง b (trigger ปิดบรรทัด) + sync → d2 UNBILLED
     await run(async (tx) => {
-      await tx.invoice.update({ where: { id: b }, data: { status: 'CANCELLED' } });
+      await tx.invoice.update({ where: { id: b }, data: { status: 'CANCELLED', ...CANCEL } });
       expect(await guard().syncFromInvoice(b, tx)).toBe(1);
     });
     expect(await billing(d2)).toBe('UNBILLED');
@@ -308,7 +323,10 @@ describe('billing guard — กันวางบิลซ้ำ (ST5-T05)', { t
 
     // ออกเลขใบ a + sync → d1 INVOICED · ดึง d1 เข้าร่างอื่น → 409 (billingStatus INVOICED)
     await run(async (tx) => {
-      await tx.invoice.update({ where: { id: a }, data: { status: 'ISSUED', invoiceNo: 'INV-1' } });
+      await tx.invoice.update({
+        where: { id: a },
+        data: { status: 'ISSUED', ...issuedTestFields('INV-1') },
+      });
       expect(await guard().syncFromInvoice(a, tx)).toBe(1);
       expect(await guard().syncFromInvoice(a, tx)).toBe(0); // idempotent
     });
@@ -405,11 +423,13 @@ describe('billing guard — กันวางบิลซ้ำ (ST5-T05)', { t
     );
     await expect(
       run((tx) => tx.invoice.update({ where: { id: a }, data: { invoiceNo: 'X-1' } })),
-    ).rejects.toThrow(/invoice_draft_no_number/);
+    ).rejects.toThrow(
+      /invoice_draft_no_number|invoice_no is assigned only when a draft is finalized/,
+    );
     const issued = await draft(cus);
     await db.invoice.update({
       where: { id: issued },
-      data: { status: 'ISSUED', invoiceNo: 'INV-9' },
+      data: { status: 'ISSUED', ...issuedTestFields('INV-9') },
     });
     await expect(
       run((tx) =>
@@ -430,7 +450,7 @@ describe('billing guard — กันวางบิลซ้ำ (ST5-T05)', { t
     const issued = await draft(cus);
     await db.invoice.update({
       where: { id: issued },
-      data: { status: 'ISSUED', invoiceNo: 'INV-20' },
+      data: { status: 'ISSUED', ...issuedTestFields('INV-20') },
     });
     // ย้ายบรรทัดจากร่างไปใบที่ออกแล้ว / เปลี่ยน DO / เปลี่ยน tenant
     await expect(
@@ -446,7 +466,7 @@ describe('billing guard — กันวางบิลซ้ำ (ST5-T05)', { t
     await run(async (tx) => {
       await tx.invoice.update({
         where: { id: a },
-        data: { status: 'ISSUED', invoiceNo: 'INV-21' },
+        data: { status: 'ISSUED', ...issuedTestFields('INV-21') },
       });
       await guard().syncFromInvoice(a, tx);
     });
@@ -464,7 +484,9 @@ describe('billing guard — กันวางบิลซ้ำ (ST5-T05)', { t
       run((tx) => tx.invoice.update({ where: { id: a }, data: { status: 'ISSUED' } })),
     ).rejects.toThrow(/invoice_status_terminal|terminal/);
     const c = await draft(cus);
-    await run((tx) => tx.invoice.update({ where: { id: c }, data: { status: 'CANCELLED' } }));
+    await run((tx) =>
+      tx.invoice.update({ where: { id: c }, data: { status: 'CANCELLED', ...CANCEL } }),
+    );
     for (const to of ['DRAFT', 'ISSUED', 'VOIDED'] as const)
       await expect(db.invoice.update({ where: { id: c }, data: { status: to } })).rejects.toThrow(
         /invoice_status_terminal|terminal/,

@@ -27,3 +27,10 @@
 | --- | --- |
 | `settlement-{paid,draft,long}-th.darwin.png` | ใบตัวอย่าง `sampleSettlementPaid/Draft/Long()` (`src/modules/settlements/settlement-pdf.sample.ts`, ภาพ fullPage) — `UPDATE_GOLDEN=1 pnpm --filter @tms/api exec vitest run test/settlement-pdf.test.ts` |
 | `settlement-{paid,draft,long}-th.linux.png` | image `mcr.microsoft.com/playwright:v1.65.0-noble` แบบ **linux/amd64** — dump HTML จาก `new PdfRenderer().html(settlementVoucherDocument(sampleSettlement…()))` แล้ว render เหมือนใบแจ้งหนี้ด้านบน |
+
+### ใบวางบิล (ST5-T11)
+
+| ไฟล์ | สร้างบน |
+| --- | --- |
+| `billing-note-{issued,long}-th.darwin.png` | `sampleBillingNote/Long()` (`src/modules/billing-notes/billing-note.sample.ts`, ภาพ fullPage) — `UPDATE_GOLDEN=1 pnpm --filter @tms/api exec vitest run test/billing-note-pdf.test.ts` |
+| `billing-note-{issued,long}-th.linux.png` | image `mcr.microsoft.com/playwright:v1.65.0-noble` แบบ **linux/amd64** — dump HTML จาก `new PdfRenderer().html(billingNoteDocument(sampleBillingNote…()))` แล้ว render แบบเดียวกับใบแจ้งหนี้ |

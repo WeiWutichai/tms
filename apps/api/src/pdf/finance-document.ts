@@ -41,6 +41,8 @@ export interface FinanceDocument {
   titleEn: string;
   /** null = ร่าง (ยังไม่มีเลข — ลายน้ำ "ร่าง") */
   docNo: string | null;
+  /** ลายน้ำของเอกสารที่มีเลข เช่น "ยกเลิก" (spec/05 BIL-195 — ST5-T10) · ไม่ส่ง = ไม่มี (ร่างใช้ "ร่าง" เสมอ) */
+  watermark?: string | null;
   /** "ต้นฉบับ / Original" หรือ "สำเนา / Copy" — null = ไม่แสดง */
   copyLabel: string | null;
   /** YYYY-MM-DD */
@@ -245,7 +247,7 @@ const PAGINATE = `(function(){
 function run(){
 var FOOT=48;
 var doc=document.querySelector('.fdoc');
-var no=doc.getAttribute('data-no'),draft=doc.hasAttribute('data-draft');
+var no=doc.getAttribute('data-no'),draft=doc.hasAttribute('data-draft'),wmText=draft?'ร่าง':doc.getAttribute('data-wm');
 var head=doc.querySelector('.head'),cont=doc.querySelector('.cont'),table=doc.querySelector('table'),end=doc.querySelector('.end'),sig=doc.querySelector('.sig');
 var rows=[].slice.call(table.tBodies[0].rows);
 var host=document.createElement('div');doc.parentNode.insertBefore(host,doc);doc.remove();
@@ -253,7 +255,7 @@ var pages=[],pg,inner,tbody;
 function fits(){var last=inner.lastElementChild;if(!last)return true;var r=pg.getBoundingClientRect();return last.getBoundingClientRect().bottom<=r.top+pg.clientHeight-FOOT;}
 function newPage(withTable){
   pg=document.createElement('section');pg.className='page';
-  if(draft){var w=document.createElement('div');w.className='wm';w.textContent='ร่าง';pg.appendChild(w);}
+  if(wmText){var w=document.createElement('div');w.className=draft?'wm':'wm wm--void';w.textContent=wmText;pg.appendChild(w);}
   inner=document.createElement('div');inner.className='in';pg.appendChild(inner);
   var f=document.createElement('div');f.className='foot';pg.appendChild(f);host.appendChild(pg);pages.push(pg);
   inner.appendChild(pages.length===1?head:cont.cloneNode(true));
@@ -301,7 +303,7 @@ const CSS = `
 .in{flex:1;min-width:0;overflow-wrap:break-word;padding:44px 48px 48px;display:flex;flex-direction:column;gap:20px;font-size:16px;line-height:1.6}
 .in .sig{margin-top:auto}
 .foot{position:absolute;left:48px;right:48px;bottom:18px;font-size:12px;color:#59606B;text-align:right;font-variant-numeric:tabular-nums}
-.wm{position:absolute;top:38%;left:0;right:0;text-align:center;font-size:120px;font-weight:700;color:rgba(143,85,0,.08);transform:rotate(-24deg);letter-spacing:8px;pointer-events:none}
+.wm{position:absolute;top:38%;left:0;right:0;text-align:center;font-size:120px;font-weight:700;color:rgba(143,85,0,.08);transform:rotate(-24deg);letter-spacing:8px;pointer-events:none}.wm--void{color:rgba(179,50,42,.14)}
 .in *{min-width:0}
 .dob{display:inline-block;max-width:100%;margin-right:5px}.dob:not(:last-child)::after{content:','}
 .fdoc .cont{display:none!important}.page .cont{display:flex!important}`;
@@ -309,6 +311,7 @@ const CSS = `
 /** HTML ของเอกสารการเงิน (แบ่งหน้าเอง) สำหรับ PdfRenderer */
 export function financeDocument(d: FinanceDocument) {
   const no = d.docNo ?? 'ร่าง';
-  const body = `<div data-paginate><div class="fdoc" data-no="${e(no)}"${d.docNo ? '' : ' data-draft'}>${headBlock(d)}${contBlock(d)}${table(d)}${endBlock(d)}</div></div><script>${PAGINATE}</script>`;
+  const wm = d.docNo && d.watermark ? ` data-wm="${e(d.watermark)}"` : '';
+  const body = `<div data-paginate><div class="fdoc" data-no="${e(no)}"${d.docNo ? '' : ' data-draft'}${wm}>${headBlock(d)}${contBlock(d)}${table(d)}${endBlock(d)}</div></div><script>${PAGINATE}</script>`;
   return { body, css: CSS, title: d.docNo ? `${d.title} ${d.docNo}` : `${d.title} (ร่าง)` };
 }

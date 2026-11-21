@@ -355,9 +355,11 @@ export class SettlementsController {
   @TenantResource('settlement')
   @RequireScope('settlements:create')
   @ApiOperation({
-    summary: 'ออกลิงก์ให้รถร่วมตรวจใหม่ (ลิงก์เดิมหมดอายุ/หาย)',
+    summary: 'ออกลิงก์ให้รถร่วมใหม่ (ลิงก์เดิมหมดอายุ/หาย)',
     description:
-      'เฉพาะใบ SENT_TO_CARRIER / DISPUTED · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued`',
+      'ใบ SENT_TO_CARRIER / DISPUTED = ลิงก์ตรวจ (ดู + ยอมรับ/โต้แย้ง) — ผู้ออกนับเป็นผู้เตรียมใบ · ' +
+      'ใบ APPROVED / PAID = ลิงก์**ดูอย่างเดียว** (ดูสถานะ/ใบจ่ายเงิน — ตอบ/แนบรูปไม่ได้; D-59) — ไม่เพิ่มผู้เตรียม หัวใบไม่เปลี่ยน · ' +
+      'ร่าง/ยกเลิก → 409 · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued` (`viewOnly`)',
   })
   @ApiProblems(T403('settlements:create'), NF, T409())
   @ApiCreatedResponse({ type: SettlementReviewLinkDto })

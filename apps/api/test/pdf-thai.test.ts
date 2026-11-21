@@ -3,6 +3,11 @@ import { join, relative } from 'node:path';
 import { inflateSync } from 'node:zlib';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
+  sampleBillingNote,
+  sampleBillingNoteLong,
+} from '../src/modules/billing-notes/billing-note.sample';
+import { billingNoteDocument } from '../src/modules/billing-notes/billing-note.template';
+import {
   sampleInvoiceExempt,
   sampleInvoiceLong,
   sampleInvoiceMixed,
@@ -80,6 +85,19 @@ const KINDS: Array<{
         .map(settlementVoucherDocument);
     },
     labels: ['ใบสำคัญจ่าย'],
+  },
+  {
+    kind: 'ใบวางบิล (ST5-T11 — ร่าง/ต้นฉบับ, หลายหน้า)',
+    module: 'src/modules/billing-notes',
+    docs: () => {
+      const draft = sampleBillingNote();
+      draft.billingNoteNo = null;
+      draft.copy = null;
+      const ce = sampleBillingNote();
+      ce.yearStyle = 'CE';
+      return [sampleBillingNote(), sampleBillingNoteLong(), draft, ce].map(billingNoteDocument);
+    },
+    labels: ['ใบวางบิล', 'รวมทั้งสิ้น'],
   },
 ];
 

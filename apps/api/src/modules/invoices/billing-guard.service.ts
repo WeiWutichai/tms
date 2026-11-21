@@ -312,7 +312,7 @@ export class InvoiceBillingGuard {
   /**
    * ปรับ `billing_status` ของ DO ในใบให้ตรงสถานะใบ (idempotent) — ผู้เปลี่ยนสถานะใบเรียกใน transaction เดียวกัน:
    * - ใบออกแล้ว (ISSUED/PARTIALLY_PAID/PAID/ADJUSTED): DO ของบรรทัด active ที่ยัง IN_DRAFT → INVOICED
-   * - CANCELLED (ยกเลิกร่าง): DO ที่ยัง IN_DRAFT และไม่อยู่ในบรรทัด active ใดแล้ว → UNBILLED
+   * - CANCELLED (ยกเลิกร่าง / ยกเลิกใบที่ออกแล้ว ST5-T10): DO ที่ยัง IN_DRAFT / INVOICED และไม่อยู่ในบรรทัด active ใดแล้ว → UNBILLED
    * - VOIDED (ลดหนี้เต็มใบ): DO ที่ INVOICED และไม่อยู่ในบรรทัด active ใดแล้ว → CREDITED (วางบิลใหม่ได้)
    * - DRAFT: ไม่ทำอะไร
    */
@@ -339,8 +339,12 @@ export class InvoiceBillingGuard {
     let pick: BillingDoRow[];
     let event: 'invoice' | 'undraft' | 'credit';
     if (status === 'CANCELLED') {
+      // ST5-T10 ใบที่ออกแล้วถูกยกเลิก: DO ที่ INVOICED (และไม่อยู่ในบรรทัด active ใดแล้ว) → UNBILLED (วางบิลใหม่ได้)
+      const issued = rows.filter((r) => r.billingStatus === 'INVOICED' && !elsewhere.has(r.id));
+      await this.dos.moveBilling(tx, issued, 'uninvoice', note, this.clock.now());
       pick = rows.filter((r) => r.billingStatus === 'IN_DRAFT' && !elsewhere.has(r.id));
-      event = 'undraft';
+      await this.dos.moveBilling(tx, pick, 'undraft', note, this.clock.now());
+      return issued.length + pick.length;
     } else if (status === 'VOIDED') {
       pick = rows.filter((r) => r.billingStatus === 'INVOICED' && !elsewhere.has(r.id));
       event = 'credit';
