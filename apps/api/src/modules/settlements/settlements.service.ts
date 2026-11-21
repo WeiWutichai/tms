@@ -32,6 +32,7 @@ import type {
   SettlementPageDto,
   SettlementPayDto,
   SettlementStatus,
+  SettlementKpiDto,
   SettlementSummaryDto,
   UpdateSettlementDto,
 } from './settlement.dto';
@@ -119,7 +120,8 @@ export class SettlementsService {
     const and: Prisma.CarrierSettlementWhereInput[] = [
       k.where as Prisma.CarrierSettlementWhereInput,
     ];
-    if (q.status) and.push({ status: q.status });
+    // คั่นด้วย , ได้ (แท็บหน้า `settle` — เช่น DRAFT,DISPUTED)
+    if (q.status) and.push({ status: { in: q.status.split(',') as SettlementStatus[] } });
     if (q.carrierId !== undefined) {
       const carrierId = await this.carrierRef(tx, q.carrierId);
       and.push({ carrierId: carrierId ?? '00000000-0000-0000-0000-000000000000' });
@@ -169,6 +171,49 @@ export class SettlementsService {
       q.fields,
     );
     return page as SettlementPageDto;
+  }
+
+  /**
+   * KPI + จำนวนต่อแท็บของหน้า `settle` (ต้นแบบ kpisX('settle'): รอตรวจ · รออนุมัติ · อนุมัติแล้ว · จ่ายแล้วเดือนนี้ ฿)
+   * จ่ายแล้วเดือนนี้ = Σ (ยอดสุทธิ − หัก ณ ที่จ่ายที่ตรึง) ของใบ PAID ที่ `paid_date` อยู่ในเดือนนี้ (เวลาไทย) — ใบ PAID ต้องตรึง WHT (CHECK 0139)
+   */
+  async kpi(): Promise<SettlementKpiDto> {
+    const tx = this.db.tx;
+    const today = bangkokDay(new Date().toISOString());
+    const monthStart = `${today.slice(0, 7)}-01`;
+    const rows = await tx.$queryRaw<
+      {
+        total: bigint;
+        draft: bigint;
+        sent: bigint;
+        disputed: bigint;
+        approved: bigint;
+        paid: bigint;
+        cancelled: bigint;
+        paid_month: Prisma.Decimal;
+      }[]
+    >`
+      SELECT COUNT(*) AS total,
+             COUNT(*) FILTER (WHERE status = 'DRAFT') AS draft,
+             COUNT(*) FILTER (WHERE status = 'SENT_TO_CARRIER') AS sent,
+             COUNT(*) FILTER (WHERE status = 'DISPUTED') AS disputed,
+             COUNT(*) FILTER (WHERE status = 'APPROVED') AS approved,
+             COUNT(*) FILTER (WHERE status = 'PAID') AS paid,
+             COUNT(*) FILTER (WHERE status = 'CANCELLED') AS cancelled,
+             COALESCE(SUM(net_payable - COALESCE(wht_amount, 0))
+               FILTER (WHERE status = 'PAID' AND paid_date >= ${monthStart}::date AND paid_date <= ${today}::date), 0) AS paid_month
+        FROM carrier_settlement`;
+    const r = rows[0]!;
+    return {
+      total: Number(r.total),
+      draft: Number(r.draft),
+      sentToCarrier: Number(r.sent),
+      disputed: Number(r.disputed),
+      approved: Number(r.approved),
+      paid: Number(r.paid),
+      cancelled: Number(r.cancelled),
+      buyPaidThisMonth: new Prisma.Decimal(r.paid_month).toFixed(2),
+    };
   }
 
   async get(id: string): Promise<SettlementDto> {

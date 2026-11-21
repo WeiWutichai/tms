@@ -298,10 +298,30 @@ export class SettlementListQuery extends ListQuery {
   @MaxLength(120)
   carrierId?: string;
 
-  @ApiPropertyOptional({ enum: SETTLEMENT_STATUSES })
+  @ApiPropertyOptional({
+    description: `สถานะ คั่นด้วย , ได้ (${SETTLEMENT_STATUSES.join(' / ')}) — แท็บหน้า \`settle\` ใช้หลายสถานะ`,
+    example: 'DRAFT,DISPUTED',
+  })
   @IsOptional()
-  @IsIn(SETTLEMENT_STATUSES)
-  status?: SettlementStatus;
+  @Matches(new RegExp(`^(${SETTLEMENT_STATUSES.join('|')})(,(${SETTLEMENT_STATUSES.join('|')}))*$`))
+  status?: string;
+}
+
+/** KPI + จำนวนต่อแท็บของหน้า "Settlement รถร่วม" (`settle` — ต้นแบบ kpisX('settle')) */
+export class SettlementKpiDto {
+  @ApiProperty({ description: 'ทุกใบ (รวมยกเลิก)' }) total!: number;
+  @ApiProperty() draft!: number;
+  @ApiProperty() sentToCarrier!: number;
+  @ApiProperty() disputed!: number;
+  @ApiProperty() approved!: number;
+  @ApiProperty() paid!: number;
+  @ApiProperty() cancelled!: number;
+  @ApiPropertyOptional({
+    description:
+      'ยอดจ่ายสุทธิหลังหัก ณ ที่จ่าย (`buyNetAfterWht` ที่ตรึง) ของใบที่จ่ายแล้ว วันที่จ่ายอยู่ในเดือนนี้ (เวลาไทย) — `prices.buy:read`',
+  })
+  @PriceField('buy')
+  buyPaidThisMonth?: string;
 }
 
 export class SettlementCarrierDto {

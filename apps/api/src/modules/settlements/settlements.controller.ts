@@ -41,6 +41,7 @@ import {
   CreateSettlementDto,
   SettlementDto,
   SettlementItemsInput,
+  SettlementKpiDto,
   SettlementListQuery,
   SettlementPageDto,
   SettlementPayDto,
@@ -97,6 +98,19 @@ export class SettlementsController {
       bad.push({ field: 'dateTo', code: 'before_date_from', message: 'dateTo must be ≥ dateFrom' });
     if (bad.length) throw new ProblemException('validation_failed', undefined, bad);
     return this.queue.list(q);
+  }
+
+  @Get('summary')
+  @RequireScope('settlements:read')
+  @ApiOperation({
+    summary: 'KPI หน้า "Settlement รถร่วม" — จำนวนต่อสถานะ + ยอดจ่ายแล้วเดือนนี้',
+    description:
+      'จำนวนใบต่อสถานะ (docs/01 §4.5) สำหรับแท็บ/การ์ด KPI ของหน้า `settle` · `buyPaidThisMonth` = Σ ยอดจ่ายหลังหัก ณ ที่จ่าย (ที่ตรึงตอนอนุมัติ) ของใบที่จ่ายแล้วในเดือนนี้ (เวลาไทย) — เห็นเมื่อมี `prices.buy:read`',
+  })
+  @ApiProblems(T403('settlements:read'))
+  @ApiOkResponse({ type: SettlementKpiDto })
+  summary(): Promise<SettlementKpiDto> {
+    return this.svc.kpi();
   }
 
   @Get()
