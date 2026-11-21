@@ -25,8 +25,8 @@ import {
 } from './messaging.dto';
 import { MessagingProviders } from './messaging.providers';
 import { maskRecipient, type MessageChannel } from './providers';
-import { isLinkKind, LINK_KINDS } from './link-kinds';
-import { messageName } from './templates';
+import { isLinkKind, kindTemplates, LINK_KINDS } from './link-kinds';
+import { messageName, type MessageTemplate } from './templates';
 
 /** เพดานต่อ tenant / ชั่วโมง (กันส่งรัว — ค่าใช้จ่าย SMS + LINE quota) */
 export const TENANT_PER_HOUR = 300;
@@ -152,19 +152,32 @@ export class MessagingService {
       carrierId = offer.carrierId;
       ref = offer.trip.tripNo;
     }
+    let template: MessageTemplate = k.template;
     if (kind === 'settlement_review') {
-      // ST6-T05: รถร่วมของใบ · ใบต้องยังรอรถร่วมตรวจ (ST6-T06: DISPUTED ยังตอบได้)
+      // ST6-T05: รถร่วมของใบ · ลิงก์ตรวจ (ดู + ตอบ) ส่งได้เฉพาะใบที่ยังรอรถร่วมตรวจ (ST6-T06: DISPUTED ยังตอบได้)
+      // D-62: ลิงก์ดูอย่างเดียว (action `settlement.view` อย่างเดียว — ออกให้ใบ APPROVED/PAID, D-59) → template ดูสถานะการจ่าย
+      // ชนิดลิงก์กับสถานะใบต้องตรงกัน — ลิงก์ตรวจเดิมของใบที่อนุมัติแล้วส่งไม่ได้ (ข้อความ "ให้ตรวจ" ผิด — ออกลิงก์ใหม่แทน)
+      // FOR SHARE: กันอนุมัติ/จ่าย/เรียกกลับ (FOR UPDATE) แทรกระหว่างตรวจสถานะกับลงคิว (review D-62)
+      await tx.$queryRaw`SELECT id FROM carrier_settlement WHERE id = ${link.entityId}::uuid FOR SHARE`;
       const st = await tx.carrierSettlement.findFirst({
         where: { id: link.entityId },
         select: { carrierId: true, status: true },
       });
-      if (!st || (st.status !== 'SENT_TO_CARRIER' && st.status !== 'DISPUTED'))
+      // 'settlement.respond' = REVIEW_LINK_ACTIONS.respond (ไม่ import settlement service — กันวงจร import)
+      const viewOnly = !link.actions.includes('settlement.respond');
+      const ok = viewOnly
+        ? st?.status === 'APPROVED' || st?.status === 'PAID'
+        : st?.status === 'SENT_TO_CARRIER' || st?.status === 'DISPUTED';
+      if (!st || !ok)
         throw bad(
           'url',
           'settlement_not_sent',
-          'the settlement of this link is no longer awaiting the carrier review',
+          viewOnly
+            ? 'the settlement of this view-only link is not approved or paid'
+            : 'the settlement of this link is no longer awaiting the carrier review',
         );
       carrierId = st.carrierId;
+      if (viewOnly) template = LINK_KINDS.settlement_review.viewTemplate;
     }
     const carrier = await tx.carrier.findFirst({
       where: { id: carrierId, deletedAt: null },
@@ -235,7 +248,7 @@ export class MessagingService {
           id,
           tenantId: ctx.tenantId!,
           channel,
-          template: k.template,
+          template,
           locale: 'th',
           recipientEnc: this.cipher.encrypt(to),
           recipientMasked: maskRecipient(channel, to),
@@ -258,7 +271,7 @@ export class MessagingService {
       after: {
         messageId: encodeId('messageDelivery', id),
         channel: input.channel,
-        template: k.template,
+        template,
         recipient: maskRecipient(channel, to),
         linkId: encodeId('magicLink', link.id),
       },
@@ -319,9 +332,9 @@ export class MessagingService {
   /** template ที่ผู้เรียกดูได้ (ตามสิทธิ์ดูของชนิดลิงก์) */
   private readable(): string[] {
     const scopes = requestContext.require().scopes ?? [];
-    return Object.values(LINK_KINDS)
-      .filter((k) => scopeAllows(scopes, k.readScope))
-      .map((k) => k.template);
+    return (Object.keys(LINK_KINDS) as (keyof typeof LINK_KINDS)[])
+      .filter((k) => scopeAllows(scopes, LINK_KINDS[k].readScope))
+      .flatMap((k) => kindTemplates(k));
   }
 
   async list(q: MessageDeliveryListQuery) {

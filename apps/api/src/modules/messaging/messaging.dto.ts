@@ -28,7 +28,7 @@ export class SendLinkDto {
   @ApiProperty({
     description:
       'URL ลิงก์ที่ระบบออกให้ (เช่น `url` จาก POST /v1/carriers/{id}/upload-links) — ต้องเป็นลิงก์ที่ยังใช้ได้ของบริษัทนี้ ' +
-      'ระบบเลือก template + สิทธิ์ตามชนิดลิงก์ (carrier_docs → `master:write`; trip_offer ยังส่งไม่ได้จนถึง ST3-T23) · ' +
+      'ระบบเลือก template + สิทธิ์ตามชนิดลิงก์ (carrier_docs → `master:write`; trip_offer → `trips:assign`; settlement_review → `settlements:create` — ลิงก์ตรวจของใบที่รอรถร่วมตรวจใช้ `settlement_review_link`, ลิงก์ดูอย่างเดียวของใบ APPROVED/PAID ใช้ `settlement_payment_status_link`) · ' +
       'ผู้รับ = ช่องทางที่บันทึกไว้ของผู้รับเหมาเจ้าของลิงก์ (เบอร์มือถือ / LINE userId) — ระบุผู้รับเองไม่ได้',
   })
   @IsString()
@@ -55,7 +55,7 @@ export class MessageDeliveryDto {
     nullable: true,
     type: String,
     description:
-      'สาเหตุที่ส่งไม่สำเร็จ: provider_unavailable · provider_auth_failed · provider_rejected · not_configured · channel_disabled · lease_expired',
+      'สาเหตุที่ส่งไม่สำเร็จ: provider_unavailable · provider_auth_failed · provider_rejected · not_configured · channel_disabled · lease_expired · link_inactive · entity_state_changed (สถานะเอกสารเปลี่ยนระหว่างรอส่ง เช่น ใบสำคัญจ่ายอนุมัติแล้ว)',
   })
   errorCode!: string | null;
   @ApiProperty({ format: 'date-time' }) createdAt!: string;

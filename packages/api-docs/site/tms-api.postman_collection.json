@@ -4845,7 +4845,7 @@
                 }
               ]
             },
-            "description": "scope: settlements:pay\n\n\"จ่าย\" + APPROVED → PAID · **เฉพาะใบ APPROVED** (ร่าง/รอตรวจ/โต้แย้ง/ยกเลิก/จ่ายแล้ว → 409 `invalid_state_transition`) · จ่ายเต็มยอดครั้งเดียว — ยอดที่จ่าย = `buyNetAfterWht` (ยอดสุทธิ − หัก ณ ที่จ่ายประมาณการที่ตรึงตอนอนุมัติ — ไม่เปลี่ยน) · `paidDate` (= วันที่หักภาษี) ตั้งแต่วันอนุมัติถึงวันนี้ (เวลาไทย) — ก่อนวันอนุมัติ → 422 `before_approval` · `reference` บังคับเมื่อ TRANSFER / CHEQUE · ใบที่ไม่ใช่ APPROVED (รวมจ่ายแล้ว/คำขอซ้ำพร้อมกัน) → 409 ก่อนตรวจ If-Match · เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · audit `settlement.paid` + webhook `settlement.paid` · ไฟล์โอนธนาคาร (bulk payment) = P1",
+            "description": "scope: settlements:pay\n\n\"จ่าย\" + APPROVED → PAID · **เฉพาะใบ APPROVED** (ร่าง/รอตรวจ/โต้แย้ง/ยกเลิก/จ่ายแล้ว → 409 `invalid_state_transition`) · จ่ายเต็มยอดครั้งเดียว — ยอดที่จ่าย = `buyNetAfterWht` (ยอดสุทธิ − หัก ณ ที่จ่ายประมาณการที่ตรึงตอนอนุมัติ — ไม่เปลี่ยน) · `paidDate` (= วันที่หักภาษี) ตั้งแต่วันอนุมัติถึงวันนี้ (เวลาไทย) — ก่อนวันอนุมัติ → 422 `before_approval` · `reference` บังคับเมื่อ TRANSFER / CHEQUE · ใบที่ไม่ใช่ APPROVED (รวมจ่ายแล้ว/คำขอซ้ำพร้อมกัน) → 409 ก่อนตรวจ If-Match · **ผู้อนุมัติใบนี้บันทึกจ่ายเองไม่ได้ → 403 `settlement_self_payment`** · เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · audit `settlement.paid` + webhook `settlement.paid` · ไฟล์โอนธนาคาร (bulk payment) = P1",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"paidDate\": \"2026-11-20\",\n  \"method\": \"TRANSFER\"\n}",
@@ -17240,119 +17240,6 @@
             },
             "description": "scope: invoices:read\n\nใบที่ออกเลขแล้ว (ISSUED/COLLECTED/ยกเลิกหลังออก) — ร่าง → 409 ใช้ `/proforma` · `copy=COPY` render จาก snapshot ครั้งแรกแล้วเก็บ · header `X-Content-SHA256` · ต้องมี `prices.sell:read`"
           }
-        },
-        {
-          "name": "ไฟล์รวมชุด \"ใบวางบิล + ใบแจ้งหนี้\" (PDF เดียว) — ดาวน์โหลดไปส่งเอง",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "X-Api-Version",
-                "value": "{{apiVersion}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/v1/billing-notes/:id/pdf-bundle",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "v1",
-                "billing-notes",
-                ":id",
-                "pdf-bundle"
-              ],
-              "variable": [
-                {
-                  "key": "id",
-                  "value": "",
-                  "description": ""
-                }
-              ]
-            },
-            "description": "scope: invoices:read\n\nใบวางบิลที่ออกแล้ว (ISSUED / COLLECTED — อื่น ๆ 409) · หน้าแรก = ใบวางบิล**ต้นฉบับ** ตามด้วยใบแจ้งหนี้**ต้นฉบับ**ตามลำดับในใบวางบิล · คัดลอกหน้าจาก PDF ที่เก็บ ณ วันออก (ไม่ render ใหม่ — ยังไม่มีไฟล์ = สร้างตามกติกาเดิมของแต่ละใบ; แม่แบบเปลี่ยนแล้ว → 409 `invoice_pdf_template_changed`) · header `X-Content-SHA256`, `X-Bundle-Contents` (เลขเอกสารตามลำดับ คั่นด้วย `,`) · ต้องมี `prices.sell:read`"
-          }
-        },
-        {
-          "name": "ส่งชุดใบวางบิล + ใบแจ้งหนี้ทางอีเมลถึงลูกค้า (ไฟล์รวม 1 ไฟล์)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "X-Api-Version",
-                "value": "{{apiVersion}}"
-              },
-              {
-                "key": "Idempotency-Key",
-                "value": "{{$guid}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/v1/billing-notes/:id/send",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "v1",
-                "billing-notes",
-                ":id",
-                "send"
-              ],
-              "variable": [
-                {
-                  "key": "id",
-                  "value": "",
-                  "description": ""
-                }
-              ]
-            },
-            "description": "scope: invoices:finalize\n\nสิทธิ์ `invoices:finalize` + `prices.sell:read` · ใบวางบิล ISSUED / COLLECTED (อื่น ๆ 409) · แนบไฟล์เดียวกับ `GET /billing-notes/{id}/pdf-bundle` · ผู้รับ = `to` หรือผู้ติดต่อของลูกค้าที่มีอีเมล (ไม่มี → 422 `document_email_no_recipient`) · อีเมล 1 ฉบับต่อผู้รับผ่าน outbox (ส่งโดย worker; สถานะการส่งดูที่ `GET /billing-notes/{id}/emails` — แยกจากสถานะเอกสาร) · ผู้รับเดิมยังรอส่งอยู่ (ภายใน 10 นาที) → 409 `document_email_pending` · ไฟล์เกิน 10 MB → 422 `email_attachment_too_large` (ดาวน์โหลดแล้วส่งเอง) · ใบแจ้งหนี้ในชุดที่ยังไม่มีธง \"ส่งลูกค้าแล้ว\" → ตั้งช่องทาง EMAIL · audit `billing_note.emailed` · บริษัททดสอบ (sandbox) ไม่ส่งออกจริง (`sandbox_suppressed`) · ส่ง `Idempotency-Key` ได้ (กดซ้ำ = ผลเดิม)",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"to\": [\n    \"ap@example.co.th\"\n  ]\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          }
-        },
-        {
-          "name": "ประวัติการส่งใบวางบิลทางอีเมล + สถานะการส่งต่อผู้รับ",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "X-Api-Version",
-                "value": "{{apiVersion}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/v1/billing-notes/:id/emails",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "v1",
-                "billing-notes",
-                ":id",
-                "emails"
-              ],
-              "variable": [
-                {
-                  "key": "id",
-                  "value": "",
-                  "description": ""
-                }
-              ]
-            },
-            "description": "scope: invoices:read\n\nใหม่สุดก่อน (สูงสุด 100) · สถานะ QUEUED / SENT / FAILED แยกจากสถานะเอกสาร"
-          }
         }
       ]
     },
@@ -18432,7 +18319,7 @@
                 }
               ]
             },
-            "description": "scope: invoices:finalize\n\nสิทธิ์ `invoices:finalize` · ใบที่ออกเลขแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — อื่น ๆ 409 `invalid_state_transition`) · ส่งแล้วอยู่แล้ว = คืนค่าเดิม (ไม่เปลี่ยน) · audit `invoice.sent_to_customer` · ส่งแล้ว**ยกเลิกใบไม่ได้** (`/void` → 409 `invoice_sent_to_customer`) · ออกใบวางบิลตั้งธงนี้ให้อัตโนมัติ (ช่องทาง BILLING_NOTE) · ส่งอีเมล (`POST /invoices/{id}/send`, ชุดใบวางบิล) ตั้งช่องทาง EMAIL"
+            "description": "scope: invoices:finalize\n\nสิทธิ์ `invoices:finalize` · ใบที่ออกเลขแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — อื่น ๆ 409 `invalid_state_transition`) · ส่งแล้วอยู่แล้ว = คืนค่าเดิม (ไม่เปลี่ยน) · audit `invoice.sent_to_customer` · ส่งแล้ว**ยกเลิกใบไม่ได้** (`/void` → 409 `invoice_sent_to_customer`) · ออกใบวางบิลตั้งธงนี้ให้อัตโนมัติ (ช่องทาง BILLING_NOTE) · ส่งอีเมล ="
           }
         },
         {
@@ -18491,7 +18378,7 @@
           }
         },
         {
-          "name": "ส่งใบแจ้งหนี้ / ใบแจ้งเตือนชำระ ทางอีเมลถึงลูกค้า (แนบ PDF ต้นฉบับ)",
+          "name": "สั่งรอบวางบิล (async) — สร้างร่างใบแจ้งหนี้ทุกลูกค้าตาม billing_cycle (+ ร่างใบวางบิล)",
           "request": {
             "method": "POST",
             "header": [
@@ -18509,66 +18396,25 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/v1/invoices/:id/send",
+              "raw": "{{baseUrl}}/v1/invoice-runs",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "v1",
-                "invoices",
-                ":id",
-                "send"
-              ],
-              "variable": [
-                {
-                  "key": "id",
-                  "value": "",
-                  "description": ""
-                }
+                "invoice-runs"
               ]
             },
-            "description": "scope: invoices:finalize\n\nสิทธิ์ `invoices:finalize` + `prices.sell:read` · `purpose=DOCUMENT` (ค่าเริ่ม): ใบที่ออกเลขแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED) · `purpose=PAYMENT_REMINDER` (ต้นแบบหน้า \"รับชำระ\" เมนู \"ส่งใบแจ้งเตือนชำระ\"): เฉพาะใบที่ยังมียอดค้าง (ISSUED / PARTIALLY_PAID) — อื่น ๆ 409 `reason: not_outstanding` · แนบไฟล์ต้นฉบับที่เก็บ ณ วันออก (`GET /invoices/{id}/pdf`) · ผู้รับ = `to` หรือผู้ติดต่อของลูกค้าที่มีอีเมล · อีเมล 1 ฉบับต่อผู้รับผ่าน outbox (สถานะการส่งที่ `GET /invoices/{id}/emails`) · ผู้รับเดิมยังรอส่ง (ภายใน 10 นาที) → 409 `document_email_pending` · ยังไม่มีธง \"ส่งลูกค้าแล้ว\" → ตั้งช่องทาง EMAIL · audit `invoice.emailed` · sandbox ไม่ส่งออกจริง",
+            "description": "scope: invoices:draft\n\nบัญชีเบา: ร่าง **ไม่มีเลข ไม่ใช่เอกสารภาษี** · ลูกค้าที่ `billingCycle` = รอบที่สั่ง (ไม่รวม `MANUAL`) ที่มี DO พร้อมวางบิล (กฎเดียวกับ `GET /invoices/queue` + เวลาจุดส่งครบ) วันที่ DO อยู่ในงวด → ร่างผ่านทางเดียวกับ `POST /invoices` (ตรวจซ้ำตอนดึง · กันวางบิลซ้ำระดับ DB · audit `invoice.draft_created`) · `MONTHLY`/`WEEKLY` = 1 ร่างต่อลูกค้า งวด = ที่สั่ง (เกิน 200 DO แบ่งหลายร่าง) · `PER_DO` = 1 ร่างต่อ DO · `billingNotes` (ค่าเริ่มต้น true) = ร่างใบวางบิลจากใบแจ้งหนี้ที่ออกแล้วยังค้าง และยังไม่อยู่ในใบวางบิลที่ active (1 ร่างต่อผู้ออก/สาขาผู้ออก) · **สั่งซ้ำไม่สร้างซ้ำ:** DO/ใบแจ้งหนี้ที่ถูกดึงแล้วไม่ถูกเลือกอีก · **ร่างละ transaction** (รวมการส่งบัญชีของ DO ในกลุ่ม) — กลุ่มที่ล้มย้อนทั้งกลุ่ม กลุ่ม/ลูกค้าอื่นไม่ล้มตาม · DO ที่ไม่ผ่านตอนดึง (ระบุตัวได้) ถูกข้าม (`skippedDeliveryOrders`) · ร่างลงชื่อผู้สั่งเป็นผู้สร้าง (กฎแบ่งหน้าที่ของ finalize ใช้เหมือนสร้างมือ) · 202 `{jobId, statusUrl}` → `GET /v1/jobs/{id}`: `progress` ต่อร่าง · `result` = `InvoiceRunResult` (ผลต่อลูกค้า SUCCEEDED/PARTIAL/FAILED/NOTHING_TO_BILL + ลิงก์ร่าง ≤ 50 ต่อลูกค้า — ไม่มียอดเงิน) · ไม่มีลูกค้า PARTIAL/FAILED = `succeeded`, มี = `succeeded_with_errors` · จบ = webhook `job.completed` · ผู้สั่งดู `statusUrl` ได้แม้ไม่มี `jobs:read` · job เก็บ 7 วัน · นับเป็นคำขอหนัก (rate limit ชั้น heavy)",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"to\": [\n    \"ap@example.co.th\"\n  ]\n}",
+              "raw": "{\n  \"billingCycle\": \"PER_DO\",\n  \"periodFrom\": \"2026-10-01\",\n  \"periodTo\": \"2026-10-31\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
             }
-          }
-        },
-        {
-          "name": "ประวัติการส่งใบแจ้งหนี้ทางอีเมล + สถานะการส่งต่อผู้รับ",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "X-Api-Version",
-                "value": "{{apiVersion}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/v1/invoices/:id/emails",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "v1",
-                "invoices",
-                ":id",
-                "emails"
-              ],
-              "variable": [
-                {
-                  "key": "id",
-                  "value": "",
-                  "description": ""
-                }
-              ]
-            },
-            "description": "scope: invoices:read\n\nการส่งรายใบ (`POST /invoices/{id}/send`) เท่านั้น — ส่งเป็นชุดใบวางบิลดูที่ `GET /billing-notes/{id}/emails` · ใหม่สุดก่อน (สูงสุด 100)"
           }
         }
       ]

@@ -210,6 +210,29 @@ export class BillingQueueService {
     return rows[0] ?? null;
   }
 
+  /**
+   * ST5-T12 รอบวางบิล: DO ที่พร้อมดึงเข้าร่าง (กฎคิวเดียวกัน + เวลาจุดส่งครบ) ของลูกค้าที่ `billing_cycle` ตรง ในช่วง `do_date`
+   * · `released` true = ส่งบัญชีแล้วเท่านั้น · เรียง customer → do_date → do_no (ลำดับบรรทัดบนร่างคงที่)
+   * หลักฐานตาม checklist ปัจจุบันตรวจซ้ำตอนดึง (`InvoicesService.pull`) — ไม่ผ่านถูกตัดออกจากร่างรายใบ
+   */
+  async readyForRun(
+    tx: Tx,
+    f: { cycle: string; from: string; to: string; released: boolean; customerId?: string },
+  ): Promise<{ id: string; customer_id: string }[]> {
+    const cte = this.queueCte({
+      from: f.from,
+      to: f.to,
+      customerId: f.customerId,
+      ...(f.released ? { released: true } : {}),
+    });
+    return tx.$queryRaw<{ id: string; customer_id: string }[]>`
+      WITH ${cte}
+      SELECT q.id, q.customer_id
+        FROM q JOIN delivery_order d ON d.id = q.id JOIN customer c ON c.id = q.customer_id
+       WHERE q.stop_ok AND c.deleted_at IS NULL AND c.billing_cycle::text = ${f.cycle}
+       ORDER BY q.customer_id, d.do_date, d.do_no, d.id`;
+  }
+
   /** เหตุที่ยังไม่พร้อม (ไม่รวม POD — ผู้เรียกตรวจกับ checklist ปัจจุบัน) */
   static blockers(r: Readiness): NotReadyReason[] {
     const out: NotReadyReason[] = [];

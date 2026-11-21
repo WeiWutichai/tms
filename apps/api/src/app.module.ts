@@ -177,6 +177,8 @@ import {
 import { BillingQueueService } from './modules/invoices/billing-queue.service';
 import { BillingReleaseService } from './modules/invoices/billing-release.service';
 import { InvoicesService } from './modules/invoices/invoices.service';
+import { InvoiceRunsController } from './modules/invoices/invoice-runs.controller';
+import { InvoiceRunService } from './modules/invoices/invoice-run.service';
 import { PaymentsController } from './modules/payments/payments.controller';
 import { PaymentsService } from './modules/payments/payments.service';
 import { AgingService } from './modules/payments/aging.service';
@@ -327,6 +329,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     RevenueLinesController,
     SettlementsController,
     InvoicesController,
+    InvoiceRunsController,
     PaymentsController,
     BillingNotesController,
     DeliveryOrderReleaseController,
@@ -428,6 +431,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     PaymentsService,
     AgingService,
     BillingNotesService,
+    InvoiceRunService,
     StopEventsService,
     StopProjectionService,
     SubconHireService,

@@ -1,6 +1,6 @@
 # invoices
 
-24 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+23 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -26,8 +26,7 @@
 | [`POST /v1/invoices/{id}/void`](#post-invoices-id-void) | `invoices:void` |
 | [`POST /v1/invoices/{id}/mark-sent`](#post-invoices-id-mark-sent) | `invoices:finalize` |
 | [`POST /v1/invoices/{id}/unmark-sent`](#post-invoices-id-unmark-sent) | `invoices:void` |
-| [`POST /v1/invoices/{id}/send`](#post-invoices-id-send) | `invoices:finalize` |
-| [`GET /v1/invoices/{id}/emails`](#get-invoices-id-emails) | `invoices:read` |
+| [`POST /v1/invoice-runs`](#post-invoice-runs) | `invoices:draft` |
 
 ## คิวพร้อมวางบิล (DO ที่ส่งแล้ว หลักฐานครบ และราคาพร้อม) {#get-invoices-queue}
 
@@ -1033,7 +1032,7 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/void', {
 
 scope: `invoices:finalize` · operationId: `Invoices_markSent`
 
-สิทธิ์ `invoices:finalize` · ใบที่ออกเลขแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — อื่น ๆ 409 `invalid_state_transition`) · ส่งแล้วอยู่แล้ว = คืนค่าเดิม (ไม่เปลี่ยน) · audit `invoice.sent_to_customer` · ส่งแล้ว**ยกเลิกใบไม่ได้** (`/void` → 409 `invoice_sent_to_customer`) · ออกใบวางบิลตั้งธงนี้ให้อัตโนมัติ (ช่องทาง BILLING_NOTE) · ส่งอีเมล (`POST /invoices/{id}/send`, ชุดใบวางบิล) ตั้งช่องทาง EMAIL
+สิทธิ์ `invoices:finalize` · ใบที่ออกเลขแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — อื่น ๆ 409 `invalid_state_transition`) · ส่งแล้วอยู่แล้ว = คืนค่าเดิม (ไม่เปลี่ยน) · audit `invoice.sent_to_customer` · ส่งแล้ว**ยกเลิกใบไม่ได้** (`/void` → 409 `invoice_sent_to_customer`) · ออกใบวางบิลตั้งธงนี้ให้อัตโนมัติ (ช่องทาง BILLING_NOTE) · ส่งอีเมล =
 
 **Parameters**
 
@@ -1120,95 +1119,51 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/unmark-sent', {
 });
 ```
 
-## ส่งใบแจ้งหนี้ / ใบแจ้งเตือนชำระ ทางอีเมลถึงลูกค้า (แนบ PDF ต้นฉบับ) {#post-invoices-id-send}
+## สั่งรอบวางบิล (async) — สร้างร่างใบแจ้งหนี้ทุกลูกค้าตาม billing_cycle (+ ร่างใบวางบิล) {#post-invoice-runs}
 
-`POST /v1/invoices/{id}/send`
+`POST /v1/invoice-runs`
 
-scope: `invoices:finalize` · operationId: `Invoices_send`
+scope: `invoices:draft` · operationId: `InvoiceRuns_create`
 
-สิทธิ์ `invoices:finalize` + `prices.sell:read` · `purpose=DOCUMENT` (ค่าเริ่ม): ใบที่ออกเลขแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED) · `purpose=PAYMENT_REMINDER` (ต้นแบบหน้า "รับชำระ" เมนู "ส่งใบแจ้งเตือนชำระ"): เฉพาะใบที่ยังมียอดค้าง (ISSUED / PARTIALLY_PAID) — อื่น ๆ 409 `reason: not_outstanding` · แนบไฟล์ต้นฉบับที่เก็บ ณ วันออก (`GET /invoices/{id}/pdf`) · ผู้รับ = `to` หรือผู้ติดต่อของลูกค้าที่มีอีเมล · อีเมล 1 ฉบับต่อผู้รับผ่าน outbox (สถานะการส่งที่ `GET /invoices/{id}/emails`) · ผู้รับเดิมยังรอส่ง (ภายใน 10 นาที) → 409 `document_email_pending` · ยังไม่มีธง "ส่งลูกค้าแล้ว" → ตั้งช่องทาง EMAIL · audit `invoice.emailed` · sandbox ไม่ส่งออกจริง
+บัญชีเบา: ร่าง **ไม่มีเลข ไม่ใช่เอกสารภาษี** · ลูกค้าที่ `billingCycle` = รอบที่สั่ง (ไม่รวม `MANUAL`) ที่มี DO พร้อมวางบิล (กฎเดียวกับ `GET /invoices/queue` + เวลาจุดส่งครบ) วันที่ DO อยู่ในงวด → ร่างผ่านทางเดียวกับ `POST /invoices` (ตรวจซ้ำตอนดึง · กันวางบิลซ้ำระดับ DB · audit `invoice.draft_created`) · `MONTHLY`/`WEEKLY` = 1 ร่างต่อลูกค้า งวด = ที่สั่ง (เกิน 200 DO แบ่งหลายร่าง) · `PER_DO` = 1 ร่างต่อ DO · `billingNotes` (ค่าเริ่มต้น true) = ร่างใบวางบิลจากใบแจ้งหนี้ที่ออกแล้วยังค้าง และยังไม่อยู่ในใบวางบิลที่ active (1 ร่างต่อผู้ออก/สาขาผู้ออก) · **สั่งซ้ำไม่สร้างซ้ำ:** DO/ใบแจ้งหนี้ที่ถูกดึงแล้วไม่ถูกเลือกอีก · **ร่างละ transaction** (รวมการส่งบัญชีของ DO ในกลุ่ม) — กลุ่มที่ล้มย้อนทั้งกลุ่ม กลุ่ม/ลูกค้าอื่นไม่ล้มตาม · DO ที่ไม่ผ่านตอนดึง (ระบุตัวได้) ถูกข้าม (`skippedDeliveryOrders`) · ร่างลงชื่อผู้สั่งเป็นผู้สร้าง (กฎแบ่งหน้าที่ของ finalize ใช้เหมือนสร้างมือ) · 202 `{jobId, statusUrl}` → `GET /v1/jobs/{id}`: `progress` ต่อร่าง · `result` = `InvoiceRunResult` (ผลต่อลูกค้า SUCCEEDED/PARTIAL/FAILED/NOTHING_TO_BILL + ลิงก์ร่าง ≤ 50 ต่อลูกค้า — ไม่มียอดเงิน) · ไม่มีลูกค้า PARTIAL/FAILED = `succeeded`, มี = `succeeded_with_errors` · จบ = webhook `job.completed` · ผู้สั่งดู `statusUrl` ได้แม้ไม่มี `jobs:read` · job เก็บ 7 วัน · นับเป็นคำขอหนัก (rate limit ชั้น heavy)
 
-**Parameters**
-
-| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
-|---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
-| `Idempotency-Key` | header |   | `string` | ส่งซ้ำ key เดิม + body เดิม = ผลเดิม (ไม่ส่งอีเมลซ้ำ) เก็บ 24 ชม. |
-
-**Request body** `SendInvoiceDto`
+**Request body** `CreateInvoiceRunDto`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `to` |   | `array<string>` |   | อีเมลผู้รับ 1–5 คน (ไม่ซ้ำ) · ไม่ระบุ = อีเมลผู้ติดต่อของลูกค้า (ผู้ติดต่อหลักที่มีอีเมล · ไม่มีผู้ติดต่อหลักที่มีอีเมล = ผู้ติดต่อทุกคนที่มีอีเมล สูงสุด 5) · ไม่มีเลย → 422 `document_email_no_recipient` | `["ap@example.co.th"]` |
-| `purpose` |   | `string` | ค่า: `DOCUMENT`, `PAYMENT_REMINDER` | DOCUMENT = ส่งใบแจ้งหนี้ · PAYMENT_REMINDER = ใบแจ้งเตือนชำระ (ต้นแบบหน้า "รับชำระ") — เฉพาะใบที่ยังมียอดค้าง (ISSUED / PARTIALLY_PAID) · ทั้งสองแบบแนบ PDF ต้นฉบับของใบ |   |
+| `billingCycle` | ใช่ | `string` | ค่า: `PER_DO`, `WEEKLY`, `MONTHLY` | รอบวางบิลของลูกค้าที่เข้ารอบนี้ (`customer.billingCycle`) · `MANUAL` ไม่เข้ารอบ · `MONTHLY`/`WEEKLY` = 1 ร่างต่อลูกค้า (เกิน 200 DO แบ่งเป็นหลายร่าง) · `PER_DO` = 1 ร่างต่อ DO |   |
+| `periodFrom` | ใช่ | `string` |   | งวดตั้งแต่ (วันที่ DO — `doDate`) | `2026-10-01` |
+| `periodTo` | ใช่ | `string` |   | งวดถึง (วันที่ DO — `doDate`) ≥ periodFrom | `2026-10-31` |
+| `releaseDeliveryOrders` |   | `boolean` |   | true = ส่งบัญชี DO ที่ยังไม่ส่งพร้อมสร้างร่าง (เหมือน `POST /invoices` `releaseDeliveryOrders`) · ไม่ส่ง/false = ดึงเฉพาะ DO ที่ส่งบัญชีแล้ว |   |
+| `billingNotes` |   | `boolean` |   | สร้างร่างใบวางบิลอัตโนมัติ จากใบแจ้งหนี้ที่ออกแล้วยังค้างและยังไม่อยู่ในใบวางบิลที่ active ของลูกค้าในรอบนี้ (1 ร่างต่อผู้ออก/สาขาผู้ออก) · ไม่ส่ง = true |   |
 
 **Responses**
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` |   | `DocumentEmailResultDto` |
+| `202` | รับงานแล้ว ติดตามที่ `statusUrl` | `InvoiceRunAcceptedDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`invoices:finalize`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
-| `404` | ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
-| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress), [invoice_pdf_template_changed](errors.md#invoice_pdf_template_changed), [document_email_pending](errors.md#document_email_pending) | `ProblemDto` |
-| `422` | `validation_failed` — `to` ผิดรูปแบบ/ซ้ำ/เกิน 5 · `document_email_no_recipient` — ไม่ระบุ `to` และลูกค้าไม่มีอีเมลผู้ติดต่อ · `email_attachment_too_large` — ไฟล์แนบเกินขนาด (`sizeBytes`, `maxBytes`) → ดาวน์โหลดแล้วส่งเอง — [validation_failed](errors.md#validation_failed), [document_email_no_recipient](errors.md#document_email_no_recipient), [email_attachment_too_large](errors.md#email_attachment_too_large) | `ProblemDto` |
-| `429` | `rate_limited` — อีเมลเอกสารของบริษัทเกิน 200 ผู้รับต่อชั่วโมง (`limit`, `sentLastHour`) — ลองใหม่ภายหลังหรือดาวน์โหลดแล้วส่งเอง — [rate_limited](errors.md#rate_limited) | `ProblemDto` |
-
-**ตัวอย่าง**
-
-```bash
-curl -sS -X POST "$TMS_BASE_URL/v1/invoices/<id>/send" \
-  -H "Authorization: Bearer $TMS_API_KEY" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -H "Content-Type: application/json" \
-  -d '{"to":["ap@example.co.th"]}'
-```
-
-```ts
-const { data, error } = await tms.POST('/v1/invoices/{id}/send', {
-  params: { path: { id: "…" } },
-  body: {
-    "to": [
-      "ap@example.co.th"
-    ]
-  },
-});
-```
-
-## ประวัติการส่งใบแจ้งหนี้ทางอีเมล + สถานะการส่งต่อผู้รับ {#get-invoices-id-emails}
-
-`GET /v1/invoices/{id}/emails`
-
-scope: `invoices:read` · operationId: `Invoices_emails`
-
-การส่งรายใบ (`POST /invoices/{id}/send`) เท่านั้น — ส่งเป็นชุดใบวางบิลดูที่ `GET /billing-notes/{id}/emails` · ใหม่สุดก่อน (สูงสุด 100)
-
-**Parameters**
-
-| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
-|---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
-
-**Responses**
-
-| สถานะ | ความหมาย | body |
-|---|---|---|
-| `200` |   | `DocumentEmailListDto` |
-| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`invoices:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
-| `404` | ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:draft`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
 
 **ตัวอย่าง**
 
 ```bash
-curl -sS -X GET "$TMS_BASE_URL/v1/invoices/<id>/emails" \
-  -H "Authorization: Bearer $TMS_API_KEY"
+curl -sS -X POST "$TMS_BASE_URL/v1/invoice-runs" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"billingCycle":"PER_DO","periodFrom":"2026-10-01","periodTo":"2026-10-31"}'
 ```
 
 ```ts
-const { data, error } = await tms.GET('/v1/invoices/{id}/emails', {
-  params: { path: { id: "…" } },
+const { data, error } = await tms.POST('/v1/invoice-runs', {
+  body: {
+    "billingCycle": "PER_DO",
+    "periodFrom": "2026-10-01",
+    "periodTo": "2026-10-31"
+  },
 });
 ```
 
@@ -1224,23 +1179,6 @@ const { data, error } = await tms.GET('/v1/invoices/{id}/emails', {
 | `nextCursor` | ใช่ | `string` | null ได้ |   |   |
 | `hasMore` | ใช่ | `boolean` |   |   |   |
 | `customers` | ใช่ | `array<BillingQueueCustomerDto>` |   | สรุปต่อลูกค้าของทุกแถวที่ตรงตัวกรอง (ไม่ขึ้นกับ cursor/limit) — เรียงตามรหัสลูกค้า |   |
-
-### DocumentEmailListDto {#schema-DocumentEmailListDto}
-
-
-
-| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
-|---|---|---|---|---|---|
-| `data` | ใช่ | `array<DocumentEmailDto>` |   | ใหม่สุดก่อน (สูงสุด 100 รายการ) |   |
-
-### DocumentEmailResultDto {#schema-DocumentEmailResultDto}
-
-
-
-| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
-|---|---|---|---|---|---|
-| `attachment` | ใช่ | `DocumentEmailAttachmentDto` |   |   |   |
-| `emails` | ใช่ | `array<DocumentEmailDto>` |   | 1 แถวต่อผู้รับ (สถานะเริ่ม QUEUED) |   |
 
 ### InvoiceDto {#schema-InvoiceDto}
 
@@ -1312,6 +1250,15 @@ const { data, error } = await tms.GET('/v1/invoices/{id}/emails', {
 | `data` | ใช่ | `array<InvoiceSummaryDto>` |   |   |   |
 | `nextCursor` | ใช่ | `string` | null ได้ |   |   |
 | `hasMore` | ใช่ | `boolean` |   |   |   |
+
+### InvoiceRunAcceptedDto {#schema-InvoiceRunAcceptedDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `jobId` | ใช่ | `string` |   |   | `job_3f2a…` |
+| `statusUrl` | ใช่ | `string` |   |   | `/v1/jobs/job_3f2a…` |
 
 ### InvoiceSummaryCountsDto {#schema-InvoiceSummaryCountsDto}
 

@@ -25,7 +25,7 @@ import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './hel
  * - ทุก endpoint ใน MATRIX: scope ใน OpenAPI (`x-required-scopes`) ตรงกับตาราง · key ไม่มี scope → 403 `permission_denied`
  *   (`required` ตรง) · key ของบริษัทอื่น → 404 · ไม่มี credential → 401 · OpenAPI มีตัวอย่าง 403/404
  * - list: cursor pagination (`limit`/`nextCursor`/`hasMore`) · GET ใบเดียวมี ETag · If-Match ไม่ตรง → 412
- * - แถว #6 invoices อยู่ในตารางแล้ว (ST5-T09: list/สร้างร่าง/อ่าน/ออกเอกสาร · ST5-T10: void) + payments (ST5-T13) · invoice-runs = DEFERRED (ST5-T12)
+ * - แถว #6 invoices อยู่ในตารางแล้ว (ST5-T09: list/สร้างร่าง/อ่าน/ออกเอกสาร · ST5-T10: void) + payments (ST5-T13) + invoice-runs (ST5-T12)
  *   — ตรวจว่ายังไม่มี path (กันลืมย้ายเข้าตาราง)
  */
 
@@ -148,6 +148,12 @@ export const MATRIX: Row[] = [
     ],
   },
   {
+    // ST5-T12 รอบวางบิล (async → job + job.completed)
+    g2: '#6',
+    resource: 'invoice-runs',
+    endpoints: [E('post', '/v1/invoice-runs', 'invoices:draft')],
+  },
+  {
     g2: '#6',
     resource: 'payments',
     endpoints: [
@@ -170,9 +176,7 @@ export const MATRIX: Row[] = [
 ];
 
 /** แถว P0 ที่เลื่อนไป task อื่น (ยังไม่มี module) — path ต้องยังไม่มีใน OpenAPI; มีแล้ว = ย้ายเข้า MATRIX */
-export const DEFERRED: { g2: string; resource: string; paths: string[]; task: string }[] = [
-  { g2: '#6', resource: 'invoice-runs', paths: ['/v1/invoice-runs'], task: 'ST5-T12' },
-];
+export const DEFERRED: { g2: string; resource: string; paths: string[]; task: string }[] = [];
 
 const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
@@ -1068,6 +1072,12 @@ describe(
         expect: 200,
       });
       expect(voided.body).toMatchObject({ status: 'CANCELLED', invoiceNo: fin.body.invoiceNo });
+      // ST5-T12 รอบวางบิล (async) — 202 + statusUrl ที่ผู้สั่งอ่านได้
+      const runRes = await call(full, 'post', '/v1/invoice-runs', {
+        body: { billingCycle: 'MONTHLY', periodFrom: today, periodTo: today },
+        expect: 202,
+      });
+      expect(runRes.body.statusUrl).toBe(`/v1/jobs/${runRes.body.jobId}`);
     });
 
     it('#2 #10 webhooks/event-types/deliveries (อ่าน) · jobs · api-keys · openapi.json ด้วย key', async () => {
@@ -1334,7 +1344,7 @@ describe(
       }
     });
 
-    it('แถว #6 (invoice-runs) = DEFERRED → ST5 — ยังไม่มี path ใน OpenAPI', () => {
+    it('แถวที่เลื่อน (DEFERRED) ยังไม่มี path ใน OpenAPI — ST5-T12 ย้าย invoice-runs เข้าตารางแล้ว', () => {
       for (const d of DEFERRED) {
         expect(d.task).toMatch(/^ST5-T\d+$/);
         for (const p of d.paths)
