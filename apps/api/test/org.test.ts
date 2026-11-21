@@ -212,6 +212,14 @@ describe('องค์กร: นิติบุคคล สาขา เลข
       );
     });
 
+    it('D-61: markSandbox บน tenant live ไม่เติม TEST- (เติมเฉพาะ tenant mode=test)', async () => {
+      const n = await inTenant((tx) =>
+        issueNumber(tx, tenantId, { docType: 'SO', at, markSandbox: true }),
+      );
+      expect(n).toMatch(/^SO-6911-\d{4}$/);
+      expect(n.startsWith('TEST-')).toBe(false);
+    });
+
     it('เอกสารภาษีนับแยกต่อสาขา และต้องระบุสาขา', async () => {
       const a = await newCompany('บริษัท เลข จำกัด');
       const hq = (await newBranch(a.id, '00000').expect(201)).body;

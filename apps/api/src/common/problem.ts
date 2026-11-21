@@ -575,6 +575,7 @@ export const PROBLEMS = {
     th: 'ส่วนต่างเกินวงเงินที่ตั้งไว้ ต้องให้ผู้จัดการบันทึก',
     en: 'The write-off difference exceeds the limit — a manager must record it',
   },
+  /** D-61 (21 พ.ย. 2569): **ไม่ถูกส่งแล้ว** — sandbox ออกใบแจ้งหนี้ได้ (เลข `TEST-` + ลายน้ำ) · คงไว้เพื่อสัญญา API ไม่เปลี่ยนแบบ breaking */
   sandbox_finalize_disabled: {
     status: 409,
     th: 'โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้',
