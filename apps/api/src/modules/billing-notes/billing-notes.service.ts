@@ -366,7 +366,7 @@ export class BillingNotesService implements OnModuleInit {
       branchId: bn.issuingBranchId,
       at: now,
     });
-    const tenant = await tx.tenant.findFirst({ select: { yearStyle: true } });
+    const tenant = await tx.tenant.findFirst({ select: { yearStyle: true, mode: true } });
     const customer: InvoicePartySnapshot = { code: bn.customer.code, ...customerParty(bn) };
     const issuer: InvoicePartySnapshot = issuerParty(bn);
     await tx.billingNote.update({
@@ -382,6 +382,8 @@ export class BillingNotesService implements OnModuleInit {
         printOptions: {
           yearStyle: tenant?.yearStyle === 'CE' ? 'CE' : 'BE',
           templateVersion: BILLING_NOTE_TEMPLATE_VERSION,
+          // D-61: ใบวางบิลใน sandbox (รวมใบแจ้งหนี้ `TEST-`) → PDF ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" (เลขใบวางบิลยังตามชุดเลขของ sandbox)
+          ...(tenant?.mode === 'test' ? { sandbox: true } : {}),
         },
         updatedBy: ctx.actorId ?? null,
         version: { increment: 1 },
@@ -568,7 +570,11 @@ export class BillingNotesService implements OnModuleInit {
         });
       const doc = await storedPdf(tx, bn.id, bn.pdfDocumentId, copy);
       if (doc) return { doc, model: null, no: bn.billingNoteNo };
-      const print = bn.printOptions as { yearStyle?: string; templateVersion?: number } | null;
+      const print = bn.printOptions as {
+        yearStyle?: string;
+        templateVersion?: number;
+        sandbox?: boolean;
+      } | null;
       if (print?.templateVersion !== BILLING_NOTE_TEMPLATE_VERSION)
         throw new ProblemException('invoice_pdf_template_changed', undefined, undefined, {
           issuedTemplateVersion: print?.templateVersion ?? null,
@@ -589,7 +595,11 @@ export class BillingNotesService implements OnModuleInit {
           address: cs.address,
         },
       });
-      return { doc: null, model, no: bn.billingNoteNo };
+      return {
+        doc: null,
+        model: { ...model, sandbox: print.sandbox === true },
+        no: bn.billingNoteNo,
+      };
     });
     if (found.doc) return { doc: found.doc, data: await store().get(found.doc.fileKey!) };
     const data = await this.renderer.pdf(billingNoteDocument(found.model!));

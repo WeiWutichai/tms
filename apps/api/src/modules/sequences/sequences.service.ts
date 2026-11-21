@@ -82,11 +82,22 @@ export function formatPattern(policy: ResetPolicy, padding: number): string {
   return policy === 'MONTHLY' ? `{YYMM}-${n}` : policy === 'YEARLY' ? `{YY}-${n}` : n;
 }
 
+/**
+ * D-61 (PO 21 พ.ย. 2569): เลขเอกสารที่ออกใน sandbox (tenant `mode='test'`) ขึ้นต้นด้วย `TEST-` เสมอ
+ * ไม่ว่าชุดเลขจะตั้ง prefix อะไร — หน้าตาไม่ซ้ำ/ไม่ชนกับเลขจริงของบริษัท (ตัวนับเป็นของแถว tenant sandbox อยู่แล้ว)
+ */
+export const SANDBOX_NUMBER_PREFIX = 'TEST-';
+
 export interface IssueInput {
   docType: DocType;
   /** บังคับสำหรับเอกสารภาษี (สาขาผู้ออก) */
   branchId?: string;
   at?: Date;
+  /**
+   * D-61: tenant เป็น sandbox → ใส่ `TEST-` นำหน้าเลข (ตรวจ `tenant.mode` ในฐานเอง ไม่เชื่อผู้เรียก)
+   * เปิดเฉพาะเอกสารที่ PO ตัดสินแล้ว (ใบแจ้งหนี้) — ชนิดอื่นยังเหมือนเดิม
+   */
+  markSandbox?: boolean;
 }
 
 /**
@@ -108,6 +119,7 @@ export async function issueNumber(tx: Tx, tenantId: string, input: IssueInput): 
   if (series.perBranch && !branch) throw new ProblemException('not_found');
   const tenant = await tx.tenant.findUnique({ where: { id: tenantId } });
   const yearStyle = tenant?.yearStyle ?? 'BE';
+  const sandboxPrefix = input.markSandbox && tenant?.mode === 'test' ? SANDBOX_NUMBER_PREFIX : '';
   const key = periodKey(series.resetPolicy, at, yearStyle);
   const branchId = branch?.id ?? null;
   const template = series.prefix;
@@ -120,7 +132,7 @@ export async function issueNumber(tx: Tx, tenantId: string, input: IssueInput): 
     WHERE tenant_id = ${tenantId}::uuid AND doc_type = ${input.docType}::doc_type
       AND branch_id IS NOT DISTINCT FROM ${branchId}::uuid AND period_key = ${key}
     RETURNING next_value - 1 AS n`;
-  return formatNumber(series, rows[0]!.n, at, yearStyle, branch?.branchCode);
+  return sandboxPrefix + formatNumber(series, rows[0]!.n, at, yearStyle, branch?.branchCode);
 }
 
 @Injectable()

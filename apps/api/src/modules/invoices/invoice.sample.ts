@@ -188,3 +188,13 @@ export function sampleInvoiceLong(): InvoicePrintModel {
     (l) => (l.vatType === 'VAT_7' ? '3.00' : '1.00'),
   );
 }
+
+/** D-61: ใบที่ออกใน sandbox — เลข `TEST-` + ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" (หลายหน้า: ลายน้ำทุกหน้า) */
+export function sampleInvoiceSandbox(): InvoicePrintModel {
+  return {
+    ...sampleInvoiceLong(),
+    invoiceNo: 'TEST-INV-00000-2611-0001',
+    copy: 'ORIGINAL',
+    sandbox: true,
+  };
+}

@@ -152,6 +152,8 @@ export class InvoicePdfService {
         yearStyle: tenant?.yearStyle === 'CE' ? 'CE' : 'BE',
         invoiceNo: inv.invoiceNo,
         copy: issued?.copy ?? null,
+        // D-61: ลายน้ำ sandbox จากค่าพิมพ์ ณ วันออก (ร่างใช้ลายน้ำ "ร่าง")
+        sandbox: snap?.print.sandbox === true,
         issueDate,
         dueDate: issued?.dueDate ?? addDays(issueDate, inv.creditTermDays),
         issuer: snap
@@ -242,6 +244,8 @@ export interface InvoicePrintOptions {
   whtMinimumAmount: number;
   /** รุ่นแม่แบบ ณ วันออก (`INVOICE_TEMPLATE_VERSION`) */
   templateVersion?: number;
+  /** D-61: ออกใน sandbox (tenant `mode='test'`) → PDF ต้นฉบับ/สำเนามีลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" · ไม่มี = ใบ live */
+  sandbox?: boolean;
 }
 
 function issuedSnapshot(row: {

@@ -332,7 +332,7 @@ export class InvoicesController {
       '(เว้น tenant ตั้ง `billing.allowSelfFinalize`) · ออกเลขชุด INV ต่อสาขาผู้ออก (เรียงไม่ข้าม พร้อมกันได้) · วันที่ออก = วันนี้ (เวลาไทย) · ' +
       'ครบกำหนด = วันที่ออก + เครดิต · เก็บ snapshot ลูกค้า/ผู้ออก · DO → INVOICED (+ UNBILLED → BILLED) · ล็อกบรรทัดรายได้ · ' +
       'audit + webhook `invoice.finalized` (transaction เดียว) · แล้ว render PDF ต้นฉบับเก็บแบบเขียนครั้งเดียว (`pdf`) · ' +
-      '**ไม่มีเลขใบกำกับภาษี** (D-54/D-55 — ไม่ว่า connector ตั้งเจ้าของเอกสารภาษีเป็นใคร) · หลังนี้แก้/ยกเลิกร่าง/PATCH ไม่ได้ (409) · sandbox → 409 `sandbox_finalize_disabled`',
+      '**ไม่มีเลขใบกำกับภาษี** (D-54/D-55 — ไม่ว่า connector ตั้งเจ้าของเอกสารภาษีเป็นใคร) · หลังนี้แก้/ยกเลิกร่าง/PATCH ไม่ได้ (409) · **sandbox (D-61):** ออกได้ — เลขจากชุดเลขของ sandbox ขึ้นต้น `TEST-` · PDF มีลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" · ไม่ส่งไป connector/ERP',
   })
   @ApiHeader({
     ...IF_MATCH,
@@ -358,7 +358,7 @@ export class InvoicesController {
     {
       status: 409,
       description:
-        '`invoice_not_finalizable` (`reasons[]`) · `invalid_state_transition` (ไม่ใช่ร่าง) · `sandbox_finalize_disabled`',
+        '`invoice_not_finalizable` (`reasons[]`) · `invalid_state_transition` (ไม่ใช่ร่าง)',
       examples: {
         invoice_not_finalizable: {
           type: 'https://docs.tms.example/problems/invoice_not_finalizable',

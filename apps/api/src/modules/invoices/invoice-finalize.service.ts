@@ -56,7 +56,7 @@ export type FinalizeBlocker =
  * ออกเอกสารใบแจ้งหนี้ (ST5-T09; **D-54 บัญชีเบา — ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี: ไม่มี `tax_invoice_no`**; docs/04 F3 "Finalize (immutable)",
  * F1 เลขเรียงลำดับ + สาขาผู้ออก/ผู้ซื้อ, A3 แบ่งหน้าที่; docs/01 §4.4 DRAFT → ISSUED; spec/05 BIL-031/037/038/196)
  *
- * ขั้น 1 (transaction เดียว): ล็อกใบ + If-Match → ตรวจ (sandbox, แบ่งหน้าที่, BIL-037/038, บรรทัด provisional) → คำนวณยอดใหม่ →
+ * ขั้น 1 (transaction เดียว): ล็อกใบ + If-Match → ตรวจ (แบ่งหน้าที่, BIL-037/038, บรรทัด provisional) → คำนวณยอดใหม่ →
  * ออกเลข INV ต่อสาขาผู้ออก (`issueNumber` — แถวตัวนับล็อกจน commit: พร้อมกันได้เลขเรียงไม่ข้าม, rollback = ไม่กินเลข) →
  * snapshot ลูกค้า/ผู้ออก/ค่าพิมพ์ + วันที่ออก/ครบกำหนด → ISSUED → DO INVOICED (+ UNBILLED → BILLED) → ล็อกบรรทัดรายได้ →
  * audit `invoice.finalized` + event `invoice.finalized` (outbox — ส่ง webhook หลัง commit)
@@ -158,8 +158,10 @@ export class InvoiceFinalizeService implements OnModuleInit {
         currentStatus: inv.status,
       });
     const tenant = await tx.tenant.findFirst({ select: { mode: true, yearStyle: true } });
-    // [OPEN — spec/12 §3 "Sandbox: เอกสารภาษีใน sandbox" ห้ามตัดสินเอง] → ปิดไว้ก่อน (ย้อนได้)
-    if (tenant?.mode === 'test') throw new ProblemException('sandbox_finalize_disabled');
+    // D-61 (PO 21 พ.ย. 2569 "ออกเลขชุดแยก"): sandbox ออกใบได้ — เลขจากชุดเลขของแถว sandbox เอง + `TEST-` นำหน้า (issueNumber
+    // markSandbox) · PDF ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" (print_options.sandbox) · ไม่ถึง connector/ERP (sink `erp` ข้าม sandbox — ST7-T09)
+    // `sandbox_finalize_disabled` ไม่ถูกส่งแล้ว (คงไว้ในแคตตาล็อกปัญหาเพื่อไม่ให้สัญญา API เปลี่ยนแบบ breaking)
+    const sandbox = tenant?.mode === 'test';
 
     const actor = ctx.actorId;
     const settings = await readSettings(tx, ctx.tenantId!, [
@@ -189,6 +191,7 @@ export class InvoiceFinalizeService implements OnModuleInit {
       docType: 'INV',
       branchId: inv.issuingBranchId,
       at: now,
+      markSandbox: true,
     });
     const customer: InvoicePartySnapshot = {
       code: inv.customer.code,
@@ -204,6 +207,7 @@ export class InvoiceFinalizeService implements OnModuleInit {
       yearStyle: tenant?.yearStyle === 'CE' ? 'CE' : 'BE',
       whtMinimumAmount: settings['tax.whtMinimumAmount'] as number,
       templateVersion: INVOICE_TEMPLATE_VERSION,
+      ...(sandbox ? { sandbox: true } : {}),
     };
     const before = await this.invoices.get(id, tx);
     await tx.invoice.update({

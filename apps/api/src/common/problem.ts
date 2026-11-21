@@ -557,6 +557,7 @@ export const PROBLEMS = {
     th: 'แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ',
     en: 'The invoice template changed after issue — the issued PDF cannot be re-rendered',
   },
+  /** D-61 (21 พ.ย. 2569): **ไม่ถูกส่งแล้ว** — sandbox ออกใบแจ้งหนี้ได้ (เลข `TEST-` + ลายน้ำ) · คงไว้เพื่อสัญญา API ไม่เปลี่ยนแบบ breaking */
   sandbox_finalize_disabled: {
     status: 409,
     th: 'โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้',

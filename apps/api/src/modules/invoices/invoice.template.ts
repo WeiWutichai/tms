@@ -14,6 +14,7 @@ import {
   bahtFormat,
   dateRangeShort,
   financeDocument,
+  SANDBOX_WATERMARK,
   type FinanceParty,
   type FinanceTotal,
 } from '../../pdf/finance-document';
@@ -28,6 +29,7 @@ import { docDateShort } from '../../common/thai-date';
  * รุ่นของแม่แบบใบแจ้งหนี้ (ST5-T09 review M1) — เก็บใน `invoice.print_options.templateVersion` ตอนออกเลข · PDF ของใบที่ออกแล้ว
  * render ได้เฉพาะเมื่อรุ่นตรงกับที่บันทึก (ไม่ render ต้นฉบับ/สำเนาด้วยแม่แบบใหม่เงียบ ๆ — BIL-196, ST9-T15 hash คงที่)
  * **แก้หน้าตา/เนื้อของแม่แบบ (`invoiceDocument`, finance-document.ts) ต้องเพิ่มเลขนี้**
+ * (D-61 ลายน้ำ sandbox ไม่เพิ่มเลข: ใบที่ออกก่อน D-61 เป็นใบ live ทั้งหมด — sandbox ออกเลขไม่ได้ — ผลพิมพ์ของใบเหล่านั้นไม่เปลี่ยน)
  */
 export const INVOICE_TEMPLATE_VERSION = 1;
 
@@ -64,6 +66,8 @@ export interface InvoicePrintModel {
   /** null = ร่าง */
   invoiceNo: string | null;
   copy: 'ORIGINAL' | 'COPY' | null;
+  /** D-61: ใบที่ออกใน sandbox (`print_options.sandbox` ณ วันออก) → ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" ทุกหน้า */
+  sandbox?: boolean;
   /** YYYY-MM-DD — ร่าง = วันที่พิมพ์ */
   issueDate: string;
   /** YYYY-MM-DD — วันที่ออก + เครดิต */
@@ -203,6 +207,7 @@ export function invoiceDocument(m: InvoicePrintModel) {
         : m.copy === 'ORIGINAL'
           ? 'ต้นฉบับ / Original'
           : 'สำเนา / Copy',
+    watermark: m.sandbox ? SANDBOX_WATERMARK : null,
     docDate: m.issueDate,
     issuer: m.issuer,
     customer: m.customer,

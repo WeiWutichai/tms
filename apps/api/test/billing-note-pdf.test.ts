@@ -6,11 +6,13 @@ import { afterAll, describe, expect, it } from 'vitest';
 import {
   sampleBillingNote,
   sampleBillingNoteLong,
+  sampleBillingNoteSandbox,
 } from '../src/modules/billing-notes/billing-note.sample';
 import {
   billingNoteDocument,
   billingNoteTotalRows,
 } from '../src/modules/billing-notes/billing-note.template';
+import { SANDBOX_WATERMARK } from '../src/pdf/finance-document';
 import { PdfRenderer } from '../src/pdf/pdf-renderer';
 
 /**
@@ -123,5 +125,17 @@ describe('ใบวางบิล PDF (ST5-T11)', () => {
       golden('long'),
       await r.withPage(doc, (p) => p.screenshot({ fullPage: true, type: 'png' })),
     );
+  }, 90_000);
+
+  it('D-61 sandbox: ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" · ใบ live ไม่มีลายน้ำ', async () => {
+    const wms = async (m: ReturnType<typeof sampleBillingNote>) =>
+      (await r.withPage(billingNoteDocument(m), (p) =>
+        p.evaluate(`[...document.querySelectorAll('section.page .wm')].map((w) => w.textContent)`),
+      )) as string[];
+    expect(await wms(sampleBillingNoteSandbox())).toEqual([SANDBOX_WATERMARK]);
+    expect(await wms(sampleBillingNote())).toEqual([]);
+    const i = await info(billingNoteDocument(sampleBillingNoteSandbox()));
+    expect(i.text).toContain('TEST-');
+    expect(i.over).toBe(false);
   }, 90_000);
 });

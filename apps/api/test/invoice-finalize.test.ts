@@ -10,6 +10,10 @@ import { requestContext } from '../src/common/request-context';
 import { DbService, type Tx } from '../src/db/db.service';
 import { DeliveryOrderService } from '../src/modules/delivery-orders/delivery-order.service';
 import { InvoicePdfService } from '../src/modules/invoices/invoice-pdf.service';
+import { ERP_SINK } from '../src/modules/erp/erp-adapter.sink';
+import { OutboxDispatcher } from '../src/modules/integration/outbox.dispatcher';
+import { SandboxService } from '../src/modules/sandbox/sandbox.service';
+import { SANDBOX_WATERMARK } from '../src/pdf/finance-document';
 import {
   OrderIntakeService,
   type UpsertOrderInput,
@@ -620,43 +624,159 @@ describe('invoice finalize (ST5-T09)', { timeout: 900_000 }, () => {
     expect(row).toMatchObject({ status: 'BILLED', billingStatus: 'INVOICED' });
   });
 
-  it('review L4: sandbox → 409 · API key = ผู้ออก key (แบ่งหน้าที่) · เปิด billing.allowSelfFinalize เฉพาะ owner + step-up', async () => {
-    // sandbox ของบริษัทนี้ (ร่างสร้างตรงในฐาน — ออกเลขไม่ได้จนกว่าจะตัดสิน [OPEN])
-    const sb = await db.tenant.create({
-      data: { name: 'sandbox ออกบิล', mode: 'test', liveTenantId: tenantId },
-    });
-    const sc = await db.company.create({
-      data: { tenantId: sb.id, legalName: 'Co sandbox', taxId: validTaxId(991) },
-    });
-    const sbr = await db.branch.create({
-      data: {
-        tenantId: sb.id,
-        companyId: sc.id,
-        branchCode: '00000',
-        branchLabel: 'HQ',
-        address: ADDR,
-      },
-    });
+  it('D-61 sandbox: ออกได้ — เลข TEST- จากชุดเลขของ sandbox (ชุดเลขจริงไม่ขยับ) · PDF ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" · ไม่ถึง connector/ERP · ข้าม tenant 404', async () => {
+    const renderer = app.get(PdfRenderer);
+    // ใบ live ออกเลขแบบเดิม (ไม่มี TEST- / ไม่มีลายน้ำ) — ใช้เป็นฐานเทียบตัวนับ
+    const lcus = await newCustomer();
+    const linv = await draft(lcus, [(await delivered(lcus)).doId]);
+    const liveSpy = vi.spyOn(renderer, 'pdf');
+    const lout = (await finalize(linv.id, linv.version).expect(200)).body;
+    expect(lout.invoiceNo).toMatch(NO_RE);
+    const liveBodies = liveSpy.mock.calls.map((c) => c[0].body ?? '');
+    liveSpy.mockRestore();
+    expect(liveBodies.length).toBeGreaterThan(0);
+    for (const b of liveBodies) {
+      expect(b).not.toContain('data-wm=');
+      expect(b).not.toContain(SANDBOX_WATERMARK);
+    }
+    expect(
+      (await db.invoice.findUniqueOrThrow({ where: { id: uuid('invoice', linv.id) } }))
+        .printOptions,
+    ).not.toHaveProperty('sandbox');
+    const liveSeq = () =>
+      db.documentSequence.findMany({
+        where: { tenantId, docType: 'INV' },
+        select: { id: true, nextValue: true },
+        orderBy: { id: 'asc' },
+      });
+    const liveBefore = await liveSeq();
+
+    // sandbox จริงของบริษัทนี้ (bootstrapTenant + คัดลอกนิติบุคคล/สาขา — ST7-T12) — ร่างสร้างตรงในฐาน (ไม่มี DO ใน sandbox)
+    const sb = await app.get(SandboxService).ensure(tenantId);
+    const sbr = await db.branch.findFirstOrThrow({ where: { tenantId: sb } });
     const scus = await db.customer.create({
       data: {
-        tenantId: sb.id,
+        tenantId: sb,
         code: 'SB-1',
         legalName: 'ลูกค้า sandbox',
         taxId: validTaxId(992),
         branchCode: '00000',
       },
     });
+    const sitem = await db.serviceItem.findFirstOrThrow({
+      where: { tenantId: sb, vatType: 'EXEMPT_TRANSPORT', status: 'ACTIVE', deletedAt: null },
+    });
     const sinv = await db.invoice.create({
       data: {
-        tenantId: sb.id,
+        tenantId: sb,
         customerId: scus.id,
-        issuingCompanyId: sc.id,
+        issuingCompanyId: sbr.companyId,
         issuingBranchId: sbr.id,
       },
     });
-    const sr = await finalize(encodeId('invoice', sinv.id), 1, await tokenFor(sb.id)).expect(409);
-    expect(sr.body.code).toBe('sandbox_finalize_disabled');
+    await db.invoiceLine.create({
+      data: {
+        tenantId: sb,
+        invoiceId: sinv.id,
+        lineNo: 1,
+        serviceItemId: sitem.id,
+        description: 'ค่าขนส่งทดสอบ sandbox',
+        quantity: '1',
+        unitLabel: 'เที่ยว',
+        unitPrice: '1500.00',
+        amount: '1500.00',
+        vatType: 'EXEMPT_TRANSPORT',
+        whtRate: '1.00',
+        isUserAdded: true,
+      },
+    });
+    // กันชั้นที่ 2: สมมติมีผู้รับ `erp` หลุดเข้า sandbox (ปกติสร้างไม่ได้ — connector @LiveOnly) → คำสั่งต้องถูกข้าม ไม่ถึง adapter
+    await db.integrationSubscription.create({
+      data: {
+        tenantId: sb,
+        kind: 'ADAPTER',
+        sink: ERP_SINK,
+        targetId: randomUUID(),
+        eventTypes: ['invoice.*'],
+      },
+    });
+    const sid = encodeId('invoice', sinv.id);
+    const sbToken = await tokenFor(sb, '*', 'u-sbx');
+    // ข้าม tenant: บริษัทจริงออกใบของ sandbox ไม่ได้ (404) และ sandbox เห็นใบ live ไม่ได้
+    await finalize(sid, 1, accounting).expect(404);
+    await api(app, sbToken).get(`/v1/invoices/${linv.id}`).expect(404);
 
+    const spy = vi.spyOn(renderer, 'pdf');
+    const sr = await finalize(sid, 1, sbToken).expect(200);
+    expect(sr.body.status).toBe('ISSUED');
+    expect(sr.body.invoiceNo).toMatch(/^TEST-INV-00000-\d{4}-0001$/);
+    // ชุดเลขของแถว sandbox เอง (เลข 1 ของ sandbox) · ตัวนับของบริษัทจริงไม่ขยับ
+    const sseq = await db.documentSequence.findMany({ where: { tenantId: sb, docType: 'INV' } });
+    expect(sseq.map((q) => q.nextValue)).toEqual([2n]);
+    expect(await liveSeq()).toEqual(liveBefore);
+    const row = await db.invoice.findUniqueOrThrow({ where: { id: sinv.id } });
+    expect(row.printOptions).toMatchObject({ sandbox: true });
+    // PDF ต้นฉบับ + สำเนา (งาน invoice.render_pdf) มีลายน้ำทุกฉบับ
+    const queue = app.get(JobQueue);
+    while (await queue.runOnce());
+    // (คิวอาจ render ใบ live ที่ค้างด้วย — กรองเฉพาะใบ sandbox)
+    const bodies = spy.mock.calls
+      .map((c) => c[0].body ?? '')
+      .filter((b) => b.includes(`data-no="${sr.body.invoiceNo}"`));
+    spy.mockRestore();
+    expect(bodies.length).toBeGreaterThanOrEqual(2);
+    for (const b of bodies) expect(b).toContain(`data-wm="${SANDBOX_WATERMARK}"`);
+    expect((await api(app, sbToken).get(`/v1/invoices/${sid}`).expect(200)).body.pdf).toMatchObject(
+      { sha256: expect.stringMatching(/^[0-9a-f]{64}$/) },
+    );
+    const copy = await db.storedDocument.findFirstOrThrow({
+      where: { tenantId: sb, entityId: sinv.id, metadata: { path: ['copy'], equals: 'COPY' } },
+    });
+    expect(copy.filename).toBe(`${sr.body.invoiceNo}-copy.pdf`);
+
+    // ใบวางบิลใน sandbox (รวมใบ TEST-) → PDF ลายน้ำเดียวกัน (เลขใบวางบิลตามชุดเลขของ sandbox — ไม่เติม TEST-)
+    const bnSpy = vi.spyOn(renderer, 'pdf');
+    const bn = (
+      await api(app, sbToken)
+        .post('/v1/billing-notes')
+        .send({
+          customerId: encodeId('customer', scus.id),
+          invoiceIds: [sid],
+          collectionDate: addDays(today, 7),
+        })
+        .expect(201)
+    ).body;
+    const bni = (
+      await api(app, sbToken)
+        .post(`/v1/billing-notes/${bn.id}/finalize`)
+        .set('If-Match', `"${bn.version}"`)
+        .expect(200)
+    ).body;
+    await api(app, sbToken).get(`/v1/billing-notes/${bn.id}/pdf?copy=COPY`).expect(200);
+    const bnBodies = bnSpy.mock.calls
+      .map((c) => c[0].body ?? '')
+      .filter((b) => b.includes(`data-no="${bni.billingNoteNo}"`));
+    bnSpy.mockRestore();
+    expect(bnBodies.length).toBe(2);
+    for (const b of bnBodies) {
+      expect(b).toContain(`data-wm="${SANDBOX_WATERMARK}"`);
+      expect(b).toContain(sr.body.invoiceNo);
+    }
+
+    // ไม่ถึง connector/ERP: คำสั่ง `erp` ของ sandbox ถูกข้าม (SKIPPED · sandbox_unsupported) ไม่มีครั้งไหนส่งสำเร็จ
+    await db.$executeRaw`UPDATE integration_outbox SET next_run_at = now() - interval '1 second'
+                         WHERE tenant_id = ${sb}::uuid AND status IN ('PENDING', 'FAILED_RETRYABLE')`;
+    await app.get(OutboxDispatcher).drain();
+    const cmds = await db.integrationOutbox.findMany({ where: { tenantId: sb, sink: ERP_SINK } });
+    expect(cmds.map((c) => c.eventType)).toEqual(['invoice.finalized']);
+    for (const c of cmds) {
+      expect(c).toMatchObject({ status: 'SKIPPED', errorClass: 'CAPABILITY' });
+      expect(c.lastError).toMatchObject({ code: 'sandbox_unsupported' });
+      expect(c.result).toBeNull();
+    }
+  });
+
+  it('review L4: API key = ผู้ออก key (แบ่งหน้าที่) · เปิด billing.allowSelfFinalize เฉพาะ owner + step-up', async () => {
     // ผู้ใช้จริง (uuid) สร้างร่าง แล้วออก API key ของตัวเอง → key ออกใบนั้นไม่ได้ (key = ผู้ออก key)
     const u = await db.appUser.create({
       data: { tenantId, email: `inv-${seed}@finalize.test`, name: 'ผู้ออกบิล', status: 'ACTIVE' },
