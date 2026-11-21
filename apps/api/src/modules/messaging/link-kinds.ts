@@ -24,10 +24,12 @@ export const LINK_KINDS = {
     entityType: 'subcon_offer',
     enabled: true,
   },
-  // ST6-T05 ลิงก์ให้รถร่วมตรวจใบสำคัญจ่าย — ผู้รับ = รถร่วมของใบ · ส่งได้เฉพาะใบที่รอรถร่วมตรวจ (SENT_TO_CARRIER)
+  // ST6-T05 ลิงก์ให้รถร่วมตรวจใบสำคัญจ่าย — ผู้รับ = รถร่วมของใบ · ลิงก์ตรวจส่งได้เฉพาะใบที่รอรถร่วมตรวจ (SENT_TO_CARRIER/DISPUTED)
+  // D-62: ลิงก์ดูอย่างเดียว (ใบ APPROVED/PAID — D-59) ใช้ `viewTemplate` (ดูสถานะการจ่าย/ดาวน์โหลดใบจ่ายเงิน)
   settlement_review: {
     path: 'settlement',
     template: 'settlement_review_link',
+    viewTemplate: 'settlement_payment_status_link',
     sendScope: 'settlements:create',
     readScope: 'settlements:read',
     entityType: 'carrier_settlement',
@@ -38,6 +40,8 @@ export const LINK_KINDS = {
   {
     path: string;
     template: MessageTemplate;
+    /** template ของลิงก์ดูอย่างเดียว (ไม่มี = ชนิดนี้ไม่มีลิงก์ดูอย่างเดียว) */
+    viewTemplate?: MessageTemplate;
     sendScope: string;
     readScope: string;
     entityType: string;
@@ -45,6 +49,12 @@ export const LINK_KINDS = {
   }
 >;
 export type LinkKind = keyof typeof LINK_KINDS;
+
+/** template ทั้งหมดของชนิดลิงก์ (ลิงก์ปกติ + ลิงก์ดูอย่างเดียว) — ใช้กรองบันทึกการส่งตามสิทธิ์ดู */
+export function kindTemplates(kind: LinkKind): MessageTemplate[] {
+  const k: { template: MessageTemplate; viewTemplate?: MessageTemplate } = LINK_KINDS[kind];
+  return k.viewTemplate ? [k.template, k.viewTemplate] : [k.template];
+}
 
 export const isLinkKind = (p: string): p is LinkKind => p in LINK_KINDS;
 
