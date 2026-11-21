@@ -1758,6 +1758,114 @@ describe('settlements (ST6-T03)', () => {
       expect(tripEv).toBe(1);
     });
 
+    it('หน้า settle: GET /settlements/summary นับต่อสถานะ + ยอดจ่ายแล้วเดือนนี้ (หลัง WHT ที่ตรึง) · กรองหลายสถานะ (คั่นด้วย ,) · ไม่มี prices.buy:read = ไม่เห็นยอด · แยก tenant', async () => {
+      const before = (await api(app, admin).get('/v1/settlements/summary').expect(200)).body;
+      const otherBefore = (await api(app, other).get('/v1/settlements/summary').expect(200)).body;
+      const { C, trips } = await setup(2, '3000');
+      const d = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
+        .body;
+      const p = (await create({ carrierId: C.id, tripIds: [trips[1]!.id] }, accounting).expect(201))
+        .body;
+      await approve(p.id);
+      const paid = (await pay(p.id)).body;
+      expect(paid.status).toBe('PAID');
+      const after = (await api(app, admin).get('/v1/settlements/summary').expect(200)).body;
+      expect(after.total).toBe(before.total + 2);
+      expect(after.draft).toBe(before.draft + 1);
+      expect(after.paid).toBe(before.paid + 1);
+      expect(after.approved).toBe(before.approved);
+      // ทศนิยมแบบ string ตรงตัว (ไม่ผ่าน float) — คิดเป็นสตางค์
+      const satang = (v: string) => BigInt(v.replace('.', ''));
+      const want = satang(before.buyPaidThisMonth) + satang(paid.buyNetAfterWht);
+      const ws = want.toString().padStart(3, '0');
+      expect(after.buyPaidThisMonth).toBe(`${ws.slice(0, -2)}.${ws.slice(-2)}`);
+      // กรองหลายสถานะ (แท็บ "รอตรวจ" = DRAFT,DISPUTED ของหน้า settle) — จำกัดรถร่วมรายนี้ (ชุด DB-rule ข้างบนสร้างแถว snapshot ไม่ครบ)
+      const ids = async (status: string) =>
+        (
+          (
+            await api(app, admin)
+              .get('/v1/settlements')
+              .query({ status, carrierId: C.id, limit: 200 })
+              .expect(200)
+          ).body.data as { id: string }[]
+        ).map((x) => x.id);
+      const chk = await ids('DRAFT,DISPUTED');
+      expect(chk).toContain(d.id);
+      expect(chk).not.toContain(p.id);
+      const done = await ids('APPROVED,PAID');
+      expect(done).toContain(p.id);
+      expect(done).not.toContain(d.id);
+      await api(app, admin).get('/v1/settlements').query({ status: 'DRAFT,NOPE' }).expect(422);
+      // สิทธิ์: viewer เห็นจำนวนแต่ไม่เห็นยอด · planner 403 · tenant อื่นไม่เห็นของ tenant นี้
+      const v = (await api(app, viewer).get('/v1/settlements/summary').expect(200)).body;
+      expect(v.total).toBe(after.total);
+      expect(v.buyPaidThisMonth).toBeUndefined();
+      await api(app, planner).get('/v1/settlements/summary').expect(403);
+      // tenant อื่น: ใบของ tenant นี้ไม่ถูกนับ
+      const o = (await api(app, other).get('/v1/settlements/summary').expect(200)).body;
+      expect(o).toEqual(otherBefore);
+    });
+
+    it('regression: ใบที่ snapshot รถร่วมไม่มีประเภท (entityType) ไม่ทำให้รายการ/สรุป 500 — แถวนั้น whtForm = null ไม่มียอด WHT ประมาณการ · แถวอื่นปกติ', async () => {
+      const { C, trips } = await setup(1, '2000');
+      const ok = (
+        await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201)
+      ).body;
+      const bad = await db.carrierSettlement.create({
+        data: {
+          tenantId,
+          carrierId: uuid('carrier', C.id),
+          carrierSnapshot: { code: 'SUB-X', legalName: 'หจก. ข้อมูลไม่ครบ' },
+          createdBy: 'u-acc',
+          periodFrom: new Date(`${today}T00:00:00Z`),
+          periodTo: new Date(`${today}T00:00:00Z`),
+        },
+      });
+      const badId = encodeId('settlement', bad.id);
+      for (const q of [{}, { status: 'DRAFT' }, { status: 'DRAFT,DISPUTED' }]) {
+        const r = await api(app, admin)
+          .get('/v1/settlements')
+          .query({ ...q, sort: '-updatedAt', limit: 50 });
+        expect(r.status, JSON.stringify(r.body)).toBe(200);
+        const rows = r.body.data as {
+          id: string;
+          whtForm: string | null;
+          buyWhtAmount?: string;
+          buyNetAfterWht?: string;
+          buyNetPayable?: string;
+        }[];
+        const b = rows.find((x) => x.id === badId)!;
+        expect(b).toMatchObject({ whtForm: null, buyNetPayable: '0.00' });
+        expect(b.buyWhtAmount).toBeUndefined();
+        expect(b.buyNetAfterWht).toBeUndefined();
+        expect(rows.find((x) => x.id === ok.id)).toMatchObject({
+          whtForm: 'PND53',
+          buyWhtAmount: '20.00',
+          buyNetAfterWht: '1980.00',
+        });
+      }
+      await api(app, admin).get('/v1/settlements/summary').expect(200);
+      // รายละเอียด: whtEstimate null ไม่มียอด WHT (ไม่เดาประเภท) · PDF/อนุมัติ → 409 settlement_carrier_type_missing (ไม่ใช่ 500)
+      // แถวแบบนี้เกิดได้จากการเขียนฐานตรงเท่านั้น — create คัดลอก carrier.entity_type (enum NOT NULL) ลง snapshot เสมอ
+      const d = await api(app, admin).get(`/v1/settlements/${badId}`);
+      expect(d.status, JSON.stringify(d.body)).toBe(200);
+      expect(d.body).toMatchObject({ whtEstimate: null, buyNetPayable: '0.00' });
+      expect(d.body.buyWhtAmount).toBeUndefined();
+      expect(d.body.buyNetAfterWht).toBeUndefined();
+      const pdf = await api(app, admin).get(`/v1/settlements/${badId}/pdf`);
+      expect(pdf.status, JSON.stringify(pdf.body)).toBe(409);
+      expect(pdf.body.code).toBe('settlement_carrier_type_missing');
+      const ap = await api(app, approver)
+        .post(`/v1/settlements/${badId}/approve`)
+        .set('If-Match', `"${bad.version}"`)
+        .send(APPROVE);
+      expect(ap.status, JSON.stringify(ap.body)).toBe(409);
+      expect(ap.body.code).toBe('settlement_carrier_type_missing');
+      expect((await db.carrierSettlement.findUniqueOrThrow({ where: { id: bad.id } })).status).toBe(
+        'DRAFT',
+      );
+    });
+
     it('ตรวจข้อมูล: โอน/เช็คต้องมีเลขอ้างอิง · เงินสดไม่ต้อง · วันที่ในอนาคต/ไม่จริง 422 · If-Match บังคับ (422) / ไม่ตรง 412', async () => {
       const { C, trips } = await setup(1, '1000');
       const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))

@@ -37055,6 +37055,88 @@
         ]
       }
     },
+    "/v1/settlements/summary": {
+      "get": {
+        "description": "จำนวนใบต่อสถานะ (docs/01 §4.5) สำหรับแท็บ/การ์ด KPI ของหน้า `settle` · `buyPaidThisMonth` = Σ ยอดจ่ายหลังหัก ณ ที่จ่าย (ที่ตรึงตอนอนุมัติ) ของใบที่จ่ายแล้วในเดือนนี้ (เวลาไทย) — เห็นเมื่อมี `prices.buy:read`",
+        "operationId": "Settlements_summary",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettlementKpiDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`settlements:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settlements",
+                      "action": "read",
+                      "required": [
+                        "settlements:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "KPI หน้า \"Settlement รถร่วม\" — จำนวนต่อสถานะ + ยอดจ่ายแล้วเดือนนี้",
+        "tags": [
+          "settlements"
+        ],
+        "x-required-scopes": [
+          "settlements:read"
+        ]
+      }
+    },
     "/v1/settlements": {
       "get": {
         "description": "กรองรถร่วม (`carrierId` รับ `ext:` — ไม่พบ = รายการว่าง) / สถานะ · cursor มาตรฐาน (updatedAt, id) · ยอด `buy*` เห็นเมื่อมี `prices.buy:read`",
@@ -37125,16 +37207,11 @@
             "name": "status",
             "required": false,
             "in": "query",
+            "description": "สถานะ คั่นด้วย , ได้ (DRAFT / SENT_TO_CARRIER / DISPUTED / APPROVED / PAID / CANCELLED) — แท็บหน้า `settle` ใช้หลายสถานะ",
             "schema": {
-              "type": "string",
-              "enum": [
-                "DRAFT",
-                "SENT_TO_CARRIER",
-                "DISPUTED",
-                "APPROVED",
-                "PAID",
-                "CANCELLED"
-              ]
+              "pattern": "^(DRAFT|SENT_TO_CARRIER|DISPUTED|APPROVED|PAID|CANCELLED)(,(DRAFT|SENT_TO_CARRIER|DISPUTED|APPROVED|PAID|CANCELLED))*$",
+              "example": "DRAFT,DISPUTED",
+              "type": "string"
             }
           },
           {
@@ -85707,6 +85784,46 @@
           "carriers"
         ]
       },
+      "SettlementKpiDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number",
+            "description": "ทุกใบ (รวมยกเลิก)"
+          },
+          "draft": {
+            "type": "number"
+          },
+          "sentToCarrier": {
+            "type": "number"
+          },
+          "disputed": {
+            "type": "number"
+          },
+          "approved": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "cancelled": {
+            "type": "number"
+          },
+          "buyPaidThisMonth": {
+            "type": "string",
+            "description": "ยอดจ่ายสุทธิหลังหัก ณ ที่จ่าย (`buyNetAfterWht` ที่ตรึง) ของใบที่จ่ายแล้ว วันที่จ่ายอยู่ในเดือนนี้ (เวลาไทย) — `prices.buy:read`"
+          }
+        },
+        "required": [
+          "total",
+          "draft",
+          "sentToCarrier",
+          "disputed",
+          "approved",
+          "paid",
+          "cancelled"
+        ]
+      },
       "SettlementCarrierDto": {
         "type": "object",
         "properties": {
@@ -85818,7 +85935,8 @@
               "PND3",
               "PND53"
             ],
-            "description": "แบบยื่น ภ.ง.ด.3 (บุคคล) / ภ.ง.ด.53 (นิติบุคคล)"
+            "nullable": true,
+            "description": "แบบยื่น ภ.ง.ด.3 (บุคคล) / ภ.ง.ด.53 (นิติบุคคล) · null = ข้อมูลรถร่วมในใบไม่มีประเภท (จัดแบบยื่นไม่ได้ — ไม่มียอดหัก ณ ที่จ่ายประมาณการ ยกเว้นยอดที่ตรึงแล้ว)"
           },
           "approvedAt": {
             "type": "string",
@@ -86467,7 +86585,14 @@
             "description": "ยอดจ่ายรถร่วมหลังหัก ณ ที่จ่าย = ยอดรวม − หัก ณ ที่จ่าย − รายการหัก (ประมาณการ) — เห็นเมื่อมี `prices.buy:read`"
           },
           "whtEstimate": {
-            "$ref": "#/components/schemas/SettlementWhtEstimateDto"
+            "nullable": true,
+            "description": "null = ข้อมูลรถร่วมในใบไม่มีประเภท (บุคคล/นิติบุคคล) จัดแบบยื่นไม่ได้ — ไม่มียอดประมาณการ (`buyWhtAmount`/`buyNetAfterWht` มีเฉพาะยอดที่ตรึงแล้ว) · อนุมัติ/บันทึกจ่าย/PDF → 409 `settlement_carrier_type_missing`",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SettlementWhtEstimateDto"
+              }
+            ]
           },
           "lines": {
             "description": "ทุกบรรทัด รวมบรรทัดที่นำออกแล้ว (`active` false)",
@@ -104620,6 +104745,11 @@
       "status": 503,
       "title": "ระบบกำลังมีผู้ใช้งานมาก กรุณาลองใหม่อีกครั้ง",
       "titleEn": "Service busy — please retry"
+    },
+    "settlement_carrier_type_missing": {
+      "status": 409,
+      "title": "ข้อมูลรถร่วมในใบสำคัญจ่ายไม่มีประเภท (บุคคลธรรมดา/นิติบุคคล) คำนวณหัก ณ ที่จ่ายไม่ได้ — ยกเลิกใบแล้วสร้างใหม่",
+      "titleEn": "The carrier on this settlement has no entity type; withholding tax cannot be estimated"
     },
     "settlement_disputed": {
       "status": 409,

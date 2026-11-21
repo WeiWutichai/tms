@@ -92,6 +92,9 @@ export class SettlementPdfService {
     onlyPaid = false,
   ): Promise<{ model: SettlementPrintModel; dto: SettlementDto }> {
     const dto = await this.settlements.get(id);
+    // ไม่รู้ประเภทรถร่วม (ยังไม่ตรึง WHT) → ไม่มียอดหัก ณ ที่จ่ายให้พิมพ์ → 409 แทน 500
+    if (!dto.whtEstimate || dto.buyWhtAmount === undefined)
+      throw new ProblemException('settlement_carrier_type_missing');
     if (dto.status === 'CANCELLED' || (onlyPaid && dto.status !== 'PAID'))
       throw new ProblemException('invalid_state_transition', undefined, undefined, {
         currentStatus: dto.status,
