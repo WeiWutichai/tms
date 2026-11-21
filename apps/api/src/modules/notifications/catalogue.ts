@@ -70,10 +70,11 @@ export const EVENT_CATALOGUE: Record<NotificationEvent, EventDefinition> = {
     defaults: { in_app: true, email: true },
     pending: null,
   },
+  // ST9-T06 DO ส่งถึงแล้วยังไม่วางบิลเกิน N วัน (`billing.unbilledAlertDays`) → ผู้วางบิล (`invoices:draft`) — สรุปรายวัน 08:00 เมื่อมี DO เพิ่งเกินเกณฑ์
   'delivery_order.unbilled': {
-    templates: [],
+    templates: ['delivery_order.unbilled'],
     defaults: { in_app: true, email: true },
-    pending: 'ST9-T06',
+    pending: null,
   },
   // ST5-T22 สรุปเตือนครบกำหนดชำระรายวัน 08:00 (BIL-121) → ผู้ดูแลลูกค้า (ไม่มี/ใช้ไม่ได้ → ผู้บันทึกรับชำระ `payments:record`)
   'payment.due': {

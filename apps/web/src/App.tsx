@@ -38,6 +38,7 @@ import { PodLinkPage } from './public/PodLink';
 import { SettlementLinkPage } from './public/SettlementLink';
 import { TrackingPage } from './public/Tracking';
 import { ConsoleApp } from './console/ConsoleApp';
+import { ReportPage } from './features/reports/ReportPage';
 import { AppShell, useMe } from './shell/AppShell';
 import type { ReactNode } from 'react';
 
@@ -95,7 +96,7 @@ function Inside() {
             path="/reports"
             element={
               <Guard perm={NAV.find((g) => g.key === 'report')?.perm} path="/reports">
-                <NotReady page="report" stage="ST9" />
+                <ReportPage />
               </Guard>
             }
           />
