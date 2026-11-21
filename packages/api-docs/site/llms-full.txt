@@ -18894,7 +18894,7 @@ const { data, error } = await tms.GET('/v1/settings/messaging');
 | `attempts` | ใช่ | `number` |   |   |   |
 | `provider` | ใช่ | `string` | null ได้ |   | `mock` |
 | `providerMessageId` | ใช่ | `string` | null ได้ |   |   |
-| `errorCode` | ใช่ | `string` | null ได้ | สาเหตุที่ส่งไม่สำเร็จ: provider_unavailable · provider_auth_failed · provider_rejected · not_configured · channel_disabled · lease_expired |   |
+| `errorCode` | ใช่ | `string` | null ได้ | สาเหตุที่ส่งไม่สำเร็จ: provider_unavailable · provider_auth_failed · provider_rejected · not_configured · channel_disabled · lease_expired · link_inactive · entity_state_changed (สถานะเอกสารเปลี่ยนระหว่างรอส่ง เช่น ใบสำคัญจ่ายอนุมัติแล้ว) |   |
 | `createdAt` | ใช่ | `string (date-time)` |   |   |   |
 | `sentAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
 | `failedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |

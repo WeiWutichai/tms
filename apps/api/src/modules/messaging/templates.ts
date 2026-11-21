@@ -26,10 +26,17 @@ export interface MessageVars {
   url: string;
   expiresAt: Date;
   yearStyle: 'BE' | 'CE';
+  /** D-62: ใบจ่ายแล้ว (สถานะ ณ ตอนส่ง) — ลิงก์ดูสถานะการจ่าย บอกว่าดาวน์โหลดใบจ่ายเงินได้ */
+  paid?: boolean;
 }
 
 type Render = (
-  v: Required<Pick<MessageVars, 'sender' | 'url'>> & { name: string; ref: string; until: string },
+  v: Required<Pick<MessageVars, 'sender' | 'url'>> & {
+    name: string;
+    ref: string;
+    until: string;
+    paid: boolean;
+  },
 ) => string;
 
 const T: Record<MessageTemplate, Record<'th' | 'en', Record<MessageChannel, Render>>> = {
@@ -70,17 +77,28 @@ const T: Record<MessageTemplate, Record<'th' | 'en', Record<MessageChannel, Rend
     },
   },
   // D-62: ลิงก์ดูอย่างเดียวของใบ APPROVED/PAID (D-59) — ดูสถานะการจ่าย/ดาวน์โหลดใบจ่ายเงิน ไม่ใช่การเชิญตรวจ ·
-  // ตัวแปรชุดเดียวกับ settlement_review_link (ไม่มียอดเงิน/เลขภาษี/บัญชีธนาคาร)
+  // ตัวแปรชุดเดียวกับ settlement_review_link (ไม่มียอดเงิน/เลขภาษี/บัญชีธนาคาร) · ข้อความตามสถานะ ณ ตอนส่ง (worker render):
+  // PDF ใบจ่ายเงินเปิดได้เมื่อจ่ายแล้วเท่านั้น → APPROVED ไม่ชวนดาวน์โหลด
   settlement_payment_status_link: {
     th: {
       LINE: (v) =>
-        `${v.name ? `เรียน ${v.name}\n` : ''}${v.sender} แจ้งลิงก์ดูสถานะการจ่ายและดาวน์โหลดใบจ่ายเงินของใบสรุปค่าขนส่ง ไม่ต้อง login\n${v.url}\nลิงก์ใช้ได้ถึง ${v.until}`,
-      SMS: (v) => `TMS: ดูสถานะการจ่าย/ดาวน์โหลดใบจ่ายเงิน ${v.url} (ถึง ${v.until})`,
+        `${v.name ? `เรียน ${v.name}\n` : ''}${v.sender} ${
+          v.paid
+            ? 'จ่ายค่าขนส่งแล้ว ดูสถานะการจ่ายและดาวน์โหลดใบจ่ายเงินได้ที่ลิงก์นี้'
+            : 'แจ้งลิงก์ดูสถานะการจ่ายค่าขนส่ง (ดาวน์โหลดใบจ่ายเงินได้เมื่อจ่ายแล้ว)'
+        } ไม่ต้อง login\n${v.url}\nลิงก์ใช้ได้ถึง ${v.until}`,
+      SMS: (v) =>
+        `TMS: ${v.paid ? 'ดูสถานะการจ่าย/ใบจ่ายเงิน' : 'ดูสถานะการจ่ายค่าขนส่ง'} ${v.url} (ถึง ${v.until})`,
     },
     en: {
       LINE: (v) =>
-        `${v.name ? `Dear ${v.name}\n` : ''}${v.sender} shared a link to view the payment status and download the payment voucher of your payment statement — no login needed\n${v.url}\nValid until ${v.until}`,
-      SMS: (v) => `TMS: view payment status / download voucher ${v.url} (until ${v.until})`,
+        `${v.name ? `Dear ${v.name}\n` : ''}${v.sender} ${
+          v.paid
+            ? 'has paid your freight. View the payment status and download the payment voucher via this link'
+            : 'shared a link to view the payment status of your freight (the payment voucher can be downloaded once paid)'
+        } — no login needed\n${v.url}\nValid until ${v.until}`,
+      SMS: (v) =>
+        `TMS: ${v.paid ? 'payment status / voucher' : 'freight payment status'} ${v.url} (until ${v.until})`,
     },
   },
 };
@@ -150,5 +168,6 @@ export function renderMessage(
     ref: v.ref ? messageName(v.ref, 40) : '',
     url: v.url,
     until: until(v.expiresAt, lang, v.yearStyle),
+    paid: v.paid === true,
   });
 }

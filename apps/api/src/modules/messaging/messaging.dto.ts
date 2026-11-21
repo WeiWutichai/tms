@@ -55,7 +55,7 @@ export class MessageDeliveryDto {
     nullable: true,
     type: String,
     description:
-      'สาเหตุที่ส่งไม่สำเร็จ: provider_unavailable · provider_auth_failed · provider_rejected · not_configured · channel_disabled · lease_expired',
+      'สาเหตุที่ส่งไม่สำเร็จ: provider_unavailable · provider_auth_failed · provider_rejected · not_configured · channel_disabled · lease_expired · link_inactive · entity_state_changed (สถานะเอกสารเปลี่ยนระหว่างรอส่ง เช่น ใบสำคัญจ่ายอนุมัติแล้ว)',
   })
   errorCode!: string | null;
   @ApiProperty({ format: 'date-time' }) createdAt!: string;

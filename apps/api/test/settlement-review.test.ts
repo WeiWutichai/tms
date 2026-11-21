@@ -16,6 +16,9 @@ import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import request from 'supertest';
 import { resetLinkWriteRate } from '../src/http/link-rate-limit';
 import { encodeLinkToken } from '../src/modules/links/magic-link.service';
+import { MessageDispatcher } from '../src/modules/messaging/message-dispatcher';
+import { MessagingProviders } from '../src/modules/messaging/messaging.providers';
+import { MockMessagingProvider } from '../src/modules/messaging/providers';
 import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
 
 /**
@@ -1036,6 +1039,60 @@ describe('settlement carrier review (ST6-T05)', () => {
     const goneUrl = `${new URL(a2.body.url as string).origin}/link/settlement/${encodeLinkToken(gone.id, exp.getTime() / 1000)}`;
     expect((await sendSms(goneUrl, 'expired').expect(422)).body.errors[0].code).toBe(
       'link_invalid',
+    );
+    await resetLinkWriteRate();
+  }, 90_000);
+
+  it('D-62 review: worker ตรวจสถานะใบตอนส่ง — ข้อความ "ให้ตรวจ" ที่รอคิวแล้วใบถูกอนุมัติ = FAILED entity_state_changed (ไม่ส่ง) · ข้อความดูสถานะ render ตามสถานะ ณ ตอนส่ง', async () => {
+    await resetLinkWriteRate();
+    const worker = app.get(MessageDispatcher);
+    await worker.drain(); // เคลียร์คิวค้างจาก test ก่อนหน้า
+    const sms = new MockMessagingProvider('SMS');
+    app.get(MessagingProviders).use('SMS', sms);
+    await db.messagingSetting.upsert({
+      where: { tenantId },
+      create: { tenantId, lineEnabled: true, smsEnabled: true },
+      update: { smsEnabled: true },
+    });
+    const { s, r, token } = await sent(1, '2200');
+    const sid = uuid('settlement', s.id);
+    const st = await db.carrierSettlement.findUniqueOrThrow({ where: { id: sid } });
+    await db.carrier.update({ where: { id: st.carrierId }, data: { phone: '0812345670' } });
+    const sendSms = (url: string, key: string) =>
+      api(app, accounting)
+        .post('/v1/messages/send-link')
+        .set('Idempotency-Key', `d62w-${key}-${s.id}`)
+        .send({ channel: 'sms', url })
+        .expect(202);
+    const row = (id: string) =>
+      db.messageDelivery.findUniqueOrThrow({ where: { id: uuid('messageDelivery', id) } });
+    const q1 = await sendSms(r.body.link.url as string, 'review');
+    for (const l of r.body.settlement.lines as Line[])
+      await respond(token, l.id, { response: 'ACCEPTED' }).expect(201);
+    await approve(s.id).expect(200);
+    await worker.drain();
+    expect(await row(q1.body.id as string)).toMatchObject({
+      status: 'FAILED',
+      errorCode: 'entity_state_changed',
+      sentAt: null,
+      vars: null,
+      recipientEnc: null,
+    });
+    expect(sms.sent).toHaveLength(0);
+    // ลิงก์ดูอย่างเดียวลงคิวตอน APPROVED → จ่ายก่อน worker ส่ง → ยังส่ง (APPROVED/PAID ใช้ได้ทั้งคู่)
+    const a1 = await api(app, accounting).post(`/v1/settlements/${s.id}/review-link`).expect(201);
+    const q2 = await sendSms(a1.body.url as string, 'view');
+    await withVersion(s.id, (v) =>
+      api(app, accounting)
+        .post(`/v1/settlements/${s.id}/mark-paid`)
+        .set('If-Match', `"${v}"`)
+        .send({ paidDate: today, method: 'CASH' }),
+    ).expect(200);
+    await worker.drain();
+    expect(await row(q2.body.id as string)).toMatchObject({ status: 'SENT', errorCode: null });
+    expect(sms.sent).toHaveLength(1);
+    expect(sms.sent[0]!.text).toMatch(
+      /^TMS: ดูสถานะการจ่าย\/ใบจ่ายเงิน https?:\/\/\S+\/link\/settlement\/ml1\./,
     );
     await resetLinkWriteRate();
   }, 90_000);

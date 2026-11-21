@@ -9,6 +9,7 @@ import {
   safeError,
   smsProviderFromEnv,
 } from './providers';
+import { REVIEW_LINK_ACTIONS, REVIEW_LINK_PURPOSE } from '../settlements/settlement-review.service';
 import { kindTemplates, LINK_KINDS } from './link-kinds';
 import { MESSAGE_TEMPLATES, messageName, renderMessage } from './templates';
 
@@ -136,16 +137,35 @@ describe('template ข้อความ (ไทย)', () => {
   });
   it('D-62 settlement_payment_status_link: ดูสถานะการจ่าย/ดาวน์โหลดใบจ่ายเงิน — ไม่เชิญตรวจ ไม่มียอดเงิน/บัญชี', () => {
     expect(MESSAGE_TEMPLATES).toContain('settlement_payment_status_link');
+    // APPROVED (ยังไม่จ่าย): ดูสถานะ — PDF ใบจ่ายเงินยังเปิดไม่ได้ จึงไม่ชวนดาวน์โหลด
     expect(renderMessage('settlement_payment_status_link', 'LINE', 'th', v)).toBe(
-      'เรียน หจก. รถร่วมสมมติ\nศรีสมมติขนส่ง แจ้งลิงก์ดูสถานะการจ่ายและดาวน์โหลดใบจ่ายเงินของใบสรุปค่าขนส่ง ไม่ต้อง login\nhttps://tms.test/link/carrier-docs/ml1.x\nลิงก์ใช้ได้ถึง 20 พฤศจิกายน 2569 10:14 น.',
+      'เรียน หจก. รถร่วมสมมติ\nศรีสมมติขนส่ง แจ้งลิงก์ดูสถานะการจ่ายค่าขนส่ง (ดาวน์โหลดใบจ่ายเงินได้เมื่อจ่ายแล้ว) ไม่ต้อง login\nhttps://tms.test/link/carrier-docs/ml1.x\nลิงก์ใช้ได้ถึง 20 พฤศจิกายน 2569 10:14 น.',
     );
     expect(renderMessage('settlement_payment_status_link', 'SMS', 'th', v)).toBe(
-      'TMS: ดูสถานะการจ่าย/ดาวน์โหลดใบจ่ายเงิน https://tms.test/link/carrier-docs/ml1.x (ถึง 20 พฤศจิกายน 2569 10:14 น.)',
+      'TMS: ดูสถานะการจ่ายค่าขนส่ง https://tms.test/link/carrier-docs/ml1.x (ถึง 20 พฤศจิกายน 2569 10:14 น.)',
     );
+    // PAID: ดูสถานะ + ดาวน์โหลดใบจ่ายเงิน
+    expect(
+      renderMessage('settlement_payment_status_link', 'LINE', 'th', { ...v, paid: true }),
+    ).toBe(
+      'เรียน หจก. รถร่วมสมมติ\nศรีสมมติขนส่ง จ่ายค่าขนส่งแล้ว ดูสถานะการจ่ายและดาวน์โหลดใบจ่ายเงินได้ที่ลิงก์นี้ ไม่ต้อง login\nhttps://tms.test/link/carrier-docs/ml1.x\nลิงก์ใช้ได้ถึง 20 พฤศจิกายน 2569 10:14 น.',
+    );
+    expect(renderMessage('settlement_payment_status_link', 'SMS', 'th', { ...v, paid: true })).toBe(
+      'TMS: ดูสถานะการจ่าย/ใบจ่ายเงิน https://tms.test/link/carrier-docs/ml1.x (ถึง 20 พฤศจิกายน 2569 10:14 น.)',
+    );
+    // SMS ไทย (UCS-2): ข้อความคงที่ยาวกว่าแม่แบบตรวจไม่เกิน 7 ตัวอักษร (จำนวน segment เท่าเดิมในกรณีทั่วไป)
+    const smsLen = (t: Parameters<typeof renderMessage>[0], paid?: boolean) =>
+      renderMessage(t, 'SMS', 'th', { ...v, paid }).length;
+    for (const paid of [false, true])
+      expect(
+        smsLen('settlement_payment_status_link', paid) - smsLen('settlement_review_link'),
+      ).toBeLessThanOrEqual(7);
     for (const ch of ['LINE', 'SMS'] as const)
       for (const loc of ['th', 'en']) {
-        const t = renderMessage('settlement_payment_status_link', ch, loc, v);
-        expect(t).not.toMatch(/ตรวจ|โต้แย้ง|ยอมรับ|dispute|check|accept|บาท|บัญชี/i);
+        for (const paid of [false, true]) {
+          const t = renderMessage('settlement_payment_status_link', ch, loc, { ...v, paid });
+          expect(t).not.toMatch(/ตรวจ|โต้แย้ง|ยอมรับ|dispute|check|accept|บาท|บัญชี/i);
+        }
       }
     // ทะเบียนชนิดลิงก์: ลิงก์ตรวจ = template เดิม · ลิงก์ดูอย่างเดียว = template ใหม่ (บันทึกการส่งกรองได้ทั้งสอง)
     expect(LINK_KINDS.settlement_review.template).toBe('settlement_review_link');
@@ -157,6 +177,11 @@ describe('template ข้อความ (ไทย)', () => {
     expect(kindTemplates('carrier_docs')).toEqual(['carrier_docs_link']);
     for (const k of Object.keys(LINK_KINDS) as (keyof typeof LINK_KINDS)[])
       for (const t of kindTemplates(k)) expect(MESSAGE_TEMPLATES).toContain(t);
+  });
+  it('D-62: action ตอบของลิงก์ใบสำคัญจ่ายที่ messaging.service ใช้แยกลิงก์ดูอย่างเดียว = REVIEW_LINK_ACTIONS.respond', () => {
+    // messaging.service hard-code 'settlement.respond' (ไม่ import settlement service — กันวงจร import)
+    expect(REVIEW_LINK_ACTIONS.respond).toBe('settlement.respond');
+    expect(REVIEW_LINK_PURPOSE).toBe('settlement_review');
   });
   it('sanitiser: ตัด URL/โดเมนใด ๆ (คำที่มีจุด + ตัวอักษร ≥ 2) และตัวเลขยาว ≥ 6 หลักออกจากชื่อ', () => {
     expect(messageName('โปรโมชั่น https://evil.example/x evil.com bit.ly/a x.zz')).toBe(

@@ -157,6 +157,8 @@ export class MessagingService {
       // ST6-T05: รถร่วมของใบ · ลิงก์ตรวจ (ดู + ตอบ) ส่งได้เฉพาะใบที่ยังรอรถร่วมตรวจ (ST6-T06: DISPUTED ยังตอบได้)
       // D-62: ลิงก์ดูอย่างเดียว (action `settlement.view` อย่างเดียว — ออกให้ใบ APPROVED/PAID, D-59) → template ดูสถานะการจ่าย
       // ชนิดลิงก์กับสถานะใบต้องตรงกัน — ลิงก์ตรวจเดิมของใบที่อนุมัติแล้วส่งไม่ได้ (ข้อความ "ให้ตรวจ" ผิด — ออกลิงก์ใหม่แทน)
+      // FOR SHARE: กันอนุมัติ/จ่าย/เรียกกลับ (FOR UPDATE) แทรกระหว่างตรวจสถานะกับลงคิว (review D-62)
+      await tx.$queryRaw`SELECT id FROM carrier_settlement WHERE id = ${link.entityId}::uuid FOR SHARE`;
       const st = await tx.carrierSettlement.findFirst({
         where: { id: link.entityId },
         select: { carrierId: true, status: true },
