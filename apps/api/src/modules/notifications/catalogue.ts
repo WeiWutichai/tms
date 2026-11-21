@@ -36,7 +36,8 @@ export interface EventDefinition {
 export const EVENT_CATALOGUE: Record<NotificationEvent, EventDefinition> = {
   // ใบสั่งงานเข้าใบค้าง (ทางเข้า/นัดส่งใหม่เกิน/คืนคลัง — รถร่วมปฏิเสธอยู่ใต้ subcon) · งานทีละมากรวมเป็นฉบับเดียว · อีเมลปิดไว้ก่อน (นำเข้าทีละมาก ๆ = อีเมลท่วม; ดูในสรุปรายวันแทน)
   'order.on_hold': {
-    templates: ['order.held', 'order.held_batch'],
+    // ST8-T05 ต้นทางยกเลิกใบที่มี DO แล้ว (ไม่ยกเลิกเอง) — อยู่ใต้หมวดเดียวกับใบค้าง (ต้นแบบไม่มีหมวดแยก)
+    templates: ['order.held', 'order.held_batch', 'order.source_cancelled'],
     defaults: { in_app: true, email: false },
     pending: null,
   },

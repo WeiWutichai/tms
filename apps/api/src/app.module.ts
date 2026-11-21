@@ -102,6 +102,8 @@ import {
 import { ConnectorsService } from './modules/erp/connectors.service';
 import { ErpMasterCodesController } from './modules/erp/erp-master-codes.controller';
 import { ErpMasterCodesService } from './modules/erp/erp-master-codes.service';
+import { CustomerErpCodesController } from './modules/erp/customer-erp-codes.controller';
+import { ExternalMappingService } from './modules/erp/external-mapping.service';
 import { InboundWebhookController } from './modules/erp/inbound-webhook.controller';
 import { InboundWebhookService } from './modules/erp/inbound-webhook.service';
 import { ConnectorResolver } from './modules/erp/connector-resolver';
@@ -186,6 +188,7 @@ import { BillingNotesService } from './modules/billing-notes/billing-notes.servi
 import { SettlementQueueService } from './modules/settlements/settlement-queue.service';
 import { SettlementComparisonService } from './modules/settlements/settlement-comparison.service';
 import { SettlementsService } from './modules/settlements/settlements.service';
+import { SettlementPdfService } from './modules/settlements/settlement-pdf.service';
 import { StopEventFlagsController } from './modules/stops/stop-event-flags.controller';
 import { StopsController, TripEventsController } from './modules/stops/stops.controller';
 import { StopEventsService } from './modules/stops/stop-events.service';
@@ -307,6 +310,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ConnectorsEffectiveController,
     ConnectorsController,
     ErpMasterCodesController,
+    CustomerErpCodesController,
     InboundWebhookController,
     WebhookDeliveriesController,
     EventsController,
@@ -408,6 +412,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     SettlementsService,
     SettlementReviewService,
     SettlementComparisonService,
+    SettlementPdfService,
     BillingQueueService,
     BillingReleaseService,
     InvoiceBillingGuard,
@@ -459,6 +464,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     SystemOfRecordPolicy,
     ConnectorsService,
     ErpMasterCodesService,
+    ExternalMappingService,
     InboundWebhookService,
     ErpAdapterSink,
     ErpAdaptersBootstrap,

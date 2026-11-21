@@ -13,6 +13,15 @@ import {
   sampleInvoiceMixed,
 } from '../src/modules/invoices/invoice.sample';
 import { invoiceDocument, type InvoicePrintModel } from '../src/modules/invoices/invoice.template';
+import {
+  sampleSettlementDraft,
+  sampleSettlementLong,
+  sampleSettlementPaid,
+} from '../src/modules/settlements/settlement-pdf.sample';
+import {
+  settlementVoucherDocument,
+  type SettlementPrintModel,
+} from '../src/modules/settlements/settlement-pdf.template';
 import { sampleLongTripSheet, sampleTripSheet } from '../src/modules/trip-sheets/trip-sheet.sample';
 import { tripSheetDocument } from '../src/modules/trip-sheets/trip-sheet.template';
 import { sarabunFontCss } from '../src/pdf/fonts';
@@ -66,6 +75,18 @@ const KINDS: Array<{
     labels: ['ใบแจ้งหนี้', 'รวมทั้งสิ้น'],
   },
   {
+    kind: 'ใบสำคัญจ่ายรถร่วม (ST6-T04 — ร่าง/จ่ายแล้ว, หลายหน้า)',
+    module: 'src/modules/settlements',
+    docs: () => {
+      const ce = sampleSettlementPaid();
+      ce.yearStyle = 'CE';
+      return [sampleSettlementDraft(), sampleSettlementPaid(), sampleSettlementLong(), ce]
+        .map(settlementNoArrow)
+        .map(settlementVoucherDocument);
+    },
+    labels: ['ใบสำคัญจ่าย'],
+  },
+  {
     kind: 'ใบวางบิล (ST5-T11 — ร่าง/ต้นฉบับ, หลายหน้า)',
     module: 'src/modules/billing-notes',
     docs: () => {
@@ -89,6 +110,17 @@ function noArrow(m: InvoicePrintModel): InvoicePrintModel {
     ...m,
     note: m.note?.replaceAll('→', '–') ?? null,
     lines: m.lines.map((l) => ({ ...l, description: l.description.replaceAll('→', '–') })),
+  };
+}
+
+/**
+ * เส้นทาง "ต้นทาง → ปลายทาง" ของใบสำคัญจ่าย (ตามต้นแบบ TMS Print — `settlement-pdf.service.ts` ประกอบด้วย "→")
+ * ไม่อยู่ในชุด Sarabun (ตกไปฟอนต์เครื่อง) — ค้างให้ตัดสินแยก; ที่นี่ตรวจข้อความอื่นของแม่แบบ จึงแทนด้วย "–" ก่อน render
+ */
+function settlementNoArrow(m: SettlementPrintModel): SettlementPrintModel {
+  return {
+    ...m,
+    trips: m.trips.map((t) => ({ ...t, route: t.route?.replaceAll('→', '–') ?? null })),
   };
 }
 

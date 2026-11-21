@@ -1397,6 +1397,9 @@ model SalesOrder {
   inputHash              String?       @map("input_hash")
   sourceChangedAfterPlan Boolean       @default(false) @map("source_changed_after_plan")
   sourceDiff             Json?         @map("source_diff")
+  /// ST8-T05 ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้แล้ว — ตั้งเมื่อยกเลิกอัตโนมัติ หรือยกเลิกไม่ได้ (มี DO แล้ว → แจ้งเตือนครั้งเดียว)
+  /// null = ต้นทางไม่ได้ยกเลิก (ต้นทางกลับมาส่งใบปกติ = ล้างค่า ถ้าใบยังไม่ถูกยกเลิกใน TMS)
+  sourceCancelledAt      DateTime?     @map("source_cancelled_at") @db.Timestamptz(6)
   lockedBy               String?       @map("locked_by")
   lockedAt               DateTime?     @map("locked_at") @db.Timestamptz(6)
   rawPayload             Json?         @map("raw_payload")
@@ -2149,7 +2152,9 @@ model CarrierSettlement {
   whtMinimumAmount   Decimal?                @map("wht_minimum_amount") @db.Decimal(14, 2)
   /// ค่าตั้งต้นอัตราหัก ณ ที่จ่ายของรถร่วม (%) ณ วันสร้างใบ — ใช้กับบรรทัดที่ไม่มีธง · ใบเก่า = null จนอนุมัติ (ตรึงตอนอนุมัติ)
   whtRateDefault     Decimal?                @map("wht_rate_default") @db.Decimal(5, 2)
-  /// DRAFT / SENT_TO_CARRIER / DISPUTED / APPROVED / CANCELLED (CHECK ใน migration 0122/0124/0127/0130 — PAID เพิ่มใน ST6-T09)
+  /// ผู้จ่าย ณ วันอนุมัติ {companyId, name, taxId, branchCode, address} (ST6-T04 — PDF ใบสำคัญจ่าย) · ใบก่อน 0145 = null
+  payerSnapshot      Json?                   @map("payer_snapshot")
+  /// DRAFT / SENT_TO_CARRIER / DISPUTED / APPROVED / PAID / CANCELLED (CHECK ใน migration 0122/0124/0127/0130/0139 — PAID = ST6-T09)
   /// DISPUTED (ST6-T06) = ส่งตรวจแล้วมีรายการโต้แย้งที่ยังไม่เคลียร์ (รถร่วม/บริษัท) — อนุมัติไม่ได้ · เคลียร์ครบ → SENT_TO_CARRIER · เรียกกลับ → DRAFT
   status             String                  @default("DRAFT")
   /// ส่งให้รถร่วมตรวจล่าสุด (ST6-T05) — ผู้ส่งนับเป็นผู้เตรียมใบ (SoD) · รอบตรวจ +1 ทุกครั้งที่ส่ง (คำตอบของรถร่วมผูกกับรอบ)
@@ -2163,6 +2168,17 @@ model CarrierSettlement {
   approvedBy         String?                 @map("approved_by")
   /// ผู้แก้หัวใบล่าสุด (PATCH) — นับเป็นผู้เตรียมใบ (SoD ST6-T07)
   updatedBy          String?                 @map("updated_by")
+  /// บันทึกจ่าย (ST6-T09; docs/04 F6 "จ่าย" — วันโอน/เลขอ้างอิง/ธนาคาร) — APPROVED → PAID ครั้งเดียว แก้ไม่ได้ (trigger 0139)
+  /// วันที่จ่ายจริง (วันโอน/วันที่เช็ค/วันจ่ายเงินสด — วันที่ไทย) · เวลาที่บันทึก + ผู้บันทึก
+  paidDate           DateTime?               @map("paid_date") @db.Date
+  paidAt             DateTime?               @map("paid_at") @db.Timestamptz(6)
+  paidBy             String?                 @map("paid_by")
+  /// TRANSFER / CHEQUE / CASH (ต้นแบบ "วิธีจ่าย": โอนเงิน / เช็ค / เงินสด)
+  paymentMethod      String?                 @map("payment_method")
+  /// เลขอ้างอิงการโอน / เลขที่เช็ค (บังคับเมื่อโอน/เช็ค)
+  paymentReference   String?                 @map("payment_reference")
+  /// ธนาคาร (ข้อความ — ไม่บังคับ; ต้นแบบไม่มีช่องนี้ — spec/12 §3)
+  paymentBank        String?                 @map("payment_bank")
   cancelledAt        DateTime?               @map("cancelled_at") @db.Timestamptz(6)
   cancelledBy        String?                 @map("cancelled_by")
   cancelReason       String?                 @map("cancel_reason")
@@ -3096,10 +3112,11 @@ model Connector {
   inboundTokenPrefix    String?   @map("inbound_token_prefix") @db.VarChar(16)
   inboundTokenRotatedAt DateTime? @map("inbound_token_rotated_at") @db.Timestamptz(6)
 
-  cursors       ConnectorCursor[]
-  inboundEvents ProcessedWebhookEvent[]
-  masterCodes   ErpMasterCode[]
-  codeMappings  ErpCodeMapping[]
+  cursors          ConnectorCursor[]
+  inboundEvents    ProcessedWebhookEvent[]
+  masterCodes      ErpMasterCode[]
+  codeMappings     ErpCodeMapping[]
+  externalMappings ExternalMapping[]
 
   @@index([tenantId, createdAt, id])
   @@index([tenantId, companyId])
@@ -3434,6 +3451,67 @@ model ErpCodeMapping {
   @@unique([connectorId, serviceItemId])
   @@index([tenantId, connectorId])
   @@map("erp_code_mapping")
+}
+
+/// ST8-T05 ชนิด entity ของ external_mapping (docs/01 §3.7)
+enum ExternalEntityType {
+  CUSTOMER
+  CARRIER
+  SERVICE_ITEM
+  SALES_ORDER
+  DELIVERY_ORDER
+  INVOICE
+  CREDIT_NOTE
+  DEBIT_NOTE
+  RECEIPT
+  SETTLEMENT
+}
+
+/// ST8-T05 สถานะ mapping (docs/01 §3.7) — แยกจากสถานะเอกสาร (CLAUDE.md "สถานะเอกสารแยกจากสถานะซิงก์")
+enum ExternalMappingStatus {
+  SYNCED
+  PENDING
+  FAILED
+  MISMATCH
+  RETIRED
+}
+
+/// ST8-T05 id/รหัสฝั่ง ERP ต่อ entity ต่อ connector (docs/01 §3.7 `external_mapping` — แทน erp_doc_map ของ v1)
+/// ST8-T05 ใช้กับ CUSTOMER: `external_id` = รหัสลูกค้าในระบบบัญชี (KRS: รหัส PP → `custOrSuppCode`) ·
+///   `source_code` (เพิ่มจาก docs) = รหัสลูกค้าในข้อมูลขาเข้าของ connector (KRS: รหัส NSF ใน SO — ใช้จับคู่ตอนดึง)
+///   คน map ครั้งเดียว = ได้ทั้งสองรหัส (adapter `deriveCustomerCode`) · ตารางเดียวกันใช้กับเอกสาร/hash/เลขเอกสารฝั่ง ERP ใน ST7-T15
+/// ไม่มี hard delete — ยกเลิก = external_id null / status RETIRED
+model ExternalMapping {
+  id              String                @id @default(uuid()) @db.Uuid
+  tenantId        String                @map("tenant_id") @db.Uuid
+  connectorId     String                @map("connector_id") @db.Uuid
+  connector       Connector             @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  entityType      ExternalEntityType    @map("entity_type")
+  /// id ฝั่ง TMS (uuid ของ entity)
+  localId         String                @map("local_id") @db.Uuid
+  /// id/รหัสฝั่ง ERP ที่ใช้เป็น key (เช่น transactionNo, custOrSuppCode) — null = ยังไม่ map
+  externalId      String?               @map("external_id")
+  /// เลขเอกสารที่ ERP ออก (เช่น voucherNo)
+  externalDocNo   String?               @map("external_doc_no")
+  externalVersion String?               @map("external_version")
+  /// ST8-T05 รหัสของ entity นี้ในข้อมูลขาเข้าของ connector (จับคู่ตอนดึง) — null = ไม่มี/ใช้ external_id
+  sourceCode      String?               @map("source_code")
+  /// sha256 ของ canonical payload ล่าสุดที่ส่งสำเร็จ (ST7-T15)
+  lastSyncedHash  String?               @map("last_synced_hash")
+  lastSyncedAt    DateTime?             @map("last_synced_at") @db.Timestamptz(6)
+  status          ExternalMappingStatus @default(PENDING)
+  lastError       Json?                 @map("last_error")
+  createdBy       String?               @map("created_by")
+  updatedBy       String?               @map("updated_by")
+  version         Int                   @default(1)
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([connectorId, entityType, localId])
+  @@unique([connectorId, entityType, externalId])
+  @@unique([connectorId, entityType, sourceCode])
+  @@index([tenantId, entityType, localId])
+  @@map("external_mapping")
 }
 
 // ---------- ST9-T19 Monitoring + alert (ตารางระดับแพลตฟอร์ม — ไม่มี tenant_id; role แอปเข้าไม่ได้ ใช้ผ่าน role platform เท่านั้น) ----------

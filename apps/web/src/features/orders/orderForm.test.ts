@@ -39,6 +39,7 @@ const ORDER: Order = {
   holdCodes: [],
   rescheduledDate: null,
   sourceChangedAfterPlan: false,
+  sourceCancelledAt: null,
   sourceChange: null,
   pricingStatus: 'AVAILABLE',
   pricingReasons: [],

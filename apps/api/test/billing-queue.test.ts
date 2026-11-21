@@ -132,6 +132,8 @@ describe('ready-to-bill queue (ST5-T04)', { timeout: 300_000 }, () => {
     /** จุดส่งไม่มีเวลาถึง/ออก (ล้างที่ฐานหลังส่ง) */
     noArrive?: boolean;
     customerId?: string;
+    /** "กำหนดราคาเอง" (ORD-043 — POST /orders/{id}/manual-price) ก่อนวางแผน · ใช้คู่กับ `rate: false` */
+    manualPrice?: string;
   }
   const newCustomer = async (o: Opts) => {
     const body = (
@@ -191,6 +193,11 @@ describe('ready-to-bill queue (ST5-T04)', { timeout: 300_000 }, () => {
       lines: [{ description: 'ปูนซีเมนต์', qty: '5', unitId: unitTon, weightKg: '5000' }],
     };
     const { order: so } = await run((tx) => app.get(OrderIntakeService).upsertOrder(input, tx));
+    if (o.manualPrice)
+      await api(app, admin)
+        .post(`/v1/orders/${encodeId('salesOrder', so.id)}/manual-price`)
+        .send({ sellAmount: o.manualPrice, reason: 'ลูกค้าตกลงราคาเหมาทางโทรศัพท์' })
+        .expect(200);
     const [d] = await run((tx) => app.get(DeliveryOrderService).listForOrder(so.id, {}, tx));
     const doId = encodeId('deliveryOrder', d!.id);
     const vid = await newVehicle();
@@ -430,6 +437,18 @@ describe('ready-to-bill queue (ST5-T04)', { timeout: 300_000 }, () => {
 
     await release(ready.doId, viewer).expect(403);
     await release(ready.doId, other).expect(404);
+  });
+
+  it('ราคากำหนดเอง (ORD-043) ไม่มี rate card → ขึ้นคิวและส่งบัญชีได้เหมือนราคาจาก rate card', async () => {
+    const m = await delivered({ rate: false, manualPrice: '9000', podRequirements: NONE_REQ });
+    // pricing_status = ผลหา rate card (ยังไม่พบ) — ราคาของใบสั่งมาจากบรรทัด FREIGHT ที่มา MANUAL
+    expect((await db.salesOrder.findUniqueOrThrow({ where: { id: m.soId } })).pricingStatus).toBe(
+      'RATE_MISSING',
+    );
+    const row = (await queue(`?customerId=${m.customer}`)).data;
+    expect(row.map((x) => x.id)).toEqual([m.doId]);
+    expect(row[0]).toMatchObject({ revenueLineCount: 1, sellTotal: '9000.00' });
+    await release(m.doId).expect(200);
   });
 
   it('ค่าตั้งลูกค้า requirePodToBill: เปลี่ยนต้องมี invoices:draft · ค่าเริ่มต้นเปิด', async () => {

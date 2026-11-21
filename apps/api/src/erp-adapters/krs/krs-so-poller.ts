@@ -15,10 +15,11 @@ import {
  * `PUT /v1/orders/external/{externalId}`) · scheduler ทุก 5 นาที + cursor/lease/idempotent อยู่ใน core (ST3-T05/ST7-T14)
  *
  * - externalId = `KRS-{company}-{soNo}` (docs/01 A.4) · แถวดิบทั้งหมดของใบเก็บใน `raw_payload` (`{view, rowVersion, rows}`)
- * - หัวใบ: ลูกค้า = `cust_code` (จับคู่ `customer.external_id` — ไม่พบ = ใบค้าง CUSTOMER_UNMAPPED; mapping NSF↔PP = ST8-T05),
+ * - หัวใบ: ลูกค้า = `cust_code` (external_mapping → alias → `customer.external_id` — ไม่พบ = ใบค้าง CUSTOMER_UNMAPPED),
  *   PO = `cust_po`, วันรับของ = `delivery_date`, ประเภทรถ = `vehicle_type`, จุดรับ = origin, จุดส่ง = destination
- * - **ใบที่ KRS ยกเลิก** (`is_cancelled = 1`): ขั้นต่ำของ T04 = ใบค้าง SOURCE_ERROR พร้อมเหตุ (กันไม่ให้วางแผนต่อ)
- *   — ยกเลิกใน TMS อัตโนมัติ/แจ้งเตือนเมื่อมี DO = ST8-T05 (ใบที่วางแผนแล้ว = core ตอบ locked ไม่แตะใบ)
+ * - **ใบที่ KRS ยกเลิก** (`is_cancelled = 1`) → `ExternalOrder.cancelled` (ST8-T05): core ยกเลิกใบใน TMS ถ้ายังไม่มี DO
+ *   มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนครั้งเดียว · ยังไม่มีใบ = ไม่สร้าง (`OrderStateService.cancelFromSource`)
+ * - ลูกค้า: `cust_code` (รหัส NSF) จับคู่ external_mapping(CUSTOMER).source_code ของ connector ก่อน (ST8-T05) แล้วจึงกติกาเดิม
  * - **view หาย (404) / key ผิด** = throw `ErpAdapterError` → core หยุด connector (ERROR) · ตอบไม่ใช่ JSON
  *   (`invalid_response` เช่นหน้า HTML จาก proxy) = TRANSIENT (ลองใหม่ — ล้มต่อเนื่อง 30 นาที = ERROR ตามกติกาเดียวกับ healthCheck)
  * - **คอลัมน์บังคับหาย** = ใบของหน้านั้น `holdOnly` (ใบใหม่ = ใบค้าง SOURCE_ERROR, ใบเดิม = ตั้งปัญหาอย่างเดียว **ไม่ทับข้อมูล**)
@@ -42,7 +43,6 @@ export function krsExternalId(company: string, soNo: string): string {
 
 /** ข้อความปัญหาบนใบ (sourceIssues — ภาษาไทย ผู้ใช้เห็นในหน้าใบค้าง) */
 export const KRS_ISSUE = {
-  cancelled: 'KRS ยกเลิก SO นี้แล้ว — ตรวจสอบและยกเลิกใบใน TMS (ยังไม่ยกเลิกอัตโนมัติ)',
   columnsMissing: (view: string, cols: string[]) =>
     `แหล่ง SO ของ KRS (${view}) ไม่มีคอลัมน์ ${cols.join(', ')} — ข้อมูลใบนี้อาจไม่ครบ รอแก้ต้นทางแล้วดึงใหม่`,
   badLines: (why: string) =>
@@ -69,7 +69,6 @@ export function krsToExternalOrder(
   holdOnly = false,
 ): ExternalOrder {
   const issues = [...extraIssues];
-  if (so.cancelled) issues.push(KRS_ISSUE.cancelled);
   const lines = [...so.lines].sort((a, b) => Number(a.lineNo) - Number(b.lineNo));
   return {
     externalId: krsExternalId(so.company, so.soNo),
@@ -92,6 +91,8 @@ export function krsToExternalOrder(
     // view ระดับรายการอาจส่งใบมาไม่ครบ → ห้ามลดรายการของใบเดิมเงียบ ๆ (core ตั้งใบค้างแทน)
     noLineShrink: true,
     ...(holdOnly ? { holdOnly: true } : {}),
+    // ST8-T05 KRS ยกเลิก SO (`is_cancelled = 1`) → core ยกเลิกใน TMS ถ้ายังไม่มี DO มิฉะนั้นแจ้งเตือน (docs/01 A.4)
+    ...(so.cancelled ? { cancelled: true } : {}),
   };
 }
 

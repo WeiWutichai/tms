@@ -6,6 +6,7 @@ import {
   type InvoiceStatus,
 } from '@tms/domain';
 import type { Tx } from '../../db/db.service';
+import { setDeliveryOrdersPaidAt } from '../delivery-orders/delivery-order.service';
 import { bangkokToday } from '../vehicle-documents/expiry';
 
 export interface InvoicePaymentState {
@@ -91,11 +92,7 @@ export async function applyInvoicePayments(
           distinct: ['deliveryOrderId'],
         })
       ).map((l) => l.deliveryOrderId!);
-      if (doIds.length)
-        await tx.deliveryOrder.updateMany({
-          where: { id: { in: doIds } },
-          data: { paidAt: status === 'PAID' ? now : null },
-        });
+      await setDeliveryOrdersPaidAt(tx, doIds, status === 'PAID' ? now : null);
     }
     out.push({
       id,

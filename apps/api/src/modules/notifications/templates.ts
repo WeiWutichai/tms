@@ -40,6 +40,11 @@ export interface NotificationVars {
   'order.held': { orderNo: string; customer: string; reasonCode: string; reason: string };
   /** ST9-T08 ใบค้างจากงานทีละมาก (นำเข้าไฟล์ / ดึงจาก connector) รวมฉบับเดียว · orderNos = ตัวอย่างไม่เกิน 5 · reasons = "รหัส จำนวน, …" */
   'order.held_batch': { count: number; orderNos: string[]; reasons: string };
+  /**
+   * ST8-T05 ต้นทาง (ERP connector) ยกเลิกใบสั่งที่มีใบส่งของ (DO) แล้ว — TMS ไม่ยกเลิกเอง (docs/01 A.4 "มี DO แล้ว → แจ้งเตือนแทน")
+   * source = ป้ายที่มา (เช่น `ERP:krs`)
+   */
+  'order.source_cancelled': { orderNo: string; customer: string; source: string };
   /** ST9-T08 รถร่วมปฏิเสธงาน → ใบค้าง CARRIER_REJECTED (event รถร่วมปฏิเสธหรือหมดเวลา) · note = เหตุผลที่รถร่วมให้ */
   'subcon_offer.rejected': { orderNo: string; customer: string; note: string };
   /** ST9-T08 ค่าใช้จ่ายหน้างานรอยืนยัน (docs/04 I "ขออนุมัติ"; ST4-T13) — ไม่ใส่ยอดเงิน (สิทธิ์เห็นราคาแยกฝั่ง) */
@@ -437,6 +442,16 @@ const TEMPLATES: {
     en: (v) => ({
       title: `${n(v.count)} new on-hold orders`,
       body: `${v.orderNos.map((x) => safeName(x, 40)).join(', ')}${v.count > v.orderNos.length ? ` and ${n(v.count - v.orderNos.length)} more` : ''} (${v.reasons}). Resolve them on the on-hold page.`,
+    }),
+  },
+  'order.source_cancelled': {
+    th: (v) => ({
+      title: 'ต้นทางยกเลิกใบสั่งที่มี DO แล้ว',
+      body: `${v.orderNo} · ${v.customer} — ${safeName(v.source, 40)} ยกเลิกใบสั่งนี้ แต่มีใบส่งของ (DO) แล้ว ระบบจึงไม่ยกเลิกให้ · ตรวจสอบแล้วถอดออกจากเที่ยวหรือยกเลิกเอง`,
+    }),
+    en: (v) => ({
+      title: 'Source cancelled an order that already has DOs',
+      body: `${v.orderNo} · ${v.customer} — ${safeName(v.source, 40)} cancelled this order, but it already has delivery orders so it was not cancelled automatically. Review it and unassign or cancel it yourself.`,
     }),
   },
   'subcon_offer.rejected': {

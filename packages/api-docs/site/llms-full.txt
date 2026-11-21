@@ -1,7 +1,7 @@
 <!-- index.md -->
 # TMS API v1
 
-เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 369 endpoint
+เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 371 endpoint
 
 เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
 
@@ -27,12 +27,12 @@
 - [ใบส่งของ (delivery-orders)](ref-delivery-orders.md) — 19 endpoint: GET /v1/delivery-orders/summary, GET /v1/delivery-orders, POST /v1/delivery-orders, GET /v1/delivery-orders/{id}, POST /v1/delivery-orders/{id}/split, POST /v1/delivery-orders/{id}/merge, …
 - [เที่ยววิ่ง (trips)](ref-trips.md) — 32 endpoint: GET /v1/trips/summary, GET /v1/trips, POST /v1/trips, POST /v1/trips/bulk-assign, POST /v1/trips/send-all, GET /v1/trips/{id}, …
 - [จุดส่ง (stops)](ref-stops.md) — 10 endpoint: GET /v1/stops/{id}, GET /v1/stops/{id}/events, POST /v1/stops/{id}/arrive, POST /v1/stops/{id}/depart, POST /v1/stops/{id}/complete, POST /v1/stops/{id}/fail, …
-- [จ่ายรถร่วม (settlements)](ref-settlements.md) — 14 endpoint: GET /v1/settlements/queue, GET /v1/settlements, POST /v1/settlements, GET /v1/settlements/{id}, PATCH /v1/settlements/{id}, GET /v1/settlements/{id}/comparison, …
+- [จ่ายรถร่วม (settlements)](ref-settlements.md) — 16 endpoint: GET /v1/settlements/queue, GET /v1/settlements, POST /v1/settlements, GET /v1/settlements/{id}, PATCH /v1/settlements/{id}, GET /v1/settlements/{id}/pdf, …
 - [ไฟล์และเอกสาร (documents)](ref-documents.md) — 4 endpoint: POST /v1/documents, GET /v1/documents/{id}, GET /v1/documents/{id}/content, PUT /v1/documents/{id}/content
 - [Webhooks และ events](ref-webhooks.md) — 9 endpoint: GET /v1/webhooks, GET /v1/webhooks/summary, GET /v1/webhooks/event-types, GET /v1/webhooks/{id}, GET /v1/webhooks/{id}/history, GET /v1/webhook-deliveries, …
 - [Sandbox](ref-sandbox.md) — 1 endpoint: POST /v1/test/events/trigger
 - [งานเบื้องหลัง (jobs)](ref-jobs.md) — 1 endpoint: GET /v1/jobs/{id}
-- [ลูกค้า (customers)](ref-customers.md) — 17 endpoint: GET /v1/customers, POST /v1/customers, GET /v1/customers/summary, GET /v1/customers/next-code, GET /v1/customers/export, PUT /v1/customers/external/{externalId}, …
+- [ลูกค้า (customers)](ref-customers.md) — 18 endpoint: GET /v1/customers, POST /v1/customers, GET /v1/customers/summary, GET /v1/customers/next-code, GET /v1/customers/export, PUT /v1/customers/external/{externalId}, …
 - [สถานที่ (customer-sites)](ref-customer-sites.md) — 17 endpoint: GET /v1/customer-sites, POST /v1/customer-sites, GET /v1/customer-sites/summary, GET /v1/customer-sites/next-code, GET /v1/customer-sites/export, POST /v1/customer-sites/geocode, …
 - [สินค้า (products)](ref-products.md) — 13 endpoint: GET /v1/products, POST /v1/products, GET /v1/products/summary, GET /v1/products/next-code, GET /v1/products/export, PUT /v1/products/external/{externalId}, …
 - [หน่วย (units)](ref-units.md) — 8 endpoint: GET /v1/units, POST /v1/units, GET /v1/units/{id}, PATCH /v1/units/{id}, GET /v1/units/{id}/history, POST /v1/units/{id}/deactivate, …
@@ -60,7 +60,7 @@
 - [OAuth และระบบ (auth)](ref-auth.md) — 4 endpoint: POST /v1/oauth/token, GET /v1/.well-known/jwks.json, POST /v1/oauth/revoke, GET /v1/health
 - [billing-notes](ref-billing-notes.md) — 12 endpoint: GET /v1/billing-notes/summary, GET /v1/billing-notes/candidates, GET /v1/billing-notes, POST /v1/billing-notes, GET /v1/billing-notes/{id}, PATCH /v1/billing-notes/{id}, …
 - [invoices](ref-invoices.md) — 22 endpoint: GET /v1/invoices/queue, GET /v1/invoices/summary, POST /v1/invoices/preview, GET /v1/invoices, POST /v1/invoices, GET /v1/invoices/{id}, …
-- [payments](ref-payments.md) — 8 endpoint: GET /v1/payments, POST /v1/payments, GET /v1/payments/summary, GET /v1/payments/aging, GET /v1/payments/{id}, POST /v1/payments/{id}/reverse, …
+- [payments](ref-payments.md) — 7 endpoint: GET /v1/payments, POST /v1/payments, GET /v1/payments/summary, GET /v1/payments/{id}, POST /v1/payments/{id}/reverse, POST /v1/payments/{id}/bounce, …
 
 ## อ้างอิง
 
@@ -2010,6 +2010,7 @@ const { data, error } = await tms.POST('/v1/revenue-lines/{id}/void', {
 | `lines` | ใช่ | `array<OrderLineDto>` |   |   |   |
 | `editableFields` |   | `array<string>` |   | ช่องที่แก้ได้ในสถานะปัจจุบัน — มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) · ว่าง = แก้ไม่ได้ (ปิดงาน/ยกเลิก) · ฟอร์มใช้ปิดช่องที่แก้ไม่ได้ก่อนส่ง (server ตรวจซ้ำ → 409 `order_locked_for_update`) |   |
 | `sourceChangedAfterPlan` | ใช่ | `boolean` |   | ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน |   |
+| `sourceCancelledAt` | ใช่ | `string (date-time)` | null ได้ | ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก |   |
 | `sourceChange` | ใช่ | `OrderSourceChangeDto` | null ได้ | ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject) |   |
 | `editLock` |   | `OrderEditLockDto` | null ได้ | ผู้ที่เปิดแก้ใบนี้อยู่ · null = ไม่มีใครแก้ · มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) |   |
 | `version` | ใช่ | `number` |   |   |   |
@@ -2068,6 +2069,7 @@ const { data, error } = await tms.POST('/v1/revenue-lines/{id}/void', {
 | `lines` | ใช่ | `array<OrderLineDto>` |   |   |   |
 | `editableFields` |   | `array<string>` |   | ช่องที่แก้ได้ในสถานะปัจจุบัน — มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) · ว่าง = แก้ไม่ได้ (ปิดงาน/ยกเลิก) · ฟอร์มใช้ปิดช่องที่แก้ไม่ได้ก่อนส่ง (server ตรวจซ้ำ → 409 `order_locked_for_update`) |   |
 | `sourceChangedAfterPlan` | ใช่ | `boolean` |   | ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน |   |
+| `sourceCancelledAt` | ใช่ | `string (date-time)` | null ได้ | ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก |   |
 | `sourceChange` | ใช่ | `OrderSourceChangeDto` | null ได้ | ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject) |   |
 | `editLock` |   | `OrderEditLockDto` | null ได้ | ผู้ที่เปิดแก้ใบนี้อยู่ · null = ไม่มีใครแก้ · มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) |   |
 | `version` | ใช่ | `number` |   |   |   |
@@ -5631,7 +5633,7 @@ const { data, error } = await tms.POST('/v1/stop-event-flags/{id}/resolve', {
 <!-- ref-settlements.md -->
 # จ่ายรถร่วม (settlements)
 
-14 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+16 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -5640,6 +5642,7 @@ const { data, error } = await tms.POST('/v1/stop-event-flags/{id}/resolve', {
 | [`POST /v1/settlements`](#post-settlements) | `settlements:create` |
 | [`GET /v1/settlements/{id}`](#get-settlements-id) | `settlements:read` |
 | [`PATCH /v1/settlements/{id}`](#patch-settlements-id) | `settlements:create` |
+| [`GET /v1/settlements/{id}/pdf`](#get-settlements-id-pdf) | `settlements:read` |
 | [`GET /v1/settlements/{id}/comparison`](#get-settlements-id-comparison) | `settlements:read` |
 | [`POST /v1/settlements/{id}/lines`](#post-settlements-id-lines) | `settlements:create` |
 | [`POST /v1/settlements/{id}/lines/{lineId}/remove`](#post-settlements-id-lines-lineId-remove) | `settlements:create` |
@@ -5649,6 +5652,7 @@ const { data, error } = await tms.POST('/v1/stop-event-flags/{id}/resolve', {
 | [`POST /v1/settlements/{id}/recall`](#post-settlements-id-recall) | `settlements:create` |
 | [`POST /v1/settlements/{id}/lines/{lineId}/dispute`](#post-settlements-id-lines-lineId-dispute) | `settlements:create` |
 | [`POST /v1/settlements/{id}/lines/{lineId}/resolve`](#post-settlements-id-lines-lineId-resolve) | `settlements:create` |
+| [`POST /v1/settlements/{id}/mark-paid`](#post-settlements-id-mark-paid) | `settlements:pay` |
 
 ## คิวจ่ายรถร่วม (เที่ยวที่ปิดต้นทุนแล้วและยังไม่อยู่ในใบสำคัญจ่าย) {#get-settlements-queue}
 
@@ -5711,7 +5715,7 @@ scope: `settlements:read` · operationId: `Settlements_listSettlements`
 | `sort` | query |   | `string` ค่า: `updatedAt`, `-updatedAt` |   |
 | `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `carrierId` | query |   | `string` | รถร่วม — id หรือ `ext:{externalId}` |
-| `status` | query |   | `string` ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `CANCELLED` |   |
+| `status` | query |   | `string` ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `PAID`, `CANCELLED` |   |
 
 **Responses**
 
@@ -5889,6 +5893,44 @@ const { data, error } = await tms.PATCH('/v1/settlements/{id}', {
     "periodFrom": "2026-11-01",
     "periodTo": "2026-11-15"
   },
+});
+```
+
+## PDF ใบสำคัญจ่ายรถร่วม — รายการเที่ยว ยอด หัก ณ ที่จ่าย (ประมาณการ) สุทธิ {#get-settlements-id-pdf}
+
+`GET /v1/settlements/{id}/pdf`
+
+scope: `settlements:read` · operationId: `Settlements_voucherPdf`
+
+แม่แบบตามต้นแบบ TMS Print #pv (แม่แบบการเงินร่วมกับใบแจ้งหนี้) · ทุกตัวเลขมาจาก `GET /v1/settlements/{id}` ชุดเดียวกัน: ยอดซื้อรวม = `buyGrossAmount` · หัก ณ ที่จ่ายแยกอัตรา = `whtEstimate.byRate` (รวม = `buyWhtAmount`; ใบที่อนุมัติแล้ว = ยอดที่ตรึง) · บรรทัดหักรวมต่อชนิด · จ่ายสุทธิ = `buyNetAfterWht` · ยอดหัก ณ ที่จ่ายติด * · ยังไม่อนุมัติ = ลายน้ำ "ร่าง" ไม่มีเลข · จ่ายแล้ว = วันที่จ่าย + วิธีจ่าย + เลขอ้างอิง · render ตามคำขอ (ไม่ใช่เอกสารภาษี — ไม่เก็บไฟล์) · ใบที่ยกเลิก → 409 · ต้องมี `prices.buy:read` ไม่งั้น 403
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | application/pdf | `string (binary)` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settlements:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/settlements/<id>/pdf" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/settlements/{id}/pdf', {
+  params: { path: { id: "…" } },
 });
 ```
 
@@ -6143,13 +6185,13 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/send-to-carrier', {
 });
 ```
 
-## ออกลิงก์ให้รถร่วมตรวจใหม่ (ลิงก์เดิมหมดอายุ/หาย) {#post-settlements-id-review-link}
+## ออกลิงก์ให้รถร่วมใหม่ (ลิงก์เดิมหมดอายุ/หาย) {#post-settlements-id-review-link}
 
 `POST /v1/settlements/{id}/review-link`
 
 scope: `settlements:create` · operationId: `Settlements_reissueLink`
 
-เฉพาะใบ SENT_TO_CARRIER / DISPUTED · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued`
+ใบ SENT_TO_CARRIER / DISPUTED = ลิงก์ตรวจ (ดู + ยอมรับ/โต้แย้ง) — ผู้ออกนับเป็นผู้เตรียมใบ · ใบ APPROVED / PAID = ลิงก์**ดูอย่างเดียว** — ไม่เพิ่มผู้เตรียม หัวใบไม่เปลี่ยน · ร่าง/ยกเลิก → 409 · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued` (`viewOnly`)
 
 **Parameters**
 
@@ -6343,6 +6385,63 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/lines/{lineId}/reso
 });
 ```
 
+## บันทึกจ่ายใบสำคัญจ่ายรถร่วม (APPROVED → PAID) — วันที่จ่าย วิธี เลขอ้างอิง ธนาคาร {#post-settlements-id-mark-paid}
+
+`POST /v1/settlements/{id}/mark-paid`
+
+scope: `settlements:pay` · operationId: `Settlements_markPaid`
+
+"จ่าย" + APPROVED → PAID · **เฉพาะใบ APPROVED** (ร่าง/รอตรวจ/โต้แย้ง/ยกเลิก/จ่ายแล้ว → 409 `invalid_state_transition`) · จ่ายเต็มยอดครั้งเดียว — ยอดที่จ่าย = `buyNetAfterWht` (ยอดสุทธิ − หัก ณ ที่จ่ายประมาณการที่ตรึงตอนอนุมัติ — ไม่เปลี่ยน) · `paidDate` (= วันที่หักภาษี) ตั้งแต่วันอนุมัติถึงวันนี้ (เวลาไทย) — ก่อนวันอนุมัติ → 422 `before_approval` · `reference` บังคับเมื่อ TRANSFER / CHEQUE · ใบที่ไม่ใช่ APPROVED (รวมจ่ายแล้ว/คำขอซ้ำพร้อมกัน) → 409 ก่อนตรวจ If-Match · เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · audit `settlement.paid` + webhook `settlement.paid` · ไฟล์โอนธนาคาร (bulk payment) = P1
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header | ใช่ | `string` | ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
+
+**Request body** `SettlementPayDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `paidDate` | ใช่ | `string` |   | วันที่จ่ายจริง (วันโอน / วันที่เช็ค / วันจ่ายเงินสด — YYYY-MM-DD วันที่ไทย) = วันที่หักภาษี — ตั้งแต่วันอนุมัติถึงวันนี้ | `2026-11-20` |
+| `method` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH` | TRANSFER = โอนเงิน · CHEQUE = เช็ค · CASH = เงินสด |   |
+| `reference` |   | `string` | ยาว ≤ 60 · null ได้ | เลขอ้างอิงการโอน / เลขที่เช็ค — **บังคับเมื่อ TRANSFER / CHEQUE** | `KBANK-2611-0091` |
+| `bank` |   | `string` | ยาว ≤ 60 · null ได้ | ธนาคาร (ของบัญชีที่โอนออก / ธนาคารของเช็ค) — ไม่บังคับ | `กสิกรไทย` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `SettlementDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settlements:pay`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/settlements/<id>/mark-paid" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"paidDate":"2026-11-20","method":"TRANSFER"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/settlements/{id}/mark-paid', {
+  params: { path: { id: "…" } },
+  body: {
+    "paidDate": "2026-11-20",
+    "method": "TRANSFER"
+  },
+});
+```
+
 ## Schema ของ response {#schemas}
 
 ### SettlementComparisonDto {#schema-SettlementComparisonDto}
@@ -6352,7 +6451,7 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/lines/{lineId}/reso
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `stl_…` |
-| `status` | ใช่ | `string` | ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `CANCELLED` |   |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `PAID`, `CANCELLED` |   |   |
 | `round` | ใช่ | `number` |   | รอบตรวจปัจจุบัน (0 = ยังไม่เคยส่ง) |   |
 | `carrierInvoiceNo` | ใช่ | `string` | null ได้ | เลขใบแจ้งหนี้ของรถร่วม |   |
 | `dispute` | ใช่ | `SettlementDisputeSummaryDto` |   |   |   |
@@ -6367,7 +6466,7 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/lines/{lineId}/reso
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `stl_…` |
 | `settlementNo` | ใช่ | `string` | null ได้ | เลขเอกสาร (ชุด STL) — ร่างยังไม่มีเลข · ออกตอนอนุมัติ |   |
-| `status` | ใช่ | `string` | ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `CANCELLED` |   |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `PAID`, `CANCELLED` |   |   |
 | `carrier` | ใช่ | `SettlementCarrierDto` |   |   |   |
 | `payingCompanyId` | ใช่ | `string` | null ได้ | นิติบุคคลที่จ่าย ("จ้างในนาม" ของรถร่วม — null = ค่าเริ่มต้นองค์กร) |   |
 | `periodFrom` | ใช่ | `string` |   |   | `2026-11-01` |
@@ -6386,6 +6485,12 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/lines/{lineId}/reso
 | `lines` | ใช่ | `array<SettlementLineDto>` |   | ทุกบรรทัด รวมบรรทัดที่นำออกแล้ว (`active` false) |   |
 | `approvedAt` | ใช่ | `string` | null ได้ | เวลาอนุมัติ — ออกเลข `settlementNo` พร้อมกัน |   |
 | `approvedBy` | ใช่ | `string` | null ได้ | ผู้อนุมัติ (ไม่ใช่ผู้สร้าง — separation of duties) |   |
+| `paidDate` | ใช่ | `string` | null ได้ | วันที่จ่ายจริง (YYYY-MM-DD) — null จนบันทึกจ่าย | `2026-11-20` |
+| `paidAt` | ใช่ | `string` | null ได้ | เวลาที่บันทึกจ่าย |   |
+| `paidBy` | ใช่ | `string` | null ได้ | ผู้บันทึกจ่าย |   |
+| `paymentMethod` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH` · null ได้ | วิธีจ่าย TRANSFER / CHEQUE / CASH |   |
+| `paymentReference` | ใช่ | `string` | null ได้ | เลขอ้างอิงการโอน / เลขที่เช็ค |   |
+| `paymentBank` | ใช่ | `string` | null ได้ | ธนาคาร |   |
 | `sentAt` | ใช่ | `string` | null ได้ | ส่งให้รถร่วมตรวจล่าสุด — ผู้ส่งนับเป็นผู้เตรียมใบ (อนุมัติใบนี้ไม่ได้) |   |
 | `sentBy` | ใช่ | `string` | null ได้ |   |   |
 | `carrierReview` | ใช่ | `SettlementCarrierReviewDto` |   |   |   |
@@ -7132,7 +7237,7 @@ scope: `settings:read` · operationId: `TestEvents_trigger`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `type` | ใช่ | `string` | ค่า: `order.created`, `order.updated`, `order.held`, `order.released`, `order.cancelled`, `trip.assigned`, `trip.dispatched`, `trip.started`, `trip.completed`, `trip.cancelled`, `stop.arrived`, `stop.departed`, `stop.completed`, `stop.failed`, `delivery_order.status_changed`, `pod.captured`, `invoice.finalized`, `invoice.paid`, `invoice.voided`, `payment.recorded`, `payment.reversed`, `settlement.approved`, `connector.health_changed`, `job.completed` | event สาธารณะที่ยิงได้ในเฟสนี้ (`phase: active` ใน `GET /v1/webhooks/event-types`) — `data.object` = ตัวอย่างตาม schema ของ event (ข้อมูลสมมติ) | `order.created` |
+| `type` | ใช่ | `string` | ค่า: `order.created`, `order.updated`, `order.held`, `order.released`, `order.cancelled`, `trip.assigned`, `trip.dispatched`, `trip.started`, `trip.completed`, `trip.cancelled`, `stop.arrived`, `stop.departed`, `stop.completed`, `stop.failed`, `delivery_order.status_changed`, `pod.captured`, `invoice.finalized`, `invoice.paid`, `invoice.voided`, `payment.recorded`, `payment.reversed`, `settlement.approved`, `settlement.paid`, `connector.health_changed`, `job.completed` | event สาธารณะที่ยิงได้ในเฟสนี้ (`phase: active` ใน `GET /v1/webhooks/event-types`) — `data.object` = ตัวอย่างตาม schema ของ event (ข้อมูลสมมติ) | `order.created` |
 
 **Responses**
 
@@ -7248,7 +7353,7 @@ const { data, error } = await tms.GET('/v1/jobs/{id}', {
 <!-- ref-customers.md -->
 # ลูกค้า (customers)
 
-17 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+18 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -7266,6 +7371,7 @@ const { data, error } = await tms.GET('/v1/jobs/{id}', {
 | [`POST /v1/customers/{id}/deactivate`](#post-customers-id-deactivate) | `master:write` |
 | [`POST /v1/customers/{id}/activate`](#post-customers-id-activate) | `master:write` |
 | [`POST /v1/customers/{id}/delete`](#post-customers-id-delete) | `master:write` |
+| [`GET /v1/customers/{id}/erp-codes`](#get-customers-id-erp-codes) | `master:read` |
 | [`GET /v1/customers/{id}/tracking-link`](#get-customers-id-tracking-link) | `master:write` |
 | [`POST /v1/customers/{id}/tracking-link`](#post-customers-id-tracking-link) | `master:write` |
 | [`POST /v1/customers/{id}/tracking-link/revoke`](#post-customers-id-tracking-link-revoke) | `master:write` |
@@ -8004,6 +8110,41 @@ const { data, error } = await tms.POST('/v1/customers/{id}/delete', {
 });
 ```
 
+## GET /v1/customers/{id}/erp-codes {#get-customers-id-erp-codes}
+
+`GET /v1/customers/{id}/erp-codes`
+
+scope: `master:read` · operationId: `CustomerErpCodes_list`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | รหัสลูกค้านี้ในระบบบัญชีแต่ละตัวที่เชื่อมต่อ (connector ที่ยังไม่ยกเลิก) — ยังไม่ map = ใบแจ้งหนี้ของลูกค้านี้ส่งเข้าระบบบัญชีนั้นไม่ได้ | `CustomerErpCodeListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/customers/<id>/erp-codes" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/customers/{id}/erp-codes', {
+  params: { path: { id: "…" } },
+});
+```
+
 ## GET /v1/customers/{id}/tracking-link {#get-customers-id-tracking-link}
 
 `GET /v1/customers/{id}/tracking-link`
@@ -8168,6 +8309,14 @@ const { data, error } = await tms.POST('/v1/customers/{id}/tracking-link/revoke'
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string (date-time)` |   |   |   |
 | `updatedAt` | ใช่ | `string (date-time)` |   |   |   |
+
+### CustomerErpCodeListDto {#schema-CustomerErpCodeListDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<CustomerErpCodeDto>` |   |   |   |
 
 ### CustomerPageDto {#schema-CustomerPageDto}
 
@@ -20009,7 +20158,7 @@ const { data, error } = await tms.GET('/v1/billing-notes/{id}/pdf', {
 
 scope: `invoices:read` · operationId: `Invoices_list`
 
-DO ที่ส่งถึงแล้ว (DELIVERED/POD_PENDING/UNBILLED) ที่ใบสั่ง `pricingStatus = AVAILABLE` และมีบรรทัดรายได้ที่ยืนยันแล้ว (ไม่มีบรรทัดยอดชั่วคราว/ล็อก ไม่มีค่าใช้จ่ายหน้างานฝั่งขายรอยืนยัน) และไม่ถูกระงับวางบิล · ลูกค้าที่เปิด "ไม่มี POD ไม่วางบิล" (`requirePodToBill`, ค่าเริ่มต้นเปิด) → DO ที่หลักฐานส่งยังไม่ครบตาม checklist ไม่ขึ้นคิว · กรองลูกค้า (`customerId` รับ `ext:`) / ช่วงวันที่ส่ง (`doDate`) / หลักฐานครบ / ส่งบัญชีแล้ว · `customers` = ยอดรวมต่อลูกค้าของทุกแถวที่ตรงตัวกรอง · ยอดเงิน (`sell*`) เห็นเมื่อมี `prices.sell:read`
+DO ที่ส่งถึงแล้ว (DELIVERED/POD_PENDING/UNBILLED) ที่ใบสั่งมีราคา (`pricingStatus = AVAILABLE` หรือกำหนดราคาเองแล้ว — `POST /orders/{id}/manual-price`) และมีบรรทัดรายได้ที่ยืนยันแล้ว (ไม่มีบรรทัดยอดชั่วคราว/ล็อก ไม่มีค่าใช้จ่ายหน้างานฝั่งขายรอยืนยัน) และไม่ถูกระงับวางบิล · ลูกค้าที่เปิด "ไม่มี POD ไม่วางบิล" (`requirePodToBill`, ค่าเริ่มต้นเปิด) → DO ที่หลักฐานส่งยังไม่ครบตาม checklist ไม่ขึ้นคิว · กรองลูกค้า (`customerId` รับ `ext:`) / ช่วงวันที่ส่ง (`doDate`) / หลักฐานครบ / ส่งบัญชีแล้ว · `customers` = ยอดรวมต่อลูกค้าของทุกแถวที่ตรงตัวกรอง · ยอดเงิน (`sell*`) เห็นเมื่อมี `prices.sell:read`
 
 **Parameters**
 
@@ -20151,7 +20300,6 @@ scope: `invoices:read` · operationId: `Invoices_listInvoices`
 | `status` | query |   | `string` ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |
 | `receivable` | query |   | `string` ค่า: `all`, `open`, `overdue` | หน้า "รับชำระ": `all` = ใบที่ออกแล้ว (ไม่รวมร่าง/ยกเลิก) · `open` = ค้างรับ (ISSUED + PARTIALLY_PAID) · `overdue` = ใบที่มีธงเกินกำหนด — ใช้ร่วมกับ `status` ได้ |
 | `overdue` | query |   | `string` ค่า: `true`, `false` | ธงเกินกำหนด — `false` = ไม่รวมใบเกินกำหนด (แท็บ "ออกแล้ว"/"ชำระบางส่วน" ของต้นแบบ: เกินกำหนดแสดงก่อน) · `true` = เฉพาะเกินกำหนด |
-| `aging` | query |   | `string` ค่า: `NOT_DUE`, `DAYS_1_30`, `DAYS_31_60`, `DAYS_61_90`, `DAYS_OVER_90` | ช่วงอายุลูกหนี้ (การ์ด "อายุลูกหนี้" ของหน้ารับชำระ) — เฉพาะใบค้างรับที่ยังมียอดค้าง และ `daysPastDue = วันนี้ − dueDate` (เวลาไทย) อยู่ในช่วง · ชุดเดียวกับ `GET /payments/aging` |
 
 **Responses**
 
@@ -21197,14 +21345,13 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/unmark-sent', {
 <!-- ref-payments.md -->
 # payments
 
-8 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+7 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
 | [`GET /v1/payments`](#get-payments) | `invoices:read` |
 | [`POST /v1/payments`](#post-payments) | `payments:record` |
 | [`GET /v1/payments/summary`](#get-payments-summary) | `invoices:read` |
-| [`GET /v1/payments/aging`](#get-payments-aging) | `invoices:read` |
 | [`GET /v1/payments/{id}`](#get-payments-id) | `invoices:read` |
 | [`POST /v1/payments/{id}/reverse`](#post-payments-id-reverse) | `payments:reverse` |
 | [`POST /v1/payments/{id}/bounce`](#post-payments-id-bounce) | `payments:reverse` |
@@ -21356,43 +21503,6 @@ curl -sS -X GET "$TMS_BASE_URL/v1/payments/summary" \
 
 ```ts
 const { data, error } = await tms.GET('/v1/payments/summary');
-```
-
-## อายุลูกหนี้ — ยอดค้างตามช่วงอายุ รวมและต่อลูกค้า {#get-payments-aging}
-
-`GET /v1/payments/aging`
-
-scope: `invoices:read` · operationId: `Payments_agingReport`
-
-ใบค้างรับ (ISSUED / PARTIALLY_PAID ที่ยังมียอดค้าง) · ยอดค้าง = ยอดรวม − ยอดตัดชำระ · ช่วงอายุจาก `daysPastDue = asOf − dueDate` (เวลาไทย): ยังไม่ครบกำหนด (≤ 0) · 1–30 · 31–60 · 61–90 · เกิน 90 วัน · **Σ ทุกช่วง = `sellOutstanding` ของ `GET /payments/summary`** · `data` = ต่อลูกค้า (เฉพาะที่มียอดค้าง) เรียงตามชื่อ cursor มาตรฐาน · กรองลูกค้า `customerId` (รับ `ext:`) · asOf = วันนี้ · ยอด `sell*` เห็นเมื่อมี `prices.sell:read` (จำนวนใบเห็นเสมอ) · รายการใบในช่วงอายุ: `GET /invoices?receivable=open&aging=…`
-
-**Parameters**
-
-| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
-|---|---|---|---|---|
-| `limit` | query |   | `number` | ลูกค้าต่อหน้า |
-| `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (เรียงตามชื่อลูกค้า) |
-| `customerId` | query |   | `string` | ลูกค้ารายเดียว — id หรือ `ext:{externalId}` |
-
-**Responses**
-
-| สถานะ | ความหมาย | body |
-|---|---|---|
-| `200` |   | `AgingReportDto` |
-| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`invoices:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
-| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
-| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
-
-**ตัวอย่าง**
-
-```bash
-curl -sS -X GET "$TMS_BASE_URL/v1/payments/aging" \
-  -H "Authorization: Bearer $TMS_API_KEY"
-```
-
-```ts
-const { data, error } = await tms.GET('/v1/payments/aging');
 ```
 
 ## การรับชำระ + การตัดชำระต่อใบแจ้งหนี้ {#get-payments-id}
@@ -21580,21 +21690,6 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 
 ## Schema ของ response {#schemas}
 
-### AgingReportDto {#schema-AgingReportDto}
-
-
-
-| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
-|---|---|---|---|---|---|
-| `asOf` | ใช่ | `string` |   | วันที่คำนวณ (วันนี้ เวลาไทย Asia/Bangkok) | `2026-11-09` |
-| `basis` | ใช่ | `string` | ค่า: `DUE_DATE` | นับอายุจากวันครบกำหนด — ไม่มีวันครบกำหนด = ยังไม่ครบกำหนด |   |
-| `count` | ใช่ | `number` |   | ใบค้างรับทั้งหมด (ตามตัวกรองลูกค้า — ไม่ขึ้นกับหน้า) |   |
-| `sellOutstanding` |   | `string` |   | ยอดค้างรวม = Σ ทุกช่วง = `sellOutstanding` ของ `GET /payments/summary` (ใบ ISSUED + PARTIALLY_PAID) — `prices.sell:read` |   |
-| `buckets` | ใช่ | `array<AgingBucketDto>` |   | รวมทุกลูกค้า (ไม่ขึ้นกับหน้า) |   |
-| `data` | ใช่ | `array<AgingCustomerDto>` |   | ต่อลูกค้า (เฉพาะที่มียอดค้าง) เรียงตามชื่อ |   |
-| `nextCursor` | ใช่ | `string` | null ได้ |   |   |
-| `hasMore` | ใช่ | `boolean` |   |   |   |
-
 ### PaymentDto {#schema-PaymentDto}
 
 
@@ -21687,7 +21782,7 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 | [`receipt.issued`](#receipt-issued) | ยังไม่ส่ง (จองชื่อไว้) |   | ออกใบเสร็จรับเงินแล้ว |
 | [`reconcile.mismatch_found`](#reconcile-mismatch_found) | ยังไม่ส่ง (จองชื่อไว้) |   | พบข้อมูลไม่ตรงกันจากการกระทบยอดกับระบบภายนอก |
 | [`settlement.approved`](#settlement-approved) | ใช้งาน | `SettlementDto` | อนุมัติใบสำคัญจ่ายรถร่วม (ออกเลข STL แล้ว — ผู้อนุมัติไม่ใช่ผู้สร้าง) |
-| [`settlement.paid`](#settlement-paid) | ยังไม่ส่ง (จองชื่อไว้) |   | จ่ายเงินตามใบสรุปค่าขนส่งรถร่วมแล้ว |
+| [`settlement.paid`](#settlement-paid) | ใช้งาน | `SettlementDto` | บันทึกจ่ายใบสำคัญจ่ายรถร่วมแล้ว (APPROVED → PAID — วันที่จ่าย วิธี เลขอ้างอิง ธนาคาร; เที่ยวที่จ่ายครบเป็น SETTLED) |
 | [`stop.arrived`](#stop-arrived) | ใช้งาน | `TripStopDto` | รถถึงจุดรับ/ส่ง |
 | [`stop.completed`](#stop-completed) | ใช้งาน | `TripStopDto` | ปิดงานที่จุดรับ/ส่งสำเร็จ |
 | [`stop.departed`](#stop-departed) | ใช้งาน | `TripStopDto` | รถออกจากจุดรับ/ส่ง |
@@ -21961,6 +22056,7 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 | `stops` | ใช่ | `array<OrderStopDto>` |   |   |   |
 | `lines` | ใช่ | `array<OrderLineDto>` |   |   |   |
 | `sourceChangedAfterPlan` | ใช่ | `boolean` |   | ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน |   |
+| `sourceCancelledAt` | ใช่ | `string (date-time)` | null ได้ | ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก |   |
 | `sourceChange` | ใช่ | `OrderSourceChangeDto` | null ได้ | ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject) |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
@@ -21994,6 +22090,7 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 | `stops` | ใช่ | `array<OrderStopDto>` |   |   |   |
 | `lines` | ใช่ | `array<OrderLineDto>` |   |   |   |
 | `sourceChangedAfterPlan` | ใช่ | `boolean` |   | ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน |   |
+| `sourceCancelledAt` | ใช่ | `string (date-time)` | null ได้ | ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก |   |
 | `sourceChange` | ใช่ | `OrderSourceChangeDto` | null ได้ | ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject) |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
@@ -22027,6 +22124,7 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 | `stops` | ใช่ | `array<OrderStopDto>` |   |   |   |
 | `lines` | ใช่ | `array<OrderLineDto>` |   |   |   |
 | `sourceChangedAfterPlan` | ใช่ | `boolean` |   | ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน |   |
+| `sourceCancelledAt` | ใช่ | `string (date-time)` | null ได้ | ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก |   |
 | `sourceChange` | ใช่ | `OrderSourceChangeDto` | null ได้ | ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject) |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
@@ -22060,6 +22158,7 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 | `stops` | ใช่ | `array<OrderStopDto>` |   |   |   |
 | `lines` | ใช่ | `array<OrderLineDto>` |   |   |   |
 | `sourceChangedAfterPlan` | ใช่ | `boolean` |   | ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน |   |
+| `sourceCancelledAt` | ใช่ | `string (date-time)` | null ได้ | ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก |   |
 | `sourceChange` | ใช่ | `OrderSourceChangeDto` | null ได้ | ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject) |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
@@ -22093,6 +22192,7 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 | `stops` | ใช่ | `array<OrderStopDto>` |   |   |   |
 | `lines` | ใช่ | `array<OrderLineDto>` |   |   |   |
 | `sourceChangedAfterPlan` | ใช่ | `boolean` |   | ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน |   |
+| `sourceCancelledAt` | ใช่ | `string (date-time)` | null ได้ | ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก |   |
 | `sourceChange` | ใช่ | `OrderSourceChangeDto` | null ได้ | ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject) |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
@@ -22198,7 +22298,7 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `stl_…` |
 | `settlementNo` | ใช่ | `string` | null ได้ | เลขเอกสาร (ชุด STL) — ร่างยังไม่มีเลข · ออกตอนอนุมัติ |   |
-| `status` | ใช่ | `string` | ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `CANCELLED` |   |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `PAID`, `CANCELLED` |   |   |
 | `carrier` | ใช่ | `SettlementCarrierDto` |   |   |   |
 | `payingCompanyId` | ใช่ | `string` | null ได้ | นิติบุคคลที่จ่าย ("จ้างในนาม" ของรถร่วม — null = ค่าเริ่มต้นองค์กร) |   |
 | `periodFrom` | ใช่ | `string` |   |   | `2026-11-01` |
@@ -22208,6 +22308,11 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 | `carrierReceiptNo` | ใช่ | `string` | null ได้ |   |   |
 | `tripCount` | ใช่ | `number` |   | จำนวนเที่ยวในใบ (บรรทัดที่ยังใช้) |   |
 | `approvedAt` | ใช่ | `string` | null ได้ | เวลาอนุมัติ — ออกเลข `settlementNo` พร้อมกัน |   |
+| `paidDate` | ใช่ | `string` | null ได้ | วันที่จ่ายจริง (YYYY-MM-DD) — null จนบันทึกจ่าย | `2026-11-20` |
+| `paidAt` | ใช่ | `string` | null ได้ | เวลาที่บันทึกจ่าย |   |
+| `paymentMethod` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH` · null ได้ | วิธีจ่าย TRANSFER / CHEQUE / CASH |   |
+| `paymentReference` | ใช่ | `string` | null ได้ | เลขอ้างอิงการโอน / เลขที่เช็ค |   |
+| `paymentBank` | ใช่ | `string` | null ได้ | ธนาคาร |   |
 | `sentAt` | ใช่ | `string` | null ได้ | ส่งให้รถร่วมตรวจล่าสุด — ผู้ส่งนับเป็นผู้เตรียมใบ (อนุมัติใบนี้ไม่ได้) |   |
 | `carrierReview` | ใช่ | `SettlementCarrierReviewDto` |   |   |   |
 | `dispute` | ใช่ | `SettlementDisputeSummaryDto` |   |   |   |
@@ -22218,11 +22323,36 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 
 ## settlement.paid {#settlement-paid}
 
-จ่ายเงินตามใบสรุปค่าขนส่งรถร่วมแล้ว
+บันทึกจ่ายใบสำคัญจ่ายรถร่วมแล้ว (APPROVED → PAID — วันที่จ่าย วิธี เลขอ้างอิง ธนาคาร; เที่ยวที่จ่ายครบเป็น SETTLED)
 
-> ยังไม่ส่ง — ชื่อและ schema จองไว้ (สมัครรับล่วงหน้าได้)
+`data.object` = `SettlementDto`
 
-`data.object` = 
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `stl_…` |
+| `settlementNo` | ใช่ | `string` | null ได้ | เลขเอกสาร (ชุด STL) — ร่างยังไม่มีเลข · ออกตอนอนุมัติ |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `PAID`, `CANCELLED` |   |   |
+| `carrier` | ใช่ | `SettlementCarrierDto` |   |   |   |
+| `payingCompanyId` | ใช่ | `string` | null ได้ | นิติบุคคลที่จ่าย ("จ้างในนาม" ของรถร่วม — null = ค่าเริ่มต้นองค์กร) |   |
+| `periodFrom` | ใช่ | `string` |   |   | `2026-11-01` |
+| `periodTo` | ใช่ | `string` |   |   | `2026-11-15` |
+| `carrierInvoiceNo` | ใช่ | `string` | null ได้ |   |   |
+| `carrierInvoiceDate` | ใช่ | `string` | null ได้ |   |   |
+| `carrierReceiptNo` | ใช่ | `string` | null ได้ |   |   |
+| `tripCount` | ใช่ | `number` |   | จำนวนเที่ยวในใบ (บรรทัดที่ยังใช้) |   |
+| `approvedAt` | ใช่ | `string` | null ได้ | เวลาอนุมัติ — ออกเลข `settlementNo` พร้อมกัน |   |
+| `paidDate` | ใช่ | `string` | null ได้ | วันที่จ่ายจริง (YYYY-MM-DD) — null จนบันทึกจ่าย | `2026-11-20` |
+| `paidAt` | ใช่ | `string` | null ได้ | เวลาที่บันทึกจ่าย |   |
+| `paymentMethod` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH` · null ได้ | วิธีจ่าย TRANSFER / CHEQUE / CASH |   |
+| `paymentReference` | ใช่ | `string` | null ได้ | เลขอ้างอิงการโอน / เลขที่เช็ค |   |
+| `paymentBank` | ใช่ | `string` | null ได้ | ธนาคาร |   |
+| `sentAt` | ใช่ | `string` | null ได้ | ส่งให้รถร่วมตรวจล่าสุด — ผู้ส่งนับเป็นผู้เตรียมใบ (อนุมัติใบนี้ไม่ได้) |   |
+| `carrierReview` | ใช่ | `SettlementCarrierReviewDto` |   |   |   |
+| `dispute` | ใช่ | `SettlementDisputeSummaryDto` |   |   |   |
+| `cancelledAt` | ใช่ | `string` | null ได้ |   |   |
+| `version` | ใช่ | `number` |   |   |   |
+| `createdAt` | ใช่ | `string` |   |   |   |
+| `updatedAt` | ใช่ | `string` |   |   |   |
 
 ## stop.arrived {#stop-arrived}
 
@@ -22773,7 +22903,7 @@ HTTP `401` · กรอกรหัสยืนยันตัวตน 2 ชั
 
 HTTP `401` · ต้องเข้าสู่ระบบ
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 351 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 353 endpoint
 
 ## edit_lock_user_required {#edit_lock_user_required}
 
@@ -22821,7 +22951,7 @@ HTTP `403` · ส่วนต่างเกินวงเงินที่ต
 
 HTTP `403` · ไม่มีสิทธิ์ทำรายการนี้
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 351 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 353 endpoint
 
 ## sandbox_only {#sandbox_only}
 
@@ -22857,7 +22987,7 @@ HTTP `403` · ยืนยันตัวตน 2 ชั้นอีกครั
 
 HTTP `404` · ไม่พบข้อมูล
 
-พบใน: [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/documents/{id}/content`](ref-documents.md#get-documents-id-content), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/jobs/{id}`](ref-jobs.md#get-jobs-id), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`GET /v1/customers/{id}`](ref-customers.md#get-customers-id), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`GET /v1/customers/{id}/history`](ref-customers.md#get-customers-id-history) และอีก 224 endpoint
+พบใน: [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/documents/{id}/content`](ref-documents.md#get-documents-id-content), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/jobs/{id}`](ref-jobs.md#get-jobs-id), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`GET /v1/customers/{id}`](ref-customers.md#get-customers-id), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`GET /v1/customers/{id}/history`](ref-customers.md#get-customers-id-history) และอีก 227 endpoint
 
 ## method_not_allowed {#method_not_allowed}
 
@@ -22911,7 +23041,7 @@ HTTP `409` · ส่งทางช่องทางนี้ไม่ได้
 
 HTTP `409` · มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง
 
-พบใน: [`POST /v1/orders/{id}/lock`](ref-orders.md#post-orders-id-lock), [`PUT /v1/delivery-orders/{id}/pod`](ref-delivery-orders.md#put-delivery-orders-id-pod), [`POST /v1/trips`](ref-trips.md#post-trips), [`POST /v1/trips/{id}/schedule`](ref-trips.md#post-trips-id-schedule), [`POST /v1/trips/{id}/attach`](ref-trips.md#post-trips-id-attach), [`POST /v1/trips/{id}/detach`](ref-trips.md#post-trips-id-detach), [`POST /v1/trips/{id}/reorder-stops`](ref-trips.md#post-trips-id-reorder-stops), [`POST /v1/trips/{id}/assign`](ref-trips.md#post-trips-id-assign), [`POST /v1/trips/{id}/offer`](ref-trips.md#post-trips-id-offer), [`POST /v1/trips/{id}/dispatch`](ref-trips.md#post-trips-id-dispatch), [`POST /v1/trips/{id}/confirm-rules`](ref-trips.md#post-trips-id-confirm-rules), [`POST /v1/trips/{id}/complete`](ref-trips.md#post-trips-id-complete) และอีก 47 endpoint
+พบใน: [`POST /v1/orders/{id}/lock`](ref-orders.md#post-orders-id-lock), [`PUT /v1/delivery-orders/{id}/pod`](ref-delivery-orders.md#put-delivery-orders-id-pod), [`POST /v1/trips`](ref-trips.md#post-trips), [`POST /v1/trips/{id}/schedule`](ref-trips.md#post-trips-id-schedule), [`POST /v1/trips/{id}/attach`](ref-trips.md#post-trips-id-attach), [`POST /v1/trips/{id}/detach`](ref-trips.md#post-trips-id-detach), [`POST /v1/trips/{id}/reorder-stops`](ref-trips.md#post-trips-id-reorder-stops), [`POST /v1/trips/{id}/assign`](ref-trips.md#post-trips-id-assign), [`POST /v1/trips/{id}/offer`](ref-trips.md#post-trips-id-offer), [`POST /v1/trips/{id}/dispatch`](ref-trips.md#post-trips-id-dispatch), [`POST /v1/trips/{id}/confirm-rules`](ref-trips.md#post-trips-id-confirm-rules), [`POST /v1/trips/{id}/complete`](ref-trips.md#post-trips-id-complete) และอีก 49 endpoint
 
 ## conflict {#conflict}
 
@@ -22977,7 +23107,7 @@ HTTP `409` · เลขอ้างอิงต้นทางนี้ถูก
 
 HTTP `409` · คำขอเดียวกันกำลังประมวลผลอยู่
 
-พบใน: [`POST /v1/orders:bulk`](ref-orders.md#post-orders-bulk), [`POST /v1/orders`](ref-orders.md#post-orders), [`POST /v1/trips`](ref-trips.md#post-trips), [`POST /v1/trips/{id}/schedule`](ref-trips.md#post-trips-id-schedule), [`POST /v1/trips/{id}/attach`](ref-trips.md#post-trips-id-attach), [`POST /v1/trips/{id}/detach`](ref-trips.md#post-trips-id-detach), [`POST /v1/trips/{id}/reorder-stops`](ref-trips.md#post-trips-id-reorder-stops), [`POST /v1/trips/{id}/assign`](ref-trips.md#post-trips-id-assign), [`POST /v1/trips/{id}/offer`](ref-trips.md#post-trips-id-offer), [`POST /v1/trips/{id}/dispatch`](ref-trips.md#post-trips-id-dispatch), [`POST /v1/trips/{id}/confirm-rules`](ref-trips.md#post-trips-id-confirm-rules), [`POST /v1/trips/{id}/complete`](ref-trips.md#post-trips-id-complete) และอีก 47 endpoint
+พบใน: [`POST /v1/orders:bulk`](ref-orders.md#post-orders-bulk), [`POST /v1/orders`](ref-orders.md#post-orders), [`POST /v1/trips`](ref-trips.md#post-trips), [`POST /v1/trips/{id}/schedule`](ref-trips.md#post-trips-id-schedule), [`POST /v1/trips/{id}/attach`](ref-trips.md#post-trips-id-attach), [`POST /v1/trips/{id}/detach`](ref-trips.md#post-trips-id-detach), [`POST /v1/trips/{id}/reorder-stops`](ref-trips.md#post-trips-id-reorder-stops), [`POST /v1/trips/{id}/assign`](ref-trips.md#post-trips-id-assign), [`POST /v1/trips/{id}/offer`](ref-trips.md#post-trips-id-offer), [`POST /v1/trips/{id}/dispatch`](ref-trips.md#post-trips-id-dispatch), [`POST /v1/trips/{id}/confirm-rules`](ref-trips.md#post-trips-id-confirm-rules), [`POST /v1/trips/{id}/complete`](ref-trips.md#post-trips-id-complete) และอีก 49 endpoint
 
 ## import_expired {#import_expired}
 
@@ -23013,7 +23143,7 @@ HTTP `409` · ระบบบัญชีนี้ไม่รองรับก
 
 HTTP `409` · ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน
 
-พบใน: [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/cancel`](ref-orders.md#post-orders-id-cancel), [`POST /v1/orders/{id}/stops/{sequence}/map-site`](ref-orders.md#post-orders-id-stops-sequence-map-site), [`POST /v1/orders/{id}/reevaluate`](ref-orders.md#post-orders-id-reevaluate), [`POST /v1/orders/{id}/manual-price`](ref-orders.md#post-orders-id-manual-price), [`POST /v1/orders/{id}/resolve-source-error`](ref-orders.md#post-orders-id-resolve-source-error), [`POST /v1/orders/{id}/map-customer`](ref-orders.md#post-orders-id-map-customer), [`POST /v1/delivery-orders/{id}/revert-delivery`](ref-delivery-orders.md#post-delivery-orders-id-revert-delivery) และอีก 56 endpoint
+พบใน: [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/cancel`](ref-orders.md#post-orders-id-cancel), [`POST /v1/orders/{id}/stops/{sequence}/map-site`](ref-orders.md#post-orders-id-stops-sequence-map-site), [`POST /v1/orders/{id}/reevaluate`](ref-orders.md#post-orders-id-reevaluate), [`POST /v1/orders/{id}/manual-price`](ref-orders.md#post-orders-id-manual-price), [`POST /v1/orders/{id}/resolve-source-error`](ref-orders.md#post-orders-id-resolve-source-error), [`POST /v1/orders/{id}/map-customer`](ref-orders.md#post-orders-id-map-customer), [`POST /v1/delivery-orders/{id}/revert-delivery`](ref-delivery-orders.md#post-delivery-orders-id-revert-delivery) และอีก 58 endpoint
 
 ## invoice_already_billed {#invoice_already_billed}
 
@@ -23337,7 +23467,7 @@ HTTP `409` · จำนวน webhook endpoint ครบตามแพ็กเ
 
 HTTP `412` · ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่
 
-พบใน: [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`POST /v1/customers/{id}/deactivate`](ref-customers.md#post-customers-id-deactivate), [`POST /v1/customers/{id}/activate`](ref-customers.md#post-customers-id-activate), [`POST /v1/customers/{id}/delete`](ref-customers.md#post-customers-id-delete), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/cancel`](ref-orders.md#post-orders-id-cancel), [`POST /v1/orders/{id}/source-changes/{changeId}/accept`](ref-orders.md#post-orders-id-source-changes-changeId-accept), [`POST /v1/orders/{id}/source-changes/{changeId}/reject`](ref-orders.md#post-orders-id-source-changes-changeId-reject) และอีก 131 endpoint
+พบใน: [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`POST /v1/customers/{id}/deactivate`](ref-customers.md#post-customers-id-deactivate), [`POST /v1/customers/{id}/activate`](ref-customers.md#post-customers-id-activate), [`POST /v1/customers/{id}/delete`](ref-customers.md#post-customers-id-delete), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/cancel`](ref-orders.md#post-orders-id-cancel), [`POST /v1/orders/{id}/source-changes/{changeId}/accept`](ref-orders.md#post-orders-id-source-changes-changeId-accept), [`POST /v1/orders/{id}/source-changes/{changeId}/reject`](ref-orders.md#post-orders-id-source-changes-changeId-reject) และอีก 132 endpoint
 
 ## payload_too_large {#payload_too_large}
 

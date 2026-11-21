@@ -151,6 +151,18 @@ describe('SettlementLinkPage (ST6-T05)', () => {
     expect(screen.getByText('อนุมัติแล้ว · ตอบรายการไม่ได้แล้ว')).toBeTruthy();
   });
 
+  it('ST6-T09 จ่ายแล้ว: ป้าย "จ่ายแล้ว" สีเขียวของต้นแบบ + เลขใบ · ไม่มีปุ่มตอบ', () => {
+    q.data = view({ status: 'PAID', settlementNo: 'SA-2611-0007', canRespond: false });
+    show();
+    const chip = screen.getByTestId('stl-status');
+    expect(chip.textContent).toBe('จ่ายแล้ว');
+    expect(chip.style.background).toBe('rgb(230, 244, 236)');
+    expect(chip.style.color).toBe('rgb(23, 115, 63)');
+    expect(screen.getByText('SA-2611-0007')).toBeTruthy();
+    expect(screen.queryByTestId('stl-accept-1')).toBeNull();
+    expect(screen.getByText('จ่ายแล้ว · ตอบรายการไม่ได้แล้ว')).toBeTruthy();
+  });
+
   it('ST6-T06: ใบมีรายการโต้แย้ง → ป้ายหัว "มีรายการโต้แย้ง" ยังตอบได้ · บรรทัดที่บริษัทยืนยันยอดเดิม → ป้าย + เหตุผล ไม่มีปุ่มตอบ', () => {
     const base = view();
     q.data = view({
@@ -188,5 +200,20 @@ describe('SettlementLinkPage (ST6-T05)', () => {
     show();
     expect(screen.getByText('ลิงก์นี้ใช้ไม่ได้')).toBeTruthy();
     expect(screen.getByText('ลิงก์หมดอายุหรือถูกยกเลิกแล้ว ขอลิงก์ใหม่จากผู้ว่าจ้าง')).toBeTruthy();
+  });
+
+  it('ST6-T04 จ่ายแล้ว → ปุ่ม "ใบจ่ายเงิน" เปิด PDF ของลิงก์ (แท็บใหม่) · ยังไม่จ่าย/อนุมัติแล้ว → ไม่มีปุ่ม · ไม่มีปุ่ม 50 ทวิ (D-58)', () => {
+    show();
+    expect(screen.queryByTestId('stl-pdf')).toBeNull();
+    q.data = view({ status: 'APPROVED', settlementNo: 'SA-2611-0007', canRespond: false });
+    show();
+    expect(screen.queryByTestId('stl-pdf')).toBeNull();
+    q.data = view({ status: 'PAID', settlementNo: 'SA-2611-0007', canRespond: false });
+    show();
+    const a = screen.getByTestId('stl-pdf') as HTMLAnchorElement;
+    expect(a.textContent).toBe('ใบจ่ายเงิน');
+    expect(a.getAttribute('href')).toBe('/v1/public/settlements/ml1.x/pdf');
+    expect(a.getAttribute('target')).toBe('_blank');
+    expect(screen.queryByText('หนังสือ 50 ทวิ')).toBeNull();
   });
 });
