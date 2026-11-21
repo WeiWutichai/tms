@@ -3,7 +3,7 @@ import { docDateShort } from '../common/thai-date';
 import { companyInitials } from '../modules/trip-sheets/trip-sheet.template';
 
 /**
- * แม่แบบ A4 ของเอกสารการเงิน (ST5-T08) — ใบแจ้งหนี้ใช้ตอนนี้ · **ใบวางบิล (ST5-T11) ใช้แม่แบบเดียวกัน** (คอลัมน์/เส้นรวม/ลายเซ็นต่างกัน)
+ * แม่แบบ A4 ของเอกสารการเงิน (ST5-T08) — ใบแจ้งหนี้ + ใบสำคัญจ่ายรถร่วม (ST6-T04 `layout: stacked` ตาม #pv) · **ใบวางบิล (ST5-T11) ใช้แม่แบบเดียวกัน** (คอลัมน์/เส้นรวม/ลายเซ็นต่างกัน)
  * ตามต้นแบบ `design/prototype/TMS Print.dc.html` #bill / #inv (ค่า CSS/ข้อความจากต้นแบบ): หัวบริษัท + กล่องตัวย่อ,
  * ชื่อเอกสารไทย/อังกฤษ มุมขวา, กล่องลูกค้า 1.4fr + กล่องข้อมูล 1fr, ตารางหัว 2 ภาษา, จำนวนเงินตัวอักษร + เส้นรวม 300 px, ลายเซ็น 2 ช่อง
  * **D-54 บัญชีเบา: ไม่ใช่เอกสารภาษี** — แม่แบบนี้ไม่มีคำว่า "ใบกำกับภาษี" (test) · แบ่งหน้าเอง (spec/05 BIL-199 หัว/ท้ายซ้ำ + "หน้า n/N")
@@ -62,6 +62,15 @@ export interface FinanceDocument {
   /** ย่อหน้าใต้เส้นรวม (ข้อความธรรมดา) เช่น หมายเหตุของเอกสาร / วันนัดรับเช็ค */
   remarks: string[];
   signatures: { label: string; dated: boolean }[];
+  /** ป้ายกล่องคู่ค้า (ไม่ส่ง = "ลูกค้า / Customer") — ใบสำคัญจ่าย = "จ่ายให้ / Pay to" (ST6-T04) */
+  partyLabel?: string;
+  /** บรรทัดเพิ่มท้ายกล่องคู่ค้า (ข้อความธรรมดา) เช่น "คนขับ …" ของใบสำคัญจ่าย */
+  partyExtra?: string[];
+  /**
+   * ส่วนท้ายเอกสาร: `side` (ค่าเริ่ม — ใบแจ้งหนี้/ใบวางบิล: จำนวนเงินตัวอักษรซ้าย + เส้นรวม 300 px ขวา, ลายเซ็นห่าง 40 px)
+   * · `stacked` (ใบสำคัญจ่าย TMS Print #pv: เส้นรวม 320 px ชิดขวาใต้ตาราง → กล่องจำนวนเงินตัวอักษรเต็มแถว, ลายเซ็นห่าง 24 px)
+   */
+  layout?: 'side' | 'stacked';
 }
 
 const e = escapeHtml;
@@ -126,6 +135,7 @@ function headBlock(d: FinanceDocument): string {
     `<span style="font-size:15px">วันที่ ${e(docDateShort(d.docDate, d.yearStyle))}</span>`,
   ].join('');
   const c = d.customer;
+  const extra = (d.partyExtra ?? []).map((x) => `<span>${e(x)}</span>`).join('');
   const info = d.info
     .map(
       ([l, v, num]) =>
@@ -140,9 +150,9 @@ function headBlock(d: FinanceDocument): string {
 <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0;text-align:right">${right}</div>
 </div>
 <div style="display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px">
-<div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px"><span style="font-size:14px;font-weight:500;color:#3B424C">ลูกค้า / Customer</span><span style="font-weight:600">${partyName(c)}</span>${
+<div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px"><span style="font-size:14px;font-weight:500;color:#3B424C">${e(d.partyLabel ?? 'ลูกค้า / Customer')}</span><span style="font-weight:600">${partyName(c)}</span>${
     c.address ? `<span>${e(c.address)}</span>` : ''
-  }${c.taxId ? `<span>เลขประจำตัวผู้เสียภาษี <span style="${NUM}">${e(c.taxId)}</span></span>` : ''}</div>
+  }${c.taxId ? `<span>เลขประจำตัวผู้เสียภาษี <span style="${NUM}">${e(c.taxId)}</span></span>` : ''}${extra}</div>
 <div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 14px;align-content:start">${info}</div>
 </div>
 </div>`;
@@ -183,10 +193,11 @@ function endBlock(d: FinanceDocument): string {
       return `<span${lbl ? ` style="${lbl}"` : ''}>${e(t.label)}</span><span style="${val}">${e(t.value)}</span>`;
     })
     .join('');
+  const words = d.amountInWords
+    ? `<div style="background:#EBEDE8;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px"><span style="font-size:14px;color:#3B424C">จำนวนเงินตัวอักษร / Amount in words</span><span style="font-weight:600">${e(d.amountInWords)}</span></div>`
+    : '';
   const left = [
-    d.amountInWords
-      ? `<div style="background:#EBEDE8;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px"><span style="font-size:14px;color:#3B424C">จำนวนเงินตัวอักษร / Amount in words</span><span style="font-weight:600">${e(d.amountInWords)}</span></div>`
-      : '',
+    words,
     ...d.notes.map((n) => `<span style="font-size:14px;color:#3B424C">${e(n)}</span>`),
     ...(d.warnings ?? []).map(
       (w) =>
@@ -203,6 +214,16 @@ function endBlock(d: FinanceDocument): string {
         }</div>`,
     )
     .join('');
+  if (d.layout === 'stacked') {
+    // TMS Print #pv: เส้นรวม 320 px ชิดขวา → จำนวนเงินตัวอักษรเต็มแถว → หมายเหตุ · ลายเซ็น gap 24
+    const small = left.slice(words.length);
+    return `<div class="end" style="display:flex;flex-direction:column;gap:20px">
+<div style="display:flex;justify-content:flex-end"><div style="width:320px;display:grid;grid-template-columns:1fr auto;gap:4px 16px">${totals}</div></div>
+${words}${small ? `<div style="display:flex;flex-direction:column;gap:4px">${small}</div>` : ''}
+${d.remarks.map((r) => `<p style="margin:0;color:#3B424C">${e(r)}</p>`).join('')}
+</div>
+<div class="sig" style="display:grid;grid-template-columns:repeat(${d.signatures.length},1fr);gap:24px;padding-top:28px">${sig}</div>`;
+  }
   return `<div class="end" style="display:flex;flex-direction:column;gap:20px">
 <div style="display:flex;justify-content:space-between;gap:24px;align-items:flex-start">
 <div style="flex:1;display:flex;flex-direction:column;gap:10px">${left}</div>

@@ -3408,6 +3408,7 @@ export const th = {
   'stl.notice': 'ตรวจได้ถึง {d} · กดยอมรับหรือโต้แย้งทีละรายการ',
   'stl.doneNote': 'อนุมัติแล้ว · ตอบรายการไม่ได้แล้ว',
   'stl.doneNote.PAID': 'จ่ายแล้ว · ตอบรายการไม่ได้แล้ว',
+  'stl.pdf': 'ใบจ่ายเงิน',
   'stl.secTrips': 'รายการเที่ยว',
   'stl.secDeduct': 'รายการหัก',
   'stl.ln.st.PENDING': 'รอตรวจ',
