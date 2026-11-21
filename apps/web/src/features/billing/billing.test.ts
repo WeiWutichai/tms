@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { billRanges, selectionTotals } from './billing';
+import { billRanges, invoiceDisplayStatus, overdueDays, selectionTotals } from './billing';
 
 describe('billRanges (ต้นแบบ vBill ranges)', () => {
   it('งวดครึ่งเดือน · เดือนก่อน · 7 วันล่าสุด', () => {
@@ -40,5 +40,16 @@ describe('selectionTotals — VAT ประมาณการจากฐาน 
       vat: '0.00',
       net: '0.00',
     });
+  });
+});
+
+describe('invoiceDisplayStatus / overdueDays (ต้นแบบ invSt — ธงเกินกำหนดที่เก็บ ST5-T18)', () => {
+  it('ธง overdue = "เกินกำหนด" (มาก่อนชำระบางส่วน) · ไม่มีธง = สถานะเดิม แม้เลยวันครบกำหนด (รอ job)', () => {
+    const due = '2026-11-01';
+    expect(invoiceDisplayStatus({ status: 'PARTIALLY_PAID', overdue: true })).toBe('OVERDUE');
+    expect(overdueDays({ overdue: true, dueDate: due }, '2026-11-04')).toBe(3);
+    expect(invoiceDisplayStatus({ status: 'ISSUED', overdue: false })).toBe('ISSUED');
+    expect(overdueDays({ overdue: false, dueDate: due }, '2026-11-04')).toBe(0);
+    expect(invoiceDisplayStatus({ status: 'PAID' })).toBe('PAID');
   });
 });

@@ -4845,7 +4845,7 @@
                 }
               ]
             },
-            "description": "scope: settlements:pay\n\n\"จ่าย\" + APPROVED → PAID · **เฉพาะใบ APPROVED** (ร่าง/รอตรวจ/โต้แย้ง/ยกเลิก/จ่ายแล้ว → 409 `invalid_state_transition`) · จ่ายเต็มยอดครั้งเดียว — ยอดที่จ่าย = `buyNetAfterWht` (ยอดสุทธิ − หัก ณ ที่จ่ายประมาณการที่ตรึงตอนอนุมัติ — ไม่เปลี่ยน) · `paidDate` (= วันที่หักภาษี) ตั้งแต่วันอนุมัติถึงวันนี้ (เวลาไทย) — ก่อนวันอนุมัติ → 422 `before_approval` · `reference` บังคับเมื่อ TRANSFER / CHEQUE · ใบที่ไม่ใช่ APPROVED (รวมจ่ายแล้ว/คำขอซ้ำพร้อมกัน) → 409 ก่อนตรวจ If-Match · เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · audit `settlement.paid` + webhook `settlement.paid` · ไฟล์โอนธนาคาร (bulk payment) = P1",
+            "description": "scope: settlements:pay\n\n\"จ่าย\" + APPROVED → PAID · **เฉพาะใบ APPROVED** (ร่าง/รอตรวจ/โต้แย้ง/ยกเลิก/จ่ายแล้ว → 409 `invalid_state_transition`) · จ่ายเต็มยอดครั้งเดียว — ยอดที่จ่าย = `buyNetAfterWht` (ยอดสุทธิ − หัก ณ ที่จ่ายประมาณการที่ตรึงตอนอนุมัติ — ไม่เปลี่ยน) · `paidDate` (= วันที่หักภาษี) ตั้งแต่วันอนุมัติถึงวันนี้ (เวลาไทย) — ก่อนวันอนุมัติ → 422 `before_approval` · `reference` บังคับเมื่อ TRANSFER / CHEQUE · ใบที่ไม่ใช่ APPROVED (รวมจ่ายแล้ว/คำขอซ้ำพร้อมกัน) → 409 ก่อนตรวจ If-Match · **ผู้อนุมัติใบนี้บันทึกจ่ายเองไม่ได้ → 403 `settlement_self_payment`** · เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · audit `settlement.paid` + webhook `settlement.paid` · ไฟล์โอนธนาคาร (bulk payment) = P1",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"paidDate\": \"2026-11-20\",\n  \"method\": \"TRANSFER\"\n}",
@@ -16716,6 +16716,534 @@
       ]
     },
     {
+      "name": "billing-notes",
+      "item": [
+        {
+          "name": "จำนวนใบวางบิลตามสถานะ (แท็บ)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/billing-notes/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "billing-notes",
+                "summary"
+              ]
+            },
+            "description": "scope: invoices:read"
+          }
+        },
+        {
+          "name": "ใบแจ้งหนี้ของลูกค้าที่ใส่ในใบวางบิลได้",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/billing-notes/candidates?customerId=cus_…",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "billing-notes",
+                "candidates"
+              ],
+              "query": [
+                {
+                  "key": "customerId",
+                  "value": "cus_…",
+                  "description": "ลูกค้า — id หรือ `ext:{externalId}`",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "scope: invoices:read\n\nออกแล้วและยังค้างชำระ (ISSUED) และไม่อยู่ในใบวางบิลอื่นที่ active (ร่าง/ออกแล้ว) · เรียงวันที่ออก · ≤ 500 ใบ · ยอด `sell*` เห็นเมื่อมี `prices.sell:read`"
+          }
+        },
+        {
+          "name": "รายการใบวางบิล",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/billing-notes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "billing-notes"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "ค่า nextCursor จากหน้าก่อน",
+                  "disabled": true
+                },
+                {
+                  "key": "updatedAfter",
+                  "value": "",
+                  "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+                  "disabled": true
+                },
+                {
+                  "key": "sort",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "fields",
+                  "value": "",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
+                  "disabled": true
+                },
+                {
+                  "key": "customerId",
+                  "value": "cus_…",
+                  "description": "ลูกค้า — id หรือ `ext:{externalId}`",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "scope: invoices:read\n\nกรองลูกค้า (`customerId` รับ `ext:`) / สถานะ · cursor มาตรฐาน (updatedAt, id) · ร่างไม่มีเลข · ยอด `sell*` เห็นเมื่อมี `prices.sell:read`"
+          }
+        },
+        {
+          "name": "สร้างร่างใบวางบิลจากใบแจ้งหนี้หลายใบของลูกค้าเดียว (ไม่มีเลข)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/billing-notes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "billing-notes"
+              ]
+            },
+            "description": "scope: invoices:draft\n\nใบแจ้งหนี้ต้องเป็นของลูกค้ารายนี้ **ออกแล้วและยังค้างชำระ** (ISSUED — ไม่งั้น 409 `invoice_not_billable`) ผู้ออก/สาขาผู้ออกเดียวกัน (422 `issuer_mismatch`) · **ใบแจ้งหนี้หนึ่งใบอยู่ในใบวางบิลที่ active ได้ใบเดียว** (409 `invoice_already_billed` — กันระดับ DB) · ยอดวางบิล = Σ ยอดค้าง · WHT ที่คาดว่าจะถูกหักเป็นประมาณการ · ไม่กระทบ VAT/WHT · audit `billing_note.draft_created`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"cus_…\",\n  \"invoiceIds\": [\n    \"ivc_…\"\n  ],\n  \"collectionDate\": \"2026-12-05\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ใบวางบิล + ใบแจ้งหนี้ในใบ + ผู้รับวางบิล",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/billing-notes/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "billing-notes",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:read"
+          }
+        },
+        {
+          "name": "แก้ร่าง — ชุดใบแจ้งหนี้ วันนัดรับเช็ค/โอน หมายเหตุ",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/billing-notes/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "billing-notes",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:draft\n\nเฉพาะ DRAFT (อื่น ๆ → 409) · `invoiceIds` = ชุดใหม่ทั้งหมด (ใบที่ไม่อยู่ในชุดถูกถอด — ยังเห็นในประวัติ `active=false`) · audit `billing_note.draft_updated`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"invoiceIds\": [\n    \"ivc_…\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ออกเอกสาร — ออกเลขใบวางบิล (ชุด BN) + ล็อก",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+                "disabled": false
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/billing-notes/:id/finalize",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "billing-notes",
+                ":id",
+                "finalize"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:finalize\n\nDRAFT → ISSUED · ตรวจใบแจ้งหนี้ซ้ำ (ยังออกแล้วค้างชำระ — 409 `invoice_not_billable`) · ต้องมีวันนัดรับเช็ค/โอน ≥ วันวางบิล (422 `collectionDate`) · วันวางบิล = วันนี้ (เวลาไทย) · ออกเลขชุด BN (เรียงไม่ข้าม) · snapshot ลูกค้า/ผู้ออก/ยอดต่อใบ · audit `billing_note.issued` · แล้ว render PDF ต้นฉบับเก็บแบบเขียนครั้งเดียว · หลังนี้แก้ไม่ได้ (ยกเลิกแล้วสร้างใหม่)"
+          }
+        },
+        {
+          "name": "บันทึกผู้รับวางบิล (ชื่อฝั่งลูกค้า + วันที่รับ)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/billing-notes/:id/acknowledge",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "billing-notes",
+                ":id",
+                "acknowledge"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:finalize\n\nใบที่ออกแล้ว (ISSUED/COLLECTED) · วันที่รับ ≥ วันวางบิล และไม่เกินวันนี้ · บันทึกซ้ำ = แก้ (audit ค่าเดิม/ใหม่ `billing_note.acknowledged`) · ไม่เปลี่ยนสถานะ",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"receivedBy\": \"คุณสมศรี (ฝ่ายบัญชี)\",\n  \"receivedOn\": \"2026-11-21\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "รับเช็ค/โอนแล้ว — ISSUED → COLLECTED",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/billing-notes/:id/collect",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "billing-notes",
+                ":id",
+                "collect"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:finalize\n\nสถานะสิ้นสุด · ใบแจ้งหนี้ในใบ**ยังนับว่าวางบิลแล้ว** · ไม่เปลี่ยนสถานะ/ยอดของใบแจ้งหนี้ · audit `billing_note.collected`",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ยกเลิกใบวางบิล — เหตุผล ≥ 10 ตัวอักษร",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/billing-notes/:id/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "billing-notes",
+                ":id",
+                "cancel"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:draft\n\nDRAFT → CANCELLED (`invoices:draft`) · ISSUED → CANCELLED (ต้องมี `invoices:finalize` ด้วย — 403) · เลขคงอยู่ ไม่ถูกใช้ซ้ำ · ไม่กระทบใบแจ้งหนี้ (BIL-039 — วางบิลใหม่ได้) · COLLECTED ยกเลิกไม่ได้ (409) · audit `billing_note.cancelled` + เหตุผล",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"ลูกค้าขอแยกวางบิลตามสาขา\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PDF ตัวอย่างของร่างใบวางบิล — ไม่มีเลข มีลายน้ำ \"ร่าง\"",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/billing-notes/:id/proforma",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "billing-notes",
+                ":id",
+                "proforma"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:read\n\nเฉพาะ DRAFT (อื่น ๆ → 409 ใช้ `/pdf`) · แม่แบบเดียวกับใบแจ้งหนี้ (TMS Print #bill) · render ใหม่ทุกครั้ง ไม่เก็บไฟล์ · ต้องมี `prices.sell:read`"
+          }
+        },
+        {
+          "name": "PDF ใบวางบิลที่ออกแล้ว — ต้นฉบับ / สำเนา (ไฟล์ที่เก็บ ณ วันออก)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/billing-notes/:id/pdf",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "billing-notes",
+                ":id",
+                "pdf"
+              ],
+              "query": [
+                {
+                  "key": "copy",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:read\n\nใบที่ออกเลขแล้ว (ISSUED/COLLECTED/ยกเลิกหลังออก) — ร่าง → 409 ใช้ `/proforma` · `copy=COPY` render จาก snapshot ครั้งแรกแล้วเก็บ · header `X-Content-SHA256` · ต้องมี `prices.sell:read`"
+          }
+        }
+      ]
+    },
+    {
       "name": "invoices",
       "item": [
         {
@@ -16930,6 +17458,24 @@
                   "value": "",
                   "description": "",
                   "disabled": true
+                },
+                {
+                  "key": "receivable",
+                  "value": "",
+                  "description": "หน้า \"รับชำระ\": `all` = ใบที่ออกแล้ว (ไม่รวมร่าง/ยกเลิก) · `open` = ค้างรับ (ISSUED + PARTIALLY_PAID) · `overdue` = ใบที่มีธงเกินกำหนด — ใช้ร่วมกับ `status` ได้",
+                  "disabled": true
+                },
+                {
+                  "key": "overdue",
+                  "value": "",
+                  "description": "ธงเกินกำหนด — `false` = ไม่รวมใบเกินกำหนด (แท็บ \"ออกแล้ว\"/\"ชำระบางส่วน\" ของต้นแบบ: เกินกำหนดแสดงก่อน) · `true` = เฉพาะเกินกำหนด",
+                  "disabled": true
+                },
+                {
+                  "key": "aging",
+                  "value": "",
+                  "description": "ช่วงอายุลูกหนี้ (การ์ด \"อายุลูกหนี้\" ของหน้ารับชำระ) — เฉพาะใบค้างรับที่ยังมียอดค้าง และ `daysPastDue = วันนี้ − dueDate` (เวลาไทย) อยู่ในช่วง · ชุดเดียวกับ `GET /payments/aging`",
+                  "disabled": true
                 }
               ]
             },
@@ -17087,6 +17633,88 @@
               ]
             },
             "description": "scope: invoices:read\n\nเฉพาะใบ DRAFT · แม่แบบใบแจ้งหนี้เต็ม · render ใหม่ทุกครั้งตามร่างล่าสุด (ไม่เก็บไฟล์) · ไม่มีคำว่า \"ใบกำกับภาษี\" · ยอด VAT/WHT ประมาณการ · ต้องมี `prices.sell:read` (มีราคา) ไม่งั้น 403"
+          }
+        },
+        {
+          "name": "ออกเอกสาร (finalize) — ออกเลขใบแจ้งหนี้ + ล็อก",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+                "disabled": false
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/:id/finalize",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                ":id",
+                "finalize"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:finalize\n\nDRAFT → ISSUED · ตรวจ → ไม่ผ่าน 409 `invoice_not_finalizable` + `reasons[]`: `no_lines` · `total_not_positive` · `customer_tax_id_missing` · `customer_branch_missing` · `line_vat_type_missing` · `revenue_line_provisional` (+ `lines[]` — ยอดยังไม่ยืนยัน บันทึกยอดส่งจริงก่อน) · `issuer_not_vat_registered` (ผู้ออกไม่จด VAT แต่มีบรรทัด VAT 7%) · **แบ่งหน้าที่:** ผู้สร้าง/ผู้แก้ร่างล่าสุด (API key = ผู้ออก key) ออกใบนั้นเองไม่ได้ → 403 `invoice_self_finalize` (เว้น tenant ตั้ง `billing.allowSelfFinalize`) · ออกเลขชุด INV ต่อสาขาผู้ออก (เรียงไม่ข้าม พร้อมกันได้) · วันที่ออก = วันนี้ (เวลาไทย) · ครบกำหนด = วันที่ออก + เครดิต · เก็บ snapshot ลูกค้า/ผู้ออก · DO → INVOICED (+ UNBILLED → BILLED) · ล็อกบรรทัดรายได้ · audit + webhook `invoice.finalized` (transaction เดียว) · แล้ว render PDF ต้นฉบับเก็บแบบเขียนครั้งเดียว (`pdf`) · **ไม่มีเลขใบกำกับภาษี** · หลังนี้แก้/ยกเลิกร่าง/PATCH ไม่ได้ (409) · **sandbox:** ออกได้ — เลขจากชุดเลขของ sandbox ขึ้นต้น `TEST-` · PDF มีลายน้ำ \"ตัวอย่าง — ใช้ไม่ได้จริง\" · ไม่ส่งไป connector/ERP"
+          }
+        },
+        {
+          "name": "PDF ใบแจ้งหนี้ที่ออกแล้ว — ต้นฉบับ / สำเนา (ไฟล์ที่เก็บ ณ วันออก)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/:id/pdf",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                ":id",
+                "pdf"
+              ],
+              "query": [
+                {
+                  "key": "copy",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:read\n\nใบที่ออกเลขแล้วเท่านั้น (ร่าง → 409 ใช้ `/proforma`) · `copy=ORIGINAL` (ค่าเริ่ม) = ไฟล์ต้นฉบับที่เก็บตอนออก · `copy=COPY` = สำเนา render จาก snapshot ณ วันออกครั้งแรกที่ขอแล้วเก็บ — ไม่ render ตามข้อมูลลูกค้าปัจจุบัน · ยังไม่มีไฟล์ (render ตอนออกล้ม) → สร้างให้แล้วเก็บ · header `X-Content-SHA256` · ไม่มีคำว่า \"ใบกำกับภาษี\" · ต้องมี `prices.sell:read` ไม่งั้น 403 · **ใบที่ยกเลิกแล้ว** = ไฟล์ลายน้ำ \"ยกเลิก\" ที่ render ด้วยแม่แบบวันออกแล้วเก็บตอนยกเลิก · แม่แบบเปลี่ยนแล้วและยังไม่มีไฟล์ลายน้ำ → ส่งไฟล์ต้นฉบับที่เก็บแทน + header `X-Invoice-Pdf-Note: cancelled-watermark-unavailable` · ไฟล์ต้นฉบับ/สำเนาคงเดิม"
           }
         },
         {
@@ -17585,7 +18213,7 @@
                 }
               ]
             },
-            "description": "scope: invoices:draft\n\nDRAFT → CANCELLED · บรรทัดหยุดนับ · DO กลับ UNBILLED (ขึ้นคิวอีก) · ใบที่ออกแล้วยกเลิกที่นี่ไม่ได้ · audit `invoice.draft_cancelled`",
+            "description": "scope: invoices:draft\n\nDRAFT → CANCELLED · บรรทัดหยุดนับ · DO กลับ UNBILLED (ขึ้นคิวอีก) · ใบที่ออกแล้วยกเลิกที่นี่ไม่ได้ (409 — ใช้ `POST /v1/invoices/{id}/void`) · audit `invoice.draft_cancelled`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"reason\": \"ลูกค้าขอแยกวางบิลงวดหน้า\"\n}",
@@ -17595,6 +18223,527 @@
                 }
               }
             }
+          }
+        },
+        {
+          "name": "ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (void) — คงเลข · ยังไม่รับชำระ · เหตุผล ≥ 10 ตัวอักษร",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+                "disabled": false
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/:id/void",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                ":id",
+                "void"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:void\n\nสิทธิ์ `invoices:void` · **If-Match บังคับ** (ไม่ส่ง → 422 `if_match_required`) · ISSUED → **CANCELLED คงเลข** (เลขไม่ถูกออกซ้ำ · record ไม่ถูกลบ) · รับชำระแล้ว (บางส่วน/ครบ) → 409 `invoice_has_payments` (`payments[]` — กลับรายการก่อน) · อยู่ในใบวางบิลที่ออกแล้ว/เก็บเงินแล้ว → 409 `invoice_on_billing_note` (`billingNoteNo` — ยกเลิกใบวางบิลก่อน) · **ส่งลูกค้าแล้ว** → 409 `invoice_sent_to_customer` · ร่าง → 409 (ใช้ `/cancel`) · ผล: DO INVOICED/BILLED → UNBILLED (วางบิลใหม่ได้) · ปลดล็อกบรรทัดรายได้ · ถอดออกจากใบวางบิลที่ยังเป็นร่าง · audit `invoice.cancelled` + webhook `invoice.voided` · `reissue: true` = สร้างร่างฉบับใหม่แทน (DO ชุดเดิม + บรรทัดที่เพิ่มเอง) อ้างเลขเดิม (`replacedByInvoice` / `replacesInvoice`) — ออกเลขใหม่ตามปกติ · PDF ของใบที่ยกเลิกมีลายน้ำ \"ยกเลิก\"",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"ลูกค้าขอแยกวางบิลงวดหน้า\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ทำเครื่องหมาย \"ส่งลูกค้าแล้ว\"",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/:id/mark-sent",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                ":id",
+                "mark-sent"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:finalize\n\nสิทธิ์ `invoices:finalize` · ใบที่ออกเลขแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — อื่น ๆ 409 `invalid_state_transition`) · ส่งแล้วอยู่แล้ว = คืนค่าเดิม (ไม่เปลี่ยน) · audit `invoice.sent_to_customer` · ส่งแล้ว**ยกเลิกใบไม่ได้** (`/void` → 409 `invoice_sent_to_customer`) · ออกใบวางบิลตั้งธงนี้ให้อัตโนมัติ (ช่องทาง BILLING_NOTE) · ส่งอีเมล ="
+          }
+        },
+        {
+          "name": "ล้างธง \"ส่งลูกค้าแล้ว\" (ทำเครื่องหมายผิด) — เหตุผล ≥ 10 ตัวอักษร",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/:id/unmark-sent",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                ":id",
+                "unmark-sent"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:void\n\nสิทธิ์ `invoices:void` (owner/admin/manager — สิทธิ์เดียวกับยกเลิกใบที่ออกแล้ว) · ยังไม่ส่ง = คืนค่าเดิม · audit `invoice.sent_to_customer_cleared` พร้อมเหตุผล · ยกเลิกใบวางบิลที่ออกแล้วล้างธงช่องทาง BILLING_NOTE ให้อัตโนมัติ",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"ลูกค้าขอแยกวางบิลงวดหน้า\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "payments",
+      "item": [
+        {
+          "name": "รายการรับชำระ",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/payments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "payments"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "ค่า nextCursor จากหน้าก่อน",
+                  "disabled": true
+                },
+                {
+                  "key": "updatedAfter",
+                  "value": "",
+                  "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+                  "disabled": true
+                },
+                {
+                  "key": "sort",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "fields",
+                  "value": "",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
+                  "disabled": true
+                },
+                {
+                  "key": "invoiceId",
+                  "value": "ivc_…",
+                  "description": "การรับชำระที่ตัดใบแจ้งหนี้นี้",
+                  "disabled": true
+                },
+                {
+                  "key": "customerId",
+                  "value": "cus_…",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "scope: invoices:read\n\nกรองใบแจ้งหนี้ (`invoiceId`) / ลูกค้า (`customerId` รับ `ext:`) / สถานะ · cursor มาตรฐาน (updatedAt, id) · ยอด `sell*` เห็นเมื่อมี `prices.sell:read`"
+          }
+        },
+        {
+          "name": "บันทึกรับชำระ",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/payments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "payments"
+              ]
+            },
+            "description": "scope: payments:record\n\nใบแจ้งหนี้ที่ออกแล้ว (ISSUED / PARTIALLY_PAID) ของลูกค้ารายเดียว หลายใบได้ (BIL-050) · **เงินรับ + WHT + ค่าธรรมเนียม + ส่วนต่าง = Σ `allocations.amount`** (BIL-051 — ไม่มีเงินรับเกิน/เครดิตลูกค้าในเฟสนี้) ไม่ตรง → 422 `payment_unbalanced` · ยอดตัดต่อใบ ≤ คงค้าง (ตรวจใต้ล็อกใบ — พร้อมกันก็ตัดเกินไม่ได้) → 409 `payment_exceeds_outstanding` · ใบไม่อยู่ในสถานะรับชำระ → 409 `invoice_not_payable` · วันที่รับ ≤ วันนี้ (เวลาไทย) · `CHEQUE` ต้องมี `chequeNo` `chequeBank` `chequeDate` (สถานะเช็คเริ่ม PENDING) · ส่วนต่าง > 0 ต้องมี `differenceReason` · WHT ที่ถูกหัก = บันทึกยอด (+ เลขที่ 50 ทวิ) — รับ/ตรวจ 50 ทวิ ที่ระบบบัญชี · สถานะใบ: ตัดครบ → PAID · บางส่วน → PARTIALLY_PAID · เลขภายใน PAY · audit + webhook `payment.recorded` (transaction เดียว) · แก้/ลบไม่ได้ — กลับรายการด้วย `POST /payments/{id}/reverse`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"receivedDate\": \"2026-11-21\",\n  \"method\": \"TRANSFER\",\n  \"chequeDate\": \"2026-11-30\",\n  \"amountReceived\": \"24750.00\",\n  \"whtAmount\": \"250.00\",\n  \"feeAmount\": \"0.00\",\n  \"differenceAmount\": \"0.00\",\n  \"allocations\": [\n    {\n      \"invoiceId\": \"ivc_…\",\n      \"amount\": \"25000.00\",\n      \"whtAmount\": \"250.00\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "KPI หน้า \"รับชำระ\" — ยอดค้างรับ / เกินกำหนด / รับชำระเดือนนี้ / ครบกำหนดใน 7 วัน + จำนวนต่อแท็บ",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/payments/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "payments",
+                "summary"
+              ]
+            },
+            "description": "scope: invoices:read\n\nวันครบกำหนดและเดือน ตามเวลาไทย (Asia/Bangkok) · เกินกำหนด = ใบที่มีธง `overdue`"
+          }
+        },
+        {
+          "name": "อายุลูกหนี้ — ยอดค้างตามช่วงอายุ รวมและต่อลูกค้า",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/payments/aging",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "payments",
+                "aging"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "ลูกค้าต่อหน้า",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "ค่า nextCursor จากหน้าก่อน (เรียงตามชื่อลูกค้า)",
+                  "disabled": true
+                },
+                {
+                  "key": "customerId",
+                  "value": "cus_…",
+                  "description": "ลูกค้ารายเดียว — id หรือ `ext:{externalId}`",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "scope: invoices:read\n\nใบค้างรับ (ISSUED / PARTIALLY_PAID ที่ยังมียอดค้าง) · ยอดค้าง = ยอดรวม − ยอดตัดชำระ · ช่วงอายุจาก `daysPastDue = asOf − dueDate` (เวลาไทย): ยังไม่ครบกำหนด (≤ 0) · 1–30 · 31–60 · 61–90 · เกิน 90 วัน · **Σ ทุกช่วง = `sellOutstanding` ของ `GET /payments/summary`** · `data` = ต่อลูกค้า (เฉพาะที่มียอดค้าง) เรียงตามชื่อ cursor มาตรฐาน · กรองลูกค้า `customerId` (รับ `ext:`) · asOf = วันนี้ · ยอด `sell*` เห็นเมื่อมี `prices.sell:read` (จำนวนใบเห็นเสมอ) · รายการใบในช่วงอายุ: `GET /invoices?receivable=open&aging=…`"
+          }
+        },
+        {
+          "name": "การรับชำระ + การตัดชำระต่อใบแจ้งหนี้",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/payments/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "payments",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:read"
+          }
+        },
+        {
+          "name": "กลับรายการรับชำระ",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) ของการรับชำระ — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+                "disabled": false
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/payments/:id/reverse",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "payments",
+                ":id",
+                "reverse"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: payments:reverse\n\nRECORDED → REVERSED · ยอดค้างของใบกลับมา (PAID/PARTIALLY_PAID → ตามยอดที่เหลือ) · เหตุผล ≥ 10 ตัวอักษร + audit · webhook `payment.reversed` · บันทึกผิด = กลับรายการแล้วบันทึกใหม่ (ไม่มีแก้/ลบ)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"บันทึกยอดผิด ลูกค้าโอน 24,500.00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "เช็คคืน — กลับรายการรับชำระด้วยเช็ค (BIL-060)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) ของการรับชำระ — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+                "disabled": false
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/payments/:id/bounce",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "payments",
+                ":id",
+                "bounce"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: payments:reverse\n\nเช็คที่รอเคลียร์/ผ่านแล้ว → `chequeStatus` BOUNCED + REVERSED · ยอดค้างของใบกลับมา · เหตุผล + audit `payment.cheque_bounced` · webhook `payment.reversed` (`chequeStatus: BOUNCED`)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"บันทึกยอดผิด ลูกค้าโอน 24,500.00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "เช็คผ่าน (เคลียร์แล้ว) — PENDING → CLEARED",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) ของการรับชำระ — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+                "disabled": false
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/payments/:id/clear",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "payments",
+                ":id",
+                "clear"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: payments:record\n\nไม่เปลี่ยนยอดตัดหนี้ (ตัดยอดตั้งแต่บันทึกรับเช็ค) · audit `payment.cheque_cleared`"
           }
         }
       ]

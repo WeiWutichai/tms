@@ -121,6 +121,24 @@ export const SETTINGS = {
     default: null,
     description: 'free time ค่ารอเริ่มต้น (นาที) — null = ไม่ตั้ง (จุดส่ง/ลูกค้ากำหนดเอง)',
   },
+  // ST5-T09 (docs/04 A3 "ผู้สร้างใบแจ้งหนี้ finalize ใบตัวเองไม่ได้ (ปิดได้สำหรับ tenant เล็กโดย owner ยอมรับความเสี่ยง)") —
+  // ไม่มีหน้าจอ (ต้นแบบไม่มีช่อง — spec/12 §3) ตั้งผ่าน PATCH /v1/settings · เปิด = ลดการควบคุม ต้อง step-up 2FA
+  'billing.allowSelfFinalize': {
+    group: 'billing',
+    type: { kind: 'bool' },
+    default: false,
+    description:
+      'ให้ผู้สร้าง/ผู้แก้ร่างใบแจ้งหนี้ ออกเอกสารใบนั้นเองได้ (ปิดกฎแบ่งหน้าที่ — สำหรับบริษัทเล็กที่ owner ยอมรับความเสี่ยง) · ค่าเริ่ม ปิด · **แก้ได้เฉพาะ owner** · เปิด = ลดการควบคุม ต้อง step-up',
+  },
+  // ST5-T13 review M1 (spec/05 BIL-059 [PROPOSED] "ผลต่างเล็กน้อย … ≤ ค่าที่ตั้ง เช่น 10.00 บาท → manager อนุมัติ") — ไม่มีหน้าจอ
+  // (ต้นแบบไม่มีช่อง — spec/12 §3) ตั้งผ่าน PATCH /v1/settings · เพิ่มค่า = คุมหลวมขึ้น ต้อง step-up
+  'payments.maxDifferenceAmount': {
+    group: 'billing',
+    type: { kind: 'int', min: 0, max: 1_000_000 },
+    default: 10,
+    description:
+      'ส่วนต่างที่ยอมตัดยอดต่อการรับชำระ (บาท) ที่ผู้บันทึก (บัญชี) ทำเองได้ — เกินค่านี้ต้องมีสิทธิ์ `payments:reverse` (ผู้จัดการขึ้นไป) · ค่าเริ่ม 10 · เพิ่มค่า = ลดการควบคุม ต้อง step-up',
+  },
   'routing.invoiceAsCompanyId': {
     group: 'routing',
     type: { kind: 'ref', entity: 'company', nullable: true },
@@ -210,6 +228,15 @@ export const SETTINGS = {
     default: false,
     description:
       'ใบสำคัญจ่ายรถร่วมต้องส่งให้รถร่วมตรวจผ่านลิงก์ก่อนอนุมัติ (ปิด = อนุมัติร่างได้ตรง ส่งตรวจหรือไม่ก็ได้) — ค่าเริ่ม ปิด · ปิดจากที่เปิดอยู่ = ลดการควบคุม ต้อง step-up',
+  },
+  // D-60 (PO 21 พ.ย. 2569, ST6-T09): ผู้บันทึกจ่ายต้องไม่ใช่ผู้อนุมัติใบนั้น — ปิดกฎได้เฉพาะ owner (แบบ `billing.allowSelfFinalize`)
+  // ไม่มีหน้าจอ (ต้นแบบไม่มีช่อง — spec/12 §3) ตั้งผ่าน PATCH /v1/settings · เปิด = ลดการควบคุม ต้อง step-up 2FA
+  'settlement.allowApproverMarkPaid': {
+    group: 'settlement',
+    type: { kind: 'bool' },
+    default: false,
+    description:
+      'ให้ผู้อนุมัติใบสำคัญจ่ายรถร่วม บันทึกจ่ายใบนั้นเองได้ (ปิดกฎแบ่งหน้าที่ — สำหรับบริษัทเล็กที่ owner ยอมรับความเสี่ยง) · ค่าเริ่ม ปิด · **แก้ได้เฉพาะ owner** · เปิด = ลดการควบคุม ต้อง step-up',
   },
   // ST9-T14 ระยะเก็บ (docs/04 J — ตั้งต่อ tenant ไม่ต่ำกว่าขั้นต่ำ) · ค่าเริ่ม = ขั้นต่ำ · ต่ำกว่าขั้นต่ำ = 422 · ลดระยะต้อง step-up
   // ไม่มีหน้าจอ (ต้นแบบไม่มี — spec/12 §3) ตั้งผ่าน PATCH /v1/settings · เอกสารภาษีไม่อยู่ในกลุ่มนี้ (ST9-T15)

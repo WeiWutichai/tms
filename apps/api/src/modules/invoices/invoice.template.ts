@@ -14,6 +14,7 @@ import {
   bahtFormat,
   dateRangeShort,
   financeDocument,
+  SANDBOX_WATERMARK,
   type FinanceParty,
   type FinanceTotal,
 } from '../../pdf/finance-document';
@@ -24,6 +25,14 @@ import { docDateShort } from '../../common/thai-date';
  * ยอด VAT/WHT เป็น**ประมาณการ** (computeDocumentTax — ติด * + หมายเหตุ) · ใช้ทั้ง PDF ตัวอย่างของร่าง (ลายน้ำ "ร่าง" ไม่มีเลข)
  * และใบที่ออกแล้ว (ST5-T09 ส่งเลข + "ต้นฉบับ/สำเนา") · หน้าตาตามต้นแบบ TMS Print #inv (ตัดส่วนใบเสร็จ/ใบกำกับภาษี — spec/12 §3)
  */
+/**
+ * รุ่นของแม่แบบใบแจ้งหนี้ (ST5-T09 review M1) — เก็บใน `invoice.print_options.templateVersion` ตอนออกเลข · PDF ของใบที่ออกแล้ว
+ * render ได้เฉพาะเมื่อรุ่นตรงกับที่บันทึก (ไม่ render ต้นฉบับ/สำเนาด้วยแม่แบบใหม่เงียบ ๆ — BIL-196, ST9-T15 hash คงที่)
+ * **แก้หน้าตา/เนื้อของแม่แบบ (`invoiceDocument`, finance-document.ts) ต้องเพิ่มเลขนี้**
+ * (D-61 ลายน้ำ sandbox ไม่เพิ่มเลข: ใบที่ออกก่อน D-61 เป็นใบ live ทั้งหมด — sandbox ออกเลขไม่ได้ — ผลพิมพ์ของใบเหล่านั้นไม่เปลี่ยน)
+ */
+export const INVOICE_TEMPLATE_VERSION = 1;
+
 export interface InvoicePrintLine {
   no: number;
   description: string;
@@ -57,6 +66,8 @@ export interface InvoicePrintModel {
   /** null = ร่าง */
   invoiceNo: string | null;
   copy: 'ORIGINAL' | 'COPY' | null;
+  /** D-61: ใบที่ออกใน sandbox (`print_options.sandbox` ณ วันออก) → ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" ทุกหน้า */
+  sandbox?: boolean;
   /** YYYY-MM-DD — ร่าง = วันที่พิมพ์ */
   issueDate: string;
   /** YYYY-MM-DD — วันที่ออก + เครดิต */
@@ -70,6 +81,10 @@ export interface InvoicePrintModel {
   note: string | null;
   lines: InvoicePrintLine[];
   totals: InvoiceTotals;
+  /** ST5-T10 ใบที่ยกเลิกแล้ว (มีเลข) — ลายน้ำ "ยกเลิก" (spec/05 BIL-195) */
+  cancelled?: boolean;
+  /** ST5-T10 ใบนี้ออกแทนใบที่ยกเลิก — หมายเหตุ "ออกแทนใบแจ้งหนี้เลขที่ … ลงวันที่ …" (docs/04 F3, spec/05 BIL-101 แบบเดียวกัน) */
+  replaces?: { invoiceNo: string; issueDate: string } | null;
 }
 
 /**
@@ -190,6 +205,15 @@ export function invoiceDocument(m: InvoicePrintModel) {
     title: 'ใบแจ้งหนี้',
     titleEn: 'INVOICE',
     docNo: m.invoiceNo,
+    // ST5-T10 ยกเลิก + D-61 sandbox — ยกเลิกใน sandbox แสดงทั้งสองข้อความ
+    watermark: m.cancelled
+      ? m.sandbox
+        ? `ยกเลิก — ${SANDBOX_WATERMARK}`
+        : 'ยกเลิก'
+      : m.sandbox
+        ? SANDBOX_WATERMARK
+        : null,
+    watermarkKind: m.cancelled ? (m.sandbox ? 'void-sample' : 'void') : 'sample',
     copyLabel:
       m.invoiceNo === null || m.copy === null
         ? null
@@ -220,7 +244,14 @@ export function invoiceDocument(m: InvoicePrintModel) {
       : [],
     warnings: invoiceWarnings(m),
     totals,
-    remarks: m.note ? [m.note] : [],
+    remarks: [
+      ...(m.replaces
+        ? [
+            `ออกแทนใบแจ้งหนี้เลขที่ ${m.replaces.invoiceNo} ลงวันที่ ${docDateShort(m.replaces.issueDate, m.yearStyle)}`,
+          ]
+        : []),
+      ...(m.note ? [m.note] : []),
+    ],
     signatures: [
       { label: 'ผู้รับใบแจ้งหนี้ / Received by', dated: true },
       { label: 'ผู้มีอำนาจลงนาม / Authorized signatory', dated: false },

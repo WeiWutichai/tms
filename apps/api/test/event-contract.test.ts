@@ -325,14 +325,9 @@ describe('event registry contract (ST7-T06)', () => {
       }
     }
     expect(PENDING_EVENT_TYPES).toEqual([
-      'invoice.finalized',
       'invoice.adjusted',
-      'invoice.paid',
-      'invoice.voided',
       'credit_note.finalized',
       'debit_note.finalized',
-      'payment.recorded',
-      'payment.reversed',
       'receipt.issued',
       'wht_certificate.issued',
       'reconcile.mismatch_found',
@@ -583,8 +578,9 @@ describe('event registry contract (ST7-T06)', () => {
         ...eventDefinition('settlement.approved')!.object!.omit,
       ]),
     );
-    // ---- settlement.paid (ST6-T09): บันทึกจ่ายใบที่อนุมัติแล้ว ----
-    await api(app, admin)
+    // ---- settlement.paid (ST6-T09): บันทึกจ่ายใบที่อนุมัติแล้ว — ผู้บันทึกจ่าย ≠ ผู้อนุมัติ (D-60) ----
+    const payer = await tokenFor(tenantId, '*', 'u-event-payer');
+    await api(app, payer)
       .post(`/v1/settlements/${stlPub}/mark-paid`)
       .set(
         'If-Match',
@@ -601,6 +597,126 @@ describe('event registry contract (ST7-T06)', () => {
       await rest(`/v1/settlements/${stlPub}`, [
         ...eventDefinition('settlement.paid')!.object!.omit,
       ]),
+    );
+
+    // ---- invoice.finalized (ST5-T09): ใบสั่งราคาจาก rate card → ส่งถึง → ส่งบัญชี + ร่าง (ผู้ดูแล) → ออกเอกสาร (อีกคน — A3) ----
+    const icus = await newCustomer();
+    await db.customer.update({
+      where: { id: icus },
+      data: { branchCode: '00000', podRequirements: { success: { fields: [] } } },
+    });
+    const [io, idst] = [await newSite(), await newSite()];
+    const rc = (
+      await api(app, admin)
+        .post('/v1/rate-cards')
+        .send({
+          customerId: encodeId('customer', icus),
+          originId: encodeId('site', io),
+          destinationId: encodeId('site', idst),
+          vehicleTypeId: vt6,
+          validFrom: today,
+          pricingModel: 'PER_TON',
+          sellRate: '350',
+        })
+        .expect(201)
+    ).body as { id: string };
+    await api(app, admin)
+      .post(`/v1/rate-cards/${rc.id}/approve`)
+      .send({ reason: 'อนุมัติตามใบเสนอราคา' })
+      .expect(200);
+    const { order: iso } = await run((tx) =>
+      app.get(OrderIntakeService).upsertOrder(
+        {
+          source: 'MANUAL',
+          customer: { id: icus },
+          requestedDate: today,
+          vehicleTypeId: uuid('vehicleType', vt6),
+          stops: [
+            { type: 'PICKUP', siteId: io },
+            { type: 'DELIVERY', siteId: idst },
+          ],
+          lines: [{ description: 'ปูนซีเมนต์', qty: '5', unitId: unitTon, weightKg: '5000' }],
+        },
+        tx,
+      ),
+    );
+    const [ido] = await run((tx) => app.get(DeliveryOrderService).listForOrder(iso.id, {}, tx));
+    const ti = await trip(ido!.id, true);
+    await post(ti.pickup, 'arrive', 55);
+    await post(ti.pickup, 'complete', 50, { outcome: 'DELIVERED' });
+    await post(ti.drop, 'arrive', 40);
+    await post(ti.drop, 'complete', 30, { outcome: 'DELIVERED' });
+    const draft = (
+      await api(app, admin)
+        .post('/v1/invoices')
+        .send({
+          customerId: encodeId('customer', icus),
+          deliveryOrderIds: [encodeId('deliveryOrder', ido!.id)],
+          releaseDeliveryOrders: true,
+        })
+        .expect(201)
+    ).body as { id: string; version: number };
+    const finalizer = await tokenFor(tenantId, '*', 'u-event-accounting');
+    await api(app, finalizer)
+      .post(`/v1/invoices/${draft.id}/finalize`)
+      .set('If-Match', `"${draft.version}"`)
+      .expect(200);
+    expect((await latest('invoice.finalized', uuid('invoice', draft.id)))!.snapshot).toEqual(
+      await rest(`/v1/invoices/${draft.id}`, [
+        ...eventDefinition('invoice.finalized')!.object!.omit,
+      ]),
+    );
+
+    // ---- payment.recorded / payment.reversed (ST5-T13): รับชำระเต็มยอด (DO → paid_at) → กลับรายการ (ยอดค้างกลับมา) ----
+    const issuedInv = (await api(app, admin).get(`/v1/invoices/${draft.id}`).expect(200)).body as {
+      sellTotal: string;
+    };
+    const paid = (
+      await api(app, admin)
+        .post('/v1/payments')
+        .send({
+          receivedDate: today,
+          method: 'TRANSFER',
+          amountReceived: issuedInv.sellTotal,
+          allocations: [{ invoiceId: draft.id, amount: issuedInv.sellTotal }],
+        })
+        .expect(201)
+    ).body as { id: string; version: number };
+    expect(
+      (await db.deliveryOrder.findUniqueOrThrow({ where: { id: ido!.id } })).paidAt,
+    ).not.toBeNull();
+    expect((await latest('payment.recorded', uuid('payment', paid.id)))!.snapshot).toEqual(
+      await rest(`/v1/payments/${paid.id}`, [...eventDefinition('payment.recorded')!.object!.omit]),
+    );
+    // ---- invoice.paid (ST5-T18): ชำระครบ → ใบ PAID (data.object = ใบหลังชำระ) ----
+    const paidEv = (await latest('invoice.paid', uuid('invoice', draft.id)))!;
+    expect(paidEv.snapshot).toEqual(
+      await rest(`/v1/invoices/${draft.id}`, [...eventDefinition('invoice.paid')!.object!.omit]),
+    );
+    expect(paidEv.previousAttributes).toMatchObject({ status: 'ISSUED' });
+    await api(app, admin)
+      .post(`/v1/payments/${paid.id}/reverse`)
+      .set('If-Match', `"${paid.version}"`)
+      .send({ reason: 'บันทึกผิดใบ กลับรายการ' })
+      .expect(200);
+    expect(
+      (await db.deliveryOrder.findUniqueOrThrow({ where: { id: ido!.id } })).paidAt,
+    ).toBeNull();
+    expect((await latest('payment.reversed', uuid('payment', paid.id)))!.snapshot).toEqual(
+      await rest(`/v1/payments/${paid.id}`, [...eventDefinition('payment.reversed')!.object!.omit]),
+    );
+
+    // ---- invoice.voided (ST5-T10): ใบที่ยังไม่รับชำระ (กลับรายการแล้ว) → ยกเลิก คงเลข ----
+    const toCancel = (await api(app, admin).get(`/v1/invoices/${draft.id}`).expect(200)).body as {
+      version: number;
+    };
+    await api(app, finalizer)
+      .post(`/v1/invoices/${draft.id}/void`)
+      .set('If-Match', `"${toCancel.version}"`)
+      .send({ reason: 'ทดสอบยกเลิกใบแจ้งหนี้' })
+      .expect(200);
+    expect((await latest('invoice.voided', uuid('invoice', draft.id)))!.snapshot).toEqual(
+      await rest(`/v1/invoices/${draft.id}`, [...eventDefinition('invoice.voided')!.object!.omit]),
     );
 
     // ---------------- ตรวจ ----------------
@@ -710,6 +826,15 @@ describe('event registry contract (ST7-T06)', () => {
       paymentReference: 'KBANK-0001',
     });
     expect(one('settlement.paid').previousAttributes).toMatchObject({ status: 'APPROVED' });
+    expect(one('invoice.finalized').snapshot).toMatchObject({
+      status: 'ISSUED',
+      invoiceNo: expect.stringMatching(/^INV-00000-\d{4}-0001$/),
+      taxEstimated: true,
+    });
+    expect(one('invoice.finalized').previousAttributes).toMatchObject({
+      status: 'DRAFT',
+      invoiceNo: null,
+    });
     expect(registered.filter((e) => e.type === 'job.completed').map((e) => e.snapshot)).toEqual([
       expect.objectContaining({ id: encodeId('job', job.id), status: 'succeeded' }),
       expect.objectContaining({ id: encodeId('job', failed.id), status: 'failed' }),

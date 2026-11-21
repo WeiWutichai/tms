@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { signDevToken } from '../src/auth/auth.guard';
 import { createApp } from '../src/bootstrap';
+import { INVOICE_TEMPLATE_VERSION } from '../src/modules/invoices/invoice.template';
 
 export const platform = () =>
   new PrismaClient({ datasources: { db: { url: process.env.PLATFORM_DATABASE_URL } } });
@@ -187,4 +188,25 @@ export async function settleTripCostsForTest(
     }
     return costs.length;
   });
+}
+
+/**
+ * ST5-T09 (migration 0140): ใบที่ไม่ใช่ร่าง/ร่างที่ยกเลิก ต้องมีข้อมูล ณ วันออกครบ (CHECK `invoice_issued_fields_check`) —
+ * test ที่ตั้งสถานะใบเองโดยไม่ผ่าน `POST /invoices/{id}/finalize` ใช้ค่านี้
+ */
+export function issuedTestFields(invoiceNo: string) {
+  return {
+    invoiceNo,
+    issuedAt: new Date(),
+    issuedBy: 'test',
+    issueDate: new Date('2026-11-20T00:00:00.000Z'),
+    dueDate: new Date('2026-12-20T00:00:00.000Z'),
+    customerSnapshot: { name: 'ลูกค้าทดสอบ', taxId: null, branchCode: null, address: '' },
+    issuerSnapshot: { name: 'ผู้ออกทดสอบ', taxId: null, branchCode: '00000', address: '' },
+    printOptions: {
+      yearStyle: 'BE',
+      whtMinimumAmount: 0,
+      templateVersion: INVOICE_TEMPLATE_VERSION,
+    },
+  };
 }

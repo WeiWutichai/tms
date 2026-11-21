@@ -79,6 +79,14 @@ export class ErpAdapterDto {
       'ST7-T18 ชนิดผังรหัสที่ดึงจาก ERP ได้ (`POST /connectors/{id}/master-codes/sync`) — ว่าง = นำเข้าไฟล์ (import `erp_master_code`)',
   })
   masterCodeKinds!: string[];
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    enum: ['TMS', 'ERP'],
+    description:
+      'ST8-T16 เจ้าของเอกสารภาษีที่ระบบบัญชีนี้กำหนดตายตัว (D-55) — ตั้งให้ตอนสร้าง เปลี่ยนไม่ได้ (422 `sor_fixed`) · null = ผู้ดูแลเลือกเอง',
+  })
+  fixedTaxDocumentOwner!: 'TMS' | 'ERP' | null;
   @ApiProperty({ type: [ConnectorConfigFieldDto] }) configFields!: ConnectorConfigFieldDto[];
 }
 

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "accountsystem/webhook-event.schema.json",
+  "title": "AccountSystem webhook body (packages/db/src/hub.ts emitTx — data ตามที่ส่งจริงใน sales.ts / purchase.ts)",
+  "type": "object",
+  "required": ["id", "type", "company_id", "occurred_at", "data"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "type": { "enum": ["document.posted", "document.voided", "payment.received", "payment.paid", "period.closed"] },
+    "company_id": { "type": "string", "format": "uuid" },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "data": { "type": "object" }
+  }
+}

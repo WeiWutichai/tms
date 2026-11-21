@@ -16,6 +16,29 @@ import {
   type SettingKey,
 } from './registry';
 
+/**
+ * ค่าตั้งที่เปลี่ยนได้เฉพาะ owner (docs/04 A3 "ปิดได้สำหรับ tenant เล็กโดย owner ยอมรับความเสี่ยง") — กฎแบ่งหน้าที่ที่ปิดได้
+ * D-60 `settlement.allowApproverMarkPaid` (ST5-T09 `billing.allowSelfFinalize` ใช้กติกาเดียวกัน — รวมเข้ารายการนี้เมื่อ merge)
+ */
+export const OWNER_ONLY_SETTINGS: readonly SettingKey[] = [
+  'settlement.allowApproverMarkPaid',
+  'billing.allowSelfFinalize', // ST5-T09 review L3
+];
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** ผู้เรียกมีบทบาท owner ใน tenant นี้ไหม (RLS กรอง tenant) — actor ที่ไม่ใช่ผู้ใช้ (API key/ระบบ) = ไม่ใช่ owner */
+async function isOwner(tx: Tx, actorId: string | null | undefined): Promise<boolean> {
+  // ไม่ query ด้วย id ที่ไม่ใช่ uuid (query ผิด type ใน transaction = transaction ใช้ต่อไม่ได้)
+  if (!actorId || !UUID_RE.test(actorId)) return false;
+  const owner = await tx.role.findFirst({ where: { code: 'owner' }, select: { id: true } });
+  if (!owner) return false;
+  return !!(await tx.userRole.findFirst({
+    where: { userId: actorId, roleId: owner.id },
+    select: { id: true },
+  }));
+}
+
 export interface SettingValue {
   key: SettingKey;
   value: unknown;
@@ -154,6 +177,17 @@ export class SettingsService {
         throw new ProblemException('precondition_failed');
     }
     const before = await readSettings(tx, tenantId, keys);
+    // D-60 (docs/04 A3 "ปิดได้สำหรับ tenant เล็กโดย owner ยอมรับความเสี่ยง"): กฎแบ่งหน้าที่บางข้อเปลี่ยนได้เฉพาะ owner
+    for (const key of OWNER_ONLY_SETTINGS) {
+      if (!(key in values) || stableStringify(values[key]) === stableStringify(before[key]))
+        continue;
+      if (!(await isOwner(tx, requestContext.require().actorId)))
+        throw new ProblemException('permission_denied', undefined, undefined, {
+          module: 'settings',
+          action: key,
+          required: ['owner'],
+        });
+    }
     if (!steppedUp && weakensSecurity(before, values))
       throw new ProblemException('step_up_required');
     const actor = requestContext.require().actorId ?? null;
@@ -226,6 +260,26 @@ export function weakensSecurity(before: Record<string, unknown>, after: Record<s
     has('settlement.carrierReviewRequired') &&
     before['settlement.carrierReviewRequired'] === true &&
     after['settlement.carrierReviewRequired'] === false
+  )
+    return true;
+  // D-60 ปิดกฎแบ่งหน้าที่การจ่าย (ผู้อนุมัติบันทึกจ่ายเองได้) = คุมการจ่ายเงินหลวมขึ้น — ต้อง step-up
+  if (
+    has('settlement.allowApproverMarkPaid') &&
+    before['settlement.allowApproverMarkPaid'] !== true &&
+    after['settlement.allowApproverMarkPaid'] === true
+  )
+    return true;
+  // ST5-T09 ปิดกฎแบ่งหน้าที่ของใบแจ้งหนี้ (ผู้สร้างออกเอกสารเองได้) = คุมหลวมขึ้น — ต้อง step-up (A3 "owner ยอมรับความเสี่ยง")
+  if (
+    has('billing.allowSelfFinalize') &&
+    before['billing.allowSelfFinalize'] !== true &&
+    after['billing.allowSelfFinalize'] === true
+  )
+    return true;
+  // ST5-T13 ยกวงเงินส่วนต่างที่บัญชีตัดยอดเองได้ = คุมหลวมขึ้น — ต้อง step-up
+  if (
+    has('payments.maxDifferenceAmount') &&
+    Number(after['payments.maxDifferenceAmount']) > Number(before['payments.maxDifferenceAmount'])
   )
     return true;
   // ST9-T14 ลดระยะเก็บ = ข้อมูลเก่าถูกลบเร็วขึ้น (ย้อนคืนไม่ได้) — ต้อง step-up เหมือนลดความปลอดภัย

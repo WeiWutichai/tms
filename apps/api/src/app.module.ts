@@ -110,6 +110,8 @@ import { ConnectorResolver } from './modules/erp/connector-resolver';
 import { SystemOfRecordPolicy } from './modules/erp/system-of-record.policy';
 import { ErpAdapterRegistry } from './modules/erp/erp-adapter.registry';
 import { ErpAdapterSink } from './modules/erp/erp-adapter.sink';
+import { ErpSyncService } from './modules/erp/erp-sync.service';
+import { ErpInboundEffects } from './modules/erp/erp-inbound-effects';
 import { ErpAdaptersBootstrap } from './erp-adapters';
 import {
   EventsController,
@@ -175,8 +177,16 @@ import {
 import { BillingQueueService } from './modules/invoices/billing-queue.service';
 import { BillingReleaseService } from './modules/invoices/billing-release.service';
 import { InvoicesService } from './modules/invoices/invoices.service';
+import { PaymentsController } from './modules/payments/payments.controller';
+import { PaymentsService } from './modules/payments/payments.service';
+import { AgingService } from './modules/payments/aging.service';
 import { InvoicePdfService } from './modules/invoices/invoice-pdf.service';
+import { InvoiceCancelService } from './modules/invoices/invoice-cancel.service';
+import { InvoiceStatusService } from './modules/invoices/invoice-status.service';
+import { InvoiceFinalizeService } from './modules/invoices/invoice-finalize.service';
 import { InvoiceBillingGuard } from './modules/invoices/billing-guard.service';
+import { BillingNotesController } from './modules/billing-notes/billing-notes.controller';
+import { BillingNotesService } from './modules/billing-notes/billing-notes.service';
 import { SettlementQueueService } from './modules/settlements/settlement-queue.service';
 import { SettlementComparisonService } from './modules/settlements/settlement-comparison.service';
 import { SettlementsService } from './modules/settlements/settlements.service';
@@ -250,6 +260,7 @@ import { TripSheetsService } from './modules/trip-sheets/trip-sheets.service';
 import { TripSheetLinks } from './modules/trip-sheets/sheet-links';
 import { StateService } from './state/state.service';
 import { ExpiryReminderService } from './modules/reminders/expiry-reminder.service';
+import { PaymentDueReminderService } from './modules/reminders/payment-due-reminder.service';
 
 @Module({
   controllers: [
@@ -315,6 +326,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     RevenueLinesController,
     SettlementsController,
     InvoicesController,
+    PaymentsController,
+    BillingNotesController,
     DeliveryOrderReleaseController,
     DeliveryOrderRevenueLinesController,
     DoSurchargesController,
@@ -407,6 +420,12 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     InvoiceBillingGuard,
     InvoicesService,
     InvoicePdfService,
+    InvoiceFinalizeService,
+    InvoiceCancelService,
+    InvoiceStatusService,
+    PaymentsService,
+    AgingService,
+    BillingNotesService,
     StopEventsService,
     StopProjectionService,
     SubconHireService,
@@ -450,6 +469,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     ExternalMappingService,
     InboundWebhookService,
     ErpAdapterSink,
+    ErpSyncService,
+    ErpInboundEffects,
     ErpAdaptersBootstrap,
     WebhooksService,
     WebhookOpsService,
@@ -462,6 +483,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     AvailabilityService,
     MonitorScheduler,
     ExpiryReminderService,
+    PaymentDueReminderService,
     DepreciationService,
     GeoService,
     AuditService,

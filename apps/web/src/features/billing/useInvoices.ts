@@ -103,9 +103,46 @@ export function useCancelDraft() {
 }
 
 /**
+ * ยกเลิกใบที่ออกแล้ว (ST5-T10 `POST /invoices/{id}/void`): CANCELLED คงเลข — If-Match บังคับ · `invoices:void` (owner/admin/manager)
+ * รับชำระแล้ว → 409 `invoice_has_payments` · อยู่ในใบวางบิลที่ออกแล้ว → 409 `invoice_on_billing_note` (`billingNoteNo`)
+ * `reissue` = สร้างร่างฉบับใหม่แทน (ตอบ `replacedByInvoice`)
+ */
+export function useVoidInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number; reason: string; reissue: boolean }) =>
+      unwrap(
+        api.POST('/v1/invoices/{id}/void', {
+          params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } },
+          body: { reason: v.reason, reissue: v.reissue },
+        }),
+      ),
+    // ทุกคิวรี: ใบแจ้งหนี้ + ใบวางบิลร่างที่ถูกถอดใบนี้ออก + คิวพร้อมวางบิล (DO กลับมา)
+    onSettled: () => qc.invalidateQueries(),
+  });
+}
+
+/**
+ * ออกเอกสาร (ST5-T09): ออกเลขใบแจ้งหนี้ + ล็อก — If-Match บังคับ · ผู้สร้าง/ผู้แก้ร่างล่าสุดออกเองไม่ได้ (403 `invoice_self_finalize`)
+ * ตรวจไม่ผ่าน → 409 `invoice_not_finalizable` (`reasons[]`)
+ */
+export function useFinalize() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number }) =>
+      unwrap(
+        api.POST('/v1/invoices/{id}/finalize', {
+          params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } },
+        }),
+      ),
+    onSettled: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/**
  * เปิด PDF ในแท็บใหม่ — เปิดหน้าต่าง **ทันทีตอนกด** (ก่อน await — กัน popup blocker) แล้วค่อยใส่ไฟล์ · เปิดไม่ได้ = ดาวน์โหลด
  */
-async function showPdf(
+export async function showPdf(
   load: () => Promise<{ response: Response; data?: unknown; error?: unknown }>,
   filename: string,
 ): Promise<void> {
@@ -141,6 +178,14 @@ export function openProforma(id: string): Promise<void> {
   return showPdf(
     () => api.GET('/v1/invoices/{id}/proforma', { params: { path: { id } }, parseAs: 'blob' }),
     'proforma.pdf',
+  );
+}
+
+/** PDF ใบที่ออกแล้ว (ไฟล์ต้นฉบับที่เก็บ ณ วันออก — ST5-T09) */
+export function openIssuedPdf(id: string, filename = 'invoice.pdf'): Promise<void> {
+  return showPdf(
+    () => api.GET('/v1/invoices/{id}/pdf', { params: { path: { id } }, parseAs: 'blob' }),
+    filename,
   );
 }
 

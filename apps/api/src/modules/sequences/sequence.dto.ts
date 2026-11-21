@@ -26,7 +26,22 @@ export class UpdateSequenceDto {
 export class SequenceDto {
   @ApiProperty({ example: 'seq_…' }) id!: string;
   @ApiProperty({
-    enum: ['SO', 'TRIP', 'DO', 'BN', 'INV', 'TXINV', 'RCP', 'CN', 'DN', 'STL', 'WHT', 'WO', 'INC'],
+    enum: [
+      'SO',
+      'TRIP',
+      'DO',
+      'BN',
+      'INV',
+      'TXINV',
+      'RCP',
+      'CN',
+      'DN',
+      'STL',
+      'WHT',
+      'WO',
+      'INC',
+      'PAY',
+    ],
   })
   docType!: string;
   @ApiProperty({ example: 'INV-{BR}-' }) prefix!: string;

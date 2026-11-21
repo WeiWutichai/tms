@@ -18,6 +18,7 @@ import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { ErpSyncService } from '../erp/erp-sync.service';
 import { issueNumber } from '../sequences/sequences.service';
 import { TripService } from '../trips/trip.service';
 import { readSettings } from '../settings/settings.service';
@@ -107,6 +108,7 @@ export class SettlementsService {
     private readonly queue: SettlementQueueService,
     private readonly review: SettlementReviewService,
     private readonly trips: TripService,
+    private readonly erpSync: ErpSyncService,
   ) {}
 
   // ---------- อ่าน ----------
@@ -562,6 +564,9 @@ export class SettlementsService {
     const s = await this.lockFor(tx, id, undefined, ['APPROVED']);
     requireIfMatch(expected);
     if (expected !== s.version) throw new ProblemException('precondition_failed');
+    // D-60 (PO 21 พ.ย. 2569) แบ่งหน้าที่: ผู้บันทึกจ่ายต้องไม่ใช่ผู้อนุมัติใบนี้ (key = ผู้ออก key; ระบุตัวไม่ได้ = ปฏิเสธ)
+    // owner ปิดกฎได้ด้วย `settlement.allowApproverMarkPaid` (audit `sodWaived`)
+    const sodWaived = await this.assertNotApprover(tx, s.approvedBy, ctx.actorId);
     // วันที่จ่าย = วันที่หักภาษี (spec/05 §11.7 — วันที่บน 50 ทวิ / เดือนยื่น ภ.ง.ด. ที่ ST8-T16 ส่ง) — ต้องไม่ก่อนวันอนุมัติ (เวลาไทย)
     const approvedDay = s.approvedAt ? bangkokDay(s.approvedAt.toISOString()) : null;
     if (!bad.some((e) => e.field === 'paidDate') && approvedDay && body.paidDate < approvedDay)
@@ -620,6 +625,7 @@ export class SettlementsService {
         buyWhtAmount: paidRow.whtAmount!.toFixed(2),
         buyNetAfterWht: paidRow.netPayable.minus(paidRow.whtAmount!).toFixed(2),
         whtFrozenNow: s.whtAmount === null,
+        ...(sodWaived ? { sodWaived: true } : {}),
         settledTripIds: settledTrips.map((t) => encodeId('trip', t)),
       },
     });
@@ -642,6 +648,8 @@ export class SettlementsService {
         actorId: actor,
       },
     });
+    // ST8-T16 (D-58) connector ที่เปิด pushSettlement → ส่งเป็นเจ้าหนี้ร่าง + WHT ประมาณการ (outbox — หลัง commit)
+    await this.erpSync.settlementPaid(tx, out);
     return out;
   }
 
@@ -702,6 +710,29 @@ export class SettlementsService {
     const [me, ...preparers] = await resolveActors(tx, [actor, ...raw]);
     if (me === null || preparers.some((p) => p === null || p === me))
       throw new ProblemException('settlement_self_approval');
+  }
+
+  /**
+   * D-60 separation of duties ของการจ่าย: ผู้บันทึกจ่ายต้องไม่ใช่ผู้อนุมัติ (`approvedBy`) — API key = ผู้ออก key ·
+   * ผู้บันทึกที่ระบุตัวไม่ได้ = ปฏิเสธเสมอ (fail closed — ปิดกฎก็ไม่ผ่าน) · tenant ที่ owner ปิดกฎ (`settlement.allowApproverMarkPaid`) → ผู้อนุมัติผ่าน
+   * @returns true = เป็นผู้อนุมัติแต่ผ่านเพราะปิดกฎ (ลง audit)
+   */
+  private async assertNotApprover(
+    tx: Tx,
+    approvedBy: string | null,
+    actor: string | null | undefined,
+  ): Promise<boolean> {
+    const [me, approver] = await resolveActors(tx, [actor, approvedBy]);
+    // ผู้บันทึกจ่ายที่ระบุตัวไม่ได้ (key หาไม่พบ/ไม่มีผู้ออก) = ปฏิเสธเสมอ แม้ปิดกฎ (fail closed — review D-60)
+    if (me === null) throw new ProblemException('settlement_self_payment');
+    if (approver === null || approver !== me) return false;
+    const allowed = (
+      await readSettings(tx, requestContext.require().tenantId!, [
+        'settlement.allowApproverMarkPaid',
+      ])
+    )['settlement.allowApproverMarkPaid'];
+    if (allowed === true) return true;
+    throw new ProblemException('settlement_self_payment');
   }
 
   /**

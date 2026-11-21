@@ -4,6 +4,9 @@
 //  2. adapter ใน src/erp-adapters/<key>/ import adapter ตัวอื่น (src/erp-adapters/<other>/) ไม่ได้
 //  3. ไฟล์นอก src/erp-adapters/ ห้ามอ้างชื่อที่ export จาก adapter (class/const เช่น KrsAdapter, DemoProvider)
 //     และห้าม `new|extends XxxAdapter` ใด ๆ — ต้องหาผ่าน ErpAdapterRegistry
+//  4. (ST8-T16) โค้ดนอก src/erp-adapters/ ห้ามมีชื่อ adapter (= ชื่อโฟลเดอร์ เช่น `accountsystem`) ในโค้ด/สตริง (รวมเป็นส่วนของ identifier)
+//     (ไม่นับ comment — ไม่สนตัวพิมพ์) — core ตัดสินจาก capability เท่านั้น ไม่ใช่ `adapterKey === '…'`
+//     ยกเว้น `demo`/`krs` ที่มีก่อนกฎนี้ (ใช้เป็นตัวอย่างใน DTO/ชื่อ sink ทดสอบ — ไม่มีการแตกทางตามชื่อ)
 //  ตรวจ import/export from, import()/require()/require.resolve() ทั้งสตริงและ template literal (ใช้ส่วนคงที่หน้า `${`)
 // ตรวจ .ts/.mts/.cts/.js/.mjs/.cjs — ไฟล์ test (*.test.*) และ .d.ts ไม่ตรวจ (test ของ adapter ใช้ adapter ตรงได้)
 // ใช้: node scripts/lint-adapters.mjs [srcRoot]   (srcRoot ใช้ใน test)
@@ -71,6 +74,22 @@ export function checkAdapterBoundary(srcRoot) {
     ? new RegExp(`\\b(${[...exported].map((n) => n.replace(/\$/g, '\\$')).join('|')})\\b`, 'g')
     : null;
 
+  // กฎ 4: ชื่อ adapter (โฟลเดอร์) ที่ห้ามโผล่ในโค้ด core
+  const LEGACY_KEYS = new Set(['demo', 'krs']);
+  const keys = existsSync(adaptersDir)
+    ? readdirSync(adaptersDir).filter(
+        (d) => statSync(join(adaptersDir, d)).isDirectory() && !LEGACY_KEYS.has(d),
+      )
+    : [];
+  const KEY_RE = keys.length
+    ? new RegExp(`(${keys.join('|')})`, 'gi')
+    : null;
+  // ลบ comment (// … และ /* … */) โดยคงตำแหน่งบรรทัด — ไม่แตะเนื้อสตริงแบบง่าย (พอสำหรับ lint นี้)
+  const stripComments = (src) =>
+    src
+      .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '))
+      .replace(/(^|[^:'"`\\])\/\/[^\n]*/g, (c, p) => p + ' '.repeat(c.length - p.length));
+
   const problems = [];
   for (const f of files) {
     const src = readFileSync(f, 'utf8');
@@ -100,6 +119,13 @@ export function checkAdapterBoundary(srcRoot) {
         problems.push(
           `${relative(root, f)}:${line(m.index)}  core อ้างชื่อจาก adapter ตรง (${m[1]}) — ใช้ ErpAdapterRegistry`,
         );
+    if (!inAdapters && KEY_RE && f !== appModule) {
+      const code = stripComments(src);
+      for (const m of code.matchAll(KEY_RE))
+        problems.push(
+          `${relative(root, f)}:${line(m.index)}  core มีชื่อ adapter '${m[1]}' — ตัดสินจาก capability ผ่าน ErpAdapterRegistry`,
+        );
+    }
     if (!inAdapters)
       for (const m of src.matchAll(CLASS_RE))
         if (!ALLOWED_CLASSES.has(m[1]))

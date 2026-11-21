@@ -70,10 +70,10 @@ export function sampleInvoiceExempt(): InvoicePrintModel {
       customerPoNo: null,
       note: null,
       lines: [
-        freight(1, 'DO-2611-00020', 'กรุงเทพ → ชลบุรี', '70-1234 กทม.', '6500.00'),
-        freight(2, 'DO-2611-00023', 'กรุงเทพ → ชลบุรี', '70-1234 กทม.', '6500.00'),
-        freight(3, 'DO-2611-00026', 'บางปู → แหลมฉบัง', '71-5678 กทม.', '4800.00'),
-        freight(4, 'DO-2611-00029', 'กรุงเทพ → ชลบุรี', '70-1234 กทม.', '6500.00'),
+        freight(1, 'DO-2611-00020', 'กรุงเทพ – ชลบุรี', '70-1234 กทม.', '6500.00'),
+        freight(2, 'DO-2611-00023', 'กรุงเทพ – ชลบุรี', '70-1234 กทม.', '6500.00'),
+        freight(3, 'DO-2611-00026', 'บางปู – แหลมฉบัง', '71-5678 กทม.', '4800.00'),
+        freight(4, 'DO-2611-00029', 'กรุงเทพ – ชลบุรี', '70-1234 กทม.', '6500.00'),
       ],
     },
     () => '1.00',
@@ -102,7 +102,7 @@ export function sampleInvoiceMixed(): InvoicePrintModel {
       lines: [
         {
           no: 1,
-          description: 'ค่าขนส่งสินค้า บางปู → แหลมฉบัง',
+          description: 'ค่าขนส่งสินค้า บางปู – แหลมฉบัง',
           deliveryOrders: [
             { doNo: 'DO-2610-00101', plate: '70-1234 กทม.' },
             { doNo: 'DO-2610-00104', plate: '70-1234 กทม.' },
@@ -134,10 +134,10 @@ export function sampleInvoiceMixed(): InvoicePrintModel {
 
 export function sampleInvoiceLong(): InvoicePrintModel {
   const routes = [
-    'กรุงเทพ → ชลบุรี',
-    'บางปู → แหลมฉบัง',
-    'ลาดกระบัง → ระยอง',
-    'สมุทรสาคร → นครปฐม',
+    'กรุงเทพ – ชลบุรี',
+    'บางปู – แหลมฉบัง',
+    'ลาดกระบัง – ระยอง',
+    'สมุทรสาคร – นครปฐม',
   ];
   const lines: InvoicePrintLine[] = [];
   for (let i = 0; i < 36; i++) {
@@ -187,4 +187,14 @@ export function sampleInvoiceLong(): InvoicePrintModel {
     },
     (l) => (l.vatType === 'VAT_7' ? '3.00' : '1.00'),
   );
+}
+
+/** D-61: ใบที่ออกใน sandbox — เลข `TEST-` + ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" (หลายหน้า: ลายน้ำทุกหน้า) */
+export function sampleInvoiceSandbox(): InvoicePrintModel {
+  return {
+    ...sampleInvoiceLong(),
+    invoiceNo: 'TEST-INV-00000-2611-0001',
+    copy: 'ORIGINAL',
+    sandbox: true,
+  };
 }

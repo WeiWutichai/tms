@@ -16,6 +16,7 @@ import { SitesPage } from './features/sites/SitesPage';
 import { ProductsPage } from './features/products/ProductsPage';
 import { RoutesPage } from './features/routes/RoutesPage';
 import { BillPage } from './features/billing/BillPage';
+import { PayPage } from './features/billing/PayPage';
 import { ExportPage } from './features/exports/ExportPage';
 import { RateCardsPage } from './features/rate-cards/RateCardsPage';
 import { ServiceItemsPage } from './features/service-items/ServiceItemsPage';
@@ -60,6 +61,7 @@ const READY: Record<string, () => ReactNode> = {
   '/so': () => <OrdersPage />,
   '/so/hold': () => <HoldPage />,
   '/bill': () => <BillPage />,
+  '/pay': () => <PayPage />,
   '/exceptions': () => <ExceptionsPage />,
   '/master/customers': () => <CustomersPage />,
   '/master/locations': () => <SitesPage />,

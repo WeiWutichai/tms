@@ -7,7 +7,7 @@ import { PdfRenderer } from '../../pdf/pdf-renderer';
 import { decodeIdOr404 } from '../../common/ids';
 import { readSettings } from '../settings/settings.service';
 import type { CreateInvoiceDto } from './invoice.dto';
-import { InvoicesService } from './invoices.service';
+import { InvoicesService, type InvoicePartySnapshot } from './invoices.service';
 import { invoiceDocument, invoiceTotals, type InvoicePrintModel } from './invoice.template';
 
 function addressText(a: unknown): string {
@@ -110,7 +110,8 @@ export class InvoicePdfService {
         issuingBranch: true,
         customer: true,
         lines: {
-          where: { active: true },
+          // ST5-T10 ใบที่ยกเลิก: บรรทัดของเอกสาร ณ วันยกเลิก (ไม่ใช่ที่ถอดออกจากร่าง)
+          where: { OR: [{ active: true }, { releasedWithInvoice: true }] },
           orderBy: { lineNo: 'asc' },
           include: {
             deliveryOrder: {
@@ -125,10 +126,16 @@ export class InvoicePdfService {
         },
       },
     });
-    const tenant = await tx.tenant.findFirst({ select: { yearStyle: true } });
-    const settings = await readSettings(tx, requestContext.require().tenantId!, [
-      'tax.whtMinimumAmount',
-    ]);
+    // ใบที่ออกแล้ว: ผู้ออก/ลูกค้า/ค่าพิมพ์ ณ วันออก (snapshot — BIL-196 "สำเนา render จาก snapshot เดิมเท่านั้น")
+    const snap = inv.status !== 'DRAFT' ? issuedSnapshot(row) : null;
+    const tenant = snap
+      ? { yearStyle: snap.print.yearStyle }
+      : await tx.tenant.findFirst({ select: { yearStyle: true } });
+    const whtMinimumAmount = snap
+      ? snap.print.whtMinimumAmount
+      : ((await readSettings(tx, requestContext.require().tenantId!, ['tax.whtMinimumAmount']))[
+          'tax.whtMinimumAmount'
+        ] as number);
     const plate = new Map<string, string | null>();
     for (const l of row.lines)
       if (l.deliveryOrder?.doNo)
@@ -146,26 +153,40 @@ export class InvoicePdfService {
         yearStyle: tenant?.yearStyle === 'CE' ? 'CE' : 'BE',
         invoiceNo: inv.invoiceNo,
         copy: issued?.copy ?? null,
+        // D-61: ลายน้ำ sandbox จากค่าพิมพ์ ณ วันออก (ร่างใช้ลายน้ำ "ร่าง")
+        sandbox: snap?.print.sandbox === true,
         issueDate,
         dueDate: issued?.dueDate ?? addDays(issueDate, inv.creditTermDays),
-        issuer: {
-          name: row.issuingCompany.legalName,
-          taxId: row.issuingCompany.taxId,
-          branchCode: row.issuingBranch.branchCode,
-          address: addressText(row.issuingBranch.address),
-          vatRegistered: row.issuingCompany.vatRegistered,
-        },
-        customer: {
-          name: row.customer.legalName,
-          taxId: row.customer.taxId,
-          branchCode: row.customer.taxId ? row.customer.branchCode : null,
-          address: addressText(row.customer.billingAddress),
-        },
+        issuer: snap
+          ? {
+              name: snap.issuer.name,
+              taxId: snap.issuer.taxId,
+              branchCode: snap.issuer.branchCode,
+              address: snap.issuer.address,
+              vatRegistered: snap.issuer.vatRegistered ?? true,
+            }
+          : issuerParty(row),
+        customer: snap
+          ? {
+              name: snap.customer.name,
+              taxId: snap.customer.taxId,
+              branchCode: snap.customer.taxId ? snap.customer.branchCode : null,
+              address: snap.customer.address,
+            }
+          : customerParty(row),
         periodFrom: inv.periodFrom,
         periodTo: inv.periodTo,
         creditTermDays: inv.creditTermDays,
         customerPoNo: inv.customerPoNo,
         note: inv.note,
+        cancelled: inv.status === 'CANCELLED' && inv.invoiceNo !== null,
+        replaces:
+          inv.replacesInvoice?.invoiceNo && inv.replacesInvoice.issueDate
+            ? {
+                invoiceNo: inv.replacesInvoice.invoiceNo,
+                issueDate: inv.replacesInvoice.issueDate,
+              }
+            : null,
         lines: inv.printLines.map((p) => ({
           no: p.no,
           description: p.description,
@@ -186,13 +207,74 @@ export class InvoicePdfService {
             vatType: l.vatType as ServiceItemVatType,
             whtRate: l.whtRate.toFixed(2),
           })),
-          taxOptionsFromSettings({
-            whtMinimumAmount: settings['tax.whtMinimumAmount'] as number,
-          }),
+          taxOptionsFromSettings({ whtMinimumAmount }),
         ),
       },
     };
   }
+}
+
+type PrintRow = {
+  issuingCompany: { legalName: string; taxId: string | null; vatRegistered: boolean };
+  issuingBranch: { branchCode: string; address: unknown };
+  customer: {
+    code: string;
+    legalName: string;
+    taxId: string | null;
+    branchCode: string | null;
+    billingAddress: unknown;
+  };
+};
+
+/** ผู้ออก (นิติบุคคล + สาขาผู้ออก) จากข้อมูลปัจจุบัน — ร่าง / snapshot ตอนออกเลข */
+export function issuerParty(row: Pick<PrintRow, 'issuingCompany' | 'issuingBranch'>) {
+  return {
+    name: row.issuingCompany.legalName,
+    taxId: row.issuingCompany.taxId,
+    branchCode: row.issuingBranch.branchCode,
+    address: addressText(row.issuingBranch.address),
+    vatRegistered: row.issuingCompany.vatRegistered,
+  };
+}
+
+/** ลูกค้า (ผู้ซื้อ) จากข้อมูลปัจจุบัน — สาขาพิมพ์เมื่อมีเลขผู้เสียภาษี */
+export function customerParty(row: Pick<PrintRow, 'customer'>) {
+  return {
+    name: row.customer.legalName,
+    taxId: row.customer.taxId,
+    branchCode: row.customer.taxId ? row.customer.branchCode : null,
+    address: addressText(row.customer.billingAddress),
+  };
+}
+
+/** ค่าพิมพ์ ณ วันออก (`invoice.print_options`) */
+export interface InvoicePrintOptions {
+  yearStyle: 'BE' | 'CE';
+  whtMinimumAmount: number;
+  /** รุ่นแม่แบบ ณ วันออก (`INVOICE_TEMPLATE_VERSION`) */
+  templateVersion?: number;
+  /** D-61: ออกใน sandbox (tenant `mode='test'`) → PDF ต้นฉบับ/สำเนามีลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" · ไม่มี = ใบ live */
+  sandbox?: boolean;
+}
+
+function issuedSnapshot(row: {
+  customerSnapshot: unknown;
+  issuerSnapshot: unknown;
+  printOptions: unknown;
+}): {
+  customer: InvoicePartySnapshot;
+  issuer: InvoicePartySnapshot;
+  print: InvoicePrintOptions;
+} {
+  if (!row.customerSnapshot || !row.issuerSnapshot || !row.printOptions)
+    throw new ProblemException('invalid_state_transition', undefined, undefined, {
+      reason: 'issued_snapshot_missing',
+    });
+  return {
+    customer: row.customerSnapshot as InvoicePartySnapshot,
+    issuer: row.issuerSnapshot as InvoicePartySnapshot,
+    print: row.printOptions as InvoicePrintOptions,
+  };
 }
 
 /** ใช้ย้อน transaction ของตัวอย่าง (ไม่ใช่ข้อผิดพลาด) */
