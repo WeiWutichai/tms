@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { SYSTEM_ROLES } from '@tms/domain';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { PdfRenderer } from '../src/pdf/pdf-renderer';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { requestContext } from '../src/common/request-context';
 import { DbService, type Tx } from '../src/db/db.service';
@@ -826,4 +827,49 @@ describe('settlement carrier review (ST6-T05)', () => {
     expect(r.body.code).toBe('rate_limited');
     await resetLinkWriteRate();
   });
+
+  it('ST6-T04 ลิงก์รถร่วม: "ใบจ่ายเงิน" (PDF) เฉพาะงวดที่จ่ายแล้ว — รอตรวจ/อนุมัติแล้ว 409 · จ่ายแล้ว 200 PDF · ลิงก์ผิด 404', async () => {
+    await resetLinkWriteRate();
+    const { s, r, token } = await sent(1, '3000');
+    const pdf = (t: string) =>
+      pub()
+        .get(`/v1/public/settlements/${t}/pdf`)
+        .buffer(true)
+        .parse((res, cb) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => cb(null, Buffer.concat(chunks)));
+        });
+    expect((await pdf(token)).status).toBe(409);
+    for (const l of r.body.settlement.lines as Line[])
+      await respond(token, l.id, { response: 'ACCEPTED' }).expect(201);
+    await approve(s.id).expect(200);
+    expect((await pdf(token)).status).toBe(409);
+    await withVersion(s.id, (v) =>
+      api(app, accounting)
+        .post(`/v1/settlements/${s.id}/mark-paid`)
+        .set('If-Match', `"${v}"`)
+        .send({ paidDate: today, method: 'CASH' }),
+    ).expect(200);
+    // review M1: ใบ PAID render ครั้งเดียวแล้วใช้ไฟล์ซ้ำ (คำขอพร้อมกันด้วย) · เพดาน 10 ครั้ง/นาที ต่อลิงก์ → 429
+    await resetLinkWriteRate();
+    const spy = vi.spyOn(app.get(PdfRenderer), 'pdf');
+    const burst = await Promise.all(Array.from({ length: 5 }, () => pdf(token)));
+    expect(burst.map((x) => x.status)).toEqual([200, 200, 200, 200, 200]);
+    for (let k = 0; k < 4; k++) expect((await pdf(token)).status).toBe(200);
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+    const ok = await pdf(token);
+    expect(ok.status).toBe(200);
+    expect((ok.body as Buffer).equals(burst[0]!.body as Buffer)).toBe(true);
+    const limited = await pdf(token);
+    expect(limited.status).toBe(429);
+    expect(JSON.parse((limited.body as Buffer).toString()).code).toBe('rate_limited');
+    await resetLinkWriteRate();
+    expect(ok.headers['content-type']).toContain('application/pdf');
+    expect(ok.headers['cache-control']).toContain('no-store');
+    expect((ok.body as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
+    expect((await pdf(`${token}x`)).status).toBe(404);
+    await resetLinkWriteRate();
+  }, 90_000);
 });

@@ -1,6 +1,6 @@
 # ลูกค้า (customers)
 
-17 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+18 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -18,6 +18,7 @@
 | [`POST /v1/customers/{id}/deactivate`](#post-customers-id-deactivate) | `master:write` |
 | [`POST /v1/customers/{id}/activate`](#post-customers-id-activate) | `master:write` |
 | [`POST /v1/customers/{id}/delete`](#post-customers-id-delete) | `master:write` |
+| [`GET /v1/customers/{id}/erp-codes`](#get-customers-id-erp-codes) | `master:read` |
 | [`GET /v1/customers/{id}/tracking-link`](#get-customers-id-tracking-link) | `master:write` |
 | [`POST /v1/customers/{id}/tracking-link`](#post-customers-id-tracking-link) | `master:write` |
 | [`POST /v1/customers/{id}/tracking-link/revoke`](#post-customers-id-tracking-link-revoke) | `master:write` |
@@ -756,6 +757,41 @@ const { data, error } = await tms.POST('/v1/customers/{id}/delete', {
 });
 ```
 
+## GET /v1/customers/{id}/erp-codes {#get-customers-id-erp-codes}
+
+`GET /v1/customers/{id}/erp-codes`
+
+scope: `master:read` · operationId: `CustomerErpCodes_list`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | รหัสลูกค้านี้ในระบบบัญชีแต่ละตัวที่เชื่อมต่อ (connector ที่ยังไม่ยกเลิก) — ยังไม่ map = ใบแจ้งหนี้ของลูกค้านี้ส่งเข้าระบบบัญชีนั้นไม่ได้ | `CustomerErpCodeListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/customers/<id>/erp-codes" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/customers/{id}/erp-codes', {
+  params: { path: { id: "…" } },
+});
+```
+
 ## GET /v1/customers/{id}/tracking-link {#get-customers-id-tracking-link}
 
 `GET /v1/customers/{id}/tracking-link`
@@ -920,6 +956,14 @@ const { data, error } = await tms.POST('/v1/customers/{id}/tracking-link/revoke'
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string (date-time)` |   |   |   |
 | `updatedAt` | ใช่ | `string (date-time)` |   |   |   |
+
+### CustomerErpCodeListDto {#schema-CustomerErpCodeListDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<CustomerErpCodeDto>` |   |   |   |
 
 ### CustomerPageDto {#schema-CustomerPageDto}
 

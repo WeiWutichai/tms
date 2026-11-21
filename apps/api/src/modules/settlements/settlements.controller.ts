@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   Param,
   Patch,
@@ -9,6 +10,7 @@ import {
   Query,
   Req,
   Res,
+  StreamableFile,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -16,12 +18,14 @@ import {
   ApiHeader,
   ApiOkResponse,
   ApiOperation,
+  ApiProduces,
   ApiTags,
 } from '@nestjs/swagger';
+import { scopeAllows } from '@tms/domain';
 import type { Request, Response } from 'express';
 import { verifyStepUpToken } from '../../auth/tokens';
 import { requestContext } from '../../common/request-context';
-import { RequireScope, TenantResource } from '../../common/decorators';
+import { NoTransaction, RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -39,10 +43,12 @@ import {
   SettlementItemsInput,
   SettlementListQuery,
   SettlementPageDto,
+  SettlementPayDto,
   SettlementReasonDto,
   UpdateSettlementDto,
 } from './settlement.dto';
 import { SettlementReviewLinkDto, SettlementSentDto } from './settlement-review.dto';
+import { SettlementPdfService } from './settlement-pdf.service';
 import { SettlementsService } from './settlements.service';
 
 const NF = { ...T404, description: 'ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น)' };
@@ -54,8 +60,8 @@ const IF_MATCH = {
 
 /**
  * Settlement รถร่วม (AP — docs/04 F6, docs/01 §4.5, §5.2 #12 `settlements`)
- * ST6-T02 คิวจ่ายรถร่วม · ST6-T03 ใบสำคัญจ่าย (ร่าง) · ST6-T05 ส่งรถร่วมตรวจผ่านลิงก์ · ST6-T06 dispute + หน้าเทียบ · ST6-T07 อนุมัติ — จ่าย = ST6-T09
- * อ่าน `settlements:read` (ยอดเห็นเมื่อมี `prices.buy:read`) · สร้าง/แก้ร่าง/ยกเลิกร่าง `settlements:create` · อนุมัติ `settlements:approve`
+ * ST6-T02 คิวจ่ายรถร่วม · ST6-T03 ใบสำคัญจ่าย (ร่าง) · ST6-T05 ส่งรถร่วมตรวจผ่านลิงก์ · ST6-T06 dispute + หน้าเทียบ · ST6-T07 อนุมัติ · ST6-T09 บันทึกจ่าย
+ * อ่าน `settlements:read` (ยอดเห็นเมื่อมี `prices.buy:read`) · สร้าง/แก้ร่าง/ยกเลิกร่าง `settlements:create` · อนุมัติ `settlements:approve` · จ่าย `settlements:pay`
  */
 @ApiTags('settlements')
 @ApiBearerAuth()
@@ -65,6 +71,7 @@ export class SettlementsController {
     private readonly queue: SettlementQueueService,
     private readonly svc: SettlementsService,
     private readonly comparison: SettlementComparisonService,
+    private readonly pdf: SettlementPdfService,
   ) {}
 
   @Get('queue')
@@ -146,6 +153,42 @@ export class SettlementsController {
     const out = await this.svc.get(decodeIdOr404('settlement', id));
     setEtag(res, out.version);
     return out;
+  }
+
+  @Get(':id/pdf')
+  @NoTransaction()
+  @TenantResource('settlement')
+  @RequireScope('settlements:read')
+  @Header('Cache-Control', 'private, no-store')
+  @ApiOperation({
+    summary: 'PDF ใบสำคัญจ่ายรถร่วม (ST6-T04) — รายการเที่ยว ยอด หัก ณ ที่จ่าย (ประมาณการ) สุทธิ',
+    description:
+      'แม่แบบตามต้นแบบ TMS Print #pv (แม่แบบการเงินร่วมกับใบแจ้งหนี้) · ทุกตัวเลขมาจาก `GET /v1/settlements/{id}` ชุดเดียวกัน: ' +
+      'ยอดซื้อรวม = `buyGrossAmount` · หัก ณ ที่จ่ายแยกอัตรา = `whtEstimate.byRate` (รวม = `buyWhtAmount`; ใบที่อนุมัติแล้ว = ยอดที่ตรึง) · ' +
+      'บรรทัดหักรวมต่อชนิด · จ่ายสุทธิ = `buyNetAfterWht` · ยอดหัก ณ ที่จ่ายติด * (ประมาณการ D-54 — 50 ทวิ ออกที่ระบบบัญชี D-58) · ' +
+      'ยังไม่อนุมัติ = ลายน้ำ "ร่าง" ไม่มีเลข · จ่ายแล้ว = วันที่จ่าย + วิธีจ่าย + เลขอ้างอิง · render ตามคำขอ (ไม่ใช่เอกสารภาษี — ไม่เก็บไฟล์) · ' +
+      'ใบที่ยกเลิก → 409 · ต้องมี `prices.buy:read` ไม่งั้น 403',
+  })
+  @ApiProduces('application/pdf')
+  @ApiProblems(T403('settlements:read'), NF, T409())
+  @ApiOkResponse({ description: 'application/pdf', schema: { type: 'string', format: 'binary' } })
+  async voucherPdf(
+    @Param('id') id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const ctx = requestContext.require();
+    if (!scopeAllows(ctx.scopes ?? [], 'prices.buy:read'))
+      throw new ProblemException('permission_denied', undefined, undefined, {
+        requiredScope: 'prices.buy:read',
+      });
+    const { dto, pdf } = await this.pdf.render(decodeIdOr404('settlement', id));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${(dto.settlementNo ?? `settlement-draft-${id}`).replace(/[^\w.-]/g, '_')}.pdf"`,
+    );
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    return new StreamableFile(pdf);
   }
 
   @Get(':id/comparison')
@@ -496,6 +539,43 @@ export class SettlementsController {
       body.reason,
       expectedVersion(req),
       steppedUp,
+    );
+    setEtag(res, out.version);
+    return out;
+  }
+
+  @Post(':id/mark-paid')
+  @HttpCode(200)
+  @TenantResource('settlement')
+  @RequireScope('settlements:pay')
+  @ApiOperation({
+    summary: 'บันทึกจ่ายใบสำคัญจ่ายรถร่วม (APPROVED → PAID) — วันที่จ่าย วิธี เลขอ้างอิง ธนาคาร',
+    description:
+      'docs/04 F6 "จ่าย" + docs/01 §4.5 APPROVED → PAID · **เฉพาะใบ APPROVED** (ร่าง/รอตรวจ/โต้แย้ง/ยกเลิก/จ่ายแล้ว → 409 `invalid_state_transition`) · ' +
+      'จ่ายเต็มยอดครั้งเดียว — ยอดที่จ่าย = `buyNetAfterWht` (ยอดสุทธิ − หัก ณ ที่จ่ายประมาณการที่ตรึงตอนอนุมัติ — ไม่เปลี่ยน) · ' +
+      '`paidDate` (= วันที่หักภาษี) ตั้งแต่วันอนุมัติถึงวันนี้ (เวลาไทย) — ก่อนวันอนุมัติ → 422 `before_approval` · `reference` บังคับเมื่อ TRANSFER / CHEQUE · ' +
+      'ใบที่ไม่ใช่ APPROVED (รวมจ่ายแล้ว/คำขอซ้ำพร้อมกัน) → 409 ก่อนตรวจ If-Match · ' +
+      'เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · ' +
+      'audit `settlement.paid` + webhook `settlement.paid` (ระบบบัญชีสร้างเจ้าหนี้/AP ร่างจาก event นี้ — 50 ทวิ ออกที่ระบบบัญชี, D-58) · ' +
+      'ไฟล์โอนธนาคาร (bulk payment) = P1',
+  })
+  @ApiHeader({
+    ...IF_MATCH,
+    required: true,
+    description: 'ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412',
+  })
+  @ApiProblems(T403('settlements:pay'), NF, T409(), T412, T422)
+  @ApiOkResponse({ type: SettlementDto })
+  async markPaid(
+    @Param('id') id: string,
+    @Body() body: SettlementPayDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SettlementDto> {
+    const out = await this.svc.markPaid(
+      decodeIdOr404('settlement', id),
+      body,
+      expectedVersion(req),
     );
     setEtag(res, out.version);
     return out;
