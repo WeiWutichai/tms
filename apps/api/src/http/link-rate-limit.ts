@@ -11,6 +11,14 @@ export const LINK_WRITE_LIMIT_PER_MIN = Number(process.env.LINK_WRITE_RATE_LIMIT
 export const linkWriteBucket = (linkId: string): Bucket =>
   slidingWindow(`lw:${linkId}`, LINK_WRITE_LIMIT_PER_MIN, 60_000, 'link');
 
+/**
+ * ST6-T04 review M1: PDF ของลิงก์ (render Chromium — คิว PdfRenderer ใช้ร่วมทุก tenant) จำกัดต่อลิงก์แยกจากคำขอเขียน
+ * ค่าเริ่ม 10 ครั้ง/นาที ต่อลิงก์ (ซ้อนกับเพดานต่อ IP ของ `/v1/public/*`) — key ขึ้นต้น `lw:` ให้ `resetLinkWriteRate` ล้างด้วย
+ */
+export const LINK_PDF_LIMIT_PER_MIN = Number(process.env.LINK_PDF_RATE_LIMIT_PER_MIN ?? 10);
+export const linkPdfBucket = (linkId: string): Bucket =>
+  slidingWindow(`lw:pdf:${linkId}`, LINK_PDF_LIMIT_PER_MIN, 60_000, 'link');
+
 /** สำหรับ test: ล้างตัวนับต่อลิงก์ของไฟล์ test นี้ */
 export async function resetLinkWriteRate(): Promise<void> {
   await rateLimitInstance()?.reset('lw:');
