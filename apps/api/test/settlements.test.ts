@@ -2265,7 +2265,7 @@ describe('settlements (ST6-T03)', () => {
             .map((l: { tripNo: string }) => l.tripNo)
             .sort(),
         );
-        expect(model.trips[0]!.route).toMatch(/ → /);
+        expect(model.trips[0]!.route).toMatch(/ – /);
         return { dto, model, text };
       };
       const d = await check('DRAFT');

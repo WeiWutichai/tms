@@ -38,7 +38,7 @@ test('Innovera เปิด connector demo ให้ลูกค้า → ล�
   await con.getByRole('button', { name: 'เปิด connector' }).click();
   const dlg = con.getByRole('dialog', { name: 'เปิด connector' });
   await dlg.getByLabel('บริษัท').selectOption({ label: 'ตัวอย่างขนส่ง (DEMO)' });
-  await dlg.getByLabel('ระบบ').selectOption('demo');
+  await dlg.getByLabel('ระบบ', { exact: true }).selectOption('demo');
   await dlg.getByLabel('API key').fill(KEY);
   await dlg.getByLabel('เหตุผล').fill('เปิด connector ให้ลูกค้านำร่อง (E2E)');
   await dlg.getByRole('button', { name: 'เปิด connector' }).click();

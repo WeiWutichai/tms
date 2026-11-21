@@ -1,0 +1,27 @@
+{
+  "name": "@tms/mock-accountsystem",
+  "version": "0.0.1",
+  "private": true,
+  "description": "ST8-T16 mock ของ AccountSystem ext/v1 จาก contract (packages/contracts/accountsystem) — ใช้ใน dev/test เท่านั้น ไม่เรียกระบบจริง",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "mock-accountsystem": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run",
+    "lint": "prettier --check src",
+    "start": "node dist/cli.js",
+    "dev": "tsc -p tsconfig.json && node dist/cli.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.12"
+  }
+}

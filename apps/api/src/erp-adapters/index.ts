@@ -2,6 +2,7 @@ import { Injectable, Logger, type OnApplicationBootstrap, type OnModuleInit } fr
 import { PrismaService } from '../db/prisma.service';
 import type { ErpAdapter } from '../modules/erp/erp-adapter';
 import { ErpAdapterRegistry } from '../modules/erp/erp-adapter.registry';
+import { AccountSystemAdapter } from './accountsystem/accountsystem.adapter';
 import { DemoAdapter } from './demo/demo.adapter';
 import { KrsAdapter } from './krs/krs.adapter';
 
@@ -15,11 +16,14 @@ import { KrsAdapter } from './krs/krs.adapter';
  * - DemoProvider (`demo`, ST7-T14) = ERP จำลอง `localOnly` — มีเฉพาะ dev/test/`ERP_DEMO_ADAPTERS=1` ไม่เป็นค่าเริ่มต้นของใคร
  * - KrsAdapter (`krs`, ST8-T03) = adapter จริงตัวแรก (โครง — push/pull/fetch ตาม ST8-T04…T10) · เปิดได้ทุก environment
  *   แต่ tenant sandbox ใช้ไม่ได้ (route connector เป็น @LiveOnly + sink กันซ้ำ)
+ * - AccountSystemAdapter (`accountsystem`, ST8-T16) = ระบบบัญชีของ Innovera (D-54/D-55): ใบแจ้งหนี้ → IV ร่าง, ใบสำคัญจ่าย → AP ร่าง,
+ *   รับ webhook · เจ้าของเอกสารภาษี = ERP ตายตัว
  * - ตัวถัดไป: FileExportAdapter (ST7-T23)
  */
 export const ERP_ADAPTER_FACTORIES: ReadonlyArray<() => ErpAdapter> = [
   () => new DemoAdapter(),
   () => new KrsAdapter(),
+  () => new AccountSystemAdapter(),
 ];
 
 @Injectable()

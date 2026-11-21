@@ -120,6 +120,7 @@
 | [`idempotency_mismatch`](#idempotency_mismatch) | 422 | Idempotency-Key นี้เคยใช้กับข้อมูลอื่น |
 | [`pod_incomplete`](#pod_incomplete) | 422 | หลักฐานการส่ง (POD) ยังไม่ครบตามที่ลูกค้ากำหนด |
 | [`routing_not_configured`](#routing_not_configured) | 422 | บริษัทมีหลายนิติบุคคลแต่ยังไม่ได้กำหนดนิติบุคคลออกบิล — ส่ง billingCompanyId (จาก GET /v1/companies) หรือตั้ง "ออกบิลในนาม" ที่ลูกค้า/ค่าตั้งต้นของบริษัท |
+| [`sor_fixed`](#sor_fixed) | 422 | ระบบบัญชีนี้เป็นผู้ออกเอกสารภาษีเสมอ เปลี่ยนไม่ได้ |
 | [`sor_not_chosen`](#sor_not_chosen) | 422 | เลือก "ใครออกเลขเอกสาร" ก่อนเปิดการส่งเอกสารเข้าระบบบัญชี |
 | [`stop_order_invalid`](#stop_order_invalid) | 422 | ลำดับจุดไม่ถูกต้อง — จุดส่งของใบส่งของต้องอยู่หลังจุดรับของใบเดียวกัน |
 | [`validation_failed`](#validation_failed) | 422 | ข้อมูลไม่ถูกต้อง |
@@ -828,6 +829,12 @@ HTTP `422` · หลักฐานการส่ง (POD) ยังไม่�
 HTTP `422` · บริษัทมีหลายนิติบุคคลแต่ยังไม่ได้กำหนดนิติบุคคลออกบิล — ส่ง billingCompanyId (จาก GET /v1/companies) หรือตั้ง "ออกบิลในนาม" ที่ลูกค้า/ค่าตั้งต้นของบริษัท
 
 อยู่ใน `errors[].code` ของ `422 validation_failed` (`errors[].field` = ช่องที่ต้องแก้)
+
+## sor_fixed {#sor_fixed}
+
+HTTP `422` · ระบบบัญชีนี้เป็นผู้ออกเอกสารภาษีเสมอ เปลี่ยนไม่ได้
+
+อาจตอบได้จากหลาย endpoint
 
 ## sor_not_chosen {#sor_not_chosen}
 

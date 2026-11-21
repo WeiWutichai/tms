@@ -46,6 +46,12 @@ export function docLabel(t: T, r: { entityType: string; localId: string }): stri
   return `${t(k) === k ? r.entityType : t(k)} …${r.localId.slice(-6)}`;
 }
 
+/** ST8-T16 รหัสผลของคำสั่งที่ต้องให้คนทำต่อ เป็นข้อความไทย (ไม่รู้จัก = รหัสเดิม) */
+export function commandErrorText(t: T, code: string): string {
+  const k = `cnx.ec.${code}` as MessageKey;
+  return t(k) === k ? code : t(k);
+}
+
 export function operationLabel(t: T, op: string): string {
   const k = `cnx.op.${op}` as MessageKey;
   return t(k) === k ? op : t(k);
@@ -452,10 +458,18 @@ const FIELD_LABELS: Record<string, MessageKey> = {
   sqlUser: 'cnx.fl.sqlUser',
   sqlPassword: 'cnx.fl.sqlPassword',
   inboundSecret: 'cnx.fl.inboundSecret',
+  webhookSecret: 'cnx.fl.webhookSecret',
+  contactMatch: 'cnx.fl.contactMatch',
 };
 export function fieldLabel(t: T, key: string): string {
   const k = FIELD_LABELS[key];
   return k ? t(k) : key;
+}
+
+/** ST8-T16 ป้ายของตัวเลือกในช่องค่าตั้ง (`cnx.opt.<ช่อง>.<ค่า>` — ไม่รู้จัก = ค่าเดิม) */
+export function optionLabel(t: T, key: string, value: string): string {
+  const k = `cnx.opt.${key}.${value}` as MessageKey;
+  return t(k) === k ? value : t(k);
 }
 
 function Shell({ children }: { children: ReactNode }) {
@@ -804,10 +818,11 @@ function MapTab({
             { v: 'ERP', l: t('cnx.num.erp', { n }) },
           ]}
           value={owner}
-          disabled={!canWrite || sor.isPending}
+          disabled={!canWrite || sor.isPending || !!adapter.fixedTaxDocumentOwner}
           onChange={(v) => v !== owner && setNumTo(v as 'TMS' | 'ERP')}
         />
         <span className="cnx-f__h">
+          {adapter.fixedTaxDocumentOwner && <>{t('cnx.num.fixed', { n })} · </>}
           {t(
             owner === 'ERP'
               ? 'cnx.num.erpHint'
@@ -1041,7 +1056,9 @@ function LogTab({
                 <td>
                   <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
                     <Badge label={t(b.k)} tone={b.tone} icon={b.i} />
-                    {r.errorCode && <span className="cnx-row__s">{r.errorCode}</span>}
+                    {r.errorCode && (
+                      <span className="cnx-row__s">{commandErrorText(t, r.errorCode)}</span>
+                    )}
                   </span>
                 </td>
               </tr>
@@ -1171,7 +1188,7 @@ function ConnectDialog({
                   <option value="">{t('cnx.f.default')}</option>
                   {f.options.map((o) => (
                     <option key={o} value={o}>
-                      {o}
+                      {optionLabel(t, f.key, o)}
                     </option>
                   ))}
                 </select>

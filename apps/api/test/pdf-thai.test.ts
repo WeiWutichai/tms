@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { inflateSync } from 'node:zlib';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
@@ -14,20 +14,18 @@ import {
   sampleInvoiceMixed,
   sampleInvoiceSandbox,
 } from '../src/modules/invoices/invoice.sample';
-import { invoiceDocument, type InvoicePrintModel } from '../src/modules/invoices/invoice.template';
+import { invoiceDocument } from '../src/modules/invoices/invoice.template';
 import {
   sampleSettlementDraft,
   sampleSettlementLong,
   sampleSettlementPaid,
 } from '../src/modules/settlements/settlement-pdf.sample';
-import {
-  settlementVoucherDocument,
-  type SettlementPrintModel,
-} from '../src/modules/settlements/settlement-pdf.template';
+import { settlementVoucherDocument } from '../src/modules/settlements/settlement-pdf.template';
 import { sampleLongTripSheet, sampleTripSheet } from '../src/modules/trip-sheets/trip-sheet.sample';
 import { tripSheetDocument } from '../src/modules/trip-sheets/trip-sheet.template';
 import { sarabunFontCss } from '../src/pdf/fonts';
 import { PdfRenderer, type RenderOptions } from '../src/pdf/pdf-renderer';
+import { woff2CodePoints } from './woff2-cmap';
 
 /**
  * ST9-T12 "PDF ทุกชนิดเป็นไทย" (docs/04 I ภาษา, K10) — render PDF ทุกชนิดที่ระบบออกได้ แล้วตรวจว่า
@@ -37,7 +35,8 @@ import { PdfRenderer, type RenderOptions } from '../src/pdf/pdf-renderer';
  * ภาพเทียบ golden ของแต่ละชนิดอยู่ใน test/trip-sheet-pdf.test.ts (เอกสารตัวอย่างของ engine: test/pdf.test.ts — ไม่ใช่เอกสารที่ออกให้ลูกค้า
  *   และมี "→" ที่ Sarabun ไม่มี จึงไม่อยู่ใน KINDS)
  * ชนิดใหม่ (ใบแจ้งหนี้/ใบกำกับภาษี/50 ทวิ ฯลฯ ใน ST5–ST6): ต้องเพิ่มใน KINDS — test สุดท้ายสแกนไฟล์ที่ import `pdf/pdf-renderer` แล้วบังคับ
- * (4) ทุกอักขระบนเอกสารอยู่ใน unicode-range ของ Sarabun ที่ฝัง (ตรวจแบบ static — ไม่ขึ้นกับฟอนต์ในเครื่อง/OS)
+ * (4) ทุกอักขระบนเอกสารอยู่ใน unicode-range และ cmap (glyph จริง ทุกน้ำหนัก) ของ Sarabun ที่ฝัง (ตรวจแบบ static — ไม่ขึ้นกับฟอนต์ในเครื่อง/OS)
+ *     — เช่น "→" ของต้นแบบ TMS Print ไม่มีใน Sarabun เอกสารจริงใช้ "–" แทน (spec/12 §3)
  */
 const KINDS: Array<{
   kind: string;
@@ -77,9 +76,7 @@ const KINDS: Array<{
         original,
         ce,
         sampleInvoiceSandbox(),
-      ]
-        .map(noArrow)
-        .map(invoiceDocument);
+      ].map(invoiceDocument);
     },
     labels: ['ใบแจ้งหนี้', 'รวมทั้งสิ้น'],
   },
@@ -89,9 +86,9 @@ const KINDS: Array<{
     docs: () => {
       const ce = sampleSettlementPaid();
       ce.yearStyle = 'CE';
-      return [sampleSettlementDraft(), sampleSettlementPaid(), sampleSettlementLong(), ce]
-        .map(settlementNoArrow)
-        .map(settlementVoucherDocument);
+      return [sampleSettlementDraft(), sampleSettlementPaid(), sampleSettlementLong(), ce].map(
+        settlementVoucherDocument,
+      );
     },
     labels: ['ใบสำคัญจ่าย'],
   },
@@ -116,29 +113,6 @@ const KINDS: Array<{
   },
 ];
 
-/**
- * ตัวอย่างใบแจ้งหนี้ (golden ใน test/invoice-pdf.test.ts) ใช้ "→" ในคำอธิบายเส้นทาง ซึ่งเป็นข้อความที่ผู้ใช้พิมพ์เอง
- * (ไม่ใช่ป้ายของแม่แบบ) และไม่อยู่ในชุด Sarabun — ที่นี่ตรวจเฉพาะแม่แบบ จึงแทนด้วย "–" ก่อน render
- */
-function noArrow(m: InvoicePrintModel): InvoicePrintModel {
-  return {
-    ...m,
-    note: m.note?.replaceAll('→', '–') ?? null,
-    lines: m.lines.map((l) => ({ ...l, description: l.description.replaceAll('→', '–') })),
-  };
-}
-
-/**
- * เส้นทาง "ต้นทาง → ปลายทาง" ของใบสำคัญจ่าย (ตามต้นแบบ TMS Print — `settlement-pdf.service.ts` ประกอบด้วย "→")
- * ไม่อยู่ในชุด Sarabun (ตกไปฟอนต์เครื่อง) — ค้างให้ตัดสินแยก; ที่นี่ตรวจข้อความอื่นของแม่แบบ จึงแทนด้วย "–" ก่อน render
- */
-function settlementNoArrow(m: SettlementPrintModel): SettlementPrintModel {
-  return {
-    ...m,
-    trips: m.trips.map((t) => ({ ...t, route: t.route?.replaceAll('→', '–') ?? null })),
-  };
-}
-
 const THAI = /[ก-๛]/;
 
 /** ช่วง code point ที่ @font-face ของ Sarabun ครอบ (จาก unicode-range ใน sarabunFontCss) */
@@ -150,7 +124,23 @@ const SARABUN_RANGES: Array<[number, number]> = [
     return [parseInt(a!, 16), parseInt(b ?? a!, 16)] as [number, number];
   }),
 );
-const covered = (cp: number) => cp <= 0x20 || SARABUN_RANGES.some(([a, b]) => cp >= a && cp <= b);
+const inRange = (cp: number) => SARABUN_RANGES.some(([a, b]) => cp >= a && cp <= b);
+
+/**
+ * glyph ที่ไฟล์ Sarabun ที่ฝัง (ทุกน้ำหนัก ทุก subset ใน fonts.ts) มีจริง — unicode-range กว้างกว่า glyph ที่มี
+ * (U+2000-206F ทั้งช่วง) จึงต้องอยู่ทั้งใน range และ cmap ของทุกน้ำหนัก (ตัวหนา/บางต้องไม่ตกไปฟอนต์เครื่อง)
+ */
+const SARABUN_GLYPHS: Set<number> = (() => {
+  const dir = join(dirname(require.resolve('@fontsource/sarabun/package.json')), 'files');
+  const perWeight = [400, 500, 600, 700].map((w) => {
+    const s = new Set<number>();
+    for (const subset of ['thai', 'latin'])
+      for (const cp of woff2CodePoints(join(dir, `sarabun-${subset}-${w}-normal.woff2`))) s.add(cp);
+    return s;
+  });
+  return new Set([...perWeight[0]!].filter((cp) => perWeight.every((s) => s.has(cp))));
+})();
+const covered = (cp: number) => cp <= 0x20 || (inRange(cp) && SARABUN_GLYPHS.has(cp));
 
 /** stream ทั้งหมดใน PDF ที่ถอด FlateDecode ได้ (อ่านความยาวจาก /Length ของ dictionary) */
 function streams(pdf: Buffer): string[] {
@@ -230,6 +220,7 @@ describe('ST9-T12 PDF ทุกชนิดเป็นภาษาไทย ฝ
         for (const l of k.labels) expect(info.text).toContain(l);
         const outside = [...new Set([...info.text].filter((c) => !covered(c.codePointAt(0)!)))];
         expect(outside, 'อักขระนอกชุด Sarabun (จะตกไปฟอนต์เครื่อง)').toEqual([]);
+        expect(info.text).not.toContain('→');
 
         const pdf = await r.pdf(doc);
         const raw = pdf.toString('latin1');
@@ -247,9 +238,13 @@ describe('ST9-T12 PDF ทุกชนิดเป็นภาษาไทย ฝ
     }, 120_000);
   }
 
-  it('ตัวตรวจจับได้จริง: → ไม่อยู่ในชุด Sarabun (static) · ใน PDF ฟอนต์อื่นโผล่ (ข้ามถ้าเครื่องไม่มีฟอนต์สำรอง)', async (ctx) => {
+  it('ตัวตรวจจับได้จริง: → ไม่อยู่ในชุด Sarabun แต่ – อยู่ (static + cmap) · ใน PDF ฟอนต์อื่นโผล่ (ข้ามถ้าเครื่องไม่มีฟอนต์สำรอง)', async (ctx) => {
     expect(covered('ก'.codePointAt(0)!)).toBe(true);
     expect(covered('→'.codePointAt(0)!)).toBe(false);
+    // "→" อยู่นอก unicode-range อยู่แล้ว · U+2192 ตรวจ cmap โดยตรง (ตัวแทนที่ใช้บนเอกสาร "–" ต้องมี glyph)
+    expect(SARABUN_GLYPHS.has(0x2192)).toBe(false);
+    expect(covered('–'.codePointAt(0)!)).toBe(true);
+    expect(SARABUN_GLYPHS.has('ก'.codePointAt(0)!)).toBe(true);
     const pdf = await r.pdf({ body: '<p>กรุงเทพฯ → แหลมฉบัง</p>' });
     const fonts = [...pdf.toString('latin1').matchAll(/\/FontName\s*\/([A-Za-z0-9+_-]+)/g)].map(
       (m) => m[1]!,
