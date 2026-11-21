@@ -163,7 +163,8 @@ export class InvoicesService {
 
   // ---------- เขียน ----------
 
-  async create(body: CreateInvoiceDto): Promise<InvoiceDto> {
+  /** `o.createdBy` = ผู้สร้างที่เป็นระบบ (`system:invoice-run` — ST5-T12: ไม่นับเป็นผู้เตรียมในกฎแบ่งหน้าที่ของ finalize) */
+  async create(body: CreateInvoiceDto, o: { createdBy?: string } = {}): Promise<InvoiceDto> {
     const tx = this.db.tx;
     const ctx = requestContext.require();
     const customerId = await this.customerRef(tx, body.customerId);
@@ -196,7 +197,7 @@ export class InvoicesService {
         customerPoNo: body.customerPoNo || null,
         note: body.note || null,
         lineMode: body.lineMode ?? 'SINGLE',
-        createdBy: ctx.actorId ?? null,
+        createdBy: o.createdBy ?? ctx.actorId ?? null,
       },
     });
     await this.pull(tx, inv.id, doIds);

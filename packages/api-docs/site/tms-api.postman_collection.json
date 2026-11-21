@@ -18376,6 +18376,46 @@
               }
             }
           }
+        },
+        {
+          "name": "สั่งรอบวางบิล (async) — สร้างร่างใบแจ้งหนี้ทุกลูกค้าตาม billing_cycle (+ ร่างใบวางบิล)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoice-runs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoice-runs"
+              ]
+            },
+            "description": "scope: invoices:draft\n\nบัญชีเบา: ร่าง **ไม่มีเลข ไม่ใช่เอกสารภาษี** · ลูกค้าที่ `billingCycle` = รอบที่สั่ง (ไม่รวม `MANUAL`) ที่มี DO พร้อมวางบิล (กฎเดียวกับ `GET /invoices/queue` + เวลาจุดส่งครบ) วันที่ DO อยู่ในงวด → ร่างผ่านทางเดียวกับ `POST /invoices` (ตรวจซ้ำตอนดึง · กันวางบิลซ้ำระดับ DB · audit `invoice.draft_created`) · `MONTHLY`/`WEEKLY` = 1 ร่างต่อลูกค้า งวด = ที่สั่ง (เกิน 200 DO แบ่งหลายร่าง) · `PER_DO` = 1 ร่างต่อ DO · `billingNotes` (ค่าเริ่มต้น true) = ร่างใบวางบิลจากใบแจ้งหนี้ที่ออกแล้วยังค้าง และยังไม่อยู่ในใบวางบิลที่ active (1 ร่างต่อผู้ออก/สาขาผู้ออก) · **สั่งซ้ำไม่สร้างซ้ำ:** DO/ใบแจ้งหนี้ที่ถูกดึงแล้วไม่ถูกเลือกอีก · **ลูกค้าที่ล้มไม่ทำให้ลูกค้าอื่นล้ม** · 202 `{jobId, statusUrl}` → `GET /v1/jobs/{id}`: `progress` ต่อลูกค้า · `result` = `InvoiceRunResult` (ผลต่อลูกค้า + ลิงก์ร่าง — ไม่มียอดเงิน) · ทุกลูกค้าผ่าน = `succeeded`, มีลูกค้าล้ม = `succeeded_with_errors` · จบ = webhook `job.completed` · ผู้สั่งดู `statusUrl` ได้แม้ไม่มี `jobs:read` · job เก็บ 7 วัน · นับเป็นคำขอหนัก (rate limit ชั้น heavy)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"billingCycle\": \"PER_DO\",\n  \"periodFrom\": \"2026-10-01\",\n  \"periodTo\": \"2026-10-31\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
         }
       ]
     },
