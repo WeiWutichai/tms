@@ -3,9 +3,16 @@ import { dirname, join, relative } from 'node:path';
 import { inflateSync } from 'node:zlib';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
+  sampleBillingNote,
+  sampleBillingNoteLong,
+  sampleBillingNoteSandbox,
+} from '../src/modules/billing-notes/billing-note.sample';
+import { billingNoteDocument } from '../src/modules/billing-notes/billing-note.template';
+import {
   sampleInvoiceExempt,
   sampleInvoiceLong,
   sampleInvoiceMixed,
+  sampleInvoiceSandbox,
 } from '../src/modules/invoices/invoice.sample';
 import { invoiceDocument } from '../src/modules/invoices/invoice.template';
 import {
@@ -54,7 +61,7 @@ const KINDS: Array<{
     labels: ['ใบคุมรถ'],
   },
   {
-    kind: 'ใบแจ้งหนี้ (ST5-T08 — ร่าง/ต้นฉบับ/สำเนา, ยกเว้น VAT/ผสม/หลายหน้า)',
+    kind: 'ใบแจ้งหนี้ (ST5-T08 — ร่าง/ต้นฉบับ/สำเนา, ยกเว้น VAT/ผสม/หลายหน้า · D-61 ลายน้ำ sandbox)',
     module: 'src/modules/invoices',
     docs: () => {
       const original = sampleInvoiceMixed();
@@ -62,9 +69,14 @@ const KINDS: Array<{
       original.copy = 'ORIGINAL';
       const ce = sampleInvoiceExempt();
       ce.yearStyle = 'CE';
-      return [sampleInvoiceExempt(), sampleInvoiceMixed(), sampleInvoiceLong(), original, ce].map(
-        invoiceDocument,
-      );
+      return [
+        sampleInvoiceExempt(),
+        sampleInvoiceMixed(),
+        sampleInvoiceLong(),
+        original,
+        ce,
+        sampleInvoiceSandbox(),
+      ].map(invoiceDocument);
     },
     labels: ['ใบแจ้งหนี้', 'รวมทั้งสิ้น'],
   },
@@ -79,6 +91,25 @@ const KINDS: Array<{
       );
     },
     labels: ['ใบสำคัญจ่าย'],
+  },
+  {
+    kind: 'ใบวางบิล (ST5-T11 — ร่าง/ต้นฉบับ, หลายหน้า · D-61 ลายน้ำ sandbox)',
+    module: 'src/modules/billing-notes',
+    docs: () => {
+      const draft = sampleBillingNote();
+      draft.billingNoteNo = null;
+      draft.copy = null;
+      const ce = sampleBillingNote();
+      ce.yearStyle = 'CE';
+      return [
+        sampleBillingNote(),
+        sampleBillingNoteLong(),
+        draft,
+        ce,
+        sampleBillingNoteSandbox(),
+      ].map(billingNoteDocument);
+    },
+    labels: ['ใบวางบิล', 'รวมทั้งสิ้น'],
   },
 ];
 

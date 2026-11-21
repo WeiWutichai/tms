@@ -6,10 +6,19 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { IS_PUBLIC, PLATFORM_ROLES, TENANT_RESOURCE } from '../src/common/decorators';
-import { encodeId } from '../src/common/ids';
+import { encodeId, tryDecodeId } from '../src/common/ids';
 import { store } from '../src/modules/documents/documents.controller';
 import { signStepUpToken } from '../src/auth/tokens';
-import { api, bootApp, createTenant, platform, tokenFor, truncateAll, validTaxId } from './helpers';
+import {
+  api,
+  bootApp,
+  createTenant,
+  issuedTestFields,
+  platform,
+  tokenFor,
+  truncateAll,
+  validTaxId,
+} from './helpers';
 
 /**
  * Harness แยก tenant (ST0-T05) — CI แดงเมื่อ:
@@ -877,6 +886,80 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('invoice', inv.id);
     },
+    // ST5-T09 ใบแจ้งหนี้ที่ออกแล้ว (/invoices/:id/pdf — ร่าง = 409) — ข้อมูล ณ วันออกครบตาม CHECK 0140
+    issuedInvoice: async (db, tenantId, n) => {
+      const id = tryDecodeId('invoice', await FIXTURES.invoice!(db, tenantId, n + 500))!;
+      await db.invoice.update({
+        where: { id },
+        data: { status: 'ISSUED', ...issuedTestFields(`INV-ISO-${n}`) },
+      });
+      return encodeId('invoice', id);
+    },
+    // ST5-T13 การรับชำระ (/payments/:id, /reverse, /bounce, /clear) — เช็ครอเคลียร์ ตัดใบที่ออกแล้วเต็มยอด
+    payment: async (db, tenantId, n) => {
+      const invoiceId = tryDecodeId('invoice', await FIXTURES.invoice!(db, tenantId, n + 900))!;
+      const inv = await db.invoice.update({
+        where: { id: invoiceId },
+        data: {
+          totalAmount: '100.00',
+          subtotalExempt: '100.00',
+          status: 'ISSUED',
+          ...issuedTestFields(`INV-ISO-PAY-${n}`),
+        },
+      });
+      const p = await db.payment.create({
+        data: {
+          tenantId,
+          paymentNo: `PAY-ISO-${n}`,
+          customerId: inv.customerId,
+          receivedDate: new Date('2026-11-20'),
+          method: 'CHEQUE',
+          chequeNo: `CHQ-${n}`,
+          chequeBank: 'ธนาคารทดสอบ',
+          chequeDate: new Date('2026-11-25'),
+          chequeStatus: 'PENDING',
+          amountReceived: '100.00',
+        },
+      });
+      await db.paymentAllocation.create({
+        data: { tenantId, paymentId: p.id, invoiceId, amount: '100.00' },
+      });
+      return encodeId('payment', p.id);
+    },
+    // ST5-T11 ใบวางบิล (/billing-notes/:id, PATCH, /finalize, /acknowledge, /collect, /cancel, /proforma)
+    billingNote: async (db, tenantId, n) => {
+      const inv = await db.invoice.findUniqueOrThrow({
+        where: { id: tryDecodeId('invoice', await FIXTURES.invoice!(db, tenantId, n + 700))! },
+      });
+      const bn = await db.billingNote.create({
+        data: {
+          tenantId,
+          customerId: inv.customerId,
+          issuingCompanyId: inv.issuingCompanyId,
+          issuingBranchId: inv.issuingBranchId,
+        },
+      });
+      return encodeId('billingNote', bn.id);
+    },
+    // ST5-T11 ใบวางบิลที่ออกแล้ว (/billing-notes/:id/pdf — ร่าง = 409)
+    issuedBillingNote: async (db, tenantId, n) => {
+      const id = tryDecodeId('billingNote', await FIXTURES.billingNote!(db, tenantId, n + 500))!;
+      await db.billingNote.update({
+        where: { id },
+        data: {
+          status: 'ISSUED',
+          billingNoteNo: `BN-ISO-${n}`,
+          billingDate: new Date('2026-11-20T00:00:00.000Z'),
+          collectionDate: new Date('2026-12-05T00:00:00.000Z'),
+          issuedAt: new Date(),
+          issuedBy: 'test',
+          customerSnapshot: { name: 'x', taxId: null, branchCode: null, address: '' },
+          issuerSnapshot: { name: 'x', taxId: null, branchCode: '00000', address: '' },
+          printOptions: { yearStyle: 'BE', templateVersion: 1 },
+        },
+      });
+      return encodeId('billingNote', id);
+    },
     // ST3-T11 เที่ยวรถ (PLANNING ว่าง)
     trip: async (db, tenantId, n) =>
       encodeId(
@@ -930,6 +1013,8 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
 
 /** body ขั้นต่ำที่ผ่าน validation ของ action แต่ละแบบ (ให้ไปถึง handler แล้วได้ 404 จริง) */
 const BODY_FOR_SUFFIX: Record<string, object> = {
+  // ST5-T11 ผู้รับวางบิล
+  acknowledge: { receivedBy: 'isolation', receivedOn: '2026-11-20' },
   resolve: { decision: 'IGNORE', reason: 'isolation test reason' },
   deactivate: { reason: 'isolation test reason' },
   activate: { reason: 'isolation test' },
@@ -1008,6 +1093,10 @@ const BODY_FOR_PATH: Record<string, object> = {
     reason: 'isolation test reason',
   },
   '/v1/revenue-lines/:id/void': { reason: 'isolation test reason' }, // ST5-T01
+  '/v1/invoices/:id/void': { reason: 'isolation test reason' }, // ST5-T10
+  '/v1/invoices/:id/unmark-sent': { reason: 'isolation test reason' }, // ST5-T18
+  '/v1/payments/:id/reverse': { reason: 'isolation test reason' }, // ST5-T13
+  '/v1/payments/:id/bounce': { reason: 'isolation test reason' }, // ST5-T13
   '/v1/settlements/:id/lines/:lineId/remove': { reason: 'isolation test reason' }, // ST6-T03
   // ST5-T07 ร่างใบแจ้งหนี้
   '/v1/invoices/:id/delivery-orders': { deliveryOrderIds: [`do_${'0'.repeat(32)}`] },

@@ -46,6 +46,15 @@ export const PERMISSIONS = [
   'invoices:read',
   'invoices:draft',
   'invoices:finalize',
+  /**
+   * ST5-T10 ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (`POST /invoices/{id}/void`) — spec/05 §7 ข้อ 2 + §19 "ยกเลิกเอกสารที่ออกแล้ว": owner/admin/manager
+   * (docs/04 A3 ไม่มีแถวนี้ — แยกจาก finalize ตามทางระมัดระวัง; API key ขอ scope นี้ได้ตาม G2) [DECISION spec/12 §3 แถว ST5-T10]
+   */
+  'invoices:void',
+  /** ST5-T13 บันทึกรับชำระ + เช็คผ่าน (spec/05 §19 "รับชำระ": owner/admin/manager/accounting) — D-57 */
+  'payments:record',
+  /** ST5-T13 กลับรายการรับชำระ / เช็คคืน (spec/05 §19 "void payment": owner/admin/manager) */
+  'payments:reverse',
   'credit-notes:request',
   'credit-notes:approve',
   'settlements:read',
@@ -121,6 +130,10 @@ export const SYSTEM_ROLES: Record<RoleCode, { th: string; en: string; permission
         'trips:close',
         'invoices:read',
         'invoices:finalize',
+        // ST5-T10 ยกเลิกใบที่ออกแล้ว (spec/05 §19 — manager)
+        'invoices:void',
+        'payments:record',
+        'payments:reverse',
         'credit-notes:approve',
         'settlements:read',
         'settlements:approve',
@@ -204,6 +217,7 @@ export const SYSTEM_ROLES: Record<RoleCode, { th: string; en: string; permission
         'invoices:read',
         'invoices:draft',
         'invoices:finalize',
+        'payments:record',
         'credit-notes:request',
         'settlements:read',
         'settlements:create',

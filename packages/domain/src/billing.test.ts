@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  agingBucketOf,
+  daysPastDue,
+  paymentDueLevel,
   BILLING_REVERT_RULES,
   BILLING_STATUSES,
   BILLING_TRANSITIONS,
   REVERT_DELIVERY_WINDOW_MS,
   INVOICE_STATUSES,
   billingStage,
+  invoiceOverdue,
+  invoicePaymentStatus,
   isBillable,
   isInvoiceActive,
   revertDeliveryWindow,
@@ -24,9 +29,11 @@ describe('billing status (ST5-T05)', () => {
       );
     expect(BILLING_STATUSES.filter(isBillable)).toEqual(['UNBILLED', 'CREDITED']);
   });
-  it('ร่าง → ถอด (UNBILLED) / ออกเลข (INVOICED) · INVOICED ย้อนไม่ได้ ไปได้แค่ CREDITED', () => {
+  it('ร่าง → ถอด (UNBILLED) / ออกเลข (INVOICED) · INVOICED ไปได้แค่ CREDITED (ลดหนี้เต็มใบ) / UNBILLED (ยกเลิกใบ ST5-T10)', () => {
     expect(BILLING_TRANSITIONS.IN_DRAFT).toEqual({ undraft: 'UNBILLED', invoice: 'INVOICED' });
-    expect(BILLING_TRANSITIONS.INVOICED).toEqual({ credit: 'CREDITED' });
+    expect(BILLING_TRANSITIONS.INVOICED).toEqual({ credit: 'CREDITED', uninvoice: 'UNBILLED' });
+    expect(transition('do.billing', BILLING_TRANSITIONS, 'INVOICED', 'uninvoice')).toBe('UNBILLED');
+    expect(() => transition('do.billing', BILLING_TRANSITIONS, 'IN_DRAFT', 'uninvoice')).toThrow();
     expect(() => transition('do.billing', BILLING_TRANSITIONS, 'INVOICED', 'undraft')).toThrow();
     expect(() => transition('do.billing', BILLING_TRANSITIONS, 'UNBILLED', 'invoice')).toThrow();
   });
@@ -103,5 +110,69 @@ describe('lifecycle + revert rules (ST5-T06)', () => {
     expect(billingStage(d)).toBe('PAID');
     expect(billingStage(d, 'PARTIALLY_PAID')).toBe('PARTIALLY_PAID');
     expect(billingStage({ ...d, paidAt: null })).toBe('INVOICED');
+  });
+});
+
+describe('invoicePaymentStatus (ST5-T13)', () => {
+  it('ISSUED ↔ PARTIALLY_PAID ↔ PAID ตามยอดตัด · สถานะอื่นไม่เปลี่ยน', () => {
+    expect(invoicePaymentStatus('ISSUED', 10000n, 0n)).toBe('ISSUED');
+    expect(invoicePaymentStatus('ISSUED', 10000n, 9900n)).toBe('PARTIALLY_PAID');
+    expect(invoicePaymentStatus('ISSUED', 10000n, 10000n)).toBe('PAID');
+    expect(invoicePaymentStatus('PAID', 10000n, 0n)).toBe('ISSUED');
+    expect(invoicePaymentStatus('PARTIALLY_PAID', 10000n, 0n)).toBe('ISSUED');
+    expect(invoicePaymentStatus('DRAFT', 10000n, 10000n)).toBe('DRAFT');
+    expect(invoicePaymentStatus('CANCELLED', 10000n, 0n)).toBe('CANCELLED');
+  });
+});
+
+describe('invoiceOverdue (ST5-T18)', () => {
+  const T = '2026-11-21';
+  it('ค้างรับ + เลยวันครบกำหนด (เวลาไทย) = เกินกำหนด · ครบกำหนดวันนี้ยังไม่เกิน', () => {
+    expect(invoiceOverdue('ISSUED', 10000n, 0n, '2026-11-20', T)).toBe(true);
+    expect(invoiceOverdue('PARTIALLY_PAID', 10000n, 5000n, '2026-11-20', T)).toBe(true);
+    expect(invoiceOverdue('ISSUED', 10000n, 0n, T, T)).toBe(false);
+    expect(invoiceOverdue('ISSUED', 10000n, 0n, '2026-12-01', T)).toBe(false);
+    expect(invoiceOverdue('ISSUED', 10000n, 0n, null, T)).toBe(false);
+  });
+  it('ชำระครบ / ร่าง / ยกเลิก / ปรับยอด ไม่เกินกำหนด', () => {
+    expect(invoiceOverdue('PAID', 10000n, 10000n, '2026-11-01', T)).toBe(false);
+    expect(invoiceOverdue('ISSUED', 10000n, 10000n, '2026-11-01', T)).toBe(false);
+    for (const s of ['DRAFT', 'CANCELLED', 'VOIDED', 'ADJUSTED'] as const)
+      expect(invoiceOverdue(s, 10000n, 0n, '2026-11-01', T)).toBe(false);
+  });
+});
+
+describe('อายุลูกหนี้ + ระดับเตือนครบกำหนด (ST5-T22)', () => {
+  it('spec/05 §10: due 1 ต.ค. 2569 ดู 9 พ.ย. 2569 = 39 วัน → 31–60 · spec/09 RPT: due 20 พ.ย. = ยังไม่ครบ · due 1 ก.ค. = 131 วัน → เกิน 90', () => {
+    expect(daysPastDue('2026-10-01', '2026-11-09')).toBe(39);
+    expect(agingBucketOf(39)).toBe('DAYS_31_60');
+    expect(agingBucketOf(daysPastDue('2026-11-20', '2026-11-09'))).toBe('NOT_DUE');
+    expect(daysPastDue('2026-07-01', '2026-11-09')).toBe(131);
+    expect(agingBucketOf(131)).toBe('DAYS_OVER_90');
+  });
+  it('ขอบช่วง: 0 = ยังไม่ครบ (ครบกำหนดวันนี้) · 1/30 · 31/60 · 61/90 · 91 · ไม่มีวันครบกำหนด = ยังไม่ครบ', () => {
+    expect([0, 1, 30, 31, 60, 61, 90, 91].map(agingBucketOf)).toEqual([
+      'NOT_DUE',
+      'DAYS_1_30',
+      'DAYS_1_30',
+      'DAYS_31_60',
+      'DAYS_31_60',
+      'DAYS_61_90',
+      'DAYS_61_90',
+      'DAYS_OVER_90',
+    ]);
+    expect(daysPastDue(null, '2026-11-09')).toBe(0);
+  });
+  it('BIL-121: ก่อน 3 วัน · วันครบกำหนด · เกิน 7 · เกิน 30 (ถึงวันที่ 59) · นอกช่วง = ไม่เตือน', () => {
+    expect(paymentDueLevel(-4)).toBeNull();
+    expect(paymentDueLevel(-3)).toBe('DUE_IN_3');
+    expect(paymentDueLevel(-1)).toBe('DUE_IN_3');
+    expect(paymentDueLevel(0)).toBe('DUE_TODAY');
+    expect(paymentDueLevel(6)).toBe('DUE_TODAY');
+    expect(paymentDueLevel(7)).toBe('OVERDUE_7');
+    expect(paymentDueLevel(29)).toBe('OVERDUE_7');
+    expect(paymentDueLevel(30)).toBe('OVERDUE_30');
+    expect(paymentDueLevel(59)).toBe('OVERDUE_30');
+    expect(paymentDueLevel(60)).toBeNull();
   });
 });

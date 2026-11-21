@@ -1,7 +1,7 @@
 <!-- index.md -->
 # TMS API v1
 
-เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 347 endpoint
+เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 372 endpoint
 
 เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
 
@@ -58,12 +58,14 @@
 - [ตั้งค่า (settings)](ref-settings.md) — 1 endpoint: GET /v1/settings
 - [ประวัติการทำรายการ (audit)](ref-audit.md) — 1 endpoint: GET /v1/audit-logs
 - [OAuth และระบบ (auth)](ref-auth.md) — 4 endpoint: POST /v1/oauth/token, GET /v1/.well-known/jwks.json, POST /v1/oauth/revoke, GET /v1/health
-- [invoices](ref-invoices.md) — 17 endpoint: GET /v1/invoices/queue, GET /v1/invoices/summary, POST /v1/invoices/preview, GET /v1/invoices, POST /v1/invoices, GET /v1/invoices/{id}, …
+- [billing-notes](ref-billing-notes.md) — 12 endpoint: GET /v1/billing-notes/summary, GET /v1/billing-notes/candidates, GET /v1/billing-notes, POST /v1/billing-notes, GET /v1/billing-notes/{id}, PATCH /v1/billing-notes/{id}, …
+- [invoices](ref-invoices.md) — 22 endpoint: GET /v1/invoices/queue, GET /v1/invoices/summary, POST /v1/invoices/preview, GET /v1/invoices, POST /v1/invoices, GET /v1/invoices/{id}, …
+- [payments](ref-payments.md) — 8 endpoint: GET /v1/payments, POST /v1/payments, GET /v1/payments/summary, GET /v1/payments/aging, GET /v1/payments/{id}, POST /v1/payments/{id}/reverse, …
 
 ## อ้างอิง
 
 - [Webhook events](webhook-events.md) — 31 event: connector.health_changed, credit_note.finalized, debit_note.finalized, delivery_order.status_changed, invoice.adjusted, invoice.finalized, invoice.paid, invoice.voided, …
-- [รหัส error](errors.md) — 115 code ของ problem+json
+- [รหัส error](errors.md) — 127 code ของ problem+json
 - [Changelog](changelog.md) — ประวัติเวอร์ชันของ API (added/changed/deprecated)
 
 ---
@@ -6183,13 +6185,13 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/send-to-carrier', {
 });
 ```
 
-## ออกลิงก์ให้รถร่วมตรวจใหม่ (ลิงก์เดิมหมดอายุ/หาย) {#post-settlements-id-review-link}
+## ออกลิงก์ให้รถร่วมใหม่ (ลิงก์เดิมหมดอายุ/หาย) {#post-settlements-id-review-link}
 
 `POST /v1/settlements/{id}/review-link`
 
 scope: `settlements:create` · operationId: `Settlements_reissueLink`
 
-เฉพาะใบ SENT_TO_CARRIER / DISPUTED · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued`
+ใบ SENT_TO_CARRIER / DISPUTED = ลิงก์ตรวจ (ดู + ยอมรับ/โต้แย้ง) — ผู้ออกนับเป็นผู้เตรียมใบ · ใบ APPROVED / PAID = ลิงก์**ดูอย่างเดียว** — ไม่เพิ่มผู้เตรียม หัวใบไม่เปลี่ยน · ร่าง/ยกเลิก → 409 · เพิกถอนลิงก์เดิม · คำตอบของรถร่วมในรอบนี้คงอยู่ · audit `settlement.review_link_reissued` (`viewOnly`)
 
 **Parameters**
 
@@ -7235,7 +7237,7 @@ scope: `settings:read` · operationId: `TestEvents_trigger`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `type` | ใช่ | `string` | ค่า: `order.created`, `order.updated`, `order.held`, `order.released`, `order.cancelled`, `trip.assigned`, `trip.dispatched`, `trip.started`, `trip.completed`, `trip.cancelled`, `stop.arrived`, `stop.departed`, `stop.completed`, `stop.failed`, `delivery_order.status_changed`, `pod.captured`, `settlement.approved`, `settlement.paid`, `connector.health_changed`, `job.completed` | event สาธารณะที่ยิงได้ในเฟสนี้ (`phase: active` ใน `GET /v1/webhooks/event-types`) — `data.object` = ตัวอย่างตาม schema ของ event (ข้อมูลสมมติ) | `order.created` |
+| `type` | ใช่ | `string` | ค่า: `order.created`, `order.updated`, `order.held`, `order.released`, `order.cancelled`, `trip.assigned`, `trip.dispatched`, `trip.started`, `trip.completed`, `trip.cancelled`, `stop.arrived`, `stop.departed`, `stop.completed`, `stop.failed`, `delivery_order.status_changed`, `pod.captured`, `invoice.finalized`, `invoice.paid`, `invoice.voided`, `payment.recorded`, `payment.reversed`, `settlement.approved`, `settlement.paid`, `connector.health_changed`, `job.completed` | event สาธารณะที่ยิงได้ในเฟสนี้ (`phase: active` ใน `GET /v1/webhooks/event-types`) — `data.object` = ตัวอย่างตาม schema ของ event (ข้อมูลสมมติ) | `order.created` |
 
 **Responses**
 
@@ -19235,7 +19237,7 @@ const { data, error } = await tms.GET('/v1/document-sequences/{id}', {
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `seq_…` |
-| `docType` | ใช่ | `string` | ค่า: `SO`, `TRIP`, `DO`, `BN`, `INV`, `TXINV`, `RCP`, `CN`, `DN`, `STL`, `WHT`, `WO`, `INC` |   |   |
+| `docType` | ใช่ | `string` | ค่า: `SO`, `TRIP`, `DO`, `BN`, `INV`, `TXINV`, `RCP`, `CN`, `DN`, `STL`, `WHT`, `WO`, `INC`, `PAY` |   |   |
 | `prefix` | ใช่ | `string` |   |   | `INV-{BR}` |
 | `resetPolicy` | ใช่ | `string` | ค่า: `monthly`, `yearly`, `never` |   |   |
 | `padding` | ใช่ | `number` |   |   |   |
@@ -19510,10 +19512,620 @@ const { data, error } = await tms.GET('/v1/health');
 
 ---
 
+<!-- ref-billing-notes.md -->
+# billing-notes
+
+12 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+
+| Endpoint | scope |
+|---|---|
+| [`GET /v1/billing-notes/summary`](#get-billing-notes-summary) | `invoices:read` |
+| [`GET /v1/billing-notes/candidates`](#get-billing-notes-candidates) | `invoices:read` |
+| [`GET /v1/billing-notes`](#get-billing-notes) | `invoices:read` |
+| [`POST /v1/billing-notes`](#post-billing-notes) | `invoices:draft` |
+| [`GET /v1/billing-notes/{id}`](#get-billing-notes-id) | `invoices:read` |
+| [`PATCH /v1/billing-notes/{id}`](#patch-billing-notes-id) | `invoices:draft` |
+| [`POST /v1/billing-notes/{id}/finalize`](#post-billing-notes-id-finalize) | `invoices:finalize` |
+| [`POST /v1/billing-notes/{id}/acknowledge`](#post-billing-notes-id-acknowledge) | `invoices:finalize` |
+| [`POST /v1/billing-notes/{id}/collect`](#post-billing-notes-id-collect) | `invoices:finalize` |
+| [`POST /v1/billing-notes/{id}/cancel`](#post-billing-notes-id-cancel) | `invoices:draft` |
+| [`GET /v1/billing-notes/{id}/proforma`](#get-billing-notes-id-proforma) | `invoices:read` |
+| [`GET /v1/billing-notes/{id}/pdf`](#get-billing-notes-id-pdf) | `invoices:read` |
+
+## จำนวนใบวางบิลตามสถานะ (แท็บ) {#get-billing-notes-summary}
+
+`GET /v1/billing-notes/summary`
+
+scope: `invoices:read` · operationId: `BillingNotes_summary`
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `BillingNoteSummaryCountsDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/billing-notes/summary" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/billing-notes/summary');
+```
+
+## ใบแจ้งหนี้ของลูกค้าที่ใส่ในใบวางบิลได้ {#get-billing-notes-candidates}
+
+`GET /v1/billing-notes/candidates`
+
+scope: `invoices:read` · operationId: `BillingNotes_candidates`
+
+ออกแล้วและยังค้างชำระ (ISSUED) และไม่อยู่ในใบวางบิลอื่นที่ active (ร่าง/ออกแล้ว) · เรียงวันที่ออก · ≤ 500 ใบ · ยอด `sell*` เห็นเมื่อมี `prices.sell:read`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `customerId` | query | ใช่ | `string` | ลูกค้า — id หรือ `ext:{externalId}` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `BillingNoteCandidatesDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/billing-notes/candidates" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/billing-notes/candidates');
+```
+
+## รายการใบวางบิล {#get-billing-notes}
+
+`GET /v1/billing-notes`
+
+scope: `invoices:read` · operationId: `BillingNotes_list`
+
+กรองลูกค้า (`customerId` รับ `ext:`) / สถานะ · cursor มาตรฐาน (updatedAt, id) · ร่างไม่มีเลข · ยอด `sell*` เห็นเมื่อมี `prices.sell:read`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `limit` | query |   | `number` |   |
+| `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน |
+| `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull) |
+| `sort` | query |   | `string` ค่า: `updatedAt`, `-updatedAt` |   |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
+| `customerId` | query |   | `string` | ลูกค้า — id หรือ `ext:{externalId}` |
+| `status` | query |   | `string` ค่า: `DRAFT`, `ISSUED`, `COLLECTED`, `CANCELLED` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `BillingNotePageDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/billing-notes" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/billing-notes');
+```
+
+## สร้างร่างใบวางบิลจากใบแจ้งหนี้หลายใบของลูกค้าเดียว (ไม่มีเลข) {#post-billing-notes}
+
+`POST /v1/billing-notes`
+
+scope: `invoices:draft` · operationId: `BillingNotes_create`
+
+ใบแจ้งหนี้ต้องเป็นของลูกค้ารายนี้ **ออกแล้วและยังค้างชำระ** (ISSUED — ไม่งั้น 409 `invoice_not_billable`) ผู้ออก/สาขาผู้ออกเดียวกัน (422 `issuer_mismatch`) · **ใบแจ้งหนี้หนึ่งใบอยู่ในใบวางบิลที่ active ได้ใบเดียว** (409 `invoice_already_billed` — กันระดับ DB) · ยอดวางบิล = Σ ยอดค้าง · WHT ที่คาดว่าจะถูกหักเป็นประมาณการ · ไม่กระทบ VAT/WHT · audit `billing_note.draft_created`
+
+**Request body** `CreateBillingNoteDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `customerId` | ใช่ | `string` |   | ลูกค้า — id หรือ `ext:{externalId}` | `cus_…` |
+| `invoiceIds` | ใช่ | `array<string>` |   | ใบแจ้งหนี้ (≤ 200) ของลูกค้ารายนี้ที่**ออกแล้วและยังค้างชำระ** (ISSUED) · ผู้ออก/สาขาผู้ออกเดียวกัน · ไม่อยู่ในใบวางบิลอื่นที่ active | `["ivc_…"]` |
+| `collectionDate` |   | `string` |   | วันนัดรับเช็ค/โอน (บังคับก่อนออกเอกสาร · ≥ วันวางบิล) | `2026-12-05` |
+| `note` |   | `string` |   | หมายเหตุบนเอกสาร (≤ 2,000) |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `201` |   | `BillingNoteDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:draft`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `409` | `invoice_already_billed` — ใบแจ้งหนี้อยู่ในใบวางบิลอื่นที่ active (ร่าง/ออกแล้ว) `invoices[]` · `invoice_not_billable` — ใบแจ้งหนี้ยังไม่ออก/ไม่ค้างชำระ `invoices[]` · `invalid_state_transition` — ใบวางบิลไม่ใช่ร่าง — [invoice_already_billed](errors.md#invoice_already_billed), [invoice_not_billable](errors.md#invoice_not_billable) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/billing-notes" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"customerId":"cus_…","invoiceIds":["ivc_…"],"collectionDate":"2026-12-05"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/billing-notes', {
+  body: {
+    "customerId": "cus_…",
+    "invoiceIds": [
+      "ivc_…"
+    ],
+    "collectionDate": "2026-12-05"
+  },
+});
+```
+
+## ใบวางบิล + ใบแจ้งหนี้ในใบ + ผู้รับวางบิล {#get-billing-notes-id}
+
+`GET /v1/billing-notes/{id}`
+
+scope: `invoices:read` · operationId: `BillingNotes_get`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `BillingNoteDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบวางบิล (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/billing-notes/<id>" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/billing-notes/{id}', {
+  params: { path: { id: "…" } },
+});
+```
+
+## แก้ร่าง — ชุดใบแจ้งหนี้ วันนัดรับเช็ค/โอน หมายเหตุ {#patch-billing-notes-id}
+
+`PATCH /v1/billing-notes/{id}`
+
+scope: `invoices:draft` · operationId: `BillingNotes_update`
+
+เฉพาะ DRAFT (อื่น ๆ → 409) · `invoiceIds` = ชุดใหม่ทั้งหมด (ใบที่ไม่อยู่ในชุดถูกถอด — ยังเห็นในประวัติ `active=false`) · audit `billing_note.draft_updated`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
+
+**Request body** `UpdateBillingNoteDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `invoiceIds` |   | `array<string>` |   | ชุดใบแจ้งหนี้ใหม่ทั้งหมด (≥ 1) | `["ivc_…"]` |
+| `collectionDate` |   | `string` | null ได้ | วันนัดรับเช็ค/โอน · null = ล้าง | `2026-12-05` |
+| `note` |   | `string` | null ได้ | หมายเหตุ · null/"" = ล้าง |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `BillingNoteDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:draft`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบวางบิล (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | `invoice_already_billed` — ใบแจ้งหนี้อยู่ในใบวางบิลอื่นที่ active (ร่าง/ออกแล้ว) `invoices[]` · `invoice_not_billable` — ใบแจ้งหนี้ยังไม่ออก/ไม่ค้างชำระ `invoices[]` · `invalid_state_transition` — ใบวางบิลไม่ใช่ร่าง — [invoice_already_billed](errors.md#invoice_already_billed), [invoice_not_billable](errors.md#invoice_not_billable) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X PATCH "$TMS_BASE_URL/v1/billing-notes/<id>" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"invoiceIds":["ivc_…"]}'
+```
+
+```ts
+const { data, error } = await tms.PATCH('/v1/billing-notes/{id}', {
+  params: { path: { id: "…" } },
+  body: {
+    "invoiceIds": [
+      "ivc_…"
+    ]
+  },
+});
+```
+
+## ออกเอกสาร — ออกเลขใบวางบิล (ชุด BN) + ล็อก {#post-billing-notes-id-finalize}
+
+`POST /v1/billing-notes/{id}/finalize`
+
+scope: `invoices:finalize` · operationId: `BillingNotes_finalize`
+
+DRAFT → ISSUED · ตรวจใบแจ้งหนี้ซ้ำ (ยังออกแล้วค้างชำระ — 409 `invoice_not_billable`) · ต้องมีวันนัดรับเช็ค/โอน ≥ วันวางบิล (422 `collectionDate`) · วันวางบิล = วันนี้ (เวลาไทย) · ออกเลขชุด BN (เรียงไม่ข้าม) · snapshot ลูกค้า/ผู้ออก/ยอดต่อใบ · audit `billing_note.issued` · แล้ว render PDF ต้นฉบับเก็บแบบเขียนครั้งเดียว · หลังนี้แก้ไม่ได้ (ยกเลิกแล้วสร้างใหม่)
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header | ใช่ | `string` | ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `BillingNoteDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:finalize`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบวางบิล (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | `invoice_already_billed` — ใบแจ้งหนี้อยู่ในใบวางบิลอื่นที่ active (ร่าง/ออกแล้ว) `invoices[]` · `invoice_not_billable` — ใบแจ้งหนี้ยังไม่ออก/ไม่ค้างชำระ `invoices[]` · `invalid_state_transition` — ใบวางบิลไม่ใช่ร่าง — [invoice_already_billed](errors.md#invoice_already_billed), [invoice_not_billable](errors.md#invoice_not_billable) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/billing-notes/<id>/finalize" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)"
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/billing-notes/{id}/finalize', {
+  params: { path: { id: "…" } },
+});
+```
+
+## บันทึกผู้รับวางบิล (ชื่อฝั่งลูกค้า + วันที่รับ) {#post-billing-notes-id-acknowledge}
+
+`POST /v1/billing-notes/{id}/acknowledge`
+
+scope: `invoices:finalize` · operationId: `BillingNotes_acknowledge`
+
+ใบที่ออกแล้ว (ISSUED/COLLECTED) · วันที่รับ ≥ วันวางบิล และไม่เกินวันนี้ · บันทึกซ้ำ = แก้ (audit ค่าเดิม/ใหม่ `billing_note.acknowledged`) · ไม่เปลี่ยนสถานะ
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
+
+**Request body** `AcknowledgeBillingNoteDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `receivedBy` | ใช่ | `string` |   | ชื่อผู้รับวางบิลฝั่งลูกค้า | `คุณสมศรี (ฝ่ายบัญชี)` |
+| `receivedOn` | ใช่ | `string` |   | วันที่ลูกค้ารับวางบิล (≥ วันวางบิล, ≤ วันนี้) | `2026-11-21` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `BillingNoteDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:finalize`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบวางบิล (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/billing-notes/<id>/acknowledge" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"receivedBy":"คุณสมศรี (ฝ่ายบัญชี)","receivedOn":"2026-11-21"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/billing-notes/{id}/acknowledge', {
+  params: { path: { id: "…" } },
+  body: {
+    "receivedBy": "คุณสมศรี (ฝ่ายบัญชี)",
+    "receivedOn": "2026-11-21"
+  },
+});
+```
+
+## รับเช็ค/โอนแล้ว — ISSUED → COLLECTED {#post-billing-notes-id-collect}
+
+`POST /v1/billing-notes/{id}/collect`
+
+scope: `invoices:finalize` · operationId: `BillingNotes_collect`
+
+สถานะสิ้นสุด · ใบแจ้งหนี้ในใบ**ยังนับว่าวางบิลแล้ว** · ไม่เปลี่ยนสถานะ/ยอดของใบแจ้งหนี้ · audit `billing_note.collected`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
+
+**Request body** `CollectBillingNoteDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `note` |   | `string` |   | หมายเหตุการรับเช็ค/โอน (≤ 500) เช่น เลขเช็ค |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `BillingNoteDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:finalize`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบวางบิล (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/billing-notes/<id>/collect" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/billing-notes/{id}/collect', {
+  params: { path: { id: "…" } },
+  body: {},
+});
+```
+
+## ยกเลิกใบวางบิล — เหตุผล ≥ 10 ตัวอักษร {#post-billing-notes-id-cancel}
+
+`POST /v1/billing-notes/{id}/cancel`
+
+scope: `invoices:draft` · operationId: `BillingNotes_cancel`
+
+DRAFT → CANCELLED (`invoices:draft`) · ISSUED → CANCELLED (ต้องมี `invoices:finalize` ด้วย — 403) · เลขคงอยู่ ไม่ถูกใช้ซ้ำ · ไม่กระทบใบแจ้งหนี้ (BIL-039 — วางบิลใหม่ได้) · COLLECTED ยกเลิกไม่ได้ (409) · audit `billing_note.cancelled` + เหตุผล
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
+
+**Request body** `BillingNoteReasonDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` |   | เหตุผล 10–500 ตัวอักษร | `ลูกค้าขอแยกวางบิลตามสาขา` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `BillingNoteDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:draft` / `invoices:finalize`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบวางบิล (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/billing-notes/<id>/cancel" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"ลูกค้าขอแยกวางบิลตามสาขา"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/billing-notes/{id}/cancel', {
+  params: { path: { id: "…" } },
+  body: {
+    "reason": "ลูกค้าขอแยกวางบิลตามสาขา"
+  },
+});
+```
+
+## PDF ตัวอย่างของร่างใบวางบิล — ไม่มีเลข มีลายน้ำ "ร่าง" {#get-billing-notes-id-proforma}
+
+`GET /v1/billing-notes/{id}/proforma`
+
+scope: `invoices:read` · operationId: `BillingNotes_proforma`
+
+เฉพาะ DRAFT (อื่น ๆ → 409 ใช้ `/pdf`) · แม่แบบเดียวกับใบแจ้งหนี้ (TMS Print #bill) · render ใหม่ทุกครั้ง ไม่เก็บไฟล์ · ต้องมี `prices.sell:read`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | application/pdf |   |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบวางบิล (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/billing-notes/<id>/proforma" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/billing-notes/{id}/proforma', {
+  params: { path: { id: "…" } },
+});
+```
+
+## PDF ใบวางบิลที่ออกแล้ว — ต้นฉบับ / สำเนา (ไฟล์ที่เก็บ ณ วันออก) {#get-billing-notes-id-pdf}
+
+`GET /v1/billing-notes/{id}/pdf`
+
+scope: `invoices:read` · operationId: `BillingNotes_pdf`
+
+ใบที่ออกเลขแล้ว (ISSUED/COLLECTED/ยกเลิกหลังออก) — ร่าง → 409 ใช้ `/proforma` · `copy=COPY` render จาก snapshot ครั้งแรกแล้วเก็บ · header `X-Content-SHA256` · ต้องมี `prices.sell:read`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `copy` | query |   | `string` ค่า: `ORIGINAL`, `COPY` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | application/pdf |   |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบวางบิล (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress), [invoice_pdf_template_changed](errors.md#invoice_pdf_template_changed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/billing-notes/<id>/pdf" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/billing-notes/{id}/pdf', {
+  params: { path: { id: "…" } },
+});
+```
+
+## Schema ของ response {#schemas}
+
+### BillingNoteCandidatesDto {#schema-BillingNoteCandidatesDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<BillingNoteCandidateDto>` |   |   |   |
+
+### BillingNoteDto {#schema-BillingNoteDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `bn_…` |
+| `billingNoteNo` | ใช่ | `string` | null ได้ | เลขใบวางบิล (ชุด BN) — **ร่างไม่มีเลข** |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `ISSUED`, `COLLECTED`, `CANCELLED` |   |   |
+| `customer` | ใช่ | `InvoiceCustomerDto` |   |   |   |
+| `invoiceCount` | ใช่ | `number` |   | จำนวนใบแจ้งหนี้ในใบ |   |
+| `billingDate` | ใช่ | `string` | null ได้ | วันวางบิล (วันที่ออก) — ร่าง = null |   |
+| `collectionDate` | ใช่ | `string` | null ได้ | วันนัดรับเช็ค/โอน |   |
+| `sellTotal` |   | `string` |   | ยอดวางบิล (Σ ยอดค้างของใบแจ้งหนี้) — `prices.sell:read` |   |
+| `sellNetExpected` |   | `string` |   | ยอดวางบิล − WHT ที่คาดว่าจะถูกหัก (ประมาณการ) — `prices.sell:read` |   |
+| `version` | ใช่ | `number` |   |   |   |
+| `createdAt` | ใช่ | `string` |   |   |   |
+| `updatedAt` | ใช่ | `string` |   |   |   |
+| `issuingCompanyId` | ใช่ | `string` |   |   | `cmp_…` |
+| `issuingBranchId` | ใช่ | `string` |   |   | `brn_…` |
+| `sellWhtExpected` |   | `string` |   | Σ WHT ที่คาดว่าจะถูกหัก — `prices.sell:read` |   |
+| `note` | ใช่ | `string` | null ได้ |   |   |
+| `invoices` | ใช่ | `array<BillingNoteInvoiceDto>` |   | ใบแจ้งหนี้ในใบ (รวมที่ถอดออกจากร่างแล้ว `active=false`) |   |
+| `acknowledgement` | ใช่ | `BillingNoteAcknowledgementDto` | null ได้ | ผู้รับวางบิล — ยังไม่บันทึก = null |   |
+| `collectedAt` | ใช่ | `string` | null ได้ |   |   |
+| `collectedBy` | ใช่ | `string` | null ได้ |   |   |
+| `collectNote` | ใช่ | `string` | null ได้ |   |   |
+| `cancelledAt` | ใช่ | `string` | null ได้ |   |   |
+| `cancelReason` | ใช่ | `string` | null ได้ |   |   |
+| `createdBy` | ใช่ | `string` | null ได้ |   |   |
+| `issuedAt` | ใช่ | `string` | null ได้ |   |   |
+| `issuedBy` | ใช่ | `string` | null ได้ |   |   |
+| `pdf` | ใช่ | `InvoicePdfDto` | null ได้ | PDF ต้นฉบับที่เก็บ ณ วันออก — null = ร่าง หรือยังไม่ได้ render (`GET /v1/billing-notes/{id}/pdf` สร้างให้) |   |
+
+### BillingNotePageDto {#schema-BillingNotePageDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<BillingNoteSummaryDto>` |   |   |   |
+| `nextCursor` | ใช่ | `string` | null ได้ |   |   |
+| `hasMore` | ใช่ | `boolean` |   |   |   |
+
+### BillingNoteSummaryCountsDto {#schema-BillingNoteSummaryCountsDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `total` | ใช่ | `number` |   |   |   |
+| `draft` | ใช่ | `number` |   |   |   |
+| `issued` | ใช่ | `number` |   |   |   |
+| `collected` | ใช่ | `number` |   |   |   |
+| `cancelled` | ใช่ | `number` |   |   |   |
+
+---
+
 <!-- ref-invoices.md -->
 # invoices
 
-17 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+22 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -19525,6 +20137,8 @@ const { data, error } = await tms.GET('/v1/health');
 | [`GET /v1/invoices/{id}`](#get-invoices-id) | `invoices:read` |
 | [`PATCH /v1/invoices/{id}`](#patch-invoices-id) | `invoices:draft` |
 | [`GET /v1/invoices/{id}/proforma`](#get-invoices-id-proforma) | `invoices:read` |
+| [`POST /v1/invoices/{id}/finalize`](#post-invoices-id-finalize) | `invoices:finalize` |
+| [`GET /v1/invoices/{id}/pdf`](#get-invoices-id-pdf) | `invoices:read` |
 | [`POST /v1/invoices/{id}/delivery-orders`](#post-invoices-id-delivery-orders) | `invoices:draft` |
 | [`POST /v1/invoices/{id}/delivery-orders/remove`](#post-invoices-id-delivery-orders-remove) | `invoices:draft` |
 | [`POST /v1/invoices/{id}/delivery-orders/move`](#post-invoices-id-delivery-orders-move) | `invoices:draft` |
@@ -19534,6 +20148,9 @@ const { data, error } = await tms.GET('/v1/health');
 | [`PATCH /v1/invoices/{id}/lines/{lineId}`](#patch-invoices-id-lines-lineId) | `invoices:draft` |
 | [`POST /v1/invoices/{id}/lines/{lineId}/remove`](#post-invoices-id-lines-lineId-remove) | `invoices:draft` |
 | [`POST /v1/invoices/{id}/cancel`](#post-invoices-id-cancel) | `invoices:draft` |
+| [`POST /v1/invoices/{id}/void`](#post-invoices-id-void) | `invoices:void` |
+| [`POST /v1/invoices/{id}/mark-sent`](#post-invoices-id-mark-sent) | `invoices:finalize` |
+| [`POST /v1/invoices/{id}/unmark-sent`](#post-invoices-id-unmark-sent) | `invoices:void` |
 
 ## คิวพร้อมวางบิล (DO ที่ส่งแล้ว หลักฐานครบ และราคาพร้อม) {#get-invoices-queue}
 
@@ -19681,6 +20298,9 @@ scope: `invoices:read` · operationId: `Invoices_listInvoices`
 | `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `customerId` | query |   | `string` | ลูกค้า — id หรือ `ext:{externalId}` |
 | `status` | query |   | `string` ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |
+| `receivable` | query |   | `string` ค่า: `all`, `open`, `overdue` | หน้า "รับชำระ": `all` = ใบที่ออกแล้ว (ไม่รวมร่าง/ยกเลิก) · `open` = ค้างรับ (ISSUED + PARTIALLY_PAID) · `overdue` = ใบที่มีธงเกินกำหนด — ใช้ร่วมกับ `status` ได้ |
+| `overdue` | query |   | `string` ค่า: `true`, `false` | ธงเกินกำหนด — `false` = ไม่รวมใบเกินกำหนด (แท็บ "ออกแล้ว"/"ชำระบางส่วน" ของต้นแบบ: เกินกำหนดแสดงก่อน) · `true` = เฉพาะเกินกำหนด |
+| `aging` | query |   | `string` ค่า: `NOT_DUE`, `DAYS_1_30`, `DAYS_31_60`, `DAYS_61_90`, `DAYS_OVER_90` | ช่วงอายุลูกหนี้ (การ์ด "อายุลูกหนี้" ของหน้ารับชำระ) — เฉพาะใบค้างรับที่ยังมียอดค้าง และ `daysPastDue = วันนี้ − dueDate` (เวลาไทย) อยู่ในช่วง · ชุดเดียวกับ `GET /payments/aging` |
 
 **Responses**
 
@@ -19887,6 +20507,88 @@ curl -sS -X GET "$TMS_BASE_URL/v1/invoices/<id>/proforma" \
 
 ```ts
 const { data, error } = await tms.GET('/v1/invoices/{id}/proforma', {
+  params: { path: { id: "…" } },
+});
+```
+
+## ออกเอกสาร (finalize) — ออกเลขใบแจ้งหนี้ + ล็อก {#post-invoices-id-finalize}
+
+`POST /v1/invoices/{id}/finalize`
+
+scope: `invoices:finalize` · operationId: `Invoices_finalize`
+
+DRAFT → ISSUED · ตรวจ → ไม่ผ่าน 409 `invoice_not_finalizable` + `reasons[]`: `no_lines` · `total_not_positive` · `customer_tax_id_missing` · `customer_branch_missing` · `line_vat_type_missing` · `revenue_line_provisional` (+ `lines[]` — ยอดยังไม่ยืนยัน บันทึกยอดส่งจริงก่อน) · `issuer_not_vat_registered` (ผู้ออกไม่จด VAT แต่มีบรรทัด VAT 7%) · **แบ่งหน้าที่:** ผู้สร้าง/ผู้แก้ร่างล่าสุด (API key = ผู้ออก key) ออกใบนั้นเองไม่ได้ → 403 `invoice_self_finalize` (เว้น tenant ตั้ง `billing.allowSelfFinalize`) · ออกเลขชุด INV ต่อสาขาผู้ออก (เรียงไม่ข้าม พร้อมกันได้) · วันที่ออก = วันนี้ (เวลาไทย) · ครบกำหนด = วันที่ออก + เครดิต · เก็บ snapshot ลูกค้า/ผู้ออก · DO → INVOICED (+ UNBILLED → BILLED) · ล็อกบรรทัดรายได้ · audit + webhook `invoice.finalized` (transaction เดียว) · แล้ว render PDF ต้นฉบับเก็บแบบเขียนครั้งเดียว (`pdf`) · **ไม่มีเลขใบกำกับภาษี** · หลังนี้แก้/ยกเลิกร่าง/PATCH ไม่ได้ (409) · **sandbox:** ออกได้ — เลขจากชุดเลขของ sandbox ขึ้นต้น `TEST-` · PDF มีลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" · ไม่ส่งไป connector/ERP
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header | ใช่ | `string` | ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `InvoiceDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ `invoices:finalize` / ผู้เตรียมร่างออกเอง (`invoice_self_finalize`) — [permission_denied](errors.md#permission_denied), [invoice_self_finalize](errors.md#invoice_self_finalize) | `ProblemDto` |
+| `404` | ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | `invoice_not_finalizable` (`reasons[]`) · `invalid_state_transition` (ไม่ใช่ร่าง) — [invoice_not_finalizable](errors.md#invoice_not_finalizable) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/invoices/<id>/finalize" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)"
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/invoices/{id}/finalize', {
+  params: { path: { id: "…" } },
+});
+```
+
+## PDF ใบแจ้งหนี้ที่ออกแล้ว — ต้นฉบับ / สำเนา (ไฟล์ที่เก็บ ณ วันออก) {#get-invoices-id-pdf}
+
+`GET /v1/invoices/{id}/pdf`
+
+scope: `invoices:read` · operationId: `Invoices_issuedPdf`
+
+ใบที่ออกเลขแล้วเท่านั้น (ร่าง → 409 ใช้ `/proforma`) · `copy=ORIGINAL` (ค่าเริ่ม) = ไฟล์ต้นฉบับที่เก็บตอนออก · `copy=COPY` = สำเนา render จาก snapshot ณ วันออกครั้งแรกที่ขอแล้วเก็บ — ไม่ render ตามข้อมูลลูกค้าปัจจุบัน · ยังไม่มีไฟล์ (render ตอนออกล้ม) → สร้างให้แล้วเก็บ · header `X-Content-SHA256` · ไม่มีคำว่า "ใบกำกับภาษี" · ต้องมี `prices.sell:read` ไม่งั้น 403 · **ใบที่ยกเลิกแล้ว** = ไฟล์ลายน้ำ "ยกเลิก" ที่ render ด้วยแม่แบบวันออกแล้วเก็บตอนยกเลิก · แม่แบบเปลี่ยนแล้วและยังไม่มีไฟล์ลายน้ำ → ส่งไฟล์ต้นฉบับที่เก็บแทน + header `X-Invoice-Pdf-Note: cancelled-watermark-unavailable` · ไฟล์ต้นฉบับ/สำเนาคงเดิม
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `copy` | query |   | `string` ค่า: `ORIGINAL`, `COPY` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | application/pdf |   |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/invoices/<id>/pdf" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/invoices/{id}/pdf', {
   params: { path: { id: "…" } },
 });
 ```
@@ -20347,7 +21049,7 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/lines/{lineId}/remove'
 
 scope: `invoices:draft` · operationId: `Invoices_cancel`
 
-DRAFT → CANCELLED · บรรทัดหยุดนับ · DO กลับ UNBILLED (ขึ้นคิวอีก) · ใบที่ออกแล้วยกเลิกที่นี่ไม่ได้ · audit `invoice.draft_cancelled`
+DRAFT → CANCELLED · บรรทัดหยุดนับ · DO กลับ UNBILLED (ขึ้นคิวอีก) · ใบที่ออกแล้วยกเลิกที่นี่ไม่ได้ (409 — ใช้ `POST /v1/invoices/{id}/void`) · audit `invoice.draft_cancelled`
 
 **Parameters**
 
@@ -20394,6 +21096,153 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
 });
 ```
 
+## ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (void) — คงเลข · ยังไม่รับชำระ · เหตุผล ≥ 10 ตัวอักษร {#post-invoices-id-void}
+
+`POST /v1/invoices/{id}/void`
+
+scope: `invoices:void` · operationId: `Invoices_void`
+
+สิทธิ์ `invoices:void` · **If-Match บังคับ** (ไม่ส่ง → 422 `if_match_required`) · ISSUED → **CANCELLED คงเลข** (เลขไม่ถูกออกซ้ำ · record ไม่ถูกลบ) · รับชำระแล้ว (บางส่วน/ครบ) → 409 `invoice_has_payments` (`payments[]` — กลับรายการก่อน) · อยู่ในใบวางบิลที่ออกแล้ว/เก็บเงินแล้ว → 409 `invoice_on_billing_note` (`billingNoteNo` — ยกเลิกใบวางบิลก่อน) · **ส่งลูกค้าแล้ว** → 409 `invoice_sent_to_customer` · ร่าง → 409 (ใช้ `/cancel`) · ผล: DO INVOICED/BILLED → UNBILLED (วางบิลใหม่ได้) · ปลดล็อกบรรทัดรายได้ · ถอดออกจากใบวางบิลที่ยังเป็นร่าง · audit `invoice.cancelled` + webhook `invoice.voided` · `reissue: true` = สร้างร่างฉบับใหม่แทน (DO ชุดเดิม + บรรทัดที่เพิ่มเอง) อ้างเลขเดิม (`replacedByInvoice` / `replacesInvoice`) — ออกเลขใหม่ตามปกติ · PDF ของใบที่ยกเลิกมีลายน้ำ "ยกเลิก"
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header | ใช่ | `string` | ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
+
+**Request body** `VoidInvoiceDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `ลูกค้าขอแยกวางบิลงวดหน้า` |
+| `reissue` |   | `boolean` |   | สร้าง**ร่างฉบับใหม่แทน**ใน transaction เดียวกัน (DO ชุดเดิม + บรรทัดที่เพิ่มเอง · อ้างเลขเดิม `replacesInvoice`) — ร่างใหม่ต้องออกเอกสารตามปกติ (ได้เลขถัดไป ไม่ใช้เลขเดิม) |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `InvoiceDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:void`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | `invalid_state_transition` (ร่าง/ยกเลิกแล้ว/สถานะอื่น) · `invoice_has_payments` · `invoice_on_billing_note` · `invoice_sent_to_customer` · `not_ready_to_bill` (ออกฉบับใหม่แทน — DO ไม่พร้อม) — [invoice_on_billing_note](errors.md#invoice_on_billing_note), [invoice_has_payments](errors.md#invoice_has_payments) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/invoices/<id>/void" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"ลูกค้าขอแยกวางบิลงวดหน้า"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/invoices/{id}/void', {
+  params: { path: { id: "…" } },
+  body: {
+    "reason": "ลูกค้าขอแยกวางบิลงวดหน้า"
+  },
+});
+```
+
+## ทำเครื่องหมาย "ส่งลูกค้าแล้ว" {#post-invoices-id-mark-sent}
+
+`POST /v1/invoices/{id}/mark-sent`
+
+scope: `invoices:finalize` · operationId: `Invoices_markSent`
+
+สิทธิ์ `invoices:finalize` · ใบที่ออกเลขแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — อื่น ๆ 409 `invalid_state_transition`) · ส่งแล้วอยู่แล้ว = คืนค่าเดิม (ไม่เปลี่ยน) · audit `invoice.sent_to_customer` · ส่งแล้ว**ยกเลิกใบไม่ได้** (`/void` → 409 `invoice_sent_to_customer`) · ออกใบวางบิลตั้งธงนี้ให้อัตโนมัติ (ช่องทาง BILLING_NOTE) · ส่งอีเมล =
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `InvoiceDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:finalize`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/invoices/<id>/mark-sent" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)"
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/invoices/{id}/mark-sent', {
+  params: { path: { id: "…" } },
+});
+```
+
+## ล้างธง "ส่งลูกค้าแล้ว" (ทำเครื่องหมายผิด) — เหตุผล ≥ 10 ตัวอักษร {#post-invoices-id-unmark-sent}
+
+`POST /v1/invoices/{id}/unmark-sent`
+
+scope: `invoices:void` · operationId: `Invoices_unmarkSent`
+
+สิทธิ์ `invoices:void` (owner/admin/manager — สิทธิ์เดียวกับยกเลิกใบที่ออกแล้ว) · ยังไม่ส่ง = คืนค่าเดิม · audit `invoice.sent_to_customer_cleared` พร้อมเหตุผล · ยกเลิกใบวางบิลที่ออกแล้วล้างธงช่องทาง BILLING_NOTE ให้อัตโนมัติ
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
+
+**Request body** `UnmarkInvoiceSentDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `ลูกค้าขอแยกวางบิลงวดหน้า` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `InvoiceDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:void`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/invoices/<id>/unmark-sent" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"ลูกค้าขอแยกวางบิลงวดหน้า"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/invoices/{id}/unmark-sent', {
+  params: { path: { id: "…" } },
+  body: {
+    "reason": "ลูกค้าขอแยกวางบิลงวดหน้า"
+  },
+});
+```
+
 ## Schema ของ response {#schemas}
 
 ### BillingQueuePageDto {#schema-BillingQueuePageDto}
@@ -20423,6 +21272,14 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
 | `lineMode` | ใช่ | `string` | ค่า: `SINGLE`, `GROUP`, `MERGE` |   |   |
 | `sellTotal` |   | `string` |   | ยอดรวม (รวม VAT ประมาณการ) — `prices.sell:read` |   |
 | `sellNetExpected` |   | `string` |   | ยอดรวม − WHT ที่คาดว่าจะถูกหัก (ประมาณการ) — `prices.sell:read` |   |
+| `issueDate` | ใช่ | `string` | null ได้ | วันที่ออก (เวลาไทย) — ร่าง = null | `2026-11-20` |
+| `dueDate` | ใช่ | `string` | null ได้ | ครบกำหนดชำระ = วันที่ออก + เครดิต — ร่าง = null | `2026-12-20` |
+| `sellPaidAmount` |   | `string` |   | ยอดรับชำระแล้ว — `prices.sell:read` |   |
+| `sellOutstanding` |   | `string` |   | คงค้าง = ยอดรวม − รับชำระแล้ว (ร่าง/ยกเลิก = 0.00) — `prices.sell:read` |   |
+| `overdue` | ใช่ | `boolean` |   | เกินกำหนด — ค้างรับ (ISSUED/PARTIALLY_PAID) และเลยวันครบกำหนด (เวลาไทย) · **ธงแยกจาก `status`** (ใบชำระบางส่วนที่เลยกำหนด = `PARTIALLY_PAID` + `overdue: true`) · ตั้งโดย job รายวัน 00:05 และตอนรับชำระ/กลับรายการ · ชำระครบแล้วหลุดเอง |   |
+| `overdueAt` | ใช่ | `string` | null ได้ | เวลาที่ระบบตั้งธงเกินกำหนด — ไม่เกิน = null | `2026-11-21T17:05:00.000Z` |
+| `sentToCustomerAt` | ใช่ | `string` | null ได้ | ส่งลูกค้าแล้วเมื่อ — ส่งแล้วยกเลิกใบไม่ได้ (409 `invoice_sent_to_customer`) |   |
+| `sentToCustomerChannel` | ใช่ | `string` | ค่า: `MANUAL`, `BILLING_NOTE`, `EMAIL` · null ได้ | ช่องทางที่ทำให้ "ส่งลูกค้าแล้ว": MANUAL = ทำเครื่องหมายเอง · BILLING_NOTE = ออกใบวางบิล · EMAIL = ส่งอีเมล |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
 | `updatedAt` | ใช่ | `string` |   |   |   |
@@ -20442,7 +21299,14 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
 | `lines` | ใช่ | `array<InvoiceLineDto>` |   | บรรทัดจริง (รวมที่ถอดออกแล้ว `active=false`) |   |
 | `printLines` | ใช่ | `array<InvoicePrintLineDto>` |   | บรรทัดบนเอกสารตาม `lineMode` + กลุ่มที่รวมเอง |   |
 | `cancelReason` | ใช่ | `string` | null ได้ |   |   |
+| `cancelledAt` | ใช่ | `string` | null ได้ | เวลายกเลิก · null = ไม่ถูกยกเลิก |   |
+| `replacesInvoice` | ใช่ | `InvoiceReplacesDto` | null ได้ | ใบนี้ออกแทนใบที่ยกเลิก · PDF พิมพ์หมายเหตุอ้างเลข/วันที่เดิม |   |
+| `replacedByInvoice` | ใช่ | `InvoiceReplacedByDto` | null ได้ | ใบที่ออกแทนใบนี้ (ใบที่ยกเลิกแล้วออกใหม่ — ล่าสุดที่ยังไม่ยกเลิก) |   |
 | `createdBy` | ใช่ | `string` | null ได้ |   |   |
+| `issuedAt` | ใช่ | `string` | null ได้ | เวลาออกเอกสาร (ออกเลข) — ร่าง = null |   |
+| `issuedBy` | ใช่ | `string` | null ได้ | ผู้ออกเอกสาร |   |
+| `pdf` | ใช่ | `InvoicePdfDto` | null ได้ | PDF ต้นฉบับที่เก็บ ณ วันออก — null = ร่าง หรือยังไม่ได้ render (render หลังออกเลข; `GET /v1/invoices/{id}/pdf` สร้างให้ถ้ายังไม่มี) |   |
+| `billingNoteId` | ใช่ | `string` | null ได้ | ใบวางบิลที่ใบนี้อยู่ · null = ไม่อยู่ในใบวางบิล | `bn_…` |
 
 ### InvoiceMoveResultDto {#schema-InvoiceMoveResultDto}
 
@@ -20471,11 +21335,475 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
 |---|---|---|---|---|---|
 | `total` | ใช่ | `number` |   |   |   |
 | `draft` | ใช่ | `number` |   |   |   |
-| `issued` | ใช่ | `number` |   | ISSUED + ADJUSTED |   |
-| `partiallyPaid` | ใช่ | `number` |   |   |   |
+| `issued` | ใช่ | `number` |   | ISSUED + ADJUSTED ที่ไม่เกินกำหนด |   |
+| `partiallyPaid` | ใช่ | `number` |   | PARTIALLY_PAID ที่ไม่เกินกำหนด |   |
 | `paid` | ใช่ | `number` |   |   |   |
-| `overdue` | ใช่ | `number` |   | เกินกำหนด — คำนวณเมื่อมีวันครบกำหนด/รับชำระ ตอนนี้ 0 เสมอ |   |
+| `overdue` | ใช่ | `number` |   | เกินกำหนด — ใบที่มีธง `overdue` |   |
 | `cancelled` | ใช่ | `number` |   | CANCELLED + VOIDED |   |
+
+---
+
+<!-- ref-payments.md -->
+# payments
+
+8 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+
+| Endpoint | scope |
+|---|---|
+| [`GET /v1/payments`](#get-payments) | `invoices:read` |
+| [`POST /v1/payments`](#post-payments) | `payments:record` |
+| [`GET /v1/payments/summary`](#get-payments-summary) | `invoices:read` |
+| [`GET /v1/payments/aging`](#get-payments-aging) | `invoices:read` |
+| [`GET /v1/payments/{id}`](#get-payments-id) | `invoices:read` |
+| [`POST /v1/payments/{id}/reverse`](#post-payments-id-reverse) | `payments:reverse` |
+| [`POST /v1/payments/{id}/bounce`](#post-payments-id-bounce) | `payments:reverse` |
+| [`POST /v1/payments/{id}/clear`](#post-payments-id-clear) | `payments:record` |
+
+## รายการรับชำระ {#get-payments}
+
+`GET /v1/payments`
+
+scope: `invoices:read` · operationId: `Payments_list`
+
+กรองใบแจ้งหนี้ (`invoiceId`) / ลูกค้า (`customerId` รับ `ext:`) / สถานะ · cursor มาตรฐาน (updatedAt, id) · ยอด `sell*` เห็นเมื่อมี `prices.sell:read`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `limit` | query |   | `number` |   |
+| `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน |
+| `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull) |
+| `sort` | query |   | `string` ค่า: `updatedAt`, `-updatedAt` |   |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
+| `invoiceId` | query |   | `string` | การรับชำระที่ตัดใบแจ้งหนี้นี้ |
+| `customerId` | query |   | `string` |   |
+| `status` | query |   | `string` ค่า: `RECORDED`, `REVERSED` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `PaymentPageDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/payments" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/payments');
+```
+
+## บันทึกรับชำระ {#post-payments}
+
+`POST /v1/payments`
+
+scope: `payments:record` · operationId: `Payments_record`
+
+ใบแจ้งหนี้ที่ออกแล้ว (ISSUED / PARTIALLY_PAID) ของลูกค้ารายเดียว หลายใบได้ (BIL-050) · **เงินรับ + WHT + ค่าธรรมเนียม + ส่วนต่าง = Σ `allocations.amount`** (BIL-051 — ไม่มีเงินรับเกิน/เครดิตลูกค้าในเฟสนี้) ไม่ตรง → 422 `payment_unbalanced` · ยอดตัดต่อใบ ≤ คงค้าง (ตรวจใต้ล็อกใบ — พร้อมกันก็ตัดเกินไม่ได้) → 409 `payment_exceeds_outstanding` · ใบไม่อยู่ในสถานะรับชำระ → 409 `invoice_not_payable` · วันที่รับ ≤ วันนี้ (เวลาไทย) · `CHEQUE` ต้องมี `chequeNo` `chequeBank` `chequeDate` (สถานะเช็คเริ่ม PENDING) · ส่วนต่าง > 0 ต้องมี `differenceReason` · WHT ที่ถูกหัก = บันทึกยอด (+ เลขที่ 50 ทวิ) — รับ/ตรวจ 50 ทวิ ที่ระบบบัญชี · สถานะใบ: ตัดครบ → PAID · บางส่วน → PARTIALLY_PAID · เลขภายใน PAY · audit + webhook `payment.recorded` (transaction เดียว) · แก้/ลบไม่ได้ — กลับรายการด้วย `POST /payments/{id}/reverse`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `Idempotency-Key` | header |   | `string` | ส่งซ้ำ key เดิม + body เดิม = ผลเดิม (ไม่บันทึกซ้ำ) เก็บ 24 ชม. |
+
+**Request body** `CreatePaymentDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `receivedDate` | ใช่ | `string` |   | วันที่รับ (เวลาไทย) ≤ วันนี้ และไม่ก่อนวันที่ออกใบแจ้งหนี้ (422 `before_invoice_issue`) | `2026-11-21` |
+| `method` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH`, `OFFSET` | โอนเงิน / เช็ค / เงินสด · `OFFSET` (หักกลบลบหนี้) ยังปิด → 422 `method_not_available` (รอเครดิตลูกค้า BIL-058) |   |
+| `reference` |   | `string` | ยาว ≤ 100 | เลขอ้างอิงการโอน / หักกลบ (เช็คใช้ `chequeNo`) |   |
+| `chequeNo` |   | `string` | ยาว ≤ 30 | เลขที่เช็ค — **บังคับเมื่อ `CHEQUE`** |   |
+| `chequeBank` |   | `string` | ยาว ≤ 100 | ธนาคาร (สาขา) — **บังคับเมื่อ `CHEQUE`** |   |
+| `chequeDate` |   | `string` |   | วันที่หน้าเช็ค — **บังคับเมื่อ `CHEQUE`** | `2026-11-30` |
+| `amountReceived` | ใช่ | `string` |   | เงินเข้าจริง ≥ 0 | `24750.00` |
+| `whtAmount` |   | `string` |   | WHT ที่ลูกค้าหักไว้ | `250.00` |
+| `whtCertificateNo` |   | `string` | ยาว ≤ 40 | เลขที่หนังสือรับรอง 50 ทวิ ที่ลูกค้าแจ้ง |   |
+| `feeAmount` |   | `string` |   | ค่าธรรมเนียมโอนที่ลูกค้าหัก | `0.00` |
+| `differenceAmount` |   | `string` |   | ส่วนต่างที่ยอมตัดยอด (ลูกค้าจ่ายขาด) — > 0 ต้องมี `differenceReason` · เกินค่าตั้ง `payments.maxDifferenceAmount` (ค่าเริ่ม 10 บาท) ต้องมีสิทธิ์ `payments:reverse` ไม่มี = 403 `payment_difference_over_limit` (BIL-059) | `0.00` |
+| `differenceReason` |   | `string` | ยาว ≤ 500 · ยาว ≥ 10 | เหตุผลของส่วนต่าง |   |
+| `note` |   | `string` | ยาว ≤ 500 |   |   |
+| `allocations` | ใช่ | `array<PaymentAllocationInputDto>` | ≤ 50 รายการ |   |   |
+| `allocations[].invoiceId` | ใช่ | `string` |   | ใบแจ้งหนี้ที่ออกแล้วของลูกค้ารายเดียวกัน | `ivc_…` |
+| `allocations[].amount` | ใช่ | `string` |   | ยอดตัดหนี้ของใบนี้ (รวม WHT ที่ถูกหัก) > 0 และ ≤ ยอดคงค้าง | `25000.00` |
+| `allocations[].whtAmount` |   | `string` |   | WHT ที่ถูกหักของใบนี้ — ตัดใบเดียว: ไม่ส่ง = `whtAmount` ของการรับชำระ · หลายใบ: ส่งทุกใบ และรวม = `whtAmount` | `250.00` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `201` |   | `PaymentDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ `payments:record` / ส่วนต่างเกิน `payments.maxDifferenceAmount` โดยไม่มี `payments:reverse` (`payment_difference_over_limit`) — [permission_denied](errors.md#permission_denied), [payment_difference_over_limit](errors.md#payment_difference_over_limit) | `ProblemDto` |
+| `409` | `invoice_not_payable` · `payment_exceeds_outstanding` (`outstanding`) — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress), [invoice_not_payable](errors.md#invoice_not_payable), [payment_exceeds_outstanding](errors.md#payment_exceeds_outstanding) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/payments" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"receivedDate":"2026-11-21","method":"TRANSFER","chequeDate":"2026-11-30","amountReceived":"24750.00","whtAmount":"250.00","feeAmount":"0.00","differenceAmount":"0.00","allocations":[{"invoiceId":"ivc_…","amount":"25000.00","whtAmount":"250.00"}]}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/payments', {
+  body: {
+    "receivedDate": "2026-11-21",
+    "method": "TRANSFER",
+    "chequeDate": "2026-11-30",
+    "amountReceived": "24750.00",
+    "whtAmount": "250.00",
+    "feeAmount": "0.00",
+    "differenceAmount": "0.00",
+    "allocations": [
+      {
+        "invoiceId": "ivc_…",
+        "amount": "25000.00",
+        "whtAmount": "250.00"
+      }
+    ]
+  },
+});
+```
+
+## KPI หน้า "รับชำระ" — ยอดค้างรับ / เกินกำหนด / รับชำระเดือนนี้ / ครบกำหนดใน 7 วัน + จำนวนต่อแท็บ {#get-payments-summary}
+
+`GET /v1/payments/summary`
+
+scope: `invoices:read` · operationId: `Payments_summary`
+
+วันครบกำหนดและเดือน ตามเวลาไทย (Asia/Bangkok) · เกินกำหนด = ใบที่มีธง `overdue`
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `PaymentSummaryDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/payments/summary" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/payments/summary');
+```
+
+## อายุลูกหนี้ — ยอดค้างตามช่วงอายุ รวมและต่อลูกค้า {#get-payments-aging}
+
+`GET /v1/payments/aging`
+
+scope: `invoices:read` · operationId: `Payments_agingReport`
+
+ใบค้างรับ (ISSUED / PARTIALLY_PAID ที่ยังมียอดค้าง) · ยอดค้าง = ยอดรวม − ยอดตัดชำระ · ช่วงอายุจาก `daysPastDue = asOf − dueDate` (เวลาไทย): ยังไม่ครบกำหนด (≤ 0) · 1–30 · 31–60 · 61–90 · เกิน 90 วัน · **Σ ทุกช่วง = `sellOutstanding` ของ `GET /payments/summary`** · `data` = ต่อลูกค้า (เฉพาะที่มียอดค้าง) เรียงตามชื่อ cursor มาตรฐาน · กรองลูกค้า `customerId` (รับ `ext:`) · asOf = วันนี้ · ยอด `sell*` เห็นเมื่อมี `prices.sell:read` (จำนวนใบเห็นเสมอ) · รายการใบในช่วงอายุ: `GET /invoices?receivable=open&aging=…`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `limit` | query |   | `number` | ลูกค้าต่อหน้า |
+| `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (เรียงตามชื่อลูกค้า) |
+| `customerId` | query |   | `string` | ลูกค้ารายเดียว — id หรือ `ext:{externalId}` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `AgingReportDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/payments/aging" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/payments/aging');
+```
+
+## การรับชำระ + การตัดชำระต่อใบแจ้งหนี้ {#get-payments-id}
+
+`GET /v1/payments/{id}`
+
+scope: `invoices:read` · operationId: `Payments_get`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `PaymentDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบการรับชำระ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/payments/<id>" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/payments/{id}', {
+  params: { path: { id: "…" } },
+});
+```
+
+## กลับรายการรับชำระ {#post-payments-id-reverse}
+
+`POST /v1/payments/{id}/reverse`
+
+scope: `payments:reverse` · operationId: `Payments_reverse`
+
+RECORDED → REVERSED · ยอดค้างของใบกลับมา (PAID/PARTIALLY_PAID → ตามยอดที่เหลือ) · เหตุผล ≥ 10 ตัวอักษร + audit · webhook `payment.reversed` · บันทึกผิด = กลับรายการแล้วบันทึกใหม่ (ไม่มีแก้/ลบ)
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header | ใช่ | `string` | ETag (version) ของการรับชำระ — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
+
+**Request body** `PaymentReasonDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `บันทึกยอดผิด ลูกค้าโอน 24,500.00` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `PaymentDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`payments:reverse`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบการรับชำระ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | `invalid_state_transition` — กลับรายการแล้ว / ไม่ใช่เช็ค / เช็คไม่อยู่ในสถานะที่ทำได้ — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/payments/<id>/reverse" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"บันทึกยอดผิด ลูกค้าโอน 24,500.00"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/payments/{id}/reverse', {
+  params: { path: { id: "…" } },
+  body: {
+    "reason": "บันทึกยอดผิด ลูกค้าโอน 24,500.00"
+  },
+});
+```
+
+## เช็คคืน — กลับรายการรับชำระด้วยเช็ค (BIL-060) {#post-payments-id-bounce}
+
+`POST /v1/payments/{id}/bounce`
+
+scope: `payments:reverse` · operationId: `Payments_bounce`
+
+เช็คที่รอเคลียร์/ผ่านแล้ว → `chequeStatus` BOUNCED + REVERSED · ยอดค้างของใบกลับมา · เหตุผล + audit `payment.cheque_bounced` · webhook `payment.reversed` (`chequeStatus: BOUNCED`)
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header | ใช่ | `string` | ETag (version) ของการรับชำระ — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
+
+**Request body** `PaymentReasonDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `บันทึกยอดผิด ลูกค้าโอน 24,500.00` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `PaymentDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`payments:reverse`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบการรับชำระ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | `invalid_state_transition` — กลับรายการแล้ว / ไม่ใช่เช็ค / เช็คไม่อยู่ในสถานะที่ทำได้ — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/payments/<id>/bounce" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"บันทึกยอดผิด ลูกค้าโอน 24,500.00"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/payments/{id}/bounce', {
+  params: { path: { id: "…" } },
+  body: {
+    "reason": "บันทึกยอดผิด ลูกค้าโอน 24,500.00"
+  },
+});
+```
+
+## เช็คผ่าน (เคลียร์แล้ว) — PENDING → CLEARED {#post-payments-id-clear}
+
+`POST /v1/payments/{id}/clear`
+
+scope: `payments:record` · operationId: `Payments_clear`
+
+ไม่เปลี่ยนยอดตัดหนี้ (ตัดยอดตั้งแต่บันทึกรับเช็ค) · audit `payment.cheque_cleared`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header | ใช่ | `string` | ETag (version) ของการรับชำระ — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `PaymentDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`payments:record`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบการรับชำระ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | `invalid_state_transition` — กลับรายการแล้ว / ไม่ใช่เช็ค / เช็คไม่อยู่ในสถานะที่ทำได้ — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/payments/<id>/clear" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)"
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
+  params: { path: { id: "…" } },
+});
+```
+
+## Schema ของ response {#schemas}
+
+### AgingReportDto {#schema-AgingReportDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `asOf` | ใช่ | `string` |   | วันที่คำนวณ (วันนี้ เวลาไทย Asia/Bangkok) | `2026-11-09` |
+| `basis` | ใช่ | `string` | ค่า: `DUE_DATE` | นับอายุจากวันครบกำหนด — ไม่มีวันครบกำหนด = ยังไม่ครบกำหนด |   |
+| `count` | ใช่ | `number` |   | ใบค้างรับทั้งหมด (ตามตัวกรองลูกค้า — ไม่ขึ้นกับหน้า) |   |
+| `sellOutstanding` |   | `string` |   | ยอดค้างรวม = Σ ทุกช่วง = `sellOutstanding` ของ `GET /payments/summary` (ใบ ISSUED + PARTIALLY_PAID) — `prices.sell:read` |   |
+| `buckets` | ใช่ | `array<AgingBucketDto>` |   | รวมทุกลูกค้า (ไม่ขึ้นกับหน้า) |   |
+| `data` | ใช่ | `array<AgingCustomerDto>` |   | ต่อลูกค้า (เฉพาะที่มียอดค้าง) เรียงตามชื่อ |   |
+| `nextCursor` | ใช่ | `string` | null ได้ |   |   |
+| `hasMore` | ใช่ | `boolean` |   |   |   |
+
+### PaymentDto {#schema-PaymentDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `pay_…` |
+| `paymentNo` | ใช่ | `string` |   | เลขภายใน | `PAY-2611-0001` |
+| `customer` | ใช่ | `PaymentCustomerDto` |   |   |   |
+| `receivedDate` | ใช่ | `string` |   |   | `2026-11-21` |
+| `method` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH`, `OFFSET` |   |   |
+| `reference` | ใช่ | `string` | null ได้ |   |   |
+| `chequeNo` | ใช่ | `string` | null ได้ |   |   |
+| `chequeBank` | ใช่ | `string` | null ได้ |   |   |
+| `chequeDate` | ใช่ | `string` | null ได้ |   |   |
+| `chequeStatus` | ใช่ | `string` | ค่า: `PENDING`, `CLEARED`, `BOUNCED` · null ได้ | สถานะเช็ค (รอเคลียร์ / ผ่าน / เช็คคืน) — ไม่ใช่เช็ค = null |   |
+| `sellAmountReceived` |   | `string` |   | เงินเข้าจริง — `prices.sell:read` |   |
+| `sellWhtAmount` |   | `string` |   | WHT ที่ลูกค้าหัก — `prices.sell:read` |   |
+| `sellFeeAmount` |   | `string` |   | ค่าธรรมเนียมที่ลูกค้าหัก — `prices.sell:read` |   |
+| `sellDifferenceAmount` |   | `string` |   | ส่วนต่างที่ยอมตัดยอด — `prices.sell:read` |   |
+| `sellAppliedTotal` |   | `string` |   | ยอดตัดหนี้รวม (= Σ allocations) — `prices.sell:read` |   |
+| `differenceReason` | ใช่ | `string` | null ได้ |   |   |
+| `whtCertificateNo` | ใช่ | `string` | null ได้ | เลขที่ 50 ทวิ ที่ลูกค้าแจ้ง |   |
+| `note` | ใช่ | `string` | null ได้ |   |   |
+| `source` | ใช่ | `string` | ค่า: `MANUAL`, `CONNECTOR` |   |   |
+| `status` | ใช่ | `string` | ค่า: `RECORDED`, `REVERSED` | RECORDED · REVERSED (กลับรายการแล้ว — ไม่นับเป็นยอดรับ) |   |
+| `allocations` | ใช่ | `array<PaymentAllocationDto>` |   |   |   |
+| `reversedAt` | ใช่ | `string` | null ได้ |   |   |
+| `reversedBy` | ใช่ | `string` | null ได้ |   |   |
+| `reverseReason` | ใช่ | `string` | null ได้ |   |   |
+| `createdBy` | ใช่ | `string` | null ได้ |   |   |
+| `version` | ใช่ | `number` |   |   |   |
+| `createdAt` | ใช่ | `string` |   |   |   |
+| `updatedAt` | ใช่ | `string` |   |   |   |
+
+### PaymentPageDto {#schema-PaymentPageDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<PaymentDto>` |   |   |   |
+| `nextCursor` | ใช่ | `string` | null ได้ |   |   |
+| `hasMore` | ใช่ | `boolean` |   |   |   |
+
+### PaymentSummaryDto {#schema-PaymentSummaryDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `sellOutstanding` |   | `string` |   | ยอดค้างรับรวม (ใบที่ออกแล้ว) — `prices.sell:read` |   |
+| `sellOverdueOutstanding` |   | `string` |   | ยอดค้างของใบที่เลยวันครบกำหนด (เวลาไทย) — `prices.sell:read` |   |
+| `sellReceivedThisMonth` |   | `string` |   | เงินเข้าจริง (`amountReceived`) ของการรับชำระเดือนนี้ — ไม่รวม WHT/ค่าธรรมเนียม/ส่วนต่าง และที่กลับรายการ (เวลาไทย) — `prices.sell:read` |   |
+| `dueSoon` | ใช่ | `number` |   | ใบที่ค้างรับและครบกำหนดภายใน 7 วัน |   |
+| `total` | ใช่ | `number` |   | ใบที่ออกแล้วทั้งหมด (ไม่รวมร่าง/ยกเลิก) |   |
+| `open` | ใช่ | `number` |   | ค้างรับ (ISSUED + PARTIALLY_PAID) |   |
+| `overdue` | ใช่ | `number` |   | เกินกำหนด — ธง `overdue` ของใบ |   |
+| `partiallyPaid` | ใช่ | `number` |   | ชำระบางส่วนที่ไม่เกินกำหนด |   |
+| `paid` | ใช่ | `number` |   |   |   |
 
 ---
 
@@ -20493,17 +21821,17 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
 | [`debit_note.finalized`](#debit_note-finalized) | ยังไม่ส่ง (จองชื่อไว้) |   | ออกเลขใบเพิ่มหนี้แล้ว |
 | [`delivery_order.status_changed`](#delivery_order-status_changed) | ใช้งาน | `DeliveryOrderDto` | สถานะใบส่งของ (DO) เปลี่ยน |
 | [`invoice.adjusted`](#invoice-adjusted) | ยังไม่ส่ง (จองชื่อไว้) |   | ปรับยอดใบแจ้งหนี้ด้วยใบลดหนี้/เพิ่มหนี้ |
-| [`invoice.finalized`](#invoice-finalized) | ยังไม่ส่ง (จองชื่อไว้) |   | ออกเลขใบแจ้งหนี้/ใบกำกับภาษีแล้ว |
-| [`invoice.paid`](#invoice-paid) | ยังไม่ส่ง (จองชื่อไว้) |   | ใบแจ้งหนี้ได้รับชำระครบ |
-| [`invoice.voided`](#invoice-voided) | ยังไม่ส่ง (จองชื่อไว้) |   | ยกเลิกใบแจ้งหนี้ |
+| [`invoice.finalized`](#invoice-finalized) | ใช้งาน | `InvoiceDto` | ออกเอกสารใบแจ้งหนี้แล้ว |
+| [`invoice.paid`](#invoice-paid) | ใช้งาน | `InvoiceDto` | ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · `previousAttributes` = { status, version } ก่อนชำระ · ยิงทุกครั้งที่ใบเปลี่ยนเป็น PAID — กลับรายการ (`payment.reversed`) แล้วรับชำระครบอีกครั้ง = ยิงอีกครั้ง · สถานะชำระจากระบบบัญชี ยิงผ่านทางเดียวกัน |
+| [`invoice.voided`](#invoice-voided) | ใช้งาน | `InvoiceDto` | ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (`POST /invoices/{id}/void`) — `data.object` = ใบหลังยกเลิก: `status` CANCELLED + `invoiceNo` เดิม + `cancelledAt` (ไม่มีเหตุผล/ผู้ยกเลิก — ข้อความอิสระ) · `replacedByInvoice` = null เสมอตอนยิง (ร่างฉบับใหม่แทนสร้างหลัง event — ดูผ่าน GET) · `previousAttributes` = { status: ISSUED, version } · ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม |
 | [`job.completed`](#job-completed) | ใช้งาน | `JobDto` | งานเบื้องหลัง (นำเข้า/bulk/ส่งออก/รอบวางบิล) เสร็จ |
 | [`order.cancelled`](#order-cancelled) | ใช้งาน | `OrderDto` | ยกเลิกใบสั่งงาน |
 | [`order.created`](#order-created) | ใช้งาน | `OrderDto` | สร้างใบสั่งงานใหม่ (หน้าจอ, Open API, นำเข้าไฟล์) |
 | [`order.held`](#order-held) | ใช้งาน | `OrderDto` | พักใบสั่งงาน (เช่น ข้อมูลไม่ครบ เกินวงเงิน) |
 | [`order.released`](#order-released) | ใช้งาน | `OrderDto` | ปล่อยใบสั่งงานที่พักไว้ให้วางแผนต่อ |
 | [`order.updated`](#order-updated) | ใช้งาน | `OrderDto` | แก้ไขข้อมูลใบสั่งงาน |
-| [`payment.recorded`](#payment-recorded) | ยังไม่ส่ง (จองชื่อไว้) |   | บันทึกรับชำระเงิน |
-| [`payment.reversed`](#payment-reversed) | ยังไม่ส่ง (จองชื่อไว้) |   | กลับรายการรับชำระเงิน |
+| [`payment.recorded`](#payment-recorded) | ใช้งาน | `PaymentDto` | บันทึกรับชำระเงิน |
+| [`payment.reversed`](#payment-reversed) | ใช้งาน | `PaymentDto` | กลับรายการรับชำระเงิน (รวมเช็คคืน — `chequeStatus` = BOUNCED) ยอดค้างของใบกลับมา |
 | [`pod.captured`](#pod-captured) | ใช้งาน | `DeliveryOrderPodDto` | บันทึกหลักฐานการส่ง (POD) |
 | [`receipt.issued`](#receipt-issued) | ยังไม่ส่ง (จองชื่อไว้) |   | ออกใบเสร็จรับเงินแล้ว |
 | [`reconcile.mismatch_found`](#reconcile-mismatch_found) | ยังไม่ส่ง (จองชื่อไว้) |   | พบข้อมูลไม่ตรงกันจากการกระทบยอดกับระบบภายนอก |
@@ -20627,27 +21955,114 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
 
 ## invoice.finalized {#invoice-finalized}
 
-ออกเลขใบแจ้งหนี้/ใบกำกับภาษีแล้ว
+ออกเอกสารใบแจ้งหนี้แล้ว
 
-> ยังไม่ส่ง — ชื่อและ schema จองไว้ (สมัครรับล่วงหน้าได้)
+`data.object` = `InvoiceDto`
 
-`data.object` = 
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `ivc_…` |
+| `invoiceNo` | ใช่ | `string` | null ได้ | เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร) |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |   |
+| `customer` | ใช่ | `InvoiceCustomerDto` |   |   |   |
+| `periodFrom` | ใช่ | `string` | null ได้ |   |   |
+| `periodTo` | ใช่ | `string` | null ได้ |   |   |
+| `deliveryOrderCount` | ใช่ | `number` |   |   |   |
+| `lineMode` | ใช่ | `string` | ค่า: `SINGLE`, `GROUP`, `MERGE` |   |   |
+| `issueDate` | ใช่ | `string` | null ได้ | วันที่ออก (เวลาไทย) — ร่าง = null | `2026-11-20` |
+| `dueDate` | ใช่ | `string` | null ได้ | ครบกำหนดชำระ = วันที่ออก + เครดิต — ร่าง = null | `2026-12-20` |
+| `overdue` | ใช่ | `boolean` |   | เกินกำหนด — ค้างรับ (ISSUED/PARTIALLY_PAID) และเลยวันครบกำหนด (เวลาไทย) · **ธงแยกจาก `status`** (ใบชำระบางส่วนที่เลยกำหนด = `PARTIALLY_PAID` + `overdue: true`) · ตั้งโดย job รายวัน 00:05 และตอนรับชำระ/กลับรายการ · ชำระครบแล้วหลุดเอง |   |
+| `overdueAt` | ใช่ | `string` | null ได้ | เวลาที่ระบบตั้งธงเกินกำหนด — ไม่เกิน = null | `2026-11-21T17:05:00.000Z` |
+| `sentToCustomerAt` | ใช่ | `string` | null ได้ | ส่งลูกค้าแล้วเมื่อ — ส่งแล้วยกเลิกใบไม่ได้ (409 `invoice_sent_to_customer`) |   |
+| `sentToCustomerChannel` | ใช่ | `string` | ค่า: `MANUAL`, `BILLING_NOTE`, `EMAIL` · null ได้ | ช่องทางที่ทำให้ "ส่งลูกค้าแล้ว": MANUAL = ทำเครื่องหมายเอง · BILLING_NOTE = ออกใบวางบิล · EMAIL = ส่งอีเมล |   |
+| `version` | ใช่ | `number` |   |   |   |
+| `createdAt` | ใช่ | `string` |   |   |   |
+| `updatedAt` | ใช่ | `string` |   |   |   |
+| `issuingCompanyId` | ใช่ | `string` |   |   | `cmp_…` |
+| `issuingBranchId` | ใช่ | `string` |   |   | `brn_…` |
+| `creditTermDays` | ใช่ | `number` |   |   |   |
+| `customerPoNo` | ใช่ | `string` | null ได้ |   |   |
+| `taxEstimated` | ใช่ | `boolean` |   | ยอด VAT/WHT เป็นประมาณการ — true เสมอ |   |
+| `deliveryOrders` | ใช่ | `array<InvoiceDeliveryOrderDto>` |   |   |   |
+| `cancelledAt` | ใช่ | `string` | null ได้ | เวลายกเลิก · null = ไม่ถูกยกเลิก |   |
+| `replacesInvoice` | ใช่ | `InvoiceReplacesDto` | null ได้ | ใบนี้ออกแทนใบที่ยกเลิก · PDF พิมพ์หมายเหตุอ้างเลข/วันที่เดิม |   |
+| `replacedByInvoice` | ใช่ | `InvoiceReplacedByDto` | null ได้ | ใบที่ออกแทนใบนี้ (ใบที่ยกเลิกแล้วออกใหม่ — ล่าสุดที่ยังไม่ยกเลิก) |   |
+| `issuedAt` | ใช่ | `string` | null ได้ | เวลาออกเอกสาร (ออกเลข) — ร่าง = null |   |
+| `billingNoteId` | ใช่ | `string` | null ได้ | ใบวางบิลที่ใบนี้อยู่ · null = ไม่อยู่ในใบวางบิล | `bn_…` |
 
 ## invoice.paid {#invoice-paid}
 
-ใบแจ้งหนี้ได้รับชำระครบ
+ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · `previousAttributes` = { status, version } ก่อนชำระ · ยิงทุกครั้งที่ใบเปลี่ยนเป็น PAID — กลับรายการ (`payment.reversed`) แล้วรับชำระครบอีกครั้ง = ยิงอีกครั้ง · สถานะชำระจากระบบบัญชี ยิงผ่านทางเดียวกัน
 
-> ยังไม่ส่ง — ชื่อและ schema จองไว้ (สมัครรับล่วงหน้าได้)
+`data.object` = `InvoiceDto`
 
-`data.object` = 
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `ivc_…` |
+| `invoiceNo` | ใช่ | `string` | null ได้ | เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร) |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |   |
+| `customer` | ใช่ | `InvoiceCustomerDto` |   |   |   |
+| `periodFrom` | ใช่ | `string` | null ได้ |   |   |
+| `periodTo` | ใช่ | `string` | null ได้ |   |   |
+| `deliveryOrderCount` | ใช่ | `number` |   |   |   |
+| `lineMode` | ใช่ | `string` | ค่า: `SINGLE`, `GROUP`, `MERGE` |   |   |
+| `issueDate` | ใช่ | `string` | null ได้ | วันที่ออก (เวลาไทย) — ร่าง = null | `2026-11-20` |
+| `dueDate` | ใช่ | `string` | null ได้ | ครบกำหนดชำระ = วันที่ออก + เครดิต — ร่าง = null | `2026-12-20` |
+| `overdue` | ใช่ | `boolean` |   | เกินกำหนด — ค้างรับ (ISSUED/PARTIALLY_PAID) และเลยวันครบกำหนด (เวลาไทย) · **ธงแยกจาก `status`** (ใบชำระบางส่วนที่เลยกำหนด = `PARTIALLY_PAID` + `overdue: true`) · ตั้งโดย job รายวัน 00:05 และตอนรับชำระ/กลับรายการ · ชำระครบแล้วหลุดเอง |   |
+| `overdueAt` | ใช่ | `string` | null ได้ | เวลาที่ระบบตั้งธงเกินกำหนด — ไม่เกิน = null | `2026-11-21T17:05:00.000Z` |
+| `sentToCustomerAt` | ใช่ | `string` | null ได้ | ส่งลูกค้าแล้วเมื่อ — ส่งแล้วยกเลิกใบไม่ได้ (409 `invoice_sent_to_customer`) |   |
+| `sentToCustomerChannel` | ใช่ | `string` | ค่า: `MANUAL`, `BILLING_NOTE`, `EMAIL` · null ได้ | ช่องทางที่ทำให้ "ส่งลูกค้าแล้ว": MANUAL = ทำเครื่องหมายเอง · BILLING_NOTE = ออกใบวางบิล · EMAIL = ส่งอีเมล |   |
+| `version` | ใช่ | `number` |   |   |   |
+| `createdAt` | ใช่ | `string` |   |   |   |
+| `updatedAt` | ใช่ | `string` |   |   |   |
+| `issuingCompanyId` | ใช่ | `string` |   |   | `cmp_…` |
+| `issuingBranchId` | ใช่ | `string` |   |   | `brn_…` |
+| `creditTermDays` | ใช่ | `number` |   |   |   |
+| `customerPoNo` | ใช่ | `string` | null ได้ |   |   |
+| `taxEstimated` | ใช่ | `boolean` |   | ยอด VAT/WHT เป็นประมาณการ — true เสมอ |   |
+| `deliveryOrders` | ใช่ | `array<InvoiceDeliveryOrderDto>` |   |   |   |
+| `cancelledAt` | ใช่ | `string` | null ได้ | เวลายกเลิก · null = ไม่ถูกยกเลิก |   |
+| `replacesInvoice` | ใช่ | `InvoiceReplacesDto` | null ได้ | ใบนี้ออกแทนใบที่ยกเลิก · PDF พิมพ์หมายเหตุอ้างเลข/วันที่เดิม |   |
+| `replacedByInvoice` | ใช่ | `InvoiceReplacedByDto` | null ได้ | ใบที่ออกแทนใบนี้ (ใบที่ยกเลิกแล้วออกใหม่ — ล่าสุดที่ยังไม่ยกเลิก) |   |
+| `issuedAt` | ใช่ | `string` | null ได้ | เวลาออกเอกสาร (ออกเลข) — ร่าง = null |   |
+| `billingNoteId` | ใช่ | `string` | null ได้ | ใบวางบิลที่ใบนี้อยู่ · null = ไม่อยู่ในใบวางบิล | `bn_…` |
 
 ## invoice.voided {#invoice-voided}
 
-ยกเลิกใบแจ้งหนี้
+ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (`POST /invoices/{id}/void`) — `data.object` = ใบหลังยกเลิก: `status` CANCELLED + `invoiceNo` เดิม + `cancelledAt` (ไม่มีเหตุผล/ผู้ยกเลิก — ข้อความอิสระ) · `replacedByInvoice` = null เสมอตอนยิง (ร่างฉบับใหม่แทนสร้างหลัง event — ดูผ่าน GET) · `previousAttributes` = { status: ISSUED, version } · ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม
 
-> ยังไม่ส่ง — ชื่อและ schema จองไว้ (สมัครรับล่วงหน้าได้)
+`data.object` = `InvoiceDto`
 
-`data.object` = 
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `ivc_…` |
+| `invoiceNo` | ใช่ | `string` | null ได้ | เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร) |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |   |
+| `customer` | ใช่ | `InvoiceCustomerDto` |   |   |   |
+| `periodFrom` | ใช่ | `string` | null ได้ |   |   |
+| `periodTo` | ใช่ | `string` | null ได้ |   |   |
+| `deliveryOrderCount` | ใช่ | `number` |   |   |   |
+| `lineMode` | ใช่ | `string` | ค่า: `SINGLE`, `GROUP`, `MERGE` |   |   |
+| `issueDate` | ใช่ | `string` | null ได้ | วันที่ออก (เวลาไทย) — ร่าง = null | `2026-11-20` |
+| `dueDate` | ใช่ | `string` | null ได้ | ครบกำหนดชำระ = วันที่ออก + เครดิต — ร่าง = null | `2026-12-20` |
+| `overdue` | ใช่ | `boolean` |   | เกินกำหนด — ค้างรับ (ISSUED/PARTIALLY_PAID) และเลยวันครบกำหนด (เวลาไทย) · **ธงแยกจาก `status`** (ใบชำระบางส่วนที่เลยกำหนด = `PARTIALLY_PAID` + `overdue: true`) · ตั้งโดย job รายวัน 00:05 และตอนรับชำระ/กลับรายการ · ชำระครบแล้วหลุดเอง |   |
+| `overdueAt` | ใช่ | `string` | null ได้ | เวลาที่ระบบตั้งธงเกินกำหนด — ไม่เกิน = null | `2026-11-21T17:05:00.000Z` |
+| `sentToCustomerAt` | ใช่ | `string` | null ได้ | ส่งลูกค้าแล้วเมื่อ — ส่งแล้วยกเลิกใบไม่ได้ (409 `invoice_sent_to_customer`) |   |
+| `sentToCustomerChannel` | ใช่ | `string` | ค่า: `MANUAL`, `BILLING_NOTE`, `EMAIL` · null ได้ | ช่องทางที่ทำให้ "ส่งลูกค้าแล้ว": MANUAL = ทำเครื่องหมายเอง · BILLING_NOTE = ออกใบวางบิล · EMAIL = ส่งอีเมล |   |
+| `version` | ใช่ | `number` |   |   |   |
+| `createdAt` | ใช่ | `string` |   |   |   |
+| `updatedAt` | ใช่ | `string` |   |   |   |
+| `issuingCompanyId` | ใช่ | `string` |   |   | `cmp_…` |
+| `issuingBranchId` | ใช่ | `string` |   |   | `brn_…` |
+| `creditTermDays` | ใช่ | `number` |   |   |   |
+| `customerPoNo` | ใช่ | `string` | null ได้ |   |   |
+| `taxEstimated` | ใช่ | `boolean` |   | ยอด VAT/WHT เป็นประมาณการ — true เสมอ |   |
+| `deliveryOrders` | ใช่ | `array<InvoiceDeliveryOrderDto>` |   |   |   |
+| `cancelledAt` | ใช่ | `string` | null ได้ | เวลายกเลิก · null = ไม่ถูกยกเลิก |   |
+| `replacesInvoice` | ใช่ | `InvoiceReplacesDto` | null ได้ | ใบนี้ออกแทนใบที่ยกเลิก · PDF พิมพ์หมายเหตุอ้างเลข/วันที่เดิม |   |
+| `replacedByInvoice` | ใช่ | `InvoiceReplacedByDto` | null ได้ | ใบที่ออกแทนใบนี้ (ใบที่ยกเลิกแล้วออกใหม่ — ล่าสุดที่ยังไม่ยกเลิก) |   |
+| `issuedAt` | ใช่ | `string` | null ได้ | เวลาออกเอกสาร (ออกเลข) — ร่าง = null |   |
+| `billingNoteId` | ใช่ | `string` | null ได้ | ใบวางบิลที่ใบนี้อยู่ · null = ไม่อยู่ในใบวางบิล | `bn_…` |
 
 ## job.completed {#job-completed}
 
@@ -20841,17 +22256,55 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
 
 บันทึกรับชำระเงิน
 
-> ยังไม่ส่ง — ชื่อและ schema จองไว้ (สมัครรับล่วงหน้าได้)
+`data.object` = `PaymentDto`
 
-`data.object` = 
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `pay_…` |
+| `paymentNo` | ใช่ | `string` |   | เลขภายใน | `PAY-2611-0001` |
+| `customer` | ใช่ | `PaymentCustomerDto` |   |   |   |
+| `receivedDate` | ใช่ | `string` |   |   | `2026-11-21` |
+| `method` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH`, `OFFSET` |   |   |
+| `reference` | ใช่ | `string` | null ได้ |   |   |
+| `chequeNo` | ใช่ | `string` | null ได้ |   |   |
+| `chequeBank` | ใช่ | `string` | null ได้ |   |   |
+| `chequeDate` | ใช่ | `string` | null ได้ |   |   |
+| `chequeStatus` | ใช่ | `string` | ค่า: `PENDING`, `CLEARED`, `BOUNCED` · null ได้ | สถานะเช็ค (รอเคลียร์ / ผ่าน / เช็คคืน) — ไม่ใช่เช็ค = null |   |
+| `whtCertificateNo` | ใช่ | `string` | null ได้ | เลขที่ 50 ทวิ ที่ลูกค้าแจ้ง |   |
+| `source` | ใช่ | `string` | ค่า: `MANUAL`, `CONNECTOR` |   |   |
+| `status` | ใช่ | `string` | ค่า: `RECORDED`, `REVERSED` | RECORDED · REVERSED (กลับรายการแล้ว — ไม่นับเป็นยอดรับ) |   |
+| `allocations` | ใช่ | `array<PaymentAllocationDto>` |   |   |   |
+| `reversedAt` | ใช่ | `string` | null ได้ |   |   |
+| `version` | ใช่ | `number` |   |   |   |
+| `createdAt` | ใช่ | `string` |   |   |   |
+| `updatedAt` | ใช่ | `string` |   |   |   |
 
 ## payment.reversed {#payment-reversed}
 
-กลับรายการรับชำระเงิน
+กลับรายการรับชำระเงิน (รวมเช็คคืน — `chequeStatus` = BOUNCED) ยอดค้างของใบกลับมา
 
-> ยังไม่ส่ง — ชื่อและ schema จองไว้ (สมัครรับล่วงหน้าได้)
+`data.object` = `PaymentDto`
 
-`data.object` = 
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `pay_…` |
+| `paymentNo` | ใช่ | `string` |   | เลขภายใน | `PAY-2611-0001` |
+| `customer` | ใช่ | `PaymentCustomerDto` |   |   |   |
+| `receivedDate` | ใช่ | `string` |   |   | `2026-11-21` |
+| `method` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH`, `OFFSET` |   |   |
+| `reference` | ใช่ | `string` | null ได้ |   |   |
+| `chequeNo` | ใช่ | `string` | null ได้ |   |   |
+| `chequeBank` | ใช่ | `string` | null ได้ |   |   |
+| `chequeDate` | ใช่ | `string` | null ได้ |   |   |
+| `chequeStatus` | ใช่ | `string` | ค่า: `PENDING`, `CLEARED`, `BOUNCED` · null ได้ | สถานะเช็ค (รอเคลียร์ / ผ่าน / เช็คคืน) — ไม่ใช่เช็ค = null |   |
+| `whtCertificateNo` | ใช่ | `string` | null ได้ | เลขที่ 50 ทวิ ที่ลูกค้าแจ้ง |   |
+| `source` | ใช่ | `string` | ค่า: `MANUAL`, `CONNECTOR` |   |   |
+| `status` | ใช่ | `string` | ค่า: `RECORDED`, `REVERSED` | RECORDED · REVERSED (กลับรายการแล้ว — ไม่นับเป็นยอดรับ) |   |
+| `allocations` | ใช่ | `array<PaymentAllocationDto>` |   |   |   |
+| `reversedAt` | ใช่ | `string` | null ได้ |   |   |
+| `version` | ใช่ | `number` |   |   |   |
+| `createdAt` | ใช่ | `string` |   |   |   |
+| `updatedAt` | ใช่ | `string` |   |   |   |
 
 ## pod.captured {#pod-captured}
 
@@ -21307,7 +22760,9 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
 | [`feature_not_in_plan`](#feature_not_in_plan) | 403 | แพ็กเกจปัจจุบันยังไม่มีฟีเจอร์นี้ |
 | [`forbidden`](#forbidden) | 403 | ไม่มีสิทธิ์ทำรายการนี้ |
 | [`impersonation_read_only`](#impersonation_read_only) | 403 | กำลังเข้าใช้งานแทนแบบอ่านอย่างเดียว — แก้ไขข้อมูลไม่ได้ |
+| [`invoice_self_finalize`](#invoice_self_finalize) | 403 | ผู้สร้างหรือผู้แก้ร่างใบแจ้งหนี้ ออกเอกสารใบนั้นเองไม่ได้ ต้องให้ผู้อื่นออก |
 | [`ip_not_allowed`](#ip_not_allowed) | 403 | IP นี้ไม่ได้รับอนุญาตให้ใช้ API key นี้ |
+| [`payment_difference_over_limit`](#payment_difference_over_limit) | 403 | ส่วนต่างเกินวงเงินที่ตั้งไว้ ต้องให้ผู้จัดการบันทึก |
 | [`permission_denied`](#permission_denied) | 403 | ไม่มีสิทธิ์ทำรายการนี้ |
 | [`sandbox_only`](#sandbox_only) | 403 | ใช้ได้เฉพาะโหมด Sandbox (key tk_test_ หรือสลับเป็น Sandbox) |
 | [`sandbox_unsupported`](#sandbox_unsupported) | 403 | ใช้ใน Sandbox ไม่ได้ (เชื่อมระบบภายนอกจริง) |
@@ -21341,6 +22796,14 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
 | [`in_use_active`](#in_use_active) | 409 | ปิดใช้ไม่ได้ เพราะยังมีข้อมูลที่ใช้งานอยู่อ้างถึง |
 | [`inbound_not_supported`](#inbound_not_supported) | 409 | ระบบบัญชีนี้ไม่รองรับการส่งข้อมูลเข้ามาทาง webhook |
 | [`invalid_state_transition`](#invalid_state_transition) | 409 | ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน |
+| [`invoice_already_billed`](#invoice_already_billed) | 409 | ใบแจ้งหนี้นี้อยู่ในใบวางบิลอื่นแล้ว |
+| [`invoice_has_payments`](#invoice_has_payments) | 409 | ใบแจ้งหนี้นี้รับชำระแล้ว ยกเลิกไม่ได้ — กลับรายการรับชำระก่อน |
+| [`invoice_not_billable`](#invoice_not_billable) | 409 | ใบแจ้งหนี้นี้ยังไม่ออกหรือไม่มียอดค้าง ใส่ในใบวางบิลไม่ได้ |
+| [`invoice_not_finalizable`](#invoice_not_finalizable) | 409 | ยังออกเอกสารใบแจ้งหนี้นี้ไม่ได้ |
+| [`invoice_not_payable`](#invoice_not_payable) | 409 | ใบแจ้งหนี้นี้รับชำระไม่ได้ในสถานะปัจจุบัน |
+| [`invoice_on_billing_note`](#invoice_on_billing_note) | 409 | ใบแจ้งหนี้นี้อยู่ในใบวางบิลที่ออกแล้ว ยกเลิกไม่ได้ — ยกเลิกใบวางบิลก่อน |
+| [`invoice_pdf_template_changed`](#invoice_pdf_template_changed) | 409 | แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ |
+| [`invoice_sent_to_customer`](#invoice_sent_to_customer) | 409 | ใบแจ้งหนี้นี้ส่งลูกค้าแล้ว ยกเลิกไม่ได้ |
 | [`master_sync_failed`](#master_sync_failed) | 409 | ดึงผังรหัสจากระบบบัญชีไม่สำเร็จ ตรวจการเชื่อมต่อแล้วลองใหม่ |
 | [`master_sync_not_supported`](#master_sync_not_supported) | 409 | ระบบบัญชีนี้ดึงผังรหัสอัตโนมัติไม่ได้ นำเข้าจากไฟล์แทน |
 | [`not_ready_to_bill`](#not_ready_to_bill) | 409 | ใบส่งของนี้ยังไม่พร้อมวางบิล |
@@ -21353,8 +22816,10 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/cancel', {
 | [`order_not_ready_for_delivery`](#order_not_ready_for_delivery) | 409 | ยังสร้างใบส่งของจากใบสั่งขนส่งนี้ไม่ได้ (ร่าง ยกเลิก วางแผนแล้ว หรือยังจับคู่ลูกค้า/สถานที่ไม่ครบ) |
 | [`order_on_trip`](#order_on_trip) | 409 | ใบสั่งขนส่งนี้มีใบส่งของอยู่ในเที่ยวรถ — ถอดออกจากเที่ยวก่อน |
 | [`order_source_change_pending`](#order_source_change_pending) | 409 | ต้นทางแก้ใบสั่งขนส่งนี้หลังวางแผน — เลือกรับค่าต้นทางหรือใช้ค่า TMS ก่อนจัดลงเที่ยว |
+| [`payment_exceeds_outstanding`](#payment_exceeds_outstanding) | 409 | ยอดตัดหนี้เกินยอดคงค้าง |
 | [`pod_exists`](#pod_exists) | 409 | ส่ง POD ของใบส่งของนี้แล้ว |
 | [`pod_not_allowed`](#pod_not_allowed) | 409 | บันทึกหลักฐานส่งของใบส่งของนี้ไม่ได้ในสถานะปัจจุบัน |
+| [`sandbox_finalize_disabled`](#sandbox_finalize_disabled) | 409 | โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้ |
 | [`saved_view_limit`](#saved_view_limit) | 409 | บันทึกได้สูงสุด 50 มุมมองต่อหน้า |
 | [`seat_limit_reached`](#seat_limit_reached) | 409 | จำนวนผู้ใช้ครบตามแพ็กเกจแล้ว |
 | [`secret_unreadable`](#secret_unreadable) | 409 | อ่านข้อมูลลับเดิมไม่ได้ (กุญแจเข้ารหัสเดิมถูกถอดออกแล้ว) — กรอกเลขใหม่แทน |
@@ -21492,7 +22957,7 @@ HTTP `401` · กรอกรหัสยืนยันตัวตน 2 ชั
 
 HTTP `401` · ต้องเข้าสู่ระบบ
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 329 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 354 endpoint
 
 ## edit_lock_user_required {#edit_lock_user_required}
 
@@ -21518,17 +22983,29 @@ HTTP `403` · กำลังเข้าใช้งานแทนแบบอ
 
 อาจตอบได้จากหลาย endpoint
 
+## invoice_self_finalize {#invoice_self_finalize}
+
+HTTP `403` · ผู้สร้างหรือผู้แก้ร่างใบแจ้งหนี้ ออกเอกสารใบนั้นเองไม่ได้ ต้องให้ผู้อื่นออก
+
+พบใน: [`POST /v1/invoices/{id}/finalize`](ref-invoices.md#post-invoices-id-finalize)
+
 ## ip_not_allowed {#ip_not_allowed}
 
 HTTP `403` · IP นี้ไม่ได้รับอนุญาตให้ใช้ API key นี้
 
 อาจตอบได้จากหลาย endpoint
 
+## payment_difference_over_limit {#payment_difference_over_limit}
+
+HTTP `403` · ส่วนต่างเกินวงเงินที่ตั้งไว้ ต้องให้ผู้จัดการบันทึก
+
+พบใน: [`POST /v1/payments`](ref-payments.md#post-payments)
+
 ## permission_denied {#permission_denied}
 
 HTTP `403` · ไม่มีสิทธิ์ทำรายการนี้
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 329 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 354 endpoint
 
 ## sandbox_only {#sandbox_only}
 
@@ -21564,7 +23041,7 @@ HTTP `403` · ยืนยันตัวตน 2 ชั้นอีกครั
 
 HTTP `404` · ไม่พบข้อมูล
 
-พบใน: [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/documents/{id}/content`](ref-documents.md#get-documents-id-content), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/jobs/{id}`](ref-jobs.md#get-jobs-id), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`GET /v1/customers/{id}`](ref-customers.md#get-customers-id), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`GET /v1/customers/{id}/history`](ref-customers.md#get-customers-id-history) และอีก 210 endpoint
+พบใน: [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/documents/{id}/content`](ref-documents.md#get-documents-id-content), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/jobs/{id}`](ref-jobs.md#get-jobs-id), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`GET /v1/customers/{id}`](ref-customers.md#get-customers-id), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`GET /v1/customers/{id}/history`](ref-customers.md#get-customers-id-history) และอีก 227 endpoint
 
 ## method_not_allowed {#method_not_allowed}
 
@@ -21618,7 +23095,7 @@ HTTP `409` · ส่งทางช่องทางนี้ไม่ได้
 
 HTTP `409` · มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง
 
-พบใน: [`POST /v1/orders/{id}/lock`](ref-orders.md#post-orders-id-lock), [`PUT /v1/delivery-orders/{id}/pod`](ref-delivery-orders.md#put-delivery-orders-id-pod), [`POST /v1/trips`](ref-trips.md#post-trips), [`POST /v1/trips/{id}/schedule`](ref-trips.md#post-trips-id-schedule), [`POST /v1/trips/{id}/attach`](ref-trips.md#post-trips-id-attach), [`POST /v1/trips/{id}/detach`](ref-trips.md#post-trips-id-detach), [`POST /v1/trips/{id}/reorder-stops`](ref-trips.md#post-trips-id-reorder-stops), [`POST /v1/trips/{id}/assign`](ref-trips.md#post-trips-id-assign), [`POST /v1/trips/{id}/offer`](ref-trips.md#post-trips-id-offer), [`POST /v1/trips/{id}/dispatch`](ref-trips.md#post-trips-id-dispatch), [`POST /v1/trips/{id}/confirm-rules`](ref-trips.md#post-trips-id-confirm-rules), [`POST /v1/trips/{id}/complete`](ref-trips.md#post-trips-id-complete) และอีก 38 endpoint
+พบใน: [`POST /v1/orders/{id}/lock`](ref-orders.md#post-orders-id-lock), [`PUT /v1/delivery-orders/{id}/pod`](ref-delivery-orders.md#put-delivery-orders-id-pod), [`POST /v1/trips`](ref-trips.md#post-trips), [`POST /v1/trips/{id}/schedule`](ref-trips.md#post-trips-id-schedule), [`POST /v1/trips/{id}/attach`](ref-trips.md#post-trips-id-attach), [`POST /v1/trips/{id}/detach`](ref-trips.md#post-trips-id-detach), [`POST /v1/trips/{id}/reorder-stops`](ref-trips.md#post-trips-id-reorder-stops), [`POST /v1/trips/{id}/assign`](ref-trips.md#post-trips-id-assign), [`POST /v1/trips/{id}/offer`](ref-trips.md#post-trips-id-offer), [`POST /v1/trips/{id}/dispatch`](ref-trips.md#post-trips-id-dispatch), [`POST /v1/trips/{id}/confirm-rules`](ref-trips.md#post-trips-id-confirm-rules), [`POST /v1/trips/{id}/complete`](ref-trips.md#post-trips-id-complete) และอีก 49 endpoint
 
 ## conflict {#conflict}
 
@@ -21684,7 +23161,7 @@ HTTP `409` · เลขอ้างอิงต้นทางนี้ถูก
 
 HTTP `409` · คำขอเดียวกันกำลังประมวลผลอยู่
 
-พบใน: [`POST /v1/orders:bulk`](ref-orders.md#post-orders-bulk), [`POST /v1/orders`](ref-orders.md#post-orders), [`POST /v1/trips`](ref-trips.md#post-trips), [`POST /v1/trips/{id}/schedule`](ref-trips.md#post-trips-id-schedule), [`POST /v1/trips/{id}/attach`](ref-trips.md#post-trips-id-attach), [`POST /v1/trips/{id}/detach`](ref-trips.md#post-trips-id-detach), [`POST /v1/trips/{id}/reorder-stops`](ref-trips.md#post-trips-id-reorder-stops), [`POST /v1/trips/{id}/assign`](ref-trips.md#post-trips-id-assign), [`POST /v1/trips/{id}/offer`](ref-trips.md#post-trips-id-offer), [`POST /v1/trips/{id}/dispatch`](ref-trips.md#post-trips-id-dispatch), [`POST /v1/trips/{id}/confirm-rules`](ref-trips.md#post-trips-id-confirm-rules), [`POST /v1/trips/{id}/complete`](ref-trips.md#post-trips-id-complete) และอีก 38 endpoint
+พบใน: [`POST /v1/orders:bulk`](ref-orders.md#post-orders-bulk), [`POST /v1/orders`](ref-orders.md#post-orders), [`POST /v1/trips`](ref-trips.md#post-trips), [`POST /v1/trips/{id}/schedule`](ref-trips.md#post-trips-id-schedule), [`POST /v1/trips/{id}/attach`](ref-trips.md#post-trips-id-attach), [`POST /v1/trips/{id}/detach`](ref-trips.md#post-trips-id-detach), [`POST /v1/trips/{id}/reorder-stops`](ref-trips.md#post-trips-id-reorder-stops), [`POST /v1/trips/{id}/assign`](ref-trips.md#post-trips-id-assign), [`POST /v1/trips/{id}/offer`](ref-trips.md#post-trips-id-offer), [`POST /v1/trips/{id}/dispatch`](ref-trips.md#post-trips-id-dispatch), [`POST /v1/trips/{id}/confirm-rules`](ref-trips.md#post-trips-id-confirm-rules), [`POST /v1/trips/{id}/complete`](ref-trips.md#post-trips-id-complete) และอีก 49 endpoint
 
 ## import_expired {#import_expired}
 
@@ -21720,7 +23197,55 @@ HTTP `409` · ระบบบัญชีนี้ไม่รองรับก
 
 HTTP `409` · ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน
 
-พบใน: [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/cancel`](ref-orders.md#post-orders-id-cancel), [`POST /v1/orders/{id}/stops/{sequence}/map-site`](ref-orders.md#post-orders-id-stops-sequence-map-site), [`POST /v1/orders/{id}/reevaluate`](ref-orders.md#post-orders-id-reevaluate), [`POST /v1/orders/{id}/manual-price`](ref-orders.md#post-orders-id-manual-price), [`POST /v1/orders/{id}/resolve-source-error`](ref-orders.md#post-orders-id-resolve-source-error), [`POST /v1/orders/{id}/map-customer`](ref-orders.md#post-orders-id-map-customer), [`POST /v1/delivery-orders/{id}/revert-delivery`](ref-delivery-orders.md#post-delivery-orders-id-revert-delivery) และอีก 47 endpoint
+พบใน: [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/cancel`](ref-orders.md#post-orders-id-cancel), [`POST /v1/orders/{id}/stops/{sequence}/map-site`](ref-orders.md#post-orders-id-stops-sequence-map-site), [`POST /v1/orders/{id}/reevaluate`](ref-orders.md#post-orders-id-reevaluate), [`POST /v1/orders/{id}/manual-price`](ref-orders.md#post-orders-id-manual-price), [`POST /v1/orders/{id}/resolve-source-error`](ref-orders.md#post-orders-id-resolve-source-error), [`POST /v1/orders/{id}/map-customer`](ref-orders.md#post-orders-id-map-customer), [`POST /v1/delivery-orders/{id}/revert-delivery`](ref-delivery-orders.md#post-delivery-orders-id-revert-delivery) และอีก 58 endpoint
+
+## invoice_already_billed {#invoice_already_billed}
+
+HTTP `409` · ใบแจ้งหนี้นี้อยู่ในใบวางบิลอื่นแล้ว
+
+พบใน: [`POST /v1/billing-notes`](ref-billing-notes.md#post-billing-notes), [`PATCH /v1/billing-notes/{id}`](ref-billing-notes.md#patch-billing-notes-id), [`POST /v1/billing-notes/{id}/finalize`](ref-billing-notes.md#post-billing-notes-id-finalize)
+
+## invoice_has_payments {#invoice_has_payments}
+
+HTTP `409` · ใบแจ้งหนี้นี้รับชำระแล้ว ยกเลิกไม่ได้ — กลับรายการรับชำระก่อน
+
+พบใน: [`POST /v1/invoices/{id}/void`](ref-invoices.md#post-invoices-id-void)
+
+## invoice_not_billable {#invoice_not_billable}
+
+HTTP `409` · ใบแจ้งหนี้นี้ยังไม่ออกหรือไม่มียอดค้าง ใส่ในใบวางบิลไม่ได้
+
+พบใน: [`POST /v1/billing-notes`](ref-billing-notes.md#post-billing-notes), [`PATCH /v1/billing-notes/{id}`](ref-billing-notes.md#patch-billing-notes-id), [`POST /v1/billing-notes/{id}/finalize`](ref-billing-notes.md#post-billing-notes-id-finalize)
+
+## invoice_not_finalizable {#invoice_not_finalizable}
+
+HTTP `409` · ยังออกเอกสารใบแจ้งหนี้นี้ไม่ได้
+
+พบใน: [`POST /v1/invoices/{id}/finalize`](ref-invoices.md#post-invoices-id-finalize)
+
+## invoice_not_payable {#invoice_not_payable}
+
+HTTP `409` · ใบแจ้งหนี้นี้รับชำระไม่ได้ในสถานะปัจจุบัน
+
+พบใน: [`POST /v1/payments`](ref-payments.md#post-payments)
+
+## invoice_on_billing_note {#invoice_on_billing_note}
+
+HTTP `409` · ใบแจ้งหนี้นี้อยู่ในใบวางบิลที่ออกแล้ว ยกเลิกไม่ได้ — ยกเลิกใบวางบิลก่อน
+
+พบใน: [`POST /v1/invoices/{id}/void`](ref-invoices.md#post-invoices-id-void)
+
+## invoice_pdf_template_changed {#invoice_pdf_template_changed}
+
+HTTP `409` · แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ
+
+พบใน: [`GET /v1/billing-notes/{id}/pdf`](ref-billing-notes.md#get-billing-notes-id-pdf)
+
+## invoice_sent_to_customer {#invoice_sent_to_customer}
+
+HTTP `409` · ใบแจ้งหนี้นี้ส่งลูกค้าแล้ว ยกเลิกไม่ได้
+
+อาจตอบได้จากหลาย endpoint
 
 ## master_sync_failed {#master_sync_failed}
 
@@ -21794,6 +23319,12 @@ HTTP `409` · ต้นทางแก้ใบสั่งขนส่งนี
 
 อาจตอบได้จากหลาย endpoint
 
+## payment_exceeds_outstanding {#payment_exceeds_outstanding}
+
+HTTP `409` · ยอดตัดหนี้เกินยอดคงค้าง
+
+พบใน: [`POST /v1/payments`](ref-payments.md#post-payments)
+
 ## pod_exists {#pod_exists}
 
 HTTP `409` · ส่ง POD ของใบส่งของนี้แล้ว
@@ -21805,6 +23336,12 @@ HTTP `409` · ส่ง POD ของใบส่งของนี้แล้�
 HTTP `409` · บันทึกหลักฐานส่งของใบส่งของนี้ไม่ได้ในสถานะปัจจุบัน
 
 พบใน: [`PUT /v1/delivery-orders/{id}/pod`](ref-delivery-orders.md#put-delivery-orders-id-pod)
+
+## sandbox_finalize_disabled {#sandbox_finalize_disabled}
+
+HTTP `409` · โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้
+
+อาจตอบได้จากหลาย endpoint
 
 ## saved_view_limit {#saved_view_limit}
 
@@ -21984,7 +23521,7 @@ HTTP `409` · จำนวน webhook endpoint ครบตามแพ็กเ
 
 HTTP `412` · ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่
 
-พบใน: [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`POST /v1/customers/{id}/deactivate`](ref-customers.md#post-customers-id-deactivate), [`POST /v1/customers/{id}/activate`](ref-customers.md#post-customers-id-activate), [`POST /v1/customers/{id}/delete`](ref-customers.md#post-customers-id-delete), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/cancel`](ref-orders.md#post-orders-id-cancel), [`POST /v1/orders/{id}/source-changes/{changeId}/accept`](ref-orders.md#post-orders-id-source-changes-changeId-accept), [`POST /v1/orders/{id}/source-changes/{changeId}/reject`](ref-orders.md#post-orders-id-source-changes-changeId-reject) และอีก 120 endpoint
+พบใน: [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`POST /v1/customers/{id}/deactivate`](ref-customers.md#post-customers-id-deactivate), [`POST /v1/customers/{id}/activate`](ref-customers.md#post-customers-id-activate), [`POST /v1/customers/{id}/delete`](ref-customers.md#post-customers-id-delete), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/cancel`](ref-orders.md#post-orders-id-cancel), [`POST /v1/orders/{id}/source-changes/{changeId}/accept`](ref-orders.md#post-orders-id-source-changes-changeId-accept), [`POST /v1/orders/{id}/source-changes/{changeId}/reject`](ref-orders.md#post-orders-id-source-changes-changeId-reject) และอีก 132 endpoint
 
 ## payload_too_large {#payload_too_large}
 
@@ -22008,7 +23545,7 @@ HTTP `422` · นิติบุคคลออกบิลไม่พบหร
 
 HTTP `422` · Idempotency-Key นี้เคยใช้กับข้อมูลอื่น
 
-พบใน: [`POST /v1/orders:bulk`](ref-orders.md#post-orders-bulk), [`GET /v1/orders`](ref-orders.md#get-orders), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/stops/{sequence}/map-site`](ref-orders.md#post-orders-id-stops-sequence-map-site), [`POST /v1/orders/{id}/manual-price`](ref-orders.md#post-orders-id-manual-price), [`POST /v1/orders/{id}/resolve-source-error`](ref-orders.md#post-orders-id-resolve-source-error), [`POST /v1/orders/{id}/map-customer`](ref-orders.md#post-orders-id-map-customer), [`POST /v1/delivery-orders/{id}/revert-delivery`](ref-delivery-orders.md#post-delivery-orders-id-revert-delivery), [`GET /v1/trips`](ref-trips.md#get-trips) และอีก 62 endpoint
+พบใน: [`POST /v1/orders:bulk`](ref-orders.md#post-orders-bulk), [`GET /v1/orders`](ref-orders.md#get-orders), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/stops/{sequence}/map-site`](ref-orders.md#post-orders-id-stops-sequence-map-site), [`POST /v1/orders/{id}/manual-price`](ref-orders.md#post-orders-id-manual-price), [`POST /v1/orders/{id}/resolve-source-error`](ref-orders.md#post-orders-id-resolve-source-error), [`POST /v1/orders/{id}/map-customer`](ref-orders.md#post-orders-id-map-customer), [`POST /v1/delivery-orders/{id}/revert-delivery`](ref-delivery-orders.md#post-delivery-orders-id-revert-delivery), [`GET /v1/trips`](ref-trips.md#get-trips) และอีก 79 endpoint
 
 ## pod_incomplete {#pod_incomplete}
 
@@ -22038,7 +23575,7 @@ HTTP `422` · ลำดับจุดไม่ถูกต้อง — จุ�
 
 HTTP `422` · ข้อมูลไม่ถูกต้อง
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id) และอีก 235 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id) และอีก 254 endpoint
 
 ## webhook_event_expired {#webhook_event_expired}
 

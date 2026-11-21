@@ -534,6 +534,95 @@ export const PROBLEMS = {
     th: 'ใบส่งของนี้อยู่ในใบแจ้งหนี้อื่นแล้ว',
     en: 'This delivery order is already on another invoice',
   },
+  /**
+   * ST5-T09 ออกเอกสารใบแจ้งหนี้ไม่ได้ (docs/04 F3 Finalize, spec/05 BIL-037/038) — extension `reasons[]` (รหัสคงที่):
+   * `no_lines` `total_not_positive` `customer_tax_id_missing` `customer_branch_missing` `line_vat_type_missing`
+   * `revenue_line_provisional` (+ `lines[]`) `issuer_not_vat_registered` (ผู้ออกไม่จด VAT แต่มีบรรทัด VAT 7% — [OPEN] #63)
+   */
+  invoice_not_finalizable: {
+    status: 409,
+    th: 'ยังออกเอกสารใบแจ้งหนี้นี้ไม่ได้',
+    en: 'This invoice cannot be finalized yet',
+  },
+  /** ST5-T09 separation of duties (docs/04 A3): ผู้สร้าง/ผู้แก้ร่างล่าสุด ออกเอกสารใบนั้นเองไม่ได้ (เว้น tenant ปิดกฎ `billing.allowSelfFinalize`) */
+  invoice_self_finalize: {
+    status: 403,
+    th: 'ผู้สร้างหรือผู้แก้ร่างใบแจ้งหนี้ ออกเอกสารใบนั้นเองไม่ได้ ต้องให้ผู้อื่นออก',
+    en: 'Whoever prepared an invoice draft cannot finalize it',
+  },
+  /** ST5-T09 sandbox ยังออกเลขใบแจ้งหนี้ไม่ได้ ([OPEN — spec/12 §3 "Sandbox: เอกสารภาษีใน sandbox" — ห้ามตัดสินเอง]) */
+  /** ST5-T09 review M1: PDF ใบที่ออกแล้วต้อง render ด้วยแม่แบบรุ่นเดียวกับวันออก — แม่แบบเปลี่ยนแล้ว (ไม่ render ใหม่เงียบ ๆ) */
+  invoice_pdf_template_changed: {
+    status: 409,
+    th: 'แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ',
+    en: 'The invoice template changed after issue — the issued PDF cannot be re-rendered',
+  },
+  /** ST5-T13 รับชำระได้เฉพาะใบที่ออกแล้วและยังค้างชำระ (ISSUED / PARTIALLY_PAID) — `invoiceId`, `currentStatus` */
+  invoice_not_payable: {
+    status: 409,
+    th: 'ใบแจ้งหนี้นี้รับชำระไม่ได้ในสถานะปัจจุบัน',
+    en: 'This invoice cannot take a payment in its current status',
+  },
+  /** ST5-T13 ยอดตัดหนี้เกินยอดคงค้างของใบ (ตรวจใต้ล็อกใบ — 2 คำขอพร้อมกันตัดเกินไม่ได้) — `invoiceId`, `invoiceNo`, `outstanding` */
+  payment_exceeds_outstanding: {
+    status: 409,
+    th: 'ยอดตัดหนี้เกินยอดคงค้าง',
+    en: 'The amount applied exceeds the outstanding balance',
+  },
+  /** ST5-T13 review M1 (spec/05 BIL-059): ส่วนต่างที่ตัดยอดเกิน `payments.maxDifferenceAmount` ต้องมีสิทธิ์ `payments:reverse` (ผู้จัดการ) */
+  payment_difference_over_limit: {
+    status: 403,
+    th: 'ส่วนต่างเกินวงเงินที่ตั้งไว้ ต้องให้ผู้จัดการบันทึก',
+    en: 'The write-off difference exceeds the limit — a manager must record it',
+  },
+  /** D-61 (21 พ.ย. 2569): **ไม่ถูกส่งแล้ว** — sandbox ออกใบแจ้งหนี้ได้ (เลข `TEST-` + ลายน้ำ) · คงไว้เพื่อสัญญา API ไม่เปลี่ยนแบบ breaking */
+  sandbox_finalize_disabled: {
+    status: 409,
+    th: 'โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้',
+    en: 'Finalizing invoices is not available in sandbox yet',
+  },
+  /**
+   * ST5-T11 ใบวางบิล (spec/05 BIL-039): ใบแจ้งหนี้อยู่ในใบวางบิลอื่นที่ยัง active (ร่าง/ออกแล้ว) — `invoices[]`
+   * (`invoiceId`, `invoiceNo`, `billingNoteId`, `billingNoteNo`) · สองคำขอพร้อมกัน = รายที่สองได้ 409 นี้ (unique partial ระดับ DB)
+   */
+  invoice_already_billed: {
+    status: 409,
+    th: 'ใบแจ้งหนี้นี้อยู่ในใบวางบิลอื่นแล้ว',
+    en: 'This invoice is already on another active billing note',
+  },
+  /** ST5-T11 ใบวางบิลรวมได้เฉพาะใบแจ้งหนี้ที่ออกแล้วและยังค้างชำระ (ISSUED / PARTIALLY_PAID) — `invoices[]` (`invoiceId`, `invoiceNo`, `status`) */
+  invoice_not_billable: {
+    status: 409,
+    th: 'ใบแจ้งหนี้นี้ยังไม่ออกหรือไม่มียอดค้าง ใส่ในใบวางบิลไม่ได้',
+    en: 'Only issued invoices with an outstanding balance can be put on a billing note',
+  },
+  /**
+   * ST5-T10 ยกเลิกใบแจ้งหนี้ที่รับชำระแล้ว (บางส่วน/ครบ) ไม่ได้ (docs/04 F3 "ยังไม่รับชำระ") — กลับรายการรับชำระก่อน ·
+   * `currentStatus`, `payments[]` (`paymentId`, `paymentNo`)
+   */
+  invoice_has_payments: {
+    status: 409,
+    th: 'ใบแจ้งหนี้นี้รับชำระแล้ว ยกเลิกไม่ได้ — กลับรายการรับชำระก่อน',
+    en: 'This invoice has payments — reverse them before cancelling',
+  },
+  /**
+   * ST5-T10 (ST5-T11 review M2) ใบแจ้งหนี้อยู่ในใบวางบิลที่ออกแล้ว/เก็บเงินแล้ว ยกเลิกไม่ได้ — ยกเลิกใบวางบิลก่อน ·
+   * `billingNoteId`, `billingNoteNo`, `billingNoteStatus`
+   */
+  invoice_on_billing_note: {
+    status: 409,
+    th: 'ใบแจ้งหนี้นี้อยู่ในใบวางบิลที่ออกแล้ว ยกเลิกไม่ได้ — ยกเลิกใบวางบิลก่อน',
+    en: 'This invoice is on an issued billing note — cancel the billing note first',
+  },
+  /**
+   * ST5-T18 ใบแจ้งหนี้ที่ส่งลูกค้าแล้วยกเลิกไม่ได้ (docs/04 F3 "ยกเลิกใบ — เฉพาะยังไม่ส่งลูกค้า/ยังไม่รับชำระ") —
+   * `sentToCustomerAt`, `sentToCustomerChannel` (MANUAL / BILLING_NOTE / EMAIL) · ผิดพลาด = ผู้มีสิทธิ์ยกเลิกล้างธงพร้อมเหตุผลก่อน
+   */
+  invoice_sent_to_customer: {
+    status: 409,
+    th: 'ใบแจ้งหนี้นี้ส่งลูกค้าแล้ว ยกเลิกไม่ได้',
+    en: 'This invoice was sent to the customer — it cannot be cancelled',
+  },
   /** ST4-T07 บันทึก/แก้หลักฐานส่งได้เฉพาะ DO ที่ส่งแล้ว/ส่งไม่สำเร็จและยังไม่วางบิล — `doStatus` บอกสถานะปัจจุบัน */
   pod_not_allowed: {
     status: 409,

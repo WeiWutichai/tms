@@ -11,17 +11,17 @@
 | [`debit_note.finalized`](#debit_note-finalized) | ยังไม่ส่ง (จองชื่อไว้) |   | ออกเลขใบเพิ่มหนี้แล้ว |
 | [`delivery_order.status_changed`](#delivery_order-status_changed) | ใช้งาน | `DeliveryOrderDto` | สถานะใบส่งของ (DO) เปลี่ยน |
 | [`invoice.adjusted`](#invoice-adjusted) | ยังไม่ส่ง (จองชื่อไว้) |   | ปรับยอดใบแจ้งหนี้ด้วยใบลดหนี้/เพิ่มหนี้ |
-| [`invoice.finalized`](#invoice-finalized) | ยังไม่ส่ง (จองชื่อไว้) |   | ออกเลขใบแจ้งหนี้/ใบกำกับภาษีแล้ว |
-| [`invoice.paid`](#invoice-paid) | ยังไม่ส่ง (จองชื่อไว้) |   | ใบแจ้งหนี้ได้รับชำระครบ |
-| [`invoice.voided`](#invoice-voided) | ยังไม่ส่ง (จองชื่อไว้) |   | ยกเลิกใบแจ้งหนี้ |
+| [`invoice.finalized`](#invoice-finalized) | ใช้งาน | `InvoiceDto` | ออกเอกสารใบแจ้งหนี้แล้ว |
+| [`invoice.paid`](#invoice-paid) | ใช้งาน | `InvoiceDto` | ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · `previousAttributes` = { status, version } ก่อนชำระ · ยิงทุกครั้งที่ใบเปลี่ยนเป็น PAID — กลับรายการ (`payment.reversed`) แล้วรับชำระครบอีกครั้ง = ยิงอีกครั้ง · สถานะชำระจากระบบบัญชี ยิงผ่านทางเดียวกัน |
+| [`invoice.voided`](#invoice-voided) | ใช้งาน | `InvoiceDto` | ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (`POST /invoices/{id}/void`) — `data.object` = ใบหลังยกเลิก: `status` CANCELLED + `invoiceNo` เดิม + `cancelledAt` (ไม่มีเหตุผล/ผู้ยกเลิก — ข้อความอิสระ) · `replacedByInvoice` = null เสมอตอนยิง (ร่างฉบับใหม่แทนสร้างหลัง event — ดูผ่าน GET) · `previousAttributes` = { status: ISSUED, version } · ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม |
 | [`job.completed`](#job-completed) | ใช้งาน | `JobDto` | งานเบื้องหลัง (นำเข้า/bulk/ส่งออก/รอบวางบิล) เสร็จ |
 | [`order.cancelled`](#order-cancelled) | ใช้งาน | `OrderDto` | ยกเลิกใบสั่งงาน |
 | [`order.created`](#order-created) | ใช้งาน | `OrderDto` | สร้างใบสั่งงานใหม่ (หน้าจอ, Open API, นำเข้าไฟล์) |
 | [`order.held`](#order-held) | ใช้งาน | `OrderDto` | พักใบสั่งงาน (เช่น ข้อมูลไม่ครบ เกินวงเงิน) |
 | [`order.released`](#order-released) | ใช้งาน | `OrderDto` | ปล่อยใบสั่งงานที่พักไว้ให้วางแผนต่อ |
 | [`order.updated`](#order-updated) | ใช้งาน | `OrderDto` | แก้ไขข้อมูลใบสั่งงาน |
-| [`payment.recorded`](#payment-recorded) | ยังไม่ส่ง (จองชื่อไว้) |   | บันทึกรับชำระเงิน |
-| [`payment.reversed`](#payment-reversed) | ยังไม่ส่ง (จองชื่อไว้) |   | กลับรายการรับชำระเงิน |
+| [`payment.recorded`](#payment-recorded) | ใช้งาน | `PaymentDto` | บันทึกรับชำระเงิน |
+| [`payment.reversed`](#payment-reversed) | ใช้งาน | `PaymentDto` | กลับรายการรับชำระเงิน (รวมเช็คคืน — `chequeStatus` = BOUNCED) ยอดค้างของใบกลับมา |
 | [`pod.captured`](#pod-captured) | ใช้งาน | `DeliveryOrderPodDto` | บันทึกหลักฐานการส่ง (POD) |
 | [`receipt.issued`](#receipt-issued) | ยังไม่ส่ง (จองชื่อไว้) |   | ออกใบเสร็จรับเงินแล้ว |
 | [`reconcile.mismatch_found`](#reconcile-mismatch_found) | ยังไม่ส่ง (จองชื่อไว้) |   | พบข้อมูลไม่ตรงกันจากการกระทบยอดกับระบบภายนอก |
@@ -145,27 +145,114 @@
 
 ## invoice.finalized {#invoice-finalized}
 
-ออกเลขใบแจ้งหนี้/ใบกำกับภาษีแล้ว
+ออกเอกสารใบแจ้งหนี้แล้ว
 
-> ยังไม่ส่ง — ชื่อและ schema จองไว้ (สมัครรับล่วงหน้าได้)
+`data.object` = `InvoiceDto`
 
-`data.object` = 
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `ivc_…` |
+| `invoiceNo` | ใช่ | `string` | null ได้ | เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร) |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |   |
+| `customer` | ใช่ | `InvoiceCustomerDto` |   |   |   |
+| `periodFrom` | ใช่ | `string` | null ได้ |   |   |
+| `periodTo` | ใช่ | `string` | null ได้ |   |   |
+| `deliveryOrderCount` | ใช่ | `number` |   |   |   |
+| `lineMode` | ใช่ | `string` | ค่า: `SINGLE`, `GROUP`, `MERGE` |   |   |
+| `issueDate` | ใช่ | `string` | null ได้ | วันที่ออก (เวลาไทย) — ร่าง = null | `2026-11-20` |
+| `dueDate` | ใช่ | `string` | null ได้ | ครบกำหนดชำระ = วันที่ออก + เครดิต — ร่าง = null | `2026-12-20` |
+| `overdue` | ใช่ | `boolean` |   | เกินกำหนด — ค้างรับ (ISSUED/PARTIALLY_PAID) และเลยวันครบกำหนด (เวลาไทย) · **ธงแยกจาก `status`** (ใบชำระบางส่วนที่เลยกำหนด = `PARTIALLY_PAID` + `overdue: true`) · ตั้งโดย job รายวัน 00:05 และตอนรับชำระ/กลับรายการ · ชำระครบแล้วหลุดเอง |   |
+| `overdueAt` | ใช่ | `string` | null ได้ | เวลาที่ระบบตั้งธงเกินกำหนด — ไม่เกิน = null | `2026-11-21T17:05:00.000Z` |
+| `sentToCustomerAt` | ใช่ | `string` | null ได้ | ส่งลูกค้าแล้วเมื่อ — ส่งแล้วยกเลิกใบไม่ได้ (409 `invoice_sent_to_customer`) |   |
+| `sentToCustomerChannel` | ใช่ | `string` | ค่า: `MANUAL`, `BILLING_NOTE`, `EMAIL` · null ได้ | ช่องทางที่ทำให้ "ส่งลูกค้าแล้ว": MANUAL = ทำเครื่องหมายเอง · BILLING_NOTE = ออกใบวางบิล · EMAIL = ส่งอีเมล |   |
+| `version` | ใช่ | `number` |   |   |   |
+| `createdAt` | ใช่ | `string` |   |   |   |
+| `updatedAt` | ใช่ | `string` |   |   |   |
+| `issuingCompanyId` | ใช่ | `string` |   |   | `cmp_…` |
+| `issuingBranchId` | ใช่ | `string` |   |   | `brn_…` |
+| `creditTermDays` | ใช่ | `number` |   |   |   |
+| `customerPoNo` | ใช่ | `string` | null ได้ |   |   |
+| `taxEstimated` | ใช่ | `boolean` |   | ยอด VAT/WHT เป็นประมาณการ — true เสมอ |   |
+| `deliveryOrders` | ใช่ | `array<InvoiceDeliveryOrderDto>` |   |   |   |
+| `cancelledAt` | ใช่ | `string` | null ได้ | เวลายกเลิก · null = ไม่ถูกยกเลิก |   |
+| `replacesInvoice` | ใช่ | `InvoiceReplacesDto` | null ได้ | ใบนี้ออกแทนใบที่ยกเลิก · PDF พิมพ์หมายเหตุอ้างเลข/วันที่เดิม |   |
+| `replacedByInvoice` | ใช่ | `InvoiceReplacedByDto` | null ได้ | ใบที่ออกแทนใบนี้ (ใบที่ยกเลิกแล้วออกใหม่ — ล่าสุดที่ยังไม่ยกเลิก) |   |
+| `issuedAt` | ใช่ | `string` | null ได้ | เวลาออกเอกสาร (ออกเลข) — ร่าง = null |   |
+| `billingNoteId` | ใช่ | `string` | null ได้ | ใบวางบิลที่ใบนี้อยู่ · null = ไม่อยู่ในใบวางบิล | `bn_…` |
 
 ## invoice.paid {#invoice-paid}
 
-ใบแจ้งหนี้ได้รับชำระครบ
+ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · `previousAttributes` = { status, version } ก่อนชำระ · ยิงทุกครั้งที่ใบเปลี่ยนเป็น PAID — กลับรายการ (`payment.reversed`) แล้วรับชำระครบอีกครั้ง = ยิงอีกครั้ง · สถานะชำระจากระบบบัญชี ยิงผ่านทางเดียวกัน
 
-> ยังไม่ส่ง — ชื่อและ schema จองไว้ (สมัครรับล่วงหน้าได้)
+`data.object` = `InvoiceDto`
 
-`data.object` = 
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `ivc_…` |
+| `invoiceNo` | ใช่ | `string` | null ได้ | เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร) |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |   |
+| `customer` | ใช่ | `InvoiceCustomerDto` |   |   |   |
+| `periodFrom` | ใช่ | `string` | null ได้ |   |   |
+| `periodTo` | ใช่ | `string` | null ได้ |   |   |
+| `deliveryOrderCount` | ใช่ | `number` |   |   |   |
+| `lineMode` | ใช่ | `string` | ค่า: `SINGLE`, `GROUP`, `MERGE` |   |   |
+| `issueDate` | ใช่ | `string` | null ได้ | วันที่ออก (เวลาไทย) — ร่าง = null | `2026-11-20` |
+| `dueDate` | ใช่ | `string` | null ได้ | ครบกำหนดชำระ = วันที่ออก + เครดิต — ร่าง = null | `2026-12-20` |
+| `overdue` | ใช่ | `boolean` |   | เกินกำหนด — ค้างรับ (ISSUED/PARTIALLY_PAID) และเลยวันครบกำหนด (เวลาไทย) · **ธงแยกจาก `status`** (ใบชำระบางส่วนที่เลยกำหนด = `PARTIALLY_PAID` + `overdue: true`) · ตั้งโดย job รายวัน 00:05 และตอนรับชำระ/กลับรายการ · ชำระครบแล้วหลุดเอง |   |
+| `overdueAt` | ใช่ | `string` | null ได้ | เวลาที่ระบบตั้งธงเกินกำหนด — ไม่เกิน = null | `2026-11-21T17:05:00.000Z` |
+| `sentToCustomerAt` | ใช่ | `string` | null ได้ | ส่งลูกค้าแล้วเมื่อ — ส่งแล้วยกเลิกใบไม่ได้ (409 `invoice_sent_to_customer`) |   |
+| `sentToCustomerChannel` | ใช่ | `string` | ค่า: `MANUAL`, `BILLING_NOTE`, `EMAIL` · null ได้ | ช่องทางที่ทำให้ "ส่งลูกค้าแล้ว": MANUAL = ทำเครื่องหมายเอง · BILLING_NOTE = ออกใบวางบิล · EMAIL = ส่งอีเมล |   |
+| `version` | ใช่ | `number` |   |   |   |
+| `createdAt` | ใช่ | `string` |   |   |   |
+| `updatedAt` | ใช่ | `string` |   |   |   |
+| `issuingCompanyId` | ใช่ | `string` |   |   | `cmp_…` |
+| `issuingBranchId` | ใช่ | `string` |   |   | `brn_…` |
+| `creditTermDays` | ใช่ | `number` |   |   |   |
+| `customerPoNo` | ใช่ | `string` | null ได้ |   |   |
+| `taxEstimated` | ใช่ | `boolean` |   | ยอด VAT/WHT เป็นประมาณการ — true เสมอ |   |
+| `deliveryOrders` | ใช่ | `array<InvoiceDeliveryOrderDto>` |   |   |   |
+| `cancelledAt` | ใช่ | `string` | null ได้ | เวลายกเลิก · null = ไม่ถูกยกเลิก |   |
+| `replacesInvoice` | ใช่ | `InvoiceReplacesDto` | null ได้ | ใบนี้ออกแทนใบที่ยกเลิก · PDF พิมพ์หมายเหตุอ้างเลข/วันที่เดิม |   |
+| `replacedByInvoice` | ใช่ | `InvoiceReplacedByDto` | null ได้ | ใบที่ออกแทนใบนี้ (ใบที่ยกเลิกแล้วออกใหม่ — ล่าสุดที่ยังไม่ยกเลิก) |   |
+| `issuedAt` | ใช่ | `string` | null ได้ | เวลาออกเอกสาร (ออกเลข) — ร่าง = null |   |
+| `billingNoteId` | ใช่ | `string` | null ได้ | ใบวางบิลที่ใบนี้อยู่ · null = ไม่อยู่ในใบวางบิล | `bn_…` |
 
 ## invoice.voided {#invoice-voided}
 
-ยกเลิกใบแจ้งหนี้
+ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (`POST /invoices/{id}/void`) — `data.object` = ใบหลังยกเลิก: `status` CANCELLED + `invoiceNo` เดิม + `cancelledAt` (ไม่มีเหตุผล/ผู้ยกเลิก — ข้อความอิสระ) · `replacedByInvoice` = null เสมอตอนยิง (ร่างฉบับใหม่แทนสร้างหลัง event — ดูผ่าน GET) · `previousAttributes` = { status: ISSUED, version } · ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม
 
-> ยังไม่ส่ง — ชื่อและ schema จองไว้ (สมัครรับล่วงหน้าได้)
+`data.object` = `InvoiceDto`
 
-`data.object` = 
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `ivc_…` |
+| `invoiceNo` | ใช่ | `string` | null ได้ | เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร) |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |   |
+| `customer` | ใช่ | `InvoiceCustomerDto` |   |   |   |
+| `periodFrom` | ใช่ | `string` | null ได้ |   |   |
+| `periodTo` | ใช่ | `string` | null ได้ |   |   |
+| `deliveryOrderCount` | ใช่ | `number` |   |   |   |
+| `lineMode` | ใช่ | `string` | ค่า: `SINGLE`, `GROUP`, `MERGE` |   |   |
+| `issueDate` | ใช่ | `string` | null ได้ | วันที่ออก (เวลาไทย) — ร่าง = null | `2026-11-20` |
+| `dueDate` | ใช่ | `string` | null ได้ | ครบกำหนดชำระ = วันที่ออก + เครดิต — ร่าง = null | `2026-12-20` |
+| `overdue` | ใช่ | `boolean` |   | เกินกำหนด — ค้างรับ (ISSUED/PARTIALLY_PAID) และเลยวันครบกำหนด (เวลาไทย) · **ธงแยกจาก `status`** (ใบชำระบางส่วนที่เลยกำหนด = `PARTIALLY_PAID` + `overdue: true`) · ตั้งโดย job รายวัน 00:05 และตอนรับชำระ/กลับรายการ · ชำระครบแล้วหลุดเอง |   |
+| `overdueAt` | ใช่ | `string` | null ได้ | เวลาที่ระบบตั้งธงเกินกำหนด — ไม่เกิน = null | `2026-11-21T17:05:00.000Z` |
+| `sentToCustomerAt` | ใช่ | `string` | null ได้ | ส่งลูกค้าแล้วเมื่อ — ส่งแล้วยกเลิกใบไม่ได้ (409 `invoice_sent_to_customer`) |   |
+| `sentToCustomerChannel` | ใช่ | `string` | ค่า: `MANUAL`, `BILLING_NOTE`, `EMAIL` · null ได้ | ช่องทางที่ทำให้ "ส่งลูกค้าแล้ว": MANUAL = ทำเครื่องหมายเอง · BILLING_NOTE = ออกใบวางบิล · EMAIL = ส่งอีเมล |   |
+| `version` | ใช่ | `number` |   |   |   |
+| `createdAt` | ใช่ | `string` |   |   |   |
+| `updatedAt` | ใช่ | `string` |   |   |   |
+| `issuingCompanyId` | ใช่ | `string` |   |   | `cmp_…` |
+| `issuingBranchId` | ใช่ | `string` |   |   | `brn_…` |
+| `creditTermDays` | ใช่ | `number` |   |   |   |
+| `customerPoNo` | ใช่ | `string` | null ได้ |   |   |
+| `taxEstimated` | ใช่ | `boolean` |   | ยอด VAT/WHT เป็นประมาณการ — true เสมอ |   |
+| `deliveryOrders` | ใช่ | `array<InvoiceDeliveryOrderDto>` |   |   |   |
+| `cancelledAt` | ใช่ | `string` | null ได้ | เวลายกเลิก · null = ไม่ถูกยกเลิก |   |
+| `replacesInvoice` | ใช่ | `InvoiceReplacesDto` | null ได้ | ใบนี้ออกแทนใบที่ยกเลิก · PDF พิมพ์หมายเหตุอ้างเลข/วันที่เดิม |   |
+| `replacedByInvoice` | ใช่ | `InvoiceReplacedByDto` | null ได้ | ใบที่ออกแทนใบนี้ (ใบที่ยกเลิกแล้วออกใหม่ — ล่าสุดที่ยังไม่ยกเลิก) |   |
+| `issuedAt` | ใช่ | `string` | null ได้ | เวลาออกเอกสาร (ออกเลข) — ร่าง = null |   |
+| `billingNoteId` | ใช่ | `string` | null ได้ | ใบวางบิลที่ใบนี้อยู่ · null = ไม่อยู่ในใบวางบิล | `bn_…` |
 
 ## job.completed {#job-completed}
 
@@ -359,17 +446,55 @@
 
 บันทึกรับชำระเงิน
 
-> ยังไม่ส่ง — ชื่อและ schema จองไว้ (สมัครรับล่วงหน้าได้)
+`data.object` = `PaymentDto`
 
-`data.object` = 
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `pay_…` |
+| `paymentNo` | ใช่ | `string` |   | เลขภายใน | `PAY-2611-0001` |
+| `customer` | ใช่ | `PaymentCustomerDto` |   |   |   |
+| `receivedDate` | ใช่ | `string` |   |   | `2026-11-21` |
+| `method` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH`, `OFFSET` |   |   |
+| `reference` | ใช่ | `string` | null ได้ |   |   |
+| `chequeNo` | ใช่ | `string` | null ได้ |   |   |
+| `chequeBank` | ใช่ | `string` | null ได้ |   |   |
+| `chequeDate` | ใช่ | `string` | null ได้ |   |   |
+| `chequeStatus` | ใช่ | `string` | ค่า: `PENDING`, `CLEARED`, `BOUNCED` · null ได้ | สถานะเช็ค (รอเคลียร์ / ผ่าน / เช็คคืน) — ไม่ใช่เช็ค = null |   |
+| `whtCertificateNo` | ใช่ | `string` | null ได้ | เลขที่ 50 ทวิ ที่ลูกค้าแจ้ง |   |
+| `source` | ใช่ | `string` | ค่า: `MANUAL`, `CONNECTOR` |   |   |
+| `status` | ใช่ | `string` | ค่า: `RECORDED`, `REVERSED` | RECORDED · REVERSED (กลับรายการแล้ว — ไม่นับเป็นยอดรับ) |   |
+| `allocations` | ใช่ | `array<PaymentAllocationDto>` |   |   |   |
+| `reversedAt` | ใช่ | `string` | null ได้ |   |   |
+| `version` | ใช่ | `number` |   |   |   |
+| `createdAt` | ใช่ | `string` |   |   |   |
+| `updatedAt` | ใช่ | `string` |   |   |   |
 
 ## payment.reversed {#payment-reversed}
 
-กลับรายการรับชำระเงิน
+กลับรายการรับชำระเงิน (รวมเช็คคืน — `chequeStatus` = BOUNCED) ยอดค้างของใบกลับมา
 
-> ยังไม่ส่ง — ชื่อและ schema จองไว้ (สมัครรับล่วงหน้าได้)
+`data.object` = `PaymentDto`
 
-`data.object` = 
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `pay_…` |
+| `paymentNo` | ใช่ | `string` |   | เลขภายใน | `PAY-2611-0001` |
+| `customer` | ใช่ | `PaymentCustomerDto` |   |   |   |
+| `receivedDate` | ใช่ | `string` |   |   | `2026-11-21` |
+| `method` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH`, `OFFSET` |   |   |
+| `reference` | ใช่ | `string` | null ได้ |   |   |
+| `chequeNo` | ใช่ | `string` | null ได้ |   |   |
+| `chequeBank` | ใช่ | `string` | null ได้ |   |   |
+| `chequeDate` | ใช่ | `string` | null ได้ |   |   |
+| `chequeStatus` | ใช่ | `string` | ค่า: `PENDING`, `CLEARED`, `BOUNCED` · null ได้ | สถานะเช็ค (รอเคลียร์ / ผ่าน / เช็คคืน) — ไม่ใช่เช็ค = null |   |
+| `whtCertificateNo` | ใช่ | `string` | null ได้ | เลขที่ 50 ทวิ ที่ลูกค้าแจ้ง |   |
+| `source` | ใช่ | `string` | ค่า: `MANUAL`, `CONNECTOR` |   |   |
+| `status` | ใช่ | `string` | ค่า: `RECORDED`, `REVERSED` | RECORDED · REVERSED (กลับรายการแล้ว — ไม่นับเป็นยอดรับ) |   |
+| `allocations` | ใช่ | `array<PaymentAllocationDto>` |   |   |   |
+| `reversedAt` | ใช่ | `string` | null ได้ |   |   |
+| `version` | ใช่ | `number` |   |   |   |
+| `createdAt` | ใช่ | `string` |   |   |   |
+| `updatedAt` | ใช่ | `string` |   |   |   |
 
 ## pod.captured {#pod-captured}
 

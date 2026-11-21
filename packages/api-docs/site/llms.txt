@@ -57,12 +57,14 @@
 - [ตั้งค่า (settings)](ref-settings.md): 1 endpoint: GET /v1/settings
 - [ประวัติการทำรายการ (audit)](ref-audit.md): 1 endpoint: GET /v1/audit-logs
 - [OAuth และระบบ (auth)](ref-auth.md): 4 endpoint: POST /v1/oauth/token, GET /v1/.well-known/jwks.json, POST /v1/oauth/revoke, GET /v1/health
-- [invoices](ref-invoices.md): 17 endpoint: GET /v1/invoices/queue, GET /v1/invoices/summary, POST /v1/invoices/preview, GET /v1/invoices, POST /v1/invoices, GET /v1/invoices/{id}, …
+- [billing-notes](ref-billing-notes.md): 12 endpoint: GET /v1/billing-notes/summary, GET /v1/billing-notes/candidates, GET /v1/billing-notes, POST /v1/billing-notes, GET /v1/billing-notes/{id}, PATCH /v1/billing-notes/{id}, …
+- [invoices](ref-invoices.md): 22 endpoint: GET /v1/invoices/queue, GET /v1/invoices/summary, POST /v1/invoices/preview, GET /v1/invoices, POST /v1/invoices, GET /v1/invoices/{id}, …
+- [payments](ref-payments.md): 8 endpoint: GET /v1/payments, POST /v1/payments, GET /v1/payments/summary, GET /v1/payments/aging, GET /v1/payments/{id}, POST /v1/payments/{id}/reverse, …
 
 ## อ้างอิง
 
 - [Webhook events](webhook-events.md): 31 event: connector.health_changed, credit_note.finalized, debit_note.finalized, delivery_order.status_changed, invoice.adjusted, invoice.finalized, invoice.paid, invoice.voided, …
-- [รหัส error](errors.md): 115 code ของ problem+json
+- [รหัส error](errors.md): 127 code ของ problem+json
 - [Changelog](changelog.md): ประวัติเวอร์ชันของ API (added/changed/deprecated)
 
 ## Optional

@@ -105,6 +105,21 @@ const SETTLEMENT = shape('SettlementDto', {
   ],
 });
 const JOB = shape('JobDto');
+/**
+ * invoice (ST5-T09; D-54 ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี): `GET /v1/invoices/{id}` − บรรทัด (`lines`/`printLines` — ดูผ่าน REST) − id ผู้ใช้ −
+ * ข้อความอิสระ (`note`, `cancelReason`) − `pdf` (render หลัง commit) · ยอด `sell*` ตัดอัตโนมัติ (ดูยอดผ่าน REST ด้วย `prices.sell:read`)
+ */
+const INVOICE = shape('InvoiceDto', {
+  omit: ['lines', 'printLines', 'createdBy', 'issuedBy', 'cancelReason', 'note', 'pdf'],
+  require: ['invoiceNo', 'issueDate', 'dueDate', 'issuedAt'],
+});
+/**
+ * payment (ST5-T13; D-57 รับเงิน/เช็คบันทึกใน TMS — ไม่ออกใบเสร็จ D-56): `GET /v1/payments/{id}` − id ผู้ใช้ − ข้อความอิสระ ·
+ * ยอด `sell*` ตัดอัตโนมัติ (ดูยอดผ่าน REST ด้วย `prices.sell:read`)
+ */
+const PAYMENT = shape('PaymentDto', {
+  omit: ['createdBy', 'reversedBy', 'reverseReason', 'differenceReason', 'note'],
+});
 
 const active = (
   resource: string,
@@ -210,14 +225,43 @@ const DEFS: Record<WebhookEventType, Omit<EventDefinition, 'type'>> = {
     'PodService.save (เว็บ / ลิงก์รถร่วม / API)',
     POD,
   ),
-  'invoice.finalized': pending('invoice', 'ออกเลขใบแจ้งหนี้/ใบกำกับภาษีแล้ว', 'ST5-T09'),
+  'invoice.finalized': active(
+    'invoice',
+    'ออกเอกสารใบแจ้งหนี้แล้ว (ออกเลข + ล็อก — ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี D-54)',
+    'InvoiceFinalizeService.finalize',
+    INVOICE,
+  ),
   'invoice.adjusted': pending('invoice', 'ปรับยอดใบแจ้งหนี้ด้วยใบลดหนี้/เพิ่มหนี้', 'ST5-T19'),
-  'invoice.paid': pending('invoice', 'ใบแจ้งหนี้ได้รับชำระครบ', 'ST5-T18'),
-  'invoice.voided': pending('invoice', 'ยกเลิกใบแจ้งหนี้', 'ST5-T10'),
+  'invoice.paid': active(
+    'invoice',
+    'ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · ' +
+      '`previousAttributes` = { status, version } ก่อนชำระ · ยิงทุกครั้งที่ใบเปลี่ยนเป็น PAID — กลับรายการ (`payment.reversed`) แล้วรับชำระครบอีกครั้ง = ยิงอีกครั้ง · ' +
+      'สถานะชำระจากระบบบัญชี (D-57) ยิงผ่านทางเดียวกัน',
+    'InvoiceStatusService.apply (รับชำระ / ระบบบัญชี)',
+    INVOICE,
+  ),
+  'invoice.voided': active(
+    'invoice',
+    'ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (`POST /invoices/{id}/void`) — `data.object` = ใบหลังยกเลิก: `status` CANCELLED + `invoiceNo` เดิม + ' +
+      '`cancelledAt` (ไม่มีเหตุผล/ผู้ยกเลิก — ข้อความอิสระ) · `replacedByInvoice` = null เสมอตอนยิง (ร่างฉบับใหม่แทนสร้างหลัง event — ' +
+      'ดูผ่าน GET) · `previousAttributes` = { status: ISSUED, version } · ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม (ST8-T16)',
+    'InvoiceCancelService.void',
+    INVOICE,
+  ),
   'credit_note.finalized': pending('credit_note', 'ออกเลขใบลดหนี้แล้ว', 'ST5-T19'),
   'debit_note.finalized': pending('debit_note', 'ออกเลขใบเพิ่มหนี้แล้ว', 'ST5-T20'),
-  'payment.recorded': pending('payment', 'บันทึกรับชำระเงิน', 'ST5-T13'),
-  'payment.reversed': pending('payment', 'กลับรายการรับชำระเงิน', 'ST5-T13'),
+  'payment.recorded': active(
+    'payment',
+    'บันทึกรับชำระเงิน (ตัดยอดใบแจ้งหนี้ — ไม่ออกใบเสร็จ D-56)',
+    'PaymentsService.record',
+    PAYMENT,
+  ),
+  'payment.reversed': active(
+    'payment',
+    'กลับรายการรับชำระเงิน (รวมเช็คคืน — `chequeStatus` = BOUNCED) ยอดค้างของใบกลับมา',
+    'PaymentsService.reverse / bounceCheque',
+    PAYMENT,
+  ),
   'receipt.issued': pending('receipt', 'ออกใบเสร็จรับเงินแล้ว', 'ST5-T14'),
   'settlement.approved': active(
     'settlement',

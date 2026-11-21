@@ -114,7 +114,7 @@ export class SettlementReviewPublicController {
   @ApiOperation({
     summary: `จองรูปประกอบการโต้แย้ง (JPEG/PNG/WebP ≤ ${REVIEW_FILE_MAX_BYTES / 1024 / 1024} MB) ของบรรทัด → PUT เนื้อไฟล์ที่ uploadUrl`,
     description:
-      'รูปผูกกับบรรทัด + ลิงก์นี้ตั้งแต่จอง · ใบไม่อยู่ในสถานะรอตรวจ → 409 `invalid_state_transition` · เกินเพดานต่อบรรทัด/ชั่วโมง → 429',
+      'รูปผูกกับบรรทัด + ลิงก์นี้ตั้งแต่จอง · ใบไม่อยู่ในสถานะรอตรวจ → 409 `invalid_state_transition` · ลิงก์ดูอย่างเดียว (ออกให้ใบอนุมัติ/จ่ายแล้ว — D-59) → 404 · เกินเพดานต่อบรรทัด/ชั่วโมง → 429',
   })
   @ApiCreatedResponse({ type: ReviewLinkFileDto })
   @ApiProblems(T409(), T422)
@@ -133,7 +133,7 @@ export class SettlementReviewPublicController {
   @LinkAction(REVIEW_LINK_ACTIONS.respond)
   @ApiOperation({
     summary: 'ยอมรับ / โต้แย้ง บรรทัด (เหตุผล/รูป) — โต้แย้ง = ติดธง อนุมัติใบไม่ได้',
-    description: `ตอบใหม่ได้จนกว่าใบจะถูกอนุมัติ/เรียกกลับ (คำตอบล่าสุดใช้ · ทุกคำตอบเก็บเป็นประวัติ) · โต้แย้งต้องมีเหตุผลหรือรูป (422) · รูป ≤ ${REVIEW_PHOTOS_MAX} ต้องจองผ่านลิงก์นี้สำหรับบรรทัดนี้และอัปโหลดแล้ว · ใบไม่อยู่ในสถานะรอตรวจ → 409`,
+    description: `ตอบใหม่ได้จนกว่าใบจะถูกอนุมัติ/เรียกกลับ (คำตอบล่าสุดใช้ · ทุกคำตอบเก็บเป็นประวัติ) · โต้แย้งต้องมีเหตุผลหรือรูป (422) · รูป ≤ ${REVIEW_PHOTOS_MAX} ต้องจองผ่านลิงก์นี้สำหรับบรรทัดนี้และอัปโหลดแล้ว · ใบไม่อยู่ในสถานะรอตรวจ → 409 · ลิงก์ดูอย่างเดียว (ออกให้ใบอนุมัติ/จ่ายแล้ว — D-59) → 404`,
   })
   @ApiParam({ name: 'lineId', type: String, description: 'บรรทัดของใบ (stln_…)' })
   @ApiCreatedResponse({ type: ReviewLinkRespondResultDto })

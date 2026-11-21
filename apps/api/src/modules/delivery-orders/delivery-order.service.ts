@@ -161,6 +161,15 @@ export function deliveryOrderWhere(
  * DO ไม่ยกเลิก + มี trip_id + trip ไม่ CANCELLED · สัญญากับ ST3-T11: ยกเลิก trip ต้องล้าง trip_id ของ DO ที่ยังไม่ส่ง
  * (นิยามนี้ยังถูกแม้ trip_id ค้าง) — `ON_ACTIVE_TRIP_WHERE` (query) กับ `isOnActiveTrip` (แถวที่โหลดแล้ว) ต้องตรงกันเสมอ
  */
+/**
+ * ST5-T13: ประทับ/ล้าง `paid_at` ของ DO เมื่อใบแจ้งหนี้เปลี่ยนเข้า/ออกจาก PAID (ผู้เรียกอยู่ใน tx เดียวกับการปรับยอดรับชำระ)
+ * — อยู่ในไฟล์นี้เพื่อให้การเขียน delivery_order* มีที่เดียว (test call path)
+ */
+export async function setDeliveryOrdersPaidAt(tx: Tx, ids: string[], paidAt: Date | null) {
+  if (!ids.length) return;
+  await tx.deliveryOrder.updateMany({ where: { id: { in: ids } }, data: { paidAt } });
+}
+
 export const ON_ACTIVE_TRIP_WHERE = {
   // ST4-T11: คืนคลังแล้ว (RETURNED — สิ้นสุด ของกลับคลัง) ไม่นับว่าอยู่ในเที่ยว
   status: { notIn: ['CANCELLED', 'RETURNED'] },
@@ -892,7 +901,21 @@ export class DeliveryOrderService {
     event: Extract<DoEvent, 'pod_wait' | 'pod_accept'> | null,
     note: string | null,
   ): Promise<void> {
-    if (event) return this.move(tx, d, event, { podStatus }, note);
+    if (event) {
+      await this.move(tx, d, event, { podStatus }, note);
+      // ST5-T09 review M2: DO ที่ออกใบแจ้งหนี้ไปแล้วตอนยังไม่ครบหลักฐาน (ลูกค้าไม่บังคับหลักฐานก่อนวางบิล — billing_status INVOICED
+      // แต่ status ค้าง DELIVERED/POD_PENDING) เมื่อหลักฐานครบ → UNBILLED แล้วต่อ `bill` → BILLED ทันที (docs/01 §4.3
+      // "UNBILLED → BILLED: อยู่ใน invoice_line ของ invoice ที่ ISSUED") — ไม่ค้าง UNBILLED ทั้งที่อยู่ในใบที่ออกแล้ว
+      if (event === 'pod_accept') {
+        const cur = await tx.deliveryOrder.findUnique({
+          where: { id: d.id },
+          select: { id: true, status: true, version: true, billingStatus: true },
+        });
+        if (cur?.status === 'UNBILLED' && cur.billingStatus === 'INVOICED')
+          await this.move(tx, cur, 'bill', {}, 'pod_accept: อยู่ในใบแจ้งหนี้ที่ออกแล้ว');
+      }
+      return;
+    }
     if (d.podStatus === podStatus) return;
     const r = await tx.deliveryOrder.updateMany({
       where: { id: d.id, status: d.status as DbDoStatus, version: d.version },
@@ -1035,11 +1058,11 @@ export class DeliveryOrderService {
     at: Date = new Date(),
   ): Promise<void> {
     const ctx = requestContext.require();
-    // ST5-T06 timestamp ต่อขั้น (docs/04 F4): ออกเลข → invoiced_at · ดึงเข้าร่างใหม่ (หลังลดหนี้เต็มใบ) → ล้าง invoiced_at/paid_at
+    // ST5-T06 timestamp ต่อขั้น (docs/04 F4): ออกเลข → invoiced_at · ดึงเข้าร่างใหม่ (หลังลดหนี้เต็มใบ) / ใบถูกยกเลิก (ST5-T10) → ล้าง invoiced_at/paid_at
     const stamp: Prisma.DeliveryOrderUncheckedUpdateManyInput =
       event === 'invoice'
         ? { invoicedAt: at }
-        : event === 'draft'
+        : event === 'draft' || event === 'uninvoice'
           ? { invoicedAt: null, paidAt: null }
           : {};
     for (const d of rows) {
@@ -1067,6 +1090,46 @@ export class DeliveryOrderService {
         },
       });
     }
+  }
+
+  /**
+   * ST5-T09 ออกเอกสารใบแจ้งหนี้: DO ในใบ (ผู้เรียกล็อกแล้ว — `lockForBilling`) ที่ `status` = UNBILLED → `bill` → BILLED
+   * (docs/01 §4.3 "UNBILLED → BILLED: อยู่ใน invoice_line ของ invoice ที่ ISSUED") ผ่าน StateService (history + event สถานะ DO)
+   * DO ที่วางบิลได้ก่อนเป็น UNBILLED (ลูกค้าไม่บังคับหลักฐาน — DELIVERED/POD_PENDING) **ไม่เปลี่ยน `status`** (ตาราง transition ไม่มีทางนั้น
+   * — แกนวางบิลจริงคือ `billing_status` = INVOICED; หลักฐานครบภายหลัง → `applyPodResult` ต่อ `bill` ให้ — review M2) [DECISION spec/12 §3 แถว ST5-T09] · คืนจำนวนที่เปลี่ยน
+   */
+  async billForInvoice(tx: Tx, ids: string[], note: string): Promise<number> {
+    if (!ids.length) return 0;
+    const rows = await tx.deliveryOrder.findMany({
+      where: { id: { in: ids }, status: 'UNBILLED' },
+      select: { id: true, status: true, version: true },
+      orderBy: { id: 'asc' },
+    });
+    for (const d of rows) await this.move(tx, d, 'bill', {}, note);
+    return rows.length;
+  }
+
+  /**
+   * ST5-T10 ใบแจ้งหนี้ที่ออกแล้วถูกยกเลิก: DO BILLED → `unbill` → UNBILLED (docs/01 §4.3 "BILLED → UNBILLED") — เฉพาะ DO ที่ไม่อยู่ใน
+   * บรรทัด active ของใบอื่น · ผู้เรียกถือล็อก DO แล้ว (ลำดับเดียวกับ `billForInvoice`) · คืนจำนวน DO ที่เปลี่ยน
+   */
+  async unbillForInvoice(tx: Tx, ids: string[], note: string): Promise<number> {
+    if (!ids.length) return 0;
+    const busy = new Set(
+      (
+        await tx.invoiceLine.findMany({
+          where: { deliveryOrderId: { in: ids }, active: true },
+          select: { deliveryOrderId: true },
+        })
+      ).map((l) => l.deliveryOrderId),
+    );
+    const rows = await tx.deliveryOrder.findMany({
+      where: { id: { in: ids.filter((x) => !busy.has(x)) }, status: 'BILLED' },
+      select: { id: true, status: true, version: true },
+      orderBy: { id: 'asc' },
+    });
+    for (const d of rows) await this.move(tx, d, 'unbill', {}, note);
+    return rows.length;
   }
 
   /**
@@ -1403,6 +1466,8 @@ export class DeliveryOrderService {
       | 'pod_accept'
       | 'return'
       | 'revert_delivery'
+      | 'bill'
+      | 'unbill'
     >,
     data: Prisma.DeliveryOrderUncheckedUpdateManyInput,
     note: string | null,

@@ -7,13 +7,14 @@ import {
   sampleInvoiceExempt,
   sampleInvoiceLong,
   sampleInvoiceMixed,
+  sampleInvoiceSandbox,
 } from '../src/modules/invoices/invoice.sample';
 import {
   NON_VAT_ISSUER_WARNING,
   invoiceDocument,
   invoiceTotalRows,
 } from '../src/modules/invoices/invoice.template';
-import { branchText, dateRangeShort } from '../src/pdf/finance-document';
+import { SANDBOX_WATERMARK, branchText, dateRangeShort } from '../src/pdf/finance-document';
 import { PdfRenderer } from '../src/pdf/pdf-renderer';
 
 /**
@@ -172,6 +173,48 @@ describe('ใบแจ้งหนี้ PDF (ST5-T08)', () => {
       golden('long'),
       await r.withPage(doc, (p) => p.screenshot({ fullPage: true, type: 'png' })),
     );
+  }, 90_000);
+
+  it('D-61 sandbox: เลข TEST- + ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" ทุกหน้า (บรรทัดเดียว อยู่ในหน้า) · ใบ live/ร่าง ไม่มีลายน้ำนี้', async () => {
+    const doc = invoiceDocument(sampleInvoiceSandbox());
+    const i = await info(doc);
+    expect(i.n).toBeGreaterThanOrEqual(2);
+    expect(i.foot[0]).toBe(`TEST-INV-00000-2611-0001 · หน้า 1/${i.n}`);
+    expect(i.text).toContain('ต้นฉบับ / Original');
+    expect(i.text).not.toContain('ใบกำกับภาษี');
+    expect(i.over).toBe(false);
+    const WM = `(() => [...document.querySelectorAll('section.page')].map((p) => {
+      const w = p.querySelector('.wm'); if (!w) return null;
+      const pr = p.getBoundingClientRect(), r = w.getBoundingClientRect();
+      return { text: w.textContent, h: w.scrollHeight, inside: r.left >= pr.left - 1 && r.right <= pr.right + 1 };
+    }))()`;
+    const wm = (await r.withPage(doc, (p) => p.evaluate(WM))) as ({
+      text: string;
+      h: number;
+      inside: boolean;
+    } | null)[];
+    expect(wm).toHaveLength(i.n);
+    for (const w of wm) {
+      expect(w?.text).toBe(SANDBOX_WATERMARK);
+      expect(w!.inside).toBe(true);
+      expect(w!.h).toBeLessThan(110); // ไม่ตัดขึ้นบรรทัดใหม่ (52px × line-height 1.6 ≈ 83)
+    }
+    // ใบ live (ออกแล้ว) ไม่มีลายน้ำ · ร่างยังเป็น "ร่าง"
+    for (const [m, want] of [
+      [sampleInvoiceExempt(), []],
+      [sampleInvoiceMixed(), ['ร่าง']],
+      [{ ...sampleInvoiceMixed(), sandbox: true }, ['ร่าง']],
+    ] as const) {
+      const got = (await r.withPage(invoiceDocument(m), (p) =>
+        p.evaluate(`[...document.querySelectorAll('section.page .wm')].map((w) => w.textContent)`),
+      )) as string[];
+      expect(got).toEqual(want);
+    }
+    if (process.env.D61_SHOT)
+      writeFileSync(
+        process.env.D61_SHOT,
+        await r.withPage(doc, (p) => p.screenshot({ fullPage: true, type: 'png' })),
+      );
   }, 90_000);
 
   it('ผู้ออกไม่จด VAT → "รวมทั้งสิ้น" อย่างเดียว (BIL-190) · escape ข้อความผู้ใช้ · สาขา/ช่วงวันที่', () => {

@@ -121,6 +121,24 @@ export const SETTINGS = {
     default: null,
     description: 'free time ค่ารอเริ่มต้น (นาที) — null = ไม่ตั้ง (จุดส่ง/ลูกค้ากำหนดเอง)',
   },
+  // ST5-T09 (docs/04 A3 "ผู้สร้างใบแจ้งหนี้ finalize ใบตัวเองไม่ได้ (ปิดได้สำหรับ tenant เล็กโดย owner ยอมรับความเสี่ยง)") —
+  // ไม่มีหน้าจอ (ต้นแบบไม่มีช่อง — spec/12 §3) ตั้งผ่าน PATCH /v1/settings · เปิด = ลดการควบคุม ต้อง step-up 2FA
+  'billing.allowSelfFinalize': {
+    group: 'billing',
+    type: { kind: 'bool' },
+    default: false,
+    description:
+      'ให้ผู้สร้าง/ผู้แก้ร่างใบแจ้งหนี้ ออกเอกสารใบนั้นเองได้ (ปิดกฎแบ่งหน้าที่ — สำหรับบริษัทเล็กที่ owner ยอมรับความเสี่ยง) · ค่าเริ่ม ปิด · **แก้ได้เฉพาะ owner** · เปิด = ลดการควบคุม ต้อง step-up',
+  },
+  // ST5-T13 review M1 (spec/05 BIL-059 [PROPOSED] "ผลต่างเล็กน้อย … ≤ ค่าที่ตั้ง เช่น 10.00 บาท → manager อนุมัติ") — ไม่มีหน้าจอ
+  // (ต้นแบบไม่มีช่อง — spec/12 §3) ตั้งผ่าน PATCH /v1/settings · เพิ่มค่า = คุมหลวมขึ้น ต้อง step-up
+  'payments.maxDifferenceAmount': {
+    group: 'billing',
+    type: { kind: 'int', min: 0, max: 1_000_000 },
+    default: 10,
+    description:
+      'ส่วนต่างที่ยอมตัดยอดต่อการรับชำระ (บาท) ที่ผู้บันทึก (บัญชี) ทำเองได้ — เกินค่านี้ต้องมีสิทธิ์ `payments:reverse` (ผู้จัดการขึ้นไป) · ค่าเริ่ม 10 · เพิ่มค่า = ลดการควบคุม ต้อง step-up',
+  },
   'routing.invoiceAsCompanyId': {
     group: 'routing',
     type: { kind: 'ref', entity: 'company', nullable: true },
