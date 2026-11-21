@@ -262,6 +262,90 @@ describe('ตั้งค่า → การเชื่อมต่อ (ST7-T2
     expect(box.textContent).toContain('ยังไม่ได้เลือก');
   });
 
+  it('ST8-T16 ระบบบัญชีที่กำหนดเจ้าของเอกสารภาษีตายตัว (D-55): เลือกผู้ออกเลขไม่ได้ + บอกเหตุ · ฟอร์มเชื่อมต่อมีป้ายไทยของช่อง/ตัวเลือก', async () => {
+    const as = {
+      key: 'accountsystem',
+      displayName: 'AccountSystem',
+      demo: false,
+      capabilities: ['pushInvoice', 'pushSettlement'],
+      capabilitiesPending: [],
+      masterCodeKinds: [],
+      fixedTaxDocumentOwner: 'ERP',
+      configFields: [
+        {
+          key: 'baseUrl',
+          secret: false,
+          required: true,
+          kind: 'url',
+          maxLength: 300,
+          options: null,
+        },
+        {
+          key: 'apiKey',
+          secret: true,
+          required: true,
+          kind: 'string',
+          maxLength: 200,
+          options: null,
+        },
+        {
+          key: 'webhookSecret',
+          secret: true,
+          required: false,
+          kind: 'string',
+          maxLength: 200,
+          options: null,
+        },
+        {
+          key: 'contactMatch',
+          secret: false,
+          required: false,
+          kind: 'string',
+          maxLength: 20,
+          options: ['taxId', 'tmsCode'],
+        },
+      ],
+    };
+    GET.mockImplementation(async (path: string) => {
+      if (path === '/v1/connectors') return { data: { data: [] } };
+      if (path === '/v1/connectors/adapters') return { data: { data: [ADAPTER, as] } };
+      return { data: { data: [] } };
+    });
+    const { unmount } = wrap();
+    const card = await screen.findByRole('group', { name: 'AccountSystem' });
+    fireEvent.click(within(card).getByRole('button', { name: 'เชื่อมต่อ' }));
+    const dlg = await screen.findByRole('dialog');
+    expect(within(dlg).getByLabelText(/secret ของ webhook ขาเข้า/)).toHaveAttribute(
+      'type',
+      'password',
+    );
+    const sel = within(dlg).getByLabelText(/จับคู่ลูกค้า \/ รถร่วมในระบบบัญชีด้วย/);
+    expect(within(sel).getByRole('option', { name: 'เลขผู้เสียภาษี + สาขา' })).toBeInTheDocument();
+    expect(
+      within(sel).getByRole('option', { name: 'รหัสลูกค้า / รถร่วมของ TMS' }),
+    ).toBeInTheDocument();
+    unmount();
+    const c = conn('ACTIVE');
+    conns = [
+      {
+        ...c,
+        adapterKey: 'accountsystem',
+        displayName: 'AccountSystem',
+        capabilitiesSupported: ['pushInvoice', 'pushSettlement'],
+        capabilitiesEnabled: ['pushInvoice', 'pushSettlement'],
+      },
+    ];
+    GET.mockImplementation(async (path: string) => {
+      if (path === '/v1/connectors') return { data: { data: conns } };
+      if (path === '/v1/connectors/adapters') return { data: { data: [ADAPTER, as] } };
+      return { data: { data: [] } };
+    });
+    wrap();
+    const box = await screen.findByTestId('numbering-owner');
+    for (const r of within(box).getAllByRole('radio')) expect(r).toBeDisabled();
+    expect(box.textContent).toContain('AccountSystem กำหนดตายตัว เปลี่ยนไม่ได้');
+  });
+
   it('ST7-T17 สิทธิ์อ่านอย่างเดียว: เลือกผู้ออกเลขเอกสารไม่ได้', async () => {
     conns = [conn('ACTIVE')];
     wrap(false);

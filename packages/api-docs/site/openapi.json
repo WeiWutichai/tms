@@ -60515,6 +60515,15 @@
               ]
             }
           },
+          "fixedTaxDocumentOwner": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "TMS",
+              "ERP"
+            ],
+            "description": "เจ้าของเอกสารภาษีที่ระบบบัญชีนี้กำหนดตายตัว — ตั้งให้ตอนสร้าง เปลี่ยนไม่ได้ (422 `sor_fixed`) · null = ผู้ดูแลเลือกเอง"
+          },
           "configFields": {
             "type": "array",
             "items": {
@@ -60529,6 +60538,7 @@
           "capabilities",
           "capabilitiesPending",
           "masterCodeKinds",
+          "fixedTaxDocumentOwner",
           "configFields"
         ]
       },
@@ -83997,6 +84007,11 @@
       "status": 403,
       "title": "ผู้เตรียมใบสำคัญจ่าย (สร้างใบ เพิ่มหรือนำรายการออก) อนุมัติใบนั้นไม่ได้ ต้องให้ผู้อนุมัติคนอื่น",
       "titleEn": "Whoever prepared a settlement cannot approve it"
+    },
+    "sor_fixed": {
+      "status": 422,
+      "title": "ระบบบัญชีนี้เป็นผู้ออกเอกสารภาษีเสมอ เปลี่ยนไม่ได้",
+      "titleEn": "This accounting system always owns tax documents — it cannot be changed"
     },
     "sor_locked": {
       "status": 409,

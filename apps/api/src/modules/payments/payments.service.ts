@@ -341,6 +341,128 @@ export class PaymentsService {
     return out;
   }
 
+  /**
+   * ST8-T16 (D-57) การรับชำระที่เกิดในระบบบัญชี (webhook ขาเข้า) → `payment` source CONNECTOR + สถานะใบ (ST5-T18)
+   * เรียกใน transaction + request context ของงานประมวลผล webhook (ผู้กระทำ = ระบบ) — กันซ้ำที่ผู้เรียก (external_mapping)
+   * เงื่อนไขธุรกิจไม่ผ่าน (ใบชำระไม่ได้/ยอดเกินค้าง/คนละลูกค้า) = คืน `{ok:false}` ไม่ throw → ผู้เรียกส่งเข้าคิวให้คนตรวจ
+   * (D-57: บันทึกซ้ำสองฝั่งด้วยมือแล้วยอดต่าง = รายการตรวจ) — ไม่ตัดยอดบางส่วนเอง
+   * วิธีรับเงิน: ระบบบัญชีไม่ส่งมา → `TRANSFER` + เลขเอกสารรับเงินฝั่งบัญชีใน `reference` [OPEN — ทีมระบบบัญชี: webhook ไม่มีวิธีรับ/ข้อมูลเช็ค]
+   */
+  async recordFromConnector(
+    tx: Tx,
+    input: {
+      receivedDate: string;
+      reference: string | null;
+      note: string | null;
+      allocations: { invoiceId: string; amount: Prisma.Decimal; whtAmount: Prisma.Decimal }[];
+    },
+  ): Promise<
+    | { ok: true; payment: PaymentDto }
+    | { ok: false; code: string; message: string; invoiceNo?: string | null }
+  > {
+    const ctx = requestContext.require();
+    const now = this.clock.now();
+    if (!input.allocations.length)
+      return { ok: false, code: 'no_allocations', message: 'no invoices' };
+    const ids = [...new Set(input.allocations.map((a) => a.invoiceId))].sort();
+    if (ids.length !== input.allocations.length)
+      return { ok: false, code: 'duplicate_invoice', message: 'invoice allocated twice' };
+    await tx.$queryRaw`SELECT id FROM invoice WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE`;
+    const invoices = await tx.invoice.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        invoiceNo: true,
+        status: true,
+        customerId: true,
+        totalAmount: true,
+        paidAmount: true,
+      },
+    });
+    if (invoices.length !== ids.length)
+      return { ok: false, code: 'invoice_not_found', message: 'invoice not found' };
+    if (new Set(invoices.map((i) => i.customerId)).size > 1)
+      return { ok: false, code: 'mixed_customers', message: 'invoices of different customers' };
+    const byId = new Map(invoices.map((i) => [i.id, i]));
+    for (const a of input.allocations) {
+      const inv = byId.get(a.invoiceId)!;
+      if (
+        a.amount.lessThanOrEqualTo(0) ||
+        a.whtAmount.lessThan(0) ||
+        a.whtAmount.greaterThan(a.amount)
+      )
+        return {
+          ok: false,
+          code: 'invalid_amount',
+          message: 'invalid amount',
+          invoiceNo: inv.invoiceNo,
+        };
+      if (!PAYABLE_INVOICE_STATUSES.includes(inv.status as InvoiceStatus))
+        return {
+          ok: false,
+          code: 'invoice_not_payable',
+          message: `invoice ${inv.invoiceNo ?? inv.id} is ${inv.status}`,
+          invoiceNo: inv.invoiceNo,
+        };
+      const outstanding = inv.totalAmount.sub(inv.paidAmount);
+      if (a.amount.greaterThan(outstanding))
+        return {
+          ok: false,
+          code: 'payment_exceeds_outstanding',
+          message: `invoice ${inv.invoiceNo ?? inv.id}: ${money(a.amount)} > outstanding ${money(outstanding)}`,
+          invoiceNo: inv.invoiceNo,
+        };
+    }
+    const wht = input.allocations.reduce((t, a) => t.add(a.whtAmount), ZERO);
+    const total = input.allocations.reduce((t, a) => t.add(a.amount), ZERO);
+    const paymentNo = await this.issuePaymentNo(tx, ctx.tenantId!, now);
+    const created = await tx.payment.create({
+      data: {
+        tenantId: ctx.tenantId!,
+        paymentNo,
+        customerId: invoices[0]!.customerId,
+        receivedDate: day(input.receivedDate),
+        method: 'TRANSFER',
+        reference: input.reference?.slice(0, 100) ?? null,
+        amountReceived: total.sub(wht),
+        whtAmount: wht,
+        note: input.note?.slice(0, 500) ?? null,
+        source: 'CONNECTOR',
+        createdBy: ctx.actorId ?? null,
+      },
+    });
+    for (const a of input.allocations)
+      await tx.paymentAllocation.create({
+        data: {
+          tenantId: ctx.tenantId!,
+          paymentId: created.id,
+          invoiceId: a.invoiceId,
+          amount: a.amount,
+          whtAmount: a.whtAmount,
+        },
+      });
+    const changes = await this.status.apply(tx, ids, now);
+    const out = await this.get(created.id, tx);
+    await this.audit.record({
+      action: 'payment.recorded',
+      entityType: ENTITY,
+      entityId: created.id,
+      after: {
+        paymentNo,
+        source: 'CONNECTOR',
+        method: out.method,
+        receivedDate: out.receivedDate,
+        reference: out.reference,
+        sellAmountReceived: out.sellAmountReceived,
+        sellWhtAmount: out.sellWhtAmount,
+        allocations: out.allocations,
+        invoices: changes.map((c) => ({ ...c, id: encodeId('invoice', c.id) })),
+      },
+    });
+    await this.event(tx, 'payment.recorded', out, {});
+    return { ok: true, payment: out };
+  }
+
   /** เลข PAY — ชุดเลขสร้างตอนตั้ง tenant (bootstrap) · tenant เก่าที่ยังไม่มีชุดนี้ สร้างให้ตอนใช้ครั้งแรก */
   private async issuePaymentNo(tx: Tx, tenantId: string, at: Date): Promise<string> {
     await tx.documentSeries.upsert({

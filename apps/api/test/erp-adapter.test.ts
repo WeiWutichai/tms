@@ -294,6 +294,33 @@ describe('lint rule: core ไม่ import adapter ตรง (เกณฑ์ต
     }
   });
 
+  it('ST8-T16 กฎ 4: core มีชื่อ adapter (โฟลเดอร์) เป็นโค้ด/สตริง → ล้ม · ใน comment / ใน adapter เอง ผ่าน', () => {
+    const withAs = {
+      ...base,
+      'erp-adapters/accountsystem/accountsystem.adapter.ts':
+        "export const KEY = 'accountsystem';\n",
+    };
+    expect(run(tree(withAs))).toMatchObject({ ok: true });
+    expect(
+      run(
+        tree({
+          ...withAs,
+          'modules/ok.ts':
+            '// ส่งเข้า AccountSystem (comment)\n/* accountsystem */\nexport const x = 1;\n',
+        }),
+      ),
+    ).toMatchObject({ ok: true });
+    for (const [file, src] of [
+      ['modules/billing/a.ts', "if (c.adapterKey === 'accountsystem') doIt();"],
+      ['modules/billing/b.ts', 'const AccountSystemClient = 1;'],
+      ['modules/billing/c.ts', 'const u = `/v1/inbound/accountsystem/${t}`;'],
+    ] as const) {
+      const r = run(tree({ ...withAs, [file]: src }));
+      expect(r.ok, file).toBe(false);
+      expect(r.out).toContain(`${file}:1  core มีชื่อ adapter`);
+    }
+  });
+
   it('adapter import adapter ตัวอื่น → ล้ม', () => {
     const r = run(
       tree({
