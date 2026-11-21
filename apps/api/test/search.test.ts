@@ -291,6 +291,13 @@ describe('ค้นหา global ⌘K (ST9-T09)', { timeout: 300_000 }, () => {
     expect((await find(admin, 'AAA', '&limit=11')).status).toBe(422);
     expect((await hits(admin, '%%')).data).toEqual([]);
     expect((await hits(admin, '__')).data).toEqual([]);
+    // backslash เป็นตัวอักษรธรรมดา (ไม่ใช่ escape ของ LIKE) — ไม่ error และไม่ตรงอะไร
+    expect((await hits(admin, 'AAA\\2611')).data).toEqual([]);
+    expect((await hits(admin, '\\\\')).data).toEqual([]);
+    // เลขไทยในเลขเอกสาร → อารบิก
+    expect((await hits(admin, 'TRP-AAA-๒๖๑๑')).data.map((h) => h.label)).toEqual([
+      'TRP-AAA-2611-0007',
+    ]);
     const one = await find(admin, 'AAA', '&limit=1');
     expect(one.status).toBe(200);
     const per = new Map<string, number>();

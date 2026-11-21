@@ -21,9 +21,15 @@ export function useDeepOpen(
   cb.current = onOpen;
   useEffect(() => {
     if (!v || !ready) return;
-    const next = new URLSearchParams(params);
-    next.delete(key);
-    setParams(next, { replace: true });
+    // แบบฟังก์ชัน — หลาย hook ในหน้าเดียวลบพารามิเตอร์ของตัวเองโดยไม่ทับกัน
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete(key);
+        return next;
+      },
+      { replace: true },
+    );
     if (isApiId(prefix, v)) cb.current(v);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v, ready]);

@@ -4,7 +4,7 @@ import { encodeId } from '../../common/ids';
 import { likeEscape } from '../../common/ilike';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
-import { plateNorm } from '../vehicles/vehicles.service';
+import { arabicDigits, plateNorm } from '../vehicles/vehicles.service';
 import {
   SEARCH_TYPES,
   type SearchHitDto,
@@ -82,7 +82,11 @@ function best(
  * ค้นหา global ⌘K (ST9-T09; docs/04 I "ค้นหา global (⌘K)", NFR-606/707)
  * - อ่านผ่าน transaction ของคำขอ (RLS ตาม tenant) — ไม่มีทางเห็นข้อมูลบริษัทอื่น/sandbox อื่น
  * - ค้นเฉพาะชนิดที่ผู้เรียกมี scope อ่าน · ไม่ส่งยอดเงิน/ราคาใด ๆ กลับ
- * - ILIKE '%q%' (escape `%`/`_`) — index trigram ใน migration 0150 ช่วยเมื่อคำค้น ≥ 3 ตัว
+ * - ILIKE '%q%' (escape `%`/`_`/`\\`) — ต่อชนิดอ่านย้อนตาม (tenant_id, updated_at, id) แล้วกรอง จนครบ `take`
+ *   (index trigram ใช้ไม่ได้ภายใต้ RLS เพราะ ILIKE ไม่ใช่ leakproof — review ST9-T09) · พอสำหรับ 10–200 คัน
+ *   ทางเลือกถ้าช้า: btree `text_pattern_ops` สำหรับค้นแบบขึ้นต้น (LIKE 'q%' — ตัวดำเนินการ leakproof)
+ * - เลขเอกสาร/PO/รหัสลูกค้า: เลขไทย → อารบิกก่อนค้น (สูตรเดียวกับทะเบียน) · ชื่อลูกค้าค้นตามที่พิมพ์
+ * - อันดับ: จัดเฉพาะใน "หน้าต่าง" `take` แถวที่แก้ล่าสุดที่ตรง (limit × 4 ≤ 40 ต่อชนิด) — แถวเก่ากว่านั้นที่ตรงทั้งคำอาจไม่ขึ้น
  */
 @Injectable()
 export class SearchService {
@@ -96,8 +100,11 @@ export class SearchService {
   async search(qRaw: string, limit = 5): Promise<SearchResultDto> {
     const q = qRaw.trim();
     const types = this.allowedTypes();
-    const like = { contains: likeEscape(q), mode: 'insensitive' as const };
-    // ดึงเผื่อเพื่อจัดอันดับ "ตรงทั้งคำ/ขึ้นต้น" ก่อน "มีอยู่" (แถวเรียงแก้ล่าสุดก่อน)
+    // เลขเอกสาร/PO/รหัส: เลขไทย → อารบิก (ชื่อลูกค้าใช้คำค้นตามที่พิมพ์)
+    const qn = arabicDigits(q);
+    const like = { contains: likeEscape(qn), mode: 'insensitive' as const };
+    const likeName = { contains: likeEscape(q), mode: 'insensitive' as const };
+    // หน้าต่างจัดอันดับ: ดึงแถวที่ตรงและแก้ล่าสุด limit × 4 (≤ 40) แล้วจัด "ตรงทั้งคำ/ขึ้นต้น" ก่อน "มีอยู่"
     const take = Math.min(limit * 4, 40);
     const tx = this.db.tx;
     const out: SearchHitDto[] = [];
@@ -120,7 +127,7 @@ export class SearchService {
           out.push(
             ...top(
               rows.map((r) => {
-                const m = best(q, [
+                const m = best(qn, [
                   ['number', r.soNo],
                   ['po', r.customerRef],
                 ]);
@@ -161,7 +168,7 @@ export class SearchService {
           out.push(
             ...top(
               rows.map((r) => {
-                const m = best(q, [
+                const m = best(qn, [
                   ['number', r.doNo],
                   ['po', r.customerRef],
                 ]);
@@ -196,7 +203,7 @@ export class SearchService {
           out.push(
             ...top(
               rows.map((r) => ({
-                rank: matchRank(r.tripNo, q),
+                rank: matchRank(r.tripNo, qn),
                 hit: {
                   ...BLANK,
                   type,
@@ -230,7 +237,7 @@ export class SearchService {
           out.push(
             ...top(
               rows.map((r) => {
-                const m = best(q, [
+                const m = best(qn, [
                   ['number', r.invoiceNo],
                   ['po', r.customerPoNo],
                 ]);
@@ -269,7 +276,7 @@ export class SearchService {
           out.push(
             ...top(
               rows.map((r) => ({
-                rank: matchRank(r.billingNoteNo, q),
+                rank: matchRank(r.billingNoteNo, qn),
                 hit: {
                   ...BLANK,
                   type,
@@ -287,7 +294,7 @@ export class SearchService {
         }
         case 'customer': {
           const rows = await tx.customer.findMany({
-            where: { deletedAt: null, OR: [{ legalName: like }, { code: like }] },
+            where: { deletedAt: null, OR: [{ legalName: likeName }, { code: like }] },
             select: { id: true, legalName: true, code: true, status: true },
             orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
             take,
@@ -295,10 +302,12 @@ export class SearchService {
           out.push(
             ...top(
               rows.map((r) => {
-                const m = best(q, [
-                  ['name', r.legalName],
-                  ['code', r.code],
-                ]);
+                const name = matchRank(r.legalName, q);
+                const code = matchRank(r.code, qn);
+                const m =
+                  code < name
+                    ? { on: 'code' as const, rank: code }
+                    : { on: 'name' as const, rank: name };
                 return {
                   rank: m.rank,
                   hit: {

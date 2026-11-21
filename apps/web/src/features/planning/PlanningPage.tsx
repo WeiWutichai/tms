@@ -21,7 +21,8 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { useDeepOpen } from '../../shell/deepLink';
 import { api, ApiError, unwrap } from '../../api';
 import { formatDayHead, useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
@@ -313,25 +314,10 @@ export function PlanningPage() {
   const [pop, setPop] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   /** drawer เที่ยวรถ (ST3-T16) — เปิดจากเลขเที่ยวใน drawer SO (ต้นแบบ openTrp แทนที่ drawer เดิม) */
-  // ST3-T24 (QA M1): ลิงก์จากแจ้งเตือน `/plan?trip=trp_…` เปิด drawer เที่ยวนั้นทันที · ปิดแล้วล้างพารามิเตอร์
-  const [params, setParams] = useSearchParams();
-  const [tripId, setTripIdState] = useState<string | null>(() => {
-    const x = params.get('trip');
-    return x && /^trp_[0-9a-f]{32}$/.test(x) ? x : null;
-  });
-  // ST9-T09: อยู่หน้ากระดานอยู่แล้วแล้วกดผลค้นหา ⌘K (`/plan?trip=…` ใหม่) → เปิด drawer เที่ยวนั้น
-  const deepTrip = params.get('trip');
-  useEffect(() => {
-    if (deepTrip && /^trp_[0-9a-f]{32}$/.test(deepTrip)) setTripIdState(deepTrip);
-  }, [deepTrip]);
-  const setTripId = (x: string | null) => {
-    setTripIdState(x);
-    if (!x && params.has('trip')) {
-      const next = new URLSearchParams(params);
-      next.delete('trip');
-      setParams(next, { replace: true });
-    }
-  };
+  // ST3-T24 (QA M1) / ST9-T09: ลิงก์จากแจ้งเตือนหรือค้นหา ⌘K `/plan?trip=trp_…` เปิด drawer เที่ยวนั้นทันที
+  // (ทั้งตอนเข้าหน้าและตอนอยู่หน้านี้แล้ว) แล้วล้างพารามิเตอร์ — ไม่ค้างใน URL
+  const [tripId, setTripId] = useState<string | null>(null);
+  useDeepOpen('trip', 'trp', setTripId);
   const [form, setForm] = useState<{ key: number; initial: OrderForm; order: Order } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const canDispatch = can(scopes, 'trips:dispatch');

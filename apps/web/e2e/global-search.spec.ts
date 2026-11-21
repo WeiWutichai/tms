@@ -38,7 +38,7 @@ async function token(page: Page, email = 'owner@demo-a.test'): Promise<string> {
 
 test.describe.serial('ค้นหา ⌘K (ST9-T09)', () => {
   test.describe.configure({ timeout: 90_000 });
-  const S: { doNo?: string; tripId?: string; tripNo?: string } = {};
+  const S: { doNo?: string; tripId?: string; tripNo?: string; soNo?: string } = {};
 
   test.beforeEach(async ({ page }) => {
     if (S.doNo) return;
@@ -102,6 +102,7 @@ test.describe.serial('ค้นหา ⌘K (ST9-T09)', () => {
     });
     S.doNo = (await get<{ doNo: string }>(`/v1/delivery-orders/${d.id}`)).doNo;
     S.tripId = t.id;
+    S.soNo = (await get<{ soNo: string }>(`/v1/orders/${so.id}`)).soNo;
     S.tripNo = t.tripNo;
   });
 
@@ -126,9 +127,24 @@ test.describe.serial('ค้นหา ⌘K (ST9-T09)', () => {
     await expect(opt).toHaveAttribute('aria-selected', 'true');
     await input.press('Enter');
     await expect(dlg).toBeHidden();
-    await expect(page).toHaveURL(new RegExp(`/plan\\?trip=${S.tripId}`));
+    // เปิดแล้วล้างพารามิเตอร์ออกจาก URL
+    await expect(page).toHaveURL(/\/plan$/);
     await expect(
       page.getByRole('dialog').getByText(S.tripNo!, { exact: true }).first(),
+    ).toBeVisible();
+  });
+
+  test('เลข SO → Enter เปิด drawer SO', async ({ page }) => {
+    await page.goto('/plan');
+    await page.getByRole('button', { name: 'ค้นหา ⌘K' }).click();
+    const dlg = page.getByRole('dialog', { name: 'ค้นหา' });
+    await dlg.getByRole('combobox').fill(S.soNo!);
+    const opt = dlg.getByRole('option', { name: new RegExp(S.soNo!) });
+    await expect(opt).toBeVisible();
+    await opt.click();
+    await expect(page).toHaveURL(/\/so$/);
+    await expect(
+      page.getByRole('dialog').getByText(S.soNo!, { exact: true }).first(),
     ).toBeVisible();
   });
 
