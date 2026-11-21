@@ -401,6 +401,12 @@ export const PROBLEMS = {
     th: 'ผู้อนุมัติใบสำคัญจ่าย บันทึกจ่ายใบนั้นเองไม่ได้ ต้องให้ผู้อื่นบันทึกจ่าย',
     en: 'Whoever approved a settlement cannot record its payment',
   },
+  /** ใบที่ snapshot รถร่วมไม่มีประเภท (บุคคล/นิติบุคคล) — คำนวณ/ตรึงหัก ณ ที่จ่ายไม่ได้ (ไม่เดาประเภท) */
+  settlement_carrier_type_missing: {
+    status: 409,
+    th: 'ข้อมูลรถร่วมในใบสำคัญจ่ายไม่มีประเภท (บุคคลธรรมดา/นิติบุคคล) คำนวณหัก ณ ที่จ่ายไม่ได้ — ยกเลิกใบแล้วสร้างใหม่',
+    en: 'The carrier on this settlement has no entity type; withholding tax cannot be estimated',
+  },
   /** ST6-T07: ใบไม่มีบรรทัดเที่ยวที่ยังใช้ — อนุมัติไม่ได้ */
   settlement_empty: {
     status: 409,

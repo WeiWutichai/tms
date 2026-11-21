@@ -35,6 +35,10 @@ export const SETTLEMENT_STATUSES = [
   'PAID',
   'CANCELLED',
 ] as const;
+/** `status` ของรายการ: คั่นด้วย , ได้ (แท็บหน้า `settle`) */
+const STATUS_LIST_RE = new RegExp(
+  `^(${SETTLEMENT_STATUSES.join('|')})(,(${SETTLEMENT_STATUSES.join('|')}))*$`,
+);
 /** วิธีจ่าย (ST6-T09 — ต้นแบบ "วิธีจ่าย": โอนเงิน / เช็ค / เงินสด) */
 export const SETTLEMENT_PAYMENT_METHODS = ['TRANSFER', 'CHEQUE', 'CASH'] as const;
 export type SettlementPaymentMethod = (typeof SETTLEMENT_PAYMENT_METHODS)[number];
@@ -298,10 +302,31 @@ export class SettlementListQuery extends ListQuery {
   @MaxLength(120)
   carrierId?: string;
 
-  @ApiPropertyOptional({ enum: SETTLEMENT_STATUSES })
+  @ApiPropertyOptional({
+    description: `สถานะ คั่นด้วย , ได้ (${SETTLEMENT_STATUSES.join(' / ')}) — แท็บหน้า \`settle\` ใช้หลายสถานะ`,
+    example: 'DRAFT,DISPUTED',
+    pattern: STATUS_LIST_RE.source,
+  })
   @IsOptional()
-  @IsIn(SETTLEMENT_STATUSES)
-  status?: SettlementStatus;
+  @Matches(STATUS_LIST_RE)
+  status?: string;
+}
+
+/** KPI + จำนวนต่อแท็บของหน้า "Settlement รถร่วม" (`settle` — ต้นแบบ kpisX('settle')) */
+export class SettlementKpiDto {
+  @ApiProperty({ description: 'ทุกใบ (รวมยกเลิก)' }) total!: number;
+  @ApiProperty() draft!: number;
+  @ApiProperty() sentToCarrier!: number;
+  @ApiProperty() disputed!: number;
+  @ApiProperty() approved!: number;
+  @ApiProperty() paid!: number;
+  @ApiProperty() cancelled!: number;
+  @ApiPropertyOptional({
+    description:
+      'ยอดจ่ายสุทธิหลังหัก ณ ที่จ่าย (`buyNetAfterWht` ที่ตรึง) ของใบที่จ่ายแล้ว วันที่จ่ายอยู่ในเดือนนี้ (เวลาไทย) — `prices.buy:read`',
+  })
+  @PriceField('buy')
+  buyPaidThisMonth?: string;
 }
 
 export class SettlementCarrierDto {
@@ -572,8 +597,13 @@ export class SettlementDto {
   })
   @PriceField('buy')
   buyNetAfterWht?: string;
-  @ApiProperty({ type: SettlementWhtEstimateDto })
-  whtEstimate!: SettlementWhtEstimateDto;
+  @ApiProperty({
+    type: SettlementWhtEstimateDto,
+    nullable: true,
+    description:
+      'null = ข้อมูลรถร่วมในใบไม่มีประเภท (บุคคล/นิติบุคคล) จัดแบบยื่นไม่ได้ — ไม่มียอดประมาณการ (`buyWhtAmount`/`buyNetAfterWht` มีเฉพาะยอดที่ตรึงแล้ว) · อนุมัติ/บันทึกจ่าย/PDF → 409 `settlement_carrier_type_missing`',
+  })
+  whtEstimate!: SettlementWhtEstimateDto | null;
   @ApiProperty({
     type: [SettlementLineDto],
     description: 'ทุกบรรทัด รวมบรรทัดที่นำออกแล้ว (`active` false)',
@@ -660,8 +690,13 @@ export class SettlementSummaryDto {
   })
   @PriceField('buy')
   buyNetAfterWht?: string;
-  @ApiProperty({ enum: WHT_FORMS, description: 'แบบยื่น ภ.ง.ด.3 (บุคคล) / ภ.ง.ด.53 (นิติบุคคล)' })
-  whtForm!: (typeof WHT_FORMS)[number];
+  @ApiProperty({
+    enum: WHT_FORMS,
+    nullable: true,
+    description:
+      'แบบยื่น ภ.ง.ด.3 (บุคคล) / ภ.ง.ด.53 (นิติบุคคล) · null = ข้อมูลรถร่วมในใบไม่มีประเภท (จัดแบบยื่นไม่ได้ — ไม่มียอดหัก ณ ที่จ่ายประมาณการ ยกเว้นยอดที่ตรึงแล้ว)',
+  })
+  whtForm!: (typeof WHT_FORMS)[number] | null;
   @ApiProperty({ nullable: true, type: String, description: 'เวลาอนุมัติ (ST6-T07)' })
   approvedAt!: string | null;
   @ApiProperty({

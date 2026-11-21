@@ -32,6 +32,7 @@ import type {
   SettlementPageDto,
   SettlementPayDto,
   SettlementStatus,
+  SettlementKpiDto,
   SettlementSummaryDto,
   UpdateSettlementDto,
 } from './settlement.dto';
@@ -119,7 +120,8 @@ export class SettlementsService {
     const and: Prisma.CarrierSettlementWhereInput[] = [
       k.where as Prisma.CarrierSettlementWhereInput,
     ];
-    if (q.status) and.push({ status: q.status });
+    // คั่นด้วย , ได้ (แท็บหน้า `settle` — เช่น DRAFT,DISPUTED)
+    if (q.status) and.push({ status: { in: q.status.split(',') as SettlementStatus[] } });
     if (q.carrierId !== undefined) {
       const carrierId = await this.carrierRef(tx, q.carrierId);
       and.push({ carrierId: carrierId ?? '00000000-0000-0000-0000-000000000000' });
@@ -141,7 +143,10 @@ export class SettlementsService {
       rows,
       k,
       (r): SettlementSummaryDto => {
-        const wht = whtOf(r, r.lines, minimum);
+        // ใบที่ snapshot รถร่วมไม่มีประเภท (บุคคล/นิติบุคคล) จัดแบบยื่นไม่ได้ → แถวนั้น whtForm = null และไม่มียอดประมาณการ
+        // (ยกเว้นยอดที่ตรึงแล้ว) — ไม่เดากฎภาษี และแถวเดียวไม่ทำให้ทั้งรายการ 500
+        const known = hasWhtEntityType(r.carrierSnapshot);
+        const wht = known ? whtOf(r, r.lines, minimum) : null;
         return {
           id: encodeId('settlement', r.id),
           settlementNo: r.settlementNo,
@@ -155,8 +160,8 @@ export class SettlementsService {
           buyGrossAmount: r.grossAmount.toFixed(2),
           buyDeductionAmount: r.deductionAmount.toFixed(2),
           buyNetPayable: r.netPayable.toFixed(2),
-          ...whtTotals(r, wht),
-          whtForm: wht.form,
+          ...(wht ? whtTotals(r, wht) : frozenTotals(r)),
+          whtForm: wht?.form ?? null,
           approvedAt: r.approvedAt?.toISOString() ?? null,
           paidDate: r.paidDate ? ymd(r.paidDate) : null,
           sentAt: r.sentAt?.toISOString() ?? null,
@@ -171,12 +176,58 @@ export class SettlementsService {
     return page as SettlementPageDto;
   }
 
+  /**
+   * KPI + จำนวนต่อแท็บของหน้า `settle` (ต้นแบบ kpisX('settle'): รอตรวจ · รออนุมัติ · อนุมัติแล้ว · จ่ายแล้วเดือนนี้ ฿)
+   * จ่ายแล้วเดือนนี้ = Σ (ยอดสุทธิ − หัก ณ ที่จ่ายที่ตรึง) ของใบ PAID ที่ `paid_date` อยู่ในเดือนนี้ (เวลาไทย) — ใบ PAID ต้องตรึง WHT (CHECK 0139)
+   */
+  async kpi(): Promise<SettlementKpiDto> {
+    const tx = this.db.tx;
+    const today = bangkokDay(new Date().toISOString());
+    const monthStart = `${today.slice(0, 7)}-01`;
+    const rows = await tx.$queryRaw<
+      {
+        total: bigint;
+        draft: bigint;
+        sent: bigint;
+        disputed: bigint;
+        approved: bigint;
+        paid: bigint;
+        cancelled: bigint;
+        paid_month: Prisma.Decimal;
+      }[]
+    >`
+      SELECT COUNT(*) AS total,
+             COUNT(*) FILTER (WHERE status = 'DRAFT') AS draft,
+             COUNT(*) FILTER (WHERE status = 'SENT_TO_CARRIER') AS sent,
+             COUNT(*) FILTER (WHERE status = 'DISPUTED') AS disputed,
+             COUNT(*) FILTER (WHERE status = 'APPROVED') AS approved,
+             COUNT(*) FILTER (WHERE status = 'PAID') AS paid,
+             COUNT(*) FILTER (WHERE status = 'CANCELLED') AS cancelled,
+             COALESCE(SUM(net_payable - COALESCE(wht_amount, 0))
+               FILTER (WHERE status = 'PAID' AND paid_date >= ${monthStart}::date AND paid_date <= ${today}::date), 0) AS paid_month
+        FROM carrier_settlement`;
+    const r = rows[0]!;
+    return {
+      total: Number(r.total),
+      draft: Number(r.draft),
+      sentToCarrier: Number(r.sent),
+      disputed: Number(r.disputed),
+      approved: Number(r.approved),
+      paid: Number(r.paid),
+      cancelled: Number(r.cancelled),
+      buyPaidThisMonth: new Prisma.Decimal(r.paid_month).toFixed(2),
+    };
+  }
+
   async get(id: string): Promise<SettlementDto> {
     const tx = this.db.tx;
     const r = await this.load(tx, id);
     if (!r) throw new ProblemException('not_found');
     // รายการโต้แย้งค้าง — นิยามเดียวกับ trigger ที่บล็อกอนุมัติ (ST6-T06)
-    const wht = whtOf(r, r.lines, await this.liveWhtMinimum(tx));
+    // snapshot รถร่วมไม่มีประเภท → ไม่มีผลประมาณการ (whtEstimate null) แทน 500 — ดู hasWhtEntityType
+    const wht = hasWhtEntityType(r.carrierSnapshot)
+      ? whtOf(r, r.lines, await this.liveWhtMinimum(tx))
+      : null;
     return toDto(r, await disputedLines(tx, id, r.reviewRound), wht);
   }
 
@@ -453,6 +504,8 @@ export class SettlementsService {
       ...(s.sentBy ? [s.sentBy] : []),
       ...s.preparers,
     ]);
+    // ไม่รู้ประเภทรถร่วม → ตรึง WHT/จัดแบบยื่นไม่ได้ → 409 แทน 500 (หลังสิทธิ์/SoD — แถวเขียนฐานตรงเท่านั้น)
+    requireWhtEntityType(s.carrierSnapshot);
     await this.assertNoOpenDisputes(tx, s);
     // ต้องมีบรรทัดค่าขนส่ง (FREIGHT) อย่างน้อย 1 — ค่าใช้จ่ายเพิ่ม (SURCHARGE) อย่างเดียวไม่นับเป็นใบ (review L4)
     const trips = await tx.settlementLine.count({
@@ -504,8 +557,9 @@ export class SettlementsService {
         stepUp: needStepUp,
         buyNetPayable: out.buyNetPayable,
         buyWhtAmount: out.buyWhtAmount,
-        whtMinimumAmount: out.whtEstimate.minimumAmount,
-        whtForm: out.whtEstimate.form,
+        // requireWhtEntityType ข้างบน → มีผลประมาณการเสมอ
+        whtMinimumAmount: out.whtEstimate!.minimumAmount,
+        whtForm: out.whtEstimate!.form,
       },
     });
     await tx.domainEvent.create({
@@ -581,6 +635,7 @@ export class SettlementsService {
     let freeze: Prisma.CarrierSettlementUpdateInput = {};
     if (s.whtAmount === null) {
       const row = (await this.load(tx, id))!;
+      requireWhtEntityType(row.carrierSnapshot);
       const minimum = await this.liveWhtMinimum(tx);
       freeze = {
         whtAmount: decimalFromSatang(whtOf(row, row.lines, minimum).wht),
@@ -1541,6 +1596,21 @@ function lineDto(
  * อัตราบรรทัดว่าง → `wht_rate_default` ของใบ (ค่าตั้งต้นรถร่วม ณ วันสร้าง/ตรึงตอนอนุมัติ) · ใบเก่าที่ยังไม่อนุมัติ = ค่าปัจจุบันของรถร่วม
  * ใบที่ตรึงแล้ว: บรรทัดแข็ง + อัตราตั้งต้น + ขั้นต่ำที่ตรึง → ผลแยกอัตรา/รายบรรทัดเท่ากับตอนอนุมัติเสมอ
  */
+/**
+ * snapshot รถร่วมมีประเภทที่จัดแบบยื่นได้ (INDIVIDUAL/JURISTIC) — ใช้กันรายการ/รายละเอียดล้มทั้งหน้า (500)
+ * ปกติเกิดไม่ได้: `create` คัดลอก `carrier.entity_type` (enum NOT NULL) ลง snapshot เสมอ — แถวแบบนี้มาจากการเขียนฐานตรง
+ * (fixture กติกา DB ใน test, ข้อมูลย้าย/แก้มือ) เท่านั้น · ไม่เดาประเภท = ไม่คำนวณ/ไม่ตรึงหัก ณ ที่จ่ายให้แถวนั้น
+ */
+function hasWhtEntityType(snap: Prisma.JsonValue): boolean {
+  const t = (snap as { entityType?: unknown } | null)?.entityType;
+  return t === 'INDIVIDUAL' || t === 'JURISTIC';
+}
+
+/** อนุมัติ/บันทึกจ่าย (ตรึง WHT) ใบที่ไม่รู้ประเภทรถร่วมไม่ได้ → 409 แทน 500 */
+export function requireWhtEntityType(snap: Prisma.JsonValue): void {
+  if (!hasWhtEntityType(snap)) throw new ProblemException('settlement_carrier_type_missing');
+}
+
 function whtOf(
   r: {
     carrierSnapshot: Prisma.JsonValue;
@@ -1572,6 +1642,19 @@ function whtOf(
 }
 
 /** ยอดรวม WHT ของใบ — ตรึงแล้ว (`wht_amount`) ใช้ค่าที่ตรึง: สุทธิหลังหัก = ยอดสุทธิ − wht_amount */
+/** ไม่มีผลประมาณการ (ไม่รู้ประเภทรถร่วม): ใช้เฉพาะยอดที่ตรึงแล้ว — ยังไม่ตรึง = ไม่ส่งยอด WHT */
+function frozenTotals(r: { whtAmount: Prisma.Decimal | null; netPayable: Prisma.Decimal }): {
+  buyWhtAmount?: string;
+  buyNetAfterWht?: string;
+} {
+  return r.whtAmount !== null
+    ? {
+        buyWhtAmount: r.whtAmount.toFixed(2),
+        buyNetAfterWht: r.netPayable.minus(r.whtAmount).toFixed(2),
+      }
+    : {};
+}
+
 function whtTotals(
   r: { whtAmount: Prisma.Decimal | null; netPayable: Prisma.Decimal },
   wht: SettlementWhtEstimate,
@@ -1587,10 +1670,14 @@ function whtTotals(
   };
 }
 
-function toDto(r: SettlementRow, disputed: Set<string>, wht: SettlementWhtEstimate): SettlementDto {
-  // ผล WHT ของบรรทัดที่ยังใช้ เรียงตามลำดับบรรทัด (whtOf กรองบรรทัดที่นำออกแล้ว)
+function toDto(
+  r: SettlementRow,
+  disputed: Set<string>,
+  wht: SettlementWhtEstimate | null,
+): SettlementDto {
+  // ผล WHT ของบรรทัดที่ยังใช้ เรียงตามลำดับบรรทัด (whtOf กรองบรรทัดที่นำออกแล้ว) · null = ไม่รู้ประเภทรถร่วม (hasWhtEntityType)
   const activeIds = r.lines.filter((l) => !l.voidedAt).map((l) => l.id);
-  const whtLine = new Map(activeIds.map((id, i) => [id, wht.lines[i]!]));
+  const whtLine = new Map(wht ? activeIds.map((id, i) => [id, wht.lines[i]!]) : []);
   const tripLines = r.lines.filter((l) => !l.voidedAt && l.lineType !== 'DEDUCTION');
   // คำตอบของรถร่วม = รอบตรวจปัจจุบันเท่านั้น (เรียกกลับแล้วส่งใหม่ = เริ่มนับใหม่ · รอบก่อนเก็บเป็นประวัติ)
   const latest = latestReviews(r.reviews, r.reviewRound);
@@ -1620,19 +1707,21 @@ function toDto(r: SettlementRow, disputed: Set<string>, wht: SettlementWhtEstima
     buyGrossAmount: r.grossAmount.toFixed(2),
     buyDeductionAmount: r.deductionAmount.toFixed(2),
     buyNetPayable: r.netPayable.toFixed(2),
-    ...whtTotals(r, wht),
-    whtEstimate: {
-      review: wht.review,
-      form: wht.form,
-      frozen: r.whtAmount !== null,
-      minimumAmount: decimalFromSatang(wht.minimum),
-      belowMinimum: wht.belowMinimum,
-      byRate: wht.byRate.map((g) => ({
-        whtRate: g.ratePercent,
-        buyBaseAmount: decimalFromSatang(g.base),
-        buyWhtAmount: decimalFromSatang(g.wht),
-      })),
-    },
+    ...(wht ? whtTotals(r, wht) : frozenTotals(r)),
+    whtEstimate: wht
+      ? {
+          review: wht.review,
+          form: wht.form,
+          frozen: r.whtAmount !== null,
+          minimumAmount: decimalFromSatang(wht.minimum),
+          belowMinimum: wht.belowMinimum,
+          byRate: wht.byRate.map((g) => ({
+            whtRate: g.ratePercent,
+            buyBaseAmount: decimalFromSatang(g.base),
+            buyWhtAmount: decimalFromSatang(g.wht),
+          })),
+        }
+      : null,
     lines: r.lines.map((l) =>
       lineDto(l, latest.get(l.id), company.get(l.id), statusOf(l), whtLine.get(l.id)),
     ),

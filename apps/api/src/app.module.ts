@@ -255,6 +255,8 @@ import { MeController } from './modules/me/me.controller';
 import { ProfileController } from './modules/me/profile.controller';
 import { SavedViewsController } from './modules/saved-views/saved-views.controller';
 import { SavedViewsService } from './modules/saved-views/saved-views.service';
+import { SearchController } from './modules/search/search.controller';
+import { SearchService } from './modules/search/search.service';
 import { UsersController } from './modules/users/users.controller';
 import { UserLifecycleController } from './modules/users/user-lifecycle.controller';
 import { PdfRenderer } from './pdf/pdf-renderer';
@@ -291,6 +293,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     MeController,
     ProfileController,
     SavedViewsController,
+    SearchController,
     CompaniesController,
     UsersController,
     UserLifecycleController,
@@ -451,6 +454,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ScheduleService,
     BoardPreferencesService,
     SavedViewsService,
+    SearchService,
     EligibilityService,
     OrdersService,
     OrderBulkService,

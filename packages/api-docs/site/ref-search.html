@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ค้นหา (search) · TMS API</title>
+<link rel="alternate" type="text/markdown" href="ref-search.md">
+<style>:root{--ink:#101418;--muted:#59606B;--line:#E4E6E0;--bg:#FFFFFF;--side:#F4F5F2;--accent:#2257C4;--code:#EEF0EC}
+*{box-sizing:border-box}
+body{margin:0;font-family:'IBM Plex Sans Thai Looped','IBM Plex Sans',system-ui,sans-serif;color:var(--ink);background:var(--bg);font-size:14px;line-height:1.6}
+a{color:var(--accent)}
+.layout{display:flex;min-height:100vh}
+nav{width:272px;flex:none;background:var(--side);border-right:1px solid var(--line);padding:20px 16px;position:sticky;top:0;height:100vh;overflow:auto}
+nav .brand{font-weight:600;font-size:15px;margin-bottom:12px;display:block;color:var(--ink);text-decoration:none}
+nav h4{font-size:12px;color:var(--muted);margin:16px 0 4px;font-weight:600}
+nav a{display:block;padding:3px 8px;border-radius:6px;text-decoration:none;color:var(--ink);font-size:13px}
+nav a.on{background:#FFFFFF;color:var(--accent);font-weight:600}
+main{flex:1;min-width:0;padding:28px 40px;max-width:1100px}
+main h1{font-size:24px;margin:0 0 8px}main h2{font-size:18px;margin:32px 0 8px;padding-top:12px;border-top:1px solid var(--line)}main h3{font-size:15px;margin:20px 0 6px}
+code{font-family:'IBM Plex Mono',monospace;font-size:12.5px;background:var(--code);padding:1px 4px;border-radius:4px}
+pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto}pre code{background:none;padding:0}
+.table{overflow-x:auto}table{border-collapse:collapse;width:100%;margin:8px 0;font-size:13px}th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}th{background:var(--side);font-weight:600}
+blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);background:var(--side)}
+.md-link{float:right;font-size:12px}
+@media (max-width:800px){.layout{display:block}nav{position:static;width:auto;height:auto}main{padding:16px}}</style>
+</head>
+<body>
+<div class="layout">
+<nav><a class="brand" href="index.html">TMS API v1</a><h4>เริ่มต้นใช้งาน</h4><a href="quickstart.html">เริ่มต้นใช้งาน (Quickstart)</a><a href="authentication.html">ยืนยันตัวตน</a><h4>แนวทาง</h4><a href="conventions.html">แนวทางการใช้ API</a><a href="rate-limits.html">Rate limit</a><a href="versioning.html">เวอร์ชันของ API</a><a href="sandbox.html">Sandbox</a><a href="webhooks.html">Webhook และการตรวจลายเซ็น</a><a href="bulk-async.html">ทำทีละหลายรายการและงานเบื้องหลัง</a><a href="sdk.html">TypeScript SDK</a><a href="postman.html">Postman</a><h4>Resource</h4><a href="ref-orders.html">ใบสั่งขนส่ง (orders)</a><a href="ref-delivery-orders.html">ใบส่งของ (delivery-orders)</a><a href="ref-trips.html">เที่ยววิ่ง (trips)</a><a href="ref-stops.html">จุดส่ง (stops)</a><a href="ref-settlements.html">จ่ายรถร่วม (settlements)</a><a href="ref-documents.html">ไฟล์และเอกสาร (documents)</a><a href="ref-webhooks.html">Webhooks และ events</a><a href="ref-sandbox.html">Sandbox</a><a href="ref-jobs.html">งานเบื้องหลัง (jobs)</a><a href="ref-search.html" class="on">ค้นหา (search)</a><a href="ref-customers.html">ลูกค้า (customers)</a><a href="ref-customer-sites.html">สถานที่ (customer-sites)</a><a href="ref-products.html">สินค้า (products)</a><a href="ref-units.html">หน่วย (units)</a><a href="ref-vehicle-types.html">ประเภทรถ (vehicle-types)</a><a href="ref-service-items.html">รายการค่าบริการ (service-items)</a><a href="ref-reason-codes.html">รหัสเหตุผล (reason-codes)</a><a href="ref-routes.html">เส้นทาง (routes)</a><a href="ref-rate-cards.html">ตารางราคา (rate-cards)</a><a href="ref-carriers.html">รถร่วม (carriers)</a><a href="ref-vehicles.html">รถ (vehicles)</a><a href="ref-drivers.html">คนขับ (drivers)</a><a href="ref-vehicle-documents.html">เอกสารรถ (vehicle-documents)</a><a href="ref-carrier-docs.html">เอกสารรถร่วม (carrier-docs)</a><a href="ref-order-templates.html">แม่แบบใบสั่ง (order-templates)</a><a href="ref-planning.html">วางแผน (planning)</a><a href="ref-schedule.html">ตารางงาน (schedule)</a><a href="ref-exports.html">ส่งออกไฟล์ (exports)</a><a href="ref-connectors.html">Connector ERP (connectors)</a><a href="ref-messaging.html">ส่งข้อความ (messaging)</a><a href="ref-companies.html">นิติบุคคล (companies)</a><a href="ref-branches.html">สาขา (branches)</a><a href="ref-document-sequences.html">เลขที่เอกสาร (document-sequences)</a><a href="ref-settings.html">ตั้งค่า (settings)</a><a href="ref-audit.html">ประวัติการทำรายการ (audit)</a><a href="ref-auth.html">OAuth และระบบ (auth)</a><a href="ref-billing-notes.html">billing-notes</a><a href="ref-invoices.html">invoices</a><a href="ref-payments.html">payments</a><h4>อ้างอิง</h4><a href="webhook-events.html">Webhook events</a><a href="errors.html">รหัส error</a><a href="changelog.html">Changelog</a></nav>
+<main>
+<a class="md-link" href="ref-search.md">Markdown</a>
+<h1 id="ค้นหา-search">ค้นหา (search)</h1>
+<p>1 endpoint · ทุกคำขอส่ง <code>Authorization: Bearer &lt;API key&gt;</code> — ดู <a href="authentication.html">ยืนยันตัวตน</a> และ <a href="conventions.html">แนวทางการใช้ API</a></p>
+<div class="table"><table><thead><tr><th>Endpoint</th><th>scope</th></tr></thead><tbody><tr><td>[<code>GET /v1/search</code>](#get-search)</td><td><code>orders:read</code> / <code>trips:read</code> / <code>invoices:read</code> / <code>master:read</code></td></tr></tbody></table></div>
+<h2 id="get-search">ค้นหาเอกสาร ลูกค้า รถ (⌘K)</h2>
+<p><code>GET /v1/search</code></p>
+<p>scope: <code>orders:read</code> หรือ <code>trips:read</code> หรือ <code>invoices:read</code> หรือ <code>master:read</code> · operationId: <code>Search_find</code></p>
+<p>ค้นพร้อมกันหลายชนิด: SO (<code>orders:read</code>), DO (<code>orders:read</code>), เที่ยวรถ (<code>trips:read</code>), ใบแจ้งหนี้และใบวางบิล (<code>invoices:read</code>), ลูกค้าและรถ (<code>master:read</code>) — ค้นเฉพาะชนิดที่ผู้เรียกมี scope (<code>searched</code>) · ผลต่อชนิดไม่เกิน <code>limit</code> เรียง ตรงทั้งคำ → ขึ้นต้นด้วย → มีอยู่ → แก้ล่าสุด · เห็นเฉพาะข้อมูลของบริษัท (หรือ sandbox) ของ credential นี้ · ไม่ส่งราคา/ยอดเงิน · นับ rate limit แบบอ่าน (GET)</p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>q</code></td><td>query</td><td>ใช่</td><td><code>string</code></td><td>คำค้น (ตัดช่องว่างหน้า-หลัง) — ค้นแบบ &quot;มีคำนี้อยู่&quot; ไม่สนตัวพิมพ์ ใน: เลข SO / DO / เที่ยว / ใบแจ้งหนี้ / ใบวางบิล, เลข ลูกค้า (SO/DO <code>customerRef</code>, ใบแจ้งหนี้ <code>customerPoNo</code>), ทะเบียนรถ (เทียบแบบ normalize: เลขไทย → อารบิก ตัดช่องว่าง/ขีด/จุด), ชื่อ/รหัสลูกค้า</td></tr><tr><td><code>limit</code></td><td>query</td><td></td><td><code>number</code></td><td>จำนวนสูงสุดต่อชนิด</td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>SearchResultDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มี scope อ่านชนิดใดเลย (<code>orders:read</code> / <code>trips:read</code> / <code>invoices:read</code> / <code>master:read</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>คำค้นสั้นกว่า 2 หรือยาวกว่า 64 ตัวอักษร (หลังตัดช่องว่าง) / <code>limit</code> นอกช่วง 1–10 — <a href="errors.html#validation_failed">validation_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X GET &quot;$TMS_BASE_URL/v1/search&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.GET('/v1/search');</code></pre>
+<h2 id="schemas">Schema ของ response</h2>
+<h3 id="schema-SearchResultDto">SearchResultDto</h3>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>q</code></td><td>ใช่</td><td><code>string</code></td><td></td><td>คำค้นหลังตัดช่องว่าง</td><td><code>2611-00</code></td></tr><tr><td><code>searched</code></td><td>ใช่</td><td><code>array&lt;string&gt;</code></td><td></td><td>ชนิดที่ค้นให้ตามสิทธิ์ของผู้เรียก (ชนิดที่ไม่มีสิทธิ์อ่าน = ไม่ค้นและไม่อยู่ในรายการนี้)</td><td></td></tr><tr><td><code>data</code></td><td>ใช่</td><td><code>array&lt;SearchHitDto&gt;</code></td><td></td><td>เรียงตามชนิด แล้วตรงทั้งคำ → ขึ้นต้นด้วย → มีอยู่ → แก้ล่าสุด</td><td></td></tr></tbody></table></div>
+</main>
+</div>
+</body>
+</html>

@@ -37,6 +37,7 @@ import { OfferLinkPage } from './public/OfferLink';
 import { PodLinkPage } from './public/PodLink';
 import { SettlementLinkPage } from './public/SettlementLink';
 import { TrackingPage } from './public/Tracking';
+import { SettlePage } from './features/settlements/SettlePage';
 import { ConsoleApp } from './console/ConsoleApp';
 import { ReportPage } from './features/reports/ReportPage';
 import { AppShell, useMe } from './shell/AppShell';
@@ -63,6 +64,7 @@ const READY: Record<string, () => ReactNode> = {
   '/so/hold': () => <HoldPage />,
   '/bill': () => <BillPage />,
   '/pay': () => <PayPage />,
+  '/settle': () => <SettlePage />,
   '/exceptions': () => <ExceptionsPage />,
   '/master/customers': () => <CustomersPage />,
   '/master/locations': () => <SitesPage />,

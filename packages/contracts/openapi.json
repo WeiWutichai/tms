@@ -4723,6 +4723,145 @@
         ]
       }
     },
+    "/v1/search": {
+      "get": {
+        "description": "ค้นพร้อมกันหลายชนิด: SO (`orders:read`), DO (`orders:read`), เที่ยวรถ (`trips:read`), ใบแจ้งหนี้และใบวางบิล (`invoices:read`), ลูกค้าและรถ (`master:read`) — ค้นเฉพาะชนิดที่ผู้เรียกมี scope (`searched`) · ผลต่อชนิดไม่เกิน `limit` เรียง ตรงทั้งคำ → ขึ้นต้นด้วย → มีอยู่ → แก้ล่าสุด · เห็นเฉพาะข้อมูลของบริษัท (หรือ sandbox) ของ credential นี้ · ไม่ส่งราคา/ยอดเงิน · นับ rate limit แบบอ่าน (GET)",
+        "operationId": "Search_find",
+        "parameters": [
+          {
+            "name": "q",
+            "required": true,
+            "in": "query",
+            "description": "คำค้น (ตัดช่องว่างหน้า-หลัง) — ค้นแบบ \"มีคำนี้อยู่\" ไม่สนตัวพิมพ์ ใน: เลข SO / DO / เที่ยว / ใบแจ้งหนี้ / ใบวางบิล, เลข PO ลูกค้า (SO/DO `customerRef`, ใบแจ้งหนี้ `customerPoNo`), ทะเบียนรถ (เทียบแบบ normalize: เลขไทย → อารบิก ตัดช่องว่าง/ขีด/จุด), ชื่อ/รหัสลูกค้า",
+            "schema": {
+              "minLength": 2,
+              "maxLength": 64,
+              "example": "2611-00",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "จำนวนสูงสุดต่อชนิด",
+            "schema": {
+              "minimum": 1,
+              "maximum": 10,
+              "default": 5,
+              "type": "number"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มี scope อ่านชนิดใดเลย (`orders:read` / `trips:read` / `invoices:read` / `master:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/search",
+                      "requestId": "b6a1c2d3-…",
+                      "required": [
+                        "orders:read",
+                        "trips:read",
+                        "invoices:read",
+                        "master:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "คำค้นสั้นกว่า 2 หรือยาวกว่า 64 ตัวอักษร (หลังตัดช่องว่าง) / `limit` นอกช่วง 1–10",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/search",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "q",
+                          "code": "too_short",
+                          "message": "q must be longer than or equal to 2 characters"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ค้นหาเอกสาร ลูกค้า รถ (⌘K)",
+        "tags": [
+          "search"
+        ],
+        "x-required-scopes": [
+          "orders:read",
+          "trips:read",
+          "invoices:read",
+          "master:read"
+        ]
+      }
+    },
     "/v1/companies": {
       "post": {
         "operationId": "Companies_create",
@@ -37055,6 +37194,88 @@
         ]
       }
     },
+    "/v1/settlements/summary": {
+      "get": {
+        "description": "จำนวนใบต่อสถานะ (docs/01 §4.5) สำหรับแท็บ/การ์ด KPI ของหน้า `settle` · `buyPaidThisMonth` = Σ ยอดจ่ายหลังหัก ณ ที่จ่าย (ที่ตรึงตอนอนุมัติ) ของใบที่จ่ายแล้วในเดือนนี้ (เวลาไทย) — เห็นเมื่อมี `prices.buy:read`",
+        "operationId": "Settlements_summary",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettlementKpiDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`settlements:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settlements",
+                      "action": "read",
+                      "required": [
+                        "settlements:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "KPI หน้า \"Settlement รถร่วม\" — จำนวนต่อสถานะ + ยอดจ่ายแล้วเดือนนี้",
+        "tags": [
+          "settlements"
+        ],
+        "x-required-scopes": [
+          "settlements:read"
+        ]
+      }
+    },
     "/v1/settlements": {
       "get": {
         "description": "กรองรถร่วม (`carrierId` รับ `ext:` — ไม่พบ = รายการว่าง) / สถานะ · cursor มาตรฐาน (updatedAt, id) · ยอด `buy*` เห็นเมื่อมี `prices.buy:read`",
@@ -37125,16 +37346,11 @@
             "name": "status",
             "required": false,
             "in": "query",
+            "description": "สถานะ คั่นด้วย , ได้ (DRAFT / SENT_TO_CARRIER / DISPUTED / APPROVED / PAID / CANCELLED) — แท็บหน้า `settle` ใช้หลายสถานะ",
             "schema": {
-              "type": "string",
-              "enum": [
-                "DRAFT",
-                "SENT_TO_CARRIER",
-                "DISPUTED",
-                "APPROVED",
-                "PAID",
-                "CANCELLED"
-              ]
+              "pattern": "^(DRAFT|SENT_TO_CARRIER|DISPUTED|APPROVED|PAID|CANCELLED)(,(DRAFT|SENT_TO_CARRIER|DISPUTED|APPROVED|PAID|CANCELLED))*$",
+              "example": "DRAFT,DISPUTED",
+              "type": "string"
             }
           },
           {
@@ -40748,7 +40964,7 @@
     },
     "/v1/invoices/summary": {
       "get": {
-        "description": "นับทั้ง tenant · เกินกำหนดเป็น 0 จนกว่าจะมีวันครบกำหนด/รับชำระ (ST5-T09/T22)",
+        "description": "นับทั้ง tenant · แท็บแยกกันไม่ซ้อน: เกินกำหนด (ธง `overdue` — ST5-T18) มาก่อน \"ออกแล้ว\"/\"ชำระบางส่วน\" · ST9-T02 Dashboard บิล: ยอดต่อแท็บ (`sellDraftTotal` = ยอดรวมร่าง · `sell*Outstanding` = ยอดรวม − ยอดตัดชำระ — ตรงกับ Σ ของ `GET /invoices` ตัวกรองเดียวกัน) + ใบที่ออกเดือนนี้ (ถึงวันนี้) vs เดือนก่อน (ทั้งเดือน) ตาม `issueDate` เวลาไทย ไม่รวมร่าง/ยกเลิก · ค้างวางบิล = `GET /invoices/queue` `totals` · รับชำระเดือนนี้/ก่อน = `GET /payments/summary` · ยอด `sell*` เห็นเมื่อมี `prices.sell:read` (จำนวนเห็นเสมอ) · D-54: ใบแจ้งหนี้ไม่ใช่ใบกำกับภาษี ยอด VAT/WHT เป็นประมาณการ",
         "operationId": "Invoices_summary",
         "parameters": [
           {
@@ -40819,7 +41035,7 @@
             "bearer": []
           }
         ],
-        "summary": "จำนวนใบแจ้งหนี้ตามสถานะ (แท็บ/KPI)",
+        "summary": "จำนวนและยอดใบแจ้งหนี้ตามสถานะ (แท็บ/KPI + Dashboard บิล)",
         "tags": [
           "invoices"
         ],
@@ -70026,6 +70242,148 @@
           }
         }
       },
+      "SearchHitDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "order",
+              "deliveryOrder",
+              "trip",
+              "invoice",
+              "billingNote",
+              "customer",
+              "vehicle"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "example": "do_3f2a…",
+            "description": "id ของเอกสาร/ข้อมูลหลัก (prefix ตามชนิด: ord / do / trp / ivc / bn / cus / veh)"
+          },
+          "label": {
+            "type": "string",
+            "nullable": true,
+            "example": "DO-2611-0042",
+            "description": "ข้อความหลัก — เลขเอกสาร · ทะเบียน · ชื่อลูกค้า (null = ร่างที่ยังไม่มีเลข เจอจากเลข PO)"
+          },
+          "matchedOn": {
+            "type": "string",
+            "enum": [
+              "number",
+              "po",
+              "plate",
+              "name",
+              "code"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "example": "DELIVERED",
+            "description": "สถานะตามชนิด (SO ตัวเล็กตาม OrderDto · DO/เที่ยว/ใบแจ้งหนี้/ใบวางบิล ตัวใหญ่ตาม enum · รถ/ลูกค้า ตัวเล็ก)"
+          },
+          "customerName": {
+            "type": "string",
+            "nullable": true,
+            "description": "ชื่อลูกค้า (SO/DO/ใบแจ้งหนี้/ใบวางบิล)"
+          },
+          "customerRef": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลข PO ลูกค้า (SO/DO/ใบแจ้งหนี้)"
+          },
+          "plate": {
+            "type": "string",
+            "nullable": true,
+            "description": "ทะเบียนรถ (เที่ยว: ณ วันจ่ายงาน · รถ)"
+          },
+          "vehicleType": {
+            "type": "string",
+            "nullable": true,
+            "description": "ประเภทรถ (รถ)"
+          },
+          "driverName": {
+            "type": "string",
+            "nullable": true,
+            "description": "คนขับประจำ (รถ)"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true,
+            "description": "รหัสลูกค้า (ลูกค้า)"
+          },
+          "overdue": {
+            "type": "boolean",
+            "description": "ใบแจ้งหนี้มีธงเกินกำหนด (ST5-T18) — ชนิดอื่น = false"
+          },
+          "orderId": {
+            "type": "string",
+            "nullable": true,
+            "description": "SO ของ DO (`ord_…`) — ชนิดอื่น = null"
+          },
+          "tripId": {
+            "type": "string",
+            "nullable": true,
+            "description": "เที่ยวของ DO (`trp_…`) — ยังไม่จัด/ชนิดอื่น = null"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "label",
+          "matchedOn",
+          "status",
+          "customerName",
+          "customerRef",
+          "plate",
+          "vehicleType",
+          "driverName",
+          "code",
+          "overdue",
+          "orderId",
+          "tripId"
+        ]
+      },
+      "SearchResultDto": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "example": "2611-00",
+            "description": "คำค้นหลังตัดช่องว่าง"
+          },
+          "searched": {
+            "type": "array",
+            "description": "ชนิดที่ค้นให้ตามสิทธิ์ของผู้เรียก (ชนิดที่ไม่มีสิทธิ์อ่าน = ไม่ค้นและไม่อยู่ในรายการนี้)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "order",
+                "deliveryOrder",
+                "trip",
+                "invoice",
+                "billingNote",
+                "customer",
+                "vehicle"
+              ]
+            }
+          },
+          "data": {
+            "description": "เรียงตามชนิด แล้วตรงทั้งคำ → ขึ้นต้นด้วย → มีอยู่ → แก้ล่าสุด",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchHitDto"
+            }
+          }
+        },
+        "required": [
+          "q",
+          "searched",
+          "data"
+        ]
+      },
       "CreateCompanyDto": {
         "type": "object",
         "properties": {
@@ -85879,6 +86237,46 @@
           "carriers"
         ]
       },
+      "SettlementKpiDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number",
+            "description": "ทุกใบ (รวมยกเลิก)"
+          },
+          "draft": {
+            "type": "number"
+          },
+          "sentToCarrier": {
+            "type": "number"
+          },
+          "disputed": {
+            "type": "number"
+          },
+          "approved": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "cancelled": {
+            "type": "number"
+          },
+          "buyPaidThisMonth": {
+            "type": "string",
+            "description": "ยอดจ่ายสุทธิหลังหัก ณ ที่จ่าย (`buyNetAfterWht` ที่ตรึง) ของใบที่จ่ายแล้ว วันที่จ่ายอยู่ในเดือนนี้ (เวลาไทย) — `prices.buy:read`"
+          }
+        },
+        "required": [
+          "total",
+          "draft",
+          "sentToCarrier",
+          "disputed",
+          "approved",
+          "paid",
+          "cancelled"
+        ]
+      },
       "SettlementCarrierDto": {
         "type": "object",
         "properties": {
@@ -85990,7 +86388,8 @@
               "PND3",
               "PND53"
             ],
-            "description": "แบบยื่น ภ.ง.ด.3 (บุคคล) / ภ.ง.ด.53 (นิติบุคคล)"
+            "nullable": true,
+            "description": "แบบยื่น ภ.ง.ด.3 (บุคคล) / ภ.ง.ด.53 (นิติบุคคล) · null = ข้อมูลรถร่วมในใบไม่มีประเภท (จัดแบบยื่นไม่ได้ — ไม่มียอดหัก ณ ที่จ่ายประมาณการ ยกเว้นยอดที่ตรึงแล้ว)"
           },
           "approvedAt": {
             "type": "string",
@@ -86639,7 +87038,14 @@
             "description": "ยอดจ่ายรถร่วมหลังหัก ณ ที่จ่าย = ยอดรวม − หัก ณ ที่จ่าย − รายการหัก (ประมาณการ) — เห็นเมื่อมี `prices.buy:read`"
           },
           "whtEstimate": {
-            "$ref": "#/components/schemas/SettlementWhtEstimateDto"
+            "nullable": true,
+            "description": "null = ข้อมูลรถร่วมในใบไม่มีประเภท (บุคคล/นิติบุคคล) จัดแบบยื่นไม่ได้ — ไม่มียอดประมาณการ (`buyWhtAmount`/`buyNetAfterWht` มีเฉพาะยอดที่ตรึงแล้ว) · อนุมัติ/บันทึกจ่าย/PDF → 409 `settlement_carrier_type_missing`",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SettlementWhtEstimateDto"
+              }
+            ]
           },
           "lines": {
             "description": "ทุกบรรทัด รวมบรรทัดที่นำออกแล้ว (`active` false)",
@@ -87514,6 +87920,28 @@
           "releasedCount"
         ]
       },
+      "BillingQueueTotalsDto": {
+        "type": "object",
+        "properties": {
+          "deliveryOrderCount": {
+            "type": "number",
+            "description": "จำนวน DO ในคิว"
+          },
+          "releasedCount": {
+            "type": "number",
+            "description": "จำนวน DO ที่ส่งบัญชีแล้ว"
+          },
+          "sellTotal": {
+            "type": "string",
+            "example": "24902.50",
+            "description": "ยอดรายได้รวม (ก่อน VAT) = Σ `customers[].sellTotal` — เห็นเมื่อมี `prices.sell:read`"
+          }
+        },
+        "required": [
+          "deliveryOrderCount",
+          "releasedCount"
+        ]
+      },
       "BillingQueuePageDto": {
         "type": "object",
         "properties": {
@@ -87536,13 +87964,44 @@
             "items": {
               "$ref": "#/components/schemas/BillingQueueCustomerDto"
             }
+          },
+          "totals": {
+            "description": "ST9-T02 ยอดรวมของทุกแถวที่ตรงตัวกรอง (ไม่ขึ้นกับ cursor/limit) = Σ `customers[]`",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BillingQueueTotalsDto"
+              }
+            ]
           }
         },
         "required": [
           "data",
           "nextCursor",
           "hasMore",
-          "customers"
+          "customers",
+          "totals"
+        ]
+      },
+      "InvoiceMonthTotalDto": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string",
+            "example": "2026-11"
+          },
+          "count": {
+            "type": "number",
+            "description": "จำนวนใบ"
+          },
+          "sellTotal": {
+            "type": "string",
+            "example": "96300.00",
+            "description": "Σ ยอดรวมใบ — `prices.sell:read`"
+          }
+        },
+        "required": [
+          "month",
+          "count"
         ]
       },
       "InvoiceSummaryCountsDto": {
@@ -87556,7 +88015,7 @@
           },
           "issued": {
             "type": "number",
-            "description": "ISSUED + ADJUSTED ที่ไม่เกินกำหนด (ST5-T18 — เกินกำหนดนับใน `overdue`)"
+            "description": "ISSUED ที่ไม่เกินกำหนด (ST5-T18 — เกินกำหนดนับใน `overdue`) · ST9-T02: ไม่รวม ADJUSTED (นิยามลูกหนี้เดียวกับ `GET /payments/summary` — ADJUSTED นับใน `total` เท่านั้น)"
           },
           "partiallyPaid": {
             "type": "number",
@@ -87572,6 +88031,47 @@
           "cancelled": {
             "type": "number",
             "description": "CANCELLED + VOIDED"
+          },
+          "today": {
+            "type": "string",
+            "example": "2026-11-22",
+            "description": "ST9-T02 วันนี้ตามเวลาไทยของ server (ใช้ตัดเกินกำหนด/เดือน)"
+          },
+          "sellDraftTotal": {
+            "type": "string",
+            "example": "12500.00",
+            "description": "ST9-T02 Σ ยอดรวมของร่าง (ประมาณการ — ยังไม่ออกเลข) — `prices.sell:read`"
+          },
+          "sellIssuedOutstanding": {
+            "type": "string",
+            "example": "48000.00",
+            "description": "ST9-T02 Σ ยอดค้าง (ยอดรวม − ยอดตัดชำระ) ของใบในแท็บ \"ออกแล้ว\" (ISSUED ที่ไม่เกินกำหนด) — `prices.sell:read`"
+          },
+          "sellPartiallyPaidOutstanding": {
+            "type": "string",
+            "example": "3200.00",
+            "description": "ST9-T02 Σ ยอดค้างของใบชำระบางส่วนที่ไม่เกินกำหนด — `prices.sell:read`"
+          },
+          "sellOverdueOutstanding": {
+            "type": "string",
+            "example": "12500.00",
+            "description": "ST9-T02 Σ ยอดค้างของใบเกินกำหนด (ชุดเดียวกับ `overdue` และ `GET /payments/summary` `sellOverdueOutstanding`) — `prices.sell:read`"
+          },
+          "issuedThisMonth": {
+            "description": "ST9-T02 ใบที่ออกเลขเดือนนี้ (วันที่ 1 ถึงวันนี้ ตาม `issueDate` เวลาไทย) ไม่รวมร่าง/ยกเลิก",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InvoiceMonthTotalDto"
+              }
+            ]
+          },
+          "issuedLastMonth": {
+            "description": "ST9-T02 ใบที่ออกเลขเดือนก่อน (ทั้งเดือน) ไม่รวมร่าง/ยกเลิก",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InvoiceMonthTotalDto"
+              }
+            ]
           }
         },
         "required": [
@@ -87581,7 +88081,10 @@
           "partiallyPaid",
           "paid",
           "overdue",
-          "cancelled"
+          "cancelled",
+          "today",
+          "issuedThisMonth",
+          "issuedLastMonth"
         ]
       },
       "CreateInvoiceDto": {
@@ -89319,6 +89822,18 @@
             "type": "string",
             "description": "เงินเข้าจริง (`amountReceived`) ของการรับชำระเดือนนี้ — ไม่รวม WHT/ค่าธรรมเนียม/ส่วนต่าง และที่กลับรายการ (เวลาไทย) — `prices.sell:read`"
           },
+          "sellReceivedLastMonth": {
+            "type": "string",
+            "description": "ST9-T02 เงินเข้าจริงของการรับชำระเดือนก่อน (ทั้งเดือน — นิยามเดียวกับ `sellReceivedThisMonth`) — `prices.sell:read`"
+          },
+          "receivedThisMonth": {
+            "type": "number",
+            "description": "ST9-T02 จำนวนการรับชำระเดือนนี้ (ไม่รวมที่กลับรายการ — เวลาไทย)"
+          },
+          "receivedLastMonth": {
+            "type": "number",
+            "description": "ST9-T02 จำนวนการรับชำระเดือนก่อน (ทั้งเดือน)"
+          },
           "dueSoon": {
             "type": "number",
             "description": "ใบที่ค้างรับและครบกำหนดภายใน 7 วัน"
@@ -89344,6 +89859,8 @@
           }
         },
         "required": [
+          "receivedThisMonth",
+          "receivedLastMonth",
           "dueSoon",
           "total",
           "open",
@@ -104965,6 +105482,11 @@
       "status": 503,
       "title": "ระบบกำลังมีผู้ใช้งานมาก กรุณาลองใหม่อีกครั้ง",
       "titleEn": "Service busy — please retry"
+    },
+    "settlement_carrier_type_missing": {
+      "status": 409,
+      "title": "ข้อมูลรถร่วมในใบสำคัญจ่ายไม่มีประเภท (บุคคลธรรมดา/นิติบุคคล) คำนวณหัก ณ ที่จ่ายไม่ได้ — ยกเลิกใบแล้วสร้างใหม่",
+      "titleEn": "The carrier on this settlement has no entity type; withholding tax cannot be estimated"
     },
     "settlement_disputed": {
       "status": 409,

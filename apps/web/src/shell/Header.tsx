@@ -8,10 +8,13 @@ export function Header({
   group,
   title,
   yearStyle,
+  onCreate,
 }: {
   group: string;
   title: string;
   yearStyle: 'BE' | 'CE';
+  /** ปุ่ม + เปิดค้นหา ⌘K (ต้นแบบ onClick openCmd — หมวด "คำสั่ง" มีสร้าง SO / ใบวางบิล) */
+  onCreate?: () => void;
 }) {
   const { t, lang, setLang } = useI18n();
   const langs: [Lang, string][] = [
@@ -123,6 +126,8 @@ export function Header({
         className="tms-iconbtn tms-iconbtn--accent"
         title={t('shell.create')}
         aria-label={t('shell.create')}
+        aria-haspopup="dialog"
+        onClick={onCreate}
       >
         <Icon n="plus" s={16} />
       </button>

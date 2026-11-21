@@ -44,6 +44,7 @@ export const TAGS: [string, string][] = [
   ['webhooks', 'Webhooks และ events'],
   ['sandbox', 'Sandbox'],
   ['jobs', 'งานเบื้องหลัง (jobs)'],
+  ['search', 'ค้นหา (search)'],
   ['customers', 'ลูกค้า (customers)'],
   ['customer-sites', 'สถานที่ (customer-sites)'],
   ['products', 'สินค้า (products)'],

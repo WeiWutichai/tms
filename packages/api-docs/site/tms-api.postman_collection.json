@@ -4122,6 +4122,30 @@
           }
         },
         {
+          "name": "KPI หน้า \"Settlement รถร่วม\" — จำนวนต่อสถานะ + ยอดจ่ายแล้วเดือนนี้",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/settlements/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "settlements",
+                "summary"
+              ]
+            },
+            "description": "scope: settlements:read\n\nจำนวนใบต่อสถานะ สำหรับแท็บ/การ์ด KPI ของหน้า `settle` · `buyPaidThisMonth` = Σ ยอดจ่ายหลังหัก ณ ที่จ่าย (ที่ตรึงตอนอนุมัติ) ของใบที่จ่ายแล้วในเดือนนี้ (เวลาไทย) — เห็นเมื่อมี `prices.buy:read`"
+          }
+        },
+        {
           "name": "รายการใบสำคัญจ่ายรถร่วม",
           "request": {
             "method": "GET",
@@ -4179,8 +4203,8 @@
                 },
                 {
                   "key": "status",
-                  "value": "",
-                  "description": "",
+                  "value": "DRAFT,DISPUTED",
+                  "description": "สถานะ คั่นด้วย, ได้ (DRAFT / SENT_TO_CARRIER / DISPUTED / APPROVED / PAID / CANCELLED) — แท็บหน้า `settle` ใช้หลายสถานะ",
                   "disabled": true
                 }
               ]
@@ -5543,6 +5567,48 @@
               ]
             },
             "description": "scope: jobs:read\n\nต้องมี `jobs:read` (ดูทุกงานของบริษัท) **หรือ** เป็นผู้สั่งงานนั้นเอง (เช่น `POST /v1/orders:bulk` + `Prefer: respond-async` ด้วยสิทธิ์ `orders:write`) — ไม่มี `jobs:read` และไม่ใช่งานของตน = 403 `permission_denied` (ไม่บอกว่ามีงานนั้นหรือไม่)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "ค้นหา (search)",
+      "item": [
+        {
+          "name": "ค้นหาเอกสาร ลูกค้า รถ (⌘K)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/search?q=2611-00",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "2611-00",
+                  "description": "คำค้น (ตัดช่องว่างหน้า-หลัง) — ค้นแบบ \"มีคำนี้อยู่\" ไม่สนตัวพิมพ์ ใน: เลข SO / DO / เที่ยว / ใบแจ้งหนี้ / ใบวางบิล, เลข ลูกค้า (SO/DO `customerRef`, ใบแจ้งหนี้ `customerPoNo`), ทะเบียนรถ (เทียบแบบ normalize: เลขไทย → อารบิก ตัดช่องว่าง/ขีด/จุด), ชื่อ/รหัสลูกค้า",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "จำนวนสูงสุดต่อชนิด",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "scope: orders:read | trips:read | invoices:read | master:read\n\nค้นพร้อมกันหลายชนิด: SO (`orders:read`), DO (`orders:read`), เที่ยวรถ (`trips:read`), ใบแจ้งหนี้และใบวางบิล (`invoices:read`), ลูกค้าและรถ (`master:read`) — ค้นเฉพาะชนิดที่ผู้เรียกมี scope (`searched`) · ผลต่อชนิดไม่เกิน `limit` เรียง ตรงทั้งคำ → ขึ้นต้นด้วย → มีอยู่ → แก้ล่าสุด · เห็นเฉพาะข้อมูลของบริษัท (หรือ sandbox) ของ credential นี้ · ไม่ส่งราคา/ยอดเงิน · นับ rate limit แบบอ่าน (GET)"
           }
         }
       ]
@@ -17446,7 +17512,7 @@
           }
         },
         {
-          "name": "จำนวนใบแจ้งหนี้ตามสถานะ (แท็บ/KPI)",
+          "name": "จำนวนและยอดใบแจ้งหนี้ตามสถานะ (แท็บ/KPI + Dashboard บิล)",
           "request": {
             "method": "GET",
             "header": [
@@ -17466,7 +17532,7 @@
                 "summary"
               ]
             },
-            "description": "scope: invoices:read\n\nนับทั้ง tenant · เกินกำหนดเป็น 0 จนกว่าจะมีวันครบกำหนด/รับชำระ"
+            "description": "scope: invoices:read\n\nนับทั้ง tenant · แท็บแยกกันไม่ซ้อน: เกินกำหนด มาก่อน \"ออกแล้ว\"/\"ชำระบางส่วน\" Dashboard บิล: ยอดต่อแท็บ (`sellDraftTotal` = ยอดรวมร่าง · `sell*Outstanding` = ยอดรวม − ยอดตัดชำระ — ตรงกับ Σ ของ `GET /invoices` ตัวกรองเดียวกัน) + ใบที่ออกเดือนนี้ (ถึงวันนี้) vs เดือนก่อน (ทั้งเดือน) ตาม `issueDate` เวลาไทย ไม่รวมร่าง/ยกเลิก · ค้างวางบิล = `GET /invoices/queue` `totals` · รับชำระเดือนนี้/ก่อน = `GET /payments/summary` · ยอด `sell*` เห็นเมื่อมี `prices.sell:read` (จำนวนเห็นเสมอ): ใบแจ้งหนี้ไม่ใช่ใบกำกับภาษี ยอด VAT/WHT เป็นประมาณการ"
           }
         },
         {
