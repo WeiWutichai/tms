@@ -184,6 +184,7 @@ import { InvoicePdfService } from './modules/invoices/invoice-pdf.service';
 import { InvoiceCancelService } from './modules/invoices/invoice-cancel.service';
 import { InvoiceStatusService } from './modules/invoices/invoice-status.service';
 import { InvoiceFinalizeService } from './modules/invoices/invoice-finalize.service';
+import { DocumentEmailService } from './modules/invoices/document-email.service';
 import { InvoiceBillingGuard } from './modules/invoices/billing-guard.service';
 import { BillingNotesController } from './modules/billing-notes/billing-notes.controller';
 import { BillingNotesService } from './modules/billing-notes/billing-notes.service';
@@ -423,6 +424,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     InvoiceFinalizeService,
     InvoiceCancelService,
     InvoiceStatusService,
+    DocumentEmailService,
     PaymentsService,
     AgingService,
     BillingNotesService,

@@ -24,7 +24,6 @@ import {
 import type { StoredDocument } from '@prisma/client';
 import { IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import type { Request, Response } from 'express';
-import { join } from 'node:path';
 import { scopeAllows } from '@tms/domain';
 import { Public, RequireScope, TenantResource } from '../../common/decorators';
 import { decodeIdOr404, encodeId, tryDecodeId } from '../../common/ids';
@@ -32,7 +31,7 @@ import { PROBLEMS, ProblemException, type ProblemCode } from '../../common/probl
 import { ApiProblems } from '../../common/problem.dto';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
-import { LocalFileStore, fileKeyFor, type StoredFile } from '../../pdf/file-store';
+import { defaultFileStore, fileKeyFor, type StoredFile } from '../../pdf/file-store';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { ImportRegistry, importSpecAllowed } from '../imports/import-spec';
 import { POD_LINK_PURPOSE, podLinkUsable } from '../trips/offer-links';
@@ -116,8 +115,7 @@ export class DocumentDto {
   @ApiPropertyOptional({ format: 'date-time' }) urlExpiresAt?: string;
 }
 
-export const store = () =>
-  new LocalFileStore(process.env.FILES_ROOT ?? join(process.cwd(), '.data', 'files'));
+export const store = defaultFileStore;
 const enc = (id: string) => encodeId('document', id);
 
 /** namespace ของ advisory lock ต่อ key ไฟล์ (ST9-T14 — retention job ใช้ค่าเดียวกัน) */

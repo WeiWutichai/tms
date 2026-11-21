@@ -1,11 +1,19 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { EmailOutbox, Prisma } from '@prisma/client';
 import { PrismaService } from '../../db/prisma.service';
+import { defaultFileStore } from '../../pdf/file-store';
 import { isSandboxTenant } from '../sandbox/users';
 import { renderEmail, type TemplateName, type TemplateVars } from './templates';
-import { transportFromEnv, type EmailTransport } from './transport';
+import { transportFromEnv, type EmailAttachment, type EmailTransport } from './transport';
 
 type Writer = Pick<Prisma.TransactionClient, 'emailOutbox'>;
+
+/** ไฟล์แนบใน outbox (ST5-T21) — อ้าง key ใน FileStore ของ tenant เดียวกับอีเมล; worker อ่านไฟล์ตอนส่ง */
+export interface OutboxAttachment {
+  fileKey: string;
+  filename: string;
+  contentType: string;
+}
 
 export interface EnqueueEmail<K extends TemplateName> {
   /** null = อีเมลระบบที่ยังไม่รู้บริษัท (เขียนด้วย client platform เท่านั้น) */
@@ -17,6 +25,8 @@ export interface EnqueueEmail<K extends TemplateName> {
   runAt?: Date;
   /** กำหนด id เอง (ST1-T23: แถว notification ช่องอีเมลอ้างถึงแถว outbox — role แอปไม่มี RETURNING) */
   id?: string;
+  /** ST5-T21 ไฟล์แนบ (key ต้องขึ้นต้นด้วย tenantId ของอีเมล) */
+  attachments?: OutboxAttachment[];
 }
 
 /**
@@ -50,6 +60,9 @@ export class EmailService {
           textBody: r.text,
           htmlBody: r.html,
           ...(input.runAt ? { runAt: input.runAt } : {}),
+          ...(input.attachments?.length
+            ? { attachments: input.attachments as unknown as Prisma.InputJsonValue }
+            : {}),
         };
       }),
     });
@@ -85,9 +98,12 @@ export class EmailDispatcher {
         UPDATE email_outbox SET status = 'FAILED', locked_until = NULL, text_body = NULL, html_body = NULL,
                error = coalesce(error, 'lease expired'), updated_at = now()
          WHERE status = 'SENDING' AND locked_until < now() AND attempts >= max_attempts
-        RETURNING id)
+        RETURNING id),
+      n AS (
       UPDATE notification n SET status = 'FAILED', failed_reason = 'email_failed', updated_at = now()
-        FROM e WHERE n.email_outbox_id = e.id AND n.status = 'QUEUED'`;
+        FROM e WHERE n.email_outbox_id = e.id AND n.status = 'QUEUED' RETURNING n.id)
+      UPDATE document_email d SET status = 'FAILED', failed_reason = 'email_failed', updated_at = now()
+        FROM e WHERE d.email_outbox_id = e.id AND d.status = 'QUEUED'`;
     return this.prisma.platform.$queryRaw<EmailOutbox[]>`
       WITH c AS (
         SELECT id FROM email_outbox
@@ -103,7 +119,8 @@ export class EmailDispatcher {
              locked_until = now() + (${LEASE_MS}::int * interval '1 millisecond'), updated_at = now()
         FROM c WHERE e.id = c.id
       RETURNING e.id, e.tenant_id AS "tenantId", e.to_address AS "toAddress", e.subject, e.text_body AS "textBody",
-                e.html_body AS "htmlBody", e.attempts, e.max_attempts AS "maxAttempts", e.template`;
+                e.html_body AS "htmlBody", e.attempts, e.max_attempts AS "maxAttempts", e.template,
+                e.attachments`;
   }
 
   /** ส่ง 1 ฉบับ — คืน true ถ้ามีงาน */
@@ -121,17 +138,22 @@ export class EmailDispatcher {
             UPDATE email_outbox SET status = 'FAILED', locked_until = NULL, error = 'sandbox_suppressed',
                    text_body = NULL, html_body = NULL, updated_at = now()
              WHERE id = ${m.id}::uuid AND status = 'SENDING' AND attempts = ${m.attempts}
-            RETURNING id)
+            RETURNING id),
+          n AS (
           UPDATE notification n SET status = 'FAILED', failed_reason = 'sandbox_suppressed', updated_at = now()
-            FROM e WHERE n.email_outbox_id = e.id AND n.status = 'QUEUED'`;
+            FROM e WHERE n.email_outbox_id = e.id AND n.status = 'QUEUED' RETURNING n.id)
+          UPDATE document_email d SET status = 'FAILED', failed_reason = 'sandbox_suppressed', updated_at = now()
+            FROM e WHERE d.email_outbox_id = e.id AND d.status = 'QUEUED'`;
         this.logger.log(`email ${m.id} (${m.template}) suppressed — sandbox tenant`);
         return true;
       }
+      const attachments = await loadAttachments(m.tenantId, m.attachments);
       const r = await this.transport.send({
         to: m.toAddress,
         subject: m.subject,
         text: m.textBody,
         html: m.htmlBody,
+        ...(attachments.length ? { attachments } : {}),
       });
       // ส่งแล้วลบเนื้อหา (มีลิงก์/token) — เขียนเฉพาะถ้ายังเป็นรอบที่เราหยิบ (worker อื่นอาจหยิบซ้ำหลัง lease หมด)
       await db.$executeRaw`
@@ -140,9 +162,12 @@ export class EmailDispatcher {
                  provider_message_id = ${r.messageId ?? null}, text_body = NULL, html_body = NULL,
                  error = NULL, updated_at = now()
            WHERE id = ${m.id}::uuid AND status = 'SENDING' AND attempts = ${m.attempts}
-          RETURNING id, sent_at)
+          RETURNING id, sent_at),
+        n AS (
         UPDATE notification n SET status = 'SENT', sent_at = e.sent_at, updated_at = now()
-          FROM e WHERE n.email_outbox_id = e.id AND n.status = 'QUEUED'`;
+          FROM e WHERE n.email_outbox_id = e.id AND n.status = 'QUEUED' RETURNING n.id)
+        UPDATE document_email d SET status = 'SENT', sent_at = e.sent_at, updated_at = now()
+          FROM e WHERE d.email_outbox_id = e.id AND d.status = 'QUEUED'`;
     } catch (err) {
       const msg = String((err as Error).message ?? err).slice(0, 500);
       this.logger.warn(`email ${m.id} (${m.template}) failed attempt ${m.attempts}: ${msg}`);
@@ -158,9 +183,12 @@ export class EmailDispatcher {
             UPDATE email_outbox SET status = 'FAILED', locked_until = NULL, error = ${msg},
                    text_body = NULL, html_body = NULL, updated_at = now()
              WHERE id = ${m.id}::uuid AND status = 'SENDING' AND attempts = ${m.attempts}
-            RETURNING id)
+            RETURNING id),
+          n AS (
           UPDATE notification n SET status = 'FAILED', failed_reason = 'email_failed', updated_at = now()
-            FROM e WHERE n.email_outbox_id = e.id AND n.status = 'QUEUED'`;
+            FROM e WHERE n.email_outbox_id = e.id AND n.status = 'QUEUED' RETURNING n.id)
+          UPDATE document_email d SET status = 'FAILED', failed_reason = 'email_failed', updated_at = now()
+            FROM e WHERE d.email_outbox_id = e.id AND d.status = 'QUEUED'`;
     }
     return true;
   }
@@ -171,4 +199,24 @@ export class EmailDispatcher {
     while (n < max && (await this.runOnce())) n++;
     return n;
   }
+}
+
+/**
+ * อ่านไฟล์แนบจาก FileStore (ST5-T21) — key ต้องอยู่ใต้ tenant ของอีเมล (กันอีเมลของ tenant หนึ่งแนบไฟล์ของอีกที่)
+ * ไฟล์หาย/ผิด tenant → throw (outbox ลองใหม่ตามรอบแล้ว FAILED — ไม่ส่งอีเมลที่ไม่มีไฟล์แนบ)
+ */
+async function loadAttachments(tenantId: string | null, raw: unknown): Promise<EmailAttachment[]> {
+  if (raw == null) return [];
+  if (!Array.isArray(raw)) throw new Error('attachments malformed');
+  const out: EmailAttachment[] = [];
+  for (const a of raw as OutboxAttachment[]) {
+    if (!tenantId || typeof a?.fileKey !== 'string' || !a.fileKey.startsWith(`${tenantId}/`))
+      throw new Error('attachment outside tenant');
+    out.push({
+      filename: a.filename,
+      contentType: a.contentType,
+      content: await defaultFileStore().get(a.fileKey),
+    });
+  }
+  return out;
 }

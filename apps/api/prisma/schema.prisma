@@ -2731,12 +2731,44 @@ model EmailOutbox {
   sentAt            DateTime?   @map("sent_at") @db.Timestamptz(6)
   providerMessageId String?     @map("provider_message_id")
   error             String?
+  /// ST5-T21 ไฟล์แนบ `[{fileKey, filename, contentType}]` — key ใน FileStore (ไม่เก็บเนื้อไฟล์ในตาราง) · null = ไม่มีไฟล์แนบ
+  attachments       Json?
   createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([status, runAt])
   @@index([tenantId, createdAt])
   @@map("email_outbox")
+}
+
+/// ST5-T21 ส่งเอกสาร (ใบแจ้งหนี้ / ชุดใบวางบิล + ใบแจ้งหนี้) ทางอีเมลถึงลูกค้า (docs/04 F3; spec/05 BIL-041) — 1 แถว = ผู้รับ 1 คน
+/// สถานะการส่งแยกจากสถานะเอกสาร (spec/05 §3 ข้อ 8) — worker (role platform) เปลี่ยนตาม email_outbox: QUEUED → SENT / FAILED (`sandbox_suppressed` / `email_failed`)
+/// role แอป: อ่าน/สร้างเท่านั้น
+model DocumentEmail {
+  id                   String    @id @default(uuid()) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
+  /// invoice · billing_note
+  entityType           String    @map("entity_type")
+  entityId             String    @map("entity_id") @db.Uuid
+  /// DOCUMENT = ส่งเอกสาร · PAYMENT_REMINDER = ใบแจ้งเตือนชำระ (ต้นแบบหน้า "รับชำระ")
+  purpose              String
+  /// เลขเอกสาร ณ วันส่ง
+  documentNo           String    @map("document_no")
+  toAddress            String    @map("to_address")
+  /// ไฟล์ที่แนบ (stored_document — PDF รายใบ หรือไฟล์รวมชุดใบวางบิล)
+  attachmentDocumentId String    @map("attachment_document_id") @db.Uuid
+  emailOutboxId        String    @map("email_outbox_id") @db.Uuid
+  /// QUEUED · SENT · FAILED
+  status               String    @default("QUEUED")
+  failedReason         String?   @map("failed_reason")
+  sentAt               DateTime? @map("sent_at") @db.Timestamptz(6)
+  createdBy            String?   @map("created_by")
+  createdAt            DateTime  @default(dbgenerated("now()")) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([tenantId, entityType, entityId, createdAt])
+  @@index([emailOutboxId])
+  @@map("document_email")
 }
 
 /// token ลืมรหัสผ่าน (ST1-T03; PLT-032) — อายุ 30 นาที ใช้ครั้งเดียว · ผูกกับอีเมล (ตัวตนเดียวข้ามบริษัท) · เก็บแค่ hash

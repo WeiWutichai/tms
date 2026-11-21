@@ -59,3 +59,7 @@ export class LocalFileStore implements FileStore {
     await rm(join(this.root, key), { force: true });
   }
 }
+
+/** ที่เก็บไฟล์ของระบบ (`FILES_ROOT`) — ใช้ร่วมกับ worker อีเมล (ไฟล์แนบ ST5-T21) โดยไม่ต้อง import controller */
+export const defaultFileStore = () =>
+  new LocalFileStore(process.env.FILES_ROOT ?? join(process.cwd(), '.data', 'files'));

@@ -23,7 +23,7 @@ export const OVERDUE_RUN_FROM_MIN_BKK = 5;
 const BATCH = 200;
 const ACTOR = 'system:invoice-overdue';
 /** สถานะที่มีเลขและยังไม่ถูกยกเลิก — ทำเครื่องหมาย "ส่งลูกค้าแล้ว" ได้ */
-const SENDABLE = ['ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED'] as const;
+export const SENDABLE = ['ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED'] as const;
 
 type WithTx = <T>(fn: (tx: Tx) => Promise<T>) => Promise<T>;
 
@@ -294,6 +294,45 @@ export class InvoiceStatusService implements OnModuleInit {
           invoiceNo: r.invoiceNo,
           billingNoteId: encodeId('billingNote', billingNote.id),
           billingNoteNo: billingNote.billingNoteNo,
+        },
+      });
+    }
+    return rows.length;
+  }
+
+  /**
+   * ส่งอีเมลถึงลูกค้า = ส่งลูกค้าแล้ว (ช่องทาง EMAIL — ST5-T21) — ใบที่ยังไม่มีธง · transaction ของผู้ส่ง (ผู้เรียกล็อกเอกสารแล้ว)
+   * ใบที่มีธงอยู่แล้ว (ทำเครื่องหมายเอง / ออกใบวางบิล) ไม่เปลี่ยนช่องทาง · คืนจำนวนใบที่ตั้ง
+   */
+  async markSentByEmail(
+    tx: Tx,
+    invoiceIds: readonly string[],
+    via: { entityType: 'invoice' | 'billing_note'; documentNo: string },
+    now: Date,
+  ): Promise<number> {
+    const ctx = requestContext.require();
+    const rows = await tx.invoice.findMany({
+      where: {
+        id: { in: [...invoiceIds] },
+        sentToCustomerAt: null,
+        invoiceNo: { not: null },
+        status: { in: [...SENDABLE] },
+      },
+      select: { id: true, invoiceNo: true },
+      orderBy: { id: 'asc' },
+    });
+    for (const r of rows) {
+      await this.setSent(tx, r.id, now, ctx.actorId ?? 'system', 'EMAIL');
+      await this.audit.record({
+        action: 'invoice.sent_to_customer',
+        entityType: ENTITY,
+        entityId: r.id,
+        before: { sentToCustomerAt: null },
+        after: {
+          sentToCustomerAt: now.toISOString(),
+          channel: 'EMAIL',
+          invoiceNo: r.invoiceNo,
+          ...(via.entityType === 'billing_note' ? { billingNoteNo: via.documentNo } : {}),
         },
       });
     }
