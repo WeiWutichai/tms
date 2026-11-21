@@ -7,6 +7,7 @@ import { dropAccessToken, endImpersonation, logout } from '../auth/session';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/th';
 import { featureOf, isLocked, pageOf } from '../nav';
+import { CommandPalette } from './CommandPalette';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import './shell.css';
@@ -19,6 +20,18 @@ export function useMe() {
 export function AppShell({ children }: { children: ReactNode }) {
   const { t } = useI18n();
   const [mini, setMini] = useState(false);
+  // ค้นหา ⌘K (ST9-T09) — ⌘K / Ctrl+K สลับเปิด-ปิดจากทุกหน้า (ต้นแบบ _kd) · ปุ่มค้นหาใน sidebar และปุ่ม + บนหัวก็เปิด
+  const [cmdk, setCmdk] = useState(false);
+  useEffect(() => {
+    const kd = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCmdk((x) => !x);
+      }
+    };
+    window.addEventListener('keydown', kd);
+    return () => window.removeEventListener('keydown', kd);
+  }, []);
   const loc = useLocation();
   const me = useMe();
   // ST1-T09: ใช้ภาษาจากโปรไฟล์ของผู้ใช้หลัง login (ครั้งเดียวต่อการโหลดหน้า)
@@ -59,6 +72,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <Sidebar
         mini={mini}
         onToggle={() => setMini((m) => !m)}
+        onSearch={() => setCmdk(true)}
         tenantName={me.data?.tenant.name ?? '…'}
         actor={me.data?.user?.name ?? me.data?.actorId ?? '…'}
         role={me.data?.user?.roles[0]}
@@ -76,6 +90,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           group={groupLabel}
           title={title}
           yearStyle={(me.data?.tenant.yearStyle as 'BE' | 'CE') ?? 'BE'}
+          onCreate={() => setCmdk(true)}
         />
         <main
           style={{
@@ -92,6 +107,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {children}
         </main>
       </div>
+      <CommandPalette open={cmdk} onClose={() => setCmdk(false)} scopes={me.data?.scopes ?? []} />
       {me.data?.impersonation && (
         <ImpersonationBanner
           tenant={me.data.tenant.name}

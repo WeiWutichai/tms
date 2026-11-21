@@ -5572,6 +5572,48 @@
       ]
     },
     {
+      "name": "ค้นหา (search)",
+      "item": [
+        {
+          "name": "ค้นหาเอกสาร ลูกค้า รถ (⌘K)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/search?q=2611-00",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "2611-00",
+                  "description": "คำค้น (ตัดช่องว่างหน้า-หลัง) — ค้นแบบ \"มีคำนี้อยู่\" ไม่สนตัวพิมพ์ ใน: เลข SO / DO / เที่ยว / ใบแจ้งหนี้ / ใบวางบิล, เลข ลูกค้า (SO/DO `customerRef`, ใบแจ้งหนี้ `customerPoNo`), ทะเบียนรถ (เทียบแบบ normalize: เลขไทย → อารบิก ตัดช่องว่าง/ขีด/จุด), ชื่อ/รหัสลูกค้า",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "จำนวนสูงสุดต่อชนิด",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "scope: orders:read | trips:read | invoices:read | master:read\n\nค้นพร้อมกันหลายชนิด: SO (`orders:read`), DO (`orders:read`), เที่ยวรถ (`trips:read`), ใบแจ้งหนี้และใบวางบิล (`invoices:read`), ลูกค้าและรถ (`master:read`) — ค้นเฉพาะชนิดที่ผู้เรียกมี scope (`searched`) · ผลต่อชนิดไม่เกิน `limit` เรียง ตรงทั้งคำ → ขึ้นต้นด้วย → มีอยู่ → แก้ล่าสุด · เห็นเฉพาะข้อมูลของบริษัท (หรือ sandbox) ของ credential นี้ · ไม่ส่งราคา/ยอดเงิน · นับ rate limit แบบอ่าน (GET)"
+          }
+        }
+      ]
+    },
+    {
       "name": "ลูกค้า (customers)",
       "item": [
         {
