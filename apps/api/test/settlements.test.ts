@@ -1760,6 +1760,7 @@ describe('settlements (ST6-T03)', () => {
 
     it('หน้า settle: GET /settlements/summary นับต่อสถานะ + ยอดจ่ายแล้วเดือนนี้ (หลัง WHT ที่ตรึง) · กรองหลายสถานะ (คั่นด้วย ,) · ไม่มี prices.buy:read = ไม่เห็นยอด · แยก tenant', async () => {
       const before = (await api(app, admin).get('/v1/settlements/summary').expect(200)).body;
+      const otherBefore = (await api(app, other).get('/v1/settlements/summary').expect(200)).body;
       const { C, trips } = await setup(2, '3000');
       const d = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
         .body;
@@ -1777,11 +1778,15 @@ describe('settlements (ST6-T03)', () => {
         Number(paid.buyNetAfterWht),
         2,
       );
-      // กรองหลายสถานะ (แท็บ "รอตรวจ" = DRAFT,DISPUTED ของหน้า settle)
+      // กรองหลายสถานะ (แท็บ "รอตรวจ" = DRAFT,DISPUTED ของหน้า settle) — จำกัดรถร่วมรายนี้ (ชุด DB-rule ข้างบนสร้างแถว snapshot ไม่ครบ)
       const ids = async (status: string) =>
         (
-          (await api(app, admin).get('/v1/settlements').query({ status, limit: 200 }).expect(200))
-            .body.data as { id: string }[]
+          (
+            await api(app, admin)
+              .get('/v1/settlements')
+              .query({ status, carrierId: C.id, limit: 200 })
+              .expect(200)
+          ).body.data as { id: string }[]
         ).map((x) => x.id);
       const chk = await ids('DRAFT,DISPUTED');
       expect(chk).toContain(d.id);
@@ -1795,8 +1800,9 @@ describe('settlements (ST6-T03)', () => {
       expect(v.total).toBe(after.total);
       expect(v.buyPaidThisMonth).toBeUndefined();
       await api(app, planner).get('/v1/settlements/summary').expect(403);
+      // tenant อื่น: ใบของ tenant นี้ไม่ถูกนับ
       const o = (await api(app, other).get('/v1/settlements/summary').expect(200)).body;
-      expect(o).toMatchObject({ total: 0, paid: 0, buyPaidThisMonth: '0.00' });
+      expect(o).toEqual(otherBefore);
     });
 
     it('ตรวจข้อมูล: โอน/เช็คต้องมีเลขอ้างอิง · เงินสดไม่ต้อง · วันที่ในอนาคต/ไม่จริง 422 · If-Match บังคับ (422) / ไม่ตรง 412', async () => {
