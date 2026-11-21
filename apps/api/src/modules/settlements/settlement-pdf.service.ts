@@ -34,7 +34,7 @@ const DEDUCTION_ORDER: DeductionType[] = ['CASH_ADVANCE', 'FUEL_PROVIDED', 'FINE
  * ใบที่อนุมัติแล้วใช้ยอด WHT ที่ตรึง (`wht_amount`) · สุทธิ = `buyNetAfterWht`
  */
 /** เปลี่ยนเมื่อแม่แบบเปลี่ยน (key ของ cache) */
-export const SETTLEMENT_PDF_TEMPLATE_VERSION = 1;
+export const SETTLEMENT_PDF_TEMPLATE_VERSION = 2; // 2: เส้นทาง "→" → "–" (Sarabun ไม่มี "→" — spec/12 §3)
 const PDF_CACHE_TTL_MS = 10 * 60_000;
 const PDF_CACHE_MAX = 50;
 
@@ -134,7 +134,7 @@ export class SettlementPdfService {
       return {
         tripNo: t.tripNo ?? '—',
         date: t.completedAt ? bangkokToday(t.completedAt) : t.tripDate.toISOString().slice(0, 10),
-        route: first ? (last ? `${first} → ${last}` : first) : null,
+        route: first ? (last ? `${first} – ${last}` : first) : null,
         tripFee: sum('FREIGHT'),
         siteExpenses: sum('SURCHARGE'),
         driver: t.driverNameSnapshot,

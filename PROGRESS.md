@@ -316,6 +316,12 @@
 
 ## บันทึกรายวัน
 
+### 21 พ.ย. 2569 (แก้บั๊ก PDF — "→" ไม่อยู่ในฟอนต์ Sarabun ที่ฝัง — lane lt)
+
+- **ทำ:** ตรวจ cmap ของ Sarabun (woff2 ทุกน้ำหนัก thai+latin) — ไม่มี "→" (U+2192) แต่มี "–" (U+2013) · เส้นทางบนใบสำคัญจ่ายรถร่วม (`settlement-pdf.service.ts` ประกอบ "ต้นทาง → ปลายทาง") เปลี่ยนเป็น "ต้นทาง – ปลายทาง" (+ `SETTLEMENT_PDF_TEMPLATE_VERSION` 1 → 2 ล้าง cache ใบ PAID) · ข้อมูลตัวอย่าง/golden ใบแจ้งหนี้ + ใบสำคัญจ่ายใช้ "–" · ใบคุมรถ/ใบงานประจำวันไม่มี "→" อยู่แล้ว · `test/pdf-thai.test.ts` ตัดตัวแปลง noArrow ออก (render ตัวอย่างจริง) + ตรวจทุกอักขระทั้ง unicode-range และ **cmap จริงของ Sarabun ทุกน้ำหนัก** (`test/woff2-cmap.ts` — อ่าน WOFF2 ด้วย zlib brotli ไม่เพิ่ม dependency) + ไม่มี "→" · golden 6 ภาพ (invoice-{exempt,mixed,long}, settlement-{paid,draft,long}) สร้างใหม่ทั้ง darwin และ linux (image `mcr.microsoft.com/playwright:v1.65.0-noble` linux/amd64 ใช้ playwright-core 1.65.0 จาก node_modules — ไม่ npm install ใน container; ต่างจากเดิมเฉพาะแถวเส้นทาง) · บันทึก spec/12 §3 แถว "ลูกศร → ในเส้นทางบนเอกสาร PDF"
+- **ไฟล์:** `apps/api/src/modules/settlements/settlement-pdf.{service,template,sample}.ts`, `apps/api/src/modules/invoices/invoice.sample.ts`, `apps/api/test/{pdf-thai,settlement-pdf,settlements}.test.ts`, `apps/api/test/woff2-cmap.ts`, `apps/api/test/golden/{invoice,settlement}-*-th.{darwin,linux}.png`, `apps/api/test/golden/README.md`, `spec/12-roadmap-open-questions.md`
+- **ค้าง:** ข้อความที่ผู้ใช้พิมพ์เอง (คำอธิบายบรรทัด/หมายเหตุ/ชื่อสถานที่) ที่มีอักขระนอกชุด Sarabun ยังตกไปฟอนต์เครื่อง (ไม่แปลงข้อความผู้ใช้ — spec/12 §3) · branch ที่ยังไม่ merge (st5/t09, st5/t10, st5/t11) ต้องตรวจ "→" ใน PDF หลัง merge
+
 ### 21 พ.ย. 2569 (แก้บั๊ก ST5-T04 — ใบสั่ง "กำหนดราคาเอง" ติด PRICING_UNAVAILABLE ในคิวพร้อมวางบิล — lane lq)
 
 - **ทำ:** ต้นเหตุ = คิว/ส่งบัญชี (`BillingQueueService.readinessCte`) ถือว่ามีราคาเมื่อ `sales_order.pricing_status = 'AVAILABLE'` เท่านั้น แต่ "กำหนดราคาเอง" (ORD-043, `POST /orders/{id}/manual-price`) สร้างบรรทัด FREIGHT ที่มา MANUAL โดย `pricing_status` คงเป็นผลหา rate card (RATE_MISSING) → DO ไม่ขึ้นคิว และส่งบัญชีได้ 409 `PRICING_UNAVAILABLE` · แก้: `priced` = AVAILABLE **หรือ** มีบรรทัด `sales_order_charge` FREIGHT ที่มา MANUAL (กฎเดียวกับการปลดใบค้าง RATE_MISSING ใน `evaluateIntakeHolds`) — ใช้ทั้งคิวและการส่งบัญชี (กฎเดียว) · ไม่เปลี่ยนความหมาย `pricingStatus` (เว็บใช้แสดงผลหา rate card) · ไม่เพิ่มขั้นอนุมัติ — spec/03 ORD-043 / spec/02 MD-113 กำหนดแค่สิทธิ์ `price.sell.edit` + เหตุผล (มีแล้ว) · คำอธิบาย OpenAPI ของ `GET /v1/invoices/queue` + API docs
