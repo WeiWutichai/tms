@@ -107,8 +107,16 @@ export class UnbilledReportDto {
     description: 'DO ที่ส่งถึงวันนี้หรือก่อนหน้านี้ (เวลาไทย) ขึ้นรายงาน = asOf − minDays − 1',
   })
   deliveredOnOrBefore!: string;
-  @ApiProperty({ description: 'จำนวน DO ทั้งหมดที่ตรงเงื่อนไข (ไม่ขึ้นกับหน้า)' }) count!: number;
-  @ApiPropertyOptional({ description: 'มูลค่ารวมทุก DO ที่ตรงเงื่อนไข — `prices.sell:read`' })
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description:
+      'จำนวน DO ทั้งหมดที่ตรงเงื่อนไข — **เฉพาะหน้าแรก** (ไม่มี cursor); หน้าถัดไป = null',
+  })
+  count!: number | null;
+  @ApiPropertyOptional({
+    description: 'มูลค่ารวมทุก DO ที่ตรงเงื่อนไข — เฉพาะหน้าแรก · `prices.sell:read`',
+  })
   @PriceField('sell')
   sellAmount?: string;
   @ApiProperty({ type: [UnbilledDeliveryOrderDto] }) data!: UnbilledDeliveryOrderDto[];

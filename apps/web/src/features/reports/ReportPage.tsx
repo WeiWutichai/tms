@@ -11,7 +11,7 @@ import { AGING_ORDER, agingLabel } from '../billing/AgingCard';
 import { exportList, type ExportResource } from '../exports/exportJob';
 import { exportFailText } from '../master/download';
 import { money, useDateText } from '../rate-cards/rateFormat';
-import { useAgingByCustomer, useUnbilledReport } from './useReports';
+import { useAgingByCustomer, useUnbilledDays, useUnbilledReport } from './useReports';
 
 /** แท็บที่ทำในเฟส 0 (D-54) — แท็บอื่นของต้นแบบ (กำไร/OTIF/fleet …) มากับงานของมัน [DECISION spec/12 §3 แถว ST9-T06] */
 export type ReportTab = 'ar' | 'unbilled';
@@ -73,6 +73,8 @@ export function ReportPage() {
   const tab: ReportTab | undefined = want && tabs.includes(want) ? want : tabs[0];
   const aging = useAgingByCustomer(tab === 'ar');
   const unbilled = useUnbilledReport(tab === 'unbilled');
+  const days = useUnbilledDays(tabs.includes('unbilled') && tab !== 'unbilled');
+  const minDays = unbilled.data?.minDays ?? days.data;
   const sell = can(scopes, 'prices.sell:read');
 
   if (!me.data) return null;
@@ -81,8 +83,8 @@ export function ReportPage() {
   const label = (k: ReportTab) =>
     k === 'ar'
       ? t('rpt.tab.ar')
-      : unbilled.data
-        ? t('rpt.tab.unbilledN', { n: unbilled.data.minDays })
+      : minDays !== undefined
+        ? t('rpt.tab.unbilledN', { n: minDays })
         : t('rpt.tab.unbilled');
 
   let cols: { l: string; r?: boolean }[] = [];

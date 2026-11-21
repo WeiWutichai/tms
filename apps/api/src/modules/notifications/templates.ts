@@ -36,6 +36,8 @@ export interface NotificationVars {
    * items = DO ใหม่สูงสุด DIGEST_MAX_ITEMS · ไม่ใส่ยอดเงิน (สิทธิ์ดูราคาขายแยกต่อผู้ใช้)
    */
   'delivery_order.unbilled': {
+    /** หน้าที่ลิงก์ไป: `report` = รายงาน DO ยังไม่วางบิล · `bill` = หน้าวางบิล (แพ็กเกจไม่มีโมดูลรายงาน — review M1) */
+    target: 'report' | 'bill';
     minDays: number;
     fresh: number;
     outstanding: number;
@@ -310,15 +312,26 @@ function renderUnbilled(v: NotificationVars['delivery_order.unbilled'], lang: No
       : `• ${safeName(i.doNo, 60)} · ${safeName(i.customer, 120)} — delivered ${i.deliveredOn} (${n(i.days)} days)`,
   );
   if (v.more > 0) lines.push(lang === 'th' ? `และอีก ${n(v.more)} ใบ` : `and ${n(v.more)} more`);
+  // review L5: ถ้อยคำกลาง ๆ (ผู้รับครั้งแรกได้รายการค้างเก่าทั้งหมด — ไม่เรียกว่า "ใหม่")
+  const where =
+    v.target === 'report'
+      ? {
+          th: 'ดูที่ รายงาน → DO ยังไม่วางบิล แล้วดึงเข้าใบแจ้งหนี้ที่หน้าวางบิล',
+          en: 'see Reports → Unbilled DOs.',
+        }
+      : {
+          th: 'ดึงเข้าใบแจ้งหนี้ที่หน้า วางบิลและใบแจ้งหนี้',
+          en: 'add them to an invoice on the Billing page.',
+        };
   return lang === 'th'
     ? {
-        title: `DO ยังไม่วางบิลเกิน ${n(v.minDays)} วัน — ใหม่ ${n(v.fresh)} ใบ`,
-        body: `ค้างเกินเกณฑ์ทั้งหมด ${n(v.outstanding)} ใบ — ดูที่ รายงาน → DO ยังไม่วางบิล แล้วดึงเข้าใบแจ้งหนี้ที่หน้าวางบิล`,
+        title: `DO ยังไม่วางบิลเกิน ${n(v.minDays)} วัน ${n(v.fresh)} ใบ`,
+        body: `ค้างเกินเกณฑ์ทั้งหมด ${n(v.outstanding)} ใบ — ${where.th}`,
         detail: lines.join('\n'),
       }
     : {
-        title: `Delivery orders not billed after ${n(v.minDays)} days — ${n(v.fresh)} new`,
-        body: `${n(v.outstanding)} delivery order(s) over the threshold in total — see Reports → Unbilled DOs.`,
+        title: `${n(v.fresh)} delivery order(s) not billed after ${n(v.minDays)} days`,
+        body: `${n(v.outstanding)} delivery order(s) over the threshold in total — ${where.en}`,
         detail: lines.join('\n'),
       };
 }

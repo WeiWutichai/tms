@@ -8,6 +8,7 @@ import { encodeId, tryDecodeId } from '../src/common/ids';
 import { requestContext } from '../src/common/request-context';
 import { DbService, type Tx } from '../src/db/db.service';
 import { DeliveryOrderService } from '../src/modules/delivery-orders/delivery-order.service';
+import { EntitlementService } from '../src/modules/entitlements/entitlement.service';
 import { renderNotification } from '../src/modules/notifications/templates';
 import {
   OrderIntakeService,
@@ -353,9 +354,38 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
     expect(p1).toMatchObject({ hasMore: true, count: 2 });
     const p2 = await report(`?limit=1&cursor=${p1.nextCursor}`);
     expect(p2.hasMore).toBe(false);
+    // review L4: ยอดรวมเฉพาะหน้าแรก
+    expect(p2.count).toBeNull();
+    expect(p2.sellAmount).toBeUndefined();
     const all = [...(p1.data as Row[]), ...(p2.data as Row[])];
     expect(new Set(all.map((x) => x.id)).size).toBe(2);
     expect(all[0]!.deliveredAt <= all[1]!.deliveredAt).toBe(true);
+  });
+
+  it('review L3: cursor ไม่ขึ้นกับความละเอียดเวลา — เวลาส่งถึงระดับไมโครวินาที (และเท่ากัน) เดินหน้าละ 1 ไม่ซ้ำ ไม่ตกหล่น', async () => {
+    clock.set(at(8));
+    const ids0 = ids(await report('?limit=50'));
+    // เวลาส่งถึงของทุก DO = ค่าเดียวกันระดับ µs (ms ของ JS ปัดทิ้ง .000456) → ต้องเรียงด้วย id ต่อ
+    const saved = await db.$queryRaw<{ id: string; at: Date }[]>`
+      SELECT id, at FROM doc_status_history WHERE tenant_id = ${tenantId}::uuid AND event = 'deliver'`;
+    try {
+      await db.$executeRaw`
+        UPDATE doc_status_history SET at = date_trunc('day', at) + interval '03:04:05.123456'
+         WHERE tenant_id = ${tenantId}::uuid AND event = 'deliver'`;
+      const seen: string[] = [];
+      let cursor: string | null = null;
+      for (let i = 0; i < 10; i++) {
+        const p: Row = await report(`?limit=1${cursor ? `&cursor=${cursor}` : ''}`);
+        seen.push(...(p.data as Row[]).map((x) => x.id as string));
+        cursor = p.nextCursor;
+        if (!cursor) break;
+      }
+      expect(seen.length).toBe(ids0.length);
+      expect([...seen].sort()).toEqual(ids0);
+    } finally {
+      for (const r of saved)
+        await db.$executeRaw`UPDATE doc_status_history SET at = ${r.at} WHERE id = ${r.id}::uuid`;
+    }
   });
 
   it('สิทธิ์: ต้องมี reports.finance:read · ไม่มี prices.sell:read = ไม่เห็นมูลค่า · tenant อื่นไม่เห็น', async () => {
@@ -476,7 +506,7 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
       expect(m.filter((x) => x.channel === 'in_app')).toHaveLength(1);
       expect(m.filter((x) => x.channel === 'email')).toHaveLength(1);
       const n0 = m.find((x) => x.channel === 'in_app')!;
-      expect(n0.title).toBe('DO ยังไม่วางบิลเกิน 7 วัน — ใหม่ 2 ใบ');
+      expect(n0.title).toBe('DO ยังไม่วางบิลเกิน 7 วัน 2 ใบ');
       expect(n0.body).toContain('ค้างเกินเกณฑ์ทั้งหมด 2 ใบ');
       expect(n0.link).toBe('/reports?tab=unbilled');
       expect(`${n0.title} ${n0.body}`).not.toMatch(/1,?750|฿/);
@@ -504,7 +534,7 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
       const r3 = await reminders.runForTenant(tenantId, addDays(D, 2));
       expect(r3.candidates).toBe(3);
       const last = (await inbox(inv)).filter((x) => x.channel === 'in_app').at(-1)!;
-      expect(last.title).toBe('DO ยังไม่วางบิลเกิน 7 วัน — ใหม่ 1 ใบ');
+      expect(last.title).toBe('DO ยังไม่วางบิลเกิน 7 วัน 1 ใบ');
       expect(last.body).toContain('ทั้งหมด 3 ใบ');
 
       // ปิดรับทั้งกระดิ่งและอีเมลของ event → ไม่ได้ข้อความ (สมุดเตือนยังจอง)
@@ -520,7 +550,26 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
       await reminders.runForTenant(tenantId, addDays(D, 3));
       expect(await inbox(fresh)).toHaveLength(0);
 
+      // review M1: แพ็กเกจไม่มีโมดูลรายงาน (start) → ลิงก์หน้าวางบิล + ข้อความชี้หน้าวางบิล · แพ็กเกจที่มี → ลิงก์รายงาน
+      const ent = app.get(EntitlementService);
+      const late = await member('invoicer');
+      await db.tenant.update({ where: { id: tenantId }, data: { planCode: 'start' } });
+      ent.invalidate(tenantId);
+      try {
+        await reminders.runForTenant(tenantId, addDays(D, 4));
+        const s1 = (await inbox(late)).find((x) => x.channel === 'in_app')!;
+        expect(s1.link).toBe('/bill');
+        expect(s1.title).toBe('DO ยังไม่วางบิลเกิน 7 วัน 3 ใบ'); // ผู้รับครั้งแรก = ค้างทั้งหมด (ถ้อยคำกลาง — L5)
+        expect(s1.body).toContain('หน้า วางบิลและใบแจ้งหนี้');
+        expect(s1.body).not.toContain('รายงาน');
+      } finally {
+        await db.tenant.update({ where: { id: tenantId }, data: { planCode: 'std' } });
+        ent.invalidate(tenantId);
+      }
+      expect(n0.body).toContain('รายงาน → DO ยังไม่วางบิล');
+
       const t = renderNotification('delivery_order.unbilled', 'th', {
+        target: 'report',
         minDays: 7,
         fresh: 25,
         outstanding: 30,

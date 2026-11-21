@@ -89763,11 +89763,12 @@
           },
           "count": {
             "type": "number",
-            "description": "จำนวน DO ทั้งหมดที่ตรงเงื่อนไข (ไม่ขึ้นกับหน้า)"
+            "nullable": true,
+            "description": "จำนวน DO ทั้งหมดที่ตรงเงื่อนไข — **เฉพาะหน้าแรก** (ไม่มี cursor); หน้าถัดไป = null"
           },
           "sellAmount": {
             "type": "string",
-            "description": "มูลค่ารวมทุก DO ที่ตรงเงื่อนไข — `prices.sell:read`"
+            "description": "มูลค่ารวมทุก DO ที่ตรงเงื่อนไข — เฉพาะหน้าแรก · `prices.sell:read`"
           },
           "data": {
             "type": "array",

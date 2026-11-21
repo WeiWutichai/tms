@@ -38,6 +38,21 @@ export function useUnbilledReport(enabled: boolean) {
   });
 }
 
+/** เกณฑ์ N (ค่าตั้งองค์กร `billing.unbilledAlertDays` ผ่านรายงาน — ผู้วางบิลไม่มี `settings:read`) สำหรับชื่อแท็บ — ขอแค่ 1 แถว (review L8) */
+export function useUnbilledDays(enabled: boolean) {
+  return useQuery({
+    queryKey: [KEY, 'reports', 'unbilled', 'days'],
+    enabled,
+    staleTime: 5 * 60_000,
+    queryFn: async () =>
+      (
+        await unwrap(
+          api.GET('/v1/reports/unbilled-delivery-orders', { params: { query: { limit: 1 } } }),
+        )
+      ).minDays,
+  });
+}
+
 /**
  * ลูกหนี้คงค้างต่อลูกค้า (ST9-T06) — `GET /v1/payments/aging` ตัวเดียวกับการ์ดหน้ารับชำระ (ST5-T22) โหลดทุกหน้า
  * แล้วเรียงยอดรวมมากไปน้อยแบบต้นแบบ (ไม่มีสิทธิ์ราคาขาย = เรียงตามจำนวนใบ)

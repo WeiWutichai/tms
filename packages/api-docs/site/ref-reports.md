@@ -55,8 +55,8 @@ const { data, error } = await tms.GET('/v1/reports/unbilled-delivery-orders');
 | `asOf` | ใช่ | `string` |   | วันที่คำนวณ (วันนี้ เวลาไทย) | `2026-11-22` |
 | `minDays` | ใช่ | `number` |   | เกณฑ์ที่ใช้ (วัน) — จาก `minDays` หรือค่าตั้งองค์กร | `7` |
 | `deliveredOnOrBefore` | ใช่ | `string` |   | DO ที่ส่งถึงวันนี้หรือก่อนหน้านี้ (เวลาไทย) ขึ้นรายงาน = asOf − minDays − 1 | `2026-11-14` |
-| `count` | ใช่ | `number` |   | จำนวน DO ทั้งหมดที่ตรงเงื่อนไข (ไม่ขึ้นกับหน้า) |   |
-| `sellAmount` |   | `string` |   | มูลค่ารวมทุก DO ที่ตรงเงื่อนไข — `prices.sell:read` |   |
+| `count` | ใช่ | `number` | null ได้ | จำนวน DO ทั้งหมดที่ตรงเงื่อนไข — **เฉพาะหน้าแรก** (ไม่มี cursor); หน้าถัดไป = null |   |
+| `sellAmount` |   | `string` |   | มูลค่ารวมทุก DO ที่ตรงเงื่อนไข — เฉพาะหน้าแรก · `prices.sell:read` |   |
 | `data` | ใช่ | `array<UnbilledDeliveryOrderDto>` |   |   |   |
 | `nextCursor` | ใช่ | `string` | null ได้ |   |   |
 | `hasMore` | ใช่ | `boolean` |   |   |   |

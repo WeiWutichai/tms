@@ -4,6 +4,7 @@ import { Clock } from '../../common/clock';
 import { DbService, type Tx } from '../../db/db.service';
 import { PrismaService } from '../../db/prisma.service';
 import { JobQueue } from '../../jobs/job-queue.service';
+import { EntitlementService } from '../entitlements/entitlement.service';
 import { NotificationService } from '../notifications/notification.service';
 import type { UnbilledDoItem } from '../notifications/templates';
 import { UnbilledReportService, type UnbilledRow } from '../reports/unbilled-report.service';
@@ -16,7 +17,9 @@ const ENTITY = 'DELIVERY_ORDER';
 const LEVEL = 'UNBILLED';
 /** ผู้วางบิล = ผู้ทำร่างใบแจ้งหนี้ได้ (Invoicer / บัญชี / owner / admin + role กำหนดเองที่มีสิทธิ์นี้) */
 const RECIPIENT_SCOPE = 'invoices:draft';
-const LINK = '/reports?tab=unbilled';
+const LINK_REPORT = '/reports?tab=unbilled';
+/** แพ็กเกจไม่มีโมดูลรายงาน (`report`) → ลิงก์ไปหน้าวางบิล (คิวพร้อมวางบิล) แทน — review M1 */
+const LINK_BILL = '/bill';
 /** อ่าน DO ที่เกินเกณฑ์ทีละหน้า และเพดานต่อรอบ (กัน job ใหญ่ผิดปกติ — ที่เหลือจองรอบวันถัดไป) */
 const PAGE = 1000;
 const MAX_CANDIDATES = 20_000;
@@ -67,6 +70,7 @@ export class UnbilledReminderService implements OnModuleInit {
     private readonly queue: JobQueue,
     private readonly notifications: NotificationService,
     private readonly report: UnbilledReportService,
+    private readonly entitlements: EntitlementService,
     private readonly clock: Clock,
   ) {}
 
@@ -153,10 +157,11 @@ export class UnbilledReminderService implements OnModuleInit {
     if (!candidates.length) return result;
     const users = await withTx((tx) => this.recipients(tx, tenantId));
     result.recipients = users.length;
+    const target = (await this.entitlements.enabled(tenantId, 'report')) ? 'report' : 'bill';
     for (const userId of users) {
       try {
         const n = await withTx((tx) =>
-          this.deliver(tx, tenantId, today, userId, minDays, candidates),
+          this.deliver(tx, tenantId, today, userId, minDays, candidates, target),
         );
         if (n) {
           result.digests += 1;
@@ -233,6 +238,7 @@ export class UnbilledReminderService implements OnModuleInit {
     userId: string,
     minDays: number,
     items: UnbilledCandidate[],
+    target: 'report' | 'bill',
   ): Promise<number> {
     // วันละฉบับต่อคน — job ลองใหม่ (ผู้รับอื่นล้ม) ต้องไม่ส่งฉบับที่สอง · DO ที่เพิ่งเข้าเงื่อนไขจองรอบวันถัดไป
     const sentToday = await tx.expiryReminder.findFirst({
@@ -261,13 +267,14 @@ export class UnbilledReminderService implements OnModuleInit {
       to: { userIds: [userId] },
       template: 'delivery_order.unbilled',
       vars: {
+        target,
         minDays,
         fresh: fresh.length,
         outstanding: items.length,
         more: Math.max(0, fresh.length - DIGEST_MAX_ITEMS),
         items: fresh.slice(0, DIGEST_MAX_ITEMS).map((c) => c.item),
       },
-      link: LINK,
+      link: target === 'report' ? LINK_REPORT : LINK_BILL,
     });
     return claimed.length;
   }

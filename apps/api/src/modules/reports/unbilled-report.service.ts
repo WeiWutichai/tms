@@ -87,24 +87,19 @@ function baseCte(f: Filter): Prisma.Sql {
     )`;
 }
 
-function encodeCursor(r: { eff: Date; id: string }): string {
-  return Buffer.from(JSON.stringify({ t: r.eff.toISOString(), i: r.id, s: CURSOR_KIND })).toString(
-    'base64url',
-  );
+/**
+ * cursor = id ของ DO แถวสุดท้ายเท่านั้น (review L3) — เวลาส่งถึงคำนวณใหม่ในฐานด้วยกฎเดียวกัน (ความละเอียดไมโครวินาทีของ timestamptz
+ * ไม่หายไปกับ Date ของ JS ที่ละเอียดแค่มิลลิวินาที → ไม่มีแถวซ้ำ/ตกหล่นข้ามหน้า)
+ */
+function encodeCursor(id: string): string {
+  return Buffer.from(JSON.stringify({ i: id, s: CURSOR_KIND })).toString('base64url');
 }
 
-function decodeCursor(raw: string): { t: string; i: string } {
+function decodeCursor(raw: string): string {
   try {
     const v = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as Record<string, unknown>;
-    if (
-      v.s !== CURSOR_KIND ||
-      typeof v.i !== 'string' ||
-      !UUID.test(v.i) ||
-      typeof v.t !== 'string' ||
-      Number.isNaN(Date.parse(v.t))
-    )
-      throw new Error();
-    return { t: v.t, i: v.i };
+    if (v.s !== CURSOR_KIND || typeof v.i !== 'string' || !UUID.test(v.i)) throw new Error();
+    return v.i;
   } catch {
     throw new ProblemException('validation_failed', undefined, [
       { field: 'cursor', code: 'invalid_cursor', message: 'cursor is invalid' },
@@ -133,17 +128,16 @@ export class UnbilledReportService {
     return typeof v === 'number' && Number.isInteger(v) && v >= 1 ? v : UNBILLED_ALERT_DAYS_DEFAULT;
   }
 
-  /** แถวตามเงื่อนไข (เรียง eff, id) — `after` = id (uuid) ของแถวสุดท้ายหน้าก่อน หรือ keyset จาก cursor */
+  /** แถวตามเงื่อนไข (เรียง eff, id) — `after` = id (uuid) ของแถวสุดท้ายหน้าก่อน (cursor ของ API / งานส่งออก / job แจ้งเตือน) */
   async rows(
     tx: Tx,
     f: Filter,
-    page: { take: number; after?: { t: string; i: string } | { id: string } | null },
+    page: { take: number; after?: { id: string } | null },
   ): Promise<UnbilledRow[]> {
     let keyset = Prisma.sql`TRUE`;
     const a = page.after;
-    if (a && 'i' in a) keyset = Prisma.sql`(x.eff, x.id) > (${a.t}::timestamptz, ${a.i}::uuid)`;
-    else if (a && 'id' in a)
-      // งานส่งออก: ต่อจาก id — คำนวณเวลาของแถวนั้นด้วยกฎเดียวกัน (แถวหลุดเงื่อนไขระหว่างทางก็ยังเดินต่อได้)
+    if (a)
+      // ต่อจาก id — คำนวณเวลาของแถวนั้นด้วยกฎเดียวกันในฐาน (แถวหลุดเงื่อนไขระหว่างทางก็ยังเดินต่อได้)
       keyset = Prisma.sql`(x.eff, x.id) > ((
           SELECT COALESCE(
                    (SELECT max(sh.at) FROM doc_status_history sh
@@ -188,9 +182,10 @@ export class UnbilledReportService {
     const tx = this.db.tx;
     const f = await this.filter(tx, q);
     const limit = q.limit ?? 50;
-    const after = q.cursor ? decodeCursor(q.cursor) : null;
+    const after = q.cursor ? { id: decodeCursor(q.cursor) } : null;
     const rows = await this.rows(tx, f, { take: limit + 1, after });
-    const tot = await this.totals(tx, f);
+    // review L4: ยอดรวมเฉพาะหน้าแรก (ไม่มี cursor) — หน้าถัดไปไม่นับซ้ำ
+    const tot = after ? null : await this.totals(tx, f);
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
     const last = page[page.length - 1];
@@ -198,10 +193,10 @@ export class UnbilledReportService {
       asOf: f.asOf,
       minDays: f.minDays,
       deliveredOnOrBefore: addDays(f.asOf, -(f.minDays + 1)),
-      count: tot.n,
-      sellAmount: money(tot.amount),
+      count: tot ? tot.n : null,
+      ...(tot ? { sellAmount: money(tot.amount) } : {}),
       data: page.map((r) => this.toDto(r, f.asOf)),
-      nextCursor: hasMore && last ? encodeCursor(last) : null,
+      nextCursor: hasMore && last ? encodeCursor(last.id) : null,
       hasMore,
     };
   }

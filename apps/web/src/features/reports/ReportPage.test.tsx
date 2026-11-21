@@ -131,6 +131,13 @@ describe('หน้า รายงาน (ST9-T06)', () => {
     expect(within(rows[0]!).getByText('250.50')).toHaveStyle({ color: '#B3322A' });
     expect(within(rows[0]!).getByText('900.00')).toHaveStyle({ color: '#101418' });
     expect(screen.getByText('ข้อมูล ณ 22 พ.ย. 2569')).toBeInTheDocument();
+    // review L8: ชื่อแท็บมี N จากค่าตั้งแม้ยังไม่เปิดแท็บ (ขอรายงาน 1 แถว)
+    expect(
+      await screen.findByRole('tab', { name: 'DO ยังไม่วางบิลเกิน 7 วัน' }),
+    ).toBeInTheDocument();
+    expect(GET).toHaveBeenCalledWith('/v1/reports/unbilled-delivery-orders', {
+      params: { query: { limit: 1 } },
+    });
     expect(GET).toHaveBeenCalledWith('/v1/payments/aging', { params: { query: { limit: 200 } } });
   });
 
@@ -172,7 +179,7 @@ describe('หน้า รายงาน (ST9-T06)', () => {
     const { unmount } = wrap();
     expect(await screen.findByText('ก ลูกค้าเล็ก')).toBeInTheDocument();
     expect(screen.getAllByText('1 ใบ').length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('tab', { name: 'DO ยังไม่วางบิล' }));
+    fireEvent.click(screen.getByRole('tab', { name: /DO ยังไม่วางบิล/ }));
     expect(await screen.findByText('DO-2611-0001')).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: 'มูลค่า' })).toBeNull();
     expect(screen.getByRole('button', { name: 'ส่งออก Excel' })).toBeDisabled();
