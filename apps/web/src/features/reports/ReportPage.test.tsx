@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../../i18n';
-import { sortAging } from './useReports';
+import { bangkokMonth, shiftMonth, sortAging } from './useReports';
 
 let scopes: string[] = ['*'];
 vi.mock('../../shell/AppShell', () => ({
@@ -83,6 +83,37 @@ const UNBILLED = {
   hasMore: false,
 };
 
+const REV = (groupBy: string, data: object[], extra: object = {}) => ({
+  groupBy,
+  fromMonth: '2026-11',
+  toMonth: '2026-11',
+  from: '2026-11-01',
+  to: '2026-11-30',
+  asOf: '2026-11-22',
+  invoiceCount: 3,
+  deliveryOrderCount: 3,
+  lineCount: 5,
+  sellAmount: '6546.41',
+  data,
+  ...extra,
+});
+const rrow = (
+  id: string,
+  label: string | null,
+  sellAmount: string | undefined,
+  o: object = {},
+) => ({
+  id,
+  label,
+  detail: null,
+  invoiceCount: 1,
+  deliveryOrderCount: 2,
+  lineCount: 2,
+  ...(sellAmount !== undefined ? { sellAmount } : {}),
+  ...o,
+});
+let revenue: (q: Record<string, string>) => object = () => REV('customer', []);
+
 const wrap = (url = '/reports') =>
   render(
     <QueryClientProvider
@@ -100,13 +131,25 @@ describe('หน้า รายงาน (ST9-T06)', () => {
   beforeEach(() => {
     scopes = ['*'];
     exportList.mockReset().mockResolvedValue(3);
-    GET.mockReset().mockImplementation(async (path: string) => ({
-      data: path === '/v1/payments/aging' ? AGING : UNBILLED,
-    }));
+    revenue = (q) =>
+      REV(q.groupBy!, [
+        rrow('cus_a', 'ก ลูกค้าเล็ก', '3811.75'),
+        rrow('none', null, '1234.66', { deliveryOrderCount: 0 }),
+      ]);
+    GET.mockReset().mockImplementation(
+      async (path: string, init?: { params: { query: Record<string, string> } }) => ({
+        data:
+          path === '/v1/payments/aging'
+            ? AGING
+            : path === '/v1/reports/revenue'
+              ? revenue(init!.params.query)
+              : UNBILLED,
+      }),
+    );
   });
 
   it('ลูกหนี้คงค้าง: ลูกค้า × 5 ช่วง + รวม เรียงยอดมากไปน้อย · ยอดตรงกับ /payments/aging · 31–60 ขึ้นไปสีแดง · ไม่มียอด = —', async () => {
-    wrap();
+    wrap('/reports?tab=ar');
     expect(await screen.findByText('ข ลูกค้าใหญ่')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'ลูกหนี้คงค้าง' })).toHaveAttribute(
       'aria-selected',
@@ -176,7 +219,7 @@ describe('หน้า รายงาน (ST9-T06)', () => {
           ? { ...AGING, data: [cust('cus_a', 'ก ลูกค้าเล็ก', undefined, [])] }
           : { ...UNBILLED, data: [{ ...UNBILLED.data[0], sellAmount: undefined }] },
     }));
-    const { unmount } = wrap();
+    const { unmount } = wrap('/reports?tab=ar');
     expect(await screen.findByText('ก ลูกค้าเล็ก')).toBeInTheDocument();
     expect(screen.getAllByText('1 ใบ').length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('tab', { name: /DO ยังไม่วางบิล/ }));
@@ -203,6 +246,109 @@ describe('หน้า รายงาน (ST9-T06)', () => {
     expect(
       screen.getByText('รายงานจะแสดงเมื่อมีเที่ยวที่ส่งแล้วหรือใบแจ้งหนี้ในงวด'),
     ).toBeInTheDocument();
+  });
+
+  it('รายได้ (ST9-T05): หน้าแรก = รายได้ต่อลูกค้า งวดเดือนนี้ · คอลัมน์ต้นแบบ (ไม่มีต้นทุน/กำไร) · ไม่ระบุ + แถวรวม · ส่งออก Excel ตามงวด', async () => {
+    const now = bangkokMonth();
+    wrap();
+    expect(await screen.findByText('ก ลูกค้าเล็ก')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'รายได้ต่อลูกค้า' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.getAllByRole('tab').map((x) => x.textContent)).toEqual([
+      'รายได้ต่อลูกค้า',
+      'รายได้ต่อเส้นทาง',
+      'รายได้ต่อรถ',
+      'รายได้ต่อประเภทรถ',
+      'รายได้ต่อนิติบุคคล',
+      'รายได้รายเดือน',
+      'ลูกหนี้คงค้าง',
+      'DO ยังไม่วางบิลเกิน 7 วัน',
+    ]);
+    expect(GET).toHaveBeenCalledWith('/v1/reports/revenue', {
+      params: { query: { groupBy: 'customer', fromMonth: now, toMonth: now } },
+    });
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+      'ลูกค้า',
+      'DO',
+      'รายได้',
+    ]);
+    const cells = screen
+      .getAllByRole('row')
+      .slice(1)
+      .map((r) =>
+        within(r)
+          .getAllByRole('cell')
+          .map((c) => c.textContent),
+      );
+    expect(cells).toEqual([
+      ['ก ลูกค้าเล็ก', '2', '3,811.75'],
+      ['ไม่ระบุ', '0', '1,234.66'],
+      ['รวม', '3', '6,546.41'],
+    ]);
+    expect(screen.getByLabelText('งวดของรายงาน')).toHaveValue(now);
+
+    fireEvent.click(screen.getByRole('button', { name: 'ส่งออก Excel' }));
+    await waitFor(() =>
+      expect(exportList).toHaveBeenCalledWith(
+        'revenue',
+        { groupBy: 'customer', fromMonth: now, toMonth: now },
+        'xlsx',
+      ),
+    );
+  });
+
+  it('รายได้ต่อรถ: ทะเบียน + ประเภท · รายเดือน: 12 เดือนถึงงวดที่เลือก ชื่อเดือนไทย · เลือกงวดย้อนหลัง', async () => {
+    const now = bangkokMonth();
+    revenue = (q) =>
+      q.groupBy === 'vehicle'
+        ? REV('vehicle', [rrow('veh_1', '70-6001', '3811.75', { detail: '6 ล้อ' })])
+        : REV('month', [rrow('2026-10', '2026-10', '4200.00', { invoiceCount: 1 })], {
+            invoiceCount: 1,
+            sellAmount: '4200.00',
+          });
+    wrap('/reports?tab=rveh');
+    expect(await screen.findByText('70-6001')).toBeInTheDocument();
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+      'รถ',
+      'ประเภท',
+      'DO',
+      'รายได้',
+    ]);
+    expect(screen.getByText('6 ล้อ')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'รายได้รายเดือน' }));
+    expect(await screen.findByText('ต.ค. 2569')).toBeInTheDocument();
+    expect(GET).toHaveBeenCalledWith('/v1/reports/revenue', {
+      params: { query: { groupBy: 'month', fromMonth: shiftMonth(now, -11), toMonth: now } },
+    });
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+      'เดือน',
+      'ใบแจ้งหนี้',
+      'รายได้',
+    ]);
+    const prev = shiftMonth(now, -1);
+    fireEvent.change(screen.getByLabelText('งวดของรายงาน'), { target: { value: prev } });
+    await waitFor(() =>
+      expect(GET).toHaveBeenCalledWith('/v1/reports/revenue', {
+        params: { query: { groupBy: 'month', fromMonth: shiftMonth(prev, -11), toMonth: prev } },
+      }),
+    );
+  });
+
+  it('รายได้ไม่มีสิทธิ์ราคาขาย: คอลัมน์สุดท้ายเป็นจำนวนบรรทัด ไม่มียอดเงิน', async () => {
+    scopes = ['reports.finance:read'];
+    revenue = (q) =>
+      REV(q.groupBy!, [rrow('cus_a', 'ก ลูกค้าเล็ก', undefined)], { sellAmount: undefined });
+    wrap();
+    expect(await screen.findByText('ก ลูกค้าเล็ก')).toBeInTheDocument();
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+      'ลูกค้า',
+      'DO',
+      'บรรทัด',
+    ]);
+    expect(screen.queryByText('รายได้')).toBeNull();
   });
 
   it('sortAging: ยอดมากก่อน → จำนวนใบ → ชื่อ', () => {

@@ -1,7 +1,7 @@
 import { Button, Icon, Toast } from '@tms/ui';
 import { useState, type CSSProperties, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useI18n } from '../../i18n';
+import { formatMonth, useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
 import { NotReady } from '../../pages/Simple';
@@ -11,14 +11,39 @@ import { AGING_ORDER, agingLabel } from '../billing/AgingCard';
 import { exportList, type ExportResource } from '../exports/exportJob';
 import { exportFailText } from '../master/download';
 import { money, useDateText } from '../rate-cards/rateFormat';
-import { useAgingByCustomer, useUnbilledDays, useUnbilledReport } from './useReports';
+import {
+  bangkokMonth,
+  shiftMonth,
+  useAgingByCustomer,
+  useRevenueReport,
+  useUnbilledDays,
+  useUnbilledReport,
+  type RevenueGroupBy,
+} from './useReports';
 
-/** แท็บที่ทำในเฟส 0 (D-54) — แท็บอื่นของต้นแบบ (กำไร/OTIF/fleet …) มากับงานของมัน [DECISION spec/12 §3 แถว ST9-T06] */
-export type ReportTab = 'ar' | 'unbilled';
-const RESOURCE: Record<ReportTab, ExportResource> = {
+/**
+ * แท็บที่ทำในเฟส 0 (D-54) — แท็บอื่นของต้นแบบ (กำไร/OTIF/fleet …) มากับงานของมัน [DECISION spec/12 §3 แถว ST9-T06]
+ * รายได้ 6 แท็บ (ST9-T05) อยู่ตำแหน่งแท็บกำไรของต้นแบบ (หน้าแรกของรายงาน) [DECISION spec/12 §3 แถว ST9-T05]
+ */
+const REV_TABS = ['rcust', 'rroute', 'rveh', 'rvtype', 'rent', 'rmonth'] as const;
+type RevTab = (typeof REV_TABS)[number];
+export type ReportTab = RevTab | 'ar' | 'unbilled';
+const GROUP: Record<RevTab, RevenueGroupBy> = {
+  rcust: 'customer',
+  rroute: 'route',
+  rveh: 'vehicle',
+  rvtype: 'vehicleType',
+  rent: 'legalEntity',
+  rmonth: 'month',
+};
+const isRev = (k: ReportTab | undefined): k is RevTab => !!k && k in GROUP;
+const RESOURCE: Record<'ar' | 'unbilled', ExportResource> = {
   ar: 'receivables-aging',
   unbilled: 'unbilled-delivery-orders',
 };
+/** งวดที่เลือกได้ — 24 เดือนล่าสุด (เพดานช่วงของ API) · รายเดือน = 12 เดือนถึงเดือนที่เลือก */
+const MONTHS_BACK = 24;
+const MONTH_TAB_SPAN = 12;
 
 /** เซลล์ตาราง (ต้นแบบ vRep `cell()` — mono = 13px) */
 interface Cell {
@@ -52,6 +77,8 @@ const TH: CSSProperties = {
 
 /**
  * หน้า "รายงาน" (ST9-T06; ต้นแบบ TMS v4 `is.report` + `vRep()` — การ์ด + แท็บขีดเส้นใต้ + ตาราง + ว่าง)
+ * - รายได้ 6 แท็บ (ST9-T05): ต่อลูกค้า / เส้นทาง / รถ / ประเภทรถ / นิติบุคคล / รายเดือน จาก `GET /v1/reports/revenue`
+ *   (บรรทัดใบแจ้งหนี้ที่ออกแล้ว ก่อน VAT) + แถวรวม · "งวด" ขวาของแถบแท็บเลือกเดือนได้ (`?month=`)
  * - ลูกหนี้คงค้าง (`ar`): ลูกค้า × ช่วงอายุ + รวม จาก `GET /payments/aging` (ST5-T22 ตัวเดียวกับหน้ารับชำระ) เรียงยอดมากไปน้อย
  * - DO ยังไม่วางบิลเกิน N วัน: แท็บเพิ่ม (ต้นแบบไม่มี — docs/04 H) ใช้หน้าตาตารางเดียวกัน
  * - "ส่งออก Excel" = งานส่งออก (`POST /v1/exports`) ของแท็บที่เปิด · "ตั้งเวลาส่งรายงาน" = P1 (ปิดไว้)
@@ -66,11 +93,24 @@ export function ReportPage() {
   const [busy, setBusy] = useState(false);
 
   const tabs: ReportTab[] = [
+    ...(can(scopes, 'reports.finance:read') ? REV_TABS : []),
     ...(can(scopes, 'invoices:read') ? (['ar'] as const) : []),
     ...(can(scopes, 'reports.finance:read') ? (['unbilled'] as const) : []),
   ];
   const want = params.get('tab') as ReportTab | null;
   const tab: ReportTab | undefined = want && tabs.includes(want) ? want : tabs[0];
+  const current = bangkokMonth();
+  const wantMonth = params.get('month');
+  const month =
+    wantMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(wantMonth) && wantMonth <= current
+      ? wantMonth
+      : current;
+  const revQ = {
+    groupBy: isRev(tab) ? GROUP[tab] : ('customer' as const),
+    fromMonth: tab === 'rmonth' ? shiftMonth(month, -(MONTH_TAB_SPAN - 1)) : month,
+    toMonth: month,
+  };
+  const revenue = useRevenueReport(isRev(tab), revQ);
   const aging = useAgingByCustomer(tab === 'ar');
   const unbilled = useUnbilledReport(tab === 'unbilled');
   const days = useUnbilledDays(tabs.includes('unbilled') && tab !== 'unbilled');
@@ -80,12 +120,16 @@ export function ReportPage() {
   if (!me.data) return null;
   if (!tab) return <NotReady page="report" stage="ST9" />;
 
+  const ys = (me.data.tenant.yearStyle as 'BE' | 'CE') ?? 'BE';
+  const monthText = (m: string) => formatMonth(m, 'th', ys);
   const label = (k: ReportTab) =>
-    k === 'ar'
-      ? t('rpt.tab.ar')
-      : minDays !== undefined
-        ? t('rpt.tab.unbilledN', { n: minDays })
-        : t('rpt.tab.unbilled');
+    isRev(k)
+      ? t(`rpt.tab.${k}` as MessageKey)
+      : k === 'ar'
+        ? t('rpt.tab.ar')
+        : minDays !== undefined
+          ? t('rpt.tab.unbilledN', { n: minDays })
+          : t('rpt.tab.unbilled');
 
   let cols: { l: string; r?: boolean }[] = [];
   let rows: { key: string; cells: Cell[] }[] = [];
@@ -93,7 +137,59 @@ export function ReportPage() {
   let asOf: string | undefined;
   let more: { shown: number; total: number | null } | null = null;
 
-  if (tab === 'ar') {
+  if (isRev(tab)) {
+    loading = revenue.isLoading;
+    const g = GROUP[tab];
+    const r = revenue.data;
+    // คอลัมน์ตามต้นแบบ (กำไรต่อลูกค้า/รถ — ตัดต้นทุน/กำไร/Margin ที่เป็น P1) + ใบแจ้งหนี้สำหรับนิติบุคคล/เดือน
+    const dimCol: Record<RevenueGroupBy, MessageKey> = {
+      customer: 'rpt.col.customer',
+      route: 'rpt.col.route',
+      vehicle: 'rpt.col.vehicle',
+      vehicleType: 'rpt.col.vehicleTypeName',
+      legalEntity: 'rpt.col.legalEntity',
+      month: 'rpt.col.month',
+    };
+    const byInvoice = g === 'legalEntity' || g === 'month';
+    cols = [
+      { l: t(dimCol[g]) },
+      ...(g === 'vehicle' ? [{ l: t('rpt.col.vehicleType') }] : []),
+      byInvoice ? { l: t('rpt.col.invoices'), r: true } : { l: t('rpt.col.dos'), r: true },
+      ...(sell ? [{ l: t('rpt.col.revenue'), r: true }] : [{ l: t('rpt.col.lines'), r: true }]),
+    ];
+    const n = (x: { invoiceCount: number; deliveryOrderCount: number }) =>
+      (byInvoice ? x.invoiceCount : x.deliveryOrderCount).toLocaleString('en-US');
+    const last = (x: { lineCount: number; sellAmount?: string }, fw?: number): Cell =>
+      sell
+        ? { v: money(x.sellAmount), mono: true, r: true, ...(fw ? { fw } : {}) }
+        : { v: x.lineCount.toLocaleString('en-US'), r: true, ...(fw ? { fw } : {}) };
+    rows = (r?.data ?? []).map((x) => ({
+      key: x.id,
+      cells: [
+        x.label === null
+          ? { v: t('rpt.unassigned'), c: '#59606B' }
+          : g === 'month'
+            ? { v: monthText(x.label), fw: 500 }
+            : g === 'vehicle'
+              ? { v: x.label, mono: true, fw: 500 }
+              : { v: x.label },
+        ...(g === 'vehicle' ? [{ v: x.detail ?? '—' }] : []),
+        { v: n(x), r: true },
+        last(x),
+      ],
+    }));
+    // แถว "รวม" (ต้นแบบ fcost: แถวรวมตัวหนา) — Σ ทุกแถว = ยอดรวมทั้งงวด
+    if (r && rows.length)
+      rows.push({
+        key: 'total',
+        cells: [
+          { v: t('rpt.col.total'), fw: 600 },
+          ...(g === 'vehicle' ? [{ v: '' }] : []),
+          { v: n(r), r: true, fw: 600 },
+          last(r, 600),
+        ],
+      });
+  } else if (tab === 'ar') {
     loading = aging.isLoading;
     asOf = aging.data?.asOf;
     cols = [
@@ -159,7 +255,7 @@ export function ReportPage() {
 
   const doExport = () => {
     setBusy(true);
-    void exportList(RESOURCE[tab], {}, 'xlsx')
+    void (isRev(tab) ? exportList('revenue', revQ, 'xlsx') : exportList(RESOURCE[tab], {}, 'xlsx'))
       .then(
         () => setToast(t('rpt.exported')),
         (e) => setToast(exportFailText(t, e, t('export.failed'))),
@@ -218,7 +314,11 @@ export function ReportPage() {
               type="button"
               role="tab"
               aria-selected={tab === k}
-              onClick={() => setParams({ tab: k }, { replace: true })}
+              onClick={() =>
+                setParams(isRev(k) && wantMonth ? { tab: k, month: wantMonth } : { tab: k }, {
+                  replace: true,
+                })
+              }
               style={{
                 height: 48,
                 padding: 0,
@@ -235,9 +335,37 @@ export function ReportPage() {
               {label(k)}
             </button>
           ))}
-          <span style={{ marginLeft: 'auto', fontSize: 13, color: '#3B424C' }}>
-            {asOf ? t('rpt.asOf', { date: dateText(asOf) }) : ''}
-          </span>
+          {isRev(tab) ? (
+            // ต้นแบบ: "งวด {ช่วง}" ข้อความ 13px ขวาของแถบแท็บ — เลือกงวดได้ (select หน้าตาเป็นข้อความเดียวกัน)
+            <label style={{ marginLeft: 'auto', fontSize: 13, color: '#3B424C' }}>
+              {t('rpt.per')}{' '}
+              <select
+                aria-label={t('rpt.perLabel')}
+                value={month}
+                onChange={(e) => setParams({ tab, month: e.target.value }, { replace: true })}
+                style={{
+                  border: 0,
+                  background: 'transparent',
+                  font: 'inherit',
+                  color: 'inherit',
+                  padding: 0,
+                  cursor: 'pointer',
+                }}
+              >
+                {Array.from({ length: MONTHS_BACK }, (_, i) => shiftMonth(current, -i)).map((m) => (
+                  <option key={m} value={m}>
+                    {tab === 'rmonth'
+                      ? `${monthText(shiftMonth(m, -(MONTH_TAB_SPAN - 1)))} – ${monthText(m)}`
+                      : monthText(m)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <span style={{ marginLeft: 'auto', fontSize: 13, color: '#3B424C' }}>
+              {asOf ? t('rpt.asOf', { date: dateText(asOf) }) : ''}
+            </span>
+          )}
         </div>
         {rows.length > 0 ? (
           <>

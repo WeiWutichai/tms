@@ -89,3 +89,40 @@ export function sortAging(rows: AgingCustomer[]): AgingCustomer[] {
       a.customer.legalName.localeCompare(b.customer.legalName, 'th'),
   );
 }
+
+export type RevenueReport = Schemas['RevenueReportDto'];
+export type RevenueRow = Schemas['RevenueRowDto'];
+export type RevenueGroupBy =
+  'customer' | 'route' | 'vehicle' | 'vehicleType' | 'legalEntity' | 'month';
+
+/**
+ * รายงานรายได้ (ST9-T05 — `GET /v1/reports/revenue`) — แถวสรุปต่อกลุ่ม (ไม่มีหน้า) · ใช้ key เดียวกับใบแจ้งหนี้
+ * (ออก/ยกเลิกใบแล้วโหลดใหม่)
+ */
+export function useRevenueReport(
+  enabled: boolean,
+  q: { groupBy: RevenueGroupBy; fromMonth: string; toMonth: string },
+) {
+  return useQuery({
+    queryKey: [KEY, 'reports', 'revenue', q.groupBy, q.fromMonth, q.toMonth],
+    enabled,
+    queryFn: () => unwrap(api.GET('/v1/reports/revenue', { params: { query: q } })),
+  });
+}
+
+/** เดือนปัจจุบันเวลาไทย (YYYY-MM) */
+export function bangkokMonth(now = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Bangkok',
+    year: 'numeric',
+    month: '2-digit',
+  })
+    .format(now)
+    .slice(0, 7);
+}
+
+/** เลื่อนเดือน YYYY-MM ไป n เดือน */
+export function shiftMonth(month: string, n: number): string {
+  const i = Number(month.slice(0, 4)) * 12 + Number(month.slice(5, 7)) - 1 + n;
+  return `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`;
+}
