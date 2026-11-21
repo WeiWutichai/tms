@@ -101,15 +101,24 @@ export class SettlementReviewService {
 
   // ---------- ฝั่งบริษัท ----------
 
-  /** ออกลิงก์ใหม่ของใบ (เพิกถอนลิงก์เดิมที่ยังใช้ได้) — เรียกใน transaction ของผู้เรียก */
-  async issueLink(tx: Tx, settlementId: string): Promise<SettlementReviewLinkDto> {
+  /**
+   * ออกลิงก์ใหม่ของใบ (เพิกถอนลิงก์เดิมที่ยังใช้ได้) — เรียกใน transaction ของผู้เรียก
+   * `viewOnly` = ลิงก์ดูอย่างเดียว (action `settlement.view` เท่านั้น — ใบ APPROVED/PAID, D-59): ตอบ/จองรูปผ่านลิงก์นี้ = 404
+   */
+  async issueLink(
+    tx: Tx,
+    settlementId: string,
+    opts: { viewOnly?: boolean } = {},
+  ): Promise<SettlementReviewLinkDto> {
     const ctx = requestContext.require();
     await this.revokeActive(tx, settlementId, REVIEW_REVOKE_REASON.REISSUED);
     const l = await this.links.issue(tx, ctx.tenantId!, {
       purpose: REVIEW_LINK_PURPOSE,
       entityType: REVIEW_LINK_ENTITY,
       entityId: settlementId,
-      actions: [REVIEW_LINK_ACTIONS.view, REVIEW_LINK_ACTIONS.respond],
+      actions: opts.viewOnly
+        ? [REVIEW_LINK_ACTIONS.view]
+        : [REVIEW_LINK_ACTIONS.view, REVIEW_LINK_ACTIONS.respond],
       scopes: ['prices.buy:read'],
       ttlSeconds: REVIEW_LINK_TTL_DAYS * 86_400,
       ...(ctx.actorId ? { createdBy: ctx.actorId } : {}),
