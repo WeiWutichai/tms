@@ -164,7 +164,7 @@ export class InvoicesController {
   @ApiOperation({
     summary: 'คิวพร้อมวางบิล (DO ที่ส่งแล้ว หลักฐานครบ และราคาพร้อม)',
     description:
-      'DO ที่ส่งถึงแล้ว (DELIVERED/POD_PENDING/UNBILLED) ที่ใบสั่ง `pricingStatus = AVAILABLE` และมีบรรทัดรายได้ที่ยืนยันแล้ว ' +
+      'DO ที่ส่งถึงแล้ว (DELIVERED/POD_PENDING/UNBILLED) ที่ใบสั่งมีราคา (`pricingStatus = AVAILABLE` หรือกำหนดราคาเองแล้ว — `POST /orders/{id}/manual-price`) และมีบรรทัดรายได้ที่ยืนยันแล้ว ' +
       '(ไม่มีบรรทัดยอดชั่วคราว/ล็อก ไม่มีค่าใช้จ่ายหน้างานฝั่งขายรอยืนยัน) และไม่ถูกระงับวางบิล · ' +
       'ลูกค้าที่เปิด "ไม่มี POD ไม่วางบิล" (`requirePodToBill`, ค่าเริ่มต้นเปิด) → DO ที่หลักฐานส่งยังไม่ครบตาม checklist ไม่ขึ้นคิว · ' +
       'กรองลูกค้า (`customerId` รับ `ext:`) / ช่วงวันที่ส่ง (`doDate`) / หลักฐานครบ / ส่งบัญชีแล้ว · ' +
