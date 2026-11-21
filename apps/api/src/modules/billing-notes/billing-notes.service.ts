@@ -10,6 +10,7 @@ import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { InvoiceStatusService } from '../invoices/invoice-status.service';
 import { JobQueue } from '../../jobs/job-queue.service';
 import { PdfRenderer } from '../../pdf/pdf-renderer';
 import { putFileLocked, store } from '../documents/documents.controller';
@@ -121,6 +122,7 @@ export class BillingNotesService implements OnModuleInit {
     private readonly renderer: PdfRenderer,
     private readonly clock: Clock,
     private readonly queue: JobQueue,
+    private readonly status: InvoiceStatusService,
   ) {}
 
   onModuleInit() {
@@ -412,6 +414,13 @@ export class BillingNotesService implements OnModuleInit {
         version: { increment: 1 },
       },
     });
+    // ST5-T18 ออกใบวางบิล = ส่งลูกค้าแล้ว (ช่องทาง BILLING_NOTE) — ใบที่ยังไม่มีธง
+    await this.status.markSentByBillingNote(
+      tx,
+      invoices.map((i) => i.id),
+      { id, billingNoteNo },
+      now,
+    );
     const out = await this.get(id, tx);
     await this.audit.record({
       action: 'billing_note.issued',
@@ -519,6 +528,16 @@ export class BillingNotesService implements OnModuleInit {
       throw new ProblemException('permission_denied', undefined, undefined, {
         requiredScope: 'invoices:finalize',
       });
+    // ST5-T18 ใบวางบิลที่ออกแล้ว → ล้างธง "ส่งลูกค้าแล้ว" ที่ตั้งตอนออกใบวางบิลนี้ (ก่อนปิดลิงก์)
+    const linked =
+      bn.status === 'ISSUED'
+        ? (
+            await tx.billingNoteInvoice.findMany({
+              where: { billingNoteId: id, active: true },
+              select: { invoiceId: true },
+            })
+          ).map((l) => l.invoiceId)
+        : [];
     await tx.billingNote.update({
       where: { id },
       data: {
@@ -538,6 +557,13 @@ export class BillingNotesService implements OnModuleInit {
       after: { status: 'CANCELLED', billingNoteNo: bn.billingNoteNo },
       reason,
     });
+    if (linked.length)
+      await this.status.clearSentByBillingNote(
+        tx,
+        linked,
+        { id, billingNoteNo: bn.billingNoteNo },
+        `ยกเลิกใบวางบิล ${bn.billingNoteNo ?? ''}: ${reason}`.trim(),
+      );
     return this.get(id);
   }
 

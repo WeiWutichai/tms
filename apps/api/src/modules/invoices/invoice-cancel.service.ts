@@ -93,6 +93,12 @@ export class InvoiceCancelService {
         billingNoteNo: onNote.billingNote.billingNoteNo,
         billingNoteStatus: onNote.billingNote.status,
       });
+    // ST5-T18 ส่งลูกค้าแล้วยกเลิกไม่ได้ (docs/04 F3 "เฉพาะยังไม่ส่งลูกค้า") — trigger `invoice_cancel_sent` (0147) กันซ้ำ
+    if (inv.sentToCustomerAt)
+      throw new ProblemException('invoice_sent_to_customer', undefined, undefined, {
+        sentToCustomerAt: inv.sentToCustomerAt.toISOString(),
+        sentToCustomerChannel: inv.sentToCustomerChannel,
+      });
 
     const actor = ctx.actorId ?? 'system';
     const now = this.clock.now();

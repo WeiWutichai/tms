@@ -5,13 +5,17 @@ import {
   ArrayMinSize,
   IsArray,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
+  Min,
   ValidateBy,
   ValidateNested,
 } from 'class-validator';
+import { AGING_BUCKETS, type AgingBucket } from '@tms/domain';
 import { ListQuery } from '../../common/pagination';
 import { PriceField } from '../../common/price-fields';
 import { CleanText } from '../master/master-kit';
@@ -290,7 +294,100 @@ export class PaymentSummaryDto {
   @ApiProperty({ description: 'ใบที่ค้างรับและครบกำหนดภายใน 7 วัน' }) dueSoon!: number;
   @ApiProperty({ description: 'ใบที่ออกแล้วทั้งหมด (ไม่รวมร่าง/ยกเลิก)' }) total!: number;
   @ApiProperty({ description: 'ค้างรับ (ISSUED + PARTIALLY_PAID)' }) open!: number;
-  @ApiProperty({ description: 'เกินกำหนด (ค้างรับและเลยวันครบกำหนด)' }) overdue!: number;
-  @ApiProperty() partiallyPaid!: number;
+  @ApiProperty({
+    description:
+      'เกินกำหนด — ธง `overdue` ของใบ (job รายวัน 00:05 เวลาไทย + ตอนรับชำระ/กลับรายการ — ST5-T18)',
+  })
+  overdue!: number;
+  @ApiProperty({
+    description: 'ชำระบางส่วนที่ไม่เกินกำหนด (ST5-T18 — แท็บต้นแบบ: เกินกำหนดแสดงก่อน)',
+  })
+  partiallyPaid!: number;
   @ApiProperty() paid!: number;
+}
+
+// ---------- อายุลูกหนี้ (ST5-T22) ----------
+
+export class AgingQuery {
+  @ApiPropertyOptional({ minimum: 1, maximum: 200, default: 50, description: 'ลูกค้าต่อหน้า' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+
+  @ApiPropertyOptional({ description: 'ค่า nextCursor จากหน้าก่อน (เรียงตามชื่อลูกค้า)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(400)
+  cursor?: string;
+
+  @ApiPropertyOptional({
+    example: 'cus_…',
+    description: 'ลูกค้ารายเดียว — id หรือ `ext:{externalId}`',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  customerId?: string;
+}
+
+export class AgingBucketDto {
+  @ApiProperty({
+    enum: AGING_BUCKETS,
+    description:
+      '`NOT_DUE` ยังไม่ครบกำหนด (daysPastDue ≤ 0) · `DAYS_1_30` · `DAYS_31_60` · `DAYS_61_90` · `DAYS_OVER_90` (> 90) — daysPastDue = asOf − dueDate',
+  })
+  bucket!: AgingBucket;
+  @ApiProperty({ description: 'จำนวนใบที่ค้างในช่วงนี้' }) count!: number;
+  @ApiPropertyOptional({ description: 'ยอดค้าง (total − paid) ในช่วงนี้ — `prices.sell:read`' })
+  @PriceField('sell')
+  sellOutstanding?: string;
+}
+
+export class AgingCustomerRefDto {
+  @ApiProperty({ example: 'cus_…' }) id!: string;
+  @ApiProperty({ example: 'C-0001' }) code!: string;
+  @ApiProperty() legalName!: string;
+  @ApiProperty({ nullable: true, type: String }) taxId!: string | null;
+  @ApiProperty({ nullable: true, type: String }) branchCode!: string | null;
+}
+
+export class AgingCustomerDto {
+  @ApiProperty({ type: AgingCustomerRefDto }) customer!: AgingCustomerRefDto;
+  @ApiProperty({ description: 'ใบค้างรับของลูกค้า' }) count!: number;
+  @ApiPropertyOptional({ description: 'ยอดค้างรวมของลูกค้า = Σ ทุกช่วง — `prices.sell:read`' })
+  @PriceField('sell')
+  sellOutstanding?: string;
+  @ApiProperty({ type: [AgingBucketDto], description: 'ครบ 5 ช่วงเสมอ เรียงตามอายุ' })
+  buckets!: AgingBucketDto[];
+}
+
+export class AgingReportDto {
+  @ApiProperty({ example: '2026-11-09', description: 'วันที่คำนวณ (วันนี้ เวลาไทย Asia/Bangkok)' })
+  asOf!: string;
+  @ApiProperty({
+    enum: ['DUE_DATE'],
+    description:
+      'นับอายุจากวันครบกำหนด (spec/05 §10, spec/09 §3) — ไม่มีวันครบกำหนด = ยังไม่ครบกำหนด',
+  })
+  basis!: 'DUE_DATE';
+  @ApiProperty({ description: 'ใบค้างรับทั้งหมด (ตามตัวกรองลูกค้า — ไม่ขึ้นกับหน้า)' })
+  count!: number;
+  @ApiPropertyOptional({
+    description:
+      'ยอดค้างรวม = Σ ทุกช่วง = `sellOutstanding` ของ `GET /payments/summary` (ใบ ISSUED + PARTIALLY_PAID) — `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellOutstanding?: string;
+  @ApiProperty({ type: [AgingBucketDto], description: 'รวมทุกลูกค้า (ไม่ขึ้นกับหน้า)' })
+  buckets!: AgingBucketDto[];
+  @ApiProperty({
+    type: [AgingCustomerDto],
+    description: 'ต่อลูกค้า (เฉพาะที่มียอดค้าง) เรียงตามชื่อ',
+  })
+  data!: AgingCustomerDto[];
+  @ApiProperty({ nullable: true, type: String }) nextCursor!: string | null;
+  @ApiProperty() hasMore!: boolean;
 }

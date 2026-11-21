@@ -67,23 +67,24 @@ export function selectionTotals(rows: readonly QueueAmounts[]) {
 }
 
 /**
- * สถานะที่แสดง (ต้นแบบ invSt): ใบค้างรับที่เลยวันครบกำหนด (เวลาไทย) = "เกินกำหนด" — คำนวณตอนแสดงเท่านั้น
- * (สถานะ OVERDUE ในฐานข้อมูล + job = ST5-T18)
+ * สถานะที่แสดง (ต้นแบบ invSt — "เกินกำหนด" มาก่อน "ชำระบางส่วน"): ใบที่มีธง `overdue` (ST5-T18 — job รายวัน 00:05 เวลาไทย /
+ * ตอนรับชำระ) แสดง "เกินกำหนด" · ไม่คำนวณจากวันครบกำหนดตอนแสดง (ธงแยกจาก `status` — plan/11 #5)
  */
-export function invoiceDisplayStatus(
-  x: { status: string; dueDate: string | null },
-  today: string,
-): string {
-  if ((x.status === 'ISSUED' || x.status === 'PARTIALLY_PAID') && x.dueDate && x.dueDate < today)
-    return 'OVERDUE';
-  return x.status;
+export function invoiceDisplayStatus(x: { status: string; overdue?: boolean }): string {
+  return x.overdue ? 'OVERDUE' : x.status;
 }
 
-/** จำนวนวันที่เกินกำหนด (0 = ยังไม่เกิน / ไม่ค้าง) */
-export function overdueDays(x: { status: string; dueDate: string | null }, today: string): number {
-  if (invoiceDisplayStatus(x, today) !== 'OVERDUE') return 0;
-  return Math.round(
-    (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${x.dueDate}T00:00:00Z`)) / 86_400_000,
+/** จำนวนวันที่เกินกำหนด ณ วันนี้ (เวลาไทย) ของใบที่มีธงเกินกำหนด (0 = ไม่เกิน) */
+export function overdueDays(
+  x: { overdue?: boolean; dueDate: string | null },
+  today: string,
+): number {
+  if (!x.overdue || !x.dueDate) return 0;
+  return Math.max(
+    0,
+    Math.round(
+      (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${x.dueDate}T00:00:00Z`)) / 86_400_000,
+    ),
   );
 }
 

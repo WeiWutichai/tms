@@ -2,6 +2,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { SYSTEM_ROLES } from '@tms/domain';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { encodeId, tryDecodeId } from '../src/common/ids';
+import { InvoiceStatusService } from '../src/modules/invoices/invoice-status.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday, addDays } from '../src/modules/vehicle-documents/expiry';
 import {
@@ -507,6 +508,8 @@ describe('payments (ST5-T13)', { timeout: 300_000 }, () => {
   it('สรุป KPI + รายการใบหน้า "รับชำระ" (ค้างรับ / เกินกำหนด)', async () => {
     const over = await issued('1200.00', { due: addDays(today, -3) });
     const soon = await issued('300.00', { due: addDays(today, 2) });
+    // ST5-T18 เกินกำหนด = ธงที่ job รายวันตั้ง (ไม่คำนวณตอนอ่าน)
+    await app.get(InvoiceStatusService).runOverdue(tenantId, new Date());
     const s = (await api(app, admin).get('/v1/payments/summary').expect(200)).body;
     expect(s.overdue).toBeGreaterThanOrEqual(1);
     expect(s.dueSoon).toBeGreaterThanOrEqual(1);

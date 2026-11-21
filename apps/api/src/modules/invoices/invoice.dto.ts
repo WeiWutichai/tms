@@ -15,7 +15,15 @@ import {
   Min,
   ValidateBy,
 } from 'class-validator';
-import { INVOICE_LINE_MODES, INVOICE_STATUSES, type InvoiceLineMode } from '@tms/domain';
+import {
+  AGING_BUCKETS,
+  INVOICE_LINE_MODES,
+  INVOICE_SENT_CHANNELS,
+  INVOICE_STATUSES,
+  type AgingBucket,
+  type InvoiceLineMode,
+  type InvoiceSentChannel,
+} from '@tms/domain';
 import { ListQuery } from '../../common/pagination';
 import { PriceField } from '../../common/price-fields';
 import { CleanText } from '../master/master-kit';
@@ -288,11 +296,30 @@ export class InvoiceListQuery extends ListQuery {
     enum: INVOICE_RECEIVABLE,
     description:
       'หน้า "รับชำระ" (ST5-T13): `all` = ใบที่ออกแล้ว (ไม่รวมร่าง/ยกเลิก) · `open` = ค้างรับ (ISSUED + PARTIALLY_PAID) · ' +
-      '`overdue` = ค้างรับและเลยวันครบกำหนด (เวลาไทย) — ใช้ร่วมกับ `status` ได้',
+      '`overdue` = ใบที่มีธงเกินกำหนด (`overdue: true` — ST5-T18) — ใช้ร่วมกับ `status` ได้',
   })
   @IsOptional()
   @IsIn(INVOICE_RECEIVABLE)
   receivable?: (typeof INVOICE_RECEIVABLE)[number];
+
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description:
+      'ST5-T18 ธงเกินกำหนด — `false` = ไม่รวมใบเกินกำหนด (แท็บ "ออกแล้ว"/"ชำระบางส่วน" ของต้นแบบ: เกินกำหนดแสดงก่อน) · `true` = เฉพาะเกินกำหนด',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  overdue?: 'true' | 'false';
+
+  @ApiPropertyOptional({
+    enum: AGING_BUCKETS,
+    description:
+      'ST5-T22 ช่วงอายุลูกหนี้ (การ์ด "อายุลูกหนี้" ของหน้ารับชำระ) — เฉพาะใบค้างรับที่ยังมียอดค้าง และ `daysPastDue = วันนี้ − dueDate` (เวลาไทย) อยู่ในช่วง · ' +
+      'ชุดเดียวกับ `GET /payments/aging`',
+  })
+  @IsOptional()
+  @IsIn(AGING_BUCKETS)
+  aging?: AgingBucket;
 }
 
 // ---------- คำตอบ ----------
@@ -444,6 +471,33 @@ export class InvoiceSummaryDto {
   })
   @PriceField('sell')
   sellOutstanding?: string;
+  @ApiProperty({
+    description:
+      'เกินกำหนด (ST5-T18) — ค้างรับ (ISSUED/PARTIALLY_PAID) และเลยวันครบกำหนด (เวลาไทย) · **ธงแยกจาก `status`** ' +
+      '(ใบชำระบางส่วนที่เลยกำหนด = `PARTIALLY_PAID` + `overdue: true`) · ตั้งโดย job รายวัน 00:05 และตอนรับชำระ/กลับรายการ · ชำระครบแล้วหลุดเอง',
+  })
+  overdue!: boolean;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '2026-11-21T17:05:00.000Z',
+    description: 'เวลาที่ระบบตั้งธงเกินกำหนด — ไม่เกิน = null',
+  })
+  overdueAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'ส่งลูกค้าแล้วเมื่อ (ST5-T18 — ทำเครื่องหมายเอง / ออกใบวางบิล / อีเมล) — ส่งแล้วยกเลิกใบไม่ได้ (409 `invoice_sent_to_customer`)',
+  })
+  sentToCustomerAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    enum: INVOICE_SENT_CHANNELS,
+    description:
+      'ช่องทางที่ทำให้ "ส่งลูกค้าแล้ว": MANUAL = ทำเครื่องหมายเอง · BILLING_NOTE = ออกใบวางบิล · EMAIL = ส่งอีเมล (ST5-T21)',
+  })
+  sentToCustomerChannel!: InvoiceSentChannel | null;
   @ApiProperty() version!: number;
   @ApiProperty() createdAt!: string;
   @ApiProperty() updatedAt!: string;
@@ -574,11 +628,15 @@ export class InvoiceMoveResultDto {
 export class InvoiceSummaryCountsDto {
   @ApiProperty() total!: number;
   @ApiProperty() draft!: number;
-  @ApiProperty({ description: 'ISSUED + ADJUSTED' }) issued!: number;
-  @ApiProperty() partiallyPaid!: number;
+  @ApiProperty({
+    description: 'ISSUED + ADJUSTED ที่ไม่เกินกำหนด (ST5-T18 — เกินกำหนดนับใน `overdue`)',
+  })
+  issued!: number;
+  @ApiProperty({ description: 'PARTIALLY_PAID ที่ไม่เกินกำหนด (ST5-T18)' }) partiallyPaid!: number;
   @ApiProperty() paid!: number;
   @ApiProperty({
-    description: 'เกินกำหนด — คำนวณเมื่อมีการรับชำระ (ST5-T22) ตอนนี้ 0 เสมอ',
+    description:
+      'เกินกำหนด — ใบที่มีธง `overdue` (ST5-T18 · แท็บของต้นแบบ: ทั้งหมด = ผลรวมทุกแท็บ)',
   })
   overdue!: number;
   @ApiProperty({ description: 'CANCELLED + VOIDED' }) cancelled!: number;
@@ -591,3 +649,6 @@ export class InvoicePdfQuery {
   @IsIn(['ORIGINAL', 'COPY'])
   copy?: 'ORIGINAL' | 'COPY';
 }
+
+/** ST5-T18 ล้างธง "ส่งลูกค้าแล้ว" (ทำเครื่องหมายผิด) — เหตุผล ≥ 10 ตัวอักษร */
+export class UnmarkInvoiceSentDto extends InvoiceReasonDto {}

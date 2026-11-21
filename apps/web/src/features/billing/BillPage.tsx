@@ -25,9 +25,10 @@ import { listTotal, useSessionState } from '../master/useCursorList';
 import { SavedViewMenu } from '../views/SavedViewMenu';
 import { pick, useSavedViews } from '../views/useSavedViews';
 import { bangkokToday, money, useDateText } from '../rate-cards/rateFormat';
-import { billRanges, selectionTotals } from './billing';
+import { billRanges, invoiceDisplayStatus, overdueDays, selectionTotals } from './billing';
 import { finalizeErrorText, InvoiceDrawer, invoiceStatusLabel } from './InvoiceDrawer';
 import { PayDrawer } from './PayDrawer';
+import { usePaymentSummary } from './usePayments';
 import {
   BillingNoteDrawer,
   BillingNoteForm,
@@ -200,6 +201,7 @@ export function BillPage() {
       },
     );
   const counts = useInvoiceCounts().data;
+  const paySum = usePaymentSummary().data;
   const [busy, setBusy] = useState(false);
 
   const allVat = terms.data?.defaultVatType === 'VAT_7';
@@ -246,7 +248,10 @@ export function BillPage() {
 
   const filters = useMemo(() => {
     const f: Record<string, string> = {};
-    if (tab !== 'all' && tab !== 'OVERDUE') f.status = tab;
+    // ST5-T18 เกินกำหนด = ธงที่เก็บ (แท็บของตัวเอง — ต้นแบบ invSt: เกินกำหนดแสดงก่อนออกแล้ว/ชำระบางส่วน)
+    if (tab === 'OVERDUE') f.overdue = 'true';
+    else if (tab !== 'all') f.status = tab;
+    if (tab === 'ISSUED' || tab === 'PARTIALLY_PAID') f.overdue = 'false';
     return f;
   }, [tab]);
   const list = useInvoiceList(filters);
@@ -258,8 +263,7 @@ export function BillPage() {
   }, [tab]);
   const bnList = useBillingNoteList(bnFilters, isBn);
   const bnCounts = useBillingNoteCounts().data;
-  // เกินกำหนด: ยังไม่มีใบที่ออกแล้ว/ครบกำหนด (ST5-T09/T22) — แท็บว่าง
-  const shownRows = isBn || tab === 'OVERDUE' ? [] : list.rows;
+  const shownRows = isBn ? [] : list.rows;
   const shownRowsQ = col.q
     ? shownRows.filter((x) => (x.invoiceNo ?? t('bill.draftNo')).includes(col.q))
     : shownRows;
@@ -360,13 +364,18 @@ export function BillPage() {
       key: 'due',
       label: t('bill.col.due'),
       width: '1%',
-      // วันครบกำหนด (ใบที่ออกแล้ว — ST5-T09) · เกินกำหนด (สีแดง + "เกิน n วัน") = ST5-T22
-      render: (x) =>
-        x.dueDate ? (
-          <span style={{ whiteSpace: 'nowrap' }}>{dateText(x.dueDate)}</span>
-        ) : (
-          <span style={{ color: '#3B424C' }}>—</span>
-        ),
+      // วันครบกำหนด (ใบที่ออกแล้ว — ST5-T09) · เกินกำหนด: สีแดง + "เกิน n วัน" (ต้นแบบ specInv — ธง ST5-T18)
+      render: (x) => {
+        if (!x.dueDate || x.status === 'CANCELLED' || x.status === 'VOIDED')
+          return <span style={{ color: '#3B424C' }}>—</span>;
+        const late = overdueDays(x, today);
+        return (
+          <span style={{ whiteSpace: 'nowrap', color: late ? '#B3322A' : '#101418' }}>
+            {dateText(x.dueDate)}
+            {late > 0 && ` ${t('pay.late', { n: late })}`}
+          </span>
+        );
+      },
       csv: (x) => x.dueDate ?? '',
     },
     {
@@ -398,8 +407,8 @@ export function BillPage() {
       key: 'st',
       label: t('bill.col.st'),
       width: '1%',
-      render: (x) => <StatusDot label={invoiceStatusLabel(t, x.status)} />,
-      csv: (x) => invoiceStatusLabel(t, x.status),
+      render: (x) => <StatusDot label={invoiceStatusLabel(t, invoiceDisplayStatus(x))} />,
+      csv: (x) => invoiceStatusLabel(t, invoiceDisplayStatus(x)),
     },
   ];
 
@@ -513,16 +522,20 @@ export function BillPage() {
           active={tab === 'DRAFT'}
           onClick={() => setTab(tab === 'DRAFT' ? 'all' : 'DRAFT')}
         />
-        {/* เกินกำหนด / ยอดค้าง: ต้องมีใบที่ออกแล้ว + รับชำระ (ST5-T09/T22) — ยังไม่มีข้อมูล */}
+        {/* เกินกำหนด = ธงที่เก็บ (ST5-T18) · ยอดค้างชำระ = Σ คงค้างของใบที่ออกแล้ว (สรุปหน้า "รับชำระ" ST5-T13) */}
         <KpiCard
           label={t('bill.kpi.overdue')}
           tone="err"
-          value="—"
+          value={counts?.overdue ?? '—'}
           sub={t('bill.kpi.click')}
           active={tab === 'OVERDUE'}
           onClick={() => setTab(tab === 'OVERDUE' ? 'all' : 'OVERDUE')}
         />
-        <KpiCard label={t('bill.kpi.outstanding')} value="—" sub={t('bill.kpi.click')} />
+        <KpiCard
+          label={t('bill.kpi.outstanding')}
+          value={paySum?.sellOutstanding !== undefined ? money(paySum.sellOutstanding) : '—'}
+          sub={t('bill.kpi.click')}
+        />
       </div>
 
       <div style={card} data-testid="bill-create">

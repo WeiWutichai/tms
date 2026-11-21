@@ -25,6 +25,11 @@ export interface NotificationVars {
    * items = รายการที่ถึงระดับเตือนวันนี้ (สูงสุด DIGEST_MAX_ITEMS) · more = ที่เหลือที่ไม่แสดง
    */
   'expiry.digest': { total: number; more: number; items: ExpiryDigestItem[] };
+  /**
+   * ST5-T22 สรุปเตือนครบกำหนดชำระรายวัน (spec/05 BIL-121; docs/04 I "ครบกำหนดชำระ") — 1 ฉบับต่อผู้รับต่อวัน (ผู้ดูแลลูกค้า / บัญชี)
+   * ไม่ใส่ยอดเงิน (สิทธิ์ดูราคาขายแยก — เหมือน field_charge.pending) · items สูงสุด DIGEST_MAX_ITEMS
+   */
+  'invoice.payment_due': { total: number; more: number; items: PaymentDueItem[] };
   /** ST3-T24 รถร่วมไม่ตอบข้อเสนองานใน N ชม. (docs/04 D3/I "งานรถร่วมหมดเวลา") — ครั้งเดียวต่อข้อเสนอ */
   'subcon_offer.no_response': { tripNo: string; carrier: string; hours: number };
   /** ST3-T24 ลิงก์ข้อเสนองานหมดอายุ (48 ชม.) → เที่ยวกลับไปรอจัดรถ ใบสั่งค้าง "รถร่วมปฏิเสธ" */
@@ -134,6 +139,16 @@ export interface ExpiryDigestItem {
   title?: string | null;
   side?: 'SELL' | 'BUY';
 }
+export type PaymentDueLevelName = 'DUE_IN_3' | 'DUE_TODAY' | 'OVERDUE_7' | 'OVERDUE_30';
+export interface PaymentDueItem {
+  level: PaymentDueLevelName;
+  invoiceNo: string;
+  customer: string;
+  /** YYYY-MM-DD */
+  dueDate: string;
+  /** วันนี้ − วันครบกำหนด (ติดลบ = ยังไม่ถึง) */
+  days: number;
+}
 interface ImportVars {
   label: string;
   ok: number;
@@ -218,6 +233,53 @@ function renderDigest(v: NotificationVars['expiry.digest'], lang: NotificationLo
     : {
         title: `${n(v.total)} expiring ${kinds.join(' / ')}`,
         body: `${counts.join(' · ')} — open TMS to review and renew.`,
+        detail: lines.join('\n'),
+      };
+}
+/** ลำดับกลุ่มในสรุปเตือนครบกำหนด: เกินนานสุดก่อน */
+const DUE_ORDER: PaymentDueLevelName[] = ['OVERDUE_30', 'OVERDUE_7', 'DUE_TODAY', 'DUE_IN_3'];
+const DUE_HEAD: Record<PaymentDueLevelName, Record<NotificationLocale, string>> = {
+  OVERDUE_30: { th: 'เกินกำหนด 30 วันขึ้นไป', en: '30+ days overdue' },
+  OVERDUE_7: { th: 'เกินกำหนด 7 วันขึ้นไป', en: '7+ days overdue' },
+  DUE_TODAY: { th: 'ถึงวันครบกำหนด', en: 'Due' },
+  DUE_IN_3: { th: 'ครบกำหนดภายใน 3 วัน', en: 'Due within 3 days' },
+};
+function dueLine(i: PaymentDueItem, lang: NotificationLocale): string {
+  const what = `${safeName(i.invoiceNo, 60)} · ${safeName(i.customer, 120)}`;
+  const when =
+    lang === 'th'
+      ? i.days < 0
+        ? `ครบกำหนด ${thDay(i.dueDate)} (อีก ${n(-i.days)} วัน)`
+        : i.days === 0
+          ? `ครบกำหนดวันนี้ ${thDay(i.dueDate)}`
+          : `ครบกำหนด ${thDay(i.dueDate)} (เกิน ${n(i.days)} วัน)`
+      : i.days < 0
+        ? `due ${i.dueDate} (in ${n(-i.days)} days)`
+        : i.days === 0
+          ? `due today ${i.dueDate}`
+          : `due ${i.dueDate} (${n(i.days)} days overdue)`;
+  return `• ${what} — ${when}`;
+}
+function renderPaymentDue(v: NotificationVars['invoice.payment_due'], lang: NotificationLocale) {
+  const counts = DUE_ORDER.map((l) => [l, v.items.filter((i) => i.level === l).length] as const)
+    .filter(([, c]) => c > 0)
+    .map(([l, c]) => `${DUE_HEAD[l][lang]} ${n(c)}`);
+  const lines: string[] = [];
+  for (const l of DUE_ORDER) {
+    const g = v.items.filter((i) => i.level === l);
+    if (!g.length) continue;
+    lines.push(`${DUE_HEAD[l][lang]}:`, ...g.map((i) => dueLine(i, lang)));
+  }
+  if (v.more > 0) lines.push(lang === 'th' ? `และอีก ${n(v.more)} ใบ` : `and ${n(v.more)} more`);
+  return lang === 'th'
+    ? {
+        title: `ใบแจ้งหนี้ครบกำหนดชำระ ${n(v.total)} ใบ`,
+        body: `${counts.join(' · ')}${v.more > 0 ? ` (แสดง ${n(v.items.length)} จาก ${n(v.total)})` : ''} — ติดตามและบันทึกรับชำระที่หน้ารับชำระ`,
+        detail: lines.join('\n'),
+      }
+    : {
+        title: `${n(v.total)} invoice(s) due for payment`,
+        body: `${counts.join(' · ')} — follow up on the Payments page.`,
         detail: lines.join('\n'),
       };
 }
@@ -307,6 +369,10 @@ const TEMPLATES: {
   'expiry.digest': {
     th: (v) => renderDigest(v, 'th'),
     en: (v) => renderDigest(v, 'en'),
+  },
+  'invoice.payment_due': {
+    th: (v) => renderPaymentDue(v, 'th'),
+    en: (v) => renderPaymentDue(v, 'en'),
   },
   'subcon_offer.no_response': {
     th: (v) => ({

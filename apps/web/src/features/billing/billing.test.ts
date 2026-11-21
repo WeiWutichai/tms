@@ -43,13 +43,13 @@ describe('selectionTotals — VAT ประมาณการจากฐาน 
   });
 });
 
-describe('invoiceDisplayStatus / overdueDays (ต้นแบบ invSt — ST5-T13)', () => {
-  it('ค้างรับและเลยวันครบกำหนด = เกินกำหนด · ชำระแล้ว/ยังไม่ถึงกำหนด = สถานะเดิม', () => {
+describe('invoiceDisplayStatus / overdueDays (ต้นแบบ invSt — ธงเกินกำหนดที่เก็บ ST5-T18)', () => {
+  it('ธง overdue = "เกินกำหนด" (มาก่อนชำระบางส่วน) · ไม่มีธง = สถานะเดิม แม้เลยวันครบกำหนด (รอ job)', () => {
     const due = '2026-11-01';
-    expect(invoiceDisplayStatus({ status: 'ISSUED', dueDate: due }, '2026-11-04')).toBe('OVERDUE');
-    expect(overdueDays({ status: 'PARTIALLY_PAID', dueDate: due }, '2026-11-04')).toBe(3);
-    expect(invoiceDisplayStatus({ status: 'PAID', dueDate: due }, '2026-11-04')).toBe('PAID');
-    expect(invoiceDisplayStatus({ status: 'ISSUED', dueDate: due }, '2026-11-01')).toBe('ISSUED');
-    expect(overdueDays({ status: 'ISSUED', dueDate: due }, '2026-11-01')).toBe(0);
+    expect(invoiceDisplayStatus({ status: 'PARTIALLY_PAID', overdue: true })).toBe('OVERDUE');
+    expect(overdueDays({ overdue: true, dueDate: due }, '2026-11-04')).toBe(3);
+    expect(invoiceDisplayStatus({ status: 'ISSUED', overdue: false })).toBe('ISSUED');
+    expect(overdueDays({ overdue: false, dueDate: due }, '2026-11-04')).toBe(0);
+    expect(invoiceDisplayStatus({ status: 'PAID' })).toBe('PAID');
   });
 });

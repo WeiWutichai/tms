@@ -210,7 +210,7 @@ export function InvoiceDrawer({
   const voidable = inv.status === 'ISSUED' && canVoid;
   const no = inv.invoiceNo ?? t('bill.draftNo');
   const today = bangkokToday();
-  const st = invoiceStatusLabel(t, invoiceDisplayStatus(inv, today));
+  const st = invoiceStatusLabel(t, invoiceDisplayStatus(inv));
   const late = overdueDays(inv, today);
   const outstanding = Number(inv.sellOutstanding ?? '0');
   const paid = (pays.data?.data ?? []).filter((p) => p.status === 'RECORDED');
@@ -314,7 +314,18 @@ export function InvoiceDrawer({
                 label: t('bill.menu.cancel'),
                 icon: 'ban',
                 danger: true,
+                // ST5-T18 ส่งลูกค้าแล้วยกเลิกไม่ได้ (docs/04 F3) — ไม่เปิดกล่องยกเลิก แจ้งวิธีแก้แทน (review L4)
                 onClick: () => {
+                  if (inv.sentToCustomerAt) {
+                    onToast(
+                      t(
+                        inv.sentToCustomerChannel === 'BILLING_NOTE'
+                          ? 'bill.void.sentByNote'
+                          : 'bill.void.sentHint',
+                      ),
+                    );
+                    return;
+                  }
                   voider.reset();
                   setReissue(false);
                   setVoidDlg(true);
