@@ -18,7 +18,15 @@ import {
 } from '../src/modules/orders/order-intake.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
-import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
+import {
+  api,
+  bootApp,
+  issuedTestFields,
+  platform,
+  tokenFor,
+  truncateAll,
+  validTaxId,
+} from './helpers';
 
 /**
  * ST5-T06 Lifecycle และ revert rules ของ DO (docs/04 F4) — เกณฑ์ตรวจรับ:
@@ -503,7 +511,7 @@ describe('billing lifecycle + revert rules (ST5-T06)', { timeout: 300_000 }, () 
     await run(async (tx) => {
       await tx.invoice.update({
         where: { id: inv },
-        data: { status: 'ISSUED', invoiceNo: 'INV-T06-1' },
+        data: { status: 'ISSUED', ...issuedTestFields('INV-T06-1') },
       });
       await guard().syncFromInvoice(inv, tx);
     });

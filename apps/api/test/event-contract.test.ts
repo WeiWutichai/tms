@@ -325,7 +325,6 @@ describe('event registry contract (ST7-T06)', () => {
       }
     }
     expect(PENDING_EVENT_TYPES).toEqual([
-      'invoice.finalized',
       'invoice.adjusted',
       'invoice.paid',
       'invoice.voided',
@@ -603,6 +602,74 @@ describe('event registry contract (ST7-T06)', () => {
       ]),
     );
 
+    // ---- invoice.finalized (ST5-T09): ใบสั่งราคาจาก rate card → ส่งถึง → ส่งบัญชี + ร่าง (ผู้ดูแล) → ออกเอกสาร (อีกคน — A3) ----
+    const icus = await newCustomer();
+    await db.customer.update({
+      where: { id: icus },
+      data: { branchCode: '00000', podRequirements: { success: { fields: [] } } },
+    });
+    const [io, idst] = [await newSite(), await newSite()];
+    const rc = (
+      await api(app, admin)
+        .post('/v1/rate-cards')
+        .send({
+          customerId: encodeId('customer', icus),
+          originId: encodeId('site', io),
+          destinationId: encodeId('site', idst),
+          vehicleTypeId: vt6,
+          validFrom: today,
+          pricingModel: 'PER_TON',
+          sellRate: '350',
+        })
+        .expect(201)
+    ).body as { id: string };
+    await api(app, admin)
+      .post(`/v1/rate-cards/${rc.id}/approve`)
+      .send({ reason: 'อนุมัติตามใบเสนอราคา' })
+      .expect(200);
+    const { order: iso } = await run((tx) =>
+      app.get(OrderIntakeService).upsertOrder(
+        {
+          source: 'MANUAL',
+          customer: { id: icus },
+          requestedDate: today,
+          vehicleTypeId: uuid('vehicleType', vt6),
+          stops: [
+            { type: 'PICKUP', siteId: io },
+            { type: 'DELIVERY', siteId: idst },
+          ],
+          lines: [{ description: 'ปูนซีเมนต์', qty: '5', unitId: unitTon, weightKg: '5000' }],
+        },
+        tx,
+      ),
+    );
+    const [ido] = await run((tx) => app.get(DeliveryOrderService).listForOrder(iso.id, {}, tx));
+    const ti = await trip(ido!.id, true);
+    await post(ti.pickup, 'arrive', 55);
+    await post(ti.pickup, 'complete', 50, { outcome: 'DELIVERED' });
+    await post(ti.drop, 'arrive', 40);
+    await post(ti.drop, 'complete', 30, { outcome: 'DELIVERED' });
+    const draft = (
+      await api(app, admin)
+        .post('/v1/invoices')
+        .send({
+          customerId: encodeId('customer', icus),
+          deliveryOrderIds: [encodeId('deliveryOrder', ido!.id)],
+          releaseDeliveryOrders: true,
+        })
+        .expect(201)
+    ).body as { id: string; version: number };
+    const finalizer = await tokenFor(tenantId, '*', 'u-event-accounting');
+    await api(app, finalizer)
+      .post(`/v1/invoices/${draft.id}/finalize`)
+      .set('If-Match', `"${draft.version}"`)
+      .expect(200);
+    expect((await latest('invoice.finalized', uuid('invoice', draft.id)))!.snapshot).toEqual(
+      await rest(`/v1/invoices/${draft.id}`, [
+        ...eventDefinition('invoice.finalized')!.object!.omit,
+      ]),
+    );
+
     // ---------------- ตรวจ ----------------
     const events = await db.domainEvent.findMany({
       where: { tenantId },
@@ -710,6 +777,15 @@ describe('event registry contract (ST7-T06)', () => {
       paymentReference: 'KBANK-0001',
     });
     expect(one('settlement.paid').previousAttributes).toMatchObject({ status: 'APPROVED' });
+    expect(one('invoice.finalized').snapshot).toMatchObject({
+      status: 'ISSUED',
+      invoiceNo: expect.stringMatching(/^INV-00000-\d{4}-0001$/),
+      taxEstimated: true,
+    });
+    expect(one('invoice.finalized').previousAttributes).toMatchObject({
+      status: 'DRAFT',
+      invoiceNo: null,
+    });
     expect(registered.filter((e) => e.type === 'job.completed').map((e) => e.snapshot)).toEqual([
       expect.objectContaining({ id: encodeId('job', job.id), status: 'succeeded' }),
       expect.objectContaining({ id: encodeId('job', failed.id), status: 'failed' }),

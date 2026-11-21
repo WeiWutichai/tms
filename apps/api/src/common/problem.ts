@@ -534,6 +534,34 @@ export const PROBLEMS = {
     th: 'ใบส่งของนี้อยู่ในใบแจ้งหนี้อื่นแล้ว',
     en: 'This delivery order is already on another invoice',
   },
+  /**
+   * ST5-T09 ออกเอกสารใบแจ้งหนี้ไม่ได้ (docs/04 F3 Finalize, spec/05 BIL-037/038) — extension `reasons[]` (รหัสคงที่):
+   * `no_lines` `total_not_positive` `customer_tax_id_missing` `customer_branch_missing` `line_vat_type_missing`
+   * `revenue_line_provisional` (+ `lines[]`) `issuer_not_vat_registered` (ผู้ออกไม่จด VAT แต่มีบรรทัด VAT 7% — [OPEN] #63)
+   */
+  invoice_not_finalizable: {
+    status: 409,
+    th: 'ยังออกเอกสารใบแจ้งหนี้นี้ไม่ได้',
+    en: 'This invoice cannot be finalized yet',
+  },
+  /** ST5-T09 separation of duties (docs/04 A3): ผู้สร้าง/ผู้แก้ร่างล่าสุด ออกเอกสารใบนั้นเองไม่ได้ (เว้น tenant ปิดกฎ `billing.allowSelfFinalize`) */
+  invoice_self_finalize: {
+    status: 403,
+    th: 'ผู้สร้างหรือผู้แก้ร่างใบแจ้งหนี้ ออกเอกสารใบนั้นเองไม่ได้ ต้องให้ผู้อื่นออก',
+    en: 'Whoever prepared an invoice draft cannot finalize it',
+  },
+  /** ST5-T09 sandbox ยังออกเลขใบแจ้งหนี้ไม่ได้ ([OPEN — spec/12 §3 "Sandbox: เอกสารภาษีใน sandbox" — ห้ามตัดสินเอง]) */
+  /** ST5-T09 review M1: PDF ใบที่ออกแล้วต้อง render ด้วยแม่แบบรุ่นเดียวกับวันออก — แม่แบบเปลี่ยนแล้ว (ไม่ render ใหม่เงียบ ๆ) */
+  invoice_pdf_template_changed: {
+    status: 409,
+    th: 'แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ',
+    en: 'The invoice template changed after issue — the issued PDF cannot be re-rendered',
+  },
+  sandbox_finalize_disabled: {
+    status: 409,
+    th: 'โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้',
+    en: 'Finalizing invoices is not available in sandbox yet',
+  },
   /** ST4-T07 บันทึก/แก้หลักฐานส่งได้เฉพาะ DO ที่ส่งแล้ว/ส่งไม่สำเร็จและยังไม่วางบิล — `doStatus` บอกสถานะปัจจุบัน */
   pod_not_allowed: {
     status: 409,

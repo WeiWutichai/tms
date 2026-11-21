@@ -32883,6 +32883,398 @@
         ]
       }
     },
+    "/v1/invoices/{id}/finalize": {
+      "post": {
+        "description": "DRAFT → ISSUED · ตรวจ → ไม่ผ่าน 409 `invoice_not_finalizable` + `reasons[]`: `no_lines` · `total_not_positive` · `customer_tax_id_missing` · `customer_branch_missing` · `line_vat_type_missing` · `revenue_line_provisional` (+ `lines[]` — ยอดยังไม่ยืนยัน บันทึกยอดส่งจริงก่อน) · `issuer_not_vat_registered` (ผู้ออกไม่จด VAT แต่มีบรรทัด VAT 7%) · **แบ่งหน้าที่:** ผู้สร้าง/ผู้แก้ร่างล่าสุด (API key = ผู้ออก key) ออกใบนั้นเองไม่ได้ → 403 `invoice_self_finalize` (เว้น tenant ตั้ง `billing.allowSelfFinalize`) · ออกเลขชุด INV ต่อสาขาผู้ออก (เรียงไม่ข้าม พร้อมกันได้) · วันที่ออก = วันนี้ (เวลาไทย) · ครบกำหนด = วันที่ออก + เครดิต · เก็บ snapshot ลูกค้า/ผู้ออก · DO → INVOICED (+ UNBILLED → BILLED) · ล็อกบรรทัดรายได้ · audit + webhook `invoice.finalized` (transaction เดียว) · แล้ว render PDF ต้นฉบับเก็บแบบเขียนครั้งเดียว (`pdf`) · **ไม่มีเลขใบกำกับภาษี** · หลังนี้แก้/ยกเลิกร่าง/PATCH ไม่ได้ (409) · sandbox → 409 `sandbox_finalize_disabled`",
+        "operationId": "Invoices_finalize",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ `invoices:finalize` / ผู้เตรียมร่างออกเอง (`invoice_self_finalize`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "invoices",
+                      "action": "finalize",
+                      "required": [
+                        "invoices:finalize"
+                      ]
+                    }
+                  },
+                  "invoice_self_finalize": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invoice_self_finalize",
+                      "title": "ผู้สร้างหรือผู้แก้ร่างใบแจ้งหนี้ ออกเอกสารใบนั้นเองไม่ได้ ต้องให้ผู้อื่นออก",
+                      "status": 403,
+                      "code": "invoice_self_finalize"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`invoice_not_finalizable` (`reasons[]`) · `invalid_state_transition` (ไม่ใช่ร่าง) · `sandbox_finalize_disabled`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invoice_not_finalizable": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invoice_not_finalizable",
+                      "title": "ยังออกเอกสารใบแจ้งหนี้นี้ไม่ได้",
+                      "status": 409,
+                      "code": "invoice_not_finalizable",
+                      "reasons": [
+                        "customer_branch_missing",
+                        "revenue_line_provisional"
+                      ],
+                      "lines": [
+                        {
+                          "id": "ivl_…",
+                          "lineNo": 2,
+                          "deliveryOrderNo": "DO-2611-00012",
+                          "revenueLineId": "rvl_…"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ออกเอกสาร (finalize) — ออกเลขใบแจ้งหนี้ + ล็อก",
+        "tags": [
+          "invoices"
+        ],
+        "x-required-scopes": [
+          "invoices:finalize"
+        ]
+      }
+    },
+    "/v1/invoices/{id}/pdf": {
+      "get": {
+        "description": "ใบที่ออกเลขแล้วเท่านั้น (ร่าง → 409 ใช้ `/proforma`) · `copy=ORIGINAL` (ค่าเริ่ม) = ไฟล์ต้นฉบับที่เก็บตอนออก · `copy=COPY` = สำเนา render จาก snapshot ณ วันออกครั้งแรกที่ขอแล้วเก็บ — ไม่ render ตามข้อมูลลูกค้าปัจจุบัน · ยังไม่มีไฟล์ (render ตอนออกล้ม) → สร้างให้แล้วเก็บ · header `X-Content-SHA256` · ไม่มีคำว่า \"ใบกำกับภาษี\" · ต้องมี `prices.sell:read` ไม่งั้น 403",
+        "operationId": "Invoices_issuedPdf",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "copy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "ORIGINAL",
+              "type": "string",
+              "enum": [
+                "ORIGINAL",
+                "COPY"
+              ]
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "application/pdf",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`invoices:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "invoices",
+                      "action": "read",
+                      "required": [
+                        "invoices:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PDF ใบแจ้งหนี้ที่ออกแล้ว — ต้นฉบับ / สำเนา (ไฟล์ที่เก็บ ณ วันออก)",
+        "tags": [
+          "invoices"
+        ],
+        "x-required-scopes": [
+          "invoices:read"
+        ]
+      }
+    },
     "/v1/invoices/{id}/delivery-orders": {
       "post": {
         "description": "กฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 `customer_mismatch` · audit `invoice.delivery_orders_added`",
@@ -56263,6 +56655,18 @@
             "type": "string",
             "description": "ยอดรวม − WHT ที่คาดว่าจะถูกหัก (ประมาณการ) — `prices.sell:read`"
           },
+          "issueDate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-11-20",
+            "description": "วันที่ออก (เวลาไทย) — ร่าง = null"
+          },
+          "dueDate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-12-20",
+            "description": "ครบกำหนดชำระ = วันที่ออก + เครดิต — ร่าง = null"
+          },
           "version": {
             "type": "number"
           },
@@ -56346,6 +56750,26 @@
           "createdBy": {
             "type": "string",
             "nullable": true
+          },
+          "issuedAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "เวลาออกเอกสาร (ออกเลข) — ร่าง = null"
+          },
+          "issuedBy": {
+            "type": "string",
+            "nullable": true,
+            "description": "ผู้ออกเอกสาร"
+          },
+          "pdf": {
+            "nullable": true,
+            "description": "PDF ต้นฉบับที่เก็บ ณ วันออก — null = ร่าง หรือยังไม่ได้ render (render หลังออกเลข; `GET /v1/invoices/{id}/pdf` สร้างให้ถ้ายังไม่มี)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InvoicePdfDto"
+              }
+            ]
           }
         },
         "required": [
@@ -56357,6 +56781,8 @@
           "periodTo",
           "deliveryOrderCount",
           "lineMode",
+          "issueDate",
+          "dueDate",
           "version",
           "createdAt",
           "updatedAt",
@@ -56370,7 +56796,10 @@
           "lines",
           "printLines",
           "cancelReason",
-          "createdBy"
+          "createdBy",
+          "issuedAt",
+          "issuedBy",
+          "pdf"
         ]
       },
       "InvoiceLineDto": {
@@ -56560,6 +56989,32 @@
           "hasMore"
         ]
       },
+      "InvoicePdfDto": {
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "example": "doc_…"
+          },
+          "filename": {
+            "type": "string",
+            "example": "INV-00000-6911-0001.pdf"
+          },
+          "sha256": {
+            "type": "string",
+            "description": "SHA-256 ของไฟล์"
+          },
+          "sizeBytes": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "documentId",
+          "filename",
+          "sha256",
+          "sizeBytes"
+        ]
+      },
       "InvoicePrintLineDto": {
         "type": "object",
         "properties": {
@@ -56660,7 +57115,7 @@
           },
           "overdue": {
             "type": "number",
-            "description": "เกินกำหนด — คำนวณเมื่อมีวันครบกำหนด/รับชำระ ตอนนี้ 0 เสมอ"
+            "description": "เกินกำหนด — คำนวณเมื่อมีการรับชำระ ตอนนี้ 0 เสมอ"
           },
           "cancelled": {
             "type": "number",
@@ -56731,6 +57186,18 @@
             "type": "string",
             "description": "ยอดรวม − WHT ที่คาดว่าจะถูกหัก (ประมาณการ) — `prices.sell:read`"
           },
+          "issueDate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-11-20",
+            "description": "วันที่ออก (เวลาไทย) — ร่าง = null"
+          },
+          "dueDate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-12-20",
+            "description": "ครบกำหนดชำระ = วันที่ออก + เครดิต — ร่าง = null"
+          },
           "version": {
             "type": "number"
           },
@@ -56750,6 +57217,8 @@
           "periodTo",
           "deliveryOrderCount",
           "lineMode",
+          "issueDate",
+          "dueDate",
           "version",
           "createdAt",
           "updatedAt"
@@ -66220,6 +66689,7 @@
               "stop.failed",
               "delivery_order.status_changed",
               "pod.captured",
+              "invoice.finalized",
               "settlement.approved",
               "settlement.paid",
               "connector.health_changed",
@@ -72454,6 +72924,128 @@
           "updatedAt"
         ]
       },
+      "WebhookEvent_invoice_finalized": {
+        "type": "object",
+        "description": "`data.object` ของ invoice.finalized — ออกเอกสารใบแจ้งหนี้แล้ว · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf)",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ivc_…"
+          },
+          "invoiceNo": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "ISSUED",
+              "PARTIALLY_PAID",
+              "PAID",
+              "ADJUSTED",
+              "VOIDED",
+              "CANCELLED"
+            ]
+          },
+          "customer": {
+            "$ref": "#/components/schemas/InvoiceCustomerDto"
+          },
+          "periodFrom": {
+            "type": "string",
+            "nullable": true
+          },
+          "periodTo": {
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryOrderCount": {
+            "type": "number"
+          },
+          "lineMode": {
+            "type": "string",
+            "enum": [
+              "SINGLE",
+              "GROUP",
+              "MERGE"
+            ]
+          },
+          "issueDate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-11-20",
+            "description": "วันที่ออก (เวลาไทย) — ร่าง = null"
+          },
+          "dueDate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-12-20",
+            "description": "ครบกำหนดชำระ = วันที่ออก + เครดิต — ร่าง = null"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "issuingCompanyId": {
+            "type": "string",
+            "example": "cmp_…"
+          },
+          "issuingBranchId": {
+            "type": "string",
+            "example": "brn_…"
+          },
+          "creditTermDays": {
+            "type": "number"
+          },
+          "customerPoNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "taxEstimated": {
+            "type": "boolean",
+            "description": "ยอด VAT/WHT เป็นประมาณการ — true เสมอ"
+          },
+          "deliveryOrders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceDeliveryOrderDto"
+            }
+          },
+          "issuedAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "เวลาออกเอกสาร (ออกเลข) — ร่าง = null"
+          }
+        },
+        "required": [
+          "id",
+          "invoiceNo",
+          "status",
+          "customer",
+          "periodFrom",
+          "periodTo",
+          "deliveryOrderCount",
+          "lineMode",
+          "issueDate",
+          "dueDate",
+          "version",
+          "createdAt",
+          "updatedAt",
+          "issuingCompanyId",
+          "issuingBranchId",
+          "creditTermDays",
+          "customerPoNo",
+          "taxEstimated",
+          "deliveryOrders",
+          "issuedAt"
+        ]
+      },
       "WebhookEvent_job_completed": {
         "type": "object",
         "description": "`data.object` ของ job.completed — งานเบื้องหลัง (นำเข้า/bulk/ส่งออก/รอบวางบิล) เสร็จ · รูปเดียวกับ JobDto (ไม่มี field ราคา)",
@@ -76508,8 +77100,12 @@
       }
     },
     "invoice.finalized": {
-      "description": "ออกเลขใบแจ้งหนี้/ใบกำกับภาษีแล้ว",
-      "phase": "pending"
+      "description": "ออกเอกสารใบแจ้งหนี้แล้ว",
+      "phase": "active",
+      "dto": "InvoiceDto",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_invoice_finalized"
+      }
     },
     "invoice.adjusted": {
       "description": "ปรับยอดใบแจ้งหนี้ด้วยใบลดหนี้/เพิ่มหนี้",
@@ -76795,6 +77391,21 @@
       "title": "ลิงก์คำเชิญไม่ถูกต้อง หมดอายุ หรือใช้ไปแล้ว ขอให้ผู้ดูแลส่งคำเชิญใหม่",
       "titleEn": "This invitation is invalid, expired or already used"
     },
+    "invoice_not_finalizable": {
+      "status": 409,
+      "title": "ยังออกเอกสารใบแจ้งหนี้นี้ไม่ได้",
+      "titleEn": "This invoice cannot be finalized yet"
+    },
+    "invoice_pdf_template_changed": {
+      "status": 409,
+      "title": "แม่แบบเอกสารเปลี่ยนหลังวันออก สร้าง PDF ของใบนี้ใหม่ไม่ได้ — ติดต่อผู้ดูแลระบบ",
+      "titleEn": "The invoice template changed after issue — the issued PDF cannot be re-rendered"
+    },
+    "invoice_self_finalize": {
+      "status": 403,
+      "title": "ผู้สร้างหรือผู้แก้ร่างใบแจ้งหนี้ ออกเอกสารใบนั้นเองไม่ได้ ต้องให้ผู้อื่นออก",
+      "titleEn": "Whoever prepared an invoice draft cannot finalize it"
+    },
     "ip_not_allowed": {
       "status": 403,
       "title": "IP นี้ไม่ได้รับอนุญาตให้ใช้ API key นี้",
@@ -76944,6 +77555,11 @@
       "status": 422,
       "title": "บริษัทมีหลายนิติบุคคลแต่ยังไม่ได้กำหนดนิติบุคคลออกบิล — ส่ง billingCompanyId (จาก GET /v1/companies) หรือตั้ง \"ออกบิลในนาม\" ที่ลูกค้า/ค่าตั้งต้นของบริษัท",
       "titleEn": "Several legal entities and no billing entity set — send billingCompanyId (from GET /v1/companies) or set the customer/company default"
+    },
+    "sandbox_finalize_disabled": {
+      "status": 409,
+      "title": "โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้",
+      "titleEn": "Finalizing invoices is not available in sandbox yet"
     },
     "sandbox_only": {
       "status": 403,

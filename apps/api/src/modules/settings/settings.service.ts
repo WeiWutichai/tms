@@ -154,6 +154,25 @@ export class SettingsService {
         throw new ProblemException('precondition_failed');
     }
     const before = await readSettings(tx, tenantId, keys);
+    // ST5-T09 review L3 (docs/04 A3 "ปิดได้สำหรับ tenant เล็กโดย owner ยอมรับความเสี่ยง"): เปลี่ยนกฎแบ่งหน้าที่ของใบแจ้งหนี้ได้เฉพาะ owner
+    if (
+      'billing.allowSelfFinalize' in values &&
+      values['billing.allowSelfFinalize'] !== before['billing.allowSelfFinalize']
+    ) {
+      const actor = requestContext.require().actorId ?? '';
+      const owner = await tx.role.findFirst({ where: { code: 'owner' } });
+      const isOwner =
+        owner &&
+        (await tx.userRole
+          .findFirst({ where: { userId: actor, roleId: owner.id } })
+          .catch(() => null));
+      if (!isOwner)
+        throw new ProblemException('permission_denied', undefined, undefined, {
+          module: 'settings',
+          action: 'billing.allowSelfFinalize',
+          required: ['owner'],
+        });
+    }
     if (!steppedUp && weakensSecurity(before, values))
       throw new ProblemException('step_up_required');
     const actor = requestContext.require().actorId ?? null;
@@ -226,6 +245,13 @@ export function weakensSecurity(before: Record<string, unknown>, after: Record<s
     has('settlement.carrierReviewRequired') &&
     before['settlement.carrierReviewRequired'] === true &&
     after['settlement.carrierReviewRequired'] === false
+  )
+    return true;
+  // ST5-T09 ปิดกฎแบ่งหน้าที่ของใบแจ้งหนี้ (ผู้สร้างออกเอกสารเองได้) = คุมหลวมขึ้น — ต้อง step-up (A3 "owner ยอมรับความเสี่ยง")
+  if (
+    has('billing.allowSelfFinalize') &&
+    before['billing.allowSelfFinalize'] !== true &&
+    after['billing.allowSelfFinalize'] === true
   )
     return true;
   // ST9-T14 ลดระยะเก็บ = ข้อมูลเก่าถูกลบเร็วขึ้น (ย้อนคืนไม่ได้) — ต้อง step-up เหมือนลดความปลอดภัย

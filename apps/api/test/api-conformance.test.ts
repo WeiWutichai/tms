@@ -25,8 +25,8 @@ import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './hel
  * - ทุก endpoint ใน MATRIX: scope ใน OpenAPI (`x-required-scopes`) ตรงกับตาราง · key ไม่มี scope → 403 `permission_denied`
  *   (`required` ตรง) · key ของบริษัทอื่น → 404 · ไม่มี credential → 401 · OpenAPI มีตัวอย่าง 403/404
  * - list: cursor pagination (`limit`/`nextCursor`/`hasMore`) · GET ใบเดียวมี ETag · If-Match ไม่ตรง → 412
- * - แถว #6 invoices / invoice-runs / payments = DEFERRED (ST5 ยังไม่ครบ) — ตรวจว่ายังไม่มี path (กันลืมย้ายเข้าตาราง)
- *   (ST5-T07 สร้าง `GET/POST /v1/invoices` + `GET /v1/invoices/{id}` แล้ว แต่ยังไม่มี finalize — ทั้งแถวย้ายเข้า MATRIX ที่ ST5-T09)
+ * - แถว #6 invoices อยู่ในตารางแล้ว (ST5-T09: list/สร้างร่าง/อ่าน/ออกเอกสาร) · void / invoice-runs / payments = DEFERRED (ST5-T10/T12/T13)
+ *   — ตรวจว่ายังไม่มี path (กันลืมย้ายเข้าตาราง)
  */
 
 type Method = 'get' | 'post' | 'put' | 'patch' | 'delete';
@@ -135,6 +135,17 @@ export const MATRIX: Row[] = [
       E('post', '/v1/trips/{id}/complete', 'trips:close'),
     ],
   },
+  {
+    // ST5-T09 (D-54 ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี) — void = ST5-T10 (ยังอยู่ใน DEFERRED)
+    g2: '#6',
+    resource: 'invoices',
+    endpoints: [
+      E('get', '/v1/invoices', 'invoices:read'),
+      E('post', '/v1/invoices', 'invoices:draft'),
+      E('get', '/v1/invoices/{id}', 'invoices:read'),
+      E('post', '/v1/invoices/{id}/finalize', 'invoices:finalize'),
+    ],
+  },
   { g2: '#8', resource: 'drivers', endpoints: master('drivers') },
   { g2: '#8', resource: 'vehicles', endpoints: master('vehicles') },
   { g2: '#8', resource: 'carriers', endpoints: master('carriers') },
@@ -147,13 +158,7 @@ export const MATRIX: Row[] = [
 
 /** แถว P0 ที่เลื่อนไป task อื่น (ยังไม่มี module) — path ต้องยังไม่มีใน OpenAPI; มีแล้ว = ย้ายเข้า MATRIX */
 export const DEFERRED: { g2: string; resource: string; paths: string[]; task: string }[] = [
-  {
-    g2: '#6',
-    resource: 'invoices',
-    // list/สร้างร่าง/อ่าน มีแล้วตั้งแต่ ST5-T07 (ร่าง) — ย้ายเข้า MATRIX พร้อม finalize ที่ ST5-T09
-    paths: ['/v1/invoices/{id}/finalize', '/v1/invoices/{id}/void'],
-    task: 'ST5-T09',
-  },
+  { g2: '#6', resource: 'invoices (void)', paths: ['/v1/invoices/{id}/void'], task: 'ST5-T10' },
   { g2: '#6', resource: 'invoice-runs', paths: ['/v1/invoice-runs'], task: 'ST5-T12' },
   { g2: '#6', resource: 'payments', paths: ['/v1/payments'], task: 'ST5-T13' },
 ];
@@ -927,6 +932,92 @@ describe(
       expect(done.body.status).toBe('COMPLETED');
     });
 
+    it('#6 invoices: ราคาจาก rate card → ส่งถึง → ร่าง (ส่งบัญชีในคำขอเดียว) → list/อ่าน (ETag) → ออกเอกสาร (If-Match) ด้วย key', async () => {
+      const cus = (
+        await call(full, 'post', '/v1/customers', {
+          body: {
+            legalName: `บจก. ลูกค้าวางบิลสัญญา ${n()}`,
+            taxId: validTaxId(82_000 + seq),
+            branchCode: '00000',
+            billingAddress: ADDR,
+          },
+          expect: 201,
+        })
+      ).body.id as string;
+      // หลักฐานส่งไม่บังคับ (ลูกค้ารายนี้) — ไม่มี API ตั้ง checklist ด้วย key ในตาราง G2
+      await db.customer.update({
+        where: { id: tryDecodeId('customer', cus)! },
+        data: { podRequirements: { success: { fields: [] } } },
+      });
+      const body = await orderBody(cus);
+      const rc = (
+        await call(full, 'post', '/v1/rate-cards', {
+          expect: 201,
+          body: {
+            customerId: cus,
+            originId: body.stops[0]!.siteId,
+            destinationId: body.stops[1]!.siteId,
+            vehicleTypeId: ids.vt6,
+            validFrom: today,
+            pricingModel: 'PER_TON',
+            sellRate: '350',
+          },
+        })
+      ).body as { id: string };
+      expect(rc.id).toBeTruthy();
+      await call(full, 'post', '/v1/rate-cards/{id}/approve', {
+        params: { id: rc.id },
+        body: { reason: REASON },
+        expect: 200,
+      });
+      const o = (await call(full, 'post', '/v1/orders', { body, expect: 201 })).body;
+      const d = await firstDo(o.id);
+      const t = await tripFor(d);
+      await stopEvent(t.pickup, 'arrive', 60);
+      await stopEvent(t.pickup, 'complete', 55, { outcome: 'DELIVERED' });
+      await stopEvent(t.drop, 'arrive', 40);
+      await stopEvent(t.drop, 'complete', 30, { outcome: 'DELIVERED' });
+      const draft = (
+        await call(full, 'post', '/v1/invoices', {
+          body: { customerId: cus, deliveryOrderIds: [d], releaseDeliveryOrders: true },
+          expect: 201,
+        })
+      ).body;
+      expect(draft).toMatchObject({ status: 'DRAFT', invoiceNo: null });
+      await call(full, 'get', '/v1/invoices', { query: { limit: 10 }, expect: 200 });
+      const g = await call(full, 'get', '/v1/invoices/{id}', {
+        params: { id: draft.id },
+        expect: 200,
+      });
+      expect(g.headers.etag).toMatch(/^(W\/)?"\d+"$/);
+      // key ทั้งสองดอกออกโดยผู้ดูแลคนเดียวกัน = ผู้สร้างร่าง → แบ่งหน้าที่ (A3) บล็อก — บริษัทนี้ปิดกฎ (owner ยอมรับความเสี่ยง)
+      const blocked = await call(full, 'post', '/v1/invoices/{id}/finalize', {
+        params: { id: draft.id },
+        headers: { 'If-Match': g.headers.etag as string },
+      });
+      expect(blocked.status).toBe(403);
+      expect(blocked.body.code).toBe('invoice_self_finalize');
+      await db.tenantSetting.upsert({
+        where: { tenantId_key: { tenantId: tenantA, key: 'billing.allowSelfFinalize' } },
+        create: { tenantId: tenantA, key: 'billing.allowSelfFinalize', value: true },
+        update: { value: true },
+      });
+      const stale = await call(full, 'post', '/v1/invoices/{id}/finalize', {
+        params: { id: draft.id },
+        headers: { 'If-Match': '"999"' },
+      });
+      expect(stale.status).toBe(412);
+      const fin = await call(full, 'post', '/v1/invoices/{id}/finalize', {
+        params: { id: draft.id },
+        headers: { 'If-Match': g.headers.etag as string },
+        expect: 200,
+      });
+      expect(fin.body).toMatchObject({
+        status: 'ISSUED',
+        invoiceNo: expect.stringMatching(/^INV-00000-\d{4}-0001$/),
+      });
+    });
+
     it('#2 #10 webhooks/event-types/deliveries (อ่าน) · jobs · api-keys · openapi.json ด้วย key', async () => {
       // webhook endpoint + delivery: สร้าง/ส่งทดสอบด้วย session (ต้องมี settings:write ซึ่งให้ key ไม่ได้) แล้วอ่านด้วย key
       process.env.WEBHOOK_ALLOW_PRIVATE_TARGETS = '1';
@@ -1191,7 +1282,7 @@ describe(
       }
     });
 
-    it('แถว #6 (invoices / invoice-runs / payments) = DEFERRED → ST5 — ยังไม่มี path ใน OpenAPI', () => {
+    it('แถว #6 (void / invoice-runs / payments) = DEFERRED → ST5 — ยังไม่มี path ใน OpenAPI', () => {
       for (const d of DEFERRED) {
         expect(d.task).toMatch(/^ST5-T\d+$/);
         for (const p of d.paths)

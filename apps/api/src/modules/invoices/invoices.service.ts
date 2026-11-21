@@ -66,6 +66,7 @@ const LOAD = {
       revenueLine: { select: { kind: true } },
     },
   },
+  pdfDocument: { select: { id: true, filename: true, sha256: true, sizeBytes: true } },
 } as const satisfies Prisma.InvoiceInclude;
 type InvoiceRow = Prisma.InvoiceGetPayload<{ include: typeof LOAD }>;
 type LineRow = InvoiceRow['lines'][number];
@@ -740,6 +741,11 @@ export class InvoicesService {
     }));
   }
 
+  /** ST5-T09: คำนวณยอดหัวใบใหม่ก่อนออกเลข (ค่าตั้ง WHT อาจเปลี่ยนหลังแก้ร่างครั้งล่าสุด) — ไม่เพิ่ม version */
+  async refreshTotals(tx: Tx, id: string): Promise<void> {
+    await this.recompute(tx, id, false);
+  }
+
   /** ยอดหัวใบ + VAT รายบรรทัด (แสดงผล) จากบรรทัดที่ยังใช้ — computeDocumentTax (ประมาณการ D-54) */
   private async recompute(tx: Tx, id: string, bump: boolean) {
     const lines = await tx.invoiceLine.findMany({
@@ -923,13 +929,25 @@ function headerOf(i: {
   };
 }
 
-function customerDto(c: InvoiceRow['customer']) {
+/** snapshot ลูกค้า/ผู้ออก ณ วันออก (ST5-T09 — `invoice.customer_snapshot` / `issuer_snapshot`) */
+export interface InvoicePartySnapshot {
+  code?: string;
+  name: string;
+  taxId: string | null;
+  branchCode: string | null;
+  address: string;
+  vatRegistered?: boolean;
+}
+
+/** ใบที่ออกแล้ว = ชื่อ/เลขผู้เสียภาษี/สาขา ณ วันออก (snapshot) · ร่าง = ข้อมูลลูกค้าปัจจุบัน */
+function customerDto(c: InvoiceRow['customer'], snap?: unknown) {
+  const x = snap as InvoicePartySnapshot | null | undefined;
   return {
     id: encodeId('customer', c.id),
-    code: c.code,
-    legalName: c.legalName,
-    taxId: c.taxId,
-    branchCode: c.branchCode,
+    code: x?.code ?? c.code,
+    legalName: x?.name ?? c.legalName,
+    taxId: x ? x.taxId : c.taxId,
+    branchCode: x ? x.branchCode : c.branchCode,
   };
 }
 
@@ -941,13 +959,15 @@ function summary(
     id: encodeId('invoice', r.id),
     invoiceNo: r.invoiceNo,
     status: r.status as InvoiceStatus,
-    customer: customerDto(r.customer),
+    customer: customerDto(r.customer, r.customerSnapshot),
     periodFrom: r.periodFrom ? ymd(r.periodFrom) : null,
     periodTo: r.periodTo ? ymd(r.periodTo) : null,
     deliveryOrderCount: doCount,
     lineMode: r.lineMode as InvoiceLineMode,
     sellTotal: money(r.totalAmount),
     sellNetExpected: money(r.netExpectedAmount),
+    issueDate: r.issueDate ? ymd(r.issueDate) : null,
+    dueDate: r.dueDate ? ymd(r.dueDate) : null,
     version: r.version,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
@@ -1050,5 +1070,16 @@ function toDto(r: InvoiceRow): InvoiceDto {
     })),
     cancelReason: r.cancelReason,
     createdBy: r.createdBy,
+    issuedAt: r.issuedAt?.toISOString() ?? null,
+    issuedBy: r.issuedBy,
+    pdf:
+      r.pdfDocument && r.pdfDocument.sha256
+        ? {
+            documentId: encodeId('document', r.pdfDocument.id),
+            filename: r.pdfDocument.filename ?? `${r.invoiceNo ?? 'invoice'}.pdf`,
+            sha256: r.pdfDocument.sha256,
+            sizeBytes: r.pdfDocument.sizeBytes,
+          }
+        : null,
   };
 }

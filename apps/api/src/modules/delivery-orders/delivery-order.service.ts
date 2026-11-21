@@ -892,7 +892,21 @@ export class DeliveryOrderService {
     event: Extract<DoEvent, 'pod_wait' | 'pod_accept'> | null,
     note: string | null,
   ): Promise<void> {
-    if (event) return this.move(tx, d, event, { podStatus }, note);
+    if (event) {
+      await this.move(tx, d, event, { podStatus }, note);
+      // ST5-T09 review M2: DO ที่ออกใบแจ้งหนี้ไปแล้วตอนยังไม่ครบหลักฐาน (ลูกค้าไม่บังคับหลักฐานก่อนวางบิล — billing_status INVOICED
+      // แต่ status ค้าง DELIVERED/POD_PENDING) เมื่อหลักฐานครบ → UNBILLED แล้วต่อ `bill` → BILLED ทันที (docs/01 §4.3
+      // "UNBILLED → BILLED: อยู่ใน invoice_line ของ invoice ที่ ISSUED") — ไม่ค้าง UNBILLED ทั้งที่อยู่ในใบที่ออกแล้ว
+      if (event === 'pod_accept') {
+        const cur = await tx.deliveryOrder.findUnique({
+          where: { id: d.id },
+          select: { id: true, status: true, version: true, billingStatus: true },
+        });
+        if (cur?.status === 'UNBILLED' && cur.billingStatus === 'INVOICED')
+          await this.move(tx, cur, 'bill', {}, 'pod_accept: อยู่ในใบแจ้งหนี้ที่ออกแล้ว');
+      }
+      return;
+    }
     if (d.podStatus === podStatus) return;
     const r = await tx.deliveryOrder.updateMany({
       where: { id: d.id, status: d.status as DbDoStatus, version: d.version },
@@ -1067,6 +1081,23 @@ export class DeliveryOrderService {
         },
       });
     }
+  }
+
+  /**
+   * ST5-T09 ออกเอกสารใบแจ้งหนี้: DO ในใบ (ผู้เรียกล็อกแล้ว — `lockForBilling`) ที่ `status` = UNBILLED → `bill` → BILLED
+   * (docs/01 §4.3 "UNBILLED → BILLED: อยู่ใน invoice_line ของ invoice ที่ ISSUED") ผ่าน StateService (history + event สถานะ DO)
+   * DO ที่วางบิลได้ก่อนเป็น UNBILLED (ลูกค้าไม่บังคับหลักฐาน — DELIVERED/POD_PENDING) **ไม่เปลี่ยน `status`** (ตาราง transition ไม่มีทางนั้น
+   * — แกนวางบิลจริงคือ `billing_status` = INVOICED; หลักฐานครบภายหลัง → `applyPodResult` ต่อ `bill` ให้ — review M2) [DECISION spec/12 §3 แถว ST5-T09] · คืนจำนวนที่เปลี่ยน
+   */
+  async billForInvoice(tx: Tx, ids: string[], note: string): Promise<number> {
+    if (!ids.length) return 0;
+    const rows = await tx.deliveryOrder.findMany({
+      where: { id: { in: ids }, status: 'UNBILLED' },
+      select: { id: true, status: true, version: true },
+      orderBy: { id: 'asc' },
+    });
+    for (const d of rows) await this.move(tx, d, 'bill', {}, note);
+    return rows.length;
   }
 
   /**
@@ -1403,6 +1434,7 @@ export class DeliveryOrderService {
       | 'pod_accept'
       | 'return'
       | 'revert_delivery'
+      | 'bill'
     >,
     data: Prisma.DeliveryOrderUncheckedUpdateManyInput,
     note: string | null,

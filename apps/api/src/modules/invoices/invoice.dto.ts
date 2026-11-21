@@ -390,9 +390,31 @@ export class InvoiceSummaryDto {
   })
   @PriceField('sell')
   sellNetExpected?: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '2026-11-20',
+    description: 'วันที่ออก (เวลาไทย) — ร่าง = null',
+  })
+  issueDate!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '2026-12-20',
+    description: 'ครบกำหนดชำระ = วันที่ออก + เครดิต (spec/05 BIL-031) — ร่าง = null',
+  })
+  dueDate!: string | null;
   @ApiProperty() version!: number;
   @ApiProperty() createdAt!: string;
   @ApiProperty() updatedAt!: string;
+}
+
+/** PDF ต้นฉบับ ณ วันออก (เก็บแบบเขียนครั้งเดียว — BIL-196) */
+export class InvoicePdfDto {
+  @ApiProperty({ example: 'doc_…' }) documentId!: string;
+  @ApiProperty({ example: 'INV-00000-6911-0001.pdf' }) filename!: string;
+  @ApiProperty({ description: 'SHA-256 ของไฟล์' }) sha256!: string;
+  @ApiProperty() sizeBytes!: number;
 }
 
 export class InvoiceDto extends InvoiceSummaryDto {
@@ -438,6 +460,21 @@ export class InvoiceDto extends InvoiceSummaryDto {
   printLines!: InvoicePrintLineDto[];
   @ApiProperty({ nullable: true, type: String }) cancelReason!: string | null;
   @ApiProperty({ nullable: true, type: String }) createdBy!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'เวลาออกเอกสาร (ออกเลข) — ร่าง = null',
+  })
+  issuedAt!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'ผู้ออกเอกสาร' })
+  issuedBy!: string | null;
+  @ApiProperty({
+    type: InvoicePdfDto,
+    nullable: true,
+    description:
+      'PDF ต้นฉบับที่เก็บ ณ วันออก — null = ร่าง หรือยังไม่ได้ render (render หลังออกเลข; `GET /v1/invoices/{id}/pdf` สร้างให้ถ้ายังไม่มี)',
+  })
+  pdf!: InvoicePdfDto | null;
 }
 
 export class InvoicePageDto {
@@ -459,8 +496,16 @@ export class InvoiceSummaryCountsDto {
   @ApiProperty() partiallyPaid!: number;
   @ApiProperty() paid!: number;
   @ApiProperty({
-    description: 'เกินกำหนด — คำนวณเมื่อมีวันครบกำหนด/รับชำระ (ST5-T09/T22) ตอนนี้ 0 เสมอ',
+    description: 'เกินกำหนด — คำนวณเมื่อมีการรับชำระ (ST5-T22) ตอนนี้ 0 เสมอ',
   })
   overdue!: number;
   @ApiProperty({ description: 'CANCELLED + VOIDED' }) cancelled!: number;
+}
+
+/** ฉบับของ PDF ใบที่ออกแล้ว (BIL-195): ต้นฉบับ / สำเนา */
+export class InvoicePdfQuery {
+  @ApiPropertyOptional({ enum: ['ORIGINAL', 'COPY'], default: 'ORIGINAL' })
+  @IsOptional()
+  @IsIn(['ORIGINAL', 'COPY'])
+  copy?: 'ORIGINAL' | 'COPY';
 }

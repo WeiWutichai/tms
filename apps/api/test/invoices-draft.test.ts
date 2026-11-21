@@ -16,7 +16,15 @@ import {
 import { RevenueLinesService } from '../src/modules/revenue-lines/revenue-lines.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
-import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
+import {
+  api,
+  bootApp,
+  issuedTestFields,
+  platform,
+  tokenFor,
+  truncateAll,
+  validTaxId,
+} from './helpers';
 
 /**
  * ST5-T07 ร่างใบแจ้งหนี้ (D-54: ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี) — เกณฑ์ตรวจรับ:
@@ -574,7 +582,7 @@ describe('invoice drafts (ST5-T07)', { timeout: 600_000 }, () => {
     ).rejects.toThrow(/invoice_line_active_revenue_line_key|Unique constraint/);
     await db.invoice.update({
       where: { id: iid },
-      data: { status: 'ISSUED', invoiceNo: 'INV-T07-1' },
+      data: { status: 'ISSUED', ...issuedTestFields('INV-T07-1') },
     });
     await expect(
       run((tx) => tx.invoiceLine.update({ where: { id: line.id }, data: { discount: '1.00' } })),
