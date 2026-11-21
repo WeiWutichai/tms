@@ -161,6 +161,15 @@ export function deliveryOrderWhere(
  * DO ไม่ยกเลิก + มี trip_id + trip ไม่ CANCELLED · สัญญากับ ST3-T11: ยกเลิก trip ต้องล้าง trip_id ของ DO ที่ยังไม่ส่ง
  * (นิยามนี้ยังถูกแม้ trip_id ค้าง) — `ON_ACTIVE_TRIP_WHERE` (query) กับ `isOnActiveTrip` (แถวที่โหลดแล้ว) ต้องตรงกันเสมอ
  */
+/**
+ * ST5-T13: ประทับ/ล้าง `paid_at` ของ DO เมื่อใบแจ้งหนี้เปลี่ยนเข้า/ออกจาก PAID (ผู้เรียกอยู่ใน tx เดียวกับการปรับยอดรับชำระ)
+ * — อยู่ในไฟล์นี้เพื่อให้การเขียน delivery_order* มีที่เดียว (test call path)
+ */
+export async function setDeliveryOrdersPaidAt(tx: Tx, ids: string[], paidAt: Date | null) {
+  if (!ids.length) return;
+  await tx.deliveryOrder.updateMany({ where: { id: { in: ids } }, data: { paidAt } });
+}
+
 export const ON_ACTIVE_TRIP_WHERE = {
   // ST4-T11: คืนคลังแล้ว (RETURNED — สิ้นสุด ของกลับคลัง) ไม่นับว่าอยู่ในเที่ยว
   status: { notIn: ['CANCELLED', 'RETURNED'] },

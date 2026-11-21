@@ -309,5 +309,39 @@ test.describe.serial('รถร่วมตรวจใบสำคัญจ่�
     const ok = await approve();
     expect(ok.status(), await ok.text()).toBe(200);
     expect((await ok.json()).status).toBe('APPROVED');
+
+    // ST6-T09 เกณฑ์ตรวจรับ: บันทึกจ่าย (เจ้าของ — settlements:pay) → PAID · เที่ยว SETTLED ไม่กลับเข้าคิว · ลิงก์รถร่วมขึ้น "จ่ายแล้ว"
+    const approved = await get<Settlement & { status: string; carrier: { id: string } }>(
+      page,
+      `/v1/settlements/${S.other}`,
+    );
+    const paid = await page.request.post(`/v1/settlements/${S.other}/mark-paid`, {
+      headers: { ...H, 'If-Match': `"${approved.version}"` },
+      data: { paidDate: today, method: 'TRANSFER', reference: 'KBANK-2611-0091' },
+    });
+    expect(paid.status(), await paid.text()).toBe(200);
+    expect(await paid.json()).toMatchObject({ status: 'PAID', paymentMethod: 'TRANSFER' });
+    const again = await page.request.post(`/v1/settlements/${S.other}/mark-paid`, {
+      headers: { ...H, 'If-Match': `"${approved.version + 1}"` },
+      data: { paidDate: today, method: 'CASH' },
+    });
+    expect(again.status()).toBe(409);
+    const tripIds = [
+      ...new Set(
+        approved.lines.map((l) => (l as { tripId?: string | null }).tripId).filter(Boolean),
+      ),
+    ] as string[];
+    for (const id of tripIds)
+      expect((await get<{ status: string }>(page, `/v1/trips/${id}`)).status).toBe('SETTLED');
+    expect(tripIds.length).toBeGreaterThan(0);
+    const q = await get<{ data: { id: string }[] }>(
+      page,
+      `/v1/settlements/queue?carrierId=${approved.carrier.id}`,
+    );
+    expect(q.data).toEqual([]);
+    const { ctx: c2, p: p2 } = await mobile(browser, S.otherUrl!);
+    await expect(p2.getByTestId('stl-status')).toHaveText('จ่ายแล้ว');
+    await expect(p2.getByText('จ่ายแล้ว · ตอบรายการไม่ได้แล้ว')).toBeVisible();
+    await c2.close();
   });
 });

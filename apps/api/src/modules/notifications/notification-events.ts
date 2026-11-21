@@ -145,6 +145,34 @@ export class NotificationEvents implements OnModuleInit {
     );
   }
 
+  /**
+   * ST8-T05 ต้นทางยกเลิกใบสั่งที่มี DO แล้ว (TMS ไม่ยกเลิกเอง — docs/01 A.4) → ผู้ดูแลใบสั่ง `orders:write` + ผู้จัดรถ `trips:assign`
+   */
+  async orderSourceCancelled(
+    tx: Tx,
+    input: { tenantId: string; orderId: string; source: string },
+  ): Promise<void> {
+    const so = await tx.salesOrder.findUnique({
+      where: { id: input.orderId },
+      select: { soNo: true, customerText: true, customer: { select: { legalName: true } } },
+    });
+    if (!so) return;
+    await this.safely(tx, 'order.source_cancelled', () =>
+      this.notifications.notify(tx, {
+        tenantId: input.tenantId,
+        to: { permissions: ['orders:write', 'trips:assign'], exclude: selfExclude() },
+        template: 'order.source_cancelled',
+        vars: {
+          orderNo: so.soNo ?? encodeId('salesOrder', input.orderId),
+          customer: so.customer?.legalName ?? so.customerText ?? '-',
+          source: input.source,
+        },
+        link: '/so',
+        entity: { type: 'order', id: encodeId('salesOrder', input.orderId) },
+      }),
+    );
+  }
+
   /** ข้อความตามฝั่งที่ผู้รับยืนยันได้: มีสิทธิ์ทั้งสองฝั่ง = "ฝั่งขายและฝั่งซื้อ" · ฝั่งเดียว = ฝั่งนั้น */
   async fieldChargePending(
     tx: Tx,

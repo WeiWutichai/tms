@@ -237,6 +237,7 @@ const EVENT_TYPE: Partial<Record<TripEvent, string>> = {
   start: 'trip.started',
   complete: 'trip.completed',
   cost: 'trip.costed',
+  settle: 'trip.settled',
   cancel: 'trip.cancelled',
 };
 
@@ -1573,6 +1574,17 @@ export class TripService {
       },
     });
     return final;
+  }
+
+  /**
+   * เที่ยวรถร่วมจ่ายครบ (ST6-T09; docs/01 §4.2 COSTED → SETTLED "(รถร่วม) cost line ถูกจ่ายใน settlement") — ระบบทำตอนบันทึกจ่ายใบสำคัญจ่าย
+   * (`SettlementsService.markPaid` ล็อกเที่ยวแล้วและตรวจว่าทุกบรรทัดต้นทุนของเที่ยวจ่ายแล้ว) · ไม่ตรวจ If-Match แต่เพิ่ม version ·
+   * ประวัติสถานะ + event ภายใน `trip.settled` · SETTLED = สิ้นสุด (ไม่กลับเข้าคิวจ่าย)
+   */
+  async settle(tx: Tx, tripId: string): Promise<void> {
+    const trip = await this.get(tripId, tx);
+    this.assertCan(trip, 'settle');
+    await this.transition(tx, trip, 'settle', {});
   }
 
   /**

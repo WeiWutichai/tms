@@ -1393,6 +1393,7 @@ const { data, error } = await tms.POST('/v1/revenue-lines/{id}/void', {
 | `lines` | ใช่ | `array<OrderLineDto>` |   |   |   |
 | `editableFields` |   | `array<string>` |   | ช่องที่แก้ได้ในสถานะปัจจุบัน — มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) · ว่าง = แก้ไม่ได้ (ปิดงาน/ยกเลิก) · ฟอร์มใช้ปิดช่องที่แก้ไม่ได้ก่อนส่ง (server ตรวจซ้ำ → 409 `order_locked_for_update`) |   |
 | `sourceChangedAfterPlan` | ใช่ | `boolean` |   | ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน |   |
+| `sourceCancelledAt` | ใช่ | `string (date-time)` | null ได้ | ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก |   |
 | `sourceChange` | ใช่ | `OrderSourceChangeDto` | null ได้ | ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject) |   |
 | `editLock` |   | `OrderEditLockDto` | null ได้ | ผู้ที่เปิดแก้ใบนี้อยู่ · null = ไม่มีใครแก้ · มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) |   |
 | `version` | ใช่ | `number` |   |   |   |
@@ -1451,6 +1452,7 @@ const { data, error } = await tms.POST('/v1/revenue-lines/{id}/void', {
 | `lines` | ใช่ | `array<OrderLineDto>` |   |   |   |
 | `editableFields` |   | `array<string>` |   | ช่องที่แก้ได้ในสถานะปัจจุบัน — มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) · ว่าง = แก้ไม่ได้ (ปิดงาน/ยกเลิก) · ฟอร์มใช้ปิดช่องที่แก้ไม่ได้ก่อนส่ง (server ตรวจซ้ำ → 409 `order_locked_for_update`) |   |
 | `sourceChangedAfterPlan` | ใช่ | `boolean` |   | ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน |   |
+| `sourceCancelledAt` | ใช่ | `string (date-time)` | null ได้ | ต้นทาง (ERP connector) แจ้งว่ายกเลิกใบนี้ — ใบที่ยังไม่มี DO ถูกยกเลิกอัตโนมัติ (`status = cancelled`) · มี DO แล้ว = ไม่ยกเลิก แจ้งเตือนผู้วางแผนให้ตรวจและยกเลิกเอง · null = ต้นทางไม่ได้ยกเลิก |   |
 | `sourceChange` | ใช่ | `OrderSourceChangeDto` | null ได้ | ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject) |   |
 | `editLock` |   | `OrderEditLockDto` | null ได้ | ผู้ที่เปิดแก้ใบนี้อยู่ · null = ไม่มีใครแก้ · มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) |   |
 | `version` | ใช่ | `number` |   |   |   |
