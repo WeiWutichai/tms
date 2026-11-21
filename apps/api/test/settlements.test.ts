@@ -1774,10 +1774,11 @@ describe('settlements (ST6-T03)', () => {
       expect(after.draft).toBe(before.draft + 1);
       expect(after.paid).toBe(before.paid + 1);
       expect(after.approved).toBe(before.approved);
-      expect(Number(after.buyPaidThisMonth) - Number(before.buyPaidThisMonth)).toBeCloseTo(
-        Number(paid.buyNetAfterWht),
-        2,
-      );
+      // ทศนิยมแบบ string ตรงตัว (ไม่ผ่าน float) — คิดเป็นสตางค์
+      const satang = (v: string) => BigInt(v.replace('.', ''));
+      const want = satang(before.buyPaidThisMonth) + satang(paid.buyNetAfterWht);
+      const ws = want.toString().padStart(3, '0');
+      expect(after.buyPaidThisMonth).toBe(`${ws.slice(0, -2)}.${ws.slice(-2)}`);
       // กรองหลายสถานะ (แท็บ "รอตรวจ" = DRAFT,DISPUTED ของหน้า settle) — จำกัดรถร่วมรายนี้ (ชุด DB-rule ข้างบนสร้างแถว snapshot ไม่ครบ)
       const ids = async (status: string) =>
         (
@@ -1815,6 +1816,7 @@ describe('settlements (ST6-T03)', () => {
           tenantId,
           carrierId: uuid('carrier', C.id),
           carrierSnapshot: { code: 'SUB-X', legalName: 'หจก. ข้อมูลไม่ครบ' },
+          createdBy: 'u-acc',
           periodFrom: new Date(`${today}T00:00:00Z`),
           periodTo: new Date(`${today}T00:00:00Z`),
         },
@@ -1843,6 +1845,25 @@ describe('settlements (ST6-T03)', () => {
         });
       }
       await api(app, admin).get('/v1/settlements/summary').expect(200);
+      // รายละเอียด: whtEstimate null ไม่มียอด WHT (ไม่เดาประเภท) · PDF/อนุมัติ → 409 settlement_carrier_type_missing (ไม่ใช่ 500)
+      // แถวแบบนี้เกิดได้จากการเขียนฐานตรงเท่านั้น — create คัดลอก carrier.entity_type (enum NOT NULL) ลง snapshot เสมอ
+      const d = await api(app, admin).get(`/v1/settlements/${badId}`);
+      expect(d.status, JSON.stringify(d.body)).toBe(200);
+      expect(d.body).toMatchObject({ whtEstimate: null, buyNetPayable: '0.00' });
+      expect(d.body.buyWhtAmount).toBeUndefined();
+      expect(d.body.buyNetAfterWht).toBeUndefined();
+      const pdf = await api(app, admin).get(`/v1/settlements/${badId}/pdf`);
+      expect(pdf.status, JSON.stringify(pdf.body)).toBe(409);
+      expect(pdf.body.code).toBe('settlement_carrier_type_missing');
+      const ap = await api(app, approver)
+        .post(`/v1/settlements/${badId}/approve`)
+        .set('If-Match', `"${bad.version}"`)
+        .send(APPROVE);
+      expect(ap.status, JSON.stringify(ap.body)).toBe(409);
+      expect(ap.body.code).toBe('settlement_carrier_type_missing');
+      expect((await db.carrierSettlement.findUniqueOrThrow({ where: { id: bad.id } })).status).toBe(
+        'DRAFT',
+      );
     });
 
     it('ตรวจข้อมูล: โอน/เช็คต้องมีเลขอ้างอิง · เงินสดไม่ต้อง · วันที่ในอนาคต/ไม่จริง 422 · If-Match บังคับ (422) / ไม่ตรง 412', async () => {

@@ -10,19 +10,41 @@ import type { Settlement } from './useSettlements';
 /** หน้า settle: แท็บ → สถานะ (docs/01 §4.5) · ยอด "หัก" · แถวยอดเงิน · ข้อความ error ของอนุมัติ/บันทึกจ่าย (D-60, step-up, 409, 422) */
 const state: { error: unknown; settlement: Settlement | null } = { error: null, settlement: null };
 const mutate = vi.fn();
+/** อนุมัติ: ผลของคำขอถัดไป (error ตามลำดับ · หมด = สำเร็จ) — hook จำลองที่เปลี่ยน `error` จริง (dialog ปลดปุ่มตาม error ใหม่) */
+const approveQueue: unknown[] = [];
+const refetch = vi.fn();
 vi.mock('./useSettlements', async (orig) => {
   const real = await orig<typeof import('./useSettlements')>();
+  const { useState } = await import('react');
   return {
     ...real,
-    useSettlement: () => ({ data: state.settlement, refetch: vi.fn() }),
+    useSettlement: () => ({ data: state.settlement, refetch }),
     useMarkPaid: () => ({ mutate, isPending: false, error: state.error }),
-    useApproveSettlement: () => ({ mutate, isPending: false, error: state.error }),
+    useApproveSettlement: () => {
+      const [error, setError] = useState<unknown>(state.error);
+      return {
+        isPending: false,
+        error,
+        mutate: (
+          v: unknown,
+          o: { onError: (e: unknown) => void; onSuccess: (r: unknown) => void },
+        ) => {
+          mutate(v);
+          const e = approveQueue.shift();
+          if (e) {
+            setError(e);
+            o.onError(e);
+          } else o.onSuccess({ settlementNo: 'SA-6911-0001' });
+        },
+      };
+    },
   };
 });
 const { TAB_STATUS, deductTotal, actionErrorText, amountRows, canRelinkStatus, viewOnlyLink } =
   await import('./settle');
 const { MarkPaidDialog } = await import('./MarkPaidDialog');
 const { ApproveDialog } = await import('./ApproveDialog');
+const { SettlementDrawer } = await import('./SettlementDrawer');
 
 const t = ((k: string, p?: Record<string, unknown>) =>
   String((th as Record<string, string>)[k] ?? k).replace(/\{(\w+)\}/g, (_, n) =>
@@ -134,10 +156,11 @@ describe('dialog บันทึกจ่าย / อนุมัติ', () => 
   });
 
   it('อนุมัติ: เกินวงเงิน (step_up_required) → กล่องยืนยัน 2FA แทนข้อความ error · error อื่นเป็นข้อความไทย', () => {
-    state.error = problem('step_up_required', 403);
+    state.settlement = S;
+    state.error = null;
     mutate.mockReset();
-    mutate.mockImplementation((_v, o: { onError: (e: unknown) => void }) => o.onError(state.error));
-    wrap(<ApproveDialog s={S} onClose={() => {}} onDone={() => {}} />);
+    approveQueue.splice(0, approveQueue.length, problem('step_up_required', 403));
+    wrap(<ApproveDialog id="stl_1" onClose={() => {}} onDone={() => {}} />);
     expect(screen.getByText('อนุมัติ SA-6911-0001')).toBeTruthy();
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'ตรวจยอดตรงใบแจ้งหนี้แล้ว' },
@@ -148,9 +171,87 @@ describe('dialog บันทึกจ่าย / อนุมัติ', () => 
     expect(screen.queryByText(th['problem.step_up_required'])).toBeNull();
   });
 
+  it('review M1: อนุมัติได้ 412 → โหลดใบใหม่ · กดซ้ำส่ง version ใหม่', () => {
+    state.settlement = S;
+    state.error = null;
+    mutate.mockReset();
+    refetch.mockReset();
+    refetch.mockImplementation(() => {
+      state.settlement = { ...S, version: 4 } as Settlement;
+    });
+    approveQueue.splice(0, approveQueue.length, problem('precondition_failed', 412));
+    const done = vi.fn();
+    wrap(<ApproveDialog id="stl_1" onClose={() => {}} onDone={done} />);
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'ตรวจยอดตรงใบแจ้งหนี้แล้ว' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'อนุมัติ' }));
+    expect(refetch).toHaveBeenCalled();
+    expect(screen.getByText(th['problem.precondition_failed'])).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'อนุมัติ' }));
+    expect(mutate.mock.calls.map((c) => (c[0] as { version: number }).version)).toEqual([3, 4]);
+    expect(done).toHaveBeenCalledWith('SA-6911-0001');
+  });
+
   it('อนุมัติ: ผู้เตรียมใบอนุมัติเอง → ข้อความไทยของ settlement_self_approval', () => {
+    state.settlement = S;
     state.error = problem('settlement_self_approval', 403);
-    wrap(<ApproveDialog s={S} onClose={() => {}} onDone={() => {}} />);
+    wrap(<ApproveDialog id="stl_1" onClose={() => {}} onDone={() => {}} />);
     expect(screen.getByText(th['problem.settlement_self_approval'])).toBeTruthy();
+  });
+});
+
+describe('drawer: ปุ่มตามสิทธิ์ (review L7) · ขั้นอนุมัติของร่าง = รอดำเนินการ (L4) · ซ่อนยอดเมื่อไม่มีสิทธิ์ราคา (L1)', () => {
+  const drawer = (x: Partial<Settlement>, can: { a?: boolean; p?: boolean; r?: boolean }) => {
+    state.settlement = { ...S, createdAt: '2026-11-20T03:00:00Z', ...x } as Settlement;
+    return wrap(
+      <SettlementDrawer
+        id="stl_1"
+        link={null}
+        canApprove={!!can.a}
+        canPay={!!can.p}
+        canRelink={!!can.r}
+        onApprove={() => {}}
+        onPay={() => {}}
+        onRelink={() => {}}
+        onClose={() => {}}
+        onToast={() => {}}
+      />,
+    );
+  };
+  const menuHas = (name: string) => {
+    fireEvent.click(screen.getByRole('button', { name: th['drawer.more'] }));
+    return !!screen.queryByRole('menuitem', { name });
+  };
+
+  it('ไม่มีสิทธิ์ = ไม่มีปุ่มอนุมัติ / บันทึกจ่าย / ออกลิงก์ใหม่', () => {
+    drawer({ status: 'SENT_TO_CARRIER' }, {});
+    expect(screen.queryByRole('button', { name: 'อนุมัติ' })).toBeNull();
+    expect(menuHas('ออกลิงก์ใหม่')).toBe(false);
+  });
+  it('มีสิทธิ์อนุมัติ + ออกลิงก์ → มีปุ่ม/เมนู', () => {
+    drawer({ status: 'SENT_TO_CARRIER' }, { a: true, r: true });
+    expect(screen.getByRole('button', { name: 'อนุมัติ' })).toBeTruthy();
+    expect(menuHas('ออกลิงก์ใหม่')).toBe(true);
+  });
+  it('ใบอนุมัติแล้ว: บันทึกจ่ายเฉพาะผู้มีสิทธิ์จ่าย', () => {
+    const v = drawer({ status: 'APPROVED' }, { a: true });
+    expect(screen.queryByRole('button', { name: 'บันทึกจ่าย' })).toBeNull();
+    v.unmount();
+    drawer({ status: 'APPROVED' }, { p: true });
+    expect(screen.getByRole('button', { name: 'บันทึกจ่าย' })).toBeTruthy();
+  });
+  it('ร่าง: ขั้น "อนุมัติ" ในกิจกรรม = รอดำเนินการ ไม่ใช่ข้าม', () => {
+    drawer({ status: 'DRAFT', approvedAt: null } as Partial<Settlement>, {});
+    fireEvent.click(screen.getByRole('tab', { name: th['bill.tab.log'] }));
+    const step = screen.getByText(th['settle.step.approve']).parentElement!;
+    expect(step.textContent).toContain(th['bill.step.pending']);
+    expect(step.textContent).not.toContain(th['bill.step.skip']);
+  });
+  it('บันทึกจ่าย: ไม่มีสิทธิ์ดูราคาซื้อ = ไม่แสดงตารางยอด', () => {
+    state.settlement = { ...S, buyGrossAmount: undefined } as unknown as Settlement;
+    state.error = null;
+    wrap(<MarkPaidDialog id="stl_1" onClose={() => {}} onDone={() => {}} />);
+    expect(screen.queryByText('จ่ายสุทธิ')).toBeNull();
   });
 });

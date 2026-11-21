@@ -37209,6 +37209,7 @@
             "in": "query",
             "description": "สถานะ คั่นด้วย , ได้ (DRAFT / SENT_TO_CARRIER / DISPUTED / APPROVED / PAID / CANCELLED) — แท็บหน้า `settle` ใช้หลายสถานะ",
             "schema": {
+              "pattern": "^(DRAFT|SENT_TO_CARRIER|DISPUTED|APPROVED|PAID|CANCELLED)(,(DRAFT|SENT_TO_CARRIER|DISPUTED|APPROVED|PAID|CANCELLED))*$",
               "example": "DRAFT,DISPUTED",
               "type": "string"
             }
@@ -85003,7 +85004,8 @@
               "PND3",
               "PND53"
             ],
-            "description": "แบบยื่น ภ.ง.ด.3 (บุคคล) / ภ.ง.ด.53 (นิติบุคคล)"
+            "nullable": true,
+            "description": "แบบยื่น ภ.ง.ด.3 (บุคคล) / ภ.ง.ด.53 (นิติบุคคล) · null = ข้อมูลรถร่วมในใบไม่มีประเภท (จัดแบบยื่นไม่ได้ — ไม่มียอดหัก ณ ที่จ่ายประมาณการ ยกเว้นยอดที่ตรึงแล้ว)"
           },
           "approvedAt": {
             "type": "string",
@@ -85652,7 +85654,14 @@
             "description": "ยอดจ่ายรถร่วมหลังหัก ณ ที่จ่าย = ยอดรวม − หัก ณ ที่จ่าย − รายการหัก (ประมาณการ) — เห็นเมื่อมี `prices.buy:read`"
           },
           "whtEstimate": {
-            "$ref": "#/components/schemas/SettlementWhtEstimateDto"
+            "nullable": true,
+            "description": "null = ข้อมูลรถร่วมในใบไม่มีประเภท (บุคคล/นิติบุคคล) จัดแบบยื่นไม่ได้ — ไม่มียอดประมาณการ (`buyWhtAmount`/`buyNetAfterWht` มีเฉพาะยอดที่ตรึงแล้ว) · อนุมัติ/บันทึกจ่าย/PDF → 409 `settlement_carrier_type_missing`",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SettlementWhtEstimateDto"
+              }
+            ]
           },
           "lines": {
             "description": "ทุกบรรทัด รวมบรรทัดที่นำออกแล้ว (`active` false)",
@@ -103593,6 +103602,11 @@
       "status": 503,
       "title": "ระบบกำลังมีผู้ใช้งานมาก กรุณาลองใหม่อีกครั้ง",
       "titleEn": "Service busy — please retry"
+    },
+    "settlement_carrier_type_missing": {
+      "status": 409,
+      "title": "ข้อมูลรถร่วมในใบสำคัญจ่ายไม่มีประเภท (บุคคลธรรมดา/นิติบุคคล) คำนวณหัก ณ ที่จ่ายไม่ได้ — ยกเลิกใบแล้วสร้างใหม่",
+      "titleEn": "The carrier on this settlement has no entity type; withholding tax cannot be estimated"
     },
     "settlement_disputed": {
       "status": 409,

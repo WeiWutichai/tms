@@ -117,7 +117,8 @@ export function MarkPaidDialog({
           </button>
         </div>
         <div className="tms-dialog__body">
-          {s && (
+          {/* ไม่มีสิทธิ์ดูราคาซื้อ (`prices.buy:read`) = ไม่แสดงตารางยอด (review L1) */}
+          {s && s.buyGrossAmount !== undefined && (
             <div style={{ border: '1px solid #D9DCD4', borderRadius: 8, overflow: 'hidden' }}>
               {amountRows(t, s).map((r) => (
                 <div

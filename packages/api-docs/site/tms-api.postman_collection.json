@@ -4122,6 +4122,30 @@
           }
         },
         {
+          "name": "KPI หน้า \"Settlement รถร่วม\" — จำนวนต่อสถานะ + ยอดจ่ายแล้วเดือนนี้",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/settlements/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "settlements",
+                "summary"
+              ]
+            },
+            "description": "scope: settlements:read\n\nจำนวนใบต่อสถานะ สำหรับแท็บ/การ์ด KPI ของหน้า `settle` · `buyPaidThisMonth` = Σ ยอดจ่ายหลังหัก ณ ที่จ่าย (ที่ตรึงตอนอนุมัติ) ของใบที่จ่ายแล้วในเดือนนี้ (เวลาไทย) — เห็นเมื่อมี `prices.buy:read`"
+          }
+        },
+        {
           "name": "รายการใบสำคัญจ่ายรถร่วม",
           "request": {
             "method": "GET",
@@ -4179,8 +4203,8 @@
                 },
                 {
                   "key": "status",
-                  "value": "",
-                  "description": "",
+                  "value": "DRAFT,DISPUTED",
+                  "description": "สถานะ คั่นด้วย, ได้ (DRAFT / SENT_TO_CARRIER / DISPUTED / APPROVED / PAID / CANCELLED) — แท็บหน้า `settle` ใช้หลายสถานะ",
                   "disabled": true
                 }
               ]

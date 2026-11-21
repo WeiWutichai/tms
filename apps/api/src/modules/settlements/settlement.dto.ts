@@ -35,6 +35,10 @@ export const SETTLEMENT_STATUSES = [
   'PAID',
   'CANCELLED',
 ] as const;
+/** `status` ของรายการ: คั่นด้วย , ได้ (แท็บหน้า `settle`) */
+const STATUS_LIST_RE = new RegExp(
+  `^(${SETTLEMENT_STATUSES.join('|')})(,(${SETTLEMENT_STATUSES.join('|')}))*$`,
+);
 /** วิธีจ่าย (ST6-T09 — ต้นแบบ "วิธีจ่าย": โอนเงิน / เช็ค / เงินสด) */
 export const SETTLEMENT_PAYMENT_METHODS = ['TRANSFER', 'CHEQUE', 'CASH'] as const;
 export type SettlementPaymentMethod = (typeof SETTLEMENT_PAYMENT_METHODS)[number];
@@ -301,9 +305,10 @@ export class SettlementListQuery extends ListQuery {
   @ApiPropertyOptional({
     description: `สถานะ คั่นด้วย , ได้ (${SETTLEMENT_STATUSES.join(' / ')}) — แท็บหน้า \`settle\` ใช้หลายสถานะ`,
     example: 'DRAFT,DISPUTED',
+    pattern: STATUS_LIST_RE.source,
   })
   @IsOptional()
-  @Matches(new RegExp(`^(${SETTLEMENT_STATUSES.join('|')})(,(${SETTLEMENT_STATUSES.join('|')}))*$`))
+  @Matches(STATUS_LIST_RE)
   status?: string;
 }
 
@@ -592,8 +597,13 @@ export class SettlementDto {
   })
   @PriceField('buy')
   buyNetAfterWht?: string;
-  @ApiProperty({ type: SettlementWhtEstimateDto })
-  whtEstimate!: SettlementWhtEstimateDto;
+  @ApiProperty({
+    type: SettlementWhtEstimateDto,
+    nullable: true,
+    description:
+      'null = ข้อมูลรถร่วมในใบไม่มีประเภท (บุคคล/นิติบุคคล) จัดแบบยื่นไม่ได้ — ไม่มียอดประมาณการ (`buyWhtAmount`/`buyNetAfterWht` มีเฉพาะยอดที่ตรึงแล้ว) · อนุมัติ/บันทึกจ่าย/PDF → 409 `settlement_carrier_type_missing`',
+  })
+  whtEstimate!: SettlementWhtEstimateDto | null;
   @ApiProperty({
     type: [SettlementLineDto],
     description: 'ทุกบรรทัด รวมบรรทัดที่นำออกแล้ว (`active` false)',

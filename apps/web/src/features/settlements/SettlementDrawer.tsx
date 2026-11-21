@@ -14,7 +14,6 @@ import {
   canRelinkStatus,
   statusLabel,
   statusTone,
-  viewOnlyLink,
 } from './settle';
 import {
   openVoucherPdf,
@@ -95,14 +94,15 @@ function Step({ title, state, at }: { title: string; state: 'done' | string; at?
  */
 function LinkBox({
   s,
-  link,
+  link: issued,
   onToast,
 }: {
   s: Settlement;
-  link: SettlementLink;
+  link: { link: SettlementLink; viewOnly: boolean };
   onToast: (m: string) => void;
 }) {
   const { t, lang } = useI18n();
+  const link = issued.link;
   const channels = useMessageChannels();
   const send = useSendLink(s.carrier.id);
   const usable = (['line', 'sms'] as const).filter((c) => channels.data?.has(c));
@@ -158,7 +158,7 @@ function LinkBox({
         ))}
       </div>
       <span className="tms-vdoc__sub">
-        {t(viewOnlyLink(s.status) ? 'settle.link.view' : 'settle.link.review', {
+        {t(issued.viewOnly ? 'settle.link.view' : 'settle.link.review', {
           d: formatDateTime(link.expiresAt, lang),
         })}{' '}
         · {t('cdoc.link.once')}
@@ -186,8 +186,8 @@ export function SettlementDrawer({
   onToast,
 }: {
   id: string;
-  /** ลิงก์ที่เพิ่งออกให้ใบนี้ (D-63) */
-  link: SettlementLink | null;
+  /** ลิงก์ที่เพิ่งออกให้ใบนี้ (D-63) + ดูอย่างเดียวหรือไม่ ณ ตอนออก */
+  link: { link: SettlementLink; viewOnly: boolean } | null;
   canApprove: boolean;
   canPay: boolean;
   canRelink: boolean;
@@ -260,12 +260,13 @@ export function SettlementDrawer({
     const after = ['SENT_TO_CARRIER', 'APPROVED', 'PAID'];
     if (k === 'collect') return 'done';
     if (k === 'check') return after.includes(s.status) ? 'done' : t('bill.step.pending');
+    // ยังไม่อนุมัติ = รอดำเนินการ (รวมร่าง/โต้แย้ง — review L4) · ยกเลิก = ข้าม
     if (k === 'approve')
       return s.approvedAt
         ? 'done'
-        : s.status === 'SENT_TO_CARRIER'
-          ? t('bill.step.pending')
-          : t('bill.step.skip');
+        : s.status === 'CANCELLED'
+          ? t('bill.step.skip')
+          : t('bill.step.pending');
     return s.paidDate
       ? 'done'
       : s.status === 'APPROVED'
@@ -435,11 +436,13 @@ export function SettlementDrawer({
                     </div>
                   );
                 })}
-                <span style={{ fontSize: 12.5, color: '#59606B', paddingTop: 6 }}>
-                  {t('settle.amt.note', {
-                    f: t(`settle.form.${s.whtEstimate.form}` as MessageKey),
-                  })}
-                </span>
+                {s.whtEstimate && (
+                  <span style={{ fontSize: 12.5, color: '#59606B', paddingTop: 6 }}>
+                    {t('settle.amt.note', {
+                      f: t(`settle.form.${s.whtEstimate.form}` as MessageKey),
+                    })}
+                  </span>
+                )}
               </div>
             </section>
           )}

@@ -69,7 +69,8 @@ export function amountRows(
   t: T,
   s: Settlement,
 ): { k: string; v: string; amount: string; strong: boolean }[] {
-  const rates = s.whtEstimate.byRate.map((r) => String(Number(r.whtRate)));
+  // whtEstimate null = ไม่รู้ประเภทรถร่วม (API ไม่ประมาณการ) → ป้ายไม่มีอัตรา ยอด "—" (ยกเว้นยอดที่ตรึง)
+  const rates = (s.whtEstimate?.byRate ?? []).map((r) => String(Number(r.whtRate)));
   const ded = new Map<string, number>();
   for (const l of s.lines)
     if (l.active && l.lineType === 'DEDUCTION' && l.deductionType)

@@ -1,10 +1,11 @@
 # จ่ายรถร่วม (settlements)
 
-16 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+17 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
 | [`GET /v1/settlements/queue`](#get-settlements-queue) | `settlements:read` |
+| [`GET /v1/settlements/summary`](#get-settlements-summary) | `settlements:read` |
 | [`GET /v1/settlements`](#get-settlements) | `settlements:read` |
 | [`POST /v1/settlements`](#post-settlements) | `settlements:create` |
 | [`GET /v1/settlements/{id}`](#get-settlements-id) | `settlements:read` |
@@ -64,6 +65,34 @@ curl -sS -X GET "$TMS_BASE_URL/v1/settlements/queue" \
 const { data, error } = await tms.GET('/v1/settlements/queue');
 ```
 
+## KPI หน้า "Settlement รถร่วม" — จำนวนต่อสถานะ + ยอดจ่ายแล้วเดือนนี้ {#get-settlements-summary}
+
+`GET /v1/settlements/summary`
+
+scope: `settlements:read` · operationId: `Settlements_summary`
+
+จำนวนใบต่อสถานะ สำหรับแท็บ/การ์ด KPI ของหน้า `settle` · `buyPaidThisMonth` = Σ ยอดจ่ายหลังหัก ณ ที่จ่าย (ที่ตรึงตอนอนุมัติ) ของใบที่จ่ายแล้วในเดือนนี้ (เวลาไทย) — เห็นเมื่อมี `prices.buy:read`
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `SettlementKpiDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settlements:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/settlements/summary" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/settlements/summary');
+```
+
 ## รายการใบสำคัญจ่ายรถร่วม {#get-settlements}
 
 `GET /v1/settlements`
@@ -82,7 +111,7 @@ scope: `settlements:read` · operationId: `Settlements_listSettlements`
 | `sort` | query |   | `string` ค่า: `updatedAt`, `-updatedAt` |   |
 | `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `carrierId` | query |   | `string` | รถร่วม — id หรือ `ext:{externalId}` |
-| `status` | query |   | `string` ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `PAID`, `CANCELLED` |   |
+| `status` | query |   | `string` | สถานะ คั่นด้วย, ได้ (DRAFT / SENT_TO_CARRIER / DISPUTED / APPROVED / PAID / CANCELLED) — แท็บหน้า `settle` ใช้หลายสถานะ |
 
 **Responses**
 
@@ -848,7 +877,7 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/mark-paid', {
 | `buyNetPayable` |   | `string` |   | ยอดสุทธิ = ยอดรวม − รายการหัก (**ก่อนหัก ณ ที่จ่าย** — ใช้เทียบวงเงิน step-up ตอนอนุมัติ) — เห็นเมื่อมี `prices.buy:read` | `11000.00` |
 | `buyWhtAmount` |   | `string` |   | หัก ณ ที่จ่าย **ประมาณการ** = Σ ต่ออัตรา round_half_up(ฐานก่อนหักของกลุ่ม × อัตรา) — ร่าง ยังไม่ผ่านนักบัญชี · เห็นเมื่อมี `prices.buy:read` | `150.00` |
 | `buyNetAfterWht` |   | `string` |   | ยอดจ่ายรถร่วมหลังหัก ณ ที่จ่าย = ยอดรวม − หัก ณ ที่จ่าย − รายการหัก (ประมาณการ) — เห็นเมื่อมี `prices.buy:read` | `10850.00` |
-| `whtEstimate` | ใช่ | `SettlementWhtEstimateDto` |   |   |   |
+| `whtEstimate` | ใช่ | `SettlementWhtEstimateDto` | null ได้ | null = ข้อมูลรถร่วมในใบไม่มีประเภท (บุคคล/นิติบุคคล) จัดแบบยื่นไม่ได้ — ไม่มียอดประมาณการ (`buyWhtAmount`/`buyNetAfterWht` มีเฉพาะยอดที่ตรึงแล้ว) · อนุมัติ/บันทึกจ่าย/PDF → 409 `settlement_carrier_type_missing` |   |
 | `lines` | ใช่ | `array<SettlementLineDto>` |   | ทุกบรรทัด รวมบรรทัดที่นำออกแล้ว (`active` false) |   |
 | `approvedAt` | ใช่ | `string` | null ได้ | เวลาอนุมัติ — ออกเลข `settlementNo` พร้อมกัน |   |
 | `approvedBy` | ใช่ | `string` | null ได้ | ผู้อนุมัติ (ไม่ใช่ผู้สร้าง — separation of duties) |   |
@@ -869,6 +898,21 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/mark-paid', {
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
 | `updatedAt` | ใช่ | `string` |   |   |   |
+
+### SettlementKpiDto {#schema-SettlementKpiDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `total` | ใช่ | `number` |   | ทุกใบ (รวมยกเลิก) |   |
+| `draft` | ใช่ | `number` |   |   |   |
+| `sentToCarrier` | ใช่ | `number` |   |   |   |
+| `disputed` | ใช่ | `number` |   |   |   |
+| `approved` | ใช่ | `number` |   |   |   |
+| `paid` | ใช่ | `number` |   |   |   |
+| `cancelled` | ใช่ | `number` |   |   |   |
+| `buyPaidThisMonth` |   | `string` |   | ยอดจ่ายสุทธิหลังหัก ณ ที่จ่าย (`buyNetAfterWht` ที่ตรึง) ของใบที่จ่ายแล้ว วันที่จ่ายอยู่ในเดือนนี้ (เวลาไทย) — `prices.buy:read` |   |
 
 ### SettlementPageDto {#schema-SettlementPageDto}
 

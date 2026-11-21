@@ -28,6 +28,7 @@ import {
   canPayStatus,
   canPrintStatus,
   canRelinkStatus,
+  viewOnlyLink,
   deductTotal,
   statusLabel,
   statusTone,
@@ -47,11 +48,6 @@ import {
 
 const ST_OPTS = ['DRAFT', 'SENT_TO_CARRIER', 'DISPUTED', 'APPROVED', 'PAID', 'CANCELLED'] as const;
 const EMPTY_VIEW = { tab: 'all', no: '', who: '', st: '' };
-
-type Approving = Pick<
-  SettlementSummary,
-  'id' | 'version' | 'settlementNo' | 'carrier' | 'buyNetAfterWht'
->;
 
 /**
  * บัญชี → Settlement รถร่วม (ต้นแบบ TMS v4 `settle` = kpisX('settle') + ตาราง specSa + drawer vPanel 'sa' + askApproveSa + vSp)
@@ -85,9 +81,14 @@ export function SettlePage() {
     },
   });
   const [open, setOpen] = useState<string | null>(null);
-  const [approving, setApproving] = useState<Approving | null>(null);
+  const [approving, setApproving] = useState<string | null>(null);
   const [paying, setPaying] = useState<string | null>(null);
-  const [link, setLink] = useState<{ id: string; link: SettlementLink } | null>(null);
+  // viewOnly ตรึงตอนออกลิงก์ (D-59: ใบ APPROVED/PAID = ดูอย่างเดียว) — ไม่อ่านจากสถานะปัจจุบัน (review L2)
+  const [link, setLink] = useState<{
+    id: string;
+    link: SettlementLink;
+    viewOnly: boolean;
+  } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const kpi = useSettlementKpi().data;
   const reissue = useReissueLink();
@@ -112,15 +113,18 @@ export function SettlePage() {
   const pickTab = (k: Tab) => setTab(curTab === k ? 'all' : k);
   const kpiSub = (k: Tab) => t(curTab === k ? 'dash.kpi.clear' : 'bill.kpi.click');
 
-  const relink = (id: string) =>
+  const relink = (id: string, status: string) => {
+    // กดซ้ำระหว่างรอ = ไม่ทำ (ออกซ้ำจะเพิกถอนลิงก์ที่เพิ่งออก — review L3)
+    if (reissue.isPending) return;
     reissue.mutate(id, {
       onSuccess: (l) => {
-        setLink({ id, link: l });
+        setLink({ id, link: l, viewOnly: viewOnlyLink(status) });
         setOpen(id);
         setToast(t('settle.link.done'));
       },
       onError: (e) => setToast(problemText(e, t)),
     });
+  };
   const print = (x: { id: string; settlementNo: string | null }) =>
     openVoucherPdf(x.id, x.settlementNo).catch((e: unknown) => setToast(problemText(e, t)));
 
@@ -331,7 +335,7 @@ export function SettlePage() {
                     {
                       label: t('settle.menu.approve'),
                       icon: 'circle-check',
-                      run: () => setApproving(x),
+                      run: () => setApproving(x.id),
                     },
                   ]
                 : []),
@@ -339,7 +343,13 @@ export function SettlePage() {
                 ? [{ label: t('settle.menu.pay'), icon: 'banknote', run: () => setPaying(x.id) }]
                 : []),
               ...(canRelink && canRelinkStatus(x.status)
-                ? [{ label: t('settle.menu.relink'), icon: 'link', run: () => relink(x.id) }]
+                ? [
+                    {
+                      label: t('settle.menu.relink'),
+                      icon: 'link',
+                      run: () => relink(x.id, x.status),
+                    },
+                  ]
                 : []),
               ...(canPrintStatus(x.status)
                 ? [{ label: t('settle.menu.print'), icon: 'printer', run: () => void print(x) }]
@@ -366,20 +376,20 @@ export function SettlePage() {
       {open && (
         <SettlementDrawer
           id={open}
-          link={link?.id === open ? link.link : null}
+          link={link?.id === open ? link : null}
           canApprove={canApprove}
           canPay={canPay}
           canRelink={canRelink}
-          onApprove={setApproving}
+          onApprove={(x) => setApproving(x.id)}
           onPay={(s) => setPaying(s.id)}
-          onRelink={(s) => relink(s.id)}
+          onRelink={(s) => relink(s.id, s.status)}
           onClose={() => setOpen(null)}
           onToast={setToast}
         />
       )}
       {approving && (
         <ApproveDialog
-          s={approving}
+          id={approving}
           onClose={() => setApproving(null)}
           onDone={(no) => {
             setApproving(null);
