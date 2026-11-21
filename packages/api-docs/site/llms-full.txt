@@ -1,7 +1,7 @@
 <!-- index.md -->
 # TMS API v1
 
-เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 379 endpoint
+เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 381 endpoint
 
 เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
 
@@ -32,6 +32,7 @@
 - [Webhooks และ events](ref-webhooks.md) — 9 endpoint: GET /v1/webhooks, GET /v1/webhooks/summary, GET /v1/webhooks/event-types, GET /v1/webhooks/{id}, GET /v1/webhooks/{id}/history, GET /v1/webhook-deliveries, …
 - [Sandbox](ref-sandbox.md) — 1 endpoint: POST /v1/test/events/trigger
 - [งานเบื้องหลัง (jobs)](ref-jobs.md) — 1 endpoint: GET /v1/jobs/{id}
+- [ค้นหา (search)](ref-search.md) — 1 endpoint: GET /v1/search
 - [ลูกค้า (customers)](ref-customers.md) — 18 endpoint: GET /v1/customers, POST /v1/customers, GET /v1/customers/summary, GET /v1/customers/next-code, GET /v1/customers/export, PUT /v1/customers/external/{externalId}, …
 - [สถานที่ (customer-sites)](ref-customer-sites.md) — 17 endpoint: GET /v1/customer-sites, POST /v1/customer-sites, GET /v1/customer-sites/summary, GET /v1/customer-sites/next-code, GET /v1/customer-sites/export, POST /v1/customer-sites/geocode, …
 - [สินค้า (products)](ref-products.md) — 13 endpoint: GET /v1/products, POST /v1/products, GET /v1/products/summary, GET /v1/products/next-code, GET /v1/products/export, PUT /v1/products/external/{externalId}, …
@@ -61,6 +62,7 @@
 - [billing-notes](ref-billing-notes.md) — 15 endpoint: GET /v1/billing-notes/summary, GET /v1/billing-notes/candidates, GET /v1/billing-notes, POST /v1/billing-notes, GET /v1/billing-notes/{id}, PATCH /v1/billing-notes/{id}, …
 - [invoices](ref-invoices.md) — 25 endpoint: GET /v1/invoices/queue, GET /v1/invoices/summary, POST /v1/invoices/preview, GET /v1/invoices, POST /v1/invoices, GET /v1/invoices/{id}, …
 - [payments](ref-payments.md) — 8 endpoint: GET /v1/payments, POST /v1/payments, GET /v1/payments/summary, GET /v1/payments/aging, GET /v1/payments/{id}, POST /v1/payments/{id}/reverse, …
+- [reports](ref-reports.md) — 1 endpoint: GET /v1/reports/unbilled-delivery-orders
 
 ## อ้างอิง
 
@@ -7391,6 +7393,65 @@ const { data, error } = await tms.GET('/v1/jobs/{id}', {
 | `attempts` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string (date-time)` |   |   |   |
 | `finishedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
+
+---
+
+<!-- ref-search.md -->
+# ค้นหา (search)
+
+1 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+
+| Endpoint | scope |
+|---|---|
+| [`GET /v1/search`](#get-search) | `orders:read` / `trips:read` / `invoices:read` / `master:read` |
+
+## ค้นหาเอกสาร ลูกค้า รถ (⌘K) {#get-search}
+
+`GET /v1/search`
+
+scope: `orders:read` หรือ `trips:read` หรือ `invoices:read` หรือ `master:read` · operationId: `Search_find`
+
+ค้นพร้อมกันหลายชนิด: SO (`orders:read`), DO (`orders:read`), เที่ยวรถ (`trips:read`), ใบแจ้งหนี้และใบวางบิล (`invoices:read`), ลูกค้าและรถ (`master:read`) — ค้นเฉพาะชนิดที่ผู้เรียกมี scope (`searched`) · ผลต่อชนิดไม่เกิน `limit` เรียง ตรงทั้งคำ → ขึ้นต้นด้วย → มีอยู่ → แก้ล่าสุด · เห็นเฉพาะข้อมูลของบริษัท (หรือ sandbox) ของ credential นี้ · ไม่ส่งราคา/ยอดเงิน · นับ rate limit แบบอ่าน (GET)
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `q` | query | ใช่ | `string` | คำค้น (ตัดช่องว่างหน้า-หลัง) — ค้นแบบ "มีคำนี้อยู่" ไม่สนตัวพิมพ์ ใน: เลข SO / DO / เที่ยว / ใบแจ้งหนี้ / ใบวางบิล, เลข ลูกค้า (SO/DO `customerRef`, ใบแจ้งหนี้ `customerPoNo`), ทะเบียนรถ (เทียบแบบ normalize: เลขไทย → อารบิก ตัดช่องว่าง/ขีด/จุด), ชื่อ/รหัสลูกค้า |
+| `limit` | query |   | `number` | จำนวนสูงสุดต่อชนิด |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `SearchResultDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มี scope อ่านชนิดใดเลย (`orders:read` / `trips:read` / `invoices:read` / `master:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | คำค้นสั้นกว่า 2 หรือยาวกว่า 64 ตัวอักษร (หลังตัดช่องว่าง) / `limit` นอกช่วง 1–10 — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/search" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/search');
+```
+
+## Schema ของ response {#schemas}
+
+### SearchResultDto {#schema-SearchResultDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `q` | ใช่ | `string` |   | คำค้นหลังตัดช่องว่าง | `2611-00` |
+| `searched` | ใช่ | `array<string>` |   | ชนิดที่ค้นให้ตามสิทธิ์ของผู้เรียก (ชนิดที่ไม่มีสิทธิ์อ่าน = ไม่ค้นและไม่อยู่ในรายการนี้) |   |
+| `data` | ใช่ | `array<SearchHitDto>` |   | เรียงตามชนิด แล้วตรงทั้งคำ → ขึ้นต้นด้วย → มีอยู่ → แก้ล่าสุด |   |
 
 ---
 
@@ -18219,7 +18280,7 @@ scope: `export:run` · operationId: `Exports_create`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes` |   | `orders` |
+| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes`, `unbilled-delivery-orders`, `receivables-aging` |   | `orders` |
 | `format` |   | `string` | ค่า: `xlsx`, `csv` | .xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ.csv UTF-8 + BOM |   |
 | `filter` |   | `object` |   | ตัวกรองชุดเดียวกับ query ของ `GET /v1/{resource}` (ค่าเป็น string) — ตรวจกติกาเดียวกัน (field แปลก = 422) · `limit`/`cursor`/`sort`/`fields`/`updatedAfter` ไม่มีผล (ไฟล์มีทุกแถวที่ตรงตัวกรอง) | `{"held":"true","holdReason":"RATE_MISSING"}` |
 
@@ -18310,7 +18371,7 @@ const { data, error } = await tms.GET('/v1/exports/{id}', {
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `job_…` |
-| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes` |   |   |
+| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes`, `unbilled-delivery-orders`, `receivables-aging` |   |   |
 | `format` | ใช่ | `string` | ค่า: `xlsx`, `csv` |   |   |
 | `filter` | ใช่ | `object` |   |   |   |
 | `status` | ใช่ | `string` | ค่า: `pending`, `running`, `succeeded`, `failed`, `expired` | expired = ไฟล์เกิน 7 วันแล้ว (ส่งออกใหม่) |   |
@@ -22180,6 +22241,72 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 
 ---
 
+<!-- ref-reports.md -->
+# reports
+
+1 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+
+| Endpoint | scope |
+|---|---|
+| [`GET /v1/reports/unbilled-delivery-orders`](#get-reports-unbilled-delivery-orders) | `reports.finance:read` |
+
+## DO ยังไม่วางบิลเกิน N วัน {#get-reports-unbilled-delivery-orders}
+
+`GET /v1/reports/unbilled-delivery-orders`
+
+scope: `reports.finance:read` · operationId: `Reports_unbilledDeliveryOrders`
+
+DO ที่ส่งถึงแล้ว (DELIVERED / POD_PENDING / UNBILLED) และ**ยังไม่อยู่ในใบแจ้งหนี้ใด** ที่ **วันนี้ − วันที่ส่งถึง > N** (เวลาไทย) · วันที่ส่งถึง = เวลาบันทึกสถานะส่งถึงครั้งล่าสุด (ไม่มีประวัติ = วันที่ DO) · N = `minDays` หรือค่าตั้งองค์กร `billing.unbilledAlertDays` (ค่าเริ่ม 7) · เรียงส่งถึงเก่าสุดก่อน cursor (วันที่ส่งถึง, id) · มูลค่า = Σ บรรทัดรายได้ที่ยังใช้ (ก่อน VAT) — `sell*` เห็นเมื่อมี `prices.sell:read` · ส่งออก: `POST /v1/exports` resource `unbilled-delivery-orders`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `minDays` | query |   | `integer` | ส่งถึงแล้ว**เกิน**กี่วัน (วันนี้ − วันที่ส่งถึง > ค่านี้ เวลาไทย) — ไม่ส่ง = ค่าตั้งองค์กร `billing.unbilledAlertDays` (ค่าเริ่ม 7) |
+| `customerId` | query |   | `string` | ลูกค้ารายเดียว — id หรือ `ext:{externalId}` |
+| `limit` | query |   | `number` |   |
+| `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (เรียงวันที่ส่งถึงเก่าสุดก่อน) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `UnbilledReportDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`reports.finance:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/reports/unbilled-delivery-orders" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/reports/unbilled-delivery-orders');
+```
+
+## Schema ของ response {#schemas}
+
+### UnbilledReportDto {#schema-UnbilledReportDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `asOf` | ใช่ | `string` |   | วันที่คำนวณ (วันนี้ เวลาไทย) | `2026-11-22` |
+| `minDays` | ใช่ | `number` |   | เกณฑ์ที่ใช้ (วัน) — จาก `minDays` หรือค่าตั้งองค์กร | `7` |
+| `deliveredOnOrBefore` | ใช่ | `string` |   | DO ที่ส่งถึงวันนี้หรือก่อนหน้านี้ (เวลาไทย) ขึ้นรายงาน = asOf − minDays − 1 | `2026-11-14` |
+| `count` | ใช่ | `number` | null ได้ | จำนวน DO ทั้งหมดที่ตรงเงื่อนไข — **เฉพาะหน้าแรก** (ไม่มี cursor); หน้าถัดไป = null |   |
+| `sellAmount` |   | `string` |   | มูลค่ารวมทุก DO ที่ตรงเงื่อนไข — เฉพาะหน้าแรก · `prices.sell:read` |   |
+| `data` | ใช่ | `array<UnbilledDeliveryOrderDto>` |   |   |   |
+| `nextCursor` | ใช่ | `string` | null ได้ |   |   |
+| `hasMore` | ใช่ | `boolean` |   |   |   |
+
+---
+
 <!-- webhook-events.md -->
 # Webhook events
 
@@ -23336,7 +23463,7 @@ HTTP `401` · กรอกรหัสยืนยันตัวตน 2 ชั
 
 HTTP `401` · ต้องเข้าสู่ระบบ
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 361 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 363 endpoint
 
 ## edit_lock_user_required {#edit_lock_user_required}
 
@@ -23384,7 +23511,7 @@ HTTP `403` · ส่วนต่างเกินวงเงินที่ต
 
 HTTP `403` · ไม่มีสิทธิ์ทำรายการนี้
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 361 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 363 endpoint
 
 ## sandbox_only {#sandbox_only}
 
@@ -23954,7 +24081,7 @@ HTTP `422` · ไฟล์ใหญ่เกินกว่าจะส่งท
 
 HTTP `422` · Idempotency-Key นี้เคยใช้กับข้อมูลอื่น
 
-พบใน: [`POST /v1/orders:bulk`](ref-orders.md#post-orders-bulk), [`GET /v1/orders`](ref-orders.md#get-orders), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/stops/{sequence}/map-site`](ref-orders.md#post-orders-id-stops-sequence-map-site), [`POST /v1/orders/{id}/manual-price`](ref-orders.md#post-orders-id-manual-price), [`POST /v1/orders/{id}/resolve-source-error`](ref-orders.md#post-orders-id-resolve-source-error), [`POST /v1/orders/{id}/map-customer`](ref-orders.md#post-orders-id-map-customer), [`POST /v1/delivery-orders/{id}/revert-delivery`](ref-delivery-orders.md#post-delivery-orders-id-revert-delivery), [`GET /v1/trips`](ref-trips.md#get-trips) และอีก 80 endpoint
+พบใน: [`POST /v1/orders:bulk`](ref-orders.md#post-orders-bulk), [`GET /v1/orders`](ref-orders.md#get-orders), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/stops/{sequence}/map-site`](ref-orders.md#post-orders-id-stops-sequence-map-site), [`POST /v1/orders/{id}/manual-price`](ref-orders.md#post-orders-id-manual-price), [`POST /v1/orders/{id}/resolve-source-error`](ref-orders.md#post-orders-id-resolve-source-error), [`POST /v1/orders/{id}/map-customer`](ref-orders.md#post-orders-id-map-customer), [`POST /v1/delivery-orders/{id}/revert-delivery`](ref-delivery-orders.md#post-delivery-orders-id-revert-delivery), [`GET /v1/trips`](ref-trips.md#get-trips) และอีก 81 endpoint
 
 ## pod_incomplete {#pod_incomplete}
 
@@ -23990,7 +24117,7 @@ HTTP `422` · ลำดับจุดไม่ถูกต้อง — จุ�
 
 HTTP `422` · ข้อมูลไม่ถูกต้อง
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id) และอีก 257 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId) และอีก 259 endpoint
 
 ## webhook_event_expired {#webhook_event_expired}
 

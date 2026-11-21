@@ -19,6 +19,7 @@ import {
   sampleSettlementDraft,
   sampleSettlementLong,
   sampleSettlementPaid,
+  sampleSettlementSandbox,
 } from '../src/modules/settlements/settlement-pdf.sample';
 import { settlementVoucherDocument } from '../src/modules/settlements/settlement-pdf.template';
 import { sampleLongTripSheet, sampleTripSheet } from '../src/modules/trip-sheets/trip-sheet.sample';
@@ -81,14 +82,18 @@ const KINDS: Array<{
     labels: ['ใบแจ้งหนี้', 'รวมทั้งสิ้น'],
   },
   {
-    kind: 'ใบสำคัญจ่ายรถร่วม (ST6-T04 — ร่าง/จ่ายแล้ว, หลายหน้า)',
+    kind: 'ใบสำคัญจ่ายรถร่วม (ST6-T04 — ร่าง/จ่ายแล้ว, หลายหน้า · ลายน้ำ sandbox ตามแนว D-61)',
     module: 'src/modules/settlements',
     docs: () => {
       const ce = sampleSettlementPaid();
       ce.yearStyle = 'CE';
-      return [sampleSettlementDraft(), sampleSettlementPaid(), sampleSettlementLong(), ce].map(
-        settlementVoucherDocument,
-      );
+      return [
+        sampleSettlementDraft(),
+        sampleSettlementPaid(),
+        sampleSettlementLong(),
+        ce,
+        sampleSettlementSandbox(),
+      ].map(settlementVoucherDocument);
     },
     labels: ['ใบสำคัญจ่าย'],
   },

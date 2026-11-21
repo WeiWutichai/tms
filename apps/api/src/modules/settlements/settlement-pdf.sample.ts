@@ -113,3 +113,9 @@ export function sampleSettlementLong(): SettlementPrintModel {
     net: '186585.00',
   };
 }
+
+/** ตามแนว D-61: ใบสำคัญจ่ายที่อนุมัติใน sandbox (เลข `TEST-`) — ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" ทุกหน้า */
+export function sampleSettlementSandbox(): SettlementPrintModel {
+  const m = sampleSettlementPaid();
+  return { ...m, settlementNo: `TEST-${m.settlementNo}`, sandbox: true };
+}

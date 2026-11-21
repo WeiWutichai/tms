@@ -4,6 +4,7 @@ import {
   bahtFormat,
   dateRangeShort,
   financeDocument,
+  SANDBOX_WATERMARK,
   type FinanceParty,
   type FinanceTotal,
 } from '../../pdf/finance-document';
@@ -16,6 +17,7 @@ import type { DeductionType, SettlementPaymentMethod } from './settlement.dto';
  * - **ไม่ใช่เอกสารภาษี** (ใบประกอบการจ่าย) — หัก ณ ที่จ่ายเป็น**ยอดประมาณการ** (ST6-T08) ติด * + หมายเหตุ · 50 ทวิ ออกที่ระบบบัญชี (D-58)
  * - ทุกตัวเลขมาจาก `SettlementDto` ชุดเดียวกับ `GET /v1/settlements/{id}` (ใบที่อนุมัติแล้ว = ยอด WHT ที่ตรึง) — แม่แบบไม่คำนวณภาษีเอง
  * - ร่าง (ยังไม่อนุมัติ) = ลายน้ำ "ร่าง" ไม่มีเลข · เลขเอกสาร = เลขใบ (ไม่ออกเลข PV แยก — spec/12 §3 ST6-T09 ข้อ 4)
+ * - ใบที่อนุมัติใน sandbox = ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" ทุกหน้า (ตามแนว D-61 — spec/12 §3 แถว Sandbox STL)
  */
 export interface SettlementPrintTrip {
   tripNo: string;
@@ -56,6 +58,8 @@ export interface SettlementPrintModel {
   deductions: { type: DeductionType; amount: string }[];
   /** จ่ายสุทธิ (`buyNetAfterWht`) */
   net: string;
+  /** ตามแนว D-61: ใบของ tenant sandbox (`mode='test'`) → ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" ทุกหน้า (ร่างยังเป็น "ร่าง") · ไม่มี = live */
+  sandbox?: boolean;
 }
 
 /** ป้ายวิธีจ่ายตามต้นแบบ (dialog บันทึกจ่าย `vSp`: โอนเงิน / เช็ค / เงินสด) */
@@ -121,6 +125,9 @@ export function settlementVoucherDocument(m: SettlementPrintModel) {
     titleEn: 'PAYMENT VOUCHER',
     docNo: m.settlementNo,
     copyLabel: null,
+    // live: watermark null = ไม่มีลายน้ำ (ผลพิมพ์เดิมทุกจุด) · ร่าง (docNo null) ใช้ "ร่าง" เสมอ
+    watermark: m.sandbox ? SANDBOX_WATERMARK : null,
+    watermarkKind: 'sample',
     docDate: m.docDate,
     issuer: m.payer,
     customer: { name: m.payee.name, taxId: m.payee.taxId, branchCode: null, address: '' },

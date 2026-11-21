@@ -14,6 +14,7 @@ import {
   type Column,
 } from '@tms/ui';
 import { useEffect, useMemo, useState } from 'react';
+import { useDeepOpen } from '../../shell/deepLink';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
@@ -152,6 +153,9 @@ export function BillPage() {
   /** ST5-T13 drawer รับชำระ (จากปุ่ม "บันทึกรับชำระ" ใน drawer ใบแจ้งหนี้) */
   const [payId, setPayId] = useState<string | null>(null);
   const [openBn, setOpenBn] = useState<string | null>(null);
+  // ST9-T09 ค้นหา ⌘K → `/bill?invoice=ivc_…` / `/bill?bn=bn_…` เปิด drawer เอกสารนั้น
+  useDeepOpen('invoice', 'ivc', setOpenId);
+  useDeepOpen('bn', 'bn', setOpenBn);
   const [bnForm, setBnForm] = useState<{
     customerId: string;
     customerName: string;

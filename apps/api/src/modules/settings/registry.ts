@@ -17,6 +17,9 @@ export const SETTLEMENT_STEP_UP_DEFAULT = 100_000;
 /** เพดาน = numeric(14,2) ส่วนจำนวนเต็ม */
 export const SETTLEMENT_STEP_UP_MAX = 999_999_999_999;
 
+/** ST9-T06 DO ส่งถึงแล้วเกินกี่วันจึงขึ้นรายงาน/แจ้งเตือน "ยังไม่วางบิล" — ค่าเริ่ม [DECISION spec/12 §3] */
+export const UNBILLED_ALERT_DAYS_DEFAULT = 7;
+
 export type SettingType =
   | { kind: 'string'; max: number }
   | { kind: 'enum'; values: readonly (string | number)[] }
@@ -129,6 +132,15 @@ export const SETTINGS = {
     default: false,
     description:
       'ให้ผู้สร้าง/ผู้แก้ร่างใบแจ้งหนี้ ออกเอกสารใบนั้นเองได้ (ปิดกฎแบ่งหน้าที่ — สำหรับบริษัทเล็กที่ owner ยอมรับความเสี่ยง) · ค่าเริ่ม ปิด · **แก้ได้เฉพาะ owner** · เปิด = ลดการควบคุม ต้อง step-up',
+  },
+  // ST9-T06 (docs/04 F3 "รายงาน 'ยังไม่วางบิลเกิน N วัน'", H "DO ยังไม่วางบิลเกิน N วัน … ส่งให้ Invoicer อัตโนมัติ") — ไม่มีหน้าจอ
+  // (ต้นแบบไม่มีช่อง — spec/12 §3) ตั้งผ่าน PATCH /v1/settings · ค่าเริ่ม 7 วัน [DECISION spec/12 §3]
+  'billing.unbilledAlertDays': {
+    group: 'billing',
+    type: { kind: 'int', min: 1, max: 365 },
+    default: UNBILLED_ALERT_DAYS_DEFAULT,
+    description:
+      'รายงาน/แจ้งเตือน "DO ยังไม่วางบิล": DO ที่ส่งถึงแล้วเกินกี่วัน (นับวันตามเวลาไทยจากวันที่ส่งถึง) และยังไม่อยู่ในใบแจ้งหนี้ใด · ค่าเริ่ม 7',
   },
   // ST5-T13 review M1 (spec/05 BIL-059 [PROPOSED] "ผลต่างเล็กน้อย … ≤ ค่าที่ตั้ง เช่น 10.00 บาท → manager อนุมัติ") — ไม่มีหน้าจอ
   // (ต้นแบบไม่มีช่อง — spec/12 §3) ตั้งผ่าน PATCH /v1/settings · เพิ่มค่า = คุมหลวมขึ้น ต้อง step-up

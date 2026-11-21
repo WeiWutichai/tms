@@ -14,6 +14,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useDeepOpen } from '../../shell/deepLink';
 import { unwrap, api } from '../../api';
 import { useI18n } from '../../i18n';
 import { exportList } from '../exports/exportJob';
@@ -136,6 +137,8 @@ export function OrdersPage() {
   const summary = useOrderSummary();
   const s = summary.data;
   const [openId, setOpenId] = useState<string | null>(null);
+  // ST9-T09 ค้นหา ⌘K → `/so?open=ord_…` เปิด drawer ใบนั้น
+  useDeepOpen('open', 'ord', setOpenId);
   /** drawer เที่ยวรถ (ST3-T16) — เปิดจากเลขเที่ยวใน drawer SO (ต้นแบบ openTrp แทนที่ drawer เดิม) */
   const [tripId, setTripId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState | null>(null);

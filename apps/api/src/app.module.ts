@@ -182,6 +182,9 @@ import { InvoiceRunService } from './modules/invoices/invoice-run.service';
 import { PaymentsController } from './modules/payments/payments.controller';
 import { PaymentsService } from './modules/payments/payments.service';
 import { AgingService } from './modules/payments/aging.service';
+import { ReportsController } from './modules/reports/reports.controller';
+import { UnbilledReportService } from './modules/reports/unbilled-report.service';
+import { UnbilledReminderService } from './modules/reminders/unbilled-reminder.service';
 import { InvoicePdfService } from './modules/invoices/invoice-pdf.service';
 import { InvoiceCancelService } from './modules/invoices/invoice-cancel.service';
 import { InvoiceStatusService } from './modules/invoices/invoice-status.service';
@@ -252,6 +255,8 @@ import { MeController } from './modules/me/me.controller';
 import { ProfileController } from './modules/me/profile.controller';
 import { SavedViewsController } from './modules/saved-views/saved-views.controller';
 import { SavedViewsService } from './modules/saved-views/saved-views.service';
+import { SearchController } from './modules/search/search.controller';
+import { SearchService } from './modules/search/search.service';
 import { UsersController } from './modules/users/users.controller';
 import { UserLifecycleController } from './modules/users/user-lifecycle.controller';
 import { PdfRenderer } from './pdf/pdf-renderer';
@@ -288,6 +293,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     MeController,
     ProfileController,
     SavedViewsController,
+    SearchController,
     CompaniesController,
     UsersController,
     UserLifecycleController,
@@ -331,6 +337,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     InvoicesController,
     InvoiceRunsController,
     PaymentsController,
+    ReportsController,
     BillingNotesController,
     DeliveryOrderReleaseController,
     DeliveryOrderRevenueLinesController,
@@ -430,6 +437,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     DocumentEmailService,
     PaymentsService,
     AgingService,
+    UnbilledReportService,
     BillingNotesService,
     InvoiceRunService,
     StopEventsService,
@@ -446,6 +454,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ScheduleService,
     BoardPreferencesService,
     SavedViewsService,
+    SearchService,
     EligibilityService,
     OrdersService,
     OrderBulkService,
@@ -490,6 +499,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     MonitorScheduler,
     ExpiryReminderService,
     PaymentDueReminderService,
+    UnbilledReminderService,
     DepreciationService,
     GeoService,
     AuditService,

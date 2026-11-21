@@ -7,6 +7,7 @@ import {
   sampleSettlementDraft,
   sampleSettlementLong,
   sampleSettlementPaid,
+  sampleSettlementSandbox,
 } from '../src/modules/settlements/settlement-pdf.sample';
 import {
   WHT_ESTIMATE_NOTE,
@@ -15,6 +16,7 @@ import {
 } from '../src/modules/settlements/settlement-pdf.template';
 import { invoiceDocument } from '../src/modules/invoices/invoice.template';
 import { sampleInvoiceExempt } from '../src/modules/invoices/invoice.sample';
+import { SANDBOX_WATERMARK } from '../src/pdf/finance-document';
 import { PdfRenderer } from '../src/pdf/pdf-renderer';
 
 /**
@@ -178,6 +180,34 @@ describe('ใบสำคัญจ่าย PDF (ST6-T04)', () => {
       golden('long'),
       await r.withPage(doc, (p) => p.screenshot({ fullPage: true, type: 'png' })),
     );
+  }, 90_000);
+
+  it('sandbox (ตามแนว D-61): ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" ทุกหน้า (data-wm-kind sample) · live ไม่มีลายน้ำ · ร่างใน sandbox ยังเป็น "ร่าง"', async () => {
+    const wms = async (m: ReturnType<typeof sampleSettlementPaid>) =>
+      (await r.withPage(settlementVoucherDocument(m), (p) =>
+        p.evaluate(`[...document.querySelectorAll('section.page .wm')].map((w) => w.textContent)`),
+      )) as string[];
+    const sb = settlementVoucherDocument(sampleSettlementSandbox());
+    expect(sb.body).toContain(`data-wm="${SANDBOX_WATERMARK}"`);
+    expect(sb.body).toContain('data-wm-kind="sample"');
+    expect(await wms(sampleSettlementSandbox())).toEqual([SANDBOX_WATERMARK]);
+    const i = await info(sb);
+    expect(i.foot).toEqual(['TEST-SA-2610-0008 · หน้า 1/1']);
+    expect(i.over).toBe(false);
+    // live: ไม่มี data-wm เลย (ผลพิมพ์เดิม — golden 3 แบบข้างบนยังผ่าน)
+    for (const m of [sampleSettlementPaid(), sampleSettlementLong()]) {
+      expect(settlementVoucherDocument(m).body).not.toContain('data-wm=');
+      expect(await wms(m)).toEqual([]);
+    }
+    // หลายหน้า: ทุกหน้า
+    const long = { ...sampleSettlementLong(), settlementNo: 'TEST-SA-2611-0021', sandbox: true };
+    const li = await info(settlementVoucherDocument(long));
+    expect(li.n).toBeGreaterThanOrEqual(2);
+    expect(await wms(long)).toEqual(Array.from({ length: li.n }, () => SANDBOX_WATERMARK));
+    expect(li.over).toBe(false);
+    // ร่างใน sandbox: ลายน้ำ "ร่าง" ตามเดิม (ค่า watermark ไม่มีผลเมื่อยังไม่มีเลข)
+    const draft = { ...sampleSettlementDraft(), sandbox: true };
+    expect(await wms(draft)).toEqual(await wms(sampleSettlementDraft()));
   }, 90_000);
 
   it('ไม่มี WHT (ต่ำกว่าขั้นต่ำ) → ไม่มีบรรทัดหัก ณ ที่จ่าย/หมายเหตุประมาณการ · ยอดแยกอัตราไม่ตรงยอดรวม → บรรทัดเดียว · escape', () => {

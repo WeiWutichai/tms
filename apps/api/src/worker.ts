@@ -21,6 +21,7 @@ import { ConnectorsService, HEALTH_RECHECK_EVERY_MS } from './modules/erp/connec
 import { InboundWebhookService } from './modules/erp/inbound-webhook.service';
 import { ExpiryReminderService } from './modules/reminders/expiry-reminder.service';
 import { PaymentDueReminderService } from './modules/reminders/payment-due-reminder.service';
+import { UnbilledReminderService } from './modules/reminders/unbilled-reminder.service';
 import { InvoiceStatusService } from './modules/invoices/invoice-status.service';
 import { DailyDigestService } from './modules/notifications/daily-digest.service';
 import { DepreciationService } from './modules/depreciation/depreciation.service';
@@ -146,6 +147,15 @@ async function main() {
       .catch((e) => log.error(e));
   void schedulePaymentDue();
   const paymentDueTimer = setInterval(schedulePaymentDue, 10 * 60 * 1000);
+  // ST9-T06 DO ยังไม่วางบิลเกิน N วัน: ตรวจทุก 10 นาที — ตั้งแต่ 08:00 เวลาไทย สร้าง job ของวันนี้ (แจ้งผู้วางบิลเมื่อมี DO เพิ่งเกินเกณฑ์)
+  const unbilled = ctx.get(UnbilledReminderService);
+  const scheduleUnbilled = () =>
+    unbilled
+      .scheduleDue()
+      .then((n) => n && log.info({ tenants: n }, 'unbilled DO reminders scheduled'))
+      .catch((e) => log.error(e));
+  void scheduleUnbilled();
+  const unbilledTimer = setInterval(scheduleUnbilled, 10 * 60 * 1000);
   // ST2-T22 ค่าเสื่อมรายเดือน: ตรวจทุก 10 นาที — ตั้งแต่วันที่ 1 เวลา 02:00 น. ไทย สร้าง job ของเดือนที่เพิ่งปิดให้ tenant ที่ยังไม่มี (ซ้ำได้ ไม่ลงซ้ำ)
   const depreciation = ctx.get(DepreciationService);
   const scheduleDepreciation = () =>
@@ -200,6 +210,7 @@ async function main() {
   clearInterval(digestTimer);
   clearInterval(overdueTimer);
   clearInterval(paymentDueTimer);
+  clearInterval(unbilledTimer);
   clearInterval(depreciationTimer);
   clearInterval(offerTimeoutTimer);
   clearInterval(pullTimer);
