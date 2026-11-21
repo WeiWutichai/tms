@@ -2002,3 +2002,8 @@ h1[tabindex='-1']:focus,
 .tms-aging-bucket:hover {
   background: #eef0ec !important;
 }
+
+/* ST9-T06 แถวตารางรายงาน (ต้นแบบ vRep: tr style-hover background #EEF0EC) */
+.tms-rpt-row:hover {
+  background: #eef0ec;
+}

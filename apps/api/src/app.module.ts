@@ -182,6 +182,9 @@ import { InvoiceRunService } from './modules/invoices/invoice-run.service';
 import { PaymentsController } from './modules/payments/payments.controller';
 import { PaymentsService } from './modules/payments/payments.service';
 import { AgingService } from './modules/payments/aging.service';
+import { ReportsController } from './modules/reports/reports.controller';
+import { UnbilledReportService } from './modules/reports/unbilled-report.service';
+import { UnbilledReminderService } from './modules/reminders/unbilled-reminder.service';
 import { InvoicePdfService } from './modules/invoices/invoice-pdf.service';
 import { InvoiceCancelService } from './modules/invoices/invoice-cancel.service';
 import { InvoiceStatusService } from './modules/invoices/invoice-status.service';
@@ -334,6 +337,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     InvoicesController,
     InvoiceRunsController,
     PaymentsController,
+    ReportsController,
     BillingNotesController,
     DeliveryOrderReleaseController,
     DeliveryOrderRevenueLinesController,
@@ -433,6 +437,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     DocumentEmailService,
     PaymentsService,
     AgingService,
+    UnbilledReportService,
     BillingNotesService,
     InvoiceRunService,
     StopEventsService,
@@ -494,6 +499,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     MonitorScheduler,
     ExpiryReminderService,
     PaymentDueReminderService,
+    UnbilledReminderService,
     DepreciationService,
     GeoService,
     AuditService,

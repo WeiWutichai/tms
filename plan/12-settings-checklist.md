@@ -43,6 +43,7 @@
 | 30 | ให้ผู้ทำร่างออกเอกสารใบแจ้งหนี้เองได้ | `billing.allowSelfFinalize` | — | API-only | ST5-T09 — ต้นแบบไม่มีช่อง; ค่าเริ่ม ปิด (แบ่งหน้าที่ตาม docs/04 A3) · เปลี่ยนได้เฉพาะ owner (OWNER_ONLY_SETTINGS) + step-up + audit |
 | 31 | ส่วนต่างที่บัญชีตัดยอดเองได้ต่อการรับชำระ (บาท) | `payments.maxDifferenceAmount` | — | API-only | ST5-T13 review M1 (spec/05 BIL-059) — ต้นแบบไม่มีช่อง; ค่าเริ่ม 10 · เกินต้องมี `payments:reverse` (ผู้จัดการ) · เพิ่มค่า = step-up |
 | 32 | ให้ผู้อนุมัติใบสำคัญจ่ายบันทึกจ่ายใบนั้นเองได้ (ปิดกฎแบ่งหน้าที่) | `settlement.allowApproverMarkPaid` | — | API-only | D-60 (ST6-T09) — ต้นแบบไม่มีช่อง; ค่าเริ่ม ปิด (ผู้อนุมัติจ่ายเอง = 403 `settlement_self_payment`) · **แก้ได้เฉพาะ owner** · เปิด = step-up · audit `tenant_setting.updated` + `sodWaived` ใน `settlement.paid` |
+| 33 | DO ส่งแล้วยังไม่วางบิลเกินกี่วัน (รายงาน + แจ้งผู้วางบิล) | `billing.unbilledAlertDays` | — | API-only | ST9-T06 — ต้นแบบไม่มีช่อง; ค่าเริ่ม 7 วัน (1–365) · ใช้กับรายงาน รายงาน → "DO ยังไม่วางบิล" (`GET /v1/reports/unbilled-delivery-orders` — `minDays` ทับได้) และแจ้งผู้วางบิล 08:00 [DECISION spec/12 §3 แถว ST9-T06] |
 
 ## 2. ค่าตั้งองค์กรที่เป็น resource แยก (ไม่อยู่ใน registry)
 

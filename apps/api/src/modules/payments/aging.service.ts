@@ -7,7 +7,8 @@ import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { DbService, type Tx } from '../../db/db.service';
 import { bangkokToday } from '../vehicle-documents/expiry';
-import type { AgingBucketDto, AgingQuery, AgingReportDto } from './payment.dto';
+import type { ExportPage } from '../master/export';
+import type { AgingBucketDto, AgingCustomerDto, AgingQuery, AgingReportDto } from './payment.dto';
 
 const NONE = '00000000-0000-0000-0000-000000000000';
 const money = (d: Prisma.Decimal | string | number) => new Prisma.Decimal(d).toFixed(2);
@@ -166,6 +167,16 @@ export class AgingService {
       nextCursor: hasMore && last ? encodeCursor(last.customer_id) : null,
       hasMore,
     };
+  }
+
+  /** งานส่งออก "ลูกหนี้คงค้าง" (ST9-T06) — หน้าถัดไปต่อจาก id ลูกค้า (uuid) ด้วย cursor ตัวเดียวกับ API */
+  async customerPage(q: AgingQuery, page: ExportPage): Promise<AgingCustomerDto[]> {
+    const r = await this.report({
+      ...(q.customerId !== undefined ? { customerId: q.customerId } : {}),
+      limit: page.take,
+      ...(page.after ? { cursor: encodeCursor(page.after) } : {}),
+    });
+    return r.data;
   }
 
   private async customerRef(tx: Tx, ref: string): Promise<string | null> {
