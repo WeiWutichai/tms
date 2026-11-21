@@ -895,6 +895,40 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('invoice', id);
     },
+    // ST5-T11 ใบวางบิล (/billing-notes/:id, PATCH, /finalize, /acknowledge, /collect, /cancel, /proforma)
+    billingNote: async (db, tenantId, n) => {
+      const inv = await db.invoice.findUniqueOrThrow({
+        where: { id: tryDecodeId('invoice', await FIXTURES.invoice!(db, tenantId, n + 700))! },
+      });
+      const bn = await db.billingNote.create({
+        data: {
+          tenantId,
+          customerId: inv.customerId,
+          issuingCompanyId: inv.issuingCompanyId,
+          issuingBranchId: inv.issuingBranchId,
+        },
+      });
+      return encodeId('billingNote', bn.id);
+    },
+    // ST5-T11 ใบวางบิลที่ออกแล้ว (/billing-notes/:id/pdf — ร่าง = 409)
+    issuedBillingNote: async (db, tenantId, n) => {
+      const id = tryDecodeId('billingNote', await FIXTURES.billingNote!(db, tenantId, n + 500))!;
+      await db.billingNote.update({
+        where: { id },
+        data: {
+          status: 'ISSUED',
+          billingNoteNo: `BN-ISO-${n}`,
+          billingDate: new Date('2026-11-20T00:00:00.000Z'),
+          collectionDate: new Date('2026-12-05T00:00:00.000Z'),
+          issuedAt: new Date(),
+          issuedBy: 'test',
+          customerSnapshot: { name: 'x', taxId: null, branchCode: null, address: '' },
+          issuerSnapshot: { name: 'x', taxId: null, branchCode: '00000', address: '' },
+          printOptions: { yearStyle: 'BE', templateVersion: 1 },
+        },
+      });
+      return encodeId('billingNote', id);
+    },
     // ST3-T11 เที่ยวรถ (PLANNING ว่าง)
     trip: async (db, tenantId, n) =>
       encodeId(
@@ -948,6 +982,8 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
 
 /** body ขั้นต่ำที่ผ่าน validation ของ action แต่ละแบบ (ให้ไปถึง handler แล้วได้ 404 จริง) */
 const BODY_FOR_SUFFIX: Record<string, object> = {
+  // ST5-T11 ผู้รับวางบิล
+  acknowledge: { receivedBy: 'isolation', receivedOn: '2026-11-20' },
   resolve: { decision: 'IGNORE', reason: 'isolation test reason' },
   deactivate: { reason: 'isolation test reason' },
   activate: { reason: 'isolation test' },

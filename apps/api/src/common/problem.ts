@@ -562,6 +562,21 @@ export const PROBLEMS = {
     th: 'โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้',
     en: 'Finalizing invoices is not available in sandbox yet',
   },
+  /**
+   * ST5-T11 ใบวางบิล (spec/05 BIL-039): ใบแจ้งหนี้อยู่ในใบวางบิลอื่นที่ยัง active (ร่าง/ออกแล้ว) — `invoices[]`
+   * (`invoiceId`, `invoiceNo`, `billingNoteId`, `billingNoteNo`) · สองคำขอพร้อมกัน = รายที่สองได้ 409 นี้ (unique partial ระดับ DB)
+   */
+  invoice_already_billed: {
+    status: 409,
+    th: 'ใบแจ้งหนี้นี้อยู่ในใบวางบิลอื่นแล้ว',
+    en: 'This invoice is already on another active billing note',
+  },
+  /** ST5-T11 ใบวางบิลรวมได้เฉพาะใบแจ้งหนี้ที่ออกแล้วและยังค้างชำระ (ISSUED / PARTIALLY_PAID) — `invoices[]` (`invoiceId`, `invoiceNo`, `status`) */
+  invoice_not_billable: {
+    status: 409,
+    th: 'ใบแจ้งหนี้นี้ยังไม่ออกหรือไม่มียอดค้าง ใส่ในใบวางบิลไม่ได้',
+    en: 'Only issued invoices with an outstanding balance can be put on a billing note',
+  },
   /** ST4-T07 บันทึก/แก้หลักฐานส่งได้เฉพาะ DO ที่ส่งแล้ว/ส่งไม่สำเร็จและยังไม่วางบิล — `doStatus` บอกสถานะปัจจุบัน */
   pod_not_allowed: {
     status: 409,
