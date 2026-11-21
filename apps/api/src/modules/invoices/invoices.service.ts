@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type VatType } from '@prisma/client';
 import {
+  AGING_BUCKET_RANGE,
   canMergeInvoiceLines,
   computeDocumentTax,
   decimalFromSatang,
@@ -10,6 +11,7 @@ import {
   taxOptionsFromSettings,
   toCalcVatType,
   toCalcWhtRate,
+  type AgingBucket,
   type InvoiceLineMode,
   type InvoiceSentChannel,
   type InvoiceStatus,
@@ -22,7 +24,7 @@ import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
-import { bangkokToday } from '../vehicle-documents/expiry';
+import { addDays, bangkokToday } from '../vehicle-documents/expiry';
 import type { BillingDoRow } from '../delivery-orders/delivery-order.service';
 import { LINE_UNIT_EXPR, LINE_UNIT_JOINS } from './line-units';
 import { REVENUE_LOCK_NS } from '../revenue-lines/revenue-rebuild';
@@ -130,6 +132,7 @@ export class InvoicesService {
     const od = overdueWhere(tx, bangkokToday(this.clock.now()));
     if (q.receivable === 'overdue' || q.overdue === 'true') and.push(od);
     if (q.overdue === 'false') and.push({ NOT: od });
+    if (q.aging) and.push(agingWhere(tx, q.aging, bangkokToday(this.clock.now())));
     if (q.customerId !== undefined)
       and.push({ customerId: (await this.customerRef(tx, q.customerId)) ?? NONE });
     const today = bangkokToday(this.clock.now());
@@ -998,6 +1001,22 @@ export function overdueWhere(tx: Tx, today: string): Prisma.InvoiceWhereInput {
         paidAmount: { lt: tx.invoice.fields.totalAmount },
       },
     ],
+  };
+}
+
+/**
+ * ST5-T22 ใบค้างรับในช่วงอายุ (ชุดเดียวกับ `AgingService` — ยอดในการ์ด "อายุลูกหนี้" ตรงกับตารางที่กรอง)
+ * daysPastDue = วันนี้ − dueDate ∈ [lo, hi] ⇔ dueDate ∈ [วันนี้ − hi, วันนี้ − lo] · ไม่มีวันครบกำหนด = ยังไม่ครบกำหนด
+ */
+export function agingWhere(tx: Tx, bucket: AgingBucket, today: string): Prisma.InvoiceWhereInput {
+  const [lo, hi] = AGING_BUCKET_RANGE[bucket];
+  const due: Prisma.DateTimeNullableFilter = {};
+  if (hi !== null) due.gte = day(addDays(today, -hi));
+  if (lo !== null) due.lte = day(addDays(today, -lo));
+  return {
+    status: { in: ['ISSUED', 'PARTIALLY_PAID'] },
+    paidAmount: { lt: tx.invoice.fields.totalAmount },
+    ...(lo === null ? { OR: [{ dueDate: null }, { dueDate: due }] } : { dueDate: due }),
   };
 }
 

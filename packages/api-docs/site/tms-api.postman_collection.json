@@ -17470,6 +17470,12 @@
                   "value": "",
                   "description": "ธงเกินกำหนด — `false` = ไม่รวมใบเกินกำหนด (แท็บ \"ออกแล้ว\"/\"ชำระบางส่วน\" ของต้นแบบ: เกินกำหนดแสดงก่อน) · `true` = เฉพาะเกินกำหนด",
                   "disabled": true
+                },
+                {
+                  "key": "aging",
+                  "value": "",
+                  "description": "ช่วงอายุลูกหนี้ (การ์ด \"อายุลูกหนี้\" ของหน้ารับชำระ) — เฉพาะใบค้างรับที่ยังมียอดค้าง และ `daysPastDue = วันนี้ − dueDate` (เวลาไทย) อยู่ในช่วง · ชุดเดียวกับ `GET /payments/aging`",
+                  "disabled": true
                 }
               ]
             },
@@ -18511,6 +18517,50 @@
               ]
             },
             "description": "scope: invoices:read\n\nวันครบกำหนดและเดือน ตามเวลาไทย (Asia/Bangkok) · เกินกำหนด = ใบที่มีธง `overdue`"
+          }
+        },
+        {
+          "name": "อายุลูกหนี้ — ยอดค้างตามช่วงอายุ รวมและต่อลูกค้า",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/payments/aging",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "payments",
+                "aging"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "ลูกค้าต่อหน้า",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "ค่า nextCursor จากหน้าก่อน (เรียงตามชื่อลูกค้า)",
+                  "disabled": true
+                },
+                {
+                  "key": "customerId",
+                  "value": "cus_…",
+                  "description": "ลูกค้ารายเดียว — id หรือ `ext:{externalId}`",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "scope: invoices:read\n\nใบค้างรับ (ISSUED / PARTIALLY_PAID ที่ยังมียอดค้าง) · ยอดค้าง = ยอดรวม − ยอดตัดชำระ · ช่วงอายุจาก `daysPastDue = asOf − dueDate` (เวลาไทย): ยังไม่ครบกำหนด (≤ 0) · 1–30 · 31–60 · 61–90 · เกิน 90 วัน · **Σ ทุกช่วง = `sellOutstanding` ของ `GET /payments/summary`** · `data` = ต่อลูกค้า (เฉพาะที่มียอดค้าง) เรียงตามชื่อ cursor มาตรฐาน · กรองลูกค้า `customerId` (รับ `ext:`) · asOf = วันนี้ · ยอด `sell*` เห็นเมื่อมี `prices.sell:read` (จำนวนใบเห็นเสมอ) · รายการใบในช่วงอายุ: `GET /invoices?receivable=open&aging=…`"
           }
         },
         {

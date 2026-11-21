@@ -1944,3 +1944,8 @@ h1[tabindex='-1']:focus,
 .tms-table tbody tr[data-pointer-focus]:focus-visible > td {
   box-shadow: none;
 }
+
+/* ST5-T22 ช่วงอายุลูกหนี้ (ต้นแบบ vPay: style-hover background #EEF0EC) — สีพื้นปกติอยู่ inline */
+.tms-aging-bucket:hover {
+  background: #eef0ec !important;
+}

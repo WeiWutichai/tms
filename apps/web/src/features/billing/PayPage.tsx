@@ -3,6 +3,7 @@ import {
   DataTable,
   DocNo,
   EmptyState,
+  FilterChip,
   StatusDot,
   StatusTabs,
   SummaryStrip,
@@ -20,12 +21,13 @@ import { problemText } from '../master/problems';
 import { listTotal, useSessionState } from '../master/useCursorList';
 import { bangkokToday, money, useDateText } from '../rate-cards/rateFormat';
 import { invoiceDisplayStatus, overdueDays } from './billing';
+import { AGING_ORDER, AgingCard, agingLabel, type AgingBucket } from './AgingCard';
 import { InvoiceDrawer, invoiceStatusLabel } from './InvoiceDrawer';
 import { PayDrawer } from './PayDrawer';
 import { SavedViewMenu } from '../views/SavedViewMenu';
 import { pick, useSavedViews } from '../views/useSavedViews';
 import type { InvoiceSummary } from './useInvoices';
-import { usePaymentSummary, useReceivableList } from './usePayments';
+import { useAgingSummary, usePaymentSummary, useReceivableList } from './usePayments';
 
 type Tab = 'all' | 'open' | 'over' | 'part' | 'paid';
 const TABS: Tab[] = ['all', 'open', 'over', 'part', 'paid'];
@@ -45,7 +47,8 @@ const ST_OPTS = ['ISSUED', 'PARTIALLY_PAID', 'PAID', 'OVERDUE'] as const;
 /**
  * บัญชี → รับชำระ (ST5-T13; ต้นแบบ TMS v4 `pay` = kpisPay + ตาราง specPay + drawer vPanel 'pay')
  * D-54/D-56 บัญชีเบา: บันทึกเงิน/เช็ค ไม่ออกใบเสร็จ — คำบรรยายหน้าตัด "ออกใบเสร็จ" [DECISION spec/12 §3]
- * การ์ด "อายุลูกหนี้" (vPay) = ST5-T22 · "ส่งใบแจ้งเตือนชำระ" (อีเมลถึงลูกค้า) = ST5-T22 เตือนครบกำหนด · คอลัมน์ "ระบบบัญชี" = ST8-T16
+ * ST5-T22 การ์ด "อายุลูกหนี้" (vPay) — กดช่วงอายุ = ตัวกรอง `aging` ของรายการ (ต้นแบบ kf + ชิป "อายุหนี้ …") · เตือนครบกำหนดภายใน = job รายวัน
+ * "ส่งใบแจ้งเตือนชำระ" (อีเมลถึงลูกค้า) = ST5-T21 ช่องส่งอีเมลลูกค้า [DECISION spec/12 §3] · คอลัมน์ "ระบบบัญชี" = ST8-T16
  */
 export function PayPage() {
   const { t } = useI18n();
@@ -59,7 +62,13 @@ export function PayPage() {
   const canVoid = can(scopes, 'invoices:void');
   const dateText = useDateText();
   const today = bangkokToday();
-  const [tab, setTab] = useSessionState<Tab>('pay.tab', 'all');
+  const [tab, setTabRaw] = useSessionState<Tab>('pay.tab', 'all');
+  // ST5-T22 ตัวกรองช่วงอายุจากการ์ด (ต้นแบบ kf.pay) — เลือกแท็บ/KPI = ล้าง (ต้นแบบ spec.tab: kf null)
+  const [kf, setKf] = useSessionState<AgingBucket | ''>('pay.kf', '');
+  const setTab = (k: Tab) => {
+    setTabRaw(k);
+    setKf('');
+  };
   const [col, setCol] = useSessionState('pay.cols', { no: '', cust: '', st: '' });
   const [hidden, setHidden] = useSessionState<string[] | null>('pay.hidden', null);
   // มุมมองที่บันทึกไว้ (ST9-T11 — ต้นแบบ "มุมมอง: ของฉันวันนี้"): แท็บ + ตัวกรองคอลัมน์ + คอลัมน์ที่ซ่อน
@@ -78,8 +87,14 @@ export function PayPage() {
   const [open, setOpen] = useState<{ id: string; kind: 'pay' | 'inv' } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const sum = usePaymentSummary().data;
+  const aging = useAgingSummary().data;
+  const kfOn = kf && AGING_ORDER.includes(kf) ? kf : '';
 
-  const filters = useMemo(() => TAB_QUERY[tab], [tab]);
+  // ต้นแบบ: กดช่วงอายุ → แท็บ "ทั้งหมด" + กรองใบค้างในช่วงนั้น
+  const filters = useMemo(
+    () => (kfOn ? { receivable: 'all', aging: kfOn } : TAB_QUERY[tab]),
+    [tab, kfOn],
+  );
   const list = useReceivableList(filters);
   const shown = list.rows.filter(
     (x) =>
@@ -94,11 +109,12 @@ export function PayPage() {
     part: sum?.partiallyPaid,
     paid: sum?.paid,
   };
+  const kfCount = kfOn ? aging?.buckets.find((b) => b.bucket === kfOn)?.count : undefined;
   const shownTotal = listTotal(
     list,
-    { tab, ...col },
-    ['tab'],
-    col.no || col.cust || col.st ? undefined : tabCount[tab],
+    { tab, kf: kfOn, ...col },
+    ['tab', 'kf'],
+    col.no || col.cust || col.st ? undefined : kfOn ? kfCount : tabCount[tab],
   );
   const outOf = (x: InvoiceSummary) => Number(x.sellOutstanding ?? '0');
 
@@ -226,83 +242,125 @@ export function PayPage() {
         ]}
       />
 
-      <h2 style={{ margin: '28px 0 0', fontSize: 15, fontWeight: 600 }}>{t('pay.listTitle')}</h2>
-      <div className="tms-listbody" style={{ marginTop: 12 }}>
-        <StatusTabs
-          value={tab}
-          onChange={(k) => setTab(k as Tab)}
-          items={TABS.map((k) => ({
-            key: k,
-            label: t(`pay.tab.${k}` as MessageKey),
-            ...(tabCount[k] !== undefined ? { count: tabCount[k]! } : {}),
-          }))}
-        />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
-          <SavedViewMenu b={views} onToast={setToast} />
-          <span style={{ marginLeft: 'auto', color: '#3B424C', fontSize: 13 }}>
-            {shownTotal !== undefined && t('table.total', { n: shownTotal })}
-          </span>
-        </div>
-        {list.q.isError ? (
-          <EmptyState
-            icon="circle-alert"
-            title={t('bill.loadError')}
-            description={problemText(list.q.error, t) ?? ''}
-            action={
-              <Button variant="secondary" icon="refresh-cw" onClick={() => list.q.refetch()}>
-                {t('cust.retry')}
-              </Button>
-            }
+      <AgingCard
+        data={aging}
+        dateText={dateText}
+        active={kfOn}
+        onPick={(b) => {
+          setTabRaw('all');
+          setKf(kfOn === b ? '' : b);
+        }}
+      />
+
+      {/* ต้นแบบ: บล็อกรายการ = คอลัมน์ gap 12 · หัวข้อ margin-top 4 (ห่างการ์ดด้านบน 24 + 4) */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0 }}>
+        <h2 style={{ margin: '4px 0 0', fontSize: 15, fontWeight: 600 }}>{t('pay.listTitle')}</h2>
+        <div className="tms-listbody">
+          <StatusTabs
+            value={tab}
+            onChange={(k) => setTab(k as Tab)}
+            items={TABS.map((k) => ({
+              key: k,
+              label: t(`pay.tab.${k}` as MessageKey),
+              ...(tabCount[k] !== undefined ? { count: tabCount[k]! } : {}),
+            }))}
           />
-        ) : (
-          <DataTable
-            columns={columns}
-            rows={shown}
-            rowId={(x) => x.id}
-            activeId={open?.id ?? null}
-            loading={list.loading}
-            labels={tableLabels(t)}
-            bulkActions={[
-              { label: t('bill.xp'), icon: 'file-down', run: () => setToast(t('bill.xpSoon')) },
-            ]}
-            filters={col}
-            hiddenColumns={hidden}
-            onHiddenColumnsChange={setHidden}
-            onFilterChange={(k, v) => setCol((c) => ({ ...c, [k]: v }))}
-            onRowClick={(x) => setOpen({ id: x.id, kind: 'pay' })}
-            rowMenu={(x) => [
-              ...(outOf(x) > 0 && canRecord
-                ? [
-                    {
-                      label: t('pay.save'),
-                      icon: 'banknote',
-                      run: () => setOpen({ id: x.id, kind: 'pay' }),
-                    },
-                  ]
-                : []),
-              {
-                label: t('pay.viewInv'),
-                icon: 'eye',
-                run: () => setOpen({ id: x.id, kind: 'inv' }),
-              },
-            ]}
-            empty={
-              <EmptyState
-                icon="banknote"
-                title={t('pay.list.emptyTitle')}
-                description={t('pay.list.emptyDesc')}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
+            <SavedViewMenu b={views} onToast={setToast} />
+            {kfOn && (
+              <FilterChip
+                label={t('pay.aging.chip', { b: agingLabel(t, kfOn) })}
+                removeLabel={t('pay.aging.clear')}
+                onRemove={() => setKf('')}
               />
-            }
-            page={{
-              ...list.page,
-              ...(shownTotal !== undefined ? { total: shownTotal } : {}),
-            }}
-            onPageSize={list.setSize}
-            onNext={list.next}
-            onPrev={list.prev}
-            onGoto={list.goto}
-          />
-        )}
+            )}
+            {kfOn && (
+              // ต้นแบบ T.clearAll: ล้างชิป + ตัวกรองคอลัมน์ + กลับแท็บทั้งหมด
+              <button
+                type="button"
+                onClick={() => {
+                  setTab('all');
+                  setCol({ no: '', cust: '', st: '' });
+                }}
+                style={{
+                  height: 28,
+                  border: 0,
+                  background: 'transparent',
+                  color: '#2257C4',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  padding: '0 6px',
+                  font: 'inherit',
+                }}
+              >
+                {t('table.clearAll')}
+              </button>
+            )}
+            <span style={{ marginLeft: 'auto', color: '#3B424C', fontSize: 13 }}>
+              {shownTotal !== undefined && t('table.total', { n: shownTotal })}
+            </span>
+          </div>
+          {list.q.isError ? (
+            <EmptyState
+              icon="circle-alert"
+              title={t('bill.loadError')}
+              description={problemText(list.q.error, t) ?? ''}
+              action={
+                <Button variant="secondary" icon="refresh-cw" onClick={() => list.q.refetch()}>
+                  {t('cust.retry')}
+                </Button>
+              }
+            />
+          ) : (
+            <DataTable
+              columns={columns}
+              rows={shown}
+              rowId={(x) => x.id}
+              activeId={open?.id ?? null}
+              loading={list.loading}
+              labels={tableLabels(t)}
+              bulkActions={[
+                { label: t('bill.xp'), icon: 'file-down', run: () => setToast(t('bill.xpSoon')) },
+              ]}
+              filters={col}
+              hiddenColumns={hidden}
+              onHiddenColumnsChange={setHidden}
+              onFilterChange={(k, v) => setCol((c) => ({ ...c, [k]: v }))}
+              onRowClick={(x) => setOpen({ id: x.id, kind: 'pay' })}
+              rowMenu={(x) => [
+                ...(outOf(x) > 0 && canRecord
+                  ? [
+                      {
+                        label: t('pay.save'),
+                        icon: 'banknote',
+                        run: () => setOpen({ id: x.id, kind: 'pay' }),
+                      },
+                    ]
+                  : []),
+                {
+                  label: t('pay.viewInv'),
+                  icon: 'eye',
+                  run: () => setOpen({ id: x.id, kind: 'inv' }),
+                },
+              ]}
+              empty={
+                <EmptyState
+                  icon="banknote"
+                  title={t('pay.list.emptyTitle')}
+                  description={t('pay.list.emptyDesc')}
+                />
+              }
+              page={{
+                ...list.page,
+                ...(shownTotal !== undefined ? { total: shownTotal } : {}),
+              }}
+              onPageSize={list.setSize}
+              onNext={list.next}
+              onPrev={list.prev}
+              onGoto={list.goto}
+            />
+          )}
+        </div>
       </div>
       {open?.kind === 'pay' && (
         <PayDrawer

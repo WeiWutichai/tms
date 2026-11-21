@@ -177,6 +177,7 @@ import { BillingReleaseService } from './modules/invoices/billing-release.servic
 import { InvoicesService } from './modules/invoices/invoices.service';
 import { PaymentsController } from './modules/payments/payments.controller';
 import { PaymentsService } from './modules/payments/payments.service';
+import { AgingService } from './modules/payments/aging.service';
 import { InvoicePdfService } from './modules/invoices/invoice-pdf.service';
 import { InvoiceCancelService } from './modules/invoices/invoice-cancel.service';
 import { InvoiceStatusService } from './modules/invoices/invoice-status.service';
@@ -257,6 +258,7 @@ import { TripSheetsService } from './modules/trip-sheets/trip-sheets.service';
 import { TripSheetLinks } from './modules/trip-sheets/sheet-links';
 import { StateService } from './state/state.service';
 import { ExpiryReminderService } from './modules/reminders/expiry-reminder.service';
+import { PaymentDueReminderService } from './modules/reminders/payment-due-reminder.service';
 
 @Module({
   controllers: [
@@ -420,6 +422,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     InvoiceCancelService,
     InvoiceStatusService,
     PaymentsService,
+    AgingService,
     BillingNotesService,
     StopEventsService,
     StopProjectionService,
@@ -476,6 +479,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     AvailabilityService,
     MonitorScheduler,
     ExpiryReminderService,
+    PaymentDueReminderService,
     DepreciationService,
     GeoService,
     AuditService,

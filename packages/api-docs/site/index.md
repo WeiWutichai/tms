@@ -1,6 +1,6 @@
 # TMS API v1
 
-เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 371 endpoint
+เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 372 endpoint
 
 เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
 
@@ -59,7 +59,7 @@
 - [OAuth และระบบ (auth)](ref-auth.md) — 4 endpoint: POST /v1/oauth/token, GET /v1/.well-known/jwks.json, POST /v1/oauth/revoke, GET /v1/health
 - [billing-notes](ref-billing-notes.md) — 12 endpoint: GET /v1/billing-notes/summary, GET /v1/billing-notes/candidates, GET /v1/billing-notes, POST /v1/billing-notes, GET /v1/billing-notes/{id}, PATCH /v1/billing-notes/{id}, …
 - [invoices](ref-invoices.md) — 22 endpoint: GET /v1/invoices/queue, GET /v1/invoices/summary, POST /v1/invoices/preview, GET /v1/invoices, POST /v1/invoices, GET /v1/invoices/{id}, …
-- [payments](ref-payments.md) — 7 endpoint: GET /v1/payments, POST /v1/payments, GET /v1/payments/summary, GET /v1/payments/{id}, POST /v1/payments/{id}/reverse, POST /v1/payments/{id}/bounce, …
+- [payments](ref-payments.md) — 8 endpoint: GET /v1/payments, POST /v1/payments, GET /v1/payments/summary, GET /v1/payments/aging, GET /v1/payments/{id}, POST /v1/payments/{id}/reverse, …
 
 ## อ้างอิง
 

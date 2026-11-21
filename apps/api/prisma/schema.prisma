@@ -2829,6 +2829,7 @@ model NotificationDigest {
 /// unique = ไม่เตือนซ้ำ แม้ job รันซ้ำ/พร้อมกัน · แยกต่อผู้รับ → ส่งสรุปของแต่ละคนใน transaction ของตัวเองได้ (คนหนึ่งล้มไม่กระทบคนอื่น)
 /// ต่ออายุ/เปลี่ยนวันหมด → expires_on ใหม่ = รอบเตือนใหม่ · entity_type: VEHICLE_DOCUMENT / DRIVER_LICENCE / RATE_CARD
 /// level: D60 / D30 / D7 (เหลือ ≤ N วัน) / EXPIRED (เลยวันหมดแล้ว)
+/// ST5-T22 ใช้ร่วมกับเตือนครบกำหนดชำระ: entity_type INVOICE · expires_on = วันครบกำหนด · level DUE_IN_3/DUE_TODAY/OVERDUE_7/OVERDUE_30 (migration 0148)
 model ExpiryReminder {
   id          String   @id @default(uuid()) @db.Uuid
   tenantId    String   @map("tenant_id") @db.Uuid

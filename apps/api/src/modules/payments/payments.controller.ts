@@ -14,7 +14,10 @@ import { decodeIdOr404 } from '../../common/ids';
 import { PROBLEMS } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
 import { T403, T404, T409, T412, T422 } from '../trips/trip-problems';
+import { AgingService } from './aging.service';
 import {
+  AgingQuery,
+  AgingReportDto,
   CreatePaymentDto,
   PaymentDto,
   PaymentListQuery,
@@ -44,7 +47,10 @@ const STATE_409 = {
 @ApiBearerAuth()
 @Controller('payments')
 export class PaymentsController {
-  constructor(private readonly svc: PaymentsService) {}
+  constructor(
+    private readonly svc: PaymentsService,
+    private readonly aging: AgingService,
+  ) {}
 
   @Get()
   @RequireScope('invoices:read')
@@ -73,6 +79,24 @@ export class PaymentsController {
   @ApiOkResponse({ type: PaymentSummaryDto })
   summary(): Promise<PaymentSummaryDto> {
     return this.svc.summary();
+  }
+
+  // ประกาศก่อน `:id` เช่นเดียวกับ summary
+  @Get('aging')
+  @RequireScope('invoices:read')
+  @ApiOperation({
+    summary: 'อายุลูกหนี้ — ยอดค้างตามช่วงอายุ รวมและต่อลูกค้า (ST5-T22)',
+    description:
+      'ใบค้างรับ (ISSUED / PARTIALLY_PAID ที่ยังมียอดค้าง) · ยอดค้าง = ยอดรวม − ยอดตัดชำระ · ' +
+      'ช่วงอายุจาก `daysPastDue = asOf − dueDate` (เวลาไทย): ยังไม่ครบกำหนด (≤ 0) · 1–30 · 31–60 · 61–90 · เกิน 90 วัน · ' +
+      '**Σ ทุกช่วง = `sellOutstanding` ของ `GET /payments/summary`** · `data` = ต่อลูกค้า (เฉพาะที่มียอดค้าง) เรียงตามชื่อ cursor มาตรฐาน · ' +
+      'กรองลูกค้า `customerId` (รับ `ext:`) · asOf = วันนี้ · ยอด `sell*` เห็นเมื่อมี `prices.sell:read` (จำนวนใบเห็นเสมอ) · ' +
+      'รายการใบในช่วงอายุ: `GET /invoices?receivable=open&aging=…`',
+  })
+  @ApiProblems(T403('invoices:read'), T422)
+  @ApiOkResponse({ type: AgingReportDto })
+  agingReport(@Query() q: AgingQuery): Promise<AgingReportDto> {
+    return this.aging.report(q);
   }
 
   @Get(':id')
