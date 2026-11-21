@@ -5,6 +5,7 @@ import {
   bahtFormat,
   dateRangeShort,
   financeDocument,
+  SANDBOX_WATERMARK,
   type FinanceParty,
   type FinanceTotal,
 } from '../../pdf/finance-document';
@@ -16,7 +17,10 @@ import {
  * **ตารางเป็นรายการใบแจ้งหนี้** (docs/01 §3.4 + spec/05 §16: เลข วันที่ ครบกำหนด ยอด ค้าง) แทนรายการ DO ของต้นแบบ [DECISION spec/12 §3 — ST5-T11]
  * ไม่กระทบ VAT/WHT — ไม่มีเส้น VAT · WHT ที่คาดว่าจะถูกหักเป็นประมาณการ (D-54) · ร่าง = ลายน้ำ "ร่าง" ไม่มีเลข
  */
-/** รุ่นแม่แบบใบวางบิล (เก็บใน `billing_note.print_options.templateVersion`) — **แก้หน้าตา/เนื้อ (รวม finance-document.ts) ต้องเพิ่มเลข** */
+/**
+ * รุ่นแม่แบบใบวางบิล (เก็บใน `billing_note.print_options.templateVersion`) — **แก้หน้าตา/เนื้อ (รวม finance-document.ts) ต้องเพิ่มเลข**
+ * (D-61 ลายน้ำ sandbox ไม่เพิ่มเลข: ก่อน D-61 sandbox ออกใบแจ้งหนี้ไม่ได้ จึงไม่มีใบวางบิลที่ออกแล้วใน sandbox — ผลพิมพ์ใบเดิมไม่เปลี่ยน)
+ */
 export const BILLING_NOTE_TEMPLATE_VERSION = 1;
 
 export interface BillingNotePrintInvoice {
@@ -34,6 +38,8 @@ export interface BillingNotePrintModel {
   /** null = ร่าง */
   billingNoteNo: string | null;
   copy: 'ORIGINAL' | 'COPY' | null;
+  /** D-61: ใบที่ออกใน sandbox (`print_options.sandbox` ณ วันออก) → ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" ทุกหน้า */
+  sandbox?: boolean;
   /** วันวางบิล — ร่าง = วันพิมพ์ */
   billingDate: string;
   /** วันนัดรับเช็ค/โอน — null = ยังไม่กำหนด (ร่าง) */
@@ -81,6 +87,8 @@ export function billingNoteDocument(m: BillingNotePrintModel) {
         : m.copy === 'ORIGINAL'
           ? 'ต้นฉบับ / Original'
           : 'สำเนา / Copy',
+    watermark: m.sandbox ? SANDBOX_WATERMARK : null,
+    watermarkKind: 'sample',
     docDate: m.billingDate,
     issuer: m.issuer,
     customer: m.customer,
