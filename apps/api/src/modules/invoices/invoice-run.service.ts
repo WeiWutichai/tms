@@ -16,6 +16,7 @@ import type {
   InvoiceRunAcceptedDto,
   InvoiceRunCustomerResultDto,
   InvoiceRunCycle,
+  InvoiceRunDocRefDto,
   InvoiceRunResultDto,
   InvoiceRunSkippedDoDto,
 } from './invoice-run.dto';
@@ -24,8 +25,11 @@ import { InvoicesService } from './invoices.service';
 export const INVOICE_RUN_JOB = 'invoices.run';
 /** advisory lock ต่อ (tenant, ลูกค้า) ระหว่างรอบวางบิล — รอบที่ซ้อนกันของลูกค้าเดียวทำทีละรอบ (รอบหลังเห็น DO ที่ถูกดึงแล้ว) */
 const RUN_LOCK_NS = 0x1a12;
-/** ผู้สร้างร่างของรอบวางบิล (`invoice.created_by`) */
-export const RUN_ACTOR = 'system:invoice-run';
+/**
+ * ผู้สร้างร่างของรอบที่**ระบบตั้งเวลาเอง** (ยังไม่มี — [OPEN] scheduler) · รอบที่ผู้ใช้/API สั่ง createdBy = ผู้สั่ง (review M1:
+ * ผู้สั่งนับเป็นผู้เตรียมในกฎแบ่งหน้าที่ของ finalize — ใช้ค่านี้กับรอบที่คนสั่งไม่ได้ เพราะจะข้ามกฎแบ่งหน้าที่)
+ */
+export const SCHEDULED_RUN_ACTOR = 'system:invoice-run';
 /** เพดาน DO ต่อร่าง / ใบแจ้งหนี้ต่อใบวางบิล — เท่ากับเพดานของ `POST /invoices` / `POST /billing-notes` */
 const MAX_PER_DOC = 200;
 /** สถานะใบแจ้งหนี้ที่ใส่ใบวางบิลได้ (ชุดเดียวกับ BillingNotesService — ออกแล้วค้างชำระ) */
@@ -58,8 +62,10 @@ const chunk = <T>(xs: T[], n: number): T[][] => {
  *   + เวลาจุดส่งครบ · ร่างสร้างผ่าน `InvoicesService.create` (ทางเดียวกับสร้างมือ: ตรวจซ้ำตอนดึง + กันวางบิลซ้ำระดับ DB + audit)
  * - **ไม่สร้างซ้ำ (idempotent):** DO ที่อยู่ในร่าง/ใบที่ active ไม่ขึ้นคิวแล้ว และใบแจ้งหนี้ที่อยู่ในใบวางบิลที่ active ไม่ถูกเลือกอีก →
  *   สั่งรอบเดิมซ้ำ = ลูกค้าไม่มีอะไรต้องสร้าง · ลูกค้าเดียวกันในรอบที่ซ้อนกันทำทีละรอบ (advisory lock)
- * - **แยกความล้มต่อลูกค้า:** ลูกค้าละ transaction + savepoint ต่อร่าง — ลูกค้าที่ล้มไม่ทำให้ลูกค้าอื่นล้ม (job = `succeeded_with_errors`)
- *   · DO ที่ตรวจซ้ำตอนดึงไม่ผ่าน (เช่น หลักฐานไม่ครบตาม checklist ปัจจุบัน) ถูกตัดออกจากร่างและรายงานใน `skippedDeliveryOrders`
+ * - **แยกความล้มต่อร่าง:** ร่างหนึ่งกลุ่ม (≤ 200 DO / 1 DO สำหรับ PER_DO / ใบวางบิลต่อผู้ออก) = transaction เดียว รวมการส่งบัญชีของ DO
+ *   ในกลุ่ม — กลุ่มที่ล้มย้อนทั้งกลุ่ม (ไม่มี DO ส่งบัญชีค้าง ไม่มีร่าง) กลุ่มอื่น/ลูกค้าอื่นไม่กระทบ → ผลต่อลูกค้า SUCCEEDED / PARTIAL
+ *   (บางกลุ่มล้ม) / FAILED (ทุกกลุ่มที่ทำล้ม) / NOTHING_TO_BILL · มี PARTIAL/FAILED = job `succeeded_with_errors`
+ *   · DO ที่ไม่ผ่านตอนดึง/ส่งบัญชี (ระบุตัวได้ เช่น หลักฐานไม่ครบ, อยู่ในร่างอื่นแล้ว) ถูกตัดออกแล้วลองใหม่ — รายงานใน `skippedDeliveryOrders`
  * - ร่าง **ไม่มีเลข ไม่ใช่เอกสารภาษี** (D-54) — ผู้ใช้ตรวจแล้วออกเอกสารเอง
  */
 @Injectable()
@@ -96,7 +102,7 @@ export class InvoiceRunService implements OnModuleInit {
         const out = await requestContext.run(ctx, () => this.run(p, withTx, progress));
         return new JobOutcome(out, out.failed ? 'SUCCEEDED_WITH_ERRORS' : 'SUCCEEDED');
       },
-      // ลูกค้าละ transaction (เปิดเอง) · ล้มแล้วไม่ลองใหม่ · จบ = webhook `job.completed`
+      // ร่างละ transaction (เปิดเอง ≤ 120 วิ — กลุ่ม ≤ 200 DO) · progress ต่อกลุ่ม (ต่อ lease) · ล้มแล้วไม่ลองใหม่ · จบ = webhook `job.completed`
       { outsideTransaction: true, publicEvent: true, timeoutMs: 120_000 },
     );
   }
@@ -159,135 +165,161 @@ export class InvoiceRunService implements OnModuleInit {
         required: ['invoices:draft'],
       });
     const inTx: WithTx = (fn) => withTx((tx) => requestContext.run({ ...ctx, tx }, () => fn(tx)));
-    const customers = await inTx(async (tx) => {
-      const ready = await this.billingQueue.readyForRun(tx, {
-        cycle: p.billingCycle,
-        from: p.periodFrom,
-        to: p.periodTo,
-        released: !p.releaseDeliveryOrders,
-      });
-      const ids = new Set(ready.map((r) => r.customer_id));
+    // ภาพรวมก่อนเริ่ม (อ่านอย่างเดียว) → แบ่งเป็นหน่วยงาน "ร่าง" ต่อลูกค้า — แต่ละหน่วยอ่านคิวใหม่ใน transaction ของตัวเอง
+    const plan = await inTx(async (tx) => {
+      const ready = await this.billingQueue.readyForRun(tx, this.filter(p));
+      const dos = new Map<string, string[]>();
+      for (const r of ready) dos.set(r.customer_id, [...(dos.get(r.customer_id) ?? []), r.id]);
+      const notes = new Map<string, string[][]>();
       if (p.billingNotes)
-        for (const i of await this.noteCandidates(tx, p.billingCycle)) ids.add(i.customerId);
-      return tx.customer.findMany({
-        where: { id: { in: [...ids] } },
+        for (const [cid, groups] of this.byIssuer(await this.noteCandidates(tx, p.billingCycle)))
+          notes.set(cid, groups);
+      const customers = await tx.customer.findMany({
+        where: { id: { in: [...new Set([...dos.keys(), ...notes.keys()])] } },
         select: { id: true, code: true, legalName: true },
         orderBy: [{ code: 'asc' }, { id: 'asc' }],
       });
+      return customers.map((c) => {
+        const ids = dos.get(c.id) ?? [];
+        return {
+          c,
+          invoiceGroups:
+            p.billingCycle === 'PER_DO' ? ids.map((x) => [x]) : chunk(ids, this.groupSize),
+          noteGroups: notes.get(c.id) ?? [],
+        };
+      });
     });
+    const units = Math.max(
+      1,
+      plan.reduce((a, x) => a + x.invoiceGroups.length + x.noteGroups.length, 0),
+    );
+    let done = 0;
+    const tick = async () => progress((++done * 100) / units);
+
     const results: InvoiceRunCustomerResultDto[] = [];
-    for (const c of customers) {
-      const r: InvoiceRunCustomerResultDto = {
-        customerId: encodeId('customer', c.id),
-        customerCode: c.code,
-        customerName: c.legalName,
-        outcome: 'NOTHING_TO_BILL',
-        invoices: [],
-        billingNotes: [],
-        skippedDeliveryOrders: [],
-        problem: null,
-      };
-      try {
-        await inTx((tx) => this.customer(tx, c.id, p, r));
-      } catch (e) {
-        // ทั้ง transaction ของลูกค้านี้ย้อน — ร่างที่บันทึกในรายการถูกย้อนด้วย
-        r.invoices = [];
-        r.billingNotes = [];
-        r.problem = problemBody(e);
+    for (const { c, invoiceGroups, noteGroups } of plan) {
+      const acc = new CustomerAcc(c.id);
+      for (const g of invoiceGroups) {
+        try {
+          // ร่างหนึ่งกลุ่ม = transaction เดียว (ส่งบัญชี + สร้างร่าง) — ล้ม = ย้อนทั้งกลุ่ม ไม่มีอะไรค้าง
+          await inTx((tx) => this.invoiceGroup(tx, c.id, g, p, acc));
+        } catch (e) {
+          acc.fail(e);
+        }
+        await tick();
       }
-      r.outcome = r.problem
-        ? 'FAILED'
-        : r.invoices.length || r.billingNotes.length
-          ? 'CREATED'
-          : 'NOTHING_TO_BILL';
-      results.push(r);
-      await progress(((results.length * 100) / customers.length) | 0);
+      for (const g of noteGroups) {
+        try {
+          await inTx((tx) => this.noteGroup(tx, c.id, g, p.billingCycle, acc));
+        } catch (e) {
+          acc.fail(e);
+        }
+        await tick();
+      }
+      results.push(acc.toDto(c.code, c.legalName));
     }
     return {
       billingCycle: p.billingCycle,
       periodFrom: p.periodFrom,
       periodTo: p.periodTo,
       customers: results.length,
-      invoicesCreated: results.reduce((a, r) => a + r.invoices.length, 0),
+      invoicesCreated: results.reduce((a, r) => a + r.invoiceCount, 0),
       billingNotesCreated: results.reduce((a, r) => a + r.billingNotes.length, 0),
-      failed: results.filter((r) => r.outcome === 'FAILED').length,
+      failed: results.filter((r) => r.outcome === 'FAILED' || r.outcome === 'PARTIAL').length,
       results,
     };
   }
 
-  /** ลูกค้าหนึ่งราย (transaction เดียว) — ร่างละ savepoint: ร่างที่ล้มย้อนเฉพาะร่างนั้น */
-  private async customer(
-    tx: Tx,
-    customerId: string,
-    p: RunPayload,
-    r: InvoiceRunCustomerResultDto,
-  ): Promise<void> {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RUN_LOCK_NS}::int, hashtext(${customerId}))`;
-    // อ่านใหม่หลังได้ล็อก — รอบที่ซ้อนกันเห็น DO ที่รอบก่อนดึงไปแล้ว (ไม่ขึ้นคิว)
-    const ready = await this.billingQueue.readyForRun(tx, {
+  /** เพดาน DO ต่อร่าง (= เพดาน `POST /invoices`) — test ลดได้ */
+  groupSize = MAX_PER_DOC;
+
+  private filter(p: RunPayload, customerId?: string) {
+    return {
       cycle: p.billingCycle,
       from: p.periodFrom,
       to: p.periodTo,
       released: !p.releaseDeliveryOrders,
-      customerId,
-    });
-    let ids = ready.map((d) => d.id);
-    if (p.releaseDeliveryOrders) ids = await this.releaseAll(tx, ids, r);
-    const groups = p.billingCycle === 'PER_DO' ? ids.map((id) => [id]) : chunk(ids, MAX_PER_DOC);
+      ...(customerId ? { customerId } : {}),
+    };
+  }
+
+  /**
+   * ร่างใบแจ้งหนี้หนึ่งกลุ่ม (transaction ของตัวเอง): ล็อกลูกค้า → อ่านคิวใหม่ (เฉพาะ DO ของกลุ่มที่ยังพร้อม) → ส่งบัญชี (ถ้าสั่ง) + สร้างร่าง
+   * ใน savepoint · DO ที่ไม่ผ่าน (ระบุตัวได้) ถูกตัดออกแล้วลองใหม่จนชุดคงที่ · ล้มด้วยเหตุที่ระบุ DO ไม่ได้ = throw (ย้อนทั้งกลุ่ม)
+   */
+  private async invoiceGroup(
+    tx: Tx,
+    customerId: string,
+    group: string[],
+    p: RunPayload,
+    acc: CustomerAcc,
+  ): Promise<void> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RUN_LOCK_NS}::int, hashtext(${customerId}))`;
     const cus = encodeId('customer', customerId);
-    for (const g of groups) {
-      let left = g;
-      // ตรวจซ้ำตอนดึงไม่ผ่านบาง DO → ตัด DO นั้นออกแล้วลองใหม่ครั้งเดียว (DO ที่เหลือยังพร้อม)
-      for (let attempt = 0; attempt < 2 && left.length; attempt++) {
-        const out = await this.savepoint(tx, () =>
-          this.invoices.create(
-            {
-              customerId: cus,
-              deliveryOrderIds: left.map((id) => encodeId('deliveryOrder', id)),
-              ...(p.billingCycle === 'PER_DO'
-                ? {}
-                : { periodFrom: p.periodFrom, periodTo: p.periodTo }),
-            },
-            // ร่างของระบบ (ST5-T09 L3 hand-off) — ผู้สั่งรอบไม่นับเป็นผู้เตรียม; audit ยังลงชื่อผู้สั่ง
-            { createdBy: RUN_ACTOR },
-          ),
-        );
-        if ('ok' in out) {
-          r.invoices.push({
-            id: out.ok.id,
-            url: `/v1/invoices/${out.ok.id}`,
-            deliveryOrderCount: out.ok.deliveryOrders.length,
-          });
-          break;
+    const skipped: InvoiceRunSkippedDoDto[] = [];
+    let left = await this.stillReady(tx, customerId, group, p);
+    for (let i = 0; left.length && i <= group.length; i++) {
+      const out = await this.savepoint(tx, async () => {
+        if (p.releaseDeliveryOrders) {
+          const bad = await this.releaseAll(tx, left);
+          if (bad.length) throw new SkipDos(bad);
         }
-        const failed = notReadyDos(out.error);
-        if (!failed) {
-          r.problem ??= problemBody(out.error);
-          break;
-        }
-        const bad = new Set(failed.map((f) => f.deliveryOrderId));
-        r.skippedDeliveryOrders.push(...failed);
-        left = left.filter((id) => !bad.has(encodeId('deliveryOrder', id)));
+        // createdBy = ผู้สั่งรอบ (ctx.actorId — review M1: นับเป็นผู้เตรียมในกฎแบ่งหน้าที่ของ finalize เหมือนสร้างมือ)
+        return this.invoices.create({
+          customerId: cus,
+          deliveryOrderIds: left.map((id) => encodeId('deliveryOrder', id)),
+          ...(p.billingCycle === 'PER_DO'
+            ? {}
+            : { periodFrom: p.periodFrom, periodTo: p.periodTo }),
+        });
+      });
+      if ('ok' in out) {
+        acc.skipped.push(...skipped);
+        acc.addInvoice(out.ok.id, out.ok.deliveryOrders.length);
+        return;
       }
+      const dos = out.error instanceof SkipDos ? out.error.dos : skippableDos(out.error);
+      if (dos?.length) {
+        const ids = new Set(dos.map((d) => d.deliveryOrderId));
+        skipped.push(...dos);
+        left = left.filter((id) => !ids.has(encodeId('deliveryOrder', id)));
+        continue;
+      }
+      // ระบุ DO ไม่ได้ (เช่น ชนกับคำขออื่นที่ระดับ DB) → อ่านคิวใหม่: ชุดเล็กลง = ลองต่อ, ไม่เปลี่ยน = ล้มทั้งกลุ่ม
+      const again = await this.stillReady(tx, customerId, left, p);
+      if (again.length === left.length) throw out.error;
+      for (const id of left.filter((x) => !again.includes(x)))
+        skipped.push({
+          deliveryOrderId: encodeId('deliveryOrder', id),
+          doNo: null,
+          reasons: ['NO_LONGER_READY'],
+        });
+      left = again;
     }
-    if (p.billingNotes) await this.billingNotes(tx, customerId, p.billingCycle, r);
+    // ทุก DO ของกลุ่มถูกตัด — ไม่ใช่ความล้ม แต่รายงาน DO ที่ข้าม (ไม่เงียบ)
+    acc.skipped.push(...skipped);
+  }
+
+  /** DO ของกลุ่มที่ยังพร้อม (อ่านคิวใหม่หลังได้ล็อก — รอบที่ซ้อนกันเห็น DO ที่ถูกดึงไปแล้ว) */
+  private async stillReady(tx: Tx, customerId: string, ids: string[], p: RunPayload) {
+    const now = new Set(
+      (await this.billingQueue.readyForRun(tx, this.filter(p, customerId))).map((r) => r.id),
+    );
+    return ids.filter((id) => now.has(id));
   }
 
   /**
    * ส่งบัญชี DO ที่ยังไม่ส่ง (`releaseDeliveryOrders`) — ทีละ DO (savepoint ต่อรายการ — `BillingReleaseService.bulkRelease`)
-   * ไม่ผ่าน = ตัดออกและรายงานใน `skippedDeliveryOrders` · คืน DO ที่ส่งบัญชีแล้ว (ลำดับเดิม)
+   * คืน DO ที่ส่งไม่ผ่าน (ผู้เรียกย้อน savepoint ของรอบนั้นแล้วตัด DO ออก)
    */
-  private async releaseAll(
-    tx: Tx,
-    ids: string[],
-    r: InvoiceRunCustomerResultDto,
-  ): Promise<string[]> {
+  private async releaseAll(tx: Tx, ids: string[]): Promise<InvoiceRunSkippedDoDto[]> {
     const res = await this.release.bulkRelease(
       ids.map((id) => ({ id })),
       null,
       tx,
     );
     const bad = ids.filter((_, i) => !('ok' in res[i]!));
+    if (!bad.length) return [];
     const nos = new Map(
       (
         await tx.deliveryOrder.findMany({
@@ -296,48 +328,59 @@ export class InvoiceRunService implements OnModuleInit {
         })
       ).map((d) => [d.id, d.doNo]),
     );
-    const ok: string[] = [];
-    res.forEach((x, i) => {
-      if ('ok' in x) ok.push(ids[i]!);
-      else
-        r.skippedDeliveryOrders.push({
-          deliveryOrderId: encodeId('deliveryOrder', ids[i]!),
-          doNo: nos.get(ids[i]!) ?? null,
+    return ids.flatMap((id, i) => {
+      const x = res[i]!;
+      if ('ok' in x) return [];
+      return [
+        {
+          deliveryOrderId: encodeId('deliveryOrder', id),
+          doNo: nos.get(id) ?? null,
           reasons: ((x.error.extra?.reasons as string[] | undefined) ?? [x.error.code]).map(String),
-        });
+        },
+      ];
     });
-    return ok;
   }
 
-  /** ร่างใบวางบิล: ใบแจ้งหนี้ที่ออกแล้วยังค้าง ไม่อยู่ในใบวางบิลที่ active — 1 ร่างต่อผู้ออก/สาขาผู้ออก (ใบวางบิลต้องผู้ออกเดียว) */
-  private async billingNotes(
+  /** ร่างใบวางบิลหนึ่งกลุ่ม (ผู้ออก/สาขาเดียว ≤ 200 ใบ) — transaction ของตัวเอง · อ่านใบที่ยังเข้าได้ใหม่หลังได้ล็อก */
+  private async noteGroup(
     tx: Tx,
     customerId: string,
+    group: string[],
     cycle: InvoiceRunCycle,
-    r: InvoiceRunCustomerResultDto,
+    acc: CustomerAcc,
   ): Promise<void> {
-    const invs = await this.noteCandidates(tx, cycle, customerId);
-    const byIssuer = new Map<string, string[]>();
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RUN_LOCK_NS}::int, hashtext(${customerId}))`;
+    const now = new Set((await this.noteCandidates(tx, cycle, customerId)).map((i) => i.id));
+    const ids = group.filter((id) => now.has(id));
+    if (!ids.length) return;
+    const bn = await this.notes.create({
+      customerId: encodeId('customer', customerId),
+      invoiceIds: ids.map((id) => encodeId('invoice', id)),
+    });
+    acc.billingNotes.push({
+      id: bn.id,
+      url: `/v1/billing-notes/${bn.id}`,
+      invoiceCount: bn.invoices.length,
+    });
+  }
+
+  /** กลุ่มใบวางบิลต่อลูกค้า: แยกผู้ออก/สาขาผู้ออก (ใบวางบิลต้องผู้ออกเดียว) แล้วแบ่ง ≤ 200 ใบ */
+  private byIssuer(
+    invs: { id: string; customerId: string; issuingCompanyId: string; issuingBranchId: string }[],
+  ): Map<string, string[][]> {
+    const m = new Map<string, Map<string, string[]>>();
     for (const i of invs) {
+      const byKey = m.get(i.customerId) ?? new Map<string, string[]>();
       const k = `${i.issuingCompanyId}:${i.issuingBranchId}`;
-      byIssuer.set(k, [...(byIssuer.get(k) ?? []), i.id]);
+      byKey.set(k, [...(byKey.get(k) ?? []), i.id]);
+      m.set(i.customerId, byKey);
     }
-    for (const ids of byIssuer.values())
-      for (const g of chunk(ids, MAX_PER_DOC)) {
-        const out = await this.savepoint(tx, () =>
-          this.notes.create({
-            customerId: encodeId('customer', customerId),
-            invoiceIds: g.map((id) => encodeId('invoice', id)),
-          }),
-        );
-        if ('ok' in out)
-          r.billingNotes.push({
-            id: out.ok.id,
-            url: `/v1/billing-notes/${out.ok.id}`,
-            invoiceCount: out.ok.invoices.length,
-          });
-        else r.problem ??= problemBody(out.error);
-      }
+    return new Map(
+      [...m].map(([cid, byKey]) => [
+        cid,
+        [...byKey.values()].flatMap((ids) => chunk(ids, MAX_PER_DOC)),
+      ]),
+    );
   }
 
   /** ใบแจ้งหนี้ที่เข้าใบวางบิลได้ของลูกค้าในรอบนี้ (เงื่อนไขเดียวกับ `GET /billing-notes/candidates`) */
@@ -365,7 +408,7 @@ export class InvoiceRunService implements OnModuleInit {
     return rows.filter((i) => i.totalAmount.greaterThan(i.paidAmount));
   }
 
-  /** ทำใน savepoint — ล้ม = ย้อนเฉพาะส่วนนี้ (transaction ของลูกค้ายังใช้ต่อได้) */
+  /** ทำใน savepoint — ล้ม = ย้อนเฉพาะส่วนนี้ (transaction ของกลุ่มยังใช้ต่อได้) */
   private async savepoint<T>(
     tx: Tx,
     fn: () => Promise<T>,
@@ -383,18 +426,90 @@ export class InvoiceRunService implements OnModuleInit {
   }
 }
 
-/** DO ที่ไม่ผ่านจาก 409 `not_ready_to_bill` ของการดึงเข้าร่าง (null = ล้มด้วยเหตุอื่น) */
-function notReadyDos(e: unknown): InvoiceRunSkippedDoDto[] | null {
-  if (!(e instanceof ProblemException) || e.code !== 'not_ready_to_bill') return null;
-  const list = (e.extra?.deliveryOrders ?? []) as {
-    deliveryOrderId: string;
-    doNo: string | null;
-    reasons: string[];
-  }[];
-  if (!list.length) return null;
-  return list.map((d) => ({
-    deliveryOrderId: d.deliveryOrderId,
-    doNo: d.doNo,
-    reasons: d.reasons,
-  }));
+/** ส่งบัญชีไม่ผ่านบาง DO — ย้อน savepoint ของรอบนั้น (ไม่ให้ DO ที่ส่งแล้วค้าง) แล้วตัด DO ออก */
+class SkipDos extends Error {
+  constructor(readonly dos: InvoiceRunSkippedDoDto[]) {
+    super('skip');
+  }
+}
+
+/** เพดานรายการต่อลูกค้าใน `result` (review L2 — payload `job.completed` ไม่โตไม่จำกัดสำหรับ PER_DO) */
+export const RESULT_LIST_CAP = 50;
+
+/** สะสมผลต่อลูกค้า */
+class CustomerAcc {
+  invoices: InvoiceRunDocRefDto[] = [];
+  invoiceCount = 0;
+  billingNotes: InvoiceRunDocRefDto[] = [];
+  skipped: InvoiceRunSkippedDoDto[] = [];
+  failedGroups = 0;
+  problem: Record<string, unknown> | null = null;
+  constructor(readonly customerId: string) {}
+
+  addInvoice(id: string, deliveryOrderCount: number) {
+    this.invoiceCount++;
+    if (this.invoices.length < RESULT_LIST_CAP)
+      this.invoices.push({ id, url: `/v1/invoices/${id}`, deliveryOrderCount });
+  }
+
+  fail(e: unknown) {
+    this.failedGroups++;
+    this.problem ??= problemBody(e);
+  }
+
+  toDto(code: string, name: string): InvoiceRunCustomerResultDto {
+    const created = this.invoiceCount + this.billingNotes.length;
+    const cus = encodeId('customer', this.customerId);
+    return {
+      customerId: cus,
+      customerCode: code,
+      customerName: name,
+      outcome: this.failedGroups
+        ? created
+          ? 'PARTIAL'
+          : 'FAILED'
+        : created
+          ? 'SUCCEEDED'
+          : 'NOTHING_TO_BILL',
+      invoiceCount: this.invoiceCount,
+      invoices: this.invoices,
+      invoicesListUrl: `/v1/invoices?customerId=${cus}&status=DRAFT`,
+      billingNotes: this.billingNotes,
+      skippedCount: this.skipped.length,
+      skippedDeliveryOrders: this.skipped.slice(0, RESULT_LIST_CAP),
+      failedGroups: this.failedGroups,
+      problem: this.problem,
+    };
+  }
+}
+
+/**
+ * DO ที่ข้ามได้จาก error ของการดึงเข้าร่าง (null = ระบุ DO ไม่ได้):
+ * 409 `not_ready_to_bill` (`deliveryOrders[]` จากการตรวจซ้ำ หรือ `deliveryOrderId` เดียว เช่น NOT_DELIVERED/NO_REVENUE ของ billing-guard) ·
+ * 409 `do_already_drafted` ที่ระบุ DO (อยู่ในร่าง/ใบอื่นแล้ว — แข่งกับคำขออื่น)
+ */
+function skippableDos(e: unknown): InvoiceRunSkippedDoDto[] | null {
+  if (!(e instanceof ProblemException)) return null;
+  const x = (e.extra ?? {}) as {
+    deliveryOrders?: { deliveryOrderId: string; doNo: string | null; reasons: string[] }[];
+    deliveryOrderId?: string;
+    doNo?: string | null;
+    reasons?: string[];
+  };
+  if (e.code === 'not_ready_to_bill') {
+    if (x.deliveryOrders?.length)
+      return x.deliveryOrders.map((d) => ({
+        deliveryOrderId: d.deliveryOrderId,
+        doNo: d.doNo,
+        reasons: d.reasons,
+      }));
+    if (x.deliveryOrderId)
+      return [
+        { deliveryOrderId: x.deliveryOrderId, doNo: x.doNo ?? null, reasons: x.reasons ?? [] },
+      ];
+    return null;
+  }
+  if (e.code === 'do_already_drafted' && x.deliveryOrderId)
+    return [{ deliveryOrderId: x.deliveryOrderId, doNo: x.doNo ?? null, reasons: ['IN_INVOICE'] }];
+  return null;
 }

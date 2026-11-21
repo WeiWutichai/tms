@@ -72,20 +72,38 @@ export class InvoiceRunCustomerResultDto {
   @ApiProperty({ example: 'cus_…' }) customerId!: string;
   @ApiProperty() customerCode!: string;
   @ApiProperty() customerName!: string;
-  @ApiProperty({ enum: ['CREATED', 'NOTHING_TO_BILL', 'FAILED'] }) outcome!: string;
-  @ApiProperty({ type: [InvoiceRunDocRefDto] }) invoices!: InvoiceRunDocRefDto[];
+  @ApiProperty({
+    enum: ['SUCCEEDED', 'PARTIAL', 'FAILED', 'NOTHING_TO_BILL'],
+    description:
+      '`SUCCEEDED` = ทุกกลุ่มผ่าน (สร้าง ≥ 1 ร่าง) · `PARTIAL` = บางกลุ่มล้ม (กลุ่มที่ล้มย้อนทั้งกลุ่ม) · `FAILED` = ทุกกลุ่มที่ทำล้ม · ' +
+      '`NOTHING_TO_BILL` = ไม่มีร่างที่ต้องสร้าง (DO ที่ข้ามดูใน `skippedDeliveryOrders`) · client ต้องรับค่าที่ไม่รู้จักได้',
+  })
+  outcome!: string;
+  @ApiProperty({ description: 'จำนวนร่างใบแจ้งหนี้ที่สร้างของลูกค้านี้ (ทั้งหมด)' })
+  invoiceCount!: number;
+  @ApiProperty({
+    type: [InvoiceRunDocRefDto],
+    description:
+      'ร่างใบแจ้งหนี้ที่สร้าง — แสดงไม่เกิน 50 รายการ (ครบใน `invoiceCount` + `invoicesListUrl`)',
+  })
+  invoices!: InvoiceRunDocRefDto[];
+  @ApiProperty({ example: '/v1/invoices?customerId=cus_…&status=DRAFT' })
+  invoicesListUrl!: string;
   @ApiProperty({ type: [InvoiceRunDocRefDto] }) billingNotes!: InvoiceRunDocRefDto[];
+  @ApiProperty({ description: 'จำนวน DO ที่ข้าม (ทั้งหมด)' }) skippedCount!: number;
   @ApiProperty({
     type: [InvoiceRunSkippedDoDto],
     description:
-      'DO ที่ขึ้นคิวแต่ตรวจซ้ำตอนดึงไม่ผ่าน (เช่น หลักฐานไม่ครบตาม checklist ปัจจุบัน) — ไม่อยู่ในร่าง',
+      'DO ที่ขึ้นคิวแต่ไม่ผ่านตอนส่งบัญชี/ดึงเข้าร่าง (เช่น หลักฐานไม่ครบตาม checklist ปัจจุบัน, อยู่ในร่างอื่นแล้ว `IN_INVOICE`) — ' +
+      'ไม่อยู่ในร่าง · แสดงไม่เกิน 50 รายการ',
   })
   skippedDeliveryOrders!: InvoiceRunSkippedDoDto[];
+  @ApiProperty({ description: 'จำนวนกลุ่ม (ร่าง) ที่ล้ม' }) failedGroups!: number;
   @ApiProperty({
     nullable: true,
     type: 'object',
     additionalProperties: true,
-    description: 'problem+json ของลูกค้าที่ล้ม (ลูกค้ารายอื่นไม่ล้มตาม)',
+    description: 'problem+json ของกลุ่มแรกที่ล้ม (กลุ่ม/ลูกค้าอื่นไม่ล้มตาม)',
   })
   problem!: Record<string, unknown> | null;
 }
@@ -97,6 +115,6 @@ export class InvoiceRunResultDto {
   @ApiProperty() customers!: number;
   @ApiProperty() invoicesCreated!: number;
   @ApiProperty() billingNotesCreated!: number;
-  @ApiProperty() failed!: number;
+  @ApiProperty({ description: 'จำนวนลูกค้าที่ PARTIAL/FAILED' }) failed!: number;
   @ApiProperty({ type: [InvoiceRunCustomerResultDto] }) results!: InvoiceRunCustomerResultDto[];
 }

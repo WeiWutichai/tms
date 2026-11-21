@@ -1,13 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Prisma } from '@prisma/client';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { ensureSystemRoles } from '../src/auth/system-roles';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { requestContext } from '../src/common/request-context';
 import { DbService, type Tx } from '../src/db/db.service';
 import { JobQueue } from '../src/jobs/job-queue.service';
 import { DeliveryOrderService } from '../src/modules/delivery-orders/delivery-order.service';
-import { INVOICE_RUN_JOB } from '../src/modules/invoices/invoice-run.service';
+import { BillingQueueService } from '../src/modules/invoices/billing-queue.service';
+import { INVOICE_RUN_JOB, InvoiceRunService } from '../src/modules/invoices/invoice-run.service';
+import { InvoicesService } from '../src/modules/invoices/invoices.service';
 import {
   OrderIntakeService,
   type UpsertOrderInput,
@@ -270,7 +273,15 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     });
     for (const [i, c] of cs.entries()) {
       const r = resultOf(j, c);
-      expect(r, c).toMatchObject({ outcome: 'CREATED', problem: null, skippedDeliveryOrders: [] });
+      expect(r, c).toMatchObject({
+        outcome: 'SUCCEEDED',
+        problem: null,
+        skippedDeliveryOrders: [],
+        skippedCount: 0,
+        failedGroups: 0,
+        invoiceCount: 1,
+        invoicesListUrl: `/v1/invoices?customerId=${c}&status=DRAFT`,
+      });
       expect(r.invoices).toHaveLength(1);
       expect(r.invoices[0].url).toBe(`/v1/invoices/${r.invoices[0].id}`);
       expect(r.invoices[0].deliveryOrderCount).toBe(i === 1 ? 2 : 1);
@@ -284,9 +295,9 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
         periodTo: today,
       });
       expect(inv.customer.id).toBe(c);
-      // ร่างของระบบ (ST5-T09 L3) — ผู้สั่งรอบไม่นับเป็นผู้เตรียมตอน finalize
+      // review M1: ผู้สั่งรอบ = ผู้สร้างร่าง (นับเป็นผู้เตรียมในกฎแบ่งหน้าที่ของ finalize)
       const row = await db.invoice.findUniqueOrThrow({ where: { id: uuid('invoice', inv.id) } });
-      expect(row.createdBy).toBe('system:invoice-run');
+      expect(row.createdBy).toBe('u-run');
     }
     // รอบอื่น / MANUAL ไม่ถูกแตะ
     expect(resultOf(j, weekly)).toBeUndefined();
@@ -321,10 +332,10 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     await drain();
     const jw = await job(wk);
     expect(jw.result).toMatchObject({ customers: 1, invoicesCreated: 1 });
-    expect(resultOf(jw, weekly).outcome).toBe('CREATED');
+    expect(resultOf(jw, weekly).outcome).toBe('SUCCEEDED');
   });
 
-  it('ลูกค้าที่ล้มไม่ทำให้ลูกค้าอื่นล้ม → succeeded_with_errors + problem ต่อลูกค้า (ร่างของลูกค้านั้นย้อนทั้งหมด)', async () => {
+  it('ลูกค้าที่ล้มไม่ทำให้ลูกค้าอื่นล้ม → succeeded_with_errors + FAILED + problem ต่อลูกค้า (กลุ่มที่ล้มย้อนทั้งกลุ่ม)', async () => {
     const ok = await newCustomer();
     const okDo = await delivered(ok);
     const broken = await newCustomer();
@@ -343,9 +354,14 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     expect(j.status).toBe('succeeded_with_errors');
     expect(j.progress).toBe(100);
     expect(j.result).toMatchObject({ customers: 2, invoicesCreated: 1, failed: 1 });
-    expect(resultOf(j, ok)).toMatchObject({ outcome: 'CREATED', problem: null });
+    expect(resultOf(j, ok)).toMatchObject({ outcome: 'SUCCEEDED', problem: null });
     const bad = resultOf(j, broken);
-    expect(bad).toMatchObject({ outcome: 'FAILED', invoices: [] });
+    expect(bad).toMatchObject({
+      outcome: 'FAILED',
+      invoices: [],
+      invoiceCount: 0,
+      failedGroups: 1,
+    });
     expect(bad.problem).toMatchObject({ status: 422, code: 'validation_failed' });
     expect(bad.problem.errors[0].code).toBe('issuer_missing');
     expect(
@@ -366,7 +382,7 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     const j2 = await job(retry);
     expect(j2.status).toBe('succeeded');
     expect(j2.result).toMatchObject({ customers: 1, invoicesCreated: 1 });
-    expect(resultOf(j2, broken).outcome).toBe('CREATED');
+    expect(resultOf(j2, broken).outcome).toBe('SUCCEEDED');
   });
 
   it('DO ยังไม่ส่งบัญชีไม่เข้า · releaseDeliveryOrders=true ส่งบัญชีพร้อมสร้างร่าง · นอกงวดไม่เข้า', async () => {
@@ -387,7 +403,7 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     const b = await startRun({ ...monthly, releaseDeliveryOrders: true });
     await drain();
     const r = resultOf(await job(b), c);
-    expect(r).toMatchObject({ outcome: 'CREATED' });
+    expect(r).toMatchObject({ outcome: 'SUCCEEDED' });
     const x = (await api(app, admin).get(`/v1/delivery-orders/${d}`).expect(200)).body;
     expect(x.releasedAt).toBeTruthy();
     expect(x.billingStatus).not.toBe('UNBILLED');
@@ -440,7 +456,7 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     const j = await job(id);
     expect(j.status).toBe('succeeded');
     const r = resultOf(j, c);
-    expect(r).toMatchObject({ outcome: 'CREATED', invoices: [] });
+    expect(r).toMatchObject({ outcome: 'SUCCEEDED', invoices: [] });
     expect(r.billingNotes.map((b: { invoiceCount: number }) => b.invoiceCount).sort()).toEqual([
       1, 2,
     ]);
@@ -481,9 +497,203 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     const mine = await startRun(monthly);
     await api(app, other).get(`/v1/jobs/${mine}`).expect(404);
     await drain();
-    expect(resultOf(await job(mine), c)).toMatchObject({ outcome: 'CREATED' });
+    expect(resultOf(await job(mine), c)).toMatchObject({ outcome: 'SUCCEEDED' });
     expect(
       (await api(app, admin).get(`/v1/delivery-orders/${d}`).expect(200)).body.billingStatus,
     ).not.toBe('UNBILLED');
+  });
+  /** ปิดรอบของลูกค้า (DO ที่ค้างในคิวไม่ไปโผล่ใน test ถัดไป) */
+  const park = (c: string) =>
+    db.customer.update({ where: { id: uuid('customer', c) }, data: { billingCycle: 'MANUAL' } });
+
+  it('review M1: ร่างจากรอบ = ผู้สั่งเป็นผู้เตรียม — ผู้สั่งออกเองไม่ได้ (invoice_self_finalize) · ผู้ใช้อื่นออกได้', async () => {
+    await db.tenantSetting.upsert({
+      where: { tenantId_key: { tenantId, key: 'billing.allowSelfFinalize' } },
+      create: { tenantId, key: 'billing.allowSelfFinalize', value: false },
+      update: { value: false },
+    });
+    const c = await newCustomer();
+    await db.customer.update({
+      where: { id: uuid('customer', c) },
+      data: { branchCode: '00000', billingAddress: ADDR },
+    });
+    await delivered(c);
+    const runner = await tokenFor(
+      tenantId,
+      'invoices:read invoices:draft invoices:finalize prices.sell:read',
+      'u-run',
+    );
+    const id = await startRun(monthly, runner);
+    await drain();
+    const r = resultOf(await job(id, runner), c);
+    const inv = (await api(app, admin).get(r.invoices[0].url).expect(200)).body;
+    const self = await api(app, runner)
+      .post(`/v1/invoices/${inv.id}/finalize`)
+      .set('If-Match', `"${inv.version}"`);
+    expect(self.status, JSON.stringify(self.body)).toBe(403);
+    expect(self.body.code).toBe('invoice_self_finalize');
+    const other = await tokenFor(
+      tenantId,
+      'invoices:read invoices:finalize prices.sell:read',
+      'u-fin',
+    );
+    const ok = await api(app, other)
+      .post(`/v1/invoices/${inv.id}/finalize`)
+      .set('If-Match', `"${inv.version}"`);
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    expect(ok.body.status).toBe('ISSUED');
+    await park(c);
+  });
+
+  it('DO ที่ไม่ผ่านตอนดึง (หลักฐานไม่ครบตาม checklist ปัจจุบัน) → skippedDeliveryOrders ไม่เงียบ · DO ไม่เปลี่ยน', async () => {
+    const c = await newCustomer();
+    const d = await delivered(c);
+    // checklist เข้มขึ้นหลัง DO ผ่าน — คิวยังเห็น (สถานะที่เก็บ) แต่ตรวจซ้ำตอนดึงไม่ผ่าน
+    await db.customer.update({
+      where: { id: uuid('customer', c) },
+      data: { podRequirements: { success: { fields: [{ type: 'NOTE', level: 'REQUIRED' }] } } },
+    });
+    const id = await startRun(monthly);
+    await drain();
+    const j = await job(id);
+    expect(j.status).toBe('succeeded');
+    const r = resultOf(j, c);
+    expect(r).toMatchObject({ outcome: 'NOTHING_TO_BILL', invoiceCount: 0, skippedCount: 1 });
+    expect(r.skippedDeliveryOrders[0]).toMatchObject({ deliveryOrderId: d });
+    expect(r.skippedDeliveryOrders[0].reasons).toContain('POD_INCOMPLETE');
+    expect(
+      (await api(app, admin).get(`/v1/delivery-orders/${d}`).expect(200)).body.billingStatus,
+    ).toBe('UNBILLED');
+    await park(c);
+  });
+
+  it('แข่งกับการสร้างร่างมือ: DO ที่ถูกดึงไปแล้ว (do_already_drafted) → ข้าม DO นั้น แล้วสร้างร่างจาก DO ที่เหลือ', async () => {
+    const c = await newCustomer();
+    const d1 = await delivered(c);
+    const d2 = await delivered(c);
+    await api(app, admin)
+      .post('/v1/invoices')
+      .send({ customerId: c, deliveryOrderIds: [d1] })
+      .expect(201);
+    // จำลองคิวที่อ่านก่อนร่างมือ commit: คิวยังคืน d1
+    const q = app.get(BillingQueueService);
+    const orig = q.readyForRun.bind(q);
+    const spy = vi.spyOn(q, 'readyForRun').mockImplementation(async (tx, f) => {
+      const rows = await orig(tx, f);
+      if (!f.customerId || f.customerId === uuid('customer', c))
+        rows.unshift({ id: uuid('deliveryOrder', d1), customer_id: uuid('customer', c) });
+      return rows;
+    });
+    try {
+      const id = await startRun(monthly);
+      await drain();
+      const r = resultOf(await job(id), c);
+      expect(r).toMatchObject({ outcome: 'SUCCEEDED', invoiceCount: 1, skippedCount: 1 });
+      expect(r.invoices[0].deliveryOrderCount).toBe(1);
+      expect(r.skippedDeliveryOrders[0]).toMatchObject({
+        deliveryOrderId: d1,
+        reasons: ['IN_INVOICE'],
+      });
+      expect(
+        (await api(app, admin).get(`/v1/delivery-orders/${d2}`).expect(200)).body.billingStatus,
+      ).not.toBe('UNBILLED');
+    } finally {
+      spy.mockRestore();
+    }
+    await park(c);
+  });
+
+  it('แบ่งร่างเกินเพดาน + กลุ่มหนึ่งล้ม → PARTIAL · กลุ่มที่ล้มไม่มีร่าง ไม่มี DO ส่งบัญชีค้าง', async () => {
+    const svc = app.get(InvoiceRunService);
+    const c = await newCustomer();
+    const dos = [await delivered(c, false), await delivered(c, false), await delivered(c, false)];
+    svc.groupSize = 2; // แทนเพดาน 200 (สร้าง DO 201 ใบช้าเกินใน test)
+    const inv = app.get(InvoicesService);
+    const orig = inv.create.bind(inv);
+    let n = 0;
+    const spy = vi.spyOn(inv, 'create').mockImplementation(async (...a) => {
+      if (++n === 2) throw new Error('boom: กลุ่มที่สอง');
+      return orig(...a);
+    });
+    try {
+      const id = await startRun({ ...monthly, releaseDeliveryOrders: true });
+      await drain();
+      const j = await job(id);
+      expect(j.status).toBe('succeeded_with_errors');
+      expect(j.progress).toBe(100);
+      const r = resultOf(j, c);
+      expect(r).toMatchObject({ outcome: 'PARTIAL', invoiceCount: 1, failedGroups: 1 });
+      expect(r.invoices[0].deliveryOrderCount).toBe(2);
+      expect(r.problem).toMatchObject({ code: 'internal_error' });
+      const states = await Promise.all(
+        dos.map(
+          async (d) => (await api(app, admin).get(`/v1/delivery-orders/${d}`).expect(200)).body,
+        ),
+      );
+      const billed = states.filter((x) => x.billingStatus !== 'UNBILLED');
+      const left = states.filter((x) => x.billingStatus === 'UNBILLED');
+      expect(billed).toHaveLength(2);
+      expect(billed.every((x) => x.releasedAt)).toBe(true);
+      expect(left).toHaveLength(1);
+      expect(left[0].releasedAt).toBeNull(); // ส่งบัญชีย้อนพร้อมกลุ่มที่ล้ม
+    } finally {
+      spy.mockRestore();
+      svc.groupSize = 200;
+    }
+    await park(c);
+  });
+
+  it('ถูกถอดสิทธิ์ระหว่างรอคิว (ผู้ใช้จริง) → งานล้ม permission_denied ไม่สร้างร่าง', async () => {
+    const roles = await ensureSystemRoles(db, tenantId);
+    const u = await db.appUser.create({
+      data: { tenantId, email: 'demote@run.test', name: 'demote', status: 'ACTIVE' },
+    });
+    await db.userRole.create({ data: { tenantId, userId: u.id, roleId: roles.admin! } });
+    const c = await newCustomer();
+    const d = await delivered(c);
+    const t = await tokenFor(tenantId, 'invoices:read invoices:draft', u.id);
+    const id = await startRun(monthly, t);
+    const jid = uuid('job', id);
+    const row = await db.job.findUniqueOrThrow({ where: { id: jid } });
+    const pl = row.payload as { actor: object };
+    // token dev ใช้ scope ตอนสั่ง — จำลอง principal ผู้ใช้จริง (แบบ exports.test)
+    await db.job.update({
+      where: { id: jid },
+      data: { payload: { ...pl, actor: { ...pl.actor, principalType: 'user' } } },
+    });
+    await db.userRole.deleteMany({ where: { userId: u.id } });
+    await drain();
+    const st = (await api(app, t).get(`/v1/jobs/${id}`).expect(200)).body;
+    expect(st.status).toBe('failed');
+    expect(JSON.stringify(st.error)).toMatch(/permission_denied/);
+    expect(
+      (await api(app, admin).get(`/v1/delivery-orders/${d}`).expect(200)).body.billingStatus,
+    ).toBe('UNBILLED');
+    await park(c);
+  });
+
+  it('API key: สั่งรอบด้วย key → 202 → job succeeded (อ่านสถานะด้วย key) · ร่างลงชื่อผู้สั่ง', async () => {
+    const u = await db.appUser.create({
+      data: { tenantId, email: 'keyowner@run.test', name: 'เจ้าของ key', status: 'ACTIVE' },
+    });
+    const sa = await tokenFor(tenantId, '*', u.id);
+    const k = await api(app, sa)
+      .post('/v1/api-keys')
+      .send({ name: 'ERP รอบวางบิล', scopes: ['invoices:read', 'invoices:draft', 'jobs:read'] });
+    expect(k.status, JSON.stringify(k.body)).toBe(201);
+    const c = await newCustomer();
+    await delivered(c);
+    const id = await startRun(monthly, k.body.secret as string);
+    await drain();
+    const j = await job(id, k.body.secret as string);
+    expect(j.status).toBe('succeeded');
+    const r = resultOf(j, c);
+    expect(r).toMatchObject({ outcome: 'SUCCEEDED', invoiceCount: 1 });
+    const row = await db.invoice.findUniqueOrThrow({
+      where: { id: uuid('invoice', r.invoices[0].id) },
+    });
+    expect(row.createdBy).toBeTruthy();
+    expect(row.createdBy).not.toMatch(/^system:/);
+    await park(c);
   });
 });
