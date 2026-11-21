@@ -680,8 +680,13 @@ export class SettlementSummaryDto {
   })
   @PriceField('buy')
   buyNetAfterWht?: string;
-  @ApiProperty({ enum: WHT_FORMS, description: 'แบบยื่น ภ.ง.ด.3 (บุคคล) / ภ.ง.ด.53 (นิติบุคคล)' })
-  whtForm!: (typeof WHT_FORMS)[number];
+  @ApiProperty({
+    enum: WHT_FORMS,
+    nullable: true,
+    description:
+      'แบบยื่น ภ.ง.ด.3 (บุคคล) / ภ.ง.ด.53 (นิติบุคคล) · null = ข้อมูลรถร่วมในใบไม่มีประเภท (จัดแบบยื่นไม่ได้ — ไม่มียอดหัก ณ ที่จ่ายประมาณการ ยกเว้นยอดที่ตรึงแล้ว)',
+  })
+  whtForm!: (typeof WHT_FORMS)[number] | null;
   @ApiProperty({ nullable: true, type: String, description: 'เวลาอนุมัติ (ST6-T07)' })
   approvedAt!: string | null;
   @ApiProperty({

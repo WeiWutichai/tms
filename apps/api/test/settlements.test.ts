@@ -1805,6 +1805,46 @@ describe('settlements (ST6-T03)', () => {
       expect(o).toEqual(otherBefore);
     });
 
+    it('regression: ใบที่ snapshot รถร่วมไม่มีประเภท (entityType) ไม่ทำให้รายการ/สรุป 500 — แถวนั้น whtForm = null ไม่มียอด WHT ประมาณการ · แถวอื่นปกติ', async () => {
+      const { C, trips } = await setup(1, '2000');
+      const ok = (
+        await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201)
+      ).body;
+      const bad = await db.carrierSettlement.create({
+        data: {
+          tenantId,
+          carrierId: uuid('carrier', C.id),
+          carrierSnapshot: { code: 'SUB-X', legalName: 'หจก. ข้อมูลไม่ครบ' },
+          periodFrom: new Date(`${today}T00:00:00Z`),
+          periodTo: new Date(`${today}T00:00:00Z`),
+        },
+      });
+      const badId = encodeId('settlement', bad.id);
+      for (const q of [{}, { status: 'DRAFT' }, { status: 'DRAFT,DISPUTED' }]) {
+        const r = await api(app, admin)
+          .get('/v1/settlements')
+          .query({ ...q, sort: '-updatedAt', limit: 50 });
+        expect(r.status, JSON.stringify(r.body)).toBe(200);
+        const rows = r.body.data as {
+          id: string;
+          whtForm: string | null;
+          buyWhtAmount?: string;
+          buyNetAfterWht?: string;
+          buyNetPayable?: string;
+        }[];
+        const b = rows.find((x) => x.id === badId)!;
+        expect(b).toMatchObject({ whtForm: null, buyNetPayable: '0.00' });
+        expect(b.buyWhtAmount).toBeUndefined();
+        expect(b.buyNetAfterWht).toBeUndefined();
+        expect(rows.find((x) => x.id === ok.id)).toMatchObject({
+          whtForm: 'PND53',
+          buyWhtAmount: '20.00',
+          buyNetAfterWht: '1980.00',
+        });
+      }
+      await api(app, admin).get('/v1/settlements/summary').expect(200);
+    });
+
     it('ตรวจข้อมูล: โอน/เช็คต้องมีเลขอ้างอิง · เงินสดไม่ต้อง · วันที่ในอนาคต/ไม่จริง 422 · If-Match บังคับ (422) / ไม่ตรง 412', async () => {
       const { C, trips } = await setup(1, '1000');
       const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))

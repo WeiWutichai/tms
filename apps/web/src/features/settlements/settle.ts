@@ -44,7 +44,8 @@ export function deductTotal(x: {
   buyWhtAmount?: string | null;
   buyDeductionAmount?: string | null;
 }): string | undefined {
-  if (x.buyWhtAmount === undefined && x.buyDeductionAmount === undefined) return undefined;
+  // ไม่มีสิทธิ์ราคา / ใบที่จัดแบบยื่นไม่ได้ (ไม่มียอด WHT ประมาณการ) → ไม่แสดงยอด (ไม่แสดงแค่รายการหักให้เข้าใจผิด)
+  if (x.buyWhtAmount === undefined || x.buyDeductionAmount === undefined) return undefined;
   return ((cents(x.buyWhtAmount) + cents(x.buyDeductionAmount)) / 100).toFixed(2);
 }
 

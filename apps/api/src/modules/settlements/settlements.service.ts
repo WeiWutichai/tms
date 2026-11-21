@@ -143,7 +143,10 @@ export class SettlementsService {
       rows,
       k,
       (r): SettlementSummaryDto => {
-        const wht = whtOf(r, r.lines, minimum);
+        // ใบที่ snapshot รถร่วมไม่มีประเภท (บุคคล/นิติบุคคล) จัดแบบยื่นไม่ได้ → แถวนั้น whtForm = null และไม่มียอดประมาณการ
+        // (ยกเว้นยอดที่ตรึงแล้ว) — ไม่เดากฎภาษี และแถวเดียวไม่ทำให้ทั้งรายการ 500
+        const known = hasWhtEntityType(r.carrierSnapshot);
+        const wht = known ? whtOf(r, r.lines, minimum) : null;
         return {
           id: encodeId('settlement', r.id),
           settlementNo: r.settlementNo,
@@ -157,8 +160,15 @@ export class SettlementsService {
           buyGrossAmount: r.grossAmount.toFixed(2),
           buyDeductionAmount: r.deductionAmount.toFixed(2),
           buyNetPayable: r.netPayable.toFixed(2),
-          ...whtTotals(r, wht),
-          whtForm: wht.form,
+          ...(wht
+            ? whtTotals(r, wht)
+            : r.whtAmount !== null
+              ? {
+                  buyWhtAmount: r.whtAmount.toFixed(2),
+                  buyNetAfterWht: r.netPayable.minus(r.whtAmount).toFixed(2),
+                }
+              : {}),
+          whtForm: wht?.form ?? null,
           approvedAt: r.approvedAt?.toISOString() ?? null,
           paidDate: r.paidDate ? ymd(r.paidDate) : null,
           sentAt: r.sentAt?.toISOString() ?? null,
@@ -1586,6 +1596,12 @@ function lineDto(
  * อัตราบรรทัดว่าง → `wht_rate_default` ของใบ (ค่าตั้งต้นรถร่วม ณ วันสร้าง/ตรึงตอนอนุมัติ) · ใบเก่าที่ยังไม่อนุมัติ = ค่าปัจจุบันของรถร่วม
  * ใบที่ตรึงแล้ว: บรรทัดแข็ง + อัตราตั้งต้น + ขั้นต่ำที่ตรึง → ผลแยกอัตรา/รายบรรทัดเท่ากับตอนอนุมัติเสมอ
  */
+/** snapshot รถร่วมมีประเภทที่จัดแบบยื่นได้ (INDIVIDUAL/JURISTIC) — ใช้กันรายการล้มทั้งหน้า */
+function hasWhtEntityType(snap: Prisma.JsonValue): boolean {
+  const t = (snap as { entityType?: unknown } | null)?.entityType;
+  return t === 'INDIVIDUAL' || t === 'JURISTIC';
+}
+
 function whtOf(
   r: {
     carrierSnapshot: Prisma.JsonValue;
