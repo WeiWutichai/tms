@@ -37,6 +37,9 @@ export const EXPORT_RESOURCES = [
   'service-items',
   'rate-cards',
   'reason-codes',
+  // ST9-T06 รายงาน (หน้า รายงาน → ส่งออก Excel)
+  'unbilled-delivery-orders',
+  'receivables-aging',
 ] as const;
 
 export class CreateExportDto {

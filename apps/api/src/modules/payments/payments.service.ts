@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, type ChequeStatus, type PaymentMethod } from '@prisma/client';
 import {
   PAYABLE_INVOICE_STATUSES,
+  billingMonthRanges,
   eventDefinition,
   scopeAllows,
   type InvoiceStatus,
@@ -176,16 +177,26 @@ export class PaymentsService {
                FILTER (WHERE (overdue_at IS NOT NULL OR (status IN ('ISSUED', 'PARTIALLY_PAID') AND paid_amount < total_amount AND due_date < ${day(today)}::date))), 0) AS overdue_outstanding
         FROM invoice WHERE status IN ('ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED')`;
     // review M1: นับเฉพาะเงินเข้าจริง (amount_received) — ไม่นับ WHT/ค่าธรรมเนียม/ส่วนต่างที่ตัดยอด
-    const rec = await tx.$queryRaw<{ amt: Prisma.Decimal }[]>`
-      SELECT COALESCE(SUM(p.amount_received), 0) AS amt
+    // ST9-T02 เดือนก่อน (ทั้งเดือน) ใช้นิยามเดียวกับเดือนนี้ — ช่วงเดือนจาก `billingMonthRanges` (เวลาไทย)
+    const m = billingMonthRanges(today);
+    const receivedIn = async (from: string, to: string) =>
+      (
+        await tx.$queryRaw<{ amt: Prisma.Decimal; n: bigint }[]>`
+      SELECT COALESCE(SUM(p.amount_received), 0) AS amt, COUNT(*) AS n
         FROM payment p
-       WHERE p.status = 'RECORDED' AND p.received_date >= ${day(monthStart)}::date
-         AND p.received_date <= ${day(today)}::date`;
+       WHERE p.status = 'RECORDED' AND p.received_date >= ${day(from)}::date
+         AND p.received_date <= ${day(to)}::date`
+      )[0]!;
+    const rec = await receivedIn(monthStart, today);
+    const prev = await receivedIn(m.lastMonth.from, m.lastMonth.to);
     const r = rows[0]!;
     return {
       sellOutstanding: money(r.outstanding),
       sellOverdueOutstanding: money(r.overdue_outstanding),
-      sellReceivedThisMonth: money(rec[0]!.amt),
+      sellReceivedThisMonth: money(rec.amt),
+      sellReceivedLastMonth: money(prev.amt),
+      receivedThisMonth: Number(rec.n),
+      receivedLastMonth: Number(prev.n),
       dueSoon: Number(r.due_soon),
       total: Number(r.total),
       open: Number(r.open),

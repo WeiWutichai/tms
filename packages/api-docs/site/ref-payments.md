@@ -452,6 +452,9 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 | `sellOutstanding` |   | `string` |   | ยอดค้างรับรวม (ใบที่ออกแล้ว) — `prices.sell:read` |   |
 | `sellOverdueOutstanding` |   | `string` |   | ยอดค้างของใบที่เลยวันครบกำหนด (เวลาไทย) — `prices.sell:read` |   |
 | `sellReceivedThisMonth` |   | `string` |   | เงินเข้าจริง (`amountReceived`) ของการรับชำระเดือนนี้ — ไม่รวม WHT/ค่าธรรมเนียม/ส่วนต่าง และที่กลับรายการ (เวลาไทย) — `prices.sell:read` |   |
+| `sellReceivedLastMonth` |   | `string` |   | เงินเข้าจริงของการรับชำระเดือนก่อน (ทั้งเดือน — นิยามเดียวกับ `sellReceivedThisMonth`) — `prices.sell:read` |   |
+| `receivedThisMonth` | ใช่ | `number` |   | จำนวนการรับชำระเดือนนี้ (ไม่รวมที่กลับรายการ — เวลาไทย) |   |
+| `receivedLastMonth` | ใช่ | `number` |   | จำนวนการรับชำระเดือนก่อน (ทั้งเดือน) |   |
 | `dueSoon` | ใช่ | `number` |   | ใบที่ค้างรับและครบกำหนดภายใน 7 วัน |   |
 | `total` | ใช่ | `number` |   | ใบที่ออกแล้วทั้งหมด (ไม่รวมร่าง/ยกเลิก) |   |
 | `open` | ใช่ | `number` |   | ค้างรับ (ISSUED + PARTIALLY_PAID) |   |

@@ -10,6 +10,11 @@ export type CustomerCreate = Schemas['CreateCustomerDto'];
 
 const KEY = 'customers';
 
+/** ลูกค้า 1 ราย (ลิงก์เปิด drawer จากค้นหา ⌘K — ST9-T09) */
+export function fetchCustomer(id: string): Promise<Customer> {
+  return unwrap(api.GET('/v1/customers/{id}', { params: { path: { id } } })) as Promise<Customer>;
+}
+
 export interface CustomerFilters {
   status: string;
   billingCycle: string;

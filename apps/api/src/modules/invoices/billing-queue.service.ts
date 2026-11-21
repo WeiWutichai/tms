@@ -11,6 +11,7 @@ import type {
   BillingQueuePageDto,
   BillingQueueQuery,
   BillingQueueRowDto,
+  BillingQueueTotalsDto,
 } from './billing-queue.dto';
 
 const NONE = '00000000-0000-0000-0000-000000000000';
@@ -104,7 +105,12 @@ interface PageRow {
  * DO ที่ส่งถึงแล้ว (docs/01 §4.3: DELIVERED → POD_PENDING/UNBILLED) — BILLED/สถานะอื่นไม่เข้าคิว ·
  * FAILED ที่มีบรรทัดเรียกเก็บได้ (spec/05 BIL-020 (ก)) ยังไม่เข้า [OPEN — PO spec/12 §3]
  */
-const DELIVERED_STATUSES = ['DELIVERED', 'POD_PENDING', 'UNBILLED'];
+export const DELIVERED_STATUSES = ['DELIVERED', 'POD_PENDING', 'UNBILLED'];
+/**
+ * `billing_status` ที่ถือว่า "ยังไม่อยู่ในใบแจ้งหนี้ที่ active" (ST5-T05 — กันวางบิลซ้ำ; ใบที่ยกเลิกคืน DO เป็น UNBILLED ตาม ST5-T10)
+ * ใช้ร่วมกับรายงาน "DO ยังไม่วางบิลเกิน N วัน" (ST9-T06) — นิยามเดียวกับคิว/BillingGuard
+ */
+export const NOT_INVOICED_BILLING_STATUSES = ['UNBILLED', 'CREDITED'];
 
 /** เงื่อนไขพร้อมวางบิลของคิว (ไม่รวมเวลาจุดส่ง — แสดงเป็นธง; ส่งบัญชีต้องครบ) */
 const QUEUE_READY = Prisma.sql`
@@ -186,7 +192,7 @@ export class BillingQueueService {
                         WHERE x.delivery_order_id = d0.id AND x.status = 'PENDING_CONFIRM') AS sur_pending,
                (st.arrived_at IS NOT NULL AND st.departed_at IS NOT NULL) AS stop_ok,
                (d0.released_at IS NOT NULL) AS released,
-               (d0.billing_status NOT IN ('UNBILLED', 'CREDITED')) AS billed
+               (NOT (d0.billing_status::text = ANY(${NOT_INVOICED_BILLING_STATUSES}::text[]))) AS billed
           FROM d0
           JOIN customer c ON c.id = d0.customer_id
           JOIN sales_order s ON s.id = d0.sales_order_id
@@ -365,11 +371,27 @@ export class BillingQueueService {
       }),
       q.fields,
     );
+    const customers = await this.totals(tx, cte);
     return {
       data: page.data as BillingQueueRowDto[],
       nextCursor: page.nextCursor,
       hasMore: page.hasMore,
-      customers: await this.totals(tx, cte),
+      customers,
+      totals: BillingQueueService.grandTotal(customers),
+    };
+  }
+
+  /**
+   * ST9-T02 ยอดรวมทุกลูกค้า (= การ์ด "ค้างวางบิล" ของ Dashboard บิล) — รวมจาก `customers[]` ชุดเดียวกัน (Decimal)
+   * ยอดเงินของลูกค้าที่ถูกตัด (ไม่มีสิทธิ์ราคาขาย) ไม่มีผล — ฟิลด์ `sellTotal` ของผลรวมถูกตัดด้วย `@PriceField` เช่นกัน
+   */
+  static grandTotal(customers: BillingQueueCustomerDto[]): BillingQueueTotalsDto {
+    return {
+      deliveryOrderCount: customers.reduce((a, c) => a + c.deliveryOrderCount, 0),
+      releasedCount: customers.reduce((a, c) => a + c.releasedCount, 0),
+      sellTotal: customers
+        .reduce((a, c) => a.add(new Prisma.Decimal(c.sellTotal ?? 0)), new Prisma.Decimal(0))
+        .toFixed(2),
     };
   }
 

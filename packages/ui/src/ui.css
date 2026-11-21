@@ -1901,9 +1901,62 @@ body:has(.tms-drawer__foot) .tms-toast {
 .tms-dash-row:hover {
   background: #eef0ec;
 }
+/* ST9-T02 Dashboard บิล: ช่องตัวเลขแบบการ์ดลูกหนี้ของต้นแบบ (dash.ar — grid gap 12) 5 ช่อง + ตารางเดือนนี้/เดือนก่อน
+   (กรอบรายการแบบ dash.ar.top: border #D9DCD4 r8 · แถว padding 8px 12px เส้นคั่น #E4E6E0) */
+.tms-dash-bill {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+.tms-dash-month {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #d9dcd4;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.tms-dash-month table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.tms-dash-month th,
+.tms-dash-month td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #e4e6e0;
+  text-align: right;
+  white-space: nowrap;
+  font-weight: 400;
+  color: #101418;
+}
+.tms-dash-month th:first-child {
+  text-align: left;
+  width: auto;
+}
+.tms-dash-month th:not(:first-child),
+.tms-dash-month td {
+  width: 160px;
+}
+.tms-dash-month tbody tr:last-child > * {
+  border-bottom: 0;
+}
+.tms-dash-month thead th {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #3b424c;
+  background: #eef0ec;
+}
+@media (max-width: 1200px) {
+  .tms-dash-bill {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
 @media (max-width: 900px) {
   .tms-dash-bottom {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .tms-dash-bill {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1948,4 +2001,9 @@ h1[tabindex='-1']:focus,
 /* ST5-T22 ช่วงอายุลูกหนี้ (ต้นแบบ vPay: style-hover background #EEF0EC) — สีพื้นปกติอยู่ inline */
 .tms-aging-bucket:hover {
   background: #eef0ec !important;
+}
+
+/* ST9-T06 แถวตารางรายงาน (ต้นแบบ vRep: tr style-hover background #EEF0EC) */
+.tms-rpt-row:hover {
+  background: #eef0ec;
 }

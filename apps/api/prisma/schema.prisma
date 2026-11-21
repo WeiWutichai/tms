@@ -3749,6 +3749,7 @@ model Invoice {
   @@index([tenantId, replacesInvoiceId])
   @@index([tenantId, overdueAt])
   @@index([tenantId, dueDate])
+  @@index([tenantId, updatedAt, id]) /// ST9-T09 ค้นหา ⌘K + รายการเรียงแก้ล่าสุด
   @@map("invoice")
 }
 
@@ -3971,6 +3972,7 @@ model BillingNote {
   @@unique([tenantId, billingNoteNo])
   @@index([tenantId, customerId, status])
   @@index([tenantId, status])
+  @@index([tenantId, updatedAt, id]) /// ST9-T09 ค้นหา ⌘K + รายการเรียงแก้ล่าสุด
   @@map("billing_note")
 }
 

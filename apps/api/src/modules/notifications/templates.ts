@@ -30,6 +30,20 @@ export interface NotificationVars {
    * ไม่ใส่ยอดเงิน (สิทธิ์ดูราคาขายแยก — เหมือน field_charge.pending) · items สูงสุด DIGEST_MAX_ITEMS
    */
   'invoice.payment_due': { total: number; more: number; items: PaymentDueItem[] };
+  /**
+   * ST9-T06 DO ส่งถึงแล้วยังไม่วางบิลเกิน N วัน (docs/04 H "ส่งให้ Invoicer อัตโนมัติ", I "DO ยังไม่วางบิล") — 1 ฉบับต่อผู้รับต่อวัน
+   * เฉพาะเมื่อมี DO ที่เพิ่งเกินเกณฑ์ (ยังไม่เคยแจ้งผู้รับคนนี้) · fresh = จำนวนใหม่ · outstanding = ค้างเกินเกณฑ์ทั้งหมด ณ วันนี้
+   * items = DO ใหม่สูงสุด DIGEST_MAX_ITEMS · ไม่ใส่ยอดเงิน (สิทธิ์ดูราคาขายแยกต่อผู้ใช้)
+   */
+  'delivery_order.unbilled': {
+    /** หน้าที่ลิงก์ไป: `report` = รายงาน DO ยังไม่วางบิล · `bill` = หน้าวางบิล (แพ็กเกจไม่มีโมดูลรายงาน — review M1) */
+    target: 'report' | 'bill';
+    minDays: number;
+    fresh: number;
+    outstanding: number;
+    more: number;
+    items: UnbilledDoItem[];
+  };
   /** ST3-T24 รถร่วมไม่ตอบข้อเสนองานใน N ชม. (docs/04 D3/I "งานรถร่วมหมดเวลา") — ครั้งเดียวต่อข้อเสนอ */
   'subcon_offer.no_response': { tripNo: string; carrier: string; hours: number };
   /** ST3-T24 ลิงก์ข้อเสนองานหมดอายุ (48 ชม.) → เที่ยวกลับไปรอจัดรถ ใบสั่งค้าง "รถร่วมปฏิเสธ" */
@@ -147,6 +161,14 @@ export interface PaymentDueItem {
   /** YYYY-MM-DD */
   dueDate: string;
   /** วันนี้ − วันครบกำหนด (ติดลบ = ยังไม่ถึง) */
+  days: number;
+}
+export interface UnbilledDoItem {
+  doNo: string;
+  customer: string;
+  /** วันที่ส่งถึง YYYY-MM-DD (เวลาไทย) */
+  deliveredOn: string;
+  /** วันนี้ − วันที่ส่งถึง */
   days: number;
 }
 interface ImportVars {
@@ -283,6 +305,36 @@ function renderPaymentDue(v: NotificationVars['invoice.payment_due'], lang: Noti
         detail: lines.join('\n'),
       };
 }
+function renderUnbilled(v: NotificationVars['delivery_order.unbilled'], lang: NotificationLocale) {
+  const lines = v.items.map((i) =>
+    lang === 'th'
+      ? `• ${safeName(i.doNo, 60)} · ${safeName(i.customer, 120)} — ส่งถึง ${thDay(i.deliveredOn)} (${n(i.days)} วัน)`
+      : `• ${safeName(i.doNo, 60)} · ${safeName(i.customer, 120)} — delivered ${i.deliveredOn} (${n(i.days)} days)`,
+  );
+  if (v.more > 0) lines.push(lang === 'th' ? `และอีก ${n(v.more)} ใบ` : `and ${n(v.more)} more`);
+  // review L5: ถ้อยคำกลาง ๆ (ผู้รับครั้งแรกได้รายการค้างเก่าทั้งหมด — ไม่เรียกว่า "ใหม่")
+  const where =
+    v.target === 'report'
+      ? {
+          th: 'ดูที่ รายงาน → DO ยังไม่วางบิล แล้วดึงเข้าใบแจ้งหนี้ที่หน้าวางบิล',
+          en: 'see Reports → Unbilled DOs.',
+        }
+      : {
+          th: 'ดึงเข้าใบแจ้งหนี้ที่หน้า วางบิลและใบแจ้งหนี้',
+          en: 'add them to an invoice on the Billing page.',
+        };
+  return lang === 'th'
+    ? {
+        title: `DO ยังไม่วางบิลเกิน ${n(v.minDays)} วัน ${n(v.fresh)} ใบ`,
+        body: `ค้างเกินเกณฑ์ทั้งหมด ${n(v.outstanding)} ใบ — ${where.th}`,
+        detail: lines.join('\n'),
+      }
+    : {
+        title: `${n(v.fresh)} delivery order(s) not billed after ${n(v.minDays)} days`,
+        body: `${n(v.outstanding)} delivery order(s) over the threshold in total — ${where.en}`,
+        detail: lines.join('\n'),
+      };
+}
 export type NotificationTemplate = keyof NotificationVars;
 
 export interface RenderedNotification {
@@ -373,6 +425,10 @@ const TEMPLATES: {
   'invoice.payment_due': {
     th: (v) => renderPaymentDue(v, 'th'),
     en: (v) => renderPaymentDue(v, 'en'),
+  },
+  'delivery_order.unbilled': {
+    th: (v) => renderUnbilled(v, 'th'),
+    en: (v) => renderUnbilled(v, 'en'),
   },
   'subcon_offer.no_response': {
     th: (v) => ({

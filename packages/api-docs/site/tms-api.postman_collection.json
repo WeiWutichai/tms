@@ -5572,6 +5572,48 @@
       ]
     },
     {
+      "name": "ค้นหา (search)",
+      "item": [
+        {
+          "name": "ค้นหาเอกสาร ลูกค้า รถ (⌘K)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/search?q=2611-00",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "2611-00",
+                  "description": "คำค้น (ตัดช่องว่างหน้า-หลัง) — ค้นแบบ \"มีคำนี้อยู่\" ไม่สนตัวพิมพ์ ใน: เลข SO / DO / เที่ยว / ใบแจ้งหนี้ / ใบวางบิล, เลข ลูกค้า (SO/DO `customerRef`, ใบแจ้งหนี้ `customerPoNo`), ทะเบียนรถ (เทียบแบบ normalize: เลขไทย → อารบิก ตัดช่องว่าง/ขีด/จุด), ชื่อ/รหัสลูกค้า",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "จำนวนสูงสุดต่อชนิด",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "scope: orders:read | trips:read | invoices:read | master:read\n\nค้นพร้อมกันหลายชนิด: SO (`orders:read`), DO (`orders:read`), เที่ยวรถ (`trips:read`), ใบแจ้งหนี้และใบวางบิล (`invoices:read`), ลูกค้าและรถ (`master:read`) — ค้นเฉพาะชนิดที่ผู้เรียกมี scope (`searched`) · ผลต่อชนิดไม่เกิน `limit` เรียง ตรงทั้งคำ → ขึ้นต้นด้วย → มีอยู่ → แก้ล่าสุด · เห็นเฉพาะข้อมูลของบริษัท (หรือ sandbox) ของ credential นี้ · ไม่ส่งราคา/ยอดเงิน · นับ rate limit แบบอ่าน (GET)"
+          }
+        }
+      ]
+    },
+    {
       "name": "ลูกค้า (customers)",
       "item": [
         {
@@ -17470,7 +17512,7 @@
           }
         },
         {
-          "name": "จำนวนใบแจ้งหนี้ตามสถานะ (แท็บ/KPI)",
+          "name": "จำนวนและยอดใบแจ้งหนี้ตามสถานะ (แท็บ/KPI + Dashboard บิล)",
           "request": {
             "method": "GET",
             "header": [
@@ -17490,7 +17532,7 @@
                 "summary"
               ]
             },
-            "description": "scope: invoices:read\n\nนับทั้ง tenant · เกินกำหนดเป็น 0 จนกว่าจะมีวันครบกำหนด/รับชำระ"
+            "description": "scope: invoices:read\n\nนับทั้ง tenant · แท็บแยกกันไม่ซ้อน: เกินกำหนด มาก่อน \"ออกแล้ว\"/\"ชำระบางส่วน\" Dashboard บิล: ยอดต่อแท็บ (`sellDraftTotal` = ยอดรวมร่าง · `sell*Outstanding` = ยอดรวม − ยอดตัดชำระ — ตรงกับ Σ ของ `GET /invoices` ตัวกรองเดียวกัน) + ใบที่ออกเดือนนี้ (ถึงวันนี้) vs เดือนก่อน (ทั้งเดือน) ตาม `issueDate` เวลาไทย ไม่รวมร่าง/ยกเลิก · ค้างวางบิล = `GET /invoices/queue` `totals` · รับชำระเดือนนี้/ก่อน = `GET /payments/summary` · ยอด `sell*` เห็นเมื่อมี `prices.sell:read` (จำนวนเห็นเสมอ): ใบแจ้งหนี้ไม่ใช่ใบกำกับภาษี ยอด VAT/WHT เป็นประมาณการ"
           }
         },
         {
@@ -19002,6 +19044,61 @@
               ]
             },
             "description": "scope: payments:record\n\nไม่เปลี่ยนยอดตัดหนี้ (ตัดยอดตั้งแต่บันทึกรับเช็ค) · audit `payment.cheque_cleared`"
+          }
+        }
+      ]
+    },
+    {
+      "name": "reports",
+      "item": [
+        {
+          "name": "DO ยังไม่วางบิลเกิน N วัน",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/reports/unbilled-delivery-orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "reports",
+                "unbilled-delivery-orders"
+              ],
+              "query": [
+                {
+                  "key": "minDays",
+                  "value": "7",
+                  "description": "ส่งถึงแล้ว**เกิน**กี่วัน (วันนี้ − วันที่ส่งถึง > ค่านี้ เวลาไทย) — ไม่ส่ง = ค่าตั้งองค์กร `billing.unbilledAlertDays` (ค่าเริ่ม 7)",
+                  "disabled": true
+                },
+                {
+                  "key": "customerId",
+                  "value": "cus_…",
+                  "description": "ลูกค้ารายเดียว — id หรือ `ext:{externalId}`",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "ค่า nextCursor จากหน้าก่อน (เรียงวันที่ส่งถึงเก่าสุดก่อน)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "scope: reports.finance:read\n\nDO ที่ส่งถึงแล้ว (DELIVERED / POD_PENDING / UNBILLED) และ**ยังไม่อยู่ในใบแจ้งหนี้ใด** ที่ **วันนี้ − วันที่ส่งถึง > N** (เวลาไทย) · วันที่ส่งถึง = เวลาบันทึกสถานะส่งถึงครั้งล่าสุด (ไม่มีประวัติ = วันที่ DO) · N = `minDays` หรือค่าตั้งองค์กร `billing.unbilledAlertDays` (ค่าเริ่ม 7) · เรียงส่งถึงเก่าสุดก่อน cursor (วันที่ส่งถึง, id) · มูลค่า = Σ บรรทัดรายได้ที่ยังใช้ (ก่อน VAT) — `sell*` เห็นเมื่อมี `prices.sell:read` · ส่งออก: `POST /v1/exports` resource `unbilled-delivery-orders`"
           }
         }
       ]
