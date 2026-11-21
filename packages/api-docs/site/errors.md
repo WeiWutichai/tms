@@ -31,6 +31,7 @@
 | [`sandbox_unsupported`](#sandbox_unsupported) | 403 | ใช้ใน Sandbox ไม่ได้ (เชื่อมระบบภายนอกจริง) |
 | [`self_approval_forbidden`](#self_approval_forbidden) | 403 | ยืนยันหรือปฏิเสธรายการที่ตัวเองบันทึกไม่ได้ ต้องให้ผู้อื่นตรวจ |
 | [`settlement_self_approval`](#settlement_self_approval) | 403 | ผู้เตรียมใบสำคัญจ่าย (สร้างใบ เพิ่มหรือนำรายการออก) อนุมัติใบนั้นไม่ได้ ต้องให้ผู้อนุมัติคนอื่น |
+| [`settlement_self_payment`](#settlement_self_payment) | 403 | ผู้อนุมัติใบสำคัญจ่าย บันทึกจ่ายใบนั้นเองไม่ได้ ต้องให้ผู้อื่นบันทึกจ่าย |
 | [`step_up_required`](#step_up_required) | 403 | ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้ |
 | [`not_found`](#not_found) | 404 | ไม่พบข้อมูล |
 | [`method_not_allowed`](#method_not_allowed) | 405 | ไม่รองรับวิธีเรียกนี้ |
@@ -294,6 +295,12 @@ HTTP `403` · ยืนยันหรือปฏิเสธรายการ
 HTTP `403` · ผู้เตรียมใบสำคัญจ่าย (สร้างใบ เพิ่มหรือนำรายการออก) อนุมัติใบนั้นไม่ได้ ต้องให้ผู้อนุมัติคนอื่น
 
 อาจตอบได้จากหลาย endpoint
+
+## settlement_self_payment {#settlement_self_payment}
+
+HTTP `403` · ผู้อนุมัติใบสำคัญจ่าย บันทึกจ่ายใบนั้นเองไม่ได้ ต้องให้ผู้อื่นบันทึกจ่าย
+
+พบใน: [`POST /v1/settlements/{id}/mark-paid`](ref-settlements.md#post-settlements-id-mark-paid)
 
 ## step_up_required {#step_up_required}
 

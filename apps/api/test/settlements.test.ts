@@ -1669,7 +1669,7 @@ describe('settlements (ST6-T03)', () => {
         paymentMethod: null,
       });
 
-      // ผู้สร้างใบ (บัญชี) บันทึกจ่ายได้ — ไม่มีกติกา SoD ของการจ่ายใน docs (spec/12 §3)
+      // ผู้สร้างใบ (บัญชี) บันทึกจ่ายได้ — แบ่งหน้าที่ของการจ่าย = ผู้บันทึกจ่าย ≠ ผู้อนุมัติ เท่านั้น (D-60)
       const r = await pay(s.id);
       expect(r.status, JSON.stringify(r.body)).toBe(200);
       expect(r.headers.etag).toBe(`"${ap.version + 1}"`);
@@ -1823,6 +1823,165 @@ describe('settlements (ST6-T03)', () => {
           .status,
       ).toBe('APPROVED');
       expect((await pay(s.id, PAY, admin)).status).toBe(200);
+    });
+
+    it('D-60 แบ่งหน้าที่: ผู้อนุมัติบันทึกจ่ายใบนั้นเองไม่ได้ (403 settlement_self_payment) · คนอื่นได้ · owner ปิดกฎ (step-up) → ผู้อนุมัติจ่ายได้ + audit · ไม่ใช่ owner เปลี่ยนค่าไม่ได้', async () => {
+      const key = 'settlement.allowApproverMarkPaid';
+      // ผู้อนุมัติที่มีสิทธิ์จ่ายด้วย (ผู้ดูแล) — อนุมัติเองแล้วบันทึกจ่ายเอง
+      const both = await tokenFor(tenantId, '*', 'u-appr-pay');
+      const mk = async () => {
+        const { C, trips } = await setup(1, '1200');
+        const s = (
+          await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201)
+        ).body;
+        await api(app, both)
+          .post(`/v1/settlements/${s.id}/approve`)
+          .set('If-Match', await etag(s.id))
+          .send(APPROVE)
+          .expect(200);
+        return s.id as string;
+      };
+      const a = await mk();
+      const self = await pay(a, PAY, both);
+      expect(self.status, JSON.stringify(self.body)).toBe(403);
+      expect(self.body.code).toBe('settlement_self_payment');
+      expect(
+        (await db.carrierSettlement.findUniqueOrThrow({ where: { id: uuid('settlement', a) } }))
+          .status,
+      ).toBe('APPROVED');
+      // คนอื่น (บัญชี) บันทึกจ่ายได้
+      const ok = await pay(a, PAY, accounting);
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+      expect(ok.body).toMatchObject({ status: 'PAID', paidBy: 'u-acc', approvedBy: 'u-appr-pay' });
+
+      // ค่าตั้ง: ผู้ดูแล (ไม่ใช่ owner) เปลี่ยนไม่ได้ · owner ต้อง step-up
+      const ownerRole = await db.role.findFirstOrThrow({ where: { tenantId, code: 'owner' } });
+      const o = await db.appUser.create({
+        data: {
+          tenantId,
+          email: `owner-${randomUUID().slice(0, 8)}@settlement.test`,
+          name: 'เจ้าของ',
+          status: 'ACTIVE',
+        },
+      });
+      await db.userRole.create({ data: { tenantId, userId: o.id, roleId: ownerRole.id } });
+      const ot = await tokenFor(tenantId, '*', o.id);
+      const on = { values: { [key]: true } };
+      const na = await api(app, admin)
+        .patch('/v1/settings')
+        .set('X-Step-Up', await signStepUpToken('user-test', tenantId))
+        .send(on)
+        .expect(403);
+      expect(na.body.code).toBe('permission_denied');
+      const ns = await api(app, ot).patch('/v1/settings').send(on).expect(403);
+      expect(ns.body.code).toBe('step_up_required');
+      await api(app, ot)
+        .patch('/v1/settings')
+        .set('X-Step-Up', await signStepUpToken(o.id, tenantId))
+        .send(on)
+        .expect(200);
+      try {
+        const setAudit = await db.auditLog.findFirstOrThrow({
+          where: { tenantId, action: 'tenant_setting.updated', entityId: key },
+          orderBy: { seq: 'desc' },
+        });
+        expect(setAudit.actorId).toBe(o.id);
+        expect(setAudit.after).toEqual({ [key]: true });
+        // ไม่ใช่ owner ปิดกลับก็ไม่ได้
+        expect(
+          (
+            await api(app, admin)
+              .patch('/v1/settings')
+              .send({ values: { [key]: false } })
+          ).status,
+        ).toBe(403);
+
+        // ปิดกฎแล้ว: ผู้อนุมัติบันทึกจ่ายใบตัวเองได้ + audit `sodWaived`
+        const b = await mk();
+        const waived = await pay(b, PAY, both);
+        expect(waived.status, JSON.stringify(waived.body)).toBe(200);
+        expect(waived.body).toMatchObject({ paidBy: 'u-appr-pay', approvedBy: 'u-appr-pay' });
+        const audit = await db.auditLog.findFirstOrThrow({
+          where: { entityId: uuid('settlement', b), action: 'settlement.paid' },
+        });
+        expect(audit.after).toMatchObject({ status: 'PAID', sodWaived: true });
+        const normal = await db.auditLog.findFirstOrThrow({
+          where: { entityId: uuid('settlement', a), action: 'settlement.paid' },
+        });
+        expect(normal.after).not.toHaveProperty('sodWaived');
+      } finally {
+        // owner ปิดกลับ (ไม่ต้อง step-up — เพิ่มการควบคุม)
+        await api(app, ot)
+          .patch('/v1/settings')
+          .send({ values: { [key]: false } })
+          .expect(200);
+      }
+      const c = await mk();
+      expect((await pay(c, PAY, both)).body.code).toBe('settlement_self_payment');
+    });
+
+    it('D-60 review: key ที่ผู้อนุมัติออก บันทึกจ่ายไม่ได้ · ผู้จ่ายระบุตัวไม่ได้ → 403 แม้ปิดกฎ · ผู้ใช้จริงที่ไม่ใช่ owner เปลี่ยนค่าไม่ได้', async () => {
+      const key = 'settlement.allowApproverMarkPaid';
+      // ผู้ใช้จริง (uuid) role admin — ไม่ใช่ owner → ผ่าน guard uuid ไปถึงการตรวจ role แล้วถูกปฏิเสธ
+      const adminRole = await db.role.findFirstOrThrow({ where: { tenantId, code: 'admin' } });
+      const u = await db.appUser.create({
+        data: {
+          tenantId,
+          email: `stl-paysod-${randomUUID().slice(0, 8)}@a.test`,
+          name: 'ผู้ดูแลผู้อนุมัติ',
+          status: 'ACTIVE',
+        },
+      });
+      await db.userRole.create({ data: { tenantId, userId: u.id, roleId: adminRole.id } });
+      const ut = await tokenFor(tenantId, '*', u.id);
+      const denied = await api(app, ut)
+        .patch('/v1/settings')
+        .set('X-Step-Up', await signStepUpToken(u.id, tenantId))
+        .send({ values: { [key]: true } })
+        .expect(403);
+      expect(denied.body).toMatchObject({ code: 'permission_denied', required: ['owner'] });
+
+      // ผู้ใช้นี้อนุมัติใบ แล้วออก API key ที่มี settlements:pay → key = ผู้อนุมัติ → 403
+      const { C, trips } = await setup(1, '1300');
+      const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
+        .body;
+      await api(app, ut)
+        .post(`/v1/settlements/${s.id}/approve`)
+        .set('If-Match', await etag(s.id))
+        .send(APPROVE)
+        .expect(200);
+      const keyName = `ERP จ่าย ${randomUUID().slice(0, 8)}`;
+      const k = (
+        await api(app, ut)
+          .post('/v1/api-keys')
+          .send({ name: keyName, scopes: ['settlements:read', 'settlements:pay'] })
+          .expect(201)
+      ).body as { secret: string };
+      const byKey = await pay(s.id, PAY, k.secret);
+      expect(byKey.status, JSON.stringify(byKey.body)).toBe(403);
+      expect(byKey.body.code).toBe('settlement_self_payment');
+
+      // key ที่ไม่รู้ผู้ออก (created_by ว่าง) = ระบุตัวไม่ได้ → 403 แม้ tenant ปิดกฎ (fail closed)
+      const row = await db.apiKey.findFirstOrThrow({ where: { tenantId, name: keyName } });
+      await db.apiKey.update({ where: { id: row.id }, data: { createdBy: null } });
+      await db.tenantSetting.upsert({
+        where: { tenantId_key: { tenantId, key } },
+        create: { tenantId, key, value: true },
+        update: { value: true },
+      });
+      try {
+        const anon = await pay(s.id, PAY, k.secret);
+        expect(anon.status, JSON.stringify(anon.body)).toBe(403);
+        expect(anon.body.code).toBe('settlement_self_payment');
+      } finally {
+        await db.tenantSetting.deleteMany({ where: { tenantId, key } });
+      }
+      expect(
+        (await db.carrierSettlement.findUniqueOrThrow({ where: { id: uuid('settlement', s.id) } }))
+          .status,
+      ).toBe('APPROVED');
+      // คนอื่นจ่ายได้
+      expect((await pay(s.id, PAY, accounting)).status).toBe(200);
     });
 
     it('เที่ยวที่บรรทัดต้นทุนอยู่หลายใบ: SETTLED เมื่อจ่ายใบสุดท้าย · ระหว่างนั้นบรรทัดที่เหลือยังอยู่ในคิว', async () => {

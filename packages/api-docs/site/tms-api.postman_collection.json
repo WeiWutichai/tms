@@ -4845,7 +4845,7 @@
                 }
               ]
             },
-            "description": "scope: settlements:pay\n\n\"จ่าย\" + APPROVED → PAID · **เฉพาะใบ APPROVED** (ร่าง/รอตรวจ/โต้แย้ง/ยกเลิก/จ่ายแล้ว → 409 `invalid_state_transition`) · จ่ายเต็มยอดครั้งเดียว — ยอดที่จ่าย = `buyNetAfterWht` (ยอดสุทธิ − หัก ณ ที่จ่ายประมาณการที่ตรึงตอนอนุมัติ — ไม่เปลี่ยน) · `paidDate` (= วันที่หักภาษี) ตั้งแต่วันอนุมัติถึงวันนี้ (เวลาไทย) — ก่อนวันอนุมัติ → 422 `before_approval` · `reference` บังคับเมื่อ TRANSFER / CHEQUE · ใบที่ไม่ใช่ APPROVED (รวมจ่ายแล้ว/คำขอซ้ำพร้อมกัน) → 409 ก่อนตรวจ If-Match · เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · audit `settlement.paid` + webhook `settlement.paid` · ไฟล์โอนธนาคาร (bulk payment) = P1",
+            "description": "scope: settlements:pay\n\n\"จ่าย\" + APPROVED → PAID · **เฉพาะใบ APPROVED** (ร่าง/รอตรวจ/โต้แย้ง/ยกเลิก/จ่ายแล้ว → 409 `invalid_state_transition`) · จ่ายเต็มยอดครั้งเดียว — ยอดที่จ่าย = `buyNetAfterWht` (ยอดสุทธิ − หัก ณ ที่จ่ายประมาณการที่ตรึงตอนอนุมัติ — ไม่เปลี่ยน) · `paidDate` (= วันที่หักภาษี) ตั้งแต่วันอนุมัติถึงวันนี้ (เวลาไทย) — ก่อนวันอนุมัติ → 422 `before_approval` · `reference` บังคับเมื่อ TRANSFER / CHEQUE · ใบที่ไม่ใช่ APPROVED (รวมจ่ายแล้ว/คำขอซ้ำพร้อมกัน) → 409 ก่อนตรวจ If-Match · **ผู้อนุมัติใบนี้บันทึกจ่ายเองไม่ได้ → 403 `settlement_self_payment`** · เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · audit `settlement.paid` + webhook `settlement.paid` · ไฟล์โอนธนาคาร (bulk payment) = P1",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"paidDate\": \"2026-11-20\",\n  \"method\": \"TRANSFER\"\n}",

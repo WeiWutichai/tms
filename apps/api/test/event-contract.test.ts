@@ -578,8 +578,9 @@ describe('event registry contract (ST7-T06)', () => {
         ...eventDefinition('settlement.approved')!.object!.omit,
       ]),
     );
-    // ---- settlement.paid (ST6-T09): บันทึกจ่ายใบที่อนุมัติแล้ว ----
-    await api(app, admin)
+    // ---- settlement.paid (ST6-T09): บันทึกจ่ายใบที่อนุมัติแล้ว — ผู้บันทึกจ่าย ≠ ผู้อนุมัติ (D-60) ----
+    const payer = await tokenFor(tenantId, '*', 'u-event-payer');
+    await api(app, payer)
       .post(`/v1/settlements/${stlPub}/mark-paid`)
       .set(
         'If-Match',

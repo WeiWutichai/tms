@@ -758,7 +758,7 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/lines/{lineId}/reso
 
 scope: `settlements:pay` · operationId: `Settlements_markPaid`
 
-"จ่าย" + APPROVED → PAID · **เฉพาะใบ APPROVED** (ร่าง/รอตรวจ/โต้แย้ง/ยกเลิก/จ่ายแล้ว → 409 `invalid_state_transition`) · จ่ายเต็มยอดครั้งเดียว — ยอดที่จ่าย = `buyNetAfterWht` (ยอดสุทธิ − หัก ณ ที่จ่ายประมาณการที่ตรึงตอนอนุมัติ — ไม่เปลี่ยน) · `paidDate` (= วันที่หักภาษี) ตั้งแต่วันอนุมัติถึงวันนี้ (เวลาไทย) — ก่อนวันอนุมัติ → 422 `before_approval` · `reference` บังคับเมื่อ TRANSFER / CHEQUE · ใบที่ไม่ใช่ APPROVED (รวมจ่ายแล้ว/คำขอซ้ำพร้อมกัน) → 409 ก่อนตรวจ If-Match · เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · audit `settlement.paid` + webhook `settlement.paid` · ไฟล์โอนธนาคาร (bulk payment) = P1
+"จ่าย" + APPROVED → PAID · **เฉพาะใบ APPROVED** (ร่าง/รอตรวจ/โต้แย้ง/ยกเลิก/จ่ายแล้ว → 409 `invalid_state_transition`) · จ่ายเต็มยอดครั้งเดียว — ยอดที่จ่าย = `buyNetAfterWht` (ยอดสุทธิ − หัก ณ ที่จ่ายประมาณการที่ตรึงตอนอนุมัติ — ไม่เปลี่ยน) · `paidDate` (= วันที่หักภาษี) ตั้งแต่วันอนุมัติถึงวันนี้ (เวลาไทย) — ก่อนวันอนุมัติ → 422 `before_approval` · `reference` บังคับเมื่อ TRANSFER / CHEQUE · ใบที่ไม่ใช่ APPROVED (รวมจ่ายแล้ว/คำขอซ้ำพร้อมกัน) → 409 ก่อนตรวจ If-Match · **ผู้อนุมัติใบนี้บันทึกจ่ายเองไม่ได้ → 403 `settlement_self_payment`** · เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · audit `settlement.paid` + webhook `settlement.paid` · ไฟล์โอนธนาคาร (bulk payment) = P1
 
 **Parameters**
 
@@ -782,7 +782,7 @@ scope: `settlements:pay` · operationId: `Settlements_markPaid`
 |---|---|---|
 | `200` |   | `SettlementDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`settlements:pay`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ `settlements:pay` / ผู้อนุมัติใบนี้บันทึกจ่ายเอง — [permission_denied](errors.md#permission_denied), [settlement_self_payment](errors.md#settlement_self_payment) | `ProblemDto` |
 | `404` | ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
 | `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
 | `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |

@@ -40,9 +40,9 @@
 | 27 | วงเงิน step-up อนุมัติใบสำคัญจ่ายรถร่วม (บาท) | `settlement.approvalStepUpAmount` | — | API-only | ST6-T07 — ต้นแบบไม่มีช่อง; ค่าเริ่ม 100,000 · null = ไม่บังคับ · เพิ่มค่า/ปิด = step-up |
 | 28 | ต้องให้รถร่วมตรวจใบสำคัญจ่ายก่อนอนุมัติ | `settlement.carrierReviewRequired` | — | API-only | ST6-T05 — ต้นแบบไม่มีช่อง; ค่าเริ่ม ปิด · เปิด = ร่างอนุมัติตรงไม่ได้ (409 `settlement_review_required`) · ปิดจากที่เปิด = step-up |
 | 29 | ขั้นต่ำหัก ณ ที่จ่าย (บาท, ประมาณการ) | `tax.whtMinimumAmount` | — | API-only | ST5-T02 · ค่าเริ่ม 0 = หักทุกยอด (ตรงกับ AccountSystem, D-54) · ฐานนับขั้นต่ำ 1,000 รอนักบัญชี [OPEN #62] · ต้นแบบไม่มีช่อง |
-| 30 | ให้ผู้ทำร่างออกเอกสารใบแจ้งหนี้เองได้ | `billing.allowSelfFinalize` | — | API-only | ST5-T09 — ต้นแบบไม่มีช่อง; ค่าเริ่ม ปิด (แบ่งหน้าที่ตาม docs/04 A3) · เปลี่ยนได้เฉพาะ owner + audit |
-| 30 | ให้ผู้สร้างร่างออกเอกสารใบแจ้งหนี้เองได้ | `billing.allowSelfFinalize` | — | API-only | ST5-T09 (A3) — ต้นแบบไม่มีช่อง; ค่าเริ่ม ปิด · แก้ได้เฉพาะ owner + step-up |
+| 30 | ให้ผู้ทำร่างออกเอกสารใบแจ้งหนี้เองได้ | `billing.allowSelfFinalize` | — | API-only | ST5-T09 — ต้นแบบไม่มีช่อง; ค่าเริ่ม ปิด (แบ่งหน้าที่ตาม docs/04 A3) · เปลี่ยนได้เฉพาะ owner (OWNER_ONLY_SETTINGS) + step-up + audit |
 | 31 | ส่วนต่างที่บัญชีตัดยอดเองได้ต่อการรับชำระ (บาท) | `payments.maxDifferenceAmount` | — | API-only | ST5-T13 review M1 (spec/05 BIL-059) — ต้นแบบไม่มีช่อง; ค่าเริ่ม 10 · เกินต้องมี `payments:reverse` (ผู้จัดการ) · เพิ่มค่า = step-up |
+| 32 | ให้ผู้อนุมัติใบสำคัญจ่ายบันทึกจ่ายใบนั้นเองได้ (ปิดกฎแบ่งหน้าที่) | `settlement.allowApproverMarkPaid` | — | API-only | D-60 (ST6-T09) — ต้นแบบไม่มีช่อง; ค่าเริ่ม ปิด (ผู้อนุมัติจ่ายเอง = 403 `settlement_self_payment`) · **แก้ได้เฉพาะ owner** · เปิด = step-up · audit `tenant_setting.updated` + `sodWaived` ใน `settlement.paid` |
 
 ## 2. ค่าตั้งองค์กรที่เป็น resource แยก (ไม่อยู่ใน registry)
 

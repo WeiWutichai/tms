@@ -40273,7 +40273,7 @@
     },
     "/v1/settlements/{id}/mark-paid": {
       "post": {
-        "description": "docs/04 F6 \"จ่าย\" + docs/01 §4.5 APPROVED → PAID · **เฉพาะใบ APPROVED** (ร่าง/รอตรวจ/โต้แย้ง/ยกเลิก/จ่ายแล้ว → 409 `invalid_state_transition`) · จ่ายเต็มยอดครั้งเดียว — ยอดที่จ่าย = `buyNetAfterWht` (ยอดสุทธิ − หัก ณ ที่จ่ายประมาณการที่ตรึงตอนอนุมัติ — ไม่เปลี่ยน) · `paidDate` (= วันที่หักภาษี) ตั้งแต่วันอนุมัติถึงวันนี้ (เวลาไทย) — ก่อนวันอนุมัติ → 422 `before_approval` · `reference` บังคับเมื่อ TRANSFER / CHEQUE · ใบที่ไม่ใช่ APPROVED (รวมจ่ายแล้ว/คำขอซ้ำพร้อมกัน) → 409 ก่อนตรวจ If-Match · เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · audit `settlement.paid` + webhook `settlement.paid` (ระบบบัญชีสร้างเจ้าหนี้/AP ร่างจาก event นี้ — 50 ทวิ ออกที่ระบบบัญชี, D-58) · ไฟล์โอนธนาคาร (bulk payment) = P1",
+        "description": "docs/04 F6 \"จ่าย\" + docs/01 §4.5 APPROVED → PAID · **เฉพาะใบ APPROVED** (ร่าง/รอตรวจ/โต้แย้ง/ยกเลิก/จ่ายแล้ว → 409 `invalid_state_transition`) · จ่ายเต็มยอดครั้งเดียว — ยอดที่จ่าย = `buyNetAfterWht` (ยอดสุทธิ − หัก ณ ที่จ่ายประมาณการที่ตรึงตอนอนุมัติ — ไม่เปลี่ยน) · `paidDate` (= วันที่หักภาษี) ตั้งแต่วันอนุมัติถึงวันนี้ (เวลาไทย) — ก่อนวันอนุมัติ → 422 `before_approval` · `reference` บังคับเมื่อ TRANSFER / CHEQUE · ใบที่ไม่ใช่ APPROVED (รวมจ่ายแล้ว/คำขอซ้ำพร้อมกัน) → 409 ก่อนตรวจ If-Match · **ผู้อนุมัติใบนี้บันทึกจ่ายเองไม่ได้ → 403 `settlement_self_payment`** (D-60 — key = ผู้ออก key; owner ปิดกฎได้ด้วยค่าตั้ง `settlement.allowApproverMarkPaid` — audit `sodWaived`) · เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · audit `settlement.paid` + webhook `settlement.paid` (ระบบบัญชีสร้างเจ้าหนี้/AP ร่างจาก event นี้ — 50 ทวิ ออกที่ระบบบัญชี, D-58) · ไฟล์โอนธนาคาร (bulk payment) = P1",
         "operationId": "Settlements_markPaid",
         "parameters": [
           {
@@ -40336,7 +40336,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`settlements:pay`)",
+            "description": "ไม่มีสิทธิ์ `settlements:pay` / ผู้อนุมัติใบนี้บันทึกจ่ายเอง (`settlement_self_payment` — D-60)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -40348,14 +40348,15 @@
                       "type": "https://docs.tms.example/problems/permission_denied",
                       "title": "ไม่มีสิทธิ์ทำรายการนี้",
                       "status": 403,
-                      "code": "permission_denied",
-                      "instance": "/v1/trips/trp_3f2a…",
-                      "requestId": "b6a1c2d3-…",
-                      "module": "settlements",
-                      "action": "pay",
-                      "required": [
-                        "settlements:pay"
-                      ]
+                      "code": "permission_denied"
+                    }
+                  },
+                  "settlement_self_payment": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/settlement_self_payment",
+                      "title": "ผู้อนุมัติใบสำคัญจ่าย บันทึกจ่ายใบนั้นเองไม่ได้ ต้องให้ผู้อื่นบันทึกจ่าย",
+                      "status": 403,
+                      "code": "settlement_self_payment"
                     }
                   }
                 }
@@ -103135,6 +103136,11 @@
       "status": 403,
       "title": "ผู้เตรียมใบสำคัญจ่าย (สร้างใบ เพิ่มหรือนำรายการออก) อนุมัติใบนั้นไม่ได้ ต้องให้ผู้อนุมัติคนอื่น",
       "titleEn": "Whoever prepared a settlement cannot approve it"
+    },
+    "settlement_self_payment": {
+      "status": 403,
+      "title": "ผู้อนุมัติใบสำคัญจ่าย บันทึกจ่ายใบนั้นเองไม่ได้ ต้องให้ผู้อื่นบันทึกจ่าย",
+      "titleEn": "Whoever approved a settlement cannot record its payment"
     },
     "sor_fixed": {
       "status": 422,
