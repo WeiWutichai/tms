@@ -45,7 +45,7 @@ const NONE = '00000000-0000-0000-0000-000000000000';
  * ไม่ใช่คู่บรรทัด/กลับรายการที่ยังไม่จ่ายทั้งคู่ (หักล้างกันแล้ว)
  * `trips` = CTE ที่มีคอลัมน์ `id`, `carrier_id`
  */
-const payableLines = (trips: Prisma.Sql) => Prisma.sql`
+export const payableLines = (trips: Prisma.Sql) => Prisma.sql`
   SELECT tc.id, tc.trip_id, tc.amount
     FROM trip_cost tc
     JOIN ${trips} tt ON tt.id = tc.trip_id AND tc.carrier_id = tt.carrier_id

@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { SYSTEM_ROLES } from '@tms/domain';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { PdfRenderer } from '../src/pdf/pdf-renderer';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { requestContext } from '../src/common/request-context';
 import { DbService, type Tx } from '../src/db/db.service';
@@ -826,4 +827,118 @@ describe('settlement carrier review (ST6-T05)', () => {
     expect(r.body.code).toBe('rate_limited');
     await resetLinkWriteRate();
   });
+
+  it('ST6-T04 ลิงก์รถร่วม: "ใบจ่ายเงิน" (PDF) เฉพาะงวดที่จ่ายแล้ว — รอตรวจ/อนุมัติแล้ว 409 · จ่ายแล้ว 200 PDF · ลิงก์ผิด 404', async () => {
+    await resetLinkWriteRate();
+    const { s, r, token } = await sent(1, '3000');
+    const pdf = (t: string) =>
+      pub()
+        .get(`/v1/public/settlements/${t}/pdf`)
+        .buffer(true)
+        .parse((res, cb) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => cb(null, Buffer.concat(chunks)));
+        });
+    expect((await pdf(token)).status).toBe(409);
+    for (const l of r.body.settlement.lines as Line[])
+      await respond(token, l.id, { response: 'ACCEPTED' }).expect(201);
+    await approve(s.id).expect(200);
+    expect((await pdf(token)).status).toBe(409);
+    await withVersion(s.id, (v) =>
+      api(app, accounting)
+        .post(`/v1/settlements/${s.id}/mark-paid`)
+        .set('If-Match', `"${v}"`)
+        .send({ paidDate: today, method: 'CASH' }),
+    ).expect(200);
+    // review M1: ใบ PAID render ครั้งเดียวแล้วใช้ไฟล์ซ้ำ (คำขอพร้อมกันด้วย) · เพดาน 10 ครั้ง/นาที ต่อลิงก์ → 429
+    await resetLinkWriteRate();
+    const spy = vi.spyOn(app.get(PdfRenderer), 'pdf');
+    const burst = await Promise.all(Array.from({ length: 5 }, () => pdf(token)));
+    expect(burst.map((x) => x.status)).toEqual([200, 200, 200, 200, 200]);
+    for (let k = 0; k < 4; k++) expect((await pdf(token)).status).toBe(200);
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+    const ok = await pdf(token);
+    expect(ok.status).toBe(200);
+    expect((ok.body as Buffer).equals(burst[0]!.body as Buffer)).toBe(true);
+    const limited = await pdf(token);
+    expect(limited.status).toBe(429);
+    expect(JSON.parse((limited.body as Buffer).toString()).code).toBe('rate_limited');
+    await resetLinkWriteRate();
+    expect(ok.headers['content-type']).toContain('application/pdf');
+    expect(ok.headers['cache-control']).toContain('no-store');
+    expect((ok.body as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
+    expect((await pdf(`${token}x`)).status).toBe(404);
+    await resetLinkWriteRate();
+  }, 90_000);
+
+  it('D-59 ออกลิงก์ใหม่ให้ใบ APPROVED/PAID: ลิงก์ดูอย่างเดียว (ตอบ/จองรูป 404) · เพิกถอนลิงก์เดิม · audit · ไม่เพิ่มผู้เตรียม · DRAFT/CANCELLED 409', async () => {
+    await resetLinkWriteRate();
+    const { s, r, token } = await sent(1, '2000');
+    const lines = r.body.settlement.lines as Line[];
+    for (const l of lines) await respond(token, l.id, { response: 'ACCEPTED' }).expect(201);
+    await approve(s.id).expect(200);
+    const sid = uuid('settlement', s.id);
+    const before = await db.carrierSettlement.findUniqueOrThrow({ where: { id: sid } });
+    // สิทธิ์เดิม (settlements:create) — approver ไม่มี → 403 · บริษัทอื่น 404
+    await api(app, approver).post(`/v1/settlements/${s.id}/review-link`).expect(403);
+    await api(app, other).post(`/v1/settlements/${s.id}/review-link`).expect(404);
+    const a1 = await api(app, accounting).post(`/v1/settlements/${s.id}/review-link`).expect(201);
+    const t1 = tokenOf(a1.body.url as string);
+    await view(token).expect(404); // ลิงก์ตรวจเดิมถูกเพิกถอน
+    const v1 = await view(t1).expect(200);
+    expect(v1.body).toMatchObject({ status: 'APPROVED', canRespond: false });
+    expect((v1.body.lines as { canRespond: boolean }[]).every((l) => !l.canRespond)).toBe(true);
+    // ดูอย่างเดียว: ลิงก์ไม่มี action respond → ตอบ/จองรูป = 404 (ไม่ใช่แค่ 409 ตามสถานะ)
+    await respond(t1, lines[0]!.id, {
+      response: 'DISPUTED',
+      reason: 'ลองโต้แย้งหลังอนุมัติ',
+    }).expect(404);
+    await pub()
+      .post(`/v1/public/settlements/${t1}/files`)
+      .send({ lineId: lines[0]!.id, mime: 'image/png', bytes: PNG.length, filename: 'x.png' })
+      .expect(404);
+    const ml = await db.magicLink.findUniqueOrThrow({
+      where: { id: tryDecodeId('magicLink', a1.body.id as string)! },
+    });
+    expect(ml.actions).toEqual(['settlement.view']);
+    const audit = await db.auditLog.findFirstOrThrow({
+      where: { entityId: sid, action: 'settlement.review_link_reissued' },
+      orderBy: { seq: 'desc' },
+    });
+    expect(audit.after).toMatchObject({ status: 'APPROVED', viewOnly: true });
+    // ผู้ออกลิงก์ใหม่หลังอนุมัติไม่ถูกเพิ่มเป็นผู้เตรียม · หัวใบไม่เปลี่ยน (version/ผู้อนุมัติเดิม)
+    const after = await db.carrierSettlement.findUniqueOrThrow({ where: { id: sid } });
+    expect(after.preparers).toEqual(before.preparers);
+    expect(after.version).toBe(before.version);
+    expect(after.approvedBy).toBe('u-appr');
+    // จ่ายแล้ว → ออกใหม่อีกครั้งได้ · ลิงก์ก่อนหน้าใช้ไม่ได้ · เห็นสถานะจ่ายแล้ว + PDF ใบจ่ายเงิน
+    await withVersion(s.id, (v) =>
+      api(app, accounting)
+        .post(`/v1/settlements/${s.id}/mark-paid`)
+        .set('If-Match', `"${v}"`)
+        .send({ paidDate: today, method: 'CASH' }),
+    ).expect(200);
+    const a2 = await api(app, accounting).post(`/v1/settlements/${s.id}/review-link`).expect(201);
+    const t2 = tokenOf(a2.body.url as string);
+    await view(t1).expect(404);
+    expect((await view(t2).expect(200)).body).toMatchObject({ status: 'PAID', canRespond: false });
+    await respond(t2, lines[0]!.id, { response: 'ACCEPTED' }).expect(404);
+    const pdf = await pub().get(`/v1/public/settlements/${t2}/pdf`);
+    expect(pdf.status).toBe(200);
+    // DRAFT / CANCELLED ยังออกไม่ได้ (คงเดิม)
+    const { C, trips } = await setup(1, '1000');
+    const d = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
+      .body;
+    await api(app, accounting).post(`/v1/settlements/${d.id}/review-link`).expect(409);
+    await withVersion(d.id, (v) =>
+      api(app, accounting)
+        .post(`/v1/settlements/${d.id}/cancel`)
+        .set('If-Match', `"${v}"`)
+        .send({ reason: 'ยกเลิกใบทดสอบลิงก์ใหม่' }),
+    ).expect(200);
+    await api(app, accounting).post(`/v1/settlements/${d.id}/review-link`).expect(409);
+    await resetLinkWriteRate();
+  }, 90_000);
 });

@@ -89,7 +89,7 @@ const DELIVERY_ORDER = shape('DeliveryOrderDto');
 /** pod: รูปเดียวกับ `GET /v1/delivery-orders/{id}/pod` */
 const POD = shape('DeliveryOrderPodDto');
 const CONNECTOR = shape('ConnectorDto', { omit: ['systemOfRecord'] }); // ST7-T17: ค่าตั้ง SoR ไม่ใช่เรื่องสุขภาพการเชื่อมต่อ
-/** settlement: `GET /v1/settlements/{id}` − บรรทัด − id ผู้ใช้ − ข้อความอิสระ (`note`, `cancelReason`) (ยอด `buy*` ตัดอัตโนมัติ — ดูยอดผ่าน REST ด้วยสิทธิ์ `prices.buy:read`) */
+/** settlement (approved / paid): `GET /v1/settlements/{id}` − บรรทัด − id ผู้ใช้ − ข้อความอิสระ (`note`, `cancelReason`) (ยอด `buy*` ตัดอัตโนมัติ — ดูยอดผ่าน REST ด้วยสิทธิ์ `prices.buy:read`) */
 const SETTLEMENT = shape('SettlementDto', {
   // whtEstimate (ST6-T08): ขั้นต่ำ/อัตรา/ยอดประมาณการ — ดูผ่าน REST (สิทธิ์ราคา)
   omit: [
@@ -100,6 +100,7 @@ const SETTLEMENT = shape('SettlementDto', {
     'cancelReason',
     'note',
     'sentBy',
+    'paidBy',
     'whtEstimate',
   ],
 });
@@ -237,7 +238,12 @@ const DEFS: Record<WebhookEventType, Omit<EventDefinition, 'type'>> = {
     'SettlementsService.approve',
     SETTLEMENT,
   ),
-  'settlement.paid': pending('settlement', 'จ่ายเงินตามใบสรุปค่าขนส่งรถร่วมแล้ว', 'ST6-T09'),
+  'settlement.paid': active(
+    'settlement',
+    'บันทึกจ่ายใบสำคัญจ่ายรถร่วมแล้ว (APPROVED → PAID — วันที่จ่าย วิธี เลขอ้างอิง ธนาคาร; เที่ยวที่จ่ายครบเป็น SETTLED)',
+    'SettlementsService.markPaid',
+    SETTLEMENT,
+  ),
   'wht_certificate.issued': pending(
     'wht_certificate',
     'ออกหนังสือรับรองการหักภาษี ณ ที่จ่ายแล้ว',
