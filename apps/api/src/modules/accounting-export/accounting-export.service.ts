@@ -42,6 +42,29 @@ const SALES_WHERE = {
   ],
 } satisfies Prisma.InvoiceWhereInput;
 
+/** ประเภทรถร่วมจาก snapshot — ค่าอื่น/ไม่มี = null (ไม่เดาว่าเป็นบุคคลธรรมดา — D-73 review L3) */
+export function carrierEntityType(v: string | null | undefined): 'INDIVIDUAL' | 'JURISTIC' | null {
+  return v === 'INDIVIDUAL' || v === 'JURISTIC' ? v : null;
+}
+
+/**
+ * D-73 ฐานที่หักของใบสำคัญจ่าย 1 ใบ = Σ ฐานของอัตรา > 0 จากผลประมาณการ ST6-T08 (คำนวณจากข้อมูลที่ตรึงไว้ — ไม่ใช่คอลัมน์ที่เก็บ)
+ * ใช้ได้เฉพาะเมื่อ Σ WHT ของผลประมาณการ = `wht_amount` ที่ตรึง (ข้อมูลชุดเดียวกัน) · ไม่ตรง / ไม่มีผลประมาณการ = null (ไม่เดา — review M1)
+ */
+export function settlementWhtBase(
+  est: {
+    byRate: { whtRate: string; buyBaseAmount?: string | null; buyWhtAmount?: string | null }[];
+  } | null,
+  frozenWht: Prisma.Decimal.Value,
+): Prisma.Decimal | null {
+  if (!est) return null;
+  const wht = est.byRate.reduce((a, b) => a.plus(b.buyWhtAmount ?? 0), new Prisma.Decimal(0));
+  if (!wht.eq(frozenWht)) return null;
+  return est.byRate
+    .filter((b) => new Prisma.Decimal(b.whtRate).gt(0))
+    .reduce((a, b) => a.plus(b.buyBaseAmount ?? 0), new Prisma.Decimal(0));
+}
+
 /** สิทธิ์เห็นเลขบัตรประชาชนเต็มของรถร่วมบุคคลธรรมดาในไฟล์ส่งออกให้นักบัญชี (D-73) */
 export const NATIONAL_ID_SCOPE = 'pii.national_id:read';
 
@@ -325,7 +348,11 @@ export class AccountingExportService {
       // DTO ตัวเดียวกับ `GET /v1/settlements/{id}` (ผลประมาณการ WHT + บรรทัด) → canonical ชุดเดียวกับที่ส่ง ERP
       const dto = await this.settlements.get(row.id);
       const doc = canonicalSettlement(dto, row);
-      const full = doc.carrier.entityType === 'INDIVIDUAL' ? nid.get(row.carrierId) : undefined;
+      // เลขเต็มเฉพาะที่ snapshot ระบุ INDIVIDUAL ชัด (canonical ตีประเภทไม่รู้เป็นบุคคล — ไม่ใช้ตัดสิน PII)
+      const full =
+        carrierEntityType(dto.carrier.entityType) === 'INDIVIDUAL'
+          ? nid.get(row.carrierId)
+          : undefined;
       const base = {
         id: encodeId('settlement', row.id),
         doc,
@@ -368,13 +395,9 @@ export class AccountingExportService {
         // ผลประมาณการ ST6-T08 ตัวเดียวกับหน้าใบสำคัญจ่าย/canonical (แบบยื่น + ฐานต่ออัตรา) — ไม่คำนวณใหม่
         const s = await this.settlements.get(r.id);
         const est = s.whtEstimate;
-        const base = est
-          ? est.byRate
-              .filter((b) => new Prisma.Decimal(b.whtRate).gt(0))
-              .reduce((a, b) => a.plus(b.buyBaseAmount ?? 0), new Prisma.Decimal(0))
-          : null;
-        const individual = s.carrier.entityType !== 'JURISTIC';
-        const full = individual ? nid.get(r.carrierId) : undefined;
+        const base = settlementWhtBase(est, r.whtAmount!);
+        const entityType = carrierEntityType(s.carrier.entityType);
+        const full = entityType === 'INDIVIDUAL' ? nid.get(r.carrierId) : undefined;
         // ข้อมูลรถร่วม = snapshot ของใบล่าสุดในงวด (ใบเรียงตามวันที่จ่าย)
         const g = groups.get(r.carrierId) ?? {
           id: `carrier:${r.carrierId}`,
@@ -393,14 +416,16 @@ export class AccountingExportService {
         };
         g.code = s.carrier.code;
         g.name = s.carrier.legalName;
-        g.entityType = individual ? 'INDIVIDUAL' : 'JURISTIC';
-        g.taxId = individual ? (full ?? mask(s.carrier.taxIdLast4)) : s.carrier.taxId;
+        // ประเภทไม่รู้ (snapshot เก่า) = ว่าง — ไม่เดาว่าเป็นบุคคล · เลขยังแสดงแบบปิดไว้ (เลขเต็มเฉพาะ INDIVIDUAL ที่มีสิทธิ์)
+        g.entityType = entityType;
+        g.taxId =
+          entityType === 'JURISTIC' ? s.carrier.taxId : (full ?? mask(s.carrier.taxIdLast4));
         g.piiIncluded = !!full;
         g.branchCode = s.carrier.branchCode;
         if (est?.form && !g.forms.includes(est.form)) g.forms = [...g.forms, est.form].sort();
         g.documents += 1;
         g.whtAmount = new Prisma.Decimal(g.whtAmount).plus(r.whtAmount!).toFixed(2);
-        // ใบใดไม่มีผลประมาณการ (ไม่รู้ประเภทรถร่วม) → ฐานของคู่ค้านี้ไม่ครบ = ว่าง (ไม่เดา)
+        // ใบใดไม่มีผลประมาณการ หรือ WHT ของผลประมาณการไม่ตรงยอดที่ตรึง → ฐานของคู่ค้านี้ไม่ครบ = ว่าง (ไม่เดา)
         g.base = g.base && base ? g.base.plus(base) : null;
         groups.set(r.carrierId, g);
       }

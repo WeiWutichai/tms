@@ -114,6 +114,7 @@ export interface AccountingSettlementRow {
   /**
    * เลขผู้เสียภาษีที่แสดง: นิติบุคคล = เลขเต็ม · บุคคลธรรมดา = เลขบัตรประชาชน**เต็มเฉพาะผู้มีสิทธิ์** `pii.national_id:read`
    * (ไม่ใช่ API key — D-73) ไม่งั้น `•••• 1234` · core เป็นผู้ตัดสิน (adapter ไม่เห็นเลขเต็มถ้าไม่มีสิทธิ์)
+   * เลขเต็มมาจาก**ข้อมูลรถร่วมปัจจุบัน** (ถอดรหัส `carrier.tax_id_enc`) · เลขท้าย 4 หลักมาจาก **snapshot ของใบ** (ณ วันสร้างใบ)
    */
   carrierTaxId: string | null;
   /** แถวนี้มีเลขบัตรประชาชนเต็ม (นับลง audit `export.pii_included`) */
@@ -129,7 +130,8 @@ export type AccountingWhtSide = 'carrier' | 'customer';
 /**
  * แถวของชุด "สรุปหัก ณ ที่จ่าย (ประมาณการ)" (D-73) — 1 แถวต่อ (ฝั่ง, คู่ค้า) · **รวมเฉพาะค่าที่บันทึกไว้** (ไม่คำนวณภาษีใหม่)
  * - ผู้รับเหมา: `whtAmount` = Σ `carrier_settlement.wht_amount` (ตรึงตอนอนุมัติ) ของใบ PAID ที่จ่ายในงวดและ > 0 ·
- *   `baseAmount` = Σ ฐานของอัตรา > 0 จากผลประมาณการ ST6-T08 ชุดเดียวกับ canonical/ERP (`whtEstimate.byRate`) ·
+ *   `baseAmount` = Σ ฐานของอัตรา > 0 จากผลประมาณการ ST6-T08 ชุดเดียวกับ canonical/ERP (`whtEstimate.byRate` — คำนวณจาก
+ *   ข้อมูลที่ตรึงไว้ ไม่ใช่คอลัมน์ที่เก็บ; Σ WHT ของผลประมาณการ ≠ `wht_amount` ที่ตรึง หรือไม่มีผล = null) ·
  *   `forms` = แบบที่ ST6-T08 จัดไว้ (PND3/PND53)
  * - ลูกค้า: `whtAmount` = Σ `payment.wht_amount` ของรับชำระ RECORDED ในงวดและ > 0 · ฐาน/แบบยื่นของฝั่งลูกค้าไม่ได้เก็บในระบบ = null
  *   ([OPEN] spec/12 §3 แถว ST7-T23)
@@ -139,6 +141,7 @@ export interface AccountingWhtRow {
   side: AccountingWhtSide;
   code: string | null;
   name: string;
+  /** null = ไม่รู้ประเภท (snapshot ไม่มี) หรือฝั่งลูกค้า */
   entityType: 'INDIVIDUAL' | 'JURISTIC' | null;
   /** กติกาเดียวกับ `AccountingSettlementRow.carrierTaxId` (ลูกค้า = เลขผู้เสียภาษีของลูกค้า) */
   taxId: string | null;

@@ -10,7 +10,11 @@ import { DbService } from '../src/db/db.service';
 import { FILE_EXPORT_ADAPTER_FACTORIES } from '../src/erp-adapters';
 import { JobQueue } from '../src/jobs/job-queue.service';
 import { accountingPeriodTag } from '../src/modules/accounting-export/accounting-export.specs';
-import { AccountingExportService } from '../src/modules/accounting-export/accounting-export.service';
+import {
+  AccountingExportService,
+  carrierEntityType,
+  settlementWhtBase,
+} from '../src/modules/accounting-export/accounting-export.service';
 import {
   ACCOUNTING_DATASETS,
   ACCOUNTING_WHT_ESTIMATE_NOTE as WHT_ESTIMATE_NOTE,
@@ -576,6 +580,23 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
     }
   });
 
+  it('D-73 review M1/L3: ฐานที่หัก = null เมื่อ WHT ของผลประมาณการไม่ตรงยอดที่ตรึง/ไม่มีผล · ประเภทไม่รู้ = null', () => {
+    const est = {
+      byRate: [
+        { whtRate: '1.00', buyBaseAmount: '9000.00', buyWhtAmount: '90.00' },
+        { whtRate: '3.00', buyBaseAmount: '1000.00', buyWhtAmount: '30.00' },
+        { whtRate: '0.00', buyBaseAmount: '500.00', buyWhtAmount: '0.00' },
+      ],
+    };
+    expect(settlementWhtBase(est, '120.00')!.toFixed(2)).toBe('10000.00');
+    expect(settlementWhtBase(est, '119.99')).toBeNull();
+    expect(settlementWhtBase(null, '120.00')).toBeNull();
+    expect(carrierEntityType('INDIVIDUAL')).toBe('INDIVIDUAL');
+    expect(carrierEntityType('JURISTIC')).toBe('JURISTIC');
+    expect(carrierEntityType(undefined)).toBeNull();
+    expect(carrierEntityType('PARTNERSHIP')).toBeNull();
+  });
+
   it('ป้ายงวดในชื่อไฟล์: เต็มเดือน / เต็มไตรมาส / ช่วงอื่น', () => {
     expect(accountingPeriodTag('2026-10-01', '2026-10-31')).toBe('ต.ค.2569');
     expect(accountingPeriodTag('2026-10-01', '2026-12-31')).toBe('ไตรมาส4-2569');
@@ -973,6 +994,8 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
         for (const b of dto.whtEstimate.byRate as Row[])
           if (D(b.whtRate).gt(0)) base = base.add(b.buyBaseAmount);
       }
+      // ข้อมูลจริง: Σ WHT ของผลประมาณการ = ยอดที่ตรึง → มีฐาน
+      expect(row['ฐานที่หัก — ผู้รับเหมา (ประมาณการ)']).not.toBe('');
       expect(D(row['ฐานที่หัก — ผู้รับเหมา (ประมาณการ)']!).toFixed(2)).toBe(base.toFixed(2));
       expect(row['หัก ณ ที่จ่าย — ลูกค้าหักเรา']).toBe('');
       const individual = mine[0]!.carrier.entityType === 'INDIVIDUAL';
