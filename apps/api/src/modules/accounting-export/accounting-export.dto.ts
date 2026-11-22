@@ -6,7 +6,7 @@ const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * ตัวกรองของ "ส่งออกให้นักบัญชี" (ST7-T23) — ใช้ทั้ง `GET /v1/accounting-exports/summary` และ `filter` ของ
- * `POST /v1/exports` (resource `accounting-sales` / `accounting-receipts` / `accounting-settlements`)
+ * `POST /v1/exports` (resource `accounting-sales` / `accounting-receipts` / `accounting-settlements` / `accounting-wht-summary`)
  */
 export class AccountingExportQuery {
   @ApiProperty({
@@ -37,17 +37,31 @@ export class AccountingExportDatasetDto {
   @ApiProperty({
     enum: ACCOUNTING_DATASETS,
     description:
-      'sales = ใบแจ้งหนี้ที่ออกแล้ว (ตามวันที่ออก) · receipts = รับชำระที่ยังไม่กลับรายการ (ตามวันที่รับ) · ' +
-      'settlements = ใบสำคัญจ่ายรถร่วมที่บันทึกจ่ายแล้ว (ตามวันที่จ่าย)',
+      'sales = ใบแจ้งหนี้ที่ออกแล้ว (ตามวันที่ออก — รวมใบที่ยกเลิกเป็นแถวแยกยอด D-73) · receipts = รับชำระ ' +
+      '(ตามวันที่รับ — รวมที่กลับรายการเป็นแถวแยกยอด D-73) · settlements = ใบสำคัญจ่ายรถร่วมที่บันทึกจ่ายแล้ว (ตามวันที่จ่าย) · ' +
+      'wht = สรุปหัก ณ ที่จ่าย **ประมาณการ** ต่อคู่ค้า (D-73 — ไม่ใช่แบบ ภ.ง.ด. / 50 ทวิ)',
   })
   dataset!: string;
 
   @ApiProperty({ example: 'accounting-sales', description: '`resource` ของ `POST /v1/exports`' })
   resource!: string;
 
-  @ApiProperty({ description: 'จำนวนเอกสารในช่วง' }) documents!: number;
+  @ApiProperty({
+    description:
+      'จำนวนเอกสารที่ยังใช้ในช่วง (นับในยอดรวม) · wht = จำนวนใบสำคัญจ่าย/รับชำระที่มีหัก ณ ที่จ่าย',
+  })
+  documents!: number;
 
-  @ApiProperty({ description: 'จำนวนแถวในไฟล์ (แถวเอกสาร + แถวรายการ ไม่รวมหัวคอลัมน์)' })
+  @ApiProperty({
+    description:
+      'D-73 จำนวนเอกสารที่ยกเลิก (sales) / กลับรายการ (receipts) ในช่วง — อยู่ในไฟล์เป็นแถวเอกสารที่ยอดแยกคอลัมน์ ไม่นับรวม · ชุดอื่น = 0',
+  })
+  cancelledDocuments!: number;
+
+  @ApiProperty({
+    description:
+      'จำนวนแถวในไฟล์ (แถวเอกสาร + แถวรายการ + แถวเอกสารที่ยกเลิก ไม่รวมหัวคอลัมน์) · wht = จำนวนคู่ค้า',
+  })
   rows!: number;
 }
 
@@ -64,7 +78,8 @@ export class AccountingExportSummaryDto {
 
   @ApiProperty({
     type: [AccountingExportDatasetDto],
-    description: 'เฉพาะชุดที่ผู้เรียกมีสิทธิ์อ่าน (`invoices:read` / `settlements:read`)',
+    description:
+      'เฉพาะชุดที่ผู้เรียกมีสิทธิ์อ่าน (`invoices:read` / `settlements:read` · wht = อย่างใดอย่างหนึ่ง — มีเฉพาะฝั่งที่อ่านได้)',
   })
   datasets!: AccountingExportDatasetDto[];
 

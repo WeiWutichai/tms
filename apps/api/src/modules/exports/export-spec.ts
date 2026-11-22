@@ -39,6 +39,12 @@ export interface ExportSpec<Q extends object = any, R extends { id: string } = a
    * `title` = หัวเอกสาร, `subtitle` = บรรทัดรอง (เช่น งวด)
    */
   pdf?: { title: (q: Q) => string; subtitle?: (q: Q) => string };
+  /**
+   * D-73 ไฟล์ที่อาจมีข้อมูลส่วนบุคคลเต็ม (เลขบัตรประชาชน) — `count(rows)` = จำนวนเอกสาร/คู่ค้าที่มีค่าเต็มในชุดนี้
+   * รวมทั้งไฟล์ > 0 → งานส่งออกลง audit `export.pii_included` (entity = job; `after` = resource, ตัวกรอง, `fields`, จำนวน)
+   * ทุกครั้งที่สร้างไฟล์ (ตัดสินที่ core ไม่ใช่ adapter)
+   */
+  pii?: { fields: string[]; count: (rows: R[]) => number };
 }
 
 @Injectable()

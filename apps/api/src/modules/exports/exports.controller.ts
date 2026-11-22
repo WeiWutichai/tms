@@ -46,6 +46,8 @@ export const EXPORT_RESOURCES = [
   'accounting-sales',
   'accounting-receipts',
   'accounting-settlements',
+  // D-73 สรุปหัก ณ ที่จ่าย (ประมาณการ) ต่อคู่ค้า
+  'accounting-wht-summary',
 ] as const;
 
 /** resource ของไฟล์ที่ระบบสร้างเองจากงานอื่น (ไม่รับใน `POST /exports`) — ST5-T12b ไฟล์สรุปรอบวางบิล */

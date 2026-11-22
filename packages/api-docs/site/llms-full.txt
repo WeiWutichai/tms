@@ -18393,7 +18393,7 @@ scope: `export:run` · operationId: `Exports_create`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes`, `unbilled-delivery-orders`, `receivables-aging`, `revenue`, `accounting-sales`, `accounting-receipts`, `accounting-settlements` |   | `orders` |
+| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes`, `unbilled-delivery-orders`, `receivables-aging`, `revenue`, `accounting-sales`, `accounting-receipts`, `accounting-settlements`, `accounting-wht-summary` |   | `orders` |
 | `format` |   | `string` | ค่า: `xlsx`, `csv`, `pdf` | .xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ.csv UTF-8 + BOM · `pdf` (ตาราง A4 ≤ 2,000 แถว) เฉพาะรายงานสรุป — resource `revenue` (อื่น ๆ = 422) |   |
 | `filter` |   | `object` |   | ตัวกรองชุดเดียวกับ query ของ `GET /v1/{resource}` (ค่าเป็น string) — ตรวจกติกาเดียวกัน (field แปลก = 422) · `limit`/`cursor`/`sort`/`fields`/`updatedAfter` ไม่มีผล (ไฟล์มีทุกแถวที่ตรงตัวกรอง) | `{"held":"true","holdReason":"RATE_MISSING"}` |
 
@@ -18470,7 +18470,7 @@ const { data, error } = await tms.GET('/v1/exports/{id}', {
 
 scope: `export:run` · operationId: `AccountingExport_summary`
 
-ชุดข้อมูล: **sales** ใบแจ้งหนี้ที่ออกแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — ชุดเดียวกับรายงานรายได้) ตามวันที่ออก · **receipts** การรับชำระที่ยังไม่กลับรายการ ตามวันที่รับ · **settlements** ใบสำคัญจ่ายรถร่วม PAID ตามวันที่จ่าย — แสดงเฉพาะชุดที่มีสิทธิ์อ่าน · ไฟล์: `POST /v1/exports` `{resource, format: csv|xlsx, filter: {dateFrom, dateTo, template?}}` → แถวเอกสาร 1 แถว + แถวรายการ (ยอดรวมอยู่เฉพาะแถวเอกสาร · CSV = UTF-8 BOM + CRLF เปิดใน Excel อ่านไทยได้)
+ชุดข้อมูล: **sales** ใบแจ้งหนี้ที่ออกแล้ว (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — ชุดเดียวกับรายงานรายได้) ตามวันที่ออก · **receipts** การรับชำระ ตามวันที่รับ · **settlements** ใบสำคัญจ่ายรถร่วม PAID ตามวันที่จ่าย · **wht** สรุปหัก ณ ที่จ่าย **ประมาณการ** ต่อคู่ค้า — ผู้รับเหมา: Σ `wht_amount` ที่ตรึงของใบ PAID + ฐานจากผลประมาณการ + แบบ ภ.ง.ด.3/53 ที่ระบบจัดไว้ · ลูกค้า: Σ `wht_amount` ของรับชำระ (ฐาน/แบบยื่นไม่ได้เก็บ = ว่าง) — รวมค่าที่บันทึกไว้เท่านั้น ไม่ใช่แบบ ภ.ง.ด. / 50 ทวิ · แสดงเฉพาะชุดที่มีสิทธิ์อ่าน · **ใบที่ยกเลิก / รับชำระที่กลับรายการ** อยู่ในไฟล์เป็นแถวเอกสารพร้อมสถานะ วันที่ เหตุผล — ยอดตามที่ออกอยู่ในคอลัมน์ "…ที่ยกเลิก/กลับรายการ (ไม่นับรวม)" แยกจากคอลัมน์ยอดปกติ → ผลรวมคอลัมน์ยอดปกติ = เอกสารที่ยังใช้ (ตรงรายงาน) · **เลขบัตรประชาชนรถร่วมบุคคลธรรมดา**: เต็มเฉพาะผู้ใช้ที่มี `pii.national_id:read` (ค่าเริ่ม owner + accounting) และลง audit `export.pii_included` ทุกไฟล์ · ไม่มีสิทธิ์ / API key (เสมอ) = `•••• 1234` · ไฟล์: `POST /v1/exports` `{resource, format: csv|xlsx, filter: {dateFrom, dateTo, template?}}` → แถวเอกสาร 1 แถว + แถวรายการ (ยอดรวมอยู่เฉพาะแถวเอกสาร · CSV = UTF-8 BOM + CRLF เปิดใน Excel อ่านไทยได้)
 
 **Parameters**
 
@@ -18511,7 +18511,7 @@ const { data, error } = await tms.GET('/v1/accounting-exports/summary');
 |---|---|---|---|---|---|
 | `dateFrom` | ใช่ | `string` |   |   | `2026-10-01` |
 | `dateTo` | ใช่ | `string` |   |   | `2026-10-31` |
-| `datasets` | ใช่ | `array<AccountingExportDatasetDto>` |   | เฉพาะชุดที่ผู้เรียกมีสิทธิ์อ่าน (`invoices:read` / `settlements:read`) |   |
+| `datasets` | ใช่ | `array<AccountingExportDatasetDto>` |   | เฉพาะชุดที่ผู้เรียกมีสิทธิ์อ่าน (`invoices:read` / `settlements:read` · wht = อย่างใดอย่างหนึ่ง — มีเฉพาะฝั่งที่อ่านได้) |   |
 | `templates` | ใช่ | `array<AccountingExportTemplateDto>` |   |   |   |
 
 ### ExportAcceptedDto {#schema-ExportAcceptedDto}
@@ -18532,7 +18532,7 @@ const { data, error } = await tms.GET('/v1/accounting-exports/summary');
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `job_…` |
-| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes`, `unbilled-delivery-orders`, `receivables-aging`, `revenue`, `accounting-sales`, `accounting-receipts`, `accounting-settlements`, `invoice-run-summary` | `invoice-run-summary` = ไฟล์สรุปรอบวางบิล (สร้างเองเมื่อ `POST /v1/invoice-runs` จบ — `id` = jobId ของรอบ; สั่งผ่าน `POST /exports` ไม่ได้) |   |
+| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes`, `unbilled-delivery-orders`, `receivables-aging`, `revenue`, `accounting-sales`, `accounting-receipts`, `accounting-settlements`, `accounting-wht-summary`, `invoice-run-summary` | `invoice-run-summary` = ไฟล์สรุปรอบวางบิล (สร้างเองเมื่อ `POST /v1/invoice-runs` จบ — `id` = jobId ของรอบ; สั่งผ่าน `POST /exports` ไม่ได้) |   |
 | `format` | ใช่ | `string` | ค่า: `xlsx`, `csv`, `pdf` |   |   |
 | `filter` | ใช่ | `object` |   |   |   |
 | `status` | ใช่ | `string` | ค่า: `pending`, `running`, `succeeded`, `failed`, `expired` | expired = ไฟล์เกิน 7 วันแล้ว (ส่งออกใหม่) |   |

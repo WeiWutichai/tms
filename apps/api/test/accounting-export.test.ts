@@ -10,9 +10,14 @@ import { DbService } from '../src/db/db.service';
 import { FILE_EXPORT_ADAPTER_FACTORIES } from '../src/erp-adapters';
 import { JobQueue } from '../src/jobs/job-queue.service';
 import { accountingPeriodTag } from '../src/modules/accounting-export/accounting-export.specs';
-import { AccountingExportService } from '../src/modules/accounting-export/accounting-export.service';
+import {
+  AccountingExportService,
+  carrierEntityType,
+  settlementWhtBase,
+} from '../src/modules/accounting-export/accounting-export.service';
 import {
   ACCOUNTING_DATASETS,
+  ACCOUNTING_WHT_ESTIMATE_NOTE as WHT_ESTIMATE_NOTE,
   fileExportAdapterProblems,
   FileExportAdapterRegistry,
 } from '../src/modules/accounting-export/file-export-adapter';
@@ -91,6 +96,10 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
   let noPrice: string;
   let planner: string;
   let other: string;
+  let adminRole: string;
+  let accountingNoPii: string;
+  let individualId = '';
+  const nid = validTaxId(5199);
   let seq = 0;
   const today = bangkokToday();
   const [yy, mm] = today.split('-').map(Number) as [number, number];
@@ -182,7 +191,8 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
           legalName: car.legalName,
           entityType: car.entityType,
           taxId: car.taxId,
-          taxIdLast4: null,
+          // เหมือน snapshot จริง (settlements.service): บุคคลธรรมดาเก็บเลขท้าย 4 หลัก
+          taxIdLast4: car.entityType === 'JURISTIC' ? null : car.taxIdLast4,
           branchCode: car.branchCode,
           address: null,
         },
@@ -275,6 +285,12 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
     noPrice = await tokenFor(tenantId, 'invoices:read settlements:read export:run', 'u-np');
     planner = await tokenFor(tenantId, SYSTEM_ROLES.planner.permissions.join(' '), 'u-plan');
     other = await tokenFor(otherTenantId);
+    adminRole = await tokenFor(tenantId, SYSTEM_ROLES.admin.permissions.join(' '), 'u-adm');
+    accountingNoPii = await tokenFor(
+      tenantId,
+      SYSTEM_ROLES.accounting.permissions.filter((p) => p !== 'pii.national_id:read').join(' '),
+      'u-acc2',
+    );
 
     // ใบแจ้งหนี้ที่ออกในเดือนนี้ 3 ใบ (ยกเว้น VAT / VAT 7% / ผสม + ข้อความที่ต้อง escape และขึ้นต้นด้วย =)
     issued.push(await issueInvoice([line(1, svcExempt, '12500.00', 'EXEMPT_TRANSPORT')]));
@@ -425,6 +441,7 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
           doc,
           line: null,
           status: 'ISSUED',
+          cancelled: null,
           issuerName: 'I',
           replacesNumber: null,
         },
@@ -434,22 +451,97 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
           doc,
           line: iline,
           status: 'ISSUED',
+          cancelled: null,
+          issuerName: 'I',
+          replacesNumber: null,
+        },
+        // D-73 ใบที่ยกเลิก — ยอดตามที่ออกอยู่ในคอลัมน์ยกเลิก (ติดป้าย price ด้วย)
+        {
+          id: 'i2',
+          level: 'document',
+          doc,
+          line: null,
+          status: 'CANCELLED',
+          cancelled: { date: '2026-10-02', reason: 'r' },
           issuerName: 'I',
           replacesNumber: null,
         },
       ],
       receipts: [
-        { id: 'p', level: 'document', payment, allocation: null },
+        {
+          id: 'p',
+          level: 'document',
+          payment,
+          allocation: null,
+          status: 'RECORDED',
+          reversed: null,
+        },
         {
           id: 'p',
           level: 'line',
           payment,
           allocation: { lineNo: 1, invoiceNumber: 'INV-1', amount: M(23), whtAmount: M(24) },
+          status: 'RECORDED',
+          reversed: null,
+        },
+        {
+          id: 'p2',
+          level: 'document',
+          payment,
+          allocation: null,
+          status: 'REVERSED',
+          reversed: { date: '2026-10-02', reason: 'r' },
         },
       ],
       settlements: [
-        { id: 's', level: 'document', doc: stl, line: null, payerName: 'P' },
-        { id: 's', level: 'line', doc: stl, line: sline, payerName: 'P' },
+        {
+          id: 's',
+          level: 'document',
+          doc: stl,
+          line: null,
+          payerName: 'P',
+          carrierTaxId: null,
+          piiIncluded: false,
+        },
+        {
+          id: 's',
+          level: 'line',
+          doc: stl,
+          line: sline,
+          payerName: 'P',
+          carrierTaxId: null,
+          piiIncluded: false,
+        },
+      ],
+      wht: [
+        {
+          id: 'carrier:c',
+          side: 'carrier',
+          code: 'R',
+          name: 'L',
+          entityType: 'INDIVIDUAL',
+          taxId: '•••• 1234',
+          branchCode: null,
+          forms: ['PND3'],
+          documents: 2,
+          baseAmount: M(25),
+          whtAmount: M(26),
+          piiIncluded: false,
+        },
+        {
+          id: 'customer:x',
+          side: 'customer',
+          code: 'C',
+          name: 'L',
+          entityType: null,
+          taxId: null,
+          branchCode: null,
+          forms: [],
+          documents: 1,
+          baseAmount: null,
+          whtAmount: M(27),
+          piiIncluded: false,
+        },
       ],
     };
     const cells = (cols: { value: (r: any) => unknown }[], rows: any[]) =>
@@ -488,6 +580,23 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
     }
   });
 
+  it('D-73 review M1/L3: ฐานที่หัก = null เมื่อ WHT ของผลประมาณการไม่ตรงยอดที่ตรึง/ไม่มีผล · ประเภทไม่รู้ = null', () => {
+    const est = {
+      byRate: [
+        { whtRate: '1.00', buyBaseAmount: '9000.00', buyWhtAmount: '90.00' },
+        { whtRate: '3.00', buyBaseAmount: '1000.00', buyWhtAmount: '30.00' },
+        { whtRate: '0.00', buyBaseAmount: '500.00', buyWhtAmount: '0.00' },
+      ],
+    };
+    expect(settlementWhtBase(est, '120.00')!.toFixed(2)).toBe('10000.00');
+    expect(settlementWhtBase(est, '119.99')).toBeNull();
+    expect(settlementWhtBase(null, '120.00')).toBeNull();
+    expect(carrierEntityType('INDIVIDUAL')).toBe('INDIVIDUAL');
+    expect(carrierEntityType('JURISTIC')).toBe('JURISTIC');
+    expect(carrierEntityType(undefined)).toBeNull();
+    expect(carrierEntityType('PARTNERSHIP')).toBeNull();
+  });
+
   it('ป้ายงวดในชื่อไฟล์: เต็มเดือน / เต็มไตรมาส / ช่วงอื่น', () => {
     expect(accountingPeriodTag('2026-10-01', '2026-10-31')).toBe('ต.ค.2569');
     expect(accountingPeriodTag('2026-10-01', '2026-12-31')).toBe('ไตรมาส4-2569');
@@ -512,7 +621,9 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
 
     // รายงาน: "ออกใบแจ้งหนี้เดือนนี้" ของ GET /v1/invoices/summary (Dashboard บิล ST9-T02 — ชุดสถานะเดียวกับรายงานรายได้)
     const s = (await api(app, accounting).get('/v1/invoices/summary').expect(200)).body as Row;
-    const docs = rows.filter((r) => r['ระดับ'] === 'เอกสาร');
+    // D-73: ใบที่ยกเลิกอยู่ในไฟล์เป็นแถวเอกสารแยก (ยอดในคอลัมน์ยกเลิก) — "เอกสารที่ยังใช้" = สถานะไม่ใช่ยกเลิก
+    const cancelledRows = rows.filter((r) => r['สถานะ'] === 'ยกเลิกแล้ว');
+    const docs = rows.filter((r) => r['ระดับ'] === 'เอกสาร' && r['สถานะ'] !== 'ยกเลิกแล้ว');
     const lines = rows.filter((r) => r['ระดับ'] === 'รายการ');
     expect(docs.length).toBe(s.issuedThisMonth.count);
     expect(docs.length).toBe(3);
@@ -554,10 +665,30 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
     // แถวรายการไม่มียอดหัว (ผลรวมคอลัมน์ไม่ซ้ำ) · แถวเอกสารไม่มียอดรายการ
     expect(lines.every((r) => r['รวมทั้งสิ้น'] === '')).toBe(true);
     expect(docs.every((r) => r['มูลค่ารายการ (ก่อน VAT)'] === '')).toBe(true);
-    // ใบที่ยกเลิก/ร่างไม่อยู่ในไฟล์
+    // ร่างไม่อยู่ในไฟล์ · ใบที่ยกเลิก (D-73) = แถวเอกสาร 1 แถว สถานะ/วันที่/เหตุผล ยอดอยู่ในคอลัมน์ยกเลิกเท่านั้น
     const nos = new Set(rows.map((r) => r['เลขที่ใบแจ้งหนี้']));
-    expect([...nos].sort()).toEqual(issued.map((i) => i.invoiceNo).sort());
-    expect(nos.has(voidedNo)).toBe(false);
+    expect([...nos].sort()).toEqual([...issued.map((i) => i.invoiceNo), voidedNo].sort());
+    expect(cancelledRows).toHaveLength(1);
+    const vrow = cancelledRows[0]!;
+    expect(vrow).toMatchObject({
+      ระดับ: 'เอกสาร',
+      เลขที่ใบแจ้งหนี้: voidedNo,
+      วันที่ยกเลิก: today,
+      เหตุผลยกเลิก: 'ทดสอบยกเลิกใบแจ้งหนี้ก่อนส่งลูกค้า',
+      รวมทั้งสิ้น: '',
+      VAT: '',
+      'หัก ณ ที่จ่ายที่คาดว่าจะถูกหัก': '',
+      'รวมทั้งสิ้นของใบที่ยกเลิก (ไม่นับรวม)': '777',
+    });
+    const cagg = await plat.invoice.aggregate({
+      where: { tenantId, status: { in: ['CANCELLED', 'VOIDED'] }, invoiceNo: { not: null } },
+      _sum: { totalAmount: true, vatAmount: true },
+    });
+    expect(sumCol(rows, 'รวมทั้งสิ้นของใบที่ยกเลิก (ไม่นับรวม)')).toBe(
+      D(cagg._sum.totalAmount!).toFixed(2),
+    );
+    expect(sumCol(rows, 'VAT ของใบที่ยกเลิก (ไม่นับรวม)')).toBe(D(cagg._sum.vatAmount!).toFixed(2));
+    expect(docs.every((r) => r['รวมทั้งสิ้นของใบที่ยกเลิก (ไม่นับรวม)'] === '')).toBe(true);
     // ไทย + escape + กันสูตร (ค่า = นำหน้าด้วย ')
     expect(docs[0]!['ลูกค้า']).toBe('บริษัท ลูกค้า, "ทดสอบ" จำกัด');
     expect(lines.some((r) => r['รายการ'] === `'=SUM(A1) ค่าขนส่ง, "ชลบุรี"`)).toBe(true);
@@ -565,8 +696,9 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
     expect(docs[0]!['สาขาลูกค้า']).toBe('00001');
     expect(docs[0]!['นิติบุคคลผู้ออก']).toBe('บริษัท ผู้ออกบิล จำกัด');
     // เรียงตามวันที่ออก + เลขที่ (แถวเอกสารนำหน้ารายการของใบเดียวกัน)
-    expect(docs.map((r) => r['เลขที่ใบแจ้งหนี้'])).toEqual(
-      [...docs.map((r) => r['เลขที่ใบแจ้งหนี้'])].sort(),
+    const allDocs = rows.filter((r) => r['ระดับ'] === 'เอกสาร');
+    expect(allDocs.map((r) => r['เลขที่ใบแจ้งหนี้'])).toEqual(
+      [...allDocs.map((r) => r['เลขที่ใบแจ้งหนี้'])].sort(),
     );
     expect(rows[0]!['ระดับ']).toBe('เอกสาร');
 
@@ -608,7 +740,7 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
       ),
     );
     expect(seen).toEqual([...seen].sort());
-    expect([...seen].sort()).toEqual(issued.map((i) => i.invoiceNo).sort());
+    expect([...seen].sort()).toEqual([...issued.map((i) => i.invoiceNo), voidedNo].sort());
   });
 
   it('รับชำระ + จ่ายรถร่วม: ยอดในไฟล์ = เอกสาร · กลับรายการไม่นับ', async () => {
@@ -636,8 +768,22 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
     expect(rr.status, JSON.stringify(rr.body)).toBe(200);
 
     const r = csvRows((await runExport('accounting-receipts', month)).file);
-    const docs = r.filter((x) => x['ระดับ'] === 'เอกสาร');
+    const docs = r.filter((x) => x['ระดับ'] === 'เอกสาร' && x['สถานะ'] === 'บันทึกแล้ว');
     expect(docs).toHaveLength(2);
+    // D-73: กลับรายการ = แถวเอกสาร 1 แถว (ไม่มีแถวตัดหนี้) ยอดอยู่ในคอลัมน์กลับรายการ — ผลรวมคอลัมน์ปกติไม่เปลี่ยน
+    const revRows = r.filter((x) => x['เลขที่รับชำระ'] === rev.paymentNo);
+    expect(revRows).toHaveLength(1);
+    expect(revRows[0]).toMatchObject({
+      ระดับ: 'เอกสาร',
+      สถานะ: 'กลับรายการแล้ว',
+      วันที่กลับรายการ: today,
+      เหตุผลกลับรายการ: 'บันทึกซ้ำโดยไม่ได้ตั้งใจ ทดสอบ',
+      เงินรับ: '',
+      ยอดตัดหนี้รวม: '',
+      'เงินรับที่กลับรายการ (ไม่นับรวม)': '100',
+      'หัก ณ ที่จ่ายที่กลับรายการ (ไม่นับรวม)': '0',
+    });
+    expect(sumCol(r, 'เงินรับที่กลับรายการ (ไม่นับรวม)')).toBe('100.00');
     expect(sumCol(r, 'เงินรับ')).toBe('12875.00');
     expect(sumCol(r, 'หัก ณ ที่จ่ายที่ถูกหัก')).toBe('125.00');
     expect(sumCol(r, 'ยอดตัดหนี้รวม')).toBe('13000.00');
@@ -648,6 +794,7 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
     ]);
     expect(docs[0]!['วิธีรับ']).toBe('โอนเงิน');
     expect(docs.some((x) => x['เลขที่รับชำระ'] === rev.paymentNo)).toBe(false);
+    expect(docs.every((x) => x['วันที่กลับรายการ'] === '')).toBe(true);
 
     const car = await api(app, admin)
       .post('/v1/carriers')
@@ -683,9 +830,14 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
         .expect(200)
     ).body as Row;
     const by = Object.fromEntries((sum.datasets as Row[]).map((d) => [d.dataset, d]));
-    expect(by.sales).toMatchObject({ resource: 'accounting-sales', documents: 3, rows: 7 });
-    expect(by.receipts).toMatchObject({ documents: 2, rows: r.length });
-    expect(by.settlements).toMatchObject({ documents: 2, rows: st.length });
+    expect(by.sales).toMatchObject({
+      resource: 'accounting-sales',
+      documents: 3,
+      cancelledDocuments: 1,
+      rows: 8,
+    });
+    expect(by.receipts).toMatchObject({ documents: 2, cancelledDocuments: 1, rows: r.length });
+    expect(by.settlements).toMatchObject({ documents: 2, cancelledDocuments: 0, rows: st.length });
     expect(sum.templates).toEqual([
       {
         key: 'generic',
@@ -703,7 +855,8 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
     expect(np[0]).not.toContain('รวมทั้งสิ้น');
     expect(np[0]).not.toContain('ราคาต่อหน่วย');
     expect(np[0]).toContain('อัตราหัก ณ ที่จ่าย (%)');
-    expect(np.length - 1).toBe(7);
+    expect(np.length - 1).toBe(8);
+    expect(np[0]).not.toContain('รวมทั้งสิ้นของใบที่ยกเลิก (ไม่นับรวม)');
     const ns = parseCsv(
       (await runExport('accounting-settlements', month, noPrice)).file.subarray(3).toString('utf8'),
     );
@@ -731,8 +884,7 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
     expect((os.datasets as Row[]).every((d) => d.documents === 0)).toBe(true);
   });
 
-  it('PDPA: รถร่วมบุคคลธรรมดา — ไม่มีเลขบัตรประชาชนในไฟล์ (canonical) · ประเภท/แบบ ภ.ง.ด.3 ยังอยู่', async () => {
-    const nid = validTaxId(5199);
+  it('D-73 เลขบัตรประชาชนรถร่วมบุคคล: เต็มเฉพาะผู้มี pii.national_id:read + audit export.pii_included · ไม่มีสิทธิ์/admin = •••• 4 หลัก · API key ไม่ได้เสมอ', async () => {
     const car = await api(app, admin).post('/v1/carriers').send({
       legalName: 'นาย รถร่วม บุคคล',
       entityType: 'INDIVIDUAL',
@@ -740,15 +892,177 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
       phone: '081-234-5671',
     });
     expect(car.status, JSON.stringify(car.body)).toBe(201);
-    await paidSettlement(uuid('carrier', car.body.id), '3000.00');
-    const { file } = await runExport('accounting-settlements', month);
-    expect(file.toString('utf8')).not.toContain(nid);
-    const doc = csvRows(file).find(
-      (x) => x['ระดับ'] === 'เอกสาร' && x['ผู้รับเหมา'] === 'นาย รถร่วม บุคคล',
-    )!;
-    expect(doc['ประเภทผู้รับเหมา']).toBe('บุคคลธรรมดา');
-    expect(doc['เลขผู้เสียภาษีผู้รับเหมา']).toBe('');
-    expect(doc['แบบยื่นหัก ณ ที่จ่าย (ประมาณการ)']).toBe('ภ.ง.ด.3');
+    individualId = uuid('carrier', car.body.id);
+    await paidSettlement(individualId, '30000.00');
+    const docOf = (file: Buffer) =>
+      csvRows(file).find((x) => x['ระดับ'] === 'เอกสาร' && x['ผู้รับเหมา'] === 'นาย รถร่วม บุคคล')!;
+    const piiAudits = () =>
+      plat.auditLog.findMany({
+        where: { tenantId, action: 'export.pii_included' },
+        orderBy: { seq: 'asc' },
+      });
+
+    // ไม่มีสิทธิ์ (บัญชีที่ถูกถอด pii) → เลขท้าย 4 หลัก · ไม่มี audit
+    const masked = await runExport('accounting-settlements', month, accountingNoPii);
+    expect(masked.file.toString('utf8')).not.toContain(nid);
+    const md = docOf(masked.file);
+    expect(md['ประเภทผู้รับเหมา']).toBe('บุคคลธรรมดา');
+    expect(md['เลขผู้เสียภาษีผู้รับเหมา']).toBe(`•••• ${nid.slice(-4)}`);
+    expect(md['แบบยื่นหัก ณ ที่จ่าย (ประมาณการ)']).toBe('ภ.ง.ด.3');
+    // admin (role ระบบ) ไม่ได้สิทธิ์นี้โดยค่าเริ่มต้น
+    const adm = await runExport('accounting-settlements', month, adminRole);
+    expect(adm.file.toString('utf8')).not.toContain(nid);
+    expect(await piiAudits()).toHaveLength(0);
+
+    // บัญชี (role ระบบ — มี pii.national_id:read) → เลขเต็ม + audit 1 แถวต่อไฟล์
+    const full = await runExport('accounting-settlements', month);
+    expect(docOf(full.file)['เลขผู้เสียภาษีผู้รับเหมา']).toBe(nid);
+    // แถวนิติบุคคลยังเป็นเลขผู้เสียภาษีเต็มตามเดิม
+    expect(
+      csvRows(full.file).some((x) => x['เลขผู้เสียภาษีผู้รับเหมา'] === juristicTaxId(5103)),
+    ).toBe(true);
+    const a1 = await piiAudits();
+    expect(a1).toHaveLength(1);
+    expect(a1[0]).toMatchObject({ actorId: 'u-acc', entityType: 'job' });
+    expect(a1[0]!.entityId).toBe(uuid('job', full.job.id));
+    expect(a1[0]!.after).toMatchObject({
+      resource: 'accounting-settlements',
+      fields: ['carrier.nationalId'],
+      count: 1,
+    });
+    expect(JSON.stringify(a1[0]!.after)).not.toContain(nid);
+
+    // API key: ขอ scope นี้ไม่ได้ (422) และส่งออกด้วย key = เลขท้าย 4 หลักเสมอ ไม่มี audit pii
+    const bad = await api(app, admin)
+      .post('/v1/api-keys')
+      .send({ name: 'k-pii', scopes: ['pii.national_id:read'] });
+    expect(bad.status, JSON.stringify(bad.body)).toBe(422);
+    const k = await api(app, admin)
+      .post('/v1/api-keys')
+      .send({
+        name: 'k-acct',
+        scopes: ['settlements:read', 'invoices:read', 'export:run', 'prices.buy:read'],
+      });
+    expect(k.status, JSON.stringify(k.body)).toBe(201);
+    const byKey = await runExport('accounting-settlements', month, k.body.secret as string);
+    expect(byKey.file.toString('utf8')).not.toContain(nid);
+    expect(docOf(byKey.file)['เลขผู้เสียภาษีผู้รับเหมา']).toBe(`•••• ${nid.slice(-4)}`);
+    const kw = await runExport('accounting-wht-summary', month, k.body.secret as string);
+    expect(kw.file.toString('utf8')).not.toContain(nid);
+    expect(await piiAudits()).toHaveLength(1);
+    // แม้ principal เป็น key ที่ (ผิดปกติ) ถือ scope นี้ — core ไม่ให้เลขเต็ม (เฉพาะคนที่ login)
+    const { nationalIdAllowed } =
+      await import('../src/modules/accounting-export/accounting-export.service');
+    expect(nationalIdAllowed(['pii.national_id:read'], 'client')).toBe(false);
+    expect(nationalIdAllowed(['*'], 'client')).toBe(false);
+    expect(nationalIdAllowed(['pii.national_id:read'], 'imp')).toBe(false);
+    expect(nationalIdAllowed(['pii.national_id:read'], 'user')).toBe(true);
+    expect(nationalIdAllowed(['invoices:read'], 'user')).toBe(false);
+  });
+
+  it('D-73 สรุปหัก ณ ที่จ่าย (ประมาณการ): ยอด = Σ ค่าที่บันทึกไว้ · แบบ ภ.ง.ด. จาก ST6-T08 · ป้าย "ประมาณการ" · ตามสิทธิ์ · tenant อื่นไม่เห็น', async () => {
+    const { job, file } = await runExport('accounting-wht-summary', month);
+    expect(job.fileName).toBe(
+      `หัก ณ ที่จ่าย-ประมาณการ_${accountingPeriodTag(monthFrom, monthTo)}.csv`,
+    );
+    const rows = csvRows(file);
+    expect(job.rows).toBe(rows.length);
+    expect(rows.every((r) => r['ประเภทข้อมูล'] === WHT_ESTIMATE_NOTE)).toBe(true);
+    expect(WHT_ESTIMATE_NOTE).toContain('ประมาณการ');
+
+    // ฝั่งผู้รับเหมา: Σ wht_amount ที่ตรึงของใบ PAID (> 0) ต่อรถร่วม · ฐาน = Σ ฐานอัตรา > 0 ของผลประมาณการ ST6-T08
+    const stls = await plat.carrierSettlement.findMany({
+      where: { tenantId, status: 'PAID', whtAmount: { gt: 0 } },
+      include: { carrier: true },
+    });
+    expect(stls.length).toBeGreaterThanOrEqual(3);
+    const carrierRows = rows.filter((r) => r['ฝั่ง'] === 'เราหัก ณ ที่จ่ายผู้รับเหมา');
+    const carriers = [...new Set(stls.map((x) => x.carrierId))];
+    expect(carrierRows).toHaveLength(carriers.length);
+    for (const cid of carriers) {
+      const mine = stls.filter((x) => x.carrierId === cid);
+      const row = carrierRows.find((r) => r['รหัสคู่ค้า'] === mine[0]!.carrier.code)!;
+      expect(row, mine[0]!.carrier.code).toBeDefined();
+      const wht = mine.reduce((a, x) => a.add(x.whtAmount!), D(0));
+      expect(D(row['หัก ณ ที่จ่าย — ผู้รับเหมา (ประมาณการ)']!).toFixed(2)).toBe(wht.toFixed(2));
+      expect(row['จำนวนเอกสาร']).toBe(String(mine.length));
+      let base = D(0);
+      for (const x of mine) {
+        const dto = (
+          await api(app, accounting).get(`/v1/settlements/${encodeId('settlement', x.id)}`)
+        ).body as Row;
+        for (const b of dto.whtEstimate.byRate as Row[])
+          if (D(b.whtRate).gt(0)) base = base.add(b.buyBaseAmount);
+      }
+      // ข้อมูลจริง: Σ WHT ของผลประมาณการ = ยอดที่ตรึง → มีฐาน
+      expect(row['ฐานที่หัก — ผู้รับเหมา (ประมาณการ)']).not.toBe('');
+      expect(D(row['ฐานที่หัก — ผู้รับเหมา (ประมาณการ)']!).toFixed(2)).toBe(base.toFixed(2));
+      expect(row['หัก ณ ที่จ่าย — ลูกค้าหักเรา']).toBe('');
+      const individual = mine[0]!.carrier.entityType === 'INDIVIDUAL';
+      expect(row['แบบยื่น (ประมาณการ)']).toBe(individual ? 'ภ.ง.ด.3' : 'ภ.ง.ด.53');
+      expect(row['เลขผู้เสียภาษี / เลขบัตรประชาชน']).toBe(
+        individual ? nid : mine[0]!.carrier.taxId,
+      );
+    }
+    expect(sumCol(rows, 'หัก ณ ที่จ่าย — ผู้รับเหมา (ประมาณการ)')).toBe(
+      stls.reduce((a, x) => a.add(x.whtAmount!), D(0)).toFixed(2),
+    );
+
+    // ฝั่งลูกค้า: Σ payment.wht_amount ของรับชำระ RECORDED (> 0) — กลับรายการไม่นับ · ฐาน/แบบยื่นไม่ได้เก็บ = ว่าง
+    const pays = await plat.payment.findMany({
+      where: { tenantId, status: 'RECORDED', whtAmount: { gt: 0 } },
+    });
+    const customerRows = rows.filter((r) => r['ฝั่ง'] === 'ลูกค้าหัก ณ ที่จ่ายเรา');
+    expect(customerRows).toHaveLength(1);
+    expect(customerRows[0]).toMatchObject({
+      รหัสคู่ค้า: 'C-AX1',
+      จำนวนเอกสาร: String(pays.length),
+      'แบบยื่น (ประมาณการ)': '',
+      'ฐานที่หัก — ผู้รับเหมา (ประมาณการ)': '',
+      'หัก ณ ที่จ่าย — ผู้รับเหมา (ประมาณการ)': '',
+    });
+    expect(sumCol(rows, 'หัก ณ ที่จ่าย — ลูกค้าหักเรา')).toBe(
+      pays.reduce((a, x) => a.add(x.whtAmount), D(0)).toFixed(2),
+    );
+    expect(sumCol(rows, 'หัก ณ ที่จ่าย — ลูกค้าหักเรา')).toBe('125.00');
+    // ไฟล์มีเลขบัตรเต็ม (บัญชี) → audit
+    const audits = await plat.auditLog.findMany({
+      where: { tenantId, action: 'export.pii_included', entityId: uuid('job', job.id) },
+    });
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.after).toMatchObject({ resource: 'accounting-wht-summary', count: 1 });
+
+    // summary ตรงกับไฟล์
+    const sum = (
+      await api(app, accounting)
+        .get(`/v1/accounting-exports/summary?dateFrom=${monthFrom}&dateTo=${monthTo}`)
+        .expect(200)
+    ).body as Row;
+    const w = (sum.datasets as Row[]).find((d) => d.dataset === 'wht')!;
+    expect(w).toMatchObject({
+      resource: 'accounting-wht-summary',
+      documents: stls.length + pays.length,
+      rows: rows.length,
+    });
+
+    // สิทธิ์: อ่านได้เฉพาะใบสำคัญจ่าย = เฉพาะฝั่งผู้รับเหมา · ไม่มีสิทธิ์ราคา = ไม่มีคอลัมน์เงิน
+    const so = await tokenFor(tenantId, 'settlements:read export:run prices.buy:read', 'u-so');
+    const sr = csvRows((await runExport('accounting-wht-summary', month, so)).file);
+    expect(sr.every((r) => r['ฝั่ง'] === 'เราหัก ณ ที่จ่ายผู้รับเหมา')).toBe(true);
+    expect(Object.keys(sr[0]!)).not.toContain('หัก ณ ที่จ่าย — ลูกค้าหักเรา');
+    const np = parseCsv(
+      (await runExport('accounting-wht-summary', month, noPrice)).file.subarray(3).toString('utf8'),
+    );
+    expect(np[0]!.some((h) => h.startsWith('หัก ณ ที่จ่าย —') || h.startsWith('ฐานที่หัก'))).toBe(
+      false,
+    );
+    await api(app, planner)
+      .post('/v1/exports')
+      .send({ resource: 'accounting-wht-summary', format: 'csv', filter: month })
+      .expect(403);
+    // tenant อื่น: ไม่มีแถว
+    const o = await runExport('accounting-wht-summary', month, other);
+    expect(o.job.rows).toBe(0);
   });
 
   it('ตัวกรองผิด = 422 ตอนสั่ง (วันที่ / ช่วงกลับด้าน / เกิน 366 วัน / รูปแบบไม่รู้จัก / field แปลก) · audit export.requested', async () => {

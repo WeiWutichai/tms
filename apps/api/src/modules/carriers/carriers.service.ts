@@ -316,6 +316,30 @@ export class CarriersService {
     return value;
   }
 
+  /**
+   * D-73 เลขบัตรประชาชนเต็มของรถร่วม**บุคคลธรรมดา** (ถอดรหัส) สำหรับไฟล์ส่งออกให้นักบัญชี — ผู้เรียกตรวจสิทธิ์
+   * `pii.national_id:read` + ไม่ใช่ API key แล้ว และลง audit `export.pii_included` ต่อไฟล์ (ไม่ลงต่อรถร่วม)
+   * นิติบุคคล / ไม่มีค่า / ถอดรหัสไม่ได้ = ไม่อยู่ใน map (ผู้เรียกแสดงเลขท้าย 4 หลักแทน)
+   * อ่านจาก**ข้อมูลรถร่วมปัจจุบัน** (ไม่ใช่ snapshot ของใบ — snapshot เก็บแค่เลขท้าย 4 หลัก)
+   */
+  async nationalIds(ids: readonly string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    if (!ids.length) return out;
+    const rows = await this.db.tx.carrier.findMany({
+      where: { id: { in: [...new Set(ids)] }, entityType: 'INDIVIDUAL' },
+      select: { id: true, taxIdEnc: true },
+    });
+    for (const r of rows) {
+      if (!r.taxIdEnc) continue;
+      try {
+        out.set(r.id, this.cipher.decrypt(r.taxIdEnc));
+      } catch {
+        // กุญแจเดิมถูกถอดแล้ว — ไม่ทำให้ทั้งไฟล์ล้ม: แสดงเลขท้าย 4 หลักแทน
+      }
+    }
+    return out;
+  }
+
   // ---------- write ----------
 
   /**

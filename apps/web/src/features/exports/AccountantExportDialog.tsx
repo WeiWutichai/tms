@@ -39,8 +39,8 @@ function Block({ label, children }: { label: string; children: ReactNode }) {
 
 /**
  * dialog "ส่งออกให้นักบัญชี" (ST7-T23; ต้นแบบ TMS v4 `openXp`/`vXp` — กรอบ 640 · งวด · ชนิดไฟล์ · ชุดข้อมูล · รูปแบบไฟล์ · ไฟล์ที่จะได้)
- * ความต่างจากต้นแบบ [DECISION spec/12 §3 แถว ST7-T23]: ชุด "หัก ณ ที่จ่าย (ภ.ง.ด.3/53)" ไม่มี (D-54/D-58 — ระบบบัญชี) ·
- * คำอธิบายชุดตามเอกสารที่ TMS มี (ไม่มีใบกำกับ/ใบลด-เพิ่มหนี้/ใบเสร็จ — D-54/D-56) · รูปแบบ Express/PEAK/FlowAccount แสดงแต่ปิด
+ * ความต่างจากต้นแบบ [DECISION spec/12 §3 แถว ST7-T23]: ชุด "หัก ณ ที่จ่าย" = สรุป**ประมาณการ**ต่อคู่ค้า (D-73 — ไม่ใช่แบบ ภ.ง.ด.;
+ * ชื่อไฟล์ติด "ประมาณการ") · คำอธิบายชุดตามเอกสารที่ TMS มี (+ ใบที่ยกเลิก/กลับรายการแยกยอด D-73) (ไม่มีใบกำกับ/ใบลด-เพิ่มหนี้/ใบเสร็จ — D-54/D-56) · รูปแบบ Express/PEAK/FlowAccount แสดงแต่ปิด
  * (รอ template นำเข้าจริง — spec/07 INT-043) · จำนวนแถวในไฟล์ = แถวเอกสาร + แถวรายการ (layout กลาง) · แสดงเฉพาะชุดที่มีสิทธิ์อ่าน
  */
 export function AccountantExportDialog({
@@ -91,7 +91,8 @@ export function AccountantExportDialog({
   const files = sets
     .filter((s) => s.on)
     .map((s) => ({
-      n: `${t(`xp.set.${s.k}` as MessageKey)}_${tag}.${ft}`,
+      // ชื่อไฟล์ตรงกับ API (`ACCOUNTING_FILE_LABEL`) — สรุป WHT ติด "ประมาณการ" (D-73)
+      n: `${t((s.k === 'wht' ? 'xp.file.wht' : `xp.set.${s.k}`) as MessageKey)}_${tag}.${ft}`,
       r: t('xp.rows', { n: s.rows }),
       resource: s.resource,
     }));
