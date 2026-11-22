@@ -26,7 +26,6 @@ import {
   TenantResource,
   SandboxAware,
 } from '../../common/decorators';
-import { assertStepUp } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -102,7 +101,7 @@ export class ApiKeysController {
 
   @Post()
   @RequireScope('settings:write')
-  @StepUpAlways() // D-67: สร้าง key = credential ถาวร — ต้องยืนยัน 2FA ซ้ำ (key จัดการ key ไม่ได้อยู่แล้ว)
+  @StepUpAlways() // ตรวจใน ApiKeysService หลังตรวจข้อมูล — D-67: สร้าง key = credential ถาวร — ต้องยืนยัน 2FA ซ้ำ (key จัดการ key ไม่ได้อยู่แล้ว)
   @VersionGate('api_key.status_rotating')
   @ApiCreatedResponse({
     type: ApiKeySecretDto,
@@ -113,7 +112,6 @@ export class ApiKeysController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ApiKeySecretDto> {
-    assertStepUp(); // D-67 — ตรวจหลัง validation/404 (ไม่ใช่ใน guard)
     noIdempotencyKey(req);
     const k = await this.keys.create(body);
     setEtag(res, k.version);
@@ -147,7 +145,7 @@ export class ApiKeysController {
   @Patch(':id')
   @TenantResource('apiKey')
   @RequireScope('settings:write')
-  @StepUpAlways() // D-67 review M2: แก้ scope / IP allowlist = ขยายสิทธิ์ของ credential ถาวร
+  @StepUpAlways() // ตรวจใน ApiKeysService หลังตรวจข้อมูล — D-67 review M2: แก้ scope / IP allowlist = ขยายสิทธิ์ของ credential ถาวร
   @VersionGate('api_key.status_rotating')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOkResponse({ type: ApiKeyDto, description: 'แก้ชื่อ / scope / IP allowlist — มีผลทันที' })
@@ -157,7 +155,6 @@ export class ApiKeysController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ApiKeyDto> {
-    assertStepUp(); // D-67 — ตรวจหลัง validation/404 (ไม่ใช่ใน guard)
     const k = await this.keys.update(decodeIdOr404('apiKey', id), body, expectedVersion(req));
     setEtag(res, k.version);
     return this.keys.dto(k);
@@ -167,7 +164,7 @@ export class ApiKeysController {
   @HttpCode(201)
   @TenantResource('apiKey')
   @RequireScope('settings:write')
-  @StepUpAlways() // D-67
+  @StepUpAlways() // ตรวจใน ApiKeysService หลังตรวจข้อมูล — D-67
   @VersionGate('api_key.status_rotating')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiCreatedResponse({
@@ -181,7 +178,6 @@ export class ApiKeysController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ApiKeySecretDto> {
-    assertStepUp(); // D-67 — ตรวจหลัง validation/404 (ไม่ใช่ใน guard)
     noIdempotencyKey(req);
     const k = await this.keys.rotate(decodeIdOr404('apiKey', id), body, expectedVersion(req));
     setEtag(res, k.version);
