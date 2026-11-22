@@ -237,6 +237,13 @@ export class ErpInboundEffects {
   ) {
     if (!e.externalId || !DATE_RE.test(e.receivedDate))
       return review('invalid_effect', 'payment without id/date');
+    // ST7-T21 รับชำระจากระบบบัญชีเข้าได้ทางเดียวต่อ connector: เปิด `fetchPaymentStatus` (TMS ดึงยอดสะสมเอง) แล้ว
+    // ยังส่ง webhook รับชำระมาด้วย = ไม่บันทึก (กันนับเงินซ้ำ) → คิวตรวจ
+    if (c.capabilitiesEnabled.includes('fetchPaymentStatus'))
+      return review(
+        'payment_channel_conflict',
+        `payment ${e.externalDocNo ?? e.externalId}: this connector reports payments by status pull — webhook payment not recorded`,
+      );
     const dup = await tx.externalMapping.findFirst({
       where: { connectorId: c.id, entityType: MAP_ENTITY.payment, externalId: e.externalId },
     });

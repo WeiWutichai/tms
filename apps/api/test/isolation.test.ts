@@ -280,6 +280,43 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
           })
         ).id,
       ),
+    // ST7-T21 ผลกระทบยอดกับระบบภายนอก (reconcile_result)
+    reconcileResult: async (db, tenantId, n) => {
+      const c = await db.connector.create({
+        data: {
+          tenantId,
+          adapterKey: `iso-rec-${n}`,
+          capabilitiesEnabled: [],
+          credentialKeys: [],
+          status: 'DISCONNECTED',
+          disconnectedAt: new Date(),
+        },
+      });
+      const at = new Date();
+      return encodeId(
+        'reconcileResult',
+        (
+          await db.reconcileResult.create({
+            data: {
+              tenantId,
+              connectorId: c.id,
+              entityType: 'INVOICE',
+              localId: randomUUID(),
+              localNumber: `INV-ISO-${n}`,
+              runAt: at,
+              source: 'NIGHTLY',
+              localSnapshot: {},
+              remoteSnapshot: {},
+              diff: { check: 'PAYMENT_STATUS', code: 'remote_less_than_tms' },
+              diffHash: String(n).padStart(64, '0'),
+              result: 'MISMATCH',
+              severity: 'MONEY',
+              lastSeenAt: at,
+            },
+          })
+        ).id,
+      );
+    },
     // ST7-T13 การตั้งค่า ErpAdapter ต่อ tenant
     connector: async (db, tenantId, n) =>
       encodeId(

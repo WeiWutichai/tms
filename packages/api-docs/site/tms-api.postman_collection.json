@@ -16136,6 +16136,116 @@
             },
             "description": "scope: settings:read"
           }
+        },
+        {
+          "name": "GET /v1/reconcile-results",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/reconcile-results",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "reconcile-results"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "ค่า nextCursor จากหน้าก่อน",
+                  "disabled": true
+                },
+                {
+                  "key": "updatedAfter",
+                  "value": "",
+                  "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+                  "disabled": true
+                },
+                {
+                  "key": "sort",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "fields",
+                  "value": "",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "description": "OPEN = ยังต่างอยู่และยังไม่มีคนยอมรับ · ACKNOWLEDGED = คนยอมรับความต่างแล้ว · RESOLVED = ระบบปิดแล้ว (รอบถัดไปตรงกัน/ส่วนต่างเปลี่ยน)",
+                  "disabled": true
+                },
+                {
+                  "key": "connectorId",
+                  "value": "con_…",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "invoiceId",
+                  "value": "ivc_…",
+                  "description": "ผลของใบแจ้งหนี้นี้",
+                  "disabled": true
+                },
+                {
+                  "key": "severity",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "scope: integrations:read"
+          }
+        },
+        {
+          "name": "GET /v1/reconcile-results/{id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/reconcile-results/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "reconcile-results",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: integrations:read"
+          }
         }
       ]
     },

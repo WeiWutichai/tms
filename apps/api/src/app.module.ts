@@ -112,6 +112,9 @@ import { ErpAdapterRegistry } from './modules/erp/erp-adapter.registry';
 import { ErpAdapterSink } from './modules/erp/erp-adapter.sink';
 import { ErpSyncService } from './modules/erp/erp-sync.service';
 import { ErpInboundEffects } from './modules/erp/erp-inbound-effects';
+import { PaymentStatusPullService } from './modules/erp/payment-status-pull.service';
+import { ReconcileController } from './modules/erp/reconcile.controller';
+import { ReconcileResultsService } from './modules/erp/reconcile-results.service';
 import { ErpAdaptersBootstrap } from './erp-adapters';
 import {
   EventsController,
@@ -323,6 +326,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ConnectorsController,
     ErpMasterCodesController,
     CustomerErpCodesController,
+    ReconcileController,
     InboundWebhookController,
     WebhookDeliveriesController,
     EventsController,
@@ -488,6 +492,8 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ErpAdapterSink,
     ErpSyncService,
     ErpInboundEffects,
+    ReconcileResultsService,
+    PaymentStatusPullService,
     ErpAdaptersBootstrap,
     WebhooksService,
     WebhookOpsService,

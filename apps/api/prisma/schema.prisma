@@ -3157,6 +3157,7 @@ model Connector {
   masterCodes      ErpMasterCode[]
   codeMappings     ErpCodeMapping[]
   externalMappings ExternalMapping[]
+  reconcileResults ReconcileResult[]
 
   @@index([tenantId, createdAt, id])
   @@index([tenantId, companyId])
@@ -3561,6 +3562,78 @@ model ExternalMapping {
   @@index([tenantId, entityType, localId])
   @@index([connectorId, entityType, localNumber])
   @@map("external_mapping")
+}
+
+// ---------- ST7-T21 ผลกระทบยอดกับระบบภายนอก (docs/01 §3.7 `reconcile_result`) ----------
+
+/// รอบที่ตรวจ (docs/01 §6.5) — ST7-T21 ใช้ NIGHTLY (scheduler รายวัน) และ MANUAL (สั่งเอง) · AFTER_PUSH / PRE_CLOSE = ST8-T11
+enum ReconcileSource {
+  AFTER_PUSH
+  NIGHTLY
+  PRE_CLOSE
+  MANUAL
+
+  @@map("reconcile_source")
+}
+
+/// docs/01 §3.7 — ST7-T21 เขียนเฉพาะ MISMATCH (ตรงกัน = ไม่มีแถวใหม่ ปิดแถวที่ค้างด้วย resolved_at) · ที่เหลือ = ST8-T11
+enum ReconcileOutcome {
+  MATCH
+  MISMATCH
+  REMOTE_MISSING
+  ERP_UNREACHABLE
+
+  @@map("reconcile_outcome")
+}
+
+enum ReconcileSeverity {
+  MONEY
+  FIELD
+  INFO
+
+  @@map("reconcile_severity")
+}
+
+/// ผลเทียบข้อมูล TMS กับระบบภายนอก 1 รายการ (docs/01 §3.7 `reconcile_result`, §6.5; docs/04 G3) — **ไม่ผูก ERP ใด**
+/// ST7-T21 สร้างชิ้นเล็กสุดที่ต้องใช้กับ "Payment status pull": ยอดรับชำระฝั่ง ERP ≠ TMS → แถว MISMATCH severity MONEY
+/// (`entity_type` INVOICE, `local_id` = ใบแจ้งหนี้, `diff.check` = 'PAYMENT_STATUS') — เครื่อง reconcile เต็ม (4 รอบ/เทียบรายบรรทัด) = ST8-T11
+/// - `diff_hash` กันแจ้งซ้ำ: ส่วนต่างเดิมที่ยังเปิดอยู่ไม่สร้างแถวใหม่ (partial unique index ใน migration)
+/// - `resolved_at` (เพิ่มจาก docs): รอบถัดไปตรงกันแล้ว/ส่วนต่างเปลี่ยน → ระบบปิดแถวเดิม (docs/01 §4.4 "MISMATCH → รอบถัดไปตรง")
+/// - `acknowledged_*` / `ack_reason`: คนยอมรับความต่างพร้อมเหตุผล — route ปิดรายการ = ST8-T12
+/// - ไม่มี hard delete (REVOKE DELETE) · snapshot/diff ห้ามมี credential
+model ReconcileResult {
+  id             String             @id @default(uuid()) @db.Uuid
+  tenantId       String             @map("tenant_id") @db.Uuid
+  connectorId    String             @map("connector_id") @db.Uuid
+  connector      Connector          @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  entityType     ExternalEntityType @map("entity_type")
+  /// id ฝั่ง TMS (uuid ของ entity)
+  localId        String             @map("local_id") @db.Uuid
+  /// เลขเอกสาร TMS ณ เวลาที่ตรวจ (แสดงผล/ค้นหา)
+  localNumber    String?            @map("local_number")
+  runAt          DateTime           @map("run_at") @db.Timestamptz(6)
+  source         ReconcileSource
+  localSnapshot  Json               @map("local_snapshot")
+  remoteSnapshot Json               @map("remote_snapshot")
+  /// รายการที่ต่าง — ST7-T21: `{check: 'PAYMENT_STATUS', code, ...}`
+  diff           Json
+  diffHash       String             @map("diff_hash") @db.Char(64)
+  result         ReconcileOutcome
+  severity       ReconcileSeverity
+  acknowledgedBy String?            @map("acknowledged_by")
+  acknowledgedAt DateTime?          @map("acknowledged_at") @db.Timestamptz(6)
+  ackReason      String?            @map("ack_reason")
+  /// ระบบปิดเอง: รอบถัดไปตรงกัน หรือส่วนต่างเปลี่ยน (มีแถวใหม่แทน)
+  resolvedAt     DateTime?          @map("resolved_at") @db.Timestamptz(6)
+  /// รอบล่าสุดที่ยังเห็นส่วนต่างเดิม (ไม่สร้างแถวซ้ำ)
+  lastSeenAt     DateTime           @map("last_seen_at") @db.Timestamptz(6)
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([tenantId, updatedAt, id])
+  @@index([tenantId, entityType, localId])
+  @@index([connectorId, entityType, localId])
+  @@map("reconcile_result")
 }
 
 // ---------- ST9-T19 Monitoring + alert (ตารางระดับแพลตฟอร์ม — ไม่มี tenant_id; role แอปเข้าไม่ได้ ใช้ผ่าน role platform เท่านั้น) ----------
