@@ -14,6 +14,7 @@ import { useMemo, useState } from 'react';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
+import { AccountantExportDialog } from '../exports/AccountantExportDialog';
 import { PageHeader } from '../../shell/Header';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
@@ -97,6 +98,9 @@ export function PayPage() {
   });
   const [open, setOpen] = useState<{ id: string; kind: 'pay' | 'inv' } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // ST7-T23 ส่งออกให้นักบัญชี (ต้นแบบ openXp) — ต้องมี export:run (API ตรวจสิทธิ์อ่านต่อชุดเอง)
+  const [xp, setXp] = useState(false);
+  const canXp = can(me.data?.scopes ?? [], 'export:run');
   const sendMail = useSendInvoiceEmail();
   /** ต้นแบบ: แถว → "ส่งใบแจ้งเตือนชำระ {เลข} ทางอีเมลแล้ว" · bulk → "ส่งใบแจ้งเตือนชำระ {n} ใบแล้ว" (ข้ามใบที่ไม่ค้าง) */
   const remind = async (rows: InvoiceSummary[]) => {
@@ -253,10 +257,12 @@ export function PayPage() {
         title={t('page.pay.title')}
         sub={t('page.pay.sub')}
         actions={
-          // ส่งออกให้นักบัญชี (spec/05 §14) — งานส่งออกยังไม่มี (เหมือนหน้าวางบิล) [DECISION spec/12 §3]
-          <Button variant="secondary" icon="file-down" disabled title={t('bill.xpSoon')}>
-            {t('bill.xp')}
-          </Button>
+          // ส่งออกให้นักบัญชี (ST7-T23 — ต้นแบบ openXp; spec/07 §4)
+          canXp ? (
+            <Button variant="secondary" icon="file-down" onClick={() => setXp(true)}>
+              {t('bill.xp')}
+            </Button>
+          ) : undefined
         }
       />
       {/* ต้นแบบ kpisPay บนหน้า "รับชำระ" = แถบสรุปบรรทัดเดียว (ตัวเลข + ป้าย) กดเพื่อกรองแท็บ */}
@@ -374,7 +380,9 @@ export function PayPage() {
                       },
                     ]
                   : []),
-                { label: t('bill.xp'), icon: 'file-down', run: () => setToast(t('bill.xpSoon')) },
+                ...(canXp
+                  ? [{ label: t('bill.xp'), icon: 'file-down', run: () => setXp(true) }]
+                  : []),
               ]}
               filters={col}
               hiddenColumns={hidden}
@@ -442,6 +450,7 @@ export function PayPage() {
           onToast={setToast}
         />
       )}
+      {xp && <AccountantExportDialog onClose={() => setXp(false)} onToast={setToast} />}
       {toast && (
         <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />
       )}
