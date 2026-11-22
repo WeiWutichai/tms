@@ -23,7 +23,7 @@ import type {
  * | `accountCode` (รายการ) | ACCOUNT | `lines[].accountCode` | ไม่ — ตรวจเมื่อมีผัง ACCOUNT |
  *
  * - หน่วยหาได้ทั้ง "ตรงรหัส" หรือ "ตรงชื่อของรหัสเดียว" (`matchByName` — TMS เก็บหน่วยเป็นข้อความ) — ใช้ได้ทั้งเมื่อ KRS ใช้รหัส `เที่ยว`
- *   หรือรหัสอื่นที่ชื่อ "เที่ยว" · ชนิดอื่นตรงรหัสเท่านั้น · payload builder (ST8-T08) ส่งรหัสที่หาได้ (`resolvedMasterCode(ctx, 'UNIT', unitLabel)`)
+ *   หรือรหัสอื่นที่ชื่อ "เที่ยว" · ชนิดอื่นตรงรหัสเท่านั้น · payload builder (ST8-T07 `krs-invoice-payload.ts`) ส่งรหัสที่หาได้ (`resolvedMasterCode(ctx, 'UNIT', unitLabel)`)
  * - `custOrSuppCode`: docs/01 A.3 ขัดกันเอง (ตาราง = external_mapping(CUSTOMER), บรรทัด "Validation เฉพาะ KRS" = อยู่ใน erp_master_code)
  *   → **[OPEN PO] plan/00b RB-22** · ระหว่างรอ: บังคับว่าต้องมีรหัสลูกค้าฝั่ง ERP (ไม่มี = กัน MISSING) ไม่ตรวจกับผังรหัส
  * - พนักงานขายต่อลูกค้า (docs/01 A.3 "ต่อลูกค้า") ยังไม่มีที่เก็บ → ใช้ค่าตั้งของ connector ตัวเดียว (หรือ `salePerson` ใน canonical

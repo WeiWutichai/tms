@@ -113,7 +113,6 @@ export class AccountingExportService {
       take: page.take,
       include: {
         ...CANONICAL_INVOICE_INCLUDE,
-        issuingCompany: { select: { legalName: true } },
         replaces: { select: { invoiceNo: true } },
       },
     });
