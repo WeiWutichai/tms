@@ -44,3 +44,35 @@ export function billingMonthRanges(today: string): MonthRanges {
     },
   };
 }
+
+const MONTH_RE = /^(\d{4})-(0[1-9]|1[0-2])$/;
+
+/** เดือนรูป YYYY-MM ที่ถูกต้อง (ST9-T05 รายงานรายได้) */
+export function isMonth(s: string): boolean {
+  return MONTH_RE.test(s);
+}
+
+/** เลื่อนเดือน (YYYY-MM) ไป n เดือน (ติดลบ = ย้อน) */
+export function addMonths(month: string, n: number): string {
+  const m = MONTH_RE.exec(month);
+  if (!m) throw new Error(`invalid month: ${month}`);
+  const i = Number(m[1]) * 12 + (Number(m[2]) - 1) + n;
+  return `${Math.floor(i / 12)}-${pad((i % 12) + 1)}`;
+}
+
+/** ช่วงวันของเดือน (YYYY-MM) — วันที่ 1 ถึงวันสุดท้าย (ปีอธิกสุรทินถูกต้อง) */
+export function monthRange(month: string): DayRange {
+  const m = MONTH_RE.exec(month);
+  if (!m) throw new Error(`invalid month: ${month}`);
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  return { from: `${month}-01`, to: `${month}-${pad(lastDay(y, mo))}` };
+}
+
+/** จำนวนเดือนจาก `from` ถึง `to` (รวมทั้งสองเดือน) — `to` ก่อน `from` = ≤ 0 */
+export function monthSpan(from: string, to: string): number {
+  const a = MONTH_RE.exec(from);
+  const b = MONTH_RE.exec(to);
+  if (!a || !b) throw new Error(`invalid month: ${from} / ${to}`);
+  return Number(b[1]) * 12 + Number(b[2]) - (Number(a[1]) * 12 + Number(a[2])) + 1;
+}

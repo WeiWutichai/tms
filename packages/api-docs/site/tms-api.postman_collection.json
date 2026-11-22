@@ -19088,6 +19088,50 @@
       "name": "reports",
       "item": [
         {
+          "name": "รายงานรายได้",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/reports/revenue",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "reports",
+                "revenue"
+              ],
+              "query": [
+                {
+                  "key": "groupBy",
+                  "value": "",
+                  "description": "จัดกลุ่มตาม: `customer` ลูกค้า · `route` เส้นทาง (ต้นทาง – ปลายทางของ DO) · `vehicle` รถ · `vehicleType` ประเภทรถ · `legalEntity` นิติบุคคลผู้ออกใบ · `month` เดือนที่ออกใบ",
+                  "disabled": true
+                },
+                {
+                  "key": "fromMonth",
+                  "value": "2026-11",
+                  "description": "เดือนแรก (YYYY-MM ตามวันที่ออกใบ เวลาไทย) — ไม่ส่ง = เท่ากับ `toMonth` · ช่วงยาวสุด 24 เดือน",
+                  "disabled": true
+                },
+                {
+                  "key": "toMonth",
+                  "value": "2026-11",
+                  "description": "เดือนสุดท้าย (YYYY-MM รวมเดือนนี้) — ไม่ส่ง = เดือนปัจจุบัน (เวลาไทย)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "scope: reports.finance:read\n\nรายได้จาก**บรรทัดใบแจ้งหนี้ที่ออกเลขแล้ว** (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — ไม่รวมร่างและใบที่ยกเลิก/void) ตามวันที่ออกใบ (เวลาไทย) ในช่วง `fromMonth`–`toMonth` จัดกลุ่มตาม `groupBy` (ลูกค้า / เส้นทาง / รถ / ประเภทรถ / นิติบุคคล / เดือน) · รายได้ = Σ ยอดบรรทัดหลังส่วนลด **ก่อน VAT** · Σ แถว = `sellAmount` รวม ทุกมิติ · บรรทัดที่ไม่ผูก DO / DO ที่ไม่มีเที่ยวหรือรถ อยู่แถว \"ไม่ระบุ\" (`id: none`) · `sell*` เห็นเมื่อมี `prices.sell:read` (ไม่มี = เห็นจำนวน) · ส่งออก: `POST /v1/exports` resource `revenue` (xlsx / csv / pdf) · แพ็กเกจต้องมีโมดูลรายงาน (`report`)"
+          }
+        },
+        {
           "name": "DO ยังไม่วางบิลเกิน N วัน",
           "request": {
             "method": "GET",

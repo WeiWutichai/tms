@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, type VatType } from '@prisma/client';
 import {
   AGING_BUCKET_RANGE,
+  ISSUED_INVOICE_STATUSES,
   billingMonthRanges,
   canMergeInvoiceLines,
   computeDocumentTax,
@@ -56,7 +57,7 @@ const isRealDay = (s: string) => !Number.isNaN(day(s).getTime()) && ymd(day(s)) 
 const money = (d: Prisma.Decimal | string) => new Prisma.Decimal(d).toFixed(2);
 
 /** ใบที่ออกแล้วและนับยอดค้าง (หน้า "รับชำระ" — ไม่รวมร่าง/ยกเลิก) */
-const RECEIVABLE_STATUSES: readonly string[] = ['ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED'];
+const RECEIVABLE_STATUSES: readonly string[] = ISSUED_INVOICE_STATUSES;
 
 const LOAD = {
   customer: { select: { id: true, code: true, legalName: true, taxId: true, branchCode: true } },
@@ -689,7 +690,7 @@ export class InvoicesService {
     const issuedIn = (r: { from: string; to: string }) =>
       tx.invoice.aggregate({
         where: {
-          status: { in: ['ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED'] },
+          status: { in: [...ISSUED_INVOICE_STATUSES] },
           issueDate: { gte: day(r.from), lte: day(r.to) },
         },
         _count: { _all: true },
