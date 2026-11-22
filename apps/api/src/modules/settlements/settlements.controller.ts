@@ -180,8 +180,7 @@ export class SettlementsController {
       'แม่แบบตามต้นแบบ TMS Print #pv (แม่แบบการเงินร่วมกับใบแจ้งหนี้) · ทุกตัวเลขมาจาก `GET /v1/settlements/{id}` ชุดเดียวกัน: ' +
       'ยอดซื้อรวม = `buyGrossAmount` · หัก ณ ที่จ่ายแยกอัตรา = `whtEstimate.byRate` (รวม = `buyWhtAmount`; ใบที่อนุมัติแล้ว = ยอดที่ตรึง) · ' +
       'บรรทัดหักรวมต่อชนิด · จ่ายสุทธิ = `buyNetAfterWht` · ยอดหัก ณ ที่จ่ายติด * (ประมาณการ D-54 — 50 ทวิ ออกที่ระบบบัญชี D-58) · ' +
-      'ยังไม่อนุมัติ = ลายน้ำ "ร่าง" ไม่มีเลข (render ตามคำขอ) · จ่ายแล้ว = วันที่จ่าย + วิธีจ่าย + เลขอ้างอิง · ใบที่มีเลขแล้ว (อนุมัติ / จ่ายแล้ว): render ครั้งแรกที่ขอแล้วเก็บไฟล์ — ครั้งต่อไปได้ไฟล์เดิม ไม่ render ใหม่ (ST9-T15; ฉบับอนุมัติและฉบับจ่ายแล้วเก็บแยกกัน) · ' +
-      '' +
+      'ยังไม่อนุมัติ = ลายน้ำ "ร่าง" ไม่มีเลข (render ตามคำขอ) · จ่ายแล้ว = วันที่จ่าย + วิธีจ่าย + เลขอ้างอิง · ใบที่มีเลขแล้ว (อนุมัติ / จ่ายแล้ว): render ครั้งแรกที่ขอแล้วเก็บไฟล์ — ครั้งต่อไปได้ไฟล์เดิม ไม่ render ใหม่ (ST9-T15; ฉบับอนุมัติและฉบับจ่ายแล้วเก็บแยกกัน; header `X-Content-SHA256` ของไฟล์ที่เก็บ) · ' +
       'ใบที่ยกเลิก → 409 · ต้องมี `prices.buy:read` ไม่งั้น 403',
   })
   @ApiProduces('application/pdf')
@@ -196,7 +195,8 @@ export class SettlementsController {
       throw new ProblemException('permission_denied', undefined, undefined, {
         requiredScope: 'prices.buy:read',
       });
-    const { dto, pdf } = await this.pdf.render(decodeIdOr404('settlement', id));
+    const { dto, pdf, stored } = await this.pdf.render(decodeIdOr404('settlement', id));
+    if (stored?.sha256) res.setHeader('X-Content-SHA256', stored.sha256);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',

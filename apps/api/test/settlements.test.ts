@@ -2530,7 +2530,13 @@ describe('settlements (ST6-T03)', () => {
       expect(await stored()).toEqual([]);
 
       await approve(s.id);
+      // review M2: ขอครั้งแรกพร้อมกัน 2 คำขอ → เก็บแถวเดียว ได้เนื้อเดียวกัน
+      const [c1, c2] = await Promise.all([pdfOf(s.id), pdfOf(s.id)]);
+      expect([c1.status, c2.status]).toEqual([200, 200]);
+      expect(sha(c1.body as Buffer)).toBe(sha(c2.body as Buffer));
+      expect(c1.headers['x-content-sha256']).toBe(sha(c1.body as Buffer));
       const approved = await get();
+      expect(approved).toBe(sha(c1.body as Buffer));
       const rows1 = await stored();
       expect(rows1).toHaveLength(1);
       expect(rows1[0]).toMatchObject({

@@ -60,7 +60,8 @@ CREATE TRIGGER document_sequence_guard BEFORE UPDATE ON "document_sequence"
 -- 3) stored_document (ไฟล์ที่เก็บ — PDF ณ วันออกของใบแจ้งหนี้/ใบวางบิล/ใบสำคัญจ่าย อยู่ที่นี่)
 --    * ไม่มี DELETE แถว (retention ST9-T14 ใช้ status PURGED — แถว + sha256 คงอยู่เป็นหลักฐาน)
 --    * ไฟล์ที่เก็บแล้ว (ไม่ใช่ PENDING): tenant / file_key / sha256 / ขนาด / ชนิดไฟล์ / เวลาสร้าง แก้ไม่ได้ (ชี้ไปไฟล์อื่นไม่ได้)
---    * PDF ของเอกสารการเงิน (kind PDF + entity invoice / billing_note / carrier_settlement): แก้ไม่ได้ทั้งแถว
+--    * PDF ของเอกสารการเงิน (kind PDF + entity invoice / billing_note / carrier_settlement **ที่ผูกเอกสารแล้ว** — entity_id ไม่ว่าง;
+--      ไฟล์ที่ผู้ใช้อัปโหลดโดยระบุ entityType เองยังไม่ผูกเอกสาร จึงไม่เข้าข่าย — review L1): แก้ไม่ได้ทั้งแถว
 --      → เปลี่ยนเป็น PURGED ไม่ได้ (retention job ลบไฟล์กลุ่มนี้ไม่ได้ แม้โค้ด job ผิด) · ย้ายไปผูกเอกสารอื่นไม่ได้
 CREATE OR REPLACE FUNCTION tms_stored_document_guard() RETURNS trigger
   LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS
@@ -78,7 +79,7 @@ BEGIN
       USING ERRCODE = 'check_violation', CONSTRAINT = 'stored_document_content_immutable';
   END IF;
   IF OLD.kind = 'PDF' AND OLD.status <> 'PENDING'
-     AND OLD.entity_type IN ('invoice', 'billing_note', 'carrier_settlement')
+     AND OLD.entity_type IN ('invoice', 'billing_note', 'carrier_settlement') AND OLD.entity_id IS NOT NULL
      AND pg_catalog.to_jsonb(NEW) IS DISTINCT FROM pg_catalog.to_jsonb(OLD) THEN
     RAISE EXCEPTION 'stored_document %: the stored PDF of a financial document is immutable', OLD.id
       USING ERRCODE = 'check_violation', CONSTRAINT = 'stored_document_financial_immutable';

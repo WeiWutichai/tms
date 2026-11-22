@@ -26,7 +26,7 @@ role: `tms_app` = API (RLS ต่อ tenant) · `tms_platform` = worker/job (ข
 | `settlement_line` | trigger `settlement_line_no_delete` (**ใหม่**) + REVOKE ทั้งสอง role | trigger `settlement_line_guard` (0124/0130: บรรทัดของใบที่พ้นร่างแข็ง) | เหมือนบน | D "DELETE…", S "ST9-T15…" |
 | `payment` | trigger `payment_guard` (0143 — มีอยู่แล้ว) | trigger เดียวกัน (เนื้อหาแก้ไม่ได้ กลับรายการได้ครั้งเดียว) | ครบแล้ว | D สองข้อ (+ `payments.test.ts` เดิม) |
 | `payment_allocation` | trigger `payment_allocation_guard` (0143 — มีอยู่แล้ว) | trigger เดียวกัน | ครบแล้ว | D สองข้อ |
-| `stored_document` (ไฟล์ที่เก็บ รวม PDF ณ วันออก) | trigger `stored_document_guard` (**ใหม่**) + REVOKE ทั้งสอง role (**ใหม่**) | trigger เดียวกัน (**ใหม่**): ไฟล์ที่เก็บแล้วเปลี่ยน `file_key`/`sha256`/ขนาด/ชนิด/เวลาสร้าง/tenant ไม่ได้ · PDF ของ `invoice`/`billing_note`/`carrier_settlement` แก้ไม่ได้ทั้งแถว (รวมเปลี่ยนเป็น `PURGED`) | **ไม่มีตัวกันเลย** — ทุก role ลบแถว/แก้ hash ได้ | D "DELETE…", D "แถวไฟล์ PDF ของเอกสารการเงิน…", S "ST9-T15…" |
+| `stored_document` (ไฟล์ที่เก็บ รวม PDF ณ วันออก) | trigger `stored_document_guard` (**ใหม่**) + REVOKE ทั้งสอง role (**ใหม่**) | trigger เดียวกัน (**ใหม่**): ไฟล์ที่เก็บแล้วเปลี่ยน `file_key`/`sha256`/ขนาด/ชนิด/เวลาสร้าง/tenant ไม่ได้ · PDF ของ `invoice`/`billing_note`/`carrier_settlement` ที่ผูกเอกสารแล้ว (`entity_id` ไม่ว่าง — ไฟล์ที่ผู้ใช้อัปโหลดโดยระบุ entityType เองไม่เข้าข่าย) แก้ไม่ได้ทั้งแถว (รวมเปลี่ยนเป็น `PURGED`) | **ไม่มีตัวกันเลย** — ทุก role ลบแถว/แก้ hash ได้ | D "DELETE…", D "แถวไฟล์ PDF ของเอกสารการเงิน…", S "ST9-T15…" |
 | `document_sequence` (ตัวนับเลข) | trigger `document_sequence_no_delete` (**ใหม่**) + REVOKE `tms_app` (0007) + `tms_platform` (**ใหม่**) | trigger `document_sequence_guard` (**ใหม่**): `next_value` ไม่ถอยหลัง · tenant/ประเภท/สาขา/งวดแก้ไม่ได้ | REVOKE DELETE เฉพาะ `tms_app` · ถอยเลขได้ (= ออกเลขซ้ำ) | D "DELETE…", D "เอกสารที่ออกแล้วแก้เนื้อหาไม่ได้…" |
 | `audit_log` | trigger `audit_log_append_only` (0007/0108) — ลบได้ทางเดียวคือฟังก์ชัน `tms_audit_retention_purge` ซึ่งข้าม entity ของเอกสาร/การเงิน | trigger เดียวกัน (UPDATE ปฏิเสธเสมอ) | ครบแล้ว | D "DELETE…", D "retention job…" (+ `retention.test.ts` เดิม) |
 
@@ -56,6 +56,8 @@ FACT เพิ่มเติม
 | ใบสำคัญจ่าย — ร่าง (ไม่มีเลข) | ไม่เก็บ (render ตามคำขอ ลายน้ำ "ร่าง") | — | S ข้อเดียวกัน |
 
 **สิ่งที่พบและแก้ (ใบสำคัญจ่าย):** ก่อนงานนี้ PDF ใบสำคัญจ่าย render ใหม่ทุกครั้ง (ใบ PAID มี cache ในหน่วยความจำ 10 นาที คีย์รวมรุ่นแม่แบบ) ตามคำตัดสิน ST6-T04 ข้อ (7) "ไม่ใช่เอกสารภาษี — ไม่เก็บไฟล์" — ขัดกับเกณฑ์ของ ST9-T15 ฉบับย่อ D-54 ที่ระบุใบสำคัญจ่ายเป็นเอกสารที่ออกเลขแล้ว แก้แบบแคบ: เก็บไฟล์ครั้งแรกที่ขอ (เขียนครั้งเดียวใต้ล็อกแถวใบ) แทน cache — บันทึกใน spec/12 §3 แถว ST9-T15
+
+**สถานะเกณฑ์ตรวจรับ "PDF ไม่ render ใหม่":** ครบสำหรับใบแจ้งหนี้/ใบวางบิล (เก็บ ณ วันออก) · ใบสำคัญจ่าย = เก็บครั้งแรกที่ขอ — รอคำตัดสิน #78 (ข้อ 1 ด้านล่าง) · คำขอครั้งแรกพร้อมกัน (API และลิงก์รถร่วม) ได้ไฟล์เดียว เนื้อเดียวกัน (S "ST9-T15…", `settlement-review.test.ts` "ST6-T04 ลิงก์รถร่วม…") · response มี header `X-Content-SHA256`
 
 ## 4. ข้อเสนอ / [OPEN]
 

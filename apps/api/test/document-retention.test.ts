@@ -345,7 +345,12 @@ describe('document retention (ST9-T15)', { timeout: 600_000 }, () => {
       });
   const financePdfs = () =>
     db.storedDocument.findMany({
-      where: { tenantId, kind: 'PDF', entityType: { in: [...FINANCE_PDF_ENTITY_TYPES] } },
+      where: {
+        tenantId,
+        kind: 'PDF',
+        entityType: { in: [...FINANCE_PDF_ENTITY_TYPES] },
+        entityId: { not: null },
+      },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -440,6 +445,23 @@ describe('document retention (ST9-T15)', { timeout: 600_000 }, () => {
     });
     await expect(
       db.storedDocument.update({ where: { id: other.id }, data: { sha256: fake } }),
+    ).rejects.toThrow(/stored_document_content_immutable|write-once/);
+    // review L1: ไฟล์ที่ผู้ใช้อัปโหลดโดยระบุ entityType ของเอกสารการเงินเอง (ยังไม่ผูกเอกสาร — entity_id ว่าง) ไม่ถูกนับเป็น PDF ณ วันออก
+    const loose = await db.storedDocument.create({
+      data: {
+        tenantId,
+        kind: 'PDF',
+        status: 'READY',
+        mimeType: 'application/pdf',
+        sizeBytes: f.size,
+        fileKey: f.key,
+        sha256: f.sha256,
+        entityType: 'invoice',
+      },
+    });
+    await db.storedDocument.update({ where: { id: loose.id }, data: { filename: 'x.pdf' } });
+    await expect(
+      db.storedDocument.update({ where: { id: loose.id }, data: { sha256: fake } }),
     ).rejects.toThrow(/stored_document_content_immutable|write-once/);
     expect((await financePdfs())[0]).toEqual(d);
   });
