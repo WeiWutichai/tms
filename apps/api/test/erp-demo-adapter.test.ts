@@ -194,6 +194,7 @@ describe('DemoProvider (ST7-T14)', () => {
     expect(await a.fetchPaymentStatus(ctx({ paymentStatus: 'PAID' }), ref)).toEqual({
       status: 'PAID',
       paidAmount: '1070.15',
+      whtAmount: '0.00',
       paidAt: '2026-11-18T03:00:00.000Z',
     });
     expect(await a.fetchPaymentStatus(ctx({ paymentStatus: 'PARTIALLY_PAID' }), ref)).toMatchObject(

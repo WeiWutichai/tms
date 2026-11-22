@@ -51,11 +51,12 @@ let conns: unknown[] = [];
 const GET = vi.fn();
 const POST = vi.fn();
 const PUT = vi.fn();
+const PATCH = vi.fn();
 vi.mock('../../api', () => ({
   api: {
     GET: (...a: unknown[]) => GET(...a),
     POST: (...a: unknown[]) => POST(...a),
-    PATCH: vi.fn(),
+    PATCH: (...a: unknown[]) => PATCH(...a),
     PUT: (...a: unknown[]) => PUT(...a),
   },
   unwrap: async (p: Promise<{ data: unknown }>) => (await p).data,
@@ -250,6 +251,53 @@ describe('ตั้งค่า → การเชื่อมต่อ (ST7-T2
         }),
       ),
     );
+  });
+
+  it('ST7-T21 สวิตช์ "ดึงสถานะรับชำระ" (opt-in): เปิดต้องใส่เหตุผลใน dialog → PATCH พร้อม reason · API ไม่รับ = แสดงข้อความใน dialog · ปิด/สวิตช์อื่นไม่ถาม', async () => {
+    const base = {
+      ...conn('ACTIVE'),
+      capabilitiesSupported: ['pullOrders', 'pushInvoice', 'fetchPaymentStatus'],
+    };
+    conns = [base];
+    PATCH.mockReset().mockResolvedValue({ data: base });
+    wrap();
+    const sw = await screen.findByRole('switch', { name: 'ดึงสถานะรับชำระ' });
+    expect(sw).toHaveAttribute('aria-checked', 'false');
+    // สวิตช์อื่น: ส่งทันที ไม่ถามเหตุผล
+    fireEvent.click(screen.getByRole('switch', { name: /ส่งใบแจ้งหนี้/ }));
+    await waitFor(() => expect(PATCH).toHaveBeenCalledTimes(1));
+    expect(PATCH.mock.calls[0]![1].body).toEqual({ capabilitiesEnabled: ['pullOrders'] });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    // เปิด opt-in: ยังไม่เรียก API จนกว่าจะใส่เหตุผล
+    fireEvent.click(sw);
+    const dlg = await screen.findByRole('dialog');
+    expect(within(dlg).getByText('เปิดใช้ ดึงสถานะรับชำระ')).toBeInTheDocument();
+    expect(PATCH).toHaveBeenCalledTimes(1);
+    const ok = within(dlg).getByRole('button', { name: 'เปิดใช้' });
+    fireEvent.change(within(dlg).getByRole('textbox'), { target: { value: 'สั้น' } });
+    expect(ok).toBeDisabled();
+    // API ปฏิเสธ → ข้อความอยู่ใน dialog (ไม่ปิด)
+    const { ApiError } = (await import('../../api')) as unknown as {
+      ApiError: new (p: { code: string; status?: number; title?: string }) => Error;
+    };
+    PATCH.mockRejectedValueOnce(
+      new ApiError({ code: 'validation_failed', status: 422, title: 'ข้อมูลไม่ถูกต้อง' }),
+    );
+    fireEvent.change(within(dlg).getByRole('textbox'), {
+      target: { value: 'หัวหน้าบัญชีอนุมัติให้ดึงสถานะรับชำระ' },
+    });
+    fireEvent.click(ok);
+    await waitFor(() => expect(PATCH).toHaveBeenCalledTimes(2));
+    expect(PATCH.mock.calls[1]![1].body).toEqual({
+      capabilitiesEnabled: ['pullOrders', 'pushInvoice', 'fetchPaymentStatus'],
+      reason: 'หัวหน้าบัญชีอนุมัติให้ดึงสถานะรับชำระ',
+    });
+    await waitFor(() => expect(dlg.querySelector('.tms-field-error')?.textContent).toBeTruthy());
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    // ลองใหม่สำเร็จ → dialog ปิด
+    fireEvent.click(within(dlg).getByRole('button', { name: 'เปิดใช้' }));
+    await waitFor(() => expect(PATCH).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
   it('ST7-T17 ยังไม่เลือก (null): ไม่มีตัวเลือกใดถูกเลือกไว้ก่อน + บอกว่าต้องเลือก', async () => {
