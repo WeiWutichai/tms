@@ -1,21 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { tryDecodeId } from '../../common/ids';
 import type { Tx } from '../../db/db.service';
 import { OutboxService } from '../integration/outbox.service';
 import type { SettlementDto } from '../settlements/settlement.dto';
 import {
-  type CanonicalInvoicePayload,
-  type CanonicalSettlementPayload,
-  withSyncHash,
+  CANONICAL_INVOICE_INCLUDE,
+  CANONICAL_SETTLEMENT_SELECT,
+  canonicalInvoice,
+  canonicalSettlement,
 } from './canonical';
 import { ConnectorResolver } from './connector-resolver';
 import { ExternalMappingService } from './external-mapping.service';
 import { ERP_SINK } from './erp-adapter.sink';
-
-const money = (d: Prisma.Decimal | number | string | null | undefined) =>
-  new Prisma.Decimal(d ?? 0).toFixed(2);
-const ymd = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
 
 /** entity_type ของ external_mapping (enum `ExternalEntityType` — ตารางของ ST8-T05/0141) */
 export const MAP_ENTITY = {
@@ -53,75 +49,18 @@ export class ErpSyncService {
   async invoiceFinalized(tx: Tx, invoiceId: string): Promise<string[]> {
     const inv = await tx.invoice.findUnique({
       where: { id: invoiceId },
-      include: {
-        customer: true,
-        issuingBranch: { select: { branchCode: true } },
-        lines: {
-          where: { active: true },
-          orderBy: { lineNo: 'asc' },
-          include: { deliveryOrder: { select: { doNo: true } } },
-        },
-      },
+      include: CANONICAL_INVOICE_INCLUDE,
     });
     if (!inv || !inv.invoiceNo || inv.status === 'DRAFT') return [];
     const r = await this.resolver.forCompany(tx, inv.issuingCompanyId, inv.issuingBranchId);
     if (r.standalone || !r.connector || !r.capabilities.includes('pushInvoice')) return [];
-    const snap = (inv.customerSnapshot ?? {}) as {
-      code?: string;
-      name?: string;
-      taxId?: string | null;
-      branchCode?: string | null;
-    };
     // ST8-T05 รหัสลูกค้าฝั่ง ERP ที่ผู้ใช้ map ไว้ (null = adapter จับคู่เอง เช่น ด้วยเลขภาษี+สาขา)
     const customerExternalId = await this.mappings.customerErpCode(
       tx,
       r.connector.id,
       inv.customerId,
     );
-    const doc: CanonicalInvoicePayload = withSyncHash({
-      kind: 'invoice',
-      id: inv.id,
-      number: inv.invoiceNo,
-      issueDate: ymd(inv.issueDate)!,
-      dueDate: ymd(inv.dueDate),
-      issuer: {
-        companyId: inv.issuingCompanyId,
-        branchId: inv.issuingBranchId,
-        branchCode: inv.issuingBranch?.branchCode ?? null,
-      },
-      customer: {
-        id: inv.customerId,
-        code: snap.code ?? inv.customer.code,
-        legalName: snap.name ?? inv.customer.legalName,
-        taxId: snap.taxId ?? null,
-        branchCode: snap.branchCode ?? null,
-        externalId: customerExternalId,
-      },
-      customerPoNo: inv.customerPoNo,
-      totals: {
-        subtotalVatable: money(inv.subtotalVatable),
-        subtotalExempt: money(inv.subtotalExempt),
-        subtotalZeroRated: money(inv.subtotalZeroRated),
-        vatAmount: money(inv.vatAmount),
-        total: money(inv.totalAmount),
-        whtExpected: money(inv.whtExpectedAmount),
-      },
-      taxEstimated: true,
-      lines: inv.lines.map((l) => ({
-        lineNo: l.lineNo,
-        deliveryOrder: l.deliveryOrder?.doNo ? { number: l.deliveryOrder.doNo } : null,
-        serviceItem: { id: l.serviceItemId },
-        description: l.description,
-        quantity: new Prisma.Decimal(l.quantity).toString(),
-        unitLabel: l.unitLabel,
-        unitPrice: new Prisma.Decimal(l.unitPrice).toString(),
-        discount: money(l.discount),
-        amount: money(l.amount),
-        vatType: l.vatType,
-        vatAmount: money(l.vatAmount),
-        whtRate: money(l.whtRate),
-      })),
-    });
+    const doc = canonicalInvoice(inv, customerExternalId);
     await this.enqueue(tx, {
       tenantId: inv.tenantId,
       connectorId: r.connector.id,
@@ -204,72 +143,12 @@ export class ErpSyncService {
     if (!est) return [];
     const row = await tx.carrierSettlement.findUnique({
       where: { id },
-      select: {
-        tenantId: true,
-        payingCompanyId: true,
-        carrierId: true,
-        grossAmount: true,
-        deductionAmount: true,
-        netPayable: true,
-        whtAmount: true,
-      },
+      select: CANONICAL_SETTLEMENT_SELECT,
     });
     if (!row) return [];
     const r = await this.resolver.forCompany(tx, row.payingCompanyId);
     if (r.standalone || !r.connector || !r.capabilities.includes('pushSettlement')) return [];
-    const wht = row.whtAmount ?? new Prisma.Decimal(0);
-    const doc: CanonicalSettlementPayload = withSyncHash({
-      kind: 'settlement',
-      id,
-      number: s.settlementNo,
-      paidDate: s.paidDate,
-      payingCompanyId: row.payingCompanyId,
-      period: { from: s.periodFrom, to: s.periodTo },
-      carrierInvoiceNumber: s.carrierInvoiceNo,
-      carrier: {
-        id: row.carrierId,
-        code: s.carrier.code,
-        legalName: s.carrier.legalName,
-        // บุคคลธรรมดา: ไม่ส่งเลขบัตรประชาชนออกนอก TMS (PDPA — ระบบบัญชีกรอกเองตอนออก 50 ทวิ)
-        taxId: s.carrier.entityType === 'JURISTIC' ? s.carrier.taxId : null,
-        branchCode: s.carrier.branchCode,
-        entityType: s.carrier.entityType === 'JURISTIC' ? 'JURISTIC' : 'INDIVIDUAL',
-      },
-      payment: {
-        method: s.paymentMethod ?? null,
-        reference: s.paymentReference ?? null,
-        bank: s.paymentBank ?? null,
-      },
-      totals: {
-        gross: money(row.grossAmount),
-        deduction: money(row.deductionAmount),
-        net: money(row.netPayable),
-        wht: money(wht),
-        netAfterWht: money(row.netPayable.minus(wht)),
-      },
-      whtEstimate: {
-        pndForm: est.form,
-        byRate: est.byRate.map((b) => ({
-          whtRate: b.whtRate,
-          base: b.buyBaseAmount ?? '0.00',
-          amount: b.buyWhtAmount ?? '0.00',
-        })),
-        reviewedByAccountant: false,
-      },
-      taxEstimated: true,
-      lines: s.lines
-        .filter((l) => l.active)
-        .map((l) => ({
-          lineNo: l.lineNo,
-          lineType: l.lineType,
-          trip: l.tripNo ? { number: l.tripNo } : null,
-          description: l.description,
-          amount: l.buyAmount ?? '0.00',
-          vatType: l.vatType,
-          whtRate: l.whtRateApplied,
-          whtAmount: l.buyWhtAmount ?? null,
-        })),
-    });
+    const doc = canonicalSettlement(s, row);
     await this.enqueue(tx, {
       tenantId: row.tenantId,
       connectorId: r.connector.id,

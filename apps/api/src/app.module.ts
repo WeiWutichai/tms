@@ -35,6 +35,9 @@ import { ImportRegistry } from './modules/imports/import-spec';
 import { ImportService } from './modules/imports/import.service';
 import { ImportsController } from './modules/imports/imports.controller';
 import { MasterImports } from './modules/imports/master-imports';
+import { AccountingExportController } from './modules/accounting-export/accounting-export.controller';
+import { AccountingExportService } from './modules/accounting-export/accounting-export.service';
+import { FileExportAdapterRegistry } from './modules/accounting-export/file-export-adapter';
 import { ExportRegistry } from './modules/exports/export-spec';
 import { ExportsController } from './modules/exports/exports.controller';
 import { ExportsService } from './modules/exports/exports.service';
@@ -369,6 +372,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     CarrierDocsPublicController,
     MessagesController,
     MessagingSettingsController,
+    AccountingExportController,
   ],
   providers: [
     PrismaService,
@@ -389,6 +393,8 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ExportRegistry,
     ExportsService,
     ListExports,
+    FileExportAdapterRegistry,
+    AccountingExportService,
     EntitlementService,
     MagicLinkService,
     DbService,

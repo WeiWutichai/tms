@@ -15863,6 +15863,50 @@
             },
             "description": "scope: export:run"
           }
+        },
+        {
+          "name": "จำนวนเอกสาร/แถวของแต่ละชุดก่อนส่งออกให้นักบัญชี",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/accounting-exports/summary?dateFrom=2026-10-01&dateTo=2026-10-31",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "accounting-exports",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-10-01",
+                  "description": "วันแรกของช่วง (วันที่เอกสาร เวลาไทย) — ช่วงยาวสุด 366 วัน",
+                  "disabled": false
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-10-31",
+                  "description": "วันสุดท้ายของช่วง (รวมวันนี้)",
+                  "disabled": false
+                },
+                {
+                  "key": "template",
+                  "value": "generic",
+                  "description": "รูปแบบไฟล์ (`templates[].key` จาก summary) — ไม่ส่ง = รูปแบบทั่วไป (layout กลาง: แถวเอกสาร + แถวรายการ)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "scope: export:run\n\nชุดข้อมูล: **sales** ใบแจ้งหนี้ที่ออกแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — ชุดเดียวกับรายงานรายได้) ตามวันที่ออก · **receipts** การรับชำระที่ยังไม่กลับรายการ ตามวันที่รับ · **settlements** ใบสำคัญจ่ายรถร่วม PAID ตามวันที่จ่าย — แสดงเฉพาะชุดที่มีสิทธิ์อ่าน · ไฟล์: `POST /v1/exports` `{resource, format: csv|xlsx, filter: {dateFrom, dateTo, template?}}` → แถวเอกสาร 1 แถว + แถวรายการ (ยอดรวมอยู่เฉพาะแถวเอกสาร · CSV = UTF-8 BOM + CRLF เปิดใน Excel อ่านไทยได้)"
+          }
         }
       ]
     },
