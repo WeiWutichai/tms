@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { AppUser, PrismaClient } from '@prisma/client';
+import { requiresTwoFactor } from '@tms/domain';
 import { FieldCipher } from '../common/crypto';
 import { readSettings } from '../modules/settings/settings.service';
 import { ProblemException } from '../common/problem';
@@ -43,9 +44,11 @@ export class MfaService {
     });
     const roles = await this.db.role.findMany({
       where: { tenantId: user.tenantId, id: { in: links.map((l) => l.roleId) } },
-      select: { code: true },
+      select: { code: true, permissions: true },
     });
     if (roles.some((r) => FORCED_2FA_ROLES.includes(r.code))) return 'enroll';
+    // D-78 (PO 23 พ.ย. 2569): ถือสิทธิ์สำคัญ (ตั้งค่า/จ่ายเงินรถร่วม/ยกเลิกใบแจ้งหนี้/ส่งออก — รวม role กำหนดเอง) → ต้องตั้ง 2FA
+    if (requiresTwoFactor(roles.flatMap((r) => r.permissions))) return 'enroll';
     if (await this.orgRequires2fa(user.tenantId)) return 'enroll';
     return 'none';
   }

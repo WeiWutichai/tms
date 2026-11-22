@@ -283,18 +283,28 @@ export class AuthService {
 
   /** tokenVersion ปัจจุบันของผู้ใช้ (guard ใช้ตรวจทุก request) — null = ผู้ใช้ถูกระงับ/ไม่พบ */
   async currentTokenVersion(tenantId: string, userId: string): Promise<number | null> {
+    return (await this.currentSession(tenantId, userId))?.tokenVersion ?? null;
+  }
+
+  /** ผู้ใช้ยังใช้งาน + tenant เข้าระบบได้ → tokenVersion + ตั้ง 2FA แล้วไหม (D-78 — AuthGuard) · ไม่ผ่าน = null */
+  async currentSession(
+    tenantId: string,
+    userId: string,
+  ): Promise<{ tokenVersion: number; twoFactor: boolean } | null> {
     // tenant ถูกระงับ/ยกเลิก → token เดิมใช้ไม่ได้ทันที (spec/01 PLT-001; review 10 พ.ย. 2569 ข้อ 2)
     const [u, t] = await Promise.all([
       this.db.appUser.findFirst({
         where: { id: userId, tenantId, status: 'ACTIVE' },
-        select: { tokenVersion: true },
+        select: { tokenVersion: true, totpEnabledAt: true, totpSecret: true },
       }),
       this.db.tenant.findFirst({
         where: { id: tenantId, status: { in: [...LOGIN_TENANT_STATUSES] } },
         select: { id: true },
       }),
     ]);
-    return u && t ? u.tokenVersion : null;
+    return u && t
+      ? { tokenVersion: u.tokenVersion, twoFactor: !!(u.totpEnabledAt && u.totpSecret) }
+      : null;
   }
 
   private async issue(

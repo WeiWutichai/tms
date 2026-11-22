@@ -9,7 +9,7 @@ import { requestContext } from '../../common/request-context';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { iEquals } from '../../common/ilike';
 import { ProblemException } from '../../common/problem';
-import { assertHumanStepUp } from '../../auth/step-up';
+import { assertBankStepUp } from '../../auth/step-up';
 import { DbService } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
 import { EXPORT_MAX_ROWS, exportFetchArgs, overSyncCap, type ExportPage } from '../master/export';
@@ -438,7 +438,7 @@ export class CarriersService {
     // ---- บัญชีธนาคาร: เลขบัญชีเข้ารหัส + 4 หลักท้าย · แก้ได้เฉพาะ settlements:pay ----
     // D-67 (PO 22 พ.ย. 2569): ผู้ใช้ต้อง step-up 2FA เมื่อเปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือ**ส่งเลขบัญชีมา (ทุกครั้ง)**
     // — ส่งเลขเดิมก็ถาม (review M3: ไม่ให้ผล 200 เป็นช่องเดาเลขบัญชีโดยไม่ยืนยัน 2FA) · ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ถาม
-    // (API key ไม่ถาม — ตาม scope · นำเข้าไฟล์ตรวจที่ POST /imports/{id}/commit)
+    // D-79 (PO 23 พ.ย. 2569): API key เปลี่ยนบัญชีไม่ได้ (403 bank_change_requires_user) · นำเข้าไฟล์ตรวจที่ POST /imports/{id}/commit
     if (input.bankAccount !== undefined) {
       if (!scopeAllows(requestContext.require().scopes ?? [], 'settlements:pay'))
         throw new ProblemException('forbidden', 'changing bankAccount requires settlements:pay');
@@ -451,7 +451,7 @@ export class CarriersService {
             b.accountName !== current.bankAccountName ||
             !!b.accountNo
       )
-        assertHumanStepUp();
+        assertBankStepUp();
       if (b === null) {
         data.bankCode = null;
         data.bankAccountEnc = null;

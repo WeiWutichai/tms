@@ -18,7 +18,7 @@ describe('user lifecycle + login history', () => {
   const PW = 'lifecycle-test-password-2569';
   const nextIp = () => `10.40.${Math.floor(++ip / 250)}.${ip % 250}`;
 
-  async function user(email: string, role = 'planner') {
+  async function user(email: string, role = 'dispatcher') {
     const u = await db.appUser.create({
       data: {
         tenantId,

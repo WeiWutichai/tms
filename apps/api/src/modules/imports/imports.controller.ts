@@ -35,7 +35,7 @@ import {
 } from 'class-validator';
 import type { Response } from 'express';
 import { TenantResource, RateLimitClass, StepUpWhen } from '../../common/decorators';
-import { assertHumanStepUp } from '../../auth/step-up';
+import { assertBankStepUp } from '../../auth/step-up';
 import { decodeIdOr404, encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
@@ -389,15 +389,18 @@ export class ImportsController {
   @RateLimitClass('heavy')
   @HttpCode(200)
   @TenantResource('import')
-  @StepUpWhen('นำเข้าผู้รับเหมา (`carrier`) ที่จับคู่คอลัมน์บัญชีธนาคาร (D-67 — แก้บัญชีธนาคาร)')
+  @StepUpWhen(
+    'นำเข้าผู้รับเหมา (`carrier`) ที่จับคู่คอลัมน์บัญชีธนาคาร (D-67 — แก้บัญชีธนาคาร)',
+    'user',
+  )
   @ApiOkResponse({ type: ImportDto })
   async commit(@Param('id') id: string): Promise<ImportDto> {
     const tx = this.db.tx;
     const imp = await this.find(id, true);
     // D-67: ไฟล์ผู้รับเหมาที่มีคอลัมน์บัญชีธนาคาร = แก้บัญชีธนาคารทีละหลายราย → ผู้ใช้ต้อง step-up 2FA ก่อนยืนยัน
-    // (ตรวจที่นี่ครั้งเดียว — ระหว่างนำเข้า/งานเบื้องหลัง service ไม่ตรวจซ้ำ)
+    // (ตรวจที่นี่ครั้งเดียว — ระหว่างนำเข้า/งานเบื้องหลัง service ไม่ตรวจซ้ำ) · D-79: API key ยืนยันไฟล์ที่มีคอลัมน์บัญชีไม่ได้
     const mapped = imp.mapping as Record<string, string>;
-    if (imp.kind === 'carrier' && BANK_IMPORT_COLUMNS.some((k) => mapped[k])) assertHumanStepUp();
+    if (imp.kind === 'carrier' && BANK_IMPORT_COLUMNS.some((k) => mapped[k])) assertBankStepUp();
     const spec = await this.spec(imp.kind);
     if (imp.status !== 'VALIDATED') throw new ProblemException('invalid_state_transition');
     if (imp.expiresAt.getTime() <= Date.now()) throw new ProblemException('import_expired');

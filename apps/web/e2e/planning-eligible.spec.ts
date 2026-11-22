@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
-import { expect, test } from './fixtures';
+import { expect, test, trustDevice } from './fixtures';
 
 /**
  * E2E ST3-T15 Filter รถที่รับได้สองทาง (docs/04 D2; spec/03 §5):
@@ -16,6 +16,7 @@ const DRY = `8${(Number(RUN.slice(-1)) + 2) % 10}-${RUN.slice(-4)}`;
 const today = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 
 async function token(page: Page, email: string): Promise<string> {
+  await trustDevice(page, email); // D-78: ผู้ใช้ที่ต้องตั้ง 2FA
   const v = randomBytes(32).toString('base64url');
   const r1 = await page.request.post('/v1/auth/login', {
     data: {

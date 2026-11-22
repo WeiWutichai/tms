@@ -48832,7 +48832,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user`",
             "schema": {
               "type": "string"
             }
@@ -48880,7 +48880,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`master:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)",
+            "description": "ไม่มีสิทธิ์ (`master:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) · API key → `bank_change_requires_user`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -48911,6 +48911,16 @@
                       "instance": "/v1/carriers",
                       "requestId": "b6a1c2d3-…"
                     }
+                  },
+                  "bank_change_requires_user": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/bank_change_requires_user",
+                      "title": "แก้หรือดูบัญชีธนาคารผู้รับเหมาผ่าน API key ไม่ได้ ต้องให้ผู้ใช้ทำในระบบ",
+                      "status": 403,
+                      "code": "bank_change_requires_user",
+                      "instance": "/v1/carriers",
+                      "requestId": "b6a1c2d3-…"
+                    }
                   }
                 }
               }
@@ -48935,8 +48945,8 @@
           "master:write"
         ],
         "x-step-up": {
-          "mode": "human",
-          "when": "เปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)"
+          "mode": "user",
+          "when": "ส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง)"
         }
       }
     },
@@ -49321,7 +49331,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user`",
             "schema": {
               "type": "string"
             }
@@ -49393,7 +49403,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`master:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)",
+            "description": "ไม่มีสิทธิ์ (`master:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) · API key → `bank_change_requires_user`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -49421,6 +49431,16 @@
                       "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
                       "status": 403,
                       "code": "step_up_required",
+                      "instance": "/v1/carriers/external/3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "bank_change_requires_user": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/bank_change_requires_user",
+                      "title": "แก้หรือดูบัญชีธนาคารผู้รับเหมาผ่าน API key ไม่ได้ ต้องให้ผู้ใช้ทำในระบบ",
+                      "status": 403,
+                      "code": "bank_change_requires_user",
                       "instance": "/v1/carriers/external/3f2a…",
                       "requestId": "b6a1c2d3-…"
                     }
@@ -49524,8 +49544,8 @@
           "master:write"
         ],
         "x-step-up": {
-          "mode": "human",
-          "when": "เปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)"
+          "mode": "user",
+          "when": "ส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง)"
         }
       },
       "patch": {
@@ -49556,7 +49576,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user`",
             "schema": {
               "type": "string"
             }
@@ -49604,7 +49624,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`master:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)",
+            "description": "ไม่มีสิทธิ์ (`master:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) · API key → `bank_change_requires_user`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -49632,6 +49652,16 @@
                       "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
                       "status": 403,
                       "code": "step_up_required",
+                      "instance": "/v1/carriers/external/3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "bank_change_requires_user": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/bank_change_requires_user",
+                      "title": "แก้หรือดูบัญชีธนาคารผู้รับเหมาผ่าน API key ไม่ได้ ต้องให้ผู้ใช้ทำในระบบ",
+                      "status": 403,
+                      "code": "bank_change_requires_user",
                       "instance": "/v1/carriers/external/3f2a…",
                       "requestId": "b6a1c2d3-…"
                     }
@@ -49757,8 +49787,8 @@
           "master:write"
         ],
         "x-step-up": {
-          "mode": "human",
-          "when": "เปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)"
+          "mode": "user",
+          "when": "ส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง)"
         }
       }
     },
@@ -49854,7 +49884,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user`",
             "schema": {
               "type": "string"
             }
@@ -49902,7 +49932,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`master:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)",
+            "description": "ไม่มีสิทธิ์ (`master:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) · API key → `bank_change_requires_user`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -49930,6 +49960,16 @@
                       "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
                       "status": 403,
                       "code": "step_up_required",
+                      "instance": "/v1/carriers/3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "bank_change_requires_user": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/bank_change_requires_user",
+                      "title": "แก้หรือดูบัญชีธนาคารผู้รับเหมาผ่าน API key ไม่ได้ ต้องให้ผู้ใช้ทำในระบบ",
+                      "status": 403,
+                      "code": "bank_change_requires_user",
                       "instance": "/v1/carriers/3f2a…",
                       "requestId": "b6a1c2d3-…"
                     }
@@ -49963,8 +50003,8 @@
           "master:write"
         ],
         "x-step-up": {
-          "mode": "human",
-          "when": "เปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)"
+          "mode": "user",
+          "when": "ส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง)"
         }
       }
     },
@@ -50076,7 +50116,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อ`field` = `bankAccountNo` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อ`field` = `bankAccountNo` ไม่งั้น 403 `step_up_required` · API key / OAuth client ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user`",
             "schema": {
               "type": "string"
             }
@@ -50124,7 +50164,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`settlements:pay`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อ`field` = `bankAccountNo`",
+            "description": "ไม่มีสิทธิ์ (`settlements:pay`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อ`field` = `bankAccountNo` · API key → `bank_change_requires_user`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -50152,6 +50192,16 @@
                       "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
                       "status": 403,
                       "code": "step_up_required",
+                      "instance": "/v1/carriers/3f2a…/reveal",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "bank_change_requires_user": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/bank_change_requires_user",
+                      "title": "แก้หรือดูบัญชีธนาคารผู้รับเหมาผ่าน API key ไม่ได้ ต้องให้ผู้ใช้ทำในระบบ",
+                      "status": 403,
+                      "code": "bank_change_requires_user",
                       "instance": "/v1/carriers/3f2a…/reveal",
                       "requestId": "b6a1c2d3-…"
                     }
@@ -50203,7 +50253,7 @@
           "settlements:pay"
         ],
         "x-step-up": {
-          "mode": "human",
+          "mode": "user",
           "when": "`field` = `bankAccountNo` (ดูเลขบัญชีเต็ม — D-67)"
         }
       }
@@ -88056,6 +88106,11 @@
       "title": "คำขอไม่ถูกต้อง",
       "titleEn": "Bad request"
     },
+    "bank_change_requires_user": {
+      "status": 403,
+      "title": "แก้หรือดูบัญชีธนาคารผู้รับเหมาผ่าน API key ไม่ได้ ต้องให้ผู้ใช้ทำในระบบ",
+      "titleEn": "Carrier bank account details can only be changed or viewed by a signed-in user"
+    },
     "branch_unavailable": {
       "status": 422,
       "title": "นิติบุคคลออกบิลยังไม่มีสาขาที่ออกเอกสาร",
@@ -88655,6 +88710,11 @@
       "status": 409,
       "title": "ยังมีจุดแวะที่ยังไม่จบ — ปิดเที่ยวได้เมื่อทุกจุดส่งสำเร็จ/ไม่สำเร็จ/ข้าม",
       "titleEn": "Some stops are not finished yet"
+    },
+    "two_factor_enrolment_required": {
+      "status": 403,
+      "title": "บัญชีนี้ต้องตั้งการยืนยันตัวตน 2 ชั้นก่อนใช้งาน",
+      "titleEn": "Set up two-factor authentication before continuing"
     },
     "two_factor_not_enabled": {
       "status": 409,

@@ -75,6 +75,18 @@ export const PROBLEMS = {
     th: 'ยังไม่ได้ตั้งการยืนยันตัวตน 2 ชั้น',
     en: 'Two-factor authentication is not set up',
   },
+  /** D-78 (PO 23 พ.ย. 2569): ผู้ใช้ที่ถือสิทธิ์สำคัญยังไม่ตั้ง 2FA — ทำได้แค่ขั้นตั้ง 2FA */
+  two_factor_enrolment_required: {
+    status: 403,
+    th: 'บัญชีนี้ต้องตั้งการยืนยันตัวตน 2 ชั้นก่อนใช้งาน',
+    en: 'Set up two-factor authentication before continuing',
+  },
+  /** D-79 (PO 23 พ.ย. 2569): API key แก้/ดูเลขบัญชีธนาคารผู้รับเหมาไม่ได้ */
+  bank_change_requires_user: {
+    status: 403,
+    th: 'แก้หรือดูบัญชีธนาคารผู้รับเหมาผ่าน API key ไม่ได้ ต้องให้ผู้ใช้ทำในระบบ',
+    en: 'Carrier bank account details can only be changed or viewed by a signed-in user',
+  },
   feature_not_in_plan: {
     status: 403,
     th: 'แพ็กเกจปัจจุบันยังไม่มีฟีเจอร์นี้',

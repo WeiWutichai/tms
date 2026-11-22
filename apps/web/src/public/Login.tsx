@@ -1,7 +1,7 @@
 import { Icon } from '@tms/ui';
 import { useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { login, type MfaStep, type TenantChoice } from '../auth/session';
+import { login, peekLoginNotice, type MfaStep, type TenantChoice } from '../auth/session';
 import { MfaEnroll, MfaVerify } from './TwoFactor';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/th';
@@ -34,7 +34,8 @@ export function LoginPage() {
   const [params] = useSearchParams();
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
-  const [err, setErr] = useState('');
+  // D-78: ถูกพาออกเพราะต้องตั้ง 2FA ก่อนใช้งาน → บอกเหตุในช่องข้อความเดิมของหน้า
+  const [err, setErr] = useState(() => (peekLoginNotice() ? t('login.enrolRequired') : ''));
   const [busy, setBusy] = useState(false);
   const [tenants, setTenants] = useState<TenantChoice[] | null>(null);
   const [mfa, setMfa] = useState<{ step: MfaStep; enroll: boolean } | null>(null);

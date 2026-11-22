@@ -5,8 +5,10 @@
  * ข้อมูลสมมติทั้งหมด: ชื่อขึ้นต้น "ตัวอย่าง" และเลขผู้เสียภาษีขึ้นต้น 0000000000 (ไม่ใช่เลขที่กรมสรรพากรออกจริง)
  * stage ถัดไปเพิ่ม seed ของตัวเองในไฟล์ prisma/seed/*.ts แล้วเรียกจากที่นี่
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { PrismaClient } from '@prisma/client';
-import { ROLE_CODES, type RoleCode } from '@tms/domain';
+import { requiresTwoFactor, ROLE_CODES, SYSTEM_ROLES, type RoleCode } from '@tms/domain';
 import { signDevToken } from '../src/auth/auth.guard';
 import { hashPassword } from '../src/auth/password';
 import { isLocalEnv } from '../src/auth/tokens';
@@ -108,7 +110,8 @@ const BRANCHES = [
  */
 export const DEMO_PASSWORD = 'demo-password-2569';
 /**
- * 2FA ของผู้ใช้เดโมที่ role บังคับ (owner, admin, accounting — ST1-T05): เพิ่ม secret นี้ในแอป Authenticator
+ * 2FA ของผู้ใช้เดโมที่ role บังคับ (owner, admin, accounting — ST1-T05; + manager, planner, invoicer ตามสิทธิ์สำคัญ — D-78):
+ * เพิ่ม secret นี้ในแอป Authenticator
  * (พิมพ์เอง: JBSW Y3DP EHPK 3PXP) เพื่อ login ด้วยมือ · E2E ใช้ cookie อุปกรณ์ที่จำไว้ DEMO_TRUSTED_DEVICE ข้ามขั้นนี้
  * ข้อมูลเดโมเท่านั้น — production ไม่รัน seed
  */
@@ -143,8 +146,22 @@ const USERS: Array<{ id: string; tenantId: string; email: string; name: string; 
     },
   ];
 
+/** NODE_ENV จาก .env ที่ราก repo (ไฟล์ที่ตั้งเองตอนติดตั้ง — .env.example มี NODE_ENV=development) · ไม่มี = undefined */
+function nodeEnvFromDotenv(): string | undefined {
+  try {
+    const text = readFileSync(resolve(__dirname, '../../../.env'), 'utf8');
+    return /^NODE_ENV=(\S+)\s*$/m.exec(text)?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
 async function main() {
   // seed มีรหัสผ่าน/secret 2FA/อุปกรณ์ที่จำไว้ของผู้ใช้เดโม — ห้ามรันนอกเครื่อง dev/test เด็ดขาด (review T05 S3)
+  // D-78 review: ต้องตั้ง NODE_ENV ชัด ๆ (env หรือ .env ของ repo) — ไม่ตั้ง = ปฏิเสธ (ไม่ใช้ค่าเริ่มต้น development)
+  process.env.NODE_ENV ??= nodeEnvFromDotenv();
+  if (!process.env.NODE_ENV)
+    throw new Error('seed: NODE_ENV is not set — set NODE_ENV=development or test explicitly');
   if (!isLocalEnv()) throw new Error('seed runs only with NODE_ENV=development or test');
   const db = new PrismaClient({ datasources: { db: { url: process.env.PLATFORM_DATABASE_URL } } });
   await ensurePlanCatalog(db);
@@ -198,7 +215,8 @@ async function main() {
       where: { tenantId: u.tenantId, userId: u.id, roleId },
     });
     if (!link) await db.userRole.create({ data: { tenantId: u.tenantId, userId: u.id, roleId } });
-    if (FORCED_2FA_ROLES.includes(role)) {
+    // D-78: ถือสิทธิ์สำคัญ (settings:write / settlements:pay / invoices:void / export:run) = ต้องตั้ง 2FA → ตั้งให้ผู้ใช้เดโมไว้
+    if (FORCED_2FA_ROLES.includes(role) || requiresTwoFactor(SYSTEM_ROLES[role].permissions)) {
       const cur = await db.appUser.update({
         where: { id: u.id },
         data: {
