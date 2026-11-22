@@ -19852,6 +19852,229 @@
         ]
       }
     },
+    "/v1/reconcile-results": {
+      "get": {
+        "operationId": "Reconcile_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "updatedAt",
+              "type": "string",
+              "enum": [
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "OPEN = ยังต่างอยู่และยังไม่มีคนยอมรับ · ACKNOWLEDGED = คนยอมรับความต่างแล้ว · RESOLVED = ระบบปิดแล้ว (รอบถัดไปตรงกัน/ส่วนต่างเปลี่ยน)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "OPEN",
+                "ACKNOWLEDGED",
+                "RESOLVED"
+              ]
+            }
+          },
+          {
+            "name": "connectorId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "con_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "invoiceId",
+            "required": false,
+            "in": "query",
+            "description": "ผลของใบแจ้งหนี้นี้",
+            "schema": {
+              "example": "ivc_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "severity",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "MONEY",
+                "FIELD",
+                "INFO"
+              ]
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "รายการที่ข้อมูล TMS ไม่ตรงกับระบบบัญชีที่เชื่อมต่อ (MISMATCH) — ตอนนี้ = ยอดรับชำระของใบแจ้งหนี้ (`check` PAYMENT_STATUS, severity MONEY) · กรอง `status` OPEN/ACKNOWLEDGED/RESOLVED, `connectorId`, `invoiceId`, `severity` · cursor มาตรฐาน (updatedAt, id) · ส่วนต่างเดิมไม่สร้างรายการซ้ำ (`lastSeenAt` = รอบล่าสุดที่ยังพบ) · ระบบ**ไม่ปรับยอดใน TMS เอง** — แก้ที่ต้นเหตุ (บันทึก/กลับรายการรับชำระ) แล้วรอบถัดไปปิดให้ (`RESOLVED`) · ยอดเงินต้องมี `prices.sell:read`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconcileResultPageDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_integrations.read"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "integrations:read"
+        ]
+      }
+    },
+    "/v1/reconcile-results/{id}": {
+      "get": {
+        "operationId": "Reconcile_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconcileResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_integrations.read"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "integrations:read"
+        ]
+      }
+    },
     "/v1/webhook-deliveries": {
       "get": {
         "operationId": "WebhookDeliveries_list",
@@ -33605,7 +33828,7 @@
     },
     "/v1/invoices/{id}/delivery-orders": {
       "post": {
-        "description": "กฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 `customer_mismatch` · audit `invoice.delivery_orders_added`",
+        "description": "กฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 `customer_mismatch` · DO บนร่างรวมกับที่เพิ่มเกิน 1000 ใบ → 422 `too_many` · audit `invoice.delivery_orders_added`",
         "operationId": "Invoices_addDos",
         "parameters": [
           {
@@ -34086,7 +34309,7 @@
     },
     "/v1/invoices/{id}/delivery-orders/move": {
       "post": {
-        "description": "ถอดจากร่างนี้แล้วดึงเข้าร่างปลายทางใน transaction เดียว (ตรวจความพร้อมซ้ำ — ไม่ผ่าน = ไม่ย้ายเลย) · ปลายทางไม่ใช่ร่าง → 409 · ลูกค้า/สาขาต่างกัน → 422 `customer_mismatch` · If-Match = version ของร่างต้นทาง · ETag ตอบกลับ = ต้นทาง · audit ทั้งสองใบ",
+        "description": "ถอดจากร่างนี้แล้วดึงเข้าร่างปลายทางใน transaction เดียว (ตรวจความพร้อมซ้ำ — ไม่ผ่าน = ไม่ย้ายเลย) · ปลายทางไม่ใช่ร่าง → 409 · ลูกค้า/สาขาต่างกัน → 422 `customer_mismatch` · DO บนร่างปลายทางรวมกับที่ย้ายเกิน 1000 ใบ → 422 `too_many` (ไม่ย้ายเลย) · If-Match = version ของร่างต้นทาง · ETag ตอบกลับ = ต้นทาง · audit ทั้งสองใบ",
         "operationId": "Invoices_moveDos",
         "parameters": [
           {
@@ -36793,7 +37016,7 @@
     },
     "/v1/invoice-runs": {
       "post": {
-        "description": "บัญชีเบา: ร่าง **ไม่มีเลข ไม่ใช่เอกสารภาษี** · ลูกค้าที่ `billingCycle` = รอบที่สั่ง (ไม่รวม `MANUAL`) ที่มี DO พร้อมวางบิล (กฎเดียวกับ `GET /invoices/queue` + เวลาจุดส่งครบ) วันที่ DO อยู่ในงวด → ร่างผ่านทางเดียวกับ `POST /invoices` (ตรวจซ้ำตอนดึง · กันวางบิลซ้ำระดับ DB · audit `invoice.draft_created`) · `MONTHLY`/`WEEKLY` = 1 ร่างต่อลูกค้า งวด = ที่สั่ง (เกิน 200 DO แบ่งหลายร่าง) · `PER_DO` = 1 ร่างต่อ DO · `billingNotes` (ค่าเริ่มต้น true) = ร่างใบวางบิลจากใบแจ้งหนี้ที่ออกแล้วยังค้าง และยังไม่อยู่ในใบวางบิลที่ active (1 ร่างต่อผู้ออก/สาขาผู้ออก) · **สั่งซ้ำไม่สร้างซ้ำ:** DO/ใบแจ้งหนี้ที่ถูกดึงแล้วไม่ถูกเลือกอีก · **ร่างละ transaction** (รวมการส่งบัญชีของ DO ในกลุ่ม) — กลุ่มที่ล้มย้อนทั้งกลุ่ม กลุ่ม/ลูกค้าอื่นไม่ล้มตาม · DO ที่ไม่ผ่านตอนดึง (ระบุตัวได้) ถูกข้าม (`skippedDeliveryOrders`) · ร่างลงชื่อผู้สั่งเป็นผู้สร้าง (กฎแบ่งหน้าที่ของ finalize ใช้เหมือนสร้างมือ) · 202 `{jobId, statusUrl}` → `GET /v1/jobs/{id}`: `progress` ต่อร่าง · `result` = `InvoiceRunResult` (ผลต่อลูกค้า SUCCEEDED/PARTIAL/FAILED/NOTHING_TO_BILL + ลิงก์ร่าง ≤ 50 ต่อลูกค้า — ไม่มียอดเงิน) · ไม่มีลูกค้า PARTIAL/FAILED = `succeeded`, มี = `succeeded_with_errors` · จบ = webhook `job.completed` · ผู้สั่งดู `statusUrl` ได้แม้ไม่มี `jobs:read` · job เก็บ 7 วัน · นับเป็นคำขอหนัก (rate limit ชั้น heavy)",
+        "description": "บัญชีเบา: ร่าง **ไม่มีเลข ไม่ใช่เอกสารภาษี** · ลูกค้าที่ `billingCycle` = รอบที่สั่ง (ไม่รวม `MANUAL` และลูกค้าที่ปิดใช้ `INACTIVE`) ที่มี DO พร้อมวางบิล (กฎเดียวกับ `GET /invoices/queue` + เวลาจุดส่งครบ) วันที่ DO อยู่ในงวด → ร่างผ่านทางเดียวกับ `POST /invoices` (ตรวจซ้ำตอนดึง · กันวางบิลซ้ำระดับ DB · audit `invoice.draft_created`) · `MONTHLY`/`WEEKLY` = **ใบแจ้งหนี้ใบเดียวต่อลูกค้าต่อรอบ** งวด = ที่สั่ง (เพดาน 1000 DO ต่อใบ — เกินจึงแบ่งหลายร่าง + `splitByCap`) · `PER_DO` = 1 ร่างต่อ DO · `billingNotes` (ค่าเริ่มต้น true) = ร่างใบวางบิลจากใบแจ้งหนี้ที่ออกแล้วยังค้าง และยังไม่อยู่ในใบวางบิลที่ active **เฉพาะใบของงวดนี้** (งวดของใบอยู่ในงวดของรอบทั้งช่วง; ใบที่ไม่มีงวดใช้วันที่ออก) (1 ร่างต่อผู้ออก/สาขาผู้ออก) · **สั่งซ้ำไม่สร้างซ้ำ:** DO/ใบแจ้งหนี้ที่ถูกดึงแล้วไม่ถูกเลือกอีก · **ร่างละ transaction** (รวมการส่งบัญชีของ DO ในกลุ่ม) — กลุ่มที่ล้มย้อนทั้งกลุ่ม กลุ่ม/ลูกค้าอื่นไม่ล้มตาม · DO ที่ไม่ผ่านตอนดึง (ระบุตัวได้) ถูกข้าม (`skippedDeliveryOrders`) · ร่างลงชื่อผู้สั่งเป็นผู้สร้าง (กฎแบ่งหน้าที่ของ finalize ใช้เหมือนสร้างมือ) · 202 `{jobId, statusUrl}` → `GET /v1/jobs/{id}`: `progress` ต่อร่าง · `result` = `InvoiceRunResult` (ผลต่อลูกค้า SUCCEEDED/PARTIAL/FAILED/NOTHING_TO_BILL + ลิงก์ร่าง ≤ 50 ต่อลูกค้า — ไม่มียอดเงิน) · ไม่มีลูกค้า PARTIAL/FAILED = `succeeded`, มี = `succeeded_with_errors` · จบ = webhook `job.completed` · **ไฟล์สรุปรอบ.xlsx** (`result.summary.url` = `GET /v1/exports/{jobId}` เฉพาะผู้สั่งที่มี `export:run`; ยอดเงินในไฟล์เฉพาะผู้สั่งที่มี `prices.sell:read`; ใช้ได้ 7 วัน; แจ้งเตือนผู้สั่งพร้อมลิงก์) · ไม่มีรอบอัตโนมัติตามเวลา (สั่งเองเท่านั้น) · ผู้สั่งดู `statusUrl` ได้แม้ไม่มี `jobs:read` · job เก็บ 7 วัน · นับเป็นคำขอหนัก (rate limit ชั้น heavy)",
         "operationId": "InvoiceRuns_create",
         "parameters": [
           {
@@ -59335,7 +59558,7 @@
             "example": [
               "do_…"
             ],
-            "description": "ใบส่งของ (≤ 200) ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง)",
+            "description": "ใบส่งของ ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง)",
             "type": "array",
             "items": {
               "type": "string"
@@ -59391,7 +59614,7 @@
               "WEEKLY",
               "MONTHLY"
             ],
-            "description": "รอบวางบิลของลูกค้าที่เข้ารอบนี้ (`customer.billingCycle`) · `MANUAL` ไม่เข้ารอบ · `MONTHLY`/`WEEKLY` = 1 ร่างต่อลูกค้า (เกิน 200 DO แบ่งเป็นหลายร่าง) · `PER_DO` = 1 ร่างต่อ DO"
+            "description": "รอบวางบิลของลูกค้าที่เข้ารอบนี้ (`customer.billingCycle`) · `MANUAL` และลูกค้าที่ปิดใช้ (`INACTIVE`) ไม่เข้ารอบ · `MONTHLY`/`WEEKLY` = **ใบแจ้งหนี้ใบเดียวต่อลูกค้าต่อรอบ** (เกิน 1000 DO จึงแบ่งเป็นหลายร่าง + `splitByCap`) · `PER_DO` = 1 ร่างต่อ DO"
           },
           "periodFrom": {
             "type": "string",
@@ -59409,7 +59632,7 @@
           },
           "billingNotes": {
             "type": "boolean",
-            "description": "สร้างร่างใบวางบิลอัตโนมัติ จากใบแจ้งหนี้ที่ออกแล้วยังค้างและยังไม่อยู่ในใบวางบิลที่ active ของลูกค้าในรอบนี้ (1 ร่างต่อผู้ออก/สาขาผู้ออก) · ไม่ส่ง = true"
+            "description": "สร้างร่างใบวางบิลอัตโนมัติ จากใบแจ้งหนี้ที่ออกแล้วยังค้างและยังไม่อยู่ในใบวางบิลที่ active ของลูกค้าในรอบนี้ **เฉพาะใบของงวดนี้**: งวดของใบ (`periodFrom`–`periodTo`) อยู่ในงวดของรอบทั้งช่วง · ใบที่ไม่มีงวดใช้วันที่ออก (`issueDate`) อยู่ในงวดของรอบ (1 ร่างต่อผู้ออก/สาขาผู้ออก) · ไม่ส่ง = true"
           }
         },
         "required": [
@@ -63344,8 +63567,10 @@
               "revenue",
               "accounting-sales",
               "accounting-receipts",
-              "accounting-settlements"
-            ]
+              "accounting-settlements",
+              "invoice-run-summary"
+            ],
+            "description": "`invoice-run-summary` = ไฟล์สรุปรอบวางบิล (สร้างเองเมื่อ `POST /v1/invoice-runs` จบ — `id` = jobId ของรอบ; สั่งผ่าน `POST /exports` ไม่ได้)"
           },
           "format": {
             "type": "string",
@@ -64122,7 +64347,7 @@
             "example": [
               "do_…"
             ],
-            "description": "ใบส่งของ (≤ 200)",
+            "description": "ใบส่งของ (≤ 1000) · ร่างหนึ่งใบถือใบส่งของรวมได้ไม่เกิน 1000 ใบ (เพิ่มแล้วเกิน = 422 `too_many`)",
             "type": "array",
             "items": {
               "type": "string"
@@ -65444,7 +65669,7 @@
             "example": [
               "do_…"
             ],
-            "description": "ใบส่งของ (≤ 200)",
+            "description": "ใบส่งของ (≤ 1000) · ร่างหนึ่งใบถือใบส่งของรวมได้ไม่เกิน 1000 ใบ (เพิ่มแล้วเกิน = 422 `too_many`)",
             "type": "array",
             "items": {
               "type": "string"
@@ -69773,6 +69998,221 @@
           "name"
         ]
       },
+      "ReconcileConnectorDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "con_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e"
+          },
+          "adapterKey": {
+            "type": "string",
+            "example": "demo",
+            "description": "รหัส adapter ของ connector"
+          }
+        },
+        "required": [
+          "id",
+          "adapterKey"
+        ]
+      },
+      "ReconcileResultDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "rec_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e"
+          },
+          "connector": {
+            "$ref": "#/components/schemas/ReconcileConnectorDto"
+          },
+          "entityType": {
+            "type": "string",
+            "example": "INVOICE",
+            "description": "ชนิดเอกสารฝั่ง TMS ที่เทียบ"
+          },
+          "invoiceId": {
+            "type": "string",
+            "nullable": true,
+            "example": "ivc_…"
+          },
+          "localNumber": {
+            "type": "string",
+            "nullable": true,
+            "example": "INV-00000-2611-0001"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "MATCH",
+              "MISMATCH",
+              "REMOTE_MISSING",
+              "ERP_UNREACHABLE"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "MONEY",
+              "FIELD",
+              "INFO"
+            ],
+            "description": "MONEY = กระทบยอดเงิน"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "AFTER_PUSH",
+              "NIGHTLY",
+              "PRE_CLOSE",
+              "MANUAL"
+            ],
+            "description": "NIGHTLY = รอบดึงรายวัน · MANUAL = สั่งเอง (`POST /reconcile-runs`)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "OPEN",
+              "ACKNOWLEDGED",
+              "RESOLVED"
+            ]
+          },
+          "check": {
+            "type": "string",
+            "nullable": true,
+            "example": "PAYMENT_STATUS"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "remote_exceeds_total",
+              "remote_paid_amount_short",
+              "remote_less_than_tms",
+              "tms_has_other_payments",
+              "connector_payment_reversed",
+              "remote_wht_unknown",
+              "remote_wht_inconsistent",
+              "remote_paid_at_invalid",
+              "payment_rejected"
+            ],
+            "description": "`remote_exceeds_total` ระบบบัญชีตัดหนี้เกินยอดใบ · `remote_paid_amount_short` ระบบบัญชีบอกชำระครบแต่ยอดตัดหนี้น้อยกว่ายอดใบ · `remote_less_than_tms` ระบบบัญชีตัดหนี้น้อยกว่าที่ TMS บันทึกรับ · `tms_has_other_payments` ระบบบัญชีตัดหนี้มากกว่า TMS แต่ใบมีรับชำระที่บันทึกเอง (ไม่บันทึกเพิ่มให้เอง) · `connector_payment_reversed` ใบนี้เคยมีรายการที่ระบบสร้างแล้วถูกกลับรายการใน TMS (ไม่สร้างให้อีก) · `remote_wht_unknown` ระบบบัญชีไม่บอกภาษีหัก ณ ที่จ่าย · `remote_wht_inconsistent` ภาษีหัก ณ ที่จ่ายที่รายงานขัดกัน · `remote_paid_at_invalid` วันที่รับชำระไม่มี/เป็นอนาคต/ก่อนวันออกใบ · `payment_rejected` กฎรับชำระของ TMS ไม่รับ (ดู `reason`)"
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "example": "invoice_not_payable",
+            "description": "รหัสเหตุผลเพิ่มเติม (เฉพาะ `payment_rejected`) — เป็นรหัสเท่านั้น ไม่มียอดเงิน"
+          },
+          "localStatus": {
+            "type": "string",
+            "nullable": true,
+            "example": "PARTIALLY_PAID"
+          },
+          "remoteStatus": {
+            "type": "string",
+            "nullable": true,
+            "example": "PAID"
+          },
+          "remotePaidAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "externalDocNo": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขเอกสารฝั่งระบบบัญชี"
+          },
+          "sellLocalPaidAmount": {
+            "type": "string",
+            "description": "ยอดตัดหนี้ของใบใน TMS (รวม WHT) — `prices.sell:read`"
+          },
+          "sellRemotePaidAmount": {
+            "type": "string",
+            "description": "ยอดตัดหนี้สะสมที่ระบบบัญชีรายงาน — `prices.sell:read`"
+          },
+          "sellDifferenceAmount": {
+            "type": "string",
+            "description": "ระบบบัญชี − TMS — `prices.sell:read`"
+          },
+          "runAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "รอบที่พบครั้งแรก"
+          },
+          "lastSeenAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "รอบล่าสุดที่ยังพบส่วนต่างเดิม"
+          },
+          "resolvedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "acknowledgedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "connector",
+          "entityType",
+          "invoiceId",
+          "localNumber",
+          "result",
+          "severity",
+          "source",
+          "status",
+          "check",
+          "code",
+          "reason",
+          "localStatus",
+          "remoteStatus",
+          "remotePaidAt",
+          "externalDocNo",
+          "runAt",
+          "lastSeenAt",
+          "resolvedAt",
+          "acknowledgedAt",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "ReconcileResultPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReconcileResultDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
       "RedeliverDeliveryOrderDto": {
         "type": "object",
         "properties": {
@@ -69846,7 +70286,7 @@
             "example": [
               "do_…"
             ],
-            "description": "ใบส่งของ (≤ 200)",
+            "description": "ใบส่งของ (≤ 1000) · ร่างหนึ่งใบถือใบส่งของรวมได้ไม่เกิน 1000 ใบ (เพิ่มแล้วเกิน = 422 `too_many`)",
             "type": "array",
             "items": {
               "type": "string"
@@ -86072,6 +86512,33 @@
                   "action": "write",
                   "required": [
                     "orders:write"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "Forbidden_integrations.read": {
+        "description": "ไม่มีสิทธิ์ (`integrations:read`)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDto"
+            },
+            "examples": {
+              "permission_denied": {
+                "value": {
+                  "type": "https://docs.tms.example/problems/permission_denied",
+                  "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                  "status": 403,
+                  "code": "permission_denied",
+                  "instance": "/v1/reconcile-results",
+                  "requestId": "b6a1c2d3-…",
+                  "module": "integrations",
+                  "action": "read",
+                  "required": [
+                    "integrations:read"
                   ]
                 }
               }

@@ -1,7 +1,12 @@
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { from, lastValueFrom, Observable } from 'rxjs';
-import { IS_PUBLIC, NO_TRANSACTION } from '../common/decorators';
+import {
+  DEFAULT_TRANSACTION_TIMEOUT_MS,
+  IS_PUBLIC,
+  NO_TRANSACTION,
+  TRANSACTION_TIMEOUT_MS,
+} from '../common/decorators';
 import { requestContext } from '../common/request-context';
 import { PrismaService } from '../db/prisma.service';
 
@@ -25,6 +30,11 @@ export class TransactionInterceptor implements NestInterceptor {
       context.getHandler(),
       context.getClass(),
     ]);
+    const timeout =
+      this.reflector.getAllAndOverride<number | undefined>(TRANSACTION_TIMEOUT_MS, [
+        context.getHandler(),
+        context.getClass(),
+      ]) ?? DEFAULT_TRANSACTION_TIMEOUT_MS;
     const ctx = requestContext.get();
     if (isPublic || noTx || !ctx?.tenantId) return next.handle();
     const tenantId = ctx.tenantId;
@@ -39,7 +49,7 @@ export class TransactionInterceptor implements NestInterceptor {
             ctx.tx = undefined;
           }
         },
-        { timeout: 15_000 },
+        { timeout },
       ),
     );
   }

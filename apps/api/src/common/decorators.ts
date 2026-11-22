@@ -80,6 +80,14 @@ export const LIVE_ONLY = 'tms:liveOnly';
  * ตรวจใน AuthGuard หลังรู้ tenant ของคำขอ (ทั้ง key `tk_test_` และผู้ใช้ที่สลับโหมด)
  */
 export const LiveOnly = () => SetMetadata(LIVE_ONLY, true);
+export const TRANSACTION_TIMEOUT_MS = 'tms:transactionTimeoutMs';
+/** transaction ของคำขอ (ค่าเริ่ม) — คำขอเกินนี้ย้อนทั้งหมด → 503 `service_busy` */
+export const DEFAULT_TRANSACTION_TIMEOUT_MS = 15_000;
+/**
+ * ST5-T12b (review H1): transaction ของ route นี้ยาวกว่าค่าเริ่ม 15 วิ — ใช้เฉพาะงานที่ต้องเป็นหน่วยเดียว (atomic) และโตตามขนาดเอกสาร
+ * (เช่น ยกเลิก/ถอด DO จากใบแจ้งหนี้ 1,000 DO ที่ต้องคิดบรรทัดรายได้ใหม่ต่อใบสั่ง) · ระบุเหตุผลที่จุดใช้ · ใช้คู่กับ `IdempotencyLockMs` ≥ ค่านี้
+ */
+export const TransactionTimeout = (ms: number) => SetMetadata(TRANSACTION_TIMEOUT_MS, ms);
 export const IDEMPOTENCY_LOCK_MS = 'tms:idempotencyLockMs';
 /**
  * ST7-T10: เวลาจอง Idempotency-Key ระหว่างทำ (ค่าเริ่ม 60 วิ) — route ที่ทำนาน (เช่น bulk 200 ใบ) ตั้งให้ยาวกว่าเวลาสูงสุดที่ยอม

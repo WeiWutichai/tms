@@ -568,6 +568,38 @@ export class PodService {
     return { ok: r.ok, missing: r.missing };
   }
 
+  /**
+   * ST5-T12b `checkCurrent` ของหลาย DO ในคราวเดียว (ดึง DO เข้าร่างใบแจ้งหนี้ ≤ 1,000 ใบ): หลักฐานฉบับล่าสุดของทุก DO = 1 query,
+   * checklist ต่อลูกค้า = 1 ครั้งต่อลูกค้า (ไม่ใช่ต่อ DO) — ผลต่อ DO เท่ากับ `checkCurrent` ทุกประการ (ตัวตรวจ `validatePod` ตัวเดียวกัน)
+   */
+  async checkCurrentMany(
+    tx: Tx,
+    rows: { id: string; customerId: string }[],
+  ): Promise<Map<string, { ok: boolean; missing: PodMissing[] }>> {
+    const out = new Map<string, { ok: boolean; missing: PodMissing[] }>();
+    if (!rows.length) return out;
+    const latest = new Map<string, DeliveryOrderPod>();
+    // เรียง version มาก → น้อย: แถวแรกของแต่ละ DO = ฉบับล่าสุด (เท่ากับ findFirst orderBy version desc)
+    for (const r of await tx.deliveryOrderPod.findMany({
+      where: { deliveryOrderId: { in: rows.map((d) => d.id) } },
+      orderBy: [{ deliveryOrderId: 'asc' }, { version: 'desc' }],
+      distinct: ['deliveryOrderId'],
+    }))
+      latest.set(r.deliveryOrderId, r);
+    const lists = new Map<string, Awaited<ReturnType<PodChecklistService['forCustomer']>>>();
+    for (const d of rows) {
+      let list = lists.get(d.customerId);
+      if (!list) {
+        list = await this.checklist.forCustomer(d.customerId, 'SUCCESS');
+        lists.set(d.customerId, list);
+      }
+      const pod = latest.get(d.id);
+      const r = validatePod(list, pod ? this.submissionOf(pod) : EMPTY);
+      out.set(d.id, { ok: r.ok, missing: r.missing });
+    }
+    return out;
+  }
+
   // ---------------------------------------------------------------------------------------------
 
   /** หลักฐานที่เก็บ → รูปที่ตัวตรวจใช้ (PIN ถอดในหน่วยความจำเพื่อตรวจรูปแบบเท่านั้น) */

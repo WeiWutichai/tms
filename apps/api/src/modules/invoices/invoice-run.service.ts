@@ -1,14 +1,20 @@
-import { Injectable, type OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { scopeAllows } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { problemBody } from '../../common/problem-body';
+import { PriceField } from '../../common/price-fields';
 import { requestContext, type RequestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { requestActor, resolveJobActor, type JobActor } from '../../jobs/job-actor';
 import { JobOutcome, JobQueue } from '../../jobs/job-queue.service';
 import { BillingNotesService } from '../billing-notes/billing-notes.service';
+import { INVOICE_RUN_SUMMARY_RESOURCE } from '../exports/exports.controller';
+import { ExportsService } from '../exports/exports.service';
+import { dropUnpricedColumns, type ExportColumn } from '../master/export';
+import { MAX_DOS_PER_INVOICE, MAX_INVOICES_PER_BILLING_NOTE } from './billing-limits';
 import { BillingQueueService } from './billing-queue.service';
 import { BillingReleaseService } from './billing-release.service';
 import type {
@@ -19,7 +25,9 @@ import type {
   InvoiceRunDocRefDto,
   InvoiceRunResultDto,
   InvoiceRunSkippedDoDto,
+  InvoiceRunSummaryDto,
 } from './invoice-run.dto';
+import type { InvoiceDto } from './invoice.dto';
 import { InvoicesService } from './invoices.service';
 
 export const INVOICE_RUN_JOB = 'invoices.run';
@@ -30,8 +38,9 @@ const RUN_LOCK_NS = 0x1a12;
  * ผู้สั่งนับเป็นผู้เตรียมในกฎแบ่งหน้าที่ของ finalize — ใช้ค่านี้กับรอบที่คนสั่งไม่ได้ เพราะจะข้ามกฎแบ่งหน้าที่)
  */
 export const SCHEDULED_RUN_ACTOR = 'system:invoice-run';
-/** เพดาน DO ต่อร่าง / ใบแจ้งหนี้ต่อใบวางบิล — เท่ากับเพดานของ `POST /invoices` / `POST /billing-notes` */
-const MAX_PER_DOC = 200;
+/** ชื่อไฟล์สรุปรอบ (ผู้ใช้เห็นในแจ้งเตือน "ไฟล์ส่งออกพร้อมแล้ว") */
+const SUMMARY_LABEL = 'สรุปรอบวางบิล';
+const day = (s: string) => new Date(`${s}T00:00:00.000Z`);
 /** สถานะใบแจ้งหนี้ที่ใส่ใบวางบิลได้ (ชุดเดียวกับ BillingNotesService — ออกแล้วค้างชำระ) */
 const BILLABLE_INVOICE = ['ISSUED', 'PARTIALLY_PAID'] as const;
 
@@ -62,14 +71,26 @@ const chunk = <T>(xs: T[], n: number): T[][] => {
  *   + เวลาจุดส่งครบ · ร่างสร้างผ่าน `InvoicesService.create` (ทางเดียวกับสร้างมือ: ตรวจซ้ำตอนดึง + กันวางบิลซ้ำระดับ DB + audit)
  * - **ไม่สร้างซ้ำ (idempotent):** DO ที่อยู่ในร่าง/ใบที่ active ไม่ขึ้นคิวแล้ว และใบแจ้งหนี้ที่อยู่ในใบวางบิลที่ active ไม่ถูกเลือกอีก →
  *   สั่งรอบเดิมซ้ำ = ลูกค้าไม่มีอะไรต้องสร้าง · ลูกค้าเดียวกันในรอบที่ซ้อนกันทำทีละรอบ (advisory lock)
- * - **แยกความล้มต่อร่าง:** ร่างหนึ่งกลุ่ม (≤ 200 DO / 1 DO สำหรับ PER_DO / ใบวางบิลต่อผู้ออก) = transaction เดียว รวมการส่งบัญชีของ DO
+ * - **แยกความล้มต่อร่าง:** ร่างหนึ่งกลุ่ม (≤ `MAX_DOS_PER_INVOICE` DO / 1 DO สำหรับ PER_DO / ใบวางบิลต่อผู้ออก) = transaction เดียว รวมการส่งบัญชีของ DO
  *   ในกลุ่ม — กลุ่มที่ล้มย้อนทั้งกลุ่ม (ไม่มี DO ส่งบัญชีค้าง ไม่มีร่าง) กลุ่มอื่น/ลูกค้าอื่นไม่กระทบ → ผลต่อลูกค้า SUCCEEDED / PARTIAL
  *   (บางกลุ่มล้ม) / FAILED (ทุกกลุ่มที่ทำล้ม) / NOTHING_TO_BILL · มี PARTIAL/FAILED = job `succeeded_with_errors`
  *   · DO ที่ไม่ผ่านตอนดึง/ส่งบัญชี (ระบุตัวได้ เช่น หลักฐานไม่ครบ, อยู่ในร่างอื่นแล้ว) ถูกตัดออกแล้วลองใหม่ — รายงานใน `skippedDeliveryOrders`
  * - ร่าง **ไม่มีเลข ไม่ใช่เอกสารภาษี** (D-54) — ผู้ใช้ตรวจแล้วออกเอกสารเอง
+ *
+ * ST5-T12b (PO ตัดสิน 22 พ.ย. 2569):
+ * - **ลูกค้าหนึ่งราย = ใบแจ้งหนี้ใบเดียวต่อรอบ** (MONTHLY/WEEKLY) — เพดาน `MAX_DOS_PER_INVOICE` (1,000) ต่อร่าง; เกิน = แบ่งหลายร่าง + `splitByCap`
+ * - **ลูกค้าปิดใช้ (INACTIVE) ไม่เข้ารอบ** (ทั้งร่างใบแจ้งหนี้และร่างใบวางบิล) — สร้างร่างมือไม่เปลี่ยน
+ * - **ร่างใบวางบิลอัตโนมัติเฉพาะงวดของรอบ:** ใบแจ้งหนี้ที่ออกแล้วค้างซึ่ง **งวดของใบ** (`periodFrom`–`periodTo`) อยู่ในงวดของรอบทั้งช่วง
+ *   (`periodFrom ≥ รอบ.periodFrom` และ `periodTo ≤ รอบ.periodTo`) · ใบที่ไม่มีงวด (ไม่มี DO) ใช้ **วันที่ออก** (`issueDate`) อยู่ในงวดของรอบ
+ *   — ใช้งวดของใบเป็นหลักเพราะรอบของงวดเดือน ต.ค. สั่งต้นเดือน พ.ย. ใบจึงออกเลขนอกงวดเสมอ (ดู `noteCandidates`)
+ * - **ไฟล์สรุปรอบ .xlsx** (ไม่มี PDF): แถวต่อร่าง/ลูกค้า — ยอดเงินเฉพาะผู้สั่งที่มี `prices.sell:read` · เก็บ/ดาวน์โหลด/แจ้งเตือนด้วยกรอบงานส่งออก
+ *   ST9-T10 (`GET /v1/exports/{jobId}` เฉพาะผู้สั่ง, 7 วัน) · ผู้สั่งต้องมี `export:run` (ไม่มี = ไม่สร้างไฟล์ `summary: null`)
+ * - ไม่มีรอบอัตโนมัติตามเวลาในเฟส 0 (สั่งเองเท่านั้น)
  */
 @Injectable()
 export class InvoiceRunService implements OnModuleInit {
+  private readonly log = new Logger(InvoiceRunService.name);
+
   constructor(
     private readonly db: DbService,
     private readonly queue: JobQueue,
@@ -78,9 +99,30 @@ export class InvoiceRunService implements OnModuleInit {
     private readonly notes: BillingNotesService,
     private readonly release: BillingReleaseService,
     private readonly audit: AuditService,
+    private readonly exports: ExportsService,
   ) {}
 
   onModuleInit() {
+    // ไฟล์สรุปรอบ: ดาวน์โหลดผ่าน `GET /v1/exports/{jobId}` (เฉพาะผู้สั่ง — กติกาเดียวกับไฟล์ส่งออกอื่น)
+    this.exports.registerFileJob(INVOICE_RUN_JOB, {
+      describe: (job) => {
+        const p = job.payload as unknown as RunPayload | null;
+        const r = job.result as unknown as InvoiceRunResultDto | null;
+        // จบแล้วไม่มีไฟล์ = 404 · ยังไม่จบ (result ว่าง) = ให้ ExportsService หาไฟล์จากเอกสารของงาน
+        if (!p || (r && !r.summary)) return null;
+        return {
+          actorId: p.actor?.actorId ?? null,
+          resource: INVOICE_RUN_SUMMARY_RESOURCE,
+          format: 'xlsx',
+          filter: {
+            billingCycle: p.billingCycle,
+            periodFrom: p.periodFrom,
+            periodTo: p.periodTo,
+          },
+          result: r?.summary ?? null,
+        };
+      },
+    });
     this.queue.register(
       INVOICE_RUN_JOB,
       async ({ tenantId, job, withTx, progress }) => {
@@ -99,10 +141,10 @@ export class InvoiceRunService implements OnModuleInit {
           ...(actor.actAs ? { actAs: actor.actAs } : {}),
           ...(actor.ip ? { ip: actor.ip } : {}),
         };
-        const out = await requestContext.run(ctx, () => this.run(p, withTx, progress));
+        const out = await requestContext.run(ctx, () => this.run(p, withTx, progress, job.id));
         return new JobOutcome(out, out.failed ? 'SUCCEEDED_WITH_ERRORS' : 'SUCCEEDED');
       },
-      // ร่างละ transaction (เปิดเอง ≤ 120 วิ — กลุ่ม ≤ 200 DO) · progress ต่อกลุ่ม (ต่อ lease) · ล้มแล้วไม่ลองใหม่ · จบ = webhook `job.completed`
+      // ร่างละ transaction (เปิดเอง ≤ 120 วิ — กลุ่ม ≤ MAX_DOS_PER_INVOICE DO) · progress ต่อกลุ่ม (ต่อ lease) · ล้มแล้วไม่ลองใหม่ · จบ = webhook `job.completed`
       { outsideTransaction: true, publicEvent: true, timeoutMs: 120_000 },
     );
   }
@@ -155,6 +197,7 @@ export class InvoiceRunService implements OnModuleInit {
     p: RunPayload,
     withTx: WithTx,
     progress: (pct: number) => Promise<void>,
+    jobId: string,
   ): Promise<InvoiceRunResultDto> {
     const ctx = requestContext.require();
     // สิทธิ์เดียวกับ POST /v1/invoices (ผู้สั่งอาจถูกถอดสิทธิ์ระหว่างรอ) — ไม่มี = งานล้มทั้งงาน
@@ -172,10 +215,11 @@ export class InvoiceRunService implements OnModuleInit {
       for (const r of ready) dos.set(r.customer_id, [...(dos.get(r.customer_id) ?? []), r.id]);
       const notes = new Map<string, string[][]>();
       if (p.billingNotes)
-        for (const [cid, groups] of this.byIssuer(await this.noteCandidates(tx, p.billingCycle)))
+        for (const [cid, groups] of this.byIssuer(await this.noteCandidates(tx, p)))
           notes.set(cid, groups);
       const customers = await tx.customer.findMany({
-        where: { id: { in: [...new Set([...dos.keys(), ...notes.keys()])] } },
+        // ลูกค้าปิดใช้ไม่เข้ารอบ (PO 22 พ.ย. 2569) — ตัวเลือก DO/ใบแจ้งหนี้กรองแล้ว; กรองซ้ำที่นี่เป็นด่านเดียวกันของทั้งรอบ
+        where: { id: { in: [...new Set([...dos.keys(), ...notes.keys()])] }, status: 'ACTIVE' },
         select: { id: true, code: true, legalName: true },
         orderBy: [{ code: 'asc' }, { id: 'asc' }],
       });
@@ -186,6 +230,8 @@ export class InvoiceRunService implements OnModuleInit {
           invoiceGroups:
             p.billingCycle === 'PER_DO' ? ids.map((x) => [x]) : chunk(ids, this.groupSize),
           noteGroups: notes.get(c.id) ?? [],
+          // เกินเพดาน DO ต่อใบ → แบ่งหลายร่าง (รายงานต่อลูกค้า — ไม่เงียบ)
+          splitByCap: p.billingCycle !== 'PER_DO' && ids.length > this.groupSize,
         };
       });
     });
@@ -197,8 +243,9 @@ export class InvoiceRunService implements OnModuleInit {
     const tick = async () => progress((++done * 100) / units);
 
     const results: InvoiceRunCustomerResultDto[] = [];
-    for (const { c, invoiceGroups, noteGroups } of plan) {
-      const acc = new CustomerAcc(c.id);
+    const accs: { acc: CustomerAcc; dto: InvoiceRunCustomerResultDto }[] = [];
+    for (const { c, invoiceGroups, noteGroups, splitByCap } of plan) {
+      const acc = new CustomerAcc(c.id, splitByCap);
       for (const g of invoiceGroups) {
         try {
           // ร่างหนึ่งกลุ่ม = transaction เดียว (ส่งบัญชี + สร้างร่าง) — ล้ม = ย้อนทั้งกลุ่ม ไม่มีอะไรค้าง
@@ -210,14 +257,24 @@ export class InvoiceRunService implements OnModuleInit {
       }
       for (const g of noteGroups) {
         try {
-          await inTx((tx) => this.noteGroup(tx, c.id, g, p.billingCycle, acc));
+          await inTx((tx) => this.noteGroup(tx, c.id, g, p, acc));
         } catch (e) {
           acc.fail(e);
         }
         await tick();
       }
-      results.push(acc.toDto(c.code, c.legalName));
+      const dto = acc.toDto(c.code, c.legalName);
+      results.push(dto);
+      accs.push({ acc, dto });
     }
+    // ไฟล์สรุปรอบ (.xlsx) — ล้ม/ไม่มีสิทธิ์ส่งออก ไม่ทำให้รอบล้ม (ร่าง commit แล้ว): `summary: null`
+    let summary: InvoiceRunSummaryDto | null = null;
+    if (accs.length && scopeAllows(ctx.scopes ?? [], 'export:run'))
+      try {
+        summary = await inTx((tx) => this.writeSummary(tx, p, jobId, accs));
+      } catch (e) {
+        this.log.warn(`invoice run summary file failed: ${String(e)}`);
+      }
     return {
       billingCycle: p.billingCycle,
       periodFrom: p.periodFrom,
@@ -226,12 +283,45 @@ export class InvoiceRunService implements OnModuleInit {
       invoicesCreated: results.reduce((a, r) => a + r.invoiceCount, 0),
       billingNotesCreated: results.reduce((a, r) => a + r.billingNotes.length, 0),
       failed: results.filter((r) => r.outcome === 'FAILED' || r.outcome === 'PARTIAL').length,
+      maxDeliveryOrdersPerInvoice: this.groupSize,
+      summary,
       results,
     };
   }
 
-  /** เพดาน DO ต่อร่าง (= เพดาน `POST /invoices`) — test ลดได้ */
-  groupSize = MAX_PER_DOC;
+  /** เพดาน DO ต่อร่าง (= เพดาน `POST /invoices` — `MAX_DOS_PER_INVOICE`) — test ลดได้ */
+  groupSize = MAX_DOS_PER_INVOICE;
+
+  /**
+   * ไฟล์สรุปรอบ: 1 แถวต่อร่าง (ใบแจ้งหนี้/ใบวางบิล) — ลูกค้าที่ไม่มีร่าง (ไม่สำเร็จ/ไม่มีรายการ) 1 แถว · ไม่ตัดที่ 50 รายการเหมือน `result`
+   * คอลัมน์ยอดเงิน (ประมาณการของร่าง — D-54) เฉพาะผู้สั่งที่มี `prices.sell:read` (ตัดคอลัมน์ + `redactPrices` ของกรอบงานส่งออก)
+   */
+  private async writeSummary(
+    tx: Tx,
+    p: RunPayload,
+    jobId: string,
+    accs: { acc: CustomerAcc; dto: InvoiceRunCustomerResultDto }[],
+  ): Promise<InvoiceRunSummaryDto> {
+    const ctx = requestContext.require();
+    const scopes = ctx.scopes ?? [];
+    const rows = accs.flatMap(({ acc, dto }) => acc.summaryRows(dto));
+    const file = await this.exports.storeJobFile(tx, {
+      tenantId: ctx.tenantId!,
+      jobId,
+      actorId: ctx.actorId ?? null,
+      scopes,
+      principalType: ctx.principalType ?? 'user',
+      columns: dropUnpricedColumns(SUMMARY_COLUMNS, {
+        sell: scopeAllows(scopes, 'prices.sell:read'),
+        buy: false,
+      }),
+      rows,
+      sheet: 'invoice-run',
+      fileName: `${SUMMARY_LABEL}_${p.periodFrom}_${p.periodTo}`,
+      label: SUMMARY_LABEL,
+    });
+    return { ...file, url: `/v1/exports/${encodeId('job', jobId)}` };
+  }
 
   private filter(p: RunPayload, customerId?: string) {
     return {
@@ -275,7 +365,7 @@ export class InvoiceRunService implements OnModuleInit {
       });
       if ('ok' in out) {
         acc.skipped.push(...skipped);
-        acc.addInvoice(out.ok.id, out.ok.deliveryOrders.length);
+        acc.addInvoice(out.ok);
         return;
       }
       const dos = out.error instanceof SkipDos ? out.error.dos : skippableDos(out.error);
@@ -346,22 +436,18 @@ export class InvoiceRunService implements OnModuleInit {
     tx: Tx,
     customerId: string,
     group: string[],
-    cycle: InvoiceRunCycle,
+    p: RunPayload,
     acc: CustomerAcc,
   ): Promise<void> {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RUN_LOCK_NS}::int, hashtext(${customerId}))`;
-    const now = new Set((await this.noteCandidates(tx, cycle, customerId)).map((i) => i.id));
+    const now = new Set((await this.noteCandidates(tx, p, customerId)).map((i) => i.id));
     const ids = group.filter((id) => now.has(id));
     if (!ids.length) return;
     const bn = await this.notes.create({
       customerId: encodeId('customer', customerId),
       invoiceIds: ids.map((id) => encodeId('invoice', id)),
     });
-    acc.billingNotes.push({
-      id: bn.id,
-      url: `/v1/billing-notes/${bn.id}`,
-      invoiceCount: bn.invoices.length,
-    });
+    acc.addBillingNote(bn.id, bn.invoices.length, bn.sellTotal);
   }
 
   /** กลุ่มใบวางบิลต่อลูกค้า: แยกผู้ออก/สาขาผู้ออก (ใบวางบิลต้องผู้ออกเดียว) แล้วแบ่ง ≤ 200 ใบ */
@@ -378,17 +464,33 @@ export class InvoiceRunService implements OnModuleInit {
     return new Map(
       [...m].map(([cid, byKey]) => [
         cid,
-        [...byKey.values()].flatMap((ids) => chunk(ids, MAX_PER_DOC)),
+        [...byKey.values()].flatMap((ids) => chunk(ids, MAX_INVOICES_PER_BILLING_NOTE)),
       ]),
     );
   }
 
-  /** ใบแจ้งหนี้ที่เข้าใบวางบิลได้ของลูกค้าในรอบนี้ (เงื่อนไขเดียวกับ `GET /billing-notes/candidates`) */
-  private async noteCandidates(tx: Tx, cycle: InvoiceRunCycle, customerId?: string) {
+  /**
+   * ใบแจ้งหนี้ที่เข้าร่างใบวางบิลของรอบนี้ = เงื่อนไขของ `GET /billing-notes/candidates` (ออกแล้ว ค้างชำระ ไม่อยู่ในใบวางบิลที่ active)
+   * **+ อยู่ในงวดของรอบ** (PO 22 พ.ย. 2569 — ไม่ใช่ทุกใบที่ค้าง):
+   * - ใบที่มีงวด (`periodFrom`/`periodTo` — ใบที่มี DO มีเสมอ): งวดของใบอยู่ในงวดของรอบ**ทั้งช่วง**
+   *   (`periodFrom ≥ รอบ.periodFrom` และ `periodTo ≤ รอบ.periodTo`) — ใบที่งวดคร่อมออกนอกรอบไม่เข้า
+   * - ใบที่ไม่มีงวด: `issueDate` (วันที่ออก เวลาไทย) อยู่ใน [รอบ.periodFrom, รอบ.periodTo]
+   * ลูกค้าปิดใช้ (INACTIVE) / ลบแล้ว / `billing_cycle` ไม่ตรง ไม่เข้า
+   */
+  private async noteCandidates(tx: Tx, p: RunPayload, customerId?: string) {
+    const from = day(p.periodFrom);
+    const to = day(p.periodTo);
     const rows = await tx.invoice.findMany({
       where: {
         ...(customerId ? { customerId } : {}),
-        customer: { billingCycle: cycle, deletedAt: null },
+        customer: { billingCycle: p.billingCycle, deletedAt: null, status: 'ACTIVE' },
+        OR: [
+          { periodFrom: { gte: from }, periodTo: { lte: to } },
+          {
+            OR: [{ periodFrom: null }, { periodTo: null }],
+            issueDate: { gte: from, lte: to },
+          },
+        ],
         status: { in: [...BILLABLE_INVOICE] },
         invoiceNo: { not: null },
         issueDate: { not: null },
@@ -436,6 +538,66 @@ class SkipDos extends Error {
 /** เพดานรายการต่อลูกค้าใน `result` (review L2 — payload `job.completed` ไม่โตไม่จำกัดสำหรับ PER_DO) */
 export const RESULT_LIST_CAP = 50;
 
+/** แถวของไฟล์สรุปรอบ — field ยอดเงินลงทะเบียน `@PriceField('sell')` (ตัดเมื่อผู้สั่งไม่มี `prices.sell:read`) */
+export class InvoiceRunSummaryRow {
+  customerCode!: string;
+  customerName!: string;
+  outcome!: string;
+  docType!: 'INVOICE' | 'BILLING_NOTE' | null;
+  docId!: string | null;
+  url!: string | null;
+  deliveryOrderCount!: number | null;
+  invoiceCount!: number | null;
+  skippedCount!: number;
+  failedGroups!: number;
+  splitByCap!: boolean;
+  problem!: string | null;
+  @PriceField('sell') sellSubtotal?: string;
+  @PriceField('sell') sellVatAmount?: string;
+  @PriceField('sell') sellTotal?: string;
+}
+
+const OUTCOME_TH: Record<string, string> = {
+  SUCCEEDED: 'สำเร็จ',
+  PARTIAL: 'สำเร็จบางส่วน',
+  FAILED: 'ไม่สำเร็จ',
+  NOTHING_TO_BILL: 'ไม่มีรายการให้สร้าง',
+};
+const DOC_TH = { INVOICE: 'ร่างใบแจ้งหนี้', BILLING_NOTE: 'ร่างใบวางบิล' } as const;
+
+/** คอลัมน์ไฟล์สรุปรอบ (ยอดเงิน = ประมาณการของร่าง ยังไม่ใช่เอกสารภาษี — D-54) */
+const SUMMARY_COLUMNS: ExportColumn<InvoiceRunSummaryRow>[] = [
+  { header: 'รหัสลูกค้า', value: (r) => r.customerCode },
+  { header: 'ชื่อลูกค้า', value: (r) => r.customerName },
+  { header: 'ผลของลูกค้า', value: (r) => OUTCOME_TH[r.outcome] ?? r.outcome },
+  { header: 'ประเภทเอกสาร', value: (r) => (r.docType ? DOC_TH[r.docType] : null) },
+  { header: 'รหัสร่าง', value: (r) => r.docId },
+  { header: 'ลิงก์ร่าง (API)', value: (r) => r.url },
+  { header: 'จำนวนใบส่งของ', value: (r) => r.deliveryOrderCount },
+  { header: 'จำนวนใบแจ้งหนี้ในใบวางบิล', value: (r) => r.invoiceCount },
+  { header: 'ยอดก่อน VAT (ประมาณการ)', value: (r) => r.sellSubtotal, price: 'sell' },
+  { header: 'VAT (ประมาณการ)', value: (r) => r.sellVatAmount, price: 'sell' },
+  { header: 'ยอดรวม (ประมาณการ)', value: (r) => r.sellTotal, price: 'sell' },
+  { header: 'ใบส่งของที่ข้าม (ของลูกค้า)', value: (r) => r.skippedCount },
+  { header: 'กลุ่มที่ไม่สำเร็จ (ของลูกค้า)', value: (r) => r.failedGroups },
+  { header: 'แบ่งร่างเพราะเกินเพดาน', value: (r) => (r.splitByCap ? 'ใช่' : 'ไม่') },
+  { header: 'สาเหตุที่ไม่สำเร็จ', value: (r) => r.problem },
+];
+
+/** ร่างที่สร้าง (ครบทุกใบ — สำหรับไฟล์สรุป; `result` ของ job ตัดที่ `RESULT_LIST_CAP` และไม่มียอดเงิน) */
+interface CreatedDoc {
+  docType: 'INVOICE' | 'BILLING_NOTE';
+  id: string;
+  url: string;
+  deliveryOrderCount: number | null;
+  invoiceCount: number | null;
+  sellSubtotal: string | null;
+  sellVatAmount: string | null;
+  sellTotal: string | null;
+}
+
+const dec = (v: string | undefined) => new Prisma.Decimal(v ?? 0);
+
 /** สะสมผลต่อลูกค้า */
 class CustomerAcc {
   invoices: InvoiceRunDocRefDto[] = [];
@@ -444,17 +606,89 @@ class CustomerAcc {
   skipped: InvoiceRunSkippedDoDto[] = [];
   failedGroups = 0;
   problem: Record<string, unknown> | null = null;
-  constructor(readonly customerId: string) {}
+  /** ทุกร่างที่สร้าง + ยอดเงิน — ใช้กับไฟล์สรุปเท่านั้น (ไม่ลง `result` ของ job) */
+  private readonly docs: CreatedDoc[] = [];
+  constructor(
+    readonly customerId: string,
+    readonly splitByCap = false,
+  ) {}
 
-  addInvoice(id: string, deliveryOrderCount: number) {
+  addInvoice(inv: InvoiceDto) {
+    const url = `/v1/invoices/${inv.id}`;
+    const deliveryOrderCount = inv.deliveryOrders.length;
     this.invoiceCount++;
     if (this.invoices.length < RESULT_LIST_CAP)
-      this.invoices.push({ id, url: `/v1/invoices/${id}`, deliveryOrderCount });
+      this.invoices.push({ id: inv.id, url, deliveryOrderCount });
+    this.docs.push({
+      docType: 'INVOICE',
+      id: inv.id,
+      url,
+      deliveryOrderCount,
+      invoiceCount: null,
+      sellSubtotal: dec(inv.sellSubtotalExempt)
+        .add(dec(inv.sellSubtotalVatable))
+        .add(dec(inv.sellSubtotalZeroRated))
+        .toFixed(2),
+      sellVatAmount: dec(inv.sellVatAmount).toFixed(2),
+      sellTotal: dec(inv.sellTotal).toFixed(2),
+    });
+  }
+
+  addBillingNote(id: string, invoiceCount: number, sellTotal: string | undefined) {
+    const url = `/v1/billing-notes/${id}`;
+    this.billingNotes.push({ id, url, invoiceCount });
+    this.docs.push({
+      docType: 'BILLING_NOTE',
+      id,
+      url,
+      deliveryOrderCount: null,
+      invoiceCount,
+      sellSubtotal: null,
+      sellVatAmount: null,
+      sellTotal: sellTotal === undefined ? null : dec(sellTotal).toFixed(2),
+    });
   }
 
   fail(e: unknown) {
     this.failedGroups++;
     this.problem ??= problemBody(e);
+  }
+
+  /** แถวของไฟล์สรุป: 1 แถวต่อร่าง · ไม่มีร่าง = 1 แถวของลูกค้า */
+  summaryRows(dto: InvoiceRunCustomerResultDto): InvoiceRunSummaryRow[] {
+    const base = {
+      customerCode: dto.customerCode,
+      customerName: dto.customerName,
+      outcome: dto.outcome,
+      skippedCount: dto.skippedCount,
+      failedGroups: dto.failedGroups,
+      splitByCap: dto.splitByCap,
+      problem: this.problem
+        ? [this.problem.code, this.problem.title].filter(Boolean).join(' — ') || null
+        : null,
+    };
+    if (!this.docs.length)
+      return [
+        {
+          ...base,
+          docType: null,
+          docId: null,
+          url: null,
+          deliveryOrderCount: null,
+          invoiceCount: null,
+        },
+      ];
+    return this.docs.map((d) => ({
+      ...base,
+      docType: d.docType,
+      docId: d.id,
+      url: d.url,
+      deliveryOrderCount: d.deliveryOrderCount,
+      invoiceCount: d.invoiceCount,
+      ...(d.sellSubtotal === null ? {} : { sellSubtotal: d.sellSubtotal }),
+      ...(d.sellVatAmount === null ? {} : { sellVatAmount: d.sellVatAmount }),
+      ...(d.sellTotal === null ? {} : { sellTotal: d.sellTotal }),
+    }));
   }
 
   toDto(code: string, name: string): InvoiceRunCustomerResultDto {
@@ -475,6 +709,7 @@ class CustomerAcc {
       invoices: this.invoices,
       invoicesListUrl: `/v1/invoices?customerId=${cus}&status=DRAFT`,
       billingNotes: this.billingNotes,
+      splitByCap: this.splitByCap,
       skippedCount: this.skipped.length,
       skippedDeliveryOrders: this.skipped.slice(0, RESULT_LIST_CAP),
       failedGroups: this.failedGroups,

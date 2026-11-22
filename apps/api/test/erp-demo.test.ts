@@ -277,6 +277,16 @@ describe('Standalone + DemoProvider (ST7-T14)', () => {
       number: 'INV-00000-2611-0001',
       externalId: `DEMO-INV-${h}`,
     };
+    // ST7-T21: `fetchPaymentStatus` เป็น opt-in (ไม่เปิดเป็นค่าเริ่มต้น) — เปิดเองพร้อมเหตุผลก่อนสั่ง
+    const cur = await api(app, token).get(`/v1/connectors/${con.id}`).expect(200);
+    expect(cur.body.capabilitiesEnabled).not.toContain('fetchPaymentStatus');
+    await api(app, token)
+      .patch(`/v1/connectors/${con.id}`)
+      .send({
+        capabilitiesEnabled: [...cur.body.capabilitiesEnabled, 'fetchPaymentStatus'],
+        reason: 'เปิดดึงสถานะรับชำระเพื่อทดสอบ DemoProvider',
+      })
+      .expect(200);
     const f = await enqueue(con.uuid, 'FETCH_DOCUMENT', { ref });
     const p = await enqueue(con.uuid, 'FETCH_PAYMENT_STATUS', { ref });
     await drain();

@@ -182,10 +182,11 @@ export class InvoicesService {
     const doIds = this.decodeDos(body.deliveryOrderIds);
     // review M2: ส่งบัญชี + สร้างร่างในคำขอเดียว (atomic) — ส่งบัญชีไม่ผ่าน = ไม่มีอะไรเปลี่ยน (ตรวจเงื่อนไขชุดเดียวกับส่งบัญชีปกติ + ตรวจซ้ำตอนดึง)
     if (body.releaseDeliveryOrders) {
+      // review (ST5-T12b): ลำดับล็อกเดียวกับทางอื่น — ใบสั่งก่อน (เรียง id) แล้ว DO (เรียง id) · ส่งบัญชียังทำทีละ DO (ติดตาม perf)
       const pending = await tx.deliveryOrder.findMany({
         where: { id: { in: doIds }, customerId: customer.id, releasedAt: null },
         select: { id: true },
-        orderBy: { id: 'asc' },
+        orderBy: [{ salesOrderId: 'asc' }, { id: 'asc' }],
       });
       for (const d of pending) await this.release.release(d.id, { note: null }, tx);
     }
@@ -647,8 +648,11 @@ export class InvoicesService {
       select: { salesOrderId: true },
     });
     const orders = [...new Set(rows.map((r) => r.salesOrderId))].sort();
-    for (const so of orders)
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${REVENUE_LOCK_NS}::int, hashtext(${so}))`;
+    // ST5-T12b: advisory lock ของทุกใบสั่งในคำสั่งเดียว (เดิม 1 คำสั่งต่อใบสั่ง — ใบ 1,000 DO = 1,000 คำสั่ง) · ลำดับเดียวกับเดิม
+    // (เรียง id — unnest WITH ORDINALITY + ORDER BY ในซับคิวรีก่อนเรียกฟังก์ชันล็อก)
+    await tx.$queryRaw`
+      SELECT count(pg_advisory_xact_lock(${REVENUE_LOCK_NS}::int, hashtext(o.so))::text)::int AS n
+        FROM (SELECT so FROM unnest(${orders}::text[]) WITH ORDINALITY AS u(so, i) ORDER BY i) o`;
     await tx.$queryRaw`SELECT id FROM delivery_order WHERE sales_order_id = ANY(${orders}::uuid[]) ORDER BY id FOR UPDATE`;
     return orders;
   }
@@ -772,8 +776,10 @@ export class InvoicesService {
       reasons: NotReadyReason[];
       missing?: unknown[];
     }[] = [];
+    // ST5-T12b: ตรวจทั้งชุดด้วย query คงที่ (ไม่ query ต่อ DO — ร่าง ≤ 1,000 DO) · ผลต่อ DO = `release.check`
+    const checks = await this.release.checkMany(tx, rows);
     for (const d of rows) {
-      const c = await this.release.check(tx, d);
+      const c = checks.get(d.id)!;
       const reasons = c.reasons.filter((r) => r !== 'IN_INVOICE');
       if (!c.released && !reasons.includes('NOT_DELIVERED')) reasons.push('NOT_RELEASED');
       if (reasons.length)
@@ -845,11 +851,16 @@ export class InvoicesService {
       })),
       taxOptionsFromSettings({ whtMinimumAmount: settings['tax.whtMinimumAmount'] as number }),
     );
-    for (const [i, l] of lines.entries()) {
+    // ST5-T12b: VAT รายบรรทัดที่เปลี่ยน อัปเดตในคำสั่งเดียว (เดิม 1 คำสั่งต่อบรรทัด — ร่าง 1,000 DO = หลายพันคำสั่ง)
+    const changed = lines.flatMap((l, i) => {
       const vat = decimalFromSatang(tax.lines[i]!.vat);
-      if (money(l.vatAmount) !== vat)
-        await tx.invoiceLine.update({ where: { id: l.id }, data: { vatAmount: vat } });
-    }
+      return money(l.vatAmount) !== vat ? [{ id: l.id, vat }] : [];
+    });
+    if (changed.length)
+      await tx.$executeRaw`
+        UPDATE invoice_line l SET vat_amount = v.vat
+          FROM unnest(${changed.map((c) => c.id)}::uuid[], ${changed.map((c) => c.vat)}::numeric[]) AS v(id, vat)
+         WHERE l.id = v.id AND l.invoice_id = ${id}::uuid`;
     const discount = lines.reduce((a, l) => a.add(l.discount), new Prisma.Decimal(0));
     await tx.invoice.update({
       where: { id },
