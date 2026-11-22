@@ -782,6 +782,8 @@ export const th = {
   'login.pickTitle': 'เลือกบริษัท',
   'login.pickSub': '{email} เป็นสมาชิก {n} บริษัท',
   'login.back': 'กลับไปเข้าสู่ระบบ',
+  'login.enrolRequired':
+    'บัญชีนี้ต้องตั้งการยืนยันตัวตน 2 ชั้นก่อนใช้งาน เข้าสู่ระบบอีกครั้งเพื่อตั้งค่า',
   'forgot.title': 'ลืมรหัสผ่าน',
   'forgot.sub': 'เราจะส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่อีเมล ลิงก์ใช้ได้ 30 นาที',
   'forgot.send': 'ส่งลิงก์',
@@ -825,6 +827,9 @@ export const th = {
   'problem.mfa_required': 'กรอกรหัสยืนยันตัวตน 2 ชั้นจากแอป Authenticator',
   'problem.mfa_enrollment_required': 'บัญชีนี้ต้องตั้งการยืนยันตัวตน 2 ชั้นก่อนเข้าใช้งาน',
   'problem.step_up_required': 'ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้',
+  'problem.two_factor_enrolment_required': 'บัญชีนี้ต้องตั้งการยืนยันตัวตน 2 ชั้นก่อนใช้งาน',
+  'problem.bank_change_requires_user':
+    'แก้หรือดูบัญชีธนาคารผู้รับเหมาผ่าน API key ไม่ได้ ต้องให้ผู้ใช้ทำในระบบ',
   'problem.two_factor_not_enabled': 'ยังไม่ได้ตั้งการยืนยันตัวตน 2 ชั้น',
   'tenantStatus.trial': 'ทดลองใช้',
   'tenantStatus.active': 'ใช้งาน',

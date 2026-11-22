@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { APIRequestContext } from '@playwright/test';
-import { expect, test } from './fixtures';
+import { expect, test, trustedDeviceHeaders } from './fixtures';
 
 /**
  * E2E ST5-T09 ออกเอกสารใบแจ้งหนี้ (D-54: ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี) — ต้นแบบ TMS v4 drawer `inv` ปุ่ม "ออกเอกสาร" (issueInv):
@@ -23,6 +23,7 @@ function taxId(seed: number): string {
 async function token(rq: APIRequestContext, email: string): Promise<string> {
   const v = randomBytes(32).toString('base64url');
   const r1 = await rq.post('/v1/auth/login', {
+    headers: trustedDeviceHeaders(email), // D-78
     data: {
       email,
       password: 'demo-password-2569',

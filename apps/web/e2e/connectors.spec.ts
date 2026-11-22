@@ -1,5 +1,13 @@
 import type { Page } from '@playwright/test';
-import { DEMO_PASSWORD, DEMO_TOTP_SECRET, E2E_WEB, expect, test, totp } from './fixtures';
+import {
+  confirmStepUp,
+  DEMO_PASSWORD,
+  DEMO_TOTP_SECRET,
+  E2E_WEB,
+  expect,
+  test,
+  totp,
+} from './fixtures';
 
 /**
  * ST7-T20 หน้าจัดการ connector — เกณฑ์ตรวจรับ:
@@ -42,6 +50,8 @@ test('Innovera เปิด connector demo ให้ลูกค้า → ล�
   await dlg.getByLabel('API key').fill(KEY);
   await dlg.getByLabel('เหตุผล').fill('เปิด connector ให้ลูกค้านำร่อง (E2E)');
   await dlg.getByRole('button', { name: 'เปิด connector' }).click();
+  // D-77 (PO 23 พ.ย. 2569): เปิดพร้อม credential → ยืนยัน 2FA ซ้ำ (กล่อง StepUpBox ในกล่องเดิม) แล้วส่งซ้ำเอง
+  await confirmStepUp(con);
   await expect(con.getByRole('status')).toContainText(
     'เปิด ERP จำลอง (Demo) ให้ ตัวอย่างขนส่ง (DEMO) แล้ว',
   );

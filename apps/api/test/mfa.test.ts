@@ -56,9 +56,9 @@ describe('2FA', () => {
     await db.$disconnect();
   });
 
-  it('role ที่ไม่บังคับ (planner) login ได้เลยโดยไม่ต้อง 2FA', async () => {
-    await user('planner@mfa.test', 'planner');
-    const { res } = await start('planner@mfa.test');
+  it('role ที่ไม่บังคับ (dispatcher — D-78: planner ถือ export:run) login ได้เลยโดยไม่ต้อง 2FA', async () => {
+    await user('dispatcher@mfa.test', 'dispatcher');
+    const { res } = await start('dispatcher@mfa.test');
     expect(res.status).toBe(200);
     expect(res.body.code).toBeTruthy();
   });
@@ -236,7 +236,7 @@ describe('2FA', () => {
   });
 
   it('GET /me/2fa บอกสถานะ; role แอปอ่านตาราง 2FA ไม่ได้', async () => {
-    const p = await loginFull(app, 'planner@mfa.test', PW, nextIp());
+    const p = await loginFull(app, 'dispatcher@mfa.test', PW, nextIp());
     const st = await api(app, p.access).get('/v1/me/2fa').expect(200);
     expect(st.body).toEqual({ enabled: false, required: false, backupCodesRemaining: 0 });
     const { PrismaService } = await import('../src/db/prisma.service');

@@ -6,7 +6,9 @@ import { dummyHash, verifyPassword } from '../auth/password';
 import {
   PLATFORM_TTL_SECONDS,
   signPlatformChallenge,
+  signPlatformStepUpToken,
   signPlatformToken,
+  STEP_UP_TTL_SECONDS,
   verifyPlatformChallenge,
 } from '../auth/tokens';
 import { verifyTotp } from '../auth/totp';
@@ -15,6 +17,7 @@ import { PlatformAuth, Public } from '../common/decorators';
 import { ProblemException } from '../common/problem';
 import { requestContext } from '../common/request-context';
 import { PrismaService } from '../db/prisma.service';
+import { StepUpDto } from '../auth/mfa.controller';
 
 /** ผิด 5 ครั้งติด → ล็อก 15 นาที (เหมือนผู้ใช้ลูกค้า — docs/04 A1) */
 const MAX_FAILED = 5;
@@ -35,6 +38,11 @@ export class PlatformChallengeDto {
 export class PlatformMfaDto {
   @ApiProperty() @IsString() @MaxLength(2000) challenge!: string;
   @ApiProperty({ example: '123456' }) @Matches(/^\d{6}$/) code!: string;
+}
+export class PlatformStepUpRequestDto {
+  @ApiProperty({ example: '123456', description: 'รหัส 6 หลักจากแอป Authenticator' })
+  @Matches(/^\d{6}$/)
+  code!: string;
 }
 export class PlatformTokenDto {
   @ApiProperty() accessToken!: string;
@@ -125,6 +133,38 @@ export class PlatformAuthController {
     const id = requestContext.require().platformUser!.id;
     const u = await this.prisma.platform.platformUser.findUniqueOrThrow({ where: { id } });
     return { id: u.id, email: u.email, name: u.name, role: u.role };
+  }
+
+  /**
+   * D-77 (PO 23 พ.ย. 2569): step-up ของ Console — ยืนยัน TOTP ซ้ำก่อนรายการเสี่ยง (ใส่/หมุน credential / ตั้งค่า connector ของลูกค้า)
+   * ได้ `stepUpToken` (5 นาที) ส่งใน header `X-Step-Up` · รหัสผิด = นับรวมเพดานล็อกเดียวกับ login Console
+   */
+  @PlatformAuth()
+  @Post('step-up')
+  @HttpCode(200)
+  @ApiBearerAuth()
+  @ApiOkResponse({ type: StepUpDto })
+  async stepUp(@Body() body: PlatformStepUpRequestDto): Promise<StepUpDto> {
+    const db = this.prisma.platform;
+    const id = requestContext.require().platformUser!.id;
+    const u = await db.platformUser.findUniqueOrThrow({ where: { id } });
+    if (u.lockedUntil && u.lockedUntil > new Date()) throw new ProblemException('account_locked');
+    const secret = (this.cipher ??= new FieldCipher()).decrypt(u.totpSecret);
+    const last = u.totpLastStep === null ? null : Number(u.totpLastStep);
+    const step = verifyTotp(secret, body.code, last);
+    if (step === null) {
+      await this.fail(u.id);
+      throw new ProblemException('invalid_otp');
+    }
+    const claimed = await db.platformUser.updateMany({
+      where: { id: u.id, OR: [{ totpLastStep: null }, { totpLastStep: { lt: BigInt(step) } }] },
+      data: { totpLastStep: BigInt(step), failedLogins: 0 },
+    });
+    if (claimed.count !== 1) throw new ProblemException('invalid_otp');
+    return {
+      stepUpToken: await signPlatformStepUpToken(u.id, u.tokenVersion),
+      expiresIn: STEP_UP_TTL_SECONDS,
+    };
   }
 
   /** ออกจากระบบทุกเครื่อง: bump tokenVersion (token เดิมใช้ไม่ได้ทันที) */

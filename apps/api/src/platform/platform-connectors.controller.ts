@@ -24,7 +24,8 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { PlatformAuth } from '../common/decorators';
+import { PlatformAuth, StepUpAlways, StepUpWhen } from '../common/decorators';
+import { assertStepUp } from '../auth/step-up';
 import { expectedVersion } from '../common/etag';
 import { decodeIdOr404, encodeId } from '../common/ids';
 import { ProblemException } from '../common/problem';
@@ -264,6 +265,7 @@ export class PlatformConnectorsController {
   /** เปิด connector ให้ tenant (สร้างเป็น PAUSED — `activate: true` = ทดสอบแล้วเปิดใช้ทันทีถ้าผ่าน) */
   @Post('tenants/:id/connectors')
   @PlatformAuth('SUPER_ADMIN')
+  @StepUpWhen('ส่ง `credentials` หรือ `settings` มาด้วย (D-77)', 'platform')
   @ApiCreatedResponse({
     type: PlatformConnectorCreatedDto,
     description:
@@ -278,6 +280,8 @@ export class PlatformConnectorsController {
     if (!(await this.entitlements.enabled(t.id, 'conn')))
       throw new ProblemException('feature_not_in_plan', undefined, undefined, { feature: 'conn' });
     const { reason, activate, ...input } = body;
+    // D-77 (PO 23 พ.ย. 2569): ใส่ credential / ค่าตั้ง (เช่น baseUrl = ปลายทางที่ credential ถูกส่งไป) ตอนเปิด → step-up ของ Console
+    if (hasKeys(input.credentials) || hasKeys(input.settings)) assertStepUp();
     const created = await this.asTenant(t.id, true, () => this.connectors.create(input, reason));
     let row = created;
     let activation: PlatformActivationDto | null = null;
@@ -301,6 +305,7 @@ export class PlatformConnectorsController {
   /** ใส่/หมุน credential (แทนทั้งชุด) — ไม่ส่งกลับ · audit มีแค่ชื่อช่อง + เหตุผล */
   @Put('connectors/:id/credentials')
   @PlatformAuth('SUPER_ADMIN')
+  @StepUpAlways('platform') // D-77
   @ApiHeader(IF_MATCH)
   @ApiOkResponse({ type: PlatformConnectorDto })
   async credentials(
@@ -309,6 +314,7 @@ export class PlatformConnectorsController {
     @Req() req: Request,
   ): Promise<PlatformConnectorDto> {
     const { c, t } = await this.target(id);
+    assertStepUp(); // D-77 — ตรวจหลัง validation/404
     const row = await this.asTenant(t.id, true, () =>
       this.connectors.setCredentials(
         c.id,
@@ -471,3 +477,8 @@ export class PlatformConnectorsController {
 
 /** target_id ของ sink `erp` = uuid ของ connector (กันค่าอื่นที่ไม่ใช่ uuid ทำให้ query ล้ม) */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** มีอย่างน้อย 1 ช่อง (D-77 — เหมือน D-67 ฝั่ง tenant) */
+function hasKeys(o: object | null | undefined): boolean {
+  return !!o && Object.keys(o).length > 0;
+}

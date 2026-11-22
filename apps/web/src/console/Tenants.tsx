@@ -7,7 +7,8 @@ import { ApiError, queryClient } from '../api';
 import { useI18n, type Lang } from '../i18n';
 import { th, type MessageKey } from '../i18n/th';
 import { useTenantList } from './ConsoleShell';
-import { can, consoleApi, cunwrap, useStaff } from './session';
+import { StepUpBox } from '../features/settings/OrgSections';
+import { can, consoleApi, consoleStepUp, cunwrap, dropConsoleStepUp, useStaff } from './session';
 
 type Tenant = components['schemas']['PlatformTenantDto'];
 type TenantDetail = components['schemas']['PlatformTenantDetailDto'];
@@ -474,23 +475,47 @@ export function ActionDialog({
   const [reason, setReason] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  // D-77: API ตอบ step_up_required → กล่องยืนยัน 2FA (StepUpBox เดิม) ในกล่องนี้ → ยืนยันแล้วส่งคำขอเดิมซ้ำ
+  const [stepUp, setStepUp] = useState(false);
+  const [suBusy, setSuBusy] = useState(false);
   const r = reason.trim();
   const ce = check ? check(v) : '';
-  const ok = r.length >= 10 && !ce && !busy;
+  const ok = r.length >= 10 && !ce && !busy && !stepUp;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-  async function submit() {
-    if (!ok) return;
+  async function send() {
     setBusy(true);
     setErr('');
     try {
       await onOk(v, r);
     } catch (e) {
-      setErr(text(e));
       setBusy(false);
+      if (e instanceof ApiError && e.problem.code === 'step_up_required') {
+        dropConsoleStepUp();
+        setStepUp(true);
+        return;
+      }
+      setErr(text(e));
+    }
+  }
+  async function submit() {
+    if (!ok) return;
+    await send();
+  }
+  async function confirmStepUp(code: string) {
+    setSuBusy(true);
+    setErr('');
+    try {
+      await consoleStepUp(code);
+      setStepUp(false);
+      await send();
+    } catch (e) {
+      setErr(text(e));
+    } finally {
+      setSuBusy(false);
     }
   }
   return (
@@ -566,6 +591,14 @@ export function ActionDialog({
                 (r.length < 10 ? t('con.reasonLeft', { n: 10 - r.length }) : t('con.reasonOk'))}
             </span>
           </label>
+          {stepUp && (
+            <StepUpBox
+              desc={t('stepUp.descAction')}
+              busy={suBusy}
+              onConfirm={(code) => void confirmStepUp(code)}
+              onCancel={() => setStepUp(false)}
+            />
+          )}
           {err && (
             <div
               className="con-warn"

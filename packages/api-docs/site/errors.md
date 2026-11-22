@@ -19,6 +19,7 @@
 | [`mfa_expired`](#mfa_expired) | 401 | หมดเวลายืนยันตัวตน เข้าสู่ระบบใหม่อีกครั้ง |
 | [`mfa_required`](#mfa_required) | 401 | กรอกรหัสยืนยันตัวตน 2 ชั้นจากแอป Authenticator |
 | [`unauthorized`](#unauthorized) | 401 | ต้องเข้าสู่ระบบ |
+| [`bank_change_requires_user`](#bank_change_requires_user) | 403 | แก้หรือดูบัญชีธนาคารผู้รับเหมาผ่าน API key ไม่ได้ ต้องให้ผู้ใช้ทำในระบบ |
 | [`edit_lock_user_required`](#edit_lock_user_required) | 403 | การล็อกเพื่อแก้ไขใช้ได้เฉพาะผู้ใช้ในระบบ |
 | [`feature_not_in_plan`](#feature_not_in_plan) | 403 | แพ็กเกจปัจจุบันยังไม่มีฟีเจอร์นี้ |
 | [`forbidden`](#forbidden) | 403 | ไม่มีสิทธิ์ทำรายการนี้ |
@@ -33,6 +34,7 @@
 | [`settlement_self_approval`](#settlement_self_approval) | 403 | ผู้เตรียมใบสำคัญจ่าย (สร้างใบ เพิ่มหรือนำรายการออก) อนุมัติใบนั้นไม่ได้ ต้องให้ผู้อนุมัติคนอื่น |
 | [`settlement_self_payment`](#settlement_self_payment) | 403 | ผู้อนุมัติใบสำคัญจ่าย บันทึกจ่ายใบนั้นเองไม่ได้ ต้องให้ผู้อื่นบันทึกจ่าย |
 | [`step_up_required`](#step_up_required) | 403 | ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้ |
+| [`two_factor_enrolment_required`](#two_factor_enrolment_required) | 403 | บัญชีนี้ต้องตั้งการยืนยันตัวตน 2 ชั้นก่อนใช้งาน |
 | [`not_found`](#not_found) | 404 | ไม่พบข้อมูล |
 | [`method_not_allowed`](#method_not_allowed) | 405 | ไม่รองรับวิธีเรียกนี้ |
 | [`alias_conflict`](#alias_conflict) | 409 | รหัสหรือชื่อลูกค้าตามต้นทางนี้เคยจับคู่กับลูกค้ารายอื่นไว้แล้ว — ยืนยันการย้ายพร้อมเหตุผล |
@@ -228,6 +230,12 @@ HTTP `401` · ต้องเข้าสู่ระบบ
 
 พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 369 endpoint
 
+## bank_change_requires_user {#bank_change_requires_user}
+
+HTTP `403` · แก้หรือดูบัญชีธนาคารผู้รับเหมาผ่าน API key ไม่ได้ ต้องให้ผู้ใช้ทำในระบบ
+
+พบใน: [`POST /v1/carriers`](ref-carriers.md#post-carriers), [`PUT /v1/carriers/external/{externalId}`](ref-carriers.md#put-carriers-external-externalId), [`PATCH /v1/carriers/external/{externalId}`](ref-carriers.md#patch-carriers-external-externalId), [`PATCH /v1/carriers/{id}`](ref-carriers.md#patch-carriers-id), [`POST /v1/carriers/{id}/reveal`](ref-carriers.md#post-carriers-id-reveal)
+
 ## edit_lock_user_required {#edit_lock_user_required}
 
 HTTP `403` · การล็อกเพื่อแก้ไขใช้ได้เฉพาะผู้ใช้ในระบบ
@@ -311,6 +319,12 @@ HTTP `403` · ผู้อนุมัติใบสำคัญจ่าย �
 HTTP `403` · ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้
 
 พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`GET /v1/customer-sites/export`](ref-customer-sites.md#get-customer-sites-export), [`GET /v1/routes/export`](ref-routes.md#get-routes-export), [`GET /v1/products/export`](ref-products.md#get-products-export), [`GET /v1/vehicle-types/export`](ref-vehicle-types.md#get-vehicle-types-export), [`GET /v1/service-items/export`](ref-service-items.md#get-service-items-export), [`GET /v1/reason-codes/export`](ref-reason-codes.md#get-reason-codes-export), [`GET /v1/rate-cards/export`](ref-rate-cards.md#get-rate-cards-export), [`POST /v1/invoices/{id}/void`](ref-invoices.md#post-invoices-id-void), [`POST /v1/billing-notes/{id}/cancel`](ref-billing-notes.md#post-billing-notes-id-cancel), [`POST /v1/carriers`](ref-carriers.md#post-carriers) และอีก 8 endpoint
+
+## two_factor_enrolment_required {#two_factor_enrolment_required}
+
+HTTP `403` · บัญชีนี้ต้องตั้งการยืนยันตัวตน 2 ชั้นก่อนใช้งาน
+
+อาจตอบได้จากหลาย endpoint
 
 ## not_found {#not_found}
 

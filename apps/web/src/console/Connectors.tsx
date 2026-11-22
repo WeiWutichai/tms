@@ -16,7 +16,7 @@ import {
   thDate,
 } from '../features/settings/ConnectorSettings';
 import { useTenantList } from './ConsoleShell';
-import { can, consoleApi, cunwrap, useStaff } from './session';
+import { can, consoleApi, consoleStepUpHeaders, cunwrap, useStaff } from './session';
 import { ActionDialog, type Field, useProblemText } from './Tenants';
 
 type Conn = components['schemas']['PlatformConnectorDto'];
@@ -480,6 +480,7 @@ function ConnectorDrawer({
             await cunwrap(
               consoleApi.PUT('/v1/platform/connectors/{id}/credentials', {
                 params: { path: { id: c.id }, header: { 'If-Match': `"${c.version}"` } as never },
+                headers: consoleStepUpHeaders(), // D-77
                 body: { credentials: pickSecrets(adapter, v), reason },
               }),
             );
@@ -637,6 +638,7 @@ function CreateDialog({
         const c = await cunwrap(
           consoleApi.POST('/v1/platform/tenants/{id}/connectors', {
             params: { path: { id: v.tenant! } },
+            headers: consoleStepUpHeaders(), // D-77
             body: {
               adapterKey: v.adapter!,
               credentials: pickSecrets(a, v),

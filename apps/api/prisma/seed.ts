@@ -6,7 +6,7 @@
  * stage ถัดไปเพิ่ม seed ของตัวเองในไฟล์ prisma/seed/*.ts แล้วเรียกจากที่นี่
  */
 import { PrismaClient } from '@prisma/client';
-import { ROLE_CODES, type RoleCode } from '@tms/domain';
+import { requiresTwoFactor, ROLE_CODES, SYSTEM_ROLES, type RoleCode } from '@tms/domain';
 import { signDevToken } from '../src/auth/auth.guard';
 import { hashPassword } from '../src/auth/password';
 import { isLocalEnv } from '../src/auth/tokens';
@@ -108,7 +108,8 @@ const BRANCHES = [
  */
 export const DEMO_PASSWORD = 'demo-password-2569';
 /**
- * 2FA ของผู้ใช้เดโมที่ role บังคับ (owner, admin, accounting — ST1-T05): เพิ่ม secret นี้ในแอป Authenticator
+ * 2FA ของผู้ใช้เดโมที่ role บังคับ (owner, admin, accounting — ST1-T05; + manager, planner, invoicer ตามสิทธิ์สำคัญ — D-78):
+ * เพิ่ม secret นี้ในแอป Authenticator
  * (พิมพ์เอง: JBSW Y3DP EHPK 3PXP) เพื่อ login ด้วยมือ · E2E ใช้ cookie อุปกรณ์ที่จำไว้ DEMO_TRUSTED_DEVICE ข้ามขั้นนี้
  * ข้อมูลเดโมเท่านั้น — production ไม่รัน seed
  */
@@ -198,7 +199,8 @@ async function main() {
       where: { tenantId: u.tenantId, userId: u.id, roleId },
     });
     if (!link) await db.userRole.create({ data: { tenantId: u.tenantId, userId: u.id, roleId } });
-    if (FORCED_2FA_ROLES.includes(role)) {
+    // D-78: ถือสิทธิ์สำคัญ (settings:write / settlements:pay / invoices:void / export:run) = ต้องตั้ง 2FA → ตั้งให้ผู้ใช้เดโมไว้
+    if (FORCED_2FA_ROLES.includes(role) || requiresTwoFactor(SYSTEM_ROLES[role].permissions)) {
       const cur = await db.appUser.update({
         where: { id: u.id },
         data: {

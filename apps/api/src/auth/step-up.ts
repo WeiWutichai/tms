@@ -18,6 +18,18 @@ export function assertHumanStepUp(): void {
 }
 
 /**
+ * D-79 (PO 23 พ.ย. 2569) — แก้/ดูเลขบัญชีธนาคารผู้รับเหมา: **API key / OAuth client ทำไม่ได้** (403 `bank_change_requires_user`)
+ * ผู้ใช้ต้อง step-up ตาม D-67 · งานนำเข้า (`ctx.importRun`) ผ่าน — ด่านอยู่ที่ `POST /v1/imports/{id}/commit` (เรียกฟังก์ชันนี้)
+ * ช่องอื่นของผู้รับเหมาผ่าน API key ได้ตามเดิม
+ */
+export function assertBankStepUp(): void {
+  const ctx = requestContext.require();
+  if (ctx.importRun === true) return;
+  if (ctx.principalType === 'client') throw new ProblemException('bank_change_requires_user');
+  if (!ctx.steppedUp) throw new ProblemException('step_up_required');
+}
+
+/**
  * D-67: step-up ทุก principal (route จัดการ credential — API key/webhook/connector) — ตรวจใน handler
  * **หลัง validation** (ข้อมูลผิด = 422 ก่อนถามยืนยัน 2FA; ข้าม tenant = 404) · API key ไม่ได้รับยกเว้น
  */

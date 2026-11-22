@@ -8,10 +8,30 @@ import { ApiError } from '../api';
  */
 let current: { token: string; exp: number } | null = null;
 const listeners = new Set<() => void>();
+/** D-77 step-up ของ Console (ดู consoleStepUp) */
+let stepUp: { token: string; until: number } | null = null;
 
 function set(token: string | null, expiresIn = 0) {
   current = token ? { token, exp: Date.now() + expiresIn * 1000 } : null;
+  stepUp = null; // session เปลี่ยน → ทิ้ง token step-up
   listeners.forEach((l) => l());
+}
+
+/**
+ * D-77 (PO 23 พ.ย. 2569): step-up ของ Console — ยืนยันรหัส 6 หลักซ้ำก่อนใส่/หมุน credential หรือเปิด connector พร้อมค่าตั้ง
+ * `POST /v1/platform/auth/step-up` → token (5 นาที) จำไว้ในหน่วยความจำ แนบ header `X-Step-Up` ด้วย `consoleStepUpHeaders()`
+ */
+export function consoleStepUpHeaders(): Record<string, string> {
+  return stepUp && stepUp.until > Date.now() ? { 'X-Step-Up': stepUp.token } : {};
+}
+export async function consoleStepUp(code: string): Promise<void> {
+  const r = await cunwrap(consoleApi.POST('/v1/platform/auth/step-up', { body: { code } }));
+  // เผื่อเวลาเดินทาง 30 วินาที — หมดก่อน server เสมอ
+  stepUp = { token: r.stepUpToken, until: Date.now() + Math.max(0, r.expiresIn - 30) * 1000 };
+}
+/** API ตอบ `step_up_required` → ทิ้ง token ที่จำไว้ (หมดอายุ/ใช้ไม่ได้) */
+export function dropConsoleStepUp(): void {
+  stepUp = null;
 }
 
 export const consoleSession = {
@@ -41,7 +61,8 @@ export async function cunwrap<T>(
       title: '',
       type: '',
     }) as Problem;
-    if (r.response.status === 401) set(null);
+    // 401 = token Console หมดอายุ/ถูกเพิกถอน · ยกเว้นรหัสยืนยันผิด (`invalid_otp` ของ step-up) — ยังอยู่ในระบบ ให้กรอกใหม่
+    if (r.response.status === 401 && problem.code !== 'invalid_otp') set(null);
     throw new ApiError(problem);
   }
   return r.data as T;

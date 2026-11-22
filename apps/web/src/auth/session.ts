@@ -76,6 +76,30 @@ export function dropAccessToken() {
   set(null);
 }
 
+/**
+ * D-78 (PO 23 พ.ย. 2569): ผู้ใช้ที่ถือสิทธิ์สำคัญแต่ยังไม่ตั้ง 2FA — API ตอบ 403 `two_factor_enrolment_required` ทุกหน้า
+ * → ออกจากระบบ (เพิกถอน refresh token) แล้วพากลับหน้าเข้าสู่ระบบพร้อมข้อความ · login ใหม่ = ขั้นตั้ง 2FA เดิม (MfaEnroll)
+ * ต้นแบบไม่มีหน้า "ต้องตั้ง 2FA" — ใช้หน้าเข้าสู่ระบบ + หน้าตั้ง 2FA เดิม [spec/12 §3 แถว D-78]
+ */
+let loginNotice: 'two_factor_enrolment_required' | null = null;
+let enrolling: Promise<void> | null = null;
+export function requireTwoFactorEnrolment(): Promise<void> {
+  if (impersonating) return Promise.resolve();
+  loginNotice = 'two_factor_enrolment_required';
+  enrolling ??= raw
+    .POST('/v1/oauth/revoke')
+    .catch(() => undefined)
+    .then(() => {
+      enrolling = null;
+      set(null);
+    });
+  return enrolling;
+}
+/** ข้อความที่หน้าเข้าสู่ระบบต้องแสดง — ล้างเมื่อเริ่ม login ใหม่ (อ่านซ้ำได้ — StrictMode เรียก initializer 2 รอบ) */
+export function peekLoginNotice(): 'two_factor_enrolment_required' | null {
+  return loginNotice;
+}
+
 function base64url(bytes: Uint8Array): string {
   let s = '';
   bytes.forEach((b) => (s += String.fromCharCode(b)));
@@ -115,6 +139,7 @@ export async function login(
   password: string,
   tenantId?: string,
 ): Promise<LoginResult> {
+  loginNotice = null;
   const { verifier, challenge } = await createPkce();
   const r1 = await raw.POST('/v1/auth/login', {
     body: { email, password, codeChallenge: challenge, ...(tenantId ? { tenantId } : {}) },
