@@ -1091,6 +1091,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'settle.pay.ok': 'Record payment',
   'settle.step.approve': 'Approved',
   'settle.step.pay': 'Record payment',
+  'cpl.due': 'Awaiting payment',
   'stl.tab': 'Finance',
   'stl.st.SENT_TO_CARRIER': 'To review',
   'stl.st.PAID': 'Paid',
