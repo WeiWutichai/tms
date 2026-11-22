@@ -1,7 +1,7 @@
 import { scopeAllows } from '@tms/domain';
 import { ProblemException } from '../../common/problem';
 import type { ExportSpec } from '../exports/export-spec';
-import type { ExportColumn } from '../master/export';
+import { dropUnpricedColumns, type ExportColumn } from '../master/export';
 import { AccountingExportQuery } from './accounting-export.dto';
 import {
   ACCOUNTING_DATASET_SCOPE,
@@ -87,10 +87,12 @@ export function accountingExportSpecs(
     columns: (scopes, q): ExportColumn<AccountingRowOf[D]>[] => {
       const a = adapters.resolve(q.template, dataset);
       if (!a) throw new ProblemException('validation_failed');
-      return a.columns(dataset, {
+      const money = {
         sell: scopeAllows(scopes, 'prices.sell:read'),
         buy: scopeAllows(scopes, 'prices.buy:read'),
-      });
+      };
+      // core บังคับซ้ำ: คอลัมน์ที่ติดป้าย price ออกเฉพาะผู้มีสิทธิ์ (adapter กรองผิดก็ไม่รั่ว)
+      return dropUnpricedColumns(a.columns(dataset, money), money);
     },
   });
   return [

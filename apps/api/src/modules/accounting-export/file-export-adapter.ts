@@ -18,8 +18,9 @@ import type { ExportColumn } from '../master/export';
  *   หา adapter ผ่าน `FileExportAdapterRegistry` เท่านั้น (lint-adapters)
  * - phase 0 มีรูปแบบ "ทั่วไป" ตัวเดียว (ค่าเริ่มต้น) · รูปแบบนำเข้าของโปรแกรมบัญชีเฉพาะ (Express / PEAK / FlowAccount)
  *   = adapter ใหม่เมื่อได้ template นำเข้าจริง (spec/07 INT-043, O-INT-4)
- * - adapter เป็นฟังก์ชันบริสุทธิ์: ห้ามอ่าน/เขียนฐาน ห้ามเรียกภายนอก · คอลัมน์เงินออกเฉพาะเมื่อ `sell`/`buy` = true
- *   (ผู้สั่งมี `prices.sell:read` / `prices.buy:read`) — core ไม่ตรวจซ้ำ (contract test ตรวจ)
+ * - adapter เป็นฟังก์ชันบริสุทธิ์: ห้ามอ่าน/เขียนฐาน ห้ามเรียกภายนอก · คอลัมน์เงิน **ต้อง**ติด `price: 'sell' | 'buy'`
+ *   — core ตัดคอลัมน์ที่ติดป้ายเมื่อผู้สั่งไม่มี `prices.sell:read` / `prices.buy:read` (`dropUnpricedColumns`) ·
+ *   contract test render ด้วยสิทธิ์ {sell:false,buy:false} แล้วตรวจว่าไม่มีค่าเงินหลุด
  */
 
 /** ชุดข้อมูล (ต้นแบบ TMS v4 `vXp` SETS — ตัด "หัก ณ ที่จ่าย" ตาม D-54/D-58) */

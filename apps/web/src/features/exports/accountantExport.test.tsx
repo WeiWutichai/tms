@@ -109,7 +109,31 @@ describe('AccountantExportDialog', () => {
     const bodies = POST.mock.calls.map((c) => (c[1] as { body: Record<string, unknown> }).body);
     expect(bodies.map((b) => b.resource)).toEqual(['accounting-sales', 'accounting-receipts']);
     expect(bodies[0]).toMatchObject({ format: 'xlsx', filter: { dateFrom: expect.any(String) } });
-    expect(onToast).toHaveBeenCalledWith('ส่งออก 2 ไฟล์ รูปแบบ ทั่วไป แล้ว');
+    expect(onToast).toHaveBeenCalledWith(
+      'ส่งออก 2 ไฟล์ รูปแบบ ทั่วไป แล้ว · ถ้าเบราว์เซอร์ถาม ให้อนุญาตดาวน์โหลดหลายไฟล์',
+    );
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('ระหว่างโหลดจำนวน ไม่ขึ้น "เลือกชุดข้อมูลอย่างน้อย 1 ชุด" · ยกเลิกทุกชุดแล้วจึงขึ้น', async () => {
+    mount();
+    expect(screen.queryByText('เลือกชุดข้อมูลอย่างน้อย 1 ชุด')).toBeNull();
+    await screen.findByText('12 รายการ');
+    for (const n of [/รายการขาย/, /รับชำระ/, /จ่ายรถร่วม/])
+      fireEvent.click(screen.getByRole('checkbox', { name: n }));
+    expect(screen.getByText('เลือกชุดข้อมูลอย่างน้อย 1 ชุด')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ส่งออก' })).toBeDisabled();
+  });
+
+  it('บางไฟล์สั่งไม่สำเร็จ = งานที่สร้างแล้วเดินต่อ + toast "กำลังส่งออก"', async () => {
+    POST.mockImplementationOnce(() => Promise.reject(new Error('x')));
+    const { onToast } = mount();
+    await screen.findByText('12 รายการ');
+    fireEvent.click(screen.getByRole('button', { name: 'ส่งออก' }));
+    await waitFor(() => expect(onToast).toHaveBeenCalled(), { timeout: 4000 });
+    expect(POST).toHaveBeenCalledTimes(3);
+    expect(onToast).toHaveBeenCalledWith(
+      'กำลังส่งออก — ระบบจะแจ้งเตือนพร้อมลิงก์ดาวน์โหลดเมื่อไฟล์พร้อม',
+    );
   });
 });

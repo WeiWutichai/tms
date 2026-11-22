@@ -34,6 +34,19 @@ export const overSyncCap = (n: number, page?: ExportPage) => !page && n > EXPORT
 export interface ExportColumn<R> {
   header: string;
   value: (r: R) => string | number | null | undefined;
+  /**
+   * ST7-T23 คอลัมน์เงิน: `sell` ต้องมี `prices.sell:read` · `buy` ต้องมี `prices.buy:read` — ผู้ใช้ที่ไม่มีสิทธิ์ core ตัดคอลัมน์ทิ้ง
+   * (ด่านที่สองหลัง adapter — `dropUnpricedColumns`)
+   */
+  price?: 'sell' | 'buy';
+}
+
+/** ตัดคอลัมน์เงินที่ผู้สั่งไม่มีสิทธิ์เห็น (ไม่ขึ้นกับว่า adapter กรองเองหรือไม่) */
+export function dropUnpricedColumns<R>(
+  cols: ExportColumn<R>[],
+  money: { sell: boolean; buy: boolean },
+): ExportColumn<R>[] {
+  return cols.filter((c) => !c.price || money[c.price]);
 }
 
 /**

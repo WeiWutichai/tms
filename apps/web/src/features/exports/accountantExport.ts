@@ -68,6 +68,8 @@ export interface XpRunResult {
   done: number;
   queued: number;
   failed: string | null;
+  /** จำนวนไฟล์ที่สั่งไม่สำเร็จ (งานอื่นยังเดินต่อ) */
+  notCreated: number;
 }
 
 /**
@@ -78,7 +80,8 @@ export async function runAccountantExport(
   format: XpFormat,
   filter: { dateFrom: string; dateTo: string },
 ): Promise<XpRunResult> {
-  const jobs = await Promise.all(
+  // สั่งทุกไฟล์พร้อมกัน — บางงานสร้างไม่ได้ (เช่น ถูกถอดสิทธิ์) ไม่ทิ้งงานที่สร้างแล้ว
+  const created = await Promise.allSettled(
     resources.map((resource) =>
       unwrap(
         api.POST('/v1/exports', {
@@ -87,9 +90,12 @@ export async function runAccountantExport(
       ),
     ),
   );
+  const jobs = created.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
+  if (!jobs.length) throw (created[0] as PromiseRejectedResult).reason;
   const pending = new Set(jobs.map((j) => j.id));
   let done = 0;
   let failed: string | null = null;
+  const notCreated = created.length - jobs.length;
   const until = Date.now() + WAIT_MS;
   while (pending.size && Date.now() < until) {
     await sleep(POLL_MS);
@@ -105,5 +111,5 @@ export async function runAccountantExport(
       }
     }
   }
-  return { done, queued: pending.size, failed };
+  return { done, queued: pending.size, failed, notCreated };
 }

@@ -15,7 +15,8 @@ import type { ExportColumn } from '../../modules/master/export';
  * - คอลัมน์แรก "ระดับ": `เอกสาร` (หัวเอกสาร + ยอดรวม) / `รายการ` (บรรทัด — ยอดรวมของหัวเว้นว่าง) → ผลรวมคอลัมน์ = ผลรวมเอกสาร
  * - วันที่ `YYYY-MM-DD` (ค.ศ. — โปรแกรมอื่นอ่านได้ตรง) · เงินเป็นตัวเลขทศนิยม 2 ตำแหน่ง · อัตราเป็น %
  * - ภาษี (VAT/WHT) เป็นยอดประมาณการของ TMS (D-54: เอกสารภาษีออกที่ระบบบัญชี) — ตามที่อยู่ใน canonical (`taxEstimated`)
- * - เงินเฉพาะผู้มีสิทธิ์: ขาย/รับชำระ = `money.sell` · จ่ายรถร่วม = `money.buy`
+ * - เงินเฉพาะผู้มีสิทธิ์: ขาย/รับชำระ = `money.sell` · จ่ายรถร่วม = `money.buy` — ทุกคอลัมน์เงินติด `price`
+ *   (core ตัดซ้ำด้วย `dropUnpricedColumns` แม้ adapter กรองพลาด)
  */
 
 const num = (s: string | null | undefined) =>
@@ -84,21 +85,35 @@ function sales(money: FileExportMoneyAccess): ExportColumn<AccountingSalesRow>[]
   ];
   if (money.sell)
     cols.push(
-      { header: 'ราคาต่อหน่วย', value: (r) => num(L(r)?.unitPrice) },
-      { header: 'ส่วนลด', value: (r) => num(L(r)?.discount) },
-      { header: 'มูลค่ารายการ (ก่อน VAT)', value: (r) => num(L(r)?.amount) },
+      { price: 'sell', header: 'ราคาต่อหน่วย', value: (r) => num(L(r)?.unitPrice) },
+      { price: 'sell', header: 'ส่วนลด', value: (r) => num(L(r)?.discount) },
+      { price: 'sell', header: 'มูลค่ารายการ (ก่อน VAT)', value: (r) => num(L(r)?.amount) },
     );
   cols.push({ header: 'ประเภท VAT', value: (r) => label(VAT_TYPE, L(r)?.vatType) });
-  if (money.sell) cols.push({ header: 'VAT ของรายการ', value: (r) => num(L(r)?.vatAmount) });
+  if (money.sell)
+    cols.push({ price: 'sell', header: 'VAT ของรายการ', value: (r) => num(L(r)?.vatAmount) });
   cols.push({ header: 'อัตราหัก ณ ที่จ่าย (%)', value: (r) => num(L(r)?.whtRate) });
   if (money.sell)
     cols.push(
-      { header: 'มูลค่ายกเว้น VAT', value: head((r) => num(r.doc.totals.subtotalExempt)) },
-      { header: 'มูลค่า VAT 7%', value: head((r) => num(r.doc.totals.subtotalVatable)) },
-      { header: 'มูลค่า VAT 0%', value: head((r) => num(r.doc.totals.subtotalZeroRated)) },
-      { header: 'VAT', value: head((r) => num(r.doc.totals.vatAmount)) },
-      { header: 'รวมทั้งสิ้น', value: head((r) => num(r.doc.totals.total)) },
       {
+        price: 'sell',
+        header: 'มูลค่ายกเว้น VAT',
+        value: head((r) => num(r.doc.totals.subtotalExempt)),
+      },
+      {
+        price: 'sell',
+        header: 'มูลค่า VAT 7%',
+        value: head((r) => num(r.doc.totals.subtotalVatable)),
+      },
+      {
+        price: 'sell',
+        header: 'มูลค่า VAT 0%',
+        value: head((r) => num(r.doc.totals.subtotalZeroRated)),
+      },
+      { price: 'sell', header: 'VAT', value: head((r) => num(r.doc.totals.vatAmount)) },
+      { price: 'sell', header: 'รวมทั้งสิ้น', value: head((r) => num(r.doc.totals.total)) },
+      {
+        price: 'sell',
         header: 'หัก ณ ที่จ่ายที่คาดว่าจะถูกหัก',
         value: head((r) => num(r.doc.totals.whtExpected)),
       },
@@ -124,22 +139,26 @@ function receipts(money: FileExportMoneyAccess): ExportColumn<AccountingReceiptR
   ];
   if (money.sell)
     cols.push(
-      { header: 'เงินรับ', value: head((r) => num(P(r).amountReceived)) },
-      { header: 'หัก ณ ที่จ่ายที่ถูกหัก', value: head((r) => num(P(r).whtAmount)) },
-      { header: 'ค่าธรรมเนียม', value: head((r) => num(P(r).feeAmount)) },
-      { header: 'ส่วนต่าง', value: head((r) => num(P(r).differenceAmount)) },
+      { price: 'sell', header: 'เงินรับ', value: head((r) => num(P(r).amountReceived)) },
+      { price: 'sell', header: 'หัก ณ ที่จ่ายที่ถูกหัก', value: head((r) => num(P(r).whtAmount)) },
+      { price: 'sell', header: 'ค่าธรรมเนียม', value: head((r) => num(P(r).feeAmount)) },
+      { price: 'sell', header: 'ส่วนต่าง', value: head((r) => num(P(r).differenceAmount)) },
     );
   cols.push({ header: 'เหตุผลส่วนต่าง', value: head((r) => P(r).differenceReason) });
   if (money.sell)
-    cols.push({ header: 'ยอดตัดหนี้รวม', value: head((r) => num(P(r).allocatedTotal)) });
+    cols.push({
+      price: 'sell',
+      header: 'ยอดตัดหนี้รวม',
+      value: head((r) => num(P(r).allocatedTotal)),
+    });
   cols.push(
     { header: 'ลำดับ', value: (r) => r.allocation?.lineNo },
     { header: 'ใบแจ้งหนี้ที่ตัด', value: (r) => r.allocation?.invoiceNumber },
   );
   if (money.sell)
     cols.push(
-      { header: 'ยอดตัดหนี้ของใบ', value: (r) => num(r.allocation?.amount) },
-      { header: 'หัก ณ ที่จ่ายของใบ', value: (r) => num(r.allocation?.whtAmount) },
+      { price: 'sell', header: 'ยอดตัดหนี้ของใบ', value: (r) => num(r.allocation?.amount) },
+      { price: 'sell', header: 'หัก ณ ที่จ่ายของใบ', value: (r) => num(r.allocation?.whtAmount) },
     );
   return cols;
 }
@@ -171,11 +190,15 @@ function settlements(money: FileExportMoneyAccess): ExportColumn<AccountingSettl
   ];
   if (money.buy)
     cols.push(
-      { header: 'ค่าขนส่งรวม', value: head((r) => num(D(r).totals.gross)) },
-      { header: 'รายการหัก', value: head((r) => num(D(r).totals.deduction)) },
-      { header: 'ยอดก่อนหัก ณ ที่จ่าย', value: head((r) => num(D(r).totals.net)) },
-      { header: 'หัก ณ ที่จ่าย (ประมาณการ)', value: head((r) => num(D(r).totals.wht)) },
-      { header: 'จ่ายสุทธิ', value: head((r) => num(D(r).totals.netAfterWht)) },
+      { price: 'buy', header: 'ค่าขนส่งรวม', value: head((r) => num(D(r).totals.gross)) },
+      { price: 'buy', header: 'รายการหัก', value: head((r) => num(D(r).totals.deduction)) },
+      { price: 'buy', header: 'ยอดก่อนหัก ณ ที่จ่าย', value: head((r) => num(D(r).totals.net)) },
+      {
+        price: 'buy',
+        header: 'หัก ณ ที่จ่าย (ประมาณการ)',
+        value: head((r) => num(D(r).totals.wht)),
+      },
+      { price: 'buy', header: 'จ่ายสุทธิ', value: head((r) => num(D(r).totals.netAfterWht)) },
     );
   cols.push(
     { header: 'ลำดับ', value: (r) => L(r)?.lineNo },
@@ -183,13 +206,17 @@ function settlements(money: FileExportMoneyAccess): ExportColumn<AccountingSettl
     { header: 'เลขที่เที่ยว', value: (r) => L(r)?.trip?.number },
     { header: 'รายการ', value: (r) => L(r)?.description },
   );
-  if (money.buy) cols.push({ header: 'ยอดรายการ', value: (r) => num(L(r)?.amount) });
+  if (money.buy) cols.push({ price: 'buy', header: 'ยอดรายการ', value: (r) => num(L(r)?.amount) });
   cols.push(
     { header: 'ประเภท VAT', value: (r) => label(VAT_TYPE, L(r)?.vatType) },
     { header: 'อัตราหัก ณ ที่จ่าย (%)', value: (r) => num(L(r)?.whtRate) },
   );
   if (money.buy)
-    cols.push({ header: 'หัก ณ ที่จ่ายของรายการ', value: (r) => num(L(r)?.whtAmount) });
+    cols.push({
+      price: 'buy',
+      header: 'หัก ณ ที่จ่ายของรายการ',
+      value: (r) => num(L(r)?.whtAmount),
+    });
   return cols;
 }
 

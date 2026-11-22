@@ -285,7 +285,6 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     NotificationPreferencesController,
     ImportsController,
     ExportsController,
-    AccountingExportController,
     SetupChecklistController,
     PlatformAuthController,
     PlatformTenantsController,
@@ -370,6 +369,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     CarrierDocsPublicController,
     MessagesController,
     MessagingSettingsController,
+    AccountingExportController,
   ],
   providers: [
     PrismaService,

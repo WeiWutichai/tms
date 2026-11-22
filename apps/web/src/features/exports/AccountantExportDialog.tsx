@@ -112,8 +112,9 @@ export function AccountantExportDialog({
       );
       onClose();
       if (r.failed) onToast(t(r.failed === 'too_many_rows' ? 'export.tooMany' : 'export.failed'));
-      else if (r.queued) onToast(t('export.queued'));
-      else onToast(t('xp.done', { n: r.done, f: t('xp.fmt.generic') }));
+      else if (r.queued || r.notCreated) onToast(t('export.queued'));
+      else
+        onToast(t(r.done > 1 ? 'xp.doneMany' : 'xp.done', { n: r.done, f: t('xp.fmt.generic') }));
     } catch {
       setBusy(false);
       onToast(t('export.failed'));
@@ -337,7 +338,7 @@ export function AccountantExportDialog({
                   </div>
                 ))}
               </div>
-            ) : (
+            ) : summary.isPending ? null : (
               <span style={{ color: '#3B424C' }}>{t('xp.noFiles')}</span>
             )}
           </Block>

@@ -17,6 +17,8 @@ import {
   FileExportAdapterRegistry,
 } from '../src/modules/accounting-export/file-export-adapter';
 import { CANONICAL_INVOICE_INCLUDE, canonicalInvoice } from '../src/modules/erp/canonical';
+import { ExportRegistry } from '../src/modules/exports/export-spec';
+import { dropUnpricedColumns } from '../src/modules/master/export';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import {
@@ -322,6 +324,170 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
     }
   });
 
+  it('contract: render fixture ด้วยสิทธิ์ {sell:false,buy:false} ไม่มีค่าเงินหลุด · ทุกคอลัมน์ที่ออกเงินติดป้าย price · core ตัดคอลัมน์ติดป้ายแม้ adapter ไม่กรอง', () => {
+    // ค่าเงินในชุดทดสอบเป็นเลขเฉพาะ (มี .37) — คอลัมน์ไม่ใช่เงิน (อัตรา %, จำนวน, ลำดับ) ใช้เลขอื่น
+    const M = (n: number) => `${n}.37`;
+    const isMoney = (v: unknown) => typeof v === 'number' && /\.37$/.test(String(v));
+    const doc = {
+      kind: 'invoice',
+      id: 'i',
+      number: 'INV-1',
+      issueDate: '2026-10-01',
+      dueDate: null,
+      issuer: { companyId: 'c', branchId: 'b', branchCode: '00000' },
+      customer: {
+        id: 'x',
+        code: 'C',
+        legalName: 'L',
+        taxId: null,
+        branchCode: null,
+        externalId: null,
+      },
+      customerPoNo: null,
+      taxEstimated: true,
+      totals: {
+        subtotalVatable: M(1),
+        subtotalExempt: M(2),
+        subtotalZeroRated: M(3),
+        vatAmount: M(4),
+        total: M(5),
+        whtExpected: M(6),
+      },
+      lines: [],
+    } as any;
+    const iline = {
+      lineNo: 1,
+      deliveryOrder: null,
+      serviceItem: { id: 's' },
+      description: 'd',
+      quantity: '2',
+      unitLabel: 'u',
+      unitPrice: M(7),
+      discount: M(8),
+      amount: M(9),
+      vatType: 'VAT_7',
+      vatAmount: M(10),
+      whtRate: '1.00',
+    } as any;
+    const payment = {
+      id: 'p',
+      number: 'PAY',
+      receivedDate: '2026-10-01',
+      customer: { code: 'C', legalName: 'L' },
+      method: 'TRANSFER',
+      reference: null,
+      cheque: { number: null, bank: null, date: null, status: null },
+      whtCertificateNo: null,
+      amountReceived: M(11),
+      whtAmount: M(12),
+      feeAmount: M(13),
+      differenceAmount: M(14),
+      differenceReason: null,
+      allocatedTotal: M(15),
+    };
+    const stl = {
+      kind: 'settlement',
+      id: 's',
+      number: 'STL',
+      paidDate: '2026-10-01',
+      payingCompanyId: null,
+      period: { from: '2026-10-01', to: '2026-10-31' },
+      carrierInvoiceNumber: null,
+      carrier: {
+        id: 'c',
+        code: 'R',
+        legalName: 'L',
+        taxId: null,
+        branchCode: null,
+        entityType: 'JURISTIC',
+      },
+      payment: { method: 'TRANSFER', reference: null, bank: null },
+      totals: { gross: M(16), deduction: M(17), net: M(18), wht: M(19), netAfterWht: M(20) },
+      whtEstimate: { pndForm: 'PND53', byRate: [], reviewedByAccountant: false },
+      taxEstimated: true,
+      lines: [],
+    } as any;
+    const sline = {
+      lineNo: 1,
+      lineType: 'FREIGHT',
+      trip: null,
+      description: 'd',
+      amount: M(21),
+      vatType: null,
+      whtRate: '1.00',
+      whtAmount: M(22),
+    } as any;
+    const fixture: Record<string, any[]> = {
+      sales: [
+        {
+          id: 'i',
+          level: 'document',
+          doc,
+          line: null,
+          status: 'ISSUED',
+          issuerName: 'I',
+          replacesNumber: null,
+        },
+        {
+          id: 'i',
+          level: 'line',
+          doc,
+          line: iline,
+          status: 'ISSUED',
+          issuerName: 'I',
+          replacesNumber: null,
+        },
+      ],
+      receipts: [
+        { id: 'p', level: 'document', payment, allocation: null },
+        {
+          id: 'p',
+          level: 'line',
+          payment,
+          allocation: { lineNo: 1, invoiceNumber: 'INV-1', amount: M(23), whtAmount: M(24) },
+        },
+      ],
+      settlements: [
+        { id: 's', level: 'document', doc: stl, line: null, payerName: 'P' },
+        { id: 's', level: 'line', doc: stl, line: sline, payerName: 'P' },
+      ],
+    };
+    const cells = (cols: { value: (r: any) => unknown }[], rows: any[]) =>
+      rows.flatMap((r) => cols.map((c) => c.value(r)));
+    for (const f of FILE_EXPORT_ADAPTER_FACTORIES) {
+      const a = f();
+      for (const d of a.datasets) {
+        const rows = fixture[d]!;
+        // ไม่มีสิทธิ์ = ไม่มีค่าเงินในไฟล์ (ทั้งจาก adapter เอง และหลัง core ตัด)
+        const none = a.columns(d, { sell: false, buy: false });
+        expect(cells(none, rows).filter(isMoney), `${a.key}/${d}`).toEqual([]);
+        // สิทธิ์เต็ม: คอลัมน์ใดออกค่าเงิน → ต้องติดป้าย price (core จึงตัดได้)
+        const full = a.columns(d, { sell: true, buy: true });
+        expect(cells(full, rows).filter(isMoney).length).toBeGreaterThan(0);
+        for (const c of full)
+          if (rows.some((r) => isMoney(c.value(r))))
+            expect(c.price, `${a.key}/${d} '${c.header}' ไม่ติดป้าย price`).toBeDefined();
+        // adapter ที่ "ลืมกรอง" (คืนคอลัมน์เต็มเสมอ) — core ตัดทิ้งตามสิทธิ์
+        const safe = dropUnpricedColumns(full, { sell: false, buy: false });
+        expect(cells(safe, rows).filter(isMoney)).toEqual([]);
+      }
+    }
+    const spec = app.get(ExportRegistry).get('accounting-sales')!;
+    const reg = app.get(FileExportAdapterRegistry);
+    const real = reg.default()!;
+    const leaky = Object.create(real) as typeof real;
+    leaky.columns = ((d: any) => real.columns(d, { sell: true, buy: true })) as typeof real.columns;
+    const orig = reg.default.bind(reg);
+    reg.default = () => leaky;
+    try {
+      const cols = spec.columns(['invoices:read', 'export:run'], month);
+      expect(cells(cols, fixture.sales!).filter(isMoney)).toEqual([]);
+      expect(cols.some((c: { price?: string }) => c.price)).toBe(false);
+    } finally {
+      reg.default = orig;
+    }
+  });
+
   it('ป้ายงวดในชื่อไฟล์: เต็มเดือน / เต็มไตรมาส / ช่วงอื่น', () => {
     expect(accountingPeriodTag('2026-10-01', '2026-10-31')).toBe('ต.ค.2569');
     expect(accountingPeriodTag('2026-10-01', '2026-12-31')).toBe('ไตรมาส4-2569');
@@ -563,6 +729,28 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
         .expect(200)
     ).body as Row;
     expect((os.datasets as Row[]).every((d) => d.documents === 0)).toBe(true);
+  });
+
+  it('PDPA: รถร่วมบุคคลธรรมดา — ไม่มีเลขบัตรประชาชนในไฟล์ (canonical) · ประเภท/แบบ ภ.ง.ด.3 ยังอยู่', async () => {
+    const nid = validTaxId(5199);
+    const car = await api(app, admin)
+      .post('/v1/carriers')
+      .send({
+        legalName: 'นาย รถร่วม บุคคล',
+        entityType: 'INDIVIDUAL',
+        taxId: nid,
+        phone: '081-234-5671',
+      });
+    expect(car.status, JSON.stringify(car.body)).toBe(201);
+    await paidSettlement(uuid('carrier', car.body.id), '3000.00');
+    const { file } = await runExport('accounting-settlements', month);
+    expect(file.toString('utf8')).not.toContain(nid);
+    const doc = csvRows(file).find(
+      (x) => x['ระดับ'] === 'เอกสาร' && x['ผู้รับเหมา'] === 'นาย รถร่วม บุคคล',
+    )!;
+    expect(doc['ประเภทผู้รับเหมา']).toBe('บุคคลธรรมดา');
+    expect(doc['เลขผู้เสียภาษีผู้รับเหมา']).toBe('');
+    expect(doc['แบบยื่นหัก ณ ที่จ่าย (ประมาณการ)']).toBe('ภ.ง.ด.3');
   });
 
   it('ตัวกรองผิด = 422 ตอนสั่ง (วันที่ / ช่วงกลับด้าน / เกิน 366 วัน / รูปแบบไม่รู้จัก / field แปลก) · audit export.requested', async () => {
