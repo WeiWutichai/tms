@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures';
+import { confirmStepUp, expect, test } from './fixtures';
 
 /**
  * E2E ST7-T01 ตั้งค่า → นักพัฒนา / Open API → API keys (ผ่าน API จริง ฐาน e2e)
@@ -40,6 +40,7 @@ test.describe.serial('นักพัฒนา / Open API → API keys', () => {
     await expect(d.getByText('รูปแบบ IP ไม่ถูกต้อง เช่น 203.150.12.0/24')).toBeVisible();
     await d.getByLabel('IP ที่อนุญาต').fill('');
     await d.getByRole('button', { name: 'สร้าง key' }).click();
+    await confirmStepUp(page); // D-67 สร้าง key ต้องยืนยัน 2FA
 
     const sec = page.getByRole('dialog', { name: 'สร้าง API key แล้ว' });
     await expect(sec.getByText(`${NAME} · Production · orders:read`)).toBeVisible();
@@ -85,6 +86,7 @@ test.describe.serial('นักพัฒนา / Open API → API keys', () => {
     const dlg = page.getByRole('dialog', { name: `หมุนเวียน key "${NAME}"` });
     await dlg.getByRole('textbox').fill('หมุนตามรอบความปลอดภัยประจำไตรมาส');
     await dlg.getByRole('button', { name: 'หมุนเวียน key' }).click();
+    await confirmStepUp(page); // D-67
     const sec = page.getByRole('dialog', { name: 'Key ใหม่จากการหมุนเวียน' });
     await expect(sec.getByText('key เดิมใช้ได้อีก 24 ชั่วโมง')).toBeVisible();
     const fresh = await sec.getByLabel('Secret key').inputValue();

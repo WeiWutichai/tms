@@ -27,6 +27,7 @@ type Op = {
   requestBody?: unknown;
   responses?: Record<string, unknown>;
   'x-required-scopes'?: string[];
+  'x-step-up'?: { mode: 'always' | 'human'; when?: string };
 };
 
 const problem = (description: string, examples: Record<string, unknown>) => ({
@@ -87,6 +88,41 @@ export function describeProblemDefaults(doc: OpenAPIObject): OpenAPIObject {
         }
         r['403'] = ref(name);
       }
+    }
+  // D-67 step-up 2FA: header `X-Step-Up` + ตัวอย่าง 403 `step_up_required` (รวมกับ 403 เดิมของ route)
+  for (const [path, item] of Object.entries(doc.paths ?? {}))
+    for (const op of Object.values(item as Record<string, Op>)) {
+      const su = op?.['x-step-up'];
+      if (!su || !op.responses) continue;
+      const when = su.when ? `เมื่อ${su.when}` : 'ทุกครั้ง';
+      const who =
+        su.mode === 'human'
+          ? ' · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)'
+          : ' · API key ใช้ route นี้ไม่ได้';
+      op.parameters ??= [];
+      if (!op.parameters.some((p) => p.in === 'header' && p.name?.toLowerCase() === 'x-step-up'))
+        (op.parameters as unknown[]).push({
+          name: 'X-Step-Up',
+          in: 'header',
+          required: false,
+          description: `stepUpToken จาก \`POST /v1/auth/step-up\` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่ง${when} ไม่งั้น 403 \`step_up_required\`${who}`,
+          schema: { type: 'string' },
+        });
+      const stepEx = { step_up_required: { value: example('step_up_required', samplePath(path)) } };
+      const cur = op.responses['403'] as
+        | { $ref?: string; description?: string; content?: Record<string, { examples?: object }> }
+        | undefined;
+      const base = cur?.$ref ? (responses[cur.$ref.split('/').pop()!] as typeof cur) : cur;
+      const json = base?.content?.['application/problem+json'];
+      op.responses['403'] = {
+        description: `${base?.description ? `${base.description} · ` : ''}ต้องยืนยัน 2FA ซ้ำ (\`step_up_required\`)${su.when ? ` ${when}` : ''}`,
+        content: {
+          'application/problem+json': {
+            schema: { $ref: '#/components/schemas/ProblemDto' },
+            examples: { ...(json?.examples ?? {}), ...stepEx },
+          },
+        },
+      };
     }
   for (const [path, item] of Object.entries(doc.paths ?? {}))
     for (const op of Object.values(item as Record<string, Op>)) {

@@ -2,6 +2,7 @@ import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrap } from '../../api';
 import { refetchOnStale } from '../master/problems';
+import { stepUpHeaders, withStepUp } from '../stepup/stepUp';
 import { useCursorList } from '../master/useCursorList';
 
 export type ApiKey = Schemas['ApiKeyDto'];
@@ -54,12 +55,16 @@ export function useCreateApiKey() {
   return useMutation({
     // ไม่ส่ง Idempotency-Key: ผลมี secret ที่แสดงครั้งเดียว (API ไม่เก็บ response) — ส่งซ้ำ = ชื่อซ้ำ 409
     // ST7-T09: key test สร้างใน sandbox — ส่งโหมดที่เลือกในฟอร์มเป็น header (ไม่ขึ้นกับโหมดของหน้า)
+    // D-67: สร้าง key ต้องยืนยัน 2FA — 403 step_up_required → กล่องยืนยัน แล้วส่งซ้ำพร้อม X-Step-Up
     mutationFn: (body: ApiKeyCreate) =>
-      unwrap(
-        api.POST('/v1/api-keys', {
-          params: { header: { 'X-Tms-Mode': body.mode ?? 'live' } } as never,
-          body,
-        }),
+      withStepUp((su) =>
+        unwrap(
+          api.POST('/v1/api-keys', {
+            params: { header: { 'X-Tms-Mode': body.mode ?? 'live' } } as never,
+            headers: stepUpHeaders(su),
+            body,
+          }),
+        ),
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   });
@@ -98,11 +103,14 @@ export function useApiKeyAction() {
         header: { 'If-Match': `"${v.version}"` } as never,
       };
       if (v.action === 'rotate') {
-        const r = await unwrap(
-          api.POST('/v1/api-keys/{id}/rotate', {
-            params,
-            body: { reason: v.reason, graceHours: 24 },
-          }),
+        const r = await withStepUp((su) =>
+          unwrap(
+            api.POST('/v1/api-keys/{id}/rotate', {
+              params,
+              headers: stepUpHeaders(su), // D-67
+              body: { reason: v.reason, graceHours: 24 },
+            }),
+          ),
         );
         return { key: r, secret: r };
       }

@@ -24,7 +24,7 @@ import {
 import { scopeAllows } from '@tms/domain';
 import type { Request, Response } from 'express';
 import { createHash } from 'node:crypto';
-import { NoTransaction, RequireScope, TenantResource } from '../../common/decorators';
+import { NoTransaction, RequireScope, StepUpWhen, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { PROBLEMS, ProblemException } from '../../common/problem';
@@ -293,6 +293,7 @@ export class BillingNotesController {
   @HttpCode(200)
   @TenantResource('billingNote')
   @RequireScope('invoices:draft')
+  @StepUpWhen('ยกเลิกใบวางบิลที่ออกแล้ว (ISSUED — D-67)')
   @ApiOperation({
     summary: 'ยกเลิกใบวางบิล — เหตุผล ≥ 10 ตัวอักษร',
     description:

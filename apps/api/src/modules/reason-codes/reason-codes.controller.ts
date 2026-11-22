@@ -24,7 +24,8 @@ import {
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
-import { RequireScope, TenantResource, RateLimitClass } from '../../common/decorators';
+import { RequireScope, TenantResource, RateLimitClass, StepUpWhen } from '../../common/decorators';
+import { WHOLE_EXPORT_WHEN } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { DbService } from '../../db/db.service';
 import { NextCodeDto } from '../customers/customer.dto';
@@ -118,6 +119,7 @@ export class ReasonCodesController {
   @Get('export')
   @RateLimitClass('heavy')
   @RequireScope('export:run')
+  @StepUpWhen(WHOLE_EXPORT_WHEN)
   @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv')
   @ApiOkResponse({
     description: 'ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว)',

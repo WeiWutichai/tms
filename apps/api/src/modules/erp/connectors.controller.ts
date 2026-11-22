@@ -24,9 +24,12 @@ import {
   NoTransaction,
   RequireFeature,
   RequireScope,
+  RequireStepUp,
+  StepUpWhen,
   TenantResource,
   LiveOnly,
 } from '../../common/decorators';
+import { assertHumanStepUp } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -104,6 +107,7 @@ export class ConnectorsController {
 
   @Post()
   @RequireScope('settings:write')
+  @StepUpWhen('ส่ง `credentials` มาด้วย (D-67)')
   @ApiCreatedResponse({
     type: ConnectorDto,
     description:
@@ -113,6 +117,8 @@ export class ConnectorsController {
     @Body() body: CreateConnectorDto,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ConnectorDto> {
+    // D-67: ตั้ง credential ตอนสร้าง = เหมือน PUT /credentials — ต้อง step-up (สร้างแบบไม่มี credential ไม่ต้อง)
+    if (body.credentials && Object.keys(body.credentials).length) assertHumanStepUp();
     const c = await this.connectors.create(body);
     setEtag(res, c.version);
     return this.connectors.toDto(c);
@@ -209,6 +215,7 @@ export class ConnectorsController {
   @Put(':id/credentials')
   @TenantResource('connector')
   @RequireScope('settings:write')
+  @RequireStepUp() // D-67
   @ApiHeader(IF_MATCH)
   @ApiOkResponse({
     type: ConnectorDto,
@@ -299,6 +306,7 @@ export class ConnectorsController {
   @HttpCode(200)
   @TenantResource('connector')
   @RequireScope('settings:write')
+  @RequireStepUp() // D-67: คำตอบมี token ของ URL ขาเข้า (= credential)
   @ApiHeader(IF_MATCH)
   @ApiOkResponse({
     type: InboundTokenDto,

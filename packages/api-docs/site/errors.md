@@ -310,7 +310,7 @@ HTTP `403` · ผู้อนุมัติใบสำคัญจ่าย �
 
 HTTP `403` · ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้
 
-อาจตอบได้จากหลาย endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`GET /v1/customer-sites/export`](ref-customer-sites.md#get-customer-sites-export), [`GET /v1/routes/export`](ref-routes.md#get-routes-export), [`GET /v1/products/export`](ref-products.md#get-products-export), [`GET /v1/vehicle-types/export`](ref-vehicle-types.md#get-vehicle-types-export), [`GET /v1/service-items/export`](ref-service-items.md#get-service-items-export), [`GET /v1/reason-codes/export`](ref-reason-codes.md#get-reason-codes-export), [`GET /v1/rate-cards/export`](ref-rate-cards.md#get-rate-cards-export), [`POST /v1/invoices/{id}/void`](ref-invoices.md#post-invoices-id-void), [`POST /v1/billing-notes/{id}/cancel`](ref-billing-notes.md#post-billing-notes-id-cancel), [`POST /v1/carriers`](ref-carriers.md#post-carriers) และอีก 8 endpoint
 
 ## not_found {#not_found}
 

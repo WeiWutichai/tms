@@ -216,12 +216,19 @@ export class AuthGuard implements CanActivate {
       });
     }
 
-    if (this.reflector.getAllAndOverride<boolean>(REQUIRE_STEP_UP, targets)) {
-      const su = await verifyStepUpToken(req.header('x-step-up') ?? '');
-      if (!su || su.sub !== claims.sub || su.tid !== claims.tid)
-        throw new ProblemException('step_up_required');
-    }
+    // step-up 2FA: token ต้องเป็นของผู้เรียกเอง (sub + tid ตรง) · D-67 เก็บผลไว้ให้ step-up แบบมีเงื่อนไขใน service ใช้
+    const suHeader = req.header('x-step-up');
+    const su = suHeader ? await verifyStepUpToken(suHeader) : null;
+    const steppedUp = !!su && su.sub === claims.sub && su.tid === claims.tid;
+    const stepUpRule = this.reflector.getAllAndOverride<boolean | 'human'>(
+      REQUIRE_STEP_UP,
+      targets,
+    );
+    // 'human' (D-67) = API key / OAuth client ข้ามได้ (คุมด้วย scope) — true = ทุก principal ต้อง step-up
+    if (stepUpRule && !steppedUp && !(stepUpRule === 'human' && claims.pt === 'client'))
+      throw new ProblemException('step_up_required');
     const ctx = requestContext.require();
+    ctx.steppedUp = steppedUp;
     ctx.actorId = claims.sub; // ก่อนสร้าง sandbox — audit `sandbox.created` ต้องรู้ผู้เปิด
     const tenantId = await this.requestTenant(claims, req, targets);
     ctx.tenantId = tenantId;

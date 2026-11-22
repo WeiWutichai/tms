@@ -30,7 +30,26 @@ export const RequireScope = (...scopes: [string, ...string[]]) =>
 
 export const REQUIRE_STEP_UP = 'tms:requireStepUp';
 /** ต้องยืนยัน 2FA ซ้ำภายใน 5 นาที (header `X-Step-Up` จาก POST /v1/auth/step-up) — A3 "เปลี่ยน role ต้อง step-up" */
-export const RequireStepUp = () => SetMetadata(REQUIRE_STEP_UP, true);
+export const RequireStepUp = () =>
+  applyDecorators(
+    SetMetadata(REQUIRE_STEP_UP, true),
+    ApiExtension('x-step-up', { mode: 'always' }),
+  );
+/**
+ * D-67 (PO 22 พ.ย. 2569): step-up เฉพาะคน — ผู้ใช้ที่ login ต้องส่ง `X-Step-Up` (เหมือน RequireStepUp)
+ * แต่ API key / OAuth client (`pt=client`) ทำ step-up ไม่ได้ → คุมด้วย scope ของ key ตามเดิม
+ * ใช้กับ route ที่ key เข้าถึงได้อยู่แล้ว (เช่น `invoices:void`) — route ที่ key เข้าไม่ได้อยู่แล้วใช้ RequireStepUp()
+ */
+export const RequireHumanStepUp = () =>
+  applyDecorators(
+    SetMetadata(REQUIRE_STEP_UP, 'human'),
+    ApiExtension('x-step-up', { mode: 'human' }),
+  );
+/**
+ * D-67: step-up แบบมีเงื่อนไข (ตรวจใน service ด้วย `assertHumanStepUp()`) — decorator นี้แค่ประกาศใน OpenAPI
+ * (`x-step-up` + header `X-Step-Up` + ตัวอย่าง 403 `step_up_required`) · `when` = เงื่อนไขที่ต้อง step-up (ไทย)
+ */
+export const StepUpWhen = (when: string) => ApiExtension('x-step-up', { mode: 'human', when });
 
 export const REQUIRED_FEATURE = 'tms:requiredFeature';
 /** ต้องเปิดฟีเจอร์นี้ในแพ็กเกจ/override ของ tenant (ST1-T18) — ปิด → 403 `feature_not_in_plan` + `featureKey` (spec/01 PLT-078) */

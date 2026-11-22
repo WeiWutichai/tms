@@ -5845,6 +5845,12 @@
               {
                 "key": "X-Api-Version",
                 "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท: ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
               }
             ],
             "url": {
@@ -6745,6 +6751,12 @@
               {
                 "key": "X-Api-Version",
                 "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท: ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
               }
             ],
             "url": {
@@ -7665,6 +7677,12 @@
               {
                 "key": "X-Api-Version",
                 "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท: ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
               }
             ],
             "url": {
@@ -8793,6 +8811,12 @@
               {
                 "key": "X-Api-Version",
                 "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท: ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
               }
             ],
             "url": {
@@ -9499,6 +9523,12 @@
               {
                 "key": "X-Api-Version",
                 "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท: ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
               }
             ],
             "url": {
@@ -10175,6 +10205,12 @@
               {
                 "key": "X-Api-Version",
                 "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท: ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
               }
             ],
             "url": {
@@ -10869,6 +10905,12 @@
               {
                 "key": "X-Api-Version",
                 "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท: ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
               }
             ],
             "url": {
@@ -11648,6 +11690,12 @@
               {
                 "key": "X-Api-Version",
                 "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท: ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
               }
             ],
             "url": {
@@ -12437,6 +12485,12 @@
                 "value": "{{apiVersion}}"
               },
               {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
+              },
+              {
                 "key": "Idempotency-Key",
                 "value": "{{$guid}}"
               },
@@ -12523,6 +12577,12 @@
               {
                 "key": "X-Api-Version",
                 "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท: ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
               }
             ],
             "url": {
@@ -12641,6 +12701,12 @@
                 "disabled": true
               },
               {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
+              },
+              {
                 "key": "Content-Type",
                 "value": "application/json"
               }
@@ -12689,6 +12755,12 @@
                 "key": "If-Match",
                 "value": "",
                 "description": "ETag จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
                 "disabled": true
               },
               {
@@ -12771,6 +12843,12 @@
                 "key": "If-Match",
                 "value": "",
                 "description": "ETag จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
                 "disabled": true
               },
               {
@@ -12862,6 +12940,12 @@
               {
                 "key": "X-Api-Version",
                 "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อ`field` = `bankAccountNo` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
               },
               {
                 "key": "Idempotency-Key",
@@ -13272,6 +13356,12 @@
               {
                 "key": "X-Api-Version",
                 "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท: ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
               }
             ],
             "url": {
@@ -14116,6 +14206,12 @@
               {
                 "key": "X-Api-Version",
                 "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท: ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
               }
             ],
             "url": {
@@ -14699,6 +14795,12 @@
               {
                 "key": "X-Api-Version",
                 "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท: ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
               }
             ],
             "url": {
@@ -15837,6 +15939,12 @@
               {
                 "key": "X-Api-Version",
                 "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท: ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
               },
               {
                 "key": "Idempotency-Key",
@@ -17308,6 +17416,12 @@
                 "disabled": true
               },
               {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อยกเลิกใบวางบิลที่ออกแล้ว ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
+              },
+              {
                 "key": "Idempotency-Key",
                 "value": "{{$guid}}"
               },
@@ -18530,6 +18644,12 @@
                 "value": "",
                 "description": "ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
                 "disabled": false
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
               },
               {
                 "key": "Idempotency-Key",

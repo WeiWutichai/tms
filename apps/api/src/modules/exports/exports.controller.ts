@@ -10,7 +10,8 @@ import {
 } from '@nestjs/swagger';
 import { IsIn, IsObject, IsOptional } from 'class-validator';
 import type { Request, Response } from 'express';
-import { RateLimitClass, RequireScope, TenantResource } from '../../common/decorators';
+import { RateLimitClass, RequireScope, StepUpWhen, TenantResource } from '../../common/decorators';
+import { assertHumanStepUp, isWholeCompanyExport, WHOLE_EXPORT_WHEN } from '../../auth/step-up';
 import { decodeIdOr404, encodeId } from '../../common/ids';
 import { apiOrigin, readyDocumentDto } from '../documents/documents.controller';
 import {
@@ -138,6 +139,7 @@ export class ExportsController {
   @HttpCode(202)
   @RateLimitClass('heavy')
   @RequireScope('export:run')
+  @StepUpWhen(WHOLE_EXPORT_WHEN)
   @ApiHeader({ name: 'Idempotency-Key', required: false })
   @ApiAcceptedResponse({
     type: ExportAcceptedDto,
@@ -146,6 +148,7 @@ export class ExportsController {
       `ไฟล์ไม่เกิน ${EXPORT_JOB_MAX_ROWS} แถว · คอลัมน์ราคา/การเงินเฉพาะผู้มีสิทธิ์เห็น`,
   })
   async create(@Body() body: CreateExportDto): Promise<ExportAcceptedDto> {
+    if (isWholeCompanyExport(body.resource, body.filter ?? {})) assertHumanStepUp();
     const job = await this.exports.create({
       resource: body.resource,
       format: body.format ?? 'xlsx',

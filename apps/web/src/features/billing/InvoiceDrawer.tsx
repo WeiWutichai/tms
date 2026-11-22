@@ -13,6 +13,7 @@ import { formatDateTime, useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { ApiError } from '../../api';
 import { problemText } from '../master/problems';
+import { cachedStepUp, useInlineStepUp } from '../stepup/stepUp';
 import { bangkokToday, money, useDateText } from '../rate-cards/rateFormat';
 import { invoiceDisplayStatus, methodLabel, overdueDays } from './billing';
 import { useInvoicePayments } from './usePayments';
@@ -184,6 +185,9 @@ export function InvoiceDrawer({
   const cancel = useCancelDraft();
   const finalize = useFinalize();
   const voider = useVoidInvoice();
+  // D-67 ยกเลิกใบที่ออกแล้วต้องยืนยัน 2FA — กล่องในช่อง extra ของ dialog (แบบ ApproveDialog /settle)
+  const voidSu = useInlineStepUp();
+  const [voidReason, setVoidReason] = useState('');
   const [tab, setTab] = useState('sum');
   const [dlg, setDlg] = useState(false);
   const [voidDlg, setVoidDlg] = useState(false);
@@ -211,6 +215,20 @@ export function InvoiceDrawer({
   const no = inv.invoiceNo ?? t('bill.draftNo');
   const today = bangkokToday();
   const st = invoiceStatusLabel(t, invoiceDisplayStatus(inv));
+  /** ยกเลิกใบ (void) — `su` = token step-up (D-67) · 403 step_up_required → กล่องยืนยันใน dialog แล้วส่งซ้ำ */
+  const sendVoid = (reason: string, su?: string) =>
+    voider.mutate(
+      { id: inv.id, version: inv.version, reason, reissue, ...(su ? { stepUp: su } : {}) },
+      {
+        onError: (e) => void voidSu.onError(e),
+        onSuccess: (x) => {
+          setVoidDlg(false);
+          const next = x.replacedByInvoice;
+          onToast(next ? t('bill.toast.voidReissued', { no }) : t('bill.toast.voided', { no }));
+          if (next && onOpenInvoice) onOpenInvoice(next.id);
+        },
+      },
+    );
   const late = overdueDays(inv, today);
   const outstanding = Number(inv.sellOutstanding ?? '0');
   const paid = (pays.data?.data ?? []).filter((p) => p.status === 'RECORDED');
@@ -327,6 +345,7 @@ export function InvoiceDrawer({
                     return;
                   }
                   voider.reset();
+                  voidSu.reset();
                   setReissue(false);
                   setVoidDlg(true);
                 },
@@ -738,40 +757,35 @@ export function InvoiceDrawer({
         cancelLabel={t('common.cancel')}
         closeLabel={t('drawer.close')}
         extra={
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={reissue}
-              onChange={(e) => setReissue(e.target.checked)}
-              style={{
-                width: 16,
-                height: 16,
-                accentColor: '#2257C4',
-                margin: 0,
-                cursor: 'pointer',
-              }}
-            />
-            <span>{t('bill.void.reissue')}</span>
-          </label>
+          <>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={reissue}
+                onChange={(e) => setReissue(e.target.checked)}
+                style={{
+                  width: 16,
+                  height: 16,
+                  accentColor: '#2257C4',
+                  margin: 0,
+                  cursor: 'pointer',
+                }}
+              />
+              <span>{t('bill.void.reissue')}</span>
+            </label>
+            {voidSu.box((tok) => sendVoid(voidReason, tok))}
+          </>
         }
         busy={voider.isPending}
-        error={voider.error ? voidErrorText(voider.error, t) : null}
-        onClose={() => setVoidDlg(false)}
-        onOk={(reason) =>
-          voider.mutate(
-            { id: inv.id, version: inv.version, reason, reissue },
-            {
-              onSuccess: (x) => {
-                setVoidDlg(false);
-                const next = x.replacedByInvoice;
-                onToast(
-                  next ? t('bill.toast.voidReissued', { no }) : t('bill.toast.voided', { no }),
-                );
-                if (next && onOpenInvoice) onOpenInvoice(next.id);
-              },
-            },
-          )
+        error={
+          voidSu.error ??
+          (voider.error && !voidSu.hide(voider.error) ? voidErrorText(voider.error, t) : null)
         }
+        onClose={() => setVoidDlg(false)}
+        onOk={(reason) => {
+          setVoidReason(reason);
+          sendVoid(reason, cachedStepUp());
+        }}
       />
       <ReasonDialog
         open={dlg}

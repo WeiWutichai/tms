@@ -2,6 +2,7 @@ import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, idempotent, unwrap } from '../../api';
 import { refetchOnStale } from '../master/problems';
+import { stepUpHeaders, withStepUp } from '../stepup/stepUp';
 import { useCursorList } from '../master/useCursorList';
 
 export type Carrier = Schemas['CarrierDto'];
@@ -70,12 +71,15 @@ export function useCreateCarrier() {
   const qc = useQueryClient();
   return useMutation({
     /** idempotencyKey ต่อการเปิดฟอร์ม 1 ครั้ง — กดซ้ำ/ส่งซ้ำได้รายการเดียว (ST0-T07) */
+    // D-67: ใส่บัญชีธนาคาร → API ขอยืนยัน 2FA (step_up_required) → กล่องยืนยัน แล้วส่งซ้ำ (Idempotency-Key เดิม — คำขอที่ถูกปฏิเสธไม่ถูกจำ)
     mutationFn: (v: { body: CarrierCreate; idempotencyKey: string }) =>
-      idempotent(() =>
-        api.POST('/v1/carriers', {
-          body: v.body,
-          headers: { 'Idempotency-Key': v.idempotencyKey },
-        }),
+      withStepUp((su) =>
+        idempotent(() =>
+          api.POST('/v1/carriers', {
+            body: v.body,
+            headers: { 'Idempotency-Key': v.idempotencyKey, ...stepUpHeaders(su) },
+          }),
+        ),
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   });
@@ -84,12 +88,16 @@ export function useCreateCarrier() {
 export function useUpdateCarrier() {
   const qc = useQueryClient();
   return useMutation({
+    // D-67: เปลี่ยนบัญชีธนาคารจริง → ต้องยืนยัน 2FA (แก้ช่องอื่นไม่ถาม)
     mutationFn: (v: { id: string; version: number; body: CarrierInput }) =>
-      unwrap(
-        api.PATCH('/v1/carriers/{id}', {
-          params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } as never },
-          body: v.body,
-        }),
+      withStepUp((su) =>
+        unwrap(
+          api.PATCH('/v1/carriers/{id}', {
+            params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } as never },
+            headers: stepUpHeaders(su),
+            body: v.body,
+          }),
+        ),
       ),
     onError: refetchOnStale(qc, KEY),
     onSuccess: () => {

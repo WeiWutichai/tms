@@ -18,6 +18,7 @@ import { formatDateTime, useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { ApiError } from '../../api';
 import { fieldErrors, problemText } from '../master/problems';
+import { cachedStepUp, useInlineStepUp } from '../stepup/stepUp';
 import { bangkokToday, money, useDateText } from '../rate-cards/rateFormat';
 import {
   openBillingNotePdf,
@@ -116,6 +117,9 @@ export function BillingNoteDrawer({
   const q = useBillingNote(id);
   const finalize = useFinalizeBillingNote();
   const cancel = useCancelBillingNote();
+  // D-67 ยกเลิกใบวางบิลที่ออกแล้วต้องยืนยัน 2FA — กล่องในช่อง extra ของ dialog (แบบ ApproveDialog /settle)
+  const cancelSu = useInlineStepUp();
+  const [cancelReason, setCancelReason] = useState('');
   const collect = useCollectBillingNote();
   const [tab, setTab] = useState('sum');
   const [dlg, setDlg] = useState<null | 'cancel' | 'collect' | 'ack' | 'edit'>(null);
@@ -132,6 +136,18 @@ export function BillingNoteDrawer({
           />
         ) : null}
       </Drawer>
+    );
+  /** ยกเลิก — `su` = token step-up (D-67 ใบที่ออกแล้ว) · 403 step_up_required → กล่องยืนยันใน dialog แล้วส่งซ้ำ */
+  const sendCancel = (reason: string, su?: string) =>
+    cancel.mutate(
+      { id: bn.id, version: bn.version, reason, ...(su ? { stepUp: su } : {}) },
+      {
+        onError: (e) => void cancelSu.onError(e),
+        onSuccess: () => {
+          setDlg(null);
+          onToast(t('bn.toast.cancelled'));
+        },
+      },
     );
   const draft = bn.status === 'DRAFT';
   const issued = bn.status === 'ISSUED';
@@ -197,7 +213,11 @@ export function BillingNoteDrawer({
                 label: t('bill.menu.cancel'),
                 icon: 'ban',
                 danger: true,
-                onClick: () => setDlg('cancel'),
+                onClick: () => {
+                  cancel.reset();
+                  cancelSu.reset();
+                  setDlg('cancel');
+                },
               },
             ]
           : []),
@@ -463,19 +483,18 @@ export function BillingNoteDrawer({
         cancelLabel={t('common.cancel')}
         closeLabel={t('drawer.close')}
         busy={cancel.isPending}
-        error={cancel.error ? billingNoteErrorText(cancel.error, t) : null}
-        onClose={() => setDlg(null)}
-        onOk={(reason) =>
-          cancel.mutate(
-            { id: bn.id, version: bn.version, reason },
-            {
-              onSuccess: () => {
-                setDlg(null);
-                onToast(t('bn.toast.cancelled'));
-              },
-            },
-          )
+        error={
+          cancelSu.error ??
+          (cancel.error && !cancelSu.hide(cancel.error)
+            ? billingNoteErrorText(cancel.error, t)
+            : null)
         }
+        extra={cancelSu.box((tok) => sendCancel(cancelReason, tok))}
+        onClose={() => setDlg(null)}
+        onOk={(reason) => {
+          setCancelReason(reason);
+          sendCancel(reason, cachedStepUp());
+        }}
       />
       <ReasonDialog
         open={dlg === 'collect'}

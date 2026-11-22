@@ -1,6 +1,6 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { signDevToken } from '../src/auth/auth.guard';
 import { createApp } from '../src/bootstrap';
@@ -52,15 +52,67 @@ export function validTaxId(seed: number): string {
   return base + String((11 - (sum % 11)) % 10);
 }
 
+/**
+ * D-67 (step-up 2FA ขยาย — PO 22 พ.ย. 2569): route ที่เพิ่ม step-up ในรอบนี้ — `api()` แนบ `X-Step-Up` ที่ถูกต้องของผู้เรียก
+ * (token ผู้ใช้/dev) ให้อัตโนมัติ เพื่อให้ test เดิมที่ทดสอบเรื่องอื่นของ route เหล่านี้ยังเป็น "ผู้ใช้ที่ยืนยัน 2FA แล้ว"
+ * ด่าน step-up เองทดสอบใน `test/step-up-d67.test.ts` (ส่ง `X-Step-Up` ว่างทับ = ไม่ได้ยืนยัน)
+ * route step-up เดิม (role/เชิญ/รหัสสำรอง/อนุมัติใบสำคัญจ่าย/ตั้งค่า) **ไม่อยู่ในรายการ** — test ของมันส่ง header เอง
+ */
+const D67_STEP_UP_ROUTES: [string, RegExp][] = [
+  ['POST', /^\/v1\/api-keys(\/[^/?]+\/rotate)?(\?|$)/],
+  ['POST', /^\/v1\/webhooks(\/[^/?]+\/rotate-secret)?(\?|$)/],
+  ['POST', /^\/v1\/connectors(\/[^/?]+\/inbound-token\/rotate)?(\?|$)/],
+  ['PUT', /^\/v1\/connectors\/[^/?]+\/credentials(\?|$)/],
+  ['POST', /^\/v1\/carriers(\/[^/?]+\/reveal)?(\?|$)/],
+  ['PATCH', /^\/v1\/carriers\/[^?]+$/],
+  ['PUT', /^\/v1\/carriers\/external\/[^/?]+(\?|$)/],
+  ['POST', /^\/v1\/exports(\?|$)/],
+  ['GET', /^\/v1\/[\w-]+\/export(\?|$)/],
+  ['POST', /^\/v1\/invoices\/[^/?]+\/void(\?|$)/],
+  ['POST', /^\/v1\/billing-notes\/[^/?]+\/cancel(\?|$)/],
+  ['POST', /^\/v1\/imports\/[^/?]+\/commit(\?|$)/],
+];
+
+const b64url = (v: string | Buffer) => Buffer.from(v).toString('base64url');
+
+/** step-up token (HS256 แบบเดียวกับ signStepUpToken) แบบ sync — ใช้ใน `api()` */
+function stepUpHeaderFor(token: string): string | null {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null; // API key `tk_…`
+  let claims: { sub?: string; tid?: string; pt?: string };
+  try {
+    claims = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+  if (!claims.sub || !claims.tid || (claims.pt !== 'dev' && claims.pt !== 'user')) return null;
+  const secret = process.env.AUTH_JWT_SECRET ?? process.env.AUTH_DEV_SECRET ?? '';
+  const now = Math.floor(Date.now() / 1000);
+  const head = b64url(JSON.stringify({ alg: 'HS256' }));
+  const body = b64url(
+    JSON.stringify({ tid: claims.tid, pur: 'step_up', sub: claims.sub, iat: now, exp: now + 300 }),
+  );
+  const sig = createHmac('sha256', secret).update(`${head}.${body}`).digest('base64url');
+  return `${head}.${body}.${sig}`;
+}
+
 export function api(app: NestExpressApplication, token?: string) {
   const server = app.getHttpServer();
-  const withAuth = (t: request.Test) => (token ? t.set('Authorization', `Bearer ${token}`) : t);
+  const withAuth = (method: string, url: string, t: request.Test) => {
+    if (!token) return t;
+    t.set('Authorization', `Bearer ${token}`);
+    if (D67_STEP_UP_ROUTES.some(([m, re]) => m === method && re.test(url))) {
+      const su = stepUpHeaderFor(token);
+      if (su) t.set('X-Step-Up', su);
+    }
+    return t;
+  };
   return {
-    get: (url: string) => withAuth(request(server).get(url)),
-    post: (url: string) => withAuth(request(server).post(url)),
-    patch: (url: string) => withAuth(request(server).patch(url)),
-    put: (url: string) => withAuth(request(server).put(url)),
-    delete: (url: string) => withAuth(request(server).delete(url)),
+    get: (url: string) => withAuth('GET', url, request(server).get(url)),
+    post: (url: string) => withAuth('POST', url, request(server).post(url)),
+    patch: (url: string) => withAuth('PATCH', url, request(server).patch(url)),
+    put: (url: string) => withAuth('PUT', url, request(server).put(url)),
+    delete: (url: string) => withAuth('DELETE', url, request(server).delete(url)),
   };
 }
 

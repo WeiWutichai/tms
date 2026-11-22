@@ -1,4 +1,4 @@
-import { test as base, expect } from '@playwright/test';
+import { test as base, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 
 /** URL ของ web ที่ E2E รัน (พอร์ตจาก E2E_WEB_PORT ที่ playwright.config ตั้งให้ — ค่าเริ่มต้น 4520) */
@@ -75,4 +75,63 @@ export function totp(secret: string, offset = 0): string {
   const o = h[h.length - 1]! & 0xf;
   const n = ((h[o]! & 0x7f) << 24) | (h[o + 1]! << 16) | (h[o + 2]! << 8) | h[o + 3]!;
   return String(n % 1_000_000).padStart(6, '0');
+}
+
+/**
+ * D-67 กล่องยืนยัน 2FA (`StepUpBox` — "ยืนยันตัวตน 2 ชั้นอีกครั้ง") ก่อนรายการเสี่ยง: สร้าง/หมุน API key, secret webhook,
+ * credential connector, บัญชีธนาคารรถร่วม, ส่งออกทั้งบริษัท, ยกเลิกใบแจ้งหนี้/ใบวางบิลที่ออกแล้ว
+ * กรอก TOTP ของผู้ใช้เดโม — รหัสช่วงเวลาเดียวกันใช้ซ้ำไม่ได้ (spec อื่นอาจใช้ไปแล้ว) → ลองช่วงถัดไป
+ * ยืนยันแล้ว token ใช้ต่อได้ 5 นาทีในหน้าเดิม (ไม่ถามซ้ำ) — เรียกเฉพาะครั้งแรกของแต่ละ test
+ */
+export async function confirmStepUp(page: Page): Promise<void> {
+  const box = page.getByRole('group', { name: 'ยืนยันตัวตน 2 ชั้นอีกครั้ง' });
+  await expect(box).toBeVisible({ timeout: 15_000 });
+  for (const off of STEP_UP_OFFSETS) {
+    if (off === null) {
+      await nextTotpStep();
+      continue;
+    }
+    await box.getByLabel('รหัส 6 หลัก').fill(totp(DEMO_TOTP_SECRET, off));
+    await box.getByRole('button', { name: 'ยืนยัน' }).click();
+    try {
+      await expect(box).toBeHidden({ timeout: 5000 });
+      return;
+    } catch {
+      /* รหัสถูกใช้ไปแล้ว — ลองช่วงถัดไป */
+    }
+  }
+  throw new Error('step-up failed');
+}
+
+/**
+ * D-67 header `X-Step-Up` สำหรับเรียก API ตรง (page.request) ในขั้นเตรียมข้อมูล — `POST /v1/auth/step-up` ด้วย TOTP ของผู้ใช้เดโม
+ * คืน header เดิม + `X-Step-Up` (token ใช้ได้ 5 นาที)
+ */
+export async function withStepUp(
+  req: APIRequestContext,
+  auth: Record<string, string>,
+): Promise<Record<string, string>> {
+  for (const off of STEP_UP_OFFSETS) {
+    if (off === null) {
+      await nextTotpStep();
+      continue;
+    }
+    const r = await req.post('/v1/auth/step-up', {
+      headers: auth,
+      data: { otp: totp(DEMO_TOTP_SECRET, off) },
+    });
+    if (r.ok()) {
+      const { stepUpToken } = (await r.json()) as { stepUpToken: string };
+      return { ...auth, 'X-Step-Up': stepUpToken };
+    }
+  }
+  throw new Error('step-up failed');
+}
+
+/** ช่วงรหัสที่ลอง: ปัจจุบัน → ถัดไป → (รอข้ามช่วง) → ปัจจุบัน → ถัดไป */
+const STEP_UP_OFFSETS: (number | null)[] = [0, 1, null, 0, 1, null, 0, 1];
+/** รอจนข้ามช่วง 30 วินาทีถัดไปของ TOTP (รหัสที่ใช้แล้วใช้ซ้ำไม่ได้) */
+async function nextTotpStep(): Promise<void> {
+  const ms = 30_000 - (Date.now() % 30_000) + 500;
+  await new Promise((r) => setTimeout(r, ms));
 }

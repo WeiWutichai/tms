@@ -9,6 +9,7 @@ import { requestContext } from '../../common/request-context';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { iEquals } from '../../common/ilike';
 import { ProblemException } from '../../common/problem';
+import { assertHumanStepUp } from '../../auth/step-up';
 import { DbService } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
 import { EXPORT_MAX_ROWS, exportFetchArgs, overSyncCap, type ExportPage } from '../master/export';
@@ -351,6 +352,17 @@ export class CarriersService {
   }
 
   /** เขียนเลขผู้เสียภาษี: นิติบุคคลเก็บตรง · บุคคลธรรมดาเข้ารหัส + blind index (เขียนใหม่ทุกครั้งที่ส่งมา) */
+  /** เลขบัญชีเดิมตรงกับ `no` ไหม — `forWrite` = key ต้องหมุน/ถอดไม่ได้ → ถือว่าไม่ตรง (เขียนใหม่ด้วย key ปัจจุบัน) */
+  private sameAccountNo(current: Carrier | undefined, no: string, forWrite = true): boolean {
+    if (!current?.bankAccountEnc) return false;
+    if (forWrite && this.cipher.needsRotation(current.bankAccountEnc)) return false;
+    try {
+      return this.cipher.decrypt(current.bankAccountEnc) === no;
+    } catch {
+      return false;
+    }
+  }
+
   private writeTax(
     data: Prisma.CarrierUncheckedUpdateInput,
     type: 'INDIVIDUAL' | 'JURISTIC',
@@ -423,11 +435,22 @@ export class CarriersService {
       data.address = input.address === null ? Prisma.DbNull : ({ ...input.address } as object);
     if (input.whtRate !== undefined) data.whtRateDefault = input.whtRate;
 
-    // ---- บัญชีธนาคาร: เลขบัญชีเข้ารหัส + 4 หลักท้าย · แก้ได้เฉพาะ settlements:pay (ชั่วคราวจนกว่าจะตัดสิน step-up NFR-107) ----
+    // ---- บัญชีธนาคาร: เลขบัญชีเข้ารหัส + 4 หลักท้าย · แก้ได้เฉพาะ settlements:pay ----
+    // D-67 (PO 22 พ.ย. 2569): เปลี่ยนบัญชีจริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ) ต้อง step-up 2FA สำหรับผู้ใช้ — ส่งค่าเดิมซ้ำไม่ต้อง
+    // (API key ตาม scope · นำเข้าไฟล์ตรวจที่ POST /imports/{id}/commit)
     if (input.bankAccount !== undefined) {
       if (!scopeAllows(requestContext.require().scopes ?? [], 'settlements:pay'))
         throw new ProblemException('forbidden', 'changing bankAccount requires settlements:pay');
       const b = input.bankAccount;
+      if (
+        b === null
+          ? !!(current?.bankAccountEnc || current?.bankCode || current?.bankAccountName)
+          : !current ||
+            b.bankCode !== current.bankCode ||
+            b.accountName !== current.bankAccountName ||
+            (!!b.accountNo && !this.sameAccountNo(current, b.accountNo, false))
+      )
+        assertHumanStepUp();
       if (b === null) {
         data.bankCode = null;
         data.bankAccountEnc = null;
@@ -440,14 +463,7 @@ export class CarriersService {
         if (b.accountNo) {
           // เทียบเลขเดิมได้ (ผู้แก้บัญชีมีสิทธิ์ settlements:pay = ดูเลขเต็มได้อยู่แล้ว จึงไม่เป็นช่องเดาเลข)
           // ส่งซ้ำเลขเดิม = ไม่เขียน (PUT external ส่งซ้ำไม่เพิ่ม version) · ถอดเลขเดิมไม่ได้/ต้องหมุน key = เขียนใหม่
-          let same = false;
-          if (current?.bankAccountEnc && !this.cipher.needsRotation(current.bankAccountEnc))
-            try {
-              same = this.cipher.decrypt(current.bankAccountEnc) === b.accountNo;
-            } catch {
-              same = false;
-            }
-          if (!same) {
+          if (!this.sameAccountNo(current, b.accountNo)) {
             data.bankAccountEnc = this.cipher.encrypt(b.accountNo);
             data.bankAccountLast4 = b.accountNo.slice(-4);
             if (current) secrets.push('bankAccount');

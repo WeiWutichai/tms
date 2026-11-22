@@ -22,6 +22,7 @@ import { AuditPageDto } from '../../audit/audit.controller';
 import {
   RequireFeature,
   RequireScope,
+  RequireStepUp,
   TenantResource,
   SandboxAware,
 } from '../../common/decorators';
@@ -100,6 +101,7 @@ export class ApiKeysController {
 
   @Post()
   @RequireScope('settings:write')
+  @RequireStepUp() // D-67: สร้าง key = credential ถาวร — ต้องยืนยัน 2FA ซ้ำ (key จัดการ key ไม่ได้อยู่แล้ว)
   @VersionGate('api_key.status_rotating')
   @ApiCreatedResponse({
     type: ApiKeySecretDto,
@@ -161,6 +163,7 @@ export class ApiKeysController {
   @HttpCode(201)
   @TenantResource('apiKey')
   @RequireScope('settings:write')
+  @RequireStepUp() // D-67
   @VersionGate('api_key.status_rotating')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiCreatedResponse({

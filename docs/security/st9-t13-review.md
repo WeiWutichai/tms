@@ -13,7 +13,7 @@
 |---|---|---|---|
 | Critical | 0 | — | 0 |
 | High | 0 | — | 0 |
-| Medium | 3 | 0 | 3 (M-01 รอ ADR hosting, M-02 รอ PO #70, M-03 รอ ADR hosting) |
+| Medium | 3 | 0 (M-02 ปิดภายหลังใน `fix/d67-stepup-extension` — D-67) | 2 (M-01 รอ ADR hosting, M-03 รอ ADR hosting) |
 | Low | 7 | 1 (L-00) | 6 |
 
 สิ่งที่เพิ่มใน PR นี้ (FACT):
@@ -168,11 +168,11 @@ route ที่มี param รองหลัง `:id` (เช่น `/settleme
 กฎเพิ่มเติม A3: ผู้สร้างใบแจ้งหนี้ finalize ใบตัวเองไม่ได้ → `invoice_self_finalize` (`src/modules/invoices/invoice-finalize.service.ts:221`) · เปลี่ยน role ต้อง step-up → `@RequireStepUp` (`src/modules/users/users.controller.ts:125`) · Carrier portal = principal `link` แยก ไม่นับ seat ✔ · คอลัมน์ Driver (แอป P1) / Customer portal (P2) — N/A เฟส 0 (plan/01 §หมายเหตุ 11)
 ส่วนที่ docs ไม่ระบุแต่โค้ดตัดสินไว้แล้ว (มีใน spec/12 §3 / plan/05 แล้ว — ไม่ใช่ mismatch): role `manager` (D-12), `prices.buy:write`, `orders:unlock`, `trips:override`, `deliveries:revert`, `invoices:void`, `payments:*` (D-57), scope ที่ API key ขอไม่ได้, ใบวางบิลไม่แบ่งผู้สร้าง/ผู้ออก (spec/12 §3 แถว ST5-T11)
 
-**M-02 (Medium, ค้าง — [OPEN — PO] คำถามค้าง #70):** **FACT** step-up 2FA บังคับเฉพาะ: เปลี่ยน role, เชิญผู้ใช้, ออกรหัสสำรองใหม่, อนุมัติใบสำคัญจ่าย, ลดค่าความปลอดภัยในตั้งค่า (`users.controller.ts:125`, `invitations.controller.ts:112`, `mfa.controller.ts:239`, `settlements.controller.ts:550`, `settings.controller.ts:79-82`) — **ไม่มี** step-up ที่: สร้าง/หมุน API key, หมุน secret webhook, ตั้ง credential connector, แก้/ดูเลขบัญชีธนาคารรถร่วม, export ทั้งบริษัท, ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (spec/11 NFR-107 [PROPOSED]; docs/04 A3 บังคับเฉพาะเปลี่ยน role) · ผลกระทบ: ผู้ที่ขโมย access token (15 นาที) ได้ สร้าง API key ถาวรไว้ใช้ต่อได้ · ต้นแบบไม่มีกล่องยืนยัน 2FA ในจุดเหล่านี้ → เป็นการตัดสินใจของ PO (ขอบเขต + UI) · **ข้อเสนอ:** อย่างน้อยสร้าง/หมุน API key และ credential connector ต้อง step-up (ใช้กล่อง step-up เดียวกับเปลี่ยน role)
+**M-02 (Medium) — ปิดแล้ว (D-67, PO 22 พ.ย. 2569; branch `fix/d67-stepup-extension` — รอ merge):** step-up 2FA ขยายครบ 6 ข้อ — `X-Step-Up` กลไกเดิม (5 นาที, 403 `step_up_required`): `@RequireStepUp()` ที่ `POST /api-keys`, `/api-keys/{id}/rotate`, `POST /webhooks`, `/webhooks/{id}/rotate-secret`, `PUT /connectors/{id}/credentials`, `/connectors/{id}/inbound-token/rotate` · `@RequireHumanStepUp()` (API key ข้าม — คุมด้วย scope) ที่ `POST /invoices/{id}/void` · `assertHumanStepUp()` แบบมีเงื่อนไข: `POST /connectors` ที่มี credentials, ผู้รับเหมาเปลี่ยนบัญชีธนาคารจริง + `reveal` `bankAccountNo` + `POST /imports/{id}/commit` ของไฟล์ผู้รับเหมาที่จับคู่คอลัมน์บัญชี, `POST /billing-notes/{id}/cancel` ของใบ ISSUED, ส่งออกทั้งบริษัท (`accounting-*` / ไม่มีตัวกรอง — `GET /{master}/export`, `POST /exports`) · test `apps/api/test/step-up-d67.test.ts` · ค้าง: Platform Console ไม่มี step-up (#70 [OPEN]) · ช่องโหว่ที่รู้: ส่งออกที่ใส่ตัวกรองกว้างไม่ถาม step-up (spec/12 §3) · _บันทึกเดิม:_ **(ค้าง — [OPEN — PO] คำถามค้าง #70):** **FACT** step-up 2FA บังคับเฉพาะ: เปลี่ยน role, เชิญผู้ใช้, ออกรหัสสำรองใหม่, อนุมัติใบสำคัญจ่าย, ลดค่าความปลอดภัยในตั้งค่า (`users.controller.ts:125`, `invitations.controller.ts:112`, `mfa.controller.ts:239`, `settlements.controller.ts:550`, `settings.controller.ts:79-82`) — **ไม่มี** step-up ที่: สร้าง/หมุน API key, หมุน secret webhook, ตั้ง credential connector, แก้/ดูเลขบัญชีธนาคารรถร่วม, export ทั้งบริษัท, ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (spec/11 NFR-107 [PROPOSED]; docs/04 A3 บังคับเฉพาะเปลี่ยน role) · ผลกระทบ: ผู้ที่ขโมย access token (15 นาที) ได้ สร้าง API key ถาวรไว้ใช้ต่อได้ · ต้นแบบไม่มีกล่องยืนยัน 2FA ในจุดเหล่านี้ → เป็นการตัดสินใจของ PO (ขอบเขต + UI) · **ข้อเสนอ:** อย่างน้อยสร้าง/หมุน API key และ credential connector ต้อง step-up (ใช้กล่อง step-up เดียวกับเปลี่ยน role)
 
 ## 9. รายการที่ต้องรันซ้ำในรอบสุดท้าย (หลัง ST8-T12)
 
 1. `pnpm --filter @tms/api exec vitest run test/route-inventory.test.ts test/isolation.test.ts test/magic-link-matrix.test.ts` — คัดเลข coverage จากบรรทัด `[route-inventory]` มาแทนในตาราง §1
 2. purpose ลิงก์ใหม่ (เช่น `carrier_pay`) → เพิ่มใน `LINK_PURPOSES` + `PURPOSE_ACTIONS` (`test/route-inventory.ts`) — ไม่เพิ่ม = test แดง
 3. ปิด M-01/M-03 ใน config ของ hosting จริง แล้วตรวจ header ของเว็บ staging ด้วย `curl -I`
-4. ทบทวนคำตอบ #70 (M-02)
+4. ~~ทบทวนคำตอบ #70 (M-02)~~ — ทำแล้ว (D-67) · เหลือ [OPEN] step-up ของ Platform Console

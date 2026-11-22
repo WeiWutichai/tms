@@ -1,3 +1,4 @@
+import { assertHumanStepUp, isWholeCompanyExport } from '../../auth/step-up';
 import { StreamableFile } from '@nestjs/common';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsIn, IsOptional } from 'class-validator';
@@ -81,6 +82,9 @@ export async function sendExport<R>(
   columns: ExportColumn<R>[],
   rows: R[],
 ): Promise<StreamableFile> {
+  // D-67: ส่งออกทั้งตาราง (ไม่มีตัวกรอง) = export ข้อมูลทั้งบริษัท → ผู้ใช้ต้อง step-up 2FA (API key ตาม scope)
+  const req = res.req as { query?: Record<string, unknown> } | undefined;
+  if (req && isWholeCompanyExport(baseName, req.query ?? {})) assertHumanStepUp();
   const name = `${baseName.replace(/[^\w.\-]/g, '_')}.${format}`;
   res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
   if (format === 'csv') {

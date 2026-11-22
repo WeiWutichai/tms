@@ -2,6 +2,7 @@ import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, idempotent, unwrap } from '../../api';
 import { useCursorList } from '../master/useCursorList';
+import { stepUpHeaders } from '../stepup/stepUp';
 
 export type Invoice = Schemas['InvoiceDto'];
 export type InvoiceSummary = Schemas['InvoiceSummaryDto'];
@@ -111,10 +112,18 @@ export function useCancelDraft() {
 export function useVoidInvoice() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: { id: string; version: number; reason: string; reissue: boolean }) =>
+    // D-67: ผู้ใช้ต้องยืนยัน 2FA — `stepUp` = token จาก POST /auth/step-up (ไม่มี → 403 step_up_required → dialog แสดงกล่องยืนยัน)
+    mutationFn: (v: {
+      id: string;
+      version: number;
+      reason: string;
+      reissue: boolean;
+      stepUp?: string;
+    }) =>
       unwrap(
         api.POST('/v1/invoices/{id}/void', {
           params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } },
+          headers: stepUpHeaders(v.stepUp),
           body: { reason: v.reason, reissue: v.reissue },
         }),
       ),

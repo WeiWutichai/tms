@@ -458,6 +458,15 @@
         "operationId": "Mfa_regenerate",
         "parameters": [
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งทุกครั้ง ไม่งั้น 403 `step_up_required` · API key ใช้ route นี้ไม่ได้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -489,6 +498,28 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "description": "ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/me/2fa/backup-codes",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "429": {
             "$ref": "#/components/responses/RateLimited"
           }
@@ -500,7 +531,10 @@
         ],
         "tags": [
           "auth"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "always"
+        }
       }
     },
     "/v1/me/password": {
@@ -777,7 +811,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_users.write"
+            "description": "ไม่มีสิทธิ์ (`users:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/users/invitations",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "users",
+                      "action": "write",
+                      "required": [
+                        "users:write"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/users/invitations",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "409": {
             "description": "already_member / seat_limit_reached (มี `limit`)"
@@ -799,7 +867,10 @@
         ],
         "x-required-scopes": [
           "users:write"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "always"
+        }
       },
       "get": {
         "operationId": "Invitations_list",
@@ -1740,6 +1811,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อนำเข้าผู้รับเหมา (`carrier`) ที่จับคู่คอลัมน์บัญชีธนาคาร (D-67 — แก้บัญชีธนาคาร) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -1771,6 +1851,28 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "description": "ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อนำเข้าผู้รับเหมา (`carrier`) ที่จับคู่คอลัมน์บัญชีธนาคาร (D-67 — แก้บัญชีธนาคาร)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/imports/3f2a…/commit",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
@@ -1785,7 +1887,11 @@
         ],
         "tags": [
           "imports"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "นำเข้าผู้รับเหมา (`carrier`) ที่จับคู่คอลัมน์บัญชีธนาคาร (D-67 — แก้บัญชีธนาคาร)"
+        }
       }
     },
     "/v1/imports/{id}/cancel": {
@@ -1929,6 +2035,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -1971,7 +2086,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_export.run"
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/exports",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "export",
+                      "action": "run",
+                      "required": [
+                        "export:run"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/exports",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -1990,7 +2139,11 @@
         ],
         "x-required-scopes": [
           "export:run"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+        }
       }
     },
     "/v1/exports/{id}": {
@@ -5497,7 +5650,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_users.write"
+            "description": "ไม่มีสิทธิ์ (`users:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/users/invitations",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "users",
+                      "action": "write",
+                      "required": [
+                        "users:write"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/users/3f2a…/roles",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -5519,7 +5706,10 @@
         ],
         "x-required-scopes": [
           "users:write"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "always"
+        }
       }
     },
     "/v1/users": {
@@ -7701,6 +7891,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -7726,7 +7925,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_export.run"
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/exports",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "export",
+                      "action": "run",
+                      "required": [
+                        "export:run"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/customers/export",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -7745,7 +7978,11 @@
         ],
         "x-required-scopes": [
           "export:run"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+        }
       }
     },
     "/v1/customers/external/{externalId}": {
@@ -14678,6 +14915,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -14703,7 +14949,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_export.run"
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/exports",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "export",
+                      "action": "run",
+                      "required": [
+                        "export:run"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/customer-sites/export",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -14722,7 +15002,11 @@
         ],
         "x-required-scopes": [
           "export:run"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+        }
       }
     },
     "/v1/customer-sites/geocode": {
@@ -16503,6 +16787,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -16528,7 +16821,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_export.run"
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/exports",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "export",
+                      "action": "run",
+                      "required": [
+                        "export:run"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/routes/export",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -16547,7 +16874,11 @@
         ],
         "x-required-scopes": [
           "export:run"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+        }
       }
     },
     "/v1/routes/estimate": {
@@ -18076,6 +18407,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -18101,7 +18441,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_export.run"
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/exports",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "export",
+                      "action": "run",
+                      "required": [
+                        "export:run"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/products/export",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -18120,7 +18494,11 @@
         ],
         "x-required-scopes": [
           "export:run"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+        }
       }
     },
     "/v1/products/external/{externalId}": {
@@ -20334,6 +20712,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -20359,7 +20746,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_export.run"
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/exports",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "export",
+                      "action": "run",
+                      "required": [
+                        "export:run"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/vehicle-types/export",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -20378,7 +20799,11 @@
         ],
         "x-required-scopes": [
           "export:run"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+        }
       }
     },
     "/v1/vehicle-types/external/{externalId}": {
@@ -21835,6 +22260,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -21860,7 +22294,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_export.run"
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/exports",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "export",
+                      "action": "run",
+                      "required": [
+                        "export:run"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/service-items/export",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -21879,7 +22347,11 @@
         ],
         "x-required-scopes": [
           "export:run"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+        }
       }
     },
     "/v1/service-items/external/{externalId}": {
@@ -23231,6 +23703,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -23256,7 +23737,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_export.run"
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/exports",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "export",
+                      "action": "run",
+                      "required": [
+                        "export:run"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/reason-codes/export",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -23275,7 +23790,11 @@
         ],
         "x-required-scopes": [
           "export:run"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+        }
       }
     },
     "/v1/reason-codes/external/{externalId}": {
@@ -24354,6 +24873,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งทุกครั้ง ไม่งั้น 403 `step_up_required` · API key ใช้ route นี้ไม่ได้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -24396,7 +24924,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.write"
+            "description": "ไม่มีสิทธิ์ (`settings:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/setup-checklist",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settings",
+                      "action": "write",
+                      "required": [
+                        "settings:write"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/api-keys",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -24419,6 +24981,9 @@
         "x-required-scopes": [
           "settings:write"
         ],
+        "x-step-up": {
+          "mode": "always"
+        },
         "description": "**หมายเหตุต่อเวอร์ชัน (X-Api-Version)**\n- 2026-11-18: API key ที่หมุนแล้ว (ใช้ได้ถึง revokeAt) มีสถานะ `rotating` — ก่อนหน้านี้แสดงเป็น `active` และตัวกรอง `status=active` รวม key เหล่านี้"
       }
     },
@@ -24893,6 +25458,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งทุกครั้ง ไม่งั้น 403 `step_up_required` · API key ใช้ route นี้ไม่ได้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -24935,7 +25509,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.write"
+            "description": "ไม่มีสิทธิ์ (`settings:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/setup-checklist",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settings",
+                      "action": "write",
+                      "required": [
+                        "settings:write"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/api-keys/3f2a…/rotate",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -24964,6 +25572,9 @@
         "x-required-scopes": [
           "settings:write"
         ],
+        "x-step-up": {
+          "mode": "always"
+        },
         "description": "**หมายเหตุต่อเวอร์ชัน (X-Api-Version)**\n- 2026-11-18: API key ที่หมุนแล้ว (ใช้ได้ถึง revokeAt) มีสถานะ `rotating` — ก่อนหน้านี้แสดงเป็น `active` และตัวกรอง `status=active` รวม key เหล่านี้"
       }
     },
@@ -25233,6 +25844,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งทุกครั้ง ไม่งั้น 403 `step_up_required` · API key ใช้ route นี้ไม่ได้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -25275,7 +25895,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.write"
+            "description": "ไม่มีสิทธิ์ (`settings:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/setup-checklist",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settings",
+                      "action": "write",
+                      "required": [
+                        "settings:write"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/webhooks",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -25294,7 +25948,10 @@
         ],
         "x-required-scopes": [
           "settings:write"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "always"
+        }
       }
     },
     "/v1/webhooks/summary": {
@@ -25852,6 +26509,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งทุกครั้ง ไม่งั้น 403 `step_up_required` · API key ใช้ route นี้ไม่ได้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -25894,7 +26560,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.write"
+            "description": "ไม่มีสิทธิ์ (`settings:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/setup-checklist",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settings",
+                      "action": "write",
+                      "required": [
+                        "settings:write"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/webhooks/3f2a…/rotate-secret",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -25919,7 +26619,10 @@
         ],
         "x-required-scopes": [
           "settings:write"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "always"
+        }
       }
     },
     "/v1/webhooks/{id}/disable": {
@@ -26476,6 +27179,15 @@
         "operationId": "Connectors_create",
         "parameters": [
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่ง `credentials` มาด้วย (D-67) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -26518,7 +27230,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.write"
+            "description": "ไม่มีสิทธิ์ (`settings:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่ง `credentials` มาด้วย (D-67)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/setup-checklist",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settings",
+                      "action": "write",
+                      "required": [
+                        "settings:write"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/connectors",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -26537,7 +27283,11 @@
         ],
         "x-required-scopes": [
           "settings:write"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "ส่ง `credentials` มาด้วย (D-67)"
+        }
       }
     },
     "/v1/connectors/adapters": {
@@ -27054,6 +27804,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งทุกครั้ง ไม่งั้น 403 `step_up_required` · API key ใช้ route นี้ไม่ได้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -27096,7 +27855,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.write"
+            "description": "ไม่มีสิทธิ์ (`settings:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/setup-checklist",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settings",
+                      "action": "write",
+                      "required": [
+                        "settings:write"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/connectors/3f2a…/credentials",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -27121,7 +27914,10 @@
         ],
         "x-required-scopes": [
           "settings:write"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "always"
+        }
       }
     },
     "/v1/connectors/{id}/health": {
@@ -27397,6 +28193,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งทุกครั้ง ไม่งั้น 403 `step_up_required` · API key ใช้ route นี้ไม่ได้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -27439,7 +28244,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.write"
+            "description": "ไม่มีสิทธิ์ (`settings:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/setup-checklist",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settings",
+                      "action": "write",
+                      "required": [
+                        "settings:write"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/connectors/3f2a…/inbound-token/rotate",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -27464,7 +28303,10 @@
         ],
         "x-required-scopes": [
           "settings:write"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "always"
+        }
       }
     },
     "/v1/connectors/{id}/inbound-token/revoke": {
@@ -29833,6 +30675,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -29858,7 +30709,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_export.run"
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/exports",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "export",
+                      "action": "run",
+                      "required": [
+                        "export:run"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/rate-cards/export",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -29877,7 +30762,11 @@
         ],
         "x-required-scopes": [
           "export:run"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+        }
       }
     },
     "/v1/rate-cards/external/{externalId}": {
@@ -44984,6 +45873,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -45026,7 +45924,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`invoices:void`)",
+            "description": "ไม่มีสิทธิ์ (`invoices:void`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -45046,6 +45944,16 @@
                       "required": [
                         "invoices:void"
                       ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/invoices/3f2a…/void",
+                      "requestId": "b6a1c2d3-…"
                     }
                   }
                 }
@@ -45193,7 +46101,10 @@
         ],
         "x-required-scopes": [
           "invoices:void"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human"
+        }
       }
     },
     "/v1/invoices/{id}/mark-sent": {
@@ -49602,6 +50513,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อยกเลิกใบวางบิลที่ออกแล้ว (ISSUED — D-67) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -49644,7 +50564,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`invoices:draft` / `invoices:finalize`)",
+            "description": "ไม่มีสิทธิ์ (`invoices:draft` / `invoices:finalize`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อยกเลิกใบวางบิลที่ออกแล้ว (ISSUED — D-67)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -49665,6 +50585,16 @@
                         "invoices:draft",
                         "invoices:finalize"
                       ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/billing-notes/3f2a…/cancel",
+                      "requestId": "b6a1c2d3-…"
                     }
                   }
                 }
@@ -49818,7 +50748,11 @@
         ],
         "x-required-scopes": [
           "invoices:draft"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "ยกเลิกใบวางบิลที่ออกแล้ว (ISSUED — D-67)"
+        }
       }
     },
     "/v1/billing-notes/{id}/proforma": {
@@ -60251,6 +61185,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -60293,7 +61236,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_master.write"
+            "description": "ไม่มีสิทธิ์ (`master:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/customers",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "master",
+                      "action": "write",
+                      "required": [
+                        "master:write"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/carriers",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -60312,7 +61289,11 @@
         ],
         "x-required-scopes": [
           "master:write"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "เปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)"
+        }
       }
     },
     "/v1/carriers/summary": {
@@ -60574,6 +61555,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -60599,7 +61589,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_export.run"
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/exports",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "export",
+                      "action": "run",
+                      "required": [
+                        "export:run"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/carriers/export",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -60618,7 +61642,11 @@
         ],
         "x-required-scopes": [
           "export:run"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+        }
       }
     },
     "/v1/carriers/external/{externalId}": {
@@ -60641,6 +61669,15 @@
             "in": "header",
             "description": "ETag — ใช้เมื่อแถวมีอยู่แล้ว",
             "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
             "schema": {
               "type": "string"
             }
@@ -60712,7 +61749,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_master.write"
+            "description": "ไม่มีสิทธิ์ (`master:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/customers",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "master",
+                      "action": "write",
+                      "required": [
+                        "master:write"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/carriers/external/3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "409": {
             "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
@@ -60807,7 +61878,11 @@
         ],
         "x-required-scopes": [
           "master:write"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "เปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)"
+        }
       },
       "patch": {
         "description": "เหมือน `PATCH /carriers/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT",
@@ -60829,6 +61904,15 @@
             "in": "header",
             "description": "ETag จาก GET — ไม่ตรง → 412",
             "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
             "schema": {
               "type": "string"
             }
@@ -60876,7 +61960,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_master.write"
+            "description": "ไม่มีสิทธิ์ (`master:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/customers",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "master",
+                      "action": "write",
+                      "required": [
+                        "master:write"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/carriers/external/3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "404": {
             "description": "ยังไม่มีแถวที่ externalId นี้ (สร้างใหม่ใช้ PUT) หรืออยู่ tenant อื่น",
@@ -60993,7 +62111,11 @@
         ],
         "x-required-scopes": [
           "master:write"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "เปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)"
+        }
       }
     },
     "/v1/carriers/{id}": {
@@ -61085,6 +62207,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -61127,7 +62258,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_master.write"
+            "description": "ไม่มีสิทธิ์ (`master:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/customers",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "master",
+                      "action": "write",
+                      "required": [
+                        "master:write"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/carriers/3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -61152,7 +62317,11 @@
         ],
         "x-required-scopes": [
           "master:write"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "เปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)"
+        }
       }
     },
     "/v1/carriers/{id}/history": {
@@ -61260,6 +62429,15 @@
             "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อ`field` = `bankAccountNo` (ดูเลขบัญชีเต็ม — D-67) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -61302,7 +62480,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settlements.pay"
+            "description": "ไม่มีสิทธิ์ (`settlements:pay`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อ`field` = `bankAccountNo` (ดูเลขบัญชีเต็ม — D-67)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/carriers/3f2a…/reveal",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settlements",
+                      "action": "pay",
+                      "required": [
+                        "settlements:pay"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/carriers/3f2a…/reveal",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -61345,7 +62557,11 @@
         ],
         "x-required-scopes": [
           "settlements:pay"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "`field` = `bankAccountNo` (ดูเลขบัญชีเต็ม — D-67)"
+        }
       }
     },
     "/v1/carriers/{id}/deactivate": {
@@ -62191,6 +63407,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -62216,7 +63441,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_export.run"
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/exports",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "export",
+                      "action": "run",
+                      "required": [
+                        "export:run"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/vehicles/export",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -62235,7 +63494,11 @@
         ],
         "x-required-scopes": [
           "export:run"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+        }
       }
     },
     "/v1/vehicles/external/{externalId}": {
@@ -63923,6 +65186,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -63948,7 +65220,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_export.run"
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/exports",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "export",
+                      "action": "run",
+                      "required": [
+                        "export:run"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/drivers/export",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -63967,7 +65273,11 @@
         ],
         "x-required-scopes": [
           "export:run"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+        }
       }
     },
     "/v1/drivers/external/{externalId}": {
@@ -65239,6 +66549,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -65264,7 +66583,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_export.run"
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/exports",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "export",
+                      "action": "run",
+                      "required": [
+                        "export:run"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/vehicle-documents/export",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -65283,7 +66636,11 @@
         ],
         "x-required-scopes": [
           "export:run"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+        }
       }
     },
     "/v1/vehicle-documents": {

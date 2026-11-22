@@ -27,6 +27,7 @@ import type { Request, Response } from 'express';
 import {
   NoTransaction,
   RateLimitClass,
+  RequireHumanStepUp,
   RequireScope,
   TenantResource,
 } from '../../common/decorators';
@@ -727,6 +728,7 @@ export class InvoicesController {
   @HttpCode(200)
   @TenantResource('issuedInvoice')
   @RequireScope('invoices:void')
+  @RequireHumanStepUp() // D-67: ยกเลิกใบที่ออกแล้ว — ผู้ใช้ต้อง step-up 2FA · API key ตาม scope `invoices:void`
   @ApiOperation({
     summary: 'ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (void) — คงเลข · ยังไม่รับชำระ · เหตุผล ≥ 10 ตัวอักษร',
     description:

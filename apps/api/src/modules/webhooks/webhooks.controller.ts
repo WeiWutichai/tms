@@ -25,6 +25,7 @@ import {
   NoTransaction,
   RequireFeature,
   RequireScope,
+  RequireStepUp,
   TenantResource,
   RateLimitClass,
   SandboxAware,
@@ -122,6 +123,7 @@ export class WebhooksController {
 
   @Post()
   @RequireScope('settings:write')
+  @RequireStepUp() // D-67: ผลมี signing secret
   @ApiCreatedResponse({
     type: WebhookEndpointSecretDto,
     description:
@@ -188,6 +190,7 @@ export class WebhooksController {
   @HttpCode(201)
   @TenantResource('webhookEndpoint')
   @RequireScope('settings:write')
+  @RequireStepUp() // D-67
   @ApiHeader(IF_MATCH)
   @ApiCreatedResponse({
     type: WebhookEndpointSecretDto,

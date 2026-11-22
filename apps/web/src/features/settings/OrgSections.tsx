@@ -382,9 +382,15 @@ function useSaveFlow(section: MessageKey, d: ReturnType<typeof useDraft>) {
 export function StepUpBox({
   onConfirm,
   onCancel,
+  desc,
+  busy,
 }: {
   onConfirm: (otp: string) => void;
   onCancel: () => void;
+  /** ข้อความอธิบาย — ไม่ส่ง = "การเปลี่ยนนี้ลดความปลอดภัย…" (หน้าตั้งค่า) · D-67 รายการเสี่ยงอื่นส่ง `stepUp.descAction` */
+  desc?: string;
+  /** กำลังยืนยันรหัส — กันกดซ้ำ */
+  busy?: boolean;
 }) {
   const { t } = useI18n();
   const [otp, setOtp] = useState('');
@@ -404,7 +410,7 @@ export function StepUpBox({
       }}
     >
       <span style={{ fontWeight: 600 }}>{t('stepUp.title')}</span>
-      <span style={{ color: '#3B424C' }}>{t('stepUp.desc')}</span>
+      <span style={{ color: '#3B424C' }}>{desc ?? t('stepUp.desc')}</span>
       <div style={{ display: 'flex', gap: 8 }}>
         <input
           aria-label={t('mfa.codeLabel')}
@@ -418,7 +424,8 @@ export function StepUpBox({
         <button
           type="button"
           className="set-btn2"
-          disabled={otp.length !== 6}
+          disabled={otp.length !== 6 || busy}
+          aria-busy={busy}
           onClick={() => onConfirm(otp)}
         >
           {t('mfa.submit')}
