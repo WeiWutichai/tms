@@ -102,6 +102,7 @@ import {
 import { ConnectorsService } from './modules/erp/connectors.service';
 import { ErpMasterCodesController } from './modules/erp/erp-master-codes.controller';
 import { ErpMasterCodesService } from './modules/erp/erp-master-codes.service';
+import { CarrierErpCodesController } from './modules/erp/carrier-erp-codes.controller';
 import { CustomerErpCodesController } from './modules/erp/customer-erp-codes.controller';
 import { ExternalMappingService } from './modules/erp/external-mapping.service';
 import { InboundWebhookController } from './modules/erp/inbound-webhook.controller';
@@ -323,6 +324,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ConnectorsController,
     ErpMasterCodesController,
     CustomerErpCodesController,
+    CarrierErpCodesController,
     InboundWebhookController,
     WebhookDeliveriesController,
     EventsController,

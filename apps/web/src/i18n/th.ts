@@ -4878,6 +4878,8 @@ export const th = {
   'cnx.ec.capability_not_supported': 'ระบบบัญชีไม่รองรับ',
   'cnx.ec.erp_mapping_incomplete': 'ยังจับคู่รหัสสินค้าไม่ครบ',
   'cnx.ec.contact_not_found': 'ไม่พบลูกค้า / รถร่วมในระบบบัญชี',
+  'cnx.ec.payload_unchanged': 'ข้อมูลเหมือนที่ส่งล่าสุด ไม่ส่งซ้ำ',
+  'cnx.ec.invalid_payload': 'ข้อมูลเอกสารไม่ครบหรือผิดรูป',
   'cnx.inbound.none': 'ยังไม่ได้เปิดรับ',
   'cnx.inbound.rotated': 'ออก token ล่าสุด {d}',
   'cnx.inbound.issue': 'ออก URL รับ webhook',

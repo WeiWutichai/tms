@@ -8,7 +8,8 @@ import type { CanonicalDocument } from './erp-adapter';
  * - เงินเป็นสตริงทศนิยม 2 ตำแหน่ง (ห้าม float) · วันที่ `YYYY-MM-DD` (วันตามปฏิทินไทย) · id = uuid ภายใน (ไม่ใช่ id สาธารณะ)
  * - ภาษีเป็น **ประมาณการ** (D-54: เอกสารภาษีออกที่ระบบบัญชี) — `taxEstimated: true` เสมอ
  * - `lines[].serviceItem.id` → ประตู mapping ค่าบริการ ↔ รหัสสินค้า ERP (ST7-T18) ใส่ `externalId` ให้ก่อนถึง adapter
- * - `sync.hash` = sha256 ของ payload (ไม่รวม sync) — เก็บใน `external_mapping.payload_hash`
+ * - `sync.hash` = sha256 ของ payload (ไม่รวม sync) — ST7-T15: ก่อนส่ง sink ใส่รหัสฝั่ง ERP ล่าสุด (ลูกค้า/รถร่วม/ค่าบริการ)
+ *   แล้วคำนวณใหม่ = hash ของสิ่งที่ส่งจริง → เก็บใน `external_mapping.last_synced_hash` · hash เท่าเดิม = ไม่ส่งซ้ำ (SKIPPED)
  */
 
 export interface CanonicalParty {
@@ -85,7 +86,11 @@ export interface CanonicalSettlementPayload extends CanonicalDocument {
   payingCompanyId: string | null;
   period: { from: string; to: string };
   carrierInvoiceNumber: string | null;
-  carrier: CanonicalParty & { entityType: 'INDIVIDUAL' | 'JURISTIC' };
+  /** `externalId` = รหัสรถร่วมฝั่ง ERP จาก external_mapping CARRIER (ST7-T15 — core ใส่ ณ ตอนส่ง) · ไม่มี/null = ยังไม่ map */
+  carrier: CanonicalParty & {
+    entityType: 'INDIVIDUAL' | 'JURISTIC';
+    externalId?: string | null;
+  };
   payment: { method: string | null; reference: string | null; bank: string | null };
   totals: { gross: string; deduction: string; net: string; wht: string; netAfterWht: string };
   /** WHT ประมาณการ (ST6-T08) — 50 ทวิ ออกที่ระบบบัญชี (D-58) · `pndForm` = PND3 (บุคคล) / PND53 (นิติบุคคล) */

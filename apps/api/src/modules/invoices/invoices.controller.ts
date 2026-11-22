@@ -81,6 +81,8 @@ import {
   SendInvoiceDto,
 } from './document-email.dto';
 import { DocumentEmailService } from './document-email.service';
+import { documentSyncDto } from '../erp/document-sync.dto';
+import { ExternalMappingService } from '../erp/external-mapping.service';
 
 const NF = { ...T404, description: 'ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น)' };
 const IF_MATCH = {
@@ -174,6 +176,7 @@ export class InvoicesController {
     private readonly canceller: InvoiceCancelService,
     private readonly status: InvoiceStatusService,
     private readonly mail: DocumentEmailService,
+    private readonly mappings: ExternalMappingService,
   ) {}
 
   // ประกาศ `queue` ก่อน `:id` เสมอ (ไม่งั้น /invoices/queue ถูกจับเป็น id) — test/invoices-draft.test.ts ตรวจลำดับ route
@@ -303,7 +306,10 @@ export class InvoicesController {
     @Param('id') id: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
-    const out = await this.svc.get(decodeIdOr404('invoice', id));
+    const uuid = decodeIdOr404('invoice', id);
+    const out = await this.svc.get(uuid);
+    // ST7-T15 เลขเอกสารสองฝั่ง (docs/04 G3) — ผลการส่งเข้าระบบบัญชี แยกจากสถานะเอกสาร
+    out.sync = documentSyncDto(await this.mappings.documentSync('INVOICE', uuid));
     setEtag(res, out.version);
     return out;
   }

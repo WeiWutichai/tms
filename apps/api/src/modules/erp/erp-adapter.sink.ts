@@ -11,9 +11,12 @@ import type { Tx } from '../../db/db.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { OutboxSinkRegistry } from '../integration/outbox-sink.registry';
 import { OutboxSinkError, type OutboxDelivery, type OutboxSink } from '../integration/outbox.types';
+import { withSyncHash } from './canonical';
+import { canonicalProblems } from './canonical-validation';
 import { ConnectorResolver } from './connector-resolver';
 import { ConnectorsService, HEALTH_STOP_CLASSES, redactSecrets } from './connectors.service';
 import { ErpMasterCodesService, type PushPreparation } from './erp-master-codes.service';
+import { ExternalMappingService } from './external-mapping.service';
 import {
   type CanonicalDocument,
   type ErpAdapter,
@@ -51,7 +54,7 @@ async function sourceState(
 }
 
 /** entity ที่เก็บ external_mapping หลัง push สำเร็จ (ST8-T16) */
-const MAPPED_ENTITIES: Readonly<Record<string, string>> = {
+const MAPPED_ENTITIES: Readonly<Record<string, 'INVOICE' | 'SETTLEMENT'>> = {
   invoice: 'INVOICE',
   settlement: 'SETTLEMENT',
 };
@@ -88,6 +91,12 @@ function parkedNotImplemented(cap: string): OutboxSinkError {
  *   `serviceItem.externalId` ก่อนส่ง adapter (docs/01 §7.2)
  * - ST8-T06 ค่าที่ adapter ประกาศใน `masterCodeRefs` (เช่น หน่วย/พนักงานขายของ KRS) ไม่อยู่ใน `erp_master_code` → FAILED_FINAL
  *   (VALIDATION `erp_master_code_unknown` + ลิงก์) · ผ่าน = รหัสที่หาได้อยู่ใน `ctx.masterCodes`
+ * - ST7-T15 (docs/01 §3.7, §7.4; docs/04 G3) ก่อนเรียก adapter ของคำสั่งส่งเอกสาร:
+ *   1) รูปของ canonical ผิด (ไม่มีเลข TMS / วันที่ / ยอดเงินผิดรูป) → FAILED_FINAL (VALIDATION `invalid_payload` + `fields`)
+ *   2) ใส่รหัสคู่ค้าฝั่ง ERP จาก external_mapping `SYNCED` ณ ตอนส่ง (`customer.externalId` / `carrier.externalId`) แล้วเข้าประตู mapping
+ *   3) คำนวณ `sync.hash` ของเอกสารที่จะส่งจริง — เท่ากับ `last_synced_hash` ของ mapping ที่ `SYNCED` = **SKIPPED `payload_unchanged`**
+ *      (ไม่เรียก adapter — ส่งคำสั่งเดิมซ้ำ / หยิบซ้ำหลัง worker ตายหลังส่งถึงแล้ว)
+ *   4) สำเร็จ → external_mapping เก็บ `external_id` / `external_doc_no` / `external_version` + hash นั้น
  * ST8-T16 (ส่วนหนึ่งของ ST7-T15/T16): คำสั่งหลัง finalize/บันทึกจ่าย/ยกเลิก = `ErpSyncService` · push สำเร็จ → external_mapping · ประตู syncFromDate = ST7-T16
  */
 @Injectable()
@@ -101,6 +110,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     private readonly entitlements: EntitlementService,
     private readonly masterCodes: ErpMasterCodesService,
     private readonly clock: Clock,
+    private readonly mappings: ExternalMappingService,
   ) {}
 
   onModuleInit() {
@@ -219,10 +229,26 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
           code: 'invalid_payload',
         });
       const doc = payload.document ?? (payload as CanonicalDocument);
+      // ST7-T15 รูปของ canonical (เลข TMS ที่ส่งไปช่อง ref ของ ERP, วันที่, ยอดเงิน) — ผิด = ไม่ถึง adapter
+      const shape = canonicalProblems(doc);
+      if (shape.length)
+        throw new OutboxSinkError('canonical payload is invalid', 'VALIDATION', {
+          code: 'invalid_payload',
+          message: 'ข้อมูลเอกสารที่จะส่งเข้าระบบบัญชีไม่ครบหรือผิดรูป',
+          fields: shape,
+        });
       let prep: PushPreparation;
       try {
-        prep = await d.withTx((tx) =>
-          this.masterCodes.prepareForPush(tx, connector.id, adapter, ctx, operation, doc),
+        prep = await d.withTx(async (tx) =>
+          this.masterCodes.prepareForPush(
+            tx,
+            connector.id,
+            adapter,
+            ctx,
+            operation,
+            // ST7-T15 รหัสลูกค้า/รถร่วมฝั่ง ERP จาก external_mapping ณ ตอนส่ง (docs/01 §7.4)
+            await this.mappings.withPartyCodes(tx, connector.id, doc),
+          ),
         );
       } catch (e) {
         // adapter.masterCodeRefs พัง / ฐานข้อมูลล้ม — ลองใหม่ตาม policy · ข้อความตัด credential ก่อนเก็บ
@@ -234,8 +260,39 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
       }
       if (!prep.ok)
         throw new OutboxSinkError(prep.problem.message, 'VALIDATION', { ...prep.problem });
-      if (payload.document) payload.document = prep.document;
-      else Object.assign(payload, prep.document);
+      // ST7-T15 hash ของเอกสารที่จะส่งจริง (หลังใส่รหัสฝั่ง ERP) — เท่ากับที่ส่งสำเร็จล่าสุด = ไม่ส่งซ้ำ
+      const ready = withSyncHash(prep.document);
+      const entity = MAPPED_ENTITIES[d.entityType];
+      if (entity) {
+        const prior = await d.withTx((tx) =>
+          tx.externalMapping.findUnique({
+            where: {
+              connectorId_entityType_localId: {
+                connectorId: connector.id,
+                entityType: entity,
+                localId: d.localId,
+              },
+            },
+            select: { status: true, lastSyncedHash: true, externalId: true, externalDocNo: true },
+          }),
+        );
+        if (
+          prior?.status === 'SYNCED' &&
+          prior.externalId &&
+          prior.lastSyncedHash === ready.sync!.hash
+        )
+          throw new OutboxSinkError(
+            'payload unchanged since the last successful sync — not sent',
+            'CAPABILITY',
+            {
+              code: 'payload_unchanged',
+              externalId: prior.externalId,
+              externalDocNo: prior.externalDocNo,
+            },
+          );
+      }
+      if (payload.document) payload.document = ready;
+      else Object.assign(payload, ready);
       ctx.masterCodes = prep.masterCodes;
     }
     try {
@@ -299,20 +356,23 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     const doc = payload.document ?? (payload as CanonicalDocument);
     const number = typeof doc?.number === 'string' ? doc.number.slice(0, 60) : null;
     const hash = typeof doc?.sync?.hash === 'string' ? doc.sync.hash.slice(0, 64) : null;
+    // ST7-T15 revision/ETag ฝั่ง ERP (ถ้ามี — docs/01 §3.7 `external_version`)
+    const version = typeof r.externalVersion === 'string' ? r.externalVersion.slice(0, 100) : null;
     const now = this.clock.now();
     await d.withTx(async (tx) => {
       await tx.$executeRaw`
         INSERT INTO external_mapping (id, tenant_id, connector_id, entity_type, local_id, local_number, external_id,
-                                      external_doc_no, external_status, status, last_synced_hash, last_synced_at,
-                                      created_by, updated_at)
+                                      external_doc_no, external_version, external_status, status, last_synced_hash,
+                                      last_synced_at, created_by, updated_at)
         VALUES (gen_random_uuid(), ${d.tenantId}::uuid, ${c.id}::uuid, ${entity}::"ExternalEntityType",
                 ${d.localId}::uuid, ${number}, ${String(r.externalId).slice(0, 100)},
-                ${r.externalDocNo?.slice(0, 100) ?? null}, 'DRAFT', 'SYNCED', ${hash}, ${now},
+                ${r.externalDocNo?.slice(0, 100) ?? null}, ${version}, 'DRAFT', 'SYNCED', ${hash}, ${now},
                 'system:erp-sink', now())
         ON CONFLICT (connector_id, entity_type, local_id) DO UPDATE
            SET external_id = EXCLUDED.external_id,
                local_number = coalesce(EXCLUDED.local_number, external_mapping.local_number),
                external_doc_no = coalesce(external_mapping.external_doc_no, EXCLUDED.external_doc_no),
+               external_version = coalesce(EXCLUDED.external_version, external_mapping.external_version),
                external_status = coalesce(external_mapping.external_status, EXCLUDED.external_status),
                status = 'SYNCED', last_error = NULL,
                last_synced_hash = EXCLUDED.last_synced_hash, last_synced_at = EXCLUDED.last_synced_at,

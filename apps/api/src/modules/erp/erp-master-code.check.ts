@@ -43,8 +43,11 @@ export const MASTER_CODE_KIND_TH: Record<MasterCodeRefKind, string> = {
   ITEM: 'รหัสสินค้า/บริการ',
   VAT_RATE: 'อัตรา VAT',
   CUSTOMER: 'รหัสลูกค้าในระบบบัญชี',
+  CARRIER: 'รหัสรถร่วมในระบบบัญชี',
 };
-const KNOWN_KINDS = new Set<string>([...ERP_MASTER_CODE_KINDS, 'CUSTOMER']);
+/** รหัสคู่ค้าจาก external_mapping (ST7-T15) — ไม่ใช่ผังรหัส ERP */
+const PARTY_KINDS = new Set<string>(['CUSTOMER', 'CARRIER']);
+const KNOWN_KINDS = new Set<string>([...ERP_MASTER_CODE_KINDS, ...PARTY_KINDS]);
 const MAX_FIELDS_PER_GAP = 5;
 const isMasterKind = (k: string): k is ErpMasterCodeKind =>
   (ERP_MASTER_CODE_KINDS as readonly string[]).includes(k);
@@ -52,7 +55,8 @@ const isMasterKind = (k: string): k is ErpMasterCodeKind =>
 /**
  * หาค่าในผังรหัสของ connector (ใช้ใน tx ของ tenant) — กฎ `resolveErpMasterCode`
  * - strict: ต้องมีค่า + อยู่ในผังที่ใช้งาน · ไม่ strict: ตรวจเมื่อมีค่าและ connector เคยมีผังชนิดนั้น (ไม่ตรวจ = ค่าดิบใน resolved)
- * - `CUSTOMER`: ตรวจแค่มีค่า (external_mapping = ST7-T15) — มี = ค่าดิบ
+ * - `CUSTOMER` / `CARRIER`: ตรวจแค่มีค่า — ค่าในเอกสารมาจาก external_mapping สถานะ SYNCED ณ ตอนส่งแล้ว (ST7-T15
+ *   `ExternalMappingService.withPartyCodes`) — มี = ค่าดิบ
  * - `catalogues`: ชนิดที่ต้องมีผังแล้ว (ใช้ตรวจความพร้อม) — ไม่มีแถวที่ใช้งานเลย = NO_CATALOGUE
  * - ref ชนิดที่ไม่รู้จัก = ข้าม (adapter ผิด — ไม่ทำให้ข้อความมี "undefined")
  */
@@ -101,8 +105,8 @@ export async function checkMasterCodeRefs(
   };
   for (const ref of list) {
     const value = typeof ref.value === 'string' && ref.value.trim() ? ref.value.trim() : null;
-    if (ref.kind === 'CUSTOMER') {
-      if (value) put('CUSTOMER', value, { code: value, name: null });
+    if (ref.kind === 'CUSTOMER' || ref.kind === 'CARRIER') {
+      if (value) put(ref.kind, value, { code: value, name: null });
       else if (ref.strict) gap(ref, null, 'MISSING');
       continue;
     }
