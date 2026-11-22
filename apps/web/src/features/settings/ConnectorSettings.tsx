@@ -65,6 +65,8 @@ export function adapterName(t: T, key: string, displayName?: string | null, demo
 
 /** credential ไม่แสดงค่า — มีแค่ชื่อช่อง + จุดปิด (INT-003; เกณฑ์ตรวจรับ "credential ไม่แสดงเต็ม") */
 export const MASK = '••••••••';
+/** ST7-T21 capability ที่ API ให้เปิดได้เมื่อมีเหตุผลเท่านั้น (ตรงกับ `OPT_IN_CAPABILITIES` ฝั่ง API) */
+const OPT_IN_CAPABILITIES: readonly string[] = ['fetchPaymentStatus'];
 
 /**
  * ตั้งค่า → การเชื่อมต่อ → ระบบบัญชี (ERP) — ต้นแบบ TMS v4 `st.is.conn` (ST7-T20; docs/04 G3 "หน้าจัดการ connector", spec/07 §1)
@@ -716,6 +718,8 @@ function MapTab({
   const [inb, setInb] = useState<'rotate' | 'revoke' | null>(null);
   const [secret, setSecret] = useState<{ url: string; copied: boolean } | null>(null);
   const [numTo, setNumTo] = useState<'TMS' | 'ERP' | null>(null);
+  /** ST7-T21 capability แบบ opt-in ที่กำลังจะเปิด (รอเหตุผล) */
+  const [capOn, setCapOn] = useState<string | null>(null);
   useEffect(() => setFrom(c.syncFromDate ?? ''), [c.syncFromDate]);
   const ifMatch = { 'If-Match': `"${c.version}"` } as never;
   const done = () => void qc.invalidateQueries({ queryKey: ['connectors'] });
@@ -728,6 +732,7 @@ function MapTab({
         }),
       ),
     onSuccess: () => {
+      setCapOn(null);
       done();
       onToast(t('cnx.toast.saved'));
     },
@@ -878,13 +883,19 @@ function MapTab({
                   on={on}
                   label={t(`cnx.cap.${k}` as MessageKey)}
                   disabled={!canWrite || patch.isPending}
-                  onChange={() =>
+                  onChange={() => {
+                    // ST7-T21 เปิด capability แบบ opt-in ต้องมีเหตุผล (API 422 ถ้าไม่มี) — ถามด้วย dialog เหตุผลแบบเดิมของหน้านี้
+                    if (!on && OPT_IN_CAPABILITIES.includes(k)) {
+                      patch.reset();
+                      setCapOn(k);
+                      return;
+                    }
                     patch.mutate({
                       capabilitiesEnabled: on
                         ? c.capabilitiesEnabled.filter((x) => x !== k)
                         : [...c.capabilitiesEnabled, k],
-                    })
-                  }
+                    });
+                  }}
                 />
               </div>
             );
@@ -963,6 +974,29 @@ function MapTab({
           sor.reset();
         }}
         onOk={(reason) => numTo && sor.mutate({ taxDocumentOwner: numTo, reason })}
+      />
+      <ReasonDialog
+        open={!!capOn}
+        title={t('cnx.dlg.capOnT', { cap: capOn ? t(`cnx.cap.${capOn}` as MessageKey) : '' })}
+        description={t('cnx.dlg.capOnD', { n })}
+        label={t('cnx.reason')}
+        placeholder={t('cnx.reasonPh')}
+        okLabel={t('cnx.dlg.capOnOk')}
+        cancelLabel={t('common.cancel')}
+        closeLabel={t('drawer.close')}
+        busy={patch.isPending}
+        error={capOn ? problemText(patch.error, t) : undefined}
+        onClose={() => {
+          setCapOn(null);
+          patch.reset();
+        }}
+        onOk={(reason) =>
+          capOn &&
+          patch.mutate({
+            capabilitiesEnabled: [...c.capabilitiesEnabled, capOn] as typeof c.capabilitiesEnabled,
+            reason,
+          })
+        }
       />
       <ReasonDialog
         open={!!inb}
