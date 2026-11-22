@@ -33,6 +33,7 @@ import { REVENUE_LOCK_NS } from '../revenue-lines/revenue-rebuild';
 import { RevenueLinesService } from '../revenue-lines/revenue-lines.service';
 import { readSettings } from '../settings/settings.service';
 import { InvoiceBillingGuard, type RevenueInvoiceLineInput } from './billing-guard.service';
+import { MAX_DOS_PER_INVOICE } from './billing-limits';
 import { BillingReleaseService } from './billing-release.service';
 import type { NotReadyReason } from './billing-queue.service';
 import type {
@@ -753,6 +754,7 @@ export class InvoicesService {
   /** ดึง DO เข้าร่าง: ตรวจความพร้อมซ้ำ + สร้างบรรทัดจากบรรทัดรายได้ (ผ่าน InvoiceBillingGuard — ตัวกันวางบิลซ้ำ) */
   /** ดึง DO เข้าร่าง (ตรวจความพร้อมซ้ำ + บรรทัดจากบรรทัดรายได้) — ใช้ร่วมกับออกใบแทน (ST5-T10) */
   async pull(tx: Tx, invoiceId: string, doIds: string[]) {
+    await this.assertDoCap(tx, invoiceId, doIds.length);
     await this.guard.attachDos(
       invoiceId,
       doIds,
@@ -764,6 +766,24 @@ export class InvoicesService {
     );
   }
 
+  /**
+   * เพดาน DO ต่อใบแจ้งหนี้ (`MAX_DOS_PER_INVOICE` — PO 22 พ.ย. 2569): DO ที่อยู่บนร่างแล้ว + ที่จะดึงเพิ่ม เกิน = 422 `too_many`
+   * (เพดานเดียวกันทุกทาง: สร้างมือ, เพิ่ม DO เข้าร่าง, รอบวางบิล, ออกใบแทน)
+   */
+  private async assertDoCap(tx: Tx, invoiceId: string, adding: number) {
+    const [{ n }] = await tx.$queryRaw<[{ n: number }]>`
+      SELECT count(DISTINCT delivery_order_id)::int AS n FROM invoice_line
+       WHERE invoice_id = ${invoiceId}::uuid AND active AND delivery_order_id IS NOT NULL`;
+    if (n + adding > MAX_DOS_PER_INVOICE)
+      throw invalid([
+        {
+          field: 'deliveryOrderIds',
+          code: 'too_many',
+          message: `an invoice can hold at most ${MAX_DOS_PER_INVOICE} delivery orders (already ${n}, adding ${adding})`,
+        },
+      ]);
+  }
+
   /** ST5-T07 / ST5-T04 review: ตรวจความพร้อมซ้ำทุกครั้งที่ดึง — ส่งบัญชีแล้ว **และ** เงื่อนไขคิวยังผ่าน (ไม่เชื่อ `released_at` อย่างเดียว) */
   private async verifyReady(tx: Tx, rows: BillingDoRow[]) {
     const fails: {
@@ -772,8 +792,10 @@ export class InvoicesService {
       reasons: NotReadyReason[];
       missing?: unknown[];
     }[] = [];
+    // ST5-T12b: ตรวจทั้งชุดด้วย query คงที่ (ไม่ query ต่อ DO — ร่าง ≤ 1,000 DO) · ผลต่อ DO = `release.check`
+    const checks = await this.release.checkMany(tx, rows);
     for (const d of rows) {
-      const c = await this.release.check(tx, d);
+      const c = checks.get(d.id)!;
       const reasons = c.reasons.filter((r) => r !== 'IN_INVOICE');
       if (!c.released && !reasons.includes('NOT_DELIVERED')) reasons.push('NOT_RELEASED');
       if (reasons.length)
@@ -845,11 +867,16 @@ export class InvoicesService {
       })),
       taxOptionsFromSettings({ whtMinimumAmount: settings['tax.whtMinimumAmount'] as number }),
     );
-    for (const [i, l] of lines.entries()) {
+    // ST5-T12b: VAT รายบรรทัดที่เปลี่ยน อัปเดตในคำสั่งเดียว (เดิม 1 คำสั่งต่อบรรทัด — ร่าง 1,000 DO = หลายพันคำสั่ง)
+    const changed = lines.flatMap((l, i) => {
       const vat = decimalFromSatang(tax.lines[i]!.vat);
-      if (money(l.vatAmount) !== vat)
-        await tx.invoiceLine.update({ where: { id: l.id }, data: { vatAmount: vat } });
-    }
+      return money(l.vatAmount) !== vat ? [{ id: l.id, vat }] : [];
+    });
+    if (changed.length)
+      await tx.$executeRaw`
+        UPDATE invoice_line l SET vat_amount = v.vat
+          FROM unnest(${changed.map((c) => c.id)}::uuid[], ${changed.map((c) => c.vat)}::numeric[]) AS v(id, vat)
+         WHERE l.id = v.id AND l.invoice_id = ${id}::uuid`;
     const discount = lines.reduce((a, l) => a.add(l.discount), new Prisma.Decimal(0));
     await tx.invoice.update({
       where: { id },

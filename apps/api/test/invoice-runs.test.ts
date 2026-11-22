@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { appendFileSync } from 'node:fs';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Prisma } from '@prisma/client';
+import ExcelJS from 'exceljs';
+import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ensureSystemRoles } from '../src/auth/system-roles';
 import { encodeId, tryDecodeId } from '../src/common/ids';
@@ -8,7 +11,9 @@ import { requestContext } from '../src/common/request-context';
 import { DbService, type Tx } from '../src/db/db.service';
 import { JobQueue } from '../src/jobs/job-queue.service';
 import { DeliveryOrderService } from '../src/modules/delivery-orders/delivery-order.service';
+import { MAX_DOS_PER_INVOICE } from '../src/modules/invoices/billing-limits';
 import { BillingQueueService } from '../src/modules/invoices/billing-queue.service';
+import { BillingReleaseService } from '../src/modules/invoices/billing-release.service';
 import { INVOICE_RUN_JOB, InvoiceRunService } from '../src/modules/invoices/invoice-run.service';
 import { InvoicesService } from '../src/modules/invoices/invoices.service';
 import {
@@ -246,6 +251,107 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     (j.result.results as any[]).find((r) => r.customerId === customer);
   const monthly = { billingCycle: 'MONTHLY', periodFrom: yesterday, periodTo: today };
 
+  /**
+   * คัดลอก DO ที่ส่งถึง + ส่งบัญชีแล้ว (ใบสั่ง + DO + บรรทัดรายได้) n ชุดด้วย SQL — สร้าง DO หลายร้อยใบผ่าน API ช้าเกินใน test
+   * (เที่ยว/จุดส่งใช้ของต้นแบบร่วมกัน — ความพร้อมวางบิลดูแค่เวลาถึง/ออกของจุดส่ง)
+   */
+  const cloneDelivered = async (doId: string, n: number): Promise<string[]> => {
+    const src = await db.deliveryOrder.findUniqueOrThrow({
+      where: { id: uuid('deliveryOrder', doId) },
+    });
+    const tag = ++seed;
+    const sos = Array.from({ length: n }, () => randomUUID());
+    const dos = Array.from({ length: n }, () => randomUUID());
+    const nos = sos.map((_, i) => `${tag}-${String(i).padStart(4, '0')}`);
+    const map = Prisma.sql`unnest(${sos}::uuid[], ${dos}::uuid[], ${nos}::text[]) AS m(so, d, no)`;
+    await db.$executeRaw`
+      INSERT INTO sales_order SELECT (jsonb_populate_record(NULL::sales_order, to_jsonb(s) ||
+        jsonb_build_object('id', m.so, 'so_no', 'SO-CL-' || m.no, 'external_id', NULL))).*
+        FROM sales_order s, ${map} WHERE s.id = ${src.salesOrderId}::uuid`;
+    await db.$executeRaw`
+      INSERT INTO delivery_order SELECT (jsonb_populate_record(NULL::delivery_order, to_jsonb(x) ||
+        jsonb_build_object('id', m.d, 'do_no', 'DO-CL-' || m.no, 'sales_order_id', m.so))).*
+        FROM delivery_order x, ${map} WHERE x.id = ${src.id}::uuid`;
+    await db.$executeRaw`
+      INSERT INTO revenue_line SELECT (jsonb_populate_record(NULL::revenue_line, to_jsonb(l) ||
+        jsonb_build_object('id', gen_random_uuid(), 'sales_order_id', m.so, 'delivery_order_id', m.d))).*
+        FROM revenue_line l, ${map} WHERE l.delivery_order_id = ${src.id}::uuid AND l.status = 'ACTIVE'`;
+    // สถิติของ planner ตามข้อมูลที่เพิ่งเพิ่ม (ระบบจริง autovacuum ทำให้ — test เพิ่มทีเดียวหลายร้อยแถว)
+    // (TMS_NO_ANALYZE=1 = ข้าม — ใช้ตรวจว่า query ความพร้อมทนสถิติที่ยังไม่ทัน)
+    if (process.env.TMS_NO_ANALYZE !== '1')
+      await db.$executeRawUnsafe('ANALYZE sales_order, delivery_order, revenue_line');
+    return dos.map((id) => encodeId('deliveryOrder', id));
+  };
+
+  /** ตัวเลข perf: log + ต่อท้ายไฟล์ `TMS_PERF_LOG` (ถ้าตั้ง — vitest ซ่อน log ของ test ที่ผ่าน) */
+  const perfLog = (msg: string) => {
+    console.log(msg);
+    if (process.env.TMS_PERF_LOG) appendFileSync(process.env.TMS_PERF_LOG, `${msg}\n`);
+  };
+  /** เวลาต่อคำสั่งของ `counted` ครั้งล่าสุด (วินิจฉัย perf) */
+  const slow: [string, number][] = [];
+  let inflight = '';
+  /** นับจำนวนคำสั่งที่ส่งถึงฐานข้อมูลผ่าน transaction (ทุก `tx.<model>.<method>()` และ `tx.$queryRaw/$executeRaw`) */
+  const counted = async <T>(fn: () => Promise<T>): Promise<{ out: T; queries: number }> => {
+    let queries = 0;
+    slow.length = 0;
+    const timed = (name: string, call: () => unknown) => {
+      const t = Date.now();
+      inflight = name;
+      const r = call();
+      void Promise.resolve(r).then(
+        () => slow.push([name, Date.now() - t]),
+        () => undefined,
+      );
+      return r;
+    };
+    const out = await app.get(DbService).withTenant(
+      tenantId,
+      (tx) => {
+        const proxy = new Proxy(tx as object, {
+          get(t, k) {
+            const v = (t as Record<string | symbol, unknown>)[k];
+            if (typeof k !== 'string') return v;
+            if (typeof v === 'function')
+              return (...a: unknown[]) => {
+                if (!k.startsWith('$')) return (v as (...x: unknown[]) => unknown).apply(t, a);
+                queries++;
+                return timed(k, () => (v as (...x: unknown[]) => unknown).apply(t, a));
+              };
+            if (v && typeof v === 'object')
+              return new Proxy(v, {
+                get(m, f) {
+                  const fn2 = (m as Record<string | symbol, unknown>)[f];
+                  return typeof fn2 === 'function'
+                    ? (...a: unknown[]) => {
+                        queries++;
+                        return timed(`${k}.${String(f)}`, () =>
+                          (fn2 as (...x: unknown[]) => unknown).apply(m, a),
+                        );
+                      }
+                    : fn2;
+                },
+              });
+            return v;
+          },
+        }) as Tx;
+        return requestContext.run(
+          {
+            requestId: randomUUID(),
+            tenantId,
+            actorId: 'user-test',
+            locale: 'th',
+            scopes: ['*'],
+            tx: proxy,
+          },
+          fn,
+        );
+      },
+      120_000,
+    );
+    return { out, queries };
+  };
+
   it('เกณฑ์ตรวจรับ: ลูกค้ารายเดือน 3 ราย → 3 ร่าง · job progress → succeeded · ลิงก์ร่าง · job.completed · รอบอื่น/MANUAL ไม่เข้า', async () => {
     const cs = [await newCustomer(), await newCustomer(), await newCustomer()];
     const dos = [await delivered(cs[0]!), await delivered(cs[1]!), await delivered(cs[1]!)];
@@ -429,8 +535,22 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     const branch2 = await db.branch.create({
       data: { tenantId, companyId, branchCode: '00009', branchLabel: 'สาขา 9', address: ADDR },
     });
-    const mk = (no: string, o: { branch?: string; status?: 'ISSUED' | 'PAID' } = {}) =>
-      db.invoice.create({
+    const d = (s: string) => new Date(`${s}T00:00:00.000Z`);
+    const back = (n: number) =>
+      new Date(Date.parse(`${today}T00:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
+    /** `period` = งวดของใบ (ค่าเริ่มต้น = งวดของรอบ) · null = ใบไม่มีงวด (ใช้ `issueDate`) */
+    const mk = (
+      no: string,
+      o: {
+        branch?: string;
+        status?: 'ISSUED' | 'PAID';
+        period?: [string, string] | null;
+        issueDate?: string;
+      } = {},
+    ) => {
+      const period: [string, string] | null =
+        o.period === undefined ? [yesterday, today] : o.period;
+      return db.invoice.create({
         data: {
           tenantId,
           customerId: cid,
@@ -442,12 +562,21 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
           netExpectedAmount: new Prisma.Decimal('1000.00'),
           ...(o.status === 'PAID' ? { paidAmount: new Prisma.Decimal('1000.00') } : {}),
           ...issuedTestFields(no),
+          // ค่าเริ่มต้น: วันที่ออกอยู่นอกงวดของรอบ (ใบของงวดนี้ออกเลขหลังสิ้นงวดได้ — เลือกด้วยงวดของใบ ไม่ใช่วันที่ออก)
+          issueDate: d(o.issueDate ?? back(5)),
+          ...(period ? { periodFrom: d(period[0]), periodTo: d(period[1]) } : {}),
         },
       });
+    };
     await mk('INV-T12-0001');
     await mk('INV-T12-0002');
     await mk('INV-T12-0003', { branch: branch2.id });
     await mk('INV-T12-0004', { status: 'PAID' });
+    // PO 22 พ.ย. 2569: เฉพาะใบของงวดของรอบ — งวดก่อนหน้า / งวดคร่อมออกนอกรอบ / ไม่มีงวด + วันที่ออกนอกงวด ไม่เข้า
+    const older = await mk('INV-T12-0005', { period: [back(40), back(35)] });
+    const straddle = await mk('INV-T12-0006', { period: [back(2), today] });
+    const noPeriodIn = await mk('INV-T12-0007', { period: null, issueDate: today });
+    const noPeriodOut = await mk('INV-T12-0008', { period: null, issueDate: back(40) });
     const off = await startRun({ ...monthly, billingNotes: false });
     await drain();
     expect(resultOf(await job(off), c)).toBeUndefined();
@@ -458,16 +587,27 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     const r = resultOf(j, c);
     expect(r).toMatchObject({ outcome: 'SUCCEEDED', invoices: [] });
     expect(r.billingNotes.map((b: { invoiceCount: number }) => b.invoiceCount).sort()).toEqual([
-      1, 2,
+      1, 3,
     ]);
     for (const b of r.billingNotes) {
       expect(b.url).toBe(`/v1/billing-notes/${b.id}`);
       const bn = (await api(app, admin).get(b.url).expect(200)).body;
       expect(bn).toMatchObject({ status: 'DRAFT', billingNoteNo: null });
     }
+    const linked = async (invoiceId: string) =>
+      db.billingNoteInvoice.count({ where: { invoiceId, active: true } });
+    expect(await linked(noPeriodIn.id)).toBe(1);
+    for (const x of [older, straddle, noPeriodOut])
+      expect(await linked(x.id), x.invoiceNo!).toBe(0);
     const again = await startRun(monthly);
     await drain();
     expect(resultOf(await job(again), c)).toBeUndefined();
+    // รอบที่งวดครอบ → ใบที่เหลือเข้าร่างใบวางบิลของรอบนั้น (ไม่หาย — แค่ไม่อยู่ในงวดของรอบแรก)
+    const wide = await startRun({ ...monthly, periodFrom: back(45) });
+    await drain();
+    const rw = resultOf(await job(wide), c);
+    expect(rw.billingNotes.map((b: { invoiceCount: number }) => b.invoiceCount)).toEqual([3]);
+    await park(c);
   });
 
   it('สิทธิ์ · validation · ผู้สั่งดู job ได้ · แยก tenant', async () => {
@@ -607,7 +747,7 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     const svc = app.get(InvoiceRunService);
     const c = await newCustomer();
     const dos = [await delivered(c, false), await delivered(c, false), await delivered(c, false)];
-    svc.groupSize = 2; // แทนเพดาน 200 (สร้าง DO 201 ใบช้าเกินใน test)
+    svc.groupSize = 2; // แทนเพดาน MAX_DOS_PER_INVOICE
     const inv = app.get(InvoicesService);
     const orig = inv.create.bind(inv);
     let n = 0;
@@ -622,7 +762,14 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
       expect(j.status).toBe('succeeded_with_errors');
       expect(j.progress).toBe(100);
       const r = resultOf(j, c);
-      expect(r).toMatchObject({ outcome: 'PARTIAL', invoiceCount: 1, failedGroups: 1 });
+      expect(r).toMatchObject({
+        outcome: 'PARTIAL',
+        invoiceCount: 1,
+        failedGroups: 1,
+        // เกินเพดาน DO ต่อใบ → แบ่งหลายร่าง + รายงาน (ปกติ 1 ร่างต่อลูกค้าต่อรอบ)
+        splitByCap: true,
+      });
+      expect(j.result.maxDeliveryOrdersPerInvoice).toBe(2);
       expect(r.invoices[0].deliveryOrderCount).toBe(2);
       expect(r.problem).toMatchObject({ code: 'internal_error' });
       const states = await Promise.all(
@@ -638,7 +785,7 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
       expect(left[0].releasedAt).toBeNull(); // ส่งบัญชีย้อนพร้อมกลุ่มที่ล้ม
     } finally {
       spy.mockRestore();
-      svc.groupSize = 200;
+      svc.groupSize = MAX_DOS_PER_INVOICE;
     }
     await park(c);
   });
@@ -695,5 +842,459 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     expect(row.createdBy).toBeTruthy();
     expect(row.createdBy).not.toMatch(/^system:/);
     await park(c);
+  });
+
+  // ---------- ST5-T12b (PO 22 พ.ย. 2569) ----------
+
+  it('perf: ดึง DO เข้าร่าง — จำนวนคำสั่งฐานข้อมูลไม่ขึ้นกับจำนวน DO (ไม่มี N+1)', async () => {
+    const c = await newCustomer('MANUAL');
+    const tpl = await delivered(c);
+    const small = await cloneDelivered(tpl, 20);
+    const big = await cloneDelivered(tpl, 200);
+    const inv = app.get(InvoicesService);
+    const a = await counted(() => inv.create({ customerId: c, deliveryOrderIds: small }));
+    const t0 = Date.now();
+    const b = await counted(() => inv.create({ customerId: c, deliveryOrderIds: big }));
+    perfLog(
+      `[perf] draft create: 20 DO = ${a.queries} queries · 200 DO = ${b.queries} queries (${Date.now() - t0} ms)`,
+    );
+    if (process.env.TMS_PERF === '1') {
+      const huge = await cloneDelivered(tpl, 1000);
+      const t1 = Date.now();
+      const h = await counted(() => inv.create({ customerId: c, deliveryOrderIds: huge })).catch(
+        (e: unknown) => {
+          perfLog(
+            `[perf] 1,000 DO FAILED after ${Date.now() - t1} ms: ${String(e).slice(0, 200)} · in flight: ${inflight} · done: ${JSON.stringify(slow)}`,
+          );
+          throw e;
+        },
+      );
+      perfLog(
+        `[perf] draft create: 1,000 DO = ${h.queries} queries (${Date.now() - t1} ms) · slowest: ${JSON.stringify(
+          [...slow].sort((x, y) => y[1] - x[1]).slice(0, 8),
+        )}`,
+      );
+    }
+    expect(a.out.deliveryOrders).toHaveLength(20);
+    expect(b.out.deliveryOrders).toHaveLength(200);
+    expect(b.queries).toBe(a.queries);
+    expect(b.queries).toBeLessThan(60);
+  });
+
+  it('คำถาม #71: ลูกค้า 446 DO ในงวด → ใบแจ้งหนี้ร่างเดียว (ไม่แบ่ง 3 ใบ) · สั่งซ้ำไม่สร้างซ้ำ', async () => {
+    const c = await newCustomer();
+    const tpl = await delivered(c);
+    const dos = [tpl, ...(await cloneDelivered(tpl, 445))];
+    const t0 = Date.now();
+    const id = await startRun(monthly);
+    await drain();
+    const ms = Date.now() - t0;
+    const j = await job(id);
+    expect(j.status, JSON.stringify(j.result)).toBe('succeeded');
+    expect(j.result.maxDeliveryOrdersPerInvoice).toBe(MAX_DOS_PER_INVOICE);
+    const r = resultOf(j, c);
+    expect(r).toMatchObject({
+      outcome: 'SUCCEEDED',
+      invoiceCount: 1,
+      splitByCap: false,
+      skippedCount: 0,
+      failedGroups: 0,
+    });
+    expect(r.invoices).toHaveLength(1);
+    expect(r.invoices[0].deliveryOrderCount).toBe(446);
+    const inv = (await api(app, admin).get(r.invoices[0].url).expect(200)).body;
+    expect(inv.deliveryOrders).toHaveLength(446);
+    expect(new Set(inv.deliveryOrders.map((d: { id: string }) => d.id))).toEqual(new Set(dos));
+    // ยอดรวม = 446 × ยอดของ DO ต้นแบบ (Decimal — ไม่มี DO ตกหล่น/ซ้ำ)
+    const one = await db.revenueLine.aggregate({
+      where: { deliveryOrderId: uuid('deliveryOrder', tpl), status: 'ACTIVE' },
+      _sum: { amount: true },
+    });
+    const head = await db.invoice.findUniqueOrThrow({ where: { id: uuid('invoice', inv.id) } });
+    expect(
+      head.subtotalExempt.add(head.subtotalVatable).add(head.subtotalZeroRated).toFixed(2),
+    ).toBe(one._sum.amount!.mul(446).toFixed(2));
+    // ทุก DO: IN_DRAFT + ประวัติ billing 1 แถว (draft) ลงชื่อผู้สั่ง
+    const rows = await db.deliveryOrder.groupBy({
+      by: ['billingStatus'],
+      where: { customerId: uuid('customer', c) },
+      _count: true,
+    });
+    expect(rows).toEqual([{ billingStatus: 'IN_DRAFT', _count: 446 }]);
+    const hist = await db.docStatusHistory.findMany({
+      where: {
+        docId: { in: dos.map((d) => uuid('deliveryOrder', d)) },
+        event: 'draft',
+        toStatus: 'IN_DRAFT',
+      },
+    });
+    expect(hist).toHaveLength(446);
+    expect(new Set(hist.map((h) => h.docId)).size).toBe(446);
+    expect(
+      hist.every(
+        (h) =>
+          h.fromStatus === 'UNBILLED' && h.actorId === 'u-run' && h.note === `invoice:${head.id}`,
+      ),
+    ).toBe(true);
+    perfLog(`[perf] invoice run: 1 customer × 446 DO → 1 draft in ${ms} ms`);
+    const again = await startRun(monthly);
+    await drain();
+    expect(resultOf(await job(again), c)).toBeUndefined();
+    await park(c);
+  });
+
+  it('เพดานเดียวกันกับสร้างมือ: POST /invoices > เพดาน = 422 · ร่าง + ออกเอกสาร 500 DO (NFR docs/04) · TMS_PERF=1: ร่างเต็มเพดาน 1,000 DO + PDF', async () => {
+    const c = await newCustomer('MANUAL');
+    await db.customer.update({
+      where: { id: uuid('customer', c) },
+      data: { branchCode: '00000', billingAddress: ADDR },
+    });
+    const tpl = await delivered(c);
+    const over = await api(app, admin)
+      .post('/v1/invoices')
+      .send({
+        customerId: c,
+        deliveryOrderIds: Array.from({ length: MAX_DOS_PER_INVOICE + 1 }, () =>
+          encodeId('deliveryOrder', randomUUID()),
+        ),
+      });
+    expect(over.status).toBe(422);
+    expect(JSON.stringify(over.body.errors)).toMatch(/deliveryOrderIds/);
+    // เต็มเพดาน 1,000 DO ผ่าน API + PDF pro forma — หนัก: รันเมื่อ TMS_PERF=1 (เครื่องว่าง) · ชุดปกติใช้ 500 DO ด้านล่าง
+    let t0 = Date.now();
+    let createMs = 0;
+    let proformaMs = 0;
+    if (process.env.TMS_PERF === '1') {
+      const many = await cloneDelivered(tpl, MAX_DOS_PER_INVOICE);
+      t0 = Date.now();
+      const big = await api(app, admin)
+        .post('/v1/invoices')
+        .send({ customerId: c, deliveryOrderIds: many });
+      createMs = Date.now() - t0;
+      if (big.status !== 201) {
+        // วินิจฉัย: ทำซ้ำผ่าน service ตรง ๆ เพื่อดูคำสั่งที่ช้า
+        const t1 = Date.now();
+        await counted(() =>
+          app.get(InvoicesService).create({ customerId: c, deliveryOrderIds: many }),
+        ).then(
+          (x) =>
+            perfLog(
+              `[diag] HTTP ${big.status} after ${createMs} ms · direct ok ${Date.now() - t1} ms ${x.queries} q · ${JSON.stringify([...slow].sort((u, v) => v[1] - u[1]).slice(0, 8))}`,
+            ),
+          (e: unknown) =>
+            perfLog(
+              `[diag] HTTP ${big.status} after ${createMs} ms · direct FAILED ${Date.now() - t1} ms ${String(e).slice(0, 200)} · in flight ${inflight} · ${JSON.stringify(slow)}`,
+            ),
+        );
+      }
+      expect(big.status, JSON.stringify(big.body).slice(0, 500)).toBe(201);
+      expect(big.body.deliveryOrders).toHaveLength(MAX_DOS_PER_INVOICE);
+      t0 = Date.now();
+      const pf = await api(app, admin).get(`/v1/invoices/${big.body.id}/proforma`);
+      proformaMs = Date.now() - t0;
+      expect(pf.status, JSON.stringify(pf.body).slice(0, 300)).toBe(200);
+      // ร่างเต็มเพดานแล้ว เพิ่มอีก 1 ใบ = 422 too_many (เพดานรวมต่อใบ ไม่ใช่ต่อคำขอ)
+      const add = await api(app, admin)
+        .post(`/v1/invoices/${big.body.id}/delivery-orders`)
+        .set('If-Match', `"${big.body.version}"`)
+        .send({ deliveryOrderIds: [tpl] });
+      expect(add.status, JSON.stringify(add.body)).toBe(422);
+      expect(add.body.errors[0]).toMatchObject({ field: 'deliveryOrderIds', code: 'too_many' });
+    }
+    // ออกเอกสารใบ 500 DO
+    const half = await cloneDelivered(tpl, 500);
+    t0 = Date.now();
+    const draft = await api(app, admin)
+      .post('/v1/invoices')
+      .send({ customerId: c, deliveryOrderIds: half });
+    const create500Ms = Date.now() - t0;
+    expect(draft.status, JSON.stringify(draft.body).slice(0, 500)).toBe(201);
+    expect(draft.body.deliveryOrders).toHaveLength(500);
+    const fin = await tokenFor(tenantId, '*', 'u-fin-500');
+    t0 = Date.now();
+    const ok = await api(app, fin)
+      .post(`/v1/invoices/${draft.body.id}/finalize`)
+      .set('If-Match', `"${draft.body.version}"`);
+    const finalizeMs = Date.now() - t0;
+    expect(ok.status, JSON.stringify(ok.body).slice(0, 500)).toBe(200);
+    expect(ok.body.status).toBe('ISSUED');
+    expect(ok.body.deliveryOrders).toHaveLength(500);
+    perfLog(
+      `[perf] POST /invoices 500 DO = ${create500Ms} ms · 1,000 DO = ${createMs} ms · pro forma PDF 1,000 DO = ${proformaMs} ms · finalize 500 DO (รวม PDF ต้นฉบับ) = ${finalizeMs} ms · pdf=${JSON.stringify(ok.body.pdf)}`,
+    );
+    // เครื่อง test ใช้ร่วมกับงานอื่น — ไม่ยืนยันเวลา (ตอบ 201/200 = ไม่ชน timeout 15 วิ ของ transaction); ตัวเลขจริงดูใน log
+    expect(ok.body.pdf).toBeTruthy();
+  });
+
+  it('ตรวจความพร้อมแบบชุด (checkMany) = ตรวจทีละใบ (check) ทุก DO — พร้อม/ระงับ/ยังไม่ส่งบัญชี/หลักฐานไม่ครบ/ไม่มีรายได้/อยู่ในร่าง', async () => {
+    const c = await newCustomer('MANUAL');
+    const tpl = await delivered(c);
+    const [held, noRev, drafted, ok2] = await cloneDelivered(tpl, 4);
+    const notReleased = await delivered(c, false);
+    await db.deliveryOrder.update({
+      where: { id: uuid('deliveryOrder', held!) },
+      data: { billingHold: true },
+    });
+    await db.revenueLine.deleteMany({
+      where: { deliveryOrderId: uuid('deliveryOrder', noRev!) },
+    });
+    await api(app, admin)
+      .post('/v1/invoices')
+      .send({ customerId: c, deliveryOrderIds: [drafted] })
+      .expect(201);
+    const rel = app.get(BillingReleaseService);
+    const ids = [tpl, held!, noRev!, drafted!, ok2!, notReleased].map((d) => ({
+      id: uuid('deliveryOrder', d),
+      customerId: uuid('customer', c),
+    }));
+    const compare = async () => {
+      const { out } = await counted(async () => {
+        const tx = app.get(DbService).tx;
+        const many = await rel.checkMany(tx, ids);
+        const single = new Map<string, unknown>();
+        for (const d of ids) single.set(d.id, await rel.check(tx, d));
+        return { many, single };
+      });
+      expect(out.many.size).toBe(ids.length);
+      for (const d of ids) expect(out.many.get(d.id), d.id).toEqual(out.single.get(d.id));
+      return out.many;
+    };
+    const first = await compare();
+    expect(first.get(ids[0]!.id)).toEqual({ reasons: [], released: true });
+    expect(first.get(ids[1]!.id)!.reasons).toEqual(['BILLING_HOLD']);
+    expect(first.get(ids[2]!.id)!.reasons).toEqual(['NO_REVENUE']);
+    expect(first.get(ids[3]!.id)!.reasons).toEqual(['IN_INVOICE']);
+    expect(first.get(ids[5]!.id)).toEqual({ reasons: [], released: false });
+    // checklist ปัจจุบันเข้มขึ้น (บังคับรูป) → POD_INCOMPLETE + missing เท่ากันทั้งสองทาง
+    await db.customer.update({
+      where: { id: uuid('customer', c) },
+      data: {
+        podRequirements: { success: { fields: [{ type: 'NOTE', level: 'REQUIRED' }] } },
+      },
+    });
+    const strict = await compare();
+    expect(strict.get(ids[0]!.id)!.reasons).toContain('POD_INCOMPLETE');
+    expect(strict.get(ids[0]!.id)!.missing?.length).toBeGreaterThan(0);
+  });
+
+  it('PO 22 พ.ย.: ลูกค้าปิดใช้ (INACTIVE) ไม่เข้ารอบ (ร่างใบแจ้งหนี้ + ร่างใบวางบิล) · สร้างร่างมือยังได้', async () => {
+    const c = await newCustomer();
+    const cid = uuid('customer', c);
+    const d = await delivered(c);
+    await db.invoice.create({
+      data: {
+        tenantId,
+        customerId: cid,
+        issuingCompanyId: companyId,
+        issuingBranchId: branchId,
+        status: 'ISSUED',
+        totalAmount: new Prisma.Decimal('500.00'),
+        subtotalExempt: new Prisma.Decimal('500.00'),
+        netExpectedAmount: new Prisma.Decimal('500.00'),
+        ...issuedTestFields('INV-T12B-OFF1'),
+        periodFrom: new Date(`${yesterday}T00:00:00.000Z`),
+        periodTo: new Date(`${today}T00:00:00.000Z`),
+      },
+    });
+    await db.customer.update({ where: { id: cid }, data: { status: 'INACTIVE' } });
+    const id = await startRun(monthly);
+    await drain();
+    const j = await job(id);
+    expect(j.status).toBe('succeeded');
+    expect(resultOf(j, c)).toBeUndefined();
+    expect(
+      (await api(app, admin).get(`/v1/delivery-orders/${d}`).expect(200)).body.billingStatus,
+    ).toBe('UNBILLED');
+    expect(await db.billingNote.count({ where: { customerId: cid } })).toBe(0);
+    // สร้างร่างมือไม่เปลี่ยน — ปิดใช้ลูกค้าไม่ได้ห้ามเก็บเงินงานที่ส่งแล้ว
+    const manual = await api(app, admin)
+      .post('/v1/invoices')
+      .send({ customerId: c, deliveryOrderIds: [d] });
+    expect(manual.status, JSON.stringify(manual.body)).toBe(201);
+    // เปิดใช้อีกครั้ง → ใบแจ้งหนี้ของงวดเข้าร่างใบวางบิลในรอบถัดไป
+    await db.customer.update({ where: { id: cid }, data: { status: 'ACTIVE' } });
+    const id2 = await startRun(monthly);
+    await drain();
+    const r2 = resultOf(await job(id2), c);
+    expect(r2).toMatchObject({ outcome: 'SUCCEEDED', invoiceCount: 0 });
+    expect(r2.billingNotes).toHaveLength(1);
+    await park(c);
+  });
+
+  it('PO 22 พ.ย.: ไฟล์สรุปรอบ .xlsx — แถวต่อร่าง/ลูกค้า · ยอดเงินเฉพาะผู้มี prices.sell:read · ลิงก์ใน result + แจ้งเตือน · เฉพาะผู้สั่ง', async () => {
+    const roles = await ensureSystemRoles(db, tenantId);
+    const mkUser = async (email: string) => {
+      const u = await db.appUser.create({
+        data: { tenantId, email, name: email, status: 'ACTIVE' },
+      });
+      await db.userRole.create({ data: { tenantId, userId: u.id, roleId: roles.admin! } });
+      return u.id;
+    };
+    const download = async (url: string): Promise<string[][]> => {
+      const u = new URL(url);
+      const res = await request(app.getHttpServer())
+        .get(u.pathname + u.search)
+        .buffer(true)
+        .parse((r, cb) => {
+          const chunks: Buffer[] = [];
+          r.on('data', (x: Buffer) => chunks.push(x));
+          r.on('end', () => cb(null, Buffer.concat(chunks)));
+        })
+        .expect(200);
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(res.body as unknown as ArrayBuffer);
+      const out: string[][] = [];
+      wb.worksheets[0]!.eachRow({ includeEmpty: true }, (row) => {
+        const v = row.values as unknown[];
+        out.push(
+          Array.from({ length: wb.worksheets[0]!.columnCount }, (_, i) =>
+            v[i + 1] == null ? '' : String(v[i + 1]),
+          ),
+        );
+      });
+      return out;
+    };
+    const base = 'invoices:read invoices:draft jobs:read export:run';
+
+    // ---- ผู้สั่งมีสิทธิ์ราคาขาย: มีคอลัมน์ยอดเงิน
+    const priced = await mkUser('sum-priced@run.test');
+    const tPriced = await tokenFor(tenantId, `${base} prices.sell:read`, priced);
+    const a = await newCustomer();
+    const aDo = await delivered(a);
+    await cloneDelivered(aDo, 2);
+    const failing = await newCustomer();
+    await delivered(failing);
+    const inv = app.get(InvoicesService);
+    const orig = inv.create.bind(inv);
+    const spy = vi.spyOn(inv, 'create').mockImplementation(async (body, ...rest) => {
+      if (body.customerId === failing) throw new Error('boom: สรุปรอบ');
+      return orig(body, ...rest);
+    });
+    let id: string;
+    try {
+      id = await startRun(monthly, tPriced);
+      await drain();
+    } finally {
+      spy.mockRestore();
+    }
+    const j = await job(id, tPriced);
+    expect(j.status).toBe('succeeded_with_errors');
+    expect(j.result.summary).toMatchObject({
+      url: `/v1/exports/${id}`,
+      fileName: `สรุปรอบวางบิล_${yesterday}_${today}.xlsx`,
+      rows: 2,
+    });
+    expect(j.result.summary.documentId).toMatch(/^doc_/);
+    // ผลของ job ยังไม่มียอดเงิน (ผู้อ่าน job อาจไม่มีสิทธิ์ราคา) — ยอดอยู่ในไฟล์เท่านั้น
+    expect(JSON.stringify(j.result)).not.toMatch(/sell|amount/i);
+    const st = (await api(app, tPriced).get(j.result.summary.url).expect(200)).body;
+    expect(st).toMatchObject({
+      id,
+      resource: 'invoice-run-summary',
+      format: 'xlsx',
+      status: 'succeeded',
+      rows: 2,
+      filter: { billingCycle: 'MONTHLY', periodFrom: yesterday, periodTo: today },
+      error: null,
+    });
+    expect(new Date(st.expiresAt).getTime() - new Date(st.finishedAt).getTime()).toBe(
+      7 * 86_400_000,
+    );
+    const rows = await download(st.downloadUrl);
+    const head = rows[0]!;
+    expect(head).toEqual([
+      'รหัสลูกค้า',
+      'ชื่อลูกค้า',
+      'ผลของลูกค้า',
+      'ประเภทเอกสาร',
+      'รหัสร่าง',
+      'ลิงก์ร่าง (API)',
+      'จำนวนใบส่งของ',
+      'จำนวนใบแจ้งหนี้ในใบวางบิล',
+      'ยอดก่อน VAT (ประมาณการ)',
+      'VAT (ประมาณการ)',
+      'ยอดรวม (ประมาณการ)',
+      'ใบส่งของที่ข้าม (ของลูกค้า)',
+      'กลุ่มที่ไม่สำเร็จ (ของลูกค้า)',
+      'แบ่งร่างเพราะเกินเพดาน',
+      'สาเหตุที่ไม่สำเร็จ',
+    ]);
+    const col = (r: string[], h: string) => r[head.indexOf(h)]!;
+    const ra = resultOf(j, a);
+    const rowA = rows.find((r) => col(r, 'รหัสลูกค้า') === ra.customerCode)!;
+    const draft = (await api(app, admin).get(ra.invoices[0].url).expect(200)).body;
+    expect(col(rowA, 'ผลของลูกค้า')).toBe('สำเร็จ');
+    expect(col(rowA, 'ประเภทเอกสาร')).toBe('ร่างใบแจ้งหนี้');
+    expect(col(rowA, 'รหัสร่าง')).toBe(draft.id);
+    expect(col(rowA, 'ลิงก์ร่าง (API)')).toBe(`/v1/invoices/${draft.id}`);
+    expect(col(rowA, 'จำนวนใบส่งของ')).toBe('3');
+    expect(col(rowA, 'ยอดรวม (ประมาณการ)')).toBe(draft.sellTotal);
+    expect(col(rowA, 'VAT (ประมาณการ)')).toBe(draft.sellVatAmount);
+    expect(col(rowA, 'ยอดก่อน VAT (ประมาณการ)')).toBe(
+      new Prisma.Decimal(draft.sellSubtotalExempt)
+        .add(draft.sellSubtotalVatable)
+        .add(draft.sellSubtotalZeroRated)
+        .toFixed(2),
+    );
+    expect(Number(draft.sellTotal)).toBeGreaterThan(0);
+    const rf = resultOf(j, failing);
+    const rowF = rows.find((r) => col(r, 'รหัสลูกค้า') === rf.customerCode)!;
+    expect(col(rowF, 'ผลของลูกค้า')).toBe('ไม่สำเร็จ');
+    expect(col(rowF, 'รหัสร่าง')).toBe('');
+    expect(col(rowF, 'ยอดรวม (ประมาณการ)')).toBe('');
+    expect(col(rowF, 'กลุ่มที่ไม่สำเร็จ (ของลูกค้า)')).toBe('1');
+    expect(col(rowF, 'สาเหตุที่ไม่สำเร็จ')).toMatch(/internal_error/);
+    // แจ้งเตือนผู้สั่งพร้อมลิงก์ดาวน์โหลด (หน้าเว็บ /exports/{jobId} เดิม)
+    const note = await db.notification.findFirst({
+      where: { tenantId, recipientId: priced, templateCode: 'export.ready' },
+    });
+    expect(note?.link).toBe(`/exports/${id}`);
+    expect(note?.body).toMatch(/สรุปรอบวางบิล/);
+    // เฉพาะผู้สั่ง: คนอื่น (แม้เป็น admin) = 404
+    await api(app, admin).get(`/v1/exports/${id}`).expect(404);
+    const doc = await db.storedDocument.findUniqueOrThrow({
+      where: { id: uuid('document', j.result.summary.documentId) },
+    });
+    expect(doc).toMatchObject({ kind: 'EXPORT', entityType: 'job', entityId: uuid('job', id) });
+    await park(a);
+    await park(failing);
+
+    // ---- ผู้สั่งไม่มีสิทธิ์ราคาขาย: ไม่มีคอลัมน์ยอดเงินในไฟล์
+    const plain = await mkUser('sum-plain@run.test');
+    const tPlain = await tokenFor(tenantId, base, plain);
+    const b = await newCustomer();
+    await delivered(b);
+    const id2 = await startRun(monthly, tPlain);
+    await drain();
+    const j2 = await job(id2, tPlain);
+    expect(j2.status).toBe('succeeded');
+    const st2 = (await api(app, tPlain).get(j2.result.summary.url).expect(200)).body;
+    const rows2 = await download(st2.downloadUrl);
+    expect(rows2[0]).toEqual(head.filter((h) => !/ยอด|VAT/.test(h)));
+    expect(rows2).toHaveLength(2);
+    expect(rows2[1]![rows2[0]!.indexOf('จำนวนใบส่งของ')]).toBe('1');
+    const draftB = (await api(app, admin).get(resultOf(j2, b).invoices[0].url).expect(200)).body;
+    expect(JSON.stringify(rows2)).not.toContain(draftB.sellTotal);
+    await park(b);
+
+    // ---- ผู้สั่งไม่มี export:run: ไม่สร้างไฟล์ (รอบสำเร็จตามปกติ)
+    const noExport = await mkUser('sum-noexp@run.test');
+    const tNo = await tokenFor(tenantId, 'invoices:read invoices:draft jobs:read', noExport);
+    const c3 = await newCustomer();
+    await delivered(c3);
+    const id3 = await startRun(monthly, tNo);
+    await drain();
+    const j3 = await job(id3, tNo);
+    expect(j3.status).toBe('succeeded');
+    expect(resultOf(j3, c3)).toMatchObject({ outcome: 'SUCCEEDED', invoiceCount: 1 });
+    expect(j3.result.summary).toBeNull();
+    await api(app, await tokenFor(tenantId, '*', noExport))
+      .get(`/v1/exports/${id3}`)
+      .expect(404);
+    // รอบที่ไม่มีลูกค้า → ไม่มีไฟล์
+    await park(c3);
+    const id4 = await startRun(monthly, tPriced);
+    await drain();
+    expect((await job(id4, tPriced)).result).toMatchObject({ customers: 0, summary: null });
   });
 });
