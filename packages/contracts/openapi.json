@@ -2060,162 +2060,6 @@
         ]
       }
     },
-    "/v1/accounting-exports/summary": {
-      "get": {
-        "description": "ชุดข้อมูล (บัญชีเบา D-54 — เอกสารที่ TMS มีในเฟส 0): **sales** ใบแจ้งหนี้ที่ออกแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — ชุดเดียวกับรายงานรายได้) ตามวันที่ออก · **receipts** การรับชำระที่ยังไม่กลับรายการ ตามวันที่รับ · **settlements** ใบสำคัญจ่ายรถร่วม PAID ตามวันที่จ่าย — แสดงเฉพาะชุดที่มีสิทธิ์อ่าน · ไฟล์: `POST /v1/exports` `{resource, format: csv|xlsx, filter: {dateFrom, dateTo, template?}}` → แถวเอกสาร 1 แถว + แถวรายการ (ยอดรวมอยู่เฉพาะแถวเอกสาร · CSV = UTF-8 BOM + CRLF เปิดใน Excel อ่านไทยได้)",
-        "operationId": "AccountingExport_summary",
-        "parameters": [
-          {
-            "name": "dateFrom",
-            "required": true,
-            "in": "query",
-            "description": "วันแรกของช่วง (วันที่เอกสาร เวลาไทย) — ช่วงยาวสุด 366 วัน",
-            "schema": {
-              "example": "2026-10-01",
-              "type": "string"
-            }
-          },
-          {
-            "name": "dateTo",
-            "required": true,
-            "in": "query",
-            "description": "วันสุดท้ายของช่วง (รวมวันนี้)",
-            "schema": {
-              "example": "2026-10-31",
-              "type": "string"
-            }
-          },
-          {
-            "name": "template",
-            "required": false,
-            "in": "query",
-            "description": "รูปแบบไฟล์ (`templates[].key` จาก summary) — ไม่ส่ง = รูปแบบทั่วไป (layout กลาง: แถวเอกสาร + แถวรายการ)",
-            "schema": {
-              "example": "generic",
-              "type": "string"
-            }
-          },
-          {
-            "$ref": "#/components/parameters/ApiVersion"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AccountingExportSummaryDto"
-                }
-              }
-            },
-            "headers": {
-              "RateLimit-Limit": {
-                "$ref": "#/components/headers/RateLimit-Limit"
-              },
-              "RateLimit-Remaining": {
-                "$ref": "#/components/headers/RateLimit-Remaining"
-              },
-              "RateLimit-Reset": {
-                "$ref": "#/components/headers/RateLimit-Reset"
-              },
-              "X-Api-Version": {
-                "$ref": "#/components/headers/X-Api-Version"
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "description": "ไม่มีสิทธิ์ (`export:run`)",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDto"
-                },
-                "examples": {
-                  "permission_denied": {
-                    "value": {
-                      "type": "https://docs.tms.example/problems/permission_denied",
-                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
-                      "status": 403,
-                      "code": "permission_denied",
-                      "instance": "/v1/trips/trp_3f2a…",
-                      "requestId": "b6a1c2d3-…",
-                      "module": "export",
-                      "action": "run",
-                      "required": [
-                        "export:run"
-                      ]
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDto"
-                },
-                "examples": {
-                  "validation_failed": {
-                    "value": {
-                      "type": "https://docs.tms.example/problems/validation_failed",
-                      "title": "ข้อมูลไม่ถูกต้อง",
-                      "status": 422,
-                      "code": "validation_failed",
-                      "instance": "/v1/trips/trp_3f2a…",
-                      "requestId": "b6a1c2d3-…",
-                      "errors": [
-                        {
-                          "field": "deliveryOrderIds[0]",
-                          "code": "invalid_reference",
-                          "message": "not found"
-                        },
-                        {
-                          "field": "plannedEndAt",
-                          "code": "outside_trip_date",
-                          "message": "must be on tripDate"
-                        }
-                      ]
-                    }
-                  },
-                  "idempotency_mismatch": {
-                    "value": {
-                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
-                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
-                      "status": 422,
-                      "code": "idempotency_mismatch",
-                      "instance": "/v1/trips/trp_3f2a…",
-                      "requestId": "b6a1c2d3-…"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "429": {
-            "$ref": "#/components/responses/RateLimited"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "จำนวนเอกสาร/แถวของแต่ละชุดก่อนส่งออกให้นักบัญชี",
-        "tags": [
-          "exports"
-        ],
-        "x-required-scopes": [
-          "export:run"
-        ]
-      }
-    },
     "/v1/setup-checklist": {
       "get": {
         "operationId": "SetupChecklist_get",
@@ -66346,6 +66190,162 @@
           "settings:write"
         ]
       }
+    },
+    "/v1/accounting-exports/summary": {
+      "get": {
+        "description": "ชุดข้อมูล (บัญชีเบา D-54 — เอกสารที่ TMS มีในเฟส 0): **sales** ใบแจ้งหนี้ที่ออกแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — ชุดเดียวกับรายงานรายได้) ตามวันที่ออก · **receipts** การรับชำระที่ยังไม่กลับรายการ ตามวันที่รับ · **settlements** ใบสำคัญจ่ายรถร่วม PAID ตามวันที่จ่าย — แสดงเฉพาะชุดที่มีสิทธิ์อ่าน · ไฟล์: `POST /v1/exports` `{resource, format: csv|xlsx, filter: {dateFrom, dateTo, template?}}` → แถวเอกสาร 1 แถว + แถวรายการ (ยอดรวมอยู่เฉพาะแถวเอกสาร · CSV = UTF-8 BOM + CRLF เปิดใน Excel อ่านไทยได้)",
+        "operationId": "AccountingExport_summary",
+        "parameters": [
+          {
+            "name": "dateFrom",
+            "required": true,
+            "in": "query",
+            "description": "วันแรกของช่วง (วันที่เอกสาร เวลาไทย) — ช่วงยาวสุด 366 วัน",
+            "schema": {
+              "example": "2026-10-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "dateTo",
+            "required": true,
+            "in": "query",
+            "description": "วันสุดท้ายของช่วง (รวมวันนี้)",
+            "schema": {
+              "example": "2026-10-31",
+              "type": "string"
+            }
+          },
+          {
+            "name": "template",
+            "required": false,
+            "in": "query",
+            "description": "รูปแบบไฟล์ (`templates[].key` จาก summary) — ไม่ส่ง = รูปแบบทั่วไป (layout กลาง: แถวเอกสาร + แถวรายการ)",
+            "schema": {
+              "example": "generic",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountingExportSummaryDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`export:run`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "export",
+                      "action": "run",
+                      "required": [
+                        "export:run"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "จำนวนเอกสาร/แถวของแต่ละชุดก่อนส่งออกให้นักบัญชี",
+        "tags": [
+          "exports"
+        ],
+        "x-required-scopes": [
+          "export:run"
+        ]
+      }
     }
   },
   "info": {
@@ -67722,205 +67722,6 @@
           "createdAt",
           "finishedAt",
           "expiresAt"
-        ]
-      },
-      "ProblemFieldErrorDto": {
-        "type": "object",
-        "properties": {
-          "field": {
-            "type": "string",
-            "example": "stops[1].siteId"
-          },
-          "code": {
-            "type": "string",
-            "example": "locked"
-          },
-          "message": {
-            "type": "string",
-            "example": "cannot change stops when order is IN_TRANSIT"
-          }
-        },
-        "required": [
-          "field",
-          "code",
-          "message"
-        ]
-      },
-      "ProblemDto": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string",
-            "example": "https://docs.tms.example/problems/order_locked_for_update"
-          },
-          "title": {
-            "type": "string",
-            "example": "แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน"
-          },
-          "status": {
-            "type": "number",
-            "example": 409,
-            "description": "HTTP status"
-          },
-          "detail": {
-            "type": "string"
-          },
-          "instance": {
-            "type": "string",
-            "example": "/v1/orders/ord_3f2a…"
-          },
-          "code": {
-            "type": "string",
-            "example": "order_locked_for_update",
-            "description": "รหัสคงที่ (catalog)"
-          },
-          "requestId": {
-            "type": "string",
-            "example": "b6a1…"
-          },
-          "errors": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ProblemFieldErrorDto"
-            }
-          },
-          "retryAfter": {
-            "type": "number",
-            "example": 2,
-            "description": "429/503: วินาทีที่ควรรอก่อนส่งใหม่ (ตรงกับ header Retry-After)"
-          },
-          "scope": {
-            "type": "string",
-            "example": "tenant",
-            "description": "429 rate_limited: เพดานที่เต็ม — tenant · key · user · endpoint (คำขอหนัก) · ip · link · lookup"
-          },
-          "module": {
-            "type": "string",
-            "example": "orders",
-            "description": "403 permission_denied: โมดูลของสิทธิ์ที่ขาด"
-          },
-          "action": {
-            "type": "string",
-            "example": "write",
-            "description": "403 permission_denied: การกระทำของสิทธิ์ที่ขาด"
-          },
-          "required": {
-            "example": [
-              "orders:write"
-            ],
-            "description": "403 permission_denied: scope ที่ต้องมี (ตัวใดตัวหนึ่ง)",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "requestId"
-        ],
-        "additionalProperties": true,
-        "description": "RFC 9457 application/problem+json — ช่องเสริม (extension member) ขึ้นกับ `code` เช่น `orderStatus`/`editableFields` ของ `order_locked_for_update`"
-      },
-      "AccountingExportDatasetDto": {
-        "type": "object",
-        "properties": {
-          "dataset": {
-            "type": "string",
-            "enum": [
-              "sales",
-              "receipts",
-              "settlements"
-            ],
-            "description": "sales = ใบแจ้งหนี้ที่ออกแล้ว (ตามวันที่ออก) · receipts = รับชำระที่ยังไม่กลับรายการ (ตามวันที่รับ) · settlements = ใบสำคัญจ่ายรถร่วมที่บันทึกจ่ายแล้ว (ตามวันที่จ่าย)"
-          },
-          "resource": {
-            "type": "string",
-            "example": "accounting-sales",
-            "description": "`resource` ของ `POST /v1/exports`"
-          },
-          "documents": {
-            "type": "number",
-            "description": "จำนวนเอกสารในช่วง"
-          },
-          "rows": {
-            "type": "number",
-            "description": "จำนวนแถวในไฟล์ (แถวเอกสาร + แถวรายการ ไม่รวมหัวคอลัมน์)"
-          }
-        },
-        "required": [
-          "dataset",
-          "resource",
-          "documents",
-          "rows"
-        ]
-      },
-      "AccountingExportTemplateDto": {
-        "type": "object",
-        "properties": {
-          "key": {
-            "type": "string",
-            "example": "generic"
-          },
-          "displayName": {
-            "type": "string",
-            "example": "ทั่วไป"
-          },
-          "isDefault": {
-            "type": "boolean"
-          },
-          "datasets": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": [
-                "sales",
-                "receipts",
-                "settlements"
-              ]
-            }
-          }
-        },
-        "required": [
-          "key",
-          "displayName",
-          "isDefault",
-          "datasets"
-        ]
-      },
-      "AccountingExportSummaryDto": {
-        "type": "object",
-        "properties": {
-          "dateFrom": {
-            "type": "string",
-            "example": "2026-10-01"
-          },
-          "dateTo": {
-            "type": "string",
-            "example": "2026-10-31"
-          },
-          "datasets": {
-            "description": "เฉพาะชุดที่ผู้เรียกมีสิทธิ์อ่าน (`invoices:read` / `settlements:read`)",
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AccountingExportDatasetDto"
-            }
-          },
-          "templates": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AccountingExportTemplateDto"
-            }
-          }
-        },
-        "required": [
-          "dateFrom",
-          "dateTo",
-          "datasets",
-          "templates"
         ]
       },
       "SetupStepDto": {
@@ -70316,6 +70117,107 @@
             "description": "ลายเซ็น: เอกสาร kind SIGNATURE (PNG/JPEG/WebP) ที่ผู้ใช้อัปโหลดเองและ ready แล้ว · null = ลบ"
           }
         }
+      },
+      "ProblemFieldErrorDto": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "example": "stops[1].siteId"
+          },
+          "code": {
+            "type": "string",
+            "example": "locked"
+          },
+          "message": {
+            "type": "string",
+            "example": "cannot change stops when order is IN_TRANSIT"
+          }
+        },
+        "required": [
+          "field",
+          "code",
+          "message"
+        ]
+      },
+      "ProblemDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "example": "https://docs.tms.example/problems/order_locked_for_update"
+          },
+          "title": {
+            "type": "string",
+            "example": "แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน"
+          },
+          "status": {
+            "type": "number",
+            "example": 409,
+            "description": "HTTP status"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string",
+            "example": "/v1/orders/ord_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "order_locked_for_update",
+            "description": "รหัสคงที่ (catalog)"
+          },
+          "requestId": {
+            "type": "string",
+            "example": "b6a1…"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProblemFieldErrorDto"
+            }
+          },
+          "retryAfter": {
+            "type": "number",
+            "example": 2,
+            "description": "429/503: วินาทีที่ควรรอก่อนส่งใหม่ (ตรงกับ header Retry-After)"
+          },
+          "scope": {
+            "type": "string",
+            "example": "tenant",
+            "description": "429 rate_limited: เพดานที่เต็ม — tenant · key · user · endpoint (คำขอหนัก) · ip · link · lookup"
+          },
+          "module": {
+            "type": "string",
+            "example": "orders",
+            "description": "403 permission_denied: โมดูลของสิทธิ์ที่ขาด"
+          },
+          "action": {
+            "type": "string",
+            "example": "write",
+            "description": "403 permission_denied: การกระทำของสิทธิ์ที่ขาด"
+          },
+          "required": {
+            "example": [
+              "orders:write"
+            ],
+            "description": "403 permission_denied: scope ที่ต้องมี (ตัวใดตัวหนึ่ง)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "requestId"
+        ],
+        "additionalProperties": true,
+        "description": "RFC 9457 application/problem+json — ช่องเสริม (extension member) ขึ้นกับ `code` เช่น `orderStatus`/`editableFields` ของ `order_locked_for_update`"
       },
       "SavedViewDto": {
         "type": "object",
@@ -99826,6 +99728,104 @@
             "type": "boolean"
           }
         }
+      },
+      "AccountingExportDatasetDto": {
+        "type": "object",
+        "properties": {
+          "dataset": {
+            "type": "string",
+            "enum": [
+              "sales",
+              "receipts",
+              "settlements"
+            ],
+            "description": "sales = ใบแจ้งหนี้ที่ออกแล้ว (ตามวันที่ออก) · receipts = รับชำระที่ยังไม่กลับรายการ (ตามวันที่รับ) · settlements = ใบสำคัญจ่ายรถร่วมที่บันทึกจ่ายแล้ว (ตามวันที่จ่าย)"
+          },
+          "resource": {
+            "type": "string",
+            "example": "accounting-sales",
+            "description": "`resource` ของ `POST /v1/exports`"
+          },
+          "documents": {
+            "type": "number",
+            "description": "จำนวนเอกสารในช่วง"
+          },
+          "rows": {
+            "type": "number",
+            "description": "จำนวนแถวในไฟล์ (แถวเอกสาร + แถวรายการ ไม่รวมหัวคอลัมน์)"
+          }
+        },
+        "required": [
+          "dataset",
+          "resource",
+          "documents",
+          "rows"
+        ]
+      },
+      "AccountingExportTemplateDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "example": "generic"
+          },
+          "displayName": {
+            "type": "string",
+            "example": "ทั่วไป"
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "datasets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "sales",
+                "receipts",
+                "settlements"
+              ]
+            }
+          }
+        },
+        "required": [
+          "key",
+          "displayName",
+          "isDefault",
+          "datasets"
+        ]
+      },
+      "AccountingExportSummaryDto": {
+        "type": "object",
+        "properties": {
+          "dateFrom": {
+            "type": "string",
+            "example": "2026-10-01"
+          },
+          "dateTo": {
+            "type": "string",
+            "example": "2026-10-31"
+          },
+          "datasets": {
+            "description": "เฉพาะชุดที่ผู้เรียกมีสิทธิ์อ่าน (`invoices:read` / `settlements:read`)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AccountingExportDatasetDto"
+            }
+          },
+          "templates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AccountingExportTemplateDto"
+            }
+          }
+        },
+        "required": [
+          "dateFrom",
+          "dateTo",
+          "datasets",
+          "templates"
+        ]
       },
       "WebhookEnvelope": {
         "type": "object",

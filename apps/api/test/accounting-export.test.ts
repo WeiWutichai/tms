@@ -733,14 +733,12 @@ describe('ส่งออกให้นักบัญชี (ST7-T23)', { time
 
   it('PDPA: รถร่วมบุคคลธรรมดา — ไม่มีเลขบัตรประชาชนในไฟล์ (canonical) · ประเภท/แบบ ภ.ง.ด.3 ยังอยู่', async () => {
     const nid = validTaxId(5199);
-    const car = await api(app, admin)
-      .post('/v1/carriers')
-      .send({
-        legalName: 'นาย รถร่วม บุคคล',
-        entityType: 'INDIVIDUAL',
-        taxId: nid,
-        phone: '081-234-5671',
-      });
+    const car = await api(app, admin).post('/v1/carriers').send({
+      legalName: 'นาย รถร่วม บุคคล',
+      entityType: 'INDIVIDUAL',
+      taxId: nid,
+      phone: '081-234-5671',
+    });
     expect(car.status, JSON.stringify(car.body)).toBe(201);
     await paidSettlement(uuid('carrier', car.body.id), '3000.00');
     const { file } = await runExport('accounting-settlements', month);
