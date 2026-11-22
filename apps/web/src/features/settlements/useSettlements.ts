@@ -13,18 +13,20 @@ export type SettlementPayInput = Schemas['SettlementPayDto'];
 /** ใบสำคัญจ่าย + KPI ใช้ key เดียว — อนุมัติ/บันทึกจ่ายแล้วรายการ/การ์ด/drawer โหลดใหม่พร้อมกัน */
 const KEY = 'settlements';
 
-export function useSettlementList(filters: Record<string, string>) {
+export function useSettlementList(filters: Record<string, string>, enabled = true) {
   return useCursorList<SettlementSummary>(
     KEY,
     filters,
     (query) => unwrap(api.GET('/v1/settlements', { params: { query: query as never } })),
-    { sort: '-updatedAt' },
+    { sort: '-updatedAt', enabled },
   );
 }
 
-export function useSettlementKpi() {
+/** ตัวนับต่อสถานะ — หน้า settle และ Dashboard AP (ST9-T03) ใช้ key เดียวกัน */
+export function useSettlementKpi(enabled = true) {
   return useQuery({
     queryKey: [KEY, 'summary'],
+    enabled,
     queryFn: () => unwrap(api.GET('/v1/settlements/summary')),
   });
 }
