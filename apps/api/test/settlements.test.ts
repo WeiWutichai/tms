@@ -16,7 +16,12 @@ import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { signStepUpToken } from '../src/auth/tokens';
 import { ERP_SINK } from '../src/modules/erp/erp-adapter.sink';
 import { SandboxService } from '../src/modules/sandbox/sandbox.service';
-import { SettlementPdfService } from '../src/modules/settlements/settlement-pdf.service';
+import {
+  SETTLEMENT_PDF_TEMPLATE_VERSION,
+  SettlementPdfService,
+} from '../src/modules/settlements/settlement-pdf.service';
+import { SETTLEMENT_PDF_JOB } from '../src/modules/settlements/settlement-pdf.job';
+import { JobQueue } from '../src/jobs/job-queue.service';
 import { settlementVoucherDocument } from '../src/modules/settlements/settlement-pdf.template';
 import { SANDBOX_WATERMARK, bahtFormat } from '../src/pdf/finance-document';
 import { PdfRenderer } from '../src/pdf/pdf-renderer';
@@ -2618,6 +2623,173 @@ describe('settlements (ST6-T03)', () => {
       }
       expect(await stored()).toEqual(rows2);
     }, 180_000);
+
+    it('D-66 เกณฑ์ตรวจรับ: อนุมัติ/บันทึกจ่าย → งาน settlement.render_pdf เก็บ PDF ทันที (ไม่ต้องมีคนเปิดก่อน) · hash คงเดิมหลังแก้แม่แบบ · ลองใหม่เมื่อ render ล้ม · คำขอแรกก่อนงานทำ = เก็บครั้งเดียว · ฉบับอนุมัติเก็บได้แม้จ่ายแล้ว', async () => {
+      const queue = app.get(JobQueue);
+      const renderer = app.get(PdfRenderer);
+      const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
+      const pdfJobs = (sid: string) =>
+        db.job.findMany({
+          where: {
+            tenantId,
+            type: SETTLEMENT_PDF_JOB,
+            payload: { path: ['settlementId'], equals: sid },
+          },
+          orderBy: { createdAt: 'asc' },
+        });
+      const storedOf = (sid: string) =>
+        db.storedDocument.findMany({
+          where: { entityType: 'carrier_settlement', entityId: sid, kind: 'PDF' },
+          orderBy: { createdAt: 'asc' },
+        });
+      const auditsOf = (sid: string) =>
+        db.auditLog.findMany({
+          where: { tenantId, entityId: sid, action: 'settlement.pdf_stored' },
+          orderBy: { seq: 'asc' },
+        });
+      // ทำงาน PDF ของใบ `sid` ที่ถึงเวลาแล้ว — งานของใบอื่นที่ค้างในไฟล์นี้เลื่อนไปก่อน (ไม่ render ทั้งไฟล์)
+      const runJobs = async (sid: string) => {
+        await db.job.updateMany({
+          where: {
+            type: SETTLEMENT_PDF_JOB,
+            status: 'PENDING',
+            NOT: { payload: { path: ['settlementId'], equals: sid } },
+          },
+          data: { runAt: new Date(Date.now() + 86_400_000) },
+        });
+        const due = async () =>
+          (await pdfJobs(sid)).some((j) => j.status === 'PENDING' && j.runAt <= new Date());
+        // งานชนิดอื่นที่ค้างจาก test ก่อนหน้าในไฟล์อาจถูกหยิบก่อน — ทำจนงานของใบนี้ไม่เหลือที่ถึงเวลา
+        for (let i = 0; i < 200 && (await due()) && (await queue.runOnce()); i++);
+      };
+      const make = async () => {
+        const { C, trips } = await setup(1, '3200');
+        const s = (
+          await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201)
+        ).body;
+        return { s, sid: uuid('settlement', s.id) };
+      };
+
+      // 1) อนุมัติ → งานใน transaction เดียวกัน (ร่างไม่มีงาน) → worker เก็บฉบับอนุมัติ · actor = system
+      const { s, sid } = await make();
+      expect(await pdfJobs(sid)).toEqual([]);
+      await approve(s.id);
+      const j1 = await pdfJobs(sid);
+      expect(j1.map((j) => [j.status, (j.payload as { variant: string }).variant])).toEqual([
+        ['PENDING', 'APPROVED'],
+      ]);
+      expect(await storedOf(sid)).toEqual([]);
+      await runJobs(sid);
+      const r1 = await storedOf(sid);
+      expect(r1).toHaveLength(1);
+      expect(r1[0]).toMatchObject({
+        status: 'READY',
+        createdBy: 'system:settlement-pdf',
+        metadata: {
+          document: 'SETTLEMENT_VOUCHER',
+          variant: 'APPROVED',
+          templateVersion: SETTLEMENT_PDF_TEMPLATE_VERSION,
+        },
+      });
+      expect((await pdfJobs(sid))[0]).toMatchObject({ status: 'SUCCEEDED', attempts: 1 });
+      const a1 = await auditsOf(sid);
+      expect(a1.map((a) => a.actorId)).toEqual(['system:settlement-pdf']);
+      // แก้แม่แบบหลังอนุมัติ (ยังไม่มีใครเปิด PDF) → ได้ไฟล์ที่เก็บตอนอนุมัติ ไม่ render ใหม่
+      const spy = vi.spyOn(renderer, 'pdf').mockResolvedValue(Buffer.from('%PDF-1.7 template v99'));
+      try {
+        const r = await pdfOf(s.id);
+        expect(r.status).toBe(200);
+        expect(sha(r.body as Buffer)).toBe(r1[0]!.sha256);
+        expect(r.headers['x-content-sha256']).toBe(r1[0]!.sha256);
+        expect(spy).not.toHaveBeenCalled();
+      } finally {
+        spy.mockRestore();
+      }
+
+      // 2) บันทึกจ่าย → งานฉบับจ่ายแล้ว · ฉบับอนุมัติคงเดิม · งานซ้ำ (idempotent) ไม่ render/เก็บเพิ่ม
+      expect((await pay(s.id)).status).toBe(200);
+      await runJobs(sid);
+      const r2 = await storedOf(sid);
+      expect(r2.map((d) => (d.metadata as { variant: string }).variant)).toEqual([
+        'APPROVED',
+        'PAID',
+      ]);
+      expect(r2[0]).toEqual(r1[0]);
+      await queue.enqueue(db as never, {
+        tenantId,
+        type: SETTLEMENT_PDF_JOB,
+        payload: { settlementId: sid, variant: 'PAID' },
+      });
+      const spy2 = vi.spyOn(renderer, 'pdf');
+      try {
+        await runJobs(sid);
+        expect(spy2).not.toHaveBeenCalled();
+      } finally {
+        spy2.mockRestore();
+      }
+      expect(await storedOf(sid)).toEqual(r2);
+      expect((await auditsOf(sid)).length).toBe(2);
+      const paidPdf = await pdfOf(s.id);
+      expect(sha(paidPdf.body as Buffer)).toBe(r2[1]!.sha256);
+
+      // 3) render ล้ม → งานกลับเป็น PENDING (ลองใหม่ตามช่วงเวลา) ไม่เก็บไฟล์ → ครั้งถัดไปสำเร็จ
+      const b = await make();
+      await approve(b.s.id);
+      const fail = vi.spyOn(renderer, 'pdf').mockRejectedValueOnce(new Error('chromium crashed'));
+      try {
+        await runJobs(b.sid);
+      } finally {
+        fail.mockRestore();
+      }
+      const jb = await pdfJobs(b.sid);
+      expect(jb[0]).toMatchObject({ status: 'PENDING', attempts: 1, maxAttempts: 8 });
+      expect(jb[0]!.runAt.getTime()).toBeGreaterThan(Date.now() + 5_000);
+      expect(await storedOf(b.sid)).toEqual([]);
+      await db.job.update({ where: { id: jb[0]!.id }, data: { runAt: new Date() } });
+      await runJobs(b.sid);
+      expect((await pdfJobs(b.sid))[0]).toMatchObject({ status: 'SUCCEEDED', attempts: 2 });
+      expect(await storedOf(b.sid)).toHaveLength(1);
+
+      // 4) คำขอ PDF ก่อนงานทำ (ทางสำรอง) → เก็บครั้งเดียว · งานทำทีหลังใช้ไฟล์เดิม (ไม่ render)
+      const c = await make();
+      await approve(c.s.id);
+      const [p1, p2] = await Promise.all([pdfOf(c.s.id), pdfOf(c.s.id)]);
+      expect([p1.status, p2.status]).toEqual([200, 200]);
+      const rc = await storedOf(c.sid);
+      expect(rc).toHaveLength(1);
+      expect(sha(p1.body as Buffer)).toBe(rc[0]!.sha256);
+      const spy3 = vi.spyOn(renderer, 'pdf');
+      try {
+        await runJobs(c.sid);
+        expect(spy3).not.toHaveBeenCalled();
+      } finally {
+        spy3.mockRestore();
+      }
+      expect((await pdfJobs(c.sid))[0]).toMatchObject({ status: 'SUCCEEDED' });
+      expect(await storedOf(c.sid)).toEqual(rc);
+      expect((await auditsOf(c.sid)).map((a) => a.actorId)).toEqual(['user-test']);
+
+      // 5) งานฉบับอนุมัติทำหลังจ่ายแล้ว (ลองใหม่นาน) → ยังเก็บฉบับอนุมัติ (ไม่มีข้อมูลการจ่าย) แยกจากฉบับจ่ายแล้ว
+      const d = await make();
+      await approve(d.s.id);
+      expect((await pay(d.s.id)).status).toBe(200);
+      const bodies: string[] = [];
+      const spy4 = vi.spyOn(renderer, 'pdf');
+      try {
+        await runJobs(d.sid);
+        bodies.push(...spy4.mock.calls.map((x) => x[0].body ?? ''));
+      } finally {
+        spy4.mockRestore();
+      }
+      const rd = await storedOf(d.sid);
+      expect(rd.map((x) => (x.metadata as { variant: string }).variant).sort()).toEqual([
+        'APPROVED',
+        'PAID',
+      ]);
+      expect(rd[0]!.sha256).not.toBe(rd[1]!.sha256);
+      expect(bodies).toHaveLength(2);
+      expect(bodies.filter((x) => x.includes(PAY.reference))).toHaveLength(1);
+    }, 240_000);
 
     it('ST6-T04 สิทธิ์: ไม่มี prices.buy:read → 403 · ไม่มี settlements:read → 403 · บริษัทอื่น 404 · ใบยกเลิก 409', async () => {
       const { C, trips } = await setup(1, '1000');
