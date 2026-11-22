@@ -1,11 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { RequestMethod } from '@nestjs/common';
-import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
-import { ModulesContainer } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { IS_PUBLIC, PLATFORM_ROLES, TENANT_RESOURCE } from '../src/common/decorators';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { store } from '../src/modules/documents/documents.controller';
 import { signStepUpToken } from '../src/auth/tokens';
@@ -19,6 +15,7 @@ import {
   truncateAll,
   validTaxId,
 } from './helpers';
+import { collectRoutes } from './route-inventory';
 
 /**
  * Harness แยก tenant (ST0-T05) — CI แดงเมื่อ:
@@ -1150,50 +1147,6 @@ const BODY_FOR_PATH: Record<string, object> = {
   }, // ST4-T01
 };
 
-interface RouteInfo {
-  method: string;
-  path: string;
-  resource?: string;
-  isPublic: boolean;
-}
-
-function collectRoutes(app: NestExpressApplication): RouteInfo[] {
-  const routes: RouteInfo[] = [];
-  for (const mod of app.get(ModulesContainer).values()) {
-    for (const wrapper of mod.controllers.values()) {
-      const cls = wrapper.metatype as any;
-      if (!cls) continue;
-      const base = String(Reflect.getMetadata(PATH_METADATA, cls) ?? '');
-      const proto = cls.prototype;
-      for (const name of Object.getOwnPropertyNames(proto)) {
-        const handler = proto[name];
-        if (name === 'constructor' || typeof handler !== 'function') continue;
-        const sub = Reflect.getMetadata(PATH_METADATA, handler);
-        const m = Reflect.getMetadata(METHOD_METADATA, handler);
-        if (sub === undefined || m === undefined) continue;
-        routes.push({
-          method: RequestMethod[m as number]!,
-          path: `/v1/${[base, String(sub)].filter((s) => s && s !== '/').join('/')}`.replace(
-            /\/+/g,
-            '/',
-          ),
-          resource:
-            Reflect.getMetadata(TENANT_RESOURCE, handler) ??
-            Reflect.getMetadata(TENANT_RESOURCE, cls),
-          // route ของ Platform Console ไม่รับ token ลูกค้าเลย (ทดสอบใน platform.test.ts) — นับเหมือน public
-          isPublic: Boolean(
-            Reflect.getMetadata(IS_PUBLIC, handler) ??
-            Reflect.getMetadata(IS_PUBLIC, cls) ??
-            Reflect.getMetadata(PLATFORM_ROLES, handler) ??
-            Reflect.getMetadata(PLATFORM_ROLES, cls),
-          ),
-        });
-      }
-    }
-  }
-  return routes;
-}
-
 describe('tenant isolation harness', () => {
   let app: NestExpressApplication;
   const plat = platform();
@@ -1274,6 +1227,49 @@ describe('tenant isolation harness', () => {
       if (r.method === 'GET')
         expect((await api(app, tokenA).get(url)).status, `owner ${r.path}`).toBe(200);
     }
+  });
+
+  /**
+   * (4) ST9-T13 (NFR-204 "list endpoint ต้องไม่มีแถวของ tenant อื่น"): ทุก GET ที่ไม่มี path param (list/summary/รายงาน/export)
+   * เรียกด้วย token ของ B หลัง (3) สร้างข้อมูลทุกชนิดใน A แล้ว → คำตอบต้องไม่มี id ใด ๆ ของแถวใน A (รูป uuid หรือ id ภายนอก `xxx_<hex>`)
+   */
+  it('(4) ทุก GET ที่ไม่มี path param: token ของ B ไม่เห็น id ของแถวใดใน tenant A', async () => {
+    const tables = await plat.$queryRaw<{ table: string }[]>`
+      SELECT t.table_name AS table FROM information_schema.columns t
+        JOIN information_schema.columns i
+          ON i.table_schema = t.table_schema AND i.table_name = t.table_name
+         AND i.column_name = 'id' AND i.data_type = 'uuid'
+       WHERE t.table_schema = 'public' AND t.column_name = 'tenant_id'`;
+    const ids = new Set<string>();
+    for (const { table } of tables) {
+      const rows = await plat.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT id::text AS id FROM "${table}" WHERE tenant_id = $1::uuid`,
+        tenantA,
+      );
+      for (const r of rows) ids.add(r.id.replace(/-/g, ''));
+    }
+    expect(ids.size).toBeGreaterThan(200);
+    const hex = [...ids];
+    const leakIn = (text: string) => {
+      const flat = text.toLowerCase().replace(/-/g, '');
+      return hex.find((h) => flat.includes(h));
+    };
+    // ตัวควบคุม: เจ้าของเห็น id ของตัวเองในรายการ (ตัวตรวจจับทำงานจริง)
+    expect(leakIn((await api(app, tokenA).get('/v1/companies')).text)).toBeTruthy();
+
+    const routes = collectRoutes(app).filter(
+      (r) => r.method === 'GET' && r.params.length === 0 && !r.isPublic && !r.linkAction,
+    );
+    expect(routes.length).toBeGreaterThan(80);
+    const problems: string[] = [];
+    for (const r of routes) {
+      const url = r.path.replace(/\\:/g, ':');
+      const res = await api(app, tokenB).get(url);
+      if (res.status >= 500) problems.push(`${url} → ${res.status}`);
+      const hit = leakIn(res.text ?? '');
+      if (hit) problems.push(`${url} → มี id ของ tenant A (${hit})`);
+    }
+    expect(problems).toEqual([]);
   });
 
   it('list ของ tenant B ไม่มีข้อมูลของ A', async () => {

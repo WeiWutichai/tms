@@ -10,7 +10,11 @@ import {
   MAX_AUTO_RESCHEDULES_LIMIT,
   parsePodRequirements,
 } from '@tms/domain';
-import { RETENTION_MAX, RETENTION_MIN } from '../retention/retention-policy';
+import {
+  FINANCE_DOCUMENT_RETENTION,
+  RETENTION_MAX,
+  RETENTION_MIN,
+} from '../retention/retention-policy';
 
 /** ST6-T07 วงเงิน step-up อนุมัติใบสำคัญจ่าย (บาท, ยอดสุทธิ) — ค่าเริ่ม [DECISION spec/12 §3] */
 export const SETTLEMENT_STEP_UP_DEFAULT = 100_000;
@@ -288,6 +292,18 @@ export const SETTINGS = {
     type: { kind: 'int', min: RETENTION_MIN.gpsLogDays, max: RETENTION_MAX.gpsLogDays },
     default: RETENTION_MIN.gpsLogDays,
     description: 'ระยะเก็บจุด GPS ดิบ (วัน) นับจากเวลาที่ระบบรับ — ขั้นต่ำ 90 วัน',
+  },
+  // ST9-T15 (docs/04 J "เอกสารภาษี ≥ 5 ปี … default 7 ปี"; D-54) — ขั้นต่ำ 5 ปี ค่าเริ่ม 7 ปี · ไม่มี job ลบเอกสารกลุ่มนี้ (ฐานข้อมูลปฏิเสธ DELETE)
+  'retention.financeDocumentYears': {
+    group: 'retention',
+    type: {
+      kind: 'int',
+      min: FINANCE_DOCUMENT_RETENTION.minYears,
+      max: FINANCE_DOCUMENT_RETENTION.maxYears,
+    },
+    default: FINANCE_DOCUMENT_RETENTION.defaultYears,
+    description:
+      'ระยะเก็บเอกสารที่ออกเลขแล้ว (ใบแจ้งหนี้ ใบวางบิล ใบสำคัญจ่าย รับชำระ) และ PDF ณ วันออก (ปี) — ขั้นต่ำ 5 ปี ค่าเริ่ม 7 ปี; ระบบไม่ลบเอกสารกลุ่มนี้ระหว่างใช้งาน (ค่านี้ใช้เมื่อมีงานลบ/archive ภายหลัง)',
   },
 } as const satisfies Record<string, SettingDef>;
 

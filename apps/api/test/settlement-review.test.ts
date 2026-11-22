@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { SYSTEM_ROLES } from '@tms/domain';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -865,6 +865,24 @@ describe('settlement carrier review (ST6-T05)', () => {
     const ok = await pdf(token);
     expect(ok.status).toBe(200);
     expect((ok.body as Buffer).equals(burst[0]!.body as Buffer)).toBe(true);
+    // ST9-T15 (review M2): ขอครั้งแรกผ่านลิงก์รถร่วม 5 คำขอพร้อมกัน → เก็บไฟล์แถวเดียว ทุกคำขอได้เนื้อเดียวกัน · audit ครั้งเดียว (ไม่มีผู้ใช้)
+    for (const b of burst) expect((b.body as Buffer).equals(burst[0]!.body as Buffer)).toBe(true);
+    const sid = tryDecodeId('settlement', s.id)!;
+    const storedPdfs = await db.storedDocument.findMany({
+      where: { entityType: 'carrier_settlement', entityId: sid, kind: 'PDF' },
+    });
+    expect(storedPdfs).toHaveLength(1);
+    expect(storedPdfs[0]).toMatchObject({ status: 'READY', metadata: { variant: 'PAID' } });
+    expect(storedPdfs[0]!.sha256).toBe(
+      createHash('sha256')
+        .update(ok.body as Buffer)
+        .digest('hex'),
+    );
+    expect(ok.headers['x-content-sha256']).toBe(storedPdfs[0]!.sha256);
+    const stored = await db.auditLog.findMany({
+      where: { entityId: sid, action: 'settlement.pdf_stored' },
+    });
+    expect(stored).toHaveLength(1);
     const limited = await pdf(token);
     expect(limited.status).toBe(429);
     expect(JSON.parse((limited.body as Buffer).toString()).code).toBe('rate_limited');

@@ -231,6 +231,42 @@ export class SettlementsService {
     return toDto(r, await disputedLines(tx, id, r.reviewRound), wht);
   }
 
+  /**
+   * ST6-T11 ยอดจ่ายสุทธิหลังหัก ณ ที่จ่ายของหลายใบในครั้งเดียว (ลิงก์ "ค่าเที่ยวของฉัน") — สูตรเดียวกับ `get`/`list`
+   * (ตรึงแล้ว = netPayable − wht_amount · ยังไม่ตรึง = `whtOf` ประมาณการ) · ไม่รู้ประเภทรถร่วมและยังไม่ตรึง = null (ไม่เดา)
+   */
+  async netAfterWhtMany(
+    ids: string[],
+  ): Promise<Map<string, { amount: string | null; frozen: boolean }>> {
+    const out = new Map<string, { amount: string | null; frozen: boolean }>();
+    if (!ids.length) return out;
+    const tx = this.db.tx;
+    const rows = await tx.carrierSettlement.findMany({
+      where: { id: { in: ids } },
+      include: {
+        carrier: { select: { whtRateDefault: true } },
+        lines: {
+          where: { voidedAt: null },
+          select: { lineType: true, amount: true, whtRate: true, voidedAt: true },
+        },
+      },
+    });
+    const unfrozen = rows.filter((r) => r.whtAmount === null);
+    const minimum = unfrozen.length ? await this.liveWhtMinimum(tx) : 0;
+    for (const r of rows) {
+      if (r.whtAmount !== null) {
+        out.set(r.id, { amount: r.netPayable.minus(r.whtAmount).toFixed(2), frozen: true });
+        continue;
+      }
+      const wht = hasWhtEntityType(r.carrierSnapshot) ? whtOf(r, r.lines, minimum) : null;
+      out.set(r.id, {
+        amount: wht ? whtTotals(r, wht).buyNetAfterWht : null,
+        frozen: false,
+      });
+    }
+    return out;
+  }
+
   /** ค่าตั้ง `tax.whtMinimumAmount` (บาท) ปัจจุบัน — ใช้กับใบที่ยังไม่ตรึง (ยังไม่อนุมัติ) */
   private async liveWhtMinimum(tx: Tx): Promise<number> {
     const ctx = requestContext.require();

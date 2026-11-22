@@ -98,7 +98,7 @@ function LinkBox({
   onToast,
 }: {
   s: Settlement;
-  link: { link: SettlementLink; viewOnly: boolean };
+  link: { link: SettlementLink; viewOnly: boolean; pay?: boolean };
   onToast: (m: string) => void;
 }) {
   const { t, lang } = useI18n();
@@ -158,9 +158,16 @@ function LinkBox({
         ))}
       </div>
       <span className="tms-vdoc__sub">
-        {t(issued.viewOnly ? 'settle.link.view' : 'settle.link.review', {
-          d: formatDateTime(link.expiresAt, lang),
-        })}{' '}
+        {t(
+          issued.pay
+            ? 'settle.link.pay'
+            : issued.viewOnly
+              ? 'settle.link.view'
+              : 'settle.link.review',
+          {
+            d: formatDateTime(link.expiresAt, lang),
+          },
+        )}{' '}
         · {t('cdoc.link.once')}
       </span>
     </section>
@@ -182,18 +189,21 @@ export function SettlementDrawer({
   onApprove,
   onPay,
   onRelink,
+  onPayLink,
   onClose,
   onToast,
 }: {
   id: string;
   /** ลิงก์ที่เพิ่งออกให้ใบนี้ (D-63) + ดูอย่างเดียวหรือไม่ ณ ตอนออก */
-  link: { link: SettlementLink; viewOnly: boolean } | null;
+  link: { link: SettlementLink; viewOnly: boolean; pay?: boolean } | null;
   canApprove: boolean;
   canPay: boolean;
   canRelink: boolean;
   onApprove: (s: Settlement) => void;
   onPay: (s: Settlement) => void;
   onRelink: (s: Settlement) => void;
+  /** ST6-T11 ลิงก์ค่าเที่ยวของรถร่วม (สิทธิ์เดียวกับออกลิงก์ใหม่) */
+  onPayLink: (s: Settlement) => void;
   onClose: () => void;
   onToast: (m: string) => void;
 }) {
@@ -287,6 +297,9 @@ export function SettlementDrawer({
           : []),
         ...(canRelink && canRelinkStatus(s.status)
           ? [{ label: t('settle.menu.relink'), icon: 'link', onClick: () => onRelink(s) }]
+          : []),
+        ...(canRelink
+          ? [{ label: t('settle.menu.payLink'), icon: 'wallet', onClick: () => onPayLink(s) }]
           : []),
       ]}
       tabs={[

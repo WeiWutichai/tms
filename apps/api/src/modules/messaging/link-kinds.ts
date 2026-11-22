@@ -35,6 +35,15 @@ export const LINK_KINDS = {
     entityType: 'carrier_settlement',
     enabled: true,
   },
+  // ST6-T11 ลิงก์ "ค่าเที่ยวของฉัน" (ดูอย่างเดียว) — ผู้รับ = รถร่วมเจ้าของลิงก์ · สิทธิ์เดียวกับลิงก์ใบสำคัญจ่าย
+  carrier_pay: {
+    path: 'carrier-pay',
+    template: 'carrier_pay_link',
+    sendScope: 'settlements:create',
+    readScope: 'settlements:read',
+    entityType: 'carrier',
+    enabled: true,
+  },
 } as const satisfies Record<
   string,
   {

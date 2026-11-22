@@ -44,6 +44,7 @@ import {
 import { SettlementDrawer } from './SettlementDrawer';
 import {
   openVoucherPdf,
+  useIssuePayLink,
   useReissueLink,
   useSettlementKpi,
   useSettlementList,
@@ -116,6 +117,8 @@ export function SettlePage() {
     id: string;
     link: SettlementLink;
     viewOnly: boolean;
+    /** ST6-T11 ลิงก์ค่าเที่ยวของรถร่วม (ไม่ใช่ลิงก์ของใบนี้) */
+    pay?: boolean;
   } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   // ST7-T23 ส่งออกให้นักบัญชี (ต้นแบบ openXp) — ต้องมี export:run (API ตรวจสิทธิ์อ่านต่อชุดเอง)
@@ -123,6 +126,7 @@ export function SettlePage() {
   const canXp = can(me.data?.scopes ?? [], 'export:run');
   const kpi = useSettlementKpi().data;
   const reissue = useReissueLink();
+  const payLink = useIssuePayLink();
   const curTab = TABS.includes(tab) ? tab : 'all';
   // ตัวกรองสถานะ = แท็บ ∩ คอลัมน์ "สถานะ" ที่ server (ST9-T03 — ยอดรวมตรงการ์ด dashboard)
   const status = listStatus(curTab, col.st);
@@ -161,6 +165,18 @@ export function SettlePage() {
         setLink({ id, link: l, viewOnly: viewOnlyLink(status) });
         setOpen(id);
         setToast(t('settle.link.done'));
+      },
+      onError: (e) => setToast(problemText(e, t)),
+    });
+  };
+  // ST6-T11 ลิงก์ "ค่าเที่ยวของฉัน" ของรถร่วมของใบ — แสดงในกล่องลิงก์ของ drawer ใบนี้ (รูปแบบเดียวกับ D-63)
+  const issuePay = (x: { id: string; carrier: { id: string } }) => {
+    if (payLink.isPending) return;
+    payLink.mutate(x.carrier.id, {
+      onSuccess: (l) => {
+        setLink({ id: x.id, link: l, viewOnly: true, pay: true });
+        setOpen(x.id);
+        setToast(t('settle.link.payDone'));
       },
       onError: (e) => setToast(problemText(e, t)),
     });
@@ -393,6 +409,9 @@ export function SettlePage() {
                     },
                   ]
                 : []),
+              ...(canRelink
+                ? [{ label: t('settle.menu.payLink'), icon: 'wallet', run: () => issuePay(x) }]
+                : []),
               ...(canPrintStatus(x.status)
                 ? [{ label: t('settle.menu.print'), icon: 'printer', run: () => void print(x) }]
                 : []),
@@ -425,6 +444,7 @@ export function SettlePage() {
           onApprove={(x) => setApproving(x.id)}
           onPay={(s) => setPaying(s.id)}
           onRelink={(s) => relink(s.id, s.status)}
+          onPayLink={issuePay}
           onClose={() => setOpen(null)}
           onToast={setToast}
         />
