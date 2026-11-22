@@ -17,6 +17,14 @@ export function assertHumanStepUp(): void {
   if (!ctx.steppedUp) throw new ProblemException('step_up_required');
 }
 
+/**
+ * D-67: step-up ทุก principal (route จัดการ credential — API key/webhook/connector) — ตรวจใน handler
+ * **หลัง validation** (ข้อมูลผิด = 422 ก่อนถามยืนยัน 2FA; ข้าม tenant = 404) · API key ไม่ได้รับยกเว้น
+ */
+export function assertStepUp(): void {
+  if (!requestContext.require().steppedUp) throw new ProblemException('step_up_required');
+}
+
 /** ส่งออกที่เป็นรายงาน/สมุดเอกสารของทั้งบริษัท — step-up ทุกครั้ง (แม้มีตัวกรอง) */
 const ALWAYS_STEP_UP_EXPORTS = new Set([
   'revenue',

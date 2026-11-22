@@ -24,12 +24,12 @@ import {
   NoTransaction,
   RequireFeature,
   RequireScope,
-  RequireStepUp,
+  StepUpAlways,
   StepUpWhen,
   TenantResource,
   LiveOnly,
 } from '../../common/decorators';
-import { assertHumanStepUp } from '../../auth/step-up';
+import { assertHumanStepUp, assertStepUp } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -220,7 +220,7 @@ export class ConnectorsController {
   @Put(':id/credentials')
   @TenantResource('connector')
   @RequireScope('settings:write')
-  @RequireStepUp() // D-67
+  @StepUpAlways() // D-67
   @ApiHeader(IF_MATCH)
   @ApiOkResponse({
     type: ConnectorDto,
@@ -233,6 +233,7 @@ export class ConnectorsController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ConnectorDto> {
+    assertStepUp(); // D-67 — ตรวจหลัง validation/404 (ไม่ใช่ใน guard)
     const c = await this.connectors.setCredentials(
       decodeIdOr404('connector', id),
       body,
@@ -311,7 +312,7 @@ export class ConnectorsController {
   @HttpCode(200)
   @TenantResource('connector')
   @RequireScope('settings:write')
-  @RequireStepUp() // D-67: คำตอบมี token ของ URL ขาเข้า (= credential)
+  @StepUpAlways() // D-67: คำตอบมี token ของ URL ขาเข้า (= credential)
   @ApiHeader(IF_MATCH)
   @ApiOkResponse({
     type: InboundTokenDto,
@@ -326,6 +327,7 @@ export class ConnectorsController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InboundTokenDto> {
+    assertStepUp(); // D-67 — ตรวจหลัง validation/404 (ไม่ใช่ใน guard)
     noIdempotencyKey(req);
     const { connector, token } = await this.connectors.rotateInboundToken(
       decodeIdOr404('connector', id),

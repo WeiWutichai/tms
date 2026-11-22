@@ -49,6 +49,13 @@ export const RequireHumanStepUp = () =>
  * D-67: step-up แบบมีเงื่อนไข (ตรวจใน service ด้วย `assertHumanStepUp()`) — decorator นี้แค่ประกาศใน OpenAPI
  * (`x-step-up` + header `X-Step-Up` + ตัวอย่าง 403 `step_up_required`) · `when` = เงื่อนไขที่ต้อง step-up (ไทย)
  */
+/**
+ * D-67: ประกาศ step-up ที่ตรวจใน handler (`assertStepUp` / `assertHumanStepUp`) ทุกครั้ง — validation (422) / 404 มาก่อน
+ * `mode` 'human' = API key ไม่ต้อง (คุมด้วย scope)
+ */
+export const StepUpAlways = (mode: 'always' | 'human' = 'always') =>
+  ApiExtension('x-step-up', { mode });
+/** D-67: step-up แบบมีเงื่อนไข — ดูด้านบน */
 export const StepUpWhen = (when: string) => ApiExtension('x-step-up', { mode: 'human', when });
 
 export const REQUIRED_FEATURE = 'tms:requiredFeature';

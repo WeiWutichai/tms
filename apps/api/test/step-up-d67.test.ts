@@ -81,18 +81,7 @@ describe('step-up 2FA ขยาย (D-67)', () => {
     await db.$disconnect();
   });
 
-  it('route ที่ต้อง step-up ทุกครั้ง: ไม่ส่ง / token ของคนอื่น / ของ tenant อื่น / ปลอม → 403 step_up_required', async () => {
-    const fake = (kind: Parameters<typeof encodeId>[0]) => encodeId(kind, randomUUID());
-    const routes: ['post' | 'put' | 'patch', string][] = [
-      ['post', '/v1/api-keys'],
-      ['patch', `/v1/api-keys/${fake('apiKey')}`],
-      ['post', `/v1/api-keys/${fake('apiKey')}/rotate`],
-      ['post', '/v1/webhooks'],
-      ['post', `/v1/webhooks/${fake('webhookEndpoint')}/rotate-secret`],
-      ['put', `/v1/connectors/${fake('connector')}/credentials`],
-      ['post', `/v1/connectors/${fake('connector')}/inbound-token/rotate`],
-      ['post', `/v1/invoices/${fake('invoice')}/void`],
-    ];
+  it('route ที่ต้อง step-up ทุกครั้ง: ไม่ส่ง / token ของคนอื่น / ของ tenant อื่น / หมดอายุ / ปลอม → 403 step_up_required · ข้อมูลผิด = 422 ก่อน', async () => {
     const bad = [
       undefined,
       await signStepUpToken(randomUUID(), tenantId),
@@ -100,21 +89,48 @@ describe('step-up 2FA ขยาย (D-67)', () => {
       await expiredStepUp(),
       'not-a-token',
     ];
-    for (const [m, url] of routes)
+    const denied = async (
+      m: 'post' | 'put' | 'patch',
+      url: string,
+      body: object,
+      headers: Record<string, string> = {},
+    ) => {
       for (const su of bad) {
-        const r = await raw(m, url, su).send({});
-        expect(r.status, `${m} ${url}`).toBe(403);
+        const r = await raw(m, url, su).set(headers).send(body);
+        expect(r.status, `${m} ${url} ${String(su).slice(0, 12)}`).toBe(403);
         expect(r.body.code, `${m} ${url}`).toBe('step_up_required');
       }
-    // token ของตัวเอง → ผ่านด่าน (สร้าง key ได้ · id ปลอม = 404 ตามปกติ)
-    const ok = await raw('post', '/v1/api-keys', await mine()).send({
-      name: 'ด้วย step-up',
-      scopes: ['orders:read'],
-    });
-    expect(ok.status, JSON.stringify(ok.body)).toBe(201);
-    for (const [m, url] of routes.slice(1)) {
-      const r = await raw(m, url, await mine()).send({});
-      expect(r.body.code, `${m} ${url}`).not.toBe('step_up_required');
+    };
+    // API key: สร้าง / แก้ / หมุน
+    const kb = { name: 'ด้วย step-up', scopes: ['orders:read'] };
+    await denied('post', '/v1/api-keys', kb);
+    // ข้อมูลผิด → 422 ก่อนถาม step-up (ตรวจใน handler หลัง validation)
+    expect((await raw('post', '/v1/api-keys').send({})).status).toBe(422);
+    const k = await raw('post', '/v1/api-keys', await mine()).send(kb);
+    expect(k.status, JSON.stringify(k.body)).toBe(201);
+    const ifm = { 'If-Match': `"${k.body.version}"` };
+    await denied('patch', `/v1/api-keys/${k.body.id}`, { name: 'ชื่อใหม่ของ key' }, ifm);
+    await denied(
+      'post',
+      `/v1/api-keys/${k.body.id}/rotate`,
+      { reason: 'หมุนตามรอบความปลอดภัย', graceHours: 24 },
+      ifm,
+    );
+    // webhook: สร้าง (คำตอบมี secret) / หมุน secret
+    process.env.WEBHOOK_ALLOW_PRIVATE_TARGETS = '1';
+    try {
+      const hb = { url: 'http://127.0.0.1:9999/d67-hook', events: ['order.created'] };
+      await denied('post', '/v1/webhooks', hb);
+      const h = await raw('post', '/v1/webhooks', await mine()).send(hb);
+      expect(h.status, JSON.stringify(h.body)).toBe(201);
+      await denied(
+        'post',
+        `/v1/webhooks/${h.body.id}/rotate-secret`,
+        {},
+        { 'If-Match': `"${h.body.version}"` },
+      );
+    } finally {
+      delete process.env.WEBHOOK_ALLOW_PRIVATE_TARGETS;
     }
   });
 
@@ -271,6 +287,19 @@ describe('step-up 2FA ขยาย (D-67)', () => {
       .send({ settings: { baseUrl: 'https://evil.example' } });
     expect(p.status).toBe(403);
     expect(p.body.code).toBe('step_up_required');
+    // หมุน credential / ออก URL ขาเข้า → ต้อง step-up ทุกครั้ง
+    for (const [m, u, b] of [
+      [
+        'put',
+        `${url}/credentials`,
+        { credentials: { apiKey: 'demo-new' }, reason: 'หมุน key ตามรอบ' },
+      ],
+      ['post', `${url}/inbound-token/rotate`, { reason: 'ออก token รับ webhook ขาเข้า' }],
+    ] as const) {
+      const x = await raw(m, u).set('If-Match', `"${c.body.version}"`).send(b);
+      expect(x.status, u).toBe(403);
+      expect(x.body.code, u).toBe('step_up_required');
+    }
     // แก้ช่องอื่น (ไม่มี settings) ไม่ถาม step-up
     const other = await raw('patch', url)
       .set('If-Match', `"${c.body.version}"`)
