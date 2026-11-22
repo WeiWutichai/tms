@@ -86,7 +86,7 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
     (await api(app, admin).get(`/v1/invoices/${id}`).expect(200)).body as Record<string, any>;
 
   /** ร่างใบแจ้งหนี้ 1 บรรทัด (เพิ่มเอง) แล้ว finalize ผ่าน API (ผู้ออก ≠ ผู้เตรียม) */
-  const issuedInvoice = async (amount = '1000.00') => {
+  const issuedInvoice = async (amount = '1000.00', deliveryOrderId?: string) => {
     const n = ++seq;
     const inv = await plat.invoice.create({
       data: {
@@ -111,6 +111,7 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
             vatAmount: '0',
             whtRate: '1.00',
             isUserAdded: true,
+            ...(deliveryOrderId ? { deliveryOrderId } : {}),
           },
         },
       },
@@ -362,6 +363,65 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
       .put(`/v1/customers/${encodeId('customer', customerId)}/erp-codes/${conId}`)
       .send({ externalId: null, reason: 'คืนค่าเพื่อทดสอบจับคู่ด้วยเลขภาษี' })
       .expect(200);
+  });
+
+  it('ST8-T07 (PDPA): ชื่อคนขับของเที่ยวไม่ลง payload ของคำสั่ง — adapter นี้ไม่ได้ประกาศ personalDataNeeds', async () => {
+    const tag = `PD${++seq}`;
+    const site = (k: string) =>
+      plat.customerSite.create({
+        data: { tenantId, code: `S${k}-${tag}`, name: `สถานที่ ${k}`, address: { line1: 'x' } },
+      });
+    const [a, b] = [await site('A'), await site('B')];
+    const so = await plat.salesOrder.create({
+      data: {
+        tenantId,
+        soNo: `SO-${tag}`,
+        source: 'MANUAL',
+        customerId,
+        billingCompanyId: companyId,
+        requestedDate: new Date(`${today}T00:00:00Z`),
+        status: 'RECEIVED',
+      },
+    });
+    const trip = await plat.trip.create({
+      data: {
+        tenantId,
+        tripNo: `TRP-${tag}`,
+        tripDate: new Date(`${today}T00:00:00Z`),
+        vehiclePlateSnapshot: '70-1234',
+        driverNameSnapshot: 'สมชาย ทดสอบ',
+      },
+    });
+    const d = await plat.deliveryOrder.create({
+      data: {
+        tenantId,
+        doNo: `DO-${tag}`,
+        doDate: new Date(`${today}T00:00:00Z`),
+        salesOrderId: so.id,
+        customerId,
+        tripId: trip.id,
+        originSiteId: a.id,
+        destSiteId: b.id,
+        originStopSeq: 1,
+        destStopSeq: 2,
+      },
+    });
+    // ใบแจ้งหนี้ที่บรรทัดผูก DO ซึ่งเที่ยวมีชื่อคนขับ → finalize ผ่าน API → core สร้างคำสั่ง PUSH_INVOICE
+    const inv = await issuedInvoice('1500.00', d.id);
+    const cmds = (await commands('PUSH_INVOICE')).filter((c) => c.localId === inv.uuid);
+    const payload = cmds.at(-1)!.payload as {
+      document: { lines: { deliveryOrder: unknown; trip: Record<string, unknown> }[] };
+    };
+    const line = payload.document.lines[0]!;
+    expect(line.deliveryOrder).toMatchObject({ number: `DO-${tag}` });
+    expect(line.trip).toEqual({
+      number: `TRP-${tag}`,
+      vehiclePlate: '70-1234',
+      driverName: null,
+      carrierName: null,
+    });
+    // ไม่มีชื่อคนขับในคำสั่งใดของ connector นี้เลย
+    expect(JSON.stringify((await commands()).map((c) => c.payload))).not.toContain('สมชาย ทดสอบ');
   });
 
   it('(3) document.posted → เลขเอกสารฝั่งระบบบัญชีใน external_mapping · webhook ซ้ำไม่มีผล · ลายเซ็นผิด 401 ไม่เข้า ledger', async () => {

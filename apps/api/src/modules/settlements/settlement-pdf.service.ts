@@ -1,11 +1,15 @@
 import { Injectable } from '@nestjs/common';
-import { tryDecodeId } from '../../common/ids';
+import type { StoredDocument } from '@prisma/client';
+import { createHash } from 'node:crypto';
+import { AuditService } from '../../audit/audit.service';
+import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import type { FinanceParty } from '../../pdf/finance-document';
 import { resolvePayer, type PayerSnapshot } from './settlement-payer';
 import { PdfRenderer } from '../../pdf/pdf-renderer';
+import { putFileLocked, store } from '../documents/documents.controller';
 import { bangkokToday } from '../vehicle-documents/expiry';
 import type { DeductionType, SettlementDto } from './settlement.dto';
 import {
@@ -24,54 +28,106 @@ const payerParty = (p: PayerSnapshot): FinanceParty => ({
   address: '',
 });
 
+const sha256Of = (b: Buffer) => createHash('sha256').update(b).digest('hex');
+/** ฉบับที่เก็บไฟล์: ใบที่มีเลขแล้วเท่านั้น (APPROVED / PAID) */
+const storedVariant = (dto: SettlementDto): StoredVariant | null =>
+  dto.settlementNo && (dto.status === 'APPROVED' || dto.status === 'PAID') ? dto.status : null;
+
 /** ลำดับชนิดบรรทัดหักบนเส้นรวม (ตาม DEDUCTION_TYPES) */
 const DEDUCTION_ORDER: DeductionType[] = ['CASH_ADVANCE', 'FUEL_PROVIDED', 'FINE', 'DAMAGE'];
 
 /**
- * PDF ใบสำคัญจ่ายรถร่วม (ST6-T04) — render ตามคำขอ (ไม่ใช่เอกสารภาษี — docs/04 "เก็บ PDF ณ วันออก" ใช้กับเอกสารภาษี; spec/12 §3)
- * ข้อมูลอ่านใน transaction สั้นแล้ว render นอก transaction (แบบใบแจ้งหนี้ ST5-T08)
+ * PDF ใบสำคัญจ่ายรถร่วม (ST6-T04) — ข้อมูลอ่านใน transaction สั้นแล้ว render นอก transaction (แบบใบแจ้งหนี้ ST5-T08)
  * **ตัวเลขทุกตัวมาจาก `SettlementsService.get`** (DTO เดียวกับ `GET /v1/settlements/{id}`) — ยอดบน PDF = API โดยโครงสร้าง ·
  * ใบที่อนุมัติแล้วใช้ยอด WHT ที่ตรึง (`wht_amount`) · สุทธิ = `buyNetAfterWht`
+ *
+ * **ST9-T15 (D-54: ใบสำคัญจ่ายเป็นเอกสารที่ออกเลขแล้วของ TMS — PDF ที่เก็บไม่ถูก render ใหม่)** [DECISION spec/12 §3 แถว ST9-T15 —
+ * แก้ข้อ (7) ของแถว ST6-T04 "render ตามคำขอ ไม่เก็บไฟล์"]:
+ * - ร่าง (ยังไม่มีเลข) = render ตามคำขอ ไม่เก็บ (ตามเดิม)
+ * - ใบที่มีเลขแล้ว: ฉบับ `APPROVED` (อนุมัติแล้ว ยังไม่จ่าย) และฉบับ `PAID` (มีข้อมูลการจ่าย) — render **ครั้งแรกที่ขอ** แล้วเก็บแบบ
+ *   เขียนครั้งเดียว (`stored_document` kind PDF, entity `carrier_settlement`, `metadata.variant`) ใต้ล็อกแถวใบ; ครั้งต่อไปส่งไฟล์เดิม
+ *   (แม่แบบเปลี่ยน/ข้อมูลอ้างอิงเปลี่ยน → ไฟล์และ sha256 คงเดิม · ฐานข้อมูลกันแก้/ลบแถวไฟล์ — migration 0160)
+ * - ยังไม่ได้เก็บ "ณ วันอนุมัติ/วันจ่าย" (ต้อง render หลัง commit + งานลองใหม่แบบ `invoice.render_pdf`) — [OPEN] ใน spec/12 §3
  */
-/** เปลี่ยนเมื่อแม่แบบเปลี่ยน (key ของ cache) */
+/** รุ่นแม่แบบ — บันทึกใน `stored_document.metadata.templateVersion` ของไฟล์ที่เก็บ (เพิ่มเลขเมื่อแก้แม่แบบ) */
 export const SETTLEMENT_PDF_TEMPLATE_VERSION = 2; // 2: เส้นทาง "→" → "–" (Sarabun ไม่มี "→" — spec/12 §3)
-const PDF_CACHE_TTL_MS = 10 * 60_000;
-const PDF_CACHE_MAX = 50;
+/** entity_type ของไฟล์ PDF ใบสำคัญจ่ายที่เก็บ (ตรงกับ `FINANCE_PDF_ENTITY_TYPES` + trigger `stored_document_guard`) */
+const PDF_ENTITY = 'carrier_settlement';
+type StoredVariant = 'APPROVED' | 'PAID';
 
 @Injectable()
 export class SettlementPdfService {
-  private readonly cache = new Map<string, { pdf: Buffer; at: number }>();
   private readonly inflight = new Map<string, Promise<Buffer>>();
   constructor(
     private readonly db: DbService,
     private readonly renderer: PdfRenderer,
     private readonly settlements: SettlementsService,
+    private readonly audit: AuditService,
   ) {}
 
-  /**
-   * @param id uuid ของใบ
-   * @param onlyPaid ลิงก์รถร่วม: ต้นแบบ TMS Subcon มีปุ่ม "ใบจ่ายเงิน" เฉพาะงวดที่จ่ายแล้ว → ใบที่ยังไม่จ่าย 409
-   */
-  async render(
-    id: string,
-    onlyPaid = false,
-  ): Promise<{ model: SettlementPrintModel; dto: SettlementDto; pdf: Buffer }> {
+  private inTx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
     const ctx = requestContext.require();
-    const { model, dto } = await this.db.withTenant(ctx.tenantId!, async (tx: Tx) => {
+    return this.db.withTenant(ctx.tenantId!, async (tx: Tx) => {
       ctx.tx = tx as never;
       try {
-        return await this.loadModel(tx, id, onlyPaid);
+        return await fn(tx);
       } finally {
         ctx.tx = undefined;
       }
     });
-    // review M1: ใบ PAID = สิ้นสุด (ข้อมูลบนใบไม่เปลี่ยน) → render ครั้งเดียวต่อ (ใบ, version, แม่แบบ) แล้วใช้ซ้ำ ·
-    // คำขอพร้อมกันรอผล render เดียวกัน — ไม่ให้ลิงก์เดียวกินคิว Chromium ที่ใช้ร่วมทุก tenant
-    if (dto.status !== 'PAID')
-      return { model, dto, pdf: await this.renderer.pdf(settlementVoucherDocument(model)) };
-    const key = `${id}:${dto.version}:t${SETTLEMENT_PDF_TEMPLATE_VERSION}`;
-    const hit = this.cache.get(key);
-    if (hit && hit.at > Date.now() - PDF_CACHE_TTL_MS) return { model, dto, pdf: hit.pdf };
+  }
+
+  private async storedPdf(
+    tx: Tx,
+    id: string,
+    variant: StoredVariant,
+  ): Promise<StoredDocument | null> {
+    const doc = await tx.storedDocument.findFirst({
+      where: {
+        entityType: PDF_ENTITY,
+        entityId: id,
+        kind: 'PDF',
+        metadata: { path: ['variant'], equals: variant },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (doc && (doc.status !== 'READY' || !doc.fileKey)) throw new ProblemException('not_found');
+    return doc;
+  }
+
+  /**
+   * @param id uuid ของใบ
+   * @param onlyPaid ลิงก์รถร่วม: ต้นแบบ TMS Subcon มีปุ่ม "ใบจ่ายเงิน" เฉพาะงวดที่จ่ายแล้ว → ใบที่ยังไม่จ่าย 409
+   * @returns `stored` = ไฟล์ที่เก็บ (ใบที่มีเลขแล้ว) · ร่าง = null
+   */
+  async render(
+    id: string,
+    onlyPaid = false,
+  ): Promise<{
+    model: SettlementPrintModel;
+    dto: SettlementDto;
+    pdf: Buffer;
+    stored: StoredDocument | null;
+  }> {
+    const ctx = requestContext.require();
+    const { model, dto, existing } = await this.inTx(async (tx) => {
+      const m = await this.loadModel(tx, id, onlyPaid);
+      const variant = storedVariant(m.dto);
+      return { ...m, existing: variant ? await this.storedPdf(tx, id, variant) : null };
+    });
+    const variant = storedVariant(dto);
+    // ร่าง / รอรถร่วมตรวจ (ยังไม่มีเลข) — ไม่ใช่เอกสารที่ออกแล้ว: render ตามคำขอ
+    if (!variant)
+      return {
+        model,
+        dto,
+        pdf: await this.renderer.pdf(settlementVoucherDocument(model)),
+        stored: null,
+      };
+    if (existing)
+      return { model, dto, pdf: await store().get(existing.fileKey!), stored: existing };
+    // คำขอพร้อมกันรอผล render เดียวกัน — ไม่ให้ลิงก์เดียวกินคิว Chromium ที่ใช้ร่วมทุก tenant (review M1 ของ ST6-T04)
+    const key = `${id}:${variant}`;
     let job = this.inflight.get(key);
     if (!job) {
       job = this.renderer
@@ -79,11 +135,57 @@ export class SettlementPdfService {
         .finally(() => this.inflight.delete(key));
       this.inflight.set(key, job);
     }
-    const pdf = await job;
-    this.cache.delete(key);
-    this.cache.set(key, { pdf, at: Date.now() });
-    while (this.cache.size > PDF_CACHE_MAX) this.cache.delete(this.cache.keys().next().value!);
-    return { model, dto, pdf };
+    const data = await job;
+    const stored = await this.inTx(async (tx) => {
+      // ล็อกแถวใบ: ขอพร้อมกัน = เก็บไฟล์เดียว · สถานะเปลี่ยนระหว่าง render (APPROVED → PAID) = ไม่เก็บไฟล์นี้เป็นฉบับของสถานะใหม่
+      const rows = await tx.$queryRaw<{ status: string }[]>`
+        SELECT status::text AS status FROM carrier_settlement WHERE id = ${id}::uuid FOR UPDATE`;
+      const found = await this.storedPdf(tx, id, variant);
+      if (found || rows[0]?.status !== variant) return found;
+      const f = await putFileLocked(tx, ctx.tenantId!, data, 'pdf');
+      const created = await tx.storedDocument.create({
+        data: {
+          tenantId: ctx.tenantId!,
+          status: 'READY',
+          kind: 'PDF',
+          mimeType: 'application/pdf',
+          fileKey: f.key,
+          sha256: f.sha256,
+          sizeBytes: f.size,
+          filename: `${dto.settlementNo}${variant === 'PAID' ? '-paid' : ''}.pdf`,
+          entityType: PDF_ENTITY,
+          entityId: id,
+          createdBy: ctx.actorId ?? null,
+          metadata: {
+            document: 'SETTLEMENT_VOUCHER',
+            variant,
+            settlementNo: dto.settlementNo,
+            templateVersion: SETTLEMENT_PDF_TEMPLATE_VERSION,
+          },
+        },
+      });
+      await this.audit.record({
+        action: 'settlement.pdf_stored',
+        entityType: PDF_ENTITY,
+        entityId: id,
+        after: {
+          documentId: encodeId('document', created.id),
+          variant,
+          settlementNo: dto.settlementNo,
+          sha256: f.sha256,
+          templateVersion: SETTLEMENT_PDF_TEMPLATE_VERSION,
+        },
+      });
+      return created;
+    });
+    // สถานะเปลี่ยนระหว่าง render → ส่งไฟล์ที่ render ไว้ (ตรงกับสถานะตอนอ่าน) โดยไม่เก็บ; ครั้งต่อไปเก็บฉบับของสถานะใหม่
+    if (!stored) return { model, dto, pdf: data, stored: null };
+    return {
+      model,
+      dto,
+      pdf: stored.sha256 === sha256Of(data) ? data : await store().get(stored.fileKey!),
+      stored,
+    };
   }
 
   async loadModel(

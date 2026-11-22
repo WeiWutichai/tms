@@ -60,7 +60,8 @@ export class ErpSyncService {
       r.connector.id,
       inv.customerId,
     );
-    const doc = canonicalInvoice(inv, customerExternalId);
+    // ST8-T07 (PDPA): ชื่อคนขับลง payload เฉพาะ connector ที่ adapter ประกาศว่าต้องใช้
+    const doc = canonicalInvoice(inv, customerExternalId, r.adapter?.personalDataNeeds ?? []);
     await this.enqueue(tx, {
       tenantId: inv.tenantId,
       connectorId: r.connector.id,
