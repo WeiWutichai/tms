@@ -13,6 +13,7 @@ import {
 } from 'class-validator';
 import { ListQuery } from '../../common/pagination';
 import { PriceField } from '../../common/price-fields';
+import { DOCUMENT_SYNC_DOC, ErpDocumentSyncDto } from '../erp/document-sync.dto';
 import { CleanText } from '../master/master-kit';
 import {
   COMPANY_DISPUTE_ACTIONS,
@@ -541,6 +542,8 @@ export class SettlementWhtEstimateDto {
 
 /** ใบสำคัญจ่ายรถร่วม (ร่าง) */
 export class SettlementDto {
+  @ApiPropertyOptional({ nullable: true, type: ErpDocumentSyncDto, description: DOCUMENT_SYNC_DOC })
+  sync?: ErpDocumentSyncDto | null;
   @ApiProperty({ example: 'stl_…' }) id!: string;
   @ApiProperty({
     nullable: true,

@@ -14,7 +14,7 @@ import {
 import { ConnectorPullScheduler } from '../src/modules/connectors/connector-pull.scheduler';
 import { ConnectorsService } from '../src/modules/erp/connectors.service';
 import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
-import { ERP_SINK } from '../src/modules/erp/erp-adapter.sink';
+import { ERP_SINK, sentIdempotencyKey } from '../src/modules/erp/erp-adapter.sink';
 import { OutboxDispatcher } from '../src/modules/integration/outbox.dispatcher';
 import { OutboxService } from '../src/modules/integration/outbox.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
@@ -46,8 +46,15 @@ describe('Standalone + DemoProvider (ST7-T14)', () => {
   };
   const cmd = (id: string) => plat.integrationOutbox.findUniqueOrThrow({ where: { id } });
   /** เลขภายนอกที่ DemoProvider ให้กับคำสั่งนี้ (hash ของ tenant, connector, ประเภท, idempotency key) */
-  const extOf = async (connectorId: string, id: string) =>
-    demoExternalSuffix(`${tenantId}:${connectorId}`, 'invoice', (await cmd(id)).idempotencyKey);
+  const extOf = async (connectorId: string, id: string) => {
+    const c = await cmd(id);
+    // ST7-T15 key ที่ adapter ได้รับ = ส่วนหน้าของ key คำสั่ง + hash ของเอกสารที่ส่งจริง (`result.sentHash`)
+    return demoExternalSuffix(
+      `${tenantId}:${connectorId}`,
+      'invoice',
+      sentIdempotencyKey(c.idempotencyKey, (c.result as { sentHash: string }).sentHash),
+    );
+  };
 
   async function company(n: number) {
     const c = await plat.company.create({

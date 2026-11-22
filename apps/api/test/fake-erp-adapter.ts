@@ -24,7 +24,10 @@ export class FakeErpAdapter implements ErpAdapter {
   ];
   private readonly caps: ErpCapability[];
   /** สิ่งที่ "ERP" รับแล้ว ต่อ idempotency key */
-  readonly received = new Map<string, { op: string; externalId: string; ctx: ErpContext }>();
+  readonly received = new Map<
+    string,
+    { op: string; externalId: string; ctx: ErpContext; body: string }
+  >();
   calls: { op: string; ctx: ErpContext; doc?: unknown }[] = [];
   fail?: { errorClass: ErrorClass; message?: string };
   health?: HealthResult;
@@ -79,10 +82,16 @@ export class FakeErpAdapter implements ErpAdapter {
     const k = ctx.idempotencyKey ?? `${op}:${doc.id}`;
     const prev = this.received.get(k);
     if (prev)
-      return { ok: true, externalId: prev.externalId, externalDocNo: `ERP-${prev.externalId}` };
+      return {
+        ok: true,
+        externalId: prev.externalId,
+        externalDocNo: `ERP-${prev.externalId}`,
+        // คืนของเดิม — ถือเนื้อหาครั้งนี้เฉพาะเมื่อตรงกับที่เก็บไว้
+        applied: prev.body === JSON.stringify(doc),
+      };
     const externalId = `ext-${this.received.size + 1}`;
-    this.received.set(k, { op, externalId, ctx });
-    return { ok: true, externalId, externalDocNo: `ERP-${externalId}` };
+    this.received.set(k, { op, externalId, ctx, body: JSON.stringify(doc) });
+    return { ok: true, externalId, externalDocNo: `ERP-${externalId}`, applied: true };
   }
 
   async pushInvoice(ctx: ErpContext, inv: CanonicalDocument): Promise<PushResult> {

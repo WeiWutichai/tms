@@ -157,6 +157,9 @@ export function describeErpAdapterContract(name: string, opts: ErpAdapterContrac
         expectPushShape(r1);
         const r2 = await fn.call(a, ctx, doc);
         expectPushShape(r2);
+        // ST7-T15 push สำเร็จต้องบอกตามจริงว่า ERP ถือเนื้อหาของ payload ครั้งนี้ไหม (`applied` เป็น boolean เสมอ) · สร้างครั้งแรก = true
+        if (r1.ok) expect(r1.applied).toBe(true);
+        if (r2.ok) expect(typeof r2.applied).toBe('boolean');
         if (r1.ok)
           expect(r2.ok ? r2.externalId : r2.errorClass).toBe(r2.ok ? r1.externalId : 'DUPLICATE');
         await noLeak(() => fn.call(a, ctxOf(a, leakConfig(), `contract:leak:${cap}`), doc));

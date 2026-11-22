@@ -385,12 +385,14 @@ export class DemoAdapter implements ErpAdapter {
     return stored;
   }
 
-  private ok(d: StoredDoc): PushResult {
+  /** `applied` = ERP ถือเนื้อหาของ payload ครั้งนี้ (สร้าง/แทนที่ หรือของเดิมตรงกันทุกช่อง) — คืนของเดิมที่เนื้อหาต่าง = false (ST7-T15) */
+  private ok(d: StoredDoc, applied: boolean): PushResult {
     return {
       ok: true,
       externalId: d.externalId,
       externalDocNo: d.externalDocNo,
       externalVersion: String(d.version),
+      applied,
       raw: { demo: true },
     };
   }
@@ -409,7 +411,11 @@ export class DemoAdapter implements ErpAdapter {
         this.store(s, ctx, kind, doc, key);
       return this.failure(mode, number);
     }
-    if (prev) return this.ok(s.docs.get(prev)!);
+    // key เดิม = คืนของเดิม ไม่แก้เนื้อหา — `applied` เฉพาะเมื่อเนื้อหาที่เก็บไว้ตรงกับ payload ครั้งนี้จริง
+    if (prev) {
+      const stored = s.docs.get(prev)!;
+      return this.ok(stored, JSON.stringify(stored.document) === JSON.stringify(doc));
+    }
     if (!number || !doc?.id)
       return {
         ok: false,
@@ -420,7 +426,7 @@ export class DemoAdapter implements ErpAdapter {
     // เลขอ้างอิงของเราซ้ำด้วยคำสั่งอื่น = ERP ปฏิเสธว่าซ้ำ (core ตาม fetchDocument ต่อ — docs/01 §6.3)
     const dup = s.byRef.get(`${kind}:${number}`);
     if (dup) return { ...this.failure('DUPLICATE', number), raw: { externalId: dup } };
-    return this.ok(this.store(s, ctx, kind, doc, key));
+    return this.ok(this.store(s, ctx, kind, doc, key), true);
   }
 
   pushInvoice(ctx: ErpContext, inv: CanonicalDocument): Promise<PushResult> {
@@ -455,13 +461,14 @@ export class DemoAdapter implements ErpAdapter {
     const d = this.find(s, ref);
     if (!d) return this.failure('NOT_FOUND', ref.number);
     // key เดิม = แก้ไปแล้ว ไม่เพิ่มฉบับ
-    if (s.byKey.get(key) !== d.externalId) {
+    const replaced = s.byKey.get(key) !== d.externalId;
+    if (replaced) {
       d.version += 1;
       d.document = clone(inv);
       d.updatedAt = this.now().toISOString();
       s.byKey.set(key, d.externalId);
     }
-    return this.ok(d);
+    return this.ok(d, replaced || JSON.stringify(d.document) === JSON.stringify(inv));
   }
 
   async fetchDocument(ctx: ErpContext, ref: ExternalRef): Promise<CanonicalDocument | null> {
