@@ -10,6 +10,10 @@ import { OutboxWorkerPool } from './modules/integration/outbox-worker';
 import { purgeAuthData } from './auth/maintenance';
 import { PrismaService } from './db/prisma.service';
 import { MonitorScheduler } from './modules/monitoring/monitor-scheduler';
+import {
+  PAYMENT_PULL_CHECK_EVERY_MS,
+  PaymentStatusPullService,
+} from './modules/erp/payment-status-pull.service';
 import { AvailabilityService } from './modules/monitoring/availability.service';
 import { WebhookRetentionService } from './modules/webhooks/webhook-retention';
 import { RetentionService } from './modules/retention/retention.service';
@@ -183,6 +187,15 @@ async function main() {
       .catch((e) => log.error(e));
   void schedulePulls();
   const pullTimer = setInterval(schedulePulls, CONNECTOR_PULL_EVERY_MS);
+  // ST7-T21 ดึงสถานะรับชำระจากระบบบัญชีที่เปิด fetchPaymentStatus: ตรวจทุก 10 นาที — ตั้งแต่ 06:00 เวลาไทย สร้าง job ของวันนี้ต่อ connector (docs/01 §6.1 "scheduler รายวัน")
+  const paymentPull = ctx.get(PaymentStatusPullService);
+  const schedulePaymentPull = () =>
+    paymentPull
+      .scheduleDue()
+      .then((n) => n && log.info({ connectors: n }, 'payment status pulls scheduled'))
+      .catch((e) => log.error(e));
+  void schedulePaymentPull();
+  const paymentPullTimer = setInterval(schedulePaymentPull, PAYMENT_PULL_CHECK_EVERY_MS);
   // ST8-T03 ตรวจซ้ำ connector ที่ปลายทางไม่ตอบ (ACTIVE ล้มต่อเนื่อง ≥ 30 นาที → ERROR) และคืน ERROR(TRANSIENT) → ACTIVE เมื่อกลับมา
   const recheckHealth = () =>
     connectors
@@ -214,6 +227,7 @@ async function main() {
   clearInterval(depreciationTimer);
   clearInterval(offerTimeoutTimer);
   clearInterval(pullTimer);
+  clearInterval(paymentPullTimer);
   clearInterval(healthTimer);
   clearInterval(outboxStatsTimer);
   monitor.stop();
