@@ -35,6 +35,9 @@ import { ImportRegistry } from './modules/imports/import-spec';
 import { ImportService } from './modules/imports/import.service';
 import { ImportsController } from './modules/imports/imports.controller';
 import { MasterImports } from './modules/imports/master-imports';
+import { AccountingExportController } from './modules/accounting-export/accounting-export.controller';
+import { AccountingExportService } from './modules/accounting-export/accounting-export.service';
+import { FileExportAdapterRegistry } from './modules/accounting-export/file-export-adapter';
 import { ExportRegistry } from './modules/exports/export-spec';
 import { ExportsController } from './modules/exports/exports.controller';
 import { ExportsService } from './modules/exports/exports.service';
@@ -184,6 +187,7 @@ import { PaymentsService } from './modules/payments/payments.service';
 import { AgingService } from './modules/payments/aging.service';
 import { ReportsController } from './modules/reports/reports.controller';
 import { UnbilledReportService } from './modules/reports/unbilled-report.service';
+import { RevenueReportService } from './modules/reports/revenue-report.service';
 import { UnbilledReminderService } from './modules/reminders/unbilled-reminder.service';
 import { InvoicePdfService } from './modules/invoices/invoice-pdf.service';
 import { InvoiceCancelService } from './modules/invoices/invoice-cancel.service';
@@ -366,6 +370,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     CarrierDocsPublicController,
     MessagesController,
     MessagingSettingsController,
+    AccountingExportController,
   ],
   providers: [
     PrismaService,
@@ -386,6 +391,8 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ExportRegistry,
     ExportsService,
     ListExports,
+    FileExportAdapterRegistry,
+    AccountingExportService,
     EntitlementService,
     MagicLinkService,
     DbService,
@@ -438,6 +445,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     PaymentsService,
     AgingService,
     UnbilledReportService,
+    RevenueReportService,
     BillingNotesService,
     InvoiceRunService,
     StopEventsService,

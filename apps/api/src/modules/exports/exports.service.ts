@@ -12,7 +12,10 @@ import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { JobQueue, type JobContext } from '../../jobs/job-queue.service';
 import { putFileLocked } from '../documents/documents.controller';
+import { PdfRenderer } from '../../pdf/pdf-renderer';
+import { exportTableDocument } from './export-pdf';
 import { csvCell, type ExportColumn } from '../master/export';
+import { EntitlementService } from '../entitlements/entitlement.service';
 import { NotificationService } from '../notifications/notification.service';
 import { EXPORT_RETENTION_DAYS } from '../retention/retention-policy';
 import { ExportRegistry, type ExportSpec } from './export-spec';
@@ -32,7 +35,10 @@ const PAGING_KEYS = ['limit', 'cursor', 'sort', 'fields', 'updatedAfter'] as con
 export const EXPORT_MIME = {
   csv: 'text/csv',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pdf: 'application/pdf',
 } as const;
+/** [DECISION ST9-T05] เพดานแถวของไฟล์ PDF (ตาราง A4 — รายงานสรุปเท่านั้น) · เกิน = `too_many_rows` ให้ใช้ Excel */
+export const EXPORT_PDF_MAX_ROWS = 2_000;
 export type ExportFormat = keyof typeof EXPORT_MIME;
 
 /** ข้อผิดพลาดที่ผู้ใช้แก้ได้ — `String(err)` = `ExportError: <code>` (เก็บใน job.error แล้วแปลงกลับเป็น code) */
@@ -68,6 +74,15 @@ const anyScope = (scopes: readonly string[], need: string | string[]) =>
 function stamp(d = new Date()): string {
   const b = new Date(d.getTime() + 7 * 3600_000).toISOString();
   return `${b.slice(0, 10).replace(/-/g, '')}-${b.slice(11, 16).replace(':', '')}`;
+}
+
+/** ชื่อไฟล์จาก spec: ตัดอักขระที่ใช้ในชื่อไฟล์ไม่ได้ (/ \\ : * ? " < > | และอักขระควบคุม) · ว่าง = ใช้ชื่อมาตรฐาน */
+function safeName(name: string | undefined): string | null {
+  const s = (name ?? '')
+    .replace(/[/\\:*?"<>|\x00-\x1f]/g, '-')
+    .trim()
+    .slice(0, 120);
+  return s || null;
 }
 
 /** ตัวเขียนไฟล์ทีละชุด — xlsx ใช้ streaming writer (ไม่ถือทั้ง workbook ในหน่วยความจำ) */
@@ -118,6 +133,22 @@ async function xlsxWriter<R>(columns: ExportColumn<R>[], sheet: string): Promise
   };
 }
 
+/** PDF (ST9-T05) — เก็บแถวในหน่วยความจำ (≤ EXPORT_PDF_MAX_ROWS) แล้ว render ครั้งเดียวด้วยแม่แบบ `exportTableDocument` */
+function pdfWriter<R>(
+  columns: ExportColumn<R>[],
+  pdf: PdfRenderer,
+  head: { title: string; subtitle?: string },
+): FileWriter<R> {
+  const rows: R[] = [];
+  return {
+    add(batch) {
+      if (rows.length + batch.length > EXPORT_PDF_MAX_ROWS) throw new ExportError('too_many_rows');
+      rows.push(...batch);
+    },
+    finish: () => pdf.pdf(exportTableDocument(columns, rows, { ...head, printedAt: new Date() })),
+  };
+}
+
 /**
  * ส่งออกตามตัวกรองของหน้ารายการเป็นงานเบื้องหลัง (ST9-T10; docs/04 I, docs/01 §5.1 Bulk/async)
  * - `POST /v1/exports` ตรวจตัวกรองด้วย class ตัวกรองของรายการ + ลองอ่าน 1 แถว (ตัวกรองผิดตอบ 422 ทันที) → 202 + job
@@ -136,6 +167,8 @@ export class ExportsService implements OnModuleInit {
     private readonly db: DbService,
     private readonly notifications: NotificationService,
     private readonly audit: AuditService,
+    private readonly pdf: PdfRenderer,
+    private readonly entitlements: EntitlementService,
   ) {}
 
   onModuleInit() {
@@ -197,6 +230,14 @@ export class ExportsService implements OnModuleInit {
         required: need,
       });
     }
+    if (spec.feature && !(await this.entitlements.enabled(ctx.tenantId!, spec.feature)))
+      throw new ProblemException('feature_not_in_plan', undefined, undefined, {
+        featureKey: spec.feature,
+      });
+    if (input.format === 'pdf' && !spec.pdf)
+      throw new ProblemException('validation_failed', undefined, [
+        { field: 'format', code: 'isIn', message: `pdf is not available for ${spec.resource}` },
+      ]);
     const q = await this.parseFilter(spec, input.filter);
     // ลองอ่าน 1 แถว: ค่าตัวกรองที่ where-builder ปฏิเสธ (เช่น วันที่ผิด) ตอบ 422 ตอนสั่ง ไม่ใช่ตอน job ล้ม
     await spec.fetch(q, { after: null, take: 1 });
@@ -258,6 +299,9 @@ export class ExportsService implements OnModuleInit {
     const scopes = await this.effectiveScopes(ctx.tx, p);
     if (!scopeAllows(scopes, 'export:run') || !anyScope(scopes, spec.scope))
       throw new ExportError('permission_denied');
+    // แพ็กเกจถูกลดระหว่างรอคิว → ไม่สร้างไฟล์ (ตรวจซ้ำกับตอนสั่ง)
+    if (spec.feature && !(await this.entitlements.enabled(ctx.tenantId, spec.feature)))
+      throw new ExportError('permission_denied');
     const jobRef = encodeId('job', ctx.job.id);
     return requestContext.run(
       {
@@ -273,11 +317,28 @@ export class ExportsService implements OnModuleInit {
       async () => {
         const q = await this.parseFilter(spec, p.filter);
         const columns = spec.columns(scopes, q);
-        const format: ExportFormat = p.format === 'csv' ? 'csv' : 'xlsx';
-        const w = format === 'csv' ? csvWriter(columns) : await xlsxWriter(columns, spec.fileBase);
+        const format: ExportFormat =
+          p.format === 'csv' ? 'csv' : p.format === 'pdf' && spec.pdf ? 'pdf' : 'xlsx';
+        const w =
+          format === 'csv'
+            ? csvWriter(columns)
+            : format === 'pdf'
+              ? pdfWriter(columns, this.pdf, {
+                  title: spec.pdf!.title(q),
+                  ...(spec.pdf!.subtitle ? { subtitle: spec.pdf!.subtitle(q) } : {}),
+                })
+              : await xlsxWriter(columns, spec.fileBase);
         let after: string | null = null;
         let rows = 0;
-        for (;;) {
+        if (spec.single) {
+          // รายงานสรุป: อ่านครั้งเดียวทั้งชุด (ST9-T05)
+          const batch = await spec.fetch(q, { after: null, take: this.maxRows + 1 });
+          // จำนวนแถวข้อมูล — ไม่นับแถวสรุป "รวม" (id `total`) ที่ spec ต่อท้าย
+          rows = batch.filter((r) => r.id !== 'total').length;
+          if (rows > this.maxRows) throw new ExportError('too_many_rows');
+          w.add(redactPrices(batch, scopes, p.principalType ?? 'user') as typeof batch);
+        }
+        for (; !spec.single;) {
           const batch = await spec.fetch(q, { after, take: EXPORT_BATCH });
           if (!batch.length) break;
           rows += batch.length;
@@ -291,7 +352,7 @@ export class ExportsService implements OnModuleInit {
         }
         const data = await w.finish();
         const f = await putFileLocked(ctx.tx, ctx.tenantId, data, format);
-        const fileName = `${spec.fileBase}-${stamp()}.${format}`;
+        const fileName = `${safeName(spec.fileName?.(q)) ?? `${spec.fileBase}-${stamp()}`}.${format}`;
         const doc = await ctx.tx.storedDocument.create({
           data: {
             tenantId: ctx.tenantId,

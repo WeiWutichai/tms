@@ -1,9 +1,14 @@
 import { Injectable, Logger, type OnApplicationBootstrap, type OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../db/prisma.service';
 import type { ErpAdapter } from '../modules/erp/erp-adapter';
+import {
+  type FileExportAdapter,
+  FileExportAdapterRegistry,
+} from '../modules/accounting-export/file-export-adapter';
 import { ErpAdapterRegistry } from '../modules/erp/erp-adapter.registry';
 import { AccountSystemAdapter } from './accountsystem/accountsystem.adapter';
 import { DemoAdapter } from './demo/demo.adapter';
+import { GenericFileExport } from './file-generic/generic-file-export';
 import { KrsAdapter } from './krs/krs.adapter';
 
 /**
@@ -18,12 +23,19 @@ import { KrsAdapter } from './krs/krs.adapter';
  *   แต่ tenant sandbox ใช้ไม่ได้ (route connector เป็น @LiveOnly + sink กันซ้ำ)
  * - AccountSystemAdapter (`accountsystem`, ST8-T16) = ระบบบัญชีของ Innovera (D-54/D-55): ใบแจ้งหนี้ → IV ร่าง, ใบสำคัญจ่าย → AP ร่าง,
  *   รับ webhook · เจ้าของเอกสารภาษี = ERP ตายตัว
- * - ตัวถัดไป: FileExportAdapter (ST7-T23)
+ * - FileExportAdapter (ST7-T23) = "รูปแบบไฟล์" ของการส่งออกให้นักบัญชี (ไม่ใช่ connector — ไม่มี capability/outbox):
+ *   ลงทะเบียนใน `FileExportAdapterRegistry` · `file-generic` = รูปแบบทั่วไป (layout กลาง) — Express/PEAK/FlowAccount
+ *   เพิ่มเป็นโฟลเดอร์ใหม่ + 1 บรรทัดใน FILE_EXPORT_ADAPTER_FACTORIES เมื่อได้ template นำเข้าจริง (spec/07 INT-043)
  */
 export const ERP_ADAPTER_FACTORIES: ReadonlyArray<() => ErpAdapter> = [
   () => new DemoAdapter(),
   () => new KrsAdapter(),
   () => new AccountSystemAdapter(),
+];
+
+/** ST7-T23 รูปแบบไฟล์ส่งออกให้นักบัญชี */
+export const FILE_EXPORT_ADAPTER_FACTORIES: ReadonlyArray<() => FileExportAdapter> = [
+  () => new GenericFileExport(),
 ];
 
 @Injectable()
@@ -33,9 +45,14 @@ export class ErpAdaptersBootstrap implements OnModuleInit, OnApplicationBootstra
   constructor(
     private readonly registry: ErpAdapterRegistry,
     private readonly prisma: PrismaService,
+    private readonly fileExports: FileExportAdapterRegistry,
   ) {}
 
   onModuleInit() {
+    for (const make of FILE_EXPORT_ADAPTER_FACTORIES) {
+      const f = make();
+      if (!this.fileExports.get(f.key)) this.fileExports.register(f);
+    }
     for (const make of ERP_ADAPTER_FACTORIES) {
       const a = make();
       if (a.localOnly && !ErpAdapterRegistry.demoAllowed()) {

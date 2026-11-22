@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, type ChequeStatus, type PaymentMethod } from '@prisma/client';
 import {
   PAYABLE_INVOICE_STATUSES,
+  ISSUED_INVOICE_STATUSES,
   billingMonthRanges,
   eventDefinition,
   scopeAllows,
@@ -175,7 +176,7 @@ export class PaymentsService {
              COALESCE(SUM(total_amount - paid_amount) FILTER (WHERE status IN ('ISSUED', 'PARTIALLY_PAID')), 0) AS outstanding,
              COALESCE(SUM(total_amount - paid_amount)
                FILTER (WHERE (overdue_at IS NOT NULL OR (status IN ('ISSUED', 'PARTIALLY_PAID') AND paid_amount < total_amount AND due_date < ${day(today)}::date))), 0) AS overdue_outstanding
-        FROM invoice WHERE status IN ('ISSUED', 'PARTIALLY_PAID', 'PAID', 'ADJUSTED')`;
+        FROM invoice WHERE status::text = ANY(${[...ISSUED_INVOICE_STATUSES]}::text[])`;
     // review M1: นับเฉพาะเงินเข้าจริง (amount_received) — ไม่นับ WHT/ค่าธรรมเนียม/ส่วนต่างที่ตัดยอด
     // ST9-T02 เดือนก่อน (ทั้งเดือน) ใช้นิยามเดียวกับเดือนนี้ — ช่วงเดือนจาก `billingMonthRanges` (เวลาไทย)
     const m = billingMonthRanges(today);

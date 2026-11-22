@@ -1,7 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { AGING_BUCKETS, scopeAllows } from '@tms/domain';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RequireScope } from '../../common/decorators';
+import { RequireFeature, RequireScope } from '../../common/decorators';
 import { ApiProblems } from '../../common/problem.dto';
 import type { ExportColumn } from '../master/export';
 import type { ExportSpec } from '../exports/export-spec';
@@ -14,6 +14,14 @@ import {
   type UnbilledDeliveryOrderDto,
 } from './unbilled-report.dto';
 import { UnbilledReportService } from './unbilled-report.service';
+import { RevenueReportDto, RevenueReportQuery, type RevenueRowDto } from './revenue-report.dto';
+import { RevenueReportService } from './revenue-report.service';
+import {
+  revenueExportColumns,
+  revenuePdfSubtitle,
+  revenuePdfTitle,
+  revenuePeriodText,
+} from './revenue-export';
 
 /**
  * รายงาน (ST9-T06; docs/04 H "DO ยังไม่วางบิลเกิน N วัน", "ค้างชำระ / aging ต่อลูกค้า")
@@ -23,7 +31,28 @@ import { UnbilledReportService } from './unbilled-report.service';
 @ApiBearerAuth()
 @Controller('reports')
 export class ReportsController {
-  constructor(private readonly unbilled: UnbilledReportService) {}
+  constructor(
+    private readonly unbilled: UnbilledReportService,
+    private readonly revenue: RevenueReportService,
+  ) {}
+
+  @Get('revenue')
+  @RequireFeature('report')
+  @RequireScope('reports.finance:read')
+  @ApiOperation({
+    summary: 'รายงานรายได้ (ST9-T05)',
+    description:
+      'รายได้จาก**บรรทัดใบแจ้งหนี้ที่ออกเลขแล้ว** (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — ไม่รวมร่างและใบที่ยกเลิก/void) ' +
+      'ตามวันที่ออกใบ (เวลาไทย) ในช่วง `fromMonth`–`toMonth` จัดกลุ่มตาม `groupBy` (ลูกค้า / เส้นทาง / รถ / ประเภทรถ / นิติบุคคล / เดือน) · ' +
+      'รายได้ = Σ ยอดบรรทัดหลังส่วนลด **ก่อน VAT** (ไม่มีส่วนเอกสารภาษี — D-54) · Σ แถว = `sellAmount` รวม ทุกมิติ · ' +
+      'บรรทัดที่ไม่ผูก DO / DO ที่ไม่มีเที่ยวหรือรถ อยู่แถว "ไม่ระบุ" (`id: none`) · `sell*` เห็นเมื่อมี `prices.sell:read` (ไม่มี = เห็นจำนวน) · ' +
+      'ส่งออก: `POST /v1/exports` resource `revenue` (xlsx / csv / pdf) · แพ็กเกจต้องมีโมดูลรายงาน (`report`)',
+  })
+  @ApiProblems(T403('reports.finance:read'), T422)
+  @ApiOkResponse({ type: RevenueReportDto })
+  revenueReport(@Query() q: RevenueReportQuery): Promise<RevenueReportDto> {
+    return this.revenue.report(q);
+  }
 
   @Get('unbilled-delivery-orders')
   @RequireScope('reports.finance:read')
@@ -117,4 +146,33 @@ export const agingExportSpec = (svc: AgingService): ExportSpec<AgingQuery, Aging
     if (sell) cols.push({ header: 'รวม', value: (r) => money(r.sellOutstanding) });
     return cols;
   },
+});
+
+/** ช่วงเดือนที่ใช้จริง (ค่าเริ่ม = เดือนปัจจุบัน — ตรงกับ service) */
+const revenuePeriod = (svc: RevenueReportService, q: RevenueReportQuery) => {
+  const f = svc.filter(q);
+  return revenuePeriodText(f.fromMonth, f.toMonth);
+};
+
+/**
+ * ส่งออก "รายงานรายได้" (ST9-T05) — xlsx / csv / pdf · อ่านจาก `RevenueReportService` ตัวเดียวกับ `GET /v1/reports/revenue`
+ * (แถวสรุป อ่านครั้งเดียว + แถวท้าย "รวม") · คอลัมน์รายได้เฉพาะผู้มี `prices.sell:read`
+ */
+export const revenueExportSpec = (
+  svc: RevenueReportService,
+): ExportSpec<RevenueReportQuery, RevenueRowDto> => ({
+  resource: 'revenue',
+  label: 'รายงานรายได้',
+  fileBase: 'revenue',
+  scope: 'reports.finance:read',
+  feature: 'report',
+  idKind: 'customer',
+  single: true,
+  query: RevenueReportQuery,
+  fetch: (q) => svc.exportRows(q),
+  pdf: {
+    title: (q) => revenuePdfTitle(q.groupBy ?? 'customer'),
+    subtitle: (q) => revenuePdfSubtitle(revenuePeriod(svc, q)),
+  },
+  columns: (scopes, q) => revenueExportColumns(q.groupBy ?? 'customer', canSell(scopes)),
 });
