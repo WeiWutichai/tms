@@ -122,7 +122,10 @@ export class SettlementPdfService {
       where: { id },
       select: { payingCompanyId: true, payerSnapshot: true },
     });
-    const tenant = await tx.tenant.findFirst({ select: { yearStyle: true } });
+    // ตามแนว D-61: ลายน้ำ sandbox จาก `tenant.mode` ในฐาน (ไม่เชื่อผู้เรียก) — mode แก้ไม่ได้ (trigger 0107 "tenant mode is immutable")
+    // จึงเท่ากับค่า ณ วันอนุมัติเสมอ ไม่ต้องตรึงลงใบ (ไม่มี print_options บนใบสำคัญจ่าย) · ใช้ mode ไม่ใช่ `TEST-` ในเลข: ชุดเลข
+    // live ตั้ง prefix เองได้ และใบที่อนุมัติใน sandbox ก่อนเลข `TEST-` ก็ได้ลายน้ำด้วย
+    const tenant = await tx.tenant.findFirst({ select: { yearStyle: true, mode: true } });
     const yearStyle = tenant?.yearStyle === 'CE' ? 'CE' : 'BE';
 
     // แถวต่อเที่ยว (ลำดับตามบรรทัดแรกของเที่ยว): ค่าเที่ยว = Σ FREIGHT · ค่าใช้จ่ายหน้างาน = Σ SURCHARGE
@@ -206,6 +209,7 @@ export class SettlementPdfService {
         whtTotal: dto.buyWhtAmount!,
         deductions,
         net: dto.buyNetAfterWht!,
+        ...(tenant?.mode === 'test' ? { sandbox: true } : {}),
       },
     };
   }

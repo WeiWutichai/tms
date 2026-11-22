@@ -49,6 +49,7 @@ import {
 import type { Order } from '../features/orders/orderForm';
 import { money, useDateText } from '../features/rate-cards/rateFormat';
 import { SetupChecklist } from '../features/setup/SetupChecklist';
+import { SettleDash } from '../features/dashboard/SettleDash';
 import { TripDrawer } from '../features/trips/TripDrawer';
 
 type Trip = Schemas['TripDto'];
@@ -670,6 +671,8 @@ export function Dashboard() {
         </div>
       )}
       {canBill && <BillingDash canSell={canSell} />}
+      {/* ST9-T03 Dashboard AP รถร่วม — ตรวจสิทธิ์/แพ็กเกจในตัว (ไม่มีสิทธิ์ = ไม่ render ไม่เรียก API) */}
+      <SettleDash />
       {openOrder && (
         <OrderDrawer
           key={openOrder}
