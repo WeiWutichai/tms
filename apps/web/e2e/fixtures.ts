@@ -150,7 +150,7 @@ export async function withStepUp(
  * รหัส TOTP ของ step ที่ยังไม่ถูกใช้ (server รับ ±1 ช่วงจากปัจจุบัน) — ไม่มีให้ใช้ = รอข้ามช่วง (ยืดเวลาของ test)
  * ใช้ครั้งเดียวต่อรหัส ไม่ลองซ้ำด้วยรหัสที่อาจผิด (รหัสผิดนับเป็นความพยายามล้มเหลว — กันบัญชีเดโมถูกล็อก)
  */
-async function freshCode(): Promise<string> {
+export async function freshCode(): Promise<string> {
   for (;;) {
     const now = Math.floor(Date.now() / 30000);
     // ช่วง 2 วินาทีสุดท้ายไม่ใช้ step ปัจจุบัน (อาจหลุดหน้าต่างระหว่างส่ง) — ใช้ step ถัดไปแทน
