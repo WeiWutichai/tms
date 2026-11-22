@@ -442,7 +442,8 @@ export class ExternalMappingService {
 
   /**
    * ST7-T15 รหัสคู่ค้า (ลูกค้า/รถร่วม) ในระบบบัญชีของ connector **ณ ตอนนี้** — เฉพาะ mapping สถานะ `SYNCED` (docs/01 §7.4)
-   * null = ยังไม่ map / ยกเลิกแล้ว
+   * null = ยังไม่ map / ยกเลิกแล้ว · **SYNCED เท่านั้น** (เดิมรับทุกสถานะที่ไม่ใช่ RETIRED): แถวคู่ค้าที่เขียนผ่าน API มีแค่ SYNCED (มีรหัส) /
+   * PENDING (ไม่มีรหัส) จึงได้ผลเท่าเดิม — FAILED / MISMATCH (สงวนให้ sync master / reconcile ภายหลัง) = รหัสที่ยังไม่ยืนยัน ไม่นำไปส่งเอกสาร
    */
   async partyErpCode(
     tx: Tx,
@@ -482,7 +483,7 @@ export class ExternalMappingService {
 
   /**
    * ST7-T15 ผลการส่งเอกสาร 1 ใบเข้าระบบบัญชี (`external_mapping` ของเอกสาร) — ไม่มีแถว = null
-   * (ไม่มี connector / ยังรอคิว / ส่งไม่สำเร็จ — ดูคิวของ connector) · หลาย connector (เปลี่ยนระบบบัญชี) = ตัวที่ส่งล่าสุด
+   * (ไม่มี connector / connector ยกเลิกการเชื่อมแล้ว / ยังรอคิว / ส่งไม่สำเร็จ — ดูคิวของ connector) · หลาย connector = ตัวที่ส่งล่าสุด
    */
   async documentSync(
     entity: 'INVOICE' | 'SETTLEMENT',
@@ -490,7 +491,13 @@ export class ExternalMappingService {
     tx: Tx = this.db.tx,
   ): Promise<DocumentSyncView | null> {
     const rows = await tx.externalMapping.findMany({
-      where: { entityType: entity, localId, status: { not: 'RETIRED' } },
+      // connector ที่ยกเลิกการเชื่อมแล้วไม่นับ (เอกสารไม่ได้ซิงก์กับระบบนั้นอีก — INT-016)
+      where: {
+        entityType: entity,
+        localId,
+        status: { not: 'RETIRED' },
+        connector: { status: { not: 'DISCONNECTED' } },
+      },
       orderBy: [{ lastSyncedAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
       take: 1,
     });

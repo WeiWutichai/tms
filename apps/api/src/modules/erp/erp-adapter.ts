@@ -200,6 +200,13 @@ export type PushResult =
       externalId: string;
       externalDocNo?: string;
       externalVersion?: string;
+      /**
+       * ST7-T15 ERP **ถือเนื้อหาของ payload ครั้งนี้** = true (สร้างใหม่ / แทนที่ หรือ adapter ตรวจแล้วว่าของเดิมตรงกัน) ·
+       * false = ERP มีเอกสารนี้อยู่แล้วและ adapter **ยืนยันไม่ได้** ว่าเนื้อหาตรงกับ payload ครั้งนี้ (กันซ้ำด้วย key/เลขอ้างอิง — คืนของเดิม)
+       * adapter ต้องตอบตามจริง (contract test บังคับ boolean) — core เลื่อน `last_synced_hash` เฉพาะเมื่อ true;
+       * ไม่ระบุ = ถือว่า false (ไม่ยืนยันว่าเนื้อหาตรง)
+       */
+      applied?: boolean;
       raw?: unknown;
     }
   | { ok: false; errorClass: ErrorClass; retryable: boolean; problem: Problem; raw?: unknown };

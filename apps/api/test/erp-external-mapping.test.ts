@@ -14,7 +14,8 @@ import type {
   PushResult,
 } from '../src/modules/erp/erp-adapter';
 import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
-import { ERP_SINK } from '../src/modules/erp/erp-adapter.sink';
+import { ERP_SINK, sentIdempotencyKey } from '../src/modules/erp/erp-adapter.sink';
+import { ExternalMappingService } from '../src/modules/erp/external-mapping.service';
 import { OutboxDispatcher } from '../src/modules/integration/outbox.dispatcher';
 import { OutboxService } from '../src/modules/integration/outbox.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
@@ -27,6 +28,10 @@ import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './hel
  */
 class MappingErpAdapter extends FakeErpAdapter {
   strictParties = false;
+  /** ERP ที่กันซ้ำด้วยเลขเอกสาร TMS: เลขเดิม = คืนเอกสารเดิม **ไม่แก้เนื้อหา** (`applied: false`) */
+  dedupeByNumber = false;
+  /** เนื้อหาที่ ERP ถืออยู่ ต่อเลขเอกสาร TMS */
+  readonly held = new Map<string, { externalId: string; doc: CanonicalDocument }>();
   constructor() {
     super('map-erp', ['pushInvoice', 'pushSettlement', 'fetchDocument']);
   }
@@ -35,7 +40,14 @@ class MappingErpAdapter extends FakeErpAdapter {
     return r.ok ? { ...r, externalVersion: `rev-${++this.rev}` } : r;
   }
   override async pushInvoice(ctx: ErpContext, inv: CanonicalDocument): Promise<PushResult> {
-    return this.stamp(await super.pushInvoice(ctx, inv));
+    const prior = this.held.get(inv.number);
+    if (this.dedupeByNumber && prior) {
+      this.calls.push({ op: 'pushInvoice', ctx, doc: inv });
+      return { ok: true, externalId: prior.externalId, applied: false };
+    }
+    const r = this.stamp(await super.pushInvoice(ctx, inv));
+    if (r.ok && r.applied) this.held.set(inv.number, { externalId: r.externalId, doc: inv });
+    return r;
   }
   async pushSettlement(ctx: ErpContext, s: CanonicalDocument): Promise<PushResult> {
     // ใช้ทางเดียวกับใบแจ้งหนี้ (กันซ้ำด้วย idempotency key) — บันทึกชื่อ method ที่ถูกเรียก
@@ -69,6 +81,8 @@ class MappingErpAdapter extends FakeErpAdapter {
   override reset() {
     super.reset();
     this.strictParties = false;
+    this.dedupeByNumber = false;
+    this.held.clear();
   }
 }
 
@@ -285,11 +299,28 @@ describe('external_mapping + canonical (ST7-T15)', () => {
     const doc = invoiceDoc();
     const id = await enqueue(con.uuid, 'PUSH_INVOICE', doc);
     await drain();
-    expect(await cmd(id)).toMatchObject({ status: 'DONE' });
     expect(erp.calls).toHaveLength(1);
     // เลข TMS ไปถึง adapter (adapter ใส่ช่อง ref ของ ERP) + hash ของสิ่งที่ส่งจริง
     const sent = erp.calls[0]!.doc as CanonicalDocument;
     expect(sent.number).toBe(doc.number);
+    // ผลของคำสั่งบอกว่าส่งอะไรไป: hash ของเอกสารที่ส่งจริง + รหัสลูกค้าฝั่ง ERP ที่ใส่ ณ ตอนส่ง (ไม่มี = null)
+    const done = await cmd(id);
+    expect(done).toMatchObject({
+      status: 'DONE',
+      result: {
+        externalId: 'ext-1',
+        externalDocNo: 'ERP-ext-1',
+        applied: true,
+        sentHash: sent.sync!.hash,
+        customerExternalId: null,
+      },
+    });
+    expect(done.result).not.toHaveProperty('carrierExternalId');
+    // key กันซ้ำฝั่ง ERP ผูกกับ hash ของเอกสารที่ส่งจริง (ไม่ใช่ hash ของคำสั่ง)
+    expect(erp.calls[0]!.ctx.idempotencyKey).toBe(
+      sentIdempotencyKey(done.idempotencyKey, sent.sync!.hash),
+    );
+    expect(erp.calls[0]!.ctx.idempotencyKey).not.toBe(done.idempotencyKey);
     const m = await mapping('INVOICE', doc.id);
     expect(m).toMatchObject({
       connectorId: con.uuid,
@@ -317,6 +348,13 @@ describe('external_mapping + canonical (ST7-T15)', () => {
     // enqueue ซ้ำด้วย payload เดิม = คำสั่งเดิม (ไม่มีแถวใหม่)
     expect(await enqueue(con.uuid, 'PUSH_INVOICE', doc)).toBe(id);
 
+    // เอกสารฝั่ง ERP ถูกยกเลิก (webhook → external_status VOIDED) → ส่งคำสั่งเดิมซ้ำไม่ถูกข้าม (ส่งใหม่ได้)
+    await plat.externalMapping.update({ where: { id: m!.id }, data: { externalStatus: 'VOIDED' } });
+    await resend(id);
+    expect((await cmd(id)).status).toBe('DONE');
+    expect(erp.calls).toHaveLength(2);
+    await plat.externalMapping.update({ where: { id: m!.id }, data: { externalStatus: 'DRAFT' } });
+
     // เอกสารเดิม payload เปลี่ยน (ยอดต่าง) → คำสั่งใหม่ → ส่งจริง + hash ใหม่ · เลขเอกสารฝั่ง ERP เดิมไม่ถูกทับ
     const changed = invoiceDoc(
       { number: doc.number, totals: { ...(doc.totals as object), whtExpected: '30.00' } },
@@ -326,10 +364,113 @@ describe('external_mapping + canonical (ST7-T15)', () => {
     expect(id2).not.toBe(id);
     await drain();
     expect((await cmd(id2)).status).toBe('DONE');
-    expect(erp.calls).toHaveLength(2);
+    expect(erp.calls).toHaveLength(3);
     const m2 = await mapping('INVOICE', doc.id);
     expect(m2!.lastSyncedHash).not.toBe(m!.lastSyncedHash);
-    expect(m2).toMatchObject({ externalDocNo: 'ERP-ext-1', externalVersion: 'rev-2' });
+    expect(m2).toMatchObject({ externalDocNo: 'ERP-ext-1', status: 'SYNCED' });
+    // ERP ได้เนื้อหาใหม่จริง
+    expect((erp.calls[2]!.doc as { totals: { whtExpected: string } }).totals.whtExpected).toBe(
+      '30.00',
+    );
+  });
+
+  it('review M1: worker เสีย lease หลังบันทึก mapping (คำสั่งยังไม่เคยจบ) → รอบถัดไป DONE แบบ idempotent {unchanged: true} ไม่เรียก ERP ซ้ำ · system-of-record ล็อกจาก external_mapping', async () => {
+    const con = await connector();
+    const doc = invoiceDoc();
+    const id = await enqueue(con.uuid, 'PUSH_INVOICE', doc);
+    await drain();
+    expect((await cmd(id)).status).toBe('DONE');
+    const m = await mapping('INVOICE', doc.id);
+    // จำลอง: adapter ตอบสำเร็จ + mapping ถูกบันทึกแล้ว แต่ผล DONE ของคำสั่งไม่ถูกเขียน (lease หลุด) → คำสั่งถูกหยิบใหม่
+    await plat.$executeRaw`UPDATE integration_outbox SET status = 'PENDING', result = NULL, done_at = NULL,
+                                  lease_id = NULL, lease_until = NULL WHERE id = ${id}::uuid`;
+    await drain();
+    const again = await cmd(id);
+    expect(again).toMatchObject({
+      status: 'DONE',
+      errorClass: null,
+      result: {
+        externalId: 'ext-1',
+        externalDocNo: 'ERP-ext-1',
+        unchanged: true,
+        sentHash: m!.lastSyncedHash,
+      },
+    });
+    expect(erp.calls).toHaveLength(1);
+    expect((await mapping('INVOICE', doc.id))!.version).toBe(m!.version);
+
+    // ล็อก system-of-record อ่านจาก external_mapping ด้วย: แม้คำสั่งทั้งหมดจบเป็น SKIPPED/ล้ม เอกสารที่ถึง ERP แล้วยังล็อก
+    await plat.$executeRaw`UPDATE integration_outbox SET status = 'SKIPPED' WHERE target_id = ${con.uuid}`;
+    const sor = await api(app, token)
+      .put(`/v1/connectors/${con.id}/system-of-record`)
+      .send({ taxDocumentOwner: 'ERP', reason: 'เปลี่ยนเจ้าของเอกสารหลังส่งเอกสารไปแล้ว' });
+    expect(sor.status, JSON.stringify(sor.body)).toBe(409);
+    expect(sor.body.code).toBe('sor_locked');
+  });
+
+  it('review M2: ERP ที่คืนเอกสารเดิมโดยไม่รับเนื้อหาใหม่ (`applied: false`) → ไม่เลื่อน last_synced_hash · mapping = MISMATCH (erp_not_applied / erp_content_unverified)', async () => {
+    const con = await connector();
+    const cus = encodeId('customer', customerId);
+    await api(app, token)
+      .put(`/v1/customers/${cus}/erp-codes/${con.id}`)
+      .send({ externalId: 'AR-100' })
+      .expect(200);
+    erp.dedupeByNumber = true;
+    const doc = invoiceDoc();
+    const id = await enqueue(con.uuid, 'PUSH_INVOICE', doc);
+    await drain();
+    expect(await cmd(id)).toMatchObject({
+      status: 'DONE',
+      result: { applied: true, customerExternalId: 'AR-100' },
+    });
+    const m1 = await mapping('INVOICE', doc.id);
+    expect(m1).toMatchObject({ status: 'SYNCED' });
+    // เปลี่ยนรหัสลูกค้า → เอกสารที่ส่งเปลี่ยน → ส่งคำสั่งเดิมใหม่: ERP ตอบ "มีอยู่แล้ว" (ไม่แก้เนื้อหา)
+    await api(app, token)
+      .put(`/v1/customers/${cus}/erp-codes/${con.id}`)
+      .send({ externalId: 'AR-200', reason: 'บัญชีแจ้งรหัสลูกค้าใหม่ในระบบบัญชี' })
+      .expect(200);
+    await resend(id);
+    const c2 = await cmd(id);
+    expect(c2).toMatchObject({
+      status: 'DONE',
+      result: { applied: false, customerExternalId: 'AR-200', externalId: m1!.externalId },
+    });
+    expect((c2.result as { sentHash: string }).sentHash).not.toBe(m1!.lastSyncedHash);
+    // ERP ยังถือเนื้อหาเก่า → TMS ไม่ถือว่าซิงก์แล้ว
+    expect(
+      (erp.held.get(doc.number)!.doc as unknown as { customer: { externalId: string } }).customer
+        .externalId,
+    ).toBe('AR-100');
+    const m2 = await mapping('INVOICE', doc.id);
+    expect(m2).toMatchObject({
+      status: 'MISMATCH',
+      lastSyncedHash: m1!.lastSyncedHash,
+      externalId: m1!.externalId,
+    });
+    expect(m2!.lastError).toMatchObject({
+      code: 'erp_not_applied',
+      sentHash: (c2.result as { sentHash: string }).sentHash,
+    });
+    // MISMATCH ไม่ถูกข้ามตอนส่งซ้ำ (ยังไม่ตรง) และ `sync` ของเอกสารบอก MISMATCH
+    await resend(id);
+    expect((await cmd(id)).status).toBe('DONE');
+    expect(erp.calls).toHaveLength(3);
+    expect(
+      await db.withTenant(tenantId, (tx) =>
+        app.get(ExternalMappingService).documentSync('INVOICE', doc.id, tx),
+      ),
+    ).toMatchObject({ state: 'MISMATCH' });
+
+    // ERP มีเอกสารของเลขนี้อยู่แล้วโดย TMS ไม่มี mapping (ผลรอบก่อนไม่ถูกบันทึก) → รู้ id แต่ไม่ยืนยันเนื้อหา
+    const other = invoiceDoc();
+    erp.held.set(other.number, { externalId: 'ext-old', doc: other });
+    const id3 = await enqueue(con.uuid, 'PUSH_INVOICE', other);
+    await drain();
+    expect(await cmd(id3)).toMatchObject({ status: 'DONE', result: { applied: false } });
+    const m3 = await mapping('INVOICE', other.id);
+    expect(m3).toMatchObject({ externalId: 'ext-old', status: 'MISMATCH', lastSyncedHash: null });
+    expect(m3!.lastError).toMatchObject({ code: 'erp_content_unverified' });
   });
 
   it('รหัสลูกค้าฝั่ง ERP มาจาก external_mapping ณ ตอนส่ง: ยังไม่ map → FAILED_FINAL + ลิงก์ · map แล้วส่งคำสั่งเดิมใหม่ผ่าน · เปลี่ยนรหัส = payload เปลี่ยน ส่งใหม่', async () => {
@@ -372,9 +513,34 @@ describe('external_mapping + canonical (ST7-T15)', () => {
       .send({ externalId: 'AR-002', reason: 'บัญชีแจ้งรหัสลูกค้าใหม่ในระบบบัญชี' })
       .expect(200);
     await resend(id);
-    expect((await cmd(id)).status).toBe('DONE');
+    const c2 = await cmd(id);
+    expect(c2).toMatchObject({
+      status: 'DONE',
+      result: { applied: true, customerExternalId: 'AR-002' },
+    });
     expect(erp.calls).toHaveLength(2);
+    // เนื้อหาเปลี่ยน = key กันซ้ำฝั่ง ERP เปลี่ยน → ERP ได้เนื้อหาใหม่จริง (ไม่คืนของเก่าด้วย key เดิม)
+    expect(erp.calls[1]!.ctx.idempotencyKey).not.toBe(erp.calls[0]!.ctx.idempotencyKey);
+    expect(erp.received.get(erp.calls[1]!.ctx.idempotencyKey!)!.body).toContain('"AR-002"');
+    expect((await mapping('INVOICE', doc.id))!.lastSyncedHash).toBe(
+      (c2.result as { sentHash: string }).sentHash,
+    );
     expect((await mapping('INVOICE', doc.id))!.lastSyncedHash).not.toBe(h1);
+
+    // review L2: ใช้เฉพาะ mapping คู่ค้าสถานะ SYNCED — สถานะอื่น (เช่น MISMATCH จาก reconcile ในอนาคต) = ถือว่าไม่มีรหัส
+    await plat.externalMapping.updateMany({
+      where: { tenantId, entityType: 'CUSTOMER', localId: customerId, connectorId: con.uuid },
+      data: { status: 'MISMATCH' },
+    });
+    expect(
+      await db.withTenant(tenantId, (tx) =>
+        app.get(ExternalMappingService).customerErpCode(tx, con.uuid, customerId),
+      ),
+    ).toBeNull();
+    const id2 = await enqueue(con.uuid, 'PUSH_INVOICE', invoiceDoc());
+    await drain();
+    expect(await cmd(id2)).toMatchObject({ status: 'FAILED_FINAL', errorClass: 'VALIDATION' });
+    expect((await cmd(id2)).lastError).toMatchObject({ code: 'erp_master_code_unknown' });
   });
 
   it('CARRIER: ตั้งรหัสรถร่วมในระบบบัญชี (API) → ใบสำคัญจ่ายส่งด้วย carrier.externalId · ERP ที่บังคับรหัส + ยังไม่ map → FAILED_FINAL + ลิงก์', async () => {
@@ -527,10 +693,20 @@ describe('external_mapping + canonical (ST7-T15)', () => {
         tx.externalMapping.count({ where: { entityType: 'CARRIER' } }),
       ),
     ).toBe(0);
+    // review L4: `sync` ของเอกสารไม่นับ connector ที่ยกเลิกการเชื่อมแล้ว
+    const doc = invoiceDoc();
+    await enqueue(con.uuid, 'PUSH_INVOICE', doc);
+    await drain();
+    const syncOf = () =>
+      db.withTenant(tenantId, (tx) =>
+        app.get(ExternalMappingService).documentSync('INVOICE', doc.id, tx),
+      );
+    expect(await syncOf()).toMatchObject({ connectorId: con.uuid, state: 'SYNCED' });
     await api(app, token)
       .post(`/v1/connectors/${con.id}/disconnect`)
       .send({ reason: 'ยกเลิกการเชื่อมเพื่อทดสอบ' })
       .expect(200);
+    expect(await syncOf()).toBeNull();
     await api(app, token)
       .put(`/v1/carriers/${car}/erp-codes/${con.id}`)
       .send({ externalId: 'V-9' })

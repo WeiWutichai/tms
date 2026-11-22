@@ -8,7 +8,7 @@ import { DbService } from '../src/db/db.service';
 import { EntitlementService } from '../src/modules/entitlements/entitlement.service';
 import { ConnectorResolver } from '../src/modules/erp/connector-resolver';
 import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
-import { ERP_SINK } from '../src/modules/erp/erp-adapter.sink';
+import { ERP_SINK, sentIdempotencyKey } from '../src/modules/erp/erp-adapter.sink';
 import { OutboxDispatcher } from '../src/modules/integration/outbox.dispatcher';
 import { OutboxService } from '../src/modules/integration/outbox.service';
 import { FakeErpAdapter, GOOD_KEY } from './fake-erp-adapter';
@@ -418,7 +418,11 @@ describe('connectors (ST7-T13)', () => {
       expect(fake.calls[0]!.ctx).toMatchObject({
         tenantId,
         connectorId: cid,
-        idempotencyKey: c.idempotencyKey,
+        // ST7-T15 key กันซ้ำฝั่ง ERP = ส่วนหน้าของ key คำสั่ง + hash ของเอกสารที่ส่งจริง
+        idempotencyKey: sentIdempotencyKey(
+          c.idempotencyKey,
+          (c.result as { sentHash: string }).sentHash,
+        ),
         config: { baseUrl: settings.baseUrl, apiKey: GOOD_KEY },
       });
     });
