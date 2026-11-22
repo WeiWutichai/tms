@@ -46,13 +46,32 @@ export interface UnbilledRow {
   /** วันที่ส่งถึง (เวลาไทย) YYYY-MM-DD */
   delivered_on: string;
   amount: Prisma.Decimal | null;
+  /** D-71 ร่างใบแจ้งหนี้ที่ DO อยู่ (เฉพาะแถว "ร่างค้างเกิน N วัน") */
+  draft_invoice_id: string | null;
+  /** เวลาที่ DO เข้าร่าง = `invoice_line.created_at` ของบรรทัดหลัก (do_anchor) ที่ active */
+  draft_added_at: Date | null;
+  /** วันที่เข้าร่าง (เวลาไทย) YYYY-MM-DD */
+  draft_added_on: string | null;
+  /** วันที่สร้างร่างใบแจ้งหนี้ (เวลาไทย) YYYY-MM-DD */
+  draft_created_on: string | null;
 }
 
-interface Filter {
+/**
+ * ชุดที่อ่าน (D-71): `unbilled` = ยังไม่อยู่ในใบใด (ST9-T06 เดิม) · `drafts` = อยู่ในร่างใบแจ้งหนี้เกิน N วัน ·
+ * `all` = ทั้งสองชุด (รายงานบนจอ/ส่งออกเมื่อ `includeStaleDrafts=true`)
+ */
+export type UnbilledScope = 'unbilled' | 'drafts' | 'all';
+
+export interface UnbilledFilter {
   asOf: string;
   minDays: number;
   customerId?: string;
+  /** ค่าเริ่ม `unbilled` */
+  scope?: UnbilledScope;
+  /** เฉพาะชุด unbilled: วันที่ส่งถึง ≥ ค่านี้ (job แจ้งเตือนใช้นับ "เพิ่งเกินวันนี้" = ส่งถึงวันที่ asOf − N − 1 พอดี) */
+  deliveredOnFrom?: string;
 }
+type Filter = UnbilledFilter;
 
 /**
  * DO ที่ "ส่งถึงแล้ว" และ "ยังไม่อยู่ในใบแจ้งหนี้ใด" — **นิยามเดียวกับคิวพร้อมวางบิล/BillingGuard** (ST5-T04/T05):
@@ -60,30 +79,65 @@ interface Filter {
  * จึงกลับมาขึ้นรายงาน; DO ในร่าง (IN_DRAFT) ถือว่าอยู่ในใบแล้ว) · ไม่ขึ้นกับความพร้อมวางบิลอื่น (POD/ราคา/ระงับ) — นั่นคือเหตุที่ค้าง
  * วันที่ส่งถึง = เวลาบันทึก event `deliver` ล่าสุดในประวัติสถานะ (ตัวเดียวกับ `DeliveryOrderService.deliveredAt`) → วันที่เวลาไทย ·
  * ไม่มีประวัติ (ข้อมูลเก่า/นำเข้า) = วันที่ DO [DECISION spec/12 §3]
+ * D-71 (PO 22 พ.ย. 2569) ธง "ร่างค้างเกิน N วัน": scope `drafts`/`all` เพิ่ม DO ที่ `billing_status` IN_DRAFT และ **วันนี้ − วันที่เข้าร่าง > N**
+ * (วันที่เข้าร่าง = `invoice_line.created_at` ของบรรทัดหลักที่ active ในใบสถานะ DRAFT — ถอดออก/ยกเลิกร่าง = บรรทัดไม่ active → หลุดเอง) ·
+ * N = `billing.unbilledAlertDays` ตัวเดียวกัน (ไม่เพิ่มค่าตั้ง)
  */
 function baseCte(f: Filter): Prisma.Sql {
   const cutoff = addDays(f.asOf, -(f.minDays + 1));
+  const scope = f.scope ?? 'unbilled';
+  const notInvoiced = Prisma.sql`d.billing_status::text = ANY(${NOT_INVOICED_BILLING_STATUSES}::text[])`;
+  const inDraft = Prisma.sql`d.billing_status::text = 'IN_DRAFT'`;
   const conds: Prisma.Sql[] = [
     Prisma.sql`d.status::text = ANY(${DELIVERED_STATUSES}::text[])`,
-    Prisma.sql`d.billing_status::text = ANY(${NOT_INVOICED_BILLING_STATUSES}::text[])`,
+    scope === 'unbilled'
+      ? notInvoiced
+      : scope === 'drafts'
+        ? inDraft
+        : Prisma.sql`(${notInvoiced} OR ${inDraft})`,
   ];
   if (f.customerId) conds.push(Prisma.sql`d.customer_id = ${f.customerId}::uuid`);
+  // D-71 ร่างที่ DO อยู่: บรรทัดหลักของ DO (do_anchor — unique ต่อ DO ที่ active) ในใบสถานะ DRAFT · อายุนับจากเวลาสร้างบรรทัด (= เวลาเข้าร่าง)
+  const draftJoin =
+    scope === 'unbilled'
+      ? Prisma.sql`LEFT JOIN LATERAL (SELECT NULL::uuid AS invoice_id, NULL::timestamptz AS created_at, NULL::timestamptz AS invoice_created_at) dl ON true`
+      : Prisma.sql`LEFT JOIN LATERAL (
+          SELECT l.invoice_id, l.created_at, i.created_at AS invoice_created_at FROM invoice_line l
+            JOIN invoice i ON i.id = l.invoice_id AND i.status::text = 'DRAFT'
+           WHERE l.delivery_order_id = d.id AND l.active AND l.do_anchor
+           ORDER BY l.created_at LIMIT 1
+        ) dl ON true`;
+  const unbilledDay = f.deliveredOnFrom
+    ? Prisma.sql`AND (x0.eff AT TIME ZONE 'Asia/Bangkok')::date >= ${f.deliveredOnFrom}::date`
+    : Prisma.empty;
+  const branches: Prisma.Sql[] = [];
+  if (scope !== 'drafts')
+    branches.push(Prisma.sql`(x0.billing_status = ANY(${NOT_INVOICED_BILLING_STATUSES}::text[])
+          AND (x0.eff AT TIME ZONE 'Asia/Bangkok')::date <= ${cutoff}::date ${unbilledDay})`);
+  if (scope !== 'unbilled')
+    branches.push(Prisma.sql`(x0.billing_status = 'IN_DRAFT' AND x0.draft_invoice_id IS NOT NULL
+          AND (x0.draft_added_at AT TIME ZONE 'Asia/Bangkok')::date <= ${cutoff}::date)`);
   return Prisma.sql`
     x0 AS (
       SELECT d.id, d.do_no, d.do_date, d.status::text AS status, d.pod_status, d.billing_status::text AS billing_status,
              d.customer_id, d.sales_order_id, d.released_at, h.at AS delivered_at,
-             COALESCE(h.at, d.do_date::timestamp AT TIME ZONE 'Asia/Bangkok') AS eff
+             COALESCE(h.at, d.do_date::timestamp AT TIME ZONE 'Asia/Bangkok') AS eff,
+             dl.invoice_id AS draft_invoice_id, dl.created_at AS draft_added_at,
+             dl.invoice_created_at AS draft_created_at
         FROM delivery_order d
         LEFT JOIN LATERAL (
           SELECT max(sh.at) AS at FROM doc_status_history sh
            WHERE sh.doc_type = 'delivery_order' AND sh.doc_id = d.id AND sh.event = 'deliver'
         ) h ON true
+        ${draftJoin}
        WHERE ${Prisma.join(conds, ' AND ')}
     ),
     x AS (
-      SELECT x0.*, to_char(x0.eff AT TIME ZONE 'Asia/Bangkok', 'YYYY-MM-DD') AS delivered_on
+      SELECT x0.*, to_char(x0.eff AT TIME ZONE 'Asia/Bangkok', 'YYYY-MM-DD') AS delivered_on,
+             to_char(x0.draft_added_at AT TIME ZONE 'Asia/Bangkok', 'YYYY-MM-DD') AS draft_added_on,
+             to_char(x0.draft_created_at AT TIME ZONE 'Asia/Bangkok', 'YYYY-MM-DD') AS draft_created_on
         FROM x0
-       WHERE (x0.eff AT TIME ZONE 'Asia/Bangkok')::date <= ${cutoff}::date
+       WHERE ${Prisma.join(branches, ' OR ')}
     )`;
 }
 
@@ -159,15 +213,20 @@ export class UnbilledReportService {
        LIMIT ${page.take}`;
   }
 
-  async totals(tx: Tx, f: Filter): Promise<{ n: number; amount: Prisma.Decimal }> {
-    const r = await tx.$queryRaw<{ n: bigint; amount: Prisma.Decimal | null }[]>`
+  /** จำนวน (ทั้งหมด + เฉพาะร่างค้าง) และมูลค่ารวมของชุดตามตัวกรอง */
+  async totals(tx: Tx, f: Filter): Promise<{ n: number; drafts: number; amount: Prisma.Decimal }> {
+    const r = await tx.$queryRaw<{ n: bigint; drafts: bigint; amount: Prisma.Decimal | null }[]>`
       WITH ${baseCte(f)}
-      SELECT count(*) AS n, (
+      SELECT count(*) AS n, count(*) FILTER (WHERE x.draft_invoice_id IS NOT NULL) AS drafts, (
                SELECT sum(l.amount) FROM revenue_line l
                 WHERE l.delivery_order_id IN (SELECT id FROM x) AND l.status = 'ACTIVE'
              ) AS amount
         FROM x`;
-    return { n: Number(r[0]?.n ?? 0), amount: new Prisma.Decimal(r[0]?.amount ?? 0) };
+    return {
+      n: Number(r[0]?.n ?? 0),
+      drafts: Number(r[0]?.drafts ?? 0),
+      amount: new Prisma.Decimal(r[0]?.amount ?? 0),
+    };
   }
 
   private async filter(tx: Tx, q: UnbilledReportQuery): Promise<Filter> {
@@ -175,7 +234,12 @@ export class UnbilledReportService {
     const minDays = q.minDays ? Number(q.minDays) : await this.thresholdDays(tx, tenantId);
     const customerId =
       q.customerId !== undefined ? ((await this.customerRef(tx, q.customerId)) ?? NONE) : undefined;
-    return { asOf: bangkokToday(this.clock.now()), minDays, customerId };
+    return {
+      asOf: bangkokToday(this.clock.now()),
+      minDays,
+      customerId,
+      scope: q.includeStaleDrafts === 'true' ? 'all' : 'unbilled',
+    };
   }
 
   async report(q: UnbilledReportQuery): Promise<UnbilledReportDto> {
@@ -194,6 +258,8 @@ export class UnbilledReportService {
       minDays: f.minDays,
       deliveredOnOrBefore: addDays(f.asOf, -(f.minDays + 1)),
       count: tot ? tot.n : null,
+      includeStaleDrafts: f.scope === 'all',
+      staleDraftCount: tot && f.scope === 'all' ? tot.drafts : null,
       ...(tot ? { sellAmount: money(tot.amount) } : {}),
       data: page.map((r) => this.toDto(r, f.asOf)),
       nextCursor: hasMore && last ? encodeCursor(last.id) : null,
@@ -231,6 +297,16 @@ export class UnbilledReportService {
       daysSinceDelivery: daysBetween(r.delivered_on, asOf),
       releasedAt: r.released_at?.toISOString() ?? null,
       sellAmount: money(r.amount),
+      draftInvoice:
+        r.draft_invoice_id && r.draft_added_at && r.draft_added_on
+          ? {
+              id: encodeId('invoice', r.draft_invoice_id),
+              addedAt: r.draft_added_at.toISOString(),
+              addedOn: r.draft_added_on,
+              createdOn: r.draft_created_on ?? r.draft_added_on,
+              ageDays: daysBetween(r.draft_added_on, asOf),
+            }
+          : null,
     };
   }
 

@@ -13,21 +13,24 @@ const PAGE = 200;
 /** key เดียวกับใบแจ้งหนี้/รับชำระ — ออกใบ/รับชำระแล้วรายงานโหลดใหม่ */
 const KEY = 'invoices';
 
-/** "DO ยังไม่วางบิลเกิน N วัน" (ST9-T06 — `GET /v1/reports/unbilled-delivery-orders`) · N = ค่าตั้งองค์กร */
+/** "DO ยังไม่วางบิลเกิน N วัน" (ST9-T06 — `GET /v1/reports/unbilled-delivery-orders`) · N = ค่าตั้งองค์กร · รวม "ร่างค้างเกิน N วัน" (D-71) */
+export const UNBILLED_QUERY = { includeStaleDrafts: 'true' } as const;
 export function useUnbilledReport(enabled: boolean) {
   return useQuery({
     queryKey: [KEY, 'reports', 'unbilled'],
     enabled,
     queryFn: async () => {
       const first = await unwrap(
-        api.GET('/v1/reports/unbilled-delivery-orders', { params: { query: { limit: PAGE } } }),
+        api.GET('/v1/reports/unbilled-delivery-orders', {
+          params: { query: { ...UNBILLED_QUERY, limit: PAGE } },
+        }),
       );
       const rows: UnbilledRow[] = [...first.data];
       let cursor = first.nextCursor;
       while (cursor && rows.length < REPORT_MAX_ROWS) {
         const p = await unwrap(
           api.GET('/v1/reports/unbilled-delivery-orders', {
-            params: { query: { limit: PAGE, cursor } },
+            params: { query: { ...UNBILLED_QUERY, limit: PAGE, cursor } },
           }),
         );
         rows.push(...p.data);

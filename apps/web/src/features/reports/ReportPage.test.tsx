@@ -60,8 +60,10 @@ const UNBILLED = {
   asOf: '2026-11-22',
   minDays: 7,
   deliveredOnOrBefore: '2026-11-14',
-  count: 1,
-  sellAmount: '1750.00',
+  count: 2,
+  includeStaleDrafts: true,
+  staleDraftCount: 1,
+  sellAmount: '2750.00',
   data: [
     {
       id: 'do_1',
@@ -77,6 +79,29 @@ const UNBILLED = {
       daysSinceDelivery: 11,
       releasedAt: null,
       sellAmount: '1750.00',
+      draftInvoice: null,
+    },
+    {
+      id: 'do_2',
+      doNo: 'DO-2611-0002',
+      doDate: '2026-11-09',
+      status: 'UNBILLED',
+      podStatus: 'COMPLETE',
+      billingStatus: 'IN_DRAFT',
+      customer: { id: 'cus_a', code: 'C1', legalName: 'ก ลูกค้าเล็ก' },
+      salesOrder: { id: 'ord_2', soNo: 'SO-2' },
+      deliveredAt: '2026-11-10T03:00:00.000Z',
+      deliveredOn: '2026-11-10',
+      daysSinceDelivery: 12,
+      releasedAt: null,
+      sellAmount: '1000.00',
+      draftInvoice: {
+        id: 'ivc_1',
+        addedAt: '2026-11-12T03:00:00.000Z',
+        addedOn: '2026-11-12',
+        createdOn: '2026-11-12',
+        ageDays: 10,
+      },
     },
   ],
   nextCursor: null,
@@ -201,11 +226,35 @@ describe('หน้า รายงาน (ST9-T06)', () => {
       '11 พ.ย. 2569',
       '11 วัน',
       'รอ POD',
+      '—',
       '1,750.00',
     ]);
+    // D-71 ร่างค้างเกิน N วัน: คอลัมน์ "ร่างใบแจ้งหนี้" + อายุในร่าง
+    expect(screen.getByRole('columnheader', { name: 'ร่างใบแจ้งหนี้' })).toBeInTheDocument();
+    const draftCells = within(screen.getAllByRole('row')[2]!)
+      .getAllByRole('cell')
+      .map((c) => c.textContent);
+    expect(draftCells).toEqual([
+      'DO-2611-0002',
+      'ก ลูกค้าเล็ก',
+      '9 พ.ย. 2569',
+      '10 พ.ย. 2569',
+      '12 วัน',
+      'รอวางบิล',
+      'ร่างค้าง 10 วัน',
+      '1,000.00',
+    ]);
+    expect(screen.getByText('ร่างค้าง 10 วัน')).toHaveStyle({ color: '#8F5500' });
+    expect(GET).toHaveBeenCalledWith('/v1/reports/unbilled-delivery-orders', {
+      params: { query: { includeStaleDrafts: 'true', limit: 200 } },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'ส่งออก Excel' }));
     await waitFor(() =>
-      expect(exportList).toHaveBeenCalledWith('unbilled-delivery-orders', {}, 'xlsx'),
+      expect(exportList).toHaveBeenCalledWith(
+        'unbilled-delivery-orders',
+        { includeStaleDrafts: 'true' },
+        'xlsx',
+      ),
     );
     expect(await screen.findByText('ส่งออกรายงานเป็น Excel แล้ว')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'ตั้งเวลาส่งรายงาน' })).toBeDisabled();
@@ -217,7 +266,7 @@ describe('หน้า รายงาน (ST9-T06)', () => {
       data:
         path === '/v1/payments/aging'
           ? { ...AGING, data: [cust('cus_a', 'ก ลูกค้าเล็ก', undefined, [])] }
-          : { ...UNBILLED, data: [{ ...UNBILLED.data[0], sellAmount: undefined }] },
+          : { ...UNBILLED, count: 1, data: [{ ...UNBILLED.data[0], sellAmount: undefined }] },
     }));
     const { unmount } = wrap('/reports?tab=ar');
     expect(await screen.findByText('ก ลูกค้าเล็ก')).toBeInTheDocument();

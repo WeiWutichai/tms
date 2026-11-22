@@ -8,56 +8,70 @@ import { EntitlementService } from '../entitlements/entitlement.service';
 import { NotificationService } from '../notifications/notification.service';
 import type { UnbilledDoItem } from '../notifications/templates';
 import { UnbilledReportService, type UnbilledRow } from '../reports/unbilled-report.service';
-import { bangkokToday, daysBetween, isRealDate } from '../vehicle-documents/expiry';
+import { addDays, bangkokToday, daysBetween, isRealDate } from '../vehicle-documents/expiry';
 import { DIGEST_MAX_ITEMS, RUN_FROM_HOUR_BKK } from './expiry-reminder.service';
 
 export const UNBILLED_REMINDER_JOB = 'delivery_order.unbilled';
-/** สมุดเตือน (expiry_reminder) — migration 0153 */
-const ENTITY = 'DELIVERY_ORDER';
-const LEVEL = 'UNBILLED';
+/**
+ * สมุดเตือน (expiry_reminder): D-71 จองแถว**ต่อผู้รับต่อวัน** — entity_type 'TENANT' (entity_id = tenant_id) + level 'UNBILLED_DAILY',
+ * expires_on = sent_on = วันที่ส่ง (migration 0161) · unique เดิมกันส่งซ้ำวันเดียวกัน (job ลองใหม่/สอง worker)
+ * แถวแบบเดิม (DELIVERY_ORDER / UNBILLED ต่อ DO — migration 0153 ก่อน D-71) ยังนับเป็น "ส่งแล้ววันนั้น" (วันที่ deploy ไม่ส่งซ้ำ)
+ * และเป็นวันที่ส่งล่าสุดของช่วง "เพิ่งเกิน"
+ */
+const ENTITY = 'TENANT';
+const LEVEL = 'UNBILLED_DAILY';
+const LEGACY_ENTITY = 'DELIVERY_ORDER';
+const LEGACY_LEVEL = 'UNBILLED';
+const LEDGER_ROWS = [
+  { entityType: ENTITY, level: LEVEL },
+  { entityType: LEGACY_ENTITY, level: LEGACY_LEVEL },
+];
 /** ผู้วางบิล = ผู้ทำร่างใบแจ้งหนี้ได้ (Invoicer / บัญชี / owner / admin + role กำหนดเองที่มีสิทธิ์นี้) */
 const RECIPIENT_SCOPE = 'invoices:draft';
 const LINK_REPORT = '/reports?tab=unbilled';
 /** แพ็กเกจไม่มีโมดูลรายงาน (`report`) → ลิงก์ไปหน้าวางบิล (คิวพร้อมวางบิล) แทน — review M1 */
 const LINK_BILL = '/bill';
-/** อ่าน DO ที่เกินเกณฑ์ทีละหน้า และเพดานต่อรอบ (กัน job ใหญ่ผิดปกติ — ที่เหลือจองรอบวันถัดไป) */
-const PAGE = 1000;
-const MAX_CANDIDATES = 20_000;
 
 type WithTx = <T>(fn: (tx: Tx) => Promise<T>) => Promise<T>;
 
-export interface UnbilledCandidate {
-  id: string;
-  deliveredOn: string;
-  item: UnbilledDoItem;
+/** ยอดของวัน (D-71) — ชุดเดียวกับรายงาน */
+export interface UnbilledDigestCounts {
+  /**
+   * เพิ่งเกินเกณฑ์ = ยังไม่อยู่ในใบใด และข้ามเกณฑ์**หลังสรุปฉบับล่าสุดของบริษัท** (วันที่ข้ามเกณฑ์ = วันที่ส่งถึง + N + 1 อยู่ในช่วง
+   * (วันที่ส่งล่าสุด, วันนี้]) — ไม่เคยส่ง = ข้ามเกณฑ์วันนี้พอดี · วันที่ job ไม่ได้รัน/ไม่มีใบค้างจึงไม่ตกหล่น (review L2)
+   */
+  fresh: number;
+  /** ค้างเกินเกณฑ์ทั้งหมด (ยังไม่อยู่ในใบใด) */
+  outstanding: number;
+  /** อยู่ในร่างใบแจ้งหนี้ค้างเกิน N วัน */
+  staleDrafts: number;
+  /** DO ที่เพิ่งเกินวันนี้ สูงสุด DIGEST_MAX_ITEMS (เรียงส่งถึงเก่าสุดก่อน) */
+  items: UnbilledDoItem[];
 }
 
 export interface UnbilledRunResult {
   day: string;
   minDays: number;
-  /** DO ที่เกินเกณฑ์ ณ วันนี้ */
-  candidates: number;
+  fresh: number;
+  outstanding: number;
+  staleDrafts: number;
   recipients: number;
-  /** ผู้รับที่ได้ข้อความรอบนี้ (มี DO ใหม่) */
+  /** ผู้รับที่ได้ข้อความรอบนี้ */
   digests: number;
-  /** แถวสมุดเตือนที่จองได้ (DO × ผู้รับ) */
-  reminders: number;
   failedRecipients: number;
 }
 
 const toDate = (d: string) => new Date(`${d}T00:00:00Z`);
-const ymd = (d: Date) => d.toISOString().slice(0, 10);
-const keyOf = (id: string, on: string) => `${id}|${on}`;
 
 /**
  * แจ้งผู้วางบิลอัตโนมัติ "DO ยังไม่วางบิลเกิน N วัน" (ST9-T06; docs/04 H "กันรายได้ตกหล่น; ส่ง LINE/อีเมลให้ Invoicer อัตโนมัติ",
  * I เหตุการณ์ "DO ยังไม่วางบิล" + "สรุปรายวัน 08:00") — แบบเดียวกับเตือนครบกำหนดชำระ ST5-T22
  *
  * - worker เรียก `scheduleDue()` ทุก 10 นาที → ตั้งแต่ 08:00 เวลาไทย สร้าง job 1 ชิ้น/tenant/วัน (advisory lock) · เฉพาะ tenant live (sandbox ไม่ส่ง)
- * - DO = ชุดเดียวกับรายงาน (`UnbilledReportService` — ส่งถึงแล้ว + ยังไม่อยู่ในใบใด + เกิน `billing.unbilledAlertDays` วัน)
- * - ผู้รับ = ผู้ใช้ ACTIVE ที่มี `invoices:draft` · ทีละคน (transaction ของตัวเอง): จองสมุดเตือน DO × วันที่ส่งถึง × ผู้รับ
- *   (ON CONFLICT DO NOTHING) → **ส่งเฉพาะเมื่อมี DO ที่เพิ่งเกินเกณฑ์** (ไม่ทวงซ้ำทุกวัน — ค้างเก่าดูในรายงาน) ฉบับเดียว/คน/วัน
- *   [DECISION spec/12 §3] · ข้อความตามการตั้งค่า event `delivery_order.unbilled` (กระดิ่ง/อีเมล) · ไม่ใส่ยอดเงิน · ภายในเท่านั้น (ไม่ลง audit)
+ * - D-71 (PO 22 พ.ย. 2569): **ส่งทุกเช้าที่ยังมีใบค้าง** — แยก "เพิ่งเกินวันนี้ X ใบ" / "ค้างทั้งหมด Y ใบ" / "อยู่ในร่างใบแจ้งหนี้ค้างเกิน N วัน Z ใบ"
+ *   (ชุดเดียวกับรายงาน `UnbilledReportService`) · Y + Z = 0 → ไม่ส่ง
+ * - ผู้รับ = ผู้ใช้ ACTIVE ที่มี `invoices:draft` · ทีละคน (transaction ของตัวเอง): จองสมุดเตือน 1 แถว/คน/วัน (ON CONFLICT DO NOTHING)
+ *   → ข้อความตามการตั้งค่า event `delivery_order.unbilled` (กระดิ่ง/อีเมล) · ไม่ใส่ยอดเงิน · ภายในเท่านั้น (ไม่ลง audit)
  * - LINE ทีมภายใน = P1 (docs/04 I) — ยังไม่ส่ง
  */
 @Injectable()
@@ -141,32 +155,31 @@ export class UnbilledReminderService implements OnModuleInit {
     today: string,
     withTx: WithTx = (fn) => this.db.withTenant(tenantId, fn),
   ): Promise<UnbilledRunResult> {
-    const { minDays, candidates } = await withTx(async (tx) => {
+    const { minDays, counts } = await withTx(async (tx) => {
       const minDays = await this.report.thresholdDays(tx, tenantId);
-      return { minDays, candidates: await this.candidates(tx, today, minDays) };
+      const last = await this.lastSentOn(tx, tenantId, today);
+      return { minDays, counts: await this.counts(tx, today, minDays, last) };
     });
     const result: UnbilledRunResult = {
       day: today,
       minDays,
-      candidates: candidates.length,
+      fresh: counts.fresh,
+      outstanding: counts.outstanding,
+      staleDrafts: counts.staleDrafts,
       recipients: 0,
       digests: 0,
-      reminders: 0,
       failedRecipients: 0,
     };
-    if (!candidates.length) return result;
+    if (counts.outstanding + counts.staleDrafts === 0) return result;
     const users = await withTx((tx) => this.recipients(tx, tenantId));
     result.recipients = users.length;
     const target = (await this.entitlements.enabled(tenantId, 'report')) ? 'report' : 'bill';
     for (const userId of users) {
       try {
-        const n = await withTx((tx) =>
-          this.deliver(tx, tenantId, today, userId, minDays, candidates, target),
-        );
-        if (n) {
+        if (
+          await withTx((tx) => this.deliver(tx, tenantId, today, userId, minDays, counts, target))
+        )
           result.digests += 1;
-          result.reminders += n;
-        }
       } catch (e) {
         result.failedRecipients += 1;
         this.logger.warn(
@@ -174,36 +187,50 @@ export class UnbilledReminderService implements OnModuleInit {
         );
       }
     }
-    if (result.reminders || result.failedRecipients)
+    if (result.digests || result.failedRecipients)
       this.logger.log(`tenant ${tenantId} ${today}: unbilled DO ${JSON.stringify(result)}`);
     return result;
   }
 
-  /** DO ที่เกินเกณฑ์ ณ `today` — เรียงส่งถึงเก่าสุดก่อน (ชุดเดียวกับรายงาน) */
-  async candidates(tx: Tx, today: string, minDays: number): Promise<UnbilledCandidate[]> {
-    const out: UnbilledCandidate[] = [];
-    let after: { id: string } | null = null;
-    while (out.length < MAX_CANDIDATES) {
-      const rows: UnbilledRow[] = await this.report.rows(
-        tx,
-        { asOf: today, minDays },
-        { take: PAGE, after },
-      );
-      for (const r of rows)
-        out.push({
-          id: r.id,
-          deliveredOn: r.delivered_on,
-          item: {
-            doNo: r.do_no ?? '—',
-            customer: r.customer_name,
-            deliveredOn: r.delivered_on,
-            days: daysBetween(r.delivered_on, today),
-          },
-        });
-      if (rows.length < PAGE) break;
-      after = { id: rows[rows.length - 1]!.id };
-    }
-    return out.slice(0, MAX_CANDIDATES);
+  /** วันที่ส่งสรุปฉบับล่าสุดของบริษัทก่อน `today` (ผู้รับคนใดก็ได้ · รวมแถวแบบเดิม) — null = ยังไม่เคยส่ง */
+  async lastSentOn(tx: Tx, tenantId: string, today: string): Promise<string | null> {
+    const r = await tx.expiryReminder.aggregate({
+      where: { tenantId, sentOn: { lt: toDate(today) }, OR: LEDGER_ROWS },
+      _max: { sentOn: true },
+    });
+    return r._max.sentOn ? r._max.sentOn.toISOString().slice(0, 10) : null;
+  }
+
+  /**
+   * ยอดของวัน `today` (ชุดเดียวกับรายงาน) + รายการ DO ที่เพิ่งเกิน (สูงสุด DIGEST_MAX_ITEMS)
+   * `lastSent` = วันที่ส่งสรุปล่าสุดก่อนวันนี้ → เพิ่งเกิน = ส่งถึงตั้งแต่ lastSent − N (ข้ามเกณฑ์หลัง lastSent) ถึง today − N − 1
+   */
+  async counts(
+    tx: Tx,
+    today: string,
+    minDays: number,
+    lastSent: string | null = null,
+  ): Promise<UnbilledDigestCounts> {
+    const crossedOn = lastSent ? addDays(lastSent, -minDays) : addDays(today, -(minDays + 1));
+    const base = { asOf: today, minDays };
+    const outstanding = (await this.report.totals(tx, { ...base, scope: 'unbilled' })).n;
+    const staleDrafts = (await this.report.totals(tx, { ...base, scope: 'drafts' })).n;
+    const freshF = { ...base, scope: 'unbilled' as const, deliveredOnFrom: crossedOn };
+    const fresh = outstanding ? (await this.report.totals(tx, freshF)).n : 0;
+    const rows: UnbilledRow[] = fresh
+      ? await this.report.rows(tx, freshF, { take: DIGEST_MAX_ITEMS })
+      : [];
+    return {
+      fresh,
+      outstanding,
+      staleDrafts,
+      items: rows.map((r) => ({
+        doNo: r.do_no ?? '—',
+        customer: r.customer_name,
+        deliveredOn: r.delivered_on,
+        days: daysBetween(r.delivered_on, today),
+      })),
+    };
   }
 
   /** ผู้วางบิล: ACTIVE + role ที่มี `invoices:draft` */
@@ -230,38 +257,37 @@ export class UnbilledReminderService implements OnModuleInit {
     return users.map((u) => u.id).sort();
   }
 
-  /** จองสมุดเตือนของผู้รับคนนี้ แล้วแจ้งฉบับเดียวเมื่อมี DO ใหม่ — คืนจำนวนที่จองได้ */
+  /** จองสมุดเตือนวันนี้ของผู้รับคนนี้ แล้วแจ้ง 1 ฉบับ — คืน true เมื่อส่ง (จองไม่ได้ = ส่งแล้ววันนี้) */
   private async deliver(
     tx: Tx,
     tenantId: string,
     today: string,
     userId: string,
     minDays: number,
-    items: UnbilledCandidate[],
+    c: UnbilledDigestCounts,
     target: 'report' | 'bill',
-  ): Promise<number> {
-    // วันละฉบับต่อคน — job ลองใหม่ (ผู้รับอื่นล้ม) ต้องไม่ส่งฉบับที่สอง · DO ที่เพิ่งเข้าเงื่อนไขจองรอบวันถัดไป
+  ): Promise<boolean> {
+    // วันละฉบับต่อคน — รวมแถวแบบเดิม (ต่อ DO ก่อน D-71) ของวันเดียวกัน · job ลองใหม่ (ผู้รับอื่นล้ม) ต้องไม่ส่งฉบับที่สอง
     const sentToday = await tx.expiryReminder.findFirst({
-      where: { tenantId, entityType: ENTITY, recipientId: userId, sentOn: toDate(today) },
+      where: { tenantId, recipientId: userId, sentOn: toDate(today), OR: LEDGER_ROWS },
       select: { id: true },
     });
-    if (sentToday) return 0;
-    const claimed = await tx.expiryReminder.createManyAndReturn({
-      data: items.map((c) => ({
-        tenantId,
-        entityType: ENTITY,
-        entityId: c.id,
-        level: LEVEL,
-        expiresOn: toDate(c.deliveredOn),
-        recipientId: userId,
-        sentOn: toDate(today),
-      })),
+    if (sentToday) return false;
+    const claimed = await tx.expiryReminder.createMany({
+      data: [
+        {
+          tenantId,
+          entityType: ENTITY,
+          entityId: tenantId,
+          level: LEVEL,
+          expiresOn: toDate(today),
+          recipientId: userId,
+          sentOn: toDate(today),
+        },
+      ],
       skipDuplicates: true,
-      select: { entityId: true, expiresOn: true },
     });
-    if (!claimed.length) return 0;
-    const got = new Set(claimed.map((r) => keyOf(r.entityId, ymd(r.expiresOn))));
-    const fresh = items.filter((c) => got.has(keyOf(c.id, c.deliveredOn)));
+    if (!claimed.count) return false;
     await this.notifications.notify(tx, {
       tenantId,
       to: { userIds: [userId] },
@@ -269,13 +295,15 @@ export class UnbilledReminderService implements OnModuleInit {
       vars: {
         target,
         minDays,
-        fresh: fresh.length,
-        outstanding: items.length,
-        more: Math.max(0, fresh.length - DIGEST_MAX_ITEMS),
-        items: fresh.slice(0, DIGEST_MAX_ITEMS).map((c) => c.item),
+        fresh: c.fresh,
+        outstanding: c.outstanding,
+        staleDrafts: c.staleDrafts,
+        more: Math.max(0, c.fresh - c.items.length),
+        items: c.items,
       },
-      link: target === 'report' ? LINK_REPORT : LINK_BILL,
+      // มีแต่ร่างค้าง → ไปหน้าวางบิล (ออกเอกสารร่าง) แม้แพ็กเกจมีรายงาน (review L5)
+      link: target === 'report' && c.outstanding > 0 ? LINK_REPORT : LINK_BILL,
     });
-    return claimed.length;
+    return true;
   }
 }

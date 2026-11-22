@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import { PriceField } from '../../common/price-fields';
 
 /** 1–365 (เก็บเป็นข้อความ — ตัวกรองของงานส่งออกเก็บเฉพาะค่า string) */
@@ -29,6 +29,18 @@ export class UnbilledReportQuery {
   @MaxLength(120)
   customerId?: string;
 
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    default: 'false',
+    description:
+      'D-71: รวม DO ที่อยู่ใน**ร่าง**ใบแจ้งหนี้ (`billingStatus` IN_DRAFT) นานเกิน N วัน (วันนี้ − วันที่ DO เข้าร่าง > N เวลาไทย — ' +
+      'N ตัวเดียวกับ `minDays`) — แถวนั้นมี `draftInvoice` · ไม่ส่ง/false = เฉพาะ DO ที่ยังไม่อยู่ในใบใด (เดิม)',
+  })
+  @IsOptional()
+  @IsString()
+  @IsIn(['true', 'false'])
+  includeStaleDrafts?: string;
+
   @ApiPropertyOptional({ minimum: 1, maximum: 200, default: 50 })
   @IsOptional()
   @Type(() => Number)
@@ -55,6 +67,29 @@ export class UnbilledOrderRefDto {
   @ApiProperty({ nullable: true, type: String }) soNo!: string | null;
 }
 
+export class UnbilledDraftRefDto {
+  @ApiProperty({
+    example: 'ivc_…',
+    description:
+      'id ใบแจ้งหนี้ร่าง (`GET /v1/invoices/{id}`) — ร่างยังไม่มีเลขที่ (ออกเลขตอนออกเอกสาร)',
+  })
+  id!: string;
+  @ApiProperty({
+    example: '2026-11-03T03:00:00.000Z',
+    description: 'เวลาที่ DO เข้าร่างนี้ (เวลาสร้างบรรทัดหลักของ DO ในร่าง)',
+  })
+  addedAt!: string;
+  @ApiProperty({ example: '2026-11-03', description: 'วันที่เข้าร่าง (เวลาไทย)' })
+  addedOn!: string;
+  @ApiProperty({ example: '2026-11-01', description: 'วันที่สร้างร่างใบแจ้งหนี้ (เวลาไทย)' })
+  createdOn!: string;
+  @ApiProperty({
+    example: 9,
+    description: 'อายุในร่าง = วันนี้ − วันที่เข้าร่าง (วัน, เวลาไทย) — > N',
+  })
+  ageDays!: number;
+}
+
 export class UnbilledDeliveryOrderDto {
   @ApiProperty({ example: 'do_…' }) id!: string;
   @ApiProperty({ nullable: true, type: String, example: 'DO-2611-0001' }) doNo!: string | null;
@@ -67,8 +102,9 @@ export class UnbilledDeliveryOrderDto {
   @ApiProperty({ example: 'NONE', description: 'สถานะหลักฐานส่ง (NONE / PARTIAL / COMPLETE)' })
   podStatus!: string;
   @ApiProperty({
-    enum: ['UNBILLED', 'CREDITED'],
-    description: 'ยังไม่อยู่ในใบแจ้งหนี้ที่ active (ST5-T05)',
+    enum: ['UNBILLED', 'CREDITED', 'IN_DRAFT'],
+    description:
+      'UNBILLED / CREDITED = ยังไม่อยู่ในใบแจ้งหนี้ที่ active (ST5-T05) · IN_DRAFT = อยู่ในร่างค้างเกิน N วัน (D-71 — เฉพาะ `includeStaleDrafts=true`)',
   })
   billingStatus!: string;
   @ApiProperty({ type: UnbilledCustomerRefDto }) customer!: UnbilledCustomerRefDto;
@@ -95,6 +131,13 @@ export class UnbilledDeliveryOrderDto {
   })
   @PriceField('sell')
   sellAmount?: string;
+  @ApiProperty({
+    type: UnbilledDraftRefDto,
+    nullable: true,
+    description:
+      'D-71 ธง "ร่างค้างเกิน N วัน": DO อยู่ในร่างใบแจ้งหนี้นานเกิน N วัน (เฉพาะเมื่อ `includeStaleDrafts=true`) · null = ยังไม่อยู่ในใบใด',
+  })
+  draftInvoice!: UnbilledDraftRefDto | null;
 }
 
 export class UnbilledReportDto {
@@ -114,6 +157,15 @@ export class UnbilledReportDto {
       'จำนวน DO ทั้งหมดที่ตรงเงื่อนไข — **เฉพาะหน้าแรก** (ไม่มี cursor); หน้าถัดไป = null',
   })
   count!: number | null;
+  @ApiProperty({ description: 'รวม DO ในร่างค้างเกิน N วันหรือไม่ (ตาม `includeStaleDrafts`)' })
+  includeStaleDrafts!: boolean;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description:
+      'จำนวน DO ในร่างค้างเกิน N วัน (รวมอยู่ใน `count`) — เฉพาะหน้าแรกและเมื่อ `includeStaleDrafts=true`; อื่น ๆ = null',
+  })
+  staleDraftCount!: number | null;
   @ApiPropertyOptional({
     description: 'มูลค่ารวมทุก DO ที่ตรงเงื่อนไข — เฉพาะหน้าแรก · `prices.sell:read`',
   })

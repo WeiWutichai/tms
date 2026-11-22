@@ -19471,6 +19471,12 @@
                   "disabled": true
                 },
                 {
+                  "key": "includeStaleDrafts",
+                  "value": "",
+                  "description": "รวม DO ที่อยู่ใน**ร่าง**ใบแจ้งหนี้ (`billingStatus` IN_DRAFT) นานเกิน N วัน (วันนี้ − วันที่ DO เข้าร่าง > N เวลาไทย — N ตัวเดียวกับ `minDays`) — แถวนั้นมี `draftInvoice` · ไม่ส่ง/false = เฉพาะ DO ที่ยังไม่อยู่ในใบใด (เดิม)",
+                  "disabled": true
+                },
+                {
                   "key": "limit",
                   "value": "",
                   "description": "",
@@ -19484,7 +19490,7 @@
                 }
               ]
             },
-            "description": "scope: reports.finance:read\n\nDO ที่ส่งถึงแล้ว (DELIVERED / POD_PENDING / UNBILLED) และ**ยังไม่อยู่ในใบแจ้งหนี้ใด** ที่ **วันนี้ − วันที่ส่งถึง > N** (เวลาไทย) · วันที่ส่งถึง = เวลาบันทึกสถานะส่งถึงครั้งล่าสุด (ไม่มีประวัติ = วันที่ DO) · N = `minDays` หรือค่าตั้งองค์กร `billing.unbilledAlertDays` (ค่าเริ่ม 7) · เรียงส่งถึงเก่าสุดก่อน cursor (วันที่ส่งถึง, id) · มูลค่า = Σ บรรทัดรายได้ที่ยังใช้ (ก่อน VAT) — `sell*` เห็นเมื่อมี `prices.sell:read` · ส่งออก: `POST /v1/exports` resource `unbilled-delivery-orders`"
+            "description": "scope: reports.finance:read\n\nDO ที่ส่งถึงแล้ว (DELIVERED / POD_PENDING / UNBILLED) และ**ยังไม่อยู่ในใบแจ้งหนี้ใด**: `includeStaleDrafts=true` รวม DO ที่อยู่ในร่างใบแจ้งหนี้นานเกิน N วัน (วันนี้ − วันที่เข้าร่าง > N) พร้อม `draftInvoice` (id ร่าง + อายุ) ที่ **วันนี้ − วันที่ส่งถึง > N** (เวลาไทย) · วันที่ส่งถึง = เวลาบันทึกสถานะส่งถึงครั้งล่าสุด (ไม่มีประวัติ = วันที่ DO) · N = `minDays` หรือค่าตั้งองค์กร `billing.unbilledAlertDays` (ค่าเริ่ม 7) · เรียงส่งถึงเก่าสุดก่อน cursor (วันที่ส่งถึง, id) · มูลค่า = Σ บรรทัดรายได้ที่ยังใช้ (ก่อน VAT) — `sell*` เห็นเมื่อมี `prices.sell:read` · ส่งออก: `POST /v1/exports` resource `unbilled-delivery-orders`"
           }
         }
       ]
