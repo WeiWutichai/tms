@@ -16,6 +16,11 @@ export interface ExportSpec<Q extends object = any, R extends { id: string } = a
   label: string;
   /** ชื่อไฟล์ (ASCII) */
   fileBase: string;
+  /**
+   * ST7-T23 ชื่อไฟล์ตามตัวกรอง (ไม่รวมนามสกุล — ภาษาไทยได้: ดาวน์โหลดส่ง `filename*` UTF-8) เช่น "รายการขาย_ต.ค.2569"
+   * ไม่มี = `{fileBase}-{วันเวลา}`
+   */
+  fileName?: (q: Q) => string;
   /** สิทธิ์อ่านรายการ (any-of) */
   scope: string | string[];
   /** ชนิด id ของ DTO — ใช้ถอด cursor ของหน้าถัดไป */

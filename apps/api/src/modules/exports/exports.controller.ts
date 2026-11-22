@@ -40,6 +40,10 @@ export const EXPORT_RESOURCES = [
   // ST9-T06 รายงาน (หน้า รายงาน → ส่งออก Excel)
   'unbilled-delivery-orders',
   'receivables-aging',
+  // ST7-T23 ส่งออกให้นักบัญชี (layout กลาง ผ่าน FileExportAdapter — ตัวกรอง dateFrom/dateTo/template)
+  'accounting-sales',
+  'accounting-receipts',
+  'accounting-settlements',
 ] as const;
 
 export class CreateExportDto {

@@ -70,6 +70,15 @@ function stamp(d = new Date()): string {
   return `${b.slice(0, 10).replace(/-/g, '')}-${b.slice(11, 16).replace(':', '')}`;
 }
 
+/** ชื่อไฟล์จาก spec: ตัดอักขระที่ใช้ในชื่อไฟล์ไม่ได้ (/ \\ : * ? " < > | และอักขระควบคุม) · ว่าง = ใช้ชื่อมาตรฐาน */
+function safeName(name: string | undefined): string | null {
+  const s = (name ?? '')
+    .replace(/[/\\:*?"<>|\x00-\x1f]/g, '-')
+    .trim()
+    .slice(0, 120);
+  return s || null;
+}
+
 /** ตัวเขียนไฟล์ทีละชุด — xlsx ใช้ streaming writer (ไม่ถือทั้ง workbook ในหน่วยความจำ) */
 interface FileWriter<R> {
   add(rows: R[]): void;
@@ -291,7 +300,7 @@ export class ExportsService implements OnModuleInit {
         }
         const data = await w.finish();
         const f = await putFileLocked(ctx.tx, ctx.tenantId, data, format);
-        const fileName = `${spec.fileBase}-${stamp()}.${format}`;
+        const fileName = `${safeName(spec.fileName?.(q)) ?? `${spec.fileBase}-${stamp()}`}.${format}`;
         const doc = await ctx.tx.storedDocument.create({
           data: {
             tenantId: ctx.tenantId,
