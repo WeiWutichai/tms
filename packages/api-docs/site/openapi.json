@@ -39250,7 +39250,7 @@
     },
     "/v1/reports/unbilled-delivery-orders": {
       "get": {
-        "description": "DO ที่ส่งถึงแล้ว (DELIVERED / POD_PENDING / UNBILLED) และ**ยังไม่อยู่ในใบแจ้งหนี้ใด** ที่ **วันนี้ − วันที่ส่งถึง > N** (เวลาไทย) · วันที่ส่งถึง = เวลาบันทึกสถานะส่งถึงครั้งล่าสุด (ไม่มีประวัติ = วันที่ DO) · N = `minDays` หรือค่าตั้งองค์กร `billing.unbilledAlertDays` (ค่าเริ่ม 7) · เรียงส่งถึงเก่าสุดก่อน cursor (วันที่ส่งถึง, id) · มูลค่า = Σ บรรทัดรายได้ที่ยังใช้ (ก่อน VAT) — `sell*` เห็นเมื่อมี `prices.sell:read` · ส่งออก: `POST /v1/exports` resource `unbilled-delivery-orders`",
+        "description": "DO ที่ส่งถึงแล้ว (DELIVERED / POD_PENDING / UNBILLED) และ**ยังไม่อยู่ในใบแจ้งหนี้ใด**: `includeStaleDrafts=true` รวม DO ที่อยู่ในร่างใบแจ้งหนี้นานเกิน N วัน (วันนี้ − วันที่เข้าร่าง > N) พร้อม `draftInvoice` (id ร่าง + อายุ) ที่ **วันนี้ − วันที่ส่งถึง > N** (เวลาไทย) · วันที่ส่งถึง = เวลาบันทึกสถานะส่งถึงครั้งล่าสุด (ไม่มีประวัติ = วันที่ DO) · N = `minDays` หรือค่าตั้งองค์กร `billing.unbilledAlertDays` (ค่าเริ่ม 7) · เรียงส่งถึงเก่าสุดก่อน cursor (วันที่ส่งถึง, id) · มูลค่า = Σ บรรทัดรายได้ที่ยังใช้ (ก่อน VAT) — `sell*` เห็นเมื่อมี `prices.sell:read` · ส่งออก: `POST /v1/exports` resource `unbilled-delivery-orders`",
         "operationId": "Reports_unbilledDeliveryOrders",
         "parameters": [
           {
@@ -39273,6 +39273,20 @@
             "schema": {
               "example": "cus_…",
               "type": "string"
+            }
+          },
+          {
+            "name": "includeStaleDrafts",
+            "required": false,
+            "in": "query",
+            "description": "รวม DO ที่อยู่ใน**ร่าง**ใบแจ้งหนี้ (`billingStatus` IN_DRAFT) นานเกิน N วัน (วันนี้ − วันที่ DO เข้าร่าง > N เวลาไทย — N ตัวเดียวกับ `minDays`) — แถวนั้นมี `draftInvoice` · ไม่ส่ง/false = เฉพาะ DO ที่ยังไม่อยู่ในใบใด (เดิม)",
+            "schema": {
+              "default": "false",
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
             }
           },
           {
@@ -77999,9 +78013,10 @@
             "type": "string",
             "enum": [
               "UNBILLED",
-              "CREDITED"
+              "CREDITED",
+              "IN_DRAFT"
             ],
-            "description": "ยังไม่อยู่ในใบแจ้งหนี้ที่ active"
+            "description": "UNBILLED / CREDITED = ยังไม่อยู่ในใบแจ้งหนี้ที่ active · IN_DRAFT = อยู่ในร่างค้างเกิน N วัน"
           },
           "customer": {
             "$ref": "#/components/schemas/UnbilledCustomerRefDto"
@@ -78032,6 +78047,16 @@
           "sellAmount": {
             "type": "string",
             "description": "มูลค่าบรรทัดรายได้ที่ยังใช้ (ACTIVE) ของ DO ก่อน VAT — `prices.sell:read`"
+          },
+          "draftInvoice": {
+            "nullable": true,
+            "description": "ธง \"ร่างค้างเกิน N วัน\": DO อยู่ในร่างใบแจ้งหนี้นานเกิน N วัน (เฉพาะเมื่อ `includeStaleDrafts=true`) · null = ยังไม่อยู่ในใบใด",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/UnbilledDraftRefDto"
+              }
+            ]
           }
         },
         "required": [
@@ -78046,7 +78071,39 @@
           "deliveredAt",
           "deliveredOn",
           "daysSinceDelivery",
-          "releasedAt"
+          "releasedAt",
+          "draftInvoice"
+        ]
+      },
+      "UnbilledDraftRefDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ivc_…",
+            "description": "id ใบแจ้งหนี้ร่าง (`GET /v1/invoices/{id}`) — ร่างยังไม่มีเลขที่ (ออกเลขตอนออกเอกสาร)"
+          },
+          "addedAt": {
+            "type": "string",
+            "example": "2026-11-03T03:00:00.000Z",
+            "description": "เวลาที่ DO เข้าร่างนี้ (เวลาสร้างบรรทัดหลักของ DO ในร่าง)"
+          },
+          "addedOn": {
+            "type": "string",
+            "example": "2026-11-03",
+            "description": "วันที่เข้าร่าง (เวลาไทย)"
+          },
+          "ageDays": {
+            "type": "number",
+            "example": 9,
+            "description": "อายุในร่าง = วันนี้ − วันที่เข้าร่าง (วัน, เวลาไทย) — > N"
+          }
+        },
+        "required": [
+          "id",
+          "addedAt",
+          "addedOn",
+          "ageDays"
         ]
       },
       "UnbilledOrderRefDto": {
@@ -78089,6 +78146,15 @@
             "nullable": true,
             "description": "จำนวน DO ทั้งหมดที่ตรงเงื่อนไข — **เฉพาะหน้าแรก** (ไม่มี cursor); หน้าถัดไป = null"
           },
+          "includeStaleDrafts": {
+            "type": "boolean",
+            "description": "รวม DO ในร่างค้างเกิน N วันหรือไม่ (ตาม `includeStaleDrafts`)"
+          },
+          "staleDraftCount": {
+            "type": "number",
+            "nullable": true,
+            "description": "จำนวน DO ในร่างค้างเกิน N วัน (รวมอยู่ใน `count`) — เฉพาะหน้าแรกและเมื่อ `includeStaleDrafts=true`; อื่น ๆ = null"
+          },
           "sellAmount": {
             "type": "string",
             "description": "มูลค่ารวมทุก DO ที่ตรงเงื่อนไข — เฉพาะหน้าแรก · `prices.sell:read`"
@@ -78112,6 +78178,8 @@
           "minDays",
           "deliveredOnOrBefore",
           "count",
+          "includeStaleDrafts",
+          "staleDraftCount",
           "data",
           "nextCursor",
           "hasMore"

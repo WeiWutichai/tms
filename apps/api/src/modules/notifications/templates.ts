@@ -32,8 +32,8 @@ export interface NotificationVars {
   'invoice.payment_due': { total: number; more: number; items: PaymentDueItem[] };
   /**
    * ST9-T06 DO ส่งถึงแล้วยังไม่วางบิลเกิน N วัน (docs/04 H "ส่งให้ Invoicer อัตโนมัติ", I "DO ยังไม่วางบิล") — 1 ฉบับต่อผู้รับต่อวัน
-   * เฉพาะเมื่อมี DO ที่เพิ่งเกินเกณฑ์ (ยังไม่เคยแจ้งผู้รับคนนี้) · fresh = จำนวนใหม่ · outstanding = ค้างเกินเกณฑ์ทั้งหมด ณ วันนี้
-   * items = DO ใหม่สูงสุด DIGEST_MAX_ITEMS · ไม่ใส่ยอดเงิน (สิทธิ์ดูราคาขายแยกต่อผู้ใช้)
+   * D-71: ทุกเช้าที่ยังมีใบค้าง · fresh = เพิ่งเกินเกณฑ์วันนี้ · outstanding = ค้างเกินเกณฑ์ทั้งหมด ณ วันนี้ ·
+   * staleDrafts = อยู่ในร่างใบแจ้งหนี้ค้างเกิน N วัน · items = DO ที่เพิ่งเกินวันนี้สูงสุด DIGEST_MAX_ITEMS · ไม่ใส่ยอดเงิน
    */
   'delivery_order.unbilled': {
     /** หน้าที่ลิงก์ไป: `report` = รายงาน DO ยังไม่วางบิล · `bill` = หน้าวางบิล (แพ็กเกจไม่มีโมดูลรายงาน — review M1) */
@@ -41,6 +41,7 @@ export interface NotificationVars {
     minDays: number;
     fresh: number;
     outstanding: number;
+    staleDrafts: number;
     more: number;
     items: UnbilledDoItem[];
   };
@@ -311,8 +312,8 @@ function renderUnbilled(v: NotificationVars['delivery_order.unbilled'], lang: No
       ? `• ${safeName(i.doNo, 60)} · ${safeName(i.customer, 120)} — ส่งถึง ${thDay(i.deliveredOn)} (${n(i.days)} วัน)`
       : `• ${safeName(i.doNo, 60)} · ${safeName(i.customer, 120)} — delivered ${i.deliveredOn} (${n(i.days)} days)`,
   );
+  if (lines.length) lines.unshift(lang === 'th' ? 'เพิ่งเกินเกณฑ์วันนี้:' : 'Crossed today:');
   if (v.more > 0) lines.push(lang === 'th' ? `และอีก ${n(v.more)} ใบ` : `and ${n(v.more)} more`);
-  // review L5: ถ้อยคำกลาง ๆ (ผู้รับครั้งแรกได้รายการค้างเก่าทั้งหมด — ไม่เรียกว่า "ใหม่")
   const where =
     v.target === 'report'
       ? {
@@ -323,15 +324,22 @@ function renderUnbilled(v: NotificationVars['delivery_order.unbilled'], lang: No
           th: 'ดึงเข้าใบแจ้งหนี้ที่หน้า วางบิลและใบแจ้งหนี้',
           en: 'add them to an invoice on the Billing page.',
         };
+  // D-71: แยก "เพิ่งเกินวันนี้" / "ค้างทั้งหมด" (+ "อยู่ในร่าง…ค้างเกิน N วัน" เมื่อมี)
+  const th = [`เพิ่งเกินวันนี้ ${n(v.fresh)} ใบ`, `ค้างทั้งหมด ${n(v.outstanding)} ใบ`];
+  const en = [`${n(v.fresh)} crossed today`, `${n(v.outstanding)} outstanding`];
+  if (v.staleDrafts > 0) {
+    th.push(`อยู่ในร่างใบแจ้งหนี้ค้างเกิน ${n(v.minDays)} วัน ${n(v.staleDrafts)} ใบ`);
+    en.push(`${n(v.staleDrafts)} sitting in draft invoices over ${n(v.minDays)} days`);
+  }
   return lang === 'th'
     ? {
-        title: `DO ยังไม่วางบิลเกิน ${n(v.minDays)} วัน ${n(v.fresh)} ใบ`,
-        body: `ค้างเกินเกณฑ์ทั้งหมด ${n(v.outstanding)} ใบ — ${where.th}`,
+        title: `DO ยังไม่วางบิลเกิน ${n(v.minDays)} วัน`,
+        body: `${th.join(' · ')} — ${where.th}`,
         detail: lines.join('\n'),
       }
     : {
-        title: `${n(v.fresh)} delivery order(s) not billed after ${n(v.minDays)} days`,
-        body: `${n(v.outstanding)} delivery order(s) over the threshold in total — ${where.en}`,
+        title: `Delivery orders not billed after ${n(v.minDays)} days`,
+        body: `${en.join(' · ')} — ${where.en}`,
         detail: lines.join('\n'),
       };
 }

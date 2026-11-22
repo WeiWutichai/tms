@@ -502,6 +502,8 @@ export const th = {
   'rpt.col.age': 'ค้างวางบิล',
   'rpt.col.status': 'สถานะ',
   'rpt.col.amount': 'มูลค่า',
+  'rpt.col.draft': 'ร่างใบแจ้งหนี้',
+  'rpt.draftAge': 'ร่างค้าง {n} วัน',
   'rpt.days': '{n} วัน',
   'rpt.empty.title': 'ยังไม่มีข้อมูลในงวดนี้',
   'rpt.empty.desc': 'รายงานจะแสดงเมื่อมีเที่ยวที่ส่งแล้วหรือใบแจ้งหนี้ในงวด',
