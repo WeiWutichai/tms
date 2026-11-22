@@ -387,6 +387,19 @@ export class CreateConnectorDto {
 
 /** แก้ค่าตั้ง (ไม่แก้นิติบุคคล/adapter — ยกเลิกแล้วสร้างใหม่) */
 export class UpdateConnectorDto {
+  @ApiPropertyOptional({
+    maxLength: 500,
+    description:
+      'ST7-T21 เหตุผล (≥ 10 ตัวอักษร ลง audit) — **บังคับเมื่อเปิด `fetchPaymentStatus`** (ดึงสถานะรับชำระ: TMS จะบันทึกรายการรับชำระจากยอดที่ระบบบัญชีรายงาน) · ' +
+      'capability นี้ไม่เปิดเป็นค่าเริ่มต้น ต้องเปิดเอง → ไม่มีเหตุผล = 422',
+  })
+  @IsOptional()
+  @CleanText()
+  @IsString()
+  @MaxLength(500)
+  @Transform(({ value }: { value: unknown }) => (value === '' ? undefined : value))
+  reason?: string;
+
   @ApiPropertyOptional({ nullable: true, type: String, maxLength: 64 })
   @IsNullable()
   @CleanText()

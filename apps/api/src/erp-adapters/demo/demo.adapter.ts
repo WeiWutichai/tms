@@ -507,7 +507,8 @@ export class DemoAdapter implements ErpAdapter {
     if (status === 'UNPAID') return { status, paidAmount: '0.00', paidAt: null };
     // ชำระบางส่วน = ครึ่งหนึ่ง (ปัดลงเป็นสตางค์) — ค่าคงที่ให้ผลซ้ำได้
     const paid = status === 'PAID' ? total : total / 2n;
-    return { status, paidAmount: fromSatang(paid), paidAt: d.receivedAt };
+    // ST7-T21 สัญญา: บอก WHT เสมอเมื่อมียอดตัดหนี้ (demo = ไม่มี WHT) — ไม่บอก core จะไม่สร้างรายการรับชำระ
+    return { status, paidAmount: fromSatang(paid), whtAmount: '0.00', paidAt: d.receivedAt };
   }
 
   async listDocuments(

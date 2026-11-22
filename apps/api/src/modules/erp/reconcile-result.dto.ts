@@ -76,11 +76,18 @@ export class ReconcileResultDto {
     description:
       '`remote_exceeds_total` ระบบบัญชีตัดหนี้เกินยอดใบ · `remote_paid_amount_short` ระบบบัญชีบอกชำระครบแต่ยอดตัดหนี้น้อยกว่ายอดใบ · ' +
       '`remote_less_than_tms` ระบบบัญชีตัดหนี้น้อยกว่าที่ TMS บันทึกรับ · `tms_has_other_payments` ระบบบัญชีตัดหนี้มากกว่า TMS แต่ใบมีรับชำระที่บันทึกเอง ' +
-      '(ไม่บันทึกเพิ่มให้เอง) · `connector_payment_reversed` รายการที่ระบบสร้างจากยอดนี้ถูกกลับรายการใน TMS แล้ว · ' +
-      '`remote_wht_inconsistent` ภาษีหัก ณ ที่จ่ายที่รายงานขัดกัน · `payment_rejected` กฎรับชำระของ TMS ไม่รับ (ดู `reason`)',
+      '(ไม่บันทึกเพิ่มให้เอง) · `connector_payment_reversed` ใบนี้เคยมีรายการที่ระบบสร้างแล้วถูกกลับรายการใน TMS (ไม่สร้างให้อีก) · ' +
+      '`remote_wht_unknown` ระบบบัญชีไม่บอกภาษีหัก ณ ที่จ่าย · `remote_wht_inconsistent` ภาษีหัก ณ ที่จ่ายที่รายงานขัดกัน · ' +
+      '`remote_paid_at_invalid` วันที่รับชำระไม่มี/เป็นอนาคต/ก่อนวันออกใบ · `payment_rejected` กฎรับชำระของ TMS ไม่รับ (ดู `reason`)',
   })
   code!: string | null;
-  @ApiProperty({ nullable: true, type: String }) reason!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'invoice_not_payable',
+    description: 'รหัสเหตุผลเพิ่มเติม (เฉพาะ `payment_rejected`) — เป็นรหัสเท่านั้น ไม่มียอดเงิน',
+  })
+  reason!: string | null;
   @ApiProperty({ nullable: true, type: String, example: 'PARTIALLY_PAID' })
   localStatus!: string | null;
   @ApiProperty({ nullable: true, type: String, example: 'PAID' }) remoteStatus!: string | null;

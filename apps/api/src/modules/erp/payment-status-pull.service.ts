@@ -24,6 +24,7 @@ import { ErpAdapterRegistry } from './erp-adapter.registry';
 import { MAP_ENTITY } from './erp-sync.service';
 import {
   type PaymentMismatchCode,
+  pullPaymentKeyPrefix,
   RECONCILE_CHECK_PAYMENT_STATUS,
   ReconcileResultsService,
 } from './reconcile-results.service';
@@ -37,15 +38,15 @@ export const PAYMENT_PULL_CHECK_EVERY_MS = 10 * 60_000;
 const PAGE = 200;
 /** เพดานใบต่อรอบ (ที่เหลือรอบถัดไป — ผลรอบมี `truncated`) */
 const MAX_PER_RUN = 5000;
-/** ระบบบัญชีล้มติดกันเท่านี้ = หยุดรอบ (ปลายทางล่ม/credential ผิด) → job ลองใหม่ */
+/** เรียกระบบบัญชีไม่สำเร็จ (ปลายทางล่ม/credential ผิด) ติดกันเท่านี้ = หยุดรอบ → job ลองใหม่ · คำตอบผิดรูปรายใบไม่นับ */
 const MAX_CONSECUTIVE_ERRORS = 3;
 const MONEY_RE = /^\d{1,12}\.\d{2}$/;
 const STATUSES = ['UNPAID', 'PARTIALLY_PAID', 'PAID'] as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** `external_mapping.external_id` ของรับชำระที่สร้างจากรอบดึง (กันสร้างซ้ำต่อ "ยอดสะสมของใบ") */
-export const PULL_PAYMENT_KEY_PREFIX = 'paystatus:';
+/** heartbeat ของ job (ต่อ lease) ทุกกี่ใบ */
+const PROGRESS_EVERY = 25;
 export const pullPaymentKey = (invoiceId: string, cumulative: string) =>
-  `${PULL_PAYMENT_KEY_PREFIX}${invoiceId}:${cumulative}`;
+  `${pullPaymentKeyPrefix(invoiceId)}${cumulative}`;
 
 const ZERO = new Prisma.Decimal(0);
 const money = (d: Prisma.Decimal) => d.toFixed(2);
@@ -70,9 +71,11 @@ export interface PaymentPullCounts {
   newMismatches: number;
   /** ระบบบัญชีไม่มีเอกสารนี้ */
   notFound: number;
-  /** ใบเปลี่ยนสถานะระหว่างรอบ (ชำระครบ/ยกเลิกไปแล้ว) */
+  /** ใบเปลี่ยนสถานะระหว่างรอบ (ยกเลิกไปแล้ว) */
   skipped: number;
-  /** ระบบบัญชีตอบผิดรูป / เรียกไม่สำเร็จ */
+  /** ระบบบัญชีตอบผิดรูป/ขัดกันเองของใบนั้น (ไม่แตะเงิน ทำใบถัดไปต่อ) */
+  invalid: number;
+  /** เรียกระบบบัญชีไม่สำเร็จ / กระทบยอดล้ม */
   errors: number;
 }
 
@@ -82,9 +85,9 @@ export interface PaymentPullResult {
   source: ReconcileSource;
   skipped?: PaymentPullSkip;
   counts: PaymentPullCounts;
-  /** เกินเพดานต่อรอบ — ที่เหลือรอบถัดไป */
+  /** เกินเพดานต่อรอบ — ที่เหลือรอบถัดไป (เริ่มจากใบที่ถามนานสุด) */
   truncated: boolean;
-  /** หยุดรอบเพราะระบบบัญชีล้มติดกัน (ข้อความตัด credential แล้ว) */
+  /** หยุดรอบเพราะเรียกระบบบัญชีไม่สำเร็จติดกัน (ข้อความตัด credential แล้ว) */
   sourceError?: string;
 }
 
@@ -96,7 +99,7 @@ interface Candidate {
   external_doc_no: string | null;
 }
 
-type Outcome = 'matched' | 'created' | 'mismatched' | 'newMismatch' | 'skipped';
+type Outcome = 'matched' | 'created' | 'mismatched' | 'newMismatch' | 'skipped' | 'invalid';
 
 const emptyCounts = (): PaymentPullCounts => ({
   checked: 0,
@@ -106,26 +109,32 @@ const emptyCounts = (): PaymentPullCounts => ({
   newMismatches: 0,
   notFound: 0,
   skipped: 0,
+  invalid: 0,
   errors: 0,
 });
 
+/** คำตอบของ adapter ผิดรูป (ไม่ใช่ปลายทางล่ม) */
+class InvalidAnswer extends Error {}
+
 /**
  * Payment status pull (ST7-T21; docs/04 G3 "Payment status pull", F5 "Payment status จาก ERP"; docs/01 §6.1 `fetchPaymentStatus`)
- * **ไม่ผูก ERP ใด** — ทำงานเฉพาะ connector ที่ adapter ประกาศและ tenant เปิด capability `fetchPaymentStatus`
- * (Standalone / adapter ที่ไม่มี capability นี้ = ไม่มีรอบดึง → รับชำระบันทึกมือใน TMS — docs/01 §6.1 ตาราง fallback)
+ * **ไม่ผูก ERP ใด** — ทำงานเฉพาะ connector ที่ adapter ประกาศและ tenant **เปิดเอง** capability `fetchPaymentStatus`
+ * (opt-in: ไม่เปิดเป็นค่าเริ่มต้น เปิดต้องมีเหตุผล — ConnectorsService) · Standalone / adapter ที่ไม่มี capability นี้ / ยังไม่เปิด
+ * = ไม่มีรอบดึง → รับชำระบันทึกมือใน TMS (docs/01 §6.1 ตาราง fallback)
  *
- * รอบดึง (job `connector.payment_status` ต่อ connector — รายวันตั้งแต่ 06:00 เวลาไทย หรือสั่งเอง `POST /v1/reconcile-runs`):
+ * รอบดึง (job `connector.payment_status` ต่อ connector — รายวันตั้งแต่ 06:00 เวลาไทย หรือสั่งเอง `POST /v1/reconcile-runs`;
+ * มี job ที่ยังไม่จบของ connector เดียวกันได้ครั้งละ 1 — advisory lock ต่อ connector ตอนสร้าง job → รอบรายวันกับรอบสั่งเองไม่ซ้อนกัน):
  * 1. ใบแจ้งหนี้ที่ส่งถึงระบบบัญชีแล้ว (`external_mapping` INVOICE ของ connector นี้ มี external_id, ไม่ถูกยกเลิกฝั่งบัญชี)
  *    และยังค้างชำระใน TMS (ISSUED / PARTIALLY_PAID — หรือ PAID ที่ยังมี MISMATCH ค้าง เพื่อปิดเมื่อยอดตรง)
- *    และ `issue_date` ≥ `connector.sync_from_date` (ถ้าตั้ง)
+ *    และ `issue_date` ≥ `connector.sync_from_date` (ถ้าตั้ง) — เรียงจากใบที่ถามนานสุด (`payment_checked_at`) เกินเพดานต่อรอบ = รอบถัดไปทำต่อ
  * 2. ถาม `adapter.fetchPaymentStatus` (นอก transaction) → **ยอดตัดหนี้สะสม**ของใบฝั่งระบบบัญชี
  * 3. ล็อกใบ (FOR UPDATE) แล้วกระทบยอดกับ `invoice.paid_amount`:
  *    - เท่ากัน = ตรง (รับชำระที่คนบันทึกเองแล้วยอดตรง = ไม่สร้างซ้ำ) → ปิด MISMATCH ที่ค้าง
- *    - ระบบบัญชีมากกว่า **และ** ใบไม่มีรับชำระจากช่องทางอื่น (คนบันทึกเอง/webhook) → สร้าง `payment` source CONNECTOR
- *      เท่าส่วนต่าง ผ่าน `PaymentsService.recordFromConnector` (ทางเดียวกับ ST8-T16: เลข PAY, audit, event `payment.recorded`,
- *      สถานะใบจาก ST5-T18) + `external_mapping` PAYMENT (`paystatus:{ใบ}:{ยอดสะสม}` — กันสร้างซ้ำ)
- *    - นอกนั้น (ระบบบัญชีน้อยกว่า / มากกว่าแต่มีรายการที่คนบันทึกเอง / เกินยอดใบ / "ครบ" แต่ยอดไม่ถึง / รายการที่ระบบสร้างถูกกลับรายการ)
- *      = **MISMATCH** (`reconcile_result` severity MONEY) — ไม่ปรับ/ไม่กลับรายการเงินใน TMS เอง
+ *    - ระบบบัญชีมากกว่า **และ** ใบไม่มีรับชำระจากช่องทางอื่น **และ** ไม่เคยมีรายการที่รอบดึงสร้างแล้วถูกกลับรายการ **และ**
+ *      ระบบบัญชีบอก WHT + วันที่รับที่เป็นไปได้ → สร้าง `payment` source CONNECTOR เท่าส่วนต่าง ผ่าน
+ *      `PaymentsService.recordFromConnector` (ทางเดียวกับ ST8-T16: เลข PAY, audit, event `payment.recorded`, สถานะใบ ST5-T18)
+ *      + `external_mapping` PAYMENT (`paystatus:{ใบ}:{ยอดสะสม}`)
+ *    - นอกนั้น = **MISMATCH** (`reconcile_result` severity MONEY) — ไม่ปรับ/ไม่กลับรายการ/ไม่เดาตัวเลขเงินใน TMS เอง
  * รันซ้ำ = ไม่มีอะไรเปลี่ยน (เทียบยอดสะสมใต้ล็อกใบ + diff_hash) · sandbox ไม่ดึง · ผู้กระทำ = `connector:{adapterKey}`
  */
 @Injectable()
@@ -149,7 +158,7 @@ export class PaymentStatusPullService implements OnModuleInit {
   onModuleInit() {
     this.queue.register(
       PAYMENT_STATUS_PULL_JOB,
-      async ({ tenantId, job }) => {
+      async ({ tenantId, job, progress }) => {
         const p = (job.payload ?? {}) as { connectorId?: unknown; source?: unknown };
         if (typeof p.connectorId !== 'string' || !UUID_RE.test(p.connectorId))
           throw new Error('connector.payment_status: invalid connector id');
@@ -157,8 +166,10 @@ export class PaymentStatusPullService implements OnModuleInit {
         const r = await this.pullConnector(tenantId, p.connectorId, {
           source: p.source === 'MANUAL' ? 'MANUAL' : 'NIGHTLY',
           requestId: `job:${job.id}`,
+          // heartbeat: ต่อ lease ของ job ระหว่างรอบยาว (ไม่ให้ worker อื่นหยิบซ้ำ)
+          onProgress: (pct) => progress(pct),
         });
-        // ระบบบัญชีล่ม/credential ผิด → ให้ JobQueue ลองใหม่ (รอบถัดไปเริ่มใหม่ได้ — ไม่มีสถานะค้าง)
+        // ระบบบัญชีล่ม/credential ผิด → ให้ JobQueue ลองใหม่ (ใบที่ยังไม่ถูกถามอยู่หัวแถวของรอบถัดไป)
         if (r.sourceError)
           throw new Error(`connector ${r.connector}: payment status failed — ${r.sourceError}`);
         return r;
@@ -176,10 +187,26 @@ export class PaymentStatusPullService implements OnModuleInit {
     );
   }
 
+  /** ล็อกต่อ connector (จนจบ transaction) แล้วบอกว่ามี job ของ connector นี้ที่ยังไม่จบไหม — ใช้ทั้งรอบรายวันและรอบสั่งเอง */
+  private async hasOpenJob(db: Tx, tenantId: string, connectorId: string): Promise<boolean> {
+    await db.$executeRaw`SELECT pg_advisory_xact_lock(8, hashtext(${`${PAYMENT_STATUS_PULL_JOB}:${connectorId}`}))`;
+    const open = await db.job.findFirst({
+      where: {
+        tenantId,
+        type: PAYMENT_STATUS_PULL_JOB,
+        status: { in: ['PENDING', 'RUNNING'] },
+        payload: { path: ['connectorId'], equals: connectorId },
+      },
+      select: { id: true },
+    });
+    return !!open;
+  }
+
   /**
    * สร้าง job ของวันนี้ (เวลาไทย) ให้ connector ที่ ACTIVE + tenant เปิด `fetchPaymentStatus` + adapter ที่ติดตั้งรองรับ +
    * tenant TRIAL/ACTIVE โหมด live + แพ็กเกจมี `conn` — 1 job ต่อ connector ต่อวัน (เรียกซ้ำได้ · advisory lock กันสอง worker)
-   * ไม่มี connector แบบนี้ = ไม่สร้างอะไร (Standalone / ERP ที่ไม่มี capability นี้)
+   * connector ที่ยังมีรอบค้าง (เช่น รอบสั่งเอง) ข้ามไปก่อน — ตรวจใหม่ในอีก 10 นาที (ไม่ซ้อนกัน)
+   * ไม่มี connector แบบนี้ = ไม่สร้างอะไร (Standalone / ERP ที่ไม่มี capability นี้ / ยังไม่เปิด)
    */
   async scheduleDue(now: Date = this.clock.now()): Promise<number> {
     const bkk = new Date(now.getTime() + 7 * 3600_000);
@@ -227,6 +254,7 @@ export class PaymentStatusPullService implements OnModuleInit {
       let n = 0;
       for (const r of rows) {
         if (!allowed.has(r.tenantId) || done.has(r.id)) continue;
+        if (await this.hasOpenJob(db as unknown as Tx, r.tenantId, r.id)) continue;
         await this.queue.enqueue(db as unknown as Tx, {
           tenantId: r.tenantId,
           type: PAYMENT_STATUS_PULL_JOB,
@@ -239,7 +267,7 @@ export class PaymentStatusPullService implements OnModuleInit {
   }
 
   /**
-   * สั่งรอบดึงเอง (`POST /v1/reconcile-runs`) — transaction ของคำขอ · connector ต้องดึงได้จริงตอนนี้ (ไม่ได้ = 409/422 จากผู้เรียก)
+   * สั่งรอบดึงเอง (`POST /v1/reconcile-runs`) — transaction ของคำขอ · connector ต้องดึงได้จริงตอนนี้ (ไม่ได้ = 409 จากผู้เรียก)
    * มีรอบของ connector นี้รอ/กำลังทำอยู่ = ไม่สร้างซ้ำ
    */
   async enqueueManual(
@@ -247,17 +275,7 @@ export class PaymentStatusPullService implements OnModuleInit {
     tenantId: string,
     connectorId: string,
   ): Promise<'QUEUED' | 'ALREADY_QUEUED'> {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(8, hashtext(${`${PAYMENT_STATUS_PULL_JOB}:${connectorId}`}))`;
-    const open = await tx.job.findFirst({
-      where: {
-        tenantId,
-        type: PAYMENT_STATUS_PULL_JOB,
-        status: { in: ['PENDING', 'RUNNING'] },
-        payload: { path: ['connectorId'], equals: connectorId },
-      },
-      select: { id: true },
-    });
-    if (open) return 'ALREADY_QUEUED';
+    if (await this.hasOpenJob(tx, tenantId, connectorId)) return 'ALREADY_QUEUED';
     await this.queue.enqueue(tx, {
       tenantId,
       type: PAYMENT_STATUS_PULL_JOB,
@@ -296,7 +314,12 @@ export class PaymentStatusPullService implements OnModuleInit {
   async pullConnector(
     tenantId: string,
     connectorId: string,
-    opts: { source?: ReconcileSource; requestId?: string; maxInvoices?: number } = {},
+    opts: {
+      source?: ReconcileSource;
+      requestId?: string;
+      maxInvoices?: number;
+      onProgress?: (pct: number) => Promise<void>;
+    } = {},
   ): Promise<PaymentPullResult> {
     const source = opts.source ?? 'NIGHTLY';
     const row = await this.db.withTenant(tenantId, (tx) =>
@@ -318,22 +341,41 @@ export class PaymentStatusPullService implements OnModuleInit {
     const requestId = opts.requestId ?? `payment-status:${row.adapterKey}:${randomUUID()}`;
     const max = Math.min(opts.maxInvoices ?? MAX_PER_RUN, MAX_PER_RUN);
     const runAt = this.clock.now();
-    let after: string | null = null;
+    // เวลาเริ่มรอบตามนาฬิกาฐานข้อมูล — ใบที่ถามแล้วในรอบนี้ (`payment_checked_at` ≥ ค่านี้) ไม่ถูกหยิบซ้ำ
+    const started = (await this.prisma.platform.$queryRaw<{ now: Date }[]>`SELECT now() AS now`)[0]!
+      .now;
+    const beat = async (pct: number) => {
+      if (opts.onProgress)
+        await opts.onProgress(Math.max(0, Math.min(99, Math.floor(pct)))).catch(() => undefined);
+    };
     let consecutive = 0;
     paging: for (;;) {
-      const page = await this.db.withTenant(tenantId, (tx) => this.candidates(tx, row, after));
+      await beat((out.counts.checked / max) * 100);
+      const page = await this.db.withTenant(tenantId, (tx) => this.candidates(tx, row, started));
       if (!page.length) break;
       for (const c of page) {
-        after = c.mapping_id;
         if (out.counts.checked >= max) {
           out.truncated = true;
           break paging;
         }
         out.counts.checked += 1;
-        let st: PaymentStatus | null;
+        if (out.counts.checked % PROGRESS_EVERY === 0) await beat((out.counts.checked / max) * 100);
+        // ถามแล้ว (สำเร็จหรือไม่) → ไปท้ายแถว — ใบที่ยังไม่ถูกถามอยู่หัวแถวของรอบถัดไป (ท้ายแถวไม่อด)
+        await this.db.withTenant(
+          tenantId,
+          (tx) =>
+            tx.$executeRaw`UPDATE external_mapping SET payment_checked_at = now() WHERE id = ${c.mapping_id}::uuid`,
+        );
+        let raw: PaymentStatus | null;
         try {
-          st = await this.fetch(adapter, ctx, c);
+          raw = await adapter.fetchPaymentStatus!(ctx, {
+            entityType: 'invoice',
+            localId: c.invoice_id,
+            number: c.invoice_no ?? '',
+            externalId: c.external_id,
+          });
         } catch (e) {
+          // เรียกไม่สำเร็จ (ปลายทางล่ม / credential ผิด) — ติดกันหลายใบ = หยุดรอบ
           out.counts.errors += 1;
           consecutive += 1;
           const msg = redactSecrets(e instanceof Error ? e.message : String(e), secrets).slice(
@@ -350,18 +392,27 @@ export class PaymentStatusPullService implements OnModuleInit {
           continue;
         }
         consecutive = 0;
-        if (!st) {
+        if (raw === null || raw === undefined) {
           // เอกสารหายฝั่งระบบบัญชี = เรื่องของ reconcile เอกสาร (REMOTE_MISSING — ST8-T11) ไม่แตะรับชำระ
           out.counts.notFound += 1;
           continue;
         }
         try {
+          const st = this.validate(raw);
           const o = await this.reconcileOne(tenantId, row, c, st, { source, runAt, requestId });
           if (o === 'newMismatch') {
             out.counts.mismatched += 1;
             out.counts.newMismatches += 1;
           } else out.counts[o] += 1;
         } catch (e) {
+          if (e instanceof InvalidAnswer) {
+            // คำตอบผิดรูปของใบนี้ — บันทึกแล้วทำใบถัดไป (ไม่นับเป็นปลายทางล่ม)
+            out.counts.invalid += 1;
+            this.logger.warn(
+              `tenant ${tenantId} connector ${row.adapterKey}: ${c.invoice_no}: ${e.message}`,
+            );
+            continue;
+          }
           out.counts.errors += 1;
           this.logger.error(
             `tenant ${tenantId} connector ${row.adapterKey}: reconcile ${c.invoice_no} failed`,
@@ -373,7 +424,7 @@ export class PaymentStatusPullService implements OnModuleInit {
     }
     // สรุปรอบลง audit เฉพาะรอบที่มีอะไรเกิดขึ้น (ไม่ลงทุกวันเมื่อทุกใบตรง)
     const c = out.counts;
-    if (c.created || c.newMismatches || c.errors || out.sourceError)
+    if (c.created || c.newMismatches || c.errors || c.invalid || out.sourceError)
       await this.db
         .withTenant(tenantId, (tx) =>
           requestContext.run(this.actor(tenantId, row, requestId, tx), () =>
@@ -407,8 +458,8 @@ export class PaymentStatusPullService implements OnModuleInit {
     };
   }
 
-  /** ใบที่ต้องถาม (เรียงตาม id ของ mapping — keyset) */
-  private candidates(tx: Tx, c: Connector, after: string | null): Promise<Candidate[]> {
+  /** ใบที่ต้องถามและยังไม่ถูกถามในรอบนี้ — ใบที่ไม่เคยถาม/ถามนานสุดก่อน */
+  private candidates(tx: Tx, c: Connector, started: Date): Promise<Candidate[]> {
     return tx.$queryRaw<Candidate[]>`
       SELECT m.id AS mapping_id, i.id AS invoice_id, i.invoice_no, m.external_id, m.external_doc_no
         FROM external_mapping m
@@ -425,25 +476,15 @@ export class PaymentStatusPullService implements OnModuleInit {
                        AND r.local_id = i.id AND r.resolved_at IS NULL
                        AND r.diff->>'check' = ${RECONCILE_CHECK_PAYMENT_STATUS})))
          AND (${c.syncFromDate}::date IS NULL OR i.issue_date >= ${c.syncFromDate}::date)
-         AND (${after}::uuid IS NULL OR m.id > ${after}::uuid)
-       ORDER BY m.id
+         AND (m.payment_checked_at IS NULL OR m.payment_checked_at < ${started})
+       ORDER BY m.payment_checked_at ASC NULLS FIRST, m.id
        LIMIT ${PAGE}`;
   }
 
-  /** เรียก adapter + ตรวจรูปคำตอบ (ผิดรูป = throw — นับเป็น error ไม่แตะเงิน) */
-  private async fetch(
-    adapter: ErpAdapter,
-    ctx: ErpContext,
-    c: Candidate,
-  ): Promise<PaymentStatus | null> {
-    const st = await adapter.fetchPaymentStatus!(ctx, {
-      entityType: 'invoice',
-      localId: c.invoice_id,
-      number: c.invoice_no ?? '',
-      externalId: c.external_id,
-    });
-    if (st === null || st === undefined) return null;
-    const bad = (why: string) => new Error(`invalid payment status from adapter: ${why}`);
+  /** ตรวจรูปคำตอบของ adapter (ผิดรูป = InvalidAnswer — ไม่แตะเงิน) */
+  private validate(st: PaymentStatus): PaymentStatus {
+    const bad = (why: string) => new InvalidAnswer(`invalid payment status from adapter: ${why}`);
+    if (typeof st !== 'object') throw bad('shape');
     if (!(STATUSES as readonly string[]).includes(st.status)) throw bad('status');
     if (typeof st.paidAmount !== 'string' || !MONEY_RE.test(st.paidAmount)) throw bad('paidAmount');
     if (
@@ -476,7 +517,14 @@ export class PaymentStatusPullService implements OnModuleInit {
         await tx.$queryRaw`SELECT id FROM invoice WHERE id = ${c.invoice_id}::uuid FOR UPDATE`;
         const inv = await tx.invoice.findUnique({
           where: { id: c.invoice_id },
-          select: { id: true, invoiceNo: true, status: true, totalAmount: true, paidAmount: true },
+          select: {
+            id: true,
+            invoiceNo: true,
+            status: true,
+            totalAmount: true,
+            paidAmount: true,
+            issueDate: true,
+          },
         });
         // ระหว่างรอบ ใบถูกยกเลิก/ปรับยอดไปแล้ว → ไม่อยู่ในขอบเขต (docs/01 §6.1: เฉพาะใบที่ยังค้าง)
         // ใบที่ชำระครบแล้ว (PAID) ยังเทียบต่อ — เข้ามาเฉพาะเมื่อมี MISMATCH ค้าง (เพื่อปิดเมื่อยอดตรง) หรือเพิ่งครบระหว่างรอบ
@@ -491,26 +539,36 @@ export class PaymentStatusPullService implements OnModuleInit {
         const remote = new Prisma.Decimal(st.paidAmount);
         const local = inv.paidAmount;
         const total = inv.totalAmount;
+        // "บางส่วน" แต่ยอดตัดหนี้ = ยอดใบ → คำตอบขัดกันเอง (ไม่เดาว่าครบหรือไม่)
+        if (st.status === 'PARTIALLY_PAID' && remote.equals(total))
+          throw new InvalidAnswer(
+            'invalid payment status from adapter: PARTIALLY_PAID with paidAmount equal to the invoice total',
+          );
 
-        // รับชำระที่ยังไม่กลับรายการของใบนี้ แยก "ที่รอบดึงของ connector นี้สร้าง" กับ "ช่องทางอื่น" (คนบันทึกเอง / webhook / connector อื่น)
+        // รับชำระทุกรายการที่รอบดึงของ connector นี้เคยสร้างให้ใบนี้ (รวมที่ถูกกลับรายการแล้ว)
+        const pullMaps = await tx.externalMapping.findMany({
+          where: {
+            connectorId: row.id,
+            entityType: MAP_ENTITY.payment,
+            externalId: { startsWith: pullPaymentKeyPrefix(inv.id) },
+          },
+          select: { localId: true },
+        });
+        const pullIds = pullMaps.map((m) => m.localId);
+        const pullPayments = pullIds.length
+          ? await tx.payment.findMany({
+              where: { id: { in: pullIds } },
+              select: { id: true, status: true },
+            })
+          : [];
+        const pulled = new Set(pullIds);
+        // เคยมีรายการที่ระบบสร้างแล้วคนกลับรายการ = คนตัดสินแล้วว่ายอดจากระบบบัญชีของใบนี้เชื่อไม่ได้ → ไม่สร้างอัตโนมัติให้ใบนี้อีกเลย
+        const anyReversed = pullPayments.some((p) => p.status !== 'RECORDED');
+        // รับชำระที่ยังไม่กลับรายการของใบนี้ แยก "ที่รอบดึงสร้าง" กับ "ช่องทางอื่น" (คนบันทึกเอง / webhook / connector อื่น)
         const allocs = await tx.paymentAllocation.findMany({
           where: { invoiceId: inv.id, payment: { status: 'RECORDED' } },
           select: { paymentId: true, amount: true, whtAmount: true },
         });
-        const pulled = new Set(
-          (allocs.length
-            ? await tx.externalMapping.findMany({
-                where: {
-                  connectorId: row.id,
-                  entityType: MAP_ENTITY.payment,
-                  localId: { in: allocs.map((a) => a.paymentId) },
-                  externalId: { startsWith: PULL_PAYMENT_KEY_PREFIX },
-                },
-                select: { localId: true },
-              })
-            : []
-          ).map((m) => m.localId),
-        );
         let otherPaid = ZERO;
         let pulledWht = ZERO;
         for (const a of allocs) {
@@ -561,32 +619,29 @@ export class PaymentStatusPullService implements OnModuleInit {
           return 'matched';
         }
         if (remote.lessThan(local)) return mismatch('remote_less_than_tms');
-        // ระบบบัญชีมากกว่า TMS
+        // ---- ระบบบัญชีมากกว่า TMS: สร้างรับชำระให้เฉพาะเมื่อไม่ต้องเดาอะไรเลย ----
         if (otherPaid.greaterThan(0)) return mismatch('tms_has_other_payments');
-        const key = pullPaymentKey(inv.id, money(remote));
-        const made = await tx.externalMapping.findFirst({
-          where: { connectorId: row.id, entityType: MAP_ENTITY.payment, externalId: key },
-          select: { id: true },
-        });
-        // เคยสร้างจากยอดสะสมนี้แล้ว แต่ยอดใน TMS ไม่ถึง = รายการนั้นถูกกลับรายการใน TMS → ไม่สร้างซ้ำ
-        if (made) return mismatch('connector_payment_reversed');
+        if (anyReversed) return mismatch('connector_payment_reversed');
+        // ไม่บอก WHT = ไม่รู้ว่าเงินเข้าจริงเท่าไร → ไม่ยืนยันตัวเลขเงินสดแทนระบบบัญชี [OPEN spec/12 §3]
+        if (st.whtAmount === undefined) return mismatch('remote_wht_unknown');
         const delta = remote.sub(local);
-        let wht = ZERO;
-        if (st.whtAmount !== undefined) {
-          wht = new Prisma.Decimal(st.whtAmount).sub(pulledWht);
-          if (wht.lessThan(0) || wht.greaterThan(delta)) return mismatch('remote_wht_inconsistent');
-        }
+        const wht = new Prisma.Decimal(st.whtAmount).sub(pulledWht);
+        if (wht.lessThan(0) || wht.greaterThan(delta)) return mismatch('remote_wht_inconsistent');
+        // วันที่รับ = วันที่ระบบบัญชีแจ้ง (เวลาไทย) — ไม่แจ้ง / อนาคต / ก่อนวันออกใบ = ไม่ปัดเอง
         const today = bangkokToday(run.runAt);
-        const paidDay = st.paidAt ? bangkokToday(new Date(st.paidAt)) : today;
+        const paidDay = st.paidAt ? bangkokToday(new Date(st.paidAt)) : null;
+        const issued = inv.issueDate?.toISOString().slice(0, 10) ?? null;
+        if (!paidDay || paidDay > today || (issued !== null && paidDay < issued))
+          return mismatch('remote_paid_at_invalid');
         const ref = c.external_doc_no ?? c.external_id;
         const r = await this.payments.recordFromConnector(tx, {
-          // วันที่รับ = วันที่ระบบบัญชีแจ้ง (เวลาไทย) — ไม่แจ้ง/เป็นอนาคต = วันที่ดึง
-          receivedDate: paidDay > today ? today : paidDay,
+          receivedDate: paidDay,
           reference: ref,
-          note: `${row.adapterKey}: ${ref} (${st.status} ${st.paidAmount})`,
+          note: `${row.adapterKey}: ${ref} (${st.status})`,
           allocations: [{ invoiceId: inv.id, amount: delta, whtAmount: wht }],
         });
-        if (!r.ok) return mismatch('payment_rejected', `${r.code}: ${r.message}`);
+        // เหตุผล = รหัสเท่านั้น (ข้อความของกฎรับชำระมียอดเงิน — ยอดอยู่ในช่องที่กันด้วยสิทธิ์ราคา)
+        if (!r.ok) return mismatch('payment_rejected', r.code);
         await tx.externalMapping.create({
           data: {
             tenantId,
@@ -594,7 +649,7 @@ export class PaymentStatusPullService implements OnModuleInit {
             entityType: MAP_ENTITY.payment,
             localId: tryDecodeId('payment', r.payment.id)!,
             localNumber: r.payment.paymentNo,
-            externalId: key,
+            externalId: pullPaymentKey(inv.id, money(remote)),
             externalDocNo: c.external_doc_no?.slice(0, 100) ?? null,
             externalStatus: 'POSTED',
             status: 'SYNCED',

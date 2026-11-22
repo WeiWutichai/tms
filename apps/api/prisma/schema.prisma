@@ -3545,6 +3545,8 @@ model ExternalMapping {
   externalStatus  String?               @map("external_status")
   /// ST8-T16 รายละเอียดจาก ERP (เลขใบจ่าย / เลข 50 ทวิ / เหตุยกเลิก) — ห้ามมี credential
   detail          Json?
+  /// ST7-T21 เวลาที่รอบ "Payment status pull" ถามสถานะรับชำระของเอกสารนี้ล่าสุด — รอบถัดไปเริ่มจากใบที่ถามนานสุด (ท้ายแถวไม่อด)
+  paymentCheckedAt DateTime?            @map("payment_checked_at") @db.Timestamptz(6)
   /// sha256 ของ canonical payload ล่าสุดที่ส่งสำเร็จ (ST7-T15)
   lastSyncedHash  String?               @map("last_synced_hash")
   lastSyncedAt    DateTime?             @map("last_synced_at") @db.Timestamptz(6)

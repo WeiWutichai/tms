@@ -143,6 +143,12 @@ function readinessText(gaps: MasterCodeGap[]): string {
 const todayTh = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
+/**
+ * ST7-T21 capability ที่ต้อง **เปิดเอง** (ไม่อยู่ในค่าเริ่มต้นของ connector ใหม่) และเปิดต้องมีเหตุผล:
+ * `fetchPaymentStatus` — TMS จะสร้างรายการรับชำระ (เงิน) เองจากยอดที่ระบบบัญชีรายงาน [OPEN — PO/นักบัญชี spec/12 §3]
+ */
+export const OPT_IN_CAPABILITIES = ['fetchPaymentStatus'] as const;
+
 /** แทนค่า credential ที่หลุดมาในข้อความ (ข้อความจาก adapter/ERP) ด้วย *** */
 export function redactSecrets(text: string, secrets: Iterable<string>): string {
   let out = text;
@@ -531,8 +537,14 @@ export class ConnectorsService {
     // ST8-T03 ที่ยังไม่ได้ทำ (`pendingCapabilities`) ไม่นับว่ารองรับ — ไม่เปิดเป็นค่าเริ่มต้น และขอเปิด = 422
     const caps = readyCapabilities(adapter);
     const taxPush = SOR_TAX_PUSH_CAPABILITIES as readonly string[];
+    // ST7-T21 capability แบบ opt-in (`fetchPaymentStatus` — สร้างรายการรับชำระเองจากข้อมูลระบบบัญชี) ไม่เปิดเป็นค่าเริ่มต้น
     if (list === undefined)
-      return ERP_CAPABILITIES.filter((c) => caps.has(c) && (taxOwner || !taxPush.includes(c)));
+      return ERP_CAPABILITIES.filter(
+        (c) =>
+          caps.has(c) &&
+          (taxOwner || !taxPush.includes(c)) &&
+          !(OPT_IN_CAPABILITIES as readonly string[]).includes(c),
+      );
     const blocked = taxOwner
       ? []
       : list.filter(
@@ -555,6 +567,29 @@ export class ConnectorsService {
         `not supported by this adapter: ${bad.join(', ')}`,
       );
     return ERP_CAPABILITIES.filter((c) => list.includes(c));
+  }
+
+  /**
+   * ST7-T21 เปิด capability แบบ opt-in "เพิ่ม" (ที่ยังไม่เปิดอยู่) ต้องมีเหตุผล ≥ 10 ตัวอักษร (ลง audit) — 422 `reason` required
+   * (ผู้สั่ง = คนเท่านั้น: create/update เรียก `assertHuman` อยู่แล้ว) · คืนเหตุผลที่ตัดช่องว่างแล้ว หรือ null เมื่อไม่ได้เปิดเพิ่ม
+   */
+  private optInReason(
+    caps: readonly string[],
+    already: readonly string[],
+    reason: string | null | undefined,
+  ): string | null {
+    const added = caps.filter(
+      (c) => (OPT_IN_CAPABILITIES as readonly string[]).includes(c) && !already.includes(c),
+    );
+    if (!added.length) return null;
+    const r = (reason ?? '').trim();
+    if (r.length < 10)
+      throw field422(
+        'reason',
+        'required',
+        `enabling ${added.join(', ')} needs a reason of at least 10 characters (it lets TMS record payments reported by the accounting system)`,
+      );
+    return r.slice(0, 500);
   }
 
   private checkSyncFromDate(v: string | null | undefined): Date | null | undefined {
@@ -670,6 +705,8 @@ export class ConnectorsService {
     const customerOwner = (body.customerOwner ?? null) as SorOwner | null;
     // ST7-T17 ตรวจ sor_not_chosen ก่อน — ประตูผังรหัส (ST8-T06) ตามมาด้านล่าง
     let caps = this.checkCapabilities(adapter, body.capabilitiesEnabled, taxDocumentOwner);
+    // ผู้ใช้ของ tenant สร้างพร้อมเปิด capability แบบ opt-in ไม่ได้ (ไม่มีช่องเหตุผลตอนสร้าง) → เปิดภายหลังด้วย PATCH + เหตุผล
+    const optInReason = this.optInReason(caps, [], reason);
     const syncFromDate = this.checkSyncFromDate(body.syncFromDate);
     const branchMap = (await this.checkBranchMap(tx, companyId, body.branchMap)) ?? {};
     // จำนวน/ขอบเขตต่อ tenant — serialize การสร้างพร้อมกัน (partial unique index กันซ้ำอีกชั้น)
@@ -727,7 +764,7 @@ export class ConnectorsService {
       action: 'connector.created',
       entityId: id,
       after: auditView(row),
-      reason: reason ?? null,
+      reason: reason ?? optInReason ?? null,
     });
     return row;
   }
@@ -758,6 +795,7 @@ export class ConnectorsService {
     if (cur.status === 'DISCONNECTED') throw new ProblemException('invalid_state_transition');
     const adapter = this.adapterOr422(cur.adapterKey);
     const data: Prisma.ConnectorUpdateManyMutationInput = {};
+    let optInReason: string | null = null;
     if (body.erpCompanyCode !== undefined)
       data.erpCompanyCode = body.erpCompanyCode?.trim() || null;
     if (body.settings !== undefined)
@@ -771,6 +809,7 @@ export class ConnectorsService {
         cur.capabilitiesEnabled,
       );
       data.capabilitiesEnabled = caps;
+      optInReason = this.optInReason(caps, cur.capabilitiesEnabled, body.reason);
       // ST8-T06 เปิดส่งเอกสาร "เพิ่ม" ต้องพร้อมผังรหัสก่อน (บันทึกค่าตั้งอื่น/ปิด capability ได้เสมอ)
       if (caps.some((c) => PUSH_CAPABILITIES.has(c) && !cur.capabilitiesEnabled.includes(c))) {
         const settings = (data.settings ?? cur.settings) as Prisma.JsonValue;
@@ -794,7 +833,14 @@ export class ConnectorsService {
     });
     if (n.count !== 1) throw new ProblemException('precondition_failed');
     const after = await this.get(id, tx);
-    await this.auditChanged(tx, 'connector.updated', id, auditView(cur), auditView(after));
+    await this.auditChanged(
+      tx,
+      'connector.updated',
+      id,
+      auditView(cur),
+      auditView(after),
+      optInReason,
+    );
     return { before: cur, after };
   }
 

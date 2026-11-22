@@ -5,6 +5,7 @@ import type { Tx } from '../../db/db.service';
 import { PaymentsService } from '../payments/payments.service';
 import type { InboundEffect } from './erp-adapter';
 import { MAP_ENTITY } from './erp-sync.service';
+import { pullPaymentKeyPrefix } from './reconcile-results.service';
 
 const MONEY_RE = /^\d{1,12}\.\d{2}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -273,6 +274,23 @@ export class ErpInboundEffects {
     if (!allocations.length) {
       out.applied.push({ kind: e.kind, skipped: 'not_from_tms' });
       return;
+    }
+    // ST7-T21 ใบที่มีรับชำระซึ่งรอบดึงสถานะ (Payment status pull) ของ connector นี้เคยสร้างไว้ (แม้ปิด capability ไปแล้ว/กลับรายการแล้ว)
+    // = ยอดของใบนั้นถูกนับจากยอดสะสมไปแล้ว → webhook ไม่บันทึกเพิ่ม ส่งคิวตรวจ (กันนับเงินซ้ำ)
+    for (const a of allocations) {
+      const pulled = await tx.externalMapping.findFirst({
+        where: {
+          connectorId: c.id,
+          entityType: MAP_ENTITY.payment,
+          externalId: { startsWith: pullPaymentKeyPrefix(a.invoiceId) },
+        },
+        select: { id: true },
+      });
+      if (pulled)
+        return review(
+          'payment_channel_conflict',
+          `payment ${e.externalDocNo ?? e.externalId}: an invoice already has payments created by status pull — webhook payment not recorded`,
+        );
     }
     const r = await this.payments.recordFromConnector(tx, {
       receivedDate: e.receivedDate,

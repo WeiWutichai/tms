@@ -1,12 +1,14 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { SYSTEM_ROLES } from '@tms/domain';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { DbService } from '../src/db/db.service';
 import { DemoAdapter } from '../src/erp-adapters/demo/demo.adapter';
 import { JobQueue } from '../src/jobs/job-queue.service';
 import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
 import { ErpInboundEffects } from '../src/modules/erp/erp-inbound-effects';
+import { ReconcileResultsService } from '../src/modules/erp/reconcile-results.service';
+import { requestContext } from '../src/common/request-context';
 import {
   PAYMENT_STATUS_PULL_JOB,
   PaymentStatusPullService,
@@ -40,6 +42,9 @@ describe('Payment status pull (ST7-T21)', { timeout: 600_000 }, () => {
   let conId: string;
   let conUuid: string;
   let seq = 0;
+  let defaultCaps: string[] = [];
+  let first: { id: string; uuid: string; invoiceNo: string };
+  const paidAtOk = () => `${today}T01:00:00.000Z`;
   const today = bangkokToday();
   /** วันนี้ 07:30 น. เวลาไทย (หลังเวลาเริ่มรอบ 06:00) */
   const at0730 = new Date(`${today}T00:30:00.000Z`);
@@ -186,9 +191,9 @@ describe('Payment status pull (ST7-T21)', { timeout: 600_000 }, () => {
         adapterKey: 'demo',
         taxDocumentOwner: 'TMS',
         credentials: { apiKey: 'demo-key-0001' },
-        capabilitiesEnabled: ['pushInvoice', 'fetchPaymentStatus'],
       });
     expect(r.status, JSON.stringify(r.body)).toBe(201);
+    defaultCaps = r.body.capabilitiesEnabled;
     conId = r.body.id;
     conUuid = tryDecodeId('connector', conId)!;
     await api(app, admin).post(`/v1/connectors/${conId}/resume`).send({}).expect(200);
@@ -206,8 +211,59 @@ describe('Payment status pull (ST7-T21)', { timeout: 600_000 }, () => {
     await plat.$disconnect();
   });
 
+  it('opt-in (review H2): connector ใหม่ไม่เปิด fetchPaymentStatus เป็นค่าเริ่มต้น → scheduler ไม่สร้าง job / รอบดึงข้าม · เปิดต้องมีเหตุผล ≥ 10 ตัว (422) + audit · ระบุตอนสร้างโดยไม่มีเหตุผล = 422', async () => {
+    expect(defaultCaps).toContain('pushInvoice');
+    expect(defaultCaps).not.toContain('fetchPaymentStatus');
+    expect(await pull.scheduleDue(at0730)).toBe(0);
+    expect((await run()).skipped).toBe('capability_not_enabled');
+    expect(await plat.job.count({ where: { tenantId, type: PAYMENT_STATUS_PULL_JOB } })).toBe(0);
+    const caps = [...defaultCaps, 'fetchPaymentStatus'];
+    const noReason = await api(app, admin)
+      .patch(`/v1/connectors/${conId}`)
+      .send({ capabilitiesEnabled: caps });
+    expect(noReason.status, JSON.stringify(noReason.body)).toBe(422);
+    expect(noReason.body.errors[0]).toMatchObject({ field: 'reason', code: 'required' });
+    const short = await api(app, admin)
+      .patch(`/v1/connectors/${conId}`)
+      .send({ capabilitiesEnabled: caps, reason: 'สั้นไป' });
+    expect(short.status).toBe(422);
+    // ผู้ไม่มีสิทธิ์ตั้งค่าเปิดไม่ได้
+    await api(app, accounting)
+      .patch(`/v1/connectors/${conId}`)
+      .send({ capabilitiesEnabled: caps, reason: 'บัญชีขอเปิดดึงสถานะรับชำระ' })
+      .expect(403);
+    // สร้าง connector ใหม่พร้อมเปิดเลยโดยไม่มีเหตุผล = 422 (ไม่เกิดแถว)
+    const other = await plat.company.create({
+      data: { tenantId, legalName: 'บริษัท ที่สอง จำกัด', taxId: validTaxId(7103) },
+    });
+    const created = await api(app, admin)
+      .post('/v1/connectors')
+      .send({
+        adapterKey: 'demo',
+        taxDocumentOwner: 'TMS',
+        companyId: encodeId('company', other.id),
+        credentials: { apiKey: 'demo-key-0002' },
+        capabilitiesEnabled: ['fetchPaymentStatus'],
+      });
+    expect(created.status, JSON.stringify(created.body)).toBe(422);
+    expect(await plat.connector.count({ where: { tenantId } })).toBe(1);
+    const on = await api(app, admin).patch(`/v1/connectors/${conId}`).send({
+      capabilitiesEnabled: caps,
+      reason: 'หัวหน้าบัญชีอนุมัติให้ดึงสถานะรับชำระจากระบบบัญชี',
+    });
+    expect(on.status, JSON.stringify(on.body)).toBe(200);
+    expect(on.body.capabilitiesEnabled).toContain('fetchPaymentStatus');
+    const audit = await plat.auditLog.findFirstOrThrow({
+      where: { tenantId, action: 'connector.updated', entityId: conUuid },
+      orderBy: { seq: 'desc' },
+    });
+    expect(audit.reason).toBe('หัวหน้าบัญชีอนุมัติให้ดึงสถานะรับชำระจากระบบบัญชี');
+    expect((audit.after as any).capabilitiesEnabled).toContain('fetchPaymentStatus');
+  });
+
   it('เกณฑ์ตรวจรับ: ERP จำลองแจ้งว่าใบ X จ่ายแล้ว → scheduler รายวันสร้าง job → เกิด payment (source CONNECTOR) ใบเป็น PAID · audit + event · รอบซ้ำวันเดียวกันไม่สร้าง job/payment ซ้ำ', async () => {
     const x = await pushedInvoice('1000.00');
+    first = x;
     demo.setPaymentStatus(tenantId, conUuid, x.invoiceNo, {
       status: 'PAID',
       paidAmount: '1000.00',
@@ -277,7 +333,7 @@ describe('Payment status pull (ST7-T21)', { timeout: 600_000 }, () => {
       status: 'PARTIALLY_PAID',
       paidAmount: '400.00',
       whtAmount: '4.00',
-      paidAt: null,
+      paidAt: paidAtOk(),
     });
     expect((await run()).counts).toMatchObject({ checked: 1, created: 1, matched: 0 });
     expect((await getInv(b.id)).status).toBe('PARTIALLY_PAID');
@@ -289,7 +345,7 @@ describe('Payment status pull (ST7-T21)', { timeout: 600_000 }, () => {
     expect(pays).toHaveLength(1);
     expect(pays[0]!.allocations[0]!.amount.toFixed(2)).toBe('400.00');
     expect(pays[0]!.whtAmount.toFixed(2)).toBe('4.00');
-    // ไม่มีวันที่จาก ERP → วันที่รับ = วันที่ดึง
+    // วันที่รับ = วันที่ระบบบัญชีแจ้ง (เวลาไทย)
     expect(pays[0]!.receivedDate.toISOString().slice(0, 10)).toBe(today);
 
     demo.setPaymentStatus(tenantId, conUuid, b.invoiceNo, {
@@ -445,10 +501,16 @@ describe('Payment status pull (ST7-T21)', { timeout: 600_000 }, () => {
     demo.setPaymentStatus(tenantId, conUuid, d.invoiceNo, {
       status: 'PARTIALLY_PAID',
       paidAmount: '500.00',
-      paidAt: null,
+      whtAmount: '0.00',
+      paidAt: paidAtOk(),
     });
-    const first = await run();
-    expect(first.counts).toMatchObject({ checked: 4, created: 1, mismatched: 3, newMismatches: 3 });
+    const firstRun = await run();
+    expect(firstRun.counts).toMatchObject({
+      checked: 4,
+      created: 1,
+      mismatched: 3,
+      newMismatches: 3,
+    });
     const code = async (uuid: string) =>
       (await mismatches(uuid)).filter((r) => !r.resolvedAt).map((r) => (r.diff as any).code);
     expect(await code(a.uuid)).toEqual(['remote_less_than_tms']);
@@ -472,6 +534,22 @@ describe('Payment status pull (ST7-T21)', { timeout: 600_000 }, () => {
     expect(await code(d.uuid)).toEqual(['connector_payment_reversed']);
     expect(await paymentsOf(d.uuid)).toHaveLength(1); // ไม่สร้างใหม่แทนรายการที่กลับ
     expect((await getInv(d.id)).status).toBe('ISSUED');
+    // review H1: ระบบบัญชีรายงานยอดสะสม**สูงขึ้น** หลังรายการที่ระบบสร้างถูกกลับรายการ → ยังไม่สร้างให้ใบนี้อีก
+    demo.setPaymentStatus(tenantId, conUuid, d.invoiceNo, {
+      status: 'PARTIALLY_PAID',
+      paidAmount: '800.00',
+      whtAmount: '0.00',
+      paidAt: paidAtOk(),
+    });
+    expect((await run()).counts.created).toBe(0);
+    expect(await code(d.uuid)).toEqual(['connector_payment_reversed']);
+    expect(await paymentsOf(d.uuid)).toHaveLength(1);
+    expect((await getInv(d.id)).status).toBe('ISSUED');
+    // คนบันทึกเอง 800 ให้ตรงระบบบัญชี → รอบถัดไปปิดเอง (ไม่มีรายการจาก connector เพิ่ม)
+    await manualPayment(d.id, '800.00');
+    await run();
+    expect(await code(d.uuid)).toEqual([]);
+    expect((await paymentsOf(d.uuid)).filter((p) => p.status === 'RECORDED')).toHaveLength(1);
 
     // (ก) ERP ตามทัน (300) → ตรง ปิดเอง
     demo.setPaymentStatus(tenantId, conUuid, a.invoiceNo, {
@@ -499,12 +577,163 @@ describe('Payment status pull (ST7-T21)', { timeout: 600_000 }, () => {
     });
   });
 
+  it('review H1/M1–M4/M7: A→B→A ไม่ค้าง MISMATCH ปลอม · วันที่รับผิด/ไม่บอก WHT = MISMATCH ไม่สร้างรายการ · PARTIALLY_PAID เท่ายอดใบ = คำตอบผิด · เพดานต่อรอบไม่ทำให้ท้ายแถวอด + heartbeat · ปลายทางล่ม 3 ใบติด = หยุดรอบ · reason เป็นรหัสเท่านั้น', async () => {
+    const set = (i: { invoiceNo: string }, st: object | null) =>
+      demo.setPaymentStatus(tenantId, conUuid, i.invoiceNo, st as any);
+    const ok = (paidAmount: string, extra: object = {}) => ({
+      status: 'PARTIALLY_PAID',
+      paidAmount,
+      whtAmount: '0.00',
+      paidAt: paidAtOk(),
+      ...extra,
+    });
+    const codes = async (uuid: string, openOnly = true) =>
+      (await mismatches(uuid))
+        .filter((r) => !openOnly || !r.resolvedAt)
+        .map((r) => (r.diff as any).code);
+    const recorded = async (uuid: string) =>
+      (await paymentsOf(uuid)).filter((p) => p.status === 'RECORDED');
+
+    // ---- H1: ยอดสะสม A → B → A → B (ระบบบัญชีกลับรายการแล้วลงใหม่) — ไม่มี payment ซ้ำ ไม่ค้าง connector_payment_reversed
+    const f = await pushedInvoice('1000.00');
+    set(f, ok('300.00'));
+    await run();
+    set(f, ok('600.00'));
+    await run();
+    expect((await recorded(f.uuid)).map((p) => p.allocations[0]!.amount.toFixed(2))).toEqual([
+      '300.00',
+      '300.00',
+    ]);
+    set(f, ok('300.00')); // ระบบบัญชีกลับรายการงวดสอง
+    await run();
+    expect(await codes(f.uuid)).toEqual(['remote_less_than_tms']);
+    expect(await recorded(f.uuid)).toHaveLength(2); // TMS ไม่กลับรายการเอง
+    set(f, ok('600.00')); // ลงใหม่ → ตรงกับ TMS
+    await run();
+    expect(await codes(f.uuid)).toEqual([]);
+    expect(await recorded(f.uuid)).toHaveLength(2);
+    expect(await codes(f.uuid, false)).not.toContain('connector_payment_reversed');
+
+    // ---- M3: วันที่รับก่อนวันออกใบ / อนาคต / ไม่บอก → MISMATCH ไม่สร้างรายการ ไม่ปัดวันที่เอง
+    const h = await pushedInvoice('1000.00');
+    const day = (offset: number) =>
+      new Date(Date.parse(`${today}T05:00:00.000Z`) + offset * 86_400_000).toISOString();
+    for (const paidAt of [day(-3), day(2), null]) {
+      set(h, ok('200.00', { paidAt }));
+      await run();
+      expect(await codes(h.uuid)).toEqual(['remote_paid_at_invalid']);
+      expect(await paymentsOf(h.uuid)).toHaveLength(0);
+    }
+    // ---- M4: ไม่บอก WHT → MISMATCH ไม่ยืนยันตัวเลขเงินเข้าแทนระบบบัญชี
+    const k = await pushedInvoice('1000.00');
+    set(k, { status: 'PARTIALLY_PAID', paidAmount: '200.00', paidAt: paidAtOk() });
+    // ---- Low: "บางส่วน" แต่ยอด = ยอดใบ → คำตอบผิด (invalid) ไม่แตะเงิน
+    const l = await pushedInvoice('1000.00');
+    set(l, ok('1000.00'));
+    const r1 = await run();
+    expect(r1.counts.invalid).toBe(1);
+    expect(r1.counts.errors).toBe(0);
+    expect(await codes(k.uuid)).toEqual(['remote_wht_unknown']);
+    expect(await paymentsOf(k.uuid)).toHaveLength(0);
+    expect(await paymentsOf(l.uuid)).toHaveLength(0);
+    expect((await getInv(l.id)).status).toBe('ISSUED');
+
+    // ---- M7: ยอดเงินอยู่เฉพาะช่องที่กันด้วยสิทธิ์ราคา · reason รับเฉพาะรหัส
+    const noPrice = await tokenFor(tenantId, 'integrations:read', 'u-ops');
+    const hidden = await api(app, noPrice).get('/v1/reconcile-results?status=OPEN').expect(200);
+    expect(hidden.body.data.length).toBeGreaterThan(0);
+    expect(JSON.stringify(hidden.body)).not.toMatch(/\d+\.\d{2}"/);
+    const svc = app.get(ReconcileResultsService);
+    const base = {
+      connectorId: conUuid,
+      adapterKey: 'demo',
+      invoiceId: l.uuid,
+      invoiceNo: l.invoiceNo,
+      source: 'MANUAL' as const,
+      runAt: new Date(),
+      code: 'payment_rejected' as const,
+      localPaid: '0.00',
+      remotePaid: '10.00',
+      local: {},
+      remote: {},
+    };
+    const rec = (reason: string) =>
+      db.withTenant(tenantId, (tx) =>
+        requestContext.run(
+          { requestId: 't', tenantId, actorId: 'connector:demo', scopes: [], locale: 'th', tx },
+          () => svc.recordPaymentMismatch(tx, tenantId, { ...base, reason }),
+        ),
+      );
+    const withMsg = await rec('invoice INV-1: 10.00 > outstanding 5.00');
+    const withCode = await rec('payment_exceeds_outstanding');
+    const rows = await plat.reconcileResult.findMany({
+      where: { id: { in: [withMsg.id, withCode.id] } },
+    });
+    expect((rows.find((x) => x.id === withMsg.id)!.diff as any).reason).toBeUndefined();
+    expect((rows.find((x) => x.id === withCode.id)!.diff as any).reason).toBe(
+      'payment_exceeds_outstanding',
+    );
+    await plat.$executeRaw`UPDATE reconcile_result SET resolved_at = now() WHERE id = ANY(${[withMsg.id, withCode.id]}::uuid[])`;
+
+    // ---- M1/M2: เพดานต่อรอบ → รอบถัดไปเริ่มจากใบที่ยังไม่ถูกถาม (ท้ายแถวไม่อด) + heartbeat
+    const open = [f, h, k, l].map((i) => i.uuid);
+    await plat.$executeRaw`UPDATE external_mapping SET payment_checked_at = NULL WHERE local_id = ANY(${open}::uuid[])`;
+    const checkedSince = async (t: Date) =>
+      (
+        await plat.externalMapping.findMany({
+          where: { tenantId, entityType: 'INVOICE', paymentCheckedAt: { gte: t } },
+          select: { localId: true },
+        })
+      ).map((m) => m.localId);
+    const dbNow = async () => (await plat.$queryRaw<{ now: Date }[]>`SELECT now() AS now`)[0]!.now;
+    const beats: number[] = [];
+    const t1 = await dbNow();
+    const p1 = await pull.pullConnector(tenantId, conUuid, {
+      source: 'MANUAL',
+      maxInvoices: 2,
+      onProgress: async (pct) => {
+        beats.push(pct);
+      },
+    });
+    expect(p1).toMatchObject({ truncated: true, counts: { checked: 2 } });
+    expect(beats.length).toBeGreaterThan(0);
+    const firstBatch = await checkedSince(t1);
+    expect(firstBatch).toHaveLength(2);
+    const t2 = await dbNow();
+    const p2 = await pull.pullConnector(tenantId, conUuid, { source: 'MANUAL', maxInvoices: 2 });
+    expect(p2.counts.checked).toBe(2);
+    const secondBatch = await checkedSince(t2);
+    expect(secondBatch).toHaveLength(2);
+    expect(secondBatch.some((id) => firstBatch.includes(id))).toBe(false);
+    expect([...firstBatch, ...secondBatch].sort()).toEqual([...open].sort());
+
+    // ---- M2: ปลายทางล่ม (throw) 3 ใบติดกัน = หยุดรอบ + ข้อความตัด credential · ใบที่ยังไม่ถูกถามอยู่หัวแถวรอบถัดไป
+    const spy = vi
+      .spyOn(demo, 'fetchPaymentStatus')
+      .mockRejectedValue(new Error('connect ECONNREFUSED (key demo-key-0001)'));
+    try {
+      const down = await run();
+      expect(down.counts).toMatchObject({ checked: 3, errors: 3, created: 0 });
+      expect(down.sourceError).toContain('ECONNREFUSED');
+      expect(down.sourceError).not.toContain('demo-key-0001');
+    } finally {
+      spy.mockRestore();
+    }
+    // เก็บกวาด
+    for (const i of [f, h, k, l]) set(i, null);
+    await plat.externalMapping.updateMany({
+      where: { tenantId, entityType: 'INVOICE', localId: { in: open } },
+      data: { externalStatus: 'VOIDED' },
+    });
+  });
+
   it('ไม่มี capability = ไม่มีรอบดึง: tenant ปิด fetchPaymentStatus → scheduler ไม่สร้าง job / รอบดึงข้าม / สั่งเอง 409 · Standalone ไม่มี job · syncFromDate กันใบก่อนวันเริ่ม · ERP ตอบผิดรูป/ล่ม ไม่แตะเงิน', async () => {
     const e = await pushedInvoice('1000.00');
     demo.setPaymentStatus(tenantId, conUuid, e.invoiceNo, {
       status: 'PAID',
       paidAmount: '1000.00',
-      paidAt: null,
+      whtAmount: '10.00',
+      paidAt: paidAtOk(),
     });
     const patch = async (body: object) => {
       const r = await api(app, admin).patch(`/v1/connectors/${conId}`).send(body);
@@ -515,7 +744,7 @@ describe('Payment status pull (ST7-T21)', { timeout: 600_000 }, () => {
       data: { payload: { connectorId: conUuid, day: '2000-01-01' } },
     });
     // ปิด capability (KRS ไม่มี capability นี้ตั้งแต่ต้น — เปิดไม่ได้)
-    await patch({ capabilitiesEnabled: ['pushInvoice'] });
+    await patch({ capabilitiesEnabled: defaultCaps });
     expect(await pull.scheduleDue(at0730)).toBe(0);
     expect(await run()).toMatchObject({
       skipped: 'capability_not_enabled',
@@ -530,7 +759,10 @@ describe('Payment status pull (ST7-T21)', { timeout: 600_000 }, () => {
     // tenant ที่ไม่มี connector (Standalone) ไม่มี job
     expect(await plat.job.count({ where: { tenantId: otherTenantId } })).toBe(0);
 
-    await patch({ capabilitiesEnabled: ['pushInvoice', 'fetchPaymentStatus'] });
+    await patch({
+      capabilitiesEnabled: [...defaultCaps, 'fetchPaymentStatus'],
+      reason: 'เปิดดึงสถานะรับชำระอีกครั้งหลังทดสอบ',
+    });
     // syncFromDate หลังวันออกใบ → ใบนี้ไม่ถูกถาม (API ไม่รับวันอนาคต — ตั้งตรงในฐานเพื่อจำลอง "ใบออกก่อนวันเริ่มซิงก์")
     await plat.connector.update({
       where: { id: conUuid },
@@ -551,14 +783,18 @@ describe('Payment status pull (ST7-T21)', { timeout: 600_000 }, () => {
       paidAmount: 1000 as unknown as string,
       paidAt: null,
     });
-    expect((await run()).counts).toMatchObject({ checked: 1, errors: 1, created: 0 });
+    // คำตอบผิดรูปรายใบ = invalid (ไม่นับเป็นปลายทางล่ม)
+    const badRun = await run();
+    expect(badRun.counts).toMatchObject({ checked: 1, invalid: 1, errors: 0, created: 0 });
+    expect(badRun.sourceError).toBeUndefined();
     expect(await paymentsOf(e.uuid)).toHaveLength(0);
 
     // สั่งเอง: 202 QUEUED → ซ้ำ = ALREADY_QUEUED → worker ทำ → payment เดียว (source MANUAL ของรอบ)
     demo.setPaymentStatus(tenantId, conUuid, e.invoiceNo, {
       status: 'PAID',
       paidAmount: '1000.00',
-      paidAt: null,
+      whtAmount: '10.00',
+      paidAt: paidAtOk(),
     });
     const q1 = await api(app, admin)
       .post('/v1/reconcile-runs')
@@ -650,5 +886,41 @@ describe('Payment status pull (ST7-T21)', { timeout: 600_000 }, () => {
     );
     expect(r.review).toMatchObject({ code: 'payment_channel_conflict' });
     expect(await plat.payment.count({ where: { tenantId } })).toBe(before);
+
+    // review M5: ปิด capability แล้ว webhook รับชำระของ**ใบที่รอบดึงเคยสร้างรายการไว้** ก็ไม่ถูกบันทึก (คิวตรวจ) — ใบอื่นไม่เกี่ยว
+    const off = await api(app, admin)
+      .patch(`/v1/connectors/${conId}`)
+      .send({ capabilitiesEnabled: defaultCaps });
+    expect(off.status, JSON.stringify(off.body)).toBe(200);
+    const con2 = await plat.connector.findUniqueOrThrow({ where: { id: conUuid } });
+    expect(con2.capabilitiesEnabled).not.toContain('fetchPaymentStatus');
+    const m = await plat.externalMapping.findFirstOrThrow({
+      where: { tenantId, entityType: 'INVOICE', localId: first.uuid },
+    });
+    const r2 = await db.withTenant(tenantId, (tx) =>
+      app.get(ErpInboundEffects).apply(tx, con2, [
+        {
+          kind: 'paymentReceived',
+          externalId: 'RV-2',
+          externalDocNo: 'RV-0002',
+          receivedDate: today,
+          allocations: [
+            {
+              externalId: m.externalId,
+              localNumber: first.invoiceNo,
+              amount: '10.00',
+              whtAmount: '0.00',
+            },
+          ],
+        } as any,
+      ]),
+    );
+    expect(r2.review).toMatchObject({ code: 'payment_channel_conflict' });
+    expect(await plat.payment.count({ where: { tenantId } })).toBe(before);
+    expect(
+      await plat.externalMapping.count({
+        where: { tenantId, entityType: 'PAYMENT', externalId: 'RV-2' },
+      }),
+    ).toBe(0);
   });
 });

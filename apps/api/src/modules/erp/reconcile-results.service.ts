@@ -24,9 +24,12 @@ export const RECONCILE_CHECK_PAYMENT_STATUS = 'PAYMENT_STATUS';
  * - `remote_paid_amount_short`: ERP บอกว่าชำระครบ แต่ยอดตัดหนี้ < ยอดรวมของใบ (ไม่เดาว่าส่วนที่ขาดเป็น WHT/ส่วนลด)
  * - `remote_less_than_tms`: ERP ตัดหนี้น้อยกว่าที่ TMS บันทึกรับไว้ (ERP ยังไม่รู้ / ERP กลับรายการ)
  * - `tms_has_other_payments`: ERP ตัดหนี้มากกว่า TMS แต่ใบนี้มีรับชำระที่คนบันทึกเอง/มาจากช่องทางอื่น — ไม่รู้ว่ายอด ERP รวมรายการนั้นหรือไม่
- * - `connector_payment_reversed`: รับชำระที่ระบบสร้างจากยอด ERP นี้ถูกกลับรายการใน TMS แล้ว แต่ ERP ยังรายงานยอดเดิม (ไม่สร้างซ้ำ)
+ * - `connector_payment_reversed`: ใบนี้เคยมีรับชำระที่ระบบสร้างจากยอด ERP แล้วถูกกลับรายการใน TMS — ไม่สร้างอัตโนมัติให้ใบนี้อีก
+ *   (ปิดเองเมื่อยอด ERP = ยอด TMS)
+ * - `remote_wht_unknown`: ERP ไม่บอกยอด WHT → ไม่ยืนยันตัวเลขเงินเข้าแทน ERP
  * - `remote_wht_inconsistent`: WHT ที่ ERP รายงานขัดกับที่บันทึกไว้
- * - `payment_rejected`: กฎรับชำระของ TMS ไม่รับ (ดู `diff.reason`)
+ * - `remote_paid_at_invalid`: วันที่รับชำระจาก ERP ไม่มี / เป็นอนาคต / ก่อนวันออกใบ (ไม่ปัดวันที่เอง)
+ * - `payment_rejected`: กฎรับชำระของ TMS ไม่รับ (`diff.reason` = รหัสของกฎ — ไม่มียอดเงิน)
  */
 export const PAYMENT_MISMATCH_CODES = [
   'remote_exceeds_total',
@@ -34,7 +37,9 @@ export const PAYMENT_MISMATCH_CODES = [
   'remote_less_than_tms',
   'tms_has_other_payments',
   'connector_payment_reversed',
+  'remote_wht_unknown',
   'remote_wht_inconsistent',
+  'remote_paid_at_invalid',
   'payment_rejected',
 ] as const;
 export type PaymentMismatchCode = (typeof PAYMENT_MISMATCH_CODES)[number];
@@ -54,6 +59,11 @@ export interface PaymentMismatchInput {
   remote: Record<string, unknown>;
   reason?: string | null;
 }
+
+/** `external_mapping.external_id` ของรับชำระที่รอบดึงสร้างให้ใบนี้: `paystatus:{invoiceId}:{ยอดสะสม}` */
+export const PULL_PAYMENT_KEY_PREFIX = 'paystatus:';
+export const pullPaymentKeyPrefix = (invoiceId: string) =>
+  `${PULL_PAYMENT_KEY_PREFIX}${invoiceId}:`;
 
 const sha = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 
@@ -84,7 +94,8 @@ export class ReconcileResultsService {
       localPaid: m.localPaid,
       remotePaid: m.remotePaid,
       difference: new Prisma.Decimal(m.remotePaid).sub(m.localPaid).toFixed(2),
-      ...(m.reason ? { reason: m.reason.slice(0, 300) } : {}),
+      // รหัสเท่านั้น (ตัวอักษร/ขีดล่าง) — ห้ามมียอดเงิน
+      ...(m.reason && /^[a-z0-9_.]{1,60}$/.test(m.reason) ? { reason: m.reason } : {}),
     };
     const diffHash = sha({
       check: diff.check,
