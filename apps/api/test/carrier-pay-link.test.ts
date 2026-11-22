@@ -332,7 +332,7 @@ describe('carrier pay link (ST6-T11)', () => {
       settlementNo: string | null;
       status: string;
       tripCount: number;
-      amount: string;
+      amount: string | null;
       estimate: boolean;
       paidDate: string | null;
     }[];
@@ -412,7 +412,7 @@ describe('carrier pay link (ST6-T11)', () => {
     // รอรับเงิน = งวดที่ยังไม่จ่าย
     expect(v.dueCount).toBe(2);
     expect(v.dueAmount).toBe(
-      (Number(by.get(appr.id)!.amount) + Number(by.get(rev.id)!.amount)).toFixed(2),
+      (Number(by.get(appr.id)!.amount!) + Number(by.get(rev.id)!.amount!)).toFixed(2),
     );
     // เที่ยวที่จบแต่ยังไม่เข้างวดที่รถร่วมเห็น: เที่ยวในร่าง + เที่ยวที่ยังไม่ทำใบ (ล่าสุดก่อน) — ไม่มีเที่ยวที่ยังวิ่ง/ของรายอื่น
     expect(v.trips.map((t) => t.tripNo).sort()).toEqual(
@@ -538,5 +538,77 @@ describe('carrier pay link (ST6-T11)', () => {
       status: 'queued',
       carrierId: C.id,
     });
+  });
+
+  it('review: DISPUTED แสดงเป็นรอตรวจ · ค่าใช้จ่ายเพิ่มของเที่ยวที่อยู่ในงวดแล้วขึ้นเฉพาะส่วนที่ยังไม่เข้างวด · ไม่รู้ประเภทรถร่วม = ไม่มียอด · ลิงก์ tenant อื่นเปิด PDF ไม่ได้ · 30 GET/นาที ต่อลิงก์', async () => {
+    await resetLinkWriteRate();
+    const { C, trips } = await setup(2, '4000');
+    const s = await settle([trips[0]!.id], C.id);
+    const rv = await send(s.id).expect(200);
+    const rt = (rv.body.link.url as string).split('/link/settlement/')[1]!;
+    const fl = s.lines.find((l) => l.lineType === 'FREIGHT')!;
+    await pub()
+      .post(`/v1/public/settlements/${rt}/lines/${fl.id}/review`)
+      .send({ response: 'DISPUTED', reason: 'ค่ารอไม่ตรง รอ 3 ชม.' })
+      .expect(201);
+    expect(
+      (await db.carrierSettlement.findUniqueOrThrow({ where: { id: uuid('settlement', s.id) } }))
+        .status,
+    ).toBe('DISPUTED');
+    // ค่าทางด่วนที่ยืนยันแล้วของเที่ยวเดียวกัน (ยังไม่อยู่ในใบ) → เที่ยวขึ้นด้วยยอดเฉพาะส่วนนี้
+    await db.tripCost.create({
+      data: {
+        tenantId,
+        tripId: uuid('trip', trips[0]!.id),
+        costType: 'TOLL',
+        amount: '300',
+        source: 'MANUAL',
+        carrierId: uuid('carrier', C.id),
+        status: 'CONFIRMED',
+      },
+    });
+    const l = await issue(C.id).expect(201);
+    const t = tokenOf(l.body.url);
+    const v = (await view(t).expect(200)).body as View;
+    expect(v.settlements).toHaveLength(1);
+    expect(v.settlements[0]).toMatchObject({ id: s.id, status: 'SENT_TO_CARRIER', estimate: true });
+    expect(v.settlements[0]!.amount).toBe('3960.00');
+    expect(v.dueAmount).toBe('3960.00');
+    const n0 = await tripNo(trips[0]!.id);
+    const n1 = await tripNo(trips[1]!.id);
+    expect(v.trips.map((x) => [x.tripNo, x.amount]).sort()).toEqual(
+      [
+        [n0, '300.00'],
+        [n1, '4000.00'],
+      ].sort(),
+    );
+    // snapshot รถร่วมไม่มีประเภท (ยังไม่ตรึง) → ยอด null (ไม่ใช้ยอดก่อนหัก) และไม่นับในรอรับเงิน
+    const U = await setup(1, '1500');
+    const us = await settle([U.trips[0]!.id], U.C.id);
+    await db.$executeRaw`UPDATE carrier_settlement SET carrier_snapshot = carrier_snapshot - 'entityType' WHERE id = ${uuid('settlement', us.id)}::uuid`;
+    await send(us.id).expect(200);
+    const v2 = (await view(tokenOf((await issue(U.C.id).expect(201)).body.url)).expect(200))
+      .body as View;
+    expect(v2.settlements[0]!.amount).toBeNull();
+    expect(v2).toMatchObject({ dueAmount: '0.00', dueCount: 1 });
+    // ลิงก์ของบริษัทอื่นเปิด PDF ของใบบริษัทนี้ไม่ได้ (ใบจ่ายแล้ว — รถร่วมบริษัทอื่น)
+    const P = await setup(1, '2000');
+    const paid = await settle([P.trips[0]!.id], P.C.id);
+    await send(paid.id).expect(200);
+    await approve(paid.id).expect(200);
+    await pay(paid.id).expect(200);
+    const oc = await api(app, other)
+      .post('/v1/carriers')
+      .send({ legalName: 'หจก. บริษัทอื่น', entityType: 'JURISTIC', taxId: jur(++seed) })
+      .expect(201);
+    const ot = tokenOf((await issue(oc.body.id, other).expect(201)).body.url);
+    expect((await pdf(ot, paid.id)).status).toBe(404);
+    expect(((await view(ot).expect(200)).body as View).settlements).toEqual([]);
+    // เพดานอ่านต่อลิงก์ 30 ครั้ง/นาที
+    await resetLinkWriteRate();
+    for (let k = 0; k < 30; k++) await view(t).expect(200);
+    const r = await view(t).expect(429);
+    expect(r.body.code).toBe('rate_limited');
+    await resetLinkWriteRate();
   });
 });

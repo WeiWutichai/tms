@@ -106,7 +106,19 @@ describe('CarrierPayLinkPage (ST6-T11)', () => {
     const b = screen.getByTestId('cpl-stl-stl_b');
     expect(b.textContent).toContain('รอออกเลขเมื่ออนุมัติ');
     expect(b.textContent).toContain('รอตรวจ');
-    expect(screen.getByText('ยอดหลังหัก ณ ที่จ่าย · งวดที่รอตรวจเป็นยอดประมาณการ')).toBeTruthy();
+    expect(screen.getByTestId('cpl-stls').textContent).toContain(
+      'ยอดหลังหัก ณ ที่จ่าย · งวดที่รอตรวจเป็นยอดประมาณการ',
+    );
+  });
+
+  it('review L4: ยอดงวดคำนวณไม่ได้ (null) → "—"', () => {
+    q.data = view({
+      settlements: [{ ...view().settlements[1]!, amount: null }],
+    });
+    show();
+    expect(
+      screen.getByTestId('cpl-stl-stl_b').querySelector('[data-testid="cpl-amt"]')!.textContent,
+    ).toBe('—');
   });
 
   it('สถานะจ่าย: งวดจ่ายแล้วมีปุ่ม "ใบจ่ายเงิน" (PDF ของลิงก์นี้) เท่านั้น — ไม่มี 50 ทวิ (D-54)', () => {
@@ -123,6 +135,10 @@ describe('CarrierPayLinkPage (ST6-T11)', () => {
   it('เที่ยวที่จบ · ยังไม่เข้างวด: เลขเที่ยว · ยอด · วันที่ · เส้นทาง', () => {
     show();
     expect(screen.getByText('เที่ยวที่จบ · ยังไม่เข้างวด')).toBeTruthy();
+    // review M1: ยอดเที่ยวระบุว่าเป็นก่อนหัก ณ ที่จ่าย (หมายเหตุหลังหักอยู่ในกลุ่มงวด ไม่ใช่กลุ่มเที่ยว)
+    const sec = screen.getByTestId('cpl-trips');
+    expect(sec.textContent).toContain('ค่าจ้างก่อนหัก ณ ที่จ่าย');
+    expect(sec.textContent).not.toContain('ยอดหลังหัก');
     const row = screen.getByTestId('cpl-trip');
     expect(row.textContent).toContain('TRP-6911-0021');
     expect(row.textContent).toContain('5,600.00');

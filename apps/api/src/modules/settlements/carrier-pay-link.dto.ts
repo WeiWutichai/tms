@@ -30,11 +30,13 @@ export class CarrierPaySettlementDto {
   @ApiProperty({ example: '2026-11-15' }) periodTo!: string;
   @ApiProperty() tripCount!: number;
   @ApiProperty({
+    nullable: true,
+    type: String,
     example: '10890.00',
     description:
-      'ยอดจ่ายสุทธิหลังหัก ณ ที่จ่าย — ใบอนุมัติ/จ่ายแล้ว = ยอดที่ตรึง · ใบรอตรวจ = ประมาณการ (D-54) · ราคาซื้อของรถร่วมรายนี้เท่านั้น',
+      'ยอดจ่ายสุทธิหลังหัก ณ ที่จ่าย — ใบอนุมัติ/จ่ายแล้ว = ยอดที่ตรึง · ใบรอตรวจ = ประมาณการ (D-54) · null = ยังคำนวณไม่ได้ (ข้อมูลรถร่วมในใบไม่มีประเภทบุคคล/นิติบุคคล) · ราคาซื้อของรถร่วมรายนี้เท่านั้น',
   })
-  amount!: string;
+  amount!: string | null;
   @ApiProperty({ description: 'ยอดเป็นประมาณการ (ใบยังไม่อนุมัติ)' }) estimate!: boolean;
   @ApiProperty({ nullable: true, type: String, description: 'วันที่จ่าย (ใบจ่ายแล้ว)' })
   paidDate!: string | null;
@@ -58,17 +60,23 @@ export class CarrierPayLinkViewDto {
   @ApiProperty({ description: 'ชื่อบริษัทขนส่ง (ผู้จ่าย)' }) company!: string;
   @ApiProperty({ description: 'ชื่อรถร่วม' }) carrierName!: string;
   @ApiProperty({ description: 'เครดิตจ่าย (วัน) ของรถร่วม' }) paymentTermDays!: number;
-  @ApiProperty({ example: '38258.40', description: 'รอรับเงิน = รวมยอดของงวดที่ยังไม่จ่าย' })
+  @ApiProperty({
+    example: '38258.40',
+    description:
+      'รอรับเงิน = รวมยอดหลังหัก ณ ที่จ่ายของทุกงวดที่ยังไม่จ่าย (ไม่ขึ้นกับเพดานการ์ด · งวดที่ยังคำนวณไม่ได้ไม่รวม)',
+  })
   dueAmount!: string;
-  @ApiProperty({ description: 'จำนวนงวดที่ยังไม่จ่าย' }) dueCount!: number;
+  @ApiProperty({ description: 'จำนวนงวดที่ยังไม่จ่ายทั้งหมด' }) dueCount!: number;
   @ApiProperty({
     type: [CarrierPaySettlementDto],
-    description: 'งวด (ใบสำคัญจ่าย) — ยังไม่จ่ายก่อน แล้วจ่ายแล้วย้อนหลัง 12 เดือน',
+    description:
+      'งวด (ใบสำคัญจ่าย) — ยังไม่จ่าย (ล่าสุด ≤ 50) ก่อน แล้วจ่ายแล้วย้อนหลัง 12 เดือน (≤ 24)',
   })
   settlements!: CarrierPaySettlementDto[];
   @ApiProperty({
     type: [CarrierPayTripDto],
-    description: 'เที่ยวที่จบแล้วแต่ยังไม่เข้างวดที่ส่งให้รถร่วม (ล่าสุดก่อน ไม่เกิน 100)',
+    description:
+      'เที่ยวที่จบแล้วที่ยังมีค่าจ้างค้างให้รถร่วมรายนี้นอกงวดที่ส่งให้รถร่วม (ก่อนหัก ณ ที่จ่าย · ล่าสุดก่อน ไม่เกิน 100)',
   })
   trips!: CarrierPayTripDto[];
   @ApiProperty({ format: 'date-time', description: 'ลิงก์ใช้ได้ถึง' }) expiresAt!: string;

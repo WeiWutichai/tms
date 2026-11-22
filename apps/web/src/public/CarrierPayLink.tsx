@@ -57,7 +57,8 @@ export function CarrierPayLinkPage() {
             {periodText(s.periodFrom, s.periodTo)} · {t('stl.trips', { n: s.tripCount })}
           </span>
           <span className="stl__amt" data-testid="cpl-amt">
-            {formatMoney(s.amount)}
+            {/* ยังคำนวณยอดหลังหัก ณ ที่จ่ายไม่ได้ (ไม่รู้ประเภทรถร่วม) → "—" ไม่ใช้ยอดก่อนหัก */}
+            {s.amount === null ? '—' : formatMoney(s.amount)}
           </span>
         </div>
         {s.status === 'PAID' && (
@@ -132,11 +133,17 @@ export function CarrierPayLinkPage() {
                   {t('cpl.dueSub', { n: v.dueCount, d: v.paymentTermDays })}
                 </span>
               </div>
-              {v.settlements.map(card)}
-              {v.settlements.length > 0 && <span className="cpl__note">{t('cpl.note')}</span>}
+              {v.settlements.length > 0 && (
+                // หมายเหตุยอดหลังหัก ณ ที่จ่ายอยู่กับกลุ่มการ์ดงวด (review M1) — ยอดเที่ยวด้านล่างเป็นก่อนหัก
+                <div className="cpl__stls" data-testid="cpl-stls">
+                  {v.settlements.map(card)}
+                  <span className="cpl__note">{t('cpl.note')}</span>
+                </div>
+              )}
               {v.trips.length > 0 && (
-                <div className="cdl__sent">
+                <div className="cdl__sent" data-testid="cpl-trips">
                   <span className="cdl__senthd">{t('cpl.secTrips')}</span>
+                  <span className="cpl__note">{t('cpl.tripsNote')}</span>
                   {v.trips.map(tripRow)}
                 </div>
               )}

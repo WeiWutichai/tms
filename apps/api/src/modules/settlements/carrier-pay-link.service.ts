@@ -25,7 +25,7 @@ export const PAY_LINK_REVOKE_REASON = 'ออกลิงก์ค่าเท�
 
 /** สถานะใบที่รถร่วมเห็น (ร่าง = ภายใน · ยกเลิก = ไม่มีผล) */
 const VISIBLE = ['SENT_TO_CARRIER', 'DISPUTED', 'APPROVED', 'PAID'];
-const UNPAID_MAX = 30;
+const UNPAID_MAX = 50;
 const PAID_MAX = 24;
 const TRIPS_MAX = 100;
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
@@ -112,18 +112,19 @@ export class CarrierPayLinkService {
       settlementNo: true,
       periodFrom: true,
       periodTo: true,
-      netPayable: true,
-      whtAmount: true,
       paidDate: true,
       lines: {
         where: { voidedAt: null, lineType: { not: 'DEDUCTION' } },
         select: { tripId: true },
       },
     } satisfies Prisma.CarrierSettlementSelect;
-    const [tenant, unpaid, paid] = await Promise.all([
+    const unpaidWhere = { carrierId: c.id, status: { in: VISIBLE.filter((s) => s !== 'PAID') } };
+    const [tenant, unpaidIds, unpaid, paid] = await Promise.all([
       tx.tenant.findFirst({ select: { name: true } }),
+      // รอรับเงินรวม "ทุก" งวดที่ยังไม่จ่าย (ไม่ขึ้นกับเพดานการ์ด — review L1)
+      tx.carrierSettlement.findMany({ where: unpaidWhere, select: { id: true } }),
       tx.carrierSettlement.findMany({
-        where: { carrierId: c.id, status: { in: VISIBLE.filter((s) => s !== 'PAID') } },
+        where: unpaidWhere,
         orderBy: [{ periodTo: 'desc' }, { id: 'desc' }],
         take: UNPAID_MAX,
         select,
@@ -135,14 +136,13 @@ export class CarrierPayLinkService {
         select,
       }),
     ]);
-    const settlements: CarrierPaySettlementDto[] = [];
-    for (const s of [...unpaid, ...paid]) {
-      const frozen = s.whtAmount !== null;
-      // ใบที่ยังไม่ตรึง หัก ณ ที่จ่าย (รอตรวจ) → ประมาณการจากสูตรเดียวกับหน้าใบ (`SettlementsService.get`)
-      const amount = frozen
-        ? s.netPayable.minus(s.whtAmount!).toFixed(2)
-        : await this.settlements.get(s.id).then((d) => d.buyNetAfterWht ?? s.netPayable.toFixed(2));
-      settlements.push({
+    // ยอดหลังหัก ณ ที่จ่ายของทุกใบในครั้งเดียว (สูตรเดียวกับหน้าใบ — review M2)
+    const amounts = await this.settlements.netAfterWhtMany([
+      ...new Set([...unpaidIds.map((u) => u.id), ...paid.map((p) => p.id)]),
+    ]);
+    const settlements: CarrierPaySettlementDto[] = [...unpaid, ...paid].map((s) => {
+      const a = amounts.get(s.id);
+      return {
         id: encodeId('settlement', s.id),
         settlementNo: s.settlementNo,
         // DISPUTED = รอตรวจ (ไม่เผยธงภายใน — ป้ายรายบรรทัดอยู่ที่ลิงก์ตรวจใบ ST6-T05)
@@ -150,20 +150,22 @@ export class CarrierPayLinkService {
         periodFrom: ymd(s.periodFrom),
         periodTo: ymd(s.periodTo),
         tripCount: new Set(s.lines.map((l) => l.tripId).filter(Boolean)).size,
-        amount,
-        estimate: !frozen,
+        // ไม่รู้ประเภทรถร่วม (ยังไม่ตรึง) → ไม่มียอด (ไม่ใช้ยอดก่อนหัก — review L4)
+        amount: a?.amount ?? null,
+        estimate: !a?.frozen,
         paidDate: s.paidDate ? ymd(s.paidDate) : null,
-      });
-    }
-    const due = settlements
-      .filter((s) => s.status !== 'PAID')
-      .reduce((a, s) => a.plus(s.amount), new Prisma.Decimal(0));
+      };
+    });
+    const due = unpaidIds.reduce((sum, u) => {
+      const v = amounts.get(u.id)?.amount;
+      return v ? sum.plus(v) : sum;
+    }, new Prisma.Decimal(0));
     return {
       company: tenant?.name ?? '',
       carrierName: c.legalName,
       paymentTermDays: c.paymentTermDays,
       dueAmount: due.toFixed(2),
-      dueCount: settlements.filter((s) => s.status !== 'PAID').length,
+      dueCount: unpaidIds.length,
       settlements,
       trips: await this.openTrips(c.id),
       expiresAt: link.expiresAt.toISOString(),
@@ -171,34 +173,28 @@ export class CarrierPayLinkService {
   }
 
   /**
-   * เที่ยวที่จบแล้ว (COMPLETED / COSTED / SETTLED) ของรถร่วมรายนี้ ที่ยังมีค่าจ้างไม่อยู่ในงวดที่รถร่วมเห็น
-   * ค่าจ้าง = Σ `trip_cost` CONFIRMED ของรถร่วมรายนี้ที่ไม่อยู่ในบรรทัดที่ยังใช้ของใบ SENT/DISPUTED/APPROVED/PAID
-   * (คู่กลับรายการหักล้างกันในผลรวม) · เที่ยวที่อยู่ในงวดครบแล้วไม่ขึ้น
+   * เที่ยวที่จบแล้ว (COMPLETED / COSTED / SETTLED) ที่ยังมีค่าจ้างค้างให้รถร่วมรายนี้ — ขับด้วย `trip_cost.carrier_id`
+   * (ต้นทุนที่ค้างจ่ายรายนี้ แม้เที่ยวถูกเปลี่ยนรถร่วมภายหลัง — review L2) ไม่ใช่ `trip.carrier_id`
+   * ค่าจ้าง (ก่อนหัก ณ ที่จ่าย) = Σ `trip_cost` CONFIRMED ของรายนี้ที่ไม่อยู่ในบรรทัดที่ยังใช้ของใบที่รถร่วมเห็น
+   * (SENT/DISPUTED/APPROVED/PAID — ไม่ขึ้นกับเพดานการ์ด) · ใบร่าง/ยกเลิก = ยังไม่เข้างวด · คู่กลับรายการหักล้างกันในผลรวม ·
+   * แสดงเฉพาะยอด > 0 (ยอด 0 / ติดลบ = ปรับยอดภายใน ไม่แสดง — review L3 [DECISION spec/12 §3])
    */
   private async openTrips(carrierId: string): Promise<CarrierPayTripDto[]> {
     const tx = this.db.tx;
     const rows = await tx.$queryRaw<
       { id: string; trip_no: string | null; trip_date: Date; open: Prisma.Decimal }[]
     >`
-      WITH t AS (
-        SELECT id, trip_no, trip_date, completed_at FROM trip
-         WHERE carrier_id = ${carrierId}::uuid AND status IN ('COMPLETED', 'COSTED', 'SETTLED')
-      ),
-      c AS (
-        SELECT tc.trip_id, tc.amount,
-               (cs.status IS NOT NULL AND cs.status = ANY(${VISIBLE}::text[])) AS shown
-          FROM trip_cost tc
-          JOIN t ON t.id = tc.trip_id
-          LEFT JOIN settlement_line sl ON sl.id = tc.settlement_line_id AND sl.voided_at IS NULL
-          LEFT JOIN carrier_settlement cs ON cs.id = sl.settlement_id
-         WHERE tc.carrier_id = ${carrierId}::uuid AND tc.status = 'CONFIRMED'
-      )
-      SELECT t.id::text AS id, t.trip_no, t.trip_date,
-             COALESCE(SUM(c.amount) FILTER (WHERE NOT c.shown), 0) AS open
-        FROM t LEFT JOIN c ON c.trip_id = t.id
+      SELECT t.id::text AS id, t.trip_no, t.trip_date, SUM(tc.amount) AS open
+        FROM trip_cost tc
+        JOIN trip t ON t.id = tc.trip_id
+        LEFT JOIN settlement_line sl ON sl.id = tc.settlement_line_id AND sl.voided_at IS NULL
+        LEFT JOIN carrier_settlement cs ON cs.id = sl.settlement_id
+       WHERE tc.carrier_id = ${carrierId}::uuid
+         AND tc.status = 'CONFIRMED'
+         AND t.status IN ('COMPLETED', 'COSTED', 'SETTLED')
+         AND (cs.id IS NULL OR NOT (cs.status = ANY(${VISIBLE}::text[])))
        GROUP BY t.id, t.trip_no, t.trip_date, t.completed_at
-      HAVING NOT COALESCE(bool_or(c.shown), false)
-          OR COALESCE(SUM(c.amount) FILTER (WHERE NOT c.shown), 0) <> 0
+      HAVING SUM(tc.amount) > 0
        ORDER BY t.completed_at DESC NULLS LAST, t.trip_date DESC, t.trip_no DESC NULLS LAST
        LIMIT ${TRIPS_MAX}`;
     if (!rows.length) return [];

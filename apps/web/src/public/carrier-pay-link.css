@@ -34,3 +34,9 @@
   font-size: 13px;
   color: #3b424c;
 }
+/* กลุ่มการ์ดงวด + หมายเหตุยอดหลังหัก ณ ที่จ่าย (gap เท่าระยะระหว่างการ์ดของต้นแบบ 14px) */
+.cpl__stls {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}

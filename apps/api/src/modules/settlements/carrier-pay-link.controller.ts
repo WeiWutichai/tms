@@ -17,7 +17,7 @@ import { ProblemException } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
-import { linkPdfBucket } from '../../http/link-rate-limit';
+import { linkPdfBucket, linkReadBucket } from '../../http/link-rate-limit';
 import { RateLimitService } from '../../http/rate-limit/rate-limit.service';
 import { T403, T404 } from '../trips/trip-problems';
 import { CarrierPayLinkDto, CarrierPayLinkViewDto } from './carrier-pay-link.dto';
@@ -49,6 +49,7 @@ export class CarrierPayLinkController {
     summary: 'ออกลิงก์ "ค่าเที่ยวของฉัน" ให้รถร่วม (ดูอย่างเดียว — เที่ยวที่จบ / ยอด / สถานะจ่าย)',
     description:
       'ลิงก์ดูอย่างเดียว อายุ 30 วัน (ไม่ต้อง login) — รถร่วมเห็นเฉพาะงวด/เที่ยว/ราคาซื้อของตัวเอง (ไม่มีราคาขาย/ลูกค้า) · ' +
+      'รถร่วมที่ระงับชั่วคราว (INACTIVE) ยังออก/ใช้ลิงก์ได้ (ยังมียอดค้างจ่าย) — ถูกลบแล้ว = 404 · ' +
       'ออกใหม่ = เพิกถอนลิงก์เดิมที่ยังใช้ได้ของรถร่วมรายนี้ · ส่งทาง LINE/SMS ด้วย POST /v1/messages/send-link หรือคัดลอกไปส่งเอง · ' +
       'ไม่มีหนังสือ 50 ทวิ (D-54/D-58 — ออกที่ระบบบัญชี) · audit `carrier.pay_link_issued`',
   })
@@ -90,9 +91,12 @@ export class CarrierPayLinkPublicController {
     summary: 'ค่าเที่ยวของฉัน — รอรับเงิน + งวด (สถานะจ่าย) + เที่ยวที่จบแต่ยังไม่เข้างวด',
   })
   @ApiOkResponse({ type: CarrierPayLinkViewDto })
-  @ApiTooManyRequestsResponse({ description: 'เรียกถี่เกินไป (ต่อ IP)' })
-  view(): Promise<CarrierPayLinkViewDto> {
-    return this.svc.view(this.carrierId(), requestContext.require().link!.id);
+  @ApiTooManyRequestsResponse({ description: 'เรียกถี่เกินไป — ต่อ IP และ 30 ครั้ง/นาที ต่อลิงก์' })
+  async view(@Res({ passthrough: true }) res: Response): Promise<CarrierPayLinkViewDto> {
+    const carrierId = this.carrierId();
+    const linkId = requestContext.require().link!.id;
+    await this.limiter.assert([linkReadBucket(linkId)], res);
+    return this.svc.view(carrierId, linkId);
   }
 
   @Get(':token/settlements/:settlementId/pdf')
