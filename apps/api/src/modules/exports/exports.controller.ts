@@ -42,6 +42,10 @@ export const EXPORT_RESOURCES = [
   'receivables-aging',
   // ST9-T05 รายงานรายได้ (xlsx / csv / pdf)
   'revenue',
+  // ST7-T23 ส่งออกให้นักบัญชี (layout กลาง ผ่าน FileExportAdapter — ตัวกรอง dateFrom/dateTo/template)
+  'accounting-sales',
+  'accounting-receipts',
+  'accounting-settlements',
 ] as const;
 
 export class CreateExportDto {

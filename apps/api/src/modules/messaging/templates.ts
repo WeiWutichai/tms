@@ -13,6 +13,7 @@ export const MESSAGE_TEMPLATES = [
   'job_offer_link',
   'settlement_review_link',
   'settlement_payment_status_link',
+  'carrier_pay_link',
 ] as const;
 export type MessageTemplate = (typeof MESSAGE_TEMPLATES)[number];
 
@@ -99,6 +100,19 @@ const T: Record<MessageTemplate, Record<'th' | 'en', Record<MessageChannel, Rend
         } — no login needed\n${v.url}\nValid until ${v.until}`,
       SMS: (v) =>
         `TMS: ${v.paid ? 'payment status / voucher' : 'freight payment status'} ${v.url} (until ${v.until})`,
+    },
+  },
+  // ST6-T11 ลิงก์ "ค่าเที่ยวของฉัน" (ดูอย่างเดียว) — ไม่มียอดเงิน/เลขภาษี/บัญชีธนาคารในข้อความ
+  carrier_pay_link: {
+    th: {
+      LINE: (v) =>
+        `${v.name ? `เรียน ${v.name}\n` : ''}${v.sender} แจ้งลิงก์ดูค่าเที่ยวของท่าน (เที่ยวที่จบ ยอด และสถานะการจ่าย) ไม่ต้อง login\n${v.url}\nลิงก์ใช้ได้ถึง ${v.until}`,
+      SMS: (v) => `TMS: ดูค่าเที่ยวและสถานะการจ่าย ${v.url} (ถึง ${v.until})`,
+    },
+    en: {
+      LINE: (v) =>
+        `${v.name ? `Dear ${v.name}\n` : ''}${v.sender} shared a link to view your trip earnings (completed trips, amounts and payment status) — no login needed\n${v.url}\nValid until ${v.until}`,
+      SMS: (v) => `TMS: your trip earnings and payment status ${v.url} (until ${v.until})`,
     },
   },
 };

@@ -14,6 +14,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
+import { AccountantExportDialog } from '../exports/AccountantExportDialog';
 import { PageHeader } from '../../shell/Header';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
@@ -43,6 +44,7 @@ import {
 import { SettlementDrawer } from './SettlementDrawer';
 import {
   openVoucherPdf,
+  useIssuePayLink,
   useReissueLink,
   useSettlementKpi,
   useSettlementList,
@@ -115,10 +117,16 @@ export function SettlePage() {
     id: string;
     link: SettlementLink;
     viewOnly: boolean;
+    /** ST6-T11 ลิงก์ค่าเที่ยวของรถร่วม (ไม่ใช่ลิงก์ของใบนี้) */
+    pay?: boolean;
   } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // ST7-T23 ส่งออกให้นักบัญชี (ต้นแบบ openXp) — ต้องมี export:run (API ตรวจสิทธิ์อ่านต่อชุดเอง)
+  const [xp, setXp] = useState(false);
+  const canXp = can(me.data?.scopes ?? [], 'export:run');
   const kpi = useSettlementKpi().data;
   const reissue = useReissueLink();
+  const payLink = useIssuePayLink();
   const curTab = TABS.includes(tab) ? tab : 'all';
   // ตัวกรองสถานะ = แท็บ ∩ คอลัมน์ "สถานะ" ที่ server (ST9-T03 — ยอดรวมตรงการ์ด dashboard)
   const status = listStatus(curTab, col.st);
@@ -157,6 +165,18 @@ export function SettlePage() {
         setLink({ id, link: l, viewOnly: viewOnlyLink(status) });
         setOpen(id);
         setToast(t('settle.link.done'));
+      },
+      onError: (e) => setToast(problemText(e, t)),
+    });
+  };
+  // ST6-T11 ลิงก์ "ค่าเที่ยวของฉัน" ของรถร่วมของใบ — แสดงในกล่องลิงก์ของ drawer ใบนี้ (รูปแบบเดียวกับ D-63)
+  const issuePay = (x: { id: string; carrier: { id: string } }) => {
+    if (payLink.isPending) return;
+    payLink.mutate(x.carrier.id, {
+      onSuccess: (l) => {
+        setLink({ id: x.id, link: l, viewOnly: true, pay: true });
+        setOpen(x.id);
+        setToast(t('settle.link.payDone'));
       },
       onError: (e) => setToast(problemText(e, t)),
     });
@@ -277,10 +297,12 @@ export function SettlePage() {
         sub={t('page.settle.sub')}
         actions={
           <>
-            {/* ส่งออกให้นักบัญชี (spec/05 §14) — งานส่งออกยังไม่มี (แบบหน้าวางบิล/รับชำระ) */}
-            <Button variant="secondary" icon="file-down" disabled title={t('bill.xpSoon')}>
-              {t('bill.xp')}
-            </Button>
+            {/* ส่งออกให้นักบัญชี (ST7-T23 — ต้นแบบ openXp; spec/07 §4) */}
+            {canXp && (
+              <Button variant="secondary" icon="file-down" onClick={() => setXp(true)}>
+                {t('bill.xp')}
+              </Button>
+            )}
             {/* สร้างงวดใหม่ = หน้าติ๊กเที่ยวจากคิวจ่าย (ต้นแบบเป็น toast — [OPEN Claude Design] spec/12 §3 ST6-T03) */}
             <Button variant="secondary" icon="plus" disabled title={t('settle.newSoon')}>
               {t('settle.newPeriod')}
@@ -387,6 +409,9 @@ export function SettlePage() {
                     },
                   ]
                 : []),
+              ...(canRelink
+                ? [{ label: t('settle.menu.payLink'), icon: 'wallet', run: () => issuePay(x) }]
+                : []),
               ...(canPrintStatus(x.status)
                 ? [{ label: t('settle.menu.print'), icon: 'printer', run: () => void print(x) }]
                 : []),
@@ -419,6 +444,7 @@ export function SettlePage() {
           onApprove={(x) => setApproving(x.id)}
           onPay={(s) => setPaying(s.id)}
           onRelink={(s) => relink(s.id, s.status)}
+          onPayLink={issuePay}
           onClose={() => setOpen(null)}
           onToast={setToast}
         />
@@ -443,6 +469,7 @@ export function SettlePage() {
           }}
         />
       )}
+      {xp && <AccountantExportDialog onClose={() => setXp(false)} onToast={setToast} />}
       {toast && (
         <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />
       )}

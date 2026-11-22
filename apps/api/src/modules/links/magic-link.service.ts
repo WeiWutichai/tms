@@ -10,7 +10,7 @@ import { requestContext } from '../../common/request-context';
  * token = `ml1.<id>.<exp>.<sig>` — sig = HMAC-SHA256(id|exp) · action ที่ทำได้ + การเพิกถอนอยู่ในแถว magic_link
  * ใช้กับ: ข้อเสนองานรถร่วม (48 ชม.), POD ผ่านลิงก์ (จนปิด trip + 7 วัน), ดูใบจ่าย, ติดตามพัสดุ,
  * รถร่วมอัปโหลดเอกสารรถ/ใบขับขี่ (ST2-T21 `carrier_docs`), เปิดใบคุมรถ PDF ที่ส่งให้คนขับ (ST3-T20 `trip_sheet`),
- * รถร่วมตรวจใบสำคัญจ่าย (ST6-T05 `settlement_review`)
+ * รถร่วมตรวจใบสำคัญจ่าย (ST6-T05 `settlement_review`), ค่าเที่ยวของฉัน (ST6-T11 `carrier_pay` — ดูอย่างเดียว)
  */
 export const LINK_PURPOSES = [
   'trip_offer',
@@ -20,6 +20,7 @@ export const LINK_PURPOSES = [
   'tracking',
   'carrier_docs',
   'trip_sheet',
+  'carrier_pay',
 ] as const;
 export type LinkPurpose = (typeof LINK_PURPOSES)[number];
 /** scope ที่ลิงก์ได้ — รถร่วมเห็นค่าจ้างของงานตัวเอง (A3 "ดูราคาซื้อรถร่วม: เฉพาะของตัวเอง") */
