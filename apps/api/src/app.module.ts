@@ -172,6 +172,11 @@ import {
 import { RevenueLinesService } from './modules/revenue-lines/revenue-lines.service';
 import { SettlementsController } from './modules/settlements/settlements.controller';
 import { SettlementReviewPublicController } from './modules/settlements/settlement-review.controller';
+import {
+  CarrierPayLinkController,
+  CarrierPayLinkPublicController,
+} from './modules/settlements/carrier-pay-link.controller';
+import { CarrierPayLinkService } from './modules/settlements/carrier-pay-link.service';
 import { SettlementReviewService } from './modules/settlements/settlement-review.service';
 import {
   DeliveryOrderReleaseController,
@@ -354,6 +359,8 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     SubconOfferPublicController,
     PodLinkPublicController,
     SettlementReviewPublicController,
+    CarrierPayLinkController,
+    CarrierPayLinkPublicController,
     TrackingPublicController,
     DeliveryOrderTrackingController,
     CustomerTrackingController,
@@ -431,6 +438,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     SettlementQueueService,
     SettlementsService,
     SettlementReviewService,
+    CarrierPayLinkService,
     SettlementComparisonService,
     SettlementPdfService,
     BillingQueueService,

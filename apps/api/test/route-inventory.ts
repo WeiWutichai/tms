@@ -15,6 +15,7 @@ import { REVIEW_LINK_ACTIONS } from '../src/modules/settlements/settlement-revie
 import { TRACKING_ACTION } from '../src/modules/tracking/tracking.service';
 import { SHEET_LINK_ACTION } from '../src/modules/trip-sheets/trip-sheets.service';
 import { OFFER_LINK_ACTIONS, POD_LINK_ACTIONS } from '../src/modules/trips/offer-links';
+import { PAY_LINK_ACTIONS } from '../src/modules/settlements/carrier-pay-link.service';
 
 /** route หนึ่งของแอป (อ่านจาก metadata ของ Nest — ชุดเดียวกับที่ express ลงทะเบียน) */
 export interface RouteInfo {
@@ -82,6 +83,8 @@ export const PURPOSE_ACTIONS: Record<LinkPurpose, readonly string[]> = {
   tracking: [TRACKING_ACTION],
   carrier_docs: Object.values(DOCS_LINK_ACTIONS),
   trip_sheet: [SHEET_LINK_ACTION],
+  // ST6-T11 ลิงก์ "ค่าเที่ยวของฉัน" ของรถร่วม (ดูอย่างเดียว)
+  carrier_pay: Object.values(PAY_LINK_ACTIONS),
   // สงวนชื่อไว้ตั้งแต่ ST1-T06 — ยังไม่มีผู้ออกและไม่มี route (ใบจ่ายเงินใช้ settlement_review แบบดูอย่างเดียว D-59)
   settlement_view: [],
 };
