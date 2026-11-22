@@ -33,7 +33,6 @@ import { REVENUE_LOCK_NS } from '../revenue-lines/revenue-rebuild';
 import { RevenueLinesService } from '../revenue-lines/revenue-lines.service';
 import { readSettings } from '../settings/settings.service';
 import { InvoiceBillingGuard, type RevenueInvoiceLineInput } from './billing-guard.service';
-import { MAX_DOS_PER_INVOICE } from './billing-limits';
 import { BillingReleaseService } from './billing-release.service';
 import type { NotReadyReason } from './billing-queue.service';
 import type {
@@ -183,10 +182,11 @@ export class InvoicesService {
     const doIds = this.decodeDos(body.deliveryOrderIds);
     // review M2: ส่งบัญชี + สร้างร่างในคำขอเดียว (atomic) — ส่งบัญชีไม่ผ่าน = ไม่มีอะไรเปลี่ยน (ตรวจเงื่อนไขชุดเดียวกับส่งบัญชีปกติ + ตรวจซ้ำตอนดึง)
     if (body.releaseDeliveryOrders) {
+      // review (ST5-T12b): ลำดับล็อกเดียวกับทางอื่น — ใบสั่งก่อน (เรียง id) แล้ว DO (เรียง id) · ส่งบัญชียังทำทีละ DO (ติดตาม perf)
       const pending = await tx.deliveryOrder.findMany({
         where: { id: { in: doIds }, customerId: customer.id, releasedAt: null },
         select: { id: true },
-        orderBy: { id: 'asc' },
+        orderBy: [{ salesOrderId: 'asc' }, { id: 'asc' }],
       });
       for (const d of pending) await this.release.release(d.id, { note: null }, tx);
     }
@@ -648,8 +648,11 @@ export class InvoicesService {
       select: { salesOrderId: true },
     });
     const orders = [...new Set(rows.map((r) => r.salesOrderId))].sort();
-    for (const so of orders)
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${REVENUE_LOCK_NS}::int, hashtext(${so}))`;
+    // ST5-T12b: advisory lock ของทุกใบสั่งในคำสั่งเดียว (เดิม 1 คำสั่งต่อใบสั่ง — ใบ 1,000 DO = 1,000 คำสั่ง) · ลำดับเดียวกับเดิม
+    // (เรียง id — unnest WITH ORDINALITY + ORDER BY ในซับคิวรีก่อนเรียกฟังก์ชันล็อก)
+    await tx.$queryRaw`
+      SELECT count(pg_advisory_xact_lock(${REVENUE_LOCK_NS}::int, hashtext(o.so))::text)::int AS n
+        FROM (SELECT so FROM unnest(${orders}::text[]) WITH ORDINALITY AS u(so, i) ORDER BY i) o`;
     await tx.$queryRaw`SELECT id FROM delivery_order WHERE sales_order_id = ANY(${orders}::uuid[]) ORDER BY id FOR UPDATE`;
     return orders;
   }
@@ -754,7 +757,6 @@ export class InvoicesService {
   /** ดึง DO เข้าร่าง: ตรวจความพร้อมซ้ำ + สร้างบรรทัดจากบรรทัดรายได้ (ผ่าน InvoiceBillingGuard — ตัวกันวางบิลซ้ำ) */
   /** ดึง DO เข้าร่าง (ตรวจความพร้อมซ้ำ + บรรทัดจากบรรทัดรายได้) — ใช้ร่วมกับออกใบแทน (ST5-T10) */
   async pull(tx: Tx, invoiceId: string, doIds: string[]) {
-    await this.assertDoCap(tx, invoiceId, doIds.length);
     await this.guard.attachDos(
       invoiceId,
       doIds,
@@ -764,24 +766,6 @@ export class InvoicesService {
       },
       tx,
     );
-  }
-
-  /**
-   * เพดาน DO ต่อใบแจ้งหนี้ (`MAX_DOS_PER_INVOICE` — PO 22 พ.ย. 2569): DO ที่อยู่บนร่างแล้ว + ที่จะดึงเพิ่ม เกิน = 422 `too_many`
-   * (เพดานเดียวกันทุกทาง: สร้างมือ, เพิ่ม DO เข้าร่าง, รอบวางบิล, ออกใบแทน)
-   */
-  private async assertDoCap(tx: Tx, invoiceId: string, adding: number) {
-    const [{ n }] = await tx.$queryRaw<[{ n: number }]>`
-      SELECT count(DISTINCT delivery_order_id)::int AS n FROM invoice_line
-       WHERE invoice_id = ${invoiceId}::uuid AND active AND delivery_order_id IS NOT NULL`;
-    if (n + adding > MAX_DOS_PER_INVOICE)
-      throw invalid([
-        {
-          field: 'deliveryOrderIds',
-          code: 'too_many',
-          message: `an invoice can hold at most ${MAX_DOS_PER_INVOICE} delivery orders (already ${n}, adding ${adding})`,
-        },
-      ]);
   }
 
   /** ST5-T07 / ST5-T04 review: ตรวจความพร้อมซ้ำทุกครั้งที่ดึง — ส่งบัญชีแล้ว **และ** เงื่อนไขคิวยังผ่าน (ไม่เชื่อ `released_at` อย่างเดียว) */

@@ -196,7 +196,7 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <h2 id="post-invoices-id-delivery-orders">เพิ่ม DO เข้าร่าง</h2>
 <p><code>POST /v1/invoices/{id}/delivery-orders</code></p>
 <p>scope: <code>invoices:draft</code> · operationId: <code>Invoices_addDos</code></p>
-<p>กฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 <code>customer_mismatch</code> · audit <code>invoice.delivery_orders_added</code></p>
+<p>กฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 <code>customer_mismatch</code> · DO บนร่างรวมกับที่เพิ่มเกิน 1000 ใบ → 422 <code>too_many</code> · audit <code>invoice.delivery_orders_added</code></p>
 <p><strong>Parameters</strong></p>
 <div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag (version) จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
 <p><strong>Request body</strong> <code>InvoiceDeliveryOrdersDto</code></p>
@@ -245,7 +245,7 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <h2 id="post-invoices-id-delivery-orders-move">ย้าย DO ไปร่างอื่น (ลูกค้า + สาขาผู้ออกเดียวกัน)</h2>
 <p><code>POST /v1/invoices/{id}/delivery-orders/move</code></p>
 <p>scope: <code>invoices:draft</code> · operationId: <code>Invoices_moveDos</code></p>
-<p>ถอดจากร่างนี้แล้วดึงเข้าร่างปลายทางใน transaction เดียว (ตรวจความพร้อมซ้ำ — ไม่ผ่าน = ไม่ย้ายเลย) · ปลายทางไม่ใช่ร่าง → 409 · ลูกค้า/สาขาต่างกัน → 422 <code>customer_mismatch</code> · If-Match = version ของร่างต้นทาง · ETag ตอบกลับ = ต้นทาง · audit ทั้งสองใบ</p>
+<p>ถอดจากร่างนี้แล้วดึงเข้าร่างปลายทางใน transaction เดียว (ตรวจความพร้อมซ้ำ — ไม่ผ่าน = ไม่ย้ายเลย) · ปลายทางไม่ใช่ร่าง → 409 · ลูกค้า/สาขาต่างกัน → 422 <code>customer_mismatch</code> · DO บนร่างปลายทางรวมกับที่ย้ายเกิน 1000 ใบ → 422 <code>too_many</code> (ไม่ย้ายเลย) · If-Match = version ของร่างต้นทาง · ETag ตอบกลับ = ต้นทาง · audit ทั้งสองใบ</p>
 <p><strong>Parameters</strong></p>
 <div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag (version) จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
 <p><strong>Request body</strong> <code>MoveInvoiceDeliveryOrdersDto</code></p>

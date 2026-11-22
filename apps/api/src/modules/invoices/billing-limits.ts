@@ -11,3 +11,12 @@ export const MAX_DOS_PER_INVOICE = 1000;
 
 /** ใบแจ้งหนี้ต่อใบวางบิล 1 ใบ (เท่าเดิม — เพดานของ `POST /billing-notes`) */
 export const MAX_INVOICES_PER_BILLING_NOTE = 200;
+
+/**
+ * review H1 (ST5-T12b): transaction ของการ "ถอยกลับ" ใบใหญ่ — ยกเลิกร่าง / ถอด DO / ย้าย DO / ยกเลิกใบที่ออกแล้ว (void)
+ * ต้องเป็นหน่วยเดียว (atomic) และคิดบรรทัดรายได้ใหม่**ต่อใบสั่ง** (`rebuildRevenueLines` — กติกาแบ่งยอดเหมา/ขั้นต่ำ/ยอดส่งจริง
+ * ต่อใบสั่ง ทำเป็นชุดข้ามใบสั่งอย่างปลอดภัยไม่ได้) → เวลาโตตามจำนวนใบสั่ง (วัดได้ ≈ 12 มิลลิวินาที/ใบสั่งบนเครื่อง dev: ยกเลิกร่าง 500 DO
+ * ≈ 6 วิ) · ใบ 1,000 DO (ใบสั่งละ DO) ใกล้/เกิน 15 วิ ของค่าเริ่มเมื่อเครื่องมีโหลด → route เหล่านี้ใช้ 120 วิ (ผู้ใช้ย้อนรอบวางบิลเต็มเพดานได้) · ล็อก Idempotency-Key ยาวกว่า transaction
+ */
+export const UNWIND_TX_TIMEOUT_MS = 120_000;
+export const UNWIND_IDEMPOTENCY_LOCK_MS = 3 * 60_000;

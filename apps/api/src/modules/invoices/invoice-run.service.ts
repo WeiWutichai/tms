@@ -108,7 +108,8 @@ export class InvoiceRunService implements OnModuleInit {
       describe: (job) => {
         const p = job.payload as unknown as RunPayload | null;
         const r = job.result as unknown as InvoiceRunResultDto | null;
-        if (!p || !r?.summary) return null;
+        // จบแล้วไม่มีไฟล์ = 404 · ยังไม่จบ (result ว่าง) = ให้ ExportsService หาไฟล์จากเอกสารของงาน
+        if (!p || (r && !r.summary)) return null;
         return {
           actorId: p.actor?.actorId ?? null,
           resource: INVOICE_RUN_SUMMARY_RESOURCE,
@@ -118,7 +119,7 @@ export class InvoiceRunService implements OnModuleInit {
             periodFrom: p.periodFrom,
             periodTo: p.periodTo,
           },
-          result: r.summary,
+          result: r?.summary ?? null,
         };
       },
     });

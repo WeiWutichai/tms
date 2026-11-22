@@ -165,7 +165,7 @@ export class BillingQueueService {
     if (f.updatedAfter) conds.push(Prisma.sql`d.updated_at > ${f.updatedAfter}::timestamptz`);
     return Prisma.sql`
       d0 AS NOT MATERIALIZED (
-        SELECT d.id, d.customer_id, d.sales_order_id, d.trip_stop_id, d.updated_at, d.status::text AS status,
+        SELECT d.id, d.tenant_id, d.customer_id, d.sales_order_id, d.trip_stop_id, d.updated_at, d.status::text AS status,
                d.pod_status, d.billing_hold, d.released_at, d.billing_status
           FROM delivery_order d WHERE ${Prisma.join(conds, ' AND ')}
       ),
@@ -196,7 +196,7 @@ export class BillingQueueService {
             SELECT count(*)::int AS n, sum(l.amount) AS total,
                    bool_or(l.provisional) AS prov, bool_or(l.locked_at IS NOT NULL) AS locked
               FROM revenue_line l
-             WHERE l.delivery_order_id = d0.id AND l.status = 'ACTIVE'
+             WHERE l.delivery_order_id = d0.id AND l.tenant_id = d0.tenant_id AND l.status = 'ACTIVE'
           ) rl ON true
       )`;
   }

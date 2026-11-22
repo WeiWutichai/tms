@@ -126,6 +126,8 @@ export class StateService {
         actorId: ctx?.actorId ?? null,
       })),
     });
+    // ผู้ฟังรันหลังเขียนประวัติ + event ของ**ทุก**เอกสารแล้ว (ต่างจาก `transition` ทีละใบที่ผู้ฟังรันทันทีหลัง event ของใบนั้น) —
+    // ผู้ฟังเห็นสถานะใหม่ของทั้งชุด · ยังรันครบทุกเอกสารตามลำดับ `docIds` ใน transaction เดียวกัน (ปัจจุบัน event ของ DO ไม่มีผู้ฟัง)
     const listeners = this.listeners.get(input.eventType) ?? [];
     for (const docId of input.docIds)
       for (const l of listeners)

@@ -62,7 +62,8 @@ interface ExportPayload {
 /**
  * งานชนิดอื่น (ไม่ใช่ `export.file`) ที่ผลิตไฟล์ส่งออกเป็นผลพลอยได้ (ST5-T12b ไฟล์สรุปรอบวางบิล) — ลงทะเบียนเพื่อให้ดาวน์โหลดผ่าน
  * `GET /v1/exports/{jobId}` ชุดเดียวกัน (เฉพาะผู้สั่ง · ลิงก์ลายเซ็น 5 นาที · ไฟล์ 7 วัน · หน้าเว็บ `/exports/{jobId}` เดิม)
- * `describe` คืน null = งานนี้ไม่มีไฟล์ (ตอบ 404)
+ * `describe` คืน null = งานนี้ไม่ผลิตไฟล์ (404) · `result` null = งานยังไม่จบ (ไฟล์อ่านจากเอกสาร kind EXPORT ของงานแทน — review L3:
+ * แจ้งเตือนถูกเขียนก่อนงานปิดสถานะ ผู้สั่งกดลิงก์ระหว่างนั้นได้ `running` ไม่ใช่ 404)
  */
 export interface FileJobAdapter {
   describe(job: Job): {
@@ -70,7 +71,7 @@ export interface FileJobAdapter {
     resource: string;
     format: ExportFormat;
     filter: Record<string, string>;
-    result: ExportResult;
+    result: ExportResult | null;
   } | null;
 }
 
@@ -505,7 +506,16 @@ export class ExportsService implements OnModuleInit {
       result = d.result;
     }
     const raw = result?.documentId ? tryDecodeId('document', result.documentId) : null;
-    const doc = raw ? await this.db.tx.storedDocument.findUnique({ where: { id: raw } }) : null;
+    let doc = raw ? await this.db.tx.storedDocument.findUnique({ where: { id: raw } }) : null;
+    if (!result && job.type !== EXPORT_JOB_TYPE) {
+      // งานที่ผลิตไฟล์ยังไม่จบ: ไฟล์ (ถ้าเขียนแล้ว) = เอกสาร EXPORT ของงาน · ยังไม่มีไฟล์ = 404 (แจ้งเตือนส่งพร้อมไฟล์เท่านั้น)
+      doc = await this.db.tx.storedDocument.findFirst({
+        where: { kind: 'EXPORT', entityType: 'job', entityId: job.id },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (!doc || job.status === 'FAILED' || job.status === 'SKIPPED')
+        throw new ProblemException('not_found');
+    }
     return { job, payload, result, doc };
   }
 }

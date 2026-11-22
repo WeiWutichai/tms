@@ -272,9 +272,27 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
       INSERT INTO delivery_order SELECT (jsonb_populate_record(NULL::delivery_order, to_jsonb(x) ||
         jsonb_build_object('id', m.d, 'do_no', 'DO-CL-' || m.no, 'sales_order_id', m.so))).*
         FROM delivery_order x, ${map} WHERE x.id = ${src.id}::uuid`;
+    // บรรทัดสินค้า / บรรทัดราคาของใบสั่ง + บรรทัดของ DO (id ใหม่ = md5(ใบสั่งใหม่ + id เดิม) — อ้างกันได้) ให้ rebuild ของใบสั่งที่คัดลอก
+    // เห็นแหล่งเดียวกับต้นแบบ (ถอด/ยกเลิกแล้วคิดบรรทัดรายได้ใหม่ได้ผลเท่าต้นแบบ)
+    await db.$executeRaw`
+      INSERT INTO sales_order_line SELECT (jsonb_populate_record(NULL::sales_order_line, to_jsonb(x) ||
+        jsonb_build_object('id', md5(m.so::text || x.id::text)::uuid, 'sales_order_id', m.so))).*
+        FROM sales_order_line x, ${map} WHERE x.sales_order_id = ${src.salesOrderId}::uuid`;
+    await db.$executeRaw`
+      INSERT INTO sales_order_charge SELECT (jsonb_populate_record(NULL::sales_order_charge, to_jsonb(x) ||
+        jsonb_build_object('id', md5(m.so::text || x.id::text)::uuid, 'sales_order_id', m.so))).*
+        FROM sales_order_charge x, ${map} WHERE x.sales_order_id = ${src.salesOrderId}::uuid`;
+    await db.$executeRaw`
+      INSERT INTO delivery_order_line SELECT (jsonb_populate_record(NULL::delivery_order_line, to_jsonb(x) ||
+        jsonb_build_object('id', gen_random_uuid(), 'delivery_order_id', m.d,
+          'sales_order_line_id', CASE WHEN x.sales_order_line_id IS NULL THEN NULL
+                                      ELSE md5(m.so::text || x.sales_order_line_id::text)::uuid END))).*
+        FROM delivery_order_line x, ${map} WHERE x.delivery_order_id = ${src.id}::uuid`;
     await db.$executeRaw`
       INSERT INTO revenue_line SELECT (jsonb_populate_record(NULL::revenue_line, to_jsonb(l) ||
-        jsonb_build_object('id', gen_random_uuid(), 'sales_order_id', m.so, 'delivery_order_id', m.d))).*
+        jsonb_build_object('id', gen_random_uuid(), 'sales_order_id', m.so, 'delivery_order_id', m.d,
+          'source_id', CASE WHEN l.source_type = 'SO_CHARGE' AND l.source_id IS NOT NULL
+                            THEN md5(m.so::text || l.source_id::text)::uuid ELSE l.source_id END))).*
         FROM revenue_line l, ${map} WHERE l.delivery_order_id = ${src.id}::uuid AND l.status = 'ACTIVE'`;
     // สถิติของ planner ตามข้อมูลที่เพิ่งเพิ่ม (ระบบจริง autovacuum ทำให้ — test เพิ่มทีเดียวหลายร้อยแถว)
     // (TMS_NO_ANALYZE=1 = ข้าม — ใช้ตรวจว่า query ความพร้อมทนสถิติที่ยังไม่ทัน)
@@ -1250,6 +1268,23 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     });
     expect(note?.link).toBe(`/exports/${id}`);
     expect(note?.body).toMatch(/สรุปรอบวางบิล/);
+    // review L3: แจ้งเตือนถูกเขียนก่อนงานปิดสถานะ — ผู้สั่งกดลิงก์ขณะงานยัง RUNNING ได้ 200 `running` (หน้าเว็บรอแล้วดาวน์โหลด) ไม่ใช่ 404
+    const jrow = await db.job.findUniqueOrThrow({ where: { id: uuid('job', id) } });
+    await db.job.update({
+      where: { id: jrow.id },
+      data: { status: 'RUNNING', result: Prisma.DbNull, finishedAt: null },
+    });
+    const running = (await api(app, tPriced).get(`/v1/exports/${id}`).expect(200)).body;
+    expect(running).toMatchObject({ status: 'running', resource: 'invoice-run-summary' });
+    expect(running.downloadUrl).toBeUndefined();
+    await db.job.update({
+      where: { id: jrow.id },
+      data: {
+        status: jrow.status,
+        result: jrow.result as Prisma.InputJsonValue,
+        finishedAt: jrow.finishedAt,
+      },
+    });
     // เฉพาะผู้สั่ง: คนอื่น (แม้เป็น admin) = 404
     await api(app, admin).get(`/v1/exports/${id}`).expect(404);
     const doc = await db.storedDocument.findUniqueOrThrow({
@@ -1296,5 +1331,156 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     const id4 = await startRun(monthly, tPriced);
     await drain();
     expect((await job(id4, tPriced)).result).toMatchObject({ customers: 0, summary: null });
+  });
+
+  // ---------- review ST5-T12b ----------
+
+  /** ร่าง n DO ของลูกค้าใหม่ (คัดลอก DO) — คืน token ผู้ออก + ร่าง */
+  const bigDraft = async (n: number) => {
+    const c = await newCustomer('MANUAL');
+    await db.customer.update({
+      where: { id: uuid('customer', c) },
+      data: { branchCode: '00000', billingAddress: ADDR },
+    });
+    const tpl = await delivered(c);
+    const dos = [tpl, ...(await cloneDelivered(tpl, n - 1))];
+    const d = await api(app, admin)
+      .post('/v1/invoices')
+      .send({ customerId: c, deliveryOrderIds: dos });
+    expect(d.status, JSON.stringify(d.body).slice(0, 300)).toBe(201);
+    return { c, dos, draft: d.body as { id: string; version: number } };
+  };
+  const billingOf = async (dos: string[]) =>
+    (
+      await db.deliveryOrder.groupBy({
+        by: ['billingStatus', 'status'],
+        where: { id: { in: dos.map((d) => uuid('deliveryOrder', d)) } },
+        _count: true,
+      })
+    ).map((g) => `${g.status}/${g.billingStatus}=${g._count}`);
+
+  for (const n of process.env.TMS_PERF === '1' ? [500, MAX_DOS_PER_INVOICE] : [500])
+    it(`review H1: ยกเลิกร่าง / ถอด DO / ยกเลิกใบที่ออกแล้ว ${n} DO — ภายในเวลา transaction · DO กลับวางบิลได้`, async () => {
+      // ยกเลิกร่าง
+      const a = await bigDraft(n);
+      let t0 = Date.now();
+      const cancel = await api(app, admin)
+        .post(`/v1/invoices/${a.draft.id}/cancel`)
+        .set('If-Match', `"${a.draft.version}"`)
+        .send({ reason: 'ทดสอบยกเลิกร่างใบใหญ่' });
+      const cancelMs = Date.now() - t0;
+      expect(cancel.status, JSON.stringify(cancel.body).slice(0, 300)).toBe(200);
+      expect(await billingOf(a.dos)).toEqual([`UNBILLED/UNBILLED=${n}`]);
+      // ถอด DO ครึ่งหนึ่งออกจากร่าง
+      const b = await bigDraft(n);
+      t0 = Date.now();
+      const rm = await api(app, admin)
+        .post(`/v1/invoices/${b.draft.id}/delivery-orders/remove`)
+        .set('If-Match', `"${b.draft.version}"`)
+        .send({ deliveryOrderIds: b.dos.slice(0, n / 2), reason: 'ทดสอบถอดใบส่งของจำนวนมาก' });
+      const removeMs = Date.now() - t0;
+      expect(rm.status, JSON.stringify(rm.body).slice(0, 300)).toBe(200);
+      expect(rm.body.deliveryOrders).toHaveLength(n / 2);
+      expect(await billingOf(b.dos.slice(0, n / 2))).toEqual([`UNBILLED/UNBILLED=${n / 2}`]);
+      // ออกเอกสารใบ n DO แล้วยกเลิกใบที่ออกแล้ว (void)
+      const v = await bigDraft(n);
+      const fin = await tokenFor(tenantId, '*', `u-fin-${n}`);
+      const issued = await api(app, fin)
+        .post(`/v1/invoices/${v.draft.id}/finalize`)
+        .set('If-Match', `"${v.draft.version}"`);
+      expect(issued.status, JSON.stringify(issued.body).slice(0, 300)).toBe(200);
+      t0 = Date.now();
+      const voided = await api(app, fin)
+        .post(`/v1/invoices/${v.draft.id}/void`)
+        .set('If-Match', `"${issued.body.version}"`)
+        .send({ reason: 'ทดสอบยกเลิกใบที่ออกแล้วใบใหญ่' });
+      const voidMs = Date.now() - t0;
+      expect(voided.status, JSON.stringify(voided.body).slice(0, 300)).toBe(200);
+      expect(voided.body.status).toBe('CANCELLED');
+      expect(await billingOf(v.dos)).toEqual([`UNBILLED/UNBILLED=${n}`]);
+      perfLog(
+        `[perf] ${n} DO: cancel draft = ${cancelMs} ms · remove ${n / 2} DO = ${removeMs} ms · void issued (${n} DO) = ${voidMs} ms`,
+      );
+    });
+
+  it('review M1: ออกเอกสาร + ยกเลิก (3 DO) — event / ประวัติ / outbox ต่อ DO เท่ากับทางทีละใบ', async () => {
+    const sub = await db.integrationSubscription.create({
+      data: {
+        tenantId,
+        kind: 'WEBHOOK',
+        sink: 'demo',
+        eventTypes: ['delivery_order.status_changed'],
+      },
+    });
+    try {
+      const a = await bigDraft(3);
+      const ids = a.dos.map((d) => uuid('deliveryOrder', d));
+      const since = new Date();
+      const fin = await tokenFor(tenantId, '*', 'u-fin-m1');
+      const issued = await api(app, fin)
+        .post(`/v1/invoices/${a.draft.id}/finalize`)
+        .set('If-Match', `"${a.draft.version}"`);
+      expect(issued.status, JSON.stringify(issued.body)).toBe(200);
+      const invId = uuid('invoice', a.draft.id);
+      /** ตรวจ event + ประวัติ + outbox ของการเปลี่ยนสถานะ DO หนึ่งรอบ (from → to ด้วย event) เทียบค่าที่คาดต่อ DO */
+      const check = async (from: string, to: string, event: string, after: Date) => {
+        const evs = await db.domainEvent.findMany({
+          where: {
+            tenantId,
+            type: 'delivery_order.status_changed',
+            localId: { in: ids },
+            occurredAt: { gte: after },
+          },
+        });
+        expect(evs).toHaveLength(3);
+        for (const id of ids) {
+          const ev = evs.find((e) => e.localId === id)!;
+          expect(ev, id).toBeTruthy();
+          expect(ev.entityType).toBe('delivery_order');
+          expect(ev.previousAttributes).toEqual({ status: from });
+          const now = (
+            await api(app, admin)
+              .get(`/v1/delivery-orders/${encodeId('deliveryOrder', id)}`)
+              .expect(200)
+          ).body;
+          expect(now.status).toBe(to);
+          // snapshot = รูปเดียวกับ GET /delivery-orders/{id} หลังเปลี่ยน
+          expect(ev.snapshot).toEqual(now);
+          const h = await db.docStatusHistory.findMany({
+            where: { docType: 'delivery_order', docId: id, event, at: { gte: after } },
+          });
+          expect(h).toHaveLength(1);
+          expect(h[0]).toMatchObject({
+            fromStatus: from,
+            toStatus: to,
+            note: `invoice:${invId}`,
+            actorId: 'u-fin-m1',
+            tenantId,
+          });
+          const ob = await db.integrationOutbox.findMany({ where: { eventId: ev.id } });
+          expect(ob).toHaveLength(1);
+          expect(ob[0]).toMatchObject({
+            subscriptionId: sub.id,
+            entityType: 'delivery_order',
+            localId: id,
+            eventType: 'delivery_order.status_changed',
+            operation: 'delivery_order.status_changed',
+            idempotencyKey: `demo:-:delivery_order.status_changed:${ev.id}`,
+            serializeKey: `demo:-:evt:${ev.id}`,
+          });
+        }
+      };
+      await check('UNBILLED', 'BILLED', 'bill', since);
+      const since2 = new Date();
+      const voided = await api(app, fin)
+        .post(`/v1/invoices/${a.draft.id}/void`)
+        .set('If-Match', `"${issued.body.version}"`)
+        .send({ reason: 'ทดสอบเทียบ event ต่อ DO' });
+      expect(voided.status, JSON.stringify(voided.body)).toBe(200);
+      await check('BILLED', 'UNBILLED', 'unbill', since2);
+    } finally {
+      await db.integrationOutbox.deleteMany({ where: { subscriptionId: sub.id } });
+      await db.integrationSubscription.delete({ where: { id: sub.id } });
+    }
   });
 });
