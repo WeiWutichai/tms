@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { canonicalJson } from '../integration/outbox.service';
 import type { SettlementDto } from '../settlements/settlement.dto';
-import type { CanonicalDocument } from './erp-adapter';
+import type { CanonicalDocument, CanonicalPersonalField } from './erp-adapter';
 
 /**
  * Canonical payload ของเอกสารที่ส่งเข้า ERP (ST8-T16 — ส่วนย่อยของ ST7-T15; docs/01 §7.1–7.3)
@@ -10,6 +10,14 @@ import type { CanonicalDocument } from './erp-adapter';
  * - เงินเป็นสตริงทศนิยม 2 ตำแหน่ง (ห้าม float) · วันที่ `YYYY-MM-DD` (วันตามปฏิทินไทย) · id = uuid ภายใน (ไม่ใช่ id สาธารณะ)
  * - ภาษีเป็น **ประมาณการ** (D-54: เอกสารภาษีออกที่ระบบบัญชี) — `taxEstimated: true` เสมอ
  * - `lines[].serviceItem.id` → ประตู mapping ค่าบริการ ↔ รหัสสินค้า ERP (ST7-T18) ใส่ `externalId` ให้ก่อนถึง adapter
+ * - ST8-T07 เพิ่มช่องของ docs/01 §7.1–7.2 ที่ adapter ตัวแรก (KRS — docs/01 A.3) ต้องใช้: `issuer` ชื่อ/เลขภาษี/ที่อยู่,
+ *   `customer.billingAddress` / `paymentTermDays`, `references.customerRef[]`, บรรทัด: DO id/วันที่, `salesOrder`, `trip`, `route`,
+ *   `serviceItem.code`, `accountCode` — ทั่วไป ไม่ผูก ERP ใด · **เพิ่มช่อง = `sync.hash` ของใบแจ้งหนี้ทุกใบเปลี่ยน** (spec/12 §3 แถว ST8-T07)
+ *   **ไม่ใช่ทุกช่องที่คงที่หลังออกใบ:** `route` (ชื่อสถานที่), `references.customerRef`, `salesOrder` อ่าน**ค่าปัจจุบัน**ของแถว (ไม่มี snapshot ณ วันออก)
+ *   → สร้าง canonical ใหม่จากแถวปัจจุบันหลังออกใบอาจได้ hash ต่างจากที่ส่งไป · **เงื่อนไขบังคับของ ST7-T16:** ส่งซ้ำ/แทนที่/reconcile
+ *   ต้องใช้ canonical ณ วันออก (เก็บตอน finalize หรือใช้ payload ของคำสั่งล่าสุด) ห้ามสร้างใหม่จากแถวปัจจุบัน
+ * - ST8-T07 (PDPA): `trip.driverName` ใส่เฉพาะเมื่อ adapter ของ connector ประกาศ `personalDataNeeds` — ไม่ประกาศ = null
+ *   ยังไม่มี: `references.billingNoteNumber` (ใบวางบิลเกิดหลังออกใบ → hash จะเปลี่ยนเองทั้งที่ใบไม่เปลี่ยน) · `taxInvoiceNumber` / `taxPointAt` (D-54)
  * - `sync.hash` = sha256 ของ payload (ไม่รวม sync) — ST7-T15: ก่อนส่ง sink ใส่รหัสฝั่ง ERP ล่าสุด (ลูกค้า/รถร่วม/ค่าบริการ)
  *   แล้วคำนวณใหม่ = hash ของสิ่งที่ส่งจริง → เก็บใน `external_mapping.last_synced_hash` · hash เท่าเดิม = ไม่ส่งซ้ำ (SKIPPED)
  */
@@ -26,8 +34,21 @@ export interface CanonicalParty {
 
 export interface CanonicalInvoiceLine {
   lineNo: number;
-  deliveryOrder: { number: string } | null;
-  serviceItem: { id: string; externalId?: string | null };
+  /** DO ของบรรทัด (null = บรรทัดที่ไม่ผูก DO) — `id` = uuid ภายใน · `date` = วันที่ DO `YYYY-MM-DD` */
+  deliveryOrder: { id: string; number: string; date: string } | null;
+  /** SO ของ DO — `externalId` = เลขอ้างอิงของต้นทาง (เช่น ERP ที่เป็นต้นทาง SO) */
+  salesOrder: { number: string | null; externalId: string | null } | null;
+  /** เที่ยวของ DO (ค่าที่ตรึงตอนมอบงาน) — ฟิลด์รถ/คนขับอยู่ที่เที่ยวที่เดียว (docs/01 §7.2) · `driverName` = null เว้นแต่ adapter ประกาศว่าต้องใช้ (PDPA) */
+  trip: {
+    number: string | null;
+    vehiclePlate: string | null;
+    driverName: string | null;
+    carrierName: string | null;
+  } | null;
+  /** ชื่อสถานที่ต้นทาง/ปลายทางของ DO — ชื่อปัจจุบันของสถานที่ (ไม่มี snapshot ณ วันออก: เปลี่ยนชื่อสถานที่ภายหลัง = hash เปลี่ยน) */
+  route: { originName: string; destinationName: string } | null;
+  /** `code` = รหัสค่าบริการของ TMS · `externalId` = รหัสสินค้า/บริการฝั่ง ERP (ประตู mapping ST7-T18 ใส่ก่อนถึง adapter) */
+  serviceItem: { id: string; code: string; externalId?: string | null };
   description: string;
   quantity: string;
   unitLabel: string;
@@ -39,6 +60,8 @@ export interface CanonicalInvoiceLine {
   vatAmount: string;
   /** อัตรา % เช่น "1.00" */
   whtRate: string;
+  /** รหัสบัญชีของบรรทัด (`invoice_line.account_code`) — null = ให้ ERP ใช้ค่าตั้งต้น */
+  accountCode: string | null;
 }
 
 export interface CanonicalInvoicePayload extends CanonicalDocument {
@@ -49,10 +72,27 @@ export interface CanonicalInvoicePayload extends CanonicalDocument {
   number: string;
   issueDate: string;
   dueDate: string | null;
-  issuer: { companyId: string; branchId: string; branchCode: string | null };
-  /** `externalId` = รหัสลูกค้าฝั่ง ERP จาก external_mapping CUSTOMER (ST8-T05 `customerErpCode`) — null = ยังไม่ map */
-  customer: CanonicalParty & { externalId: string | null };
+  /** ผู้ออก ณ วันออก (`issuer_snapshot`) — `address` = ข้อความที่อยู่สาขาผู้ออก (null = ไม่มี snapshot) */
+  issuer: {
+    companyId: string;
+    branchId: string;
+    branchCode: string | null;
+    legalName: string;
+    taxId: string | null;
+    address: string | null;
+  };
+  /**
+   * `externalId` = รหัสลูกค้าฝั่ง ERP จาก external_mapping CUSTOMER (ST8-T05 `customerErpCode`) — null = ยังไม่ map
+   * `billingAddress` = ที่อยู่วางบิล ณ วันออก (`customer_snapshot.address`) · `paymentTermDays` = เครดิตเทอมของใบ (`credit_term_days`)
+   */
+  customer: CanonicalParty & {
+    externalId: string | null;
+    billingAddress: string | null;
+    paymentTermDays: number;
+  };
   customerPoNo: string | null;
+  /** เลขอ้างอิงของลูกค้าจาก DO ในใบ (ไม่ซ้ำ เรียงตามบรรทัด) — docs/01 §7.1 `references` */
+  references: { customerRef: string[] };
   totals: {
     subtotalVatable: string;
     subtotalExempt: string;
@@ -130,10 +170,32 @@ const ymd = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : 
 export const CANONICAL_INVOICE_INCLUDE = {
   customer: { select: { code: true, legalName: true } },
   issuingBranch: { select: { branchCode: true } },
+  issuingCompany: { select: { legalName: true, taxId: true } },
   lines: {
     where: { active: true },
     orderBy: { lineNo: 'asc' },
-    include: { deliveryOrder: { select: { doNo: true } } },
+    include: {
+      serviceItem: { select: { code: true } },
+      deliveryOrder: {
+        select: {
+          id: true,
+          doNo: true,
+          doDate: true,
+          customerRef: true,
+          salesOrder: { select: { soNo: true, externalId: true } },
+          trip: {
+            select: {
+              tripNo: true,
+              vehiclePlateSnapshot: true,
+              driverNameSnapshot: true,
+              carrierNameSnapshot: true,
+            },
+          },
+          originSite: { select: { name: true } },
+          destSite: { select: { name: true } },
+        },
+      },
+    },
   },
 } satisfies Prisma.InvoiceInclude;
 
@@ -144,17 +206,31 @@ export type InvoiceForCanonical = Prisma.InvoiceGetPayload<{
 /**
  * ใบแจ้งหนี้ที่ออกเลขแล้ว → canonical (ไม่มี I/O) — ข้อมูลลูกค้าจาก snapshot ณ วันออก (BIL-196)
  * `customerExternalId` = รหัสลูกค้าฝั่ง ERP ของ connector (ไม่มี connector / ยังไม่ map = null)
+ * `personalData` = ข้อมูลส่วนบุคคลแบบตัวเลือกที่ adapter ของ connector ประกาศว่าต้องใช้ (ไม่ระบุ = ไม่ใส่ — ชื่อคนขับ = null)
  */
 export function canonicalInvoice(
   inv: InvoiceForCanonical,
   customerExternalId: string | null,
+  personalData: readonly CanonicalPersonalField[] = [],
 ): CanonicalInvoicePayload {
+  const withDriver = personalData.includes('trip.driverName');
   const snap = (inv.customerSnapshot ?? {}) as {
     code?: string;
     name?: string;
     taxId?: string | null;
     branchCode?: string | null;
+    address?: string | null;
   };
+  const iss = (inv.issuerSnapshot ?? {}) as {
+    name?: string;
+    taxId?: string | null;
+    address?: string | null;
+  };
+  const customerRef: string[] = [];
+  for (const l of inv.lines) {
+    const ref = l.deliveryOrder?.customerRef?.trim();
+    if (ref && !customerRef.includes(ref)) customerRef.push(ref);
+  }
   return withSyncHash({
     kind: 'invoice',
     id: inv.id,
@@ -165,6 +241,9 @@ export function canonicalInvoice(
       companyId: inv.issuingCompanyId,
       branchId: inv.issuingBranchId,
       branchCode: inv.issuingBranch?.branchCode ?? null,
+      legalName: iss.name ?? inv.issuingCompany.legalName,
+      taxId: iss.taxId ?? inv.issuingCompany.taxId ?? null,
+      address: iss.address ?? null,
     },
     customer: {
       id: inv.customerId,
@@ -173,8 +252,11 @@ export function canonicalInvoice(
       taxId: snap.taxId ?? null,
       branchCode: snap.branchCode ?? null,
       externalId: customerExternalId,
+      billingAddress: snap.address ?? null,
+      paymentTermDays: inv.creditTermDays,
     },
     customerPoNo: inv.customerPoNo,
+    references: { customerRef },
     totals: {
       subtotalVatable: money(inv.subtotalVatable),
       subtotalExempt: money(inv.subtotalExempt),
@@ -184,20 +266,34 @@ export function canonicalInvoice(
       whtExpected: money(inv.whtExpectedAmount),
     },
     taxEstimated: true,
-    lines: inv.lines.map((l) => ({
-      lineNo: l.lineNo,
-      deliveryOrder: l.deliveryOrder?.doNo ? { number: l.deliveryOrder.doNo } : null,
-      serviceItem: { id: l.serviceItemId },
-      description: l.description,
-      quantity: new Prisma.Decimal(l.quantity).toString(),
-      unitLabel: l.unitLabel,
-      unitPrice: new Prisma.Decimal(l.unitPrice).toString(),
-      discount: money(l.discount),
-      amount: money(l.amount),
-      vatType: l.vatType,
-      vatAmount: money(l.vatAmount),
-      whtRate: money(l.whtRate),
-    })),
+    lines: inv.lines.map((l) => {
+      const d = l.deliveryOrder?.doNo ? l.deliveryOrder : null;
+      return {
+        lineNo: l.lineNo,
+        deliveryOrder: d ? { id: d.id, number: d.doNo!, date: ymd(d.doDate)! } : null,
+        salesOrder: d ? { number: d.salesOrder.soNo, externalId: d.salesOrder.externalId } : null,
+        trip: d?.trip
+          ? {
+              number: d.trip.tripNo,
+              vehiclePlate: d.trip.vehiclePlateSnapshot,
+              driverName: withDriver ? d.trip.driverNameSnapshot : null,
+              carrierName: d.trip.carrierNameSnapshot,
+            }
+          : null,
+        route: d ? { originName: d.originSite.name, destinationName: d.destSite.name } : null,
+        serviceItem: { id: l.serviceItemId, code: l.serviceItem.code },
+        description: l.description,
+        quantity: new Prisma.Decimal(l.quantity).toString(),
+        unitLabel: l.unitLabel,
+        unitPrice: new Prisma.Decimal(l.unitPrice).toString(),
+        discount: money(l.discount),
+        amount: money(l.amount),
+        vatType: l.vatType,
+        vatAmount: money(l.vatAmount),
+        whtRate: money(l.whtRate),
+        accountCode: l.accountCode,
+      };
+    }),
   });
 }
 

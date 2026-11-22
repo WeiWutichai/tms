@@ -90,7 +90,15 @@ export interface ResolvedMasterCode {
   code: string;
   /** ชื่อตามผัง (เช่น `saleName` ของ KRS) — ไม่ได้มาจากผัง = null */
   name: string | null;
+  /** ST8-T07 true = หาเจอในผังรหัสที่นำเข้าแล้ว · ไม่มี/false = ค่าดิบที่ยังไม่ได้ตรวจกับผัง (ช่องไม่บังคับที่ยังไม่มีผัง / รหัสคู่ค้า) */
+  fromCatalogue?: boolean;
 }
+
+/**
+ * ST8-T07 ข้อมูลส่วนบุคคลใน canonical ที่เป็น "ตัวเลือก" (PDPA — ส่งออกนอก TMS เท่าที่ปลายทางต้องใช้)
+ * core **ไม่ใส่** ลง payload ของคำสั่ง เว้นแต่ adapter ของ connector ประกาศใน `ErpAdapter.personalDataNeeds`
+ */
+export type CanonicalPersonalField = 'trip.driverName';
 
 /** ST8-T06 ผลตรวจต่อชนิด (key = ค่าในเอกสารแบบ trim + ตัวพิมพ์เล็ก) */
 export type ResolvedMasterCodes = Readonly<
@@ -433,6 +441,11 @@ export interface ErpAdapter {
    * ไม่มี = ผู้ดูแลเลือกเอง (ST7-T17)
    */
   readonly fixedSystemOfRecord?: { readonly taxDocumentOwner?: SorOwner };
+  /**
+   * ST8-T07 ข้อมูลส่วนบุคคลแบบตัวเลือกที่ adapter ต้องใช้ใน canonical (เช่น ชื่อคนขับ) — ไม่ประกาศ = core ไม่ใส่ลง payload ของคำสั่ง
+   * (ประกาศเท่าที่สัญญาของปลายทางบังคับเท่านั้น)
+   */
+  readonly personalDataNeeds?: readonly CanonicalPersonalField[];
 }
 
 /** capability → ชื่อ method (ธงไม่มี method) */
