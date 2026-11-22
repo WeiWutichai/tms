@@ -12487,7 +12487,7 @@
               {
                 "key": "X-Step-Up",
                 "value": "",
-                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user`",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user`",
                 "disabled": true
               },
               {
@@ -12703,7 +12703,7 @@
               {
                 "key": "X-Step-Up",
                 "value": "",
-                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user`",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user`",
                 "disabled": true
               },
               {
@@ -12760,7 +12760,7 @@
               {
                 "key": "X-Step-Up",
                 "value": "",
-                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user`",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user`",
                 "disabled": true
               },
               {
@@ -12848,7 +12848,7 @@
               {
                 "key": "X-Step-Up",
                 "value": "",
-                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อเปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user`",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user`",
                 "disabled": true
               },
               {

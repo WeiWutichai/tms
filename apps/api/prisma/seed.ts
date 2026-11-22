@@ -5,6 +5,8 @@
  * ข้อมูลสมมติทั้งหมด: ชื่อขึ้นต้น "ตัวอย่าง" และเลขผู้เสียภาษีขึ้นต้น 0000000000 (ไม่ใช่เลขที่กรมสรรพากรออกจริง)
  * stage ถัดไปเพิ่ม seed ของตัวเองในไฟล์ prisma/seed/*.ts แล้วเรียกจากที่นี่
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import { requiresTwoFactor, ROLE_CODES, SYSTEM_ROLES, type RoleCode } from '@tms/domain';
 import { signDevToken } from '../src/auth/auth.guard';
@@ -144,8 +146,22 @@ const USERS: Array<{ id: string; tenantId: string; email: string; name: string; 
     },
   ];
 
+/** NODE_ENV จาก .env ที่ราก repo (ไฟล์ที่ตั้งเองตอนติดตั้ง — .env.example มี NODE_ENV=development) · ไม่มี = undefined */
+function nodeEnvFromDotenv(): string | undefined {
+  try {
+    const text = readFileSync(resolve(__dirname, '../../../.env'), 'utf8');
+    return /^NODE_ENV=(\S+)\s*$/m.exec(text)?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
 async function main() {
   // seed มีรหัสผ่าน/secret 2FA/อุปกรณ์ที่จำไว้ของผู้ใช้เดโม — ห้ามรันนอกเครื่อง dev/test เด็ดขาด (review T05 S3)
+  // D-78 review: ต้องตั้ง NODE_ENV ชัด ๆ (env หรือ .env ของ repo) — ไม่ตั้ง = ปฏิเสธ (ไม่ใช้ค่าเริ่มต้น development)
+  process.env.NODE_ENV ??= nodeEnvFromDotenv();
+  if (!process.env.NODE_ENV)
+    throw new Error('seed: NODE_ENV is not set — set NODE_ENV=development or test explicitly');
   if (!isLocalEnv()) throw new Error('seed runs only with NODE_ENV=development or test');
   const db = new PrismaClient({ datasources: { db: { url: process.env.PLATFORM_DATABASE_URL } } });
   await ensurePlanCatalog(db);

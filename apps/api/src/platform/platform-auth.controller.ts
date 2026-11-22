@@ -1,4 +1,5 @@
-import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Req } from '@nestjs/common';
+import type { Request } from 'express';
 import { ApiBearerAuth, ApiOkResponse, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsEmail, IsString, Matches, MaxLength } from 'class-validator';
@@ -12,6 +13,7 @@ import {
   verifyPlatformChallenge,
 } from '../auth/tokens';
 import { verifyTotp } from '../auth/totp';
+import { recordAttempt } from '../auth/throttle';
 import { FieldCipher } from '../common/crypto';
 import { PlatformAuth, Public } from '../common/decorators';
 import { ProblemException } from '../common/problem';
@@ -144,23 +146,40 @@ export class PlatformAuthController {
   @HttpCode(200)
   @ApiBearerAuth()
   @ApiOkResponse({ type: StepUpDto })
-  async stepUp(@Body() body: PlatformStepUpRequestDto): Promise<StepUpDto> {
+  async stepUp(@Body() body: PlatformStepUpRequestDto, @Req() req: Request): Promise<StepUpDto> {
     const db = this.prisma.platform;
     const id = requestContext.require().platformUser!.id;
     const u = await db.platformUser.findUniqueOrThrow({ where: { id } });
-    if (u.lockedUntil && u.lockedUntil > new Date()) throw new ProblemException('account_locked');
+    // บันทึกเหตุการณ์ความปลอดภัย (สำเร็จ/ไม่สำเร็จ) ใน login_attempt — ไม่มี tenant · reason แยก ไม่นับเข้าเพดานล็อกของลูกค้า
+    // (ล็อกของ Console นับที่ platform_user.failed_logins)
+    const log = (success: boolean, reason: string) =>
+      recordAttempt(
+        db,
+        u.email.toLowerCase(),
+        { ip: req.ip ?? 'unknown', userAgent: req.header('user-agent') ?? undefined },
+        { success, reason, userId: u.id },
+      ).catch(() => undefined);
+    if (u.lockedUntil && u.lockedUntil > new Date()) {
+      await log(false, 'platform_step_up_locked');
+      throw new ProblemException('account_locked');
+    }
     const secret = (this.cipher ??= new FieldCipher()).decrypt(u.totpSecret);
     const last = u.totpLastStep === null ? null : Number(u.totpLastStep);
     const step = verifyTotp(secret, body.code, last);
     if (step === null) {
       await this.fail(u.id);
+      await log(false, 'platform_step_up_failed');
       throw new ProblemException('invalid_otp');
     }
     const claimed = await db.platformUser.updateMany({
       where: { id: u.id, OR: [{ totpLastStep: null }, { totpLastStep: { lt: BigInt(step) } }] },
       data: { totpLastStep: BigInt(step), failedLogins: 0 },
     });
-    if (claimed.count !== 1) throw new ProblemException('invalid_otp');
+    if (claimed.count !== 1) {
+      await log(false, 'platform_step_up_failed');
+      throw new ProblemException('invalid_otp');
+    }
+    await log(true, 'platform_step_up_ok');
     return {
       stepUpToken: await signPlatformStepUpToken(u.id, u.tokenVersion),
       expiresIn: STEP_UP_TTL_SECONDS,

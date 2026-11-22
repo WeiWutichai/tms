@@ -157,7 +157,10 @@ export class CarriersController {
 
   @Post()
   @RequireScope('master:write')
-  @StepUpWhen('เปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)', 'user')
+  @StepUpWhen(
+    'ส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง)',
+    'user',
+  )
   @ApiHeader({ name: 'Idempotency-Key', required: false })
   @ApiCreatedResponse({ type: CarrierDto })
   async create(
@@ -172,7 +175,10 @@ export class CarriersController {
   @Put('external/:externalId')
   @ApiExternalPut()
   @RequireScope('master:write')
-  @StepUpWhen('เปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)', 'user')
+  @StepUpWhen(
+    'ส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง)',
+    'user',
+  )
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({
     type: CarrierDto,
@@ -254,7 +260,10 @@ export class CarriersController {
   @Patch('external/:externalId')
   @ApiExternalPatch()
   @RequireScope('master:write')
-  @StepUpWhen('เปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)', 'user')
+  @StepUpWhen(
+    'ส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง)',
+    'user',
+  )
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOperation({
     summary: 'แก้บางช่องด้วย externalId',
@@ -274,7 +283,10 @@ export class CarriersController {
   @Patch(':id')
   @TenantResource('carrier')
   @RequireScope('master:write')
-  @StepUpWhen('เปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)', 'user')
+  @StepUpWhen(
+    'ส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง)',
+    'user',
+  )
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOkResponse({ type: CarrierDto })
   async update(

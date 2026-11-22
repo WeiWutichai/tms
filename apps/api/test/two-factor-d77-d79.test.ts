@@ -162,6 +162,23 @@ describe('2FA ต่อจาก D-67 (D-77 / D-78 / D-79)', () => {
       });
       expect(again.body.code).toBe('step_up_required');
       staffToken = fresh;
+      // บันทึกเหตุการณ์: ผิด 1 + สำเร็จ 1 (ไม่มี tenant — ไม่ปนประวัติ login ของลูกค้า)
+      const ev = await db.loginAttempt.findMany({
+        where: { userId: staffId, reason: { startsWith: 'platform_step_up' } },
+        orderBy: { createdAt: 'asc' },
+      });
+      expect(ev.map((e) => [e.reason, e.success, e.tenantId])).toEqual([
+        ['platform_step_up_failed', false, null],
+        ['platform_step_up_ok', true, null],
+      ]);
+      // token step-up ของ Console ใช้กับ route ของลูกค้า (D-67) ไม่ได้
+      const tenantRoute = await request(srv())
+        .post('/v1/api-keys')
+        .set('Authorization', `Bearer ${admin}`)
+        .set('X-Step-Up', ok.body.stepUpToken)
+        .send({ name: 'ใช้ step-up ของ Console', scopes: ['master:read'] });
+      expect(tenantRoute.status).toBe(403);
+      expect(tenantRoute.body.code).toBe('step_up_required');
     });
 
     it('เปิด connector: ส่ง credentials หรือ settings ต้อง step-up · ยืนยันแล้วเปิดได้', async () => {
