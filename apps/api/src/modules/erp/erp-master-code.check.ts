@@ -119,7 +119,7 @@ export async function checkMasterCodeRefs(
       matchByName: ref.matchByName === true,
     });
     if (r.status === 'FOUND') {
-      put(ref.kind, value!, { code: r.code, name: r.name });
+      put(ref.kind, value!, { code: r.code, name: r.name, fromCatalogue: true });
       continue;
     }
     gap(

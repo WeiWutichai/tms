@@ -122,6 +122,9 @@ builder สร้าง body ของ `POST /invoice` / `PUT /invoice/{transact
 | รายการที่ไม่ผูก DO (contract บังคับ `flowNo`…`toWay` ทุกรายการ) | ไม่สร้าง payload (`krs_line_without_do`) | `lineWithoutDo: 'placeholder'`, `placeholderText` |
 | รายการที่มีส่วนลด (ไม่มีช่องส่วนลด; KRS คิดยอด = จำนวน × ราคา) | ไม่สร้าง payload (`krs_discount_unsupported`) | `discount: 'net-unit-price'` (เฉพาะหารลงตัว) |
 | เที่ยวไม่มีชื่อคนขับ (รถร่วม) — `carPerson` บังคับ | ไม่สร้าง payload | `carPersonFallback: 'carrierName'` |
+| เที่ยวไม่มีทะเบียนรถ — `carId` บังคับ | ไม่สร้าง payload | `carIdFallback: 'placeholder'` (ใช้ `placeholderText`) |
+| `accountCode` เมื่อยังไม่ได้นำเข้าผังบัญชีของ KRS | ไม่ส่ง key (A.3: KRS กำหนด default) — ส่งเฉพาะค่าที่หาเจอในผัง ACCOUNT | — |
+| KRS ปัดยอดต่อรายการ / ยอดรวมอย่างไร (mock: `amountRounding`) | builder ไม่ส่งยอด — คืน `expectedAmount` + `expectedLines` ไว้เทียบ (จับคู่ `lineId` + `flowNo`) | — |
 | `deliveryAddress` ("ที่อยู่หลักของลูกค้า") | ที่อยู่วางบิล (เท่ากับ `address`) | `deliveryAddress: 'empty'` |
 | `entryBy` (ต้องเป็น user ใน ERP ไหม) | `TMS` | `entryBy` |
 | `saleName` เมื่อผังรหัสไม่มีชื่อ | สตริงว่าง | — |

@@ -19,7 +19,10 @@ import {
   krsNonWhitelistedKeys,
   krsNumber,
 } from '../src/erp-adapters/krs/krs-invoice-payload';
+import { AccountSystemAdapter } from '../src/erp-adapters/accountsystem/accountsystem.adapter';
+import { DemoAdapter } from '../src/erp-adapters/demo/demo.adapter';
 import { krsMasterCodeRefs } from '../src/erp-adapters/krs/krs-master-codes';
+import { KrsAdapter } from '../src/erp-adapters/krs/krs.adapter';
 import {
   type CanonicalInvoiceLine,
   type CanonicalInvoicePayload,
@@ -28,6 +31,7 @@ import {
   withSyncHash,
 } from '../src/modules/erp/canonical';
 import type {
+  ErpAdapter,
   ErpContext,
   MasterCodeRefKind,
   ResolvedMasterCode,
@@ -85,40 +89,59 @@ function gate(
       continue;
     }
     const r = resolveErpMasterCode(ref.value, options ?? [], { matchByName: !!ref.matchByName });
-    if (r.status === 'FOUND') put(ref.kind, ref.value, { code: r.code, name: r.name });
+    if (r.status === 'FOUND')
+      put(ref.kind, ref.value, { code: r.code, name: r.name, fromCatalogue: true });
   }
   return { config, masterCodes: out as ResolvedMasterCodes };
 }
 
 const UNITS = ['เที่ยว', 'ตัน', 'กม.'];
+const ROUTES = [
+  ['คลังบางนา', 'ท่าเรือแหลมฉบัง'],
+  ['โรงงานตัวอย่าง ระยอง', 'ศูนย์กระจายสินค้าวังน้อย'],
+  ['ICD ลาดกระบัง', 'นิคมอมตะซิตี้ ชลบุรี'],
+  ['คลังสินค้าตัวอย่าง ขอนแก่น', 'ท่าเรือกรุงเทพ'],
+] as const;
+const DRIVERS = ['สมชาย ตัวอย่าง', 'สมหญิง ตัวอย่าง', 'วิชัย ตัวอย่าง', 'A. Driver'];
+const pad = (n: number) => String(n).padStart(5, '0');
+/**
+ * รายการตัวอย่างแบบผสม (ข้อมูลปลอม): หลายเส้นทาง/คนขับ · ทุก 7 รายการเป็นเที่ยวรถร่วม (มีชื่อคนขับ + ชื่อรถร่วม)
+ * · รายการที่ 5, 10, … เป็นค่าบริการเสริมของ DO เดียวกับรายการก่อนหน้า (`flowNo` ซ้ำในใบ)
+ */
 function line(n: number, extra: Partial<CanonicalInvoiceLine> = {}): CanonicalInvoiceLine {
-  const qty = n % 3 === 1 ? '12.5000' : '1.0000';
-  const price = n % 3 === 1 ? '350.00' : '6500.00';
+  const surcharge = n > 1 && n % 5 === 0;
+  const doNo = surcharge ? n - 1 : n; // ค่าบริการเสริมใช้ DO ของรายการก่อนหน้า
+  const qty = surcharge ? '2.0000' : n % 3 === 1 ? '12.5000' : '1.0000';
+  const price = surcharge ? '250.00' : n % 3 === 1 ? '350.00' : '6500.00';
+  const [originName, destinationName] = ROUTES[doNo % ROUTES.length]!;
+  const carrier = doNo % 7 === 0;
   return {
     lineNo: n,
     deliveryOrder: {
-      id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
-      number: `DO-2611-${String(n).padStart(5, '0')}`,
-      date: '2026-11-03',
+      id: `00000000-0000-4000-8000-${String(doNo).padStart(12, '0')}`,
+      number: `DO-2611-${pad(doNo)}`,
+      date: `2026-11-${String(1 + (doNo % 28)).padStart(2, '0')}`,
     },
-    salesOrder: { number: `SO-2611-${String(n).padStart(5, '0')}`, externalId: null },
+    salesOrder: { number: `SO-2611-${pad(doNo)}`, externalId: null },
     trip: {
-      number: `TR-2611-${String(n).padStart(5, '0')}`,
-      vehiclePlate: `70-${String(1000 + (n % 9000))}`,
-      driverName: 'สมชาย ตัวอย่าง',
-      carrierName: null,
+      number: `TR-2611-${pad(doNo)}`,
+      vehiclePlate: `70-${String(1000 + (doNo % 9000))}`,
+      driverName: DRIVERS[doNo % DRIVERS.length]!,
+      carrierName: carrier ? 'หจก. ตัวอย่างรถร่วม' : null,
     },
-    route: { originName: 'คลังบางนา', destinationName: 'ท่าเรือแหลมฉบัง' },
-    serviceItem: { id: 'si-freight', code: 'FREIGHT', externalId: 'IT-FRT' },
-    description: `ค่าขนส่ง คลังบางนา – ท่าเรือแหลมฉบัง (${n})`,
+    route: { originName, destinationName },
+    serviceItem: surcharge
+      ? { id: 'si-wait', code: 'WAIT', externalId: 'IT-WAIT' }
+      : { id: 'si-freight', code: 'FREIGHT', externalId: 'IT-FRT' },
+    description: surcharge ? `ค่ารอ (${n})` : `ค่าขนส่ง ${originName} – ${destinationName} (${n})`,
     quantity: qty,
-    unitLabel: UNITS[n % 3]!,
+    unitLabel: surcharge ? 'เที่ยว' : UNITS[n % 3]!,
     unitPrice: price,
     discount: '0.00',
     amount: new Prisma.Decimal(qty).mul(price).toFixed(2),
-    vatType: 'EXEMPT_TRANSPORT',
+    vatType: surcharge ? 'VAT_7' : 'EXEMPT_TRANSPORT',
     vatAmount: '0.00',
-    whtRate: '1.00',
+    whtRate: surcharge ? '3.00' : '1.00',
     accountCode: null,
     ...extra,
   };
@@ -324,14 +347,33 @@ describe('KRS payload builder — ใบ 446 รายการ (เกณฑ์
       mainUnits: 'TON',
       unitPrice: 350,
       flowNo: 'DO-2611-00001',
-      flowDate: '2026-11-03',
+      flowDate: '2026-11-02',
       carId: '70-1001',
-      carPerson: 'สมชาย ตัวอย่าง',
-      frWay: 'คลังบางนา',
-      toWay: 'ท่าเรือแหลมฉบัง',
+      carPerson: 'สมหญิง ตัวอย่าง',
+      frWay: 'โรงงานตัวอย่าง ระยอง',
+      toWay: 'ศูนย์กระจายสินค้าวังน้อย',
       itemCode: 'IT-FRT',
-      description: 'ค่าขนส่ง คลังบางนา – ท่าเรือแหลมฉบัง (1)',
+      description: 'ค่าขนส่ง โรงงานตัวอย่าง ระยอง – ศูนย์กระจายสินค้าวังน้อย (1)',
     });
+    // ใบผสม: หลายเส้นทาง/คนขับ · ค่าบริการเสริมใช้ DO เดียวกับรายการก่อนหน้า → `flowNo` ซ้ำในใบ (ไม่รวมรายการ)
+    const flowNos = d.body.lines.map((l) => l.flowNo);
+    expect(new Set(flowNos).size).toBeLessThan(flowNos.length);
+    expect(d.body.lines[4]).toMatchObject({
+      lineId: 5,
+      flowNo: 'DO-2611-00004',
+      itemCode: 'IT-WAIT',
+    });
+    expect(new Set(d.body.lines.map((l) => l.frWay)).size).toBe(4);
+    expect(new Set(d.body.lines.map((l) => l.carPerson)).size).toBe(4);
+    // ยอดต่อรายการที่เก็บไว้เทียบ (ST8-T10 จับคู่ด้วย lineId + flowNo เพราะ flowNo ซ้ำได้) — ไม่อยู่ใน body
+    expect(d.expectedLines).toHaveLength(446);
+    expect(d.expectedLines.slice(3, 5)).toEqual([
+      { lineId: 4, flowNo: 'DO-2611-00004', amount: '4375.00' },
+      { lineId: 5, flowNo: 'DO-2611-00004', amount: '500.00' },
+    ]);
+    expect(
+      d.expectedLines.reduce((t, l) => t.plus(l.amount), new Prisma.Decimal(0)).toFixed(2),
+    ).toBe(d.expectedAmount);
 
     const res = await post(d.body);
     expect(res.status).toBe(201);
@@ -421,8 +463,17 @@ describe('KRS payload builder — รูปแบบค่า', () => {
       [...SCHEMA.properties.lines.items.required].sort().concat('lineId').sort(),
     );
     expect(schemaOk(body)).toBe(true);
-    const withAcc = docs(build(invoice([line(1, { accountCode: '4100-01' })])))[0]!.body;
-    expect(withAcc.lines[0]!.accountCode).toBe('4100-01');
+    // accountCode ที่ยังไม่ได้ตรวจกับผัง ACCOUNT (ยังไม่นำเข้าผัง) = ไม่ส่ง key — ให้ KRS ใช้ค่าตั้งต้น (A.3)
+    const acc = invoice([line(1, { accountCode: '4100-01' })]);
+    const noCatalogue = docs(build(acc))[0]!.body;
+    expect('accountCode' in noCatalogue.lines[0]!).toBe(false);
+    expect(schemaOk(noCatalogue)).toBe(true);
+    // นำเข้าผัง ACCOUNT แล้วและค่าอยู่ในผัง = ส่งรหัสตามผัง
+    const withCatalogue = { ...CATALOGUE, ACCOUNT: [{ code: '4100-01', name: 'รายได้ค่าขนส่ง' }] };
+    expect(
+      docs(buildKrsInvoicePayload(gate(acc, CONFIG, withCatalogue), acc))[0]!.body.lines[0]!
+        .accountCode,
+    ).toBe('4100-01');
   });
 });
 
@@ -451,7 +502,7 @@ describe('KRS payload builder — รหัส master (ST8-T06 → builder)', ()
     expect(r.problem.fields![2]!.message).toContain('ชั่วโมง');
   });
 
-  it('itemCode / accountCode: มีผังแล้วค่าไม่อยู่ในผัง = ขาด · ยังไม่มีผัง = ส่งค่าดิบ', () => {
+  it('itemCode / accountCode: มีผังแล้วค่าไม่อยู่ในผัง = ขาด · ยังไม่มีผัง: itemCode ส่งค่าจาก mapping, accountCode ไม่ส่ง', () => {
     const doc = invoice([line(1, { accountCode: '9999' })]);
     const strict: Catalogue = {
       ...CATALOGUE,
@@ -464,7 +515,8 @@ describe('KRS payload builder — รหัส master (ST8-T06 → builder)', ()
       { kind: 'ACCOUNT', value: '9999', fields: ['lines[0].accountCode'] },
     ]);
     const raw = docs(build(doc))[0]!.body.lines[0]!;
-    expect(raw).toMatchObject({ itemCode: 'IT-FRT', accountCode: '9999' });
+    expect(raw.itemCode).toBe('IT-FRT');
+    expect('accountCode' in raw).toBe(false);
   });
 
   it('ไม่มีผลตรวจจาก core เลย (ctx.masterCodes ว่าง) = ไม่ส่งรหัสที่ไม่ได้ตรวจ', () => {
@@ -619,6 +671,16 @@ describe('KRS payload builder — จุดที่สัญญาไม่ก�
     ).toBe('หจก. รถร่วม ก');
   });
 
+  it('ทะเบียนรถว่าง (รถร่วมยังไม่ระบุรถ): ค่าเริ่ม = ไม่สร้าง · placeholder = ใส่ค่าที่ตั้งไว้', () => {
+    const l = line(1, {
+      trip: { number: 'T', vehiclePlate: null, driverName: 'สมชาย', carrierName: 'หจก. รถร่วม ก' },
+    });
+    expect(codes(build(invoice([l])))).toEqual(['lines[0].carId:required']);
+    const body = docs(build(invoice([l]), { carIdFallback: 'placeholder' }))[0]!.body;
+    expect(body.lines[0]!.carId).toBe('-');
+    expect(schemaOk(body)).toBe(true);
+  });
+
   it('deliveryAddress / entryBy / tmsVoucherNo ตั้งค่าได้ · ไม่มีที่อยู่ = สตริงว่าง (contract รับ)', () => {
     const doc = invoice([line(1)]);
     const body = docs(
@@ -727,7 +789,7 @@ describe('canonical invoice — ช่องที่เพิ่มใน ST8-T
     }) as unknown as InvoiceForCanonical;
 
   it('issuer / ลูกค้า / references / DO / SO / เที่ยว / เส้นทาง / รหัสค่าบริการ / รหัสบัญชี', () => {
-    const c = canonicalInvoice(row(), 'PP-C1');
+    const c = canonicalInvoice(row(), 'PP-C1', ['trip.driverName']);
     expect(c.issuer).toEqual({
       companyId: 'co',
       branchId: 'br',
@@ -764,14 +826,33 @@ describe('canonical invoice — ช่องที่เพิ่มใน ST8-T
     });
   });
 
+  it('PDPA: ชื่อคนขับลง canonical เฉพาะเมื่อ adapter ประกาศว่าต้องใช้ (KRS ประกาศ — สัญญาบังคับ carPerson)', () => {
+    const plain = canonicalInvoice(row(), 'PP-C1');
+    expect(plain.lines[0]!.trip).toEqual({
+      number: 'TR-2611-00003',
+      vehiclePlate: '70-1234',
+      driverName: null,
+      carrierName: null,
+    });
+    expect(JSON.stringify(plain)).not.toContain('สมชาย');
+    const krs = new KrsAdapter();
+    expect(krs.personalDataNeeds).toEqual(['trip.driverName']);
+    expect(canonicalInvoice(row(), 'PP-C1', krs.personalDataNeeds).lines[0]!.trip!.driverName).toBe(
+      'สมชาย ตัวอย่าง',
+    );
+    const others: ErpAdapter[] = [new AccountSystemAdapter(), new DemoAdapter()];
+    for (const o of others) expect(o.personalDataNeeds).toBeUndefined();
+  });
+
   it('ช่องใหม่อยู่ใน sync.hash (ค่าเปลี่ยน = hash เปลี่ยน) และ canonical → payload KRS ได้ตรง A.3', () => {
-    const a = canonicalInvoice(row(), 'PP-C1');
+    const need = ['trip.driverName'] as const;
+    const a = canonicalInvoice(row(), 'PP-C1', need);
     const changed = row();
     (
       changed.lines[0]!.deliveryOrder as { trip: { vehiclePlateSnapshot: string } }
     ).trip.vehiclePlateSnapshot = '70-9999';
-    expect(canonicalInvoice(changed, 'PP-C1').sync!.hash).not.toBe(a.sync!.hash);
-    expect(canonicalInvoice(row(), 'PP-C1').sync!.hash).toBe(a.sync!.hash);
+    expect(canonicalInvoice(changed, 'PP-C1', need).sync!.hash).not.toBe(a.sync!.hash);
+    expect(canonicalInvoice(row(), 'PP-C1', need).sync!.hash).toBe(a.sync!.hash);
 
     const one = { ...a, lines: [a.lines[0]!] } as CanonicalInvoicePayload;
     const body = docs(buildKrsInvoicePayload(gate(one), one))[0]!.body;
@@ -796,7 +877,6 @@ describe('canonical invoice — ช่องที่เพิ่มใน ST8-T
       frWay: 'คลังบางนา',
       toWay: 'ท่าเรือแหลมฉบัง',
       description: 'ค่าขนส่ง',
-      accountCode: '4100-01',
     });
   });
 });

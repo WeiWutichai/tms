@@ -21,6 +21,7 @@ import {
  * - ตัวเลข (`mainQuantity`, `unitPrice`): contract เป็น JSON number → แปลงจากสตริงทศนิยมของ canonical **เฉพาะเมื่อแปลงกลับได้ค่าเดิมทุกหลัก**
  *   (ไม่ปัด ไม่ใช้ float คำนวณ) — แปลงแล้วเพี้ยน = ไม่ส่ง (`number_not_exact`)
  * - ไม่ส่งส่วนลด/ยอดเงิน/VAT (A.3: KRS คำนวณเอง) — `expectedAmount` ของแต่ละใบ = ผลรวม `amount` ของ canonical เก็บไว้เทียบ (ST8-T10)
+ * - `accountCode`: ส่งเฉพาะค่าที่หาเจอในผัง ACCOUNT ที่นำเข้าแล้ว — ยังไม่มีผัง = ไม่ส่ง key (A.3: ให้ KRS กำหนด default)
  * - รหัส master: ใช้ค่าที่ core ตรวจกับผังรหัสแล้ว (`ctx.masterCodes` — ST8-T06 `krsMasterCodeRefs`) · ค่าที่ไม่ได้ผ่านการตรวจ = ไม่ส่ง
  *   คืนรายการรหัสที่ขาดใน `missingMasterCodes`
  * - เกินเพดานขนาด → แบ่งเป็นหลายใบตามลำดับรายการ (จุดตัดคงที่: เติมทีละรายการจนเต็ม) หัวเอกสารซ้ำทุกใบ
@@ -122,6 +123,8 @@ export interface KrsPayloadOptions {
   netUnitPriceMaxScale: number;
   /** `carPerson` เมื่อเที่ยวไม่มีชื่อคนขับ (เช่น รถร่วม): `none` = ไม่สร้าง payload · `carrierName` = ใช้ชื่อรถร่วม */
   carPersonFallback: 'none' | 'carrierName';
+  /** `carId` เมื่อเที่ยวไม่มีทะเบียนรถ (เช่น รถร่วมที่ยังไม่ระบุรถ): `none` = ไม่สร้าง payload · `placeholder` = ใส่ `placeholderText` */
+  carIdFallback: 'none' | 'placeholder';
   /** `lineId` เมื่อแบ่งหลายใบ: `canonical` = เลขบรรทัดเดิมของ TMS (จับคู่ตอน reconcile ได้) · `renumber` = เริ่ม 1 ใหม่ทุกใบ */
   splitLineId: 'canonical' | 'renumber';
   /**
@@ -146,6 +149,7 @@ export const KRS_PAYLOAD_DEFAULTS: Readonly<KrsPayloadOptions> = Object.freeze({
   discount: 'reject',
   netUnitPriceMaxScale: 4,
   carPersonFallback: 'none',
+  carIdFallback: 'none',
   splitLineId: 'canonical',
   splitVoucherNo: (no: string, part: number) => `${no}${KRS_SPLIT_VOUCHER_SUFFIX}${part}`,
 });
@@ -163,6 +167,11 @@ export interface KrsInvoiceDocument {
   lineNos: number[];
   /** ผลรวม `amount` ของ canonical ในใบนี้ (สตริงทศนิยม 2 ตำแหน่ง) — ไม่ส่งให้ KRS เก็บไว้เทียบกับยอดที่ KRS คำนวณ */
   expectedAmount: string;
+  /**
+   * `amount` ของ canonical ต่อรายการ (ลำดับเดียวกับ `body.lines`) — ST8-T10 เทียบกับยอดต่อรายการที่ KRS คำนวณ
+   * จับคู่ด้วย `lineId` + `flowNo` (`flowNo` ซ้ำในใบได้ — หลายรายการต่อ DO) · KRS ปัดยอดอย่างไรยังไม่รู้ [OPEN — KRS]
+   */
+  expectedLines: { lineId: number; flowNo: string; amount: string }[];
 }
 
 /** รหัสที่ยังไม่ผ่านการตรวจกับผังรหัส / ไม่มีค่า */
@@ -378,14 +387,25 @@ export function buildKrsInvoicePayload(
       flow = {
         flowNo: str(d.number)!,
         flowDate: date(`${at}.flowDate`, d.date, 'วันที่ DO'),
-        carId: text(`${at}.carId`, oneLine(trip.vehiclePlate), 'ทะเบียนรถของเที่ยว'),
+        carId: text(
+          `${at}.carId`,
+          oneLine(trip.vehiclePlate) ??
+            (opt.carIdFallback === 'placeholder' ? str(opt.placeholderText) : null),
+          'ทะเบียนรถของเที่ยว',
+        ),
         carPerson: text(`${at}.carPerson`, driver, 'ชื่อคนขับของเที่ยว'),
         frWay: text(`${at}.frWay`, oneLine(route.originName), 'ชื่อต้นทาง'),
         toWay: text(`${at}.toWay`, oneLine(route.destinationName), 'ชื่อปลายทาง'),
       };
     }
     const itemCode = code('ITEM', str(rec(l.serviceItem).externalId), `${at}.itemCode`, false);
-    const accountCode = code('ACCOUNT', str(l.accountCode), `${at}.accountCode`, false);
+    // accountCode: ส่งเฉพาะค่าที่ตรวจกับผัง ACCOUNT ที่นำเข้าแล้ว — ยังไม่มีผัง (ค่าดิบ) = ไม่ส่ง ให้ KRS ใช้ค่าตั้งต้น (A.3)
+    const accRaw = str(l.accountCode);
+    const accHit = accRaw ? ctx.masterCodes?.ACCOUNT?.get(accRaw.toLowerCase()) : undefined;
+    const accountCode =
+      accRaw && accHit && !accHit.fromCatalogue
+        ? null
+        : code('ACCOUNT', accRaw, `${at}.accountCode`, false);
     const description = oneLine(l.description);
     built.push({
       lineNo: typeof lineNo === 'number' ? lineNo : 0,
@@ -473,6 +493,11 @@ export function buildKrsInvoicePayload(
       body,
       bytes: bytesOf(body),
       lineNos: g.map((b) => b.lineNo),
+      expectedLines: g.map((b, i) => ({
+        lineId: lines[i]!.lineId,
+        flowNo: lines[i]!.flowNo,
+        amount: new Prisma.Decimal(b.amount).toFixed(2),
+      })),
       expectedAmount: g.reduce((sum, b) => sum.plus(b.amount), new Prisma.Decimal(0)).toFixed(2),
     };
   });

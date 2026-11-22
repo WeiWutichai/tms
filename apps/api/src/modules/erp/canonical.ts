@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { canonicalJson } from '../integration/outbox.service';
 import type { SettlementDto } from '../settlements/settlement.dto';
-import type { CanonicalDocument } from './erp-adapter';
+import type { CanonicalDocument, CanonicalPersonalField } from './erp-adapter';
 
 /**
  * Canonical payload ของเอกสารที่ส่งเข้า ERP (ST8-T16 — ส่วนย่อยของ ST7-T15; docs/01 §7.1–7.3)
@@ -10,9 +10,13 @@ import type { CanonicalDocument } from './erp-adapter';
  * - เงินเป็นสตริงทศนิยม 2 ตำแหน่ง (ห้าม float) · วันที่ `YYYY-MM-DD` (วันตามปฏิทินไทย) · id = uuid ภายใน (ไม่ใช่ id สาธารณะ)
  * - ภาษีเป็น **ประมาณการ** (D-54: เอกสารภาษีออกที่ระบบบัญชี) — `taxEstimated: true` เสมอ
  * - `lines[].serviceItem.id` → ประตู mapping ค่าบริการ ↔ รหัสสินค้า ERP (ST7-T18) ใส่ `externalId` ให้ก่อนถึง adapter
- * - ST8-T07 เพิ่มช่องของ docs/01 §7.1–7.2 ที่ adapter ตัวแรก (KRS — docs/01 A.3) ต้องใช้ และคงที่หลังออกใบ: `issuer` ชื่อ/เลขภาษี/ที่อยู่,
+ * - ST8-T07 เพิ่มช่องของ docs/01 §7.1–7.2 ที่ adapter ตัวแรก (KRS — docs/01 A.3) ต้องใช้: `issuer` ชื่อ/เลขภาษี/ที่อยู่,
  *   `customer.billingAddress` / `paymentTermDays`, `references.customerRef[]`, บรรทัด: DO id/วันที่, `salesOrder`, `trip`, `route`,
  *   `serviceItem.code`, `accountCode` — ทั่วไป ไม่ผูก ERP ใด · **เพิ่มช่อง = `sync.hash` ของใบแจ้งหนี้ทุกใบเปลี่ยน** (spec/12 §3 แถว ST8-T07)
+ *   **ไม่ใช่ทุกช่องที่คงที่หลังออกใบ:** `route` (ชื่อสถานที่), `references.customerRef`, `salesOrder` อ่าน**ค่าปัจจุบัน**ของแถว (ไม่มี snapshot ณ วันออก)
+ *   → สร้าง canonical ใหม่จากแถวปัจจุบันหลังออกใบอาจได้ hash ต่างจากที่ส่งไป · **เงื่อนไขบังคับของ ST7-T16:** ส่งซ้ำ/แทนที่/reconcile
+ *   ต้องใช้ canonical ณ วันออก (เก็บตอน finalize หรือใช้ payload ของคำสั่งล่าสุด) ห้ามสร้างใหม่จากแถวปัจจุบัน
+ * - ST8-T07 (PDPA): `trip.driverName` ใส่เฉพาะเมื่อ adapter ของ connector ประกาศ `personalDataNeeds` — ไม่ประกาศ = null
  *   ยังไม่มี: `references.billingNoteNumber` (ใบวางบิลเกิดหลังออกใบ → hash จะเปลี่ยนเองทั้งที่ใบไม่เปลี่ยน) · `taxInvoiceNumber` / `taxPointAt` (D-54)
  * - `sync.hash` = sha256 ของ payload (ไม่รวม sync) — ST7-T15: ก่อนส่ง sink ใส่รหัสฝั่ง ERP ล่าสุด (ลูกค้า/รถร่วม/ค่าบริการ)
  *   แล้วคำนวณใหม่ = hash ของสิ่งที่ส่งจริง → เก็บใน `external_mapping.last_synced_hash` · hash เท่าเดิม = ไม่ส่งซ้ำ (SKIPPED)
@@ -34,7 +38,7 @@ export interface CanonicalInvoiceLine {
   deliveryOrder: { id: string; number: string; date: string } | null;
   /** SO ของ DO — `externalId` = เลขอ้างอิงของต้นทาง (เช่น ERP ที่เป็นต้นทาง SO) */
   salesOrder: { number: string | null; externalId: string | null } | null;
-  /** เที่ยวของ DO (ค่าที่ตรึงตอนมอบงาน) — ฟิลด์รถ/คนขับอยู่ที่เที่ยวที่เดียว (docs/01 §7.2) */
+  /** เที่ยวของ DO (ค่าที่ตรึงตอนมอบงาน) — ฟิลด์รถ/คนขับอยู่ที่เที่ยวที่เดียว (docs/01 §7.2) · `driverName` = null เว้นแต่ adapter ประกาศว่าต้องใช้ (PDPA) */
   trip: {
     number: string | null;
     vehiclePlate: string | null;
@@ -202,11 +206,14 @@ export type InvoiceForCanonical = Prisma.InvoiceGetPayload<{
 /**
  * ใบแจ้งหนี้ที่ออกเลขแล้ว → canonical (ไม่มี I/O) — ข้อมูลลูกค้าจาก snapshot ณ วันออก (BIL-196)
  * `customerExternalId` = รหัสลูกค้าฝั่ง ERP ของ connector (ไม่มี connector / ยังไม่ map = null)
+ * `personalData` = ข้อมูลส่วนบุคคลแบบตัวเลือกที่ adapter ของ connector ประกาศว่าต้องใช้ (ไม่ระบุ = ไม่ใส่ — ชื่อคนขับ = null)
  */
 export function canonicalInvoice(
   inv: InvoiceForCanonical,
   customerExternalId: string | null,
+  personalData: readonly CanonicalPersonalField[] = [],
 ): CanonicalInvoicePayload {
+  const withDriver = personalData.includes('trip.driverName');
   const snap = (inv.customerSnapshot ?? {}) as {
     code?: string;
     name?: string;
@@ -269,7 +276,7 @@ export function canonicalInvoice(
           ? {
               number: d.trip.tripNo,
               vehiclePlate: d.trip.vehiclePlateSnapshot,
-              driverName: d.trip.driverNameSnapshot,
+              driverName: withDriver ? d.trip.driverNameSnapshot : null,
               carrierName: d.trip.carrierNameSnapshot,
             }
           : null,

@@ -70,6 +70,9 @@ export class KrsAdapter implements ErpAdapter {
     { key: 'sqlPassword', secret: true, required: false, kind: 'string', maxLength: 200 },
   ] satisfies ConnectorConfigField[]);
 
+  /** ST8-T07 สัญญา KRS บังคับ `carPerson` ทุกรายการ (docs/01 A.3) → ต้องมีชื่อคนขับใน canonical */
+  readonly personalDataNeeds = Object.freeze(['trip.driverName'] as const);
+
   /** test: ตัวเลือกของ HTTP client (เช่น resolver) */
   constructor(private readonly http: Pick<SendOptions, 'allowPrivate' | 'resolver'> = {}) {}
 
