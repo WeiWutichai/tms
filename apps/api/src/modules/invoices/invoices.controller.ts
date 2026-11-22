@@ -1,4 +1,9 @@
 import {
+  MAX_DOS_PER_INVOICE,
+  UNWIND_IDEMPOTENCY_LOCK_MS,
+  UNWIND_TX_TIMEOUT_MS,
+} from './billing-limits';
+import {
   Body,
   Controller,
   Get,
@@ -30,6 +35,8 @@ import {
   StepUpAlways,
   RequireScope,
   TenantResource,
+  IdempotencyLockMs,
+  TransactionTimeout,
 } from '../../common/decorators';
 import { assertHumanStepUp } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
@@ -483,7 +490,8 @@ export class InvoicesController {
   @ApiOperation({
     summary: 'เพิ่ม DO เข้าร่าง',
     description:
-      'กฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 `customer_mismatch` · audit `invoice.delivery_orders_added`',
+      'กฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 `customer_mismatch` · ' +
+      `DO บนร่างรวมกับที่เพิ่มเกิน ${MAX_DOS_PER_INVOICE} ใบ → 422 \`too_many\` · audit \`invoice.delivery_orders_added\``,
   })
   @ApiHeader(IF_MATCH)
   @ApiProblems(T403('invoices:draft'), NF, PULL_409, T412, T422)
@@ -504,6 +512,8 @@ export class InvoicesController {
   }
 
   @Post(':id/delivery-orders/remove')
+  @TransactionTimeout(UNWIND_TX_TIMEOUT_MS)
+  @IdempotencyLockMs(UNWIND_IDEMPOTENCY_LOCK_MS)
   @HttpCode(200)
   @TenantResource('invoice')
   @RequireScope('invoices:draft')
@@ -533,6 +543,8 @@ export class InvoicesController {
   }
 
   @Post(':id/delivery-orders/move')
+  @TransactionTimeout(UNWIND_TX_TIMEOUT_MS)
+  @IdempotencyLockMs(UNWIND_IDEMPOTENCY_LOCK_MS)
   @HttpCode(200)
   @TenantResource('invoice')
   @RequireScope('invoices:draft')
@@ -540,7 +552,9 @@ export class InvoicesController {
     summary: 'ย้าย DO ไปร่างอื่น (ลูกค้า + สาขาผู้ออกเดียวกัน)',
     description:
       'ถอดจากร่างนี้แล้วดึงเข้าร่างปลายทางใน transaction เดียว (ตรวจความพร้อมซ้ำ — ไม่ผ่าน = ไม่ย้ายเลย) · ปลายทางไม่ใช่ร่าง → 409 · ' +
-      'ลูกค้า/สาขาต่างกัน → 422 `customer_mismatch` · If-Match = version ของร่างต้นทาง · ETag ตอบกลับ = ต้นทาง · audit ทั้งสองใบ',
+      'ลูกค้า/สาขาต่างกัน → 422 `customer_mismatch` · ' +
+      `DO บนร่างปลายทางรวมกับที่ย้ายเกิน ${MAX_DOS_PER_INVOICE} ใบ → 422 \`too_many\` (ไม่ย้ายเลย) · ` +
+      'If-Match = version ของร่างต้นทาง · ETag ตอบกลับ = ต้นทาง · audit ทั้งสองใบ',
   })
   @ApiHeader(IF_MATCH)
   @ApiProblems(T403('invoices:draft'), NF, PULL_409, T412, T422)
@@ -698,6 +712,8 @@ export class InvoicesController {
   }
 
   @Post(':id/cancel')
+  @TransactionTimeout(UNWIND_TX_TIMEOUT_MS)
+  @IdempotencyLockMs(UNWIND_IDEMPOTENCY_LOCK_MS)
   @HttpCode(200)
   @TenantResource('invoice')
   @RequireScope('invoices:draft')
@@ -726,6 +742,8 @@ export class InvoicesController {
   }
 
   @Post(':id/void')
+  @TransactionTimeout(UNWIND_TX_TIMEOUT_MS)
+  @IdempotencyLockMs(UNWIND_IDEMPOTENCY_LOCK_MS)
   @HttpCode(200)
   @TenantResource('issuedInvoice')
   @RequireScope('invoices:void')

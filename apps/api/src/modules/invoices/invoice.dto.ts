@@ -1,3 +1,4 @@
+import { MAX_DOS_PER_INVOICE } from './billing-limits';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
@@ -67,9 +68,9 @@ export class CreateInvoiceDto {
   customerId!: string;
 
   @IdList(
-    200,
+    MAX_DOS_PER_INVOICE,
     'do_…',
-    'ใบส่งของ (≤ 200) ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง)',
+    `ใบส่งของ (≤ ${MAX_DOS_PER_INVOICE} ต่อใบแจ้งหนี้ — PO 22 พ.ย. 2569) ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง)`,
   )
   deliveryOrderIds!: string[];
 
@@ -190,7 +191,11 @@ export class VoidInvoiceDto extends InvoiceReasonDto {
 }
 
 export class InvoiceDeliveryOrdersDto {
-  @IdList(200, 'do_…', 'ใบส่งของ (≤ 200)')
+  @IdList(
+    MAX_DOS_PER_INVOICE,
+    'do_…',
+    `ใบส่งของ (≤ ${MAX_DOS_PER_INVOICE}) · ร่างหนึ่งใบถือใบส่งของรวมได้ไม่เกิน ${MAX_DOS_PER_INVOICE} ใบ (เพิ่มแล้วเกิน = 422 \`too_many\`)`,
+  )
   deliveryOrderIds!: string[];
 }
 

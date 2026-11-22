@@ -39612,7 +39612,7 @@
     },
     "/v1/settlements/{id}/pdf": {
       "get": {
-        "description": "แม่แบบตามต้นแบบ TMS Print #pv (แม่แบบการเงินร่วมกับใบแจ้งหนี้) · ทุกตัวเลขมาจาก `GET /v1/settlements/{id}` ชุดเดียวกัน: ยอดซื้อรวม = `buyGrossAmount` · หัก ณ ที่จ่ายแยกอัตรา = `whtEstimate.byRate` (รวม = `buyWhtAmount`; ใบที่อนุมัติแล้ว = ยอดที่ตรึง) · บรรทัดหักรวมต่อชนิด · จ่ายสุทธิ = `buyNetAfterWht` · ยอดหัก ณ ที่จ่ายติด * (ประมาณการ D-54 — 50 ทวิ ออกที่ระบบบัญชี D-58) · ยังไม่อนุมัติ = ลายน้ำ \"ร่าง\" ไม่มีเลข (render ตามคำขอ) · จ่ายแล้ว = วันที่จ่าย + วิธีจ่าย + เลขอ้างอิง · ใบที่มีเลขแล้ว (อนุมัติ / จ่ายแล้ว): render ครั้งแรกที่ขอแล้วเก็บไฟล์ — ครั้งต่อไปได้ไฟล์เดิม ไม่ render ใหม่ (ST9-T15; ฉบับอนุมัติและฉบับจ่ายแล้วเก็บแยกกัน; header `X-Content-SHA256` ของไฟล์ที่เก็บ) · ใบที่ยกเลิก → 409 · ต้องมี `prices.buy:read` ไม่งั้น 403",
+        "description": "แม่แบบตามต้นแบบ TMS Print #pv (แม่แบบการเงินร่วมกับใบแจ้งหนี้) · ทุกตัวเลขมาจาก `GET /v1/settlements/{id}` ชุดเดียวกัน: ยอดซื้อรวม = `buyGrossAmount` · หัก ณ ที่จ่ายแยกอัตรา = `whtEstimate.byRate` (รวม = `buyWhtAmount`; ใบที่อนุมัติแล้ว = ยอดที่ตรึง) · บรรทัดหักรวมต่อชนิด · จ่ายสุทธิ = `buyNetAfterWht` · ยอดหัก ณ ที่จ่ายติด * (ประมาณการ D-54 — 50 ทวิ ออกที่ระบบบัญชี D-58) · ยังไม่อนุมัติ = ลายน้ำ \"ร่าง\" ไม่มีเลข (render ตามคำขอ) · จ่ายแล้ว = วันที่จ่าย + วิธีจ่าย + เลขอ้างอิง · ใบที่มีเลขแล้ว (อนุมัติ / จ่ายแล้ว): เก็บไฟล์ตอนอนุมัติ / บันทึกจ่าย (D-66 — งานเบื้องหลังหลัง commit + ลองใหม่; ขอก่อนงานทำ = render แล้วเก็บตอนนั้น) — ได้ไฟล์เดิมเสมอ ไม่ render ใหม่ (ST9-T15; ฉบับอนุมัติและฉบับจ่ายแล้วเก็บแยกกัน; header `X-Content-SHA256` ของไฟล์ที่เก็บ) · ใบที่ยกเลิก → 409 · ต้องมี `prices.buy:read` ไม่งั้น 403",
         "operationId": "Settlements_voucherPdf",
         "parameters": [
           {
@@ -41778,7 +41778,7 @@
     },
     "/v1/settlements/{id}/approve": {
       "post": {
-        "description": "SENT_TO_CARRIER → APPROVED หรือ DRAFT → APPROVED (docs/01 §4.5 — DRAFT ตรงได้เมื่อไม่ตั้ง `settlement.carrierReviewRequired` ไม่งั้น 409 `settlement_review_required`) · ใบ DISPUTED / มีรายการโต้แย้งค้างในรอบตรวจปัจจุบัน (รถร่วมโต้แย้ง/บัญชีติด dispute ที่ยังไม่เคลียร์) → 409 `settlement_disputed` (`disputedCount`) · **ผู้ใช้ที่ login เท่านั้น** (API key / OAuth client / ลิงก์ ไม่มี scope นี้) · **ผู้เตรียมใบ (ผู้สร้าง / ผู้แก้หัวใบ / ผู้เพิ่มหรือนำบรรทัดออก / ผู้ส่งให้รถร่วมตรวจ / ผู้เคลียร์ dispute — key = ผู้ออก key) อนุมัติไม่ได้ → 403 `settlement_self_approval`** (ระบุผู้เตรียมไม่ได้ = ปฏิเสธ) · ยอดสุทธิเกินวงเงินที่ตั้ง (`settlement.approvalStepUpAmount` — ค่าเริ่ม 100,000 บาท; 0 = ทุกใบ) ต้องส่ง `X-Step-Up` ของผู้อนุมัติ (จาก `POST /v1/auth/step-up` ยืนยัน TOTP) ไม่งั้น 403 `step_up_required` · ไม่มีบรรทัดค่าขนส่ง (FREIGHT) → 409 `settlement_empty` · ยอดสุทธิติดลบ → 409 `settlement_net_negative` · ออกเลขชุด STL ตอนนี้เท่านั้น (ร่างไม่กินเลข; ออกแล้วแก้ไม่ได้) · ใบที่อนุมัติแล้วแก้/เพิ่ม/นำบรรทัดออก/ยกเลิกไม่ได้ (409) · **ตรึงหัก ณ ที่จ่ายประมาณการ** (ST6-T08: ยอด + ขั้นต่ำที่ใช้ + ค่าตั้งต้นอัตราของรถร่วม — ค่าตั้ง/รถร่วมเปลี่ยนทีหลังไม่กระทบใบ; `whtEstimate.frozen` = true) · วงเงิน step-up เทียบยอดสุทธิก่อนหัก ณ ที่จ่าย · audit `settlement.approved` (+ `buyWhtAmount`) + webhook `settlement.approved`",
+        "description": "SENT_TO_CARRIER → APPROVED หรือ DRAFT → APPROVED (docs/01 §4.5 — DRAFT ตรงได้เมื่อไม่ตั้ง `settlement.carrierReviewRequired` ไม่งั้น 409 `settlement_review_required`) · ใบ DISPUTED / มีรายการโต้แย้งค้างในรอบตรวจปัจจุบัน (รถร่วมโต้แย้ง/บัญชีติด dispute ที่ยังไม่เคลียร์) → 409 `settlement_disputed` (`disputedCount`) · **ผู้ใช้ที่ login เท่านั้น** (API key / OAuth client / ลิงก์ ไม่มี scope นี้) · **ผู้เตรียมใบ (ผู้สร้าง / ผู้แก้หัวใบ / ผู้เพิ่มหรือนำบรรทัดออก / ผู้ส่งให้รถร่วมตรวจ / ผู้เคลียร์ dispute — key = ผู้ออก key) อนุมัติไม่ได้ → 403 `settlement_self_approval`** (ระบุผู้เตรียมไม่ได้ = ปฏิเสธ) · ยอดสุทธิเกินวงเงินที่ตั้ง (`settlement.approvalStepUpAmount` — ค่าเริ่ม 100,000 บาท; 0 = ทุกใบ) ต้องส่ง `X-Step-Up` ของผู้อนุมัติ (จาก `POST /v1/auth/step-up` ยืนยัน TOTP) ไม่งั้น 403 `step_up_required` · ไม่มีบรรทัดค่าขนส่ง (FREIGHT) → 409 `settlement_empty` · ยอดสุทธิติดลบ → 409 `settlement_net_negative` · ออกเลขชุด STL ตอนนี้เท่านั้น (ร่างไม่กินเลข; ออกแล้วแก้ไม่ได้) · ใบที่อนุมัติแล้วแก้/เพิ่ม/นำบรรทัดออก/ยกเลิกไม่ได้ (409) · **ตรึงหัก ณ ที่จ่ายประมาณการ** (ST6-T08: ยอด + ขั้นต่ำที่ใช้ + ค่าตั้งต้นอัตราของรถร่วม — ค่าตั้ง/รถร่วมเปลี่ยนทีหลังไม่กระทบใบ; `whtEstimate.frozen` = true) · วงเงิน step-up เทียบยอดสุทธิก่อนหัก ณ ที่จ่าย · audit `settlement.approved` (+ `buyWhtAmount`) + webhook `settlement.approved` · D-66: เก็บ PDF ฉบับอนุมัติด้วยงานเบื้องหลัง `settlement.render_pdf` หลัง commit",
         "operationId": "Settlements_approve",
         "parameters": [
           {
@@ -42077,7 +42077,7 @@
     },
     "/v1/settlements/{id}/mark-paid": {
       "post": {
-        "description": "docs/04 F6 \"จ่าย\" + docs/01 §4.5 APPROVED → PAID · **เฉพาะใบ APPROVED** (ร่าง/รอตรวจ/โต้แย้ง/ยกเลิก/จ่ายแล้ว → 409 `invalid_state_transition`) · จ่ายเต็มยอดครั้งเดียว — ยอดที่จ่าย = `buyNetAfterWht` (ยอดสุทธิ − หัก ณ ที่จ่ายประมาณการที่ตรึงตอนอนุมัติ — ไม่เปลี่ยน) · `paidDate` (= วันที่หักภาษี) ตั้งแต่วันอนุมัติถึงวันนี้ (เวลาไทย) — ก่อนวันอนุมัติ → 422 `before_approval` · `reference` บังคับเมื่อ TRANSFER / CHEQUE · ใบที่ไม่ใช่ APPROVED (รวมจ่ายแล้ว/คำขอซ้ำพร้อมกัน) → 409 ก่อนตรวจ If-Match · **ผู้อนุมัติใบนี้บันทึกจ่ายเองไม่ได้ → 403 `settlement_self_payment`** (D-60 — key = ผู้ออก key; owner ปิดกฎได้ด้วยค่าตั้ง `settlement.allowApproverMarkPaid` — audit `sodWaived`) · เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · audit `settlement.paid` + webhook `settlement.paid` (ระบบบัญชีสร้างเจ้าหนี้/AP ร่างจาก event นี้ — 50 ทวิ ออกที่ระบบบัญชี, D-58) · ไฟล์โอนธนาคาร (bulk payment) = P1",
+        "description": "docs/04 F6 \"จ่าย\" + docs/01 §4.5 APPROVED → PAID · **เฉพาะใบ APPROVED** (ร่าง/รอตรวจ/โต้แย้ง/ยกเลิก/จ่ายแล้ว → 409 `invalid_state_transition`) · จ่ายเต็มยอดครั้งเดียว — ยอดที่จ่าย = `buyNetAfterWht` (ยอดสุทธิ − หัก ณ ที่จ่ายประมาณการที่ตรึงตอนอนุมัติ — ไม่เปลี่ยน) · `paidDate` (= วันที่หักภาษี) ตั้งแต่วันอนุมัติถึงวันนี้ (เวลาไทย) — ก่อนวันอนุมัติ → 422 `before_approval` · `reference` บังคับเมื่อ TRANSFER / CHEQUE · ใบที่ไม่ใช่ APPROVED (รวมจ่ายแล้ว/คำขอซ้ำพร้อมกัน) → 409 ก่อนตรวจ If-Match · **ผู้อนุมัติใบนี้บันทึกจ่ายเองไม่ได้ → 403 `settlement_self_payment`** (D-60 — key = ผู้ออก key; owner ปิดกฎได้ด้วยค่าตั้ง `settlement.allowApproverMarkPaid` — audit `sodWaived`) · เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · audit `settlement.paid` + webhook `settlement.paid` (ระบบบัญชีสร้างเจ้าหนี้/AP ร่างจาก event นี้ — 50 ทวิ ออกที่ระบบบัญชี, D-58) · D-66: เก็บ PDF ฉบับจ่ายแล้วด้วยงานเบื้องหลัง `settlement.render_pdf` หลัง commit · ไฟล์โอนธนาคาร (bulk payment) = P1",
         "operationId": "Settlements_markPaid",
         "parameters": [
           {
@@ -44122,7 +44122,7 @@
     },
     "/v1/invoices/{id}/delivery-orders": {
       "post": {
-        "description": "กฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 `customer_mismatch` · audit `invoice.delivery_orders_added`",
+        "description": "กฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 `customer_mismatch` · DO บนร่างรวมกับที่เพิ่มเกิน 1000 ใบ → 422 `too_many` · audit `invoice.delivery_orders_added`",
         "operationId": "Invoices_addDos",
         "parameters": [
           {
@@ -44603,7 +44603,7 @@
     },
     "/v1/invoices/{id}/delivery-orders/move": {
       "post": {
-        "description": "ถอดจากร่างนี้แล้วดึงเข้าร่างปลายทางใน transaction เดียว (ตรวจความพร้อมซ้ำ — ไม่ผ่าน = ไม่ย้ายเลย) · ปลายทางไม่ใช่ร่าง → 409 · ลูกค้า/สาขาต่างกัน → 422 `customer_mismatch` · If-Match = version ของร่างต้นทาง · ETag ตอบกลับ = ต้นทาง · audit ทั้งสองใบ",
+        "description": "ถอดจากร่างนี้แล้วดึงเข้าร่างปลายทางใน transaction เดียว (ตรวจความพร้อมซ้ำ — ไม่ผ่าน = ไม่ย้ายเลย) · ปลายทางไม่ใช่ร่าง → 409 · ลูกค้า/สาขาต่างกัน → 422 `customer_mismatch` · DO บนร่างปลายทางรวมกับที่ย้ายเกิน 1000 ใบ → 422 `too_many` (ไม่ย้ายเลย) · If-Match = version ของร่างต้นทาง · ETag ตอบกลับ = ต้นทาง · audit ทั้งสองใบ",
         "operationId": "Invoices_moveDos",
         "parameters": [
           {
@@ -47332,7 +47332,7 @@
     },
     "/v1/invoice-runs": {
       "post": {
-        "description": "D-54 บัญชีเบา: ร่าง **ไม่มีเลข ไม่ใช่เอกสารภาษี** · ลูกค้าที่ `billingCycle` = รอบที่สั่ง (ไม่รวม `MANUAL`) ที่มี DO พร้อมวางบิล (กฎเดียวกับ `GET /invoices/queue` + เวลาจุดส่งครบ) วันที่ DO อยู่ในงวด → ร่างผ่านทางเดียวกับ `POST /invoices` (ตรวจซ้ำตอนดึง · กันวางบิลซ้ำระดับ DB · audit `invoice.draft_created`) · `MONTHLY`/`WEEKLY` = 1 ร่างต่อลูกค้า งวด = ที่สั่ง (เกิน 200 DO แบ่งหลายร่าง) · `PER_DO` = 1 ร่างต่อ DO · `billingNotes` (ค่าเริ่มต้น true) = ร่างใบวางบิลจากใบแจ้งหนี้ที่ออกแล้วยังค้าง และยังไม่อยู่ในใบวางบิลที่ active (1 ร่างต่อผู้ออก/สาขาผู้ออก) · **สั่งซ้ำไม่สร้างซ้ำ:** DO/ใบแจ้งหนี้ที่ถูกดึงแล้วไม่ถูกเลือกอีก · **ร่างละ transaction** (รวมการส่งบัญชีของ DO ในกลุ่ม) — กลุ่มที่ล้มย้อนทั้งกลุ่ม กลุ่ม/ลูกค้าอื่นไม่ล้มตาม · DO ที่ไม่ผ่านตอนดึง (ระบุตัวได้) ถูกข้าม (`skippedDeliveryOrders`) · ร่างลงชื่อผู้สั่งเป็นผู้สร้าง (กฎแบ่งหน้าที่ของ finalize ใช้เหมือนสร้างมือ) · 202 `{jobId, statusUrl}` → `GET /v1/jobs/{id}`: `progress` ต่อร่าง · `result` = `InvoiceRunResult` (ผลต่อลูกค้า SUCCEEDED/PARTIAL/FAILED/NOTHING_TO_BILL + ลิงก์ร่าง ≤ 50 ต่อลูกค้า — ไม่มียอดเงิน) · ไม่มีลูกค้า PARTIAL/FAILED = `succeeded`, มี = `succeeded_with_errors` · จบ = webhook `job.completed` · ผู้สั่งดู `statusUrl` ได้แม้ไม่มี `jobs:read` · job เก็บ 7 วัน · นับเป็นคำขอหนัก (rate limit ชั้น heavy)",
+        "description": "D-54 บัญชีเบา: ร่าง **ไม่มีเลข ไม่ใช่เอกสารภาษี** · ลูกค้าที่ `billingCycle` = รอบที่สั่ง (ไม่รวม `MANUAL` และลูกค้าที่ปิดใช้ `INACTIVE`) ที่มี DO พร้อมวางบิล (กฎเดียวกับ `GET /invoices/queue` + เวลาจุดส่งครบ) วันที่ DO อยู่ในงวด → ร่างผ่านทางเดียวกับ `POST /invoices` (ตรวจซ้ำตอนดึง · กันวางบิลซ้ำระดับ DB · audit `invoice.draft_created`) · `MONTHLY`/`WEEKLY` = **ใบแจ้งหนี้ใบเดียวต่อลูกค้าต่อรอบ** งวด = ที่สั่ง (เพดาน 1000 DO ต่อใบ — เกินจึงแบ่งหลายร่าง + `splitByCap`) · `PER_DO` = 1 ร่างต่อ DO · `billingNotes` (ค่าเริ่มต้น true) = ร่างใบวางบิลจากใบแจ้งหนี้ที่ออกแล้วยังค้าง และยังไม่อยู่ในใบวางบิลที่ active **เฉพาะใบของงวดนี้** (งวดของใบอยู่ในงวดของรอบทั้งช่วง; ใบที่ไม่มีงวดใช้วันที่ออก) (1 ร่างต่อผู้ออก/สาขาผู้ออก) · **สั่งซ้ำไม่สร้างซ้ำ:** DO/ใบแจ้งหนี้ที่ถูกดึงแล้วไม่ถูกเลือกอีก · **ร่างละ transaction** (รวมการส่งบัญชีของ DO ในกลุ่ม) — กลุ่มที่ล้มย้อนทั้งกลุ่ม กลุ่ม/ลูกค้าอื่นไม่ล้มตาม · DO ที่ไม่ผ่านตอนดึง (ระบุตัวได้) ถูกข้าม (`skippedDeliveryOrders`) · ร่างลงชื่อผู้สั่งเป็นผู้สร้าง (กฎแบ่งหน้าที่ของ finalize ใช้เหมือนสร้างมือ) · 202 `{jobId, statusUrl}` → `GET /v1/jobs/{id}`: `progress` ต่อร่าง · `result` = `InvoiceRunResult` (ผลต่อลูกค้า SUCCEEDED/PARTIAL/FAILED/NOTHING_TO_BILL + ลิงก์ร่าง ≤ 50 ต่อลูกค้า — ไม่มียอดเงิน) · ไม่มีลูกค้า PARTIAL/FAILED = `succeeded`, มี = `succeeded_with_errors` · จบ = webhook `job.completed` · **ไฟล์สรุปรอบ .xlsx** (`result.summary.url` = `GET /v1/exports/{jobId}` เฉพาะผู้สั่งที่มี `export:run`; ยอดเงินในไฟล์เฉพาะผู้สั่งที่มี `prices.sell:read`; ใช้ได้ 7 วัน; แจ้งเตือนผู้สั่งพร้อมลิงก์) · ไม่มีรอบอัตโนมัติตามเวลา (สั่งเองเท่านั้น) · ผู้สั่งดู `statusUrl` ได้แม้ไม่มี `jobs:read` · job เก็บ 7 วัน · นับเป็นคำขอหนัก (rate limit ชั้น heavy)",
         "operationId": "InvoiceRuns_create",
         "parameters": [
           {
@@ -70124,8 +70124,10 @@
               "revenue",
               "accounting-sales",
               "accounting-receipts",
-              "accounting-settlements"
-            ]
+              "accounting-settlements",
+              "invoice-run-summary"
+            ],
+            "description": "`invoice-run-summary` = ไฟล์สรุปรอบวางบิล (สร้างเองเมื่อ `POST /v1/invoice-runs` จบ — `id` = jobId ของรอบ; สั่งผ่าน `POST /exports` ไม่ได้)"
           },
           "format": {
             "type": "string",
@@ -91162,7 +91164,7 @@
             "example": [
               "do_…"
             ],
-            "description": "ใบส่งของ (≤ 200) ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง)",
+            "description": "ใบส่งของ (≤ 1000 ต่อใบแจ้งหนี้ — PO 22 พ.ย. 2569) ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง)",
             "type": "array",
             "items": {
               "type": "string"
@@ -92026,7 +92028,7 @@
             "example": [
               "do_…"
             ],
-            "description": "ใบส่งของ (≤ 200)",
+            "description": "ใบส่งของ (≤ 1000) · ร่างหนึ่งใบถือใบส่งของรวมได้ไม่เกิน 1000 ใบ (เพิ่มแล้วเกิน = 422 `too_many`)",
             "type": "array",
             "items": {
               "type": "string"
@@ -92044,7 +92046,7 @@
             "example": [
               "do_…"
             ],
-            "description": "ใบส่งของ (≤ 200)",
+            "description": "ใบส่งของ (≤ 1000) · ร่างหนึ่งใบถือใบส่งของรวมได้ไม่เกิน 1000 ใบ (เพิ่มแล้วเกิน = 422 `too_many`)",
             "type": "array",
             "items": {
               "type": "string"
@@ -92069,7 +92071,7 @@
             "example": [
               "do_…"
             ],
-            "description": "ใบส่งของ (≤ 200)",
+            "description": "ใบส่งของ (≤ 1000) · ร่างหนึ่งใบถือใบส่งของรวมได้ไม่เกิน 1000 ใบ (เพิ่มแล้วเกิน = 422 `too_many`)",
             "type": "array",
             "items": {
               "type": "string"
@@ -92415,6 +92417,37 @@
           "data"
         ]
       },
+      "InvoiceRunSummaryDto": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "example": "/v1/exports/job_3f2a…"
+          },
+          "documentId": {
+            "type": "string",
+            "example": "doc_…"
+          },
+          "fileName": {
+            "type": "string",
+            "example": "สรุปรอบวางบิล_2026-10-01_2026-10-31.xlsx"
+          },
+          "rows": {
+            "type": "number",
+            "description": "จำนวนแถว (1 แถวต่อร่าง; ลูกค้าที่ไม่มีร่าง 1 แถว)"
+          },
+          "bytes": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "url",
+          "documentId",
+          "fileName",
+          "rows",
+          "bytes"
+        ]
+      },
       "InvoiceRunDocRefDto": {
         "type": "object",
         "properties": {
@@ -92511,6 +92544,10 @@
               "$ref": "#/components/schemas/InvoiceRunDocRefDto"
             }
           },
+          "splitByCap": {
+            "type": "boolean",
+            "description": "true = DO ของลูกค้าในงวดเกินเพดาน 1000 ใบต่อใบแจ้งหนี้ จึงแบ่งเป็นหลายร่าง (ปกติ 1 ร่างต่อลูกค้าต่อรอบ)"
+          },
           "skippedCount": {
             "type": "number",
             "description": "จำนวน DO ที่ข้าม (ทั้งหมด)"
@@ -92542,6 +92579,7 @@
           "invoices",
           "invoicesListUrl",
           "billingNotes",
+          "splitByCap",
           "skippedCount",
           "skippedDeliveryOrders",
           "failedGroups",
@@ -92578,6 +92616,21 @@
             "type": "number",
             "description": "จำนวนลูกค้าที่ PARTIAL/FAILED"
           },
+          "maxDeliveryOrdersPerInvoice": {
+            "type": "number",
+            "example": 1000,
+            "description": "เพดาน DO ต่อใบแจ้งหนี้ที่รอบนี้ใช้"
+          },
+          "summary": {
+            "nullable": true,
+            "description": "ไฟล์สรุปรอบ .xlsx (ลูกค้า/ผล/ร่าง/จำนวน DO — **ยอดเงินเฉพาะผู้สั่งที่มี `prices.sell:read`**) · ผู้สั่งได้แจ้งเตือนพร้อมลิงก์ · null = ไม่มีลูกค้าในรอบ / ผู้สั่งไม่มี `export:run` / สร้างไฟล์ไม่สำเร็จ (ร่างที่สร้างแล้วไม่กระทบ)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InvoiceRunSummaryDto"
+              }
+            ]
+          },
           "results": {
             "type": "array",
             "items": {
@@ -92593,6 +92646,8 @@
           "invoicesCreated",
           "billingNotesCreated",
           "failed",
+          "maxDeliveryOrdersPerInvoice",
+          "summary",
           "results"
         ]
       },
@@ -92606,7 +92661,7 @@
               "WEEKLY",
               "MONTHLY"
             ],
-            "description": "รอบวางบิลของลูกค้าที่เข้ารอบนี้ (`customer.billingCycle`) · `MANUAL` ไม่เข้ารอบ · `MONTHLY`/`WEEKLY` = 1 ร่างต่อลูกค้า (เกิน 200 DO แบ่งเป็นหลายร่าง) · `PER_DO` = 1 ร่างต่อ DO"
+            "description": "รอบวางบิลของลูกค้าที่เข้ารอบนี้ (`customer.billingCycle`) · `MANUAL` และลูกค้าที่ปิดใช้ (`INACTIVE`) ไม่เข้ารอบ · `MONTHLY`/`WEEKLY` = **ใบแจ้งหนี้ใบเดียวต่อลูกค้าต่อรอบ** (เกิน 1000 DO จึงแบ่งเป็นหลายร่าง + `splitByCap`) · `PER_DO` = 1 ร่างต่อ DO"
           },
           "periodFrom": {
             "type": "string",
@@ -92624,7 +92679,7 @@
           },
           "billingNotes": {
             "type": "boolean",
-            "description": "สร้างร่างใบวางบิลอัตโนมัติ (docs/04 F2) จากใบแจ้งหนี้ที่ออกแล้วยังค้างและยังไม่อยู่ในใบวางบิลที่ active ของลูกค้าในรอบนี้ (1 ร่างต่อผู้ออก/สาขาผู้ออก) · ไม่ส่ง = true"
+            "description": "สร้างร่างใบวางบิลอัตโนมัติ (docs/04 F2) จากใบแจ้งหนี้ที่ออกแล้วยังค้างและยังไม่อยู่ในใบวางบิลที่ active ของลูกค้าในรอบนี้ **เฉพาะใบของงวดนี้**: งวดของใบ (`periodFrom`–`periodTo`) อยู่ในงวดของรอบทั้งช่วง · ใบที่ไม่มีงวดใช้วันที่ออก (`issueDate`) อยู่ในงวดของรอบ (1 ร่างต่อผู้ออก/สาขาผู้ออก) · ไม่ส่ง = true"
           }
         },
         "required": [

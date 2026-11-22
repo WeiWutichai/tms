@@ -115,7 +115,7 @@ body เดียวกับ `POST /invoices` · ตรวจกติกาช
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `customerId` | ใช่ | `string` |   | ลูกค้า — id หรือ `ext:{externalId}` | `cus_…` |
-| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ (≤ 200) ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง) | `["do_…"]` |
+| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง) | `["do_…"]` |
 | `periodFrom` |   | `string` |   | งวดตั้งแต่ — ไม่ส่ง = วันที่ DO แรก | `2026-11-01` |
 | `periodTo` |   | `string` |   | งวดถึง — ไม่ส่ง = วันที่ DO สุดท้าย | `2026-11-15` |
 | `lineMode` |   | `string` | ค่า: `SINGLE`, `GROUP`, `MERGE` | ไม่ส่ง = SINGLE |   |
@@ -214,7 +214,7 @@ scope: `invoices:draft` · operationId: `Invoices_create`
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `customerId` | ใช่ | `string` |   | ลูกค้า — id หรือ `ext:{externalId}` | `cus_…` |
-| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ (≤ 200) ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง) | `["do_…"]` |
+| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง) | `["do_…"]` |
 | `periodFrom` |   | `string` |   | งวดตั้งแต่ — ไม่ส่ง = วันที่ DO แรก | `2026-11-01` |
 | `periodTo` |   | `string` |   | งวดถึง — ไม่ส่ง = วันที่ DO สุดท้าย | `2026-11-15` |
 | `lineMode` |   | `string` | ค่า: `SINGLE`, `GROUP`, `MERGE` | ไม่ส่ง = SINGLE |   |
@@ -477,7 +477,7 @@ const { data, error } = await tms.GET('/v1/invoices/{id}/pdf', {
 
 scope: `invoices:draft` · operationId: `Invoices_addDos`
 
-กฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 `customer_mismatch` · audit `invoice.delivery_orders_added`
+กฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 `customer_mismatch` · DO บนร่างรวมกับที่เพิ่มเกิน 1000 ใบ → 422 `too_many` · audit `invoice.delivery_orders_added`
 
 **Parameters**
 
@@ -490,7 +490,7 @@ scope: `invoices:draft` · operationId: `Invoices_addDos`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ (≤ 200) | `["do_…"]` |
+| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ (≤ 1000) · ร่างหนึ่งใบถือใบส่งของรวมได้ไม่เกิน 1000 ใบ (เพิ่มแล้วเกิน = 422 `too_many`) | `["do_…"]` |
 
 **Responses**
 
@@ -545,7 +545,7 @@ scope: `invoices:draft` · operationId: `Invoices_removeDos`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ (≤ 200) | `["do_…"]` |
+| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ (≤ 1000) · ร่างหนึ่งใบถือใบส่งของรวมได้ไม่เกิน 1000 ใบ (เพิ่มแล้วเกิน = 422 `too_many`) | `["do_…"]` |
 | `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `ลูกค้าขอวางบิล DO นี้งวดหน้า` |
 
 **Responses**
@@ -589,7 +589,7 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/delivery-orders/remove
 
 scope: `invoices:draft` · operationId: `Invoices_moveDos`
 
-ถอดจากร่างนี้แล้วดึงเข้าร่างปลายทางใน transaction เดียว (ตรวจความพร้อมซ้ำ — ไม่ผ่าน = ไม่ย้ายเลย) · ปลายทางไม่ใช่ร่าง → 409 · ลูกค้า/สาขาต่างกัน → 422 `customer_mismatch` · If-Match = version ของร่างต้นทาง · ETag ตอบกลับ = ต้นทาง · audit ทั้งสองใบ
+ถอดจากร่างนี้แล้วดึงเข้าร่างปลายทางใน transaction เดียว (ตรวจความพร้อมซ้ำ — ไม่ผ่าน = ไม่ย้ายเลย) · ปลายทางไม่ใช่ร่าง → 409 · ลูกค้า/สาขาต่างกัน → 422 `customer_mismatch` · DO บนร่างปลายทางรวมกับที่ย้ายเกิน 1000 ใบ → 422 `too_many` (ไม่ย้ายเลย) · If-Match = version ของร่างต้นทาง · ETag ตอบกลับ = ต้นทาง · audit ทั้งสองใบ
 
 **Parameters**
 
@@ -602,7 +602,7 @@ scope: `invoices:draft` · operationId: `Invoices_moveDos`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ (≤ 200) | `["do_…"]` |
+| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ (≤ 1000) · ร่างหนึ่งใบถือใบส่งของรวมได้ไม่เกิน 1000 ใบ (เพิ่มแล้วเกิน = 422 `too_many`) | `["do_…"]` |
 | `targetInvoiceId` | ใช่ | `string` |   | ร่างปลายทาง (ลูกค้า + สาขาผู้ออกเดียวกัน) | `ivc_…` |
 
 **Responses**
@@ -1220,17 +1220,17 @@ const { data, error } = await tms.GET('/v1/invoices/{id}/emails', {
 
 scope: `invoices:draft` · operationId: `InvoiceRuns_create`
 
-บัญชีเบา: ร่าง **ไม่มีเลข ไม่ใช่เอกสารภาษี** · ลูกค้าที่ `billingCycle` = รอบที่สั่ง (ไม่รวม `MANUAL`) ที่มี DO พร้อมวางบิล (กฎเดียวกับ `GET /invoices/queue` + เวลาจุดส่งครบ) วันที่ DO อยู่ในงวด → ร่างผ่านทางเดียวกับ `POST /invoices` (ตรวจซ้ำตอนดึง · กันวางบิลซ้ำระดับ DB · audit `invoice.draft_created`) · `MONTHLY`/`WEEKLY` = 1 ร่างต่อลูกค้า งวด = ที่สั่ง (เกิน 200 DO แบ่งหลายร่าง) · `PER_DO` = 1 ร่างต่อ DO · `billingNotes` (ค่าเริ่มต้น true) = ร่างใบวางบิลจากใบแจ้งหนี้ที่ออกแล้วยังค้าง และยังไม่อยู่ในใบวางบิลที่ active (1 ร่างต่อผู้ออก/สาขาผู้ออก) · **สั่งซ้ำไม่สร้างซ้ำ:** DO/ใบแจ้งหนี้ที่ถูกดึงแล้วไม่ถูกเลือกอีก · **ร่างละ transaction** (รวมการส่งบัญชีของ DO ในกลุ่ม) — กลุ่มที่ล้มย้อนทั้งกลุ่ม กลุ่ม/ลูกค้าอื่นไม่ล้มตาม · DO ที่ไม่ผ่านตอนดึง (ระบุตัวได้) ถูกข้าม (`skippedDeliveryOrders`) · ร่างลงชื่อผู้สั่งเป็นผู้สร้าง (กฎแบ่งหน้าที่ของ finalize ใช้เหมือนสร้างมือ) · 202 `{jobId, statusUrl}` → `GET /v1/jobs/{id}`: `progress` ต่อร่าง · `result` = `InvoiceRunResult` (ผลต่อลูกค้า SUCCEEDED/PARTIAL/FAILED/NOTHING_TO_BILL + ลิงก์ร่าง ≤ 50 ต่อลูกค้า — ไม่มียอดเงิน) · ไม่มีลูกค้า PARTIAL/FAILED = `succeeded`, มี = `succeeded_with_errors` · จบ = webhook `job.completed` · ผู้สั่งดู `statusUrl` ได้แม้ไม่มี `jobs:read` · job เก็บ 7 วัน · นับเป็นคำขอหนัก (rate limit ชั้น heavy)
+บัญชีเบา: ร่าง **ไม่มีเลข ไม่ใช่เอกสารภาษี** · ลูกค้าที่ `billingCycle` = รอบที่สั่ง (ไม่รวม `MANUAL` และลูกค้าที่ปิดใช้ `INACTIVE`) ที่มี DO พร้อมวางบิล (กฎเดียวกับ `GET /invoices/queue` + เวลาจุดส่งครบ) วันที่ DO อยู่ในงวด → ร่างผ่านทางเดียวกับ `POST /invoices` (ตรวจซ้ำตอนดึง · กันวางบิลซ้ำระดับ DB · audit `invoice.draft_created`) · `MONTHLY`/`WEEKLY` = **ใบแจ้งหนี้ใบเดียวต่อลูกค้าต่อรอบ** งวด = ที่สั่ง (เพดาน 1000 DO ต่อใบ — เกินจึงแบ่งหลายร่าง + `splitByCap`) · `PER_DO` = 1 ร่างต่อ DO · `billingNotes` (ค่าเริ่มต้น true) = ร่างใบวางบิลจากใบแจ้งหนี้ที่ออกแล้วยังค้าง และยังไม่อยู่ในใบวางบิลที่ active **เฉพาะใบของงวดนี้** (งวดของใบอยู่ในงวดของรอบทั้งช่วง; ใบที่ไม่มีงวดใช้วันที่ออก) (1 ร่างต่อผู้ออก/สาขาผู้ออก) · **สั่งซ้ำไม่สร้างซ้ำ:** DO/ใบแจ้งหนี้ที่ถูกดึงแล้วไม่ถูกเลือกอีก · **ร่างละ transaction** (รวมการส่งบัญชีของ DO ในกลุ่ม) — กลุ่มที่ล้มย้อนทั้งกลุ่ม กลุ่ม/ลูกค้าอื่นไม่ล้มตาม · DO ที่ไม่ผ่านตอนดึง (ระบุตัวได้) ถูกข้าม (`skippedDeliveryOrders`) · ร่างลงชื่อผู้สั่งเป็นผู้สร้าง (กฎแบ่งหน้าที่ของ finalize ใช้เหมือนสร้างมือ) · 202 `{jobId, statusUrl}` → `GET /v1/jobs/{id}`: `progress` ต่อร่าง · `result` = `InvoiceRunResult` (ผลต่อลูกค้า SUCCEEDED/PARTIAL/FAILED/NOTHING_TO_BILL + ลิงก์ร่าง ≤ 50 ต่อลูกค้า — ไม่มียอดเงิน) · ไม่มีลูกค้า PARTIAL/FAILED = `succeeded`, มี = `succeeded_with_errors` · จบ = webhook `job.completed` · **ไฟล์สรุปรอบ.xlsx** (`result.summary.url` = `GET /v1/exports/{jobId}` เฉพาะผู้สั่งที่มี `export:run`; ยอดเงินในไฟล์เฉพาะผู้สั่งที่มี `prices.sell:read`; ใช้ได้ 7 วัน; แจ้งเตือนผู้สั่งพร้อมลิงก์) · ไม่มีรอบอัตโนมัติตามเวลา (สั่งเองเท่านั้น) · ผู้สั่งดู `statusUrl` ได้แม้ไม่มี `jobs:read` · job เก็บ 7 วัน · นับเป็นคำขอหนัก (rate limit ชั้น heavy)
 
 **Request body** `CreateInvoiceRunDto`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `billingCycle` | ใช่ | `string` | ค่า: `PER_DO`, `WEEKLY`, `MONTHLY` | รอบวางบิลของลูกค้าที่เข้ารอบนี้ (`customer.billingCycle`) · `MANUAL` ไม่เข้ารอบ · `MONTHLY`/`WEEKLY` = 1 ร่างต่อลูกค้า (เกิน 200 DO แบ่งเป็นหลายร่าง) · `PER_DO` = 1 ร่างต่อ DO |   |
+| `billingCycle` | ใช่ | `string` | ค่า: `PER_DO`, `WEEKLY`, `MONTHLY` | รอบวางบิลของลูกค้าที่เข้ารอบนี้ (`customer.billingCycle`) · `MANUAL` และลูกค้าที่ปิดใช้ (`INACTIVE`) ไม่เข้ารอบ · `MONTHLY`/`WEEKLY` = **ใบแจ้งหนี้ใบเดียวต่อลูกค้าต่อรอบ** (เกิน 1000 DO จึงแบ่งเป็นหลายร่าง + `splitByCap`) · `PER_DO` = 1 ร่างต่อ DO |   |
 | `periodFrom` | ใช่ | `string` |   | งวดตั้งแต่ (วันที่ DO — `doDate`) | `2026-10-01` |
 | `periodTo` | ใช่ | `string` |   | งวดถึง (วันที่ DO — `doDate`) ≥ periodFrom | `2026-10-31` |
 | `releaseDeliveryOrders` |   | `boolean` |   | true = ส่งบัญชี DO ที่ยังไม่ส่งพร้อมสร้างร่าง (เหมือน `POST /invoices` `releaseDeliveryOrders`) · ไม่ส่ง/false = ดึงเฉพาะ DO ที่ส่งบัญชีแล้ว |   |
-| `billingNotes` |   | `boolean` |   | สร้างร่างใบวางบิลอัตโนมัติ จากใบแจ้งหนี้ที่ออกแล้วยังค้างและยังไม่อยู่ในใบวางบิลที่ active ของลูกค้าในรอบนี้ (1 ร่างต่อผู้ออก/สาขาผู้ออก) · ไม่ส่ง = true |   |
+| `billingNotes` |   | `boolean` |   | สร้างร่างใบวางบิลอัตโนมัติ จากใบแจ้งหนี้ที่ออกแล้วยังค้างและยังไม่อยู่ในใบวางบิลที่ active ของลูกค้าในรอบนี้ **เฉพาะใบของงวดนี้**: งวดของใบ (`periodFrom`–`periodTo`) อยู่ในงวดของรอบทั้งช่วง · ใบที่ไม่มีงวดใช้วันที่ออก (`issueDate`) อยู่ในงวดของรอบ (1 ร่างต่อผู้ออก/สาขาผู้ออก) · ไม่ส่ง = true |   |
 
 **Responses**
 

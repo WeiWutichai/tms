@@ -18,6 +18,7 @@ import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { JobQueue } from '../../jobs/job-queue.service';
 import { ErpSyncService } from '../erp/erp-sync.service';
 import { issueNumber } from '../sequences/sequences.service';
 import { TripService } from '../trips/trip.service';
@@ -37,6 +38,7 @@ import type {
   UpdateSettlementDto,
 } from './settlement.dto';
 import { resolvePayer } from './settlement-payer';
+import { enqueueSettlementPdf } from './settlement-pdf.job';
 import { payableLines, SettlementQueueService } from './settlement-queue.service';
 import { disputedCount, disputedLines, latestBy, lineStatus } from './settlement-dispute';
 import type { SettlementSentDto, SettlementReviewLinkDto } from './settlement-review.dto';
@@ -110,6 +112,7 @@ export class SettlementsService {
     private readonly review: SettlementReviewService,
     private readonly trips: TripService,
     private readonly erpSync: ErpSyncService,
+    private readonly jobs: JobQueue,
   ) {}
 
   // ---------- อ่าน ----------
@@ -614,6 +617,8 @@ export class SettlementsService {
         actorId: actor,
       },
     });
+    // D-66: เก็บ PDF ฉบับอนุมัติ — งานเบื้องหลัง render หลัง commit (ไม่ render ใน transaction ของคำขอ) + ลองใหม่จนเก็บได้
+    await enqueueSettlementPdf(this.jobs, tx, ctx.tenantId!, id, 'APPROVED');
     return out;
   }
 
@@ -745,6 +750,8 @@ export class SettlementsService {
     });
     // ST8-T16 (D-58) connector ที่เปิด pushSettlement → ส่งเป็นเจ้าหนี้ร่าง + WHT ประมาณการ (outbox — หลัง commit)
     await this.erpSync.settlementPaid(tx, out);
+    // D-66: เก็บ PDF ฉบับจ่ายแล้ว (ข้อมูลการจ่าย) — งานเบื้องหลังหลัง commit แบบเดียวกับตอนอนุมัติ
+    await enqueueSettlementPdf(this.jobs, tx, ctx.tenantId!, id, 'PAID');
     return out;
   }
 

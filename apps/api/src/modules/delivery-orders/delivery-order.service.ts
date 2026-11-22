@@ -1065,29 +1065,34 @@ export class DeliveryOrderService {
         : event === 'draft' || event === 'uninvoice'
           ? { invoicedAt: null, paidAt: null }
           : {};
+    // ST5-T12b: ทำเป็นชุดต่อสถานะต้นทาง (2 คำสั่งต่อสถานะ ไม่ใช่ 2 คำสั่งต่อ DO — ใบแจ้งหนี้ ≤ 1,000 DO) · ผลเท่าเดิม:
+    // ตรวจ transition ทุกใบก่อน → อัปเดตแบบมีเงื่อนไข (สถานะต้องยังเป็นค่าที่ผู้เรียกล็อกไว้ — จำนวนไม่ครบ = concurrent_update) → ประวัติต่อ DO
+    const groups = new Map<BillingStatus, { to: BillingStatus; ids: string[] }>();
     for (const d of rows) {
-      const to = transition(
-        BILLING_DOC_TYPE,
-        BILLING_TRANSITIONS,
-        d.billingStatus as BillingStatus,
-        event,
-      );
+      const from = d.billingStatus as BillingStatus;
+      const to = transition(BILLING_DOC_TYPE, BILLING_TRANSITIONS, from, event);
+      const g = groups.get(from) ?? { to, ids: [] };
+      g.ids.push(d.id);
+      groups.set(from, g);
+    }
+    const tenantId = this.tenantId();
+    for (const [from, g] of groups) {
       const r = await tx.deliveryOrder.updateMany({
-        where: { id: d.id, billingStatus: d.billingStatus as BillingStatus },
-        data: { billingStatus: to, ...stamp, version: { increment: 1 } },
+        where: { id: { in: g.ids }, billingStatus: from },
+        data: { billingStatus: g.to, ...stamp, version: { increment: 1 } },
       });
-      if (r.count === 0) throw new ProblemException('concurrent_update');
-      await tx.docStatusHistory.create({
-        data: {
-          tenantId: this.tenantId(),
+      if (r.count !== new Set(g.ids).size) throw new ProblemException('concurrent_update');
+      await tx.docStatusHistory.createMany({
+        data: g.ids.map((id) => ({
+          tenantId,
           docType: BILLING_DOC_TYPE,
-          docId: d.id,
-          fromStatus: d.billingStatus,
-          toStatus: to,
+          docId: id,
+          fromStatus: from,
+          toStatus: g.to,
           event,
           actorId: ctx.actorId ?? null,
           note,
-        },
+        })),
       });
     }
   }
@@ -1105,7 +1110,7 @@ export class DeliveryOrderService {
       select: { id: true, status: true, version: true },
       orderBy: { id: 'asc' },
     });
-    for (const d of rows) await this.move(tx, d, 'bill', {}, note);
+    await this.moveMany(tx, rows, 'UNBILLED', 'bill', note);
     return rows.length;
   }
 
@@ -1128,7 +1133,7 @@ export class DeliveryOrderService {
       select: { id: true, status: true, version: true },
       orderBy: { id: 'asc' },
     });
-    for (const d of rows) await this.move(tx, d, 'unbill', {}, note);
+    await this.moveMany(tx, rows, 'BILLED', 'unbill', note);
     return rows.length;
   }
 
@@ -1489,6 +1494,53 @@ export class DeliveryOrderService {
         });
         if (r.count === 0) throw new ProblemException('concurrent_update');
         return this.eventObject(d.id, tx);
+      },
+    });
+  }
+
+  /**
+   * ST5-T12b `move` ของ DO หลายใบจากสถานะเดียวกัน (ออก/ยกเลิกใบแจ้งหนี้ ≤ 1,000 DO) — ผลต่อ DO เท่ากับ `move` ทีละใบ
+   * (สถานะ + version + 1, ประวัติ, event `delivery_order.status_changed` พร้อม snapshot หลังเปลี่ยน) แต่ใช้คำสั่งคงที่
+   * ผู้เรียกถือล็อก DO ทุกใบ (`lockForBilling`) — อัปเดตแบบมีเงื่อนไข (สถานะ + version ที่อ่านใต้ล็อก); จำนวนไม่ครบ = `concurrent_update`
+   */
+  private async moveMany(
+    tx: Tx,
+    rows: Pick<DeliveryOrderRecord, 'id' | 'status' | 'version'>[],
+    from: DoStatus,
+    event: Extract<DoEvent, 'bill' | 'unbill'>,
+    note: string | null,
+  ): Promise<void> {
+    if (!rows.length) return;
+    const ids = rows.map((d) => d.id);
+    await this.state.transitionMany<DoStatus, DoEvent>(tx, {
+      docType: ENTITY,
+      docIds: ids,
+      table: DO_TRANSITIONS,
+      from,
+      event,
+      note,
+      eventType: EVENT_TYPE,
+      apply: async (to) => {
+        const n = await tx.$executeRaw`
+          UPDATE delivery_order d
+             SET status = ${to}::do_status, version = d.version + 1, updated_at = clock_timestamp()
+            FROM unnest(${ids}::uuid[], ${rows.map((d) => d.version)}::int[]) AS v(id, version)
+           WHERE d.id = v.id AND d.version = v.version AND d.status = ${from}::do_status`;
+        if (n !== ids.length) throw new ProblemException('concurrent_update');
+        const ds = await tx.deliveryOrder.findMany({
+          where: { id: { in: ids } },
+          include: INCLUDE,
+        });
+        const bal = await this.rejectionBalance(tx, ds);
+        return new Map(
+          ds.map((d) => [
+            d.id,
+            JSON.parse(JSON.stringify(toDeliveryOrderDto(d, bal.get(d.id)))) as Record<
+              string,
+              unknown
+            >,
+          ]),
+        );
       },
     });
   }
