@@ -13,9 +13,37 @@ export const DEMO_TRUSTED_DEVICE = 'demo-trusted-device-e2e-only-0000000000000';
 export const DEMO_IDS: Record<string, string> = {
   'owner@demo-a.test': '00000000-0000-4000-8000-0000000e0a01',
   'admin@demo-a.test': '00000000-0000-4000-8000-0000000e0a02',
+  // D-78: role ที่ถือสิทธิ์สำคัญต้องตั้ง 2FA — seed ตั้งให้ + cookie อุปกรณ์ที่จำไว้
+  'manager@demo-a.test': '00000000-0000-4000-8000-0000000e0a03',
+  'planner@demo-a.test': '00000000-0000-4000-8000-0000000e0a04',
+  'invoicer@demo-a.test': '00000000-0000-4000-8000-0000000e0a06',
   'accounting@demo-a.test': '00000000-0000-4000-8000-0000000e0a07',
   'owner@demo-b.test': '00000000-0000-4000-8000-0000000e0b01',
 };
+
+/**
+ * D-78: ผู้ใช้เดโมที่ต้องตั้ง 2FA — ข้ามขั้น TOTP ด้วย cookie อุปกรณ์ที่จำไว้จาก seed ใน helper login ของแต่ละ spec
+ * - `trustDevice(page, email)` วาง cookie ใน context ของหน้า (แทน cookie เดิมชื่อเดียวกัน) ก่อน `page.request.post('/v1/auth/login')`
+ * - `trustedDeviceHeaders(email)` header Cookie สำหรับ `request` fixture (context แยก ไม่มี cookie ของหน้า)
+ * ผู้ใช้ที่ไม่ต้องตั้ง 2FA = ไม่ทำอะไร
+ */
+export async function trustDevice(page: Page, email: string): Promise<void> {
+  const id = DEMO_IDS[email];
+  if (!id) return;
+  await page.context().addCookies([
+    {
+      name: 'tms_td',
+      value: `${DEMO_TRUSTED_DEVICE}:${id}`,
+      url: `${E2E_WEB}/v1/auth`,
+      httpOnly: true,
+      sameSite: 'Strict',
+    },
+  ]);
+}
+export function trustedDeviceHeaders(email: string): Record<string, string> {
+  const id = DEMO_IDS[email];
+  return id ? { Cookie: `tms_td=${DEMO_TRUSTED_DEVICE}:${id}` } : {};
+}
 
 /**
  * login ผ่าน API จริง (Auth Code + PKCE) ด้วย request ของ context เดียวกับหน้า → ได้ refresh cookie httpOnly

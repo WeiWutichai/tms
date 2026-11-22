@@ -74,6 +74,9 @@ const D67_STEP_UP_ROUTES: [string, RegExp][] = [
   ['POST', /^\/v1\/invoices\/[^/?]+\/void(\?|$)/],
   ['POST', /^\/v1\/billing-notes\/[^/?]+\/cancel(\?|$)/],
   ['POST', /^\/v1\/imports\/[^/?]+\/commit(\?|$)/],
+  // D-77 (PO 23 พ.ย. 2569): Platform Console — token Console ได้ step-up ของ Console (`pur: platform_step_up`)
+  ['POST', /^\/v1\/platform\/tenants\/[^/?]+\/connectors(\?|$)/],
+  ['PUT', /^\/v1\/platform\/connectors\/[^/?]+\/credentials(\?|$)/],
 ];
 
 const b64url = (v: string | Buffer) => Buffer.from(v).toString('base64url');
@@ -82,19 +85,21 @@ const b64url = (v: string | Buffer) => Buffer.from(v).toString('base64url');
 function stepUpHeaderFor(token: string): string | null {
   const parts = token.split('.');
   if (parts.length !== 3) return null; // API key `tk_…`
-  let claims: { sub?: string; tid?: string; pt?: string };
+  let claims: { sub?: string; tid?: string; pt?: string; pur?: string; tv?: number };
   try {
     claims = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf8'));
   } catch {
     return null;
   }
-  if (!claims.sub || !claims.tid || (claims.pt !== 'dev' && claims.pt !== 'user')) return null;
-  const secret = process.env.AUTH_JWT_SECRET ?? process.env.AUTH_DEV_SECRET ?? '';
   const now = Math.floor(Date.now() / 1000);
+  let payload: object;
+  if (claims.pur === 'platform' && claims.sub && typeof claims.tv === 'number')
+    payload = { pur: 'platform_step_up', tv: claims.tv, sub: claims.sub, iat: now, exp: now + 300 };
+  else if (!claims.sub || !claims.tid || (claims.pt !== 'dev' && claims.pt !== 'user')) return null;
+  else payload = { tid: claims.tid, pur: 'step_up', sub: claims.sub, iat: now, exp: now + 300 };
+  const secret = process.env.AUTH_JWT_SECRET ?? process.env.AUTH_DEV_SECRET ?? '';
   const head = b64url(JSON.stringify({ alg: 'HS256' }));
-  const body = b64url(
-    JSON.stringify({ tid: claims.tid, pur: 'step_up', sub: claims.sub, iat: now, exp: now + 300 }),
-  );
+  const body = b64url(JSON.stringify(payload));
   const sig = createHmac('sha256', secret).update(`${head}.${body}`).digest('base64url');
   return `${head}.${body}.${sig}`;
 }

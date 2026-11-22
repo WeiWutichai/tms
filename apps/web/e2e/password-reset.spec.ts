@@ -21,7 +21,7 @@ test.afterAll(async () => db.$disconnect());
 test('ลืมรหัสผ่าน → ส่งลิงก์ → ตั้งรหัสใหม่ → login ได้; ลิงก์ใช้ซ้ำไม่ได้', async ({ page }) => {
   // ผู้ใช้ใหม่ทุกรอบ — ไม่กระทบรหัสของผู้ใช้เดโมที่ spec อื่นใช้
   const email = `reset-${Date.now()}@demo-a.test`;
-  const role = await db.role.findFirst({ where: { tenantId: DEMO_A, code: 'planner' } });
+  const role = await db.role.findFirst({ where: { tenantId: DEMO_A, code: 'dispatcher' } }); // D-78: role ที่ไม่บังคับ 2FA
   const u = await db.appUser.create({
     data: { tenantId: DEMO_A, email, name: 'ลืมรหัส ทดสอบ', status: 'ACTIVE', passwordHash: 'x' },
   });

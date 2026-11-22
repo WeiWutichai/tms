@@ -53,10 +53,23 @@ export const RequireHumanStepUp = () =>
  * D-67: ประกาศ step-up ที่ตรวจใน handler (`assertStepUp` / `assertHumanStepUp`) ทุกครั้ง — validation (422) / 404 มาก่อน
  * `mode` 'human' = API key ไม่ต้อง (คุมด้วย scope)
  */
-export const StepUpAlways = (mode: 'always' | 'human' = 'always') =>
-  ApiExtension('x-step-up', { mode });
-/** D-67: step-up แบบมีเงื่อนไข — ดูด้านบน */
-export const StepUpWhen = (when: string) => ApiExtension('x-step-up', { mode: 'human', when });
+export const StepUpAlways = (mode: StepUpDocMode = 'always') => ApiExtension('x-step-up', { mode });
+/**
+ * D-67: step-up แบบมีเงื่อนไข — ดูด้านบน · `mode`:
+ * - 'human' (ค่าเริ่ม) = API key ไม่ต้อง (คุมด้วย scope)
+ * - 'user' (D-79) = API key ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user` (บัญชีธนาคารรถร่วม)
+ * - 'platform' (D-77) = token จาก `POST /v1/platform/auth/step-up` (Platform Console)
+ */
+export const StepUpWhen = (when: string, mode: StepUpDocMode = 'human') =>
+  ApiExtension('x-step-up', { mode, when });
+export type StepUpDocMode = 'always' | 'human' | 'user' | 'platform';
+
+export const ALLOW_BEFORE_2FA = 'tms:allowBefore2fa';
+/**
+ * D-78: route ที่ผู้ใช้ซึ่งต้องตั้ง 2FA แต่ยังไม่ตั้ง เรียกได้ (สถานะ 2FA ของตัวเอง) — route อื่นตอบ 403 `two_factor_enrolment_required`
+ * (ขั้นตั้ง 2FA เอง `/auth/2fa/enroll*` เป็น @Public ใช้ mfaToken จาก login อยู่แล้ว)
+ */
+export const AllowBeforeTwoFactor = () => SetMetadata(ALLOW_BEFORE_2FA, true);
 
 export const REQUIRED_FEATURE = 'tms:requiredFeature';
 /** ต้องเปิดฟีเจอร์นี้ในแพ็กเกจ/override ของ tenant (ST1-T18) — ปิด → 403 `feature_not_in_plan` + `featureKey` (spec/01 PLT-078) */

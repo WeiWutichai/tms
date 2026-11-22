@@ -107,12 +107,15 @@ describe('roles: A3 ผ่าน API จริง', () => {
   it('GET /users คืน role และสถานะ 2FA; ไม่ส่ง hash/secret', async () => {
     const res = await api(app, tokens.owner).get('/v1/users').expect(200);
     expect(res.body.data).toHaveLength(ROLE_CODES.length);
+    // D-78: planner ถือ export:run → ต้องตั้ง 2FA (login ในขั้นเตรียมตั้งให้แล้ว) · dispatcher ไม่บังคับ
     const planner = res.body.data.find((u: { email: string }) => u.email === 'planner@roles.test');
     expect(planner.roles).toEqual([
       expect.objectContaining({ code: 'planner', name: 'ผู้วางแผน' }),
     ]);
-    expect(planner.twoFactorEnabled).toBe(false);
+    expect(planner.twoFactorEnabled).toBe(true);
     expect(planner.lastLoginAt).not.toBeNull();
+    const disp = res.body.data.find((u: { email: string }) => u.email === 'dispatcher@roles.test');
+    expect(disp.twoFactorEnabled).toBe(false);
     expect(JSON.stringify(res.body)).not.toMatch(/passwordHash|totpSecret|argon2/);
   });
 

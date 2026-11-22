@@ -9,6 +9,11 @@ import { signDevToken } from '../src/auth/auth.guard';
 import { isLocalEnv, pkceChallenge, verifyAccessToken } from '../src/auth/tokens';
 import { encodeId } from '../src/common/ids';
 import { bootApp, createTenant, platform, truncateAll } from './helpers';
+import { PERMISSIONS, TWO_FACTOR_SCOPES } from '@tms/domain';
+
+const NO_2FA_PERMISSIONS: string[] = PERMISSIONS.filter(
+  (p) => !(TWO_FACTOR_SCOPES as readonly string[]).includes(p),
+);
 
 /** ST1-T01 (login + ล็อก) และ ST1-T04 (session: PKCE, refresh หมุน, tokenVersion) */
 describe('auth: login + Auth Code/PKCE + refresh', () => {
@@ -33,10 +38,11 @@ describe('auth: login + Auth Code/PKCE + refresh', () => {
       },
     });
     // role ทดสอบที่ไม่บังคับ 2FA (owner/admin/accounting บังคับ — ทดสอบใน mfa.test.ts)
+    // D-78: ไม่ถือสิทธิ์ที่บังคับ 2FA (settings:write / settlements:pay / invoices:void / export:run)
     for (const code of opts.roles ?? ['tester']) {
       const role = await db.role.upsert({
         where: { tenantId_code: { tenantId, code } },
-        create: { tenantId, code, nameTh: code, permissions: ['*'], isSystem: true },
+        create: { tenantId, code, nameTh: code, permissions: NO_2FA_PERMISSIONS, isSystem: true },
         update: {},
       });
       await db.userRole.create({ data: { tenantId, userId: user.id, roleId: role.id } });

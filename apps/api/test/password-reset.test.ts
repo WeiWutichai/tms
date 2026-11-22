@@ -47,7 +47,7 @@ describe('password reset + email outbox', () => {
     const u = await db.appUser.create({
       data: { tenantId, email, name: 'ทดสอบ', status, passwordHash: await hashPassword(PW) },
     });
-    await db.userRole.create({ data: { tenantId, userId: u.id, roleId: roles.planner! } });
+    await db.userRole.create({ data: { tenantId, userId: u.id, roleId: roles.dispatcher! } });
     return u;
   }
 

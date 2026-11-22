@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { Browser, Page } from '@playwright/test';
-import { DEMO_PASSWORD, expect, test } from './fixtures';
+import { DEMO_PASSWORD, expect, test, trustDevice } from './fixtures';
 
 /**
  * E2E ST3-T08 ล็อกการแก้ใบสั่งขนส่ง (2 browser context):
@@ -31,6 +31,7 @@ test.afterAll(async () => db.$disconnect());
 
 /** login ผ่าน API จริงใน context ของหน้า (refresh cookie) + คืน access token */
 async function login(page: Page, email: string): Promise<string> {
+  await trustDevice(page, email); // D-78: ผู้ใช้ที่ต้องตั้ง 2FA
   const v = randomBytes(32).toString('base64url');
   const r1 = await page.request.post('/v1/auth/login', {
     data: {

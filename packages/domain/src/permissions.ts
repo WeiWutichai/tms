@@ -279,6 +279,23 @@ export function scopeAllows(granted: readonly string[], required: string): boole
 }
 
 /**
+ * D-78 (PO 23 พ.ย. 2569): ผู้ใช้ที่ถือสิทธิ์ตัวใดตัวหนึ่งนี้ (ตั้งค่า / จ่ายเงินรถร่วม / ยกเลิกใบแจ้งหนี้ / ส่งออก)
+ * **ต้องตั้ง 2FA (TOTP)** — login ครั้งถัดไปต้องผ่านขั้นตั้ง 2FA ก่อน · token ที่ออกก่อนหน้าได้ 403 `two_factor_enrolment_required`
+ * (role ระบบที่เข้าเกณฑ์: owner, admin, manager, planner, invoicer, accounting) · API key / ทีม Innovera เข้าใช้งานแทน ไม่เกี่ยว
+ */
+export const TWO_FACTOR_SCOPES = [
+  'settings:write',
+  'settlements:pay',
+  'invoices:void',
+  'export:run',
+] as const satisfies readonly Permission[];
+
+/** สิทธิ์ชุดนี้บังคับตั้ง 2FA ไหม (D-78) */
+export function requiresTwoFactor(granted: readonly string[]): boolean {
+  return TWO_FACTOR_SCOPES.some((p) => scopeAllows(granted, p));
+}
+
+/**
  * scope ที่ห้ามให้ API key / OAuth client (ST7-T01 review M1) — งานบริหารผู้ใช้/บทบาท/ความปลอดภัย/การตั้งค่า
  * (รวมการจัดการ API key ซึ่งใช้ `settings:write`) ต้องทำโดยคนที่ login + 2FA เท่านั้น
  * [DECISION — ตามคำแนะนำ, PO อนุมัติล่วงหน้า 17 พ.ย. 2569 — ย้อนได้ spec/12 §3]

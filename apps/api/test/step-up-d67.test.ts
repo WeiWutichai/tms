@@ -20,7 +20,7 @@ function jurTax(n: number): string {
  * D-67 (PO 22 พ.ย. 2569; spec/11 NFR-107; ST9-T13 M-02) — step-up 2FA ขยาย:
  * API key (สร้าง/หมุน) · credential connector · secret webhook · บัญชีธนาคารรถร่วม · ส่งออกทั้งบริษัท · ยกเลิกใบแจ้งหนี้ที่ออกแล้ว
  * - ผู้ใช้: ไม่มี `X-Step-Up` ที่ถูกต้องของตัวเอง → 403 `step_up_required` · มี → ผ่าน
- * - API key: ทำ step-up ไม่ได้ → route ที่ key เข้าได้อยู่แล้วคุมด้วย scope (ไม่ถาม step-up)
+ * - API key: ทำ step-up ไม่ได้ → route ที่ key เข้าได้อยู่แล้วคุมด้วย scope (ไม่ถาม step-up) · ยกเว้นบัญชีธนาคาร = 403 (D-79)
  * (`api()` ใน helpers แนบ step-up ให้ route เหล่านี้อัตโนมัติ — ที่นี่ส่งคำขอดิบเพื่อทดสอบด่านเอง)
  */
 describe('step-up 2FA ขยาย (D-67)', () => {
@@ -134,7 +134,7 @@ describe('step-up 2FA ขยาย (D-67)', () => {
     }
   });
 
-  it('API key: route ที่ key เข้าได้คุมด้วย scope (ไม่ถาม step-up) — ยกเลิกใบแจ้งหนี้ / ส่งออกทั้งตาราง / บัญชีธนาคาร', async () => {
+  it('API key: route ที่ key เข้าได้คุมด้วย scope (ไม่ถาม step-up) — ยกเลิกใบแจ้งหนี้ / ส่งออกทั้งตาราง · บัญชีธนาคาร key ทำไม่ได้ (D-79)', async () => {
     const k = await keyOf([
       'invoices:read',
       'invoices:void',
@@ -150,14 +150,19 @@ describe('step-up 2FA ขยาย (D-67)', () => {
       .send({ reason: 'ทดสอบยกเลิกด้วย key' });
     expect(v.status).toBe(404); // ผ่านด่าน step-up/สิทธิ์ ไปถึงการหาใบ
     await byKey('get', '/v1/customers/export').expect(200);
-    const c = await byKey('post', '/v1/carriers').send(juristic({ bankAccount: BANK }));
+    // D-79 (PO 23 พ.ย. 2569): บัญชีธนาคาร key แก้/ดูไม่ได้ (403 bank_change_requires_user) — ช่องอื่นได้ตามเดิม
+    // รายละเอียดใน test/two-factor-d77-d79.test.ts
+    const nb = await byKey('post', '/v1/carriers').send(juristic({ bankAccount: BANK }));
+    expect(nb.status, JSON.stringify(nb.body)).toBe(403);
+    expect(nb.body.code).toBe('bank_change_requires_user');
+    const c = await byKey('post', '/v1/carriers').send(juristic());
     expect(c.status, JSON.stringify(c.body)).toBe(201);
     const rv = await byKey('post', `/v1/carriers/${c.body.id}/reveal`).send({
       field: 'bankAccountNo',
       reason: 'ตรวจเลขบัญชีก่อนโอน',
     });
-    expect(rv.status).toBe(200);
-    expect(rv.body.value).toBe(BANK.accountNo);
+    expect(rv.status).toBe(403);
+    expect(rv.body.code).toBe('bank_change_requires_user');
     // key จัดการ API key / webhook / connector ไม่ได้อยู่แล้ว (settings:write ห้ามให้ key)
     const kk = await byKey('post', '/v1/api-keys').send({ name: 'x', scopes: [] });
     expect(kk.status).toBe(403);

@@ -8,7 +8,7 @@ import {
 } from '@nestjs/swagger';
 import { IsBoolean, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import type { CookieOptions, Request, Response } from 'express';
-import { Public, RequireStepUp } from '../common/decorators';
+import { AllowBeforeTwoFactor, Public, RequireStepUp } from '../common/decorators';
 import { ProblemException } from '../common/problem';
 import { ApiServiceBusyResponse } from './auth-tx';
 import { requestContext } from '../common/request-context';
@@ -221,6 +221,7 @@ export class MfaController {
   }
 
   @Get('me/2fa')
+  @AllowBeforeTwoFactor() // D-78
   @ApiBearerAuth()
   @ApiOkResponse({ type: TwoFactorStatusDto })
   async status(): Promise<TwoFactorStatusDto> {
