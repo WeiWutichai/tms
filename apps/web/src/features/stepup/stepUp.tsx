@@ -1,6 +1,7 @@
 import { useEscapeLayer, useModalFocus } from '@tms/ui';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { api, ApiError, unwrap } from '../../api';
+import { sessionStore } from '../../auth/session';
 import { useI18n } from '../../i18n';
 import { problemText } from '../master/problems';
 import { StepUpBox } from '../settings/OrgSections';
@@ -30,6 +31,8 @@ let cached: { token: string; until: number } | null = null;
 export function clearStepUp(): void {
   cached = null;
 }
+// session เปลี่ยน (ออกจากระบบ / 401 บังคับออก / ทิ้ง token / จบการเข้าใช้งานแทน / login ใหม่) → ทิ้ง token step-up ทันที (review L4)
+sessionStore.subscribe(clearStepUp);
 
 type Pending = { resolve: (token: string) => void; reject: (e: unknown) => void };
 let pending: Pending | null = null;

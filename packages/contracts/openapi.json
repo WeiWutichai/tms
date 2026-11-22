@@ -2038,7 +2038,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
             "schema": {
               "type": "string"
             }
@@ -2086,7 +2086,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2142,7 +2142,7 @@
         ],
         "x-step-up": {
           "mode": "human",
-          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+          "when": "ส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง"
         }
       }
     },
@@ -7894,7 +7894,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
             "schema": {
               "type": "string"
             }
@@ -7925,7 +7925,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -7981,7 +7981,7 @@
         ],
         "x-step-up": {
           "mode": "human",
-          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+          "when": "ส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง"
         }
       }
     },
@@ -14918,7 +14918,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
             "schema": {
               "type": "string"
             }
@@ -14949,7 +14949,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -15005,7 +15005,7 @@
         ],
         "x-step-up": {
           "mode": "human",
-          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+          "when": "ส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง"
         }
       }
     },
@@ -16790,7 +16790,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
             "schema": {
               "type": "string"
             }
@@ -16821,7 +16821,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -16877,7 +16877,7 @@
         ],
         "x-step-up": {
           "mode": "human",
-          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+          "when": "ส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง"
         }
       }
     },
@@ -18410,7 +18410,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
             "schema": {
               "type": "string"
             }
@@ -18441,7 +18441,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -18497,7 +18497,7 @@
         ],
         "x-step-up": {
           "mode": "human",
-          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+          "when": "ส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง"
         }
       }
     },
@@ -20715,7 +20715,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
             "schema": {
               "type": "string"
             }
@@ -20746,7 +20746,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -20802,7 +20802,7 @@
         ],
         "x-step-up": {
           "mode": "human",
-          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+          "when": "ส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง"
         }
       }
     },
@@ -22263,7 +22263,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
             "schema": {
               "type": "string"
             }
@@ -22294,7 +22294,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -22350,7 +22350,7 @@
         ],
         "x-step-up": {
           "mode": "human",
-          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+          "when": "ส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง"
         }
       }
     },
@@ -23706,7 +23706,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
             "schema": {
               "type": "string"
             }
@@ -23737,7 +23737,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -23793,7 +23793,7 @@
         ],
         "x-step-up": {
           "mode": "human",
-          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+          "when": "ส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง"
         }
       }
     },
@@ -25246,6 +25246,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งทุกครั้ง ไม่งั้น 403 `step_up_required` · API key ใช้ route นี้ไม่ได้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -25288,7 +25297,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.write"
+            "description": "ไม่มีสิทธิ์ (`settings:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/setup-checklist",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settings",
+                      "action": "write",
+                      "required": [
+                        "settings:write"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/api-keys/3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -25317,6 +25360,9 @@
         "x-required-scopes": [
           "settings:write"
         ],
+        "x-step-up": {
+          "mode": "always"
+        },
         "description": "**หมายเหตุต่อเวอร์ชัน (X-Api-Version)**\n- 2026-11-18: API key ที่หมุนแล้ว (ใช้ได้ถึง revokeAt) มีสถานะ `rotating` — ก่อนหน้านี้แสดงเป็น `active` และตัวกรอง `status=active` รวม key เหล่านี้"
       }
     },
@@ -26205,6 +26251,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อเปลี่ยน `url` หรือ `extraHeaders` (D-67 review M1) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -26247,7 +26302,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.write"
+            "description": "ไม่มีสิทธิ์ (`settings:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อเปลี่ยน `url` หรือ `extraHeaders` (D-67 review M1)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/setup-checklist",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settings",
+                      "action": "write",
+                      "required": [
+                        "settings:write"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/webhooks/3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -26272,7 +26361,11 @@
         ],
         "x-required-scopes": [
           "settings:write"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "เปลี่ยน `url` หรือ `extraHeaders` (D-67 review M1)"
+        }
       },
       "delete": {
         "operationId": "Webhooks_remove",
@@ -27182,7 +27275,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่ง `credentials` มาด้วย (D-67) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่ง `credentials` หรือ `settings` มาด้วย (D-67) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
             "schema": {
               "type": "string"
             }
@@ -27230,7 +27323,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`settings:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่ง `credentials` มาด้วย (D-67)",
+            "description": "ไม่มีสิทธิ์ (`settings:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่ง `credentials` หรือ `settings` มาด้วย (D-67)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -27286,7 +27379,7 @@
         ],
         "x-step-up": {
           "mode": "human",
-          "when": "ส่ง `credentials` มาด้วย (D-67)"
+          "when": "ส่ง `credentials` หรือ `settings` มาด้วย (D-67)"
         }
       }
     },
@@ -27433,6 +27526,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่ง `settings` มาด้วย (เช่น baseUrl — credential ที่เก็บไว้จะถูกส่งไปปลายทางนี้; D-67 review H1) ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -27475,7 +27577,41 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.write"
+            "description": "ไม่มีสิทธิ์ (`settings:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่ง `settings` มาด้วย (เช่น baseUrl — credential ที่เก็บไว้จะถูกส่งไปปลายทางนี้; D-67 review H1)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/setup-checklist",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "settings",
+                      "action": "write",
+                      "required": [
+                        "settings:write"
+                      ]
+                    }
+                  },
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/connectors/3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -27500,7 +27636,11 @@
         ],
         "x-required-scopes": [
           "settings:write"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "human",
+          "when": "ส่ง `settings` มาด้วย (เช่น baseUrl — credential ที่เก็บไว้จะถูกส่งไปปลายทางนี้; D-67 review H1)"
+        }
       }
     },
     "/v1/connectors/{id}/history": {
@@ -30991,7 +31131,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
             "schema": {
               "type": "string"
             }
@@ -31022,7 +31162,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -31078,7 +31218,7 @@
         ],
         "x-step-up": {
           "mode": "human",
-          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+          "when": "ส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง"
         }
       }
     },
@@ -61871,7 +62011,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
             "schema": {
               "type": "string"
             }
@@ -61902,7 +62042,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -61958,7 +62098,7 @@
         ],
         "x-step-up": {
           "mode": "human",
-          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+          "when": "ส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง"
         }
       }
     },
@@ -63723,7 +63863,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
             "schema": {
               "type": "string"
             }
@@ -63754,7 +63894,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -63810,7 +63950,7 @@
         ],
         "x-step-up": {
           "mode": "human",
-          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+          "when": "ส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง"
         }
       }
     },
@@ -65502,7 +65642,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
             "schema": {
               "type": "string"
             }
@@ -65533,7 +65673,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -65589,7 +65729,7 @@
         ],
         "x-step-up": {
           "mode": "human",
-          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+          "when": "ส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง"
         }
       }
     },
@@ -66865,7 +67005,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
             "schema": {
               "type": "string"
             }
@@ -66896,7 +67036,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`",
+            "description": "ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -66952,7 +67092,7 @@
         ],
         "x-step-up": {
           "mode": "human",
-          "when": "ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`"
+          "when": "ส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง"
         }
       }
     },

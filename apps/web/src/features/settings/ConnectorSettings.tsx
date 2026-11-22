@@ -725,12 +725,16 @@ function MapTab({
   const ifMatch = { 'If-Match': `"${c.version}"` } as never;
   const done = () => void qc.invalidateQueries({ queryKey: ['connectors'] });
   const patch = useMutation({
+    // D-67 (review H1): แก้ค่าตั้ง (เช่น baseUrl) ต้องยืนยัน 2FA — API ตอบ step_up_required → กล่องยืนยัน
     mutationFn: (body: Schemas['UpdateConnectorDto']) =>
-      unwrap(
-        api.PATCH('/v1/connectors/{id}', {
-          params: { path: { id: c.id }, header: ifMatch },
-          body,
-        }),
+      withStepUp((su) =>
+        unwrap(
+          api.PATCH('/v1/connectors/{id}', {
+            params: { path: { id: c.id }, header: ifMatch },
+            headers: stepUpHeaders(su),
+            body,
+          }),
+        ),
       ),
     onSuccess: () => {
       setCapOn(null);

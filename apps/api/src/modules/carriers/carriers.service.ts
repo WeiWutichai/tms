@@ -352,10 +352,10 @@ export class CarriersService {
   }
 
   /** เขียนเลขผู้เสียภาษี: นิติบุคคลเก็บตรง · บุคคลธรรมดาเข้ารหัส + blind index (เขียนใหม่ทุกครั้งที่ส่งมา) */
-  /** เลขบัญชีเดิมตรงกับ `no` ไหม — `forWrite` = key ต้องหมุน/ถอดไม่ได้ → ถือว่าไม่ตรง (เขียนใหม่ด้วย key ปัจจุบัน) */
-  private sameAccountNo(current: Carrier | undefined, no: string, forWrite = true): boolean {
+  /** เลขบัญชีเดิมตรงกับ `no` ไหม (ส่งซ้ำ = ไม่เขียน) — key ต้องหมุน/ถอดไม่ได้ → ถือว่าไม่ตรง (เขียนใหม่ด้วย key ปัจจุบัน) */
+  private sameAccountNo(current: Carrier | undefined, no: string): boolean {
     if (!current?.bankAccountEnc) return false;
-    if (forWrite && this.cipher.needsRotation(current.bankAccountEnc)) return false;
+    if (this.cipher.needsRotation(current.bankAccountEnc)) return false;
     try {
       return this.cipher.decrypt(current.bankAccountEnc) === no;
     } catch {
@@ -436,8 +436,9 @@ export class CarriersService {
     if (input.whtRate !== undefined) data.whtRateDefault = input.whtRate;
 
     // ---- บัญชีธนาคาร: เลขบัญชีเข้ารหัส + 4 หลักท้าย · แก้ได้เฉพาะ settlements:pay ----
-    // D-67 (PO 22 พ.ย. 2569): เปลี่ยนบัญชีจริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ) ต้อง step-up 2FA สำหรับผู้ใช้ — ส่งค่าเดิมซ้ำไม่ต้อง
-    // (API key ตาม scope · นำเข้าไฟล์ตรวจที่ POST /imports/{id}/commit)
+    // D-67 (PO 22 พ.ย. 2569): ผู้ใช้ต้อง step-up 2FA เมื่อเปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือ**ส่งเลขบัญชีมา (ทุกครั้ง)**
+    // — ส่งเลขเดิมก็ถาม (review M3: ไม่ให้ผล 200 เป็นช่องเดาเลขบัญชีโดยไม่ยืนยัน 2FA) · ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ถาม
+    // (API key ไม่ถาม — ตาม scope · นำเข้าไฟล์ตรวจที่ POST /imports/{id}/commit)
     if (input.bankAccount !== undefined) {
       if (!scopeAllows(requestContext.require().scopes ?? [], 'settlements:pay'))
         throw new ProblemException('forbidden', 'changing bankAccount requires settlements:pay');
@@ -448,7 +449,7 @@ export class CarriersService {
           : !current ||
             b.bankCode !== current.bankCode ||
             b.accountName !== current.bankAccountName ||
-            (!!b.accountNo && !this.sameAccountNo(current, b.accountNo, false))
+            !!b.accountNo
       )
         assertHumanStepUp();
       if (b === null) {

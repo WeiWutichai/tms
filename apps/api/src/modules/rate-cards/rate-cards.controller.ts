@@ -26,7 +26,7 @@ import { scopeAllows } from '@tms/domain';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
 import { RequireScope, TenantResource, RateLimitClass, StepUpWhen } from '../../common/decorators';
-import { WHOLE_EXPORT_WHEN } from '../../auth/step-up';
+import { EXPORT_STEP_UP_WHEN } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
@@ -159,7 +159,7 @@ export class RateCardsController {
   @Get('export')
   @RateLimitClass('heavy')
   @RequireScope('export:run')
-  @StepUpWhen(WHOLE_EXPORT_WHEN)
+  @StepUpWhen(EXPORT_STEP_UP_WHEN)
   @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv')
   @ApiOkResponse({
     description:

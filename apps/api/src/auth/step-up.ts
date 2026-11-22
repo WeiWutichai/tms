@@ -8,32 +8,34 @@ import { requestContext } from '../common/request-context';
  * ที่ AuthGuard ตรวจแล้ว (`ctx.steppedUp`) · ไม่ผ่าน → 403 `step_up_required`
  *
  * - API key / OAuth client (`pt=client`) ทำ step-up ไม่ได้ → ผ่าน (คุมด้วย scope ของ key ตามเดิม — D-67 นโยบาย key)
- * - งานนำเข้า (context `import:*`) → ผ่าน: ด่าน step-up อยู่ที่ `POST /v1/imports/{id}/commit` แทน (คนกดยืนยัน)
+ * - งานนำเข้า (`ctx.importRun` — ตั้งโดย ImportService.inContext เท่านั้น) → ผ่าน: ด่าน step-up อยู่ที่ `POST /v1/imports/{id}/commit` แทน (คนกดยืนยัน)
  */
 export function assertHumanStepUp(): void {
   const ctx = requestContext.require();
   if (ctx.principalType === 'client') return;
-  if (ctx.requestId.startsWith('import:')) return;
+  if (ctx.importRun === true) return;
   if (!ctx.steppedUp) throw new ProblemException('step_up_required');
 }
 
-/** key ของ query/filter ที่ไม่จำกัดแถว (รูปแบบไฟล์ / การเรียง / แบ่งหน้า — ไฟล์ส่งออกไม่ใช้) */
-const NON_NARROWING_KEYS = new Set(['format', 'sort', 'limit', 'cursor', 'fields', 'updatedAfter']);
+/** ส่งออกที่เป็นรายงาน/สมุดเอกสารของทั้งบริษัท — step-up ทุกครั้ง (แม้มีตัวกรอง) */
+const ALWAYS_STEP_UP_EXPORTS = new Set([
+  'revenue',
+  'receivables-aging',
+  'unbilled-delivery-orders',
+]);
 
 /**
- * D-67 "export ข้อมูลทั้งบริษัท" (นิยาม — [DECISION ตาม D-67, PO ทบทวนได้ spec/12 §3]):
- * 1) ส่งออกให้นักบัญชี (`accounting-*`) = สมุดเอกสารการเงินทั้งบริษัทของช่วงวันที่ → ทุกครั้ง
- * 2) ส่งออกรายการ/รายงานโดย**ไม่มีตัวกรองที่จำกัดแถว** (ไม่มี filter/ids หรือมีแต่ค่าว่าง / `all`) = ทั้งตาราง
- * ส่งออกที่กรองแล้ว (เช่น เลือกแถว `ids`, สถานะ, ช่วงวันที่, ค้นหา) ไม่ต้อง step-up
+ * D-67 "export ข้อมูลทั้งบริษัท" — กติกาแบบเข้ม (review H2: ตัวกรองเลี่ยงได้ เช่น includeDeleted / หลายสถานะ / ช่วงวันกว้าง)
+ * [DECISION ตาม D-67 + review, PO ทบทวนได้ spec/12 §3]:
+ * - ผู้ใช้ส่งออก**ทุกครั้งต้อง step-up** ยกเว้นเลือกแถวเอง (`ids` ไม่ว่าง — แถวที่ติ๊กในตาราง)
+ * - รายงาน (`revenue`, `receivables-aging`, `unbilled-delivery-orders`) และส่งออกให้นักบัญชี (`accounting-*`) ทุกครั้ง
+ * (API key ไม่ถาม — `assertHumanStepUp`)
  */
-export function isWholeCompanyExport(resource: string, filter: Record<string, unknown>): boolean {
-  if (resource.startsWith('accounting-')) return true;
-  return !Object.entries(filter).some(([k, v]) => {
-    if (NON_NARROWING_KEYS.has(k) || v === undefined || v === null) return false;
-    const s = String(v).trim();
-    return s !== '' && s !== 'all';
-  });
+export function exportNeedsStepUp(resource: string, filter: Record<string, unknown>): boolean {
+  if (resource.startsWith('accounting-') || ALWAYS_STEP_UP_EXPORTS.has(resource)) return true;
+  const ids = filter.ids;
+  return !(typeof ids === 'string' && ids.split(',').some((x) => x.trim() !== ''));
 }
 
-export const WHOLE_EXPORT_WHEN =
-  'ส่งออกทั้งบริษัท (D-67): ไม่มีตัวกรองที่จำกัดแถว (ไม่มี filter/`ids` หรือค่าว่าง/`all`) หรือ resource `accounting-*`';
+export const EXPORT_STEP_UP_WHEN =
+  'ส่งออก (D-67): ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง';

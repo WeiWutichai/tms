@@ -3,7 +3,15 @@ import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { Page } from '@playwright/test';
-import { DEMO_EMAIL, DEMO_IDS, DEMO_PASSWORD, E2E_WEB, expect, test } from './fixtures';
+import {
+  confirmStepUp,
+  DEMO_EMAIL,
+  DEMO_IDS,
+  DEMO_PASSWORD,
+  E2E_WEB,
+  expect,
+  test,
+} from './fixtures';
 
 /**
  * E2E ST9-T10 ส่งออกตามตัวกรองเป็นงานเบื้องหลัง — ผ่าน /v1 จริง (ฐาน e2e) + worker จริง (`src/worker.ts`) · ข้อมูลสมมติ
@@ -139,6 +147,7 @@ test.describe('ส่งออกตามตัวกรอง (ST9-T10)', () =
 
     await page.getByRole('button', { name: 'ตัวเลือก', exact: true }).click();
     await page.getByRole('button', { name: 'ส่งออก CSV' }).click();
+    await confirmStepUp(page); // D-67 (review H2): ผู้ใช้ส่งออกทุกครั้งต้องยืนยัน 2FA (ยกเว้นเลือกแถวเอง)
     // ไม่มี worker → ยังไม่เสร็จใน ~8 วินาที → แจ้งว่าจะส่งลิงก์ทางแจ้งเตือน
     await expect(
       page.getByText('กำลังส่งออก — ระบบจะแจ้งเตือนพร้อมลิงก์ดาวน์โหลดเมื่อไฟล์พร้อม'),

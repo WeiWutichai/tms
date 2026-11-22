@@ -73,12 +73,16 @@ export function useCreateApiKey() {
 export function useUpdateApiKey() {
   const qc = useQueryClient();
   return useMutation({
+    // D-67 review M2: แก้ scope / IP ต้องยืนยัน 2FA
     mutationFn: (v: { id: string; version: number; body: ApiKeyUpdate }) =>
-      unwrap(
-        api.PATCH('/v1/api-keys/{id}', {
-          params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } as never },
-          body: v.body,
-        }),
+      withStepUp((su) =>
+        unwrap(
+          api.PATCH('/v1/api-keys/{id}', {
+            params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } as never },
+            headers: stepUpHeaders(su),
+            body: v.body,
+          }),
+        ),
       ),
     onError: refetchOnStale(qc, KEY),
     onSuccess: () => {

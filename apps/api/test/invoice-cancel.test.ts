@@ -534,6 +534,14 @@ describe('invoice cancel (ST5-T10)', { timeout: 900_000 }, () => {
     await cancel(inv.id, inv.version, { reason: 'สั้น' }).expect(422);
     const other = (await createTenantWithDefaults(db, { name: 'บริษัทอื่น ยกเลิก' })).id;
     await cancel(inv.id, inv.version, undefined, await tokenFor(other)).expect(404);
+    // D-67: ใบที่ออกแล้วจริง — ผู้ใช้ไม่มี X-Step-Up (api() แนบให้ — ส่งค่าว่างทับ) → 403 step_up_required ไม่ยกเลิก
+    const nsu = await api(app, manager)
+      .post(`/v1/invoices/${inv.id}/void`)
+      .set('X-Step-Up', '')
+      .set('If-Match', `"${inv.version}"`)
+      .send({ reason: 'ลูกค้าแจ้งชื่อบริษัทผิด ขอออกใหม่' })
+      .expect(403);
+    expect(nsu.body.code).toBe('step_up_required');
     expect((await getInv(inv.id)).status).toBe('ISSUED');
     // ร่างที่ยกเลิก (ST5-T07 /cancel) ยังแสดง DO เดิม (บรรทัดของเอกสาร ณ วันยกเลิก) · DO กลับคิว
     const d = await delivered(cus);

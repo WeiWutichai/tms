@@ -43,6 +43,11 @@ export interface RequestContext {
   tx?: Prisma.TransactionClient;
   /** ขั้นตรวจของการนำเข้า (ST2-T23): ทุกการเขียนถูกย้อนทิ้ง — งานนอก transaction (audit แยก) ไม่ต้องทำ */
   importDryRun?: boolean;
+  /**
+   * D-67: ทำงานภายในงานนำเข้า (ตั้งโดย ImportService.inContext เท่านั้น) — step-up ตรวจครั้งเดียวที่
+   * `POST /v1/imports/{id}/commit` จึงไม่ตรวจซ้ำใน service (`assertHumanStepUp`)
+   */
+  importRun?: boolean;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();

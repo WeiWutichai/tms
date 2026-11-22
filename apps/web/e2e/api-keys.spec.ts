@@ -67,6 +67,7 @@ test.describe.serial('นักพัฒนา / Open API → API keys', () => {
     const d = page.getByRole('dialog');
     await d.getByText('orders:write', { exact: true }).click();
     await d.getByRole('button', { name: 'บันทึก' }).click();
+    await confirmStepUp(page); // D-67 review M2
     await expect(page.getByRole('status')).toContainText(`บันทึก scope ของ ${NAME} แล้ว`);
     const r = await page.request.post('/v1/orders', {
       headers: { Authorization: `Bearer ${secret}` },

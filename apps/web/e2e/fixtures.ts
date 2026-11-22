@@ -128,10 +128,14 @@ export async function withStepUp(
   throw new Error('step-up failed');
 }
 
-/** ช่วงรหัสที่ลอง: ปัจจุบัน → ถัดไป → (รอข้ามช่วง) → ปัจจุบัน → ถัดไป */
-const STEP_UP_OFFSETS: (number | null)[] = [0, 1, null, 0, 1, null, 0, 1];
-/** รอจนข้ามช่วง 30 วินาทีถัดไปของ TOTP (รหัสที่ใช้แล้วใช้ซ้ำไม่ได้) */
+/**
+ * ช่วงรหัสที่ลอง: ใช้รหัส**ช่วงปัจจุบันเท่านั้น** (ไม่ใช้ช่วงถัดไปล่วงหน้า — จะทำให้ step-up ถัดไปต้องรอ 2 ช่วง)
+ * ถูกใช้ไปแล้ว (spec ก่อนหน้า/ขั้นก่อนในช่วงเดียวกัน) → รอข้ามช่วงแล้วลองใหม่ · workers = 1 จึงไม่มีการแย่งรหัสพร้อมกัน
+ */
+const STEP_UP_OFFSETS: (number | null)[] = [0, null, 0, null, 0];
+/** รอจนข้ามช่วง 30 วินาทีถัดไปของ TOTP (รหัสที่ใช้แล้วใช้ซ้ำไม่ได้) — ยืดเวลาของ test ตามที่รอ */
 async function nextTotpStep(): Promise<void> {
+  test.info().setTimeout(test.info().timeout + 35_000);
   const ms = 30_000 - (Date.now() % 30_000) + 500;
   await new Promise((r) => setTimeout(r, ms));
 }

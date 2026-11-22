@@ -1,4 +1,5 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import { SignJWT } from 'jose';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -38,6 +39,16 @@ describe('step-up 2FA ขยาย (D-67)', () => {
     return su ? r.set('X-Step-Up', su) : r;
   };
   const mine = () => signStepUpToken(userId, tenantId);
+  /** token step-up ที่หมดอายุแล้ว (HS256 แบบเดียวกับ signStepUpToken) */
+  const expiredStepUp = () =>
+    new SignJWT({ tid: tenantId, pur: 'step_up' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject(userId)
+      .setIssuedAt(Math.floor(Date.now() / 1000) - 600)
+      .setExpirationTime(Math.floor(Date.now() / 1000) - 60)
+      .sign(
+        new TextEncoder().encode(process.env.AUTH_JWT_SECRET ?? process.env.AUTH_DEV_SECRET ?? ''),
+      );
   const keyOf = async (scopes: string[]) => {
     const r = await api(app, admin)
       .post('/v1/api-keys')
@@ -72,8 +83,9 @@ describe('step-up 2FA ขยาย (D-67)', () => {
 
   it('route ที่ต้อง step-up ทุกครั้ง: ไม่ส่ง / token ของคนอื่น / ของ tenant อื่น / ปลอม → 403 step_up_required', async () => {
     const fake = (kind: Parameters<typeof encodeId>[0]) => encodeId(kind, randomUUID());
-    const routes: ['post' | 'put', string][] = [
+    const routes: ['post' | 'put' | 'patch', string][] = [
       ['post', '/v1/api-keys'],
+      ['patch', `/v1/api-keys/${fake('apiKey')}`],
       ['post', `/v1/api-keys/${fake('apiKey')}/rotate`],
       ['post', '/v1/webhooks'],
       ['post', `/v1/webhooks/${fake('webhookEndpoint')}/rotate-secret`],
@@ -85,6 +97,7 @@ describe('step-up 2FA ขยาย (D-67)', () => {
       undefined,
       await signStepUpToken(randomUUID(), tenantId),
       await signStepUpToken(userId, otherId),
+      await expiredStepUp(),
       'not-a-token',
     ];
     for (const [m, url] of routes)
@@ -146,14 +159,14 @@ describe('step-up 2FA ขยาย (D-67)', () => {
         .expect(201)
     ).body;
     const url = `/v1/carriers/${c.id}`;
-    // แก้ช่องอื่น / ส่งบัญชีเดิมซ้ำ (เลขเดิม) → ไม่ต้อง step-up
+    // แก้ช่องอื่น / ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข → ไม่ต้อง step-up
     await raw('patch', url).send({ phone: '081-000-1111' }).expect(200);
-    await raw('patch', url).send({ bankAccount: BANK }).expect(200);
     await raw('patch', url)
       .send({ bankAccount: { bankCode: BANK.bankCode, accountName: BANK.accountName } })
       .expect(200);
-    // เปลี่ยนชื่อบัญชี / เลข / ธนาคาร / ลบ → ต้อง step-up
+    // ส่งเลขบัญชีมา (แม้เลขเดิม — review M3) / เปลี่ยนชื่อ / เลข / ธนาคาร / ลบ → ต้อง step-up
     for (const bankAccount of [
+      BANK,
       { ...BANK, accountName: 'ชื่ออื่น' },
       { ...BANK, accountNo: '9876543210' },
       { bankCode: 'SCB', accountName: BANK.accountName },
@@ -178,27 +191,57 @@ describe('step-up 2FA ขยาย (D-67)', () => {
     await raw('post', `${url}/reveal`)
       .send({ field: 'taxId', reason: 'ตรวจเลขผู้เสียภาษี' })
       .expect(200);
+    // ด้วย externalId: PUT (upsert) / PATCH ที่แตะบัญชี → ต้อง step-up
+    const ext = `EXT-${seed}`;
+    const put = await raw('put', `/v1/carriers/external/${ext}`).send(
+      juristic({ bankAccount: BANK }),
+    );
+    expect(put.status).toBe(403);
+    expect(put.body.code).toBe('step_up_required');
+    const body = juristic();
+    await raw('put', `/v1/carriers/external/${ext}`).send(body).expect(201);
+    const pe = await raw('patch', `/v1/carriers/external/${ext}`).send({ bankAccount: BANK });
+    expect(pe.status).toBe(403);
+    expect(pe.body.code).toBe('step_up_required');
+    await raw('patch', `/v1/carriers/external/${ext}`, await mine())
+      .send({ bankAccount: BANK })
+      .expect(200);
   });
 
-  it('ส่งออกทั้งบริษัท: ไม่มีตัวกรอง / accounting-* ต้อง step-up · กรองแล้วไม่ต้อง', async () => {
-    for (const q of ['', '?format=csv', '?name=']) {
-      const r = await raw('get', `/v1/customers/export${q}`);
-      expect(r.status, q).toBe(403);
-      expect(r.body.code).toBe('step_up_required');
-    }
-    await raw('get', '/v1/customers/export?name=ขนส่ง').expect(200);
+  it('ส่งออก (review H2): ผู้ใช้ต้อง step-up ทุกครั้ง ยกเว้นเลือกแถวเอง (ids) · รายงาน/accounting-* ทุกครั้ง', async () => {
+    const deny = async (r: { status: number; body: { code?: string } }, what: string) => {
+      expect(r.status, what).toBe(403);
+      expect(r.body.code, what).toBe('step_up_required');
+    };
+    for (const url of [
+      '/v1/customers/export',
+      '/v1/customers/export?format=csv',
+      '/v1/customers/export?name=ขนส่ง',
+      '/v1/customers/export?includeDeleted=true',
+      '/v1/products/export',
+      '/v1/products/export?includeDeleted=true',
+    ])
+      await deny(await raw('get', url), url);
+    const cus = await raw('post', '/v1/customers').send({ legalName: 'บจก. ลูกค้าส่งออก' });
+    expect(cus.status, JSON.stringify(cus.body)).toBe(201);
+    // เลือกแถวเอง (ids) = ไม่ใช่ส่งออกทั้งบริษัท → ไม่ต้อง step-up
+    await raw('get', `/v1/customers/export?ids=${cus.body.id}`).expect(200);
     await raw('get', '/v1/customers/export', await mine()).expect(200);
 
     const job = (body: object, su?: string) => raw('post', '/v1/exports', su).send(body);
-    const whole = await job({ resource: 'customers' });
-    expect(whole.status).toBe(403);
-    expect(whole.body.code).toBe('step_up_required');
-    expect((await job({ resource: 'customers', filter: { name: '' } })).status).toBe(403);
-    expect((await job({ resource: 'customers', filter: { name: 'ขนส่ง' } })).status).toBe(202);
     const acc = { dateFrom: '2026-11-01', dateTo: '2026-11-30' };
-    const a = await job({ resource: 'accounting-sales', format: 'csv', filter: acc });
-    expect(a.status).toBe(403);
-    expect(a.body.code).toBe('step_up_required');
+    for (const body of [
+      { resource: 'customers' },
+      { resource: 'customers', filter: { name: 'ขนส่ง' } },
+      { resource: 'orders', filter: { status: 'on_hold' } },
+      { resource: 'revenue', filter: acc },
+      { resource: 'receivables-aging' },
+      { resource: 'unbilled-delivery-orders' },
+      { resource: 'accounting-sales', format: 'csv', filter: acc },
+      { resource: 'accounting-receipts', format: 'csv', filter: acc },
+      { resource: 'accounting-settlements', format: 'csv', filter: acc },
+    ])
+      await deny(await job(body), JSON.stringify(body));
     const ok = await job(
       { resource: 'accounting-sales', format: 'csv', filter: acc },
       await mine(),
@@ -206,15 +249,33 @@ describe('step-up 2FA ขยาย (D-67)', () => {
     expect(ok.status, JSON.stringify(ok.body)).toBe(202);
   });
 
-  it('connector: สร้างพร้อม credential ต้อง step-up (ไม่มี credential ไม่ต้อง — ไปตกด่านอื่นตามปกติ)', async () => {
-    const r = await raw('post', '/v1/connectors').send({
-      adapterKey: 'no-such-adapter',
-      credentials: { apiKey: 'secret-value' },
-    });
+  it('connector: สร้างพร้อม credential / แก้ค่าตั้ง (baseUrl — review H1) ต้อง step-up', async () => {
+    const body = {
+      adapterKey: 'demo',
+      taxDocumentOwner: 'TMS',
+      credentials: { apiKey: 'demo-d67' },
+    };
+    const r = await raw('post', '/v1/connectors').send(body);
     expect(r.status).toBe(403);
     expect(r.body.code).toBe('step_up_required');
-    const n = await raw('post', '/v1/connectors').send({ adapterKey: 'no-such-adapter' });
-    expect(n.body.code).not.toBe('step_up_required');
+    const set = await raw('post', '/v1/connectors').send({
+      adapterKey: 'demo',
+      settings: { baseUrl: 'https://evil.example' },
+    });
+    expect(set.body.code).toBe('step_up_required');
+    const c = await raw('post', '/v1/connectors', await mine()).send(body);
+    expect(c.status, JSON.stringify(c.body)).toBe(201);
+    const url = `/v1/connectors/${c.body.id}`;
+    const p = await raw('patch', url)
+      .set('If-Match', `"${c.body.version}"`)
+      .send({ settings: { baseUrl: 'https://evil.example' } });
+    expect(p.status).toBe(403);
+    expect(p.body.code).toBe('step_up_required');
+    // แก้ช่องอื่น (ไม่มี settings) ไม่ถาม step-up
+    const other = await raw('patch', url)
+      .set('If-Match', `"${c.body.version}"`)
+      .send({ syncFromDate: null });
+    expect(other.body.code).not.toBe('step_up_required');
   });
 
   it('OpenAPI: route D-67 ประกาศ header X-Step-Up + ตัวอย่าง 403 step_up_required', async () => {
@@ -237,6 +298,9 @@ describe('step-up 2FA ขยาย (D-67)', () => {
       ['/v1/webhooks/{id}/rotate-secret', 'post'],
       ['/v1/connectors', 'post'],
       ['/v1/connectors/{id}/credentials', 'put'],
+      ['/v1/connectors/{id}', 'patch'],
+      ['/v1/api-keys/{id}', 'patch'],
+      ['/v1/webhooks/{id}', 'patch'],
       ['/v1/connectors/{id}/inbound-token/rotate', 'post'],
       ['/v1/carriers', 'post'],
       ['/v1/carriers/{id}', 'patch'],

@@ -26,7 +26,7 @@ import {
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
 import { RequireScope, StepUpWhen, TenantResource, RateLimitClass } from '../../common/decorators';
-import { assertHumanStepUp, WHOLE_EXPORT_WHEN } from '../../auth/step-up';
+import { assertHumanStepUp, EXPORT_STEP_UP_WHEN } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
@@ -141,7 +141,7 @@ export class CarriersController {
   @Get('export')
   @RateLimitClass('heavy')
   @RequireScope('export:run')
-  @StepUpWhen(WHOLE_EXPORT_WHEN)
+  @StepUpWhen(EXPORT_STEP_UP_WHEN)
   @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv')
   @ApiOkResponse({
     description:

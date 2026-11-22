@@ -26,6 +26,7 @@ import {
   RequireFeature,
   RequireScope,
   RequireStepUp,
+  StepUpWhen,
   TenantResource,
   RateLimitClass,
   SandboxAware,
@@ -166,6 +167,7 @@ export class WebhooksController {
   @Patch(':id')
   @TenantResource('webhookEndpoint')
   @RequireScope('settings:write')
+  @StepUpWhen('เปลี่ยน `url` หรือ `extraHeaders` (D-67 review M1)')
   @ApiHeader(IF_MATCH)
   @ApiOkResponse({
     type: WebhookEndpointDto,

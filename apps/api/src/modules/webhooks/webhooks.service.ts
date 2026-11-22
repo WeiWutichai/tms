@@ -9,6 +9,7 @@ import { encodeId } from '../../common/ids';
 import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
+import { assertHumanStepUp } from '../../auth/step-up';
 import { DbService, type Tx } from '../../db/db.service';
 import { RateLimitService, slidingWindow } from '../../http/rate-limit/rate-limit.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
@@ -379,11 +380,23 @@ export class WebhooksService {
       const d = body.description?.trim() || null;
       if (d !== cur.description) data.description = d;
     }
+    let headersChanged = false;
     if (body.extraHeaders !== undefined) {
       const h = this.checkHeaders(body.extraHeaders);
-      data.extraHeadersEnc = h.length ? this.engine.cipher.encrypt(JSON.stringify(h)) : null;
-      data.extraHeaderNames = h.map((x) => x.name);
+      let before = '[]';
+      try {
+        before = cur.extraHeadersEnc ? this.engine.cipher.decrypt(cur.extraHeadersEnc) : '[]';
+      } catch {
+        before = ''; // ถอดไม่ได้ = ถือว่าเปลี่ยน
+      }
+      if (JSON.stringify(h) !== before) {
+        data.extraHeadersEnc = h.length ? this.engine.cipher.encrypt(JSON.stringify(h)) : null;
+        data.extraHeaderNames = h.map((x) => x.name);
+        headersChanged = true;
+      }
     }
+    // D-67 review M1: เปลี่ยนปลายทาง/header ลับ = event (และ header ลับ) ไปที่อื่น → ต้อง step-up 2FA
+    if (urlChanged || headersChanged) assertHumanStepUp();
     if (!Object.keys(data).length) return cur;
     const n = await tx.webhookEndpoint.updateMany({
       where: { id, version: cur.version },
