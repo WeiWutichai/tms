@@ -51,6 +51,8 @@ import {
 import { SettlementReviewLinkDto, SettlementSentDto } from './settlement-review.dto';
 import { SettlementPdfService } from './settlement-pdf.service';
 import { SettlementsService } from './settlements.service';
+import { documentSyncDto } from '../erp/document-sync.dto';
+import { ExternalMappingService } from '../erp/external-mapping.service';
 
 const NF = { ...T404, description: 'ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น)' };
 const IF_MATCH = {
@@ -73,6 +75,7 @@ export class SettlementsController {
     private readonly svc: SettlementsService,
     private readonly comparison: SettlementComparisonService,
     private readonly pdf: SettlementPdfService,
+    private readonly mappings: ExternalMappingService,
   ) {}
 
   @Get('queue')
@@ -164,7 +167,10 @@ export class SettlementsController {
     @Param('id') id: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<SettlementDto> {
-    const out = await this.svc.get(decodeIdOr404('settlement', id));
+    const uuid = decodeIdOr404('settlement', id);
+    const out = await this.svc.get(uuid);
+    // ST7-T15 เลขเอกสารสองฝั่ง (docs/04 G3) — ผลการส่งเข้าระบบบัญชี แยกจากสถานะเอกสาร
+    out.sync = documentSyncDto(await this.mappings.documentSync('SETTLEMENT', uuid));
     setEtag(res, out.version);
     return out;
   }

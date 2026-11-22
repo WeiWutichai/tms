@@ -79,8 +79,11 @@ export interface ErpContext {
   masterCodes?: ResolvedMasterCodes;
 }
 
-/** ST8-T06 ชนิดของค่าที่ adapter ให้ core ตรวจ: ผังรหัส ERP (`erp_master_code`) หรือ `CUSTOMER` = รหัสลูกค้าฝั่ง ERP */
-export type MasterCodeRefKind = ErpMasterCodeKind | 'CUSTOMER';
+/**
+ * ST8-T06 ชนิดของค่าที่ adapter ให้ core ตรวจ: ผังรหัส ERP (`erp_master_code`) หรือรหัสคู่ค้าฝั่ง ERP จาก `external_mapping`
+ * (`CUSTOMER` = ลูกค้า · `CARRIER` = รถร่วม/ผู้ขาย — ST7-T15)
+ */
+export type MasterCodeRefKind = ErpMasterCodeKind | 'CUSTOMER' | 'CARRIER';
 
 /** ค่าที่ตรวจแล้ว 1 ค่า */
 export interface ResolvedMasterCode {
@@ -119,7 +122,9 @@ export function resolvedMasterCodeName(
  * (docs/01 §7.4 "รหัสที่ ERP ยอมรับ … validate ก่อนเข้า outbox", A.3 "Validation เฉพาะ KRS")
  * - ชนิดผังรหัส → ต้องอยู่ใน `erp_master_code` ที่ใช้งานของ connector
  * - `CUSTOMER` → ต้องมีรหัสลูกค้าฝั่ง ERP (`customer.externalId` ของ canonical = external_mapping(CUSTOMER) — docs/01 §7.1)
- *   **ตอนนี้ตรวจแค่ "มีค่า"** (ตาราง external_mapping มาใน ST7-T15 — ตอนนั้นตรวจกับตาราง) · ไม่มี = MISSING
+ *   · `CARRIER` → รหัสรถร่วมฝั่ง ERP (`carrier.externalId` = external_mapping(CARRIER) — docs/01 §7.3)
+ *   ST7-T15: ก่อนถึง adapter core ใส่ค่าทั้งสองจาก `external_mapping` สถานะ `SYNCED` **ณ ตอนส่ง** (ทับค่าที่ตรึงตอนสร้างคำสั่ง)
+ *   → ตรวจ "มีค่า" = ตรวจกับตาราง · ไม่มี = MISSING (`strict`) — แก้ mapping แล้วส่งคำสั่งเดิมใหม่ได้
  */
 export interface MasterCodeRef {
   kind: MasterCodeRefKind;
@@ -195,6 +200,13 @@ export type PushResult =
       externalId: string;
       externalDocNo?: string;
       externalVersion?: string;
+      /**
+       * ST7-T15 ERP **ถือเนื้อหาของ payload ครั้งนี้** = true (สร้างใหม่ / แทนที่ หรือ adapter ตรวจแล้วว่าของเดิมตรงกัน) ·
+       * false = ERP มีเอกสารนี้อยู่แล้วและ adapter **ยืนยันไม่ได้** ว่าเนื้อหาตรงกับ payload ครั้งนี้ (กันซ้ำด้วย key/เลขอ้างอิง — คืนของเดิม)
+       * adapter ต้องตอบตามจริง (contract test บังคับ boolean) — core เลื่อน `last_synced_hash` เฉพาะเมื่อ true;
+       * ไม่ระบุ = ถือว่า false (ไม่ยืนยันว่าเนื้อหาตรง)
+       */
+      applied?: boolean;
       raw?: unknown;
     }
   | { ok: false; errorClass: ErrorClass; retryable: boolean; problem: Problem; raw?: unknown };
