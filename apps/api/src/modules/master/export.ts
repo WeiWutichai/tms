@@ -38,6 +38,19 @@ export interface ExportColumn<R> {
   money?: boolean;
   /** ค่าเงินต้นฉบับ (Decimal string จาก DTO) — PDF ใช้ค่านี้แทน `value` (ไม่ผ่าน float) */
   raw?: (r: R) => string | null | undefined;
+  /**
+   * ST7-T23 คอลัมน์เงิน: `sell` ต้องมี `prices.sell:read` · `buy` ต้องมี `prices.buy:read` — ผู้ใช้ที่ไม่มีสิทธิ์ core ตัดคอลัมน์ทิ้ง
+   * (ด่านที่สองหลัง adapter — `dropUnpricedColumns`)
+   */
+  price?: 'sell' | 'buy';
+}
+
+/** ตัดคอลัมน์เงินที่ผู้สั่งไม่มีสิทธิ์เห็น (ไม่ขึ้นกับว่า adapter กรองเองหรือไม่) */
+export function dropUnpricedColumns<R>(
+  cols: ExportColumn<R>[],
+  money: { sell: boolean; buy: boolean },
+): ExportColumn<R>[] {
+  return cols.filter((c) => !c.price || money[c.price]);
 }
 
 /**
