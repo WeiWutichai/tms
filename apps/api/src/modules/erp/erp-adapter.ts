@@ -90,7 +90,15 @@ export interface ResolvedMasterCode {
   code: string;
   /** ชื่อตามผัง (เช่น `saleName` ของ KRS) — ไม่ได้มาจากผัง = null */
   name: string | null;
+  /** ST8-T07 true = หาเจอในผังรหัสที่นำเข้าแล้ว · ไม่มี/false = ค่าดิบที่ยังไม่ได้ตรวจกับผัง (ช่องไม่บังคับที่ยังไม่มีผัง / รหัสคู่ค้า) */
+  fromCatalogue?: boolean;
 }
+
+/**
+ * ST8-T07 ข้อมูลส่วนบุคคลใน canonical ที่เป็น "ตัวเลือก" (PDPA — ส่งออกนอก TMS เท่าที่ปลายทางต้องใช้)
+ * core **ไม่ใส่** ลง payload ของคำสั่ง เว้นแต่ adapter ของ connector ประกาศใน `ErpAdapter.personalDataNeeds`
+ */
+export type CanonicalPersonalField = 'trip.driverName';
 
 /** ST8-T06 ผลตรวจต่อชนิด (key = ค่าในเอกสารแบบ trim + ตัวพิมพ์เล็ก) */
 export type ResolvedMasterCodes = Readonly<
@@ -236,11 +244,20 @@ export type CanonicalInvoice = CanonicalDocument;
 export type CanonicalAdjustment = CanonicalDocument;
 export type CanonicalSettlement = CanonicalDocument;
 
-/** สถานะรับชำระจาก ERP — เงินเป็นสตริงทศนิยม 2 ตำแหน่ง (ห้าม float) */
+/**
+ * สถานะรับชำระจาก ERP — เงินเป็นสตริงทศนิยม 2 ตำแหน่ง (ห้าม float)
+ * ST7-T21 สัญญาที่ core ใช้กระทบยอด (Payment status pull): ยอด**สะสม**ของเอกสารใบนั้นฝั่ง ERP ณ เวลาที่ถาม
+ * - `paidAmount` = ยอดที่ ERP **ตัดหนี้ใบนี้แล้ว** (สะสม — รวม WHT ที่ลูกค้าหัก ถ้า ERP ตัดหนี้ด้วย WHT) · UNPAID ⇔ "0.00"
+ * - `whtAmount` (ไม่บังคับ) = ส่วนของ `paidAmount` ที่เป็น WHT ที่ลูกค้าหัก (สะสม) — ไม่ส่ง = ไม่ทราบ (core บันทึก WHT 0 ไม่เดาเอง)
+ * - PAID แต่ `paidAmount` < ยอดรวมของใบใน TMS = core ไม่เดาว่าส่วนที่ขาดคืออะไร → MISMATCH ให้คนตัดสิน
+ * - adapter ต้องแจ้งรับชำระ**ทางเดียว**: `fetchPaymentStatus` (core มาดึง) หรือ webhook ขาเข้า (effect `paymentReceived`) —
+ *   connector ที่เปิด `fetchPaymentStatus` แล้วส่ง `paymentReceived` มาด้วย = core ไม่บันทึก ส่งเข้าคิวตรวจ (กันนับเงินซ้ำ)
+ */
 export interface PaymentStatus {
   status: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
   paidAmount: string;
-  /** ISO 8601 */
+  whtAmount?: string;
+  /** ISO 8601 — เวลารับชำระล่าสุดฝั่ง ERP */
   paidAt: string | null;
 }
 
@@ -433,6 +450,11 @@ export interface ErpAdapter {
    * ไม่มี = ผู้ดูแลเลือกเอง (ST7-T17)
    */
   readonly fixedSystemOfRecord?: { readonly taxDocumentOwner?: SorOwner };
+  /**
+   * ST8-T07 ข้อมูลส่วนบุคคลแบบตัวเลือกที่ adapter ต้องใช้ใน canonical (เช่น ชื่อคนขับ) — ไม่ประกาศ = core ไม่ใส่ลง payload ของคำสั่ง
+   * (ประกาศเท่าที่สัญญาของปลายทางบังคับเท่านั้น)
+   */
+  readonly personalDataNeeds?: readonly CanonicalPersonalField[];
 }
 
 /** capability → ชื่อ method (ธงไม่มี method) */

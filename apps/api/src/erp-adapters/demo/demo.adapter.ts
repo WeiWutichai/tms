@@ -32,7 +32,7 @@ import type { ErrorClass } from '../../modules/integration/outbox.types';
  * - เลขภายนอก `DEMO-INV-{hash 12 ตัว}` มาจาก hash ของ (tenant, connector, ประเภท, idempotency key) — restart ไม่ให้เลขซ้ำกับเอกสารอื่น
  * - พฤติกรรมกำหนดได้ (deterministic) จากค่าตั้งที่ไม่ลับของ connector:
  *   `failMode` ฉีด ErrorClass ให้ทุก push/replace (และ healthCheck เมื่อ AUTH) · `failTimes` ล้มกี่ครั้งต่อเอกสารก่อนสำเร็จ ·
- *   `paymentStatus` ผลของ fetchPaymentStatus
+ *   `paymentStatus` ผลของ fetchPaymentStatus (ทุกเอกสาร) · ST7-T21 `setPaymentStatus()` ตั้งรายเอกสาร (test/สาธิต)
  * - credential `apiKey`: ค่าใดก็ได้ ยกเว้น `invalid` (= credential ผิด → AUTH) — ไว้สาธิตการทดสอบการเชื่อมต่อล้ม
  * - กันซ้ำ 2 ชั้นเหมือน ERP จริง (docs/01 §6.2): idempotencyKey เดิม = ผลเดิม · เลขอ้างอิงของเราซ้ำด้วย key อื่น = DUPLICATE
  * - ไม่ประกาศ `ownsDocumentNumber` (TMS ออกเลขเอง — โหมดออกเลขฝั่ง ERP = ST7-T17) และ `postedStatus`
@@ -133,6 +133,8 @@ interface Scope {
   byRef: Map<string, string>;
   /** ST7-T18 ผังรหัสที่ test/สาธิตตั้งทับ (ไม่มี = DEMO_MASTER_CODES) */
   masterCodes: Map<ErpMasterCodeKind, ErpMasterCodeEntry[]>;
+  /** ST7-T21 เลขเอกสารของเรา → สถานะรับชำระที่ "ERP จำลอง" รายงาน (test/สาธิตตั้ง) */
+  payments: Map<string, PaymentStatus>;
   /** idempotencyKey/ref → จำนวนครั้งที่ล้มไปแล้ว (failTimes) */
   failures: Map<string, number>;
   /** วันที่ของ order ตัวอย่าง (กำหนดตอนดึงครั้งแรก — ดึงซ้ำได้ข้อมูลเดิม) */
@@ -235,6 +237,7 @@ export class DemoAdapter implements ErpAdapter {
         byRef: new Map(),
         failures: new Map(),
         masterCodes: new Map(),
+        payments: new Map(),
         orderDate: null,
         inbound: [],
       };
@@ -263,6 +266,21 @@ export class DemoAdapter implements ErpAdapter {
     entries: ErpMasterCodeEntry[],
   ): void {
     this.scope({ tenantId, connectorId } as ErpContext).masterCodes.set(kind, clone(entries));
+  }
+
+  /**
+   * ST7-T21 test/สาธิต: "ERP จำลอง" รายงานสถานะรับชำระของเอกสารเลขนี้ (เลขเอกสารของเรา เช่น invoice_no) —
+   * `null` = กลับไปใช้ค่าตั้ง `paymentStatus` ของ connector · ต้องเป็นเอกสารที่ ERP จำลองได้รับแล้ว จึงมีผลตอน fetchPaymentStatus
+   */
+  setPaymentStatus(
+    tenantId: string,
+    connectorId: string,
+    number: string,
+    status: PaymentStatus | null,
+  ): void {
+    const s = this.scope({ tenantId, connectorId } as ErpContext);
+    if (status) s.payments.set(number, clone(status));
+    else s.payments.delete(number);
   }
 
   /** ล้างข้อมูลจำลองทั้งหมด (หรือของ tenant เดียว) */
@@ -483,6 +501,9 @@ export class DemoAdapter implements ErpAdapter {
     if (this.badKey(ctx)) throw new Error('demo ERP rejected the API key (simulated)');
     const d = this.find(this.scopes.get(this.scopeId(ctx)), ref);
     if (!d) return null;
+    // ST7-T21 สถานะที่ test/สาธิตตั้งให้เอกสารใบนี้โดยตรง (ไม่มี = ตามค่าตั้ง `paymentStatus` ของ connector)
+    const forced = this.scopes.get(this.scopeId(ctx))?.payments.get(d.number);
+    if (forced) return { ...forced };
     const status = (DEMO_PAYMENT_STATUSES as readonly string[]).includes(
       ctx.config.paymentStatus ?? '',
     )
@@ -493,7 +514,8 @@ export class DemoAdapter implements ErpAdapter {
     if (status === 'UNPAID') return { status, paidAmount: '0.00', paidAt: null };
     // ชำระบางส่วน = ครึ่งหนึ่ง (ปัดลงเป็นสตางค์) — ค่าคงที่ให้ผลซ้ำได้
     const paid = status === 'PAID' ? total : total / 2n;
-    return { status, paidAmount: fromSatang(paid), paidAt: d.receivedAt };
+    // ST7-T21 สัญญา: บอก WHT เสมอเมื่อมียอดตัดหนี้ (demo = ไม่มี WHT) — ไม่บอก core จะไม่สร้างรายการรับชำระ
+    return { status, paidAmount: fromSatang(paid), whtAmount: '0.00', paidAt: d.receivedAt };
   }
 
   async listDocuments(
