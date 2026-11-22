@@ -116,8 +116,8 @@ export function useInlineStepUp() {
             setBusy(true);
             confirmOtp(otp)
               .then((tok) => {
+                resend(tok); // ส่งซ้ำก่อนซ่อนกล่อง — ไม่ให้ error เดิม (step_up_required) โผล่ระหว่างรอ
                 setNeed(false);
-                resend(tok);
               })
               .catch((e: unknown) => setError(problemText(e, t) ?? t('stepUp.failed')))
               .finally(() => setBusy(false));

@@ -71,7 +71,7 @@ describe('step-up 2FA ขยาย (D-67)', () => {
   });
 
   it('route ที่ต้อง step-up ทุกครั้ง: ไม่ส่ง / token ของคนอื่น / ของ tenant อื่น / ปลอม → 403 step_up_required', async () => {
-    const fake = (kind: string) => encodeId(kind, randomUUID());
+    const fake = (kind: Parameters<typeof encodeId>[0]) => encodeId(kind, randomUUID());
     const routes: ['post' | 'put', string][] = [
       ['post', '/v1/api-keys'],
       ['post', `/v1/api-keys/${fake('apiKey')}/rotate`],
