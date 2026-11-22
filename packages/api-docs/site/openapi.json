@@ -78093,6 +78093,11 @@
             "example": "2026-11-03",
             "description": "วันที่เข้าร่าง (เวลาไทย)"
           },
+          "createdOn": {
+            "type": "string",
+            "example": "2026-11-01",
+            "description": "วันที่สร้างร่างใบแจ้งหนี้ (เวลาไทย)"
+          },
           "ageDays": {
             "type": "number",
             "example": 9,
@@ -78103,6 +78108,7 @@
           "id",
           "addedAt",
           "addedOn",
+          "createdOn",
           "ageDays"
         ]
       },

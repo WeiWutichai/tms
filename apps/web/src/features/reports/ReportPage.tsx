@@ -242,7 +242,7 @@ export function ReportPage() {
       { l: t('rpt.col.delivered') },
       { l: t('rpt.col.age'), r: true },
       { l: t('rpt.col.status') },
-      // D-71 ธง "ร่างค้างเกิน N วัน" — ต้นแบบไม่มีคอลัมน์นี้ ใช้รูปแบบเซลล์เดียวกับ "ค้างวางบิล" [DECISION spec/12 §3 แถว ST9-T06]
+      // D-71 ธง "ร่างค้างเกิน N วัน" — ต้นแบบไม่มีคอลัมน์นี้ ใช้รูปแบบเซลล์เดียวกับ "ค้างวางบิล" — หน้าตาคอลัมน์ [OPEN — Claude Design] (spec/12 §3 แถว ST9-T06 ข้อ 17)
       { l: t('rpt.col.draft') },
       ...(sell ? [{ l: t('rpt.col.amount'), r: true }] : []),
     ];

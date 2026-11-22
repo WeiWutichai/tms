@@ -52,6 +52,8 @@ export interface UnbilledRow {
   draft_added_at: Date | null;
   /** วันที่เข้าร่าง (เวลาไทย) YYYY-MM-DD */
   draft_added_on: string | null;
+  /** วันที่สร้างร่างใบแจ้งหนี้ (เวลาไทย) YYYY-MM-DD */
+  draft_created_on: string | null;
 }
 
 /**
@@ -98,9 +100,9 @@ function baseCte(f: Filter): Prisma.Sql {
   // D-71 ร่างที่ DO อยู่: บรรทัดหลักของ DO (do_anchor — unique ต่อ DO ที่ active) ในใบสถานะ DRAFT · อายุนับจากเวลาสร้างบรรทัด (= เวลาเข้าร่าง)
   const draftJoin =
     scope === 'unbilled'
-      ? Prisma.sql`LEFT JOIN LATERAL (SELECT NULL::uuid AS invoice_id, NULL::timestamptz AS created_at) dl ON true`
+      ? Prisma.sql`LEFT JOIN LATERAL (SELECT NULL::uuid AS invoice_id, NULL::timestamptz AS created_at, NULL::timestamptz AS invoice_created_at) dl ON true`
       : Prisma.sql`LEFT JOIN LATERAL (
-          SELECT l.invoice_id, l.created_at FROM invoice_line l
+          SELECT l.invoice_id, l.created_at, i.created_at AS invoice_created_at FROM invoice_line l
             JOIN invoice i ON i.id = l.invoice_id AND i.status::text = 'DRAFT'
            WHERE l.delivery_order_id = d.id AND l.active AND l.do_anchor
            ORDER BY l.created_at LIMIT 1
@@ -120,7 +122,8 @@ function baseCte(f: Filter): Prisma.Sql {
       SELECT d.id, d.do_no, d.do_date, d.status::text AS status, d.pod_status, d.billing_status::text AS billing_status,
              d.customer_id, d.sales_order_id, d.released_at, h.at AS delivered_at,
              COALESCE(h.at, d.do_date::timestamp AT TIME ZONE 'Asia/Bangkok') AS eff,
-             dl.invoice_id AS draft_invoice_id, dl.created_at AS draft_added_at
+             dl.invoice_id AS draft_invoice_id, dl.created_at AS draft_added_at,
+             dl.invoice_created_at AS draft_created_at
         FROM delivery_order d
         LEFT JOIN LATERAL (
           SELECT max(sh.at) AS at FROM doc_status_history sh
@@ -131,7 +134,8 @@ function baseCte(f: Filter): Prisma.Sql {
     ),
     x AS (
       SELECT x0.*, to_char(x0.eff AT TIME ZONE 'Asia/Bangkok', 'YYYY-MM-DD') AS delivered_on,
-             to_char(x0.draft_added_at AT TIME ZONE 'Asia/Bangkok', 'YYYY-MM-DD') AS draft_added_on
+             to_char(x0.draft_added_at AT TIME ZONE 'Asia/Bangkok', 'YYYY-MM-DD') AS draft_added_on,
+             to_char(x0.draft_created_at AT TIME ZONE 'Asia/Bangkok', 'YYYY-MM-DD') AS draft_created_on
         FROM x0
        WHERE ${Prisma.join(branches, ' OR ')}
     )`;
@@ -299,6 +303,7 @@ export class UnbilledReportService {
               id: encodeId('invoice', r.draft_invoice_id),
               addedAt: r.draft_added_at.toISOString(),
               addedOn: r.draft_added_on,
+              createdOn: r.draft_created_on ?? r.draft_added_on,
               ageDays: daysBetween(r.draft_added_on, asOf),
             }
           : null,

@@ -314,22 +314,53 @@ function renderUnbilled(v: NotificationVars['delivery_order.unbilled'], lang: No
   );
   if (lines.length) lines.unshift(lang === 'th' ? 'เพิ่งเกินเกณฑ์วันนี้:' : 'Crossed today:');
   if (v.more > 0) lines.push(lang === 'th' ? `และอีก ${n(v.more)} ใบ` : `and ${n(v.more)} more`);
-  const where =
-    v.target === 'report'
+  const drafts = v.staleDrafts > 0;
+  const onlyDrafts = drafts && v.outstanding === 0;
+  // review L5: มีร่างค้าง → ชวนตรวจ/ออกเอกสารร่าง (ไม่ใช่แค่ดึง DO) · แพ็กเกจไม่มีรายงาน (/bill) ก็บอกเรื่องร่าง
+  const where = onlyDrafts
+    ? {
+        th: 'ตรวจและออกเอกสารใบแจ้งหนี้ร่างที่หน้า วางบิลและใบแจ้งหนี้',
+        en: 'review and issue the draft invoices on the Billing page.',
+      }
+    : v.target === 'report'
+      ? drafts
+        ? {
+            th: 'ดูที่ รายงาน → DO ยังไม่วางบิล แล้วดึงเข้าใบแจ้งหนี้และออกเอกสารร่างที่ค้างที่หน้าวางบิล',
+            en: 'see Reports → Unbilled DOs, then bill them and issue the pending drafts.',
+          }
+        : {
+            th: 'ดูที่ รายงาน → DO ยังไม่วางบิล แล้วดึงเข้าใบแจ้งหนี้ที่หน้าวางบิล',
+            en: 'see Reports → Unbilled DOs.',
+          }
+      : drafts
+        ? {
+            th: 'ดึงเข้าใบแจ้งหนี้และออกเอกสารร่างที่ค้างที่หน้า วางบิลและใบแจ้งหนี้',
+            en: 'add them to an invoice and issue the pending drafts on the Billing page.',
+          }
+        : {
+            th: 'ดึงเข้าใบแจ้งหนี้ที่หน้า วางบิลและใบแจ้งหนี้',
+            en: 'add them to an invoice on the Billing page.',
+          };
+  const draftTh = `อยู่ในร่างใบแจ้งหนี้ค้างเกิน ${n(v.minDays)} วัน ${n(v.staleDrafts)} ใบ`;
+  const draftEn = `${n(v.staleDrafts)} sitting in draft invoices over ${n(v.minDays)} days`;
+  if (onlyDrafts)
+    return lang === 'th'
       ? {
-          th: 'ดูที่ รายงาน → DO ยังไม่วางบิล แล้วดึงเข้าใบแจ้งหนี้ที่หน้าวางบิล',
-          en: 'see Reports → Unbilled DOs.',
+          title: `ร่างใบแจ้งหนี้ค้างเกิน ${n(v.minDays)} วัน ${n(v.staleDrafts)} ใบ`,
+          body: `${draftTh} — ${where.th}`,
+          detail: lines.join('\n'),
         }
       : {
-          th: 'ดึงเข้าใบแจ้งหนี้ที่หน้า วางบิลและใบแจ้งหนี้',
-          en: 'add them to an invoice on the Billing page.',
+          title: `${n(v.staleDrafts)} delivery order(s) in drafts over ${n(v.minDays)} days`,
+          body: `${draftEn} — ${where.en}`,
+          detail: lines.join('\n'),
         };
   // D-71: แยก "เพิ่งเกินวันนี้" / "ค้างทั้งหมด" (+ "อยู่ในร่าง…ค้างเกิน N วัน" เมื่อมี)
   const th = [`เพิ่งเกินวันนี้ ${n(v.fresh)} ใบ`, `ค้างทั้งหมด ${n(v.outstanding)} ใบ`];
   const en = [`${n(v.fresh)} crossed today`, `${n(v.outstanding)} outstanding`];
-  if (v.staleDrafts > 0) {
-    th.push(`อยู่ในร่างใบแจ้งหนี้ค้างเกิน ${n(v.minDays)} วัน ${n(v.staleDrafts)} ใบ`);
-    en.push(`${n(v.staleDrafts)} sitting in draft invoices over ${n(v.minDays)} days`);
+  if (drafts) {
+    th.push(draftTh);
+    en.push(draftEn);
   }
   return lang === 'th'
     ? {

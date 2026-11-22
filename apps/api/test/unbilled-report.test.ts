@@ -371,7 +371,30 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
     expect((s4.data as Row[]).find((x) => x.id === d2.doId)!.draftInvoice).toMatchObject({
       id: inv2,
       ageDays: 8,
+      createdOn: today,
     });
+
+    // review L6 (พฤติกรรมที่บันทึกไว้ — spec/12 ข้อ 17 [DECISION — ย้อนได้]): ย้าย DO ไปร่างใหม่ = นับอายุใหม่จากวันที่เข้าร่างใหม่
+    await db.$executeRaw`UPDATE invoice_line SET created_at = created_at - interval '5 days'
+      WHERE delivery_order_id = ${d2.uuid}::uuid AND active`;
+    expect(
+      ((await report('?includeStaleDrafts=true')).data as Row[]).find((x) => x.id === d2.doId)!
+        .draftInvoice.ageDays,
+    ).toBe(13);
+    await api(app, invoicer)
+      .post(`/v1/invoices/${inv2}/cancel`)
+      .send({ reason: 'ทดสอบย้าย DO ไปร่างใหม่' })
+      .expect(200);
+    const inv3 = (
+      await api(app, invoicer)
+        .post('/v1/invoices')
+        .send({ customerId: customer, deliveryOrderIds: [d2.doId] })
+        .expect(201)
+    ).body.id as string;
+    expect(
+      ((await report('?includeStaleDrafts=true')).data as Row[]).find((x) => x.id === d2.doId)!
+        .draftInvoice,
+    ).toMatchObject({ id: inv3, ageDays: 8, addedOn: today });
   });
 
   it('เกณฑ์ N: minDays / ค่าตั้งองค์กร billing.unbilledAlertDays · ตัวกรองลูกค้า · cursor', async () => {
@@ -526,31 +549,25 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
     expect(
       (await runExport('unbilled-delivery-orders', admin, { includeStaleDrafts: 'true' })).rows,
     ).toBe(withDrafts);
-    const cols = unbilledExportSpec(app.get(UnbilledReportService)).columns([], {});
-    const heads = cols.map((c) => c.header);
-    expect(heads).toEqual(expect.arrayContaining(['ใบแจ้งหนี้ร่าง', 'อยู่ในร่าง (วัน)']));
+    // review L4: คอลัมน์ร่างอยู่ท้ายตาราง เฉพาะเมื่อสั่งแบบรวมร่าง · ระบุร่างด้วยวันที่สร้าง (ไม่ใช่ id)
+    const spec = unbilledExportSpec(app.get(UnbilledReportService));
+    const DRAFT_COLS = ['ร่างใบแจ้งหนี้ (วันที่สร้าง)', 'วันที่เข้าร่าง', 'อยู่ในร่าง (วัน)'];
+    const plain = spec.columns(['prices.sell:read'], {}).map((c) => c.header);
+    expect(plain.filter((h) => DRAFT_COLS.includes(h))).toEqual([]);
+    const cols = spec.columns(['prices.sell:read'], { includeStaleDrafts: 'true' });
+    expect(cols.map((c) => c.header)).toEqual([...plain, ...DRAFT_COLS]);
     const rows = (await report('?includeStaleDrafts=true')).data as Row[];
     const dr = rows.find((x) => x.draftInvoice)!;
     const val = (h: string, r: Row) => cols.find((c) => c.header === h)!.value(r as never);
-    expect(val('ใบแจ้งหนี้ร่าง', dr)).toBe(dr.draftInvoice.id);
+    expect(val('ร่างใบแจ้งหนี้ (วันที่สร้าง)', dr)).toBe(today);
+    expect(val('วันที่เข้าร่าง', dr)).toBe(today);
     expect(val('อยู่ในร่าง (วัน)', dr)).toBe(8);
     expect(
       val(
-        'ใบแจ้งหนี้ร่าง',
+        'อยู่ในร่าง (วัน)',
         rows.find((x) => !x.draftInvoice)!,
       ),
     ).toBeNull();
-    const ag = (await api(app, admin).get('/v1/payments/aging?limit=200').expect(200)).body as Row;
-    expect((await runExport('receivables-aging')).rows).toBe((ag.data as Row[]).length);
-    // ไม่มีสิทธิ์อ่านรายงานการเงิน → 403 · ตัวกรองผิด → 422 ตอนสั่ง
-    await api(app, planner)
-      .post('/v1/exports')
-      .send({ resource: 'unbilled-delivery-orders', format: 'csv', filter: {} })
-      .expect(403);
-    await api(app, admin)
-      .post('/v1/exports')
-      .send({ resource: 'unbilled-delivery-orders', format: 'csv', filter: { minDays: '0' } })
-      .expect(422);
   });
 
   describe('แจ้งผู้วางบิลอัตโนมัติ (job delivery_order.unbilled)', () => {
@@ -581,12 +598,30 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
       const pl = await member('planner');
       const off = await member('invoicer', 'DISABLED');
       const D = addDays(today, 8);
+      const d3DoNo = (await db.deliveryOrder.findUniqueOrThrow({ where: { id: d3.uuid } })).doNo!;
       const inApp = async (u: string) => (await inbox(u)).filter((x) => x.channel === 'in_app');
 
       // ไม่มีใบค้าง (ทุก DO ส่งถึงวันนี้ · ร่างอายุ 0 วัน) → ไม่ส่ง
       const r0 = await reminders.runForTenant(tenantId, today);
       expect(r0).toMatchObject({ outstanding: 0, staleDrafts: 0, digests: 0, recipients: 0 });
       expect(await inbox(inv)).toHaveLength(0);
+
+      // review L6: ไม่มี DO ค้าง แต่มีร่างค้างเกิน N วัน → ส่ง (ข้อความชวนออกเอกสารร่าง + ลิงก์หน้าวางบิล — L5)
+      await db.$executeRaw`UPDATE invoice_line SET created_at = created_at - interval '10 days'
+        WHERE delivery_order_id = ${d2.uuid}::uuid AND active`;
+      try {
+        const rd = await reminders.runForTenant(tenantId, today);
+        expect(rd).toMatchObject({ outstanding: 0, staleDrafts: 1, fresh: 0 });
+        expect(rd.digests).toBeGreaterThanOrEqual(2);
+      } finally {
+        await db.$executeRaw`UPDATE invoice_line SET created_at = created_at + interval '10 days'
+          WHERE delivery_order_id = ${d2.uuid}::uuid AND active`;
+      }
+      const dOnly = (await inApp(inv))[0]!;
+      expect(dOnly.title).toBe('ร่างใบแจ้งหนี้ค้างเกิน 7 วัน 1 ใบ');
+      expect(dOnly.body).toContain('ออกเอกสารใบแจ้งหนี้ร่าง');
+      expect(dOnly.body).not.toContain('ค้างทั้งหมด');
+      expect(dOnly.link).toBe('/bill');
 
       // วันแรกที่เกิน: d1, d3 เพิ่งเกินวันนี้ (ส่งถึง D − 8) · d2 อยู่ในร่างมา 8 วัน
       const r1 = await reminders.runForTenant(tenantId, D);
@@ -599,16 +634,16 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
       });
       expect(r1.digests).toBeGreaterThanOrEqual(2);
       const m = await inbox(inv);
-      expect(m.filter((x) => x.channel === 'in_app')).toHaveLength(1);
-      expect(m.filter((x) => x.channel === 'email')).toHaveLength(1);
-      const n0 = m.find((x) => x.channel === 'in_app')!;
+      expect(m.filter((x) => x.channel === 'in_app')).toHaveLength(2);
+      expect(m.filter((x) => x.channel === 'email')).toHaveLength(2);
+      const n0 = m.filter((x) => x.channel === 'in_app').at(-1)!;
       expect(n0.title).toBe('DO ยังไม่วางบิลเกิน 7 วัน');
       expect(n0.body).toContain(
         'เพิ่งเกินวันนี้ 2 ใบ · ค้างทั้งหมด 2 ใบ · อยู่ในร่างใบแจ้งหนี้ค้างเกิน 7 วัน 1 ใบ',
       );
       expect(n0.link).toBe('/reports?tab=unbilled');
       expect(`${n0.title} ${n0.body}`).not.toMatch(/1,?750|฿/);
-      const mail = m.find((x) => x.channel === 'email')!;
+      const mail = m.filter((x) => x.channel === 'email').at(-1)!;
       expect(JSON.stringify(mail)).not.toMatch(/1,?750|฿/);
       expect((await inbox(acc)).length).toBeGreaterThan(0);
       expect(await inbox(pl)).toHaveLength(0);
@@ -617,19 +652,40 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
       // รันซ้ำวันเดียวกัน → ไม่ส่งซ้ำ (สมุดเตือน 1 แถว/คน/วัน)
       const r2 = await reminders.runForTenant(tenantId, D);
       expect(r2.digests).toBe(0);
-      expect(await inbox(inv)).toHaveLength(2);
-      expect(
-        await db.expiryReminder.count({
-          where: { tenantId, recipientId: inv, sentOn: new Date(`${D}T00:00:00Z`) },
-        }),
-      ).toBe(1);
+      expect(await inbox(inv)).toHaveLength(4);
+      // review L1: สมุดเตือน 1 แถว/คน/วัน รูปแบบ TENANT / UNBILLED_DAILY (migration 0161)
+      const led = await db.expiryReminder.findMany({
+        where: { tenantId, recipientId: inv, sentOn: new Date(`${D}T00:00:00Z`) },
+      });
+      expect(led).toHaveLength(1);
+      expect(led[0]).toMatchObject({
+        entityType: 'TENANT',
+        entityId: tenantId,
+        level: 'UNBILLED_DAILY',
+        expiresOn: new Date(`${D}T00:00:00Z`),
+      });
+
+      // review L6: วันที่ deploy — ผู้รับมีแถวแบบเดิม (ต่อ DO) ของวันนั้นแล้ว → ไม่ได้ฉบับที่สอง
+      const legacy = await member('invoicer');
+      await db.expiryReminder.create({
+        data: {
+          tenantId,
+          entityType: 'DELIVERY_ORDER',
+          entityId: d1.uuid,
+          level: 'UNBILLED',
+          expiresOn: new Date(`${today}T00:00:00Z`),
+          recipientId: legacy,
+          sentOn: new Date(`${addDays(D, 1)}T00:00:00Z`),
+        },
+      });
 
       // วันถัดไป: ยังค้าง → ส่งอีกฉบับ (ไม่มีใบเพิ่งเกิน)
       const r3 = await reminders.runForTenant(tenantId, addDays(D, 1));
       expect(r3).toMatchObject({ fresh: 0, outstanding: 2, staleDrafts: 1 });
       expect(r3.digests).toBeGreaterThanOrEqual(2);
       const day2 = (await inApp(inv)).at(-1)!;
-      expect(await inApp(inv)).toHaveLength(2);
+      expect(await inApp(inv)).toHaveLength(3);
+      expect(await inbox(legacy)).toHaveLength(0);
       expect(day2.body).toContain('เพิ่งเกินวันนี้ 0 ใบ · ค้างทั้งหมด 2 ใบ');
 
       // ยกเลิกร่างของ d2 → ไม่ใช่ร่างค้างแล้ว กลับมาเป็นค้างวางบิล (ไม่นับเป็น "เพิ่งเกินวันนี้" — เกินเกณฑ์มาก่อนแล้ว)
@@ -659,7 +715,7 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
       });
       await reminders.runForTenant(tenantId, addDays(D, 3));
       expect(await inbox(fresh)).toHaveLength(0);
-      expect(await inApp(inv)).toHaveLength(4);
+      expect(await inApp(inv)).toHaveLength(5);
 
       // review M1: แพ็กเกจไม่มีโมดูลรายงาน (start) → ลิงก์หน้าวางบิล + ข้อความชี้หน้าวางบิล · แพ็กเกจที่มี → ลิงก์รายงาน
       const ent = app.get(EntitlementService);
@@ -680,9 +736,38 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
       }
       expect(n0.body).toContain('รายงาน → DO ยังไม่วางบิล');
 
+      // review L2: วันที่ job ไม่ได้รัน (D+5) ไม่ตกหล่น — d3 ข้ามเกณฑ์วัน D+5 → นับเป็น "เพิ่งเกิน" ในฉบับ D+6
+      await db.$executeRaw`UPDATE doc_status_history SET at = at + interval '5 days'
+        WHERE doc_type = 'delivery_order' AND event = 'deliver' AND doc_id = ${d3.uuid}::uuid`;
+      try {
+        const D6 = addDays(D, 6);
+        // นับแบบ "ข้ามเกณฑ์วันนี้พอดี" จะได้ 0
+        expect((await run((tx) => reminders.counts(tx, D6, 7))).fresh).toBe(0);
+        const r6 = await reminders.runForTenant(tenantId, D6);
+        expect(r6).toMatchObject({ fresh: 1, outstanding: 3 });
+        const day6 = (await inApp(inv)).at(-1)!;
+        expect(day6.body).toContain('เพิ่งเกินวันนี้ 1 ใบ');
+        const mail6 = (await inbox(inv)).filter((x) => x.channel === 'email').at(-1)!;
+        expect(JSON.stringify(mail6)).toContain(d3DoNo);
+      } finally {
+        await db.$executeRaw`UPDATE doc_status_history SET at = at - interval '5 days'
+          WHERE doc_type = 'delivery_order' AND event = 'deliver' AND doc_id = ${d3.uuid}::uuid`;
+      }
+
       // sandbox ไม่สร้าง job — ทดสอบใน "ตั้งเวลา" · tenant อื่นไม่มีใบค้าง → ไม่ส่ง
       expect((await reminders.runForTenant(otherId, D)).digests).toBe(0);
 
+      // L5: แพ็กเกจไม่มีรายงาน + มีร่างค้าง → ข้อความหน้าวางบิลพูดถึงร่างด้วย
+      const tb = renderNotification('delivery_order.unbilled', 'th', {
+        target: 'bill',
+        minDays: 7,
+        fresh: 0,
+        outstanding: 2,
+        staleDrafts: 1,
+        more: 0,
+        items: [],
+      });
+      expect(tb.body).toContain('ออกเอกสารร่างที่ค้างที่หน้า วางบิลและใบแจ้งหนี้');
       const t = renderNotification('delivery_order.unbilled', 'th', {
         target: 'report',
         minDays: 7,

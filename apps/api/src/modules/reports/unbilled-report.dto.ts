@@ -81,6 +81,8 @@ export class UnbilledDraftRefDto {
   addedAt!: string;
   @ApiProperty({ example: '2026-11-03', description: 'วันที่เข้าร่าง (เวลาไทย)' })
   addedOn!: string;
+  @ApiProperty({ example: '2026-11-01', description: 'วันที่สร้างร่างใบแจ้งหนี้ (เวลาไทย)' })
+  createdOn!: string;
   @ApiProperty({
     example: 9,
     description: 'อายุในร่าง = วันนี้ − วันที่เข้าร่าง (วัน, เวลาไทย) — > N',

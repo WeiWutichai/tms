@@ -101,7 +101,7 @@ export const unbilledExportSpec = (
   idKind: 'deliveryOrder',
   query: UnbilledReportQuery,
   fetch: (q, page) => svc.exportRows(q, page),
-  columns: (scopes) => {
+  columns: (scopes, q) => {
     const cols: ExportColumn<UnbilledDeliveryOrderDto>[] = [
       { header: 'เลขที่ DO', value: (r) => r.doNo },
       { header: 'วันที่ DO', value: (r) => r.doDate },
@@ -111,12 +111,17 @@ export const unbilledExportSpec = (
       { header: 'สถานะ', value: (r) => DO_STATUS_TH[r.status] ?? r.status },
       { header: 'ส่งถึง', value: (r) => r.deliveredOn },
       { header: 'ค้างวางบิล (วัน)', value: (r) => r.daysSinceDelivery },
-      // D-71 ธง "ร่างค้างเกิน N วัน" (มีค่าเมื่อสั่งด้วย includeStaleDrafts=true) — ร่างยังไม่มีเลขที่ จึงใช้ id ใบแจ้งหนี้
-      { header: 'ใบแจ้งหนี้ร่าง', value: (r) => r.draftInvoice?.id ?? null },
-      { header: 'อยู่ในร่าง (วัน)', value: (r) => r.draftInvoice?.ageDays ?? null },
     ];
     if (canSell(scopes))
       cols.push({ header: 'มูลค่า (ก่อน VAT)', value: (r) => money(r.sellAmount) });
+    // D-71 ธง "ร่างค้างเกิน N วัน" — ท้ายตาราง เฉพาะเมื่อสั่งด้วย includeStaleDrafts=true (review L4) · ร่างยังไม่มีเลขที่
+    // จึงระบุด้วยวันที่สร้างร่าง (ลูกค้าของร่าง = ลูกค้าของ DO ในคอลัมน์ "ลูกค้า")
+    if (q.includeStaleDrafts === 'true')
+      cols.push(
+        { header: 'ร่างใบแจ้งหนี้ (วันที่สร้าง)', value: (r) => r.draftInvoice?.createdOn ?? null },
+        { header: 'วันที่เข้าร่าง', value: (r) => r.draftInvoice?.addedOn ?? null },
+        { header: 'อยู่ในร่าง (วัน)', value: (r) => r.draftInvoice?.ageDays ?? null },
+      );
     return cols;
   },
 });
