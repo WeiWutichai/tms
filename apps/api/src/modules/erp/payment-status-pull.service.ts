@@ -44,7 +44,7 @@ const MONEY_RE = /^\d{1,12}\.\d{2}$/;
 const STATUSES = ['UNPAID', 'PARTIALLY_PAID', 'PAID'] as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** heartbeat ของ job (ต่อ lease) ทุกกี่ใบ */
-const PROGRESS_EVERY = 25;
+const PROGRESS_EVERY = 1; // review รอบสอง: heartbeat ทุกใบ (ERP ช้า > 12 วิ/ใบ ไม่ให้ lease หลุด)
 export const pullPaymentKey = (invoiceId: string, cumulative: string) =>
   `${pullPaymentKeyPrefix(invoiceId)}${cumulative}`;
 
