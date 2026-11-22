@@ -105,6 +105,7 @@ import {
 import { ConnectorsService } from './modules/erp/connectors.service';
 import { ErpMasterCodesController } from './modules/erp/erp-master-codes.controller';
 import { ErpMasterCodesService } from './modules/erp/erp-master-codes.service';
+import { CarrierErpCodesController } from './modules/erp/carrier-erp-codes.controller';
 import { CustomerErpCodesController } from './modules/erp/customer-erp-codes.controller';
 import { ExternalMappingService } from './modules/erp/external-mapping.service';
 import { InboundWebhookController } from './modules/erp/inbound-webhook.controller';
@@ -172,6 +173,11 @@ import {
 import { RevenueLinesService } from './modules/revenue-lines/revenue-lines.service';
 import { SettlementsController } from './modules/settlements/settlements.controller';
 import { SettlementReviewPublicController } from './modules/settlements/settlement-review.controller';
+import {
+  CarrierPayLinkController,
+  CarrierPayLinkPublicController,
+} from './modules/settlements/carrier-pay-link.controller';
+import { CarrierPayLinkService } from './modules/settlements/carrier-pay-link.service';
 import { SettlementReviewService } from './modules/settlements/settlement-review.service';
 import {
   DeliveryOrderReleaseController,
@@ -326,6 +332,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ConnectorsController,
     ErpMasterCodesController,
     CustomerErpCodesController,
+    CarrierErpCodesController,
     InboundWebhookController,
     WebhookDeliveriesController,
     EventsController,
@@ -354,6 +361,8 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     SubconOfferPublicController,
     PodLinkPublicController,
     SettlementReviewPublicController,
+    CarrierPayLinkController,
+    CarrierPayLinkPublicController,
     TrackingPublicController,
     DeliveryOrderTrackingController,
     CustomerTrackingController,
@@ -431,6 +440,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     SettlementQueueService,
     SettlementsService,
     SettlementReviewService,
+    CarrierPayLinkService,
     SettlementComparisonService,
     SettlementPdfService,
     BillingQueueService,

@@ -1319,6 +1319,7 @@ const { data, error } = await tms.POST('/v1/invoice-runs', {
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
 | `updatedAt` | ใช่ | `string` |   |   |   |
+| `sync` |   | `ErpDocumentSyncDto` | null ได้ | ผลการส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (เลขเอกสารสองฝั่ง — `externalDocNo` = เลขที่ระบบบัญชีออก) · แยกจาก `status` ของเอกสาร · มีเฉพาะ `GET /{id}` · null = ยังไม่มีผลการส่ง (ไม่ได้เชื่อมระบบบัญชี / ยังรอคิว / ส่งไม่สำเร็จ — ดูคิวของ connector) |   |
 | `issuingCompanyId` | ใช่ | `string` |   |   | `cmp_…` |
 | `issuingBranchId` | ใช่ | `string` |   |   | `brn_…` |
 | `creditTermDays` | ใช่ | `number` |   |   |   |

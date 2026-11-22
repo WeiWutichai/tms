@@ -258,7 +258,7 @@ const EXT_ONLY: Record<string, { path: string; reason: string }> = {
 const NOT_RESOURCE: Record<string, string> = {
   ExternalMapping:
     'ST8-T05 external_mapping (docs/01 §3.7) — `external_id` คือ id/รหัสฝั่ง ERP ของ entity อื่น (ลูกค้า/เอกสาร) ต่อ connector ' +
-    'ไม่ใช่ externalId ของ resource (แก้ผ่าน /customers/{id}/erp-codes)',
+    'ไม่ใช่ externalId ของ resource (แก้ผ่าน /customers/{id}/erp-codes · /carriers/{id}/erp-codes)',
 };
 
 /**

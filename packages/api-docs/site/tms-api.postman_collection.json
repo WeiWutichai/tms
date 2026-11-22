@@ -4880,6 +4880,42 @@
               }
             }
           }
+        },
+        {
+          "name": "ออกลิงก์ \"ค่าเที่ยวของฉัน\" ให้รถร่วม (ดูอย่างเดียว — เที่ยวที่จบ / ยอด / สถานะจ่าย)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/carriers/:id/pay-link",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "carriers",
+                ":id",
+                "pay-link"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: settlements:create\n\nลิงก์ดูอย่างเดียว อายุ 30 วัน (ไม่ต้อง login) — รถร่วมเห็นเฉพาะงวด/เที่ยว/ราคาซื้อของตัวเอง (ไม่มีราคาขาย/ลูกค้า) · รถร่วมที่ระงับชั่วคราว (INACTIVE) ยังออก/ใช้ลิงก์ได้ (ยังมียอดค้างจ่าย) — ถูกลบแล้ว = 404 · ออกใหม่ = เพิกถอนลิงก์เดิมที่ยังใช้ได้ของรถร่วมรายนี้ · ส่งทาง LINE/SMS ด้วย POST /v1/messages/send-link หรือคัดลอกไปส่งเอง · ไม่มีหนังสือ 50 ทวิ · audit `carrier.pay_link_issued`"
+          }
         }
       ]
     },
@@ -12210,6 +12246,38 @@
     {
       "name": "รถร่วม (carriers)",
       "item": [
+        {
+          "name": "GET /v1/carriers/{id}/erp-codes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/carriers/:id/erp-codes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "carriers",
+                ":id",
+                "erp-codes"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:read"
+          }
+        },
         {
           "name": "GET /v1/carriers/{id}/recent-prices",
           "request": {
