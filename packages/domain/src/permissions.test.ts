@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { PERMISSIONS, ROLE_CODES, SYSTEM_ROLES, scopeAllows, type RoleCode } from './permissions';
+import {
+  API_KEY_SCOPES,
+  PERMISSIONS,
+  ROLE_CODES,
+  SYSTEM_ROLES,
+  scopeAllows,
+  type RoleCode,
+} from './permissions';
 
 /**
  * ตาราง A3 (docs/04) — แต่ละแถว: scope ตัวแทน → role ที่ต้องได้ (ที่เหลือต้องไม่ได้)
@@ -130,6 +137,8 @@ const A3: Array<[string, string, RoleCode[]]> = [
   ],
   ['Audit log', 'audit:read', ['owner', 'admin', 'manager']],
   ['Audit log ของบัญชี', 'audit.accounting:read', ['owner', 'admin', 'accounting']],
+  // D-73: เลขบัตรประชาชนเต็มของรถร่วมบุคคลในไฟล์ส่งออกให้นักบัญชี — owner + accounting เท่านั้น
+  ['เลขบัตรประชาชนเต็ม (ส่งออกให้นักบัญชี)', 'pii.national_id:read', ['owner', 'accounting']],
 ];
 
 describe('A3 role × permission', () => {
@@ -146,6 +155,10 @@ describe('A3 role × permission', () => {
       expect(new Set(ps).size).toBe(ps.length);
       for (const p of ps) expect(PERMISSIONS).toContain(p);
     }
+  });
+
+  it('D-73: pii.national_id:read ห้ามให้ API key', () => {
+    expect(API_KEY_SCOPES).not.toContain('pii.national_id:read');
   });
 
   it('scopeAllows: * และ resource:*', () => {

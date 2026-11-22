@@ -3,7 +3,9 @@ import { Prisma } from '@prisma/client';
 import { ISSUED_INVOICE_STATUSES, scopeAllows } from '@tms/domain';
 import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
+import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
+import { CarriersService, mask } from '../carriers/carriers.service';
 import {
   CANONICAL_INVOICE_INCLUDE,
   CANONICAL_SETTLEMENT_SELECT,
@@ -19,21 +21,66 @@ import {
   type AccountingReceiptRow,
   type AccountingSalesRow,
   type AccountingSettlementRow,
+  type AccountingWhtRow,
   FileExportAdapterRegistry,
 } from './file-export-adapter';
 
 const money = (d: Prisma.Decimal | null | undefined) => new Prisma.Decimal(d ?? 0).toFixed(2);
 const ymd = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
+/** วันที่ไทยของเวลา (timestamptz) — วันที่ยกเลิก/กลับรายการ */
+const bkkDay = (d: Date | null | undefined) =>
+  d ? new Date(d.getTime() + 7 * 3600_000).toISOString().slice(0, 10) : null;
+
+/** D-73 สถานะใบแจ้งหนี้ที่ "ออกแล้วยกเลิก" (มีเลข) — แสดงเป็นแถวเอกสารแยกยอด ไม่นับในยอดรวม */
+export const CANCELLED_INVOICE_STATUSES = ['CANCELLED', 'VOIDED'] as const;
+
+/** ใบในชุดรายการขาย: ออกแล้วยังใช้ + ออกแล้วยกเลิก (มีเลข — ร่างที่ยกเลิกไม่มีเลข ไม่อยู่ในไฟล์) */
+const SALES_WHERE = {
+  OR: [
+    { status: { in: [...ISSUED_INVOICE_STATUSES] } },
+    { status: { in: [...CANCELLED_INVOICE_STATUSES] }, invoiceNo: { not: null } },
+  ],
+} satisfies Prisma.InvoiceWhereInput;
+
+/** สิทธิ์เห็นเลขบัตรประชาชนเต็มของรถร่วมบุคคลธรรมดาในไฟล์ส่งออกให้นักบัญชี (D-73) */
+export const NATIONAL_ID_SCOPE = 'pii.national_id:read';
+
+/**
+ * D-73: ผู้สั่งได้เลขบัตรประชาชนเต็มไหม — ต้องมี `pii.national_id:read` และเป็นคนที่ login (`user`; `dev` = token พัฒนาในเครื่อง)
+ * · API key / OAuth client (`client`) **ไม่ได้เสมอ** (สอดคล้อง D-79) · ทีม Innovera เข้าใช้งานแทน (`imp`) ไม่ได้ (PDPA — ทางระมัดระวัง)
+ */
+export function nationalIdAllowed(
+  scopes: readonly string[],
+  principalType: string | undefined,
+): boolean {
+  const pt = principalType ?? 'user';
+  return (pt === 'user' || pt === 'dev') && scopeAllows(scopes, NATIONAL_ID_SCOPE);
+}
 
 /** ช่วงยาวสุดต่อไฟล์ (1 ปี) — ไตรมาส/เดือนของต้นแบบอยู่ในช่วงนี้ */
 export const ACCOUNTING_EXPORT_MAX_DAYS = 366;
 
-/** สิทธิ์อ่านของแต่ละชุด (ชุดเดียวกับหน้ารายการ — `GET /v1/invoices`, `/v1/payments`, `/v1/settlements`) */
-export const ACCOUNTING_DATASET_SCOPE: Record<AccountingDataset, string> = {
-  sales: 'invoices:read',
-  receipts: 'invoices:read',
-  settlements: 'settlements:read',
+/**
+ * สิทธิ์อ่านของแต่ละชุด (any-of — ชุดเดียวกับหน้ารายการ `GET /v1/invoices`, `/v1/payments`, `/v1/settlements`)
+ * `wht` = อ่านได้ฝั่งใดฝั่งหนึ่ง — ฝั่งผู้รับเหมาต้อง `settlements:read` · ฝั่งลูกค้าต้อง `invoices:read` (ไฟล์มีเฉพาะฝั่งที่อ่านได้)
+ */
+export const ACCOUNTING_DATASET_SCOPE: Record<AccountingDataset, string[]> = {
+  sales: ['invoices:read'],
+  receipts: ['invoices:read'],
+  settlements: ['settlements:read'],
+  wht: ['settlements:read', 'invoices:read'],
 };
+const canRead = (scopes: readonly string[], d: AccountingDataset) =>
+  ACCOUNTING_DATASET_SCOPE[d].some((x) => scopeAllows(scopes, x));
+
+export interface AccountingDatasetCount {
+  dataset: AccountingDataset;
+  /** เอกสารที่ยังใช้ (นับในยอดรวม) */
+  documents: number;
+  /** D-73 เอกสารที่ยกเลิก/กลับรายการในงวด (แถวแยก ไม่นับรวม) */
+  cancelledDocuments: number;
+  rows: number;
+}
 
 export interface AccountingRange {
   from: Date;
@@ -57,7 +104,15 @@ export class AccountingExportService {
     private readonly db: DbService,
     private readonly settlements: SettlementsService,
     private readonly adapters: FileExportAdapterRegistry,
+    private readonly carriers: CarriersService,
   ) {}
+
+  /** เลขบัตรประชาชนเต็มของรถร่วม (เฉพาะผู้สั่งที่ได้สิทธิ์ — `nationalIdAllowed`) · ไม่ได้สิทธิ์ = map ว่าง */
+  private async nationalIds(carrierIds: string[]): Promise<Map<string, string>> {
+    const ctx = requestContext.require();
+    if (!nationalIdAllowed(ctx.scopes ?? [], ctx.principalType)) return new Map();
+    return this.carriers.nationalIds(carrierIds);
+  }
 
   /** ตรวจช่วงวันที่ + รูปแบบไฟล์ (422 ตอนสั่ง — ไม่ใช่ตอนงานล้ม) */
   check(q: AccountingExportQuery, dataset?: AccountingDataset): AccountingRange {
@@ -85,7 +140,10 @@ export class AccountingExportService {
     return { from: from!, to: to! };
   }
 
-  /** ชุด "รายการขาย": ใบแจ้งหนี้ที่ออกแล้วและไม่ถูกยกเลิก วันที่ออกอยู่ในช่วง */
+  /**
+   * ชุด "รายการขาย": ใบแจ้งหนี้ที่ออกแล้ว วันที่ออกอยู่ในช่วง — ใบที่ยังใช้ (แถวเอกสาร + แถวรายการ) และ (D-73) ใบที่ออกในช่วงแล้ว
+   * ยกเลิก (มีเลข — แถวเอกสารอย่างเดียว ยอดตามที่ออกอยู่ในคอลัมน์ยกเลิก)
+   */
   async salesRows(q: AccountingExportQuery, page: ExportPage): Promise<AccountingSalesRow[]> {
     const { from, to } = this.check(q, 'sales');
     const tx = this.db.tx;
@@ -97,15 +155,17 @@ export class AccountingExportService {
       : null;
     const rows = await tx.invoice.findMany({
       where: {
-        status: { in: [...ISSUED_INVOICE_STATUSES] },
+        ...SALES_WHERE,
         issueDate: { gte: from, lte: to },
         ...(last && page.after
           ? {
-              OR: [
-                { issueDate: { gt: last.issueDate! } },
-                { issueDate: last.issueDate, invoiceNo: { gt: last.invoiceNo! } },
-                { issueDate: last.issueDate, invoiceNo: last.invoiceNo, id: { gt: page.after } },
-              ],
+              AND: {
+                OR: [
+                  { issueDate: { gt: last.issueDate! } },
+                  { issueDate: last.issueDate, invoiceNo: { gt: last.invoiceNo! } },
+                  { issueDate: last.issueDate, invoiceNo: last.invoiceNo, id: { gt: page.after } },
+                ],
+              },
             }
           : {}),
       },
@@ -119,13 +179,19 @@ export class AccountingExportService {
     return rows.flatMap((inv) => {
       // ไฟล์ให้นักบัญชีไม่ผูก connector ใด → ไม่มีรหัสลูกค้าฝั่ง ERP
       const doc = canonicalInvoice(inv, null);
+      const cancelled = (CANCELLED_INVOICE_STATUSES as readonly string[]).includes(inv.status)
+        ? { date: bkkDay(inv.cancelledAt), reason: inv.cancelReason }
+        : null;
       const base = {
         id: encodeId('invoice', inv.id),
         doc,
         status: inv.status,
+        cancelled,
         issuerName: inv.issuingCompany?.legalName ?? null,
         replacesNumber: inv.replaces?.invoiceNo ?? null,
       };
+      // ใบที่ยกเลิก: บรรทัดหยุดนับแล้ว (trigger) — แถวเอกสารอย่างเดียว
+      if (cancelled) return [{ ...base, level: 'document' as const, line: null }];
       return [
         { ...base, level: 'document' as const, line: null },
         ...doc.lines.map((line) => ({ ...base, level: 'line' as const, line })),
@@ -133,7 +199,10 @@ export class AccountingExportService {
     });
   }
 
-  /** ชุด "รับชำระ": การรับชำระที่ยังไม่กลับรายการ วันที่รับอยู่ในช่วง */
+  /**
+   * ชุด "รับชำระ": การรับชำระ วันที่รับอยู่ในช่วง — ที่ยังไม่กลับรายการ (แถวเอกสาร + แถวตัดหนี้) และ (D-73) ที่กลับรายการ/เช็คคืนแล้ว
+   * (แถวเอกสารอย่างเดียว ยอดอยู่ในคอลัมน์กลับรายการ)
+   */
   async receiptRows(q: AccountingExportQuery, page: ExportPage): Promise<AccountingReceiptRow[]> {
     const { from, to } = this.check(q, 'receipts');
     const tx = this.db.tx;
@@ -145,7 +214,7 @@ export class AccountingExportService {
       : null;
     const rows = await tx.payment.findMany({
       where: {
-        status: 'RECORDED',
+        status: { in: ['RECORDED', 'REVERSED'] },
         receivedDate: { gte: from, lte: to },
         ...(last && page.after
           ? {
@@ -195,12 +264,15 @@ export class AccountingExportService {
         allocatedTotal: allocated.toFixed(2),
       };
       const id = encodeId('payment', p.id);
+      const reversed =
+        p.status === 'REVERSED' ? { date: bkkDay(p.reversedAt), reason: p.reverseReason } : null;
+      const head = { id, payment, status: p.status, reversed };
+      if (reversed) return [{ ...head, level: 'document' as const, allocation: null }];
       return [
-        { id, level: 'document' as const, payment, allocation: null },
+        { ...head, level: 'document' as const, allocation: null },
         ...p.allocations.map((a, i) => ({
-          id,
+          ...head,
           level: 'line' as const,
-          payment,
           allocation: {
             lineNo: i + 1,
             invoiceNumber: a.invoice.invoiceNo,
@@ -248,13 +320,22 @@ export class AccountingExportService {
       select: { ...CANONICAL_SETTLEMENT_SELECT, payingCompany: { select: { legalName: true } } },
     });
     const out: AccountingSettlementRow[] = [];
+    const nid = await this.nationalIds(rows.map((r) => r.carrierId));
     for (const row of rows) {
       // DTO ตัวเดียวกับ `GET /v1/settlements/{id}` (ผลประมาณการ WHT + บรรทัด) → canonical ชุดเดียวกับที่ส่ง ERP
-      const doc = canonicalSettlement(await this.settlements.get(row.id), row);
+      const dto = await this.settlements.get(row.id);
+      const doc = canonicalSettlement(dto, row);
+      const full = doc.carrier.entityType === 'INDIVIDUAL' ? nid.get(row.carrierId) : undefined;
       const base = {
         id: encodeId('settlement', row.id),
         doc,
         payerName: row.payingCompany?.legalName ?? null,
+        // canonical ไม่มีเลขบัตรของบุคคล (PDPA) — ไฟล์นักบัญชีใส่เต็มเฉพาะผู้มีสิทธิ์ (D-73) ไม่งั้นเลขท้าย 4 หลัก
+        carrierTaxId:
+          doc.carrier.entityType === 'JURISTIC'
+            ? doc.carrier.taxId
+            : (full ?? mask(dto.carrier.taxIdLast4)),
+        piiIncluded: !!full,
       };
       out.push({ ...base, level: 'document', line: null });
       for (const line of doc.lines) out.push({ ...base, level: 'line', line });
@@ -262,36 +343,175 @@ export class AccountingExportService {
     return out;
   }
 
+  /**
+   * ชุด "สรุปหัก ณ ที่จ่าย (ประมาณการ)" (D-73) — 1 แถวต่อ (ฝั่ง, คู่ค้า) รวม**ค่าที่บันทึกไว้**เท่านั้น (ไม่คำนวณภาษีใหม่):
+   * ผู้รับเหมา = ใบสำคัญจ่าย PAID (วันที่จ่ายในช่วง, `wht_amount` ตรึง > 0) · ลูกค้า = รับชำระ RECORDED (วันที่รับในช่วง, `wht_amount` > 0)
+   * แสดงเฉพาะฝั่งที่ผู้สั่งอ่านได้ · อ่านครั้งเดียวทั้งชุด (spec `single`) — ไม่ใช่แบบ ภ.ง.ด. / 50 ทวิ (ออกที่ระบบบัญชี D-54/D-58)
+   */
+  async whtRows(q: AccountingExportQuery, page: ExportPage): Promise<AccountingWhtRow[]> {
+    const { from, to } = this.check(q, 'wht');
+    const tx = this.db.tx;
+    const scopes = requestContext.require().scopes ?? [];
+    const out: AccountingWhtRow[] = [];
+    const byCode = (a: AccountingWhtRow, b: AccountingWhtRow) =>
+      (a.code ?? '').localeCompare(b.code ?? '') || a.name.localeCompare(b.name, 'th');
+
+    if (scopeAllows(scopes, 'settlements:read')) {
+      const rows = await tx.carrierSettlement.findMany({
+        where: { status: 'PAID', paidDate: { gte: from, lte: to }, whtAmount: { gt: 0 } },
+        orderBy: [{ paidDate: 'asc' }, { settlementNo: 'asc' }, { id: 'asc' }],
+        select: { id: true, carrierId: true, whtAmount: true },
+      });
+      const nid = await this.nationalIds(rows.map((r) => r.carrierId));
+      const groups = new Map<string, AccountingWhtRow & { base: Prisma.Decimal | null }>();
+      for (const r of rows) {
+        // ผลประมาณการ ST6-T08 ตัวเดียวกับหน้าใบสำคัญจ่าย/canonical (แบบยื่น + ฐานต่ออัตรา) — ไม่คำนวณใหม่
+        const s = await this.settlements.get(r.id);
+        const est = s.whtEstimate;
+        const base = est
+          ? est.byRate
+              .filter((b) => new Prisma.Decimal(b.whtRate).gt(0))
+              .reduce((a, b) => a.plus(b.buyBaseAmount ?? 0), new Prisma.Decimal(0))
+          : null;
+        const individual = s.carrier.entityType !== 'JURISTIC';
+        const full = individual ? nid.get(r.carrierId) : undefined;
+        // ข้อมูลรถร่วม = snapshot ของใบล่าสุดในงวด (ใบเรียงตามวันที่จ่าย)
+        const g = groups.get(r.carrierId) ?? {
+          id: `carrier:${r.carrierId}`,
+          side: 'carrier' as const,
+          code: null,
+          name: '',
+          entityType: null,
+          taxId: null,
+          branchCode: null,
+          forms: [],
+          documents: 0,
+          baseAmount: null,
+          whtAmount: '0.00',
+          piiIncluded: false,
+          base: new Prisma.Decimal(0),
+        };
+        g.code = s.carrier.code;
+        g.name = s.carrier.legalName;
+        g.entityType = individual ? 'INDIVIDUAL' : 'JURISTIC';
+        g.taxId = individual ? (full ?? mask(s.carrier.taxIdLast4)) : s.carrier.taxId;
+        g.piiIncluded = !!full;
+        g.branchCode = s.carrier.branchCode;
+        if (est?.form && !g.forms.includes(est.form)) g.forms = [...g.forms, est.form].sort();
+        g.documents += 1;
+        g.whtAmount = new Prisma.Decimal(g.whtAmount).plus(r.whtAmount!).toFixed(2);
+        // ใบใดไม่มีผลประมาณการ (ไม่รู้ประเภทรถร่วม) → ฐานของคู่ค้านี้ไม่ครบ = ว่าง (ไม่เดา)
+        g.base = g.base && base ? g.base.plus(base) : null;
+        groups.set(r.carrierId, g);
+      }
+      out.push(
+        ...[...groups.values()]
+          .map(({ base, ...g }) => ({ ...g, baseAmount: base ? base.toFixed(2) : null }))
+          .sort(byCode),
+      );
+    }
+
+    if (scopeAllows(scopes, 'invoices:read')) {
+      const pays = await tx.payment.findMany({
+        where: { status: 'RECORDED', receivedDate: { gte: from, lte: to }, whtAmount: { gt: 0 } },
+        orderBy: [{ receivedDate: 'asc' }, { paymentNo: 'asc' }, { id: 'asc' }],
+        select: {
+          customerId: true,
+          whtAmount: true,
+          customer: { select: { code: true, legalName: true, taxId: true, branchCode: true } },
+        },
+      });
+      const groups = new Map<string, AccountingWhtRow>();
+      for (const p of pays) {
+        const g = groups.get(p.customerId) ?? {
+          id: `customer:${p.customerId}`,
+          side: 'customer' as const,
+          code: p.customer.code,
+          name: p.customer.legalName,
+          entityType: null,
+          taxId: p.customer.taxId,
+          branchCode: p.customer.branchCode,
+          // แบบยื่น/ฐานของฝั่งลูกค้าไม่ได้เก็บในระบบ — [OPEN] spec/12 §3 แถว ST7-T23 (ไม่คำนวณเอง)
+          forms: [],
+          documents: 0,
+          baseAmount: null,
+          whtAmount: '0.00',
+          piiIncluded: false,
+        };
+        g.documents += 1;
+        g.whtAmount = new Prisma.Decimal(g.whtAmount).plus(p.whtAmount).toFixed(2);
+        groups.set(p.customerId, g);
+      }
+      out.push(...[...groups.values()].sort(byCode));
+    }
+    return out.slice(0, page.take);
+  }
+
   /** จำนวนเอกสาร/แถวต่อชุดที่ผู้เรียกมีสิทธิ์ (dialog "ส่งออกให้นักบัญชี" — ไฟล์ที่จะได้) */
   async summary(
     q: AccountingExportQuery,
     scopes: readonly string[],
-  ): Promise<{ dataset: AccountingDataset; documents: number; rows: number }[]> {
+  ): Promise<AccountingDatasetCount[]> {
     const { from, to } = this.check(q);
     const tx = this.db.tx;
-    const out: { dataset: AccountingDataset; documents: number; rows: number }[] = [];
+    const out: AccountingDatasetCount[] = [];
     for (const dataset of ACCOUNTING_DATASETS) {
-      if (!scopeAllows(scopes, ACCOUNTING_DATASET_SCOPE[dataset])) continue;
+      if (!canRead(scopes, dataset)) continue;
       if (!this.adapters.resolve(q.template, dataset)) continue;
       let documents = 0;
-      let lines = 0;
+      let cancelledDocuments = 0;
+      let rows = 0;
       if (dataset === 'sales') {
-        const where = {
-          status: { in: [...ISSUED_INVOICE_STATUSES] },
-          issueDate: { gte: from, lte: to },
-        };
+        const range = { issueDate: { gte: from, lte: to } };
+        const where = { status: { in: [...ISSUED_INVOICE_STATUSES] }, ...range };
         documents = await tx.invoice.count({ where });
-        lines = await tx.invoiceLine.count({ where: { active: true, invoice: where } });
+        cancelledDocuments = await tx.invoice.count({
+          where: {
+            status: { in: [...CANCELLED_INVOICE_STATUSES] },
+            invoiceNo: { not: null },
+            ...range,
+          },
+        });
+        const lines = await tx.invoiceLine.count({ where: { active: true, invoice: where } });
+        rows = documents + lines + cancelledDocuments;
       } else if (dataset === 'receipts') {
-        const where = { status: 'RECORDED' as const, receivedDate: { gte: from, lte: to } };
+        const range = { receivedDate: { gte: from, lte: to } };
+        const where = { status: 'RECORDED' as const, ...range };
         documents = await tx.payment.count({ where });
-        lines = await tx.paymentAllocation.count({ where: { payment: where } });
-      } else {
+        cancelledDocuments = await tx.payment.count({
+          where: { status: 'REVERSED', ...range },
+        });
+        const lines = await tx.paymentAllocation.count({ where: { payment: where } });
+        rows = documents + lines + cancelledDocuments;
+      } else if (dataset === 'settlements') {
         const where = { status: 'PAID', paidDate: { gte: from, lte: to } };
         documents = await tx.carrierSettlement.count({ where });
-        lines = await tx.settlementLine.count({ where: { voidedAt: null, settlement: where } });
+        const lines = await tx.settlementLine.count({
+          where: { voidedAt: null, settlement: where },
+        });
+        rows = documents + lines;
+      } else {
+        // สรุป WHT: เอกสาร = ใบที่มี WHT · แถว = จำนวนคู่ค้า (ฝั่งที่อ่านได้)
+        if (scopeAllows(scopes, 'settlements:read')) {
+          const where = {
+            status: 'PAID',
+            paidDate: { gte: from, lte: to },
+            whtAmount: { gt: 0 },
+          };
+          documents += await tx.carrierSettlement.count({ where });
+          rows += (await tx.carrierSettlement.groupBy({ by: ['carrierId'], where })).length;
+        }
+        if (scopeAllows(scopes, 'invoices:read')) {
+          const where = {
+            status: 'RECORDED' as const,
+            receivedDate: { gte: from, lte: to },
+            whtAmount: { gt: 0 },
+          };
+          documents += await tx.payment.count({ where });
+          rows += (await tx.payment.groupBy({ by: ['customerId'], where })).length;
+        }
       }
-      out.push({ dataset, documents, rows: documents + lines });
+      out.push({ dataset, documents, cancelledDocuments, rows });
     }
     return out;
   }

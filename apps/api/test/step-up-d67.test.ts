@@ -261,6 +261,8 @@ describe('step-up 2FA ขยาย (D-67)', () => {
       { resource: 'accounting-sales', format: 'csv', filter: acc },
       { resource: 'accounting-receipts', format: 'csv', filter: acc },
       { resource: 'accounting-settlements', format: 'csv', filter: acc },
+      // D-73 สรุปหัก ณ ที่จ่าย (ประมาณการ)
+      { resource: 'accounting-wht-summary', format: 'csv', filter: acc },
     ])
       await deny(await job(body), JSON.stringify(body));
     const ok = await job(

@@ -3,7 +3,7 @@ import { api, unwrap } from '../../api';
 import { ensureStepUp, stepUpHeaders } from '../stepup/stepUp';
 import { type ExportResource, fetchExport, openDownload } from './exportJob';
 
-export type XpDataset = 'sales' | 'receipts' | 'settlements';
+export type XpDataset = 'sales' | 'receipts' | 'settlements' | 'wht';
 export type XpSummary = Schemas['AccountingExportSummaryDto'];
 export type XpFormat = 'xlsx' | 'csv';
 

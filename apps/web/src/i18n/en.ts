@@ -135,6 +135,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'xp.period': 'Period',
   'xp.ok': 'Export',
   'xp.set.receipts': 'Receipts',
+  'xp.set.wht': 'Withholding tax',
   'xp.fmt.generic': 'General',
   'bill.kpi.click': 'Click to filter table',
   'bill.kind': 'Invoice',

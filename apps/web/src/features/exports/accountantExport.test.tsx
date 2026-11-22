@@ -9,9 +9,34 @@ const summary = {
   dateFrom: '2026-10-01',
   dateTo: '2026-10-31',
   datasets: [
-    { dataset: 'sales', resource: 'accounting-sales', documents: 12, rows: 40 },
-    { dataset: 'receipts', resource: 'accounting-receipts', documents: 5, rows: 11 },
-    { dataset: 'settlements', resource: 'accounting-settlements', documents: 3, rows: 9 },
+    {
+      dataset: 'sales',
+      resource: 'accounting-sales',
+      documents: 12,
+      cancelledDocuments: 1,
+      rows: 40,
+    },
+    {
+      dataset: 'receipts',
+      resource: 'accounting-receipts',
+      documents: 5,
+      cancelledDocuments: 0,
+      rows: 11,
+    },
+    {
+      dataset: 'settlements',
+      resource: 'accounting-settlements',
+      documents: 3,
+      cancelledDocuments: 0,
+      rows: 9,
+    },
+    {
+      dataset: 'wht',
+      resource: 'accounting-wht-summary',
+      documents: 4,
+      cancelledDocuments: 0,
+      rows: 2,
+    },
   ],
   templates: [{ key: 'generic', displayName: 'ทั่วไป', isDefault: true, datasets: [] }],
 };
@@ -101,8 +126,10 @@ describe('AccountantExportDialog', () => {
     expect(screen.getByText('รายการขาย_ต.ค.2569.xlsx')).toBeInTheDocument();
     expect(screen.getByText('40 แถว')).toBeInTheDocument();
     expect(screen.getByText('จ่ายรถร่วม_ต.ค.2569.xlsx')).toBeInTheDocument();
-    // ไม่มีชุด "หัก ณ ที่จ่าย" (D-54/D-58)
-    expect(screen.queryByText('หัก ณ ที่จ่าย')).toBeNull();
+    // D-73 ชุด "หัก ณ ที่จ่าย" (ต้นแบบ) = สรุปประมาณการ — ชื่อไฟล์ติด "ประมาณการ" ตรงกับ API
+    expect(screen.getByText('หัก ณ ที่จ่าย')).toBeInTheDocument();
+    expect(screen.getByText(/ประมาณการ ไม่ใช่แบบยื่น/)).toBeInTheDocument();
+    expect(screen.getByText('หัก ณ ที่จ่าย-ประมาณการ_ต.ค.2569.xlsx')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /PEAK/ })).toBeDisabled();
     expect(screen.getByRole('button', { name: /ทั่วไป/ })).toBeEnabled();
     fireEvent.click(screen.getByRole('radio', { name: 'CSV' }));
@@ -125,14 +152,18 @@ describe('AccountantExportDialog', () => {
     await waitFor(() => expect(onToast).toHaveBeenCalled(), { timeout: 4000 });
     expect(POST).toHaveBeenCalledWith('/v1/auth/step-up', { body: { otp: '123456' } });
     const bodies = exportPosts().map((c) => (c[1] as { body: Record<string, unknown> }).body);
-    expect(bodies.map((b) => b.resource)).toEqual(['accounting-sales', 'accounting-receipts']);
+    expect(bodies.map((b) => b.resource)).toEqual([
+      'accounting-sales',
+      'accounting-receipts',
+      'accounting-wht-summary',
+    ]);
     for (const c of exportPosts())
       expect((c[1] as { headers: Record<string, string> }).headers).toEqual({
         'X-Step-Up': 'su-token',
       });
     expect(bodies[0]).toMatchObject({ format: 'xlsx', filter: { dateFrom: expect.any(String) } });
     expect(onToast).toHaveBeenCalledWith(
-      'ส่งออก 2 ไฟล์ รูปแบบ ทั่วไป แล้ว · ถ้าเบราว์เซอร์ถาม ให้อนุญาตดาวน์โหลดหลายไฟล์',
+      'ส่งออก 3 ไฟล์ รูปแบบ ทั่วไป แล้ว · ถ้าเบราว์เซอร์ถาม ให้อนุญาตดาวน์โหลดหลายไฟล์',
     );
     expect(onClose).toHaveBeenCalled();
   });
@@ -141,7 +172,7 @@ describe('AccountantExportDialog', () => {
     mount();
     expect(screen.queryByText('เลือกชุดข้อมูลอย่างน้อย 1 ชุด')).toBeNull();
     await screen.findByText('12 รายการ');
-    for (const n of [/รายการขาย/, /รับชำระ/, /จ่ายรถร่วม/])
+    for (const n of [/รายการขาย/, /รับชำระ/, /จ่ายรถร่วม/, /ลูกค้าหักเรา/])
       fireEvent.click(screen.getByRole('checkbox', { name: n }));
     expect(screen.getByText('เลือกชุดข้อมูลอย่างน้อย 1 ชุด')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'ส่งออก' })).toBeDisabled();
@@ -177,7 +208,7 @@ describe('AccountantExportDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'ส่งออก' }));
     await confirm2fa();
     await waitFor(() => expect(onToast).toHaveBeenCalled(), { timeout: 4000 });
-    expect(exportPosts()).toHaveLength(3);
+    expect(exportPosts()).toHaveLength(4);
     expect(onToast).toHaveBeenCalledWith(
       'กำลังส่งออก — ระบบจะแจ้งเตือนพร้อมลิงก์ดาวน์โหลดเมื่อไฟล์พร้อม',
     );

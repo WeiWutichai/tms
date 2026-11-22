@@ -16,6 +16,10 @@
  * `deliveries:revert` (ST5-T06 — docs/04 F4 "DELIVERED ย้อนได้โดย Dispatcher (ภายใน 24 ชม.) / Admin"; A3 ไม่มีแถวนี้)
  *   → owner, admin เท่านั้น (ตาม F4 เคร่งครัด — manager ไม่ได้) — `BILLING_REVERT_RULES`
  *
+ * `pii.national_id:read` (D-73 PO 22 พ.ย. 2569 — ส่งออกให้นักบัญชีที่มี**เลขบัตรประชาชนเต็ม**ของรถร่วมบุคคลธรรมดา; A3 ไม่มีแถวนี้)
+ *   → owner + accounting เท่านั้น (admin ไม่ได้ — ข้อมูลส่วนบุคคล PDPA ให้เฉพาะผู้ทำบัญชี) · **ห้ามให้ API key** (`API_KEY_DENIED_SCOPES`)
+ *   · ไม่มีสิทธิ์ = เห็นเลขท้าย 4 หลัก (`•••• 1234`) ตามเดิม [DECISION — ย้อนได้ spec/12 §3 แถว ST7-T23 / D-73]
+ *
  * "เลือกได้" ในตาราง A3 = ค่าเริ่มต้นไม่ให้ (owner เปิดเพิ่มได้เมื่อมี custom role — P1)
  */
 export const PERMISSIONS = [
@@ -71,6 +75,8 @@ export const PERMISSIONS = [
   'export:run',
   'audit:read',
   'audit.accounting:read',
+  /** D-73: เลขบัตรประชาชนเต็มของรถร่วมบุคคลธรรมดาในไฟล์ส่งออกให้นักบัญชี (audit `export.pii_included` ทุกไฟล์) */
+  'pii.national_id:read',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -99,10 +105,11 @@ export const SYSTEM_ROLES: Record<RoleCode, { th: string; en: string; permission
   {
     owner: { th: 'เจ้าของ', en: 'Owner', permissions: ALL },
     // A3: ใบลดหนี้/เพิ่มหนี้ ของ Admin = "✔ / (ว่าง)" → ขอได้ อนุมัติไม่ได้
+    // D-73: เลขบัตรประชาชนเต็ม (pii.national_id:read) ให้เฉพาะ owner + accounting
     admin: {
       th: 'ผู้ดูแลระบบ',
       en: 'Admin',
-      permissions: ALL.filter((p) => p !== 'credit-notes:approve'),
+      permissions: ALL.filter((p) => p !== 'credit-notes:approve' && p !== 'pii.national_id:read'),
     },
     // spec/01 §12 คอลัมน์ manager (D-12)
     manager: {
@@ -229,6 +236,8 @@ export const SYSTEM_ROLES: Record<RoleCode, { th: string; en: string; permission
         'reports.ops:read',
         'export:run',
         'audit.accounting:read',
+        // D-73: เลขบัตรประชาชนเต็มของรถร่วมบุคคลในไฟล์ส่งออกให้นักบัญชี
+        'pii.national_id:read',
       ],
     },
     approver: {
@@ -307,6 +316,8 @@ export const API_KEY_DENIED_SCOPES: readonly Permission[] = [
   // ST6-T07 review H1: อนุมัติใบสำคัญจ่าย (+ ยืนยันค่าใช้จ่ายหน้างานฝั่งซื้อ) = คนที่ login เท่านั้น — กันออก key ให้ตัวเองแล้วอนุมัติใบตัวเอง
   // [DECISION — เข้มกว่า, ย้อนได้; PO ผ่อนได้ — spec/12 §3]
   'settlements:approve',
+  // D-73 (PO 22 พ.ย. 2569): เลขบัตรประชาชนเต็ม = คนที่ login เท่านั้น (สอดคล้อง D-79 — key ดูเลขบัญชีเต็มไม่ได้)
+  'pii.national_id:read',
 ];
 
 /** scope ที่ให้ API key ได้ = PERMISSIONS − API_KEY_DENIED_SCOPES */

@@ -135,6 +135,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'xp.period': '期间',
   'xp.ok': '导出',
   'xp.set.receipts': '收款',
+  'xp.set.wht': '预扣税',
   'xp.fmt.generic': '常规',
   'bill.kpi.click': '点击筛选表格',
   'bill.kind': '发票',

@@ -68875,7 +68875,7 @@
     },
     "/v1/accounting-exports/summary": {
       "get": {
-        "description": "ชุดข้อมูล (บัญชีเบา D-54 — เอกสารที่ TMS มีในเฟส 0): **sales** ใบแจ้งหนี้ที่ออกแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — ชุดเดียวกับรายงานรายได้) ตามวันที่ออก · **receipts** การรับชำระที่ยังไม่กลับรายการ ตามวันที่รับ · **settlements** ใบสำคัญจ่ายรถร่วม PAID ตามวันที่จ่าย — แสดงเฉพาะชุดที่มีสิทธิ์อ่าน · ไฟล์: `POST /v1/exports` `{resource, format: csv|xlsx, filter: {dateFrom, dateTo, template?}}` → แถวเอกสาร 1 แถว + แถวรายการ (ยอดรวมอยู่เฉพาะแถวเอกสาร · CSV = UTF-8 BOM + CRLF เปิดใน Excel อ่านไทยได้)",
+        "description": "ชุดข้อมูล (บัญชีเบา D-54 — เอกสารที่ TMS มีในเฟส 0): **sales** ใบแจ้งหนี้ที่ออกแล้ว (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — ชุดเดียวกับรายงานรายได้) ตามวันที่ออก · **receipts** การรับชำระ ตามวันที่รับ · **settlements** ใบสำคัญจ่ายรถร่วม PAID ตามวันที่จ่าย · **wht** (D-73) สรุปหัก ณ ที่จ่าย **ประมาณการ** ต่อคู่ค้า — ผู้รับเหมา: Σ `wht_amount` ที่ตรึงของใบ PAID + ฐานจากผลประมาณการ ST6-T08 + แบบ ภ.ง.ด.3/53 ที่ระบบจัดไว้ · ลูกค้า: Σ `wht_amount` ของรับชำระ (ฐาน/แบบยื่นไม่ได้เก็บ = ว่าง) — รวมค่าที่บันทึกไว้เท่านั้น ไม่ใช่แบบ ภ.ง.ด. / 50 ทวิ · แสดงเฉพาะชุดที่มีสิทธิ์อ่าน · **ใบที่ยกเลิก / รับชำระที่กลับรายการ** (D-73) อยู่ในไฟล์เป็นแถวเอกสารพร้อมสถานะ วันที่ เหตุผล — ยอดตามที่ออกอยู่ในคอลัมน์ \"…ที่ยกเลิก/กลับรายการ (ไม่นับรวม)\" แยกจากคอลัมน์ยอดปกติ → ผลรวมคอลัมน์ยอดปกติ = เอกสารที่ยังใช้ (ตรงรายงาน) · **เลขบัตรประชาชนรถร่วมบุคคลธรรมดา** (D-73): เต็มเฉพาะผู้ใช้ที่มี `pii.national_id:read` (ค่าเริ่ม owner + accounting) และลง audit `export.pii_included` ทุกไฟล์ · ไม่มีสิทธิ์ / API key (เสมอ) = `•••• 1234` · ไฟล์: `POST /v1/exports` `{resource, format: csv|xlsx, filter: {dateFrom, dateTo, template?}}` → แถวเอกสาร 1 แถว + แถวรายการ (ยอดรวมอยู่เฉพาะแถวเอกสาร · CSV = UTF-8 BOM + CRLF เปิดใน Excel อ่านไทยได้)",
         "operationId": "AccountingExport_summary",
         "parameters": [
           {
@@ -70212,7 +70212,8 @@
               "revenue",
               "accounting-sales",
               "accounting-receipts",
-              "accounting-settlements"
+              "accounting-settlements",
+              "accounting-wht-summary"
             ],
             "example": "orders"
           },
@@ -70317,6 +70318,7 @@
               "accounting-sales",
               "accounting-receipts",
               "accounting-settlements",
+              "accounting-wht-summary",
               "invoice-run-summary"
             ],
             "description": "`invoice-run-summary` = ไฟล์สรุปรอบวางบิล (สร้างเองเมื่อ `POST /v1/invoice-runs` จบ — `id` = jobId ของรอบ; สั่งผ่าน `POST /exports` ไม่ได้)"
@@ -103211,9 +103213,10 @@
             "enum": [
               "sales",
               "receipts",
-              "settlements"
+              "settlements",
+              "wht"
             ],
-            "description": "sales = ใบแจ้งหนี้ที่ออกแล้ว (ตามวันที่ออก) · receipts = รับชำระที่ยังไม่กลับรายการ (ตามวันที่รับ) · settlements = ใบสำคัญจ่ายรถร่วมที่บันทึกจ่ายแล้ว (ตามวันที่จ่าย)"
+            "description": "sales = ใบแจ้งหนี้ที่ออกแล้ว (ตามวันที่ออก — รวมใบที่ยกเลิกเป็นแถวแยกยอด D-73) · receipts = รับชำระ (ตามวันที่รับ — รวมที่กลับรายการเป็นแถวแยกยอด D-73) · settlements = ใบสำคัญจ่ายรถร่วมที่บันทึกจ่ายแล้ว (ตามวันที่จ่าย) · wht = สรุปหัก ณ ที่จ่าย **ประมาณการ** ต่อคู่ค้า (D-73 — ไม่ใช่แบบ ภ.ง.ด. / 50 ทวิ)"
           },
           "resource": {
             "type": "string",
@@ -103222,17 +103225,22 @@
           },
           "documents": {
             "type": "number",
-            "description": "จำนวนเอกสารในช่วง"
+            "description": "จำนวนเอกสารที่ยังใช้ในช่วง (นับในยอดรวม) · wht = จำนวนใบสำคัญจ่าย/รับชำระที่มีหัก ณ ที่จ่าย"
+          },
+          "cancelledDocuments": {
+            "type": "number",
+            "description": "D-73 จำนวนเอกสารที่ยกเลิก (sales) / กลับรายการ (receipts) ในช่วง — อยู่ในไฟล์เป็นแถวเอกสารที่ยอดแยกคอลัมน์ ไม่นับรวม · ชุดอื่น = 0"
           },
           "rows": {
             "type": "number",
-            "description": "จำนวนแถวในไฟล์ (แถวเอกสาร + แถวรายการ ไม่รวมหัวคอลัมน์)"
+            "description": "จำนวนแถวในไฟล์ (แถวเอกสาร + แถวรายการ + แถวเอกสารที่ยกเลิก ไม่รวมหัวคอลัมน์) · wht = จำนวนคู่ค้า"
           }
         },
         "required": [
           "dataset",
           "resource",
           "documents",
+          "cancelledDocuments",
           "rows"
         ]
       },
@@ -103257,7 +103265,8 @@
               "enum": [
                 "sales",
                 "receipts",
-                "settlements"
+                "settlements",
+                "wht"
               ]
             }
           }
@@ -103281,7 +103290,7 @@
             "example": "2026-10-31"
           },
           "datasets": {
-            "description": "เฉพาะชุดที่ผู้เรียกมีสิทธิ์อ่าน (`invoices:read` / `settlements:read`)",
+            "description": "เฉพาะชุดที่ผู้เรียกมีสิทธิ์อ่าน (`invoices:read` / `settlements:read` · wht = อย่างใดอย่างหนึ่ง — มีเฉพาะฝั่งที่อ่านได้)",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/AccountingExportDatasetDto"

@@ -413,12 +413,14 @@ export class ExportsService implements OnModuleInit {
               : await xlsxWriter(columns, spec.fileBase);
         let after: string | null = null;
         let rows = 0;
+        let pii = 0;
         if (spec.single) {
           // รายงานสรุป: อ่านครั้งเดียวทั้งชุด (ST9-T05)
           const batch = await spec.fetch(q, { after: null, take: this.maxRows + 1 });
           // จำนวนแถวข้อมูล — ไม่นับแถวสรุป "รวม" (id `total`) ที่ spec ต่อท้าย
           rows = batch.filter((r) => r.id !== 'total').length;
           if (rows > this.maxRows) throw new ExportError('too_many_rows');
+          if (spec.pii) pii += spec.pii.count(batch);
           w.add(redactPrices(batch, scopes, p.principalType ?? 'user') as typeof batch);
         }
         for (; !spec.single;) {
@@ -426,6 +428,7 @@ export class ExportsService implements OnModuleInit {
           if (!batch.length) break;
           rows += batch.length;
           if (rows > this.maxRows) throw new ExportError('too_many_rows');
+          if (spec.pii) pii += spec.pii.count(batch);
           // ชั้นที่สอง: ตัด field ราคาที่ผู้สั่งไม่มีสิทธิ์ (กติกาเดียวกับ response JSON — price-fields.ts ข้อ 3)
           w.add(redactPrices(batch, scopes, p.principalType ?? 'user') as typeof batch);
           after = tryDecodeId(spec.idKind, batch[batch.length - 1]!.id);
@@ -451,6 +454,21 @@ export class ExportsService implements OnModuleInit {
             createdBy: p.actorId,
           },
         });
+        // D-73: ไฟล์มีข้อมูลส่วนบุคคลเต็ม (เลขบัตรประชาชน) → audit ทุกไฟล์ (transaction เดียวกับไฟล์)
+        if (spec.pii && pii > 0)
+          await this.audit.record({
+            action: 'export.pii_included',
+            entityType: 'job',
+            entityId: ctx.job.id,
+            after: {
+              resource: spec.resource,
+              format,
+              filter: p.filter,
+              fields: spec.pii.fields,
+              count: pii,
+              document: encodeId('document', doc.id),
+            },
+          });
         if (p.actorId && UUID_RE.test(p.actorId))
           await this.notifications.notify(ctx.tx, {
             tenantId: ctx.tenantId,
