@@ -29,6 +29,7 @@ import { bangkokToday, money, useDateText } from '../rate-cards/rateFormat';
 import { billRanges, invoiceDisplayStatus, overdueDays, selectionTotals } from './billing';
 import { finalizeErrorText, InvoiceDrawer, invoiceStatusLabel } from './InvoiceDrawer';
 import { PayDrawer } from './PayDrawer';
+import { AccountantExportDialog } from '../exports/AccountantExportDialog';
 import { useUrlTab } from './useUrlTab';
 import { usePaymentSummary } from './usePayments';
 import {
@@ -163,6 +164,9 @@ export function BillPage() {
   } | null>(null);
   const isBn = col.type === 'BN';
   const [toast, setToast] = useState<string | null>(null);
+  // ST7-T23 ส่งออกให้นักบัญชี (ต้นแบบ openXp) — ต้องมี export:run (API ตรวจสิทธิ์อ่านต่อชุดเอง)
+  const [xp, setXp] = useState(false);
+  const canXp = can(me.data?.scopes ?? [], 'export:run');
 
   const custQ = useQueueCustomers();
   const customers = custQ.data?.customers ?? [];
@@ -515,10 +519,12 @@ export function BillPage() {
         title={t('page.bill.title')}
         sub={t('page.bill.sub')}
         actions={
-          // ส่งออกให้นักบัญชี (spec/05 §14) — ต้องมีใบที่ออกแล้ว (ST5-T09) จึงยังปิด [DECISION spec/12 §3]
-          <Button variant="secondary" icon="file-down" disabled title={t('bill.xpSoon')}>
-            {t('bill.xp')}
-          </Button>
+          // ส่งออกให้นักบัญชี (ST7-T23 — ต้นแบบ openXp; spec/07 §4)
+          canXp ? (
+            <Button variant="secondary" icon="file-down" onClick={() => setXp(true)}>
+              {t('bill.xp')}
+            </Button>
+          ) : undefined
         }
       />
       <div className="tms-kpis">
@@ -945,7 +951,9 @@ export function BillPage() {
                   ]
                 : []),
               { label: t('bill.menu.pdf'), icon: 'printer', run: printMany },
-              { label: t('bill.xp'), icon: 'file-down', run: () => setToast(t('bill.xpSoon')) },
+              ...(canXp
+                ? [{ label: t('bill.xp'), icon: 'file-down', run: () => setXp(true) }]
+                : []),
             ]}
             filters={{ q: col.q, type: col.type }}
             hiddenColumns={hidden}
@@ -1032,6 +1040,7 @@ export function BillPage() {
           }}
         />
       )}
+      {xp && <AccountantExportDialog onClose={() => setXp(false)} onToast={setToast} />}
       {toast && (
         <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />
       )}

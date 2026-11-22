@@ -14,6 +14,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
+import { AccountantExportDialog } from '../exports/AccountantExportDialog';
 import { PageHeader } from '../../shell/Header';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
@@ -120,6 +121,9 @@ export function SettlePage() {
     pay?: boolean;
   } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // ST7-T23 ส่งออกให้นักบัญชี (ต้นแบบ openXp) — ต้องมี export:run (API ตรวจสิทธิ์อ่านต่อชุดเอง)
+  const [xp, setXp] = useState(false);
+  const canXp = can(me.data?.scopes ?? [], 'export:run');
   const kpi = useSettlementKpi().data;
   const reissue = useReissueLink();
   const payLink = useIssuePayLink();
@@ -293,10 +297,12 @@ export function SettlePage() {
         sub={t('page.settle.sub')}
         actions={
           <>
-            {/* ส่งออกให้นักบัญชี (spec/05 §14) — งานส่งออกยังไม่มี (แบบหน้าวางบิล/รับชำระ) */}
-            <Button variant="secondary" icon="file-down" disabled title={t('bill.xpSoon')}>
-              {t('bill.xp')}
-            </Button>
+            {/* ส่งออกให้นักบัญชี (ST7-T23 — ต้นแบบ openXp; spec/07 §4) */}
+            {canXp && (
+              <Button variant="secondary" icon="file-down" onClick={() => setXp(true)}>
+                {t('bill.xp')}
+              </Button>
+            )}
             {/* สร้างงวดใหม่ = หน้าติ๊กเที่ยวจากคิวจ่าย (ต้นแบบเป็น toast — [OPEN Claude Design] spec/12 §3 ST6-T03) */}
             <Button variant="secondary" icon="plus" disabled title={t('settle.newSoon')}>
               {t('settle.newPeriod')}
@@ -463,6 +469,7 @@ export function SettlePage() {
           }}
         />
       )}
+      {xp && <AccountantExportDialog onClose={() => setXp(false)} onToast={setToast} />}
       {toast && (
         <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />
       )}
