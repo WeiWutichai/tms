@@ -328,9 +328,24 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
     expect(await commands('PUSH_INVOICE')).toHaveLength(1);
     await plat.$executeRaw`UPDATE integration_outbox SET status = 'PENDING', attempt = 0
                             WHERE tenant_id = ${tenantId}::uuid AND operation = 'PUSH_INVOICE'`;
+    const posts = mock.requests.filter((q) => q.method === 'POST').length;
     await drainOutbox();
     expect(mock.byRef(inv.invoiceNo, 'tms.invoice')).toHaveLength(1);
     expect((await mapping('INVOICE', inv.uuid))!.externalId).toBe(docs[0]!.id);
+    // ST7-T15 payload เดิม hash เท่าเดิม → SKIPPED ไม่เรียกระบบบัญชีซ้ำ
+    const again = (await commands('PUSH_INVOICE'))[0]!;
+    expect(again.status).toBe('SKIPPED');
+    expect(again.lastError).toMatchObject({ code: 'payload_unchanged', externalId: docs[0]!.id });
+    expect(mock.requests.filter((q) => q.method === 'POST').length).toBe(posts);
+    // ST7-T15 เลขเอกสารสองฝั่ง: `sync` ของใบ (แยกจาก status) — ยังเป็นร่างฝั่งระบบบัญชี = ยังไม่มีเลข
+    expect((await getInv(inv.id)).sync).toEqual({
+      connectorId: conId,
+      state: 'SYNCED',
+      externalId: docs[0]!.id,
+      externalDocNo: null,
+      externalStatus: 'DRAFT',
+      lastSyncedAt: m!.lastSyncedAt!.toISOString(),
+    });
     // ST8-T05 รหัสลูกค้าฝั่งระบบบัญชีที่ map ไว้ (customerErpCode) ชนะการจับคู่ด้วยเลขภาษี
     mock.addContact({ code: 'AR-777', name: 'ลูกค้ารหัสที่ map', kind: 'customer' });
     const set = await api(app, admin)
@@ -368,6 +383,14 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
     await drainJobs();
     const m = await mapping('INVOICE', inv.uuid);
     expect(m).toMatchObject({ externalDocNo: doc!.doc_no, externalStatus: 'POSTED' });
+    // ST7-T15 เลขที่ระบบบัญชีออก แสดงคู่กับเลข TMS ผ่าน `sync` (สถานะเอกสาร TMS ไม่เปลี่ยน)
+    const got = await getInv(inv.id);
+    expect(got.invoiceNo).toBe(inv.invoiceNo);
+    expect(got.sync).toMatchObject({
+      state: 'SYNCED',
+      externalDocNo: doc!.doc_no,
+      externalStatus: 'POSTED',
+    });
     const ev = (await events()).find((e) => e.eventKey === w.event.id)!;
     expect(ev).toMatchObject({ status: 'PROCESSED', duplicateCount: 1 });
   });
@@ -492,6 +515,25 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
       paidAmount: '9000.00',
       whtAmount: '90.00',
     });
+    // ST7-T15 `sync` ของใบสำคัญจ่าย
+    const gotS = await api(app, admin).get(`/v1/settlements/${s.id}`).expect(200);
+    expect(gotS.body.sync).toMatchObject({
+      connectorId: conId,
+      state: 'SYNCED',
+      externalId: ap[0]!.id,
+      externalStatus: 'PAID',
+    });
+    // ST7-T15 รหัสรถร่วมในระบบบัญชีที่ map ไว้ (external_mapping CARRIER) ชนะการจับคู่ด้วยเลขภาษี — ใช้ ณ ตอนส่ง
+    mock.addContact({ code: 'AP-555', name: 'รถร่วมรหัสที่ map', kind: 'vendor' });
+    const setCar = await api(app, admin)
+      .put(`/v1/carriers/${car.body.id}/erp-codes/${conId}`)
+      .send({ externalId: 'AP-555' });
+    expect(setCar.status, JSON.stringify(setCar.body)).toBe(200);
+    const puts = mock.requests.filter((q) => q.method === 'PUT').length;
+    const s2 = await paidSettlement(uuid('carrier', car.body.id), '4000.00');
+    await drainOutbox();
+    expect(mock.byRef(s2.number, 'tms.settlement')[0]!.contact_code).toBe('AP-555');
+    expect(mock.requests.filter((q) => q.method === 'PUT').length).toBe(puts);
   });
 
   it('review M1: ยกเลิกใบก่อนคำสั่งส่งถูกส่ง → PUSH_INVOICE ถูกข้าม document_cancelled (ไม่มี IV ร่างของใบที่ยกเลิก) · คำสั่งที่อาจถึงแล้ว (ลองใหม่อยู่) → VOID_DOCUMENT งานยกเลิกด้วยมือ', async () => {
@@ -686,6 +728,8 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
       });
     expect(pay.status, JSON.stringify(pay.body)).toBe(201);
     expect((await getInv(inv.id)).status).toBe('PAID');
+    // ไม่มี connector = ไม่มีผลการซิงก์ (สถานะเอกสารเดินเองใน TMS)
+    expect((await getInv(inv.id)).sync).toBeNull();
     const car = await api(app, admin)
       .post('/v1/carriers')
       .send({

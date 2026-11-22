@@ -338,6 +338,13 @@ describe('sandbox (ST7-T09)', () => {
     const c = await request(srv()).get('/v1/connectors').set(bearer(k.secret));
     expect(c.status).toBe(403);
     expect(c.body.code).toBe('sandbox_unsupported');
+    // ST7-T15 รหัสรถร่วมในระบบบัญชี (external_mapping CARRIER) — ไม่มี connector ใน sandbox เช่นกัน
+    const km = await testKey(['master:read'], 'sandbox carrier erp codes');
+    const ec = await request(srv())
+      .get('/v1/carriers/car_00000000000040008000000000000001/erp-codes')
+      .set(bearer(km.secret));
+    expect(ec.status).toBe(403);
+    expect(ec.body.code).toBe('sandbox_unsupported');
     // route connector ไม่ใช่ @SandboxAware — header ของผู้ใช้ไม่มีผล (ยังเป็นบริษัทจริง)
     expect((await sbx(api(app, admin).get('/v1/connectors'))).status).toBe(200);
     expect((await api(app, admin).get('/v1/connectors')).status).not.toBe(403);

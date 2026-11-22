@@ -1,11 +1,12 @@
 # ส่งออกไฟล์ (exports)
 
-2 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+3 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
 | [`POST /v1/exports`](#post-exports) | `export:run` |
 | [`GET /v1/exports/{id}`](#get-exports-id) | `export:run` |
+| [`GET /v1/accounting-exports/summary`](#get-accounting-exports-summary) | `export:run` |
 
 ## POST /v1/exports {#post-exports}
 
@@ -23,7 +24,7 @@ scope: `export:run` · operationId: `Exports_create`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes`, `unbilled-delivery-orders`, `receivables-aging`, `revenue` |   | `orders` |
+| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes`, `unbilled-delivery-orders`, `receivables-aging`, `revenue`, `accounting-sales`, `accounting-receipts`, `accounting-settlements` |   | `orders` |
 | `format` |   | `string` | ค่า: `xlsx`, `csv`, `pdf` | .xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ.csv UTF-8 + BOM · `pdf` (ตาราง A4 ≤ 2,000 แถว) เฉพาะรายงานสรุป — resource `revenue` (อื่น ๆ = 422) |   |
 | `filter` |   | `object` |   | ตัวกรองชุดเดียวกับ query ของ `GET /v1/{resource}` (ค่าเป็น string) — ตรวจกติกาเดียวกัน (field แปลก = 422) · `limit`/`cursor`/`sort`/`fields`/`updatedAfter` ไม่มีผล (ไฟล์มีทุกแถวที่ตรงตัวกรอง) | `{"held":"true","holdReason":"RATE_MISSING"}` |
 
@@ -94,7 +95,55 @@ const { data, error } = await tms.GET('/v1/exports/{id}', {
 });
 ```
 
+## จำนวนเอกสาร/แถวของแต่ละชุดก่อนส่งออกให้นักบัญชี {#get-accounting-exports-summary}
+
+`GET /v1/accounting-exports/summary`
+
+scope: `export:run` · operationId: `AccountingExport_summary`
+
+ชุดข้อมูล: **sales** ใบแจ้งหนี้ที่ออกแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — ชุดเดียวกับรายงานรายได้) ตามวันที่ออก · **receipts** การรับชำระที่ยังไม่กลับรายการ ตามวันที่รับ · **settlements** ใบสำคัญจ่ายรถร่วม PAID ตามวันที่จ่าย — แสดงเฉพาะชุดที่มีสิทธิ์อ่าน · ไฟล์: `POST /v1/exports` `{resource, format: csv|xlsx, filter: {dateFrom, dateTo, template?}}` → แถวเอกสาร 1 แถว + แถวรายการ (ยอดรวมอยู่เฉพาะแถวเอกสาร · CSV = UTF-8 BOM + CRLF เปิดใน Excel อ่านไทยได้)
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `dateFrom` | query | ใช่ | `string` | วันแรกของช่วง (วันที่เอกสาร เวลาไทย) — ช่วงยาวสุด 366 วัน |
+| `dateTo` | query | ใช่ | `string` | วันสุดท้ายของช่วง (รวมวันนี้) |
+| `template` | query |   | `string` | รูปแบบไฟล์ (`templates[].key` จาก summary) — ไม่ส่ง = รูปแบบทั่วไป (layout กลาง: แถวเอกสาร + แถวรายการ) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `AccountingExportSummaryDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`export:run`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/accounting-exports/summary" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/accounting-exports/summary');
+```
+
 ## Schema ของ response {#schemas}
+
+### AccountingExportSummaryDto {#schema-AccountingExportSummaryDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `dateFrom` | ใช่ | `string` |   |   | `2026-10-01` |
+| `dateTo` | ใช่ | `string` |   |   | `2026-10-31` |
+| `datasets` | ใช่ | `array<AccountingExportDatasetDto>` |   | เฉพาะชุดที่ผู้เรียกมีสิทธิ์อ่าน (`invoices:read` / `settlements:read`) |   |
+| `templates` | ใช่ | `array<AccountingExportTemplateDto>` |   |   |   |
 
 ### ExportAcceptedDto {#schema-ExportAcceptedDto}
 
@@ -114,7 +163,7 @@ const { data, error } = await tms.GET('/v1/exports/{id}', {
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `job_…` |
-| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes`, `unbilled-delivery-orders`, `receivables-aging`, `revenue` |   |   |
+| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes`, `unbilled-delivery-orders`, `receivables-aging`, `revenue`, `accounting-sales`, `accounting-receipts`, `accounting-settlements` |   |   |
 | `format` | ใช่ | `string` | ค่า: `xlsx`, `csv`, `pdf` |   |   |
 | `filter` | ใช่ | `object` |   |   |   |
 | `status` | ใช่ | `string` | ค่า: `pending`, `running`, `succeeded`, `failed`, `expired` | expired = ไฟล์เกิน 7 วันแล้ว (ส่งออกใหม่) |   |

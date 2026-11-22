@@ -161,6 +161,8 @@ export class AccountSystemAdapter implements ErpAdapter {
     return {
       ok: true,
       externalId: j.id,
+      // created=false = มีร่างของเลข TMS นี้อยู่แล้ว (external_ref) — AccountSystem คืนของเดิม ไม่แก้เนื้อหา
+      applied: j.created === true,
       raw: { created: j.created === true, docType: draft.doc_type },
     };
   }

@@ -35,6 +35,9 @@ import { ImportRegistry } from './modules/imports/import-spec';
 import { ImportService } from './modules/imports/import.service';
 import { ImportsController } from './modules/imports/imports.controller';
 import { MasterImports } from './modules/imports/master-imports';
+import { AccountingExportController } from './modules/accounting-export/accounting-export.controller';
+import { AccountingExportService } from './modules/accounting-export/accounting-export.service';
+import { FileExportAdapterRegistry } from './modules/accounting-export/file-export-adapter';
 import { ExportRegistry } from './modules/exports/export-spec';
 import { ExportsController } from './modules/exports/exports.controller';
 import { ExportsService } from './modules/exports/exports.service';
@@ -102,6 +105,7 @@ import {
 import { ConnectorsService } from './modules/erp/connectors.service';
 import { ErpMasterCodesController } from './modules/erp/erp-master-codes.controller';
 import { ErpMasterCodesService } from './modules/erp/erp-master-codes.service';
+import { CarrierErpCodesController } from './modules/erp/carrier-erp-codes.controller';
 import { CustomerErpCodesController } from './modules/erp/customer-erp-codes.controller';
 import { ExternalMappingService } from './modules/erp/external-mapping.service';
 import { InboundWebhookController } from './modules/erp/inbound-webhook.controller';
@@ -172,6 +176,11 @@ import {
 import { RevenueLinesService } from './modules/revenue-lines/revenue-lines.service';
 import { SettlementsController } from './modules/settlements/settlements.controller';
 import { SettlementReviewPublicController } from './modules/settlements/settlement-review.controller';
+import {
+  CarrierPayLinkController,
+  CarrierPayLinkPublicController,
+} from './modules/settlements/carrier-pay-link.controller';
+import { CarrierPayLinkService } from './modules/settlements/carrier-pay-link.service';
 import { SettlementReviewService } from './modules/settlements/settlement-review.service';
 import {
   DeliveryOrderReleaseController,
@@ -326,6 +335,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ConnectorsController,
     ErpMasterCodesController,
     CustomerErpCodesController,
+    CarrierErpCodesController,
     ReconcileController,
     InboundWebhookController,
     WebhookDeliveriesController,
@@ -355,6 +365,8 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     SubconOfferPublicController,
     PodLinkPublicController,
     SettlementReviewPublicController,
+    CarrierPayLinkController,
+    CarrierPayLinkPublicController,
     TrackingPublicController,
     DeliveryOrderTrackingController,
     CustomerTrackingController,
@@ -371,6 +383,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     CarrierDocsPublicController,
     MessagesController,
     MessagingSettingsController,
+    AccountingExportController,
   ],
   providers: [
     PrismaService,
@@ -391,6 +404,8 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ExportRegistry,
     ExportsService,
     ListExports,
+    FileExportAdapterRegistry,
+    AccountingExportService,
     EntitlementService,
     MagicLinkService,
     DbService,
@@ -429,6 +444,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     SettlementQueueService,
     SettlementsService,
     SettlementReviewService,
+    CarrierPayLinkService,
     SettlementComparisonService,
     SettlementPdfService,
     BillingQueueService,
@@ -536,14 +552,15 @@ export class AppModule implements NestModule {
     consumer.apply(httpMetricsMiddleware).forRoutes('{*path}');
     // ST1-T06: ลิงก์สาธารณะ (ไม่ login) จำกัดอัตราต่อ IP
     consumer.apply(PublicRateLimitMiddleware).forRoutes('public/{*path}');
-    // ST4-T14 หน้าติดตาม: ห้าม index/ส่ง referrer ทุกคำตอบ (รวม 404/429 ที่ออกก่อนถึง handler)
+    // ST4-T14 หน้าติดตาม → ST9-T13 ทุกลิงก์สาธารณะ (NFR-135): ห้าม index/ส่ง referrer ทุกคำตอบ (รวม 404/429 ที่ออกก่อนถึง handler)
+    // — token อยู่ใน URL · PDF ที่เปิด inline (ใบคุมรถ/ใบจ่ายเงิน) ก็ห้าม index
     consumer
       .apply((_req: unknown, res: { setHeader(k: string, v: string): void }, next: () => void) => {
         res.setHeader('X-Robots-Tag', 'noindex, nofollow');
         res.setHeader('Referrer-Policy', 'no-referrer');
         next();
       })
-      .forRoutes('public/tracking/{*path}');
+      .forRoutes('public/{*path}');
     // ST1-T24: login ของ Console จำกัดต่อ IP ด้วย (กันล็อกบัญชีทีมงานซ้ำ ๆ)
     consumer.apply(PublicRateLimitMiddleware).forRoutes('platform/auth/{*path}');
   }

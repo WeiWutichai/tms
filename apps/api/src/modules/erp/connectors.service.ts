@@ -925,7 +925,23 @@ export class ConnectorsService {
             select: { id: true },
           })
         : null;
-      if (inUse)
+      // ST7-T15 เอกสารที่ถึง ERP แล้ว (external_mapping ของเอกสาร) ล็อกด้วย — ไม่พึ่งสถานะคำสั่งอย่างเดียว
+      // (คำสั่งอาจจบเป็น SKIPPED/ล้มทั้งที่เอกสารถึงแล้ว เช่น `payload_unchanged`, เสีย lease หลังส่ง)
+      const synced =
+        changing.length && !inUse
+          ? await tx.externalMapping.findFirst({
+              where: {
+                connectorId: cur.id,
+                entityType: {
+                  in: ['INVOICE', 'CREDIT_NOTE', 'DEBIT_NOTE', 'RECEIPT', 'SETTLEMENT'],
+                },
+                externalId: { not: null },
+                status: { not: 'RETIRED' },
+              },
+              select: { id: true },
+            })
+          : null;
+      if (inUse || synced)
         throw new ProblemException('sor_locked', undefined, undefined, {
           fields: changing.map(([k]) => k),
         });

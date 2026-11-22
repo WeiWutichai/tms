@@ -459,7 +459,7 @@ export class ConnectorReasonDto extends MasterReasonDto {}
 
 export class ConnectorMasterCodeGapDto {
   @ApiProperty({
-    enum: ['UNIT', 'SALESPERSON', 'ACCOUNT', 'ITEM', 'VAT_RATE', 'CUSTOMER'],
+    enum: ['UNIT', 'SALESPERSON', 'ACCOUNT', 'ITEM', 'VAT_RATE', 'CUSTOMER', 'CARRIER'],
     example: 'UNIT',
   })
   kind!: string;

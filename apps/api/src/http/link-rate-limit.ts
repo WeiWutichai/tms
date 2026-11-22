@@ -19,6 +19,14 @@ export const LINK_PDF_LIMIT_PER_MIN = Number(process.env.LINK_PDF_RATE_LIMIT_PER
 export const linkPdfBucket = (linkId: string): Bucket =>
   slidingWindow(`lw:pdf:${linkId}`, LINK_PDF_LIMIT_PER_MIN, 60_000, 'link');
 
+/**
+ * ST6-T11 review M2: คำขออ่านของหน้าลิงก์ที่คำนวณหนัก (ค่าเที่ยวของฉัน — รวมงวด/ประมาณการ WHT) จำกัดต่อลิงก์
+ * ค่าเริ่ม 30 ครั้ง/นาที (เท่าเพดานต่อลิงก์ของหน้าติดตาม) ซ้อนกับเพดานต่อ IP ของ `/v1/public/*` — key ขึ้นต้น `lw:` ให้ `resetLinkWriteRate` ล้างด้วย
+ */
+export const LINK_READ_LIMIT_PER_MIN = Number(process.env.LINK_READ_RATE_LIMIT_PER_MIN ?? 30);
+export const linkReadBucket = (linkId: string): Bucket =>
+  slidingWindow(`lw:read:${linkId}`, LINK_READ_LIMIT_PER_MIN, 60_000, 'link');
+
 /** สำหรับ test: ล้างตัวนับต่อลิงก์ของไฟล์ test นี้ */
 export async function resetLinkWriteRate(): Promise<void> {
   await rateLimitInstance()?.reset('lw:');
