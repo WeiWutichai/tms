@@ -19,11 +19,13 @@ import { SandboxService } from '../src/modules/sandbox/sandbox.service';
 import {
   SETTLEMENT_PDF_TEMPLATE_VERSION,
   SettlementPdfService,
+  asVariant,
 } from '../src/modules/settlements/settlement-pdf.service';
 import { SETTLEMENT_PDF_JOB } from '../src/modules/settlements/settlement-pdf.job';
 import { JobQueue } from '../src/jobs/job-queue.service';
 import { settlementVoucherDocument } from '../src/modules/settlements/settlement-pdf.template';
 import { SANDBOX_WATERMARK, bahtFormat } from '../src/pdf/finance-document';
+import { docDateShort } from '../src/common/thai-date';
 import { PdfRenderer } from '../src/pdf/pdf-renderer';
 import {
   api,
@@ -2789,6 +2791,49 @@ describe('settlements (ST6-T03)', () => {
       expect(rd[0]!.sha256).not.toBe(rd[1]!.sha256);
       expect(bodies).toHaveLength(2);
       expect(bodies.filter((x) => x.includes(PAY.reference))).toHaveLength(1);
+      // ธง renderedAfterPaid: ไฟล์ + audit ของฉบับอนุมัติที่เก็บหลังจ่าย (ฉบับจ่ายแล้ว/ฉบับที่เก็บก่อนจ่ายไม่มี)
+      const late = rd.find((x) => (x.metadata as { variant: string }).variant === 'APPROVED')!;
+      const paidDoc = rd.find((x) => (x.metadata as { variant: string }).variant === 'PAID')!;
+      expect(late.metadata).toMatchObject({ variant: 'APPROVED', renderedAfterPaid: true });
+      expect(paidDoc.metadata).not.toHaveProperty('renderedAfterPaid');
+      expect(r1[0]!.metadata).not.toHaveProperty('renderedAfterPaid');
+      const lateAudit = (await auditsOf(d.sid)).map((a) => a.after as Record<string, unknown>);
+      expect(lateAudit.find((a) => a.variant === 'APPROVED')).toMatchObject({
+        renderedAfterPaid: true,
+      });
+      expect(lateAudit.find((a) => a.variant === 'PAID')).not.toHaveProperty('renderedAfterPaid');
+      // วันที่เอกสารของฉบับอนุมัติที่ render หลังจ่าย = วันอนุมัติ (ไม่ใช่วันจ่าย)
+      const dRow = await db.carrierSettlement.findUniqueOrThrow({ where: { id: d.sid } });
+      const approvedDay = bangkokToday(dRow.approvedAt!);
+      // แบบพิมพ์: วันจ่ายต่างจากวันอนุมัติ → ฉบับอนุมัติใช้วันอนุมัติ ไม่มีข้อมูลการจ่าย (เท่ากับแบบพิมพ์ ณ วันอนุมัติ)
+      const svc = app.get(SettlementPdfService);
+      const { model: approveTime, dto: approvedDto } = await requestContext.run(
+        { requestId: randomUUID(), tenantId, actorId: 'user-test', locale: 'th' },
+        () =>
+          app.get(DbService).withTenant(tenantId, async (tx: Tx) => {
+            requestContext.require().tx = tx as never;
+            return svc.loadModel(tx, d.sid);
+          }),
+      );
+      const approvedBody = bodies.find((x) => !x.includes(PAY.reference))!;
+      expect(approvedBody).toContain(docDateShort(approvedDay, approveTime.yearStyle));
+      const paidLater = {
+        ...approveTime,
+        docDate: '2099-01-31',
+        paymentMethod: 'TRANSFER' as const,
+        paymentReference: PAY.reference,
+      };
+      const derived = asVariant(
+        paidLater,
+        { ...approvedDto, status: 'PAID', approvedAt: dRow.approvedAt!.toISOString() },
+        'APPROVED',
+      );
+      expect(derived).toEqual({
+        ...approveTime,
+        docDate: approvedDay,
+        paymentMethod: null,
+        paymentReference: null,
+      });
     }, 240_000);
 
     it('ST6-T04 สิทธิ์: ไม่มี prices.buy:read → 403 · ไม่มี settlements:read → 403 · บริษัทอื่น 404 · ใบยกเลิก 409', async () => {

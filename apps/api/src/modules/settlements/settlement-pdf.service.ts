@@ -68,7 +68,7 @@ const VARIANT_STATUSES: Record<StoredVariant, readonly string[]> = {
   PAID: ['PAID'],
 };
 /** แบบพิมพ์ของฉบับ `variant` — ฉบับอนุมัติของใบที่จ่ายแล้ว = ไม่มีข้อมูลการจ่าย + วันที่เอกสาร = วันอนุมัติ (เท่ากับที่ render ตอนอนุมัติ) */
-const asVariant = (
+export const asVariant = (
   m: SettlementPrintModel,
   dto: SettlementDto,
   variant: StoredVariant,
@@ -235,6 +235,8 @@ export class SettlementPdfService implements OnModuleInit {
         SELECT status::text AS status FROM carrier_settlement WHERE id = ${id}::uuid FOR UPDATE`;
       const found = await this.storedPdf(tx, id, variant);
       if (found || !VARIANT_STATUSES[variant].includes(rows[0]?.status ?? '')) return found;
+      // ฉบับอนุมัติที่เก็บเมื่อใบจ่ายแล้ว (งานช้ากว่าการจ่าย) — ติดธงให้ตรวจย้อนได้ว่า render หลังวันจ่าย (review D-66)
+      const late = variant === 'APPROVED' && rows[0]?.status === 'PAID';
       const f = await putFileLocked(tx, ctx.tenantId!, data, 'pdf');
       const created = await tx.storedDocument.create({
         data: {
@@ -254,6 +256,7 @@ export class SettlementPdfService implements OnModuleInit {
             variant,
             settlementNo,
             templateVersion: SETTLEMENT_PDF_TEMPLATE_VERSION,
+            ...(late ? { renderedAfterPaid: true } : {}),
           },
         },
       });
@@ -267,6 +270,7 @@ export class SettlementPdfService implements OnModuleInit {
           settlementNo,
           sha256: f.sha256,
           templateVersion: SETTLEMENT_PDF_TEMPLATE_VERSION,
+          ...(late ? { renderedAfterPaid: true } : {}),
         },
       });
       return created;
