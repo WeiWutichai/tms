@@ -26,7 +26,12 @@ import { VehicleTypesService } from '../vehicle-types/vehicle-types.service';
 import { vehiclesExportSpec } from '../vehicles/vehicles.controller';
 import { VehiclesService } from '../vehicles/vehicles.service';
 import { AgingService } from '../payments/aging.service';
-import { agingExportSpec, unbilledExportSpec } from '../reports/reports.controller';
+import {
+  agingExportSpec,
+  revenueExportSpec,
+  unbilledExportSpec,
+} from '../reports/reports.controller';
+import { RevenueReportService } from '../reports/revenue-report.service';
 import { UnbilledReportService } from '../reports/unbilled-report.service';
 import { EXPORT_RESOURCES } from './exports.controller';
 import { ExportRegistry } from './export-spec';
@@ -54,6 +59,7 @@ export class ListExports implements OnModuleInit {
     private readonly reasonCodes: ReasonCodesService,
     private readonly unbilled: UnbilledReportService,
     private readonly aging: AgingService,
+    private readonly revenue: RevenueReportService,
   ) {}
 
   onModuleInit() {
@@ -73,6 +79,7 @@ export class ListExports implements OnModuleInit {
       reasonCodesExportSpec(this.reasonCodes),
       unbilledExportSpec(this.unbilled),
       agingExportSpec(this.aging),
+      revenueExportSpec(this.revenue),
     ];
     for (const s of specs) if (!this.registry.get(s.resource)) this.registry.register(s);
     const missing = EXPORT_RESOURCES.filter((r) => !this.registry.get(r));

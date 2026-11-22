@@ -40,6 +40,8 @@ export const EXPORT_RESOURCES = [
   // ST9-T06 รายงาน (หน้า รายงาน → ส่งออก Excel)
   'unbilled-delivery-orders',
   'receivables-aging',
+  // ST9-T05 รายงานรายได้ (xlsx / csv / pdf)
+  'revenue',
 ] as const;
 
 export class CreateExportDto {
@@ -48,12 +50,13 @@ export class CreateExportDto {
   resource!: (typeof EXPORT_RESOURCES)[number];
 
   @ApiPropertyOptional({
-    enum: ['xlsx', 'csv'],
+    enum: ['xlsx', 'csv', 'pdf'],
     default: 'xlsx',
-    description: '.xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ .csv UTF-8 + BOM',
+    description:
+      '.xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ .csv UTF-8 + BOM · `pdf` (ตาราง A4 ≤ 2,000 แถว) เฉพาะรายงานสรุป — resource `revenue` (อื่น ๆ = 422)',
   })
   @IsOptional()
-  @IsIn(['xlsx', 'csv'])
+  @IsIn(['xlsx', 'csv', 'pdf'])
   format?: ExportFormat;
 
   @ApiPropertyOptional({
@@ -87,7 +90,7 @@ export class ExportErrorDto {
 export class ExportDto {
   @ApiProperty({ example: 'job_…' }) id!: string;
   @ApiProperty({ enum: EXPORT_RESOURCES }) resource!: string;
-  @ApiProperty({ enum: ['xlsx', 'csv'] }) format!: string;
+  @ApiProperty({ enum: ['xlsx', 'csv', 'pdf'] }) format!: string;
   @ApiProperty({ type: 'object', additionalProperties: { type: 'string' } })
   filter!: Record<string, string>;
   @ApiProperty({
