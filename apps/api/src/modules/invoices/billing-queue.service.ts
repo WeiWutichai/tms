@@ -169,13 +169,6 @@ export class BillingQueueService {
                d.pod_status, d.billing_hold, d.released_at, d.billing_status
           FROM delivery_order d WHERE ${Prisma.join(conds, ' AND ')}
       ),
-      rl AS (
-        SELECT l.delivery_order_id AS id, count(*)::int AS n, sum(l.amount) AS total,
-               bool_or(l.provisional) AS prov, bool_or(l.locked_at IS NOT NULL) AS locked
-          FROM revenue_line l JOIN d0 ON d0.id = l.delivery_order_id
-         WHERE l.status = 'ACTIVE'
-         GROUP BY l.delivery_order_id
-      ),
       r AS (
         SELECT d0.id, d0.customer_id, d0.updated_at, d0.status,
                (d0.status = 'UNBILLED' AND d0.pod_status <> 'PARTIAL') AS pod_ok,
@@ -197,7 +190,14 @@ export class BillingQueueService {
           JOIN customer c ON c.id = d0.customer_id
           JOIN sales_order s ON s.id = d0.sales_order_id
           LEFT JOIN trip_stop st ON st.id = d0.trip_stop_id
-          LEFT JOIN rl ON rl.id = d0.id
+          -- ST9-T17: บรรทัดรายได้ต่อ DO ด้วย LATERAL (index tenant_id + delivery_order_id) — เดิมเป็น CTE รวมทุก DO แล้ว join
+          -- planner เลือก nested loop ที่คำนวณ CTE ซ้ำต่อแถว (O(n²): 4,700 DO = 12 ล้านแถวที่ทิ้ง — docs/perf/st9-t17-report.md)
+          LEFT JOIN LATERAL (
+            SELECT count(*)::int AS n, sum(l.amount) AS total,
+                   bool_or(l.provisional) AS prov, bool_or(l.locked_at IS NOT NULL) AS locked
+              FROM revenue_line l
+             WHERE l.delivery_order_id = d0.id AND l.status = 'ACTIVE'
+          ) rl ON true
       )`;
   }
 
