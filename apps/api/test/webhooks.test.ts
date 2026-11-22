@@ -817,6 +817,28 @@ describe('webhooks (ST7-T04)', () => {
     }
     rx.reply = () => ({ status: 200 }); // ปลายทางใหม่ไม่ echo
     process.env.WEBHOOK_ALLOW_PRIVATE_TARGETS = '1';
+    // D-67 review M1: เปลี่ยน URL / header ลับ ต้อง step-up (api() แนบให้ — ส่งค่าว่างทับ = ยังไม่ยืนยัน)
+    const ns = await api(app, token)
+      .patch(`/v1/webhooks/${h.id}`)
+      .set('X-Step-Up', '')
+      .set('If-Match', `"${h.version}"`)
+      .send({ url: `HTTP://127.0.0.1:${rx.port}/v2` });
+    expect(ns.status).toBe(403);
+    expect(ns.body.code).toBe('step_up_required');
+    const nh = await api(app, token)
+      .patch(`/v1/webhooks/${h.id}`)
+      .set('X-Step-Up', '')
+      .set('If-Match', `"${h.version}"`)
+      .send({ extraHeaders: [{ name: 'X-Leak', value: 'secret-value' }] });
+    expect(nh.body.code).toBe('step_up_required');
+    // แก้คำอธิบายอย่างเดียวไม่ต้อง step-up
+    const nd = await api(app, token)
+      .patch(`/v1/webhooks/${h.id}`)
+      .set('X-Step-Up', '')
+      .set('If-Match', `"${h.version}"`)
+      .send({ description: 'ปลายทางทดสอบ' });
+    expect(nd.status, JSON.stringify(nd.body)).toBe(200);
+    h.version = nd.body.version;
     const p = await api(app, token)
       .patch(`/v1/webhooks/${h.id}`)
       .set('If-Match', `"${h.version}"`)

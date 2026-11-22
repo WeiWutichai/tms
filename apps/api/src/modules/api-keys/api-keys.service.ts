@@ -7,6 +7,7 @@ import { encodeId } from '../../common/ids';
 import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
+import { assertStepUp } from '../../auth/step-up';
 import { DbService } from '../../db/db.service';
 import {
   API_KEY_STATUSES,
@@ -301,6 +302,7 @@ export class ApiKeysService {
     const ipAllowlist = this.checkIps(body.ipAllowlist ?? []);
     const name = body.name.trim();
     await this.assertNameFree(name);
+    assertStepUp(); // D-67 — หลังตรวจข้อมูล (422 / 409 ชื่อซ้ำ มาก่อนถามยืนยัน 2FA)
     const ttl = body.expiresInDays === undefined ? 90 : body.expiresInDays;
     const now = new Date();
     const m = generateApiKey(mode);
@@ -367,6 +369,7 @@ export class ApiKeysService {
       if ((next?.getTime() ?? null) !== (cur.apiVersion?.getTime() ?? null)) data.apiVersion = next;
     }
     if (Object.keys(data).length === 0) return cur;
+    assertStepUp(); // D-67 review M2 — หลังตรวจข้อมูล
     const n = await this.db.tx.apiKey
       .updateMany({
         where: { id: cur.id, version: cur.version },
@@ -403,6 +406,7 @@ export class ApiKeysService {
       throw new ProblemException('precondition_failed');
     // ผู้หมุนต้องให้ scope เดิมได้ทั้งหมด (INT-073)
     this.checkScopes(cur.scopes);
+    assertStepUp(); // D-67 — หลังตรวจข้อมูล
     const now = new Date();
     const grace = body.graceHours ?? 24;
     const newId = randomUUID();

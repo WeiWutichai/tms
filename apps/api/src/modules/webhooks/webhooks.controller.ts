@@ -25,10 +25,13 @@ import {
   NoTransaction,
   RequireFeature,
   RequireScope,
+  StepUpAlways,
+  StepUpWhen,
   TenantResource,
   RateLimitClass,
   SandboxAware,
 } from '../../common/decorators';
+import { assertStepUp } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -122,6 +125,7 @@ export class WebhooksController {
 
   @Post()
   @RequireScope('settings:write')
+  @StepUpAlways() // D-67: ผลมี signing secret
   @ApiCreatedResponse({
     type: WebhookEndpointSecretDto,
     description:
@@ -132,6 +136,7 @@ export class WebhooksController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<WebhookEndpointSecretDto> {
+    assertStepUp(); // D-67 — ตรวจหลัง validation/404 (ไม่ใช่ใน guard)
     noIdempotencyKey(req);
     const e = await this.hooks.create(body);
     setEtag(res, e.version);
@@ -164,6 +169,7 @@ export class WebhooksController {
   @Patch(':id')
   @TenantResource('webhookEndpoint')
   @RequireScope('settings:write')
+  @StepUpWhen('เปลี่ยน `url` หรือ `extraHeaders` (D-67 review M1)')
   @ApiHeader(IF_MATCH)
   @ApiOkResponse({
     type: WebhookEndpointDto,
@@ -188,6 +194,7 @@ export class WebhooksController {
   @HttpCode(201)
   @TenantResource('webhookEndpoint')
   @RequireScope('settings:write')
+  @StepUpAlways() // D-67
   @ApiHeader(IF_MATCH)
   @ApiCreatedResponse({
     type: WebhookEndpointSecretDto,
@@ -200,6 +207,7 @@ export class WebhooksController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<WebhookEndpointSecretDto> {
+    assertStepUp(); // D-67 — ตรวจหลัง validation/404 (ไม่ใช่ใน guard)
     noIdempotencyKey(req);
     const e = await this.hooks.rotate(
       decodeIdOr404('webhookEndpoint', id),

@@ -57,6 +57,7 @@ describe('exportList', () => {
     await expect(p).resolves.toBe(50000);
     expect(POST).toHaveBeenCalledWith('/v1/exports', {
       body: { resource: 'orders', format: 'csv', filter: { held: 'true', status: 'on_hold' } },
+      headers: {},
     });
     expect(clicks).toEqual([ready.downloadUrl]);
   });

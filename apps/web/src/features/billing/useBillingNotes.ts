@@ -2,6 +2,7 @@ import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrap } from '../../api';
 import { useCursorList } from '../master/useCursorList';
+import { stepUpHeaders } from '../stepup/stepUp';
 import { showPdf } from './useInvoices';
 
 export type BillingNote = Schemas['BillingNoteDto'];
@@ -137,11 +138,12 @@ export function useCollectBillingNote() {
 export function useCancelBillingNote() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: { id: string; version: number; reason: string }) =>
+    // D-67: ใบที่ออกแล้วต้องยืนยัน 2FA — `stepUp` = token (ไม่มี → 403 step_up_required → dialog แสดงกล่องยืนยัน)
+    mutationFn: (v: { id: string; version: number; reason: string; stepUp?: string }) =>
       unwrap(
         api.POST('/v1/billing-notes/{id}/cancel', {
           params: { path: { id: v.id } },
-          headers: { 'If-Match': `"${v.version}"` },
+          headers: { 'If-Match': `"${v.version}"`, ...stepUpHeaders(v.stepUp) },
           body: { reason: v.reason },
         }),
       ),

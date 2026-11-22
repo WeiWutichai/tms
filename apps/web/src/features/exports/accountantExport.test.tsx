@@ -16,8 +16,11 @@ const summary = {
   templates: [{ key: 'generic', displayName: 'ทั่วไป', isDefault: true, datasets: [] }],
 };
 let n = 0;
-const POST = vi.fn((_p: string, _o: unknown) =>
-  Promise.resolve({ data: { id: `job_${++n}` }, response: { ok: true, status: 202 } }),
+/** งานส่งออก — `/v1/auth/step-up` (D-67) คืน token เสมอ */
+const job = () =>
+  Promise.resolve({ data: { id: `job_${++n}` }, response: { ok: true, status: 202 } });
+const POST = vi.fn((p: string, _o: unknown) =>
+  p === '/v1/auth/step-up' ? ok({ stepUpToken: 'su-token', expiresIn: 300 }) : job(),
 );
 const GET = vi.fn((p: string, _o?: unknown) =>
   p === '/v1/accounting-exports/summary'
@@ -37,8 +40,18 @@ vi.mock('../../shell/AppShell', () => ({
 
 const { xpPeriods, xpPeriodTag } = await import('./accountantExport');
 const { AccountantExportDialog } = await import('./AccountantExportDialog');
+const { StepUpHost, clearStepUp } = await import('../stepup/stepUp');
+
+/** D-67 กล่องยืนยัน 2FA (StepUpHost) — กรอกรหัสแล้วกดยืนยัน */
+async function confirm2fa() {
+  const box = await screen.findByRole('group', { name: 'ยืนยันตัวตน 2 ชั้นอีกครั้ง' });
+  fireEvent.change(box.querySelector('input')!, { target: { value: '123456' } });
+  fireEvent.click(screen.getByRole('button', { name: 'ยืนยัน' }));
+}
+const exportPosts = () => POST.mock.calls.filter((c) => c[0] === '/v1/exports');
 
 beforeEach(() => {
+  clearStepUp();
   POST.mockClear();
   GET.mockClear();
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
@@ -69,6 +82,7 @@ describe('AccountantExportDialog', () => {
       <QueryClientProvider client={new QueryClient()}>
         <I18nProvider>
           <AccountantExportDialog onClose={onClose} onToast={onToast} />
+          <StepUpHost />
         </I18nProvider>
       </QueryClientProvider>,
     );
@@ -105,9 +119,17 @@ describe('AccountantExportDialog', () => {
     await screen.findByText('12 รายการ');
     fireEvent.click(screen.getByRole('checkbox', { name: /จ่ายรถร่วม/ }));
     fireEvent.click(screen.getByRole('button', { name: 'ส่งออก' }));
+    // D-67 ส่งออกให้นักบัญชี = ข้อมูลการเงินทั้งบริษัท → ยืนยัน 2FA ครั้งเดียวก่อนสั่งทุกไฟล์
+    expect(exportPosts()).toHaveLength(0);
+    await confirm2fa();
     await waitFor(() => expect(onToast).toHaveBeenCalled(), { timeout: 4000 });
-    const bodies = POST.mock.calls.map((c) => (c[1] as { body: Record<string, unknown> }).body);
+    expect(POST).toHaveBeenCalledWith('/v1/auth/step-up', { body: { otp: '123456' } });
+    const bodies = exportPosts().map((c) => (c[1] as { body: Record<string, unknown> }).body);
     expect(bodies.map((b) => b.resource)).toEqual(['accounting-sales', 'accounting-receipts']);
+    for (const c of exportPosts())
+      expect((c[1] as { headers: Record<string, string> }).headers).toEqual({
+        'X-Step-Up': 'su-token',
+      });
     expect(bodies[0]).toMatchObject({ format: 'xlsx', filter: { dateFrom: expect.any(String) } });
     expect(onToast).toHaveBeenCalledWith(
       'ส่งออก 2 ไฟล์ รูปแบบ ทั่วไป แล้ว · ถ้าเบราว์เซอร์ถาม ให้อนุญาตดาวน์โหลดหลายไฟล์',
@@ -125,13 +147,37 @@ describe('AccountantExportDialog', () => {
     expect(screen.getByRole('button', { name: 'ส่งออก' })).toBeDisabled();
   });
 
+  it('ยกเลิกกล่องยืนยัน 2FA = ไม่สั่งงาน ไม่ขึ้น toast error · dialog ยังเปิดอยู่ (D-67)', async () => {
+    const { onToast, onClose } = mount();
+    await screen.findByText('12 รายการ');
+    fireEvent.click(screen.getByRole('button', { name: 'ส่งออก' }));
+    await screen.findByRole('group', { name: 'ยืนยันตัวตน 2 ชั้นอีกครั้ง' });
+    fireEvent.click(screen.getAllByRole('button', { name: 'ยกเลิก' }).at(-1)!);
+    await waitFor(() =>
+      expect(screen.queryByRole('group', { name: 'ยืนยันตัวตน 2 ชั้นอีกครั้ง' })).toBeNull(),
+    );
+    expect(exportPosts()).toHaveLength(0);
+    expect(onToast).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'ส่งออก' })).toBeEnabled();
+  });
+
   it('บางไฟล์สั่งไม่สำเร็จ = งานที่สร้างแล้วเดินต่อ + toast "กำลังส่งออก"', async () => {
-    POST.mockImplementationOnce(() => Promise.reject(new Error('x')));
+    let first = true;
+    POST.mockImplementation((p: string) => {
+      if (p === '/v1/auth/step-up') return ok({ stepUpToken: 'su-token', expiresIn: 300 });
+      if (first) {
+        first = false;
+        return Promise.reject(new Error('x'));
+      }
+      return job();
+    });
     const { onToast } = mount();
     await screen.findByText('12 รายการ');
     fireEvent.click(screen.getByRole('button', { name: 'ส่งออก' }));
+    await confirm2fa();
     await waitFor(() => expect(onToast).toHaveBeenCalled(), { timeout: 4000 });
-    expect(POST).toHaveBeenCalledTimes(3);
+    expect(exportPosts()).toHaveLength(3);
     expect(onToast).toHaveBeenCalledWith(
       'กำลังส่งออก — ระบบจะแจ้งเตือนพร้อมลิงก์ดาวน์โหลดเมื่อไฟล์พร้อม',
     );

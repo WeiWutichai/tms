@@ -1,5 +1,6 @@
 import type { Schemas } from '@tms/contracts';
 import { api, unwrap } from '../../api';
+import { ensureStepUp, stepUpHeaders } from '../stepup/stepUp';
 import { type ExportResource, fetchExport, openDownload } from './exportJob';
 
 export type XpDataset = 'sales' | 'receipts' | 'settlements';
@@ -80,12 +81,15 @@ export async function runAccountantExport(
   format: XpFormat,
   filter: { dateFrom: string; dateTo: string },
 ): Promise<XpRunResult> {
+  // D-67: ส่งออกให้นักบัญชี = ข้อมูลการเงินทั้งบริษัท → ยืนยัน 2FA ครั้งเดียวก่อนสั่งทุกไฟล์ (ยกเลิก = StepUpCancelled)
+  const su = await ensureStepUp();
   // สั่งทุกไฟล์พร้อมกัน — บางงานสร้างไม่ได้ (เช่น ถูกถอดสิทธิ์) ไม่ทิ้งงานที่สร้างแล้ว
   const created = await Promise.allSettled(
     resources.map((resource) =>
       unwrap(
         api.POST('/v1/exports', {
           body: { resource: resource as ExportResource, format, filter },
+          headers: stepUpHeaders(su),
         }),
       ),
     ),

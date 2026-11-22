@@ -2,6 +2,7 @@ import { Icon } from '@tms/ui';
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, unwrap } from '../../api';
 import { useI18n } from '../../i18n';
+import { StepUpCancelled, stepUpHeaders, withStepUp } from '../stepup/stepUp';
 import { ImportWarnings } from './ImportWarnings';
 import { th } from '../../i18n/th';
 import type { MessageKey } from '../../i18n/th';
@@ -119,15 +120,21 @@ export function ImportWizard({
     setBusy(true);
     setError(null);
     try {
-      const r = await unwrap(
-        api.POST('/v1/imports/{id}/commit', { params: { path: { id: imp.id } } }),
+      // D-67: ไฟล์ผู้รับเหมาที่มีคอลัมน์บัญชีธนาคาร → API ขอยืนยัน 2FA → กล่องยืนยัน แล้วส่งซ้ำ
+      const r = await withStepUp((su) =>
+        unwrap(
+          api.POST('/v1/imports/{id}/commit', {
+            params: { path: { id: imp.id } },
+            headers: stepUpHeaders(su),
+          }),
+        ),
       );
       setImp(r);
       // ตรวจซ้ำแล้วพบแถวผิด (ข้อมูลเปลี่ยนระหว่างรอ) → ไม่ได้นำเข้า อยู่ขั้น 2 ต่อ
       if (r.status === 'validated') setError(t('problem.import_has_errors'));
       else setStep(3);
     } catch (e) {
-      setError(problem(e));
+      if (!(e instanceof StepUpCancelled)) setError(problem(e)); // ยกเลิกกล่อง 2FA = ไม่ใช่ข้อผิดพลาด
     } finally {
       setBusy(false);
     }

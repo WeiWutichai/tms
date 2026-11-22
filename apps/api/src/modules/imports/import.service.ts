@@ -232,6 +232,8 @@ export class ImportService implements OnModuleInit {
           : {}),
         ...(actor.ip ? { ip: actor.ip } : {}),
         ...(dryRun ? { importDryRun: true } : {}),
+        // D-67: ด่าน step-up ของการนำเข้าอยู่ที่ POST /imports/{id}/commit — service ในงานนำเข้าไม่ตรวจซ้ำ
+        importRun: true,
         tx,
       },
       fn,

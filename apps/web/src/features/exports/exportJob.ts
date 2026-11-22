@@ -1,5 +1,6 @@
 import type { Schemas } from '@tms/contracts';
 import { api, unwrap } from '../../api';
+import { stepUpHeaders, withStepUp } from '../stepup/stepUp';
 
 export type ExportResource = Schemas['CreateExportDto']['resource'];
 export type ExportStatus = Schemas['ExportDto'];
@@ -54,7 +55,15 @@ export async function exportList(
       (e): e is [string, string] => typeof e[1] === 'string' && e[1] !== '',
     ),
   );
-  const job = await unwrap(api.POST('/v1/exports', { body: { resource, format, filter: clean } }));
+  // D-67: ส่งออกทั้งบริษัท (ไม่มีตัวกรอง / ให้นักบัญชี) ต้องยืนยัน 2FA — withStepUp เปิดกล่องยืนยันแล้วส่งซ้ำ
+  const job = await withStepUp((su) =>
+    unwrap(
+      api.POST('/v1/exports', {
+        body: { resource, format, filter: clean },
+        headers: stepUpHeaders(su),
+      }),
+    ),
+  );
   const until = Date.now() + WAIT_MS;
   while (Date.now() < until) {
     await sleep(POLL_MS);

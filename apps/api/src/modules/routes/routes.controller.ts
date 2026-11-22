@@ -30,7 +30,9 @@ import {
   RequireScope,
   TenantResource,
   RateLimitClass,
+  StepUpWhen,
 } from '../../common/decorators';
+import { EXPORT_STEP_UP_WHEN } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
@@ -130,6 +132,7 @@ export class RoutesController {
   @Get('export')
   @RateLimitClass('heavy')
   @RequireScope('export:run')
+  @StepUpWhen(EXPORT_STEP_UP_WHEN)
   @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv')
   @ApiOkResponse({
     description: 'ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว)',

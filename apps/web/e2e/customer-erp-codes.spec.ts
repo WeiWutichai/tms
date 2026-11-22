@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { Page } from '@playwright/test';
-import { DEMO_EMAIL, expect, test } from './fixtures';
+import { DEMO_EMAIL, expect, test, withStepUp } from './fixtures';
 
 /**
  * E2E ST8-T05 รหัสลูกค้าในระบบบัญชีที่เชื่อมต่อ (ต้นแบบ TMS v4 drawer ลูกค้า แท็บ "รหัสระบบบัญชี" + กล่องเตือนในแท็บทั่วไป)
@@ -43,7 +43,7 @@ test('ลูกค้า: แท็บรหัสระบบบัญชี �
   });
   expect(cust.status(), await cust.text()).toBe(201);
   const c = await page.request.post('/v1/connectors', {
-    headers: auth,
+    headers: await withStepUp(page.request, auth), // D-67 สร้างพร้อม credential
     data: { adapterKey: 'demo', credentials: { apiKey: `demo-${RUN}` } },
   });
   expect(c.status(), await c.text()).toBe(201);

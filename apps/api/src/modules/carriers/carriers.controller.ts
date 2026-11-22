@@ -25,7 +25,8 @@ import {
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
-import { RequireScope, TenantResource, RateLimitClass } from '../../common/decorators';
+import { RequireScope, StepUpWhen, TenantResource, RateLimitClass } from '../../common/decorators';
+import { assertHumanStepUp, EXPORT_STEP_UP_WHEN } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
@@ -140,6 +141,7 @@ export class CarriersController {
   @Get('export')
   @RateLimitClass('heavy')
   @RequireScope('export:run')
+  @StepUpWhen(EXPORT_STEP_UP_WHEN)
   @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv')
   @ApiOkResponse({
     description:
@@ -155,6 +157,7 @@ export class CarriersController {
 
   @Post()
   @RequireScope('master:write')
+  @StepUpWhen('เปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)')
   @ApiHeader({ name: 'Idempotency-Key', required: false })
   @ApiCreatedResponse({ type: CarrierDto })
   async create(
@@ -169,6 +172,7 @@ export class CarriersController {
   @Put('external/:externalId')
   @ApiExternalPut()
   @RequireScope('master:write')
+  @StepUpWhen('เปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({
     type: CarrierDto,
@@ -221,6 +225,7 @@ export class CarriersController {
   @HttpCode(200)
   @TenantResource('carrier')
   @RequireScope('settlements:pay')
+  @StepUpWhen('`field` = `bankAccountNo` (ดูเลขบัญชีเต็ม — D-67)')
   @ApiOkResponse({ type: RevealCarrierResultDto })
   @ApiTooManyRequestsResponse({
     description: 'rate_limited — เกิน 20 ครั้ง/นาที/ผู้ใช้ (Retry-After)',
@@ -233,6 +238,8 @@ export class CarriersController {
   ): Promise<RevealCarrierResultDto> {
     if (req.header('idempotency-key'))
       throw new ProblemException('bad_request', 'Idempotency-Key is not allowed on reveal');
+    // D-67: ดูเลขบัญชีธนาคารเต็ม = ต้อง step-up 2FA (ผู้ใช้) — เลขผู้เสียภาษีตามเดิม (สิทธิ์ + audit)
+    if (body.field === 'bankAccountNo') assertHumanStepUp();
     const ctx = requestContext.require();
     const wait = this.revealLimiter.take(`${ctx.tenantId}:${ctx.actorId ?? '-'}`);
     if (wait)
@@ -247,6 +254,7 @@ export class CarriersController {
   @Patch('external/:externalId')
   @ApiExternalPatch()
   @RequireScope('master:write')
+  @StepUpWhen('เปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOperation({
     summary: 'แก้บางช่องด้วย externalId',
@@ -266,6 +274,7 @@ export class CarriersController {
   @Patch(':id')
   @TenantResource('carrier')
   @RequireScope('master:write')
+  @StepUpWhen('เปลี่ยน `bankAccount` จริง (ธนาคาร/เลข/ชื่อบัญชี/ลบ — ส่งค่าเดิมไม่ต้อง)')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOkResponse({ type: CarrierDto })
   async update(

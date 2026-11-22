@@ -425,6 +425,7 @@ DRAFT → CANCELLED (`invoices:draft`) · ISSUED → CANCELLED (ต้องม�
 |---|---|---|---|---|
 | `id` | path | ใช่ | `string` |   |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
+| `X-Step-Up` | header |   | `string` | stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อยกเลิกใบวางบิลที่ออกแล้ว ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง |
 
 **Request body** `BillingNoteReasonDto`
 
@@ -438,7 +439,7 @@ DRAFT → CANCELLED (`invoices:draft`) · ISSUED → CANCELLED (ต้องม�
 |---|---|---|
 | `200` |   | `BillingNoteDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`invoices:draft` / `invoices:finalize`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:draft` / `invoices:finalize`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อยกเลิกใบวางบิลที่ออกแล้ว — [permission_denied](errors.md#permission_denied), [step_up_required](errors.md#step_up_required) | `ProblemDto` |
 | `404` | ไม่พบใบวางบิล (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
 | `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
 | `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |

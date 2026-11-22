@@ -711,7 +711,8 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
       { mode: 'upsert_by_code' },
     );
     expect(errorsOf(r)).toEqual([]);
-    await commit(a, r.id);
+    // ไฟล์ที่ไม่มีบัญชีธนาคารยืนยันได้โดยไม่ต้อง step-up (D-67)
+    await a.post(`/v1/imports/${r.id}/commit`).set('X-Step-Up', '').expect(200);
     const after = (await a.get(`/v1/customers/${c.id}`).expect(200)).body;
     expect(after.billingAddress).toEqual({
       line1: '1 ถ.เดิม',
@@ -738,6 +739,10 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
       { mode: 'upsert_by_code' },
     );
     expect(errorsOf(cr)).toEqual([]);
+    // D-67: ไฟล์ผู้รับเหมาที่มีคอลัมน์บัญชีธนาคาร → ยืนยันนำเข้าต้อง step-up 2FA (api() แนบให้ — ส่งค่าว่างทับ = ยังไม่ยืนยัน)
+    const noSu = await a.post(`/v1/imports/${cr.id}/commit`).set('X-Step-Up', '');
+    expect(noSu.status).toBe(403);
+    expect(noSu.body.code).toBe('step_up_required');
     await commit(a, cr.id);
     const car = await db.carrier.findFirst({ where: { id: before!.id } });
     expect(car).toMatchObject({

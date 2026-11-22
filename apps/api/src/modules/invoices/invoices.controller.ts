@@ -32,11 +32,13 @@ import type { Request, Response } from 'express';
 import {
   NoTransaction,
   RateLimitClass,
+  StepUpAlways,
   RequireScope,
   TenantResource,
   IdempotencyLockMs,
   TransactionTimeout,
 } from '../../common/decorators';
+import { assertHumanStepUp } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404, tryDecodeId } from '../../common/ids';
 import { PROBLEMS, ProblemException } from '../../common/problem';
@@ -745,6 +747,7 @@ export class InvoicesController {
   @HttpCode(200)
   @TenantResource('issuedInvoice')
   @RequireScope('invoices:void')
+  @StepUpAlways('human') // D-67: ยกเลิกใบที่ออกแล้ว — ผู้ใช้ต้อง step-up 2FA · API key ตาม scope `invoices:void`
   @ApiOperation({
     summary: 'ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (void) — คงเลข · ยังไม่รับชำระ · เหตุผล ≥ 10 ตัวอักษร',
     description:
@@ -800,6 +803,7 @@ export class InvoicesController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
+    assertHumanStepUp(); // D-67 — ตรวจหลัง validation/404 (ไม่ใช่ใน guard)
     const out = await this.canceller.void(
       decodeIdOr404('invoice', id),
       body.reason,

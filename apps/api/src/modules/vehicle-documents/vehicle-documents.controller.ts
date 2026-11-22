@@ -18,7 +18,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
-import { RequireScope, TenantResource, RateLimitClass } from '../../common/decorators';
+import { RequireScope, TenantResource, RateLimitClass, StepUpWhen } from '../../common/decorators';
+import { EXPORT_STEP_UP_WHEN } from '../../auth/step-up';
 import { decodeIdOr404 } from '../../common/ids';
 import { sendExport, type ExportColumn } from '../master/export';
 import type { ExportSpec } from '../exports/export-spec';
@@ -144,6 +145,7 @@ export class VehicleDocumentsController {
   @Get('vehicle-documents/export')
   @RateLimitClass('heavy')
   @RequireScope('export:run')
+  @StepUpWhen(EXPORT_STEP_UP_WHEN)
   @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv')
   @ApiOkResponse({
     description:

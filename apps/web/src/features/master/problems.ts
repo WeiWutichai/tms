@@ -18,6 +18,8 @@ export function fieldErrors(err: unknown, t: T): Record<string, string> {
 /** ข้อความไทยของ problem ทั้งก้อน (`problem.{code}`) */
 export function problemText(err: unknown, t: T): string | null {
   if (!err) return null;
+  // D-67 ผู้ใช้ยกเลิกกล่องยืนยัน 2FA (StepUpCancelled ใน features/stepup) — ไม่ใช่ข้อผิดพลาดที่ต้องแสดง
+  if (err instanceof Error && err.message === 'step_up_cancelled') return null;
   if (!(err instanceof ApiError)) return t('problem.internal_error');
   const key = `problem.${err.problem.code}` as MessageKey;
   return t(key) === key ? err.problem.title || err.problem.code : t(key);

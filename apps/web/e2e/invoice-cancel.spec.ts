@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { APIRequestContext } from '@playwright/test';
-import { expect, test } from './fixtures';
+import { confirmStepUp, expect, test } from './fixtures';
 
 /**
  * E2E ST5-T10 ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (D-54: ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี) — ต้นแบบ TMS v4 เมนู ⋯ "ยกเลิกเอกสาร" (askCancelDoc):
@@ -193,6 +193,7 @@ test.describe.serial('ยกเลิกใบแจ้งหนี้ที่�
     await dlg.getByRole('checkbox', { name: 'ออกฉบับใหม่แทน' }).check();
     await page.screenshot({ path: 'test-results/st5-t10-dialog-actual-1440.png' });
     await dlg.getByRole('button', { name: 'ยืนยันยกเลิก' }).click();
+    await confirmStepUp(page); // D-67 ยกเลิกใบที่ออกแล้วต้องยืนยัน 2FA (กล่องใต้ช่องเหตุผล)
     await expect(page.getByText(`ยกเลิก ${no} แล้ว · สร้างร่างฉบับใหม่แทน`)).toBeVisible();
     // ร่างฉบับใหม่เปิดขึ้น — อ้างเลขเดิม
     const nd = page.getByRole('dialog').first();

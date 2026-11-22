@@ -4,7 +4,7 @@ import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import type { Page } from '@playwright/test';
-import { DEMO_EMAIL, expect, test } from './fixtures';
+import { DEMO_EMAIL, expect, test, withStepUp } from './fixtures';
 
 /**
  * E2E ST7-T05 Webhook ops (ผ่าน API จริง ฐาน e2e) — ปลายทางในเครื่องตอบ 500 ก่อน แล้วแก้ให้ตอบ 200
@@ -82,7 +82,7 @@ test('เกณฑ์ตรวจรับ: delivery ที่ล้มเหล
         data: { reason: 'ลบ endpoint ทดสอบจากรอบก่อน' },
       });
   const r = await page.request.post('/v1/webhooks', {
-    headers: auth,
+    headers: await withStepUp(page.request, auth), // D-67
     data: {
       url: `http://127.0.0.1:${port}/ops-${RUN}`,
       events: ['order.created'],

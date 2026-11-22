@@ -1,4 +1,4 @@
-import { test as base, expect } from '@playwright/test';
+import { test as base, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 
 /** URL ของ web ที่ E2E รัน (พอร์ตจาก E2E_WEB_PORT ที่ playwright.config ตั้งให้ — ค่าเริ่มต้น 4520) */
@@ -55,8 +55,21 @@ export const test = base.extend<{ loginEmail: string; loggedIn: void }>({
 });
 export { expect };
 
+/**
+ * time-step ล่าสุดที่ spec ใน process นี้ใช้กับ TOTP ของผู้ใช้เดโม (workers = 1 → ทุก spec ผ่าน fixtures เดียวกัน)
+ * server ไม่รับ step ที่ ≤ ช่วงที่ใช้ไปแล้ว และรหัสผิดนับเป็นความพยายามล้มเหลว (ครบแล้วล็อกบัญชี) —
+ * step-up (D-67) จึงเลือก step ที่ยังไม่ถูกใช้เอง แทนการลองผิดลองถูก
+ */
+let usedStep = 0;
+
 /** RFC 6238 ในฝั่ง test (ไม่พึ่งโค้ดของแอป) */
 export function totp(secret: string, offset = 0): string {
+  const step = Math.floor(Date.now() / 30000) + offset;
+  usedStep = Math.max(usedStep, step);
+  return totpAt(secret, step);
+}
+
+function totpAt(secret: string, step: number): string {
   const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
   let bits = 0;
   let val = 0;
@@ -70,9 +83,62 @@ export function totp(secret: string, offset = 0): string {
     }
   }
   const msg = Buffer.alloc(8);
-  msg.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000) + offset));
+  msg.writeBigUInt64BE(BigInt(step));
   const h = createHmac('sha1', Buffer.from(key)).update(msg).digest();
   const o = h[h.length - 1]! & 0xf;
   const n = ((h[o]! & 0x7f) << 24) | (h[o + 1]! << 16) | (h[o + 2]! << 8) | h[o + 3]!;
   return String(n % 1_000_000).padStart(6, '0');
+}
+
+/**
+ * D-67 กล่องยืนยัน 2FA (`StepUpBox` — "ยืนยันตัวตน 2 ชั้นอีกครั้ง") ก่อนรายการเสี่ยง: สร้าง/หมุน API key, secret webhook,
+ * credential connector, บัญชีธนาคารรถร่วม, ส่งออกทั้งบริษัท, ยกเลิกใบแจ้งหนี้/ใบวางบิลที่ออกแล้ว
+ * กรอก TOTP ของผู้ใช้เดโม — รหัสช่วงเวลาเดียวกันใช้ซ้ำไม่ได้ (spec อื่นอาจใช้ไปแล้ว) → ลองช่วงถัดไป
+ * ยืนยันแล้ว token ใช้ต่อได้ 5 นาทีในหน้าเดิม (ไม่ถามซ้ำ) — เรียกเฉพาะครั้งแรกของแต่ละ test
+ */
+export async function confirmStepUp(page: Page): Promise<void> {
+  const box = page.getByRole('group', { name: 'ยืนยันตัวตน 2 ชั้นอีกครั้ง' });
+  await expect(box).toBeVisible({ timeout: 15_000 });
+  await box.getByLabel('รหัส 6 หลัก').fill(await freshCode());
+  await box.getByRole('button', { name: 'ยืนยัน' }).click();
+  await expect(box).toBeHidden({ timeout: 10_000 });
+}
+
+/**
+ * D-67 header `X-Step-Up` สำหรับเรียก API ตรง (page.request) ในขั้นเตรียมข้อมูล — `POST /v1/auth/step-up` ด้วย TOTP ของผู้ใช้เดโม
+ * คืน header เดิม + `X-Step-Up` (token ใช้ได้ 5 นาที)
+ */
+export async function withStepUp(
+  req: APIRequestContext,
+  auth: Record<string, string>,
+): Promise<Record<string, string>> {
+  const r = await req.post('/v1/auth/step-up', { headers: auth, data: { otp: await freshCode() } });
+  expect(r.status(), await r.text()).toBe(200);
+  const { stepUpToken } = (await r.json()) as { stepUpToken: string };
+  return { ...auth, 'X-Step-Up': stepUpToken };
+}
+
+/**
+ * รหัส TOTP ของ step ที่ยังไม่ถูกใช้ (server รับ ±1 ช่วงจากปัจจุบัน) — ไม่มีให้ใช้ = รอข้ามช่วง (ยืดเวลาของ test)
+ * ใช้ครั้งเดียวต่อรหัส ไม่ลองซ้ำด้วยรหัสที่อาจผิด (รหัสผิดนับเป็นความพยายามล้มเหลว — กันบัญชีเดโมถูกล็อก)
+ */
+async function freshCode(): Promise<string> {
+  for (;;) {
+    const now = Math.floor(Date.now() / 30000);
+    // ช่วง 2 วินาทีสุดท้ายไม่ใช้ step ปัจจุบัน (อาจหลุดหน้าต่างระหว่างส่ง) — ใช้ step ถัดไปแทน
+    const late = Date.now() % 30000 > 28_000;
+    const step = [now, now + 1].find((x) => x > usedStep && !(late && x === now));
+    if (step !== undefined) {
+      usedStep = step;
+      return totpAt(DEMO_TOTP_SECRET, step);
+    }
+    await nextTotpStep();
+  }
+}
+
+/** รอจนข้ามช่วง 30 วินาทีถัดไปของ TOTP (รหัสที่ใช้แล้วใช้ซ้ำไม่ได้) — ยืดเวลาของ test ตามที่รอ */
+async function nextTotpStep(): Promise<void> {
+  test.info().setTimeout(test.info().timeout + 35_000);
+  const ms = 30_000 - (Date.now() % 30_000) + 500;
+  await new Promise((r) => setTimeout(r, ms));
 }

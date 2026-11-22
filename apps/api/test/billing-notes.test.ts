@@ -427,6 +427,13 @@ describe('billing notes (ST5-T11)', { timeout: 600_000 }, () => {
       .send({ reason: 'ลูกค้าขอแยกวางบิลตามสาขา' })
       .expect(403);
     expect(denied.body.requiredScope).toBe('invoices:finalize');
+    // D-67: ยกเลิกใบวางบิลที่ออกแล้วต้อง step-up 2FA (api() แนบให้ — ส่งค่าว่างทับ = ยังไม่ยืนยัน)
+    const noSu = await api(app, admin)
+      .post(`/v1/billing-notes/${id}/cancel`)
+      .set('X-Step-Up', '')
+      .send({ reason: 'ลูกค้าขอแยกวางบิลตามสาขา' })
+      .expect(403);
+    expect(noSu.body.code).toBe('step_up_required');
     const c = await api(app, admin)
       .post(`/v1/billing-notes/${id}/cancel`)
       .send({ reason: 'ลูกค้าขอแยกวางบิลตามสาขา' })
@@ -454,10 +461,11 @@ describe('billing notes (ST5-T11)', { timeout: 600_000 }, () => {
     expect(Number(iss2.body.billingNoteNo.slice(-4))).toBe(
       Number(iss.body.billingNoteNo.slice(-4)) + 1,
     );
-    // ยกเลิกร่างได้ด้วย invoices:draft
+    // ยกเลิกร่างได้ด้วย invoices:draft — ไม่ต้อง step-up (D-67 เฉพาะใบที่ออกแล้ว)
     const d3 = await create(drafter, [await issuedInvoice('10.00')]).expect(201);
     await api(app, drafter)
       .post(`/v1/billing-notes/${d3.body.id}/cancel`)
+      .set('X-Step-Up', '')
       .set('If-Match', '"1"')
       .send({ reason: 'สร้างผิดลูกค้า ยกเลิก' })
       .expect(200);

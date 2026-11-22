@@ -9,6 +9,7 @@ import type { MessageKey } from '../../i18n/th';
 import { SecretDialog } from '../api-keys/SecretDialog';
 import { HistoryTab } from '../master/HistoryTab';
 import { problemText } from '../master/problems';
+import { stepUpHeaders, withStepUp } from '../stepup/stepUp';
 import { MappingTable } from './Connectors';
 import { Radio } from './OrgSections';
 import { Toggle } from './Settings';
@@ -724,12 +725,16 @@ function MapTab({
   const ifMatch = { 'If-Match': `"${c.version}"` } as never;
   const done = () => void qc.invalidateQueries({ queryKey: ['connectors'] });
   const patch = useMutation({
+    // D-67 (review H1): แก้ค่าตั้ง (เช่น baseUrl) ต้องยืนยัน 2FA — API ตอบ step_up_required → กล่องยืนยัน
     mutationFn: (body: Schemas['UpdateConnectorDto']) =>
-      unwrap(
-        api.PATCH('/v1/connectors/{id}', {
-          params: { path: { id: c.id }, header: ifMatch },
-          body,
-        }),
+      withStepUp((su) =>
+        unwrap(
+          api.PATCH('/v1/connectors/{id}', {
+            params: { path: { id: c.id }, header: ifMatch },
+            headers: stepUpHeaders(su),
+            body,
+          }),
+        ),
       ),
     onSuccess: () => {
       setCapOn(null);
@@ -761,11 +766,15 @@ function MapTab({
   const inbound = useMutation({
     mutationFn: async ({ kind, reason }: { kind: 'rotate' | 'revoke'; reason: string }) => {
       if (kind === 'rotate') {
-        const r = await unwrap(
-          api.POST('/v1/connectors/{id}/inbound-token/rotate', {
-            params: { path: { id: c.id }, header: ifMatch },
-            body: { reason },
-          }),
+        // D-67: คำตอบมี token ของ URL ขาเข้า — ต้องยืนยัน 2FA
+        const r = await withStepUp((su) =>
+          unwrap(
+            api.POST('/v1/connectors/{id}/inbound-token/rotate', {
+              params: { path: { id: c.id }, header: ifMatch },
+              headers: stepUpHeaders(su),
+              body: { reason },
+            }),
+          ),
         );
         return r.url;
       }
@@ -1145,22 +1154,30 @@ function ConnectDialog({
       );
     try {
       if (rotate) {
-        await unwrap(
-          api.PUT('/v1/connectors/{id}/credentials', {
-            params: {
-              path: { id: rotate.id },
-              header: { 'If-Match': `"${rotate.version}"` } as never,
-            },
-            body: { credentials: pick(true), reason: reason.trim() },
-          }),
+        // D-67: ตั้ง/หมุน credential ต้องยืนยัน 2FA
+        await withStepUp((su) =>
+          unwrap(
+            api.PUT('/v1/connectors/{id}/credentials', {
+              params: {
+                path: { id: rotate.id },
+                header: { 'If-Match': `"${rotate.version}"` } as never,
+              },
+              headers: stepUpHeaders(su),
+              body: { credentials: pick(true), reason: reason.trim() },
+            }),
+          ),
         );
         onDone(t('cnx.toast.rotated', { n }));
         return;
       }
-      const c = await unwrap(
-        api.POST('/v1/connectors', {
-          body: { adapterKey: adapter.key, credentials: pick(true), settings: pick(false) },
-        }),
+      // D-67: สร้างพร้อม credential ต้องยืนยัน 2FA
+      const c = await withStepUp((su) =>
+        unwrap(
+          api.POST('/v1/connectors', {
+            headers: stepUpHeaders(su),
+            body: { adapterKey: adapter.key, credentials: pick(true), settings: pick(false) },
+          }),
+        ),
       );
       void qc.invalidateQueries({ queryKey: ['connectors'] });
       try {

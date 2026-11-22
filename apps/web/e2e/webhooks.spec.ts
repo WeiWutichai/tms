@@ -2,7 +2,7 @@ import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Page } from '@playwright/test';
-import { DEMO_EMAIL, expect, test } from './fixtures';
+import { confirmStepUp, DEMO_EMAIL, expect, test, withStepUp } from './fixtures';
 
 /**
  * E2E ST7-T04 ตั้งค่า → นักพัฒนา / Open API → Webhooks (ผ่าน API จริง ฐาน e2e)
@@ -76,6 +76,7 @@ test.describe.serial('นักพัฒนา / Open API → Webhooks', () => {
     await expect(d.getByText('รูปแบบต้องเป็น Name: value')).toBeVisible();
     await d.getByLabel('Header เพิ่มเติม').fill('X-Client-Id: srithai-erp');
     await d.getByRole('button', { name: 'เพิ่ม endpoint' }).click();
+    await confirmStepUp(page); // D-67 ผลมี signing secret
 
     const sec = page.getByRole('dialog', { name: 'เพิ่ม endpoint แล้ว' });
     await expect(sec.getByText(`${url} · 2 event`)).toBeVisible();
@@ -111,7 +112,7 @@ test.describe.serial('นักพัฒนา / Open API → Webhooks', () => {
           data: {},
         });
     const r = await page.request.post('/v1/webhooks', {
-      headers: auth,
+      headers: await withStepUp(page.request, auth), // D-67
       data: { url: `http://127.0.0.1:${port}/hook-${RUN}`, events: ['order.created'] },
     });
     expect(r.status(), await r.text()).toBe(201);
@@ -134,6 +135,7 @@ test.describe.serial('นักพัฒนา / Open API → Webhooks', () => {
     await row.click();
     const dr = page.getByRole('dialog');
     await dr.getByRole('button', { name: 'หมุน signing secret' }).click();
+    await confirmStepUp(page); // D-67
     const sec = page.getByRole('dialog', { name: 'Signing secret ใหม่' });
     await expect(sec.getByText('secret เดิมยังใช้ตรวจได้อีก 24 ชั่วโมง')).toBeVisible();
     const fresh = await sec.getByLabel('Signing secret').inputValue();

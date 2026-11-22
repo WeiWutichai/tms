@@ -5,6 +5,7 @@ import { api, unwrap } from '../../api';
 import { TH_MONTHS, useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { bangkokToday } from '../rate-cards/rateFormat';
+import { StepUpCancelled } from '../stepup/stepUp';
 import {
   runAccountantExport,
   xpPeriodTag,
@@ -115,9 +116,9 @@ export function AccountantExportDialog({
       else if (r.queued || r.notCreated) onToast(t('export.queued'));
       else
         onToast(t(r.done > 1 ? 'xp.doneMany' : 'xp.done', { n: r.done, f: t('xp.fmt.generic') }));
-    } catch {
+    } catch (e) {
       setBusy(false);
-      onToast(t('export.failed'));
+      if (!(e instanceof StepUpCancelled)) onToast(t('export.failed')); // ยกเลิกกล่อง 2FA = ไม่ใช่ข้อผิดพลาด
     }
   };
 

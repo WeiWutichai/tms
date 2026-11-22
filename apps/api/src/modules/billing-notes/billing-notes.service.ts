@@ -9,6 +9,7 @@ import { encodeId, tryDecodeId } from '../../common/ids';
 import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
+import { assertHumanStepUp } from '../../auth/step-up';
 import { DbService, type Tx } from '../../db/db.service';
 import { InvoiceStatusService } from '../invoices/invoice-status.service';
 import { JobQueue } from '../../jobs/job-queue.service';
@@ -528,6 +529,8 @@ export class BillingNotesService implements OnModuleInit {
       throw new ProblemException('permission_denied', undefined, undefined, {
         requiredScope: 'invoices:finalize',
       });
+    // D-67: ยกเลิกใบที่ออกแล้ว (มีเลข) ต้อง step-up 2FA สำหรับผู้ใช้ — ร่างไม่ต้อง · API key ตาม scope
+    if (bn.status === 'ISSUED') assertHumanStepUp();
     // ST5-T18 ใบวางบิลที่ออกแล้ว → ล้างธง "ส่งลูกค้าแล้ว" ที่ตั้งตอนออกใบวางบิลนี้ (ก่อนปิดลิงก์)
     const linked =
       bn.status === 'ISSUED'
