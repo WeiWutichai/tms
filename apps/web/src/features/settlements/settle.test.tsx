@@ -40,8 +40,16 @@ vi.mock('./useSettlements', async (orig) => {
     },
   };
 });
-const { TAB_STATUS, deductTotal, actionErrorText, amountRows, canRelinkStatus, viewOnlyLink } =
-  await import('./settle');
+const {
+  TAB_STATUS,
+  statusForTab,
+  listStatus,
+  deductTotal,
+  actionErrorText,
+  amountRows,
+  canRelinkStatus,
+  viewOnlyLink,
+} = await import('./settle');
 const { MarkPaidDialog } = await import('./MarkPaidDialog');
 const { ApproveDialog } = await import('./ApproveDialog');
 const { SettlementDrawer } = await import('./SettlementDrawer');
@@ -95,6 +103,16 @@ describe('settle helpers', () => {
       ok: 'APPROVED',
       paid: 'PAID',
     });
+  });
+  it('ST9-T03 สถานะที่ส่ง server = แท็บ ∩ ตัวกรองสถานะ · เปลี่ยนแท็บล้างตัวกรองสถานะที่ไม่อยู่ในแท็บใหม่ (L1)', () => {
+    expect(listStatus('chk', 'DISPUTED')).toBe('DISPUTED');
+    expect(listStatus('chk', 'PAID')).toBeNull();
+    expect(listStatus('all', 'PAID')).toBe('PAID');
+    expect(listStatus('appr', '')).toBe('SENT_TO_CARRIER');
+    expect(statusForTab('chk', 'DISPUTED')).toBe('DISPUTED');
+    expect(statusForTab('paid', 'DISPUTED')).toBe('');
+    expect(statusForTab('all', 'DISPUTED')).toBe('DISPUTED');
+    expect(statusForTab('ok', '')).toBe('');
   });
   it('คอลัมน์ "หัก" = หัก ณ ที่จ่าย + รายการหัก (สตางค์ ไม่มีเศษลอย) · ไม่มีสิทธิ์ราคา = ไม่มียอด', () => {
     expect(deductTotal({ buyWhtAmount: '80.10', buyDeductionAmount: '1000.20' })).toBe('1080.30');

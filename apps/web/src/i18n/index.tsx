@@ -120,6 +120,17 @@ export function formatDate(d: Date, lang: Lang, yearStyle: 'BE' | 'CE' = 'BE'): 
   }).format(d);
 }
 
+/** เดือนสั้น: "พ.ย. 2569" — `month` = YYYY-MM (ST9-T05 รายงานรายได้) */
+export function formatMonth(month: string, lang: Lang, yearStyle: 'BE' | 'CE' = 'BE'): string {
+  const y = Number(month.slice(0, 4));
+  const m = Number(month.slice(5, 7)) - 1;
+  if (lang === 'th') return `${TH_MONTHS[m]} ${y + (yearStyle === 'BE' ? 543 : 0)}`;
+  return new Intl.DateTimeFormat(lang === 'zh' ? 'zh-CN' : 'en-GB', {
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(y, m, 1));
+}
+
 /** วันเวลาแบบ caption: "3 พ.ย. 2569 09:42" */
 export function formatDateTime(iso: string, lang: Lang, yearStyle: 'BE' | 'CE' = 'BE'): string {
   const d = new Date(iso);

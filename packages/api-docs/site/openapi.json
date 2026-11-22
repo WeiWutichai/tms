@@ -38348,6 +38348,170 @@
         ]
       }
     },
+    "/v1/reports/revenue": {
+      "get": {
+        "description": "รายได้จาก**บรรทัดใบแจ้งหนี้ที่ออกเลขแล้ว** (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — ไม่รวมร่างและใบที่ยกเลิก/void) ตามวันที่ออกใบ (เวลาไทย) ในช่วง `fromMonth`–`toMonth` จัดกลุ่มตาม `groupBy` (ลูกค้า / เส้นทาง / รถ / ประเภทรถ / นิติบุคคล / เดือน) · รายได้ = Σ ยอดบรรทัดหลังส่วนลด **ก่อน VAT** · Σ แถว = `sellAmount` รวม ทุกมิติ · บรรทัดที่ไม่ผูก DO / DO ที่ไม่มีเที่ยวหรือรถ อยู่แถว \"ไม่ระบุ\" (`id: none`) · `sell*` เห็นเมื่อมี `prices.sell:read` (ไม่มี = เห็นจำนวน) · ส่งออก: `POST /v1/exports` resource `revenue` (xlsx / csv / pdf) · แพ็กเกจต้องมีโมดูลรายงาน (`report`)",
+        "operationId": "Reports_revenueReport",
+        "parameters": [
+          {
+            "name": "groupBy",
+            "required": false,
+            "in": "query",
+            "description": "จัดกลุ่มตาม: `customer` ลูกค้า · `route` เส้นทาง (ต้นทาง – ปลายทางของ DO) · `vehicle` รถ · `vehicleType` ประเภทรถ · `legalEntity` นิติบุคคลผู้ออกใบ · `month` เดือนที่ออกใบ",
+            "schema": {
+              "default": "customer",
+              "type": "string",
+              "enum": [
+                "customer",
+                "route",
+                "vehicle",
+                "vehicleType",
+                "legalEntity",
+                "month"
+              ]
+            }
+          },
+          {
+            "name": "fromMonth",
+            "required": false,
+            "in": "query",
+            "description": "เดือนแรก (YYYY-MM ตามวันที่ออกใบ เวลาไทย) — ไม่ส่ง = เท่ากับ `toMonth` · ช่วงยาวสุด 24 เดือน",
+            "schema": {
+              "example": "2026-11",
+              "type": "string"
+            }
+          },
+          {
+            "name": "toMonth",
+            "required": false,
+            "in": "query",
+            "description": "เดือนสุดท้าย (YYYY-MM รวมเดือนนี้) — ไม่ส่ง = เดือนปัจจุบัน (เวลาไทย)",
+            "schema": {
+              "example": "2026-11",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevenueReportDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`reports.finance:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "reports.finance",
+                      "action": "read",
+                      "required": [
+                        "reports.finance:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "รายงานรายได้",
+        "tags": [
+          "reports"
+        ],
+        "x-required-scopes": [
+          "reports.finance:read"
+        ]
+      }
+    },
     "/v1/reports/unbilled-delivery-orders": {
       "get": {
         "description": "DO ที่ส่งถึงแล้ว (DELIVERED / POD_PENDING / UNBILLED) และ**ยังไม่อยู่ในใบแจ้งหนี้ใด** ที่ **วันนี้ − วันที่ส่งถึง > N** (เวลาไทย) · วันที่ส่งถึง = เวลาบันทึกสถานะส่งถึงครั้งล่าสุด (ไม่มีประวัติ = วันที่ DO) · N = `minDays` หรือค่าตั้งองค์กร `billing.unbilledAlertDays` (ค่าเริ่ม 7) · เรียงส่งถึงเก่าสุดก่อน cursor (วันที่ส่งถึง, id) · มูลค่า = Σ บรรทัดรายได้ที่ยังใช้ (ก่อน VAT) — `sell*` เห็นเมื่อมี `prices.sell:read` · ส่งออก: `POST /v1/exports` resource `unbilled-delivery-orders`",
@@ -58814,6 +58978,7 @@
               "reason-codes",
               "unbilled-delivery-orders",
               "receivables-aging",
+              "revenue",
               "accounting-sales",
               "accounting-receipts",
               "accounting-settlements"
@@ -58824,10 +58989,11 @@
             "type": "string",
             "enum": [
               "xlsx",
-              "csv"
+              "csv",
+              "pdf"
             ],
             "default": "xlsx",
-            "description": ".xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ.csv UTF-8 + BOM"
+            "description": ".xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ.csv UTF-8 + BOM · `pdf` (ตาราง A4 ≤ 2,000 แถว) เฉพาะรายงานสรุป — resource `revenue` (อื่น ๆ = 422)"
           },
           "filter": {
             "type": "object",
@@ -62862,6 +63028,7 @@
               "reason-codes",
               "unbilled-delivery-orders",
               "receivables-aging",
+              "revenue",
               "accounting-sales",
               "accounting-receipts",
               "accounting-settlements"
@@ -62871,7 +63038,8 @@
             "type": "string",
             "enum": [
               "xlsx",
-              "csv"
+              "csv",
+              "pdf"
             ]
           },
           "filter": {
@@ -69779,6 +69947,135 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "RevenueReportDto": {
+        "type": "object",
+        "properties": {
+          "groupBy": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "route",
+              "vehicle",
+              "vehicleType",
+              "legalEntity",
+              "month"
+            ]
+          },
+          "fromMonth": {
+            "type": "string",
+            "example": "2026-11"
+          },
+          "toMonth": {
+            "type": "string",
+            "example": "2026-11"
+          },
+          "from": {
+            "type": "string",
+            "example": "2026-11-01",
+            "description": "วันที่ออกใบตั้งแต่ (เวลาไทย)"
+          },
+          "to": {
+            "type": "string",
+            "example": "2026-11-30",
+            "description": "วันที่ออกใบถึง (รวม)"
+          },
+          "asOf": {
+            "type": "string",
+            "example": "2026-11-22",
+            "description": "วันที่คำนวณ (วันนี้ เวลาไทย)"
+          },
+          "invoiceCount": {
+            "type": "number",
+            "description": "จำนวนใบแจ้งหนี้ที่ออกในช่วง (ไม่รวมร่าง/ยกเลิก)"
+          },
+          "deliveryOrderCount": {
+            "type": "number",
+            "description": "จำนวน DO ทั้งหมดที่มีบรรทัดในช่วง"
+          },
+          "lineCount": {
+            "type": "number",
+            "description": "จำนวนบรรทัดทั้งหมด"
+          },
+          "sellAmount": {
+            "type": "string",
+            "example": "480000.00",
+            "description": "รายได้รวมทั้งช่วง (ก่อน VAT) = Σ `sellAmount` ของทุกแถวในทุกมิติ = Σ ยอดก่อน VAT ของใบที่ออกในช่วง — `prices.sell:read`"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RevenueRowDto"
+            }
+          }
+        },
+        "required": [
+          "groupBy",
+          "fromMonth",
+          "toMonth",
+          "from",
+          "to",
+          "asOf",
+          "invoiceCount",
+          "deliveryOrderCount",
+          "lineCount",
+          "data"
+        ]
+      },
+      "RevenueRowDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cus_…",
+            "description": "คีย์ของแถว (คงที่ — ใช้อ้างอิง/ส่งออก): customer = id ลูกค้า · legalEntity = id นิติบุคคล (`cmp_`) · month = YYYY-MM · route = `{loc_ต้นทาง}>{loc_ปลายทาง}` · vehicle = id รถ หรือ `plate:{ทะเบียน}` (รถที่ไม่มีในทะเบียน) · vehicleType = id ประเภทรถ หรือ `name:{ชื่อ}` · แถวไม่ระบุ = `none`"
+          },
+          "label": {
+            "type": "string",
+            "nullable": true,
+            "description": "ชื่อที่แสดง — ลูกค้า/นิติบุคคล = ชื่อ ณ วันออกใบล่าสุดในช่วง (snapshot) · เส้นทาง = \"ต้นทาง – ปลายทาง\" (แยกใน `originName`/`destinationName`) · รถ = ทะเบียน ณ วันจ่ายงาน · ประเภทรถ = ชื่อ ณ วันจ่ายงาน · เดือน = YYYY-MM · null = ไม่ระบุ (บรรทัดไม่ผูก DO / DO ไม่มีเที่ยวหรือรถ)"
+          },
+          "detail": {
+            "type": "string",
+            "nullable": true,
+            "description": "รหัสประกอบ — ลูกค้า: รหัสลูกค้า · นิติบุคคล: เลขผู้เสียภาษี · ประเภทรถ: รหัสประเภท · รถ: ประเภทรถ · อื่น ๆ null"
+          },
+          "originName": {
+            "type": "string",
+            "nullable": true,
+            "description": "เฉพาะ `groupBy=route`: ชื่อจุดต้นทาง (ข้อมูลหลักปัจจุบัน) · ไม่ระบุ = null"
+          },
+          "destinationName": {
+            "type": "string",
+            "nullable": true,
+            "description": "เฉพาะ `groupBy=route`: ชื่อจุดปลายทาง · ไม่ระบุ = null"
+          },
+          "invoiceCount": {
+            "type": "number",
+            "description": "จำนวนใบแจ้งหนี้ที่มีบรรทัดในแถวนี้ (ใบเดียวอาจอยู่หลายแถว — รวมไม่ได้)"
+          },
+          "deliveryOrderCount": {
+            "type": "number",
+            "description": "จำนวน DO ที่มีบรรทัดในแถวนี้"
+          },
+          "lineCount": {
+            "type": "number",
+            "description": "จำนวนบรรทัดใบแจ้งหนี้"
+          },
+          "sellAmount": {
+            "type": "string",
+            "example": "125000.00",
+            "description": "รายได้ = Σ ยอดบรรทัด (หลังส่วนลด **ก่อน VAT**) — `prices.sell:read`"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "detail",
+          "invoiceCount",
+          "deliveryOrderCount",
+          "lineCount"
         ]
       },
       "RevertDeliveryDto": {
