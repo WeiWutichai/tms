@@ -24,6 +24,17 @@ export const RETENTION_MAX = {
   gpsLogDays: 3650,
 } as const;
 
+/**
+ * ST9-T15 (D-54; docs/04 J "เอกสารภาษี ≥ 5 ปี … retention default 7 ปี (เผื่อขยาย)"; research/thai-tax-docs-research.md ข้อ 6 [FACT] ม.87/3)
+ * เอกสารที่ออกเลขแล้วของ TMS (ใบแจ้งหนี้ ใบวางบิล ใบสำคัญจ่ายรถร่วม รับชำระ) + PDF ที่เก็บ ณ วันออก
+ * ค่าตั้ง `retention.financeDocumentYears`: ขั้นต่ำ 5 ปี · ค่าเริ่ม 7 ปี · **ไม่มี job ใดลบเอกสารกลุ่มนี้** (ฐานข้อมูลปฏิเสธ DELETE — migration 0160)
+ * ค่านี้คือระยะที่งานลบ/archive ในอนาคต (เช่น หลัง tenant ยกเลิก — P1) ต้องเคารพ ไม่ใช่ตัวสั่งลบ
+ */
+export const FINANCE_DOCUMENT_RETENTION = { minYears: 5, defaultYears: 7, maxYears: 20 } as const;
+
+/** entity_type ของ stored_document (kind PDF) ที่เป็น PDF ณ วันออกของเอกสารการเงิน — ฐานข้อมูลกันแก้/ลบ/PURGED (trigger `stored_document_guard`, migration 0160) */
+export const FINANCE_PDF_ENTITY_TYPES = ['invoice', 'billing_note', 'carrier_settlement'] as const;
+
 /** [DECISION ST9-T10] ไฟล์ส่งออกดาวน์โหลดได้ 7 วัน แล้วลบไฟล์ — ไม่ใช่ค่าตั้งของ tenant (exports.service ใช้ค่าเดียวกัน) */
 export const EXPORT_RETENTION_DAYS = 7;
 

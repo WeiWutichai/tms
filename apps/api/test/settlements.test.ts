@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaClient } from '@prisma/client';
 import { SYSTEM_ROLES } from '@tms/domain';
@@ -2507,6 +2507,117 @@ describe('settlements (ST6-T03)', () => {
       expect(paid.model.payer.name).toMatch(/^บริษัท ผู้ออกบิล/);
       expect(paid.model.payer.branchCode).toBe('00000');
     }, 120_000);
+
+    it('ST9-T15 เกณฑ์ตรวจรับ: PDF ใบสำคัญจ่ายที่มีเลขแล้ว เก็บครั้งแรกที่ขอ — hash ไม่เปลี่ยนหลังแก้ template · ฉบับอนุมัติ/จ่ายแล้วแยกกัน · ร่างไม่เก็บ · ลบ/แก้ใบและไฟล์ไม่ได้ทุก role', async () => {
+      const { C, trips } = await setup(1, '4500');
+      const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
+        .body;
+      const sid = uuid('settlement', s.id);
+      const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
+      const renderer = app.get(PdfRenderer);
+      const stored = () =>
+        db.storedDocument.findMany({
+          where: { entityType: 'carrier_settlement', entityId: sid, kind: 'PDF' },
+          orderBy: { createdAt: 'asc' },
+        });
+      const get = async () => {
+        const r = await pdfOf(s.id);
+        expect(r.status, String(r.body)).toBe(200);
+        return sha(r.body as Buffer);
+      };
+      // ร่าง: render ตามคำขอ ไม่เก็บไฟล์
+      await get();
+      expect(await stored()).toEqual([]);
+
+      await approve(s.id);
+      // review M2: ขอครั้งแรกพร้อมกัน 2 คำขอ → เก็บแถวเดียว ได้เนื้อเดียวกัน
+      const [c1, c2] = await Promise.all([pdfOf(s.id), pdfOf(s.id)]);
+      expect([c1.status, c2.status]).toEqual([200, 200]);
+      expect(sha(c1.body as Buffer)).toBe(sha(c2.body as Buffer));
+      expect(c1.headers['x-content-sha256']).toBe(sha(c1.body as Buffer));
+      const approved = await get();
+      expect(approved).toBe(sha(c1.body as Buffer));
+      const rows1 = await stored();
+      expect(rows1).toHaveLength(1);
+      expect(rows1[0]).toMatchObject({
+        status: 'READY',
+        sha256: approved,
+        metadata: { document: 'SETTLEMENT_VOUCHER', variant: 'APPROVED' },
+      });
+      // แก้แม่แบบ (ผลลัพธ์ของตัว render เปลี่ยน) + ข้อมูลอ้างอิงเปลี่ยน → ได้ไฟล์เดิม ไม่ render ใหม่
+      const spy = vi
+        .spyOn(renderer, 'pdf')
+        .mockResolvedValue(Buffer.from('%PDF-1.7 new voucher template'));
+      try {
+        expect(await get()).toBe(approved);
+        expect(await get()).toBe(approved);
+        expect(spy).not.toHaveBeenCalled();
+      } finally {
+        spy.mockRestore();
+      }
+      expect(await stored()).toEqual(rows1);
+
+      // จ่ายแล้ว = ฉบับใหม่ (มีข้อมูลการจ่าย) เก็บแยก · ฉบับอนุมัติคงอยู่
+      expect((await pay(s.id)).status).toBe(200);
+      const paid = await get();
+      expect(paid).not.toBe(approved);
+      const spy2 = vi
+        .spyOn(renderer, 'pdf')
+        .mockResolvedValue(Buffer.from('%PDF-1.7 new voucher template'));
+      try {
+        expect(await get()).toBe(paid);
+        expect(spy2).not.toHaveBeenCalled();
+      } finally {
+        spy2.mockRestore();
+      }
+      const rows2 = await stored();
+      expect(rows2.map((d) => [(d.metadata as { variant: string }).variant, d.sha256])).toEqual([
+        ['APPROVED', approved],
+        ['PAID', paid],
+      ]);
+      expect(rows2[0]).toEqual(rows1[0]);
+      expect(
+        await db.auditLog.count({
+          where: { tenantId, entityId: sid, action: 'settlement.pdf_stored' },
+        }),
+      ).toBe(2);
+
+      // ฐานข้อมูล: ลบใบ/บรรทัด/ไฟล์ไม่ได้ (role platform + เจ้าของตาราง) · แก้ไฟล์ที่เก็บไม่ได้ · ใบ PAID แก้ไม่ได้
+      const owner = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
+      try {
+        for (const c of [db, owner]) {
+          for (const sql of [
+            `DELETE FROM settlement_line WHERE settlement_id = '${sid}'`,
+            `DELETE FROM carrier_settlement WHERE id = '${sid}'`,
+            `DELETE FROM stored_document WHERE entity_id = '${sid}'`,
+          ])
+            await expect(c.$executeRawUnsafe(sql), sql).rejects.toThrow(
+              /permission denied|_no_delete|cannot be deleted/,
+            );
+          await expect(
+            c.$executeRawUnsafe(
+              `UPDATE stored_document SET sha256 = '${'0'.repeat(64)}' WHERE entity_id = '${sid}'`,
+            ),
+          ).rejects.toThrow(/stored_document_(content|financial)_immutable|write-once|immutable/);
+          await expect(
+            c.$executeRawUnsafe(
+              `UPDATE stored_document SET status = 'PURGED', purged_at = now() WHERE entity_id = '${sid}'`,
+            ),
+          ).rejects.toThrow(/stored_document_financial_immutable|immutable/);
+          await expect(
+            c.$executeRawUnsafe(`UPDATE carrier_settlement SET note = 'x' WHERE id = '${sid}'`),
+          ).rejects.toThrow(/carrier_settlement_terminal|terminal/);
+          await expect(
+            c.$executeRawUnsafe(
+              `UPDATE settlement_line SET description = 'x' WHERE settlement_id = '${sid}'`,
+            ),
+          ).rejects.toThrow(/settlement_line/);
+        }
+      } finally {
+        await owner.$disconnect();
+      }
+      expect(await stored()).toEqual(rows2);
+    }, 180_000);
 
     it('ST6-T04 สิทธิ์: ไม่มี prices.buy:read → 403 · ไม่มี settlements:read → 403 · บริษัทอื่น 404 · ใบยกเลิก 409', async () => {
       const { C, trips } = await setup(1, '1000');
