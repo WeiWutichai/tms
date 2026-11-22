@@ -70,7 +70,7 @@ export const EVENT_CATALOGUE: Record<NotificationEvent, EventDefinition> = {
     defaults: { in_app: true, email: true },
     pending: null,
   },
-  // ST9-T06 DO ส่งถึงแล้วยังไม่วางบิลเกิน N วัน (`billing.unbilledAlertDays`) → ผู้วางบิล (`invoices:draft`) — สรุปรายวัน 08:00 เมื่อมี DO เพิ่งเกินเกณฑ์
+  // ST9-T06 DO ส่งถึงแล้วยังไม่วางบิลเกิน N วัน (`billing.unbilledAlertDays`) → ผู้วางบิล (`invoices:draft`) — สรุปทุกเช้า 08:00 ที่ยังมีใบค้าง (D-71 — เพิ่งเกินวันนี้ / ค้างทั้งหมด / ร่างค้างเกิน N วัน)
   'delivery_order.unbilled': {
     templates: ['delivery_order.unbilled'],
     defaults: { in_app: true, email: true },

@@ -17,6 +17,7 @@ import {
   useAgingByCustomer,
   useRevenueReport,
   useUnbilledDays,
+  UNBILLED_QUERY,
   useUnbilledReport,
   type RevenueGroupBy,
 } from './useReports';
@@ -80,7 +81,8 @@ const TH: CSSProperties = {
  * - รายได้ 6 แท็บ (ST9-T05): ต่อลูกค้า / เส้นทาง / รถ / ประเภทรถ / นิติบุคคล / รายเดือน จาก `GET /v1/reports/revenue`
  *   (บรรทัดใบแจ้งหนี้ที่ออกแล้ว ก่อน VAT) + แถวรวม · "งวด" ขวาของแถบแท็บเลือกเดือนได้ (`?month=`)
  * - ลูกหนี้คงค้าง (`ar`): ลูกค้า × ช่วงอายุ + รวม จาก `GET /payments/aging` (ST5-T22 ตัวเดียวกับหน้ารับชำระ) เรียงยอดมากไปน้อย
- * - DO ยังไม่วางบิลเกิน N วัน: แท็บเพิ่ม (ต้นแบบไม่มี — docs/04 H) ใช้หน้าตาตารางเดียวกัน
+ * - DO ยังไม่วางบิลเกิน N วัน: แท็บเพิ่ม (ต้นแบบไม่มี — docs/04 H) ใช้หน้าตาตารางเดียวกัน · รวม DO ในร่างใบแจ้งหนี้ค้างเกิน N วัน
+ *   (D-71 — คอลัมน์ "ร่างใบแจ้งหนี้")
  * - "ส่งออก Excel" = งานส่งออก (`POST /v1/exports`) ของแท็บที่เปิด · "ตั้งเวลาส่งรายงาน" = P1 (ปิดไว้)
  */
 export function ReportPage() {
@@ -240,6 +242,8 @@ export function ReportPage() {
       { l: t('rpt.col.delivered') },
       { l: t('rpt.col.age'), r: true },
       { l: t('rpt.col.status') },
+      // D-71 ธง "ร่างค้างเกิน N วัน" — ต้นแบบไม่มีคอลัมน์นี้ ใช้รูปแบบเซลล์เดียวกับ "ค้างวางบิล" — หน้าตาคอลัมน์ [OPEN — Claude Design] (spec/12 §3 แถว ST9-T06 ข้อ 17)
+      { l: t('rpt.col.draft') },
       ...(sell ? [{ l: t('rpt.col.amount'), r: true }] : []),
     ];
     rows = (unbilled.data?.data ?? []).map((x) => ({
@@ -251,6 +255,9 @@ export function ReportPage() {
         { v: dateText(x.deliveredOn) },
         { v: t('rpt.days', { n: x.daysSinceDelivery }), r: true, fw: 600, c: '#8F5500' },
         { v: t(`do.st.${x.status}` as MessageKey) },
+        x.draftInvoice
+          ? { v: t('rpt.draftAge', { n: x.draftInvoice.ageDays }), fw: 600, c: '#8F5500' }
+          : { v: '—', c: '#59606B' },
         ...(sell ? [{ v: money(x.sellAmount), mono: true, r: true }] : []),
       ],
     }));
@@ -260,7 +267,11 @@ export function ReportPage() {
 
   const doExport = () => {
     setBusy(true);
-    void (isRev(tab) ? exportList('revenue', revQ, 'xlsx') : exportList(RESOURCE[tab], {}, 'xlsx'))
+    void (
+      isRev(tab)
+        ? exportList('revenue', revQ, 'xlsx')
+        : exportList(RESOURCE[tab], tab === 'unbilled' ? UNBILLED_QUERY : {}, 'xlsx')
+    )
       .then(
         () => setToast(t('rpt.exported')),
         (e) => setToast(exportFailText(t, e, t('export.failed'))),
