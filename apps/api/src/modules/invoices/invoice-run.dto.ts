@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean, IsIn, IsOptional, Matches } from 'class-validator';
+import { MAX_DOS_PER_INVOICE } from './billing-limits';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -12,8 +13,8 @@ export class CreateInvoiceRunDto {
   @ApiProperty({
     enum: INVOICE_RUN_CYCLES,
     description:
-      'รอบวางบิลของลูกค้าที่เข้ารอบนี้ (`customer.billingCycle`) · `MANUAL` ไม่เข้ารอบ · ' +
-      '`MONTHLY`/`WEEKLY` = 1 ร่างต่อลูกค้า (เกิน 200 DO แบ่งเป็นหลายร่าง) · `PER_DO` = 1 ร่างต่อ DO',
+      'รอบวางบิลของลูกค้าที่เข้ารอบนี้ (`customer.billingCycle`) · `MANUAL` และลูกค้าที่ปิดใช้ (`INACTIVE`) ไม่เข้ารอบ · ' +
+      `\`MONTHLY\`/\`WEEKLY\` = **ใบแจ้งหนี้ใบเดียวต่อลูกค้าต่อรอบ** (เกิน ${MAX_DOS_PER_INVOICE} DO จึงแบ่งเป็นหลายร่าง + \`splitByCap\`) · \`PER_DO\` = 1 ร่างต่อ DO`,
   })
   @IsIn(INVOICE_RUN_CYCLES)
   billingCycle!: InvoiceRunCycle;
@@ -38,7 +39,8 @@ export class CreateInvoiceRunDto {
   @ApiPropertyOptional({
     description:
       'สร้างร่างใบวางบิลอัตโนมัติ (docs/04 F2) จากใบแจ้งหนี้ที่ออกแล้วยังค้างและยังไม่อยู่ในใบวางบิลที่ active ' +
-      'ของลูกค้าในรอบนี้ (1 ร่างต่อผู้ออก/สาขาผู้ออก) · ไม่ส่ง = true',
+      'ของลูกค้าในรอบนี้ **เฉพาะใบของงวดนี้**: งวดของใบ (`periodFrom`–`periodTo`) อยู่ในงวดของรอบทั้งช่วง · ' +
+      'ใบที่ไม่มีงวดใช้วันที่ออก (`issueDate`) อยู่ในงวดของรอบ (1 ร่างต่อผู้ออก/สาขาผู้ออก) · ไม่ส่ง = true',
   })
   @IsOptional()
   @IsBoolean()
@@ -90,6 +92,10 @@ export class InvoiceRunCustomerResultDto {
   @ApiProperty({ example: '/v1/invoices?customerId=cus_…&status=DRAFT' })
   invoicesListUrl!: string;
   @ApiProperty({ type: [InvoiceRunDocRefDto] }) billingNotes!: InvoiceRunDocRefDto[];
+  @ApiProperty({
+    description: `true = DO ของลูกค้าในงวดเกินเพดาน ${MAX_DOS_PER_INVOICE} ใบต่อใบแจ้งหนี้ จึงแบ่งเป็นหลายร่าง (ปกติ 1 ร่างต่อลูกค้าต่อรอบ)`,
+  })
+  splitByCap!: boolean;
   @ApiProperty({ description: 'จำนวน DO ที่ข้าม (ทั้งหมด)' }) skippedCount!: number;
   @ApiProperty({
     type: [InvoiceRunSkippedDoDto],
@@ -108,6 +114,15 @@ export class InvoiceRunCustomerResultDto {
   problem!: Record<string, unknown> | null;
 }
 
+/** ไฟล์สรุปรอบ (.xlsx) — ดาวน์โหลดที่ `url` (`GET /v1/exports/{jobId}` เฉพาะผู้สั่งที่มี `export:run`; ไฟล์ใช้ได้ 7 วัน) */
+export class InvoiceRunSummaryDto {
+  @ApiProperty({ example: '/v1/exports/job_3f2a…' }) url!: string;
+  @ApiProperty({ example: 'doc_…' }) documentId!: string;
+  @ApiProperty({ example: 'สรุปรอบวางบิล_2026-10-01_2026-10-31.xlsx' }) fileName!: string;
+  @ApiProperty({ description: 'จำนวนแถว (1 แถวต่อร่าง; ลูกค้าที่ไม่มีร่าง 1 แถว)' }) rows!: number;
+  @ApiProperty() bytes!: number;
+}
+
 export class InvoiceRunResultDto {
   @ApiProperty({ enum: INVOICE_RUN_CYCLES }) billingCycle!: string;
   @ApiProperty() periodFrom!: string;
@@ -116,5 +131,15 @@ export class InvoiceRunResultDto {
   @ApiProperty() invoicesCreated!: number;
   @ApiProperty() billingNotesCreated!: number;
   @ApiProperty({ description: 'จำนวนลูกค้าที่ PARTIAL/FAILED' }) failed!: number;
+  @ApiProperty({ example: MAX_DOS_PER_INVOICE, description: 'เพดาน DO ต่อใบแจ้งหนี้ที่รอบนี้ใช้' })
+  maxDeliveryOrdersPerInvoice!: number;
+  @ApiProperty({
+    nullable: true,
+    type: InvoiceRunSummaryDto,
+    description:
+      'ไฟล์สรุปรอบ .xlsx (ลูกค้า/ผล/ร่าง/จำนวน DO — **ยอดเงินเฉพาะผู้สั่งที่มี `prices.sell:read`**) · ผู้สั่งได้แจ้งเตือนพร้อมลิงก์ · ' +
+      'null = ไม่มีลูกค้าในรอบ / ผู้สั่งไม่มี `export:run` / สร้างไฟล์ไม่สำเร็จ (ร่างที่สร้างแล้วไม่กระทบ)',
+  })
+  summary!: InvoiceRunSummaryDto | null;
   @ApiProperty({ type: [InvoiceRunCustomerResultDto] }) results!: InvoiceRunCustomerResultDto[];
 }

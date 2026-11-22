@@ -43093,7 +43093,7 @@
     },
     "/v1/invoices/{id}/delivery-orders": {
       "post": {
-        "description": "กฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 `customer_mismatch` · audit `invoice.delivery_orders_added`",
+        "description": "กฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 `customer_mismatch` · DO บนร่างรวมกับที่เพิ่มเกิน 1000 ใบ → 422 `too_many` · audit `invoice.delivery_orders_added`",
         "operationId": "Invoices_addDos",
         "parameters": [
           {
@@ -43574,7 +43574,7 @@
     },
     "/v1/invoices/{id}/delivery-orders/move": {
       "post": {
-        "description": "ถอดจากร่างนี้แล้วดึงเข้าร่างปลายทางใน transaction เดียว (ตรวจความพร้อมซ้ำ — ไม่ผ่าน = ไม่ย้ายเลย) · ปลายทางไม่ใช่ร่าง → 409 · ลูกค้า/สาขาต่างกัน → 422 `customer_mismatch` · If-Match = version ของร่างต้นทาง · ETag ตอบกลับ = ต้นทาง · audit ทั้งสองใบ",
+        "description": "ถอดจากร่างนี้แล้วดึงเข้าร่างปลายทางใน transaction เดียว (ตรวจความพร้อมซ้ำ — ไม่ผ่าน = ไม่ย้ายเลย) · ปลายทางไม่ใช่ร่าง → 409 · ลูกค้า/สาขาต่างกัน → 422 `customer_mismatch` · DO บนร่างปลายทางรวมกับที่ย้ายเกิน 1000 ใบ → 422 `too_many` (ไม่ย้ายเลย) · If-Match = version ของร่างต้นทาง · ETag ตอบกลับ = ต้นทาง · audit ทั้งสองใบ",
         "operationId": "Invoices_moveDos",
         "parameters": [
           {
@@ -46281,7 +46281,7 @@
     },
     "/v1/invoice-runs": {
       "post": {
-        "description": "D-54 บัญชีเบา: ร่าง **ไม่มีเลข ไม่ใช่เอกสารภาษี** · ลูกค้าที่ `billingCycle` = รอบที่สั่ง (ไม่รวม `MANUAL`) ที่มี DO พร้อมวางบิล (กฎเดียวกับ `GET /invoices/queue` + เวลาจุดส่งครบ) วันที่ DO อยู่ในงวด → ร่างผ่านทางเดียวกับ `POST /invoices` (ตรวจซ้ำตอนดึง · กันวางบิลซ้ำระดับ DB · audit `invoice.draft_created`) · `MONTHLY`/`WEEKLY` = 1 ร่างต่อลูกค้า งวด = ที่สั่ง (เกิน 200 DO แบ่งหลายร่าง) · `PER_DO` = 1 ร่างต่อ DO · `billingNotes` (ค่าเริ่มต้น true) = ร่างใบวางบิลจากใบแจ้งหนี้ที่ออกแล้วยังค้าง และยังไม่อยู่ในใบวางบิลที่ active (1 ร่างต่อผู้ออก/สาขาผู้ออก) · **สั่งซ้ำไม่สร้างซ้ำ:** DO/ใบแจ้งหนี้ที่ถูกดึงแล้วไม่ถูกเลือกอีก · **ร่างละ transaction** (รวมการส่งบัญชีของ DO ในกลุ่ม) — กลุ่มที่ล้มย้อนทั้งกลุ่ม กลุ่ม/ลูกค้าอื่นไม่ล้มตาม · DO ที่ไม่ผ่านตอนดึง (ระบุตัวได้) ถูกข้าม (`skippedDeliveryOrders`) · ร่างลงชื่อผู้สั่งเป็นผู้สร้าง (กฎแบ่งหน้าที่ของ finalize ใช้เหมือนสร้างมือ) · 202 `{jobId, statusUrl}` → `GET /v1/jobs/{id}`: `progress` ต่อร่าง · `result` = `InvoiceRunResult` (ผลต่อลูกค้า SUCCEEDED/PARTIAL/FAILED/NOTHING_TO_BILL + ลิงก์ร่าง ≤ 50 ต่อลูกค้า — ไม่มียอดเงิน) · ไม่มีลูกค้า PARTIAL/FAILED = `succeeded`, มี = `succeeded_with_errors` · จบ = webhook `job.completed` · ผู้สั่งดู `statusUrl` ได้แม้ไม่มี `jobs:read` · job เก็บ 7 วัน · นับเป็นคำขอหนัก (rate limit ชั้น heavy)",
+        "description": "D-54 บัญชีเบา: ร่าง **ไม่มีเลข ไม่ใช่เอกสารภาษี** · ลูกค้าที่ `billingCycle` = รอบที่สั่ง (ไม่รวม `MANUAL` และลูกค้าที่ปิดใช้ `INACTIVE`) ที่มี DO พร้อมวางบิล (กฎเดียวกับ `GET /invoices/queue` + เวลาจุดส่งครบ) วันที่ DO อยู่ในงวด → ร่างผ่านทางเดียวกับ `POST /invoices` (ตรวจซ้ำตอนดึง · กันวางบิลซ้ำระดับ DB · audit `invoice.draft_created`) · `MONTHLY`/`WEEKLY` = **ใบแจ้งหนี้ใบเดียวต่อลูกค้าต่อรอบ** งวด = ที่สั่ง (เพดาน 1000 DO ต่อใบ — เกินจึงแบ่งหลายร่าง + `splitByCap`) · `PER_DO` = 1 ร่างต่อ DO · `billingNotes` (ค่าเริ่มต้น true) = ร่างใบวางบิลจากใบแจ้งหนี้ที่ออกแล้วยังค้าง และยังไม่อยู่ในใบวางบิลที่ active **เฉพาะใบของงวดนี้** (งวดของใบอยู่ในงวดของรอบทั้งช่วง; ใบที่ไม่มีงวดใช้วันที่ออก) (1 ร่างต่อผู้ออก/สาขาผู้ออก) · **สั่งซ้ำไม่สร้างซ้ำ:** DO/ใบแจ้งหนี้ที่ถูกดึงแล้วไม่ถูกเลือกอีก · **ร่างละ transaction** (รวมการส่งบัญชีของ DO ในกลุ่ม) — กลุ่มที่ล้มย้อนทั้งกลุ่ม กลุ่ม/ลูกค้าอื่นไม่ล้มตาม · DO ที่ไม่ผ่านตอนดึง (ระบุตัวได้) ถูกข้าม (`skippedDeliveryOrders`) · ร่างลงชื่อผู้สั่งเป็นผู้สร้าง (กฎแบ่งหน้าที่ของ finalize ใช้เหมือนสร้างมือ) · 202 `{jobId, statusUrl}` → `GET /v1/jobs/{id}`: `progress` ต่อร่าง · `result` = `InvoiceRunResult` (ผลต่อลูกค้า SUCCEEDED/PARTIAL/FAILED/NOTHING_TO_BILL + ลิงก์ร่าง ≤ 50 ต่อลูกค้า — ไม่มียอดเงิน) · ไม่มีลูกค้า PARTIAL/FAILED = `succeeded`, มี = `succeeded_with_errors` · จบ = webhook `job.completed` · **ไฟล์สรุปรอบ .xlsx** (`result.summary.url` = `GET /v1/exports/{jobId}` เฉพาะผู้สั่งที่มี `export:run`; ยอดเงินในไฟล์เฉพาะผู้สั่งที่มี `prices.sell:read`; ใช้ได้ 7 วัน; แจ้งเตือนผู้สั่งพร้อมลิงก์) · ไม่มีรอบอัตโนมัติตามเวลา (สั่งเองเท่านั้น) · ผู้สั่งดู `statusUrl` ได้แม้ไม่มี `jobs:read` · job เก็บ 7 วัน · นับเป็นคำขอหนัก (rate limit ชั้น heavy)",
         "operationId": "InvoiceRuns_create",
         "parameters": [
           {
@@ -68627,8 +68627,10 @@
               "revenue",
               "accounting-sales",
               "accounting-receipts",
-              "accounting-settlements"
-            ]
+              "accounting-settlements",
+              "invoice-run-summary"
+            ],
+            "description": "`invoice-run-summary` = ไฟล์สรุปรอบวางบิล (สร้างเองเมื่อ `POST /v1/invoice-runs` จบ — `id` = jobId ของรอบ; สั่งผ่าน `POST /exports` ไม่ได้)"
           },
           "format": {
             "type": "string",
@@ -89665,7 +89667,7 @@
             "example": [
               "do_…"
             ],
-            "description": "ใบส่งของ (≤ 200) ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง)",
+            "description": "ใบส่งของ (≤ 1000 ต่อใบแจ้งหนี้ — PO 22 พ.ย. 2569) ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง)",
             "type": "array",
             "items": {
               "type": "string"
@@ -90529,7 +90531,7 @@
             "example": [
               "do_…"
             ],
-            "description": "ใบส่งของ (≤ 200)",
+            "description": "ใบส่งของ (≤ 1000) · ร่างหนึ่งใบถือใบส่งของรวมได้ไม่เกิน 1000 ใบ (เพิ่มแล้วเกิน = 422 `too_many`)",
             "type": "array",
             "items": {
               "type": "string"
@@ -90547,7 +90549,7 @@
             "example": [
               "do_…"
             ],
-            "description": "ใบส่งของ (≤ 200)",
+            "description": "ใบส่งของ (≤ 1000) · ร่างหนึ่งใบถือใบส่งของรวมได้ไม่เกิน 1000 ใบ (เพิ่มแล้วเกิน = 422 `too_many`)",
             "type": "array",
             "items": {
               "type": "string"
@@ -90572,7 +90574,7 @@
             "example": [
               "do_…"
             ],
-            "description": "ใบส่งของ (≤ 200)",
+            "description": "ใบส่งของ (≤ 1000) · ร่างหนึ่งใบถือใบส่งของรวมได้ไม่เกิน 1000 ใบ (เพิ่มแล้วเกิน = 422 `too_many`)",
             "type": "array",
             "items": {
               "type": "string"
@@ -90918,6 +90920,37 @@
           "data"
         ]
       },
+      "InvoiceRunSummaryDto": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "example": "/v1/exports/job_3f2a…"
+          },
+          "documentId": {
+            "type": "string",
+            "example": "doc_…"
+          },
+          "fileName": {
+            "type": "string",
+            "example": "สรุปรอบวางบิล_2026-10-01_2026-10-31.xlsx"
+          },
+          "rows": {
+            "type": "number",
+            "description": "จำนวนแถว (1 แถวต่อร่าง; ลูกค้าที่ไม่มีร่าง 1 แถว)"
+          },
+          "bytes": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "url",
+          "documentId",
+          "fileName",
+          "rows",
+          "bytes"
+        ]
+      },
       "InvoiceRunDocRefDto": {
         "type": "object",
         "properties": {
@@ -91014,6 +91047,10 @@
               "$ref": "#/components/schemas/InvoiceRunDocRefDto"
             }
           },
+          "splitByCap": {
+            "type": "boolean",
+            "description": "true = DO ของลูกค้าในงวดเกินเพดาน 1000 ใบต่อใบแจ้งหนี้ จึงแบ่งเป็นหลายร่าง (ปกติ 1 ร่างต่อลูกค้าต่อรอบ)"
+          },
           "skippedCount": {
             "type": "number",
             "description": "จำนวน DO ที่ข้าม (ทั้งหมด)"
@@ -91045,6 +91082,7 @@
           "invoices",
           "invoicesListUrl",
           "billingNotes",
+          "splitByCap",
           "skippedCount",
           "skippedDeliveryOrders",
           "failedGroups",
@@ -91081,6 +91119,21 @@
             "type": "number",
             "description": "จำนวนลูกค้าที่ PARTIAL/FAILED"
           },
+          "maxDeliveryOrdersPerInvoice": {
+            "type": "number",
+            "example": 1000,
+            "description": "เพดาน DO ต่อใบแจ้งหนี้ที่รอบนี้ใช้"
+          },
+          "summary": {
+            "nullable": true,
+            "description": "ไฟล์สรุปรอบ .xlsx (ลูกค้า/ผล/ร่าง/จำนวน DO — **ยอดเงินเฉพาะผู้สั่งที่มี `prices.sell:read`**) · ผู้สั่งได้แจ้งเตือนพร้อมลิงก์ · null = ไม่มีลูกค้าในรอบ / ผู้สั่งไม่มี `export:run` / สร้างไฟล์ไม่สำเร็จ (ร่างที่สร้างแล้วไม่กระทบ)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InvoiceRunSummaryDto"
+              }
+            ]
+          },
           "results": {
             "type": "array",
             "items": {
@@ -91096,6 +91149,8 @@
           "invoicesCreated",
           "billingNotesCreated",
           "failed",
+          "maxDeliveryOrdersPerInvoice",
+          "summary",
           "results"
         ]
       },
@@ -91109,7 +91164,7 @@
               "WEEKLY",
               "MONTHLY"
             ],
-            "description": "รอบวางบิลของลูกค้าที่เข้ารอบนี้ (`customer.billingCycle`) · `MANUAL` ไม่เข้ารอบ · `MONTHLY`/`WEEKLY` = 1 ร่างต่อลูกค้า (เกิน 200 DO แบ่งเป็นหลายร่าง) · `PER_DO` = 1 ร่างต่อ DO"
+            "description": "รอบวางบิลของลูกค้าที่เข้ารอบนี้ (`customer.billingCycle`) · `MANUAL` และลูกค้าที่ปิดใช้ (`INACTIVE`) ไม่เข้ารอบ · `MONTHLY`/`WEEKLY` = **ใบแจ้งหนี้ใบเดียวต่อลูกค้าต่อรอบ** (เกิน 1000 DO จึงแบ่งเป็นหลายร่าง + `splitByCap`) · `PER_DO` = 1 ร่างต่อ DO"
           },
           "periodFrom": {
             "type": "string",
@@ -91127,7 +91182,7 @@
           },
           "billingNotes": {
             "type": "boolean",
-            "description": "สร้างร่างใบวางบิลอัตโนมัติ (docs/04 F2) จากใบแจ้งหนี้ที่ออกแล้วยังค้างและยังไม่อยู่ในใบวางบิลที่ active ของลูกค้าในรอบนี้ (1 ร่างต่อผู้ออก/สาขาผู้ออก) · ไม่ส่ง = true"
+            "description": "สร้างร่างใบวางบิลอัตโนมัติ (docs/04 F2) จากใบแจ้งหนี้ที่ออกแล้วยังค้างและยังไม่อยู่ในใบวางบิลที่ active ของลูกค้าในรอบนี้ **เฉพาะใบของงวดนี้**: งวดของใบ (`periodFrom`–`periodTo`) อยู่ในงวดของรอบทั้งช่วง · ใบที่ไม่มีงวดใช้วันที่ออก (`issueDate`) อยู่ในงวดของรอบ (1 ร่างต่อผู้ออก/สาขาผู้ออก) · ไม่ส่ง = true"
           }
         },
         "required": [
