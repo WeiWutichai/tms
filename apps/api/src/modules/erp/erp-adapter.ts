@@ -287,6 +287,9 @@ export interface ExternalDocumentPart {
   lineNos: readonly number[];
 }
 
+/** ST8-T09 เอกสาร 1 ใบในแผนของ adapter (`ErpAdapter.plannedDocuments`) — ยังไม่มีเลขฝั่ง ERP */
+export type PlannedDocumentPart = Pick<ExternalDocumentPart, 'ref' | 'group' | 'lineNos'>;
+
 export type HealthResult =
   | { ok: true; detail?: Record<string, unknown> }
   | { ok: false; errorClass: ErrorClass; problem: Problem };
@@ -531,6 +534,13 @@ export interface ErpAdapter {
    * ไม่มี = ERP เก็บ canonical ทั้งก้อน (เทียบตรง)
    */
   comparableDocument?(ctx: ErpContext, doc: CanonicalDocument): CanonicalDocument | null;
+  /**
+   * ST8-T09 (ไม่บังคับ — ฟังก์ชันบริสุทธิ์ ห้ามเรียกภายนอก/throw) เอกสารฝั่ง ERP ที่ adapter **จะสร้าง** จากเอกสารนี้ตามลำดับ
+   * (adapter ที่แยกเอกสาร TMS 1 ใบเป็นหลายเอกสาร — `PushResult.documents`) · `ctx` เตรียมแบบเดียวกับตอนส่ง (`masterCodes`)
+   * core ใช้ตรวจ `ref` ของเลขที่คนกรอกเองต่อใบ (คิว "กรอกเลขฝั่งระบบบัญชีเอง" — A.5 409) · null = เตรียมไม่ได้ (ข้อมูลไม่ครบ)
+   * ไม่มี = adapter สร้างเอกสารเดียวเสมอ
+   */
+  plannedDocuments?(ctx: ErpContext, doc: CanonicalDocument): readonly PlannedDocumentPart[] | null;
   fetchPaymentStatus?(ctx: ErpContext, ref: ExternalRef): Promise<PaymentStatus | null>;
   listDocuments?(
     ctx: ErpContext,
@@ -637,7 +647,12 @@ export function adapterShapeProblems(a: ErpAdapter): string[] {
     if (!caps.has(c)) out.push(`pending capability '${String(c)}' not declared in capabilities()`);
   // ST8-T10 ส่วนเสริมของการอ่านเอกสาร ใช้ได้เฉพาะ adapter ที่มี fetchDocument
   if (typeof a.fetchDocument !== 'function')
-    for (const m of ['fetchNeedsExternalId', 'documentsFromSyncLog', 'comparableDocument'] as const)
+    for (const m of [
+      'fetchNeedsExternalId',
+      'documentsFromSyncLog',
+      'comparableDocument',
+      'plannedDocuments',
+    ] as const)
       if (a[m] !== undefined) out.push(`${m} declared but fetchDocument() missing`);
   const kinds = a.masterCodeKinds ?? [];
   for (const k of kinds)

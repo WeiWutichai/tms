@@ -50,6 +50,7 @@ import {
   type ExternalDocumentPart,
   type ExternalRef,
   MAX_EXTERNAL_DOCUMENTS,
+  type PlannedDocumentPart,
   type PushResult,
 } from './erp-adapter';
 
@@ -369,6 +370,53 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         code: (c.code ?? c.errorClass ?? 'error').slice(0, 60),
       });
     });
+  }
+
+  /**
+   * ST8-T09 แผนเอกสารฝั่ง ERP ของเอกสารนี้ (`adapter.plannedDocuments`) — เตรียมแบบเดียวกับตอนส่ง (รหัสคู่ค้า ณ ตอนนี้ + ประตู mapping /
+   * ผังรหัส + ข้อมูลส่วนบุคคล) ใน transaction ของผู้เรียก (RLS ของ tenant) · ไม่ติดต่อ ERP
+   * ใช้ตรวจ `ref` ของเลขฝั่ง ERP ที่คนกรอกเองต่อใบ (คิว ST7-T19 — docs/01 A.5 409) ·
+   * `single` = adapter สร้างเอกสารเดียวเสมอ (ไม่มี hook) · `unavailable` = เตรียมไม่ได้ (ข้อมูล/ผังรหัสไม่ครบ — `code`)
+   */
+  async plannedDocuments(
+    tx: Tx,
+    connector: Connector,
+    operation: ErpOperation,
+    doc: CanonicalDocument | null,
+  ): Promise<
+    | { kind: 'single' }
+    | { kind: 'planned'; parts: readonly PlannedDocumentPart[] }
+    | { kind: 'unavailable'; code: string }
+  > {
+    const adapter = this.resolver.describe(connector, null, undefined, false).adapter;
+    if (!adapter) return { kind: 'unavailable', code: 'adapter_unavailable' };
+    if (!adapter.plannedDocuments) return { kind: 'single' };
+    if (!doc) return { kind: 'unavailable', code: 'document_unavailable' };
+    const ctx = this.connectors.contextOf(connector);
+    let prep: PushPreparation;
+    try {
+      prep = await this.masterCodes.prepareForPush(
+        tx,
+        connector.id,
+        adapter,
+        ctx,
+        operation,
+        await this.mappings.withPartyCodes(tx, connector.id, doc),
+      );
+    } catch {
+      return { kind: 'unavailable', code: 'erp_master_code_check_failed' };
+    }
+    if (!prep.ok) return { kind: 'unavailable', code: prep.problem.code };
+    ctx.masterCodes = prep.masterCodes;
+    const pii = await injectPersonalData(tx, prep.document, adapter.personalDataNeeds ?? []);
+    let parts: readonly PlannedDocumentPart[] | null;
+    try {
+      parts = adapter.plannedDocuments(ctx, pii.document);
+    } catch {
+      parts = null;
+    }
+    if (!Array.isArray(parts) || !parts.length) return { kind: 'unavailable', code: 'plan_failed' };
+    return { kind: 'planned', parts: parts.slice(0, MAX_EXTERNAL_DOCUMENTS) };
   }
 
   async deliver(d: OutboxDelivery): Promise<{ result: Record<string, unknown> }> {
@@ -1084,7 +1132,8 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
                detail = CASE WHEN EXCLUDED.detail IS NOT NULL
                              THEN (coalesce(external_mapping.detail, '{}'::jsonb)
                                    - 'documentsPartial' - 'documentsComplete') || EXCLUDED.detail
-                             ELSE external_mapping.detail END,
+                             -- ST8-T09 ผลสำเร็จ = รู้ทุกใบแล้ว (เช่น คนกรอกเลขใบเดียวแล้ว GET เทียบ) → ไม่ใช่ "ส่งไม่ครบ" อีก
+                             ELSE external_mapping.detail - 'documentsPartial' - 'documentsComplete' END,
                local_number = coalesce(EXCLUDED.local_number, external_mapping.local_number),
                external_doc_no = coalesce(external_mapping.external_doc_no, EXCLUDED.external_doc_no),
                external_status = coalesce(external_mapping.external_status, EXCLUDED.external_status),
@@ -1109,6 +1158,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     d: OutboxDelivery,
     c: Connector,
     priorKnown = false,
+    hasPrior = false,
   ): Promise<string | null> {
     return d.withTx(async (tx) => {
       const self = await tx.integrationOutbox.findUnique({
@@ -1132,6 +1182,9 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
       // → POST ใน sync log ไม่ใช่หลักฐานว่า "อาจถึงแล้ว" (ส่งต่อได้เลย ไม่ค้น/ไม่พัก) · ยังตรวจคำสั่งอื่นที่ค้างแบบไม่รู้ผลตามเดิม
       // review M2: เชื่อ knownOutcome เฉพาะผลของรอบที่แล้วพอดี (รอบที่หายไประหว่างนั้นอาจส่งถึงแล้ว)
       const known = priorKnown || (last?.knownOutcome === true && last?.attempt === d.attempt - 1);
+      // ST8-T09 mapping บันทึกเอกสารฝั่ง ERP ไว้บางส่วนแต่ไม่รู้แน่ว่ามีแค่นั้น (ส่งไม่ครบแบบไม่รู้ผล / คนกรอกเลขเองต่อใบ)
+      // → GET ยืนยันใบที่รู้เลขก่อนเสมอ (docs/01 A.5 409 "แล้ว GET เทียบ — ไม่ retry POST")
+      if (!known && hasPrior) return 'PARTIAL_MAPPING';
       const sent = known
         ? null
         : await tx.erpSyncLog.findFirst({
@@ -1637,7 +1690,12 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
           // → หาเอกสารของเราฝั่ง ERP ก่อน (list/fetch) · พบ = จบด้วย mapping ไม่ส่งซ้ำ · ไม่พบ/ค้นไม่ได้ = ส่ง (ERP กันซ้ำด้วยเลขอ้างอิง)
           // ค้นแล้วปลายทางล่ม = TRANSIENT (ลองใหม่ตามตาราง — ไม่ส่งแบบไม่รู้ผล)
           if (entity) {
-            const evidence = await this.earlierSend(d, connector, o.priorKnown === true);
+            const evidence = await this.earlierSend(
+              d,
+              connector,
+              o.priorKnown === true,
+              (ctx.priorDocuments?.length ?? 0) > 0,
+            );
             if (evidence) {
               let f: Awaited<ReturnType<ErpAdapterSink['lookup']>>;
               try {

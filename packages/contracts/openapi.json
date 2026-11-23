@@ -28825,7 +28825,7 @@
         },
         "responses": {
           "200": {
-            "description": "ST7-T19 กรอกเลขเอกสารฝั่งระบบบัญชีเอง (DUPLICATE ที่หาไม่เจอ หรือคำสั่งส่งเอกสารที่ล้มเหลวแต่เอกสารอยู่ในระบบบัญชีแล้ว) — เหตุผล ≥ 10 ตัว · audit `connector.queue_external_id` · external_mapping = MISMATCH `erp_content_unverified` (รอบ reconcile ยืนยัน) · เลขผูกกับเอกสารอื่นแล้ว → 409 `external_id_conflict`",
+            "description": "ST7-T19 กรอกเลขเอกสารฝั่งระบบบัญชีเอง (DUPLICATE ที่หาไม่เจอ หรือคำสั่งส่งเอกสารที่ล้มเหลวแต่เอกสารอยู่ในระบบบัญชีแล้ว) — เหตุผล ≥ 10 ตัว · audit `connector.queue_external_id` · external_mapping = MISMATCH `erp_content_unverified` (รอบ reconcile ยืนยัน) · เลขผูกกับเอกสารอื่นแล้ว → 409 `external_id_conflict` · ST8-T09 (docs/01 A.5 409) ระบบบัญชีที่แยกเอกสารเป็นหลายใบ (เช่น KRS แยกตามชนิด VAT): กรอก `documents` ต่อใบ (`ref` ต้องอยู่ในการแยกใบ — นอกแผน/ซ้ำ/ไม่ตรงกับเลขที่ระบบรู้แล้ว = 422) · แผนมีใบเดียวรับ `externalId` ได้ · ผล: external_mapping PENDING + คำสั่งส่งใหม่ (`resolution.supersededBy`) ที่อ่านเอกสารจากระบบบัญชีมาเทียบก่อน (ตรง = SYNCED · ต่าง = MISMATCH · ไม่พบ = REMOTE_MISSING) และส่งเฉพาะใบที่ไม่ได้กรอก — ไม่ส่งใบที่กรอกแล้วซ้ำ",
             "content": {
               "application/json": {
                 "schema": {
@@ -85912,6 +85912,34 @@
           "reason"
         ]
       },
+      "QueueExternalDocumentDto": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "example": "INV-00000-2611-0001-V7",
+            "description": "เลขอ้างอิงที่ TMS ส่งของใบนี้ (ต้องตรงกับการแยกใบของเอกสาร)"
+          },
+          "externalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "example": "100042",
+            "description": "id เอกสารฝั่งระบบบัญชีของใบนี้ (เช่น transactionNo ของ KRS)"
+          },
+          "externalDocNo": {
+            "type": "string",
+            "maxLength": 60,
+            "description": "เลขเอกสารที่แสดงในระบบบัญชี (ถ้าต่างจาก id)"
+          }
+        },
+        "required": [
+          "ref",
+          "externalId"
+        ]
+      },
       "QueueExternalIdDto": {
         "type": "object",
         "properties": {
@@ -85926,17 +85954,25 @@
             "minLength": 1,
             "maxLength": 100,
             "example": "IV6611-00042",
-            "description": "id เอกสารฝั่งระบบบัญชี"
+            "description": "id เอกสารฝั่งระบบบัญชี (เอกสารใบเดียว) — ส่งอย่างใดอย่างหนึ่งกับ `documents`"
           },
           "externalDocNo": {
             "type": "string",
             "maxLength": 60,
             "description": "เลขเอกสารที่แสดงในระบบบัญชี (ถ้าต่างจาก id)"
+          },
+          "documents": {
+            "minItems": 1,
+            "maxItems": 200,
+            "description": "ST8-T09 เอกสารที่ระบบบัญชีเก็บเป็นหลายใบ (เช่น KRS แยกใบตามชนิด VAT): เลขฝั่งระบบบัญชีต่อใบ — `ref` ต้องอยู่ในการแยกใบของเอกสาร · กรอกเฉพาะใบที่มีในระบบบัญชีแล้ว (ใบที่ไม่กรอก ระบบส่งให้ภายหลัง) · ระบบอ่านเอกสารจากระบบบัญชีมาเทียบก่อนเสมอ ไม่ส่งซ้ำ",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueueExternalDocumentDto"
+            }
           }
         },
         "required": [
-          "reason",
-          "externalId"
+          "reason"
         ]
       },
       "UpdateConnectorDto": {

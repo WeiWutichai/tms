@@ -510,14 +510,18 @@ scope: `settings:write` หรือ `integrations:retry` · operationId: `Conne
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `เลิกใช้บริการตั้งแต่ ธ.ค. 2569` |
-| `externalId` | ใช่ | `string` | ยาว ≤ 100 · ยาว ≥ 1 | id เอกสารฝั่งระบบบัญชี | `IV6611-00042` |
+| `externalId` |   | `string` | ยาว ≤ 100 · ยาว ≥ 1 | id เอกสารฝั่งระบบบัญชี (เอกสารใบเดียว) — ส่งอย่างใดอย่างหนึ่งกับ `documents` | `IV6611-00042` |
 | `externalDocNo` |   | `string` | ยาว ≤ 60 | เลขเอกสารที่แสดงในระบบบัญชี (ถ้าต่างจาก id) |   |
+| `documents` |   | `array<QueueExternalDocumentDto>` | ≤ 200 รายการ | เอกสารที่ระบบบัญชีเก็บเป็นหลายใบ (เช่น KRS แยกใบตามชนิด VAT): เลขฝั่งระบบบัญชีต่อใบ — `ref` ต้องอยู่ในการแยกใบของเอกสาร · กรอกเฉพาะใบที่มีในระบบบัญชีแล้ว (ใบที่ไม่กรอก ระบบส่งให้ภายหลัง) · ระบบอ่านเอกสารจากระบบบัญชีมาเทียบก่อนเสมอ ไม่ส่งซ้ำ |   |
+| `documents[].ref` | ใช่ | `string` | ยาว ≤ 100 · ยาว ≥ 1 | เลขอ้างอิงที่ TMS ส่งของใบนี้ (ต้องตรงกับการแยกใบของเอกสาร) | `2611-0001-V7` |
+| `documents[].externalId` | ใช่ | `string` | ยาว ≤ 100 · ยาว ≥ 1 | id เอกสารฝั่งระบบบัญชีของใบนี้ (เช่น transactionNo ของ KRS) | `100042` |
+| `documents[].externalDocNo` |   | `string` | ยาว ≤ 60 | เลขเอกสารที่แสดงในระบบบัญชี (ถ้าต่างจาก id) |   |
 
 **Responses**
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | กรอกเลขเอกสารฝั่งระบบบัญชีเอง (DUPLICATE ที่หาไม่เจอ หรือคำสั่งส่งเอกสารที่ล้มเหลวแต่เอกสารอยู่ในระบบบัญชีแล้ว) — เหตุผล ≥ 10 ตัว · audit `connector.queue_external_id` · external_mapping = MISMATCH `erp_content_unverified` (รอบ reconcile ยืนยัน) · เลขผูกกับเอกสารอื่นแล้ว → 409 `external_id_conflict` | `ConnectorQueueItemDto` |
+| `200` | กรอกเลขเอกสารฝั่งระบบบัญชีเอง (DUPLICATE ที่หาไม่เจอ หรือคำสั่งส่งเอกสารที่ล้มเหลวแต่เอกสารอยู่ในระบบบัญชีแล้ว) — เหตุผล ≥ 10 ตัว · audit `connector.queue_external_id` · external_mapping = MISMATCH `erp_content_unverified` (รอบ reconcile ยืนยัน) · เลขผูกกับเอกสารอื่นแล้ว → 409 `external_id_conflict` ระบบบัญชีที่แยกเอกสารเป็นหลายใบ (เช่น KRS แยกตามชนิด VAT): กรอก `documents` ต่อใบ (`ref` ต้องอยู่ในการแยกใบ — นอกแผน/ซ้ำ/ไม่ตรงกับเลขที่ระบบรู้แล้ว = 422) · แผนมีใบเดียวรับ `externalId` ได้ · ผล: external_mapping PENDING + คำสั่งส่งใหม่ (`resolution.supersededBy`) ที่อ่านเอกสารจากระบบบัญชีมาเทียบก่อน (ตรง = SYNCED · ต่าง = MISMATCH · ไม่พบ = REMOTE_MISSING) และส่งเฉพาะใบที่ไม่ได้กรอก — ไม่ส่งใบที่กรอกแล้วซ้ำ | `ConnectorQueueItemDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`settings:write` / `integrations:retry` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |

@@ -8,6 +8,9 @@ import {
 } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsIn,
   IsInt,
   IsOptional,
@@ -17,6 +20,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { decodeCursor, encodeCursor } from '../../common/pagination';
@@ -26,7 +30,17 @@ import { DbService, type Tx } from '../../db/db.service';
 import { CleanText, lockKey, MasterReasonDto } from '../master/master-kit';
 import { commandDto, ConnectorsService } from './connectors.service';
 import { ConnectorCommandDto } from './connector.dto';
-import { ERP_SINK, NOT_NOTIFIED_SKIPS } from './erp-adapter.sink';
+import {
+  ERP_SINK,
+  ErpAdapterSink,
+  mappingDocumentsOf,
+  NOT_NOTIFIED_SKIPS,
+} from './erp-adapter.sink';
+import {
+  MAX_EXTERNAL_DOCUMENTS,
+  type CanonicalDocument,
+  type ExternalDocumentPart,
+} from './erp-adapter';
 import { canSeeBodies } from './erp-sync-log';
 import { documentDate } from './canonical';
 import { MAP_ENTITY, ErpSyncService } from './erp-sync.service';
@@ -326,12 +340,26 @@ export class QueueRetryAllResultDto {
 
 export class QueueSkipDto extends MasterReasonDto {}
 
-export class QueueExternalIdDto extends MasterReasonDto {
+/** ST8-T09 เลขฝั่งระบบบัญชีของเอกสาร 1 ใบ (เอกสาร TMS ที่ระบบบัญชีเก็บเป็นหลายใบ — เช่น KRS แยกใบตาม vat_type) */
+export class QueueExternalDocumentDto {
   @ApiProperty({
     minLength: 1,
     maxLength: 100,
-    example: 'IV6611-00042',
-    description: 'id เอกสารฝั่งระบบบัญชี',
+    example: 'INV-00000-2611-0001-V7',
+    description: 'เลขอ้างอิงที่ TMS ส่งของใบนี้ (ต้องตรงกับการแยกใบของเอกสาร)',
+  })
+  @CleanText()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  @Matches(/^[^\p{Cc}]+$/u)
+  ref!: string;
+
+  @ApiProperty({
+    minLength: 1,
+    maxLength: 100,
+    example: '100042',
+    description: 'id เอกสารฝั่งระบบบัญชีของใบนี้ (เช่น transactionNo ของ KRS)',
   })
   @CleanText()
   @IsString()
@@ -350,6 +378,49 @@ export class QueueExternalIdDto extends MasterReasonDto {
   @MaxLength(60)
   @Matches(/^[^\p{Cc}]*$/u)
   externalDocNo?: string;
+}
+
+export class QueueExternalIdDto extends MasterReasonDto {
+  @ApiPropertyOptional({
+    minLength: 1,
+    maxLength: 100,
+    example: 'IV6611-00042',
+    description: 'id เอกสารฝั่งระบบบัญชี (เอกสารใบเดียว) — ส่งอย่างใดอย่างหนึ่งกับ `documents`',
+  })
+  @IsOptional()
+  @CleanText()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  @Matches(/^[^\p{Cc}]+$/u)
+  externalId?: string;
+
+  @ApiPropertyOptional({
+    maxLength: 60,
+    description: 'เลขเอกสารที่แสดงในระบบบัญชี (ถ้าต่างจาก id)',
+  })
+  @IsOptional()
+  @CleanText()
+  @IsString()
+  @MaxLength(60)
+  @Matches(/^[^\p{Cc}]*$/u)
+  externalDocNo?: string;
+
+  @ApiPropertyOptional({
+    type: [QueueExternalDocumentDto],
+    minItems: 1,
+    maxItems: MAX_EXTERNAL_DOCUMENTS,
+    description:
+      'ST8-T09 เอกสารที่ระบบบัญชีเก็บเป็นหลายใบ (เช่น KRS แยกใบตามชนิด VAT): เลขฝั่งระบบบัญชีต่อใบ — `ref` ต้องอยู่ในการแยกใบของเอกสาร · ' +
+      'กรอกเฉพาะใบที่มีในระบบบัญชีแล้ว (ใบที่ไม่กรอก ระบบส่งให้ภายหลัง) · ระบบอ่านเอกสารจากระบบบัญชีมาเทียบก่อนเสมอ ไม่ส่งซ้ำ',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(MAX_EXTERNAL_DOCUMENTS)
+  @ValidateNested({ each: true })
+  @Type(() => QueueExternalDocumentDto)
+  documents?: QueueExternalDocumentDto[];
 }
 
 // ---------- service ----------
@@ -433,6 +504,7 @@ export class ConnectorQueueService {
     private readonly db: DbService,
     private readonly connectors: ConnectorsService,
     private readonly sync: ErpSyncService,
+    private readonly sink: ErpAdapterSink,
   ) {}
 
   /** รายการในแท็บ (keyset cursor ตาม updated_at, id — ใหม่สุดก่อน) */
@@ -574,6 +646,13 @@ export class ConnectorQueueService {
    * ที่ล้มเหลวแต่บัญชียืนยันว่าเอกสารอยู่ในระบบบัญชีแล้ว · บันทึก external_mapping (MISMATCH `erp_content_unverified` — รอ reconcile ยืนยัน)
    * review M2: เฉพาะเอกสารที่ยังไม่มี external_id (มีแล้ว = 409 `mapping_exists` — ไม่ทับเลขที่ยืนยันแล้วจากคิว)
    * id นี้ผูกกับเอกสารอื่นของ connector เดียวกันอยู่ → 409 `external_id_conflict`
+   *
+   * ST8-T09 (docs/01 A.5 409: "error queue ให้คนกรอก `transactionNo` จาก ERP มือ; แล้ว `GET` เทียบ — ไม่ retry POST"):
+   * adapter ที่แยกเอกสาร TMS เป็นหลายใบ (`plannedDocuments` — เช่น KRS แยกตาม vat_type) → กรอกเป็น `documents` ต่อใบ
+   * (`ref` ต้องอยู่ในแผนการแยกใบ · ใบที่ระบบรู้เลขแล้วต้องตรงกัน · กรอกเฉพาะใบที่มีในระบบบัญชี) — แผนมี 1 ใบ รับ `externalId` เดี่ยวได้
+   * → mapping `PENDING` + `detail.documents` (ยังไม่ถือว่าอยู่ใน ERP ครบ) + คำสั่งส่งใหม่ (`resolution.supersededBy`) ซึ่ง sink
+   * **GET ทุกใบที่รู้เลขก่อน** แล้วเทียบ: ตรง = SYNCED · ต่าง = MISMATCH · ไม่พบ = REMOTE_MISSING · ใบที่ไม่ได้กรอก = ส่งเฉพาะใบนั้น
+   * (ERP ตอบซ้ำ = กลับมาที่คิวนี้) — ไม่ POST ใบที่กรอกเลขแล้วซ้ำ
    */
   async externalId(
     id: string,
@@ -588,25 +667,13 @@ export class ConnectorQueueService {
     if (isDocPush(row))
       await lockKey(tx, `external_mapping:${c.id}:${entity}:local:${row.localId}`);
     if (!this.actions(row, f).externalId) throw notAllowed(this.why(row, f, 'externalId'));
-    const externalId = body.externalId.trim();
-    await lockKey(tx, `external_mapping:${c.id}:${entity}:ext:${externalId}`);
-    const other = await tx.externalMapping.findFirst({
-      where: { connectorId: c.id, entityType: entity, externalId, localId: { not: row.localId } },
-      select: { localId: true },
-    });
-    if (other)
-      throw new ProblemException(
-        'external_id_conflict',
-        'เลขนี้ผูกกับเอกสารอื่นของการเชื่อมต่อนี้แล้ว',
-        [{ field: 'externalId', code: 'duplicate', message: 'เลขนี้ผูกกับเอกสารอื่นแล้ว' }],
-        {
-          documentId: encodeId(
-            row.entityType === 'invoice' ? 'invoice' : 'settlement',
-            other.localId,
-          ),
-        },
+    const single = body.externalId?.trim() || '';
+    if (!single === !body.documents?.length)
+      throw invalid(
+        'externalId',
+        'one_of',
+        'กรอก externalId (ใบเดียว) หรือ documents (หลายใบ) อย่างใดอย่างหนึ่ง',
       );
-    const actor = requestContext.get()?.actorId ?? null;
     const before = await tx.externalMapping.findUnique({
       where: {
         connectorId_entityType_localId: {
@@ -616,7 +683,40 @@ export class ConnectorQueueService {
         },
       },
     });
+    // ST8-T09 แผนการแยกใบของ adapter (ฉบับที่ออก — payload ของคำสั่งส่งแรก เหมือน `resend`)
+    const plan = await this.plan(tx, c, row);
+    // adapter แยกใบได้ (มีแผน / เตรียมแผนไม่ได้) หรือผู้ใช้กรอกต่อใบ → ทางต่อใบ (adapter เอกสารเดียว = ทางเดิมของ ST7-T19)
+    if (plan.kind !== 'single' || body.documents?.length) {
+      if (plan.kind === 'single')
+        throw invalid(
+          'documents',
+          'not_split',
+          'ระบบบัญชีนี้เก็บเอกสารนี้เป็นใบเดียว — กรอก externalId',
+        );
+      if (plan.kind === 'unavailable')
+        throw invalid(
+          'documents',
+          'plan_unavailable',
+          `ตรวจการแยกใบของเอกสารนี้ไม่ได้ (${plan.code}) — แก้ข้อมูล/ผังรหัสให้ครบก่อน`,
+        );
+      const docs =
+        body.documents ??
+        (plan.parts.length === 1
+          ? [{ ref: plan.parts[0]!.ref, externalId: single, externalDocNo: body.externalDocNo }]
+          : null);
+      if (!docs)
+        throw invalid(
+          'documents',
+          'documents_required',
+          `เอกสารนี้อยู่ในระบบบัญชี ${plan.parts.length} ใบ — กรอกเลขต่อใบใน documents`,
+        );
+      return this.externalDocuments(tx, c, row, entity, before, plan.parts, docs, body.reason);
+    }
     if (before?.externalId) throw notAllowed('mapping_exists');
+    const externalId = single;
+    await lockKey(tx, `external_mapping:${c.id}:${entity}:ext:${externalId}`);
+    await this.assertNotMappedElsewhere(tx, c.id, entity, row, [externalId], 'externalId');
+    const actor = requestContext.get()?.actorId ?? null;
     const lastError = {
       code: 'erp_content_unverified',
       source: 'manual',
@@ -663,6 +763,214 @@ export class ConnectorQueueService {
     });
     const [fresh] = await this.rows(tx, c, [row.id]);
     return this.item(fresh!.row, fresh!.f);
+  }
+
+  /**
+   * ST8-T09 กรอกเลขฝั่ง ERP ต่อใบของเอกสารที่ adapter แยกเป็นหลายใบ — ตรวจ `ref` กับแผน · ใบที่รู้เลขแล้ว (mapping ส่งไม่ครบ) ต้องตรง ·
+   * id ไม่ซ้ำกันและไม่ผูกกับเอกสารอื่น → mapping `PENDING` (`documentsPartial`, ไม่รู้แน่ว่ามีแค่นี้ → sink GET ยืนยันก่อน) + คำสั่งส่งใหม่
+   */
+  private async externalDocuments(
+    tx: Tx,
+    c: Connector,
+    row: IntegrationOutbox,
+    entity: 'INVOICE' | 'SETTLEMENT',
+    before: { id: string; externalId: string | null; detail: unknown } | null,
+    parts: readonly Pick<ExternalDocumentPart, 'ref' | 'group' | 'lineNos'>[],
+    docs: readonly { ref: string; externalId: string; externalDocNo?: string }[],
+    reason: string,
+  ): Promise<ConnectorQueueItemDto> {
+    const detail = (before?.detail ?? {}) as { documentsPartial?: unknown };
+    // review M2 เดิม: เอกสารที่ยืนยันแล้ว (external_id โดยไม่ใช่การส่งไม่ครบ) ไม่ทับ
+    if (before?.externalId && detail.documentsPartial !== true) throw notAllowed('mapping_exists');
+    const known = new Map(
+      (detail.documentsPartial === true ? mappingDocumentsOf(before?.detail) : []).map((p) => [
+        p.ref,
+        p,
+      ]),
+    );
+    const planned = new Map(parts.map((p, i) => [p.ref, { ...p, i }]));
+    const entered = new Map<string, { externalId: string; externalDocNo: string | null }>();
+    const ids = new Set<string>();
+    docs.forEach((d, i) => {
+      const ref = d.ref.trim();
+      const externalId = d.externalId.trim();
+      if (!planned.has(ref))
+        throw invalid(
+          `documents[${i}].ref`,
+          'unknown_ref',
+          `เลขอ้างอิง ${ref} ไม่อยู่ในการแยกใบของเอกสารนี้ (${parts.map((p) => p.ref).join(', ')})`.slice(
+            0,
+            300,
+          ),
+        );
+      if (entered.has(ref))
+        throw invalid(`documents[${i}].ref`, 'duplicate', 'กรอกเลขอ้างอิงนี้ซ้ำ');
+      if (ids.has(externalId))
+        throw invalid(`documents[${i}].externalId`, 'duplicate', 'ใช้ id เดียวกันกับหลายใบไม่ได้');
+      const k = known.get(ref);
+      if (k && k.externalId !== externalId)
+        throw invalid(
+          `documents[${i}].externalId`,
+          'known_mismatch',
+          `ระบบรู้เลขของใบ ${ref} แล้ว (${k.externalId}) — ไม่ตรงกับที่กรอก`,
+        );
+      ids.add(externalId);
+      entered.set(ref, { externalId, externalDocNo: d.externalDocNo?.trim() || null });
+    });
+    for (const [ref, k] of known)
+      if (!entered.has(ref)) {
+        if (!planned.has(ref))
+          throw invalid(
+            'documents',
+            'plan_changed',
+            `ใบ ${ref} ที่ส่งไปแล้วไม่อยู่ในการแยกใบครั้งนี้ — ต้องตรวจในระบบบัญชี`,
+          );
+        if (ids.has(k.externalId))
+          throw invalid('documents', 'duplicate', `id ${k.externalId} เป็นของใบ ${ref} แล้ว`);
+        ids.add(k.externalId);
+      }
+    // ทุกใบที่รู้เลข (กรอก ∪ รู้แล้ว) ตามลำดับแผน
+    const merged: ExternalDocumentPart[] = parts.flatMap((p) => {
+      const e = entered.get(p.ref);
+      const k = known.get(p.ref);
+      if (!e && !k) return [];
+      return [
+        {
+          ref: p.ref,
+          externalId: e?.externalId ?? k!.externalId,
+          externalDocNo: e?.externalDocNo ?? k?.externalDocNo ?? null,
+          group: p.group,
+          lineNos: [...p.lineNos],
+        },
+      ];
+    });
+    for (const x of [...ids].sort())
+      await lockKey(tx, `external_mapping:${c.id}:${entity}:ext:${x}`);
+    await this.assertNotMappedElsewhere(tx, c.id, entity, row, [...ids], 'documents');
+    const actor = requestContext.get()?.actorId ?? null;
+    const head = merged[0]!;
+    const lastError = {
+      code: 'manual_external_id',
+      source: 'manual',
+      outboxId: encodeId('outboxCommand', row.id),
+      documentsEntered: entered.size,
+      documentsPlanned: parts.length,
+      at: new Date().toISOString(),
+    };
+    const nextDetail = {
+      ...((before?.detail ?? {}) as Record<string, unknown>),
+      documents: merged.map((p) => ({ ...p, lineNos: [...p.lineNos] })),
+      documentsPartial: true,
+      // คนยืนยันว่าใบที่กรอกมีอยู่ — แต่ยังไม่รู้แน่ว่าระบบบัญชีมีแค่นี้ → sink GET ยืนยันก่อนส่ง (ไม่เชื่อ "รู้แน่")
+      documentsComplete: false,
+    } as unknown as Prisma.InputJsonValue;
+    if (before)
+      await tx.externalMapping.update({
+        where: { id: before.id },
+        data: {
+          externalId: head.externalId,
+          externalDocNo: head.externalDocNo,
+          status: 'PENDING',
+          detail: nextDetail,
+          lastError,
+          updatedBy: actor,
+          version: { increment: 1 },
+        },
+      });
+    else
+      await tx.externalMapping.create({
+        data: {
+          tenantId: row.tenantId,
+          connectorId: c.id,
+          entityType: entity,
+          localId: row.localId,
+          localNumber: documentNo(row)?.slice(0, 60) ?? null,
+          externalId: head.externalId,
+          externalDocNo: head.externalDocNo,
+          status: 'PENDING',
+          detail: nextDetail,
+          lastError,
+          createdBy: actor,
+          updatedBy: actor,
+        },
+      });
+    // GET เทียบ (ไม่ POST ใบที่กรอกแล้ว) — คำสั่งส่งใหม่ของเอกสารนี้ (sink: mapping ส่งไม่ครบ → ค้นก่อนเสมอ)
+    const verify = await this.sync.resend(
+      tx,
+      row.entityType as 'invoice' | 'settlement',
+      row.localId,
+      c.id,
+    );
+    await this.resolve(tx, c.id, row, {
+      kind: 'MANUAL_EXTERNAL_ID',
+      reason,
+      externalId: head.externalId,
+      ...(verify && verify !== row.id ? { supersededBy: verify } : {}),
+    });
+    await this.audit(tx, c.id, 'connector.queue_external_id', row, reason, {
+      externalId: head.externalId,
+      externalDocNo: head.externalDocNo,
+      documents: merged.map((p) => ({
+        ref: p.ref,
+        externalId: p.externalId,
+        externalDocNo: p.externalDocNo,
+        entered: entered.has(p.ref),
+      })),
+      documentsPlanned: parts.length,
+      verifyCommandId: verify ? encodeId('outboxCommand', verify) : null,
+    });
+    const [fresh] = await this.rows(tx, c, [row.id]);
+    return this.item(fresh!.row, fresh!.f);
+  }
+
+  /** ST8-T09 แผนการแยกใบ (adapter `plannedDocuments`) ของฉบับที่ออก */
+  private async plan(tx: Tx, c: Connector, row: IntegrationOutbox) {
+    const op = row.entityType === 'invoice' ? 'PUSH_INVOICE' : 'PUSH_SETTLEMENT';
+    const first = await tx.integrationOutbox.findFirst({
+      where: {
+        sink: ERP_SINK,
+        targetId: c.id,
+        operation: op,
+        entityType: row.entityType,
+        localId: row.localId,
+      },
+      orderBy: { seq: 'asc' },
+      select: { payload: true },
+    });
+    const doc = (first?.payload as { document?: CanonicalDocument } | null)?.document ?? null;
+    return this.sink.plannedDocuments(tx, c, op, doc);
+  }
+
+  /** id ฝั่ง ERP ผูกกับเอกสารอื่นของ connector เดียวกันอยู่ (key หลัก หรือใบใน `detail.documents`) → 409 `external_id_conflict` */
+  private async assertNotMappedElsewhere(
+    tx: Tx,
+    connectorId: string,
+    entity: 'INVOICE' | 'SETTLEMENT',
+    row: IntegrationOutbox,
+    ids: string[],
+    field: string,
+  ) {
+    const [other] = await tx.$queryRaw<{ localId: string }[]>`
+      SELECT local_id::text AS "localId" FROM external_mapping
+       WHERE connector_id = ${connectorId}::uuid AND entity_type = ${entity}::"ExternalEntityType"
+         AND local_id <> ${row.localId}::uuid
+         AND (external_id = ANY(${ids}::text[])
+              OR (jsonb_typeof(detail->'documents') = 'array'
+                  AND EXISTS (SELECT 1 FROM jsonb_array_elements(detail->'documents') e
+                               WHERE e->>'externalId' = ANY(${ids}::text[]))))
+       LIMIT 1`;
+    if (other)
+      throw new ProblemException(
+        'external_id_conflict',
+        'เลขนี้ผูกกับเอกสารอื่นของการเชื่อมต่อนี้แล้ว',
+        [{ field, code: 'duplicate', message: 'เลขนี้ผูกกับเอกสารอื่นแล้ว' }],
+        {
+          documentId: encodeId(
+            row.entityType === 'invoice' ? 'invoice' : 'settlement',
+            other.localId,
+          ),
+        },
+      );
   }
 
   // ---------- ภายใน ----------
@@ -745,11 +1053,18 @@ export class ConnectorQueueService {
             localId: { in: localIds },
             entityType: { in: [MAP_ENTITY.invoice, MAP_ENTITY.settlement] },
           },
-          select: { entityType: true, localId: true, externalId: true },
+          select: { entityType: true, localId: true, externalId: true, detail: true },
         })
       : [];
+    // ST8-T09 mapping ที่บันทึกเอกสารฝั่ง ERP ไว้ไม่ครบ (`documentsPartial`) ยังกรอกเลขของใบที่เหลือได้
     const mapped = new Set(
-      maps.filter((m) => m.externalId).map((m) => `${m.entityType}:${m.localId}`),
+      maps
+        .filter(
+          (m) =>
+            m.externalId &&
+            (m.detail as { documentsPartial?: unknown } | null)?.documentsPartial !== true,
+        )
+        .map((m) => `${m.entityType}:${m.localId}`),
     );
     const from = c.syncFromDate ? c.syncFromDate.toISOString().slice(0, 10) : null;
     return ordered.map((row) => {
@@ -895,6 +1210,10 @@ export class ConnectorQueueService {
       },
     });
   }
+}
+
+function invalid(field: string, code: string, message: string) {
+  return new ProblemException('validation_failed', undefined, [{ field, code, message }]);
 }
 
 function notAllowed(why: string) {
