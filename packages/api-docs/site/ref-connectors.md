@@ -1,6 +1,6 @@
 # Connector ERP (connectors)
 
-25 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+26 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -20,6 +20,7 @@
 | [`POST /v1/connectors/{id}/queue/{commandId}/external-id`](#post-connectors-id-queue-commandId-external-id) | `settings:write` / `integrations:retry` |
 | [`GET /v1/connectors/{id}/master-codes`](#get-connectors-id-master-codes) | `settings:read` |
 | [`GET /v1/connectors/{id}/mappings`](#get-connectors-id-mappings) | `settings:read` |
+| [`GET /v1/reconcile-reports/period-close`](#get-reconcile-reports-period-close) | `integrations:read` |
 | [`GET /v1/reconcile-results`](#get-reconcile-results) | `integrations:read` |
 | [`GET /v1/reconcile-results/{id}`](#get-reconcile-results-id) | `integrations:read` |
 | [`POST /v1/reconcile-results/{id}/acknowledge`](#post-reconcile-results-id-acknowledge) | `integrations:retry` |
@@ -681,6 +682,43 @@ const { data, error } = await tms.GET('/v1/connectors/{id}/mappings', {
 });
 ```
 
+## รายงานปิดงวดต่อ connector ต่อเดือน {#get-reconcile-reports-period-close}
+
+`GET /v1/reconcile-reports/period-close`
+
+scope: `integrations:read` · operationId: `Reconcile_periodCloseReport`
+
+หลักฐานของเกณฑ์ผ่าน (ก) "ปิดงวดผ่าน reconcile — MISMATCH ค้าง = 0" · 3 ส่วน: (1) `outstanding` MISMATCH ค้าง ณ สิ้นเดือน (เวลาไทย) = รายการ `result` MISMATCH/REMOTE_MISSING severity MONEY/FIELD ที่พบก่อนสิ้นเดือน และ ณ สิ้นเดือนยังไม่ถูกปิดและยังไม่มีคนยอมรับ — ปิดหลังสิ้นเดือนยังนับเป็นค้างของงวด · พบหลังสิ้นเดือนไม่นับ · INFO (อ่าน/เทียบไม่ได้) นับแยกใน `summary.unverified` (2) `acknowledged` รายการที่ยอมรับความต่างในเดือน + ผู้ยอมรับ + เหตุผล (3) `notSent` เอกสารที่วันที่ไม่เกินสิ้นเดือนและคำสั่งส่งล่าสุดยังอยู่แท็บรอคิว/ล้มเหลวของคิว (`GET /connectors/{id}/queue`) **ณ เวลาที่ออกรายงาน** · `passed` = เดือนจบแล้ว และ `summary.outstanding` = 0 · เดือนที่ยังไม่จบตัด ณ เวลาปัจจุบัน · connector ไม่พบ/ของ tenant อื่น → 404 · ยอดเงิน `sell*` ต้องมี `prices.sell:read` · `buy*` ต้องมี `prices.buy:read` · ส่งออก: `POST /v1/exports` resource `reconcile-period-close` (xlsx / csv / pdf) ตัวกรอง `connectorId`, `month`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `connectorId` | query | ใช่ | `string` | connector ที่ปิดงวด |
+| `month` | query | ใช่ | `string` | งวด (YYYY-MM) — สิ้นเดือน = 00:00 น. วันที่ 1 ของเดือนถัดไป เวลาไทย |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `PeriodCloseReportDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`integrations:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/reconcile-reports/period-close" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/reconcile-reports/period-close');
+```
+
 ## GET /v1/reconcile-results {#get-reconcile-results}
 
 `GET /v1/reconcile-results`
@@ -1296,6 +1334,26 @@ const { data, error } = await tms.POST('/v1/reconcile-runs', {
 | `data` | ใช่ | `array<ErpSyncLogDto>` |   |   |   |
 | `nextCursor` | ใช่ | `string` | null ได้ | ส่งเป็น `cursor` เพื่อดูหน้าถัดไป |   |
 | `hasMore` | ใช่ | `boolean` |   |   |   |
+
+### PeriodCloseReportDto {#schema-PeriodCloseReportDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `connector` | ใช่ | `PeriodCloseConnectorDto` |   |   |   |
+| `month` | ใช่ | `string` |   |   | `2026-11` |
+| `periodStart` | ใช่ | `string (date)` |   |   | `2026-11-01` |
+| `periodEnd` | ใช่ | `string (date)` |   |   | `2026-11-30` |
+| `asOf` | ใช่ | `string (date-time)` |   | เวลาที่ใช้ตัด (สิ้นเดือนเวลาไทย หรือเวลาปัจจุบันถ้าเดือนยังไม่จบ) — ส่วน 1–2 คิด ณ เวลานี้ |   |
+| `monthEnded` | ใช่ | `boolean` |   | เดือนจบแล้ว (เวลาปัจจุบัน ≥ สิ้นเดือน) |   |
+| `passed` | ใช่ | `boolean` |   | ผ่านเกณฑ์ (ก) ของงวดนี้ — เดือนจบแล้ว และ MISMATCH ค้าง ณ สิ้นเดือน = 0 (เอกสารที่ยังไม่ส่ง/INFO แสดงประกอบ ไม่ตัดสิน) |   |
+| `generatedAt` | ใช่ | `string (date-time)` |   |   |   |
+| `summary` | ใช่ | `PeriodCloseSummaryDto` |   |   |   |
+| `outstanding` | ใช่ | `array<PeriodCloseMismatchDto>` |   | (1) MISMATCH ค้าง ณ สิ้นเดือน: พบก่อนสิ้นเดือน และยังไม่ปิด/ยอมรับ ณ สิ้นเดือน (ปิดหลังสิ้นเดือน = ยังนับ) · พบหลังสิ้นเดือน = ไม่นับ |   |
+| `acknowledged` | ใช่ | `array<PeriodCloseAcknowledgedDto>` |   | (2) รายการที่ยอมรับความต่างในเดือนนี้ พร้อมผู้ยอมรับและเหตุผล |   |
+| `notSent` | ใช่ | `array<PeriodCloseUnsentDto>` |   | (3) เอกสารที่ยังไม่ถูกส่ง — วันที่เอกสารไม่เกินสิ้นเดือน และคำสั่งล่าสุดยังอยู่แท็บรอคิว/ล้มเหลวของคิว **ณ เวลาที่ออกรายงาน** |   |
+| `truncated` | ใช่ | `boolean` |   | รายการบางส่วนถูกตัดที่เพดาน 5,000 ต่อส่วน (ตัวนับใน `summary` ครบ) |   |
 
 ### QueueRetryAllResultDto {#schema-QueueRetryAllResultDto}
 
