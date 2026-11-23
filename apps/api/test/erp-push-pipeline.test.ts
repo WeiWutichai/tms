@@ -313,35 +313,29 @@ describe('Push pipeline (ST7-T16)', () => {
     // แจ้งฝ่ายบัญชีผ่าน onSettled (FAILED_FINAL ของคำสั่งส่งเอกสาร — ทางเดียวกับ D68-57: test ใน d68-connector-queue)
   });
 
-  it('เกณฑ์ตรวจรับ: เอกสารก่อน syncFromDate ไม่ถูก push — สร้างคำสั่งเป็น SKIPPED ทันที (เห็นในบันทึกการซิงก์) · ตรวจซ้ำตอนส่ง', async () => {
+  it('เกณฑ์ตรวจรับ: เอกสารก่อน syncFromDate ไม่ถูก push — ไม่สร้างคำสั่ง (docs/01 §6.4) · คำสั่งที่ค้างก่อนเลื่อนวัน = SKIPPED ตอนส่ง', async () => {
     const con = await connector();
     await api(app, token)
       .patch(`/v1/connectors/${con.id}`)
       .send({ syncFromDate: '2026-11-21' })
       .expect(200);
-    // ตอนสร้างคำสั่ง (ErpSyncService หลัง finalize): ใบลงวันที่ 20 พ.ย. < 21 พ.ย. → SKIPPED before_sync_from_date
+    // ตอนสร้างคำสั่ง (ErpSyncService หลัง finalize): ใบลงวันที่ 20 พ.ย. < 21 พ.ย. → ไม่มีคำสั่งใน outbox เลย
     const old = invoiceDoc({ issueDate: '2026-11-20' });
     await invoiceRow(old);
-    await db.withTenant(tenantId, (tx) => app.get(ErpSyncService).invoiceFinalized(tx, old.id));
-    const rows = await plat.integrationOutbox.findMany({
-      where: { tenantId, localId: old.id, sink: ERP_SINK },
-    });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      status: 'SKIPPED',
-      errorClass: 'CAPABILITY',
-      operation: 'PUSH_INVOICE',
-    });
-    expect(rows[0]!.lastError).toMatchObject({
-      code: 'before_sync_from_date',
-      documentDate: '2026-11-20',
-      syncFromDate: '2026-11-21',
-    });
+    expect(
+      await db.withTenant(tenantId, (tx) => app.get(ErpSyncService).invoiceFinalized(tx, old.id)),
+    ).toEqual([]);
+    expect(
+      await plat.integrationOutbox.count({ where: { tenantId, localId: old.id, sink: ERP_SINK } }),
+    ).toBe(0);
+    // ส่งใหม่ก็ไม่สร้างคำสั่ง (ไม่เคยมีคำสั่งของใบนี้)
+    expect(
+      await db.withTenant(tenantId, (tx) =>
+        app.get(ErpSyncService).resend(tx, 'invoice', old.id, con.uuid),
+      ),
+    ).toBeNull();
     await drain();
     expect(demo.documents(tenantId, con.uuid)).toHaveLength(0);
-    const log = (await api(app, token).get(`/v1/connectors/${con.id}/commands`).expect(200)).body
-      .data;
-    expect(log[0]).toMatchObject({ status: 'SKIPPED', errorCode: 'before_sync_from_date' });
 
     // ตอนส่ง: คำสั่งที่ค้างอยู่ก่อนผู้ดูแลเลื่อนวันเริ่มซิงก์ → SKIPPED ไม่เรียก ERP · ไม่แจ้งบัญชี
     await api(app, token)

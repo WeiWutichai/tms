@@ -56,11 +56,6 @@ export interface CommandInput {
   customerId?: string | null;
   payload: Record<string, unknown>;
   maxAttempt?: number;
-  /**
-   * ST7-T16 บันทึกคำสั่งที่ **ตัดสินแล้วว่าไม่ส่ง** (SKIPPED ทันที — worker ไม่หยิบ) ให้เห็นในบันทึกการซิงก์ พร้อมเหตุผล
-   * (เช่น เอกสารก่อน `syncFromDate`) · class ตาม docs/01 §6.3 (`CAPABILITY` = SKIPPED) · ไม่แจ้งใคร (ไม่ผ่าน dispatcher)
-   */
-  skipped?: { errorClass: string; lastError: Record<string, unknown> };
 }
 
 /**
@@ -98,14 +93,10 @@ export class OutboxService {
     const serializeKey = `${c.sink}:${target}:${cust ? `cus:${cust}` : `${c.entityType}:${c.localId}`}`;
     const rows = await tx.$queryRaw<{ id: string; created: boolean }[]>`
       INSERT INTO integration_outbox (tenant_id, kind, sink, target_id, operation, entity_type, local_id, event_id,
-                                      serialize_key, idempotency_key, payload, max_attempt, status, error_class,
-                                      last_error, done_at, updated_at)
+                                      serialize_key, idempotency_key, payload, max_attempt, updated_at)
       VALUES (${c.tenantId}::uuid, ${c.kind}::"OutboxKind", ${c.sink}, ${c.targetId ?? null}, ${c.operation},
               ${c.entityType}, ${c.localId}::uuid, ${c.eventId ?? null}::uuid, ${serializeKey}, ${idempotencyKey},
-              ${canonicalJson(c.payload)}::jsonb, ${c.maxAttempt ?? 7},
-              ${c.skipped ? 'SKIPPED' : 'PENDING'}::"OutboxStatus", ${c.skipped?.errorClass ?? null},
-              ${c.skipped ? JSON.stringify(c.skipped.lastError) : null}::jsonb,
-              ${c.skipped ? new Date() : null}::timestamptz, now())
+              ${canonicalJson(c.payload)}::jsonb, ${c.maxAttempt ?? 7}, now())
       ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
       RETURNING id, true AS created`;
     if (rows[0]) return rows[0];
