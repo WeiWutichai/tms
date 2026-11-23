@@ -1,9 +1,13 @@
-import { Injectable, type OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import type { Connector } from '@prisma/client';
 import {
   ERP_OPERATION_CAPABILITY,
+  type ErpCapability,
   type ErpOperation,
+  fieldChangePolicy,
   isErpOperation,
+  type SorChangeDecision,
   SOR_TAX_PUSH_CAPABILITIES,
 } from '@tms/domain';
 import { Clock } from '../../common/clock';
@@ -18,18 +22,28 @@ import {
 } from '../integration/outbox.types';
 import { DbService } from '../../db/db.service';
 import { NotificationEvents } from '../notifications/notification-events';
-import { withSyncHash } from './canonical';
+import { canonicalJson } from '../integration/outbox.service';
+import {
+  changedSyncParts,
+  documentDate,
+  type SyncPart,
+  syncParts,
+  withSyncHash,
+} from './canonical';
 import { canonicalProblems } from './canonical-validation';
 import { ConnectorResolver } from './connector-resolver';
 import { ConnectorsService, HEALTH_STOP_CLASSES, redactSecrets } from './connectors.service';
 import { ErpMasterCodesService, type PushPreparation } from './erp-master-codes.service';
+import { recordSyncLog } from './erp-sync-log';
 import { ExternalMappingService } from './external-mapping.service';
+import { sorOf } from './system-of-record.policy';
 import { injectPersonalData, redactNationalIds } from './personal-data';
 import {
   type CanonicalDocument,
   type ErpAdapter,
   ErpAdapterError,
   type ErpContext,
+  type ErpHttpCall,
   isPendingCapability,
   NOT_IMPLEMENTED,
   type ExternalRef,
@@ -112,6 +126,8 @@ const NOT_NOTIFIED_SKIPS: ReadonlySet<string> = new Set([
   'payload_unchanged',
   'document_cancelled',
   'sandbox_unsupported',
+  // ST7-T16 เอกสารก่อนวันเริ่มซิงก์ — บัญชีคีย์ไว้เองก่อน go-live (docs/01 §6.4) ไม่ใช่งานที่ต้องทำ
+  'before_sync_from_date',
 ]);
 
 /** คำสั่งที่แจ้งบัญชีเมื่อไม่ถึง ERP (ส่งเอกสาร + แจ้งยกเลิกเอกสาร) */
@@ -137,6 +153,43 @@ function parkedNotImplemented(cap: string): OutboxSinkError {
     code: 'capability_not_implemented',
     capability: cap,
   });
+}
+
+/** ST7-T16 สถานะของการส่ง 1 ครั้ง (sync log + ผลต่อ mapping เมื่อล้ม) */
+interface DeliveryState {
+  calls: ErpHttpCall[];
+  secrets: string[];
+  connector: Connector | null;
+  number: string | null;
+}
+
+/** ST7-T16 เนื้อหาของเอกสารสองฝั่งตรงกันไหม (ไม่นับ `sync` และเลขฝั่ง ERP ที่ adapter แนบกลับ) */
+function sameContent(remote: CanonicalDocument, sent: CanonicalDocument): boolean {
+  const strip = (x: CanonicalDocument) => {
+    const { sync: _s, externalId: _e, externalDocNo: _n, ...rest } = x as Record<string, unknown>;
+    return canonicalJson(rest);
+  };
+  return strip(remote) === strip(sent);
+}
+
+/** ST7-T16 วิธีส่งเอกสารเข้า adapter: สร้างใหม่ (push ตามชนิดเอกสาร) หรือแทนที่ฉบับที่อยู่ใน ERP (replaceDocument) */
+type SendMode = { kind: 'push' } | { kind: 'replace'; ref: ExternalRef };
+
+/** ชนิดเอกสาร → method push (REPLACE_DOCUMENT ของเอกสารที่ยังไม่อยู่ใน ERP = ส่งใหม่ด้วย method นี้) */
+const PUSH_CAPABILITY_OF: Readonly<Record<string, ErpCapability>> = {
+  invoice: 'pushInvoice',
+  settlement: 'pushSettlement',
+};
+
+/**
+ * ST7-T16 รวมคำตัดสินของทุกกลุ่มที่เปลี่ยน (docs/04 G3): BLOCKED > REGENERATE > AUTO_SYNC ·
+ * กลุ่ม `OTHER` (ช่องที่ไม่อยู่ในกลุ่มใด) = REGENERATE (ระมัดระวัง — ให้คนตัดสิน)
+ */
+function combineDecisions(decisions: SorChangeDecision[]): SorChangeDecision {
+  const blocked = decisions.find((x) => x.mode === 'BLOCKED');
+  if (blocked) return blocked;
+  if (decisions.some((x) => x.mode === 'REGENERATE')) return { mode: 'REGENERATE' };
+  return { mode: 'AUTO_SYNC' };
 }
 
 /**
@@ -181,6 +234,7 @@ function parkedNotImplemented(cap: string): OutboxSinkError {
 @Injectable()
 export class ErpAdapterSink implements OutboxSink, OnModuleInit {
   readonly key = ERP_SINK;
+  private readonly logger = new Logger('ErpAdapterSink');
 
   constructor(
     private readonly registry: OutboxSinkRegistry,
@@ -229,6 +283,202 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
   }
 
   async deliver(d: OutboxDelivery): Promise<{ result: Record<string, unknown> }> {
+    const st: DeliveryState = { calls: [], secrets: [], connector: null, number: null };
+    try {
+      return await this.deliverOnce(d, st);
+    } catch (e) {
+      if (e instanceof OutboxSinkError) await this.afterFailure(d, st, e);
+      throw e;
+    } finally {
+      await this.flushSyncLog(d, st);
+    }
+  }
+
+  /**
+   * ST7-T16 sync log (docs/01 §6.4): 1 แถวต่อ 1 HTTP call ที่ adapter รายงาน — ตัด credential + ข้อมูลส่วนบุคคลที่ใส่ ณ ตอนส่ง
+   * บันทึกไม่ได้ = log เตือน (ไม่เปลี่ยนผลของคำสั่ง — การส่งเกิดขึ้นแล้ว)
+   */
+  private async flushSyncLog(d: OutboxDelivery, st: DeliveryState): Promise<void> {
+    const c = st.connector;
+    if (!c || !st.calls.length) return;
+    try {
+      await d.withTx((tx) =>
+        recordSyncLog(
+          tx,
+          {
+            tenantId: d.tenantId,
+            connectorId: c.id,
+            outboxId: d.id,
+            attempt: d.attempt,
+            operation: d.operation,
+            entityType: d.entityType,
+            localId: d.localId,
+            localNumber: st.number,
+          },
+          st.calls,
+          st.secrets,
+          this.clock.now(),
+        ),
+      );
+    } catch (e) {
+      this.logger.warn(`sync log ${d.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`);
+    }
+  }
+
+  /**
+   * ST7-T16 ผลต่อ `external_mapping` ของคำสั่งส่งเอกสารที่ล้ม (docs/01 §6.3):
+   * - VALIDATION → mapping `FAILED` (เอกสารยังไม่อยู่ใน ERP) · เอกสารอยู่ใน ERP แล้ว (แทนที่ไม่ผ่าน) = `MISMATCH` — ERP ยังถือฉบับเดิม
+   *   (ไม่ใช้ FAILED กับเอกสารที่อยู่ใน ERP: ทาง reconcile / ดึงสถานะรับชำระยังต้องเห็นเอกสารนั้น)
+   * - NOT_FOUND (ตอนแทนที่/อ่าน) ของเอกสารที่ mapping บอกว่าอยู่ใน ERP → mapping `MISMATCH` + `reconcile_result` REMOTE_MISSING ให้คนตัดสิน
+   * บันทึกไม่ได้ = log เตือน (ผลของคำสั่งยังเป็นตาม class)
+   */
+  private async afterFailure(d: OutboxDelivery, st: DeliveryState, e: OutboxSinkError) {
+    const c = st.connector;
+    const entity = MAPPED_ENTITIES[d.entityType];
+    if (!c || !entity) return;
+    const push = PUSH_OPERATIONS.has(d.operation);
+    const validation = e.errorClass === 'VALIDATION' && push;
+    const notFound = e.errorClass === 'NOT_FOUND' && (push || d.operation === 'FETCH_DOCUMENT');
+    if (!validation && !notFound) return;
+    const now = this.clock.now();
+    const code = typeof e.detail?.code === 'string' ? e.detail.code.slice(0, 60) : null;
+    try {
+      await d.withTx(async (tx) => {
+        const m = await tx.externalMapping.findUnique({
+          where: {
+            connectorId_entityType_localId: {
+              connectorId: c.id,
+              entityType: entity,
+              localId: d.localId,
+            },
+          },
+        });
+        const inErp = !!m?.externalId && m.externalStatus !== 'VOIDED';
+        if (validation) {
+          const lastError = {
+            code: code ?? 'validation',
+            errorClass: 'VALIDATION',
+            outboxId: d.id,
+            at: now.toISOString(),
+          };
+          if (m)
+            await tx.externalMapping.update({
+              where: { id: m.id },
+              data: {
+                status: inErp ? 'MISMATCH' : 'FAILED',
+                lastError,
+                updatedBy: 'system:erp-sink',
+                version: { increment: 1 },
+              },
+            });
+          else
+            await tx.externalMapping.create({
+              data: {
+                tenantId: d.tenantId,
+                connectorId: c.id,
+                entityType: entity,
+                localId: d.localId,
+                localNumber: st.number,
+                status: 'FAILED',
+                lastError,
+                createdBy: 'system:erp-sink',
+              },
+            });
+          return;
+        }
+        // NOT_FOUND: ไม่มีเอกสารที่คิดว่าอยู่ใน ERP = ไม่มีอะไรหาย (เช่น push ใบใหม่แล้ว ERP ตอบ 404) — ผลของคำสั่งตาม class อย่างเดียว
+        if (!m || !inErp) return;
+        await tx.externalMapping.update({
+          where: { id: m.id },
+          data: {
+            status: 'MISMATCH',
+            lastError: {
+              code: 'remote_missing',
+              errorClass: 'NOT_FOUND',
+              outboxId: d.id,
+              at: now.toISOString(),
+            },
+            updatedBy: 'system:erp-sink',
+            version: { increment: 1 },
+          },
+        });
+        await this.remoteMissing(tx, d, c, entity, m.localNumber ?? st.number, m.externalId!, now);
+      });
+    } catch (err) {
+      this.logger.warn(
+        `mapping after ${e.errorClass} ${d.id}: ${String((err as Error)?.message ?? err).slice(0, 200)}`,
+      );
+    }
+  }
+
+  /**
+   * ST7-T16 NOT_FOUND → `reconcile_result` REMOTE_MISSING (docs/01 §6.3 "เอกสารถูกลบฝั่ง ERP → ให้คนตัดสิน") — severity MONEY
+   * (ยอดทั้งใบไม่อยู่ใน ERP) · ส่วนต่างเดิมที่ยังเปิด = ไม่สร้างซ้ำ (diff_hash) · audit `reconcile.mismatch_found` (ระบบเป็นผู้กระทำ)
+   */
+  private async remoteMissing(
+    tx: Tx,
+    d: OutboxDelivery,
+    c: Connector,
+    entity: 'INVOICE' | 'SETTLEMENT',
+    number: string | null,
+    externalId: string,
+    now: Date,
+  ) {
+    const diff = {
+      check: 'DOCUMENT',
+      code: 'remote_missing',
+      externalId: externalId.slice(0, 100),
+    };
+    const diffHash = createHash('sha256').update(canonicalJson(diff)).digest('hex');
+    const scope = { connectorId: c.id, entityType: entity, localId: d.localId, resolvedAt: null };
+    const same = await tx.reconcileResult.findFirst({ where: { ...scope, diffHash } });
+    if (same) {
+      await tx.reconcileResult.update({ where: { id: same.id }, data: { lastSeenAt: now } });
+      return;
+    }
+    const row = await tx.reconcileResult.create({
+      data: {
+        tenantId: d.tenantId,
+        connectorId: c.id,
+        entityType: entity,
+        localId: d.localId,
+        localNumber: number?.slice(0, 60) ?? null,
+        runAt: now,
+        source: 'AFTER_PUSH',
+        localSnapshot: { number, operation: d.operation },
+        remoteSnapshot: { externalId: diff.externalId, found: false },
+        diff,
+        diffHash,
+        result: 'REMOTE_MISSING',
+        severity: 'MONEY',
+        lastSeenAt: now,
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        tenantId: d.tenantId,
+        action: 'reconcile.mismatch_found',
+        entityType: 'reconcile_result',
+        entityId: row.id,
+        after: {
+          check: diff.check,
+          code: diff.code,
+          result: 'REMOTE_MISSING',
+          severity: 'MONEY',
+          connector: c.adapterKey,
+          entity,
+          localNumber: number,
+          outboxId: d.id,
+        },
+        reason: 'erp_not_found',
+      },
+    });
+  }
+
+  private async deliverOnce(
+    d: OutboxDelivery,
+    st: DeliveryState,
+  ): Promise<{ result: Record<string, unknown> }> {
     const id = d.targetId;
     const { connector, tenant } = await d.withTx(async (tx) => ({
       connector: id ? await tx.connector.findUnique({ where: { id } }) : null,
@@ -317,7 +567,11 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
       });
 
     // ST8-T16 (review M1) ตรวจสถานะเอกสารต้นทางก่อนส่งทุกครั้ง — ยกเลิกแล้ว (เช่น ยกเลิกใบระหว่างคำสั่งรอคิว/พักไว้) = ไม่ส่ง
-    if (d.operation === 'PUSH_INVOICE' || d.operation === 'PUSH_SETTLEMENT') {
+    if (
+      d.operation === 'PUSH_INVOICE' ||
+      d.operation === 'PUSH_SETTLEMENT' ||
+      (d.operation === 'REPLACE_DOCUMENT' && MAPPED_ENTITIES[d.entityType])
+    ) {
       const state = await d.withTx((tx) => sourceState(tx, d.entityType, d.localId));
       if (state === 'CANCELLED') {
         await this.skipped(d, connector, 'document_cancelled');
@@ -325,6 +579,20 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
           code: 'document_cancelled',
         });
       }
+    }
+
+    // ST7-T16 ประตู `syncFromDate` (docs/01 §6.4; docs/04 G3): เอกสารที่วันที่ก่อนวันเริ่มซิงก์ไม่ถูกส่ง (บัญชีคีย์ไว้เองก่อน go-live)
+    // ตรวจ ณ ตอนส่งด้วย — คำสั่งที่ค้าง/พักไว้ก่อนผู้ดูแลเลื่อนวันเริ่มซิงก์ก็ไม่ถูกส่ง · ไม่แจ้งบัญชี (ไม่ใช่งานที่ต้องทำ)
+    if (PUSH_OPERATIONS.has(d.operation) && connector.syncFromDate) {
+      const from = connector.syncFromDate.toISOString().slice(0, 10);
+      const p = (d.payload ?? {}) as { document?: unknown };
+      const date = documentDate(p.document ?? p);
+      if (date && date < from)
+        throw new OutboxSinkError(
+          'document is dated before the connector sync start date — not sent',
+          'CAPABILITY',
+          { code: 'before_sync_from_date', documentDate: date, syncFromDate: from },
+        );
     }
 
     // สำเนาตื้น — ใส่รหัส ERP ที่จับคู่โดยไม่แก้ payload ที่เก็บในคิว
@@ -338,12 +606,21 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
       signal: d.signal,
       branchId: typeof payload.branchId === 'string' ? payload.branchId : null,
     });
+    // ST7-T16 sync log: adapter รายงานทุก HTTP call (บันทึกหลังจบการส่งใน `deliver`)
+    ctx.onHttpCall = (call) => {
+      if (st.calls.length < 50) st.calls.push(call);
+    };
+    st.connector = connector;
     // ST7-T18 ประตู mapping + ST8-T06 ผังรหัสที่ adapter ประกาศ (docs/01 §7.4) — ตรวจหลังเงื่อนไข "ส่งได้" ทั้งหมด
     // (คำสั่งที่พัก/ข้ามไม่ถูกตัดสินว่าล้ม) · คำสั่งดึงข้อมูล (FETCH_*) ไม่มีเอกสารให้ตรวจ
     const operation = d.operation as ErpOperation; // ตรวจด้วย isErpOperation ข้างบนแล้ว
     const secrets = connector.credentialKeys.map((k) => ctx.config[k] ?? '');
+    st.secrets = secrets;
     /** ST7-T15 สิ่งที่ส่งจริง (เก็บในผลของคำสั่ง): hash + รหัสคู่ค้าฝั่ง ERP ที่ใส่ ณ ตอนส่ง */
     let sent: Record<string, unknown> = {};
+    /** ST7-T16 วิธีส่ง (สร้างใหม่ / แทนที่ฉบับใน ERP) + hash ต่อกลุ่ม field ของสิ่งที่ส่ง */
+    let mode: SendMode = { kind: 'push' };
+    let parts: Record<SyncPart, string> | null = null;
     if (PUSH_OPERATIONS.has(operation)) {
       // รูปของ payload ก่อนเข้าประตู (REPLACE_DOCUMENT ต้องมีทั้ง ref และ document)
       if (operation === 'REPLACE_DOCUMENT' && (!payload.ref || !payload.document))
@@ -351,6 +628,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
           code: 'invalid_payload',
         });
       const doc = payload.document ?? (payload as CanonicalDocument);
+      st.number = typeof doc?.number === 'string' ? doc.number.slice(0, 60) : null;
       // ST7-T15 รูปของ canonical (เลข TMS ที่ส่งไปช่อง ref ของ ERP, วันที่, ยอดเงิน) — ผิด = ไม่ถึง adapter
       const shape = canonicalProblems(doc);
       if (shape.length)
@@ -391,6 +669,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
       // D-80 ช่องข้อมูลส่วนบุคคลนับใน hash ในรูป blind index (เลขเปลี่ยน = hash เปลี่ยน · hash ย้อนหาเลขไม่ได้)
       const hashed = withSyncHash(pii.forHash);
       const ready = { ...pii.document, sync: hashed.sync } as CanonicalDocument;
+      parts = syncParts(pii.forHash as CanonicalDocument);
       const entity = MAPPED_ENTITIES[d.entityType];
       if (entity) {
         const prior = await d.withTx((tx) =>
@@ -409,6 +688,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
               externalDocNo: true,
               externalVersion: true,
               externalStatus: true,
+              lastSyncedParts: true,
             },
           }),
         );
@@ -443,7 +723,17 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
             },
           );
         }
-      }
+        mode = await this.sendMode(
+          d,
+          connector,
+          adapter,
+          resolved.capabilities,
+          prior,
+          ready,
+          parts,
+        );
+      } else if (d.operation === 'REPLACE_DOCUMENT' && payload.ref)
+        mode = { kind: 'replace', ref: payload.ref };
       if (payload.document) payload.document = ready;
       else Object.assign(payload, ready);
       ctx.masterCodes = prep.masterCodes;
@@ -478,7 +768,11 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         );
     }
     try {
-      return await this.call(d, adapter, ctx, payload, secrets, connector, sent);
+      return await this.call(d, adapter, resolved.capabilities, ctx, payload, secrets, connector, {
+        sent,
+        mode,
+        parts,
+      });
     } catch (e) {
       if (e instanceof OutboxSinkError) {
         if (e.errorClass === 'TRANSIENT') await this.stopIfDown(d, connector);
@@ -534,6 +828,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     payload: { document?: CanonicalDocument },
     r: Extract<PushResult, { ok: true }>,
     applied: boolean,
+    parts: Record<SyncPart, string> | null = null,
   ): Promise<void> {
     const entity = MAPPED_ENTITIES[d.entityType];
     if (!entity) return;
@@ -543,16 +838,17 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     // ST7-T15 revision/ETag ฝั่ง ERP (ถ้ามี — docs/01 §3.7 `external_version`)
     const version = typeof r.externalVersion === 'string' ? r.externalVersion.slice(0, 100) : null;
     const now = this.clock.now();
+    const partsJson = parts ? JSON.stringify(parts) : null;
     await d.withTx(async (tx) => {
       if (applied) {
         await tx.$executeRaw`
           INSERT INTO external_mapping (id, tenant_id, connector_id, entity_type, local_id, local_number, external_id,
                                         external_doc_no, external_version, external_status, status, last_synced_hash,
-                                        last_synced_at, created_by, updated_at)
+                                        last_synced_parts, last_synced_at, created_by, updated_at)
           VALUES (gen_random_uuid(), ${d.tenantId}::uuid, ${c.id}::uuid, ${entity}::"ExternalEntityType",
                   ${d.localId}::uuid, ${number}, ${String(r.externalId).slice(0, 100)},
-                  ${r.externalDocNo?.slice(0, 100) ?? null}, ${version}, 'DRAFT', 'SYNCED', ${hash}, ${now},
-                  'system:erp-sink', now())
+                  ${r.externalDocNo?.slice(0, 100) ?? null}, ${version}, 'DRAFT', 'SYNCED', ${hash},
+                  ${partsJson}::jsonb, ${now}, 'system:erp-sink', now())
           ON CONFLICT (connector_id, entity_type, local_id) DO UPDATE
              SET external_id = EXCLUDED.external_id,
                  local_number = coalesce(EXCLUDED.local_number, external_mapping.local_number),
@@ -560,7 +856,8 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
                  external_version = coalesce(EXCLUDED.external_version, external_mapping.external_version),
                  external_status = coalesce(external_mapping.external_status, EXCLUDED.external_status),
                  status = 'SYNCED', last_error = NULL,
-                 last_synced_hash = EXCLUDED.last_synced_hash, last_synced_at = EXCLUDED.last_synced_at,
+                 last_synced_hash = EXCLUDED.last_synced_hash, last_synced_parts = EXCLUDED.last_synced_parts,
+                 last_synced_at = EXCLUDED.last_synced_at,
                  updated_by = 'system:erp-sink', version = external_mapping.version + 1, updated_at = now()`;
         return;
       }
@@ -595,6 +892,43 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     });
   }
 
+  /** อ้างอิงเอกสารของเรา (ยังไม่รู้ id ฝั่ง ERP) — ใช้ค้นด้วยเลขอ้างอิง */
+  private refOf(d: OutboxDelivery, doc: CanonicalDocument): ExternalRef {
+    return {
+      entityType: d.entityType,
+      localId: d.localId,
+      number: String(doc?.number ?? ''),
+      externalId: null,
+    };
+  }
+
+  /** ST7-T16 DUPLICATE ที่หาเอกสารฝั่ง ERP ไม่เจอ → mapping MISMATCH `duplicate_unresolved` (คงค่าเดิมที่มี) */
+  private async duplicateUnresolved(
+    d: OutboxDelivery,
+    c: Connector,
+    entity: 'INVOICE' | 'SETTLEMENT',
+    number: string | null,
+  ) {
+    const lastError = JSON.stringify({
+      code: 'duplicate_unresolved',
+      errorClass: 'DUPLICATE',
+      outboxId: d.id,
+      at: this.clock.now().toISOString(),
+    });
+    await d.withTx(
+      (tx) => tx.$executeRaw`
+        INSERT INTO external_mapping (id, tenant_id, connector_id, entity_type, local_id, local_number, status, last_error,
+                                      created_by, updated_at)
+        VALUES (gen_random_uuid(), ${d.tenantId}::uuid, ${c.id}::uuid, ${entity}::"ExternalEntityType",
+                ${d.localId}::uuid, ${number?.slice(0, 60) ?? null}, 'MISMATCH', ${lastError}::jsonb,
+                'system:erp-sink', now())
+        ON CONFLICT (connector_id, entity_type, local_id) DO UPDATE
+           SET status = 'MISMATCH', last_error = EXCLUDED.last_error,
+               local_number = coalesce(external_mapping.local_number, EXCLUDED.local_number),
+               updated_by = 'system:erp-sink', version = external_mapping.version + 1, updated_at = now()`,
+    );
+  }
+
   private async skipped(d: OutboxDelivery, c: Connector, code: string) {
     await d.withTx((tx) =>
       this.connectors.recordSkipped(
@@ -606,58 +940,280 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     );
   }
 
+  /** capability ใช้ได้จริงกับ connector นี้: adapter ทำแล้ว (ไม่ pending) ∩ tenant เปิด */
+  private usable(adapter: ErpAdapter, enabled: readonly string[], cap: ErpCapability): boolean {
+    return (
+      adapter.capabilities().has(cap) && !isPendingCapability(adapter, cap) && enabled.includes(cap)
+    );
+  }
+
+  /** คำสั่งส่งเอกสารที่ไม่ส่ง (SKIPPED + audit + แจ้งบัญชีตาม `onSettled`) */
+  private async skip(
+    d: OutboxDelivery,
+    c: Connector,
+    code: string,
+    message: string,
+    detail: Record<string, unknown> = {},
+  ): Promise<never> {
+    await this.skipped(d, c, code);
+    throw new OutboxSinkError(message, 'CAPABILITY', { code, ...detail });
+  }
+
+  /**
+   * ST7-T16 (+ ST7-T17) เอกสารที่ส่งแล้วถูกเปลี่ยน → ส่งการเปลี่ยนแบบไหน (docs/04 G3 System-of-record; docs/01 §6.1 `replaceDocument`)
+   * - `documentInErp` = external_mapping ของ**เอกสารนั้น**มี external_id และฝั่ง ERP ไม่ได้ยกเลิก (ไม่ใช่ค่าระดับ connector)
+   * - ไม่อยู่ใน ERP → ส่งเป็นเอกสารใหม่ (push) · REPLACE_DOCUMENT ของเอกสารที่ยังไม่อยู่ใน ERP = push ด้วย method ของชนิดเอกสาร
+   * - อยู่ใน ERP + เนื้อหาต่าง: กลุ่ม field ที่เปลี่ยน (hash ต่อกลุ่มเทียบ `last_synced_parts`; ไม่รู้ = ทุกกลุ่ม) → `fieldChangePolicy`
+   *   · รับชำระแล้ว → SKIPPED `paid_locked` (กฎ "แก้ได้จนรับชำระ" — ไม่ส่ง)
+   *   · กลุ่มที่ต้อง regenerate (ลูกค้า / ช่องนอกกลุ่ม) → SKIPPED `regenerate_required` (ยกเลิกใบเดิมในระบบบัญชีแล้วออกใหม่ — ทำมือ)
+   *   · auto-sync → แทนที่ทั้งใบด้วย `replaceDocument` (canonical ฉบับที่ออก + รหัส ณ ตอนส่ง) · ERP แจ้งว่าลงบัญชีแล้ว (`POSTED`)
+   *     → SKIPPED `replace_requires_approval` (docs/01 §6.1 ต้องอนุมัติ — ยังไม่มีขั้นอนุมัติ) · adapter ไม่มี/ไม่เปิด replaceDocument
+   *     → SKIPPED `replace_not_supported` (docs/01 §6.1: ไม่มีทั้ง pushCreditNote/replaceDocument → แจ้งบัญชีทำมือ; TMS ไม่ออกใบลด/เพิ่มหนี้ — D-54)
+   * เอกสารภาษีที่ออกแล้วใน TMS ไม่ถูกแก้ที่นี่ — ส่งเฉพาะสิ่งที่ TMS ถืออยู่ (ฉบับที่ออก) ไปแทนฉบับใน ERP
+   */
+  private async sendMode(
+    d: OutboxDelivery,
+    connector: Connector,
+    adapter: ErpAdapter,
+    enabled: readonly string[],
+    prior: {
+      externalId: string | null;
+      externalDocNo: string | null;
+      externalStatus: string | null;
+      lastSyncedParts: unknown;
+    } | null,
+    ready: CanonicalDocument,
+    parts: Record<SyncPart, string>,
+  ): Promise<SendMode> {
+    const inErp = !!prior?.externalId && prior.externalStatus !== 'VOIDED';
+    if (!prior || !inErp) {
+      if (d.operation === 'REPLACE_DOCUMENT') {
+        const cap = PUSH_CAPABILITY_OF[d.entityType];
+        if (!cap || !this.usable(adapter, enabled, cap))
+          await this.skip(
+            d,
+            connector,
+            'capability_not_supported',
+            `capability ${cap} not supported`,
+            {
+              capability: cap ?? null,
+            },
+          );
+      }
+      return { kind: 'push' };
+    }
+    const changed = changedSyncParts(prior.lastSyncedParts, parts);
+    const status =
+      d.entityType === 'invoice'
+        ? ((
+            await d.withTx((tx) =>
+              tx.invoice.findUnique({ where: { id: d.localId }, select: { status: true } }),
+            )
+          )?.status ?? null)
+        : null;
+    const sor = sorOf(connector);
+    const decision = combineDecisions(
+      changed.map((g) =>
+        g === 'OTHER' ? { mode: 'REGENERATE' } : fieldChangePolicy(sor, g, status, true),
+      ),
+    );
+    const detail = {
+      changed,
+      externalId: prior.externalId,
+      externalDocNo: prior.externalDocNo,
+    };
+    if (decision.mode === 'BLOCKED')
+      await this.skip(
+        d,
+        connector,
+        'paid_locked',
+        'document already paid — changes are not sent',
+        detail,
+      );
+    if (decision.mode === 'REGENERATE')
+      await this.skip(
+        d,
+        connector,
+        'regenerate_required',
+        'change requires regenerating the document in the accounting system — not sent',
+        detail,
+      );
+    if (prior.externalStatus === 'POSTED')
+      await this.skip(
+        d,
+        connector,
+        'replace_requires_approval',
+        'document is posted in the accounting system — replacing needs approval',
+        detail,
+      );
+    if (!this.usable(adapter, enabled, 'replaceDocument'))
+      await this.skip(
+        d,
+        connector,
+        'replace_not_supported',
+        'accounting system cannot replace the document — update it manually',
+        detail,
+      );
+    return {
+      kind: 'replace',
+      ref: {
+        entityType: d.entityType,
+        localId: d.localId,
+        number: String(ready.number),
+        externalId: prior.externalId,
+      },
+    };
+  }
+
+  /**
+   * ST7-T16 หาเอกสารของเราฝั่ง ERP (docs/01 §6.3 AMBIGUOUS / DUPLICATE): `listDocuments` ค้นด้วยเลขอ้างอิงของเรา →
+   * `fetchDocument` แล้วเทียบเนื้อหา · ไม่มีทั้งสอง capability = `searched: false`
+   * พบด้วย list อย่างเดียว (ไม่มี fetch) = รู้ id แต่ไม่รู้เนื้อหา (`same: null`) · throw = ปลายทางล่ม (ผู้เรียกให้ลองใหม่)
+   */
+  private async lookup(
+    adapter: ErpAdapter,
+    enabled: readonly string[],
+    ctx: ErpContext,
+    ref: ExternalRef,
+    sent: CanonicalDocument,
+  ): Promise<
+    | { searched: false }
+    | { searched: true; found: false }
+    | {
+        searched: true;
+        found: true;
+        externalId: string;
+        externalDocNo: string | null;
+        same: boolean | null;
+      }
+  > {
+    const canList = this.usable(adapter, enabled, 'listDocuments') && !!adapter.listDocuments;
+    const canFetch = this.usable(adapter, enabled, 'fetchDocument') && !!adapter.fetchDocument;
+    if (!canList && !canFetch) return { searched: false };
+    let externalId = ref.externalId;
+    if (!externalId && canList) {
+      const page = await adapter.listDocuments!(ctx, { ref: ref.number, limit: 10 });
+      const hit = (page?.items ?? []).find(
+        (i) =>
+          i.number === ref.number && !!i.externalId && (!i.localId || i.localId === ref.localId),
+      );
+      externalId = hit?.externalId ?? null;
+      if (!canFetch)
+        return externalId
+          ? { searched: true, found: true, externalId, externalDocNo: null, same: null }
+          : { searched: true, found: false };
+      if (!externalId) return { searched: true, found: false };
+    }
+    const got = await adapter.fetchDocument!(ctx, { ...ref, externalId });
+    const gotId =
+      typeof got?.externalId === 'string' && got.externalId ? got.externalId : externalId;
+    if (!got || !gotId) return { searched: true, found: false };
+    return {
+      searched: true,
+      found: true,
+      externalId: gotId.slice(0, 100),
+      externalDocNo: typeof got.externalDocNo === 'string' ? got.externalDocNo.slice(0, 100) : null,
+      same: sameContent(got, sent),
+    };
+  }
+
   private async call(
     d: OutboxDelivery,
     adapter: ErpAdapter,
+    enabled: readonly string[],
     ctx: ErpContext,
     payload: { document?: CanonicalDocument; ref?: ExternalRef },
     secrets: string[],
     connector: Connector,
-    sent: Record<string, unknown>,
+    o: { sent: Record<string, unknown>; mode: SendMode; parts: Record<SyncPart, string> | null },
   ): Promise<{ result: Record<string, unknown> }> {
+    const { sent, mode, parts } = o;
+    const doc = payload.document ?? (payload as CanonicalDocument);
+    const entity = MAPPED_ENTITIES[d.entityType];
+    /** ST7-T16 พบเอกสารของเราฝั่ง ERP แล้ว (หลัง AMBIGUOUS / DUPLICATE) → mapping + ผล DONE */
+    const recovered = async (
+      found: { externalId: string; externalDocNo: string | null; same: boolean | null },
+      after: 'AMBIGUOUS' | 'DUPLICATE',
+    ) => {
+      const applied = found.same === true;
+      await this.recordMapping(
+        d,
+        connector,
+        payload,
+        { ok: true, externalId: found.externalId, externalDocNo: found.externalDocNo ?? undefined },
+        applied,
+        parts,
+      );
+      return {
+        result: {
+          externalId: found.externalId,
+          externalDocNo: found.externalDocNo,
+          externalVersion: null,
+          applied,
+          recoveredAfter: after,
+          ...sent,
+        },
+      };
+    };
     let r: PushResult;
-    switch (d.operation) {
-      case 'PUSH_INVOICE':
-        r = await adapter.pushInvoice!(ctx, payload.document ?? (payload as CanonicalDocument));
-        break;
-      case 'PUSH_CREDIT_NOTE':
-        r = await adapter.pushCreditNote!(ctx, payload.document ?? (payload as CanonicalDocument));
-        break;
-      case 'PUSH_SETTLEMENT':
-        r = await adapter.pushSettlement!(ctx, payload.document ?? (payload as CanonicalDocument));
-        break;
-      case 'REPLACE_DOCUMENT':
-        if (!payload.ref || !payload.document)
-          throw new OutboxSinkError('ref and document required', 'VALIDATION', {
-            code: 'invalid_payload',
+    if (mode.kind === 'replace') {
+      r = await adapter.replaceDocument!(ctx, mode.ref, doc);
+    } else
+      switch (d.operation) {
+        case 'PUSH_INVOICE':
+        case 'PUSH_CREDIT_NOTE':
+        case 'PUSH_SETTLEMENT':
+        case 'REPLACE_DOCUMENT': {
+          // ST7-T16 AMBIGUOUS (docs/01 §6.3): ไม่ส่งซ้ำทันที — รอบก่อนอาจถึงแล้ว → หาเอกสารของเราฝั่ง ERP ก่อน (list/fetch)
+          // พบ = จบด้วย mapping (ไม่ส่งซ้ำ) · ไม่พบ/หาไม่ได้ = ส่งใหม่ (dispatcher รอ 2 นาทีแล้ว — ถ้าถึงแล้ว ERP ตอบ DUPLICATE)
+          if (entity && d.attempt > 1) {
+            const prev = await d.withTx((tx) =>
+              tx.integrationOutbox.findUnique({
+                where: { id: d.id },
+                select: { errorClass: true },
+              }),
+            );
+            if (prev?.errorClass === 'AMBIGUOUS') {
+              const f = await this.lookup(adapter, enabled, ctx, this.refOf(d, doc), doc);
+              if (f.searched && f.found) return recovered(f, 'AMBIGUOUS');
+            }
+          }
+          const method =
+            d.operation === 'PUSH_CREDIT_NOTE'
+              ? 'pushCreditNote'
+              : PUSH_CAPABILITY_OF[d.entityType] === 'pushSettlement' ||
+                  d.operation === 'PUSH_SETTLEMENT'
+                ? 'pushSettlement'
+                : 'pushInvoice';
+          r = await adapter[method]!(ctx, doc);
+          break;
+        }
+        case 'FETCH_DOCUMENT': {
+          if (!payload.ref)
+            throw new OutboxSinkError('ref required', 'VALIDATION', { code: 'invalid_payload' });
+          const doc = await adapter.fetchDocument!(ctx, payload.ref);
+          return { result: { found: !!doc, document: doc } };
+        }
+        case 'FETCH_PAYMENT_STATUS': {
+          if (!payload.ref)
+            throw new OutboxSinkError('ref required', 'VALIDATION', { code: 'invalid_payload' });
+          const st = await adapter.fetchPaymentStatus!(ctx, payload.ref);
+          return { result: { found: !!st, paymentStatus: st } };
+        }
+        case 'VOID_DOCUMENT':
+          // ไม่ถึงที่นี่ (deliver ข้ามเป็น `void_manual_required` ก่อน) — ST7-T16: void ผ่านใบลดหนี้ต้องมีใบลดหนี้จริงใน TMS
+          // ซึ่งเฟส 0 ไม่ออก (D-54) → [OPEN — PO/นักบัญชี] ไม่ส่ง ไม่เดา
+          throw new OutboxSinkError('void via credit note is not implemented yet', 'VALIDATION', {
+            code: 'void_not_implemented',
           });
-        r = await adapter.replaceDocument!(ctx, payload.ref, payload.document);
-        break;
-      case 'FETCH_DOCUMENT': {
-        if (!payload.ref)
-          throw new OutboxSinkError('ref required', 'VALIDATION', { code: 'invalid_payload' });
-        const doc = await adapter.fetchDocument!(ctx, payload.ref);
-        return { result: { found: !!doc, document: doc } };
+        default:
+          throw new OutboxSinkError(`unknown operation ${d.operation}`, 'VALIDATION', {
+            code: 'unknown_operation',
+          });
       }
-      case 'FETCH_PAYMENT_STATUS': {
-        if (!payload.ref)
-          throw new OutboxSinkError('ref required', 'VALIDATION', { code: 'invalid_payload' });
-        const st = await adapter.fetchPaymentStatus!(ctx, payload.ref);
-        return { result: { found: !!st, paymentStatus: st } };
-      }
-      case 'VOID_DOCUMENT':
-        // ERP ที่มี pushCreditNote: ส่งการยกเลิกเป็นใบลดหนี้ — ออกแบบใน ST7-T16 (ยังไม่ส่ง ไม่เดา)
-        throw new OutboxSinkError('void via credit note is not implemented yet', 'VALIDATION', {
-          code: 'void_not_implemented',
-        });
-      default:
-        throw new OutboxSinkError(`unknown operation ${d.operation}`, 'VALIDATION', {
-          code: 'unknown_operation',
-        });
-    }
     if (r.ok) {
       const applied = r.applied === true;
-      await this.recordMapping(d, connector, payload, r, applied);
+      await this.recordMapping(d, connector, payload, r, applied, parts);
       return {
         result: {
           externalId: r.externalId,
@@ -667,6 +1223,32 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
           ...sent,
         },
       };
+    }
+    // ST7-T16 DUPLICATE (docs/01 §6.3): ERP มีเลขอ้างอิงนี้แล้ว — ไม่ใช่ error: หาเอกสารฝั่ง ERP แล้วบันทึก mapping (SYNCED เมื่อเนื้อหาตรง
+    // · MISMATCH เมื่อต่าง/ไม่รู้) · หาไม่เจอ = FAILED_FINAL `duplicate_unresolved` ให้คนกรอกเลขจากระบบบัญชี (mapping MISMATCH)
+    if (r.errorClass === 'DUPLICATE' && entity && mode.kind === 'push') {
+      let f: Awaited<ReturnType<ErpAdapterSink['lookup']>>;
+      try {
+        f = await this.lookup(adapter, enabled, ctx, this.refOf(d, doc), doc);
+      } catch (e) {
+        const msg = scrub(String((e as Error)?.message ?? e), secrets).slice(0, 500);
+        throw new OutboxSinkError(msg || 'lookup failed', 'TRANSIENT', {
+          code: 'duplicate_lookup_failed',
+          message: msg,
+        });
+      }
+      if (f.searched && f.found) return recovered(f, 'DUPLICATE');
+      await this.duplicateUnresolved(
+        d,
+        connector,
+        entity,
+        typeof doc?.number === 'string' ? doc.number : null,
+      );
+      throw new OutboxSinkError(
+        'accounting system already has this reference but the document could not be found — enter its id manually',
+        'DUPLICATE',
+        { code: 'duplicate_unresolved', unresolved: true, searched: f.searched },
+      );
     }
     if (r.problem?.code === NOT_IMPLEMENTED)
       throw parkedNotImplemented(

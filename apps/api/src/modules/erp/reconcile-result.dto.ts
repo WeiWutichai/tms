@@ -68,17 +68,25 @@ export class ReconcileResultDto {
   })
   source!: string;
   @ApiProperty({ enum: RECONCILE_RESULT_STATUSES }) status!: string;
-  @ApiProperty({ nullable: true, type: String, example: 'PAYMENT_STATUS' }) check!: string | null;
   @ApiProperty({
     nullable: true,
     type: String,
-    enum: PAYMENT_MISMATCH_CODES,
+    example: 'PAYMENT_STATUS',
+    description:
+      'PAYMENT_STATUS = ยอดรับชำระ (ST7-T21) · DOCUMENT = เอกสารที่ส่งแล้วหาไม่พบในระบบบัญชี (ST7-T16 — `remote_missing`)',
+  })
+  check!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    enum: [...PAYMENT_MISMATCH_CODES, 'remote_missing'],
     description:
       '`remote_exceeds_total` ระบบบัญชีตัดหนี้เกินยอดใบ · `remote_paid_amount_short` ระบบบัญชีบอกชำระครบแต่ยอดตัดหนี้น้อยกว่ายอดใบ · ' +
       '`remote_less_than_tms` ระบบบัญชีตัดหนี้น้อยกว่าที่ TMS บันทึกรับ · `tms_has_other_payments` ระบบบัญชีตัดหนี้มากกว่า TMS แต่ใบมีรับชำระที่บันทึกเอง ' +
       '(ไม่บันทึกเพิ่มให้เอง) · `connector_payment_reversed` ใบนี้เคยมีรายการที่ระบบสร้างแล้วถูกกลับรายการใน TMS (ไม่สร้างให้อีก) · ' +
       '`remote_wht_unknown` ระบบบัญชีไม่บอกภาษีหัก ณ ที่จ่าย · `remote_wht_inconsistent` ภาษีหัก ณ ที่จ่ายที่รายงานขัดกัน · ' +
-      '`remote_paid_at_invalid` วันที่รับชำระไม่มี/เป็นอนาคต/ก่อนวันออกใบ · `payment_rejected` กฎรับชำระของ TMS ไม่รับ (ดู `reason`)',
+      '`remote_paid_at_invalid` วันที่รับชำระไม่มี/เป็นอนาคต/ก่อนวันออกใบ · `payment_rejected` กฎรับชำระของ TMS ไม่รับ (ดู `reason`) · ' +
+      '`remote_missing` (ST7-T16) แทนที่/อ่านเอกสารแล้วระบบบัญชีตอบว่าไม่พบ — ส่งใหม่เป็นเลขใหม่ต้องให้บัญชีรับรู้',
   })
   code!: string | null;
   @ApiProperty({

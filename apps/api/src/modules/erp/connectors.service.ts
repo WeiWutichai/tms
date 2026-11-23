@@ -51,6 +51,7 @@ import {
   readyCapabilities,
 } from './erp-adapter';
 import { ErpAdapterRegistry, usableAdapter } from './erp-adapter.registry';
+import { type ErpSyncLogDto, type ErpSyncLogQuery, syncLogDto } from './erp-sync-log';
 import {
   checkMasterCodeRefs,
   MASTER_CODE_KIND_TH,
@@ -400,6 +401,24 @@ export class ConnectorsService {
       take: q.limit ?? 50,
     });
     return rows.map(commandDto);
+  }
+
+  /** ST7-T16 sync log ของ connector (1 แถวต่อ 1 HTTP call — docs/01 §6.4) ใหม่สุดก่อน */
+  async syncLog(id: string, q: ErpSyncLogQuery, tx: Tx = this.db.tx): Promise<ErpSyncLogDto[]> {
+    const c = await this.get(id, tx);
+    const outboxId =
+      q.commandId !== undefined ? tryDecodeId('outboxCommand', q.commandId) : undefined;
+    if (q.commandId !== undefined && !outboxId) return [];
+    const rows = await tx.erpSyncLog.findMany({
+      where: {
+        connectorId: c.id,
+        ...(outboxId ? { outboxId } : {}),
+        ...(q.documentNo ? { localNumber: q.documentNo } : {}),
+      },
+      orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+      take: q.limit ?? 50,
+    });
+    return rows.map(syncLogDto);
   }
 
   /** connector ที่เอกสารของนิติบุคคล/สาขาใช้ (routing ตามนิติบุคคล — ST1-T16) */

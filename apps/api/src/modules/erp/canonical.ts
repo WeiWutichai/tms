@@ -151,6 +151,91 @@ export interface CanonicalSettlementPayload extends CanonicalDocument {
   lines: CanonicalSettlementLine[];
 }
 
+/**
+ * ST7-T16 กลุ่ม field ของเอกสารที่ส่งแล้ว (docs/04 G3 System-of-record: ราคา / วันที่ / accessorial = auto-sync · ลูกค้า = regenerate)
+ * ใช้ตัดสินว่าการเปลี่ยนไปถึงเอกสารฝั่ง ERP แบบไหน (`fieldChangePolicy`) — `OTHER` = ช่องที่ไม่อยู่ในกลุ่มใด (ตัดสินแบบระมัดระวัง = regenerate)
+ */
+export const SYNC_PARTS = ['CUSTOMER', 'DATES', 'PRICE', 'ACCESSORIAL', 'OTHER'] as const;
+export type SyncPart = (typeof SYNC_PARTS)[number];
+
+/** ช่องหัวเอกสารต่อกลุ่ม (ช่องที่ไม่อยู่ในรายการ = OTHER) — `sync` ไม่นับ */
+const PART_OF_FIELD: Readonly<Record<string, SyncPart>> = {
+  customer: 'CUSTOMER',
+  carrier: 'CUSTOMER',
+  issueDate: 'DATES',
+  dueDate: 'DATES',
+  paidDate: 'DATES',
+  period: 'DATES',
+  totals: 'PRICE',
+};
+/** ช่องเงิน/ปริมาณของบรรทัด → PRICE · ช่องอื่นของบรรทัด (รายการ/คำอธิบาย/รหัสบริการ/DO) และจำนวนบรรทัด → ACCESSORIAL */
+const LINE_PRICE_FIELDS: ReadonlySet<string> = new Set([
+  'lineNo',
+  'quantity',
+  'unitPrice',
+  'discount',
+  'amount',
+  'vatType',
+  'vatAmount',
+  'whtRate',
+  'whtAmount',
+]);
+
+/**
+ * ST7-T16 hash ต่อกลุ่ม field ของ canonical (ฟังก์ชันบริสุทธิ์) — เก็บใน `external_mapping.last_synced_parts` ตอนส่งสำเร็จ
+ * แล้วเทียบตอนส่งใหม่ว่ากลุ่มไหนเปลี่ยน (`changedSyncParts`)
+ */
+export function syncParts(doc: CanonicalDocument): Record<SyncPart, string> {
+  const buckets: Record<SyncPart, Record<string, unknown>> = {
+    CUSTOMER: {},
+    DATES: {},
+    PRICE: {},
+    ACCESSORIAL: {},
+    OTHER: {},
+  };
+  for (const [k, v] of Object.entries(doc)) {
+    if (k === 'sync' || v === undefined) continue;
+    if (k === 'lines' && Array.isArray(v)) {
+      buckets.PRICE.lines = v.map((l) =>
+        l && typeof l === 'object'
+          ? Object.fromEntries(Object.entries(l).filter(([f]) => LINE_PRICE_FIELDS.has(f)))
+          : l,
+      );
+      buckets.ACCESSORIAL.lines = v.map((l) =>
+        l && typeof l === 'object'
+          ? Object.fromEntries(Object.entries(l).filter(([f]) => !LINE_PRICE_FIELDS.has(f)))
+          : l,
+      );
+      continue;
+    }
+    buckets[PART_OF_FIELD[k] ?? 'OTHER'][k] = v;
+  }
+  const out = {} as Record<SyncPart, string>;
+  for (const p of SYNC_PARTS)
+    out[p] = createHash('sha256').update(canonicalJson(buckets[p])).digest('hex');
+  return out;
+}
+
+/** กลุ่มที่ต่างจากที่ส่งสำเร็จล่าสุด — ไม่รู้ของเดิม (null / รูปผิด) = ทุกกลุ่ม */
+export function changedSyncParts(prior: unknown, next: Record<SyncPart, string>): SyncPart[] {
+  const p =
+    prior && typeof prior === 'object' && !Array.isArray(prior)
+      ? (prior as Record<string, unknown>)
+      : null;
+  return SYNC_PARTS.filter((k) => !p || p[k] !== next[k]);
+}
+
+/**
+ * ST7-T16 วันที่ของเอกสารที่ใช้กับประตู `connector.sync_from_date` (docs/01 §6.4 "issue_date ก่อนวันนี้") —
+ * ใบแจ้งหนี้ = `issueDate` · ใบสำคัญจ่าย = `paidDate` (ไม่มีวันออกใบ — วันที่ลงบัญชี AP) · ไม่มี = null (ไม่ตัดสิน)
+ */
+export function documentDate(doc: unknown): string | null {
+  const d = doc as { issueDate?: unknown; paidDate?: unknown } | null;
+  for (const v of [d?.issueDate, d?.paidDate])
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  return null;
+}
+
 /** sha256 ของ payload (ไม่รวม `sync`) แล้วใส่ `sync.hash` */
 export function withSyncHash<T extends CanonicalDocument>(doc: T): T {
   const { sync: _drop, ...rest } = doc;

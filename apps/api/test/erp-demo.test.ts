@@ -262,12 +262,15 @@ describe('Standalone + DemoProvider (ST7-T14)', () => {
     const docs = demo.documents(tenantId, con.uuid);
     expect(docs).toHaveLength(1);
     expect(docs[0]!.document).toMatchObject({ id: inv.id, number: 'INV-00000-2611-0001' });
-    // คำสั่งเดิม (idempotency key เดิม) ไม่สร้างคำสั่งใหม่ · payload เดียวกันคำสั่งอื่น = ERP ตอบซ้ำ → DONE (DUPLICATE)
+    // คำสั่งเดิม (idempotency key เดิม) ไม่สร้างคำสั่งใหม่ · payload เดียวกันคำสั่งอื่น = ERP ตอบซ้ำ (DUPLICATE)
     const again = await enqueue(con.uuid, 'PUSH_INVOICE', inv.payload, inv.id);
     expect(again).toBe(id);
     const other = await enqueue(con.uuid, 'PUSH_INVOICE', inv.payload, randomUUID());
     await drain();
-    expect(await cmd(other)).toMatchObject({ status: 'DONE', errorClass: 'DUPLICATE' });
+    // ST7-T16 (docs/01 §6.3 DUPLICATE): sink ค้นเอกสารฝั่ง ERP — เลขนี้เป็นของเอกสาร TMS อื่น (local id ต่าง) → ไม่ผูกมั่ว
+    // = FAILED_FINAL `duplicate_unresolved` ให้คนตรวจ/กรอกเลขเอง
+    expect(await cmd(other)).toMatchObject({ status: 'FAILED_FINAL', errorClass: 'DUPLICATE' });
+    expect((await cmd(other)).lastError).toMatchObject({ code: 'duplicate_unresolved' });
     expect(demo.documents(tenantId, con.uuid)).toHaveLength(1);
     // อ่านกลับ: fetch + สถานะรับชำระ (ตามค่าตั้ง paymentStatus)
     await setSettings(con.id, { paymentStatus: 'PAID' });

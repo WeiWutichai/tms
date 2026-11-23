@@ -291,8 +291,10 @@ export class OutboxDispatcher {
     let delayMin = 0;
     let attempt = c.attempt;
     switch (cls) {
-      case 'DUPLICATE': // ปลายทางมีอยู่แล้ว (ส่งถึงในรอบก่อน) — ไม่ใช่ error (reconcile ทำใน ST7-T16)
-        status = 'DONE';
+      case 'DUPLICATE':
+        // ปลายทางมีอยู่แล้ว (ส่งถึงในรอบก่อน) — ไม่ใช่ error · ST7-T16 (docs/01 §6.3): sink ตามหาเอกสารฝั่งปลายทางแล้วบันทึก mapping
+        // หาไม่เจอ (`unresolved`) = ขึ้นคิวล้มเหลวให้คนกรอกเลขจากระบบปลายทาง (FAILED_FINAL)
+        status = detail.unresolved === true ? 'FAILED_FINAL' : 'DONE';
         break;
       case 'CAPABILITY':
         status = 'SKIPPED';

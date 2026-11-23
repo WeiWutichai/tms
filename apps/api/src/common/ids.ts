@@ -83,6 +83,8 @@ export const ID_PREFIX = {
   billingNote: 'bn',
   /** ST5-T21 การส่งเอกสารทางอีเมลถึงผู้รับ 1 คน (document_email) */
   documentEmail: 'dem',
+  /** ST7-T16 การเรียกระบบบัญชี 1 ครั้ง (erp_sync_log — docs/01 §6.4) */
+  syncLog: 'slg',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

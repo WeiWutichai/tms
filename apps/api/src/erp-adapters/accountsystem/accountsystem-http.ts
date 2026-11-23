@@ -46,6 +46,8 @@ export async function asCall(
   const key = ctx.config.apiKey ?? '';
   if (!base) return fail('VALIDATION', 'config_missing', 'baseUrl is not set');
   if (!key) return fail('AUTH', 'credentials_missing', 'apiKey is not set');
+  const started = Date.now();
+  const at = new Date();
   const r = await safeHttpRequest(
     method,
     `${base}${path}`,
@@ -57,6 +59,21 @@ export async function asCall(
     body === undefined ? '' : JSON.stringify(body),
     { timeoutMs, signal: ctx.signal, maxResponseBytes: 1024 * 1024, ...http },
   );
+  // ST7-T16 sync log 1 แถวต่อ 1 HTTP call (docs/01 §6.4) — ไม่ส่ง header (Authorization) · core ตัด credential/เลขบัตรซ้ำอีกชั้น
+  try {
+    ctx.onHttpCall?.({
+      method,
+      url: `${base}${path}`,
+      requestBody: body,
+      status: r.status,
+      responseBody: r.status === null ? null : r.body,
+      errorCode: r.status === null ? (r.errorCode ?? 'network') : null,
+      durationMs: Date.now() - started,
+      at,
+    });
+  } catch {
+    /* ตัวบันทึกล้ม = ไม่กระทบผล */
+  }
   if (r.status === null) {
     switch (r.errorCode) {
       case 'timeout':

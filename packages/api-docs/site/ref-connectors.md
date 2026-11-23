@@ -1,6 +1,6 @@
 # Connector ERP (connectors)
 
-10 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+11 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -10,6 +10,7 @@
 | [`GET /v1/connectors/{id}`](#get-connectors-id) | `settings:read` |
 | [`GET /v1/connectors/{id}/history`](#get-connectors-id-history) | `settings:read` |
 | [`GET /v1/connectors/{id}/commands`](#get-connectors-id-commands) | `settings:read` |
+| [`GET /v1/connectors/{id}/sync-log`](#get-connectors-id-sync-log) | `settings:read` |
 | [`GET /v1/connectors/{id}/master-codes`](#get-connectors-id-master-codes) | `settings:read` |
 | [`GET /v1/connectors/{id}/mappings`](#get-connectors-id-mappings) | `settings:read` |
 | [`GET /v1/reconcile-results`](#get-reconcile-results) | `integrations:read` |
@@ -227,6 +228,46 @@ curl -sS -X GET "$TMS_BASE_URL/v1/connectors/<id>/commands" \
 
 ```ts
 const { data, error } = await tms.GET('/v1/connectors/{id}/commands', {
+  params: { path: { id: "…" } },
+});
+```
+
+## GET /v1/connectors/{id}/sync-log {#get-connectors-id-sync-log}
+
+`GET /v1/connectors/{id}/sync-log`
+
+scope: `settings:read` · operationId: `Connectors_syncLog`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+| `commandId` | query |   | `string` | เฉพาะการเรียกของคำสั่งนี้ (บันทึกการซิงก์) |
+| `documentNo` | query |   | `string` | เลขเอกสาร TMS |
+| `limit` | query |   | `number` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | sync log: 1 แถวต่อ 1 HTTP call ที่ connector นี้เรียกระบบบัญชี (ใหม่สุดก่อน) — body ตัด credential / เลขบัตรประชาชนแล้ว (≤ 16 KB) · ไม่มี header · URL ไม่มี query string · `commandId` = เฉพาะการเรียกของคำสั่งนั้น · `documentNo` = เลขเอกสาร TMS | `ErpSyncLogListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/connectors/<id>/sync-log" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/connectors/{id}/sync-log', {
   params: { path: { id: "…" } },
 });
 ```
@@ -492,6 +533,14 @@ const { data, error } = await tms.GET('/v1/reconcile-results/{id}', {
 |---|---|---|---|---|---|
 | `data` | ใช่ | `array<ErpMasterCodeDto>` |   |   |   |
 
+### ErpSyncLogListDto {#schema-ErpSyncLogListDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<ErpSyncLogDto>` |   |   |   |
+
 ### ReconcileResultDto {#schema-ReconcileResultDto}
 
 
@@ -507,8 +556,8 @@ const { data, error } = await tms.GET('/v1/reconcile-results/{id}', {
 | `severity` | ใช่ | `string` | ค่า: `MONEY`, `FIELD`, `INFO` | MONEY = กระทบยอดเงิน |   |
 | `source` | ใช่ | `string` | ค่า: `AFTER_PUSH`, `NIGHTLY`, `PRE_CLOSE`, `MANUAL` | NIGHTLY = รอบดึงรายวัน · MANUAL = สั่งเอง (`POST /reconcile-runs`) |   |
 | `status` | ใช่ | `string` | ค่า: `OPEN`, `ACKNOWLEDGED`, `RESOLVED` |   |   |
-| `check` | ใช่ | `string` | null ได้ |   | `PAYMENT_STATUS` |
-| `code` | ใช่ | `string` | ค่า: `remote_exceeds_total`, `remote_paid_amount_short`, `remote_less_than_tms`, `tms_has_other_payments`, `connector_payment_reversed`, `remote_wht_unknown`, `remote_wht_inconsistent`, `remote_paid_at_invalid`, `payment_rejected` · null ได้ | `remote_exceeds_total` ระบบบัญชีตัดหนี้เกินยอดใบ · `remote_paid_amount_short` ระบบบัญชีบอกชำระครบแต่ยอดตัดหนี้น้อยกว่ายอดใบ · `remote_less_than_tms` ระบบบัญชีตัดหนี้น้อยกว่าที่ TMS บันทึกรับ · `tms_has_other_payments` ระบบบัญชีตัดหนี้มากกว่า TMS แต่ใบมีรับชำระที่บันทึกเอง (ไม่บันทึกเพิ่มให้เอง) · `connector_payment_reversed` ใบนี้เคยมีรายการที่ระบบสร้างแล้วถูกกลับรายการใน TMS (ไม่สร้างให้อีก) · `remote_wht_unknown` ระบบบัญชีไม่บอกภาษีหัก ณ ที่จ่าย · `remote_wht_inconsistent` ภาษีหัก ณ ที่จ่ายที่รายงานขัดกัน · `remote_paid_at_invalid` วันที่รับชำระไม่มี/เป็นอนาคต/ก่อนวันออกใบ · `payment_rejected` กฎรับชำระของ TMS ไม่รับ (ดู `reason`) |   |
+| `check` | ใช่ | `string` | null ได้ | PAYMENT_STATUS = ยอดรับชำระ · DOCUMENT = เอกสารที่ส่งแล้วหาไม่พบในระบบบัญชี | `PAYMENT_STATUS` |
+| `code` | ใช่ | `string` | ค่า: `remote_exceeds_total`, `remote_paid_amount_short`, `remote_less_than_tms`, `tms_has_other_payments`, `connector_payment_reversed`, `remote_wht_unknown`, `remote_wht_inconsistent`, `remote_paid_at_invalid`, `payment_rejected`, `remote_missing` · null ได้ | `remote_exceeds_total` ระบบบัญชีตัดหนี้เกินยอดใบ · `remote_paid_amount_short` ระบบบัญชีบอกชำระครบแต่ยอดตัดหนี้น้อยกว่ายอดใบ · `remote_less_than_tms` ระบบบัญชีตัดหนี้น้อยกว่าที่ TMS บันทึกรับ · `tms_has_other_payments` ระบบบัญชีตัดหนี้มากกว่า TMS แต่ใบมีรับชำระที่บันทึกเอง (ไม่บันทึกเพิ่มให้เอง) · `connector_payment_reversed` ใบนี้เคยมีรายการที่ระบบสร้างแล้วถูกกลับรายการใน TMS (ไม่สร้างให้อีก) · `remote_wht_unknown` ระบบบัญชีไม่บอกภาษีหัก ณ ที่จ่าย · `remote_wht_inconsistent` ภาษีหัก ณ ที่จ่ายที่รายงานขัดกัน · `remote_paid_at_invalid` วันที่รับชำระไม่มี/เป็นอนาคต/ก่อนวันออกใบ · `payment_rejected` กฎรับชำระของ TMS ไม่รับ (ดู `reason`) · `remote_missing` แทนที่/อ่านเอกสารแล้วระบบบัญชีตอบว่าไม่พบ — ส่งใหม่เป็นเลขใหม่ต้องให้บัญชีรับรู้ |   |
 | `reason` | ใช่ | `string` | null ได้ | รหัสเหตุผลเพิ่มเติม (เฉพาะ `payment_rejected`) — เป็นรหัสเท่านั้น ไม่มียอดเงิน | `invoice_not_payable` |
 | `localStatus` | ใช่ | `string` | null ได้ |   | `PARTIALLY_PAID` |
 | `remoteStatus` | ใช่ | `string` | null ได้ |   | `PAID` |

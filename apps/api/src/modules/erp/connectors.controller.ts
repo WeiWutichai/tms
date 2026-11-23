@@ -55,6 +55,7 @@ import {
 } from './connector.dto';
 import { apiOrigin } from '../documents/documents.controller';
 import { ConnectorsService } from './connectors.service';
+import { ErpSyncLogListDto, ErpSyncLogQuery } from './erp-sync-log';
 
 /**
  * ผลออก/หมุน token มีค่าที่แสดงครั้งเดียว — ห้ามเก็บลงตาราง idempotency (เก็บ response 24 ชม. เป็นข้อความธรรมดา)
@@ -161,6 +162,20 @@ export class ConnectorsController {
     @Query() q: ConnectorCommandQuery,
   ): Promise<ConnectorCommandListDto> {
     return { data: await this.connectors.commands(decodeIdOr404('connector', id), q) };
+  }
+
+  @Get(':id/sync-log')
+  @TenantResource('connector')
+  @RequireScope('settings:read')
+  @ApiOkResponse({
+    type: ErpSyncLogListDto,
+    description:
+      'ST7-T16 sync log (docs/01 §6.4): 1 แถวต่อ 1 HTTP call ที่ connector นี้เรียกระบบบัญชี (ใหม่สุดก่อน) — ' +
+      'body ตัด credential / เลขบัตรประชาชนแล้ว (≤ 16 KB) · ไม่มี header · URL ไม่มี query string · ' +
+      '`commandId` = เฉพาะการเรียกของคำสั่งนั้น · `documentNo` = เลขเอกสาร TMS',
+  })
+  async syncLog(@Param('id') id: string, @Query() q: ErpSyncLogQuery): Promise<ErpSyncLogListDto> {
+    return { data: await this.connectors.syncLog(decodeIdOr404('connector', id), q) };
   }
 
   @Patch(':id')

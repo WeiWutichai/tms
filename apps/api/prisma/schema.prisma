@@ -3159,6 +3159,7 @@ model Connector {
   codeMappings     ErpCodeMapping[]
   externalMappings ExternalMapping[]
   reconcileResults ReconcileResult[]
+  syncLogs         ErpSyncLog[]
 
   @@index([tenantId, createdAt, id])
   @@index([tenantId, companyId])
@@ -3550,6 +3551,9 @@ model ExternalMapping {
   paymentCheckedAt DateTime?            @map("payment_checked_at") @db.Timestamptz(6)
   /// sha256 ของ canonical payload ล่าสุดที่ส่งสำเร็จ (ST7-T15)
   lastSyncedHash  String?               @map("last_synced_hash")
+  /// ST7-T16 hash แยกตามกลุ่ม field (CUSTOMER / DATES / PRICE / ACCESSORIAL / OTHER) ของ payload ล่าสุดที่ส่งสำเร็จ —
+  /// ใช้ตัดสินว่าเอกสารที่ส่งแล้วเปลี่ยนกลุ่มไหน (`fieldChangePolicy`) · null = ไม่รู้ (ถือว่าเปลี่ยนทุกกลุ่ม)
+  lastSyncedParts Json?                 @map("last_synced_parts")
   lastSyncedAt    DateTime?             @map("last_synced_at") @db.Timestamptz(6)
   status          ExternalMappingStatus @default(PENDING)
   lastError       Json?                 @map("last_error")
@@ -3565,6 +3569,43 @@ model ExternalMapping {
   @@index([tenantId, entityType, localId])
   @@index([connectorId, entityType, localNumber])
   @@map("external_mapping")
+}
+
+// ---------- ST7-T16 Sync log: 1 แถวต่อ 1 HTTP call ไปยังระบบบัญชี (docs/01 §6.4) ----------
+
+/// บันทึกการเรียกระบบภายนอก 1 ครั้ง (docs/01 §6.4 "Sync log: 1 แถวต่อ 1 HTTP call") — adapter รายงานผ่าน `ErpContext.onHttpCall`
+/// core ตัด credential (`redactSecrets`) + เลขบัตรประชาชน (`redactNationalIds`, D-80) ออกก่อนเก็บ · ไม่เก็บ header · URL ไม่มี query string
+/// body ตัดที่ 16 KB · แอปเพิ่มได้อย่างเดียว (REVOKE UPDATE/DELETE) · retention 24 เดือนแล้ว archive (docs/01 §6.4 — งาน archive ยังไม่ทำ)
+model ErpSyncLog {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  connectorId  String    @map("connector_id") @db.Uuid
+  connector    Connector @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// คำสั่งในคิวที่ทำให้เกิดการเรียก (null = ไม่ได้มาจากคิว)
+  outboxId     String?   @map("outbox_id") @db.Uuid
+  attempt      Int?
+  operation    String    @db.VarChar(60)
+  entityType   String?   @map("entity_type") @db.VarChar(40)
+  localId      String?   @map("local_id") @db.Uuid
+  /// เลขเอกสาร TMS (ค้นหา)
+  localNumber  String?   @map("local_number") @db.VarChar(60)
+  /// OUT = TMS เรียกออก · IN = ระบบภายนอกเรียกเข้า (ยังไม่ใช้)
+  direction    String    @default("OUT") @db.VarChar(3)
+  method       String    @db.VarChar(10)
+  url          String    @db.VarChar(500)
+  /// null = ไม่ได้ response (timeout / เครือข่าย)
+  statusCode   Int?      @map("status_code")
+  errorCode    String?   @map("error_code") @db.VarChar(60)
+  durationMs   Int       @map("duration_ms")
+  requestBody  String?   @map("request_body")
+  responseBody String?   @map("response_body")
+  occurredAt   DateTime  @map("occurred_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, connectorId, occurredAt(sort: Desc), id])
+  @@index([outboxId])
+  @@index([connectorId, localNumber])
+  @@map("erp_sync_log")
 }
 
 // ---------- ST7-T21 ผลกระทบยอดกับระบบภายนอก (docs/01 §3.7 `reconcile_result`) ----------
