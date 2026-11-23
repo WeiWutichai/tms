@@ -387,8 +387,47 @@ describe('Payment status pull (ST7-T21)', { timeout: 600_000 }, () => {
       paidAmount: '1000.00',
       paidAt: `${today}T02:00:00.000Z`,
     });
+    // D-81 · D68-61 ผู้รับแจ้ง MISMATCH (หัวหน้าบัญชี — payments:record) / ผู้ไม่มีสิทธิ์
+    const roleId = async (code: string) =>
+      (await plat.role.findFirstOrThrow({ where: { tenantId, code } })).id;
+    const accUser = await plat.appUser.create({
+      data: {
+        tenantId,
+        email: 'mm-acc@ps.test',
+        name: 'หัวหน้าบัญชี',
+        status: 'ACTIVE',
+        locale: 'th',
+      },
+    });
+    await plat.userRole.create({
+      data: { tenantId, userId: accUser.id, roleId: await roleId('accounting') },
+    });
+    const plnUser = await plat.appUser.create({
+      data: {
+        tenantId,
+        email: 'mm-pln@ps.test',
+        name: 'ผู้วางแผน',
+        status: 'ACTIVE',
+        locale: 'th',
+      },
+    });
+    await plat.userRole.create({
+      data: { tenantId, userId: plnUser.id, roleId: await roleId('planner') },
+    });
+    const mmNoti = () =>
+      plat.notification.findMany({
+        where: { tenantId, templateCode: 'reconcile.mismatch_found', channel: 'in_app' },
+      });
+    expect(await mmNoti()).toHaveLength(0);
+
     const r = await run();
     expect(r.counts).toMatchObject({ checked: 1, created: 0, mismatched: 1, newMismatches: 1 });
+    const noti = await mmNoti();
+    expect(noti.map((x) => x.recipientId)).toContain(accUser.id);
+    expect(noti.map((x) => x.recipientId)).not.toContain(plnUser.id);
+    expect(noti.find((x) => x.recipientId === accUser.id)!.body).toContain(c.invoiceNo);
+    expect(noti[0]!.body).toContain('Demo ERP (simulated)'); // ชื่อแสดงของ adapter (ไม่ใช่รหัส)
+    expect(noti[0]!.body).not.toContain('700'); // ไม่มียอดเงินในแจ้งเตือน
     expect(await paymentsOf(c.uuid)).toHaveLength(1);
     expect((await getInv(c.id)).status).toBe('PARTIALLY_PAID');
     let rows = await mismatches(c.uuid);
@@ -451,6 +490,7 @@ describe('Payment status pull (ST7-T21)', { timeout: 600_000 }, () => {
     // ดึงซ้ำ ส่วนต่างเดิม → ไม่มีแถว/ audit ใหม่ (lastSeenAt ขยับ)
     const again = await run();
     expect(again.counts).toMatchObject({ mismatched: 1, newMismatches: 0, created: 0 });
+    expect(await mmNoti()).toHaveLength(noti.length); // ส่วนต่างเดิม → ไม่แจ้งซ้ำ (D68-61)
     rows = await mismatches(c.uuid);
     expect(rows).toHaveLength(1);
     expect(

@@ -3,6 +3,7 @@ import type { NotificationTemplate } from './templates';
 /**
  * ศูนย์แจ้งเตือน (ST9-T08; docs/04 I "เหตุการณ์: ใบค้างใหม่, งานรถร่วมหมดเวลา, dispute, ขออนุมัติ,
  * เอกสารรถ/ใบขับขี่/rate card ใกล้หมด, connector ล่ม, DO ยังไม่วางบิล, ครบกำหนดชำระ; ผู้ใช้ตั้งว่ารับอะไรทางไหน; สรุปรายวัน 08:00")
+ * + ข้อมูลไม่ตรงกับระบบบัญชี (MISMATCH — docs/01 §6.5 "severity `MONEY` แจ้งหัวหน้าบัญชีทันที … และสรุป 08:00"; D-81 · D68-61)
  *
  * - event = หมวดที่ผู้ใช้ตั้งรับ/ไม่รับได้ต่อช่องทาง (template หลายตัวอยู่ใต้ event เดียวได้)
  * - template ที่ไม่อยู่ใน event ใด (งานเบื้องหลังที่ผู้ใช้สั่งเอง `job.*`, `import.*`) = แจ้งผู้สั่งเสมอ ปิดไม่ได้
@@ -16,6 +17,7 @@ export const NOTIFICATION_EVENTS = [
   'approval.requested',
   'document.expiring',
   'connector.down',
+  'reconcile.mismatch',
   'delivery_order.unbilled',
   'payment.due',
 ] as const;
@@ -67,6 +69,13 @@ export const EVENT_CATALOGUE: Record<NotificationEvent, EventDefinition> = {
   // connector → ERROR (ST7-T13) · webhook ถูกปิดอัตโนมัติ (ST7-T04)
   'connector.down': {
     templates: ['connector.error', 'connector.recovered', 'webhook.auto_disabled'],
+    defaults: { in_app: true, email: true },
+    pending: null,
+  },
+  // D-81 · D68-61 กระทบยอดกับระบบบัญชีพบส่วนต่างใหม่ (`reconcile.mismatch_found`, severity MONEY) → หัวหน้าบัญชี (`payments:record`)
+  // ทันทีหลังจบรอบ (1 ฉบับ/รอบ/connector — ส่วนต่างเดิมไม่แจ้งซ้ำตาม diff_hash) + อยู่ในสรุปรายวัน 08:00
+  'reconcile.mismatch': {
+    templates: ['reconcile.mismatch_found'],
     defaults: { in_app: true, email: true },
     pending: null,
   },

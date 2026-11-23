@@ -265,6 +265,40 @@ export class NotificationEvents implements OnModuleInit {
   }
 
   /**
+   * D-81 · D68-61 รอบกระทบยอดพบส่วนต่างใหม่ (docs/01 §6.5 "severity `MONEY` แจ้งหัวหน้าบัญชีทันที (email + LINE) และสรุป 08:00")
+   * → ผู้ดูแลรับชำระ `payments:record` (owner/admin/manager/บัญชี — คนแก้ต้นเหตุ: บันทึก/กลับรายการรับชำระ) 1 ฉบับต่อรอบต่อ connector
+   * · ส่วนต่างเดิมที่ยังเปิดไม่นับ (diff_hash — `recordPaymentMismatch` คืน created=false) → รอบถัดไปไม่แจ้งซ้ำ · ไม่ใส่ยอดเงิน
+   * · LINE ทีมภายใน = P1 (docs/04 I) — ตอนนี้ในระบบ + อีเมล
+   */
+  async reconcileMismatch(
+    tx: Tx,
+    input: {
+      tenantId: string;
+      connectorId: string;
+      label: string;
+      invoiceNos: string[];
+      count: number;
+    },
+  ): Promise<void> {
+    if (input.count <= 0) return;
+    await this.safely(tx, 'reconcile.mismatch_found', () =>
+      this.notifications.notify(tx, {
+        tenantId: input.tenantId,
+        to: { permissions: ['payments:record'] },
+        template: 'reconcile.mismatch_found',
+        vars: {
+          label: input.label,
+          count: input.count,
+          invoiceNos: input.invoiceNos.slice(0, BATCH_SAMPLE),
+        },
+        // หน้ารับชำระ — ผู้รับ (payments:record เช่น role บัญชี) ไม่มี settings:read จึงเปิดหน้าตั้งค่าการเชื่อมต่อไม่ได้
+        link: '/pay',
+        entity: { type: 'connector', id: encodeId('connector', input.connectorId) },
+      }),
+    );
+  }
+
+  /**
    * ST7-T20 ทีม Innovera เปลี่ยน connector (credential/สถานะ) จาก Platform Console → แจ้ง owner ทุกคน ในระบบ + อีเมล
    * (สอดคล้องกับเข้าใช้งานแทน — docs/04 A6 "อีเมลแจ้ง tenant owner ทุกครั้ง") [DECISION spec/12 §3]
    */

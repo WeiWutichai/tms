@@ -233,6 +233,7 @@ describe('external_mapping + canonical (ST7-T15)', () => {
           lineNo: 1,
           lineType: 'TRIP_COST',
           trip: { number: 'TRP-1' },
+          deliveryOrders: [{ number: 'DO-1' }],
           description: 'ค่าจ้างรถร่วม',
           amount: '9000.00',
           vatType: null,

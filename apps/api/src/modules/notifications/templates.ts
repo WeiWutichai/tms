@@ -68,6 +68,11 @@ export interface NotificationVars {
   'settlement.disputed': { carrier: string; ref: string; count: number };
   /** ST9-T08 connector หยุดทำงาน (status ERROR — docs/04 I "connector ล่ม") · label = รหัส adapter · code = รหัสปัญหา */
   'connector.error': { label: string; code: string };
+  /**
+   * D-81 · D68-61 รอบกระทบยอดกับระบบบัญชีพบส่วนต่างใหม่ (docs/01 §6.5 MISMATCH severity MONEY → หัวหน้าบัญชีทันที)
+   * label = รหัส adapter · count = ส่วนต่างใหม่ในรอบ · invoiceNos = ตัวอย่างเลขใบไม่เกิน 5 · ไม่ใส่ยอดเงิน (สิทธิ์ดูราคาขายแยก)
+   */
+  'reconcile.mismatch_found': { label: string; count: number; invoiceNos: string[] };
   /** ST8-T03 connector กลับมาทำงานเอง (ปลายทางตอบอีกครั้ง — ERROR → ACTIVE โดยระบบ) */
   'connector.recovered': { label: string };
   /**
@@ -106,6 +111,10 @@ const EVENT_NAME: Record<string, Record<NotificationLocale, string>> = {
     en: 'Expiring documents / licences / rate cards',
   },
   'connector.down': { th: 'การเชื่อมต่อขัดข้อง', en: 'Connector / webhook down' },
+  'reconcile.mismatch': {
+    th: 'ข้อมูลไม่ตรงกับระบบบัญชี',
+    en: 'Mismatches with the accounting system',
+  },
   'delivery_order.unbilled': { th: 'DO ยังไม่วางบิล', en: 'Unbilled delivery orders' },
   'payment.due': { th: 'ครบกำหนดชำระ', en: 'Payments due' },
   other: { th: 'อื่น ๆ', en: 'Other' },
@@ -597,6 +606,24 @@ const TEMPLATES: {
     en: (v) => ({
       title: 'Connector back online',
       body: `Connector ${v.label} can reach the destination again — it was resumed and parked work is being sent.`,
+    }),
+  },
+  'reconcile.mismatch_found': {
+    th: (v) => ({
+      title: 'ข้อมูลไม่ตรงกับระบบบัญชี',
+      body: `Connector ${v.label} พบยอดรับชำระไม่ตรงกับระบบบัญชี ${n(v.count)} ใบ${
+        v.invoiceNos.length
+          ? ` (${v.invoiceNos.map((x) => safeName(x, 40)).join(', ')}${v.count > v.invoiceNos.length ? ' …' : ''})`
+          : ''
+      } — ระบบไม่ปรับยอดใน TMS เอง ตรวจแล้วแก้ที่ต้นเหตุ`,
+    }),
+    en: (v) => ({
+      title: 'Mismatch with the accounting system',
+      body: `Connector ${v.label} found ${n(v.count)} invoice(s) whose payments differ from the accounting system${
+        v.invoiceNos.length
+          ? ` (${v.invoiceNos.map((x) => safeName(x, 40)).join(', ')}${v.count > v.invoiceNos.length ? ' …' : ''})`
+          : ''
+      } — TMS does not adjust them automatically; fix the cause.`,
     }),
   },
   'connector.platform_changed': {
