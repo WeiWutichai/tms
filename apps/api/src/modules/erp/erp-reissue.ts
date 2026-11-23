@@ -122,9 +122,17 @@ export async function reissueCovers(
     },
     select: { detail: true },
   });
-  if (reissuedToOf(m?.detail)) return true;
   let cur = voidedId;
   const seen = new Set<string>([cur]);
+  // review M2: ย้าย mapping ไปใบใหม่แล้ว — ครอบคลุมเฉพาะเมื่อใบใหม่ (หรือใบที่ออกแทนต่อ) ยังใช้อยู่ · ใบใหม่ถูกยกเลิกโดยไม่ออกแทน = ไม่ครอบคลุม
+  const moved = reissuedToOf(m?.detail);
+  if (moved) {
+    const to = await tx.invoice.findUnique({ where: { id: moved }, select: { status: true } });
+    if (to && to.status !== 'CANCELLED') return true;
+    if (!to) return false;
+    cur = moved;
+    seen.add(cur);
+  }
   for (let i = 0; i < MAX_CHAIN; i++) {
     const next = await tx.invoice.findFirst({
       where: { replacesInvoiceId: cur },
@@ -151,4 +159,84 @@ export async function reissueCovers(
     cur = next.id;
   }
   return false;
+}
+
+/**
+ * review M2: เอกสารฝั่ง ERP ที่ใบนี้เคยเป็นเจ้าของ **ณ ตอนนี้** (อ่านตอนส่ง ไม่ใช่ snapshot ตอนสร้างคำสั่ง) — mapping ถูกย้ายไปใบใหม่
+ * (`reissuedTo`) = ตามไปที่ใบที่ถือเอกสารอยู่ · ใช้ในข้อความแจ้งบัญชียกเลิกเอง (เลขที่ระบบบัญชีเห็น + id)
+ */
+export async function erpDocumentHolder(
+  tx: Tx,
+  connectorId: string,
+  localId: string,
+): Promise<{
+  localId: string;
+  externalId: string | null;
+  externalDocNo: string | null;
+  externalRef: string | null;
+  externalIds: string[];
+} | null> {
+  let cur = localId;
+  const seen = new Set<string>();
+  for (let i = 0; i < MAX_CHAIN && !seen.has(cur); i++) {
+    seen.add(cur);
+    const m = await tx.externalMapping.findUnique({
+      where: {
+        connectorId_entityType_localId: { connectorId, entityType: 'INVOICE', localId: cur },
+      },
+      select: { externalId: true, externalDocNo: true, localNumber: true, detail: true },
+    });
+    if (!m) return null;
+    const next = reissuedToOf(m.detail);
+    if (!m.externalId && next) {
+      cur = next;
+      continue;
+    }
+    const docs = (m.detail as { documents?: unknown } | null)?.documents;
+    return {
+      localId: cur,
+      externalId: m.externalId,
+      externalDocNo: m.externalDocNo,
+      externalRef: externalRefOf(m.detail) ?? m.localNumber,
+      externalIds: Array.isArray(docs)
+        ? docs
+            .map((d) => (d as { externalId?: unknown })?.externalId)
+            .filter((x): x is string => typeof x === 'string' && !!x)
+        : m.externalId
+          ? [m.externalId]
+          : [],
+    };
+  }
+  return null;
+}
+
+/**
+ * review M3: ทุกคนที่มีส่วนสร้าง/แก้เอกสารนี้ (ผู้สร้าง ผู้แก้ล่าสุด ผู้ออกเลข ผู้ยกเลิก + ผู้กระทำใน audit ของเอกสาร) —
+ * ผู้อนุมัติการแทนที่ต้องไม่ใช่คนเหล่านี้ · ไม่รวม actor ของระบบ (`system`, `system:*`, `connector:*`)
+ */
+export async function invoiceActors(tx: Tx, invoiceIds: readonly string[]): Promise<string[]> {
+  const ids = [...new Set(invoiceIds.filter(Boolean))];
+  if (!ids.length) return [];
+  const [invs, audits] = await Promise.all([
+    tx.invoice.findMany({
+      where: { id: { in: ids } },
+      select: { createdBy: true, updatedBy: true, issuedBy: true, cancelledBy: true },
+    }),
+    tx.auditLog.findMany({
+      where: { entityType: 'invoice', entityId: { in: ids }, actorId: { not: null } },
+      select: { actorId: true },
+      distinct: ['actorId'],
+      take: 200,
+    }),
+  ]);
+  const all = [
+    ...invs.flatMap((i) => [i.createdBy, i.updatedBy, i.issuedBy, i.cancelledBy]),
+    ...audits.map((a) => a.actorId),
+  ];
+  return [...new Set(all.filter((x): x is string => typeof x === 'string' && isPersonActor(x)))];
+}
+
+/** actor ที่เป็นคน (ไม่ใช่ระบบ/connector) */
+export function isPersonActor(x: string): boolean {
+  return !!x && x !== 'system' && !x.startsWith('system:') && !x.startsWith('connector:');
 }

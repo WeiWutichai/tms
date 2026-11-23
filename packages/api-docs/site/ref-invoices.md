@@ -1201,7 +1201,7 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/mark-sent', {
 
 scope: `integrations:retry` · operationId: `Invoices_markErpPosted`
 
-สิทธิ์ `integrations:retry` (บัญชี/ผู้วางบิล/ผู้อนุมัติ) · ตั้ง `sync.postedAt` ของเอกสารนี้ในระบบบัญชีที่เชื่อม → หลังจากนี้การแทนที่เอกสารในระบบบัญชี (ส่งซ้ำ / ยกเลิกแล้วออกใหม่) ขึ้นคิว "ต้องอนุมัติ" (`replace_requires_approval`) จนผู้อนุมัติคนอื่นอนุมัติ · กดซ้ำ = คงเวลาเดิม · ใบที่ยังไม่อยู่ในระบบบัญชี → 409 `invalid_state_transition` · audit `invoice.erp_posted_marked`
+สิทธิ์ `integrations:retry` (บัญชี/ผู้วางบิล/ผู้อนุมัติ) · ตั้ง `sync.postedAt` ของเอกสารนี้ในระบบบัญชีที่เชื่อม → หลังจากนี้การแทนที่เอกสารในระบบบัญชี (ส่งซ้ำ / ยกเลิกแล้วออกใหม่) ขึ้นคิว "ต้องอนุมัติ" (`replace_requires_approval`) จนผู้อนุมัติคนอื่นอนุมัติ · กดซ้ำ = คงเวลาเดิม · ใบที่ยังไม่อยู่ในระบบบัญชี → 409 `invalid_state_transition` · audit `invoice.erp_posted_marked` · **ยกเลิกแล้วออกใหม่: กดที่ใบเดิมก่อนออกใบใหม่แทน** (ธงอยู่กับเอกสารในระบบบัญชี — แทนที่สำเร็จแล้วย้ายตามไปใบใหม่; ใบเดิมที่ยกเลิกแล้วกดได้จนกว่าจะแทนที่)
 
 **Parameters**
 

@@ -2,7 +2,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { PrismaClient, VatType } from '@prisma/client';
 import { SYSTEM_ROLES } from '@tms/domain';
 import { type MockKrs, startMockKrs } from '@tms/mock-krs';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Clock } from '../src/common/clock';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import type { Tx } from '../src/db/db.service';
@@ -11,6 +11,7 @@ import { DocumentReconcileService } from '../src/modules/erp/document-reconcile.
 import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
 import { OutboxDispatcher } from '../src/modules/integration/outbox.dispatcher';
 import { InvoicesService } from '../src/modules/invoices/invoices.service';
+import { NotificationEvents } from '../src/modules/notifications/notification-events';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
@@ -25,6 +26,18 @@ import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './hel
  */
 
 const KEY = 'krs-t13-test-key-41c0aa';
+
+/** KRS adapter ตัวจริง + ประตูหน่วง replaceDocument (จำลองคำสั่งแทนที่ที่กำลังส่งอยู่ — review M2) */
+class GatedKrs extends KrsAdapter {
+  gate: Promise<void> | null = null;
+  entered: (() => void) | null = null;
+  override async replaceDocument(...a: Parameters<KrsAdapter['replaceDocument']>) {
+    this.entered?.();
+    if (this.gate) await this.gate;
+    return super.replaceDocument(...a);
+  }
+}
+const krs = new GatedKrs({ allowPrivate: true });
 
 describe('ST8-T13 KRS replaceDocument (PUT ภาพหลังปรับ)', { timeout: 600_000 }, () => {
   let app: NestExpressApplication;
@@ -230,7 +243,7 @@ describe('ST8-T13 KRS replaceDocument (PUT ภาพหลังปรับ)', 
     await truncateAll();
     app = await bootApp();
     dispatcher = app.get(OutboxDispatcher);
-    app.get(ErpAdapterRegistry).replace(new KrsAdapter({ allowPrivate: true }));
+    app.get(ErpAdapterRegistry).replace(krs);
     mock = await startMockKrs({ apiKey: KEY });
     // ตัวดึง DO ของ test (ดูหัวไฟล์) — เฉพาะตอนออกฉบับใหม่แทนในชุดนี้
     const invoices = app.get(InvoicesService);
@@ -378,6 +391,8 @@ describe('ST8-T13 KRS replaceDocument (PUT ภาพหลังปรับ)', 
     expect(mb.detail).toMatchObject({
       externalRef: a.invoiceNo,
       reissueOf: a.uuid,
+      // review L2: วันที่ของเอกสารใน KRS (ใบแรกในสาย) ตามมาด้วย
+      erpDocumentDate: today,
       documents: [expect.objectContaining({ ref: a.invoiceNo, externalId: txNo })],
     });
     const [cmd] = await replaceCmd(b.uuid);
@@ -636,5 +651,229 @@ describe('ST8-T13 KRS replaceDocument (PUT ภาพหลังปรับ)', 
     expect(await mapping(b.uuid)).toMatchObject({ status: 'SYNCED' });
     const vs = await voidCmds(a.uuid);
     expect(vs.at(-1)!.lastError).toMatchObject({ code: 'void_manual_required' });
+  });
+  /** บริษัทผู้ออกอีกแห่ง (+ สาขา) — ใช้ย้ายใบใหม่ไปนิติบุคคลอื่น */
+  async function otherCompany(n: number) {
+    const co = await plat.company.create({
+      data: { tenantId, legalName: `บริษัท อื่น T13 ${n} จำกัด`, taxId: validTaxId(9600 + n) },
+    });
+    const br = await plat.branch.create({
+      data: {
+        tenantId,
+        companyId: co.id,
+        branchCode: '00000',
+        branchLabel: 'สำนักงานใหญ่',
+        isDefaultIssuer: true,
+        address: { line1: '2', district: 'เมือง', province: 'ระยอง', postcode: '21000' },
+      },
+    });
+    return { companyId: co.id, branchId: br.id };
+  }
+
+  it('review M1: ใบใหม่ออกในนิติบุคคลที่ไม่มีระบบบัญชี (standalone) → แจ้งบัญชียกเลิกเอกสารของใบเดิมเอง (งานไม่หาย)', async () => {
+    const a = await issuedInKrs([{ vat: 'EXEMPT_TRANSPORT', amount: '1700.00' }]);
+    const txNo = (await mapping(a.uuid))!.externalId!;
+    const nid = await voidReissue(a, {});
+    await drain();
+    const co = await otherCompany(1);
+    await plat.invoice.update({
+      where: { id: tryDecodeId('invoice', nid)! },
+      data: { issuingCompanyId: co.companyId, issuingBranchId: co.branchId },
+    });
+    const b = await finalize(nid);
+    await drain();
+    expect(await commands(b.uuid)).toEqual([]);
+    const v = (await voidCmds(a.uuid)).at(-1)!;
+    expect(v).toMatchObject({ status: 'SKIPPED' });
+    expect(v.lastError).toMatchObject({
+      code: 'void_manual_required',
+      externalId: txNo,
+      externalRef: a.invoiceNo,
+    });
+  });
+
+  it('review M1: ใบใหม่ถูกส่งไป connector อื่น (นิติบุคคลอื่น) → POST ที่ connector นั้น + แจ้งยกเลิกเอกสารใบเดิมที่ connector เดิม', async () => {
+    const a = await issuedInKrs([{ vat: 'EXEMPT_TRANSPORT', amount: '1800.00' }]);
+    const nid = await voidReissue(a, {});
+    const co = await otherCompany(2);
+    const c2 = await api(app, admin)
+      .post('/v1/connectors')
+      .send({
+        taxDocumentOwner: 'TMS',
+        adapterKey: 'krs',
+        companyId: encodeId('company', co.companyId),
+        settings: { baseUrl: mock.apiBaseUrl, salePerson: 'S01' },
+        credentials: { apiKey: KEY },
+      });
+    expect(c2.status, JSON.stringify(c2.body)).toBe(201);
+    const c2u = tryDecodeId('connector', c2.body.id)!;
+    for (const [kind, code] of [
+      ['UNIT', 'เที่ยว'],
+      ['SALESPERSON', 'S01'],
+    ] as const)
+      await plat.erpMasterCode.create({
+        data: { tenantId, connectorId: c2u, kind, code, name: code, source: 'IMPORT' },
+      });
+    for (const [serviceItemId, itemCode] of [
+      [freight, 'SAMPLE-ITEM-FRT'],
+      [service, 'SAMPLE-ITEM-LIFT'],
+    ] as const)
+      await plat.erpCodeMapping.create({
+        data: { tenantId, connectorId: c2u, serviceItemId, itemCode },
+      });
+    const inv = await plat.invoice.findUniqueOrThrow({ where: { id: a.uuid } });
+    await api(app, admin)
+      .put(`/v1/customers/${encodeId('customer', inv.customerId)}/erp-codes/${c2.body.id}`)
+      .send({ externalId: 'PP-T13-C2' })
+      .expect(200);
+    await api(app, admin).post(`/v1/connectors/${c2.body.id}/resume`).send({}).expect(200);
+    await api(app, admin)
+      .patch(`/v1/connectors/${c2.body.id}`)
+      .send({ capabilitiesEnabled: ['pushInvoice', 'fetchDocument', 'replaceDocument'] })
+      .expect(200);
+    await plat.invoice.update({
+      where: { id: tryDecodeId('invoice', nid)! },
+      data: { issuingCompanyId: co.companyId, issuingBranchId: co.branchId },
+    });
+    const b = await finalize(nid);
+    const p0 = posts().length;
+    await drain();
+    expect(posts().length - p0).toBe(1);
+    const cb = await commands(b.uuid);
+    expect(cb.map((c) => [c.operation, c.targetId])).toEqual([['PUSH_INVOICE', c2u]]);
+    const v = (await voidCmds(a.uuid)).at(-1)!;
+    expect(v.targetId).toBe(conUuid);
+    expect(v.lastError).toMatchObject({ code: 'void_manual_required' });
+    await api(app, admin)
+      .post(`/v1/connectors/${c2.body.id}/disconnect`)
+      .send({ reason: 'จบการทดสอบ connector ที่สอง' });
+  });
+
+  it('review M2: ยกเลิกใบใหม่ระหว่างคำสั่งแทนที่กำลังส่ง → แจ้งยกเลิกเอง อ้างเอกสาร KRS ตาม mapping ณ ตอนส่ง (เลขใบเดิม + transactionNo)', async () => {
+    const a = await issuedInKrs([{ vat: 'EXEMPT_TRANSPORT', amount: '1900.00' }]);
+    const txNo = (await mapping(a.uuid))!.externalId!;
+    const b = await finalize(await voidReissue(a, { 1: '1850.00' }));
+    const notified = vi.spyOn(app.get(NotificationEvents), 'documentNotSent');
+    let release!: () => void;
+    krs.gate = new Promise<void>((r) => (release = r));
+    const entered = new Promise<void>((r) => (krs.entered = r));
+    const running = drain();
+    await entered;
+    // คำสั่งแทนที่กำลังส่ง → ยกเลิกใบใหม่ (ไม่ออกแทน)
+    const cur = (await api(app, admin).get(`/v1/invoices/${b.id}`).expect(200)).body;
+    await api(app, manager)
+      .post(`/v1/invoices/${b.id}/void`)
+      .set('If-Match', `"${cur.version}"`)
+      .send({ reason: 'ลูกค้ายกเลิกงานทั้งหมดแล้ว' })
+      .expect(200);
+    krs.entered = null;
+    release();
+    await running;
+    krs.gate = null;
+    await drain();
+    // แทนที่เสร็จ (mapping ย้ายมาใบใหม่) แล้วจึงแจ้งยกเลิก → อ้าง KRS ด้วยเลขใบเดิม + transactionNo จริง
+    expect(await mapping(b.uuid)).toMatchObject({ externalId: txNo });
+    const vb = (await voidCmds(b.uuid)).at(-1)!;
+    expect(vb.lastError).toMatchObject({
+      code: 'void_manual_required',
+      externalId: txNo,
+      externalRef: a.invoiceNo,
+    });
+    // ใบเดิม: mapping ย้ายไปใบที่ถูกยกเลิกโดยไม่ออกแทน = ไม่ครอบคลุม → แจ้งด้วย (อ้างเอกสารเดียวกัน)
+    const va = (await voidCmds(a.uuid)).at(-1)!;
+    expect(va.lastError).toMatchObject({ code: 'void_manual_required', externalId: txNo });
+    // ข้อความแจ้งบัญชีระบุเอกสารฝั่ง KRS (เลขที่ KRS เห็น + voucherNo/transactionNo)
+    const sentNo = notified.mock.calls
+      .map((c) => c[1] as { localId: string | null; documentNo: string | null; code: string })
+      .find((x) => x.localId === b.uuid && x.code === 'void_manual_required')?.documentNo;
+    expect(sentNo).toContain(`ระบบบัญชี: ${a.invoiceNo}`);
+    notified.mockRestore();
+  });
+
+  it('review M3: ผู้แก้ร่างใบใหม่อนุมัติการแทนที่เองไม่ได้ (403)', async () => {
+    const editor = await tokenFor(
+      tenantId,
+      'invoices:read invoices:draft credit-notes:approve',
+      'u-editor',
+    );
+    const a = await issuedInKrs([{ vat: 'EXEMPT_TRANSPORT', amount: '2000.00' }]);
+    await api(app, accounting).post(`/v1/invoices/${a.id}/erp-posted`).send({}).expect(200);
+    const nid = await voidReissue(a, { 1: '1950.00' });
+    const d = (await api(app, admin).get(`/v1/invoices/${nid}`).expect(200)).body;
+    const ed = await api(app, editor)
+      .patch(`/v1/invoices/${nid}`)
+      .set('If-Match', `"${d.version}"`)
+      .send({ customerPoNo: 'PO-T13-EDIT' });
+    expect(ed.status, JSON.stringify(ed.body)).toBe(200);
+    const b = await finalize(nid);
+    await drain();
+    const [cmd] = await replaceCmd(b.uuid);
+    expect(cmd!.lastError).toMatchObject({ code: 'replace_requires_approval' });
+    expect(cmd!.payload).toMatchObject({ requestedBy: expect.arrayContaining(['u-editor']) });
+    const url = `/v1/connectors/${conId}/queue/${encodeId('outboxCommand', cmd!.id)}/approve`;
+    const self = await api(app, editor).post(url).send({ reason: 'ตรวจยอดหลังปรับแล้วถูกต้อง' });
+    expect(self.status).toBe(403);
+    expect(self.body.code).toBe('erp_replace_self_approval');
+  });
+
+  it('review L1: แทนที่ได้บางใบแล้วล้มถาวร → mapping ใบเดิม MISMATCH `erp_replace_partial` + ใบที่แทนที่แล้ว', async () => {
+    const a = await issuedInKrs([
+      { vat: 'EXEMPT_TRANSPORT', amount: '2100.00' },
+      { vat: 'VAT_7', amount: '210.00' },
+    ]);
+    const docs = ((await mapping(a.uuid))!.detail as { documents: { externalId: string }[] })
+      .documents;
+    const b = await finalize(await voidReissue(a, { 1: '2050.00', 2: '200.00' }));
+    mock.injectFault({ status: 400, method: 'PUT', skip: 1, times: 1 });
+    await drain();
+    const [cmd] = await replaceCmd(b.uuid);
+    expect(cmd).toMatchObject({ status: 'FAILED_FINAL', errorClass: 'VALIDATION' });
+    const ma = (await mapping(a.uuid))!;
+    expect(ma).toMatchObject({
+      status: 'MISMATCH',
+      lastError: expect.objectContaining({ code: 'erp_replace_partial' }),
+    });
+    expect(
+      (
+        ma.detail as { replacePartial: { documents: { externalId: string }[] } }
+      ).replacePartial.documents.map((x) => x.externalId),
+    ).toEqual([docs[0]!.externalId]);
+    expect(mock.getInvoice(docs[0]!.externalId)!.revision).toBe(2);
+    expect(mock.getInvoice(docs[1]!.externalId)!.revision).toBe(1);
+  });
+
+  it('review L2: กฎอายุนับจากวันที่ของเอกสารใน KRS (ใบแรกในสาย) แม้ mapping ย้ายมาใบใหม่แล้ว', async () => {
+    const a = await issuedInKrs([{ vat: 'EXEMPT_TRANSPORT', amount: '2200.00' }]);
+    const b = await finalize(await voidReissue(a, { 1: '2150.00' }));
+    await drain();
+    const mb = (await mapping(b.uuid))!;
+    expect(mb.status).toBe('SYNCED');
+    // เอกสาร KRS สร้างมา 10 วันแล้ว (ใบแรกในสาย) · ใบ B ออกวันนี้
+    const old = new Date(Date.parse(`${today}T00:00:00Z`) - 10 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    await plat.externalMapping.update({
+      where: { id: mb.id },
+      data: { detail: { ...(mb.detail as object), erpDocumentDate: old } },
+    });
+    await plat.tenantSetting.update({
+      where: { tenantId_key: { tenantId, key: 'billing.erpReplaceApprovalDays' } },
+      data: { value: 5 },
+    });
+    try {
+      const c = await finalize(await voidReissue(b, { 1: '2100.00' }));
+      await drain();
+      const [cmd] = await replaceCmd(c.uuid);
+      expect(cmd!.lastError).toMatchObject({
+        code: 'replace_requires_approval',
+        ageDays: 10,
+        approvalAfterDays: 5,
+      });
+    } finally {
+      await plat.tenantSetting.update({
+        where: { tenantId_key: { tenantId, key: 'billing.erpReplaceApprovalDays' } },
+        data: { value: 0 },
+      });
+    }
   });
 });

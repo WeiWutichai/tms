@@ -42,6 +42,7 @@ import { ExternalMappingService } from './external-mapping.service';
 import { sorOf } from './system-of-record.policy';
 import { injectPersonalData, redactNationalIds } from './personal-data';
 import {
+  erpDocumentHolder,
   externalRefOf,
   mappingInErp,
   reissuedToOf,
@@ -209,6 +210,12 @@ function linesOf(doc: CanonicalDocument): number[] {
 function coversAllLines(got: readonly number[], sent: CanonicalDocument): boolean {
   const have = new Set(got);
   return linesOf(sent).every((n) => have.has(n));
+}
+
+/** ST8-T13 review L2 วันที่ของเอกสารในระบบบัญชีที่ย้ายมาจากใบเดิม */
+function erpDocumentDateOf(detail: unknown): string | null {
+  const v = (detail as { erpDocumentDate?: unknown } | null)?.erpDocumentDate;
+  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
 }
 
 /** entity ที่เก็บ external_mapping หลัง push สำเร็จ (ST8-T16) */
@@ -381,20 +388,35 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     if (!DOCUMENT_OPERATIONS.has(c.operation) || !c.targetId) return;
     if (c.status === 'SKIPPED' && (!c.code || NOT_NOTIFIED_SKIPS.has(c.code))) return;
     const connectorId = c.targetId;
-    const p = (c.payload ?? {}) as { document?: { number?: unknown }; number?: unknown };
-    const no = p.document?.number ?? p.number;
+    const p = (c.payload ?? {}) as {
+      document?: { number?: unknown };
+      number?: unknown;
+      ref?: { number?: unknown };
+    };
+    const no = p.document?.number ?? p.number ?? p.ref?.number;
     await this.db.withTenant(c.tenantId, async (tx) => {
       const connector = await tx.connector.findUnique({
         where: { id: connectorId },
         select: { adapterKey: true },
       });
+      // ST8-T13 review M2: แจ้งยกเลิกเอง — ระบุเอกสารฝั่งระบบบัญชีตาม mapping ณ ตอนนี้ (เลขที่ระบบบัญชีเห็น + เลขเอกสาร/ id)
+      let documentNo = typeof no === 'string' && no ? no : null;
+      if (c.operation === 'VOID_DOCUMENT' && c.entityType === 'invoice') {
+        const h = await erpDocumentHolder(tx, connectorId, c.localId);
+        if (h?.externalId)
+          documentNo =
+            `${documentNo ?? '-'} (ระบบบัญชี: ${h.externalRef ?? '-'} · ${h.externalDocNo ?? h.externalId})`.slice(
+              0,
+              200,
+            );
+      }
       await this.events.documentNotSent(tx, {
         tenantId: c.tenantId,
         connectorId,
         errorClass: c.errorClass,
         entityType: c.entityType,
         localId: c.localId,
-        documentNo: typeof no === 'string' && no ? no : null,
+        documentNo,
         label: connector ? this.connectors.adapterLabel(connector.adapterKey) : '-',
         outcome: c.status,
         code: (c.code ?? c.errorClass ?? 'error').slice(0, 60),
@@ -515,6 +537,10 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     const c = st.connector;
     const entity = MAPPED_ENTITIES[d.entityType];
     if (!c || !entity || !st.adapterCalled) return;
+    const replaced = Array.isArray(e.detail?.replacedDocuments)
+      ? (e.detail.replacedDocuments as unknown[])
+      : [];
+    if (replaced.length) await this.replacePartial(d, st, c, entity, e, replaced);
     const push = PUSH_OPERATIONS.has(d.operation);
     const validation = e.errorClass === 'VALIDATION' && push;
     const notFound = e.errorClass === 'NOT_FOUND' && (push || d.operation === 'FETCH_DOCUMENT');
@@ -536,6 +562,8 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         });
         const inErp = !!m?.externalId && m.externalStatus !== 'VOIDED';
         if (validation) {
+          // review L1: แทนที่ได้บางใบ = MISMATCH `erp_replace_partial` (บันทึกแล้ว) — ไม่ทับเป็น FAILED
+          if (replaced.length && m) return;
           if (inErp)
             this.logger.warn(`VALIDATION on document already in ERP ${d.localId} → mapping FAILED`);
           const lastError = {
@@ -600,6 +628,48 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     } catch (err) {
       this.logger.warn(
         `mapping after ${e.errorClass} ${d.id}: ${String((err as Error)?.message ?? err).slice(0, 200)}`,
+      );
+    }
+  }
+
+  /**
+   * ST8-T13 review L1: `replaceDocument` แทนที่ได้บางใบแล้วล้ม → mapping ของเอกสารฝั่ง ERP (ใบเดิมเมื่อเป็นใบออกใหม่) =
+   * MISMATCH `erp_replace_partial` + `detail.replacePartial` (ใบที่แทนที่แล้ว · คำสั่ง · เวลา) ให้คิว/หน้าส่วนต่างเห็น ·
+   * แทนที่สำเร็จครั้งถัดไปล้าง `replacePartial` (recordMapping / transferMapping)
+   */
+  private async replacePartial(
+    d: OutboxDelivery,
+    st: DeliveryState,
+    c: Connector,
+    entity: 'INVOICE' | 'SETTLEMENT',
+    e: OutboxSinkError,
+    replaced: unknown[],
+  ) {
+    const localId = st.mapLocalId ?? d.localId;
+    const at = this.clock.now().toISOString();
+    const partial = JSON.stringify({
+      replacePartial: { documents: replaced.slice(0, MAX_EXTERNAL_DOCUMENTS), outboxId: d.id, at },
+    });
+    const lastError = JSON.stringify({
+      code: 'erp_replace_partial',
+      errorClass: e.errorClass,
+      cause: typeof e.detail?.code === 'string' ? e.detail.code.slice(0, 60) : null,
+      outboxId: d.id,
+      at,
+    });
+    try {
+      await d.withTx(
+        (tx) => tx.$executeRaw`
+          UPDATE external_mapping
+             SET detail = coalesce(detail, '{}'::jsonb) || ${partial}::jsonb,
+                 status = 'MISMATCH', last_error = ${lastError}::jsonb,
+                 updated_by = 'system:erp-sink', version = version + 1, updated_at = now()
+           WHERE connector_id = ${c.id}::uuid AND entity_type = ${entity}::"ExternalEntityType"
+             AND local_id = ${localId}::uuid`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `replace partial ${d.id}: ${String((err as Error)?.message ?? err).slice(0, 200)}`,
       );
     }
   }
@@ -740,11 +810,30 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         );
       }
       // KRS-6 [OPEN — KRS] (ไม่มี DELETE) ทางรอคำตอบ (C): บัญชียกเลิกในระบบบัญชีเองแล้วยืนยัน (ข้ามพร้อมเหตุผลในคิว)
+      // review M2: เอกสารฝั่ง ERP ที่ต้องยกเลิก อ่าน ณ ตอนส่ง (mapping อาจย้ายไปใบใหม่ระหว่างคำสั่งรอคิว) — ไม่ใช้ snapshot ของคำสั่ง
+      const holder =
+        d.entityType === 'invoice'
+          ? await d.withTx((tx) => erpDocumentHolder(tx, connector.id, d.localId))
+          : null;
       await this.skipped(d, connector, 'void_manual_required');
       throw new OutboxSinkError(
-        'document was cancelled in TMS — check and cancel it in the accounting system manually',
+        holder?.externalId
+          ? `document was cancelled in TMS — cancel accounting-system document ${holder.externalRef ?? ''} (id ${holder.externalIds.join(', ').slice(0, 200)}) manually`
+          : 'document was cancelled in TMS — check and cancel it in the accounting system manually',
         'CAPABILITY',
-        { code: 'void_manual_required', capability: cap },
+        {
+          code: 'void_manual_required',
+          capability: cap,
+          ...(holder
+            ? {
+                externalId: holder.externalId,
+                externalDocNo: holder.externalDocNo,
+                externalRef: holder.externalRef,
+                externalIds: holder.externalIds.slice(0, 50),
+                holderInvoiceId: holder.localId,
+              }
+            : {}),
+        },
       );
     }
     // ST8-T03 adapter ประกาศแต่ยังไม่ได้ทำ → พักไว้ (ไม่ทิ้ง ไม่เสียจำนวนครั้ง) จนกว่า deploy ตัวที่ทำแล้ว
@@ -1171,7 +1260,11 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         },
       });
       if (from) {
-        const { documents: old, ...rest } = (from.detail ?? {}) as Record<string, unknown>;
+        const {
+          documents: old,
+          replacePartial: _rp,
+          ...rest
+        } = (from.detail ?? {}) as Record<string, unknown>;
         await tx.externalMapping.update({
           where: { id: from.id },
           data: {
@@ -1189,6 +1282,16 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
           },
         });
       }
+      // review L2: วันที่ของเอกสารในระบบบัญชีตั้งแต่สร้าง (ใบแรกในสาย) — กฎอายุ N วันนับจากวันนี้ แม้ mapping ย้ายมาใบใหม่
+      const fromDate = (from?.detail as { erpDocumentDate?: unknown } | null)?.erpDocumentDate;
+      const origin =
+        typeof fromDate === 'string'
+          ? fromDate
+          : ((
+              await tx.invoice.findUnique({ where: { id: fromId }, select: { issueDate: true } })
+            )?.issueDate
+              ?.toISOString()
+              .slice(0, 10) ?? null);
       const data = {
         localNumber: number,
         externalId: String(r.externalId).slice(0, 100),
@@ -1215,6 +1318,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
           documents: docs,
           externalRef: externalRef.slice(0, 100),
           reissueOf: fromId,
+          ...(origin ? { erpDocumentDate: origin } : {}),
         } as Prisma.InputJsonValue,
         // ST8-T11 เนื้อหาใหม่ยังไม่ได้อ่านกลับมาเทียบ (SENT) — รอบ AFTER_PUSH ของคำสั่งนี้เทียบต่อ
         reconcileState: null,
@@ -1279,13 +1383,13 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
                   ${partsJson}::jsonb, ${now}, ${docsJson}::jsonb, 'system:erp-sink', now())
           ON CONFLICT (connector_id, entity_type, local_id) DO UPDATE
              SET external_id = EXCLUDED.external_id,
-                 detail = CASE WHEN EXCLUDED.detail IS NOT NULL
+                 detail = (CASE WHEN EXCLUDED.detail IS NOT NULL
                                THEN (coalesce(external_mapping.detail, '{}'::jsonb)
                                      - 'documentsPartial' - 'documentsComplete') || EXCLUDED.detail
                                -- ST8-T13 mapping ที่ได้มาจากใบเดิม (เลขอ้างอิงฝั่ง ERP = เลขใบเดิม) เก็บรายการใบไว้เสมอ (อ่านด้วยเลขนั้น)
                                WHEN external_mapping.detail ? 'documents' AND NOT (external_mapping.detail ? 'externalRef')
                                THEN external_mapping.detail - 'documents' - 'documentsPartial' - 'documentsComplete'
-                               ELSE external_mapping.detail END,
+                               ELSE external_mapping.detail END) - 'replacePartial', -- ST8-T13 review L1: แทนที่ครบ = ไม่ปนกันแล้ว
                  local_number = coalesce(EXCLUDED.local_number, external_mapping.local_number),
                  external_doc_no = coalesce(external_mapping.external_doc_no, EXCLUDED.external_doc_no),
                  external_version = coalesce(EXCLUDED.external_version, external_mapping.external_version),
@@ -1602,6 +1706,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         externalStatus: prior.externalStatus,
         // เอกสารที่ไม่มีแถวในฐาน (เช่น คำสั่งจาก test/เครื่องมือ) → วันที่ของ canonical ฉบับที่ส่ง
         issueDate: typeof ready.issueDate === 'string' ? ready.issueDate.slice(0, 10) : null,
+        erpDocumentDate: erpDocumentDateOf(prior.detail),
       },
       detail,
     );
@@ -1707,7 +1812,12 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
       d,
       connector,
       adapter,
-      { localId: reissueOf, postedAt: t.postedAt, externalStatus: t.externalStatus },
+      {
+        localId: reissueOf,
+        postedAt: t.postedAt,
+        externalStatus: t.externalStatus,
+        erpDocumentDate: erpDocumentDateOf(t.detail),
+      },
       detail,
     );
     if (!this.usableOrPark(adapter, enabled, 'replaceDocument'))
@@ -1750,6 +1860,8 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
       postedAt: Date | null;
       externalStatus: string | null;
       issueDate?: string | null;
+      /** review L2: วันที่ของเอกสารในระบบบัญชี (mapping ที่ย้ายมาจากใบเดิม — `detail.erpDocumentDate`) มาก่อนวันที่ใบ */
+      erpDocumentDate?: string | null;
     },
     detail: Record<string, unknown>,
   ): Promise<{ approvedBy: string } | null> {
@@ -1766,11 +1878,13 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
       }));
       const v = Number(got.settings['billing.erpReplaceApprovalDays']);
       limit = Number.isInteger(v) && v >= 0 ? v : ERP_REPLACE_APPROVAL_DAYS_DEFAULT;
-      const issued = got.inv?.issueDate
-        ? got.inv.issueDate.toISOString().slice(0, 10)
-        : /^\d{4}-\d{2}-\d{2}$/.test(target.issueDate ?? '')
-          ? target.issueDate!
-          : null;
+      const issued = /^\d{4}-\d{2}-\d{2}$/.test(target.erpDocumentDate ?? '')
+        ? target.erpDocumentDate!
+        : got.inv?.issueDate
+          ? got.inv.issueDate.toISOString().slice(0, 10)
+          : /^\d{4}-\d{2}-\d{2}$/.test(target.issueDate ?? '')
+            ? target.issueDate!
+            : null;
       ageDays = issued
         ? Math.round(
             (Date.parse(`${bangkokToday(this.clock.now())}T00:00:00Z`) -
@@ -2334,9 +2448,15 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     };
     if (r.errorClass === 'AUTH')
       await d.withTx((tx) => this.connectors.markError(tx, connector, problem));
+    // ST8-T13 review L1: แทนที่ได้บางใบแล้วล้ม → afterFailure บันทึกใน mapping (เอกสารฝั่ง ERP ปนกัน)
+    const replaced =
+      mode.kind === 'replace'
+        ? (externalDocumentsOf({ documents: r.replacedDocuments }, 1) ?? [])
+        : [];
     throw new OutboxSinkError(problem.message || problem.code, r.errorClass, {
       ...problem,
       ...outcome,
+      ...(replaced.length ? { replacedDocuments: replaced } : {}),
       ...(Array.isArray(r.problem?.fields)
         ? {
             fields: r.problem.fields.slice(0, 50).map((f) => ({

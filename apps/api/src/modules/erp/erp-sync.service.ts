@@ -15,7 +15,11 @@ import {
 import { ConnectorResolver } from './connector-resolver';
 import { ExternalMappingService } from './external-mapping.service';
 import { ERP_SINK } from './erp-adapter.sink';
-import { reissueTarget, replacesAdjustments } from './erp-reissue';
+import { invoiceActors, isPersonActor, reissueTarget, replacesAdjustments } from './erp-reissue';
+
+function loadCanonicalInvoice(tx: Tx, id: string) {
+  return tx.invoice.findUnique({ where: { id }, include: CANONICAL_INVOICE_INCLUDE });
+}
 
 /** entity_type ของ external_mapping (enum `ExternalEntityType` — ตารางของ ST8-T05/0141) */
 export const MAP_ENTITY = {
@@ -56,13 +60,26 @@ export class ErpSyncService {
 
   /** ใบแจ้งหนี้ที่ออกเลขแล้ว (ST5-T09) → PUSH_INVOICE */
   async invoiceFinalized(tx: Tx, invoiceId: string): Promise<string[]> {
-    const inv = await tx.invoice.findUnique({
-      where: { id: invoiceId },
-      include: CANONICAL_INVOICE_INCLUDE,
-    });
+    const inv = await loadCanonicalInvoice(tx, invoiceId);
     if (!inv || !inv.invoiceNo || inv.status === 'DRAFT') return [];
+    // ST8-T13 (D-54 ภาพหลังปรับ = ยกเลิกแล้วออกใหม่) — review M1: หาใบเดิมที่อยู่ในระบบบัญชี (connector ใดก็ได้) **ก่อน** ทางออกทุกทาง
+    // ผลใดที่ไม่ใช่ "สร้างคำสั่งแทนที่บน connector ของใบเดิมแล้ว" = แจ้งบัญชียกเลิกเอกสารของใบเดิมเอง (งานยกเลิกมือไม่หาย)
+    const target = inv.replacesInvoiceId
+      ? await reissueTarget(tx, null, inv.replacesInvoiceId)
+      : null;
+    const out = await this.finalizedSend(tx, inv, target);
+    if (target && !out.replaced) await this.invoiceVoided(tx, target.id, { renotify: true });
+    return out.connectors;
+  }
+
+  private async finalizedSend(
+    tx: Tx,
+    inv: NonNullable<Awaited<ReturnType<typeof loadCanonicalInvoice>>>,
+    target: Awaited<ReturnType<typeof reissueTarget>>,
+  ): Promise<{ connectors: string[]; replaced: boolean }> {
+    const none = { connectors: [] as string[], replaced: false };
     const r = await this.resolver.forCompany(tx, inv.issuingCompanyId, inv.issuingBranchId);
-    if (r.standalone || !r.connector || !r.capabilities.includes('pushInvoice')) return [];
+    if (r.standalone || !r.connector || !r.capabilities.includes('pushInvoice')) return none;
     // ST8-T05 รหัสลูกค้าฝั่ง ERP ที่ผู้ใช้ map ไว้ (null = adapter จับคู่เอง เช่น ด้วยเลขภาษี+สาขา)
     const customerExternalId = await this.mappings.customerErpCode(
       tx,
@@ -71,34 +88,38 @@ export class ErpSyncService {
     );
     // ST8-T07 (PDPA): ชื่อคนขับลง payload เฉพาะ connector ที่ adapter ประกาศว่าต้องใช้
     const doc = canonicalInvoice(inv, customerExternalId, r.adapter?.personalDataNeeds ?? []);
-    // ST8-T13 (D-54 ภาพหลังปรับ = ยกเลิกแล้วออกใหม่): ใบที่ออกแทนใบเดิมซึ่งอยู่ในระบบบัญชีแล้ว → แทนที่เอกสารของใบเดิม (ไม่ POST ใบใหม่)
-    if (inv.replacesInvoiceId) {
-      const t = await reissueTarget(tx, r.connector.id, inv.replacesInvoiceId);
-      if (t) {
-        const sameParty =
-          t.customerId === inv.customerId && t.issuingCompanyId === inv.issuingCompanyId;
-        if (sameParty && replacesAdjustments(r.capabilities)) {
-          const actor = requestContext.get()?.actorId ?? null;
-          const q = await this.enqueue(tx, r.connector.syncFromDate, {
-            tenantId: inv.tenantId,
-            connectorId: r.connector.id,
-            operation: 'REPLACE_DOCUMENT',
-            entityType: ERP_ENTITY.invoice,
-            localId: inv.id,
-            customerId: inv.customerId,
-            payload: {
-              document: doc,
-              branchId: inv.issuingBranchId,
-              reissueOf: t.id,
-              // ผู้ขอการแทนที่ (ผู้ออกใบใหม่ + ผู้ยกเลิกใบเดิม) — ผู้อนุมัติต้องเป็นคนอื่น (docs/01 A.2 approval)
-              requestedBy: [...new Set([actor, t.cancelledBy].filter((x): x is string => !!x))],
-            },
-          });
-          return q ? [r.connector.id] : [];
-        }
-        // แทนที่ไม่ได้ (ลูกค้า/ผู้ออกเปลี่ยน · connector ไม่แทนที่) → ส่งใบใหม่ตามปกติ + แจ้งบัญชียกเลิกเอกสารของใบเดิมเอง
-        await this.invoiceVoided(tx, t.id, { renotify: true });
-      }
+    // ใบที่ออกแทนใบเดิมซึ่งอยู่ในระบบบัญชีของ connector เดียวกัน (ลูกค้า/ผู้ออกเดิม · connector แทนที่ได้) → แทนที่ (ไม่ POST ใบใหม่)
+    if (
+      target &&
+      target.customerId === inv.customerId &&
+      target.issuingCompanyId === inv.issuingCompanyId &&
+      replacesAdjustments(r.capabilities) &&
+      (await reissueTarget(tx, r.connector.id, inv.replacesInvoiceId))?.id === target.id
+    ) {
+      const actor = requestContext.get()?.actorId ?? null;
+      // review M3: ผู้ขอ = ทุกคนที่สร้าง/แก้ร่างใบใหม่ + ผู้ออกเลข + ผู้ยกเลิกใบเดิม — ผู้อนุมัติต้องเป็นคนอื่น (docs/01 A.2)
+      const requestedBy = [
+        ...new Set(
+          [...(await invoiceActors(tx, [inv.id])), actor, target.cancelledBy].filter(
+            (x): x is string => typeof x === 'string' && isPersonActor(x),
+          ),
+        ),
+      ];
+      const q = await this.enqueue(tx, r.connector.syncFromDate, {
+        tenantId: inv.tenantId,
+        connectorId: r.connector.id,
+        operation: 'REPLACE_DOCUMENT',
+        entityType: ERP_ENTITY.invoice,
+        localId: inv.id,
+        customerId: inv.customerId,
+        payload: {
+          document: doc,
+          branchId: inv.issuingBranchId,
+          reissueOf: target.id,
+          requestedBy,
+        },
+      });
+      return q ? { connectors: [r.connector.id], replaced: true } : none;
     }
     const q = await this.enqueue(tx, r.connector.syncFromDate, {
       tenantId: inv.tenantId,
@@ -109,7 +130,7 @@ export class ErpSyncService {
       customerId: inv.customerId,
       payload: { document: doc, branchId: inv.issuingBranchId },
     });
-    return q ? [r.connector.id] : [];
+    return { connectors: q ? [r.connector.id] : [], replaced: false };
   }
 
   /**
@@ -343,6 +364,33 @@ export class ErpSyncService {
       select: { id: true },
     });
     if (open) return open.id;
+    // ST8-T13 review L3: ผู้ขอการแทนที่ = ผู้ขอเดิมทุกคน (คำสั่งแทนที่ก่อนหน้า) + ผู้สร้าง/แก้/ออกเลขเอกสาร + ผู้สั่งส่งซ้ำ
+    const requestedBy = async (): Promise<string[]> => {
+      const prev = await tx.integrationOutbox.findMany({
+        where: {
+          sink: ERP_SINK,
+          targetId: connectorId,
+          operation: 'REPLACE_DOCUMENT',
+          entityType: entity,
+          localId,
+        },
+        select: { payload: true },
+        take: 50,
+      });
+      const before = prev.flatMap((x) => {
+        const v = (x.payload as { requestedBy?: unknown } | null)?.requestedBy;
+        return Array.isArray(v) ? v : [];
+      });
+      return [
+        ...new Set(
+          [
+            ...before,
+            ...(entity === 'invoice' ? await invoiceActors(tx, [localId]) : []),
+            requestContext.get()?.actorId,
+          ].filter((x): x is string => typeof x === 'string' && isPersonActor(x)),
+        ),
+      ];
+    };
     const r = await this.enqueue(tx, c.syncFromDate, {
       resendNonce: randomUUID(),
       tenantId: c.tenantId,
@@ -359,8 +407,8 @@ export class ErpSyncService {
       payload: inErp
         ? {
             ...(payload as Record<string, unknown>),
-            // ST8-T13 ผู้สั่งส่งซ้ำ = ผู้ขอการแทนที่ (ผู้อนุมัติต้องเป็นคนอื่น)
-            requestedBy: [requestContext.get()?.actorId].filter((x): x is string => !!x),
+            // ST8-T13 ผู้ขอการแทนที่ (ผู้อนุมัติต้องเป็นคนอื่น)
+            requestedBy: await requestedBy(),
             ref: {
               entityType: entity,
               localId,
@@ -371,14 +419,7 @@ export class ErpSyncService {
         : reissue
           ? {
               ...reissue,
-              requestedBy: [
-                ...new Set(
-                  [
-                    ...(Array.isArray(reissue.requestedBy) ? reissue.requestedBy : []),
-                    requestContext.get()?.actorId,
-                  ].filter((x): x is string => typeof x === 'string' && !!x),
-                ),
-              ],
+              requestedBy: await requestedBy(),
             }
           : (payload as Record<string, unknown>),
     });

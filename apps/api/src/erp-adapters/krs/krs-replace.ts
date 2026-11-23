@@ -246,6 +246,8 @@ export async function replaceKrsInvoice(
       if (!out.length) return r;
       return {
         ...r,
+        // review L1: ใบที่แทนที่แล้ว — core บันทึกให้เห็นว่าเอกสารฝั่ง KRS ปนกัน (ส่งซ้ำ = PUT ทุกใบใหม่)
+        replacedDocuments: [...out],
         problem: {
           ...r.problem,
           message:

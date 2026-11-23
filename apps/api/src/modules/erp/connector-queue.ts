@@ -44,6 +44,7 @@ import {
 import { canSeeBodies } from './erp-sync-log';
 import { documentDate } from './canonical';
 import { MAP_ENTITY, ErpSyncService } from './erp-sync.service';
+import { invoiceActors, isPersonActor } from './erp-reissue';
 
 /**
  * ST7-T19 คิวเชื่อมระบบบัญชีที่ลูกค้าดูเอง (docs/01 §6.4 "Error queue UI"; docs/04 G3 "Error queue ลูกค้าดูเอง"; spec/07 §2)
@@ -158,7 +159,8 @@ const CODE_GUIDE: Record<string, Guide> = {
   replace_requires_approval: {
     title: 'ต้องมีผู้อนุมัติก่อนแทนที่เอกสารในระบบบัญชี (ลงบัญชีแล้ว หรือใบเก่าเกินกำหนด)',
     action:
-      'ผู้อนุมัติ (คนละคนกับผู้ขอ) ตรวจยอดหลังปรับแล้วกดอนุมัติพร้อมเหตุผล ระบบจึงส่ง — ถ้าแก้ในระบบบัญชีเองแล้ว ให้ข้ามพร้อมเหตุผล',
+      'ผู้อนุมัติ (คนละคนกับผู้ขอ) ตรวจยอดหลังปรับแล้วกดอนุมัติพร้อมเหตุผล ระบบจึงส่ง — ถ้าแก้ในระบบบัญชีเองแล้ว ให้ข้ามพร้อมเหตุผล · ' +
+      'ยกเลิกแล้วออกใหม่: ปุ่ม "ลงบัญชีแล้ว" ต้องกดที่ใบเดิมก่อนออกใบใหม่แทน (หลังแทนที่ ธงย้ายตามไปใบใหม่)',
   },
   replace_not_supported: {
     title: 'ระบบบัญชีแก้เอกสารผ่านการเชื่อมต่อไม่ได้',
@@ -675,10 +677,19 @@ export class ConnectorQueueService {
     if (!this.actions(row, f).approve) throw notAllowed(this.why(row, f, 'approve'));
     const actor = requestContext.get()?.actorId ?? null;
     const p = (row.payload ?? {}) as { requestedBy?: unknown };
-    const requesters = Array.isArray(p.requestedBy)
-      ? (p.requestedBy as unknown[]).filter((x): x is string => typeof x === 'string')
-      : [];
-    if (!actor || requesters.includes(actor))
+    // review M3: ผู้ขอ = รายชื่อในคำสั่ง ∪ ทุกคนที่สร้าง/แก้/ออกเลขเอกสารนี้ (อ่าน ณ ตอนอนุมัติ)
+    const requesters = [
+      ...new Set([
+        ...(Array.isArray(p.requestedBy)
+          ? (p.requestedBy as unknown[]).filter(
+              (x): x is string => typeof x === 'string' && isPersonActor(x),
+            )
+          : []),
+        ...(row.entityType === 'invoice' ? await invoiceActors(tx, [row.localId]) : []),
+      ]),
+    ];
+    // ไม่รู้ผู้ขอ (สร้างโดยระบบ) = ผู้อนุมัติต้องเป็นคน (ตรวจแล้ว) + บันทึกว่าไม่รู้ผู้ขอใน audit
+    if (!actor || !isPersonActor(actor) || requesters.includes(actor))
       throw new ProblemException('erp_replace_self_approval', undefined, undefined, {
         requestedBy: requesters,
       });
@@ -696,6 +707,7 @@ export class ConnectorQueueService {
     await this.audit(tx, c.id, 'connector.queue_approved', row, body.reason, {
       newCommandId: encodeId('outboxCommand', newId),
       requestedBy: requesters,
+      ...(requesters.length ? {} : { requestersUnknown: true }),
       approvedBy: actor,
       replacedInvoiceId:
         typeof (row.payload as { reissueOf?: unknown } | null)?.reissueOf === 'string'
