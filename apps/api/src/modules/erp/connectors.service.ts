@@ -427,7 +427,11 @@ export class ConnectorsService {
         erpCompanyCode: null,
         companyId: q.companyId ?? null,
         branchId: q.branchId ?? null,
-        systemOfRecord: { ...sorDto(sorOf(null)), canIssueTaxDocumentNumber: true },
+        systemOfRecord: {
+          ...sorDto(sorOf(null)),
+          canIssueTaxDocumentNumber: true,
+          taxDocumentOwnerWarning: null,
+        },
       };
     }
     // ระบุแค่สาขา → นิติบุคคลของสาขานั้น
@@ -463,7 +467,11 @@ export class ConnectorsService {
       erpCompanyCode: r.erpCompanyCode,
       companyId: r.routing ? encodeId('company', r.routing.company.id) : null,
       branchId: r.routing ? encodeId('branch', r.routing.branch.id) : null,
-      systemOfRecord: { ...sorDto(sor), canIssueTaxDocumentNumber: sor.canIssueTaxDocumentNumber },
+      systemOfRecord: {
+        ...sorDto(sor),
+        canIssueTaxDocumentNumber: sor.canIssueTaxDocumentNumber,
+        taxDocumentOwnerWarning: sor.taxDocumentOwnerWarning,
+      },
     };
   }
 

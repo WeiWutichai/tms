@@ -157,8 +157,17 @@ describe('system-of-record (ST7-T17)', () => {
       },
     });
     expect(c.capabilitiesEnabled).toContain('pushInvoice');
-    // H1 standalone-first: PAUSED ที่ยังไม่เคยเปิดใช้ = ใบแจ้งหนี้ยังไม่ไป ERP → TMS ออกเลขเอง
-    expect(await canIssue(a.id)).toBe(true);
+    // D68-04: ERP = ไม่ออกเลขทุกกรณี — PAUSED ที่ยังไม่เคยเปิดใช้ (ใบแจ้งหนี้ยังไม่ไป ERP) ก็ไม่ออก + คำเตือน
+    expect(await canIssue(a.id)).toBe(false);
+    const warn = await api(app, readToken)
+      .get('/v1/connectors/effective')
+      .query({ companyId: a.cmp })
+      .expect(200);
+    expect(warn.body.systemOfRecord).toMatchObject({
+      taxDocumentOwner: 'ERP',
+      canIssueTaxDocumentNumber: false,
+      taxDocumentOwnerWarning: 'ERP_NOT_CONNECTED',
+    });
     await resume(c.id);
     expect(await canIssue(a.id)).toBe(false);
     const err = await db
@@ -186,6 +195,7 @@ describe('system-of-record (ST7-T17)', () => {
     expect(eff.body.systemOfRecord).toMatchObject({
       taxDocumentOwner: 'ERP',
       canIssueTaxDocumentNumber: false,
+      taxDocumentOwnerWarning: null,
     });
 
     await put(c.id, { taxDocumentOwner: 'TMS', reason: 'ตกลงกับลูกค้าให้ TMS ออกใบกำกับ' }).expect(
@@ -206,7 +216,7 @@ describe('system-of-record (ST7-T17)', () => {
     expect(await canIssue(a.id)).toBe(true);
   });
 
-  it('H1: ERP แต่ไม่มี pushInvoice / pushInvoice ยังไม่ได้ทำ (pending) / แพ็กเกจไม่มี conn → TMS ออกเลขเอง', async () => {
+  it('D68-04: ERP แต่ไม่มี pushInvoice / pushInvoice ยังไม่ได้ทำ (pending) → TMS ไม่ออกเลข (ไม่สลับเอง) + คำเตือน · สลับเป็น TMS เองพร้อมเหตุผล → ออกได้', async () => {
     // ไม่เปิด pushInvoice
     const a = await company();
     const c1 = await connector({
@@ -215,7 +225,33 @@ describe('system-of-record (ST7-T17)', () => {
       capabilitiesEnabled: ['fetchDocument'],
     });
     await resume(c1.id);
+    expect(await canIssue(a.id)).toBe(false);
+    const sorA = await db.withTenant(tenantId, (tx) => policy.forCompany(tx, a.id));
+    expect(sorA).toMatchObject({
+      invoiceReachesErp: false,
+      canIssueTaxDocumentNumber: false,
+      taxDocumentOwnerWarning: 'ERP_NOT_CONNECTED',
+    });
+    const err = await db
+      .withTenant(tenantId, (tx) => policy.assertCanIssueTaxDocumentNumber(tx, a.id))
+      .then(
+        () => null,
+        (e: unknown) => e as ProblemException,
+      );
+    expect(JSON.stringify(err?.getResponse())).toContain('tax_document_owned_by_erp');
+    expect(err?.extra).toMatchObject({ warning: 'ERP_NOT_CONNECTED' });
+    // ผู้ใช้สลับเจ้าของเป็น TMS เองอย่างชัดเจน (เหตุผลบังคับ + audit)
+    await put(c1.id, { taxDocumentOwner: 'TMS' }).expect(422);
+    await put(c1.id, {
+      taxDocumentOwner: 'TMS',
+      reason: 'ระบบบัญชียังไม่พร้อม ให้ TMS ออกใบกำกับภาษีไปก่อน',
+    }).expect(200);
     expect(await canIssue(a.id)).toBe(true);
+    const audit = await plat.auditLog.findFirst({
+      where: { tenantId, entityId: tryDecodeId('connector', c1.id)! },
+      orderBy: { seq: 'desc' },
+    });
+    expect(audit?.reason).toBe('ระบบบัญชียังไม่พร้อม ให้ TMS ออกใบกำกับภาษีไปก่อน');
 
     // adapter ประกาศ pushInvoice แต่ยัง pending (แถวเปิดไว้ก่อน adapter ถูกถอยเป็น pending)
     const b = await company();
@@ -230,7 +266,7 @@ describe('system-of-record (ST7-T17)', () => {
       where: { id: tryDecodeId('connector', c2.id)! },
       data: { capabilitiesEnabled: ['pushInvoice', 'fetchDocument'] },
     });
-    expect(await canIssue(b.id)).toBe(true);
+    expect(await canIssue(b.id)).toBe(false);
 
     // แพ็กเกจไม่มี conn แต่ยังมี connector ค้าง (เคยเปิดใช้ + ERP) → effective standalone (SoR แบบ Standalone TMS/TMS) และ TMS ออกเลขเอง
     const t2 = (await createTenant(plat, 'บริษัท ลดแพ็กเกจ')).id;

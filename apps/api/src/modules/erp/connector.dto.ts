@@ -7,6 +7,7 @@ import {
   SOR_CHANGE_MODES,
   SOR_FIELD_GROUPS,
   SOR_OWNERS,
+  SOR_TAX_OWNER_WARNINGS,
 } from '@tms/domain';
 import { Transform, Type } from 'class-transformer';
 import {
@@ -152,9 +153,17 @@ export class SystemOfRecordDto {
 export class EffectiveSystemOfRecordDto extends SystemOfRecordDto {
   @ApiProperty({
     description:
-      'TMS ออกเลขใบกำกับภาษีให้เอกสารของนิติบุคคลนี้ได้ไหม (false เมื่อ taxDocumentOwner = ERP) — หน้าจอซ่อนเลขใบกำกับภาษีเมื่อ false',
+      'TMS ออกเลขใบกำกับภาษีให้เอกสารของนิติบุคคลนี้ได้ไหม — **false ทุกครั้งที่ taxDocumentOwner = ERP** แม้ connector ยังส่งไม่ถึง ERP (D68-04) · หน้าจอซ่อนเลขใบกำกับภาษีเมื่อ false',
   })
   canIssueTaxDocumentNumber!: boolean;
+  @ApiProperty({
+    nullable: true,
+    enum: SOR_TAX_OWNER_WARNINGS,
+    type: String,
+    description:
+      'D68-04: `ERP_NOT_CONNECTED` = ตั้งให้ ERP ออกใบกำกับภาษีแต่ใบแจ้งหนี้ยังไปไม่ถึง ERP (ยังไม่เคยเปิดใช้ / ไม่มี pushInvoice) — **ไม่มีใครออกใบกำกับภาษี** จนกว่าจะเชื่อมสำเร็จหรือผู้ใช้สลับเจ้าของเป็น TMS เอง (`PUT /connectors/{id}/system-of-record` + เหตุผล) · null = ไม่มีคำเตือน',
+  })
+  taxDocumentOwnerWarning!: string | null;
 }
 
 /** ST7-T17 เปลี่ยน system-of-record — ส่งเฉพาะที่เปลี่ยน · เหตุผลบังคับ (ลง audit) */
