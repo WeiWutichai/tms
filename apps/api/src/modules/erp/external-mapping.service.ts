@@ -48,6 +48,9 @@ export interface DocumentSyncView {
   externalDocNo: string | null;
   externalStatus: string | null;
   lastSyncedAt: Date | null;
+  /** ST8-T11 ผลกระทบยอดเนื้อหา (docs/01 §4.4) — SENT = ส่งแล้วยังไม่เคยเทียบ · null = ยังไม่อยู่ในระบบบัญชี */
+  reconcileState: 'SENT' | 'ACCEPTED' | 'MISMATCH' | null;
+  reconciledAt: Date | null;
   /** ST8-T13 เวลาที่ฝ่ายบัญชีกดปุ่ม "ลงบัญชีแล้ว" — มีค่า = แทนที่เอกสารฝั่ง ERP ต้องมีผู้อนุมัติ */
   postedAt: Date | null;
   /** ST8-T08 เอกสารฝั่ง ERP ทุกใบเมื่อถูกแยกเป็นหลายใบ (`detail.documents`) — ใบเดียว = [] */
@@ -519,6 +522,13 @@ export class ExternalMappingService {
       externalDocNo: r.externalDocNo,
       externalStatus: r.externalStatus,
       lastSyncedAt: r.lastSyncedAt,
+      // ST8-T11 เทียบเนื้อหาเฉพาะใบแจ้งหนี้ (docs/01 §4.4) — เอกสารชนิดอื่น = null
+      reconcileState:
+        entity !== 'INVOICE'
+          ? null
+          : (r.reconcileState ??
+            (r.externalId && (r.status === 'SYNCED' || r.status === 'MISMATCH') ? 'SENT' : null)),
+      reconciledAt: r.reconciledAt,
       postedAt: r.postedAt,
       externalDocuments: externalDocumentsOfDetail(r.detail),
     };

@@ -35,17 +35,30 @@ export interface OpenApiCorrection {
   adr: string;
 }
 
+/**
+ * การลบ property ที่ server ไม่เคยส่งบนสายจริง (ADR T-22b) — `schema` = `Name.prop` ตามที่ diff รายงาน (ตรงตัวทั้งชื่อ schema และ property)
+ * ยอมเฉพาะ "property removed" ของรายการนี้ ไม่ใช่ทางลัดของ breaking อื่น
+ */
+export interface OpenApiPropertyRemoval {
+  schema: string;
+  adr: string;
+}
+
 export function diffOpenApi(
   base: Json,
   head: Json,
   corrections: readonly OpenApiCorrection[] = [],
+  removals: readonly OpenApiPropertyRemoval[] = [],
 ): Breaking[] {
   const out = diffAll(base, head);
-  const allowed = new Set(
-    corrections
+  const allowed = new Set([
+    ...corrections
       .filter((c) => c.from === 'object' && c.to === 'string' && !!c.adr)
       .map((c) => `schema ${c.schema}: type object → string`),
-  );
+    ...removals
+      .filter((r) => !!r.adr && /^[A-Za-z0-9_]+\.[A-Za-z0-9_]+$/.test(r.schema))
+      .map((r) => `schema ${r.schema}: property removed`),
+  ]);
   return out.filter((x) => !allowed.has(`${x.where}: ${x.change}`));
 }
 

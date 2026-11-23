@@ -33,6 +33,8 @@ import {
 } from './canonical';
 import { canonicalProblems } from './canonical-validation';
 import { ConnectorResolver } from './connector-resolver';
+import { DocumentReconcileService, reconcileOf } from './document-reconcile.service';
+import { buildReconcileBasis } from './reconcile-basis';
 import { ConnectorsService, HEALTH_STOP_CLASSES, redactSecrets } from './connectors.service';
 import { ErpMasterCodesService, type PushPreparation } from './erp-master-codes.service';
 import { recordSyncLog } from './erp-sync-log';
@@ -362,6 +364,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     private readonly mappings: ExternalMappingService,
     private readonly db: DbService,
     private readonly events: NotificationEvents,
+    private readonly reconcile: DocumentReconcileService,
   ) {}
 
   onModuleInit() {
@@ -374,6 +377,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
    * · SKIPPED ที่ไม่ใช่งานของคน (`NOT_NOTIFIED_SKIPS`) ไม่แจ้ง · แจ้งใน transaction ของ tenant (RLS) แยกจากการบันทึกผลคำสั่ง
    */
   async onSettled(c: SettledCommand): Promise<void> {
+    if (c.operation === 'FETCH_DOCUMENT') return this.reconcile.onSettled(c);
     if (!DOCUMENT_OPERATIONS.has(c.operation) || !c.targetId) return;
     if (c.status === 'SKIPPED' && (!c.code || NOT_NOTIFIED_SKIPS.has(c.code))) return;
     const connectorId = c.targetId;
@@ -987,6 +991,14 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         sentHash: ready.sync!.hash,
         ...partyCodesOf(ready),
         ...(pii.fields.length ? { personalDataSent: pii.fields } : {}),
+        // ST8-T11 ค่าที่ใส่ ณ ตอนส่ง (ไม่มีข้อมูลลับ) — reconcile เทียบกับฐานนี้ ไม่ resolve รหัสปัจจุบันใหม่
+        reconcileBasis: buildReconcileBasis(
+          connector,
+          ctx,
+          prep.masterCodes,
+          ready,
+          partyCodesOf(ready),
+        ),
       };
       // D-80 ลง audit ก่อนเรียก adapter — เรียกแล้ว = ข้อมูล**อาจ**ออกนอก TMS แล้วแม้ผลจะล้ม (ทุกครั้งที่ส่ง/ลองใหม่)
       // `mayInclude`: core ส่งค่าให้ adapter แล้ว แต่ adapter อาจไม่ได้ใช้จริง (เช่น จับคู่คู่ค้าด้วยรหัสที่ map ไว้) — core ไม่รู้
@@ -1199,6 +1211,9 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
           externalRef: externalRef.slice(0, 100),
           reissueOf: fromId,
         } as Prisma.InputJsonValue,
+        // ST8-T11 เนื้อหาใหม่ยังไม่ได้อ่านกลับมาเทียบ (SENT) — รอบ AFTER_PUSH ของคำสั่งนี้เทียบต่อ
+        reconcileState: null,
+        reconciledAt: null,
         updatedBy: 'system:erp-sink',
       };
       await tx.externalMapping.upsert({
@@ -1262,7 +1277,8 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
                  detail = CASE WHEN EXCLUDED.detail IS NOT NULL
                                THEN (coalesce(external_mapping.detail, '{}'::jsonb)
                                      - 'documentsPartial' - 'documentsComplete') || EXCLUDED.detail
-                               WHEN external_mapping.detail ? 'documents'
+                               -- ST8-T13 mapping ที่ได้มาจากใบเดิม (เลขอ้างอิงฝั่ง ERP = เลขใบเดิม) เก็บรายการใบไว้เสมอ (อ่านด้วยเลขนั้น)
+                               WHEN external_mapping.detail ? 'documents' AND NOT (external_mapping.detail ? 'externalRef')
                                THEN external_mapping.detail - 'documents' - 'documentsPartial' - 'documentsComplete'
                                ELSE external_mapping.detail END,
                  local_number = coalesce(EXCLUDED.local_number, external_mapping.local_number),
@@ -2183,6 +2199,9 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
             // ST8-T09 (review H1) ส่งทุกใบที่รู้ (รวมใบเดียว) — adapter ตรวจ ref ของใบที่อ่านได้
             if (docs.length) ref = { ...ref, documents: docs };
           }
+          // ST8-T11 คำสั่งอ่านของ reconcile → เทียบ + บันทึกผล (ไม่เก็บเอกสารทั้งก้อนในผลของคำสั่ง)
+          if (reconcileOf(d.payload))
+            return this.reconcile.deliver(d, { connector, adapter, ctx, ref });
           const doc = await adapter.fetchDocument!(ctx, ref, payload.document);
           return { result: { found: !!doc, document: doc } };
         }

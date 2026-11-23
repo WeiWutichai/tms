@@ -119,6 +119,7 @@ import { ErpSyncService } from './modules/erp/erp-sync.service';
 import { ConnectorQueueService } from './modules/erp/connector-queue';
 import { ErpInboundEffects } from './modules/erp/erp-inbound-effects';
 import { PaymentStatusPullService } from './modules/erp/payment-status-pull.service';
+import { DocumentReconcileService } from './modules/erp/document-reconcile.service';
 import { ReconcileController } from './modules/erp/reconcile.controller';
 import { ReconcileResultsService } from './modules/erp/reconcile-results.service';
 import { ErpAdaptersBootstrap } from './erp-adapters';
@@ -517,6 +518,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ErpInboundEffects,
     ReconcileResultsService,
     PaymentStatusPullService,
+    DocumentReconcileService,
     ErpAdaptersBootstrap,
     WebhooksService,
     WebhookOpsService,

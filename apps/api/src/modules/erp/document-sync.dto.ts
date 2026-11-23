@@ -59,6 +59,22 @@ export class ErpDocumentSyncDto {
   @ApiProperty({
     nullable: true,
     type: String,
+    enum: ['SENT', 'ACCEPTED', 'MISMATCH'],
+    description:
+      'ST8-T11 ผลกระทบยอดเนื้อหากับระบบบัญชี (docs/01 §4.4): `SENT` ส่งแล้วยังไม่ได้อ่านกลับมาเทียบ · `ACCEPTED` อ่านกลับแล้วตรง (หรือคนยอมรับส่วนต่างนั้นแล้ว) · ' +
+      '`MISMATCH` ไม่ตรง (ดู `GET /reconcile-results?invoiceId=`) · null = ยังไม่อยู่ในระบบบัญชี',
+  })
+  reconcileState!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date-time',
+    description: 'ST8-T11 เวลาที่เทียบเนื้อหาล่าสุด',
+  })
+  reconciledAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
     format: 'date-time',
     description:
       'ST8-T13 เวลาที่ฝ่ายบัญชีกด "ลงบัญชีแล้ว" (ระบบบัญชีที่บอกสถานะลงบัญชีไม่ได้ เช่น KRS) — มีค่า = แทนที่เอกสารในระบบบัญชีต้องมีผู้อนุมัติ',
@@ -82,6 +98,8 @@ export function documentSyncDto(v: DocumentSyncView | null): ErpDocumentSyncDto 
     externalDocNo: v.externalDocNo,
     externalStatus: v.externalStatus,
     lastSyncedAt: v.lastSyncedAt?.toISOString() ?? null,
+    reconcileState: v.reconcileState,
+    reconciledAt: v.reconciledAt?.toISOString() ?? null,
     postedAt: v.postedAt?.toISOString() ?? null,
     externalDocuments: v.externalDocuments.map((d) => ({ ...d })),
   };

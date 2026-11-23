@@ -90,6 +90,22 @@ describe('diffOpenApi', () => {
     ]);
     expect(diffOpenApi(b, h).length).toBe(3);
   });
+
+  it('ลบ property ยอมเฉพาะ Name.prop ที่อยู่ในรายการ removedProperties (ADR T-22b) — ตรงตัว · ต้องอ้าง ADR', () => {
+    const h = clone();
+    delete h.components.schemas.Company.properties.id;
+    delete h.components.schemas.Company.properties.status;
+    expect(
+      diffOpenApi(base, h, [], [{ schema: 'Company.id', adr: 'T-22b' }]).map((x) => x.where),
+    ).toEqual(['schema Company.status']);
+    // ไม่อ้าง ADR / ชื่อไม่ตรงตัว = ไม่ยอม
+    expect(diffOpenApi(base, h, [], [{ schema: 'Company.id', adr: '' }]).length).toBe(2);
+    expect(diffOpenApi(base, h, [], [{ schema: 'Compan.id', adr: 'T-22b' }]).length).toBe(2);
+    // ชนิดเปลี่ยน ไม่ใช่การลบ — รายการลบไม่ครอบ
+    const t = clone();
+    t.components.schemas.Company.properties.id = { type: 'number' };
+    expect(diffOpenApi(base, t, [], [{ schema: 'Company.id', adr: 'T-22b' }]).length).toBe(1);
+  });
 });
 
 describe('OpenAPI ที่ export (packages/contracts/openapi.json)', () => {
