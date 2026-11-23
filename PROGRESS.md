@@ -472,6 +472,16 @@
 
 ## บันทึกรายวัน
 
+### 23 พ.ย. 2569 (D-81 ชุดเล็ก D68-94 / D68-35 / D68-14 + D68-21 — ระบบตาม docs/ · lane lw, `fix/d68-batch1-small`)
+
+- **D68-94 Dashboard บิล "ครบกำหนด" (docs/04 H · ST9-T02):** = ใบค้างรับที่ยังมียอดค้างและ `dueDate` ≤ วันนี้ (เวลาไทย) **รวมเกินกำหนด** · API `GET /invoices?receivable=due` (`dueWhere` = `overdueWhere` ∪ ครบวันนี้) + `invoices/summary.due` / `sellDueOutstanding` · ช่องเปลี่ยนป้าย "เกินกำหนด" → "ครบกำหนด" คลิก → `/pay?tab=due` (หน้ารับชำระ: มุมมองจากลิงก์ + ชิปตัวกรอง "ครบกำหนด" แบบชิปอายุหนี้ — ไม่เพิ่มแท็บ; จำนวน = `summary.due`) · ช่องออกแล้วรอชำระ/ชำระบางส่วน/การ์ดลูกหนี้/KPI "ใบแจ้งหนี้เกินกำหนด" คงนิยามเดิม (ซ้อนกับ "ครบกำหนด" เฉพาะใบครบวันนี้) → test Σ ออกแล้ว + ชำระบางส่วน + เกินกำหนด = ลูกหนี้คงค้าง คงเดิม + test ใหม่ ครบกำหนด = รายการที่คลิก = เกินกำหนด ∪ ครบวันนี้
+- **D68-35 SO ส่งบางส่วน (docs/01 §4.1 · ST4-T03):** มี DO ส่งถึงแต่ยังไม่ครบ → PARTIALLY_DELIVERED **แม้ DO อื่นยังวิ่ง** · `resume` (→ IN_TRANSIT) เฉพาะ DO ที่ออกรถ (dispatch/restore) หลังการส่งถึงล่าสุด (อ่าน `doc_status_history`) — ไม่สลับไปมา · ไม่แก้ state machine (เส้นมีอยู่แล้ว) · webhook `order.updated` ออกตามทุก transition (test snapshot `partially_delivered` + ค่าเดิม `in_transit`) · คิววางบิล/ราคา ไม่อ่านสถานะ SO นี้ (test billing-lifecycle/partial-return/pod/delivery-orders ผ่าน)
+- **D68-14 + D68-21 โควตารถ (docs/02 §2/§6):** โควตานับรถ active ไม่ใช่ทะเบียน — ก่อนมี metering: ฟอร์มเพิ่มรถแสดง "รถในทะเบียน N คัน / โควตา M คัน" (ข้อความธรรมดา ไม่มีกล่องเตือน) · `POST /vehicles` `quotaExceeded` = false เสมอ ไม่ส่ง header `Warning` · นำเข้า Excel เกินโควตา → คำเตือน `quota_exceeded` ที่แถวใหม่ส่วนเกิน (นำเข้าได้) ไม่ปฏิเสธไฟล์ · spec/02 MD-289 แก้แล้ว
+- **spec/12 §3:** แถว ST2-T06 (กฎ/ review), ST2-T23 โควตา, ST4-T03, ST9-T02 (2 แถว) ต่อท้าย "→ ทำแล้วตาม D-81 · D68-xx"
+- **ไฟล์:** `apps/api/src/modules/invoices/{invoice.dto,invoices.service}.ts`, `modules/orders/order-state.service.ts`, `packages/domain/src/stop-projection(.test).ts`, `modules/vehicles/{vehicles.controller,vehicles.service,vehicle.dto}.ts`, `modules/imports/{master-import,imports.controller}.ts`, web `features/dashboard/{billCards,BillingDash}`, `features/billing/{PayPage,payTabs(.test)}`, `features/vehicles/VehicleFormDrawer(.test)`, `pages/Dashboard.test.tsx`, i18n, test API `billing-dashboard` / `stop-projection` / `master-imports` / `vehicles`, OpenAPI + api-docs
+- **ไม่มี migration**
+- **ค้าง:** ไม่ได้รัน `pnpm ci:local` (lead รัน) · ภาพเทียบต้นแบบ 1440 ของการ์ด/ชิป (ดู PR) · นับรถ active (metering) ยังเป็นผู้สมัครเพิ่ม
+
 ### 23 พ.ย. 2569 (D-80 เลขบัตรประชาชนรถร่วมบุคคลธรรมดา → ระบบบัญชีที่ประกาศว่าต้องใช้ — D-68 ข้อ D68-08 · lane lt, `fix/d68-08-carrier-taxid-accountsystem`)
 
 - **ทำ (D-80 PO 23 พ.ย.):** `CanonicalPersonalField` เพิ่ม `'carrier.taxId'` · AccountSystem ประกาศ `personalDataNeeds = ['carrier.taxId']` (ออก 50 ทวิ / ภ.ง.ด.3 — D-58) · KRS/Demo ไม่ประกาศ = null เหมือนเดิม · นิติบุคคลไม่เปลี่ยน

@@ -134,6 +134,7 @@ export class InvoicesService {
     const od = overdueWhere(tx, bangkokToday(this.clock.now()));
     if (q.receivable === 'overdue' || q.overdue === 'true') and.push(od);
     if (q.overdue === 'false') and.push({ NOT: od });
+    if (q.receivable === 'due') and.push(dueWhere(tx, bangkokToday(this.clock.now())));
     if (q.aging) and.push(agingWhere(tx, q.aging, bangkokToday(this.clock.now())));
     if (q.customerId !== undefined)
       and.push({ customerId: (await this.customerRef(tx, q.customerId)) ?? NONE });
@@ -679,6 +680,12 @@ export class InvoicesService {
       _sum: { totalAmount: true, paidAmount: true },
     });
     const overdue = odAgg._count._all;
+    // D-81 · D68-94 "ครบกำหนด" ของ docs/04 H = ถึงวันครบแล้ว (dueDate ≤ วันนี้) รวมเกินกำหนด — การ์ด Dashboard บิล
+    const dueAgg = await tx.invoice.aggregate({
+      where: dueWhere(tx, today),
+      _count: { _all: true },
+      _sum: { totalAmount: true, paidAmount: true },
+    });
     const pick = (st: string[]) => rows.filter((r) => st.includes(r.status));
     const n = (...st: string[]) => pick(st).reduce((a, r) => a + r._count._all, 0);
     const ZERO = new Prisma.Decimal(0);
@@ -717,6 +724,8 @@ export class InvoicesService {
       sellIssuedOutstanding: money(outstanding('ISSUED')),
       sellPartiallyPaidOutstanding: money(outstanding('PARTIALLY_PAID')),
       sellOverdueOutstanding: money(dec(odAgg._sum.totalAmount).sub(dec(odAgg._sum.paidAmount))),
+      due: dueAgg._count._all,
+      sellDueOutstanding: money(dec(dueAgg._sum.totalAmount).sub(dec(dueAgg._sum.paidAmount))),
       issuedThisMonth: {
         month: m.thisMonth.month,
         count: cur._count._all,
@@ -1056,6 +1065,23 @@ export function overdueWhere(tx: Tx, today: string): Prisma.InvoiceWhereInput {
       {
         status: { in: ['ISSUED', 'PARTIALLY_PAID'] },
         dueDate: { lt: day(today) },
+        paidAmount: { lt: tx.invoice.fields.totalAmount },
+      },
+    ],
+  };
+}
+
+/**
+ * D-81 · D68-94 ครบกำหนด (docs/04 H — Dashboard บิล): ใบเกินกำหนด (ข้างบน) **หรือ** ค้างรับ + ยอดตัด < ยอดรวม + ครบกำหนด ≤ วันนี้ (เวลาไทย)
+ * — ใบที่ครบกำหนดวันนี้ (ยังไม่เลย) นับด้วย · ไม่มีวันครบกำหนด = ยังไม่ครบ
+ */
+export function dueWhere(tx: Tx, today: string): Prisma.InvoiceWhereInput {
+  return {
+    OR: [
+      overdueWhere(tx, today),
+      {
+        status: { in: ['ISSUED', 'PARTIALLY_PAID'] },
+        dueDate: { lte: day(today) },
         paidAmount: { lt: tx.invoice.fields.totalAmount },
       },
     ],

@@ -649,7 +649,8 @@ export class VehicleDto {
   @ApiProperty({ format: 'date-time' }) updatedAt!: string;
   @ApiPropertyOptional({
     description:
-      'มีเฉพาะในผลการสร้าง: true = รถที่นับโควตา (ยังไม่ปลดระวาง) เกินโควตาของ tenant แล้ว — soft limit ยังสร้างได้ (header `Warning: 299` ด้วย)',
+      'มีเฉพาะในผลการสร้าง — D-81 · D68-14: โควตารถนับ**รถ active** (มีเที่ยวในเดือน — docs/02 §2/§6) ไม่ใช่จำนวนในทะเบียน · ' +
+      'ตอนนี้ `false` เสมอจนกว่าจะมีการนับรถ active (metering) — soft limit ไม่จำกัดการสร้าง',
   })
   quotaExceeded?: boolean;
   @ApiPropertyOptional({
@@ -675,7 +676,10 @@ export class VehicleQuotaDto {
       'โควตารถตามสัญญา/แพ็กเกจ (tenant.vehicle_quota → entitlement `veh`) — null = ไม่จำกัด',
   })
   limit!: number | null;
-  @ApiProperty({ description: 'รถที่นับ = ในทะเบียนที่ยังไม่ปลดระวาง (บริษัท + รถร่วม)' })
+  @ApiProperty({
+    description:
+      'รถในทะเบียนที่ยังไม่ปลดระวาง (บริษัท + รถร่วม) — **ไม่ใช่ฐานโควตา** (D68-14: โควตานับรถ active ในเดือน) ใช้แสดง "รถในทะเบียน N / โควตา M"',
+  })
   used!: number;
 }
 
