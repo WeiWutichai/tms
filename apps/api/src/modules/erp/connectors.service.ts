@@ -1197,13 +1197,33 @@ export class ConnectorsService {
       // ST7-T22 เลิกรับ webhook ขาเข้าด้วย (URL เดิมตอบ 401)
       { disconnectedAt: new Date(), inboundTokenHash: null, inboundTokenPrefix: null },
     );
-    if (pending)
+    if (pending) {
       await this.audit(tx, {
         action: 'connector.commands_abandoned',
         entityId: cur.id,
         after: { pendingCommands: pending },
         reason: body.reason,
       });
+      // D-81 · D68-57 (review M1) แจ้งฝ่ายบัญชีฉบับเดียว: เอกสารที่ค้างส่ง N รายการจะไม่ถูกส่ง (sink ไม่แจ้งทีละคำสั่ง)
+      await this.events.documentNotSent(tx, {
+        tenantId: cur.tenantId,
+        connectorId: cur.id,
+        entityType: 'document',
+        localId: null,
+        documentNo: null,
+        label: this.adapterLabel(cur.adapterKey),
+        outcome: 'SKIPPED',
+        code: 'connector_disconnected',
+        errorClass: 'CAPABILITY',
+        count: pending,
+      });
+    }
+    // review L1: ให้ adapter ทิ้งข้อมูลในหน่วยความจำของ connector นี้ (เช่น DemoProvider)
+    try {
+      this.adapters.get(cur.adapterKey)?.forget?.(cur.tenantId, cur.id);
+    } catch {
+      /* ไม่ย้อนการยกเลิก */
+    }
     return row;
   }
 
@@ -1602,6 +1622,18 @@ export class ConnectorsService {
    * คืนจำนวน connector ที่ตรวจ
    */
   async recheckUnhealthy(): Promise<number> {
+    // review L3: รอบก่อนยังไม่จบ (ปลายทางช้า — healthCheck มีเพดาน 15 วิ/ตัว) → ข้ามรอบนี้
+    if (this.recheckRunning) return 0;
+    this.recheckRunning = true;
+    try {
+      return await this.recheckUnhealthyNow();
+    } finally {
+      this.recheckRunning = false;
+    }
+  }
+  private recheckRunning = false;
+
+  private async recheckUnhealthyNow(): Promise<number> {
     const rows = await this.prisma.platform.connector.findMany({
       where: {
         OR: [

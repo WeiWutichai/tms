@@ -394,10 +394,15 @@ export interface ErpAdapter {
   readonly displayName: string;
   readonly configFields: readonly ConnectorConfigField[];
   /**
-   * adapter จำลอง (Demo) — ลงทะเบียน/เปิดได้เฉพาะ dev/test/staging ที่อนุญาต · catalog (`GET /connectors/adapters`)
+   * adapter จำลอง (Demo) — ทุก tenant ใน dev/test/staging ที่อนุญาต · production = เฉพาะ tenant sandbox (D68-96) · catalog (`GET /connectors/adapters`)
    * แสดง `demo: true` ให้หน้าจอติดป้าย "จำลอง" (ST7-T14) · ไม่มีวันเป็นค่าเริ่มต้น (ไม่มี connector = Standalone เสมอ)
    */
   readonly localOnly?: boolean;
+  /**
+   * D-81 review L1 (ไม่บังคับ): connector ถูกยกเลิกการเชื่อม → ทิ้งสถานะในหน่วยความจำของ (tenant, connector) นี้ (เช่น DemoProvider)
+   * core เรียกหลังเปลี่ยนเป็น DISCONNECTED ใน process ที่รับคำขอ — ห้าม throw/ติดต่อภายนอก
+   */
+  forget?(tenantId: string, connectorId: string): void;
   capabilities(): ReadonlySet<ErpCapability>;
   /**
    * ST8-T03 capability ที่ประกาศแล้วแต่ยังไม่ได้ทำ (โครง adapter) — ต้องอยู่ใน `capabilities()` ด้วย (มี method ที่ตอบ `not_implemented`)

@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { tryDecodeId } from '../src/common/ids';
 import { DbService } from '../src/db/db.service';
-import { DemoAdapter } from '../src/erp-adapters/demo/demo.adapter';
+import { DEMO_MAX_SCOPES, DemoAdapter } from '../src/erp-adapters/demo/demo.adapter';
 import { ConnectorsService } from '../src/modules/erp/connectors.service';
 import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
 import { ERP_SINK } from '../src/modules/erp/erp-adapter.sink';
@@ -276,7 +276,98 @@ describe('D-81 (F)(I) connector: AUTH/health หยุดคิว · แจ้�
     await dispatcher.drain();
     expect(await cmd(dead)).toMatchObject({ status: 'FAILED_FINAL', errorClass: 'AMBIGUOUS' });
     const dn = await notes(tenantId, 'connector.document_not_sent');
-    expect(dn.find((x) => x.recipientId === accounting)?.body).toContain('INV-00000-2611-0023');
+    const deadNote = dn.find((x) => x.recipientId === accounting)!;
+    expect(deadNote.body).toContain('INV-00000-2611-0023');
+    // review M2: AMBIGUOUS (lease หมด) = อาจถึงระบบบัญชีแล้ว
+    expect(deadNote.body).toContain(
+      'อาจถึงระบบบัญชีแล้ว — ตรวจในระบบบัญชีก่อนส่งใหม่หรือบันทึกเอง',
+    );
+    expect(deadNote.payload).toMatchObject({ errorClass: 'AMBIGUOUS', code: 'lease_expired' });
+  });
+
+  it('review M1: ล้ม 50 ใบ (connector + รหัสเดียวกัน ใน 1 ชม.) → แจ้งในระบบ 1 ฉบับ + อีเมล 1 ฉบับต่อผู้รับ (นับรวม + ตัวอย่าง 5 เลข) · อ่านแล้ว = แจ้งใหม่', async () => {
+    const con = await connector(token);
+    await api(app, token)
+      .patch(`/v1/connectors/${con.id}`)
+      .send({ settings: { failMode: 'VALIDATION' } })
+      .expect(200);
+    for (let i = 0; i < 50; i++) await enqueue(tenantId, con.uuid, 100 + i);
+    await drain();
+    const inApp = await notes(tenantId, 'connector.document_not_sent');
+    const mine = inApp.filter((x) => x.recipientId === accounting);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]!.payload).toMatchObject({ count: 50, code: 'customer_unmapped' });
+    expect((mine[0]!.payload as { documentNos: string[] }).documentNos).toHaveLength(5);
+    expect(mine[0]!.body).toContain('เอกสาร 50 ใบ');
+    expect(
+      await plat.notification.count({
+        where: {
+          templateCode: 'connector.document_not_sent',
+          channel: 'email',
+          recipientId: accounting,
+        },
+      }),
+    ).toBe(1);
+    // อ่านแล้ว → ใบถัดไปเป็นฉบับใหม่
+    await plat.notification.update({ where: { id: mine[0]!.id }, data: { readAt: new Date() } });
+    await enqueue(tenantId, con.uuid, 200);
+    await drain();
+    const again = (await notes(tenantId, 'connector.document_not_sent')).filter(
+      (x) => x.recipientId === accounting,
+    );
+    expect(again).toHaveLength(2);
+  });
+
+  it('review M1/L1: ยกเลิกการเชื่อมที่มีคำสั่งค้าง → แจ้งบัญชีฉบับเดียว (จำนวนค้าง) ไม่แจ้งทีละคำสั่ง · DemoProvider ทิ้งข้อมูลของ connector', async () => {
+    const con = await connector(token);
+    const first = await enqueue(tenantId, con.uuid, 300);
+    await drain();
+    expect((await cmd(first)).status).toBe('DONE');
+    expect(demo.documents(tenantId, con.uuid)).toHaveLength(1);
+    await api(app, token).post(`/v1/connectors/${con.id}/pause`).send({}).expect(200);
+    for (let i = 0; i < 3; i++) await enqueue(tenantId, con.uuid, 301 + i);
+    await api(app, token)
+      .post(`/v1/connectors/${con.id}/disconnect`)
+      .send({ reason: 'เลิกใช้โปรแกรมบัญชีนี้' })
+      .expect(200);
+    expect(demo.documents(tenantId, con.uuid)).toHaveLength(0); // ทิ้งแล้ว
+    let n = (await notes(tenantId, 'connector.document_not_sent')).filter(
+      (x) => x.recipientId === accounting,
+    );
+    expect(n).toHaveLength(1);
+    expect(n[0]!.payload).toMatchObject({ count: 3, code: 'connector_disconnected' });
+    expect(n[0]!.body).toContain('เอกสาร 3 ใบ');
+    await drain(); // คำสั่งค้างถูกข้าม — ไม่แจ้งเพิ่ม
+    n = (await notes(tenantId, 'connector.document_not_sent')).filter(
+      (x) => x.recipientId === accounting,
+    );
+    expect(n).toHaveLength(1);
+    expect(n[0]!.payload).toMatchObject({ count: 3 });
+  });
+
+  it('review L1: DemoProvider เก็บข้อมูลไม่เกิน DEMO_MAX_SCOPES ชุด (LRU)', () => {
+    const d = new DemoAdapter();
+    d.setMasterCodes('t-keep', 'c', 'UNIT', []);
+    for (let i = 0; i < DEMO_MAX_SCOPES + 10; i++) {
+      d.setMasterCodes(`t${i}`, 'c', 'UNIT', []);
+      d.setMasterCodes('t-keep', 'c', 'UNIT', []); // ใช้ล่าสุดเสมอ = ไม่ถูกทิ้ง
+    }
+    const size = (d as unknown as { scopes: Map<string, unknown> }).scopes.size;
+    expect(size).toBe(DEMO_MAX_SCOPES);
+    expect((d as unknown as { scopes: Map<string, unknown> }).scopes.has('t-keep:c')).toBe(true);
+    expect((d as unknown as { scopes: Map<string, unknown> }).scopes.has('t0:c')).toBe(false);
+  });
+
+  it('review L3: recheckUnhealthy ไม่ซ้อนรอบ (รอบก่อนยังไม่จบ = ข้าม)', async () => {
+    const con = await connector(token);
+    await plat.connector.update({
+      where: { id: con.uuid },
+      data: { healthFailingSince: new Date() },
+    });
+    const svc = app.get(ConnectorsService);
+    const [a, b] = await Promise.all([svc.recheckUnhealthy(), svc.recheckUnhealthy()]);
+    expect([a, b].sort()).toEqual([0, 1]);
+    expect(await svc.recheckUnhealthy()).toBe(0); // ผ่านแล้ว (ไม่มีตัวที่ล้ม) — และ flag ถูกปล่อย
   });
 
   it('D68-58/96 sandbox: สร้าง/ทดสอบ/ส่งผ่าน DemoProvider ได้ · adapter จริง 403 · catalog เห็นเฉพาะ demo · แยกข้อมูลจากบริษัทจริง', async () => {

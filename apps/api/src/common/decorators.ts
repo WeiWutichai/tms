@@ -115,8 +115,10 @@ export const SandboxAware = () =>
   );
 export const LIVE_ONLY = 'tms:liveOnly';
 /**
- * ST7-T09: route ที่ห้ามใช้ใน sandbox (เชื่อมระบบภายนอกจริง เช่น connector/ERP) → 403 `sandbox_unsupported`
+ * ST7-T09: route ที่ห้ามใช้ใน sandbox (เชื่อมระบบภายนอกจริง) → 403 `sandbox_unsupported`
  * ตรวจใน AuthGuard หลังรู้ tenant ของคำขอ (ทั้ง key `tk_test_` และผู้ใช้ที่สลับโหมด)
+ * หมายเหตุ D-81 · D68-58: ตอนนี้ไม่มี route ใดใช้ (route connector/ERP ใช้ได้ใน sandbox กับ DemoProvider — กันที่
+ * `ErpAdapterRegistry.usableIn` แทน) · คงไว้สำหรับ route ใหม่ที่ติดต่อภายนอกจริงและไม่มีตัวจำลอง
  */
 export const LiveOnly = () => SetMetadata(LIVE_ONLY, true);
 export const TRANSACTION_TIMEOUT_MS = 'tms:transactionTimeoutMs';

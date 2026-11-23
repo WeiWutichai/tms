@@ -103,10 +103,12 @@ const MAPPED_ENTITIES: Readonly<Record<string, 'INVOICE' | 'SETTLEMENT'>> = {
 };
 
 /**
- * D68-57 SKIPPED ที่ไม่ต้องแจ้งบัญชี: ส่งถึงแล้ว (`payload_unchanged`) · เอกสารถูกยกเลิกก่อนส่ง (`document_cancelled` — ไม่มีอะไรใน ERP)
+ * D68-57 SKIPPED ที่ไม่ต้องแจ้งบัญชี (ทีละคำสั่ง): ส่งถึงแล้ว (`payload_unchanged`) · เอกสารถูกยกเลิกก่อนส่ง (`document_cancelled` — ไม่มีอะไรใน ERP)
  * · sandbox (`sandbox_unsupported` — ไม่ส่งออกนอกระบบโดยตั้งใจ)
  */
 const NOT_NOTIFIED_SKIPS: ReadonlySet<string> = new Set([
+  // review M1: ยกเลิกการเชื่อมแจ้งฉบับเดียวจาก `ConnectorsService.disconnect` (จำนวนคำสั่งค้าง) — ไม่แจ้งทีละคำสั่ง
+  'connector_disconnected',
   'payload_unchanged',
   'document_cancelled',
   'sandbox_unsupported',
@@ -202,19 +204,20 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
    * · SKIPPED ที่ไม่ใช่งานของคน (`NOT_NOTIFIED_SKIPS`) ไม่แจ้ง · แจ้งใน transaction ของ tenant (RLS) แยกจากการบันทึกผลคำสั่ง
    */
   async onSettled(c: SettledCommand): Promise<void> {
-    if (!DOCUMENT_OPERATIONS.has(c.operation)) return;
+    if (!DOCUMENT_OPERATIONS.has(c.operation) || !c.targetId) return;
     if (c.status === 'SKIPPED' && (!c.code || NOT_NOTIFIED_SKIPS.has(c.code))) return;
+    const connectorId = c.targetId;
     const p = (c.payload ?? {}) as { document?: { number?: unknown }; number?: unknown };
     const no = p.document?.number ?? p.number;
     await this.db.withTenant(c.tenantId, async (tx) => {
-      const connector = c.targetId
-        ? await tx.connector.findUnique({
-            where: { id: c.targetId },
-            select: { adapterKey: true },
-          })
-        : null;
+      const connector = await tx.connector.findUnique({
+        where: { id: connectorId },
+        select: { adapterKey: true },
+      });
       await this.events.documentNotSent(tx, {
         tenantId: c.tenantId,
+        connectorId,
+        errorClass: c.errorClass,
         entityType: c.entityType,
         localId: c.localId,
         documentNo: typeof no === 'string' && no ? no : null,
