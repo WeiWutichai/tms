@@ -30823,6 +30823,100 @@
         ]
       }
     },
+    "/v1/reconcile-reports/period-close": {
+      "get": {
+        "description": "หลักฐานของเกณฑ์ผ่าน (ก) docs/02 §7 \"ปิดงวดผ่าน reconcile — MISMATCH ค้าง = 0\" · 3 ส่วน: (1) `outstanding` MISMATCH ค้าง ณ สิ้นเดือน (เวลาไทย) = รายการ `result` MISMATCH/REMOTE_MISSING severity MONEY/FIELD ที่รอบตรวจพบ (`run_at`) ก่อนสิ้นเดือน และ ณ สิ้นเดือนยังไม่ถูกปิดและยังไม่มีคนยอมรับ — ปิดหลังสิ้นเดือนยังนับเป็นค้างของงวด · พบหลังสิ้นเดือนไม่นับ · INFO (อ่าน/เทียบไม่ได้) นับแยกใน `summary.unverified` (2) `acknowledged` รายการที่ยอมรับความต่างในเดือน + ผู้ยอมรับ + เหตุผล (3) `notSent` เอกสารที่วันที่ไม่เกินสิ้นเดือนและคำสั่งส่งล่าสุดยังอยู่แท็บรอคิว/ล้มเหลวของคิว (`GET /connectors/{id}/queue`) **ณ เวลาที่ออกรายงาน** · `passed` = เดือนจบแล้ว และ `summary.outstanding` = 0 · เดือนที่ยังไม่จบตัด ณ เวลาปัจจุบัน · connector ไม่พบ/ของ tenant อื่น → 404 · ยอดเงิน `sell*` ต้องมี `prices.sell:read` · `buy*` ต้องมี `prices.buy:read` · ส่งออก: `POST /v1/exports` resource `reconcile-period-close` (xlsx / csv / pdf) ตัวกรอง `connectorId`, `month`",
+        "operationId": "Reconcile_periodCloseReport",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "name": "connectorId",
+            "required": true,
+            "in": "query",
+            "description": "connector ที่ปิดงวด",
+            "schema": {
+              "example": "con_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+              "type": "string"
+            }
+          },
+          {
+            "name": "month",
+            "required": true,
+            "in": "query",
+            "description": "งวด (YYYY-MM) — สิ้นเดือน = 00:00 น. วันที่ 1 ของเดือนถัดไป เวลาไทย",
+            "schema": {
+              "example": "2026-11",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeriodCloseReportDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_integrations.read"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "รายงานปิดงวดต่อ connector ต่อเดือน (ST8-T14)",
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "integrations:read"
+        ]
+      }
+    },
     "/v1/reconcile-results": {
       "get": {
         "operationId": "Reconcile_list",
@@ -73226,7 +73320,8 @@
               "accounting-sales",
               "accounting-receipts",
               "accounting-settlements",
-              "accounting-wht-summary"
+              "accounting-wht-summary",
+              "reconcile-period-close"
             ],
             "example": "orders"
           },
@@ -73238,7 +73333,7 @@
               "pdf"
             ],
             "default": "xlsx",
-            "description": ".xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ .csv UTF-8 + BOM · `pdf` (ตาราง A4 ≤ 2,000 แถว) เฉพาะรายงาน — resource `revenue`, `unbilled-delivery-orders`, `receivables-aging` (อื่น ๆ = 422)"
+            "description": ".xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ .csv UTF-8 + BOM · `pdf` (ตาราง A4 ≤ 2,000 แถว) เฉพาะรายงาน — resource `revenue`, `unbilled-delivery-orders`, `receivables-aging`, `reconcile-period-close` (อื่น ๆ = 422)"
           },
           "filter": {
             "type": "object",
@@ -73332,6 +73427,7 @@
               "accounting-receipts",
               "accounting-settlements",
               "accounting-wht-summary",
+              "reconcile-period-close",
               "invoice-run-summary"
             ],
             "description": "`invoice-run-summary` = ไฟล์สรุปรอบวางบิล (สร้างเองเมื่อ `POST /v1/invoice-runs` จบ — `id` = jobId ของรอบ; สั่งผ่าน `POST /exports` ไม่ได้)"
@@ -87654,6 +87750,456 @@
         },
         "required": [
           "externalId"
+        ]
+      },
+      "PeriodCloseConnectorDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "con_…"
+          },
+          "adapterKey": {
+            "type": "string",
+            "example": "krs"
+          },
+          "displayName": {
+            "type": "string",
+            "nullable": true,
+            "example": "KRS"
+          }
+        },
+        "required": [
+          "id",
+          "adapterKey",
+          "displayName"
+        ]
+      },
+      "PeriodCloseSummaryDto": {
+        "type": "object",
+        "properties": {
+          "outstanding": {
+            "type": "number",
+            "description": "MISMATCH ค้าง ณ สิ้นเดือน (severity MONEY/FIELD) — เกณฑ์ผ่าน (ก) ต้อง = 0"
+          },
+          "outstandingMoney": {
+            "type": "number",
+            "description": "ในจำนวนที่ค้าง: severity MONEY"
+          },
+          "outstandingField": {
+            "type": "number",
+            "description": "ในจำนวนที่ค้าง: severity FIELD"
+          },
+          "unverified": {
+            "type": "number",
+            "description": "รายการ INFO ที่ยังเปิด ณ สิ้นเดือน (อ่านเอกสารจากระบบบัญชีไม่ได้ / เทียบไม่ได้) — ไม่นับเป็นค้าง แต่แปลว่ามีเอกสารที่ยังไม่ได้ยืนยัน"
+          },
+          "acknowledged": {
+            "type": "number",
+            "description": "รายการที่ยอมรับความต่าง (ack) ในเดือนนี้"
+          },
+          "notSent": {
+            "type": "number",
+            "description": "เอกสารที่ยังไม่ถูกส่ง (ณ เวลาที่ออกรายงาน)"
+          },
+          "notSentQueued": {
+            "type": "number",
+            "description": "ในจำนวนที่ยังไม่ส่ง: รอคิว (ระบบส่งเอง)"
+          },
+          "notSentFailed": {
+            "type": "number",
+            "description": "ในจำนวนที่ยังไม่ส่ง: ล้มเหลว (ต้องมีคนทำ)"
+          }
+        },
+        "required": [
+          "outstanding",
+          "outstandingMoney",
+          "outstandingField",
+          "unverified",
+          "acknowledged",
+          "notSent",
+          "notSentQueued",
+          "notSentFailed"
+        ]
+      },
+      "PeriodCloseMismatchDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "rcr_…"
+          },
+          "invoiceId": {
+            "type": "string",
+            "nullable": true,
+            "example": "ivc_…"
+          },
+          "localNumber": {
+            "type": "string",
+            "nullable": true,
+            "example": "INV-2611-0001"
+          },
+          "check": {
+            "type": "string",
+            "nullable": true,
+            "example": "DOCUMENT",
+            "description": "PAYMENT_STATUS / DOCUMENT"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true,
+            "example": "content_mismatch"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "MATCH",
+              "MISMATCH",
+              "REMOTE_MISSING",
+              "ERP_UNREACHABLE",
+              "NOT_COMPARABLE"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "MONEY",
+              "FIELD",
+              "INFO"
+            ]
+          },
+          "foundAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "เวลาของรอบตรวจที่พบ (`run_at`)"
+          },
+          "lastSeenAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currentStatus": {
+            "type": "string",
+            "enum": [
+              "OPEN",
+              "ACKNOWLEDGED",
+              "RESOLVED"
+            ],
+            "description": "สถานะ ณ เวลาที่ออกรายงาน (รายการที่ปิดหลังสิ้นเดือนยังนับเป็นค้างของงวดนี้)"
+          },
+          "closedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "เวลาที่ปิด/ยอมรับ (หลังสิ้นเดือน) — null = ยังเปิดอยู่"
+          },
+          "sellDifferenceAmount": {
+            "type": "string",
+            "description": "ส่วนต่างยอด (ระบบบัญชี − TMS) — ยอดรับชำระ หรือยอดรวมเอกสาร (`totals.total`) · ไม่มี = ไม่ใช่ส่วนต่างยอด · `prices.sell:read`"
+          }
+        },
+        "required": [
+          "id",
+          "invoiceId",
+          "localNumber",
+          "check",
+          "code",
+          "result",
+          "severity",
+          "foundAt",
+          "lastSeenAt",
+          "currentStatus",
+          "closedAt"
+        ]
+      },
+      "PeriodCloseAcknowledgedDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "rcr_…"
+          },
+          "invoiceId": {
+            "type": "string",
+            "nullable": true,
+            "example": "ivc_…"
+          },
+          "localNumber": {
+            "type": "string",
+            "nullable": true,
+            "example": "INV-2611-0001"
+          },
+          "check": {
+            "type": "string",
+            "nullable": true,
+            "example": "DOCUMENT",
+            "description": "PAYMENT_STATUS / DOCUMENT"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true,
+            "example": "content_mismatch"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "MATCH",
+              "MISMATCH",
+              "REMOTE_MISSING",
+              "ERP_UNREACHABLE",
+              "NOT_COMPARABLE"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "MONEY",
+              "FIELD",
+              "INFO"
+            ]
+          },
+          "foundAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "เวลาของรอบตรวจที่พบ (`run_at`)"
+          },
+          "lastSeenAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currentStatus": {
+            "type": "string",
+            "enum": [
+              "OPEN",
+              "ACKNOWLEDGED",
+              "RESOLVED"
+            ],
+            "description": "สถานะ ณ เวลาที่ออกรายงาน (รายการที่ปิดหลังสิ้นเดือนยังนับเป็นค้างของงวดนี้)"
+          },
+          "closedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "เวลาที่ปิด/ยอมรับ (หลังสิ้นเดือน) — null = ยังเปิดอยู่"
+          },
+          "sellDifferenceAmount": {
+            "type": "string",
+            "description": "ส่วนต่างยอด (ระบบบัญชี − TMS) — ยอดรับชำระ หรือยอดรวมเอกสาร (`totals.total`) · ไม่มี = ไม่ใช่ส่วนต่างยอด · `prices.sell:read`"
+          },
+          "acknowledgedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "acknowledgedBy": {
+            "type": "string",
+            "nullable": true,
+            "description": "ผู้ยอมรับ (id ผู้ใช้ / actor)"
+          },
+          "acknowledgedByName": {
+            "type": "string",
+            "nullable": true,
+            "description": "ชื่อผู้ยอมรับ"
+          },
+          "ackReason": {
+            "type": "string",
+            "nullable": true,
+            "description": "เหตุผลที่ยอมรับความต่าง"
+          }
+        },
+        "required": [
+          "id",
+          "invoiceId",
+          "localNumber",
+          "check",
+          "code",
+          "result",
+          "severity",
+          "foundAt",
+          "lastSeenAt",
+          "currentStatus",
+          "closedAt",
+          "acknowledgedAt",
+          "acknowledgedBy",
+          "acknowledgedByName",
+          "ackReason"
+        ]
+      },
+      "PeriodCloseUnsentDto": {
+        "type": "object",
+        "properties": {
+          "commandId": {
+            "type": "string",
+            "example": "obx_…",
+            "description": "คำสั่งล่าสุดของเอกสารในคิว (ดูที่ `GET /connectors/{id}/queue`)"
+          },
+          "entityType": {
+            "type": "string",
+            "enum": [
+              "invoice",
+              "settlement"
+            ]
+          },
+          "documentId": {
+            "type": "string",
+            "example": "ivc_…",
+            "description": "ใบแจ้งหนี้ (`ivc_`) / ใบสำคัญจ่าย (`stl_`)"
+          },
+          "documentNo": {
+            "type": "string",
+            "nullable": true,
+            "example": "INV-2611-0001"
+          },
+          "documentDate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-11-15",
+            "description": "วันที่เอกสาร (ออกใบ / จ่าย)"
+          },
+          "counterpartyName": {
+            "type": "string",
+            "nullable": true,
+            "description": "ลูกค้า / รถร่วม"
+          },
+          "operation": {
+            "type": "string",
+            "example": "PUSH_INVOICE"
+          },
+          "queueTab": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "failed"
+            ],
+            "description": "แท็บของคิว ST7-T19: queued = รอคิว (ระบบส่งเอง) · failed = ล้มเหลว ต้องมีคนทำ"
+          },
+          "status": {
+            "type": "string",
+            "example": "FAILED_FINAL"
+          },
+          "errorClass": {
+            "type": "string",
+            "nullable": true,
+            "example": "PERIOD_CLOSED"
+          },
+          "errorCode": {
+            "type": "string",
+            "nullable": true,
+            "example": "erp_mapping_incomplete"
+          },
+          "nextRunAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "รอคิว: เวลาที่จะลองครั้งถัดไป"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sellTotalAmount": {
+            "type": "string",
+            "description": "ยอดรวมใบแจ้งหนี้ — `prices.sell:read`"
+          },
+          "buyNetAmount": {
+            "type": "string",
+            "description": "ยอดสุทธิใบสำคัญจ่าย — `prices.buy:read`"
+          }
+        },
+        "required": [
+          "commandId",
+          "entityType",
+          "documentId",
+          "documentNo",
+          "documentDate",
+          "counterpartyName",
+          "operation",
+          "queueTab",
+          "status",
+          "errorClass",
+          "errorCode",
+          "nextRunAt",
+          "updatedAt"
+        ]
+      },
+      "PeriodCloseReportDto": {
+        "type": "object",
+        "properties": {
+          "connector": {
+            "$ref": "#/components/schemas/PeriodCloseConnectorDto"
+          },
+          "month": {
+            "type": "string",
+            "example": "2026-11"
+          },
+          "periodStart": {
+            "type": "string",
+            "example": "2026-11-01",
+            "format": "date"
+          },
+          "periodEnd": {
+            "type": "string",
+            "example": "2026-11-30",
+            "format": "date"
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time",
+            "description": "เวลาที่ใช้ตัด (สิ้นเดือนเวลาไทย หรือเวลาปัจจุบันถ้าเดือนยังไม่จบ) — ส่วน 1–2 คิด ณ เวลานี้"
+          },
+          "monthEnded": {
+            "type": "boolean",
+            "description": "เดือนจบแล้ว (เวลาปัจจุบัน ≥ สิ้นเดือน)"
+          },
+          "passed": {
+            "type": "boolean",
+            "description": "ผ่านเกณฑ์ (ก) docs/02 §7 ของงวดนี้ — เดือนจบแล้ว และ MISMATCH ค้าง ณ สิ้นเดือน = 0 (เอกสารที่ยังไม่ส่ง/INFO แสดงประกอบ ไม่ตัดสิน)"
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/PeriodCloseSummaryDto"
+          },
+          "outstanding": {
+            "description": "(1) MISMATCH ค้าง ณ สิ้นเดือน: รอบตรวจพบ (`run_at`) ก่อนสิ้นเดือน และยังไม่ปิด/ยอมรับ ณ สิ้นเดือน (ปิดหลังสิ้นเดือน = ยังนับ) · พบหลังสิ้นเดือน = ไม่นับ",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PeriodCloseMismatchDto"
+            }
+          },
+          "acknowledged": {
+            "description": "(2) รายการที่ยอมรับความต่างในเดือนนี้ พร้อมผู้ยอมรับและเหตุผล",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PeriodCloseAcknowledgedDto"
+            }
+          },
+          "notSent": {
+            "description": "(3) เอกสารที่ยังไม่ถูกส่ง — วันที่เอกสารไม่เกินสิ้นเดือน และคำสั่งล่าสุดยังอยู่แท็บรอคิว/ล้มเหลวของคิว ST7-T19 **ณ เวลาที่ออกรายงาน**",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PeriodCloseUnsentDto"
+            }
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "รายการบางส่วนถูกตัดที่เพดาน 5,000 ต่อส่วน (ตัวนับใน `summary` ครบ)"
+          }
+        },
+        "required": [
+          "connector",
+          "month",
+          "periodStart",
+          "periodEnd",
+          "asOf",
+          "monthEnded",
+          "passed",
+          "generatedAt",
+          "summary",
+          "outstanding",
+          "acknowledged",
+          "notSent",
+          "truncated"
         ]
       },
       "ReconcileConnectorDto": {
@@ -112902,7 +113448,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/reconcile-results",
+                  "instance": "/v1/reconcile-reports/period-close",
                   "requestId": "b6a1c2d3-…",
                   "module": "integrations",
                   "action": "read",

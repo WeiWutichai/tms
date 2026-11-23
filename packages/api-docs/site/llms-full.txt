@@ -1,7 +1,7 @@
 <!-- index.md -->
 # TMS API v1
 
-เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 415 endpoint
+เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 416 endpoint
 
 เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
 
@@ -51,7 +51,7 @@
 - [วางแผน (planning)](ref-planning.md) — 2 endpoint: GET /v1/planning/board, GET /v1/planning/eligibility
 - [ตารางงาน (schedule)](ref-schedule.md) — 4 endpoint: GET /v1/schedule-entries, POST /v1/schedule-entries, GET /v1/schedule-entries/{id}, POST /v1/schedule-entries/{id}/cancel
 - [ส่งออกไฟล์ (exports)](ref-exports.md) — 3 endpoint: POST /v1/exports, GET /v1/exports/{id}, GET /v1/accounting-exports/summary
-- [Connector ERP (connectors)](ref-connectors.md) — 25 endpoint: GET /v1/connectors/effective, GET /v1/connectors, GET /v1/connectors/adapters, GET /v1/connectors/{id}, GET /v1/connectors/{id}/history, GET /v1/connectors/{id}/commands, …
+- [Connector ERP (connectors)](ref-connectors.md) — 26 endpoint: GET /v1/connectors/effective, GET /v1/connectors, GET /v1/connectors/adapters, GET /v1/connectors/{id}, GET /v1/connectors/{id}/history, GET /v1/connectors/{id}/commands, …
 - [ส่งข้อความ (messaging)](ref-messaging.md) — 5 endpoint: POST /v1/messages/send-link, GET /v1/messages, GET /v1/messages/channels, GET /v1/messages/{id}, GET /v1/settings/messaging
 - [นิติบุคคล (companies)](ref-companies.md) — 2 endpoint: GET /v1/companies, GET /v1/companies/{id}
 - [สาขา (branches)](ref-branches.md) — 2 endpoint: GET /v1/branches, GET /v1/branches/{id}
@@ -18902,8 +18902,8 @@ scope: `export:run` · operationId: `Exports_create`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes`, `unbilled-delivery-orders`, `receivables-aging`, `revenue`, `accounting-sales`, `accounting-receipts`, `accounting-settlements`, `accounting-wht-summary` |   | `orders` |
-| `format` |   | `string` | ค่า: `xlsx`, `csv`, `pdf` | .xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ.csv UTF-8 + BOM · `pdf` (ตาราง A4 ≤ 2,000 แถว) เฉพาะรายงาน — resource `revenue`, `unbilled-delivery-orders`, `receivables-aging` (อื่น ๆ = 422) |   |
+| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes`, `unbilled-delivery-orders`, `receivables-aging`, `revenue`, `accounting-sales`, `accounting-receipts`, `accounting-settlements`, `accounting-wht-summary`, `reconcile-period-close` |   | `orders` |
+| `format` |   | `string` | ค่า: `xlsx`, `csv`, `pdf` | .xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ.csv UTF-8 + BOM · `pdf` (ตาราง A4 ≤ 2,000 แถว) เฉพาะรายงาน — resource `revenue`, `unbilled-delivery-orders`, `receivables-aging`, `reconcile-period-close` (อื่น ๆ = 422) |   |
 | `filter` |   | `object` |   | ตัวกรองชุดเดียวกับ query ของ `GET /v1/{resource}` (ค่าเป็น string) — ตรวจกติกาเดียวกัน (field แปลก = 422) · `limit`/`cursor`/`sort`/`fields`/`updatedAfter` ไม่มีผล (ไฟล์มีทุกแถวที่ตรงตัวกรอง) | `{"held":"true","holdReason":"RATE_MISSING"}` |
 
 **Responses**
@@ -19041,7 +19041,7 @@ const { data, error } = await tms.GET('/v1/accounting-exports/summary');
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `job_…` |
-| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes`, `unbilled-delivery-orders`, `receivables-aging`, `revenue`, `accounting-sales`, `accounting-receipts`, `accounting-settlements`, `accounting-wht-summary`, `invoice-run-summary` | `invoice-run-summary` = ไฟล์สรุปรอบวางบิล (สร้างเองเมื่อ `POST /v1/invoice-runs` จบ — `id` = jobId ของรอบ; สั่งผ่าน `POST /exports` ไม่ได้) |   |
+| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes`, `unbilled-delivery-orders`, `receivables-aging`, `revenue`, `accounting-sales`, `accounting-receipts`, `accounting-settlements`, `accounting-wht-summary`, `reconcile-period-close`, `invoice-run-summary` | `invoice-run-summary` = ไฟล์สรุปรอบวางบิล (สร้างเองเมื่อ `POST /v1/invoice-runs` จบ — `id` = jobId ของรอบ; สั่งผ่าน `POST /exports` ไม่ได้) |   |
 | `format` | ใช่ | `string` | ค่า: `xlsx`, `csv`, `pdf` |   |   |
 | `filter` | ใช่ | `object` |   |   |   |
 | `status` | ใช่ | `string` | ค่า: `pending`, `running`, `succeeded`, `failed`, `expired` | expired = ไฟล์เกิน 7 วันแล้ว (ส่งออกใหม่) |   |
@@ -19061,7 +19061,7 @@ const { data, error } = await tms.GET('/v1/accounting-exports/summary');
 <!-- ref-connectors.md -->
 # Connector ERP (connectors)
 
-25 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+26 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -19081,6 +19081,7 @@ const { data, error } = await tms.GET('/v1/accounting-exports/summary');
 | [`POST /v1/connectors/{id}/queue/{commandId}/external-id`](#post-connectors-id-queue-commandId-external-id) | `settings:write` / `integrations:retry` |
 | [`GET /v1/connectors/{id}/master-codes`](#get-connectors-id-master-codes) | `settings:read` |
 | [`GET /v1/connectors/{id}/mappings`](#get-connectors-id-mappings) | `settings:read` |
+| [`GET /v1/reconcile-reports/period-close`](#get-reconcile-reports-period-close) | `integrations:read` |
 | [`GET /v1/reconcile-results`](#get-reconcile-results) | `integrations:read` |
 | [`GET /v1/reconcile-results/{id}`](#get-reconcile-results-id) | `integrations:read` |
 | [`POST /v1/reconcile-results/{id}/acknowledge`](#post-reconcile-results-id-acknowledge) | `integrations:retry` |
@@ -19742,6 +19743,43 @@ const { data, error } = await tms.GET('/v1/connectors/{id}/mappings', {
 });
 ```
 
+## รายงานปิดงวดต่อ connector ต่อเดือน {#get-reconcile-reports-period-close}
+
+`GET /v1/reconcile-reports/period-close`
+
+scope: `integrations:read` · operationId: `Reconcile_periodCloseReport`
+
+หลักฐานของเกณฑ์ผ่าน (ก) "ปิดงวดผ่าน reconcile — MISMATCH ค้าง = 0" · 3 ส่วน: (1) `outstanding` MISMATCH ค้าง ณ สิ้นเดือน (เวลาไทย) = รายการ `result` MISMATCH/REMOTE_MISSING severity MONEY/FIELD ที่รอบตรวจพบ (`run_at`) ก่อนสิ้นเดือน และ ณ สิ้นเดือนยังไม่ถูกปิดและยังไม่มีคนยอมรับ — ปิดหลังสิ้นเดือนยังนับเป็นค้างของงวด · พบหลังสิ้นเดือนไม่นับ · INFO (อ่าน/เทียบไม่ได้) นับแยกใน `summary.unverified` (2) `acknowledged` รายการที่ยอมรับความต่างในเดือน + ผู้ยอมรับ + เหตุผล (3) `notSent` เอกสารที่วันที่ไม่เกินสิ้นเดือนและคำสั่งส่งล่าสุดยังอยู่แท็บรอคิว/ล้มเหลวของคิว (`GET /connectors/{id}/queue`) **ณ เวลาที่ออกรายงาน** · `passed` = เดือนจบแล้ว และ `summary.outstanding` = 0 · เดือนที่ยังไม่จบตัด ณ เวลาปัจจุบัน · connector ไม่พบ/ของ tenant อื่น → 404 · ยอดเงิน `sell*` ต้องมี `prices.sell:read` · `buy*` ต้องมี `prices.buy:read` · ส่งออก: `POST /v1/exports` resource `reconcile-period-close` (xlsx / csv / pdf) ตัวกรอง `connectorId`, `month`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `connectorId` | query | ใช่ | `string` | connector ที่ปิดงวด |
+| `month` | query | ใช่ | `string` | งวด (YYYY-MM) — สิ้นเดือน = 00:00 น. วันที่ 1 ของเดือนถัดไป เวลาไทย |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `PeriodCloseReportDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`integrations:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/reconcile-reports/period-close" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/reconcile-reports/period-close');
+```
+
 ## GET /v1/reconcile-results {#get-reconcile-results}
 
 `GET /v1/reconcile-results`
@@ -20357,6 +20395,26 @@ const { data, error } = await tms.POST('/v1/reconcile-runs', {
 | `data` | ใช่ | `array<ErpSyncLogDto>` |   |   |   |
 | `nextCursor` | ใช่ | `string` | null ได้ | ส่งเป็น `cursor` เพื่อดูหน้าถัดไป |   |
 | `hasMore` | ใช่ | `boolean` |   |   |   |
+
+### PeriodCloseReportDto {#schema-PeriodCloseReportDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `connector` | ใช่ | `PeriodCloseConnectorDto` |   |   |   |
+| `month` | ใช่ | `string` |   |   | `2026-11` |
+| `periodStart` | ใช่ | `string (date)` |   |   | `2026-11-01` |
+| `periodEnd` | ใช่ | `string (date)` |   |   | `2026-11-30` |
+| `asOf` | ใช่ | `string (date-time)` |   | เวลาที่ใช้ตัด (สิ้นเดือนเวลาไทย หรือเวลาปัจจุบันถ้าเดือนยังไม่จบ) — ส่วน 1–2 คิด ณ เวลานี้ |   |
+| `monthEnded` | ใช่ | `boolean` |   | เดือนจบแล้ว (เวลาปัจจุบัน ≥ สิ้นเดือน) |   |
+| `passed` | ใช่ | `boolean` |   | ผ่านเกณฑ์ (ก) ของงวดนี้ — เดือนจบแล้ว และ MISMATCH ค้าง ณ สิ้นเดือน = 0 (เอกสารที่ยังไม่ส่ง/INFO แสดงประกอบ ไม่ตัดสิน) |   |
+| `generatedAt` | ใช่ | `string (date-time)` |   |   |   |
+| `summary` | ใช่ | `PeriodCloseSummaryDto` |   |   |   |
+| `outstanding` | ใช่ | `array<PeriodCloseMismatchDto>` |   | (1) MISMATCH ค้าง ณ สิ้นเดือน: รอบตรวจพบ (`run_at`) ก่อนสิ้นเดือน และยังไม่ปิด/ยอมรับ ณ สิ้นเดือน (ปิดหลังสิ้นเดือน = ยังนับ) · พบหลังสิ้นเดือน = ไม่นับ |   |
+| `acknowledged` | ใช่ | `array<PeriodCloseAcknowledgedDto>` |   | (2) รายการที่ยอมรับความต่างในเดือนนี้ พร้อมผู้ยอมรับและเหตุผล |   |
+| `notSent` | ใช่ | `array<PeriodCloseUnsentDto>` |   | (3) เอกสารที่ยังไม่ถูกส่ง — วันที่เอกสารไม่เกินสิ้นเดือน และคำสั่งล่าสุดยังอยู่แท็บรอคิว/ล้มเหลวของคิว **ณ เวลาที่ออกรายงาน** |   |
+| `truncated` | ใช่ | `boolean` |   | รายการบางส่วนถูกตัดที่เพดาน 5,000 ต่อส่วน (ตัวนับใน `summary` ครบ) |   |
 
 ### QueueRetryAllResultDto {#schema-QueueRetryAllResultDto}
 
@@ -25441,7 +25499,7 @@ HTTP `401` · กรอกรหัสยืนยันตัวตน 2 ชั
 
 HTTP `401` · ต้องเข้าสู่ระบบ
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 397 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 398 endpoint
 
 ## bank_change_requires_user {#bank_change_requires_user}
 
@@ -25501,7 +25559,7 @@ HTTP `403` · ส่วนต่างเกินวงเงินที่ต
 
 HTTP `403` · ไม่มีสิทธิ์ทำรายการนี้
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 397 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 398 endpoint
 
 ## sandbox_only {#sandbox_only}
 
@@ -26119,7 +26177,7 @@ HTTP `422` · ลำดับจุดไม่ถูกต้อง — จุ�
 
 HTTP `422` · ข้อมูลไม่ถูกต้อง
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId) และอีก 286 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId) และอีก 287 endpoint
 
 ## webhook_event_expired {#webhook_event_expired}
 
