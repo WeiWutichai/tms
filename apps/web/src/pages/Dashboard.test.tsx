@@ -44,6 +44,8 @@ const SUMMARY: Record<string, unknown> = {
     sellIssuedOutstanding: '15221.07',
     sellPartiallyPaidOutstanding: '3765.44',
     sellOverdueOutstanding: '12500.00',
+    due: 3,
+    sellDueOutstanding: '12821.07',
     issuedThisMonth: { month: '2026-11', count: 6, sellTotal: '1234567.89' },
     issuedLastMonth: { month: '2026-10', count: 2, sellTotal: '4400.00' },
   },
@@ -318,17 +320,19 @@ describe('Dashboard บิล (ST9-T02)', () => {
     expect([
       v('bill-draft-v'),
       v('bill-issued-v'),
-      v('bill-overdue-v'),
+      v('bill-due-v'),
       v('bill-partial-v'),
-    ]).toEqual(['3,500.50', '15,221.07', '12,500.00', '3,765.44']);
+    ]).toEqual(['3,500.50', '15,221.07', '12,821.07', '3,765.44']);
     expect([
       v('bill-draft-n'),
       v('bill-ready-n'),
       v('bill-issued-n'),
-      v('bill-overdue-n'),
+      v('bill-due-n'),
       v('bill-partial-n'),
-    ]).toEqual(['2 ใบ', '2 ใบส่งของ', '3 ใบ', '2 ใบ', '1 ใบ']);
+    ]).toEqual(['2 ใบ', '2 ใบส่งของ', '3 ใบ', '3 ใบ', '1 ใบ']);
     expect(screen.getByTestId('bill-ready')).toHaveTextContent('ค้างวางบิล (ก่อน VAT)');
+    // D-81 · D68-94 ช่อง "ครบกำหนด" (docs/04 H) = ถึงวันครบแล้วรวมเกินกำหนด (`due` — ไม่ใช่ `overdue`)
+    expect(screen.getByTestId('bill-due')).toHaveTextContent('ครบกำหนด · 3 ใบ');
     // ตารางจริง: หัวคอลัมน์ + หัวแถว (review L3)
     const tbl = screen.getByTestId('dash-month');
     expect(tbl.tagName).toBe('TABLE');
@@ -359,7 +363,7 @@ describe('Dashboard บิล (ST9-T02)', () => {
       ['bill-draft', '/bill?tab=DRAFT'],
       ['bill-ready', '/bill'],
       ['bill-issued', '/bill?tab=ISSUED'],
-      ['bill-overdue', '/pay?tab=over'],
+      ['bill-due', '/pay?tab=due'],
       ['bill-partial', '/pay?tab=part'],
       ['ar-open', '/pay?tab=open'],
     ];
