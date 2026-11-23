@@ -450,16 +450,6 @@ export class VehiclesService {
     return (await this.entitlements.resolve(tenantId)).veh?.limit ?? null;
   }
 
-  /** รถที่นับโควตาเกิน limit แล้วหรือยัง (soft limit — เพิ่มได้ แต่ส่งสัญญาณให้ผู้เรียก) */
-  async quotaExceeded(): Promise<boolean> {
-    const limit = await this.quotaLimit();
-    if (limit === null) return false;
-    const used = await this.db.tx.vehicle.count({
-      where: { deletedAt: null, status: { not: 'RETIRED' } },
-    });
-    return used > limit;
-  }
-
   async get(id: string): Promise<VehicleFull> {
     const v = await this.db.tx.vehicle.findFirst({
       where: { id, deletedAt: null },

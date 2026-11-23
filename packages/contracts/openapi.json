@@ -43033,13 +43033,14 @@
             "name": "receivable",
             "required": false,
             "in": "query",
-            "description": "หน้า \"รับชำระ\" (ST5-T13): `all` = ใบที่ออกแล้ว (ไม่รวมร่าง/ยกเลิก) · `open` = ค้างรับ (ISSUED + PARTIALLY_PAID) · `overdue` = ใบที่มีธงเกินกำหนด (`overdue: true` — ST5-T18) — ใช้ร่วมกับ `status` ได้",
+            "description": "หน้า \"รับชำระ\" (ST5-T13): `all` = ใบที่ออกแล้ว (ไม่รวมร่าง/ยกเลิก) · `open` = ค้างรับ (ISSUED + PARTIALLY_PAID) · `overdue` = ใบที่มีธงเกินกำหนด (`overdue: true` — ST5-T18) · `due` = ครบกำหนดแล้ว (D-81 · D68-94 — docs/04 H \"ครบกำหนด\"): ค้างรับที่ยังมียอดค้างและ `dueDate` ≤ วันนี้ (เวลาไทย) **รวมใบเกินกำหนด** (การ์ด \"ครบกำหนด\" ของ Dashboard บิล) — ใช้ร่วมกับ `status` ได้",
             "schema": {
               "type": "string",
               "enum": [
                 "all",
                 "open",
-                "overdue"
+                "overdue",
+                "due"
               ]
             }
           },
@@ -63757,7 +63758,7 @@
         },
         "responses": {
           "201": {
-            "description": "สร้างแล้ว — เกินโควตารถ: `quotaExceeded: true` + header `Warning: 299` (ยังสร้างได้)",
+            "description": "สร้างแล้ว — โควตารถเป็น soft limit ที่นับรถ active ในเดือน (D68-14) — การสร้างไม่ถูกจำกัดและยังไม่ส่งสัญญาณเกินโควตา",
             "content": {
               "application/json": {
                 "schema": {
@@ -69951,7 +69952,8 @@
           },
           "code": {
             "type": "string",
-            "example": "required"
+            "example": "required",
+            "description": "รหัสปัญหาของแถว · `severity: warning` = ไม่ขวางการนำเข้า เช่น `quota_exceeded` (D-81 · D68-21: แถวรถใหม่ส่วนที่เกินโควตา — ยังนำเข้าได้ ไม่ปฏิเสธทั้งไฟล์), `leading_zero_restored`"
           },
           "message": {
             "type": "string"
@@ -70102,7 +70104,7 @@
               "file_rejected",
               "quota_exceeded"
             ],
-            "description": "code ของ fileError (เช่น quota_exceeded = เกินโควตา — spec/02 MD-289)"
+            "description": "code ของ fileError · `quota_exceeded` ไม่ออกแล้ว (D-81 · D68-21: เกินโควตารถ = คำเตือนรายแถว `quota_exceeded` ไม่ปฏิเสธทั้งไฟล์ — spec/02 MD-289)"
           },
           "jobId": {
             "type": "string",
@@ -91345,6 +91347,15 @@
             "example": "12500.00",
             "description": "ST9-T02 Σ ยอดค้างของใบเกินกำหนด (ชุดเดียวกับ `overdue` และ `GET /payments/summary` `sellOverdueOutstanding`) — `prices.sell:read`"
           },
+          "due": {
+            "type": "number",
+            "description": "D-81 · D68-94 ครบกำหนด (docs/04 H) — ใบค้างรับที่ยังมียอดค้างและ `dueDate` ≤ วันนี้ (เวลาไทย) **รวมใบเกินกำหนด** (= `overdue` + ใบที่ครบกำหนดวันนี้) · ชุดเดียวกับ `GET /invoices?receivable=due` · ซ้อนกับ `issued`/`partiallyPaid` เฉพาะใบที่ครบวันนี้ (ไม่นับใน `total` ซ้ำ)"
+          },
+          "sellDueOutstanding": {
+            "type": "string",
+            "example": "12821.07",
+            "description": "D-81 · D68-94 Σ ยอดค้างของใบครบกำหนด (ชุดเดียวกับ `due`) — `prices.sell:read`"
+          },
           "issuedThisMonth": {
             "description": "ST9-T02 ใบที่ออกเลขเดือนนี้ (วันที่ 1 ถึงวันนี้ ตาม `issueDate` เวลาไทย) ไม่รวมร่าง/ยกเลิก",
             "allOf": [
@@ -91371,6 +91382,7 @@
           "overdue",
           "cancelled",
           "today",
+          "due",
           "issuedThisMonth",
           "issuedLastMonth"
         ]
@@ -100173,7 +100185,7 @@
           },
           "quotaExceeded": {
             "type": "boolean",
-            "description": "มีเฉพาะในผลการสร้าง: true = รถที่นับโควตา (ยังไม่ปลดระวาง) เกินโควตาของ tenant แล้ว — soft limit ยังสร้างได้ (header `Warning: 299` ด้วย)"
+            "description": "มีเฉพาะในผลการสร้าง — D-81 · D68-14: โควตารถนับ**รถ active** (มีเที่ยวในเดือน — docs/02 §2/§6) ไม่ใช่จำนวนในทะเบียน · ตอนนี้ `false` เสมอจนกว่าจะมีการนับรถ active (metering) — soft limit ไม่จำกัดการสร้าง"
           },
           "docAlert": {
             "description": "มีเฉพาะในรายการ (GET /vehicles): เอกสารใกล้หมด 30 วัน/หมดแล้วของคันนี้ (รถปลดระวาง = 0) — ST2-T07 · คำนวณจากเอกสารและวันนี้ทุกครั้ง **ไม่ทำให้ `updatedAt` ของรถเปลี่ยน** — ผู้ที่ sync แบบ `updatedAfter` ให้ดึงเอกสารจาก `GET /vehicle-documents` แทน",
@@ -100253,7 +100265,7 @@
           },
           "used": {
             "type": "number",
-            "description": "รถที่นับ = ในทะเบียนที่ยังไม่ปลดระวาง (บริษัท + รถร่วม)"
+            "description": "รถในทะเบียนที่ยังไม่ปลดระวาง (บริษัท + รถร่วม) — **ไม่ใช่ฐานโควตา** (D68-14: โควตานับรถ active ในเดือน) ใช้แสดง \"รถในทะเบียน N / โควตา M\""
           }
         },
         "required": [

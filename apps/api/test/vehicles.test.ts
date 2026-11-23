@@ -746,7 +746,7 @@ describe('รถ (vehicles)', () => {
     await api(app, admin).post(`/v1/vehicles/${v.id}/odometer`).send({ readingKm: 10 }).expect(409);
   });
 
-  it('review: สร้างรถเกินโควตา → quotaExceeded + Warning header (ยังสร้างได้)', async () => {
+  it('D-81 · D68-14: โควตานับรถ active ไม่ใช่ทะเบียน — รถในทะเบียนเกินโควตายังสร้างได้ ไม่มีสัญญาณเกินโควตา · summary = รถในทะเบียน / โควตา', async () => {
     const t3 = (await createTenant(db)).id;
     const tok = await tokenFor(t3);
     const vt = (
@@ -766,8 +766,10 @@ describe('รถ (vehicles)', () => {
     expect(a.body.quotaExceeded).toBe(false);
     expect(a.headers.warning).toBeUndefined();
     const b = await api(app, tok).post('/v1/vehicles').send(body('70-0002')).expect(201);
-    expect(b.body.quotaExceeded).toBe(true);
-    expect(b.headers.warning).toContain('quota');
+    expect(b.body.quotaExceeded).toBe(false);
+    expect(b.headers.warning).toBeUndefined();
+    const s = (await api(app, tok).get('/v1/vehicles/summary').expect(200)).body;
+    expect(s.quota).toEqual({ limit: 1, used: 2 });
   });
 
   it('Defect ST2-T08 review: แก้เฉพาะวันที่ซื้อ (purchasedOn) ต้องบันทึก — ไม่ใช่ no-op', async () => {

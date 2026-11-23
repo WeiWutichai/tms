@@ -379,6 +379,24 @@ describe('Dashboard บิล (ST9-T02)', { timeout: 300_000 }, () => {
     // ตรงกับหน้า "รับชำระ" (สรุปค้างรับ/เกินกำหนด) — RPT-032 Σ การ์ด = ลูกหนี้คงค้าง
     expect(s.sellOverdueOutstanding).toBe(p.sellOverdueOutstanding);
     expect(s.overdue).toBe(p.overdue);
+    // D-81 · D68-94 การ์ด "ครบกำหนด" (docs/04 H) = ถึงวันครบแล้ว (dueDate ≤ วันนี้) รวมเกินกำหนด = รายการที่คลิกลงไป
+    const due = await all('/v1/invoices?receivable=due');
+    expect(s.due).toBe(due.length);
+    expect(s.due).toBe(3); // เกินกำหนด 2 + ครบวันนี้ 1 (321.07)
+    expect(s.sellDueOutstanding).toBe(sum(due.map((x) => x.sellOutstanding)));
+    expect(s.sellDueOutstanding).toBe('12321.07');
+    // ครบกำหนด = เกินกำหนด ∪ ใบค้างที่ครบวันนี้ (อยู่ในแท็บ "ออกแล้ว"/"ชำระบางส่วน" — การ์ดเหล่านี้คงนิยามเดิม)
+    const dueToday = [...issued, ...partial].filter((x) => x.dueDate === today);
+    expect(dueToday.map((x) => x.sellTotal)).toEqual(['321.07']);
+    expect(new Set(due.map((x) => x.id))).toEqual(new Set([...over, ...dueToday].map((x) => x.id)));
+    expect(sum([s.sellOverdueOutstanding, ...dueToday.map((x) => x.sellOutstanding)])).toBe(
+      s.sellDueOutstanding,
+    );
+    // ไม่นับใบที่ยังไม่ครบ / ชำระครบ / ร่าง / ยกเลิก — ทุกใบในรายการค้างและครบแล้ว
+    for (const x of due) {
+      expect(['ISSUED', 'PARTIALLY_PAID']).toContain(x.status);
+      expect(x.dueDate <= today).toBe(true);
+    }
     expect(
       sum([s.sellIssuedOutstanding, s.sellPartiallyPaidOutstanding, s.sellOverdueOutstanding]),
     ).toBe(p.sellOutstanding);
@@ -476,6 +494,7 @@ describe('Dashboard บิล (ST9-T02)', { timeout: 300_000 }, () => {
       'sellIssuedOutstanding',
       'sellPartiallyPaidOutstanding',
       'sellOverdueOutstanding',
+      'sellDueOutstanding',
     ])
       expect(s).not.toHaveProperty(k);
     expect(s.issuedThisMonth).not.toHaveProperty('sellTotal');
@@ -493,7 +512,7 @@ describe('Dashboard บิล (ST9-T02)', { timeout: 300_000 }, () => {
 
   it('แยก tenant: บริษัทอื่นเห็นเฉพาะเอกสารของตัวเอง', async () => {
     const s = (await api(app, other).get('/v1/invoices/summary').expect(200)).body;
-    expect([s.draft, s.issued, s.overdue, s.partiallyPaid]).toEqual([0, 1, 0, 0]);
+    expect([s.draft, s.issued, s.overdue, s.partiallyPaid, s.due]).toEqual([0, 1, 0, 0, 0]);
     expect(s.sellIssuedOutstanding).toBe('666.00');
     expect(s.sellDraftTotal).toBe('0.00');
     const q = (await api(app, other).get('/v1/invoices/queue?limit=1').expect(200)).body;

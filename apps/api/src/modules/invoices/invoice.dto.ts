@@ -56,7 +56,7 @@ const IdList = (max: number, example: string, description: string) => (t: object
 };
 
 export type InvoiceStatusDto = (typeof INVOICE_STATUSES)[number];
-export const INVOICE_RECEIVABLE = ['all', 'open', 'overdue'] as const;
+export const INVOICE_RECEIVABLE = ['all', 'open', 'overdue', 'due'] as const;
 
 // ---------- คำขอ ----------
 
@@ -302,7 +302,9 @@ export class InvoiceListQuery extends ListQuery {
     enum: INVOICE_RECEIVABLE,
     description:
       'หน้า "รับชำระ" (ST5-T13): `all` = ใบที่ออกแล้ว (ไม่รวมร่าง/ยกเลิก) · `open` = ค้างรับ (ISSUED + PARTIALLY_PAID) · ' +
-      '`overdue` = ใบที่มีธงเกินกำหนด (`overdue: true` — ST5-T18) — ใช้ร่วมกับ `status` ได้',
+      '`overdue` = ใบที่มีธงเกินกำหนด (`overdue: true` — ST5-T18) · ' +
+      '`due` = ครบกำหนดแล้ว (D-81 · D68-94 — docs/04 H "ครบกำหนด"): ค้างรับที่ยังมียอดค้างและ `dueDate` ≤ วันนี้ (เวลาไทย) **รวมใบเกินกำหนด** ' +
+      '(การ์ด "ครบกำหนด" ของ Dashboard บิล) — ใช้ร่วมกับ `status` ได้',
   })
   @IsOptional()
   @IsIn(INVOICE_RECEIVABLE)
@@ -689,6 +691,18 @@ export class InvoiceSummaryCountsDto {
   })
   @PriceField('sell')
   sellOverdueOutstanding?: string;
+  @ApiProperty({
+    description:
+      'D-81 · D68-94 ครบกำหนด (docs/04 H) — ใบค้างรับที่ยังมียอดค้างและ `dueDate` ≤ วันนี้ (เวลาไทย) **รวมใบเกินกำหนด** ' +
+      '(= `overdue` + ใบที่ครบกำหนดวันนี้) · ชุดเดียวกับ `GET /invoices?receivable=due` · ซ้อนกับ `issued`/`partiallyPaid` เฉพาะใบที่ครบวันนี้ (ไม่นับใน `total` ซ้ำ)',
+  })
+  due!: number;
+  @ApiPropertyOptional({
+    example: '12821.07',
+    description: 'D-81 · D68-94 Σ ยอดค้างของใบครบกำหนด (ชุดเดียวกับ `due`) — `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellDueOutstanding?: string;
   @ApiProperty({
     type: InvoiceMonthTotalDto,
     description:
