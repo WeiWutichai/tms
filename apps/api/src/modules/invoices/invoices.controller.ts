@@ -93,6 +93,7 @@ import {
 } from './document-email.dto';
 import { DocumentEmailService } from './document-email.service';
 import { documentSyncDto } from '../erp/document-sync.dto';
+import { ErpDocumentWarningsService } from '../erp/erp-document-warnings';
 import { ExternalMappingService } from '../erp/external-mapping.service';
 
 const NF = { ...T404, description: 'ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น)' };
@@ -188,6 +189,7 @@ export class InvoicesController {
     private readonly status: InvoiceStatusService,
     private readonly mail: DocumentEmailService,
     private readonly mappings: ExternalMappingService,
+    private readonly erpWarnings: ErpDocumentWarningsService,
   ) {}
 
   // ประกาศ `queue` ก่อน `:id` เสมอ (ไม่งั้น /invoices/queue ถูกจับเป็น id) — test/invoices-draft.test.ts ตรวจลำดับ route
@@ -379,6 +381,8 @@ export class InvoicesController {
     const out = await this.svc.get(uuid);
     // ST7-T15 เลขเอกสารสองฝั่ง (docs/04 G3) — ผลการส่งเข้าระบบบัญชี แยกจากสถานะเอกสาร
     out.sync = documentSyncDto(await this.mappings.documentSync('INVOICE', uuid));
+    // D-64 (ST8-T08) คำเตือนก่อนส่งเข้าระบบบัญชี (ตั้งแต่ร่าง — ไม่บล็อกการออกเอกสาร)
+    out.erpWarnings = await this.erpWarnings.invoiceWarnings(uuid);
     setEtag(res, out.version);
     return out;
   }

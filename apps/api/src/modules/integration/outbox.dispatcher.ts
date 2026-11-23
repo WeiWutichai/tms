@@ -150,6 +150,13 @@ export class OutboxDispatcher {
       )
       UPDATE integration_outbox u
          SET status = 'IN_FLIGHT', attempt = u.attempt + 1, lease_id = gen_random_uuid(),
+             -- ST8-T08 (review M2) ยึดคืนคำสั่งที่ worker ตายระหว่างส่ง → ผลของรอบก่อน (เช่น knownOutcome) ใช้ไม่ได้อีก
+             -- (รอบที่ตายอาจส่งถึงปลายทางแล้ว) — sink เห็น code lease_expired = ต้องค้นก่อนส่งซ้ำ
+             last_error = CASE WHEN u.status = 'IN_FLIGHT'
+                               THEN jsonb_build_object('code', 'lease_expired',
+                                                       'message', 'worker lease expired — command reclaimed',
+                                                       'attempt', u.attempt, 'at', now())
+                               ELSE u.last_error END,
              lease_until = now() + (${leaseMs}::int * interval '1 millisecond'),
              claimed_at = clock_timestamp(), updated_at = now()
         FROM pick
@@ -257,6 +264,7 @@ export class OutboxDispatcher {
         event,
         signal: abort.signal,
         withTx: (fn) => this.db.withTenant(c.tenantId, fn),
+        leaseId: c.leaseId,
       });
       delivered = true;
       clearInterval(heartbeat);

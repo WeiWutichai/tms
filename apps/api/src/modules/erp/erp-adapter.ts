@@ -83,6 +83,11 @@ export interface ErpContext {
    * ไม่มี = ไม่บันทึก (เช่น contract test / healthCheck) · ห้าม throw
    */
   onHttpCall?: (call: ErpHttpCall) => void;
+  /**
+   * ST8-T08 (review H1) เอกสารฝั่ง ERP ที่สร้างไปแล้วจากการส่งเอกสารนี้ครั้งก่อนที่ไม่ครบ (`PushResult.documents` ของผลล้ม) —
+   * adapter ที่แยกใบ **ต้องไม่สร้างซ้ำ** ใบที่ `ref` อยู่ในนี้ · ไม่มี = ยังไม่เคยสร้าง
+   */
+  priorDocuments?: readonly ExternalDocumentPart[];
 }
 
 /** ST7-T16 การเรียก HTTP 1 ครั้งของ adapter (ส่งให้ `ErpContext.onHttpCall`) — ไม่มี header */
@@ -241,9 +246,46 @@ export type PushResult =
        * ไม่ระบุ = ถือว่า false (ไม่ยืนยันว่าเนื้อหาตรง)
        */
       applied?: boolean;
+      /**
+       * ST8-T08 ERP เก็บเอกสาร TMS ใบนี้เป็น**หลายเอกสาร** (เช่น KRS แยกใบตาม `vat_type` / แบ่งใบเมื่อเกินเพดานขนาด — docs/01 A.6)
+       * ทุกเอกสารตามลำดับ · ตัวแรก = `externalId` / `externalDocNo` ของผลนี้ (key หลักของ external_mapping) ·
+       * core เก็บทั้งรายการใน `external_mapping.detail.documents` · ไม่มี/1 รายการ = เอกสารเดียว (แบบเดิม)
+       */
+      documents?: readonly ExternalDocumentPart[];
       raw?: unknown;
     }
-  | { ok: false; errorClass: ErrorClass; retryable: boolean; problem: Problem; raw?: unknown };
+  | {
+      ok: false;
+      errorClass: ErrorClass;
+      retryable: boolean;
+      problem: Problem;
+      /**
+       * ST8-T08 (review H1/M2) เอกสารฝั่ง ERP ที่ถูกสร้างแล้วจากการส่งเอกสาร TMS ใบนี้ (รวมที่ได้จาก `ctx.priorDocuments`) — ไม่ระบุ = adapter ไม่รายงาน
+       * มีรายการ = core เก็บใน external_mapping (ยังไม่ SYNCED) แล้วส่งกลับมาใน `ctx.priorDocuments` รอบถัดไป · `[]` = ไม่มีเอกสารใดถูกสร้าง
+       */
+      documents?: readonly ExternalDocumentPart[];
+      /**
+       * true = adapter **รู้แน่** ว่าฝั่ง ERP มีเฉพาะ `documents` (ใบที่ล้มได้คำตอบชัด/ไม่ได้ส่งออกไป) → core ส่งซ้ำได้โดยไม่ต้องค้นก่อน ·
+       * false/ไม่ระบุ = อาจมีเอกสารเพิ่ม (timeout / สายหลุด) → core ค้นก่อนส่งซ้ำตามกติกา ST7-T16
+       */
+      documentsComplete?: boolean;
+      raw?: unknown;
+    };
+
+/** ST8-T08 จำนวนเอกสารฝั่ง ERP สูงสุดต่อเอกสาร TMS — adapter ที่แยกใบต้องไม่สร้างเกินนี้ (เกิน = VALIDATION ก่อนส่ง) */
+export const MAX_EXTERNAL_DOCUMENTS = 200;
+
+/** ST8-T08 เอกสาร 1 ใบฝั่ง ERP ของเอกสาร TMS ที่ถูกแยกเป็นหลายใบ (`PushResult.documents`) */
+export interface ExternalDocumentPart {
+  /** เลขอ้างอิงที่เราส่ง (เช่น `tmsVoucherNo` ของ KRS) */
+  ref: string;
+  externalId: string;
+  externalDocNo: string | null;
+  /** กลุ่มที่แยก (เช่น `vat_type` ของรายการในใบนี้) — ไม่แยกตามกลุ่ม = null */
+  group: string | null;
+  /** `lineNo` ของ canonical ที่อยู่ในเอกสารนี้ */
+  lineNos: readonly number[];
+}
 
 export type HealthResult =
   | { ok: true; detail?: Record<string, unknown> }
@@ -486,7 +528,16 @@ export interface ErpAdapter {
    * (ประกาศเท่าที่สัญญาของปลายทางบังคับเท่านั้น)
    */
   readonly personalDataNeeds?: readonly CanonicalPersonalField[];
+  /**
+   * D-64 (ST8-T08) ค่าแทนที่ adapter ใช้เมื่อเอกสารไม่มีค่าที่ปลายทางบังคับ — core เตือนผู้ใช้ตั้งแต่ร่าง/ก่อนออกเอกสาร (ไม่บล็อก)
+   * ผ่าน `erpWarnings` ของ `GET /invoices/{id}` · `trip.driverName→trip.carrierName` = เที่ยวที่ไม่มีชื่อคนขับ (เช่น รถร่วม)
+   * ส่งชื่อบริษัทรถร่วมแทนชื่อคนขับ
+   */
+  readonly fieldSubstitutions?: readonly ErpFieldSubstitution[];
 }
+
+/** D-64 ค่าแทนที่ที่ adapter ประกาศได้ (`ErpAdapter.fieldSubstitutions`) */
+export type ErpFieldSubstitution = 'trip.driverName→trip.carrierName';
 
 /** capability → ชื่อ method (ธงไม่มี method) */
 export const CAPABILITY_METHOD = {
