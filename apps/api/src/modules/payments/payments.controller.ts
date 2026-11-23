@@ -238,11 +238,7 @@ export class PaymentsController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<PaymentDto> {
-    const out = await this.svc.reverse(
-      await this.svc.idOf(id),
-      expectedVersion(req),
-      body.reason,
-    );
+    const out = await this.svc.reverse(await this.svc.idOf(id), expectedVersion(req), body.reason);
     setEtag(res, out.version);
     return out;
   }

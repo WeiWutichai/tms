@@ -72,20 +72,18 @@ describe('external id ของเอกสาร (D68-45)', { timeout: 600_000 
 
   // ---------- fixture: DO ส่งสำเร็จ + ส่งบัญชีแล้ว (แบบ invoices-draft.test.ts) ----------
   const run = <T>(i: number, fn: (tx: Tx) => Promise<T>) =>
-    app
-      .get(DbService)
-      .withTenant(tenants[i]!, (tx) =>
-        requestContext.run(
-          {
-            requestId: randomUUID(),
-            tenantId: tenants[i]!,
-            actorId: 'user-test',
-            locale: 'th',
-            tx,
-          },
-          () => fn(tx),
-        ),
-      );
+    app.get(DbService).withTenant(tenants[i]!, (tx) =>
+      requestContext.run(
+        {
+          requestId: randomUUID(),
+          tenantId: tenants[i]!,
+          actorId: 'user-test',
+          locale: 'th',
+          tx,
+        },
+        () => fn(tx),
+      ),
+    );
   const lookup = async (i: number, path: string, code: string) =>
     (
       (await http(i).get(path).query({ limit: 50 }).expect(200)).body.data as {
@@ -147,9 +145,7 @@ describe('external id ของเอกสาร (D68-45)', { timeout: 600_000 
       ],
       lines: [{ description: 'ปูนซีเมนต์', qty: '5', unitId: unitTon, weightKg: '5000' }],
     };
-    const { order: so } = await run(i, (tx) =>
-      app.get(OrderIntakeService).upsertOrder(input, tx),
-    );
+    const { order: so } = await run(i, (tx) => app.get(OrderIntakeService).upsertOrder(input, tx));
     const [d] = await run(i, (tx) => app.get(DeliveryOrderService).listForOrder(so.id, {}, tx));
     const doId = encodeId('deliveryOrder', d!.id);
     const v = (
@@ -304,10 +300,13 @@ describe('external id ของเอกสาร (D68-45)', { timeout: 600_000 
       .put(`/v1/invoices/external/${ext}`)
       .send({ ...body, customerPoNo: 'PO-3' });
     expect(locked.status).toBe(409);
-    expect(locked.body).toMatchObject({ code: 'invalid_state_transition', currentStatus: 'ISSUED' });
-    expect(
-      (await http(0).patch(`/v1/invoices/external/${ext}`).send({ note: 'x' })).status,
-    ).toBe(409);
+    expect(locked.body).toMatchObject({
+      code: 'invalid_state_transition',
+      currentStatus: 'ISSUED',
+    });
+    expect((await http(0).patch(`/v1/invoices/external/${ext}`).send({ note: 'x' })).status).toBe(
+      409,
+    );
 
     // แยก tenant: B มองไม่เห็น · externalId เดียวกันสร้างของตัวเองได้
     expect((await http(1).get(`/v1/invoices/ext:${ext}`)).status).toBe(404);
@@ -384,7 +383,9 @@ describe('external id ของเอกสาร (D68-45)', { timeout: 600_000 
     expect(await db.payment.count({ where: { externalId: ext } })).toBe(1);
 
     // externalId ผิดรูปแบบ 422
-    const bad = await http(0).put(`/v1/payments/external/${'x'.repeat(101)}`).send(body);
+    const bad = await http(0)
+      .put(`/v1/payments/external/${'x'.repeat(101)}`)
+      .send(body);
     expect(bad.status).toBe(422);
     expect(bad.body.errors[0]).toMatchObject({ field: 'externalId' });
 
@@ -394,13 +395,23 @@ describe('external id ของเอกสาร (D68-45)', { timeout: 600_000 
     const invB = await issued(1, custB, '500.00');
     const b1 = await http(1)
       .put(`/v1/payments/external/${ext}`)
-      .send({ ...body, amountReceived: '500.00', whtAmount: '0', allocations: [{ invoiceId: invB, amount: '500.00' }] });
+      .send({
+        ...body,
+        amountReceived: '500.00',
+        whtAmount: '0',
+        allocations: [{ invoiceId: invB, amount: '500.00' }],
+      });
     expect(b1.status, JSON.stringify(b1.body)).toBe(201);
     expect(b1.body.id).not.toBe(c1.body.id);
     // A อ้างใบของ B ไม่ได้
     const cross = await http(0)
       .put(`/v1/payments/external/X-${ext}`)
-      .send({ ...body, amountReceived: '500.00', whtAmount: '0', allocations: [{ invoiceId: invB, amount: '500.00' }] });
+      .send({
+        ...body,
+        amountReceived: '500.00',
+        whtAmount: '0',
+        allocations: [{ invoiceId: invB, amount: '500.00' }],
+      });
     expect(cross.status).toBe(422);
 
     // DB: externalId ตั้งได้ตอนบันทึกเท่านั้น

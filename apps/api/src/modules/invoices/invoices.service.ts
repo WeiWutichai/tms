@@ -20,12 +20,7 @@ import {
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { Clock } from '../../common/clock';
-import {
-  EXT_PREFIX,
-  EXTERNAL_ID_RE,
-  lockExternalId,
-  resolveRef,
-} from '../../common/external-id';
+import { EXT_PREFIX, EXTERNAL_ID_RE, lockExternalId, resolveRef } from '../../common/external-id';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException, type FieldError } from '../../common/problem';
@@ -305,10 +300,12 @@ export class InvoicesService {
         { id: cur.id, currentStatus: inv.status },
       );
     const patch: UpdateInvoiceDto = {};
-    if (body.lineMode !== undefined && body.lineMode !== inv.lineMode) patch.lineMode = body.lineMode;
+    if (body.lineMode !== undefined && body.lineMode !== inv.lineMode)
+      patch.lineMode = body.lineMode;
     if (body.periodFrom !== undefined && body.periodFrom !== cur.periodFrom)
       patch.periodFrom = body.periodFrom;
-    if (body.periodTo !== undefined && body.periodTo !== cur.periodTo) patch.periodTo = body.periodTo;
+    if (body.periodTo !== undefined && body.periodTo !== cur.periodTo)
+      patch.periodTo = body.periodTo;
     if (body.customerPoNo !== undefined && (body.customerPoNo || null) !== inv.customerPoNo)
       patch.customerPoNo = body.customerPoNo;
     if (body.note !== undefined && (body.note || null) !== inv.note) patch.note = body.note;

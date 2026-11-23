@@ -354,7 +354,11 @@ describe('API keys + client credentials (ST7-T01)', () => {
     const wrong = await request(srv())
       .post('/v1/oauth/token')
       .type('form')
-      .send({ grant_type: 'client_credentials', client_id: k.clientId, client_secret: 'tk_live_x' });
+      .send({
+        grant_type: 'client_credentials',
+        client_id: k.clientId,
+        client_secret: 'tk_live_x',
+      });
     expect(wrong.status).toBe(401);
     expect(wrong.body.code).toBe('invalid_client');
     await request(srv())

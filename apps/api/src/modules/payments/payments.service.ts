@@ -10,12 +10,7 @@ import {
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { Clock } from '../../common/clock';
-import {
-  EXT_PREFIX,
-  EXTERNAL_ID_RE,
-  lockExternalId,
-  resolveRef,
-} from '../../common/external-id';
+import { EXT_PREFIX, EXTERNAL_ID_RE, lockExternalId, resolveRef } from '../../common/external-id';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { keysetArgs, toPage } from '../../common/pagination';
 import { redactPrices } from '../../common/price-fields';

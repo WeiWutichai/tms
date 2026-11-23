@@ -19,11 +19,15 @@ scope: — · operationId: `Auth_token`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `grantType` | ใช่ | `string` | ค่า: `authorization_code`, `refresh_token`, `client_credentials` | client_credentials = client ภายนอกด้วย API key: clientId `key_…` + clientSecret `tk_live_…` (หรือ HTTP Basic) → JWT RS256 1 ชม. |   |
+| `grantType` |   | `string` | ค่า: `authorization_code`, `refresh_token`, `client_credentials` | client_credentials = client ภายนอกด้วย API key: clientId `key_…` + clientSecret `tk_live_…` (หรือ HTTP Basic) → JWT RS256 1 ชม. · ต้องส่ง grantType หรือ grant_type |   |
+| `grant_type` |   | `string` | ค่า: `authorization_code`, `refresh_token`, `client_credentials` | RFC 6749 — เหมือน grantType |   |
 | `code` |   | `string` |   | grantType=authorization_code |   |
 | `codeVerifier` |   | `string` |   | grantType=authorization_code (PKCE) |   |
+| `code_verifier` |   | `string` |   | RFC 6749/7636 — เหมือน codeVerifier |   |
 | `clientId` |   | `string` |   | grantType=client_credentials — id ของ key (`key_…`) หรือ prefix ที่แสดงในหน้าจอ · หรือส่งใน Authorization: Basic | `tk_live_8f3a` |
+| `client_id` |   | `string` |   | RFC 6749 — เหมือน clientId |   |
 | `clientSecret` |   | `string (password)` |   | grantType=client_credentials — API key เต็ม (`tk_live_…`) |   |
+| `client_secret` |   | `string (password)` |   | RFC 6749 — เหมือน clientSecret |   |
 | `scope` |   | `string` |   | grantType=client_credentials — scope ที่ขอ (คั่นด้วยช่องว่าง ⊆ scope ของ key; ไม่ส่ง = ทั้งหมด) | `orders:read orders:write` |
 
 **Responses**
@@ -40,13 +44,12 @@ curl -sS -X POST "$TMS_BASE_URL/v1/oauth/token" \
   -H "Authorization: Bearer $TMS_API_KEY" \
   -H "Idempotency-Key: $(uuidgen)" \
   -H "Content-Type: application/json" \
-  -d '{"grantType":"authorization_code","clientId":"tk_live_8f3a","scope":"orders:read orders:write"}'
+  -d '{"clientId":"tk_live_8f3a","scope":"orders:read orders:write"}'
 ```
 
 ```ts
 const { data, error } = await tms.POST('/v1/oauth/token', {
   body: {
-    "grantType": "authorization_code",
     "clientId": "tk_live_8f3a",
     "scope": "orders:read orders:write"
   },
@@ -143,3 +146,6 @@ const { data, error } = await tms.GET('/v1/health');
 | `tokenType` | ใช่ | `string` |   |   | `Bearer` |
 | `expiresIn` | ใช่ | `number` |   | วินาที | `900` |
 | `scope` |   | `string` |   | client_credentials: scope ที่ได้จริง |   |
+| `access_token` |   | `string` |   | RFC 6749 §5.1 — มีเฉพาะเมื่อขอแบบ application/x-www-form-urlencoded (ค่าเดียวกับ accessToken) |   |
+| `token_type` |   | `string` |   | RFC 6749 §5.1 — เฉพาะคำขอแบบ form | `Bearer` |
+| `expires_in` |   | `number` |   | RFC 6749 §5.1 — เฉพาะคำขอแบบ form | `3600` |

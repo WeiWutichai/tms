@@ -171,7 +171,11 @@ export function normalizeTokenRequest(b: TokenRequestDto): {
   const clientId = pick<string>('clientId', 'client_id');
   const clientSecret = pick<string>('clientSecret', 'client_secret');
   if (!grantType)
-    errors.push({ field: 'grantType', code: 'isIn', message: 'grantType or grant_type is required' });
+    errors.push({
+      field: 'grantType',
+      code: 'isIn',
+      message: 'grantType or grant_type is required',
+    });
   if (errors.length || !grantType)
     throw new ProblemException('validation_failed', undefined, errors);
   return { grantType, code: b.code, codeVerifier, clientId, clientSecret, scope: b.scope };
@@ -183,7 +187,8 @@ export class TokenDto {
   @ApiProperty({ example: 900, description: 'วินาที' }) expiresIn!: number;
   @ApiPropertyOptional({ description: 'client_credentials: scope ที่ได้จริง' }) scope?: string;
   @ApiPropertyOptional({
-    description: 'RFC 6749 §5.1 — มีเฉพาะเมื่อขอแบบ application/x-www-form-urlencoded (ค่าเดียวกับ accessToken)',
+    description:
+      'RFC 6749 §5.1 — มีเฉพาะเมื่อขอแบบ application/x-www-form-urlencoded (ค่าเดียวกับ accessToken)',
   })
   access_token?: string;
   @ApiPropertyOptional({ example: 'Bearer', description: 'RFC 6749 §5.1 — เฉพาะคำขอแบบ form' })

@@ -5132,7 +5132,59 @@
                 }
               ]
             },
-            "description": "scope: settings:read"
+            "description": "scope: settings:read | webhooks:manage"
+          }
+        },
+        {
+          "name": "POST /v1/webhooks",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhooks",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks"
+              ]
+            },
+            "description": "scope: settings:write | webhooks:manage",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"https://erp.example.co.th/tms/webhook\",\n  \"events\": [\n    \"order.created\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           }
         },
         {
@@ -5162,7 +5214,7 @@
                 "summary"
               ]
             },
-            "description": "scope: settings:read"
+            "description": "scope: settings:read | webhooks:manage"
           }
         },
         {
@@ -5192,7 +5244,7 @@
                 "event-types"
               ]
             },
-            "description": "scope: settings:read"
+            "description": "scope: settings:read | webhooks:manage"
           }
         },
         {
@@ -5229,7 +5281,125 @@
                 }
               ]
             },
-            "description": "scope: settings:read"
+            "description": "scope: settings:read | webhooks:manage"
+          }
+        },
+        {
+          "name": "PATCH /v1/webhooks/{id}",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อเปลี่ยน `url` หรือ `extraHeaders` ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง",
+                "disabled": true
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhooks/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settings:write | webhooks:manage",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DELETE /v1/webhooks/{id}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhooks/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settings:write | webhooks:manage",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"เลิกใช้บริการตั้งแต่ ธ.ค. 2569\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           }
         },
         {
@@ -5281,7 +5451,251 @@
                 }
               ]
             },
-            "description": "scope: settings:read"
+            "description": "scope: settings:read | webhooks:manage"
+          }
+        },
+        {
+          "name": "POST /v1/webhooks/{id}/rotate-secret",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งทุกครั้ง ไม่งั้น 403 `step_up_required` · API key ใช้ route นี้ไม่ได้",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhooks/:id/rotate-secret",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                ":id",
+                "rotate-secret"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settings:write | webhooks:manage",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /v1/webhooks/{id}/disable",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhooks/:id/disable",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                ":id",
+                "disable"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settings:write | webhooks:manage",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"เลิกใช้บริการตั้งแต่ ธ.ค. 2569\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /v1/webhooks/{id}/enable",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhooks/:id/enable",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                ":id",
+                "enable"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settings:write | webhooks:manage",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /v1/webhooks/{id}/test",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhooks/:id/test",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                ":id",
+                "test"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settings:write | webhooks:manage",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           }
         },
         {
@@ -5372,7 +5786,7 @@
                 }
               ]
             },
-            "description": "scope: settings:read"
+            "description": "scope: settings:read | webhooks:manage"
           }
         },
         {
@@ -5409,7 +5823,49 @@
                 }
               ]
             },
-            "description": "scope: settings:read"
+            "description": "scope: settings:read | webhooks:manage"
+          }
+        },
+        {
+          "name": "POST /v1/webhook-deliveries/{id}/retry",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhook-deliveries/:id/retry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhook-deliveries",
+                ":id",
+                "retry"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settings:write | webhooks:manage"
           }
         },
         {
@@ -5514,6 +5970,56 @@
               ]
             },
             "description": "scope: events:read"
+          }
+        },
+        {
+          "name": "POST /v1/events/{id}/redeliver",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/events/:id/redeliver",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "events",
+                ":id",
+                "redeliver"
+              ],
+              "query": [
+                {
+                  "key": "endpointId",
+                  "value": "whe_8f3a…",
+                  "description": "ส่งเฉพาะ endpoint นี้ · ไม่ระบุ = ทุก endpoint ที่เปิดอยู่และสมัคร event ชนิดนี้",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settings:write | webhooks:manage"
           }
         }
       ]
@@ -17025,7 +17531,7 @@
             "description": "",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"grantType\": \"authorization_code\",\n  \"clientId\": \"tk_live_8f3a\",\n  \"scope\": \"orders:read orders:write\"\n}",
+              "raw": "{\n  \"clientId\": \"tk_live_8f3a\",\n  \"scope\": \"orders:read orders:write\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -18038,6 +18544,108 @@
           }
         },
         {
+          "name": "สร้าง/แก้ร่างใบแจ้งหนี้ด้วยเลขของระบบต้นทาง (upsert — D68-45)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag — ใช้เมื่อใบมีอยู่แล้ว (ไม่ตรง → 412)",
+                "disabled": true
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/external/:externalId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                "external",
+                ":externalId"
+              ],
+              "variable": [
+                {
+                  "key": "externalId",
+                  "value": "",
+                  "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource"
+                }
+              ]
+            },
+            "description": "scope: invoices:draft\n\nยังไม่มีใบที่ externalId นี้ → สร้างร่าง (กติกาเดียวกับ `POST /invoices`) 201 · มีแล้ว → 200: ลูกค้า + ชุด DO ต้องตรงกับใบ (เพิ่ม/ถอด DO ใช้ `/invoices/{id}/delivery-orders…`) ไม่ตรง → 409 `conflict` · ช่องหัวใบ เหมือนเดิม → ใบเดิม version เดิม (ส่งซ้ำได้) · ต่าง: ร่าง → แก้ (เหมือน PATCH) · **ใบที่ออกแล้ว/ยกเลิกแก้ไม่ได้ → 409 `invalid_state_transition`** · externalId ตั้งได้ตอนสร้างเท่านั้น · path `{id}` ทุก route รับ `ext:{externalId}`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"cus_…\",\n  \"deliveryOrderIds\": [\n    \"do_…\"\n  ],\n  \"periodFrom\": \"2026-11-01\",\n  \"periodTo\": \"2026-11-15\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "แก้หัวร่างด้วยเลขของระบบต้นทาง (= `PATCH /invoices/ext:{externalId}`)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/external/:externalId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                "external",
+                ":externalId"
+              ],
+              "variable": [
+                {
+                  "key": "externalId",
+                  "value": "",
+                  "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource"
+                }
+              ]
+            },
+            "description": "scope: invoices:draft\n\nกติกาเดียวกับ `PATCH /invoices/{id}` — เฉพาะ DRAFT (ออกแล้ว → 409) · ยังไม่มีใบนี้ → 404 (สร้างใช้ PUT)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"periodFrom\": \"2026-11-01\",\n  \"periodTo\": \"2026-11-15\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "ใบแจ้งหนี้ + บรรทัด + บรรทัดบนเอกสาร (Group / Merge / Single)",
           "request": {
             "method": "GET",
@@ -18061,7 +18669,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -18102,7 +18710,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -18143,7 +18751,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -18185,7 +18793,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -18225,7 +18833,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -18271,7 +18879,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -18327,7 +18935,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -18383,7 +18991,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -18438,7 +19046,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -18494,7 +19102,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -18550,7 +19158,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -18602,7 +19210,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 },
                 {
                   "key": "lineId",
@@ -18664,7 +19272,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 },
                 {
                   "key": "lineId",
@@ -18724,7 +19332,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -18785,7 +19393,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -18836,7 +19444,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -18882,7 +19490,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -18931,7 +19539,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -18972,7 +19580,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -19229,11 +19837,62 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
             "description": "scope: invoices:read"
+          }
+        },
+        {
+          "name": "บันทึกรับชำระด้วยเลขของระบบต้นทาง (upsert — D68-45)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag — ใช้เมื่อแถวมีอยู่แล้ว (ไม่ตรง → 412)",
+                "disabled": true
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/payments/external/:externalId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "payments",
+                "external",
+                ":externalId"
+              ],
+              "variable": [
+                {
+                  "key": "externalId",
+                  "value": "",
+                  "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource"
+                }
+              ]
+            },
+            "description": "scope: payments:record\n\nยังไม่มีการรับชำระที่ externalId นี้ → บันทึก (กติกาเดียวกับ `POST /payments`) 201 · มีแล้ว → **แก้ไม่ได้**: เนื้อหาเหมือนเดิม = 200 แถวเดิม (ส่งซ้ำได้ ไม่บันทึกซ้ำ) · ต่าง = 409 `conflict` — กลับรายการด้วย `POST /payments/{id}/reverse` แล้วบันทึกใหม่ด้วย externalId ใหม่ · ไม่มี `PATCH /payments/external/{externalId}` (การรับชำระแก้ไม่ได้) · path `{id}` ทุก route รับ `ext:{externalId}`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"receivedDate\": \"2026-11-21\",\n  \"method\": \"TRANSFER\",\n  \"chequeDate\": \"2026-11-30\",\n  \"amountReceived\": \"24750.00\",\n  \"whtAmount\": \"250.00\",\n  \"feeAmount\": \"0.00\",\n  \"differenceAmount\": \"0.00\",\n  \"allocations\": [\n    {\n      \"invoiceId\": \"ivc_…\",\n      \"amount\": \"25000.00\",\n      \"whtAmount\": \"250.00\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           }
         },
         {
@@ -19275,7 +19934,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -19330,7 +19989,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },
@@ -19381,7 +20040,7 @@
                 {
                   "key": "id",
                   "value": "",
-                  "description": ""
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
                 }
               ]
             },

@@ -791,11 +791,7 @@ export class InvoicesController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
-    const out = await this.svc.cancel(
-      await this.svc.idOf(id),
-      body.reason,
-      expectedVersion(req),
-    );
+    const out = await this.svc.cancel(await this.svc.idOf(id), body.reason, expectedVersion(req));
     setEtag(res, out.version);
     return out;
   }
