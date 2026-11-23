@@ -28825,7 +28825,7 @@
         },
         "responses": {
           "200": {
-            "description": "ST7-T19 กรอกเลขเอกสารฝั่งระบบบัญชีเอง (DUPLICATE ที่หาไม่เจอ หรือคำสั่งส่งเอกสารที่ล้มเหลวแต่เอกสารอยู่ในระบบบัญชีแล้ว) — เหตุผล ≥ 10 ตัว · audit `connector.queue_external_id` · external_mapping = MISMATCH `erp_content_unverified` (รอบ reconcile ยืนยัน) · เลขผูกกับเอกสารอื่นแล้ว → 409 `external_id_conflict`",
+            "description": "ST7-T19 กรอกเลขเอกสารฝั่งระบบบัญชีเอง (DUPLICATE ที่หาไม่เจอ หรือคำสั่งส่งเอกสารที่ล้มเหลวแต่เอกสารอยู่ในระบบบัญชีแล้ว) — เหตุผล ≥ 10 ตัว · audit `connector.queue_external_id` · external_mapping = MISMATCH `erp_content_unverified` (รอบ reconcile ยืนยัน) · เลขผูกกับเอกสารอื่นแล้ว → 409 `external_id_conflict` · ST8-T09 (docs/01 A.5 409) ระบบบัญชีที่แยกเอกสารเป็นหลายใบ (เช่น KRS แยกตามชนิด VAT): กรอก `documents` ต่อใบ (`ref` ต้องอยู่ในการแยกใบ — นอกแผน/ซ้ำ/ไม่ตรงกับเลขที่ระบบรู้แล้ว = 422) · แผนมีใบเดียวรับ `externalId` ได้ · ผล: external_mapping PENDING + คำสั่งส่งใหม่ (`resolution.supersededBy`) ที่อ่านเอกสารจากระบบบัญชีมาเทียบก่อน (ตรง = SYNCED · ต่าง = MISMATCH · ไม่พบ = REMOTE_MISSING) และส่งเฉพาะใบที่ไม่ได้กรอก — ไม่ส่งใบที่กรอกแล้วซ้ำ",
             "content": {
               "application/json": {
                 "schema": {
@@ -31004,7 +31004,7 @@
         },
         "responses": {
           "202": {
-            "description": "สั่งรอบกระทบยอดเอง (source MANUAL) — `check` PAYMENT_STATUS: ดึงสถานะรับชำระของใบแจ้งหนี้ที่ยังค้างจากระบบบัญชีของ connector นี้ทันที · `check` DOCUMENT (ST8-T11): อ่านใบแจ้งหนี้ที่เลือก (`invoiceIds` 1–200) กลับจากระบบบัญชีแล้วเทียบเนื้อหา (คำสั่ง FETCH_DOCUMENT ผ่านคิวของ connector · ต้องมี `reason` ≥ 10 ตัวอักษร ลง audit · ใบที่ไม่อยู่ในระบบบัญชีนี้คืนใน `notInErp` · ผลดูที่ `GET /reconcile-results` และ `sync.reconcileState` ของใบ) (ปกติระบบดึงเองวันละครั้งตั้งแต่ 06:00 น.) · ทำงานเบื้องหลัง — ผลดูที่ `GET /payments` (รายการ source CONNECTOR) และ `GET /reconcile-results` · มีรอบของ connector นี้ค้างอยู่ = `ALREADY_QUEUED` · connector ไม่พบ → 404 · ดึงไม่ได้ตอนนี้ → 409 · เฉพาะผู้ใช้ (API key สั่งไม่ได้ → 403)",
+            "description": "สั่งรอบกระทบยอดเอง (source MANUAL) — `check` PAYMENT_STATUS: ดึงสถานะรับชำระของใบแจ้งหนี้ที่ยังค้างจากระบบบัญชีของ connector นี้ทันที · `check` DOCUMENT (ST8-T11): อ่านใบแจ้งหนี้ที่เลือก (`invoiceIds` 1–200) กลับจากระบบบัญชีแล้วเทียบเนื้อหา (คำสั่ง FETCH_DOCUMENT ผ่านคิวของ connector · ต้องมี `reason` ≥ 10 ตัวอักษร ลง audit · ใบที่ไม่อยู่ในระบบบัญชีนี้คืนใน `notInErp` · ผลดูที่ `GET /reconcile-results` และ `sync.reconcileState` ของใบ) (ปกติระบบดึงเองวันละครั้งตั้งแต่ 06:00 น.) · ทำงานเบื้องหลัง — ผลดูที่ `GET /payments` (รายการ source CONNECTOR) และ `GET /reconcile-results` · มีรอบของ connector นี้ค้างอยู่ = `ALREADY_QUEUED` · connector ไม่พบ → 404 · ดึงไม่ได้ตอนนี้ → 409 · เฉพาะผู้ใช้ (API key สั่งไม่ได้ → 403) · สิทธิ์: PAYMENT_STATUS ต้อง `settings:write` · DOCUMENT ใช้ `settings:write` หรือ `integrations:retry` (ฝ่ายบัญชี — docs/01 §6.5)",
             "content": {
               "application/json": {
                 "schema": {
@@ -31031,10 +31031,10 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.write"
+            "$ref": "#/components/responses/Forbidden_settings.write_integrations.retry"
           },
           "409": {
-            "description": "`invalid_state_transition` — connector นี้ดึงสถานะรับชำระไม่ได้ตอนนี้ (`reason`: `connector_not_active` ยังไม่เปิดใช้/หยุดอยู่ · `capability_not_enabled` ระบบบัญชีนี้ไม่รองรับหรือยังไม่เปิด `fetchPaymentStatus` (DOCUMENT: `fetchDocument`) · `adapter_unavailable`)",
+            "description": "`invalid_state_transition` — connector นี้ดึงสถานะรับชำระไม่ได้ตอนนี้ (`reason`: `connector_not_active` ยังไม่เปิดใช้/หยุดอยู่ · `capability_not_enabled` ระบบบัญชีนี้ไม่รองรับหรือยังไม่เปิด `fetchPaymentStatus` (DOCUMENT: `fetchDocument`) · `adapter_unavailable` · DOCUMENT: `connector_unhealthy` ระบบบัญชีไม่ตอบ คิวพักอยู่)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -31070,7 +31070,8 @@
           "connectors"
         ],
         "x-required-scopes": [
-          "settings:write"
+          "settings:write",
+          "integrations:retry"
         ]
       }
     },
@@ -85912,6 +85913,34 @@
           "reason"
         ]
       },
+      "QueueExternalDocumentDto": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "example": "INV-00000-2611-0001-V7",
+            "description": "เลขอ้างอิงที่ TMS ส่งของใบนี้ (ต้องตรงกับการแยกใบของเอกสาร)"
+          },
+          "externalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "example": "100042",
+            "description": "id เอกสารฝั่งระบบบัญชีของใบนี้ (เช่น transactionNo ของ KRS)"
+          },
+          "externalDocNo": {
+            "type": "string",
+            "maxLength": 60,
+            "description": "เลขเอกสารที่แสดงในระบบบัญชี (ถ้าต่างจาก id)"
+          }
+        },
+        "required": [
+          "ref",
+          "externalId"
+        ]
+      },
       "QueueExternalIdDto": {
         "type": "object",
         "properties": {
@@ -85926,17 +85955,25 @@
             "minLength": 1,
             "maxLength": 100,
             "example": "IV6611-00042",
-            "description": "id เอกสารฝั่งระบบบัญชี"
+            "description": "id เอกสารฝั่งระบบบัญชี (เอกสารใบเดียว) — ส่งอย่างใดอย่างหนึ่งกับ `documents`"
           },
           "externalDocNo": {
             "type": "string",
             "maxLength": 60,
             "description": "เลขเอกสารที่แสดงในระบบบัญชี (ถ้าต่างจาก id)"
+          },
+          "documents": {
+            "minItems": 1,
+            "maxItems": 200,
+            "description": "ST8-T09 เอกสารที่ระบบบัญชีเก็บเป็นหลายใบ (เช่น KRS แยกใบตามชนิด VAT): เลขฝั่งระบบบัญชีต่อใบ — `ref` ต้องอยู่ในการแยกใบของเอกสาร · กรอกเฉพาะใบที่มีในระบบบัญชีแล้ว (ใบที่ไม่กรอก ระบบส่งให้ภายหลัง) · ระบบอ่านเอกสารจากระบบบัญชีมาเทียบก่อนเสมอ ไม่ส่งซ้ำ",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueueExternalDocumentDto"
+            }
           }
         },
         "required": [
-          "reason",
-          "externalId"
+          "reason"
         ]
       },
       "UpdateConnectorDto": {
@@ -86621,6 +86658,30 @@
           "adapterKey"
         ]
       },
+      "ReconcileRefMismatchDto": {
+        "type": "object",
+        "properties": {
+          "externalId": {
+            "type": "string",
+            "example": "100002"
+          },
+          "expectedRef": {
+            "type": "string",
+            "example": "INV-00000-6911-0001",
+            "description": "เลขอ้างอิงที่ TMS คาด"
+          },
+          "actualRef": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขอ้างอิงที่อยู่ในเอกสารฝั่งระบบบัญชี"
+          }
+        },
+        "required": [
+          "externalId",
+          "expectedRef",
+          "actualRef"
+        ]
+      },
       "ReconcileLineCountDto": {
         "type": "object",
         "properties": {
@@ -86849,7 +86910,8 @@
               "MATCH",
               "MISMATCH",
               "REMOTE_MISSING",
-              "ERP_UNREACHABLE"
+              "ERP_UNREACHABLE",
+              "NOT_COMPARABLE"
             ]
           },
           "severity": {
@@ -86900,9 +86962,11 @@
               "payment_rejected",
               "content_mismatch",
               "remote_missing",
-              "erp_unreachable"
+              "erp_unreachable",
+              "remote_ref_mismatch",
+              "not_comparable"
             ],
-            "description": "`remote_exceeds_total` ระบบบัญชีตัดหนี้เกินยอดใบ · `remote_paid_amount_short` ระบบบัญชีบอกชำระครบแต่ยอดตัดหนี้น้อยกว่ายอดใบ · `remote_less_than_tms` ระบบบัญชีตัดหนี้น้อยกว่าที่ TMS บันทึกรับ · `tms_has_other_payments` ระบบบัญชีตัดหนี้มากกว่า TMS แต่ใบมีรับชำระที่บันทึกเอง (ไม่บันทึกเพิ่มให้เอง) · `connector_payment_reversed` ใบนี้เคยมีรายการที่ระบบสร้างแล้วถูกกลับรายการใน TMS (ไม่สร้างให้อีก) · `remote_wht_unknown` ระบบบัญชีไม่บอกภาษีหัก ณ ที่จ่าย · `remote_wht_inconsistent` ภาษีหัก ณ ที่จ่ายที่รายงานขัดกัน · `remote_paid_at_invalid` วันที่รับชำระไม่มี/เป็นอนาคต/ก่อนวันออกใบ · `payment_rejected` กฎรับชำระของ TMS ไม่รับ (ดู `reason`) · `remote_missing` (ST7-T16) แทนที่/อ่านเอกสารแล้วระบบบัญชีตอบว่าไม่พบ — ส่งใหม่เป็นเลขใหม่ต้องให้บัญชีรับรู้ · `content_mismatch` (ST8-T11) เนื้อหาเอกสารในระบบบัญชีไม่ตรงกับที่ TMS ออก (ดู `documentDiff`) · `erp_unreachable` (ST8-T11) อ่านเอกสารจากระบบบัญชีไม่สำเร็จจนหมดรอบลองใหม่ (INFO)"
+            "description": "`remote_exceeds_total` ระบบบัญชีตัดหนี้เกินยอดใบ · `remote_paid_amount_short` ระบบบัญชีบอกชำระครบแต่ยอดตัดหนี้น้อยกว่ายอดใบ · `remote_less_than_tms` ระบบบัญชีตัดหนี้น้อยกว่าที่ TMS บันทึกรับ · `tms_has_other_payments` ระบบบัญชีตัดหนี้มากกว่า TMS แต่ใบมีรับชำระที่บันทึกเอง (ไม่บันทึกเพิ่มให้เอง) · `connector_payment_reversed` ใบนี้เคยมีรายการที่ระบบสร้างแล้วถูกกลับรายการใน TMS (ไม่สร้างให้อีก) · `remote_wht_unknown` ระบบบัญชีไม่บอกภาษีหัก ณ ที่จ่าย · `remote_wht_inconsistent` ภาษีหัก ณ ที่จ่ายที่รายงานขัดกัน · `remote_paid_at_invalid` วันที่รับชำระไม่มี/เป็นอนาคต/ก่อนวันออกใบ · `payment_rejected` กฎรับชำระของ TMS ไม่รับ (ดู `reason`) · `remote_missing` (ST7-T16) แทนที่/อ่านเอกสารแล้วระบบบัญชีตอบว่าไม่พบ — ส่งใหม่เป็นเลขใหม่ต้องให้บัญชีรับรู้ · `content_mismatch` (ST8-T11) เนื้อหาเอกสารในระบบบัญชีไม่ตรงกับที่ TMS ออก (ดู `documentDiff`) · `erp_unreachable` (ST8-T11) อ่านเอกสารจากระบบบัญชีไม่สำเร็จจนหมดรอบลองใหม่ (INFO) · `remote_ref_mismatch` (ST8-T11) เลขเอกสารฝั่งระบบบัญชีที่รู้ชี้ไปเอกสารที่ไม่ใช่ของใบนี้ (ดู `refMismatches`, MONEY) · `not_comparable` (ST8-T11) เทียบเนื้อหาไม่ได้ — ระบบบัญชีนี้ไม่ประกาศส่วนที่เทียบได้ / ไม่มีข้อมูลการส่งของใบ (INFO, `reason`)"
           },
           "reason": {
             "type": "string",
@@ -86941,6 +87005,14 @@
           "sellDifferenceAmount": {
             "type": "string",
             "description": "ระบบบัญชี − TMS — `prices.sell:read`"
+          },
+          "refMismatches": {
+            "nullable": true,
+            "description": "ST8-T11 `code` remote_ref_mismatch: เอกสารฝั่งระบบบัญชีที่เลขที่รู้ชี้ไป แต่เลขอ้างอิงของเราในเอกสารไม่ตรง (ไม่ใช่ของใบนี้) · อื่น ๆ = null",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReconcileRefMismatchDto"
+            }
           },
           "documentDiff": {
             "nullable": true,
@@ -86998,6 +87070,7 @@
           "remoteStatus",
           "remotePaidAt",
           "externalDocNo",
+          "refMismatches",
           "documentDiff",
           "runAt",
           "lastSeenAt",
@@ -109565,7 +109638,7 @@
       },
       "WebhookEvent_invoice_finalized": {
         "type": "object",
-        "description": "`data.object` ของ invoice.finalized — ออกเอกสารใบแจ้งหนี้แล้ว (ออกเลข + ล็อก — ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี D-54) · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf, sync)",
+        "description": "`data.object` ของ invoice.finalized — ออกเอกสารใบแจ้งหนี้แล้ว (ออกเลข + ล็อก — ใบแจ้งหนี้ ไม่ใช่ใบกำกับภาษี D-54) · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf, sync, erpWarnings)",
         "properties": {
           "id": {
             "type": "string",
@@ -109660,13 +109733,6 @@
           },
           "updatedAt": {
             "type": "string"
-          },
-          "erpWarnings": {
-            "description": "D-64 (ST8-T08) คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว / วันที่ก่อนวันเริ่มซิงก์ = `[]` · ส่งสำเร็จแล้ว = ข้อความแบบอดีต · มีเฉพาะ `GET /{id}`",
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ErpDocumentWarningDto"
-            }
           },
           "issuingCompanyId": {
             "type": "string",
@@ -109764,7 +109830,7 @@
       },
       "WebhookEvent_invoice_paid": {
         "type": "object",
-        "description": "`data.object` ของ invoice.paid — ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · `previousAttributes` = { status, version } ก่อนชำระ · ยิงทุกครั้งที่ใบเปลี่ยนเป็น PAID — กลับรายการ (`payment.reversed`) แล้วรับชำระครบอีกครั้ง = ยิงอีกครั้ง · สถานะชำระจากระบบบัญชี (D-57) ยิงผ่านทางเดียวกัน · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf, sync)",
+        "description": "`data.object` ของ invoice.paid — ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · `previousAttributes` = { status, version } ก่อนชำระ · ยิงทุกครั้งที่ใบเปลี่ยนเป็น PAID — กลับรายการ (`payment.reversed`) แล้วรับชำระครบอีกครั้ง = ยิงอีกครั้ง · สถานะชำระจากระบบบัญชี (D-57) ยิงผ่านทางเดียวกัน · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf, sync, erpWarnings)",
         "properties": {
           "id": {
             "type": "string",
@@ -109859,13 +109925,6 @@
           },
           "updatedAt": {
             "type": "string"
-          },
-          "erpWarnings": {
-            "description": "D-64 (ST8-T08) คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว / วันที่ก่อนวันเริ่มซิงก์ = `[]` · ส่งสำเร็จแล้ว = ข้อความแบบอดีต · มีเฉพาะ `GET /{id}`",
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ErpDocumentWarningDto"
-            }
           },
           "issuingCompanyId": {
             "type": "string",
@@ -109963,7 +110022,7 @@
       },
       "WebhookEvent_invoice_voided": {
         "type": "object",
-        "description": "`data.object` ของ invoice.voided — ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (`POST /invoices/{id}/void`) — `data.object` = ใบหลังยกเลิก: `status` CANCELLED + `invoiceNo` เดิม + `cancelledAt` (ไม่มีเหตุผล/ผู้ยกเลิก — ข้อความอิสระ) · `replacedByInvoice` = null เสมอตอนยิง (ร่างฉบับใหม่แทนสร้างหลัง event — ดูผ่าน GET) · `previousAttributes` = { status: ISSUED, version } · ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม (ST8-T16) · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf, sync)",
+        "description": "`data.object` ของ invoice.voided — ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (`POST /invoices/{id}/void`) — `data.object` = ใบหลังยกเลิก: `status` CANCELLED + `invoiceNo` เดิม + `cancelledAt` (ไม่มีเหตุผล/ผู้ยกเลิก — ข้อความอิสระ) · `replacedByInvoice` = null เสมอตอนยิง (ร่างฉบับใหม่แทนสร้างหลัง event — ดูผ่าน GET) · `previousAttributes` = { status: ISSUED, version } · ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม (ST8-T16) · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf, sync, erpWarnings)",
         "properties": {
           "id": {
             "type": "string",
@@ -110058,13 +110117,6 @@
           },
           "updatedAt": {
             "type": "string"
-          },
-          "erpWarnings": {
-            "description": "D-64 (ST8-T08) คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว / วันที่ก่อนวันเริ่มซิงก์ = `[]` · ส่งสำเร็จแล้ว = ข้อความแบบอดีต · มีเฉพาะ `GET /{id}`",
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ErpDocumentWarningDto"
-            }
           },
           "issuingCompanyId": {
             "type": "string",

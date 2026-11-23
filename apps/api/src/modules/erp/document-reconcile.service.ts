@@ -19,6 +19,7 @@ import {
   type ErpAdapter,
   ErpAdapterError,
   type ErpContext,
+  ExternalPartsError,
   type ExternalRef,
   readyCapabilities,
 } from './erp-adapter';
@@ -254,11 +255,12 @@ export class DocumentReconcileService implements OnModuleInit {
     connectorId: string,
     filter: { from: string; to: string } | { ids: string[] },
   ) {
+    if (!('from' in filter) && !filter.ids.length) return Promise.resolve([]);
     const cond =
       'from' in filter
         ? Prisma.sql`i.issue_date >= ${filter.from}::date AND i.issue_date <= ${filter.to}::date`
         : Prisma.sql`m.local_id IN (${Prisma.join(filter.ids.map((id) => Prisma.sql`${id}::uuid`))})`;
-    if (!('from' in filter) && !filter.ids.length) return Promise.resolve([]);
+
     return tx.$queryRaw<
       {
         local_id: string;
@@ -570,19 +572,14 @@ export class DocumentReconcileService implements OnModuleInit {
     try {
       got = await adapter.fetchDocument!(ctx, ref, exp.hint ?? undefined);
     } catch (e) {
-      // ST8-T09 `ExternalPartsError` (ตรวจด้วยรูป ไม่ผูก class — ใช้ได้ทั้งก่อน/หลัง T09 merge)
-      const mism = (e as { mismatched?: unknown } | null)?.mismatched;
-      if (e instanceof ErpAdapterError && Array.isArray(mism) && mism.length)
-        refMismatch = mism
-          .filter(
-            (m): m is { externalId: string; expectedRef: string; actualRef?: unknown } =>
-              typeof m?.externalId === 'string' && typeof m?.expectedRef === 'string',
-          )
-          .map((m) => ({
-            externalId: m.externalId,
-            expectedRef: m.expectedRef,
-            actualRef: typeof m.actualRef === 'string' ? m.actualRef : null,
-          }));
+      // ST8-T09 `ExternalPartsError`: เอกสารที่อ่านได้มีเลขอ้างอิงของเราไม่ตรง (ไม่ใช่ของใบนี้) → remote_ref_mismatch
+      // (ไม่พบอย่างเดียว = NOT_FOUND → REMOTE_MISSING)
+      if (e instanceof ExternalPartsError && e.mismatched.length)
+        refMismatch = e.mismatched.map((m) => ({
+          externalId: m.externalId,
+          expectedRef: m.expectedRef,
+          actualRef: m.actualRef ?? null,
+        }));
       else if (!(e instanceof ErpAdapterError && e.errorClass === 'NOT_FOUND')) throw e;
     }
     const runAt = this.clock.now();

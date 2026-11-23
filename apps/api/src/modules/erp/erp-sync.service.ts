@@ -208,7 +208,10 @@ export class ErpSyncService {
         },
       },
     });
-    const inErp = !!m?.externalId && m.externalStatus !== 'VOIDED';
+    // ST8-T09 mapping ที่บันทึกเอกสารฝั่ง ERP ไว้ไม่ครบ (ส่งไม่ครบ / คนกรอกเลขเองต่อใบ — `detail.documentsPartial`) ยังไม่ถือว่า
+    // "อยู่ใน ERP" (ไม่แทนที่) → ส่งด้วย PUSH_* ให้ sink GET ยืนยันใบที่รู้เลขก่อน แล้วส่งเฉพาะใบที่ขาด
+    const partial = (m?.detail as { documentsPartial?: unknown } | null)?.documentsPartial === true;
+    const inErp = !!m?.externalId && m.externalStatus !== 'VOIDED' && !partial;
     const open = await tx.integrationOutbox.findFirst({
       where: {
         sink: ERP_SINK,

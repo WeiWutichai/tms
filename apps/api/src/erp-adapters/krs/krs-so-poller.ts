@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import type { ExternalOrder, PullPage } from '../../modules/connectors/order-source.port';
 import { ErpAdapterError, type ErpContext } from '../../modules/erp/erp-adapter';
-import type { SendOptions } from '../../modules/webhooks/webhook-http';
+import type { KrsHttpOptions } from './krs-push';
 import {
   type KrsSalesOrder,
   type KrsSoMapping,
@@ -101,7 +101,7 @@ export async function pullKrsOrders(
   ctx: ErpContext,
   since: string | null,
   limit: number,
-  http: Pick<SendOptions, 'allowPrivate' | 'resolver'> = {},
+  http: KrsHttpOptions = {},
 ): Promise<PullPage> {
   const mapping = loadKrsSoMapping();
   const r = await readKrsSalesOrders(ctx.config, since, limit, {
@@ -151,7 +151,7 @@ export async function pullKrsOrders(
  */
 export async function probeKrsSoSource(
   ctx: ErpContext,
-  http: Pick<SendOptions, 'allowPrivate' | 'resolver'> = {},
+  http: KrsHttpOptions = {},
 ): Promise<{
   errorClass: 'AUTH' | 'TRANSIENT' | 'VALIDATION';
   code: string;

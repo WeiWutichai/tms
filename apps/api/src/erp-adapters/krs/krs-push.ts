@@ -32,11 +32,19 @@ import {
  * - ทุก HTTP call รายงาน `ctx.onHttpCall` (sync log ST7-T16) — ไม่ส่ง header (`X-API-Key`) · `carPerson` (ชื่อคนขับ = ข้อมูลส่วนบุคคล) แทนด้วย `***`
  * - ส่งไม่ครบ (review H1/M2): ผลล้มรายงาน `documents` (ใบที่สร้างแล้ว) + `documentsComplete` (ใบที่ล้มได้คำตอบชัด = รู้แน่) →
  *   core เก็บใน mapping แล้วส่งกลับใน `ctx.priorDocuments` → รอบถัดไป POST เฉพาะใบที่ยังไม่มี · ใบแรกล้มแบบรู้แน่ = ลองใหม่ตามปกติ
- * - error: แปลง HTTP เป็น ErrorClass กลางแบบพื้นฐาน (docs/01 §6.3 / A.5 คอลัมน์ ErrorClass) — การจัดการเต็มของ A.5 (409 หา `transactionNo`,
- *   backoff, หยุดคิว ฯลฯ) = ST8-T09 · ส่งได้บางใบแล้วใบถัดไปล้ม = คืนผลล้มของใบนั้น (ข้อความบอกใบที่สร้างแล้ว · response 201 อยู่ใน sync log)
+ * - error: แปลง HTTP เป็น ErrorClass กลาง (docs/01 §6.3 / A.5 คอลัมน์ ErrorClass) — การจัดการตาม A.5 อยู่ใน core (ST8-T09:
+ *   409 หา `transactionNo` / กรอกมือ, backoff + หยุดคิว, AMBIGUOUS ค้นก่อน, AUTH หยุด connector) · ส่งได้บางใบแล้วใบถัดไปล้ม = คืนผลล้มของใบนั้น (ข้อความบอกใบที่สร้างแล้ว · response 201 อยู่ใน sync log)
  *   — core ไม่ส่งซ้ำแบบไม่รู้ผล (มี POST ใน sync log → หาเอกสารก่อนด้วย `fetchDocument` ST8-T10 เมื่อรู้ `transactionNo`;
  *   ไม่รู้ = POST ใหม่ ถ้าถึงแล้ว KRS ตอบ 409 — A.5)
  */
+
+/**
+ * ตัวเลือก HTTP ของ KRS adapter (ไม่ใช่ค่าตั้งของ tenant) — `allowPrivate`/`resolver` สำหรับ test/mock · `timeoutMs` = **test เท่านั้น**
+ * (แทน timeout ของทุกคำขอ — ST8-T09 จำลอง client timeout ของ A.5 AMBIGUOUS โดยไม่ต้องรอ 120 วิ)
+ */
+export type KrsHttpOptions = Pick<SendOptions, 'allowPrivate' | 'resolver'> & {
+  timeoutMs?: number;
+};
 
 /** timeout ต่อคำขอ (docs/01 §8.1 "timeout client 120 วินาที" สำหรับใบใหญ่) */
 export const KRS_PUSH_TIMEOUT_MS = 120_000;
@@ -204,7 +212,7 @@ function krsErrorText(text: string): { message: string; fields?: Problem['fields
 }
 
 /**
- * HTTP status ของ POST → ErrorClass กลาง (docs/01 §6.3; A.5 คอลัมน์ ErrorClass) — **การจัดการ**ตาม A.5 เต็มรูป = ST8-T09
+ * HTTP status ของ POST → ErrorClass กลาง (docs/01 §6.3; A.5 คอลัมน์ ErrorClass) — **การจัดการ**ตาม A.5 อยู่ใน core (ST8-T09)
  * 400 VALIDATION · 401/403 AUTH · 409 DUPLICATE · 429/5xx TRANSIENT · อื่น ๆ (รวม 404 — POST ไม่มีใบให้ "ไม่พบ" = path ผิด) VALIDATION
  * (NOT_FOUND ของ A.5 ใช้กับ PUT/GET เท่านั้น — ST8-T09/T10)
  */
@@ -242,7 +250,7 @@ async function postOne(
   base: string,
   key: string,
   d: KrsInvoiceDocument,
-  http: Pick<SendOptions, 'allowPrivate' | 'resolver'>,
+  http: KrsHttpOptions,
 ): Promise<
   { ok: true; transactionNo: string; voucherNo: string | null } | (Fail & { definite: boolean })
 > {
@@ -293,8 +301,23 @@ async function postOne(
           false,
         );
       case 'network':
+        // ST8-T09 (docs/01 A.5 "timeout / connection reset → AMBIGUOUS"; §6.3 "connection refused → TRANSIENT"):
+        // ต่อไม่ติด/หา host ไม่เจอ = คำขอไม่ออกไป (รู้แน่ว่าไม่มีใบ) · สายหลุดหลังต่อติด = อาจบันทึกแล้ว → ไม่ POST ซ้ำทันที
+        if (r.notSent)
+          return no(
+            krsFail('TRANSIENT', 'unreachable', `KRS unreachable: ${r.errorMessage ?? ''}`),
+            true,
+          );
+        return no(
+          krsFail(
+            'AMBIGUOUS',
+            'connection_reset',
+            `KRS connection dropped before a response: ${r.errorMessage ?? ''}`,
+          ),
+          false,
+        );
       case 'aborted':
-        // สายหลุดอาจเกิดหลังส่งถึงแล้ว — ไม่ถือว่ารู้แน่
+        // ยกเลิกระหว่างส่ง (ปิด worker / เสีย lease) — อาจส่งถึงแล้ว ไม่ถือว่ารู้แน่
         return no(
           krsFail('TRANSIENT', 'unreachable', `KRS unreachable: ${r.errorMessage ?? ''}`),
           false,
@@ -406,7 +429,7 @@ export function planKrsInvoice(
 export async function pushKrsInvoice(
   ctx: ErpContext,
   inv: CanonicalDocument,
-  http: Pick<SendOptions, 'allowPrivate' | 'resolver'>,
+  http: KrsHttpOptions,
 ): Promise<PushResult> {
   const base = (ctx.config.baseUrl ?? '').trim().replace(/\/+$/, '');
   const key = ctx.config.apiKey ?? '';

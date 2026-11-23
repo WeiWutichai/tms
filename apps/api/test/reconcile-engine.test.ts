@@ -1,11 +1,11 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import type { PrismaClient, VatType } from '@prisma/client';
+import { Prisma, type PrismaClient, type VatType } from '@prisma/client';
 import { SYSTEM_ROLES } from '@tms/domain';
 import { type MockKrs, startMockKrs } from '@tms/mock-krs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { KrsAdapter } from '../src/erp-adapters/krs/krs.adapter';
-import { type CanonicalDocument, ErpAdapterError } from '../src/modules/erp/erp-adapter';
+import type { CanonicalDocument } from '../src/modules/erp/erp-adapter';
 import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
 import {
   DocumentReconcileService,
@@ -247,7 +247,11 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
   }
 
   /** ออกใบแจ้งหนี้ (1 รายการต่อ DO) แล้วส่งเข้า mock KRS */
-  async function issued(doIds: string[], vat: (i: number) => VatType = () => 'EXEMPT_TRANSPORT') {
+  async function issued(
+    doIds: string[],
+    vat: (i: number) => VatType = () => 'EXEMPT_TRANSPORT',
+    force = true,
+  ) {
     const inv = await plat.invoice.create({
       data: {
         tenantId,
@@ -285,7 +289,9 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
       .set('If-Match', `"${inv.version}"`)
       .send({});
     expect(r.status, JSON.stringify(r.body)).toBe(200);
-    await drain();
+    // force = ปลุกคำสั่งรอลองใหม่ทั้งหมดด้วย · false = ส่งเฉพาะที่ถึงเวลา (คำสั่งอ่านที่รอลองใหม่ยังรอ)
+    if (force) await drain();
+    else await dispatcher.drain();
     const m = await mapping(inv.id);
     expect(m.status, JSON.stringify(m.lastError)).toBe('SYNCED');
     return {
@@ -437,6 +443,11 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
     // AFTER_PUSH ทันที (ผ่านคิว FETCH_DOCUMENT ของ connector — ไม่เรียก ERP ตรง)
     expect(await engine.scheduleAfterPush()).toBe(1);
     expect(await engine.scheduleAfterPush()).toBe(0); // ตั้งซ้ำไม่ได้คำสั่งเพิ่ม
+    // จดขั้นที่ตั้งแล้วในผลของคำสั่งส่ง (ไม่ดึงแถวเดิมซ้ำทุกรอบตรวจ)
+    const push = await plat.integrationOutbox.findFirstOrThrow({
+      where: { tenantId, localId: inv.uuid, operation: 'PUSH_INVOICE', status: 'DONE' },
+    });
+    expect((push.result as { reconcileStages: number[] }).reconcileStages).toEqual([0]);
     const gets0 = mock.requests().filter((q) => q.method === 'GET').length;
     await drain();
     expect(mock.requests().filter((q) => q.method === 'GET').length).toBe(gets0 + 1);
@@ -834,21 +845,19 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
         reason: 'ตรวจซ้ำหลังแก้ในระบบบัญชี',
       });
     expect(m2.body.queued).toBe(0);
-    await drain(); // GET 503 → FAILED_RETRYABLE
+    await drain(); // GET 503 → FAILED_RETRYABLE (healthCheck ก็ล้ม → คิวพัก)
     const open = (await fetches(a.uuid)).filter((f) => f.status !== 'DONE');
     expect(open).toHaveLength(1);
     expect(open[0]).toMatchObject({ status: 'FAILED_RETRYABLE', maxAttempt: 3 });
     expect(open[0]!.serializeKey).toContain(`:recon:`);
-    // ส่งใบใหม่ของลูกค้าเดียวกันได้ระหว่างที่การอ่านรอลองใหม่ (ไม่ติดหัวคิว)
-    const posts = mock.requests().filter((q) => q.method === 'POST').length;
-    await plat.connector.update({ where: { id: conUuid }, data: { healthFailingSince: null } });
     mock.clearFaults();
-    mock.injectFault({ kind: 'status', status: 503, method: 'GET', times: 0 });
-    const b = await issued(await deliveryOrders(1));
+    await plat.connector.update({ where: { id: conUuid }, data: { healthFailingSince: null } });
+    // ส่งใบใหม่ของลูกค้าเดียวกันได้ระหว่างที่การอ่านยังรอลองใหม่ (ช่องลำดับแยก — ไม่ติดหัวคิว)
+    const posts = mock.requests().filter((q) => q.method === 'POST').length;
+    const b = await issued(await deliveryOrders(1), undefined, false);
     expect(mock.requests().filter((q) => q.method === 'POST').length).toBe(posts + 1);
     expect(b.transactionNo).toBeTruthy();
-    mock.clearFaults();
-    await plat.connector.update({ where: { id: conUuid }, data: { healthFailingSince: null } });
+    expect((await fetches(a.uuid)).filter((f) => f.status === 'FAILED_RETRYABLE')).toHaveLength(1);
     await drain();
     // วันทำการสุดท้ายของเดือน: NIGHTLY ไม่อ่านใบที่ออกเดือนนี้ (รอบ PRE_CLOSE 17:00 อ่าน)
     const last = (await import('../src/modules/erp/document-reconcile.service')).lastBusinessDay(
@@ -858,48 +867,51 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
       expect((await engine.runRound(tenantId, conUuid, 'NIGHTLY', last)).queued).toBe(0);
   });
 
-  it('เลขฝั่ง ERP ชี้ไปเอกสารที่ไม่ใช่ของใบนี้ (error ที่มี mismatched — ST8-T09) → MISMATCH MONEY remote_ref_mismatch + แจ้ง', async () => {
+  it('เลขฝั่ง ERP ชี้ไปเอกสารที่ไม่ใช่ของใบนี้ (ExternalPartsError ของ KRS — ST8-T09) → MISMATCH MONEY remote_ref_mismatch + แจ้ง', async () => {
     const inv = await issued(await deliveryOrders(1));
-    const reg = app.get(ErpAdapterRegistry);
-    class Swapped extends KrsAdapter {
-      override async fetchDocument(): Promise<CanonicalDocument | null> {
-        const e = new ErpAdapterError('VALIDATION', { code: 'krs_ref_mismatch', message: 'x' });
-        Object.assign(e, {
-          mismatched: [
-            { externalId: inv.transactionNo, expectedRef: inv.invoiceNo, actualRef: 'INV-OTHER' },
-          ],
-          missing: [],
-        });
-        throw e;
-      }
-    }
-    reg.replace(new Swapped({ allowPrivate: true }));
-    try {
-      const before = (await noti()).length + (await noti('email')).length;
-      await engine.runRound(tenantId, conUuid, 'NIGHTLY', addDay(today, 6));
-      await drain();
-      const [row] = await results(inv.uuid);
-      expect(row).toMatchObject({ result: 'MISMATCH', severity: 'MONEY' });
-      expect(row!.diff).toMatchObject({
-        code: 'remote_ref_mismatch',
-        mismatched: [
-          { externalId: inv.transactionNo, expectedRef: inv.invoiceNo, actualRef: 'INV-OTHER' },
-        ],
+    const other = await issued(await deliveryOrders(1));
+    // คนกรอก/สลับเลข KRS ผิดใบ: mapping ของ inv ชี้ไปเอกสารของ other
+    await plat.externalMapping.update({
+      where: { id: (await mapping(other.uuid)).id },
+      data: { externalId: `${other.transactionNo}-old` },
+    });
+    await plat.externalMapping.update({
+      where: { id: (await mapping(inv.uuid)).id },
+      data: { externalId: other.transactionNo, detail: Prisma.DbNull },
+    });
+    const r = await api(app, admin)
+      .post('/v1/reconcile-runs')
+      .send({
+        connectorId: conId,
+        check: 'DOCUMENT',
+        invoiceIds: [inv.id],
+        reason: 'ตรวจเลข KRS ที่กรอกมือ',
       });
-      expect(await mapping(inv.uuid)).toMatchObject({
-        status: 'MISMATCH',
-        reconcileState: 'MISMATCH',
-      });
-      const list = await api(app, admin)
-        .get(`/v1/reconcile-results?invoiceId=${inv.id}`)
-        .expect(200);
-      expect(list.body.data[0].refMismatches).toEqual([
-        { externalId: inv.transactionNo, expectedRef: inv.invoiceNo, actualRef: 'INV-OTHER' },
-      ]);
-      expect((await noti()).length + (await noti('email')).length).toBeGreaterThan(before);
-    } finally {
-      reg.replace(new KrsAdapter({ allowPrivate: true }));
-    }
+    expect(r.body.queued).toBe(1);
+    await drain();
+    const [row] = await results(inv.uuid);
+    expect(row).toMatchObject({ result: 'MISMATCH', severity: 'MONEY' });
+    expect(row!.diff).toMatchObject({
+      code: 'remote_ref_mismatch',
+      mismatched: [
+        { externalId: other.transactionNo, expectedRef: inv.invoiceNo, actualRef: other.invoiceNo },
+      ],
+    });
+    expect(await mapping(inv.uuid)).toMatchObject({
+      status: 'MISMATCH',
+      reconcileState: 'MISMATCH',
+    });
+    const list = await api(app, admin).get(`/v1/reconcile-results?invoiceId=${inv.id}`).expect(200);
+    expect(list.body.data[0]).toMatchObject({ code: 'remote_ref_mismatch' });
+    expect(list.body.data[0].refMismatches).toEqual([
+      { externalId: other.transactionNo, expectedRef: inv.invoiceNo, actualRef: other.invoiceNo },
+    ]);
+    // แจ้งหัวหน้าบัญชี (รวมกลุ่มกับแจ้งเตือนที่ยังไม่อ่านของ connector เดียวกันได้)
+    expect(
+      (await noti()).some((n) =>
+        ((n.payload as { invoiceNos?: string[] }).invoiceNos ?? []).includes(inv.invoiceNo),
+      ),
+    ).toBe(true);
   });
 });
 

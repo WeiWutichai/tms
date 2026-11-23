@@ -17440,6 +17440,52 @@
             },
             "description": "scope: integrations:read"
           }
+        },
+        {
+          "name": "POST /v1/reconcile-runs",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/reconcile-runs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "reconcile-runs"
+              ]
+            },
+            "description": "scope: settings:write | integrations:retry",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"connectorId\": \"con_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e\",\n  \"check\": \"PAYMENT_STATUS\",\n  \"invoiceIds\": [\n    \"ivc_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
         }
       ]
     },

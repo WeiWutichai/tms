@@ -4,13 +4,15 @@ import {
   type ErpContext,
   ErpAdapterError,
   type ExternalDocumentPart,
+  ExternalPartsError,
   type ExternalRef,
   type LoggedHttpCall,
 } from '../../modules/erp/erp-adapter';
 import type { ErrorClass } from '../../modules/integration/outbox.types';
-import { safeHttpRequest, type SendOptions } from '../../modules/webhooks/webhook-http';
+import { safeHttpRequest } from '../../modules/webhooks/webhook-http';
 import { KRS_INVOICE_HEADER_FIELDS } from './krs-invoice-payload';
 import {
+  type KrsHttpOptions,
   KRS_MAX_RESPONSE_BYTES,
   maskKrsPersonText,
   parseKrsCreated,
@@ -33,7 +35,9 @@ import {
  * - **จับคู่รายการด้วย `flowNo` (= เลข DO)** (docs/01 §6.5 — ไม่ใช่ลำดับ เพราะ KRS เขียนรายการใหม่ได้เมื่อบัญชีกดบันทึก A.1):
  *   มี `hint` (canonical ที่ส่ง) → `lineNo` = บรรทัดของ TMS ที่เลข DO ตรงกัน (DO เดียวหลายบรรทัด → `lineId` ที่ตรงก่อน แล้วตามลำดับ)
  *   ไม่ตรง DO ใด = `lineId` ของ KRS (ถ้ายังว่าง) ไม่งั้น null · ไม่มี hint = `lineId` · เรียงตาม `lineNo`
- * - error (A.5 / A.1): 404 → `NOT_FOUND` (`krs_not_found` — ใบใดใบหนึ่งหาย = ทั้งเอกสาร) · 401/403 AUTH · 503/429/5xx/timeout/เครือข่าย
+ * - ST8-T09 (review H1) ใบที่ได้ต้องมี `tmsVoucherNo` = `ref` ที่คาด (ใบที่แยก = `ref.documents[i].ref` · ใบเดียว = `ref.number`)
+ *   ไม่ตรง = `ExternalPartsError` VALIDATION `krs_ref_mismatch` (ระบุทีละ transactionNo) — คนกรอกเลขผิดใบ/สลับใบ ไม่ถูกนับว่ามีแล้ว
+ * - error (A.5 / A.1): 404 → `NOT_FOUND` (`krs_not_found` — ใบใดใบหนึ่งหาย = ทั้งเอกสาร · `ExternalPartsError.missing` บอกทีละ id) · 401/403 AUTH · 503/429/5xx/timeout/เครือข่าย
  *   TRANSIENT (GET อ่านอย่างเดียว — ไม่มี AMBIGUOUS) · อื่น ๆ VALIDATION
  * - ทุก GET รายงาน `ctx.onHttpCall` — ไม่ส่ง header · `carPerson` (ชื่อคนขับ) ใน response แทนด้วย `***`
  * - KRS ไม่มี endpoint ค้นด้วย `tmsVoucherNo` (A.1) → adapter ประกาศ `fetchNeedsExternalId` · `krsDocumentsFromSyncLog`
@@ -205,7 +209,7 @@ async function getOne(
   base: string,
   key: string,
   transactionNo: string,
-  http: Pick<SendOptions, 'allowPrivate' | 'resolver'>,
+  http: KrsHttpOptions,
 ): Promise<KrsBody> {
   const url = `${base}/invoice/${encodeURIComponent(transactionNo)}`;
   const started = Date.now();
@@ -301,7 +305,7 @@ export async function fetchKrsDocument(
   ctx: ErpContext,
   ref: ExternalRef,
   hint: CanonicalDocument | undefined,
-  http: Pick<SendOptions, 'allowPrivate' | 'resolver'>,
+  http: KrsHttpOptions,
 ): Promise<CanonicalDocument> {
   const base = (ctx.config.baseUrl ?? '').trim().replace(/\/+$/, '');
   const key = ctx.config.apiKey ?? '';
@@ -319,23 +323,61 @@ export async function fetchKrsDocument(
       'krs_transaction_no_required',
       'KRS cannot look up an invoice without its transactionNo',
     );
+  // ST8-T09 (review H1) `tmsVoucherNo` ที่คาดต่อ transactionNo — ใบที่แยก = `ref` ของแต่ละใบ · ใบเดียว = เลขเอกสาร TMS
+  const expected = new Map<string, string>(
+    ref.documents?.length
+      ? ref.documents.map((p) => [p.externalId, p.ref])
+      : ref.externalId && ref.number
+        ? [[ref.externalId, ref.number]]
+        : [],
+  );
   const parts: KrsBody[] = [];
   const missing: string[] = [];
+  const mismatched: { externalId: string; expectedRef: string; actualRef: string | null }[] = [];
   for (const id of new Set(ids)) {
+    let got: KrsBody;
     try {
-      parts.push(await getOne(ctx, base, key, id, http));
+      got = await getOne(ctx, base, key, id, http);
     } catch (e) {
       // อ่านทุกใบก่อน แล้วรายงานใบที่หายทั้งหมดในครั้งเดียว
-      if (e instanceof ErpAdapterError && e.errorClass === 'NOT_FOUND') missing.push(id);
-      else throw e;
+      if (e instanceof ErpAdapterError && e.errorClass === 'NOT_FOUND') {
+        missing.push(id);
+        continue;
+      }
+      throw e;
     }
+    // review H1: ใบที่ได้ต้องเป็นของเรา (tmsVoucherNo ตรงกับ ref ที่คาด) — id ผิดใบ/สลับใบ = ไม่นับว่าใบนี้มีแล้ว
+    const want = expected.get(id);
+    const actual = txt(got.body.tmsVoucherNo);
+    if (want !== undefined && actual !== want) {
+      mismatched.push({ externalId: id, expectedRef: want, actualRef: actual });
+      continue;
+    }
+    parts.push(got);
   }
-  if (missing.length)
-    throw fetchError(
-      'NOT_FOUND',
-      'krs_not_found',
-      `KRS has no invoice ${missing.join(', ').slice(0, 300)} (HTTP 404)` +
-        (parts.length ? ` — ${parts.length} of ${ids.length} KRS document(s) still exist` : ''),
+  if (mismatched.length || missing.length)
+    throw new ExternalPartsError(
+      mismatched.length
+        ? {
+            code: 'krs_ref_mismatch',
+            message:
+              `KRS document(s) ${mismatched
+                .map(
+                  (m) => `${m.externalId} (tmsVoucherNo ${m.actualRef ?? '-'} ≠ ${m.expectedRef})`,
+                )
+                .join(', ')} do not belong to this invoice`.slice(0, 450) +
+              (missing.length ? ` · not found: ${missing.join(', ')}`.slice(0, 50) : ''),
+          }
+        : {
+            code: 'krs_not_found',
+            message:
+              `KRS has no invoice ${missing.join(', ').slice(0, 300)} (HTTP 404)` +
+              (parts.length
+                ? ` — ${parts.length} of ${ids.length} KRS document(s) still exist`
+                : ''),
+          },
+      mismatched,
+      missing,
     );
   return krsBodiesToCanonical({ id: ref.localId, number: ref.number }, parts, hint);
 }
