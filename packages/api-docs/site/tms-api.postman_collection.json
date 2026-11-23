@@ -16693,6 +16693,36 @@
           }
         },
         {
+          "name": "GET /v1/connectors/metrics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/connectors/metrics",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "connectors",
+                "metrics"
+              ]
+            },
+            "description": "scope: settings:read | integrations:read"
+          }
+        },
+        {
           "name": "GET /v1/connectors/{id}",
           "request": {
             "method": "GET",

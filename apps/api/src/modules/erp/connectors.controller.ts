@@ -69,6 +69,7 @@ import {
   QueueApproveDto,
   QueueSkipDto,
 } from './connector-queue';
+import { ConnectorMetricsListDto, ConnectorMetricsService } from './connector-metrics';
 
 /**
  * ผลออก/หมุน token มีค่าที่แสดงครั้งเดียว — ห้ามเก็บลงตาราง idempotency (เก็บ response 24 ชม. เป็นข้อความธรรมดา)
@@ -101,6 +102,7 @@ export class ConnectorsController {
     private readonly connectors: ConnectorsService,
     private readonly db: DbService,
     private readonly queue: ConnectorQueueService,
+    private readonly metrics: ConnectorMetricsService,
   ) {}
 
   @Get()
@@ -119,6 +121,20 @@ export class ConnectorsController {
   })
   adapters(): ErpAdapterListDto {
     return { data: this.connectors.adapterCatalog() };
+  }
+
+  // ST9-T04 Dashboard เชื่อมต่อ (docs/04 H) — ประกาศก่อน `:id` (ไม่ให้ `GET /connectors/:id` จับ path `metrics`)
+  @Get('metrics')
+  @RequireScope('settings:read', 'integrations:read')
+  @ApiOkResponse({
+    type: ConnectorMetricsListDto,
+    description:
+      'ST9-T04 ตัวเลขต่อ connector ที่ยังไม่ยกเลิก: คิว (`queued`/`failed` = แท็บของหน้าคิว) · lag (อายุคำสั่งค้างที่เก่าสุด) · ' +
+      'health (ผล healthCheck ล่าสุด — worker ตรวจทุก 5 นาที) · ซิงก์ล่าสุด · MISMATCH เปิดอยู่ · poller ล่าสุด · error rate 7 วัน ' +
+      '(การเรียกระบบบัญชีที่ปลายทางไม่ตอบ/5xx/401/403/408/429) — ไม่มีเนื้อหาเอกสาร/ยอดเงิน',
+  })
+  async metricsList(): Promise<ConnectorMetricsListDto> {
+    return { data: await this.metrics.forTenant() };
   }
 
   @Post()

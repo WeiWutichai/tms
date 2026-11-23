@@ -43,6 +43,12 @@ import {
   ErpAdapterListDto,
 } from '../modules/erp/connector.dto';
 import { commandDto, ConnectorsService } from '../modules/erp/connectors.service';
+import {
+  ConnectorErrorRateDto,
+  ConnectorMetricsDto,
+  ConnectorMetricsService,
+} from '../modules/erp/connector-metrics';
+import type { Tx } from '../db/db.service';
 import { CleanText } from '../modules/master/master-kit';
 
 /** spec/01 §10: ทุกการเปลี่ยนข้อมูลลูกค้าจาก Console ต้องมีเหตุผล ≥ 10 ตัว + audit (PLT-004) */
@@ -155,6 +161,35 @@ export class PlatformCommandListDto {
   @ApiProperty({ type: [PlatformCommandDto] }) data!: PlatformCommandDto[];
 }
 
+export class PlatformHealthQuery {
+  @ApiPropertyOptional({ example: 'ten_…' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  tenantId?: string;
+}
+
+export class PlatformHealthTotalsDto {
+  @ApiProperty({ description: 'คิวค้าง (แท็บรอคิว) รวมทุก connector' }) queued!: number;
+  @ApiProperty({ description: 'ล้มเหลว ต้องมีคนทำ' }) failed!: number;
+  @ApiProperty({ description: 'lag สูงสุด (วินาที)' }) lagSeconds!: number;
+  @ApiProperty({ description: 'MISMATCH เปิดอยู่' }) openMismatches!: number;
+  @ApiProperty({ nullable: true, type: String, format: 'date-time', description: 'poller ล่าสุด' })
+  lastPollAt!: string | null;
+  @ApiProperty({ type: ConnectorErrorRateDto }) errorRate7d!: ConnectorErrorRateDto;
+}
+
+export class PlatformTenantHealthDto {
+  @ApiProperty({ example: 'ten_…' }) tenantId!: string;
+  @ApiProperty() tenantName!: string;
+  @ApiProperty({ type: PlatformHealthTotalsDto }) totals!: PlatformHealthTotalsDto;
+  @ApiProperty({ type: [ConnectorMetricsDto] }) connectors!: ConnectorMetricsDto[];
+}
+
+export class PlatformHealthListDto {
+  @ApiProperty({ type: [PlatformTenantHealthDto] }) data!: PlatformTenantHealthDto[];
+}
+
 const OPEN = ['PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE'] as const;
 const IF_MATCH = {
   name: 'If-Match',
@@ -182,6 +217,7 @@ export class PlatformConnectorsController {
     private readonly connectors: ConnectorsService,
     private readonly entitlements: EntitlementService,
     private readonly events: NotificationEvents,
+    private readonly metrics: ConnectorMetricsService,
   ) {}
 
   @Get('connectors/adapters')
@@ -216,6 +252,72 @@ export class PlatformConnectorsController {
     return {
       data: shown.map((r) => this.toDto(r, live.get(r.tenantId)!, queue.get(r.id))),
     };
+  }
+
+  /**
+   * ST9-T04 `GET /v1/platform/connectors/health` — ข้อมูลของหน้า Health (docs/02 §5 "คิวค้าง, MISMATCH เปิดอยู่, poller ล่าสุด,
+   * error rate 7 วัน ต่อ tenant"; หน้าจอยังไม่มีในต้นแบบ — PROGRESS #96) · อ่านอย่างเดียว ทุก role (ไม่ต้อง step-up)
+   * (คนละ route กับ `POST /platform/connectors/{id}/health` = สั่ง healthCheck connector ตัวเดียว)
+   * เฉพาะ tenant โหมด live ที่มี connector ยังไม่ยกเลิก · ตัวเลขชุดเดียวกับ `GET /v1/connectors/metrics` (ตัวนับ/เวลา/รหัสเท่านั้น
+   * — ไม่มีเนื้อหาเอกสาร ยอดเงิน หรือข้อความ error ดิบของลูกค้า) · เรียง tenant ที่มีปัญหาก่อน (DOWN/DEGRADED → ล้มเหลว → lag) แล้วตามชื่อ
+   */
+  @Get('connectors/health')
+  @PlatformAuth()
+  @ApiOkResponse({ type: PlatformHealthListDto })
+  async healthOverview(@Query() q: PlatformHealthQuery): Promise<PlatformHealthListDto> {
+    const db = this.prisma.platform;
+    const tenantId = q.tenantId ? decodeIdOr404('tenant', q.tenantId) : undefined;
+    const rows = await db.connector.findMany({
+      where: { ...(tenantId ? { tenantId } : {}), status: { not: 'DISCONNECTED' } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: 1000,
+    });
+    const tenants = await db.tenant.findMany({
+      where: { id: { in: [...new Set(rows.map((r) => r.tenantId))] }, mode: 'live' },
+      select: { id: true, name: true },
+    });
+    const live = new Map(tenants.map((t) => [t.id, t.name]));
+    const shown = rows.filter((r) => live.has(r.tenantId));
+    const metrics = await this.metrics.of(db as unknown as Tx, shown);
+    const byTenant = new Map<string, ConnectorMetricsDto[]>();
+    shown.forEach((r, i) => {
+      const list = byTenant.get(r.tenantId) ?? [];
+      list.push(metrics[i]!);
+      byTenant.set(r.tenantId, list);
+    });
+    const rank = (m: ConnectorMetricsDto) =>
+      m.health.state === 'DOWN' ? 2 : m.health.state === 'DEGRADED' ? 1 : 0;
+    const data = [...byTenant.entries()].map(([id, cs]) => {
+      const calls = cs.reduce((a, c) => a + c.errorRate7d.calls, 0);
+      const failed = cs.reduce((a, c) => a + c.errorRate7d.failed, 0);
+      const polls = cs.map((c) => c.poller.lastRunAt).filter((x): x is string => !!x);
+      return {
+        tenantId: encodeId('tenant', id),
+        tenantName: live.get(id)!,
+        totals: {
+          queued: cs.reduce((a, c) => a + c.queue.queued, 0),
+          failed: cs.reduce((a, c) => a + c.queue.failed, 0),
+          lagSeconds: Math.max(0, ...cs.map((c) => c.queue.lagSeconds)),
+          openMismatches: cs.reduce((a, c) => a + c.openMismatches, 0),
+          lastPollAt: polls.length ? polls.sort().at(-1)! : null,
+          errorRate7d: {
+            calls,
+            failed,
+            rate: calls ? Math.round((failed / calls) * 10_000) / 10_000 : 0,
+          },
+        },
+        connectors: cs,
+        _rank: Math.max(...cs.map(rank)),
+      };
+    });
+    data.sort(
+      (a, b) =>
+        b._rank - a._rank ||
+        b.totals.failed - a.totals.failed ||
+        b.totals.lagSeconds - a.totals.lagSeconds ||
+        a.tenantName.localeCompare(b.tenantName, 'th'),
+    );
+    return { data: data.map(({ _rank, ...x }) => x) };
   }
 
   /** คิวคำสั่ง (outbox sink `erp`) ข้าม tenant — ใหม่สุดก่อน · ไม่มี payload (request/response log = ST7-T19) */
