@@ -138,7 +138,7 @@ async function main() {
   const hist: string[] = [];
   for (let i = 1; i <= VOLUME.histCustomers; i++) hist.push(await newCustomer(`ประวัติ ${i}`));
   const big500 = await newCustomer('ใบใหญ่ 500');
-  const big200 = await newCustomer('ใบใหญ่ 200');
+  const big1000 = await newCustomer('ใบใหญ่ 1000');
   // ลูกค้าของรอบวางบิล = MONTHLY · อื่น ๆ = MANUAL (ไม่เข้ารอบ) · checklist หลักฐานส่ง = ไม่บังคับช่องใด (ไม่ต้องมีไฟล์ POD)
   await owner.customer.updateMany({
     where: { tenantId },
@@ -304,29 +304,30 @@ async function main() {
          WITH g AS (
            SELECT n,
                   CASE WHEN n <= ${VOLUME.runA.to} THEN 'RUN_A' WHEN n <= ${VOLUME.runB.to} THEN 'RUN_B'
-                       WHEN n <= ${VOLUME.big500.to} THEN 'BIG500' WHEN n <= ${VOLUME.big200.to} THEN 'BIG200'
+                       WHEN n <= ${VOLUME.big500.to} THEN 'BIG500' WHEN n <= ${VOLUME.big1000.to} THEN 'BIG1000'
                        ELSE (ARRAY['PLANNED','DISPATCHED','POD_PENDING','BILLED','BILLED','BILLED','BILLED',
                                    'BILLED','BILLED','BILLED'])[1 + n % 10] END AS cls,
                   ((n - 1) % 2000) + 1 AS k
              FROM generate_series(1, ${VOLUME.orders}) n)
          SELECT g.n, g.cls,
                 CASE WHEN g.n <= ${VOLUME.runB.to}
-                       THEN ($1::uuid[])[CASE WHEN g.k <= 450 THEN 1 WHEN g.k <= 900 THEN 2 ELSE 3 + (g.k - 901) % 22 END]
-                     WHEN g.cls = 'BIG500' THEN $2::uuid WHEN g.cls = 'BIG200' THEN $3::uuid
+                       THEN ($1::uuid[])[CASE WHEN g.k <= ${VOLUME.runBig} THEN 1 WHEN g.k <= ${VOLUME.runBig + VOLUME.runSecond} THEN 2
+                                            ELSE 3 + (g.k - ${VOLUME.runBig + VOLUME.runSecond + 1}) % 22 END]
+                     WHEN g.cls = 'BIG500' THEN $2::uuid WHEN g.cls = 'BIG1000' THEN $3::uuid
                      ELSE ($4::uuid[])[1 + g.n % ${VOLUME.histCustomers}] END AS customer_id,
                 ($5::uuid[])[1 + g.n % ${VOLUME.vehicles}] AS vehicle_id,
                 CASE g.cls WHEN 'RUN_A' THEN DATE '2026-10-01' + (g.n % 31)
                            WHEN 'RUN_B' THEN DATE '2026-09-01' + (g.n % 30)
                            WHEN 'BIG500' THEN DATE '2026-10-01' + (g.n % 31)
-                           WHEN 'BIG200' THEN DATE '2026-10-01' + (g.n % 31)
+                           WHEN 'BIG1000' THEN DATE '2026-10-01' + (g.n % 31)
                            ELSE DATE '2026-06-01' + (g.n % 90) END AS d,
                 TIMESTAMPTZ '2026-11-01T00:00:00Z' + g.n * INTERVAL '30 seconds' AS upd,
                 (g.cls NOT IN ('PLANNED', 'DISPATCHED')) AS done,
-                (g.cls IN ('RUN_A', 'BIG500', 'BIG200', 'BILLED')) AS released
+                (g.cls IN ('RUN_A', 'BIG500', 'BIG1000', 'BILLED')) AS released
            FROM g`,
         ids('customer', run),
         uuid('customer', big500),
-        uuid('customer', big200),
+        uuid('customer', big1000),
         ids('customer', hist),
         ids('vehicle', vehicles),
       );
@@ -486,7 +487,7 @@ async function main() {
   writeState({
     seededAt: new Date().toISOString(),
     tenantId,
-    customers: { run, big500, big200, hist },
+    customers: { run, big500, big1000, hist },
     vehicles,
     sites: { origin, dest },
     vehicleTypeId,

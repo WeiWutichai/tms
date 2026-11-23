@@ -322,6 +322,13 @@ describe('ready-to-bill queue (ST5-T04)', { timeout: 300_000 }, () => {
     const p2 = await queue(`?limit=2&cursor=${p1.nextCursor}`);
     expect(p2.data).toHaveLength(1);
     expect(new Set([...ids(p1), ...ids(p2)]).size).toBe(3);
+    // ST9-T17: ตัดหน้าก่อน join รายละเอียด — ลำดับ/หน้า (ทั้งสองทิศ) เท่ากับรายการเต็ม
+    const all = await queue('?limit=200');
+    expect([...ids(p1), ...ids(p2)]).toEqual(ids(all));
+    const d1 = await queue('?limit=2&sort=-updatedAt');
+    const d2 = await queue(`?limit=2&sort=-updatedAt&cursor=${d1.nextCursor}`);
+    expect([...ids(d1), ...ids(d2)]).toEqual([...ids(all)].reverse());
+    expect(d2.hasMore).toBe(false);
     // customers[] ไม่ขึ้นกับหน้า
     expect(p1.customers).toHaveLength(3);
     // updatedAfter ใช้ทั้งแถวและยอดรวมต่อลูกค้า (review L)

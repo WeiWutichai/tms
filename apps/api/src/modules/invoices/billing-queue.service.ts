@@ -155,7 +155,9 @@ export class BillingQueueService {
 
   /** CTE `r` = ผลประเมินความพร้อมของทุก DO ที่ส่งถึงแล้วและตรงตัวกรองพื้นฐาน */
   private readinessCte(f: Filter): Prisma.Sql {
-    const conds: Prisma.Sql[] = [Prisma.sql`d.status::text = ANY(${DELIVERED_STATUSES}::text[])`];
+    // ST9-T17: เทียบเป็น enum (ไม่ cast เป็น text) — planner ใช้สถิติของคอลัมน์ได้ · cast เป็น text แล้วประเมิน ~1 แถว
+    // จึงวาง nested loop + seq scan ลูกค้าต่อ DO (5,500 DO ≈ 120,000 แถวที่ทิ้ง — docs/perf/st9-t17-report.md §4) · ผลเท่าเดิม
+    const conds: Prisma.Sql[] = [Prisma.sql`d.status = ANY(${DELIVERED_STATUSES}::do_status[])`];
     if (f.ids) conds.push(Prisma.sql`d.id = ANY(${f.ids}::uuid[])`);
     if (f.customerId) conds.push(Prisma.sql`d.customer_id = ${f.customerId}::uuid`);
     if (f.from) conds.push(Prisma.sql`d.do_date >= ${f.from}::date`);
@@ -185,7 +187,7 @@ export class BillingQueueService {
                         WHERE x.delivery_order_id = d0.id AND x.status = 'PENDING_CONFIRM') AS sur_pending,
                (st.arrived_at IS NOT NULL AND st.departed_at IS NOT NULL) AS stop_ok,
                (d0.released_at IS NOT NULL) AS released,
-               (NOT (d0.billing_status::text = ANY(${NOT_INVOICED_BILLING_STATUSES}::text[]))) AS billed
+               (NOT (d0.billing_status = ANY(${NOT_INVOICED_BILLING_STATUSES}::billing_status[]))) AS billed
           FROM d0
           JOIN customer c ON c.id = d0.customer_id
           JOIN sales_order s ON s.id = d0.sales_order_id
@@ -297,8 +299,13 @@ export class BillingQueueService {
       ? Prisma.sql`q.updated_at DESC, q.id DESC`
       : Prisma.sql`q.updated_at ASC, q.id ASC`;
     const cte = this.queueCte(f);
+    // ST9-T17: ตัดหน้า (keyset + LIMIT) ก่อน แล้วจึง join รายละเอียด/LATERAL ของแถวในหน้า — เดิม LATERAL สินค้า/ยอดต่อ DO
+    // ถูกคำนวณกับทุก DO ในคิวก่อน sort (5,500 DO ≈ 265 ms ต่อคำขอ) · ผลและลำดับเท่าเดิม
     const rows = await tx.$queryRaw<PageRow[]>`
-      WITH ${cte}
+      WITH ${cte},
+      pg AS MATERIALIZED (
+        SELECT q.* FROM q WHERE ${Prisma.join(keyset, ' AND ')} ORDER BY ${order} LIMIT ${limit + 1}
+      )
       SELECT q.id, q.updated_at, q.pod_ok, q.req_pod, q.stop_ok, q.lines, q.total,
              d.do_no, d.do_date, d.status::text AS status, d.pod_status, d.version, d.sales_order_id,
              s.so_no, d.customer_id, c.code AS customer_code, c.legal_name AS customer_name,
@@ -309,7 +316,7 @@ export class BillingQueueService {
              coalesce(m.vat_base, 0) AS vat_base,
              t.trip_no, t.vehicle_plate_snapshot AS vehicle_plate, t.carrier_name_snapshot AS carrier_name,
              d.released_at, u.name AS released_by_name
-        FROM q
+        FROM pg q
         JOIN delivery_order d ON d.id = q.id
         JOIN sales_order s ON s.id = d.sales_order_id
         JOIN customer c ON c.id = d.customer_id
@@ -333,19 +340,19 @@ export class BillingQueueService {
         ) m ON true
         LEFT JOIN trip t ON t.id = d.trip_id
         LEFT JOIN app_user u ON u.id::text = d.released_by
-       WHERE ${Prisma.join(keyset, ' AND ')}
-       ORDER BY ${order}
-       LIMIT ${limit + 1}`;
+       ORDER BY ${order}`;
 
     // ST5-T04 QA L1: หลักฐานของแถวในหน้า (≤ limit) ตรวจกับ checklist **ปัจจุบัน** ของลูกค้าแบบเดียวกับตอนส่งบัญชี —
     // checklist เข้มขึ้นหลัง DO ผ่าน = `pod.complete` false + `pod.checklistOk` false (ตัวกรอง podComplete / customers[] ใช้สถานะที่เก็บ)
-    const current = new Map<string, boolean>();
-    for (const r of rows.slice(0, limit))
-      if (r.pod_ok)
-        current.set(
-          r.id,
-          (await this.pod.checkCurrent(tx, { id: r.id, customerId: r.customer_id })).ok,
-        );
+    // ST9-T17: ตรวจเป็นชุด (`checkCurrentMany` — ผลต่อ DO เท่ากับ `checkCurrent`) แทน 2 query ต่อแถว (หน้า 50 แถว ≈ 100 query)
+    const checked = await this.pod.checkCurrentMany(
+      tx,
+      rows
+        .slice(0, limit)
+        .filter((r) => r.pod_ok)
+        .map((r) => ({ id: r.id, customerId: r.customer_id })),
+    );
+    const current = new Map<string, boolean>([...checked].map(([id, c]) => [id, c.ok]));
     const page = toPage(
       rows.map((r) => ({ ...r, updatedAt: r.updated_at })),
       { limit, sort },

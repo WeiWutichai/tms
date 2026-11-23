@@ -6,12 +6,14 @@
  *   lists     รายการ 10,000 แถว (orders / delivery-orders / trips / invoices / คิววางบิล): หน้าแรก · cursor ลึก · ตัวกรอง · ไล่ครบ 10,000 แถว
  *   mixed     API p95 ของงานอ่านผสม (ผู้ใช้ 3 คน ~40 คำขอ/วินาที — ใต้เพดาน rate limit ต่อบริษัท 50/วินาที)
  *   webhook   เวลา event → ถึงตัวรับ (ตัวรับ HTTP ในเครื่อง)
- *   finalize  ร่าง + ออกใบแจ้งหนี้ 500 DO และ 200 DO (PDF แยกรายงาน)
- *   run       รอบวางบิล 2,000 DO (ส่งบัญชีแล้ว) และ 2,000 DO (ส่งบัญชีในรอบ)
+ *   finalize  D-65 ใบเดียว 500 DO และ 1,000 DO (เพดาน): ร่างคำขอเดียว → ออกเลข → PDF → ยกเลิก (void — tx 120 วิ)
+ *   run       รอบวางบิล 2,000 DO (ส่งบัญชีแล้ว) และ 2,000 DO (ส่งบัญชีในรอบ) · ลูกค้า 600 DO ต้องได้ร่างใบเดียว (D-65)
+ *             แล้วยกเลิกร่าง 600 DO นั้น (tx 120 วิ)
  *   web       (ไม่อยู่ในค่าเริ่ม — `--web` / `--only=web`) เวลาแสดงตารางในเบราว์เซอร์จริง ดู web.ts
  * ผล: ตารางสรุปบนจอ + JSON ที่ `.data/perf/result-<เวลา>.json` (`--out=<ไฟล์>` เพื่อเก็บที่อื่น)
  *
- * ธง: `--only=lists,mixed,webhook,finalize,run,web` · `--force` (ไม่รอเครื่องว่าง) · `--max-load=12`
+ * ธง: `--only=lists,mixed,webhook,finalize,run,web` · `--force` (ไม่รอเครื่องว่าง) · `--max-load=12` (รอก่อนเริ่มแต่ละส่วน)
+ *     · `--abort-load=12` (ระหว่างวัด load 1 นาทีเกิน = ทิ้งผลของส่วนนั้น แล้วรอเครื่องว่างวัดใหม่ — ส่วนที่ใช้ข้อมูลหมดไปไม่วัดซ้ำ)
  * finalize / run ใช้ข้อมูลหมดไป — รันซ้ำต้อง seed ใหม่ (`perf all`)
  */
 import 'reflect-metadata';
@@ -39,15 +41,29 @@ import {
   waitQuiet,
   writeState,
   type Call,
+  type Res,
   type PerfState,
   type Stats,
 } from './lib';
+
+/* eslint-disable @typescript-eslint/no-require-imports */
+const { tryDecodeId, encodeId } = require('../../src/common/ids');
+const { signStepUpToken } = require('../../src/auth/tokens');
+const { UNWIND_TX_TIMEOUT_MS: UNWIND_TX_MS } = require('../../src/modules/invoices/billing-limits');
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 const API_DIR = resolve(__dirname, '../..');
 const args = process.argv.slice(2);
 const flag = (name: string) => args.find((a) => a.startsWith(`--${name}=`))?.split('=')[1];
 const FORCE = args.includes('--force');
 const MAX_LOAD = Number(flag('max-load') ?? 12);
+const ABORT_LOAD = Number(flag('abort-load') ?? 12);
+/** ตั้งโดยตัวเฝ้า load ระหว่างส่วน — ตัววัดตรวจแล้วโยน (ผลของส่วนนั้นใช้ไม่ได้) */
+let loadAbort: string | null = null;
+class LoadAbort extends Error {}
+const checkLoad = () => {
+  if (loadAbort) throw new LoadAbort(loadAbort);
+};
 const SECTIONS = ['lists', 'mixed', 'webhook', 'finalize', 'run', 'web'] as const;
 type Section = (typeof SECTIONS)[number];
 /** ค่าเริ่ม = ทุกส่วนยกเว้น web (ต้องเปิด vite + Chromium — สั่งเองด้วย `--only=web` หรือ `--web`) */
@@ -139,8 +155,23 @@ function start(name: string, entry: string): ChildProcess {
   children.push(p);
   return p;
 }
-function stopAll() {
-  for (const p of children) if (p.exitCode === null) p.kill('SIGTERM');
+/** หยุด API/worker/vite — SIGTERM แล้ว SIGKILL ถ้ายังไม่ออกใน 5 วิ (รอบแรกพบ API ค้างหลัง SIGTERM แล้วรอบถัดไปวัดกับ process เก่า) */
+async function stopAll() {
+  const alive = () => children.filter((p) => p.exitCode === null && p.signalCode === null);
+  for (const p of alive()) p.kill('SIGTERM');
+  for (let i = 0; i < 50 && alive().length; i++) await sleep(100);
+  for (const p of alive()) p.kill('SIGKILL');
+}
+/** พอร์ตต้องว่างก่อนเปิด API — ไม่งั้นจะวัดกับ process อื่น (เช่น API ค้างจากรอบก่อน) */
+async function assertPortFree() {
+  const up = await fetch(`${BASE}/v1/healthz`).then(
+    () => true,
+    () => false,
+  );
+  if (up)
+    throw new Error(
+      `พอร์ต ${API_PORT} มี process อื่นฟังอยู่ — หยุดก่อน (lsof -ti tcp:${API_PORT})`,
+    );
 }
 async function waitApi() {
   for (let i = 0; i < 240; i++) {
@@ -163,6 +194,7 @@ async function sample(call: Call, path: string, n: number, warm = 2) {
   let bytes = 0;
   let count = 0;
   for (let i = 0; i < warm + n; i++) {
+    checkLoad();
     const started = performance.now();
     const r = await call('GET', path);
     if (r.status === 429) {
@@ -238,7 +270,15 @@ async function lists(call: Call, s: PerfState) {
     'invoices/queue': [
       ['คิวพร้อมวางบิล หน้าแรก (50)', '/v1/invoices/queue?limit=50'],
       ['คิว: ส่งบัญชีแล้ว', '/v1/invoices/queue?limit=50&released=true'],
-      ['คิว: กรองลูกค้า (450 DO)', `/v1/invoices/queue?limit=50&customerId=${s.customers.run[0]}`],
+      ['คิว: กรองลูกค้า (600 DO)', `/v1/invoices/queue?limit=50&customerId=${s.customers.run[0]}`],
+    ],
+    // ตัวนับเมนู (UI เรียกทุก 60 วิ ทุกหน้า) และ Dashboard เชื่อมต่อ (ST9-T04) — tenant นี้ไม่มี connector/ประวัติซิงก์
+    'me/badges': [['ตัวนับเมนู (sidebar badge)', '/v1/me/badges']],
+    'connectors/metrics': [['Dashboard เชื่อมต่อ', '/v1/connectors/metrics']],
+    // plan/03 "กระดานวางแผน 200 คัน × 7 วัน" — ช่วงที่มีเที่ยวหนาแน่น (ต.ค. 2569) และสัปดาห์นี้
+    'planning/board': [
+      ['กระดาน 7 วัน (ต.ค. — ~800 เที่ยว)', '/v1/planning/board?date=2026-10-01&days=7'],
+      ['กระดาน 1 วัน', '/v1/planning/board?date=2026-10-15&days=1'],
     ],
     search: [['ค้นหา ⌘K', '/v1/search?q=SO-P-0042']],
   };
@@ -250,6 +290,7 @@ async function lists(call: Call, s: PerfState) {
       try {
         r = await sample(call, path, 20);
       } catch (e) {
+        if (e instanceof LoadAbort) throw e;
         // ตัวแปรเดียวล้ม (เช่น 4xx/5xx) ไม่หยุดทั้งส่วน — รายงานเป็นไม่ผ่าน
         out[g].push({ label, path, error: (e as Error).message.slice(0, 300) });
         rows.push({
@@ -280,11 +321,9 @@ async function lists(call: Call, s: PerfState) {
     const pages: number[] = [];
     const started = performance.now();
     do {
+      checkLoad();
       const begin = performance.now();
-      const r: Awaited<ReturnType<Call>> = await call(
-        'GET',
-        `/v1/${res}?limit=200${cursor ? `&cursor=${cursor}` : ''}`,
-      );
+      const r: Res = await call('GET', `/v1/${res}?limit=200${cursor ? `&cursor=${cursor}` : ''}`);
       if (r.status === 429) {
         rateLimited++;
         await sleep(1000);
@@ -393,7 +432,7 @@ async function mixed(tokens: string[], s: PerfState) {
   await Promise.all(
     calls.map(async (call, u) => {
       const rnd = lcg(1000 + u);
-      while (performance.now() - started < DURATION) {
+      while (performance.now() - started < DURATION && !loadAbort) {
         let x = rnd() * totalW;
         const pick = mix.find(([w]) => (x -= w) < 0)![1];
         const [group, path] = pick(rnd);
@@ -411,6 +450,7 @@ async function mixed(tokens: string[], s: PerfState) {
       }
     }),
   );
+  checkLoad();
   const wall = performance.now() - started;
   const overall = stats(all);
   const groups = Object.fromEntries([...byGroup].map(([g, xs]) => [g, stats(xs)]));
@@ -442,15 +482,20 @@ async function mixed(tokens: string[], s: PerfState) {
 }
 
 const HOOK_EVENTS = ['order.created', 'invoice.finalized', 'job.completed'];
-async function ensureWebhook(call: Call) {
+async function ensureWebhook(call: Call, stepUp: string) {
   const url = `http://127.0.0.1:${RECEIVER_PORT}/hook`;
   // 409 duplicate = สร้างไว้แล้วจากรอบก่อน (ฐานเดิม) — ใช้ต่อ
   const r = ok(
-    await call('POST', '/v1/webhooks', {
-      url,
-      events: HOOK_EVENTS,
-      description: 'ตัวรับทดสอบประสิทธิภาพ (ในเครื่อง)',
-    }),
+    await call(
+      'POST',
+      '/v1/webhooks',
+      {
+        url,
+        events: HOOK_EVENTS,
+        description: 'ตัวรับทดสอบประสิทธิภาพ (ในเครื่อง)',
+      },
+      { 'X-Step-Up': stepUp },
+    ), // D-67: จัดการ webhook = step-up ทุก principal
     [201, 409],
     'webhook',
   );
@@ -464,6 +509,7 @@ async function webhook(call: Call, s: PerfState, db: PrismaClient) {
   let missed = 0;
   const N = 12;
   for (let i = 0; i < N; i++) {
+    checkLoad();
     const sent = Date.now();
     const r = ok(
       await call('POST', '/v1/orders', {
@@ -493,7 +539,7 @@ async function webhook(call: Call, s: PerfState, db: PrismaClient) {
     fromRequest.push(h.at - sent);
     // เวลา event ตามนาฬิกาฐานข้อมูล (domain_event.created_at) — ต่างเครื่อง/ต่าง container อาจคลาดกับนาฬิกาเครื่องที่รับ
     const ev = await db.$queryRawUnsafe<{ created_at: Date }[]>(
-      `SELECT created_at FROM domain_event WHERE type = 'order.created' ORDER BY created_at DESC LIMIT 1`,
+      `SELECT occurred_at AS created_at FROM domain_event WHERE type = 'order.created' ORDER BY occurred_at DESC LIMIT 1`,
     );
     if (ev[0]) fromEvent.push(h.at - ev[0].created_at.getTime());
     await sleep(1300 + (i % 4) * 150); // ไม่ตรงจังหวะรอบ poll 1 วิ ของ outbox ทุกครั้ง
@@ -520,7 +566,7 @@ async function readyDos(call: Call, customerId: string): Promise<string[]> {
   const out: string[] = [];
   let cursor: string | null = null;
   do {
-    const r: Awaited<ReturnType<Call>> = ok(
+    const r: Res = ok(
       await call(
         'GET',
         `/v1/invoices/queue?limit=200&released=true&fields=id&customerId=${customerId}${cursor ? `&cursor=${cursor}` : ''}`,
@@ -534,47 +580,30 @@ async function readyDos(call: Call, customerId: string): Promise<string[]> {
   return out;
 }
 
+/**
+ * D-65 ใบเดียว `size` DO: ร่าง (คำขอเดียว — เพดาน 1,000) → ออกเลข (ผู้ออกคนละคน — กฎแบ่งหน้าที่) → PDF → ยกเลิก (void)
+ * void = ถอยกลับทั้งใบใน transaction เดียว (`UNWIND_TX_TIMEOUT_MS` 120 วิ — ST5-T12b) · ต้อง step-up (D-67)
+ */
 async function finalizeOne(
-  label: string,
   size: number,
   customerId: string,
   preparer: Call,
   finalizer: Call,
+  finalizerStepUp: () => Promise<string>,
   db: PrismaClient,
 ) {
   const dos = await readyDos(preparer, customerId);
   if (dos.length < size)
-    throw new Error(`finalize ${label}: DO พร้อมวางบิล ${dos.length} < ${size} — seed ใหม่ก่อน`);
+    throw new Error(`finalize ${size}: DO พร้อมวางบิล ${dos.length} < ${size} — seed ใหม่ก่อน`);
   const pick = dos.slice(0, size);
-  // เพดาน 200 DO ต่อคำขอ → ใบ 500 DO = สร้าง 200 + เพิ่ม 200 + เพิ่ม 100
-  const steps: { step: string; dos: number; ms: number }[] = [];
-  let r = ok(
-    await preparer('POST', '/v1/invoices', { customerId, deliveryOrderIds: pick.slice(0, 200) }),
+  const d = ok(
+    await preparer('POST', '/v1/invoices', { customerId, deliveryOrderIds: pick }),
     201,
     'draft',
   );
-  steps.push({ step: 'POST /invoices', dos: Math.min(200, size), ms: Math.round(r.ms) });
-  const id = r.body.id as string;
-  for (let i = 200; i < size; i += 200) {
-    const part = pick.slice(i, i + 200);
-    r = ok(
-      await preparer(
-        'POST',
-        `/v1/invoices/${id}/delivery-orders`,
-        { deliveryOrderIds: part },
-        { 'If-Match': `"${r.body.version}"` },
-      ),
-      [200, 201],
-      'add DOs',
-    );
-    steps.push({
-      step: 'POST /invoices/{id}/delivery-orders',
-      dos: part.length,
-      ms: Math.round(r.ms),
-    });
-  }
+  const id = d.body.id as string;
   const gets: number[] = [];
-  let version = r.body.version as number;
+  let version = d.body.version as number;
   let lines = 0;
   for (let i = 0; i < 5; i++) {
     const g = ok(await preparer('GET', `/v1/invoices/${id}`), 200, 'get draft');
@@ -583,6 +612,7 @@ async function finalizeOne(
     lines = g.body.lines.length;
     await sleep(PACE_MS);
   }
+  checkLoad();
   const before = hooks.length;
   const requested = Date.now();
   const f = await finalizer('POST', `/v1/invoices/${id}/finalize`, undefined, {
@@ -593,8 +623,7 @@ async function finalizeOne(
   const out: Record<string, unknown> = {
     deliveryOrders: size,
     lines,
-    draftSteps: steps,
-    draftTotalMs: steps.reduce((a, x) => a + x.ms, 0),
+    draftCreateMs: Math.round(d.ms),
     getDraft: stats(gets),
     finalizeMs: Math.round(f.ms),
     finalizeStatus: f.status,
@@ -608,7 +637,7 @@ async function finalizeOne(
       30_000,
     );
     if (hook) out.webhookAfterResponseMs = hook.at - responded;
-    // แยกเวลา: ขั้นออกเลข (transaction) กับ render + เก็บ PDF ต้นฉบับ (หลัง commit ในคำขอเดียวกัน)
+    // แยกเวลา: ขั้นออกเลข (transaction) กับ render + เก็บ PDF ต้นฉบับ
     const t = await db
       .$queryRawUnsafe<{ issued_at: Date; pdf_at: Date | null; pdf_bytes: number | null }[]>(
         `SELECT i.issued_at, d.created_at AS pdf_at, d.size_bytes::int AS pdf_bytes
@@ -616,44 +645,85 @@ async function finalizeOne(
         WHERE i.invoice_no = $1`,
         f.body.invoiceNo,
       )
-      .catch(() => []);
+      .catch((e) => (console.warn(`  pdf timing: ${(e as Error).message.slice(0, 200)}`), []));
+    if (t[0]) out.requestToIssuedAtMs = t[0].issued_at.getTime() - requested;
     if (t[0]?.pdf_at) {
-      out.requestToIssuedAtMs = t[0].issued_at.getTime() - requested;
       out.issuedAtToPdfStoredMs = t[0].pdf_at.getTime() - t[0].issued_at.getTime();
       out.pdfBytes = t[0].pdf_bytes;
     }
-    // งานเบื้องหลัง render สำเนา (worker) — เวลา render PDF ของใบขนาดนี้ 1 ฉบับโดยไม่ปนขั้นออกเลข
-    for (let i = 0; i < 120; i++) {
+    // งานเบื้องหลัง render PDF (worker) — เวลา render ของใบขนาดนี้ 1 ฉบับโดยไม่ปนขั้นออกเลข
+    for (let i = 0; i < 240; i++) {
       const j = await db
-        .$queryRawUnsafe<{ status: string; ms: number | null }[]>(
-          `SELECT status::text, (extract(epoch FROM (finished_at - started_at)) * 1000)::int AS ms
+        .$queryRawUnsafe<{ status: string; ms: number | null; wait_ms: number | null }[]>(
+          `SELECT status::text, (extract(epoch FROM (finished_at - started_at)) * 1000)::int AS ms,
+                  (extract(epoch FROM (started_at - created_at)) * 1000)::int AS wait_ms
            FROM job WHERE type = 'invoice.render_pdf' AND payload->>'invoiceId' = (SELECT id::text FROM invoice WHERE invoice_no = $1)
           ORDER BY created_at DESC LIMIT 1`,
           f.body.invoiceNo,
         )
         .catch(() => []);
-      if (j[0] && !['PENDING', 'RUNNING'].includes(j[0].status)) {
-        out.copyPdfJob = j[0];
+      if (j[0] && !['PENDING', 'RUNNING', 'QUEUED'].includes(j[0].status.toUpperCase())) {
+        out.pdfJob = j[0];
         break;
       }
       await sleep(500);
     }
     const pdf = await finalizer('GET', `/v1/invoices/${id}/pdf`);
     out.downloadPdf = { status: pdf.status, ms: Math.round(pdf.ms), bytes: pdf.bytes };
+    // ยกเลิกใบที่ออกแล้ว (void) — ถอยกลับ DO ทุกใบ + คิดบรรทัดรายได้ใหม่ต่อใบสั่ง ใน transaction เดียว
+    checkLoad();
+    const cur = ok(await finalizer('GET', `/v1/invoices/${id}`), 200, 'get issued');
+    const v = await finalizer(
+      'POST',
+      `/v1/invoices/${id}/void`,
+      { reason: 'ทดสอบประสิทธิภาพ ยกเลิกใบใหญ่' },
+      { 'If-Match': `"${cur.body.version}"`, 'X-Step-Up': await finalizerStepUp() },
+    );
+    const back = await db.$queryRawUnsafe<{ n: number }[]>(
+      `SELECT count(*)::int AS n FROM delivery_order WHERE id = ANY($1::uuid[]) AND billing_status = 'UNBILLED'`,
+      pick.map((x) => tryDecodeId('deliveryOrder', x)),
+    );
+    out.void = {
+      status: v.status,
+      ms: Math.round(v.ms),
+      dosBackToUnbilled: back[0]?.n,
+      error: v.status === 200 ? undefined : JSON.stringify(v.body).slice(0, 300),
+    };
   }
+  const pdfJob = out.pdfJob as { ms: number | null; status: string } | undefined;
   rows.push({
-    item: `Finalize ใบแจ้งหนี้ ${size} DO`,
-    detail: `${lines} บรรทัด · HTTP ${f.status}${okFinal ? ` · ${f.body.invoiceNo} · PDF ในคำตอบ: ${f.body.pdf ? 'มี' : 'ไม่มี (รอ job)'}` : ''}`,
-    value: `${ms(f.ms)} (รวม render PDF ต้นฉบับ)${out.issuedAtToPdfStoredMs !== undefined ? ` · ออกเลข→PDF เก็บ ${ms(out.issuedAtToPdfStoredMs as number)}` : ''}`,
+    item: `Finalize ใบแจ้งหนี้ ${size} DO (D-65 ใบเดียว)`,
+    detail: `${lines} บรรทัด · HTTP ${f.status}${okFinal ? ` · ${f.body.invoiceNo} · PDF ในคำตอบ: ${f.body.pdf ? 'มี' : 'ไม่มี (รอ job)'}` : ` · ${JSON.stringify(f.body).slice(0, 200)}`}`,
+    value: `${ms(f.ms)}${out.requestToIssuedAtMs !== undefined ? ` (คำขอ→issued_at ${ms(out.requestToIssuedAtMs as number)})` : ''}`,
     target: `< ${TARGET.finalizeMs} ms`,
     pass: okFinal && f.ms < TARGET.finalizeMs,
   });
+  if (okFinal) {
+    rows.push({
+      item: `PDF ใบแจ้งหนี้ ${size} DO`,
+      detail: `${out.pdfBytes ? `${Math.round((out.pdfBytes as number) / 1024)} KB · ` : ''}job ${pdfJob?.status ?? 'ไม่พบ'} · ดาวน์โหลด HTTP ${(out.downloadPdf as any).status}`,
+      value: `render (job) ${pdfJob?.ms != null ? ms(pdfJob.ms) : '–'}${out.issuedAtToPdfStoredMs !== undefined ? ` · ออกเลข→PDF เก็บ ${ms(out.issuedAtToPdfStoredMs as number)}` : ''} · ดาวน์โหลด ${ms((out.downloadPdf as any).ms)}`,
+      target: '(ไม่มีเป้าเฉพาะ — spec/11 NFR-706 [PROPOSED] PDF async)',
+      pass: null,
+    });
+    const vo = out.void as {
+      status: number;
+      ms: number;
+      dosBackToUnbilled?: number;
+      error?: string;
+    };
+    rows.push({
+      item: `ยกเลิก (void) ใบแจ้งหนี้ ${size} DO`,
+      detail: `HTTP ${vo.status} · DO กลับ UNBILLED ${vo.dosBackToUnbilled}/${size}${vo.error ? ` · ${vo.error}` : ''}`,
+      value: ms(vo.ms),
+      target: `< ${UNWIND_TX_MS / 1000} วิ (transaction ถอยกลับ ST5-T12b)`,
+      pass: vo.status === 200 && vo.dosBackToUnbilled === size && vo.ms < UNWIND_TX_MS,
+    });
+  }
   rows.push({
-    item: `ร่างใบแจ้งหนี้ ${size} DO`,
-    detail: steps
-      .map((x) => `${x.step.replace('POST ', '')} ${x.dos} DO = ${ms(x.ms)}`)
-      .join(' · '),
-    value: `รวม ${ms(out.draftTotalMs as number)} · GET ร่าง p50 ${ms(stats(gets).p50)}`,
+    item: `ร่างใบแจ้งหนี้ ${size} DO (คำขอเดียว)`,
+    detail: `POST /invoices ${size} DO`,
+    value: `${ms(d.ms)} · GET ร่าง p50 ${ms(stats(gets).p50)} · p95 ${ms(stats(gets).p95)}`,
     target: '(ไม่มีเป้าเฉพาะ — API เขียน p95 ≤ 500 ms ใน spec/11 [PROPOSED])',
     pass: null,
   });
@@ -666,8 +736,11 @@ async function invoiceRun(
   expectDos: number,
   call: Call,
   db: PrismaClient,
+  bigCustomer: string,
 ) {
+  checkLoad();
   const before = hooks.length;
+  const runStartedAt = Date.now();
   const started = performance.now();
   const r = ok(await call('POST', '/v1/invoice-runs', body), 202, 'invoice run');
   const jobId = r.body.jobId as string;
@@ -699,6 +772,17 @@ async function invoiceRun(
     body.periodTo,
   );
   const res = job.result ?? {};
+  // D-65: ลูกค้ารายใหญ่ (600 DO) ต้องได้ร่างใบเดียวในรอบนี้
+  const big = await db
+    .$queryRawUnsafe<{ id: string; dos: number }[]>(
+      `SELECT i.id::text, count(DISTINCT l.delivery_order_id)::int AS dos
+       FROM invoice i JOIN invoice_line l ON l.invoice_id = i.id AND l.delivery_order_id IS NOT NULL AND l.active
+      WHERE i.customer_id = $1::uuid AND i.status = 'DRAFT' AND i.created_at >= $2::timestamptz
+      GROUP BY i.id`,
+      tryDecodeId('customer', bigCustomer),
+      new Date(runStartedAt - 5000).toISOString(),
+    )
+    .catch((e) => (console.warn(`  big customer: ${(e as Error).message.slice(0, 200)}`), []));
   const out = {
     request: body,
     status: job.status,
@@ -711,6 +795,7 @@ async function invoiceRun(
     deliveryOrdersInDrafts: drafted[0]?.n ?? null,
     jobCompletedWebhookMs: hook && t[0] ? hook.at - t[0].finished_at.getTime() : null,
     problems: (res.results ?? []).filter((x: any) => x.problem).slice(0, 3),
+    bigCustomerDrafts: big,
   };
   rows.push({
     item: `Invoice run ${expectDos.toLocaleString()} DO`,
@@ -721,6 +806,13 @@ async function invoiceRun(
       job.status === 'succeeded' &&
       out.deliveryOrdersInDrafts === expectDos &&
       wall < TARGET.invoiceRunMs,
+  });
+  rows.push({
+    item: `Invoice run: ลูกค้า ${VOLUME.runBig} DO → ใบเดียว (D-65)`,
+    detail: label,
+    value: `${big.length} ร่าง (${big.map((b) => `${b.dos} DO`).join(', ') || '–'})`,
+    target: `1 ร่าง ${VOLUME.runBig} DO`,
+    pass: big.length === 1 && big[0]!.dos === VOLUME.runBig,
   });
   return out;
 }
@@ -735,6 +827,7 @@ async function main() {
   const preparerToken = await token('perf-preparer');
   const preparer = client(preparerToken);
   const finalizer = client(await token('perf-finalizer'));
+  const stepUp = (sub: string) => () => signStepUpToken(sub, s.tenantId) as Promise<string>;
 
   const pg = await db.$queryRawUnsafe<{ v: string }[]>('SELECT version() AS v');
   const meta = {
@@ -753,105 +846,199 @@ async function main() {
     volume: VOLUME,
     rateLimit: process.env.RATE_LIMIT ?? 'on (ค่าเริ่ม)',
     maxLoad: MAX_LOAD,
+    abortLoad: ABORT_LOAD,
     forced: FORCE,
     loadAtStart: load(),
-    sections: {} as Record<string, { loadBefore: number[]; loadAfter: number[]; seconds: number }>,
+    sections: {} as Record<
+      string,
+      {
+        loadBefore: number[];
+        loadAfter: number[];
+        peakLoad1m: number;
+        seconds: number;
+        attempts: number;
+        aborted: string[];
+      }
+    >,
   };
   result.meta = meta;
 
   const closeReceiver = await startReceiver();
   log(`เปิด API :${API_PORT} + worker (ฐาน ${dbName}) · ตัวรับ webhook :${RECEIVER_PORT}`);
+  await assertPortFree();
   start('api', 'src/main.ts');
   start('worker', 'src/worker.ts');
   await waitApi();
   await sleep(1500);
 
-  const section = async (name: Section, fn: () => Promise<void>) => {
+  /**
+   * วัดหนึ่งส่วน: รอ load ≤ --max-load ก่อนเริ่ม · ระหว่างวัดเฝ้า load 1 นาทีทุก 2 วิ — เกิน --abort-load = ทิ้งผลของส่วนนั้น
+   * (ตัด rows ที่เพิ่ม) แล้วรอเครื่องว่างวัดใหม่ (สูงสุด 3 ครั้ง) · `once` = ส่วนที่ใช้ข้อมูลหมดไป (finalize/run) ไม่วัดซ้ำ — ติดป้ายแทน
+   */
+  const section = async (name: Section, fn: () => Promise<void>, once = false) => {
     if (!ONLY.includes(name)) return;
-    const loadBefore = await waitQuiet(MAX_LOAD, FORCE, name);
-    log(`▶ ${name} (load ${loadBefore.join(' ')})`);
+    const aborted: string[] = [];
+    let loadBefore: number[] = [];
+    let peak = 0;
     const begin = Date.now();
-    try {
-      await fn();
-    } catch (e) {
-      console.error(`  ✘ ${name}: ${(e as Error).message}`);
-      rows.push({
-        item: name,
-        detail: 'วัดไม่สำเร็จ',
-        value: (e as Error).message.slice(0, 300),
-        target: '',
-        pass: false,
-      });
-      (result as any)[`${name}Error`] = (e as Error).message;
+    let attempts = 0;
+    for (;;) {
+      attempts++;
+      loadBefore = await waitQuiet(MAX_LOAD, FORCE, name);
+      log(
+        `▶ ${name} (load ${loadBefore.join(' ')})${attempts > 1 ? ` — ครั้งที่ ${attempts}` : ''}`,
+      );
+      const mark = rows.length;
+      loadAbort = null;
+      peak = loadBefore[0]!;
+      const watch = setInterval(() => {
+        const [l1] = load();
+        peak = Math.max(peak, l1!);
+        if (!FORCE && l1! > ABORT_LOAD && !loadAbort)
+          loadAbort = `load 1 นาที ${l1} > ${ABORT_LOAD} ระหว่างวัด ${name}`;
+      }, 2000);
+      try {
+        await fn();
+        clearInterval(watch);
+        if (loadAbort && once) {
+          // ส่วนที่ใช้ข้อมูลหมดไป: ผลยังอยู่ แต่ติดป้ายว่า load เกินระหว่างวัด
+          for (const r of rows.slice(mark)) r.detail += ` · ⚠ ${loadAbort}`;
+          aborted.push(loadAbort);
+        }
+        break;
+      } catch (e) {
+        clearInterval(watch);
+        if (e instanceof LoadAbort && !once && attempts < 3) {
+          console.warn(`  ⚠ ${e.message} — ทิ้งผล รอเครื่องว่างแล้ววัดใหม่`);
+          aborted.push(e.message);
+          rows.splice(mark);
+          await sleep(30_000);
+          continue;
+        }
+        console.error(`  ✘ ${name}: ${(e as Error).message}`);
+        rows.push({
+          item: name,
+          detail: 'วัดไม่สำเร็จ',
+          value: (e as Error).message.slice(0, 300),
+          target: '',
+          pass: false,
+        });
+        (result as any)[`${name}Error`] = (e as Error).message;
+        break;
+      }
     }
+    loadAbort = null;
     meta.sections[name] = {
       loadBefore,
       loadAfter: load(),
+      peakLoad1m: peak,
       seconds: Math.round((Date.now() - begin) / 1000),
+      attempts,
+      aborted,
     };
   };
 
   try {
-    await ensureWebhook(preparer);
+    await ensureWebhook(preparer, await stepUp('perf-preparer')());
     await section('lists', () => lists(preparer, s));
     await section('mixed', async () =>
       mixed([preparerToken, await token('perf-user-2'), await token('perf-user-3')], s),
     );
     await section('webhook', () => webhook(preparer, s, db));
-    await section('finalize', async () => {
-      if (s.consumed.finalize)
-        throw new Error(`ข้อมูล finalize ถูกใช้แล้ว (${s.consumed.finalize}) — seed ใหม่`);
-      s.consumed.finalize = new Date().toISOString();
-      writeState(s);
-      result.finalize = {
-        do500: await finalizeOne('500', 500, s.customers.big500, preparer, finalizer, db),
-        do200: await finalizeOne('200', 200, s.customers.big200, preparer, finalizer, db),
-      };
-    });
-    await section('run', async () => {
-      if (s.consumed.run)
-        throw new Error(`ข้อมูล invoice run ถูกใช้แล้ว (${s.consumed.run}) — seed ใหม่`);
-      s.consumed.run = new Date().toISOString();
-      writeState(s);
-      const a = await invoiceRun(
-        'DO ส่งบัญชีแล้ว',
-        {
-          billingCycle: 'MONTHLY',
-          periodFrom: VOLUME.runA.periodFrom,
-          periodTo: VOLUME.runA.periodTo,
-        },
-        VOLUME.runA.to - VOLUME.runA.from + 1,
-        preparer,
-        db,
-      );
-      const b = await invoiceRun(
-        'ส่งบัญชีในรอบ (releaseDeliveryOrders)',
-        {
-          billingCycle: 'MONTHLY',
-          periodFrom: VOLUME.runB.periodFrom,
-          periodTo: VOLUME.runB.periodTo,
-          releaseDeliveryOrders: true,
-        },
-        VOLUME.runB.to - VOLUME.runB.from + 1,
-        preparer,
-        db,
-      );
-      result.invoiceRun = { released: a, releaseInRun: b };
-    });
+    await section(
+      'finalize',
+      async () => {
+        if (s.consumed.finalize)
+          throw new Error(`ข้อมูล finalize ถูกใช้แล้ว (${s.consumed.finalize}) — seed ใหม่`);
+        s.consumed.finalize = new Date().toISOString();
+        writeState(s);
+        const fz = stepUp('perf-finalizer');
+        result.finalize = {
+          do500: await finalizeOne(500, s.customers.big500, preparer, finalizer, fz, db),
+          do1000: await finalizeOne(1000, s.customers.big1000, preparer, finalizer, fz, db),
+        };
+      },
+      true,
+    );
+    await section(
+      'run',
+      async () => {
+        if (s.consumed.run)
+          throw new Error(`ข้อมูล invoice run ถูกใช้แล้ว (${s.consumed.run}) — seed ใหม่`);
+        s.consumed.run = new Date().toISOString();
+        writeState(s);
+        const a = await invoiceRun(
+          'DO ส่งบัญชีแล้ว',
+          {
+            billingCycle: 'MONTHLY',
+            periodFrom: VOLUME.runA.periodFrom,
+            periodTo: VOLUME.runA.periodTo,
+          },
+          VOLUME.runA.to - VOLUME.runA.from + 1,
+          preparer,
+          db,
+          s.customers.run[0]!,
+        );
+        // ยกเลิกร่างใบใหญ่จากรอบ (600 DO) — transaction ถอยกลับ 120 วิ (ST5-T12b)
+        const bigDraft = a.bigCustomerDrafts[0];
+        if (bigDraft) {
+          const pid = encodeId('invoice', bigDraft.id) as string;
+          const g = ok(await preparer('GET', `/v1/invoices/${pid}`), 200, 'get run draft');
+          const c = await preparer(
+            'POST',
+            `/v1/invoices/${pid}/cancel`,
+            { reason: 'ทดสอบประสิทธิภาพ ยกเลิกร่างใบใหญ่' },
+            { 'If-Match': `"${g.body.version}"` },
+          );
+          (a as any).cancelDraft = { status: c.status, ms: Math.round(c.ms), dos: bigDraft.dos };
+          rows.push({
+            item: `ยกเลิกร่างใบแจ้งหนี้ ${bigDraft.dos} DO (จากรอบ)`,
+            detail: `HTTP ${c.status}${c.status === 200 ? '' : ` · ${JSON.stringify(c.body).slice(0, 200)}`}`,
+            value: ms(c.ms),
+            target: `< ${UNWIND_TX_MS / 1000} วิ (transaction ถอยกลับ ST5-T12b)`,
+            pass: c.status === 200 && c.ms < UNWIND_TX_MS,
+          });
+        }
+        const b = await invoiceRun(
+          'ส่งบัญชีในรอบ (releaseDeliveryOrders)',
+          {
+            billingCycle: 'MONTHLY',
+            periodFrom: VOLUME.runB.periodFrom,
+            periodTo: VOLUME.runB.periodTo,
+            releaseDeliveryOrders: true,
+          },
+          VOLUME.runB.to - VOLUME.runB.from + 1,
+          preparer,
+          db,
+          s.customers.run[0]!,
+        );
+        result.invoiceRun = { released: a, releaseInRun: b };
+      },
+      true,
+    );
     await section('web', async () => {
       const w = await web(children);
       result.web = w;
       for (const p of w.pages as any[])
-        rows.push({
-          item: `เว็บ: ตาราง ${p.label} (${p.path})`,
-          detail: `${p.rowsShown} แถวบนจอ · ${w.mode} · ${w.viewport}`,
-          value: `โหลดเต็มหน้า p50 ${ms(p.fullLoad.p50)} · max ${ms(p.fullLoad.max)}${p.inApp ? ` · เปลี่ยนหน้าในแอป p50 ${ms(p.inApp.p50)} · max ${ms(p.inApp.max)}` : ''}`,
-          target: `< ${TARGET.listMs} ms`,
-          pass: p.fullLoad.max < TARGET.listMs,
-        });
+        if (p.error)
+          rows.push({
+            item: `เว็บ: ตาราง ${p.label} (${p.path})`,
+            detail: 'วัดไม่สำเร็จ',
+            value: p.error,
+            target: `< ${TARGET.listMs} ms`,
+            pass: false,
+          });
+        else
+          rows.push({
+            item: `เว็บ: ตาราง ${p.label} (${p.path})`,
+            detail: `${p.rowsShown} แถวบนจอ · ${w.mode} · ${w.viewport}`,
+            value: `โหลดเต็มหน้า p50 ${ms(p.fullLoad.p50)} · max ${ms(p.fullLoad.max)}${p.inApp ? ` · เปลี่ยนหน้าในแอป p50 ${ms(p.inApp.p50)} · max ${ms(p.inApp.max)}` : ''}`,
+            target: `< ${TARGET.listMs} ms`,
+            pass: p.fullLoad.max < TARGET.listMs,
+          });
     });
   } finally {
-    stopAll();
+    await stopAll();
     closeReceiver();
   }
   (meta as any).loadAtEnd = load();
@@ -877,10 +1064,10 @@ async function main() {
   process.exit(0);
 }
 
-process.on('SIGINT', () => (stopAll(), process.exit(130)));
-process.on('SIGTERM', () => (stopAll(), process.exit(143)));
-main().catch((e) => {
-  stopAll();
+process.on('SIGINT', () => void stopAll().then(() => process.exit(130)));
+process.on('SIGTERM', () => void stopAll().then(() => process.exit(143)));
+main().catch(async (e) => {
+  await stopAll();
   console.error(e);
   process.exit(1);
 });

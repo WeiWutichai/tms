@@ -74,7 +74,7 @@ else if (cmd === 'all') {
   script('run', rest);
 } else {
   console.error(
-    'ใช้: pnpm --filter @tms/api perf [seed|run|all] [--force] [--only=lists,mixed,webhook,finalize,run]',
+    'ใช้: pnpm --filter @tms/api perf [seed|run|all] [--force] [--only=lists,mixed,webhook,finalize,run,web] [--web] [--max-load=8] [--abort-load=12]',
   );
   process.exit(2);
 }

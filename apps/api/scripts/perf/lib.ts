@@ -32,19 +32,25 @@ export const VOLUME = {
   /** รอบวางบิล A: DO ส่งบัญชีแล้ว (ต.ค. 2569) · B: DO ยังไม่ส่งบัญชี (ก.ย. 2569 — วัดทาง releaseDeliveryOrders) */
   runA: { from: 1, to: 2000, periodFrom: '2026-10-01', periodTo: '2026-10-31' },
   runB: { from: 2001, to: 4000, periodFrom: '2026-09-01', periodTo: '2026-09-30' },
-  /** ใบเดียว 500 DO (เกณฑ์ NFR) และ 200 DO (เพดานของ POST /invoices ต่อคำขอ) */
+  /**
+   * ใบเดียว 500 DO (เกณฑ์ NFR "finalize invoice 500 DO") และ 1,000 DO (= เพดาน `MAX_DOS_PER_INVOICE` — D-65)
+   * ทั้งสองแบบสร้างร่างด้วยคำขอเดียว → ออกเลข → PDF → ยกเลิก (void — transaction 120 วิ ของ ST5-T12b)
+   */
   big500: { from: 4001, to: 4500 },
-  big200: { from: 4501, to: 4700 },
-  /** ลูกค้าของรอบวางบิล: 2 รายใหญ่ (450 DO — ใกล้ใบ KRS 446 รายการ) + 22 ราย × 50 DO */
+  big1000: { from: 4501, to: 5500 },
+  /** ลูกค้าของรอบวางบิล: รายใหญ่ 600 DO (D-65 — ≥ 500 DO ต้องได้ใบเดียว) + 450 DO (ขนาดใบ KRS 446 รายการ) + 22 ราย × ~43 DO */
+  runBig: 600,
+  runSecond: 450,
   runCustomers: 24,
   histCustomers: 20,
-  vehicles: 20,
+  /** plan/03 "กระดานวางแผน 200 คัน × 7 วัน" */
+  vehicles: 200,
 } as const;
 
 export interface PerfState {
   seededAt: string;
   tenantId: string;
-  customers: { run: string[]; big500: string; big200: string; hist: string[] };
+  customers: { run: string[]; big500: string; big1000: string; hist: string[] };
   vehicles: string[];
   sites: { origin: string; dest: string };
   vehicleTypeId: string;

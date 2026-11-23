@@ -14,12 +14,14 @@ import { API_PORT, BASE, PERF_DIR, sleep, stats } from './lib';
 export const PERF_USER = { email: 'viewer@perf.test', password: 'perf-password-2569' };
 const WEB_PORT = Number(process.env.PERF_WEB_PORT ?? API_PORT + 2);
 const WEB = `http://localhost:${WEB_PORT}`;
-/** หน้ารายการ (path ตาม apps/web/src/nav.ts) */
+/**
+ * หน้ารายการ (path ตาม apps/web/src/nav.ts) — เฉพาะหน้าที่ทำแล้ว (`READY` ใน apps/web/src/App.tsx):
+ * `/do` และ `/trips` ยังเป็น "หน้านี้ยังไม่เปิดใช้" (24 พ.ย. 2569) จึงวัดได้เฉพาะ API ของสองรายการนั้น (ส่วน `lists`)
+ */
 const PAGES: [path: string, label: string][] = [
   ['/so', 'ใบสั่งขนส่ง'],
-  ['/do', 'ใบส่งของ'],
-  ['/trips', 'เที่ยวรถ'],
   ['/bill', 'วางบิล'],
+  ['/pay', 'รับชำระ (ใบแจ้งหนี้ค้างรับ)'],
 ];
 const ROW = 'table tbody tr';
 
@@ -75,22 +77,34 @@ export async function web(children: ChildProcess[]) {
       const full: number[] = [];
       const inApp: number[] = [];
       let rows = 0;
-      for (let i = 0; i < 6; i++) {
-        // (ก) โหลดเต็มหน้า (พิมพ์ URL / refresh)
-        let t = Date.now();
-        await page.goto(path, { waitUntil: 'commit' });
-        await page.locator(ROW).first().waitFor({ state: 'visible', timeout: 60_000 });
-        if (i > 0) full.push(Date.now() - t);
-        rows = await page.locator(ROW).count();
-        // (ข) เปลี่ยนหน้าในแอป: ไปหน้าแรก (/) แล้วกดเมนูกลับมา
-        await page.goto('/', { waitUntil: 'networkidle' });
-        const link = page.locator(`a[href="${path}"]`).first();
-        if (await link.count()) {
-          t = Date.now();
-          await link.click();
+      try {
+        for (let i = 0; i < 6; i++) {
+          // (ก) โหลดเต็มหน้า (พิมพ์ URL / refresh)
+          let t = Date.now();
+          await page.goto(path, { waitUntil: 'commit' });
           await page.locator(ROW).first().waitFor({ state: 'visible', timeout: 60_000 });
-          if (i > 0) inApp.push(Date.now() - t);
+          if (i > 0) full.push(Date.now() - t);
+          rows = await page.locator(ROW).count();
+          // (ข) เปลี่ยนหน้าในแอป: ไปหน้าแรก (/) แล้วกดเมนูกลับมา
+          await page.goto('/', { waitUntil: 'networkidle' });
+          const link = page.locator(`a[href="${path}"]`).first();
+          if (await link.count()) {
+            t = Date.now();
+            await link.click();
+            await page.locator(ROW).first().waitFor({ state: 'visible', timeout: 60_000 });
+            if (i > 0) inApp.push(Date.now() - t);
+          }
         }
+      } catch (e) {
+        // หน้าหนึ่งล้มไม่หยุดหน้าอื่น — เก็บภาพหน้าจอไว้ดูสาเหตุ
+        const shot = resolve(PERF_DIR, `web-fail${path.replace(/\//g, '-')}.png`);
+        await page.screenshot({ path: shot }).catch(() => undefined);
+        results.push({
+          path,
+          label,
+          error: `${(e as Error).message.split('\n')[0]} (ภาพ: ${shot})`,
+        });
+        continue;
       }
       results.push({
         path,
