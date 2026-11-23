@@ -37,7 +37,7 @@ export const EXPORT_RESOURCES = [
   'service-items',
   'rate-cards',
   'reason-codes',
-  // ST9-T06 รายงาน (หน้า รายงาน → ส่งออก Excel)
+  // ST9-T06 รายงาน (หน้า รายงาน → ส่งออก Excel) · pdf ทาง API (D-81 · D68-99)
   'unbilled-delivery-orders',
   'receivables-aging',
   // ST9-T05 รายงานรายได้ (xlsx / csv / pdf)
@@ -64,7 +64,7 @@ export class CreateExportDto {
     enum: ['xlsx', 'csv', 'pdf'],
     default: 'xlsx',
     description:
-      '.xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ .csv UTF-8 + BOM · `pdf` (ตาราง A4 ≤ 2,000 แถว) เฉพาะรายงานสรุป — resource `revenue` (อื่น ๆ = 422)',
+      '.xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ .csv UTF-8 + BOM · `pdf` (ตาราง A4 ≤ 2,000 แถว) เฉพาะรายงาน — resource `revenue`, `unbilled-delivery-orders`, `receivables-aging` (อื่น ๆ = 422)',
   })
   @IsOptional()
   @IsIn(['xlsx', 'csv', 'pdf'])

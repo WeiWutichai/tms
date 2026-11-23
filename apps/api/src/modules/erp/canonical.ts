@@ -109,6 +109,12 @@ export interface CanonicalSettlementLine {
   lineNo: number;
   lineType: string;
   trip: { number: string } | null;
+  /**
+   * D-81 · D68-81 เลข DO ของบรรทัด (docs/01 §7.3 `lines[].deliveryOrder.number`) — บรรทัดใบสำคัญจ่ายผูกกับเที่ยว (1 เที่ยวมีหลาย DO)
+   * จึงเป็นรายการ: ค่าใช้จ่ายหน้างานที่บันทึกคู่กับ DO (DO_SURCHARGE) = DO นั้น · บรรทัดอื่นที่มีเที่ยว = DO ทุกใบของเที่ยวที่ไม่ถูกยกเลิก
+   * (เรียงตามเลข) · บรรทัดที่ไม่มีเที่ยว = [] · ใช้กระทบยอดรายบรรทัดกับ DO ฝั่ง AP
+   */
+  deliveryOrders: { number: string }[];
   description: string;
   /** ยอดของบรรทัด (บรรทัดหัก = ยอดติดลบตามที่เก็บ — CHECK `settlement_line_ref_check`) */
   amount: string;
@@ -307,6 +313,24 @@ export const CANONICAL_SETTLEMENT_SELECT = {
   deductionAmount: true,
   netPayable: true,
   whtAmount: true,
+  // D68-81 เลข DO ต่อบรรทัด (ทุกบรรทัดรวมที่ถูกนำออก — canonical กรองตาม DTO `active`)
+  lines: {
+    select: {
+      lineNo: true,
+      tripCost: {
+        select: { doSurcharge: { select: { deliveryOrder: { select: { doNo: true } } } } },
+      },
+      trip: {
+        select: {
+          deliveryOrders: {
+            where: { status: { not: 'CANCELLED' }, doNo: { not: null } },
+            select: { doNo: true },
+            orderBy: { doNo: 'asc' },
+          },
+        },
+      },
+    },
+  },
 } satisfies Prisma.CarrierSettlementSelect;
 
 export type SettlementForCanonical = Prisma.CarrierSettlementGetPayload<{
@@ -323,6 +347,14 @@ export function canonicalSettlement(
 ): CanonicalSettlementPayload {
   const est = s.whtEstimate;
   const wht = row.whtAmount ?? new Prisma.Decimal(0);
+  const doNos = new Map<number, string[]>();
+  for (const l of row.lines) {
+    const own = l.tripCost?.doSurcharge?.deliveryOrder.doNo;
+    doNos.set(
+      l.lineNo,
+      own ? [own] : (l.trip?.deliveryOrders ?? []).map((d) => d.doNo!).filter(Boolean),
+    );
+  }
   return withSyncHash({
     kind: 'settlement',
     id: row.id,
@@ -369,6 +401,7 @@ export function canonicalSettlement(
         lineNo: l.lineNo,
         lineType: l.lineType,
         trip: l.tripNo ? { number: l.tripNo } : null,
+        deliveryOrders: (l.tripNo ? (doNos.get(l.lineNo) ?? []) : []).map((number) => ({ number })),
         description: l.description,
         amount: l.buyAmount ?? '0.00',
         vatType: l.vatType,

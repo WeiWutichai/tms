@@ -70587,6 +70587,7 @@
               "approval.requested",
               "document.expiring",
               "connector.down",
+              "reconcile.mismatch",
               "delivery_order.unbilled",
               "payment.due"
             ]
@@ -70653,6 +70654,7 @@
               "approval.requested",
               "document.expiring",
               "connector.down",
+              "reconcile.mismatch",
               "delivery_order.unbilled",
               "payment.due"
             ]
@@ -71106,7 +71108,7 @@
               "pdf"
             ],
             "default": "xlsx",
-            "description": ".xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ .csv UTF-8 + BOM · `pdf` (ตาราง A4 ≤ 2,000 แถว) เฉพาะรายงานสรุป — resource `revenue` (อื่น ๆ = 422)"
+            "description": ".xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ .csv UTF-8 + BOM · `pdf` (ตาราง A4 ≤ 2,000 แถว) เฉพาะรายงาน — resource `revenue`, `unbilled-delivery-orders`, `receivables-aging` (อื่น ๆ = 422)"
           },
           "filter": {
             "type": "object",
