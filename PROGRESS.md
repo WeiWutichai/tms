@@ -507,6 +507,15 @@
 
 ## บันทึกรายวัน
 
+### 23 พ.ย. 2569 (E2E ล้มรอบแรกใน ci:local — console / rate-limit / sandbox · lane lv, `test/e2e-flaky-console-ratelimit`)
+
+- **console.spec "super admin…" (FACT, ทำซ้ำได้ทุกครั้งในลำดับ CI แม้เครื่องว่าง):** connectors.spec (รันก่อนไฟล์นี้) login Console ด้วย super-admin ที่ step `now` แล้ว step-up (D-77) ด้วย `freshCode()` → ได้ step `now+1` · console.spec login super-admin ต่อในช่วง 30 วิ เดิมโดยเดา `totp(off 0/1)` = `now`/`now+1` ซึ่ง ≤ `totp_last_step` → server ปฏิเสธทั้งคู่ (กัน replay ถูกต้อง) — ฐาน `tms_lv_e2e` หลังล้ม: super-admin `totp_last_step` = 59848072, billing 59848071, `failed_logins` 2 · รันเดี่ยวผ่านเพราะข้ามช่วงเวลาแล้ว · **แก้ (test):** `fixtures.ts` จำ step ที่ใช้แล้ว**แยกตามบัญชี** (`'tenant'` รวมผู้ใช้เดโม · อีเมลทีมงาน Console) ในไฟล์ JSON ต่อพอร์ต lane — `freshCode(account)` / `confirmStepUp(page, account)` · login Console ใน console/connectors + step-up ใน invite + login ใน mfa ใช้ `freshCode` ครั้งเดียว ไม่เดา offset (รหัสที่ถูกปฏิเสธนับเข้าเพดานล็อก 5 ครั้ง) · `totp()` เป็นฟังก์ชันล้วน ใช้กับ secret ใหม่ของ test เท่านั้น · (รอบแรกที่นับรวมทุกบัญชี: ผ่านแต่ทุก login Console ต้องรอข้ามช่วง ~30 วิ)
+- **rate-limit.spec (FACT):** ล้มด้วย test timeout 30 วิ ไม่ใช่ 429 (`ERR_ABORTED` = ผลของการปิดหน้าตอนหมดเวลา) · เวลาของ test นี้ใน log ci:local ย้อนหลัง 15–28 วิ ก่อนมี badge แล้ว (ชุด 4 ล้ม 32 วิ ก่อน PR #186) — เดิน 11 หน้าแบบโหลดใหม่ทั้งหน้า + networkidle + ค้าง 5 วิ ใกล้เพดานเมื่อ lane อื่นรันขนาน · badge = 1 คำขอต่อการโหลดหน้า/60 วิ เทียบเพดานผู้ใช้ 20/s burst 40 (docs/04 G1) → ไม่ใช่บั๊กแอป ไม่กินเพดาน · **แก้:** `test.setTimeout(60_000)` พร้อมเหตุผล (spec ตรวจเพดานคำขอ ไม่ได้ตรวจความเร็ว)
+- **sandbox.spec:62 (FACT จากโค้ด):** toast "สลับเป็น Sandbox" ขึ้นทันทีที่กดและหายเองใน 3.6 วิ แต่ test รอ `GET /v1/api-keys` ก่อนตรวจ toast → เครื่องโหลดหนักคำขอช้ากว่า 3.6 วิ toast หายก่อน · **แก้:** ตรวจ toast ก่อนรอ response
+- **a11y.spec (ไม่พบสาเหตุเฉพาะ):** รอบ baseline ใน worktree ใหม่ (cache vite ว่าง) ผ่านครบ ไม่มีข้อความ re-optimize/reload ของ vite · ล้มเฉพาะตอน load สูง (แถว/ปุ่มไม่ขึ้นใน 5–30 วิ) → ไม่แก้ ไม่เพิ่ม retry
+- **ไฟล์:** `apps/web/e2e/{console,connectors,invite,mfa,rate-limit,sandbox}.spec.ts`, `fixtures.ts` · ไม่แก้แอป/API
+- **ตรวจ:** baseline (โค้ดเดิม) ทั้งชุด 195: console ล้ม 1 · หลังแก้ รันชุด api-keys → connectors → console → invite → mfa → rate-limit → sandbox → settings ตามลำดับ CI 2 รอบ (load < 12): 18/18 ผ่านทั้งคู่ · ยังไม่ได้รัน ci:local เต็มชุด
+
 ### 23 พ.ย. 2569 (D-81 ชุด 6 — กลุ่ม (C) D68-39/40 ลิงก์รถร่วม LOADED + แจ้งไม่สำเร็จ/บางส่วน · กลุ่ม (L) D68-89 badge งานค้างบน sidebar · lane lr, `fix/d68-batch6`)
 
 - **ตรวจต้นแบบก่อนทำ (FACT):** TMS Subcon แท็บ "ส่ง POD" ไม่มี (ก) ปุ่ม/ฟอร์มแจ้งไม่สำเร็จ/รับบางส่วนพร้อมเหตุผล (ข) การแยก "ขึ้นของเสร็จ" ที่จุดรับ (ค) ยอดส่งจริงต่อรายการ · TMS v4 `vNav()`/`counts()` **มี** badge ครบ (pill ขาว/แดงเร่ง, ผลรวมกลุ่มที่ปิด, จุดตอนย่อ) · ยอดส่งจริงในลิงก์ทำแล้วตั้งแต่ ST4-T10 (ตาม Driver App M4) — ชุดนี้ไม่ต้องแก้

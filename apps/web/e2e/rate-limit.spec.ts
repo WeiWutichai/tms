@@ -9,6 +9,10 @@ import { expect, test } from './fixtures';
 test('ใช้งานหน้าหลักต่อเนื่องไม่ชนเพดาน (ไม่มี 429) · response มี RateLimit-*', async ({
   page,
 }) => {
+  // เดิน 11 หน้าแบบโหลดใหม่ทั้งหน้า (page.goto = บูตแอป + ต่ออายุ token + ดึงข้อมูลหน้า) รอ networkidle ทุกหน้า + ค้างบนกระดาน 5 วิ
+  // วัดจริง: เครื่องว่าง ~15 วิ · ci:local ที่มี lane อื่นรันขนาน (load > 10) 25–32 วิ → ชนเพดาน 30 วิ ของ test ทั้งที่ไม่มี 429
+  // spec นี้ตรวจเพดานคำขอ ไม่ได้ตรวจความเร็ว — ให้เวลาตามจำนวนหน้า
+  test.setTimeout(60_000);
   const seen: Response[] = [];
   page.on('response', (r) => {
     if (new URL(r.url()).pathname.startsWith('/v1/')) seen.push(r);
