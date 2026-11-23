@@ -226,6 +226,32 @@ function basicCredentials(req: Request): [string, string] | null {
   }
 }
 
+/**
+ * review T-1 (login CSRF): grant ที่ตั้ง cookie (`authorization_code`, `refresh_token`) รับเฉพาะคำขอจากหน้าเว็บของเราเอง
+ * - body แบบ form (ส่งข้ามเว็บได้โดยไม่ preflight) → 403 · form ใช้ได้เฉพาะ `client_credentials` (API client ไม่มี cookie)
+ * - `Sec-Fetch-Site` ต้องเป็น same-origin / none / ไม่ส่ง (client ที่ไม่ใช่เบราว์เซอร์) — อื่น ๆ ผ่านได้เมื่อ `Origin` ตรงกับ
+ *   `PUBLIC_WEB_BASE_URL` (เว็บอยู่คนละ origin กับ API) · ไม่ผ่าน → 403 `forbidden`
+ */
+export function assertCookieGrantSameSite(req: Request): void {
+  if (req.is('application/x-www-form-urlencoded'))
+    throw new ProblemException(
+      'forbidden',
+      'this grant sets a session cookie and accepts JSON only (form bodies are for client_credentials)',
+    );
+  const site = req.header('sec-fetch-site');
+  if (site === undefined || site === 'same-origin' || site === 'none') return;
+  const web = process.env.PUBLIC_WEB_BASE_URL;
+  const origin = req.header('origin');
+  let allowed = false;
+  try {
+    allowed = !!web && !!origin && new URL(web).origin === new URL(origin).origin;
+  } catch {
+    allowed = false;
+  }
+  if (!allowed)
+    throw new ProblemException('forbidden', 'cross-site request to a cookie-setting grant');
+}
+
 export const REFRESH_COOKIE = 'tms_rt';
 const COOKIE_PATH = '/v1/oauth';
 
@@ -295,7 +321,7 @@ export class AuthController {
   @ApiOkResponse({
     type: TokenDto,
     description:
-      'authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` · client_credentials: ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed)',
+      'authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` — รับเฉพาะ JSON จากหน้าเว็บเดียวกัน (form / `Sec-Fetch-Site` ข้ามเว็บ → 403 `forbidden`) · client_credentials: รับ JSON หรือ form (RFC 6749) ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed)',
   })
   @ApiTooManyRequestsResponse({
     description: `rate_limited — เกิน ${TOKEN_PER_IP_PER_MIN} ครั้ง/นาที ต่อ IP หรือ ${TOKEN_PER_CLIENT_PER_MIN} ครั้ง/นาที ต่อ client id (client_credentials) มี header Retry-After`,
@@ -338,13 +364,13 @@ export class AuthController {
         scope: t.scope,
       });
     }
+    assertCookieGrantSameSite(req); // review T-1 — ก่อนตรวจ code/cookie
     if (body.grantType === 'authorization_code') {
       if (!body.code || !body.codeVerifier) throw new ProblemException('invalid_grant');
       pair = await this.auth.exchangeCode(body.code, body.codeVerifier, clientOf(req));
     } else {
-      // refresh ของ UI อ่าน cookie เท่านั้น — คำขอแบบ form (ส่งข้ามเว็บได้โดยไม่ preflight) ไม่รับ grant นี้
+      // refresh ของ UI อ่าน cookie เท่านั้น (form/ข้ามเว็บถูกกันที่ assertCookieGrantSameSite แล้ว)
       // (`refresh_token` ใน body ตาม RFC 6749 §6 มากับงาน Auth Code + PKCE/RS256 ของ UI ก่อนเปิด Open API — D68-42)
-      if (req.is('application/x-www-form-urlencoded')) throw new ProblemException('invalid_grant');
       const rt = req.cookies?.[REFRESH_COOKIE] as string | undefined;
       // ไม่มี cookie เลย = ไม่ได้ login (401 — เว็บไม่ต้องลองซ้ำ; 400 สงวนไว้สำหรับ cookie ที่เพิ่งถูกหมุน)
       if (!rt) throw new ProblemException('unauthorized');
