@@ -313,6 +313,7 @@ export class InvoicesController {
       'ลูกค้า + ชุด DO ต้องตรงกับใบ (เพิ่ม/ถอด DO ใช้ `/invoices/{id}/delivery-orders…`) ไม่ตรง → 409 `conflict` · ' +
       'ช่องหัวใบ (งวด/รูปบรรทัด/เลข PO/หมายเหตุ) เหมือนเดิม → ใบเดิม version เดิม (ส่งซ้ำได้) · ต่าง: ร่าง → แก้ (เหมือน PATCH) · ' +
       '**ใบที่ออกแล้ว/ยกเลิกแก้ไม่ได้ → 409 `invalid_state_transition`** (docs/04 F3) · externalId ตั้งได้ตอนสร้างเท่านั้น · ' +
+      'ยกเลิกแล้วออกใหม่ (`/void` + reissue) ใบใหม่**ไม่รับ externalId เดิม** (ใบเดิมคง externalId ไว้) — ระบบต้นทางต้องใช้ externalId ใหม่ · ' +
       'path `{id}` ทุก route รับ `ext:{externalId}`',
   })
   @ApiProblems(

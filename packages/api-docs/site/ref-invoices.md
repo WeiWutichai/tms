@@ -264,7 +264,7 @@ const { data, error } = await tms.POST('/v1/invoices', {
 
 scope: `invoices:draft` · operationId: `Invoices_upsertExternal`
 
-ยังไม่มีใบที่ externalId นี้ → สร้างร่าง (กติกาเดียวกับ `POST /invoices`) 201 · มีแล้ว → 200: ลูกค้า + ชุด DO ต้องตรงกับใบ (เพิ่ม/ถอด DO ใช้ `/invoices/{id}/delivery-orders…`) ไม่ตรง → 409 `conflict` · ช่องหัวใบ เหมือนเดิม → ใบเดิม version เดิม (ส่งซ้ำได้) · ต่าง: ร่าง → แก้ (เหมือน PATCH) · **ใบที่ออกแล้ว/ยกเลิกแก้ไม่ได้ → 409 `invalid_state_transition`** · externalId ตั้งได้ตอนสร้างเท่านั้น · path `{id}` ทุก route รับ `ext:{externalId}`
+ยังไม่มีใบที่ externalId นี้ → สร้างร่าง (กติกาเดียวกับ `POST /invoices`) 201 · มีแล้ว → 200: ลูกค้า + ชุด DO ต้องตรงกับใบ (เพิ่ม/ถอด DO ใช้ `/invoices/{id}/delivery-orders…`) ไม่ตรง → 409 `conflict` · ช่องหัวใบ เหมือนเดิม → ใบเดิม version เดิม (ส่งซ้ำได้) · ต่าง: ร่าง → แก้ (เหมือน PATCH) · **ใบที่ออกแล้ว/ยกเลิกแก้ไม่ได้ → 409 `invalid_state_transition`** · externalId ตั้งได้ตอนสร้างเท่านั้น · ยกเลิกแล้วออกใหม่ (`/void` + reissue) ใบใหม่**ไม่รับ externalId เดิม** (ใบเดิมคง externalId ไว้) — ระบบต้นทางต้องใช้ externalId ใหม่ · path `{id}` ทุก route รับ `ext:{externalId}`
 
 **Parameters**
 

@@ -10,6 +10,7 @@ import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { assertHumanStepUp } from '../../auth/step-up';
+import { assertKeyEventScope } from './event-read-scope';
 import { DbService, type Tx } from '../../db/db.service';
 import { RateLimitService, slidingWindow } from '../../http/rate-limit/rate-limit.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
@@ -102,6 +103,22 @@ export class WebhooksService {
         action: 'rotate_secret',
         required: ['settings:write'],
       });
+  }
+
+  /**
+   * review G-1: API key เปลี่ยน url / header ลับได้เฉพาะ endpoint ที่ key ดอกเดียวกันสร้าง (`created_by` = `apikey:<uuid>`)
+   * — endpoint ที่ผู้ใช้สร้าง (หรือ key อื่น) → 403 (กัน key ย้าย event + header ลับของผู้ใช้ไปปลายทางอื่น) · ผู้ใช้ไม่ถูกจำกัด
+   */
+  private assertKeyOwnsEndpoint(e: WebhookEndpoint): void {
+    const ctx = requestContext.require();
+    if (ctx.principalType !== 'client') return;
+    if (e.createdBy && e.createdBy === ctx.actorId) return;
+    throw new ProblemException('permission_denied', undefined, undefined, {
+      module: 'webhooks',
+      action: 'change_destination',
+      required: ['webhooks:manage'],
+      reason: 'endpoint_not_created_by_this_key',
+    });
   }
 
   /**
@@ -298,6 +315,7 @@ export class WebhooksService {
     const url = await this.checkUrl(body.url);
     const headers = this.checkHeaders(body.extraHeaders);
     const events = this.sortedEvents(body.events);
+    assertKeyEventScope(events); // review G-1 — key สมัครได้เฉพาะ event ของ resource ที่อ่านได้
     await this.assertLimit(tx, tenantId);
     await this.assertUrlFree(tx, url);
     const secret = generateWebhookSecret();
@@ -390,7 +408,10 @@ export class WebhooksService {
     }
     if (body.events !== undefined) {
       const ev = this.sortedEvents(body.events);
-      if (ev.join() !== cur.events.join()) data.events = ev;
+      if (ev.join() !== cur.events.join()) {
+        assertKeyEventScope(ev); // review G-1
+        data.events = ev;
+      }
     }
     if (body.description !== undefined) {
       const d = body.description?.trim() || null;
@@ -412,7 +433,10 @@ export class WebhooksService {
       }
     }
     // D-67 review M1: เปลี่ยนปลายทาง/header ลับ = event (และ header ลับ) ไปที่อื่น → ต้อง step-up 2FA
-    if (urlChanged || headersChanged) assertHumanStepUp();
+    if (urlChanged || headersChanged) {
+      assertHumanStepUp();
+      this.assertKeyOwnsEndpoint(cur);
+    }
     if (!Object.keys(data).length) return cur;
     const n = await tx.webhookEndpoint.updateMany({
       where: { id, version: cur.version },

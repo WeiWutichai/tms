@@ -34,7 +34,7 @@ scope: — · operationId: `Auth_token`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` · client_credentials: ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed) | `TokenDto` |
+| `200` | authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` — รับเฉพาะ JSON จากหน้าเว็บเดียวกัน (form / `Sec-Fetch-Site` ข้ามเว็บ → 403 `forbidden`) · client_credentials: รับ JSON หรือ form (RFC 6749) ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed) | `TokenDto` |
 | `429` | rate_limited — เกิน 120 ครั้ง/นาที ต่อ IP หรือ 30 ครั้ง/นาที ต่อ client id (client_credentials) มี header Retry-After | `ProblemDto` |
 
 **ตัวอย่าง**

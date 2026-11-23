@@ -55,7 +55,7 @@
         },
         "responses": {
           "200": {
-            "description": "authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` · client_credentials: ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed)",
+            "description": "authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` — รับเฉพาะ JSON จากหน้าเว็บเดียวกัน (form / `Sec-Fetch-Site` ข้ามเว็บ → 403 `forbidden`) · client_credentials: รับ JSON หรือ form (RFC 6749) ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed)",
             "content": {
               "application/json": {
                 "schema": {
@@ -34383,7 +34383,7 @@
     },
     "/v1/invoices/external/{externalId}": {
       "put": {
-        "description": "ยังไม่มีใบที่ externalId นี้ → สร้างร่าง (กติกาเดียวกับ `POST /invoices`) 201 · มีแล้ว → 200: ลูกค้า + ชุด DO ต้องตรงกับใบ (เพิ่ม/ถอด DO ใช้ `/invoices/{id}/delivery-orders…`) ไม่ตรง → 409 `conflict` · ช่องหัวใบ เหมือนเดิม → ใบเดิม version เดิม (ส่งซ้ำได้) · ต่าง: ร่าง → แก้ (เหมือน PATCH) · **ใบที่ออกแล้ว/ยกเลิกแก้ไม่ได้ → 409 `invalid_state_transition`** · externalId ตั้งได้ตอนสร้างเท่านั้น · path `{id}` ทุก route รับ `ext:{externalId}`",
+        "description": "ยังไม่มีใบที่ externalId นี้ → สร้างร่าง (กติกาเดียวกับ `POST /invoices`) 201 · มีแล้ว → 200: ลูกค้า + ชุด DO ต้องตรงกับใบ (เพิ่ม/ถอด DO ใช้ `/invoices/{id}/delivery-orders…`) ไม่ตรง → 409 `conflict` · ช่องหัวใบ เหมือนเดิม → ใบเดิม version เดิม (ส่งซ้ำได้) · ต่าง: ร่าง → แก้ (เหมือน PATCH) · **ใบที่ออกแล้ว/ยกเลิกแก้ไม่ได้ → 409 `invalid_state_transition`** · externalId ตั้งได้ตอนสร้างเท่านั้น · ยกเลิกแล้วออกใหม่ (`/void` + reissue) ใบใหม่**ไม่รับ externalId เดิม** (ใบเดิมคง externalId ไว้) — ระบบต้นทางต้องใช้ externalId ใหม่ · path `{id}` ทุก route รับ `ext:{externalId}`",
         "operationId": "Invoices_upsertExternal",
         "parameters": [
           {
@@ -39946,7 +39946,7 @@
     },
     "/v1/payments/external/{externalId}": {
       "put": {
-        "description": "ยังไม่มีการรับชำระที่ externalId นี้ → บันทึก (กติกาเดียวกับ `POST /payments`) 201 · มีแล้ว → **แก้ไม่ได้**: เนื้อหาเหมือนเดิม = 200 แถวเดิม (ส่งซ้ำได้ ไม่บันทึกซ้ำ) · ต่าง = 409 `conflict` — กลับรายการด้วย `POST /payments/{id}/reverse` แล้วบันทึกใหม่ด้วย externalId ใหม่ · ไม่มี `PATCH /payments/external/{externalId}` (การรับชำระแก้ไม่ได้) · path `{id}` ทุก route รับ `ext:{externalId}`",
+        "description": "ยังไม่มีการรับชำระที่ externalId นี้ → บันทึก (กติกาเดียวกับ `POST /payments`) 201 · มีแล้ว → **แก้ไม่ได้**: เนื้อหาเหมือนเดิม = 200 แถวเดิม (ส่งซ้ำได้ ไม่บันทึกซ้ำ) · ต่าง = 409 `conflict` — แถวที่กลับรายการแล้วก็เช่นกัน: ส่งซ้ำเนื้อหาเดิม = 200 แถวเดิมสถานะ `REVERSED` (ไม่บันทึกใหม่ — ดู `status`) · กลับรายการด้วย `POST /payments/{id}/reverse` แล้วบันทึกใหม่ด้วย externalId ใหม่ · ไม่มี `PATCH /payments/external/{externalId}` (การรับชำระแก้ไม่ได้) · path `{id}` ทุก route รับ `ext:{externalId}`",
         "operationId": "Payments_upsertExternal",
         "parameters": [
           {

@@ -191,6 +191,7 @@ export class PaymentsController {
     description:
       'ยังไม่มีการรับชำระที่ externalId นี้ → บันทึก (กติกาเดียวกับ `POST /payments`) 201 · ' +
       'มีแล้ว → **แก้ไม่ได้** (docs/04 F4): เนื้อหาเหมือนเดิม = 200 แถวเดิม (ส่งซ้ำได้ ไม่บันทึกซ้ำ) · ต่าง = 409 `conflict` — ' +
+      'แถวที่กลับรายการแล้วก็เช่นกัน: ส่งซ้ำเนื้อหาเดิม = 200 แถวเดิมสถานะ `REVERSED` (ไม่บันทึกใหม่ — ดู `status`) · ' +
       'กลับรายการด้วย `POST /payments/{id}/reverse` แล้วบันทึกใหม่ด้วย externalId ใหม่ · ' +
       'ไม่มี `PATCH /payments/external/{externalId}` (การรับชำระแก้ไม่ได้) · path `{id}` ทุก route รับ `ext:{externalId}`',
   })

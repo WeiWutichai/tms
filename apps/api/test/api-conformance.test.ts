@@ -1224,6 +1224,90 @@ describe(
       await call(full, 'get', '/v1/jobs/{id}', { params: { id: ids.job }, expect: 200 });
     });
 
+    it('review G-1: key ที่มี webhooks:manage สมัคร/ส่งซ้ำได้เฉพาะ event ที่อ่านได้ · เปลี่ยน url ได้เฉพาะ endpoint ที่ key เดียวกันสร้าง · ผู้ใช้ไม่ถูกจำกัด', async () => {
+      const lim = await createKey(sa, 'webhook อ่านใบสั่ง', ['webhooks:manage', 'orders:read']);
+      const k = (secret: string) => ({ Authorization: `Bearer ${secret}` });
+      const url = (p: string) => `http://127.0.0.1:${rxPort}/${p}`;
+      process.env.WEBHOOK_ALLOW_PRIVATE_TARGETS = '1';
+      try {
+        // สมัคร event ที่ไม่มี scope อ่าน → 422 พร้อมชนิดที่ไม่มีสิทธิ์
+        const bad = await request(srv())
+          .post('/v1/webhooks')
+          .set(k(lim))
+          .send({ url: url('g1-bad'), events: ['order.created', 'trip.dispatched'] });
+        expect(bad.status, JSON.stringify(bad.body)).toBe(422);
+        expect(bad.body).toMatchObject({
+          code: 'validation_failed',
+          eventTypes: ['trip.dispatched'],
+        });
+        expect(bad.body.errors[0]).toMatchObject({ field: 'events', code: 'event_scope_missing' });
+        const own = await request(srv())
+          .post('/v1/webhooks')
+          .set(k(lim))
+          .send({ url: url('g1-own'), events: ['order.created'] });
+        expect(own.status, JSON.stringify(own.body)).toBe(201);
+        // แก้ event เป็นชนิดที่อ่านไม่ได้ → 422 · url ของ endpoint ตัวเอง → 200
+        const addBad = await request(srv())
+          .patch(`/v1/webhooks/${own.body.id}`)
+          .set(k(lim))
+          .send({ events: ['order.created', 'invoice.finalized'] });
+        expect(addBad.status).toBe(422);
+        expect(addBad.body.eventTypes).toEqual(['invoice.finalized']);
+        const moved = await request(srv())
+          .patch(`/v1/webhooks/${own.body.id}`)
+          .set(k(lim))
+          .send({ url: url('g1-own-2') });
+        expect(moved.status, JSON.stringify(moved.body)).toBe(200);
+        // endpoint ที่ผู้ใช้สร้าง (สมัคร trip.* ได้ — ผู้ใช้ไม่ถูกจำกัด) → key เปลี่ยน url/header ไม่ได้ (403) แต่แก้คำอธิบายได้
+        const usr = await api(app, sa)
+          .post('/v1/webhooks')
+          .send({ url: url('g1-user'), events: ['order.created', 'trip.dispatched'] });
+        expect(usr.status, JSON.stringify(usr.body)).toBe(201);
+        const steal = await request(srv())
+          .patch(`/v1/webhooks/${usr.body.id}`)
+          .set(k(lim))
+          .send({ url: url('g1-steal') });
+        expect(steal.status).toBe(403);
+        expect(steal.body).toMatchObject({
+          code: 'permission_denied',
+          reason: 'endpoint_not_created_by_this_key',
+        });
+        const hdr = await request(srv())
+          .patch(`/v1/webhooks/${usr.body.id}`)
+          .set(k(full))
+          .send({ extraHeaders: [{ name: 'X-Steal', value: 'secret-value-1' }] });
+        expect(hdr.status).toBe(403);
+        await request(srv())
+          .patch(`/v1/webhooks/${usr.body.id}`)
+          .set(k(lim))
+          .send({ description: 'แก้คำอธิบายด้วย key' })
+          .expect(200);
+        // key อื่น (full) ก็เปลี่ยน url ของ endpoint ที่ key lim สร้างไม่ได้
+        expect(
+          (
+            await request(srv())
+              .patch(`/v1/webhooks/${own.body.id}`)
+              .set(k(full))
+              .send({ url: url('g1-other') })
+          ).status,
+        ).toBe(403);
+        // ส่งซ้ำ event ที่อ่านไม่ได้ (trip.*) ไป endpoint ของผู้ใช้ → 422 · ชนิดที่อ่านได้ผ่าน
+        const tripEv = await call(full, 'get', '/v1/events', {
+          query: { type: 'trip.dispatched', limit: 1 },
+          expect: 200,
+        });
+        expect(tripEv.body.data.length).toBe(1);
+        const rd = await request(srv())
+          .post(`/v1/events/${tripEv.body.data[0].id}/redeliver`)
+          .query({ endpointId: usr.body.id })
+          .set(k(lim));
+        expect(rd.status, JSON.stringify(rd.body)).toBe(422);
+        expect(rd.body.eventTypes).toEqual(['trip.dispatched']);
+      } finally {
+        delete process.env.WEBHOOK_ALLOW_PRIVATE_TARGETS;
+      }
+    });
+
     it('#2 events: เห็นเฉพาะ event ของ resource ที่อ่านได้ (events:read + scope ของ resource) · type ไม่รู้จัก → 422', async () => {
       const all = await call(full, 'get', '/v1/events', { query: { limit: 200 }, expect: 200 });
       const types = new Set((all.body.data as { type: string }[]).map((e) => e.type));
