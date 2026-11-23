@@ -840,8 +840,13 @@ describe('canonical invoice — ช่องที่เพิ่มใน ST8-T
     expect(canonicalInvoice(row(), 'PP-C1', krs.personalDataNeeds).lines[0]!.trip!.driverName).toBe(
       'สมชาย ตัวอย่าง',
     );
-    const others: ErpAdapter[] = [new AccountSystemAdapter(), new DemoAdapter()];
-    for (const o of others) expect(o.personalDataNeeds).toBeUndefined();
+    expect((new DemoAdapter() as ErpAdapter).personalDataNeeds).toBeUndefined();
+    // D-80 AccountSystem ประกาศแค่เลขบัตรรถร่วม (ใบสำคัญจ่าย) — ไม่ได้ชื่อคนขับ
+    const as: ErpAdapter = new AccountSystemAdapter();
+    expect(as.personalDataNeeds).toEqual(['carrier.taxId']);
+    expect(
+      canonicalInvoice(row(), 'PP-C1', as.personalDataNeeds).lines[0]!.trip!.driverName,
+    ).toBeNull();
   });
 
   it('ช่องใหม่อยู่ใน sync.hash (ค่าเปลี่ยน = hash เปลี่ยน) และ canonical → payload KRS ได้ตรง A.3', () => {
