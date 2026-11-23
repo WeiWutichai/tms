@@ -454,7 +454,7 @@ export class PaymentStatusPullService implements OnModuleInit {
           this.events.reconcileMismatch(tx, {
             tenantId,
             connectorId: row.id,
-            label: row.adapterKey,
+            label: adapter.displayName ?? row.adapterKey,
             count: c.newMismatches,
             invoiceNos: newMismatchNos,
           }),

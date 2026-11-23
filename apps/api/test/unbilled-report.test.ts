@@ -564,6 +564,28 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
     expect((await runExport('unbilled-delivery-orders', admin, {}, 'pdf')).rows).toBe(
       (await report()).count,
     );
+    // review: ไม่มี prices.sell:read → PDF/ไฟล์ไม่มีคอลัมน์เงิน (คอลัมน์ติด price: 'sell' + กรองตามสิทธิ์)
+    const noSell = await tokenFor(
+      tenantId,
+      'reports.finance:read invoices:read export:run',
+      'u-nosell',
+    );
+    for (const resource of ['unbilled-delivery-orders', 'receivables-aging'])
+      expect((await runExport(resource, noSell, {}, 'pdf')).status).toBe('succeeded');
+    const { agingExportSpec } = await import('../src/modules/reports/reports.controller');
+    const { AgingService } = await import('../src/modules/payments/aging.service');
+    for (const cols of [
+      unbilledExportSpec(app.get(UnbilledReportService)).columns(['reports.finance:read'], {}),
+      agingExportSpec(app.get(AgingService)).columns(['invoices:read'], {}),
+    ]) {
+      expect(cols.filter((c) => c.money || c.price)).toEqual([]);
+      expect(cols.map((c) => c.header).join('|')).not.toMatch(/มูลค่า|รวม/);
+    }
+    const sellCols = unbilledExportSpec(app.get(UnbilledReportService)).columns(
+      ['prices.sell:read'],
+      {},
+    );
+    expect(sellCols.filter((c) => c.money).every((c) => c.price === 'sell')).toBe(true);
     // D-71: ส่งออกพร้อมร่างค้าง — จำนวนแถวตรงกับรายงาน + คอลัมน์ id ร่าง / อายุในร่าง
     const withDrafts = (await report('?includeStaleDrafts=true')).count as number;
     expect(withDrafts).toBe(3);

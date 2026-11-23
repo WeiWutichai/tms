@@ -291,7 +291,8 @@ export class NotificationEvents implements OnModuleInit {
           count: input.count,
           invoiceNos: input.invoiceNos.slice(0, BATCH_SAMPLE),
         },
-        link: '/settings?sec=conn',
+        // หน้ารับชำระ — ผู้รับ (payments:record เช่น role บัญชี) ไม่มี settings:read จึงเปิดหน้าตั้งค่าการเชื่อมต่อไม่ได้
+        link: '/pay',
         entity: { type: 'connector', id: encodeId('connector', input.connectorId) },
       }),
     );

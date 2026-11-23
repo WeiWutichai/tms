@@ -165,6 +165,7 @@ describe('notification center (ST9-T08)', () => {
     expect(n.every((x) => x.tenantId === tA)).toBe(true);
     const mine = n.find((x) => x.recipientId === accounting)!;
     expect(mine.title).toBe('ข้อมูลไม่ตรงกับระบบบัญชี');
+    expect(mine.link).toBe('/pay'); // review: ผู้รับ (บัญชี) ไม่มี settings:read
     expect(mine.body).toContain('7 ใบ');
     expect(mine.body).toContain('INV-5');
     expect(mine.body).not.toContain('INV-6'); // ตัวอย่างไม่เกิน 5

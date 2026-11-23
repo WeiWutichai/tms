@@ -9,7 +9,9 @@ import { AccountSystemAdapter } from '../src/erp-adapters/accountsystem/accounts
 import { accountSystemInbound } from '../src/erp-adapters/accountsystem/accountsystem-inbound';
 import {
   invoiceDraft,
+  SETTLEMENT_REF_MAX,
   settlementDraft,
+  settlementLineRef,
 } from '../src/erp-adapters/accountsystem/accountsystem-payload';
 import {
   type CanonicalInvoicePayload,
@@ -261,6 +263,27 @@ describe('AccountSystemAdapter (ST8-T16) — กับ mock จาก contract',
     expect(invoiceDraft({ erpCompanyCode: '00002' }, sampleInvoice(), 'X').branch_code).toBe(
       '00002',
     );
+  });
+
+  it('D68-81 อ้างอิงเลข DO ในคำอธิบาย AP: ใส่ทั้งเลขจนถึงเพดาน แล้วต่อ " +N" — ไม่ตัดกลางเลข', () => {
+    expect(settlementLineRef(null, [])).toBeNull();
+    expect(settlementLineRef('TRP-1', [])).toBe('TRP-1');
+    expect(settlementLineRef(null, [{ number: 'DO-1' }])).toBe('DO-1');
+    const many = Array.from({ length: 80 }, (_, i) => ({
+      number: `DO-2611-${String(i + 1).padStart(4, '0')}`,
+    }));
+    const ref = settlementLineRef('TRP-0001', many)!;
+    expect(ref.length).toBeLessThanOrEqual(SETTLEMENT_REF_MAX + 4);
+    const m = / \+(\d+)$/.exec(ref)!;
+    expect(m).toBeTruthy();
+    const listed = ref.slice('TRP-0001 · '.length, m.index).split(', ');
+    // ทุกเลขที่ใส่เป็นเลขเต็ม เรียงตามลำดับ และจำนวนที่เหลือถูกต้อง
+    expect(listed).toEqual(many.slice(0, listed.length).map((d) => d.number));
+    expect(listed.length + Number(m[1])).toBe(80);
+    const s = sampleSettlement();
+    s.lines[0]!.deliveryOrders = many;
+    const d = settlementDraft({ erpCompanyCode: null }, s, 'EXT-0001');
+    expect(d.lines[0]!.description).toBe(`ค่าจ้างรถ (${ref})`);
   });
 
   it('payload AP: บรรทัดหักส่งยอดติดลบตามจริง · WHT ประมาณการ + ภ.ง.ด.3 เป็นบรรทัดหมายเหตุ (AccountSystem ไม่มี WHT รายบรรทัด)', () => {

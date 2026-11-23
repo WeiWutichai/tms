@@ -75,6 +75,35 @@ function desc(text: string, ref: string | null): string {
   return out.slice(0, DESC_MAX);
 }
 
+/** เพดานความยาวส่วนอ้างอิงเลข DO ในคำอธิบายบรรทัด AP (DESC_MAX = 500 รวมข้อความรายการ) */
+export const SETTLEMENT_REF_MAX = 480;
+
+/**
+ * D68-81 อ้างอิงบรรทัดใบสำคัญจ่าย: "TRP-1 · DO-1, DO-2" — ใส่เลข DO ทั้งเลขจนถึง ~SETTLEMENT_REF_MAX ตัว
+ * แล้วต่อท้าย " +N" (จำนวนที่ไม่ได้ใส่) — ไม่ตัดกลางเลข (`desc` ตัดท้ายที่ DESC_MAX อีกชั้น)
+ */
+export function settlementLineRef(
+  tripNo: string | null,
+  dos: { number: string }[] | undefined,
+): string | null {
+  const head = tripNo ?? '';
+  const nos = (dos ?? []).map((d) => d.number);
+  if (!nos.length) return head || null;
+  const sep = head ? ' · ' : '';
+  let out = head + sep;
+  let used = 0;
+  for (const n of nos) {
+    const piece = (used ? ', ' : '') + n;
+    const rest = nos.length - used - 1;
+    const tail = rest > 0 ? ` +${rest}` : '';
+    if (out.length + piece.length + tail.length > SETTLEMENT_REF_MAX && used > 0) break;
+    out += piece;
+    used += 1;
+  }
+  if (used < nos.length) out += ` +${nos.length - used}`;
+  return out;
+}
+
 /** ใบแจ้งหนี้ → IV ร่าง */
 export function invoiceDraft(
   ctx: Pick<ErpContext, 'erpCompanyCode'>,
@@ -121,12 +150,7 @@ export function settlementDraft(
     return {
       line_type: 'item',
       // D68-81 อ้างอิงเที่ยว + เลข DO ของบรรทัด (กระทบยอดรายบรรทัดกับ DO ฝั่ง AP) — AccountSystem ไม่มีช่องอ้างอิงแยก
-      description: desc(
-        l.description,
-        [l.trip?.number, (l.deliveryOrders ?? []).map((d) => d.number).join(', ')]
-          .filter(Boolean)
-          .join(' · ') || null,
-      ),
+      description: desc(l.description, settlementLineRef(l.trip?.number ?? null, l.deliveryOrders)),
       // บรรทัดหักเป็นยอดติดลบอยู่แล้ว (CHECK settlement_line_ref_check) — ส่งตามจริง
       amount,
       ...(vat !== undefined ? { vat_rate: vat } : {}),

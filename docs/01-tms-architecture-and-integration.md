@@ -1339,7 +1339,7 @@ Core สร้าง canonical payload ชุดเดียวต่อเอ�
 ### 7.3 CanonicalAdjustment (credit/debit note) และ CanonicalSettlement
 
 - **Adjustment**: `kind`, `number`, `issueDate`, `originalInvoice: {id, number, externalId, taxInvoiceNumber}`, `reason: {code, etdaCode, text}`, `amounts: {original, corrected, difference, vatDifference}`, `lines[]` (อ้าง `originalLineNo` + `deliveryOrder.number`); adapter ที่มีแต่ `replaceDocument` จะได้ `CanonicalInvoice` ฉบับ "หลังปรับ" จาก core แทน
-- **Settlement**: `number`, `carrier: {externalId, legalName, taxId, branchCode, entityType}`, `period`, `carrierInvoiceNumber`, `lines[]` (`trip.number`, `deliveryOrder.number`, `amount`, `whtRate`, `lineType`), `totals: {gross, deduction, wht, net}`, `whtCertificate: {number, pndForm}`
+- **Settlement**: `number`, `carrier: {externalId, legalName, taxId, branchCode, entityType}`, `period`, `carrierInvoiceNumber`, `lines[]` (`trip.number`, `deliveryOrders[].number` (D-81 · D68-81 · 23 พ.ย. 2569 — PO รับรูปแบบรายการ เพราะเที่ยวหนึ่งมีหลาย DO), `amount`, `whtRate`, `lineType`), `totals: {gross, deduction, wht, net}`, `whtCertificate: {number, pndForm}`
 
 ### 7.4 Validation ก่อนเข้า outbox (กัน VALIDATION ตั้งแต่ฝั่งเรา)
 

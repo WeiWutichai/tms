@@ -52,6 +52,7 @@ export function unbilledExportColumns(
     cols.push({
       header: 'มูลค่า (ก่อน VAT)',
       value: (r) => num(r.sellAmount),
+      price: 'sell',
       money: true,
       raw: (r) => r.sellAmount,
     });
@@ -80,6 +81,7 @@ export function agingExportColumns(sell: boolean): ExportColumn<AgingExportRow>[
         ? {
             header: BUCKET_TH[b],
             value: (r) => num(r.buckets[i]?.sellOutstanding),
+            price: 'sell',
             money: true,
             raw: (r) => r.buckets[i]?.sellOutstanding,
           }
@@ -90,6 +92,7 @@ export function agingExportColumns(sell: boolean): ExportColumn<AgingExportRow>[
     cols.push({
       header: 'รวม',
       value: (r) => num(r.sellOutstanding),
+      price: 'sell',
       money: true,
       raw: (r) => r.sellOutstanding,
     });

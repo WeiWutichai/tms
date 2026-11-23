@@ -426,6 +426,7 @@ describe('Payment status pull (ST7-T21)', { timeout: 600_000 }, () => {
     expect(noti.map((x) => x.recipientId)).toContain(accUser.id);
     expect(noti.map((x) => x.recipientId)).not.toContain(plnUser.id);
     expect(noti.find((x) => x.recipientId === accUser.id)!.body).toContain(c.invoiceNo);
+    expect(noti[0]!.body).toContain('Demo ERP (simulated)'); // ชื่อแสดงของ adapter (ไม่ใช่รหัส)
     expect(noti[0]!.body).not.toContain('700'); // ไม่มียอดเงินในแจ้งเตือน
     expect(await paymentsOf(c.uuid)).toHaveLength(1);
     expect((await getInv(c.id)).status).toBe('PARTIALLY_PAID');
