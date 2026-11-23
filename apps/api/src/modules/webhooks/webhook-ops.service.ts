@@ -308,7 +308,7 @@ export class WebhookOpsService {
 
   /** `POST /webhook-deliveries/{id}/retry` — ส่ง event ของรายการนี้ไปยัง endpoint เดิมอีกครั้ง */
   async retry(id: string): Promise<WebhookResendResultDto> {
-    this.hooks.assertHuman();
+    this.hooks.assertCanManage();
     const tenantId = requestContext.require().tenantId!;
     const started = Date.now();
     const d = await this.withTx(tenantId, (tx) => this.get(id, tx));
@@ -323,7 +323,7 @@ export class WebhookOpsService {
 
   /** `POST /events/{id}/redeliver?endpointId=` — ส่ง event ไปยัง endpoint ที่ระบุ หรือทุก endpoint ที่เปิดอยู่และสมัคร event นี้ */
   async redeliver(eventId: string, endpointId?: string): Promise<WebhookResendResultDto[]> {
-    this.hooks.assertHuman();
+    this.hooks.assertCanManage();
     const tenantId = requestContext.require().tenantId!;
     const started = Date.now();
     const prepared = await this.withTx(tenantId, async (tx) => {

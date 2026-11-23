@@ -59,7 +59,10 @@ export interface AttemptResult {
   deliveryId: string;
 }
 
-/** 2xx = สำเร็จ · 408/429/5xx/timeout/network = ลองใหม่ · อื่น (3xx, 4xx, SSRF, URL เสีย) = ไม่ลองใหม่ (INT-103) */
+/**
+ * 2xx = สำเร็จ · **ทุกผลที่ไม่ใช่ 2xx ลองใหม่ตามตาราง G1** (รวม 3xx/4xx เช่น 401/404 จาก deploy ผิดชั่วคราว) + timeout/network
+ * ไม่ลองใหม่เฉพาะ: 410 Gone (ผู้รับบอกเลิกรับ) · SSRF / URL เสีย / ประกอบคำขอไม่ได้ (D-81 · D68-48 · 23 พ.ย. 2569 — docs/04 G1)
+ */
 export function classifySend(r: SendResult): {
   ok: boolean;
   retryable: boolean;
@@ -68,12 +71,8 @@ export function classifySend(r: SendResult): {
   if (r.status !== null) {
     if (r.status >= 200 && r.status < 300) return { ok: true, retryable: false, errorCode: null };
     if (r.status >= 300 && r.status < 400)
-      return { ok: false, retryable: false, errorCode: 'redirect' };
-    return {
-      ok: false,
-      retryable: r.status === 408 || r.status === 429 || r.status >= 500,
-      errorCode: 'http_status',
-    };
+      return { ok: false, retryable: true, errorCode: 'redirect' };
+    return { ok: false, retryable: r.status !== 410, errorCode: 'http_status' };
   }
   const code = r.errorCode ?? 'network';
   return { ok: false, retryable: code === 'timeout' || code === 'network', errorCode: code };

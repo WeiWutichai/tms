@@ -4519,6 +4519,7 @@ export const th = {
   'akey.sc.integrations:read': 'ดูสถานะเชื่อมระบบบัญชี',
   'akey.sc.integrations:retry': 'ส่งซ้ำรายการเชื่อมระบบ',
   'akey.sc.events:read': 'อ่าน event (เฉพาะข้อมูลที่มีสิทธิ์อ่าน)',
+  'akey.sc.webhooks:manage': 'จัดการ Webhook (สมัคร / แก้ / ส่งซ้ำ)',
   'akey.sc.jobs:read': 'ดูงานเบื้องหลัง',
   'akey.sc.reports.finance:read': 'รายงานการเงิน',
   'akey.sc.reports.ops:read': 'รายงานปฏิบัติการ',

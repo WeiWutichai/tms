@@ -69,6 +69,11 @@ export const PERMISSIONS = [
   'integrations:retry',
   /** ST7-T11: อ่าน event สาธารณะ `GET /v1/events` (docs/01 §5.4 `events:read`) — เห็นเฉพาะ event ของ resource ที่อ่านได้ */
   'events:read',
+  /**
+   * D-81 · D68-49/62 (PO 23 พ.ย. 2569): จัดการ webhook ผ่าน Open API (CRUD + ทดสอบ + retry/redeliver) **โดยไม่ต้องมี `settings:write`**
+   * — ให้ API key ได้ (`settings:write` ห้ามให้ key) · ผู้ใช้: owner/admin (ทุกสิทธิ์) · หมุน secret = ผู้ใช้ step-up เท่านั้น (D-67)
+   */
+  'webhooks:manage',
   'jobs:read',
   'reports.finance:read',
   'reports.ops:read',

@@ -186,14 +186,19 @@ describe('webhook — ผลส่ง + ตาราง retry (INT-103, docs/04 
     ...(errorCode ? { errorCode } : {}),
   });
 
-  it('2xx สำเร็จ · 408/429/5xx/timeout/network ลองใหม่ · 3xx/4xx อื่น/SSRF ไม่ลองใหม่', () => {
+  it('D68-48: 2xx สำเร็จ · ทุกผลที่ไม่ใช่ 2xx ลองใหม่ (รวม 3xx/4xx) · ไม่ลองใหม่เฉพาะ 410 / SSRF / URL เสีย', () => {
     expect(classifySend(r(200))).toEqual({ ok: true, retryable: false, errorCode: null });
     expect(classifySend(r(204)).ok).toBe(true);
-    for (const s of [408, 429, 500, 502, 503])
+    for (const s of [400, 401, 403, 404, 408, 409, 422, 429, 500, 502, 503])
       expect(classifySend(r(s)).retryable, String(s)).toBe(true);
-    for (const s of [400, 401, 403, 404, 410, 422])
-      expect(classifySend(r(s)).retryable, String(s)).toBe(false);
-    expect(classifySend(r(302))).toEqual({ ok: false, retryable: false, errorCode: 'redirect' });
+    expect(classifySend(r(410))).toEqual({ ok: false, retryable: false, errorCode: 'http_status' });
+    expect(classifySend(r(302))).toEqual({ ok: false, retryable: true, errorCode: 'redirect' });
+    expect(classifySend(r(301)).retryable).toBe(true);
+    expect(classifySend(r(null, 'invalid_url'))).toEqual({
+      ok: false,
+      retryable: false,
+      errorCode: 'invalid_url',
+    });
     expect(classifySend(r(null, 'timeout'))).toEqual({
       ok: false,
       retryable: true,

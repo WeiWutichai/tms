@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type WebhookEndpoint } from '@prisma/client';
-import { WEBHOOK_ROTATION_GRACE_HOURS } from '@tms/domain';
+import { scopeAllows, WEBHOOK_ROTATION_GRACE_HOURS } from '@tms/domain';
 import { eventSample } from './event-openapi';
 import { findUsers } from '../sandbox/users';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -93,14 +93,30 @@ export class WebhooksService {
     private readonly limiter: RateLimitService,
   ) {}
 
+  /** หมุน secret — ผู้ใช้เท่านั้น (D-67 step-up · API key ทำ step-up ไม่ได้ แม้มี `webhooks:manage`) */
   assertHuman(): void {
     const pt = requestContext.require().principalType;
     if (pt !== 'user' && pt !== 'dev')
       throw new ProblemException('permission_denied', undefined, undefined, {
         module: 'webhooks',
-        action: 'manage',
+        action: 'rotate_secret',
         required: ['settings:write'],
       });
+  }
+
+  /**
+   * สมัคร/แก้/ส่งซ้ำ webhook — ผู้ใช้ (`settings:write` หรือ `webhooks:manage`) หรือ API key / OAuth client ที่มี `webhooks:manage`
+   * (D-81 · D68-49/62 · 23 พ.ย. 2569 — Open API first-class; `settings:write` ห้ามให้ key)
+   */
+  assertCanManage(): void {
+    const ctx = requestContext.require();
+    if (ctx.principalType === 'user' || ctx.principalType === 'dev') return;
+    if (scopeAllows(ctx.scopes ?? [], 'webhooks:manage')) return;
+    throw new ProblemException('permission_denied', undefined, undefined, {
+      module: 'webhooks',
+      action: 'manage',
+      required: ['webhooks:manage'],
+    });
   }
 
   // ---------- read ----------
@@ -275,7 +291,7 @@ export class WebhooksService {
   // ---------- write ----------
 
   async create(body: CreateWebhookDto): Promise<WebhookEndpointSecretDto> {
-    this.assertHuman();
+    this.assertCanManage();
     const ctx = requestContext.require();
     const tx = this.db.tx;
     const tenantId = ctx.tenantId!;
@@ -356,7 +372,7 @@ export class WebhooksService {
   }
 
   async update(id: string, body: UpdateWebhookDto, expected?: number): Promise<WebhookEndpoint> {
-    this.assertHuman();
+    this.assertCanManage();
     const tx = this.db.tx;
     const cur = await this.get(id);
     this.version(cur, expected);
@@ -464,7 +480,7 @@ export class WebhooksService {
   }
 
   private async setActive(id: string, on: boolean, body: WebhookActionDto, expected?: number) {
-    this.assertHuman();
+    this.assertCanManage();
     const ctx = requestContext.require();
     const tx = this.db.tx;
     const cur = await this.get(id);
@@ -508,7 +524,7 @@ export class WebhooksService {
 
   /** ลบ (soft) — หยุดรับ event ทันที · ประวัติการส่งเก็บตาม retention */
   async remove(id: string, body: WebhookReasonDto, expected?: number): Promise<void> {
-    this.assertHuman();
+    this.assertCanManage();
     const tx = this.db.tx;
     const cur = await this.get(id);
     this.version(cur, expected);
@@ -535,7 +551,7 @@ export class WebhooksService {
    * endpoint ต้องเปิดอยู่ · payload ตัวอย่างของ event ที่เลือก + `"test": true` · ไม่นับอัตราสำเร็จ/ปิดอัตโนมัติ
    */
   async test(id: string, body: WebhookTestDto): Promise<WebhookTestResultDto> {
-    this.assertHuman();
+    this.assertCanManage();
     const ctx = requestContext.require();
     const tenantId = ctx.tenantId!;
     const withTx = <T>(fn: (tx: Tx) => Promise<T>) => this.db.withTenant(tenantId, fn);

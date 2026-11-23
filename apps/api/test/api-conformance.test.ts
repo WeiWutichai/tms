@@ -80,13 +80,20 @@ export const MATRIX: Row[] = [
     g2: '#2',
     resource: 'webhooks, events, webhook-deliveries, event-types',
     endpoints: [
-      E('get', '/v1/webhooks', 'settings:read'),
-      E('get', '/v1/webhooks/{id}', 'settings:read'),
-      E('get', '/v1/webhooks/event-types', 'settings:read'),
-      E('get', '/v1/webhook-deliveries', 'settings:read'),
-      E('get', '/v1/webhook-deliveries/{id}', 'settings:read'),
+      // D-81 · D68-49/62: `webhooks:manage` (ให้ key ได้) แทน settings:* — CRUD + ทดสอบ + retry/redeliver ด้วย key
+      E('get', '/v1/webhooks', 'settings:read', 'webhooks:manage'),
+      E('post', '/v1/webhooks', 'settings:write', 'webhooks:manage'),
+      E('get', '/v1/webhooks/{id}', 'settings:read', 'webhooks:manage'),
+      E('patch', '/v1/webhooks/{id}', 'settings:write', 'webhooks:manage'),
+      E('delete', '/v1/webhooks/{id}', 'settings:write', 'webhooks:manage'),
+      E('post', '/v1/webhooks/{id}/test', 'settings:write', 'webhooks:manage'),
+      E('get', '/v1/webhooks/event-types', 'settings:read', 'webhooks:manage'),
+      E('get', '/v1/webhook-deliveries', 'settings:read', 'webhooks:manage'),
+      E('get', '/v1/webhook-deliveries/{id}', 'settings:read', 'webhooks:manage'),
+      E('post', '/v1/webhook-deliveries/{id}/retry', 'settings:write', 'webhooks:manage'),
       E('get', '/v1/events', 'events:read'),
       E('get', '/v1/events/{id}', 'events:read'),
+      E('post', '/v1/events/{id}/redeliver', 'settings:write', 'webhooks:manage'),
     ],
   },
   {
@@ -142,6 +149,7 @@ export const MATRIX: Row[] = [
     endpoints: [
       E('get', '/v1/invoices', 'invoices:read'),
       E('post', '/v1/invoices', 'invoices:draft'),
+      E('put', '/v1/invoices/external/{externalId}', 'invoices:draft'), // D68-45
       E('get', '/v1/invoices/{id}', 'invoices:read'),
       E('post', '/v1/invoices/{id}/finalize', 'invoices:finalize'),
       E('post', '/v1/invoices/{id}/void', 'invoices:void'),
@@ -161,6 +169,7 @@ export const MATRIX: Row[] = [
       E('get', '/v1/payments/summary', 'invoices:read'),
       E('get', '/v1/payments/aging', 'invoices:read'), // ST5-T22
       E('post', '/v1/payments', 'payments:record'),
+      E('put', '/v1/payments/external/{externalId}', 'payments:record'), // D68-45
       E('get', '/v1/payments/{id}', 'invoices:read'),
       E('post', '/v1/payments/{id}/reverse', 'payments:reverse'),
     ],
@@ -1060,6 +1069,30 @@ describe(
         body: { reason: REASON },
         expect: 200,
       });
+      // D68-45 รับชำระด้วยเลขของระบบต้นทาง (upsert) → ส่งซ้ำได้แถวเดิม → กลับรายการด้วย ext:
+      const extPayBody = {
+        receivedDate: today,
+        method: 'TRANSFER',
+        amountReceived: fin.body.sellTotal,
+        allocations: [{ invoiceId: draft.id, amount: fin.body.sellTotal }],
+      };
+      const extPay = await call(full, 'put', '/v1/payments/external/{externalId}', {
+        params: { externalId: `ERP-RCV-${n()}` },
+        body: extPayBody,
+        expect: 201,
+      });
+      const extPay2 = await call(full, 'put', '/v1/payments/external/{externalId}', {
+        params: { externalId: extPay.body.externalId },
+        body: extPayBody,
+        expect: 200,
+      });
+      expect(extPay2.body.id).toBe(extPay.body.id);
+      await call(full, 'post', '/v1/payments/{id}/reverse', {
+        params: { id: `ext:${extPay.body.externalId}` },
+        headers: { 'If-Match': extPay2.headers.etag as string },
+        body: { reason: REASON },
+        expect: 200,
+      });
       // ST5-T10 ยกเลิกใบที่ออกแล้ว (docs/04 G2 `/void`) — กลับรายการรับชำระแล้ว ยอดชำระ 0 → CANCELLED คงเลข
       const g2 = await call(full, 'get', '/v1/invoices/{id}', {
         params: { id: draft.id },
@@ -1072,6 +1105,20 @@ describe(
         expect: 200,
       });
       expect(voided.body).toMatchObject({ status: 'CANCELLED', invoiceNo: fin.body.invoiceNo });
+      // D68-45 ร่างใบแจ้งหนี้ด้วยเลขของระบบต้นทาง (DO กลับเข้าคิวหลังยกเลิกใบ) → ส่งซ้ำได้ใบเดิม
+      const extInvBody = { customerId: cus, deliveryOrderIds: [d], releaseDeliveryOrders: true };
+      const extInv = await call(full, 'put', '/v1/invoices/external/{externalId}', {
+        params: { externalId: `ERP-INV-${n()}` },
+        body: extInvBody,
+        expect: 201,
+      });
+      expect(extInv.body).toMatchObject({ status: 'DRAFT', invoiceNo: null });
+      const extInv2 = await call(full, 'put', '/v1/invoices/external/{externalId}', {
+        params: { externalId: extInv.body.externalId },
+        body: extInvBody,
+        expect: 200,
+      });
+      expect(extInv2.body.version).toBe(extInv.body.version);
       // ST5-T12 รอบวางบิล (async) — 202 + statusUrl ที่ผู้สั่งอ่านได้
       const runRes = await call(full, 'post', '/v1/invoice-runs', {
         body: { billingCycle: 'MONTHLY', periodFrom: today, periodTo: today },
@@ -1080,24 +1127,67 @@ describe(
       expect(runRes.body.statusUrl).toBe(`/v1/jobs/${runRes.body.jobId}`);
     });
 
-    it('#2 #10 webhooks/event-types/deliveries (อ่าน) · jobs · api-keys · openapi.json ด้วย key', async () => {
-      // webhook endpoint + delivery: สร้าง/ส่งทดสอบด้วย session (ต้องมี settings:write ซึ่งให้ key ไม่ได้) แล้วอ่านด้วย key
+    it('#2 #10 webhooks (CRUD/ทดสอบ/retry/redeliver — D68-49/62) · event-types/deliveries · jobs · api-keys · openapi.json ด้วย key', async () => {
+      // D-81 · D68-49/62: key ที่มี `webhooks:manage` สมัคร/แก้/ทดสอบ/ส่งซ้ำ/ลบ webhook ได้ (ไม่ต้องมี settings:write)
       process.env.WEBHOOK_ALLOW_PRIVATE_TARGETS = '1';
       let wh: request.Response;
       let tst: request.Response;
+      let gone: request.Response;
       try {
-        wh = await api(app, sa)
-          .post('/v1/webhooks')
-          .send({ url: `http://127.0.0.1:${rxPort}/hook`, events: ['order.created'] });
-        expect(wh.status, JSON.stringify(wh.body)).toBe(201);
-        tst = await api(app, sa).post(`/v1/webhooks/${wh.body.id}/test`).send({});
+        wh = await call(full, 'post', '/v1/webhooks', {
+          body: { url: `http://127.0.0.1:${rxPort}/hook`, events: ['order.created'] },
+          expect: 201,
+        });
+        expect(wh.body.secret).toBeTruthy();
+        tst = await call(full, 'post', '/v1/webhooks/{id}/test', {
+          params: { id: wh.body.id },
+          body: {},
+          expect: 200,
+        });
+        gone = await call(full, 'post', '/v1/webhooks', {
+          body: { url: `http://127.0.0.1:${rxPort}/hook-old`, events: ['order.created'] },
+          expect: 201,
+        });
       } finally {
         delete process.env.WEBHOOK_ALLOW_PRIVATE_TARGETS;
       }
-      expect(tst.status, JSON.stringify(tst.body)).toBe(200);
+      expect(tst.body).toBeTruthy();
+      await call(full, 'patch', '/v1/webhooks/{id}', {
+        params: { id: wh.body.id },
+        body: { description: 'ERP ผ่าน API key' },
+        expect: 200,
+      });
+      // หมุน secret = ผู้ใช้ step-up เท่านั้น (D-67) — key ได้ 403 แม้มี webhooks:manage
+      const rot = await call(full, 'post', '/v1/webhooks/{id}/rotate-secret', {
+        params: { id: wh.body.id },
+        body: {},
+      });
+      expect(rot.status).toBe(403);
+      expect(rot.body.code).toBe('step_up_required');
+      await call(full, 'delete', '/v1/webhooks/{id}', {
+        params: { id: gone.body.id },
+        body: { reason: 'ERP ย้ายปลายทางใหม่แล้ว' },
+        expect: 204,
+      });
       await call(full, 'get', '/v1/webhooks', { expect: 200 });
       await call(full, 'get', '/v1/webhooks/{id}', { params: { id: wh.body.id }, expect: 200 });
       await call(full, 'get', '/v1/webhooks/event-types', { expect: 200 });
+      // ส่ง event เดิมซ้ำ (redeliver) → delivery จริง → retry รายการนั้น (หลังหน้าต่างกันถี่ 2 วิ ของคู่ endpoint/event)
+      const created = await call(full, 'get', '/v1/events', {
+        query: { type: 'order.created', limit: 1 },
+        expect: 200,
+      });
+      const rd = await call(full, 'post', '/v1/events/{id}/redeliver', {
+        params: { id: created.body.data[0].id },
+        query: { endpointId: wh.body.id },
+        expect: 200,
+      });
+      expect(rd.body.data[0]).toMatchObject({ endpointId: wh.body.id, state: 'delivered' });
+      await new Promise((r) => setTimeout(r, 2_100));
+      await call(full, 'post', '/v1/webhook-deliveries/{id}/retry', {
+        params: { id: rd.body.data[0].deliveryId },
+        expect: 200,
+      });
       const dl = await call(full, 'get', '/v1/webhook-deliveries', { expect: 200 });
       expect(dl.body.data.length).toBeGreaterThan(0);
       await call(full, 'get', '/v1/webhook-deliveries/{id}', {
@@ -1298,7 +1388,11 @@ describe(
         if (!e.scope) continue;
         expect(op!.security?.length, key(e.method, e.path)).toBeTruthy();
         expect(op!['x-required-scopes'], key(e.method, e.path)).toEqual(e.scope);
-        expect(API_KEY_SCOPES).toEqual(expect.arrayContaining(e.scope));
+        // หลาย scope = ตัวใดก็ได้ — อย่างน้อยหนึ่งตัวต้องให้ key ได้ (D68-49: settings:write ห้ามให้ key แต่ webhooks:manage ได้)
+        expect(
+          e.scope.some((x) => (API_KEY_SCOPES as readonly string[]).includes(x)),
+          key(e.method, e.path),
+        ).toBe(true);
         const ex403 = responseOf(op!, 403)?.content?.['application/problem+json']?.examples;
         expect(ex403, `${key(e.method, e.path)} ไม่มีตัวอย่าง 403`).toBeTruthy();
         const required = Object.values(ex403!).map(
