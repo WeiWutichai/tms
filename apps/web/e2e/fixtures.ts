@@ -1,5 +1,8 @@
 import { test as base, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 /** URL ของ web ที่ E2E รัน (พอร์ตจาก E2E_WEB_PORT ที่ playwright.config ตั้งให้ — ค่าเริ่มต้น 4520) */
 export const E2E_WEB = `http://localhost:${process.env.E2E_WEB_PORT ?? '4520'}`;
@@ -89,11 +92,31 @@ export { expect };
  * step-up (D-67) จึงเลือก step ที่ยังไม่ถูกใช้เอง แทนการลองผิดลองถูก
  */
 let usedStep = 0;
+/**
+ * step ที่ใช้แล้วต้องจำข้าม process ด้วย — ci รอบ retry (process ใหม่) ใช้ฐาน/server เดิม ถ้าเริ่มนับ 0 ใหม่จะได้ step ที่รอบแรกใช้ไปแล้ว → server ปฏิเสธ
+ * เก็บในไฟล์ชั่วคราวแยกตามพอร์ต API ของ E2E (lane ต่างกันไม่ชนกัน)
+ */
+const STEP_FILE = join(tmpdir(), `tms-e2e-totp-step-${process.env.E2E_API_PORT ?? '4510'}`);
+function loadStep(): number {
+  try {
+    return Number(readFileSync(STEP_FILE, 'utf8')) || 0;
+  } catch {
+    return 0;
+  }
+}
+function saveStep(step: number): void {
+  try {
+    writeFileSync(STEP_FILE, String(step));
+  } catch {
+    /* ไม่มีที่เขียน = ใช้ค่าใน process อย่างเดียว */
+  }
+}
 
 /** RFC 6238 ในฝั่ง test (ไม่พึ่งโค้ดของแอป) */
 export function totp(secret: string, offset = 0): string {
   const step = Math.floor(Date.now() / 30000) + offset;
-  usedStep = Math.max(usedStep, step);
+  usedStep = Math.max(usedStep, loadStep(), step);
+  saveStep(usedStep);
   return totpAt(secret, step);
 }
 
@@ -155,9 +178,11 @@ export async function freshCode(): Promise<string> {
     const now = Math.floor(Date.now() / 30000);
     // ช่วง 2 วินาทีสุดท้ายไม่ใช้ step ปัจจุบัน (อาจหลุดหน้าต่างระหว่างส่ง) — ใช้ step ถัดไปแทน
     const late = Date.now() % 30000 > 28_000;
+    usedStep = Math.max(usedStep, loadStep());
     const step = [now, now + 1].find((x) => x > usedStep && !(late && x === now));
     if (step !== undefined) {
       usedStep = step;
+      saveStep(step);
       return totpAt(DEMO_TOTP_SECRET, step);
     }
     await nextTotpStep();
