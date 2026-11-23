@@ -48,6 +48,8 @@ export interface DocumentSyncView {
   externalDocNo: string | null;
   externalStatus: string | null;
   lastSyncedAt: Date | null;
+  /** ST8-T13 เวลาที่ฝ่ายบัญชีกดปุ่ม "ลงบัญชีแล้ว" — มีค่า = แทนที่เอกสารฝั่ง ERP ต้องมีผู้อนุมัติ */
+  postedAt: Date | null;
   /** ST8-T08 เอกสารฝั่ง ERP ทุกใบเมื่อถูกแยกเป็นหลายใบ (`detail.documents`) — ใบเดียว = [] */
   externalDocuments: {
     ref: string;
@@ -517,8 +519,51 @@ export class ExternalMappingService {
       externalDocNo: r.externalDocNo,
       externalStatus: r.externalStatus,
       lastSyncedAt: r.lastSyncedAt,
+      postedAt: r.postedAt,
       externalDocuments: externalDocumentsOfDetail(r.detail),
     };
+  }
+
+  /**
+   * ST8-T13 ปุ่ม "ลงบัญชีแล้ว" (docs/01 A.2/A.6 — ERP ที่ไม่บอกสถานะลง GL: KRS) → `external_mapping.posted_at` ของเอกสารนี้ทุก connector
+   * ที่เอกสารอยู่ในระบบบัญชีแล้ว (มี external_id · ไม่ RETIRED) — หลังจากนี้การแทนที่เอกสารฝั่ง ERP ต้องมีผู้อนุมัติ
+   * · คุมเข้มขึ้นอย่างเดียว (ไม่มีปุ่มล้าง) · กดซ้ำ = คงเวลาเดิม · ยังไม่อยู่ในระบบบัญชี → 409 `invalid_state_transition` · audit `invoice.erp_posted_marked`
+   */
+  async markPosted(entity: 'INVOICE', localId: string, tx: Tx = this.db.tx): Promise<number> {
+    const rows = await tx.externalMapping.findMany({
+      where: {
+        entityType: entity,
+        localId,
+        externalId: { not: null },
+        status: { not: 'RETIRED' },
+        connector: { status: { not: 'DISCONNECTED' } },
+      },
+      select: { id: true, connectorId: true, postedAt: true, externalId: true },
+    });
+    if (!rows.length)
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        reason: 'not_in_accounting_system',
+      });
+    const actor = requestContext.get()?.actorId ?? null;
+    const now = new Date();
+    const fresh = rows.filter((r) => !r.postedAt);
+    for (const r of fresh)
+      await tx.externalMapping.update({
+        where: { id: r.id },
+        data: { postedAt: now, postedBy: actor, updatedBy: actor, version: { increment: 1 } },
+      });
+    if (fresh.length)
+      await this.audit.record({
+        action: 'invoice.erp_posted_marked',
+        entityType: 'invoice',
+        entityId: localId,
+        after: {
+          postedAt: now.toISOString(),
+          connectors: fresh.map((r) => encodeId('connector', r.connectorId)),
+          externalIds: fresh.map((r) => r.externalId),
+        },
+      });
+    return fresh.length;
   }
 
   /** `{id}` หรือ `ext:{externalId}` ของรถร่วม (ST7-T02) → uuid · ไม่พบ/ลบแล้ว/tenant อื่น = 404 */

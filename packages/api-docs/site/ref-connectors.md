@@ -1,6 +1,6 @@
 # Connector ERP (connectors)
 
-17 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+18 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -16,6 +16,7 @@
 | [`POST /v1/connectors/{id}/queue/retry`](#post-connectors-id-queue-retry) | `settings:write` / `integrations:retry` |
 | [`POST /v1/connectors/{id}/queue/{commandId}/retry`](#post-connectors-id-queue-commandId-retry) | `settings:write` / `integrations:retry` |
 | [`POST /v1/connectors/{id}/queue/{commandId}/skip`](#post-connectors-id-queue-commandId-skip) | `settings:write` / `integrations:retry` |
+| [`POST /v1/connectors/{id}/queue/{commandId}/approve`](#post-connectors-id-queue-commandId-approve) | `credit-notes:approve` |
 | [`POST /v1/connectors/{id}/queue/{commandId}/external-id`](#post-connectors-id-queue-commandId-external-id) | `settings:write` / `integrations:retry` |
 | [`GET /v1/connectors/{id}/master-codes`](#get-connectors-id-master-codes) | `settings:read` |
 | [`GET /v1/connectors/{id}/mappings`](#get-connectors-id-mappings) | `settings:read` |
@@ -484,6 +485,56 @@ curl -sS -X POST "$TMS_BASE_URL/v1/connectors/<id>/queue/<commandId>/skip" \
 
 ```ts
 const { data, error } = await tms.POST('/v1/connectors/{id}/queue/{commandId}/skip', {
+  params: { path: { id: "…", commandId: "…" } },
+  body: {
+    "reason": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569"
+  },
+});
+```
+
+## POST /v1/connectors/{id}/queue/{commandId}/approve {#post-connectors-id-queue-commandId-approve}
+
+`POST /v1/connectors/{id}/queue/{commandId}/approve`
+
+scope: `credit-notes:approve` · operationId: `Connectors_queueApprove`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+| `commandId` | path | ใช่ | `string` |   |
+
+**Request body** `QueueApproveDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `เลิกใช้บริการตั้งแต่ ธ.ค. 2569` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | อนุมัติการแทนที่เอกสารในระบบบัญชี (รายการ `replace_requires_approval` — ลงบัญชีแล้ว (ERP แจ้ง / ปุ่ม "ลงบัญชีแล้ว") หรือใบอายุเกิน `billing.erpReplaceApprovalDays` วัน, A.2) — คนเท่านั้น · เหตุผล ≥ 10 ตัว · ผู้อนุมัติต้องไม่ใช่ผู้ขอ (ผู้ออกใบใหม่ / ผู้ยกเลิกใบเดิม / ผู้สั่งส่งซ้ำ) → 403 `erp_replace_self_approval` · ผล: คำสั่งใหม่ที่ส่งได้ทันที (`resolution.supersededBy`) · audit `connector.queue_approved` · ไม่ใช่รายการรออนุมัติ → 409 `queue_action_not_allowed` (`why`: `not_awaiting_approval` ฯลฯ) | `ConnectorQueueItemDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`credit-notes:approve`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/connectors/<id>/queue/<commandId>/approve" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"เลิกใช้บริการตั้งแต่ ธ.ค. 2569"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/connectors/{id}/queue/{commandId}/approve', {
   params: { path: { id: "…", commandId: "…" } },
   body: {
     "reason": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569"

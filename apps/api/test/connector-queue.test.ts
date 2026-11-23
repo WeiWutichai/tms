@@ -182,7 +182,7 @@ describe('Connector queue (ST7-T19)', () => {
       errorClass: 'PERIOD_CLOSED',
       documentNo: doc.number,
       guide: { key: 'PERIOD_CLOSED' },
-      actions: { retry: true, skip: true, externalId: true },
+      actions: { retry: true, skip: true, externalId: true, approve: false },
       resolution: null,
     });
     expect(failed.data[0].guide.action).toContain('เปิดงวด');
@@ -253,7 +253,7 @@ describe('Connector queue (ST7-T19)', () => {
       guide: { key: 'TRANSIENT' },
     });
     expect(Date.parse(q.data[0].nextRunAt)).toBeGreaterThan(Date.now() - 60_000);
-    expect(q.data[0].actions).toEqual({ retry: false, skip: false, externalId: false });
+    expect(q.data[0].actions).toEqual({ retry: false, skip: false, externalId: false, approve: false });
     await api(app, token).post(`/v1/connectors/${con.id}/queue/${id}/retry`).expect(409);
     await api(app, token)
       .post(`/v1/connectors/${con.id}/queue/${id}/skip`)
@@ -326,7 +326,7 @@ describe('Connector queue (ST7-T19)', () => {
     expect(f).toMatchObject({
       id,
       guide: { key: 'regenerate_required' },
-      actions: { retry: false, skip: true, externalId: true },
+      actions: { retry: false, skip: true, externalId: true, approve: false },
     });
     const no = await api(app, token).post(`/v1/connectors/${con.id}/queue/${id}/retry`).expect(409);
     expect(no.body.why).toBe('not_retryable');
@@ -342,7 +342,7 @@ describe('Connector queue (ST7-T19)', () => {
     expect(s.body).toMatchObject({
       tab: 'done',
       resolution: { kind: 'SKIPPED', reason: 'ฝ่ายบัญชีออกเอกสารใหม่ในระบบบัญชีแล้ว' },
-      actions: { retry: false, skip: false, externalId: false },
+      actions: { retry: false, skip: false, externalId: false, approve: false },
     });
     expect(ids((await queue(con.id, 'done')).body)).toContain(id);
     const audit = await plat.auditLog.findFirst({

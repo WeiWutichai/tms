@@ -146,9 +146,9 @@ describe('KRS fetchDocument (ST8-T10) — กับ mock KRS ไม่แตะ�
     await mock.stop();
   });
 
-  it('รูปของ adapter: fetchDocument ไม่ pending แล้ว (ค้าง replaceDocument) · ค้นด้วยเลขของเราไม่ได้ (fetchNeedsExternalId)', () => {
+  it('รูปของ adapter: fetchDocument ไม่ pending แล้ว (replaceDocument ทำแล้ว ST8-T13) · ค้นด้วยเลขของเราไม่ได้ (fetchNeedsExternalId)', () => {
     expect(adapterShapeProblems(krs)).toEqual([]);
-    expect(krs.pendingCapabilities).toEqual(['replaceDocument']);
+    expect(krs.pendingCapabilities).toEqual([]);
     expect(krs.fetchNeedsExternalId).toBe(true);
   });
 

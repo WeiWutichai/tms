@@ -130,7 +130,7 @@ const DOC_NOT_SENT_HINT_TH: Readonly<Record<string, string>> = {
     'เอกสารที่ส่งแล้วเปลี่ยนส่วนที่ต้องออกใหม่ — ยกเลิกแล้วออกใหม่ในระบบบัญชีเอง',
   paid_locked: 'เอกสารรับชำระแล้ว ระบบไม่ส่งการแก้ไข — ปรับในระบบบัญชีเอง',
   replace_not_supported: 'ระบบบัญชีแก้เอกสารผ่าน API ไม่ได้ — แก้ในระบบบัญชีเอง',
-  replace_requires_approval: 'ระบบบัญชีลงบัญชีแล้ว — ต้องอนุมัติก่อนแทนที่ หรือแก้ในระบบบัญชีเอง',
+  replace_requires_approval: 'ลงบัญชีแล้วหรือใบเก่าเกินกำหนด — ต้องมีผู้อนุมัติ (คนละคนกับผู้ขอ) ก่อนแทนที่ หรือแก้ในระบบบัญชีเอง',
 };
 const DOC_NOT_SENT_HINT_EN: Readonly<Record<string, string>> = {
   erp_mapping_incomplete: 'map the service items to accounting codes, then resend.',
@@ -145,7 +145,7 @@ const DOC_NOT_SENT_HINT_EN: Readonly<Record<string, string>> = {
   regenerate_required: 'the change requires re-issuing it in the accounting system manually.',
   paid_locked: 'it is already paid — changes are not sent; adjust it in the accounting system.',
   replace_not_supported: 'the accounting system cannot update it via API — update it manually.',
-  replace_requires_approval: 'it is posted in the accounting system — replacing needs approval.',
+  replace_requires_approval: 'it is posted or older than the set limit — replacing needs another person\'s approval.',
 };
 /** review M2: AMBIGUOUS (timeout หลังส่ง / lease หมดครั้งสุดท้าย) — เอกสารอาจถึงระบบบัญชีแล้ว */
 const DOC_NOT_SENT_AMBIGUOUS_TH = 'อาจถึงระบบบัญชีแล้ว — ตรวจในระบบบัญชีก่อนส่งใหม่หรือบันทึกเอง';

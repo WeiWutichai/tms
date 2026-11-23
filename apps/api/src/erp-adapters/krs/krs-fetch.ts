@@ -204,7 +204,7 @@ function fetchError(errorClass: ErrorClass, code: string, message: string): ErpA
 }
 
 /** `GET {baseUrl}/invoice/{transactionNo}` 1 ใบ */
-async function getOne(
+export async function getKrsInvoice(
   ctx: ErpContext,
   base: string,
   key: string,
@@ -337,7 +337,7 @@ export async function fetchKrsDocument(
   for (const id of new Set(ids)) {
     let got: KrsBody;
     try {
-      got = await getOne(ctx, base, key, id, http);
+      got = await getKrsInvoice(ctx, base, key, id, http);
     } catch (e) {
       // อ่านทุกใบก่อน แล้วรายงานใบที่หายทั้งหมดในครั้งเดียว
       if (e instanceof ErpAdapterError && e.errorClass === 'NOT_FOUND') {

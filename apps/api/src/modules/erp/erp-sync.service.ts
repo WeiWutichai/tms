@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { tryDecodeId } from '../../common/ids';
 import type { Tx } from '../../db/db.service';
 import { randomUUID } from 'node:crypto';
+import { requestContext } from '../../common/request-context';
 import { OutboxService } from '../integration/outbox.service';
 import type { SettlementDto } from '../settlements/settlement.dto';
 import {
@@ -14,6 +15,7 @@ import {
 import { ConnectorResolver } from './connector-resolver';
 import { ExternalMappingService } from './external-mapping.service';
 import { ERP_SINK } from './erp-adapter.sink';
+import { reissueTarget, replacesAdjustments } from './erp-reissue';
 
 /** entity_type ของ external_mapping (enum `ExternalEntityType` — ตารางของ ST8-T05/0141) */
 export const MAP_ENTITY = {
@@ -69,6 +71,35 @@ export class ErpSyncService {
     );
     // ST8-T07 (PDPA): ชื่อคนขับลง payload เฉพาะ connector ที่ adapter ประกาศว่าต้องใช้
     const doc = canonicalInvoice(inv, customerExternalId, r.adapter?.personalDataNeeds ?? []);
+    // ST8-T13 (D-54 ภาพหลังปรับ = ยกเลิกแล้วออกใหม่): ใบที่ออกแทนใบเดิมซึ่งอยู่ในระบบบัญชีแล้ว → แทนที่เอกสารของใบเดิม (ไม่ POST ใบใหม่)
+    if (inv.replacesInvoiceId) {
+      const t = await reissueTarget(tx, r.connector.id, inv.replacesInvoiceId);
+      if (t) {
+        const sameParty =
+          t.customerId === inv.customerId && t.issuingCompanyId === inv.issuingCompanyId;
+        if (sameParty && replacesAdjustments(r.capabilities)) {
+          const actor = requestContext.get()?.actorId ?? null;
+          const q = await this.enqueue(tx, r.connector.syncFromDate, {
+            tenantId: inv.tenantId,
+            connectorId: r.connector.id,
+            operation: 'REPLACE_DOCUMENT',
+            entityType: ERP_ENTITY.invoice,
+            localId: inv.id,
+            customerId: inv.customerId,
+            payload: {
+              document: doc,
+              branchId: inv.issuingBranchId,
+              reissueOf: t.id,
+              // ผู้ขอการแทนที่ (ผู้ออกใบใหม่ + ผู้ยกเลิกใบเดิม) — ผู้อนุมัติต้องเป็นคนอื่น (docs/01 A.2 approval)
+              requestedBy: [...new Set([actor, t.cancelledBy].filter((x): x is string => !!x))],
+            },
+          });
+          return q ? [r.connector.id] : [];
+        }
+        // แทนที่ไม่ได้ (ลูกค้า/ผู้ออกเปลี่ยน · connector ไม่แทนที่) → ส่งใบใหม่ตามปกติ + แจ้งบัญชียกเลิกเอกสารของใบเดิมเอง
+        await this.invoiceVoided(tx, t.id, { renotify: true });
+      }
+    }
     const q = await this.enqueue(tx, r.connector.syncFromDate, {
       tenantId: inv.tenantId,
       connectorId: r.connector.id,
@@ -89,7 +120,11 @@ export class ErpSyncService {
    *   ครั้งก่อนอาจถึงปลายทางแล้ว เช่น timeout) → VOID_DOCUMENT ต่อ connector นั้น (คีย์ serialize เดียวกับ PUSH = ทำหลัง PUSH)
    *   ยังไม่มี adapter ใดยกเลิกผ่าน API ได้ = SKIPPED `void_manual_required` (บัญชีตรวจ/ยกเลิกในระบบบัญชีเอง)
    */
-  async invoiceVoided(tx: Tx, invoiceId: string): Promise<string[]> {
+  async invoiceVoided(
+    tx: Tx,
+    invoiceId: string,
+    opts: { renotify?: boolean } = {},
+  ): Promise<string[]> {
     const inv = await tx.invoice.findUnique({
       where: { id: invoiceId },
       select: { tenantId: true, customerId: true, invoiceNo: true },
@@ -102,7 +137,8 @@ export class ErpSyncService {
     const inFlight = await tx.integrationOutbox.findMany({
       where: {
         sink: ERP_SINK,
-        operation: 'PUSH_INVOICE',
+        // ST8-T13 การแทนที่ (ใบออกใหม่แทนใบเดิม) ที่กำลังส่งอยู่ก็อาจทำให้ใบนี้อยู่ในระบบบัญชีแล้ว
+        operation: { in: ['PUSH_INVOICE', 'REPLACE_DOCUMENT'] },
         entityType: ERP_ENTITY.invoice,
         localId: invoiceId,
         status: { in: ['IN_FLIGHT', 'FAILED_RETRYABLE'] },
@@ -123,6 +159,8 @@ export class ErpSyncService {
       const c = await tx.connector.findUnique({ where: { id: connectorId } });
       if (!c || c.status === 'DISCONNECTED') continue;
       await this.enqueue(tx, null, {
+        // ST8-T13 แจ้งซ้ำเมื่อสายการแทนที่ขาด (ใบออกใหม่ถูกยกเลิก/แทนที่ไม่ได้) — คำสั่งใหม่ (payload เดิม = คำสั่งเดิมที่จบไปแล้ว)
+        ...(opts.renotify ? { resendNonce: randomUUID() } : {}),
         tenantId: inv.tenantId,
         connectorId: c.id,
         operation: 'VOID_DOCUMENT',
@@ -141,6 +179,63 @@ export class ErpSyncService {
       out.push(c.id);
     }
     return out;
+  }
+
+  /**
+   * ST8-T13 สายการแทนที่ขาด: ใบออกใหม่ (`invoiceId`) ถูกยกเลิกโดยไม่ออกใบแทนต่อ / ร่างใบออกใหม่ถูกยกเลิก → เอกสารของใบเดิม
+   * ในระบบบัญชีจะไม่ถูกแทนที่แล้ว → แจ้งบัญชียกเลิกเอกสารนั้นเอง (KRS-6 ทางรอคำตอบ (C) — `void_manual_required`)
+   */
+  async reissueAbandoned(tx: Tx, invoiceId: string): Promise<string[]> {
+    const inv = await tx.invoice.findUnique({
+      where: { id: invoiceId },
+      select: { replacesInvoiceId: true },
+    });
+    const t = await reissueTarget(tx, null, inv?.replacesInvoiceId ?? null);
+    return t ? this.invoiceVoided(tx, t.id, { renotify: true }) : [];
+  }
+
+  /**
+   * ST8-T13 ผู้อนุมัติยืนยันการแทนที่เอกสารในระบบบัญชี (docs/01 A.2 "ต้องผ่าน approval ถ้า posted_at ไม่ว่าง หรืออายุใบ > N วัน";
+   * §6.1 `replaceDocument` ต้อง approval ถ้าลงบัญชีแล้ว) → คำสั่งใหม่ (payload เดิม + `approval`) · ผู้ขอ/ผู้อนุมัติตรวจที่ผู้เรียก
+   */
+  async approveReplace(
+    tx: Tx,
+    row: {
+      tenantId: string;
+      targetId: string | null;
+      operation: string;
+      entityType: string;
+      localId: string;
+      payload: unknown;
+    },
+    approval: { approvedBy: string; reason: string; approvedAt: Date },
+  ): Promise<string | null> {
+    if (!row.targetId) return null;
+    const c = await tx.connector.findUnique({ where: { id: row.targetId } });
+    if (!c || c.status === 'DISCONNECTED') return null;
+    const payload = (row.payload ?? {}) as Record<string, unknown>;
+    const r = await this.enqueue(tx, c.syncFromDate, {
+      resendNonce: randomUUID(),
+      tenantId: row.tenantId,
+      connectorId: c.id,
+      operation: row.operation,
+      entityType: row.entityType,
+      localId: row.localId,
+      customerId:
+        row.entityType === 'invoice'
+          ? ((await tx.invoice.findUnique({ where: { id: row.localId }, select: { customerId: true } }))
+              ?.customerId ?? null)
+          : null,
+      payload: {
+        ...payload,
+        approval: {
+          approvedBy: approval.approvedBy,
+          approvedAt: approval.approvedAt.toISOString(),
+          reason: approval.reason,
+        },
+      },
+    });
+    return r?.id ?? null;
   }
 
   /** ใบสำคัญจ่ายที่บันทึกจ่ายแล้ว (ST6-T09) → PUSH_SETTLEMENT (AP ร่าง + WHT ประมาณการ — D-58) */
@@ -192,11 +287,31 @@ export class ErpSyncService {
     const op = entity === 'invoice' ? 'PUSH_INVOICE' : 'PUSH_SETTLEMENT';
     const c = await tx.connector.findUnique({ where: { id: connectorId } });
     if (!c || c.status === 'DISCONNECTED') return null;
-    const last = await tx.integrationOutbox.findFirst({
+    let last = await tx.integrationOutbox.findFirst({
       where: { sink: ERP_SINK, targetId: connectorId, operation: op, entityType: entity, localId },
       orderBy: { seq: 'asc' },
       select: { payload: true },
     });
+    // ST8-T13 ใบออกใหม่ที่แทนที่เอกสารของใบเดิม (ไม่เคยมี PUSH) → ฉบับที่ออก = payload ของคำสั่งแทนที่ครั้งแรก
+    let reissue: Record<string, unknown> | null = null;
+    if (!last) {
+      last = await tx.integrationOutbox.findFirst({
+        where: {
+          sink: ERP_SINK,
+          targetId: connectorId,
+          operation: 'REPLACE_DOCUMENT',
+          entityType: entity,
+          localId,
+        },
+        orderBy: { seq: 'asc' },
+        select: { payload: true },
+      });
+      const p = (last?.payload ?? null) as Record<string, unknown> | null;
+      if (typeof p?.reissueOf === 'string') {
+        const { approval: _a, ref: _r, ...rest } = p;
+        reissue = rest;
+      } else last = null;
+    }
     const payload = (last?.payload ?? null) as { document?: { number?: unknown } } | null;
     if (!payload?.document) return null;
     const m = await tx.externalMapping.findUnique({
@@ -228,7 +343,7 @@ export class ErpSyncService {
       resendNonce: randomUUID(),
       tenantId: c.tenantId,
       connectorId,
-      operation: inErp ? 'REPLACE_DOCUMENT' : op,
+      operation: inErp || reissue ? 'REPLACE_DOCUMENT' : op,
       entityType: entity,
       localId,
       // คีย์ serialize เดียวกับคำสั่งส่งครั้งแรก (ต่อลูกค้า — ใบลด/แทนที่ไม่แซงใบต้นฉบับ)
@@ -240,6 +355,8 @@ export class ErpSyncService {
       payload: inErp
         ? {
             ...(payload as Record<string, unknown>),
+            // ST8-T13 ผู้สั่งส่งซ้ำ = ผู้ขอการแทนที่ (ผู้อนุมัติต้องเป็นคนอื่น)
+            requestedBy: [requestContext.get()?.actorId].filter((x): x is string => !!x),
             ref: {
               entityType: entity,
               localId,
@@ -247,7 +364,19 @@ export class ErpSyncService {
               externalId: m!.externalId,
             },
           }
-        : (payload as Record<string, unknown>),
+        : reissue
+          ? {
+              ...reissue,
+              requestedBy: [
+                ...new Set(
+                  [
+                    ...(Array.isArray(reissue.requestedBy) ? reissue.requestedBy : []),
+                    requestContext.get()?.actorId,
+                  ].filter((x): x is string => typeof x === 'string' && !!x),
+                ),
+              ],
+            }
+          : (payload as Record<string, unknown>),
     });
     if (!r) return null; // เอกสารก่อน syncFromDate — ไม่สร้างคำสั่ง (docs/01 §6.4)
     return r.id;

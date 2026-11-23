@@ -49,7 +49,7 @@ describeErpAdapterContract('krs (KrsAdapter — โครง)', {
   make: () => new KrsAdapter({ allowPrivate: true }),
   config: good,
   badConfig: bad,
-  notImplemented: ['replaceDocument'],
+  // ST8-T13 replaceDocument ทำแล้ว — ไม่มี capability ที่ค้าง
   // ST8-T08 pushInvoice ทำแล้ว — ใบตัวอย่างที่ผ่านผังรหัส (ctx.masterCodes) → POST จริงกับ mock · ส่งซ้ำ = 409 DUPLICATE
   samples: { invoice: contractInvoice() },
   context: contractContext(),
@@ -310,8 +310,8 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
       'ownsDocumentNumber',
     ];
     expect(k.capabilities).toEqual(all);
-    // ST8-T04 pullOrders · ST8-T08 pushInvoice + ownsDocumentNumber · ST8-T10 fetchDocument ทำแล้ว — ที่เหลือยังเป็นโครง
-    expect(k.capabilitiesPending).toEqual(['replaceDocument']);
+    // ST8-T04 pullOrders · ST8-T08 pushInvoice + ownsDocumentNumber · ST8-T10 fetchDocument · ST8-T13 replaceDocument ทำแล้ว
+    expect(k.capabilitiesPending).toEqual([]);
     expect(k.configFields.map((f: { key: string }) => f.key)).toEqual([
       'baseUrl',
       'apiKey',
@@ -324,36 +324,26 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
     ]);
   });
 
-  it('M1: capability ที่ยังไม่ได้ทำไม่เปิดเป็นค่าเริ่มต้น · ขอเปิด = 422 · คำสั่ง REPLACE_DOCUMENT ที่ค้าง = PENDING (ไม่ SKIPPED ไม่เสียครั้ง)', async () => {
+  it('M1 → ST8-T13: ทุก capability ของ KRS ทำแล้ว (ไม่มี pending) · replaceDocument รองรับ (เปิดได้เมื่อผังรหัสพร้อม — ST8-T06)', async () => {
     const r = await createKrs();
     expect(r.status, JSON.stringify(r.body)).toBe(201);
-    // ST8-T04 pullOrders · ST8-T08 pushInvoice · ST8-T10 fetchDocument พร้อมแล้ว · ที่เหลือยังไม่รองรับ
     expect(r.body.capabilitiesSupported).toEqual([
       'pullOrders',
       'pushInvoice',
       'fetchDocument',
+      'replaceDocument',
       'ownsDocumentNumber',
     ]);
-    expect(r.body.capabilitiesPending).toEqual(['replaceDocument']);
+    expect(r.body.capabilitiesPending).toEqual([]);
+    // ไม่ใช่ "ไม่รองรับ" อีกแล้ว — ติดแค่ผังรหัสยังไม่พร้อม (เหมือน pushInvoice)
     const bad = await api(app, token)
       .patch(`/v1/connectors/${r.body.id}`)
       .send({ capabilitiesEnabled: ['replaceDocument'] });
     expect(bad.status).toBe(422);
     expect(bad.body.errors[0]).toMatchObject({
       field: 'capabilitiesEnabled',
-      code: 'capability_not_supported',
+      code: 'erp_master_codes_not_ready',
     });
-    await api(app, token).post(`/v1/connectors/${r.body.id}/resume`).send({}).expect(200);
-    const c = await enqueue(uuid(r.body.id), 'REPLACE_DOCUMENT');
-    await drain();
-    await drain();
-    const row = await cmd(c);
-    expect(row).toMatchObject({ status: 'PENDING', errorClass: 'AUTH', attempt: 0 });
-    expect(row.lastError).toMatchObject({
-      code: 'capability_not_implemented',
-      capability: 'replaceDocument',
-    });
-    expect(mock.requests().some((q) => q.method === 'POST')).toBe(false);
   });
 
   it('เปิด connector KRS → healthCheck เขียว → ACTIVE · credential เข้ารหัส ไม่ส่งกลับ ไม่ลง audit/log', async () => {
@@ -444,10 +434,10 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
       where: { entityId: uuid(id), action: 'connector.recovered' },
     });
     expect(audit?.after).toMatchObject({ status: 'ACTIVE', by: 'system' });
-    // คำสั่งที่พักไว้ถูกปลุก → ถึง sink อีกครั้ง → พักต่อเพราะ capability ยังไม่ได้ทำ (ไม่ SKIPPED)
+    // คำสั่งที่พักไว้ถูกปลุก → ถึง sink อีกครั้ง → พักต่อเพราะ tenant ยังไม่เปิด replaceDocument (ไม่ SKIPPED)
     await drain();
     expect(await cmd(c)).toMatchObject({ status: 'PENDING', attempt: 0 });
-    expect((await cmd(c)).lastError).toMatchObject({ code: 'capability_not_implemented' });
+    expect((await cmd(c)).lastError).toMatchObject({ code: 'capability_off' });
   });
 
   it('M2: KRS ตอบ 503 ครั้งเดียว = ยังไม่หยุด · 401 (AUTH) = ERROR ทันที และ worker ไม่กู้คืนเอง', async () => {

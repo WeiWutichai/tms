@@ -31,12 +31,13 @@ import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './hel
  *
  * | Response [KRS]            | ErrorClass | ทำอะไร (A.5)                                                                          | test |
  * | 201 (POST)                | —          | บันทึก mapping (GET AFTER_PUSH ทันที = reconcile engine ST8-T11)                          | A5-201 |
+ * | 200 (PUT)                 | —          | บันทึก mapping (ST8-T13 replaceDocument · GET AFTER_PUSH = ST8-T11)                       | A5-PUT-200 |
  * | 409 tmsVoucherNo ซ้ำ       | DUPLICATE  | หา transactionNo จาก mapping · ไม่มี → คิวให้คนกรอกมือ (ต่อใบ) แล้ว GET เทียบ — ไม่ POST ซ้ำ | A5-409* |
  * | 503 DB KRS ล่ม             | TRANSIENT  | backoff 1, 2, 5, 15, 30, 60 นาที + jitter · healthCheck ไม่ผ่าน → หยุดทั้งคิว               | A5-503 |
  * | timeout / connection reset| AMBIGUOUS  | ไม่ POST ซ้ำทันที · มี transactionNo → GET · ไม่มี → รอ 2 นาทีแล้ว POST (ถึงแล้วได้ 409)    | A5-AMB* |
  * | 400                       | VALIDATION | ไม่ retry · เก็บ response ตัวเต็ม · ขึ้นคิว                                               | A5-400 |
  * | 401                       | AUTH       | หยุด connector ทั้งตัว แจ้ง admin                                                       | A5-401 |
- * | 404 (PUT/GET)             | NOT_FOUND  | REMOTE_MISSING ให้คนตัดสิน (PUT = ST8-T13 — replaceDocument ยัง pending)                  | A5-404* |
+ * | 404 (PUT/GET)             | NOT_FOUND  | REMOTE_MISSING ให้คนตัดสิน · ไม่ POST (PUT = ST8-T13)                                     | A5-404*, A5-PUT-404 |
  * Concurrency 3 ต่อ connector · serialize ต่อลูกค้า                                                                   | A5-CONC |
  */
 
@@ -346,7 +347,14 @@ describe('ST8-T09 KRS error handling ตาม A.5', { timeout: 600_000 }, () =>
     const on = await api(app, admin)
       .patch(`/v1/connectors/${conId}`)
       .send({
-        capabilitiesEnabled: ['pullOrders', 'pushInvoice', 'ownsDocumentNumber', 'fetchDocument'],
+        capabilitiesEnabled: [
+          'pullOrders',
+          'pushInvoice',
+          'ownsDocumentNumber',
+          'fetchDocument',
+          // ST8-T13 แถว PUT ของ A.5
+          'replaceDocument',
+        ],
       });
     expect(on.status, JSON.stringify(on.body)).toBe(200);
     customerId = await newCustomer();
@@ -432,10 +440,102 @@ describe('ST8-T09 KRS error handling ตาม A.5', { timeout: 600_000 }, () =>
   it.todo(
     'A5-201→GET: GET ทันที 1 ครั้งหลัง 201 (reconcile AFTER_PUSH → ACCEPTED/MISMATCH) — ST8-T11 (docs/01 §6.5)',
   );
-  it.todo(
-    'A5-PUT-200: replaceDocument PUT 200 → mapping + GET เทียบ — ST8-T13 (replaceDocument ยัง pending)',
-  );
-  it.todo('A5-PUT-404: PUT ได้ 404 → REMOTE_MISSING — ST8-T13');
+
+  /**
+   * ST8-T13 ใบออกใหม่แทนใบที่ยกเลิก (D-54 ภาพหลังปรับ) → `PUT /invoice/{transactionNo}` ของใบเดิม — ร่างใบใหม่สร้างตรงในฐาน
+   * (`replaces_invoice_id` เหมือนที่ ST5-T10 `reissue` สร้าง — DO ของชุดนี้ไม่ผ่านการตรวจพร้อมวางบิล) · ยกเลิกใบเดิมผ่าน API จริง
+   */
+  async function reissued(orig: { uuid: string; id: string }, amount: string) {
+    const cur = (await api(app, admin).get(`/v1/invoices/${orig.id}`).expect(200)).body;
+    await api(app, admin)
+      .post(`/v1/invoices/${orig.id}/void`)
+      .set('If-Match', `"${cur.version}"`)
+      .send({ reason: 'ราคาผิด ออกฉบับใหม่แทน' })
+      .expect(200);
+    const src = await plat.invoice.findUniqueOrThrow({
+      where: { id: orig.uuid },
+      include: { lines: { orderBy: { lineNo: 'asc' } } },
+    });
+    const inv = await plat.invoice.create({
+      data: {
+        tenantId,
+        customerId: src.customerId,
+        issuingCompanyId: src.issuingCompanyId,
+        issuingBranchId: src.issuingBranchId,
+        status: 'DRAFT',
+        creditTermDays: 30,
+        createdBy: 'u-prep',
+        replacesInvoiceId: src.id,
+        lines: {
+          create: src.lines.map((l) => ({
+            tenantId,
+            lineNo: l.lineNo,
+            serviceItemId: l.serviceItemId,
+            description: l.description,
+            quantity: l.quantity,
+            unitLabel: l.unitLabel,
+            unitPrice: amount,
+            amount,
+            vatType: l.vatType,
+            vatAmount: '0',
+            whtRate: l.whtRate,
+            deliveryOrderId: l.deliveryOrderId,
+            doAnchor: true,
+          })),
+        },
+      },
+    });
+    const id = encodeId('invoice', inv.id);
+    const r = await api(app, accounting)
+      .post(`/v1/invoices/${id}/finalize`)
+      .set('If-Match', `"${inv.version}"`)
+      .send({});
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    return { uuid: inv.id, id };
+  }
+  const puts = () => mock.requests().filter((q) => q.method === 'PUT');
+  const replaceOf = async (localId: string) =>
+    (await commands(localId)).find((c) => c.operation === 'REPLACE_DOCUMENT')!;
+
+  it('A5-PUT-200 (ST8-T13): PUT 200 → บันทึก mapping (เอกสาร KRS เดิม → ใบใหม่ SYNCED) · ไม่ POST · GET AFTER_PUSH = ST8-T11', async () => {
+    const orig = await single('200.00');
+    await drain();
+    const txNo = (await mapping(orig.uuid))!.externalId!;
+    const b = await reissued(orig, '180.00');
+    const [p0, q0] = [posts().length, puts().length];
+    await drain();
+    expect(posts().length).toBe(p0);
+    expect(puts().length - q0).toBe(1);
+    expect(await reload((await replaceOf(b.uuid)).id)).toMatchObject({ status: 'DONE' });
+    expect(await mapping(b.uuid)).toMatchObject({ status: 'SYNCED', externalId: txNo });
+    expect(mock.getInvoice(txNo)!.data.lines.map((l) => Number(l.unitPrice))).toEqual([180]);
+  });
+
+  it('A5-PUT-404 (ST8-T13): PUT ได้ 404 → ไม่ POST · FAILED_FINAL NOT_FOUND + mapping ใบเดิม MISMATCH + REMOTE_MISSING ให้คนตัดสิน', async () => {
+    const orig = await single('404.40');
+    await drain();
+    const txNo = (await mapping(orig.uuid))!.externalId!;
+    const b = await reissued(orig, '400.00');
+    mock.injectFault({ status: 404, method: 'PUT', times: 1 });
+    const p0 = posts().length;
+    await drain();
+    expect(posts().length).toBe(p0);
+    expect(await reload((await replaceOf(b.uuid)).id)).toMatchObject({
+      status: 'FAILED_FINAL',
+      errorClass: 'NOT_FOUND',
+    });
+    expect(await mapping(orig.uuid)).toMatchObject({
+      status: 'MISMATCH',
+      externalId: txNo,
+      lastError: { code: 'remote_missing', errorClass: 'NOT_FOUND' },
+    });
+    expect(await mapping(b.uuid)).toBeNull();
+    expect(
+      await plat.reconcileResult.findFirst({ where: { tenantId, localId: orig.uuid } }),
+    ).toMatchObject({ result: 'REMOTE_MISSING', severity: 'MONEY' });
+    // เอกสาร KRS ไม่ถูกแตะ
+    expect(mock.getInvoice(txNo)!.revision).toBe(1);
+  });
 
   // ---------- 409 DUPLICATE ----------
 
