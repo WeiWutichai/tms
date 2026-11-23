@@ -641,4 +641,62 @@ describe('KRS pushInvoice ครบวงจร (ST8-T08)', { timeout: 600_000 }
     expect(mock.getInvoiceByTmsVoucherNo(invoiceNo)).toBeTruthy();
     expect((await mapping(inv.uuid))?.status).toBe('SYNCED');
   });
+  it('re-review M1: ใบที่ 2 ล้ม 504 (ไม่รู้แน่ว่าสร้างหรือไม่) → mapping เก็บใบแรกแบบไม่ครบ · รอบถัดไปค้นก่อน (พักรอ fetchDocument) ไม่ POST ซ้ำ', async () => {
+    mock.injectFault({ kind: 'status', status: 504, method: 'POST', skip: 1, times: 1 });
+    const before = posts().length;
+    const { inv } = await splitInvoice();
+    await drain();
+    expect(posts().length - before).toBe(2);
+    const cmd = (await commands(inv.uuid)).find((c) => c.operation === 'PUSH_INVOICE')!;
+    const row = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } });
+    expect(row).toMatchObject({ status: 'FAILED_RETRYABLE', errorClass: 'TRANSIENT' });
+    expect(row.lastError).toMatchObject({ knownOutcome: false, documentsCreated: 1 });
+    expect((await mapping(inv.uuid))!.detail).toMatchObject({
+      documentsPartial: true,
+      documentsComplete: false,
+    });
+    await drain();
+    expect(posts().length - before).toBe(2);
+    const parked = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } });
+    expect(parked.status).toBe('PENDING');
+    expect(parked.lastError).toMatchObject({ code: 'capability_not_implemented' });
+    // คำสั่งที่พักไว้อยู่หัวคิวของลูกค้า (serialize ต่อลูกค้า) — ปิดทิ้งให้ข้อถัดไปส่งได้
+    await plat.integrationOutbox.update({ where: { id: cmd.id }, data: { status: 'SKIPPED' } });
+  });
+
+  it('re-review M2: worker ตายหลัง KRS ตอบ 201 (ผลไม่ถูกบันทึก) → ยึดคืนคำสั่ง → ไม่ POST ซ้ำ (ค้นก่อน/พัก)', async () => {
+    mock.injectFault({ kind: 'status', status: 503, method: 'POST', skip: 1, times: 1 });
+    const before = posts().length;
+    const { inv, invoiceNo } = await splitInvoice();
+    await drain();
+    const cmd = (await commands(inv.uuid)).find((c) => c.operation === 'PUSH_INVOICE')!;
+    expect(
+      (await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } })).lastError,
+    ).toMatchObject({ knownOutcome: true, documentsCreated: 1 });
+    // รอบถัดไป: worker ส่งใบที่ 2 ถึง KRS (201) แล้วตายก่อนบันทึกผล/sync log — คำสั่งค้าง IN_FLIGHT ที่ lease หมดอายุ
+    const part1 = mock.getInvoiceByTmsVoucherNo(invoiceNo)!;
+    const r = await fetch(`${mock.apiBaseUrl}/invoice`, {
+      method: 'POST',
+      headers: { 'X-API-Key': KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...part1.data, tmsVoucherNo: `${invoiceNo}-V7` }),
+    });
+    expect(r.status).toBe(201);
+    await plat.$executeRaw`UPDATE integration_outbox
+                              SET status = 'IN_FLIGHT', attempt = attempt + 1, lease_id = gen_random_uuid(),
+                                  lease_until = now() - interval '1 second'
+                            WHERE id = ${cmd.id}::uuid`;
+    const crashed = posts().length;
+    await drain();
+    // ยึดคืนแล้ว: ผล "รู้แน่" ของรอบก่อนใช้ไม่ได้ → ค้นก่อน (fetchDocument ยังไม่ทำ = พัก) — ไม่ POST ใบที่ 2 ซ้ำ
+    expect(posts().length).toBe(crashed);
+    expect(posts().length - before).toBe(3);
+    const row = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } });
+    expect(row.status).toBe('PENDING');
+    expect(row.lastError).toMatchObject({ code: 'capability_not_implemented' });
+    expect(
+      mock.listInvoices().filter((i) => i.data.tmsVoucherNo === `${invoiceNo}-V7`),
+    ).toHaveLength(1);
+    // คำสั่งที่พักไว้อยู่หัวคิวของลูกค้า (serialize ต่อลูกค้า) — ปิดทิ้งให้ข้อถัดไปส่งได้
+    await plat.integrationOutbox.update({ where: { id: cmd.id }, data: { status: 'SKIPPED' } });
+  });
 });

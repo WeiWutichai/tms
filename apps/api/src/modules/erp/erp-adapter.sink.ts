@@ -763,6 +763,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
               externalStatus: true,
               lastSyncedParts: true,
               detail: true,
+              updatedAt: true,
             },
           }),
         );
@@ -770,7 +771,24 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         const partial = partialDocumentsOf(prior?.detail);
         if (partial) {
           ctx.priorDocuments = partial.documents;
-          priorKnown = partial.complete;
+          // review M2: เชื่อ "รู้แน่" ของ mapping เฉพาะเมื่อไม่มีการเรียก POST/PUT ของเอกสารนี้หลังบันทึก mapping
+          // (มี = มีรอบที่ส่งหลังจากนั้นแล้วผลไม่ถูกบันทึก → ค้นก่อนตามกติกา ST7-T16)
+          const newer =
+            partial.complete && prior
+              ? await d.withTx((tx) =>
+                  tx.erpSyncLog.findFirst({
+                    where: {
+                      connectorId: connector.id,
+                      entityType: d.entityType,
+                      localId: d.localId,
+                      method: { in: ['POST', 'PUT'] },
+                      occurredAt: { gt: prior.updatedAt },
+                    },
+                    select: { id: true },
+                  }),
+                )
+              : null;
+          priorKnown = partial.complete && !newer;
         }
         if (
           prior?.status === 'SYNCED' &&
@@ -938,14 +956,20 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
       outboxId: d.id,
       at: this.clock.now().toISOString(),
     });
+    // review L1: กั้นด้วย lease ของคำสั่งใน statement เดียวกัน — worker ที่ถูกยึดคืนแล้ว (lease ไม่ตรง/หมดอายุ) เขียนไม่ได้
+    const lease = d.leaseId ?? null;
     await d.withTx(
       (tx) => tx.$executeRaw`
         INSERT INTO external_mapping (id, tenant_id, connector_id, entity_type, local_id, local_number, external_id,
                                       external_doc_no, status, detail, last_error, created_by, updated_at)
-        VALUES (gen_random_uuid(), ${d.tenantId}::uuid, ${c.id}::uuid, ${entity}::"ExternalEntityType",
-                ${d.localId}::uuid, ${number}, ${head.externalId as string},
-                ${(head.externalDocNo as string | null) ?? null}, 'PENDING', ${detail}::jsonb,
-                ${lastError}::jsonb, 'system:erp-sink', now())
+        SELECT gen_random_uuid(), ${d.tenantId}::uuid, ${c.id}::uuid, ${entity}::"ExternalEntityType",
+               ${d.localId}::uuid, ${number}, ${head.externalId as string},
+               ${(head.externalDocNo as string | null) ?? null}, 'PENDING', ${detail}::jsonb,
+               ${lastError}::jsonb, 'system:erp-sink', now()
+         WHERE ${lease}::uuid IS NULL
+            OR EXISTS (SELECT 1 FROM integration_outbox o
+                        WHERE o.id = ${d.id}::uuid AND o.lease_id = ${lease}::uuid
+                          AND o.status = 'IN_FLIGHT' AND o.lease_until > now())
         ON CONFLICT (connector_id, entity_type, local_id) DO UPDATE
            SET external_id = EXCLUDED.external_id,
                external_doc_no = EXCLUDED.external_doc_no,
@@ -1058,14 +1082,23 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         where: { id: d.id },
         select: { errorClass: true, lastError: true },
       });
-      const last = self?.lastError as { code?: unknown; knownOutcome?: unknown } | null;
+      const last = self?.lastError as {
+        code?: unknown;
+        knownOutcome?: unknown;
+        attempt?: unknown;
+      } | null;
       const code = last?.code;
       if (self?.errorClass === 'AMBIGUOUS') return 'AMBIGUOUS';
-      if (d.attempt > 1 && (self?.errorClass == null || code === 'worker_shutdown'))
+      // review M2: dispatcher เขียน `lease_expired` ตอนยึดคืนคำสั่งที่ worker ตายระหว่างส่ง (รวมกรณีรอบก่อนหน้านั้นล้มแบบอื่น)
+      if (
+        d.attempt > 1 &&
+        (self?.errorClass == null || code === 'worker_shutdown' || code === 'lease_expired')
+      )
         return 'LEASE_RECLAIMED';
       // ST8-T08 (review H1/M2) adapter รายงานแน่ชัดว่าฝั่ง ERP มีเอกสารใด (รอบก่อนของคำสั่งนี้ / mapping ที่บันทึกการส่งไม่ครบ)
       // → POST ใน sync log ไม่ใช่หลักฐานว่า "อาจถึงแล้ว" (ส่งต่อได้เลย ไม่ค้น/ไม่พัก) · ยังตรวจคำสั่งอื่นที่ค้างแบบไม่รู้ผลตามเดิม
-      const known = priorKnown || last?.knownOutcome === true;
+      // review M2: เชื่อ knownOutcome เฉพาะผลของรอบที่แล้วพอดี (รอบที่หายไประหว่างนั้นอาจส่งถึงแล้ว)
+      const known = priorKnown || (last?.knownOutcome === true && last?.attempt === d.attempt - 1);
       const sent = known
         ? null
         : await tx.erpSyncLog.findFirst({

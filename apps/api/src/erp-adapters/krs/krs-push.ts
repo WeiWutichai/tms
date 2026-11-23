@@ -227,6 +227,14 @@ function classifyStatus(status: number, text: string, ref: string): Fail {
   return krsFail('VALIDATION', `http_${status}`, `unexpected HTTP ${status} — check baseUrl`);
 }
 
+/**
+ * review M1: HTTP status ของ POST ที่ **รู้แน่ว่าใบไม่ถูกสร้าง** (ส่งซ้ำได้โดยไม่ต้องค้นก่อน)
+ * - 400 payload ผิด · 401/403 key ผิด · 404 path ผิด · 429 ถูกจำกัดอัตรา — KRS ปฏิเสธก่อนบันทึก
+ * - 503 — docs/01 A.1 (แถว Error code: "503 DB KRS ล่ม (retry)") = ฐานข้อมูล KRS ล่มก่อนประมวลผล จึงยังไม่มีใบ
+ * - **ไม่รวม** 409 (มีใบเลขนี้อยู่แล้ว — อาจเป็นของเราจากรอบที่ผลหาย), 500 / 502 / 504 / 5xx อื่น (อาจบันทึกแล้วก่อนพัง/ตัดสาย)
+ */
+const KRS_DEFINITE_NOT_CREATED: ReadonlySet<number> = new Set([400, 401, 403, 404, 429, 503]);
+
 /** `POST {baseUrl}/invoice` 1 ใบ */
 async function postOne(
   ctx: ErpContext,
@@ -326,7 +334,10 @@ async function postOne(
       ),
       false,
     );
-  return no(classifyStatus(r.status, r.body, d.tmsVoucherNo), true);
+  return no(
+    classifyStatus(r.status, r.body, d.tmsVoucherNo),
+    KRS_DEFINITE_NOT_CREATED.has(r.status),
+  );
 }
 
 /** ST8-T08 ส่งใบแจ้งหนี้ 1 ใบ (อาจเป็นหลายเอกสาร KRS) */

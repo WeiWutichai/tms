@@ -67,6 +67,8 @@ export interface OutboxDelivery {
   signal: AbortSignal;
   /** transaction ใหม่ของ tenant นี้ (RLS ตั้งแล้ว) — ห้ามถือ transaction ค้างระหว่างเรียกปลายทาง */
   withTx: <T>(fn: (tx: Tx) => Promise<T>) => Promise<T>;
+  /** ST8-T08 (review L1) lease ของรอบนี้ — กั้นการเขียนของ worker ที่ถูกยึดคืนแล้ว (ไม่มี = ไม่กั้น เช่น test เรียก sink ตรง) */
+  leaseId?: string;
 }
 
 /**
