@@ -50,8 +50,8 @@ const ENTITY = 'sales_order';
  * - PLANNED + ไม่มี DO ในเที่ยวแล้ว (ถอด/ยกเลิกเที่ยว) → `unplan` → RECEIVED แล้วประเมินใบค้างใหม่ (`reevaluate` — เช่น RATE_MISSING กลับมา)
  * - IN_TRANSIT + ไม่มี DO ที่ออกรถแล้ว และไม่มี DO ที่ส่งถึง/ส่งไม่สำเร็จ (ยกเลิกเที่ยวที่ปล่อยแล้วก่อนรับของ) → `recall` → PLANNED
  *   (→ `unplan` ถ้าไม่มี DO ในเที่ยว)
- * - ST4-T03 ความคืบหน้าการส่ง (domain `orderDeliveryEvent`): ส่งครบทุกบรรทัด → DELIVERED · ส่งบางส่วนและไม่มี DO วิ่ง →
- *   PARTIALLY_DELIVERED · DO ที่เหลือออกรถ → IN_TRANSIT (`resume`) · DO ส่งไม่สำเร็จทั้งหมด → คง IN_TRANSIT (ส่งใหม่/คืนคลัง ST4-T11)
+ * - ST4-T03 ความคืบหน้าการส่ง (domain `orderDeliveryEvent`): ส่งครบทุกบรรทัด → DELIVERED · ส่งบางส่วน (แม้ DO อื่นยังวิ่ง — D68-35) →
+ *   PARTIALLY_DELIVERED · DO ที่เหลือออกรถหลังการส่งถึง → IN_TRANSIT (`resume`) · DO ส่งไม่สำเร็จทั้งหมด → คง IN_TRANSIT (ส่งใหม่/คืนคลัง ST4-T11)
  */
 @Injectable()
 export class OrderStateService {
@@ -332,6 +332,33 @@ export class OrderStateService {
       await this.syncOne(tx, id, notes.get(id) ?? null);
   }
 
+  /**
+   * D-81 · D68-35 "DO ที่เหลือออกรถ" (docs/01 §4.1 PARTIALLY_DELIVERED → IN_TRANSIT): DO ที่วิ่งอยู่ออกรถ (dispatch/restore)
+   * หลังการส่งถึง (deliver) ครั้งล่าสุดของ DO ใน SO — อ่านจาก doc_status_history (เวลาเท่ากัน = ไม่นับว่าออกหลัง)
+   *
+   * ข้อจำกัด (ยอมรับได้ก่อน pilot — D-76): ลำดับใช้ `doc_status_history.at` = เวลาเริ่ม transaction (`now()`) ไม่ใช่เวลาเกิดเหตุ —
+   * event ที่เกิดพร้อมกัน/ซิงก์มาทีหลัง (offline) อาจทำให้ SO คง PARTIALLY_DELIVERED ทั้งที่ DO ที่เหลือออกรถหลังการส่งถึงจริง ·
+   * DO ที่ส่งถึงแล้วแต่ไม่มีประวัติ `deliver` (ข้อมูลเก่า/ทางอื่น) ไม่มีเวลาส่งถึงให้เทียบ → DO ที่วิ่งอยู่นับเป็น "ออกหลัง" (resume)
+   */
+  private async movedAfterDelivery(
+    tx: Tx,
+    dos: { id: string; status: string }[],
+  ): Promise<boolean> {
+    const ids = (set: readonly string[]) =>
+      dos.filter((d) => set.includes(d.status)).map((d) => d.id);
+    const last = async (docIds: string[], events: string[]) =>
+      (
+        await tx.docStatusHistory.aggregate({
+          where: { docType: 'delivery_order', docId: { in: docIds }, event: { in: events } },
+          _max: { at: true },
+        })
+      )._max.at;
+    const delivered = await last(ids(DO_DELIVERED_STATUSES), ['deliver']);
+    const moved = await last(ids(DO_MOVING_STATUSES), ['dispatch', 'restore']);
+    if (!moved) return false;
+    return !delivered || moved > delivered;
+  }
+
   private async syncOne(tx: Tx, id: string, note: string | null = null): Promise<void> {
     const so = await tx.salesOrder.findUnique({
       where: { id },
@@ -345,7 +372,7 @@ export class OrderStateService {
       })) > 0;
     const dos = await tx.deliveryOrder.findMany({
       where: { salesOrderId: id, status: { not: 'CANCELLED' }, rejectedFromId: null },
-      select: { status: true },
+      select: { id: true, status: true },
     });
     const has = (set: readonly string[]) => dos.some((d) => set.includes(d.status));
     const moving = has(DO_MOVING_STATUSES);
@@ -391,7 +418,14 @@ export class OrderStateService {
             d.status === 'RETURNED',
         ) &&
         (await this.deliveryOrders.allocation(id, tx, true)).every((l) => Number(l.remaining) <= 0);
-      const ev = orderDeliveryEvent(status, { anyDelivered, allDelivered, moving });
+      const movedAfterDelivery =
+        moving && anyDelivered ? await this.movedAfterDelivery(tx, dos) : moving;
+      const ev = orderDeliveryEvent(status, {
+        anyDelivered,
+        allDelivered,
+        moving,
+        movedAfterDelivery,
+      });
       if (ev) step(ev);
     }
     let from = so.status as SoStatus;

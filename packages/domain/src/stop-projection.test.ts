@@ -114,22 +114,29 @@ describe('deliveryOrderStopEvent', () => {
 });
 
 describe('orderDeliveryEvent', () => {
-  const f = (anyDelivered: boolean, allDelivered: boolean, moving: boolean) => ({
-    anyDelivered,
-    allDelivered,
-    moving,
-  });
+  const f = (
+    anyDelivered: boolean,
+    allDelivered: boolean,
+    moving: boolean,
+    movedAfterDelivery = false,
+  ) => ({ anyDelivered, allDelivered, moving, movedAfterDelivery });
   it('ส่งครบ → DELIVERED จาก IN_TRANSIT / PARTIALLY_DELIVERED', () => {
     expect(orderDeliveryEvent('IN_TRANSIT', f(true, true, false))).toBe('deliver');
     expect(orderDeliveryEvent('PARTIALLY_DELIVERED', f(true, true, false))).toBe('deliver');
   });
-  it('ส่งบางส่วนและไม่มี DO วิ่ง → PARTIALLY_DELIVERED; ยังวิ่ง → คง IN_TRANSIT', () => {
+  it('D68-35: ส่งบางส่วน → PARTIALLY_DELIVERED แม้ DO อื่นยังวิ่ง (docs/01 §4.1 "DO บางส่วน DELIVERED")', () => {
     expect(orderDeliveryEvent('IN_TRANSIT', f(true, false, false))).toBe('deliver_partial');
-    expect(orderDeliveryEvent('IN_TRANSIT', f(true, false, true))).toBeNull();
+    expect(orderDeliveryEvent('IN_TRANSIT', f(true, false, true))).toBe('deliver_partial');
     expect(orderDeliveryEvent('IN_TRANSIT', f(false, false, false))).toBeNull();
+    expect(orderDeliveryEvent('IN_TRANSIT', f(false, false, true))).toBeNull();
+    // ส่งบางส่วนแล้ว DO วิ่งอยู่ (ออกก่อนการส่งถึง) → คงส่งบางส่วน
+    expect(orderDeliveryEvent('PARTIALLY_DELIVERED', f(true, false, true))).toBeNull();
   });
-  it('DO ที่เหลือออกรถ → resume; สถานะอื่นไม่เปลี่ยน', () => {
-    expect(orderDeliveryEvent('PARTIALLY_DELIVERED', f(true, false, true))).toBe('resume');
+  it('DO ที่เหลือออกรถหลังการส่งถึง → resume แล้วคง IN_TRANSIT (ไม่สลับ) · สถานะอื่นไม่เปลี่ยน', () => {
+    expect(orderDeliveryEvent('PARTIALLY_DELIVERED', f(true, false, true, true))).toBe('resume');
+    expect(orderDeliveryEvent('IN_TRANSIT', f(true, false, true, true))).toBeNull();
+    // ใบที่ส่งถึงถูกย้อนผล (ST5-T06) ไม่เหลือใบส่งถึง + ยังมีใบวิ่ง → resume
+    expect(orderDeliveryEvent('PARTIALLY_DELIVERED', f(false, false, true))).toBe('resume');
     expect(orderDeliveryEvent('DELIVERED', f(true, true, false))).toBeNull();
     expect(orderDeliveryEvent('CLOSED', f(true, true, false))).toBeNull();
   });

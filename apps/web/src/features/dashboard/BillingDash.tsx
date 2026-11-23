@@ -62,7 +62,7 @@ function Tile(p: {
 
 /**
  * ST9-T02 Dashboard บิล บนหน้าภาพรวม — แถวการ์ดล่าง (ต้นแบบ is.dash grid 2fr / 1fr):
- * ซ้าย = "สถานะบิล" 5 ช่อง (ร่าง · ค้างวางบิล · ออกแล้วรอชำระ · เกินกำหนด · ชำระบางส่วน) + เดือนนี้ vs เดือนก่อน
+ * ซ้าย = "สถานะบิล" 5 ช่อง (ร่าง · ค้างวางบิล · ออกแล้วรอชำระ · ครบกำหนด (D68-94) · ชำระบางส่วน) + เดือนนี้ vs เดือนก่อน
  * ขวา = การ์ด "ลูกหนี้ค้างชำระ" ของต้นแบบ (ค้างรับ · เกินกำหนด → หน้ารับชำระ)
  * render เฉพาะผู้มี `invoices:read` (ผู้เรียกตรวจ) · ยอดเงินเฉพาะผู้มี `prices.sell:read` — ไม่มี = แสดงจำนวนใบ (API ตัดฟิลด์เงินเอง)
  * ยอดเงินเป็นข้อความจาก API (Decimal) — แสดงด้วย `money()` ไม่แปลงเป็น float · D-54 ไม่มีการ์ด "WHT รอ 50 ทวิ"
@@ -91,8 +91,8 @@ export function BillingDash({ canSell }: { canSell: boolean }) {
         return show(s.sellDraftTotal, inv1(s.draft));
       case 'issued':
         return show(s.sellIssuedOutstanding, inv1(s.issued));
-      case 'overdue':
-        return show(s.sellOverdueOutstanding, inv1(s.overdue));
+      case 'due':
+        return show(s.sellDueOutstanding, inv1(s.due));
       case 'partial':
         return show(s.sellPartiallyPaidOutstanding, inv1(s.partiallyPaid));
     }

@@ -125,11 +125,14 @@ export interface ImportSpec<T = unknown> {
   sampleRows?: Record<string, string>[];
   /** ข้อความอธิบายเพิ่มท้าย sheet "คำอธิบาย" (เช่น วิธีจัดกลุ่มหลายแถวเป็นใบเดียว) */
   helpNotes?: string[];
-  /** ตรวจระดับไฟล์ก่อนตรวจรายแถว (เช่น โควตาจำนวนรถ — MD-289) — คืนข้อความไทย = ปฏิเสธทั้งไฟล์ */
+  /**
+   * ตรวจระดับไฟล์ก่อนตรวจรายแถว — คืนข้อความไทย = ปฏิเสธทั้งไฟล์ (`file_rejected`)
+   * โควตา (MD-289) **ไม่ใช้ทางนี้แล้ว**: เกินโควตา = คำเตือนรายแถว `quota_exceeded` ไม่ปฏิเสธไฟล์ (D-81 · D68-21 — `MasterImportDef.quota`)
+   */
   checkFile?(
     ctx: ImportContext,
     rows: RowInput[],
-  ): Promise<string | { code: 'quota_exceeded' | 'file_rejected'; message: string } | null>;
+  ): Promise<string | { code: 'file_rejected'; message: string } | null>;
   /** ตรวจทุกแถวโดยไม่เขียนข้อมูล (dry-run) — ต้องคืนผลยาวเท่า rows และตามลำดับเดิม */
   validate(ctx: ImportContext, rows: RowInput[]): Promise<RowResult<T>[]>;
   /** เขียนแถวที่ผ่าน (ใน transaction เดียวกับการยืนยัน) — คืนจำนวนที่เขียน */

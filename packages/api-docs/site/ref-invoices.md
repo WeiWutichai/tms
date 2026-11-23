@@ -176,7 +176,7 @@ scope: `invoices:read` · operationId: `Invoices_listInvoices`
 | `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `customerId` | query |   | `string` | ลูกค้า — id หรือ `ext:{externalId}` |
 | `status` | query |   | `string` ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |
-| `receivable` | query |   | `string` ค่า: `all`, `open`, `overdue` | หน้า "รับชำระ": `all` = ใบที่ออกแล้ว (ไม่รวมร่าง/ยกเลิก) · `open` = ค้างรับ (ISSUED + PARTIALLY_PAID) · `overdue` = ใบที่มีธงเกินกำหนด — ใช้ร่วมกับ `status` ได้ |
+| `receivable` | query |   | `string` ค่า: `all`, `open`, `overdue`, `due` | หน้า "รับชำระ": `all` = ใบที่ออกแล้ว (ไม่รวมร่าง/ยกเลิก) · `open` = ค้างรับ (ISSUED + PARTIALLY_PAID) · `overdue` = ใบที่มีธงเกินกำหนด · `due` = ครบกำหนดแล้ว: ค้างรับที่ยังมียอดค้างและ `dueDate` ≤ วันนี้ (เวลาไทย) **รวมใบเกินกำหนด** (การ์ด "ครบกำหนด" ของ Dashboard บิล) — ใช้ร่วมกับ `status` ได้ |
 | `overdue` | query |   | `string` ค่า: `true`, `false` | ธงเกินกำหนด — `false` = ไม่รวมใบเกินกำหนด (แท็บ "ออกแล้ว"/"ชำระบางส่วน" ของต้นแบบ: เกินกำหนดแสดงก่อน) · `true` = เฉพาะเกินกำหนด |
 | `aging` | query |   | `string` ค่า: `NOT_DUE`, `DAYS_1_30`, `DAYS_31_60`, `DAYS_61_90`, `DAYS_OVER_90` | ช่วงอายุลูกหนี้ (การ์ด "อายุลูกหนี้" ของหน้ารับชำระ) — เฉพาะใบค้างรับที่ยังมียอดค้าง และ `daysPastDue = วันนี้ − dueDate` (เวลาไทย) อยู่ในช่วง · ชุดเดียวกับ `GET /payments/aging` |
 
@@ -1392,5 +1392,7 @@ const { data, error } = await tms.POST('/v1/invoice-runs', {
 | `sellIssuedOutstanding` |   | `string` |   | Σ ยอดค้าง (ยอดรวม − ยอดตัดชำระ) ของใบในแท็บ "ออกแล้ว" (ISSUED ที่ไม่เกินกำหนด) — `prices.sell:read` | `48000.00` |
 | `sellPartiallyPaidOutstanding` |   | `string` |   | Σ ยอดค้างของใบชำระบางส่วนที่ไม่เกินกำหนด — `prices.sell:read` | `3200.00` |
 | `sellOverdueOutstanding` |   | `string` |   | Σ ยอดค้างของใบเกินกำหนด (ชุดเดียวกับ `overdue` และ `GET /payments/summary` `sellOverdueOutstanding`) — `prices.sell:read` | `12500.00` |
+| `due` | ใช่ | `number` |   | D68-94 ครบกำหนด — ใบค้างรับที่ยังมียอดค้างและ `dueDate` ≤ วันนี้ (เวลาไทย) **รวมใบเกินกำหนด** (= `overdue` + ใบที่ครบกำหนดวันนี้) · ชุดเดียวกับ `GET /invoices?receivable=due` · ซ้อนกับ `issued`/`partiallyPaid` เฉพาะใบที่ครบวันนี้ (ไม่นับใน `total` ซ้ำ) |   |
+| `sellDueOutstanding` |   | `string` |   | D68-94 Σ ยอดค้างของใบครบกำหนด (ชุดเดียวกับ `due`) — `prices.sell:read` | `12821.07` |
 | `issuedThisMonth` | ใช่ | `InvoiceMonthTotalDto` |   | ใบที่ออกเลขเดือนนี้ (วันที่ 1 ถึงวันนี้ ตาม `issueDate` เวลาไทย) ไม่รวมร่าง/ยกเลิก |   |
 | `issuedLastMonth` | ใช่ | `InvoiceMonthTotalDto` |   | ใบที่ออกเลขเดือนก่อน (ทั้งเดือน) ไม่รวมร่าง/ยกเลิก |   |
