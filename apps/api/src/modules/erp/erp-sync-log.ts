@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import type { ErpSyncLog } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { scopeAllows } from '@tms/domain';
 import { encodeId, ID_PREFIX, type IdKind } from '../../common/ids';
 import type { Tx } from '../../db/db.service';
 import { redactSecrets } from './connectors.service';
@@ -184,10 +185,23 @@ export class ErpSyncLogDto {
   statusCode!: number | null;
   @ApiProperty({ nullable: true, type: String, example: 'timeout' }) errorCode!: string | null;
   @ApiProperty() durationMs!: number;
-  @ApiProperty({ nullable: true, type: String, description: 'body ที่ส่ง (ตัดแล้ว ≤ 16 KB)' })
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'body ที่ส่ง (ตัดแล้ว ≤ 16 KB) — null เมื่อ `bodiesHidden`',
+  })
   requestBody!: string | null;
-  @ApiProperty({ nullable: true, type: String, description: 'body ที่ได้กลับ (ตัดแล้ว ≤ 16 KB)' })
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'body ที่ได้กลับ (ตัดแล้ว ≤ 16 KB) — null เมื่อ `bodiesHidden`',
+  })
   responseBody!: string | null;
+  @ApiProperty({
+    description:
+      'ST7-T19 body มีราคา: ใบแจ้งหนี้/รับชำระ ต้องมี `prices.sell:read` · ใบสำคัญจ่ายรถร่วม ต้องมี `prices.buy:read` · ไม่รู้ชนิด ต้องมีทั้งคู่ — ไม่มีสิทธิ์ = body เป็น null และ flag นี้ true',
+  })
+  bodiesHidden!: boolean;
   @ApiProperty({ format: 'date-time' }) occurredAt!: string;
 }
 
@@ -207,7 +221,24 @@ function publicId(entityType: string | null, id: string | null): string | null {
   return kind in ID_PREFIX ? encodeId(kind as IdKind, id) : id;
 }
 
-export function syncLogDto(r: ErpSyncLog): ErpSyncLogDto {
+/** ST7-T19 (review H1) scope ราคาที่ต้องมีเพื่อดู body ของการเรียกเอกสารชนิดนี้ (body มียอดเงิน) */
+export function bodyPriceScopes(entityType: string | null): string[] {
+  if (entityType === 'invoice' || entityType === 'payment') return ['prices.sell:read'];
+  if (entityType === 'settlement') return ['prices.buy:read'];
+  return ['prices.sell:read', 'prices.buy:read'];
+}
+
+/** ผู้เรียกดู body ได้ไหม (`scopes` = scope ของผู้เรียก · undefined = ไม่ตรวจ เช่น ทีม Innovera) */
+export function canSeeBodies(
+  entityType: string | null,
+  scopes: readonly string[] | undefined,
+): boolean {
+  if (scopes === undefined) return true;
+  return bodyPriceScopes(entityType).every((s) => scopeAllows(scopes, s));
+}
+
+export function syncLogDto(r: ErpSyncLog, scopes?: readonly string[]): ErpSyncLogDto {
+  const show = canSeeBodies(r.entityType, scopes);
   return {
     id: encodeId('syncLog', r.id),
     commandId: r.outboxId ? encodeId('outboxCommand', r.outboxId) : null,
@@ -222,8 +253,9 @@ export function syncLogDto(r: ErpSyncLog): ErpSyncLogDto {
     statusCode: r.statusCode,
     errorCode: r.errorCode,
     durationMs: r.durationMs,
-    requestBody: r.requestBody,
-    responseBody: r.responseBody,
+    requestBody: show ? r.requestBody : null,
+    responseBody: show ? r.responseBody : null,
+    bodiesHidden: !show,
     occurredAt: r.occurredAt.toISOString(),
   };
 }

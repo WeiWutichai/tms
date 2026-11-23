@@ -219,6 +219,12 @@ export const PROBLEMS = {
     th: 'ดึงผังรหัสจากระบบบัญชีไม่สำเร็จ ตรวจการเชื่อมต่อแล้วลองใหม่',
     en: 'Fetching master codes from the connector failed — check the connection and retry',
   },
+  /** ST7-T19 ทำรายการนี้กับคำสั่งในคิวเชื่อมระบบบัญชีไม่ได้ — `why`: already_resolved / not_failed / not_retryable / not_a_document_push / resend_unavailable */
+  queue_action_not_allowed: {
+    status: 409,
+    th: 'ทำรายการนี้กับคำสั่งนี้ไม่ได้ (จัดการไปแล้ว หรือไม่ใช่รายการที่ล้มเหลว หรือต้องทำในระบบบัญชีเอง)',
+    en: 'This action is not allowed for this command (already handled, not failed, or must be done in the accounting system)',
+  },
   connector_health_failed: {
     status: 409,
     th: 'ทดสอบการเชื่อมต่อไม่ผ่าน ตรวจค่าตั้งและ credential แล้วลองใหม่',

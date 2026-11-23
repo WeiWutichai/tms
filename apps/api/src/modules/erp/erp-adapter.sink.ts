@@ -124,7 +124,7 @@ const MAPPED_ENTITIES: Readonly<Record<string, 'INVOICE' | 'SETTLEMENT'>> = {
  * D68-57 SKIPPED ที่ไม่ต้องแจ้งบัญชี (ทีละคำสั่ง): ส่งถึงแล้ว (`payload_unchanged`) · เอกสารถูกยกเลิกก่อนส่ง (`document_cancelled` — ไม่มีอะไรใน ERP)
  * · sandbox (`sandbox_unsupported` — ไม่ส่งออกนอกระบบโดยตั้งใจ)
  */
-const NOT_NOTIFIED_SKIPS: ReadonlySet<string> = new Set([
+export const NOT_NOTIFIED_SKIPS: ReadonlySet<string> = new Set([
   // review M1: ยกเลิกการเชื่อมแจ้งฉบับเดียวจาก `ConnectorsService.disconnect` (จำนวนคำสั่งค้าง) — ไม่แจ้งทีละคำสั่ง
   'connector_disconnected',
   'payload_unchanged',

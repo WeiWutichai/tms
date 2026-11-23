@@ -16894,7 +16894,339 @@
                 }
               ]
             },
-            "description": "scope: settings:read"
+            "description": "scope: settings:read | integrations:read"
+          }
+        },
+        {
+          "name": "GET /v1/connectors/{id}/queue",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/connectors/:id/queue",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "connectors",
+                ":id",
+                "queue"
+              ],
+              "query": [
+                {
+                  "key": "tab",
+                  "value": "",
+                  "description": "รอคิว / ล้มเหลว (ต้องมีคนทำ) / สำเร็จ",
+                  "disabled": true
+                },
+                {
+                  "key": "errorClass",
+                  "value": "",
+                  "description": "กรองตาม ErrorClass (จัดกลุ่มแท็บล้มเหลว)",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "ค่า nextCursor จากหน้าก่อน (เรียงตามเวลาที่เปลี่ยนล่าสุด ใหม่สุดก่อน)",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settings:read | integrations:read"
+          }
+        },
+        {
+          "name": "GET /v1/connectors/{id}/queue/summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/connectors/:id/queue/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "connectors",
+                ":id",
+                "queue",
+                "summary"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settings:read | integrations:read"
+          }
+        },
+        {
+          "name": "POST /v1/connectors/{id}/queue/retry",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/connectors/:id/queue/retry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "connectors",
+                ":id",
+                "queue",
+                "retry"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settings:write | integrations:retry",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /v1/connectors/{id}/queue/{commandId}/retry",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/connectors/:id/queue/:commandId/retry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "connectors",
+                ":id",
+                "queue",
+                ":commandId",
+                "retry"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                },
+                {
+                  "key": "commandId",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settings:write | integrations:retry"
+          }
+        },
+        {
+          "name": "POST /v1/connectors/{id}/queue/{commandId}/skip",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/connectors/:id/queue/:commandId/skip",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "connectors",
+                ":id",
+                "queue",
+                ":commandId",
+                "skip"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                },
+                {
+                  "key": "commandId",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settings:write | integrations:retry",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"เลิกใช้บริการตั้งแต่ ธ.ค. 2569\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /v1/connectors/{id}/queue/{commandId}/external-id",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/connectors/:id/queue/:commandId/external-id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "connectors",
+                ":id",
+                "queue",
+                ":commandId",
+                "external-id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                },
+                {
+                  "key": "commandId",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settings:write | integrations:retry",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"เลิกใช้บริการตั้งแต่ ธ.ค. 2569\",\n  \"externalId\": \"IV6611-00042\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           }
         },
         {
