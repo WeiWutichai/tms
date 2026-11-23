@@ -46,9 +46,9 @@ test.describe('shell', () => {
   test('สลับภาษาเป็น EN แล้วยังคงอยู่หลังโหลดใหม่', async ({ page }) => {
     await page.goto('/');
     await setLangAndWait(page, 'EN');
-    await expect(page.getByRole('button', { name: 'Planning board', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Planning board\s?\d*$/ })).toBeVisible();
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Planning board', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Planning board\s?\d*$/ })).toBeVisible();
     await setLangAndWait(page, 'TH');
     await expect(page.getByRole('button', { name: /^กระดานวางแผน\s?\d*$/ })).toBeVisible();
   });
@@ -58,10 +58,10 @@ test.describe('shell', () => {
   }) => {
     await page.goto('/');
     await setLangAndWait(page, 'EN');
-    await expect(page.getByRole('button', { name: 'Planning board', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Planning board\s?\d*$/ })).toBeVisible();
     await page.evaluate(() => localStorage.clear());
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Planning board', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Planning board\s?\d*$/ })).toBeVisible();
     await setLangAndWait(page, 'TH');
     await expect(page.getByRole('button', { name: /^กระดานวางแผน\s?\d*$/ })).toBeVisible();
   });
