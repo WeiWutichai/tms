@@ -9,6 +9,11 @@ export interface RequestContext {
   scopes?: string[];
   /** ชนิด principal จาก token (`user` / `dev` / ภายหลัง `link` / `driver`) — ใช้กันราคาขายแบบเด็ดขาด (ST1-T13) */
   principalType?: string;
+  /**
+   * D-67: คำขอนี้มี `X-Step-Up` ที่ถูกต้องของผู้เรียกเอง (ยืนยัน 2FA ภายใน 5 นาที) — ตั้งโดย AuthGuard
+   * ใช้กับ step-up แบบมีเงื่อนไข (`assertHumanStepUp` — เช่น แก้บัญชีธนาคาร, ส่งออกทั้งบริษัท)
+   */
+  steppedUp?: boolean;
   /** ผู้กระทำจริงเมื่อเข้าใช้งานแทน (ST1-T24) — ลง audit_log.act_as */
   actAs?: string;
   /** impersonation session (ST1-T24) */
@@ -38,6 +43,11 @@ export interface RequestContext {
   tx?: Prisma.TransactionClient;
   /** ขั้นตรวจของการนำเข้า (ST2-T23): ทุกการเขียนถูกย้อนทิ้ง — งานนอก transaction (audit แยก) ไม่ต้องทำ */
   importDryRun?: boolean;
+  /**
+   * D-67: ทำงานภายในงานนำเข้า (ตั้งโดย ImportService.inContext เท่านั้น) — step-up ตรวจครั้งเดียวที่
+   * `POST /v1/imports/{id}/commit` จึงไม่ตรวจซ้ำใน service (`assertHumanStepUp`)
+   */
+  importRun?: boolean;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();

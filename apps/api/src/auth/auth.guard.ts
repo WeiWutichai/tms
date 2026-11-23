@@ -1,8 +1,9 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { scopeAllows } from '@tms/domain';
+import { requiresTwoFactor, scopeAllows } from '@tms/domain';
 import type { Request } from 'express';
 import {
+  ALLOW_BEFORE_2FA,
   IS_PUBLIC,
   LINK_ACTION,
   PLATFORM_ROLES,
@@ -26,6 +27,7 @@ import { isRs256, verifyClientToken } from './signing-keys';
 import {
   signAccessToken,
   verifyAccessToken,
+  verifyPlatformStepUpToken,
   verifyPlatformToken,
   verifyStepUpToken,
   type AccessClaims,
@@ -195,8 +197,16 @@ export class AuthGuard implements CanActivate {
     }
     // A1 token version: ระงับผู้ใช้/เปลี่ยน role → bump → token เดิมใช้ไม่ได้ทันที
     if (claims.pt === 'user') {
-      const tv = await this.auth.currentTokenVersion(claims.tid, claims.sub);
-      if (tv === null || tv !== claims.tv) throw new ProblemException('unauthorized');
+      const s = await this.auth.currentSession(claims.tid, claims.sub);
+      if (s === null || s.tokenVersion !== claims.tv) throw new ProblemException('unauthorized');
+      // D-78 (PO 23 พ.ย. 2569): ถือสิทธิ์สำคัญแต่ยังไม่ตั้ง 2FA (token ออกก่อนบังคับ / ต่ออายุด้วย refresh) → ทำได้แค่ดูสถานะ 2FA
+      // login ใหม่ = ขั้นตั้ง 2FA (mfa_enrollment_required) · token dev / API key / เข้าใช้งานแทน ไม่เกี่ยว
+      if (
+        !s.twoFactor &&
+        requiresTwoFactor(claims.scope ? claims.scope.split(' ') : []) &&
+        !this.reflector.getAllAndOverride<boolean>(ALLOW_BEFORE_2FA, targets)
+      )
+        throw new ProblemException('two_factor_enrolment_required');
     }
     // spec/01 PLT-001 ลำดับ: สถานะ tenant (ตรวจกับ tokenVersion แล้ว) → entitlement → สิทธิ์ role
     const feature = this.reflector.getAllAndOverride<string>(REQUIRED_FEATURE, targets);
@@ -216,12 +226,19 @@ export class AuthGuard implements CanActivate {
       });
     }
 
-    if (this.reflector.getAllAndOverride<boolean>(REQUIRE_STEP_UP, targets)) {
-      const su = await verifyStepUpToken(req.header('x-step-up') ?? '');
-      if (!su || su.sub !== claims.sub || su.tid !== claims.tid)
-        throw new ProblemException('step_up_required');
-    }
+    // step-up 2FA: token ต้องเป็นของผู้เรียกเอง (sub + tid ตรง) · D-67 เก็บผลไว้ให้ step-up แบบมีเงื่อนไขใน service ใช้
+    const suHeader = req.header('x-step-up');
+    const su = suHeader ? await verifyStepUpToken(suHeader) : null;
+    const steppedUp = !!su && su.sub === claims.sub && su.tid === claims.tid;
+    const stepUpRule = this.reflector.getAllAndOverride<boolean | 'human'>(
+      REQUIRE_STEP_UP,
+      targets,
+    );
+    // 'human' (D-67) = API key / OAuth client ข้ามได้ (คุมด้วย scope) — true = ทุก principal ต้อง step-up
+    if (stepUpRule && !steppedUp && !(stepUpRule === 'human' && claims.pt === 'client'))
+      throw new ProblemException('step_up_required');
     const ctx = requestContext.require();
+    ctx.steppedUp = steppedUp;
     ctx.actorId = claims.sub; // ก่อนสร้าง sandbox — audit `sandbox.created` ต้องรู้ผู้เปิด
     const tenantId = await this.requestTenant(claims, req, targets);
     ctx.tenantId = tenantId;
@@ -262,7 +279,12 @@ export class AuthGuard implements CanActivate {
         action: 'role',
         required: roles,
       });
+    // D-77: step-up ของ Console (header `X-Step-Up` จาก POST /v1/platform/auth/step-up) — ผูกคนเดียวกัน + tokenVersion ปัจจุบัน
+    // route ตรวจเองใน handler ด้วย assertStepUp() (หลัง validation/404)
+    const suHeader = req.header('x-step-up');
+    const su = suHeader ? await verifyPlatformStepUpToken(suHeader) : null;
     const ctx = requestContext.require();
+    ctx.steppedUp = !!su && su.sub === claims.sub && su.tv === u.tokenVersion;
     ctx.platformUser = { id: claims.sub, role: u.role };
     ctx.actorId = `platform:${claims.sub}`;
     ctx.principalType = 'platform';

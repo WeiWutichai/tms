@@ -1,11 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { RequestMethod } from '@nestjs/common';
-import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
-import { ModulesContainer } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { IS_PUBLIC, PLATFORM_ROLES, TENANT_RESOURCE } from '../src/common/decorators';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { store } from '../src/modules/documents/documents.controller';
 import { signStepUpToken } from '../src/auth/tokens';
@@ -19,6 +15,7 @@ import {
   truncateAll,
   validTaxId,
 } from './helpers';
+import { collectRoutes } from './route-inventory';
 
 /**
  * Harness แยก tenant (ST0-T05) — CI แดงเมื่อ:
@@ -280,6 +277,43 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
           })
         ).id,
       ),
+    // ST7-T21 ผลกระทบยอดกับระบบภายนอก (reconcile_result)
+    reconcileResult: async (db, tenantId, n) => {
+      const c = await db.connector.create({
+        data: {
+          tenantId,
+          adapterKey: `iso-rec-${n}`,
+          capabilitiesEnabled: [],
+          credentialKeys: [],
+          status: 'DISCONNECTED',
+          disconnectedAt: new Date(),
+        },
+      });
+      const at = new Date();
+      return encodeId(
+        'reconcileResult',
+        (
+          await db.reconcileResult.create({
+            data: {
+              tenantId,
+              connectorId: c.id,
+              entityType: 'INVOICE',
+              localId: randomUUID(),
+              localNumber: `INV-ISO-${n}`,
+              runAt: at,
+              source: 'NIGHTLY',
+              localSnapshot: {},
+              remoteSnapshot: {},
+              diff: { check: 'PAYMENT_STATUS', code: 'remote_less_than_tms' },
+              diffHash: String(n).padStart(64, '0'),
+              result: 'MISMATCH',
+              severity: 'MONEY',
+              lastSeenAt: at,
+            },
+          })
+        ).id,
+      );
+    },
     // ST7-T13 การตั้งค่า ErpAdapter ต่อ tenant
     connector: async (db, tenantId, n) =>
       encodeId(
@@ -1054,7 +1088,8 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
     clientEventId: '00000000-0000-4000-8000-00000000a003',
     occurredAt: '2026-11-17T09:00:00+07:00',
   },
-  approve: { reason: 'isolation test reason' }, // ST2-T13 /rate-cards/:id/approve
+  approve: { reason: 'isolation test reason' }, // ST2-T13 /rate-cards/:id/approve (+ ST8-T12 overwrite-request/approve)
+
   confirm: { reason: 'isolation test reason' }, // ST4-T13 /do-surcharges|trip-costs/:id/confirm
   'field-charges': {
     side: 'BUY',
@@ -1094,6 +1129,11 @@ const BODY_FOR_PATH: Record<string, object> = {
   },
   '/v1/revenue-lines/:id/void': { reason: 'isolation test reason' }, // ST5-T01
   '/v1/invoices/:id/void': { reason: 'isolation test reason' }, // ST5-T10
+  // ST8-T12 ปิดรายการไม่ตรง (approve/reject ใช้ BODY_FOR_SUFFIX)
+  '/v1/reconcile-results/:id/acknowledge': { reason: 'isolation test reason' },
+  '/v1/reconcile-results/:id/resolve-in-tms': { reason: 'isolation test reason' },
+  '/v1/reconcile-results/:id/overwrite-request': { reason: 'isolation test reason' },
+  '/v1/reconcile-results/:id/resend': { reason: 'isolation test reason' },
   '/v1/invoices/:id/unmark-sent': { reason: 'isolation test reason' }, // ST5-T18
   '/v1/payments/:id/reverse': { reason: 'isolation test reason' }, // ST5-T13
   '/v1/payments/:id/bounce': { reason: 'isolation test reason' }, // ST5-T13
@@ -1132,7 +1172,13 @@ const BODY_FOR_PATH: Record<string, object> = {
   '/v1/connectors/:id/inbound-token/rotate': { reason: 'isolation test reason' }, // ST7-T22
   '/v1/connectors/:id/inbound-token/revoke': { reason: 'isolation test reason' }, // ST7-T22
   '/v1/connectors/:id/mappings/:serviceItemId': { itemCode: null }, // ST7-T18
+  '/v1/connectors/:id/queue/:commandId/skip': { reason: 'isolation test reason' }, // ST7-T19
+  '/v1/connectors/:id/queue/:commandId/external-id': {
+    externalId: 'ISO-1',
+    reason: 'isolation test reason',
+  }, // ST7-T19
   '/v1/customers/:id/erp-codes/:connectorId': { externalId: null }, // ST8-T05
+  '/v1/carriers/:id/erp-codes/:connectorId': { externalId: null }, // ST7-T15
   // DELETE ที่มี body (เหตุผลบังคับ) — key `DELETE <path>`
   'DELETE /v1/webhooks/:id': { reason: 'isolation test reason' }, // ST7-T04
   '/v1/drivers/:id/status': { status: 'on_leave', reason: 'isolation test reason' }, // ST2-T08
@@ -1148,50 +1194,6 @@ const BODY_FOR_PATH: Record<string, object> = {
     outcome: 'DELIVERED',
   }, // ST4-T01
 };
-
-interface RouteInfo {
-  method: string;
-  path: string;
-  resource?: string;
-  isPublic: boolean;
-}
-
-function collectRoutes(app: NestExpressApplication): RouteInfo[] {
-  const routes: RouteInfo[] = [];
-  for (const mod of app.get(ModulesContainer).values()) {
-    for (const wrapper of mod.controllers.values()) {
-      const cls = wrapper.metatype as any;
-      if (!cls) continue;
-      const base = String(Reflect.getMetadata(PATH_METADATA, cls) ?? '');
-      const proto = cls.prototype;
-      for (const name of Object.getOwnPropertyNames(proto)) {
-        const handler = proto[name];
-        if (name === 'constructor' || typeof handler !== 'function') continue;
-        const sub = Reflect.getMetadata(PATH_METADATA, handler);
-        const m = Reflect.getMetadata(METHOD_METADATA, handler);
-        if (sub === undefined || m === undefined) continue;
-        routes.push({
-          method: RequestMethod[m as number]!,
-          path: `/v1/${[base, String(sub)].filter((s) => s && s !== '/').join('/')}`.replace(
-            /\/+/g,
-            '/',
-          ),
-          resource:
-            Reflect.getMetadata(TENANT_RESOURCE, handler) ??
-            Reflect.getMetadata(TENANT_RESOURCE, cls),
-          // route ของ Platform Console ไม่รับ token ลูกค้าเลย (ทดสอบใน platform.test.ts) — นับเหมือน public
-          isPublic: Boolean(
-            Reflect.getMetadata(IS_PUBLIC, handler) ??
-            Reflect.getMetadata(IS_PUBLIC, cls) ??
-            Reflect.getMetadata(PLATFORM_ROLES, handler) ??
-            Reflect.getMetadata(PLATFORM_ROLES, cls),
-          ),
-        });
-      }
-    }
-  }
-  return routes;
-}
 
 describe('tenant isolation harness', () => {
   let app: NestExpressApplication;
@@ -1273,6 +1275,49 @@ describe('tenant isolation harness', () => {
       if (r.method === 'GET')
         expect((await api(app, tokenA).get(url)).status, `owner ${r.path}`).toBe(200);
     }
+  });
+
+  /**
+   * (4) ST9-T13 (NFR-204 "list endpoint ต้องไม่มีแถวของ tenant อื่น"): ทุก GET ที่ไม่มี path param (list/summary/รายงาน/export)
+   * เรียกด้วย token ของ B หลัง (3) สร้างข้อมูลทุกชนิดใน A แล้ว → คำตอบต้องไม่มี id ใด ๆ ของแถวใน A (รูป uuid หรือ id ภายนอก `xxx_<hex>`)
+   */
+  it('(4) ทุก GET ที่ไม่มี path param: token ของ B ไม่เห็น id ของแถวใดใน tenant A', async () => {
+    const tables = await plat.$queryRaw<{ table: string }[]>`
+      SELECT t.table_name AS table FROM information_schema.columns t
+        JOIN information_schema.columns i
+          ON i.table_schema = t.table_schema AND i.table_name = t.table_name
+         AND i.column_name = 'id' AND i.data_type = 'uuid'
+       WHERE t.table_schema = 'public' AND t.column_name = 'tenant_id'`;
+    const ids = new Set<string>();
+    for (const { table } of tables) {
+      const rows = await plat.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT id::text AS id FROM "${table}" WHERE tenant_id = $1::uuid`,
+        tenantA,
+      );
+      for (const r of rows) ids.add(r.id.replace(/-/g, ''));
+    }
+    expect(ids.size).toBeGreaterThan(200);
+    const hex = [...ids];
+    const leakIn = (text: string) => {
+      const flat = text.toLowerCase().replace(/-/g, '');
+      return hex.find((h) => flat.includes(h));
+    };
+    // ตัวควบคุม: เจ้าของเห็น id ของตัวเองในรายการ (ตัวตรวจจับทำงานจริง)
+    expect(leakIn((await api(app, tokenA).get('/v1/companies')).text)).toBeTruthy();
+
+    const routes = collectRoutes(app).filter(
+      (r) => r.method === 'GET' && r.params.length === 0 && !r.isPublic && !r.linkAction,
+    );
+    expect(routes.length).toBeGreaterThan(80);
+    const problems: string[] = [];
+    for (const r of routes) {
+      const url = r.path.replace(/\\:/g, ':');
+      const res = await api(app, tokenB).get(url);
+      if (res.status >= 500) problems.push(`${url} → ${res.status}`);
+      const hit = leakIn(res.text ?? '');
+      if (hit) problems.push(`${url} → มี id ของ tenant A (${hit})`);
+    }
+    expect(problems).toEqual([]);
   });
 
   it('list ของ tenant B ไม่มีข้อมูลของ A', async () => {

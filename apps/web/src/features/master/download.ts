@@ -1,4 +1,6 @@
-import { api } from '../../api';
+import type { Problem } from '@tms/contracts';
+import { api, ApiError } from '../../api';
+import { StepUpCancelled, stepUpHeaders, withStepUp } from '../stepup/stepUp';
 import { exportList, ExportQueued, ExportFailed, type ExportResource } from '../exports/exportJob';
 import type { T } from '../../i18n';
 
@@ -26,7 +28,17 @@ export async function downloadFile(
   query: Record<string, string>,
 ): Promise<number | undefined> {
   const q = Object.fromEntries(Object.entries(query).filter(([, v]) => v !== ''));
-  const r = await api.GET(path, { params: { query: q as never }, parseAs: 'blob' });
+  // D-67: ส่งออกทั้งตาราง (ไม่มีตัวกรอง) ต้องยืนยัน 2FA → API ตอบ 403 step_up_required → กล่องยืนยัน แล้วส่งซ้ำ
+  const r = await withStepUp(async (su) => {
+    const res = await api.GET(path, {
+      params: { query: q as never },
+      headers: stepUpHeaders(su),
+      parseAs: 'blob',
+    });
+    const p = res.error as Problem | undefined;
+    if (res.response.status === 403 && p?.code === 'step_up_required') throw new ApiError(p);
+    return res;
+  });
   // เกินเพดานส่งออกทันที (10,000 แถว) และส่งออกตามตัวกรอง → ส่งเป็นงานเบื้องหลัง (ST9-T10)
   const tooMany = (r.error as { errors?: { code?: string }[] } | undefined)?.errors?.some(
     (e) => e.code === 'too_many_rows',
@@ -55,7 +67,8 @@ export async function downloadFile(
  * ข้อความ toast เมื่อส่งออกไม่ได้ไฟล์ทันที (ST9-T10): ส่งเป็นงานเบื้องหลังแล้ว → "จะแจ้งเตือนเมื่อไฟล์พร้อม" ·
  * เกินเพดานงาน → บอกให้กรองแคบลง · อื่น ๆ = ข้อความ "ส่งออกไม่สำเร็จ" ของหน้านั้น
  */
-export function exportFailText(t: T, e: unknown, failed: string): string {
+export function exportFailText(t: T, e: unknown, failed: string): string | null {
+  if (e instanceof StepUpCancelled) return null; // ผู้ใช้ยกเลิกกล่องยืนยัน 2FA — ไม่ใช่ข้อผิดพลาด
   if (e instanceof ExportQueued) return t('export.queued');
   if (e instanceof ExportFailed && e.code === 'too_many_rows') return t('export.tooMany');
   return failed;

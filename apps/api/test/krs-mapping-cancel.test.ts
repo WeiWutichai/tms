@@ -10,7 +10,7 @@ import { KrsAdapter } from '../src/erp-adapters/krs/krs.adapter';
 import { ConnectorIntakeService } from '../src/modules/connectors/connector-intake.service';
 import { DeliveryOrderService } from '../src/modules/delivery-orders/delivery-order.service';
 import { connectorKeyOfSource } from '../src/modules/erp/external-mapping.service';
-import { OrderIntakeService } from '../src/modules/orders/order-intake.service';
+import { OrderIntakeService, sourceDownIssue } from '../src/modules/orders/order-intake.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
@@ -646,5 +646,98 @@ describe('KRS mapping ลูกค้า + ยกเลิก SO (ST8-T05) — m
       error: { code: 'external_id_conflict' },
     });
     expect((await order(ext)).status).not.toBe('CANCELLED');
+  });
+  it('D-81 · D68-63: ใบเคยวางแผน (ค้าง ALL_RETURNED — DO คืนคลังหมด ไม่มี DO ค้าง) → KRS ยกเลิก = ไม่ยกเลิกอัตโนมัติ แจ้งเตือน (ห้ามเงียบ)', async () => {
+    newSo(42, 'SAMPLE-C001');
+    await pull();
+    const so = await order(EXT(42));
+    const rc = await plat.reasonCode.findFirstOrThrow({
+      where: { tenantId, category: 'ORDER_HOLD', code: 'ALL_RETURNED' },
+    });
+    // จำลองใบที่ผ่านการวางแผนมาแล้ว (ทุก DO คืนคลัง → PLANNED → ON_HOLD(ALL_RETURNED))
+    await plat.salesOrder.update({
+      where: { id: so.id },
+      data: { status: 'ON_HOLD', holdReasonCodeId: rc.id },
+    });
+    const notes = await plat.notification.count({
+      where: { tenantId, templateCode: 'order.source_cancelled' },
+    });
+    mock.salesOrders.cancel('SAMPLE', SO(42));
+    const r = await pull();
+    expect(r.results.find((x) => x.externalId === EXT(42))).toMatchObject({
+      outcome: 'cancel_alert',
+      status: 'ON_HOLD',
+    });
+    const after = await order(EXT(42));
+    expect(after.status).toBe('ON_HOLD');
+    expect(after.holdReasonCode?.code).toBe('ALL_RETURNED');
+    expect(after.sourceCancelledAt).toBeTruthy();
+    expect(
+      await plat.auditLog.count({
+        where: { tenantId, entityId: so.id, action: 'sales_order.source_cancel_alert' },
+      }),
+    ).toBe(1);
+    expect(
+      await plat.notification.count({
+        where: { tenantId, templateCode: 'order.source_cancelled' },
+      }),
+    ).toBeGreaterThan(notes);
+  });
+
+  it('D-81 · D68-63: แหล่ง SO หาย (view 404) → ทุกใบที่ยังไม่วางแผนของต้นทาง ON_HOLD(SOURCE_ERROR) · ใบวางแผนแล้ว/ยกเลิกแล้วไม่แตะ · connector ERROR + แจ้งผู้ดูแล', async () => {
+    const pending = await plat.salesOrder.findMany({
+      where: {
+        tenantId,
+        source: 'CONNECTOR',
+        sourceConnector: 'krs',
+        status: { in: ['DRAFT', 'RECEIVED', 'ON_HOLD'] },
+      },
+      include: { holdReasonCode: { select: { code: true } } },
+    });
+    const preplan = pending.filter(
+      (o) => o.status !== 'ON_HOLD' || o.holdReasonCode?.code !== 'ALL_RETURNED',
+    );
+    expect(preplan.length).toBeGreaterThan(0);
+    const others = await plat.salesOrder.findMany({
+      where: { tenantId, source: 'CONNECTOR', id: { notIn: preplan.map((o) => o.id) } },
+      select: { id: true, status: true, holdReasonCodeId: true, version: true },
+    });
+    expect(others.some((o) => o.status === 'PLANNED')).toBe(true);
+    const notesBefore = await plat.notification.count({
+      where: { tenantId, recipientId: plannerId },
+    });
+    await plat.$executeRaw`UPDATE connector SET settings = jsonb_set(settings, '{baseUrl}', to_jsonb(${`${mock.apiBaseUrl}/missing-view`}::text))
+                      WHERE id = ${connectorId}::uuid`;
+    const r = await pull();
+    expect(r.sourceError).toBeTruthy();
+    expect((await plat.connector.findUniqueOrThrow({ where: { id: connectorId } })).status).toBe(
+      'ERROR',
+    );
+    expect(r.sourceHeld).toBe(preplan.length);
+    for (const o of preplan) {
+      const x = await plat.salesOrder.findUniqueOrThrow({
+        where: { id: o.id },
+        include: { holdReasonCode: { select: { code: true } } },
+      });
+      expect(x.status).toBe('ON_HOLD');
+      expect(x.holdReasonCode?.code).toBe('SOURCE_ERROR');
+      expect(x.sourceIssues).toContain(sourceDownIssue(connectorPub));
+      const a = await plat.auditLog.findFirstOrThrow({
+        where: { tenantId, entityId: o.id, action: 'sales_order.source_held' },
+        orderBy: { at: 'desc' },
+      });
+      expect(a.actorId).toBe('connector:krs');
+    }
+    // ใบวางแผนแล้ว / ยกเลิกแล้ว / ค้างด้วยเหตุตอนจัดรถ → ไม่แตะ
+    for (const o of others)
+      expect(
+        await plat.salesOrder.findUniqueOrThrow({
+          where: { id: o.id },
+          select: { id: true, status: true, holdReasonCodeId: true, version: true },
+        }),
+      ).toEqual(o);
+    expect(
+      await plat.notification.count({ where: { tenantId, recipientId: plannerId } }),
+    ).toBeGreaterThan(notesBefore);
   });
 });

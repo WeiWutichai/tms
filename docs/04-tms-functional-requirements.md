@@ -78,6 +78,9 @@ TMS เป็นระบบ **standalone-first** ที่มี **Open API เ
 | Master data | ✔ | ✔ | แก้ | อ่าน | อ่าน | อ่าน | อ่าน | อ่าน | | | |
 | **ดู/แก้ราคาขาย** (field perm) | ✔ | ✔ | เลือกได้ | **ไม่เห็น** (default) | ✔ | ✔ | อ่าน | เลือกได้ | **ห้ามเด็ดขาด** | ห้าม | เฉพาะของตัวเอง |
 | **ดูราคาซื้อรถร่วม** (field perm) | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ | อ่าน | เลือกได้ | เฉพาะของตัวเอง | ห้าม | ห้าม |
+| **แก้/ลบบัญชีรับเงินผู้รับเหมา** (field perm — ต้องมี `settlements:pay`; เข้มกว่า Master data เพื่อกันโกงเปลี่ยนบัญชีรับเงิน) (D-81 · D68-11 · 23 พ.ย. 2569) | ✔ | ✔ | | | | ✔ | | | | | |
+| **ดู/แก้ต้นทุนรถ** (ราคาซื้อ/ค่าเสื่อม — field perm `reports.finance:read`: ไม่มีสิทธิ์ = API ไม่คืนฟิลด์ ประวัติตัดออก แก้ = 403) (D-81 · D68-13 · 23 พ.ย. 2569) | ✔ | ✔ | | | ✔ | ✔ | ✔ | | | | |
+| **แก้ค่าตั้งลูกค้า "ไม่มี POD ไม่วางบิล"** (`require_pod_to_bill` ค่าเริ่ม true — field perm ต้องมี `invoices:draft` เพิ่มจาก Master data) (D-81 · D68-71 · 23 พ.ย. 2569) | ✔ | ✔ | | | ✔ | ✔ | | | | | |
 | Order: ดู / จัด / ยกเลิก | ✔ | ✔ | ✔ | อ่าน | อ่าน | อ่าน | อ่าน | อ่าน | | | สร้าง/ดูของตัวเอง |
 | Trip: assign / dispatch / ปิด | ✔ | ✔ | assign | ✔ | อ่าน | อ่าน | อ่าน | อ่าน | รับ/ปฏิเสธ + POD | ยืนยันของตัวเอง | |
 | Invoice/ใบวางบิล: draft / finalize | ✔ | ✔ | | | ✔ / ✔ | ✔ / ✔ | อ่าน / ✔ | อ่าน | | | ดู/ดาวน์โหลดของตัวเอง |
@@ -89,7 +92,7 @@ TMS เป็นระบบ **standalone-first** ที่มี **Open API เ
 | Export ข้อมูล | ✔ | ✔ | ✔ | | ✔ | ✔ | | | | | |
 | Audit log | ✔ | ✔ | | | | อ่านของบัญชี | | | | | |
 
-กฎเพิ่มเติม: ผู้สร้างใบแจ้งหนี้ finalize ใบตัวเองไม่ได้ (ปิดได้สำหรับ tenant เล็กโดย owner ยอมรับความเสี่ยง); เปลี่ยน role ต้อง step-up 2FA; **Carrier/Customer portal เป็น principal แยก** (ไม่นับ seat, ผูกกับ Carrier/Customer record ไม่ใช่ user ภายใน) — ที่มา: v1, P2, P3, P7
+กฎเพิ่มเติม: ผู้สร้างใบแจ้งหนี้**และผู้แก้ร่างล่าสุด** finalize ใบนั้นไม่ได้ (API key = ผู้ออก key; ระบุตัวไม่ได้ = ปฏิเสธ) (ปิดได้สำหรับ tenant เล็กโดย owner ยอมรับความเสี่ยง — `billing.allowSelfFinalize` + step-up) (D-81 · D68-77 · 23 พ.ย. 2569); เปลี่ยน role ต้อง step-up 2FA; **Carrier/Customer portal เป็น principal แยก** (ไม่นับ seat, ผูกกับ Carrier/Customer record ไม่ใช่ user ภายใน) — ที่มา: v1, P2, P3, P7
 
 **A4. หลายนิติบุคคล / สาขา (ภ.พ.20)**
 
@@ -118,7 +121,7 @@ TMS เป็นระบบ **standalone-first** ที่มี **Open API เ
 
 สรุป: แยก Carrier (รถร่วม) ออกจาก Driver, คนขับมี 3 ประเภทที่กำหนดวิธีจ่าย, rate card มี 2 ฝั่งโครงเดียวกัน key `(ต้นทาง, ปลายทาง, ประเภทรถ)` และทุกราคาถูก snapshot ลงเอกสาร
 
-ทุก master มี: ค้นหา/กรอง, สร้าง/แก้/ปิดใช้ (ไม่ลบถ้ามีเอกสารอ้างถึง), import Excel dry-run, export, `externalId` ต่อ connector, ประวัติการแก้ — P0 ทั้งหมดเว้นที่ระบุ
+ทุก master มี: ค้นหา/กรอง, สร้าง/แก้/ปิดใช้ (ไม่ลบถ้ามีเอกสารอ้างถึง), import Excel dry-run, export, `externalId` (unique ต่อ tenant ต่อ resource ตาม G1; รหัสต่อ connector อยู่ที่ `external_mapping` (D-81 · D68-46 · 23 พ.ย. 2569)), ประวัติการแก้ — P0 ทั้งหมดเว้นที่ระบุ
 
 | Master | ฟิลด์หลัก | ฟังก์ชันเฉพาะ | P | ที่มา |
 |---|---|---|---|---|
@@ -128,7 +131,7 @@ TMS เป็นระบบ **standalone-first** ที่มี **Open API เ
 | คนขับ (driver) | ชื่อ, เบอร์, บัตรประชาชน (เข้ารหัส), ใบขับขี่+ประเภท+วันหมดอายุ, **ประเภท = EMPLOYEE_SALARY / EMPLOYEE_PER_TRIP / SUBCONTRACT** (+carrierId), รถประจำ, สถานะ | ประเภทกำหนดวิธีคิดค่าเที่ยวและเอกสารจ่าย; ตรวจใบขับขี่ตรงประเภทรถตอน assign; เตือนหมดอายุ | P0 | M2 |
 | จุดส่ง / สถานที่ (location) | ชื่อ, ที่อยู่, พิกัด, **geofence radius**, เวลาเปิด-ปิด, **ประเภทรถที่เข้าได้**, service time เฉลี่ย, ผู้ติดต่อ, หมายเหตุ, alias หลายตัว | geocode อัตโนมัติ + คนยืนยัน; จุด geocode ไม่ได้ขึ้นใบค้าง | P0 | v1, E4, M6 |
 | เส้นทาง (route / OD pair) | ต้นทาง, ปลายทาง, ระยะทาง, เวลามาตรฐาน, ค่าผ่านทาง | key สำหรับ rate card และจับคู่ order | P0 | v1 |
-| **Rate card ขาขาย** (ต่อลูกค้า) | key `(ต้นทาง, ปลายทาง, ประเภทรถ)`, สูตรราคา (ดูตาราง B1), **วันเริ่ม-หมดอายุ**, สถานะ DRAFT → PENDING_APPROVAL → ACTIVE → EXPIRED, additional stop charge, fuel surcharge index | ซ้อนช่วงเวลาไม่ได้; เตือน NEAR_EXPIRY 30 วัน; แก้ในฟอร์มหรือ Excel import; **อนุมัติก่อนใช้** (P1 — P0 ใช้ ACTIVE ทันทีโดย Admin) | P0 | M3 |
+| **Rate card ขาขาย** (ต่อลูกค้า) | key `(ต้นทาง, ปลายทาง, ประเภทรถ)`, สูตรราคา (ดูตาราง B1), **วันเริ่ม-หมดอายุ**, สถานะ DRAFT → APPROVED → RETIRED (หมดอายุคำนวณจาก validTo — API คืนสถานะที่คำนวณแล้ว (D-81 · D68-17 · 23 พ.ย. 2569)), additional stop charge, fuel surcharge index | ซ้อนช่วงเวลาไม่ได้; เตือน NEAR_EXPIRY 30 วัน; แก้ในฟอร์มหรือ Excel import; **อนุมัติก่อนใช้** — ผู้อนุมัติ = ผู้มี `prices.sell:write` (owner/admin/invoicer/accounting) ต้องมีเหตุผล ≥ 10 ตัวอักษร + audit (D-81 · D68-17 · 23 พ.ย. 2569) | P0 | M3 |
 | **Rate card ขาซื้อ** (ต่อ Carrier) | โครงเดียวกับขาขาย + "ราคา 5 ครั้งล่าสุดที่จ้างรายนี้" | ใช้คำนวณ cost line และ settlement | P0 | M3, PL4 |
 | **Accessorial catalog** (ค่าใช้จ่ายเพิ่ม) | รหัส, ชื่อ, ราคา default, หน่วย, **vat_treatment** (EXEMPT_TRANSPORT / VAT_7), **wht_rate** (1% / 3%), ฝั่ง (ขาย/ซื้อ/ทั้งคู่), map กับรหัสสินค้า/บริการ ERP | ราคาถูก **copy ลง order เป็น snapshot**; แก้ catalog แล้วเอกสารเก่าไม่เปลี่ยน | P0 | M5, thai-tax 1.8, 3.1 |
 | **Reason master** | หมวด: ค้างวางแผน / ส่งไม่สำเร็จ / ปฏิเสธรับบางส่วน / ไม่เซ็นเอกสาร / ล่าช้า / dispute; ต่อ reason: บังคับรูป, บังคับโน้ต, **auto-reschedule**, แสดงบน tracking page | ชุดเริ่มต้นภาษาไทย; snapshot ข้อความลงงาน (แก้ master ไม่ย้อนแก้งานเก่า) | P0 | M7, PL7 |
@@ -142,7 +145,7 @@ TMS เป็นระบบ **standalone-first** ที่มี **Open API เ
 | สูตร | พารามิเตอร์ | ตัวอย่างไทย | P | ที่มา |
 |---|---|---|---|---|
 | เหมาเที่ยว (FLAT_TRIP) | ราคาต่อเที่ยวตาม OD × ประเภทรถ | กรุงเทพ→ชลบุรี 6 ล้อ 4,500 | P0 | M4 |
-| ตามระยะทาง (PER_DISTANCE) | บาท/กม. + ขั้นต่ำ, ระยะจาก route master หรือ GPS | 18 บาท/กม. ขั้นต่ำ 1,500 | P0 | M4 |
+| ตามระยะทาง (PER_DISTANCE) | บาท/กม. + ขั้นต่ำ, ระยะจาก route master (เฟส 0 ใช้ route master อย่างเดียว — ไม่มีเส้นทาง = คิดราคาไม่ได้; ระยะจาก GPS เป็นเฟสถัดไป (D-81 · D68-19 · 23 พ.ย. 2569)) | 18 บาท/กม. ขั้นต่ำ 1,500 | P0 | M4 |
 | ตามน้ำหนัก/ปริมาตร (PER_UNIT) | บาท/ตัน หรือ /คิว หรือ /ชิ้น + ขั้นต่ำ | 350 บาท/ตัน | P0 | M4 |
 | เหมาวัน (PER_DAY) | ค่ารถ/วัน + กม. เกิน + ชม. เกิน | "12 ชม. 1 วัน" 3,500 + 12/กม. | P1 | M4 (Shipsy) |
 | **เกิน N จุดคิดเพิ่มต่อจุด** | additional_stop_charge หลังจุดที่ N | จุดที่ 4 ขึ้นไป +300/จุด | P0 | M4 (NOSTRA) |
@@ -190,7 +193,7 @@ TMS เป็นระบบ **standalone-first** ที่มี **Open API เ
 
 ## C. Order intake
 
-สรุป: order ทุกใบเข้าทางเดียวกันผ่าน domain service เดียว (UI/Excel/API/connector ล้วนเรียก `upsertOrder`) โดยใช้ `(source, externalId)` เป็น key idempotent และงานที่ยังจัดไม่ได้ต้องมี reason code เสมอ
+สรุป: order ทุกใบเข้าทางเดียวกันผ่าน domain service เดียว (UI/Excel/API/connector ล้วนเรียก `upsertOrder`) โดยใช้ `externalId` unique ต่อ `(tenantId, resource)` ตาม G1 เป็น key idempotent — externalId ที่ชนกับใบจากช่องทาง/connector อื่น → 409 `external_id_conflict` ไม่สร้างใบ และ connector ต้องแจ้งเตือน/ขึ้นรายการผิดพลาดให้คนเห็น (ห้ามหายเงียบ) (D-81 · D68-22/D68-46 · 23 พ.ย. 2569) และงานที่ยังจัดไม่ได้ต้องมี reason code เสมอ
 
 | ฟังก์ชัน | รายละเอียด | P | ที่มา |
 |---|---|---|---|
@@ -198,10 +201,10 @@ TMS เป็นระบบ **standalone-first** ที่มี **Open API เ
 | **Source ของ order** | enum MANUAL / EXCEL / API / PORTAL / ERP:{connector} + `externalRef`; แสดง badge บนทุกหน้า | P0 | O2 |
 | กรอกมือ | ฟอร์มเดียว, duplicate จาก order เดิม, template งานประจำ | P0 | v1, X4 |
 | Import Excel | template + dry-run + รายงานแถวผิด (ใช้กลไก A5) | P0 | v1, P8 |
-| รับจาก ERP connector | KRS adapter เรียก upsert เดียวกับ API (ไม่มีทางลัด) ทุกใบเข้าระบบเสมอ | P0 | v1, I1 |
+| รับจาก ERP connector | KRS adapter เรียก upsert เดียวกับ API (ไม่มีทางลัด) ทุกใบเข้าระบบเสมอ (ยกเว้น externalId ชนกับใบจากช่องทางอื่น → 409 + แจ้งเตือนที่ connector (D-81 · D68-22 · 23 พ.ย. 2569)) | P0 | v1, I1 |
 | รับจาก Open API | `POST /orders` + Idempotency-Key (ดู G1) | P0 | benchmark 9.3 |
 | รับจาก customer portal | ลูกค้าสร้าง/duplicate งาน, ค้นด้วยเลข PO ตัวเอง, ดู POD/ใบแจ้งหนี้ | P2 | O3 |
-| จับคู่อัตโนมัติ | ลูกค้า (externalId → customer), ต้นทาง/ปลายทาง (ข้อความ → location ด้วย alias + fuzzy), rate card → `pricingStatus` | P0 | v1 |
+| จับคู่อัตโนมัติ | ลูกค้า (externalId → customer), ต้นทาง/ปลายทาง (ข้อความ → location ด้วย alias ที่เรียนรู้/ชื่อตรงตัวหลัง normalize; fuzzy ใช้จัดอันดับรายการแนะนำเท่านั้น ไม่จับคู่อัตโนมัติ (D-81 · D68-88 · 23 พ.ย. 2569)), rate card → `pricingStatus` | P0 | v1 |
 | เรียนรู้ alias | map ครั้งเดียว จำเป็น alias ของ location/customer | P0 | v1 |
 | **หน้าใบค้าง + reason code ครบชุด** | `CUSTOMER_UNMAPPED`, `LOCATION_UNMAPPED`, `GEOCODING_ERROR`, `RATE_MISSING`, `UNALLOCATED_NO_VEHICLE`, `CAPACITY_EXCEEDED`, `VEHICLE_TYPE_INCOMPATIBLE`, `CARRIER_REJECTED`, `DELIVERY_WINDOW_EXHAUSTED`, `RESCHEDULES_EXHAUSTED`, `SOURCE_CHANGED_AFTER_PLAN`, `SOURCE_ERROR` — แสดงเป็น badge บน pool พร้อม action เคลียร์ | P0 | v1, PL7 |
 | **Edit lock** | เปิดแก้ → ป้าย "กำลังแก้ไขโดย …" คนอื่น read-only; หมดอายุ 10 นาทีไม่ activity; permission `orders.unlock` ปลดของคนอื่น | P0 | O4 |
@@ -232,7 +235,7 @@ TMS เป็นระบบ **standalone-first** ที่มี **Open API เ
 | จอ split: pool ซ้าย / scheduler ขวา | ซ้าย = order ค้างจัด (กรอง/group/sort, badge reason code) ขวา = timeline รถหรือคนขับ × วัน ลากวาง ปรับขนาดได้ | P0 | PL2 |
 | View | ตามรถ / ตามคนขับ / ตาม carrier / **"รถบริษัท + รถร่วม" (default)**; ปรับ field บนการ์ดงาน | P0 | PL2 |
 | Saved views + filter badges | บันทึก filter ชุดเป็นชื่อ แชร์ในทีม; filter ที่ใช้อยู่แสดงเป็น badge ลบได้ | P1 | PL2 |
-| **Filter รถที่รับได้สองทาง** | คลิก order → รถ/คนขับที่ผ่าน constraint ถูกเน้น ที่เหลือจาง; คลิกรถ → order ที่รับได้ถูกเน้น | P0 | PL3 |
+| **Filter รถที่รับได้สองทาง** | คลิก order → รถ/คนขับที่ผ่าน constraint ถูกเน้น ที่เหลือจาง; คลิกรถ → order ที่รับได้ถูกเน้น — ระดับเน้น/จางคิดเฉพาะกฎที่บังคับตอนวาง (สถานะรถ, เอกสารรถ, ความเข้ากันได้, น้ำหนัก, เวลาซ้อน); กฎคนขับ (ใบขับขี่/ท.4/ลา) แสดงเป็นข้อมูลใน tooltip และบังคับที่ `/assign` (D-81 · D68-86 · 23 พ.ย. 2569) | P0 | PL3 |
 | "ว่างเมื่อไหร่/ที่ไหน" | availability = เวลาส่งจุดสุดท้าย + dwell เฉลี่ย; แสดง "ว่างใน 2 ชม. ที่ชลบุรี" | P1 | PL3 |
 | ตรวจ constraint ตอนจัด | น้ำหนัก/ปริมาตร, vehicle-type compatibility, ใบขับขี่, เอกสารรถหมดอายุ, ชั่วโมงขับ, จุดส่งไม่รับประเภทรถ — **เตือน + override พร้อมเหตุผล** ไม่บล็อก | P0 | v1, M6 |
 | **เวลาขัดกันขึ้นแดงไม่บล็อก** | trip ซ้อนเวลาบนรถเดียวแสดงสีแดง ยังบันทึกได้ | P0 | PL8 |
@@ -255,7 +258,7 @@ TMS เป็นระบบ **standalone-first** ที่มี **Open API เ
 | **Cascade P1 → P2** | ลำดับ carrier ต่อ OD/ประเภทรถ (priority คงที่ หรือ "ถูกสุดก่อน"); ปฏิเสธ/หมดเวลา → ส่งรายถัดไปอัตโนมัติ; เพดานเที่ยว/วัน ต่อ carrier | P1 | PL5 |
 | **บันทึกเหตุผลการเลือก** | ทุกการจ้าง carrier เก็บ `selectionReason` (ถูกสุด / ลำดับ / override โดย … เพราะ …) ตรวจสอบย้อนได้ | P0 | PL5 |
 | Margin ต่อ carrier | % margin default + simulator "ขาย 5,000 จ้าง 4,200 = 16%" + badge margin ต่ำกว่าเกณฑ์ | P1 | PL6 |
-| เปลี่ยน carrier | ต้องยกเลิก child trip แล้วจ้างใหม่ (ประวัติคงอยู่) | P0 | PL6 |
+| เปลี่ยน carrier | ยกเลิกการจ้างบนเที่ยวเดิม (`cancel_hire` ASSIGNED → PLANNING) แล้วจ้างรายใหม่ในคำขอเดียว — เลขเที่ยวเดิมคงอยู่ ประวัติการจ้างอยู่ในตารางข้อเสนอ (ไม่ยกเลิกเที่ยวแล้วสร้างใหม่) (D-81 · D68-26 · 23 พ.ย. 2569) | P0 | PL6 |
 
 **D4. ปันส่วนต้นทุน/รายได้**
 
@@ -274,7 +277,7 @@ TMS เป็นระบบ **standalone-first** ที่มี **Open API เ
 | ข้อกำหนด | รายละเอียด | P | ที่มา |
 |---|---|---|---|
 | Stop event | `arrive`, `depart`, `complete` (outcome delivered / partial / failed / undelivered_retain), `fail`; ทุก event มี `clientEventId` (UUIDv4), `occurredAt` (เวลาเครื่อง), `receivedAt` (server), GPS, accuracy, แหล่ง (app/web/link/api) | P0 | E1 |
-| Idempotent server | unique `(tenantId, clientEventId)`; ซ้ำ → คืนผลเดิม; event มาสลับลำดับ → เรียงด้วย `occurredAt` และ validate state machine; ขัดแย้ง → เก็บทั้งคู่ + flag ให้ dispatcher ตัดสิน | P0 | E1 |
+| Idempotent server | unique `(tenantId, clientEventId)`; ซ้ำ → คืนผลเดิม (id เดิมแต่จุด/ชนิดต่าง → 409 `stop_event_duplicate` (D-81 · D68-31 · 23 พ.ย. 2569)); event มาสลับลำดับ → เรียงด้วย `occurredAt` และ validate state machine; ขัดแย้ง → เก็บทั้งคู่ + flag ให้ dispatcher ตัดสิน | P0 | E1 |
 | Outbox บนอุปกรณ์ | app เก็บ event + ไฟล์ใน local queue, ส่งเมื่อออนไลน์ตามลำดับ, แสดง "รอส่ง N รายการ"; รูปบีบอัดก่อน; retry backoff | P1 | E1 |
 | Offline เป็น setting ระดับ tenant | เปิด/ปิดได้ มีผล session ถัดไป | P1 | E1 (Onfleet) |
 | GPS adaptive | ส่งพิกัดถี่ขึ้นเมื่อใกล้จุด ห่างลดความถี่ ประหยัดแบต | P1 | X8 |
@@ -287,14 +290,14 @@ TMS เป็นระบบ **standalone-first** ที่มี **Open API เ
 | **POD checklist config ต่อลูกค้า** | ชนิด field: PHOTO / SIGNATURE / NOTE / BARCODE / BOOLEAN / SINGLE_CHOICE / PIN / RATING; แต่ละตัวตั้ง Disabled / Enabled / **Required**; แยกชุดสำหรับสำเร็จ vs ไม่สำเร็จ; default ของ tenant + override ต่อลูกค้า | P0 | E2 |
 | ePOD ผ่านเว็บ | อัปโหลดรูป/ลายเซ็น/ไฟล์, น้ำหนักชั่ง, เลขอ้างอิงลูกค้า, ผู้รับ + ความสัมพันธ์ | P0 | v1 |
 | **ePOD ผ่านลิงก์ (รถร่วม/คนขับไม่มีแอป)** | ลิงก์ต่อ trip จาก LINE: ค้นด้วยเลข DO → กดถึง/ออก → อัปโหลดรูป (≤ 5 ไฟล์/stop) → ลายเซ็นบนจอ → ปิดงาน; ใช้ event model เดียวกัน | P0 | E6 |
-| **Actual quantity + reject reason ต่อรายการ** | ต่อ item: planned vs delivered vs rejected + reason (จาก reason master หมวด "ปฏิเสธรับ"); วางบิลตามยอดส่งจริงได้ (ตั้งต่อลูกค้า) | P0 | E3 |
+| **Actual quantity + reject reason ต่อรายการ** | ต่อ item: planned vs delivered vs rejected + reason (จาก reason master หมวด "ปฏิเสธรับ") — API รับเหตุผลต่อบรรทัด; หน้าเว็บ/ลิงก์รถร่วมเลือกเหตุผล + โน้ตชุดเดียวต่อ DO ใช้กับทุกบรรทัดที่ขาด ตามต้นแบบ (D-81 · D68-90 · 23 พ.ย. 2569); วางบิลตามยอดส่งจริงได้ (ตั้งต่อลูกค้า) | P0 | E3 |
 | ตีกลับบางส่วน/ทั้งหมด | จาก actual qty → สร้างงานส่งซ้ำหรือคืนคลัง | P0 | v1, E3 |
-| **Undelivered-retain + auto-reschedule** | outcome "ส่งไม่สำเร็จ ของยังอยู่บนรถ"; reason ที่ติ๊ก auto-reschedule → สร้าง stop ใหม่วันถัดไปอัตโนมัติ; นับครั้ง → `RESCHEDULES_EXHAUSTED` | P0 | E7, M7 |
+| **Undelivered-retain + auto-reschedule** | outcome "ส่งไม่สำเร็จ ของยังอยู่บนรถ"; reason ที่ติ๊ก auto-reschedule → สร้าง **DO ใหม่สถานะ DRAFT นอกเที่ยว** อัตโนมัติ (ตาม docs/01 §4.3 `FAILED → DRAFT`) ให้ผู้จัดรถลากลงเที่ยวเอง — ไม่ต่อท้ายเที่ยววันถัดไปเอง; เพดาน `dispatch.maxAutoReschedules` (ค่าเริ่ม 2) (D-81 · D68-50 · 23 พ.ย. 2569); นับครั้ง → `RESCHEDULES_EXHAUSTED` | P0 | E7, M7 |
 | **Geofence เตือนไม่บล็อก** | กดถึง/ปิดงานนอกรัศมี → เตือน "ห่างจุด 1.2 กม." + บังคับเลือกเหตุผล; บันทึก distance ลง event; รายงาน POD นอกพื้นที่ | P1 | E4 |
 | บันทึกเหตุล่าช้า / ค่าใช้จ่ายหน้างาน | รอคิว ค้างคืน ทางด่วน ยกของ → accessorial line (ขาย/ซื้อ) พร้อมรูปใบเสร็จ | P0 | v1 |
 | **Detention อัตโนมัติ** | `departedAt − arrivedAt − freeTime(ลูกค้า)` > 0 → เสนอ accessorial "ค่ารอ" อัตโนมัติ ให้ Invoicer ยืนยัน | P1 | E10 |
 | หลายคนขับต่อเที่ยว + เลขตู้ | `secondaryDriverId`, `containerNo` บน trip/order | P1 | E8 |
-| **Tracking link สาธารณะ** | ลิงก์มีแบรนด์ tenant; ผู้รับกรอกเลข DO/PO → เห็นสถานะ stepper, ETA, POD (ถ้าเปิด); ไม่เผยราคา | P0 | E9 |
+| **Tracking link สาธารณะ** | ลิงก์มีแบรนด์ tenant; ผู้รับกรอกเลข DO/PO **+ เบอร์ผู้รับ 4 ตัวท้าย** (กันไล่เลข DO/PO; ลิงก์ต่อ DO ไม่ต้องกรอก) (D-81 · D68-92 · 23 พ.ย. 2569) → เห็นสถานะ stepper, ETA, POD (ถ้าเปิด); ไม่เผยราคา | P0 | E9 |
 | แจ้งลูกค้าปลายทาง | SMS/LINE/อีเมลเมื่อออกรถ/ใกล้ถึง พร้อม tracking link | P1 | v1, E9 |
 | Driver app (ePOD, offline-first) | สเปกเต็มอยู่ที่ **E2** (10 จอ M1–M10 + ข้อกำหนดเทคนิค); flow หลัก: งานวันนี้ → ออกเดินทาง → ถึงจุด → POD → ปิด; ปุ่มใหญ่ ไทยล้วน; usability test กับคนขับจริงก่อนปล่อย; **M10 ลิงก์รถร่วม (web ไม่ต้อง login) = P0** ใช้ตั้งแต่เฟส 0 | P1 (M1–M9, เฟส 2 — ยกจาก P2/เฟส 3) / P0 (M10) / P2 (M7 DVIR) | v1, E1, X9, decision 2026-11-04 |
 | **หน้าติดตามรถ (แผนที่)** | แผนที่ + หมุดรถสีตามสถานะ, เส้นทางแผน vs จริง, รายการเที่ยววันนี้ + ETA, timeline สถานะต่อเที่ยว, แจ้งเตือนออกนอกเส้นทาง/จอดนาน; พิกัดจาก GPS connector 1 ค่ายแรก หรือจากแอป/ลิงก์คนขับ; ไม่มีพิกัด = แสดงสถานะล่าสุดจาก event แทน | **P1** (ยกจาก P2 ตามการตัดสินใจ 3 พ.ย. 69) | v1, E5, design 03 หน้า 7 |
@@ -317,7 +320,7 @@ TMS เป็นระบบ **standalone-first** ที่มี **Open API เ
 | **M7 DVIR ตรวจรถก่อนออก** | checklist 10 ข้อ (ยาง, ไฟหน้า-ท้าย-เลี้ยว, เบรก, น้ำมันเครื่อง/น้ำหล่อเย็น, กระจก/ที่ปัดน้ำฝน, แตร, เข็มขัด, เอกสารในรถ, อุปกรณ์ฉุกเฉิน/ถังดับเพลิง, สภาพตัวถัง/ตู้สินค้า) ผ่าน / ไม่ผ่าน + รูปเมื่อไม่ผ่าน; **เลขไมล์** (บังคับ, ตรวจไม่ถอยหลัง); **บังคับก่อนงานแรกของวัน** ต่อรถต่อคนขับ (tenant เปิด/ปิดได้); ข้อไม่ผ่านระดับร้ายแรง → เปิด WO อัตโนมัติ + เตือน dispatcher แต่ **ไม่บล็อก** เริ่มงาน (override + เหตุผล) | เขียน: `dvir_report` + `dvir_item`, `vehicle.odometer_km`, `work_order` (อัตโนมัติ); อ่าน: vehicle, template checklist ต่อประเภทรถ | P2 | decision 2026-11-04, B2 ส่วน 9 |
 | **M8 เบิกเงิน / น้ำมัน** | **ยอดเงินเบิกคงเหลือ** (advance ที่รับ − ที่เคลียร์แล้ว); ปุ่ม **บันทึกค่าใช้จ่าย**: ประเภท (น้ำมัน / ทางด่วน / ค่าจอด / ค่าปรับ / อื่น), จำนวนเงิน, **ลิตร + ราคา/ลิตร** (เฉพาะน้ำมัน, ติ๊กเต็มถัง), **เลขไมล์**, ปั๊ม (จากพิกัด), **รูปใบเสร็จ** (บังคับ); รายการที่ส่งแล้วแสดง **สถานะอนุมัติ** (รอตรวจ / อนุมัติ / ตีกลับ + เหตุผล); ขอเบิกเพิ่ม (ถ้า tenant เปิด) | เขียน: `fuel_log` (source `DRIVER_APP`, ผูก `cash_advance_id`) → `vehicle_cost` อัตโนมัติ, คำขอ cash advance; อ่าน: cash advance ของตน, สถานะอนุมัติ | P1 | decision 2026-11-04, B2 ส่วน 6, F7 |
 | **M9 ของฉัน** | **สรุปเดือนนี้**: เที่ยวที่จบ, จุดส่งสำเร็จ / ไม่สำเร็จ, กม. รวม, ค่าเที่ยว (เฉพาะ `EMPLOYEE_PER_TRIP` / `SUBCONTRACT`); **ใบจ่ายเงินที่อนุมัติแล้ว** (ดู PDF, 50 ทวิ ถ้ามี); **ใบขับขี่ + วันหมดอายุ** (เตือนก่อนหมด 30 วัน, อัปโหลดรูปใบใหม่ให้ admin ยืนยัน); **ภาษา** ไทย / อังกฤษ (+ เมียนมา / กัมพูชา P2); อุปกรณ์ที่จำไว้ + ออกจากระบบ | อ่าน: trip ของตน, driver payout / settlement, `driver.license_*`; เขียน: `driver_device` (ลบ), คำขอแก้ใบขับขี่ (`documents`), ภาษาที่เลือก (`driver.locale`) | P1 | decision 2026-11-04, F7 "คนขับ/รถร่วมดูค่าเที่ยวของตัวเอง" |
-| **M10 ลิงก์รถร่วม (web ไม่ต้อง login)** | หน้า web responsive เปิดจากลิงก์ LINE/SMS (magic link A1): **รับ / ปฏิเสธข้อเสนองาน** (ใส่ทะเบียนรถ + ชื่อ/เบอร์คนขับ หรือเหตุผลปฏิเสธ — D3) และ **อัปโหลด POD ด้วยเลข DO** (กดถึง/ออก → รูป ≤ 5 ใบ/stop → ลายเซ็น → actual qty → ปิดงาน — E2 "ePOD ผ่านลิงก์"); ใช้ UI ชุดเดียวกับ M3–M5 แบบย่อ ไม่มี outbox (ต้องออนไลน์) แต่ส่ง `clientEventId` เหมือนกัน | เขียน: `trip.assignment_status`, `stop_event` (source `link`), `trip_stop.pod`, `documents`; อ่าน: trip ที่ลิงก์ชี้ (ซ่อนราคาขาย/ที่อยู่ลูกค้าตาม PL4) | **P0** | decision 2026-11-04, PL4, E6 |
+| **M10 ลิงก์รถร่วม (web ไม่ต้อง login)** | หน้า web responsive เปิดจากลิงก์ LINE/SMS (magic link A1): **รับ / ปฏิเสธข้อเสนองาน** (ใส่ทะเบียนรถ + ชื่อ/เบอร์คนขับ หรือเหตุผลปฏิเสธ — D3) และ **อัปโหลด POD ด้วยเลข DO** (กดถึง/ออก → รูป ≤ 5 ใบ/stop → ลายเซ็น → actual qty → ปิดงาน — E2 "ePOD ผ่านลิงก์"); ใช้ UI ชุดเดียวกับ M3–M5 แบบย่อ ไม่มี outbox (ต้องออนไลน์) แต่ส่ง `clientEventId` เหมือนกัน | เขียน: `trip.assignment_status`, `stop_event` (source `link`), `delivery_order_pod` (ต่อ DO (D-81 · D68-38 · 23 พ.ย. 2569)), `documents`; อ่าน: trip ที่ลิงก์ชี้ (ซ่อนราคาขาย/ที่อยู่ลูกค้าตาม PL4) | **P0** | decision 2026-11-04, PL4, E6 |
 
 **E2.2 ข้อกำหนดเทคนิค**
 
@@ -396,8 +399,8 @@ TMS เป็นระบบ **standalone-first** ที่มี **Open API เ
 
 | สถานะ order (billing) | ย้อนได้โดย | ล็อกอะไร | ที่มา |
 |---|---|---|---|
-| DELIVERED | Dispatcher (ภายใน 24 ชม.) / Admin | — | B4 |
-| RELEASED (ส่งบัญชี) | Invoicer; ต้อง stop ครบ arrive+depart และ POD ครบ | แก้ stop/qty ไม่ได้ | B4 (Alvys) |
+| DELIVERED | Dispatcher (ภายใน 24 ชม.) / Admin — ยกเว้นเที่ยว `COSTED`/`SETTLED` ย้อนไม่ได้ (409 `trip_costed` กันต้นทุนที่ปันแล้วเพี้ยน) (D-81 · D68-74 · 23 พ.ย. 2569) | — | B4 |
+| RELEASED (ส่งบัญชี) | Invoicer (ย้อนการส่งบัญชี: Invoicer หรือ Accounting — `invoices:draft` (D-81 · D68-75 · 23 พ.ย. 2569)); ต้อง stop ครบ arrive+depart และ POD ครบ = **ผ่านเกณฑ์วางบิลของลูกค้ารายนั้น** (ลูกค้าที่ปิด "ไม่มี POD ไม่วางบิล" ส่งบัญชีได้แม้ POD ไม่ครบ) (D-81 · D68-70 · 23 พ.ย. 2569) | แก้ stop/qty ไม่ได้ | B4 (Alvys) |
 | IN_DRAFT | Invoicer ถอดออกจาก draft | แก้ราคาใน order ไม่ได้ (แก้ที่ draft) | B2 |
 | INVOICED | **ย้อนไม่ได้** → ใบลดหนี้ | ทุกอย่าง | B2, B4 |
 | PAID / PARTIALLY_PAID | ย้อนไม่ได้; แก้รับชำระด้วย reversal entry | ทุกอย่าง | B4 |
@@ -411,8 +414,8 @@ permission ต่อ transition กำหนดใน role; ทุก transition
 |---|---|---|---|
 | บันทึกรับชำระ | ต่อใบแจ้งหนี้/ใบวางบิล: วันที่, วิธี (โอน/เช็ค/เงินสด), ยอดรับ, **WHT ที่ถูกหัก (อ้าง 50 ทวิ)**, ค่าธรรมเนียม, ส่วนต่าง; รับบางส่วนได้; Payment แยกตาราง | P0 | B4, thai-tax 3.2 |
 | Trigger เอกสาร | รับชำระ → ออกใบเสร็จ (+ใบกำกับภาษีถ้ายังไม่ออกและมี VAT_7) อัตโนมัติ | P0 | thai-tax 1.3 |
-| สถานะ invoice | ISSUED → SENT → PARTIALLY_PAID → PAID / OVERDUE / CANCELLED คำนวณจาก Payment | P0 | B4 |
-| Aging | 0–30 / 31–60 / 61–90 / > 90 ต่อลูกค้า; เตือนครบกำหนด | P0 | v1, R2 |
+| สถานะ invoice | ISSUED → PARTIALLY_PAID → PAID / CANCELLED คำนวณจาก Payment; **เกินกำหนด** (`overdue`/`overdueAt`) และ **ส่งลูกค้าแล้ว** (`sentToCustomerAt` + `mark-sent`/`unmark-sent`) เป็นธง ไม่ใช่สถานะ (ตาม docs/01 §4.4) (D-81 · D68-80 · 23 พ.ย. 2569) | P0 | B4 |
+| Aging | ยังไม่ครบกำหนด / 1–30 / 31–60 / 61–90 / > 90 วัน นับจากวันครบกำหนด ต่อลูกค้า (D-81 · D68-98 · 23 พ.ย. 2569); เตือนครบกำหนด | P0 | v1, R2 |
 | Payment status จาก ERP | ถ้า connector รองรับ ดึงกลับแล้ว reconcile กับ Payment ใน TMS (ดู G) | P0 (KRS) | I8 |
 
 **F6. AP — Settlement รถร่วม (Carrier)**
@@ -421,12 +424,12 @@ permission ต่อ transition กำหนดใน role; ทุก transition
 |---|---|---|---|
 | Cost line ตั้งแต่สร้าง trip | จาก rate card ขาซื้อ snapshot + accessorial ฝั่งซื้อ; `sourceType/sourceId`; rebuild เฉพาะบรรทัดระบบ | P0 | B1 |
 | คิวจ่ายรถร่วม | trip COMPLETED ของ carrier ที่ยังไม่อยู่ใน settlement; option "ไม่มี POD ไม่จ่าย"; กรอง carrier/ช่วงวัน | P0 | B5, B6 |
-| **ติ๊กเที่ยว → ใบสำคัญจ่าย (settlement draft)** | รวมหลาย trip; ใส่เลขใบแจ้งหนี้/ใบเสร็จของรถร่วม; บรรทัดหัก (ติดลบ): เงินเบิกล่วงหน้า, ค่าน้ำมันที่เราจ่าย, ค่าปรับ, ค่าเสียหาย; unique `(tripCostLineId)` กันจ่ายซ้ำ | P0 | B5, X11 |
+| **ติ๊กเที่ยว → ใบสำคัญจ่าย (settlement draft)** | รวมหลาย trip; ใส่เลขใบแจ้งหนี้/ใบเสร็จของรถร่วม; บรรทัดหัก (ติดลบ): เงินเบิกล่วงหน้า, ค่าน้ำมันที่เราจ่าย, ค่าปรับ, ค่าเสียหาย; unique `(tripCostLineId)` เฉพาะบรรทัดที่ยังใช้ (partial) กันจ่ายซ้ำ (D-81 · D68-10 · 23 พ.ย. 2569) | P0 | B5, X11 |
 | **รถร่วมตรวจผ่านลิงก์** | ส่ง LINE → เห็นรายการเที่ยว/ยอด/หัก → กด "ยอมรับ" หรือ **"โต้แย้ง" รายการ** พร้อมเหตุผล/รูป (เช่น ค่ารอไม่ตรง) | P0 | B5, B6, B8 |
 | **Dispute** | item status OPEN / DISPUTED / APPROVED; dispute บล็อก approve ทั้งใบจนเคลียร์; หน้าเอกสารคู่ยอด: planned vs executed vs claimed + POD | P0 | B6 |
-| Approve (separation of duties) | ผู้สร้างอนุมัติเองไม่ได้; step-up 2FA เกินวงเงินที่ตั้ง | P0 | B5, v1 |
+| Approve (separation of duties) | **ผู้เตรียมใบ**อนุมัติเองไม่ได้ (ผู้สร้าง + ผู้แก้หัวใบ + ผู้เพิ่ม/นำบรรทัดออก + ผู้ส่ง/เรียกกลับ/ออกลิงก์ใหม่; ระบุตัวไม่ได้ = ปฏิเสธ) (D-81 · D68-67 · 23 พ.ย. 2569); step-up 2FA เกินวงเงินที่ตั้ง | P0 | B5, v1 |
 | **คำนวณ WHT + ออก 50 ทวิ** | ยอดก่อนหัก × `whtRate` ของ carrier (default 1%; line ค่าบริการ 3%); ขั้นต่ำ 1,000/สัญญา; ออกหนังสือรับรอง 50 ทวิ 2 ฉบับ มีเลขลำดับ series แยก, ลายเซ็นสแกน, PDF ส่ง LINE/อีเมล; ใบแทน 50 ทวิ | P0 | B5, thai-tax 3.2 |
-| จ่าย | บันทึกวันโอน/เลขอ้างอิง/ธนาคาร; สถานะ settlement DRAFT → SENT → APPROVED → PAID; ไฟล์โอนธนาคาร (bulk payment CSV) | P0 / P1 (ไฟล์ธนาคาร) | B5 |
+| จ่าย | บันทึกวันโอน/เลขอ้างอิง (บังคับเฉพาะโอน/เช็ค)/ธนาคาร (ไม่บังคับ ตามต้นแบบ (D-81 · D68-97 · 23 พ.ย. 2569)); สถานะ settlement DRAFT → SENT → APPROVED → PAID; ไฟล์โอนธนาคาร (bulk payment CSV) | P0 / P1 (ไฟล์ธนาคาร) | B5 |
 | **ภ.ง.ด.3 / ภ.ง.ด.53 export** | รายเดือน: บุคคล → ภ.ง.ด.3, นิติบุคคล → ภ.ง.ด.53; export text/CSV UTF-8 ตาม layout ที่ RD Prep map ได้ (เลขฯ 13 หลัก, สาขา, คำนำหน้าเว้นวรรค, ที่อยู่แยกช่อง, วันที่จ่าย, ประเภทเงินได้, อัตรา, ยอด, ภาษี, เงื่อนไข) | P1 | thai-tax 3.3 |
 | e-Withholding Tax | ส่งผ่านธนาคาร | P2 | thai-tax 3.3 |
 | Excel ค่าจ้างรถร่วม 3 sheet | Summary / Vehicle charges / Trip charges + PDF; สร้างเป็น async job | P1 | B10 |
@@ -464,17 +467,17 @@ permission ต่อ transition กำหนดใน role; ทุก transition
 
 | ด้าน | ข้อกำหนด | P | ที่มา |
 |---|---|---|---|
-| URL & naming | `https://api.<domain>/v1/`; resource พหูพจน์ lowercase; tenant ไม่อยู่ใน path (ผูก credential); nested เฉพาะ `/trips/{id}/stops/{id}`; action = `POST /trips/{id}/dispatch`, `/stops/{id}/arrive|depart|complete|fail`, `/orders/{id}/cancel`, `/invoices/{id}/finalize|void`; JSON camelCase; ID prefix `ord_ trp_ stp_ drv_ veh_ car_ cus_ inv_ evt_`; เงิน `{amount:"1250.00",currency:"THB"}`; เวลา ISO 8601 UTC | P0 | benchmark 9.1 |
+| URL & naming | `https://api.<domain>/v1/`; resource พหูพจน์ lowercase; tenant ไม่อยู่ใน path (ผูก credential); nested เฉพาะ `/trips/{id}/stops/{id}`; action = `POST /trips/{id}/dispatch`, `/stops/{id}/arrive|depart|complete|fail`, `/orders/{id}/cancel`, `/invoices/{id}/finalize|void`; JSON camelCase; ID prefix `ord_ trp_ stp_ drv_ veh_ car_ cus_ ivc_ evt_` (ใบแจ้งหนี้ `ivc_` / บรรทัด `ivl_` — `inv` ใช้กับคำเชิญ (D-81 · D68-73 · 23 พ.ย. 2569)); เงิน `{amount:"1250.00",currency:"THB"}`; เวลา ISO 8601 UTC | P0 | benchmark 9.1 |
 | **Auth** | OAuth2 client credentials → JWT RS256 1 ชม., scope `resource:verb`; static key `tk_live_/tk_test_` map เป็น principal เดียวกัน; หลาย key ต่อ tenant, scope/expiry/IP allowlist ต่อ key, rotation มี `revokeAt` ≤ 7 วัน, `lastUsedAt`; UI ของเราใช้ Auth Code + PKCE ออก JWT เดียวกัน → controller ชุดเดียว | P0 | benchmark 9.2 |
-| **Idempotency** | ทุก POST รับ `Idempotency-Key` scope (tenant, key, path) เก็บ 24 ชม.; ซ้ำ+body เดิม → replay + `Idempotent-Replayed: true`; body ต่าง → 422 `idempotency_mismatch`; ยังทำอยู่ → 409 | P0 | benchmark 9.3 |
-| **External id** | ทุก resource มี `externalId` unique `(tenantId, resource)`; `PUT/PATCH /{resource}/external/{externalId}` → 201/200; path `{id}` รับ `ext:{externalId}` | P0 | benchmark 9.3, O1 |
+| **Idempotency** | ทุก POST รับ `Idempotency-Key` scope (tenant, key, path) เก็บ 24 ชม.; ซ้ำ+body เดิม → replay + `Idempotent-Replayed: true`; body ต่าง → 422 `idempotency_mismatch`; ยังทำอยู่ → 409; **ยกเว้น** POST สร้าง/หมุน API key (response มี secret ห้ามเก็บ/replay) — ตอนนี้ส่ง header → 400, ก่อน GA เปลี่ยนเป็นรับ header แต่ไม่ replay secret (D-81 · D68-41 · 23 พ.ย. 2569) | P0 | benchmark 9.3 |
+| **External id** | resource ที่มี `externalId` unique `(tenantId, resource)`: master 12 รายการ (customers, customer-sites/locations, routes, carriers, vehicle-types, vehicles, drivers, products, service-items, rate-cards, reason-codes; companies รับ `ext:` อย่างเดียว) + `orders` + `invoices` + `payments` — resource อื่น (trips, stops, documents, invoice-runs, webhooks, events, webhook-deliveries, event-types, jobs, api-keys) ไม่มี; `invoices`/`payments` ตั้ง externalId ได้ตอนสร้างเท่านั้น และ PUT ซ้ำบนเอกสารที่ออกแล้ว/บันทึกแล้วแก้เนื้อหาไม่ได้ (ต่าง = 409 — แก้ด้วยกลับรายการ/ยกเลิกออกใหม่; `payments` ไม่มี PATCH external) (D-81 · D68-45 · 23 พ.ย. 2569); `PUT /{resource}/external/{externalId}` → 201/200 (upsert); `PATCH …/external/{externalId}` → 200 แก้แถวที่มีเท่านั้น ไม่มี → 404 (D-81 · D68-44 · 23 พ.ย. 2569); path `{id}` รับ `ext:{externalId}` | P0 | benchmark 9.3, O1 |
 | Concurrency | `ETag` ทุก GET/PUT/PATCH; `If-Match` ไม่ตรง → 412 (ไม่บังคับ 428) | P0 | benchmark 9.3 |
-| **Webhook** | event `{resource}.{action}`; envelope `{id,type,version,occurredAt,tenantId,data{object,previousAttributes},request}`; headers `X-TMS-Event/-Event-Id/-Timestamp/-Signature: t=,v1=/-Attempt`; HMAC-SHA256(secret, `t.rawBody`) tolerance 5 นาที; roll secret ส่ง 2 ลายเซ็น 24 ชม.; timeout 10 วิ; retry 8 ครั้ง (1m,5m,30m,2h,6h,12h,24h,24h); at-least-once; auto-disable หลัง 50 ล้มเหลวติด + อีเมล; verification `challenge` echo | P0 | benchmark 9.4 |
+| **Webhook** | event `{resource}.{action}`; envelope `{id,type,version,occurredAt,tenantId,mode,data{object,previousAttributes},request}` (`mode` = `"test"` ใน sandbox (D-81 · D68-95 · 23 พ.ย. 2569)); headers `X-TMS-Event/-Event-Id/-Timestamp/-Signature: t=,v1=/-Attempt`; HMAC-SHA256(secret, `t.rawBody`) tolerance 5 นาที; roll secret ส่ง 2 ลายเซ็น 24 ชม.; timeout 10 วิ; retry 8 ครั้ง (1m,5m,30m,2h,6h,12h,24h,24h); at-least-once; auto-disable หลัง 50 ล้มเหลวติด + อีเมล; verification `challenge` echo | P0 | benchmark 9.4 |
 | Webhook ops | `GET /webhook-deliveries?eventId=`, `POST /webhook-deliveries/{id}/retry`, `POST /events/{id}/redeliver?endpointId=` เก็บ 30 วัน; `GET /webhooks/event-types` | P0 | benchmark 9.4 |
 | **Error RFC 9457** | `application/problem+json` ทุก 4xx/5xx: `type,title,status,detail,instance,code,requestId,errors[]`; `code` stable catalog; 404 สำหรับ cross-tenant; list ว่าง = 200 `[]` | P0 | benchmark 9.5 |
 | **Pagination** | cursor `?limit=(default 25,max 200)&cursor=`; `{data,nextCursor,hasMore}`; keyset `updatedAt,id`; ห้าม offset; filter `*After/*Before`, `status=in`, `externalId=`; `sort=-updatedAt`; `fields=`/`expand=`; ทุก list รองรับ `updatedAfter` สำหรับ incremental pull | P0 | benchmark 9.6 |
 | Versioning | major ใน path `/v1`; `X-Api-Version: YYYY-MM-DD` (default = วันที่ tenant สร้าง); เพิ่ม field/enum = non-breaking; client ต้อง tolerate unknown enum; deprecation ≥ 12 เดือน + headers `Deprecation`, `Sunset`, `Link` + อีเมลเจ้าของ key | P0 | benchmark 9.7 |
-| **Rate limit** | 50 req/s ต่อ tenant (burst 100), 20/s ต่อ key, write หนัก 5/s; headers `RateLimit-Limit/-Remaining/-Reset` + `Retry-After`; `rateLimitProfile` ต่อ plan | P0 | benchmark 9.8 |
+| **Rate limit** | 50 req/s ต่อ tenant (burst 100), 20/s ต่อ key, งานหนัก (heavy — write หนัก + export + สร้าง PDF) 5/s, ต่อผู้ใช้ 20/s (burst 40); ลิงก์สาธารณะ / Platform Console / `/v1/auth/*` ไม่นับในเพดาน tenant (D-81 · D68-55 · 23 พ.ย. 2569); headers `RateLimit-Limit/-Remaining/-Reset` + `Retry-After`; `rateLimitProfile` ต่อ plan | P0 | benchmark 9.8 |
 | **Sandbox** | tenant mode `test` cluster เดียว, key `tk_test_`, webhook ส่งจริง, `POST /test/events/trigger` | P0 | benchmark 9.9 |
 | OpenAPI & SDK | OpenAPI 3.1 จาก NestJS decorators ที่ `GET /v1/openapi.json`; CI diff spec ทุก PR (breaking → bump major); docs site + llms.txt + `.md` ทุกหน้า; Postman; TypeScript SDK generate (P0), Python (P1) | P0 / P1 | benchmark 9.9 |
 | Bulk / async | `POST /orders:bulk` ≤ 200 → 207 multi-status; งานหนัก → 202 `{jobId,statusUrl}` → `GET /jobs/{id}` (pending/running/succeeded/failed/succeeded_with_errors + progress) → webhook `job.completed`; job เก็บ 7 วัน; รับ Idempotency-Key | P0 | benchmark 9.10 |
@@ -491,8 +494,8 @@ permission ต่อ transition กำหนดใน role; ทุก transition
 | 6 | `invoices`, `invoice-runs`, `payments` | GET, `/finalize`, `/void`, `POST /invoice-runs`, `POST /payments` (บันทึกรับชำระจาก ERP) | P0 | benchmark 10, I8 |
 | 7 | `trips` | GET, `/assign`, `/dispatch`, `/complete` | P0 | benchmark 10 |
 | 8 | `drivers`, `vehicles`, `carriers` | GET, POST/PATCH, `PUT /external/{id}` | P0 | benchmark 10 |
-| 9 | `carrier-settlements` (AP) | GET, `/approve`, `/mark-paid`; webhook `settlement.approved` ให้ ERP ฝั่ง AP | P1 | benchmark 10, B5 |
-| 10 | `jobs`, `api-keys`, `openapi.json` | GET | P0 | benchmark 10 |
+| 9 | `carrier-settlements` (AP) | GET, `/approve` (อนุมัติได้เฉพาะผู้ใช้ที่ login — API key อนุมัติไม่ได้ (D-81 · D68-67 · 23 พ.ย. 2569)), `/mark-paid`; webhook `settlement.approved` ให้ ERP ฝั่ง AP | P1 | benchmark 10, B5 |
+| 10 | `jobs`, `api-keys`, `openapi.json` | GET (`api-keys` ดูได้เฉพาะผู้ใช้ที่ login — API key ดู key ไม่ได้ และให้ scope `users:*` / `settings:write` กับ API key ไม่ได้ (D-81 · D68-43 · 23 พ.ย. 2569)) | P0 | benchmark 10 |
 | — | เฟสถัดไป | rate quotes/tenders, route optimization, fuel/toll, maintenance, telemetry | P2 | benchmark 10 |
 
 **G3. ErpAdapter framework**
@@ -503,13 +506,13 @@ permission ต่อ transition กำหนดใน role; ทุก transition
 | Provider factory + `StandaloneProvider` (no-op) + `DemoProvider` | standalone ใช้ได้ทันที; demo สำหรับ staging/sandbox | P0 | I1 |
 | **ตาราง `external_mapping`** | `(tenantId, provider, entityType, localId, externalId, externalDocNo, externalVersion, lastSyncedHash, lastSyncedAt, status: synced/failed/retired, lastError)`; push เฉพาะเมื่อ hash เปลี่ยน | P0 | I2 |
 | **System-of-record rules** | TMS = เจ้าของงานขนส่ง/ใบวางบิล/ใบแจ้งหนี้/settlement; ERP = เจ้าของลูกค้า(หลัก)/ผังบัญชี/VAT/การรับชำระ(ถ้ามี); แก้ใน TMS แล้ว regenerate ห้ามแก้/ลบใน ERP; field กลุ่ม auto-sync (ราคา, วันที่, accessorial) vs ต้อง regenerate (เปลี่ยนลูกค้า); แก้ได้จนรับชำระ; ตารางนี้ต่อ connector ตกลงกับลูกค้าก่อน go-live | P0 | I3 |
-| **Sync master ลงมา** | รหัสสินค้า/บริการ, VAT rate, ผังบัญชี, ลูกค้า จาก ERP → หน้า mapping "accessorial/ประเภทรายได้ TMS ↔ รหัส ERP" ต้องครบก่อน export (บล็อก finalize ถ้าไม่ครบและ connector เปิด) | P0 | I4 |
+| **Sync master ลงมา** | รหัสสินค้า/บริการ, VAT rate, ผังบัญชี, ลูกค้า จาก ERP → หน้า mapping "accessorial/ประเภทรายได้ TMS ↔ รหัส ERP" ต้องครบก่อน export — ไม่ครบ**ไม่บล็อก finalize** (standalone มาก่อน): เอกสารออกได้ แต่คำสั่งส่ง ERP เป็น `FAILED_FINAL` `erp_mapping_incomplete` และต้องแจ้งฝ่ายบัญชี ตาม docs/01 §7.4 (D-81 · D68-09 · 23 พ.ย. 2569) | P0 | I4 |
 | เลขเอกสารสองฝั่ง | ส่งเลข TMS ในช่อง ref ของ ERP; เก็บเลข ERP ใน `externalDocNo`; เลขใบแจ้งหนี้รถร่วมใน memo ของ bill | P0 | I5 |
 | **Error queue ลูกค้าดูเอง** | หน้า "สถานะเชื่อม {connector}": แยก "รอคิว" / "ล้มเหลว" / "สำเร็จ"; ปุ่ม Retry รายตัว/ทั้งหมด; คู่มือต่อ error code (ลิงก์ help); กรณี "งวดบัญชีปิด" แจ้งให้เปิดงวดแล้ว re-export; request/response log (ตัด secret) | P0 | I6, X7 |
 | `syncFromDate` | ไม่ push เอกสารก่อนวันที่กำหนด (go-live กลางงวด); incremental batch; void เมื่อยกเลิก | P0 | I7 |
 | **Payment status pull** | polling/change feed ตาม capability → สร้าง Payment ใน TMS → reconcile; ส่วนต่างขึ้น MISMATCH | P0 | I8 |
 | Routing ตามนิติบุคคล | mapping `legal_entity/branch ↔ ERP company`; Invoice As / Tender As | P0 | I9 |
-| **Inbound webhook ledger** | URL มี tenant token; ตรวจ signature ก่อน; ledger `processed_webhook_event (provider, eventKey)` unique; replay-safe | P0 | I10 |
+| **Inbound webhook ledger** | URL มี token `whin_` **ต่อ connector** (หมุนแล้วใช้ token เก่าไม่ได้ทันที); ตรวจ signature ก่อน; ledger unique `(tenant, connector, eventKey)`; ล้าง payload 30 วัน; replay-safe (D-81 · D68-59 · 23 พ.ย. 2569) | P0 | I10 |
 | Outbox | ทุก event ภายใน → outbox → webhook dispatcher + connector push; UI ของเราเองก็ subscribe (realtime) | P0 | v1, benchmark 11 |
 | หน้าจัดการ connector | เปิด/ปิด, credential (เข้ารหัส), healthCheck, feature flag, syncFromDate, mapping, log | P0 | v1 |
 | Integration marketplace | ลูกค้าเปิด connector เอง เมื่อมี adapter > 1 | P2 | I11 |

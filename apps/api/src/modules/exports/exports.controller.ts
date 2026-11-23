@@ -10,7 +10,8 @@ import {
 } from '@nestjs/swagger';
 import { IsIn, IsObject, IsOptional } from 'class-validator';
 import type { Request, Response } from 'express';
-import { RateLimitClass, RequireScope, TenantResource } from '../../common/decorators';
+import { RateLimitClass, RequireScope, StepUpWhen, TenantResource } from '../../common/decorators';
+import { assertHumanStepUp, exportNeedsStepUp, EXPORT_STEP_UP_WHEN } from '../../auth/step-up';
 import { decodeIdOr404, encodeId } from '../../common/ids';
 import { apiOrigin, readyDocumentDto } from '../documents/documents.controller';
 import {
@@ -19,7 +20,6 @@ import {
   EXPORT_RETENTION_DAYS,
   ExportsService,
   type ExportFormat,
-  type ExportResult,
 } from './exports.service';
 
 /** resource ที่ส่งออกตามตัวกรองได้ (ST9-T10) — ตรงกับ `GET /v1/{resource}` ของรายการ (orders รวมหน้าใบค้าง: `held=true`) */
@@ -37,12 +37,25 @@ export const EXPORT_RESOURCES = [
   'service-items',
   'rate-cards',
   'reason-codes',
-  // ST9-T06 รายงาน (หน้า รายงาน → ส่งออก Excel)
+  // ST9-T06 รายงาน (หน้า รายงาน → ส่งออก Excel) · pdf ทาง API (D-81 · D68-99)
   'unbilled-delivery-orders',
   'receivables-aging',
   // ST9-T05 รายงานรายได้ (xlsx / csv / pdf)
   'revenue',
+  // ST7-T23 ส่งออกให้นักบัญชี (layout กลาง ผ่าน FileExportAdapter — ตัวกรอง dateFrom/dateTo/template)
+  'accounting-sales',
+  'accounting-receipts',
+  'accounting-settlements',
+  // D-73 สรุปหัก ณ ที่จ่าย (ประมาณการ) ต่อคู่ค้า
+  'accounting-wht-summary',
+  // ST8-T14 รายงานปิดงวดเชื่อมระบบบัญชี (ตัวกรอง connectorId + month · xlsx / csv / pdf)
+  'reconcile-period-close',
 ] as const;
+
+/** resource ของไฟล์ที่ระบบสร้างเองจากงานอื่น (ไม่รับใน `POST /exports`) — ST5-T12b ไฟล์สรุปรอบวางบิล */
+export const INVOICE_RUN_SUMMARY_RESOURCE = 'invoice-run-summary';
+/** ค่าที่ `GET /v1/exports/{id}` ตอบใน `resource` */
+export const EXPORT_FILE_RESOURCES = [...EXPORT_RESOURCES, INVOICE_RUN_SUMMARY_RESOURCE] as const;
 
 export class CreateExportDto {
   @ApiProperty({ enum: EXPORT_RESOURCES, example: 'orders' })
@@ -53,7 +66,7 @@ export class CreateExportDto {
     enum: ['xlsx', 'csv', 'pdf'],
     default: 'xlsx',
     description:
-      '.xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ .csv UTF-8 + BOM · `pdf` (ตาราง A4 ≤ 2,000 แถว) เฉพาะรายงานสรุป — resource `revenue` (อื่น ๆ = 422)',
+      '.xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ .csv UTF-8 + BOM · `pdf` (ตาราง A4 ≤ 2,000 แถว) เฉพาะรายงาน — resource `revenue`, `unbilled-delivery-orders`, `receivables-aging`, `reconcile-period-close` (อื่น ๆ = 422)',
   })
   @IsOptional()
   @IsIn(['xlsx', 'csv', 'pdf'])
@@ -89,7 +102,12 @@ export class ExportErrorDto {
 
 export class ExportDto {
   @ApiProperty({ example: 'job_…' }) id!: string;
-  @ApiProperty({ enum: EXPORT_RESOURCES }) resource!: string;
+  @ApiProperty({
+    enum: EXPORT_FILE_RESOURCES,
+    description:
+      '`invoice-run-summary` = ไฟล์สรุปรอบวางบิล (สร้างเองเมื่อ `POST /v1/invoice-runs` จบ — `id` = jobId ของรอบ; สั่งผ่าน `POST /exports` ไม่ได้)',
+  })
+  resource!: string;
   @ApiProperty({ enum: ['xlsx', 'csv', 'pdf'] }) format!: string;
   @ApiProperty({ type: 'object', additionalProperties: { type: 'string' } })
   filter!: Record<string, string>;
@@ -134,6 +152,7 @@ export class ExportsController {
   @HttpCode(202)
   @RateLimitClass('heavy')
   @RequireScope('export:run')
+  @StepUpWhen(EXPORT_STEP_UP_WHEN)
   @ApiHeader({ name: 'Idempotency-Key', required: false })
   @ApiAcceptedResponse({
     type: ExportAcceptedDto,
@@ -142,6 +161,7 @@ export class ExportsController {
       `ไฟล์ไม่เกิน ${EXPORT_JOB_MAX_ROWS} แถว · คอลัมน์ราคา/การเงินเฉพาะผู้มีสิทธิ์เห็น`,
   })
   async create(@Body() body: CreateExportDto): Promise<ExportAcceptedDto> {
+    if (exportNeedsStepUp(body.resource, body.filter ?? {})) assertHumanStepUp();
     const job = await this.exports.create({
       resource: body.resource,
       format: body.format ?? 'xlsx',
@@ -160,19 +180,22 @@ export class ExportsController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ExportDto> {
-    const { job, payload, doc } = await this.exports.get(decodeIdOr404('job', id));
+    const { job, payload, doc, result } = await this.exports.get(decodeIdOr404('job', id));
     res.setHeader('Cache-Control', 'private, no-store');
-    const result = job.result as ExportResult | null;
     const expiresAt = job.finishedAt
       ? new Date(job.finishedAt.getTime() + EXPORT_RETENTION_DAYS * 86_400_000)
       : null;
-    const succeeded = job.status === 'SUCCEEDED' && !!doc;
+    // งานที่ผลิตไฟล์เป็นผลพลอยได้ (สรุปรอบวางบิล) จบแบบ SUCCEEDED_WITH_ERRORS ได้ — ไฟล์ยังพร้อมดาวน์โหลด
+    const finished = job.status === 'SUCCEEDED' || job.status === 'SUCCEEDED_WITH_ERRORS';
+    const succeeded = finished && !!doc;
     const expired = succeeded && expiresAt !== null && expiresAt.getTime() <= Date.now();
     const status = expired
       ? 'expired'
       : job.status === 'SKIPPED'
         ? 'failed'
-        : job.status.toLowerCase();
+        : finished
+          ? 'succeeded'
+          : job.status.toLowerCase();
     const dto: ExportDto = {
       id: encodeId('job', job.id),
       resource: payload.resource,

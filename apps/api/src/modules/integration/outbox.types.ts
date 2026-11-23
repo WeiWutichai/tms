@@ -67,6 +67,8 @@ export interface OutboxDelivery {
   signal: AbortSignal;
   /** transaction ใหม่ของ tenant นี้ (RLS ตั้งแล้ว) — ห้ามถือ transaction ค้างระหว่างเรียกปลายทาง */
   withTx: <T>(fn: (tx: Tx) => Promise<T>) => Promise<T>;
+  /** ST8-T08 (review L1) lease ของรอบนี้ — กั้นการเขียนของ worker ที่ถูกยึดคืนแล้ว (ไม่มี = ไม่กั้น เช่น test เรียก sink ตรง) */
+  leaseId?: string;
 }
 
 /**
@@ -81,4 +83,25 @@ export interface OutboxSink {
   /** นโยบาย retry ของ sink (ไม่กำหนด = max_attempt ของแถว 7 ครั้ง + 1, 2, 5, 15, 30, 60 นาที — docs/01 §6.3) */
   readonly retry?: { maxAttempts: number; scheduleMin: readonly number[] };
   deliver(d: OutboxDelivery): Promise<{ result?: Record<string, unknown> } | void>;
+  /**
+   * D-81 · D68-57 คำสั่งจบแบบไม่ถึงปลายทาง (`FAILED_FINAL` / `SKIPPED`) — เรียกหลังบันทึกผลแล้ว (นอก transaction ของการบันทึก)
+   * ใช้แจ้งคนให้ทำต่อ (เช่น แจ้งฝ่ายบัญชีว่าเอกสารไม่ถูกส่ง ERP — docs/01 §6.3) · throw ได้ (dispatcher จับแล้ว log — ไม่ย้อนผล)
+   */
+  onSettled?(c: SettledCommand): Promise<void>;
+}
+
+/** คำสั่งที่จบแบบไม่ถึงปลายทาง (ส่งให้ `OutboxSink.onSettled`) */
+export interface SettledCommand {
+  id: string;
+  tenantId: string;
+  sink: string;
+  targetId: string | null;
+  operation: string;
+  entityType: string;
+  localId: string;
+  payload: unknown;
+  status: 'FAILED_FINAL' | 'SKIPPED';
+  errorClass: string | null;
+  /** รหัสปัญหา (`last_error.code`) — null = ไม่มี */
+  code: string | null;
 }

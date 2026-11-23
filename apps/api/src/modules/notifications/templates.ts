@@ -32,8 +32,8 @@ export interface NotificationVars {
   'invoice.payment_due': { total: number; more: number; items: PaymentDueItem[] };
   /**
    * ST9-T06 DO ส่งถึงแล้วยังไม่วางบิลเกิน N วัน (docs/04 H "ส่งให้ Invoicer อัตโนมัติ", I "DO ยังไม่วางบิล") — 1 ฉบับต่อผู้รับต่อวัน
-   * เฉพาะเมื่อมี DO ที่เพิ่งเกินเกณฑ์ (ยังไม่เคยแจ้งผู้รับคนนี้) · fresh = จำนวนใหม่ · outstanding = ค้างเกินเกณฑ์ทั้งหมด ณ วันนี้
-   * items = DO ใหม่สูงสุด DIGEST_MAX_ITEMS · ไม่ใส่ยอดเงิน (สิทธิ์ดูราคาขายแยกต่อผู้ใช้)
+   * D-71: ทุกเช้าที่ยังมีใบค้าง · fresh = เพิ่งเกินเกณฑ์วันนี้ · outstanding = ค้างเกินเกณฑ์ทั้งหมด ณ วันนี้ ·
+   * staleDrafts = อยู่ในร่างใบแจ้งหนี้ค้างเกิน N วัน · items = DO ที่เพิ่งเกินวันนี้สูงสุด DIGEST_MAX_ITEMS · ไม่ใส่ยอดเงิน
    */
   'delivery_order.unbilled': {
     /** หน้าที่ลิงก์ไป: `report` = รายงาน DO ยังไม่วางบิล · `bill` = หน้าวางบิล (แพ็กเกจไม่มีโมดูลรายงาน — review M1) */
@@ -41,6 +41,7 @@ export interface NotificationVars {
     minDays: number;
     fresh: number;
     outstanding: number;
+    staleDrafts: number;
     more: number;
     items: UnbilledDoItem[];
   };
@@ -67,8 +68,43 @@ export interface NotificationVars {
   'settlement.disputed': { carrier: string; ref: string; count: number };
   /** ST9-T08 connector หยุดทำงาน (status ERROR — docs/04 I "connector ล่ม") · label = รหัส adapter · code = รหัสปัญหา */
   'connector.error': { label: string; code: string };
+  /**
+   * D-81 · D68-61 รอบกระทบยอดกับระบบบัญชีพบส่วนต่างใหม่ (docs/01 §6.5 MISMATCH severity MONEY → หัวหน้าบัญชีทันที)
+   * label = รหัส adapter · count = ส่วนต่างใหม่ในรอบ · invoiceNos = ตัวอย่างเลขใบไม่เกิน 5 · ไม่ใส่ยอดเงิน (สิทธิ์ดูราคาขายแยก)
+   */
+  'reconcile.mismatch_found': { label: string; count: number; invoiceNos: string[] };
+  /**
+   * ST8-T11 เนื้อหาใบแจ้งหนี้ในระบบบัญชีไม่ตรงกับที่ TMS ออก (docs/01 §6.5) · label = ชื่อระบบบัญชี · connectorId = รวมกลุ่มต่อ connector ·
+   * count = ใบที่พบส่วนต่างใหม่ · invoiceNos = ตัวอย่างเลขใบไม่เกิน 5 · money = มีส่วนต่างระดับ MONEY (รายการหาย/เกิน/ยอด) · ไม่ใส่ยอดเงิน
+   */
+  /** ST8-T11 อ่านเอกสารจากระบบบัญชีไม่สำเร็จ 2 รอบติด (ERP_UNREACHABLE) · label = ชื่อระบบบัญชี · invoiceNo = ใบล่าสุดที่อ่านไม่ได้ */
+  'connector.reconcile_unreachable': { label: string; invoiceNo: string };
+  'reconcile.document_mismatch_found': {
+    label: string;
+    connectorId: string;
+    count: number;
+    invoiceNos: string[];
+    money: boolean;
+  };
   /** ST8-T03 connector กลับมาทำงานเอง (ปลายทางตอบอีกครั้ง — ERROR → ACTIVE โดยระบบ) */
   'connector.recovered': { label: string };
+  /**
+   * D-81 · D68-57 เอกสารไม่ถูกส่งเข้าระบบบัญชี (docs/01 §6.3 "แจ้งบัญชี") · label = ชื่อระบบบัญชี · รวมกลุ่มต่อ (connector, รหัส) ใน 1 ชม. ·
+   * outcome = FAILED_FINAL (ส่งไม่สำเร็จ ระบบไม่ลองเองอีก) / SKIPPED (ไม่ส่ง — ต้องทำในระบบบัญชีเอง) · code = รหัสปัญหา · ไม่ใส่ยอดเงิน
+   */
+  'connector.document_not_sent': {
+    label: string;
+    /** connector id (public) — ใช้จัดกลุ่ม (review M1) */
+    connectorId: string;
+    /** ตัวอย่างเลขเอกสาร ไม่เกิน 5 (ใบล่าสุดท้ายสุด) */
+    documentNos: string[];
+    /** จำนวนเอกสารในกลุ่ม (รวมที่ไม่อยู่ในตัวอย่าง) */
+    count: number;
+    outcome: 'FAILED_FINAL' | 'SKIPPED';
+    code: string;
+    /** ErrorClass ของคำสั่ง — AMBIGUOUS = อาจถึงระบบบัญชีแล้ว (review M2) */
+    errorClass: string | null;
+  };
   /**
    * ST7-T20 ทีม Innovera เปลี่ยน connector จาก Platform Console (แบบเดียวกับแจ้ง owner ตอนเข้าใช้งานแทน — docs/04 A6)
    * action = created / credentials / resumed / paused / error / recovered · reason = เหตุผลของทีมงาน (safeName)
@@ -94,6 +130,53 @@ export interface DailyDigestGroup {
   count: number;
   titles: string[];
 }
+/** D68-57 คำแนะนำต่อรหัสปัญหาของเอกสารที่ไม่ถูกส่งเข้าระบบบัญชี (ไม่มี = ข้อความตามผล) */
+const DOC_NOT_SENT_HINT_TH: Readonly<Record<string, string>> = {
+  erp_mapping_incomplete: 'จับคู่รหัสค่าบริการกับระบบบัญชีให้ครบแล้วส่งใหม่',
+  erp_master_code_unknown: 'ซิงก์/แก้รหัสในผังรหัสระบบบัญชีแล้วส่งใหม่',
+  void_manual_required: 'เอกสารถูกยกเลิกใน TMS — ยกเลิกในระบบบัญชีเอง',
+  connector_disconnected: 'ยกเลิกการเชื่อมต่อแล้ว — บันทึกเอกสารนี้ในระบบบัญชีเอง',
+  capability_not_supported: 'ระบบบัญชีนี้ไม่รองรับเอกสารชนิดนี้ — บันทึกในระบบบัญชีเอง',
+  duplicate_unresolved:
+    'ระบบบัญชีมีเลขอ้างอิงนี้แล้วแต่หาเอกสารไม่พบ — ตรวจในระบบบัญชีแล้วกรอกเลขเอกสารฝั่งบัญชีเอง',
+  regenerate_required:
+    'เอกสารที่ส่งแล้วเปลี่ยนส่วนที่ต้องออกใหม่ — ยกเลิกแล้วออกใหม่ในระบบบัญชีเอง',
+  paid_locked: 'เอกสารรับชำระแล้ว ระบบไม่ส่งการแก้ไข — ปรับในระบบบัญชีเอง',
+  replace_not_supported: 'ระบบบัญชีแก้เอกสารผ่าน API ไม่ได้ — แก้ในระบบบัญชีเอง',
+  replace_requires_approval:
+    'ลงบัญชีแล้วหรือใบเก่าเกินกำหนด — ต้องมีผู้อนุมัติ (คนละคนกับผู้ขอ) ก่อนแทนที่ หรือแก้ในระบบบัญชีเอง',
+};
+const DOC_NOT_SENT_HINT_EN: Readonly<Record<string, string>> = {
+  erp_mapping_incomplete: 'map the service items to accounting codes, then resend.',
+  erp_master_code_unknown: 'sync or fix the accounting master codes, then resend.',
+  void_manual_required: 'it was cancelled in TMS — cancel it in the accounting system manually.',
+  connector_disconnected:
+    'the connection was removed — record it in the accounting system manually.',
+  capability_not_supported:
+    'this accounting system does not accept this document type — record it manually.',
+  duplicate_unresolved:
+    'the accounting system already has this reference but the document was not found — enter its number manually.',
+  regenerate_required: 'the change requires re-issuing it in the accounting system manually.',
+  paid_locked: 'it is already paid — changes are not sent; adjust it in the accounting system.',
+  replace_not_supported: 'the accounting system cannot update it via API — update it manually.',
+  replace_requires_approval:
+    "it is posted or older than the set limit — replacing needs another person's approval.",
+};
+/** review M2: AMBIGUOUS (timeout หลังส่ง / lease หมดครั้งสุดท้าย) — เอกสารอาจถึงระบบบัญชีแล้ว */
+const DOC_NOT_SENT_AMBIGUOUS_TH = 'อาจถึงระบบบัญชีแล้ว — ตรวจในระบบบัญชีก่อนส่งใหม่หรือบันทึกเอง';
+const DOC_NOT_SENT_AMBIGUOUS_EN =
+  'it may have reached the accounting system — check there before resending or recording it manually.';
+/** เลขเอกสารในข้อความ: 1 ใบ = เลข · หลายใบ = "N ใบ (ตัวอย่าง …)" */
+function docList(
+  v: { documentNos: string[]; count: number },
+  lang: NotificationLocale = 'th',
+): string {
+  const sample = v.documentNos.map((x) => safeName(x, 60)).join(', ');
+  if (v.count <= 1) return sample || '-';
+  const more = v.count > v.documentNos.length ? ' …' : '';
+  const head = lang === 'th' ? `เอกสาร ${n(v.count)} ใบ` : `${n(v.count)} document(s)`;
+  return sample ? `${head} (${sample}${more})` : head;
+}
 /** ชื่อ event ในสรุปรายวัน (ไทยตรงกับหน้าตั้งค่า — apps/web i18n `noti.ev.*`) */
 const EVENT_NAME: Record<string, Record<NotificationLocale, string>> = {
   'order.on_hold': { th: 'ใบค้างใหม่', en: 'New on-hold orders' },
@@ -105,6 +188,10 @@ const EVENT_NAME: Record<string, Record<NotificationLocale, string>> = {
     en: 'Expiring documents / licences / rate cards',
   },
   'connector.down': { th: 'การเชื่อมต่อขัดข้อง', en: 'Connector / webhook down' },
+  'reconcile.mismatch': {
+    th: 'ข้อมูลไม่ตรงกับระบบบัญชี',
+    en: 'Mismatches with the accounting system',
+  },
   'delivery_order.unbilled': { th: 'DO ยังไม่วางบิล', en: 'Unbilled delivery orders' },
   'payment.due': { th: 'ครบกำหนดชำระ', en: 'Payments due' },
   other: { th: 'อื่น ๆ', en: 'Other' },
@@ -311,27 +398,65 @@ function renderUnbilled(v: NotificationVars['delivery_order.unbilled'], lang: No
       ? `• ${safeName(i.doNo, 60)} · ${safeName(i.customer, 120)} — ส่งถึง ${thDay(i.deliveredOn)} (${n(i.days)} วัน)`
       : `• ${safeName(i.doNo, 60)} · ${safeName(i.customer, 120)} — delivered ${i.deliveredOn} (${n(i.days)} days)`,
   );
+  if (lines.length) lines.unshift(lang === 'th' ? 'เพิ่งเกินเกณฑ์วันนี้:' : 'Crossed today:');
   if (v.more > 0) lines.push(lang === 'th' ? `และอีก ${n(v.more)} ใบ` : `and ${n(v.more)} more`);
-  // review L5: ถ้อยคำกลาง ๆ (ผู้รับครั้งแรกได้รายการค้างเก่าทั้งหมด — ไม่เรียกว่า "ใหม่")
-  const where =
-    v.target === 'report'
+  const drafts = v.staleDrafts > 0;
+  const onlyDrafts = drafts && v.outstanding === 0;
+  // review L5: มีร่างค้าง → ชวนตรวจ/ออกเอกสารร่าง (ไม่ใช่แค่ดึง DO) · แพ็กเกจไม่มีรายงาน (/bill) ก็บอกเรื่องร่าง
+  const where = onlyDrafts
+    ? {
+        th: 'ตรวจและออกเอกสารใบแจ้งหนี้ร่างที่หน้า วางบิลและใบแจ้งหนี้',
+        en: 'review and issue the draft invoices on the Billing page.',
+      }
+    : v.target === 'report'
+      ? drafts
+        ? {
+            th: 'ดูที่ รายงาน → DO ยังไม่วางบิล แล้วดึงเข้าใบแจ้งหนี้และออกเอกสารร่างที่ค้างที่หน้าวางบิล',
+            en: 'see Reports → Unbilled DOs, then bill them and issue the pending drafts.',
+          }
+        : {
+            th: 'ดูที่ รายงาน → DO ยังไม่วางบิล แล้วดึงเข้าใบแจ้งหนี้ที่หน้าวางบิล',
+            en: 'see Reports → Unbilled DOs.',
+          }
+      : drafts
+        ? {
+            th: 'ดึงเข้าใบแจ้งหนี้และออกเอกสารร่างที่ค้างที่หน้า วางบิลและใบแจ้งหนี้',
+            en: 'add them to an invoice and issue the pending drafts on the Billing page.',
+          }
+        : {
+            th: 'ดึงเข้าใบแจ้งหนี้ที่หน้า วางบิลและใบแจ้งหนี้',
+            en: 'add them to an invoice on the Billing page.',
+          };
+  const draftTh = `อยู่ในร่างใบแจ้งหนี้ค้างเกิน ${n(v.minDays)} วัน ${n(v.staleDrafts)} ใบ`;
+  const draftEn = `${n(v.staleDrafts)} sitting in draft invoices over ${n(v.minDays)} days`;
+  if (onlyDrafts)
+    return lang === 'th'
       ? {
-          th: 'ดูที่ รายงาน → DO ยังไม่วางบิล แล้วดึงเข้าใบแจ้งหนี้ที่หน้าวางบิล',
-          en: 'see Reports → Unbilled DOs.',
+          title: `ร่างใบแจ้งหนี้ค้างเกิน ${n(v.minDays)} วัน ${n(v.staleDrafts)} ใบ`,
+          body: `${draftTh} — ${where.th}`,
+          detail: lines.join('\n'),
         }
       : {
-          th: 'ดึงเข้าใบแจ้งหนี้ที่หน้า วางบิลและใบแจ้งหนี้',
-          en: 'add them to an invoice on the Billing page.',
+          title: `${n(v.staleDrafts)} delivery order(s) in drafts over ${n(v.minDays)} days`,
+          body: `${draftEn} — ${where.en}`,
+          detail: lines.join('\n'),
         };
+  // D-71: แยก "เพิ่งเกินวันนี้" / "ค้างทั้งหมด" (+ "อยู่ในร่าง…ค้างเกิน N วัน" เมื่อมี)
+  const th = [`เพิ่งเกินวันนี้ ${n(v.fresh)} ใบ`, `ค้างทั้งหมด ${n(v.outstanding)} ใบ`];
+  const en = [`${n(v.fresh)} crossed today`, `${n(v.outstanding)} outstanding`];
+  if (drafts) {
+    th.push(draftTh);
+    en.push(draftEn);
+  }
   return lang === 'th'
     ? {
-        title: `DO ยังไม่วางบิลเกิน ${n(v.minDays)} วัน ${n(v.fresh)} ใบ`,
-        body: `ค้างเกินเกณฑ์ทั้งหมด ${n(v.outstanding)} ใบ — ${where.th}`,
+        title: `DO ยังไม่วางบิลเกิน ${n(v.minDays)} วัน`,
+        body: `${th.join(' · ')} — ${where.th}`,
         detail: lines.join('\n'),
       }
     : {
-        title: `${n(v.fresh)} delivery order(s) not billed after ${n(v.minDays)} days`,
-        body: `${n(v.outstanding)} delivery order(s) over the threshold in total — ${where.en}`,
+        title: `Delivery orders not billed after ${n(v.minDays)} days`,
+        body: `${en.join(' · ')} — ${where.en}`,
         detail: lines.join('\n'),
       };
 }
@@ -558,6 +683,78 @@ const TEMPLATES: {
     en: (v) => ({
       title: 'Connector back online',
       body: `Connector ${v.label} can reach the destination again — it was resumed and parked work is being sent.`,
+    }),
+  },
+  'connector.document_not_sent': {
+    th: (v) => ({
+      title: 'เอกสารไม่ถูกส่งเข้าระบบบัญชี',
+      body: `${docList(v)} ${
+        v.outcome === 'SKIPPED' ? 'ไม่ถูกส่งเข้า' : 'ส่งเข้าไม่สำเร็จ —'
+      } ${safeName(v.label, 80)} (${safeName(v.code, 60)}) — ${
+        (v.errorClass === 'AMBIGUOUS' ? DOC_NOT_SENT_AMBIGUOUS_TH : undefined) ??
+        DOC_NOT_SENT_HINT_TH[v.code] ??
+        (v.outcome === 'SKIPPED'
+          ? 'บันทึกเอกสารนี้ในระบบบัญชีเอง'
+          : 'ระบบไม่ลองส่งเองอีก ตรวจสาเหตุแล้วส่งใหม่ หรือบันทึกในระบบบัญชีเอง')
+      }`,
+    }),
+    en: (v) => ({
+      title: 'Document not sent to the accounting system',
+      body: `${docList(v, 'en')} ${
+        v.outcome === 'SKIPPED' ? 'was not sent to' : 'could not be sent to'
+      } ${safeName(v.label, 80)} (${safeName(v.code, 60)}) — ${
+        (v.errorClass === 'AMBIGUOUS' ? DOC_NOT_SENT_AMBIGUOUS_EN : undefined) ??
+        DOC_NOT_SENT_HINT_EN[v.code] ??
+        (v.outcome === 'SKIPPED'
+          ? 'record it in the accounting system manually.'
+          : 'it will not be retried automatically; fix the cause and resend, or record it manually.')
+      }`,
+    }),
+  },
+  'reconcile.mismatch_found': {
+    th: (v) => ({
+      title: 'ข้อมูลไม่ตรงกับระบบบัญชี',
+      body: `Connector ${v.label} พบยอดรับชำระไม่ตรงกับระบบบัญชี ${n(v.count)} ใบ${
+        v.invoiceNos.length
+          ? ` (${v.invoiceNos.map((x) => safeName(x, 40)).join(', ')}${v.count > v.invoiceNos.length ? ' …' : ''})`
+          : ''
+      } — ระบบไม่ปรับยอดใน TMS เอง ตรวจแล้วแก้ที่ต้นเหตุ`,
+    }),
+    en: (v) => ({
+      title: 'Mismatch with the accounting system',
+      body: `Connector ${v.label} found ${n(v.count)} invoice(s) whose payments differ from the accounting system${
+        v.invoiceNos.length
+          ? ` (${v.invoiceNos.map((x) => safeName(x, 40)).join(', ')}${v.count > v.invoiceNos.length ? ' …' : ''})`
+          : ''
+      } — TMS does not adjust them automatically; fix the cause.`,
+    }),
+  },
+  'connector.reconcile_unreachable': {
+    th: (v) => ({
+      title: 'กระทบยอดกับระบบบัญชีไม่ได้',
+      body: `อ่านเอกสารจาก ${safeName(v.label, 80)} ไม่สำเร็จ 2 รอบติดกัน (ล่าสุด ${safeName(v.invoiceNo, 40)}) — ตรวจการเชื่อมต่อ และแจ้งผู้ดูแลระบบบัญชี`,
+    }),
+    en: (v) => ({
+      title: 'Cannot reconcile with the accounting system',
+      body: `Reading documents from ${safeName(v.label, 80)} failed in 2 consecutive rounds (latest ${safeName(v.invoiceNo, 40)}) — check the connection and inform the accounting system administrator.`,
+    }),
+  },
+  'reconcile.document_mismatch_found': {
+    th: (v) => ({
+      title: 'ข้อมูลไม่ตรงกับระบบบัญชี',
+      body: `${safeName(v.label, 80)} มีใบแจ้งหนี้ที่เนื้อหาไม่ตรงกับที่ TMS ออก ${n(v.count)} ใบ${
+        v.invoiceNos.length
+          ? ` (${v.invoiceNos.map((x) => safeName(x, 40)).join(', ')}${v.count > v.invoiceNos.length ? ' …' : ''})`
+          : ''
+      }${v.money ? ' — มีรายการหาย/เกิน หรือยอดไม่ตรง' : ''} — ตรวจแล้วแก้ที่ต้นเหตุ ระบบไม่แก้เอกสารเอง`,
+    }),
+    en: (v) => ({
+      title: 'Mismatch with the accounting system',
+      body: `${safeName(v.label, 80)} has ${n(v.count)} invoice(s) whose content differs from what TMS issued${
+        v.invoiceNos.length
+          ? ` (${v.invoiceNos.map((x) => safeName(x, 40)).join(', ')}${v.count > v.invoiceNos.length ? ' …' : ''})`
+          : ''
+      }${v.money ? ' — lines missing/extra or totals differ' : ''} — check and fix the cause; TMS does not change documents automatically.`,
     }),
   },
   'connector.platform_changed': {

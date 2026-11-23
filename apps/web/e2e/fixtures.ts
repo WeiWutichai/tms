@@ -1,5 +1,8 @@
-import { test as base, expect } from '@playwright/test';
+import { test as base, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 /** URL ของ web ที่ E2E รัน (พอร์ตจาก E2E_WEB_PORT ที่ playwright.config ตั้งให้ — ค่าเริ่มต้น 4520) */
 export const E2E_WEB = `http://localhost:${process.env.E2E_WEB_PORT ?? '4520'}`;
@@ -13,9 +16,37 @@ export const DEMO_TRUSTED_DEVICE = 'demo-trusted-device-e2e-only-0000000000000';
 export const DEMO_IDS: Record<string, string> = {
   'owner@demo-a.test': '00000000-0000-4000-8000-0000000e0a01',
   'admin@demo-a.test': '00000000-0000-4000-8000-0000000e0a02',
+  // D-78: role ที่ถือสิทธิ์สำคัญต้องตั้ง 2FA — seed ตั้งให้ + cookie อุปกรณ์ที่จำไว้
+  'manager@demo-a.test': '00000000-0000-4000-8000-0000000e0a03',
+  'planner@demo-a.test': '00000000-0000-4000-8000-0000000e0a04',
+  'invoicer@demo-a.test': '00000000-0000-4000-8000-0000000e0a06',
   'accounting@demo-a.test': '00000000-0000-4000-8000-0000000e0a07',
   'owner@demo-b.test': '00000000-0000-4000-8000-0000000e0b01',
 };
+
+/**
+ * D-78: ผู้ใช้เดโมที่ต้องตั้ง 2FA — ข้ามขั้น TOTP ด้วย cookie อุปกรณ์ที่จำไว้จาก seed ใน helper login ของแต่ละ spec
+ * - `trustDevice(page, email)` วาง cookie ใน context ของหน้า (แทน cookie เดิมชื่อเดียวกัน) ก่อน `page.request.post('/v1/auth/login')`
+ * - `trustedDeviceHeaders(email)` header Cookie สำหรับ `request` fixture (context แยก ไม่มี cookie ของหน้า)
+ * ผู้ใช้ที่ไม่ต้องตั้ง 2FA = ไม่ทำอะไร
+ */
+export async function trustDevice(page: Page, email: string): Promise<void> {
+  const id = DEMO_IDS[email];
+  if (!id) return;
+  await page.context().addCookies([
+    {
+      name: 'tms_td',
+      value: `${DEMO_TRUSTED_DEVICE}:${id}`,
+      url: `${E2E_WEB}/v1/auth`,
+      httpOnly: true,
+      sameSite: 'Strict',
+    },
+  ]);
+}
+export function trustedDeviceHeaders(email: string): Record<string, string> {
+  const id = DEMO_IDS[email];
+  return id ? { Cookie: `tms_td=${DEMO_TRUSTED_DEVICE}:${id}` } : {};
+}
 
 /**
  * login ผ่าน API จริง (Auth Code + PKCE) ด้วย request ของ context เดียวกับหน้า → ได้ refresh cookie httpOnly
@@ -55,8 +86,46 @@ export const test = base.extend<{ loginEmail: string; loggedIn: void }>({
 });
 export { expect };
 
-/** RFC 6238 ในฝั่ง test (ไม่พึ่งโค้ดของแอป) */
+/**
+ * time-step ล่าสุดที่ใช้แล้วกับ TOTP ของผู้ใช้เดโม **แยกตามบัญชี** (server เก็บ `totp_last_step` ต่อผู้ใช้)
+ * server ไม่รับ step ที่ ≤ ช่วงที่บัญชีนั้นใช้ไปแล้ว และรหัสผิดนับเป็นความพยายามล้มเหลว (ครบแล้วล็อกบัญชี) —
+ * จึงเลือก step ที่ยังไม่ถูกใช้เอง (`freshCode`) แทนการลองผิดลองถูก
+ * - `'tenant'` = ผู้ใช้เดโมของแอปลูกค้าทุกคน (นับรวม — ปลอดภัยกว่าแยก เพราะ helper login/step-up ไม่รู้ว่าเป็นผู้ใช้คนไหน)
+ * - ทีมงาน Console = อีเมล เช่น `'super-admin@platform.test'` (connectors.spec login + step-up super-admin แล้ว console.spec
+ *   login super-admin ต่อในช่วง 30 วิ เดียวกัน — ถ้านับรวมทุกบัญชี ทุก login ของ Console ต้องรอข้ามช่วง)
+ * จำข้าม process ด้วย — ci รอบ retry (process ใหม่) ใช้ฐาน/server เดิม · เก็บในไฟล์ชั่วคราวแยกตามพอร์ต API ของ E2E (lane ต่างกันไม่ชนกัน)
+ */
+export type TotpAccount = 'tenant' | `${string}@platform.test`;
+const usedSteps: Record<string, number> = {};
+const STEP_FILE = join(tmpdir(), `tms-e2e-totp-steps-${process.env.E2E_API_PORT ?? '4510'}.json`);
+function loadSteps(): Record<string, number> {
+  try {
+    return JSON.parse(readFileSync(STEP_FILE, 'utf8')) as Record<string, number>;
+  } catch {
+    return {};
+  }
+}
+function usedStep(account: TotpAccount): number {
+  return Math.max(usedSteps[account] ?? 0, loadSteps()[account] ?? 0);
+}
+function saveStep(account: TotpAccount, step: number): void {
+  usedSteps[account] = step;
+  try {
+    writeFileSync(STEP_FILE, JSON.stringify({ ...loadSteps(), [account]: step }));
+  } catch {
+    /* ไม่มีที่เขียน = ใช้ค่าใน process อย่างเดียว */
+  }
+}
+
+/**
+ * RFC 6238 ในฝั่ง test (ไม่พึ่งโค้ดของแอป) — ใช้กับ secret ใหม่ที่ test เพิ่งได้มาเท่านั้น (เช่น ผู้ถูกเชิญตั้ง 2FA)
+ * ผู้ใช้เดโม/ทีมงาน Console (secret `DEMO_TOTP_SECRET`) ต้องใช้ `freshCode(account)` — เดา offset เองชน step ที่ spec ก่อนหน้าใช้ไปแล้ว
+ */
 export function totp(secret: string, offset = 0): string {
+  return totpAt(secret, Math.floor(Date.now() / 30000) + offset);
+}
+
+function totpAt(secret: string, step: number): string {
   const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
   let bits = 0;
   let val = 0;
@@ -70,9 +139,63 @@ export function totp(secret: string, offset = 0): string {
     }
   }
   const msg = Buffer.alloc(8);
-  msg.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000) + offset));
+  msg.writeBigUInt64BE(BigInt(step));
   const h = createHmac('sha1', Buffer.from(key)).update(msg).digest();
   const o = h[h.length - 1]! & 0xf;
   const n = ((h[o]! & 0x7f) << 24) | (h[o + 1]! << 16) | (h[o + 2]! << 8) | h[o + 3]!;
   return String(n % 1_000_000).padStart(6, '0');
+}
+
+/**
+ * D-67 กล่องยืนยัน 2FA (`StepUpBox` — "ยืนยันตัวตน 2 ชั้นอีกครั้ง") ก่อนรายการเสี่ยง: สร้าง/หมุน API key, secret webhook,
+ * credential connector, บัญชีธนาคารรถร่วม, ส่งออกทั้งบริษัท, ยกเลิกใบแจ้งหนี้/ใบวางบิลที่ออกแล้ว
+ * กรอก TOTP ของผู้ใช้เดโม — รหัสช่วงเวลาเดียวกันใช้ซ้ำไม่ได้ (spec อื่นอาจใช้ไปแล้ว) → ลองช่วงถัดไป
+ * ยืนยันแล้ว token ใช้ต่อได้ 5 นาทีในหน้าเดิม (ไม่ถามซ้ำ) — เรียกเฉพาะครั้งแรกของแต่ละ test
+ */
+export async function confirmStepUp(page: Page, account: TotpAccount = 'tenant'): Promise<void> {
+  const box = page.getByRole('group', { name: 'ยืนยันตัวตน 2 ชั้นอีกครั้ง' });
+  await expect(box).toBeVisible({ timeout: 15_000 });
+  await box.getByLabel('รหัส 6 หลัก').fill(await freshCode(account));
+  await box.getByRole('button', { name: 'ยืนยัน' }).click();
+  await expect(box).toBeHidden({ timeout: 10_000 });
+}
+
+/**
+ * D-67 header `X-Step-Up` สำหรับเรียก API ตรง (page.request) ในขั้นเตรียมข้อมูล — `POST /v1/auth/step-up` ด้วย TOTP ของผู้ใช้เดโม
+ * คืน header เดิม + `X-Step-Up` (token ใช้ได้ 5 นาที)
+ */
+export async function withStepUp(
+  req: APIRequestContext,
+  auth: Record<string, string>,
+): Promise<Record<string, string>> {
+  const r = await req.post('/v1/auth/step-up', { headers: auth, data: { otp: await freshCode() } });
+  expect(r.status(), await r.text()).toBe(200);
+  const { stepUpToken } = (await r.json()) as { stepUpToken: string };
+  return { ...auth, 'X-Step-Up': stepUpToken };
+}
+
+/**
+ * รหัส TOTP ของ step ที่ยังไม่ถูกใช้ (server รับ ±1 ช่วงจากปัจจุบัน) — ไม่มีให้ใช้ = รอข้ามช่วง (ยืดเวลาของ test)
+ * ใช้ครั้งเดียวต่อรหัส ไม่ลองซ้ำด้วยรหัสที่อาจผิด (รหัสผิดนับเป็นความพยายามล้มเหลว — กันบัญชีเดโมถูกล็อก)
+ */
+export async function freshCode(account: TotpAccount = 'tenant'): Promise<string> {
+  for (;;) {
+    const now = Math.floor(Date.now() / 30000);
+    // ช่วง 2 วินาทีสุดท้ายไม่ใช้ step ปัจจุบัน (อาจหลุดหน้าต่างระหว่างส่ง) — ใช้ step ถัดไปแทน
+    const late = Date.now() % 30000 > 28_000;
+    const used = usedStep(account);
+    const step = [now, now + 1].find((x) => x > used && !(late && x === now));
+    if (step !== undefined) {
+      saveStep(account, step);
+      return totpAt(DEMO_TOTP_SECRET, step);
+    }
+    await nextTotpStep();
+  }
+}
+
+/** รอจนข้ามช่วง 30 วินาทีถัดไปของ TOTP (รหัสที่ใช้แล้วใช้ซ้ำไม่ได้) — ยืดเวลาของ test ตามที่รอ */
+async function nextTotpStep(): Promise<void> {
+  test.info().setTimeout(test.info().timeout + 35_000);
+  const ms = 30_000 - (Date.now() % 30_000) + 500;
+  await new Promise((r) => setTimeout(r, ms));
 }

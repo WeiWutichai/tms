@@ -513,6 +513,25 @@
   color: #2257c4;
   font-weight: 500;
 }
+/* ST7-T19 ปุ่ม "ดู payload" ในบันทึกการซิงก์ (ต้นแบบ TMS v4 st.cd.logs l.view) */
+.cnx-pl {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #3b424c;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cnx-pl:hover {
+  background: #eef0ec;
+  color: #2257c4;
+}
 .cnx-empty {
   padding: 40px 24px;
   display: flex;

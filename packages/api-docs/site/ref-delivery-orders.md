@@ -366,7 +366,8 @@ scope: `orders:write` · operationId: `DeliveryOrders_redeliver`
 | `reasonCodeId` | ใช่ | `string` |   | เหตุผล: DO ส่งแล้ว (ปฏิเสธรับบางส่วน/ทั้งหมด) = หมวด REJECTED_BY_RECEIVER · DO ส่งไม่สำเร็จ = หมวด DELIVERY_FAILED | `rsn_3f2a…` |
 | `note` |   | `string` | ยาว ≤ 500 · null ได้ | โน้ต — บังคับเมื่อเหตุผลติ๊ก "บังคับโน้ต"; ชื่อเหตุผล + โน้ต รวม ≥ 10 ตัวอักษร |   |
 | `lines` |   | `array<ReturnLineInputDto>` |   | เฉพาะ DO ส่งแล้ว: บรรทัด + ปริมาณ (ไม่ส่ง = ทุกบรรทัดที่ยังปฏิเสธคงเหลือ ทั้งจำนวน) · DO ส่งไม่สำเร็จ = ทั้งใบเสมอ (ส่งมา → 422) |   |
-| `lines[].lineNo` | ใช่ | `number` |   | ลำดับบรรทัดของ DO (`lines[].lineNo`) | `1` |
+| `lines[].lineNo` |   | `number` |   | ลำดับบรรทัดของ DO (`lines[].lineNo`) — ส่ง `lineNo` หรือ `doLineId` อย่างน้อยหนึ่งช่อง (ไม่ส่งเลย → 422 `line_ref_required`) | `1` |
+| `lines[].doLineId` |   | `string` |   | public id ของบรรทัด DO (`lines[].doLineId`) — ไม่ใช่บรรทัดของ DO ใบนี้ → 422 `unknown_line` · ส่งคู่กับ `lineNo` ต้องตรงกัน ไม่งั้น 422 `line_ref_mismatch` | `dol_3f2a…` |
 | `lines[].qty` | ใช่ | `string` |   | > 0 และไม่เกินที่ปฏิเสธรับคงเหลือ (`openRejectQty`) — ทศนิยม ≤ 3 ตำแหน่ง | `10` |
 | `doDate` |   | `string` |   | วันส่งของ DO ใหม่ (เวลาไทย) — ไม่ส่ง = วันนี้ · ก่อนวันนี้ → 422 | `2026-11-19` |
 
@@ -422,7 +423,8 @@ scope: `orders:write` · operationId: `DeliveryOrders_return`
 | `reasonCodeId` | ใช่ | `string` |   | เหตุผล: DO ส่งแล้ว (ปฏิเสธรับบางส่วน/ทั้งหมด) = หมวด REJECTED_BY_RECEIVER · DO ส่งไม่สำเร็จ = หมวด DELIVERY_FAILED | `rsn_3f2a…` |
 | `note` |   | `string` | ยาว ≤ 500 · null ได้ | โน้ต — บังคับเมื่อเหตุผลติ๊ก "บังคับโน้ต"; ชื่อเหตุผล + โน้ต รวม ≥ 10 ตัวอักษร |   |
 | `lines` |   | `array<ReturnLineInputDto>` |   | เฉพาะ DO ส่งแล้ว: บรรทัด + ปริมาณ (ไม่ส่ง = ทุกบรรทัดที่ยังปฏิเสธคงเหลือ ทั้งจำนวน) · DO ส่งไม่สำเร็จ = ทั้งใบเสมอ (ส่งมา → 422) |   |
-| `lines[].lineNo` | ใช่ | `number` |   | ลำดับบรรทัดของ DO (`lines[].lineNo`) | `1` |
+| `lines[].lineNo` |   | `number` |   | ลำดับบรรทัดของ DO (`lines[].lineNo`) — ส่ง `lineNo` หรือ `doLineId` อย่างน้อยหนึ่งช่อง (ไม่ส่งเลย → 422 `line_ref_required`) | `1` |
+| `lines[].doLineId` |   | `string` |   | public id ของบรรทัด DO (`lines[].doLineId`) — ไม่ใช่บรรทัดของ DO ใบนี้ → 422 `unknown_line` · ส่งคู่กับ `lineNo` ต้องตรงกัน ไม่งั้น 422 `line_ref_mismatch` | `dol_3f2a…` |
 | `lines[].qty` | ใช่ | `string` |   | > 0 และไม่เกินที่ปฏิเสธรับคงเหลือ (`openRejectQty`) — ทศนิยม ≤ 3 ตำแหน่ง | `10` |
 
 **Responses**
@@ -581,7 +583,8 @@ scope: `trips:dispatch` · operationId: `Pod_put`
 | `pin` |   | `string` | null ได้ | รหัส PIN ที่ผู้รับกรอก (ตัวเลขครบจำนวนหลักตาม checklist) — เก็บแบบเข้ารหัส response แสดงแบบปิดบังเท่านั้น · **ไม่ส่ง = คงค่าของฉบับก่อน** (อ่านค่าจริงคืนไม่ได้) · null = ล้าง | `4821` |
 | `rating` |   | `number` | ≥ 1 · ≤ 10 · null ได้ | คะแนนความพึงพอใจของผู้รับ (RATING) 1–คะแนนเต็มของ checklist |   |
 | `lines` |   | `array<PodLineInputDto>` | ≤ 500 รายการ | ยอดส่งจริงต่อรายการ (เฉพาะ DO ที่ส่งแล้ว — ชุดสำเร็จ; DO ส่งไม่สำเร็จ/ตีกลับ → 422 `not_applicable`) · **ไม่ส่ง = คงค่าของฉบับก่อน** · บรรทัดที่ไม่อยู่ในรายการ = คงค่าเดิม (ยังไม่เคยบันทึก = ตามแผน) |   |
-| `lines[].lineNo` | ใช่ | `number` |   | ลำดับบรรทัดของ DO (`lines[].lineNo` ของ GET /v1/delivery-orders/{id}) | `1` |
+| `lines[].lineNo` |   | `number` |   | ลำดับบรรทัดของ DO (`lines[].lineNo` ของ GET /v1/delivery-orders/{id}) — ส่ง `lineNo` หรือ `doLineId` อย่างน้อยหนึ่งช่อง (ไม่ส่งเลย → 422 `line_ref_required`) | `1` |
+| `lines[].doLineId` |   | `string` |   | public id ของบรรทัด DO (`lines[].doLineId`) — ไม่ใช่บรรทัดของ DO ใบนี้ → 422 `unknown_line` · ส่งคู่กับ `lineNo` ต้องตรงกัน ไม่งั้น 422 `line_ref_mismatch` | `dol_3f2a…` |
 | `lines[].qtyActual` | ใช่ | `string` |   | จำนวนที่ส่งได้จริง (หน่วยเดียวกับบรรทัด) 0 ≤ ค่า ≤ แผน ทศนิยมไม่เกิน 3 ตำแหน่ง — สตริง (ห้าม float) · เกินแผน → 422 `exceeds_planned` | `90` |
 | `lines[].rejectQty` |   | `string` | null ได้ | จำนวนที่ผู้รับปฏิเสธ — ไม่ส่งได้ (ระบบคิด = แผน − ส่งจริง) · ส่งมาต้องเท่ากัน ไม่งั้น 422 `reject_qty_mismatch` | `10` |
 | `lines[].rejectReasonCodeId` |   | `string` | null ได้ | เหตุผลมาตรฐานหมวด `REJECTED_BY_RECEIVER` (ปฏิเสธรับ/ตีกลับ) — **บังคับเมื่อส่งจริงน้อยกว่าแผน** (ไม่มี → 422 `reason_required`) · ส่งครบแต่ส่งเหตุผลมา → 422 `reason_not_applicable` · เหตุผลที่บังคับรูป = หลักฐานต้องมีรูป ≥ 1 · บังคับโน้ต = ต้องมี `note` | `rsn_3f2a…` |

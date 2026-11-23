@@ -58,19 +58,26 @@ describe('DemoProvider (ST7-T14)', () => {
     expect(made.map((a) => a.key)).not.toContain('standalone');
     const reg = new ErpAdapterRegistry();
     expect(reg.get('standalone')).toBe(STANDALONE_ADAPTER);
-    // production (ไม่ตั้ง ERP_DEMO_ADAPTERS) ลงทะเบียน demo ไม่ได้
+    // production (ไม่ตั้ง ERP_DEMO_ADAPTERS) — demo ใช้ได้เฉพาะ tenant sandbox (D-81 · D68-96; เดิม ST7-T14 = ลงทะเบียนไม่ได้)
     const env = { node: process.env.NODE_ENV, demo: process.env.ERP_DEMO_ADAPTERS };
     try {
       process.env.NODE_ENV = 'production';
       delete process.env.ERP_DEMO_ADAPTERS;
-      expect(() => new ErpAdapterRegistry().register(new DemoAdapter())).toThrow(/only allowed/);
-      // production ไม่ได้แม้ตั้งธง (review ST7-T14)
+      const prod = new ErpAdapterRegistry();
+      prod.register(new DemoAdapter());
+      expect(prod.usableIn('demo', false)).toBeNull();
+      expect(prod.usableIn('demo', true)).not.toBeNull();
+      // production ไม่ได้แม้ตั้งธง (review ST7-T14) — บริษัทจริงยังใช้ไม่ได้
       process.env.ERP_DEMO_ADAPTERS = '1';
       expect(ErpAdapterRegistry.demoAllowed()).toBe(false);
-      expect(() => new ErpAdapterRegistry().register(new DemoAdapter())).toThrow(/only allowed/);
-      // staging/sandbox (NODE_ENV อื่น) + ธง = ได้ · ไม่ตั้งธง = ไม่ได้
+      const flagged = new ErpAdapterRegistry();
+      flagged.register(new DemoAdapter());
+      expect(flagged.usableIn('demo', false)).toBeNull();
+      // staging (NODE_ENV อื่น) + ธง = ทุก tenant · ไม่ตั้งธง = เฉพาะ sandbox
       process.env.NODE_ENV = 'staging';
-      expect(() => new ErpAdapterRegistry().register(new DemoAdapter())).not.toThrow();
+      const staging = new ErpAdapterRegistry();
+      staging.register(new DemoAdapter());
+      expect(staging.usableIn('demo', false)).not.toBeNull();
       delete process.env.ERP_DEMO_ADAPTERS;
       expect(ErpAdapterRegistry.demoAllowed()).toBe(false);
     } finally {
@@ -194,6 +201,7 @@ describe('DemoProvider (ST7-T14)', () => {
     expect(await a.fetchPaymentStatus(ctx({ paymentStatus: 'PAID' }), ref)).toEqual({
       status: 'PAID',
       paidAmount: '1070.15',
+      whtAmount: '0.00',
       paidAt: '2026-11-18T03:00:00.000Z',
     });
     expect(await a.fetchPaymentStatus(ctx({ paymentStatus: 'PARTIALLY_PAID' }), ref)).toMatchObject(

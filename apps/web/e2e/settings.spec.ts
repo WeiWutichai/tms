@@ -1,4 +1,4 @@
-import { DEMO_TOTP_SECRET, expect, test, totp } from './fixtures';
+import { expect, freshCode, test } from './fixtures';
 
 /** ST1-T12/T14/T15: หน้าตั้งค่า + ซ่อนเมนูตามสิทธิ์ */
 test.describe('ตั้งค่า (owner)', () => {
@@ -78,7 +78,8 @@ test.describe('ตั้งค่า: องค์กร / ภาษี / คว
     await page.getByRole('button', { name: 'บันทึก' }).click();
     const box = page.getByRole('group', { name: 'ยืนยันตัวตน 2 ชั้นอีกครั้ง' });
     await expect(box).toBeVisible();
-    await box.getByLabel('รหัส 6 หลัก').fill(totp(DEMO_TOTP_SECRET, 1));
+    // รหัสของ step ที่ยังไม่ถูกใช้ (spec อื่น/step-up D-67 อาจใช้ step ปัจจุบันไปแล้ว — server ไม่รับซ้ำ)
+    await box.getByLabel('รหัส 6 หลัก').fill(await freshCode());
     await box.getByRole('button', { name: 'ยืนยัน' }).click();
     await expect(page.getByRole('status')).toHaveText('บันทึกการตั้งค่าความปลอดภัยแล้ว');
 

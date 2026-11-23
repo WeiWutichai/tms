@@ -73,6 +73,7 @@ const doc = (p: Partial<PodStop> = {}, d: Partial<PodStop> = {}): PodDo => ({
   }),
   retries: [],
   pod: podOf(),
+  failReasons: [],
 });
 const pv = (o: Partial<PodView> = {}): PodView => ({
   job,
@@ -144,7 +145,7 @@ describe('podLinkApi (ST4-T08)', () => {
     expect(nextPodAction(doc({ status: 'ARRIVED' }))).toEqual({
       key: 'leavePickup',
       steps: [
-        { stopId: 'stp_p', type: 'COMPLETE' },
+        { stopId: 'stp_p', type: 'LOADED' },
         { stopId: 'stp_d', type: 'DEPART' },
       ],
     });
@@ -176,12 +177,12 @@ describe('podLinkApi (ST4-T08)', () => {
   });
 
   it('QA M1: จุดถัดไปไม่ว่าง (ถึงแล้ว/มี DEPART) → ไม่เสนอ DEPART ที่จะขัดลำดับ', () => {
-    // จุดรับถึงแล้วแต่จุดส่งถึงไปก่อน → ออกจากจุดรับ = ปิดงานจุดรับอย่างเดียว
+    // จุดรับถึงแล้วแต่จุดส่งถึงไปก่อน → ออกจากจุดรับ = ขึ้นของเสร็จอย่างเดียว
     expect(
       nextPodAction(doc({ status: 'ARRIVED', nextOpen: false }, { status: 'ARRIVED' })),
     ).toEqual({
       key: 'leavePickup',
-      steps: [{ stopId: 'stp_p', type: 'COMPLETE' }],
+      steps: [{ stopId: 'stp_p', type: 'LOADED' }],
     });
     // ส่งแล้ว แต่จุดถัดไปมี event แล้ว → ไม่มีปุ่มออก
     expect(
@@ -266,7 +267,7 @@ describe('PodLinkPage (ST4-T08)', () => {
     );
   });
 
-  it('ออกจากจุดรับ = COMPLETE (DELIVERED) แล้ว DEPART จุดถัดไป · ล้ม → ข้อความให้ลองใหม่', async () => {
+  it('ออกจากจุดรับ = LOADED (D68-39 ไม่มี outcome) แล้ว DEPART จุดถัดไป · ล้ม → ข้อความให้ลองใหม่', async () => {
     search['DO-2611-00069'] = pv({
       query: 'DO-2611-00069',
       match: doc({ status: 'ARRIVED', arrivedAt: '2026-11-18T02:42:00Z' }),
@@ -281,8 +282,9 @@ describe('PodLinkPage (ST4-T08)', () => {
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2));
     expect(mutateAsync.mock.calls[0]![0]).toMatchObject({
       stopId: 'stp_p',
-      body: { type: 'COMPLETE', outcome: 'DELIVERED' },
+      body: { type: 'LOADED' },
     });
+    expect(mutateAsync.mock.calls[0]![0].body).not.toHaveProperty('outcome');
     expect(mutateAsync.mock.calls[1]![0]).toMatchObject({
       stopId: 'stp_d',
       body: { type: 'DEPART' },
@@ -565,7 +567,15 @@ describe('ส่ง POD ผ่านลิงก์ (ST4-T09)', () => {
     search['DO-2611-00069'] = pv({
       query: 'DO-2611-00069',
       match: atDropDo({
-        lines: [{ lineNo: 1, description: 'ปูนซีเมนต์', unit: 'ตัน', qtyPlanned: '5' }],
+        lines: [
+          {
+            doLineId: `dol_${'1'.padStart(32, '0')}`,
+            lineNo: 1,
+            description: 'ปูนซีเมนต์',
+            unit: 'ตัน',
+            qtyPlanned: '5',
+          },
+        ],
         rejectReasons: [
           { id: 'rsn_s', label: 'จำนวนไม่ครบ', requiresNote: false, requiresPhoto: true },
           {

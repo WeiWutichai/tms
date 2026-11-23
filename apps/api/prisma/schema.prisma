@@ -2357,6 +2357,8 @@ model SubconOffer {
 enum StopEventType {
   ARRIVE
   DEPART
+  /// ขึ้นของเสร็จ — จุดรับเท่านั้น (docs/01 §3.9; D-81 · D68-39 — migration 0164)
+  LOADED
   COMPLETE
   FAIL
 
@@ -2870,6 +2872,7 @@ model NotificationDigest {
 /// ต่ออายุ/เปลี่ยนวันหมด → expires_on ใหม่ = รอบเตือนใหม่ · entity_type: VEHICLE_DOCUMENT / DRIVER_LICENCE / RATE_CARD
 /// level: D60 / D30 / D7 (เหลือ ≤ N วัน) / EXPIRED (เลยวันหมดแล้ว)
 /// ST5-T22 ใช้ร่วมกับเตือนครบกำหนดชำระ: entity_type INVOICE · expires_on = วันครบกำหนด · level DUE_IN_3/DUE_TODAY/OVERDUE_7/OVERDUE_30 (migration 0148)
+/// ST9-T06 / D-71 DO ยังไม่วางบิล: เดิม DELIVERY_ORDER/UNBILLED ต่อ DO (0153) · ตั้งแต่ D-71 = 1 แถว/ผู้รับ/วัน entity_type TENANT (entity_id = tenant_id) level UNBILLED_DAILY (migration 0161)
 model ExpiryReminder {
   id          String   @id @default(uuid()) @db.Uuid
   tenantId    String   @map("tenant_id") @db.Uuid
@@ -3157,6 +3160,9 @@ model Connector {
   masterCodes      ErpMasterCode[]
   codeMappings     ErpCodeMapping[]
   externalMappings ExternalMapping[]
+  reconcileResults ReconcileResult[]
+  syncLogs         ErpSyncLog[]
+  queueResolutions ConnectorQueueResolution[]
 
   @@index([tenantId, createdAt, id])
   @@index([tenantId, companyId])
@@ -3544,8 +3550,23 @@ model ExternalMapping {
   externalStatus  String?               @map("external_status")
   /// ST8-T16 รายละเอียดจาก ERP (เลขใบจ่าย / เลข 50 ทวิ / เหตุยกเลิก) — ห้ามมี credential
   detail          Json?
+  /// ST8-T13 เวลาที่ฝ่ายบัญชีกดปุ่ม "ลงบัญชีแล้ว" (ERP ที่ไม่มี capability `postedStatus` — docs/01 A.2/A.6, §6.5 `posted_at`) —
+  /// มีค่า = การแทนที่เอกสารฝั่ง ERP (`replaceDocument`) ต้องมีผู้อนุมัติก่อนส่ง
+  postedAt        DateTime?             @map("posted_at") @db.Timestamptz(6)
+  /// ST8-T13 ผู้กดปุ่ม "ลงบัญชีแล้ว"
+  postedBy        String?               @map("posted_by")
+  /// ST7-T21 เวลาที่รอบ "Payment status pull" ถามสถานะรับชำระของเอกสารนี้ล่าสุด — รอบถัดไปเริ่มจากใบที่ถามนานสุด (ท้ายแถวไม่อด)
+  paymentCheckedAt DateTime?            @map("payment_checked_at") @db.Timestamptz(6)
+  /// ST8-T11 ผลกระทบยอดเนื้อหาเอกสารล่าสุด (docs/01 §4.4 `SENT → ACCEPTED / MISMATCH`) — null = ยังไม่เคยเทียบ (ส่งแล้ว = SENT)
+  /// แยกจาก `status` (ผลการส่ง/ซิงก์) · ACCEPTED = อ่านกลับแล้วตรง หรือคนยอมรับส่วนต่างนั้นแล้ว
+  reconcileState  ReconcileDocumentState? @map("reconcile_state")
+  /// ST8-T11 เวลาที่เทียบเนื้อหาล่าสุด
+  reconciledAt    DateTime?             @map("reconciled_at") @db.Timestamptz(6)
   /// sha256 ของ canonical payload ล่าสุดที่ส่งสำเร็จ (ST7-T15)
   lastSyncedHash  String?               @map("last_synced_hash")
+  /// ST7-T16 hash แยกตามกลุ่ม field (CUSTOMER / DATES / PRICE / ACCESSORIAL / OTHER) ของ payload ล่าสุดที่ส่งสำเร็จ —
+  /// ใช้ตัดสินว่าเอกสารที่ส่งแล้วเปลี่ยนกลุ่มไหน (`fieldChangePolicy`) · null = ไม่รู้ (ถือว่าเปลี่ยนทุกกลุ่ม)
+  lastSyncedParts Json?                 @map("last_synced_parts")
   lastSyncedAt    DateTime?             @map("last_synced_at") @db.Timestamptz(6)
   status          ExternalMappingStatus @default(PENDING)
   lastError       Json?                 @map("last_error")
@@ -3561,6 +3582,175 @@ model ExternalMapping {
   @@index([tenantId, entityType, localId])
   @@index([connectorId, entityType, localNumber])
   @@map("external_mapping")
+}
+
+// ---------- ST7-T16 Sync log: 1 แถวต่อ 1 HTTP call ไปยังระบบบัญชี (docs/01 §6.4) ----------
+
+/// บันทึกการเรียกระบบภายนอก 1 ครั้ง (docs/01 §6.4 "Sync log: 1 แถวต่อ 1 HTTP call") — adapter รายงานผ่าน `ErpContext.onHttpCall`
+/// core ตัด credential (`redactSecrets`) + เลขบัตรประชาชน (`redactNationalIds`, D-80) ออกก่อนเก็บ · ไม่เก็บ header · URL ไม่มี query string
+/// body ตัดที่ 16 KB · แอปเพิ่มได้อย่างเดียว (REVOKE UPDATE/DELETE) · retention 24 เดือนแล้ว archive (docs/01 §6.4 — งาน archive ยังไม่ทำ)
+model ErpSyncLog {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  connectorId  String    @map("connector_id") @db.Uuid
+  connector    Connector @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// คำสั่งในคิวที่ทำให้เกิดการเรียก (null = ไม่ได้มาจากคิว)
+  outboxId     String?   @map("outbox_id") @db.Uuid
+  attempt      Int?
+  operation    String    @db.VarChar(60)
+  entityType   String?   @map("entity_type") @db.VarChar(40)
+  localId      String?   @map("local_id") @db.Uuid
+  /// เลขเอกสาร TMS (ค้นหา)
+  localNumber  String?   @map("local_number") @db.VarChar(60)
+  /// OUT = TMS เรียกออก · IN = ระบบภายนอกเรียกเข้า (ยังไม่ใช้)
+  direction    String    @default("OUT") @db.VarChar(3)
+  method       String    @db.VarChar(10)
+  url          String    @db.VarChar(500)
+  /// null = ไม่ได้ response (timeout / เครือข่าย)
+  statusCode   Int?      @map("status_code")
+  errorCode    String?   @map("error_code") @db.VarChar(60)
+  durationMs   Int       @map("duration_ms")
+  requestBody  String?   @map("request_body")
+  responseBody String?   @map("response_body")
+  occurredAt   DateTime  @map("occurred_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, connectorId, occurredAt(sort: Desc), id])
+  @@index([outboxId])
+  @@index([connectorId, localNumber])
+  @@map("erp_sync_log")
+}
+
+// ---------- ST7-T19 คิวเชื่อมระบบบัญชีที่ลูกค้าจัดการเอง (docs/01 §6.4 error queue; docs/04 G3) ----------
+
+/// ST7-T19 วิธีที่คนจัดการคำสั่งที่ล้มเหลว/ต้องมีคนทำ
+enum QueueResolutionKind {
+  /// ส่งซ้ำ — มีคำสั่งใหม่แทน (`superseded_by`)
+  RETRIED
+  /// ข้ามพร้อมเหตุผล (เช่น บัญชีคีย์เองในระบบบัญชีแล้ว / งวดปิดและรับทราบ)
+  SKIPPED
+  /// กรอกเลขเอกสารฝั่งระบบบัญชีเอง (DUPLICATE ที่หาไม่เจอ ฯลฯ) — บันทึก external_mapping
+  MANUAL_EXTERNAL_ID
+}
+
+/// ST7-T19 การจัดการคำสั่งในคิว (sink `erp`) โดยคน — แยกจาก integration_outbox เพราะแอปแก้แถวคิวไม่ได้ (0090)
+/// 1 คำสั่ง = จัดการได้ครั้งเดียว · แอปเพิ่มได้อย่างเดียว (ไม่แก้/ไม่ลบ — หลักฐาน; audit อยู่ใน audit_log ด้วย)
+model ConnectorQueueResolution {
+  id           String              @id @default(uuid()) @db.Uuid
+  tenantId     String              @map("tenant_id") @db.Uuid
+  connectorId  String              @map("connector_id") @db.Uuid
+  connector    Connector           @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// คำสั่งใน integration_outbox ที่ถูกจัดการ
+  outboxId     String              @map("outbox_id") @db.Uuid
+  kind         QueueResolutionKind
+  reason       String?
+  /// RETRIED: คำสั่งใหม่ที่ส่งแทน
+  supersededBy String?             @map("superseded_by") @db.Uuid
+  /// MANUAL_EXTERNAL_ID: id เอกสารฝั่งระบบบัญชีที่กรอก
+  externalId   String?             @map("external_id")
+  resolvedBy   String?             @map("resolved_by")
+  resolvedAt   DateTime            @default(now()) @map("resolved_at") @db.Timestamptz(6)
+
+  @@unique([outboxId])
+  @@index([tenantId, connectorId])
+  @@map("connector_queue_resolution")
+}
+
+// ---------- ST7-T21 ผลกระทบยอดกับระบบภายนอก (docs/01 §3.7 `reconcile_result`) ----------
+
+/// รอบที่ตรวจ (docs/01 §6.5) — ST7-T21 ใช้ NIGHTLY (scheduler รายวัน) และ MANUAL (สั่งเอง) · AFTER_PUSH / PRE_CLOSE = ST8-T11
+enum ReconcileSource {
+  AFTER_PUSH
+  NIGHTLY
+  PRE_CLOSE
+  MANUAL
+
+  @@map("reconcile_source")
+}
+
+/// docs/01 §3.7 — ST7-T21 เขียนเฉพาะ MISMATCH (ตรงกัน = ไม่มีแถวใหม่ ปิดแถวที่ค้างด้วย resolved_at) · ที่เหลือ = ST8-T11
+enum ReconcileOutcome {
+  MATCH
+  MISMATCH
+  REMOTE_MISSING
+  ERP_UNREACHABLE
+  /// ST8-T11 (เพิ่มจาก docs/01 §3.7) adapter ไม่ประกาศ `comparableDocument` / ไม่มีฐานของการส่ง — เทียบไม่ได้ (INFO)
+  NOT_COMPARABLE
+
+  @@map("reconcile_outcome")
+}
+
+/// ST8-T11 ผลกระทบยอดเนื้อหาเอกสารกับระบบภายนอก (docs/01 §4.4) — ชื่อตาม docs
+enum ReconcileDocumentState {
+  ACCEPTED
+  MISMATCH
+
+  @@map("reconcile_document_state")
+}
+
+enum ReconcileSeverity {
+  MONEY
+  FIELD
+  INFO
+
+  @@map("reconcile_severity")
+}
+
+/// ผลเทียบข้อมูล TMS กับระบบภายนอก 1 รายการ (docs/01 §3.7 `reconcile_result`, §6.5; docs/04 G3) — **ไม่ผูก ERP ใด**
+/// ST7-T21 สร้างชิ้นเล็กสุดที่ต้องใช้กับ "Payment status pull": ยอดรับชำระฝั่ง ERP ≠ TMS → แถว MISMATCH severity MONEY
+/// (`entity_type` INVOICE, `local_id` = ใบแจ้งหนี้, `diff.check` = 'PAYMENT_STATUS') — เครื่อง reconcile เต็ม (4 รอบ/เทียบรายบรรทัด) = ST8-T11
+/// - `diff_hash` กันแจ้งซ้ำ: ส่วนต่างเดิมที่ยังเปิดอยู่ไม่สร้างแถวใหม่ (partial unique index ใน migration)
+/// - `resolved_at` (เพิ่มจาก docs): รอบถัดไปตรงกันแล้ว/ส่วนต่างเปลี่ยน → ระบบปิดแถวเดิม (docs/01 §4.4 "MISMATCH → รอบถัดไปตรง")
+/// - `acknowledged_*` / `ack_reason`: คนยอมรับความต่างพร้อมเหตุผล — route ปิดรายการ = ST8-T12
+/// - ไม่มี hard delete (REVOKE DELETE) · snapshot/diff ห้ามมี credential
+model ReconcileResult {
+  id             String             @id @default(uuid()) @db.Uuid
+  tenantId       String             @map("tenant_id") @db.Uuid
+  connectorId    String             @map("connector_id") @db.Uuid
+  connector      Connector          @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  entityType     ExternalEntityType @map("entity_type")
+  /// id ฝั่ง TMS (uuid ของ entity)
+  localId        String             @map("local_id") @db.Uuid
+  /// เลขเอกสาร TMS ณ เวลาที่ตรวจ (แสดงผล/ค้นหา)
+  localNumber    String?            @map("local_number")
+  runAt          DateTime           @map("run_at") @db.Timestamptz(6)
+  source         ReconcileSource
+  localSnapshot  Json               @map("local_snapshot")
+  remoteSnapshot Json               @map("remote_snapshot")
+  /// รายการที่ต่าง — ST7-T21: `{check: 'PAYMENT_STATUS', code, ...}`
+  diff           Json
+  diffHash       String             @map("diff_hash") @db.Char(64)
+  result         ReconcileOutcome
+  severity       ReconcileSeverity
+  acknowledgedBy String?            @map("acknowledged_by")
+  acknowledgedAt DateTime?          @map("acknowledged_at") @db.Timestamptz(6)
+  ackReason      String?            @map("ack_reason")
+  /// ST8-T12 ผู้ปิด (คน — แก้ที่ TMS) · null = ระบบปิดเอง
+  resolvedBy     String?            @map("resolved_by")
+  /// ST8-T12 วิธีปิด: FIXED_IN_TMS (ยกเลิก+ออกใหม่ — D-54) / ERP_OVERWRITTEN (ส่งทับแล้วรอบถัดไปตรง) / NEXT_RUN_MATCHED
+  resolution     String?
+  resolutionReason String?          @map("resolution_reason")
+  /// ST8-T12 ขอส่งทับระบบบัญชีด้วยค่า TMS (ลงบัญชีแล้ว — ต้องอนุมัติ; ผู้อนุมัติ ≠ ผู้ขอ): REQUESTED / APPROVED / REJECTED
+  overwriteStatus        String?    @map("overwrite_status")
+  overwriteRequestedBy   String?    @map("overwrite_requested_by")
+  overwriteRequestedAt   DateTime?  @map("overwrite_requested_at") @db.Timestamptz(6)
+  overwriteReason        String?    @map("overwrite_reason")
+  overwriteDecidedBy     String?    @map("overwrite_decided_by")
+  overwriteDecidedAt     DateTime?  @map("overwrite_decided_at") @db.Timestamptz(6)
+  overwriteDecisionReason String?   @map("overwrite_decision_reason")
+  /// คำสั่ง REPLACE_DOCUMENT/PUSH_* ที่สร้างตอนส่งทับ (integration_outbox.id)
+  overwriteCommandId     String?    @map("overwrite_command_id") @db.Uuid
+  /// ระบบปิดเอง: รอบถัดไปตรงกัน หรือส่วนต่างเปลี่ยน (มีแถวใหม่แทน)
+  resolvedAt     DateTime?          @map("resolved_at") @db.Timestamptz(6)
+  /// รอบล่าสุดที่ยังเห็นส่วนต่างเดิม (ไม่สร้างแถวซ้ำ)
+  lastSeenAt     DateTime           @map("last_seen_at") @db.Timestamptz(6)
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([tenantId, updatedAt, id])
+  @@index([tenantId, entityType, localId])
+  @@index([connectorId, entityType, localId])
+  @@map("reconcile_result")
 }
 
 // ---------- ST9-T19 Monitoring + alert (ตารางระดับแพลตฟอร์ม — ไม่มี tenant_id; role แอปเข้าไม่ได้ ใช้ผ่าน role platform เท่านั้น) ----------
@@ -3673,6 +3863,8 @@ model Invoice {
   tenantId              String          @map("tenant_id") @db.Uuid
   /// ออกตอน ISSUED (ST5-T09) — ร่างไม่มีเลข · unique(tenant_id, issuing_branch_id, invoice_no)
   invoiceNo             String?         @map("invoice_no")
+  /// D-81 · D68-45 เลขของระบบต้นทาง (ERP) — unique ต่อ tenant · ตั้งได้ตอนสร้างเท่านั้น (trigger 0162 กันเปลี่ยน)
+  externalId            String?         @map("external_id")
   customerId            String          @map("customer_id") @db.Uuid
   customer              Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
   issuingCompanyId      String          @map("issuing_company_id") @db.Uuid
@@ -3742,6 +3934,7 @@ model Invoice {
   /// ST5-T11 ใบวางบิลที่ใบนี้เคยอยู่ (ตัวกัน: active ได้ใบเดียว)
   billingNoteLinks BillingNoteInvoice[]
 
+  @@unique([tenantId, externalId])
   @@unique([tenantId, issuingBranchId, invoiceNo])
   @@index([tenantId, customerId, status])
   @@index([tenantId, status])
@@ -3848,6 +4041,8 @@ model Payment {
   tenantId         String        @map("tenant_id") @db.Uuid
   /// เลขภายใน series PAY (ไม่ใช่ใบเสร็จ)
   paymentNo        String        @map("payment_no")
+  /// D-81 · D68-45 เลขของระบบต้นทาง (ERP) — unique ต่อ tenant · ตั้งได้ตอนบันทึกเท่านั้น (trigger 0162 กันเปลี่ยน)
+  externalId       String?       @map("external_id")
   customerId       String        @map("customer_id") @db.Uuid
   customer         Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
   /// วันที่รับ (เวลาไทย) ≤ วันนี้
@@ -3883,6 +4078,7 @@ model Payment {
 
   allocations PaymentAllocation[]
 
+  @@unique([tenantId, externalId])
   @@unique([tenantId, paymentNo])
   @@index([tenantId, customerId])
   @@index([tenantId, receivedDate])

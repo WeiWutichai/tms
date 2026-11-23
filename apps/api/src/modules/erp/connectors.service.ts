@@ -50,7 +50,14 @@ import {
   isPendingCapability,
   readyCapabilities,
 } from './erp-adapter';
-import { ErpAdapterRegistry } from './erp-adapter.registry';
+import { ErpAdapterRegistry, usableAdapter } from './erp-adapter.registry';
+import {
+  type ErpSyncLogListDto,
+  type ErpSyncLogQuery,
+  SYNC_LOG_SORT,
+  syncLogDto,
+} from './erp-sync-log';
+import { decodeCursor, encodeCursor } from '../../common/pagination';
 import {
   checkMasterCodeRefs,
   MASTER_CODE_KIND_TH,
@@ -142,6 +149,12 @@ function readinessText(gaps: MasterCodeGap[]): string {
 /** วันนี้ตามเวลาไทย (YYYY-MM-DD) */
 const todayTh = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
+
+/**
+ * ST7-T21 capability ที่ต้อง **เปิดเอง** (ไม่อยู่ในค่าเริ่มต้นของ connector ใหม่) และเปิดต้องมีเหตุผล:
+ * `fetchPaymentStatus` — TMS จะสร้างรายการรับชำระ (เงิน) เองจากยอดที่ระบบบัญชีรายงาน [OPEN — PO/นักบัญชี spec/12 §3]
+ */
+export const OPT_IN_CAPABILITIES = ['fetchPaymentStatus'] as const;
 
 /** แทนค่า credential ที่หลุดมาในข้อความ (ข้อความจาก adapter/ERP) ด้วย *** */
 export function redactSecrets(text: string, secrets: Iterable<string>): string {
@@ -268,8 +281,13 @@ export class ConnectorsService {
 
   // ---------- read ----------
 
+  /** D68-58/96 คำขอนี้มาจาก tenant sandbox ไหม (sandbox ใช้ได้เฉพาะ DemoProvider) */
+  private inSandbox(): boolean {
+    return !!requestContext.get()?.sandbox;
+  }
+
   adapterCatalog(): ErpAdapterDto[] {
-    return this.adapters.list().map((a) => ({
+    return this.adapters.list(this.inSandbox()).map((a) => ({
       key: a.key,
       displayName: a.displayName,
       demo: !!a.localOnly,
@@ -291,7 +309,7 @@ export class ConnectorsService {
   }
 
   toDto(c: Connector): ConnectorDto {
-    const adapter = this.adapters.get(c.adapterKey);
+    const adapter = this.adapters.usableIn(c.adapterKey, this.inSandbox());
     const ready = adapter ? readyCapabilities(adapter) : new Set<string>();
     const supported = ERP_CAPABILITIES.filter((x) => ready.has(x));
     const map = (c.branchMap ?? {}) as Record<string, string>;
@@ -391,6 +409,40 @@ export class ConnectorsService {
     return rows.map(commandDto);
   }
 
+  /** ST7-T16 sync log ของ connector (1 แถวต่อ 1 HTTP call — docs/01 §6.4) ใหม่สุดก่อน · keyset cursor (docs/01 §5.1) */
+  async syncLog(id: string, q: ErpSyncLogQuery, tx: Tx = this.db.tx): Promise<ErpSyncLogListDto> {
+    const c = await this.get(id, tx);
+    const empty = { data: [], nextCursor: null, hasMore: false };
+    const outboxId =
+      q.commandId !== undefined ? tryDecodeId('outboxCommand', q.commandId) : undefined;
+    if (q.commandId !== undefined && !outboxId) return empty;
+    const limit = q.limit ?? 50;
+    const and: Prisma.ErpSyncLogWhereInput[] = [{ connectorId: c.id }];
+    if (outboxId) and.push({ outboxId });
+    if (q.documentNo) and.push({ localNumber: q.documentNo });
+    if (q.cursor) {
+      const k = decodeCursor(q.cursor, SYNC_LOG_SORT);
+      const at = new Date(k.u);
+      and.push({ OR: [{ occurredAt: { lt: at } }, { occurredAt: at, id: { lt: k.i } }] });
+    }
+    const rows = await tx.erpSyncLog.findMany({
+      where: { AND: and },
+      orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+    });
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const last = page[page.length - 1];
+    return {
+      data: page.map((r) => syncLogDto(r, requestContext.get()?.scopes ?? [])),
+      nextCursor:
+        hasMore && last
+          ? encodeCursor({ updatedAt: last.occurredAt, id: last.id }, SYNC_LOG_SORT)
+          : null,
+      hasMore,
+    };
+  }
+
   /** connector ที่เอกสารของนิติบุคคล/สาขาใช้ (routing ตามนิติบุคคล — ST1-T16) */
   async effective(q: EffectiveConnectorQuery): Promise<EffectiveConnectorDto> {
     const tx = this.db.tx;
@@ -421,7 +473,11 @@ export class ConnectorsService {
         erpCompanyCode: null,
         companyId: q.companyId ?? null,
         branchId: q.branchId ?? null,
-        systemOfRecord: { ...sorDto(sorOf(null)), canIssueTaxDocumentNumber: true },
+        systemOfRecord: {
+          ...sorDto(sorOf(null)),
+          canIssueTaxDocumentNumber: true,
+          taxDocumentOwnerWarning: null,
+        },
       };
     }
     // ระบุแค่สาขา → นิติบุคคลของสาขานั้น
@@ -457,14 +513,27 @@ export class ConnectorsService {
       erpCompanyCode: r.erpCompanyCode,
       companyId: r.routing ? encodeId('company', r.routing.company.id) : null,
       branchId: r.routing ? encodeId('branch', r.routing.branch.id) : null,
-      systemOfRecord: { ...sorDto(sor), canIssueTaxDocumentNumber: sor.canIssueTaxDocumentNumber },
+      systemOfRecord: {
+        ...sorDto(sor),
+        canIssueTaxDocumentNumber: sor.canIssueTaxDocumentNumber,
+        taxDocumentOwnerWarning: sor.taxDocumentOwnerWarning,
+      },
     };
   }
 
   // ---------- validate ----------
 
   private adapterOr422(key: string): ErpAdapter {
-    const a = this.adapters.get(key);
+    const installed = this.adapters.get(key);
+    // D-81 · D68-58/96: tenant sandbox ใช้ได้เฉพาะ DemoProvider — connector จริงใน sandbox ยังปิด (403 เดิมของ ST7-T09)
+    if (
+      this.inSandbox() &&
+      installed &&
+      installed !== this.adapters.standalone &&
+      !installed.localOnly
+    )
+      throw new ProblemException('sandbox_unsupported');
+    const a = this.adapters.usableIn(key, this.inSandbox());
     if (!a || a === this.adapters.standalone)
       throw field422('adapterKey', 'unknown_adapter', `adapter '${key}' is not available`);
     return a;
@@ -531,8 +600,14 @@ export class ConnectorsService {
     // ST8-T03 ที่ยังไม่ได้ทำ (`pendingCapabilities`) ไม่นับว่ารองรับ — ไม่เปิดเป็นค่าเริ่มต้น และขอเปิด = 422
     const caps = readyCapabilities(adapter);
     const taxPush = SOR_TAX_PUSH_CAPABILITIES as readonly string[];
+    // ST7-T21 capability แบบ opt-in (`fetchPaymentStatus` — สร้างรายการรับชำระเองจากข้อมูลระบบบัญชี) ไม่เปิดเป็นค่าเริ่มต้น
     if (list === undefined)
-      return ERP_CAPABILITIES.filter((c) => caps.has(c) && (taxOwner || !taxPush.includes(c)));
+      return ERP_CAPABILITIES.filter(
+        (c) =>
+          caps.has(c) &&
+          (taxOwner || !taxPush.includes(c)) &&
+          !(OPT_IN_CAPABILITIES as readonly string[]).includes(c),
+      );
     const blocked = taxOwner
       ? []
       : list.filter(
@@ -555,6 +630,29 @@ export class ConnectorsService {
         `not supported by this adapter: ${bad.join(', ')}`,
       );
     return ERP_CAPABILITIES.filter((c) => list.includes(c));
+  }
+
+  /**
+   * ST7-T21 เปิด capability แบบ opt-in "เพิ่ม" (ที่ยังไม่เปิดอยู่) ต้องมีเหตุผล ≥ 10 ตัวอักษร (ลง audit) — 422 `reason` required
+   * (ผู้สั่ง = คนเท่านั้น: create/update เรียก `assertHuman` อยู่แล้ว) · คืนเหตุผลที่ตัดช่องว่างแล้ว หรือ null เมื่อไม่ได้เปิดเพิ่ม
+   */
+  private optInReason(
+    caps: readonly string[],
+    already: readonly string[],
+    reason: string | null | undefined,
+  ): string | null {
+    const added = caps.filter(
+      (c) => (OPT_IN_CAPABILITIES as readonly string[]).includes(c) && !already.includes(c),
+    );
+    if (!added.length) return null;
+    const r = (reason ?? '').trim();
+    if (r.length < 10)
+      throw field422(
+        'reason',
+        'required',
+        `enabling ${added.join(', ')} needs a reason of at least 10 characters (it lets TMS record payments reported by the accounting system)`,
+      );
+    return r.slice(0, 500);
   }
 
   private checkSyncFromDate(v: string | null | undefined): Date | null | undefined {
@@ -670,6 +768,8 @@ export class ConnectorsService {
     const customerOwner = (body.customerOwner ?? null) as SorOwner | null;
     // ST7-T17 ตรวจ sor_not_chosen ก่อน — ประตูผังรหัส (ST8-T06) ตามมาด้านล่าง
     let caps = this.checkCapabilities(adapter, body.capabilitiesEnabled, taxDocumentOwner);
+    // ผู้ใช้ของ tenant สร้างพร้อมเปิด capability แบบ opt-in ไม่ได้ (ไม่มีช่องเหตุผลตอนสร้าง) → เปิดภายหลังด้วย PATCH + เหตุผล
+    const optInReason = this.optInReason(caps, [], reason);
     const syncFromDate = this.checkSyncFromDate(body.syncFromDate);
     const branchMap = (await this.checkBranchMap(tx, companyId, body.branchMap)) ?? {};
     // จำนวน/ขอบเขตต่อ tenant — serialize การสร้างพร้อมกัน (partial unique index กันซ้ำอีกชั้น)
@@ -727,7 +827,7 @@ export class ConnectorsService {
       action: 'connector.created',
       entityId: id,
       after: auditView(row),
-      reason: reason ?? null,
+      reason: reason ?? optInReason ?? null,
     });
     return row;
   }
@@ -758,6 +858,7 @@ export class ConnectorsService {
     if (cur.status === 'DISCONNECTED') throw new ProblemException('invalid_state_transition');
     const adapter = this.adapterOr422(cur.adapterKey);
     const data: Prisma.ConnectorUpdateManyMutationInput = {};
+    let optInReason: string | null = null;
     if (body.erpCompanyCode !== undefined)
       data.erpCompanyCode = body.erpCompanyCode?.trim() || null;
     if (body.settings !== undefined)
@@ -771,6 +872,7 @@ export class ConnectorsService {
         cur.capabilitiesEnabled,
       );
       data.capabilitiesEnabled = caps;
+      optInReason = this.optInReason(caps, cur.capabilitiesEnabled, body.reason);
       // ST8-T06 เปิดส่งเอกสาร "เพิ่ม" ต้องพร้อมผังรหัสก่อน (บันทึกค่าตั้งอื่น/ปิด capability ได้เสมอ)
       if (caps.some((c) => PUSH_CAPABILITIES.has(c) && !cur.capabilitiesEnabled.includes(c))) {
         const settings = (data.settings ?? cur.settings) as Prisma.JsonValue;
@@ -794,7 +896,14 @@ export class ConnectorsService {
     });
     if (n.count !== 1) throw new ProblemException('precondition_failed');
     const after = await this.get(id, tx);
-    await this.auditChanged(tx, 'connector.updated', id, auditView(cur), auditView(after));
+    await this.auditChanged(
+      tx,
+      'connector.updated',
+      id,
+      auditView(cur),
+      auditView(after),
+      optInReason,
+    );
     return { before: cur, after };
   }
 
@@ -879,7 +988,23 @@ export class ConnectorsService {
             select: { id: true },
           })
         : null;
-      if (inUse)
+      // ST7-T15 เอกสารที่ถึง ERP แล้ว (external_mapping ของเอกสาร) ล็อกด้วย — ไม่พึ่งสถานะคำสั่งอย่างเดียว
+      // (คำสั่งอาจจบเป็น SKIPPED/ล้มทั้งที่เอกสารถึงแล้ว เช่น `payload_unchanged`, เสีย lease หลังส่ง)
+      const synced =
+        changing.length && !inUse
+          ? await tx.externalMapping.findFirst({
+              where: {
+                connectorId: cur.id,
+                entityType: {
+                  in: ['INVOICE', 'CREDIT_NOTE', 'DEBIT_NOTE', 'RECEIPT', 'SETTLEMENT'],
+                },
+                externalId: { not: null },
+                status: { not: 'RETIRED' },
+              },
+              select: { id: true },
+            })
+          : null;
+      if (inUse || synced)
         throw new ProblemException('sor_locked', undefined, undefined, {
           fields: changing.map(([k]) => k),
         });
@@ -1121,13 +1246,33 @@ export class ConnectorsService {
       // ST7-T22 เลิกรับ webhook ขาเข้าด้วย (URL เดิมตอบ 401)
       { disconnectedAt: new Date(), inboundTokenHash: null, inboundTokenPrefix: null },
     );
-    if (pending)
+    if (pending) {
       await this.audit(tx, {
         action: 'connector.commands_abandoned',
         entityId: cur.id,
         after: { pendingCommands: pending },
         reason: body.reason,
       });
+      // D-81 · D68-57 (review M1) แจ้งฝ่ายบัญชีฉบับเดียว: เอกสารที่ค้างส่ง N รายการจะไม่ถูกส่ง (sink ไม่แจ้งทีละคำสั่ง)
+      await this.events.documentNotSent(tx, {
+        tenantId: cur.tenantId,
+        connectorId: cur.id,
+        entityType: 'document',
+        localId: null,
+        documentNo: null,
+        label: this.adapterLabel(cur.adapterKey),
+        outcome: 'SKIPPED',
+        code: 'connector_disconnected',
+        errorClass: 'CAPABILITY',
+        count: pending,
+      });
+    }
+    // review L1: ให้ adapter ทิ้งข้อมูลในหน่วยความจำของ connector นี้ (เช่น DemoProvider)
+    try {
+      this.adapters.get(cur.adapterKey)?.forget?.(cur.tenantId, cur.id);
+    } catch {
+      /* ไม่ย้อนการยกเลิก */
+    }
     return row;
   }
 
@@ -1264,7 +1409,8 @@ export class ConnectorsService {
 
   /** เรียก healthCheck แบบมีเพดานเวลา — ไม่ throw · ข้อความตัด credential แล้ว */
   async runHealth(c: Connector): Promise<HealthResult> {
-    const adapter = this.adapters.get(c.adapterKey);
+    // D68-58/96 ตามโหมดของ tenant (demo ใน production = เฉพาะ sandbox · sandbox = เฉพาะ demo)
+    const adapter = await usableAdapter(this.adapters, this.prisma.platform, c);
     if (!adapter)
       return {
         ok: false,
@@ -1370,8 +1516,13 @@ export class ConnectorsService {
         return this.transition(tx, now, 'ACTIVE', 'connector.recovered', null);
       return this.get(id, tx);
     });
-    // ERROR → ACTIVE: ส่งคิวค้างต่อทันที (spec/07 §1.6) ไม่ต้องรอรอบพัก 15 นาที
-    if (cur.status !== 'ACTIVE' && row.status === 'ACTIVE') await this.wakeParked(tenantId, id);
+    // ERROR → ACTIVE: ส่งคิวค้างต่อทันที (spec/07 §1.6) ไม่ต้องรอรอบพัก 15 นาที · D68-57 ACTIVE ที่คิวพักเพราะ healthCheck ล้ม
+    // แล้วผู้ดูแลทดสอบผ่าน = เปิดคิวต่อทันที
+    if (
+      row.status === 'ACTIVE' &&
+      (cur.status !== 'ACTIVE' || (r.ok && cur.healthFailingSince !== null))
+    )
+      await this.wakeParked(tenantId, id);
     return {
       ok: r.ok,
       errorClass: r.ok ? null : r.errorClass,
@@ -1459,7 +1610,7 @@ export class ConnectorsService {
   /**
    * ST8-T03 บันทึกผล healthCheck ที่ระบบตรวจเอง (sink หลังส่งล้ม TRANSIENT / worker ตรวจซ้ำ) — ไม่มีผู้ใช้ (actor null)
    * AUTH → ERROR ทันที · TRANSIENT → จดเวลาเริ่มล้ม, ครบ 30 นาที → ERROR · ผ่าน → ล้างเวลา และ ERROR ที่เกิดจาก TRANSIENT → ACTIVE
-   * คืน true เมื่อกลับเป็น ACTIVE (ผู้เรียกปลุกคิวหลัง commit ด้วย `wakeParked`) · ไม่ทับ PAUSED/DISCONNECTED
+   * คืน true เมื่อกลับเป็น ACTIVE หรือ healthCheck ที่ล้มอยู่กลับมาผ่าน (ผู้เรียกปลุกคิวหลัง commit ด้วย `wakeParked`) · ไม่ทับ PAUSED/DISCONNECTED
    */
   async applySystemHealth(
     tx: Tx,
@@ -1474,7 +1625,8 @@ export class ConnectorsService {
       await tx.connector.update({ where: { id: c.id }, data });
       if (!r.ok && healthShouldStop(r, data.healthFailingSince, at))
         await this.markError(tx, c, r.problem, r.errorClass);
-      return false;
+      // D68-57 คิวที่พักระหว่าง healthCheck ล้ม (`connector_unhealthy`) → ผ่านแล้ว ผู้เรียกปลุกคิว
+      return r.ok && c.healthFailingSince !== null;
     }
     // ERROR: กู้คืนเองเฉพาะที่หยุดเพราะปลายทางล่ม (TRANSIENT) — AUTH ต้องให้คนแก้ credential (เหตุผลเดิมคงไว้)
     const why = ((c.lastHealthError ?? {}) as { errorClass?: string }).errorClass;
@@ -1519,6 +1671,18 @@ export class ConnectorsService {
    * คืนจำนวน connector ที่ตรวจ
    */
   async recheckUnhealthy(): Promise<number> {
+    // review L3: รอบก่อนยังไม่จบ (ปลายทางช้า — healthCheck มีเพดาน 15 วิ/ตัว) → ข้ามรอบนี้
+    if (this.recheckRunning) return 0;
+    this.recheckRunning = true;
+    try {
+      return await this.recheckUnhealthyNow();
+    } finally {
+      this.recheckRunning = false;
+    }
+  }
+  private recheckRunning = false;
+
+  private async recheckUnhealthyNow(): Promise<number> {
     const rows = await this.prisma.platform.connector.findMany({
       where: {
         OR: [
@@ -1544,6 +1708,90 @@ export class ConnectorsService {
       }
     }
     return rows.length;
+  }
+
+  /**
+   * ST9-T04 healthCheck ตามรอบ (docs/01 §A.4 "healthCheck — ก่อนเริ่ม batch, ทุก 5 นาที"): connector ACTIVE ที่ยังไม่ล้ม
+   * และตรวจล่าสุดเกิน `HEALTH_RECHECK_EVERY_MS` (หัก 30 วิ กันรอบเหลื่อม) — ปลายทางล่มโดยไม่มีคำสั่งส่ง dashboard ก็เห็น health แดงภายใน 5 นาที
+   * - review M1: ล้มแบบหยุดคิวได้ (TRANSIENT / AUTH) ครั้งแรกยังไม่บันทึก — ตรวจยืนยันอีกครั้งหลัง `sweepConfirmMs` (60 วิ)
+   *   ล้มติดกัน 2 ครั้งจึงบันทึกผ่าน `applySystemHealth` (TRANSIENT = เริ่มนับ 30 นาที + พักคิว · AUTH = ERROR) · ครั้งที่สองผ่าน = บันทึกว่าผ่าน
+   *   (กันปลายทางสะดุดชั่วขณะทำให้คิวพัก/connector หยุด) · class อื่น (VALIDATION/CAPABILITY) บันทึกผลทันที (ไม่หยุดอะไร)
+   * - เฉพาะ tenant TRIAL/ACTIVE ที่แพ็กเกจมี `conn` (ระงับ/ปิด/ไม่มีสิทธิ์ = ไม่เรียกระบบบัญชีของลูกค้า)
+   * - `tenantId` = จำกัด tenant (test) · คืนจำนวนที่ตรวจ
+   * TODO(ST9-T04 review L1): กันรอบซ้อน (`sweepRunning`) เป็นต่อ process — ถ้ามี worker หลายตัวจะตรวจซ้ำกันได้ (ไม่ผิด แค่เรียกปลายทางซ้ำ)
+   *   → ใช้ advisory lock / lease ต่อ connector เมื่อ deploy worker > 1 ตัว
+   */
+  async healthSweep(opts: { tenantId?: string } = {}): Promise<number> {
+    if (this.sweepRunning) return 0;
+    this.sweepRunning = true;
+    try {
+      const due = new Date(this.clock.now().getTime() - HEALTH_RECHECK_EVERY_MS + 30_000);
+      const rows = await this.prisma.platform.connector.findMany({
+        where: {
+          ...(opts.tenantId ? { tenantId: opts.tenantId } : {}),
+          status: 'ACTIVE',
+          healthFailingSince: null,
+          OR: [{ lastHealthAt: null }, { lastHealthAt: { lt: due } }],
+        },
+        orderBy: { lastHealthAt: { sort: 'asc', nulls: 'first' } },
+        take: 200,
+      });
+      if (!rows.length) return 0;
+      const tenantIds = [...new Set(rows.map((r) => r.tenantId))];
+      const active = (
+        await this.prisma.platform.tenant.findMany({
+          where: { id: { in: tenantIds }, status: { in: ['TRIAL', 'ACTIVE'] } },
+          select: { id: true },
+        })
+      ).map((t) => t.id);
+      // review L2: แพ็กเกจไม่มี `conn` = ไม่ตรวจ
+      const open = new Set(await this.entitlements.tenantsWith('conn', active));
+      const todo = rows.filter((c) => open.has(c.tenantId));
+      const suspects: Connector[] = [];
+      for (const c of todo) {
+        try {
+          const r = await this.runHealth(c);
+          if (!r.ok && HEALTH_STOP_CLASSES.has(r.errorClass)) suspects.push(c);
+          else await this.recordSweep(c, r);
+        } catch (e) {
+          this.logger.warn(
+            `connector ${c.id} health sweep failed: ${String((e as Error)?.message ?? e)}`,
+          );
+        }
+      }
+      if (suspects.length) {
+        if (this.sweepConfirmMs > 0)
+          await new Promise((res) => setTimeout(res, this.sweepConfirmMs));
+        for (const c of suspects) {
+          try {
+            await this.recordSweep(c, await this.runHealth(c));
+          } catch (e) {
+            this.logger.warn(
+              `connector ${c.id} health sweep confirm failed: ${String((e as Error)?.message ?? e)}`,
+            );
+          }
+        }
+      }
+      return todo.length;
+    } finally {
+      this.sweepRunning = false;
+    }
+  }
+  private sweepRunning = false;
+  /** ระยะรอก่อนตรวจยืนยันครั้งที่ 2 ของ healthSweep (test ตั้ง 0) */
+  sweepConfirmMs = 60_000;
+
+  private async recordSweep(c: Connector, r: HealthResult): Promise<void> {
+    const at = this.clock.now();
+    const back = await this.db.withTenant(c.tenantId, (tx) =>
+      this.applySystemHealth(tx, c.id, r, at),
+    );
+    if (back) await this.wakeParked(c.tenantId, c.id);
+  }
+
+  /** ชื่อระบบบัญชีของ adapter (ข้อความแจ้งเตือน) — ไม่มี = รหัส adapter */
+  adapterLabel(adapterKey: string): string {
+    return this.adapters.get(adapterKey)?.displayName ?? adapterKey;
   }
 
   /** ST9-T08 "connector ล่ม" (docs/04 I) — ใน transaction เดียวกับการเปลี่ยนเป็น ERROR */

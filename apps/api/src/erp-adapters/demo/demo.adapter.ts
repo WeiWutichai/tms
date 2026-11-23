@@ -24,15 +24,18 @@ import type { ErrorClass } from '../../modules/integration/outbox.types';
  * DemoProvider (ST7-T14; docs/04 G3 "Provider factory + StandaloneProvider + DemoProvider"; docs/04 J Environments)
  * ERP **จำลองในหน่วยความจำ** สำหรับสาธิต/staging/sandbox และ test — ไม่ติดต่อภายนอก ไม่ส่งข้อมูลไปที่ใด
  *
- * - `localOnly` → ลงทะเบียนได้เฉพาะ dev/test หรือ `ERP_DEMO_ADAPTERS=1` (production ไม่มี) · catalog ติดธง `demo: true`
+ * - `localOnly` → ทุก tenant ใน dev/test หรือ `ERP_DEMO_ADAPTERS=1` (staging) · NODE_ENV=production = เฉพาะ tenant sandbox
+ *   (D-81 · D68-58/96 — `ErpAdapterRegistry.usableIn`) · catalog ติดธง `demo: true`
  * - ไม่เป็นค่าเริ่มต้นของ tenant ใด (ไม่มีแถว connector = Standalone) — ต้องสร้าง connector `adapterKey: demo` เอง
- * - ข้อมูลอยู่ใน process (หายเมื่อ restart) แยกตาม (tenant, connector) — ไม่ข้าม tenant
+ * - ข้อมูลอยู่ใน process (หายเมื่อ restart) แยกตาม (tenant, connector) — ไม่ข้าม tenant · ยกเลิกการเชื่อม = ทิ้ง (`forget`) ·
+ *   เก็บไม่เกิน `DEMO_MAX_SCOPES` ชุดต่อ process (ใช้ล่าสุดอยู่ต่อ — LRU; ชุดเก่าสุดถูกทิ้ง) กันหน่วยความจำโตไม่จำกัดใน sandbox
  *   **ข้อจำกัดของ demo:** การจับเลขอ้างอิงซ้ำ (DUPLICATE), fetch/สถานะรับชำระ/list และจำนวนเอกสารใน healthCheck
  *   เห็นเฉพาะสิ่งที่ process นี้ได้รับตั้งแต่บูต (API กับ worker คนละ process — push/fetch ผ่าน outbox อยู่ใน worker เดียวกัน)
  * - เลขภายนอก `DEMO-INV-{hash 12 ตัว}` มาจาก hash ของ (tenant, connector, ประเภท, idempotency key) — restart ไม่ให้เลขซ้ำกับเอกสารอื่น
  * - พฤติกรรมกำหนดได้ (deterministic) จากค่าตั้งที่ไม่ลับของ connector:
  *   `failMode` ฉีด ErrorClass ให้ทุก push/replace (และ healthCheck เมื่อ AUTH) · `failTimes` ล้มกี่ครั้งต่อเอกสารก่อนสำเร็จ ·
- *   `paymentStatus` ผลของ fetchPaymentStatus
+ *   `paymentStatus` ผลของ fetchPaymentStatus (ทุกเอกสาร) · ST7-T21 `setPaymentStatus()` ตั้งรายเอกสาร (test/สาธิต)
+ * - ST7-T16 รายงาน "HTTP call จำลอง" ทุกครั้งผ่าน `ctx.onHttpCall` (sync log — ไม่มีการเรียกออกจริง; host `demo-erp.invalid`)
  * - credential `apiKey`: ค่าใดก็ได้ ยกเว้น `invalid` (= credential ผิด → AUTH) — ไว้สาธิตการทดสอบการเชื่อมต่อล้ม
  * - กันซ้ำ 2 ชั้นเหมือน ERP จริง (docs/01 §6.2): idempotencyKey เดิม = ผลเดิม · เลขอ้างอิงของเราซ้ำด้วย key อื่น = DUPLICATE
  * - ไม่ประกาศ `ownsDocumentNumber` (TMS ออกเลขเอง — โหมดออกเลขฝั่ง ERP = ST7-T17) และ `postedStatus`
@@ -41,6 +44,8 @@ import type { ErrorClass } from '../../modules/integration/outbox.types';
  *   type `orders.changed` → ขอให้ core ดึง order ทันที · `demo.fail` → ล้ม (ไม่ลองใหม่) · `demo.retry` → throw (ลองใหม่)
  */
 export const DEMO_ADAPTER_KEY = 'demo';
+/** review L1 จำนวนชุดข้อมูล (tenant, connector) สูงสุดที่เก็บในหน่วยความจำต่อ process */
+export const DEMO_MAX_SCOPES = 500;
 
 /** ErrorClass ที่ฉีดได้ (docs/01 §6.3) — `none` = ทำงานปกติ */
 export const DEMO_FAIL_MODES = [
@@ -52,6 +57,8 @@ export const DEMO_FAIL_MODES = [
   'AUTH',
   'NOT_FOUND',
   'PERIOD_CLOSED',
+  /** ST7-T16 ERP ตอบว่าไม่รองรับคำสั่งนี้ (ครบ 8 class ของ docs/01 §6.3) */
+  'CAPABILITY',
 ] as const;
 export type DemoFailMode = (typeof DEMO_FAIL_MODES)[number];
 
@@ -133,6 +140,8 @@ interface Scope {
   byRef: Map<string, string>;
   /** ST7-T18 ผังรหัสที่ test/สาธิตตั้งทับ (ไม่มี = DEMO_MASTER_CODES) */
   masterCodes: Map<ErpMasterCodeKind, ErpMasterCodeEntry[]>;
+  /** ST7-T21 เลขเอกสารของเรา → สถานะรับชำระที่ "ERP จำลอง" รายงาน (test/สาธิตตั้ง) */
+  payments: Map<string, PaymentStatus>;
   /** idempotencyKey/ref → จำนวนครั้งที่ล้มไปแล้ว (failTimes) */
   failures: Map<string, number>;
   /** วันที่ของ order ตัวอย่าง (กำหนดตอนดึงครั้งแรก — ดึงซ้ำได้ข้อมูลเดิม) */
@@ -152,6 +161,18 @@ export function demoExternalSuffix(scope: string, kind: string, key: string): st
     .slice(0, 12)
     .toUpperCase();
 }
+
+/** ST7-T16 HTTP status จำลองต่อ ErrorClass (sync log) — AMBIGUOUS = ไม่ได้ response */
+const DEMO_HTTP_STATUS: Record<ErrorClass, number | null> = {
+  TRANSIENT: 503,
+  AMBIGUOUS: null,
+  DUPLICATE: 409,
+  VALIDATION: 422,
+  AUTH: 401,
+  NOT_FOUND: 404,
+  PERIOD_CLOSED: 422,
+  CAPABILITY: 501,
+};
 
 const isMoney = (v: unknown): v is string => typeof v === 'string' && /^-?\d+(\.\d{1,2})?$/.test(v);
 
@@ -225,20 +246,32 @@ export class DemoAdapter implements ErpAdapter {
 
   // ---------- สถานะภายใน (test/สาธิต) ----------
 
+  /** review L1: connector ถูกยกเลิกการเชื่อม → ทิ้งข้อมูลจำลองของ connector นี้ */
+  forget(tenantId: string, connectorId: string): void {
+    this.scopes.delete(`${tenantId}:${connectorId}`);
+  }
+
   private scope(ctx: ErpContext): Scope {
     const id = `${ctx.tenantId}:${ctx.connectorId ?? '-'}`;
     let s = this.scopes.get(id);
-    if (!s) {
+    if (s) {
+      // LRU: ย้ายไปท้าย (ใช้ล่าสุด)
+      this.scopes.delete(id);
+      this.scopes.set(id, s);
+    } else {
       s = {
         docs: new Map(),
         byKey: new Map(),
         byRef: new Map(),
         failures: new Map(),
         masterCodes: new Map(),
+        payments: new Map(),
         orderDate: null,
         inbound: [],
       };
       this.scopes.set(id, s);
+      while (this.scopes.size > DEMO_MAX_SCOPES)
+        this.scopes.delete(this.scopes.keys().next().value as string);
     }
     return s;
   }
@@ -263,6 +296,21 @@ export class DemoAdapter implements ErpAdapter {
     entries: ErpMasterCodeEntry[],
   ): void {
     this.scope({ tenantId, connectorId } as ErpContext).masterCodes.set(kind, clone(entries));
+  }
+
+  /**
+   * ST7-T21 test/สาธิต: "ERP จำลอง" รายงานสถานะรับชำระของเอกสารเลขนี้ (เลขเอกสารของเรา เช่น invoice_no) —
+   * `null` = กลับไปใช้ค่าตั้ง `paymentStatus` ของ connector · ต้องเป็นเอกสารที่ ERP จำลองได้รับแล้ว จึงมีผลตอน fetchPaymentStatus
+   */
+  setPaymentStatus(
+    tenantId: string,
+    connectorId: string,
+    number: string,
+    status: PaymentStatus | null,
+  ): void {
+    const s = this.scope({ tenantId, connectorId } as ErpContext);
+    if (status) s.payments.set(number, clone(status));
+    else s.payments.delete(number);
   }
 
   /** ล้างข้อมูลจำลองทั้งหมด (หรือของ tenant เดียว) */
@@ -342,6 +390,10 @@ export class DemoAdapter implements ErpAdapter {
         code: 'period_closed',
         message: 'accounting period is closed in demo ERP (simulated)',
       },
+      CAPABILITY: {
+        code: 'unsupported_operation',
+        message: 'demo ERP does not support this operation (simulated)',
+      },
     };
     const p = problems[cls];
     return {
@@ -355,6 +407,45 @@ export class DemoAdapter implements ErpAdapter {
           : {}),
       },
     };
+  }
+
+  /** ST7-T16 รายงาน HTTP call จำลอง 1 ครั้ง (sync log) — สถานะตามผล (AMBIGUOUS = ไม่ได้ response) */
+  private report(
+    ctx: ErpContext,
+    method: string,
+    path: string,
+    requestBody: unknown,
+    r: PushResult | { found: unknown },
+  ): void {
+    const status =
+      'found' in r
+        ? r.found
+          ? 200
+          : 404
+        : r.ok
+          ? method === 'POST'
+            ? 201
+            : 200
+          : DEMO_HTTP_STATUS[r.errorClass];
+    try {
+      ctx.onHttpCall?.({
+        method,
+        url: `https://demo-erp.invalid/api${path}`,
+        requestBody,
+        status,
+        responseBody:
+          'found' in r
+            ? r.found
+            : r.ok
+              ? { externalId: r.externalId, externalDocNo: r.externalDocNo ?? null }
+              : { error: r.problem.code, message: r.problem.message },
+        errorCode: 'found' in r || r.ok ? null : r.problem.code,
+        durationMs: 0,
+        at: this.now(),
+      });
+    } catch {
+      /* ตัวบันทึกล้ม = ไม่กระทบผล */
+    }
   }
 
   private store(
@@ -385,17 +476,29 @@ export class DemoAdapter implements ErpAdapter {
     return stored;
   }
 
-  private ok(d: StoredDoc): PushResult {
+  /** `applied` = ERP ถือเนื้อหาของ payload ครั้งนี้ (สร้าง/แทนที่ หรือของเดิมตรงกันทุกช่อง) — คืนของเดิมที่เนื้อหาต่าง = false (ST7-T15) */
+  private ok(d: StoredDoc, applied: boolean): PushResult {
     return {
       ok: true,
       externalId: d.externalId,
       externalDocNo: d.externalDocNo,
       externalVersion: String(d.version),
+      applied,
       raw: { demo: true },
     };
   }
 
   private async push(kind: Kind, ctx: ErpContext, doc: CanonicalDocument): Promise<PushResult> {
+    const r = await this.pushInner(kind, ctx, doc);
+    this.report(ctx, 'POST', `/${kind}s`, doc, r);
+    return r;
+  }
+
+  private async pushInner(
+    kind: Kind,
+    ctx: ErpContext,
+    doc: CanonicalDocument,
+  ): Promise<PushResult> {
     if (this.badKey(ctx)) return this.authFailure();
     const s = this.scope(ctx);
     const number = String(doc?.number ?? '');
@@ -409,7 +512,11 @@ export class DemoAdapter implements ErpAdapter {
         this.store(s, ctx, kind, doc, key);
       return this.failure(mode, number);
     }
-    if (prev) return this.ok(s.docs.get(prev)!);
+    // key เดิม = คืนของเดิม ไม่แก้เนื้อหา — `applied` เฉพาะเมื่อเนื้อหาที่เก็บไว้ตรงกับ payload ครั้งนี้จริง
+    if (prev) {
+      const stored = s.docs.get(prev)!;
+      return this.ok(stored, JSON.stringify(stored.document) === JSON.stringify(doc));
+    }
     if (!number || !doc?.id)
       return {
         ok: false,
@@ -420,7 +527,7 @@ export class DemoAdapter implements ErpAdapter {
     // เลขอ้างอิงของเราซ้ำด้วยคำสั่งอื่น = ERP ปฏิเสธว่าซ้ำ (core ตาม fetchDocument ต่อ — docs/01 §6.3)
     const dup = s.byRef.get(`${kind}:${number}`);
     if (dup) return { ...this.failure('DUPLICATE', number), raw: { externalId: dup } };
-    return this.ok(this.store(s, ctx, kind, doc, key));
+    return this.ok(this.store(s, ctx, kind, doc, key), true);
   }
 
   pushInvoice(ctx: ErpContext, inv: CanonicalDocument): Promise<PushResult> {
@@ -447,6 +554,12 @@ export class DemoAdapter implements ErpAdapter {
     ref: ExternalRef,
     inv: CanonicalDocument,
   ): Promise<PushResult> {
+    const r = this.replaceInner(ctx, ref, inv);
+    this.report(ctx, 'PUT', `/documents/${ref.externalId ?? ref.number}`, inv, r);
+    return r;
+  }
+
+  private replaceInner(ctx: ErpContext, ref: ExternalRef, inv: CanonicalDocument): PushResult {
     if (this.badKey(ctx)) return this.authFailure();
     const s = this.scope(ctx);
     const mode = this.failMode(ctx);
@@ -455,27 +568,35 @@ export class DemoAdapter implements ErpAdapter {
     const d = this.find(s, ref);
     if (!d) return this.failure('NOT_FOUND', ref.number);
     // key เดิม = แก้ไปแล้ว ไม่เพิ่มฉบับ
-    if (s.byKey.get(key) !== d.externalId) {
+    const replaced = s.byKey.get(key) !== d.externalId;
+    if (replaced) {
       d.version += 1;
       d.document = clone(inv);
       d.updatedAt = this.now().toISOString();
       s.byKey.set(key, d.externalId);
     }
-    return this.ok(d);
+    return this.ok(d, replaced || JSON.stringify(d.document) === JSON.stringify(inv));
   }
 
   async fetchDocument(ctx: ErpContext, ref: ExternalRef): Promise<CanonicalDocument | null> {
     if (this.badKey(ctx)) throw new Error('demo ERP rejected the API key (simulated)');
     const d = this.find(this.scopes.get(this.scopeId(ctx)), ref);
-    return d
+    const out = d
       ? { ...clone(d.document), externalId: d.externalId, externalDocNo: d.externalDocNo }
       : null;
+    this.report(ctx, 'GET', `/documents/${ref.externalId ?? ref.number}`, undefined, {
+      found: out,
+    });
+    return out;
   }
 
   async fetchPaymentStatus(ctx: ErpContext, ref: ExternalRef): Promise<PaymentStatus | null> {
     if (this.badKey(ctx)) throw new Error('demo ERP rejected the API key (simulated)');
     const d = this.find(this.scopes.get(this.scopeId(ctx)), ref);
     if (!d) return null;
+    // ST7-T21 สถานะที่ test/สาธิตตั้งให้เอกสารใบนี้โดยตรง (ไม่มี = ตามค่าตั้ง `paymentStatus` ของ connector)
+    const forced = this.scopes.get(this.scopeId(ctx))?.payments.get(d.number);
+    if (forced) return { ...forced };
     const status = (DEMO_PAYMENT_STATUSES as readonly string[]).includes(
       ctx.config.paymentStatus ?? '',
     )
@@ -486,7 +607,8 @@ export class DemoAdapter implements ErpAdapter {
     if (status === 'UNPAID') return { status, paidAmount: '0.00', paidAt: null };
     // ชำระบางส่วน = ครึ่งหนึ่ง (ปัดลงเป็นสตางค์) — ค่าคงที่ให้ผลซ้ำได้
     const paid = status === 'PAID' ? total : total / 2n;
-    return { status, paidAmount: fromSatang(paid), paidAt: d.receivedAt };
+    // ST7-T21 สัญญา: บอก WHT เสมอเมื่อมียอดตัดหนี้ (demo = ไม่มี WHT) — ไม่บอก core จะไม่สร้างรายการรับชำระ
+    return { status, paidAmount: fromSatang(paid), whtAmount: '0.00', paidAt: d.receivedAt };
   }
 
   async listDocuments(
@@ -507,6 +629,7 @@ export class DemoAdapter implements ErpAdapter {
         number: d.number,
         externalId: d.externalId,
       }));
+    this.report(ctx, 'GET', `/documents?ref=${q.ref ?? ''}`, undefined, { found: { items } });
     return { items, next: null };
   }
 

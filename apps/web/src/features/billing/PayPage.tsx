@@ -14,6 +14,7 @@ import { useMemo, useState } from 'react';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
+import { AccountantExportDialog } from '../exports/AccountantExportDialog';
 import { PageHeader } from '../../shell/Header';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
@@ -27,20 +28,13 @@ import { PayDrawer } from './PayDrawer';
 import { useUrlTab } from './useUrlTab';
 import { SavedViewMenu } from '../views/SavedViewMenu';
 import { pick, useSavedViews } from '../views/useSavedViews';
-import { useSendInvoiceEmail, type InvoiceSummary } from './useInvoices';
+import { useInvoiceCounts, useSendInvoiceEmail, type InvoiceSummary } from './useInvoices';
 import { useAgingSummary, usePaymentSummary, useReceivableList } from './usePayments';
+import { PAY_TAB_QUERY, PAY_TABS, PAY_URL_TABS, type PayTab } from './payTabs';
 
-type Tab = 'all' | 'open' | 'over' | 'part' | 'paid';
-const TABS: Tab[] = ['all', 'open', 'over', 'part', 'paid'];
-/** แท็บ → ตัวกรอง API (ต้นแบบ specPay tabs) */
-const TAB_QUERY: Record<Tab, Record<string, string>> = {
-  all: { receivable: 'all' },
-  open: { receivable: 'open' },
-  over: { receivable: 'overdue' },
-  // ต้นแบบ invSt: ใบเกินกำหนดอยู่แท็บ "เกินกำหนด" (ไม่ซ้ำในแท็บชำระบางส่วน — ST5-T18)
-  part: { receivable: 'all', status: 'PARTIALLY_PAID', overdue: 'false' },
-  paid: { receivable: 'all', status: 'PAID' },
-};
+type Tab = PayTab;
+const TABS = PAY_TABS;
+const TAB_QUERY = PAY_TAB_QUERY;
 /** ตัวกรองคอลัมน์สถานะ (ต้นแบบ: ทั้งหมด / ออกแล้ว / ชำระบางส่วน / ชำระแล้ว / เกินกำหนด) */
 const EMPTY_VIEW = { tab: 'all', no: '', cust: '', st: '' };
 const ST_OPTS = ['ISSUED', 'PARTIALLY_PAID', 'PAID', 'OVERDUE'] as const;
@@ -82,13 +76,13 @@ export function PayPage() {
     empty: EMPTY_VIEW,
     apply: (v) => {
       const x = pick(v.state, EMPTY_VIEW);
-      setTab(TABS.includes(x.tab as Tab) ? (x.tab as Tab) : 'all');
+      setTab(PAY_URL_TABS.includes(x.tab as Tab) ? (x.tab as Tab) : 'all');
       setCol({ no: x.no, cust: x.cust, st: x.st });
       setHidden(v.hidden);
     },
   });
-  // ST9-T02 drill-down จาก Dashboard บิล / KPI / เมนูโปรด (`/pay?tab=over|part|open`) — ล้างตัวกรองคอลัมน์ + ช่วงอายุ
-  useUrlTab(TABS, (x) => {
+  // ST9-T02 drill-down จาก Dashboard บิล / KPI / เมนูโปรด (`/pay?tab=over|part|open|due`) — ล้างตัวกรองคอลัมน์ + ช่วงอายุ
+  useUrlTab(PAY_URL_TABS, (x) => {
     setTab(x);
     setCol({ no: '', cust: '', st: '' });
     // review L1: มาจากลิงก์ = มุมมอง "กำหนดเอง" — ไม่ผูกมุมมองที่บันทึกไว้ + คอลัมน์ค่าเริ่มต้น
@@ -97,6 +91,9 @@ export function PayPage() {
   });
   const [open, setOpen] = useState<{ id: string; kind: 'pay' | 'inv' } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // ST7-T23 ส่งออกให้นักบัญชี (ต้นแบบ openXp) — ต้องมี export:run (API ตรวจสิทธิ์อ่านต่อชุดเอง)
+  const [xp, setXp] = useState(false);
+  const canXp = can(me.data?.scopes ?? [], 'export:run');
   const sendMail = useSendInvoiceEmail();
   /** ต้นแบบ: แถว → "ส่งใบแจ้งเตือนชำระ {เลข} ทางอีเมลแล้ว" · bulk → "ส่งใบแจ้งเตือนชำระ {n} ใบแล้ว" (ข้ามใบที่ไม่ค้าง) */
   const remind = async (rows: InvoiceSummary[]) => {
@@ -131,6 +128,8 @@ export function PayPage() {
       );
   };
   const sum = usePaymentSummary().data;
+  // D68-94 จำนวนของมุมมอง "ครบกำหนด" = `GET /invoices/summary` `due` (ตัวเลขเดียวกับการ์ด Dashboard บิล) — ดึงเมื่อเปิดมุมมองนี้
+  const invCounts = useInvoiceCounts(tab === 'due').data;
   const aging = useAgingSummary().data;
   const kfOn = kf && AGING_ORDER.includes(kf) ? kf : '';
 
@@ -152,6 +151,7 @@ export function PayPage() {
     over: sum?.overdue,
     part: sum?.partiallyPaid,
     paid: sum?.paid,
+    due: invCounts?.due,
   };
   const kfCount = kfOn ? aging?.buckets.find((b) => b.bucket === kfOn)?.count : undefined;
   const shownTotal = listTotal(
@@ -253,10 +253,12 @@ export function PayPage() {
         title={t('page.pay.title')}
         sub={t('page.pay.sub')}
         actions={
-          // ส่งออกให้นักบัญชี (spec/05 §14) — งานส่งออกยังไม่มี (เหมือนหน้าวางบิล) [DECISION spec/12 §3]
-          <Button variant="secondary" icon="file-down" disabled title={t('bill.xpSoon')}>
-            {t('bill.xp')}
-          </Button>
+          // ส่งออกให้นักบัญชี (ST7-T23 — ต้นแบบ openXp; spec/07 §4)
+          canXp ? (
+            <Button variant="secondary" icon="file-down" onClick={() => setXp(true)}>
+              {t('bill.xp')}
+            </Button>
+          ) : undefined
         }
       />
       {/* ต้นแบบ kpisPay บนหน้า "รับชำระ" = แถบสรุปบรรทัดเดียว (ตัวเลข + ป้าย) กดเพื่อกรองแท็บ */}
@@ -318,7 +320,14 @@ export function PayPage() {
                 onRemove={() => setKf('')}
               />
             )}
-            {kfOn && (
+            {tab === 'due' && !kfOn && (
+              <FilterChip
+                label={t('pay.due.chip')}
+                removeLabel={t('pay.due.clear')}
+                onRemove={() => setTab('all')}
+              />
+            )}
+            {(kfOn || tab === 'due') && (
               // ต้นแบบ T.clearAll: ล้างชิป + ตัวกรองคอลัมน์ + กลับแท็บทั้งหมด
               <button
                 type="button"
@@ -374,7 +383,9 @@ export function PayPage() {
                       },
                     ]
                   : []),
-                { label: t('bill.xp'), icon: 'file-down', run: () => setToast(t('bill.xpSoon')) },
+                ...(canXp
+                  ? [{ label: t('bill.xp'), icon: 'file-down', run: () => setXp(true) }]
+                  : []),
               ]}
               filters={col}
               hiddenColumns={hidden}
@@ -442,6 +453,7 @@ export function PayPage() {
           onToast={setToast}
         />
       )}
+      {xp && <AccountantExportDialog onClose={() => setXp(false)} onToast={setToast} />}
       {toast && (
         <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />
       )}

@@ -59,6 +59,22 @@ interface ExportPayload {
   actAs?: string;
 }
 
+/**
+ * งานชนิดอื่น (ไม่ใช่ `export.file`) ที่ผลิตไฟล์ส่งออกเป็นผลพลอยได้ (ST5-T12b ไฟล์สรุปรอบวางบิล) — ลงทะเบียนเพื่อให้ดาวน์โหลดผ่าน
+ * `GET /v1/exports/{jobId}` ชุดเดียวกัน (เฉพาะผู้สั่ง · ลิงก์ลายเซ็น 5 นาที · ไฟล์ 7 วัน · หน้าเว็บ `/exports/{jobId}` เดิม)
+ * `describe` คืน null = งานนี้ไม่ผลิตไฟล์ (404) · `result` null = งานยังไม่จบ (ไฟล์อ่านจากเอกสาร kind EXPORT ของงานแทน — review L3:
+ * แจ้งเตือนถูกเขียนก่อนงานปิดสถานะ ผู้สั่งกดลิงก์ระหว่างนั้นได้ `running` ไม่ใช่ 404)
+ */
+export interface FileJobAdapter {
+  describe(job: Job): {
+    actorId: string | null;
+    resource: string;
+    format: ExportFormat;
+    filter: Record<string, string>;
+    result: ExportResult | null;
+  } | null;
+}
+
 export interface ExportResult {
   documentId: string;
   rows: number;
@@ -74,6 +90,15 @@ const anyScope = (scopes: readonly string[], need: string | string[]) =>
 function stamp(d = new Date()): string {
   const b = new Date(d.getTime() + 7 * 3600_000).toISOString();
   return `${b.slice(0, 10).replace(/-/g, '')}-${b.slice(11, 16).replace(':', '')}`;
+}
+
+/** ชื่อไฟล์จาก spec: ตัดอักขระที่ใช้ในชื่อไฟล์ไม่ได้ (/ \\ : * ? " < > | และอักขระควบคุม) · ว่าง = ใช้ชื่อมาตรฐาน */
+function safeName(name: string | undefined): string | null {
+  const s = (name ?? '')
+    .replace(/[/\\:*?"<>|\x00-\x1f]/g, '-')
+    .trim()
+    .slice(0, 120);
+  return s || null;
 }
 
 /** ตัวเขียนไฟล์ทีละชุด — xlsx ใช้ streaming writer (ไม่ถือทั้ง workbook ในหน่วยความจำ) */
@@ -167,6 +192,73 @@ export class ExportsService implements OnModuleInit {
       timeoutMs: JOB_TIMEOUT_MS,
       onFinalFailure: ({ tx, job, error }) => this.notifyFailed(tx, job, error),
     });
+  }
+
+  private readonly fileJobs = new Map<string, FileJobAdapter>();
+
+  /** ลงทะเบียนชนิดงานที่ผลิตไฟล์ส่งออกเอง (ดู `FileJobAdapter`) */
+  registerFileJob(type: string, adapter: FileJobAdapter): void {
+    if (type === EXPORT_JOB_TYPE || this.fileJobs.has(type))
+      throw new Error(`file job '${type}' already registered`);
+    this.fileJobs.set(type, adapter);
+  }
+
+  /**
+   * เขียนไฟล์ .xlsx จากแถวในหน่วยความจำ แล้วเก็บเป็นเอกสาร kind EXPORT ของงาน `jobId` + แจ้งผู้สั่ง (`export.ready` ลิงก์ `/exports/{jobId}`)
+   * — ตัวเขียน/ที่เก็บ/อายุไฟล์/แจ้งเตือนชุดเดียวกับ `export.file` · ผู้เรียกตัดคอลัมน์ราคาตามสิทธิ์ของผู้สั่งแล้ว (`dropUnpricedColumns`)
+   * และแถวผ่าน `redactPrices` ที่นี่อีกชั้น (field ที่ลงทะเบียน `@PriceField`)
+   */
+  async storeJobFile<R extends object>(
+    tx: Tx,
+    o: {
+      tenantId: string;
+      jobId: string;
+      actorId: string | null;
+      scopes: readonly string[];
+      principalType?: string;
+      columns: ExportColumn<R>[];
+      rows: R[];
+      sheet: string;
+      fileName: string;
+      label: string;
+    },
+  ): Promise<ExportResult> {
+    const w = await xlsxWriter(o.columns, o.sheet);
+    w.add(redactPrices(o.rows, o.scopes, o.principalType ?? 'user') as R[]);
+    const data = await w.finish();
+    const f = await putFileLocked(tx, o.tenantId, data, 'xlsx');
+    const fileName = `${safeName(o.fileName) ?? `export-${stamp()}`}.xlsx`;
+    const doc = await tx.storedDocument.create({
+      data: {
+        tenantId: o.tenantId,
+        status: 'READY',
+        kind: 'EXPORT',
+        mimeType: EXPORT_MIME.xlsx,
+        sizeBytes: f.size,
+        fileKey: f.key,
+        sha256: f.sha256,
+        filename: fileName,
+        entityType: 'job',
+        entityId: o.jobId,
+        createdBy: o.actorId,
+      },
+    });
+    const jobRef = encodeId('job', o.jobId);
+    if (o.actorId && UUID_RE.test(o.actorId))
+      await this.notifications.notify(tx, {
+        tenantId: o.tenantId,
+        to: { userIds: [o.actorId] },
+        template: 'export.ready',
+        vars: { label: o.label, rows: o.rows.length, days: EXPORT_RETENTION_DAYS },
+        link: `/exports/${jobRef}`,
+        entity: { type: 'job', id: jobRef },
+      });
+    return {
+      documentId: encodeId('document', doc.id),
+      rows: o.rows.length,
+      fileName,
+      bytes: f.size,
+    };
   }
 
   spec(resource: string): ExportSpec {
@@ -321,12 +413,14 @@ export class ExportsService implements OnModuleInit {
               : await xlsxWriter(columns, spec.fileBase);
         let after: string | null = null;
         let rows = 0;
+        let pii = 0;
         if (spec.single) {
           // รายงานสรุป: อ่านครั้งเดียวทั้งชุด (ST9-T05)
           const batch = await spec.fetch(q, { after: null, take: this.maxRows + 1 });
           // จำนวนแถวข้อมูล — ไม่นับแถวสรุป "รวม" (id `total`) ที่ spec ต่อท้าย
           rows = batch.filter((r) => r.id !== 'total').length;
           if (rows > this.maxRows) throw new ExportError('too_many_rows');
+          if (spec.pii) pii += spec.pii.count(batch);
           w.add(redactPrices(batch, scopes, p.principalType ?? 'user') as typeof batch);
         }
         for (; !spec.single;) {
@@ -334,6 +428,7 @@ export class ExportsService implements OnModuleInit {
           if (!batch.length) break;
           rows += batch.length;
           if (rows > this.maxRows) throw new ExportError('too_many_rows');
+          if (spec.pii) pii += spec.pii.count(batch);
           // ชั้นที่สอง: ตัด field ราคาที่ผู้สั่งไม่มีสิทธิ์ (กติกาเดียวกับ response JSON — price-fields.ts ข้อ 3)
           w.add(redactPrices(batch, scopes, p.principalType ?? 'user') as typeof batch);
           after = tryDecodeId(spec.idKind, batch[batch.length - 1]!.id);
@@ -343,7 +438,7 @@ export class ExportsService implements OnModuleInit {
         }
         const data = await w.finish();
         const f = await putFileLocked(ctx.tx, ctx.tenantId, data, format);
-        const fileName = `${spec.fileBase}-${stamp()}.${format}`;
+        const fileName = `${safeName(spec.fileName?.(q)) ?? `${spec.fileBase}-${stamp()}`}.${format}`;
         const doc = await ctx.tx.storedDocument.create({
           data: {
             tenantId: ctx.tenantId,
@@ -359,6 +454,21 @@ export class ExportsService implements OnModuleInit {
             createdBy: p.actorId,
           },
         });
+        // D-73: ไฟล์มีข้อมูลส่วนบุคคลเต็ม (เลขบัตรประชาชน) → audit ทุกไฟล์ (transaction เดียวกับไฟล์)
+        if (spec.pii && pii > 0)
+          await this.audit.record({
+            action: 'export.pii_included',
+            entityType: 'job',
+            entityId: ctx.job.id,
+            after: {
+              resource: spec.resource,
+              format,
+              filter: p.filter,
+              fields: spec.pii.fields,
+              count: pii,
+              document: encodeId('document', doc.id),
+            },
+          });
         if (p.actorId && UUID_RE.test(p.actorId))
           await this.notifications.notify(ctx.tx, {
             tenantId: ctx.tenantId,
@@ -390,22 +500,41 @@ export class ExportsService implements OnModuleInit {
     });
   }
 
-  /** งานส่งออกของผู้เรียก (ผู้อื่น/ชนิดงานอื่น = 404) */
-  async get(id: string): Promise<{ job: Job; payload: ExportPayload; doc: StoredDocument | null }> {
+  /** งานส่งออกของผู้เรียก (ผู้อื่น/ชนิดงานอื่น = 404) — รวมงานชนิดอื่นที่ผลิตไฟล์ส่งออก (`registerFileJob`) เมื่อไฟล์พร้อมแล้ว */
+  async get(id: string): Promise<{
+    job: Job;
+    payload: Pick<ExportPayload, 'resource' | 'format' | 'filter'>;
+    result: ExportResult | null;
+    doc: StoredDocument | null;
+  }> {
     const ctx = requestContext.require();
     const job = await this.db.tx.job.findUnique({ where: { id } });
-    const payload = job?.payload as unknown as ExportPayload | undefined;
-    if (
-      !job ||
-      job.type !== EXPORT_JOB_TYPE ||
-      !payload ||
-      payload.actorId !== (ctx.actorId ?? null)
-    )
-      throw new ProblemException('not_found');
-    const docId = (job.result as { documentId?: string } | null)?.documentId;
-    const raw = docId ? tryDecodeId('document', docId) : null;
-    const doc = raw ? await this.db.tx.storedDocument.findUnique({ where: { id: raw } }) : null;
-    return { job, payload, doc };
+    if (!job) throw new ProblemException('not_found');
+    let payload: Pick<ExportPayload, 'resource' | 'format' | 'filter'>;
+    let result: ExportResult | null;
+    if (job.type === EXPORT_JOB_TYPE) {
+      const p = job.payload as unknown as ExportPayload | undefined;
+      if (!p || p.actorId !== (ctx.actorId ?? null)) throw new ProblemException('not_found');
+      payload = p;
+      result = job.result as ExportResult | null;
+    } else {
+      const d = this.fileJobs.get(job.type)?.describe(job);
+      if (!d || d.actorId !== (ctx.actorId ?? null)) throw new ProblemException('not_found');
+      payload = d;
+      result = d.result;
+    }
+    const raw = result?.documentId ? tryDecodeId('document', result.documentId) : null;
+    let doc = raw ? await this.db.tx.storedDocument.findUnique({ where: { id: raw } }) : null;
+    if (!result && job.type !== EXPORT_JOB_TYPE) {
+      // งานที่ผลิตไฟล์ยังไม่จบ: ไฟล์ (ถ้าเขียนแล้ว) = เอกสาร EXPORT ของงาน · ยังไม่มีไฟล์ = 404 (แจ้งเตือนส่งพร้อมไฟล์เท่านั้น)
+      doc = await this.db.tx.storedDocument.findFirst({
+        where: { kind: 'EXPORT', entityType: 'job', entityId: job.id },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (!doc || job.status === 'FAILED' || job.status === 'SKIPPED')
+        throw new ProblemException('not_found');
+    }
+    return { job, payload, result, doc };
   }
 }
 

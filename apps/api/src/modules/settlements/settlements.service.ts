@@ -18,6 +18,7 @@ import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { JobQueue } from '../../jobs/job-queue.service';
 import { ErpSyncService } from '../erp/erp-sync.service';
 import { issueNumber } from '../sequences/sequences.service';
 import { TripService } from '../trips/trip.service';
@@ -37,6 +38,7 @@ import type {
   UpdateSettlementDto,
 } from './settlement.dto';
 import { resolvePayer } from './settlement-payer';
+import { enqueueSettlementPdf } from './settlement-pdf.job';
 import { payableLines, SettlementQueueService } from './settlement-queue.service';
 import { disputedCount, disputedLines, latestBy, lineStatus } from './settlement-dispute';
 import type { SettlementSentDto, SettlementReviewLinkDto } from './settlement-review.dto';
@@ -110,6 +112,7 @@ export class SettlementsService {
     private readonly review: SettlementReviewService,
     private readonly trips: TripService,
     private readonly erpSync: ErpSyncService,
+    private readonly jobs: JobQueue,
   ) {}
 
   // ---------- อ่าน ----------
@@ -229,6 +232,42 @@ export class SettlementsService {
       ? whtOf(r, r.lines, await this.liveWhtMinimum(tx))
       : null;
     return toDto(r, await disputedLines(tx, id, r.reviewRound), wht);
+  }
+
+  /**
+   * ST6-T11 ยอดจ่ายสุทธิหลังหัก ณ ที่จ่ายของหลายใบในครั้งเดียว (ลิงก์ "ค่าเที่ยวของฉัน") — สูตรเดียวกับ `get`/`list`
+   * (ตรึงแล้ว = netPayable − wht_amount · ยังไม่ตรึง = `whtOf` ประมาณการ) · ไม่รู้ประเภทรถร่วมและยังไม่ตรึง = null (ไม่เดา)
+   */
+  async netAfterWhtMany(
+    ids: string[],
+  ): Promise<Map<string, { amount: string | null; frozen: boolean }>> {
+    const out = new Map<string, { amount: string | null; frozen: boolean }>();
+    if (!ids.length) return out;
+    const tx = this.db.tx;
+    const rows = await tx.carrierSettlement.findMany({
+      where: { id: { in: ids } },
+      include: {
+        carrier: { select: { whtRateDefault: true } },
+        lines: {
+          where: { voidedAt: null },
+          select: { lineType: true, amount: true, whtRate: true, voidedAt: true },
+        },
+      },
+    });
+    const unfrozen = rows.filter((r) => r.whtAmount === null);
+    const minimum = unfrozen.length ? await this.liveWhtMinimum(tx) : 0;
+    for (const r of rows) {
+      if (r.whtAmount !== null) {
+        out.set(r.id, { amount: r.netPayable.minus(r.whtAmount).toFixed(2), frozen: true });
+        continue;
+      }
+      const wht = hasWhtEntityType(r.carrierSnapshot) ? whtOf(r, r.lines, minimum) : null;
+      out.set(r.id, {
+        amount: wht ? whtTotals(r, wht).buyNetAfterWht : null,
+        frozen: false,
+      });
+    }
+    return out;
   }
 
   /** ค่าตั้ง `tax.whtMinimumAmount` (บาท) ปัจจุบัน — ใช้กับใบที่ยังไม่ตรึง (ยังไม่อนุมัติ) */
@@ -578,6 +617,8 @@ export class SettlementsService {
         actorId: actor,
       },
     });
+    // D-66: เก็บ PDF ฉบับอนุมัติ — งานเบื้องหลัง render หลัง commit (ไม่ render ใน transaction ของคำขอ) + ลองใหม่จนเก็บได้
+    await enqueueSettlementPdf(this.jobs, tx, ctx.tenantId!, id, 'APPROVED');
     return out;
   }
 
@@ -709,6 +750,8 @@ export class SettlementsService {
     });
     // ST8-T16 (D-58) connector ที่เปิด pushSettlement → ส่งเป็นเจ้าหนี้ร่าง + WHT ประมาณการ (outbox — หลัง commit)
     await this.erpSync.settlementPaid(tx, out);
+    // D-66: เก็บ PDF ฉบับจ่ายแล้ว (ข้อมูลการจ่าย) — งานเบื้องหลังหลัง commit แบบเดียวกับตอนอนุมัติ
+    await enqueueSettlementPdf(this.jobs, tx, ctx.tenantId!, id, 'PAID');
     return out;
   }
 

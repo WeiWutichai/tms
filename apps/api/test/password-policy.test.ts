@@ -28,7 +28,7 @@ describe('password policy', () => {
         passwordHash: await hashPassword(PW),
       },
     });
-    await db.userRole.create({ data: { tenantId, userId: u.id, roleId: roles.planner! } });
+    await db.userRole.create({ data: { tenantId, userId: u.id, roleId: roles.dispatcher! } });
   });
   afterAll(async () => {
     await app.close();

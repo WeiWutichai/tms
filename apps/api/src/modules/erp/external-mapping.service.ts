@@ -7,20 +7,60 @@ import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { lockKey, lockReferenced } from '../master/master-kit';
+import type { CanonicalDocument } from './erp-adapter';
 import { ErpAdapterRegistry } from './erp-adapter.registry';
 import { ERP_CODE_RE } from './erp-master-codes.service';
 
 /** ผลการจำรหัสลูกค้าของช่องทาง connector (ชุดเดียวกับ `AliasLearnResult` ของ OrderMatchingService) */
 export type SourceCodeLearnResult = 'learned' | 'exists' | 'too_long' | 'empty';
 
-/** แถวหน้าจอ "รหัสระบบบัญชี" ของลูกค้า 1 connector */
+/** แถวหน้าจอ "รหัสระบบบัญชี" ของลูกค้า/รถร่วม 1 connector */
 export interface CustomerErpCodeView {
   connector: Connector;
   displayName: string;
   row: ExternalMapping | null;
 }
+export type PartyErpCodeView = CustomerErpCodeView;
 
 const ENTITY = 'CUSTOMER' as const;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** ช่องคู่ค้าใน canonical → entity ของ external_mapping (docs/01 §7.1 `customer`, §7.3 `carrier`) */
+const PARTY_FIELDS = [
+  ['customer', 'CUSTOMER'],
+  ['carrier', 'CARRIER'],
+] as const;
+
+/**
+ * ST7-T15 คู่ค้าที่มีรหัสฝั่ง ERP ใน external_mapping (docs/01 §7.4): ลูกค้า (ใบแจ้งหนี้) · รถร่วม (ใบสำคัญจ่าย)
+ * ค่าบริการ (`SERVICE_ITEM`) อยู่ที่ `erp_code_mapping` ของ ST7-T18 (ตรวจกับผังรหัส ERP) — ไม่เก็บซ้ำที่นี่ (spec/12 §3)
+ */
+export type PartyEntity = 'CUSTOMER' | 'CARRIER';
+const PARTY = {
+  CUSTOMER: { idKind: 'customer', audit: 'customer', th: 'ลูกค้า', mappedKey: 'mappedCustomerId' },
+  CARRIER: { idKind: 'carrier', audit: 'carrier', th: 'รถร่วม', mappedKey: 'mappedCarrierId' },
+} as const;
+
+/** สถานะซิงก์ของเอกสาร 1 ใบกับระบบบัญชี (ST7-T15 — `sync` ของใบแจ้งหนี้/ใบสำคัญจ่าย; docs/01 §4.4 "sync แยกฟิลด์") */
+export interface DocumentSyncView {
+  connectorId: string;
+  state: string;
+  externalId: string | null;
+  externalDocNo: string | null;
+  externalStatus: string | null;
+  lastSyncedAt: Date | null;
+  /** ST8-T11 ผลกระทบยอดเนื้อหา (docs/01 §4.4) — SENT = ส่งแล้วยังไม่เคยเทียบ · null = ยังไม่อยู่ในระบบบัญชี */
+  reconcileState: 'SENT' | 'ACCEPTED' | 'MISMATCH' | null;
+  reconciledAt: Date | null;
+  /** ST8-T13 เวลาที่ฝ่ายบัญชีกดปุ่ม "ลงบัญชีแล้ว" — มีค่า = แทนที่เอกสารฝั่ง ERP ต้องมีผู้อนุมัติ */
+  postedAt: Date | null;
+  /** ST8-T08 เอกสารฝั่ง ERP ทุกใบเมื่อถูกแยกเป็นหลายใบ (`detail.documents`) — ใบเดียว = [] */
+  externalDocuments: {
+    ref: string;
+    externalId: string;
+    externalDocNo: string | null;
+    group: string | null;
+  }[];
+}
 /** รหัสที่เก็บได้ (ตรงกับ CHECK ใน migration 0141 — ≤ 100 · ใช้รูปแบบเดียวกับผังรหัส ERP ≤ 64) */
 const MAX_CODE = 64;
 
@@ -187,13 +227,14 @@ export class ExternalMappingService {
     customerId: string,
     v: { sourceCode: string | null; externalId: string | null },
     reason: string | null = null,
+    entity: PartyEntity = ENTITY,
   ): Promise<ExternalMapping> {
     const ctx = requestContext.require();
     const row = await tx.externalMapping.create({
       data: {
         tenantId: ctx.tenantId!,
         connectorId: c.id,
-        entityType: ENTITY,
+        entityType: entity,
         localId: customerId,
         sourceCode: v.sourceCode,
         externalId: v.externalId,
@@ -204,7 +245,7 @@ export class ExternalMappingService {
     });
     await this.audit.record({
       action: 'external_mapping.changed',
-      entityType: 'customer',
+      entityType: PARTY[entity].audit,
       entityId: customerId,
       before: { connectorId: c.id, externalId: null, sourceCode: null },
       after: { connectorId: c.id, externalId: v.externalId, sourceCode: v.sourceCode },
@@ -236,7 +277,7 @@ export class ExternalMappingService {
     });
     await this.audit.record({
       action: 'external_mapping.changed',
-      entityType: 'customer',
+      entityType: row.entityType === 'CARRIER' ? PARTY.CARRIER.audit : PARTY.CUSTOMER.audit,
       entityId: row.localId,
       before: {
         connectorId: row.connectorId,
@@ -254,14 +295,26 @@ export class ExternalMappingService {
 
   /** connector ที่ยังไม่ยกเลิกทุกตัว + รหัสของลูกค้านี้ (ไม่มีแถว = ยังไม่ map) */
   async listForCustomer(customerRef: string, tx: Tx = this.db.tx): Promise<CustomerErpCodeView[]> {
-    const customerId = await this.customerIdOf(tx, customerRef);
+    return this.listFor(ENTITY, await this.customerIdOf(tx, customerRef), tx);
+  }
+
+  /** ST7-T15 รหัสรถร่วมในระบบบัญชีแต่ละตัวที่เชื่อมต่อ (ไม่มีแถว = ยังไม่ map) */
+  async listForCarrier(carrierRef: string, tx: Tx = this.db.tx): Promise<PartyErpCodeView[]> {
+    return this.listFor('CARRIER', await this.carrierIdOf(tx, carrierRef), tx);
+  }
+
+  private async listFor(
+    entity: PartyEntity,
+    customerId: string,
+    tx: Tx,
+  ): Promise<PartyErpCodeView[]> {
     const cons = await tx.connector.findMany({
       where: { status: { not: 'DISCONNECTED' } },
       orderBy: { createdAt: 'asc' },
     });
     const rows = await tx.externalMapping.findMany({
       where: {
-        entityType: ENTITY,
+        entityType: entity,
         localId: customerId,
         connectorId: { in: cons.map((c) => c.id) },
       },
@@ -285,6 +338,33 @@ export class ExternalMappingService {
     tx: Tx = this.db.tx,
   ): Promise<CustomerErpCodeView> {
     const customerId = await this.customerIdOf(tx, customerRef);
+    return this.setFor(ENTITY, customerId, connectorRef, body, expected, tx);
+  }
+
+  /**
+   * ST7-T15 ตั้ง/ล้าง (null) รหัสรถร่วมในระบบบัญชีของ connector 1 ตัว — กติกาเดียวกับลูกค้า (If-Match, เหตุผลเมื่อเปลี่ยน/ล้าง,
+   * รหัสผูกกับรถร่วมอื่น = 409 `external_id_conflict`, audit `external_mapping.changed`)
+   */
+  async setForCarrier(
+    carrierRef: string,
+    connectorRef: string,
+    body: { externalId?: string | null; reason?: string | null },
+    expected?: number,
+    tx: Tx = this.db.tx,
+  ): Promise<PartyErpCodeView> {
+    const carrierId = await this.carrierIdOf(tx, carrierRef);
+    return this.setFor('CARRIER', carrierId, connectorRef, body, expected, tx);
+  }
+
+  private async setFor(
+    entity: PartyEntity,
+    customerId: string,
+    connectorRef: string,
+    body: { externalId?: string | null; reason?: string | null },
+    expected: number | undefined,
+    tx: Tx,
+  ): Promise<PartyErpCodeView> {
+    const party = PARTY[entity];
     const connectorId = tryDecodeId('connector', connectorRef);
     const c = connectorId ? await tx.connector.findUnique({ where: { id: connectorId } }) : null;
     if (!c) throw new ProblemException('not_found');
@@ -302,14 +382,14 @@ export class ExternalMappingService {
           message: 'รหัสยาว 1–64 ตัว ไม่มีอักขระควบคุม',
         },
       ]);
-    const [ref] = await lockReferenced(tx, 'customer', [customerId]);
+    const [ref] = await lockReferenced(tx, party.idKind, [customerId]);
     if (!ref) throw new ProblemException('not_found');
-    await lockKey(tx, `external_mapping:${c.id}:${ENTITY}:local:${customerId}`);
-    if (raw) await lockKey(tx, `external_mapping:${c.id}:${ENTITY}:ext:${raw}`);
+    await lockKey(tx, `external_mapping:${c.id}:${entity}:local:${customerId}`);
+    if (raw) await lockKey(tx, `external_mapping:${c.id}:${entity}:ext:${raw}`);
     const key = {
       connectorId_entityType_localId: {
         connectorId: c.id,
-        entityType: ENTITY,
+        entityType: entity,
         localId: customerId,
       },
     };
@@ -319,15 +399,21 @@ export class ExternalMappingService {
     const externalId = raw || null;
     if (externalId) {
       const other = await tx.externalMapping.findFirst({
-        where: { connectorId: c.id, entityType: ENTITY, externalId, localId: { not: customerId } },
+        where: { connectorId: c.id, entityType: entity, externalId, localId: { not: customerId } },
         select: { localId: true },
       });
       if (other)
         throw new ProblemException(
           'external_id_conflict',
           undefined,
-          [{ field: 'externalId', code: 'duplicate', message: 'รหัสนี้ผูกกับลูกค้าอื่นแล้ว' }],
-          { mappedCustomerId: encodeId('customer', other.localId) },
+          [
+            {
+              field: 'externalId',
+              code: 'duplicate',
+              message: `รหัสนี้ผูกกับ${party.th}อื่นแล้ว`,
+            },
+          ],
+          { [party.mappedKey]: encodeId(party.idKind, other.localId) },
         );
     }
     // เปลี่ยน/ล้างรหัสที่ตั้งไว้แล้ว = ต้องมีเหตุผล (review M2 — ใบแจ้งหนี้ถัดไปส่งด้วยรหัสใหม่ · audit)
@@ -343,7 +429,7 @@ export class ExternalMappingService {
     let row: ExternalMapping;
     if (!before) {
       if (!externalId) return this.view(c, null);
-      row = await this.create(tx, c, customerId, { externalId, sourceCode: null }, reason);
+      row = await this.create(tx, c, customerId, { externalId, sourceCode: null }, reason, entity);
     } else {
       row = await this.write(tx, before, { externalId }, reason);
     }
@@ -363,13 +449,139 @@ export class ExternalMappingService {
    * null = ยังไม่ map → ประตูก่อนส่งกัน (`erp_master_code_unknown` CUSTOMER MISSING — ST8-T06)
    */
   async customerErpCode(tx: Tx, connectorId: string, customerId: string): Promise<string | null> {
+    return this.partyErpCode(tx, connectorId, ENTITY, customerId);
+  }
+
+  /**
+   * ST7-T15 รหัสคู่ค้า (ลูกค้า/รถร่วม) ในระบบบัญชีของ connector **ณ ตอนนี้** — เฉพาะ mapping สถานะ `SYNCED` (docs/01 §7.4)
+   * null = ยังไม่ map / ยกเลิกแล้ว · **SYNCED เท่านั้น** (เดิมรับทุกสถานะที่ไม่ใช่ RETIRED): แถวคู่ค้าที่เขียนผ่าน API มีแค่ SYNCED (มีรหัส) /
+   * PENDING (ไม่มีรหัส) จึงได้ผลเท่าเดิม — FAILED / MISMATCH (สงวนให้ sync master / reconcile ภายหลัง) = รหัสที่ยังไม่ยืนยัน ไม่นำไปส่งเอกสาร
+   */
+  async partyErpCode(
+    tx: Tx,
+    connectorId: string,
+    entity: PartyEntity,
+    localId: string,
+  ): Promise<string | null> {
     const r = await tx.externalMapping.findUnique({
-      where: {
-        connectorId_entityType_localId: { connectorId, entityType: ENTITY, localId: customerId },
-      },
+      where: { connectorId_entityType_localId: { connectorId, entityType: entity, localId } },
       select: { externalId: true, status: true },
     });
-    return r && r.status !== 'RETIRED' ? r.externalId : null;
+    return r && r.status === 'SYNCED' ? r.externalId : null;
+  }
+
+  /**
+   * ST7-T15 ใส่รหัสคู่ค้าฝั่ง ERP ลง canonical **ณ ตอนส่ง** (`customer.externalId` / `carrier.externalId` — docs/01 §7.1, §7.3, §7.4)
+   * ตารางเป็นตัวตัดสิน: mapping `SYNCED` = รหัสนั้น · ไม่มี/ล้างแล้ว = null (ทับค่าที่ตรึงตอนสร้างคำสั่ง — คน map/แก้รหัสทีหลังแล้วส่งคำสั่งเดิมใหม่ได้)
+   * คู่ค้าที่ `id` ไม่ใช่ uuid ภายใน (payload ที่ไม่ได้มาจากตัวสร้างของ core) = ไม่แตะ · คืนสำเนา ไม่แก้ `doc`
+   */
+  async withPartyCodes<T extends CanonicalDocument>(
+    tx: Tx,
+    connectorId: string,
+    doc: T,
+  ): Promise<T> {
+    let out = doc;
+    for (const [field, entity] of PARTY_FIELDS) {
+      const party = (doc as Record<string, unknown>)[field] as
+        { id?: unknown; externalId?: unknown } | null | undefined;
+      if (!party || typeof party !== 'object' || typeof party.id !== 'string') continue;
+      if (!UUID_RE.test(party.id)) continue;
+      const code = await this.partyErpCode(tx, connectorId, entity, party.id);
+      if ((party.externalId ?? null) === code) continue;
+      out = { ...out, [field]: { ...party, externalId: code } };
+    }
+    return out;
+  }
+
+  /**
+   * ST7-T15 ผลการส่งเอกสาร 1 ใบเข้าระบบบัญชี (`external_mapping` ของเอกสาร) — ไม่มีแถว = null
+   * (ไม่มี connector / connector ยกเลิกการเชื่อมแล้ว / ยังรอคิว / ส่งไม่สำเร็จ — ดูคิวของ connector) · หลาย connector = ตัวที่ส่งล่าสุด
+   */
+  async documentSync(
+    entity: 'INVOICE' | 'SETTLEMENT',
+    localId: string,
+    tx: Tx = this.db.tx,
+  ): Promise<DocumentSyncView | null> {
+    const rows = await tx.externalMapping.findMany({
+      // connector ที่ยกเลิกการเชื่อมแล้วไม่นับ (เอกสารไม่ได้ซิงก์กับระบบนั้นอีก — INT-016)
+      where: {
+        entityType: entity,
+        localId,
+        status: { not: 'RETIRED' },
+        connector: { status: { not: 'DISCONNECTED' } },
+      },
+      orderBy: [{ lastSyncedAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
+      take: 1,
+    });
+    const r = rows[0];
+    if (!r) return null;
+    return {
+      connectorId: r.connectorId,
+      state: r.status,
+      externalId: r.externalId,
+      externalDocNo: r.externalDocNo,
+      externalStatus: r.externalStatus,
+      lastSyncedAt: r.lastSyncedAt,
+      // ST8-T11 เทียบเนื้อหาเฉพาะใบแจ้งหนี้ (docs/01 §4.4) — เอกสารชนิดอื่น = null
+      reconcileState:
+        entity !== 'INVOICE'
+          ? null
+          : (r.reconcileState ??
+            (r.externalId && (r.status === 'SYNCED' || r.status === 'MISMATCH') ? 'SENT' : null)),
+      reconciledAt: r.reconciledAt,
+      postedAt: r.postedAt,
+      externalDocuments: externalDocumentsOfDetail(r.detail),
+    };
+  }
+
+  /**
+   * ST8-T13 ปุ่ม "ลงบัญชีแล้ว" (docs/01 A.2/A.6 — ERP ที่ไม่บอกสถานะลง GL: KRS) → `external_mapping.posted_at` ของเอกสารนี้ทุก connector
+   * ที่เอกสารอยู่ในระบบบัญชีแล้ว (มี external_id · ไม่ RETIRED) — หลังจากนี้การแทนที่เอกสารฝั่ง ERP ต้องมีผู้อนุมัติ
+   * · คุมเข้มขึ้นอย่างเดียว (ไม่มีปุ่มล้าง) · กดซ้ำ = คงเวลาเดิม · ยังไม่อยู่ในระบบบัญชี → 409 `invalid_state_transition` · audit `invoice.erp_posted_marked`
+   */
+  async markPosted(entity: 'INVOICE', localId: string, tx: Tx = this.db.tx): Promise<number> {
+    const rows = await tx.externalMapping.findMany({
+      where: {
+        entityType: entity,
+        localId,
+        externalId: { not: null },
+        status: { not: 'RETIRED' },
+        connector: { status: { not: 'DISCONNECTED' } },
+      },
+      select: { id: true, connectorId: true, postedAt: true, externalId: true },
+    });
+    if (!rows.length)
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        reason: 'not_in_accounting_system',
+      });
+    const actor = requestContext.get()?.actorId ?? null;
+    const now = new Date();
+    const fresh = rows.filter((r) => !r.postedAt);
+    for (const r of fresh)
+      await tx.externalMapping.update({
+        where: { id: r.id },
+        data: { postedAt: now, postedBy: actor, updatedBy: actor, version: { increment: 1 } },
+      });
+    if (fresh.length)
+      await this.audit.record({
+        action: 'invoice.erp_posted_marked',
+        entityType: 'invoice',
+        entityId: localId,
+        after: {
+          postedAt: now.toISOString(),
+          connectors: fresh.map((r) => encodeId('connector', r.connectorId)),
+          externalIds: fresh.map((r) => r.externalId),
+        },
+      });
+    return fresh.length;
+  }
+
+  /** `{id}` หรือ `ext:{externalId}` ของรถร่วม (ST7-T02) → uuid · ไม่พบ/ลบแล้ว/tenant อื่น = 404 */
+  private async carrierIdOf(tx: Tx, ref: string): Promise<string> {
+    const id = await refToId('carrier', ref, tx.carrier);
+    const c = await tx.carrier.findFirst({ where: { id, deletedAt: null }, select: { id: true } });
+    if (!c) throw new ProblemException('not_found');
+    return c.id;
   }
 
   /** `{id}` หรือ `ext:{externalId}` ของลูกค้า (ST7-T02) → uuid · ไม่พบ/ลบแล้ว/tenant อื่น = 404 */
@@ -379,4 +591,22 @@ export class ExternalMappingService {
     if (!c) throw new ProblemException('not_found');
     return c.id;
   }
+}
+
+/** ST8-T08 `detail.documents` ของ external_mapping (เขียนโดย ErpAdapterSink) → รายการที่แสดงได้ · รูปผิด = ตัดทิ้ง */
+export function externalDocumentsOfDetail(detail: unknown): DocumentSyncView['externalDocuments'] {
+  const list = (detail as { documents?: unknown } | null)?.documents;
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((d) => {
+    const x = (d ?? {}) as Record<string, unknown>;
+    if (typeof x.externalId !== 'string' || !x.externalId) return [];
+    return [
+      {
+        ref: typeof x.ref === 'string' ? x.ref : '',
+        externalId: x.externalId,
+        externalDocNo: typeof x.externalDocNo === 'string' ? x.externalDocNo : null,
+        group: typeof x.group === 'string' ? x.group : null,
+      },
+    ];
+  });
 }

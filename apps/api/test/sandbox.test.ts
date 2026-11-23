@@ -333,14 +333,32 @@ describe('sandbox (ST7-T09)', () => {
       .expect(403);
   });
 
-  it('review M1/M2/L5: connector ใช้ใน sandbox ไม่ได้ · อีเมล/ข้อความไม่ส่งจริง · rate limit ตามแพ็กเกจบริษัทจริง · audit การสร้าง', async () => {
+  it('review M1/M2/L5: connector ใน sandbox ใช้ได้เฉพาะ DemoProvider (D-81 · D68-58) · อีเมล/ข้อความไม่ส่งจริง · rate limit ตามแพ็กเกจบริษัทจริง · audit การสร้าง', async () => {
+    // D-81 · D68-58/96 (เดิม ST7-T09 = 403 ทั้งหมด): sandbox เห็น/ใช้ connector ของ sandbox เอง — catalog มีเฉพาะ demo
     const k = await testKey(['settings:read'], 'sandbox connector');
     const c = await request(srv()).get('/v1/connectors').set(bearer(k.secret));
-    expect(c.status).toBe(403);
-    expect(c.body.code).toBe('sandbox_unsupported');
-    // route connector ไม่ใช่ @SandboxAware — header ของผู้ใช้ไม่มีผล (ยังเป็นบริษัทจริง)
+    expect(c.status).toBe(200);
+    expect(c.body.data).toEqual([]);
+    const cat = await request(srv()).get('/v1/connectors/adapters').set(bearer(k.secret));
+    expect(cat.status).toBe(200);
+    expect((cat.body.data ?? cat.body).every((a: { demo: boolean }) => a.demo)).toBe(true);
+    // ST7-T15 รหัสรถร่วมในระบบบัญชี (external_mapping CARRIER) — route ใช้ได้ใน sandbox (รถร่วมของบริษัทจริงไม่อยู่ใน sandbox = 404)
+    const km = await testKey(['master:read'], 'sandbox carrier erp codes');
+    const ec = await request(srv())
+      .get('/v1/carriers/car_00000000000040008000000000000001/erp-codes')
+      .set(bearer(km.secret));
+    expect(ec.status).toBe(404);
+    // route connector เป็น @SandboxAware แล้ว — ผู้ใช้สลับโหมดด้วย header ได้ (ไม่มี header = บริษัทจริง)
     expect((await sbx(api(app, admin).get('/v1/connectors'))).status).toBe(200);
     expect((await api(app, admin).get('/v1/connectors')).status).not.toBe(403);
+    const real = await sbx(api(app, admin).post('/v1/connectors')).send({
+      taxDocumentOwner: 'TMS',
+      adapterKey: 'krs',
+      settings: { baseUrl: 'https://erp.example.com/api' },
+      credentials: { apiKey: 'x' },
+    });
+    expect(real.status).toBe(403);
+    expect(real.body.code).toBe('sandbox_unsupported');
     const sb = await db.tenant.findUniqueOrThrow({ where: { liveTenantId: liveId } });
     // อีเมลของ sandbox ไม่ส่งจริง
     const { EmailDispatcher } = await import('../src/modules/email/email.service');

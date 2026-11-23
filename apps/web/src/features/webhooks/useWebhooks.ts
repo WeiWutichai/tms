@@ -2,6 +2,7 @@ import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrap } from '../../api';
 import { refetchOnStale } from '../master/problems';
+import { stepUpHeaders, withStepUp } from '../stepup/stepUp';
 import { useCursorList } from '../master/useCursorList';
 import type { ApiMode } from '../api-keys/mode';
 
@@ -60,12 +61,16 @@ export function useCreateWebhook() {
   return useMutation({
     // ไม่ส่ง Idempotency-Key: ผลมี secret ที่แสดงครั้งเดียว — ส่งซ้ำ = URL ซ้ำ 409
     // ST7-T09: โหมดที่เลือกในฟอร์ม (Production / Sandbox) → endpoint อยู่ใน tenant ของโหมดนั้น
+    // D-67: ผลมี signing secret — ต้องยืนยัน 2FA (กล่องยืนยันเมื่อ API ตอบ step_up_required)
     mutationFn: ({ mode, ...body }: WebhookCreate & { mode: ApiMode }) =>
-      unwrap(
-        api.POST('/v1/webhooks', {
-          params: { header: { 'X-Tms-Mode': mode } } as never,
-          body,
-        }),
+      withStepUp((su) =>
+        unwrap(
+          api.POST('/v1/webhooks', {
+            params: { header: { 'X-Tms-Mode': mode } } as never,
+            headers: stepUpHeaders(su),
+            body,
+          }),
+        ),
       ).then((h) => ({ ...h, mode })),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   });
@@ -84,7 +89,15 @@ export function useWebhookAction() {
     }): Promise<{ hook: Webhook; secret?: string }> => {
       const params = { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } as never };
       if (v.action === 'rotate') {
-        const r = await unwrap(api.POST('/v1/webhooks/{id}/rotate-secret', { params, body: {} }));
+        const r = await withStepUp((su) =>
+          unwrap(
+            api.POST('/v1/webhooks/{id}/rotate-secret', {
+              params,
+              headers: stepUpHeaders(su), // D-67
+              body: {},
+            }),
+          ),
+        );
         return { hook: r, secret: r.secret };
       }
       const r = await unwrap(

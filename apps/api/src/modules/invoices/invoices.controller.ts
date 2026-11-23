@@ -1,4 +1,9 @@
 import {
+  MAX_DOS_PER_INVOICE,
+  UNWIND_IDEMPOTENCY_LOCK_MS,
+  UNWIND_TX_TIMEOUT_MS,
+} from './billing-limits';
+import {
   Body,
   Controller,
   Get,
@@ -7,6 +12,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -27,10 +33,15 @@ import type { Request, Response } from 'express';
 import {
   NoTransaction,
   RateLimitClass,
+  StepUpAlways,
   RequireScope,
   TenantResource,
+  IdempotencyLockMs,
+  TransactionTimeout,
 } from '../../common/decorators';
+import { assertHumanStepUp } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
+import { ApiExternalIdParam, ExternalIdPipe, extRef } from '../../common/external-id';
 import { decodeIdOr404, tryDecodeId } from '../../common/ids';
 import { PROBLEMS, ProblemException } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
@@ -81,6 +92,9 @@ import {
   SendInvoiceDto,
 } from './document-email.dto';
 import { DocumentEmailService } from './document-email.service';
+import { documentSyncDto } from '../erp/document-sync.dto';
+import { ErpDocumentWarningsService } from '../erp/erp-document-warnings';
+import { ExternalMappingService } from '../erp/external-mapping.service';
 
 const NF = { ...T404, description: 'ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น)' };
 const IF_MATCH = {
@@ -174,6 +188,8 @@ export class InvoicesController {
     private readonly canceller: InvoiceCancelService,
     private readonly status: InvoiceStatusService,
     private readonly mail: DocumentEmailService,
+    private readonly mappings: ExternalMappingService,
+    private readonly erpWarnings: ErpDocumentWarningsService,
   ) {}
 
   // ประกาศ `queue` ก่อน `:id` เสมอ (ไม่งั้น /invoices/queue ถูกจับเป็น id) — test/invoices-draft.test.ts ตรวจลำดับ route
@@ -288,6 +304,64 @@ export class InvoicesController {
     return out;
   }
 
+  @Put('external/:externalId')
+  @RequireScope('invoices:draft')
+  @ApiExternalIdParam()
+  @ApiHeader({ ...IF_MATCH, description: 'ETag — ใช้เมื่อใบมีอยู่แล้ว (ไม่ตรง → 412)' })
+  @ApiOperation({
+    summary: 'สร้าง/แก้ร่างใบแจ้งหนี้ด้วยเลขของระบบต้นทาง (upsert — D68-45)',
+    description:
+      'ยังไม่มีใบที่ externalId นี้ → สร้างร่าง (กติกาเดียวกับ `POST /invoices`) 201 · มีแล้ว → 200: ' +
+      'ลูกค้า + ชุด DO ต้องตรงกับใบ (เพิ่ม/ถอด DO ใช้ `/invoices/{id}/delivery-orders…`) ไม่ตรง → 409 `conflict` · ' +
+      'ช่องหัวใบ (งวด/รูปบรรทัด/เลข PO/หมายเหตุ) เหมือนเดิม → ใบเดิม version เดิม (ส่งซ้ำได้) · ต่าง: ร่าง → แก้ (เหมือน PATCH) · ' +
+      '**ใบที่ออกแล้ว/ยกเลิกแก้ไม่ได้ → 409 `invalid_state_transition`** (docs/04 F3) · externalId ตั้งได้ตอนสร้างเท่านั้น · ' +
+      'ยกเลิกแล้วออกใหม่ (`/void` + reissue) ใบใหม่**ไม่รับ externalId เดิม** (ใบเดิมคง externalId ไว้) — ระบบต้นทางต้องใช้ externalId ใหม่ · ' +
+      'path `{id}` ทุก route รับ `ext:{externalId}`',
+  })
+  @ApiProblems(
+    T403('invoices:draft'),
+    {
+      ...PULL_409,
+      description: `${PULL_409.description} · \`conflict\` — ใบที่มีอยู่มีลูกค้า/ชุด DO ต่างจากที่ส่ง`,
+      examples: { ...PULL_409.examples, ...T409('conflict').examples },
+    },
+    T412,
+    T422,
+  )
+  @ApiOkResponse({ type: InvoiceDto, description: 'มีอยู่แล้ว → ใบเดิม (แก้หัวร่างถ้าต่าง)' })
+  @ApiCreatedResponse({ type: InvoiceDto, description: 'ยังไม่มี → สร้างร่าง' })
+  async upsertExternal(
+    @Param('externalId', ExternalIdPipe) externalId: string,
+    @Body() body: CreateInvoiceDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<InvoiceDto> {
+    const { out, created } = await this.svc.upsertExternal(externalId, body, expectedVersion(req));
+    res.status(created ? 201 : 200);
+    setEtag(res, out.version);
+    return out;
+  }
+
+  @Patch('external/:externalId')
+  @RequireScope('invoices:draft')
+  @ApiExternalIdParam()
+  @ApiOperation({
+    summary: 'แก้หัวร่างด้วยเลขของระบบต้นทาง (= `PATCH /invoices/ext:{externalId}`)',
+    description:
+      'กติกาเดียวกับ `PATCH /invoices/{id}` — เฉพาะ DRAFT (ออกแล้ว → 409) · ยังไม่มีใบนี้ → 404 (สร้างใช้ PUT)',
+  })
+  @ApiHeader(IF_MATCH)
+  @ApiProblems(T403('invoices:draft'), NF, T409(), T412, T422)
+  @ApiOkResponse({ type: InvoiceDto })
+  patchExternal(
+    @Param('externalId', ExternalIdPipe) externalId: string,
+    @Body() body: UpdateInvoiceDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<InvoiceDto> {
+    return this.update(extRef(externalId), body, req, res);
+  }
+
   @Get(':id')
   @TenantResource('invoice')
   @RequireScope('invoices:read')
@@ -303,7 +377,12 @@ export class InvoicesController {
     @Param('id') id: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
-    const out = await this.svc.get(decodeIdOr404('invoice', id));
+    const uuid = await this.svc.idOf(id);
+    const out = await this.svc.get(uuid);
+    // ST7-T15 เลขเอกสารสองฝั่ง (docs/04 G3) — ผลการส่งเข้าระบบบัญชี แยกจากสถานะเอกสาร
+    out.sync = documentSyncDto(await this.mappings.documentSync('INVOICE', uuid));
+    // D-64 (ST8-T08) คำเตือนก่อนส่งเข้าระบบบัญชี (ตั้งแต่ร่าง — ไม่บล็อกการออกเอกสาร)
+    out.erpWarnings = await this.erpWarnings.invoiceWarnings(uuid);
     setEtag(res, out.version);
     return out;
   }
@@ -331,7 +410,7 @@ export class InvoicesController {
       throw new ProblemException('permission_denied', undefined, undefined, {
         requiredScope: 'prices.sell:read',
       });
-    const { pdf } = await this.pdf.proforma(decodeIdOr404('invoice', id));
+    const { pdf } = await this.pdf.proforma(await this.svc.idOf(id));
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="proforma-${id}.pdf"`);
     return new StreamableFile(pdf);
@@ -406,7 +485,7 @@ export class InvoicesController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
-    const out = await this.finalizer.finalize(decodeIdOr404('invoice', id), expectedVersion(req));
+    const out = await this.finalizer.finalize(await this.svc.idOf(id), expectedVersion(req));
     setEtag(res, out.version);
     return out;
   }
@@ -438,7 +517,7 @@ export class InvoicesController {
       throw new ProblemException('permission_denied', undefined, undefined, {
         requiredScope: 'prices.sell:read',
       });
-    const f = await this.finalizer.downloadPdf(decodeIdOr404('invoice', id), q.copy ?? 'ORIGINAL');
+    const f = await this.finalizer.downloadPdf(await this.svc.idOf(id), q.copy ?? 'ORIGINAL');
     const data = f.data;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('X-Content-SHA256', f.sha256);
@@ -463,7 +542,7 @@ export class InvoicesController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
-    const out = await this.svc.update(decodeIdOr404('invoice', id), body, expectedVersion(req));
+    const out = await this.svc.update(await this.svc.idOf(id), body, expectedVersion(req));
     setEtag(res, out.version);
     return out;
   }
@@ -475,7 +554,8 @@ export class InvoicesController {
   @ApiOperation({
     summary: 'เพิ่ม DO เข้าร่าง',
     description:
-      'กฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 `customer_mismatch` · audit `invoice.delivery_orders_added`',
+      'กฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 `customer_mismatch` · ' +
+      `DO บนร่างรวมกับที่เพิ่มเกิน ${MAX_DOS_PER_INVOICE} ใบ → 422 \`too_many\` · audit \`invoice.delivery_orders_added\``,
   })
   @ApiHeader(IF_MATCH)
   @ApiProblems(T403('invoices:draft'), NF, PULL_409, T412, T422)
@@ -487,7 +567,7 @@ export class InvoicesController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
     const out = await this.svc.addDeliveryOrders(
-      decodeIdOr404('invoice', id),
+      await this.svc.idOf(id),
       body.deliveryOrderIds,
       expectedVersion(req),
     );
@@ -496,6 +576,8 @@ export class InvoicesController {
   }
 
   @Post(':id/delivery-orders/remove')
+  @TransactionTimeout(UNWIND_TX_TIMEOUT_MS)
+  @IdempotencyLockMs(UNWIND_IDEMPOTENCY_LOCK_MS)
   @HttpCode(200)
   @TenantResource('invoice')
   @RequireScope('invoices:draft')
@@ -515,7 +597,7 @@ export class InvoicesController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
     const out = await this.svc.removeDeliveryOrders(
-      decodeIdOr404('invoice', id),
+      await this.svc.idOf(id),
       body.deliveryOrderIds,
       body.reason,
       expectedVersion(req),
@@ -525,6 +607,8 @@ export class InvoicesController {
   }
 
   @Post(':id/delivery-orders/move')
+  @TransactionTimeout(UNWIND_TX_TIMEOUT_MS)
+  @IdempotencyLockMs(UNWIND_IDEMPOTENCY_LOCK_MS)
   @HttpCode(200)
   @TenantResource('invoice')
   @RequireScope('invoices:draft')
@@ -532,7 +616,9 @@ export class InvoicesController {
     summary: 'ย้าย DO ไปร่างอื่น (ลูกค้า + สาขาผู้ออกเดียวกัน)',
     description:
       'ถอดจากร่างนี้แล้วดึงเข้าร่างปลายทางใน transaction เดียว (ตรวจความพร้อมซ้ำ — ไม่ผ่าน = ไม่ย้ายเลย) · ปลายทางไม่ใช่ร่าง → 409 · ' +
-      'ลูกค้า/สาขาต่างกัน → 422 `customer_mismatch` · If-Match = version ของร่างต้นทาง · ETag ตอบกลับ = ต้นทาง · audit ทั้งสองใบ',
+      'ลูกค้า/สาขาต่างกัน → 422 `customer_mismatch` · ' +
+      `DO บนร่างปลายทางรวมกับที่ย้ายเกิน ${MAX_DOS_PER_INVOICE} ใบ → 422 \`too_many\` (ไม่ย้ายเลย) · ` +
+      'If-Match = version ของร่างต้นทาง · ETag ตอบกลับ = ต้นทาง · audit ทั้งสองใบ',
   })
   @ApiHeader(IF_MATCH)
   @ApiProblems(T403('invoices:draft'), NF, PULL_409, T412, T422)
@@ -544,7 +630,7 @@ export class InvoicesController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceMoveResultDto> {
     const out = await this.svc.moveDeliveryOrders(
-      decodeIdOr404('invoice', id),
+      await this.svc.idOf(id),
       body,
       expectedVersion(req),
     );
@@ -571,7 +657,7 @@ export class InvoicesController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
-    const out = await this.svc.addLine(decodeIdOr404('invoice', id), body, expectedVersion(req));
+    const out = await this.svc.addLine(await this.svc.idOf(id), body, expectedVersion(req));
     setEtag(res, out.version);
     return out;
   }
@@ -596,7 +682,7 @@ export class InvoicesController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
     const out = await this.svc.mergeLines(
-      decodeIdOr404('invoice', id),
+      await this.svc.idOf(id),
       body.lineIds,
       expectedVersion(req),
     );
@@ -622,7 +708,7 @@ export class InvoicesController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
     const out = await this.svc.splitLines(
-      decodeIdOr404('invoice', id),
+      await this.svc.idOf(id),
       body.lineIds,
       expectedVersion(req),
     );
@@ -650,7 +736,7 @@ export class InvoicesController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
     const out = await this.svc.updateLine(
-      decodeIdOr404('invoice', id),
+      await this.svc.idOf(id),
       decodeIdOr404('invoiceLine', lineId),
       body,
       expectedVersion(req),
@@ -680,7 +766,7 @@ export class InvoicesController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
     const out = await this.svc.removeLine(
-      decodeIdOr404('invoice', id),
+      await this.svc.idOf(id),
       decodeIdOr404('invoiceLine', lineId),
       body.reason,
       expectedVersion(req),
@@ -690,6 +776,8 @@ export class InvoicesController {
   }
 
   @Post(':id/cancel')
+  @TransactionTimeout(UNWIND_TX_TIMEOUT_MS)
+  @IdempotencyLockMs(UNWIND_IDEMPOTENCY_LOCK_MS)
   @HttpCode(200)
   @TenantResource('invoice')
   @RequireScope('invoices:draft')
@@ -708,19 +796,21 @@ export class InvoicesController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
-    const out = await this.svc.cancel(
-      decodeIdOr404('invoice', id),
-      body.reason,
-      expectedVersion(req),
-    );
+    const uuid = await this.svc.idOf(id);
+    const out = await this.svc.cancel(uuid, body.reason, expectedVersion(req));
+    // ST8-T13 ร่างใบออกใหม่ (แทนใบที่ยกเลิก) ถูกยกเลิก → เอกสารของใบเดิมในระบบบัญชีจะไม่ถูกแทนที่ → แจ้งบัญชียกเลิกเอง
+    await this.canceller.reissueDraftCancelled(uuid);
     setEtag(res, out.version);
     return out;
   }
 
   @Post(':id/void')
+  @TransactionTimeout(UNWIND_TX_TIMEOUT_MS)
+  @IdempotencyLockMs(UNWIND_IDEMPOTENCY_LOCK_MS)
   @HttpCode(200)
   @TenantResource('issuedInvoice')
   @RequireScope('invoices:void')
+  @StepUpAlways('human') // D-67: ยกเลิกใบที่ออกแล้ว — ผู้ใช้ต้อง step-up 2FA · API key ตาม scope `invoices:void`
   @ApiOperation({
     summary: 'ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (void) — คงเลข · ยังไม่รับชำระ · เหตุผล ≥ 10 ตัวอักษร',
     description:
@@ -776,8 +866,9 @@ export class InvoicesController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
+    assertHumanStepUp(); // D-67 — ตรวจหลัง validation/404 (ไม่ใช่ใน guard)
     const out = await this.canceller.void(
-      decodeIdOr404('invoice', id),
+      await this.svc.idOf(id),
       body.reason,
       body.reissue === true,
       expectedVersion(req),
@@ -806,7 +897,35 @@ export class InvoicesController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
-    const out = await this.status.markSent(decodeIdOr404('invoice', id), expectedVersion(req));
+    const out = await this.status.markSent(await this.svc.idOf(id), expectedVersion(req));
+    setEtag(res, out.version);
+    return out;
+  }
+
+  @Post(':id/erp-posted')
+  @HttpCode(200)
+  @TenantResource('issuedInvoice')
+  @RequireScope('integrations:retry')
+  @ApiOperation({
+    summary: 'ปุ่ม "ลงบัญชีแล้ว" — ใบนี้ลงบัญชีในระบบบัญชีที่เชื่อมแล้ว (แทนที่ต้องมีผู้อนุมัติ)',
+    description:
+      'ST8-T13 (docs/01 A.2/A.6 — ระบบบัญชีที่บอกสถานะลง GL ไม่ได้ เช่น KRS: "ปุ่ม ลงบัญชีแล้ว + กฎอายุ N วัน") · สิทธิ์ `integrations:retry` ' +
+      '(บัญชี/ผู้วางบิล/ผู้อนุมัติ) · ตั้ง `sync.postedAt` ของเอกสารนี้ในระบบบัญชีที่เชื่อม → หลังจากนี้การแทนที่เอกสารในระบบบัญชี ' +
+      '(ส่งซ้ำ / ยกเลิกแล้วออกใหม่) ขึ้นคิว "ต้องอนุมัติ" (`replace_requires_approval`) จนผู้อนุมัติคนอื่นอนุมัติ · กดซ้ำ = คงเวลาเดิม · ' +
+      'ใบที่ยังไม่อยู่ในระบบบัญชี → 409 `invalid_state_transition` · audit `invoice.erp_posted_marked` · ' +
+      '**ยกเลิกแล้วออกใหม่: กดที่ใบเดิมก่อนออกใบใหม่แทน** (ธงอยู่กับเอกสารในระบบบัญชี — แทนที่สำเร็จแล้วย้ายตามไปใบใหม่; ใบเดิมที่ยกเลิกแล้วกดได้จนกว่าจะแทนที่)',
+  })
+  @ApiProblems(T403('integrations:retry'), NF, T409())
+  @ApiOkResponse({ type: InvoiceDto })
+  async markErpPosted(
+    @Param('id') id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<InvoiceDto> {
+    const uuid = await this.svc.idOf(id);
+    await this.svc.get(uuid); // ไม่พบ / tenant อื่น → 404 (ก่อนตรวจ mapping)
+    await this.mappings.markPosted('INVOICE', uuid);
+    const out = await this.svc.get(uuid);
+    out.sync = documentSyncDto(await this.mappings.documentSync('INVOICE', uuid));
     setEtag(res, out.version);
     return out;
   }
@@ -831,7 +950,7 @@ export class InvoicesController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
     const out = await this.status.unmarkSent(
-      decodeIdOr404('invoice', id),
+      await this.svc.idOf(id),
       body.reason,
       expectedVersion(req),
     );
@@ -876,7 +995,7 @@ export class InvoicesController {
       throw new ProblemException('permission_denied', undefined, undefined, {
         requiredScope: 'prices.sell:read',
       });
-    return this.mail.sendInvoice(decodeIdOr404('invoice', id), body.to, body.purpose ?? 'DOCUMENT');
+    return this.mail.sendInvoice(await this.svc.idOf(id), body.to, body.purpose ?? 'DOCUMENT');
   }
 
   @Get(':id/emails')
@@ -890,8 +1009,8 @@ export class InvoicesController {
   })
   @ApiProblems(T403('invoices:read'), NF)
   @ApiOkResponse({ type: DocumentEmailListDto })
-  emails(@Param('id') id: string): Promise<DocumentEmailListDto> {
-    return this.mail.list('invoice', decodeIdOr404('invoice', id));
+  async emails(@Param('id') id: string): Promise<DocumentEmailListDto> {
+    return this.mail.list('invoice', await this.svc.idOf(id));
   }
 }
 

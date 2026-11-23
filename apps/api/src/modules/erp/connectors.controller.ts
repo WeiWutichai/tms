@@ -24,9 +24,12 @@ import {
   NoTransaction,
   RequireFeature,
   RequireScope,
+  SandboxAware,
+  StepUpAlways,
+  StepUpWhen,
   TenantResource,
-  LiveOnly,
 } from '../../common/decorators';
+import { assertHumanStepUp, assertStepUp } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -52,6 +55,21 @@ import {
 } from './connector.dto';
 import { apiOrigin } from '../documents/documents.controller';
 import { ConnectorsService } from './connectors.service';
+import { ErpSyncLogListDto, ErpSyncLogQuery } from './erp-sync-log';
+import {
+  ConnectorQueueItemDto,
+  ConnectorQueueListDto,
+  ConnectorQueueQuery,
+  ConnectorQueueService,
+  ConnectorQueueSummaryDto,
+  QueueExternalIdDto,
+  QueueRetryAllDto,
+  QueueRetryAllResultDto,
+  QueueRetryResultDto,
+  QueueApproveDto,
+  QueueSkipDto,
+} from './connector-queue';
+import { ConnectorMetricsListDto, ConnectorMetricsService } from './connector-metrics';
 
 /**
  * ผลออก/หมุน token มีค่าที่แสดงครั้งเดียว — ห้ามเก็บลงตาราง idempotency (เก็บ response 24 ชม. เป็นข้อความธรรมดา)
@@ -72,16 +90,19 @@ const IF_MATCH = { name: 'If-Match', required: false, description: 'ETag จา�
  * ไม่มี connector = Standalone (ทุก flow ทำใน TMS) · หน้าจอจัดการ = ST7-T20 · admin portal = ST7-T20
  * อ่าน `settings:read` · จัดการ `settings:write` (owner/admin) · ฟีเจอร์ `conn` ของแพ็กเกจ (จำนวนตาม limit)
  * credential ไม่ส่งกลับทุก endpoint (มีแค่ `credentialKeys`)
+ * sandbox (D-81 · D68-58/96; docs/04 G3/J): ใช้ได้เฉพาะ DemoProvider (`demo`) — adapter จริงตอบ 403 `sandbox_unsupported`
  */
 @ApiTags('connectors')
 @ApiBearerAuth()
+@SandboxAware()
 @RequireFeature('conn')
-@LiveOnly()
 @Controller('connectors')
 export class ConnectorsController {
   constructor(
     private readonly connectors: ConnectorsService,
     private readonly db: DbService,
+    private readonly queue: ConnectorQueueService,
+    private readonly metrics: ConnectorMetricsService,
   ) {}
 
   @Get()
@@ -102,8 +123,23 @@ export class ConnectorsController {
     return { data: this.connectors.adapterCatalog() };
   }
 
+  // ST9-T04 Dashboard เชื่อมต่อ (docs/04 H) — ประกาศก่อน `:id` (ไม่ให้ `GET /connectors/:id` จับ path `metrics`)
+  @Get('metrics')
+  @RequireScope('settings:read', 'integrations:read')
+  @ApiOkResponse({
+    type: ConnectorMetricsListDto,
+    description:
+      'ST9-T04 ตัวเลขต่อ connector ที่ยังไม่ยกเลิก: คิว (`queued`/`failed` = แท็บของหน้าคิว) · lag (อายุคำสั่งค้างที่เก่าสุด) · ' +
+      'health (ผล healthCheck ล่าสุด — worker ตรวจทุก 5 นาที) · ซิงก์ล่าสุด · MISMATCH เปิดอยู่ · poller ล่าสุด · error rate 7 วัน ' +
+      '(การเรียกระบบบัญชีที่ปลายทางไม่ตอบ/5xx/401/403/408/429) — ไม่มีเนื้อหาเอกสาร/ยอดเงิน',
+  })
+  async metricsList(): Promise<ConnectorMetricsListDto> {
+    return { data: await this.metrics.forTenant() };
+  }
+
   @Post()
   @RequireScope('settings:write')
+  @StepUpWhen('ส่ง `credentials` หรือ `settings` มาด้วย (D-67)')
   @ApiCreatedResponse({
     type: ConnectorDto,
     description:
@@ -113,6 +149,8 @@ export class ConnectorsController {
     @Body() body: CreateConnectorDto,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ConnectorDto> {
+    // D-67: ตั้ง credential / ค่าตั้ง (เช่น baseUrl ปลายทางที่ credential ถูกส่งไป) ตอนสร้าง — ต้อง step-up
+    if (hasKeys(body.credentials) || hasKeys(body.settings)) assertHumanStepUp();
     const c = await this.connectors.create(body);
     setEtag(res, c.version);
     return this.connectors.toDto(c);
@@ -156,10 +194,154 @@ export class ConnectorsController {
     return { data: await this.connectors.commands(decodeIdOr404('connector', id), q) };
   }
 
+  @Get(':id/sync-log')
+  @TenantResource('connector')
+  @RequireScope('settings:read', 'integrations:read')
+  @ApiOkResponse({
+    type: ErpSyncLogListDto,
+    description:
+      'ST7-T16 sync log (docs/01 §6.4): 1 แถวต่อ 1 HTTP call ที่ connector นี้เรียกระบบบัญชี (ใหม่สุดก่อน) — ' +
+      'body ตัด credential / เลขบัตรประชาชนแล้ว (≤ 16 KB) · ไม่มี header · URL ไม่มี query string · ' +
+      '`commandId` = เฉพาะการเรียกของคำสั่งนั้น · `documentNo` = เลขเอกสาร TMS',
+  })
+  async syncLog(@Param('id') id: string, @Query() q: ErpSyncLogQuery): Promise<ErpSyncLogListDto> {
+    return this.connectors.syncLog(decodeIdOr404('connector', id), q);
+  }
+
+  // ---------- ST7-T19 คิวเชื่อมระบบบัญชีที่ลูกค้าดูเอง (docs/01 §6.4; docs/04 G3; spec/07 §2) ----------
+
+  @Get(':id/queue')
+  @TenantResource('connector')
+  @RequireScope('settings:read', 'integrations:read')
+  @ApiOkResponse({
+    type: ConnectorQueueListDto,
+    description:
+      'ST7-T19 คิวของ connector แยกแท็บ `queued` (PENDING/IN_FLIGHT/FAILED_RETRYABLE + `nextRunAt`) / `failed` (ต้องมีคนทำ: FAILED_FINAL, ' +
+      'SKIPPED ที่แจ้งบัญชี, DUPLICATE ที่ต้องกรอกเลขเอง — ยังไม่ได้จัดการ) / `done` · `errorClass` กรองกลุ่ม · ' +
+      'แต่ละรายการมี `guide` (คู่มือภาษาไทยต่อ error code), `link` + `missing[]` (mapping/ผังรหัสที่ขาด), `actions` · ' +
+      'request/response ของคำสั่ง = `GET /connectors/{id}/sync-log?commandId=` · keyset cursor',
+  })
+  queueList(
+    @Param('id') id: string,
+    @Query() q: ConnectorQueueQuery,
+  ): Promise<ConnectorQueueListDto> {
+    return this.queue.list(decodeIdOr404('connector', id), q);
+  }
+
+  @Get(':id/queue/summary')
+  @TenantResource('connector')
+  @RequireScope('settings:read', 'integrations:read')
+  @ApiOkResponse({
+    type: ConnectorQueueSummaryDto,
+    description:
+      'ST7-T19 ตัวนับต่อแท็บ (`failed` = badge ที่เมนู — ไม่รวมคิวที่ระบบกำลังส่งเอง) + แท็บล้มเหลวแยก ErrorClass',
+  })
+  queueSummary(@Param('id') id: string): Promise<ConnectorQueueSummaryDto> {
+    return this.queue.summary(decodeIdOr404('connector', id));
+  }
+
+  @Post(':id/queue/retry')
+  @HttpCode(200)
+  @TenantResource('connector')
+  @RequireScope('settings:write', 'integrations:retry')
+  @ApiOkResponse({
+    type: QueueRetryAllResultDto,
+    description:
+      'ST7-T19 ส่งซ้ำทุกรายการในแท็บล้มเหลวที่ส่งซ้ำได้ (ครั้งละ ≤ 200; `errorClass` = เฉพาะกลุ่ม) — แต่ละรายการ = `ErpSyncService.resend` ' +
+      '(canonical ฉบับที่ออก) · รายการที่ต้องทำในระบบบัญชีเองนับใน `notRetryable`',
+  })
+  queueRetryAll(
+    @Param('id') id: string,
+    @Body() body: QueueRetryAllDto,
+  ): Promise<QueueRetryAllResultDto> {
+    return this.queue.retryAll(decodeIdOr404('connector', id), body);
+  }
+
+  @Post(':id/queue/:commandId/retry')
+  @HttpCode(200)
+  @TenantResource('connector')
+  @RequireScope('settings:write', 'integrations:retry')
+  @ApiOkResponse({
+    type: QueueRetryResultDto,
+    description:
+      'ST7-T19 ส่งซ้ำ 1 รายการในแท็บล้มเหลว (หลังแก้ mapping / ผังรหัส / เปิดงวดบัญชี) → คำสั่งใหม่ (รายการเดิมออกจากคิว) · ' +
+      'ส่งซ้ำไม่ได้ (จัดการแล้ว / ไม่ใช่รายการล้มเหลว / ต้องทำในระบบบัญชีเอง / ก่อนวันเริ่มซิงก์) → 409 `queue_action_not_allowed` (`why`)',
+  })
+  queueRetry(
+    @Param('id') id: string,
+    @Param('commandId') commandId: string,
+  ): Promise<QueueRetryResultDto> {
+    return this.queue.retry(decodeIdOr404('connector', id), commandId);
+  }
+
+  @Post(':id/queue/:commandId/skip')
+  @HttpCode(200)
+  @TenantResource('connector')
+  @RequireScope('settings:write', 'integrations:retry')
+  @ApiOkResponse({
+    type: ConnectorQueueItemDto,
+    description:
+      'ST7-T19 ข้ามรายการในแท็บล้มเหลว (เช่น บัญชีบันทึกในระบบบัญชีเองแล้ว / งวดปิดและรับทราบ) — เหตุผล ≥ 10 ตัว · audit `connector.queue_skipped` · ย้ายไปแท็บสำเร็จ',
+  })
+  queueSkip(
+    @Param('id') id: string,
+    @Param('commandId') commandId: string,
+    @Body() body: QueueSkipDto,
+  ): Promise<ConnectorQueueItemDto> {
+    return this.queue.skip(decodeIdOr404('connector', id), commandId, body);
+  }
+
+  @Post(':id/queue/:commandId/approve')
+  @HttpCode(200)
+  @TenantResource('connector')
+  @RequireScope('credit-notes:approve')
+  @ApiOkResponse({
+    type: ConnectorQueueItemDto,
+    description:
+      'ST8-T13 อนุมัติการแทนที่เอกสารในระบบบัญชี (รายการ `replace_requires_approval` — ลงบัญชีแล้ว (ERP แจ้ง / ปุ่ม "ลงบัญชีแล้ว") ' +
+      'หรือใบอายุเกิน `billing.erpReplaceApprovalDays` วัน; docs/01 §6.1, A.2) — คนเท่านั้น · เหตุผล ≥ 10 ตัว · ' +
+      'ผู้อนุมัติต้องไม่ใช่ผู้ขอ (ผู้ออกใบใหม่ / ผู้ยกเลิกใบเดิม / ผู้สั่งส่งซ้ำ) → 403 `erp_replace_self_approval` · ' +
+      'ผล: คำสั่งใหม่ที่ส่งได้ทันที (`resolution.supersededBy`) · audit `connector.queue_approved` · ' +
+      'ไม่ใช่รายการรออนุมัติ → 409 `queue_action_not_allowed` (`why`: `not_awaiting_approval` ฯลฯ)',
+  })
+  queueApprove(
+    @Param('id') id: string,
+    @Param('commandId') commandId: string,
+    @Body() body: QueueApproveDto,
+  ): Promise<ConnectorQueueItemDto> {
+    return this.queue.approve(decodeIdOr404('connector', id), commandId, body);
+  }
+
+  @Post(':id/queue/:commandId/external-id')
+  @HttpCode(200)
+  @TenantResource('connector')
+  @RequireScope('settings:write', 'integrations:retry')
+  @ApiOkResponse({
+    type: ConnectorQueueItemDto,
+    description:
+      'ST7-T19 กรอกเลขเอกสารฝั่งระบบบัญชีเอง (DUPLICATE ที่หาไม่เจอ หรือคำสั่งส่งเอกสารที่ล้มเหลวแต่เอกสารอยู่ในระบบบัญชีแล้ว) — เหตุผล ≥ 10 ตัว · ' +
+      'audit `connector.queue_external_id` · external_mapping = MISMATCH `erp_content_unverified` (รอบ reconcile ยืนยัน) · ' +
+      'เลขผูกกับเอกสารอื่นแล้ว → 409 `external_id_conflict` · ' +
+      'ST8-T09 (docs/01 A.5 409) ระบบบัญชีที่แยกเอกสารเป็นหลายใบ (เช่น KRS แยกตามชนิด VAT): กรอก `documents` ต่อใบ ' +
+      '(`ref` ต้องอยู่ในการแยกใบ — นอกแผน/ซ้ำ/ไม่ตรงกับเลขที่ระบบรู้แล้ว = 422) · แผนมีใบเดียวรับ `externalId` ได้ · ' +
+      'ผล: external_mapping PENDING + คำสั่งส่งใหม่ (`resolution.supersededBy`) ที่อ่านเอกสารจากระบบบัญชีมาเทียบก่อน ' +
+      '(ตรง = SYNCED · ต่าง = MISMATCH · ไม่พบ = REMOTE_MISSING) และส่งเฉพาะใบที่ไม่ได้กรอก — ไม่ส่งใบที่กรอกแล้วซ้ำ',
+  })
+  queueExternalId(
+    @Param('id') id: string,
+    @Param('commandId') commandId: string,
+    @Body() body: QueueExternalIdDto,
+  ): Promise<ConnectorQueueItemDto> {
+    return this.queue.externalId(decodeIdOr404('connector', id), commandId, body);
+  }
+
   @Patch(':id')
   @NoTransaction()
   @TenantResource('connector')
   @RequireScope('settings:write')
+  @StepUpWhen(
+    'ส่ง `settings` มาด้วย (เช่น baseUrl — credential ที่เก็บไว้จะถูกส่งไปปลายทางนี้; D-67 review H1)',
+  )
   @ApiHeader(IF_MATCH)
   @ApiOkResponse({
     type: ConnectorDto,
@@ -172,6 +354,8 @@ export class ConnectorsController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ConnectorDto> {
+    // D-67 review H1: เปลี่ยนค่าตั้ง (เช่น baseUrl) = เปลี่ยนปลายทางที่ส่ง credential → ต้อง step-up
+    if (hasKeys(body.settings)) assertHumanStepUp();
     const c = await this.connectors.update(
       decodeIdOr404('connector', id),
       body,
@@ -209,6 +393,7 @@ export class ConnectorsController {
   @Put(':id/credentials')
   @TenantResource('connector')
   @RequireScope('settings:write')
+  @StepUpAlways() // D-67
   @ApiHeader(IF_MATCH)
   @ApiOkResponse({
     type: ConnectorDto,
@@ -221,6 +406,7 @@ export class ConnectorsController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ConnectorDto> {
+    assertStepUp(); // D-67 — ตรวจหลัง validation/404 (ไม่ใช่ใน guard)
     const c = await this.connectors.setCredentials(
       decodeIdOr404('connector', id),
       body,
@@ -299,6 +485,7 @@ export class ConnectorsController {
   @HttpCode(200)
   @TenantResource('connector')
   @RequireScope('settings:write')
+  @StepUpAlways() // D-67: คำตอบมี token ของ URL ขาเข้า (= credential)
   @ApiHeader(IF_MATCH)
   @ApiOkResponse({
     type: InboundTokenDto,
@@ -313,6 +500,7 @@ export class ConnectorsController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InboundTokenDto> {
+    assertStepUp(); // D-67 — ตรวจหลัง validation/404 (ไม่ใช่ใน guard)
     noIdempotencyKey(req);
     const { connector, token } = await this.connectors.rotateInboundToken(
       decodeIdOr404('connector', id),
@@ -386,7 +574,7 @@ export class ConnectorsController {
  */
 @ApiTags('connectors')
 @ApiBearerAuth()
-@LiveOnly()
+@SandboxAware()
 @Controller('connectors')
 export class ConnectorsEffectiveController {
   constructor(private readonly connectors: ConnectorsService) {}
@@ -401,4 +589,9 @@ export class ConnectorsEffectiveController {
   effective(@Query() q: EffectiveConnectorQuery): Promise<EffectiveConnectorDto> {
     return this.connectors.effective(q);
   }
+}
+
+/** มีอย่างน้อย 1 ช่อง (D-67) */
+function hasKeys(o: object | null | undefined): boolean {
+  return !!o && Object.keys(o).length > 0;
 }

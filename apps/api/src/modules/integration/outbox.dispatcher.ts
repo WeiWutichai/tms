@@ -8,6 +8,7 @@ import {
   type ErrorClass,
   type OutboxEvent,
   type OutboxSink,
+  type SettledCommand,
 } from './outbox.types';
 
 /** lease ค่าเริ่มต้น (docs/01 §6.2: 5 นาที; sink ใบใหญ่ตั้ง `leaseMs` เอง) */
@@ -16,10 +17,16 @@ export const DEFAULT_LEASE_MS = 5 * 60_000;
 export const RETRY_SCHEDULE_MIN = [1, 2, 5, 15, 30, 60] as const;
 /** AMBIGUOUS: ไม่ส่งซ้ำทันที — รอ 2 นาที (docs/01 §6.3) */
 const AMBIGUOUS_DELAY_MIN = 2;
-/** AUTH: คำสั่งคง PENDING ไม่นับครั้ง — ลองใหม่ทุก 15 นาที (หยุด connector ทั้งตัวทำใน ST7-T13/T16) */
+/**
+ * AUTH: คำสั่งคง PENDING ไม่นับครั้ง — ตรวจอีกครั้งทุก 15 นาที (docs/01 §6.3 "คำสั่งคง `PENDING`") · sink เป็นผู้หยุด connector ทั้งตัว
+ * (`ERROR` + แจ้ง admin ทันที — ErpAdapterSink/ConnectorsService.markError; D-81 · D68-47) แล้วรอบถัดไปพักโดยไม่เรียกปลายทาง
+ * (ไม่ retry ด้วย credential เดิม) · ปลุกทันทีเมื่อ connector กลับมา ACTIVE (`wakeParked`)
+ */
 const AUTH_DELAY_MIN = 15;
-/** คำสั่งที่ส่งพร้อมกันต่อปลายทาง (docs/01 §6.2 config.maxConcurrency default 3) — นับแบบหลวม (soft cap) */
+/** คำสั่งที่ส่งพร้อมกันต่อปลายทาง (docs/01 §6.2 config.maxConcurrency default 3; A.5 "จำกัด 3 ต่อ connector") — นับใต้ advisory lock ต่อปลายทาง */
 export const MAX_IN_FLIGHT_PER_TARGET = 3;
+/** ST8-T09 (review L1) คลาสของ advisory lock ต่อปลายทาง (tenant:sink:target) ตอนหยิบคำสั่ง */
+const TARGET_LOCK = 14;
 
 export interface ClaimedCommand {
   id: string;
@@ -70,7 +77,7 @@ function classify(err: unknown): { cls: ErrorClass; detail: Record<string, unkno
  *   ถูกส่งไปแล้ว) จะถูกส่งทีหลัง — ไม่ใช้ advisory lock ใน trigger เพราะ transaction ที่ปล่อย event ของหลายลูกค้าสลับลำดับกัน
  *   จะ deadlock แล้ว request ของผู้ใช้ล้ม (spec/12 §3) · เอกสารที่ต้องเรียงจริง (invoice → credit note) เรียงได้เพราะ
  *   credit note สร้างได้หลัง invoice commit แล้วเท่านั้น · ปลายทาง webhook ใช้ occurredAt/version ตัดสินลำดับเอง
- * - ใน process เดียว claim ทีละรายการ (mutex) → นับ IN_FLIGHT ต่อปลายทางจากฐานได้ตรง (cap MAX_IN_FLIGHT_PER_TARGET)
+ * - ใน process เดียว claim ทีละรายการ (mutex) · ข้าม process: ล็อก advisory ต่อปลายทางแล้วนับ IN_FLIGHT ใหม่ (cap MAX_IN_FLIGHT_PER_TARGET — ST8-T09)
  * - round-robin ต่อ tenant: tenant ที่ถูกหยิบล่าสุดนานที่สุดก่อน · จำกัดส่งพร้อมกันต่อปลายทาง
  * - ระหว่างส่ง ต่อ lease (heartbeat) · worker ตาย → lease หมด → worker อื่นหยิบใหม่ด้วย idempotency key เดิม (ปลายทางกันซ้ำ)
  * - ผลเขียนเฉพาะถ้า lease ยังเป็นของเรา · ส่งถึงปลายทางแล้วแต่เขียนผลไม่ได้ → ไม่ตั้ง retry เอง ปล่อยให้ lease หมด
@@ -98,36 +105,42 @@ export class OutboxDispatcher {
   private async claimNow(leaseMs: number): Promise<ClaimedCommand | null> {
     const db = this.prisma.platform;
     // lease หมดในครั้งสุดท้าย (worker ตายระหว่างส่ง) → dead-letter ไม่วนไม่จบ (อาจส่งถึงแล้ว → AMBIGUOUS ให้คนตรวจ)
-    await db.$executeRaw`
+    const dead = await db.$queryRaw<Omit<SettledCommand, 'status' | 'code'>[]>`
       UPDATE integration_outbox
          SET status = 'FAILED_FINAL', error_class = 'AMBIGUOUS', lease_id = NULL, lease_until = NULL, done_at = now(),
              last_error = jsonb_build_object('code', 'lease_expired', 'message', 'worker lease expired on last attempt'),
              updated_at = now()
-       WHERE status = 'IN_FLIGHT' AND lease_until < now() AND attempt >= max_attempt`;
-    const rows = await db.$queryRaw<ClaimedCommand[]>`
-      WITH heads AS (
-        SELECT DISTINCT ON (o.tenant_id, o.serialize_key)
-               o.id, o.tenant_id, o.sink, o.target_id, o.status, o.next_run_at, o.lease_until, o.seq
-          FROM integration_outbox o
-         WHERE o.status IN ('PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE')
-         ORDER BY o.tenant_id, o.serialize_key, o.seq
-      ),
-      busy AS (
-        SELECT tenant_id, sink, coalesce(target_id, '-') AS target, count(*) AS n
-          FROM integration_outbox
-         WHERE status = 'IN_FLIGHT' AND lease_until >= now()
-         GROUP BY 1, 2, 3
-      ),
-      ready AS (
-        SELECT h.id, h.next_run_at, h.seq
-          FROM heads h
-          LEFT JOIN busy b ON b.tenant_id = h.tenant_id AND b.sink = h.sink AND b.target = coalesce(h.target_id, '-')
-         WHERE ((h.status IN ('PENDING', 'FAILED_RETRYABLE') AND h.next_run_at <= now())
-                OR (h.status = 'IN_FLIGHT' AND h.lease_until < now()))
-           AND coalesce(b.n, 0) < ${MAX_IN_FLIGHT_PER_TARGET}
-      ),
-      pick AS (
-        SELECT o.id
+       WHERE status = 'IN_FLIGHT' AND lease_until < now() AND attempt >= max_attempt
+      RETURNING id, tenant_id AS "tenantId", sink, target_id AS "targetId", operation, entity_type AS "entityType",
+                local_id AS "localId", payload, error_class AS "errorClass"`;
+    for (const r of dead)
+      await this.settled({ ...r, status: 'FAILED_FINAL', code: 'lease_expired' });
+    // ST8-T09 (review L1) เพดานต่อปลายทางนับจากฐาน — หลาย process หยิบพร้อมกันอาจนับเกิน · เลือกผู้สมัครก่อน แล้วล็อกต่อปลายทาง
+    // (`pg_advisory_xact_lock` คลาส ${TARGET_LOCK}) นับใหม่ใน transaction เดียวกับการตั้ง IN_FLIGHT → ไม่เกินเพดานข้าม process
+    return db.$transaction(async (t) => {
+      const [cand] = await t.$queryRaw<{ id: string; lockKey: string }[]>`
+        WITH heads AS (
+          SELECT DISTINCT ON (o.tenant_id, o.serialize_key)
+                 o.id, o.tenant_id, o.sink, o.target_id, o.status, o.next_run_at, o.lease_until, o.seq
+            FROM integration_outbox o
+           WHERE o.status IN ('PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE')
+           ORDER BY o.tenant_id, o.serialize_key, o.seq
+        ),
+        busy AS (
+          SELECT tenant_id, sink, coalesce(target_id, '-') AS target, count(*) AS n
+            FROM integration_outbox
+           WHERE status = 'IN_FLIGHT' AND lease_until >= now()
+           GROUP BY 1, 2, 3
+        ),
+        ready AS (
+          SELECT h.id, h.next_run_at, h.seq
+            FROM heads h
+            LEFT JOIN busy b ON b.tenant_id = h.tenant_id AND b.sink = h.sink AND b.target = coalesce(h.target_id, '-')
+           WHERE ((h.status IN ('PENDING', 'FAILED_RETRYABLE') AND h.next_run_at <= now())
+                  OR (h.status = 'IN_FLIGHT' AND h.lease_until < now()))
+             AND coalesce(b.n, 0) < ${MAX_IN_FLIGHT_PER_TARGET}
+        )
+        SELECT o.id, o.tenant_id::text || ':' || o.sink || ':' || coalesce(o.target_id, '-') AS "lockKey"
           FROM integration_outbox o
           JOIN ready r ON r.id = o.id
           LEFT JOIN LATERAL (
@@ -137,24 +150,40 @@ export class OutboxDispatcher {
             OR (o.status = 'IN_FLIGHT' AND o.lease_until < now())
          ORDER BY t.last_claimed ASC NULLS FIRST, r.next_run_at, r.seq
          FOR UPDATE OF o SKIP LOCKED
-         LIMIT 1
-      )
-      UPDATE integration_outbox u
-         SET status = 'IN_FLIGHT', attempt = u.attempt + 1, lease_id = gen_random_uuid(),
-             lease_until = now() + (${leaseMs}::int * interval '1 millisecond'),
-             claimed_at = clock_timestamp(), updated_at = now()
-        FROM pick
-       WHERE u.id = pick.id
-         AND NOT EXISTS (
-           -- กันหัวคิวเปลี่ยนระหว่าง statement (คำสั่งก่อนหน้าในคีย์เดียวกันกลับมา PENDING/IN_FLIGHT)
-           SELECT 1 FROM integration_outbox p
-            WHERE p.tenant_id = u.tenant_id AND p.serialize_key = u.serialize_key AND p.seq < u.seq
-              AND p.status IN ('PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE'))
-      RETURNING u.id, u.tenant_id AS "tenantId", u.kind::text AS kind, u.sink, u.target_id AS "targetId",
-                u.operation, u.entity_type AS "entityType", u.local_id AS "localId", u.event_id AS "eventId",
-                u.serialize_key AS "serializeKey", u.idempotency_key AS "idempotencyKey", u.payload,
-                u.attempt, u.max_attempt AS "maxAttempt", u.lease_id AS "leaseId"`;
-    return rows[0] ?? null;
+         LIMIT 1`;
+      if (!cand) return null;
+      await t.$executeRaw`SELECT pg_advisory_xact_lock(${TARGET_LOCK}::int, hashtext(${cand.lockKey}))`;
+      const rows = await t.$queryRaw<ClaimedCommand[]>`
+        UPDATE integration_outbox u
+           SET status = 'IN_FLIGHT', attempt = u.attempt + 1, lease_id = gen_random_uuid(),
+               -- ST8-T08 (review M2) ยึดคืนคำสั่งที่ worker ตายระหว่างส่ง → ผลของรอบก่อน (เช่น knownOutcome) ใช้ไม่ได้อีก
+               -- (รอบที่ตายอาจส่งถึงปลายทางแล้ว) — sink เห็น code lease_expired = ต้องค้นก่อนส่งซ้ำ
+               last_error = CASE WHEN u.status = 'IN_FLIGHT'
+                                 THEN jsonb_build_object('code', 'lease_expired',
+                                                         'message', 'worker lease expired — command reclaimed',
+                                                         'attempt', u.attempt, 'at', now())
+                                 ELSE u.last_error END,
+               lease_until = now() + (${leaseMs}::int * interval '1 millisecond'),
+               claimed_at = clock_timestamp(), updated_at = now()
+         WHERE u.id = ${cand.id}::uuid
+           AND ((u.status IN ('PENDING', 'FAILED_RETRYABLE') AND u.next_run_at <= now())
+                OR (u.status = 'IN_FLIGHT' AND u.lease_until < now()))
+           -- นับใหม่หลังได้ล็อกของปลายทาง (review L1)
+           AND (SELECT count(*) FROM integration_outbox b
+                 WHERE b.tenant_id = u.tenant_id AND b.sink = u.sink
+                   AND coalesce(b.target_id, '-') = coalesce(u.target_id, '-')
+                   AND b.status = 'IN_FLIGHT' AND b.lease_until >= now()) < ${MAX_IN_FLIGHT_PER_TARGET}
+           AND NOT EXISTS (
+             -- กันหัวคิวเปลี่ยนระหว่าง statement (คำสั่งก่อนหน้าในคีย์เดียวกันกลับมา PENDING/IN_FLIGHT)
+             SELECT 1 FROM integration_outbox p
+              WHERE p.tenant_id = u.tenant_id AND p.serialize_key = u.serialize_key AND p.seq < u.seq
+                AND p.status IN ('PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE'))
+        RETURNING u.id, u.tenant_id AS "tenantId", u.kind::text AS kind, u.sink, u.target_id AS "targetId",
+                  u.operation, u.entity_type AS "entityType", u.local_id AS "localId", u.event_id AS "eventId",
+                  u.serialize_key AS "serializeKey", u.idempotency_key AS "idempotencyKey", u.payload,
+                  u.attempt, u.max_attempt AS "maxAttempt", u.lease_id AS "leaseId"`;
+      return rows[0] ?? null;
+    });
   }
 
   /**
@@ -163,11 +192,15 @@ export class OutboxDispatcher {
    * หยิบไม่ได้ (worker หยิบไปแล้ว/ยังไม่ถึงคิว/เต็มเพดาน) → false (worker ส่งให้)
    */
   async runNow(id: string): Promise<boolean> {
-    const [row] = await this.prisma.platform.$queryRaw<{ sink: string }[]>`
-      SELECT sink FROM integration_outbox WHERE id = ${id}::uuid`;
+    const [row] = await this.prisma.platform.$queryRaw<{ sink: string; lockKey: string }[]>`
+      SELECT sink, tenant_id::text || ':' || sink || ':' || coalesce(target_id, '-') AS "lockKey"
+        FROM integration_outbox WHERE id = ${id}::uuid`;
     if (!row) return false;
     const leaseMs = this.sinks.get(row.sink)?.leaseMs ?? DEFAULT_LEASE_MS;
-    const rows = await this.prisma.platform.$queryRaw<ClaimedCommand[]>`
+    // ST8-T09 (review L1) ล็อกต่อปลายทางเดียวกับ claim — นับเพดานใหม่ภายใต้ล็อก
+    const rows = await this.prisma.platform.$transaction(async (t) => {
+      await t.$executeRaw`SELECT pg_advisory_xact_lock(${TARGET_LOCK}::int, hashtext(${row.lockKey}))`;
+      return t.$queryRaw<ClaimedCommand[]>`
       UPDATE integration_outbox u
          SET status = 'IN_FLIGHT', attempt = u.attempt + 1, lease_id = gen_random_uuid(),
              lease_until = now() + (${leaseMs}::int * interval '1 millisecond'),
@@ -186,6 +219,7 @@ export class OutboxDispatcher {
                 u.operation, u.entity_type AS "entityType", u.local_id AS "localId", u.event_id AS "eventId",
                 u.serialize_key AS "serializeKey", u.idempotency_key AS "idempotencyKey", u.payload,
                 u.attempt, u.max_attempt AS "maxAttempt", u.lease_id AS "leaseId"`;
+    });
     if (!rows[0]) return false;
     await this.process(rows[0]);
     return true;
@@ -248,6 +282,7 @@ export class OutboxDispatcher {
         event,
         signal: abort.signal,
         withTx: (fn) => this.db.withTenant(c.tenantId, fn),
+        leaseId: c.leaseId,
       });
       delivered = true;
       clearInterval(heartbeat);
@@ -282,7 +317,9 @@ export class OutboxDispatcher {
     let delayMin = 0;
     let attempt = c.attempt;
     switch (cls) {
-      case 'DUPLICATE': // ปลายทางมีอยู่แล้ว (ส่งถึงในรอบก่อน) — ไม่ใช่ error (reconcile ทำใน ST7-T16)
+      case 'DUPLICATE':
+        // ปลายทางมีอยู่แล้ว (ส่งถึงในรอบก่อน) — ไม่ใช่ error · ST7-T16 (docs/01 §6.3): sink ตามหาเอกสารฝั่งปลายทางแล้วบันทึก mapping
+        // หาไม่เจอ = DONE + `last_error.code` duplicate_unresolved (sink แจ้งบัญชีให้กรอกเลขจากระบบปลายทางเอง)
         status = 'DONE';
         break;
       case 'CAPABILITY':
@@ -313,7 +350,7 @@ export class OutboxDispatcher {
             : (own ?? retryDelayMin(c.attempt, sink?.retry?.scheduleMin ?? RETRY_SCHEDULE_MIN));
       }
     }
-    await this.finish(c, {
+    const ok = await this.finish(c, {
       status,
       errorClass: cls,
       lastError: { ...detail, attempt: c.attempt, at: new Date().toISOString() },
@@ -322,6 +359,31 @@ export class OutboxDispatcher {
       attempt,
     });
     this.log(c, `${status}:${cls}`, started);
+    if (ok && (status === 'FAILED_FINAL' || status === 'SKIPPED'))
+      await this.settled({
+        id: c.id,
+        tenantId: c.tenantId,
+        sink: c.sink,
+        targetId: c.targetId,
+        operation: c.operation,
+        entityType: c.entityType,
+        localId: c.localId,
+        payload: c.payload,
+        status,
+        errorClass: cls,
+        code: typeof detail.code === 'string' ? detail.code : null,
+      });
+  }
+
+  /** D68-57 แจ้ง sink ว่าคำสั่งจบแบบไม่ถึงปลายทาง — ล้ม = log (ผลของคำสั่งบันทึกแล้ว ไม่ย้อน) */
+  private async settled(c: SettledCommand): Promise<void> {
+    const sink = this.sinks.get(c.sink);
+    if (!sink?.onSettled) return;
+    try {
+      await sink.onSettled(c);
+    } catch (e) {
+      this.logger.warn(`outbox ${c.id} onSettled failed: ${String(e)}`);
+    }
   }
 
   /** เขียนผลเฉพาะถ้ายังถือ lease (worker อื่นอาจหยิบซ้ำหลัง lease หมด) — คืน false ถ้าเสีย lease แล้ว */

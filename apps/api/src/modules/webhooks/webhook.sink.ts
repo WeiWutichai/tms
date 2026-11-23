@@ -16,8 +16,8 @@ export const MANUAL_OP = 'webhook.redeliver';
 /**
  * Sink `webhook` ของ integration outbox (ST7-T04) — subscription ของแต่ละ endpoint (target = id) สร้างคำสั่งต่อ event
  * - ครั้งแรก + retry 8 ครั้งตามตาราง G1 (1m,5m,30m,2h,6h,12h,24h,24h) → ครบแล้วล้ม = FAILED_FINAL (delivery EXHAUSTED)
- * - 4xx (ยกเว้น 408/429) / redirect / SSRF / URL เสีย → ไม่ลองใหม่ (VALIDATION → FAILED_FINAL) — รวม 401/403 ของผู้รับ
- *   (นับเป็น event ล้มเหลวเหมือนกัน ไม่หยุด endpoint ทันที; ครบ 50 event ติดกัน → ปิดอัตโนมัติ) [DECISION spec/12 §3]
+ * - ทุกผลที่ไม่ใช่ 2xx (รวม 3xx/4xx เช่น 401/404) / timeout / network → ลองใหม่ตามตาราง (D-81 · D68-48 — docs/04 G1)
+ * - 410 Gone / SSRF / URL เสีย → ไม่ลองใหม่ (VALIDATION → FAILED_FINAL) · ทุกแบบนับเป็น event ล้มเหลว (ครบ 50 event ติดกัน → ปิดอัตโนมัติ)
  * - endpoint ปิด/ลบ/ไม่มีในแพ็กเกจ → SKIPPED (ไม่ส่ง) · tenant ถูกระงับ → คงคำสั่งไว้ (AUTH = PENDING ลองทุก 15 นาที ไม่นับครั้ง — INT-109)
  * - at-least-once: envelope id = `evt_<domain_event>` เดิมทุกครั้ง ผู้รับกันซ้ำด้วย id
  */

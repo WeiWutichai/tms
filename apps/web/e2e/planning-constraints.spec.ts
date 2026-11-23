@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Locator, Page } from '@playwright/test';
-import { expect, test } from './fixtures';
+import { expect, test, trustDevice } from './fixtures';
 
 /**
  * E2E ST3-T14 กฎตอนจัดรถ — D-07 (PO 16 พ.ย. 2569 "ผสม"):
@@ -23,6 +23,7 @@ const jur = (n: number) => {
 const today = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 
 async function token(page: Page, email: string): Promise<string> {
+  await trustDevice(page, email); // D-78: ผู้ใช้ที่ต้องตั้ง 2FA
   const v = randomBytes(32).toString('base64url');
   const r1 = await page.request.post('/v1/auth/login', {
     data: {

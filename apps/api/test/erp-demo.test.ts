@@ -14,7 +14,7 @@ import {
 import { ConnectorPullScheduler } from '../src/modules/connectors/connector-pull.scheduler';
 import { ConnectorsService } from '../src/modules/erp/connectors.service';
 import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
-import { ERP_SINK } from '../src/modules/erp/erp-adapter.sink';
+import { ERP_SINK, sentIdempotencyKey } from '../src/modules/erp/erp-adapter.sink';
 import { OutboxDispatcher } from '../src/modules/integration/outbox.dispatcher';
 import { OutboxService } from '../src/modules/integration/outbox.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
@@ -46,8 +46,15 @@ describe('Standalone + DemoProvider (ST7-T14)', () => {
   };
   const cmd = (id: string) => plat.integrationOutbox.findUniqueOrThrow({ where: { id } });
   /** เลขภายนอกที่ DemoProvider ให้กับคำสั่งนี้ (hash ของ tenant, connector, ประเภท, idempotency key) */
-  const extOf = async (connectorId: string, id: string) =>
-    demoExternalSuffix(`${tenantId}:${connectorId}`, 'invoice', (await cmd(id)).idempotencyKey);
+  const extOf = async (connectorId: string, id: string) => {
+    const c = await cmd(id);
+    // ST7-T15 key ที่ adapter ได้รับ = ส่วนหน้าของ key คำสั่ง + hash ของเอกสารที่ส่งจริง (`result.sentHash`)
+    return demoExternalSuffix(
+      `${tenantId}:${connectorId}`,
+      'invoice',
+      sentIdempotencyKey(c.idempotencyKey, (c.result as { sentHash: string }).sentHash),
+    );
+  };
 
   async function company(n: number) {
     const c = await plat.company.create({
@@ -255,12 +262,15 @@ describe('Standalone + DemoProvider (ST7-T14)', () => {
     const docs = demo.documents(tenantId, con.uuid);
     expect(docs).toHaveLength(1);
     expect(docs[0]!.document).toMatchObject({ id: inv.id, number: 'INV-00000-2611-0001' });
-    // คำสั่งเดิม (idempotency key เดิม) ไม่สร้างคำสั่งใหม่ · payload เดียวกันคำสั่งอื่น = ERP ตอบซ้ำ → DONE (DUPLICATE)
+    // คำสั่งเดิม (idempotency key เดิม) ไม่สร้างคำสั่งใหม่ · payload เดียวกันคำสั่งอื่น = ERP ตอบซ้ำ (DUPLICATE)
     const again = await enqueue(con.uuid, 'PUSH_INVOICE', inv.payload, inv.id);
     expect(again).toBe(id);
     const other = await enqueue(con.uuid, 'PUSH_INVOICE', inv.payload, randomUUID());
     await drain();
+    // ST7-T16 (docs/01 §6.3 DUPLICATE): sink ค้นเอกสารฝั่ง ERP — เลขนี้เป็นของเอกสาร TMS อื่น (local id ต่าง) → ไม่ผูกมั่ว
+    // = DONE (docs/01 §6.3) + `duplicate_unresolved` แจ้งบัญชีให้ตรวจ/กรอกเลขเอง
     expect(await cmd(other)).toMatchObject({ status: 'DONE', errorClass: 'DUPLICATE' });
+    expect((await cmd(other)).lastError).toMatchObject({ code: 'duplicate_unresolved' });
     expect(demo.documents(tenantId, con.uuid)).toHaveLength(1);
     // อ่านกลับ: fetch + สถานะรับชำระ (ตามค่าตั้ง paymentStatus)
     await setSettings(con.id, { paymentStatus: 'PAID' });
@@ -270,6 +280,16 @@ describe('Standalone + DemoProvider (ST7-T14)', () => {
       number: 'INV-00000-2611-0001',
       externalId: `DEMO-INV-${h}`,
     };
+    // ST7-T21: `fetchPaymentStatus` เป็น opt-in (ไม่เปิดเป็นค่าเริ่มต้น) — เปิดเองพร้อมเหตุผลก่อนสั่ง
+    const cur = await api(app, token).get(`/v1/connectors/${con.id}`).expect(200);
+    expect(cur.body.capabilitiesEnabled).not.toContain('fetchPaymentStatus');
+    await api(app, token)
+      .patch(`/v1/connectors/${con.id}`)
+      .send({
+        capabilitiesEnabled: [...cur.body.capabilitiesEnabled, 'fetchPaymentStatus'],
+        reason: 'เปิดดึงสถานะรับชำระเพื่อทดสอบ DemoProvider',
+      })
+      .expect(200);
     const f = await enqueue(con.uuid, 'FETCH_DOCUMENT', { ref });
     const p = await enqueue(con.uuid, 'FETCH_PAYMENT_STATUS', { ref });
     await drain();

@@ -7,8 +7,13 @@ import { api, ApiError, unwrap } from '../../api';
 import { formatDate, formatDateTime, useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { SecretDialog } from '../api-keys/SecretDialog';
+import { PayloadDialog } from '../webhooks/WebhookDeliveries';
+import '../webhooks/webhooks.css';
 import { HistoryTab } from '../master/HistoryTab';
 import { problemText } from '../master/problems';
+import { stepUpHeaders, withStepUp } from '../stepup/stepUp';
+import { can } from '../../nav';
+import { useMe } from '../../shell/AppShell';
 import { MappingTable } from './Connectors';
 import { Radio } from './OrgSections';
 import { Toggle } from './Settings';
@@ -16,6 +21,7 @@ import { Toggle } from './Settings';
 type Connector = Schemas['ConnectorDto'];
 type Adapter = Schemas['ErpAdapterDto'];
 type Command = Schemas['ConnectorCommandDto'];
+type SyncLog = Schemas['ErpSyncLogDto'];
 type T = ReturnType<typeof useI18n>['t'];
 type Tab = 'map' | 'log' | 'hist';
 
@@ -65,6 +71,8 @@ export function adapterName(t: T, key: string, displayName?: string | null, demo
 
 /** credential ไม่แสดงค่า — มีแค่ชื่อช่อง + จุดปิด (INT-003; เกณฑ์ตรวจรับ "credential ไม่แสดงเต็ม") */
 export const MASK = '••••••••';
+/** ST7-T21 capability ที่ API ให้เปิดได้เมื่อมีเหตุผลเท่านั้น (ตรงกับ `OPT_IN_CAPABILITIES` ฝั่ง API) */
+const OPT_IN_CAPABILITIES: readonly string[] = ['fetchPaymentStatus'];
 
 /**
  * ตั้งค่า → การเชื่อมต่อ → ระบบบัญชี (ERP) — ต้นแบบ TMS v4 `st.is.conn` (ST7-T20; docs/04 G3 "หน้าจัดการ connector", spec/07 §1)
@@ -716,18 +724,25 @@ function MapTab({
   const [inb, setInb] = useState<'rotate' | 'revoke' | null>(null);
   const [secret, setSecret] = useState<{ url: string; copied: boolean } | null>(null);
   const [numTo, setNumTo] = useState<'TMS' | 'ERP' | null>(null);
+  /** ST7-T21 capability แบบ opt-in ที่กำลังจะเปิด (รอเหตุผล) */
+  const [capOn, setCapOn] = useState<string | null>(null);
   useEffect(() => setFrom(c.syncFromDate ?? ''), [c.syncFromDate]);
   const ifMatch = { 'If-Match': `"${c.version}"` } as never;
   const done = () => void qc.invalidateQueries({ queryKey: ['connectors'] });
   const patch = useMutation({
+    // D-67 (review H1): แก้ค่าตั้ง (เช่น baseUrl) ต้องยืนยัน 2FA — API ตอบ step_up_required → กล่องยืนยัน
     mutationFn: (body: Schemas['UpdateConnectorDto']) =>
-      unwrap(
-        api.PATCH('/v1/connectors/{id}', {
-          params: { path: { id: c.id }, header: ifMatch },
-          body,
-        }),
+      withStepUp((su) =>
+        unwrap(
+          api.PATCH('/v1/connectors/{id}', {
+            params: { path: { id: c.id }, header: ifMatch },
+            headers: stepUpHeaders(su),
+            body,
+          }),
+        ),
       ),
     onSuccess: () => {
+      setCapOn(null);
       done();
       onToast(t('cnx.toast.saved'));
     },
@@ -756,11 +771,15 @@ function MapTab({
   const inbound = useMutation({
     mutationFn: async ({ kind, reason }: { kind: 'rotate' | 'revoke'; reason: string }) => {
       if (kind === 'rotate') {
-        const r = await unwrap(
-          api.POST('/v1/connectors/{id}/inbound-token/rotate', {
-            params: { path: { id: c.id }, header: ifMatch },
-            body: { reason },
-          }),
+        // D-67: คำตอบมี token ของ URL ขาเข้า — ต้องยืนยัน 2FA
+        const r = await withStepUp((su) =>
+          unwrap(
+            api.POST('/v1/connectors/{id}/inbound-token/rotate', {
+              params: { path: { id: c.id }, header: ifMatch },
+              headers: stepUpHeaders(su),
+              body: { reason },
+            }),
+          ),
         );
         return r.url;
       }
@@ -878,13 +897,19 @@ function MapTab({
                   on={on}
                   label={t(`cnx.cap.${k}` as MessageKey)}
                   disabled={!canWrite || patch.isPending}
-                  onChange={() =>
+                  onChange={() => {
+                    // ST7-T21 เปิด capability แบบ opt-in ต้องมีเหตุผล (API 422 ถ้าไม่มี) — ถามด้วย dialog เหตุผลแบบเดิมของหน้านี้
+                    if (!on && OPT_IN_CAPABILITIES.includes(k)) {
+                      patch.reset();
+                      setCapOn(k);
+                      return;
+                    }
                     patch.mutate({
                       capabilitiesEnabled: on
                         ? c.capabilitiesEnabled.filter((x) => x !== k)
                         : [...c.capabilitiesEnabled, k],
-                    })
-                  }
+                    });
+                  }}
                 />
               </div>
             );
@@ -965,6 +990,29 @@ function MapTab({
         onOk={(reason) => numTo && sor.mutate({ taxDocumentOwner: numTo, reason })}
       />
       <ReasonDialog
+        open={!!capOn}
+        title={t('cnx.dlg.capOnT', { cap: capOn ? t(`cnx.cap.${capOn}` as MessageKey) : '' })}
+        description={t('cnx.dlg.capOnD', { n })}
+        label={t('cnx.reason')}
+        placeholder={t('cnx.reasonPh')}
+        okLabel={t('cnx.dlg.capOnOk')}
+        cancelLabel={t('common.cancel')}
+        closeLabel={t('drawer.close')}
+        busy={patch.isPending}
+        error={capOn ? problemText(patch.error, t) : undefined}
+        onClose={() => {
+          setCapOn(null);
+          patch.reset();
+        }}
+        onOk={(reason) =>
+          capOn &&
+          patch.mutate({
+            capabilitiesEnabled: [...c.capabilitiesEnabled, capOn] as typeof c.capabilitiesEnabled,
+            reason,
+          })
+        }
+      />
+      <ReasonDialog
         open={!!inb}
         title={t(inb === 'revoke' ? 'cnx.dlg.inRevokeT' : 'cnx.dlg.inRotateT')}
         description={t(inb === 'revoke' ? 'cnx.dlg.inRevokeD' : 'cnx.dlg.inRotateD')}
@@ -1017,7 +1065,42 @@ function LogTab({
     queryFn: () =>
       unwrap(api.GET('/v1/connectors/{id}/commands', { params: { path: { id: c.id } } })),
   });
+  const [view, setView] = useState<{ title: string; sub: string; json: string } | null>(null);
+  const [toast, setToast] = useState<{ m: string; err: boolean } | null>(null);
   const rows: Command[] = q.data?.data ?? [];
+  // ST7-T19 "ดู payload" (ต้นแบบ l.view → PL): request/response ของคำสั่งจาก sync log (ตัด secret แล้ว — ST7-T16)
+  const scopes = useMe().data?.scopes ?? [];
+  // review H1: body มียอดเงิน — ไม่มีสิทธิ์ดูราคาของเอกสารชนิดนั้น = API ไม่ส่ง body → ไม่แสดงปุ่ม
+  const canView = (r: Command) => bodyScopes(r.entityType).every((x) => can(scopes, x));
+  const open = async (r: Command) => {
+    let sub = `${operationLabel(t, r.operation)} · ${docLabel(t, r)} · ${formatDateTime(r.createdAt, lang)}`;
+    const title = t('cnx.pl.title', { n });
+    try {
+      // review L4: ไล่ cursor ของ sync log (สูงสุด 4 หน้า × 50 ครั้ง) — เกินแล้วบอกว่ามีต่อ
+      const all: SyncLog[] = [];
+      let cursor: string | undefined;
+      let more = false;
+      for (let i = 0; i < 4; i++) {
+        const page = await unwrap(
+          api.GET('/v1/connectors/{id}/sync-log', {
+            params: {
+              path: { id: c.id },
+              query: { commandId: r.id, limit: 50, ...(cursor ? { cursor } : {}) },
+            },
+          }),
+        );
+        all.push(...page.data);
+        more = page.hasMore && !!page.nextCursor;
+        if (!more) break;
+        cursor = page.nextCursor ?? undefined;
+      }
+      if (more) sub += ` · ${t('cnx.pl.more', { n: all.length })}`;
+      setView({ title, sub, json: payloadJson(all) ?? t('cnx.pl.none') });
+    } catch (e) {
+      const m = problemText(e, t);
+      if (m) setToast({ m, err: true });
+    }
+  };
   if (q.isLoading) return <div className="cnx-msg">{t('cnx.loading')}</div>;
   if (q.isError) return <div className="cnx-msg">{t('cnx.loadError')}</div>;
   if (!rows.length)
@@ -1043,6 +1126,7 @@ function LogTab({
             <th>{t('cnx.log.doc')}</th>
             <th>{t('cnx.log.action')}</th>
             <th>{t('cnx.log.result')}</th>
+            <th style={{ textAlign: 'right' }}>{t('cnx.log.payload')}</th>
           </tr>
         </thead>
         <tbody>
@@ -1061,13 +1145,71 @@ function LogTab({
                     )}
                   </span>
                 </td>
+                <td style={{ textAlign: 'right' }}>
+                  {canView(r) && (
+                    <button type="button" className="cnx-pl" onClick={() => void open(r)}>
+                      <Icon n="braces" s={16} />
+                      {t('cnx.log.viewPayload')}
+                    </button>
+                  )}
+                </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+      {view && (
+        <PayloadDialog
+          {...view}
+          onClose={() => setView(null)}
+          onCopy={() => {
+            void navigator.clipboard?.writeText(view.json).catch(() => undefined);
+            setToast({ m: t('whk.toast.payloadCopied'), err: false });
+          }}
+        />
+      )}
+      <Toast
+        message={toast?.m ?? null}
+        tone={toast?.err ? 'err' : 'ok'}
+        onClose={() => setToast(null)}
+        closeLabel={t('drawer.close')}
+      />
     </div>
   );
+}
+
+/**
+ * ST7-T19 การเรียกระบบบัญชีของคำสั่ง → JSON แบบต้นแบบ `{ request, response }` (หลายครั้ง = รายการเรียงตามเวลา) · ไม่มีการเรียก = null
+ * body ที่เป็น JSON แสดงเป็น object (ไม่เป็นสตริงซ้อน) · ไม่มี header (ไม่เก็บ — ST7-T16)
+ */
+/** scope ราคาที่ต้องมีเพื่อดู body ของคำสั่งชนิดนี้ (ตรงกับ `bodyPriceScopes` ฝั่ง API) */
+export function bodyScopes(entityType: string): string[] {
+  if (entityType === 'invoice' || entityType === 'payment') return ['prices.sell:read'];
+  if (entityType === 'settlement') return ['prices.buy:read'];
+  return ['prices.sell:read', 'prices.buy:read'];
+}
+
+export function payloadJson(calls: readonly SyncLog[]): string | null {
+  if (!calls.length) return null;
+  const body = (v: string | null) => {
+    if (v == null) return null;
+    try {
+      return JSON.parse(v) as unknown;
+    } catch {
+      return v;
+    }
+  };
+  const one = (l: SyncLog) => ({
+    request: { method: l.method, url: l.url, at: l.occurredAt, body: body(l.requestBody) },
+    response: {
+      status: l.statusCode,
+      ...(l.errorCode ? { code: l.errorCode } : {}),
+      durationMs: l.durationMs,
+      body: body(l.responseBody),
+    },
+  });
+  const list = [...calls].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt)).map(one);
+  return JSON.stringify(list.length === 1 ? list[0] : list, null, 2);
 }
 
 /**
@@ -1111,22 +1253,30 @@ function ConnectDialog({
       );
     try {
       if (rotate) {
-        await unwrap(
-          api.PUT('/v1/connectors/{id}/credentials', {
-            params: {
-              path: { id: rotate.id },
-              header: { 'If-Match': `"${rotate.version}"` } as never,
-            },
-            body: { credentials: pick(true), reason: reason.trim() },
-          }),
+        // D-67: ตั้ง/หมุน credential ต้องยืนยัน 2FA
+        await withStepUp((su) =>
+          unwrap(
+            api.PUT('/v1/connectors/{id}/credentials', {
+              params: {
+                path: { id: rotate.id },
+                header: { 'If-Match': `"${rotate.version}"` } as never,
+              },
+              headers: stepUpHeaders(su),
+              body: { credentials: pick(true), reason: reason.trim() },
+            }),
+          ),
         );
         onDone(t('cnx.toast.rotated', { n }));
         return;
       }
-      const c = await unwrap(
-        api.POST('/v1/connectors', {
-          body: { adapterKey: adapter.key, credentials: pick(true), settings: pick(false) },
-        }),
+      // D-67: สร้างพร้อม credential ต้องยืนยัน 2FA
+      const c = await withStepUp((su) =>
+        unwrap(
+          api.POST('/v1/connectors', {
+            headers: stepUpHeaders(su),
+            body: { adapterKey: adapter.key, credentials: pick(true), settings: pick(false) },
+          }),
+        ),
       );
       void qc.invalidateQueries({ queryKey: ['connectors'] });
       try {

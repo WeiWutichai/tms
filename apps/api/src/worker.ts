@@ -10,6 +10,14 @@ import { OutboxWorkerPool } from './modules/integration/outbox-worker';
 import { purgeAuthData } from './auth/maintenance';
 import { PrismaService } from './db/prisma.service';
 import { MonitorScheduler } from './modules/monitoring/monitor-scheduler';
+import {
+  PAYMENT_PULL_CHECK_EVERY_MS,
+  PaymentStatusPullService,
+} from './modules/erp/payment-status-pull.service';
+import {
+  DocumentReconcileService,
+  RECONCILE_CHECK_EVERY_MS,
+} from './modules/erp/document-reconcile.service';
 import { AvailabilityService } from './modules/monitoring/availability.service';
 import { WebhookRetentionService } from './modules/webhooks/webhook-retention';
 import { RetentionService } from './modules/retention/retention.service';
@@ -183,13 +191,41 @@ async function main() {
       .catch((e) => log.error(e));
   void schedulePulls();
   const pullTimer = setInterval(schedulePulls, CONNECTOR_PULL_EVERY_MS);
+  // ST7-T21 ดึงสถานะรับชำระจากระบบบัญชีที่เปิด fetchPaymentStatus: ตรวจทุก 10 นาที — ตั้งแต่ 06:00 เวลาไทย สร้าง job ของวันนี้ต่อ connector (docs/01 §6.1 "scheduler รายวัน")
+  const paymentPull = ctx.get(PaymentStatusPullService);
+  const schedulePaymentPull = () =>
+    paymentPull
+      .scheduleDue()
+      .then((n) => n && log.info({ connectors: n }, 'payment status pulls scheduled'))
+      .catch((e) => log.error(e));
+  void schedulePaymentPull();
+  const paymentPullTimer = setInterval(schedulePaymentPull, PAYMENT_PULL_CHECK_EVERY_MS);
+  // ST8-T11 reconcile เอกสารกับระบบบัญชี (docs/01 §6.5): ตรวจทุก 5 นาที — AFTER_PUSH (ทันที + 60 นาทีหลังส่งสำเร็จ) ·
+  // NIGHTLY ตั้งแต่ 02:00 · PRE_CLOSE วันทำการสุดท้ายของเดือนตั้งแต่ 17:00 (เวลาไทย) → คำสั่ง FETCH_DOCUMENT เข้าคิวของ connector
+  const reconcile = ctx.get(DocumentReconcileService);
+  const scheduleReconcile = () =>
+    reconcile
+      .scheduleDue()
+      .then((r) => (r.afterPush || r.rounds) && log.info({ reconcile: r }, 'reconcile scheduled'))
+      .catch((e) => log.error(e));
+  void scheduleReconcile();
+  const reconcileTimer = setInterval(scheduleReconcile, RECONCILE_CHECK_EVERY_MS);
   // ST8-T03 ตรวจซ้ำ connector ที่ปลายทางไม่ตอบ (ACTIVE ล้มต่อเนื่อง ≥ 30 นาที → ERROR) และคืน ERROR(TRANSIENT) → ACTIVE เมื่อกลับมา
   const recheckHealth = () =>
     connectors
       .recheckUnhealthy()
       .then((n) => n && log.info({ connectors: n }, 'connector health rechecked'))
       .catch((e) => log.error(e));
-  const healthTimer = setInterval(recheckHealth, HEALTH_RECHECK_EVERY_MS);
+  // ST9-T04 healthCheck ทุก 5 นาทีของ connector ACTIVE ที่ยังปกติ (docs/01 §A.4) — ปลายทางล่มแล้ว dashboard เห็น health แดงแม้ไม่มีคำสั่งส่ง
+  const sweepHealth = () =>
+    connectors
+      .healthSweep()
+      .then((n) => n && log.info({ connectors: n }, 'connector health sweep'))
+      .catch((e) => log.error(e));
+  const healthTimer = setInterval(() => {
+    recheckHealth();
+    sweepHealth();
+  }, HEALTH_RECHECK_EVERY_MS);
   // ตัวเลขคิว outbox ทุก 5 นาที ลง log (ST9-T19: metrics/alert อ่านจากฐานโดยตรง — /v1/metrics, AlertEvaluator)
   const outboxStats = () =>
     outbox
@@ -214,6 +250,8 @@ async function main() {
   clearInterval(depreciationTimer);
   clearInterval(offerTimeoutTimer);
   clearInterval(pullTimer);
+  clearInterval(paymentPullTimer);
+  clearInterval(reconcileTimer);
   clearInterval(healthTimer);
   clearInterval(outboxStatsTimer);
   monitor.stop();

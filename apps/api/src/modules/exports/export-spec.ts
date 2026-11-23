@@ -16,6 +16,11 @@ export interface ExportSpec<Q extends object = any, R extends { id: string } = a
   label: string;
   /** ชื่อไฟล์ (ASCII) */
   fileBase: string;
+  /**
+   * ST7-T23 ชื่อไฟล์ตามตัวกรอง (ไม่รวมนามสกุล — ภาษาไทยได้: ดาวน์โหลดส่ง `filename*` UTF-8) เช่น "รายการขาย_ต.ค.2569"
+   * ไม่มี = `{fileBase}-{วันเวลา}`
+   */
+  fileName?: (q: Q) => string;
   /** สิทธิ์อ่านรายการ (any-of) */
   scope: string | string[];
   /** ชนิด id ของ DTO — ใช้ถอด cursor ของหน้าถัดไป */
@@ -34,6 +39,12 @@ export interface ExportSpec<Q extends object = any, R extends { id: string } = a
    * `title` = หัวเอกสาร, `subtitle` = บรรทัดรอง (เช่น งวด)
    */
   pdf?: { title: (q: Q) => string; subtitle?: (q: Q) => string };
+  /**
+   * D-73 ไฟล์ที่อาจมีข้อมูลส่วนบุคคลเต็ม (เลขบัตรประชาชน) — `count(rows)` = จำนวนเอกสาร/คู่ค้าที่มีค่าเต็มในชุดนี้
+   * รวมทั้งไฟล์ > 0 → งานส่งออกลง audit `export.pii_included` (entity = job; `after` = resource, ตัวกรอง, `fields`, จำนวน)
+   * ทุกครั้งที่สร้างไฟล์ (ตัดสินที่ core ไม่ใช่ adapter)
+   */
+  pii?: { fields: string[]; count: (rows: R[]) => number };
 }
 
 @Injectable()

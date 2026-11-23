@@ -5,7 +5,8 @@ import { api, ApiError, unwrap } from '../api';
 /**
  * ลิงก์งานของรถร่วม — ส่วนสถานะ (ST4-T08; docs/04 E2 "ePOD ผ่านลิงก์", docs/01 §5.5 `/public/pod/{token}`)
  * ตรรกะปุ่มเป็นฟังก์ชันล้วน (test ได้) · ความหมาย DEPART ตาม docs/01 §3.9 (spec/12 §3 DECISION ST4-T02):
- * "ออกจากจุด" ของจุด N = DEPART ของจุดถัดไปในเที่ยว · จุดรับที่ถึงแล้ว "ออกจากจุดรับ" = ปิดงานจุดรับ (รับของครบ) ก่อน
+ * "ออกจากจุด" ของจุด N = DEPART ของจุดถัดไปในเที่ยว · จุดรับที่ถึงแล้ว "ออกจากจุดรับ" = ขึ้นของเสร็จ (`LOADED` —
+ * D-81 · D68-39, docs/01 §3.9) ก่อน
  */
 export type PodView = Schemas['PodLinkViewDto'];
 export type PodDo = Schemas['PodDoDto'];
@@ -21,10 +22,10 @@ export type PodFileKind = Schemas['PodLinkFileReserveDto']['kind'];
 
 export type PodActionKey = 'arrivePickup' | 'leavePickup' | 'arriveDrop' | 'leaveDrop';
 
-/** หนึ่งคำขอของปุ่ม (ส่งตามลำดับ — ARRIVE/COMPLETE ก่อน DEPART ของจุดถัดไป) */
+/** หนึ่งคำขอของปุ่ม (ส่งตามลำดับ — ARRIVE/LOADED/COMPLETE ก่อน DEPART ของจุดถัดไป) */
 export interface PodStep {
   stopId: string;
-  type: 'ARRIVE' | 'DEPART' | 'COMPLETE';
+  type: 'ARRIVE' | 'DEPART' | 'LOADED' | 'COMPLETE';
 }
 export interface PodAction {
   key: PodActionKey;
@@ -47,7 +48,7 @@ export function nextPodAction(m: PodDo): PodAction | null {
       return {
         key: 'leavePickup',
         steps: [
-          { stopId: P.id, type: 'COMPLETE' },
+          { stopId: P.id, type: 'LOADED' },
           // DEPART เฉพาะเมื่อจุดถัดไปยังว่าง (QA M1 — กันสร้าง event ขัดลำดับ)
           ...(P.nextStopId && P.nextOpen
             ? [{ stopId: P.nextStopId, type: 'DEPART' as const }]

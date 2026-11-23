@@ -83,7 +83,7 @@ error body: `{ status, error, message, errors? }`
 |---|---|
 | `POST /__mock/reset` | ล้างใบ เลขเริ่มใหม่ ปิดทุกสวิตช์ |
 | `GET /__mock/state` | ใบทั้งหมด (+ `revision`, `overwriteCount`) สวิตช์ และ log คำขอ |
-| `POST /__mock/faults` `{kind?, status?, method?, times?, body?}` (หรือ array) | kind: `status` (ค่าเริ่ม 503 — ทุก code ใน A.1 ได้) · `timeout` · `reset` · `timeout-after-commit` / `reset-after-commit` (บันทึกแล้วแต่ response หาย — เคส AMBIGUOUS ของ A.5) · `times` ค่าเริ่ม 1, `0` = จนกว่าจะล้าง |
+| `POST /__mock/faults` `{kind?, status?, method?, times?, skip?, body?}` (หรือ array) | kind: `status` (ค่าเริ่ม 503 — ทุก code ใน A.1 ได้) · `timeout` · `reset` · `timeout-after-commit` / `reset-after-commit` (บันทึกแล้วแต่ response หาย — เคส AMBIGUOUS ของ A.5) · `times` ค่าเริ่ม 1, `0` = จนกว่าจะล้าง · `skip` (ST8-T08) = ปล่อยคำขอที่ตรงเงื่อนไข N ครั้งแรกผ่านก่อน (เช่น ล้มที่ POST ใบที่ 2) |
 | `DELETE /__mock/faults` | ล้าง fault |
 | header `X-Mock-Fault` | fault ต่อคำขอ: ตัวเลข 3 หลัก `400`–`599` (status) หรือชนิด `timeout` / `reset` / `timeout-after-commit` / `reset-after-commit` — ค่าอื่น = 400 · ปิดได้ด้วย `allowHeaderFaults: false` |
 | `PUT /__mock/overwrite` `{enabled, rule?}` | **บัญชีกดบันทึกแล้วรายการถูกเขียนใหม่** — เปิดแล้วใบที่มีถูกเขียนทับทันที และใบที่ POST/PUT หลังจากนั้นถูกเขียนทับหลังตอบ (GET ถัดไปได้รายการที่เปลี่ยน) |
@@ -109,3 +109,26 @@ error body: `{ status, error, message, errors? }`
 | รายการไหนหาย/ฟิลด์ไหนว่างตอนเขียนทับ | 30 รายการแรก, ไม่ล้างฟิลด์ | `rule` ข้างบน |
 | ฟิลด์สถานะ GL / ค้นด้วย `tmsVoucherNo` / credit note / DO | ไม่มี (ตาม A.1) | เพิ่มเมื่อ KRS ตอบ — แก้ schema ใน `packages/contracts/krs` ก่อน |
 | rate limit | ไม่จำกัด | — |
+
+## Payload ที่ TMS ส่ง (ST8-T07 — `apps/api/src/erp-adapters/krs/krs-invoice-payload.ts`)
+
+builder สร้าง body ของ `POST /invoice` / `PUT /invoice/{transactionNo}` จาก canonical invoice แบบ whitelist (test `apps/api/test/krs-invoice-payload.test.ts` เทียบกับ `invoice-request.schema.json` และ POST เข้า mock นี้) · **[OPEN — KRS]** จุดที่ contract ไม่กำหนด — ค่าเริ่มของ builder เป็นทางระมัดระวัง ตั้งค่าได้ใน `KRS_PAYLOAD_DEFAULTS` (คำถาม: `plan/08-questions-krs.md` KRS-19 — **ยังไม่ได้ส่ง KRS อย่าถือเป็นข้อเท็จจริง**)
+
+| เรื่อง [OPEN — KRS] | ค่าเริ่มของ builder | option |
+|---|---|---|
+| เพดาน "50 MB" (10^6 หรือ 2^20, วัดที่ body หรือไม่) | 50,000,000 ไบต์ของ body JSON UTF-8 (mock รับถึง 52,428,800) | `maxBytes` |
+| เกินเพดาน: KRS รับการแบ่งใบไหม / เลขของใบที่แบ่ง | แบ่งตามลำดับรายการ หัวเอกสารซ้ำ; ใบแรก = เลขเดิม ใบที่ n = `{tmsVoucherNo}-P{n}` | `splitVoucherNo` |
+| `lineId` ของใบที่แบ่ง (เลขเดิม / เริ่ม 1 ใหม่ / ต้องต่อเนื่องไหม) | เลขบรรทัดเดิมของ TMS | `splitLineId: 'renumber'` |
+| รายการที่ไม่ผูก DO (contract บังคับ `flowNo`…`toWay` ทุกรายการ) | ไม่สร้าง payload (`krs_line_without_do`) | `lineWithoutDo: 'placeholder'`, `placeholderText` |
+| รายการที่มีส่วนลด (ไม่มีช่องส่วนลด; KRS คิดยอด = จำนวน × ราคา) | ไม่สร้าง payload (`krs_discount_unsupported`) | `discount: 'net-unit-price'` (เฉพาะหารลงตัว) |
+| เที่ยวไม่มีชื่อคนขับ (รถร่วม) — `carPerson` บังคับ | ไม่สร้าง payload | `carPersonFallback: 'carrierName'` |
+| เที่ยวไม่มีทะเบียนรถ — `carId` บังคับ | ไม่สร้าง payload | `carIdFallback: 'placeholder'` (ใช้ `placeholderText`) |
+| `accountCode` เมื่อยังไม่ได้นำเข้าผังบัญชีของ KRS | ไม่ส่ง key (A.3: KRS กำหนด default) — ส่งเฉพาะค่าที่หาเจอในผัง ACCOUNT | — |
+| KRS ปัดยอดต่อรายการ / ยอดรวมอย่างไร (mock: `amountRounding`) | builder ไม่ส่งยอด — คืน `expectedAmount` + `expectedLines` ไว้เทียบ (จับคู่ `lineId` + `flowNo`) | — |
+| `deliveryAddress` ("ที่อยู่หลักของลูกค้า") | ที่อยู่วางบิล (เท่ากับ `address`) | `deliveryAddress: 'empty'` |
+| `entryBy` (ต้องเป็น user ใน ERP ไหม) | `TMS` | `entryBy` |
+| `saleName` เมื่อผังรหัสไม่มีชื่อ | สตริงว่าง | — |
+| หลายรายการของ DO เดียวกัน (`flowNo` ซ้ำในใบ) | ส่งตามบรรทัด ไม่รวมรายการ | — |
+| ความยาวสูงสุดของช่องข้อความ · ทศนิยมสูงสุด/ค่าติดลบ/ศูนย์ของ `mainQuantity`, `unitPrice` | ไม่ตัด ไม่ปัด ส่งตามจริง (ตัวเลขที่แปลงเป็น JSON number แล้วเพี้ยน = ไม่ส่ง) | — |
+| VAT ต่อรายการ (A.6) | builder ไม่แยกใบ — ST8-T08 แยกตาม `vat_type` แล้วเรียก builder ต่อกลุ่ม | `tmsVoucherNo` |
+

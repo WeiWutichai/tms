@@ -16,6 +16,10 @@
  * `deliveries:revert` (ST5-T06 — docs/04 F4 "DELIVERED ย้อนได้โดย Dispatcher (ภายใน 24 ชม.) / Admin"; A3 ไม่มีแถวนี้)
  *   → owner, admin เท่านั้น (ตาม F4 เคร่งครัด — manager ไม่ได้) — `BILLING_REVERT_RULES`
  *
+ * `pii.national_id:read` (D-73 PO 22 พ.ย. 2569 — ส่งออกให้นักบัญชีที่มี**เลขบัตรประชาชนเต็ม**ของรถร่วมบุคคลธรรมดา; A3 ไม่มีแถวนี้)
+ *   → owner + accounting เท่านั้น (admin ไม่ได้ — ข้อมูลส่วนบุคคล PDPA ให้เฉพาะผู้ทำบัญชี) · **ห้ามให้ API key** (`API_KEY_DENIED_SCOPES`)
+ *   · ไม่มีสิทธิ์ = เห็นเลขท้าย 4 หลัก (`•••• 1234`) ตามเดิม [DECISION — ย้อนได้ spec/12 §3 แถว ST7-T23 / D-73]
+ *
  * "เลือกได้" ในตาราง A3 = ค่าเริ่มต้นไม่ให้ (owner เปิดเพิ่มได้เมื่อมี custom role — P1)
  */
 export const PERMISSIONS = [
@@ -65,12 +69,19 @@ export const PERMISSIONS = [
   'integrations:retry',
   /** ST7-T11: อ่าน event สาธารณะ `GET /v1/events` (docs/01 §5.4 `events:read`) — เห็นเฉพาะ event ของ resource ที่อ่านได้ */
   'events:read',
+  /**
+   * D-81 · D68-49/62 (PO 23 พ.ย. 2569): จัดการ webhook ผ่าน Open API (CRUD + ทดสอบ + retry/redeliver) **โดยไม่ต้องมี `settings:write`**
+   * — ให้ API key ได้ (`settings:write` ห้ามให้ key) · ผู้ใช้: owner/admin (ทุกสิทธิ์) · หมุน secret = ผู้ใช้ step-up เท่านั้น (D-67)
+   */
+  'webhooks:manage',
   'jobs:read',
   'reports.finance:read',
   'reports.ops:read',
   'export:run',
   'audit:read',
   'audit.accounting:read',
+  /** D-73: เลขบัตรประชาชนเต็มของรถร่วมบุคคลธรรมดาในไฟล์ส่งออกให้นักบัญชี (audit `export.pii_included` ทุกไฟล์) */
+  'pii.national_id:read',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -99,10 +110,11 @@ export const SYSTEM_ROLES: Record<RoleCode, { th: string; en: string; permission
   {
     owner: { th: 'เจ้าของ', en: 'Owner', permissions: ALL },
     // A3: ใบลดหนี้/เพิ่มหนี้ ของ Admin = "✔ / (ว่าง)" → ขอได้ อนุมัติไม่ได้
+    // D-73: เลขบัตรประชาชนเต็ม (pii.national_id:read) ให้เฉพาะ owner + accounting
     admin: {
       th: 'ผู้ดูแลระบบ',
       en: 'Admin',
-      permissions: ALL.filter((p) => p !== 'credit-notes:approve'),
+      permissions: ALL.filter((p) => p !== 'credit-notes:approve' && p !== 'pii.national_id:read'),
     },
     // spec/01 §12 คอลัมน์ manager (D-12)
     manager: {
@@ -229,6 +241,8 @@ export const SYSTEM_ROLES: Record<RoleCode, { th: string; en: string; permission
         'reports.ops:read',
         'export:run',
         'audit.accounting:read',
+        // D-73: เลขบัตรประชาชนเต็มของรถร่วมบุคคลในไฟล์ส่งออกให้นักบัญชี
+        'pii.national_id:read',
       ],
     },
     approver: {
@@ -279,6 +293,23 @@ export function scopeAllows(granted: readonly string[], required: string): boole
 }
 
 /**
+ * D-78 (PO 23 พ.ย. 2569): ผู้ใช้ที่ถือสิทธิ์ตัวใดตัวหนึ่งนี้ (ตั้งค่า / จ่ายเงินรถร่วม / ยกเลิกใบแจ้งหนี้ / ส่งออก)
+ * **ต้องตั้ง 2FA (TOTP)** — login ครั้งถัดไปต้องผ่านขั้นตั้ง 2FA ก่อน · token ที่ออกก่อนหน้าได้ 403 `two_factor_enrolment_required`
+ * (role ระบบที่เข้าเกณฑ์: owner, admin, manager, planner, invoicer, accounting) · API key / ทีม Innovera เข้าใช้งานแทน ไม่เกี่ยว
+ */
+export const TWO_FACTOR_SCOPES = [
+  'settings:write',
+  'settlements:pay',
+  'invoices:void',
+  'export:run',
+] as const satisfies readonly Permission[];
+
+/** สิทธิ์ชุดนี้บังคับตั้ง 2FA ไหม (D-78) */
+export function requiresTwoFactor(granted: readonly string[]): boolean {
+  return TWO_FACTOR_SCOPES.some((p) => scopeAllows(granted, p));
+}
+
+/**
  * scope ที่ห้ามให้ API key / OAuth client (ST7-T01 review M1) — งานบริหารผู้ใช้/บทบาท/ความปลอดภัย/การตั้งค่า
  * (รวมการจัดการ API key ซึ่งใช้ `settings:write`) ต้องทำโดยคนที่ login + 2FA เท่านั้น
  * [DECISION — ตามคำแนะนำ, PO อนุมัติล่วงหน้า 17 พ.ย. 2569 — ย้อนได้ spec/12 §3]
@@ -290,6 +321,8 @@ export const API_KEY_DENIED_SCOPES: readonly Permission[] = [
   // ST6-T07 review H1: อนุมัติใบสำคัญจ่าย (+ ยืนยันค่าใช้จ่ายหน้างานฝั่งซื้อ) = คนที่ login เท่านั้น — กันออก key ให้ตัวเองแล้วอนุมัติใบตัวเอง
   // [DECISION — เข้มกว่า, ย้อนได้; PO ผ่อนได้ — spec/12 §3]
   'settlements:approve',
+  // D-73 (PO 22 พ.ย. 2569): เลขบัตรประชาชนเต็ม = คนที่ login เท่านั้น (สอดคล้อง D-79 — key ดูเลขบัญชีเต็มไม่ได้)
+  'pii.national_id:read',
 ];
 
 /** scope ที่ให้ API key ได้ = PERMISSIONS − API_KEY_DENIED_SCOPES */

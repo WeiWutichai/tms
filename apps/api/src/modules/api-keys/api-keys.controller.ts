@@ -22,6 +22,7 @@ import { AuditPageDto } from '../../audit/audit.controller';
 import {
   RequireFeature,
   RequireScope,
+  StepUpAlways,
   TenantResource,
   SandboxAware,
 } from '../../common/decorators';
@@ -100,6 +101,7 @@ export class ApiKeysController {
 
   @Post()
   @RequireScope('settings:write')
+  @StepUpAlways() // ตรวจใน ApiKeysService หลังตรวจข้อมูล — D-67: สร้าง key = credential ถาวร — ต้องยืนยัน 2FA ซ้ำ (key จัดการ key ไม่ได้อยู่แล้ว)
   @VersionGate('api_key.status_rotating')
   @ApiCreatedResponse({
     type: ApiKeySecretDto,
@@ -143,6 +145,7 @@ export class ApiKeysController {
   @Patch(':id')
   @TenantResource('apiKey')
   @RequireScope('settings:write')
+  @StepUpAlways() // ตรวจใน ApiKeysService หลังตรวจข้อมูล — D-67 review M2: แก้ scope / IP allowlist = ขยายสิทธิ์ของ credential ถาวร
   @VersionGate('api_key.status_rotating')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOkResponse({ type: ApiKeyDto, description: 'แก้ชื่อ / scope / IP allowlist — มีผลทันที' })
@@ -161,6 +164,7 @@ export class ApiKeysController {
   @HttpCode(201)
   @TenantResource('apiKey')
   @RequireScope('settings:write')
+  @StepUpAlways() // ตรวจใน ApiKeysService หลังตรวจข้อมูล — D-67
   @VersionGate('api_key.status_rotating')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiCreatedResponse({

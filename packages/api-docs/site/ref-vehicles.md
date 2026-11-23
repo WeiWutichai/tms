@@ -118,7 +118,7 @@ scope: `master:write` · operationId: `Vehicles_create`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `201` | สร้างแล้ว — เกินโควตารถ: `quotaExceeded: true` + header `Warning: 299` (ยังสร้างได้) | `VehicleDto` |
+| `201` | สร้างแล้ว — โควตารถเป็น soft limit ที่นับรถ active ในเดือน (D68-14) — การสร้างไม่ถูกจำกัดและยังไม่ส่งสัญญาณเกินโควตา | `VehicleDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
@@ -205,6 +205,7 @@ scope: `export:run` · operationId: `Vehicles_export`
 | `busy` | query |   | `string` ค่า: `true`, `false` | true = กำลังใช้งาน (เป็นรถหรือหางของเที่ยวที่ปล่อยแล้วยังไม่ปิด — DISPATCHED/IN_PROGRESS — และไม่ได้ซ่อม/ปลดระวาง) · false = ส่วนกลับ |
 | `format` | query |   | `string` ค่า: `xlsx`, `csv` |   |
 | `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง |
+| `X-Step-Up` | header |   | `string` | stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออก: ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง |
 
 **Responses**
 
@@ -212,7 +213,7 @@ scope: `export:run` · operationId: `Vehicles_export`
 |---|---|---|
 | `200` | ไฟล์.xlsx หรือ.csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) |   |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`export:run`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออก: ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง — [permission_denied](errors.md#permission_denied), [step_up_required](errors.md#step_up_required) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
 
@@ -875,7 +876,7 @@ const { data, error } = await tms.POST('/v1/vehicles/{id}/odometer/correct', {
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string (date-time)` |   |   |   |
 | `updatedAt` | ใช่ | `string (date-time)` |   |   |   |
-| `quotaExceeded` |   | `boolean` |   | มีเฉพาะในผลการสร้าง: true = รถที่นับโควตา (ยังไม่ปลดระวาง) เกินโควตาของ tenant แล้ว — soft limit ยังสร้างได้ (header `Warning: 299` ด้วย) |   |
+| `quotaExceeded` |   | `boolean` |   | มีเฉพาะในผลการสร้าง · D68-14: โควตารถนับ**รถ active** ไม่ใช่จำนวนในทะเบียน · ตอนนี้ `false` เสมอจนกว่าจะมีการนับรถ active (metering) — soft limit ไม่จำกัดการสร้าง |   |
 | `docAlert` |   | `VehicleDocAlertDto` |   | มีเฉพาะในรายการ (GET /vehicles): เอกสารใกล้หมด 30 วัน/หมดแล้วของคันนี้ (รถปลดระวาง = 0) · คำนวณจากเอกสารและวันนี้ทุกครั้ง **ไม่ทำให้ `updatedAt` ของรถเปลี่ยน** — ผู้ที่ sync แบบ `updatedAfter` ให้ดึงเอกสารจาก `GET /vehicle-documents` แทน |   |
 
 ### VehiclePageDto {#schema-VehiclePageDto}

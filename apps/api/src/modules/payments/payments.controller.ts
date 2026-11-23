@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Put, Query, Req, Res } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -10,7 +10,7 @@ import {
 import type { Request, Response } from 'express';
 import { RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
-import { decodeIdOr404 } from '../../common/ids';
+import { ApiExternalIdParam, ExternalIdPipe } from '../../common/external-id';
 import { PROBLEMS } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
 import { T403, T404, T409, T412, T422 } from '../trips/trip-problems';
@@ -109,7 +109,7 @@ export class PaymentsController {
     @Param('id') id: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<PaymentDto> {
-    const out = await this.svc.get(decodeIdOr404('payment', id));
+    const out = await this.svc.get(await this.svc.idOf(id));
     setEtag(res, out.version);
     return out;
   }
@@ -178,6 +178,48 @@ export class PaymentsController {
     return out;
   }
 
+  @Put('external/:externalId')
+  @RequireScope('payments:record')
+  @ApiExternalIdParam()
+  @ApiHeader({
+    name: 'If-Match',
+    required: false,
+    description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว (ไม่ตรง → 412)',
+  })
+  @ApiOperation({
+    summary: 'บันทึกรับชำระด้วยเลขของระบบต้นทาง (upsert — D68-45)',
+    description:
+      'ยังไม่มีการรับชำระที่ externalId นี้ → บันทึก (กติกาเดียวกับ `POST /payments`) 201 · ' +
+      'มีแล้ว → **แก้ไม่ได้** (docs/04 F4): เนื้อหาเหมือนเดิม = 200 แถวเดิม (ส่งซ้ำได้ ไม่บันทึกซ้ำ) · ต่าง = 409 `conflict` — ' +
+      'แถวที่กลับรายการแล้วก็เช่นกัน: ส่งซ้ำเนื้อหาเดิม = 200 แถวเดิมสถานะ `REVERSED` (ไม่บันทึกใหม่ — ดู `status`) · ' +
+      'กลับรายการด้วย `POST /payments/{id}/reverse` แล้วบันทึกใหม่ด้วย externalId ใหม่ · ' +
+      'ไม่มี `PATCH /payments/external/{externalId}` (การรับชำระแก้ไม่ได้) · path `{id}` ทุก route รับ `ext:{externalId}`',
+  })
+  @ApiProblems(
+    T403('payments:record'),
+    {
+      status: 409,
+      description:
+        '`conflict` (มีแล้วแต่เนื้อหาต่าง) · `invoice_not_payable` · `payment_exceeds_outstanding`',
+      examples: T409('conflict').examples,
+    },
+    T412,
+    T422,
+  )
+  @ApiOkResponse({ type: PaymentDto, description: 'มีแล้ว เนื้อหาเหมือนเดิม → แถวเดิม' })
+  @ApiCreatedResponse({ type: PaymentDto, description: 'ยังไม่มี → บันทึก' })
+  async upsertExternal(
+    @Param('externalId', ExternalIdPipe) externalId: string,
+    @Body() body: CreatePaymentDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<PaymentDto> {
+    const { out, created } = await this.svc.upsertExternal(externalId, body, expectedVersion(req));
+    res.status(created ? 201 : 200);
+    setEtag(res, out.version);
+    return out;
+  }
+
   @Post(':id/reverse')
   @HttpCode(200)
   @TenantResource('payment')
@@ -197,11 +239,7 @@ export class PaymentsController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<PaymentDto> {
-    const out = await this.svc.reverse(
-      decodeIdOr404('payment', id),
-      expectedVersion(req),
-      body.reason,
-    );
+    const out = await this.svc.reverse(await this.svc.idOf(id), expectedVersion(req), body.reason);
     setEtag(res, out.version);
     return out;
   }
@@ -226,7 +264,7 @@ export class PaymentsController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<PaymentDto> {
     const out = await this.svc.bounceCheque(
-      decodeIdOr404('payment', id),
+      await this.svc.idOf(id),
       expectedVersion(req),
       body.reason,
     );
@@ -251,7 +289,7 @@ export class PaymentsController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<PaymentDto> {
-    const out = await this.svc.clearCheque(decodeIdOr404('payment', id), expectedVersion(req));
+    const out = await this.svc.clearCheque(await this.svc.idOf(id), expectedVersion(req));
     setEtag(res, out.version);
     return out;
   }

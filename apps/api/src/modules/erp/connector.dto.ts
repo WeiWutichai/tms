@@ -7,6 +7,7 @@ import {
   SOR_CHANGE_MODES,
   SOR_FIELD_GROUPS,
   SOR_OWNERS,
+  SOR_TAX_OWNER_WARNINGS,
 } from '@tms/domain';
 import { Transform, Type } from 'class-transformer';
 import {
@@ -152,9 +153,17 @@ export class SystemOfRecordDto {
 export class EffectiveSystemOfRecordDto extends SystemOfRecordDto {
   @ApiProperty({
     description:
-      'TMS ออกเลขใบกำกับภาษีให้เอกสารของนิติบุคคลนี้ได้ไหม (false เมื่อ taxDocumentOwner = ERP) — หน้าจอซ่อนเลขใบกำกับภาษีเมื่อ false',
+      'TMS ออกเลขใบกำกับภาษีให้เอกสารของนิติบุคคลนี้ได้ไหม — **false ทุกครั้งที่ taxDocumentOwner = ERP** แม้ connector ยังส่งไม่ถึง ERP (D68-04) · หน้าจอซ่อนเลขใบกำกับภาษีเมื่อ false',
   })
   canIssueTaxDocumentNumber!: boolean;
+  @ApiProperty({
+    nullable: true,
+    enum: SOR_TAX_OWNER_WARNINGS,
+    type: String,
+    description:
+      'D68-04: `ERP_NOT_CONNECTED` = ตั้งให้ ERP ออกใบกำกับภาษีแต่ใบแจ้งหนี้ยังไปไม่ถึง ERP (ยังไม่เคยเปิดใช้ / ไม่มี pushInvoice) — **ไม่มีใครออกใบกำกับภาษี** จนกว่าจะเชื่อมสำเร็จหรือผู้ใช้สลับเจ้าของเป็น TMS เอง (`PUT /connectors/{id}/system-of-record` + เหตุผล) · null = ไม่มีคำเตือน',
+  })
+  taxDocumentOwnerWarning!: string | null;
 }
 
 /** ST7-T17 เปลี่ยน system-of-record — ส่งเฉพาะที่เปลี่ยน · เหตุผลบังคับ (ลง audit) */
@@ -387,6 +396,19 @@ export class CreateConnectorDto {
 
 /** แก้ค่าตั้ง (ไม่แก้นิติบุคคล/adapter — ยกเลิกแล้วสร้างใหม่) */
 export class UpdateConnectorDto {
+  @ApiPropertyOptional({
+    maxLength: 500,
+    description:
+      'ST7-T21 เหตุผล (≥ 10 ตัวอักษร ลง audit) — **บังคับเมื่อเปิด `fetchPaymentStatus`** (ดึงสถานะรับชำระ: TMS จะบันทึกรายการรับชำระจากยอดที่ระบบบัญชีรายงาน) · ' +
+      'capability นี้ไม่เปิดเป็นค่าเริ่มต้น ต้องเปิดเอง → ไม่มีเหตุผล = 422',
+  })
+  @IsOptional()
+  @CleanText()
+  @IsString()
+  @MaxLength(500)
+  @Transform(({ value }: { value: unknown }) => (value === '' ? undefined : value))
+  reason?: string;
+
   @ApiPropertyOptional({ nullable: true, type: String, maxLength: 64 })
   @IsNullable()
   @CleanText()
@@ -446,7 +468,7 @@ export class ConnectorReasonDto extends MasterReasonDto {}
 
 export class ConnectorMasterCodeGapDto {
   @ApiProperty({
-    enum: ['UNIT', 'SALESPERSON', 'ACCOUNT', 'ITEM', 'VAT_RATE', 'CUSTOMER'],
+    enum: ['UNIT', 'SALESPERSON', 'ACCOUNT', 'ITEM', 'VAT_RATE', 'CUSTOMER', 'CARRIER'],
     example: 'UNIT',
   })
   kind!: string;

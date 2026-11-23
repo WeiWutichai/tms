@@ -51,6 +51,8 @@ import {
 import { SettlementReviewLinkDto, SettlementSentDto } from './settlement-review.dto';
 import { SettlementPdfService } from './settlement-pdf.service';
 import { SettlementsService } from './settlements.service';
+import { documentSyncDto } from '../erp/document-sync.dto';
+import { ExternalMappingService } from '../erp/external-mapping.service';
 
 const NF = { ...T404, description: 'ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น)' };
 const IF_MATCH = {
@@ -73,6 +75,7 @@ export class SettlementsController {
     private readonly svc: SettlementsService,
     private readonly comparison: SettlementComparisonService,
     private readonly pdf: SettlementPdfService,
+    private readonly mappings: ExternalMappingService,
   ) {}
 
   @Get('queue')
@@ -164,7 +167,10 @@ export class SettlementsController {
     @Param('id') id: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<SettlementDto> {
-    const out = await this.svc.get(decodeIdOr404('settlement', id));
+    const uuid = decodeIdOr404('settlement', id);
+    const out = await this.svc.get(uuid);
+    // ST7-T15 เลขเอกสารสองฝั่ง (docs/04 G3) — ผลการส่งเข้าระบบบัญชี แยกจากสถานะเอกสาร
+    out.sync = documentSyncDto(await this.mappings.documentSync('SETTLEMENT', uuid));
     setEtag(res, out.version);
     return out;
   }
@@ -180,7 +186,7 @@ export class SettlementsController {
       'แม่แบบตามต้นแบบ TMS Print #pv (แม่แบบการเงินร่วมกับใบแจ้งหนี้) · ทุกตัวเลขมาจาก `GET /v1/settlements/{id}` ชุดเดียวกัน: ' +
       'ยอดซื้อรวม = `buyGrossAmount` · หัก ณ ที่จ่ายแยกอัตรา = `whtEstimate.byRate` (รวม = `buyWhtAmount`; ใบที่อนุมัติแล้ว = ยอดที่ตรึง) · ' +
       'บรรทัดหักรวมต่อชนิด · จ่ายสุทธิ = `buyNetAfterWht` · ยอดหัก ณ ที่จ่ายติด * (ประมาณการ D-54 — 50 ทวิ ออกที่ระบบบัญชี D-58) · ' +
-      'ยังไม่อนุมัติ = ลายน้ำ "ร่าง" ไม่มีเลข · จ่ายแล้ว = วันที่จ่าย + วิธีจ่าย + เลขอ้างอิง · render ตามคำขอ (ไม่ใช่เอกสารภาษี — ไม่เก็บไฟล์) · ' +
+      'ยังไม่อนุมัติ = ลายน้ำ "ร่าง" ไม่มีเลข (render ตามคำขอ) · จ่ายแล้ว = วันที่จ่าย + วิธีจ่าย + เลขอ้างอิง · ใบที่มีเลขแล้ว (อนุมัติ / จ่ายแล้ว): เก็บไฟล์ตอนอนุมัติ / บันทึกจ่าย (D-66 — งานเบื้องหลังหลัง commit + ลองใหม่; ขอก่อนงานทำ = render แล้วเก็บตอนนั้น) — ได้ไฟล์เดิมเสมอ ไม่ render ใหม่ (ST9-T15; ฉบับอนุมัติและฉบับจ่ายแล้วเก็บแยกกัน; header `X-Content-SHA256` ของไฟล์ที่เก็บ) · ' +
       'ใบที่ยกเลิก → 409 · ต้องมี `prices.buy:read` ไม่งั้น 403',
   })
   @ApiProduces('application/pdf')
@@ -195,7 +201,8 @@ export class SettlementsController {
       throw new ProblemException('permission_denied', undefined, undefined, {
         requiredScope: 'prices.buy:read',
       });
-    const { dto, pdf } = await this.pdf.render(decodeIdOr404('settlement', id));
+    const { dto, pdf, stored } = await this.pdf.render(decodeIdOr404('settlement', id));
+    if (stored?.sha256) res.setHeader('X-Content-SHA256', stored.sha256);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
@@ -497,7 +504,7 @@ export class SettlementsController {
       'ยอดสุทธิเกินวงเงินที่ตั้ง (`settlement.approvalStepUpAmount` — ค่าเริ่ม 100,000 บาท; 0 = ทุกใบ) ต้องส่ง `X-Step-Up` ของผู้อนุมัติ ' +
       '(จาก `POST /v1/auth/step-up` ยืนยัน TOTP) ไม่งั้น 403 `step_up_required` · ไม่มีบรรทัดค่าขนส่ง (FREIGHT) → 409 `settlement_empty` · ' +
       'ยอดสุทธิติดลบ → 409 `settlement_net_negative` · ออกเลขชุด STL ตอนนี้เท่านั้น (ร่างไม่กินเลข; ออกแล้วแก้ไม่ได้) · ใบที่อนุมัติแล้วแก้/เพิ่ม/นำบรรทัดออก/ยกเลิกไม่ได้ (409) · ' +
-      '**ตรึงหัก ณ ที่จ่ายประมาณการ** (ST6-T08: ยอด + ขั้นต่ำที่ใช้ + ค่าตั้งต้นอัตราของรถร่วม — ค่าตั้ง/รถร่วมเปลี่ยนทีหลังไม่กระทบใบ; `whtEstimate.frozen` = true) · วงเงิน step-up เทียบยอดสุทธิก่อนหัก ณ ที่จ่าย · audit `settlement.approved` (+ `buyWhtAmount`) + webhook `settlement.approved`',
+      '**ตรึงหัก ณ ที่จ่ายประมาณการ** (ST6-T08: ยอด + ขั้นต่ำที่ใช้ + ค่าตั้งต้นอัตราของรถร่วม — ค่าตั้ง/รถร่วมเปลี่ยนทีหลังไม่กระทบใบ; `whtEstimate.frozen` = true) · วงเงิน step-up เทียบยอดสุทธิก่อนหัก ณ ที่จ่าย · audit `settlement.approved` (+ `buyWhtAmount`) + webhook `settlement.approved` · D-66: เก็บ PDF ฉบับอนุมัติด้วยงานเบื้องหลัง `settlement.render_pdf` หลัง commit',
   })
   @ApiHeader({
     ...IF_MATCH,
@@ -574,7 +581,7 @@ export class SettlementsController {
       '**ผู้อนุมัติใบนี้บันทึกจ่ายเองไม่ได้ → 403 `settlement_self_payment`** (D-60 — key = ผู้ออก key; owner ปิดกฎได้ด้วยค่าตั้ง `settlement.allowApproverMarkPaid` — audit `sodWaived`) · ' +
       'เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · ' +
       'audit `settlement.paid` + webhook `settlement.paid` (ระบบบัญชีสร้างเจ้าหนี้/AP ร่างจาก event นี้ — 50 ทวิ ออกที่ระบบบัญชี, D-58) · ' +
-      'ไฟล์โอนธนาคาร (bulk payment) = P1',
+      'D-66: เก็บ PDF ฉบับจ่ายแล้วด้วยงานเบื้องหลัง `settlement.render_pdf` หลัง commit · ไฟล์โอนธนาคาร (bulk payment) = P1',
   })
   @ApiHeader({
     ...IF_MATCH,

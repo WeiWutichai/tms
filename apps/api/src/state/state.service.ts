@@ -80,4 +80,58 @@ export class StateService {
       });
     return { to, snapshot };
   }
+
+  /**
+   * ST5-T12b `transition` ของเอกสารหลายใบที่ทำ event เดียวกันจากสถานะเดียวกัน (เช่น ออกใบแจ้งหนี้ 500 DO → `bill`) —
+   * ผลต่อเอกสารเท่ากับเรียก `transition` ทีละใบ (ประวัติ 1 แถว + domain_event 1 แถวต่อเอกสาร ตามลำดับ `docIds` + ผู้ฟัง) แต่เขียนเป็นชุด
+   * (คำสั่งคงที่ ไม่ขึ้นกับจำนวนเอกสาร) · `apply` เปลี่ยนสถานะทั้งชุดแล้วคืน snapshot หลังเปลี่ยนต่อเอกสาร (ขาดใบใด = error)
+   */
+  async transitionMany<S extends string, E extends string>(
+    tx: Tx,
+    input: Omit<TransitionInput<S, E>, 'docId' | 'apply' | 'previousAttributes'> & {
+      docIds: string[];
+      apply: (to: S) => Promise<Map<string, Record<string, unknown>>>;
+    },
+  ): Promise<{ to: S }> {
+    const to = transition(input.docType, input.table, input.from, input.event);
+    if (!input.docIds.length) return { to };
+    const ctx = requestContext.get();
+    const tenantId = ctx?.tenantId as string;
+    const snapshots = await input.apply(to);
+    for (const id of input.docIds)
+      if (!snapshots.has(id))
+        throw new Error(`transitionMany: no snapshot for ${input.docType} ${id}`);
+    await tx.docStatusHistory.createMany({
+      data: input.docIds.map((docId) => ({
+        tenantId,
+        docType: input.docType,
+        docId,
+        fromStatus: input.from,
+        toStatus: to,
+        event: input.event,
+        actorId: ctx?.actorId ?? null,
+        reasonCodeId: input.reasonCodeId ?? null,
+        note: input.note ?? null,
+      })),
+    });
+    await tx.domainEvent.createMany({
+      data: input.docIds.map((docId) => ({
+        tenantId,
+        type: input.eventType,
+        entityType: input.docType,
+        localId: docId,
+        snapshot: snapshots.get(docId) as any,
+        previousAttributes: { status: input.from } as any,
+        requestId: ctx?.requestId ?? null,
+        actorId: ctx?.actorId ?? null,
+      })),
+    });
+    // ผู้ฟังรันหลังเขียนประวัติ + event ของ**ทุก**เอกสารแล้ว (ต่างจาก `transition` ทีละใบที่ผู้ฟังรันทันทีหลัง event ของใบนั้น) —
+    // ผู้ฟังเห็นสถานะใหม่ของทั้งชุด · ยังรันครบทุกเอกสารตามลำดับ `docIds` ใน transaction เดียวกัน (ปัจจุบัน event ของ DO ไม่มีผู้ฟัง)
+    const listeners = this.listeners.get(input.eventType) ?? [];
+    for (const docId of input.docIds)
+      for (const l of listeners)
+        await l(tx, { tenantId, eventType: input.eventType, docType: input.docType, docId, to });
+    return { to };
+  }
 }

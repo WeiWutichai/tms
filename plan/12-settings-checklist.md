@@ -37,6 +37,7 @@
 | 24 | ระยะเก็บประวัติ login (เดือน) | `retention.loginLogMonths` | — | API-only | ST9-T14 — ต้นแบบไม่มีช่อง; ลดค่า = step-up · ขั้นต่ำ 12 เดือน |
 | 25 | ระยะเก็บไฟล์ POD (ปี) | `retention.podFileYears` | — | API-only | ST9-T14 — ต้นแบบไม่มีช่อง; ลดค่า = step-up · ขั้นต่ำ 2 ปี · job ยังไม่ลบ ([OPEN — PO/นักบัญชี] ม.87/3) |
 | 26 | ระยะเก็บ GPS log (วัน) | `retention.gpsLogDays` | — | API-only | ST9-T14 — ต้นแบบไม่มีช่อง; ลดค่า = step-up · ขั้นต่ำ 90 วัน |
+| 27 | ระยะเก็บเอกสารที่ออกเลขแล้ว + PDF ณ วันออก (ปี) | `retention.financeDocumentYears` | — | API-only | ST9-T15 — ต้นแบบไม่มีช่อง; ขั้นต่ำ 5 ปี ค่าเริ่ม 7 ปี (docs/04 J); ลดค่า = step-up · ไม่มี job ลบเอกสารกลุ่มนี้ (ฐานข้อมูลปฏิเสธ DELETE) |
 | 27 | วงเงิน step-up อนุมัติใบสำคัญจ่ายรถร่วม (บาท) | `settlement.approvalStepUpAmount` | — | API-only | ST6-T07 — ต้นแบบไม่มีช่อง; ค่าเริ่ม 100,000 · null = ไม่บังคับ · เพิ่มค่า/ปิด = step-up |
 | 28 | ต้องให้รถร่วมตรวจใบสำคัญจ่ายก่อนอนุมัติ | `settlement.carrierReviewRequired` | — | API-only | ST6-T05 — ต้นแบบไม่มีช่อง; ค่าเริ่ม ปิด · เปิด = ร่างอนุมัติตรงไม่ได้ (409 `settlement_review_required`) · ปิดจากที่เปิด = step-up |
 | 29 | ขั้นต่ำหัก ณ ที่จ่าย (บาท, ประมาณการ) | `tax.whtMinimumAmount` | — | API-only | ST5-T02 · ค่าเริ่ม 0 = หักทุกยอด (ตรงกับ AccountSystem, D-54) · ฐานนับขั้นต่ำ 1,000 รอนักบัญชี [OPEN #62] · ต้นแบบไม่มีช่อง |
@@ -44,6 +45,7 @@
 | 31 | ส่วนต่างที่บัญชีตัดยอดเองได้ต่อการรับชำระ (บาท) | `payments.maxDifferenceAmount` | — | API-only | ST5-T13 review M1 (spec/05 BIL-059) — ต้นแบบไม่มีช่อง; ค่าเริ่ม 10 · เกินต้องมี `payments:reverse` (ผู้จัดการ) · เพิ่มค่า = step-up |
 | 32 | ให้ผู้อนุมัติใบสำคัญจ่ายบันทึกจ่ายใบนั้นเองได้ (ปิดกฎแบ่งหน้าที่) | `settlement.allowApproverMarkPaid` | — | API-only | D-60 (ST6-T09) — ต้นแบบไม่มีช่อง; ค่าเริ่ม ปิด (ผู้อนุมัติจ่ายเอง = 403 `settlement_self_payment`) · **แก้ได้เฉพาะ owner** · เปิด = step-up · audit `tenant_setting.updated` + `sodWaived` ใน `settlement.paid` |
 | 33 | DO ส่งแล้วยังไม่วางบิลเกินกี่วัน (รายงาน + แจ้งผู้วางบิล) | `billing.unbilledAlertDays` | — | API-only | ST9-T06 — ต้นแบบไม่มีช่อง; ค่าเริ่ม 7 วัน (1–365) · ใช้กับรายงาน รายงาน → "DO ยังไม่วางบิล" (`GET /v1/reports/unbilled-delivery-orders` — `minDays` ทับได้) และแจ้งผู้วางบิล 08:00 [DECISION spec/12 §3 แถว ST9-T06] |
+| 34 | อายุใบ (วัน) ที่การแทนที่ใบในระบบบัญชีต้องมีผู้อนุมัติ (ระบบบัญชีที่บอกสถานะลงบัญชีไม่ได้ เช่น KRS) | `billing.erpReplaceApprovalDays` | — | API-only | ST8-T13 (docs/01 A.2/A.6 "กฎอายุ N วัน") — ต้นแบบไม่มีช่อง; ค่าเริ่ม 0 = ใบที่ออกก่อนวันนี้ต้องอนุมัติทุกใบ (docs ไม่ระบุ N — [OPEN — PO] spec/12 §3) · ใบที่กด "ลงบัญชีแล้ว" ต้องอนุมัติเสมอ · เพิ่มค่า = step-up |
 
 ## 2. ค่าตั้งองค์กรที่เป็น resource แยก (ไม่อยู่ใน registry)
 
@@ -66,7 +68,7 @@
 | รายการ session ที่ใช้งาน + ออกจากระบบทุกอุปกรณ์ (spec/01 §13.6, P0) | ไม่มี API รายการ session | — | ไม่มี — ต้นแบบไม่มีหน้า (spec/12 §3 แถว ST9-T12) |
 | กฎผู้รับแจ้งเตือนระดับบริษัท `NotificationRule` (spec/01 §13.5) | — (ผู้รับตามสิทธิ์ role; ผู้ใช้ตั้งของตัวเองได้) | — | ผู้สมัครเพิ่ม #29 |
 
-**สรุป:** 26 key ใน registry → UI 11 / API-only 15 (ทุกตัวไม่มีช่องในต้นแบบ — รวม retention.* 5 key ของ ST9-T14) · resource แยก 5/5 มี UI + setup checklist + จด VAT · ขาด: โลโก้ (#31), วันที่จด VAT, ชื่อทางการค้า/ติดต่อ, 2FA ราย role, อายุ refresh token, รายการ session, NotificationRule (#29) · ค่าเริ่มต้นไทยพร้อมใช้ (K5): ทุก key มี default (Asia/Bangkok, พ.ศ., VAT 7%, WHT เปิด, รอบรายเดือน ฯลฯ) จึงใช้งานได้โดยไม่ต้องให้ Innovera ตั้ง — ค่าที่เป็น API-only ปรับได้ผ่าน Open API ระหว่างรอดีไซน์
+**สรุป:** 27 key ใน registry → UI 11 / API-only 16 (ทุกตัวไม่มีช่องในต้นแบบ — รวม retention.* 5 key ของ ST9-T14 + 1 key ของ ST9-T15) · resource แยก 5/5 มี UI + setup checklist + จด VAT · ขาด: โลโก้ (#31), วันที่จด VAT, ชื่อทางการค้า/ติดต่อ, 2FA ราย role, อายุ refresh token, รายการ session, NotificationRule (#29) · ค่าเริ่มต้นไทยพร้อมใช้ (K5): ทุก key มี default (Asia/Bangkok, พ.ศ., VAT 7%, WHT เปิด, รอบรายเดือน ฯลฯ) จึงใช้งานได้โดยไม่ต้องให้ Innovera ตั้ง — ค่าที่เป็น API-only ปรับได้ผ่าน Open API ระหว่างรอดีไซน์
 
 ## 3. ภาษา (D-11 ทับ "TH/EN ครบ" ของ backlog)
 

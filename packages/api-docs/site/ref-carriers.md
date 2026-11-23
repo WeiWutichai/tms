@@ -1,9 +1,10 @@
 # รถร่วม (carriers)
 
-15 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+16 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
+| [`GET /v1/carriers/{id}/erp-codes`](#get-carriers-id-erp-codes) | `master:read` |
 | [`GET /v1/carriers/{id}/recent-prices`](#get-carriers-id-recent-prices) | `prices.buy:read` |
 | [`GET /v1/carriers`](#get-carriers) | `master:read` |
 | [`POST /v1/carriers`](#post-carriers) | `master:write` |
@@ -19,6 +20,42 @@
 | [`POST /v1/carriers/{id}/deactivate`](#post-carriers-id-deactivate) | `master:write` |
 | [`POST /v1/carriers/{id}/activate`](#post-carriers-id-activate) | `master:write` |
 | [`POST /v1/carriers/{id}/delete`](#post-carriers-id-delete) | `master:write` |
+
+## GET /v1/carriers/{id}/erp-codes {#get-carriers-id-erp-codes}
+
+`GET /v1/carriers/{id}/erp-codes`
+
+scope: `master:read` · operationId: `CarrierErpCodes_list`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | รหัสรถร่วมนี้ในระบบบัญชีแต่ละตัวที่เชื่อมต่อ (connector ที่ยังไม่ยกเลิก) — ใช้เป็น `carrier.externalId` ตอนส่งใบสำคัญจ่าย | `CarrierErpCodeListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/carriers/<id>/erp-codes" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/carriers/{id}/erp-codes', {
+  params: { path: { id: "…" } },
+});
+```
 
 ## GET /v1/carriers/{id}/recent-prices {#get-carriers-id-recent-prices}
 
@@ -114,6 +151,7 @@ scope: `master:write` · operationId: `Carriers_create`
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
 | `Idempotency-Key` | header |   | `string` |   |
+| `X-Step-Up` | header |   | `string` | stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user` |
 
 **Request body** `CreateCarrierDto`
 
@@ -152,7 +190,7 @@ scope: `master:write` · operationId: `Carriers_create`
 |---|---|---|
 | `201` |   | `CarrierDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) · API key → `bank_change_requires_user` — [permission_denied](errors.md#permission_denied), [step_up_required](errors.md#step_up_required), [bank_change_requires_user](errors.md#bank_change_requires_user) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
 
@@ -253,6 +291,7 @@ scope: `export:run` · operationId: `Carriers_export`
 | `parentCarrierId` | query |   | `string` | เฉพาะที่สังกัด carrier นี้ (car_…) |
 | `format` | query |   | `string` ค่า: `xlsx`, `csv` |   |
 | `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง |
+| `X-Step-Up` | header |   | `string` | stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออก: ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง |
 
 **Responses**
 
@@ -260,7 +299,7 @@ scope: `export:run` · operationId: `Carriers_export`
 |---|---|---|
 | `200` | ไฟล์.xlsx หรือ.csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) — เลขบัตร/เลขบัญชีปิดบังเสมอ |   |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`export:run`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออก: ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง — [permission_denied](errors.md#permission_denied), [step_up_required](errors.md#step_up_required) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
 
@@ -287,6 +326,7 @@ scope: `master:write` · operationId: `Carriers_upsertExternal`
 |---|---|---|---|---|
 | `externalId` | path | ใช่ | `string` | เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource |
 | `If-Match` | header |   | `string` | ETag — ใช้เมื่อแถวมีอยู่แล้ว |
+| `X-Step-Up` | header |   | `string` | stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user` |
 
 **Request body** `UpsertCarrierDto`
 
@@ -325,7 +365,7 @@ scope: `master:write` · operationId: `Carriers_upsertExternal`
 | `200` | มีอยู่แล้ว → อัปเดต (ส่งซ้ำได้ ไม่เกิดแถวใหม่) | `CarrierDto` |
 | `201` | ยังไม่มี → สร้าง | `CarrierDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) · API key → `bank_change_requires_user` — [permission_denied](errors.md#permission_denied), [step_up_required](errors.md#step_up_required), [bank_change_requires_user](errors.md#bank_change_requires_user) | `ProblemDto` |
 | `409` | ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้) — [conflict](errors.md#conflict), [duplicate](errors.md#duplicate) | `ProblemDto` |
 | `412` | If-Match ไม่ตรงกับ version ปัจจุบัน — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId` — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
@@ -366,6 +406,7 @@ scope: `master:write` · operationId: `Carriers_patchExternal`
 |---|---|---|---|---|
 | `externalId` | path | ใช่ | `string` | เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource |
 | `If-Match` | header |   | `string` | ETag จาก GET — ไม่ตรง → 412 |
+| `X-Step-Up` | header |   | `string` | stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user` |
 
 **Request body** `UpdateCarrierDto`
 
@@ -403,7 +444,7 @@ scope: `master:write` · operationId: `Carriers_patchExternal`
 |---|---|---|
 | `200` |   | `CarrierDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) · API key → `bank_change_requires_user` — [permission_denied](errors.md#permission_denied), [step_up_required](errors.md#step_up_required), [bank_change_requires_user](errors.md#bank_change_requires_user) | `ProblemDto` |
 | `404` | ยังไม่มีแถวที่ externalId นี้ (สร้างใหม่ใช้ PUT) หรืออยู่ tenant อื่น — [not_found](errors.md#not_found) | `ProblemDto` |
 | `409` | ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้) — [conflict](errors.md#conflict), [duplicate](errors.md#duplicate) | `ProblemDto` |
 | `412` | If-Match ไม่ตรงกับ version ปัจจุบัน — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
@@ -476,6 +517,7 @@ scope: `master:write` · operationId: `Carriers_update`
 |---|---|---|---|---|
 | `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag จาก GET — ไม่ตรง → 412 |
+| `X-Step-Up` | header |   | `string` | stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) ไม่งั้น 403 `step_up_required` · API key / OAuth client ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user` |
 
 **Request body** `UpdateCarrierDto`
 
@@ -513,7 +555,7 @@ scope: `master:write` · operationId: `Carriers_update`
 |---|---|---|
 | `200` |   | `CarrierDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่ง `bankAccount` ที่เปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือมี `accountNo` (ส่งเลขบัญชี = ถือว่าเปลี่ยนเสมอ แม้เลขเดิม; ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ต้อง) · API key → `bank_change_requires_user` — [permission_denied](errors.md#permission_denied), [step_up_required](errors.md#step_up_required), [bank_change_requires_user](errors.md#bank_change_requires_user) | `ProblemDto` |
 | `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
 | `412` | If-Match ไม่ตรงกับ version ปัจจุบัน (ETag จาก GET) — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
@@ -587,6 +629,7 @@ scope: `settlements:pay` · operationId: `Carriers_reveal`
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
 | `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+| `X-Step-Up` | header |   | `string` | stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อ`field` = `bankAccountNo` ไม่งั้น 403 `step_up_required` · API key / OAuth client ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user` |
 
 **Request body** `RevealCarrierDto`
 
@@ -601,7 +644,7 @@ scope: `settlements:pay` · operationId: `Carriers_reveal`
 |---|---|---|
 | `200` |   | `RevealCarrierResultDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`settlements:pay`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settlements:pay`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อ`field` = `bankAccountNo` · API key → `bank_change_requires_user` — [permission_denied](errors.md#permission_denied), [step_up_required](errors.md#step_up_required), [bank_change_requires_user](errors.md#bank_change_requires_user) | `ProblemDto` |
 | `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
 | `429` | rate_limited — เกิน 20 ครั้ง/นาที/ผู้ใช้ (Retry-After) | `ProblemDto` |
@@ -818,6 +861,14 @@ const { data, error } = await tms.POST('/v1/carriers/{id}/delete', {
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string (date-time)` |   |   |   |
 | `updatedAt` | ใช่ | `string (date-time)` |   |   |   |
+
+### CarrierErpCodeListDto {#schema-CarrierErpCodeListDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<CarrierErpCodeDto>` |   |   |   |
 
 ### CarrierPageDto {#schema-CarrierPageDto}
 

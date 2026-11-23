@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaClient } from '@prisma/client';
 import { SYSTEM_ROLES } from '@tms/domain';
@@ -16,9 +16,16 @@ import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { signStepUpToken } from '../src/auth/tokens';
 import { ERP_SINK } from '../src/modules/erp/erp-adapter.sink';
 import { SandboxService } from '../src/modules/sandbox/sandbox.service';
-import { SettlementPdfService } from '../src/modules/settlements/settlement-pdf.service';
+import {
+  SETTLEMENT_PDF_TEMPLATE_VERSION,
+  SettlementPdfService,
+  asVariant,
+} from '../src/modules/settlements/settlement-pdf.service';
+import { SETTLEMENT_PDF_JOB } from '../src/modules/settlements/settlement-pdf.job';
+import { JobQueue } from '../src/jobs/job-queue.service';
 import { settlementVoucherDocument } from '../src/modules/settlements/settlement-pdf.template';
 import { SANDBOX_WATERMARK, bahtFormat } from '../src/pdf/finance-document';
+import { docDateShort } from '../src/common/thai-date';
 import { PdfRenderer } from '../src/pdf/pdf-renderer';
 import {
   api,
@@ -2507,6 +2514,327 @@ describe('settlements (ST6-T03)', () => {
       expect(paid.model.payer.name).toMatch(/^บริษัท ผู้ออกบิล/);
       expect(paid.model.payer.branchCode).toBe('00000');
     }, 120_000);
+
+    it('ST9-T15 เกณฑ์ตรวจรับ: PDF ใบสำคัญจ่ายที่มีเลขแล้ว เก็บครั้งแรกที่ขอ — hash ไม่เปลี่ยนหลังแก้ template · ฉบับอนุมัติ/จ่ายแล้วแยกกัน · ร่างไม่เก็บ · ลบ/แก้ใบและไฟล์ไม่ได้ทุก role', async () => {
+      const { C, trips } = await setup(1, '4500');
+      const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
+        .body;
+      const sid = uuid('settlement', s.id);
+      const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
+      const renderer = app.get(PdfRenderer);
+      const stored = () =>
+        db.storedDocument.findMany({
+          where: { entityType: 'carrier_settlement', entityId: sid, kind: 'PDF' },
+          orderBy: { createdAt: 'asc' },
+        });
+      const get = async () => {
+        const r = await pdfOf(s.id);
+        expect(r.status, String(r.body)).toBe(200);
+        return sha(r.body as Buffer);
+      };
+      // ร่าง: render ตามคำขอ ไม่เก็บไฟล์
+      await get();
+      expect(await stored()).toEqual([]);
+
+      await approve(s.id);
+      // review M2: ขอครั้งแรกพร้อมกัน 2 คำขอ → เก็บแถวเดียว ได้เนื้อเดียวกัน
+      const [c1, c2] = await Promise.all([pdfOf(s.id), pdfOf(s.id)]);
+      expect([c1.status, c2.status]).toEqual([200, 200]);
+      expect(sha(c1.body as Buffer)).toBe(sha(c2.body as Buffer));
+      expect(c1.headers['x-content-sha256']).toBe(sha(c1.body as Buffer));
+      const approved = await get();
+      expect(approved).toBe(sha(c1.body as Buffer));
+      const rows1 = await stored();
+      expect(rows1).toHaveLength(1);
+      expect(rows1[0]).toMatchObject({
+        status: 'READY',
+        sha256: approved,
+        metadata: { document: 'SETTLEMENT_VOUCHER', variant: 'APPROVED' },
+      });
+      // แก้แม่แบบ (ผลลัพธ์ของตัว render เปลี่ยน) + ข้อมูลอ้างอิงเปลี่ยน → ได้ไฟล์เดิม ไม่ render ใหม่
+      const spy = vi
+        .spyOn(renderer, 'pdf')
+        .mockResolvedValue(Buffer.from('%PDF-1.7 new voucher template'));
+      try {
+        expect(await get()).toBe(approved);
+        expect(await get()).toBe(approved);
+        expect(spy).not.toHaveBeenCalled();
+      } finally {
+        spy.mockRestore();
+      }
+      expect(await stored()).toEqual(rows1);
+
+      // จ่ายแล้ว = ฉบับใหม่ (มีข้อมูลการจ่าย) เก็บแยก · ฉบับอนุมัติคงอยู่
+      expect((await pay(s.id)).status).toBe(200);
+      const paid = await get();
+      expect(paid).not.toBe(approved);
+      const spy2 = vi
+        .spyOn(renderer, 'pdf')
+        .mockResolvedValue(Buffer.from('%PDF-1.7 new voucher template'));
+      try {
+        expect(await get()).toBe(paid);
+        expect(spy2).not.toHaveBeenCalled();
+      } finally {
+        spy2.mockRestore();
+      }
+      const rows2 = await stored();
+      expect(rows2.map((d) => [(d.metadata as { variant: string }).variant, d.sha256])).toEqual([
+        ['APPROVED', approved],
+        ['PAID', paid],
+      ]);
+      expect(rows2[0]).toEqual(rows1[0]);
+      expect(
+        await db.auditLog.count({
+          where: { tenantId, entityId: sid, action: 'settlement.pdf_stored' },
+        }),
+      ).toBe(2);
+
+      // ฐานข้อมูล: ลบใบ/บรรทัด/ไฟล์ไม่ได้ (role platform + เจ้าของตาราง) · แก้ไฟล์ที่เก็บไม่ได้ · ใบ PAID แก้ไม่ได้
+      const owner = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
+      try {
+        for (const c of [db, owner]) {
+          for (const sql of [
+            `DELETE FROM settlement_line WHERE settlement_id = '${sid}'`,
+            `DELETE FROM carrier_settlement WHERE id = '${sid}'`,
+            `DELETE FROM stored_document WHERE entity_id = '${sid}'`,
+          ])
+            await expect(c.$executeRawUnsafe(sql), sql).rejects.toThrow(
+              /permission denied|_no_delete|cannot be deleted/,
+            );
+          await expect(
+            c.$executeRawUnsafe(
+              `UPDATE stored_document SET sha256 = '${'0'.repeat(64)}' WHERE entity_id = '${sid}'`,
+            ),
+          ).rejects.toThrow(/stored_document_(content|financial)_immutable|write-once|immutable/);
+          await expect(
+            c.$executeRawUnsafe(
+              `UPDATE stored_document SET status = 'PURGED', purged_at = now() WHERE entity_id = '${sid}'`,
+            ),
+          ).rejects.toThrow(/stored_document_financial_immutable|immutable/);
+          await expect(
+            c.$executeRawUnsafe(`UPDATE carrier_settlement SET note = 'x' WHERE id = '${sid}'`),
+          ).rejects.toThrow(/carrier_settlement_terminal|terminal/);
+          await expect(
+            c.$executeRawUnsafe(
+              `UPDATE settlement_line SET description = 'x' WHERE settlement_id = '${sid}'`,
+            ),
+          ).rejects.toThrow(/settlement_line/);
+        }
+      } finally {
+        await owner.$disconnect();
+      }
+      expect(await stored()).toEqual(rows2);
+    }, 180_000);
+
+    it('D-66 เกณฑ์ตรวจรับ: อนุมัติ/บันทึกจ่าย → งาน settlement.render_pdf เก็บ PDF ทันที (ไม่ต้องมีคนเปิดก่อน) · hash คงเดิมหลังแก้แม่แบบ · ลองใหม่เมื่อ render ล้ม · คำขอแรกก่อนงานทำ = เก็บครั้งเดียว · ฉบับอนุมัติเก็บได้แม้จ่ายแล้ว', async () => {
+      const queue = app.get(JobQueue);
+      const renderer = app.get(PdfRenderer);
+      const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
+      const pdfJobs = (sid: string) =>
+        db.job.findMany({
+          where: {
+            tenantId,
+            type: SETTLEMENT_PDF_JOB,
+            payload: { path: ['settlementId'], equals: sid },
+          },
+          orderBy: { createdAt: 'asc' },
+        });
+      const storedOf = (sid: string) =>
+        db.storedDocument.findMany({
+          where: { entityType: 'carrier_settlement', entityId: sid, kind: 'PDF' },
+          orderBy: { createdAt: 'asc' },
+        });
+      const auditsOf = (sid: string) =>
+        db.auditLog.findMany({
+          where: { tenantId, entityId: sid, action: 'settlement.pdf_stored' },
+          orderBy: { seq: 'asc' },
+        });
+      // ทำงาน PDF ของใบ `sid` ที่ถึงเวลาแล้ว — งานของใบอื่นที่ค้างในไฟล์นี้เลื่อนไปก่อน (ไม่ render ทั้งไฟล์)
+      const runJobs = async (sid: string) => {
+        await db.job.updateMany({
+          where: {
+            type: SETTLEMENT_PDF_JOB,
+            status: 'PENDING',
+            NOT: { payload: { path: ['settlementId'], equals: sid } },
+          },
+          data: { runAt: new Date(Date.now() + 86_400_000) },
+        });
+        const due = async () =>
+          (await pdfJobs(sid)).some((j) => j.status === 'PENDING' && j.runAt <= new Date());
+        // งานชนิดอื่นที่ค้างจาก test ก่อนหน้าในไฟล์อาจถูกหยิบก่อน — ทำจนงานของใบนี้ไม่เหลือที่ถึงเวลา
+        for (let i = 0; i < 200 && (await due()) && (await queue.runOnce()); i++);
+      };
+      const make = async () => {
+        const { C, trips } = await setup(1, '3200');
+        const s = (
+          await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201)
+        ).body;
+        return { s, sid: uuid('settlement', s.id) };
+      };
+
+      // 1) อนุมัติ → งานใน transaction เดียวกัน (ร่างไม่มีงาน) → worker เก็บฉบับอนุมัติ · actor = system
+      const { s, sid } = await make();
+      expect(await pdfJobs(sid)).toEqual([]);
+      await approve(s.id);
+      const j1 = await pdfJobs(sid);
+      expect(j1.map((j) => [j.status, (j.payload as { variant: string }).variant])).toEqual([
+        ['PENDING', 'APPROVED'],
+      ]);
+      expect(await storedOf(sid)).toEqual([]);
+      await runJobs(sid);
+      const r1 = await storedOf(sid);
+      expect(r1).toHaveLength(1);
+      expect(r1[0]).toMatchObject({
+        status: 'READY',
+        createdBy: 'system:settlement-pdf',
+        metadata: {
+          document: 'SETTLEMENT_VOUCHER',
+          variant: 'APPROVED',
+          templateVersion: SETTLEMENT_PDF_TEMPLATE_VERSION,
+        },
+      });
+      expect((await pdfJobs(sid))[0]).toMatchObject({ status: 'SUCCEEDED', attempts: 1 });
+      const a1 = await auditsOf(sid);
+      expect(a1.map((a) => a.actorId)).toEqual(['system:settlement-pdf']);
+      // แก้แม่แบบหลังอนุมัติ (ยังไม่มีใครเปิด PDF) → ได้ไฟล์ที่เก็บตอนอนุมัติ ไม่ render ใหม่
+      const spy = vi.spyOn(renderer, 'pdf').mockResolvedValue(Buffer.from('%PDF-1.7 template v99'));
+      try {
+        const r = await pdfOf(s.id);
+        expect(r.status).toBe(200);
+        expect(sha(r.body as Buffer)).toBe(r1[0]!.sha256);
+        expect(r.headers['x-content-sha256']).toBe(r1[0]!.sha256);
+        expect(spy).not.toHaveBeenCalled();
+      } finally {
+        spy.mockRestore();
+      }
+
+      // 2) บันทึกจ่าย → งานฉบับจ่ายแล้ว · ฉบับอนุมัติคงเดิม · งานซ้ำ (idempotent) ไม่ render/เก็บเพิ่ม
+      expect((await pay(s.id)).status).toBe(200);
+      await runJobs(sid);
+      const r2 = await storedOf(sid);
+      expect(r2.map((d) => (d.metadata as { variant: string }).variant)).toEqual([
+        'APPROVED',
+        'PAID',
+      ]);
+      expect(r2[0]).toEqual(r1[0]);
+      await queue.enqueue(db as never, {
+        tenantId,
+        type: SETTLEMENT_PDF_JOB,
+        payload: { settlementId: sid, variant: 'PAID' },
+      });
+      const spy2 = vi.spyOn(renderer, 'pdf');
+      try {
+        await runJobs(sid);
+        expect(spy2).not.toHaveBeenCalled();
+      } finally {
+        spy2.mockRestore();
+      }
+      expect(await storedOf(sid)).toEqual(r2);
+      expect((await auditsOf(sid)).length).toBe(2);
+      const paidPdf = await pdfOf(s.id);
+      expect(sha(paidPdf.body as Buffer)).toBe(r2[1]!.sha256);
+
+      // 3) render ล้ม → งานกลับเป็น PENDING (ลองใหม่ตามช่วงเวลา) ไม่เก็บไฟล์ → ครั้งถัดไปสำเร็จ
+      const b = await make();
+      await approve(b.s.id);
+      const fail = vi.spyOn(renderer, 'pdf').mockRejectedValueOnce(new Error('chromium crashed'));
+      try {
+        await runJobs(b.sid);
+      } finally {
+        fail.mockRestore();
+      }
+      const jb = await pdfJobs(b.sid);
+      expect(jb[0]).toMatchObject({ status: 'PENDING', attempts: 1, maxAttempts: 8 });
+      expect(jb[0]!.runAt.getTime()).toBeGreaterThan(Date.now() + 5_000);
+      expect(await storedOf(b.sid)).toEqual([]);
+      await db.job.update({ where: { id: jb[0]!.id }, data: { runAt: new Date() } });
+      await runJobs(b.sid);
+      expect((await pdfJobs(b.sid))[0]).toMatchObject({ status: 'SUCCEEDED', attempts: 2 });
+      expect(await storedOf(b.sid)).toHaveLength(1);
+
+      // 4) คำขอ PDF ก่อนงานทำ (ทางสำรอง) → เก็บครั้งเดียว · งานทำทีหลังใช้ไฟล์เดิม (ไม่ render)
+      const c = await make();
+      await approve(c.s.id);
+      const [p1, p2] = await Promise.all([pdfOf(c.s.id), pdfOf(c.s.id)]);
+      expect([p1.status, p2.status]).toEqual([200, 200]);
+      const rc = await storedOf(c.sid);
+      expect(rc).toHaveLength(1);
+      expect(sha(p1.body as Buffer)).toBe(rc[0]!.sha256);
+      const spy3 = vi.spyOn(renderer, 'pdf');
+      try {
+        await runJobs(c.sid);
+        expect(spy3).not.toHaveBeenCalled();
+      } finally {
+        spy3.mockRestore();
+      }
+      expect((await pdfJobs(c.sid))[0]).toMatchObject({ status: 'SUCCEEDED' });
+      expect(await storedOf(c.sid)).toEqual(rc);
+      expect((await auditsOf(c.sid)).map((a) => a.actorId)).toEqual(['user-test']);
+
+      // 5) งานฉบับอนุมัติทำหลังจ่ายแล้ว (ลองใหม่นาน) → ยังเก็บฉบับอนุมัติ (ไม่มีข้อมูลการจ่าย) แยกจากฉบับจ่ายแล้ว
+      const d = await make();
+      await approve(d.s.id);
+      expect((await pay(d.s.id)).status).toBe(200);
+      const bodies: string[] = [];
+      const spy4 = vi.spyOn(renderer, 'pdf');
+      try {
+        await runJobs(d.sid);
+        bodies.push(...spy4.mock.calls.map((x) => x[0].body ?? ''));
+      } finally {
+        spy4.mockRestore();
+      }
+      const rd = await storedOf(d.sid);
+      expect(rd.map((x) => (x.metadata as { variant: string }).variant).sort()).toEqual([
+        'APPROVED',
+        'PAID',
+      ]);
+      expect(rd[0]!.sha256).not.toBe(rd[1]!.sha256);
+      expect(bodies).toHaveLength(2);
+      expect(bodies.filter((x) => x.includes(PAY.reference))).toHaveLength(1);
+      // ธง renderedAfterPaid: ไฟล์ + audit ของฉบับอนุมัติที่เก็บหลังจ่าย (ฉบับจ่ายแล้ว/ฉบับที่เก็บก่อนจ่ายไม่มี)
+      const late = rd.find((x) => (x.metadata as { variant: string }).variant === 'APPROVED')!;
+      const paidDoc = rd.find((x) => (x.metadata as { variant: string }).variant === 'PAID')!;
+      expect(late.metadata).toMatchObject({ variant: 'APPROVED', renderedAfterPaid: true });
+      expect(paidDoc.metadata).not.toHaveProperty('renderedAfterPaid');
+      expect(r1[0]!.metadata).not.toHaveProperty('renderedAfterPaid');
+      const lateAudit = (await auditsOf(d.sid)).map((a) => a.after as Record<string, unknown>);
+      expect(lateAudit.find((a) => a.variant === 'APPROVED')).toMatchObject({
+        renderedAfterPaid: true,
+      });
+      expect(lateAudit.find((a) => a.variant === 'PAID')).not.toHaveProperty('renderedAfterPaid');
+      // วันที่เอกสารของฉบับอนุมัติที่ render หลังจ่าย = วันอนุมัติ (ไม่ใช่วันจ่าย)
+      const dRow = await db.carrierSettlement.findUniqueOrThrow({ where: { id: d.sid } });
+      const approvedDay = bangkokToday(dRow.approvedAt!);
+      // แบบพิมพ์: วันจ่ายต่างจากวันอนุมัติ → ฉบับอนุมัติใช้วันอนุมัติ ไม่มีข้อมูลการจ่าย (เท่ากับแบบพิมพ์ ณ วันอนุมัติ)
+      const svc = app.get(SettlementPdfService);
+      const { model: approveTime, dto: approvedDto } = await requestContext.run(
+        { requestId: randomUUID(), tenantId, actorId: 'user-test', locale: 'th' },
+        () =>
+          app.get(DbService).withTenant(tenantId, async (tx: Tx) => {
+            requestContext.require().tx = tx as never;
+            return svc.loadModel(tx, d.sid);
+          }),
+      );
+      const approvedBody = bodies.find((x) => !x.includes(PAY.reference))!;
+      expect(approvedBody).toContain(docDateShort(approvedDay, approveTime.yearStyle));
+      const paidLater = {
+        ...approveTime,
+        docDate: '2099-01-31',
+        paymentMethod: 'TRANSFER' as const,
+        paymentReference: PAY.reference,
+      };
+      const derived = asVariant(
+        paidLater,
+        { ...approvedDto, status: 'PAID', approvedAt: dRow.approvedAt!.toISOString() },
+        'APPROVED',
+      );
+      expect(derived).toEqual({
+        ...approveTime,
+        docDate: approvedDay,
+        paymentMethod: null,
+        paymentReference: null,
+      });
+    }, 240_000);
 
     it('ST6-T04 สิทธิ์: ไม่มี prices.buy:read → 403 · ไม่มี settlements:read → 403 · บริษัทอื่น 404 · ใบยกเลิก 409', async () => {
       const { C, trips } = await setup(1, '1000');

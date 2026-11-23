@@ -25,7 +25,8 @@ import {
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
-import { RequireScope, TenantResource, RateLimitClass } from '../../common/decorators';
+import { RequireScope, TenantResource, RateLimitClass, StepUpWhen } from '../../common/decorators';
+import { EXPORT_STEP_UP_WHEN } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { DbService } from '../../db/db.service';
 import { sendExport, type ExportColumn } from '../master/export';
@@ -158,11 +159,12 @@ export class VehiclesController {
     return toVehicleDto(v);
   }
 
-  /** ผลการสร้าง + สัญญาณโควตา (soft limit PLT-080): `quotaExceeded` + header `Warning: 299` */
-  private async created(res: Response, v: VehicleFull): Promise<VehicleDto> {
-    const over = await this.vehicles.quotaExceeded();
-    if (over) res.setHeader('Warning', '299 tms "vehicle quota exceeded"');
-    return { ...this.send(res, v), quotaExceeded: over };
+  /**
+   * ผลการสร้าง · D-81 · D68-14: โควตารถคิดจาก**รถ active** ในเดือน (docs/02 §2/§6) ไม่ใช่จำนวนในทะเบียน —
+   * จนกว่าจะมีงานนับรถ active (metering) ไม่ส่งสัญญาณ "เกินโควตา" (`quotaExceeded: false`, ไม่มี header `Warning`)
+   */
+  private created(res: Response, v: VehicleFull): VehicleDto {
+    return { ...this.send(res, v), quotaExceeded: false };
   }
 
   @Get()
@@ -182,6 +184,7 @@ export class VehiclesController {
   @Get('export')
   @RateLimitClass('heavy')
   @RequireScope('export:run')
+  @StepUpWhen(EXPORT_STEP_UP_WHEN)
   @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv')
   @ApiOkResponse({
     description: 'ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว)',
@@ -200,7 +203,7 @@ export class VehiclesController {
   @ApiCreatedResponse({
     type: VehicleDto,
     description:
-      'สร้างแล้ว — เกินโควตารถ: `quotaExceeded: true` + header `Warning: 299` (ยังสร้างได้)',
+      'สร้างแล้ว — โควตารถเป็น soft limit ที่นับรถ active ในเดือน (D68-14) — การสร้างไม่ถูกจำกัดและยังไม่ส่งสัญญาณเกินโควตา',
   })
   async create(
     @Body() body: CreateVehicleDto,

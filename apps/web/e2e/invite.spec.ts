@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { DEMO_TOTP_SECRET, expect, test, totp } from './fixtures';
+import { expect, freshCode, test, totp } from './fixtures';
 
 /** E2E ST1-T07: เชิญผู้ใช้จากตั้งค่า (step-up) → ลิงก์ในอีเมล → ตั้งรหัส → เข้าระบบด้วย role ที่กำหนด */
 const env = Object.fromEntries(
@@ -19,7 +19,10 @@ const db = new PrismaClient({ datasources: { db: { url: env.PLATFORM_DATABASE_UR
 test.use({ loginEmail: 'admin@demo-a.test' });
 test.afterAll(async () => db.$disconnect());
 
-test('เชิญผู้ใช้ → รับคำเชิญ → login ด้วย role ที่กำหนด', async ({ page, browser }) => {
+test('เชิญผู้ใช้ → รับคำเชิญ → login ด้วย role ที่กำหนด (ผู้วางแผน → ตั้ง 2FA ก่อน — D-78)', async ({
+  page,
+  browser,
+}) => {
   const email = `invite-${Date.now()}@demo-a.test`;
   await page.goto('/settings?sec=users');
   await page.getByRole('button', { name: 'เชิญผู้ใช้' }).click();
@@ -29,7 +32,7 @@ test('เชิญผู้ใช้ → รับคำเชิญ → login �
   await drawer.getByRole('checkbox', { name: 'ผู้วางแผน' }).check();
   await page.getByRole('button', { name: 'ส่งคำเชิญ' }).click();
   const box = page.getByRole('group', { name: 'ยืนยันตัวตน 2 ชั้นอีกครั้ง' });
-  await box.getByLabel('รหัส 6 หลัก').fill(totp(DEMO_TOTP_SECRET));
+  await box.getByLabel('รหัส 6 หลัก').fill(await freshCode());
   await box.getByRole('button', { name: 'ยืนยัน' }).click();
   await expect(page.getByRole('status')).toHaveText('ส่งคำเชิญทางอีเมลแล้ว');
   const row = page.getByRole('row').filter({ hasText: email });
@@ -53,6 +56,16 @@ test('เชิญผู้ใช้ → รับคำเชิญ → login �
   await guest.getByLabel('อีเมล').fill(email);
   await guest.getByLabel('รหัสผ่าน').fill('invited-person-2569');
   await guest.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
+  // D-78 (PO 23 พ.ย. 2569): ผู้วางแผนถือ export:run → ต้องตั้ง 2FA ก่อนเข้าระบบ (หน้าตั้ง 2FA เดิม)
+  await expect(
+    guest.getByRole('heading', { level: 1, name: 'ตั้งการยืนยันตัวตน 2 ชั้น' }),
+  ).toBeVisible();
+  const secret = ((await guest.getByTestId('totp-secret').textContent()) ?? '').replace(/\s/g, '');
+  expect(secret).toMatch(/^[A-Z2-7]{16,}$/);
+  await guest.getByLabel('รหัส 6 หลัก').fill(totp(secret));
+  await guest.getByRole('button', { name: 'ยืนยันและเปิดใช้' }).click();
+  await expect(guest.getByRole('heading', { level: 1, name: 'บันทึกรหัสสำรอง' })).toBeVisible();
+  await guest.getByRole('button', { name: 'บันทึกแล้ว ดำเนินการต่อ' }).click();
   await expect(guest.getByText('ผู้ถูกเชิญ ทดสอบ')).toBeVisible();
 
   // ลิงก์ใช้ซ้ำไม่ได้

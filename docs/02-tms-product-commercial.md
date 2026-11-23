@@ -161,7 +161,7 @@ Driver app เป็น add-on ได้โดยไม่ขัด X2 เพร
 | รถและคนขับ | ทะเบียน, ประเภท, รถบริษัท/รถร่วม, คนขับ 3 แบบ (รถร่วม / มีเงินเดือน / รายเที่ยว); รถ active เทียบ quota | 0–1 |
 | ลูกค้าและ rate card | ลูกค้าที่วางบิล (เลขผู้เสียภาษี + สาขา), ราคาขาย/ราคาซื้อ, รอบวางบิล, POD ที่ต้องการต่อลูกค้า, Excel import พร้อม dry-run | 0–1 |
 | Reason master | เหตุผลงานค้าง/ส่งไม่สำเร็จ/ปฏิเสธ แก้เองได้ มีชุดเริ่มต้นภาษาไทย | 0–1 |
-| **การเชื่อมต่อ (Marketplace)** | เฟส 0–1: ดูสถานะ connector, ทดสอบ, ดู error queue + retry ของตัวเอง — **API key และ mapping ครั้งแรก Innovera ตั้งให้** (รวมใน setup fee) · เฟส 2: ลูกค้ากด "เปิดใช้ FlowAccount/PEAK" ใส่ credential เอง → หน้า mapping ค่าใช้จ่าย ↔ สินค้า/บริการ → ทดสอบ sandbox → เปิดใช้ โดยไม่ต้องเปิด ticket; ERP connector (KRS, SAP B1) ยังผ่าน Innovera ต่อไป | 0–2 |
+| **การเชื่อมต่อ (Marketplace)** | เฟส 0–1: ลูกค้า**เชื่อมต่อ/ใส่ credential เอง**ได้ (เชื่อมต่อ, ทดสอบ, เปิดใช้, เปลี่ยน key, สวิตช์ capability, ออก/หมุน URL ขาเข้า) ดูสถานะ connector, ทดสอบ, ดู error queue + retry ของตัวเอง — Innovera ช่วยตั้ง mapping ครั้งแรกได้ (รวมใน setup fee) (D-81 · D68-60 · 23 พ.ย. 2569) · เฟส 2: ลูกค้ากด "เปิดใช้ FlowAccount/PEAK" ใส่ credential เอง → หน้า mapping ค่าใช้จ่าย ↔ สินค้า/บริการ → ทดสอบ sandbox → เปิดใช้ โดยไม่ต้องเปิด ticket; ERP connector (KRS, SAP B1) ยังผ่าน Innovera ต่อไป | 0–2 |
 | Open API | สร้าง/หมุน API key, เลือก scope อ่าน/เขียนตาม tier, ตั้ง webhook URL, ดู request log | 2 |
 | แผนและการชำระเงิน | tier, รถที่ใช้/ซื้อ, add-on ที่เปิด, วันหมดอายุ, ประวัติบิล, ขออัปเกรด | 1 |
 

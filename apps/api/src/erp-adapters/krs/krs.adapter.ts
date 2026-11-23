@@ -6,16 +6,21 @@ import {
   type ConnectorConfigField,
   type ErpAdapter,
   type ErpContext,
+  type ErpFieldSubstitution,
   type ExternalRef,
   type HealthResult,
   type MasterCodeReadiness,
   type MasterCodeRef,
-  notImplementedError,
-  notImplementedResult,
+  type ExternalDocumentPart,
+  type LoggedHttpCall,
+  type PlannedDocumentPart,
   type PushResult,
 } from '../../modules/erp/erp-adapter';
-import { safeHttpRequest, type SendOptions } from '../../modules/webhooks/webhook-http';
+import { safeHttpRequest } from '../../modules/webhooks/webhook-http';
 import { krsMasterCodeRefs, krsPushReadiness } from './krs-master-codes';
+import { fetchKrsDocument, krsComparable, krsDocumentsFromSyncLog } from './krs-fetch';
+import { type KrsHttpOptions, planKrsInvoice, pushKrsInvoice, splitByVatType } from './krs-push';
+import { replaceKrsInvoice } from './krs-replace';
 import { probeKrsSoSource, pullKrsOrders } from './krs-so-poller';
 
 /**
@@ -26,9 +31,11 @@ import { probeKrsSoSource, pullKrsOrders } from './krs-so-poller';
  *   (KRS ออก `voucherNo` เอง) — **ไม่มี** pushCreditNote / pushSettlement / fetchPaymentStatus / postedStatus / listDocuments
  *   และไม่ดึงผังรหัส (`masterCodeKinds` ว่าง — plan/11 #8: ไม่มี getMasters → นำเข้าไฟล์ ST7-T18)
  * - ST8-T06 `masterCodeRefs`: หน่วย/พนักงานขาย (บังคับ) + itemCode/accountCode ต้องอยู่ใน `erp_master_code` ก่อนส่ง (`krs-master-codes.ts`)
- * - pullOrders = ST8-T04 (ทำแล้ว — `krs-so-poller.ts`)
- * - method ของโครงยังไม่ทำ → `pendingCapabilities` + ตอบ CAPABILITY `not_implemented` (core พักคำสั่งไว้ ไม่ทิ้ง):
- *   pushInvoice = ST8-T08, replaceDocument = ST8-T09/T11, fetchDocument = ST8-T10
+ * - pullOrders = ST8-T04 (ทำแล้ว — `krs-so-poller.ts`) · pushInvoice + ธง ownsDocumentNumber = ST8-T08 (ทำแล้ว — `krs-push.ts`:
+ *   `POST /invoice` แยกใบตาม `vat_type` · D-64 ชื่อรถร่วมแทนชื่อคนขับ)
+ * - fetchDocument = ST8-T10 (ทำแล้ว — `krs-fetch.ts`: `GET /invoice/{transactionNo}` → canonical, รวมใบที่แยก, จับคู่รายการด้วย `flowNo`)
+ * - replaceDocument = ST8-T13 (ทำแล้ว — `krs-replace.ts`: `PUT /invoice/{transactionNo}` ทีละใบตาม `detail.documents` ด้วย
+ *   `tmsVoucherNo` เดิม · แผนต้องตรงกับใบที่มี · GET ยืนยันเลขอ้างอิงก่อนเขียน) — approval (ปุ่ม "ลงบัญชีแล้ว" / อายุใบ) อยู่ใน core
  * - ค่าตั้ง: `baseUrl` (เช่น `https://api-pueanphet.krs.co.th/api`), credential `apiKey` (header `X-API-Key` — เข้ารหัส FieldCipher, write-only),
  *   SQL Server login แบบอ่านอย่างเดียว (`sqlServer`/`sqlDatabase`/`sqlUser` + credential `sqlPassword`) **เก็บไว้เฉย ๆ** จนกว่า KRS เลือกทาง view SQL (ST8-T04 อ่านผ่าน HTTP stub)
  *   (ยังไม่มี dependency SQL Server — ST8-T02 อ่าน SO ผ่าน HTTP stub `GET /salesorder?since=`: `krs-so-source.ts`) · `healthTransactionNo` = เลข `transactionNo` ของใบที่รู้จักแล้ว ใช้ทดสอบ (docs/01 A.2)
@@ -70,20 +77,29 @@ export class KrsAdapter implements ErpAdapter {
     { key: 'sqlPassword', secret: true, required: false, kind: 'string', maxLength: 200 },
   ] satisfies ConnectorConfigField[]);
 
+  /** ST8-T07 สัญญา KRS บังคับ `carPerson` ทุกรายการ (docs/01 A.3) → ต้องมีชื่อคนขับใน canonical */
+  readonly personalDataNeeds = Object.freeze(['trip.driverName'] as const);
+
+  /**
+   * D-64 (ST8-T08) เที่ยวที่ไม่มีชื่อคนขับ (รถร่วม) ส่ง `carPerson` = ชื่อบริษัทรถร่วม — core เตือนตั้งแต่ร่าง (`erpWarnings`)
+   * **[OPEN — KRS] KRS-19** รอ KRS ยืนยันว่ารับค่านี้ได้ (ไม่รับ = PO ตัดสินใหม่)
+   */
+  readonly fieldSubstitutions: readonly ErpFieldSubstitution[] = Object.freeze([
+    'trip.driverName→trip.carrierName',
+  ] as ErpFieldSubstitution[]);
+
   /** test: ตัวเลือกของ HTTP client (เช่น resolver) */
-  constructor(private readonly http: Pick<SendOptions, 'allowPrivate' | 'resolver'> = {}) {}
+  constructor(private readonly http: KrsHttpOptions = {}) {}
 
   capabilities(): ReadonlySet<ErpCapability> {
     return new Set(CAPS);
   }
 
   /**
-   * โครง: ทุก capability ยังไม่ได้ทำ → core ไม่เปิดเป็นค่าเริ่มต้น เปิดไม่ได้ แสดง "ยังไม่รองรับ" และพักคำสั่งที่ค้าง
-   * (เอาออกจากรายการเมื่อทำเสร็จ — pullOrders ทำแล้ว ST8-T04; ค้าง: pushInvoice + ownsDocumentNumber ST8-T08, replaceDocument ST8-T09/T11, fetchDocument ST8-T10)
+   * capability ที่ประกาศแต่ยังไม่ได้ทำ (core พักคำสั่ง) — ว่างแล้ว: pullOrders ST8-T04, pushInvoice + ownsDocumentNumber ST8-T08,
+   * fetchDocument ST8-T10, replaceDocument ST8-T13
    */
-  readonly pendingCapabilities: readonly ErpCapability[] = Object.freeze(
-    CAPS.filter((c) => c !== 'pullOrders'),
-  );
+  readonly pendingCapabilities: readonly ErpCapability[] = Object.freeze([] as ErpCapability[]);
 
   /** ST8-T06 ค่าที่ต้องอยู่ในผังรหัส KRS ก่อนส่ง (หน่วย/พนักงานขาย/itemCode/accountCode — `krs-master-codes.ts`) */
   masterCodeRefs(
@@ -157,25 +173,74 @@ export class KrsAdapter implements ErpAdapter {
     return pullKrsOrders(ctx, since, limit, this.http);
   }
 
-  // ---------- capability ที่ยังไม่ทำ (โครง) ----------
-
-  /** ST8-T08 — `POST /invoice` (docs/01 A.2/A.3) */
-  async pushInvoice(_ctx: ErpContext, _inv: CanonicalInvoice): Promise<PushResult> {
-    return notImplementedResult('pushInvoice');
+  /**
+   * ST8-T08 `POST /invoice` (docs/01 A.2/A.3) — `tmsVoucherNo` = เลขใบแจ้งหนี้ · แยกใบตาม `vat_type` (D-69) ·
+   * 201 → `transactionNo` (externalId) + `voucherNo` (externalDocNo) · รายละเอียด: `krs-push.ts`
+   */
+  async pushInvoice(ctx: ErpContext, inv: CanonicalInvoice): Promise<PushResult> {
+    return pushKrsInvoice(ctx, inv, this.http);
   }
 
-  /** ST8-T09/T11 — `PUT /invoice/{transactionNo}` (fallback ของ credit/debit note — docs/01 A.2) */
+  /**
+   * ST8-T10 `GET /invoice/{transactionNo}` → canonical (docs/01 A.2; §6.5) — ใบที่แยกหลายเอกสาร (`ref.documents`) อ่านทุกใบแล้วรวม ·
+   * จับคู่รายการด้วย `flowNo` (= เลข DO) · 404 = `NOT_FOUND` · รายละเอียด: `krs-fetch.ts`
+   */
+  async fetchDocument(
+    ctx: ErpContext,
+    ref: ExternalRef,
+    hint?: CanonicalDocument,
+  ): Promise<CanonicalDocument | null> {
+    return fetchKrsDocument(ctx, ref, hint, this.http);
+  }
+
+  /** ST8-T10 KRS ไม่มี endpoint ค้นด้วย `tmsVoucherNo` (A.1) — อ่านได้เฉพาะเมื่อรู้ `transactionNo` */
+  readonly fetchNeedsExternalId = true;
+
+  /** ST8-T10 เลข KRS จาก response 201 ใน sync log (ผลของคำสั่งไม่ถูกบันทึก) */
+  documentsFromSyncLog(calls: readonly LoggedHttpCall[]): ExternalDocumentPart[] {
+    return krsDocumentsFromSyncLog(calls);
+  }
+
+  /** ST8-T10 ส่วนของ canonical ที่ KRS เก็บได้ (payload ชุดเดียวกับที่ POST แปลงกลับ) — core เทียบกับผลของ `fetchDocument` */
+  comparableDocument(ctx: ErpContext, doc: CanonicalDocument): CanonicalDocument | null {
+    return krsComparable(ctx, doc);
+  }
+
+  /**
+   * ST8-T09 เอกสาร KRS ที่ใบนี้จะถูกแยก (`tmsVoucherNo` ตามลำดับ — แผนเดียวกับ POST) · core ตรวจ `ref` ของเลข `transactionNo`
+   * ที่คนกรอกเองต่อใบ (A.5 409 — KRS ไม่มี endpoint ค้นด้วย `tmsVoucherNo`) · สร้างแผนไม่ได้ = null
+   */
+  plannedDocuments(ctx: ErpContext, doc: CanonicalDocument): readonly PlannedDocumentPart[] | null {
+    const pl = planKrsInvoice(ctx, doc);
+    if (pl.ok)
+      return pl.plan.map((p) => ({
+        ref: p.doc.tmsVoucherNo,
+        group: p.group,
+        lineNos: p.doc.lineNos,
+      }));
+    // review L3: สร้าง payload ไม่ได้ (เช่น ผังรหัสยังไม่ครบ) — เลขอ้างอิงขึ้นกับเลขใบแจ้งหนี้ + กลุ่ม VAT เท่านั้น
+    // (ยกเว้นใบใหญ่เกินเพดานที่แบ่ง `-P{n}` — กรณีนั้น ref ที่คนกรอกจะไม่อยู่ในแผน = 422 ปลอดภัย ไม่ผูกผิดใบ)
+    const split = splitByVatType(doc);
+    if (!split.ok) return null;
+    return split.groups.map((g) => ({
+      ref: g.tmsVoucherNo,
+      group: g.group,
+      lineNos: (Array.isArray(g.doc.lines) ? (g.doc.lines as { lineNo?: unknown }[]) : [])
+        .map((l) => l?.lineNo)
+        .filter((n): n is number => Number.isInteger(n)),
+    }));
+  }
+
+  /**
+   * ST8-T13 `PUT /invoice/{transactionNo}` (fallback ของ credit/debit note — docs/01 A.2; D-54 ภาพหลังปรับ = ใบที่ออกใหม่แทน) ·
+   * ทีละใบตาม `ref.documents` ด้วย `tmsVoucherNo` เดิม (`ref.number`) · รายละเอียด: `krs-replace.ts`
+   */
   async replaceDocument(
-    _ctx: ErpContext,
-    _ref: ExternalRef,
-    _inv: CanonicalInvoice,
+    ctx: ErpContext,
+    ref: ExternalRef,
+    inv: CanonicalInvoice,
   ): Promise<PushResult> {
-    return notImplementedResult('replaceDocument');
-  }
-
-  /** ST8-T10 — `GET /invoice/{transactionNo}` → CanonicalInvoice */
-  async fetchDocument(_ctx: ErpContext, _ref: ExternalRef): Promise<CanonicalDocument | null> {
-    throw notImplementedError('fetchDocument');
+    return replaceKrsInvoice(ctx, ref, inv, this.http);
   }
 }
 

@@ -25,10 +25,13 @@ import {
   NoTransaction,
   RequireFeature,
   RequireScope,
+  StepUpAlways,
+  StepUpWhen,
   TenantResource,
   RateLimitClass,
   SandboxAware,
 } from '../../common/decorators';
+import { assertHumanStepUp, assertStepUp } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -83,14 +86,14 @@ export class WebhooksController {
   ) {}
 
   @Get()
-  @RequireScope('settings:read')
+  @RequireScope('settings:read', 'webhooks:manage')
   @ApiOkResponse({ type: WebhookPageDto })
   list(@Query() q: WebhookListQuery) {
     return this.hooks.list(q);
   }
 
   @Get('summary')
-  @RequireScope('settings:read')
+  @RequireScope('settings:read', 'webhooks:manage')
   @ApiOkResponse({
     type: WebhookSummaryDto,
     description: 'จำนวนต่อสถานะ (แท็บ) + limit ของแพ็กเกจ',
@@ -100,7 +103,7 @@ export class WebhooksController {
   }
 
   @Get('event-types')
-  @RequireScope('settings:read')
+  @RequireScope('settings:read', 'webhooks:manage')
   @ApiOkResponse({
     type: WebhookEventTypeListDto,
     description:
@@ -121,7 +124,9 @@ export class WebhooksController {
   }
 
   @Post()
-  @RequireScope('settings:write')
+  @RequireScope('settings:write', 'webhooks:manage')
+  // D-67: ผลมี signing secret → ผู้ใช้ต้อง step-up · D68-49: API key (`webhooks:manage`) สร้างได้ (step-up ไม่ได้ — คุมด้วย scope)
+  @StepUpAlways('human')
   @ApiCreatedResponse({
     type: WebhookEndpointSecretDto,
     description:
@@ -132,6 +137,7 @@ export class WebhooksController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<WebhookEndpointSecretDto> {
+    assertHumanStepUp(); // D-67 (ผู้ใช้) / D68-49 (API key ผ่าน) — ตรวจหลัง validation/404 (ไม่ใช่ใน guard)
     noIdempotencyKey(req);
     const e = await this.hooks.create(body);
     setEtag(res, e.version);
@@ -141,7 +147,7 @@ export class WebhooksController {
 
   @Get(':id')
   @TenantResource('webhookEndpoint')
-  @RequireScope('settings:read')
+  @RequireScope('settings:read', 'webhooks:manage')
   @ApiOkResponse({ type: WebhookEndpointDto })
   async get(
     @Param('id') id: string,
@@ -154,7 +160,7 @@ export class WebhooksController {
 
   @Get(':id/history')
   @TenantResource('webhookEndpoint')
-  @RequireScope('settings:read')
+  @RequireScope('settings:read', 'webhooks:manage')
   @ApiOkResponse({ type: AuditPageDto, description: 'ประวัติจาก audit log ใหม่สุดก่อน' })
   async history(@Param('id') id: string, @Query() q: HistoryQuery): Promise<AuditPageDto> {
     const e = await this.hooks.get(decodeIdOr404('webhookEndpoint', id));
@@ -163,7 +169,8 @@ export class WebhooksController {
 
   @Patch(':id')
   @TenantResource('webhookEndpoint')
-  @RequireScope('settings:write')
+  @RequireScope('settings:write', 'webhooks:manage')
+  @StepUpWhen('เปลี่ยน `url` หรือ `extraHeaders` (D-67 review M1)')
   @ApiHeader(IF_MATCH)
   @ApiOkResponse({
     type: WebhookEndpointDto,
@@ -187,12 +194,14 @@ export class WebhooksController {
   @Post(':id/rotate-secret')
   @HttpCode(201)
   @TenantResource('webhookEndpoint')
-  @RequireScope('settings:write')
+  @RequireScope('settings:write', 'webhooks:manage')
+  @StepUpAlways() // D-67 — ผู้ใช้ step-up เท่านั้น (API key ทำ step-up ไม่ได้ → 403 `step_up_required` แม้มี webhooks:manage)
   @ApiHeader(IF_MATCH)
   @ApiCreatedResponse({
     type: WebhookEndpointSecretDto,
     description:
-      'secret ใหม่ (แสดงครั้งเดียว) · 24 ชม. ส่ง `v1` ของ secret ใหม่และเดิมคู่กัน · ไม่รับ Idempotency-Key',
+      'secret ใหม่ (แสดงครั้งเดียว) · 24 ชม. ส่ง `v1` ของ secret ใหม่และเดิมคู่กัน · ไม่รับ Idempotency-Key · ' +
+      '**ผู้ใช้ที่ step-up เท่านั้น** (D-67) — API key ได้ 403 `step_up_required` แม้มี `webhooks:manage`',
   })
   async rotate(
     @Param('id') id: string,
@@ -200,6 +209,7 @@ export class WebhooksController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<WebhookEndpointSecretDto> {
+    assertStepUp(); // D-67 — ตรวจหลัง validation/404 (ไม่ใช่ใน guard)
     noIdempotencyKey(req);
     const e = await this.hooks.rotate(
       decodeIdOr404('webhookEndpoint', id),
@@ -214,7 +224,7 @@ export class WebhooksController {
   @Post(':id/disable')
   @HttpCode(200)
   @TenantResource('webhookEndpoint')
-  @RequireScope('settings:write')
+  @RequireScope('settings:write', 'webhooks:manage')
   @ApiHeader(IF_MATCH)
   @ApiOkResponse({
     type: WebhookEndpointDto,
@@ -238,7 +248,7 @@ export class WebhooksController {
   @Post(':id/enable')
   @HttpCode(200)
   @TenantResource('webhookEndpoint')
-  @RequireScope('settings:write')
+  @RequireScope('settings:write', 'webhooks:manage')
   @ApiHeader(IF_MATCH)
   @ApiOkResponse({
     type: WebhookEndpointDto,
@@ -264,7 +274,7 @@ export class WebhooksController {
   @HttpCode(200)
   @NoTransaction()
   @TenantResource('webhookEndpoint')
-  @RequireScope('settings:write')
+  @RequireScope('settings:write', 'webhooks:manage')
   @ApiOkResponse({
     type: WebhookTestResultDto,
     description:
@@ -277,7 +287,7 @@ export class WebhooksController {
   @Delete(':id')
   @HttpCode(204)
   @TenantResource('webhookEndpoint')
-  @RequireScope('settings:write')
+  @RequireScope('settings:write', 'webhooks:manage')
   @ApiHeader(IF_MATCH)
   @ApiNoContentResponse({
     description: 'ลบ (เหตุผล ≥ 10 ตัว · เก็บประวัติการส่งตาม retention) — หยุดส่งทันที',

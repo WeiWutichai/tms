@@ -1,11 +1,14 @@
+import { Clock } from '../../common/clock';
 import { safeName } from '../../common/safe-text';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { encodeId } from '../../common/ids';
 import { requestContext } from '../../common/request-context';
 import type { Tx } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
 import { NotificationService } from './notification.service';
+import { renderNotification, type NotificationVars } from './templates';
 
 /** ผู้ขอเอง (ผู้ใช้ที่ login) ไม่ต้องได้แจ้งเตือนของสิ่งที่ตัวเองเพิ่งทำ */
 function selfExclude(): string[] {
@@ -17,6 +20,8 @@ function selfExclude(): string[] {
 const holdBatch = new AsyncLocalStorage<{ ids: Set<string> }>();
 /** ตัวอย่างเลขใบในข้อความรวม */
 const BATCH_SAMPLE = 5;
+/** review M1 รวมแจ้ง "เอกสารไม่ถูกส่งเข้าระบบบัญชี" ที่ยังไม่อ่านภายในช่วงนี้ (connector + รหัสเดียวกัน) */
+export const DOC_NOT_SENT_GROUP_MS = 60 * 60_000;
 let savepointSeq = 0;
 
 /**
@@ -39,6 +44,7 @@ export class NotificationEvents implements OnModuleInit {
   constructor(
     private readonly notifications: NotificationService,
     private readonly state: StateService,
+    private readonly clock: Clock,
   ) {}
 
   onModuleInit() {
@@ -262,6 +268,236 @@ export class NotificationEvents implements OnModuleInit {
         entity: { type: 'connector', id: encodeId('connector', input.connectorId) },
       }),
     );
+  }
+
+  /**
+   * D-81 · D68-61 รอบกระทบยอดพบส่วนต่างใหม่ (docs/01 §6.5 "severity `MONEY` แจ้งหัวหน้าบัญชีทันที (email + LINE) และสรุป 08:00")
+   * → ผู้ดูแลรับชำระ `payments:record` (owner/admin/manager/บัญชี — คนแก้ต้นเหตุ: บันทึก/กลับรายการรับชำระ) 1 ฉบับต่อรอบต่อ connector
+   * · ส่วนต่างเดิมที่ยังเปิดไม่นับ (diff_hash — `recordPaymentMismatch` คืน created=false) → รอบถัดไปไม่แจ้งซ้ำ · ไม่ใส่ยอดเงิน
+   * · LINE ทีมภายใน = P1 (docs/04 I) — ตอนนี้ในระบบ + อีเมล
+   */
+  async reconcileMismatch(
+    tx: Tx,
+    input: {
+      tenantId: string;
+      connectorId: string;
+      label: string;
+      invoiceNos: string[];
+      count: number;
+    },
+  ): Promise<void> {
+    if (input.count <= 0) return;
+    await this.safely(tx, 'reconcile.mismatch_found', () =>
+      this.notifications.notify(tx, {
+        tenantId: input.tenantId,
+        to: { permissions: ['payments:record'] },
+        template: 'reconcile.mismatch_found',
+        vars: {
+          label: input.label,
+          count: input.count,
+          invoiceNos: input.invoiceNos.slice(0, BATCH_SAMPLE),
+        },
+        // หน้ารับชำระ — ผู้รับ (payments:record เช่น role บัญชี) ไม่มี settings:read จึงเปิดหน้าตั้งค่าการเชื่อมต่อไม่ได้
+        link: '/pay',
+        entity: { type: 'connector', id: encodeId('connector', input.connectorId) },
+      }),
+    );
+  }
+
+  /**
+   * ST8-T11 (review b) อ่านเอกสารจากระบบบัญชีไม่สำเร็จ (ERP_UNREACHABLE) **2 รอบติด** (docs/01 §6.5 "แจ้งผู้ดูแลทั้งสองฝั่ง")
+   * → ผู้ดูแลการเชื่อมต่อฝั่ง TMS (ผู้รับเดียวกับ connector ล่ม) ครั้งเดียวต่อส่วนต่าง · ฝั่ง ERP แจ้งไม่ได้ (ไม่มีช่องทางถึงผู้ดูแลฝั่งนั้น)
+   */
+  async reconcileUnreachable(
+    tx: Tx,
+    input: { tenantId: string; connectorId: string; label: string; invoiceNo: string | null },
+  ): Promise<void> {
+    await this.safely(tx, 'connector.reconcile_unreachable', () =>
+      this.notifications.notify(tx, {
+        tenantId: input.tenantId,
+        to: { permissions: ['settings:write', 'integrations:retry'] },
+        template: 'connector.reconcile_unreachable',
+        vars: { label: input.label, invoiceNo: input.invoiceNo ?? '-' },
+        link: '/settings?sec=conn',
+        entity: { type: 'connector', id: encodeId('connector', input.connectorId) },
+      }),
+    );
+  }
+
+  /**
+   * ST8-T11 reconcile พบส่วนต่างของเนื้อหาใบแจ้งหนี้**ใหม่** (docs/01 §6.5) → ผู้ดูแลรับชำระ `payments:record` (ชุดเดียวกับ D68-61)
+   * · severity MONEY (รายการหาย/เกิน/ยอด) = ในระบบ + อีเมล ทันที · FIELD = ในระบบอย่างเดียว (ขึ้นสรุปเช้า 08:00 — docs/01 §6.5)
+   * · ส่วนต่างเดิม (diff_hash เท่าเดิม) ไม่ถึงที่นี่ — ผู้เรียกแจ้งเฉพาะ `created`
+   * · กันท่วม (รอบรายวันอ่านหลายร้อยใบ): ผู้รับที่มีแจ้งเตือนเดียวกันของ connector นี้ **ยังไม่อ่าน** ภายใน `DOC_NOT_SENT_GROUP_MS`
+   *   → รวมเข้าแถวเดิม (เพิ่มจำนวน + ตัวอย่างเลขไม่เกิน 5 · ไม่ส่งอีเมลซ้ำ) — ยกเว้นแถวเดิมไม่มี MONEY แต่ครั้งนี้มี (แจ้งใหม่พร้อมอีเมล)
+   * · ไม่ใส่ยอดเงิน · ลิงก์หน้า MISMATCH แท็บ "ไม่ตรง" (ST8-T12)
+   */
+  async documentMismatch(
+    tx: Tx,
+    input: {
+      tenantId: string;
+      connectorId: string;
+      label: string;
+      invoiceId: string;
+      invoiceNo: string | null;
+      severity: 'MONEY' | 'FIELD';
+    },
+  ): Promise<void> {
+    const template = 'reconcile.document_mismatch_found' as const;
+    const connectorRef = encodeId('connector', input.connectorId);
+    const invoiceRef = encodeId('invoice', input.invoiceId);
+    const no = input.invoiceNo ?? invoiceRef;
+    const money = input.severity === 'MONEY';
+    await this.safely(tx, template, async () => {
+      // review 7: รวมกลุ่มต่อ connector ทีละ transaction (คำสั่งอ่านขนานกันไม่สร้างแถวซ้อน) · เวลาจาก Clock
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(9, hashtext(${`${template}:${input.connectorId}`}))`;
+      const to = await this.notifications.resolve(tx, input.tenantId, {
+        permissions: ['payments:record'],
+      });
+      if (!to.length) return;
+      const since = new Date(this.clock.now().getTime() - DOC_NOT_SENT_GROUP_MS);
+      const open = await tx.notification.findMany({
+        where: {
+          tenantId: input.tenantId,
+          templateCode: template,
+          channel: 'in_app',
+          readAt: null,
+          createdAt: { gte: since },
+          recipientId: { in: to.map((u) => u.id) },
+          payload: { path: ['connectorId'], equals: connectorRef },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      const grouped = new Set<string>();
+      for (const row of open) {
+        if (grouped.has(row.recipientId)) continue;
+        const prev = row.payload as unknown as NotificationVars[typeof template];
+        if (money && !prev.money) continue;
+        const vars: NotificationVars[typeof template] = {
+          ...prev,
+          invoiceNos: [...(prev.invoiceNos ?? []), no].slice(-BATCH_SAMPLE),
+          count: (prev.count ?? 1) + 1,
+        };
+        const text = renderNotification(template, row.locale, vars);
+        const done = await tx.notification.updateMany({
+          where: { id: row.id, tenantId: input.tenantId, readAt: null },
+          data: {
+            title: text.title,
+            body: text.body,
+            payload: vars as unknown as Prisma.InputJsonValue,
+          },
+        });
+        if (done.count === 1) grouped.add(row.recipientId);
+      }
+      const fresh = to.filter((u) => !grouped.has(u.id)).map((u) => u.id);
+      if (!fresh.length) return;
+      await this.notifications.notify(tx, {
+        tenantId: input.tenantId,
+        to: { userIds: fresh },
+        template,
+        vars: { label: input.label, connectorId: connectorRef, count: 1, invoiceNos: [no], money },
+        channels: money ? ['in_app', 'email'] : ['in_app'],
+        link: '/erp?tab=mm',
+        entity: { type: 'invoice', id: invoiceRef },
+      });
+    });
+  }
+
+  /**
+   * D-81 · D68-57 (+ เงื่อนไข D68-09) เอกสารไม่ถูกส่งเข้าระบบบัญชี (docs/01 §6.3: CAPABILITY "SKIPPED + แจ้งบัญชี" · FAILED_FINAL
+   * รวม `erp_mapping_incomplete`) → ฝ่ายบัญชี `payments:record` (ผู้รับชุดเดียวกับ D68-61) · หมวด "การเชื่อมต่อขัดข้อง" · ไม่ใส่ยอดเงิน
+   * · review M1 กันท่วม: ผู้รับที่มีแจ้งเตือนเดียวกัน (connector + รหัส) **ยังไม่อ่าน** ภายใน `DOC_NOT_SENT_GROUP_MS` → รวมเข้าแถวเดิม
+   *   (เพิ่มจำนวน + ตัวอย่างเลขไม่เกิน 5) ไม่สร้างใหม่และไม่ส่งอีเมลซ้ำ · ผู้รับที่อ่านแล้ว/ไม่มี = แจ้งใหม่ตามปกติ
+   * · `count` = จำนวนเอกสารของเหตุการณ์นี้ (ยกเลิกการเชื่อม = จำนวนคำสั่งค้าง ฉบับเดียว)
+   * · ลิงก์ไปหน้าของเอกสาร (ใบแจ้งหนี้ → หน้าวางบิล, ใบสำคัญจ่าย → หน้าจ่ายรถร่วม)
+   */
+  async documentNotSent(
+    tx: Tx,
+    input: {
+      tenantId: string;
+      connectorId: string;
+      entityType: string;
+      localId: string | null;
+      documentNo: string | null;
+      label: string;
+      outcome: 'FAILED_FINAL' | 'SKIPPED';
+      code: string;
+      errorClass: string | null;
+      count?: number;
+    },
+  ): Promise<void> {
+    const settlement = input.entityType === 'settlement';
+    const kind = input.entityType === 'invoice' ? 'invoice' : settlement ? 'settlement' : null;
+    const ref = kind && input.localId ? encodeId(kind, input.localId) : null;
+    const connectorRef = encodeId('connector', input.connectorId);
+    const no = input.documentNo ?? ref;
+    const count = Math.max(1, input.count ?? 1);
+    const template = 'connector.document_not_sent' as const;
+    await this.safely(tx, template, async () => {
+      const to = await this.notifications.resolve(tx, input.tenantId, {
+        permissions: ['payments:record'],
+      });
+      if (!to.length) return;
+      const since = new Date(Date.now() - DOC_NOT_SENT_GROUP_MS);
+      const open = await tx.notification.findMany({
+        where: {
+          tenantId: input.tenantId,
+          templateCode: template,
+          channel: 'in_app',
+          readAt: null,
+          createdAt: { gte: since },
+          recipientId: { in: to.map((u) => u.id) },
+          AND: [
+            { payload: { path: ['connectorId'], equals: connectorRef } },
+            { payload: { path: ['code'], equals: input.code } },
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      const grouped = new Set<string>();
+      for (const row of open) {
+        if (grouped.has(row.recipientId)) continue;
+        const prev = row.payload as unknown as NotificationVars[typeof template];
+        const nos = [...(prev.documentNos ?? []), ...(no ? [no] : [])].slice(-BATCH_SAMPLE);
+        const vars: NotificationVars[typeof template] = {
+          ...prev,
+          documentNos: nos,
+          count: (prev.count ?? 1) + count,
+          // ผลต่างกันในกลุ่มเดียว (เช่น AMBIGUOUS ปน) — ใช้คำแนะนำที่ระวังกว่า
+          errorClass: prev.errorClass === 'AMBIGUOUS' ? prev.errorClass : input.errorClass,
+        };
+        const text = renderNotification(template, row.locale, vars);
+        // migration 0163: role แอปแก้ title/body/payload ได้ — แก้ใต้ RLS ใน transaction เดียวกับงานที่ทำให้เกิดเหตุ
+        const done = await tx.notification.updateMany({
+          where: { id: row.id, tenantId: input.tenantId, readAt: null },
+          data: {
+            title: text.title,
+            body: text.body,
+            payload: vars as unknown as Prisma.InputJsonValue,
+          },
+        });
+        // ถูกอ่านพอดี = แจ้งใหม่แทน
+        if (done.count === 1) grouped.add(row.recipientId);
+      }
+      const fresh = to.filter((u) => !grouped.has(u.id)).map((u) => u.id);
+      if (!fresh.length) return;
+      await this.notifications.notify(tx, {
+        tenantId: input.tenantId,
+        to: { userIds: fresh },
+        template,
+        vars: {
+          label: input.label,
+          connectorId: connectorRef,
+          documentNos: no ? [no] : [],
+          count,
+          outcome: input.outcome,
+          code: input.code,
+          errorClass: input.errorClass,
+        },
+        link: settlement ? '/settle' : '/bill',
+        ...(kind && ref && count === 1 ? { entity: { type: kind, id: ref } } : {}),
+      });
+    });
   }
 
   /**

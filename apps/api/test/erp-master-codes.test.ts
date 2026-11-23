@@ -311,6 +311,14 @@ describe('ผังรหัส ERP + mapping (ST7-T18)', () => {
       .send({ itemCode: 'SV-FRT-01' })
       .expect(200);
 
+    // ผู้รับแจ้ง "เอกสารไม่ถูกส่งเข้าระบบบัญชี" (D68-57) = ฝ่ายบัญชี
+    const accRole = await plat.role.findFirstOrThrow({ where: { tenantId, code: 'accounting' } });
+    const accUser = (
+      await plat.appUser.create({
+        data: { tenantId, email: 'acc@t18.test', name: 'บัญชี T18', status: 'ACTIVE' },
+      })
+    ).id;
+    await plat.userRole.create({ data: { tenantId, userId: accUser, roleId: accRole.id } });
     const blocked = await enqueueInvoice(con, [
       { serviceItem: { id: freight } },
       { serviceItem: { id: wait } },
@@ -326,6 +334,13 @@ describe('ผังรหัส ERP + mapping (ST7-T18)', () => {
       ],
     });
     expect(demo.documents(tenantId, uuid(con))).toHaveLength(0); // ไม่ถึง ERP
+    // D-81 · D68-09/57 FAILED_FINAL erp_mapping_incomplete → แจ้งฝ่ายบัญชี (payments:record) พร้อมคำแนะนำให้จับคู่รหัส
+    const warned = await plat.notification.findMany({
+      where: { tenantId, templateCode: 'connector.document_not_sent', channel: 'in_app' },
+    });
+    expect(warned.map((n) => n.recipientId)).toContain(accUser);
+    expect(warned[0]!.body).toContain('erp_mapping_incomplete');
+    expect(warned[0]!.body).toContain('จับคู่รหัสค่าบริการ');
 
     await api(app, token)
       .put(`/v1/connectors/${con}/mappings/${wait}`)

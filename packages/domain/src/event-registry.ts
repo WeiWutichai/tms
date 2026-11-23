@@ -102,6 +102,8 @@ const SETTLEMENT = shape('SettlementDto', {
     'sentBy',
     'paidBy',
     'whtEstimate',
+    // ST7-T15 ผลการส่งเข้าระบบบัญชี — เกิด/เปลี่ยนหลัง event (ดูผ่าน REST `GET /v1/settlements/{id}`)
+    'sync',
   ],
 });
 const JOB = shape('JobDto');
@@ -110,7 +112,19 @@ const JOB = shape('JobDto');
  * ข้อความอิสระ (`note`, `cancelReason`) − `pdf` (render หลัง commit) · ยอด `sell*` ตัดอัตโนมัติ (ดูยอดผ่าน REST ด้วย `prices.sell:read`)
  */
 const INVOICE = shape('InvoiceDto', {
-  omit: ['lines', 'printLines', 'createdBy', 'issuedBy', 'cancelReason', 'note', 'pdf'],
+  // `sync` (ST7-T15): ผลการส่งเข้าระบบบัญชี — เกิด/เปลี่ยนหลัง event (ดูผ่าน REST `GET /v1/invoices/{id}`)
+  // `erpWarnings` (ST8-T08): คำนวณจากสถานะ connector ณ ตอนอ่าน — ไม่ใช่ข้อมูลของใบ (ดูผ่าน REST)
+  omit: [
+    'lines',
+    'printLines',
+    'createdBy',
+    'issuedBy',
+    'cancelReason',
+    'note',
+    'pdf',
+    'sync',
+    'erpWarnings',
+  ],
   require: ['invoiceNo', 'issueDate', 'dueDate', 'issuedAt'],
 });
 /**

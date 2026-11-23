@@ -108,7 +108,7 @@ describe('notification center (ST9-T08)', () => {
     await db.$disconnect();
   });
 
-  it('GET ค่าเริ่มต้น: 8 event ตาม docs/04 I · ใบค้างใหม่ไม่ส่งอีเมล · LINE ปิด · event ที่โมดูลยังไม่มีบอกงาน · สรุปรายวันเปิด', async () => {
+  it('GET ค่าเริ่มต้น: 8 event ตาม docs/04 I + MISMATCH (D68-61) · ใบค้างใหม่ไม่ส่งอีเมล · LINE ปิด · event ที่โมดูลยังไม่มีบอกงาน · สรุปรายวันเปิด', async () => {
     const s = await as(tA, planner);
     const r = await s.get('/v1/me/notification-preferences').expect(200);
     expect(r.headers.etag).toBe('"0"');
@@ -124,6 +124,7 @@ describe('notification center (ST9-T08)', () => {
       'approval.requested',
       'document.expiring',
       'connector.down',
+      'reconcile.mismatch',
       'delivery_order.unbilled',
       'payment.due',
     ]);
@@ -138,6 +139,44 @@ describe('notification center (ST9-T08)', () => {
     expect(by.dispute!.pendingTask).toBeNull(); // ST6-T06 ยิงแล้ว (settlement.disputed)
     expect(by['delivery_order.unbilled']!.pendingTask).toBeNull(); // ST9-T06 ยิงแล้ว (delivery_order.unbilled)
     expect(by['payment.due']!.pendingTask).toBeNull(); // ST5-T22 ยิงแล้ว (invoice.payment_due)
+    // D-81 · D68-61 docs/01 §6.5 MONEY → หัวหน้าบัญชีทันที (ในระบบ + อีเมล)
+    expect(by['reconcile.mismatch']).toMatchObject({ inApp: true, email: true, pendingTask: null });
+  });
+
+  it('D68-61 MISMATCH: ผู้ดูแลรับชำระ (payments:record) ได้ในระบบ + อีเมล · ผู้วางบิล/ผู้วางแผน/ดูอย่างเดียวไม่ได้ · ไม่ข้าม tenant · ไม่มียอดเงิน · count 0 = ไม่แจ้ง', async () => {
+    const ev = app.get(NotificationEvents);
+    const connectorId = randomUUID();
+    await dbs.withTenant(tA, (tx) =>
+      ev.reconcileMismatch(tx, {
+        tenantId: tA,
+        connectorId,
+        label: 'accountsystem',
+        count: 7,
+        invoiceNos: ['INV-1', 'INV-2', 'INV-3', 'INV-4', 'INV-5', 'INV-6'],
+      }),
+    );
+    const n = await rows({ templateCode: 'reconcile.mismatch_found', channel: 'in_app' });
+    const who = new Set(n.map((x) => x.recipientId));
+    expect(who.has(accounting)).toBe(true);
+    expect(who.has(invoicer)).toBe(false);
+    expect(who.has(planner)).toBe(false);
+    expect(who.has(viewer)).toBe(false);
+    expect(who.has(otherUser)).toBe(false);
+    expect(n.every((x) => x.tenantId === tA)).toBe(true);
+    const mine = n.find((x) => x.recipientId === accounting)!;
+    expect(mine.title).toBe('ข้อมูลไม่ตรงกับระบบบัญชี');
+    expect(mine.link).toBe('/pay'); // review: ผู้รับ (บัญชี) ไม่มี settings:read
+    expect(mine.body).toContain('7 ใบ');
+    expect(mine.body).toContain('INV-5');
+    expect(mine.body).not.toContain('INV-6'); // ตัวอย่างไม่เกิน 5
+    const mails = await rows({ templateCode: 'reconcile.mismatch_found', channel: 'email' });
+    expect(mails.map((x) => x.recipientId)).toContain(accounting);
+
+    await db.notification.deleteMany({});
+    await dbs.withTenant(tA, (tx) =>
+      ev.reconcileMismatch(tx, { tenantId: tA, connectorId, label: 'x', count: 0, invoiceNos: [] }),
+    );
+    expect(await rows({ templateCode: 'reconcile.mismatch_found' })).toHaveLength(0);
   });
 
   it('PATCH เปลี่ยนเฉพาะที่ส่ง · If-Match ผิด → 412 · event ไม่รู้จัก → 422 · เห็นเฉพาะของตัวเอง', async () => {

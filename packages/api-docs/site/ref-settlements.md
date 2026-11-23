@@ -1,6 +1,6 @@
 # จ่ายรถร่วม (settlements)
 
-17 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+18 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -21,6 +21,7 @@
 | [`POST /v1/settlements/{id}/lines/{lineId}/dispute`](#post-settlements-id-lines-lineId-dispute) | `settlements:create` |
 | [`POST /v1/settlements/{id}/lines/{lineId}/resolve`](#post-settlements-id-lines-lineId-resolve) | `settlements:create` |
 | [`POST /v1/settlements/{id}/mark-paid`](#post-settlements-id-mark-paid) | `settlements:pay` |
+| [`POST /v1/carriers/{id}/pay-link`](#post-carriers-id-pay-link) | `settlements:create` |
 
 ## คิวจ่ายรถร่วม (เที่ยวที่ปิดต้นทุนแล้วและยังไม่อยู่ในใบสำคัญจ่าย) {#get-settlements-queue}
 
@@ -298,7 +299,7 @@ const { data, error } = await tms.PATCH('/v1/settlements/{id}', {
 
 scope: `settlements:read` · operationId: `Settlements_voucherPdf`
 
-แม่แบบตามต้นแบบ TMS Print #pv (แม่แบบการเงินร่วมกับใบแจ้งหนี้) · ทุกตัวเลขมาจาก `GET /v1/settlements/{id}` ชุดเดียวกัน: ยอดซื้อรวม = `buyGrossAmount` · หัก ณ ที่จ่ายแยกอัตรา = `whtEstimate.byRate` (รวม = `buyWhtAmount`; ใบที่อนุมัติแล้ว = ยอดที่ตรึง) · บรรทัดหักรวมต่อชนิด · จ่ายสุทธิ = `buyNetAfterWht` · ยอดหัก ณ ที่จ่ายติด * · ยังไม่อนุมัติ = ลายน้ำ "ร่าง" ไม่มีเลข · จ่ายแล้ว = วันที่จ่าย + วิธีจ่าย + เลขอ้างอิง · render ตามคำขอ (ไม่ใช่เอกสารภาษี — ไม่เก็บไฟล์) · ใบที่ยกเลิก → 409 · ต้องมี `prices.buy:read` ไม่งั้น 403
+แม่แบบตามต้นแบบ TMS Print #pv (แม่แบบการเงินร่วมกับใบแจ้งหนี้) · ทุกตัวเลขมาจาก `GET /v1/settlements/{id}` ชุดเดียวกัน: ยอดซื้อรวม = `buyGrossAmount` · หัก ณ ที่จ่ายแยกอัตรา = `whtEstimate.byRate` (รวม = `buyWhtAmount`; ใบที่อนุมัติแล้ว = ยอดที่ตรึง) · บรรทัดหักรวมต่อชนิด · จ่ายสุทธิ = `buyNetAfterWht` · ยอดหัก ณ ที่จ่ายติด * · ยังไม่อนุมัติ = ลายน้ำ "ร่าง" ไม่มีเลข (render ตามคำขอ) · จ่ายแล้ว = วันที่จ่าย + วิธีจ่าย + เลขอ้างอิง · ใบที่มีเลขแล้ว (อนุมัติ / จ่ายแล้ว): เก็บไฟล์ตอนอนุมัติ / บันทึกจ่าย — ได้ไฟล์เดิมเสมอ ไม่ render ใหม่ · ใบที่ยกเลิก → 409 · ต้องมี `prices.buy:read` ไม่งั้น 403
 
 **Parameters**
 
@@ -787,7 +788,7 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/lines/{lineId}/reso
 
 scope: `settlements:pay` · operationId: `Settlements_markPaid`
 
-"จ่าย" + APPROVED → PAID · **เฉพาะใบ APPROVED** (ร่าง/รอตรวจ/โต้แย้ง/ยกเลิก/จ่ายแล้ว → 409 `invalid_state_transition`) · จ่ายเต็มยอดครั้งเดียว — ยอดที่จ่าย = `buyNetAfterWht` (ยอดสุทธิ − หัก ณ ที่จ่ายประมาณการที่ตรึงตอนอนุมัติ — ไม่เปลี่ยน) · `paidDate` (= วันที่หักภาษี) ตั้งแต่วันอนุมัติถึงวันนี้ (เวลาไทย) — ก่อนวันอนุมัติ → 422 `before_approval` · `reference` บังคับเมื่อ TRANSFER / CHEQUE · ใบที่ไม่ใช่ APPROVED (รวมจ่ายแล้ว/คำขอซ้ำพร้อมกัน) → 409 ก่อนตรวจ If-Match · **ผู้อนุมัติใบนี้บันทึกจ่ายเองไม่ได้ → 403 `settlement_self_payment`** · เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · audit `settlement.paid` + webhook `settlement.paid` · ไฟล์โอนธนาคาร (bulk payment) = P1
+"จ่าย" + APPROVED → PAID · **เฉพาะใบ APPROVED** (ร่าง/รอตรวจ/โต้แย้ง/ยกเลิก/จ่ายแล้ว → 409 `invalid_state_transition`) · จ่ายเต็มยอดครั้งเดียว — ยอดที่จ่าย = `buyNetAfterWht` (ยอดสุทธิ − หัก ณ ที่จ่ายประมาณการที่ตรึงตอนอนุมัติ — ไม่เปลี่ยน) · `paidDate` (= วันที่หักภาษี) ตั้งแต่วันอนุมัติถึงวันนี้ (เวลาไทย) — ก่อนวันอนุมัติ → 422 `before_approval` · `reference` บังคับเมื่อ TRANSFER / CHEQUE · ใบที่ไม่ใช่ APPROVED (รวมจ่ายแล้ว/คำขอซ้ำพร้อมกัน) → 409 ก่อนตรวจ If-Match · **ผู้อนุมัติใบนี้บันทึกจ่ายเองไม่ได้ → 403 `settlement_self_payment`** · เที่ยวที่บรรทัดต้นทุนจ่ายครบแล้ว COSTED → **SETTLED** (ไม่กลับเข้าคิวจ่าย) · ใบ PAID แก้ไม่ได้ · audit `settlement.paid` + webhook `settlement.paid`: เก็บ PDF ฉบับจ่ายแล้วด้วยงานเบื้องหลัง `settlement.render_pdf` หลัง commit · ไฟล์โอนธนาคาร (bulk payment) = P1
 
 **Parameters**
 
@@ -838,7 +839,55 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/mark-paid', {
 });
 ```
 
+## ออกลิงก์ "ค่าเที่ยวของฉัน" ให้รถร่วม (ดูอย่างเดียว — เที่ยวที่จบ / ยอด / สถานะจ่าย) {#post-carriers-id-pay-link}
+
+`POST /v1/carriers/{id}/pay-link`
+
+scope: `settlements:create` · operationId: `CarrierPayLink_issue`
+
+ลิงก์ดูอย่างเดียว อายุ 30 วัน (ไม่ต้อง login) — รถร่วมเห็นเฉพาะงวด/เที่ยว/ราคาซื้อของตัวเอง (ไม่มีราคาขาย/ลูกค้า) · รถร่วมที่ระงับชั่วคราว (INACTIVE) ยังออก/ใช้ลิงก์ได้ (ยังมียอดค้างจ่าย) — ถูกลบแล้ว = 404 · ออกใหม่ = เพิกถอนลิงก์เดิมที่ยังใช้ได้ของรถร่วมรายนี้ · ส่งทาง LINE/SMS ด้วย POST /v1/messages/send-link หรือคัดลอกไปส่งเอง · ไม่มีหนังสือ 50 ทวิ · audit `carrier.pay_link_issued`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `201` |   | `CarrierPayLinkDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settlements:create`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบผู้รับเหมา (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/carriers/<id>/pay-link" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)"
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/carriers/{id}/pay-link', {
+  params: { path: { id: "…" } },
+});
+```
+
 ## Schema ของ response {#schemas}
+
+### CarrierPayLinkDto {#schema-CarrierPayLinkDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `mlk_…` |
+| `url` | ใช่ | `string` |   | ลิงก์หน้า "ค่าเที่ยวของฉัน" ของรถร่วม (`/link/carrier-pay/{token}`) — ส่งทาง LINE/SMS ด้วย POST /v1/messages/send-link หรือคัดลอกไปส่งเอง · แสดงครั้งเดียว |   |
+| `expiresAt` | ใช่ | `string (date-time)` |   |   |   |
 
 ### SettlementComparisonDto {#schema-SettlementComparisonDto}
 
@@ -860,6 +909,7 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/mark-paid', {
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
+| `sync` |   | `ErpDocumentSyncDto` | null ได้ | ผลการส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (เลขเอกสารสองฝั่ง — `externalDocNo` = เลขที่ระบบบัญชีออก) · แยกจาก `status` ของเอกสาร · มีเฉพาะ `GET /{id}` · null = ยังไม่มีผลการส่ง (ไม่ได้เชื่อมระบบบัญชี / ยังรอคิว / ส่งไม่สำเร็จ — ดูคิวของ connector) |   |
 | `id` | ใช่ | `string` |   |   | `stl_…` |
 | `settlementNo` | ใช่ | `string` | null ได้ | เลขเอกสาร (ชุด STL) — ร่างยังไม่มีเลข · ออกตอนอนุมัติ |   |
 | `status` | ใช่ | `string` | ค่า: `DRAFT`, `SENT_TO_CARRIER`, `DISPUTED`, `APPROVED`, `PAID`, `CANCELLED` |   |   |

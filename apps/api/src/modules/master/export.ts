@@ -1,3 +1,4 @@
+import { assertHumanStepUp, exportNeedsStepUp } from '../../auth/step-up';
 import { StreamableFile } from '@nestjs/common';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsIn, IsOptional } from 'class-validator';
@@ -38,6 +39,19 @@ export interface ExportColumn<R> {
   money?: boolean;
   /** ค่าเงินต้นฉบับ (Decimal string จาก DTO) — PDF ใช้ค่านี้แทน `value` (ไม่ผ่าน float) */
   raw?: (r: R) => string | null | undefined;
+  /**
+   * ST7-T23 คอลัมน์เงิน: `sell` ต้องมี `prices.sell:read` · `buy` ต้องมี `prices.buy:read` — ผู้ใช้ที่ไม่มีสิทธิ์ core ตัดคอลัมน์ทิ้ง
+   * (ด่านที่สองหลัง adapter — `dropUnpricedColumns`)
+   */
+  price?: 'sell' | 'buy';
+}
+
+/** ตัดคอลัมน์เงินที่ผู้สั่งไม่มีสิทธิ์เห็น (ไม่ขึ้นกับว่า adapter กรองเองหรือไม่) */
+export function dropUnpricedColumns<R>(
+  cols: ExportColumn<R>[],
+  money: { sell: boolean; buy: boolean },
+): ExportColumn<R>[] {
+  return cols.filter((c) => !c.price || money[c.price]);
 }
 
 /**
@@ -68,6 +82,10 @@ export async function sendExport<R>(
   columns: ExportColumn<R>[],
   rows: R[],
 ): Promise<StreamableFile> {
+  // D-67: ส่งออกของผู้ใช้ต้อง step-up 2FA ยกเว้นเลือกแถวเอง (`ids`) — API key ตาม scope
+  // ไม่มีคำขอ HTTP ให้ตรวจ (ไม่ควรเกิด) = ปิดไว้ก่อน: ถือว่าต้อง step-up (review L2)
+  const req = res.req as { query?: Record<string, unknown> } | undefined;
+  if (!req || exportNeedsStepUp(baseName, req.query ?? {})) assertHumanStepUp();
   const name = `${baseName.replace(/[^\w.\-]/g, '_')}.${format}`;
   res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
   if (format === 'csv') {

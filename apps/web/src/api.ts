@@ -1,6 +1,6 @@
 import { createTmsClient, type Problem } from '@tms/contracts';
-import { QueryClient } from '@tanstack/react-query';
-import { dropAccessToken, getAccessToken } from './auth/session';
+import { MutationCache, QueryClient } from '@tanstack/react-query';
+import { dropAccessToken, getAccessToken, requireTwoFactorEnrolment } from './auth/session';
 import { getApiMode, isSandboxPath } from './features/api-keys/mode';
 
 /**
@@ -55,6 +55,9 @@ export async function unwrap<T>(
     // 401 = session หมด/ถูกเพิกถอน → ทิ้ง token · ยกเว้นรหัส 2FA ผิด (`invalid_otp` เช่น step-up) — ผู้ใช้ยังเข้าระบบอยู่
     // ให้กรอกใหม่ ไม่เด้งออกจากระบบ (ST9-T12 QA Q1)
     if (r.response.status === 401 && problem.code !== 'invalid_otp') dropAccessToken();
+    // D-78: ต้องตั้ง 2FA ก่อนใช้งาน → ออกจากระบบแล้วพาไปหน้าเข้าสู่ระบบ (login ใหม่ = ขั้นตั้ง 2FA)
+    if (r.response.status === 403 && problem.code === 'two_factor_enrolment_required')
+      void requireTwoFactorEnrolment();
     throw new ApiError(problem);
   }
   return r.data as T;
@@ -85,6 +88,11 @@ export async function idempotent<T>(
   }
 }
 
-export const queryClient = new QueryClient({
+export const queryClient: QueryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000, refetchOnWindowFocus: false } },
+  // D-81 · D68-89 badge งานค้างบน sidebar: การเปลี่ยนข้อมูลใด ๆ สำเร็จ (ตัดสินธง / อนุมัติ settlement / rate card / ใบแจ้งหนี้ ฯลฯ)
+  // → ดึงตัวนับใหม่ทันที (ไม่รอรอบ 60 วินาที) — คำขอเดียว `GET /v1/me/badges` ต่อการเปลี่ยน
+  mutationCache: new MutationCache({
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['nav-badges'] }),
+  }),
 });

@@ -3,6 +3,7 @@ import type { NotificationTemplate } from './templates';
 /**
  * ศูนย์แจ้งเตือน (ST9-T08; docs/04 I "เหตุการณ์: ใบค้างใหม่, งานรถร่วมหมดเวลา, dispute, ขออนุมัติ,
  * เอกสารรถ/ใบขับขี่/rate card ใกล้หมด, connector ล่ม, DO ยังไม่วางบิล, ครบกำหนดชำระ; ผู้ใช้ตั้งว่ารับอะไรทางไหน; สรุปรายวัน 08:00")
+ * + ข้อมูลไม่ตรงกับระบบบัญชี (MISMATCH — docs/01 §6.5 "severity `MONEY` แจ้งหัวหน้าบัญชีทันที … และสรุป 08:00"; D-81 · D68-61)
  *
  * - event = หมวดที่ผู้ใช้ตั้งรับ/ไม่รับได้ต่อช่องทาง (template หลายตัวอยู่ใต้ event เดียวได้)
  * - template ที่ไม่อยู่ใน event ใด (งานเบื้องหลังที่ผู้ใช้สั่งเอง `job.*`, `import.*`) = แจ้งผู้สั่งเสมอ ปิดไม่ได้
@@ -16,6 +17,7 @@ export const NOTIFICATION_EVENTS = [
   'approval.requested',
   'document.expiring',
   'connector.down',
+  'reconcile.mismatch',
   'delivery_order.unbilled',
   'payment.due',
 ] as const;
@@ -64,13 +66,29 @@ export const EVENT_CATALOGUE: Record<NotificationEvent, EventDefinition> = {
     defaults: { in_app: true, email: true },
     pending: null,
   },
-  // connector → ERROR (ST7-T13) · webhook ถูกปิดอัตโนมัติ (ST7-T04)
+  // connector → ERROR (ST7-T13) · webhook ถูกปิดอัตโนมัติ (ST7-T04) · D-81 · D68-57 เอกสารไม่ถูกส่งเข้าระบบบัญชี → ฝ่ายบัญชี
+  // (ต้นแบบไม่มีหมวดแยก — อยู่ใต้ "การเชื่อมต่อขัดข้อง")
   'connector.down': {
-    templates: ['connector.error', 'connector.recovered', 'webhook.auto_disabled'],
+    templates: [
+      'connector.error',
+      'connector.recovered',
+      'webhook.auto_disabled',
+      'connector.document_not_sent',
+      // ST8-T11 อ่านเอกสารจากระบบบัญชีไม่สำเร็จ 2 รอบติด (ERP_UNREACHABLE)
+      'connector.reconcile_unreachable',
+    ],
     defaults: { in_app: true, email: true },
     pending: null,
   },
-  // ST9-T06 DO ส่งถึงแล้วยังไม่วางบิลเกิน N วัน (`billing.unbilledAlertDays`) → ผู้วางบิล (`invoices:draft`) — สรุปรายวัน 08:00 เมื่อมี DO เพิ่งเกินเกณฑ์
+  // D-81 · D68-61 กระทบยอดกับระบบบัญชีพบส่วนต่างใหม่ (`reconcile.mismatch_found`, severity MONEY) → หัวหน้าบัญชี (`payments:record`)
+  // ทันทีหลังจบรอบ (1 ฉบับ/รอบ/connector — ส่วนต่างเดิมไม่แจ้งซ้ำตาม diff_hash) + อยู่ในสรุปรายวัน 08:00
+  // ST8-T11 เนื้อหาเอกสารไม่ตรง (`reconcile.document_mismatch_found`) — MONEY ในระบบ + อีเมลทันที · FIELD ในระบบ (ขึ้นสรุปเช้า) · รวมกลุ่มต่อ connector
+  'reconcile.mismatch': {
+    templates: ['reconcile.mismatch_found', 'reconcile.document_mismatch_found'],
+    defaults: { in_app: true, email: true },
+    pending: null,
+  },
+  // ST9-T06 DO ส่งถึงแล้วยังไม่วางบิลเกิน N วัน (`billing.unbilledAlertDays`) → ผู้วางบิล (`invoices:draft`) — สรุปทุกเช้า 08:00 ที่ยังมีใบค้าง (D-71 — เพิ่งเกินวันนี้ / ค้างทั้งหมด / ร่างค้างเกิน N วัน)
   'delivery_order.unbilled': {
     templates: ['delivery_order.unbilled'],
     defaults: { in_app: true, email: true },

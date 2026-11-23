@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import type { Page } from '@playwright/test';
-import { DEMO_EMAIL, expect, test } from './fixtures';
+import { DEMO_EMAIL, expect, test, withStepUp } from './fixtures';
 
 /**
  * E2E ST7-T22 Inbound webhook ledger (ผ่าน API จริง ฐาน e2e — ไม่มีหน้าจอในงานนี้; หน้า connector = ST7-T20)
@@ -36,15 +36,16 @@ test('webhook ขาเข้า: ส่ง event เดิม 2 ครั้ง
   page,
 }) => {
   const auth = { Authorization: `Bearer ${await token(page)}` };
+  const su = await withStepUp(page.request, auth); // D-67 credential + ออก token URL ขาเข้า
   const c = await page.request.post('/v1/connectors', {
-    headers: auth,
+    headers: su,
     data: { adapterKey: 'demo', credentials: { apiKey: `demo-${RUN}`, inboundSecret: SECRET } },
   });
   expect(c.status(), await c.text()).toBe(201);
   const conId = ((await c.json()) as { id: string }).id;
   try {
     const rot = await page.request.post(`/v1/connectors/${conId}/inbound-token/rotate`, {
-      headers: auth,
+      headers: su,
       data: { reason: 'ออก token รับ webhook ขาเข้า' },
     });
     expect(rot.status(), await rot.text()).toBe(200);

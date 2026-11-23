@@ -171,10 +171,17 @@ export class InvoiceCancelService {
     });
     // ST8-T16 ใบที่ส่งเข้า ERP แล้ว → แจ้งยกเลิกตามที่ ERP รองรับ (ไม่รองรับ = งานยกเลิกด้วยมือในบันทึกการซิงก์)
     await this.erpSync.invoiceVoided(tx, id);
+    // ST8-T13 ใบนี้ออกแทนใบเดิมที่อยู่ในระบบบัญชี (การแทนที่ยังไม่เสร็จ) และไม่ออกใบแทนต่อ → แจ้งบัญชียกเลิกเอกสารของใบเดิมเอง
+    if (!reissue) await this.erpSync.reissueAbandoned(tx, id);
     // review L4: เก็บ PDF ลายน้ำ "ยกเลิก" (แม่แบบรุ่นวันออก) หลัง commit — งานใน transaction เดียวกับการยกเลิก
     await this.finalizer.enqueueCancelledPdf(tx, ctx.tenantId!, id);
     if (reissue) await this.reissue(tx, inv, doIds, manual);
     return this.invoices.get(id, tx);
+  }
+
+  /** ST8-T13 ยกเลิกร่างที่ออกแทนใบเดิม (`replaces_invoice_id`) → สายการแทนที่ขาด (ErpSyncService.reissueAbandoned) */
+  async reissueDraftCancelled(id: string): Promise<void> {
+    await this.erpSync.reissueAbandoned(this.db.tx, id);
   }
 
   /** 409 `invoice_has_payments` + รายการรับชำระที่ยังไม่กลับรายการ (ให้ผู้ใช้กลับรายการก่อน — spec/05 BIL-103) */

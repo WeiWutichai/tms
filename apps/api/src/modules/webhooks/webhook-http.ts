@@ -44,7 +44,22 @@ export interface SendResult {
   durationMs: number;
   errorCode?: SendErrorCode;
   errorMessage?: string;
+  /**
+   * ST8-T09 `errorCode = network` ที่**รู้แน่ว่าคำขอไม่ได้ออกไปถึงปลายทาง** (ต่อไม่ติด / หา host ไม่เจอ) — ปลายทางที่ไม่ idempotent
+   * แยก "ต่อไม่ติด" (TRANSIENT — docs/01 §6.3 connection refused) ออกจาก "สายหลุดหลังส่ง" (AMBIGUOUS — A.5 connection reset) ได้
+   */
+  notSent?: boolean;
 }
+
+/** error ของเครือข่ายที่เกิดก่อนต่อติด — คำขอไม่ถึงปลายทางแน่นอน */
+const NOT_SENT_NETWORK_ERRORS = new Set([
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'EADDRNOTAVAIL',
+]);
 
 export interface SendOptions {
   timeoutMs?: number;
@@ -190,11 +205,13 @@ export async function safeHttpRequest(
         errorCode: 'timeout',
         errorMessage: `no response within ${Math.round(timeoutMs / 1000)}s`,
       });
+    const netCode = (reason as { code?: string })?.code;
     return done({
       status: null,
       body: '',
       errorCode: 'network',
       errorMessage: networkMessage(reason),
+      ...(netCode && NOT_SENT_NETWORK_ERRORS.has(netCode) ? { notSent: true } : {}),
     });
   } finally {
     clearTimeout(timer);

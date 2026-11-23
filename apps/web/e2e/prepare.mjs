@@ -54,7 +54,7 @@ if (tables.length)
     `TRUNCATE ${tables.map((t) => `"${t.tablename}"`).join(', ')} CASCADE`,
   );
 await owner.$disconnect();
-sh('pnpm -s db:seed');
+sh('NODE_ENV=test pnpm -s db:seed'); // seed ต้องมี NODE_ENV ชัด ๆ (D-78 review) — ฐาน _e2e เท่านั้น
 writeFileSync(
   new URL('./.env.e2e', import.meta.url),
   [

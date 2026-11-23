@@ -24,7 +24,12 @@ import {
 import { settlementVoucherDocument } from '../src/modules/settlements/settlement-pdf.template';
 import { sampleLongTripSheet, sampleTripSheet } from '../src/modules/trip-sheets/trip-sheet.sample';
 import { tripSheetDocument } from '../src/modules/trip-sheets/trip-sheet.template';
-import { sampleRevenueRoutePdf } from '../src/modules/exports/export-pdf.sample';
+import {
+  sampleAgingPdf,
+  samplePeriodClosePdf,
+  sampleRevenueRoutePdf,
+  sampleUnbilledPdf,
+} from '../src/modules/exports/export-pdf.sample';
 import { sarabunFontCss } from '../src/pdf/fonts';
 import { PdfRenderer, type RenderOptions } from '../src/pdf/pdf-renderer';
 import { woff2CodePoints } from './woff2-cmap';
@@ -59,6 +64,54 @@ const KINDS: Array<{
       'พิมพ์เมื่อ',
       'ไม่ระบุ',
       '125,000.50',
+      '1,750.00',
+    ],
+  },
+  {
+    kind: 'ไฟล์ส่งออกรายงาน PDF — DO ยังไม่วางบิล (D-81 · D68-99)',
+    module: 'src/modules/exports',
+    docs: () => [sampleUnbilledPdf()],
+    labels: [
+      'รายงาน DO ยังไม่วางบิล',
+      'ส่งถึงแล้วเกิน 7 วัน',
+      'ค้างวางบิล (วัน)',
+      'รอ POD',
+      'อยู่ในร่าง (วัน)',
+      'พิมพ์เมื่อ',
+      '125,000.50',
+      '1,750.00',
+    ],
+  },
+  {
+    kind: 'ไฟล์ส่งออกรายงาน PDF — ลูกหนี้คงค้าง (D-81 · D68-99)',
+    module: 'src/modules/exports',
+    docs: () => [sampleAgingPdf()],
+    labels: [
+      'รายงานลูกหนี้คงค้าง',
+      'ยังไม่ครบกำหนด',
+      '1–30 วัน',
+      'เกิน 90 วัน',
+      'รวม',
+      'พิมพ์เมื่อ',
+      '48,250.00',
+      '1,350.49',
+    ],
+  },
+  {
+    kind: 'ไฟล์ส่งออกรายงาน PDF — รายงานปิดงวดเชื่อมระบบบัญชี (ST8-T14)',
+    module: 'src/modules/exports',
+    docs: () => [samplePeriodClosePdf()],
+    labels: [
+      'รายงานปิดงวดเชื่อมระบบบัญชี',
+      'งวด พฤศจิกายน 2569',
+      'MISMATCH ค้าง ณ สิ้นเดือน 0 รายการ',
+      'ผ่าน',
+      'ยอมรับความต่าง',
+      'ยังไม่ถูกส่ง',
+      'สมหญิง บัญชีดี',
+      'พิมพ์เมื่อ',
+      '-1,250.50',
+      '48,250.00',
       '1,750.00',
     ],
   },

@@ -64,6 +64,11 @@ export class AccountSystemAdapter implements ErpAdapter {
     },
   ] satisfies ConnectorConfigField[]);
   readonly fixedSystemOfRecord = Object.freeze({ taxDocumentOwner: 'ERP' as const });
+  /**
+   * D-80 (PO 23 พ.ย. 2569) ระบบบัญชีออก 50 ทวิ / ภ.ง.ด.3 ให้รถร่วมบุคคลธรรมดา (D-58) → ต้องใช้เลขบัตรประชาชนเต็ม
+   * (core ใส่ใน `carrier.taxId` ณ ตอนส่ง — ใช้จับคู่/สร้างผู้ติดต่อด้วยเลขภาษีเหมือนนิติบุคคล)
+   */
+  readonly personalDataNeeds = Object.freeze(['carrier.taxId'] as const);
   readonly inbound = accountSystemInbound;
 
   /** test: ตัวเลือกของ HTTP client (เช่น ยอม 127.0.0.1 ของ mock) */
@@ -161,6 +166,8 @@ export class AccountSystemAdapter implements ErpAdapter {
     return {
       ok: true,
       externalId: j.id,
+      // created=false = มีร่างของเลข TMS นี้อยู่แล้ว (external_ref) — AccountSystem คืนของเดิม ไม่แก้เนื้อหา
+      applied: j.created === true,
       raw: { created: j.created === true, docType: draft.doc_type },
     };
   }

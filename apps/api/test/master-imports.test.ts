@@ -651,7 +651,8 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
       }),
     ).toBe(1);
 
-    await db.tenant.update({ where: { id: tA }, data: { vehicleQuota: 4 } });
+    const used0 = await db.vehicle.count({ where: { tenantId: tA, status: { not: 'RETIRED' } } });
+    await db.tenant.update({ where: { id: tA }, data: { vehicleQuota: Math.max(1, used0 - 1) } });
     const q = await dry(
       a,
       'vehicle',
@@ -661,8 +662,21 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
         ['75-0002', '6W', 'บริษัท', 'กทม.'],
       ]),
     );
-    expect(q).toMatchObject({ status: 'failed', fileErrorCode: 'quota_exceeded' });
-    expect(q.fileError).toContain('โควตา');
+    // D-81 · D68-21: เกินโควตา = คำเตือนรายแถว (แถวใหม่ส่วนเกิน) — ไม่ปฏิเสธทั้งไฟล์
+    expect(q).toMatchObject({ status: 'validated', errorRows: 0, fileErrorCode: null });
+    const qw = (
+      q.issues as { row: number; code: string; severity: string; message: string }[]
+    ).filter((i) => i.code === 'quota_exceeded');
+    expect(qw.map((i) => [i.row, i.severity])).toEqual([
+      [2, 'warning'],
+      [3, 'warning'],
+    ]);
+    expect(qw[0]!.message).toContain('เกินโควตา');
+    expect(qw[0]!.message).toContain('ยังนำเข้าได้');
+    await commit(a, q.id);
+    expect(
+      await db.vehicle.count({ where: { tenantId: tA, plate: { in: ['75-0001', '75-0002'] } } }),
+    ).toBe(2);
     // นับเฉพาะแถวที่จะสร้างจริง: แก้คันเดิม (upsert) + แถวผิด ไม่นับ
     const used = await db.vehicle.count({ where: { tenantId: tA, status: { not: 'RETIRED' } } });
     await db.tenant.update({ where: { id: tA }, data: { vehicleQuota: used + 1 } });
@@ -678,6 +692,7 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
       { mode: 'upsert_by_code', errorPolicy: 'skip_invalid_rows' },
     );
     expect(ok).toMatchObject({ status: 'validated', errorRows: 1, fileErrorCode: null });
+    expect(ok.issues.some((i: { code: string }) => i.code === 'quota_exceeded')).toBe(false);
     await db.tenant.update({ where: { id: tA }, data: { vehicleQuota: null } });
   }, 180_000); // 201 แถวผ่าน job ทีละแถว — เครื่องโหลดหนักเกิน 30 วิ
 
@@ -711,7 +726,8 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
       { mode: 'upsert_by_code' },
     );
     expect(errorsOf(r)).toEqual([]);
-    await commit(a, r.id);
+    // ไฟล์ที่ไม่มีบัญชีธนาคารยืนยันได้โดยไม่ต้อง step-up (D-67)
+    await a.post(`/v1/imports/${r.id}/commit`).set('X-Step-Up', '').expect(200);
     const after = (await a.get(`/v1/customers/${c.id}`).expect(200)).body;
     expect(after.billingAddress).toEqual({
       line1: '1 ถ.เดิม',
@@ -738,6 +754,10 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
       { mode: 'upsert_by_code' },
     );
     expect(errorsOf(cr)).toEqual([]);
+    // D-67: ไฟล์ผู้รับเหมาที่มีคอลัมน์บัญชีธนาคาร → ยืนยันนำเข้าต้อง step-up 2FA (api() แนบให้ — ส่งค่าว่างทับ = ยังไม่ยืนยัน)
+    const noSu = await a.post(`/v1/imports/${cr.id}/commit`).set('X-Step-Up', '');
+    expect(noSu.status).toBe(403);
+    expect(noSu.body.code).toBe('step_up_required');
     await commit(a, cr.id);
     const car = await db.carrier.findFirst({ where: { id: before!.id } });
     expect(car).toMatchObject({

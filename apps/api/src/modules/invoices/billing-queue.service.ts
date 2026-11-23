@@ -165,7 +165,7 @@ export class BillingQueueService {
     if (f.updatedAfter) conds.push(Prisma.sql`d.updated_at > ${f.updatedAfter}::timestamptz`);
     return Prisma.sql`
       d0 AS NOT MATERIALIZED (
-        SELECT d.id, d.customer_id, d.sales_order_id, d.trip_stop_id, d.updated_at, d.status::text AS status,
+        SELECT d.id, d.tenant_id, d.customer_id, d.sales_order_id, d.trip_stop_id, d.updated_at, d.status::text AS status,
                d.pod_status, d.billing_hold, d.released_at, d.billing_status
           FROM delivery_order d WHERE ${Prisma.join(conds, ' AND ')}
       ),
@@ -190,13 +190,13 @@ export class BillingQueueService {
           JOIN customer c ON c.id = d0.customer_id
           JOIN sales_order s ON s.id = d0.sales_order_id
           LEFT JOIN trip_stop st ON st.id = d0.trip_stop_id
-          -- ST9-T17: บรรทัดรายได้ต่อ DO ด้วย LATERAL (index tenant_id + delivery_order_id) — เดิมเป็น CTE รวมทุก DO แล้ว join
-          -- planner เลือก nested loop ที่คำนวณ CTE ซ้ำต่อแถว (O(n²): 4,700 DO = 12 ล้านแถวที่ทิ้ง — docs/perf/st9-t17-report.md)
+          -- ST5-T12b: บรรทัดรายได้ต่อ DO แบบ LATERAL (index ต่อ DO) — เดิมเป็น CTE รวมกลุ่มที่ planner วางเป็นฝั่งในของ nested loop
+          -- แล้วคำนวณซ้ำต่อ DO เมื่อสถิติตารางยังไม่ทัน (วัดได้ 164 วิ กับ 1,000 DO ที่เพิ่งเข้าระบบ) · ผลเท่าเดิม (ไม่มีบรรทัด = n 0)
           LEFT JOIN LATERAL (
             SELECT count(*)::int AS n, sum(l.amount) AS total,
                    bool_or(l.provisional) AS prov, bool_or(l.locked_at IS NOT NULL) AS locked
               FROM revenue_line l
-             WHERE l.delivery_order_id = d0.id AND l.status = 'ACTIVE'
+             WHERE l.delivery_order_id = d0.id AND l.tenant_id = d0.tenant_id AND l.status = 'ACTIVE'
           ) rl ON true
       )`;
   }
@@ -209,6 +209,13 @@ export class BillingQueueService {
       q AS (SELECT r.* FROM r WHERE ${Prisma.join(conds, ' AND ')})`;
   }
 
+  /** D-81 · D68-89 badge "วางบิลและใบแจ้งหนี้" = จำนวน DO ในคิวพร้อมวางบิล (ตัวกรองเริ่มต้นของหน้า — ชุดเดียวกับ `list`) */
+  async count(tx: Tx = this.db.tx): Promise<number> {
+    const [r] = await tx.$queryRaw<{ n: number }[]>`
+      WITH ${this.queueCte({})} SELECT count(*)::int AS n FROM q`;
+    return r?.n ?? 0;
+  }
+
   /** ผลประเมินความพร้อมของ DO เดียว (null = ยังไม่ส่งถึง) — ใช้ตอนส่งบัญชี (ผู้เรียกถือล็อก DO แล้ว) */
   async readiness(tx: Tx, id: string): Promise<Readiness | null> {
     const rows = await tx.$queryRaw<Readiness[]>`
@@ -217,8 +224,20 @@ export class BillingQueueService {
   }
 
   /**
+   * ST5-T12b ผลประเมินความพร้อมของหลาย DO ใน query เดียว (CTE เดียวกับ `readiness`) — DO ที่ยังไม่ส่งถึงไม่มีใน Map
+   * ใช้ตอนดึง DO เข้าร่าง (≤ 1,000 ใบ — ไม่ query ต่อ DO)
+   */
+  async readinessMany(tx: Tx, ids: string[]): Promise<Map<string, Readiness>> {
+    if (!ids.length) return new Map();
+    const rows = await tx.$queryRaw<Readiness[]>`
+      WITH ${this.readinessCte({ ids })} SELECT r.* FROM r`;
+    return new Map(rows.map((r) => [r.id, r]));
+  }
+
+  /**
    * ST5-T12 รอบวางบิล: DO ที่พร้อมดึงเข้าร่าง (กฎคิวเดียวกัน + เวลาจุดส่งครบ) ของลูกค้าที่ `billing_cycle` ตรง ในช่วง `do_date`
    * · `released` true = ส่งบัญชีแล้วเท่านั้น · เรียง customer → do_date → do_no (ลำดับบรรทัดบนร่างคงที่)
+   * · ลูกค้า**ปิดใช้ (INACTIVE) ไม่เข้ารอบ** (PO 22 พ.ย. 2569 — การสร้างร่างมือ/คิวพร้อมวางบิลไม่เปลี่ยน: ยังวางบิลงานที่ส่งแล้วได้)
    * หลักฐานตาม checklist ปัจจุบันตรวจซ้ำตอนดึง (`InvoicesService.pull`) — ไม่ผ่านถูกตัดออกจากร่างรายใบ
    */
   async readyForRun(
@@ -235,7 +254,7 @@ export class BillingQueueService {
       WITH ${cte}
       SELECT q.id, q.customer_id
         FROM q JOIN delivery_order d ON d.id = q.id JOIN customer c ON c.id = q.customer_id
-       WHERE q.stop_ok AND c.deleted_at IS NULL AND c.billing_cycle::text = ${f.cycle}
+       WHERE q.stop_ok AND c.deleted_at IS NULL AND c.status = 'ACTIVE' AND c.billing_cycle::text = ${f.cycle}
        ORDER BY q.customer_id, d.do_date, d.do_no, d.id`;
   }
 

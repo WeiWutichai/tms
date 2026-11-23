@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { Page } from '@playwright/test';
-import { DEMO_EMAIL, expect, test } from './fixtures';
+import { DEMO_EMAIL, expect, test, withStepUp } from './fixtures';
 
 /**
  * E2E ST7-T18 Sync master ลงมา: connector demo → ซิงก์ผังรหัสสินค้าจาก DemoProvider → หน้า ตั้งค่า → การเชื่อมต่อ
@@ -30,7 +30,7 @@ test('mapping ค่าบริการ ↔ รหัสสินค้า ERP
 }) => {
   const auth = { Authorization: `Bearer ${await token(page)}` };
   const c = await page.request.post('/v1/connectors', {
-    headers: auth,
+    headers: await withStepUp(page.request, auth), // D-67 สร้างพร้อม credential
     data: { adapterKey: 'demo', credentials: { apiKey: `demo-${RUN}` } },
   });
   expect(c.status(), await c.text()).toBe(201);

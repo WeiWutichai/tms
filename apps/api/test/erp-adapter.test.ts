@@ -102,17 +102,32 @@ describe('ErpAdapterRegistry (ST7-T13)', () => {
     ).toEqual(['inbound.parse() required', 'inbound.handle() required']);
   });
 
-  it('adapter จำลอง (localOnly) ลงทะเบียนได้เฉพาะ dev/test หรือ ERP_DEMO_ADAPTERS=1 (ไม่ใช่ production — ST7-T14)', () => {
+  it('adapter จำลอง (localOnly) ใช้ได้ทุก tenant เฉพาะ dev/test หรือ ERP_DEMO_ADAPTERS=1 · production = เฉพาะ tenant sandbox (ST7-T14; D-81 · D68-96)', () => {
     const prev = process.env.NODE_ENV;
     try {
       process.env.NODE_ENV = 'production';
       delete process.env.ERP_DEMO_ADAPTERS;
       const demo = Object.assign(new FakeErpAdapter('demo'), { localOnly: true });
-      expect(() => new ErpAdapterRegistry().register(demo)).toThrow(/only allowed/);
+      const real = new FakeErpAdapter('real-erp');
+      const prod = new ErpAdapterRegistry();
+      prod.register(demo);
+      prod.register(real);
+      expect(prod.isSandboxOnly('demo')).toBe(true);
+      expect(prod.usableIn('demo', true)).toBe(demo); // sandbox ใช้ demo ได้
+      expect(prod.usableIn('demo', false)).toBeNull(); // บริษัทจริงใช้ไม่ได้
+      expect(prod.usableIn('real-erp', true)).toBeNull(); // connector จริงใน sandbox ยังปิด
+      expect(prod.usableIn('real-erp', false)).toBe(real);
+      expect(prod.list(false).map((a) => a.key)).toEqual(['real-erp']);
+      expect(prod.list(true).map((a) => a.key)).toEqual(['demo']);
       process.env.ERP_DEMO_ADAPTERS = '1';
-      expect(() => new ErpAdapterRegistry().register(demo)).toThrow(/only allowed/);
+      const flagged = new ErpAdapterRegistry();
+      flagged.register(demo);
+      expect(flagged.isSandboxOnly('demo')).toBe(true); // production ไม่ได้แม้ตั้งธง
       process.env.NODE_ENV = 'staging';
-      expect(() => new ErpAdapterRegistry().register(demo)).not.toThrow();
+      const staging = new ErpAdapterRegistry();
+      staging.register(demo);
+      expect(staging.isSandboxOnly('demo')).toBe(false);
+      expect(staging.usableIn('demo', false)).toBe(demo);
     } finally {
       process.env.NODE_ENV = prev;
       delete process.env.ERP_DEMO_ADAPTERS;

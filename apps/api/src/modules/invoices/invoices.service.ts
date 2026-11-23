@@ -20,7 +20,7 @@ import {
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { Clock } from '../../common/clock';
-import { EXT_PREFIX, EXTERNAL_ID_RE } from '../../common/external-id';
+import { EXT_PREFIX, EXTERNAL_ID_RE, lockExternalId, resolveRef } from '../../common/external-id';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException, type FieldError } from '../../common/problem';
@@ -134,6 +134,7 @@ export class InvoicesService {
     const od = overdueWhere(tx, bangkokToday(this.clock.now()));
     if (q.receivable === 'overdue' || q.overdue === 'true') and.push(od);
     if (q.overdue === 'false') and.push({ NOT: od });
+    if (q.receivable === 'due') and.push(dueWhere(tx, bangkokToday(this.clock.now())));
     if (q.aging) and.push(agingWhere(tx, q.aging, bangkokToday(this.clock.now())));
     if (q.customerId !== undefined)
       and.push({ customerId: (await this.customerRef(tx, q.customerId)) ?? NONE });
@@ -157,6 +158,26 @@ export class InvoicesService {
     return page as InvoicePageDto;
   }
 
+  /**
+   * `{id}` ของ path หรือ `ext:{externalId}` (D68-45) → uuid · ไม่พบ/ผิดรูปแบบ/tenant อื่น (RLS) → 404
+   * route ที่ไม่เปิด transaction (`@NoTransaction` — PDF/อีเมล) หาใน transaction สั้นของ tenant เอง
+   */
+  idOf(ref: string): Promise<string> {
+    return resolveRef(
+      'invoice',
+      ref,
+      async (u) => u,
+      async (ext) => {
+        const find = (tx: Tx) =>
+          tx.invoice.findFirst({ where: { externalId: ext }, select: { id: true } });
+        const ctx = requestContext.require();
+        const r = ctx.tx ? await find(ctx.tx) : await this.db.withTenant(ctx.tenantId!, find);
+        if (!r) throw new ProblemException('not_found');
+        return r.id;
+      },
+    );
+  }
+
   async get(id: string, tx: Tx = this.db.tx): Promise<InvoiceDto> {
     const r = await tx.invoice.findUnique({ where: { id }, include: LOAD });
     if (!r) throw new ProblemException('not_found');
@@ -166,7 +187,10 @@ export class InvoicesService {
   // ---------- เขียน ----------
 
   /** `o.createdBy` = ผู้สร้างที่เป็นระบบ (`system:invoice-run` — ST5-T12: ไม่นับเป็นผู้เตรียมในกฎแบ่งหน้าที่ของ finalize) */
-  async create(body: CreateInvoiceDto, o: { createdBy?: string } = {}): Promise<InvoiceDto> {
+  async create(
+    body: CreateInvoiceDto,
+    o: { createdBy?: string; externalId?: string } = {},
+  ): Promise<InvoiceDto> {
     const tx = this.db.tx;
     const ctx = requestContext.require();
     const customerId = await this.customerRef(tx, body.customerId);
@@ -182,10 +206,11 @@ export class InvoicesService {
     const doIds = this.decodeDos(body.deliveryOrderIds);
     // review M2: ส่งบัญชี + สร้างร่างในคำขอเดียว (atomic) — ส่งบัญชีไม่ผ่าน = ไม่มีอะไรเปลี่ยน (ตรวจเงื่อนไขชุดเดียวกับส่งบัญชีปกติ + ตรวจซ้ำตอนดึง)
     if (body.releaseDeliveryOrders) {
+      // review (ST5-T12b): ลำดับล็อกเดียวกับทางอื่น — ใบสั่งก่อน (เรียง id) แล้ว DO (เรียง id) · ส่งบัญชียังทำทีละ DO (ติดตาม perf)
       const pending = await tx.deliveryOrder.findMany({
         where: { id: { in: doIds }, customerId: customer.id, releasedAt: null },
         select: { id: true },
-        orderBy: { id: 'asc' },
+        orderBy: [{ salesOrderId: 'asc' }, { id: 'asc' }],
       });
       for (const d of pending) await this.release.release(d.id, { note: null }, tx);
     }
@@ -193,6 +218,7 @@ export class InvoicesService {
       data: {
         tenantId: ctx.tenantId!,
         customerId: customer.id,
+        externalId: o.externalId ?? null,
         issuingCompanyId: issuer.companyId,
         issuingBranchId: issuer.branchId,
         creditTermDays: customer.paymentTermDays,
@@ -236,6 +262,59 @@ export class InvoicesService {
       },
     });
     return out;
+  }
+
+  /**
+   * D-81 · D68-45 `PUT /invoices/external/{externalId}` (docs/04 G1 "External id") — ERP อ้างใบแจ้งหนี้ด้วยรหัสของตัวเอง
+   * - ยังไม่มี → สร้างร่าง (กติกาเดียวกับ `POST /invoices`) → `created`
+   * - มีแล้ว: ลูกค้า/ชุด DO ต้องตรงกับใบ (เพิ่ม/ถอด DO ใช้ `/invoices/{id}/delivery-orders…`) ไม่ตรง → 409 `conflict`
+   *   · ช่องหัวใบ (งวด รูปบรรทัด เลข PO หมายเหตุ) เหมือนเดิม → คืนใบเดิม (ส่งซ้ำได้ version ไม่เปลี่ยน)
+   *   · ต่าง: ร่าง → แก้แบบ `PATCH /invoices/{id}` · **ออกแล้ว/ยกเลิก → 409 `invalid_state_transition`** (เอกสารที่ออกแล้วแก้ไม่ได้ — docs/04 F3)
+   */
+  async upsertExternal(
+    externalId: string,
+    body: CreateInvoiceDto,
+    expected?: number,
+  ): Promise<{ out: InvoiceDto; created: boolean }> {
+    const tx = this.db.tx;
+    await lockExternalId(tx, 'invoice', externalId);
+    const row = await tx.invoice.findFirst({ where: { externalId }, select: { id: true } });
+    if (!row) return { out: await this.create(body, { externalId }), created: true };
+    await tx.$queryRaw`SELECT id FROM invoice WHERE id = ${row.id}::uuid FOR UPDATE`;
+    const inv = await tx.invoice.findUniqueOrThrow({ where: { id: row.id } });
+    if (expected !== undefined && expected !== inv.version)
+      throw new ProblemException('precondition_failed');
+    const cur = await this.get(inv.id);
+    const want = new Set(this.decodeDos(body.deliveryOrderIds));
+    const have = new Set(cur.deliveryOrders.map((d) => tryDecodeId('deliveryOrder', d.id)!));
+    const customerId = await this.customerRef(tx, body.customerId);
+    if (
+      customerId !== inv.customerId ||
+      want.size !== have.size ||
+      [...want].some((d) => !have.has(d))
+    )
+      throw new ProblemException(
+        'conflict',
+        'invoice with this externalId has a different customer or delivery orders — add/remove delivery orders with /invoices/{id}/delivery-orders',
+        undefined,
+        { id: cur.id, currentStatus: inv.status },
+      );
+    const patch: UpdateInvoiceDto = {};
+    if (body.lineMode !== undefined && body.lineMode !== inv.lineMode)
+      patch.lineMode = body.lineMode;
+    if (body.periodFrom !== undefined && body.periodFrom !== cur.periodFrom)
+      patch.periodFrom = body.periodFrom;
+    if (body.periodTo !== undefined && body.periodTo !== cur.periodTo)
+      patch.periodTo = body.periodTo;
+    if (body.customerPoNo !== undefined && (body.customerPoNo || null) !== inv.customerPoNo)
+      patch.customerPoNo = body.customerPoNo;
+    if (body.note !== undefined && (body.note || null) !== inv.note) patch.note = body.note;
+    if (!Object.keys(patch).length) return { out: cur, created: false };
+    if (inv.status !== 'DRAFT')
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        currentStatus: inv.status,
+      });
+    return { out: await this.update(inv.id, patch, expected), created: false };
   }
 
   async update(id: string, body: UpdateInvoiceDto, expected?: number): Promise<InvoiceDto> {
@@ -647,8 +726,11 @@ export class InvoicesService {
       select: { salesOrderId: true },
     });
     const orders = [...new Set(rows.map((r) => r.salesOrderId))].sort();
-    for (const so of orders)
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${REVENUE_LOCK_NS}::int, hashtext(${so}))`;
+    // ST5-T12b: advisory lock ของทุกใบสั่งในคำสั่งเดียว (เดิม 1 คำสั่งต่อใบสั่ง — ใบ 1,000 DO = 1,000 คำสั่ง) · ลำดับเดียวกับเดิม
+    // (เรียง id — unnest WITH ORDINALITY + ORDER BY ในซับคิวรีก่อนเรียกฟังก์ชันล็อก)
+    await tx.$queryRaw`
+      SELECT count(pg_advisory_xact_lock(${REVENUE_LOCK_NS}::int, hashtext(o.so))::text)::int AS n
+        FROM (SELECT so FROM unnest(${orders}::text[]) WITH ORDINALITY AS u(so, i) ORDER BY i) o`;
     await tx.$queryRaw`SELECT id FROM delivery_order WHERE sales_order_id = ANY(${orders}::uuid[]) ORDER BY id FOR UPDATE`;
     return orders;
   }
@@ -675,6 +757,12 @@ export class InvoicesService {
       _sum: { totalAmount: true, paidAmount: true },
     });
     const overdue = odAgg._count._all;
+    // D-81 · D68-94 "ครบกำหนด" ของ docs/04 H = ถึงวันครบแล้ว (dueDate ≤ วันนี้) รวมเกินกำหนด — การ์ด Dashboard บิล
+    const dueAgg = await tx.invoice.aggregate({
+      where: dueWhere(tx, today),
+      _count: { _all: true },
+      _sum: { totalAmount: true, paidAmount: true },
+    });
     const pick = (st: string[]) => rows.filter((r) => st.includes(r.status));
     const n = (...st: string[]) => pick(st).reduce((a, r) => a + r._count._all, 0);
     const ZERO = new Prisma.Decimal(0);
@@ -713,6 +801,8 @@ export class InvoicesService {
       sellIssuedOutstanding: money(outstanding('ISSUED')),
       sellPartiallyPaidOutstanding: money(outstanding('PARTIALLY_PAID')),
       sellOverdueOutstanding: money(dec(odAgg._sum.totalAmount).sub(dec(odAgg._sum.paidAmount))),
+      due: dueAgg._count._all,
+      sellDueOutstanding: money(dec(dueAgg._sum.totalAmount).sub(dec(dueAgg._sum.paidAmount))),
       issuedThisMonth: {
         month: m.thisMonth.month,
         count: cur._count._all,
@@ -772,8 +862,10 @@ export class InvoicesService {
       reasons: NotReadyReason[];
       missing?: unknown[];
     }[] = [];
+    // ST5-T12b: ตรวจทั้งชุดด้วย query คงที่ (ไม่ query ต่อ DO — ร่าง ≤ 1,000 DO) · ผลต่อ DO = `release.check`
+    const checks = await this.release.checkMany(tx, rows);
     for (const d of rows) {
-      const c = await this.release.check(tx, d);
+      const c = checks.get(d.id)!;
       const reasons = c.reasons.filter((r) => r !== 'IN_INVOICE');
       if (!c.released && !reasons.includes('NOT_DELIVERED')) reasons.push('NOT_RELEASED');
       if (reasons.length)
@@ -845,11 +937,16 @@ export class InvoicesService {
       })),
       taxOptionsFromSettings({ whtMinimumAmount: settings['tax.whtMinimumAmount'] as number }),
     );
-    for (const [i, l] of lines.entries()) {
+    // ST5-T12b: VAT รายบรรทัดที่เปลี่ยน อัปเดตในคำสั่งเดียว (เดิม 1 คำสั่งต่อบรรทัด — ร่าง 1,000 DO = หลายพันคำสั่ง)
+    const changed = lines.flatMap((l, i) => {
       const vat = decimalFromSatang(tax.lines[i]!.vat);
-      if (money(l.vatAmount) !== vat)
-        await tx.invoiceLine.update({ where: { id: l.id }, data: { vatAmount: vat } });
-    }
+      return money(l.vatAmount) !== vat ? [{ id: l.id, vat }] : [];
+    });
+    if (changed.length)
+      await tx.$executeRaw`
+        UPDATE invoice_line l SET vat_amount = v.vat
+          FROM unnest(${changed.map((c) => c.id)}::uuid[], ${changed.map((c) => c.vat)}::numeric[]) AS v(id, vat)
+         WHERE l.id = v.id AND l.invoice_id = ${id}::uuid`;
     const discount = lines.reduce((a, l) => a.add(l.discount), new Prisma.Decimal(0));
     await tx.invoice.update({
       where: { id },
@@ -1052,6 +1149,23 @@ export function overdueWhere(tx: Tx, today: string): Prisma.InvoiceWhereInput {
 }
 
 /**
+ * D-81 · D68-94 ครบกำหนด (docs/04 H — Dashboard บิล): ใบเกินกำหนด (ข้างบน) **หรือ** ค้างรับ + ยอดตัด < ยอดรวม + ครบกำหนด ≤ วันนี้ (เวลาไทย)
+ * — ใบที่ครบกำหนดวันนี้ (ยังไม่เลย) นับด้วย · ไม่มีวันครบกำหนด = ยังไม่ครบ
+ */
+export function dueWhere(tx: Tx, today: string): Prisma.InvoiceWhereInput {
+  return {
+    OR: [
+      overdueWhere(tx, today),
+      {
+        status: { in: ['ISSUED', 'PARTIALLY_PAID'] },
+        dueDate: { lte: day(today) },
+        paidAmount: { lt: tx.invoice.fields.totalAmount },
+      },
+    ],
+  };
+}
+
+/**
  * ST5-T22 ใบค้างรับในช่วงอายุ (ชุดเดียวกับ `AgingService` — ยอดในการ์ด "อายุลูกหนี้" ตรงกับตารางที่กรอง)
  * daysPastDue = วันนี้ − dueDate ∈ [lo, hi] ⇔ dueDate ∈ [วันนี้ − hi, วันนี้ − lo] · ไม่มีวันครบกำหนด = ยังไม่ครบกำหนด
  */
@@ -1095,6 +1209,7 @@ function summary(
   return {
     id: encodeId('invoice', r.id),
     invoiceNo: r.invoiceNo,
+    externalId: r.externalId,
     status: r.status as InvoiceStatus,
     customer: customerDto(r.customer, r.customerSnapshot),
     periodFrom: r.periodFrom ? ymd(r.periodFrom) : null,

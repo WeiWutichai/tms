@@ -3,10 +3,10 @@ import type { Request, Response } from 'express';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { ApiBearerAuth, ApiHeader, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import {
-  LiveOnly,
   NoTransaction,
   RequireFeature,
   RequireScope,
+  SandboxAware,
   TenantResource,
 } from '../../common/decorators';
 import { decodeIdOr404 } from '../../common/ids';
@@ -23,13 +23,13 @@ import { ErpMasterCodesService } from './erp-master-codes.service';
 
 /**
  * ผังรหัส ERP + หน้า mapping "ค่าบริการ TMS ↔ รหัสสินค้า ERP" ต่อ connector (ST7-T18; docs/04 G3 "Sync master ลงมา", B; docs/01 §7.4)
- * อ่าน `settings:read` · ซิงก์/แก้ `settings:write` · ฟีเจอร์ `conn` · sandbox ใช้ไม่ได้ (ST7-T09 — ไม่แตะ connector จริง)
+ * อ่าน `settings:read` · ซิงก์/แก้ `settings:write` · ฟีเจอร์ `conn` · sandbox ใช้ได้กับ DemoProvider เท่านั้น (D-81 · D68-58)
  * นำเข้าผังรหัสจากไฟล์ = `POST /v1/imports` kind `erp_master_code`
  */
 @ApiTags('connectors')
 @ApiBearerAuth()
+@SandboxAware()
 @RequireFeature('conn')
-@LiveOnly()
 @Controller('connectors')
 export class ErpMasterCodesController {
   constructor(private readonly svc: ErpMasterCodesService) {}

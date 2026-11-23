@@ -156,6 +156,32 @@ export async function verifyPlatformToken(token: string): Promise<PlatformClaims
   }
 }
 
+/**
+ * D-77 (PO 23 พ.ย. 2569): step-up ของ Platform Console — ทีม Innovera ยืนยัน TOTP ซ้ำก่อนใส่/หมุน credential หรือตั้งค่า
+ * connector ของลูกค้า · อายุ 5 นาทีเท่า step-up ของลูกค้า · ผูก platform user + tokenVersion (ออกจากระบบ = ใช้ไม่ได้)
+ * `pur: platform_step_up` → ใช้แทน token Console / token ลูกค้า / step-up ของลูกค้าไม่ได้
+ */
+export async function signPlatformStepUpToken(sub: string, tv: number): Promise<string> {
+  return new SignJWT({ pur: 'platform_step_up', tv })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(sub)
+    .setIssuedAt()
+    .setExpirationTime(Math.floor(Date.now() / 1000) + STEP_UP_TTL_SECONDS)
+    .sign(secret());
+}
+export async function verifyPlatformStepUpToken(
+  token: string,
+): Promise<{ sub: string; tv: number } | null> {
+  try {
+    const { payload } = await jwtVerify(token, secret(), { algorithms: ['HS256'] });
+    if (payload.pur !== 'platform_step_up' || !payload.sub || typeof payload.tv !== 'number')
+      return null;
+    return { sub: payload.sub, tv: payload.tv };
+  } catch {
+    return null;
+  }
+}
+
 /** ขั้นกลางของ login Console (รหัสผ่านผ่านแล้ว รอ TOTP) — อายุ 5 นาที ใช้แทน token อื่นไม่ได้ */
 export async function signPlatformChallenge(sub: string) {
   return new SignJWT({ pur: 'platform_mfa' })

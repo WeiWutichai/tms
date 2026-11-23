@@ -72,6 +72,46 @@ export class BillingReleaseService {
   }
 
   /**
+   * ST5-T12b `check` ของหลาย DO ในคราวเดียว (ผู้เรียกถือล็อก DO ทุกใบ) — ความพร้อม = 1 query, หลักฐาน = 1 query + checklist ต่อลูกค้า
+   * ผลต่อ DO เท่ากับ `check` ทุกประการ (กฎ/ลำดับ `reasons` เดียวกัน) — ใช้ตอนดึง DO เข้าร่าง (≤ 1,000 ใบ)
+   */
+  async checkMany(
+    tx: Tx,
+    rows: { id: string; customerId: string }[],
+  ): Promise<Map<string, { reasons: NotReadyReason[]; missing?: unknown[]; released: boolean }>> {
+    const ready = await this.queue.readinessMany(
+      tx,
+      rows.map((d) => d.id),
+    );
+    const pods = await this.pod.checkCurrentMany(
+      tx,
+      rows.filter((d) => ready.get(d.id)?.req_pod),
+    );
+    const out = new Map<
+      string,
+      { reasons: NotReadyReason[]; missing?: unknown[]; released: boolean }
+    >();
+    for (const d of rows) {
+      const r = ready.get(d.id);
+      if (!r) {
+        out.set(d.id, { reasons: ['NOT_DELIVERED'], released: false });
+        continue;
+      }
+      const reasons = BillingQueueService.blockers(r);
+      let missing: unknown[] | undefined;
+      if (r.req_pod) {
+        const now = pods.get(d.id)!;
+        if (!r.pod_ok || !now.ok) {
+          reasons.push('POD_INCOMPLETE');
+          missing = now.missing;
+        }
+      }
+      out.set(d.id, { reasons, ...(missing ? { missing } : {}), released: r.released });
+    }
+    return out;
+  }
+
+  /**
    * ST5-T06 ย้อนการส่งบัญชี (RELEASED → DELIVERED — docs/04 F4 "RELEASED ย้อนได้โดย Invoicer") [DECISION spec/12 §3]:
    * เหตุผลบังคับ (≥ 10 ตัวอักษร) + audit `delivery_order.unreleased` · DO ในร่าง → 409 `do_in_invoice` (ถอดออกจากร่างก่อน — ST5-T07)
    * · ใบออกเลขแล้ว (INVOICED) → 409 ย้อนไม่ได้ (ใบลดหนี้) · ยังไม่ส่งบัญชี = ตอบ DO เดิม (UNCHANGED ไม่ลง audit)

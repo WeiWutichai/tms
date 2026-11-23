@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures';
+import { confirmStepUp, expect, test } from './fixtures';
 
 /**
  * E2E ST2-T05 รถร่วม / ผู้รับเหมา: เปิดหน้า "คนขับและผู้รับเหมา" → เพิ่มผู้รับเหมานิติบุคคลพร้อมบัญชีรับเงิน
@@ -46,6 +46,7 @@ test.describe.serial('รถ → คนขับและผู้รับเ�
     await d.getByLabel('เลขบัญชี', { exact: true }).fill('123-4-56789-1');
     await d.getByLabel('ชื่อบัญชี').fill(NAME);
     await d.getByRole('button', { name: 'บันทึก' }).click();
+    await confirmStepUp(page); // D-67 ใส่บัญชีธนาคารต้องยืนยัน 2FA
     await expect(page.getByRole('status')).toContainText(`เพิ่ม ${NAME} แล้ว`);
     const dr = page.getByRole('dialog');
     await expect(dr.getByText('ผู้รับเหมา · นิติบุคคล')).toBeVisible();

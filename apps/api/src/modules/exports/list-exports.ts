@@ -33,6 +33,13 @@ import {
 } from '../reports/reports.controller';
 import { RevenueReportService } from '../reports/revenue-report.service';
 import { UnbilledReportService } from '../reports/unbilled-report.service';
+import { accountingExportSpecs } from '../accounting-export/accounting-export.specs';
+import { AccountingExportService } from '../accounting-export/accounting-export.service';
+import { FileExportAdapterRegistry } from '../accounting-export/file-export-adapter';
+import {
+  PeriodCloseReportService,
+  periodCloseExportSpec,
+} from '../erp/period-close-report.service';
 import { EXPORT_RESOURCES } from './exports.controller';
 import { ExportRegistry } from './export-spec';
 
@@ -60,6 +67,9 @@ export class ListExports implements OnModuleInit {
     private readonly unbilled: UnbilledReportService,
     private readonly aging: AgingService,
     private readonly revenue: RevenueReportService,
+    private readonly accounting: AccountingExportService,
+    private readonly fileExports: FileExportAdapterRegistry,
+    private readonly periodClose: PeriodCloseReportService,
   ) {}
 
   onModuleInit() {
@@ -80,6 +90,8 @@ export class ListExports implements OnModuleInit {
       unbilledExportSpec(this.unbilled),
       agingExportSpec(this.aging),
       revenueExportSpec(this.revenue),
+      periodCloseExportSpec(this.periodClose),
+      ...accountingExportSpecs(this.accounting, this.fileExports),
     ];
     for (const s of specs) if (!this.registry.get(s.resource)) this.registry.register(s);
     const missing = EXPORT_RESOURCES.filter((r) => !this.registry.get(r));

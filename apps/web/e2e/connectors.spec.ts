@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { DEMO_PASSWORD, DEMO_TOTP_SECRET, E2E_WEB, expect, test, totp } from './fixtures';
+import { confirmStepUp, DEMO_PASSWORD, E2E_WEB, expect, freshCode, test } from './fixtures';
 
 /**
  * ST7-T20 หน้าจัดการ connector — เกณฑ์ตรวจรับ:
@@ -13,18 +13,11 @@ async function consoleLogin(p: Page) {
   await p.getByLabel('อีเมล').fill('super-admin@platform.test');
   await p.getByLabel('รหัสผ่าน').fill(DEMO_PASSWORD);
   await p.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
-  // รหัสใช้ซ้ำไม่ได้ (spec อื่นอาจใช้ช่วงเวลาเดียวกัน) — ลองช่วงถัดไป
-  for (const off of [0, 1, 2]) {
-    await p.getByLabel('รหัส 6 หลัก').fill(totp(DEMO_TOTP_SECRET, off));
-    await p.getByRole('button', { name: 'ยืนยัน' }).click();
-    try {
-      await expect(p).toHaveURL(/\/console\/tenants/, { timeout: 3000 });
-      return;
-    } catch {
-      /* ลองรหัสถัดไป */
-    }
-  }
-  throw new Error('console login failed');
+  // รหัสใช้ซ้ำไม่ได้ (server ไม่รับ step ≤ step ล่าสุดของผู้ใช้) — ใช้ step ที่ยังไม่ถูกใช้จาก fixtures แทนการลองเดา offset
+  // (รหัสที่ถูกปฏิเสธนับเป็นความพยายามล้มเหลวของ super-admin — ครบ 5 ครั้งล็อกบัญชี)
+  await p.getByLabel('รหัส 6 หลัก').fill(await freshCode('super-admin@platform.test'));
+  await p.getByRole('button', { name: 'ยืนยัน' }).click();
+  await expect(p).toHaveURL(/\/console\/tenants/);
 }
 
 test('Innovera เปิด connector demo ให้ลูกค้า → ลูกค้าเห็นสถานะ กดทดสอบได้ และไม่เห็น credential', async ({
@@ -42,6 +35,8 @@ test('Innovera เปิด connector demo ให้ลูกค้า → ล�
   await dlg.getByLabel('API key').fill(KEY);
   await dlg.getByLabel('เหตุผล').fill('เปิด connector ให้ลูกค้านำร่อง (E2E)');
   await dlg.getByRole('button', { name: 'เปิด connector' }).click();
+  // D-77 (PO 23 พ.ย. 2569): เปิดพร้อม credential → ยืนยัน 2FA ซ้ำ (กล่อง StepUpBox ในกล่องเดิม) แล้วส่งซ้ำเอง
+  await confirmStepUp(con, 'super-admin@platform.test');
   await expect(con.getByRole('status')).toContainText(
     'เปิด ERP จำลอง (Demo) ให้ ตัวอย่างขนส่ง (DEMO) แล้ว',
   );

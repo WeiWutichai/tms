@@ -515,7 +515,7 @@ const { data, error } = await tms.POST('/v1/stop-event-flags/{id}/resolve', {
 | `id` | ใช่ | `string` |   |   | `evt_3f2a…` |
 | `stopId` | ใช่ | `string` |   |   | `stp_3f2a…` |
 | `tripId` | ใช่ | `string` |   |   | `trp_3f2a…` |
-| `type` | ใช่ | `string` | ค่า: `ARRIVE`, `DEPART`, `COMPLETE`, `FAIL` |   |   |
+| `type` | ใช่ | `string` | ค่า: `ARRIVE`, `DEPART`, `LOADED`, `COMPLETE`, `FAIL` |   |   |
 | `outcome` | ใช่ | `string` | ค่า: `DELIVERED`, `PARTIAL`, `FAILED`, `UNDELIVERED_RETAIN` · null ได้ |   |   |
 | `clientEventId` | ใช่ | `string (uuid)` |   |   |   |
 | `occurredAt` | ใช่ | `string (date-time)` |   | เวลาเกิดจริงบนเครื่อง (UTC) |   |

@@ -248,7 +248,7 @@ erDiagram
 | `payment_term_days` | int |  |
 | `tax_invoice_mode` | enum | `ON_PAYMENT` (default, tax point = รับเงิน) / `ON_ISSUE` (ลูกค้าขอใบกำกับภาษีพร้อมใบวางบิล) |
 | `wht_expected_rate` | numeric null | 1.00 ถ้าลูกค้าเป็นนิติบุคคลที่จะหักเรา ใช้คาดการณ์ยอดรับสุทธิ |
-| `pod_requirements` | jsonb | `{photo: REQUIRED, signature: ENABLED, ...}` ต่อลูกค้า |
+| `pod_requirements` | jsonb | `{success:{fields:[{key,type,level,label?,minCount?}]}, failure:{fields:[…]}}` แยกชุดส่งสำเร็จ/ไม่สำเร็จ ต่อลูกค้า (override ทั้งชุด; ค่าองค์กรอยู่ใน `tenant_setting` `pod.checklist`) (D-81 · D68-37 · 23 พ.ย. 2569) |
 | `default_billing_company_id` | uuid FK → company | ออกใบในนามบริษัทไหน (Invoice As) |
 | `status` | enum | `ACTIVE` / `INACTIVE` |
 
@@ -283,14 +283,14 @@ erDiagram
 | `customer_id` / `carrier_id` | uuid FK null | ต้องมีอย่างใดอย่างหนึ่งตาม `side` |
 | `origin_site_id`, `dest_site_id`, `origin_zone`, `dest_zone` | uuid/text null | key = (ต้นทาง, ปลายทาง, ประเภทรถ); zone ใช้เมื่อไม่ผูกจุด |
 | `vehicle_type` | enum null |  |
-| `pricing_model` | enum | `PER_TRIP` / `PER_KM` / `PER_TON` / `PER_CBM` / `PER_DAY` |
+| `pricing_model` | enum | `PER_TRIP` / `PER_KM` / `PER_TON` / `PER_CBM` / `PER_UNIT` (ต่อหน่วย + `unit_id` หน่วยนับ) / `PER_DAY` — มีช่อง `min_charge` (ขั้นต่ำ ฿) สำหรับ PER_KM / PER_UNIT ตาม docs/04 B1 (D-81 · D68-18 · 23 พ.ย. 2569) |
 | `unit_price` | numeric |  |
 | `extra_stop_price` | numeric null | "เกิน N จุดคิดเพิ่มต่อจุด" |
 | `included_stops` | int | N |
 | `fuel_surcharge_pct` | numeric null |  |
 | `service_item_id` | uuid FK → service_item | กำหนด `vat_type` และ `wht_rate` ของรายการที่เกิดจาก rate นี้ |
 | `valid_from`, `valid_to` | date | ห้ามซ้อนช่วงใน key เดียวกัน (exclusion constraint) |
-| `status` | enum | `DRAFT` / `APPROVED` / `EXPIRED` |
+| `status` | enum | `DRAFT` / `APPROVED` / `RETIRED` — "หมดอายุ" ไม่เก็บเป็นสถานะ คำนวณจาก `valid_to` (API คืนสถานะที่คำนวณแล้ว); อนุมัติด้วย `prices.sell:write` + เหตุผล + audit (D-81 · D68-17 · 23 พ.ย. 2569) |
 
 **service_item** — catalog รายการที่ขึ้นบนเอกสาร: `id`, `code`, `name_th`, `name_en`, `vat_type` enum **`VAT_7` / `EXEMPT_TRANSPORT` / `ZERO_RATED`**, `wht_rate` numeric (1.00 ค่าขนส่ง / 3.00 ค่าบริการ), `unit_label` ("เที่ยว", "ตัน", "กม."), `is_surcharge` bool (ค่ารอ, ค่าทางด่วน, ยกของ), `default_account_code` text null — ค่าทุกตัวถูก **snapshot** ลงรายการเอกสารตอนสร้าง แก้ master แล้วเอกสารเก่าไม่เปลี่ยน
 
@@ -299,8 +299,8 @@ erDiagram
 | คอลัมน์ | ชนิด | หมายเหตุ |
 | --- | --- | --- |
 | `id` | uuid PK |  |
-| `category` | enum | `ORDER_HOLD` (งานค้าง) / `DELIVERY_FAILED` / `REJECTED_BY_RECEIVER` / `POD_MISSING` / `CREDIT_NOTE` / `DEBIT_NOTE` / `SETTLEMENT_DISPUTE` / `OVERRIDE` |
-| `code` | text | เช่น `ROUTE_PENDING`, `CDNS03`; **unique(tenant_id, category, code)**; รหัสระบบ (system) ลบไม่ได้ |
+| `category` | enum | `ORDER_HOLD` (งานค้าง) / `DELIVERY_FAILED` / `REJECTED_BY_RECEIVER` / `POD_MISSING` / `CREDIT_NOTE` / `DEBIT_NOTE` / `SETTLEMENT_DISPUTE` / `OVERRIDE` / `DELAY` (ล่าช้า — ตาม docs/04 B) (D-81 · D68-16 · 23 พ.ย. 2569) |
+| `code` | text | เช่น `LOCATION_UNMAPPED`, `CDNS03`; **unique(tenant_id, category, code)**; รหัสระบบ (system) ลบไม่ได้ |
 | `label_th`, `label_en` | text |  |
 | `requires_note`, `requires_photo` | bool |  |
 | `auto_reschedule` | bool | สำหรับ `DELIVERY_FAILED` |
@@ -328,7 +328,7 @@ erDiagram
 | `hold_note` | text null |  |
 | `source_changed_after_plan` | bool | ต้นทางแก้หลังเราวางแผน → ไม่ overwrite แต่เก็บ diff |
 | `source_diff` | jsonb null |  |
-| `locked_by`, `locked_at` | uuid, timestamptz null | ป้าย "กำลังแก้ไขโดย…" |
+| (`locked_by`, `locked_at` — ไม่ใช้) | — | ล็อกการแก้อยู่ในตารางแยก `order_edit_lock` (ป้าย "กำลังแก้ไขโดย…"); ล็อกเฉพาะการแก้ของคนในหน้าจอ (`PATCH /v1/orders/{id}`) — PUT external/connector/นำเข้า และการเปลี่ยนสถานะจากเที่ยว/DO ไม่ติดล็อก; ปลดล็อกด้วย `orders:unlock` (D-81 · D68-30 · 23 พ.ย. 2569) |
 | `raw_payload` | jsonb null | payload ดิบจากต้นทาง |
 | `version` | int | ETag |
 
@@ -344,7 +344,7 @@ erDiagram
 | `vehicle_id` | uuid FK | อ้างอิง |
 | `vehicle_plate_snapshot`, `vehicle_type_snapshot` | text | copy ตอน dispatch ไม่ตามเมื่อ master เปลี่ยน |
 | `driver_id`, `driver_name_snapshot`, `driver_phone_snapshot` | uuid, text |  |
-| `co_driver_ids` | uuid[] | งานทางไกล |
+| `relief_driver_id` (+ snapshot ชื่อ/เบอร์) | uuid null | คนขับสำรอง 1 คน ตาม docs/04 D1 (แทน `co_driver_ids[]`; งานที่มีคนขับเกิน 2 คนพิจารณาเมื่อมีลูกค้าต้องการ) (D-81 · D68-27 · 23 พ.ย. 2569) |
 | `carrier_id` | uuid FK null | ถ้า `vehicle.ownership = SUBCONTRACT` |
 | `carrier_name_snapshot`, `buy_rate_snapshot` | text, jsonb null | ราคาซื้อที่ตกลง ณ วันจ่ายงาน |
 | `assignment_status` | enum null | `OFFERED` / `ACCEPTED` / `REJECTED` / `EXPIRED` (สำหรับรถร่วม) |
@@ -354,16 +354,16 @@ erDiagram
 | `cost_allocation_method` | enum | `BY_WEIGHT` / `BY_DISTANCE` / `BY_STOP` / `EQUAL` — วิธีปันต้นทุนเที่ยวลง DO |
 | `dispatched_at`, `completed_at` | timestamptz |  |
 
-**trip_stop** — จุดแวะเรียงลำดับ: `id` (`stp_`), `trip_id`, `sequence` int, `type` enum `PICKUP`/`DELIVERY`/`RETURN`, `site_id` FK, `planned_arrival`, `planned_departure`, `arrived_at`, `departed_at`, `status` enum `PENDING`/`ARRIVED`/`COMPLETED`/`FAILED`/`SKIPPED`, `outcome` enum null `DELIVERED`/`PARTIAL`/`FAILED`, `fail_reason_code_id`, `arrive_lat/lng`, `geofence_warning` bool, `detention_min` (คำนวณจาก arrive/depart − free time), `pod` jsonb (receiver, signature doc, photo docs), `last_event_id` uuid FK → stop_event null (event ล่าสุดที่เปลี่ยนสถานะ) — **idempotency ของอุปกรณ์ offline ย้ายไปอยู่ที่ตาราง `stop_event` (หัวข้อ 3.9)** เพราะ 1 stop มีหลาย event (arrive, depart, complete, delay) ไม่ใช่ `client_event_id` เดียว; `arrived_at` / `departed_at` / `status` / `outcome` บน trip_stop เป็น projection ที่คำนวณจาก stop_event ตาม `occurred_at` — decision 2026-11-04
+**trip_stop** — จุดแวะเรียงลำดับ: `id` (`stp_`), `trip_id`, `sequence` int, `type` enum `PICKUP`/`DELIVERY`/`RETURN`, `site_id` FK, `planned_arrival`, `planned_departure`, `arrived_at`, `departed_at`, `status` enum `PENDING`/`ARRIVED`/`COMPLETED`/`FAILED`/`SKIPPED`, `outcome` enum null `DELIVERED`/`PARTIAL`/`FAILED`, `fail_reason_code_id`, `arrive_lat/lng`, `geofence_warning` bool, `detention_min` (คำนวณจาก arrive/depart − free time), `pod` jsonb (ไม่ใช้ — หลักฐาน POD เก็บในตาราง `delivery_order_pod` **ต่อ DO** แบบฉบับ append-only: แก้ = ฉบับใหม่ + เหตุผล + audit เพราะ 1 จุดมีหลาย DO ต่างลูกค้า (D-81 · D68-38 · 23 พ.ย. 2569)), `last_event_id` uuid FK → stop_event null (event ล่าสุดที่เปลี่ยนสถานะ) — **idempotency ของอุปกรณ์ offline ย้ายไปอยู่ที่ตาราง `stop_event` (หัวข้อ 3.9)** เพราะ 1 stop มีหลาย event (arrive, depart, complete, delay) ไม่ใช่ `client_event_id` เดียว; `arrived_at` / `departed_at` / `status` / `outcome` บน trip_stop เป็น projection ที่คำนวณจาก stop_event ตาม `occurred_at` — decision 2026-11-04
 
-**trip_cost** — ต้นทุนรายการต่อเที่ยว: `id`, `trip_id`, `cost_type` enum `FUEL`/`TOLL`/`DRIVER_WAGE`/`CARRIER_FEE`/`ALLOWANCE`/`REPAIR`/`OTHER`, `amount`, `vat_amount`, `source` enum `RATE_CARD`/`MANUAL`/`GPS`/`ADVANCE`, `carrier_id` FK null (เมื่อเป็นค่ารถร่วม), `settlement_line_id` FK null unique (= ยังไม่จ่าย ถ้า null), `allocated` jsonb (`{do_id: amount}` ตาม `cost_allocation_method`)
+**trip_cost** — ต้นทุนรายการต่อเที่ยว: `id`, `trip_id`, `cost_type` enum `FUEL`/`TOLL`/`DRIVER_WAGE`/`CARRIER_FEE`/`ALLOWANCE`/`REPAIR`/`OTHER`, `amount`, `vat_amount`, `source` enum `RATE_CARD`/`MANUAL`/`GPS`/`ADVANCE`, `carrier_id` FK null (เมื่อเป็นค่ารถร่วม), `settlement_line_id` null ไม่มี FK บังคับ (= ยังไม่จ่าย ถ้า null; กันจ่ายซ้ำที่ `settlement_line` แทน (D-81 · D68-10 · 23 พ.ย. 2569)), `allocated` jsonb (`{do_id: amount}` ตาม `cost_allocation_method`)
 
 **delivery_order** — เอกสารส่งของต่อลูกค้าต่อเที่ยว; 1 trip มีหลาย DO, 1 DO อยู่ใน 1 trip
 
 | คอลัมน์ | ชนิด | หมายเหตุ |
 | --- | --- | --- |
 | `id` | uuid PK | `do_` |
-| `do_no` | text | sequence ประเภท `DO` |
+| `do_no` | text | sequence ประเภท `DO`; ใบลูกจากการแยก DO ใช้เลข `{เลขแม่}-{n}` (ใบแม่ CANCELLED) (D-81 · D68-87 · 23 พ.ย. 2569) |
 | `do_date` | date |  |
 | `sales_order_id`, `customer_id` | uuid FK |  |
 | `trip_id` | uuid FK null | ว่างตอน DRAFT ก่อนลง trip |
@@ -374,7 +374,7 @@ erDiagram
 | `revenue_amount` | numeric | คำนวณจาก snapshot × ปริมาณจริง (`actual_quantity`) |
 | `allocated_cost_amount` | numeric | ต้นทุนเที่ยวที่ปันมา → กำไรต่อ DO |
 | `status` | enum | หัวข้อ 4.3 |
-| `invoice_line_id` | uuid FK null | null = `UNBILLED`; **unique partial index where invoice ยัง active** กันวางบิลซ้ำ |
+| (`invoice_line_id` — ไม่ใช้) | — | สถานะวางบิลอยู่ที่ `billing_status` (`UNBILLED` / `IN_DRAFT` / `INVOICED` / `CREDITED`) + **unique partial บน `invoice_line(delivery_order_id)` where ใบยัง active** กันวางบิลซ้ำ (D-81 · D68-72 · 23 พ.ย. 2569) |
 | `pod_status` | enum | `NONE` / `PARTIAL` / `COMPLETE` ตาม `customer.pod_requirements` |
 | `customer_ref` | text null | PO ลูกค้า ใช้ค้นใน tracking link |
 | `version` | int |  |
@@ -405,7 +405,7 @@ erDiagram
 | `invoice_no` | text null | sequence ประเภท `INV` ออกตอน ISSUED; **unique(tenant_id, issuing_branch_id, invoice_no)** |
 | `tax_invoice_no` | text null | sequence ประเภท `TXINV` แยก; ออกเมื่อ `tax_invoice_mode = ON_ISSUE` ตอน ISSUED หรือเมื่อรับชำระ (ผ่าน receipt) — null ถ้าทุกรายการ `EXEMPT_TRANSPORT` |
 | `tax_point_at` | timestamptz null | วันที่ความรับผิด VAT เกิด = วันออก `tax_invoice_no`; รายงานภาษีขายใช้เดือนของวันนี้ |
-| `customer_id`, `billing_note_id` | uuid FK, FK null |  |
+| `customer_id` | uuid FK | ใบวางบิลผูกผ่านตาราง `billing_note_invoice` (unique partial ต่อใบที่ active; เก็บประวัติใบวางบิลที่ยกเลิกได้) แทนคอลัมน์ `billing_note_id` — API ยังคืน `billingNoteId` (D-81 · D68-79 · 23 พ.ย. 2569) |
 | `issuing_company_id`, `issuing_branch_id` | uuid FK | บังคับ; ใช้เลือก sequence และข้อความ "สาขาที่ออกใบกำกับภาษีคือ" |
 | `customer_snapshot` | jsonb | `{legal_name, tax_id, branch_code, address}` ตอน ISSUED |
 | `issue_date`, `due_date` | date |  |
@@ -417,7 +417,7 @@ erDiagram
 | `pdf_document_id` | uuid null | immutable หลัง ISSUED; ใบแทนออกจากไฟล์นี้ + watermark |
 | `replacement_issued_at` | timestamptz[] | log ทุกครั้งที่ออกใบแทน |
 | `etax_status` | enum | `NONE` / `PENDING` / `SENT` / `FAILED` (seam สำหรับ e-Tax เฟสถัดไป) |
-| `created_by`, `issued_by` | uuid | ผู้สร้างกับผู้ออกต้องต่างคน (separation of duties, owner ปิดได้) |
+| `created_by`, `issued_by` | uuid | ผู้สร้าง/ผู้แก้ร่างล่าสุดกับผู้ออกต้องต่างคน (separation of duties, owner ปิดได้ด้วย `billing.allowSelfFinalize` + step-up (D-81 · D68-77 · 23 พ.ย. 2569)) |
 | `version` | int |  |
 
 **invoice_line** — รายการ; `vat_type` ต่อรายการ
@@ -426,7 +426,7 @@ erDiagram
 | --- | --- | --- |
 | `id`, `invoice_id` | uuid |  |
 | `line_no` | int | 1..N ต่อใบ |
-| `delivery_order_id` | uuid FK null | revenue line ของ DO; **unique partial** where invoice.status ≠ CANCELLED |
+| `delivery_order_id` | uuid FK null | revenue line ของ DO — DO เดียวมีหลายบรรทัดได้ (VAT ต่างกัน) กันวางบิลซ้ำผ่าน `do_anchor` **unique partial** where invoice.status ≠ CANCELLED (D-81 · D68-73 · 23 พ.ย. 2569) |
 | `do_surcharge_id` | uuid FK null | รายการเพิ่มจากหน้างาน |
 | `service_item_id` | uuid FK |  |
 | `description` | text | เช่น "ค่าขนส่ง DO-2611-00042 คลังบางปู→ชลบุรี ทะเบียน 70-1234" |
@@ -517,7 +517,7 @@ erDiagram
 | `paid_at`, `payment_reference` | date, text null |  |
 | `approved_by`, `paid_by` | uuid |  |
 
-**settlement_line** — `id`, `settlement_id`, `trip_cost_id` FK **unique** (กันจ่ายซ้ำ — เส้นทางเดียวสู่ AP), `trip_id`, `delivery_order_id` null, `description`, `amount`, `wht_rate` (1.00 ค่าขนส่ง / 3.00 ค่าบริการ / 0 ค่าน้ำมันที่ reimburse — รอคำตอบนักบัญชี), `wht_amount`, `line_type` enum `FREIGHT` / `SURCHARGE` / `DEDUCTION`, `dispute_status` enum `NONE` / `DISPUTED` / `RESOLVED`, `dispute_note`, `pod_verified` bool
+**settlement_line** — `id`, `settlement_id`, `trip_cost_id` FK **unique เฉพาะบรรทัดที่ยังใช้** (partial index `voided_at IS NULL` + trigger/ล็อก `FOR UPDATE` — กันจ่ายซ้ำ เส้นทางเดียวสู่ AP; บรรทัดที่นำออก/ใบที่ยกเลิกปล่อย cost line กลับคิวได้ (D-81 · D68-10 · 23 พ.ย. 2569)), `trip_id`, `delivery_order_id` null, `description`, `amount`, `wht_rate` (1.00 ค่าขนส่ง / 3.00 ค่าบริการ / 0 ค่าน้ำมันที่ reimburse — รอคำตอบนักบัญชี), `wht_amount`, `line_type` enum `FREIGHT` / `SURCHARGE` / `DEDUCTION`, สถานะรายการ `OPEN` / `DISPUTED` / `APPROVED` (ตาม docs/04 F6 (D-81 · D68-69 · 23 พ.ย. 2569)), `dispute_note`, `pod_verified` bool
 
 **wht_certificate** — หนังสือรับรองหัก ณ ที่จ่าย (50 ทวิ) ใช้ทั้งที่เราออกและที่เรารับ
 
@@ -545,9 +545,9 @@ erDiagram
 | `adapter_key` | text | `krs` / `flowaccount` / `peak` / `file_export` / `standalone` |
 | `company_id` | uuid FK null | จำกัดให้ใช้กับนิติบุคคลใด (Invoice As) |
 | `capabilities_enabled` | text[] | subset ของ `adapter.capabilities()` ที่ tenant เปิด เช่น `["pullOrders","pushInvoice"]` |
-| `config` | jsonb (encrypted) | base URL, credential, mapping overrides |
+| `config` | jsonb | base URL, credential, mapping overrides — เข้ารหัสเฉพาะ credential/secret; ค่าไม่ลับ (base URL) เก็บใน `settings` ปกติ (D-81 · D68-56 · 23 พ.ย. 2569) |
 | `sync_from_date` | date | ไม่ push เอกสารที่ `issue_date` ก่อนวันนี้ (กันซ้ำกับที่บัญชีคีย์ไว้แล้วตอน go-live) |
-| `status` | enum | `ACTIVE` / `PAUSED` / `ERROR` |
+| `status` | enum | `ACTIVE` / `PAUSED` / `ERROR` / `DISCONNECTED` (เลิกเชื่อม แทน hard delete) (D-81 · D68-56 · 23 พ.ย. 2569) |
 | `last_health_at`, `last_health_ok` | timestamptz, bool |  |
 
 **external_mapping** — แทน `erp_doc_map` ของ v1 ครอบคลุมทุก entity
@@ -556,7 +556,7 @@ erDiagram
 | --- | --- | --- |
 | `id` | uuid PK |  |
 | `connector_id` | uuid FK |  |
-| `entity_type` | enum | `CUSTOMER` / `CARRIER` / `SERVICE_ITEM` / `SALES_ORDER` / `DELIVERY_ORDER` / `INVOICE` / `CREDIT_NOTE` / `DEBIT_NOTE` / `RECEIPT` / `SETTLEMENT` |
+| `entity_type` | enum | `CUSTOMER` / `CARRIER` / `SERVICE_ITEM` / `SALES_ORDER` / `DELIVERY_ORDER` / `INVOICE` / `CREDIT_NOTE` / `DEBIT_NOTE` / `RECEIPT` / `SETTLEMENT` — รหัสค่าบริการ/master ฝั่ง ERP เก็บในตาราง `erp_code_mapping` (ต่อ connector) ไม่ใช้แถว `SERVICE_ITEM` ของตารางนี้ (D-81 · D68-09 · 23 พ.ย. 2569) |
 | `local_id` | uuid | id ฝั่ง TMS |
 | `external_id` | text | id ฝั่ง ERP ที่ใช้เป็น path/key (เช่น transactionNo) |
 | `external_doc_no` | text null | เลขเอกสารที่ ERP ออก (เช่น voucherNo) |
@@ -565,6 +565,7 @@ erDiagram
 | `last_synced_at` | timestamptz |  |
 | `status` | enum | `SYNCED` / `PENDING` / `FAILED` / `MISMATCH` / `RETIRED` |
 | `last_error` | jsonb null | problem+json ล่าสุด |
+| `source_code` | text null | รหัสฝั่งต้นทาง SO (เช่นรหัสลูกค้า NSF ของ KRS) ใช้จับคู่ SO; `external_id` = รหัสฝั่งเอกสาร (PP) (D-81 · D68-64 · 23 พ.ย. 2569) |
 | unique |  | `(connector_id, entity_type, local_id)` และ `(connector_id, entity_type, external_id)` |
 
 **integration_outbox** — คิวคำสั่งทุกอย่างที่ออกจาก core (ทั้ง adapter และ webhook)
@@ -613,7 +614,7 @@ erDiagram
 | `tare_weight_kg`, `gross_weight_kg` | numeric | น้ำหนักเปล่า / น้ำหนักรวมบรรทุก (ตามทะเบียน) |
 | `fuel_type` | enum | `DIESEL` / `GASOLINE` / `NGV` / `LPG` / `EV` / `HYBRID` |
 | `tank_capacity_l` | numeric null | ใช้ตรวจ fuel_log ผิดปกติ (เติมเกินถัง) |
-| `odometer_km` | numeric | เลขไมล์ปัจจุบัน; อัปเดตจาก trip ที่ COMPLETED (`actual_distance_km`), GPS connector หรือ fuel_log/work_order ที่กรอกเลขไมล์ — เก็บค่าสูงสุดและ `odometer_source`, `odometer_updated_at` |
+| `odometer_km` | numeric | เลขไมล์ปัจจุบัน; อัปเดตจาก trip ที่ COMPLETED (`actual_distance_km`), GPS connector หรือ fuel_log/work_order ที่กรอกเลขไมล์ — เก็บค่าสูงสุด**เฉพาะ reading จริง** (ค่าจาก trip เป็นค่าประมาณ = เลขไมล์ + `actual_distance_km` หรือ `planned_distance_km` ไม่ลงประวัติ และ reading จริงที่ต่ำกว่าค่าประมาณแทนที่ได้; PM/รายงาน กม. ใช้ reading จริง (D-81 · D68-36 · 23 พ.ย. 2569)) และ `odometer_source`, `odometer_updated_at` |
 | `odometer_source`, `odometer_updated_at` | enum, timestamptz | `TRIP` / `GPS` / `FUEL_LOG` / `WORK_ORDER` / `MANUAL` |
 | `unit_role` | enum | `SINGLE` / `TRACTOR` (หัวลาก) / `TRAILER` (หาง) |
 | `paired_vehicle_id` | uuid FK → vehicle null | หัวลากประจำ ↔ หาง; trip override ได้ด้วย `trailer_id` ของตัวเอง |
@@ -638,9 +639,9 @@ erDiagram
 | `cost_amount` | numeric | ค่าใช้จ่ายต่ออายุ → เขียน `vehicle_cost` category `DOCUMENT` |
 | `file_document_ids` | uuid[] | ไฟล์แนบ |
 | `renews_document_id` | uuid FK → vehicle_document null | ฉบับก่อนหน้า (ประวัติการต่อ) |
-| `status` | enum | `ACTIVE` / `EXPIRING` (≤ 60 วัน, job รายวันตั้ง) / `EXPIRED` / `SUPERSEDED` / `CANCELLED` |
+| `status` | enum | `ACTIVE` / `EXPIRING` (≤ 60 วัน — คำนวณจากวันหมดทุกครั้งที่อ่าน ไม่รอ job รายวัน (D-81 · D68-85 · 23 พ.ย. 2569)) / `EXPIRED` / `SUPERSEDED` / `CANCELLED` — เก็บเป็น TEXT + CHECK ชุดค่าเท่าเดิม ไม่ใช้ Postgres enum (แนวเดียวกับ `fuel_type`, `unit_role`) (D-81 · D68-15 · 23 พ.ย. 2569) |
 | `reminder_sent` | jsonb | `{d60: at, d30: at, d7: at}` กันเตือนซ้ำ |
-| `is_required_for_dispatch` | bool | true (default สำหรับ INSURANCE, COMPULSORY_ACT) → หมดอายุบล็อก assign รถร่วม / เตือนรถบริษัท |
+| `is_required_for_dispatch` | bool | true (default สำหรับ INSURANCE, COMPULSORY_ACT) → หมดอายุบล็อก assign รถร่วม / เตือนรถบริษัท — **รถร่วม: ประกัน + พ.ร.บ. บังคับเสมอ ปิดธงไม่มีผล** (docs/04 B2.1) (D-81 · D68-20 · 23 พ.ย. 2569) |
 
 **maintenance_plan** — แผน PM ต่อประเภทรถ (template)
 
@@ -800,7 +801,7 @@ erDiagram
 
 ### 3.9 Driver app (ePOD) [เสนอ — decision 2026-11-04]
 
-รองรับสเปก Driver app 10 จอใน Functional Requirements หัวข้อ E2: แอปเป็น client ของ Open API ชุดเดียวกัน (scope `driver`, หัวข้อ 5.5) จึง**ไม่มีตารางเฉพาะแอป**นอกจาก 3 เรื่องที่ web ไม่มี — เครื่องที่จำไว้ (`driver_device`), event จากอุปกรณ์ offline ที่ต้อง idempotent และเรียงลำดับใหม่ได้ (`stop_event`) และใบตรวจรถก่อนออก (`dvir_report` / `dvir_item`) ส่วน POD, แจ้งปัญหา, น้ำมัน/เบิกเงิน เขียนลง `trip_stop.pod`, `delivery_order_line`, `work_order`, `incident`, `fuel_log` ที่มีอยู่แล้วโดยใส่ `source = DRIVER_APP`
+รองรับสเปก Driver app 10 จอใน Functional Requirements หัวข้อ E2: แอปเป็น client ของ Open API ชุดเดียวกัน (scope `driver`, หัวข้อ 5.5) จึง**ไม่มีตารางเฉพาะแอป**นอกจาก 3 เรื่องที่ web ไม่มี — เครื่องที่จำไว้ (`driver_device`), event จากอุปกรณ์ offline ที่ต้อง idempotent และเรียงลำดับใหม่ได้ (`stop_event`) และใบตรวจรถก่อนออก (`dvir_report` / `dvir_item`) ส่วน POD, แจ้งปัญหา, น้ำมัน/เบิกเงิน เขียนลง `delivery_order_pod` (ต่อ DO (D-81 · D68-38 · 23 พ.ย. 2569)), `delivery_order_line`, `work_order`, `incident`, `fuel_log` ที่มีอยู่แล้วโดยใส่ `source = DRIVER_APP`
 
 **driver_device** — เครื่องที่คนขับ login และจำไว้ 30 วัน (M1)
 
@@ -825,11 +826,11 @@ erDiagram
 | คอลัมน์ | ชนิด | หมายเหตุ |
 | --- | --- | --- |
 | `id` | uuid PK | `evt_` (server ออก) |
-| `client_event_id` | uuid | UUIDv4 ที่แอปสร้างตอนกดปุ่ม; **unique(tenant_id, client_event_id)** — ซ้ำ → คืนผลเดิม ไม่สร้างแถวใหม่ (ชั้นแรกของ idempotency; `Idempotency-Key` ของ HTTP เป็นชั้นสอง) |
+| `client_event_id` | uuid | UUIDv4 ที่แอปสร้างตอนกดปุ่ม; **unique(tenant_id, client_event_id)** — ซ้ำ (จุด/ชนิดเดียวกัน) → คืนผลเดิม ไม่สร้างแถวใหม่; `client_event_id` เดิมแต่จุด/ชนิดต่าง → `409 stop_event_duplicate` + `eventId` (D-81 · D68-31 · 23 พ.ย. 2569) (ชั้นแรกของ idempotency; `Idempotency-Key` ของ HTTP เป็นชั้นสอง) |
 | `trip_stop_id` | uuid FK | จุดที่เกี่ยว; `trip_id` denormalize เพื่อ query |
 | `type` | enum | `DEPART` (ออกเดินทางไปจุดนี้) / `ARRIVE` / `LOADED` (ขึ้นของเสร็จ — จุดรับ) / `COMPLETE` (ส่งของ — จุดส่ง, มี `outcome`) / `FAIL` / `DELAY` (M6 ล่าช้า) / `NOTE` |
 | `outcome` | enum null | `DELIVERED` / `PARTIAL` / `FAILED` / `UNDELIVERED_RETAIN` — เฉพาะ `COMPLETE` / `FAIL` |
-| `occurred_at` | timestamptz | เวลาเครื่องตอนกด (ใช้เรียงลำดับและเป็น `arrived_at` / `departed_at`); ถ้าเพี้ยนจาก `received_at` > 24 ชม. → flag `clock_skew` |
+| `occurred_at` | timestamptz | เวลาเครื่องตอนกด (ใช้เรียงลำดับและเป็น `arrived_at` / `departed_at`); ถ้าย้อนหลังจาก `received_at` > 24 ชม. **หรือล้ำอนาคต > 5 นาที** → flag `clock_skew` (D-81 · D68-32 · 23 พ.ย. 2569); event ที่ติดธงไม่ขับสถานะจนผู้จัดรถกด "ใช้" (D-81 · D68-34 · 23 พ.ย. 2569) |
 | `received_at` | timestamptz | เวลา server รับ (default now) |
 | `lat`, `lng`, `accuracy_m` | numeric null | พิกัดและความแม่น (เมตร) ณ เวลากด; null เมื่อผู้ใช้ไม่ให้สิทธิ์ |
 | `geofence_distance_m` | numeric null | ระยะจากพิกัดจุดส่ง; > `site.geofence_radius_m` → `geofence_warning = true` + `reason_code_id` บังคับ |
@@ -842,7 +843,7 @@ erDiagram
 | `sequence_conflict` | bool | true เมื่อ event มาสลับลำดับแล้วขัด state machine (เช่น `COMPLETE` ก่อน `ARRIVE`) — เก็บทั้งคู่ ไม่ปฏิเสธ, ให้ dispatcher ตัดสินใน UI (E1) |
 | `applied_at` | timestamptz null | เวลาที่ projection ลง `trip_stop` / `delivery_order` สำเร็จ; null = ค้าง (reprocess ได้) |
 
-กฎ: server รับ event แล้ว **เรียงด้วย `occurred_at` ต่อ `trip_stop_id`** ก่อน apply state machine 4.2/4.3; `trip_stop.arrived_at = min(occurred_at where type=ARRIVE)`, `departed_at = occurred_at ของ DEPART ของจุดถัดไป หรือ COMPLETE`, `detention_min` คำนวณจากสองค่านี้; webhook `stop.*` / `pod.captured` ยิงจาก `domain_event` ที่สร้างตอน apply (ไม่ใช่ตอนรับ) จึงไม่ยิงซ้ำเมื่อ replay; index `(tenant_id, trip_stop_id, occurred_at)` และ `(tenant_id, received_at)` สำหรับหน้าติดตามรถ; retention ตาม J (ไฟล์ POD 2 ปี, แถว event เก็บเท่าเอกสาร)
+กฎ: server รับ event แล้ว **เรียงด้วย `occurred_at` ต่อ `trip_stop_id`** ก่อน apply state machine 4.2/4.3 — ข้อยกเว้น: (ก) จุดที่มี `COMPLETE`/`FAIL` ≥ 2 ตัว → ติดธงทุกตัว และระหว่างรอผู้จัดรถตัดสินใช้ตัวที่ **server รับก่อน** (ไม่ใช่ `occurred_at` เก่ากว่า — กันผลพลิกเงียบ ๆ) (D-81 · D68-33 · 23 พ.ย. 2569) (ข) event ที่ติดธง `clock_skew` ไม่นับในลำดับที่มีผล (ไม่เปลี่ยนสถานะ/เวลาถึง/ออก) จนผู้จัดรถกด "ใช้" (D-81 · D68-34 · 23 พ.ย. 2569); `trip_stop.arrived_at = min(occurred_at where type=ARRIVE)`, `departed_at = occurred_at ของ DEPART ของจุดถัดไป หรือ COMPLETE`, `detention_min` คำนวณจากสองค่านี้; webhook `stop.*` / `pod.captured` ยิงจาก `domain_event` ที่สร้างตอน apply (ไม่ใช่ตอนรับ) จึงไม่ยิงซ้ำเมื่อ replay; index `(tenant_id, trip_stop_id, occurred_at)` และ `(tenant_id, received_at)` สำหรับหน้าติดตามรถ; retention ตาม J (ไฟล์ POD 2 ปี, แถว event เก็บเท่าเอกสาร)
 
 **dvir_report** — ใบตรวจรถก่อนออกเดินทาง (M7, P2)
 
@@ -901,6 +902,10 @@ stateDiagram-v2
     PARTIALLY_DELIVERED --> IN_TRANSIT : DO ที่เหลือออกรถ
     IN_TRANSIT --> DELIVERED : DO ครบทุก line
     PARTIALLY_DELIVERED --> DELIVERED
+    IN_TRANSIT --> PLANNED : ส่งซ้ำ — DO ใหม่ (ไม่มี DO วิ่งอยู่)
+    PLANNED --> RECEIVED : DO ส่งซ้ำยังไม่ลงเที่ยว
+    PLANNED --> ON_HOLD : ทุก DO คืนคลัง → ALL_RETURNED
+    DELIVERED --> IN_TRANSIT : reopen (ย้อนผลส่งถึงของ DO)
     RECEIVED --> CANCELLED : ยกเลิก (ยังไม่มี DO)
     ON_HOLD --> CANCELLED
     PLANNED --> CANCELLED : ต้องยกเลิก DO ก่อน
@@ -908,18 +913,25 @@ stateDiagram-v2
     CLOSED --> [*]
 ```
 
-**Reason code ของ `ON_HOLD` (category `ORDER_HOLD`, `is_system = true`)**
+**Reason code ของ `ON_HOLD` (category `ORDER_HOLD`, `is_system = true`)** — ชุดรหัสระบบ = 12 รหัสของ docs/04 C (+ `ALL_RETURNED`) ลบ/ปิดใช้ไม่ได้ (D-81 · D68-16/D68-23 · 23 พ.ย. 2569)
 
 | code | ความหมาย | ใครทำให้เกิด | action เคลียร์ |
 | --- | --- | --- | --- |
-| `ROUTE_PENDING` | map ต้นทาง/ปลายทางเป็น site/route ไม่ได้ | auto-match | เลือก site จาก master หรือสร้างใหม่ (ระบบจำ alias) |
-| `CUSTOMER_UNMAPPED` | รหัสลูกค้าจากต้นทางไม่ตรง customer ใด | connector / import | map ลูกค้า → ระบบสร้าง `external_mapping` ให้ |
-| `NO_VEHICLE` | ไม่มีรถว่างในวัน/ประเภทที่ต้องการ | planner หรือ auto-suggest | จัดรถ, เปลี่ยนวัน, ส่งรถร่วม |
+| `LOCATION_UNMAPPED` | map ต้นทาง/ปลายทางเป็น site ไม่ได้ (แทน `ROUTE_PENDING` เดิม) | auto-match | เลือก site จาก master หรือสร้างใหม่ (ระบบจำ alias) |
+| `RATE_MISSING` | คิดราคาไม่ได้ (ไม่มี rate card/เส้นทางที่ตรง) | pricing | ตั้ง rate card/route หรือใส่ราคาเอง (D-81 · D68-23 · 23 พ.ย. 2569) |
+| `CUSTOMER_UNMAPPED` | รหัสลูกค้าจากต้นทางไม่ตรง customer ใด | connector / import | map ลูกค้า → ระบบบันทึกผลจับคู่ในตาราง `customer_alias` (EXTERNAL_ID แยกตามช่องทาง / NAME) — ต้องรวม/เชื่อมกับ `external_mapping` ให้เสร็จก่อนเปิด connector ตัวที่สอง (D-81 · D68-29 · 23 พ.ย. 2569) |
+| `UNALLOCATED_NO_VEHICLE` | ไม่มีรถว่างในวัน/ประเภทที่ต้องการ | planner หรือ auto-suggest | จัดรถ, เปลี่ยนวัน, ส่งรถร่วม |
 | `CAPACITY_EXCEEDED` | น้ำหนัก/ปริมาตรเกินรถที่เลือก | validation ตอน assign | แยก SO เป็นหลาย DO หรือเปลี่ยนรถ |
 | `CARRIER_REJECTED` | รถร่วมกดปฏิเสธหรือลิงก์หมดอายุ | assignment flow | cascade รถร่วมรายถัดไป |
-| `GEOCODE_FAILED` | site ใหม่ geocode ไม่ได้ | geocode provider | ปักพิกัดบนแผนที่ |
-| `WINDOW_EXHAUSTED` | เลยช่วงเวลาที่ลูกค้าขอโดยยังไม่ได้วางแผน | scheduler ตรวจทุกชั่วโมง | เลื่อนวัน + แจ้งลูกค้า |
+| `GEOCODING_ERROR` | site ใหม่ geocode ไม่ได้ | geocode provider | ปักพิกัดบนแผนที่ |
+| `DELIVERY_WINDOW_EXHAUSTED` | เลยช่วงเวลาที่ลูกค้าขอโดยยังไม่ได้วางแผน | scheduler ตรวจทุกชั่วโมง | เลื่อนวัน + แจ้งลูกค้า |
+| `VEHICLE_TYPE_INCOMPATIBLE` | ประเภทรถไม่ตรงที่งานต้องการ | validation ตอนวาง | เปลี่ยนรถ |
+| `RESCHEDULES_EXHAUSTED` | นัดส่งใหม่อัตโนมัติครบเพดาน | auto-reschedule | ผู้จัดรถตัดสิน |
+| `SOURCE_CHANGED_AFTER_PLAN` | ต้นทางแก้หลังวางแผน (ป้าย — ดูย่อหน้าท้ายหัวข้อ) | connector | ตรวจ diff แล้วรับ/ไม่รับ (D-81 · D68-16/D68-23 · 23 พ.ย. 2569) |
 | `SOURCE_ERROR` | ต้นทาง (connector) ให้ข้อมูลไม่ครบ/ schema เปลี่ยน | connector | ดู `raw_payload`, แก้มือ หรือรอ connector แก้ |
+| `ALL_RETURNED` | DO ทุกใบของ SO คืนคลัง (RETURNED) | ระบบ (หลังบันทึกคืนคลัง) | คนตัดสิน: ส่งซ้ำ หรือยกเลิก SO (D-81 · D68-54 · 23 พ.ย. 2569) |
+
+**เพิ่มเติม (D-81 · 23 พ.ย. 2569):** (1) DO ส่งไม่สำเร็จที่สร้าง DO ส่งซ้ำ (DRAFT นอกเที่ยว) ทำให้ SO ถอย `IN_TRANSIT → PLANNED → RECEIVED` ตามชุด DO (D68-50) (2) SO ที่ส่งถึง ≥ 1 ใบและที่เหลือคืนคลัง = `DELIVERED`; ทุกใบคืนคลัง → SO ถอยเป็น `PLANNED` แล้วค้าง `ON_HOLD(ALL_RETURNED)` ให้คนตัดสินส่งซ้ำหรือยกเลิก (D68-54) (3) ย้อนผลส่งถึงของ DO (`revert-delivery`) ทำให้ SO `DELIVERED → IN_TRANSIT` (event `reopen`) (D68-76)
 
 SO ที่ต้นทางแก้หลังเรา `PLANNED` ไม่ถูก overwrite แต่ตั้ง `source_changed_after_plan = true` + `source_diff` และขึ้นหน้างานค้างในกลุ่มเดียวกัน (ไม่เปลี่ยนสถานะ)
 
@@ -932,8 +944,11 @@ stateDiagram-v2
     [*] --> PLANNING : สร้าง trip, ลาก DO เข้า
     PLANNING --> OFFERED : รถร่วม → ส่งลิงก์รับงาน (48 ชม.)
     OFFERED --> PLANNING : ปฏิเสธ/หมดอายุ → SO กลับ ON_HOLD(CARRIER_REJECTED)
+    OFFERED --> PLANNING : ผู้จัดรถถอนข้อเสนอ (withdraw) → ส่งรายถัดไป
     OFFERED --> ASSIGNED : รถร่วมกดรับ + ใส่ทะเบียน/คนขับ
+    OFFERED --> ASSIGNED : ผู้จัดรถบันทึกรับงานแทนรถร่วม (/assign)
     PLANNING --> ASSIGNED : รถบริษัท กำหนดรถ+คนขับ (snapshot)
+    ASSIGNED --> PLANNING : ยกเลิกการจ้างรถร่วม (cancel_hire) → จ้างรายใหม่บนเที่ยวเดิม
     ASSIGNED --> DISPATCHED : ปล่อยรถ → ทุก DO ใน trip เป็น DISPATCHED
     DISPATCHED --> IN_PROGRESS : stop แรก ARRIVED
     IN_PROGRESS --> COMPLETED : ทุก stop COMPLETED/FAILED/SKIPPED
@@ -944,6 +959,8 @@ stateDiagram-v2
     SETTLED --> [*]
     COSTED --> [*] : รถบริษัท
 ```
+
+**เพิ่มเติม (D-81 · D68-25/D68-28 · 23 พ.ย. 2569):** (1) `OFFERED.withdraw → PLANNING` — ผู้จัดรถถอนข้อเสนอเอง ("ส่งรายถัดไป") SO ไม่ไปใบค้าง `CARRIER_REJECTED` และจ้างรายใหม่ในคำขอเดียว; เหตุผลถอนระบบเขียน; event `trip.offer_withdrawn` (D68-25) (2) `OFFERED → ASSIGNED` โดยผู้จัดรถบันทึก "รับงาน" แทนรถร่วมได้ (รถร่วมตอบทางโทรศัพท์) ผ่าน `POST /trips/{id}/assign` สิทธิ์ `trips:assign` — รถต้องเป็นของรถร่วมที่เสนอ และ audit เก็บว่าใครบันทึกและเป็นการรับแทน (D68-28) (3) เปลี่ยนรถร่วมหลังรับงาน = `cancel_hire` `ASSIGNED → PLANNING` (event `trip.hire_cancelled`) ปิดการจ้างเดิมเป็น WITHDRAWN แล้วจ้างรายใหม่บนเที่ยวเดิมในคำขอเดียว `POST /offer` + `changeReason` — เลขเที่ยวเดิมคงอยู่ ประวัติการจ้างอยู่ในตารางข้อเสนอ (D-81 · D68-26 · 23 พ.ย. 2569)
 
 หลัง `DISPATCHED` ห้ามแก้ snapshot รถ/คนขับ ถ้าเปลี่ยนรถกลางทางให้ปิด trip เดิมเป็น `COMPLETED` บางส่วนแล้วเปิด trip ใหม่ให้ DO ที่เหลือ (เก็บประวัติรถจริงที่วิ่ง)
 
@@ -967,8 +984,14 @@ stateDiagram-v2
     UNBILLED --> BILLED : อยู่ใน invoice_line ของ invoice ที่ ISSUED
     BILLED --> UNBILLED : invoice นั้นถูก CANCELLED (ตอน DRAFT) หรือ credit note เต็มใบ
     DRAFT --> CANCELLED
+    CANCELLED --> DISPATCHED : restore — ผลส่งไม่สำเร็จถูกพลิก
+    DELIVERED --> FAILED : revert-delivery (ย้อนผลส่งถึง)
+    POD_PENDING --> FAILED : revert-delivery
+    UNBILLED --> FAILED : revert-delivery
     BILLED --> [*]
 ```
+
+**เพิ่มเติม (D-81 · 23 พ.ย. 2569):** (1) `restore` `CANCELLED → DISPATCHED` คืน DO เดิมเมื่อผู้จัดรถพลิกผลส่งไม่สำเร็จ และยกเลิก DO ส่งซ้ำที่สร้างอัตโนมัติ — DO ที่ `CANCELLED` เพราะการส่งซ้ำ**ไม่ใช่สถานะสิ้นสุด**; ลง audit `delivery_order.redelivery_reverted` และยิง event เปลี่ยนสถานะให้ ERP/webhook รู้ (D68-51) (2) `revert-delivery` `DELIVERED`/`POD_PENDING`/`UNBILLED → FAILED` (ไม่ถอยไป `DISPATCHED`) แล้วส่งซ้ำ/คืนคลังตามปกติ; ภายใน 24 ชม. ใช้ `trips:close` เกินนั้นต้อง `deliveries:revert` (D68-76) (3) สถานะการวางบิลอ่านจาก `delivery_order.billing_status` (`UNBILLED` / `IN_DRAFT` / `INVOICED` / `CREDITED`) — DO ของลูกค้าที่ไม่บังคับหลักฐานวางบิลได้ตั้งแต่ `DELIVERED`/`POD_PENDING` (สถานะ DO ไม่เปลี่ยนตอนออกใบ; หลักฐานครบภายหลังและ `billing_status = INVOICED` → `BILLED` ทันที) รายงาน/ตัวกรองค้างวางบิลต้องใช้ `billing_status` (D68-78)
 
 `BILLED` DO ห้ามแก้ปริมาณ/ราคา/รถ ถ้าผิดให้ออก credit/debit note ที่ invoice; `UNBILLED` เกิน N วันขึ้นรายงาน "รายได้ตกหล่น"
 
@@ -1022,12 +1045,16 @@ stateDiagram-v2
     DRAFT --> SENT_TO_CARRIER : ส่งลิงก์ให้รถร่วมตรวจ + ใส่เลขใบแจ้งหนี้ของเขา
     SENT_TO_CARRIER --> DISPUTED : รถร่วม/บัญชีติด dispute รายการ
     DISPUTED --> DRAFT : แก้รายการ (เพิ่ม/ลบ/ปรับ)
+    DISPUTED --> SENT_TO_CARRIER : เคลียร์รายการโต้แย้งครบ (ยืนยันยอดเดิม)
+    SENT_TO_CARRIER --> DRAFT : เรียกกลับ (recall) + เพิกถอนลิงก์
     SENT_TO_CARRIER --> APPROVED : approver อนุมัติ (disputed_count = 0) → ออก settlement_no
     DRAFT --> APPROVED : tenant ปิดขั้นให้รถร่วมตรวจ
     APPROVED --> PAID : บันทึกจ่าย → ออก wht_certificate (ISSUED) → outbox PUSH_SETTLEMENT
     DRAFT --> CANCELLED : cost line กลับคิว
     PAID --> [*]
 ```
+
+**เพิ่มเติม (D-81 · D68-68/D68-69 · 23 พ.ย. 2569):** (1) `POST /settlements/{id}/recall` (เหตุผล ≥ 10 ตัวอักษร) `SENT_TO_CARRIER → DRAFT` + เพิกถอนลิงก์; `SENT_TO_CARRIER → CANCELLED` ไม่ได้; ค่าตั้ง `carrierReviewRequired` **ค่าเริ่ม = ปิด** (ร่างอนุมัติตรงได้ tenant เปิดเองได้) (D68-68) (2) `DISPUTED` คำนวณจากรายการโต้แย้งที่ค้าง — เคลียร์ครบโดยยืนยันยอดเดิม → กลับ `SENT_TO_CARRIER` เอง; สถานะรายการ `OPEN` / `DISPUTED` / `APPROVED` ตาม docs/04 F6 (D68-69)
 
 ### 4.6 Work Order (ใบสั่งซ่อม) [เสนอ — decision 2026-11-04]
 
@@ -1068,9 +1095,9 @@ stateDiagram-v2
 
 | หัวข้อ | ข้อกำหนด |
 | --- | --- |
-| URL / naming | `https://api.<domain>/v1/`; resource พหูพจน์ lowercase; tenant ไม่อยู่ใน path (ผูกกับ credential); nested เฉพาะ composition จริง (`/trips/{id}/stops`); action = `POST /{resource}/{id}/{verb}`; JSON camelCase; ID opaque prefix (`ord_`, `trp_`, `stp_`, `do_`, `inv_`, `cn_`, `pay_`, `stl_`, `evt_`); money เป็น `{amount: "1250.00", currency: "THB"}`; timestamps ISO 8601 UTC |
+| URL / naming | `https://api.<domain>/v1/`; resource พหูพจน์ lowercase; tenant ไม่อยู่ใน path (ผูกกับ credential); nested เฉพาะ composition จริง (`/trips/{id}/stops`); action = `POST /{resource}/{id}/{verb}`; JSON camelCase; ID opaque prefix (`ord_`, `trp_`, `stp_`, `do_`, `ivc_` (ใบแจ้งหนี้; บรรทัด `ivl_` — `inv` ใช้กับคำเชิญแล้ว (D-81 · D68-73 · 23 พ.ย. 2569)), `cn_`, `pay_`, `stl_`, `evt_`); money เป็น `{amount: "1250.00", currency: "THB"}`; timestamps ISO 8601 UTC |
 | Auth | OAuth2 client credentials (`POST /oauth/token`, JWT RS256 1 ชม., scope `resource:verb`); UI ใช้ Authorization Code + PKCE ได้ JWT เดียวกัน; API key `tk_live_…`/`tk_test_…` เป็น principal เดียวกัน ตั้ง scope/expiry/IP allowlist ต่อ key; rotation มี `revokeAt` ≤ 7 วัน; **Driver app ใช้ grant `POST /oauth/token` แบบ `grant_type=otp` (เบอร์โทร + OTP + deviceId) ได้ JWT เดียวกันที่มี scope `driver` เท่านั้น + refresh token อายุ 30 วันผูก `driver_device` (หัวข้อ 5.5)** |
-| Idempotency | ทุก POST รับ `Idempotency-Key` scope (tenant, key, path) เก็บ 24 ชม.; replay = response เดิม + `Idempotent-Replayed: true`; body ต่าง = `422 idempotency_mismatch`; upsert `PUT/PATCH /{resource}/external/{externalId}`; ทุก `{id}` รับ `ext:{externalId}` |
+| Idempotency | ทุก POST รับ `Idempotency-Key` scope (tenant, key, path) เก็บ 24 ชม.; replay = response เดิม + `Idempotent-Replayed: true`; body ต่าง = `422 idempotency_mismatch`; upsert `PUT /{resource}/external/{externalId}` (`PATCH …/external/{externalId}` แก้บางช่องของแถวที่มีอยู่เท่านั้น ไม่มี → 404 ไม่สร้างแถว (D-81 · D68-44 · 23 พ.ย. 2569)); ทุก `{id}` รับ `ext:{externalId}` |
 | Concurrency | ทุก GET/PUT/PATCH คืน `ETag` (= `version`); `If-Match` ไม่ตรง → `412`; connector เปิด strict mode ได้ |
 | Error | RFC 9457 `application/problem+json` ทุก 4xx/5xx พร้อม `code` (stable), `requestId`, `errors[]`; 404 สำหรับ cross-tenant; list ว่าง = 200 `data: []` |
 | Pagination | cursor-based `?limit=&cursor=`; `{data, nextCursor, hasMore}`; ทุก list รองรับ `updatedAfter` + sort `updatedAt,id` เสถียร สำหรับ incremental pull ของ ERP |
@@ -1088,8 +1115,8 @@ stateDiagram-v2
 | --- | --- | --- | --- |
 | 1 | `orders` (SO) | `POST`, `GET` list/one, `PATCH`, `PUT/PATCH /external/{id}`, `/hold`, `/release`, `/cancel`, `/split`, `GET /{id}/events` | UI, ERP push SO, ลูกค้า |
 | 2 | `webhooks`, `event-types`, `events`, `webhook-deliveries` | CRUD endpoint, list event types, `GET /events/{id}`, `POST /events/{id}/redeliver`, `POST /webhook-deliveries/{id}/retry` | ERP/ลูกค้า |
-| 3 | `trips` + `stops` | `POST /trips`, `GET`, `/assign`, `/offer`, `/dispatch`, `/complete`, `/cancel`; `POST /stops/{id}/arrive|depart|complete|fail` | UI, Driver app, รถร่วม (ลิงก์) |
-| 4 | `delivery-orders` | `GET` list/one (filter `status=unbilled`), `PATCH` (ก่อน DISPATCHED), `/cancel`, `/redeliver`, `GET /{id}/tracking` (public token) | UI, ลูกค้า |
+| 3 | `trips` + `stops` | `POST /trips`, `GET`, `/assign` (จาก `OFFERED` = ผู้จัดรถบันทึกรับงานแทนรถร่วม (D-81 · D68-28 · 23 พ.ย. 2569)), `/offer`, `/dispatch`, `/complete`, `/cancel`; `POST /stops/{id}/arrive\|depart\|complete\|fail` | UI, Driver app, รถร่วม (ลิงก์) |
+| 4 | `delivery-orders` | `GET` list/one (filter `status=unbilled`), `PATCH` (ก่อน DISPATCHED), `/cancel`, `/redeliver`, `POST /{id}/tracking-link` ออก magic link → `/v1/public/tracking/*` (ลิงก์ต่อลูกค้าต้องกรอกเลข DO/PO + เบอร์ผู้รับ 4 ตัวท้าย; ลิงก์ต่อ DO ไม่ต้องกรอก) (D-81 · D68-92 · 23 พ.ย. 2569) | UI, ลูกค้า |
 | 5 | `documents` (POD/ไฟล์) | `POST /documents` (presigned upload), `GET /{id}` metadata + download URL หมดอายุ | ทุก client |
 | 6 | `customers`, `customer-sites`, `carriers`, `drivers`, `vehicles`, `service-items`, `reason-codes`, `rate-cards` | CRUD + `PUT /external/{id}` + import job | UI, master sync |
 | 7 | `companies`, `branches`, `document-sequences` | CRUD (owner/admin scope) | UI |
@@ -1108,7 +1135,7 @@ stateDiagram-v2
 | Event | เมื่อ | ผู้ใช้หลัก |
 | --- | --- | --- |
 | `order.created`, `order.updated`, `order.held`, `order.released`, `order.cancelled` | SO เปลี่ยน | ลูกค้า, ERP ที่ push SO มา |
-| `trip.assigned`, `trip.dispatched`, `trip.completed` | เที่ยว | ลูกค้า, GPS/ระบบอื่น |
+| `trip.assigned`, `trip.dispatched`, `trip.completed`, `trip.offer_withdrawn` (D-81 · D68-25 · 23 พ.ย. 2569) | เที่ยว | ลูกค้า, GPS/ระบบอื่น |
 | `stop.arrived`, `stop.departed`, `stop.completed`, `stop.failed` | milestone ต่อจุด | ลูกค้า (ETA/POD) |
 | `delivery_order.status_changed`, `pod.captured` | DO | ลูกค้า, ERP |
 | `invoice.finalized`, `invoice.adjusted`, `invoice.paid`, `invoice.voided` | AR | ERP connector ภายนอก, ลูกค้า |
@@ -1167,7 +1194,7 @@ Driver app (Functional Requirements E2) เป็น client ที่ 3 ขอ�
 | `GET /driver/me/devices`, `DELETE /driver/me/devices/{id}` | รายการเครื่องที่จำไว้ + เพิกถอน | M9 |
 | `GET /driver/payouts/{id}/pdf` | PDF ใบจ่าย / 50 ทวิ ของตน (URL หมดอายุ) | M9 |
 
-**M10 ลิงก์รถร่วม (web ไม่ต้อง login — P0)** ไม่ใช้ scope `driver` แต่ใช้ **magic link token** (A1) ที่ผูกกับ `trip.assignment_token`: `GET /public/offers/{token}` (ดูข้อเสนอ ซ่อนราคาขาย/ที่อยู่ลูกค้าตาม PL4) → `POST /public/offers/{token}/accept {vehiclePlate, driverName, driverPhone}` / `/reject {reasonCodeId, note}`; POD: `GET /public/pod/{token}?doNo=` → `POST /public/pod/{token}/stops/{id}/events` และ `/pod` body เดียวกับ `/driver/*` (ส่ง `clientEventId` เหมือนกัน, `source = LINK`, `platform = WEB`); token จำกัด action ตามที่ออก, อายุ 48 ชม. (offer) / จนปิด trip + 7 วัน (POD), revoke ได้; ไม่มี outbox (ต้องออนไลน์) แต่ idempotent เท่ากัน จึง refresh หน้าแล้วกดซ้ำไม่สร้าง event ซ้ำ
+**M10 ลิงก์รถร่วม (web ไม่ต้อง login — P0)** ไม่ใช้ scope `driver` แต่ใช้ **magic link token** (A1) ที่ผูกกับ `trip.assignment_token`: `GET /public/offers/{token}` (ดูข้อเสนอ ซ่อนราคาขาย/ที่อยู่ลูกค้าตาม PL4) → `POST /public/offers/{token}/accept {vehiclePlate, driverName, driverPhone}` / `/reject {reason, note}` (เฟส 0: `reason` เป็นชุดคงที่ 4 ข้อตามต้นแบบ ไม่อ้าง reason master; เหตุผลที่ tenant ตั้งเองเป็นงานภายหลัง (D-81 · D68-24 · 23 พ.ย. 2569)); POD: `GET /public/pod/{token}?doNo=` → `POST /public/pod/{token}/stops/{id}/events` และ `/pod` body เดียวกับ `/driver/*` (ส่ง `clientEventId` เหมือนกัน, `source = LINK`, `platform = WEB`); token จำกัด action ตามที่ออก, อายุ 48 ชม. (offer) / จนปิด trip + 7 วัน (POD), revoke ได้; ไม่มี outbox (ต้องออนไลน์) แต่ idempotent เท่ากัน จึง refresh หน้าแล้วกดซ้ำไม่สร้าง event ซ้ำ
 
 **ความสัมพันธ์กับ webhook และ domain_event**: `/driver/*` ไม่สร้าง event type ใหม่ — `stop.arrived/departed/completed/failed`, `pod.captured`, `work_order.status_changed`, `vehicle.document_expiring` ยิงจาก projection ตอน apply `stop_event` เหมือน client อื่น; เพิ่มเฉพาะ `dvir.submitted` (P2) และ `driver_issue.reported`
 
@@ -1237,14 +1264,14 @@ Adapter ต้อง map response ของ ERP เป็น `ErrorClass` กล
 
 | ErrorClass | ตัวอย่างต้นทาง | core ทำอะไร | สถานะ outbox / mapping |
 | --- | --- | --- | --- |
-| `TRANSIENT` | 5xx, 503 DB ล่ม, 429, connection refused | retry exponential + jitter: 1, 2, 5, 15, 30, 60 นาที (6 ครั้ง); ถ้า `healthCheck` ล้ม → หยุดทั้งคิวของ connector นั้น | `FAILED_RETRYABLE` → `FAILED_FINAL` เมื่อครบ |
+| `TRANSIENT` | 5xx, 503 DB ล่ม, 429, connection refused | retry exponential + jitter: 1, 2, 5, 15, 30, 60 นาที (6 ครั้ง); ถ้า `healthCheck` ล้มต่อเนื่อง ≥ 30 นาที → หยุดทั้งคิวของ connector นั้น (`ERROR`) และกู้คืน `ACTIVE` เองเมื่อผ่าน (D-81 · D68-65 · 23 พ.ย. 2569) | `FAILED_RETRYABLE` → `FAILED_FINAL` เมื่อครบ |
 | `AMBIGUOUS` | timeout หลังส่ง body, connection reset ก่อนได้ response | **ไม่ส่งซ้ำทันที**; ถ้ามี `external_id` → `fetchDocument`; ถ้ามี `listDocuments` → ค้นด้วย ref ของเรา; ไม่มีทั้งคู่ → รอ 2 นาทีแล้วส่งใหม่ (ถ้าถึงแล้วจะได้ `DUPLICATE`) | `FAILED_RETRYABLE` |
 | `DUPLICATE` | ERP บอกเลขอ้างอิงซ้ำ (409) | `fetchDocument` แล้ว reconcile → `SYNCED` หรือ `MISMATCH`; ถ้าหา external_id ไม่ได้ → ขึ้น error queue ให้คนกรอกเลขจาก ERP | `DONE` + mapping |
 | `VALIDATION` | 400/422 payload ผิด, master code ไม่รู้จัก | ไม่ retry; เก็บ response ตัวเต็ม; ขึ้น error queue พร้อม field ที่ผิด; ถ้าเป็น master code → ลิงก์ไปหน้า mapping | `FAILED_FINAL`; mapping `FAILED` |
 | `AUTH` | 401/403 | หยุด connector ทั้งตัว (`status = ERROR`), แจ้ง admin ทันที, ไม่ retry | คำสั่งคง `PENDING` |
 | `NOT_FOUND` | 404 ตอน fetch/replace | เอกสารถูกลบฝั่ง ERP → `reconcile_result = REMOTE_MISSING` ให้คนตัดสิน (ส่งใหม่เป็นเลขใหม่ต้องให้บัญชีรับรู้) | mapping `MISMATCH` |
 | `PERIOD_CLOSED` | ERP ปฏิเสธเพราะงวดบัญชีปิด | ไม่ retry; เสนอ 2 ทาง: ออก credit/debit note ลงงวดปัจจุบัน หรือ ack | `FAILED_FINAL` |
-| `CAPABILITY` | adapter ไม่รองรับ operation | `SKIPPED` + แจ้งบัญชี | `SKIPPED` |
+| `CAPABILITY` | adapter ไม่รองรับ operation (capability ที่ adapter ประกาศว่ายังไม่ทำ — `pendingCapabilities` — พักคำสั่ง `PENDING` ไม่ SKIPPED (D-81 · D68-65 · 23 พ.ย. 2569)) | `SKIPPED` + แจ้งบัญชี | `SKIPPED` |
 
 ### 6.4 Sync log, syncFromDate และ error queue UI
 
@@ -1290,17 +1317,17 @@ Core สร้าง canonical payload ชุดเดียวต่อเอ�
 | `customer: {id, externalId, legalName, taxId, branchCode, billingAddress, paymentTermDays}` | `customer_snapshot` + `external_mapping(CUSTOMER)` | รหัสลูกค้าฝั่ง ERP จาก mapping; ไม่มี → `VALIDATION` ก่อนเข้า outbox |
 | `totals: {subtotalVatable, subtotalExempt, vatAmount, total, whtExpected}` | invoice | บาง ERP คำนวณเอง → adapter ส่งเฉพาะที่สัญญารับ และ core เก็บไว้เทียบ |
 | `lines[]` | invoice_line join DO/trip | ดู 7.2 |
-| `references: {billingNoteNumber, customerRef[]}` | billing_note, DO.customer_ref | memo |
+| `references: {customerRef[]}` | DO.customer_ref | memo — ไม่ใส่ `billingNoteNumber` (ใบวางบิลเกิดหลังออกใบ ทำให้ hash เปลี่ยนเองทั้งที่ใบไม่เปลี่ยน) (D-81 · D68-83 · 23 พ.ย. 2569) |
 | `sync: {hash}` | sha256 ของทุกฟิลด์ข้างบน | `last_synced_hash` |
 
-### 7.2 CanonicalInvoiceLine (1 รายการ = 1 DO หรือ 1 surcharge)
+### 7.2 CanonicalInvoiceLine (1 รายการ = 1 บรรทัดรายได้ — DO เดียวมีหลายรายการได้เมื่อ VAT ต่างกัน — หรือ 1 surcharge (D-81 · D68-73 · 23 พ.ย. 2569))
 
 | ฟิลด์ canonical | มาจาก | หมายเหตุ |
 | --- | --- | --- |
 | `lineNo` | `invoice_line.line_no` | int running |
 | `deliveryOrder: {id, number, date}` | DO | เลข DO คือ key จับคู่ตอน reconcile |
 | `salesOrder: {number, externalId}` | SO | ERP ที่เป็นต้นทาง SO ใช้ปิดงาน |
-| `trip: {number, vehiclePlate, driverName, carrierName}` | trip snapshot | ฟิลด์รถ/คนขับอยู่ที่ trip ที่เดียว ไม่ copy ลง invoice_line |
+| `trip: {number, vehiclePlate, driverName, carrierName}` | trip snapshot | ฟิลด์รถ/คนขับอยู่ที่ trip ที่เดียว ไม่ copy ลง invoice_line; ช่องข้อมูลส่วนบุคคล (`driverName`) เป็น **opt-in ต่อ adapter** — ใส่เฉพาะ adapter ที่ประกาศ `personalDataNeeds` ที่เหลือได้ `null` (PDPA) (D-81 · D68-12 · 23 พ.ย. 2569) |
 | `route: {originName, destinationName}` | DO sites | |
 | `serviceItem: {id, code, externalId}` | service_item + mapping | รหัสสินค้า/บริการฝั่ง ERP |
 | `description` | invoice_line | template ต่อ tenant |
@@ -1312,11 +1339,11 @@ Core สร้าง canonical payload ชุดเดียวต่อเอ�
 ### 7.3 CanonicalAdjustment (credit/debit note) และ CanonicalSettlement
 
 - **Adjustment**: `kind`, `number`, `issueDate`, `originalInvoice: {id, number, externalId, taxInvoiceNumber}`, `reason: {code, etdaCode, text}`, `amounts: {original, corrected, difference, vatDifference}`, `lines[]` (อ้าง `originalLineNo` + `deliveryOrder.number`); adapter ที่มีแต่ `replaceDocument` จะได้ `CanonicalInvoice` ฉบับ "หลังปรับ" จาก core แทน
-- **Settlement**: `number`, `carrier: {externalId, legalName, taxId, branchCode, entityType}`, `period`, `carrierInvoiceNumber`, `lines[]` (`trip.number`, `deliveryOrder.number`, `amount`, `whtRate`, `lineType`), `totals: {gross, deduction, wht, net}`, `whtCertificate: {number, pndForm}`
+- **Settlement**: `number`, `carrier: {externalId, legalName, taxId, branchCode, entityType}`, `period`, `carrierInvoiceNumber`, `lines[]` (`trip.number`, `deliveryOrders[].number` (D-81 · D68-81 · 23 พ.ย. 2569 — PO รับรูปแบบรายการ เพราะเที่ยวหนึ่งมีหลาย DO), `amount`, `whtRate`, `lineType`), `totals: {gross, deduction, wht, net}`, `whtCertificate: {number, pndForm}`
 
 ### 7.4 Validation ก่อนเข้า outbox (กัน VALIDATION ตั้งแต่ฝั่งเรา)
 
-- ทุก entity ที่ต้องมีรหัสฝั่ง ERP (`CUSTOMER`, `SERVICE_ITEM`, `CARRIER`) ต้องมี `external_mapping` สถานะ `SYNCED` → ไม่มี = เอกสารออกได้ แต่ outbox เป็น `FAILED_FINAL(VALIDATION)` พร้อมลิงก์ไปหน้า mapping
+- entity ที่ **adapter ประกาศ**ว่าต้องมีรหัสฝั่ง ERP (`masterCodeRefs` เช่น `CUSTOMER`, `SERVICE_ITEM`, `CARRIER`) ต้องมี mapping สถานะ `SYNCED` — adapter ที่จับคู่เอง (เช่นด้วยเลขผู้เสียภาษี + สาขา) ไม่ต้องมี (D-81 · D68-82 · 23 พ.ย. 2569) → ไม่มี = เอกสารออกได้ (ไม่บล็อก finalize (D-81 · D68-09 · 23 พ.ย. 2569)) แต่ outbox เป็น `FAILED_FINAL(VALIDATION)` (`erp_mapping_incomplete` / `erp_master_code_unknown`) พร้อมลิงก์ไปหน้า mapping และต้องแจ้งฝ่ายบัญชี
 - adapter ประกาศ JSON schema ของ payload ฝั่ง ERP; unit test ว่า mapper ไม่ปล่อย key นอก whitelist และขนาด payload ไม่เกินเพดานของ ERP (แบ่งใบถ้าเกิน)
 - รหัสที่ ERP ยอมรับ (หน่วย, พนักงานขาย, บัญชี) sync ลง `erp_master_code` (ต่อ connector) ผ่าน adapter ถ้ามี endpoint หรือกรอก/import CSV; validate ก่อนเข้า outbox
 
@@ -1398,7 +1425,7 @@ KRS เป็น connector ตัวแรกที่ implement `ErpAdapter` �
 | `pushInvoice(inv)` | `pushInvoice` | `POST /invoice` โดย `tmsVoucherNo = invoice.invoice_no`; 201 → `external_id = transactionNo`, `external_doc_no = voucherNo` |
 | `pushCreditNote` | ไม่มี | core ใช้ fallback: สร้าง CanonicalInvoice "หลังปรับ" (ยอดสุทธิหลัง credit/debit note) → `replaceDocument` = `PUT /invoice/{transactionNo}` ส่ง `tmsVoucherNo` เดิม + lines ชุดใหม่ทั้งหมด; **ก่อนส่งต้องผ่าน approval ถ้า `external_mapping.posted_at` ไม่ว่าง หรืออายุใบ > N วัน** (ไม่มี `postedStatus` จึงรู้ posted จากปุ่ม "ลงบัญชีแล้ว" ของบัญชี) |
 | `fetchDocument(ref)` | `fetchDocument` | `GET /invoice/{transactionNo}` → แปลงกลับเป็น CanonicalInvoice (จับคู่รายการด้วย `flowNo` = เลข DO) |
-| `healthCheck()` | — | `GET` ใบที่รู้จักแล้ว 1 ใบ; 503 → หยุดคิว connector |
+| `healthCheck()` | — | `GET` ใบที่รู้จักแล้ว 1 ใบ; 503 ต่อเนื่อง ≥ 30 นาที → หยุดคิว connector (กู้คืนเองเมื่อผ่าน) (D-81 · D68-65 · 23 พ.ย. 2569) |
 | DO sync | ปิด (feature flag `doSync=false`) | ไม่มี endpoint DO; DO ปรากฏใน Invoice line ผ่าน `flowNo/flowDate` ไปพลาง |
 
 ### A.3 Field mapping: canonical → api-pueanphet
@@ -1416,7 +1443,7 @@ KRS เป็น connector ตัวแรกที่ implement `ErpAdapter` �
 | `custOrSuppCode` | text | `external_mapping(CUSTOMER).external_id` (บริษัท PP) | **ต้องยืนยันว่ารหัสเป็นของ PP ไม่ใช่ NSF** |
 | `custOrSuppName` | text | `customer.legalName` | snapshot |
 | `address` | text | `customer.billingAddress` (join เป็นบรรทัดเดียว) | |
-| `deliveryAddress` | text | ที่อยู่หลักของลูกค้า | ปลายทางจริงอยู่ที่ `toWay` ราย line |
+| `deliveryAddress` | text | ที่อยู่วางบิลของลูกค้า (`customer.billingAddress`; ตั้งค่าได้ — ยืนยันกับ KRS ตอนทดสอบเชื่อมต่อ) (D-81 · D68-84 · 23 พ.ย. 2569) | ปลายทางจริงอยู่ที่ `toWay` ราย line |
 | `salePerson`, `saleName` | text | `connector.config.salePerson/saleName` ต่อลูกค้า (ใน `erp_master_code`) | ต้องเป็นรหัสที่มีใน KRS |
 | `entryBy` | text | ค่าคงที่ `TMS` หรือ `issued_by` | ถาม KRS ว่าต้องเป็น user ใน ERP ไหม |
 | `lines[]` | array | `lines[]` | อย่างน้อย 1 รายการ |
@@ -1447,7 +1474,7 @@ KRS เป็น connector ตัวแรกที่ implement `ErpAdapter` �
 
 - ใช้ SQL login แยกที่มีสิทธิ์ `SELECT` บน view ที่ KRS เปิดให้เท่านั้น ไม่ใช้ `sa`; ไม่ query ตารางจริงโดยตรงเพราะ schema อาจเปลี่ยนโดยไม่แจ้ง
 - ทุก 5 นาที: `SELECT … WHERE updated_at > @watermark` → upsert ผ่าน `PUT /v1/orders/external/{id}` โดย `external_id = KRS-NSF-{erpSoNo}`; เก็บแถวดิบใน `sales_order.raw_payload`
-- ลูกค้าใน SO (รหัส NSF) จับคู่ผ่าน `external_mapping(CUSTOMER, external_id = soCustCode)`; ไม่เจอ → `ON_HOLD(CUSTOMER_UNMAPPED)` และเมื่อคน map ระบบสร้าง mapping ทั้งรหัส NSF (สำหรับ poll) และรหัส PP (สำหรับ `custOrSuppCode`) — ต้องให้ KRS ยืนยันว่าสองรหัสนี้เท่ากันหรือไม่
+- ลูกค้าใน SO (รหัส NSF) จับคู่ผ่าน `external_mapping(CUSTOMER, source_code = soCustCode)`; ไม่เจอ → `ON_HOLD(CUSTOMER_UNMAPPED)` และเมื่อคน map บนใบค้าง ระบบตั้งเฉพาะ `source_code` (รหัส NSF สำหรับ poll) **ไม่เดารหัส PP** — `external_id` (รหัส PP สำหรับ `custOrSuppCode`) ผู้ใช้กรอกเองที่แท็บ "รหัสระบบบัญชี" (D-81 · D68-64 · 23 พ.ย. 2569) — ต้องให้ KRS ยืนยันว่าสองรหัสนี้เท่ากันหรือไม่ (ทบทวนเมื่อ KRS ตอบ A.6)
 - SO ที่ถูกยกเลิกใน KRS (flag ใน view) → `POST /orders/{id}/cancel` ถ้ายังไม่มี DO; มี DO แล้ว → แจ้งเตือนแทน
 - SO ที่ KRS แก้หลัง `PLANNED` → ไม่ overwrite; ตั้ง `source_changed_after_plan` + diff
 

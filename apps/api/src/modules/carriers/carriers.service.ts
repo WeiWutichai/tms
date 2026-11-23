@@ -9,6 +9,7 @@ import { requestContext } from '../../common/request-context';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { iEquals } from '../../common/ilike';
 import { ProblemException } from '../../common/problem';
+import { assertBankStepUp } from '../../auth/step-up';
 import { DbService } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
 import { EXPORT_MAX_ROWS, exportFetchArgs, overSyncCap, type ExportPage } from '../master/export';
@@ -315,6 +316,30 @@ export class CarriersService {
     return value;
   }
 
+  /**
+   * D-73 เลขบัตรประชาชนเต็มของรถร่วม**บุคคลธรรมดา** (ถอดรหัส) สำหรับไฟล์ส่งออกให้นักบัญชี — ผู้เรียกตรวจสิทธิ์
+   * `pii.national_id:read` + ไม่ใช่ API key แล้ว และลง audit `export.pii_included` ต่อไฟล์ (ไม่ลงต่อรถร่วม)
+   * นิติบุคคล / ไม่มีค่า / ถอดรหัสไม่ได้ = ไม่อยู่ใน map (ผู้เรียกแสดงเลขท้าย 4 หลักแทน)
+   * อ่านจาก**ข้อมูลรถร่วมปัจจุบัน** (ไม่ใช่ snapshot ของใบ — snapshot เก็บแค่เลขท้าย 4 หลัก)
+   */
+  async nationalIds(ids: readonly string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    if (!ids.length) return out;
+    const rows = await this.db.tx.carrier.findMany({
+      where: { id: { in: [...new Set(ids)] }, entityType: 'INDIVIDUAL' },
+      select: { id: true, taxIdEnc: true },
+    });
+    for (const r of rows) {
+      if (!r.taxIdEnc) continue;
+      try {
+        out.set(r.id, this.cipher.decrypt(r.taxIdEnc));
+      } catch {
+        // กุญแจเดิมถูกถอดแล้ว — ไม่ทำให้ทั้งไฟล์ล้ม: แสดงเลขท้าย 4 หลักแทน
+      }
+    }
+    return out;
+  }
+
   // ---------- write ----------
 
   /**
@@ -351,6 +376,17 @@ export class CarriersService {
   }
 
   /** เขียนเลขผู้เสียภาษี: นิติบุคคลเก็บตรง · บุคคลธรรมดาเข้ารหัส + blind index (เขียนใหม่ทุกครั้งที่ส่งมา) */
+  /** เลขบัญชีเดิมตรงกับ `no` ไหม (ส่งซ้ำ = ไม่เขียน) — key ต้องหมุน/ถอดไม่ได้ → ถือว่าไม่ตรง (เขียนใหม่ด้วย key ปัจจุบัน) */
+  private sameAccountNo(current: Carrier | undefined, no: string): boolean {
+    if (!current?.bankAccountEnc) return false;
+    if (this.cipher.needsRotation(current.bankAccountEnc)) return false;
+    try {
+      return this.cipher.decrypt(current.bankAccountEnc) === no;
+    } catch {
+      return false;
+    }
+  }
+
   private writeTax(
     data: Prisma.CarrierUncheckedUpdateInput,
     type: 'INDIVIDUAL' | 'JURISTIC',
@@ -423,11 +459,23 @@ export class CarriersService {
       data.address = input.address === null ? Prisma.DbNull : ({ ...input.address } as object);
     if (input.whtRate !== undefined) data.whtRateDefault = input.whtRate;
 
-    // ---- บัญชีธนาคาร: เลขบัญชีเข้ารหัส + 4 หลักท้าย · แก้ได้เฉพาะ settlements:pay (ชั่วคราวจนกว่าจะตัดสิน step-up NFR-107) ----
+    // ---- บัญชีธนาคาร: เลขบัญชีเข้ารหัส + 4 หลักท้าย · แก้ได้เฉพาะ settlements:pay ----
+    // D-67 (PO 22 พ.ย. 2569): ผู้ใช้ต้อง step-up 2FA เมื่อเปลี่ยนธนาคาร/ชื่อบัญชี/ลบบัญชี หรือ**ส่งเลขบัญชีมา (ทุกครั้ง)**
+    // — ส่งเลขเดิมก็ถาม (review M3: ไม่ให้ผล 200 เป็นช่องเดาเลขบัญชีโดยไม่ยืนยัน 2FA) · ส่งธนาคาร+ชื่อเดิมโดยไม่มีเลข = ไม่ถาม
+    // D-79 (PO 23 พ.ย. 2569): API key เปลี่ยนบัญชีไม่ได้ (403 bank_change_requires_user) · นำเข้าไฟล์ตรวจที่ POST /imports/{id}/commit
     if (input.bankAccount !== undefined) {
       if (!scopeAllows(requestContext.require().scopes ?? [], 'settlements:pay'))
         throw new ProblemException('forbidden', 'changing bankAccount requires settlements:pay');
       const b = input.bankAccount;
+      if (
+        b === null
+          ? !!(current?.bankAccountEnc || current?.bankCode || current?.bankAccountName)
+          : !current ||
+            b.bankCode !== current.bankCode ||
+            b.accountName !== current.bankAccountName ||
+            !!b.accountNo
+      )
+        assertBankStepUp();
       if (b === null) {
         data.bankCode = null;
         data.bankAccountEnc = null;
@@ -440,14 +488,7 @@ export class CarriersService {
         if (b.accountNo) {
           // เทียบเลขเดิมได้ (ผู้แก้บัญชีมีสิทธิ์ settlements:pay = ดูเลขเต็มได้อยู่แล้ว จึงไม่เป็นช่องเดาเลข)
           // ส่งซ้ำเลขเดิม = ไม่เขียน (PUT external ส่งซ้ำไม่เพิ่ม version) · ถอดเลขเดิมไม่ได้/ต้องหมุน key = เขียนใหม่
-          let same = false;
-          if (current?.bankAccountEnc && !this.cipher.needsRotation(current.bankAccountEnc))
-            try {
-              same = this.cipher.decrypt(current.bankAccountEnc) === b.accountNo;
-            } catch {
-              same = false;
-            }
-          if (!same) {
+          if (!this.sameAccountNo(current, b.accountNo)) {
             data.bankAccountEnc = this.cipher.encrypt(b.accountNo);
             data.bankAccountLast4 = b.accountNo.slice(-4);
             if (current) secrets.push('bankAccount');

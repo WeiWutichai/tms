@@ -7,6 +7,7 @@ import { dropAccessToken, endImpersonation, logout } from '../auth/session';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/th';
 import { featureOf, isLocked, pageOf } from '../nav';
+import { clearStepUp, StepUpHost } from '../features/stepup/stepUp';
 import { CommandPalette } from './CommandPalette';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
@@ -80,6 +81,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         features={me.data?.features}
         onLogout={() => {
           void logout().then(() => {
+            clearStepUp();
             queryClient.clear();
             navigate('/login', { replace: true });
           });
@@ -108,6 +110,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         </main>
       </div>
       <CommandPalette open={cmdk} onClose={() => setCmdk(false)} scopes={me.data?.scopes ?? []} />
+      {/* D-67 กล่องยืนยัน 2FA กลาง (withStepUp) — รายการเสี่ยง: API key, credential, secret, บัญชีธนาคาร, ส่งออกทั้งบริษัท */}
+      <StepUpHost />
       {me.data?.impersonation && (
         <ImpersonationBanner
           tenant={me.data.tenant.name}

@@ -2,7 +2,7 @@ import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Page } from '@playwright/test';
-import { DEMO_EMAIL, expect, test } from './fixtures';
+import { confirmStepUp, DEMO_EMAIL, expect, test, withStepUp } from './fixtures';
 
 /**
  * E2E ST7-T09 Sandbox — ตั้งค่า → นักพัฒนา / Open API สลับ Production / Sandbox (ผ่าน API จริง ฐาน e2e)
@@ -79,8 +79,9 @@ test.describe.serial('นักพัฒนา / Open API → Sandbox', () => {
         r.request().headers()['x-tms-mode'] === 'test',
     );
     await modes.getByRole('button', { name: 'Sandbox' }).click();
-    expect((await listRes).status()).toBe(200);
+    // toast ขึ้นทันทีที่กดและหายเองใน 3.6 วิ — ตรวจก่อนรอรายการ key (เครื่องโหลดหนัก GET /v1/api-keys ช้ากว่า 3.6 วิ → toast หายไปก่อน)
     await expect(page.getByRole('status').filter({ hasText: 'สลับเป็น Sandbox' })).toBeVisible();
+    expect((await listRes).status()).toBe(200);
     await expect(
       page.getByText('โหมดทดสอบ · key, webhook และ log แยกจาก Production และไม่กระทบงานจริง'),
     ).toBeVisible();
@@ -92,6 +93,7 @@ test.describe.serial('นักพัฒนา / Open API → Sandbox', () => {
     await d.getByText('companies:read', { exact: true }).click();
     await d.getByText('settings:read', { exact: true }).click();
     await d.getByRole('button', { name: 'สร้าง key' }).click();
+    await confirmStepUp(page); // D-67
     const sec = page.getByRole('dialog', { name: 'สร้าง API key แล้ว' });
     await expect(sec.getByText(new RegExp(`${NAME} · Sandbox ·`))).toBeVisible();
     secret = await sec.getByLabel('Secret key').inputValue();
@@ -138,7 +140,7 @@ test.describe.serial('นักพัฒนา / Open API → Sandbox', () => {
           data: { reason: 'ล้าง endpoint ของรอบก่อน' },
         });
     const r = await page.request.post('/v1/webhooks', {
-      headers: auth,
+      headers: await withStepUp(page.request, auth), // D-67
       data: { url: `http://127.0.0.1:${port}/sbx-${RUN}`, events: ['order.created'] },
     });
     expect(r.status(), await r.text()).toBe(201);

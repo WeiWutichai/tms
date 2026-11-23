@@ -10,12 +10,22 @@ import {
   MAX_AUTO_RESCHEDULES_LIMIT,
   parsePodRequirements,
 } from '@tms/domain';
-import { RETENTION_MAX, RETENTION_MIN } from '../retention/retention-policy';
+import {
+  FINANCE_DOCUMENT_RETENTION,
+  RETENTION_MAX,
+  RETENTION_MIN,
+} from '../retention/retention-policy';
 
 /** ST6-T07 วงเงิน step-up อนุมัติใบสำคัญจ่าย (บาท, ยอดสุทธิ) — ค่าเริ่ม [DECISION spec/12 §3] */
 export const SETTLEMENT_STEP_UP_DEFAULT = 100_000;
 /** เพดาน = numeric(14,2) ส่วนจำนวนเต็ม */
 export const SETTLEMENT_STEP_UP_MAX = 999_999_999_999;
+
+/**
+ * ST8-T13 แทนที่เอกสารในระบบบัญชีที่บอกสถานะลงบัญชีไม่ได้ (เช่น KRS) — ใบที่อายุ **เกิน** N วันต้องมีผู้อนุมัติก่อนส่ง (docs/01 A.2/A.6
+ * "กฎอายุ N วัน") · docs ไม่ให้ค่า N → ค่าเริ่ม 0 = ทางระมัดระวัง (ใบที่ออกก่อนวันนี้ต้องอนุมัติทุกใบ) [OPEN — PO] spec/12 §3
+ */
+export const ERP_REPLACE_APPROVAL_DAYS_DEFAULT = 0;
 
 /** ST9-T06 DO ส่งถึงแล้วเกินกี่วันจึงขึ้นรายงาน/แจ้งเตือน "ยังไม่วางบิล" — ค่าเริ่ม [DECISION spec/12 §3] */
 export const UNBILLED_ALERT_DAYS_DEFAULT = 7;
@@ -140,7 +150,16 @@ export const SETTINGS = {
     type: { kind: 'int', min: 1, max: 365 },
     default: UNBILLED_ALERT_DAYS_DEFAULT,
     description:
-      'รายงาน/แจ้งเตือน "DO ยังไม่วางบิล": DO ที่ส่งถึงแล้วเกินกี่วัน (นับวันตามเวลาไทยจากวันที่ส่งถึง) และยังไม่อยู่ในใบแจ้งหนี้ใด · ค่าเริ่ม 7',
+      'รายงาน/แจ้งเตือน "DO ยังไม่วางบิล": DO ที่ส่งถึงแล้วเกินกี่วัน (นับวันตามเวลาไทยจากวันที่ส่งถึง) และยังไม่อยู่ในใบแจ้งหนี้ใด · ใช้เป็นเกณฑ์ "ร่างค้างเกิน N วัน" ด้วย (DO อยู่ในร่างใบแจ้งหนี้นานเกินกี่วัน — D-71) · ค่าเริ่ม 7',
+  },
+  // ST8-T13 (docs/01 A.2 "ต้องผ่าน approval ถ้า posted_at ไม่ว่าง หรืออายุใบ > N วัน"; A.6 "ปุ่ม ลงบัญชีแล้ว + กฎอายุ N วัน") — ไม่มีหน้าจอ
+  // (ต้นแบบไม่มีช่อง — spec/12 §3) ตั้งผ่าน PATCH /v1/settings · เพิ่มค่า = คุมหลวมขึ้น ต้อง step-up · N ไม่มีใน docs [OPEN — PO]
+  'billing.erpReplaceApprovalDays': {
+    group: 'billing',
+    type: { kind: 'int', min: 0, max: 3650 },
+    default: ERP_REPLACE_APPROVAL_DAYS_DEFAULT,
+    description:
+      'แทนที่ใบแจ้งหนี้ในระบบบัญชีที่บอกสถานะลงบัญชีไม่ได้ (เช่น KRS): ใบที่อายุเกินกี่วัน (นับจากวันที่ใบ เวลาไทย) ต้องมีผู้อนุมัติ (คนละคนกับผู้ขอ) ก่อนส่ง — ใบที่กด "ลงบัญชีแล้ว" ต้องอนุมัติเสมอ · ค่าเริ่ม 0 = ใบที่ออกก่อนวันนี้ต้องอนุมัติทุกใบ (ทางระมัดระวัง — docs ไม่ระบุ N) · เพิ่มค่า = ลดการควบคุม ต้อง step-up',
   },
   // ST5-T13 review M1 (spec/05 BIL-059 [PROPOSED] "ผลต่างเล็กน้อย … ≤ ค่าที่ตั้ง เช่น 10.00 บาท → manager อนุมัติ") — ไม่มีหน้าจอ
   // (ต้นแบบไม่มีช่อง — spec/12 §3) ตั้งผ่าน PATCH /v1/settings · เพิ่มค่า = คุมหลวมขึ้น ต้อง step-up
@@ -288,6 +307,18 @@ export const SETTINGS = {
     type: { kind: 'int', min: RETENTION_MIN.gpsLogDays, max: RETENTION_MAX.gpsLogDays },
     default: RETENTION_MIN.gpsLogDays,
     description: 'ระยะเก็บจุด GPS ดิบ (วัน) นับจากเวลาที่ระบบรับ — ขั้นต่ำ 90 วัน',
+  },
+  // ST9-T15 (docs/04 J "เอกสารภาษี ≥ 5 ปี … default 7 ปี"; D-54) — ขั้นต่ำ 5 ปี ค่าเริ่ม 7 ปี · ไม่มี job ลบเอกสารกลุ่มนี้ (ฐานข้อมูลปฏิเสธ DELETE)
+  'retention.financeDocumentYears': {
+    group: 'retention',
+    type: {
+      kind: 'int',
+      min: FINANCE_DOCUMENT_RETENTION.minYears,
+      max: FINANCE_DOCUMENT_RETENTION.maxYears,
+    },
+    default: FINANCE_DOCUMENT_RETENTION.defaultYears,
+    description:
+      'ระยะเก็บเอกสารที่ออกเลขแล้ว (ใบแจ้งหนี้ ใบวางบิล ใบสำคัญจ่าย รับชำระ) และ PDF ณ วันออก (ปี) — ขั้นต่ำ 5 ปี ค่าเริ่ม 7 ปี; ระบบไม่ลบเอกสารกลุ่มนี้ระหว่างใช้งาน (ค่านี้ใช้เมื่อมีงานลบ/archive ภายหลัง)',
   },
 } as const satisfies Record<string, SettingDef>;
 

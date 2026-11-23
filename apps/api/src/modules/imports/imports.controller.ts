@@ -34,7 +34,8 @@ import {
   Min,
 } from 'class-validator';
 import type { Response } from 'express';
-import { TenantResource, RateLimitClass } from '../../common/decorators';
+import { TenantResource, RateLimitClass, StepUpWhen } from '../../common/decorators';
+import { assertBankStepUp } from '../../auth/step-up';
 import { decodeIdOr404, encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
@@ -131,7 +132,13 @@ export class ImportIssueDto {
   @ApiProperty({ description: 'เลขแถวในไฟล์ (ตรงกับ Excel)' }) row!: number;
   @ApiPropertyOptional() column?: string;
   @ApiPropertyOptional() value?: string;
-  @ApiProperty({ example: 'required' }) code!: string;
+  @ApiProperty({
+    example: 'required',
+    description:
+      'รหัสปัญหาของแถว · `severity: warning` = ไม่ขวางการนำเข้า เช่น `quota_exceeded` (D-81 · D68-21: แถวรถใหม่ส่วนที่เกินโควตา — ' +
+      'ยังนำเข้าได้ ไม่ปฏิเสธทั้งไฟล์), `leading_zero_restored`',
+  })
+  code!: string;
   @ApiProperty() message!: string;
   @ApiProperty({ enum: ['error', 'warning'] }) severity!: string;
 }
@@ -201,7 +208,8 @@ export class ImportDto {
       'file_rejected',
       'quota_exceeded',
     ],
-    description: 'code ของ fileError (เช่น quota_exceeded = เกินโควตา — spec/02 MD-289)',
+    description:
+      'code ของ fileError · `quota_exceeded` ไม่ออกแล้ว (D-81 · D68-21: เกินโควตารถ = คำเตือนรายแถว `quota_exceeded` ไม่ปฏิเสธทั้งไฟล์ — spec/02 MD-289)',
   })
   fileErrorCode!: string | null;
   @ApiProperty({ nullable: true, type: String }) jobId!: string | null;
@@ -388,10 +396,18 @@ export class ImportsController {
   @RateLimitClass('heavy')
   @HttpCode(200)
   @TenantResource('import')
+  @StepUpWhen(
+    'นำเข้าผู้รับเหมา (`carrier`) ที่จับคู่คอลัมน์บัญชีธนาคาร (D-67 — แก้บัญชีธนาคาร)',
+    'user',
+  )
   @ApiOkResponse({ type: ImportDto })
   async commit(@Param('id') id: string): Promise<ImportDto> {
     const tx = this.db.tx;
     const imp = await this.find(id, true);
+    // D-67: ไฟล์ผู้รับเหมาที่มีคอลัมน์บัญชีธนาคาร = แก้บัญชีธนาคารทีละหลายราย → ผู้ใช้ต้อง step-up 2FA ก่อนยืนยัน
+    // (ตรวจที่นี่ครั้งเดียว — ระหว่างนำเข้า/งานเบื้องหลัง service ไม่ตรวจซ้ำ) · D-79: API key ยืนยันไฟล์ที่มีคอลัมน์บัญชีไม่ได้
+    const mapped = imp.mapping as Record<string, string>;
+    if (imp.kind === 'carrier' && BANK_IMPORT_COLUMNS.some((k) => mapped[k])) assertBankStepUp();
     const spec = await this.spec(imp.kind);
     if (imp.status !== 'VALIDATED') throw new ProblemException('invalid_state_transition');
     if (imp.expiresAt.getTime() <= Date.now()) throw new ProblemException('import_expired');
@@ -500,6 +516,9 @@ function assertMode(spec: ImportSpec<unknown>, mode?: string) {
 }
 
 /** ตัด key ที่ไม่รู้จัก/ค่าว่าง · หัวคอลัมน์เดียวจับคู่ได้ฟิลด์เดียว (ซ้ำ → 422) */
+/** คอลัมน์บัญชีธนาคารของไฟล์ผู้รับเหมา (carrier.import.ts) — D-67 */
+const BANK_IMPORT_COLUMNS = ['bankCode', 'bankAccountNo', 'bankAccountName'];
+
 function cleanMapping(spec: ImportSpec<unknown>, m?: Record<string, string>) {
   if (!m) return {};
   const out = Object.fromEntries(

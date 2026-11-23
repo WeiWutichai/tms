@@ -180,7 +180,7 @@ export function vehicleImportSpec(svc: VehiclesService) {
       const used = await tx.vehicle.count({
         where: { deletedAt: null, status: { not: 'RETIRED' } },
       });
-      return { limit, used, label: 'รถ' };
+      return { limit, used, label: 'รถ', unit: 'คัน' };
     },
     async build(r, op) {
       const b: Record<string, unknown> = {};

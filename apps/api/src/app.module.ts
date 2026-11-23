@@ -35,6 +35,9 @@ import { ImportRegistry } from './modules/imports/import-spec';
 import { ImportService } from './modules/imports/import.service';
 import { ImportsController } from './modules/imports/imports.controller';
 import { MasterImports } from './modules/imports/master-imports';
+import { AccountingExportController } from './modules/accounting-export/accounting-export.controller';
+import { AccountingExportService } from './modules/accounting-export/accounting-export.service';
+import { FileExportAdapterRegistry } from './modules/accounting-export/file-export-adapter';
 import { ExportRegistry } from './modules/exports/export-spec';
 import { ExportsController } from './modules/exports/exports.controller';
 import { ExportsService } from './modules/exports/exports.service';
@@ -102,8 +105,10 @@ import {
 import { ConnectorsService } from './modules/erp/connectors.service';
 import { ErpMasterCodesController } from './modules/erp/erp-master-codes.controller';
 import { ErpMasterCodesService } from './modules/erp/erp-master-codes.service';
+import { CarrierErpCodesController } from './modules/erp/carrier-erp-codes.controller';
 import { CustomerErpCodesController } from './modules/erp/customer-erp-codes.controller';
 import { ExternalMappingService } from './modules/erp/external-mapping.service';
+import { ErpDocumentWarningsService } from './modules/erp/erp-document-warnings';
 import { InboundWebhookController } from './modules/erp/inbound-webhook.controller';
 import { InboundWebhookService } from './modules/erp/inbound-webhook.service';
 import { ConnectorResolver } from './modules/erp/connector-resolver';
@@ -111,7 +116,15 @@ import { SystemOfRecordPolicy } from './modules/erp/system-of-record.policy';
 import { ErpAdapterRegistry } from './modules/erp/erp-adapter.registry';
 import { ErpAdapterSink } from './modules/erp/erp-adapter.sink';
 import { ErpSyncService } from './modules/erp/erp-sync.service';
+import { ConnectorQueueService } from './modules/erp/connector-queue';
+import { ConnectorMetricsService } from './modules/erp/connector-metrics';
 import { ErpInboundEffects } from './modules/erp/erp-inbound-effects';
+import { PaymentStatusPullService } from './modules/erp/payment-status-pull.service';
+import { DocumentReconcileService } from './modules/erp/document-reconcile.service';
+import { ReconcileController } from './modules/erp/reconcile.controller';
+import { ReconcileCloseService } from './modules/erp/reconcile-close.service';
+import { ReconcileResultsService } from './modules/erp/reconcile-results.service';
+import { PeriodCloseReportService } from './modules/erp/period-close-report.service';
 import { ErpAdaptersBootstrap } from './erp-adapters';
 import {
   EventsController,
@@ -169,6 +182,11 @@ import {
 import { RevenueLinesService } from './modules/revenue-lines/revenue-lines.service';
 import { SettlementsController } from './modules/settlements/settlements.controller';
 import { SettlementReviewPublicController } from './modules/settlements/settlement-review.controller';
+import {
+  CarrierPayLinkController,
+  CarrierPayLinkPublicController,
+} from './modules/settlements/carrier-pay-link.controller';
+import { CarrierPayLinkService } from './modules/settlements/carrier-pay-link.service';
 import { SettlementReviewService } from './modules/settlements/settlement-review.service';
 import {
   DeliveryOrderReleaseController,
@@ -253,6 +271,7 @@ import { MonitorScheduler } from './modules/monitoring/monitor-scheduler';
 import { httpMetricsMiddleware } from './modules/monitoring/http-metrics';
 import { JobsController } from './modules/jobs/jobs.controller';
 import { MeController } from './modules/me/me.controller';
+import { NavBadgesController, NavBadgesService } from './modules/me/nav-badges.controller';
 import { ProfileController } from './modules/me/profile.controller';
 import { SavedViewsController } from './modules/saved-views/saved-views.controller';
 import { SavedViewsService } from './modules/saved-views/saved-views.service';
@@ -292,6 +311,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     MonitoringController,
     PlatformMonitoringController,
     MeController,
+    NavBadgesController,
     ProfileController,
     SavedViewsController,
     SearchController,
@@ -323,6 +343,8 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ConnectorsController,
     ErpMasterCodesController,
     CustomerErpCodesController,
+    CarrierErpCodesController,
+    ReconcileController,
     InboundWebhookController,
     WebhookDeliveriesController,
     EventsController,
@@ -351,6 +373,8 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     SubconOfferPublicController,
     PodLinkPublicController,
     SettlementReviewPublicController,
+    CarrierPayLinkController,
+    CarrierPayLinkPublicController,
     TrackingPublicController,
     DeliveryOrderTrackingController,
     CustomerTrackingController,
@@ -367,6 +391,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     CarrierDocsPublicController,
     MessagesController,
     MessagingSettingsController,
+    AccountingExportController,
   ],
   providers: [
     PrismaService,
@@ -387,6 +412,8 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ExportRegistry,
     ExportsService,
     ListExports,
+    FileExportAdapterRegistry,
+    AccountingExportService,
     EntitlementService,
     MagicLinkService,
     DbService,
@@ -425,6 +452,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     SettlementQueueService,
     SettlementsService,
     SettlementReviewService,
+    CarrierPayLinkService,
     SettlementComparisonService,
     SettlementPdfService,
     BillingQueueService,
@@ -453,6 +481,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     TripSheetsService,
     TripSheetLinks,
     PlanningService,
+    NavBadgesService,
     ScheduleService,
     BoardPreferencesService,
     SavedViewsService,
@@ -484,10 +513,18 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ConnectorsService,
     ErpMasterCodesService,
     ExternalMappingService,
+    ErpDocumentWarningsService,
     InboundWebhookService,
     ErpAdapterSink,
     ErpSyncService,
+    ConnectorQueueService,
+    ConnectorMetricsService,
     ErpInboundEffects,
+    ReconcileResultsService,
+    PeriodCloseReportService,
+    ReconcileCloseService,
+    PaymentStatusPullService,
+    DocumentReconcileService,
     ErpAdaptersBootstrap,
     WebhooksService,
     WebhookOpsService,
@@ -530,14 +567,15 @@ export class AppModule implements NestModule {
     consumer.apply(httpMetricsMiddleware).forRoutes('{*path}');
     // ST1-T06: ลิงก์สาธารณะ (ไม่ login) จำกัดอัตราต่อ IP
     consumer.apply(PublicRateLimitMiddleware).forRoutes('public/{*path}');
-    // ST4-T14 หน้าติดตาม: ห้าม index/ส่ง referrer ทุกคำตอบ (รวม 404/429 ที่ออกก่อนถึง handler)
+    // ST4-T14 หน้าติดตาม → ST9-T13 ทุกลิงก์สาธารณะ (NFR-135): ห้าม index/ส่ง referrer ทุกคำตอบ (รวม 404/429 ที่ออกก่อนถึง handler)
+    // — token อยู่ใน URL · PDF ที่เปิด inline (ใบคุมรถ/ใบจ่ายเงิน) ก็ห้าม index
     consumer
       .apply((_req: unknown, res: { setHeader(k: string, v: string): void }, next: () => void) => {
         res.setHeader('X-Robots-Tag', 'noindex, nofollow');
         res.setHeader('Referrer-Policy', 'no-referrer');
         next();
       })
-      .forRoutes('public/tracking/{*path}');
+      .forRoutes('public/{*path}');
     // ST1-T24: login ของ Console จำกัดต่อ IP ด้วย (กันล็อกบัญชีทีมงานซ้ำ ๆ)
     consumer.apply(PublicRateLimitMiddleware).forRoutes('platform/auth/{*path}');
   }

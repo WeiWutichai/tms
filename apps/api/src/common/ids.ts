@@ -37,6 +37,8 @@ export const ID_PREFIX = {
   salesOrder: 'ord',
   orderTemplate: 'otp',
   deliveryOrder: 'do',
+  /** D-81 · D68-52 บรรทัด DO (delivery_order_line — docs/01 §3.9/§5.5 `doLineId`; docs ไม่ได้ระบุ prefix → `dol` ตามแบบ `ivl`/`stln`) */
+  deliveryOrderLine: 'dol',
   orderSourceChange: 'osc',
   magicLink: 'mlk',
   carrierDocSubmission: 'cds',
@@ -52,6 +54,8 @@ export const ID_PREFIX = {
   tripCost: 'tco', // ST4-T13 ต้นทุนเที่ยว (ค่าใช้จ่ายหน้างานฝั่งซื้อ)
   /** ST7-T13 การตั้งค่า ErpAdapter ต่อ tenant (docs/01 §3.7 `con_`) */
   connector: 'con',
+  /** ST7-T21 ผลกระทบยอดกับระบบภายนอก (reconcile_result — docs/01 §3.7) */
+  reconcileResult: 'rec',
   /** ST7-T22 webhook ขาเข้า 1 event (processed_webhook_event) */
   inboundEvent: 'ibe',
   /** ST9-T11 มุมมองที่บันทึกไว้ของตาราง (saved_view) */
@@ -81,6 +85,8 @@ export const ID_PREFIX = {
   billingNote: 'bn',
   /** ST5-T21 การส่งเอกสารทางอีเมลถึงผู้รับ 1 คน (document_email) */
   documentEmail: 'dem',
+  /** ST7-T16 การเรียกระบบบัญชี 1 ครั้ง (erp_sync_log — docs/01 §6.4) */
+  syncLog: 'slg',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

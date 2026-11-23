@@ -30,7 +30,46 @@ export const RequireScope = (...scopes: [string, ...string[]]) =>
 
 export const REQUIRE_STEP_UP = 'tms:requireStepUp';
 /** ต้องยืนยัน 2FA ซ้ำภายใน 5 นาที (header `X-Step-Up` จาก POST /v1/auth/step-up) — A3 "เปลี่ยน role ต้อง step-up" */
-export const RequireStepUp = () => SetMetadata(REQUIRE_STEP_UP, true);
+export const RequireStepUp = () =>
+  applyDecorators(
+    SetMetadata(REQUIRE_STEP_UP, true),
+    ApiExtension('x-step-up', { mode: 'always' }),
+  );
+/**
+ * D-67 (PO 22 พ.ย. 2569): step-up เฉพาะคน — ผู้ใช้ที่ login ต้องส่ง `X-Step-Up` (เหมือน RequireStepUp)
+ * แต่ API key / OAuth client (`pt=client`) ทำ step-up ไม่ได้ → คุมด้วย scope ของ key ตามเดิม
+ * ใช้กับ route ที่ key เข้าถึงได้อยู่แล้ว (เช่น `invoices:void`) — route ที่ key เข้าไม่ได้อยู่แล้วใช้ RequireStepUp()
+ */
+export const RequireHumanStepUp = () =>
+  applyDecorators(
+    SetMetadata(REQUIRE_STEP_UP, 'human'),
+    ApiExtension('x-step-up', { mode: 'human' }),
+  );
+/**
+ * D-67: step-up แบบมีเงื่อนไข (ตรวจใน service ด้วย `assertHumanStepUp()`) — decorator นี้แค่ประกาศใน OpenAPI
+ * (`x-step-up` + header `X-Step-Up` + ตัวอย่าง 403 `step_up_required`) · `when` = เงื่อนไขที่ต้อง step-up (ไทย)
+ */
+/**
+ * D-67: ประกาศ step-up ที่ตรวจใน handler (`assertStepUp` / `assertHumanStepUp`) ทุกครั้ง — validation (422) / 404 มาก่อน
+ * `mode` 'human' = API key ไม่ต้อง (คุมด้วย scope)
+ */
+export const StepUpAlways = (mode: StepUpDocMode = 'always') => ApiExtension('x-step-up', { mode });
+/**
+ * D-67: step-up แบบมีเงื่อนไข — ดูด้านบน · `mode`:
+ * - 'human' (ค่าเริ่ม) = API key ไม่ต้อง (คุมด้วย scope)
+ * - 'user' (D-79) = API key ทำรายการนี้ไม่ได้ → 403 `bank_change_requires_user` (บัญชีธนาคารรถร่วม)
+ * - 'platform' (D-77) = token จาก `POST /v1/platform/auth/step-up` (Platform Console)
+ */
+export const StepUpWhen = (when: string, mode: StepUpDocMode = 'human') =>
+  ApiExtension('x-step-up', { mode, when });
+export type StepUpDocMode = 'always' | 'human' | 'user' | 'platform';
+
+export const ALLOW_BEFORE_2FA = 'tms:allowBefore2fa';
+/**
+ * D-78: route ที่ผู้ใช้ซึ่งต้องตั้ง 2FA แต่ยังไม่ตั้ง เรียกได้ (สถานะ 2FA ของตัวเอง) — route อื่นตอบ 403 `two_factor_enrolment_required`
+ * (ขั้นตั้ง 2FA เอง `/auth/2fa/enroll*` เป็น @Public ใช้ mfaToken จาก login อยู่แล้ว)
+ */
+export const AllowBeforeTwoFactor = () => SetMetadata(ALLOW_BEFORE_2FA, true);
 
 export const REQUIRED_FEATURE = 'tms:requiredFeature';
 /** ต้องเปิดฟีเจอร์นี้ในแพ็กเกจ/override ของ tenant (ST1-T18) — ปิด → 403 `feature_not_in_plan` + `featureKey` (spec/01 PLT-078) */
@@ -76,10 +115,20 @@ export const SandboxAware = () =>
   );
 export const LIVE_ONLY = 'tms:liveOnly';
 /**
- * ST7-T09: route ที่ห้ามใช้ใน sandbox (เชื่อมระบบภายนอกจริง เช่น connector/ERP) → 403 `sandbox_unsupported`
+ * ST7-T09: route ที่ห้ามใช้ใน sandbox (เชื่อมระบบภายนอกจริง) → 403 `sandbox_unsupported`
  * ตรวจใน AuthGuard หลังรู้ tenant ของคำขอ (ทั้ง key `tk_test_` และผู้ใช้ที่สลับโหมด)
+ * หมายเหตุ D-81 · D68-58: ตอนนี้ไม่มี route ใดใช้ (route connector/ERP ใช้ได้ใน sandbox กับ DemoProvider — กันที่
+ * `ErpAdapterRegistry.usableIn` แทน) · คงไว้สำหรับ route ใหม่ที่ติดต่อภายนอกจริงและไม่มีตัวจำลอง
  */
 export const LiveOnly = () => SetMetadata(LIVE_ONLY, true);
+export const TRANSACTION_TIMEOUT_MS = 'tms:transactionTimeoutMs';
+/** transaction ของคำขอ (ค่าเริ่ม) — คำขอเกินนี้ย้อนทั้งหมด → 503 `service_busy` */
+export const DEFAULT_TRANSACTION_TIMEOUT_MS = 15_000;
+/**
+ * ST5-T12b (review H1): transaction ของ route นี้ยาวกว่าค่าเริ่ม 15 วิ — ใช้เฉพาะงานที่ต้องเป็นหน่วยเดียว (atomic) และโตตามขนาดเอกสาร
+ * (เช่น ยกเลิก/ถอด DO จากใบแจ้งหนี้ 1,000 DO ที่ต้องคิดบรรทัดรายได้ใหม่ต่อใบสั่ง) · ระบุเหตุผลที่จุดใช้ · ใช้คู่กับ `IdempotencyLockMs` ≥ ค่านี้
+ */
+export const TransactionTimeout = (ms: number) => SetMetadata(TRANSACTION_TIMEOUT_MS, ms);
 export const IDEMPOTENCY_LOCK_MS = 'tms:idempotencyLockMs';
 /**
  * ST7-T10: เวลาจอง Idempotency-Key ระหว่างทำ (ค่าเริ่ม 60 วิ) — route ที่ทำนาน (เช่น bulk 200 ใบ) ตั้งให้ยาวกว่าเวลาสูงสุดที่ยอม

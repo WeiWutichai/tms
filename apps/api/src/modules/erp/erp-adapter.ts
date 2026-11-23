@@ -77,17 +77,59 @@ export interface ErpContext {
    * ทุกค่าที่ประกาศและไม่ถูกกันอยู่ในนี้: หาเจอในผัง = รหัสตามผัง · ไม่ได้ตรวจ (ช่องไม่บังคับที่ยังไม่มีผัง / CUSTOMER) = **ค่าดิบ** (name null)
    */
   masterCodes?: ResolvedMasterCodes;
+  /**
+   * ST7-T16 sync log (docs/01 §6.4 "1 แถวต่อ 1 HTTP call"): adapter **ต้อง**เรียกทุกครั้งที่ยิง HTTP ไประบบภายนอก (สำเร็จ/ล้ม)
+   * core ตัด credential + เลขบัตรประชาชน, ตัด query string และขนาด body ก่อนเก็บ — adapter ส่งค่าดิบได้ **ยกเว้น header** (ห้ามส่ง)
+   * ไม่มี = ไม่บันทึก (เช่น contract test / healthCheck) · ห้าม throw
+   */
+  onHttpCall?: (call: ErpHttpCall) => void;
+  /**
+   * ST8-T08 (review H1) เอกสารฝั่ง ERP ที่สร้างไปแล้วจากการส่งเอกสารนี้ครั้งก่อนที่ไม่ครบ (`PushResult.documents` ของผลล้ม) —
+   * adapter ที่แยกใบ **ต้องไม่สร้างซ้ำ** ใบที่ `ref` อยู่ในนี้ · ไม่มี = ยังไม่เคยสร้าง
+   */
+  priorDocuments?: readonly ExternalDocumentPart[];
 }
 
-/** ST8-T06 ชนิดของค่าที่ adapter ให้ core ตรวจ: ผังรหัส ERP (`erp_master_code`) หรือ `CUSTOMER` = รหัสลูกค้าฝั่ง ERP */
-export type MasterCodeRefKind = ErpMasterCodeKind | 'CUSTOMER';
+/** ST7-T16 การเรียก HTTP 1 ครั้งของ adapter (ส่งให้ `ErpContext.onHttpCall`) — ไม่มี header */
+export interface ErpHttpCall {
+  method: string;
+  /** URL เต็ม (core เก็บแค่ origin + path) */
+  url: string;
+  /** body ที่ส่ง (สตริงหรือ object) */
+  requestBody?: unknown;
+  /** null = ไม่ได้ response (timeout / เครือข่าย) */
+  status: number | null;
+  responseBody?: unknown;
+  /** รหัสสั้นของผล (เช่น `timeout`, `http_503`) */
+  errorCode?: string | null;
+  durationMs: number;
+  /** เวลาเริ่มเรียก (ไม่มี = เวลาที่ core ได้รับรายงาน) */
+  at?: Date;
+}
+
+/**
+ * ST8-T06 ชนิดของค่าที่ adapter ให้ core ตรวจ: ผังรหัส ERP (`erp_master_code`) หรือรหัสคู่ค้าฝั่ง ERP จาก `external_mapping`
+ * (`CUSTOMER` = ลูกค้า · `CARRIER` = รถร่วม/ผู้ขาย — ST7-T15)
+ */
+export type MasterCodeRefKind = ErpMasterCodeKind | 'CUSTOMER' | 'CARRIER';
 
 /** ค่าที่ตรวจแล้ว 1 ค่า */
 export interface ResolvedMasterCode {
   code: string;
   /** ชื่อตามผัง (เช่น `saleName` ของ KRS) — ไม่ได้มาจากผัง = null */
   name: string | null;
+  /** ST8-T07 true = หาเจอในผังรหัสที่นำเข้าแล้ว · ไม่มี/false = ค่าดิบที่ยังไม่ได้ตรวจกับผัง (ช่องไม่บังคับที่ยังไม่มีผัง / รหัสคู่ค้า) */
+  fromCatalogue?: boolean;
 }
+
+/**
+ * ST8-T07 ข้อมูลส่วนบุคคลใน canonical ที่เป็น "ตัวเลือก" (PDPA — ส่งออกนอก TMS เท่าที่ปลายทางต้องใช้)
+ * core **ไม่ใส่** ลง payload ของคำสั่ง เว้นแต่ adapter ของ connector ประกาศใน `ErpAdapter.personalDataNeeds`
+ * - `trip.driverName` ชื่อคนขับของเที่ยว — ใส่ตอนสร้าง canonical (อยู่ใน payload ของคำสั่ง)
+ * - `carrier.taxId` (D-80) เลขบัตรประชาชนเต็มของรถร่วมบุคคลธรรมดาในใบสำคัญจ่าย — sink ใส่ **ณ ตอนส่ง** เท่านั้น
+ *   (payload ที่เก็บในคิว/ผลของคำสั่งไม่มีเลขเต็ม · ลง audit `connector.pii_sent`) — ดู `personal-data.ts`
+ */
+export type CanonicalPersonalField = 'trip.driverName' | 'carrier.taxId';
 
 /** ST8-T06 ผลตรวจต่อชนิด (key = ค่าในเอกสารแบบ trim + ตัวพิมพ์เล็ก) */
 export type ResolvedMasterCodes = Readonly<
@@ -119,7 +161,9 @@ export function resolvedMasterCodeName(
  * (docs/01 §7.4 "รหัสที่ ERP ยอมรับ … validate ก่อนเข้า outbox", A.3 "Validation เฉพาะ KRS")
  * - ชนิดผังรหัส → ต้องอยู่ใน `erp_master_code` ที่ใช้งานของ connector
  * - `CUSTOMER` → ต้องมีรหัสลูกค้าฝั่ง ERP (`customer.externalId` ของ canonical = external_mapping(CUSTOMER) — docs/01 §7.1)
- *   **ตอนนี้ตรวจแค่ "มีค่า"** (ตาราง external_mapping มาใน ST7-T15 — ตอนนั้นตรวจกับตาราง) · ไม่มี = MISSING
+ *   · `CARRIER` → รหัสรถร่วมฝั่ง ERP (`carrier.externalId` = external_mapping(CARRIER) — docs/01 §7.3)
+ *   ST7-T15: ก่อนถึง adapter core ใส่ค่าทั้งสองจาก `external_mapping` สถานะ `SYNCED` **ณ ตอนส่ง** (ทับค่าที่ตรึงตอนสร้างคำสั่ง)
+ *   → ตรวจ "มีค่า" = ตรวจกับตาราง · ไม่มี = MISSING (`strict`) — แก้ mapping แล้วส่งคำสั่งเดิมใหม่ได้
  */
 export interface MasterCodeRef {
   kind: MasterCodeRefKind;
@@ -167,6 +211,26 @@ export class ErpAdapterError extends Error {
   }
 }
 
+/**
+ * ST8-T09 (review H1) `fetchDocument` ของเอกสารหลายใบ/ใบที่รู้ id: เอกสารที่ ERP คืนมา**ไม่ใช่ของเรา** (เลขอ้างอิงของเราในเอกสาร
+ * ไม่ตรงกับ `ref` ที่คาด — เช่น คนกรอก id ผิดใบ/สลับใบ) และ/หรือ id ที่ ERP ตอบไม่พบ — ระบุทีละ id ให้ core ตัดสินต่อใบ
+ * class: มีใบที่ไม่ตรง = VALIDATION · ไม่พบอย่างเดียว = NOT_FOUND · core ห้ามนับใบเหล่านี้ว่า "มีอยู่แล้ว" (ไม่เข้า prior / applied)
+ */
+export class ExternalPartsError extends ErpAdapterError {
+  constructor(
+    problem: Problem,
+    readonly mismatched: readonly {
+      externalId: string;
+      expectedRef: string;
+      actualRef: string | null;
+    }[],
+    readonly missing: readonly string[],
+  ) {
+    super(mismatched.length ? 'VALIDATION' : 'NOT_FOUND', problem);
+    this.name = 'ExternalPartsError';
+  }
+}
+
 /** รหัสของ capability ที่ adapter ประกาศแล้วแต่ยังไม่ได้ทำ (โครง adapter — เช่น adapter `krs` ก่อน ST8-T04/T08/T10) */
 export const NOT_IMPLEMENTED = 'not_implemented';
 
@@ -195,9 +259,66 @@ export type PushResult =
       externalId: string;
       externalDocNo?: string;
       externalVersion?: string;
+      /**
+       * ST7-T15 ERP **ถือเนื้อหาของ payload ครั้งนี้** = true (สร้างใหม่ / แทนที่ หรือ adapter ตรวจแล้วว่าของเดิมตรงกัน) ·
+       * false = ERP มีเอกสารนี้อยู่แล้วและ adapter **ยืนยันไม่ได้** ว่าเนื้อหาตรงกับ payload ครั้งนี้ (กันซ้ำด้วย key/เลขอ้างอิง — คืนของเดิม)
+       * adapter ต้องตอบตามจริง (contract test บังคับ boolean) — core เลื่อน `last_synced_hash` เฉพาะเมื่อ true;
+       * ไม่ระบุ = ถือว่า false (ไม่ยืนยันว่าเนื้อหาตรง)
+       */
+      applied?: boolean;
+      /**
+       * ST8-T08 ERP เก็บเอกสาร TMS ใบนี้เป็น**หลายเอกสาร** (เช่น KRS แยกใบตาม `vat_type` / แบ่งใบเมื่อเกินเพดานขนาด — docs/01 A.6)
+       * ทุกเอกสารตามลำดับ · ตัวแรก = `externalId` / `externalDocNo` ของผลนี้ (key หลักของ external_mapping) ·
+       * core เก็บทั้งรายการใน `external_mapping.detail.documents` · ไม่มี/1 รายการ = เอกสารเดียว (แบบเดิม)
+       */
+      documents?: readonly ExternalDocumentPart[];
       raw?: unknown;
     }
-  | { ok: false; errorClass: ErrorClass; retryable: boolean; problem: Problem; raw?: unknown };
+  | {
+      ok: false;
+      errorClass: ErrorClass;
+      retryable: boolean;
+      problem: Problem;
+      /**
+       * ST8-T08 (review H1/M2) เอกสารฝั่ง ERP ที่ถูกสร้างแล้วจากการส่งเอกสาร TMS ใบนี้ (รวมที่ได้จาก `ctx.priorDocuments`) — ไม่ระบุ = adapter ไม่รายงาน
+       * มีรายการ = core เก็บใน external_mapping (ยังไม่ SYNCED) แล้วส่งกลับมาใน `ctx.priorDocuments` รอบถัดไป · `[]` = ไม่มีเอกสารใดถูกสร้าง
+       */
+      documents?: readonly ExternalDocumentPart[];
+      /**
+       * true = adapter **รู้แน่** ว่าฝั่ง ERP มีเฉพาะ `documents` (ใบที่ล้มได้คำตอบชัด/ไม่ได้ส่งออกไป) → core ส่งซ้ำได้โดยไม่ต้องค้นก่อน ·
+       * false/ไม่ระบุ = อาจมีเอกสารเพิ่ม (timeout / สายหลุด) → core ค้นก่อนส่งซ้ำตามกติกา ST7-T16
+       */
+      documentsComplete?: boolean;
+      /**
+       * ST8-T13 (review L1) `replaceDocument` ของเอกสารที่ ERP เก็บหลายใบ: ใบที่**ถูกแทนที่แล้ว**ก่อนใบถัดไปล้ม — core บันทึกใน mapping
+       * (`detail.replacePartial` + MISMATCH) ให้คนเห็นว่าเอกสารฝั่ง ERP ปนกันระหว่างฉบับเดิมกับฉบับหลังปรับ
+       */
+      replacedDocuments?: readonly ExternalDocumentPart[];
+      raw?: unknown;
+    };
+
+/** ST8-T08 จำนวนเอกสารฝั่ง ERP สูงสุดต่อเอกสาร TMS — adapter ที่แยกใบต้องไม่สร้างเกินนี้ (เกิน = VALIDATION ก่อนส่ง) */
+export const MAX_EXTERNAL_DOCUMENTS = 200;
+
+/** ST8-T08 เอกสาร 1 ใบฝั่ง ERP ของเอกสาร TMS ที่ถูกแยกเป็นหลายใบ (`PushResult.documents`) */
+export interface ExternalDocumentPart {
+  /** เลขอ้างอิงที่เราส่ง (เช่น `tmsVoucherNo` ของ KRS) */
+  ref: string;
+  externalId: string;
+  externalDocNo: string | null;
+  /** กลุ่มที่แยก (เช่น `vat_type` ของรายการในใบนี้) — ไม่แยกตามกลุ่ม = null */
+  group: string | null;
+  /** `lineNo` ของ canonical ที่อยู่ในเอกสารนี้ */
+  lineNos: readonly number[];
+  /**
+   * ST8-T09 (review M1) ที่มาของ id: `manual` = คนกรอกเองในคิวและ**ยังไม่ได้ยืนยัน**กับ ERP (GET แล้วเลขอ้างอิงตรง) ·
+   * ไม่มี = ระบบได้จาก ERP เอง/ยืนยันแล้ว — core ใช้ตัดสินเมื่อยืนยันไม่ผ่าน (manual = ถอยกลับให้คนกรอกใหม่ ไม่ใช่ REMOTE_MISSING)
+   */
+  source?: 'manual';
+}
+
+/** ST8-T09 เอกสาร 1 ใบในแผนของ adapter (`ErpAdapter.plannedDocuments`) — ยังไม่มีเลขฝั่ง ERP */
+export type PlannedDocumentPart = Pick<ExternalDocumentPart, 'ref' | 'group' | 'lineNos'>;
 
 export type HealthResult =
   | { ok: true; detail?: Record<string, unknown> }
@@ -210,6 +331,23 @@ export interface ExternalRef {
   /** เลขอ้างอิงของเรา (invoice_no ฯลฯ) — ใช้ค้นถ้ายังไม่มี externalId */
   number: string;
   externalId: string | null;
+  /**
+   * ST8-T10 เอกสาร TMS ใบนี้อยู่ฝั่ง ERP เป็น**หลายเอกสาร** (`PushResult.documents` / `external_mapping.detail.documents`) —
+   * `fetchDocument` ต้องอ่านทุกใบแล้วรวมเป็น canonical เดียว (ลำดับตามที่ส่ง · `externalId` = ใบแรก) · ไม่มี = เอกสารเดียว
+   */
+  documents?: readonly ExternalDocumentPart[];
+}
+
+/**
+ * ST8-T10 การเรียก HTTP ที่บันทึกใน sync log แล้ว (body = ข้อความที่ตัด credential/ข้อมูลส่วนบุคคล และอาจถูกตัดท้าย) —
+ * ส่งให้ `ErpAdapter.documentsFromSyncLog`
+ */
+export interface LoggedHttpCall {
+  method: string;
+  url: string;
+  status: number | null;
+  requestBody: string | null;
+  responseBody: string | null;
 }
 
 /** ฐานของ canonical payload (docs/01 §7) — ช่องเต็มกำหนดใน ST7-T15 */
@@ -224,11 +362,20 @@ export type CanonicalInvoice = CanonicalDocument;
 export type CanonicalAdjustment = CanonicalDocument;
 export type CanonicalSettlement = CanonicalDocument;
 
-/** สถานะรับชำระจาก ERP — เงินเป็นสตริงทศนิยม 2 ตำแหน่ง (ห้าม float) */
+/**
+ * สถานะรับชำระจาก ERP — เงินเป็นสตริงทศนิยม 2 ตำแหน่ง (ห้าม float)
+ * ST7-T21 สัญญาที่ core ใช้กระทบยอด (Payment status pull): ยอด**สะสม**ของเอกสารใบนั้นฝั่ง ERP ณ เวลาที่ถาม
+ * - `paidAmount` = ยอดที่ ERP **ตัดหนี้ใบนี้แล้ว** (สะสม — รวม WHT ที่ลูกค้าหัก ถ้า ERP ตัดหนี้ด้วย WHT) · UNPAID ⇔ "0.00"
+ * - `whtAmount` (ไม่บังคับ) = ส่วนของ `paidAmount` ที่เป็น WHT ที่ลูกค้าหัก (สะสม) — ไม่ส่ง = ไม่ทราบ (core บันทึก WHT 0 ไม่เดาเอง)
+ * - PAID แต่ `paidAmount` < ยอดรวมของใบใน TMS = core ไม่เดาว่าส่วนที่ขาดคืออะไร → MISMATCH ให้คนตัดสิน
+ * - adapter ต้องแจ้งรับชำระ**ทางเดียว**: `fetchPaymentStatus` (core มาดึง) หรือ webhook ขาเข้า (effect `paymentReceived`) —
+ *   connector ที่เปิด `fetchPaymentStatus` แล้วส่ง `paymentReceived` มาด้วย = core ไม่บันทึก ส่งเข้าคิวตรวจ (กันนับเงินซ้ำ)
+ */
 export interface PaymentStatus {
   status: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
   paidAmount: string;
-  /** ISO 8601 */
+  whtAmount?: string;
+  /** ISO 8601 — เวลารับชำระล่าสุดฝั่ง ERP */
   paidAt: string | null;
 }
 
@@ -362,10 +509,15 @@ export interface ErpAdapter {
   readonly displayName: string;
   readonly configFields: readonly ConnectorConfigField[];
   /**
-   * adapter จำลอง (Demo) — ลงทะเบียน/เปิดได้เฉพาะ dev/test/staging ที่อนุญาต · catalog (`GET /connectors/adapters`)
+   * adapter จำลอง (Demo) — ทุก tenant ใน dev/test/staging ที่อนุญาต · production = เฉพาะ tenant sandbox (D68-96) · catalog (`GET /connectors/adapters`)
    * แสดง `demo: true` ให้หน้าจอติดป้าย "จำลอง" (ST7-T14) · ไม่มีวันเป็นค่าเริ่มต้น (ไม่มี connector = Standalone เสมอ)
    */
   readonly localOnly?: boolean;
+  /**
+   * D-81 review L1 (ไม่บังคับ): connector ถูกยกเลิกการเชื่อม → ทิ้งสถานะในหน่วยความจำของ (tenant, connector) นี้ (เช่น DemoProvider)
+   * core เรียกหลังเปลี่ยนเป็น DISCONNECTED ใน process ที่รับคำขอ — ห้าม throw/ติดต่อภายนอก
+   */
+  forget?(tenantId: string, connectorId: string): void;
   capabilities(): ReadonlySet<ErpCapability>;
   /**
    * ST8-T03 capability ที่ประกาศแล้วแต่ยังไม่ได้ทำ (โครง adapter) — ต้องอยู่ใน `capabilities()` ด้วย (มี method ที่ตอบ `not_implemented`)
@@ -384,7 +536,41 @@ export interface ErpAdapter {
   pushSettlement?(ctx: ErpContext, stl: CanonicalSettlement): Promise<PushResult>;
   /** แก้ทั้งใบ (fallback เมื่อไม่มี pushCreditNote — docs/01 §6.1) */
   replaceDocument?(ctx: ErpContext, ref: ExternalRef, inv: CanonicalInvoice): Promise<PushResult>;
-  fetchDocument?(ctx: ErpContext, ref: ExternalRef): Promise<CanonicalDocument | null>;
+  /**
+   * อ่านเอกสารฝั่ง ERP กลับเป็น canonical (docs/01 §6.5 "adapter แปลง response ERP กลับเป็น canonical") · ไม่พบ = `null`
+   * หรือโยน `ErpAdapterError` class `NOT_FOUND` · ปลายทางล่ม = throw (TRANSIENT) · `ref.documents` = อ่านทุกใบแล้วรวมเป็นใบเดียว
+   * ST8-T10 `hint` (ไม่บังคับ) = canonical ที่ TMS ส่งไป — ใช้**จับคู่รายการ**เท่านั้น (เช่น จับด้วยเลข DO เมื่อ ERP เรียงเลขบรรทัดใหม่)
+   * ห้ามเอาค่าจาก hint มาเติมแทนข้อมูลฝั่ง ERP
+   */
+  fetchDocument?(
+    ctx: ErpContext,
+    ref: ExternalRef,
+    hint?: CanonicalDocument,
+  ): Promise<CanonicalDocument | null>;
+  /**
+   * ST8-T10 `fetchDocument` ค้นด้วยเลขอ้างอิงของเรา (`ref.number`) ไม่ได้ — ต้องมี `externalId` (เช่น ERP ไม่มี endpoint ค้น/list)
+   * core ค้นหลัง AMBIGUOUS / DUPLICATE ได้เฉพาะเมื่อรู้ id ฝั่ง ERP แล้ว (mapping ที่ส่งไม่ครบ หรือ response สำเร็จใน sync log —
+   * `documentsFromSyncLog`) · ไม่รู้ id = ถือว่าค้นไม่ได้ (ERP กันซ้ำด้วยเลขอ้างอิงของเรา — docs/01 §6.3, A.5)
+   */
+  readonly fetchNeedsExternalId?: boolean;
+  /**
+   * ST8-T10 (ไม่บังคับ — ฟังก์ชันบริสุทธิ์ ห้ามเรียกภายนอก/throw) เอกสารฝั่ง ERP ที่ถูกสร้างแล้วตามหลักฐานใน sync log ของเอกสารนี้
+   * (เช่น response 201 ที่มีเลขเอกสาร แต่ผลของคำสั่งไม่ถูกบันทึก) — core ส่งเฉพาะการเรียก POST/PUT ที่ได้ 2xx เรียงตามเวลา
+   */
+  documentsFromSyncLog?(calls: readonly LoggedHttpCall[]): ExternalDocumentPart[];
+  /**
+   * ST8-T10 (ไม่บังคับ — ฟังก์ชันบริสุทธิ์) ส่วนของ canonical ที่ ERP เก็บได้ ในรูปเดียวกับผลของ `fetchDocument`
+   * (ERP ที่เก็บไม่ครบทุกช่องของ canonical) — core เทียบผลของ `fetchDocument` กับค่านี้แทน canonical ทั้งก้อน · null = เทียบไม่ได้
+   * ไม่มี = ERP เก็บ canonical ทั้งก้อน (เทียบตรง)
+   */
+  comparableDocument?(ctx: ErpContext, doc: CanonicalDocument): CanonicalDocument | null;
+  /**
+   * ST8-T09 (ไม่บังคับ — ฟังก์ชันบริสุทธิ์ ห้ามเรียกภายนอก/throw) เอกสารฝั่ง ERP ที่ adapter **จะสร้าง** จากเอกสารนี้ตามลำดับ
+   * (adapter ที่แยกเอกสาร TMS 1 ใบเป็นหลายเอกสาร — `PushResult.documents`) · `ctx` เตรียมแบบเดียวกับตอนส่ง (`masterCodes`)
+   * core ใช้ตรวจ `ref` ของเลขที่คนกรอกเองต่อใบ (คิว "กรอกเลขฝั่งระบบบัญชีเอง" — A.5 409) · null = เตรียมไม่ได้ (ข้อมูลไม่ครบ)
+   * ไม่มี = adapter สร้างเอกสารเดียวเสมอ
+   */
+  plannedDocuments?(ctx: ErpContext, doc: CanonicalDocument): readonly PlannedDocumentPart[] | null;
   fetchPaymentStatus?(ctx: ErpContext, ref: ExternalRef): Promise<PaymentStatus | null>;
   listDocuments?(
     ctx: ErpContext,
@@ -421,7 +607,21 @@ export interface ErpAdapter {
    * ไม่มี = ผู้ดูแลเลือกเอง (ST7-T17)
    */
   readonly fixedSystemOfRecord?: { readonly taxDocumentOwner?: SorOwner };
+  /**
+   * ST8-T07 ข้อมูลส่วนบุคคลแบบตัวเลือกที่ adapter ต้องใช้ใน canonical (เช่น ชื่อคนขับ) — ไม่ประกาศ = core ไม่ใส่ลง payload ของคำสั่ง
+   * (ประกาศเท่าที่สัญญาของปลายทางบังคับเท่านั้น)
+   */
+  readonly personalDataNeeds?: readonly CanonicalPersonalField[];
+  /**
+   * D-64 (ST8-T08) ค่าแทนที่ adapter ใช้เมื่อเอกสารไม่มีค่าที่ปลายทางบังคับ — core เตือนผู้ใช้ตั้งแต่ร่าง/ก่อนออกเอกสาร (ไม่บล็อก)
+   * ผ่าน `erpWarnings` ของ `GET /invoices/{id}` · `trip.driverName→trip.carrierName` = เที่ยวที่ไม่มีชื่อคนขับ (เช่น รถร่วม)
+   * ส่งชื่อบริษัทรถร่วมแทนชื่อคนขับ
+   */
+  readonly fieldSubstitutions?: readonly ErpFieldSubstitution[];
 }
+
+/** D-64 ค่าแทนที่ที่ adapter ประกาศได้ (`ErpAdapter.fieldSubstitutions`) */
+export type ErpFieldSubstitution = 'trip.driverName→trip.carrierName';
 
 /** capability → ชื่อ method (ธงไม่มี method) */
 export const CAPABILITY_METHOD = {
@@ -475,6 +675,15 @@ export function adapterShapeProblems(a: ErpAdapter): string[] {
   if (typeof a.healthCheck !== 'function') out.push('healthCheck() required');
   for (const c of a.pendingCapabilities ?? [])
     if (!caps.has(c)) out.push(`pending capability '${String(c)}' not declared in capabilities()`);
+  // ST8-T10 ส่วนเสริมของการอ่านเอกสาร ใช้ได้เฉพาะ adapter ที่มี fetchDocument
+  if (typeof a.fetchDocument !== 'function')
+    for (const m of [
+      'fetchNeedsExternalId',
+      'documentsFromSyncLog',
+      'comparableDocument',
+      'plannedDocuments',
+    ] as const)
+      if (a[m] !== undefined) out.push(`${m} declared but fetchDocument() missing`);
   const kinds = a.masterCodeKinds ?? [];
   for (const k of kinds)
     if (!isErpMasterCodeKind(k)) out.push(`unknown master code kind '${String(k)}'`);

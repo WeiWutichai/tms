@@ -95,9 +95,10 @@ export class SettlementReviewPublicController {
   @ApiProblems(T409())
   @ApiTooManyRequestsResponse({ description: 'เรียกถี่เกินไป — ต่อ IP และ 10 ครั้ง/นาที ต่อลิงก์' })
   async voucherPdf(@Res({ passthrough: true }) res: Response): Promise<StreamableFile> {
-    // review M1: เพดานต่อลิงก์ (render ใช้คิว Chromium ร่วมทุก tenant) + ใบ PAID ใช้ไฟล์ใน cache (SettlementPdfService)
+    // review M1: เพดานต่อลิงก์ (render ใช้คิว Chromium ร่วมทุก tenant) + ใบ PAID ใช้ไฟล์ที่เก็บไว้ (SettlementPdfService — ST9-T15)
     await this.limiter.assert([linkPdfBucket(requestContext.require().link!.id)], res);
-    const { dto, pdf } = await this.pdf.render(this.settlementId(), true);
+    const { dto, pdf, stored } = await this.pdf.render(this.settlementId(), true);
+    if (stored?.sha256) res.setHeader('X-Content-SHA256', stored.sha256);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',

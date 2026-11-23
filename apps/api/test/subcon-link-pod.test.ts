@@ -335,11 +335,7 @@ describe('subcon link POD (ST4-T09)', () => {
     await dispatch(a.t.id);
     const m = (await view(a.podToken, a.doNo).expect(200)).body.match;
     await press(a.podToken, m.pickup.id, { type: 'ARRIVE', occurredAt: bkk(30) }).expect(201);
-    await press(a.podToken, m.pickup.id, {
-      type: 'COMPLETE',
-      outcome: 'DELIVERED',
-      occurredAt: bkk(25),
-    }).expect(201);
+    await press(a.podToken, m.pickup.id, { type: 'LOADED', occurredAt: bkk(25) }).expect(201);
     await press(a.podToken, m.delivery.id, { type: 'DEPART', occurredAt: bkk(25) }).expect(201);
     await press(a.podToken, m.delivery.id, { type: 'ARRIVE', occurredAt: bkk(5) }).expect(201);
     return {
@@ -879,11 +875,7 @@ describe('subcon link POD (ST4-T09)', () => {
     await dispatch(a.t.id);
     const m = (await view(a.podToken, x!.doNo).expect(200)).body.match;
     await press(a.podToken, m.pickup.id, { type: 'ARRIVE', occurredAt: bkk(30) }).expect(201);
-    await press(a.podToken, m.pickup.id, {
-      type: 'COMPLETE',
-      outcome: 'DELIVERED',
-      occurredAt: bkk(25),
-    }).expect(201);
+    await press(a.podToken, m.pickup.id, { type: 'LOADED', occurredAt: bkk(25) }).expect(201);
     await press(a.podToken, m.delivery.id, { type: 'ARRIVE', occurredAt: bkk(5) }).expect(201);
     const p1 = await upload(a.podToken, x!.doNo);
     const s1 = await upload(a.podToken, x!.doNo, 'POD_SIGNATURE');
@@ -944,7 +936,13 @@ describe('subcon link POD (ST4-T09)', () => {
     const a = await atDrop();
     const v0 = (await view(a.podToken, a.doNo).expect(200)).body;
     expect(v0.match.pod.lines).toEqual([
-      { lineNo: 1, description: 'ปูนซีเมนต์', unit: expect.any(String), qtyPlanned: '5' },
+      {
+        doLineId: expect.stringMatching(/^dol_[0-9a-f]{32}$/),
+        lineNo: 1,
+        description: 'ปูนซีเมนต์',
+        unit: expect.any(String),
+        qtyPlanned: '5',
+      },
     ]);
     const reasons = v0.match.pod.rejectReasons as { id: string; label: string }[];
     expect(reasons.map((r) => r.label)).toEqual(
@@ -974,7 +972,10 @@ describe('subcon link POD (ST4-T09)', () => {
 
     const ok = await close(a.podToken, a.m.delivery.id, {
       ...pod,
-      lines: [{ lineNo: 1, qtyActual: '4', rejectReasonCodeId: short.id }],
+      // D-81 · D68-52 ลิงก์อ้างบรรทัดด้วย doLineId ได้
+      lines: [
+        { doLineId: v0.match.pod.lines[0].doLineId, qtyActual: '4', rejectReasonCodeId: short.id },
+      ],
     }).expect(201);
     expect(ok.body.pod).toMatchObject({ doStatus: 'UNBILLED', podStatus: 'COMPLETE' });
     const line = await db.deliveryOrderLine.findFirstOrThrow({
@@ -992,5 +993,53 @@ describe('subcon link POD (ST4-T09)', () => {
       rejectQty: '1',
       rejectReason: { label: 'จำนวนไม่ครบ' },
     });
+  });
+  it('D-81 · D68-39 review: ส่งบางส่วนผ่านลิงก์ (COMPLETE PARTIAL + เหตุผล) พร้อม POD ยอดขาด → จุดส่ง COMPLETED ผล PARTIAL · ยอดส่งจริงลงบรรทัด · เหตุผลบังคับรูปใช้ได้เมื่อ POD มีรูป', async () => {
+    const a = await atDrop();
+    const v0 = (await view(a.podToken, a.doNo).expect(200)).body;
+    const short = (v0.match.pod.rejectReasons as { id: string; label: string }[]).find(
+      (r) => r.label === 'จำนวนไม่ครบ',
+    )!; // บังคับรูป
+    const p1 = await upload(a.podToken, a.doNo);
+    const sig = await upload(a.podToken, a.doNo, 'POD_SIGNATURE');
+    const lines = [
+      { doLineId: v0.match.pod.lines[0].doLineId, qtyActual: '3', rejectReasonCodeId: short.id },
+    ];
+    // บางส่วนต้องมีเหตุผลของจุด
+    expect(
+      (
+        await close(
+          a.podToken,
+          a.m.delivery.id,
+          {
+            doNo: a.doNo,
+            photoDocumentIds: [p1],
+            signatureDocumentId: sig,
+            lines,
+          },
+          { outcome: 'PARTIAL' },
+        ).expect(422)
+      ).body.errors[0],
+    ).toMatchObject({ field: 'reasonCodeId', code: 'required' });
+    const ok = await close(
+      a.podToken,
+      a.m.delivery.id,
+      { doNo: a.doNo, photoDocumentIds: [p1], signatureDocumentId: sig, lines },
+      { outcome: 'PARTIAL', reasonCodeId: short.id },
+    ).expect(201);
+    expect(ok.body).toMatchObject({ type: 'COMPLETE', outcome: 'PARTIAL', counted: true });
+    expect(ok.body.pod).toMatchObject({ doStatus: 'UNBILLED' });
+    expect((await view(a.podToken, a.doNo).expect(200)).body.match.delivery).toMatchObject({
+      status: 'COMPLETED',
+      outcome: 'PARTIAL',
+    });
+    const line = await db.deliveryOrderLine.findFirstOrThrow({
+      where: { deliveryOrderId: a.doId },
+    });
+    expect([line.qtyActual?.toFixed(), line.rejectQty?.toFixed()]).toEqual(['3', '2']);
+    const ev = await db.stopEvent.findFirstOrThrow({
+      where: { tripStopId: uuid('tripStop', a.m.delivery.id), type: 'COMPLETE' },
+    });
+    expect(ev.reasonCodeId).toBe(uuid('reasonCode', short.id));
   });
 });

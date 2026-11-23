@@ -240,6 +240,25 @@ const REGISTRY: ExtResource[] = [
 ];
 
 /**
+ * เอกสาร (D-81 · D68-45 · 23 พ.ย. 2569) — externalId + `PUT /{resource}/external/{externalId}` แต่กติกาแก้ต่างจาก master
+ * (ออกแล้ว/บันทึกแล้วแก้ไม่ได้) → พฤติกรรมทดสอบใน `test/external-id-documents.test.ts` · ที่นี่ตรวจทะเบียน/route/ext:
+ */
+const DOC_REGISTRY: Record<string, { model: string; kind: IdKind; patch: boolean; why: string }> = {
+  invoices: {
+    model: 'Invoice',
+    kind: 'invoice',
+    patch: true,
+    why: 'PATCH external = แก้หัวร่าง (DRAFT เท่านั้น)',
+  },
+  payments: {
+    model: 'Payment',
+    kind: 'payment',
+    patch: false,
+    why: 'การรับชำระแก้ไม่ได้ (docs/04 F4 — กลับรายการแล้วบันทึกใหม่) จึงไม่มี PATCH external',
+  },
+};
+
+/**
  * ตารางที่มี externalId และรับ `ext:` ใน path `{id}` แต่ไม่มี PUT/PATCH external (เหตุผลกำกับ)
  * path = ใช้ทดสอบ GET ext:
  */
@@ -258,7 +277,7 @@ const EXT_ONLY: Record<string, { path: string; reason: string }> = {
 const NOT_RESOURCE: Record<string, string> = {
   ExternalMapping:
     'ST8-T05 external_mapping (docs/01 §3.7) — `external_id` คือ id/รหัสฝั่ง ERP ของ entity อื่น (ลูกค้า/เอกสาร) ต่อ connector ' +
-    'ไม่ใช่ externalId ของ resource (แก้ผ่าน /customers/{id}/erp-codes)',
+    'ไม่ใช่ externalId ของ resource (แก้ผ่าน /customers/{id}/erp-codes · /carriers/{id}/erp-codes)',
 };
 
 /**
@@ -269,9 +288,7 @@ const G2_EXCLUDED: Record<string, string> = {
   trips: 'TMS สร้างเองจากการวางแผน — G2 #7 ไม่มี PUT external',
   stops: 'ลูกของเที่ยว — idempotency ด้วย clientEventId (G2 #3)',
   documents: 'ไฟล์ที่ TMS เก็บ — presigned upload (G2 #4)',
-  invoices: 'เลขออกตอน finalize; ผูกเลข ERP ผ่าน external_mapping (ST7-T15) ไม่ใช่ externalId',
   'invoice-runs': 'งานภายใน (G2 #6)',
-  payments: 'POST /payments จาก ERP (ST5/ST7-T11) — กันซ้ำด้วย Idempotency-Key',
   webhooks: 'config ของ integration (G2 #2)',
   events: 'สร้างโดยระบบ (G2 #2)',
   'webhook-deliveries': 'สร้างโดยระบบ (G2 #2)',
@@ -388,6 +405,7 @@ describe('external id conformance (ST7-T02)', () => {
       .map((m) => m.name);
     const known = new Set([
       ...REGISTRY.map((r) => r.model),
+      ...Object.values(DOC_REGISTRY).map((r) => r.model),
       ...Object.keys(EXT_ONLY),
       ...Object.keys(NOT_RESOURCE),
     ]);
@@ -401,10 +419,16 @@ describe('external id conformance (ST7-T02)', () => {
       .filter((r) => /^\/v1\/[^/]+\/external\/:externalId$/.test(r.path))
       .map((r) => `${r.method} ${r.path}`)
       .sort();
-    const expected = REGISTRY.flatMap((r) => [
-      `PATCH /v1/${r.path}/external/:externalId`,
-      `PUT /v1/${r.path}/external/:externalId`,
-    ]).sort();
+    const expected = [
+      ...REGISTRY.flatMap((r) => [
+        `PATCH /v1/${r.path}/external/:externalId`,
+        `PUT /v1/${r.path}/external/:externalId`,
+      ]),
+      ...Object.entries(DOC_REGISTRY).flatMap(([p, d]) => [
+        ...(d.patch ? [`PATCH /v1/${p}/external/:externalId`] : []),
+        `PUT /v1/${p}/external/:externalId`,
+      ]),
+    ].sort();
     expect(ext).toEqual(expected);
   });
 
@@ -412,17 +436,27 @@ describe('external id conformance (ST7-T02)', () => {
     const paths = REGISTRY.map((r) => r.path);
     for (const p of G2_EXTERNAL) expect(paths, p).toContain(p);
     for (const p of Object.keys(G2_EXCLUDED)) expect(paths, p).not.toContain(p);
-    // G2 ทุกแถว = มี external id (G2_EXTERNAL) หรือยกเว้นพร้อมเหตุผล — ไม่ขาด ไม่เกิน
-    expect([...G2_EXTERNAL, ...Object.keys(G2_EXCLUDED)].sort()).toEqual([...G2_P0].sort());
+    // G2 ทุกแถว = มี external id (G2_EXTERNAL / เอกสาร D68-45) หรือยกเว้นพร้อมเหตุผล — ไม่ขาด ไม่เกิน
+    expect(
+      [...G2_EXTERNAL, ...Object.keys(DOC_REGISTRY), ...Object.keys(G2_EXCLUDED)].sort(),
+    ).toEqual([...G2_P0].sort());
   });
 
   it('(5) ทุก route `/{resource}/:id…` ของ resource ในทะเบียนแปลง `{id}` ผ่าน resolveRef/refToId (ไม่ถอดตรง)', () => {
     // คำอธิบาย `{id}` ใน OpenAPI ใช้รายการเดียวกัน
     expect([...EXT_REF_RESOURCES].sort()).toEqual(
-      [...REGISTRY.map((r) => r.path), ...Object.values(EXT_ONLY).map((e) => e.path)].sort(),
+      [
+        ...REGISTRY.map((r) => r.path),
+        ...Object.values(EXT_ONLY).map((e) => e.path),
+        ...Object.keys(DOC_REGISTRY),
+      ].sort(),
     );
     const bad: string[] = [];
-    for (const res of REGISTRY) {
+    const all = [
+      ...REGISTRY,
+      ...Object.entries(DOC_REGISTRY).map(([path, d]) => ({ path, kind: d.kind })),
+    ];
+    for (const res of all) {
       const direct = new RegExp(
         `(decodeIdOr404|tryDecodeId)\\)?\\(\\s*['"]${res.kind}['"]\\s*,\\s*id\\b`,
       );

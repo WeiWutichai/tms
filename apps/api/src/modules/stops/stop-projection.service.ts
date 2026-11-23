@@ -5,6 +5,7 @@ import {
   effectiveStopSequence,
   isDeliveringClose,
   isOutcomeMismatch,
+  isStopCloseType,
   isTerminalStopState,
   hasUnresolvedStopFlags,
   isTripExecutable,
@@ -314,7 +315,7 @@ export class StopProjectionService {
     // DO ส่งใหม่ถูกจัดรถแล้ว แต่ผลของจุดเปลี่ยนเป็นไม่ใช่ไม่สำเร็จ → ธงแจ้งที่ event ปิดงานล่าสุดของจุด (ไม่เงียบ)
     for (const stopId of conflictStops) {
       const close = (byStop.get(stopId) ?? [])
-        .filter((e) => e.type === 'COMPLETE' || e.type === 'FAIL')
+        .filter((e) => isStopCloseType(e.type))
         .sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime())[0];
       if (close) mismatch.add(close.id);
     }

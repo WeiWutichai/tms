@@ -1,6 +1,6 @@
 # invoices
 
-25 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+28 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -9,6 +9,8 @@
 | [`POST /v1/invoices/preview`](#post-invoices-preview) | `invoices:draft` |
 | [`GET /v1/invoices`](#get-invoices) | `invoices:read` |
 | [`POST /v1/invoices`](#post-invoices) | `invoices:draft` |
+| [`PUT /v1/invoices/external/{externalId}`](#put-invoices-external-externalId) | `invoices:draft` |
+| [`PATCH /v1/invoices/external/{externalId}`](#patch-invoices-external-externalId) | `invoices:draft` |
 | [`GET /v1/invoices/{id}`](#get-invoices-id) | `invoices:read` |
 | [`PATCH /v1/invoices/{id}`](#patch-invoices-id) | `invoices:draft` |
 | [`GET /v1/invoices/{id}/proforma`](#get-invoices-id-proforma) | `invoices:read` |
@@ -25,6 +27,7 @@
 | [`POST /v1/invoices/{id}/cancel`](#post-invoices-id-cancel) | `invoices:draft` |
 | [`POST /v1/invoices/{id}/void`](#post-invoices-id-void) | `invoices:void` |
 | [`POST /v1/invoices/{id}/mark-sent`](#post-invoices-id-mark-sent) | `invoices:finalize` |
+| [`POST /v1/invoices/{id}/erp-posted`](#post-invoices-id-erp-posted) | `integrations:retry` |
 | [`POST /v1/invoices/{id}/unmark-sent`](#post-invoices-id-unmark-sent) | `invoices:void` |
 | [`POST /v1/invoices/{id}/send`](#post-invoices-id-send) | `invoices:finalize` |
 | [`GET /v1/invoices/{id}/emails`](#get-invoices-id-emails) | `invoices:read` |
@@ -115,7 +118,7 @@ body เดียวกับ `POST /invoices` · ตรวจกติกาช
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `customerId` | ใช่ | `string` |   | ลูกค้า — id หรือ `ext:{externalId}` | `cus_…` |
-| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ (≤ 200) ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง) | `["do_…"]` |
+| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง) | `["do_…"]` |
 | `periodFrom` |   | `string` |   | งวดตั้งแต่ — ไม่ส่ง = วันที่ DO แรก | `2026-11-01` |
 | `periodTo` |   | `string` |   | งวดถึง — ไม่ส่ง = วันที่ DO สุดท้าย | `2026-11-15` |
 | `lineMode` |   | `string` | ค่า: `SINGLE`, `GROUP`, `MERGE` | ไม่ส่ง = SINGLE |   |
@@ -176,7 +179,7 @@ scope: `invoices:read` · operationId: `Invoices_listInvoices`
 | `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `customerId` | query |   | `string` | ลูกค้า — id หรือ `ext:{externalId}` |
 | `status` | query |   | `string` ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |
-| `receivable` | query |   | `string` ค่า: `all`, `open`, `overdue` | หน้า "รับชำระ": `all` = ใบที่ออกแล้ว (ไม่รวมร่าง/ยกเลิก) · `open` = ค้างรับ (ISSUED + PARTIALLY_PAID) · `overdue` = ใบที่มีธงเกินกำหนด — ใช้ร่วมกับ `status` ได้ |
+| `receivable` | query |   | `string` ค่า: `all`, `open`, `overdue`, `due` | หน้า "รับชำระ": `all` = ใบที่ออกแล้ว (ไม่รวมร่าง/ยกเลิก) · `open` = ค้างรับ (ISSUED + PARTIALLY_PAID) · `overdue` = ใบที่มีธงเกินกำหนด · `due` = ครบกำหนดแล้ว: ค้างรับที่ยังมียอดค้างและ `dueDate` ≤ วันนี้ (เวลาไทย) **รวมใบเกินกำหนด** (การ์ด "ครบกำหนด" ของ Dashboard บิล) — ใช้ร่วมกับ `status` ได้ |
 | `overdue` | query |   | `string` ค่า: `true`, `false` | ธงเกินกำหนด — `false` = ไม่รวมใบเกินกำหนด (แท็บ "ออกแล้ว"/"ชำระบางส่วน" ของต้นแบบ: เกินกำหนดแสดงก่อน) · `true` = เฉพาะเกินกำหนด |
 | `aging` | query |   | `string` ค่า: `NOT_DUE`, `DAYS_1_30`, `DAYS_31_60`, `DAYS_61_90`, `DAYS_OVER_90` | ช่วงอายุลูกหนี้ (การ์ด "อายุลูกหนี้" ของหน้ารับชำระ) — เฉพาะใบค้างรับที่ยังมียอดค้าง และ `daysPastDue = วันนี้ − dueDate` (เวลาไทย) อยู่ในช่วง · ชุดเดียวกับ `GET /payments/aging` |
 
@@ -214,7 +217,7 @@ scope: `invoices:draft` · operationId: `Invoices_create`
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `customerId` | ใช่ | `string` |   | ลูกค้า — id หรือ `ext:{externalId}` | `cus_…` |
-| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ (≤ 200) ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง) | `["do_…"]` |
+| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง) | `["do_…"]` |
 | `periodFrom` |   | `string` |   | งวดตั้งแต่ — ไม่ส่ง = วันที่ DO แรก | `2026-11-01` |
 | `periodTo` |   | `string` |   | งวดถึง — ไม่ส่ง = วันที่ DO สุดท้าย | `2026-11-15` |
 | `lineMode` |   | `string` | ค่า: `SINGLE`, `GROUP`, `MERGE` | ไม่ส่ง = SINGLE |   |
@@ -256,6 +259,128 @@ const { data, error } = await tms.POST('/v1/invoices', {
 });
 ```
 
+## สร้าง/แก้ร่างใบแจ้งหนี้ด้วยเลขของระบบต้นทาง (upsert — D68-45) {#put-invoices-external-externalId}
+
+`PUT /v1/invoices/external/{externalId}`
+
+scope: `invoices:draft` · operationId: `Invoices_upsertExternal`
+
+ยังไม่มีใบที่ externalId นี้ → สร้างร่าง (กติกาเดียวกับ `POST /invoices`) 201 · มีแล้ว → 200: ลูกค้า + ชุด DO ต้องตรงกับใบ (เพิ่ม/ถอด DO ใช้ `/invoices/{id}/delivery-orders…`) ไม่ตรง → 409 `conflict` · ช่องหัวใบ เหมือนเดิม → ใบเดิม version เดิม (ส่งซ้ำได้) · ต่าง: ร่าง → แก้ (เหมือน PATCH) · **ใบที่ออกแล้ว/ยกเลิกแก้ไม่ได้ → 409 `invalid_state_transition`** · externalId ตั้งได้ตอนสร้างเท่านั้น · ยกเลิกแล้วออกใหม่ (`/void` + reissue) ใบใหม่**ไม่รับ externalId เดิม** (ใบเดิมคง externalId ไว้) — ระบบต้นทางต้องใช้ externalId ใหม่ · path `{id}` ทุก route รับ `ext:{externalId}`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `externalId` | path | ใช่ | `string` | เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource |
+| `If-Match` | header |   | `string` | ETag — ใช้เมื่อใบมีอยู่แล้ว (ไม่ตรง → 412) |
+
+**Request body** `CreateInvoiceDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `customerId` | ใช่ | `string` |   | ลูกค้า — id หรือ `ext:{externalId}` | `cus_…` |
+| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง) | `["do_…"]` |
+| `periodFrom` |   | `string` |   | งวดตั้งแต่ — ไม่ส่ง = วันที่ DO แรก | `2026-11-01` |
+| `periodTo` |   | `string` |   | งวดถึง — ไม่ส่ง = วันที่ DO สุดท้าย | `2026-11-15` |
+| `lineMode` |   | `string` | ค่า: `SINGLE`, `GROUP`, `MERGE` | ไม่ส่ง = SINGLE |   |
+| `releaseDeliveryOrders` |   | `boolean` |   | true = ส่งบัญชี DO ที่ยังไม่ส่งในคำขอเดียวกัน (atomic — ส่งไม่ผ่าน = 409 และไม่มีอะไรเปลี่ยน) · ไม่ส่ง/false = DO ต้องส่งบัญชีแล้ว |   |
+| `customerPoNo` |   | `string` | ยาว ≤ 60 · null ได้ | เลข ลูกค้า |   |
+| `note` |   | `string` | ยาว ≤ 1000 · null ได้ |   |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | มีอยู่แล้ว → ใบเดิม (แก้หัวร่างถ้าต่าง) | `InvoiceDto` |
+| `201` | ยังไม่มี → สร้างร่าง | `InvoiceDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:draft`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `409` | `not_ready_to_bill` — DO ยังไม่พร้อม (ตรวจซ้ำตอนดึง): `reasons[]` + `deliveryOrders[]` (ต่อ DO: `reasons`, `missing`) — รวม `NOT_RELEASED` (ยังไม่ส่งบัญชี) · `do_already_drafted` — DO อยู่ในใบแจ้งหนี้อื่นที่ยัง active · `invalid_state_transition` — ใบไม่ใช่ร่าง · `conflict` — ใบที่มีอยู่มีลูกค้า/ชุด DO ต่างจากที่ส่ง — [not_ready_to_bill](errors.md#not_ready_to_bill), [do_already_drafted](errors.md#do_already_drafted), [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress), [conflict](errors.md#conflict) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X PUT "$TMS_BASE_URL/v1/invoices/external/<externalId>" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"customerId":"cus_…","deliveryOrderIds":["do_…"],"periodFrom":"2026-11-01","periodTo":"2026-11-15"}'
+```
+
+```ts
+const { data, error } = await tms.PUT('/v1/invoices/external/{externalId}', {
+  params: { path: { externalId: "…" } },
+  body: {
+    "customerId": "cus_…",
+    "deliveryOrderIds": [
+      "do_…"
+    ],
+    "periodFrom": "2026-11-01",
+    "periodTo": "2026-11-15"
+  },
+});
+```
+
+## แก้หัวร่างด้วยเลขของระบบต้นทาง (= `PATCH /invoices/ext:{externalId}`) {#patch-invoices-external-externalId}
+
+`PATCH /v1/invoices/external/{externalId}`
+
+scope: `invoices:draft` · operationId: `Invoices_patchExternal`
+
+กติกาเดียวกับ `PATCH /invoices/{id}` — เฉพาะ DRAFT (ออกแล้ว → 409) · ยังไม่มีใบนี้ → 404 (สร้างใช้ PUT)
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `externalId` | path | ใช่ | `string` | เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource |
+| `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
+
+**Request body** `UpdateInvoiceDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `lineMode` |   | `string` | ค่า: `SINGLE`, `GROUP`, `MERGE` | รูปบรรทัดบนเอกสาร (Group / Merge / Single) |   |
+| `periodFrom` |   | `string` |   |   | `2026-11-01` |
+| `periodTo` |   | `string` |   |   | `2026-11-15` |
+| `creditTermDays` |   | `number` | ≥ 0 · ≤ 365 | เครดิต (วัน) — ค่าเริ่มจากลูกค้า แก้ได้ในร่าง |   |
+| `customerPoNo` |   | `string` | ยาว ≤ 60 · null ได้ |   |   |
+| `note` |   | `string` | ยาว ≤ 1000 · null ได้ |   |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `InvoiceDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:draft`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X PATCH "$TMS_BASE_URL/v1/invoices/external/<externalId>" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"periodFrom":"2026-11-01","periodTo":"2026-11-15"}'
+```
+
+```ts
+const { data, error } = await tms.PATCH('/v1/invoices/external/{externalId}', {
+  params: { path: { externalId: "…" } },
+  body: {
+    "periodFrom": "2026-11-01",
+    "periodTo": "2026-11-15"
+  },
+});
+```
+
 ## ใบแจ้งหนี้ + บรรทัด + บรรทัดบนเอกสาร (Group / Merge / Single) {#get-invoices-id}
 
 `GET /v1/invoices/{id}`
@@ -268,7 +393,7 @@ scope: `invoices:read` · operationId: `Invoices_get`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 
 **Responses**
 
@@ -305,7 +430,7 @@ scope: `invoices:draft` · operationId: `Invoices_update`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Request body** `UpdateInvoiceDto`
@@ -363,7 +488,7 @@ scope: `invoices:read` · operationId: `Invoices_proforma`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 
 **Responses**
 
@@ -401,7 +526,7 @@ DRAFT → ISSUED · ตรวจ → ไม่ผ่าน 409 `invoice_not_fina
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header | ใช่ | `string` | ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
 
 **Responses**
@@ -443,7 +568,7 @@ scope: `invoices:read` · operationId: `Invoices_issuedPdf`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `copy` | query |   | `string` ค่า: `ORIGINAL`, `COPY` |   |
 
 **Responses**
@@ -477,20 +602,20 @@ const { data, error } = await tms.GET('/v1/invoices/{id}/pdf', {
 
 scope: `invoices:draft` · operationId: `Invoices_addDos`
 
-กฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 `customer_mismatch` · audit `invoice.delivery_orders_added`
+กฎเดียวกับตอนสร้าง (ส่งบัญชีแล้ว + ตรวจความพร้อมซ้ำ · กันวางบิลซ้ำ) · ลูกค้าอื่น → 422 `customer_mismatch` · DO บนร่างรวมกับที่เพิ่มเกิน 1000 ใบ → 422 `too_many` · audit `invoice.delivery_orders_added`
 
 **Parameters**
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Request body** `InvoiceDeliveryOrdersDto`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ (≤ 200) | `["do_…"]` |
+| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ (≤ 1000) · ร่างหนึ่งใบถือใบส่งของรวมได้ไม่เกิน 1000 ใบ (เพิ่มแล้วเกิน = 422 `too_many`) | `["do_…"]` |
 
 **Responses**
 
@@ -538,14 +663,14 @@ scope: `invoices:draft` · operationId: `Invoices_removeDos`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Request body** `RemoveInvoiceDeliveryOrdersDto`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ (≤ 200) | `["do_…"]` |
+| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ (≤ 1000) · ร่างหนึ่งใบถือใบส่งของรวมได้ไม่เกิน 1000 ใบ (เพิ่มแล้วเกิน = 422 `too_many`) | `["do_…"]` |
 | `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `ลูกค้าขอวางบิล DO นี้งวดหน้า` |
 
 **Responses**
@@ -589,20 +714,20 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/delivery-orders/remove
 
 scope: `invoices:draft` · operationId: `Invoices_moveDos`
 
-ถอดจากร่างนี้แล้วดึงเข้าร่างปลายทางใน transaction เดียว (ตรวจความพร้อมซ้ำ — ไม่ผ่าน = ไม่ย้ายเลย) · ปลายทางไม่ใช่ร่าง → 409 · ลูกค้า/สาขาต่างกัน → 422 `customer_mismatch` · If-Match = version ของร่างต้นทาง · ETag ตอบกลับ = ต้นทาง · audit ทั้งสองใบ
+ถอดจากร่างนี้แล้วดึงเข้าร่างปลายทางใน transaction เดียว (ตรวจความพร้อมซ้ำ — ไม่ผ่าน = ไม่ย้ายเลย) · ปลายทางไม่ใช่ร่าง → 409 · ลูกค้า/สาขาต่างกัน → 422 `customer_mismatch` · DO บนร่างปลายทางรวมกับที่ย้ายเกิน 1000 ใบ → 422 `too_many` (ไม่ย้ายเลย) · If-Match = version ของร่างต้นทาง · ETag ตอบกลับ = ต้นทาง · audit ทั้งสองใบ
 
 **Parameters**
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Request body** `MoveInvoiceDeliveryOrdersDto`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ (≤ 200) | `["do_…"]` |
+| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ (≤ 1000) · ร่างหนึ่งใบถือใบส่งของรวมได้ไม่เกิน 1000 ใบ (เพิ่มแล้วเกิน = 422 `too_many`) | `["do_…"]` |
 | `targetInvoiceId` | ใช่ | `string` |   | ร่างปลายทาง (ลูกค้า + สาขาผู้ออกเดียวกัน) | `ivc_…` |
 
 **Responses**
@@ -652,7 +777,7 @@ scope: `invoices:draft` · operationId: `Invoices_addLine`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Request body** `AddInvoiceLineDto`
@@ -712,7 +837,7 @@ scope: `invoices:draft` · operationId: `Invoices_merge`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Request body** `InvoiceLineIdsDto`
@@ -768,7 +893,7 @@ audit `invoice.lines_split`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Request body** `InvoiceLineIdsDto`
@@ -824,7 +949,7 @@ scope: `invoices:draft` · operationId: `Invoices_updateLine`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `lineId` | path | ใช่ | `string` |   |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
@@ -879,7 +1004,7 @@ scope: `invoices:draft` · operationId: `Invoices_removeLine`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `lineId` | path | ใช่ | `string` |   |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
@@ -933,7 +1058,7 @@ DRAFT → CANCELLED · บรรทัดหยุดนับ · DO กลั�
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Request body** `InvoiceReasonDto`
@@ -986,8 +1111,9 @@ scope: `invoices:void` · operationId: `Invoices_void`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header | ใช่ | `string` | ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
+| `X-Step-Up` | header |   | `string` | stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง |
 
 **Request body** `VoidInvoiceDto`
 
@@ -1002,7 +1128,7 @@ scope: `invoices:void` · operationId: `Invoices_void`
 |---|---|---|
 | `200` |   | `InvoiceDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`invoices:void`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:void`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) — [permission_denied](errors.md#permission_denied), [step_up_required](errors.md#step_up_required) | `ProblemDto` |
 | `404` | ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
 | `409` | `invalid_state_transition` (ร่าง/ยกเลิกแล้ว/สถานะอื่น) · `invoice_has_payments` · `invoice_on_billing_note` · `invoice_sent_to_customer` · `not_ready_to_bill` (ออกฉบับใหม่แทน — DO ไม่พร้อม) — [invoice_on_billing_note](errors.md#invoice_on_billing_note), [invoice_has_payments](errors.md#invoice_has_payments) | `ProblemDto` |
 | `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
@@ -1040,7 +1166,7 @@ scope: `invoices:finalize` · operationId: `Invoices_markSent`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Responses**
@@ -1069,6 +1195,45 @@ const { data, error } = await tms.POST('/v1/invoices/{id}/mark-sent', {
 });
 ```
 
+## ปุ่ม "ลงบัญชีแล้ว" — ใบนี้ลงบัญชีในระบบบัญชีที่เชื่อมแล้ว (แทนที่ต้องมีผู้อนุมัติ) {#post-invoices-id-erp-posted}
+
+`POST /v1/invoices/{id}/erp-posted`
+
+scope: `integrations:retry` · operationId: `Invoices_markErpPosted`
+
+สิทธิ์ `integrations:retry` (บัญชี/ผู้วางบิล/ผู้อนุมัติ) · ตั้ง `sync.postedAt` ของเอกสารนี้ในระบบบัญชีที่เชื่อม → หลังจากนี้การแทนที่เอกสารในระบบบัญชี (ส่งซ้ำ / ยกเลิกแล้วออกใหม่) ขึ้นคิว "ต้องอนุมัติ" (`replace_requires_approval`) จนผู้อนุมัติคนอื่นอนุมัติ · กดซ้ำ = คงเวลาเดิม · ใบที่ยังไม่อยู่ในระบบบัญชี → 409 `invalid_state_transition` · audit `invoice.erp_posted_marked` · **ยกเลิกแล้วออกใหม่: กดที่ใบเดิมก่อนออกใบใหม่แทน** (ธงอยู่กับเอกสารในระบบบัญชี — แทนที่สำเร็จแล้วย้ายตามไปใบใหม่; ใบเดิมที่ยกเลิกแล้วกดได้จนกว่าจะแทนที่)
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `InvoiceDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`integrations:retry`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/invoices/<id>/erp-posted" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)"
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/invoices/{id}/erp-posted', {
+  params: { path: { id: "…" } },
+});
+```
+
 ## ล้างธง "ส่งลูกค้าแล้ว" (ทำเครื่องหมายผิด) — เหตุผล ≥ 10 ตัวอักษร {#post-invoices-id-unmark-sent}
 
 `POST /v1/invoices/{id}/unmark-sent`
@@ -1081,7 +1246,7 @@ scope: `invoices:void` · operationId: `Invoices_unmarkSent`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Request body** `UnmarkInvoiceSentDto`
@@ -1133,7 +1298,7 @@ scope: `invoices:finalize` · operationId: `Invoices_send`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `Idempotency-Key` | header |   | `string` | ส่งซ้ำ key เดิม + body เดิม = ผลเดิม (ไม่ส่งอีเมลซ้ำ) เก็บ 24 ชม. |
 
 **Request body** `SendInvoiceDto`
@@ -1188,7 +1353,7 @@ scope: `invoices:read` · operationId: `Invoices_emails`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 
 **Responses**
 
@@ -1219,17 +1384,17 @@ const { data, error } = await tms.GET('/v1/invoices/{id}/emails', {
 
 scope: `invoices:draft` · operationId: `InvoiceRuns_create`
 
-บัญชีเบา: ร่าง **ไม่มีเลข ไม่ใช่เอกสารภาษี** · ลูกค้าที่ `billingCycle` = รอบที่สั่ง (ไม่รวม `MANUAL`) ที่มี DO พร้อมวางบิล (กฎเดียวกับ `GET /invoices/queue` + เวลาจุดส่งครบ) วันที่ DO อยู่ในงวด → ร่างผ่านทางเดียวกับ `POST /invoices` (ตรวจซ้ำตอนดึง · กันวางบิลซ้ำระดับ DB · audit `invoice.draft_created`) · `MONTHLY`/`WEEKLY` = 1 ร่างต่อลูกค้า งวด = ที่สั่ง (เกิน 200 DO แบ่งหลายร่าง) · `PER_DO` = 1 ร่างต่อ DO · `billingNotes` (ค่าเริ่มต้น true) = ร่างใบวางบิลจากใบแจ้งหนี้ที่ออกแล้วยังค้าง และยังไม่อยู่ในใบวางบิลที่ active (1 ร่างต่อผู้ออก/สาขาผู้ออก) · **สั่งซ้ำไม่สร้างซ้ำ:** DO/ใบแจ้งหนี้ที่ถูกดึงแล้วไม่ถูกเลือกอีก · **ร่างละ transaction** (รวมการส่งบัญชีของ DO ในกลุ่ม) — กลุ่มที่ล้มย้อนทั้งกลุ่ม กลุ่ม/ลูกค้าอื่นไม่ล้มตาม · DO ที่ไม่ผ่านตอนดึง (ระบุตัวได้) ถูกข้าม (`skippedDeliveryOrders`) · ร่างลงชื่อผู้สั่งเป็นผู้สร้าง (กฎแบ่งหน้าที่ของ finalize ใช้เหมือนสร้างมือ) · 202 `{jobId, statusUrl}` → `GET /v1/jobs/{id}`: `progress` ต่อร่าง · `result` = `InvoiceRunResult` (ผลต่อลูกค้า SUCCEEDED/PARTIAL/FAILED/NOTHING_TO_BILL + ลิงก์ร่าง ≤ 50 ต่อลูกค้า — ไม่มียอดเงิน) · ไม่มีลูกค้า PARTIAL/FAILED = `succeeded`, มี = `succeeded_with_errors` · จบ = webhook `job.completed` · ผู้สั่งดู `statusUrl` ได้แม้ไม่มี `jobs:read` · job เก็บ 7 วัน · นับเป็นคำขอหนัก (rate limit ชั้น heavy)
+บัญชีเบา: ร่าง **ไม่มีเลข ไม่ใช่เอกสารภาษี** · ลูกค้าที่ `billingCycle` = รอบที่สั่ง (ไม่รวม `MANUAL` และลูกค้าที่ปิดใช้ `INACTIVE`) ที่มี DO พร้อมวางบิล (กฎเดียวกับ `GET /invoices/queue` + เวลาจุดส่งครบ) วันที่ DO อยู่ในงวด → ร่างผ่านทางเดียวกับ `POST /invoices` (ตรวจซ้ำตอนดึง · กันวางบิลซ้ำระดับ DB · audit `invoice.draft_created`) · `MONTHLY`/`WEEKLY` = **ใบแจ้งหนี้ใบเดียวต่อลูกค้าต่อรอบ** งวด = ที่สั่ง (เพดาน 1000 DO ต่อใบ — เกินจึงแบ่งหลายร่าง + `splitByCap`) · `PER_DO` = 1 ร่างต่อ DO · `billingNotes` (ค่าเริ่มต้น true) = ร่างใบวางบิลจากใบแจ้งหนี้ที่ออกแล้วยังค้าง และยังไม่อยู่ในใบวางบิลที่ active **เฉพาะใบของงวดนี้** (งวดของใบอยู่ในงวดของรอบทั้งช่วง; ใบที่ไม่มีงวดใช้วันที่ออก) (1 ร่างต่อผู้ออก/สาขาผู้ออก) · **สั่งซ้ำไม่สร้างซ้ำ:** DO/ใบแจ้งหนี้ที่ถูกดึงแล้วไม่ถูกเลือกอีก · **ร่างละ transaction** (รวมการส่งบัญชีของ DO ในกลุ่ม) — กลุ่มที่ล้มย้อนทั้งกลุ่ม กลุ่ม/ลูกค้าอื่นไม่ล้มตาม · DO ที่ไม่ผ่านตอนดึง (ระบุตัวได้) ถูกข้าม (`skippedDeliveryOrders`) · ร่างลงชื่อผู้สั่งเป็นผู้สร้าง (กฎแบ่งหน้าที่ของ finalize ใช้เหมือนสร้างมือ) · 202 `{jobId, statusUrl}` → `GET /v1/jobs/{id}`: `progress` ต่อร่าง · `result` = `InvoiceRunResult` (ผลต่อลูกค้า SUCCEEDED/PARTIAL/FAILED/NOTHING_TO_BILL + ลิงก์ร่าง ≤ 50 ต่อลูกค้า — ไม่มียอดเงิน) · ไม่มีลูกค้า PARTIAL/FAILED = `succeeded`, มี = `succeeded_with_errors` · จบ = webhook `job.completed` · **ไฟล์สรุปรอบ.xlsx** (`result.summary.url` = `GET /v1/exports/{jobId}` เฉพาะผู้สั่งที่มี `export:run`; ยอดเงินในไฟล์เฉพาะผู้สั่งที่มี `prices.sell:read`; ใช้ได้ 7 วัน; แจ้งเตือนผู้สั่งพร้อมลิงก์) · ไม่มีรอบอัตโนมัติตามเวลา (สั่งเองเท่านั้น) · ผู้สั่งดู `statusUrl` ได้แม้ไม่มี `jobs:read` · job เก็บ 7 วัน · นับเป็นคำขอหนัก (rate limit ชั้น heavy)
 
 **Request body** `CreateInvoiceRunDto`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `billingCycle` | ใช่ | `string` | ค่า: `PER_DO`, `WEEKLY`, `MONTHLY` | รอบวางบิลของลูกค้าที่เข้ารอบนี้ (`customer.billingCycle`) · `MANUAL` ไม่เข้ารอบ · `MONTHLY`/`WEEKLY` = 1 ร่างต่อลูกค้า (เกิน 200 DO แบ่งเป็นหลายร่าง) · `PER_DO` = 1 ร่างต่อ DO |   |
+| `billingCycle` | ใช่ | `string` | ค่า: `PER_DO`, `WEEKLY`, `MONTHLY` | รอบวางบิลของลูกค้าที่เข้ารอบนี้ (`customer.billingCycle`) · `MANUAL` และลูกค้าที่ปิดใช้ (`INACTIVE`) ไม่เข้ารอบ · `MONTHLY`/`WEEKLY` = **ใบแจ้งหนี้ใบเดียวต่อลูกค้าต่อรอบ** (เกิน 1000 DO จึงแบ่งเป็นหลายร่าง + `splitByCap`) · `PER_DO` = 1 ร่างต่อ DO |   |
 | `periodFrom` | ใช่ | `string` |   | งวดตั้งแต่ (วันที่ DO — `doDate`) | `2026-10-01` |
 | `periodTo` | ใช่ | `string` |   | งวดถึง (วันที่ DO — `doDate`) ≥ periodFrom | `2026-10-31` |
 | `releaseDeliveryOrders` |   | `boolean` |   | true = ส่งบัญชี DO ที่ยังไม่ส่งพร้อมสร้างร่าง (เหมือน `POST /invoices` `releaseDeliveryOrders`) · ไม่ส่ง/false = ดึงเฉพาะ DO ที่ส่งบัญชีแล้ว |   |
-| `billingNotes` |   | `boolean` |   | สร้างร่างใบวางบิลอัตโนมัติ จากใบแจ้งหนี้ที่ออกแล้วยังค้างและยังไม่อยู่ในใบวางบิลที่ active ของลูกค้าในรอบนี้ (1 ร่างต่อผู้ออก/สาขาผู้ออก) · ไม่ส่ง = true |   |
+| `billingNotes` |   | `boolean` |   | สร้างร่างใบวางบิลอัตโนมัติ จากใบแจ้งหนี้ที่ออกแล้วยังค้างและยังไม่อยู่ในใบวางบิลที่ active ของลูกค้าในรอบนี้ **เฉพาะใบของงวดนี้**: งวดของใบ (`periodFrom`–`periodTo`) อยู่ในงวดของรอบทั้งช่วง · ใบที่ไม่มีงวดใช้วันที่ออก (`issueDate`) อยู่ในงวดของรอบ (1 ร่างต่อผู้ออก/สาขาผู้ออก) · ไม่ส่ง = true |   |
 
 **Responses**
 
@@ -1300,6 +1465,7 @@ const { data, error } = await tms.POST('/v1/invoice-runs', {
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `ivc_…` |
 | `invoiceNo` | ใช่ | `string` | null ได้ | เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร) |   |
+| `externalId` | ใช่ | `string` | null ได้ | เลขของระบบต้นทาง (ERP) — ตั้งได้ตอนสร้างผ่าน `PUT /invoices/external/{externalId}` เท่านั้น (D68-45) |   |
 | `status` | ใช่ | `string` | ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |   |
 | `customer` | ใช่ | `InvoiceCustomerDto` |   |   |   |
 | `periodFrom` | ใช่ | `string` | null ได้ |   |   |
@@ -1319,6 +1485,8 @@ const { data, error } = await tms.POST('/v1/invoice-runs', {
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
 | `updatedAt` | ใช่ | `string` |   |   |   |
+| `sync` |   | `ErpDocumentSyncDto` | null ได้ | ผลการส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (เลขเอกสารสองฝั่ง — `externalDocNo` = เลขที่ระบบบัญชีออก) · แยกจาก `status` ของเอกสาร · มีเฉพาะ `GET /{id}` · null = ยังไม่มีผลการส่ง (ไม่ได้เชื่อมระบบบัญชี / ยังรอคิว / ส่งไม่สำเร็จ — ดูคิวของ connector) |   |
+| `erpWarnings` |   | `array<ErpDocumentWarningDto>` |   | คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว / วันที่ก่อนวันเริ่มซิงก์ = `[]` · ส่งสำเร็จแล้ว = ข้อความแบบอดีต · มีเฉพาะ `GET /{id}` |   |
 | `issuingCompanyId` | ใช่ | `string` |   |   | `cmp_…` |
 | `issuingBranchId` | ใช่ | `string` |   |   | `brn_…` |
 | `creditTermDays` | ใช่ | `number` |   |   |   |
@@ -1390,5 +1558,7 @@ const { data, error } = await tms.POST('/v1/invoice-runs', {
 | `sellIssuedOutstanding` |   | `string` |   | Σ ยอดค้าง (ยอดรวม − ยอดตัดชำระ) ของใบในแท็บ "ออกแล้ว" (ISSUED ที่ไม่เกินกำหนด) — `prices.sell:read` | `48000.00` |
 | `sellPartiallyPaidOutstanding` |   | `string` |   | Σ ยอดค้างของใบชำระบางส่วนที่ไม่เกินกำหนด — `prices.sell:read` | `3200.00` |
 | `sellOverdueOutstanding` |   | `string` |   | Σ ยอดค้างของใบเกินกำหนด (ชุดเดียวกับ `overdue` และ `GET /payments/summary` `sellOverdueOutstanding`) — `prices.sell:read` | `12500.00` |
+| `due` | ใช่ | `number` |   | D68-94 ครบกำหนด — ใบค้างรับที่ยังมียอดค้างและ `dueDate` ≤ วันนี้ (เวลาไทย) **รวมใบเกินกำหนด** (= `overdue` + ใบที่ครบกำหนดวันนี้) · ชุดเดียวกับ `GET /invoices?receivable=due` · ซ้อนกับ `issued`/`partiallyPaid` เฉพาะใบที่ครบวันนี้ (ไม่นับใน `total` ซ้ำ) |   |
+| `sellDueOutstanding` |   | `string` |   | D68-94 Σ ยอดค้างของใบครบกำหนด (ชุดเดียวกับ `due`) — `prices.sell:read` | `12821.07` |
 | `issuedThisMonth` | ใช่ | `InvoiceMonthTotalDto` |   | ใบที่ออกเลขเดือนนี้ (วันที่ 1 ถึงวันนี้ ตาม `issueDate` เวลาไทย) ไม่รวมร่าง/ยกเลิก |   |
 | `issuedLastMonth` | ใช่ | `InvoiceMonthTotalDto` |   | ใบที่ออกเลขเดือนก่อน (ทั้งเดือน) ไม่รวมร่าง/ยกเลิก |   |

@@ -1,11 +1,12 @@
 # ส่งออกไฟล์ (exports)
 
-2 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+3 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
 | [`POST /v1/exports`](#post-exports) | `export:run` |
 | [`GET /v1/exports/{id}`](#get-exports-id) | `export:run` |
+| [`GET /v1/accounting-exports/summary`](#get-accounting-exports-summary) | `export:run` |
 
 ## POST /v1/exports {#post-exports}
 
@@ -18,13 +19,14 @@ scope: `export:run` · operationId: `Exports_create`
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
 | `Idempotency-Key` | header |   | `string` |   |
+| `X-Step-Up` | header |   | `string` | stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งเมื่อส่งออก: ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง |
 
 **Request body** `CreateExportDto`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes`, `unbilled-delivery-orders`, `receivables-aging`, `revenue` |   | `orders` |
-| `format` |   | `string` | ค่า: `xlsx`, `csv`, `pdf` | .xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ.csv UTF-8 + BOM · `pdf` (ตาราง A4 ≤ 2,000 แถว) เฉพาะรายงานสรุป — resource `revenue` (อื่น ๆ = 422) |   |
+| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes`, `unbilled-delivery-orders`, `receivables-aging`, `revenue`, `accounting-sales`, `accounting-receipts`, `accounting-settlements`, `accounting-wht-summary`, `reconcile-period-close` |   | `orders` |
+| `format` |   | `string` | ค่า: `xlsx`, `csv`, `pdf` | .xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ.csv UTF-8 + BOM · `pdf` (ตาราง A4 ≤ 2,000 แถว) เฉพาะรายงาน — resource `revenue`, `unbilled-delivery-orders`, `receivables-aging`, `reconcile-period-close` (อื่น ๆ = 422) |   |
 | `filter` |   | `object` |   | ตัวกรองชุดเดียวกับ query ของ `GET /v1/{resource}` (ค่าเป็น string) — ตรวจกติกาเดียวกัน (field แปลก = 422) · `limit`/`cursor`/`sort`/`fields`/`updatedAfter` ไม่มีผล (ไฟล์มีทุกแถวที่ตรงตัวกรอง) | `{"held":"true","holdReason":"RATE_MISSING"}` |
 
 **Responses**
@@ -33,7 +35,7 @@ scope: `export:run` · operationId: `Exports_create`
 |---|---|---|
 | `202` | รับงานแล้ว — ต้องมี `export:run` + สิทธิ์อ่านของรายการนั้น (เช่น `orders:read`, `master:read`) · ไฟล์ไม่เกิน 100000 แถว · คอลัมน์ราคา/การเงินเฉพาะผู้มีสิทธิ์เห็น | `ExportAcceptedDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`export:run`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`export:run`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อส่งออก: ผู้ใช้ทุกครั้ง ยกเว้นเลือกแถวเอง (`ids`) · รายงานและ `accounting-*` ทุกครั้ง — [permission_denied](errors.md#permission_denied), [step_up_required](errors.md#step_up_required) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
 
@@ -94,7 +96,55 @@ const { data, error } = await tms.GET('/v1/exports/{id}', {
 });
 ```
 
+## จำนวนเอกสาร/แถวของแต่ละชุดก่อนส่งออกให้นักบัญชี {#get-accounting-exports-summary}
+
+`GET /v1/accounting-exports/summary`
+
+scope: `export:run` · operationId: `AccountingExport_summary`
+
+ชุดข้อมูล: **sales** ใบแจ้งหนี้ที่ออกแล้ว (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — ชุดเดียวกับรายงานรายได้) ตามวันที่ออก · **receipts** การรับชำระ ตามวันที่รับ · **settlements** ใบสำคัญจ่ายรถร่วม PAID ตามวันที่จ่าย · **wht** สรุปหัก ณ ที่จ่าย **ประมาณการ** ต่อคู่ค้า — ผู้รับเหมา: Σ `wht_amount` ที่ตรึงของใบ PAID + ฐานจากผลประมาณการ + แบบ ภ.ง.ด.3/53 ที่ระบบจัดไว้ · ลูกค้า: Σ `wht_amount` ของรับชำระ (ฐาน/แบบยื่นไม่ได้เก็บ = ว่าง) — รวมค่าที่บันทึกไว้เท่านั้น ไม่ใช่แบบ ภ.ง.ด. / 50 ทวิ · แสดงเฉพาะชุดที่มีสิทธิ์อ่าน · **ใบที่ยกเลิก / รับชำระที่กลับรายการ** อยู่ในไฟล์เป็นแถวเอกสารพร้อมสถานะ วันที่ เหตุผล — ยอดตามที่ออกอยู่ในคอลัมน์ "…ที่ยกเลิก/กลับรายการ (ไม่นับรวม)" แยกจากคอลัมน์ยอดปกติ → ผลรวมคอลัมน์ยอดปกติ = เอกสารที่ยังใช้ (ตรงรายงาน) · **เลขบัตรประชาชนรถร่วมบุคคลธรรมดา**: เต็มเฉพาะผู้ใช้ที่มี `pii.national_id:read` (ค่าเริ่ม owner + accounting) และลง audit `export.pii_included` ทุกไฟล์ · ไม่มีสิทธิ์ / API key (เสมอ) = `•••• 1234` · ไฟล์: `POST /v1/exports` `{resource, format: csv|xlsx, filter: {dateFrom, dateTo, template?}}` → แถวเอกสาร 1 แถว + แถวรายการ (ยอดรวมอยู่เฉพาะแถวเอกสาร · CSV = UTF-8 BOM + CRLF เปิดใน Excel อ่านไทยได้)
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `dateFrom` | query | ใช่ | `string` | วันแรกของช่วง (วันที่เอกสาร เวลาไทย) — ช่วงยาวสุด 366 วัน |
+| `dateTo` | query | ใช่ | `string` | วันสุดท้ายของช่วง (รวมวันนี้) |
+| `template` | query |   | `string` | รูปแบบไฟล์ (`templates[].key` จาก summary) — ไม่ส่ง = รูปแบบทั่วไป (layout กลาง: แถวเอกสาร + แถวรายการ) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `AccountingExportSummaryDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`export:run`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/accounting-exports/summary" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/accounting-exports/summary');
+```
+
 ## Schema ของ response {#schemas}
+
+### AccountingExportSummaryDto {#schema-AccountingExportSummaryDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `dateFrom` | ใช่ | `string` |   |   | `2026-10-01` |
+| `dateTo` | ใช่ | `string` |   |   | `2026-10-31` |
+| `datasets` | ใช่ | `array<AccountingExportDatasetDto>` |   | เฉพาะชุดที่ผู้เรียกมีสิทธิ์อ่าน (`invoices:read` / `settlements:read` · wht = อย่างใดอย่างหนึ่ง — มีเฉพาะฝั่งที่อ่านได้) |   |
+| `templates` | ใช่ | `array<AccountingExportTemplateDto>` |   |   |   |
 
 ### ExportAcceptedDto {#schema-ExportAcceptedDto}
 
@@ -114,7 +164,7 @@ const { data, error } = await tms.GET('/v1/exports/{id}', {
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `job_…` |
-| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes`, `unbilled-delivery-orders`, `receivables-aging`, `revenue` |   |   |
+| `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes`, `unbilled-delivery-orders`, `receivables-aging`, `revenue`, `accounting-sales`, `accounting-receipts`, `accounting-settlements`, `accounting-wht-summary`, `reconcile-period-close`, `invoice-run-summary` | `invoice-run-summary` = ไฟล์สรุปรอบวางบิล (สร้างเองเมื่อ `POST /v1/invoice-runs` จบ — `id` = jobId ของรอบ; สั่งผ่าน `POST /exports` ไม่ได้) |   |
 | `format` | ใช่ | `string` | ค่า: `xlsx`, `csv`, `pdf` |   |   |
 | `filter` | ใช่ | `object` |   |   |   |
 | `status` | ใช่ | `string` | ค่า: `pending`, `running`, `succeeded`, `failed`, `expired` | expired = ไฟล์เกิน 7 วันแล้ว (ส่งออกใหม่) |   |

@@ -75,6 +75,18 @@ export const PROBLEMS = {
     th: 'ยังไม่ได้ตั้งการยืนยันตัวตน 2 ชั้น',
     en: 'Two-factor authentication is not set up',
   },
+  /** D-78 (PO 23 พ.ย. 2569): ผู้ใช้ที่ถือสิทธิ์สำคัญยังไม่ตั้ง 2FA — ทำได้แค่ขั้นตั้ง 2FA */
+  two_factor_enrolment_required: {
+    status: 403,
+    th: 'บัญชีนี้ต้องตั้งการยืนยันตัวตน 2 ชั้นก่อนใช้งาน',
+    en: 'Set up two-factor authentication before continuing',
+  },
+  /** D-79 (PO 23 พ.ย. 2569): API key แก้/ดูเลขบัญชีธนาคารผู้รับเหมาไม่ได้ */
+  bank_change_requires_user: {
+    status: 403,
+    th: 'แก้หรือดูบัญชีธนาคารผู้รับเหมาผ่าน API key ไม่ได้ ต้องให้ผู้ใช้ทำในระบบ',
+    en: 'Carrier bank account details can only be changed or viewed by a signed-in user',
+  },
   feature_not_in_plan: {
     status: 403,
     th: 'แพ็กเกจปัจจุบันยังไม่มีฟีเจอร์นี้',
@@ -206,6 +218,12 @@ export const PROBLEMS = {
     status: 409,
     th: 'ดึงผังรหัสจากระบบบัญชีไม่สำเร็จ ตรวจการเชื่อมต่อแล้วลองใหม่',
     en: 'Fetching master codes from the connector failed — check the connection and retry',
+  },
+  /** ST7-T19 ทำรายการนี้กับคำสั่งในคิวเชื่อมระบบบัญชีไม่ได้ — `why`: already_resolved / not_failed / not_retryable / not_a_document_push / resend_unavailable */
+  queue_action_not_allowed: {
+    status: 409,
+    th: 'ทำรายการนี้กับคำสั่งนี้ไม่ได้ (จัดการไปแล้ว หรือไม่ใช่รายการที่ล้มเหลว หรือต้องทำในระบบบัญชีเอง)',
+    en: 'This action is not allowed for this command (already handled, not failed, or must be done in the accounting system)',
   },
   connector_health_failed: {
     status: 409,
@@ -388,6 +406,12 @@ export const PROBLEMS = {
     status: 409,
     th: 'บรรทัดต้นทุนนี้อยู่ในใบสำคัญจ่ายอื่นแล้ว — จ่ายซ้ำไม่ได้',
     en: 'Trip cost line is already in another active settlement',
+  },
+  /** ST8-T13 ผู้อนุมัติการแทนที่เอกสารในระบบบัญชีต้องไม่ใช่ผู้ขอ (ผู้ออกใบใหม่ / ผู้ยกเลิกใบเดิม / ผู้สั่งส่งซ้ำ) — docs/01 A.2 approval */
+  erp_replace_self_approval: {
+    status: 403,
+    th: 'ผู้ขอแทนที่เอกสารในระบบบัญชี (ผู้ออกใบใหม่ ผู้ยกเลิกใบเดิม หรือผู้สั่งส่งซ้ำ) อนุมัติเองไม่ได้ ต้องให้ผู้อนุมัติคนอื่น',
+    en: 'Whoever requested replacing the accounting-system document cannot approve it',
   },
   /** ST6-T07 separation of duties (docs/04 F6 Approve, A3): ผู้สร้างใบสำคัญจ่ายอนุมัติใบตัวเองไม่ได้ */
   settlement_self_approval: {

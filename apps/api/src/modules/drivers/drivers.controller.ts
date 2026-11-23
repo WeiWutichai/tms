@@ -25,7 +25,8 @@ import {
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
-import { RequireScope, TenantResource, RateLimitClass } from '../../common/decorators';
+import { RequireScope, TenantResource, RateLimitClass, StepUpWhen } from '../../common/decorators';
+import { EXPORT_STEP_UP_WHEN } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
@@ -144,6 +145,7 @@ export class DriversController {
   @Get('export')
   @RateLimitClass('heavy')
   @RequireScope('export:run')
+  @StepUpWhen(EXPORT_STEP_UP_WHEN)
   @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv')
   @ApiOkResponse({
     description:

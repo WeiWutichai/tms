@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import type { PrismaClient } from '@prisma/client';
+import { isSandboxTenant } from '../sandbox/users';
 import { isLocalEnv } from '../../auth/tokens';
 import {
   adapterShapeProblems,
@@ -11,7 +13,9 @@ import {
  * ทะเบียน ErpAdapter ในโค้ด (ST7-T13; docs/01 §6.1; plan/00a: catalog ของ adapter อยู่ในโค้ด ไม่ใช่ตาราง)
  * - adapter ลงทะเบียนจาก `src/erp-adapters/index.ts` เท่านั้น (composition root) — core หา adapter จาก `adapter_key` ไม่รู้จัก ERP ใดเป็นพิเศษ
  * - `standalone` สงวนไว้ = ไม่มี connector (คืนเมื่อหาไม่พบ — ไม่เดา adapter)
- * - adapter `localOnly` (Demo) ลงทะเบียนได้เฉพาะ dev/test หรือเมื่อ `ERP_DEMO_ADAPTERS=1` (staging/sandbox — docs/04 G3)
+ * - adapter `localOnly` (Demo) ใช้ได้ทุก tenant เฉพาะ dev/test หรือเมื่อ `ERP_DEMO_ADAPTERS=1` (staging — docs/04 G3) ·
+ *   environment อื่น (production cluster) = **ใช้ได้เฉพาะ tenant sandbox** (`mode = test` — D-81 · D68-58/D68-96; docs/04 G3/J)
+ * - tenant sandbox ใช้ได้เฉพาะ adapter `localOnly` — connector จริงใน sandbox ยังปิด (ไม่ส่งออกนอกระบบ — ST7-T09)
  */
 @Injectable()
 export class ErpAdapterRegistry {
@@ -23,6 +27,7 @@ export class ErpAdapterRegistry {
    * `NODE_ENV=production` **ไม่ได้เลย** แม้ตั้งธง (ST7-T14 review — staging ต้องตั้ง NODE_ENV อื่น เช่น `staging`)
    */
   static demoAllowed(): boolean {
+    // หมายเหตุ D68-96: false ไม่ได้แปลว่าปิด demo ทั้งหมด — tenant sandbox ยังใช้ได้ (`usableIn`)
     if (isLocalEnv()) return true;
     return process.env.NODE_ENV !== 'production' && process.env.ERP_DEMO_ADAPTERS === '1';
   }
@@ -40,6 +45,24 @@ export class ErpAdapterRegistry {
 
   refusedKeys(): string[] {
     return [...this.refused].filter((k) => !this.adapters.has(k)).sort();
+  }
+
+  /** adapter จำลองที่ environment นี้ให้ใช้เฉพาะ tenant sandbox (D68-96) */
+  private readonly sandboxOnly = new Set<string>();
+
+  isSandboxOnly(key: string): boolean {
+    return this.sandboxOnly.has(key) && this.adapters.has(key);
+  }
+
+  /**
+   * D-81 · D68-58/D68-96 adapter ที่ tenant โหมดนี้ใช้ได้ (null = ใช้ไม่ได้/ไม่มี):
+   * sandbox (`mode = test`) → เฉพาะ `localOnly` (DemoProvider) · บริษัทจริง → ทุกตัว ยกเว้น demo ที่ environment นี้ให้ใช้เฉพาะ sandbox
+   */
+  usableIn(key: string, sandbox: boolean): ErpAdapter | null {
+    const a = this.get(key);
+    if (!a || a === this.standalone) return a;
+    if (sandbox) return a.localOnly ? a : null;
+    return this.sandboxOnly.has(key) ? null : a;
   }
 
   register(adapter: ErpAdapter): void {
@@ -61,12 +84,13 @@ export class ErpAdapterRegistry {
   }
 
   private put(adapter: ErpAdapter) {
-    if (adapter.localOnly && !ErpAdapterRegistry.demoAllowed())
-      throw new Error(`erp adapter '${adapter.key}' is only allowed in development/test/sandbox`);
     const problems = adapterShapeProblems(adapter);
     if (problems.length)
       throw new Error(`erp adapter '${adapter.key}' invalid: ${problems.join('; ')}`);
     this.adapters.set(adapter.key, adapter);
+    // D68-96: production cluster มี tenant sandbox — demo ลงทะเบียนไว้แต่ใช้ได้เฉพาะ sandbox
+    if (adapter.localOnly && !ErpAdapterRegistry.demoAllowed()) this.sandboxOnly.add(adapter.key);
+    else this.sandboxOnly.delete(adapter.key);
   }
 
   /** ไม่มี = null (core ถือว่า adapter หาย — ไม่ใช่ Standalone, คำสั่งรอคิว) */
@@ -75,8 +99,26 @@ export class ErpAdapterRegistry {
     return this.adapters.get(key) ?? null;
   }
 
-  /** adapter ที่เปิดเป็น connector ได้ เรียงตามรหัส (spec/07 INT-010: ไม่มีตัวใดเป็นค่าเริ่มต้น) */
-  list(): ErpAdapter[] {
-    return [...this.adapters.values()].sort((a, b) => a.key.localeCompare(b.key));
+  /**
+   * adapter ที่เปิดเป็น connector ได้ เรียงตามรหัส (spec/07 INT-010: ไม่มีตัวใดเป็นค่าเริ่มต้น)
+   * ระบุ `sandbox` = เฉพาะที่ tenant โหมดนั้นใช้ได้ (`usableIn`) · ไม่ระบุ = ทั้งหมด
+   */
+  list(sandbox?: boolean): ErpAdapter[] {
+    return [...this.adapters.values()]
+      .filter((a) => sandbox === undefined || this.usableIn(a.key, sandbox) === a)
+      .sort((a, b) => a.key.localeCompare(b.key));
   }
+}
+
+/**
+ * D-81 · D68-58/D68-96 adapter ของ connector ที่ tenant นั้นใช้ได้ (ตามโหมด sandbox/บริษัทจริง — `usableIn`) — ใช้ในงานเบื้องหลัง
+ * ที่ติดต่อปลายทาง (healthCheck, webhook ขาเข้า, ดึงผังรหัส, ดึงสถานะรับชำระ) · โหมด tenant cache ต่อ process (`isSandboxTenant`)
+ */
+export async function usableAdapter(
+  registry: ErpAdapterRegistry,
+  db: PrismaClient,
+  c: { tenantId: string; adapterKey: string },
+): Promise<ErpAdapter | null> {
+  if (!registry.get(c.adapterKey)) return null;
+  return registry.usableIn(c.adapterKey, await isSandboxTenant(db, c.tenantId));
 }

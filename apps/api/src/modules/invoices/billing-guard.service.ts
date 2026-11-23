@@ -6,6 +6,7 @@ import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { MAX_DOS_PER_INVOICE } from './billing-limits';
 import { DeliveryOrderService, type BillingDoRow } from '../delivery-orders/delivery-order.service';
 
 /**
@@ -178,6 +179,7 @@ export class InvoiceBillingGuard {
     if (errors.length) throw new ProblemException('validation_failed', undefined, errors);
 
     const inv = await this.lockDraft(tx, invoiceId);
+    await this.assertDoCap(tx, invoiceId, ids.length);
     const rows = await this.dos.lockForBilling(tx, ids);
     const byId = new Map(rows.map((r) => [r.id, r]));
     const bad = ids.flatMap((id, i) => {
@@ -354,6 +356,24 @@ export class InvoiceBillingGuard {
     }
     await this.dos.moveBilling(tx, pick, event, note, this.clock.now());
     return pick.length;
+  }
+
+  /**
+   * เพดาน DO ต่อใบแจ้งหนี้ (`MAX_DOS_PER_INVOICE` — PO 22 พ.ย. 2569 D-65): DO ที่อยู่บนร่างแล้ว + ที่จะดึงเพิ่ม เกิน = 422 `too_many`
+   * ตรวจหลังล็อกใบ (นับใต้ล็อก — คำขอพร้อมกันเกินเพดานรวมไม่ได้) · ทุกทางที่ดึง DO เข้าร่างผ่านจุดนี้ (สร้างมือ, เพิ่ม/ย้าย DO, รอบวางบิล, ออกใบแทน)
+   */
+  private async assertDoCap(tx: Tx, invoiceId: string, adding: number) {
+    const [{ n }] = await tx.$queryRaw<[{ n: number }]>`
+      SELECT count(DISTINCT delivery_order_id)::int AS n FROM invoice_line
+       WHERE invoice_id = ${invoiceId}::uuid AND active AND delivery_order_id IS NOT NULL`;
+    if (n + adding > MAX_DOS_PER_INVOICE)
+      throw new ProblemException('validation_failed', undefined, [
+        {
+          field: 'deliveryOrderIds',
+          code: 'too_many',
+          message: `an invoice can hold at most ${MAX_DOS_PER_INVOICE} delivery orders (already ${n}, adding ${adding})`,
+        },
+      ]);
   }
 
   private async lockInvoice(tx: Tx, id: string) {
