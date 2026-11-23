@@ -124,6 +124,13 @@ const DOC_NOT_SENT_HINT_TH: Readonly<Record<string, string>> = {
   void_manual_required: 'เอกสารถูกยกเลิกใน TMS — ยกเลิกในระบบบัญชีเอง',
   connector_disconnected: 'ยกเลิกการเชื่อมต่อแล้ว — บันทึกเอกสารนี้ในระบบบัญชีเอง',
   capability_not_supported: 'ระบบบัญชีนี้ไม่รองรับเอกสารชนิดนี้ — บันทึกในระบบบัญชีเอง',
+  duplicate_unresolved:
+    'ระบบบัญชีมีเลขอ้างอิงนี้แล้วแต่หาเอกสารไม่พบ — ตรวจในระบบบัญชีแล้วกรอกเลขเอกสารฝั่งบัญชีเอง',
+  regenerate_required:
+    'เอกสารที่ส่งแล้วเปลี่ยนส่วนที่ต้องออกใหม่ — ยกเลิกแล้วออกใหม่ในระบบบัญชีเอง',
+  paid_locked: 'เอกสารรับชำระแล้ว ระบบไม่ส่งการแก้ไข — ปรับในระบบบัญชีเอง',
+  replace_not_supported: 'ระบบบัญชีแก้เอกสารผ่าน API ไม่ได้ — แก้ในระบบบัญชีเอง',
+  replace_requires_approval: 'ระบบบัญชีลงบัญชีแล้ว — ต้องอนุมัติก่อนแทนที่ หรือแก้ในระบบบัญชีเอง',
 };
 const DOC_NOT_SENT_HINT_EN: Readonly<Record<string, string>> = {
   erp_mapping_incomplete: 'map the service items to accounting codes, then resend.',
@@ -133,6 +140,12 @@ const DOC_NOT_SENT_HINT_EN: Readonly<Record<string, string>> = {
     'the connection was removed — record it in the accounting system manually.',
   capability_not_supported:
     'this accounting system does not accept this document type — record it manually.',
+  duplicate_unresolved:
+    'the accounting system already has this reference but the document was not found — enter its number manually.',
+  regenerate_required: 'the change requires re-issuing it in the accounting system manually.',
+  paid_locked: 'it is already paid — changes are not sent; adjust it in the accounting system.',
+  replace_not_supported: 'the accounting system cannot update it via API — update it manually.',
+  replace_requires_approval: 'it is posted in the accounting system — replacing needs approval.',
 };
 /** review M2: AMBIGUOUS (timeout หลังส่ง / lease หมดครั้งสุดท้าย) — เอกสารอาจถึงระบบบัญชีแล้ว */
 const DOC_NOT_SENT_AMBIGUOUS_TH = 'อาจถึงระบบบัญชีแล้ว — ตรวจในระบบบัญชีก่อนส่งใหม่หรือบันทึกเอง';

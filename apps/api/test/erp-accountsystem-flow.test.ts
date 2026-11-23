@@ -688,6 +688,12 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
     const m = await mapping('SETTLEMENT', s.uuid);
     expect(JSON.stringify(m)).not.toContain(nid);
     expect(m!.lastSyncedHash).toBe((done.result as any).sentHash);
+    // ST7-T16 sync log: มีแถวของทุก HTTP call ของคำสั่งนี้ แต่ request/response ไม่มีเลขบัตร (ช่อง tax_id = *** + ตัดเลขซ้ำ)
+    const logs = await plat.erpSyncLog.findMany({ where: { outboxId: cmd.id } });
+    expect(logs.length).toBeGreaterThan(0);
+    expect(logs.some((l) => l.method === 'PUT' && l.url.includes('/ext/v1/contacts'))).toBe(true);
+    expect(JSON.stringify(logs)).not.toContain(nid);
+    expect(JSON.stringify(logs)).not.toContain(nid.slice(0, 8));
     // audit: บันทึกว่าส่งข้อมูลส่วนบุคคล (ไม่มีตัวเลข)
     const audits = await plat.auditLog.findMany({
       where: { tenantId, action: 'connector.pii_sent' },

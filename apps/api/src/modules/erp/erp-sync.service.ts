@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { tryDecodeId } from '../../common/ids';
 import type { Tx } from '../../db/db.service';
+import { randomUUID } from 'node:crypto';
 import { OutboxService } from '../integration/outbox.service';
 import type { SettlementDto } from '../settlements/settlement.dto';
 import {
@@ -8,6 +9,7 @@ import {
   CANONICAL_SETTLEMENT_SELECT,
   canonicalInvoice,
   canonicalSettlement,
+  documentDate,
 } from './canonical';
 import { ConnectorResolver } from './connector-resolver';
 import { ExternalMappingService } from './external-mapping.service';
@@ -33,7 +35,12 @@ export const ERP_ENTITY = {
  * แล้ว ErpAdapterSink ส่งนอก transaction (ประตู capability / system-of-record / mapping ทำที่ sink)
  * - เฉพาะ connector ของนิติบุคคลของเอกสาร (routing ST7-T13) ที่ **เปิด capability นั้นอยู่** — ไม่มี/ปิด = Standalone ไม่มีคำสั่ง
  * - กันซ้ำ: payload เดิม = คำสั่งเดิม (`enqueueCommand` idempotency_key ตาม hash) + adapter ส่งเลข TMS เป็น ref กันซ้ำฝั่ง ERP
- * - ประตู `syncFromDate` / ส่งใหม่เมื่อเอกสารเปลี่ยน = ST7-T16
+ * - ST7-T16 ประตู `syncFromDate` (docs/01 §6.4 "ไม่ถูกสร้าง outbox"): เอกสารที่วันที่ก่อนวันเริ่มซิงก์ของ connector **ไม่มีคำสั่ง**
+ *   (บัญชีคีย์ไว้เองก่อน go-live) · คำสั่งที่สร้างไว้ก่อนผู้ดูแลเลื่อนวัน = sink ข้ามเป็น SKIPPED `before_sync_from_date` ตอนส่ง
+ * - ST7-T16 ตอนสร้างคำสั่ง PUSH_* / REPLACE_DOCUMENT ล็อกแถว connector `FOR KEY SHARE` ใน transaction เดียวกัน — กัน TOCTOU กับการเปลี่ยน
+ *   เจ้าของเอกสาร (`setSystemOfRecord` ใช้ FOR UPDATE)
+ * - ST7-T16 ส่งใหม่ (`resend`): ใช้ canonical **ฉบับที่ออก** (payload ของคำสั่งส่งครั้งแรก — ไม่สร้างจากข้อมูลปัจจุบัน) · เอกสารอยู่ใน ERP แล้ว
+ *   = REPLACE_DOCUMENT · การเปลี่ยนถึง ERP แบบไหนตัดสินที่ sink ด้วย `fieldChangePolicy` (`documentInErp` จาก external_mapping)
  */
 @Injectable()
 export class ErpSyncService {
@@ -62,7 +69,7 @@ export class ErpSyncService {
     );
     // ST8-T07 (PDPA): ชื่อคนขับลง payload เฉพาะ connector ที่ adapter ประกาศว่าต้องใช้
     const doc = canonicalInvoice(inv, customerExternalId, r.adapter?.personalDataNeeds ?? []);
-    await this.enqueue(tx, {
+    const q = await this.enqueue(tx, r.connector.syncFromDate, {
       tenantId: inv.tenantId,
       connectorId: r.connector.id,
       operation: 'PUSH_INVOICE',
@@ -71,7 +78,7 @@ export class ErpSyncService {
       customerId: inv.customerId,
       payload: { document: doc, branchId: inv.issuingBranchId },
     });
-    return [r.connector.id];
+    return q ? [r.connector.id] : [];
   }
 
   /**
@@ -88,8 +95,9 @@ export class ErpSyncService {
       select: { tenantId: true, customerId: true, invoiceNo: true },
     });
     if (!inv) return [];
+    // ST7-T16 เฉพาะ mapping ที่เอกสารถึง ERP แล้ว (มี external_id) — mapping FAILED (VALIDATION ก่อนถึง ERP) ไม่มีอะไรให้ยกเลิก
     const maps = await tx.externalMapping.findMany({
-      where: { entityType: MAP_ENTITY.invoice, localId: invoiceId },
+      where: { entityType: MAP_ENTITY.invoice, localId: invoiceId, externalId: { not: null } },
     });
     const inFlight = await tx.integrationOutbox.findMany({
       where: {
@@ -114,7 +122,7 @@ export class ErpSyncService {
     for (const [connectorId, ref] of targets) {
       const c = await tx.connector.findUnique({ where: { id: connectorId } });
       if (!c || c.status === 'DISCONNECTED') continue;
-      await this.enqueue(tx, {
+      await this.enqueue(tx, null, {
         tenantId: inv.tenantId,
         connectorId: c.id,
         operation: 'VOID_DOCUMENT',
@@ -150,7 +158,7 @@ export class ErpSyncService {
     const r = await this.resolver.forCompany(tx, row.payingCompanyId);
     if (r.standalone || !r.connector || !r.capabilities.includes('pushSettlement')) return [];
     const doc = canonicalSettlement(s, row);
-    await this.enqueue(tx, {
+    const q = await this.enqueue(tx, r.connector.syncFromDate, {
       tenantId: row.tenantId,
       connectorId: r.connector.id,
       operation: 'PUSH_SETTLEMENT',
@@ -159,11 +167,92 @@ export class ErpSyncService {
       customerId: null,
       payload: { document: doc },
     });
-    return [r.connector.id];
+    return q ? [r.connector.id] : [];
+  }
+
+  /**
+   * ST7-T16 ส่งเอกสารที่ส่งแล้ว/ส่งไม่สำเร็จใหม่อีกครั้ง (ปุ่ม "ส่งใหม่" ของคิว ST7-T19 / ปิด MISMATCH ฝั่ง "TMS ถูก" — docs/01 §6.5)
+   * - ใช้ canonical **ฉบับที่ออก** = payload ของคำสั่ง PUSH_* ล่าสุดของเอกสารนี้ต่อ connector (ไม่สร้างใหม่จากข้อมูลปัจจุบัน —
+   *   เอกสารที่ออกแล้วแก้ไม่ได้; ส่วนที่ใส่ ณ ตอนส่ง เช่น รหัสฝั่ง ERP sink ใส่ใหม่ทุกครั้ง)
+   * - external_mapping บอกว่าเอกสารอยู่ใน ERP แล้ว (มี external_id, ฝั่ง ERP ไม่ได้ยกเลิก) → REPLACE_DOCUMENT `{ref, document}`
+   *   ไม่อยู่ → PUSH_* ด้วย payload ฉบับที่ออก
+   * - review: สร้าง**คำสั่งใหม่**ใน transaction ของผู้เรียก (RLS ของ tenant — ไม่ใช้ role platform ไม่เขียนนอก transaction) ·
+   *   idempotency key ต่อท้าย `:resend-{nonce}` (คำสั่งเดิมคงผล/ประวัติไว้) · ช่องผล/ข้อผิดพลาด/lease ว่างเหมือนคำสั่งใหม่ ·
+   *   key ที่ ERP เห็นยังผูกกับเนื้อหา (`sentIdempotencyKey`) และ sink ค้นเอกสารฝั่ง ERP ก่อนส่งถ้าเคยส่งแบบไม่รู้ผล
+   * - มีคำสั่งของเอกสารนี้ค้างอยู่ (PENDING / IN_FLIGHT / FAILED_RETRYABLE) = คืนคำสั่งนั้น ไม่สร้างซ้ำ
+   * - sink ตัดสินต่อ: hash เท่าเดิม = ไม่ส่ง · เนื้อหาเปลี่ยน = `fieldChangePolicy` (AUTO_SYNC → replaceDocument / REGENERATE / BLOCKED)
+   * คืน id คำสั่ง (null = ไม่เคยมีคำสั่งส่งเอกสารนี้ไป connector นั้น / connector ยกเลิกแล้ว)
+   */
+  async resend(
+    tx: Tx,
+    entity: 'invoice' | 'settlement',
+    localId: string,
+    connectorId: string,
+  ): Promise<string | null> {
+    const op = entity === 'invoice' ? 'PUSH_INVOICE' : 'PUSH_SETTLEMENT';
+    const c = await tx.connector.findUnique({ where: { id: connectorId } });
+    if (!c || c.status === 'DISCONNECTED') return null;
+    const last = await tx.integrationOutbox.findFirst({
+      where: { sink: ERP_SINK, targetId: connectorId, operation: op, entityType: entity, localId },
+      orderBy: { seq: 'asc' },
+      select: { payload: true },
+    });
+    const payload = (last?.payload ?? null) as { document?: { number?: unknown } } | null;
+    if (!payload?.document) return null;
+    const m = await tx.externalMapping.findUnique({
+      where: {
+        connectorId_entityType_localId: {
+          connectorId,
+          entityType: entity === 'invoice' ? MAP_ENTITY.invoice : MAP_ENTITY.settlement,
+          localId,
+        },
+      },
+    });
+    const inErp = !!m?.externalId && m.externalStatus !== 'VOIDED';
+    const open = await tx.integrationOutbox.findFirst({
+      where: {
+        sink: ERP_SINK,
+        targetId: connectorId,
+        entityType: entity,
+        localId,
+        operation: { in: [op, 'REPLACE_DOCUMENT'] },
+        status: { in: ['PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE'] },
+      },
+      select: { id: true },
+    });
+    if (open) return open.id;
+    const r = await this.enqueue(tx, c.syncFromDate, {
+      resendNonce: randomUUID(),
+      tenantId: c.tenantId,
+      connectorId,
+      operation: inErp ? 'REPLACE_DOCUMENT' : op,
+      entityType: entity,
+      localId,
+      // คีย์ serialize เดียวกับคำสั่งส่งครั้งแรก (ต่อลูกค้า — ใบลด/แทนที่ไม่แซงใบต้นฉบับ)
+      customerId:
+        entity === 'invoice'
+          ? ((await tx.invoice.findUnique({ where: { id: localId }, select: { customerId: true } }))
+              ?.customerId ?? null)
+          : null,
+      payload: inErp
+        ? {
+            ...(payload as Record<string, unknown>),
+            ref: {
+              entityType: entity,
+              localId,
+              number: String(payload.document.number ?? ''),
+              externalId: m!.externalId,
+            },
+          }
+        : (payload as Record<string, unknown>),
+    });
+    if (!r) return null; // เอกสารก่อน syncFromDate — ไม่สร้างคำสั่ง (docs/01 §6.4)
+    return r.id;
   }
 
   private async enqueue(
     tx: Tx,
+    syncFromDate: Date | null,
     c: {
       tenantId: string;
       connectorId: string;
@@ -172,8 +261,21 @@ export class ErpSyncService {
       localId: string;
       customerId: string | null;
       payload: Record<string, unknown>;
+      resendNonce?: string;
     },
-  ) {
+  ): Promise<{ id: string; created: boolean } | null> {
+    // ST7-T16 (backlog ST7-T16/T17) ล็อกแถว connector ร่วม (FOR KEY SHARE) — `setSystemOfRecord` (FOR UPDATE) รอจนคำสั่งนี้ commit
+    // แล้วเห็นคำสั่ง/เอกสารนี้ตอนตรวจ "เปลี่ยนเจ้าของได้ไหม" (กัน TOCTOU)
+    await tx.$queryRaw`SELECT 1 FROM connector WHERE id = ${c.connectorId}::uuid FOR KEY SHARE`;
+    // ST7-T16 ประตู syncFromDate (docs/01 §6.4 "เอกสารที่ issue_date ก่อนวันนี้ไม่ถูกสร้าง outbox") — ไม่สร้างคำสั่ง
+    const from = syncFromDate ? syncFromDate.toISOString().slice(0, 10) : null;
+    const date = documentDate((c.payload as { document?: unknown }).document);
+    if (from && date && date < from && c.operation !== 'VOID_DOCUMENT') {
+      this.logger.debug(
+        `${c.operation} ${c.entityType}/${c.localId}: dated ${date} before syncFromDate ${from} — no command`,
+      );
+      return null;
+    }
     const r = await this.outbox.enqueueCommand(tx, {
       tenantId: c.tenantId,
       kind: 'ADAPTER',
@@ -184,9 +286,11 @@ export class ErpSyncService {
       localId: c.localId,
       customerId: c.customerId,
       payload: c.payload,
+      ...(c.resendNonce ? { resendNonce: c.resendNonce } : {}),
     });
     this.logger.debug(
       `${c.operation} ${c.entityType}/${c.localId} → connector ${c.connectorId} (${r.created ? 'new' : 'same payload'})`,
     );
+    return r;
   }
 }

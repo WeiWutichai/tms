@@ -35,6 +35,7 @@ import type { ErrorClass } from '../../modules/integration/outbox.types';
  * - พฤติกรรมกำหนดได้ (deterministic) จากค่าตั้งที่ไม่ลับของ connector:
  *   `failMode` ฉีด ErrorClass ให้ทุก push/replace (และ healthCheck เมื่อ AUTH) · `failTimes` ล้มกี่ครั้งต่อเอกสารก่อนสำเร็จ ·
  *   `paymentStatus` ผลของ fetchPaymentStatus (ทุกเอกสาร) · ST7-T21 `setPaymentStatus()` ตั้งรายเอกสาร (test/สาธิต)
+ * - ST7-T16 รายงาน "HTTP call จำลอง" ทุกครั้งผ่าน `ctx.onHttpCall` (sync log — ไม่มีการเรียกออกจริง; host `demo-erp.invalid`)
  * - credential `apiKey`: ค่าใดก็ได้ ยกเว้น `invalid` (= credential ผิด → AUTH) — ไว้สาธิตการทดสอบการเชื่อมต่อล้ม
  * - กันซ้ำ 2 ชั้นเหมือน ERP จริง (docs/01 §6.2): idempotencyKey เดิม = ผลเดิม · เลขอ้างอิงของเราซ้ำด้วย key อื่น = DUPLICATE
  * - ไม่ประกาศ `ownsDocumentNumber` (TMS ออกเลขเอง — โหมดออกเลขฝั่ง ERP = ST7-T17) และ `postedStatus`
@@ -56,6 +57,8 @@ export const DEMO_FAIL_MODES = [
   'AUTH',
   'NOT_FOUND',
   'PERIOD_CLOSED',
+  /** ST7-T16 ERP ตอบว่าไม่รองรับคำสั่งนี้ (ครบ 8 class ของ docs/01 §6.3) */
+  'CAPABILITY',
 ] as const;
 export type DemoFailMode = (typeof DEMO_FAIL_MODES)[number];
 
@@ -158,6 +161,18 @@ export function demoExternalSuffix(scope: string, kind: string, key: string): st
     .slice(0, 12)
     .toUpperCase();
 }
+
+/** ST7-T16 HTTP status จำลองต่อ ErrorClass (sync log) — AMBIGUOUS = ไม่ได้ response */
+const DEMO_HTTP_STATUS: Record<ErrorClass, number | null> = {
+  TRANSIENT: 503,
+  AMBIGUOUS: null,
+  DUPLICATE: 409,
+  VALIDATION: 422,
+  AUTH: 401,
+  NOT_FOUND: 404,
+  PERIOD_CLOSED: 422,
+  CAPABILITY: 501,
+};
 
 const isMoney = (v: unknown): v is string => typeof v === 'string' && /^-?\d+(\.\d{1,2})?$/.test(v);
 
@@ -375,6 +390,10 @@ export class DemoAdapter implements ErpAdapter {
         code: 'period_closed',
         message: 'accounting period is closed in demo ERP (simulated)',
       },
+      CAPABILITY: {
+        code: 'unsupported_operation',
+        message: 'demo ERP does not support this operation (simulated)',
+      },
     };
     const p = problems[cls];
     return {
@@ -388,6 +407,45 @@ export class DemoAdapter implements ErpAdapter {
           : {}),
       },
     };
+  }
+
+  /** ST7-T16 รายงาน HTTP call จำลอง 1 ครั้ง (sync log) — สถานะตามผล (AMBIGUOUS = ไม่ได้ response) */
+  private report(
+    ctx: ErpContext,
+    method: string,
+    path: string,
+    requestBody: unknown,
+    r: PushResult | { found: unknown },
+  ): void {
+    const status =
+      'found' in r
+        ? r.found
+          ? 200
+          : 404
+        : r.ok
+          ? method === 'POST'
+            ? 201
+            : 200
+          : DEMO_HTTP_STATUS[r.errorClass];
+    try {
+      ctx.onHttpCall?.({
+        method,
+        url: `https://demo-erp.invalid/api${path}`,
+        requestBody,
+        status,
+        responseBody:
+          'found' in r
+            ? r.found
+            : r.ok
+              ? { externalId: r.externalId, externalDocNo: r.externalDocNo ?? null }
+              : { error: r.problem.code, message: r.problem.message },
+        errorCode: 'found' in r || r.ok ? null : r.problem.code,
+        durationMs: 0,
+        at: this.now(),
+      });
+    } catch {
+      /* ตัวบันทึกล้ม = ไม่กระทบผล */
+    }
   }
 
   private store(
@@ -431,6 +489,16 @@ export class DemoAdapter implements ErpAdapter {
   }
 
   private async push(kind: Kind, ctx: ErpContext, doc: CanonicalDocument): Promise<PushResult> {
+    const r = await this.pushInner(kind, ctx, doc);
+    this.report(ctx, 'POST', `/${kind}s`, doc, r);
+    return r;
+  }
+
+  private async pushInner(
+    kind: Kind,
+    ctx: ErpContext,
+    doc: CanonicalDocument,
+  ): Promise<PushResult> {
     if (this.badKey(ctx)) return this.authFailure();
     const s = this.scope(ctx);
     const number = String(doc?.number ?? '');
@@ -486,6 +554,12 @@ export class DemoAdapter implements ErpAdapter {
     ref: ExternalRef,
     inv: CanonicalDocument,
   ): Promise<PushResult> {
+    const r = this.replaceInner(ctx, ref, inv);
+    this.report(ctx, 'PUT', `/documents/${ref.externalId ?? ref.number}`, inv, r);
+    return r;
+  }
+
+  private replaceInner(ctx: ErpContext, ref: ExternalRef, inv: CanonicalDocument): PushResult {
     if (this.badKey(ctx)) return this.authFailure();
     const s = this.scope(ctx);
     const mode = this.failMode(ctx);
@@ -507,9 +581,13 @@ export class DemoAdapter implements ErpAdapter {
   async fetchDocument(ctx: ErpContext, ref: ExternalRef): Promise<CanonicalDocument | null> {
     if (this.badKey(ctx)) throw new Error('demo ERP rejected the API key (simulated)');
     const d = this.find(this.scopes.get(this.scopeId(ctx)), ref);
-    return d
+    const out = d
       ? { ...clone(d.document), externalId: d.externalId, externalDocNo: d.externalDocNo }
       : null;
+    this.report(ctx, 'GET', `/documents/${ref.externalId ?? ref.number}`, undefined, {
+      found: out,
+    });
+    return out;
   }
 
   async fetchPaymentStatus(ctx: ErpContext, ref: ExternalRef): Promise<PaymentStatus | null> {
@@ -551,6 +629,7 @@ export class DemoAdapter implements ErpAdapter {
         number: d.number,
         externalId: d.externalId,
       }));
+    this.report(ctx, 'GET', `/documents?ref=${q.ref ?? ''}`, undefined, { found: { items } });
     return { items, next: null };
   }
 

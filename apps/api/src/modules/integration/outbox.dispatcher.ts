@@ -291,7 +291,9 @@ export class OutboxDispatcher {
     let delayMin = 0;
     let attempt = c.attempt;
     switch (cls) {
-      case 'DUPLICATE': // ปลายทางมีอยู่แล้ว (ส่งถึงในรอบก่อน) — ไม่ใช่ error (reconcile ทำใน ST7-T16)
+      case 'DUPLICATE':
+        // ปลายทางมีอยู่แล้ว (ส่งถึงในรอบก่อน) — ไม่ใช่ error · ST7-T16 (docs/01 §6.3): sink ตามหาเอกสารฝั่งปลายทางแล้วบันทึก mapping
+        // หาไม่เจอ = DONE + `last_error.code` duplicate_unresolved (sink แจ้งบัญชีให้กรอกเลขจากระบบปลายทางเอง)
         status = 'DONE';
         break;
       case 'CAPABILITY':

@@ -16834,6 +16834,70 @@
           }
         },
         {
+          "name": "GET /v1/connectors/{id}/sync-log",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/connectors/:id/sync-log",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "connectors",
+                ":id",
+                "sync-log"
+              ],
+              "query": [
+                {
+                  "key": "commandId",
+                  "value": "obx_…",
+                  "description": "เฉพาะการเรียกของคำสั่งนี้ (บันทึกการซิงก์)",
+                  "disabled": true
+                },
+                {
+                  "key": "documentNo",
+                  "value": "INV-00000-2611-0001",
+                  "description": "เลขเอกสาร TMS",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "ค่า nextCursor จากหน้าก่อน (เรียงใหม่สุดก่อน)",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settings:read"
+          }
+        },
+        {
           "name": "GET /v1/connectors/{id}/master-codes",
           "request": {
             "method": "GET",

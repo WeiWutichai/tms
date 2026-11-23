@@ -77,6 +77,29 @@ export interface ErpContext {
    * ทุกค่าที่ประกาศและไม่ถูกกันอยู่ในนี้: หาเจอในผัง = รหัสตามผัง · ไม่ได้ตรวจ (ช่องไม่บังคับที่ยังไม่มีผัง / CUSTOMER) = **ค่าดิบ** (name null)
    */
   masterCodes?: ResolvedMasterCodes;
+  /**
+   * ST7-T16 sync log (docs/01 §6.4 "1 แถวต่อ 1 HTTP call"): adapter **ต้อง**เรียกทุกครั้งที่ยิง HTTP ไประบบภายนอก (สำเร็จ/ล้ม)
+   * core ตัด credential + เลขบัตรประชาชน, ตัด query string และขนาด body ก่อนเก็บ — adapter ส่งค่าดิบได้ **ยกเว้น header** (ห้ามส่ง)
+   * ไม่มี = ไม่บันทึก (เช่น contract test / healthCheck) · ห้าม throw
+   */
+  onHttpCall?: (call: ErpHttpCall) => void;
+}
+
+/** ST7-T16 การเรียก HTTP 1 ครั้งของ adapter (ส่งให้ `ErpContext.onHttpCall`) — ไม่มี header */
+export interface ErpHttpCall {
+  method: string;
+  /** URL เต็ม (core เก็บแค่ origin + path) */
+  url: string;
+  /** body ที่ส่ง (สตริงหรือ object) */
+  requestBody?: unknown;
+  /** null = ไม่ได้ response (timeout / เครือข่าย) */
+  status: number | null;
+  responseBody?: unknown;
+  /** รหัสสั้นของผล (เช่น `timeout`, `http_503`) */
+  errorCode?: string | null;
+  durationMs: number;
+  /** เวลาเริ่มเรียก (ไม่มี = เวลาที่ core ได้รับรายงาน) */
+  at?: Date;
 }
 
 /**

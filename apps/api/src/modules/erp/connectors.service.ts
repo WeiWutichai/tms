@@ -52,6 +52,13 @@ import {
 } from './erp-adapter';
 import { ErpAdapterRegistry, usableAdapter } from './erp-adapter.registry';
 import {
+  type ErpSyncLogListDto,
+  type ErpSyncLogQuery,
+  SYNC_LOG_SORT,
+  syncLogDto,
+} from './erp-sync-log';
+import { decodeCursor, encodeCursor } from '../../common/pagination';
+import {
   checkMasterCodeRefs,
   MASTER_CODE_KIND_TH,
   type MasterCodeGap,
@@ -400,6 +407,40 @@ export class ConnectorsService {
       take: q.limit ?? 50,
     });
     return rows.map(commandDto);
+  }
+
+  /** ST7-T16 sync log ของ connector (1 แถวต่อ 1 HTTP call — docs/01 §6.4) ใหม่สุดก่อน · keyset cursor (docs/01 §5.1) */
+  async syncLog(id: string, q: ErpSyncLogQuery, tx: Tx = this.db.tx): Promise<ErpSyncLogListDto> {
+    const c = await this.get(id, tx);
+    const empty = { data: [], nextCursor: null, hasMore: false };
+    const outboxId =
+      q.commandId !== undefined ? tryDecodeId('outboxCommand', q.commandId) : undefined;
+    if (q.commandId !== undefined && !outboxId) return empty;
+    const limit = q.limit ?? 50;
+    const and: Prisma.ErpSyncLogWhereInput[] = [{ connectorId: c.id }];
+    if (outboxId) and.push({ outboxId });
+    if (q.documentNo) and.push({ localNumber: q.documentNo });
+    if (q.cursor) {
+      const k = decodeCursor(q.cursor, SYNC_LOG_SORT);
+      const at = new Date(k.u);
+      and.push({ OR: [{ occurredAt: { lt: at } }, { occurredAt: at, id: { lt: k.i } }] });
+    }
+    const rows = await tx.erpSyncLog.findMany({
+      where: { AND: and },
+      orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+    });
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const last = page[page.length - 1];
+    return {
+      data: page.map(syncLogDto),
+      nextCursor:
+        hasMore && last
+          ? encodeCursor({ updatedAt: last.occurredAt, id: last.id }, SYNC_LOG_SORT)
+          : null,
+      hasMore,
+    };
   }
 
   /** connector ที่เอกสารของนิติบุคคล/สาขาใช้ (routing ตามนิติบุคคล — ST1-T16) */
