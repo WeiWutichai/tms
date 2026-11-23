@@ -80,8 +80,9 @@ export const EVENT_CATALOGUE: Record<NotificationEvent, EventDefinition> = {
   },
   // D-81 · D68-61 กระทบยอดกับระบบบัญชีพบส่วนต่างใหม่ (`reconcile.mismatch_found`, severity MONEY) → หัวหน้าบัญชี (`payments:record`)
   // ทันทีหลังจบรอบ (1 ฉบับ/รอบ/connector — ส่วนต่างเดิมไม่แจ้งซ้ำตาม diff_hash) + อยู่ในสรุปรายวัน 08:00
+  // ST8-T11 เนื้อหาเอกสารไม่ตรง (`reconcile.document_mismatch_found`) — MONEY ในระบบ + อีเมลทันที · FIELD ในระบบ (ขึ้นสรุปเช้า) · รวมกลุ่มต่อ connector
   'reconcile.mismatch': {
-    templates: ['reconcile.mismatch_found'],
+    templates: ['reconcile.mismatch_found', 'reconcile.document_mismatch_found'],
     defaults: { in_app: true, email: true },
     pending: null,
   },

@@ -73,6 +73,17 @@ export interface NotificationVars {
    * label = รหัส adapter · count = ส่วนต่างใหม่ในรอบ · invoiceNos = ตัวอย่างเลขใบไม่เกิน 5 · ไม่ใส่ยอดเงิน (สิทธิ์ดูราคาขายแยก)
    */
   'reconcile.mismatch_found': { label: string; count: number; invoiceNos: string[] };
+  /**
+   * ST8-T11 เนื้อหาใบแจ้งหนี้ในระบบบัญชีไม่ตรงกับที่ TMS ออก (docs/01 §6.5) · label = ชื่อระบบบัญชี · connectorId = รวมกลุ่มต่อ connector ·
+   * count = ใบที่พบส่วนต่างใหม่ · invoiceNos = ตัวอย่างเลขใบไม่เกิน 5 · money = มีส่วนต่างระดับ MONEY (รายการหาย/เกิน/ยอด) · ไม่ใส่ยอดเงิน
+   */
+  'reconcile.document_mismatch_found': {
+    label: string;
+    connectorId: string;
+    count: number;
+    invoiceNos: string[];
+    money: boolean;
+  };
   /** ST8-T03 connector กลับมาทำงานเอง (ปลายทางตอบอีกครั้ง — ERROR → ACTIVE โดยระบบ) */
   'connector.recovered': { label: string };
   /**
@@ -712,6 +723,24 @@ const TEMPLATES: {
           ? ` (${v.invoiceNos.map((x) => safeName(x, 40)).join(', ')}${v.count > v.invoiceNos.length ? ' …' : ''})`
           : ''
       } — TMS does not adjust them automatically; fix the cause.`,
+    }),
+  },
+  'reconcile.document_mismatch_found': {
+    th: (v) => ({
+      title: 'ข้อมูลไม่ตรงกับระบบบัญชี',
+      body: `${safeName(v.label, 80)} มีใบแจ้งหนี้ที่เนื้อหาไม่ตรงกับที่ TMS ออก ${n(v.count)} ใบ${
+        v.invoiceNos.length
+          ? ` (${v.invoiceNos.map((x) => safeName(x, 40)).join(', ')}${v.count > v.invoiceNos.length ? ' …' : ''})`
+          : ''
+      }${v.money ? ' — มีรายการหาย/เกิน หรือยอดไม่ตรง' : ''} — ตรวจแล้วแก้ที่ต้นเหตุ ระบบไม่แก้เอกสารเอง`,
+    }),
+    en: (v) => ({
+      title: 'Mismatch with the accounting system',
+      body: `${safeName(v.label, 80)} has ${n(v.count)} invoice(s) whose content differs from what TMS issued${
+        v.invoiceNos.length
+          ? ` (${v.invoiceNos.map((x) => safeName(x, 40)).join(', ')}${v.count > v.invoiceNos.length ? ' …' : ''})`
+          : ''
+      }${v.money ? ' — lines missing/extra or totals differ' : ''} — check and fix the cause; TMS does not change documents automatically.`,
     }),
   },
   'connector.platform_changed': {

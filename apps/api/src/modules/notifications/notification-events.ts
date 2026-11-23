@@ -303,6 +303,83 @@ export class NotificationEvents implements OnModuleInit {
   }
 
   /**
+   * ST8-T11 reconcile พบส่วนต่างของเนื้อหาใบแจ้งหนี้**ใหม่** (docs/01 §6.5) → ผู้ดูแลรับชำระ `payments:record` (ชุดเดียวกับ D68-61)
+   * · severity MONEY (รายการหาย/เกิน/ยอด) = ในระบบ + อีเมล ทันที · FIELD = ในระบบอย่างเดียว (ขึ้นสรุปเช้า 08:00 — docs/01 §6.5)
+   * · ส่วนต่างเดิม (diff_hash เท่าเดิม) ไม่ถึงที่นี่ — ผู้เรียกแจ้งเฉพาะ `created`
+   * · กันท่วม (รอบรายวันอ่านหลายร้อยใบ): ผู้รับที่มีแจ้งเตือนเดียวกันของ connector นี้ **ยังไม่อ่าน** ภายใน `DOC_NOT_SENT_GROUP_MS`
+   *   → รวมเข้าแถวเดิม (เพิ่มจำนวน + ตัวอย่างเลขไม่เกิน 5 · ไม่ส่งอีเมลซ้ำ) — ยกเว้นแถวเดิมไม่มี MONEY แต่ครั้งนี้มี (แจ้งใหม่พร้อมอีเมล)
+   * · ไม่ใส่ยอดเงิน · ลิงก์หน้าวางบิล (หน้า MISMATCH = ST8-T12)
+   */
+  async documentMismatch(
+    tx: Tx,
+    input: {
+      tenantId: string;
+      connectorId: string;
+      label: string;
+      invoiceId: string;
+      invoiceNo: string | null;
+      severity: 'MONEY' | 'FIELD';
+    },
+  ): Promise<void> {
+    const template = 'reconcile.document_mismatch_found' as const;
+    const connectorRef = encodeId('connector', input.connectorId);
+    const invoiceRef = encodeId('invoice', input.invoiceId);
+    const no = input.invoiceNo ?? invoiceRef;
+    const money = input.severity === 'MONEY';
+    await this.safely(tx, template, async () => {
+      const to = await this.notifications.resolve(tx, input.tenantId, {
+        permissions: ['payments:record'],
+      });
+      if (!to.length) return;
+      const since = new Date(Date.now() - DOC_NOT_SENT_GROUP_MS);
+      const open = await tx.notification.findMany({
+        where: {
+          tenantId: input.tenantId,
+          templateCode: template,
+          channel: 'in_app',
+          readAt: null,
+          createdAt: { gte: since },
+          recipientId: { in: to.map((u) => u.id) },
+          payload: { path: ['connectorId'], equals: connectorRef },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      const grouped = new Set<string>();
+      for (const row of open) {
+        if (grouped.has(row.recipientId)) continue;
+        const prev = row.payload as unknown as NotificationVars[typeof template];
+        if (money && !prev.money) continue;
+        const vars: NotificationVars[typeof template] = {
+          ...prev,
+          invoiceNos: [...(prev.invoiceNos ?? []), no].slice(-BATCH_SAMPLE),
+          count: (prev.count ?? 1) + 1,
+        };
+        const text = renderNotification(template, row.locale, vars);
+        const done = await tx.notification.updateMany({
+          where: { id: row.id, tenantId: input.tenantId, readAt: null },
+          data: {
+            title: text.title,
+            body: text.body,
+            payload: vars as unknown as Prisma.InputJsonValue,
+          },
+        });
+        if (done.count === 1) grouped.add(row.recipientId);
+      }
+      const fresh = to.filter((u) => !grouped.has(u.id)).map((u) => u.id);
+      if (!fresh.length) return;
+      await this.notifications.notify(tx, {
+        tenantId: input.tenantId,
+        to: { userIds: fresh },
+        template,
+        vars: { label: input.label, connectorId: connectorRef, count: 1, invoiceNos: [no], money },
+        channels: money ? ['in_app', 'email'] : ['in_app'],
+        link: '/bill',
+        entity: { type: 'invoice', id: invoiceRef },
+      });
+    });
+  }
+
+  /**
    * D-81 · D68-57 (+ เงื่อนไข D68-09) เอกสารไม่ถูกส่งเข้าระบบบัญชี (docs/01 §6.3: CAPABILITY "SKIPPED + แจ้งบัญชี" · FAILED_FINAL
    * รวม `erp_mapping_incomplete`) → ฝ่ายบัญชี `payments:record` (ผู้รับชุดเดียวกับ D68-61) · หมวด "การเชื่อมต่อขัดข้อง" · ไม่ใส่ยอดเงิน
    * · review M1 กันท่วม: ผู้รับที่มีแจ้งเตือนเดียวกัน (connector + รหัส) **ยังไม่อ่าน** ภายใน `DOC_NOT_SENT_GROUP_MS` → รวมเข้าแถวเดิม

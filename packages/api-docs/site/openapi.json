@@ -67157,6 +67157,22 @@
             "nullable": true,
             "format": "date-time"
           },
+          "reconcileState": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "SENT",
+              "ACCEPTED",
+              "MISMATCH"
+            ],
+            "description": "ผลกระทบยอดเนื้อหากับระบบบัญชี: `SENT` ส่งแล้วยังไม่ได้อ่านกลับมาเทียบ · `ACCEPTED` อ่านกลับแล้วตรง (หรือคนยอมรับส่วนต่างนั้นแล้ว) · `MISMATCH` ไม่ตรง (ดู `GET /reconcile-results?invoiceId=`) · null = ยังไม่อยู่ในระบบบัญชี"
+          },
+          "reconciledAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "เวลาที่เทียบเนื้อหาล่าสุด"
+          },
           "externalDocuments": {
             "description": "เอกสารฝั่งระบบบัญชีทุกใบ เมื่อระบบบัญชีรับใบนี้เป็นหลายเอกสาร · ใบแรก = `externalId` / `externalDocNo` · เอกสารเดียว = `[]`",
             "type": "array",
@@ -67172,6 +67188,8 @@
           "externalDocNo",
           "externalStatus",
           "lastSyncedAt",
+          "reconcileState",
+          "reconciledAt",
           "externalDocuments"
         ]
       },
@@ -74483,6 +74501,203 @@
           "adapterKey"
         ]
       },
+      "ReconcileDocumentDiffDto": {
+        "type": "object",
+        "properties": {
+          "levels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "HEADER",
+                "LINE_COUNT",
+                "TOTAL",
+                "LINE_FIELD",
+                "EXTRA_LINE"
+              ]
+            }
+          },
+          "lineCount": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReconcileLineCountDto"
+              }
+            ]
+          },
+          "missingLines": {
+            "description": "รายการของ TMS ที่ไม่พบในระบบบัญชี",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReconcileLineRefDto"
+            }
+          },
+          "extraLines": {
+            "description": "รายการที่ระบบบัญชีมีแต่ TMS ไม่มี",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReconcileLineRefDto"
+            }
+          },
+          "header": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReconcileFieldDiffDto"
+            }
+          },
+          "lineFields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReconcileLineFieldDiffDto"
+            }
+          },
+          "total": {
+            "description": "ยอดรวม / ยอด VAT (tolerance 0.01)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReconcileFieldDiffDto"
+            }
+          },
+          "totalSkipped": {
+            "type": "string",
+            "nullable": true,
+            "example": "remote_has_no_amounts",
+            "description": "ไม่ได้เทียบยอดเพราะ… (`remote_has_no_amounts` = ระบบบัญชีไม่คืนยอดเงิน — ไม่คำนวณแทน) · null = เทียบแล้ว"
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "รายการต่างเกินเพดานที่เก็บ (1,000 ต่อกลุ่ม) — แสดงไม่ครบ"
+          }
+        },
+        "required": [
+          "levels",
+          "lineCount",
+          "missingLines",
+          "extraLines",
+          "header",
+          "lineFields",
+          "total",
+          "totalSkipped",
+          "truncated"
+        ]
+      },
+      "ReconcileFieldDiffDto": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "example": "dueDate",
+            "description": "path ของช่องใน canonical (เช่น `customer.externalId`)"
+          },
+          "local": {
+            "type": "string",
+            "nullable": true,
+            "description": "ค่าฝั่ง TMS (ว่าง = null) · ช่องเงิน = null (ดู `sellLocalValue`) · ชื่อคนขับ = `***`"
+          },
+          "remote": {
+            "type": "string",
+            "nullable": true,
+            "description": "ค่าฝั่งระบบบัญชี (ว่าง = null)"
+          },
+          "sellLocalValue": {
+            "type": "string",
+            "nullable": true,
+            "description": "ค่าเงินฝั่ง TMS — `prices.sell:read`"
+          },
+          "sellRemoteValue": {
+            "type": "string",
+            "nullable": true,
+            "description": "ค่าเงินฝั่งระบบบัญชี — `prices.sell:read`"
+          }
+        },
+        "required": [
+          "field",
+          "local",
+          "remote"
+        ]
+      },
+      "ReconcileLineCountDto": {
+        "type": "object",
+        "properties": {
+          "local": {
+            "type": "integer",
+            "description": "จำนวนรายการที่ TMS ส่ง"
+          },
+          "remote": {
+            "type": "integer",
+            "description": "จำนวนรายการที่อ่านกลับจากระบบบัญชี"
+          }
+        },
+        "required": [
+          "local",
+          "remote"
+        ]
+      },
+      "ReconcileLineFieldDiffDto": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "example": "dueDate",
+            "description": "path ของช่องใน canonical (เช่น `customer.externalId`)"
+          },
+          "local": {
+            "type": "string",
+            "nullable": true,
+            "description": "ค่าฝั่ง TMS (ว่าง = null) · ช่องเงิน = null (ดู `sellLocalValue`) · ชื่อคนขับ = `***`"
+          },
+          "remote": {
+            "type": "string",
+            "nullable": true,
+            "description": "ค่าฝั่งระบบบัญชี (ว่าง = null)"
+          },
+          "sellLocalValue": {
+            "type": "string",
+            "nullable": true,
+            "description": "ค่าเงินฝั่ง TMS — `prices.sell:read`"
+          },
+          "sellRemoteValue": {
+            "type": "string",
+            "nullable": true,
+            "description": "ค่าเงินฝั่งระบบบัญชี — `prices.sell:read`"
+          },
+          "lineNo": {
+            "type": "integer",
+            "nullable": true
+          },
+          "deliveryOrderNumber": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "field",
+          "local",
+          "remote",
+          "lineNo",
+          "deliveryOrderNumber"
+        ]
+      },
+      "ReconcileLineRefDto": {
+        "type": "object",
+        "properties": {
+          "lineNo": {
+            "type": "integer",
+            "nullable": true,
+            "description": "เลขรายการในใบของ TMS (ฝั่งระบบบัญชีที่จับคู่ไม่ได้ = null)"
+          },
+          "deliveryOrderNumber": {
+            "type": "string",
+            "nullable": true,
+            "example": "DO-2611-0001"
+          }
+        },
+        "required": [
+          "lineNo",
+          "deliveryOrderNumber"
+        ]
+      },
       "ReconcileResultDto": {
         "type": "object",
         "properties": {
@@ -74534,7 +74749,7 @@
               "PRE_CLOSE",
               "MANUAL"
             ],
-            "description": "NIGHTLY = รอบดึงรายวัน · MANUAL = สั่งเอง (`POST /reconcile-runs`)"
+            "description": "AFTER_PUSH = หลังส่งสำเร็จ (ทันที + 60 นาที) · NIGHTLY = รอบรายวัน · PRE_CLOSE = ก่อนปิดงวด (วันทำการสุดท้ายของเดือน 17:00) · MANUAL = สั่งเอง (`POST /reconcile-runs`)"
           },
           "status": {
             "type": "string",
@@ -74548,7 +74763,7 @@
             "type": "string",
             "nullable": true,
             "example": "PAYMENT_STATUS",
-            "description": "PAYMENT_STATUS = ยอดรับชำระ · DOCUMENT = เอกสารที่ส่งแล้วหาไม่พบในระบบบัญชี"
+            "description": "PAYMENT_STATUS = ยอดรับชำระ · DOCUMENT = เนื้อหาเอกสารที่ส่งแล้ว"
           },
           "code": {
             "type": "string",
@@ -74563,9 +74778,11 @@
               "remote_wht_inconsistent",
               "remote_paid_at_invalid",
               "payment_rejected",
-              "remote_missing"
+              "content_mismatch",
+              "remote_missing",
+              "erp_unreachable"
             ],
-            "description": "`remote_exceeds_total` ระบบบัญชีตัดหนี้เกินยอดใบ · `remote_paid_amount_short` ระบบบัญชีบอกชำระครบแต่ยอดตัดหนี้น้อยกว่ายอดใบ · `remote_less_than_tms` ระบบบัญชีตัดหนี้น้อยกว่าที่ TMS บันทึกรับ · `tms_has_other_payments` ระบบบัญชีตัดหนี้มากกว่า TMS แต่ใบมีรับชำระที่บันทึกเอง (ไม่บันทึกเพิ่มให้เอง) · `connector_payment_reversed` ใบนี้เคยมีรายการที่ระบบสร้างแล้วถูกกลับรายการใน TMS (ไม่สร้างให้อีก) · `remote_wht_unknown` ระบบบัญชีไม่บอกภาษีหัก ณ ที่จ่าย · `remote_wht_inconsistent` ภาษีหัก ณ ที่จ่ายที่รายงานขัดกัน · `remote_paid_at_invalid` วันที่รับชำระไม่มี/เป็นอนาคต/ก่อนวันออกใบ · `payment_rejected` กฎรับชำระของ TMS ไม่รับ (ดู `reason`) · `remote_missing` แทนที่/อ่านเอกสารแล้วระบบบัญชีตอบว่าไม่พบ — ส่งใหม่เป็นเลขใหม่ต้องให้บัญชีรับรู้"
+            "description": "`remote_exceeds_total` ระบบบัญชีตัดหนี้เกินยอดใบ · `remote_paid_amount_short` ระบบบัญชีบอกชำระครบแต่ยอดตัดหนี้น้อยกว่ายอดใบ · `remote_less_than_tms` ระบบบัญชีตัดหนี้น้อยกว่าที่ TMS บันทึกรับ · `tms_has_other_payments` ระบบบัญชีตัดหนี้มากกว่า TMS แต่ใบมีรับชำระที่บันทึกเอง (ไม่บันทึกเพิ่มให้เอง) · `connector_payment_reversed` ใบนี้เคยมีรายการที่ระบบสร้างแล้วถูกกลับรายการใน TMS (ไม่สร้างให้อีก) · `remote_wht_unknown` ระบบบัญชีไม่บอกภาษีหัก ณ ที่จ่าย · `remote_wht_inconsistent` ภาษีหัก ณ ที่จ่ายที่รายงานขัดกัน · `remote_paid_at_invalid` วันที่รับชำระไม่มี/เป็นอนาคต/ก่อนวันออกใบ · `payment_rejected` กฎรับชำระของ TMS ไม่รับ (ดู `reason`) · `remote_missing` แทนที่/อ่านเอกสารแล้วระบบบัญชีตอบว่าไม่พบ — ส่งใหม่เป็นเลขใหม่ต้องให้บัญชีรับรู้ · `content_mismatch` เนื้อหาเอกสารในระบบบัญชีไม่ตรงกับที่ TMS ออก (ดู `documentDiff`) · `erp_unreachable` อ่านเอกสารจากระบบบัญชีไม่สำเร็จจนหมดรอบลองใหม่ (INFO)"
           },
           "reason": {
             "type": "string",
@@ -74604,6 +74821,16 @@
           "sellDifferenceAmount": {
             "type": "string",
             "description": "ระบบบัญชี − TMS — `prices.sell:read`"
+          },
+          "documentDiff": {
+            "nullable": true,
+            "description": "ส่วนต่างของเนื้อหาเอกสาร (`check` DOCUMENT + `code` content_mismatch) · อื่น ๆ = null",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReconcileDocumentDiffDto"
+              }
+            ]
           },
           "runAt": {
             "type": "string",
@@ -74651,6 +74878,7 @@
           "remoteStatus",
           "remotePaidAt",
           "externalDocNo",
+          "documentDiff",
           "runAt",
           "lastSeenAt",
           "resolvedAt",

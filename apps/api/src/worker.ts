@@ -14,6 +14,10 @@ import {
   PAYMENT_PULL_CHECK_EVERY_MS,
   PaymentStatusPullService,
 } from './modules/erp/payment-status-pull.service';
+import {
+  DocumentReconcileService,
+  RECONCILE_CHECK_EVERY_MS,
+} from './modules/erp/document-reconcile.service';
 import { AvailabilityService } from './modules/monitoring/availability.service';
 import { WebhookRetentionService } from './modules/webhooks/webhook-retention';
 import { RetentionService } from './modules/retention/retention.service';
@@ -196,6 +200,16 @@ async function main() {
       .catch((e) => log.error(e));
   void schedulePaymentPull();
   const paymentPullTimer = setInterval(schedulePaymentPull, PAYMENT_PULL_CHECK_EVERY_MS);
+  // ST8-T11 reconcile เอกสารกับระบบบัญชี (docs/01 §6.5): ตรวจทุก 5 นาที — AFTER_PUSH (ทันที + 60 นาทีหลังส่งสำเร็จ) ·
+  // NIGHTLY ตั้งแต่ 02:00 · PRE_CLOSE วันทำการสุดท้ายของเดือนตั้งแต่ 17:00 (เวลาไทย) → คำสั่ง FETCH_DOCUMENT เข้าคิวของ connector
+  const reconcile = ctx.get(DocumentReconcileService);
+  const scheduleReconcile = () =>
+    reconcile
+      .scheduleDue()
+      .then((r) => (r.afterPush || r.rounds) && log.info({ reconcile: r }, 'reconcile scheduled'))
+      .catch((e) => log.error(e));
+  void scheduleReconcile();
+  const reconcileTimer = setInterval(scheduleReconcile, RECONCILE_CHECK_EVERY_MS);
   // ST8-T03 ตรวจซ้ำ connector ที่ปลายทางไม่ตอบ (ACTIVE ล้มต่อเนื่อง ≥ 30 นาที → ERROR) และคืน ERROR(TRANSIENT) → ACTIVE เมื่อกลับมา
   const recheckHealth = () =>
     connectors
@@ -228,6 +242,7 @@ async function main() {
   clearInterval(offerTimeoutTimer);
   clearInterval(pullTimer);
   clearInterval(paymentPullTimer);
+  clearInterval(reconcileTimer);
   clearInterval(healthTimer);
   clearInterval(outboxStatsTimer);
   monitor.stop();

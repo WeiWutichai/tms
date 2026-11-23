@@ -33,6 +33,7 @@ import {
 } from './canonical';
 import { canonicalProblems } from './canonical-validation';
 import { ConnectorResolver } from './connector-resolver';
+import { DocumentReconcileService, reconcileOf } from './document-reconcile.service';
 import { ConnectorsService, HEALTH_STOP_CLASSES, redactSecrets } from './connectors.service';
 import { ErpMasterCodesService, type PushPreparation } from './erp-master-codes.service';
 import { recordSyncLog } from './erp-sync-log';
@@ -335,6 +336,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     private readonly mappings: ExternalMappingService,
     private readonly db: DbService,
     private readonly events: NotificationEvents,
+    private readonly reconcile: DocumentReconcileService,
   ) {}
 
   onModuleInit() {
@@ -347,6 +349,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
    * · SKIPPED ที่ไม่ใช่งานของคน (`NOT_NOTIFIED_SKIPS`) ไม่แจ้ง · แจ้งใน transaction ของ tenant (RLS) แยกจากการบันทึกผลคำสั่ง
    */
   async onSettled(c: SettledCommand): Promise<void> {
+    if (c.operation === 'FETCH_DOCUMENT') return this.reconcile.onSettled(c);
     if (!DOCUMENT_OPERATIONS.has(c.operation) || !c.targetId) return;
     if (c.status === 'SKIPPED' && (!c.code || NOT_NOTIFIED_SKIPS.has(c.code))) return;
     const connectorId = c.targetId;
@@ -1705,6 +1708,9 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
             const docs = mappingDocumentsOf(m?.detail);
             if (docs.length > 1) ref = { ...ref, documents: docs };
           }
+          // ST8-T11 คำสั่งอ่านของ reconcile → เทียบ + บันทึกผล (ไม่เก็บเอกสารทั้งก้อนในผลของคำสั่ง)
+          if (reconcileOf(d.payload))
+            return this.reconcile.deliver(d, { connector, adapter, ctx, ref });
           const doc = await adapter.fetchDocument!(ctx, ref, payload.document);
           return { result: { found: !!doc, document: doc } };
         }
