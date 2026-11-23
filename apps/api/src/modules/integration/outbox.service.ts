@@ -56,6 +56,11 @@ export interface CommandInput {
   customerId?: string | null;
   payload: Record<string, unknown>;
   maxAttempt?: number;
+  /**
+   * ST7-T16 ส่งใหม่ (`ErpSyncService.resend`): สร้างคำสั่งใหม่แม้ payload เดิม — ต่อท้าย idempotency key ด้วย `:resend-{nonce}`
+   * (คำสั่งเดิมคงผล/ประวัติไว้ · ปลายทางยังกันซ้ำด้วย key ที่ sink สร้างจากเนื้อหา)
+   */
+  resendNonce?: string;
 }
 
 /**
@@ -88,7 +93,9 @@ export class OutboxService {
     if (!SINK_KEY_RE.test(c.sink)) throw new Error(`invalid sink key '${c.sink}'`);
     const target = c.targetId ?? '-';
     const hash = createHash('sha256').update(canonicalJson(c.payload)).digest('hex');
-    const idempotencyKey = `${c.sink}:${target}:${c.entityType}:${c.localId}:${hash}`;
+    const idempotencyKey =
+      `${c.sink}:${target}:${c.entityType}:${c.localId}:${hash}` +
+      (c.resendNonce ? `:resend-${c.resendNonce}` : '');
     const cust = c.entityType === 'customer' ? customerKey(c.localId) : customerKey(c.customerId);
     const serializeKey = `${c.sink}:${target}:${cust ? `cus:${cust}` : `${c.entityType}:${c.localId}`}`;
     const rows = await tx.$queryRaw<{ id: string; created: boolean }[]>`

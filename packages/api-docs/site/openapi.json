@@ -20855,6 +20855,129 @@
         ]
       }
     },
+    "/v1/connectors/{id}/sync-log": {
+      "get": {
+        "operationId": "Connectors_syncLog",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "commandId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะการเรียกของคำสั่งนี้ (บันทึกการซิงก์)",
+            "schema": {
+              "example": "obx_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "documentNo",
+            "required": false,
+            "in": "query",
+            "description": "เลขเอกสาร TMS",
+            "schema": {
+              "example": "INV-00000-2611-0001",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (เรียงใหม่สุดก่อน)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "sync log: 1 แถวต่อ 1 HTTP call ที่ connector นี้เรียกระบบบัญชี (ใหม่สุดก่อน) — body ตัด credential / เลขบัตรประชาชนแล้ว (≤ 16 KB) · ไม่มี header · URL ไม่มี query string · `commandId` = เฉพาะการเรียกของคำสั่งนั้น · `documentNo` = เลขเอกสาร TMS",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErpSyncLogListDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.read"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "settings:read"
+        ]
+      }
+    },
     "/v1/connectors/{id}/master-codes": {
       "get": {
         "operationId": "ErpMasterCodes_list",
@@ -66435,6 +66558,129 @@
           "data"
         ]
       },
+      "ErpSyncLogDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "slg_…"
+          },
+          "commandId": {
+            "type": "string",
+            "nullable": true,
+            "example": "obx_…"
+          },
+          "attempt": {
+            "type": "number",
+            "nullable": true,
+            "description": "ครั้งที่ของคำสั่ง"
+          },
+          "operation": {
+            "type": "string",
+            "example": "PUSH_INVOICE"
+          },
+          "entityType": {
+            "type": "string",
+            "nullable": true,
+            "example": "invoice"
+          },
+          "localId": {
+            "type": "string",
+            "nullable": true,
+            "example": "ivc_…"
+          },
+          "documentNo": {
+            "type": "string",
+            "nullable": true,
+            "example": "INV-00000-2611-0001"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "OUT",
+              "IN"
+            ]
+          },
+          "method": {
+            "type": "string",
+            "example": "POST"
+          },
+          "url": {
+            "type": "string",
+            "example": "https://erp.example.com/api/invoices",
+            "description": "origin + path (ไม่มี query string)"
+          },
+          "statusCode": {
+            "type": "number",
+            "nullable": true,
+            "description": "null = ไม่ได้ response (timeout / เครือข่าย)"
+          },
+          "errorCode": {
+            "type": "string",
+            "nullable": true,
+            "example": "timeout"
+          },
+          "durationMs": {
+            "type": "number"
+          },
+          "requestBody": {
+            "type": "string",
+            "nullable": true,
+            "description": "body ที่ส่ง (ตัดแล้ว ≤ 16 KB)"
+          },
+          "responseBody": {
+            "type": "string",
+            "nullable": true,
+            "description": "body ที่ได้กลับ (ตัดแล้ว ≤ 16 KB)"
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "commandId",
+          "attempt",
+          "operation",
+          "entityType",
+          "localId",
+          "documentNo",
+          "direction",
+          "method",
+          "url",
+          "statusCode",
+          "errorCode",
+          "durationMs",
+          "requestBody",
+          "responseBody",
+          "occurredAt"
+        ]
+      },
+      "ErpSyncLogListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ErpSyncLogDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "ส่งเป็น `cursor` เพื่อดูหน้าถัดไป"
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
       "EventDataDto": {
         "type": "object",
         "properties": {
@@ -73153,7 +73399,8 @@
           "check": {
             "type": "string",
             "nullable": true,
-            "example": "PAYMENT_STATUS"
+            "example": "PAYMENT_STATUS",
+            "description": "PAYMENT_STATUS = ยอดรับชำระ · DOCUMENT = เอกสารที่ส่งแล้วหาไม่พบในระบบบัญชี"
           },
           "code": {
             "type": "string",
@@ -73167,9 +73414,10 @@
               "remote_wht_unknown",
               "remote_wht_inconsistent",
               "remote_paid_at_invalid",
-              "payment_rejected"
+              "payment_rejected",
+              "remote_missing"
             ],
-            "description": "`remote_exceeds_total` ระบบบัญชีตัดหนี้เกินยอดใบ · `remote_paid_amount_short` ระบบบัญชีบอกชำระครบแต่ยอดตัดหนี้น้อยกว่ายอดใบ · `remote_less_than_tms` ระบบบัญชีตัดหนี้น้อยกว่าที่ TMS บันทึกรับ · `tms_has_other_payments` ระบบบัญชีตัดหนี้มากกว่า TMS แต่ใบมีรับชำระที่บันทึกเอง (ไม่บันทึกเพิ่มให้เอง) · `connector_payment_reversed` ใบนี้เคยมีรายการที่ระบบสร้างแล้วถูกกลับรายการใน TMS (ไม่สร้างให้อีก) · `remote_wht_unknown` ระบบบัญชีไม่บอกภาษีหัก ณ ที่จ่าย · `remote_wht_inconsistent` ภาษีหัก ณ ที่จ่ายที่รายงานขัดกัน · `remote_paid_at_invalid` วันที่รับชำระไม่มี/เป็นอนาคต/ก่อนวันออกใบ · `payment_rejected` กฎรับชำระของ TMS ไม่รับ (ดู `reason`)"
+            "description": "`remote_exceeds_total` ระบบบัญชีตัดหนี้เกินยอดใบ · `remote_paid_amount_short` ระบบบัญชีบอกชำระครบแต่ยอดตัดหนี้น้อยกว่ายอดใบ · `remote_less_than_tms` ระบบบัญชีตัดหนี้น้อยกว่าที่ TMS บันทึกรับ · `tms_has_other_payments` ระบบบัญชีตัดหนี้มากกว่า TMS แต่ใบมีรับชำระที่บันทึกเอง (ไม่บันทึกเพิ่มให้เอง) · `connector_payment_reversed` ใบนี้เคยมีรายการที่ระบบสร้างแล้วถูกกลับรายการใน TMS (ไม่สร้างให้อีก) · `remote_wht_unknown` ระบบบัญชีไม่บอกภาษีหัก ณ ที่จ่าย · `remote_wht_inconsistent` ภาษีหัก ณ ที่จ่ายที่รายงานขัดกัน · `remote_paid_at_invalid` วันที่รับชำระไม่มี/เป็นอนาคต/ก่อนวันออกใบ · `payment_rejected` กฎรับชำระของ TMS ไม่รับ (ดู `reason`) · `remote_missing` แทนที่/อ่านเอกสารแล้วระบบบัญชีตอบว่าไม่พบ — ส่งใหม่เป็นเลขใหม่ต้องให้บัญชีรับรู้"
           },
           "reason": {
             "type": "string",

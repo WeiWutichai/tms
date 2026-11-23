@@ -356,23 +356,28 @@ describe('external_mapping + canonical (ST7-T15)', () => {
     expect(erp.calls).toHaveLength(2);
     await plat.externalMapping.update({ where: { id: m!.id }, data: { externalStatus: 'DRAFT' } });
 
-    // เอกสารเดิม payload เปลี่ยน (ยอดต่าง) → คำสั่งใหม่ → ส่งจริง + hash ใหม่ · เลขเอกสารฝั่ง ERP เดิมไม่ถูกทับ
+    // ST7-T16: เอกสารเดิม payload เปลี่ยน (ยอดต่าง = PRICE → AUTO_SYNC) แต่เอกสารอยู่ใน ERP แล้ว → ต้องแทนที่ทั้งใบ
+    // ERP นี้ไม่มี replaceDocument → SKIPPED replace_not_supported (แจ้งบัญชี — ไม่ push ซ้ำเป็นใบที่สอง) · mapping ไม่เปลี่ยน
     const changed = invoiceDoc(
-      { number: doc.number, totals: { ...(doc.totals as object), whtExpected: '30.00' } },
+      {
+        number: doc.number,
+        issuer: doc.issuer,
+        totals: { ...(doc.totals as object), whtExpected: '30.00' },
+      },
       doc.id,
     );
     const id2 = await enqueue(con.uuid, 'PUSH_INVOICE', changed);
     expect(id2).not.toBe(id);
     await drain();
-    expect((await cmd(id2)).status).toBe('DONE');
-    expect(erp.calls).toHaveLength(3);
+    expect(await cmd(id2)).toMatchObject({ status: 'SKIPPED' });
+    expect((await cmd(id2)).lastError).toMatchObject({
+      code: 'replace_not_supported',
+      changed: ['PRICE'],
+    });
+    expect(erp.calls).toHaveLength(2);
     const m2 = await mapping('INVOICE', doc.id);
-    expect(m2!.lastSyncedHash).not.toBe(m!.lastSyncedHash);
     expect(m2).toMatchObject({ externalDocNo: 'ERP-ext-1', status: 'SYNCED' });
-    // ERP ได้เนื้อหาใหม่จริง
-    expect((erp.calls[2]!.doc as { totals: { whtExpected: string } }).totals.whtExpected).toBe(
-      '30.00',
-    );
+    expect(m2!.lastSyncedHash).toBe(m!.lastSyncedHash);
   });
 
   it('review M1: worker เสีย lease หลังบันทึก mapping (คำสั่งยังไม่เคยจบ) → รอบถัดไป DONE แบบ idempotent {unchanged: true} ไม่เรียก ERP ซ้ำ · system-of-record ล็อกจาก external_mapping', async () => {
@@ -426,42 +431,20 @@ describe('external_mapping + canonical (ST7-T15)', () => {
     });
     const m1 = await mapping('INVOICE', doc.id);
     expect(m1).toMatchObject({ status: 'SYNCED' });
-    // เปลี่ยนรหัสลูกค้า → เอกสารที่ส่งเปลี่ยน → ส่งคำสั่งเดิมใหม่: ERP ตอบ "มีอยู่แล้ว" (ไม่แก้เนื้อหา)
+    // ST7-T16: เปลี่ยนรหัสลูกค้าหลังเอกสารอยู่ใน ERP = กลุ่ม CUSTOMER (ต้อง regenerate เสมอ) → ไม่ส่ง · mapping คงเดิม
     await api(app, token)
       .put(`/v1/customers/${cus}/erp-codes/${con.id}`)
       .send({ externalId: 'AR-200', reason: 'บัญชีแจ้งรหัสลูกค้าใหม่ในระบบบัญชี' })
       .expect(200);
     await resend(id);
     const c2 = await cmd(id);
-    expect(c2).toMatchObject({
-      status: 'DONE',
-      result: { applied: false, customerExternalId: 'AR-200', externalId: m1!.externalId },
-    });
-    expect((c2.result as { sentHash: string }).sentHash).not.toBe(m1!.lastSyncedHash);
-    // ERP ยังถือเนื้อหาเก่า → TMS ไม่ถือว่าซิงก์แล้ว
-    expect(
-      (erp.held.get(doc.number)!.doc as unknown as { customer: { externalId: string } }).customer
-        .externalId,
-    ).toBe('AR-100');
-    const m2 = await mapping('INVOICE', doc.id);
-    expect(m2).toMatchObject({
-      status: 'MISMATCH',
+    expect(c2).toMatchObject({ status: 'SKIPPED' });
+    expect(c2.lastError).toMatchObject({ code: 'regenerate_required', changed: ['CUSTOMER'] });
+    expect(erp.calls).toHaveLength(1);
+    expect(await mapping('INVOICE', doc.id)).toMatchObject({
+      status: 'SYNCED',
       lastSyncedHash: m1!.lastSyncedHash,
-      externalId: m1!.externalId,
     });
-    expect(m2!.lastError).toMatchObject({
-      code: 'erp_not_applied',
-      sentHash: (c2.result as { sentHash: string }).sentHash,
-    });
-    // MISMATCH ไม่ถูกข้ามตอนส่งซ้ำ (ยังไม่ตรง) และ `sync` ของเอกสารบอก MISMATCH
-    await resend(id);
-    expect((await cmd(id)).status).toBe('DONE');
-    expect(erp.calls).toHaveLength(3);
-    expect(
-      await db.withTenant(tenantId, (tx) =>
-        app.get(ExternalMappingService).documentSync('INVOICE', doc.id, tx),
-      ),
-    ).toMatchObject({ state: 'MISMATCH' });
 
     // ERP มีเอกสารของเลขนี้อยู่แล้วโดย TMS ไม่มี mapping (ผลรอบก่อนไม่ถูกบันทึก) → รู้ id แต่ไม่ยืนยันเนื้อหา
     const other = invoiceDoc();
@@ -491,6 +474,7 @@ describe('external_mapping + canonical (ST7-T15)', () => {
       missing: [{ kind: 'CUSTOMER', status: 'MISSING', fields: ['customer.externalId'] }],
     });
     expect(erp.calls).toHaveLength(0);
+    // ST7-T16: ประตูก่อนถึง adapter ไม่แตะ mapping (VALIDATION → FAILED เฉพาะที่ adapter ตอบ)
     expect(await mapping('INVOICE', doc.id)).toBeNull();
 
     const cus = encodeId('customer', customerId);
@@ -513,20 +497,11 @@ describe('external_mapping + canonical (ST7-T15)', () => {
       .put(`/v1/customers/${cus}/erp-codes/${con.id}`)
       .send({ externalId: 'AR-002', reason: 'บัญชีแจ้งรหัสลูกค้าใหม่ในระบบบัญชี' })
       .expect(200);
+    // ST7-T16 เปลี่ยนรหัสลูกค้าหลังเอกสารอยู่ใน ERP = CUSTOMER → regenerate (ไม่ส่งซ้ำ — ทำมือในระบบบัญชี)
     await resend(id);
-    const c2 = await cmd(id);
-    expect(c2).toMatchObject({
-      status: 'DONE',
-      result: { applied: true, customerExternalId: 'AR-002' },
-    });
-    expect(erp.calls).toHaveLength(2);
-    // เนื้อหาเปลี่ยน = key กันซ้ำฝั่ง ERP เปลี่ยน → ERP ได้เนื้อหาใหม่จริง (ไม่คืนของเก่าด้วย key เดิม)
-    expect(erp.calls[1]!.ctx.idempotencyKey).not.toBe(erp.calls[0]!.ctx.idempotencyKey);
-    expect(erp.received.get(erp.calls[1]!.ctx.idempotencyKey!)!.body).toContain('"AR-002"');
-    expect((await mapping('INVOICE', doc.id))!.lastSyncedHash).toBe(
-      (c2.result as { sentHash: string }).sentHash,
-    );
-    expect((await mapping('INVOICE', doc.id))!.lastSyncedHash).not.toBe(h1);
+    expect((await cmd(id)).lastError).toMatchObject({ code: 'regenerate_required' });
+    expect(erp.calls).toHaveLength(1);
+    expect((await mapping('INVOICE', doc.id))!.lastSyncedHash).toBe(h1);
 
     // review L2: ใช้เฉพาะ mapping คู่ค้าสถานะ SYNCED — สถานะอื่น (เช่น MISMATCH จาก reconcile ในอนาคต) = ถือว่าไม่มีรหัส
     await plat.externalMapping.updateMany({
