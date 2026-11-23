@@ -29,5 +29,11 @@
     { "schema": "AssignTripDto.reliefDriverId", "from": "object", "to": "string", "adr": "T-22" },
     { "schema": "AssignTripDto.trailerId", "from": "object", "to": "string", "adr": "T-22" },
     { "schema": "CancelTripDto.reasonCodeId", "from": "object", "to": "string", "adr": "T-22" }
+  ],
+  "removedPropertiesDescription": "ลบ property ที่ schema ประกาศแต่ server ไม่เคยส่งบนสาย (ADR T-22b) — ยอมเฉพาะ 'property removed' ของ Name.prop ที่ระบุ · ลบรายการได้เมื่อ main มี schema ใหม่แล้ว",
+  "removedProperties": [
+    { "schema": "WebhookEvent_invoice_finalized.erpWarnings", "adr": "T-22b" },
+    { "schema": "WebhookEvent_invoice_paid.erpWarnings", "adr": "T-22b" },
+    { "schema": "WebhookEvent_invoice_voided.erpWarnings", "adr": "T-22b" }
   ]
 }

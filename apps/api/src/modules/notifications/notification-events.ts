@@ -1,3 +1,4 @@
+import { Clock } from '../../common/clock';
 import { safeName } from '../../common/safe-text';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
@@ -43,6 +44,7 @@ export class NotificationEvents implements OnModuleInit {
   constructor(
     private readonly notifications: NotificationService,
     private readonly state: StateService,
+    private readonly clock: Clock,
   ) {}
 
   onModuleInit() {
@@ -300,6 +302,105 @@ export class NotificationEvents implements OnModuleInit {
         entity: { type: 'connector', id: encodeId('connector', input.connectorId) },
       }),
     );
+  }
+
+  /**
+   * ST8-T11 (review b) อ่านเอกสารจากระบบบัญชีไม่สำเร็จ (ERP_UNREACHABLE) **2 รอบติด** (docs/01 §6.5 "แจ้งผู้ดูแลทั้งสองฝั่ง")
+   * → ผู้ดูแลการเชื่อมต่อฝั่ง TMS (ผู้รับเดียวกับ connector ล่ม) ครั้งเดียวต่อส่วนต่าง · ฝั่ง ERP แจ้งไม่ได้ (ไม่มีช่องทางถึงผู้ดูแลฝั่งนั้น)
+   */
+  async reconcileUnreachable(
+    tx: Tx,
+    input: { tenantId: string; connectorId: string; label: string; invoiceNo: string | null },
+  ): Promise<void> {
+    await this.safely(tx, 'connector.reconcile_unreachable', () =>
+      this.notifications.notify(tx, {
+        tenantId: input.tenantId,
+        to: { permissions: ['settings:write', 'integrations:retry'] },
+        template: 'connector.reconcile_unreachable',
+        vars: { label: input.label, invoiceNo: input.invoiceNo ?? '-' },
+        link: '/settings?sec=conn',
+        entity: { type: 'connector', id: encodeId('connector', input.connectorId) },
+      }),
+    );
+  }
+
+  /**
+   * ST8-T11 reconcile พบส่วนต่างของเนื้อหาใบแจ้งหนี้**ใหม่** (docs/01 §6.5) → ผู้ดูแลรับชำระ `payments:record` (ชุดเดียวกับ D68-61)
+   * · severity MONEY (รายการหาย/เกิน/ยอด) = ในระบบ + อีเมล ทันที · FIELD = ในระบบอย่างเดียว (ขึ้นสรุปเช้า 08:00 — docs/01 §6.5)
+   * · ส่วนต่างเดิม (diff_hash เท่าเดิม) ไม่ถึงที่นี่ — ผู้เรียกแจ้งเฉพาะ `created`
+   * · กันท่วม (รอบรายวันอ่านหลายร้อยใบ): ผู้รับที่มีแจ้งเตือนเดียวกันของ connector นี้ **ยังไม่อ่าน** ภายใน `DOC_NOT_SENT_GROUP_MS`
+   *   → รวมเข้าแถวเดิม (เพิ่มจำนวน + ตัวอย่างเลขไม่เกิน 5 · ไม่ส่งอีเมลซ้ำ) — ยกเว้นแถวเดิมไม่มี MONEY แต่ครั้งนี้มี (แจ้งใหม่พร้อมอีเมล)
+   * · ไม่ใส่ยอดเงิน · ลิงก์หน้าวางบิล (หน้า MISMATCH = ST8-T12)
+   */
+  async documentMismatch(
+    tx: Tx,
+    input: {
+      tenantId: string;
+      connectorId: string;
+      label: string;
+      invoiceId: string;
+      invoiceNo: string | null;
+      severity: 'MONEY' | 'FIELD';
+    },
+  ): Promise<void> {
+    const template = 'reconcile.document_mismatch_found' as const;
+    const connectorRef = encodeId('connector', input.connectorId);
+    const invoiceRef = encodeId('invoice', input.invoiceId);
+    const no = input.invoiceNo ?? invoiceRef;
+    const money = input.severity === 'MONEY';
+    await this.safely(tx, template, async () => {
+      // review 7: รวมกลุ่มต่อ connector ทีละ transaction (คำสั่งอ่านขนานกันไม่สร้างแถวซ้อน) · เวลาจาก Clock
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(9, hashtext(${`${template}:${input.connectorId}`}))`;
+      const to = await this.notifications.resolve(tx, input.tenantId, {
+        permissions: ['payments:record'],
+      });
+      if (!to.length) return;
+      const since = new Date(this.clock.now().getTime() - DOC_NOT_SENT_GROUP_MS);
+      const open = await tx.notification.findMany({
+        where: {
+          tenantId: input.tenantId,
+          templateCode: template,
+          channel: 'in_app',
+          readAt: null,
+          createdAt: { gte: since },
+          recipientId: { in: to.map((u) => u.id) },
+          payload: { path: ['connectorId'], equals: connectorRef },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      const grouped = new Set<string>();
+      for (const row of open) {
+        if (grouped.has(row.recipientId)) continue;
+        const prev = row.payload as unknown as NotificationVars[typeof template];
+        if (money && !prev.money) continue;
+        const vars: NotificationVars[typeof template] = {
+          ...prev,
+          invoiceNos: [...(prev.invoiceNos ?? []), no].slice(-BATCH_SAMPLE),
+          count: (prev.count ?? 1) + 1,
+        };
+        const text = renderNotification(template, row.locale, vars);
+        const done = await tx.notification.updateMany({
+          where: { id: row.id, tenantId: input.tenantId, readAt: null },
+          data: {
+            title: text.title,
+            body: text.body,
+            payload: vars as unknown as Prisma.InputJsonValue,
+          },
+        });
+        if (done.count === 1) grouped.add(row.recipientId);
+      }
+      const fresh = to.filter((u) => !grouped.has(u.id)).map((u) => u.id);
+      if (!fresh.length) return;
+      await this.notifications.notify(tx, {
+        tenantId: input.tenantId,
+        to: { userIds: fresh },
+        template,
+        vars: { label: input.label, connectorId: connectorRef, count: 1, invoiceNos: [no], money },
+        channels: money ? ['in_app', 'email'] : ['in_app'],
+        link: '/bill',
+        entity: { type: 'invoice', id: invoiceRef },
+      });
+    });
   }
 
   /**

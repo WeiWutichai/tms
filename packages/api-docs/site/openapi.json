@@ -22183,6 +22183,110 @@
         ]
       }
     },
+    "/v1/reconcile-runs": {
+      "post": {
+        "operationId": "Reconcile_run",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReconcileRunDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "สั่งรอบกระทบยอดเอง (source MANUAL) — `check` PAYMENT_STATUS: ดึงสถานะรับชำระของใบแจ้งหนี้ที่ยังค้างจากระบบบัญชีของ connector นี้ทันที · `check` DOCUMENT: อ่านใบแจ้งหนี้ที่เลือก (`invoiceIds` 1–200) กลับจากระบบบัญชีแล้วเทียบเนื้อหา (คำสั่ง FETCH_DOCUMENT ผ่านคิวของ connector · ต้องมี `reason` ≥ 10 ตัวอักษร ลง audit · ใบที่ไม่อยู่ในระบบบัญชีนี้คืนใน `notInErp` · ผลดูที่ `GET /reconcile-results` และ `sync.reconcileState` ของใบ) (ปกติระบบดึงเองวันละครั้งตั้งแต่ 06:00 น.) · ทำงานเบื้องหลัง — ผลดูที่ `GET /payments` (รายการ source CONNECTOR) และ `GET /reconcile-results` · มีรอบของ connector นี้ค้างอยู่ = `ALREADY_QUEUED` · connector ไม่พบ → 404 · ดึงไม่ได้ตอนนี้ → 409 · เฉพาะผู้ใช้ (API key สั่งไม่ได้ → 403) · สิทธิ์: PAYMENT_STATUS ต้อง `settings:write` · DOCUMENT ใช้ `settings:write` หรือ `integrations:retry`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconcileRunDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.write_integrations.retry"
+          },
+          "409": {
+            "description": "`invalid_state_transition` — connector นี้ดึงสถานะรับชำระไม่ได้ตอนนี้ (`reason`: `connector_not_active` ยังไม่เปิดใช้/หยุดอยู่ · `capability_not_enabled` ระบบบัญชีนี้ไม่รองรับหรือยังไม่เปิด `fetchPaymentStatus` (DOCUMENT: `fetchDocument`) · `adapter_unavailable` · DOCUMENT: `connector_unhealthy` ระบบบัญชีไม่ตอบ คิวพักอยู่)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "reason": "capability_not_enabled"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "settings:write",
+          "integrations:retry"
+        ]
+      }
+    },
     "/v1/webhook-deliveries": {
       "get": {
         "operationId": "WebhookDeliveries_list",
@@ -64019,6 +64123,43 @@
           "label"
         ]
       },
+      "CreateReconcileRunDto": {
+        "type": "object",
+        "properties": {
+          "connectorId": {
+            "type": "string",
+            "example": "con_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e"
+          },
+          "check": {
+            "type": "string",
+            "enum": [
+              "PAYMENT_STATUS",
+              "DOCUMENT"
+            ],
+            "description": "PAYMENT_STATUS = ดึงสถานะรับชำระของใบแจ้งหนี้ที่ยังค้างจากระบบบัญชี · DOCUMENT = อ่านใบแจ้งหนี้ที่เลือก (`invoiceIds`) กลับจากระบบบัญชีแล้วเทียบเนื้อหา (source MANUAL — ต้องมี `reason`)"
+          },
+          "invoiceIds": {
+            "maxItems": 200,
+            "example": [
+              "ivc_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e"
+            ],
+            "description": "ใบแจ้งหนี้ที่จะเทียบ (บังคับเมื่อ `check` = DOCUMENT · 1–200 ใบ)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "เหตุผล (≥ 10 ตัวอักษร ลง audit) — บังคับเมื่อ `check` = DOCUMENT"
+          }
+        },
+        "required": [
+          "connectorId",
+          "check"
+        ]
+      },
       "CreateRouteDto": {
         "type": "object",
         "properties": {
@@ -67157,6 +67298,22 @@
             "nullable": true,
             "format": "date-time"
           },
+          "reconcileState": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "SENT",
+              "ACCEPTED",
+              "MISMATCH"
+            ],
+            "description": "ผลกระทบยอดเนื้อหากับระบบบัญชี: `SENT` ส่งแล้วยังไม่ได้อ่านกลับมาเทียบ · `ACCEPTED` อ่านกลับแล้วตรง (หรือคนยอมรับส่วนต่างนั้นแล้ว) · `MISMATCH` ไม่ตรง (ดู `GET /reconcile-results?invoiceId=`) · null = ยังไม่อยู่ในระบบบัญชี"
+          },
+          "reconciledAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "เวลาที่เทียบเนื้อหาล่าสุด"
+          },
           "externalDocuments": {
             "description": "เอกสารฝั่งระบบบัญชีทุกใบ เมื่อระบบบัญชีรับใบนี้เป็นหลายเอกสาร · ใบแรก = `externalId` / `externalDocNo` · เอกสารเดียว = `[]`",
             "type": "array",
@@ -67172,6 +67329,8 @@
           "externalDocNo",
           "externalStatus",
           "lastSyncedAt",
+          "reconcileState",
+          "reconciledAt",
           "externalDocuments"
         ]
       },
@@ -74519,6 +74678,227 @@
           "adapterKey"
         ]
       },
+      "ReconcileDocumentDiffDto": {
+        "type": "object",
+        "properties": {
+          "levels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "HEADER",
+                "LINE_COUNT",
+                "TOTAL",
+                "LINE_FIELD",
+                "EXTRA_LINE"
+              ]
+            }
+          },
+          "lineCount": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReconcileLineCountDto"
+              }
+            ]
+          },
+          "missingLines": {
+            "description": "รายการของ TMS ที่ไม่พบในระบบบัญชี",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReconcileLineRefDto"
+            }
+          },
+          "extraLines": {
+            "description": "รายการที่ระบบบัญชีมีแต่ TMS ไม่มี",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReconcileLineRefDto"
+            }
+          },
+          "header": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReconcileFieldDiffDto"
+            }
+          },
+          "lineFields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReconcileLineFieldDiffDto"
+            }
+          },
+          "total": {
+            "description": "ยอดรวม / ยอด VAT (tolerance 0.01)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReconcileFieldDiffDto"
+            }
+          },
+          "totalSkipped": {
+            "type": "string",
+            "nullable": true,
+            "example": "remote_has_no_amounts",
+            "description": "ไม่ได้เทียบยอดเพราะ… (`remote_has_no_amounts` = ระบบบัญชีไม่คืนยอดเงิน — ไม่คำนวณแทน) · null = เทียบแล้ว"
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "รายการต่างเกินเพดานที่เก็บ (1,000 ต่อกลุ่ม) — แสดงไม่ครบ"
+          }
+        },
+        "required": [
+          "levels",
+          "lineCount",
+          "missingLines",
+          "extraLines",
+          "header",
+          "lineFields",
+          "total",
+          "totalSkipped",
+          "truncated"
+        ]
+      },
+      "ReconcileFieldDiffDto": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "example": "dueDate",
+            "description": "path ของช่องใน canonical (เช่น `customer.externalId`)"
+          },
+          "local": {
+            "type": "string",
+            "nullable": true,
+            "description": "ค่าฝั่ง TMS (ว่าง = null) · ช่องเงิน = null (ดู `sellLocalValue`) · ชื่อคนขับ = `***`"
+          },
+          "remote": {
+            "type": "string",
+            "nullable": true,
+            "description": "ค่าฝั่งระบบบัญชี (ว่าง = null)"
+          },
+          "sellLocalValue": {
+            "type": "string",
+            "nullable": true,
+            "description": "ค่าเงินฝั่ง TMS — `prices.sell:read`"
+          },
+          "sellRemoteValue": {
+            "type": "string",
+            "nullable": true,
+            "description": "ค่าเงินฝั่งระบบบัญชี — `prices.sell:read`"
+          }
+        },
+        "required": [
+          "field",
+          "local",
+          "remote"
+        ]
+      },
+      "ReconcileLineCountDto": {
+        "type": "object",
+        "properties": {
+          "local": {
+            "type": "integer",
+            "description": "จำนวนรายการที่ TMS ส่ง"
+          },
+          "remote": {
+            "type": "integer",
+            "description": "จำนวนรายการที่อ่านกลับจากระบบบัญชี"
+          }
+        },
+        "required": [
+          "local",
+          "remote"
+        ]
+      },
+      "ReconcileLineFieldDiffDto": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "example": "dueDate",
+            "description": "path ของช่องใน canonical (เช่น `customer.externalId`)"
+          },
+          "local": {
+            "type": "string",
+            "nullable": true,
+            "description": "ค่าฝั่ง TMS (ว่าง = null) · ช่องเงิน = null (ดู `sellLocalValue`) · ชื่อคนขับ = `***`"
+          },
+          "remote": {
+            "type": "string",
+            "nullable": true,
+            "description": "ค่าฝั่งระบบบัญชี (ว่าง = null)"
+          },
+          "sellLocalValue": {
+            "type": "string",
+            "nullable": true,
+            "description": "ค่าเงินฝั่ง TMS — `prices.sell:read`"
+          },
+          "sellRemoteValue": {
+            "type": "string",
+            "nullable": true,
+            "description": "ค่าเงินฝั่งระบบบัญชี — `prices.sell:read`"
+          },
+          "lineNo": {
+            "type": "integer",
+            "nullable": true
+          },
+          "deliveryOrderNumber": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "field",
+          "local",
+          "remote",
+          "lineNo",
+          "deliveryOrderNumber"
+        ]
+      },
+      "ReconcileLineRefDto": {
+        "type": "object",
+        "properties": {
+          "lineNo": {
+            "type": "integer",
+            "nullable": true,
+            "description": "เลขรายการในใบของ TMS (ฝั่งระบบบัญชีที่จับคู่ไม่ได้ = null)"
+          },
+          "deliveryOrderNumber": {
+            "type": "string",
+            "nullable": true,
+            "example": "DO-2611-0001"
+          }
+        },
+        "required": [
+          "lineNo",
+          "deliveryOrderNumber"
+        ]
+      },
+      "ReconcileRefMismatchDto": {
+        "type": "object",
+        "properties": {
+          "externalId": {
+            "type": "string",
+            "example": "100002"
+          },
+          "expectedRef": {
+            "type": "string",
+            "example": "INV-00000-6911-0001",
+            "description": "เลขอ้างอิงที่ TMS คาด"
+          },
+          "actualRef": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขอ้างอิงที่อยู่ในเอกสารฝั่งระบบบัญชี"
+          }
+        },
+        "required": [
+          "externalId",
+          "expectedRef",
+          "actualRef"
+        ]
+      },
       "ReconcileResultDto": {
         "type": "object",
         "properties": {
@@ -74550,7 +74930,8 @@
               "MATCH",
               "MISMATCH",
               "REMOTE_MISSING",
-              "ERP_UNREACHABLE"
+              "ERP_UNREACHABLE",
+              "NOT_COMPARABLE"
             ]
           },
           "severity": {
@@ -74570,7 +74951,7 @@
               "PRE_CLOSE",
               "MANUAL"
             ],
-            "description": "NIGHTLY = รอบดึงรายวัน · MANUAL = สั่งเอง (`POST /reconcile-runs`)"
+            "description": "AFTER_PUSH = หลังส่งสำเร็จ (ทันที + 60 นาที) · NIGHTLY = รอบรายวัน · PRE_CLOSE = ก่อนปิดงวด (วันทำการสุดท้ายของเดือน 17:00) · MANUAL = สั่งเอง (`POST /reconcile-runs`)"
           },
           "status": {
             "type": "string",
@@ -74584,7 +74965,7 @@
             "type": "string",
             "nullable": true,
             "example": "PAYMENT_STATUS",
-            "description": "PAYMENT_STATUS = ยอดรับชำระ · DOCUMENT = เอกสารที่ส่งแล้วหาไม่พบในระบบบัญชี"
+            "description": "PAYMENT_STATUS = ยอดรับชำระ · DOCUMENT = เนื้อหาเอกสารที่ส่งแล้ว"
           },
           "code": {
             "type": "string",
@@ -74599,9 +74980,13 @@
               "remote_wht_inconsistent",
               "remote_paid_at_invalid",
               "payment_rejected",
-              "remote_missing"
+              "content_mismatch",
+              "remote_missing",
+              "erp_unreachable",
+              "remote_ref_mismatch",
+              "not_comparable"
             ],
-            "description": "`remote_exceeds_total` ระบบบัญชีตัดหนี้เกินยอดใบ · `remote_paid_amount_short` ระบบบัญชีบอกชำระครบแต่ยอดตัดหนี้น้อยกว่ายอดใบ · `remote_less_than_tms` ระบบบัญชีตัดหนี้น้อยกว่าที่ TMS บันทึกรับ · `tms_has_other_payments` ระบบบัญชีตัดหนี้มากกว่า TMS แต่ใบมีรับชำระที่บันทึกเอง (ไม่บันทึกเพิ่มให้เอง) · `connector_payment_reversed` ใบนี้เคยมีรายการที่ระบบสร้างแล้วถูกกลับรายการใน TMS (ไม่สร้างให้อีก) · `remote_wht_unknown` ระบบบัญชีไม่บอกภาษีหัก ณ ที่จ่าย · `remote_wht_inconsistent` ภาษีหัก ณ ที่จ่ายที่รายงานขัดกัน · `remote_paid_at_invalid` วันที่รับชำระไม่มี/เป็นอนาคต/ก่อนวันออกใบ · `payment_rejected` กฎรับชำระของ TMS ไม่รับ (ดู `reason`) · `remote_missing` แทนที่/อ่านเอกสารแล้วระบบบัญชีตอบว่าไม่พบ — ส่งใหม่เป็นเลขใหม่ต้องให้บัญชีรับรู้"
+            "description": "`remote_exceeds_total` ระบบบัญชีตัดหนี้เกินยอดใบ · `remote_paid_amount_short` ระบบบัญชีบอกชำระครบแต่ยอดตัดหนี้น้อยกว่ายอดใบ · `remote_less_than_tms` ระบบบัญชีตัดหนี้น้อยกว่าที่ TMS บันทึกรับ · `tms_has_other_payments` ระบบบัญชีตัดหนี้มากกว่า TMS แต่ใบมีรับชำระที่บันทึกเอง (ไม่บันทึกเพิ่มให้เอง) · `connector_payment_reversed` ใบนี้เคยมีรายการที่ระบบสร้างแล้วถูกกลับรายการใน TMS (ไม่สร้างให้อีก) · `remote_wht_unknown` ระบบบัญชีไม่บอกภาษีหัก ณ ที่จ่าย · `remote_wht_inconsistent` ภาษีหัก ณ ที่จ่ายที่รายงานขัดกัน · `remote_paid_at_invalid` วันที่รับชำระไม่มี/เป็นอนาคต/ก่อนวันออกใบ · `payment_rejected` กฎรับชำระของ TMS ไม่รับ (ดู `reason`) · `remote_missing` แทนที่/อ่านเอกสารแล้วระบบบัญชีตอบว่าไม่พบ — ส่งใหม่เป็นเลขใหม่ต้องให้บัญชีรับรู้ · `content_mismatch` เนื้อหาเอกสารในระบบบัญชีไม่ตรงกับที่ TMS ออก (ดู `documentDiff`) · `erp_unreachable` อ่านเอกสารจากระบบบัญชีไม่สำเร็จจนหมดรอบลองใหม่ (INFO) · `remote_ref_mismatch` เลขเอกสารฝั่งระบบบัญชีที่รู้ชี้ไปเอกสารที่ไม่ใช่ของใบนี้ (ดู `refMismatches`, MONEY) · `not_comparable` เทียบเนื้อหาไม่ได้ — ระบบบัญชีนี้ไม่ประกาศส่วนที่เทียบได้ / ไม่มีข้อมูลการส่งของใบ (INFO, `reason`)"
           },
           "reason": {
             "type": "string",
@@ -74640,6 +75025,24 @@
           "sellDifferenceAmount": {
             "type": "string",
             "description": "ระบบบัญชี − TMS — `prices.sell:read`"
+          },
+          "refMismatches": {
+            "nullable": true,
+            "description": "`code` remote_ref_mismatch: เอกสารฝั่งระบบบัญชีที่เลขที่รู้ชี้ไป แต่เลขอ้างอิงของเราในเอกสารไม่ตรง (ไม่ใช่ของใบนี้) · อื่น ๆ = null",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReconcileRefMismatchDto"
+            }
+          },
+          "documentDiff": {
+            "nullable": true,
+            "description": "ส่วนต่างของเนื้อหาเอกสาร (`check` DOCUMENT + `code` content_mismatch) · อื่น ๆ = null",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReconcileDocumentDiffDto"
+              }
+            ]
           },
           "runAt": {
             "type": "string",
@@ -74687,6 +75090,8 @@
           "remoteStatus",
           "remotePaidAt",
           "externalDocNo",
+          "refMismatches",
+          "documentDiff",
           "runAt",
           "lastSeenAt",
           "resolvedAt",
@@ -74716,6 +75121,43 @@
           "data",
           "nextCursor",
           "hasMore"
+        ]
+      },
+      "ReconcileRunDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "QUEUED",
+              "ALREADY_QUEUED"
+            ],
+            "description": "ALREADY_QUEUED = มีรอบของ connector นี้รอ/กำลังทำอยู่ (ไม่สร้างซ้ำ) · DOCUMENT: QUEUED เมื่อมีอย่างน้อย 1 ใบเข้าคิว"
+          },
+          "check": {
+            "type": "string",
+            "example": "PAYMENT_STATUS"
+          },
+          "connectorId": {
+            "type": "string",
+            "example": "con_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e"
+          },
+          "queued": {
+            "type": "integer",
+            "description": "DOCUMENT: จำนวนใบที่เข้าคิวอ่านเอกสาร (คำสั่ง FETCH_DOCUMENT ผ่านคิวของ connector)"
+          },
+          "notInErp": {
+            "description": "DOCUMENT: ใบที่เทียบไม่ได้เพราะยังไม่อยู่ในระบบบัญชีนี้ (ไม่มีเลขเอกสารฝั่งระบบบัญชี / ยกเลิกแล้ว)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "status",
+          "check",
+          "connectorId"
         ]
       },
       "RedeliverDeliveryOrderDto": {
@@ -86910,7 +87352,7 @@
       },
       "WebhookEvent_invoice_finalized": {
         "type": "object",
-        "description": "`data.object` ของ invoice.finalized — ออกเอกสารใบแจ้งหนี้แล้ว · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf, sync)",
+        "description": "`data.object` ของ invoice.finalized — ออกเอกสารใบแจ้งหนี้แล้ว · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf, sync, erpWarnings)",
         "properties": {
           "id": {
             "type": "string",
@@ -87005,13 +87447,6 @@
           },
           "updatedAt": {
             "type": "string"
-          },
-          "erpWarnings": {
-            "description": "คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว / วันที่ก่อนวันเริ่มซิงก์ = `[]` · ส่งสำเร็จแล้ว = ข้อความแบบอดีต · มีเฉพาะ `GET /{id}`",
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ErpDocumentWarningDto"
-            }
           },
           "issuingCompanyId": {
             "type": "string",
@@ -87109,7 +87544,7 @@
       },
       "WebhookEvent_invoice_paid": {
         "type": "object",
-        "description": "`data.object` ของ invoice.paid — ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · `previousAttributes` = { status, version } ก่อนชำระ · ยิงทุกครั้งที่ใบเปลี่ยนเป็น PAID — กลับรายการ (`payment.reversed`) แล้วรับชำระครบอีกครั้ง = ยิงอีกครั้ง · สถานะชำระจากระบบบัญชี ยิงผ่านทางเดียวกัน · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf, sync)",
+        "description": "`data.object` ของ invoice.paid — ใบแจ้งหนี้ได้รับชำระครบ (ยอดตัดรวม WHT ที่ถูกหัก = ยอดรวม) — `data.object` = ใบหลังชำระ (`status` PAID) · `previousAttributes` = { status, version } ก่อนชำระ · ยิงทุกครั้งที่ใบเปลี่ยนเป็น PAID — กลับรายการ (`payment.reversed`) แล้วรับชำระครบอีกครั้ง = ยิงอีกครั้ง · สถานะชำระจากระบบบัญชี ยิงผ่านทางเดียวกัน · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf, sync, erpWarnings)",
         "properties": {
           "id": {
             "type": "string",
@@ -87204,13 +87639,6 @@
           },
           "updatedAt": {
             "type": "string"
-          },
-          "erpWarnings": {
-            "description": "คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว / วันที่ก่อนวันเริ่มซิงก์ = `[]` · ส่งสำเร็จแล้ว = ข้อความแบบอดีต · มีเฉพาะ `GET /{id}`",
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ErpDocumentWarningDto"
-            }
           },
           "issuingCompanyId": {
             "type": "string",
@@ -87308,7 +87736,7 @@
       },
       "WebhookEvent_invoice_voided": {
         "type": "object",
-        "description": "`data.object` ของ invoice.voided — ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (`POST /invoices/{id}/void`) — `data.object` = ใบหลังยกเลิก: `status` CANCELLED + `invoiceNo` เดิม + `cancelledAt` (ไม่มีเหตุผล/ผู้ยกเลิก — ข้อความอิสระ) · `replacedByInvoice` = null เสมอตอนยิง (ร่างฉบับใหม่แทนสร้างหลัง event — ดูผ่าน GET) · `previousAttributes` = { status: ISSUED, version } · ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf, sync)",
+        "description": "`data.object` ของ invoice.voided — ยกเลิกใบแจ้งหนี้ที่ออกแล้ว (`POST /invoices/{id}/void`) — `data.object` = ใบหลังยกเลิก: `status` CANCELLED + `invoiceNo` เดิม + `cancelledAt` (ไม่มีเหตุผล/ผู้ยกเลิก — ข้อความอิสระ) · `replacedByInvoice` = null เสมอตอนยิง (ร่างฉบับใหม่แทนสร้างหลัง event — ดูผ่าน GET) · `previousAttributes` = { status: ISSUED, version } · ระบบบัญชีที่รับใบไปแล้วยกเลิกตาม · รูปเดียวกับ InvoiceDto (ไม่มี field ราคา, lines, printLines, createdBy, issuedBy, cancelReason, note, pdf, sync, erpWarnings)",
         "properties": {
           "id": {
             "type": "string",
@@ -87403,13 +87831,6 @@
           },
           "updatedAt": {
             "type": "string"
-          },
-          "erpWarnings": {
-            "description": "คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว / วันที่ก่อนวันเริ่มซิงก์ = `[]` · ส่งสำเร็จแล้ว = ข้อความแบบอดีต · มีเฉพาะ `GET /{id}`",
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ErpDocumentWarningDto"
-            }
           },
           "issuingCompanyId": {
             "type": "string",

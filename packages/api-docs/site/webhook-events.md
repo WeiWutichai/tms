@@ -169,7 +169,6 @@
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
 | `updatedAt` | ใช่ | `string` |   |   |   |
-| `erpWarnings` |   | `array<ErpDocumentWarningDto>` |   | คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว / วันที่ก่อนวันเริ่มซิงก์ = `[]` · ส่งสำเร็จแล้ว = ข้อความแบบอดีต · มีเฉพาะ `GET /{id}` |   |
 | `issuingCompanyId` | ใช่ | `string` |   |   | `cmp_…` |
 | `issuingBranchId` | ใช่ | `string` |   |   | `brn_…` |
 | `creditTermDays` | ใช่ | `number` |   |   |   |
@@ -208,7 +207,6 @@
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
 | `updatedAt` | ใช่ | `string` |   |   |   |
-| `erpWarnings` |   | `array<ErpDocumentWarningDto>` |   | คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว / วันที่ก่อนวันเริ่มซิงก์ = `[]` · ส่งสำเร็จแล้ว = ข้อความแบบอดีต · มีเฉพาะ `GET /{id}` |   |
 | `issuingCompanyId` | ใช่ | `string` |   |   | `cmp_…` |
 | `issuingBranchId` | ใช่ | `string` |   |   | `brn_…` |
 | `creditTermDays` | ใช่ | `number` |   |   |   |
@@ -247,7 +245,6 @@
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
 | `updatedAt` | ใช่ | `string` |   |   |   |
-| `erpWarnings` |   | `array<ErpDocumentWarningDto>` |   | คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว / วันที่ก่อนวันเริ่มซิงก์ = `[]` · ส่งสำเร็จแล้ว = ข้อความแบบอดีต · มีเฉพาะ `GET /{id}` |   |
 | `issuingCompanyId` | ใช่ | `string` |   |   | `cmp_…` |
 | `issuingBranchId` | ใช่ | `string` |   |   | `brn_…` |
 | `creditTermDays` | ใช่ | `number` |   |   |   |

@@ -3552,6 +3552,11 @@ model ExternalMapping {
   detail          Json?
   /// ST7-T21 เวลาที่รอบ "Payment status pull" ถามสถานะรับชำระของเอกสารนี้ล่าสุด — รอบถัดไปเริ่มจากใบที่ถามนานสุด (ท้ายแถวไม่อด)
   paymentCheckedAt DateTime?            @map("payment_checked_at") @db.Timestamptz(6)
+  /// ST8-T11 ผลกระทบยอดเนื้อหาเอกสารล่าสุด (docs/01 §4.4 `SENT → ACCEPTED / MISMATCH`) — null = ยังไม่เคยเทียบ (ส่งแล้ว = SENT)
+  /// แยกจาก `status` (ผลการส่ง/ซิงก์) · ACCEPTED = อ่านกลับแล้วตรง หรือคนยอมรับส่วนต่างนั้นแล้ว
+  reconcileState  ReconcileDocumentState? @map("reconcile_state")
+  /// ST8-T11 เวลาที่เทียบเนื้อหาล่าสุด
+  reconciledAt    DateTime?             @map("reconciled_at") @db.Timestamptz(6)
   /// sha256 ของ canonical payload ล่าสุดที่ส่งสำเร็จ (ST7-T15)
   lastSyncedHash  String?               @map("last_synced_hash")
   /// ST7-T16 hash แยกตามกลุ่ม field (CUSTOMER / DATES / PRICE / ACCESSORIAL / OTHER) ของ payload ล่าสุดที่ส่งสำเร็จ —
@@ -3664,8 +3669,18 @@ enum ReconcileOutcome {
   MISMATCH
   REMOTE_MISSING
   ERP_UNREACHABLE
+  /// ST8-T11 (เพิ่มจาก docs/01 §3.7) adapter ไม่ประกาศ `comparableDocument` / ไม่มีฐานของการส่ง — เทียบไม่ได้ (INFO)
+  NOT_COMPARABLE
 
   @@map("reconcile_outcome")
+}
+
+/// ST8-T11 ผลกระทบยอดเนื้อหาเอกสารกับระบบภายนอก (docs/01 §4.4) — ชื่อตาม docs
+enum ReconcileDocumentState {
+  ACCEPTED
+  MISMATCH
+
+  @@map("reconcile_document_state")
 }
 
 enum ReconcileSeverity {

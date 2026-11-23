@@ -1,6 +1,6 @@
 # Connector ERP (connectors)
 
-17 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+18 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -21,6 +21,7 @@
 | [`GET /v1/connectors/{id}/mappings`](#get-connectors-id-mappings) | `settings:read` |
 | [`GET /v1/reconcile-results`](#get-reconcile-results) | `integrations:read` |
 | [`GET /v1/reconcile-results/{id}`](#get-reconcile-results-id) | `integrations:read` |
+| [`POST /v1/reconcile-runs`](#post-reconcile-runs) | `settings:write` / `integrations:retry` |
 
 ## GET /v1/connectors/effective {#get-connectors-effective}
 
@@ -701,6 +702,60 @@ const { data, error } = await tms.GET('/v1/reconcile-results/{id}', {
 });
 ```
 
+## POST /v1/reconcile-runs {#post-reconcile-runs}
+
+`POST /v1/reconcile-runs`
+
+scope: `settings:write` หรือ `integrations:retry` · operationId: `Reconcile_run`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+
+**Request body** `CreateReconcileRunDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `connectorId` | ใช่ | `string` |   |   | `con_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e` |
+| `check` | ใช่ | `string` | ค่า: `PAYMENT_STATUS`, `DOCUMENT` | PAYMENT_STATUS = ดึงสถานะรับชำระของใบแจ้งหนี้ที่ยังค้างจากระบบบัญชี · DOCUMENT = อ่านใบแจ้งหนี้ที่เลือก (`invoiceIds`) กลับจากระบบบัญชีแล้วเทียบเนื้อหา (source MANUAL — ต้องมี `reason`) |   |
+| `invoiceIds` |   | `array<string>` | ≤ 200 รายการ | ใบแจ้งหนี้ที่จะเทียบ (บังคับเมื่อ `check` = DOCUMENT · 1–200 ใบ) | `["ivc_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e"]` |
+| `reason` |   | `string` | ยาว ≤ 500 | เหตุผล (≥ 10 ตัวอักษร ลง audit) — บังคับเมื่อ `check` = DOCUMENT |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `202` | สั่งรอบกระทบยอดเอง (source MANUAL) — `check` PAYMENT_STATUS: ดึงสถานะรับชำระของใบแจ้งหนี้ที่ยังค้างจากระบบบัญชีของ connector นี้ทันที · `check` DOCUMENT: อ่านใบแจ้งหนี้ที่เลือก (`invoiceIds` 1–200) กลับจากระบบบัญชีแล้วเทียบเนื้อหา (คำสั่ง FETCH_DOCUMENT ผ่านคิวของ connector · ต้องมี `reason` ≥ 10 ตัวอักษร ลง audit · ใบที่ไม่อยู่ในระบบบัญชีนี้คืนใน `notInErp` · ผลดูที่ `GET /reconcile-results` และ `sync.reconcileState` ของใบ) (ปกติระบบดึงเองวันละครั้งตั้งแต่ 06:00 น.) · ทำงานเบื้องหลัง — ผลดูที่ `GET /payments` (รายการ source CONNECTOR) และ `GET /reconcile-results` · มีรอบของ connector นี้ค้างอยู่ = `ALREADY_QUEUED` · connector ไม่พบ → 404 · ดึงไม่ได้ตอนนี้ → 409 · เฉพาะผู้ใช้ (API key สั่งไม่ได้ → 403) · สิทธิ์: PAYMENT_STATUS ต้อง `settings:write` · DOCUMENT ใช้ `settings:write` หรือ `integrations:retry` | `ReconcileRunDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:write` / `integrations:retry` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `409` | `invalid_state_transition` — connector นี้ดึงสถานะรับชำระไม่ได้ตอนนี้ (`reason`: `connector_not_active` ยังไม่เปิดใช้/หยุดอยู่ · `capability_not_enabled` ระบบบัญชีนี้ไม่รองรับหรือยังไม่เปิด `fetchPaymentStatus` (DOCUMENT: `fetchDocument`) · `adapter_unavailable` · DOCUMENT: `connector_unhealthy` ระบบบัญชีไม่ตอบ คิวพักอยู่) — [invalid_state_transition](errors.md#invalid_state_transition) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/reconcile-runs" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"connectorId":"con_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e","check":"PAYMENT_STATUS","invoiceIds":["ivc_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e"]}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/reconcile-runs', {
+  body: {
+    "connectorId": "con_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+    "check": "PAYMENT_STATUS",
+    "invoiceIds": [
+      "ivc_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e"
+    ]
+  },
+});
+```
+
 ## Schema ของ response {#schemas}
 
 ### AuditPageDto {#schema-AuditPageDto}
@@ -899,12 +954,12 @@ const { data, error } = await tms.GET('/v1/reconcile-results/{id}', {
 | `entityType` | ใช่ | `string` |   | ชนิดเอกสารฝั่ง TMS ที่เทียบ | `INVOICE` |
 | `invoiceId` | ใช่ | `string` | null ได้ |   | `ivc_…` |
 | `localNumber` | ใช่ | `string` | null ได้ |   | `2611-0001` |
-| `result` | ใช่ | `string` | ค่า: `MATCH`, `MISMATCH`, `REMOTE_MISSING`, `ERP_UNREACHABLE` |   |   |
+| `result` | ใช่ | `string` | ค่า: `MATCH`, `MISMATCH`, `REMOTE_MISSING`, `ERP_UNREACHABLE`, `NOT_COMPARABLE` |   |   |
 | `severity` | ใช่ | `string` | ค่า: `MONEY`, `FIELD`, `INFO` | MONEY = กระทบยอดเงิน |   |
-| `source` | ใช่ | `string` | ค่า: `AFTER_PUSH`, `NIGHTLY`, `PRE_CLOSE`, `MANUAL` | NIGHTLY = รอบดึงรายวัน · MANUAL = สั่งเอง (`POST /reconcile-runs`) |   |
+| `source` | ใช่ | `string` | ค่า: `AFTER_PUSH`, `NIGHTLY`, `PRE_CLOSE`, `MANUAL` | AFTER_PUSH = หลังส่งสำเร็จ (ทันที + 60 นาที) · NIGHTLY = รอบรายวัน · PRE_CLOSE = ก่อนปิดงวด (วันทำการสุดท้ายของเดือน 17:00) · MANUAL = สั่งเอง (`POST /reconcile-runs`) |   |
 | `status` | ใช่ | `string` | ค่า: `OPEN`, `ACKNOWLEDGED`, `RESOLVED` |   |   |
-| `check` | ใช่ | `string` | null ได้ | PAYMENT_STATUS = ยอดรับชำระ · DOCUMENT = เอกสารที่ส่งแล้วหาไม่พบในระบบบัญชี | `PAYMENT_STATUS` |
-| `code` | ใช่ | `string` | ค่า: `remote_exceeds_total`, `remote_paid_amount_short`, `remote_less_than_tms`, `tms_has_other_payments`, `connector_payment_reversed`, `remote_wht_unknown`, `remote_wht_inconsistent`, `remote_paid_at_invalid`, `payment_rejected`, `remote_missing` · null ได้ | `remote_exceeds_total` ระบบบัญชีตัดหนี้เกินยอดใบ · `remote_paid_amount_short` ระบบบัญชีบอกชำระครบแต่ยอดตัดหนี้น้อยกว่ายอดใบ · `remote_less_than_tms` ระบบบัญชีตัดหนี้น้อยกว่าที่ TMS บันทึกรับ · `tms_has_other_payments` ระบบบัญชีตัดหนี้มากกว่า TMS แต่ใบมีรับชำระที่บันทึกเอง (ไม่บันทึกเพิ่มให้เอง) · `connector_payment_reversed` ใบนี้เคยมีรายการที่ระบบสร้างแล้วถูกกลับรายการใน TMS (ไม่สร้างให้อีก) · `remote_wht_unknown` ระบบบัญชีไม่บอกภาษีหัก ณ ที่จ่าย · `remote_wht_inconsistent` ภาษีหัก ณ ที่จ่ายที่รายงานขัดกัน · `remote_paid_at_invalid` วันที่รับชำระไม่มี/เป็นอนาคต/ก่อนวันออกใบ · `payment_rejected` กฎรับชำระของ TMS ไม่รับ (ดู `reason`) · `remote_missing` แทนที่/อ่านเอกสารแล้วระบบบัญชีตอบว่าไม่พบ — ส่งใหม่เป็นเลขใหม่ต้องให้บัญชีรับรู้ |   |
+| `check` | ใช่ | `string` | null ได้ | PAYMENT_STATUS = ยอดรับชำระ · DOCUMENT = เนื้อหาเอกสารที่ส่งแล้ว | `PAYMENT_STATUS` |
+| `code` | ใช่ | `string` | ค่า: `remote_exceeds_total`, `remote_paid_amount_short`, `remote_less_than_tms`, `tms_has_other_payments`, `connector_payment_reversed`, `remote_wht_unknown`, `remote_wht_inconsistent`, `remote_paid_at_invalid`, `payment_rejected`, `content_mismatch`, `remote_missing`, `erp_unreachable`, `remote_ref_mismatch`, `not_comparable` · null ได้ | `remote_exceeds_total` ระบบบัญชีตัดหนี้เกินยอดใบ · `remote_paid_amount_short` ระบบบัญชีบอกชำระครบแต่ยอดตัดหนี้น้อยกว่ายอดใบ · `remote_less_than_tms` ระบบบัญชีตัดหนี้น้อยกว่าที่ TMS บันทึกรับ · `tms_has_other_payments` ระบบบัญชีตัดหนี้มากกว่า TMS แต่ใบมีรับชำระที่บันทึกเอง (ไม่บันทึกเพิ่มให้เอง) · `connector_payment_reversed` ใบนี้เคยมีรายการที่ระบบสร้างแล้วถูกกลับรายการใน TMS (ไม่สร้างให้อีก) · `remote_wht_unknown` ระบบบัญชีไม่บอกภาษีหัก ณ ที่จ่าย · `remote_wht_inconsistent` ภาษีหัก ณ ที่จ่ายที่รายงานขัดกัน · `remote_paid_at_invalid` วันที่รับชำระไม่มี/เป็นอนาคต/ก่อนวันออกใบ · `payment_rejected` กฎรับชำระของ TMS ไม่รับ (ดู `reason`) · `remote_missing` แทนที่/อ่านเอกสารแล้วระบบบัญชีตอบว่าไม่พบ — ส่งใหม่เป็นเลขใหม่ต้องให้บัญชีรับรู้ · `content_mismatch` เนื้อหาเอกสารในระบบบัญชีไม่ตรงกับที่ TMS ออก (ดู `documentDiff`) · `erp_unreachable` อ่านเอกสารจากระบบบัญชีไม่สำเร็จจนหมดรอบลองใหม่ (INFO) · `remote_ref_mismatch` เลขเอกสารฝั่งระบบบัญชีที่รู้ชี้ไปเอกสารที่ไม่ใช่ของใบนี้ (ดู `refMismatches`, MONEY) · `not_comparable` เทียบเนื้อหาไม่ได้ — ระบบบัญชีนี้ไม่ประกาศส่วนที่เทียบได้ / ไม่มีข้อมูลการส่งของใบ (INFO, `reason`) |   |
 | `reason` | ใช่ | `string` | null ได้ | รหัสเหตุผลเพิ่มเติม (เฉพาะ `payment_rejected`) — เป็นรหัสเท่านั้น ไม่มียอดเงิน | `invoice_not_payable` |
 | `localStatus` | ใช่ | `string` | null ได้ |   | `PARTIALLY_PAID` |
 | `remoteStatus` | ใช่ | `string` | null ได้ |   | `PAID` |
@@ -913,6 +968,8 @@ const { data, error } = await tms.GET('/v1/reconcile-results/{id}', {
 | `sellLocalPaidAmount` |   | `string` |   | ยอดตัดหนี้ของใบใน TMS (รวม WHT) — `prices.sell:read` |   |
 | `sellRemotePaidAmount` |   | `string` |   | ยอดตัดหนี้สะสมที่ระบบบัญชีรายงาน — `prices.sell:read` |   |
 | `sellDifferenceAmount` |   | `string` |   | ระบบบัญชี − TMS — `prices.sell:read` |   |
+| `refMismatches` | ใช่ | `array<ReconcileRefMismatchDto>` | null ได้ | `code` remote_ref_mismatch: เอกสารฝั่งระบบบัญชีที่เลขที่รู้ชี้ไป แต่เลขอ้างอิงของเราในเอกสารไม่ตรง (ไม่ใช่ของใบนี้) · อื่น ๆ = null |   |
+| `documentDiff` | ใช่ | `ReconcileDocumentDiffDto` | null ได้ | ส่วนต่างของเนื้อหาเอกสาร (`check` DOCUMENT + `code` content_mismatch) · อื่น ๆ = null |   |
 | `runAt` | ใช่ | `string (date-time)` |   | รอบที่พบครั้งแรก |   |
 | `lastSeenAt` | ใช่ | `string (date-time)` |   | รอบล่าสุดที่ยังพบส่วนต่างเดิม |   |
 | `resolvedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
@@ -929,3 +986,15 @@ const { data, error } = await tms.GET('/v1/reconcile-results/{id}', {
 | `data` | ใช่ | `array<ReconcileResultDto>` |   |   |   |
 | `nextCursor` | ใช่ | `string` | null ได้ |   |   |
 | `hasMore` | ใช่ | `boolean` |   |   |   |
+
+### ReconcileRunDto {#schema-ReconcileRunDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `status` | ใช่ | `string` | ค่า: `QUEUED`, `ALREADY_QUEUED` | ALREADY_QUEUED = มีรอบของ connector นี้รอ/กำลังทำอยู่ (ไม่สร้างซ้ำ) · DOCUMENT: QUEUED เมื่อมีอย่างน้อย 1 ใบเข้าคิว |   |
+| `check` | ใช่ | `string` |   |   | `PAYMENT_STATUS` |
+| `connectorId` | ใช่ | `string` |   |   | `con_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e` |
+| `queued` |   | `integer` |   | DOCUMENT: จำนวนใบที่เข้าคิวอ่านเอกสาร (คำสั่ง FETCH_DOCUMENT ผ่านคิวของ connector) |   |
+| `notInErp` |   | `array<string>` |   | DOCUMENT: ใบที่เทียบไม่ได้เพราะยังไม่อยู่ในระบบบัญชีนี้ (ไม่มีเลขเอกสารฝั่งระบบบัญชี / ยกเลิกแล้ว) |   |

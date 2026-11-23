@@ -61,6 +61,11 @@ export interface CommandInput {
    * (คำสั่งเดิมคงผล/ประวัติไว้ · ปลายทางยังกันซ้ำด้วย key ที่ sink สร้างจากเนื้อหา)
    */
   resendNonce?: string;
+  /**
+   * ST8-T11 คีย์ลำดับแยก (ไม่ใส่ = `{sink}:{target}:cus:{ลูกค้า}`) — คำสั่งอ่านของ reconcile ใช้ช่องของตัวเอง
+   * (`{sink}:{target}:recon:{ลูกค้า}`) เพื่อไม่กั้นการส่งเอกสารของลูกค้ารายนั้นเมื่อการอ่านค้าง/ลองใหม่
+   */
+  serializeKey?: string;
 }
 
 /**
@@ -97,7 +102,9 @@ export class OutboxService {
       `${c.sink}:${target}:${c.entityType}:${c.localId}:${hash}` +
       (c.resendNonce ? `:resend-${c.resendNonce}` : '');
     const cust = c.entityType === 'customer' ? customerKey(c.localId) : customerKey(c.customerId);
-    const serializeKey = `${c.sink}:${target}:${cust ? `cus:${cust}` : `${c.entityType}:${c.localId}`}`;
+    const serializeKey =
+      c.serializeKey ??
+      `${c.sink}:${target}:${cust ? `cus:${cust}` : `${c.entityType}:${c.localId}`}`;
     const rows = await tx.$queryRaw<{ id: string; created: boolean }[]>`
       INSERT INTO integration_outbox (tenant_id, kind, sink, target_id, operation, entity_type, local_id, event_id,
                                       serialize_key, idempotency_key, payload, max_attempt, updated_at)

@@ -6,7 +6,15 @@ import { encodeId, tryDecodeId } from '../../common/ids';
 import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException } from '../../common/problem';
 import { DbService, type Tx } from '../../db/db.service';
+import { canonicalJson } from '../integration/outbox.service';
+import {
+  type CompareResult,
+  type DocumentDiff,
+  MONEY_FIELDS,
+  RECONCILE_CHECK_DOCUMENT,
+} from './reconcile-compare';
 import type {
+  ReconcileDocumentDiffDto,
   ReconcileResultDto,
   ReconcileResultListQuery,
   ReconcileResultPageDto,
@@ -15,8 +23,69 @@ import type {
 const NONE = '00000000-0000-0000-0000-000000000000';
 const ENTITY = 'reconcile_result';
 
-/** การตรวจที่สร้างผล (ค่าใน `diff.check`) — ST7-T21 มีชนิดเดียว · เทียบเอกสารรายบรรทัด = ST8-T11 */
+/** การตรวจที่สร้างผล (ค่าใน `diff.check`) — ST7-T21 ยอดรับชำระ · เทียบเนื้อหาเอกสาร = `DOCUMENT` (ST8-T11 `reconcile-compare.ts`) */
 export const RECONCILE_CHECK_PAYMENT_STATUS = 'PAYMENT_STATUS';
+
+/**
+ * ST8-T11 รหัสผลของการเทียบเอกสาร (`diff.code` ของ check `DOCUMENT`)
+ * - `content_mismatch` เนื้อหาไม่ตรง (ดู `levels`) · `remote_missing` อ่านแล้วระบบบัญชีไม่พบเอกสาร (ST7-T16 ใช้รหัสเดียวกัน)
+ * - `erp_unreachable` อ่านเอกสารไม่สำเร็จจนหมดรอบลองใหม่ (ปลายทางล่ม) — INFO ไม่เปลี่ยนผลกระทบยอดของใบ
+ */
+export const DOCUMENT_RESULT_CODES = [
+  'content_mismatch',
+  'remote_missing',
+  'erp_unreachable',
+  'remote_ref_mismatch',
+  'not_comparable',
+] as const;
+/** รหัส `last_error` ของ external_mapping ที่ reconcile ตั้ง (รอบถัดไปตรง = คืน SYNCED) */
+const RECONCILE_MAPPING_CODES = new Set([
+  'reconcile_mismatch',
+  'remote_missing',
+  'remote_ref_mismatch',
+]);
+
+export type DocumentOutcome =
+  | { kind: 'MATCH' }
+  | { kind: 'MISMATCH'; compare: CompareResult }
+  | { kind: 'REMOTE_MISSING'; externalId: string }
+  | { kind: 'ERP_UNREACHABLE'; errorClass: string | null }
+  /** ST8-T11 (review 1) เลขฝั่ง ERP ที่รู้ชี้ไปเอกสารที่ไม่ใช่ของใบนี้ (เลขอ้างอิงของเราไม่ตรง) — MISMATCH MONEY */
+  | {
+      kind: 'REF_MISMATCH';
+      mismatched: { externalId: string; expectedRef: string; actualRef: string | null }[];
+    }
+  /** ST8-T11 (review 4) เทียบไม่ได้ (adapter ไม่มี comparableDocument / ไม่มีฐานของการส่ง / ผังรหัสไม่ครบ) — INFO ครั้งเดียว */
+  | { kind: 'NOT_COMPARABLE'; reason: string };
+
+export interface DocumentOutcomeInput {
+  connectorId: string;
+  adapterKey: string;
+  /** external_mapping.entity_type — ST8-T11 ใช้กับใบแจ้งหนี้ */
+  entityType: 'INVOICE';
+  localId: string;
+  localNumber: string | null;
+  source: ReconcileSource;
+  runAt: Date;
+  outcome: DocumentOutcome;
+  /** สรุปสั้นของแต่ละฝั่ง (ไม่เก็บเอกสารทั้งก้อน — ขนาด + ข้อมูลส่วนบุคคล) */
+  local: Record<string, unknown>;
+  remote: Record<string, unknown>;
+  /** id คำสั่ง outbox ที่อ่านเอกสาร (audit) */
+  outboxId?: string | null;
+}
+
+export interface DocumentOutcomeResult {
+  /** แถว reconcile_result ที่เกี่ยวข้อง (MATCH = null) */
+  id: string | null;
+  /** พบส่วนต่าง**ใหม่** (แจ้งเตือนได้) — ส่วนต่างเดิม (diff_hash เท่าเดิม รวมที่คนยอมรับแล้ว) = false */
+  created: boolean;
+  /** ERP_UNREACHABLE ที่ยังเปิดอยู่จากรอบก่อน (= ติดกัน ≥ 2 รอบ) */
+  repeated: boolean;
+  severity: 'MONEY' | 'FIELD' | 'INFO' | null;
+  /** ผลกระทบยอดของใบหลังรอบนี้ (null = ไม่เปลี่ยน) */
+  state: 'ACCEPTED' | 'MISMATCH' | null;
+}
 
 /**
  * ส่วนต่างยอดรับชำระ (ST7-T21) — ทุกตัว = ไม่แตะเงินใน TMS ให้คนตัดสิน
@@ -66,6 +135,13 @@ export const pullPaymentKeyPrefix = (invoiceId: string) =>
   `${PULL_PAYMENT_KEY_PREFIX}${invoiceId}:`;
 
 const sha = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
+const mappingCode = (k: DocumentOutcome['kind']) =>
+  k === 'MISMATCH'
+    ? 'reconcile_mismatch'
+    : k === 'REF_MISMATCH'
+      ? 'remote_ref_mismatch'
+      : 'remote_missing';
+const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
 /**
  * ผลกระทบยอดกับระบบภายนอก (ST7-T21 — ชิ้นเล็กสุดของ docs/01 §3.7 `reconcile_result`, §6.5; ไม่ผูก ERP ใด)
@@ -182,6 +258,219 @@ export class ReconcileResultsService {
     return mine.length;
   }
 
+  /**
+   * ST8-T11 ผลการเทียบเนื้อหาเอกสาร 1 ใบ (docs/01 §6.5, §4.4) — ผู้เรียกอยู่ใน transaction ของ tenant
+   * - MATCH: ปิดส่วนต่างเอกสารที่ค้าง (`resolved_at` + audit `reconcile.mismatch_resolved`) · mapping → `reconcile_state` ACCEPTED
+   *   (mapping ที่ reconcile เคยตั้ง MISMATCH กลับเป็น SYNCED — docs/01 §4.4 "MISMATCH → ACCEPTED : รอบถัดไปตรง")
+   * - MISMATCH / REMOTE_MISSING: ส่วนต่างเดิมที่ยังเปิด (`diff_hash` เท่าเดิม — รวมที่คนยอมรับแล้ว) = ไม่สร้างแถว/ไม่ลง audit/ไม่แจ้งซ้ำ
+   *   (อัปเดต `last_seen_at`) · ส่วนต่างเปลี่ยน = ปิดแถวเดิม เปิดแถวใหม่ + audit `reconcile.mismatch_found` (ไม่มีค่าในเอกสาร — นับเท่านั้น)
+   *   · mapping `status` MISMATCH + `reconcile_state` MISMATCH (คนยอมรับส่วนต่างเดิมแล้ว = ACCEPTED — docs/01 §4.4 "ack พร้อมเหตุผล")
+   * - ERP_UNREACHABLE: แถว INFO (ไม่เปลี่ยนผลกระทบยอดของใบ ไม่ปิดส่วนต่างอื่น) · `repeated` = รอบก่อนก็อ่านไม่ได้
+   */
+  async recordDocumentOutcome(
+    tx: Tx,
+    tenantId: string,
+    m: DocumentOutcomeInput,
+  ): Promise<DocumentOutcomeResult> {
+    const scope = {
+      connectorId: m.connectorId,
+      entityType: m.entityType,
+      localId: m.localId,
+      resolvedAt: null,
+    };
+    const openDocs = (
+      await tx.reconcileResult.findMany({
+        where: scope,
+        select: { id: true, diff: true, diffHash: true, acknowledgedAt: true, result: true },
+      })
+    ).filter((r) => (r.diff as { check?: unknown } | null)?.check === RECONCILE_CHECK_DOCUMENT);
+    const o = m.outcome;
+    if (o.kind === 'MATCH') {
+      for (const r of openDocs) {
+        await tx.reconcileResult.update({ where: { id: r.id }, data: { resolvedAt: m.runAt } });
+        await this.audit.record({
+          action: 'reconcile.mismatch_resolved',
+          entityType: ENTITY,
+          entityId: r.id,
+          after: {
+            check: RECONCILE_CHECK_DOCUMENT,
+            resolvedBy: 'next_run_matched',
+            source: m.source,
+            connector: m.adapterKey,
+          },
+        });
+      }
+      await this.setMappingState(tx, m, 'ACCEPTED', null);
+      return { id: null, created: false, repeated: false, severity: null, state: 'ACCEPTED' };
+    }
+    let diff: Record<string, unknown>;
+    let diffHash: string;
+    let result: 'MISMATCH' | 'REMOTE_MISSING' | 'ERP_UNREACHABLE' | 'NOT_COMPARABLE';
+    let severity: 'MONEY' | 'FIELD' | 'INFO';
+    if (o.kind === 'MISMATCH') {
+      diff = o.compare.diff as unknown as Record<string, unknown>;
+      diffHash = o.compare.diffHash;
+      result = 'MISMATCH';
+      severity = o.compare.severity ?? 'FIELD';
+    } else if (o.kind === 'REMOTE_MISSING') {
+      // รูปเดียวกับ ST7-T16 (ErpAdapterSink.remoteMissing) — hash เดียวกัน = ไม่ซ้ำกันข้ามสองทาง
+      diff = {
+        check: RECONCILE_CHECK_DOCUMENT,
+        code: 'remote_missing',
+        externalId: o.externalId.slice(0, 100),
+      };
+      diffHash = sha256(canonicalJson(diff));
+      result = 'REMOTE_MISSING';
+      severity = 'MONEY';
+    } else if (o.kind === 'REF_MISMATCH') {
+      diff = {
+        check: RECONCILE_CHECK_DOCUMENT,
+        code: 'remote_ref_mismatch',
+        mismatched: o.mismatched.slice(0, 200).map((x) => ({
+          externalId: x.externalId.slice(0, 100),
+          expectedRef: x.expectedRef.slice(0, 100),
+          actualRef: x.actualRef?.slice(0, 100) ?? null,
+        })),
+      };
+      diffHash = sha256(canonicalJson(diff));
+      result = 'MISMATCH';
+      severity = 'MONEY';
+    } else if (o.kind === 'NOT_COMPARABLE') {
+      diff = {
+        check: RECONCILE_CHECK_DOCUMENT,
+        code: 'not_comparable',
+        reason: /^[a-z0-9_.]{1,60}$/.test(o.reason) ? o.reason : 'not_comparable',
+      };
+      diffHash = sha256(canonicalJson(diff));
+      result = 'NOT_COMPARABLE';
+      severity = 'INFO';
+    } else {
+      diff = { check: RECONCILE_CHECK_DOCUMENT, code: 'erp_unreachable' };
+      diffHash = sha256(canonicalJson(diff));
+      result = 'ERP_UNREACHABLE';
+      severity = 'INFO';
+    }
+    const same = openDocs.find((r) => r.diffHash === diffHash);
+    if (same) {
+      await tx.reconcileResult.update({ where: { id: same.id }, data: { lastSeenAt: m.runAt } });
+      if (o.kind === 'ERP_UNREACHABLE' || o.kind === 'NOT_COMPARABLE')
+        return { id: same.id, created: false, repeated: true, severity, state: null };
+      const state = same.acknowledgedAt ? 'ACCEPTED' : 'MISMATCH';
+      await this.setMappingState(tx, m, state, mappingCode(o.kind));
+      return { id: same.id, created: false, repeated: false, severity, state };
+    }
+    // ส่วนต่างเปลี่ยน → ปิดแถวเดิม (ไม่ใช่ "ตรงกันแล้ว" — ไม่ลง audit resolved) · อ่านไม่ได้ ไม่ปิดส่วนต่างที่รู้อยู่
+    if (o.kind !== 'ERP_UNREACHABLE' && o.kind !== 'NOT_COMPARABLE')
+      await tx.reconcileResult.updateMany({
+        where: { id: { in: openDocs.map((r) => r.id) } },
+        data: { resolvedAt: m.runAt },
+      });
+    const row = await tx.reconcileResult.create({
+      data: {
+        tenantId,
+        connectorId: m.connectorId,
+        entityType: m.entityType,
+        localId: m.localId,
+        localNumber: m.localNumber?.slice(0, 60) ?? null,
+        runAt: m.runAt,
+        source: m.source,
+        localSnapshot: m.local as Prisma.InputJsonValue,
+        remoteSnapshot: m.remote as Prisma.InputJsonValue,
+        diff: diff as Prisma.InputJsonValue,
+        diffHash,
+        result,
+        severity,
+        lastSeenAt: m.runAt,
+      },
+    });
+    const d = o.kind === 'MISMATCH' ? o.compare.diff : null;
+    await this.audit.record({
+      action: o.kind === 'NOT_COMPARABLE' ? 'reconcile.not_comparable' : 'reconcile.mismatch_found',
+      entityType: ENTITY,
+      entityId: row.id,
+      after: {
+        check: RECONCILE_CHECK_DOCUMENT,
+        code: diff.code,
+        result,
+        severity,
+        source: m.source,
+        connector: m.adapterKey,
+        invoiceId: encodeId('invoice', m.localId),
+        invoiceNo: m.localNumber,
+        outboxId: m.outboxId ?? null,
+        ...(d
+          ? {
+              levels: d.levels,
+              localLines: d.lineCount.local,
+              remoteLines: d.lineCount.remote,
+              missingLines: d.missingLines.length,
+              extraLines: d.extraLines.length,
+              fieldDiffs: d.header.length + d.lineFields.length,
+            }
+          : {}),
+      },
+    });
+    if (o.kind === 'ERP_UNREACHABLE' || o.kind === 'NOT_COMPARABLE')
+      return { id: row.id, created: true, repeated: false, severity, state: null };
+    await this.setMappingState(tx, m, 'MISMATCH', mappingCode(o.kind), row.id);
+    return { id: row.id, created: true, repeated: false, severity, state: 'MISMATCH' };
+  }
+
+  /**
+   * ผลกระทบยอดลง external_mapping (docs/01 §4.4 — แยกจาก `status` ของการส่ง):
+   * ACCEPTED (รอบนี้ตรง / คนยอมรับส่วนต่าง) — mapping ที่ reconcile ตั้ง MISMATCH ไว้คืน SYNCED ·
+   * MISMATCH — mapping `status` MISMATCH + `last_error` (รหัส reconcile) ให้หน้าคิว/การส่งใหม่เห็น
+   */
+  private async setMappingState(
+    tx: Tx,
+    m: DocumentOutcomeInput,
+    state: 'ACCEPTED' | 'MISMATCH',
+    code: string | null,
+    resultId?: string,
+  ): Promise<void> {
+    const row = await tx.externalMapping.findUnique({
+      where: {
+        connectorId_entityType_localId: {
+          connectorId: m.connectorId,
+          entityType: m.entityType,
+          localId: m.localId,
+        },
+      },
+      select: { id: true, status: true, lastError: true, reconcileState: true },
+    });
+    if (!row) return;
+    const prevCode = (row.lastError as { code?: unknown } | null)?.code;
+    const restore =
+      state === 'ACCEPTED' &&
+      row.status === 'MISMATCH' &&
+      typeof prevCode === 'string' &&
+      RECONCILE_MAPPING_CODES.has(prevCode);
+    const flag =
+      state === 'MISMATCH' && code !== null && !(row.status === 'MISMATCH' && prevCode === code);
+    await tx.externalMapping.update({
+      where: { id: row.id },
+      data: {
+        reconcileState: state,
+        reconciledAt: m.runAt,
+        ...(restore ? { status: 'SYNCED', lastError: Prisma.DbNull } : {}),
+        ...(flag
+          ? {
+              status: 'MISMATCH',
+              lastError: {
+                code,
+                source: m.source,
+                ...(resultId ? { reconcileResultId: encodeId('reconcileResult', resultId) } : {}),
+                at: m.runAt.toISOString(),
+              },
+            }
+          : {}),
+        ...(restore || flag || row.reconcileState !== state
+          ? { updatedBy: 'system:reconcile', version: { increment: 1 } }
+          : {}),
+      },
+    });
+  }
+
   // ---------- อ่าน ----------
 
   async list(q: ReconcileResultListQuery): Promise<ReconcileResultPageDto> {
@@ -244,11 +533,50 @@ export function toReconcileResultDto(
     sellLocalPaidAmount: str(diff.localPaid) ?? undefined,
     sellRemotePaidAmount: str(diff.remotePaid) ?? undefined,
     sellDifferenceAmount: str(diff.difference) ?? undefined,
+    refMismatches:
+      diff.check === RECONCILE_CHECK_DOCUMENT && Array.isArray(diff.mismatched)
+        ? (diff.mismatched as {
+            externalId: string;
+            expectedRef: string;
+            actualRef: string | null;
+          }[])
+        : null,
+    documentDiff:
+      diff.check === RECONCILE_CHECK_DOCUMENT && diff.code === 'content_mismatch'
+        ? documentDiffDto(diff as unknown as DocumentDiff)
+        : null,
     runAt: r.runAt.toISOString(),
     lastSeenAt: r.lastSeenAt.toISOString(),
     resolvedAt: r.resolvedAt?.toISOString() ?? null,
     acknowledgedAt: r.acknowledgedAt?.toISOString() ?? null,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
+  };
+}
+
+/** ช่องเงิน → `sellLocalValue` / `sellRemoteValue` (ตัดตามสิทธิ์ราคาขาย) · ช่องอื่น → `local` / `remote` */
+function valueDto(field: string, local: string | null, remote: string | null) {
+  const last = field.split('.').pop() ?? field;
+  if (MONEY_FIELDS.has(last))
+    return { field, local: null, remote: null, sellLocalValue: local, sellRemoteValue: remote };
+  return { field, local, remote };
+}
+
+function documentDiffDto(d: DocumentDiff): ReconcileDocumentDiffDto {
+  const arr = <T>(v: T[] | undefined): T[] => (Array.isArray(v) ? v : []);
+  return {
+    levels: arr(d.levels),
+    lineCount: d.lineCount ?? null,
+    missingLines: arr(d.missingLines),
+    extraLines: arr(d.extraLines),
+    header: arr(d.header).map((h) => valueDto(h.field, h.local, h.remote)),
+    lineFields: arr(d.lineFields).map((l) => ({
+      lineNo: l.lineNo,
+      deliveryOrderNumber: l.deliveryOrderNumber,
+      ...valueDto(l.field, l.local, l.remote),
+    })),
+    total: arr(d.total).map((t) => valueDto(t.field, t.local, t.remote)),
+    totalSkipped: d.totalSkipped ?? null,
+    truncated: !!d.truncated && Object.keys(d.truncated).length > 0,
   };
 }
