@@ -1379,6 +1379,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'erpq.menu.useTms': '以 TMS 数据重发',
   'erpq.menu.askFix': '申请更正',
   'erpq.menu.log': '查看日志',
+  'erpq.kv.dest': '终点',
   'erpq.closeWin': '关闭',
   'erpq.cmp.diff': '不同',
   'erpq.f.refShort': '参考编号',

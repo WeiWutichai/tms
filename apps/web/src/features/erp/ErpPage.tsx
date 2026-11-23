@@ -3,9 +3,9 @@ import {
   DataTable,
   DocNo,
   EmptyState,
-  KpiCard,
   StatusDot,
   StatusTabs,
+  SummaryStrip,
   Tag,
   Toast,
   type Column,
@@ -22,6 +22,8 @@ import { tableLabels } from '../companies/CompanySample';
 import { problemText } from '../master/problems';
 import { useSessionState, useUrlSeed } from '../master/useCursorList';
 import { adapterName } from '../settings/ConnectorSettings';
+import { SavedViewMenu } from '../views/SavedViewMenu';
+import { pick, useSavedViews } from '../views/useSavedViews';
 import { CloseDialog, type DialogKind } from './ErpDialogs';
 import { ErpDrawer } from './ErpDrawer';
 import { bySeverity, diffFields, rowStatus, statusKey, TAB_QUERY, TABS, type Tab } from './erpq';
@@ -60,6 +62,19 @@ export function ErpPage() {
   const [tab, setTab] = useSessionState<Tab>('erp.tab', 'all');
   const [col, setCol] = useSessionState('erp.cols', EMPTY_COL);
   const [hidden, setHidden] = useSessionState<string[] | null>('erp.hidden', null);
+  // มุมมองที่บันทึกไว้ (ต้นแบบ "มุมมอง: ของฉันวันนี้" — แบบหน้า settle): แท็บ + ตัวกรองคอลัมน์ + คอลัมน์ที่ซ่อน
+  const views = useSavedViews({
+    page: 'erp',
+    state: { tab, ...col },
+    hidden,
+    empty: { tab: 'all', ...EMPTY_COL },
+    apply: (v) => {
+      const x = pick(v.state, { tab: 'all', ...EMPTY_COL });
+      setTab(TABS.includes(x.tab as Tab) ? (x.tab as Tab) : 'all');
+      setCol({ no: x.no, type: x.type, cust: x.cust, fields: x.fields, st: x.st });
+      setHidden(v.hidden);
+    },
+  });
   const [open, setOpen] = useState<string | null>(null);
   const [ptab, setPtab] = useState('sum');
   const [dialog, setDialog] = useState<{ kind: DialogKind; x: ReconcileResult } | null>(null);
@@ -176,16 +191,18 @@ export function ErpPage() {
   return (
     <>
       <PageHeader title={t('page.erp.title')} sub={t('page.erp.sub', { erp: pageErp })} />
-      <div className="tms-kpis">
-        <KpiCard
-          label={t('erpq.kpi.mm')}
-          tone="err"
-          value={openQ.data ? cnt(counts.mm) : '—'}
-          sub={t(curTab === 'mm' ? 'dash.kpi.clear' : 'bill.kpi.click')}
-          active={curTab === 'mm'}
-          onClick={() => pickTab('mm')}
-        />
-      </div>
+      {/* ต้นแบบ kpis('erp') บนหน้านี้ = แถบสรุปบรรทัดเดียว (hasBar) — เฉพาะ "ไม่ตรง" (การ์ดคิวส่งไม่สำเร็จรอ PO #86) */}
+      <SummaryStrip
+        items={[
+          {
+            value: openQ.data ? cnt(counts.mm) : '—',
+            label: t('erpq.kpi.mm'),
+            color: '#B3322A',
+            onClick: () => pickTab('mm'),
+            pressed: curTab === 'mm',
+          },
+        ]}
+      />
       <div className="tms-listbody">
         <StatusTabs
           value={curTab}
@@ -196,6 +213,12 @@ export function ErpPage() {
             ...(k !== 'all' && openQ.data ? { count: counts[k] } : {}),
           }))}
         />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
+          <SavedViewMenu b={views} onToast={setToast} />
+          <span style={{ marginLeft: 'auto', color: '#3B424C', fontSize: 13 }}>
+            {list.page.total !== undefined && t('table.total', { n: list.page.total })}
+          </span>
+        </div>
         {list.q.isError ? (
           <EmptyState
             icon="circle-alert"

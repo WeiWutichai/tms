@@ -1379,6 +1379,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'erpq.menu.useTms': 'Resend with TMS values',
   'erpq.menu.askFix': 'Request correction',
   'erpq.menu.log': 'View log',
+  'erpq.kv.dest': 'Drop',
   'erpq.closeWin': 'Close',
   'erpq.cmp.diff': 'Differs',
   'erpq.f.refShort': 'Reference',

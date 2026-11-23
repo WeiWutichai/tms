@@ -149,6 +149,7 @@ export function ErpDrawer({
       onClose={onClose}
       kind={t('erpq.kind', { type: t('erpq.type.INVOICE') })}
       title={no}
+      {...(x.customer ? { subtitle: x.customer.name } : {})}
       badge={<Badge label={stLabel} tone={b.tone} icon={b.icon} />}
       tabs={[
         { key: 'sum', label: t('bill.tab.sum') },
@@ -164,12 +165,10 @@ export function ErpDrawer({
             <span style={{ flex: 1 }} />
             <DrawerFooterButtons
               secondary={
-                can.act
+                can.act && st === 'mm'
                   ? [
                       { label: t('erpq.menu.accept', { erp }), onClick: () => onAccept(x) },
-                      ...(st === 'mm'
-                        ? [{ label: t('erpq.menu.askFix'), onClick: () => onAskFix(x) }]
-                        : []),
+                      { label: t('erpq.menu.askFix'), onClick: () => onAskFix(x) },
                     ]
                   : []
               }
@@ -194,6 +193,58 @@ export function ErpDrawer({
     >
       {tab === 'sum' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* ต้นแบบ kvI "ข้อมูล": ประเภท · ลูกค้า · ครั้งที่ส่ง · ส่งล่าสุด · ปลายทาง · รหัสตอบกลับ */}
+          <section
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+              paddingBottom: 20,
+              borderBottom: '1px solid #E4E6E0',
+            }}
+          >
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: '#3B424C' }}>
+              {t('erpq.kv.title')}
+            </span>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)',
+                gap: '14px 20px',
+              }}
+            >
+              {[
+                { k: t('erpq.col.type'), v: t('erpq.type.INVOICE') },
+                { k: t('erpq.col.cust'), v: x.customer?.name ?? '—' },
+                { k: t('erpq.col.att'), v: String(x.sends?.count ?? 0) },
+                {
+                  k: t('erpq.col.last'),
+                  v: x.sends?.lastSentAt ? formatDateTime(x.sends.lastSentAt, lang) : '—',
+                },
+                {
+                  k: t('erpq.kv.dest'),
+                  v: x.externalDocNo ? `${erp} · ${x.externalDocNo}` : erp,
+                },
+                { k: t('erpq.kv.code'), v: x.code ?? '—' },
+              ].map((it) => (
+                <div
+                  key={it.k}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}
+                >
+                  <span style={{ fontSize: 12.5, fontWeight: 500, color: '#59606B' }}>{it.k}</span>
+                  <span
+                    style={{
+                      color: '#101418',
+                      wordBreak: 'break-word',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {it.v}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
           {msg && (
             <div
               role="alert"
