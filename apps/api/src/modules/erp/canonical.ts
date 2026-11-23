@@ -27,7 +27,7 @@ export interface CanonicalParty {
   id: string;
   code: string;
   legalName: string;
-  /** null = ไม่มีเลขผู้เสียภาษีในเอกสาร (บุคคลธรรมดา — ไม่ส่งเลขบัตรประชาชนออกนอก TMS) */
+  /** null = ไม่มีเลขผู้เสียภาษีในเอกสาร (บุคคลธรรมดา — ไม่ส่งเลขบัตรประชาชน เว้นแต่ adapter ประกาศ `carrier.taxId` → D-80 ใส่ ณ ตอนส่ง) */
   taxId: string | null;
   branchCode: string | null;
 }
@@ -335,7 +335,8 @@ export function canonicalSettlement(
       id: row.carrierId,
       code: s.carrier.code,
       legalName: s.carrier.legalName,
-      // บุคคลธรรมดา: ไม่ส่งเลขบัตรประชาชนออกนอก TMS (PDPA — ระบบบัญชีกรอกเองตอนออก 50 ทวิ)
+      // บุคคลธรรมดา: payload ของคิวไม่มีเลขบัตรประชาชน (PDPA) — D-80: sink ใส่เลขเต็ม ณ ตอนส่ง เฉพาะ adapter ที่ประกาศ
+      // `personalDataNeeds: ['carrier.taxId']` (ระบบบัญชีที่ออก 50 ทวิ) · adapter อื่นได้ null เหมือนเดิม
       taxId: s.carrier.entityType === 'JURISTIC' ? s.carrier.taxId : null,
       branchCode: s.carrier.branchCode,
       entityType: s.carrier.entityType === 'JURISTIC' ? 'JURISTIC' : 'INDIVIDUAL',

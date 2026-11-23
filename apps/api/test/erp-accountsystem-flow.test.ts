@@ -7,7 +7,10 @@ import { encodeId, tryDecodeId } from '../src/common/ids';
 import { DbService } from '../src/db/db.service';
 import { AccountSystemAdapter } from '../src/erp-adapters/accountsystem/accountsystem.adapter';
 import { JobQueue } from '../src/jobs/job-queue.service';
+import { ERP_ADAPTER_FACTORIES } from '../src/erp-adapters';
+import { ErpAdapterError } from '../src/modules/erp/erp-adapter';
 import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
+import { injectPersonalData, redactNationalIds } from '../src/modules/erp/personal-data';
 import { OutboxDispatcher } from '../src/modules/integration/outbox.dispatcher';
 import { rateLimitInstance } from '../src/http/rate-limit/rate-limit.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
@@ -594,6 +597,200 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
     await drainOutbox();
     expect(mock.byRef(s2.number, 'tms.settlement')[0]!.contact_code).toBe('AP-555');
     expect(mock.requests.filter((q) => q.method === 'PUT').length).toBe(puts);
+  });
+
+  it('D-80 (PDPA): รถร่วมบุคคลธรรมดา → เลขบัตรประชาชนเต็มถึงระบบบัญชีใน HTTP body (ใส่ ณ ตอนส่ง) · payload ในคิว/ผลของคำสั่ง/mapping ไม่มีเลข · audit ไม่มีเลข · error ถูกตัดเลข', async () => {
+    const nid = validTaxId(4180);
+    const car = await api(app, admin).post('/v1/carriers').send({
+      legalName: 'นาย รถร่วม บุคคลบัญชี',
+      entityType: 'INDIVIDUAL',
+      taxId: nid,
+      phone: '081-234-5680',
+    });
+    expect(car.status, JSON.stringify(car.body)).toBe(201);
+    const carrierId = uuid('carrier', car.body.id);
+    const before = mock.requests.length;
+    const s = await paidSettlement(carrierId, '3000.00');
+    const cmd = (await commands('PUSH_SETTLEMENT')).find((c) => c.localId === s.uuid)!;
+    // payload ที่เก็บในคิว: ไม่มีเลขเต็ม (carrier.taxId = null)
+    expect(JSON.stringify(cmd.payload)).not.toContain(nid);
+    expect((cmd.payload as any).document.carrier).toMatchObject({
+      entityType: 'INDIVIDUAL',
+      taxId: null,
+    });
+    await drainOutbox();
+    const done = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } });
+    expect(done.status).toBe('DONE');
+    // HTTP body ที่ถึง mock (จับคู่/สร้างผู้ติดต่อด้วยเลขภาษี) มีเลขเต็ม
+    const sentBodies = mock.requests.slice(before).map((q) => JSON.stringify(q.body));
+    const contactPut = mock.requests
+      .slice(before)
+      .find((q) => q.method === 'PUT' && q.path.startsWith('/ext/v1/contacts'))!;
+    expect(contactPut.body).toEqual([expect.objectContaining({ tax_id: nid, kind: 'vendor' })]);
+    expect(sentBodies.some((b) => b.includes(nid))).toBe(true);
+    const ap = mock.byRef(s.number, 'tms.settlement');
+    expect(ap).toHaveLength(1);
+    // ที่เก็บใน TMS: payload / result / mapping ไม่มีเลข · result บอกแค่ชื่อช่อง
+    expect(JSON.stringify(done.payload)).not.toContain(nid);
+    expect(JSON.stringify(done.result)).not.toContain(nid);
+    expect(done.result).toMatchObject({ personalDataSent: ['carrier.taxId'] });
+    const m = await mapping('SETTLEMENT', s.uuid);
+    expect(JSON.stringify(m)).not.toContain(nid);
+    expect(m!.lastSyncedHash).toBe((done.result as any).sentHash);
+    // audit: บันทึกว่าส่งข้อมูลส่วนบุคคล (ไม่มีตัวเลข)
+    const audits = await plat.auditLog.findMany({
+      where: { tenantId, action: 'connector.pii_sent' },
+    });
+    const mine = audits.filter((a) => (a.after as any)?.localId === s.uuid);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({ entityType: 'connector', entityId: conUuid });
+    expect((mine[0]!.after as any).fields).toEqual(['carrier.taxId']);
+    expect(JSON.stringify(audits.map((a) => [a.after, a.reason]))).not.toContain(nid);
+    // hash: blind index แทนเลข — ส่งซ้ำด้วยเนื้อหาเดิม = ไม่ส่ง (hash คงที่) และไม่ลง audit เพิ่ม
+    const sentReqs = mock.requests.length;
+    await plat.$executeRaw`UPDATE integration_outbox SET status = 'PENDING', attempt = 0 WHERE id = ${cmd.id}::uuid`;
+    await drainOutbox();
+    const again = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } });
+    expect(again.status).toBe('SKIPPED');
+    expect((again.lastError as any)?.code).toBe('payload_unchanged');
+    expect(mock.requests.length).toBe(sentReqs);
+    expect(
+      (await plat.auditLog.findMany({ where: { tenantId, action: 'connector.pii_sent' } })).filter(
+        (a) => (a.after as any)?.localId === s.uuid,
+      ),
+    ).toHaveLength(1);
+
+    // ปลายทางตอบ error ที่สะท้อนเลขกลับมา (เต็ม / มีขีด / เว้นวรรค / ถูกตัดกลางเลข) → last_error ที่เก็บถูกตัดเลข
+    // ทั้ง 3 ทาง: ผล ok:false · throw ErpAdapterError · throw Error ธรรมดา (TRANSIENT)
+    const dashed = (d: string) =>
+      `${d[0]}-${d.slice(1, 5)}-${d.slice(5, 10)}-${d.slice(10, 12)}-${d[12]}`;
+    const spaced = (d: string) =>
+      `${d[0]} ${d.slice(1, 5)} ${d.slice(5, 10)} ${d.slice(10, 12)} ${d[12]}`;
+    /** ข้อความแบบ AccountSystem ที่ตัด 300 ตัวอักษรกลางเลข (เหลือ 8 หลักแรก) */
+    const truncated = (d: string) => `${'x'.repeat(292)}${d}`.slice(0, 300);
+    const leaks = (v: unknown) => {
+      const t = JSON.stringify(v);
+      return [nid, dashed(nid), spaced(nid), nid.slice(0, 8), nid.slice(-6)].filter((f) =>
+        t.includes(f),
+      );
+    };
+    const echo = (d: string) => ({
+      code: 'contact_invalid',
+      message: `tax_id ${dashed(d)} / ${spaced(d)} rejected · ${truncated(d)}`,
+      fields: [{ field: `contacts[${d}]`, code: 'invalid', message: `bad ${d} (${dashed(d)})` }],
+    });
+    const modes = {
+      result: (d: string) => ({
+        ok: false as const,
+        errorClass: 'VALIDATION' as const,
+        retryable: false,
+        problem: echo(d),
+      }),
+      adapterError: (d: string) => {
+        throw new ErpAdapterError('VALIDATION', echo(d));
+      },
+      thrown: (d: string) => {
+        throw new Error(`socket hang up while sending ${spaced(d)} · ${truncated(d)}`);
+      },
+    } as const;
+    const reg = app.get(ErpAdapterRegistry);
+    for (const [mode, respond] of Object.entries(modes)) {
+      const sN = await paidSettlement(carrierId, '2500.00');
+      const cmdN = (await commands('PUSH_SETTLEMENT')).find((c) => c.localId === sN.uuid)!;
+      class EchoAdapter extends AccountSystemAdapter {
+        override async pushSettlement(_ctx: unknown, doc: any): Promise<any> {
+          return respond(doc.carrier.taxId);
+        }
+      }
+      reg.replace(new EchoAdapter({ allowPrivate: true }));
+      try {
+        await drainOutbox();
+      } finally {
+        reg.replace(new AccountSystemAdapter({ allowPrivate: true }));
+      }
+      const failed = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmdN.id } });
+      expect(failed.status, mode).toBe(mode === 'thrown' ? 'FAILED_RETRYABLE' : 'FAILED_FINAL');
+      expect(JSON.stringify(failed.lastError), mode).toContain('***');
+      expect(leaks(failed.lastError), mode).toEqual([]);
+      expect(leaks(failed.payload), mode).toEqual([]);
+      expect(leaks(failed.result), mode).toEqual([]);
+      // ปิดคำสั่งที่รอลองใหม่ ไม่ให้ค้างไปข้ออื่น
+      await plat.$executeRaw`UPDATE integration_outbox SET status = 'FAILED_FINAL' WHERE id = ${cmdN.id}::uuid`;
+    }
+  });
+
+  it('D-80 redactNationalIds: เต็ม / มีขีด / เว้นวรรค / ปน / ช่วง ≥ 6 หลัก (ถูกตัดกลางเลข) → *** · ช่วงสั้นกว่า 6 / เลขอื่น ไม่แตะ', () => {
+    const d = '1101700230705';
+    const r = (t: string) => redactNationalIds(t, ['key-not-an-id', d]);
+    expect(r(`id ${d}.`)).toBe('id ***.');
+    expect(r('id 1-1017-00230-70-5')).toBe('id ***');
+    expect(r('id 1 1017 00230 70 5')).toBe('id ***');
+    expect(r('id 1-1017 0023-0705')).toBe('id ***');
+    expect(r('cut 11017002')).toBe('cut ***');
+    expect(r('tail 230705')).toBe('tail ***');
+    expect(r('short 11017 / other 9999999999999')).toBe('short 11017 / other 9999999999999');
+    expect(redactNationalIds(`x ${d}`, ['abc'])).toBe(`x ${d}`);
+  });
+
+  it('D-80: adapter อื่น (Demo / KRS) ไม่ประกาศ carrier.taxId → ไม่ได้เลข · นิติบุคคลไม่ผ่านทางนี้ · รถร่วม tenant อื่น (RLS) ไม่ได้เลข', async () => {
+    const nid = validTaxId(4181);
+    const car = await api(app, admin).post('/v1/carriers').send({
+      legalName: 'นาย รถร่วม บุคคลสอง',
+      entityType: 'INDIVIDUAL',
+      taxId: nid,
+      phone: '081-234-5681',
+    });
+    expect(car.status, JSON.stringify(car.body)).toBe(201);
+    const carrierId = uuid('carrier', car.body.id);
+    const doc = {
+      kind: 'settlement',
+      number: 'PV-TEST',
+      carrier: {
+        id: carrierId,
+        code: 'X',
+        legalName: 'x',
+        taxId: null,
+        branchCode: null,
+        entityType: 'INDIVIDUAL',
+      },
+    } as any;
+    const adapters = ERP_ADAPTER_FACTORIES.map((f) => f());
+    for (const a of adapters) {
+      const r = await db.withTenant(tenantId, (tx) =>
+        injectPersonalData(tx, doc, a.personalDataNeeds ?? []),
+      );
+      if (a instanceof AccountSystemAdapter) {
+        expect(r.document.carrier.taxId).toBe(nid);
+        expect(r.forHash.carrier.taxId).toMatch(/^v1:[0-9a-f]{64}$/);
+        expect(r.fields).toEqual(['carrier.taxId']);
+      } else {
+        expect(a.personalDataNeeds ?? []).not.toContain('carrier.taxId');
+        expect(r.document).toBe(doc);
+        expect(JSON.stringify(r)).not.toContain(nid);
+      }
+    }
+    const needs = ['carrier.taxId'] as const;
+    // นิติบุคคล: ไม่แตะ (เลขเปิดเผยได้ ใส่ตั้งแต่สร้าง canonical)
+    const jur = {
+      ...doc,
+      carrier: { ...doc.carrier, entityType: 'JURISTIC', taxId: '0105500000001' },
+    };
+    const rj = await db.withTenant(tenantId, (tx) => injectPersonalData(tx, jur, needs));
+    expect(rj.document).toBe(jur);
+    expect(rj.fields).toEqual([]);
+    // ใบแจ้งหนี้: ไม่มีช่อง carrier → ไม่แตะ
+    const inv = {
+      kind: 'invoice',
+      number: 'IV-1',
+      customer: { id: carrierId, taxId: null },
+    } as any;
+    expect(
+      (await db.withTenant(tenantId, (tx) => injectPersonalData(tx, inv, needs))).document,
+    ).toBe(inv);
+    // tenant อื่นรู้ id ของรถร่วม → RLS ไม่เห็นแถว = ไม่ได้เลข
+    const other = await db.withTenant(otherTenantId, (tx) => injectPersonalData(tx, doc, needs));
+    expect(other.document).toBe(doc);
+    expect(JSON.stringify(other)).not.toContain(nid);
   });
 
   it('review M1: ยกเลิกใบก่อนคำสั่งส่งถูกส่ง → PUSH_INVOICE ถูกข้าม document_cancelled (ไม่มี IV ร่างของใบที่ยกเลิก) · คำสั่งที่อาจถึงแล้ว (ลองใหม่อยู่) → VOID_DOCUMENT งานยกเลิกด้วยมือ', async () => {

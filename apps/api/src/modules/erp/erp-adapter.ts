@@ -97,8 +97,11 @@ export interface ResolvedMasterCode {
 /**
  * ST8-T07 ข้อมูลส่วนบุคคลใน canonical ที่เป็น "ตัวเลือก" (PDPA — ส่งออกนอก TMS เท่าที่ปลายทางต้องใช้)
  * core **ไม่ใส่** ลง payload ของคำสั่ง เว้นแต่ adapter ของ connector ประกาศใน `ErpAdapter.personalDataNeeds`
+ * - `trip.driverName` ชื่อคนขับของเที่ยว — ใส่ตอนสร้าง canonical (อยู่ใน payload ของคำสั่ง)
+ * - `carrier.taxId` (D-80) เลขบัตรประชาชนเต็มของรถร่วมบุคคลธรรมดาในใบสำคัญจ่าย — sink ใส่ **ณ ตอนส่ง** เท่านั้น
+ *   (payload ที่เก็บในคิว/ผลของคำสั่งไม่มีเลขเต็ม · ลง audit `connector.pii_sent`) — ดู `personal-data.ts`
  */
-export type CanonicalPersonalField = 'trip.driverName';
+export type CanonicalPersonalField = 'trip.driverName' | 'carrier.taxId';
 
 /** ST8-T06 ผลตรวจต่อชนิด (key = ค่าในเอกสารแบบ trim + ตัวพิมพ์เล็ก) */
 export type ResolvedMasterCodes = Readonly<
