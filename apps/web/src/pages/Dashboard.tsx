@@ -34,6 +34,7 @@ import {
   type ListKind,
 } from '../features/dashboard/opsCards';
 import { BillingDash } from '../features/dashboard/BillingDash';
+import { ConnectorCard, useConnectorMetrics } from '../features/dashboard/ConnectorDash';
 import { OVERDUE_KPI_LINK } from '../features/dashboard/billCards';
 import { useInvoiceCounts } from '../features/billing/useInvoices';
 import { ImportExcelButton } from '../features/imports/ImportExcelButton';
@@ -200,6 +201,8 @@ export function Dashboard() {
   // ST9-T02 การ์ดเงิน (RPT-011): ไม่มี `invoices:read` = ไม่ render และไม่เรียก API · ยอดเงินต้อง `prices.sell:read`
   const canBill = can(scopes, 'invoices:read');
   const canSell = can(scopes, 'prices.sell:read');
+  // ST9-T04 การ์ดการเชื่อมต่อ (ต้นแบบ dash.conn) — มี connector + สิทธิ์อ่านการเชื่อมต่อ
+  const conn = useConnectorMetrics();
   const [params, setParams] = useSearchParams();
   const [toast, setToast] = useState<string | null>(null);
   const [openOrder, setOpenOrder] = useState<string | null>(null);
@@ -670,7 +673,20 @@ export function Dashboard() {
           )}
         </div>
       )}
-      {canBill && <BillingDash canSell={canSell} />}
+      {canBill ? (
+        <BillingDash
+          canSell={canSell}
+          right={conn.data ? <ConnectorCard m={conn.data} onDone={setToast} /> : undefined}
+        />
+      ) : (
+        conn.data && (
+          // ไม่มีสิทธิ์ใบแจ้งหนี้ — การ์ดอยู่ตำแหน่งขวาของแถวล่างแบบต้นแบบ (ซ้ายว่าง)
+          <div className="tms-dash-bottom">
+            <div />
+            <ConnectorCard m={conn.data} onDone={setToast} />
+          </div>
+        )
+      )}
       {/* ST9-T03 Dashboard AP รถร่วม — ตรวจสิทธิ์/แพ็กเกจในตัว (ไม่มีสิทธิ์ = ไม่ render ไม่เรียก API) */}
       <SettleDash />
       {openOrder && (

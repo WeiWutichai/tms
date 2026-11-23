@@ -1,7 +1,7 @@
 <!-- index.md -->
 # TMS API v1
 
-เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 415 endpoint
+เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 416 endpoint
 
 เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
 
@@ -51,7 +51,7 @@
 - [วางแผน (planning)](ref-planning.md) — 2 endpoint: GET /v1/planning/board, GET /v1/planning/eligibility
 - [ตารางงาน (schedule)](ref-schedule.md) — 4 endpoint: GET /v1/schedule-entries, POST /v1/schedule-entries, GET /v1/schedule-entries/{id}, POST /v1/schedule-entries/{id}/cancel
 - [ส่งออกไฟล์ (exports)](ref-exports.md) — 3 endpoint: POST /v1/exports, GET /v1/exports/{id}, GET /v1/accounting-exports/summary
-- [Connector ERP (connectors)](ref-connectors.md) — 25 endpoint: GET /v1/connectors/effective, GET /v1/connectors, GET /v1/connectors/adapters, GET /v1/connectors/{id}, GET /v1/connectors/{id}/history, GET /v1/connectors/{id}/commands, …
+- [Connector ERP (connectors)](ref-connectors.md) — 26 endpoint: GET /v1/connectors/effective, GET /v1/connectors, GET /v1/connectors/adapters, GET /v1/connectors/metrics, GET /v1/connectors/{id}, GET /v1/connectors/{id}/history, …
 - [ส่งข้อความ (messaging)](ref-messaging.md) — 5 endpoint: POST /v1/messages/send-link, GET /v1/messages, GET /v1/messages/channels, GET /v1/messages/{id}, GET /v1/settings/messaging
 - [นิติบุคคล (companies)](ref-companies.md) — 2 endpoint: GET /v1/companies, GET /v1/companies/{id}
 - [สาขา (branches)](ref-branches.md) — 2 endpoint: GET /v1/branches, GET /v1/branches/{id}
@@ -19061,13 +19061,14 @@ const { data, error } = await tms.GET('/v1/accounting-exports/summary');
 <!-- ref-connectors.md -->
 # Connector ERP (connectors)
 
-25 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+26 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
 | [`GET /v1/connectors/effective`](#get-connectors-effective) | `settings:read` |
 | [`GET /v1/connectors`](#get-connectors) | `settings:read` |
 | [`GET /v1/connectors/adapters`](#get-connectors-adapters) | `settings:read` |
+| [`GET /v1/connectors/metrics`](#get-connectors-metrics) | `settings:read` / `integrations:read` |
 | [`GET /v1/connectors/{id}`](#get-connectors-id) | `settings:read` |
 | [`GET /v1/connectors/{id}/history`](#get-connectors-id-history) | `settings:read` |
 | [`GET /v1/connectors/{id}/commands`](#get-connectors-id-commands) | `settings:read` |
@@ -19191,6 +19192,38 @@ curl -sS -X GET "$TMS_BASE_URL/v1/connectors/adapters" \
 
 ```ts
 const { data, error } = await tms.GET('/v1/connectors/adapters');
+```
+
+## GET /v1/connectors/metrics {#get-connectors-metrics}
+
+`GET /v1/connectors/metrics`
+
+scope: `settings:read` หรือ `integrations:read` · operationId: `Connectors_metricsList`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ตัวเลขต่อ connector ที่ยังไม่ยกเลิก: คิว (`queued`/`failed` = แท็บของหน้าคิว) · lag (อายุคำสั่งค้างที่เก่าสุด) · health (ผล healthCheck ล่าสุด — worker ตรวจทุก 5 นาที) · ซิงก์ล่าสุด · MISMATCH เปิดอยู่ · poller ล่าสุด · error rate 7 วัน (การเรียกระบบบัญชีที่ปลายทางไม่ตอบ/5xx/401/403/408/429) — ไม่มีเนื้อหาเอกสาร/ยอดเงิน | `ConnectorMetricsListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:read` / `integrations:read` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/connectors/metrics" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/connectors/metrics');
 ```
 
 ## GET /v1/connectors/{id} {#get-connectors-id}
@@ -20250,6 +20283,14 @@ const { data, error } = await tms.POST('/v1/reconcile-runs', {
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `data` | ใช่ | `array<ConnectorDto>` |   |   |   |
+
+### ConnectorMetricsListDto {#schema-ConnectorMetricsListDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<ConnectorMetricsDto>` |   |   |   |
 
 ### ConnectorQueueItemDto {#schema-ConnectorQueueItemDto}
 
@@ -25441,7 +25482,7 @@ HTTP `401` · กรอกรหัสยืนยันตัวตน 2 ชั
 
 HTTP `401` · ต้องเข้าสู่ระบบ
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 397 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 398 endpoint
 
 ## bank_change_requires_user {#bank_change_requires_user}
 
@@ -25501,7 +25542,7 @@ HTTP `403` · ส่วนต่างเกินวงเงินที่ต
 
 HTTP `403` · ไม่มีสิทธิ์ทำรายการนี้
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 397 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 398 endpoint
 
 ## sandbox_only {#sandbox_only}
 

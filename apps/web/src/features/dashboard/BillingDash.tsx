@@ -67,7 +67,7 @@ function Tile(p: {
  * render เฉพาะผู้มี `invoices:read` (ผู้เรียกตรวจ) · ยอดเงินเฉพาะผู้มี `prices.sell:read` — ไม่มี = แสดงจำนวนใบ (API ตัดฟิลด์เงินเอง)
  * ยอดเงินเป็นข้อความจาก API (Decimal) — แสดงด้วย `money()` ไม่แปลงเป็น float · D-54 ไม่มีการ์ด "WHT รอ 50 ทวิ"
  */
-export function BillingDash({ canSell }: { canSell: boolean }) {
+export function BillingDash({ canSell, right }: { canSell: boolean; right?: ReactNode }) {
   const { t } = useI18n();
   const nav = useNavigate();
   const inv = useInvoiceCounts();
@@ -211,44 +211,52 @@ export function BillingDash({ canSell }: { canSell: boolean }) {
           </Button>
         </div>
       </section>
-      <section style={card} data-testid="dash-ar">
-        <div
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
-        >
-          <h2 style={h2}>{t('dash.ar.title')}</h2>
-        </div>
-        {pay.isError ? (
-          <Button variant="secondary" icon="refresh-cw" onClick={() => void pay.refetch()}>
-            {t('dash.kpi.err')}
-          </Button>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Tile
-              id="ar-open"
-              value={p ? (canSell ? baht(p.sellOutstanding) : num(p.open)) : '—'}
-              label={t('dash.ar.open', { n: p ? t('dash.bill.nInv', { n: num(p.open) }) : '—' })}
-              color="#101418"
-              onClick={() => nav(AR_LINKS.open)}
-            />
-            <Tile
-              id="ar-over"
-              value={p ? (canSell ? baht(p.sellOverdueOutstanding) : num(p.overdue)) : '—'}
-              label={t('dash.ar.over', {
-                n: p ? t('dash.bill.nInv', { n: num(p.overdue) }) : '—',
-              })}
-              color="#B3322A"
-              onClick={() => nav(AR_LINKS.over)}
-            />
+      {/* ST9-T04 ต้นแบบ: เชื่อมระบบบัญชี = การ์ด "การเชื่อมต่อ" แทนการ์ดลูกหนี้ (dash.conn / dash.noConn) */}
+      {right ?? (
+        <section style={card} data-testid="dash-ar">
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+            }}
+          >
+            <h2 style={h2}>{t('dash.ar.title')}</h2>
           </div>
-        )}
-        <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
-          {/* ต้นแบบ: ปุ่มขอบฟ้า "ไปหน้ารับชำระ" + ลูกศรท้าย */}
-          <Button variant="secondary" onClick={() => nav(AR_LINKS.pay)}>
-            {t('dash.ar.go')}
-            <Icon n="arrow-right" s={16} />
-          </Button>
-        </div>
-      </section>
+          {pay.isError ? (
+            <Button variant="secondary" icon="refresh-cw" onClick={() => void pay.refetch()}>
+              {t('dash.kpi.err')}
+            </Button>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Tile
+                id="ar-open"
+                value={p ? (canSell ? baht(p.sellOutstanding) : num(p.open)) : '—'}
+                label={t('dash.ar.open', { n: p ? t('dash.bill.nInv', { n: num(p.open) }) : '—' })}
+                color="#101418"
+                onClick={() => nav(AR_LINKS.open)}
+              />
+              <Tile
+                id="ar-over"
+                value={p ? (canSell ? baht(p.sellOverdueOutstanding) : num(p.overdue)) : '—'}
+                label={t('dash.ar.over', {
+                  n: p ? t('dash.bill.nInv', { n: num(p.overdue) }) : '—',
+                })}
+                color="#B3322A"
+                onClick={() => nav(AR_LINKS.over)}
+              />
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
+            {/* ต้นแบบ: ปุ่มขอบฟ้า "ไปหน้ารับชำระ" + ลูกศรท้าย */}
+            <Button variant="secondary" onClick={() => nav(AR_LINKS.pay)}>
+              {t('dash.ar.go')}
+              <Icon n="arrow-right" s={16} />
+            </Button>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

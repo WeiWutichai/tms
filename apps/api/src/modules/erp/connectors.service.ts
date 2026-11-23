@@ -1710,6 +1710,63 @@ export class ConnectorsService {
     return rows.length;
   }
 
+  /**
+   * ST9-T04 healthCheck ตามรอบ (docs/01 §A.4 "healthCheck — ก่อนเริ่ม batch, ทุก 5 นาที"): connector ACTIVE ที่ยังไม่ล้ม
+   * และตรวจล่าสุดเกิน `HEALTH_RECHECK_EVERY_MS` (หัก 30 วิ กันรอบเหลื่อม) — ปลายทางล่มโดยไม่มีคำสั่งส่ง dashboard ก็เห็น health แดงภายใน 5 นาที
+   * ผลบันทึกทางเดียวกับ `recheckUnhealthy` (`applySystemHealth`: TRANSIENT = เริ่มนับ 30 นาที + พักคิว · AUTH = ERROR ทันที)
+   * เฉพาะ tenant TRIAL/ACTIVE (ระงับ/ปิด = ไม่เรียกระบบบัญชีของลูกค้า) · `tenantId` = จำกัด tenant (test) · คืนจำนวนที่ตรวจ
+   */
+  async healthSweep(opts: { tenantId?: string } = {}): Promise<number> {
+    if (this.sweepRunning) return 0;
+    this.sweepRunning = true;
+    try {
+      const due = new Date(this.clock.now().getTime() - HEALTH_RECHECK_EVERY_MS + 30_000);
+      const rows = await this.prisma.platform.connector.findMany({
+        where: {
+          ...(opts.tenantId ? { tenantId: opts.tenantId } : {}),
+          status: 'ACTIVE',
+          healthFailingSince: null,
+          OR: [{ lastHealthAt: null }, { lastHealthAt: { lt: due } }],
+        },
+        orderBy: { lastHealthAt: { sort: 'asc', nulls: 'first' } },
+        take: 200,
+      });
+      if (!rows.length) return 0;
+      const open = new Set(
+        (
+          await this.prisma.platform.tenant.findMany({
+            where: {
+              id: { in: [...new Set(rows.map((r) => r.tenantId))] },
+              status: { in: ['TRIAL', 'ACTIVE'] },
+            },
+            select: { id: true },
+          })
+        ).map((t) => t.id),
+      );
+      let n = 0;
+      for (const c of rows) {
+        if (!open.has(c.tenantId)) continue;
+        n += 1;
+        try {
+          const r = await this.runHealth(c);
+          const at = this.clock.now();
+          const back = await this.db.withTenant(c.tenantId, (tx) =>
+            this.applySystemHealth(tx, c.id, r, at),
+          );
+          if (back) await this.wakeParked(c.tenantId, c.id);
+        } catch (e) {
+          this.logger.warn(
+            `connector ${c.id} health sweep failed: ${String((e as Error)?.message ?? e)}`,
+          );
+        }
+      }
+      return n;
+    } finally {
+      this.sweepRunning = false;
+    }
+  }
+  private sweepRunning = false;
+
   /** ชื่อระบบบัญชีของ adapter (ข้อความแจ้งเตือน) — ไม่มี = รหัส adapter */
   adapterLabel(adapterKey: string): string {
     return this.adapters.get(adapterKey)?.displayName ?? adapterKey;

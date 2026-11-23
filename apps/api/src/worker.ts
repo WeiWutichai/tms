@@ -216,7 +216,16 @@ async function main() {
       .recheckUnhealthy()
       .then((n) => n && log.info({ connectors: n }, 'connector health rechecked'))
       .catch((e) => log.error(e));
-  const healthTimer = setInterval(recheckHealth, HEALTH_RECHECK_EVERY_MS);
+  // ST9-T04 healthCheck ทุก 5 นาทีของ connector ACTIVE ที่ยังปกติ (docs/01 §A.4) — ปลายทางล่มแล้ว dashboard เห็น health แดงแม้ไม่มีคำสั่งส่ง
+  const sweepHealth = () =>
+    connectors
+      .healthSweep()
+      .then((n) => n && log.info({ connectors: n }, 'connector health sweep'))
+      .catch((e) => log.error(e));
+  const healthTimer = setInterval(() => {
+    recheckHealth();
+    sweepHealth();
+  }, HEALTH_RECHECK_EVERY_MS);
   // ตัวเลขคิว outbox ทุก 5 นาที ลง log (ST9-T19: metrics/alert อ่านจากฐานโดยตรง — /v1/metrics, AlertEvaluator)
   const outboxStats = () =>
     outbox

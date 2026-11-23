@@ -494,7 +494,7 @@ const NEEDS_HUMAN_SQL = Prisma.sql`COALESCE(
       AND o.last_error->>'code' NOT IN (${Prisma.join([...NOT_NOTIFIED_SKIPS])}))
   OR (o.status = 'DONE' AND (o.last_error->>'manualExternalIdRequired') = 'true'), false)`;
 const RESOLVED_SQL = Prisma.sql`EXISTS (SELECT 1 FROM connector_queue_resolution r WHERE r.outbox_id = o.id)`;
-const RETRIED_SQL = Prisma.sql`EXISTS (SELECT 1 FROM connector_queue_resolution r WHERE r.outbox_id = o.id AND r.kind = 'RETRIED')`;
+export const RETRIED_SQL = Prisma.sql`EXISTS (SELECT 1 FROM connector_queue_resolution r WHERE r.outbox_id = o.id AND r.kind = 'RETRIED')`;
 /** review M3: คำสั่งหลังกว่าของเอกสารเดียวกันสำเร็จแล้ว/ยังค้าง (เช่น ระบบส่งใหม่เองหลังเอกสารเปลี่ยน) */
 const SUPERSEDED_SQL = Prisma.sql`EXISTS (SELECT 1 FROM integration_outbox o2
    WHERE o2.sink = o.sink AND o2.target_id = o.target_id AND o2.entity_type = o.entity_type
@@ -502,8 +502,8 @@ const SUPERSEDED_SQL = Prisma.sql`EXISTS (SELECT 1 FROM integration_outbox o2
      AND o2.status IN ('DONE', 'PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE'))`;
 const OPEN_STATUSES = ['PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE'];
 
-/** แท็บ — รายการต้องมีคนทำที่ถูกแทนแล้ว (ส่งซ้ำ / คำสั่งหลังกว่า) ไม่อยู่ในแท็บใด */
-function tabSql(tab: QueueTab): Prisma.Sql {
+/** แท็บ — รายการต้องมีคนทำที่ถูกแทนแล้ว (ส่งซ้ำ / คำสั่งหลังกว่า) ไม่อยู่ในแท็บใด (ST9-T04 ใช้นับใน dashboard เชื่อมต่อ — alias `o`) */
+export function tabSql(tab: QueueTab): Prisma.Sql {
   switch (tab) {
     case 'queued':
       return Prisma.sql`o.status IN ('PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE')`;

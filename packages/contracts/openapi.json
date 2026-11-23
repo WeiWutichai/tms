@@ -3307,6 +3307,56 @@
         ]
       }
     },
+    "/v1/platform/health": {
+      "get": {
+        "operationId": "PlatformConnectors_healthOverview",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "ten_…",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformHealthListDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
     "/v1/platform/connectors/commands": {
       "get": {
         "operationId": "PlatformConnectors_commands",
@@ -27702,6 +27752,76 @@
         ],
         "x-required-scopes": [
           "settings:read"
+        ]
+      }
+    },
+    "/v1/connectors/metrics": {
+      "get": {
+        "operationId": "Connectors_metricsList",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ST9-T04 ตัวเลขต่อ connector ที่ยังไม่ยกเลิก: คิว (`queued`/`failed` = แท็บของหน้าคิว) · lag (อายุคำสั่งค้างที่เก่าสุด) · health (ผล healthCheck ล่าสุด — worker ตรวจทุก 5 นาที) · ซิงก์ล่าสุด · MISMATCH เปิดอยู่ · poller ล่าสุด · error rate 7 วัน (การเรียกระบบบัญชีที่ปลายทางไม่ตอบ/5xx/401/403/408/429) — ไม่มีเนื้อหาเอกสาร/ยอดเงิน",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorMetricsListDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.read_integrations.read"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "settings:read",
+          "integrations:read"
         ]
       }
     },
@@ -74401,6 +74521,288 @@
           "data"
         ]
       },
+      "ConnectorErrorRateDto": {
+        "type": "object",
+        "properties": {
+          "calls": {
+            "type": "number",
+            "description": "จำนวนการเรียกระบบบัญชีใน 7 วัน"
+          },
+          "failed": {
+            "type": "number",
+            "description": "ที่ปลายทางไม่ตอบ / 5xx / 401 / 403 / 408 / 429"
+          },
+          "rate": {
+            "type": "number",
+            "description": "failed / calls (0–1, 4 ตำแหน่ง) · ไม่มีการเรียก = 0",
+            "example": 0.0125
+          }
+        },
+        "required": [
+          "calls",
+          "failed",
+          "rate"
+        ]
+      },
+      "PlatformHealthTotalsDto": {
+        "type": "object",
+        "properties": {
+          "queued": {
+            "type": "number",
+            "description": "คิวค้าง (แท็บรอคิว) รวมทุก connector"
+          },
+          "failed": {
+            "type": "number",
+            "description": "ล้มเหลว ต้องมีคนทำ"
+          },
+          "lagSeconds": {
+            "type": "number",
+            "description": "lag สูงสุด (วินาที)"
+          },
+          "openMismatches": {
+            "type": "number",
+            "description": "MISMATCH เปิดอยู่"
+          },
+          "lastPollAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "poller ล่าสุด"
+          },
+          "errorRate7d": {
+            "$ref": "#/components/schemas/ConnectorErrorRateDto"
+          }
+        },
+        "required": [
+          "queued",
+          "failed",
+          "lagSeconds",
+          "openMismatches",
+          "lastPollAt",
+          "errorRate7d"
+        ]
+      },
+      "ConnectorHealthStateDto": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "OK",
+              "DEGRADED",
+              "DOWN",
+              "PAUSED",
+              "UNKNOWN"
+            ],
+            "description": "`OK` healthCheck ล่าสุดผ่าน · `DEGRADED` ACTIVE แต่ healthCheck ล่าสุดล้ม (คิวพัก — ครบ 30 นาที = ERROR) · `DOWN` connector ERROR · `PAUSED` ผู้ดูแลหยุด · `UNKNOWN` ยังไม่เคยตรวจ"
+          },
+          "lastCheckAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "failingSince": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "เริ่มล้มต่อเนื่องเมื่อ"
+          },
+          "errorClass": {
+            "type": "string",
+            "nullable": true,
+            "example": "TRANSIENT"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true,
+            "example": "unreachable"
+          }
+        },
+        "required": [
+          "state",
+          "lastCheckAt",
+          "failingSince",
+          "errorClass",
+          "code"
+        ]
+      },
+      "ConnectorQueueMetricsDto": {
+        "type": "object",
+        "properties": {
+          "queued": {
+            "type": "number",
+            "description": "แท็บรอคิว (ระบบกำลังส่ง/รอส่งซ้ำเอง)"
+          },
+          "failed": {
+            "type": "number",
+            "description": "แท็บล้มเหลว — ต้องมีคนทำ (= badge เมนู)"
+          },
+          "oldestQueuedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "คำสั่งค้างที่เก่าสุด"
+          },
+          "lagSeconds": {
+            "type": "number",
+            "description": "lag (วินาที) = อายุของคำสั่งค้างที่เก่าสุด · ไม่มีค้าง = 0"
+          }
+        },
+        "required": [
+          "queued",
+          "failed",
+          "oldestQueuedAt",
+          "lagSeconds"
+        ]
+      },
+      "ConnectorPollerDto": {
+        "type": "object",
+        "properties": {
+          "lastRunAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "รอบดึงล่าสุด (ดึง SO `pullOrders` / ดึงสถานะรับชำระ — อันที่ใหม่กว่า) · null = ไม่มี poller"
+          },
+          "ordersLastRunAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "รอบดึง SO ล่าสุด"
+          },
+          "ordersLastSuccessAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "รอบดึง SO ที่ครบโดยไม่มีใบ error ล่าสุด"
+          },
+          "paymentStatusLastRunAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "รอบดึงสถานะรับชำระที่จบล่าสุด"
+          }
+        },
+        "required": [
+          "lastRunAt",
+          "ordersLastRunAt",
+          "ordersLastSuccessAt",
+          "paymentStatusLastRunAt"
+        ]
+      },
+      "ConnectorMetricsDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "con_8f3a…"
+          },
+          "adapterKey": {
+            "type": "string",
+            "example": "demo"
+          },
+          "displayName": {
+            "type": "string",
+            "nullable": true,
+            "example": "Demo ERP"
+          },
+          "companyId": {
+            "type": "string",
+            "nullable": true,
+            "example": "cmp_…"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED",
+              "ERROR",
+              "DISCONNECTED"
+            ]
+          },
+          "health": {
+            "$ref": "#/components/schemas/ConnectorHealthStateDto"
+          },
+          "queue": {
+            "$ref": "#/components/schemas/ConnectorQueueMetricsDto"
+          },
+          "lastSyncAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ซิงก์ล่าสุด = คำสั่งที่สำเร็จล่าสุด"
+          },
+          "openMismatches": {
+            "type": "number",
+            "description": "รายการไม่ตรงกับระบบบัญชีที่เปิดอยู่ (MONEY/FIELD ยังไม่ปิด ยังไม่ ack)"
+          },
+          "reconcileUnreachable": {
+            "type": "number",
+            "description": "ใบที่รอบตรวจยอดอ่านจากระบบบัญชีไม่ได้ (ERP_UNREACHABLE ที่ยังเปิดอยู่)"
+          },
+          "poller": {
+            "$ref": "#/components/schemas/ConnectorPollerDto"
+          },
+          "errorRate7d": {
+            "$ref": "#/components/schemas/ConnectorErrorRateDto"
+          }
+        },
+        "required": [
+          "id",
+          "adapterKey",
+          "displayName",
+          "companyId",
+          "status",
+          "health",
+          "queue",
+          "lastSyncAt",
+          "openMismatches",
+          "reconcileUnreachable",
+          "poller",
+          "errorRate7d"
+        ]
+      },
+      "PlatformTenantHealthDto": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "example": "ten_…"
+          },
+          "tenantName": {
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/PlatformHealthTotalsDto"
+          },
+          "connectors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectorMetricsDto"
+            }
+          }
+        },
+        "required": [
+          "tenantId",
+          "tenantName",
+          "totals",
+          "connectors"
+        ]
+      },
+      "PlatformHealthListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlatformTenantHealthDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
       "PlatformCommandDto": {
         "type": "object",
         "properties": {
@@ -86176,6 +86578,20 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ConnectorDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "ConnectorMetricsListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectorMetricsDto"
             }
           }
         },
@@ -112819,7 +113235,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/connectors/3f2a…/sync-log",
+                  "instance": "/v1/connectors/metrics",
                   "requestId": "b6a1c2d3-…",
                   "module": "settings",
                   "action": "read",

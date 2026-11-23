@@ -1,12 +1,13 @@
 # Connector ERP (connectors)
 
-25 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+26 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
 | [`GET /v1/connectors/effective`](#get-connectors-effective) | `settings:read` |
 | [`GET /v1/connectors`](#get-connectors) | `settings:read` |
 | [`GET /v1/connectors/adapters`](#get-connectors-adapters) | `settings:read` |
+| [`GET /v1/connectors/metrics`](#get-connectors-metrics) | `settings:read` / `integrations:read` |
 | [`GET /v1/connectors/{id}`](#get-connectors-id) | `settings:read` |
 | [`GET /v1/connectors/{id}/history`](#get-connectors-id-history) | `settings:read` |
 | [`GET /v1/connectors/{id}/commands`](#get-connectors-id-commands) | `settings:read` |
@@ -130,6 +131,38 @@ curl -sS -X GET "$TMS_BASE_URL/v1/connectors/adapters" \
 
 ```ts
 const { data, error } = await tms.GET('/v1/connectors/adapters');
+```
+
+## GET /v1/connectors/metrics {#get-connectors-metrics}
+
+`GET /v1/connectors/metrics`
+
+scope: `settings:read` หรือ `integrations:read` · operationId: `Connectors_metricsList`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ตัวเลขต่อ connector ที่ยังไม่ยกเลิก: คิว (`queued`/`failed` = แท็บของหน้าคิว) · lag (อายุคำสั่งค้างที่เก่าสุด) · health (ผล healthCheck ล่าสุด — worker ตรวจทุก 5 นาที) · ซิงก์ล่าสุด · MISMATCH เปิดอยู่ · poller ล่าสุด · error rate 7 วัน (การเรียกระบบบัญชีที่ปลายทางไม่ตอบ/5xx/401/403/408/429) — ไม่มีเนื้อหาเอกสาร/ยอดเงิน | `ConnectorMetricsListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:read` / `integrations:read` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/connectors/metrics" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/connectors/metrics');
 ```
 
 ## GET /v1/connectors/{id} {#get-connectors-id}
@@ -1189,6 +1222,14 @@ const { data, error } = await tms.POST('/v1/reconcile-runs', {
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `data` | ใช่ | `array<ConnectorDto>` |   |   |   |
+
+### ConnectorMetricsListDto {#schema-ConnectorMetricsListDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<ConnectorMetricsDto>` |   |   |   |
 
 ### ConnectorQueueItemDto {#schema-ConnectorQueueItemDto}
 
