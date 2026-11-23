@@ -20953,7 +20953,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.read"
+            "$ref": "#/components/responses/Forbidden_settings.read_integrations.read"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -20974,7 +20974,614 @@
           "connectors"
         ],
         "x-required-scopes": [
-          "settings:read"
+          "settings:read",
+          "integrations:read"
+        ]
+      }
+    },
+    "/v1/connectors/{id}/queue": {
+      "get": {
+        "operationId": "Connectors_queueList",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tab",
+            "required": false,
+            "in": "query",
+            "description": "รอคิว / ล้มเหลว (ต้องมีคนทำ) / สำเร็จ",
+            "schema": {
+              "default": "failed",
+              "type": "string",
+              "enum": [
+                "queued",
+                "failed",
+                "done"
+              ]
+            }
+          },
+          {
+            "name": "errorClass",
+            "required": false,
+            "in": "query",
+            "description": "กรองตาม ErrorClass (จัดกลุ่มแท็บล้มเหลว)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "TRANSIENT",
+                "AMBIGUOUS",
+                "DUPLICATE",
+                "VALIDATION",
+                "AUTH",
+                "NOT_FOUND",
+                "PERIOD_CLOSED",
+                "CAPABILITY"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (เรียงตามเวลาที่เปลี่ยนล่าสุด ใหม่สุดก่อน)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "คิวของ connector แยกแท็บ `queued` (PENDING/IN_FLIGHT/FAILED_RETRYABLE + `nextRunAt`) / `failed` (ต้องมีคนทำ: FAILED_FINAL, SKIPPED ที่แจ้งบัญชี, DUPLICATE ที่ต้องกรอกเลขเอง — ยังไม่ได้จัดการ) / `done` · `errorClass` กรองกลุ่ม · แต่ละรายการมี `guide` (คู่มือภาษาไทยต่อ error code), `link` + `missing[]` (mapping/ผังรหัสที่ขาด), `actions` · request/response ของคำสั่ง = `GET /connectors/{id}/sync-log?commandId=` · keyset cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorQueueListDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.read_integrations.read"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "settings:read",
+          "integrations:read"
+        ]
+      }
+    },
+    "/v1/connectors/{id}/queue/summary": {
+      "get": {
+        "operationId": "Connectors_queueSummary",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ตัวนับต่อแท็บ (`failed` = badge ที่เมนู — ไม่รวมคิวที่ระบบกำลังส่งเอง) + แท็บล้มเหลวแยก ErrorClass",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorQueueSummaryDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.read_integrations.read"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "settings:read",
+          "integrations:read"
+        ]
+      }
+    },
+    "/v1/connectors/{id}/queue/retry": {
+      "post": {
+        "operationId": "Connectors_queueRetryAll",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueueRetryAllDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ส่งซ้ำทุกรายการในแท็บล้มเหลวที่ส่งซ้ำได้ (ครั้งละ ≤ 200; `errorClass` = เฉพาะกลุ่ม) — แต่ละรายการ = `ErpSyncService.resend` (canonical ฉบับที่ออก) · รายการที่ต้องทำในระบบบัญชีเองนับใน `notRetryable`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueRetryAllResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.write_integrations.retry"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "settings:write",
+          "integrations:retry"
+        ]
+      }
+    },
+    "/v1/connectors/{id}/queue/{commandId}/retry": {
+      "post": {
+        "operationId": "Connectors_queueRetry",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "commandId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ส่งซ้ำ 1 รายการในแท็บล้มเหลว (หลังแก้ mapping / ผังรหัส / เปิดงวดบัญชี) → คำสั่งใหม่ (รายการเดิมออกจากคิว) · ส่งซ้ำไม่ได้ (จัดการแล้ว / ไม่ใช่รายการล้มเหลว / ต้องทำในระบบบัญชีเอง / ก่อนวันเริ่มซิงก์) → 409 `queue_action_not_allowed` (`why`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueRetryResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.write_integrations.retry"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "settings:write",
+          "integrations:retry"
+        ]
+      }
+    },
+    "/v1/connectors/{id}/queue/{commandId}/skip": {
+      "post": {
+        "operationId": "Connectors_queueSkip",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "commandId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueueSkipDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ข้ามรายการในแท็บล้มเหลว (เช่น บัญชีบันทึกในระบบบัญชีเองแล้ว / งวดปิดและรับทราบ) — เหตุผล ≥ 10 ตัว · audit `connector.queue_skipped` · ย้ายไปแท็บสำเร็จ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorQueueItemDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.write_integrations.retry"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "settings:write",
+          "integrations:retry"
+        ]
+      }
+    },
+    "/v1/connectors/{id}/queue/{commandId}/external-id": {
+      "post": {
+        "operationId": "Connectors_queueExternalId",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "commandId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueueExternalIdDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "กรอกเลขเอกสารฝั่งระบบบัญชีเอง (DUPLICATE ที่หาไม่เจอ หรือคำสั่งส่งเอกสารที่ล้มเหลวแต่เอกสารอยู่ในระบบบัญชีแล้ว) — เหตุผล ≥ 10 ตัว · audit `connector.queue_external_id` · external_mapping = MISMATCH `erp_content_unverified` (รอบ reconcile ยืนยัน) · เลขผูกกับเอกสารอื่นแล้ว → 409 `external_id_conflict`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorQueueItemDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.write_integrations.retry"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "settings:write",
+          "integrations:retry"
         ]
       }
     },
@@ -62060,6 +62667,214 @@
           "data"
         ]
       },
+      "ConnectorQueueItemDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "obx_…"
+          },
+          "operation": {
+            "type": "string",
+            "example": "PUSH_INVOICE"
+          },
+          "entityType": {
+            "type": "string",
+            "example": "invoice"
+          },
+          "localId": {
+            "type": "string",
+            "description": "id ของเอกสารใน TMS (uuid)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "IN_FLIGHT",
+              "DONE",
+              "FAILED_RETRYABLE",
+              "FAILED_FINAL",
+              "SKIPPED"
+            ]
+          },
+          "attempt": {
+            "type": "number"
+          },
+          "errorClass": {
+            "type": "string",
+            "nullable": true,
+            "example": "TRANSIENT"
+          },
+          "errorCode": {
+            "type": "string",
+            "nullable": true,
+            "description": "รหัสผิดพลาดล่าสุด (ไม่มีข้อความดิบ)"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "doneAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tab": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "failed",
+              "done"
+            ]
+          },
+          "documentNo": {
+            "type": "string",
+            "nullable": true,
+            "example": "INV-00000-2611-0001"
+          },
+          "nextRunAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "รอคิว: เวลาที่จะลองครั้งถัดไป"
+          },
+          "errorMessage": {
+            "type": "string",
+            "nullable": true,
+            "description": "ข้อความผิดพลาด (ตัด secret แล้ว)"
+          },
+          "link": {
+            "type": "string",
+            "nullable": true,
+            "description": "ลิงก์หน้าที่ต้องแก้ (mapping / ผังรหัส)"
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueueMissingDto"
+            }
+          },
+          "fields": {
+            "description": "ช่องที่ระบบบัญชีแจ้งว่าผิด",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueueFieldErrorDto"
+            }
+          },
+          "manualExternalIdRequired": {
+            "type": "boolean"
+          },
+          "guide": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/QueueGuideDto"
+              }
+            ]
+          },
+          "resolution": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/QueueResolutionDto"
+              }
+            ]
+          },
+          "actions": {
+            "$ref": "#/components/schemas/QueueActionsDto"
+          },
+          "bodiesHidden": {
+            "type": "boolean",
+            "description": "ผู้เรียกไม่มีสิทธิ์ดูราคาของเอกสารชนิดนี้ — sync log ของคำสั่งนี้จะไม่มี body (ซ่อนปุ่ม \"ดู payload\")"
+          }
+        },
+        "required": [
+          "id",
+          "operation",
+          "entityType",
+          "localId",
+          "status",
+          "attempt",
+          "errorClass",
+          "errorCode",
+          "createdAt",
+          "doneAt",
+          "updatedAt",
+          "tab",
+          "documentNo",
+          "nextRunAt",
+          "errorMessage",
+          "link",
+          "missing",
+          "fields",
+          "manualExternalIdRequired",
+          "guide",
+          "resolution",
+          "actions",
+          "bodiesHidden"
+        ]
+      },
+      "ConnectorQueueListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectorQueueItemDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "ConnectorQueueSummaryDto": {
+        "type": "object",
+        "properties": {
+          "queued": {
+            "type": "number"
+          },
+          "failed": {
+            "type": "number",
+            "description": "ต้องมีคนทำ (badge ที่เมนู)"
+          },
+          "done": {
+            "type": "number"
+          },
+          "failedByClass": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "example": {
+              "VALIDATION": 2,
+              "PERIOD_CLOSED": 1
+            },
+            "description": "แท็บล้มเหลวแยกตาม ErrorClass"
+          }
+        },
+        "required": [
+          "queued",
+          "failed",
+          "done",
+          "failedByClass"
+        ]
+      },
       "CreateBillingNoteDto": {
         "type": "object",
         "properties": {
@@ -66701,12 +67516,16 @@
           "requestBody": {
             "type": "string",
             "nullable": true,
-            "description": "body ที่ส่ง (ตัดแล้ว ≤ 16 KB)"
+            "description": "body ที่ส่ง (ตัดแล้ว ≤ 16 KB) — null เมื่อ `bodiesHidden`"
           },
           "responseBody": {
             "type": "string",
             "nullable": true,
-            "description": "body ที่ได้กลับ (ตัดแล้ว ≤ 16 KB)"
+            "description": "body ที่ได้กลับ (ตัดแล้ว ≤ 16 KB) — null เมื่อ `bodiesHidden`"
+          },
+          "bodiesHidden": {
+            "type": "boolean",
+            "description": "body มีราคา: ใบแจ้งหนี้/รับชำระ ต้องมี `prices.sell:read` · ใบสำคัญจ่ายรถร่วม ต้องมี `prices.buy:read` · ไม่รู้ชนิด ต้องมีทั้งคู่ — ไม่มีสิทธิ์ = body เป็น null และ flag นี้ true"
           },
           "occurredAt": {
             "type": "string",
@@ -66729,6 +67548,7 @@
           "durationMs",
           "requestBody",
           "responseBody",
+          "bodiesHidden",
           "occurredAt"
         ]
       },
@@ -72778,6 +73598,252 @@
           "status"
         ]
       },
+      "QueueActionsDto": {
+        "type": "object",
+        "properties": {
+          "retry": {
+            "type": "boolean",
+            "description": "ส่งซ้ำได้"
+          },
+          "skip": {
+            "type": "boolean",
+            "description": "ข้ามพร้อมเหตุผลได้"
+          },
+          "externalId": {
+            "type": "boolean",
+            "description": "กรอกเลขเอกสารฝั่งระบบบัญชีเองได้"
+          }
+        },
+        "required": [
+          "retry",
+          "skip",
+          "externalId"
+        ]
+      },
+      "QueueExternalIdDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569"
+          },
+          "externalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "example": "IV6611-00042",
+            "description": "id เอกสารฝั่งระบบบัญชี"
+          },
+          "externalDocNo": {
+            "type": "string",
+            "maxLength": 60,
+            "description": "เลขเอกสารที่แสดงในระบบบัญชี (ถ้าต่างจาก id)"
+          }
+        },
+        "required": [
+          "reason",
+          "externalId"
+        ]
+      },
+      "QueueFieldErrorDto": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "code",
+          "message"
+        ]
+      },
+      "QueueGuideDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "example": "PERIOD_CLOSED",
+            "description": "รหัสที่ใช้เลือกคู่มือ (code เฉพาะ หรือ ErrorClass)"
+          },
+          "title": {
+            "type": "string",
+            "example": "งวดบัญชีของวันที่เอกสารปิดแล้วในระบบบัญชี"
+          },
+          "action": {
+            "type": "string",
+            "description": "สิ่งที่ต้องทำ (ภาษาไทย)"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "action"
+        ]
+      },
+      "QueueMissingDto": {
+        "type": "object",
+        "properties": {
+          "serviceItemId": {
+            "type": "string",
+            "example": "svc_…"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "nameTh": {
+            "type": "string",
+            "nullable": true
+          },
+          "itemCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "kind": {
+            "type": "string",
+            "example": "UNIT"
+          },
+          "value": {
+            "type": "string",
+            "nullable": true
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "example": "UNMAPPED"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "QueueResolutionDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "RETRIED",
+              "SKIPPED",
+              "MANUAL_EXTERNAL_ID"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "supersededBy": {
+            "type": "string",
+            "nullable": true,
+            "description": "RETRIED: คำสั่งใหม่ที่ส่งแทน"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "resolvedBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "resolvedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "kind",
+          "reason",
+          "supersededBy",
+          "externalId",
+          "resolvedBy",
+          "resolvedAt"
+        ]
+      },
+      "QueueRetryAllDto": {
+        "type": "object",
+        "properties": {
+          "errorClass": {
+            "type": "string",
+            "enum": [
+              "TRANSIENT",
+              "AMBIGUOUS",
+              "DUPLICATE",
+              "VALIDATION",
+              "AUTH",
+              "NOT_FOUND",
+              "PERIOD_CLOSED",
+              "CAPABILITY"
+            ],
+            "description": "ส่งซ้ำเฉพาะ ErrorClass นี้ (ไม่ส่ง = ทุกรายการที่ส่งซ้ำได้)"
+          }
+        }
+      },
+      "QueueRetryAllResultDto": {
+        "type": "object",
+        "properties": {
+          "retried": {
+            "type": "number",
+            "description": "จำนวนที่สร้างคำสั่งส่งซ้ำ"
+          },
+          "notRetryable": {
+            "type": "number",
+            "description": "จำนวนในแท็บล้มเหลวที่ส่งซ้ำไม่ได้ (ต้องข้าม/กรอกเลขเอง)"
+          },
+          "remaining": {
+            "type": "number",
+            "description": "เหลือที่ยังไม่ได้ทำ (ทำครั้งละไม่เกิน 200)"
+          }
+        },
+        "required": [
+          "retried",
+          "notRetryable",
+          "remaining"
+        ]
+      },
+      "QueueRetryResultDto": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "description": "คำสั่งใหม่ที่ส่งแทน",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConnectorQueueItemDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "QueueSkipDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
       "RateAccessorialDto": {
         "type": "object",
         "properties": {
@@ -75168,6 +76234,7 @@
             "enum": [
               "ARRIVE",
               "DEPART",
+              "LOADED",
               "COMPLETE",
               "FAIL"
             ]
@@ -77903,6 +78970,7 @@
             "enum": [
               "ARRIVE",
               "DEPART",
+              "LOADED",
               "COMPLETE",
               "FAIL"
             ]
@@ -80218,6 +81286,7 @@
             "enum": [
               "ARRIVE",
               "DEPART",
+              "LOADED",
               "COMPLETE",
               "FAIL"
             ]
@@ -90529,6 +91598,62 @@
           }
         }
       },
+      "Forbidden_settings.read_integrations.read": {
+        "description": "ไม่มีสิทธิ์ (`settings:read` / `integrations:read` — มีตัวใดตัวหนึ่งก็พอ)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDto"
+            },
+            "examples": {
+              "permission_denied": {
+                "value": {
+                  "type": "https://docs.tms.example/problems/permission_denied",
+                  "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                  "status": 403,
+                  "code": "permission_denied",
+                  "instance": "/v1/connectors/3f2a…/sync-log",
+                  "requestId": "b6a1c2d3-…",
+                  "module": "settings",
+                  "action": "read",
+                  "required": [
+                    "settings:read",
+                    "integrations:read"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "Forbidden_settings.write_integrations.retry": {
+        "description": "ไม่มีสิทธิ์ (`settings:write` / `integrations:retry` — มีตัวใดตัวหนึ่งก็พอ)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDto"
+            },
+            "examples": {
+              "permission_denied": {
+                "value": {
+                  "type": "https://docs.tms.example/problems/permission_denied",
+                  "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                  "status": 403,
+                  "code": "permission_denied",
+                  "instance": "/v1/connectors/3f2a…/queue/retry",
+                  "requestId": "b6a1c2d3-…",
+                  "module": "settings",
+                  "action": "write",
+                  "required": [
+                    "settings:write",
+                    "integrations:retry"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
       "Forbidden_integrations.read": {
         "description": "ไม่มีสิทธิ์ (`integrations:read`)",
         "content": {
@@ -91490,6 +92615,11 @@
       "status": 412,
       "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
       "titleEn": "Precondition failed (version mismatch)"
+    },
+    "queue_action_not_allowed": {
+      "status": 409,
+      "title": "ทำรายการนี้กับคำสั่งนี้ไม่ได้ (จัดการไปแล้ว หรือไม่ใช่รายการที่ล้มเหลว หรือต้องทำในระบบบัญชีเอง)",
+      "titleEn": "This action is not allowed for this command (already handled, not failed, or must be done in the accounting system)"
     },
     "rate_limited": {
       "status": 429,

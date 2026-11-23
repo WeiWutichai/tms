@@ -209,6 +209,13 @@ export class BillingQueueService {
       q AS (SELECT r.* FROM r WHERE ${Prisma.join(conds, ' AND ')})`;
   }
 
+  /** D-81 · D68-89 badge "วางบิลและใบแจ้งหนี้" = จำนวน DO ในคิวพร้อมวางบิล (ตัวกรองเริ่มต้นของหน้า — ชุดเดียวกับ `list`) */
+  async count(tx: Tx = this.db.tx): Promise<number> {
+    const [r] = await tx.$queryRaw<{ n: number }[]>`
+      WITH ${this.queueCte({})} SELECT count(*)::int AS n FROM q`;
+    return r?.n ?? 0;
+  }
+
   /** ผลประเมินความพร้อมของ DO เดียว (null = ยังไม่ส่งถึง) — ใช้ตอนส่งบัญชี (ผู้เรียกถือล็อก DO แล้ว) */
   async readiness(tx: Tx, id: string): Promise<Readiness | null> {
     const rows = await tx.$queryRaw<Readiness[]>`

@@ -23,20 +23,20 @@ const ms = (iso: string) => Date.parse(iso);
 const earliest = (xs: string[]) =>
   xs.length ? xs.reduce((a, b) => (ms(b) < ms(a) ? b : a)) : null;
 
-/** เวลาที่มีผลของจุดจาก event ที่นับ: ออกเดินทางมา (DEPART แรก) / ถึง (ARRIVE แรก) / ปิดงาน (COMPLETE|FAIL แรกที่นับ) */
+/** เวลาที่มีผลของจุดจาก event ที่นับ: ออกเดินทางมา (DEPART แรก) / ถึง (ARRIVE แรก) / ปิดงาน (COMPLETE|FAIL|LOADED แรกที่นับ) */
 export function stopTimes(stopId: string, events: readonly StepEvent[]) {
   const c = events.filter((e) => e.stopId === stopId && e.counted);
   const of = (...types: string[]) =>
     earliest(c.filter((e) => types.includes(e.type)).map((e) => e.occurredAt));
-  return { enRoute: of('DEPART'), arrived: of('ARRIVE'), closed: of('COMPLETE', 'FAIL') };
+  return { enRoute: of('DEPART'), arrived: of('ARRIVE'), closed: of('COMPLETE', 'FAIL', 'LOADED') };
 }
 
-/** มีการปิดงาน (COMPLETE/FAIL) ที่ยังไม่นับ + มีธงรอผู้จัดรถตัดสิน → อย่าให้บันทึกปิดซ้ำ (QA ST4-T04 M2) */
+/** มีการปิดงาน (COMPLETE/FAIL/LOADED — ขึ้นของเสร็จจากลิงก์รถร่วม D68-39) ที่ยังไม่นับ + มีธงรอผู้จัดรถตัดสิน → อย่าให้บันทึกปิดซ้ำ (QA ST4-T04 M2) */
 export const hasPendingClose = (stopId: string, events: readonly StepEvent[]) =>
   events.some(
     (e) =>
       e.stopId === stopId &&
-      (e.type === 'COMPLETE' || e.type === 'FAIL') &&
+      (e.type === 'COMPLETE' || e.type === 'FAIL' || e.type === 'LOADED') &&
       !e.counted &&
       e.flags.length > 0 &&
       !e.resolution,

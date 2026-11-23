@@ -116,6 +116,7 @@ import { SystemOfRecordPolicy } from './modules/erp/system-of-record.policy';
 import { ErpAdapterRegistry } from './modules/erp/erp-adapter.registry';
 import { ErpAdapterSink } from './modules/erp/erp-adapter.sink';
 import { ErpSyncService } from './modules/erp/erp-sync.service';
+import { ConnectorQueueService } from './modules/erp/connector-queue';
 import { ErpInboundEffects } from './modules/erp/erp-inbound-effects';
 import { PaymentStatusPullService } from './modules/erp/payment-status-pull.service';
 import { ReconcileController } from './modules/erp/reconcile.controller';
@@ -266,6 +267,7 @@ import { MonitorScheduler } from './modules/monitoring/monitor-scheduler';
 import { httpMetricsMiddleware } from './modules/monitoring/http-metrics';
 import { JobsController } from './modules/jobs/jobs.controller';
 import { MeController } from './modules/me/me.controller';
+import { NavBadgesController, NavBadgesService } from './modules/me/nav-badges.controller';
 import { ProfileController } from './modules/me/profile.controller';
 import { SavedViewsController } from './modules/saved-views/saved-views.controller';
 import { SavedViewsService } from './modules/saved-views/saved-views.service';
@@ -305,6 +307,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     MonitoringController,
     PlatformMonitoringController,
     MeController,
+    NavBadgesController,
     ProfileController,
     SavedViewsController,
     SearchController,
@@ -474,6 +477,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     TripSheetsService,
     TripSheetLinks,
     PlanningService,
+    NavBadgesService,
     ScheduleService,
     BoardPreferencesService,
     SavedViewsService,
@@ -509,6 +513,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     InboundWebhookService,
     ErpAdapterSink,
     ErpSyncService,
+    ConnectorQueueService,
     ErpInboundEffects,
     ReconcileResultsService,
     PaymentStatusPullService,

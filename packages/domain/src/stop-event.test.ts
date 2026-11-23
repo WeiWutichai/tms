@@ -18,7 +18,7 @@ import { TRIP_STATUSES } from './trip';
 
 describe('stop event (ST4-T01)', () => {
   it('ชนิด/ผลตาม docs/04 E1', () => {
-    expect(STOP_EVENT_TYPES).toEqual(['ARRIVE', 'DEPART', 'COMPLETE', 'FAIL']);
+    expect(STOP_EVENT_TYPES).toEqual(['ARRIVE', 'DEPART', 'LOADED', 'COMPLETE', 'FAIL']);
     expect(STOP_OUTCOMES).toEqual(['DELIVERED', 'PARTIAL', 'FAILED', 'UNDELIVERED_RETAIN']);
   });
 
@@ -41,6 +41,9 @@ describe('stop event (ST4-T01)', () => {
     expect(ok('FAIL', 'PARTIAL')).toBe('invalid');
     expect(ok('ARRIVE', null)).toBeNull();
     expect(ok('DEPART', 'DELIVERED')).toBe('not_applicable');
+    // D68-39 LOADED (ขึ้นของเสร็จ — จุดรับ) ไม่มี outcome
+    expect(ok('LOADED', null)).toBeNull();
+    expect(ok('LOADED', 'DELIVERED')).toBe('not_applicable');
   });
 
   it('เหตุผล: บังคับเมื่อส่งไม่สำเร็จ · ส่งสำเร็จไม่รับเหตุผล', () => {
@@ -61,6 +64,7 @@ describe('stop event (ST4-T01)', () => {
       required: true,
       categories: ['DELIVERY_FAILED'],
     });
+    expect(stopEventReasonRule('LOADED', null)).toEqual({ required: false, categories: [] });
     expect(stopEventReasonRule('FAIL', null).required).toBe(true);
     expect(stopEventReasonRule('FAIL', 'UNDELIVERED_RETAIN').categories).toEqual([
       'DELIVERY_FAILED',
@@ -103,6 +107,23 @@ describe('ST4-T02 ลำดับ event ต่อจุด (effectiveStopSequenc
     expect(r.enRouteAt?.toISOString()).toBe('2026-11-17T01:00:00.000Z');
     expect(r.arrivedAt?.toISOString()).toBe('2026-11-17T02:00:00.000Z');
     expect(r.closedAt?.toISOString()).toBe('2026-11-17T02:30:00.000Z');
+  });
+
+  it('D68-39 LOADED ปิดจุดรับ = COMPLETED ผลรับของครบ · ก่อนถึงจุด = ขัดลำดับ · ปิดแข่งกับ COMPLETE = ธงทั้งคู่', () => {
+    const r = effectiveStopSequence([e('ARRIVE', '09:00'), e('LOADED', '09:30')]);
+    expect(r.state).toBe('COMPLETED');
+    expect(r.outcome).toBe('DELIVERED');
+    expect(r.closedAt?.toISOString()).toBe('2026-11-17T02:30:00.000Z');
+    expect(r.events.map((x) => x.seqStatus)).toEqual(['APPLIED', 'APPLIED']);
+    const early = effectiveStopSequence([e('LOADED', '09:30')]);
+    expect(early.state).toBe('PENDING');
+    expect(early.events[0]).toMatchObject({ seqStatus: 'CONFLICT', counted: false });
+    const race = effectiveStopSequence([
+      e('ARRIVE', '09:00'),
+      e('LOADED', '09:30'),
+      e('COMPLETE', '09:31'),
+    ]);
+    expect(race.events.filter((x) => x.flags.includes('SEQUENCE_CONFLICT'))).toHaveLength(2);
   });
 
   it('มาถึงสลับลำดับ แต่เวลาเครื่องถูก → ผลเท่าเดิมไม่ว่าลำดับรับ', () => {

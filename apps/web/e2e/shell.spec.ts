@@ -23,7 +23,8 @@ test.describe('shell', () => {
     await expect(page.getByRole('navigation', { name: 'breadcrumb' })).toContainText('หลัก');
     // เมนูที่อยู่นอกเฟส 0 ต้องไม่มี
     await expect(page.getByRole('button', { name: 'ติดตามรถ', exact: true })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'ใบสั่งขนส่ง (SO)', exact: true })).toBeVisible();
+    // D68-89: ชื่อปุ่มเมนูรวมตัวเลข badge งานค้าง
+    await expect(page.getByRole('button', { name: /^ใบสั่งขนส่ง \(SO\)\s?\d*$/ })).toBeVisible();
   });
 
   test('หน้าที่ยังไม่ถึง stage บอก stage และกลับภาพรวมได้', async ({ page }) => {
@@ -45,11 +46,11 @@ test.describe('shell', () => {
   test('สลับภาษาเป็น EN แล้วยังคงอยู่หลังโหลดใหม่', async ({ page }) => {
     await page.goto('/');
     await setLangAndWait(page, 'EN');
-    await expect(page.getByRole('button', { name: 'Planning board', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Planning board\s?\d*$/ })).toBeVisible();
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Planning board', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Planning board\s?\d*$/ })).toBeVisible();
     await setLangAndWait(page, 'TH');
-    await expect(page.getByRole('button', { name: 'กระดานวางแผน', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^กระดานวางแผน\s?\d*$/ })).toBeVisible();
   });
 
   test('ST1-T09: ภาษาเก็บในโปรไฟล์ — เปิดเครื่องใหม่ (ไม่มี localStorage) ก็ได้ภาษาเดิม', async ({
@@ -57,12 +58,12 @@ test.describe('shell', () => {
   }) => {
     await page.goto('/');
     await setLangAndWait(page, 'EN');
-    await expect(page.getByRole('button', { name: 'Planning board', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Planning board\s?\d*$/ })).toBeVisible();
     await page.evaluate(() => localStorage.clear());
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Planning board', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Planning board\s?\d*$/ })).toBeVisible();
     await setLangAndWait(page, 'TH');
-    await expect(page.getByRole('button', { name: 'กระดานวางแผน', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^กระดานวางแผน\s?\d*$/ })).toBeVisible();
   });
 
   test('ย่อ/ขยาย sidebar', async ({ page }) => {

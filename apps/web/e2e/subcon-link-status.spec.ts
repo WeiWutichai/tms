@@ -282,7 +282,8 @@ test.describe.serial('ลิงก์รถร่วม ส่วนสถาน
     await ctx.close();
 
     const ev = await events(page);
-    expect(ev.map((e) => e.type)).toEqual(['ARRIVE', 'COMPLETE', 'DEPART', 'ARRIVE']);
+    // D68-39: ออกจากจุดรับ = LOADED (ขึ้นของเสร็จ)
+    expect(ev.map((e) => e.type)).toEqual(['ARRIVE', 'LOADED', 'DEPART', 'ARRIVE']);
     expect(ev.every((e) => e.source === 'LINK')).toBe(true);
     const tr = await get<Trip>(page, `/v1/trips/${S.t!.id}`);
     expect(tr.stops.map((s) => s.status)).toEqual(['COMPLETED', 'ARRIVED']);

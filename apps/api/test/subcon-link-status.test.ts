@@ -395,8 +395,15 @@ describe('subcon link status (ST4-T08)', () => {
     const tl = (await api(app, admin).get(`/v1/trips/${t.id}/events`).expect(200)).body.data;
     expect(tl[0]).toMatchObject({ type: 'ARRIVE', source: 'LINK', recordedByName: C.legalName });
 
-    // ออกจากจุดรับ = ปิดงานจุดรับ (รับของครบ) + DEPART ของจุดถัดไป
-    await press(podToken, m0.pickup.id, { type: 'COMPLETE', outcome: 'DELIVERED' }).expect(201);
+    // ออกจากจุดรับ = ขึ้นของเสร็จ (LOADED — D-81 · D68-39, docs/01 §3.9) + DEPART ของจุดถัดไป
+    await press(podToken, m0.pickup.id, { type: 'LOADED' }).expect(201);
+    expect(
+      (
+        await db.stopEvent.findFirstOrThrow({
+          where: { tripStopId: uuid('tripStop', m0.pickup.id), type: 'LOADED' },
+        })
+      ).outcome,
+    ).toBeNull();
     await press(podToken, m0.delivery.id, { type: 'DEPART' }).expect(201);
     const m1 = (await view(podToken, doNo).expect(200)).body.match;
     expect(m1.pickup).toMatchObject({ status: 'COMPLETED', leftAt: expect.any(String) });
@@ -415,7 +422,7 @@ describe('subcon link status (ST4-T08)', () => {
     ).toBe(0);
   });
 
-  it('ตรวจข้อมูล: ปิดงานจุดส่งผ่านลิงก์ไม่ได้ (รอ POD) · ปิดงานจุดรับต้อง DELIVERED · ถึง/ออกไม่มีผล · ไม่มี clientEventId → 422', async () => {
+  it('ตรวจข้อมูล: ปิดงานจุดส่งต้องมี POD · จุดรับครบ = LOADED (ไม่ใช่ COMPLETE DELIVERED) · ถึง/ออกไม่มีผล/เหตุผล · ไม่มี clientEventId → 422', async () => {
     const { t, podToken, doNo } = await accepted();
     await dispatch(t.id);
     const m = (await view(podToken, doNo).expect(200)).body.match;
@@ -423,19 +430,229 @@ describe('subcon link status (ST4-T08)', () => {
       await press(podToken, m.delivery.id, { type: 'COMPLETE', outcome: 'DELIVERED' }).expect(422)
     ).body;
     expect(e1.errors[0]).toMatchObject({ field: 'pod', code: 'pod_required' });
+    // ปิดด้วยผลก่อนถึงจุด → 409 (ไม่สร้าง event ขัดลำดับ)
+    expect((await press(podToken, m.pickup.id, { type: 'LOADED' }).expect(409)).body.code).toBe(
+      'stop_not_arrived',
+    );
     await press(podToken, m.pickup.id, { type: 'ARRIVE' }).expect(201);
     expect(
       (await press(podToken, m.pickup.id, { type: 'COMPLETE' }).expect(422)).body.errors[0].field,
     ).toBe('outcome');
-    await press(podToken, m.pickup.id, { type: 'COMPLETE', outcome: 'PARTIAL' }).expect(422);
+    // D68-39: จุดรับครบใช้ LOADED · LOADED ที่จุดส่ง = 422 · LOADED มีผล = 422
+    expect(
+      (await press(podToken, m.pickup.id, { type: 'COMPLETE', outcome: 'DELIVERED' }).expect(422))
+        .body.errors[0],
+    ).toMatchObject({ field: 'outcome', code: 'not_applicable' });
+    expect(
+      (await press(podToken, m.delivery.id, { type: 'LOADED' }).expect(422)).body.errors[0],
+    ).toMatchObject({ field: 'type', code: 'not_applicable' });
+    await press(podToken, m.pickup.id, { type: 'LOADED', outcome: 'DELIVERED' }).expect(422);
+    // บางส่วน/ไม่สำเร็จ ต้องมีเหตุผล
+    expect(
+      (await press(podToken, m.pickup.id, { type: 'COMPLETE', outcome: 'PARTIAL' }).expect(422))
+        .body.errors[0],
+    ).toMatchObject({ field: 'reasonCodeId', code: 'required' });
     await press(podToken, m.pickup.id, { type: 'ARRIVE', outcome: 'DELIVERED' }).expect(422);
-    await press(podToken, m.pickup.id, { type: 'FAIL' }).expect(422);
+    expect(
+      (await press(podToken, m.pickup.id, { type: 'FAIL' }).expect(422)).body.errors[0].field,
+    ).toBe('reasonCodeId');
     await pub()
       .post(`/v1/public/pod/${podToken}/stops/${m.pickup.id}/events`)
       .send({ type: 'ARRIVE', occurredAt: bkk() })
       .expect(422);
-    // reasonCodeId/note ไม่รับผ่านลิงก์ (whitelist)
-    await press(podToken, m.pickup.id, { type: 'ARRIVE', note: 'x' }).expect(422);
+    // เหตุผล/หมายเหตุรับเฉพาะแจ้งไม่สำเร็จ/บางส่วน
+    expect(
+      (await press(podToken, m.pickup.id, { type: 'ARRIVE', note: 'x' }).expect(422)).body
+        .errors[0],
+    ).toMatchObject({ field: 'note', code: 'not_applicable' });
+    await press(podToken, m.pickup.id, { type: 'LOADED', note: 'x' }).expect(422);
+  });
+
+  it('D-81 · D68-39: รับบางส่วน / รับไม่สำเร็จ / ส่งไม่สำเร็จ / ของยังอยู่บนรถ พร้อมเหตุผลผ่านลิงก์ — event model เดียวกับเว็บ (source LINK + snapshot เหตุผล)', async () => {
+    const reason = async (category: string, code: string, tid = tenantId) =>
+      encodeId(
+        'reasonCode',
+        (
+          await db.reasonCode.findFirstOrThrow({
+            where: { tenantId: tid, category: category as never, code },
+          })
+        ).id,
+      );
+    // (1) รับไม่สำเร็จที่จุดรับ (ยังไม่ถึงก็แจ้งได้) → จุดรับ FAILED, DO FAILED
+    const a = await accepted();
+    await dispatch(a.t.id);
+    const ma = (await view(a.podToken, a.doNo).expect(200)).body.match;
+    expect(ma.failReasons.map((r: { category: string }) => r.category)).toEqual(
+      expect.arrayContaining(['DELIVERY_FAILED', 'REJECTED_BY_RECEIVER']),
+    );
+    // review M1: เหตุผลที่บังคับรูปไม่แสดงในลิงก์ (แจ้งไม่สำเร็จแนบรูปไม่ได้)
+    expect(ma.failReasons.every((r: { requiresPhoto: boolean }) => !r.requiresPhoto)).toBe(true);
+    expect(ma.failReasons[0]).toMatchObject({
+      id: expect.stringMatching(/^rsn_/),
+      label: expect.any(String),
+      requiresNote: expect.any(Boolean),
+    });
+    // เหตุผลที่บังคับรูป (ส่งตรงมา) → 422 photo_required
+    expect(
+      (
+        await press(a.podToken, ma.pickup.id, {
+          type: 'FAIL',
+          reasonCodeId: await reason('DELIVERY_FAILED', 'WRONG_ADDRESS'),
+          note: 'x',
+        }).expect(422)
+      ).body.errors[0],
+    ).toMatchObject({ field: 'reasonCodeId', code: 'photo_required' });
+    const other = await reason('DELIVERY_FAILED', 'OTHER'); // บังคับหมายเหตุ
+    expect(
+      (await press(a.podToken, ma.pickup.id, { type: 'FAIL', reasonCodeId: other }).expect(422))
+        .body.errors[0],
+    ).toMatchObject({ field: 'note', code: 'required' });
+    // เหตุผลนอกหมวด (ล่าช้า) → 422 · เหตุผลของบริษัทอื่น → 422 reason_not_found
+    const delay = encodeId(
+      'reasonCode',
+      (await db.reasonCode.findFirstOrThrow({ where: { tenantId, category: 'DELAY' } })).id,
+    );
+    await press(a.podToken, ma.pickup.id, { type: 'FAIL', reasonCodeId: delay }).expect(422);
+    const t2 = (await createTenantWithDefaults(db, { name: `บริษัทอื่น ${++seed}` })).id;
+    expect(
+      (
+        await press(a.podToken, ma.pickup.id, {
+          type: 'FAIL',
+          reasonCodeId: await reason('DELIVERY_FAILED', 'OTHER', t2),
+          note: 'x',
+        }).expect(422)
+      ).body.errors[0],
+    ).toMatchObject({ field: 'reasonCodeId', code: 'reason_not_found' });
+    const f = await press(a.podToken, ma.pickup.id, {
+      type: 'FAIL',
+      reasonCodeId: other,
+      note: 'คลังย้ายที่',
+    }).expect(201);
+    expect(f.body).toMatchObject({ type: 'FAIL', source: 'LINK', counted: true });
+    const ev = await db.stopEvent.findFirstOrThrow({
+      where: { tripStopId: uuid('tripStop', ma.pickup.id), type: 'FAIL' },
+    });
+    expect(ev.reasonCodeId).toBe(uuid('reasonCode', other));
+    expect(ev.payload).toMatchObject({ note: 'คลังย้ายที่', reason: { code: 'OTHER' } });
+    expect((await view(a.podToken, a.doNo).expect(200)).body.match.pickup.status).toBe('FAILED');
+    expect((await db.deliveryOrder.findFirstOrThrow({ where: { doNo: a.doNo } })).status).toBe(
+      'FAILED',
+    );
+    // ปิดแล้ว → 409
+    expect(
+      (
+        await press(a.podToken, ma.pickup.id, {
+          type: 'FAIL',
+          reasonCodeId: other,
+          note: 'ซ้ำ',
+        }).expect(409)
+      ).body.code,
+    ).toBe('stop_already_closed');
+    // ผู้จัดรถเห็นในไทม์ไลน์ (ชนิด/ผู้บันทึกเดียวกับเว็บ)
+    const tl = (await api(app, admin).get(`/v1/trips/${a.t.id}/events`).expect(200)).body.data;
+    expect(tl.find((e: { type: string }) => e.type === 'FAIL')).toMatchObject({
+      source: 'LINK',
+      recordedByName: a.C.legalName,
+    });
+
+    // (2) รับบางส่วนที่จุดรับ (COMPLETE PARTIAL + เหตุผล) → DO รับของแล้ว → ถึงจุดส่ง → ส่งไม่สำเร็จ (COMPLETE FAILED) → DO FAILED
+    const b = await accepted();
+    await dispatch(b.t.id);
+    const mb = (await view(b.podToken, b.doNo).expect(200)).body.match;
+    const refused = await reason('REJECTED_BY_RECEIVER', 'OTHER');
+    await press(b.podToken, mb.pickup.id, { type: 'ARRIVE' }).expect(201);
+    await press(b.podToken, mb.pickup.id, {
+      type: 'COMPLETE',
+      outcome: 'PARTIAL',
+      reasonCodeId: refused,
+      note: 'ของไม่ครบที่คลัง',
+    }).expect(201);
+    expect((await db.deliveryOrder.findFirstOrThrow({ where: { doNo: b.doNo } })).status).toBe(
+      'PICKED_UP',
+    );
+    await press(b.podToken, mb.delivery.id, { type: 'DEPART' }).expect(201);
+    // ส่งไม่สำเร็จด้วย COMPLETE ต้องถึงจุดก่อน (ยังไม่ถึงใช้ FAIL)
+    expect(
+      (
+        await press(b.podToken, mb.delivery.id, {
+          type: 'COMPLETE',
+          outcome: 'FAILED',
+          reasonCodeId: other,
+          note: 'ปิด',
+        }).expect(409)
+      ).body.code,
+    ).toBe('stop_not_arrived');
+    await press(b.podToken, mb.delivery.id, { type: 'ARRIVE' }).expect(201);
+    // ไม่สำเร็จไม่รับ POD (POD = DELIVERED/PARTIAL ของจุดส่ง)
+    await press(b.podToken, mb.delivery.id, {
+      type: 'COMPLETE',
+      outcome: 'FAILED',
+      reasonCodeId: other,
+      note: 'ปิด',
+      pod: { doNo: b.doNo },
+    }).expect(422);
+    await press(b.podToken, mb.delivery.id, {
+      type: 'COMPLETE',
+      outcome: 'FAILED',
+      reasonCodeId: other,
+      note: 'ร้านปิด',
+    }).expect(201);
+    const vb = (await view(b.podToken, b.doNo).expect(200)).body.match;
+    expect(vb.delivery).toMatchObject({ status: 'FAILED', outcome: 'FAILED' });
+    expect((await db.deliveryOrder.findFirstOrThrow({ where: { doNo: b.doNo } })).status).toBe(
+      'FAILED',
+    );
+    expect(
+      await db.stopEvent.count({
+        where: { tripId: uuid('trip', b.t.id), sequenceConflict: true },
+      }),
+    ).toBe(0);
+
+    // (3) ของยังอยู่บนรถ (COMPLETE UNDELIVERED_RETAIN) — หมวด DELIVERY_FAILED เท่านั้น
+    const c = await accepted();
+    await dispatch(c.t.id);
+    const mc = (await view(c.podToken, c.doNo).expect(200)).body.match;
+    await press(c.podToken, mc.pickup.id, { type: 'ARRIVE' }).expect(201);
+    await press(c.podToken, mc.pickup.id, { type: 'LOADED' }).expect(201);
+    await press(c.podToken, mc.delivery.id, { type: 'ARRIVE' }).expect(201);
+    await press(c.podToken, mc.delivery.id, {
+      type: 'COMPLETE',
+      outcome: 'UNDELIVERED_RETAIN',
+      reasonCodeId: refused,
+      note: 'x',
+    }).expect(422);
+    await press(c.podToken, mc.delivery.id, {
+      type: 'COMPLETE',
+      outcome: 'UNDELIVERED_RETAIN',
+      reasonCodeId: other,
+      note: 'ผู้รับไม่อยู่ ของยังอยู่บนรถ',
+    }).expect(201);
+    expect((await view(c.podToken, c.doNo).expect(200)).body.match.delivery).toMatchObject({
+      status: 'FAILED',
+      outcome: 'UNDELIVERED_RETAIN',
+    });
+  });
+
+  it('review: LOADED ส่งซ้ำ (clientEventId เดิม) หลังเที่ยวจบ → 200 ผลเดิม · id ใหม่ → 409 trip_not_in_progress', async () => {
+    const a = await accepted();
+    await dispatch(a.t.id);
+    const m = (await view(a.podToken, a.doNo).expect(200)).body.match;
+    await press(a.podToken, m.pickup.id, { type: 'ARRIVE' }).expect(201);
+    const cid = randomUUID();
+    const first = await press(a.podToken, m.pickup.id, {
+      type: 'LOADED',
+      clientEventId: cid,
+    }).expect(201);
+    const tid = uuid('trip', a.t.id);
+    await db.$executeRaw`UPDATE trip SET status = 'COMPLETED', completed_at = now() WHERE id = ${tid}::uuid`;
+    const again = await press(a.podToken, m.pickup.id, {
+      type: 'LOADED',
+      clientEventId: cid,
+    }).expect(200);
+    expect(again.body).toMatchObject({ id: first.body.id, type: 'LOADED', replayed: true });
+    expect((await press(a.podToken, m.pickup.id, { type: 'LOADED' }).expect(409)).body.code).toBe(
+      'trip_not_in_progress',
+    );
   });
 
   it('จุดของเที่ยวอื่น / บริษัทอื่น / id มั่ว → 404 · clientEventId ชนกับ event อื่น → 409 ไม่เปิดเผย eventId', async () => {

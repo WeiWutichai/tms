@@ -303,6 +303,17 @@ export class VehicleDocumentsService {
   }
 
   /** ตัวนับหน้าเอกสารรถรวม (ST2-T19 ต้นแบบ kpisF('fdoc')) — ฉบับปัจจุบันของรถที่ไม่ปลดระวาง */
+  /** D-81 · D68-89 badge "เอกสารรถ" = เอกสารปัจจุบันที่หมดอายุแล้วหรือจะหมดใน `days` วัน (ต้นแบบ `fdoc` d.to ≤ 30) — ฐานเดียวกับ `summary` */
+  dueCount(days = 30): Promise<number> {
+    return this.db.tx.vehicleDocument.count({
+      where: {
+        vehicle: { deletedAt: null, status: { not: 'RETIRED' } },
+        status: { in: [...CURRENT_DB_STATUSES] },
+        expiresOn: { lte: asDate(addDays(bangkokToday(), days)) },
+      },
+    });
+  }
+
   async summary(): Promise<VehicleDocumentSummaryDto> {
     const today = bangkokToday();
     const base: Prisma.VehicleDocumentWhereInput = {
