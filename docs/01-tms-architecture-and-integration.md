@@ -565,8 +565,8 @@ erDiagram
 | `last_synced_at` | timestamptz |  |
 | `status` | enum | `SYNCED` / `PENDING` / `FAILED` / `MISMATCH` / `RETIRED` |
 | `last_error` | jsonb null | problem+json ล่าสุด |
-| unique |  | `(connector_id, entity_type, local_id)` และ `(connector_id, entity_type, external_id)` |
 | `source_code` | text null | รหัสฝั่งต้นทาง SO (เช่นรหัสลูกค้า NSF ของ KRS) ใช้จับคู่ SO; `external_id` = รหัสฝั่งเอกสาร (PP) (D-81 · D68-64 · 23 พ.ย. 2569) |
+| unique |  | `(connector_id, entity_type, local_id)` และ `(connector_id, entity_type, external_id)` |
 
 **integration_outbox** — คิวคำสั่งทุกอย่างที่ออกจาก core (ทั้ง adapter และ webhook)
 
@@ -1115,7 +1115,7 @@ stateDiagram-v2
 | --- | --- | --- | --- |
 | 1 | `orders` (SO) | `POST`, `GET` list/one, `PATCH`, `PUT/PATCH /external/{id}`, `/hold`, `/release`, `/cancel`, `/split`, `GET /{id}/events` | UI, ERP push SO, ลูกค้า |
 | 2 | `webhooks`, `event-types`, `events`, `webhook-deliveries` | CRUD endpoint, list event types, `GET /events/{id}`, `POST /events/{id}/redeliver`, `POST /webhook-deliveries/{id}/retry` | ERP/ลูกค้า |
-| 3 | `trips` + `stops` | `POST /trips`, `GET`, `/assign` (จาก `OFFERED` = ผู้จัดรถบันทึกรับงานแทนรถร่วม (D-81 · D68-28 · 23 พ.ย. 2569)), `/offer`, `/dispatch`, `/complete`, `/cancel`; `POST /stops/{id}/arrive|depart|complete|fail` | UI, Driver app, รถร่วม (ลิงก์) |
+| 3 | `trips` + `stops` | `POST /trips`, `GET`, `/assign` (จาก `OFFERED` = ผู้จัดรถบันทึกรับงานแทนรถร่วม (D-81 · D68-28 · 23 พ.ย. 2569)), `/offer`, `/dispatch`, `/complete`, `/cancel`; `POST /stops/{id}/arrive\|depart\|complete\|fail` | UI, Driver app, รถร่วม (ลิงก์) |
 | 4 | `delivery-orders` | `GET` list/one (filter `status=unbilled`), `PATCH` (ก่อน DISPATCHED), `/cancel`, `/redeliver`, `POST /{id}/tracking-link` ออก magic link → `/v1/public/tracking/*` (ลิงก์ต่อลูกค้าต้องกรอกเลข DO/PO + เบอร์ผู้รับ 4 ตัวท้าย; ลิงก์ต่อ DO ไม่ต้องกรอก) (D-81 · D68-92 · 23 พ.ย. 2569) | UI, ลูกค้า |
 | 5 | `documents` (POD/ไฟล์) | `POST /documents` (presigned upload), `GET /{id}` metadata + download URL หมดอายุ | ทุก client |
 | 6 | `customers`, `customer-sites`, `carriers`, `drivers`, `vehicles`, `service-items`, `reason-codes`, `rate-cards` | CRUD + `PUT /external/{id}` + import job | UI, master sync |
