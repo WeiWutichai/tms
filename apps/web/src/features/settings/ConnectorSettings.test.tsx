@@ -67,7 +67,7 @@ vi.mock('../../api', () => ({
   },
 }));
 
-const { ConnectorSettingsSection, healthText } = await import('./ConnectorSettings');
+const { ConnectorSettingsSection, healthText, payloadJson } = await import('./ConnectorSettings');
 
 const wrap = (canWrite = true) =>
   render(
@@ -491,6 +491,115 @@ describe('ตั้งค่า → การเชื่อมต่อ (ST7-T2
     fireEvent.click(within(detail).getByRole('tab', { name: 'ประวัติ' }));
     expect(await within(detail).findByText('เปลี่ยน key')).toBeInTheDocument();
     expect(within(detail).getByText(/ทีม Innovera · กิตติ/)).toBeInTheDocument();
+  });
+
+  it('ST7-T19 บันทึกการซิงก์: ปุ่ม "ดู payload" (ต้นแบบ) เปิด request/response ของคำสั่งจาก sync log · คัดลอกได้', async () => {
+    conns = [{ ...conn('ACTIVE'), activatedAt: 'x' }];
+    const calls: unknown[] = [];
+    GET.mockImplementation(async (path: string, init?: unknown) => {
+      calls.push([path, init]);
+      if (path === '/v1/connectors') return { data: { data: conns } };
+      if (path === '/v1/connectors/adapters') return { data: { data: [ADAPTER] } };
+      if (path === '/v1/connectors/{id}/commands')
+        return {
+          data: {
+            data: [
+              {
+                id: 'obx_1',
+                operation: 'PUSH_INVOICE',
+                entityType: 'invoice',
+                localId: 'ivc_00000000000000000000000000abcdef',
+                status: 'FAILED_FINAL',
+                attempt: 1,
+                errorClass: 'PERIOD_CLOSED',
+                errorCode: 'period_closed',
+                createdAt: '2026-11-19T03:00:00Z',
+                doneAt: '2026-11-19T03:00:01Z',
+                updatedAt: '2026-11-19T03:00:01Z',
+              },
+            ],
+          },
+        };
+      if (path === '/v1/connectors/{id}/sync-log')
+        return {
+          data: {
+            data: [
+              {
+                id: 'slg_1',
+                commandId: 'obx_1',
+                attempt: 1,
+                operation: 'PUSH_INVOICE',
+                entityType: 'invoice',
+                localId: null,
+                documentNo: 'INV-1',
+                direction: 'OUT',
+                method: 'POST',
+                url: 'https://demo.invalid/api/invoices',
+                statusCode: 422,
+                errorCode: 'period_closed',
+                durationMs: 40,
+                requestBody: '{"number":"INV-1","taxId":"***"}',
+                responseBody: 'period closed',
+                occurredAt: '2026-11-19T03:00:00Z',
+              },
+            ],
+            nextCursor: null,
+            hasMore: false,
+          },
+        };
+      return { data: { data: [] } };
+    });
+    const write = vi.fn(async () => undefined);
+    Object.assign(navigator, { clipboard: { writeText: write } });
+    wrap();
+    const detail = await screen.findByTestId('connector-detail');
+    fireEvent.click(within(detail).getByRole('tab', { name: 'บันทึกการซิงก์' }));
+    expect(
+      await within(detail).findByRole('columnheader', { name: 'Payload' }),
+    ).toBeInTheDocument();
+    fireEvent.click(within(detail).getByRole('button', { name: 'ดู payload' }));
+    const dlg = await screen.findByRole('dialog', { name: /Payload ที่ส่งเข้า/ });
+    expect(calls).toContainEqual([
+      '/v1/connectors/{id}/sync-log',
+      { params: { path: { id: 'con_1' }, query: { commandId: 'obx_1', limit: 50 } } },
+    ]);
+    const pre = dlg.querySelector('pre')!.textContent!;
+    expect(JSON.parse(pre)).toMatchObject({
+      request: { method: 'POST', url: 'https://demo.invalid/api/invoices', body: { taxId: '***' } },
+      response: { status: 422, code: 'period_closed', body: 'period closed' },
+    });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'คัดลอก' }));
+    expect(write).toHaveBeenCalledWith(pre);
+    expect(await screen.findByText('คัดลอก payload แล้ว')).toBeInTheDocument();
+  });
+
+  it('ST7-T19 payloadJson: ไม่มีการเรียก = null · หลายครั้ง = รายการเรียงตามเวลา', () => {
+    expect(payloadJson([])).toBeNull();
+    const l = (id: string, at: string) => ({
+      id,
+      commandId: 'obx_1',
+      attempt: 1,
+      operation: 'PUSH_INVOICE',
+      entityType: 'invoice',
+      localId: null,
+      documentNo: null,
+      direction: 'OUT' as const,
+      method: 'GET',
+      url: `https://x.invalid/${id}`,
+      statusCode: 200,
+      errorCode: null,
+      durationMs: 1,
+      requestBody: null,
+      responseBody: null,
+      occurredAt: at,
+    });
+    const out = JSON.parse(
+      payloadJson([l('b', '2026-11-19T03:00:02Z'), l('a', '2026-11-19T03:00:01Z')])!,
+    );
+    expect(out.map((x: { request: { url: string } }) => x.request.url)).toEqual([
+      'https://x.invalid/a',
+      'https://x.invalid/b',
+    ]);
   });
 
   it('ST8-T04 รหัสที่รอบดึง SO หยุด connector แสดงเป็นข้อความไทย (ไม่ใช่รหัสดิบ)', async () => {

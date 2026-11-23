@@ -1,6 +1,6 @@
 # TMS API v1
 
-เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 400 endpoint
+เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 406 endpoint
 
 เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
 
@@ -50,7 +50,7 @@
 - [วางแผน (planning)](ref-planning.md) — 2 endpoint: GET /v1/planning/board, GET /v1/planning/eligibility
 - [ตารางงาน (schedule)](ref-schedule.md) — 4 endpoint: GET /v1/schedule-entries, POST /v1/schedule-entries, GET /v1/schedule-entries/{id}, POST /v1/schedule-entries/{id}/cancel
 - [ส่งออกไฟล์ (exports)](ref-exports.md) — 3 endpoint: POST /v1/exports, GET /v1/exports/{id}, GET /v1/accounting-exports/summary
-- [Connector ERP (connectors)](ref-connectors.md) — 11 endpoint: GET /v1/connectors/effective, GET /v1/connectors, GET /v1/connectors/adapters, GET /v1/connectors/{id}, GET /v1/connectors/{id}/history, GET /v1/connectors/{id}/commands, …
+- [Connector ERP (connectors)](ref-connectors.md) — 17 endpoint: GET /v1/connectors/effective, GET /v1/connectors, GET /v1/connectors/adapters, GET /v1/connectors/{id}, GET /v1/connectors/{id}/history, GET /v1/connectors/{id}/commands, …
 - [ส่งข้อความ (messaging)](ref-messaging.md) — 5 endpoint: POST /v1/messages/send-link, GET /v1/messages, GET /v1/messages/channels, GET /v1/messages/{id}, GET /v1/settings/messaging
 - [นิติบุคคล (companies)](ref-companies.md) — 2 endpoint: GET /v1/companies, GET /v1/companies/{id}
 - [สาขา (branches)](ref-branches.md) — 2 endpoint: GET /v1/branches, GET /v1/branches/{id}
@@ -66,5 +66,5 @@
 ## อ้างอิง
 
 - [Webhook events](webhook-events.md) — 31 event: connector.health_changed, credit_note.finalized, debit_note.finalized, delivery_order.status_changed, invoice.adjusted, invoice.finalized, invoice.paid, invoice.voided, …
-- [รหัส error](errors.md) — 135 code ของ problem+json
+- [รหัส error](errors.md) — 136 code ของ problem+json
 - [Changelog](changelog.md) — ประวัติเวอร์ชันของ API (added/changed/deprecated)

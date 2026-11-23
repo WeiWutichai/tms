@@ -1336,6 +1336,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'cnx.log.doc': 'Documents',
   'cnx.log.action': 'Actions',
   'cnx.log.result': 'Result',
+  'cnx.log.viewPayload': 'View payload',
   'cnx.cmd.DONE': 'Success',
   'cnx.cmd.FAILED_FINAL': 'Failed',
   'cnx.cmd.FAILED_RETRYABLE': 'Retry pending',

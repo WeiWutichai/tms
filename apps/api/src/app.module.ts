@@ -115,6 +115,7 @@ import { SystemOfRecordPolicy } from './modules/erp/system-of-record.policy';
 import { ErpAdapterRegistry } from './modules/erp/erp-adapter.registry';
 import { ErpAdapterSink } from './modules/erp/erp-adapter.sink';
 import { ErpSyncService } from './modules/erp/erp-sync.service';
+import { ConnectorQueueService } from './modules/erp/connector-queue';
 import { ErpInboundEffects } from './modules/erp/erp-inbound-effects';
 import { PaymentStatusPullService } from './modules/erp/payment-status-pull.service';
 import { ReconcileController } from './modules/erp/reconcile.controller';
@@ -507,6 +508,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     InboundWebhookService,
     ErpAdapterSink,
     ErpSyncService,
+    ConnectorQueueService,
     ErpInboundEffects,
     ReconcileResultsService,
     PaymentStatusPullService,
