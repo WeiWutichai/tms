@@ -34,7 +34,8 @@ import {
  *   core เก็บใน mapping แล้วส่งกลับใน `ctx.priorDocuments` → รอบถัดไป POST เฉพาะใบที่ยังไม่มี · ใบแรกล้มแบบรู้แน่ = ลองใหม่ตามปกติ
  * - error: แปลง HTTP เป็น ErrorClass กลางแบบพื้นฐาน (docs/01 §6.3 / A.5 คอลัมน์ ErrorClass) — การจัดการเต็มของ A.5 (409 หา `transactionNo`,
  *   backoff, หยุดคิว ฯลฯ) = ST8-T09 · ส่งได้บางใบแล้วใบถัดไปล้ม = คืนผลล้มของใบนั้น (ข้อความบอกใบที่สร้างแล้ว · response 201 อยู่ใน sync log)
- *   — core ไม่ส่งซ้ำแบบไม่รู้ผล (มี POST ใน sync log → หาเอกสารก่อน — `fetchDocument` = ST8-T10)
+ *   — core ไม่ส่งซ้ำแบบไม่รู้ผล (มี POST ใน sync log → หาเอกสารก่อนด้วย `fetchDocument` ST8-T10 เมื่อรู้ `transactionNo`;
+ *   ไม่รู้ = POST ใหม่ ถ้าถึงแล้ว KRS ตอบ 409 — A.5)
  */
 
 /** timeout ต่อคำขอ (docs/01 §8.1 "timeout client 120 วินาที" สำหรับใบใหญ่) */
@@ -340,6 +341,67 @@ async function postOne(
   );
 }
 
+/** เอกสาร KRS 1 ใบในแผนการส่ง (กลุ่ม VAT + payload) */
+export interface KrsPlannedDocument {
+  group: KrsVatGroup | null;
+  doc: KrsInvoiceDocument;
+}
+
+/**
+ * แผนการส่งใบแจ้งหนี้ 1 ใบ = เอกสาร KRS ทุกใบตามลำดับ (แยกตาม `vat_type` แล้วแบ่งตามเพดานขนาด) — ฟังก์ชันบริสุทธิ์
+ * ใช้ทั้งตอน POST (ST8-T08) และตอนสร้างส่วนที่เทียบได้ของ canonical (`krsComparable` — ST8-T10) ให้ได้ใบชุดเดียวกันเสมอ
+ * สร้าง payload ครบทุกใบก่อน — ใบใดไม่ผ่าน = ทั้งแผนไม่ผ่าน
+ */
+export function planKrsInvoice(
+  ctx: Pick<ErpContext, 'config' | 'masterCodes'>,
+  inv: CanonicalDocument,
+): { ok: true; plan: KrsPlannedDocument[] } | { ok: false; problem: Fail } {
+  const split = splitByVatType(inv);
+  if (!split.ok) return split;
+  const plan: KrsPlannedDocument[] = [];
+  const fields: NonNullable<Problem['fields']> = [];
+  let first: Extract<ReturnType<typeof buildKrsInvoicePayload>, { ok: false }> | null = null;
+  const multi = split.groups.length > 1;
+  for (const g of split.groups) {
+    const built = buildKrsInvoicePayload(ctx, g.doc, {
+      ...KRS_PUSH_PAYLOAD_OPTIONS,
+      tmsVoucherNo: g.tmsVoucherNo,
+    });
+    if (!built.ok) {
+      first ??= built;
+      for (const f of built.problem.fields ?? [])
+        if (fields.length < 50) fields.push(multi ? { ...f, field: `${g.group}:${f.field}` } : f);
+      continue;
+    }
+    for (const doc of built.documents) plan.push({ group: g.group, doc });
+  }
+  if (first)
+    return {
+      ok: false,
+      problem: krsFail('VALIDATION', first.problem.code, first.problem.message, fields),
+    };
+  if (new Set(plan.map((p) => p.doc.tmsVoucherNo)).size !== plan.length)
+    return {
+      ok: false,
+      problem: krsFail(
+        'VALIDATION',
+        'krs_payload_invalid',
+        'เลขเอกสาร (tmsVoucherNo) ของใบที่แยกซ้ำกัน',
+      ),
+    };
+  // review L2: เกินจำนวนเอกสารที่ core เก็บได้ต่อใบ = ไม่ส่ง (ไม่ตัดทิ้งเงียบ)
+  if (plan.length > MAX_EXTERNAL_DOCUMENTS)
+    return {
+      ok: false,
+      problem: krsFail(
+        'VALIDATION',
+        'krs_too_many_documents',
+        `ใบนี้ต้องแยกเป็น ${plan.length} เอกสารใน KRS — เกินเพดาน ${MAX_EXTERNAL_DOCUMENTS} (แบ่งรอบวางบิลให้เล็กลง)`,
+      ),
+    };
+  return { ok: true, plan };
+}
+
 /** ST8-T08 ส่งใบแจ้งหนี้ 1 ใบ (อาจเป็นหลายเอกสาร KRS) */
 export async function pushKrsInvoice(
   ctx: ErpContext,
@@ -360,42 +422,9 @@ export async function pushKrsInvoice(
       'ใบนี้ออกในนามนิติบุคคลอื่น — connector KRS นี้ผูกกับอีกนิติบุคคล (ไม่ส่ง)',
     );
 
-  const split = splitByVatType(inv);
-  if (!split.ok) return split.problem;
-
-  // สร้าง payload ครบทุกใบก่อน — ใบใดไม่ผ่าน = ไม่ส่งเลย
-  const plan: { group: KrsVatGroup | null; doc: KrsInvoiceDocument }[] = [];
-  const fields: NonNullable<Problem['fields']> = [];
-  let first: Extract<ReturnType<typeof buildKrsInvoicePayload>, { ok: false }> | null = null;
-  const multi = split.groups.length > 1;
-  for (const g of split.groups) {
-    const built = buildKrsInvoicePayload(ctx, g.doc, {
-      ...KRS_PUSH_PAYLOAD_OPTIONS,
-      tmsVoucherNo: g.tmsVoucherNo,
-    });
-    if (!built.ok) {
-      first ??= built;
-      for (const f of built.problem.fields ?? [])
-        if (fields.length < 50) fields.push(multi ? { ...f, field: `${g.group}:${f.field}` } : f);
-      continue;
-    }
-    for (const doc of built.documents) plan.push({ group: g.group, doc });
-  }
-  if (first) return krsFail('VALIDATION', first.problem.code, first.problem.message, fields);
-  if (new Set(plan.map((p) => p.doc.tmsVoucherNo)).size !== plan.length)
-    return krsFail(
-      'VALIDATION',
-      'krs_payload_invalid',
-      'เลขเอกสาร (tmsVoucherNo) ของใบที่แยกซ้ำกัน',
-    );
-
-  // review L2: เกินจำนวนเอกสารที่ core เก็บได้ต่อใบ = ไม่ส่ง (ไม่ตัดทิ้งเงียบ)
-  if (plan.length > MAX_EXTERNAL_DOCUMENTS)
-    return krsFail(
-      'VALIDATION',
-      'krs_too_many_documents',
-      `ใบนี้ต้องแยกเป็น ${plan.length} เอกสารใน KRS — เกินเพดาน ${MAX_EXTERNAL_DOCUMENTS} (แบ่งรอบวางบิลให้เล็กลง)`,
-    );
+  const pl = planKrsInvoice(ctx, inv);
+  if (!pl.ok) return pl.problem;
+  const plan = pl.plan;
 
   // review H1: ใบที่สร้างไปแล้วในครั้งก่อน (core ส่งมาใน ctx.priorDocuments) ไม่ POST ซ้ำ
   const prior = new Map((ctx.priorDocuments ?? []).map((p) => [p.ref, p]));
@@ -408,6 +437,7 @@ export async function pushKrsInvoice(
       `เอกสารที่สร้างใน KRS แล้ว (${stray.join(', ').slice(0, 200)}) ไม่ตรงกับการแยกใบครั้งนี้ — ต้องให้คนตรวจ`,
     );
   const created: ExternalDocumentPart[] = [];
+  let posted = 0;
   for (const p of plan) {
     const known = prior.get(p.doc.tmsVoucherNo);
     if (known) {
@@ -433,6 +463,7 @@ export async function pushKrsInvoice(
         },
       };
     }
+    posted += 1;
     created.push({
       ref: p.doc.tmsVoucherNo,
       externalId: r.transactionNo,
@@ -446,8 +477,9 @@ export async function pushKrsInvoice(
     ok: true,
     externalId: head.externalId,
     ...(head.externalDocNo ? { externalDocNo: head.externalDocNo } : {}),
-    // POST 201 = KRS สร้างใบใหม่จาก payload ครั้งนี้ทั้งหมด
-    applied: true,
+    // POST 201 = KRS สร้างใบใหม่จาก payload ครั้งนี้ · review H1 (ST8-T10): ทุกใบมาจาก `ctx.priorDocuments` (ไม่ได้ POST เลย)
+    // = ไม่ได้ยืนยันเนื้อหาครั้งนี้ → `applied: false` (core: mapping MISMATCH `erp_content_unverified` รอ reconcile)
+    applied: posted > 0,
     documents: created,
   };
 }
