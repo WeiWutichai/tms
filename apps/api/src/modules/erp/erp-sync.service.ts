@@ -223,8 +223,12 @@ export class ErpSyncService {
       localId: row.localId,
       customerId:
         row.entityType === 'invoice'
-          ? ((await tx.invoice.findUnique({ where: { id: row.localId }, select: { customerId: true } }))
-              ?.customerId ?? null)
+          ? ((
+              await tx.invoice.findUnique({
+                where: { id: row.localId },
+                select: { customerId: true },
+              })
+            )?.customerId ?? null)
           : null,
       payload: {
         ...payload,

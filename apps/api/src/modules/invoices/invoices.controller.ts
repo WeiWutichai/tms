@@ -921,6 +921,7 @@ export class InvoicesController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
     const uuid = await this.svc.idOf(id);
+    await this.svc.get(uuid); // ไม่พบ / tenant อื่น → 404 (ก่อนตรวจ mapping)
     await this.mappings.markPosted('INVOICE', uuid);
     const out = await this.svc.get(uuid);
     out.sync = documentSyncDto(await this.mappings.documentSync('INVOICE', uuid));

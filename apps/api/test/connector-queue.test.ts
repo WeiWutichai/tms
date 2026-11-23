@@ -253,7 +253,12 @@ describe('Connector queue (ST7-T19)', () => {
       guide: { key: 'TRANSIENT' },
     });
     expect(Date.parse(q.data[0].nextRunAt)).toBeGreaterThan(Date.now() - 60_000);
-    expect(q.data[0].actions).toEqual({ retry: false, skip: false, externalId: false, approve: false });
+    expect(q.data[0].actions).toEqual({
+      retry: false,
+      skip: false,
+      externalId: false,
+      approve: false,
+    });
     await api(app, token).post(`/v1/connectors/${con.id}/queue/${id}/retry`).expect(409);
     await api(app, token)
       .post(`/v1/connectors/${con.id}/queue/${id}/skip`)

@@ -285,7 +285,8 @@ export function weakensSecurity(before: Record<string, unknown>, after: Record<s
   // ST8-T13 เลื่อนเกณฑ์อายุใบที่ต้องอนุมัติก่อนแทนที่ในระบบบัญชี = คุมหลวมขึ้น — ต้อง step-up
   if (
     has('billing.erpReplaceApprovalDays') &&
-    Number(after['billing.erpReplaceApprovalDays']) > Number(before['billing.erpReplaceApprovalDays'])
+    Number(after['billing.erpReplaceApprovalDays']) >
+      Number(before['billing.erpReplaceApprovalDays'])
   )
     return true;
   // ST9-T14 ลดระยะเก็บ = ข้อมูลเก่าถูกลบเร็วขึ้น (ย้อนคืนไม่ได้) — ต้อง step-up เหมือนลดความปลอดภัย

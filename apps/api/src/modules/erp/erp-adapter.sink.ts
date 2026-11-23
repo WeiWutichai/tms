@@ -1200,12 +1200,17 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         postedBy: from?.postedBy ?? null,
         status: r.applied === true ? ('SYNCED' as const) : ('MISMATCH' as const),
         lastSyncedHash: r.applied === true ? hash : null,
-        lastSyncedParts: r.applied === true && parts ? (parts as Prisma.InputJsonValue) : Prisma.DbNull,
+        lastSyncedParts:
+          r.applied === true && parts ? (parts as Prisma.InputJsonValue) : Prisma.DbNull,
         lastSyncedAt: r.applied === true ? now : null,
         lastError:
           r.applied === true
             ? Prisma.DbNull
-            : ({ code: 'erp_content_unverified', sentHash: hash, at: now.toISOString() } as Prisma.InputJsonValue),
+            : ({
+                code: 'erp_content_unverified',
+                sentHash: hash,
+                at: now.toISOString(),
+              } as Prisma.InputJsonValue),
         detail: {
           documents: docs,
           externalRef: externalRef.slice(0, 100),
@@ -1649,7 +1654,11 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         },
       }),
     );
-    const detail = { reissueOf, externalId: t?.externalId ?? null, externalDocNo: t?.externalDocNo ?? null };
+    const detail = {
+      reissueOf,
+      externalId: t?.externalId ?? null,
+      externalDocNo: t?.externalDocNo ?? null,
+    };
     if (!t?.externalId || t.externalStatus === 'VOIDED') {
       if (t && (t.externalId || reissuedToOf(t.detail)) && t.externalStatus !== 'VOIDED')
         await this.skip(
@@ -1660,9 +1669,15 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
           detail,
         );
       if (!this.usableOrPark(adapter, enabled, 'pushInvoice'))
-        await this.skip(d, connector, 'capability_not_supported', 'capability pushInvoice not supported', {
-          capability: 'pushInvoice',
-        });
+        await this.skip(
+          d,
+          connector,
+          'capability_not_supported',
+          'capability pushInvoice not supported',
+          {
+            capability: 'pushInvoice',
+          },
+        );
       return { kind: 'push' };
     }
     if (!mappingInErp(t))
@@ -1679,7 +1694,13 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
       )
     )?.status;
     if (status && (SOR_PAYMENT_RECEIVED_STATUSES as readonly string[]).includes(status))
-      await this.skip(d, connector, 'paid_locked', 'document already paid — changes are not sent', detail);
+      await this.skip(
+        d,
+        connector,
+        'paid_locked',
+        'document already paid — changes are not sent',
+        detail,
+      );
     // ผลล้มของการแทนที่ (VALIDATION / NOT_FOUND) เป็นของเอกสารฝั่ง ERP ของใบเดิม
     st.mapLocalId = reissueOf;
     const approved = await this.approvalGate(

@@ -7,6 +7,7 @@ import { Clock } from '../src/common/clock';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import type { Tx } from '../src/db/db.service';
 import { KrsAdapter } from '../src/erp-adapters/krs/krs.adapter';
+import { DocumentReconcileService } from '../src/modules/erp/document-reconcile.service';
 import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
 import { OutboxDispatcher } from '../src/modules/integration/outbox.dispatcher';
 import { InvoicesService } from '../src/modules/invoices/invoices.service';
@@ -254,8 +255,7 @@ describe('ST8-T13 KRS replaceDocument (PUT ภาพหลังปรับ)', 
         });
       }
     };
-    tenantId = (await createTenantWithDefaults(plat, { name: 'บริษัท ขนส่ง T13 ทดสอบ จำกัด' }))
-      .id;
+    tenantId = (await createTenantWithDefaults(plat, { name: 'บริษัท ขนส่ง T13 ทดสอบ จำกัด' })).id;
     await plat.tenant.update({ where: { id: tenantId }, data: { planCode: 'ent' } });
     const c = await plat.company.create({
       data: { tenantId, legalName: 'บริษัท พีพี T13 จำกัด', taxId: validTaxId(9401) },
@@ -324,7 +324,12 @@ describe('ST8-T13 KRS replaceDocument (PUT ภาพหลังปรับ)', 
     const on = await api(app, admin)
       .patch(`/v1/connectors/${conId}`)
       .send({
-        capabilitiesEnabled: ['pushInvoice', 'ownsDocumentNumber', 'fetchDocument', 'replaceDocument'],
+        capabilitiesEnabled: [
+          'pushInvoice',
+          'ownsDocumentNumber',
+          'fetchDocument',
+          'replaceDocument',
+        ],
       });
     expect(on.status, JSON.stringify(on.body)).toBe(200);
   });
@@ -353,7 +358,11 @@ describe('ST8-T13 KRS replaceDocument (PUT ภาพหลังปรับ)', 
     await drain();
     // ไม่ POST · PUT 1 ครั้งไปที่ transactionNo เดิม
     expect(posts().length - p0).toBe(0);
-    expect(puts().slice(q0).map((q) => q.path)).toEqual([`/api/invoice/${txNo}`]);
+    expect(
+      puts()
+        .slice(q0)
+        .map((q) => q.path),
+    ).toEqual([`/api/invoice/${txNo}`]);
     const krs = mock.getInvoice(txNo)!;
     expect(krs.revision).toBe(2);
     expect(krs.data.tmsVoucherNo).toBe(a.invoiceNo);
@@ -398,8 +407,9 @@ describe('ST8-T13 KRS replaceDocument (PUT ภาพหลังปรับ)', 
       { vat: 'EXEMPT_TRANSPORT', amount: '1000.00' },
       { vat: 'VAT_7', amount: '300.00' },
     ]);
-    const docs = ((await mapping(a.uuid))!.detail as { documents: { ref: string; externalId: string }[] })
-      .documents;
+    const docs = (
+      (await mapping(a.uuid))!.detail as { documents: { ref: string; externalId: string }[] }
+    ).documents;
     expect(docs.map((d) => d.ref)).toEqual([a.invoiceNo, `${a.invoiceNo}-V7`]);
     const nid = await voidReissue(a, { 1: '800.00', 2: '250.00' });
     const b = await finalize(nid);
@@ -407,9 +417,11 @@ describe('ST8-T13 KRS replaceDocument (PUT ภาพหลังปรับ)', 
     await drain();
     expect(posts().length - p0).toBe(0);
     expect(mock.listInvoices().length).toBe(n0);
-    expect(puts().slice(q0).map((q) => q.path)).toEqual(
-      docs.map((d) => `/api/invoice/${d.externalId}`),
-    );
+    expect(
+      puts()
+        .slice(q0)
+        .map((q) => q.path),
+    ).toEqual(docs.map((d) => `/api/invoice/${d.externalId}`));
     const ex = mock.getInvoice(docs[0]!.externalId)!;
     const v7 = mock.getInvoice(docs[1]!.externalId)!;
     expect(ex.data).toMatchObject({ tmsVoucherNo: a.invoiceNo });
@@ -422,6 +434,13 @@ describe('ST8-T13 KRS replaceDocument (PUT ภาพหลังปรับ)', 
       expect.objectContaining({ ref: a.invoiceNo, externalId: docs[0]!.externalId }),
       expect.objectContaining({ ref: `${a.invoiceNo}-V7`, externalId: docs[1]!.externalId }),
     ]);
+    // ST8-T11 AFTER_PUSH ของการแทนที่: อ่านกลับด้วยเลขอ้างอิงที่ KRS เห็น (เลขใบเดิม) → ตรง = ACCEPTED (ไม่ใช่ส่วนต่างเทียม)
+    await app.get(DocumentReconcileService).scheduleAfterPush();
+    await drain();
+    expect(await mapping(b.uuid)).toMatchObject({ status: 'SYNCED', reconcileState: 'ACCEPTED' });
+    expect(
+      await plat.reconcileResult.count({ where: { tenantId, localId: b.uuid, resolvedAt: null } }),
+    ).toBe(0);
   });
 
   it('แผนหลังปรับไม่ตรงกับใบที่มี (กลุ่ม VAT หาย) → VALIDATION ไม่ PUT ไม่ POST · ขึ้นคิวล้มเหลว', async () => {
@@ -506,12 +525,12 @@ describe('ST8-T13 KRS replaceDocument (PUT ภาพหลังปรับ)', 
     await api(app, approver).post(url).send({ reason: 'สั้น' }).expect(422);
     const ok = await api(app, approver).post(url).send({ reason: 'ตรวจยอดหลังปรับแล้วถูกต้อง' });
     expect(ok.status, JSON.stringify(ok.body)).toBe(200);
-    expect(ok.body.resolution).toMatchObject({ kind: 'RETRIED', reason: 'ตรวจยอดหลังปรับแล้วถูกต้อง' });
+    expect(ok.body.resolution).toMatchObject({
+      kind: 'RETRIED',
+      reason: 'ตรวจยอดหลังปรับแล้วถูกต้อง',
+    });
     // อนุมัติซ้ำ = 409
-    await api(app, approver)
-      .post(url)
-      .send({ reason: 'ตรวจยอดหลังปรับแล้วถูกต้อง' })
-      .expect(409);
+    await api(app, approver).post(url).send({ reason: 'ตรวจยอดหลังปรับแล้วถูกต้อง' }).expect(409);
     expect(
       await plat.auditLog.findFirst({
         where: { tenantId, action: 'connector.queue_approved' },

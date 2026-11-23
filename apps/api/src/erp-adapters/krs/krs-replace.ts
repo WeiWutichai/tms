@@ -105,7 +105,11 @@ async function putOne(
   if (r.status === null) {
     switch (r.errorCode) {
       case 'timeout':
-        return krsFail('AMBIGUOUS', 'timeout', `KRS did not answer within ${KRS_PUSH_TIMEOUT_MS} ms`);
+        return krsFail(
+          'AMBIGUOUS',
+          'timeout',
+          `KRS did not answer within ${KRS_PUSH_TIMEOUT_MS} ms`,
+        );
       case 'network':
         if (r.notSent)
           return krsFail('TRANSIENT', 'unreachable', `KRS unreachable: ${r.errorMessage ?? ''}`);
@@ -117,7 +121,11 @@ async function putOne(
       case 'aborted':
         return krsFail('TRANSIENT', 'unreachable', `KRS unreachable: ${r.errorMessage ?? ''}`);
       case 'ssrf_blocked':
-        return krsFail('VALIDATION', 'url_not_allowed', r.errorMessage ?? 'destination not allowed');
+        return krsFail(
+          'VALIDATION',
+          'url_not_allowed',
+          r.errorMessage ?? 'destination not allowed',
+        );
       default:
         return krsFail('VALIDATION', 'invalid_request', r.errorMessage ?? 'cannot build request');
     }
@@ -139,11 +147,16 @@ async function putOne(
     let message = '';
     try {
       const j = JSON.parse(r.body) as { message?: unknown; error?: unknown };
-      message = typeof j?.message === 'string' ? j.message : typeof j?.error === 'string' ? j.error : '';
+      message =
+        typeof j?.message === 'string' ? j.message : typeof j?.error === 'string' ? j.error : '';
     } catch {
       /* ไม่ใช่ JSON */
     }
-    return krsFail('VALIDATION', 'krs_rejected', message || `KRS rejected ${d.tmsVoucherNo} (HTTP 400)`);
+    return krsFail(
+      'VALIDATION',
+      'krs_rejected',
+      message || `KRS rejected ${d.tmsVoucherNo} (HTTP 400)`,
+    );
   }
   if (r.status === 401 || r.status === 403)
     return krsFail('AUTH', 'unauthorized', `KRS rejected the API key (HTTP ${r.status})`);
@@ -210,7 +223,8 @@ export async function replaceKrsInvoice(
     try {
       const got = await getKrsInvoice(ctx, base, key, p.externalId, http);
       const actual = typeof got.body.tmsVoucherNo === 'string' ? got.body.tmsVoucherNo : null;
-      if (actual !== p.ref) wrong.push(`${p.externalId} (tmsVoucherNo ${actual ?? '-'} ≠ ${p.ref})`);
+      if (actual !== p.ref)
+        wrong.push(`${p.externalId} (tmsVoucherNo ${actual ?? '-'} ≠ ${p.ref})`);
     } catch (e) {
       if (e instanceof ErpAdapterError)
         return krsFail(e.errorClass, e.problem.code, e.problem.message);
