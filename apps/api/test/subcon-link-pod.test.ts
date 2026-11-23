@@ -936,7 +936,13 @@ describe('subcon link POD (ST4-T09)', () => {
     const a = await atDrop();
     const v0 = (await view(a.podToken, a.doNo).expect(200)).body;
     expect(v0.match.pod.lines).toEqual([
-      { lineNo: 1, description: 'ปูนซีเมนต์', unit: expect.any(String), qtyPlanned: '5' },
+      {
+        doLineId: expect.stringMatching(/^dol_[0-9a-f]{32}$/),
+        lineNo: 1,
+        description: 'ปูนซีเมนต์',
+        unit: expect.any(String),
+        qtyPlanned: '5',
+      },
     ]);
     const reasons = v0.match.pod.rejectReasons as { id: string; label: string }[];
     expect(reasons.map((r) => r.label)).toEqual(
@@ -966,7 +972,10 @@ describe('subcon link POD (ST4-T09)', () => {
 
     const ok = await close(a.podToken, a.m.delivery.id, {
       ...pod,
-      lines: [{ lineNo: 1, qtyActual: '4', rejectReasonCodeId: short.id }],
+      // D-81 · D68-52 ลิงก์อ้างบรรทัดด้วย doLineId ได้
+      lines: [
+        { doLineId: v0.match.pod.lines[0].doLineId, qtyActual: '4', rejectReasonCodeId: short.id },
+      ],
     }).expect(201);
     expect(ok.body.pod).toMatchObject({ doStatus: 'UNBILLED', podStatus: 'COMPLETE' });
     const line = await db.deliveryOrderLine.findFirstOrThrow({

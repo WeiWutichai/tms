@@ -92,6 +92,8 @@ export class PodRetryDto {
 
 /** ST4-T10 บรรทัดของ DO ที่ลิงก์กรอกยอดส่งจริง (ไม่มีราคา) */
 export class PodLinkLineDto {
+  @ApiProperty({ example: 'dol_3f2a…', description: 'public id ของบรรทัด DO (D-81 · D68-52)' })
+  doLineId!: string;
   @ApiProperty({ example: 1 }) lineNo!: number;
   @ApiProperty({ example: 'ปูนซีเมนต์ 50 กก.' }) description!: string;
   @ApiProperty({ example: 'ถุง', description: 'ชื่อหน่วยที่แสดง' }) unit!: string;
@@ -249,7 +251,7 @@ export class PodLinkCaptureDto extends PickType(SubmitPodDto, [
     type: [PodLineInputDto],
     maxItems: 500,
     description:
-      'ST4-T10 ยอดส่งจริงต่อรายการ (`lineNo` ของ DO) — ไม่ส่ง = ตามแผนทั้งหมด · ส่งน้อยกว่าแผนต้องมีเหตุผลหมวด REJECTED_BY_RECEIVER (ไม่มี → 422 `reason_required`)',
+      'ST4-T10 ยอดส่งจริงต่อรายการ (`doLineId` หรือ `lineNo` ของ DO) — ไม่ส่ง = ตามแผนทั้งหมด · ส่งน้อยกว่าแผนต้องมีเหตุผลหมวด REJECTED_BY_RECEIVER (ไม่มี → 422 `reason_required`)',
   })
   @IsOptional()
   @IsArray()

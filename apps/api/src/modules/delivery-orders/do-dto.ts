@@ -57,6 +57,7 @@ export function toDeliveryOrderDto(
       paidAt: d.paidAt,
     }),
     lines: d.lines.map((l) => ({
+      doLineId: encodeId('deliveryOrderLine', l.id),
       lineNo: l.lineNo,
       soLineNo: l.soLineNo,
       description: l.description,

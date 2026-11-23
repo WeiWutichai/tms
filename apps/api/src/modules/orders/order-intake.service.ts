@@ -135,6 +135,15 @@ export const SUPERSEDE_NOTE = {
   cancelled: 'ใบสั่งขนส่งถูกยกเลิก',
 };
 
+/**
+ * D-81 · D68-63 ปัญหาบนใบเมื่อแหล่ง SO ของ connector เสีย (view/คอลัมน์หาย) — ผู้ใช้เห็นในหน้าใบค้าง (`sourceIssues`)
+ * ข้อความคงที่ + public id ของ connector ที่พัก (ปล่อยได้เฉพาะ connector นั้น — ใช้ค้นหาตอนต้นทางกลับมา)
+ */
+export const SOURCE_DOWN_ISSUE =
+  'แหล่งข้อมูลใบสั่งของต้นทางใช้ไม่ได้ (ไม่พบแหล่งข้อมูล/โครงสร้างข้อมูลเปลี่ยน) — พักใบที่ยังไม่วางแผนไว้ก่อน ระบบปล่อยเองเมื่อดึงข้อมูลจากต้นทางได้อีกครั้ง';
+export const sourceDownIssue = (connectorPublicId: string) =>
+  `${SOURCE_DOWN_ISSUE} (connector ${connectorPublicId})`;
+
 const ENTITY = 'sales_order';
 /** บรรทัดของ rate card ที่เป็น "ค่าขนส่ง" — มีค่าขนส่ง MANUAL แล้วไม่เพิ่ม (ราคาที่กำหนดเองชนะ — PO 16 พ.ย. 2569) */
 const RATE_CARD_FREIGHT_KINDS: ReadonlySet<string> = new Set(['FREIGHT', 'EXTRA_STOP']);
@@ -639,6 +648,57 @@ export class OrderIntakeService {
       reason,
     });
     const loaded = (await tx.salesOrder.findUnique({ where: { id: orderId }, include: INCLUDE }))!;
+    return this.evaluate(tx, loaded, {
+      draft: current.status === 'DRAFT',
+      created: false,
+      dataChanged: true,
+      before: orderEventView(current, { lines: true }),
+      beforeObj: orderEventObject(current),
+    });
+  }
+
+  /**
+   * D-81 · D68-63 (docs/01 A.2 "view หาย/คอลัมน์หาย → ทุก SO ที่ค้าง `ON_HOLD(SOURCE_ERROR)` + connector ERROR";
+   * §4.1 SOURCE_ERROR "แก้มือ หรือรอ connector แก้"): ตั้ง/ถอดปัญหา `issue` (`sourceDownIssue(connector)`) บนใบของต้นทางที่ยังค้าง
+   * (ยังไม่วางแผน — DRAFT/RECEIVED/ON_HOLD ด้วยเหตุของทางเข้า) แล้วประเมินใบค้างใหม่
+   * - `down` = เพิ่มปัญหา (ใบค้าง SOURCE_ERROR) + ล้าง `input_hash` (ต้นทางกลับมาส่งชุดเดิม = เขียนทับได้) · audit `sales_order.source_held`
+   * - ถอด = ลบเฉพาะปัญหานี้ (ปัญหาอื่นของใบคงไว้ — ยังค้างจนคนแก้) · audit `sales_order.source_released`
+   * - ใบที่พ้นช่วงรับงาน/ค้างด้วยเหตุตอนจัดรถ (เคยวางแผนแล้ว) = ไม่แตะ → null · ไม่เปลี่ยน = null
+   * ผู้เรียกถือ transaction + ผู้กระทำ `connector:{key}`
+   */
+  async markSourceDown(
+    tx: Tx,
+    orderId: string,
+    down: boolean,
+    issue: string,
+  ): Promise<UpsertOrderResult | null> {
+    const current = await this.lockAndLoad(tx, orderId);
+    if (!current || !isIntakeEditable(current.status as SoStatus)) return null;
+    if (current.status === 'ON_HOLD' && !isIntakeHoldCode(current.holdReasonCode?.code ?? null))
+      return null;
+    const prev = (current.sourceIssues as string[] | null) ?? [];
+    const has = prev.includes(issue);
+    if (has === down) return null;
+    const issues = down ? [...prev, issue] : prev.filter((x) => x !== issue);
+    await tx.salesOrder.update({
+      where: { id: current.id },
+      data: {
+        sourceIssues: issues,
+        ...(down ? { inputHash: null } : {}),
+        version: { increment: 1 },
+      },
+    });
+    await this.audit.record({
+      action: `${ENTITY}.${down ? 'source_held' : 'source_released'}`,
+      entityType: ENTITY,
+      entityId: current.id,
+      before: { sourceIssues: prev },
+      after: { sourceIssues: issues },
+    });
+    const loaded = (await tx.salesOrder.findUnique({
+      where: { id: current.id },
+      include: INCLUDE,
+    }))!;
     return this.evaluate(tx, loaded, {
       draft: current.status === 'DRAFT',
       created: false,

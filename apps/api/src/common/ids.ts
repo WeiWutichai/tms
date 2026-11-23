@@ -37,6 +37,8 @@ export const ID_PREFIX = {
   salesOrder: 'ord',
   orderTemplate: 'otp',
   deliveryOrder: 'do',
+  /** D-81 · D68-52 บรรทัด DO (delivery_order_line — docs/01 §3.9/§5.5 `doLineId`; docs ไม่ได้ระบุ prefix → `dol` ตามแบบ `ivl`/`stln`) */
+  deliveryOrderLine: 'dol',
   orderSourceChange: 'osc',
   magicLink: 'mlk',
   carrierDocSubmission: 'cds',

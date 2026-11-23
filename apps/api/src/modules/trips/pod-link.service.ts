@@ -191,6 +191,7 @@ export class PodLinkService {
           where: { deliveryOrderId: hit.id },
           orderBy: { lineNo: 'asc' },
           select: {
+            id: true,
             lineNo: true,
             description: true,
             unit: true,
@@ -244,6 +245,7 @@ export class PodLinkService {
             ...(f.max !== undefined ? { max: f.max } : {}),
           })),
         lines: doLines.map((l) => ({
+          doLineId: encodeId('deliveryOrderLine', l.id),
           lineNo: l.lineNo,
           description: l.description,
           unit: l.salesOrderLine?.unitRef?.nameTh ?? l.unit,
