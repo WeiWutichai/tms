@@ -5,7 +5,11 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { diffOpenApi, type OpenApiCorrection } from '../src/openapi-diff';
+import {
+  diffOpenApi,
+  type OpenApiCorrection,
+  type OpenApiPropertyRemoval,
+} from '../src/openapi-diff';
 
 const [baseFile, headFile = resolve(__dirname, '../../../packages/contracts/openapi.json')] =
   process.argv.slice(2);
@@ -13,14 +17,15 @@ if (!baseFile) {
   console.error('usage: openapi-diff <base.json> [head.json]');
   process.exit(2);
 }
-// รายการแก้ชนิดที่ไม่เปลี่ยนข้อมูลบนสาย (ADR T-22) — ยอมเฉพาะที่ระบุในไฟล์นี้ (ไม่ใช่ ALLOW_BREAKING ทั้งก้อน)
-const { corrections } = JSON.parse(
+// รายการแก้ที่ไม่เปลี่ยนข้อมูลบนสาย — ชนิด (ADR T-22) + ลบ property ที่ไม่เคยส่ง (ADR T-22b) · ยอมเฉพาะที่ระบุในไฟล์นี้ (ไม่ใช่ ALLOW_BREAKING ทั้งก้อน)
+const { corrections, removedProperties = [] } = JSON.parse(
   readFileSync(resolve(__dirname, '../openapi-corrections.json'), 'utf8'),
-) as { corrections: OpenApiCorrection[] };
+) as { corrections: OpenApiCorrection[]; removedProperties?: OpenApiPropertyRemoval[] };
 const breaking = diffOpenApi(
   JSON.parse(readFileSync(baseFile, 'utf8')),
   JSON.parse(readFileSync(headFile, 'utf8')),
   corrections,
+  removedProperties,
 );
 if (breaking.length === 0) {
   console.log('OpenAPI: no breaking changes');
