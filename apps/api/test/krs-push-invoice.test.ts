@@ -770,7 +770,8 @@ describe('KRS pushInvoice ครบวงจร (ST8-T08)', { timeout: 600_000 }
         externalId: got.transactionNo,
         externalDocNo: got.voucherNo,
         applied: true,
-        recoveredAfter: 'EARLIER_SEND',
+        // ST8-T09: สายหลุดหลังต่อติด = AMBIGUOUS (docs/01 A.5) → ค้นก่อนส่งซ้ำ
+        recoveredAfter: 'AMBIGUOUS',
       });
       expect(await mapping(inv.uuid)).toMatchObject({
         status: 'SYNCED',
