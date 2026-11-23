@@ -4863,6 +4863,7 @@ export const th = {
   'cnx.ha.connector.inbound_token_revoked': 'เลิกรับ webhook',
   'cnx.ha.connector.commands_abandoned': 'ทิ้งคำสั่งค้างตอนตัดการเชื่อมต่อ',
   'cnx.ha.connector.command_skipped': 'ข้ามคำสั่ง',
+  'cnx.ha.connector.pii_sent': 'ส่งเลขบัตรประชาชนรถร่วมให้ระบบบัญชี',
   'cnx.ha.connector.sor_changed': 'เปลี่ยนผู้ออกเลขเอกสาร / เจ้าของข้อมูล',
   'hist.platform': 'ทีม Innovera',
   'problem.master_sync_not_supported': 'ระบบบัญชีนี้ดึงผังรหัสอัตโนมัติไม่ได้ นำเข้าจากไฟล์แทน',

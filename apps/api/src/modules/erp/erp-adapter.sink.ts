@@ -17,6 +17,7 @@ import { ConnectorResolver } from './connector-resolver';
 import { ConnectorsService, HEALTH_STOP_CLASSES, redactSecrets } from './connectors.service';
 import { ErpMasterCodesService, type PushPreparation } from './erp-master-codes.service';
 import { ExternalMappingService } from './external-mapping.service';
+import { injectPersonalData } from './personal-data';
 import {
   type CanonicalDocument,
   type ErpAdapter,
@@ -133,6 +134,10 @@ function parkedNotImplemented(cap: string): OutboxSinkError {
  *      `external_doc_no` / `external_version` · **ไม่ยืนยัน** (ERP คืนของเดิม) → ไม่เลื่อน `last_synced_hash`, mapping = `MISMATCH`
  *      (`erp_not_applied` / `erp_content_unverified`) รอ reconcile / REPLACE_DOCUMENT (ST7-T16) — ทางระมัดระวัง: ไม่ถือว่าตรงถ้าไม่มีหลักฐาน
  *   6) ผลของคำสั่ง (`result`) มี `sentHash` + รหัสลูกค้า/รถร่วมฝั่ง ERP ที่ใส่ ณ ตอนส่ง (ตรวจย้อนหลังได้ว่าส่งด้วยรหัสใด)
+ * - D-80 ข้อมูลส่วนบุคคลที่ adapter ประกาศใน `personalDataNeeds` (`carrier.taxId` = เลขบัตรประชาชนรถร่วมบุคคลธรรมดา) ใส่ **ณ ตอนส่ง**
+ *   หลังประตู mapping (`injectPersonalData`) — payload ในคิวไม่มีเลขเต็ม · `sync.hash` คำนวณโดยแทนเลขด้วย blind index (HMAC)
+ *   · ลง audit `connector.pii_sent` ทุกครั้งที่ส่งออก (ไม่มีตัวเลข) · `result` มีแค่ชื่อช่อง (`personalDataSent`) ·
+ *   ข้อความ error จาก adapter/ปลายทางถูกตัดเลขออก (`redactSecrets`) ก่อนเก็บใน `last_error`
  * ST8-T16 (ส่วนหนึ่งของ ST7-T15/T16): คำสั่งหลัง finalize/บันทึกจ่าย/ยกเลิก = `ErpSyncService` · push สำเร็จ → external_mapping · ประตู syncFromDate = ST7-T16
  */
 @Injectable()
@@ -298,8 +303,15 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
       }
       if (!prep.ok)
         throw new OutboxSinkError(prep.problem.message, 'VALIDATION', { ...prep.problem });
+      // D-80 ข้อมูลส่วนบุคคลที่ adapter ประกาศ — ใส่ ณ ตอนส่งเท่านั้น (ไม่อยู่ใน payload ของคิว)
+      const pii = await d.withTx((tx) =>
+        injectPersonalData(tx, prep.document, adapter.personalDataNeeds ?? []),
+      );
+      secrets.push(...pii.secrets);
       // ST7-T15 hash ของเอกสารที่จะส่งจริง (หลังใส่รหัสฝั่ง ERP) — เท่ากับที่ส่งสำเร็จล่าสุด = ไม่ส่งซ้ำ
-      const ready = withSyncHash(prep.document);
+      // D-80 ช่องข้อมูลส่วนบุคคลนับใน hash ในรูป blind index (เลขเปลี่ยน = hash เปลี่ยน · hash ย้อนหาเลขไม่ได้)
+      const hashed = withSyncHash(pii.forHash);
+      const ready = { ...pii.document, sync: hashed.sync } as CanonicalDocument;
       const entity = MAPPED_ENTITIES[d.entityType];
       if (entity) {
         const prior = await d.withTx((tx) =>
@@ -361,7 +373,28 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
       sent = {
         sentHash: ready.sync!.hash,
         ...partyCodesOf(ready),
+        ...(pii.fields.length ? { personalDataSent: pii.fields } : {}),
       };
+      // D-80 ลง audit ก่อนเรียก adapter — เรียกแล้ว = ข้อมูลอาจออกนอก TMS แล้วแม้ผลจะล้ม (ทุกครั้งที่ส่ง/ลองใหม่)
+      if (pii.fields.length)
+        await d.withTx((tx) =>
+          tx.auditLog.create({
+            data: {
+              tenantId: d.tenantId,
+              action: 'connector.pii_sent',
+              entityType: 'connector',
+              entityId: connector.id,
+              after: {
+                outboxId: d.id,
+                operation: d.operation,
+                entityType: d.entityType,
+                localId: d.localId,
+                fields: pii.fields,
+              },
+              reason: 'adapter_personal_data_needs',
+            },
+          }),
+        );
     }
     try {
       return await this.call(d, adapter, ctx, payload, secrets, connector, sent);
