@@ -91295,6 +91295,37 @@
           "carrierId"
         ]
       },
+      "ErpExternalDocumentDto": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "example": "INV-00000-6911-0001-V7",
+            "description": "เลขอ้างอิงที่ TMS ส่ง (เช่น `tmsVoucherNo` ของ KRS)"
+          },
+          "externalId": {
+            "type": "string",
+            "example": "100002"
+          },
+          "externalDocNo": {
+            "type": "string",
+            "nullable": true,
+            "example": "SA-S6911-0002"
+          },
+          "group": {
+            "type": "string",
+            "nullable": true,
+            "example": "VAT_7",
+            "description": "กลุ่มที่แยก (เช่น `vat_type` ของรายการในใบนี้) — แบ่งเพราะขนาดอย่างเดียว = กลุ่มเดียวกัน · ไม่แยกตามกลุ่ม = null"
+          }
+        },
+        "required": [
+          "ref",
+          "externalId",
+          "externalDocNo",
+          "group"
+        ]
+      },
       "ErpDocumentSyncDto": {
         "type": "object",
         "properties": {
@@ -91338,6 +91369,13 @@
             "type": "string",
             "nullable": true,
             "format": "date-time"
+          },
+          "externalDocuments": {
+            "description": "ST8-T08 เอกสารฝั่งระบบบัญชีทุกใบ เมื่อระบบบัญชีรับใบนี้เป็นหลายเอกสาร (เช่น KRS แยกใบตาม `vat_type` เพราะสัญญาไม่มี VAT ต่อรายการ — docs/01 A.6) · ใบแรก = `externalId` / `externalDocNo` · เอกสารเดียว = `[]`",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ErpExternalDocumentDto"
+            }
           }
         },
         "required": [
@@ -91346,7 +91384,8 @@
           "externalId",
           "externalDocNo",
           "externalStatus",
-          "lastSyncedAt"
+          "lastSyncedAt",
+          "externalDocuments"
         ]
       },
       "SettlementWhtRateDto": {
@@ -93127,6 +93166,42 @@
           "hasMore"
         ]
       },
+      "ErpDocumentWarningDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "erp_driver_name_substituted"
+            ],
+            "description": "`erp_driver_name_substituted` = ระบบบัญชีที่เชื่อมบังคับชื่อคนขับทุกรายการ และเที่ยวของ DO เหล่านี้ไม่มีชื่อคนขับ (เช่น รถร่วม) → ใบนี้จะส่ง**ชื่อบริษัทรถร่วมแทนชื่อคนขับ** (D-64)"
+          },
+          "message": {
+            "type": "string",
+            "example": "ใบนี้จะส่งชื่อบริษัทรถร่วมแทนชื่อคนขับเข้าระบบบัญชี (2 DO)"
+          },
+          "connectorId": {
+            "type": "string",
+            "example": "con_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e"
+          },
+          "deliveryOrderNos": {
+            "example": [
+              "DO-00000-6911-0001"
+            ],
+            "description": "เลข DO ที่เกี่ยวข้อง (สูงสุด 50)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "connectorId",
+          "deliveryOrderNos"
+        ]
+      },
       "InvoiceDeliveryOrderDto": {
         "type": "object",
         "properties": {
@@ -93556,6 +93631,13 @@
                 "$ref": "#/components/schemas/ErpDocumentSyncDto"
               }
             ]
+          },
+          "erpWarnings": {
+            "description": "D-64 (ST8-T08) คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว = `[]` · มีเฉพาะ `GET /{id}`",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ErpDocumentWarningDto"
+            }
           },
           "issuingCompanyId": {
             "type": "string",
@@ -108091,6 +108173,13 @@
           "updatedAt": {
             "type": "string"
           },
+          "erpWarnings": {
+            "description": "D-64 (ST8-T08) คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว = `[]` · มีเฉพาะ `GET /{id}`",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ErpDocumentWarningDto"
+            }
+          },
           "issuingCompanyId": {
             "type": "string",
             "example": "cmp_…"
@@ -108283,6 +108372,13 @@
           "updatedAt": {
             "type": "string"
           },
+          "erpWarnings": {
+            "description": "D-64 (ST8-T08) คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว = `[]` · มีเฉพาะ `GET /{id}`",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ErpDocumentWarningDto"
+            }
+          },
           "issuingCompanyId": {
             "type": "string",
             "example": "cmp_…"
@@ -108474,6 +108570,13 @@
           },
           "updatedAt": {
             "type": "string"
+          },
+          "erpWarnings": {
+            "description": "D-64 (ST8-T08) คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว = `[]` · มีเฉพาะ `GET /{id}`",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ErpDocumentWarningDto"
+            }
           },
           "issuingCompanyId": {
             "type": "string",

@@ -38,7 +38,7 @@
 | ST7-T21 Payment status pull | กำลัง dev (`st7/t21-payment-status-pull` — ยังไม่มี commit บน branch ณ เวลาตรวจ) | lead / lane dev | อยู่ใน CI/dev |
 | ST7-T23 CSV generic export (ส่งออกให้นักบัญชี) | **merge แล้ว PR #164** (22 พ.ย.) · งานเพิ่มตาม D-73 อยู่ในบล็อก "งานต่อจากคำตัดสิน 22 พ.ย." | — | เสร็จ (มีงานต่อ) |
 | ST8-T07 Payload builder ของ KRS | ยังไม่เริ่ม — หัว + รายการ (1 รายการ = 1 DO), whitelist, test เทียบ JSON schema (ใบ 446 รายการ) | ทำกับ mock + contract ได้ (ST8-T01 #113) · ข้อสมมติรอคำตอบ KRS A.6 (#8) | ใช่ |
-| ST8-T08 `pushInvoice` ของ KRS | ยังไม่เริ่ม (`KrsAdapter` ยังติด `pendingCapabilities`) | ต่อจาก ST8-T07 + ST7-T16 · คำตอบ KRS (#8) | ใช่ (หลัง ST8-T07, ST7-T16) |
+| ST8-T08 `pushInvoice` ของ KRS | **dev เสร็จ — รอ review/QA** (`st8/t08-krs-push-invoice`, ไม่มี migration): `POST /invoice` (`tmsVoucherNo` = เลขใบแจ้งหนี้) · 201 → mapping `transactionNo`/`voucherNo` · แยกใบตาม `vat_type` (D-69) — 1 ใบ TMS → หลายเอกสาร KRS เก็บใน `external_mapping.detail.documents` · routing ตามนิติบุคคล · D-64 ชื่อรถร่วมแทนชื่อคนขับ + `erpWarnings` ตั้งแต่ร่าง · sync log ทุก POST | review/QA · UI คำเตือน [OPEN — PO / Claude Design] (spec/12 §3) · KRS-4/KRS-19 | เสร็จ (รอ merge) |
 | ST8-T09 จัดการ error ตาม A.5 | ยังไม่เริ่ม (409 DUPLICATE, 503 TRANSIENT, `replaceDocument`) | ต่อจาก ST8-T08 | ใช่ (หลัง ST8-T08) |
 | ST8-T10 `fetchDocument` | ยังไม่เริ่ม (`GET /invoice/{transactionNo}` → canonical) | ต่อจาก ST8-T07 | ใช่ (หลัง ST8-T07) |
 | ST8-T11 Reconcile engine | ยังไม่เริ่ม — mock KRS มีสวิตช์ "เขียนทับ" รอไว้แล้ว | ต่อจาก ST8-T10 | ใช่ (หลัง ST8-T10) |
@@ -66,7 +66,7 @@
 | (ก) ขยาย step-up 2FA (D-67 · ST9-T13) | **ทำแล้ว — `fix/d67-stepup-extension` (#174)** · ต่อ D-77/D-78/D-79 (Console step-up, บังคับตั้ง 2FA ตามสิทธิ์, API key กับบัญชีธนาคาร): **ทำแล้ว (รอ merge) — `fix/d67b-console-stepup-2fa-enforce`** (ดูบันทึกรายวัน 23 พ.ย.) | — | — |
 | (ข) รอบออกใบแจ้งหนี้ (D-65, D-72 · ST5-T12) | ใบเดียวต่อลูกค้าต่อรอบ (ยกเพดาน 200 DO → รองรับ ≥ 500 DO/ใบ) · ไม่สร้างร่างให้ลูกค้า INACTIVE · ใบวางบิลอัตโนมัติเฉพาะงวดที่รัน · ไฟล์สรุปผลรอบ (Excel) · ไม่ทำ scheduler ในเฟส 0 | วัดประสิทธิภาพใบ ≥ 500 DO ใน ST9-T17 | ใช่ |
 | (ค) เก็บ PDF ใบสำคัญจ่ายตอนอนุมัติ/บันทึกจ่าย (D-66 · ST6-T04/T07/T09) | render หลัง commit แล้วเก็บไฟล์ + งานลองซ้ำเมื่อ render ไม่สำเร็จ — **ทำแล้ว (รอ merge)** branch `fix/d66-voucher-pdf-at-approve` (งาน `settlement.render_pdf`) | เกี่ยวกับ ST9-T15 (hash PDF ไม่เปลี่ยน) | ใช่ |
-| (ง) KRS `carPerson` ของเที่ยวรถร่วม (D-64 · ทำใน ST8-T08) | fallback = ชื่อบริษัทรถร่วม (`carPersonFallback = carrierName`) + เตือนตั้งแต่ร่าง/ก่อนออกเอกสาร | ต่อจาก ST8-T07 · **KRS ยืนยัน (KRS-19)** | ใช่ (หลัง ST8-T07; ผลสุดท้ายรอ KRS) |
+| (ง) KRS `carPerson` ของเที่ยวรถร่วม (D-64 · ทำใน ST8-T08) | **ทำแล้ว (รอ merge) — `st8/t08-krs-push-invoice`:** เที่ยวไม่มีชื่อคนขับ → `carPerson` = ชื่อบริษัทรถร่วม (`carPersonFallback: 'carrierName'` ตอน push) · คำเตือน `erpWarnings` (`erp_driver_name_substituted` + เลข DO) ใน `GET /invoices/{id}` ตั้งแต่ร่าง (API อย่างเดียว — ต้นแบบไม่มีพื้นที่เตือน: [OPEN — PO / Claude Design] spec/12 §3) | **KRS ยืนยัน (KRS-19 ข้อ 6)** · UI คำเตือน | API เสร็จ; ผลสุดท้ายรอ KRS |
 | (จ) แจ้งเตือน DO ค้างวางบิล + ธงร่างค้าง (D-71 · ST9-T06) | **ทำแล้ว (รอ merge) — `fix/d71-unbilled-daily-stale-draft`** (ดูบันทึกรายวัน 23 พ.ย.) | หน้าตาคอลัมน์ร่างในต้นแบบ: [OPEN — Claude Design] | — |
 | (ฉ) ไฟล์ส่งออกให้นักบัญชี (D-73 · ST7-T23) | ไฟล์สรุป WHT ประมาณการ · แถวใบที่ยกเลิก/กลับรายการ · เลขบัตรประชาชนรถร่วมบุคคล (สิทธิ์เฉพาะ + audit ทุกครั้งที่ส่งออก) | แม่แบบ Express / PEAK / FlowAccount ยังรอไฟล์ตัวอย่าง (#69 ข) | ใช่ |
 | (ช) รายการจุดที่ต่างจาก `docs/` ให้ PO ตัดสินทีละข้อ (D-68) | **ทำแล้ว 23 พ.ย. — PO ตัดสินครบ 99 ข้อ → D-81** (`plan/05a-d68-rulings.md`) · งานแก้ระบบที่ตามมา: หัวข้อ "งานแก้ระบบตามคำตัดสิน D-81" ด้านล่าง · จุดใหม่ที่ต่างจาก docs ยังต้องถาม PO ทุกครั้ง (D-68) | — | — |
@@ -347,12 +347,12 @@
 |---|---|---|
 | T01 Mock KRS API จาก contract | เสร็จ — merge PR #113 | |
 | T02 Mock แหล่ง SO | เสร็จ — merge PR #134 | |
-| T03 โครง `KrsAdapter` | เสร็จ — merge PR #118 | pushInvoice / replaceDocument / fetchDocument ยังเป็น `pendingCapabilities` |
+| T03 โครง `KrsAdapter` | เสร็จ — merge PR #118 | replaceDocument / fetchDocument ยังเป็น `pendingCapabilities` (pushInvoice ทำแล้ว T08) |
 | T04 SO poller | เสร็จ — merge PR #136 | |
 | T05 Mapping ลูกค้า NSF ↔ PP + SO ที่ KRS ยกเลิก | เสร็จ — merge PR #138 | [OPEN — KRS A.6] NSF = PP หรือไม่ |
 | T06 รหัส master ของ KRS → `erp_master_code` | เสร็จ — merge PR #125 | |
 | T07 Payload builder ตาม A.3 | **ยังไม่เริ่ม** — ทำได้เลย (mock + contract) | |
-| T08 `pushInvoice` | **ยังไม่เริ่ม** — หลัง T07 + ST7-T16 | |
+| T08 `pushInvoice` | **dev เสร็จ — รอ review/QA** (`st8/t08-krs-push-invoice`) | แยกใบตาม `vat_type` · D-64 · UI คำเตือน [OPEN — PO] |
 | T09 จัดการ error ตาม A.5 | **ยังไม่เริ่ม** — หลัง T08 | |
 | T10 `fetchDocument` | **ยังไม่เริ่ม** — หลัง T07 | |
 | T11 Reconcile engine | **ยังไม่เริ่ม** — หลัง T10 | mock มีสวิตช์ "เขียนทับ" แล้ว |
@@ -506,6 +506,17 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step)
 
 ## บันทึกรายวัน
+
+### 23 พ.ย. 2569 (ST8-T08 `pushInvoice` ของ KRS + D-64 — lane lt, `st8/t08-krs-push-invoice`, ไม่มี migration)
+
+- **ทำ (FACT):** `KrsAdapter.pushInvoice` (`apps/api/src/erp-adapters/krs/krs-push.ts`) — builder ST8-T07 → `POST {baseUrl}/invoice` (`X-API-Key`, timeout 120 วิ) · `tmsVoucherNo` = เลขใบแจ้งหนี้ · 201 → `externalId` = `transactionNo`, `externalDocNo` = `voucherNo`, `applied: true` · เอา `pushInvoice` + `ownsDocumentNumber` ออกจาก `pendingCapabilities` (ค้าง fetchDocument T10, replaceDocument T09/T11)
+- **แยกใบตาม `vat_type` (D-69):** จัดกลุ่มรายการตาม `vatType` ลำดับคงที่ ยกเว้น → 7% → 0% · กลุ่มแรก = เลขใบแจ้งหนี้ · กลุ่มถัดไป `{เลข}-V7` / `-V0` (+ `-P{n}` เมื่อเกินขนาด) · สร้าง payload ครบทุกใบก่อน POST · **ส่วนขยาย mapping 1→N:** `PushResult.documents[]` (ทั่วไป) → sink เก็บ `external_mapping.detail.documents` (ใบแรก = key หลัก) · `GET /invoices|settlements/{id}` → `sync.externalDocuments[]` (ใบเดียว = `[]`)
+- **D-64:** `carPerson` ของเที่ยวไม่มีชื่อคนขับ = ชื่อบริษัทรถร่วม · adapter ประกาศ `fieldSubstitutions` → core (`ErpDocumentWarningsService`) คืน `erpWarnings[]` ใน `GET /invoices/{id}` ตั้งแต่ร่าง (connector ของนิติบุคคลผู้ออกที่เปิด pushInvoice) — ไม่บล็อกการออก · UI ไม่ทำ (ต้นแบบไม่มีพื้นที่เตือน — [OPEN — PO / Claude Design] spec/12 §3)
+- **routing:** connector เลือกจากนิติบุคคลผู้ออก (เดิม) + adapter ตรวจซ้ำ `krs_company_mismatch` · test: SO `KRS-NSF-…` ออกใบที่บริษัท PP → ส่ง · ใบของนิติบุคคลที่ไม่มี connector → ไม่มีคำสั่ง
+- **sync log:** ทุก POST เรียก `ctx.onHttpCall` (ไม่ส่ง header; `carPerson` = `***`) · ErrorClass พื้นฐาน (400 VALIDATION, 401/403 AUTH, 409 DUPLICATE, 404 = VALIDATION (path ผิด), , 503/5xx TRANSIENT, timeout/ไม่มีเลขใน 201 AMBIGUOUS) — การจัดการเต็ม A.5 = ST8-T09 · ส่งได้บางใบแล้วล้ม = ผลล้มของใบนั้น (ข้อความบอกใบที่สร้างแล้ว) → คำสั่งถัดไปพักรอ fetchDocument (กติกา ST7-T16)
+- **test:** `test/krs-push-invoice.test.ts` (ใหม่ — เกณฑ์ตรวจรับ POST 1 ครั้ง + mapping, แยก VAT 2 ใบ, D-64 DB-level ชื่อรถร่วม + คำเตือนร่าง, routing, VALIDATION ไม่ POST, 400) · contract test ของ KRS ส่งใบจริงกับ mock (`context.masterCodes`) · แก้ `erp-krs.test.ts` (pending เหลือ 2), `erp-accountsystem-flow.test.ts` (`externalDocuments`) · mock-krs: `getInvoiceByTmsVoucherNo()` · ผ่าน: krs-push-invoice, erp-krs, erp-krs-master-codes, erp-accountsystem-flow, erp-push-pipeline, mock-krs · OpenAPI เพิ่มช่อง (ไม่แตก) + api-docs build
+- **ไฟล์:** `apps/api/src/erp-adapters/krs/{krs-push,krs.adapter}.ts` · `apps/api/src/modules/erp/{erp-adapter,erp-adapter.sink,external-mapping.service,document-sync.dto,erp-document-warnings}.ts` · `modules/invoices/{invoice.dto,invoices.controller}.ts` · `app.module.ts` · `packages/mock-krs/src/mock-krs.ts` · plan/08 (KRS-4, KRS-19) · spec/12 §3 แถว ST8-T08
+- **ค้าง / [OPEN]:** UI คำเตือน + เลข KRS หลายใบ (PO / Claude Design) · KRS-19 ข้อ 6 (รับชื่อรถร่วม) · KRS-4 รูปแบบเลข `-V7`/`-V0` · ST8-T09 กู้คืนเมื่อส่งได้บางใบ · ST8-T13 replace ต้อง PUT ทุกใบใน `detail.documents`
 
 ### 23 พ.ย. 2569 (ST7-T16 Push pipeline — lane ls, `st7/t16-push-pipeline`, migration `0165_erp_sync_log`)
 

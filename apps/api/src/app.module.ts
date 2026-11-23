@@ -108,6 +108,7 @@ import { ErpMasterCodesService } from './modules/erp/erp-master-codes.service';
 import { CarrierErpCodesController } from './modules/erp/carrier-erp-codes.controller';
 import { CustomerErpCodesController } from './modules/erp/customer-erp-codes.controller';
 import { ExternalMappingService } from './modules/erp/external-mapping.service';
+import { ErpDocumentWarningsService } from './modules/erp/erp-document-warnings';
 import { InboundWebhookController } from './modules/erp/inbound-webhook.controller';
 import { InboundWebhookService } from './modules/erp/inbound-webhook.service';
 import { ConnectorResolver } from './modules/erp/connector-resolver';
@@ -504,6 +505,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ConnectorsService,
     ErpMasterCodesService,
     ExternalMappingService,
+    ErpDocumentWarningsService,
     InboundWebhookService,
     ErpAdapterSink,
     ErpSyncService,

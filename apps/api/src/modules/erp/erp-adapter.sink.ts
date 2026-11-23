@@ -114,6 +114,27 @@ function partyCodesOf(doc: CanonicalDocument): Record<string, string | null> {
   return out;
 }
 
+/** ST8-T08 จำนวนเอกสารฝั่ง ERP สูงสุดที่เก็บต่อเอกสาร TMS (`detail.documents`) */
+const MAX_EXTERNAL_DOCUMENTS = 200;
+
+/**
+ * ST8-T08 เอกสารฝั่ง ERP ของผล push (ตัดขนาด/รูปผิดทิ้ง) — มีเพียงใบเดียว/ไม่มี = null (เก็บแบบเดิมใน external_id)
+ */
+function externalDocumentsOf(
+  r: Extract<PushResult, { ok: true }>,
+): Record<string, unknown>[] | null {
+  if (!Array.isArray(r.documents) || r.documents.length < 2) return null;
+  return r.documents.slice(0, MAX_EXTERNAL_DOCUMENTS).map((p) => ({
+    ref: String(p.ref ?? '').slice(0, 100),
+    externalId: String(p.externalId ?? '').slice(0, 100),
+    externalDocNo: typeof p.externalDocNo === 'string' ? p.externalDocNo.slice(0, 100) : null,
+    group: typeof p.group === 'string' ? p.group.slice(0, 40) : null,
+    lineNos: Array.isArray(p.lineNos)
+      ? (p.lineNos as readonly unknown[]).filter((n) => Number.isInteger(n)).slice(0, 2000)
+      : [],
+  }));
+}
+
 /** entity ที่เก็บ external_mapping หลัง push สำเร็จ (ST8-T16) */
 const MAPPED_ENTITIES: Readonly<Record<string, 'INVOICE' | 'SETTLEMENT'>> = {
   invoice: 'INVOICE',
@@ -867,18 +888,27 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     const version = typeof r.externalVersion === 'string' ? r.externalVersion.slice(0, 100) : null;
     const now = this.clock.now();
     const partsJson = parts ? JSON.stringify(parts) : null;
+    // ST8-T08 เอกสาร TMS ใบเดียว = หลายเอกสารฝั่ง ERP (เช่น KRS แยกตาม vat_type) → เก็บทุกใบใน `detail.documents`
+    // (key หลัก external_id / external_doc_no = ใบแรก) · ส่งครั้งใหม่เป็นใบเดียว = ลบรายการเดิมออก
+    const docs = externalDocumentsOf(r);
+    const docsJson = docs ? JSON.stringify({ documents: docs }) : null;
     await d.withTx(async (tx) => {
       if (applied) {
         await tx.$executeRaw`
           INSERT INTO external_mapping (id, tenant_id, connector_id, entity_type, local_id, local_number, external_id,
                                         external_doc_no, external_version, external_status, status, last_synced_hash,
-                                        last_synced_parts, last_synced_at, created_by, updated_at)
+                                        last_synced_parts, last_synced_at, detail, created_by, updated_at)
           VALUES (gen_random_uuid(), ${d.tenantId}::uuid, ${c.id}::uuid, ${entity}::"ExternalEntityType",
                   ${d.localId}::uuid, ${number}, ${String(r.externalId).slice(0, 100)},
                   ${r.externalDocNo?.slice(0, 100) ?? null}, ${version}, 'DRAFT', 'SYNCED', ${hash},
-                  ${partsJson}::jsonb, ${now}, 'system:erp-sink', now())
+                  ${partsJson}::jsonb, ${now}, ${docsJson}::jsonb, 'system:erp-sink', now())
           ON CONFLICT (connector_id, entity_type, local_id) DO UPDATE
              SET external_id = EXCLUDED.external_id,
+                 detail = CASE WHEN EXCLUDED.detail IS NOT NULL
+                               THEN coalesce(external_mapping.detail, '{}'::jsonb) || EXCLUDED.detail
+                               WHEN external_mapping.detail ? 'documents'
+                               THEN external_mapping.detail - 'documents'
+                               ELSE external_mapping.detail END,
                  local_number = coalesce(EXCLUDED.local_number, external_mapping.local_number),
                  external_doc_no = coalesce(external_mapping.external_doc_no, EXCLUDED.external_doc_no),
                  external_version = coalesce(EXCLUDED.external_version, external_mapping.external_version),
@@ -1350,12 +1380,14 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     if (r.ok) {
       const applied = r.applied === true;
       await this.recordMapping(d, connector, payload, r, applied, parts);
+      const docs = externalDocumentsOf(r);
       return {
         result: {
           externalId: r.externalId,
           externalDocNo: r.externalDocNo ?? null,
           externalVersion: r.externalVersion ?? null,
           applied,
+          ...(docs ? { documents: docs } : {}),
           ...sent,
         },
       };

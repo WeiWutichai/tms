@@ -48,6 +48,13 @@ export interface DocumentSyncView {
   externalDocNo: string | null;
   externalStatus: string | null;
   lastSyncedAt: Date | null;
+  /** ST8-T08 เอกสารฝั่ง ERP ทุกใบเมื่อถูกแยกเป็นหลายใบ (`detail.documents`) — ใบเดียว = [] */
+  externalDocuments: {
+    ref: string;
+    externalId: string;
+    externalDocNo: string | null;
+    group: string | null;
+  }[];
 }
 /** รหัสที่เก็บได้ (ตรงกับ CHECK ใน migration 0141 — ≤ 100 · ใช้รูปแบบเดียวกับผังรหัส ERP ≤ 64) */
 const MAX_CODE = 64;
@@ -510,6 +517,7 @@ export class ExternalMappingService {
       externalDocNo: r.externalDocNo,
       externalStatus: r.externalStatus,
       lastSyncedAt: r.lastSyncedAt,
+      externalDocuments: externalDocumentsOfDetail(r.detail),
     };
   }
 
@@ -528,4 +536,22 @@ export class ExternalMappingService {
     if (!c) throw new ProblemException('not_found');
     return c.id;
   }
+}
+
+/** ST8-T08 `detail.documents` ของ external_mapping (เขียนโดย ErpAdapterSink) → รายการที่แสดงได้ · รูปผิด = ตัดทิ้ง */
+export function externalDocumentsOfDetail(detail: unknown): DocumentSyncView['externalDocuments'] {
+  const list = (detail as { documents?: unknown } | null)?.documents;
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((d) => {
+    const x = (d ?? {}) as Record<string, unknown>;
+    if (typeof x.externalId !== 'string' || !x.externalId) return [];
+    return [
+      {
+        ref: typeof x.ref === 'string' ? x.ref : '',
+        externalId: x.externalId,
+        externalDocNo: typeof x.externalDocNo === 'string' ? x.externalDocNo : null,
+        group: typeof x.group === 'string' ? x.group : null,
+      },
+    ];
+  });
 }

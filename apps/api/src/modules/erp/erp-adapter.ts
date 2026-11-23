@@ -241,9 +241,27 @@ export type PushResult =
        * ไม่ระบุ = ถือว่า false (ไม่ยืนยันว่าเนื้อหาตรง)
        */
       applied?: boolean;
+      /**
+       * ST8-T08 ERP เก็บเอกสาร TMS ใบนี้เป็น**หลายเอกสาร** (เช่น KRS แยกใบตาม `vat_type` / แบ่งใบเมื่อเกินเพดานขนาด — docs/01 A.6)
+       * ทุกเอกสารตามลำดับ · ตัวแรก = `externalId` / `externalDocNo` ของผลนี้ (key หลักของ external_mapping) ·
+       * core เก็บทั้งรายการใน `external_mapping.detail.documents` · ไม่มี/1 รายการ = เอกสารเดียว (แบบเดิม)
+       */
+      documents?: readonly ExternalDocumentPart[];
       raw?: unknown;
     }
   | { ok: false; errorClass: ErrorClass; retryable: boolean; problem: Problem; raw?: unknown };
+
+/** ST8-T08 เอกสาร 1 ใบฝั่ง ERP ของเอกสาร TMS ที่ถูกแยกเป็นหลายใบ (`PushResult.documents`) */
+export interface ExternalDocumentPart {
+  /** เลขอ้างอิงที่เราส่ง (เช่น `tmsVoucherNo` ของ KRS) */
+  ref: string;
+  externalId: string;
+  externalDocNo: string | null;
+  /** กลุ่มที่แยก (เช่น `vat_type` ของรายการในใบนี้) — ไม่แยกตามกลุ่ม = null */
+  group: string | null;
+  /** `lineNo` ของ canonical ที่อยู่ในเอกสารนี้ */
+  lineNos: readonly number[];
+}
 
 export type HealthResult =
   | { ok: true; detail?: Record<string, unknown> }
@@ -486,7 +504,16 @@ export interface ErpAdapter {
    * (ประกาศเท่าที่สัญญาของปลายทางบังคับเท่านั้น)
    */
   readonly personalDataNeeds?: readonly CanonicalPersonalField[];
+  /**
+   * D-64 (ST8-T08) ค่าแทนที่ adapter ใช้เมื่อเอกสารไม่มีค่าที่ปลายทางบังคับ — core เตือนผู้ใช้ตั้งแต่ร่าง/ก่อนออกเอกสาร (ไม่บล็อก)
+   * ผ่าน `erpWarnings` ของ `GET /invoices/{id}` · `trip.driverName→trip.carrierName` = เที่ยวที่ไม่มีชื่อคนขับ (เช่น รถร่วม)
+   * ส่งชื่อบริษัทรถร่วมแทนชื่อคนขับ
+   */
+  readonly fieldSubstitutions?: readonly ErpFieldSubstitution[];
 }
+
+/** D-64 ค่าแทนที่ที่ adapter ประกาศได้ (`ErpAdapter.fieldSubstitutions`) */
+export type ErpFieldSubstitution = 'trip.driverName→trip.carrierName';
 
 /** capability → ชื่อ method (ธงไม่มี method) */
 export const CAPABILITY_METHOD = {

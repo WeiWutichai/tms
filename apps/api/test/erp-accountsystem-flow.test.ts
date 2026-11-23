@@ -388,6 +388,7 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
       externalDocNo: null,
       externalStatus: 'DRAFT',
       lastSyncedAt: m!.lastSyncedAt!.toISOString(),
+      externalDocuments: [],
     });
     // ST8-T05 รหัสลูกค้าฝั่งระบบบัญชีที่ map ไว้ (customerErpCode) ชนะการจับคู่ด้วยเลขภาษี
     mock.addContact({ code: 'AR-777', name: 'ลูกค้ารหัสที่ map', kind: 'customer' });

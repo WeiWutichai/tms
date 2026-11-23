@@ -437,6 +437,14 @@ export class MockKrs {
     return inv ? clone(inv) : undefined;
   }
 
+  /**
+   * ST8-T08 หาใบด้วย `tmsVoucherNo` (ใช้ใน test เท่านั้น — KRS จริงไม่มี endpoint ค้นด้วยเลขนี้: A.6 / plan/08)
+   */
+  getInvoiceByTmsVoucherNo(tmsVoucherNo: string): StoredInvoice | undefined {
+    const txNo = this.byTmsVoucherNo.get(tmsVoucherNo);
+    return txNo === undefined ? undefined : this.getInvoice(txNo);
+  }
+
   requests(): MockKrsRequestLog[] {
     return this.log.map((l) => ({ ...l }));
   }
