@@ -64899,6 +64899,11 @@
       "DeliveryOrderLineDto": {
         "type": "object",
         "properties": {
+          "doLineId": {
+            "type": "string",
+            "example": "dol_3f2a…",
+            "description": "public id ของบรรทัด DO — คงที่ตลอดอายุบรรทัด ใช้อ้างบรรทัดในยอดส่งจริง/หลักฐานส่ง/ส่งซ้ำ-คืนคลังแทน `lineNo` ได้"
+          },
           "lineNo": {
             "type": "number"
           },
@@ -64958,6 +64963,7 @@
           }
         },
         "required": [
+          "doLineId",
           "lineNo",
           "soLineNo",
           "description",
@@ -71892,6 +71898,11 @@
       "PodLineDto": {
         "type": "object",
         "properties": {
+          "doLineId": {
+            "type": "string",
+            "example": "dol_3f2a…",
+            "description": "public id ของบรรทัด DO"
+          },
           "lineNo": {
             "type": "number",
             "example": 1
@@ -71934,6 +71945,7 @@
           }
         },
         "required": [
+          "doLineId",
           "lineNo",
           "description",
           "unit",
@@ -71950,7 +71962,12 @@
           "lineNo": {
             "type": "number",
             "example": 1,
-            "description": "ลำดับบรรทัดของ DO (`lines[].lineNo` ของ GET /v1/delivery-orders/{id})"
+            "description": "ลำดับบรรทัดของ DO (`lines[].lineNo` ของ GET /v1/delivery-orders/{id}) — ส่ง `lineNo` หรือ `doLineId` อย่างน้อยหนึ่งช่อง (ไม่ส่งเลย → 422 `line_ref_required`)"
+          },
+          "doLineId": {
+            "type": "string",
+            "example": "dol_3f2a…",
+            "description": "public id ของบรรทัด DO (`lines[].doLineId`) — ไม่ใช่บรรทัดของ DO ใบนี้ → 422 `unknown_line` · ส่งคู่กับ `lineNo` ต้องตรงกัน ไม่งั้น 422 `line_ref_mismatch`"
           },
           "qtyActual": {
             "type": "string",
@@ -71977,7 +71994,6 @@
           }
         },
         "required": [
-          "lineNo",
           "qtyActual"
         ]
       },
@@ -73756,7 +73772,12 @@
           "lineNo": {
             "type": "number",
             "example": 1,
-            "description": "ลำดับบรรทัดของ DO (`lines[].lineNo`)"
+            "description": "ลำดับบรรทัดของ DO (`lines[].lineNo`) — ส่ง `lineNo` หรือ `doLineId` อย่างน้อยหนึ่งช่อง (ไม่ส่งเลย → 422 `line_ref_required`)"
+          },
+          "doLineId": {
+            "type": "string",
+            "example": "dol_3f2a…",
+            "description": "public id ของบรรทัด DO (`lines[].doLineId`) — ไม่ใช่บรรทัดของ DO ใบนี้ → 422 `unknown_line` · ส่งคู่กับ `lineNo` ต้องตรงกัน ไม่งั้น 422 `line_ref_mismatch`"
           },
           "qty": {
             "type": "string",
@@ -73765,7 +73786,6 @@
           }
         },
         "required": [
-          "lineNo",
           "qty"
         ]
       },

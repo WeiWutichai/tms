@@ -415,9 +415,28 @@ describe('partial/full return (ST4-T11)', () => {
         ),
       ),
     ).toEqual(['lines.0.lineNo:unknown_line']);
+    // D-81 · D68-52 อ้างบรรทัดด้วย doLineId ได้ · ทั้งคู่ต้องตรง · ไม่ใช่บรรทัดของ DO นี้ = 422
+    const dl1 = (await api(app, admin).get(`/v1/delivery-orders/${d.doId}`).expect(200)).body
+      .lines[0].doLineId as string;
+    expect(
+      errs(
+        await redeliver(d.doId, {
+          reasonCodeId: d.short,
+          lines: [{ lineNo: 2, doLineId: dl1, qty: '1' }],
+        }).expect(422),
+      ),
+    ).toEqual(['lines.0.lineNo:line_ref_mismatch']);
+    expect(
+      errs(
+        await redeliver(d.doId, {
+          reasonCodeId: d.short,
+          lines: [{ doLineId: encodeId('deliveryOrderLine', randomUUID()), qty: '1' }],
+        }).expect(422),
+      ),
+    ).toEqual(['lines.0.doLineId:unknown_line']);
     const r = await redeliver(d.doId, {
       reasonCodeId: d.short,
-      lines: [{ lineNo: 1, qty: '4' }],
+      lines: [{ doLineId: dl1, qty: '4' }],
       note: 'ลูกค้ารับเพิ่มรอบหน้า',
     }).expect(200);
     expect(r.body.redelivery.lines).toEqual([

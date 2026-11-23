@@ -202,6 +202,12 @@ export class RevertDeliveryDto {
 }
 
 export class DeliveryOrderLineDto {
+  @ApiProperty({
+    example: 'dol_3f2a…',
+    description:
+      'public id ของบรรทัด DO (D-81 · D68-52) — คงที่ตลอดอายุบรรทัด ใช้อ้างบรรทัดในยอดส่งจริง/หลักฐานส่ง/ส่งซ้ำ-คืนคลังแทน `lineNo` ได้',
+  })
+  doLineId!: string;
   @ApiProperty() lineNo!: number;
   @ApiProperty({ description: 'ลำดับบรรทัดของ SO' }) soLineNo!: number;
   @ApiProperty() description!: string;
@@ -367,10 +373,24 @@ export class DeliveryOrderSplitResultDto {
 
 /** ST4-T11 ปริมาณที่จะส่งซ้ำ/คืนคลังของบรรทัด DO หนึ่งบรรทัด */
 export class ReturnLineInputDto {
-  @ApiProperty({ example: 1, description: 'ลำดับบรรทัดของ DO (`lines[].lineNo`)' })
+  @ApiPropertyOptional({
+    example: 1,
+    description:
+      'ลำดับบรรทัดของ DO (`lines[].lineNo`) — ส่ง `lineNo` หรือ `doLineId` อย่างน้อยหนึ่งช่อง (ไม่ส่งเลย → 422 `line_ref_required`)',
+  })
+  @IsOptional()
   @IsInt()
   @Min(1)
-  lineNo!: number;
+  lineNo?: number;
+
+  @ApiPropertyOptional({
+    example: 'dol_3f2a…',
+    description:
+      'public id ของบรรทัด DO (`lines[].doLineId`) — ไม่ใช่บรรทัดของ DO ใบนี้ → 422 `unknown_line` · ส่งคู่กับ `lineNo` ต้องตรงกัน ไม่งั้น 422 `line_ref_mismatch` (D-81 · D68-52)',
+  })
+  @IsOptional()
+  @Matches(/^dol_[0-9a-f]{32}$/)
+  doLineId?: string;
 
   @ApiProperty({
     example: '10',
