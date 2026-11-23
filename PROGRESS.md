@@ -472,6 +472,14 @@
 
 ## บันทึกรายวัน
 
+### 23 พ.ย. 2569 (D-81 ชุด 2 — D68-61 แจ้งเตือน MISMATCH · D68-81 เลข DO ใน CanonicalSettlement · D68-99 PDF รายงาน · lane lx, `fix/d68-batch2`)
+
+- **D68-61 (ศูนย์แจ้งเตือน):** event ใหม่ `reconcile.mismatch` "ข้อมูลไม่ตรงกับระบบบัญชี" (ข้อความต้นแบบ; ต่อจาก "การเชื่อมต่อขัดข้อง") · template `reconcile.mismatch_found` · `NotificationEvents.reconcileMismatch` → ผู้มี `payments:record` (หัวหน้าบัญชี) · `PaymentStatusPullService.pullConnector` แจ้ง 1 ฉบับ/รอบ/connector เมื่อมีส่วนต่างใหม่ (`newMismatches` — ส่วนต่างเดิมไม่นับตาม `diff_hash`) · ค่าเริ่มต้น ในระบบ + อีเมล · อยู่ในสรุป 08:00 อัตโนมัติ (catalogue) · ไม่มียอดเงินในข้อความ · ไฟล์: `apps/api/src/modules/notifications/{catalogue,templates,notification-events}.ts`, `erp/payment-status-pull.service.ts`, web `i18n/th.ts`
+- **D68-81 (canonical):** `CanonicalSettlementLine.deliveryOrders: { number }[]` — บรรทัด DO_SURCHARGE = DO ของรายการ · บรรทัดอื่นที่มีเที่ยว = DO ที่ไม่ยกเลิกของเที่ยว เรียงเลข · ไม่มีเที่ยว = [] (อ่านผ่าน `CANONICAL_SETTLEMENT_SELECT.lines`) · AccountSystem ต่อเลข DO ท้ายคำอธิบายบรรทัด AP · KRS ไม่มี pushSettlement / Demo เก็บทั้งก้อน · hash ใบสำคัญจ่ายเปลี่ยน (D-76) · api-docs ไม่มีเอกสาร canonical (ไม่ต้องแก้)
+- **D68-99 (รายงาน PDF):** `unbilledExportSpec` / `agingExportSpec` ประกาศ `pdf` (ตาราง A4 `exportTableDocument` เดิม) · คอลัมน์ย้ายไป `reports/receivable-export.ts` (ไม่มี Nest — ใช้ใน sample) + คอลัมน์เงินมี `money/raw` (PDF ทศนิยม 2 ตำแหน่ง; xlsx/csv เหมือนเดิม) · KINDS ใน `test/pdf-thai.test.ts` +2 (sample ใน `exports/export-pdf.sample.ts`) — ไม่มีภาพ golden PNG เหมือนรายงานรายได้ · **ไม่เพิ่มปุ่ม PDF ในหน้า** (ต้นแบบหน้ารายงานมี "ส่งออก Excel" ปุ่มเดียว) → PDF ทาง API เท่านั้น
+- **test:** notification-center 13 ✓ · payment-status-pull 9 ✓ · erp-accountsystem 21 ✓ · erp-accountsystem-flow 17 ✓ · erp-external-mapping 8 ✓ · accounting-export 11 ✓ · pdf-thai 9 ✓ · unbilled-report 8 ✓ · web Notifications 3 ✓ · OpenAPI export + api-docs build แล้ว · spec/12 §3 แถว ศูนย์แจ้งเตือน / canonical ST7-T15 (2 แถว) / รายงาน ST9-T06 ต่อท้าย "→ ทำแล้วตาม D-81"
+- **ค้าง:** ไฟล์ส่งออกนักบัญชี (file-generic `accounting-settlements`) ยังไม่มีคอลัมน์ "เลขที่ DO" ของบรรทัดใบสำคัญจ่าย (เปลี่ยน layout ไฟล์ — ไม่ได้อยู่ในขอบเขต D68-81) · ปุ่ม/เมนู PDF ในหน้ารายงาน = ต้องมีต้นแบบก่อน
+
 ### 23 พ.ย. 2569 (D-80 เลขบัตรประชาชนรถร่วมบุคคลธรรมดา → ระบบบัญชีที่ประกาศว่าต้องใช้ — D-68 ข้อ D68-08 · lane lt, `fix/d68-08-carrier-taxid-accountsystem`)
 
 - **ทำ (D-80 PO 23 พ.ย.):** `CanonicalPersonalField` เพิ่ม `'carrier.taxId'` · AccountSystem ประกาศ `personalDataNeeds = ['carrier.taxId']` (ออก 50 ทวิ / ภ.ง.ด.3 — D-58) · KRS/Demo ไม่ประกาศ = null เหมือนเดิม · นิติบุคคลไม่เปลี่ยน
