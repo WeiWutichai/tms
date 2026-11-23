@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBooleanString,
   IsIn,
   IsOptional,
   IsString,
@@ -20,6 +21,16 @@ export const RECONCILE_RUN_CHECKS = ['PAYMENT_STATUS', 'DOCUMENT'] as const;
 export const RECONCILE_RESULT_STATUSES = ['OPEN', 'ACKNOWLEDGED', 'RESOLVED'] as const;
 export const RECONCILE_SEVERITIES = ['MONEY', 'FIELD', 'INFO'] as const;
 export const RECONCILE_SOURCES = ['AFTER_PUSH', 'NIGHTLY', 'PRE_CLOSE', 'MANUAL'] as const;
+/** ST8-T12 วิธีปิด (docs/01 §6.5 ปิด MISMATCH 3 ทาง — ack อยู่ใน `acknowledgedAt`) */
+export const RECONCILE_RESOLUTIONS = [
+  'FIXED_IN_TMS',
+  'ERP_OVERWRITTEN',
+  'NEXT_RUN_MATCHED',
+] as const;
+/** ST8-T12 ขั้นของการส่งทับระบบบัญชีด้วยค่า TMS: SENT = ส่งซ้ำตรง · REQUESTED → APPROVED / REJECTED = ขออนุมัติแก้ (ผู้อนุมัติ ≠ ผู้ขอ) */
+export const RECONCILE_OVERWRITE_STATUSES = ['REQUESTED', 'APPROVED', 'REJECTED', 'SENT'] as const;
+/** ST8-T12 เหตุผลขั้นต่ำของการปิด/ขออนุมัติ/อนุมัติ */
+export const RECONCILE_REASON_MIN = 10;
 export const RECONCILE_OUTCOMES = [
   'MATCH',
   'MISMATCH',
@@ -54,11 +65,99 @@ export class ReconcileResultListQuery extends ListQuery {
   @IsOptional()
   @IsIn(RECONCILE_SEVERITIES)
   severity?: (typeof RECONCILE_SEVERITIES)[number];
+
+  @ApiPropertyOptional({
+    enum: RECONCILE_RUN_CHECKS,
+    description: 'ST8-T12 PAYMENT_STATUS = ยอดรับชำระ · DOCUMENT = เนื้อหาเอกสาร (หน้า MISMATCH)',
+  })
+  @IsOptional()
+  @IsIn(RECONCILE_RUN_CHECKS)
+  check?: (typeof RECONCILE_RUN_CHECKS)[number];
+
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description:
+      'ST8-T12 `true` = เฉพาะรายการที่ต้องมีคนตัดสิน (severity MONEY/FIELD — ไม่รวม INFO: อ่านเอกสารไม่ได้ / เทียบไม่ได้)',
+  })
+  @IsOptional()
+  @IsBooleanString()
+  actionable?: 'true' | 'false';
+
+  @ApiPropertyOptional({
+    enum: [...RECONCILE_OVERWRITE_STATUSES, 'NONE'],
+    description:
+      'ST8-T12 ขั้นของ "ส่งทับระบบบัญชีด้วยค่า TMS": SENT = ส่งซ้ำตรง · REQUESTED = รออนุมัติ · APPROVED = อนุมัติแล้ว · REJECTED · NONE = ไม่มีคำขอรออนุมัติ (ทุกค่ายกเว้น REQUESTED)',
+  })
+  @IsOptional()
+  @IsIn([...RECONCILE_OVERWRITE_STATUSES, 'NONE'])
+  overwriteStatus?: (typeof RECONCILE_OVERWRITE_STATUSES)[number] | 'NONE';
 }
 
 export class ReconcileConnectorDto {
   @ApiProperty({ example: 'con_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e' }) id!: string;
   @ApiProperty({ example: 'demo', description: 'รหัส adapter ของ connector' }) adapterKey!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'Demo ERP',
+    description: 'ST8-T12 ชื่อระบบบัญชี (null = adapter ไม่ได้ติดตั้งในระบบนี้)',
+  })
+  displayName!: string | null;
+}
+
+/** ST8-T12 ลูกค้าของใบที่เทียบ (ชื่อตาม snapshot ของใบ) */
+export class ReconcileCustomerDto {
+  @ApiProperty({ example: 'cus_…' }) id!: string;
+  @ApiProperty({ example: 'บริษัท ตัวอย่าง จำกัด' }) name!: string;
+}
+
+/** ST8-T12 การส่งใบนี้เข้า connector (คำสั่ง PUSH_INVOICE / REPLACE_DOCUMENT) */
+export class ReconcileSendsDto {
+  @ApiProperty({ type: 'integer', description: 'จำนวนครั้งที่สั่งส่ง (คำสั่งส่ง/ส่งทับ)' })
+  count!: number;
+  @ApiProperty({ nullable: true, type: String, format: 'date-time', description: 'ส่งล่าสุด' })
+  lastSentAt!: string | null;
+}
+
+/** ST8-T12 ใบที่ออกแทน (ยกเลิกแล้วออกใหม่ — D-54 ทาง "แก้ที่ TMS") */
+export class ReconcileInvoiceRefDto {
+  @ApiProperty({ example: 'ivc_…' }) id!: string;
+  @ApiProperty({ nullable: true, type: String, example: 'INV-00000-2611-0002' })
+  number!: string | null;
+}
+
+/** ST8-T12 การส่งทับระบบบัญชีด้วยค่า TMS (docs/01 §6.5 ทาง "TMS ถูก") — ส่งซ้ำตรง หรือขออนุมัติแก้ */
+export class ReconcileOverwriteDto {
+  @ApiProperty({ enum: RECONCILE_OVERWRITE_STATUSES }) status!: string;
+  @ApiProperty({ format: 'date-time' }) requestedAt!: string;
+  @ApiProperty({ description: 'เหตุผลของผู้ขอ / ผู้สั่งส่งซ้ำ' }) reason!: string;
+  @ApiProperty({ description: 'ผู้เรียกเป็นผู้ขอเอง (อนุมัติเองไม่ได้)' }) requestedByMe!: boolean;
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' }) decidedAt!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'เหตุผลของผู้อนุมัติ/ผู้ปฏิเสธ' })
+  decisionReason!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'obx_…',
+    description: 'คำสั่งส่งทับที่สร้างตอนอนุมัติ (ดูใน `GET /connectors/{id}/sync-log?commandId=`)',
+  })
+  commandId!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'PENDING',
+    description:
+      'สถานะคำสั่ง (PENDING / IN_FLIGHT / DONE / FAILED_RETRYABLE / FAILED_FINAL / SKIPPED)',
+  })
+  commandStatus!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'capability_not_implemented',
+    description:
+      'รหัสผิดพลาดล่าสุดของคำสั่ง (เช่น `replace_requires_approval` = เอกสารลงบัญชีแล้ว/อายุเกิน ต้องขออนุมัติแก้ — ST8-T13)',
+  })
+  commandErrorCode!: string | null;
 }
 
 /** ST8-T11 ช่องที่ต่าง (หัวเอกสาร / ยอดรวม) — ช่องเงินอยู่ใน `sell*Value` (สิทธิ์ราคาขาย) */
@@ -250,6 +349,45 @@ export class ReconcileResultDto {
   @ApiProperty({ nullable: true, type: String, format: 'date-time' }) resolvedAt!: string | null;
   @ApiProperty({ nullable: true, type: String, format: 'date-time' })
   acknowledgedAt!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'ST8-T12 เหตุผลที่ยอมรับความต่าง' })
+  ackReason!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    enum: RECONCILE_RESOLUTIONS,
+    description:
+      'ST8-T12 วิธีปิด: FIXED_IN_TMS = แก้ที่ TMS (ยกเลิกใบแล้วออกใหม่ — D-54) · ERP_OVERWRITTEN = ส่งทับที่อนุมัติแล้ว + รอบเทียบถัดไปตรง · NEXT_RUN_MATCHED = รอบถัดไปตรงเอง · null = ยังไม่ปิด / ปิดเพราะส่วนต่างเปลี่ยน (มีแถวใหม่แทน)',
+  })
+  resolution!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'ST8-T12 เหตุผลของผู้ปิด (FIXED_IN_TMS)',
+  })
+  resolutionReason!: string | null;
+  @ApiProperty({
+    type: ReconcileOverwriteDto,
+    nullable: true,
+    description: 'ST8-T12 คำขอส่งทับ (null = ไม่มี)',
+  })
+  overwrite!: ReconcileOverwriteDto | null;
+  @ApiProperty({ type: ReconcileCustomerDto, nullable: true, description: 'ST8-T12 ลูกค้าของใบ' })
+  customer!: ReconcileCustomerDto | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'ISSUED',
+    description: 'ST8-T12 สถานะใบใน TMS ตอนนี้ (CANCELLED = ยกเลิกแล้ว — ปิดทาง "แก้ที่ TMS" ได้)',
+  })
+  invoiceStatus!: string | null;
+  @ApiProperty({ type: ReconcileInvoiceRefDto, nullable: true, description: 'ST8-T12 ใบที่ออกแทน' })
+  replacedByInvoice!: ReconcileInvoiceRefDto | null;
+  @ApiProperty({
+    type: ReconcileSendsDto,
+    nullable: true,
+    description: 'ST8-T12 การส่งใบนี้เข้า connector',
+  })
+  sends!: ReconcileSendsDto | null;
   @ApiProperty({ format: 'date-time' }) createdAt!: string;
   @ApiProperty({ format: 'date-time' }) updatedAt!: string;
 }
@@ -321,4 +459,13 @@ export class ReconcileRunDto {
       'DOCUMENT: ใบที่เทียบไม่ได้เพราะยังไม่อยู่ในระบบบัญชีนี้ (ไม่มีเลขเอกสารฝั่งระบบบัญชี / ยกเลิกแล้ว)',
   })
   notInErp?: string[];
+}
+
+/** ST8-T12 เหตุผล (≥ 10 ตัวอักษร ลง audit) — ปิด/ขออนุมัติ/อนุมัติ/ปฏิเสธ */
+export class ReconcileReasonDto {
+  @ApiProperty({ minLength: RECONCILE_REASON_MIN, maxLength: 500 })
+  @CleanText()
+  @IsString()
+  @MaxLength(500)
+  reason!: string;
 }

@@ -3725,6 +3725,21 @@ model ReconcileResult {
   acknowledgedBy String?            @map("acknowledged_by")
   acknowledgedAt DateTime?          @map("acknowledged_at") @db.Timestamptz(6)
   ackReason      String?            @map("ack_reason")
+  /// ST8-T12 ผู้ปิด (คน — แก้ที่ TMS) · null = ระบบปิดเอง
+  resolvedBy     String?            @map("resolved_by")
+  /// ST8-T12 วิธีปิด: FIXED_IN_TMS (ยกเลิก+ออกใหม่ — D-54) / ERP_OVERWRITTEN (ส่งทับแล้วรอบถัดไปตรง) / NEXT_RUN_MATCHED
+  resolution     String?
+  resolutionReason String?          @map("resolution_reason")
+  /// ST8-T12 ขอส่งทับระบบบัญชีด้วยค่า TMS (ลงบัญชีแล้ว — ต้องอนุมัติ; ผู้อนุมัติ ≠ ผู้ขอ): REQUESTED / APPROVED / REJECTED
+  overwriteStatus        String?    @map("overwrite_status")
+  overwriteRequestedBy   String?    @map("overwrite_requested_by")
+  overwriteRequestedAt   DateTime?  @map("overwrite_requested_at") @db.Timestamptz(6)
+  overwriteReason        String?    @map("overwrite_reason")
+  overwriteDecidedBy     String?    @map("overwrite_decided_by")
+  overwriteDecidedAt     DateTime?  @map("overwrite_decided_at") @db.Timestamptz(6)
+  overwriteDecisionReason String?   @map("overwrite_decision_reason")
+  /// คำสั่ง REPLACE_DOCUMENT/PUSH_* ที่สร้างตอนส่งทับ (integration_outbox.id)
+  overwriteCommandId     String?    @map("overwrite_command_id") @db.Uuid
   /// ระบบปิดเอง: รอบถัดไปตรงกัน หรือส่วนต่างเปลี่ยน (มีแถวใหม่แทน)
   resolvedAt     DateTime?          @map("resolved_at") @db.Timestamptz(6)
   /// รอบล่าสุดที่ยังเห็นส่วนต่างเดิม (ไม่สร้างแถวซ้ำ)

@@ -1088,7 +1088,8 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
     clientEventId: '00000000-0000-4000-8000-00000000a003',
     occurredAt: '2026-11-17T09:00:00+07:00',
   },
-  approve: { reason: 'isolation test reason' }, // ST2-T13 /rate-cards/:id/approve
+  approve: { reason: 'isolation test reason' }, // ST2-T13 /rate-cards/:id/approve (+ ST8-T12 overwrite-request/approve)
+
   confirm: { reason: 'isolation test reason' }, // ST4-T13 /do-surcharges|trip-costs/:id/confirm
   'field-charges': {
     side: 'BUY',
@@ -1128,6 +1129,11 @@ const BODY_FOR_PATH: Record<string, object> = {
   },
   '/v1/revenue-lines/:id/void': { reason: 'isolation test reason' }, // ST5-T01
   '/v1/invoices/:id/void': { reason: 'isolation test reason' }, // ST5-T10
+  // ST8-T12 ปิดรายการไม่ตรง (approve/reject ใช้ BODY_FOR_SUFFIX)
+  '/v1/reconcile-results/:id/acknowledge': { reason: 'isolation test reason' },
+  '/v1/reconcile-results/:id/resolve-in-tms': { reason: 'isolation test reason' },
+  '/v1/reconcile-results/:id/overwrite-request': { reason: 'isolation test reason' },
+  '/v1/reconcile-results/:id/resend': { reason: 'isolation test reason' },
   '/v1/invoices/:id/unmark-sent': { reason: 'isolation test reason' }, // ST5-T18
   '/v1/payments/:id/reverse': { reason: 'isolation test reason' }, // ST5-T13
   '/v1/payments/:id/bounce': { reason: 'isolation test reason' }, // ST5-T13

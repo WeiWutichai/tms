@@ -1,6 +1,6 @@
 # Connector ERP (connectors)
 
-19 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+25 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -22,6 +22,12 @@
 | [`GET /v1/connectors/{id}/mappings`](#get-connectors-id-mappings) | `settings:read` |
 | [`GET /v1/reconcile-results`](#get-reconcile-results) | `integrations:read` |
 | [`GET /v1/reconcile-results/{id}`](#get-reconcile-results-id) | `integrations:read` |
+| [`POST /v1/reconcile-results/{id}/acknowledge`](#post-reconcile-results-id-acknowledge) | `integrations:retry` |
+| [`POST /v1/reconcile-results/{id}/resolve-in-tms`](#post-reconcile-results-id-resolve-in-tms) | `integrations:retry` |
+| [`POST /v1/reconcile-results/{id}/resend`](#post-reconcile-results-id-resend) | `integrations:retry` |
+| [`POST /v1/reconcile-results/{id}/overwrite-request`](#post-reconcile-results-id-overwrite-request) | `integrations:retry` |
+| [`POST /v1/reconcile-results/{id}/overwrite-request/approve`](#post-reconcile-results-id-overwrite-request-approve) | `credit-notes:approve` |
+| [`POST /v1/reconcile-results/{id}/overwrite-request/reject`](#post-reconcile-results-id-overwrite-request-reject) | `credit-notes:approve` |
 | [`POST /v1/reconcile-runs`](#post-reconcile-runs) | `settings:write` / `integrations:retry` |
 
 ## GET /v1/connectors/effective {#get-connectors-effective}
@@ -695,6 +701,9 @@ scope: `integrations:read` · operationId: `Reconcile_list`
 | `connectorId` | query |   | `string` |   |
 | `invoiceId` | query |   | `string` | ผลของใบแจ้งหนี้นี้ |
 | `severity` | query |   | `string` ค่า: `MONEY`, `FIELD`, `INFO` |   |
+| `check` | query |   | `string` ค่า: `PAYMENT_STATUS`, `DOCUMENT` | PAYMENT_STATUS = ยอดรับชำระ · DOCUMENT = เนื้อหาเอกสาร (หน้า MISMATCH) |
+| `actionable` | query |   | `string` ค่า: `true`, `false` | `true` = เฉพาะรายการที่ต้องมีคนตัดสิน (severity MONEY/FIELD — ไม่รวม INFO: อ่านเอกสารไม่ได้ / เทียบไม่ได้) |
+| `overwriteStatus` | query |   | `string` ค่า: `REQUESTED`, `APPROVED`, `REJECTED`, `SENT`, `NONE` | ขั้นของ "ส่งทับระบบบัญชีด้วยค่า TMS": SENT = ส่งซ้ำตรง · REQUESTED = รออนุมัติ · APPROVED = อนุมัติแล้ว · REJECTED · NONE = ไม่มีคำขอรออนุมัติ (ทุกค่ายกเว้น REQUESTED) |
 
 **Responses**
 
@@ -750,6 +759,318 @@ curl -sS -X GET "$TMS_BASE_URL/v1/reconcile-results/<id>" \
 ```ts
 const { data, error } = await tms.GET('/v1/reconcile-results/{id}', {
   params: { path: { id: "…" } },
+});
+```
+
+## ยอมรับความต่าง (ack) พร้อมเหตุผล — ปิดรายการไม่ตรงทางที่ 3 {#post-reconcile-results-id-acknowledge}
+
+`POST /v1/reconcile-results/{id}/acknowledge`
+
+scope: `integrations:retry` · operationId: `Reconcile_acknowledge`
+
+สิทธิ์ `integrations:retry` (ฝ่ายบัญชี) · คนเท่านั้น (API key → 403) · ใช้ได้กับรายการ `result` MISMATCH / REMOTE_MISSING ที่ยังเปิด (ทั้งยอดรับชำระและเนื้อหาเอกสาร) · เนื้อหาเอกสาร: `sync.reconcileState` ของใบ → ACCEPTED · การส่งทับยังดำเนินอยู่ → 409 `overwrite_in_progress` (คำสั่งจบแบบไม่สำเร็จ = ปิดได้) · ปิดแล้ว/ยอมรับแล้ว → 409 (`already_resolved` / `already_acknowledged`) · audit `reconcile.mismatch_acknowledged`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+
+**Request body** `ReconcileReasonDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `ReconcileResultDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`integrations:retry`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | `invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` (คำขอรออนุมัติ / คำสั่งส่งทับยังไม่จบหรือส่งแล้วรอรอบเทียบ) · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `paid_locked` (รับชำระแล้ว) · `connector_disconnected` · `command_in_progress` (มีคำสั่งส่งของเอกสารนี้ค้าง) · `capability_not_implemented` (ระบบบัญชียังแทนที่ไม่ได้) · `replace_not_supported` · `nothing_to_resend` — [invalid_state_transition](errors.md#invalid_state_transition) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/reconcile-results/<id>/acknowledge" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"string"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/reconcile-results/{id}/acknowledge', {
+  params: { path: { id: "…" } },
+  body: {
+    "reason": "string"
+  },
+});
+```
+
+## ปิดรายการไม่ตรงทาง "แก้ที่ TMS" — ใบยกเลิกแล้ว (ออกใบใหม่แทน) {#post-reconcile-results-id-resolve-in-tms}
+
+`POST /v1/reconcile-results/{id}/resolve-in-tms`
+
+scope: `integrations:retry` · operationId: `Reconcile_resolveInTms`
+
+**:** ใบลด/เพิ่มหนี้ไม่อยู่ใน TMS เฟส 0 → ระหว่างรอ ยกเลิกใบแล้วออกใหม่ด้วย `POST /invoices/{id}/void` (`reissue: true` — สิทธิ์ `invoices:void` + step-up ตาม endpoint นั้น) แล้วเรียก endpoint นี้ปิดรายการ · สิทธิ์ `integrations:retry` · คนเท่านั้น · เฉพาะเนื้อหาเอกสาร (`check` DOCUMENT) ที่ยังเปิด · ใบยังไม่ยกเลิก → 409 `invoice_not_voided` · `resolution` FIXED_IN_TMS + audit `reconcile.mismatch_closed` (ผู้ทำ + เหตุผล + ใบที่ออกแทน)
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+
+**Request body** `ReconcileReasonDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `ReconcileResultDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`integrations:retry`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | `invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` (คำขอรออนุมัติ / คำสั่งส่งทับยังไม่จบหรือส่งแล้วรอรอบเทียบ) · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `paid_locked` (รับชำระแล้ว) · `connector_disconnected` · `command_in_progress` (มีคำสั่งส่งของเอกสารนี้ค้าง) · `capability_not_implemented` (ระบบบัญชียังแทนที่ไม่ได้) · `replace_not_supported` · `nothing_to_resend` — [invalid_state_transition](errors.md#invalid_state_transition) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/reconcile-results/<id>/resolve-in-tms" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"string"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/reconcile-results/{id}/resolve-in-tms', {
+  params: { path: { id: "…" } },
+  body: {
+    "reason": "string"
+  },
+});
+```
+
+## ใช้ค่า TMS ส่งซ้ำ — ส่งเอกสารฉบับที่ออกทับระบบบัญชี (ทางที่ 2 "TMS ถูก") {#post-reconcile-results-id-resend}
+
+`POST /v1/reconcile-results/{id}/resend`
+
+scope: `integrations:retry` · operationId: `Reconcile_resend`
+
+สิทธิ์ `integrations:retry` · คนเท่านั้น · เฉพาะเนื้อหาเอกสารที่ยังเปิด · คำสั่ง REPLACE_DOCUMENT (หรือส่งใหม่เมื่อไม่อยู่ในระบบบัญชี) ผ่านประตูอนุมัติของ — ลงบัญชีแล้ว/อายุใบเกิน N วัน = คำสั่ง SKIPPED `replace_requires_approval` (`overwrite.commandErrorCode`) → ใช้ "ขออนุมัติแก้" · รับชำระแล้ว → 409 `paid_locked` · มีคำสั่งค้าง → 409 `command_in_progress` · ระบบบัญชีแทนที่ไม่ได้ → 409 `capability_not_implemented` / `replace_not_supported` · `overwrite.status` SENT · รอบเทียบหลังส่งตรง = ปิดเอง ERP_OVERWRITTEN · audit `reconcile.overwrite_sent`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+
+**Request body** `ReconcileReasonDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `ReconcileResultDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`integrations:retry`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | `invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` (คำขอรออนุมัติ / คำสั่งส่งทับยังไม่จบหรือส่งแล้วรอรอบเทียบ) · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `paid_locked` (รับชำระแล้ว) · `connector_disconnected` · `command_in_progress` (มีคำสั่งส่งของเอกสารนี้ค้าง) · `capability_not_implemented` (ระบบบัญชียังแทนที่ไม่ได้) · `replace_not_supported` · `nothing_to_resend` — [invalid_state_transition](errors.md#invalid_state_transition) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/reconcile-results/<id>/resend" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"string"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/reconcile-results/{id}/resend', {
+  params: { path: { id: "…" } },
+  body: {
+    "reason": "string"
+  },
+});
+```
+
+## ขออนุมัติส่งทับระบบบัญชีด้วยค่า TMS (ทางที่ 2 "TMS ถูก") {#post-reconcile-results-id-overwrite-request}
+
+`POST /v1/reconcile-results/{id}/overwrite-request`
+
+scope: `integrations:retry` · operationId: `Reconcile_requestOverwrite`
+
+"ขออนุมัติแก้" · สิทธิ์ `integrations:retry` · คนเท่านั้น · เฉพาะเนื้อหาเอกสารที่ยังเปิด · ใบยกเลิกแล้ว → 409 `invoice_voided` · รับชำระแล้ว → 409 `paid_locked` · connector ยกเลิกการเชื่อม → 409 `connector_disconnected` · มีคำสั่งค้าง → 409 `command_in_progress` · ระบบบัญชีแทนที่ไม่ได้ → 409 `capability_not_implemented` / `replace_not_supported` · การส่งทับยังดำเนินอยู่ → 409 `overwrite_in_progress` · ถูกปฏิเสธแล้วขอใหม่ได้ · audit `reconcile.overwrite_requested`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+
+**Request body** `ReconcileReasonDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `ReconcileResultDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`integrations:retry`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | `invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` (คำขอรออนุมัติ / คำสั่งส่งทับยังไม่จบหรือส่งแล้วรอรอบเทียบ) · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `paid_locked` (รับชำระแล้ว) · `connector_disconnected` · `command_in_progress` (มีคำสั่งส่งของเอกสารนี้ค้าง) · `capability_not_implemented` (ระบบบัญชียังแทนที่ไม่ได้) · `replace_not_supported` · `nothing_to_resend` — [invalid_state_transition](errors.md#invalid_state_transition) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/reconcile-results/<id>/overwrite-request" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"string"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/reconcile-results/{id}/overwrite-request', {
+  params: { path: { id: "…" } },
+  body: {
+    "reason": "string"
+  },
+});
+```
+
+## อนุมัติส่งทับระบบบัญชีด้วยค่า TMS → คำสั่งแทนที่เอกสาร {#post-reconcile-results-id-overwrite-request-approve}
+
+`POST /v1/reconcile-results/{id}/overwrite-request/approve`
+
+scope: `credit-notes:approve` · operationId: `Reconcile_approveOverwrite`
+
+สิทธิ์ `credit-notes:approve` · คนเท่านั้น · **ผู้อนุมัติต้องไม่ใช่ผู้ขอ และไม่ใช่ผู้สร้าง/แก้/ออกเลขใบ** (403 `erp_replace_self_approval`) · สร้างคำสั่งด้วยเอกสารฉบับที่ออก + `approval` {approvedBy, approvedAt, reason, reconcileResultId} ผ่านประตูอนุมัติของ · มีคำสั่งของเอกสารค้าง → 409 `command_in_progress` · รับชำระแล้ว → 409 `paid_locked` · ระบบบัญชีแทนที่ไม่ได้ → 409 `capability_not_implemented` / `replace_not_supported` · รอบเทียบหลังส่งตรงกัน = ปิดเอง (`resolution` ERP_OVERWRITTEN) · ไม่มีคำขอ → 409 `overwrite_not_requested` · audit `reconcile.overwrite_approved` (+ `commandId`)
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+
+**Request body** `ReconcileReasonDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `ReconcileResultDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`credit-notes:approve`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | `invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` (คำขอรออนุมัติ / คำสั่งส่งทับยังไม่จบหรือส่งแล้วรอรอบเทียบ) · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `paid_locked` (รับชำระแล้ว) · `connector_disconnected` · `command_in_progress` (มีคำสั่งส่งของเอกสารนี้ค้าง) · `capability_not_implemented` (ระบบบัญชียังแทนที่ไม่ได้) · `replace_not_supported` · `nothing_to_resend` — [invalid_state_transition](errors.md#invalid_state_transition) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/reconcile-results/<id>/overwrite-request/approve" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"string"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/reconcile-results/{id}/overwrite-request/approve', {
+  params: { path: { id: "…" } },
+  body: {
+    "reason": "string"
+  },
+});
+```
+
+## ไม่อนุมัติการส่งทับ — รายการกลับเป็น "ไม่ตรง" {#post-reconcile-results-id-overwrite-request-reject}
+
+`POST /v1/reconcile-results/{id}/overwrite-request/reject`
+
+scope: `credit-notes:approve` · operationId: `Reconcile_rejectOverwrite`
+
+สิทธิ์ `credit-notes:approve` · คนเท่านั้น · ผู้ปฏิเสธต้องไม่ใช่ผู้ขอ (403 `erp_replace_self_approval`) · ขอใหม่ได้ · audit `reconcile.overwrite_rejected`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+
+**Request body** `ReconcileReasonDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `ReconcileResultDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`credit-notes:approve`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | `invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` (คำขอรออนุมัติ / คำสั่งส่งทับยังไม่จบหรือส่งแล้วรอรอบเทียบ) · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `paid_locked` (รับชำระแล้ว) · `connector_disconnected` · `command_in_progress` (มีคำสั่งส่งของเอกสารนี้ค้าง) · `capability_not_implemented` (ระบบบัญชียังแทนที่ไม่ได้) · `replace_not_supported` · `nothing_to_resend` — [invalid_state_transition](errors.md#invalid_state_transition) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/reconcile-results/<id>/overwrite-request/reject" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"string"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/reconcile-results/{id}/overwrite-request/reject', {
+  params: { path: { id: "…" } },
+  body: {
+    "reason": "string"
+  },
 });
 ```
 
@@ -1025,6 +1346,14 @@ const { data, error } = await tms.POST('/v1/reconcile-runs', {
 | `lastSeenAt` | ใช่ | `string (date-time)` |   | รอบล่าสุดที่ยังพบส่วนต่างเดิม |   |
 | `resolvedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
 | `acknowledgedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
+| `ackReason` | ใช่ | `string` | null ได้ | เหตุผลที่ยอมรับความต่าง |   |
+| `resolution` | ใช่ | `string` | ค่า: `FIXED_IN_TMS`, `ERP_OVERWRITTEN`, `NEXT_RUN_MATCHED` · null ได้ | วิธีปิด: FIXED_IN_TMS = แก้ที่ TMS · ERP_OVERWRITTEN = ส่งทับที่อนุมัติแล้ว + รอบเทียบถัดไปตรง · NEXT_RUN_MATCHED = รอบถัดไปตรงเอง · null = ยังไม่ปิด / ปิดเพราะส่วนต่างเปลี่ยน (มีแถวใหม่แทน) |   |
+| `resolutionReason` | ใช่ | `string` | null ได้ | เหตุผลของผู้ปิด (FIXED_IN_TMS) |   |
+| `overwrite` | ใช่ | `ReconcileOverwriteDto` | null ได้ | คำขอส่งทับ (null = ไม่มี) |   |
+| `customer` | ใช่ | `ReconcileCustomerDto` | null ได้ | ลูกค้าของใบ |   |
+| `invoiceStatus` | ใช่ | `string` | null ได้ | สถานะใบใน TMS ตอนนี้ (CANCELLED = ยกเลิกแล้ว — ปิดทาง "แก้ที่ TMS" ได้) | `ISSUED` |
+| `replacedByInvoice` | ใช่ | `ReconcileInvoiceRefDto` | null ได้ | ใบที่ออกแทน |   |
+| `sends` | ใช่ | `ReconcileSendsDto` | null ได้ | การส่งใบนี้เข้า connector |   |
 | `createdAt` | ใช่ | `string (date-time)` |   |   |   |
 | `updatedAt` | ใช่ | `string (date-time)` |   |   |   |
 

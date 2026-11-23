@@ -308,6 +308,19 @@ export class ErpSyncService {
     entity: 'invoice' | 'settlement',
     localId: string,
     connectorId: string,
+    /**
+     * ST8-T12 ส่งทับจากหน้า MISMATCH: `approval` = ผู้อนุมัติ (≠ ผู้ขอ) ตาม approvalGate ของ ST8-T13 (ลงบัญชีแล้ว/อายุใบเกิน) ·
+     * `requesters` = ผู้ขอเพิ่ม (ผู้ขออนุมัติแก้) — รวมกับผู้ขอเดิม + ผู้สร้าง/แก้/ออกเลขเอกสาร · ผู้อนุมัติไม่อยู่ในรายชื่อผู้ขอ
+     */
+    opts: {
+      approval?: {
+        approvedBy: string;
+        approvedAt: string;
+        reason: string;
+        reconcileResultId: string;
+      };
+      requesters?: string[];
+    } = {},
   ): Promise<string | null> {
     const op = entity === 'invoice' ? 'PUSH_INVOICE' : 'PUSH_SETTLEMENT';
     const c = await tx.connector.findUnique({ where: { id: connectorId } });
@@ -386,8 +399,13 @@ export class ErpSyncService {
           [
             ...before,
             ...(entity === 'invoice' ? await invoiceActors(tx, [localId]) : []),
-            requestContext.get()?.actorId,
-          ].filter((x): x is string => typeof x === 'string' && isPersonActor(x)),
+            ...(opts.requesters ?? []),
+            // ผู้สั่ง = ผู้ขอ — ยกเว้นคำสั่งที่ผู้อนุมัติเป็นผู้สั่ง (ST8-T12 อนุมัติคำขอของคนอื่น)
+            opts.approval ? undefined : requestContext.get()?.actorId,
+          ].filter(
+            (x): x is string =>
+              typeof x === 'string' && isPersonActor(x) && x !== opts.approval?.approvedBy,
+          ),
         ),
       ];
     };
@@ -409,6 +427,7 @@ export class ErpSyncService {
             ...(payload as Record<string, unknown>),
             // ST8-T13 ผู้ขอการแทนที่ (ผู้อนุมัติต้องเป็นคนอื่น)
             requestedBy: await requestedBy(),
+            ...(opts.approval ? { approval: opts.approval } : {}),
             ref: {
               entityType: entity,
               localId,
@@ -420,6 +439,7 @@ export class ErpSyncService {
           ? {
               ...reissue,
               requestedBy: await requestedBy(),
+              ...(opts.approval ? { approval: opts.approval } : {}),
             }
           : (payload as Record<string, unknown>),
     });
