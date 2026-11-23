@@ -5,22 +5,34 @@ import {
   fieldChangePolicy,
   fieldSyncErrors,
   normalizeFieldSync,
+  SOR_TAX_OWNER_WARNINGS,
   SOR_TAX_PUSH_CAPABILITIES,
   STANDALONE_SOR,
+  taxDocumentOwnerWarning,
 } from './system-of-record';
 
 const sync = { fieldSync: { ...DEFAULT_SOR_FIELD_SYNC } };
 
 describe('System-of-record rules (ST7-T17; docs/04 G3, docs/01 §8.1)', () => {
-  it('เกณฑ์ตรวจรับ: taxDocumentOwner = ERP + ใบแจ้งหนี้ไปถึง ERP → TMS ไม่ออกเลขใบกำกับภาษี', () => {
-    expect(canIssueTaxDocumentNumber({ taxDocumentOwner: 'ERP' }, true)).toBe(false);
+  it('เกณฑ์ตรวจรับ: taxDocumentOwner = ERP → TMS ไม่ออกเลขใบกำกับภาษี', () => {
+    expect(canIssueTaxDocumentNumber({ taxDocumentOwner: 'ERP' })).toBe(false);
   });
 
-  it('standalone-first: ERP แต่ใบแจ้งหนี้ไปไม่ถึง ERP / TMS / ยังไม่เลือก / Standalone → TMS ออกเลข', () => {
-    expect(canIssueTaxDocumentNumber({ taxDocumentOwner: 'ERP' }, false)).toBe(true);
-    expect(canIssueTaxDocumentNumber({ taxDocumentOwner: 'TMS' }, true)).toBe(true);
-    expect(canIssueTaxDocumentNumber({ taxDocumentOwner: null }, true)).toBe(true);
-    expect(canIssueTaxDocumentNumber(STANDALONE_SOR, false)).toBe(true);
+  it('D68-04: ERP = ห้ามออกเลขทุกกรณี (แม้ connector ยังส่งไม่ถึง ERP) + คำเตือน ERP_NOT_CONNECTED', () => {
+    // ไม่มีทางที่ ERP + connector ไม่พร้อม แล้ว TMS ออกเลขเอง (เดิม standalone-first ออกเอง — เสี่ยงเลขซ้ำสองระบบ)
+    expect(canIssueTaxDocumentNumber({ taxDocumentOwner: 'ERP' })).toBe(false);
+    expect(taxDocumentOwnerWarning({ taxDocumentOwner: 'ERP' }, false)).toBe('ERP_NOT_CONNECTED');
+    expect(taxDocumentOwnerWarning({ taxDocumentOwner: 'ERP' }, true)).toBeNull();
+    expect(SOR_TAX_OWNER_WARNINGS).toEqual(['ERP_NOT_CONNECTED']);
+  });
+
+  it('TMS / ยังไม่เลือก / Standalone → TMS ออกเลข · ไม่มีคำเตือน', () => {
+    expect(canIssueTaxDocumentNumber({ taxDocumentOwner: 'TMS' })).toBe(true);
+    expect(canIssueTaxDocumentNumber({ taxDocumentOwner: null })).toBe(true);
+    expect(canIssueTaxDocumentNumber(STANDALONE_SOR)).toBe(true);
+    for (const o of ['TMS', null] as const)
+      for (const reach of [true, false])
+        expect(taxDocumentOwnerWarning({ taxDocumentOwner: o }, reach)).toBeNull();
     expect(STANDALONE_SOR.customerOwner).toBe('TMS');
     expect([...SOR_TAX_PUSH_CAPABILITIES]).toEqual([
       'pushInvoice',

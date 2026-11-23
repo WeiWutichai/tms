@@ -76,12 +76,17 @@
               "schema": {
                 "$ref": "#/components/schemas/TokenRequestDto"
               }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequestDto"
+              }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` · client_credentials: ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed)",
+            "description": "authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` — รับเฉพาะ JSON จากหน้าเว็บเดียวกัน (form / `Sec-Fetch-Site` ข้ามเว็บ → 403 `forbidden`) · client_credentials: รับ JSON หรือ form (RFC 6749) ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25994,7 +25999,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.read"
+            "$ref": "#/components/responses/Forbidden_settings.read_webhooks.manage"
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -26012,7 +26017,8 @@
           "webhooks"
         ],
         "x-required-scopes": [
-          "settings:read"
+          "settings:read",
+          "webhooks:manage"
         ]
       },
       "post": {
@@ -26035,7 +26041,7 @@
             "name": "X-Step-Up",
             "in": "header",
             "required": false,
-            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งทุกครั้ง ไม่งั้น 403 `step_up_required` · API key ใช้ route นี้ไม่ได้",
+            "description": "stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง (คุมด้วย scope — D-67)",
             "schema": {
               "type": "string"
             }
@@ -26083,7 +26089,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`settings:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
+            "description": "ไม่มีสิทธิ์ (`settings:write` / `webhooks:manage` — มีตัวใดตัวหนึ่งก็พอ) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -26096,12 +26102,13 @@
                       "title": "ไม่มีสิทธิ์ทำรายการนี้",
                       "status": 403,
                       "code": "permission_denied",
-                      "instance": "/v1/setup-checklist",
+                      "instance": "/v1/webhooks",
                       "requestId": "b6a1c2d3-…",
                       "module": "settings",
                       "action": "write",
                       "required": [
-                        "settings:write"
+                        "settings:write",
+                        "webhooks:manage"
                       ]
                     }
                   },
@@ -26135,10 +26142,11 @@
           "webhooks"
         ],
         "x-required-scopes": [
-          "settings:write"
+          "settings:write",
+          "webhooks:manage"
         ],
         "x-step-up": {
-          "mode": "always"
+          "mode": "human"
         }
       }
     },
@@ -26192,7 +26200,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.read"
+            "$ref": "#/components/responses/Forbidden_settings.read_webhooks.manage"
           },
           "429": {
             "$ref": "#/components/responses/RateLimited"
@@ -26207,7 +26215,8 @@
           "webhooks"
         ],
         "x-required-scopes": [
-          "settings:read"
+          "settings:read",
+          "webhooks:manage"
         ]
       }
     },
@@ -26261,7 +26270,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.read"
+            "$ref": "#/components/responses/Forbidden_settings.read_webhooks.manage"
           },
           "429": {
             "$ref": "#/components/responses/RateLimited"
@@ -26276,7 +26285,8 @@
           "webhooks"
         ],
         "x-required-scopes": [
-          "settings:read"
+          "settings:read",
+          "webhooks:manage"
         ]
       }
     },
@@ -26338,7 +26348,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.read"
+            "$ref": "#/components/responses/Forbidden_settings.read_webhooks.manage"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -26356,7 +26366,8 @@
           "webhooks"
         ],
         "x-required-scopes": [
-          "settings:read"
+          "settings:read",
+          "webhooks:manage"
         ]
       },
       "patch": {
@@ -26444,7 +26455,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`settings:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อเปลี่ยน `url` หรือ `extraHeaders` (D-67 review M1)",
+            "description": "ไม่มีสิทธิ์ (`settings:write` / `webhooks:manage` — มีตัวใดตัวหนึ่งก็พอ) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) เมื่อเปลี่ยน `url` หรือ `extraHeaders` (D-67 review M1)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -26457,12 +26468,13 @@
                       "title": "ไม่มีสิทธิ์ทำรายการนี้",
                       "status": 403,
                       "code": "permission_denied",
-                      "instance": "/v1/setup-checklist",
+                      "instance": "/v1/webhooks",
                       "requestId": "b6a1c2d3-…",
                       "module": "settings",
                       "action": "write",
                       "required": [
-                        "settings:write"
+                        "settings:write",
+                        "webhooks:manage"
                       ]
                     }
                   },
@@ -26502,7 +26514,8 @@
           "webhooks"
         ],
         "x-required-scopes": [
-          "settings:write"
+          "settings:write",
+          "webhooks:manage"
         ],
         "x-step-up": {
           "mode": "human",
@@ -26578,7 +26591,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.write"
+            "$ref": "#/components/responses/Forbidden_settings.write_webhooks.manage"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -26602,7 +26615,8 @@
           "webhooks"
         ],
         "x-required-scopes": [
-          "settings:write"
+          "settings:write",
+          "webhooks:manage"
         ]
       }
     },
@@ -26684,7 +26698,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.read"
+            "$ref": "#/components/responses/Forbidden_settings.read_webhooks.manage"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -26705,7 +26719,8 @@
           "webhooks"
         ],
         "x-required-scopes": [
-          "settings:read"
+          "settings:read",
+          "webhooks:manage"
         ]
       }
     },
@@ -26768,7 +26783,7 @@
         },
         "responses": {
           "201": {
-            "description": "secret ใหม่ (แสดงครั้งเดียว) · 24 ชม. ส่ง `v1` ของ secret ใหม่และเดิมคู่กัน · ไม่รับ Idempotency-Key",
+            "description": "secret ใหม่ (แสดงครั้งเดียว) · 24 ชม. ส่ง `v1` ของ secret ใหม่และเดิมคู่กัน · ไม่รับ Idempotency-Key · **ผู้ใช้ที่ step-up เท่านั้น** (D-67) — API key ได้ 403 `step_up_required` แม้มี `webhooks:manage`",
             "content": {
               "application/json": {
                 "schema": {
@@ -26795,7 +26810,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`settings:write`) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
+            "description": "ไม่มีสิทธิ์ (`settings:write` / `webhooks:manage` — มีตัวใดตัวหนึ่งก็พอ) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -26808,12 +26823,13 @@
                       "title": "ไม่มีสิทธิ์ทำรายการนี้",
                       "status": 403,
                       "code": "permission_denied",
-                      "instance": "/v1/setup-checklist",
+                      "instance": "/v1/webhooks",
                       "requestId": "b6a1c2d3-…",
                       "module": "settings",
                       "action": "write",
                       "required": [
-                        "settings:write"
+                        "settings:write",
+                        "webhooks:manage"
                       ]
                     }
                   },
@@ -26853,7 +26869,8 @@
           "webhooks"
         ],
         "x-required-scopes": [
-          "settings:write"
+          "settings:write",
+          "webhooks:manage"
         ],
         "x-step-up": {
           "mode": "always"
@@ -26937,7 +26954,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.write"
+            "$ref": "#/components/responses/Forbidden_settings.write_webhooks.manage"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -26961,7 +26978,8 @@
           "webhooks"
         ],
         "x-required-scopes": [
-          "settings:write"
+          "settings:write",
+          "webhooks:manage"
         ]
       }
     },
@@ -27042,7 +27060,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.write"
+            "$ref": "#/components/responses/Forbidden_settings.write_webhooks.manage"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -27066,7 +27084,8 @@
           "webhooks"
         ],
         "x-required-scopes": [
-          "settings:write"
+          "settings:write",
+          "webhooks:manage"
         ]
       }
     },
@@ -27138,7 +27157,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.write"
+            "$ref": "#/components/responses/Forbidden_settings.write_webhooks.manage"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -27159,7 +27178,8 @@
           "webhooks"
         ],
         "x-required-scopes": [
-          "settings:write"
+          "settings:write",
+          "webhooks:manage"
         ]
       }
     },
@@ -30142,7 +30162,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.read"
+            "$ref": "#/components/responses/Forbidden_settings.read_webhooks.manage"
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -30160,7 +30180,8 @@
           "webhooks"
         ],
         "x-required-scopes": [
-          "settings:read"
+          "settings:read",
+          "webhooks:manage"
         ]
       }
     },
@@ -30222,7 +30243,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.read"
+            "$ref": "#/components/responses/Forbidden_settings.read_webhooks.manage"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -30240,7 +30261,8 @@
           "webhooks"
         ],
         "x-required-scopes": [
-          "settings:read"
+          "settings:read",
+          "webhooks:manage"
         ]
       }
     },
@@ -30302,7 +30324,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.write"
+            "$ref": "#/components/responses/Forbidden_settings.write_webhooks.manage"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -30320,7 +30342,8 @@
           "webhooks"
         ],
         "x-required-scopes": [
-          "settings:write"
+          "settings:write",
+          "webhooks:manage"
         ]
       }
     },
@@ -30605,7 +30628,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.write"
+            "$ref": "#/components/responses/Forbidden_settings.write_webhooks.manage"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -30626,7 +30649,8 @@
           "webhooks"
         ],
         "x-required-scopes": [
-          "settings:write"
+          "settings:write",
+          "webhooks:manage"
         ]
       }
     },
@@ -43371,6 +43395,535 @@
         ]
       }
     },
+    "/v1/invoices/external/{externalId}": {
+      "put": {
+        "description": "ยังไม่มีใบที่ externalId นี้ → สร้างร่าง (กติกาเดียวกับ `POST /invoices`) 201 · มีแล้ว → 200: ลูกค้า + ชุด DO ต้องตรงกับใบ (เพิ่ม/ถอด DO ใช้ `/invoices/{id}/delivery-orders…`) ไม่ตรง → 409 `conflict` · ช่องหัวใบ (งวด/รูปบรรทัด/เลข PO/หมายเหตุ) เหมือนเดิม → ใบเดิม version เดิม (ส่งซ้ำได้) · ต่าง: ร่าง → แก้ (เหมือน PATCH) · **ใบที่ออกแล้ว/ยกเลิกแก้ไม่ได้ → 409 `invalid_state_transition`** (docs/04 F3) · externalId ตั้งได้ตอนสร้างเท่านั้น · ยกเลิกแล้วออกใหม่ (`/void` + reissue) ใบใหม่**ไม่รับ externalId เดิม** (ใบเดิมคง externalId ไว้) — ระบบต้นทางต้องใช้ externalId ใหม่ · path `{id}` ทุก route รับ `ext:{externalId}`",
+        "operationId": "Invoices_upsertExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
+            "schema": {
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag — ใช้เมื่อใบมีอยู่แล้ว (ไม่ตรง → 412)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInvoiceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "มีอยู่แล้ว → ใบเดิม (แก้หัวร่างถ้าต่าง)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "201": {
+            "description": "ยังไม่มี → สร้างร่าง",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`invoices:draft`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "invoices",
+                      "action": "draft",
+                      "required": [
+                        "invoices:draft"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`not_ready_to_bill` — DO ยังไม่พร้อม (ตรวจซ้ำตอนดึง): `reasons[]` + `deliveryOrders[]` (ต่อ DO: `reasons`, `missing`) — รวม `NOT_RELEASED` (ยังไม่ส่งบัญชี) · `do_already_drafted` — DO อยู่ในใบแจ้งหนี้อื่นที่ยัง active · `invalid_state_transition` — ใบไม่ใช่ร่าง · `conflict` — ใบที่มีอยู่มีลูกค้า/ชุด DO ต่างจากที่ส่ง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_ready_to_bill": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_ready_to_bill",
+                      "title": "ใบส่งของนี้ยังไม่พร้อมวางบิล",
+                      "status": 409,
+                      "code": "not_ready_to_bill",
+                      "reasons": [
+                        "NOT_RELEASED"
+                      ],
+                      "deliveryOrders": [
+                        {
+                          "deliveryOrderId": "do_3f2a…",
+                          "doNo": "DO-2611-00012",
+                          "reasons": [
+                            "NOT_RELEASED"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "do_already_drafted": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/do_already_drafted",
+                      "title": "ใบส่งของนี้อยู่ในใบแจ้งหนี้อื่นแล้ว",
+                      "status": 409,
+                      "code": "do_already_drafted",
+                      "deliveryOrderId": "do_3f2a…",
+                      "doNo": "DO-2611-00012",
+                      "billingStatus": "IN_DRAFT"
+                    }
+                  },
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "สร้าง/แก้ร่างใบแจ้งหนี้ด้วยเลขของระบบต้นทาง (upsert — D68-45)",
+        "tags": [
+          "invoices"
+        ],
+        "x-required-scopes": [
+          "invoices:draft"
+        ]
+      },
+      "patch": {
+        "description": "กติกาเดียวกับ `PATCH /invoices/{id}` — เฉพาะ DRAFT (ออกแล้ว → 409) · ยังไม่มีใบนี้ → 404 (สร้างใช้ PUT)",
+        "operationId": "Invoices_patchExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
+            "schema": {
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag (version) จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateInvoiceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`invoices:draft`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "invoices",
+                      "action": "draft",
+                      "required": [
+                        "invoices:draft"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "แก้หัวร่างด้วยเลขของระบบต้นทาง (= `PATCH /invoices/ext:{externalId}`)",
+        "tags": [
+          "invoices"
+        ],
+        "x-required-scopes": [
+          "invoices:draft"
+        ]
+      }
+    },
     "/v1/invoices/{id}": {
       "get": {
         "description": "`lines` = บรรทัดจริง (รวมที่ถอดออกแล้ว `active=false`) · `printLines` = รูปบนเอกสารตาม `lineMode` + กลุ่มที่รวมเอง · ยอดภาษีเป็นประมาณการ (`taxEstimated`) · `sell*` เห็นเมื่อมี `prices.sell:read`",
@@ -43382,7 +43935,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "$ref": "#/components/parameters/ApiVersion"
@@ -43492,7 +44046,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -43733,7 +44288,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "$ref": "#/components/parameters/ApiVersion"
@@ -43882,7 +44438,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -44109,7 +44666,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "copy",
@@ -44274,7 +44832,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -44514,7 +45073,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -44755,7 +45315,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -44995,7 +45556,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -45236,7 +45798,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -45477,7 +46040,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -45718,7 +46282,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "lineId",
@@ -45967,7 +46532,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "lineId",
@@ -46216,7 +46782,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -46457,7 +47024,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -46714,7 +47282,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -46901,7 +47470,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -47098,7 +47668,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "Idempotency-Key",
@@ -47372,7 +47943,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "$ref": "#/components/parameters/ApiVersion"
@@ -48284,7 +48856,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "$ref": "#/components/parameters/ApiVersion"
@@ -48385,6 +48958,262 @@
         ]
       }
     },
+    "/v1/payments/external/{externalId}": {
+      "put": {
+        "description": "ยังไม่มีการรับชำระที่ externalId นี้ → บันทึก (กติกาเดียวกับ `POST /payments`) 201 · มีแล้ว → **แก้ไม่ได้** (docs/04 F4): เนื้อหาเหมือนเดิม = 200 แถวเดิม (ส่งซ้ำได้ ไม่บันทึกซ้ำ) · ต่าง = 409 `conflict` — แถวที่กลับรายการแล้วก็เช่นกัน: ส่งซ้ำเนื้อหาเดิม = 200 แถวเดิมสถานะ `REVERSED` (ไม่บันทึกใหม่ — ดู `status`) · กลับรายการด้วย `POST /payments/{id}/reverse` แล้วบันทึกใหม่ด้วย externalId ใหม่ · ไม่มี `PATCH /payments/external/{externalId}` (การรับชำระแก้ไม่ได้) · path `{id}` ทุก route รับ `ext:{externalId}`",
+        "operationId": "Payments_upsertExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
+            "schema": {
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag — ใช้เมื่อแถวมีอยู่แล้ว (ไม่ตรง → 412)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePaymentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "มีแล้ว เนื้อหาเหมือนเดิม → แถวเดิม",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "201": {
+            "description": "ยังไม่มี → บันทึก",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`payments:record`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "payments",
+                      "action": "record",
+                      "required": [
+                        "payments:record"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`conflict` (มีแล้วแต่เนื้อหาต่าง) · `invoice_not_payable` · `payment_exceeds_outstanding`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "บันทึกรับชำระด้วยเลขของระบบต้นทาง (upsert — D68-45)",
+        "tags": [
+          "payments"
+        ],
+        "x-required-scopes": [
+          "payments:record"
+        ]
+      }
+    },
     "/v1/payments/{id}/reverse": {
       "post": {
         "description": "RECORDED → REVERSED · ยอดค้างของใบกลับมา (PAID/PARTIALLY_PAID → ตามยอดที่เหลือ) · เหตุผล ≥ 10 ตัวอักษร + audit · webhook `payment.reversed` · บันทึกผิด = กลับรายการแล้วบันทึกใหม่ (ไม่มีแก้/ลบ)",
@@ -48396,7 +49225,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -48637,7 +49467,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -48878,7 +49709,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -69134,7 +69966,16 @@
               "refresh_token",
               "client_credentials"
             ],
-            "description": "client_credentials (ST7-T01) = client ภายนอกด้วย API key: clientId `key_…` + clientSecret `tk_live_…` (หรือ HTTP Basic) → JWT RS256 1 ชม."
+            "description": "client_credentials (ST7-T01) = client ภายนอกด้วย API key: clientId `key_…` + clientSecret `tk_live_…` (หรือ HTTP Basic) → JWT RS256 1 ชม. · ต้องส่ง grantType หรือ grant_type"
+          },
+          "grant_type": {
+            "type": "string",
+            "enum": [
+              "authorization_code",
+              "refresh_token",
+              "client_credentials"
+            ],
+            "description": "RFC 6749 — เหมือน grantType"
           },
           "code": {
             "type": "string",
@@ -69144,14 +69985,27 @@
             "type": "string",
             "description": "grantType=authorization_code (PKCE)"
           },
+          "code_verifier": {
+            "type": "string",
+            "description": "RFC 6749/7636 — เหมือน codeVerifier"
+          },
           "clientId": {
             "type": "string",
             "example": "tk_live_8f3a",
             "description": "grantType=client_credentials — id ของ key (`key_…`) หรือ prefix ที่แสดงในหน้าจอ · หรือส่งใน Authorization: Basic"
           },
+          "client_id": {
+            "type": "string",
+            "description": "RFC 6749 — เหมือน clientId"
+          },
           "clientSecret": {
             "type": "string",
             "description": "grantType=client_credentials — API key เต็ม (`tk_live_…`)",
+            "format": "password"
+          },
+          "client_secret": {
+            "type": "string",
+            "description": "RFC 6749 — เหมือน clientSecret",
             "format": "password"
           },
           "scope": {
@@ -69159,10 +70013,7 @@
             "example": "orders:read orders:write",
             "description": "grantType=client_credentials — scope ที่ขอ (คั่นด้วยช่องว่าง ⊆ scope ของ key; ไม่ส่ง = ทั้งหมด)"
           }
-        },
-        "required": [
-          "grantType"
-        ]
+        }
       },
       "TokenDto": {
         "type": "object",
@@ -69182,6 +70033,20 @@
           "scope": {
             "type": "string",
             "description": "client_credentials: scope ที่ได้จริง"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "RFC 6749 §5.1 — มีเฉพาะเมื่อขอแบบ application/x-www-form-urlencoded (ค่าเดียวกับ accessToken)"
+          },
+          "token_type": {
+            "type": "string",
+            "example": "Bearer",
+            "description": "RFC 6749 §5.1 — เฉพาะคำขอแบบ form"
+          },
+          "expires_in": {
+            "type": "number",
+            "example": 3600,
+            "description": "RFC 6749 §5.1 — เฉพาะคำขอแบบ form"
           }
         },
         "required": [
@@ -82992,14 +83857,23 @@
           },
           "canIssueTaxDocumentNumber": {
             "type": "boolean",
-            "description": "TMS ออกเลขใบกำกับภาษีให้เอกสารของนิติบุคคลนี้ได้ไหม (false เมื่อ taxDocumentOwner = ERP) — หน้าจอซ่อนเลขใบกำกับภาษีเมื่อ false"
+            "description": "TMS ออกเลขใบกำกับภาษีให้เอกสารของนิติบุคคลนี้ได้ไหม — **false ทุกครั้งที่ taxDocumentOwner = ERP** แม้ connector ยังส่งไม่ถึง ERP (D68-04) · หน้าจอซ่อนเลขใบกำกับภาษีเมื่อ false"
+          },
+          "taxDocumentOwnerWarning": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "ERP_NOT_CONNECTED"
+            ],
+            "description": "D68-04: `ERP_NOT_CONNECTED` = ตั้งให้ ERP ออกใบกำกับภาษีแต่ใบแจ้งหนี้ยังไปไม่ถึง ERP (ยังไม่เคยเปิดใช้ / ไม่มี pushInvoice) — **ไม่มีใครออกใบกำกับภาษี** จนกว่าจะเชื่อมสำเร็จหรือผู้ใช้สลับเจ้าของเป็น TMS เอง (`PUT /connectors/{id}/system-of-record` + เหตุผล) · null = ไม่มีคำเตือน"
           }
         },
         "required": [
           "customerOwner",
           "taxDocumentOwner",
           "fieldSync",
-          "canIssueTaxDocumentNumber"
+          "canIssueTaxDocumentNumber",
+          "taxDocumentOwnerWarning"
         ]
       },
       "EffectiveConnectorDto": {
@@ -91488,6 +92362,11 @@
             "nullable": true,
             "description": "เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร)"
           },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขของระบบต้นทาง (ERP) — ตั้งได้ตอนสร้างผ่าน `PUT /invoices/external/{externalId}` เท่านั้น (D68-45)"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -91588,6 +92467,7 @@
         "required": [
           "id",
           "invoiceNo",
+          "externalId",
           "status",
           "customer",
           "periodFrom",
@@ -91947,6 +92827,11 @@
             "nullable": true,
             "description": "เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร)"
           },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขของระบบต้นทาง (ERP) — ตั้งได้ตอนสร้างผ่าน `PUT /invoices/external/{externalId}` เท่านั้น (D68-45)"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -92183,6 +93068,7 @@
         "required": [
           "id",
           "invoiceNo",
+          "externalId",
           "status",
           "customer",
           "periodFrom",
@@ -92999,6 +93885,11 @@
             "example": "PAY-2611-0001",
             "description": "เลขภายใน (ไม่ใช่ใบเสร็จ — D-56)"
           },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขของระบบต้นทาง (ERP) — ตั้งได้ตอนบันทึกผ่าน `PUT /payments/external/{externalId}` เท่านั้น (D68-45)"
+          },
           "customer": {
             "$ref": "#/components/schemas/PaymentCustomerDto"
           },
@@ -93124,6 +94015,7 @@
         "required": [
           "id",
           "paymentNo",
+          "externalId",
           "customer",
           "receivedDate",
           "method",
@@ -106489,6 +107381,11 @@
             "nullable": true,
             "description": "เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร)"
           },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขของระบบต้นทาง (ERP) — ตั้งได้ตอนสร้างผ่าน `PUT /invoices/external/{externalId}` เท่านั้น (D68-45)"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -106634,6 +107531,7 @@
         "required": [
           "id",
           "invoiceNo",
+          "externalId",
           "status",
           "customer",
           "periodFrom",
@@ -106675,6 +107573,11 @@
             "nullable": true,
             "description": "เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร)"
           },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขของระบบต้นทาง (ERP) — ตั้งได้ตอนสร้างผ่าน `PUT /invoices/external/{externalId}` เท่านั้น (D68-45)"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -106820,6 +107723,7 @@
         "required": [
           "id",
           "invoiceNo",
+          "externalId",
           "status",
           "customer",
           "periodFrom",
@@ -106861,6 +107765,11 @@
             "nullable": true,
             "description": "เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร)"
           },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขของระบบต้นทาง (ERP) — ตั้งได้ตอนสร้างผ่าน `PUT /invoices/external/{externalId}` เท่านั้น (D68-45)"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -107006,6 +107915,7 @@
         "required": [
           "id",
           "invoiceNo",
+          "externalId",
           "status",
           "customer",
           "periodFrom",
@@ -107047,6 +107957,11 @@
             "example": "PAY-2611-0001",
             "description": "เลขภายใน (ไม่ใช่ใบเสร็จ — D-56)"
           },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขของระบบต้นทาง (ERP) — ตั้งได้ตอนบันทึกผ่าน `PUT /payments/external/{externalId}` เท่านั้น (D68-45)"
+          },
           "customer": {
             "$ref": "#/components/schemas/PaymentCustomerDto"
           },
@@ -107132,6 +108047,7 @@
         "required": [
           "id",
           "paymentNo",
+          "externalId",
           "customer",
           "receivedDate",
           "method",
@@ -107163,6 +108079,11 @@
             "example": "PAY-2611-0001",
             "description": "เลขภายใน (ไม่ใช่ใบเสร็จ — D-56)"
           },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขของระบบต้นทาง (ERP) — ตั้งได้ตอนบันทึกผ่าน `PUT /payments/external/{externalId}` เท่านั้น (D68-45)"
+          },
           "customer": {
             "$ref": "#/components/schemas/PaymentCustomerDto"
           },
@@ -107248,6 +108169,7 @@
         "required": [
           "id",
           "paymentNo",
+          "externalId",
           "customer",
           "receivedDate",
           "method",
@@ -108316,6 +109238,62 @@
                   "action": "write",
                   "required": [
                     "orders:write"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "Forbidden_settings.read_webhooks.manage": {
+        "description": "ไม่มีสิทธิ์ (`settings:read` / `webhooks:manage` — มีตัวใดตัวหนึ่งก็พอ)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDto"
+            },
+            "examples": {
+              "permission_denied": {
+                "value": {
+                  "type": "https://docs.tms.example/problems/permission_denied",
+                  "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                  "status": 403,
+                  "code": "permission_denied",
+                  "instance": "/v1/webhooks",
+                  "requestId": "b6a1c2d3-…",
+                  "module": "settings",
+                  "action": "read",
+                  "required": [
+                    "settings:read",
+                    "webhooks:manage"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "Forbidden_settings.write_webhooks.manage": {
+        "description": "ไม่มีสิทธิ์ (`settings:write` / `webhooks:manage` — มีตัวใดตัวหนึ่งก็พอ)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDto"
+            },
+            "examples": {
+              "permission_denied": {
+                "value": {
+                  "type": "https://docs.tms.example/problems/permission_denied",
+                  "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                  "status": 403,
+                  "code": "permission_denied",
+                  "instance": "/v1/webhooks",
+                  "requestId": "b6a1c2d3-…",
+                  "module": "settings",
+                  "action": "write",
+                  "required": [
+                    "settings:write",
+                    "webhooks:manage"
                   ]
                 }
               }

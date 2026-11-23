@@ -1,6 +1,6 @@
 # invoices
 
-25 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+27 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -9,6 +9,8 @@
 | [`POST /v1/invoices/preview`](#post-invoices-preview) | `invoices:draft` |
 | [`GET /v1/invoices`](#get-invoices) | `invoices:read` |
 | [`POST /v1/invoices`](#post-invoices) | `invoices:draft` |
+| [`PUT /v1/invoices/external/{externalId}`](#put-invoices-external-externalId) | `invoices:draft` |
+| [`PATCH /v1/invoices/external/{externalId}`](#patch-invoices-external-externalId) | `invoices:draft` |
 | [`GET /v1/invoices/{id}`](#get-invoices-id) | `invoices:read` |
 | [`PATCH /v1/invoices/{id}`](#patch-invoices-id) | `invoices:draft` |
 | [`GET /v1/invoices/{id}/proforma`](#get-invoices-id-proforma) | `invoices:read` |
@@ -256,6 +258,128 @@ const { data, error } = await tms.POST('/v1/invoices', {
 });
 ```
 
+## สร้าง/แก้ร่างใบแจ้งหนี้ด้วยเลขของระบบต้นทาง (upsert — D68-45) {#put-invoices-external-externalId}
+
+`PUT /v1/invoices/external/{externalId}`
+
+scope: `invoices:draft` · operationId: `Invoices_upsertExternal`
+
+ยังไม่มีใบที่ externalId นี้ → สร้างร่าง (กติกาเดียวกับ `POST /invoices`) 201 · มีแล้ว → 200: ลูกค้า + ชุด DO ต้องตรงกับใบ (เพิ่ม/ถอด DO ใช้ `/invoices/{id}/delivery-orders…`) ไม่ตรง → 409 `conflict` · ช่องหัวใบ เหมือนเดิม → ใบเดิม version เดิม (ส่งซ้ำได้) · ต่าง: ร่าง → แก้ (เหมือน PATCH) · **ใบที่ออกแล้ว/ยกเลิกแก้ไม่ได้ → 409 `invalid_state_transition`** · externalId ตั้งได้ตอนสร้างเท่านั้น · ยกเลิกแล้วออกใหม่ (`/void` + reissue) ใบใหม่**ไม่รับ externalId เดิม** (ใบเดิมคง externalId ไว้) — ระบบต้นทางต้องใช้ externalId ใหม่ · path `{id}` ทุก route รับ `ext:{externalId}`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `externalId` | path | ใช่ | `string` | เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource |
+| `If-Match` | header |   | `string` | ETag — ใช้เมื่อใบมีอยู่แล้ว (ไม่ตรง → 412) |
+
+**Request body** `CreateInvoiceDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `customerId` | ใช่ | `string` |   | ลูกค้า — id หรือ `ext:{externalId}` | `cus_…` |
+| `deliveryOrderIds` | ใช่ | `array<string>` |   | ใบส่งของ ของลูกค้ารายนี้ที่ **ส่งบัญชีแล้ว** และยังผ่านเงื่อนไขคิวพร้อมวางบิลตอนดึง (ตรวจซ้ำทุกครั้ง) | `["do_…"]` |
+| `periodFrom` |   | `string` |   | งวดตั้งแต่ — ไม่ส่ง = วันที่ DO แรก | `2026-11-01` |
+| `periodTo` |   | `string` |   | งวดถึง — ไม่ส่ง = วันที่ DO สุดท้าย | `2026-11-15` |
+| `lineMode` |   | `string` | ค่า: `SINGLE`, `GROUP`, `MERGE` | ไม่ส่ง = SINGLE |   |
+| `releaseDeliveryOrders` |   | `boolean` |   | true = ส่งบัญชี DO ที่ยังไม่ส่งในคำขอเดียวกัน (atomic — ส่งไม่ผ่าน = 409 และไม่มีอะไรเปลี่ยน) · ไม่ส่ง/false = DO ต้องส่งบัญชีแล้ว |   |
+| `customerPoNo` |   | `string` | ยาว ≤ 60 · null ได้ | เลข ลูกค้า |   |
+| `note` |   | `string` | ยาว ≤ 1000 · null ได้ |   |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | มีอยู่แล้ว → ใบเดิม (แก้หัวร่างถ้าต่าง) | `InvoiceDto` |
+| `201` | ยังไม่มี → สร้างร่าง | `InvoiceDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:draft`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `409` | `not_ready_to_bill` — DO ยังไม่พร้อม (ตรวจซ้ำตอนดึง): `reasons[]` + `deliveryOrders[]` (ต่อ DO: `reasons`, `missing`) — รวม `NOT_RELEASED` (ยังไม่ส่งบัญชี) · `do_already_drafted` — DO อยู่ในใบแจ้งหนี้อื่นที่ยัง active · `invalid_state_transition` — ใบไม่ใช่ร่าง · `conflict` — ใบที่มีอยู่มีลูกค้า/ชุด DO ต่างจากที่ส่ง — [not_ready_to_bill](errors.md#not_ready_to_bill), [do_already_drafted](errors.md#do_already_drafted), [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress), [conflict](errors.md#conflict) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X PUT "$TMS_BASE_URL/v1/invoices/external/<externalId>" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"customerId":"cus_…","deliveryOrderIds":["do_…"],"periodFrom":"2026-11-01","periodTo":"2026-11-15"}'
+```
+
+```ts
+const { data, error } = await tms.PUT('/v1/invoices/external/{externalId}', {
+  params: { path: { externalId: "…" } },
+  body: {
+    "customerId": "cus_…",
+    "deliveryOrderIds": [
+      "do_…"
+    ],
+    "periodFrom": "2026-11-01",
+    "periodTo": "2026-11-15"
+  },
+});
+```
+
+## แก้หัวร่างด้วยเลขของระบบต้นทาง (= `PATCH /invoices/ext:{externalId}`) {#patch-invoices-external-externalId}
+
+`PATCH /v1/invoices/external/{externalId}`
+
+scope: `invoices:draft` · operationId: `Invoices_patchExternal`
+
+กติกาเดียวกับ `PATCH /invoices/{id}` — เฉพาะ DRAFT (ออกแล้ว → 409) · ยังไม่มีใบนี้ → 404 (สร้างใช้ PUT)
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `externalId` | path | ใช่ | `string` | เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource |
+| `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
+
+**Request body** `UpdateInvoiceDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `lineMode` |   | `string` | ค่า: `SINGLE`, `GROUP`, `MERGE` | รูปบรรทัดบนเอกสาร (Group / Merge / Single) |   |
+| `periodFrom` |   | `string` |   |   | `2026-11-01` |
+| `periodTo` |   | `string` |   |   | `2026-11-15` |
+| `creditTermDays` |   | `number` | ≥ 0 · ≤ 365 | เครดิต (วัน) — ค่าเริ่มจากลูกค้า แก้ได้ในร่าง |   |
+| `customerPoNo` |   | `string` | ยาว ≤ 60 · null ได้ |   |   |
+| `note` |   | `string` | ยาว ≤ 1000 · null ได้ |   |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `InvoiceDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:draft`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X PATCH "$TMS_BASE_URL/v1/invoices/external/<externalId>" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"periodFrom":"2026-11-01","periodTo":"2026-11-15"}'
+```
+
+```ts
+const { data, error } = await tms.PATCH('/v1/invoices/external/{externalId}', {
+  params: { path: { externalId: "…" } },
+  body: {
+    "periodFrom": "2026-11-01",
+    "periodTo": "2026-11-15"
+  },
+});
+```
+
 ## ใบแจ้งหนี้ + บรรทัด + บรรทัดบนเอกสาร (Group / Merge / Single) {#get-invoices-id}
 
 `GET /v1/invoices/{id}`
@@ -268,7 +392,7 @@ scope: `invoices:read` · operationId: `Invoices_get`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 
 **Responses**
 
@@ -305,7 +429,7 @@ scope: `invoices:draft` · operationId: `Invoices_update`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Request body** `UpdateInvoiceDto`
@@ -363,7 +487,7 @@ scope: `invoices:read` · operationId: `Invoices_proforma`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 
 **Responses**
 
@@ -401,7 +525,7 @@ DRAFT → ISSUED · ตรวจ → ไม่ผ่าน 409 `invoice_not_fina
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header | ใช่ | `string` | ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
 
 **Responses**
@@ -443,7 +567,7 @@ scope: `invoices:read` · operationId: `Invoices_issuedPdf`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `copy` | query |   | `string` ค่า: `ORIGINAL`, `COPY` |   |
 
 **Responses**
@@ -483,7 +607,7 @@ scope: `invoices:draft` · operationId: `Invoices_addDos`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Request body** `InvoiceDeliveryOrdersDto`
@@ -538,7 +662,7 @@ scope: `invoices:draft` · operationId: `Invoices_removeDos`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Request body** `RemoveInvoiceDeliveryOrdersDto`
@@ -595,7 +719,7 @@ scope: `invoices:draft` · operationId: `Invoices_moveDos`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Request body** `MoveInvoiceDeliveryOrdersDto`
@@ -652,7 +776,7 @@ scope: `invoices:draft` · operationId: `Invoices_addLine`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Request body** `AddInvoiceLineDto`
@@ -712,7 +836,7 @@ scope: `invoices:draft` · operationId: `Invoices_merge`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Request body** `InvoiceLineIdsDto`
@@ -768,7 +892,7 @@ audit `invoice.lines_split`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Request body** `InvoiceLineIdsDto`
@@ -824,7 +948,7 @@ scope: `invoices:draft` · operationId: `Invoices_updateLine`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `lineId` | path | ใช่ | `string` |   |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
@@ -879,7 +1003,7 @@ scope: `invoices:draft` · operationId: `Invoices_removeLine`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `lineId` | path | ใช่ | `string` |   |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
@@ -933,7 +1057,7 @@ DRAFT → CANCELLED · บรรทัดหยุดนับ · DO กลั�
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Request body** `InvoiceReasonDto`
@@ -986,7 +1110,7 @@ scope: `invoices:void` · operationId: `Invoices_void`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header | ใช่ | `string` | ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
 | `X-Step-Up` | header |   | `string` | stepUpToken จาก `POST /v1/auth/step-up` (ยืนยัน TOTP อายุ 5 นาที) — ผู้ใช้ต้องส่งทุกครั้ง ไม่งั้น 403 `step_up_required` · API key / OAuth client ไม่ต้อง |
 
@@ -1041,7 +1165,7 @@ scope: `invoices:finalize` · operationId: `Invoices_markSent`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Responses**
@@ -1082,7 +1206,7 @@ scope: `invoices:void` · operationId: `Invoices_unmarkSent`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header |   | `string` | ETag (version) จาก GET — ไม่ตรง → 412 |
 
 **Request body** `UnmarkInvoiceSentDto`
@@ -1134,7 +1258,7 @@ scope: `invoices:finalize` · operationId: `Invoices_send`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `Idempotency-Key` | header |   | `string` | ส่งซ้ำ key เดิม + body เดิม = ผลเดิม (ไม่ส่งอีเมลซ้ำ) เก็บ 24 ชม. |
 
 **Request body** `SendInvoiceDto`
@@ -1189,7 +1313,7 @@ scope: `invoices:read` · operationId: `Invoices_emails`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 
 **Responses**
 
@@ -1301,6 +1425,7 @@ const { data, error } = await tms.POST('/v1/invoice-runs', {
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `ivc_…` |
 | `invoiceNo` | ใช่ | `string` | null ได้ | เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร) |   |
+| `externalId` | ใช่ | `string` | null ได้ | เลขของระบบต้นทาง (ERP) — ตั้งได้ตอนสร้างผ่าน `PUT /invoices/external/{externalId}` เท่านั้น (D68-45) |   |
 | `status` | ใช่ | `string` | ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |   |
 | `customer` | ใช่ | `InvoiceCustomerDto` |   |   |   |
 | `periodFrom` | ใช่ | `string` | null ได้ |   |   |

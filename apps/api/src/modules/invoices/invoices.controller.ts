@@ -12,6 +12,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -40,6 +41,7 @@ import {
 } from '../../common/decorators';
 import { assertHumanStepUp } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
+import { ApiExternalIdParam, ExternalIdPipe, extRef } from '../../common/external-id';
 import { decodeIdOr404, tryDecodeId } from '../../common/ids';
 import { PROBLEMS, ProblemException } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
@@ -300,6 +302,64 @@ export class InvoicesController {
     return out;
   }
 
+  @Put('external/:externalId')
+  @RequireScope('invoices:draft')
+  @ApiExternalIdParam()
+  @ApiHeader({ ...IF_MATCH, description: 'ETag — ใช้เมื่อใบมีอยู่แล้ว (ไม่ตรง → 412)' })
+  @ApiOperation({
+    summary: 'สร้าง/แก้ร่างใบแจ้งหนี้ด้วยเลขของระบบต้นทาง (upsert — D68-45)',
+    description:
+      'ยังไม่มีใบที่ externalId นี้ → สร้างร่าง (กติกาเดียวกับ `POST /invoices`) 201 · มีแล้ว → 200: ' +
+      'ลูกค้า + ชุด DO ต้องตรงกับใบ (เพิ่ม/ถอด DO ใช้ `/invoices/{id}/delivery-orders…`) ไม่ตรง → 409 `conflict` · ' +
+      'ช่องหัวใบ (งวด/รูปบรรทัด/เลข PO/หมายเหตุ) เหมือนเดิม → ใบเดิม version เดิม (ส่งซ้ำได้) · ต่าง: ร่าง → แก้ (เหมือน PATCH) · ' +
+      '**ใบที่ออกแล้ว/ยกเลิกแก้ไม่ได้ → 409 `invalid_state_transition`** (docs/04 F3) · externalId ตั้งได้ตอนสร้างเท่านั้น · ' +
+      'ยกเลิกแล้วออกใหม่ (`/void` + reissue) ใบใหม่**ไม่รับ externalId เดิม** (ใบเดิมคง externalId ไว้) — ระบบต้นทางต้องใช้ externalId ใหม่ · ' +
+      'path `{id}` ทุก route รับ `ext:{externalId}`',
+  })
+  @ApiProblems(
+    T403('invoices:draft'),
+    {
+      ...PULL_409,
+      description: `${PULL_409.description} · \`conflict\` — ใบที่มีอยู่มีลูกค้า/ชุด DO ต่างจากที่ส่ง`,
+      examples: { ...PULL_409.examples, ...T409('conflict').examples },
+    },
+    T412,
+    T422,
+  )
+  @ApiOkResponse({ type: InvoiceDto, description: 'มีอยู่แล้ว → ใบเดิม (แก้หัวร่างถ้าต่าง)' })
+  @ApiCreatedResponse({ type: InvoiceDto, description: 'ยังไม่มี → สร้างร่าง' })
+  async upsertExternal(
+    @Param('externalId', ExternalIdPipe) externalId: string,
+    @Body() body: CreateInvoiceDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<InvoiceDto> {
+    const { out, created } = await this.svc.upsertExternal(externalId, body, expectedVersion(req));
+    res.status(created ? 201 : 200);
+    setEtag(res, out.version);
+    return out;
+  }
+
+  @Patch('external/:externalId')
+  @RequireScope('invoices:draft')
+  @ApiExternalIdParam()
+  @ApiOperation({
+    summary: 'แก้หัวร่างด้วยเลขของระบบต้นทาง (= `PATCH /invoices/ext:{externalId}`)',
+    description:
+      'กติกาเดียวกับ `PATCH /invoices/{id}` — เฉพาะ DRAFT (ออกแล้ว → 409) · ยังไม่มีใบนี้ → 404 (สร้างใช้ PUT)',
+  })
+  @ApiHeader(IF_MATCH)
+  @ApiProblems(T403('invoices:draft'), NF, T409(), T412, T422)
+  @ApiOkResponse({ type: InvoiceDto })
+  patchExternal(
+    @Param('externalId', ExternalIdPipe) externalId: string,
+    @Body() body: UpdateInvoiceDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<InvoiceDto> {
+    return this.update(extRef(externalId), body, req, res);
+  }
+
   @Get(':id')
   @TenantResource('invoice')
   @RequireScope('invoices:read')
@@ -315,7 +375,7 @@ export class InvoicesController {
     @Param('id') id: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
-    const uuid = decodeIdOr404('invoice', id);
+    const uuid = await this.svc.idOf(id);
     const out = await this.svc.get(uuid);
     // ST7-T15 เลขเอกสารสองฝั่ง (docs/04 G3) — ผลการส่งเข้าระบบบัญชี แยกจากสถานะเอกสาร
     out.sync = documentSyncDto(await this.mappings.documentSync('INVOICE', uuid));
@@ -346,7 +406,7 @@ export class InvoicesController {
       throw new ProblemException('permission_denied', undefined, undefined, {
         requiredScope: 'prices.sell:read',
       });
-    const { pdf } = await this.pdf.proforma(decodeIdOr404('invoice', id));
+    const { pdf } = await this.pdf.proforma(await this.svc.idOf(id));
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="proforma-${id}.pdf"`);
     return new StreamableFile(pdf);
@@ -421,7 +481,7 @@ export class InvoicesController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
-    const out = await this.finalizer.finalize(decodeIdOr404('invoice', id), expectedVersion(req));
+    const out = await this.finalizer.finalize(await this.svc.idOf(id), expectedVersion(req));
     setEtag(res, out.version);
     return out;
   }
@@ -453,7 +513,7 @@ export class InvoicesController {
       throw new ProblemException('permission_denied', undefined, undefined, {
         requiredScope: 'prices.sell:read',
       });
-    const f = await this.finalizer.downloadPdf(decodeIdOr404('invoice', id), q.copy ?? 'ORIGINAL');
+    const f = await this.finalizer.downloadPdf(await this.svc.idOf(id), q.copy ?? 'ORIGINAL');
     const data = f.data;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('X-Content-SHA256', f.sha256);
@@ -478,7 +538,7 @@ export class InvoicesController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
-    const out = await this.svc.update(decodeIdOr404('invoice', id), body, expectedVersion(req));
+    const out = await this.svc.update(await this.svc.idOf(id), body, expectedVersion(req));
     setEtag(res, out.version);
     return out;
   }
@@ -503,7 +563,7 @@ export class InvoicesController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
     const out = await this.svc.addDeliveryOrders(
-      decodeIdOr404('invoice', id),
+      await this.svc.idOf(id),
       body.deliveryOrderIds,
       expectedVersion(req),
     );
@@ -533,7 +593,7 @@ export class InvoicesController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
     const out = await this.svc.removeDeliveryOrders(
-      decodeIdOr404('invoice', id),
+      await this.svc.idOf(id),
       body.deliveryOrderIds,
       body.reason,
       expectedVersion(req),
@@ -566,7 +626,7 @@ export class InvoicesController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceMoveResultDto> {
     const out = await this.svc.moveDeliveryOrders(
-      decodeIdOr404('invoice', id),
+      await this.svc.idOf(id),
       body,
       expectedVersion(req),
     );
@@ -593,7 +653,7 @@ export class InvoicesController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
-    const out = await this.svc.addLine(decodeIdOr404('invoice', id), body, expectedVersion(req));
+    const out = await this.svc.addLine(await this.svc.idOf(id), body, expectedVersion(req));
     setEtag(res, out.version);
     return out;
   }
@@ -618,7 +678,7 @@ export class InvoicesController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
     const out = await this.svc.mergeLines(
-      decodeIdOr404('invoice', id),
+      await this.svc.idOf(id),
       body.lineIds,
       expectedVersion(req),
     );
@@ -644,7 +704,7 @@ export class InvoicesController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
     const out = await this.svc.splitLines(
-      decodeIdOr404('invoice', id),
+      await this.svc.idOf(id),
       body.lineIds,
       expectedVersion(req),
     );
@@ -672,7 +732,7 @@ export class InvoicesController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
     const out = await this.svc.updateLine(
-      decodeIdOr404('invoice', id),
+      await this.svc.idOf(id),
       decodeIdOr404('invoiceLine', lineId),
       body,
       expectedVersion(req),
@@ -702,7 +762,7 @@ export class InvoicesController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
     const out = await this.svc.removeLine(
-      decodeIdOr404('invoice', id),
+      await this.svc.idOf(id),
       decodeIdOr404('invoiceLine', lineId),
       body.reason,
       expectedVersion(req),
@@ -732,11 +792,7 @@ export class InvoicesController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
-    const out = await this.svc.cancel(
-      decodeIdOr404('invoice', id),
-      body.reason,
-      expectedVersion(req),
-    );
+    const out = await this.svc.cancel(await this.svc.idOf(id), body.reason, expectedVersion(req));
     setEtag(res, out.version);
     return out;
   }
@@ -805,7 +861,7 @@ export class InvoicesController {
   ): Promise<InvoiceDto> {
     assertHumanStepUp(); // D-67 — ตรวจหลัง validation/404 (ไม่ใช่ใน guard)
     const out = await this.canceller.void(
-      decodeIdOr404('invoice', id),
+      await this.svc.idOf(id),
       body.reason,
       body.reissue === true,
       expectedVersion(req),
@@ -834,7 +890,7 @@ export class InvoicesController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
-    const out = await this.status.markSent(decodeIdOr404('invoice', id), expectedVersion(req));
+    const out = await this.status.markSent(await this.svc.idOf(id), expectedVersion(req));
     setEtag(res, out.version);
     return out;
   }
@@ -859,7 +915,7 @@ export class InvoicesController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
     const out = await this.status.unmarkSent(
-      decodeIdOr404('invoice', id),
+      await this.svc.idOf(id),
       body.reason,
       expectedVersion(req),
     );
@@ -904,7 +960,7 @@ export class InvoicesController {
       throw new ProblemException('permission_denied', undefined, undefined, {
         requiredScope: 'prices.sell:read',
       });
-    return this.mail.sendInvoice(decodeIdOr404('invoice', id), body.to, body.purpose ?? 'DOCUMENT');
+    return this.mail.sendInvoice(await this.svc.idOf(id), body.to, body.purpose ?? 'DOCUMENT');
   }
 
   @Get(':id/emails')
@@ -918,8 +974,8 @@ export class InvoicesController {
   })
   @ApiProblems(T403('invoices:read'), NF)
   @ApiOkResponse({ type: DocumentEmailListDto })
-  emails(@Param('id') id: string): Promise<DocumentEmailListDto> {
-    return this.mail.list('invoice', decodeIdOr404('invoice', id));
+  async emails(@Param('id') id: string): Promise<DocumentEmailListDto> {
+    return this.mail.list('invoice', await this.svc.idOf(id));
   }
 }
 

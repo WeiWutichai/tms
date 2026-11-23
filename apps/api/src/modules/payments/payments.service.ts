@@ -10,7 +10,7 @@ import {
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { Clock } from '../../common/clock';
-import { EXT_PREFIX, EXTERNAL_ID_RE } from '../../common/external-id';
+import { EXT_PREFIX, EXTERNAL_ID_RE, lockExternalId, resolveRef } from '../../common/external-id';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { keysetArgs, toPage } from '../../common/pagination';
 import { redactPrices } from '../../common/price-fields';
@@ -54,6 +54,7 @@ export function toPaymentDto(r: PaymentRow): PaymentDto {
   return {
     id: encodeId('payment', r.id),
     paymentNo: r.paymentNo,
+    externalId: r.externalId,
     customer: {
       id: encodeId('customer', r.customer.id),
       code: r.customer.code,
@@ -142,6 +143,23 @@ export class PaymentsService {
     return toPage(rows, k, toPaymentDto, q.fields) as PaymentPageDto;
   }
 
+  /** `{id}` ของ path หรือ `ext:{externalId}` (D68-45) → uuid · ไม่พบ/ผิดรูปแบบ/tenant อื่น → 404 */
+  idOf(ref: string): Promise<string> {
+    return resolveRef(
+      'payment',
+      ref,
+      async (u) => u,
+      async (ext) => {
+        const r = await this.db.tx.payment.findFirst({
+          where: { externalId: ext },
+          select: { id: true },
+        });
+        if (!r) throw new ProblemException('not_found');
+        return r.id;
+      },
+    );
+  }
+
   async get(id: string, tx: Tx = this.db.tx): Promise<PaymentDto> {
     const r = await tx.payment.findUnique({ where: { id }, include: LOAD });
     if (!r) throw new ProblemException('not_found');
@@ -209,7 +227,7 @@ export class PaymentsService {
 
   // ---------- บันทึก ----------
 
-  async record(body: CreatePaymentDto): Promise<PaymentDto> {
+  async record(body: CreatePaymentDto, o: { externalId?: string } = {}): Promise<PaymentDto> {
     const tx = this.db.tx;
     const ctx = requestContext.require();
     const now = this.clock.now();
@@ -299,6 +317,7 @@ export class PaymentsService {
       data: {
         tenantId: ctx.tenantId!,
         paymentNo,
+        externalId: o.externalId ?? null,
         customerId,
         receivedDate: day(input.receivedDate),
         method: input.method,
@@ -351,6 +370,55 @@ export class PaymentsService {
     });
     await this.event(tx, 'payment.recorded', out, {});
     return out;
+  }
+
+  /**
+   * D-81 · D68-45 `PUT /payments/external/{externalId}` (docs/04 G1 "External id") — ERP อ้างการรับชำระด้วยรหัสของตัวเอง
+   * ยังไม่มี → บันทึก (กติกาเดียวกับ `POST /payments`) · มีแล้ว → **แก้ไม่ได้** (การรับชำระแก้เนื้อหาไม่ได้ — docs/04 F4):
+   * เนื้อหาเหมือนเดิม = 200 แถวเดิม (ส่งซ้ำได้ ไม่บันทึกซ้ำ) · ต่าง = 409 `conflict` (กลับรายการแล้วบันทึกใหม่ด้วย externalId ใหม่)
+   */
+  async upsertExternal(
+    externalId: string,
+    body: CreatePaymentDto,
+    expected: number | undefined,
+  ): Promise<{ out: PaymentDto; created: boolean }> {
+    const tx = this.db.tx;
+    await lockExternalId(tx, 'payment', externalId);
+    const cur = await tx.payment.findFirst({
+      where: { externalId },
+      include: { allocations: true },
+    });
+    if (!cur) return { out: await this.record(body, { externalId }), created: true };
+    if (expected !== undefined && expected !== cur.version)
+      throw new ProblemException('precondition_failed');
+    const input = this.validate(body, bangkokToday(this.clock.now()));
+    const same =
+      ymd(cur.receivedDate) === input.receivedDate &&
+      cur.method === input.method &&
+      cur.reference === input.reference &&
+      cur.chequeNo === input.chequeNo &&
+      cur.chequeBank === input.chequeBank &&
+      (cur.chequeDate ? ymd(cur.chequeDate) : null) === input.chequeDate &&
+      cur.amountReceived.equals(input.amountReceived) &&
+      cur.whtAmount.equals(input.whtAmount) &&
+      cur.whtCertificateNo === input.whtCertificateNo &&
+      cur.feeAmount.equals(input.feeAmount) &&
+      cur.differenceAmount.equals(input.differenceAmount) &&
+      cur.differenceReason === input.differenceReason &&
+      cur.note === input.note &&
+      cur.allocations.length === input.allocations.length &&
+      input.allocations.every((a) => {
+        const x = cur.allocations.find((c) => c.invoiceId === a.invoiceId);
+        return !!x && x.amount.equals(a.amount) && x.whtAmount.equals(a.whtAmount);
+      });
+    if (!same)
+      throw new ProblemException(
+        'conflict',
+        'payment with this externalId already recorded with different content — payments cannot be edited (reverse it and record again)',
+        undefined,
+        { id: encodeId('payment', cur.id), status: cur.status },
+      );
+    return { out: await this.get(cur.id, tx), created: false };
   }
 
   /**

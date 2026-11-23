@@ -1,6 +1,6 @@
 # payments
 
-8 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+9 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -9,6 +9,7 @@
 | [`GET /v1/payments/summary`](#get-payments-summary) | `invoices:read` |
 | [`GET /v1/payments/aging`](#get-payments-aging) | `invoices:read` |
 | [`GET /v1/payments/{id}`](#get-payments-id) | `invoices:read` |
+| [`PUT /v1/payments/external/{externalId}`](#put-payments-external-externalId) | `payments:record` |
 | [`POST /v1/payments/{id}/reverse`](#post-payments-id-reverse) | `payments:reverse` |
 | [`POST /v1/payments/{id}/bounce`](#post-payments-id-bounce) | `payments:reverse` |
 | [`POST /v1/payments/{id}/clear`](#post-payments-id-clear) | `payments:record` |
@@ -208,7 +209,7 @@ scope: `invoices:read` · operationId: `Payments_get`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 
 **Responses**
 
@@ -233,6 +234,87 @@ const { data, error } = await tms.GET('/v1/payments/{id}', {
 });
 ```
 
+## บันทึกรับชำระด้วยเลขของระบบต้นทาง (upsert — D68-45) {#put-payments-external-externalId}
+
+`PUT /v1/payments/external/{externalId}`
+
+scope: `payments:record` · operationId: `Payments_upsertExternal`
+
+ยังไม่มีการรับชำระที่ externalId นี้ → บันทึก (กติกาเดียวกับ `POST /payments`) 201 · มีแล้ว → **แก้ไม่ได้**: เนื้อหาเหมือนเดิม = 200 แถวเดิม (ส่งซ้ำได้ ไม่บันทึกซ้ำ) · ต่าง = 409 `conflict` — แถวที่กลับรายการแล้วก็เช่นกัน: ส่งซ้ำเนื้อหาเดิม = 200 แถวเดิมสถานะ `REVERSED` (ไม่บันทึกใหม่ — ดู `status`) · กลับรายการด้วย `POST /payments/{id}/reverse` แล้วบันทึกใหม่ด้วย externalId ใหม่ · ไม่มี `PATCH /payments/external/{externalId}` (การรับชำระแก้ไม่ได้) · path `{id}` ทุก route รับ `ext:{externalId}`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `externalId` | path | ใช่ | `string` | เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource |
+| `If-Match` | header |   | `string` | ETag — ใช้เมื่อแถวมีอยู่แล้ว (ไม่ตรง → 412) |
+
+**Request body** `CreatePaymentDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `receivedDate` | ใช่ | `string` |   | วันที่รับ (เวลาไทย) ≤ วันนี้ และไม่ก่อนวันที่ออกใบแจ้งหนี้ (422 `before_invoice_issue`) | `2026-11-21` |
+| `method` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH`, `OFFSET` | โอนเงิน / เช็ค / เงินสด · `OFFSET` (หักกลบลบหนี้) ยังปิด → 422 `method_not_available` (รอเครดิตลูกค้า BIL-058) |   |
+| `reference` |   | `string` | ยาว ≤ 100 | เลขอ้างอิงการโอน / หักกลบ (เช็คใช้ `chequeNo`) |   |
+| `chequeNo` |   | `string` | ยาว ≤ 30 | เลขที่เช็ค — **บังคับเมื่อ `CHEQUE`** |   |
+| `chequeBank` |   | `string` | ยาว ≤ 100 | ธนาคาร (สาขา) — **บังคับเมื่อ `CHEQUE`** |   |
+| `chequeDate` |   | `string` |   | วันที่หน้าเช็ค — **บังคับเมื่อ `CHEQUE`** | `2026-11-30` |
+| `amountReceived` | ใช่ | `string` |   | เงินเข้าจริง ≥ 0 | `24750.00` |
+| `whtAmount` |   | `string` |   | WHT ที่ลูกค้าหักไว้ | `250.00` |
+| `whtCertificateNo` |   | `string` | ยาว ≤ 40 | เลขที่หนังสือรับรอง 50 ทวิ ที่ลูกค้าแจ้ง |   |
+| `feeAmount` |   | `string` |   | ค่าธรรมเนียมโอนที่ลูกค้าหัก | `0.00` |
+| `differenceAmount` |   | `string` |   | ส่วนต่างที่ยอมตัดยอด (ลูกค้าจ่ายขาด) — > 0 ต้องมี `differenceReason` · เกินค่าตั้ง `payments.maxDifferenceAmount` (ค่าเริ่ม 10 บาท) ต้องมีสิทธิ์ `payments:reverse` ไม่มี = 403 `payment_difference_over_limit` (BIL-059) | `0.00` |
+| `differenceReason` |   | `string` | ยาว ≤ 500 · ยาว ≥ 10 | เหตุผลของส่วนต่าง |   |
+| `note` |   | `string` | ยาว ≤ 500 |   |   |
+| `allocations` | ใช่ | `array<PaymentAllocationInputDto>` | ≤ 50 รายการ |   |   |
+| `allocations[].invoiceId` | ใช่ | `string` |   | ใบแจ้งหนี้ที่ออกแล้วของลูกค้ารายเดียวกัน | `ivc_…` |
+| `allocations[].amount` | ใช่ | `string` |   | ยอดตัดหนี้ของใบนี้ (รวม WHT ที่ถูกหัก) > 0 และ ≤ ยอดคงค้าง | `25000.00` |
+| `allocations[].whtAmount` |   | `string` |   | WHT ที่ถูกหักของใบนี้ — ตัดใบเดียว: ไม่ส่ง = `whtAmount` ของการรับชำระ · หลายใบ: ส่งทุกใบ และรวม = `whtAmount` | `250.00` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | มีแล้ว เนื้อหาเหมือนเดิม → แถวเดิม | `PaymentDto` |
+| `201` | ยังไม่มี → บันทึก | `PaymentDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`payments:record`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `409` | `conflict` (มีแล้วแต่เนื้อหาต่าง) · `invoice_not_payable` · `payment_exceeds_outstanding` — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress), [conflict](errors.md#conflict) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X PUT "$TMS_BASE_URL/v1/payments/external/<externalId>" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"receivedDate":"2026-11-21","method":"TRANSFER","chequeDate":"2026-11-30","amountReceived":"24750.00","whtAmount":"250.00","feeAmount":"0.00","differenceAmount":"0.00","allocations":[{"invoiceId":"ivc_…","amount":"25000.00","whtAmount":"250.00"}]}'
+```
+
+```ts
+const { data, error } = await tms.PUT('/v1/payments/external/{externalId}', {
+  params: { path: { externalId: "…" } },
+  body: {
+    "receivedDate": "2026-11-21",
+    "method": "TRANSFER",
+    "chequeDate": "2026-11-30",
+    "amountReceived": "24750.00",
+    "whtAmount": "250.00",
+    "feeAmount": "0.00",
+    "differenceAmount": "0.00",
+    "allocations": [
+      {
+        "invoiceId": "ivc_…",
+        "amount": "25000.00",
+        "whtAmount": "250.00"
+      }
+    ]
+  },
+});
+```
+
 ## กลับรายการรับชำระ {#post-payments-id-reverse}
 
 `POST /v1/payments/{id}/reverse`
@@ -245,7 +327,7 @@ RECORDED → REVERSED · ยอดค้างของใบกลับมา 
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header | ใช่ | `string` | ETag (version) ของการรับชำระ — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
 
 **Request body** `PaymentReasonDto`
@@ -298,7 +380,7 @@ scope: `payments:reverse` · operationId: `Payments_bounce`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header | ใช่ | `string` | ETag (version) ของการรับชำระ — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
 
 **Request body** `PaymentReasonDto`
@@ -351,7 +433,7 @@ scope: `payments:record` · operationId: `Payments_clear`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
-| `id` | path | ใช่ | `string` |   |
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 | `If-Match` | header | ใช่ | `string` | ETag (version) ของการรับชำระ — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412 |
 
 **Responses**
@@ -406,6 +488,7 @@ const { data, error } = await tms.POST('/v1/payments/{id}/clear', {
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `pay_…` |
 | `paymentNo` | ใช่ | `string` |   | เลขภายใน | `PAY-2611-0001` |
+| `externalId` | ใช่ | `string` | null ได้ | เลขของระบบต้นทาง (ERP) — ตั้งได้ตอนบันทึกผ่าน `PUT /payments/external/{externalId}` เท่านั้น (D68-45) |   |
 | `customer` | ใช่ | `PaymentCustomerDto` |   |   |   |
 | `receivedDate` | ใช่ | `string` |   |   | `2026-11-21` |
 | `method` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH`, `OFFSET` |   |   |
