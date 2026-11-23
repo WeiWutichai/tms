@@ -47,7 +47,9 @@ import {
   type ErpHttpCall,
   isPendingCapability,
   NOT_IMPLEMENTED,
+  type ExternalDocumentPart,
   type ExternalRef,
+  MAX_EXTERNAL_DOCUMENTS,
   type PushResult,
 } from './erp-adapter';
 
@@ -114,16 +116,15 @@ function partyCodesOf(doc: CanonicalDocument): Record<string, string | null> {
   return out;
 }
 
-/** ST8-T08 จำนวนเอกสารฝั่ง ERP สูงสุดที่เก็บต่อเอกสาร TMS (`detail.documents`) */
-const MAX_EXTERNAL_DOCUMENTS = 200;
-
 /**
- * ST8-T08 เอกสารฝั่ง ERP ของผล push (ตัดขนาด/รูปผิดทิ้ง) — มีเพียงใบเดียว/ไม่มี = null (เก็บแบบเดิมใน external_id)
+ * ST8-T08 เอกสารฝั่ง ERP ของผล push (รูปผิดทิ้ง · adapter ต้องไม่เกิน MAX_EXTERNAL_DOCUMENTS — เกินตัดเพื่อกันขนาด) —
+ * น้อยกว่า `min` ใบ = null (ผลสำเร็จใบเดียว เก็บแบบเดิมใน external_id)
  */
 function externalDocumentsOf(
-  r: Extract<PushResult, { ok: true }>,
+  r: { documents?: readonly ExternalDocumentPart[] },
+  min = 2,
 ): Record<string, unknown>[] | null {
-  if (!Array.isArray(r.documents) || r.documents.length < 2) return null;
+  if (!Array.isArray(r.documents) || r.documents.length < min) return null;
   return r.documents.slice(0, MAX_EXTERNAL_DOCUMENTS).map((p) => ({
     ref: String(p.ref ?? '').slice(0, 100),
     externalId: String(p.externalId ?? '').slice(0, 100),
@@ -133,6 +134,37 @@ function externalDocumentsOf(
       ? (p.lineNos as readonly unknown[]).filter((n) => Number.isInteger(n)).slice(0, 2000)
       : [],
   }));
+}
+
+/**
+ * ST8-T08 (review H1) mapping ที่บันทึกการส่งไม่ครบ (`detail.documentsPartial`) → เอกสารฝั่ง ERP ที่สร้างแล้ว + รู้แน่ไหมว่ามีแค่นี้
+ * ไม่ใช่ = null
+ */
+function partialDocumentsOf(
+  detail: unknown,
+): { documents: ExternalDocumentPart[]; complete: boolean } | null {
+  const x = (detail ?? {}) as {
+    documentsPartial?: unknown;
+    documentsComplete?: unknown;
+    documents?: unknown;
+  };
+  if (x.documentsPartial !== true || !Array.isArray(x.documents)) return null;
+  const documents = x.documents.flatMap((p): ExternalDocumentPart[] => {
+    const q = (p ?? {}) as Record<string, unknown>;
+    if (typeof q.ref !== 'string' || typeof q.externalId !== 'string' || !q.externalId) return [];
+    return [
+      {
+        ref: q.ref,
+        externalId: q.externalId,
+        externalDocNo: typeof q.externalDocNo === 'string' ? q.externalDocNo : null,
+        group: typeof q.group === 'string' ? q.group : null,
+        lineNos: Array.isArray(q.lineNos)
+          ? (q.lineNos as unknown[]).filter((n): n is number => Number.isInteger(n))
+          : [],
+      },
+    ];
+  });
+  return { documents, complete: x.documentsComplete === true };
 }
 
 /** entity ที่เก็บ external_mapping หลัง push สำเร็จ (ST8-T16) */
@@ -660,6 +692,8 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     /** ST7-T16 วิธีส่ง (สร้างใหม่ / แทนที่ฉบับใน ERP) + hash ต่อกลุ่ม field ของสิ่งที่ส่ง */
     let mode: SendMode = { kind: 'push' };
     let parts: Record<SyncPart, string> | null = null;
+    /** ST8-T08 (review H1) mapping บันทึกว่าส่งไม่ครบ และรู้แน่ว่าฝั่ง ERP มีเอกสารใดบ้าง → ไม่ต้องค้นก่อนส่งซ้ำ */
+    let priorKnown = false;
     if (PUSH_OPERATIONS.has(operation)) {
       // รูปของ payload ก่อนเข้าประตู (REPLACE_DOCUMENT ต้องมีทั้ง ref และ document)
       if (operation === 'REPLACE_DOCUMENT' && (!payload.ref || !payload.document))
@@ -728,9 +762,16 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
               externalVersion: true,
               externalStatus: true,
               lastSyncedParts: true,
+              detail: true,
             },
           }),
         );
+        // ST8-T08 (review H1) ส่งครั้งก่อนไม่ครบ — บอก adapter ว่าสร้างใบใดไปแล้ว (ไม่สร้างซ้ำ) · ยังไม่ถือว่า "อยู่ใน ERP" (ไม่แทนที่)
+        const partial = partialDocumentsOf(prior?.detail);
+        if (partial) {
+          ctx.priorDocuments = partial.documents;
+          priorKnown = partial.complete;
+        }
         if (
           prior?.status === 'SYNCED' &&
           prior.externalId &&
@@ -767,7 +808,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
           connector,
           adapter,
           resolved.capabilities,
-          prior,
+          partial && prior ? { ...prior, externalId: null } : prior,
           ready,
           parts,
         );
@@ -820,6 +861,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
           sent,
           mode,
           parts,
+          priorKnown,
         },
       );
     } catch (e) {
@@ -868,6 +910,55 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
   }
 
   /**
+   * ST8-T08 (review H1) ส่งเอกสาร TMS ที่แยกเป็นหลายใบฝั่ง ERP ได้ไม่ครบ → mapping `PENDING` (ยังไม่ SYNCED) + `detail.documents`
+   * (`documentsPartial: true`, `documentsComplete` = adapter รู้แน่ว่ามีแค่นี้) · `external_id` / `external_doc_no` = ใบแรก ·
+   * ไม่แตะ `last_synced_hash` · mapping ที่ SYNCED อยู่แล้ว (เอกสารอยู่ใน ERP ครบ) ไม่ถูกแทน
+   */
+  private async recordPartial(
+    d: OutboxDelivery,
+    c: Connector,
+    payload: { document?: CanonicalDocument },
+    documents: readonly ExternalDocumentPart[],
+    complete: boolean,
+  ): Promise<void> {
+    const entity = MAPPED_ENTITIES[d.entityType];
+    const docs = externalDocumentsOf({ documents }, 1);
+    if (!entity || !docs) return;
+    const doc = payload.document ?? (payload as CanonicalDocument);
+    const number = typeof doc?.number === 'string' ? doc.number.slice(0, 60) : null;
+    const head = docs[0]!;
+    const detail = JSON.stringify({
+      documents: docs,
+      documentsPartial: true,
+      documentsComplete: complete,
+    });
+    const lastError = JSON.stringify({
+      code: 'erp_partial_push',
+      documentsCreated: docs.length,
+      outboxId: d.id,
+      at: this.clock.now().toISOString(),
+    });
+    await d.withTx(
+      (tx) => tx.$executeRaw`
+        INSERT INTO external_mapping (id, tenant_id, connector_id, entity_type, local_id, local_number, external_id,
+                                      external_doc_no, status, detail, last_error, created_by, updated_at)
+        VALUES (gen_random_uuid(), ${d.tenantId}::uuid, ${c.id}::uuid, ${entity}::"ExternalEntityType",
+                ${d.localId}::uuid, ${number}, ${head.externalId as string},
+                ${(head.externalDocNo as string | null) ?? null}, 'PENDING', ${detail}::jsonb,
+                ${lastError}::jsonb, 'system:erp-sink', now())
+        ON CONFLICT (connector_id, entity_type, local_id) DO UPDATE
+           SET external_id = EXCLUDED.external_id,
+               external_doc_no = EXCLUDED.external_doc_no,
+               local_number = coalesce(EXCLUDED.local_number, external_mapping.local_number),
+               status = 'PENDING',
+               detail = coalesce(external_mapping.detail, '{}'::jsonb) || EXCLUDED.detail,
+               last_error = EXCLUDED.last_error,
+               updated_by = 'system:erp-sink', version = external_mapping.version + 1, updated_at = now()
+         WHERE external_mapping.status <> 'SYNCED'`,
+    );
+  }
+
+  /**
    * ST8-T16 push สำเร็จ → `external_mapping` (เลข/สถานะฝั่ง ERP + hash ของ payload ที่ส่ง) — ส่งซ้ำ = อัปเดตแถวเดิม
    * ไม่ทับเลขเอกสาร/สถานะที่ได้จาก webhook แล้ว (ERP ตอบ "มีอยู่แล้ว" กับร่างที่ลงบัญชีไปแล้ว)
    */
@@ -905,9 +996,10 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
           ON CONFLICT (connector_id, entity_type, local_id) DO UPDATE
              SET external_id = EXCLUDED.external_id,
                  detail = CASE WHEN EXCLUDED.detail IS NOT NULL
-                               THEN coalesce(external_mapping.detail, '{}'::jsonb) || EXCLUDED.detail
+                               THEN (coalesce(external_mapping.detail, '{}'::jsonb)
+                                     - 'documentsPartial' - 'documentsComplete') || EXCLUDED.detail
                                WHEN external_mapping.detail ? 'documents'
-                               THEN external_mapping.detail - 'documents'
+                               THEN external_mapping.detail - 'documents' - 'documentsPartial' - 'documentsComplete'
                                ELSE external_mapping.detail END,
                  local_number = coalesce(EXCLUDED.local_number, external_mapping.local_number),
                  external_doc_no = coalesce(external_mapping.external_doc_no, EXCLUDED.external_doc_no),
@@ -956,25 +1048,35 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
    * - `SYNC_LOG` มี POST/PUT ของเอกสารนี้ไป connector นี้ในบันทึกการซิงก์ (คำสั่งใดก็ได้ — รวมคำสั่งที่ส่งใหม่)
    * - `EARLIER_COMMAND` คำสั่งก่อนหน้าของเอกสารนี้จบแบบไม่รู้ผล (AMBIGUOUS / lease_expired / worker_shutdown)
    */
-  private async earlierSend(d: OutboxDelivery, c: Connector): Promise<string | null> {
+  private async earlierSend(
+    d: OutboxDelivery,
+    c: Connector,
+    priorKnown = false,
+  ): Promise<string | null> {
     return d.withTx(async (tx) => {
       const self = await tx.integrationOutbox.findUnique({
         where: { id: d.id },
         select: { errorClass: true, lastError: true },
       });
-      const code = (self?.lastError as { code?: unknown } | null)?.code;
+      const last = self?.lastError as { code?: unknown; knownOutcome?: unknown } | null;
+      const code = last?.code;
       if (self?.errorClass === 'AMBIGUOUS') return 'AMBIGUOUS';
       if (d.attempt > 1 && (self?.errorClass == null || code === 'worker_shutdown'))
         return 'LEASE_RECLAIMED';
-      const sent = await tx.erpSyncLog.findFirst({
-        where: {
-          connectorId: c.id,
-          entityType: d.entityType,
-          localId: d.localId,
-          method: { in: ['POST', 'PUT'] },
-        },
-        select: { id: true },
-      });
+      // ST8-T08 (review H1/M2) adapter รายงานแน่ชัดว่าฝั่ง ERP มีเอกสารใด (รอบก่อนของคำสั่งนี้ / mapping ที่บันทึกการส่งไม่ครบ)
+      // → POST ใน sync log ไม่ใช่หลักฐานว่า "อาจถึงแล้ว" (ส่งต่อได้เลย ไม่ค้น/ไม่พัก) · ยังตรวจคำสั่งอื่นที่ค้างแบบไม่รู้ผลตามเดิม
+      const known = priorKnown || last?.knownOutcome === true;
+      const sent = known
+        ? null
+        : await tx.erpSyncLog.findFirst({
+            where: {
+              connectorId: c.id,
+              entityType: d.entityType,
+              localId: d.localId,
+              method: { in: ['POST', 'PUT'] },
+            },
+            select: { id: true },
+          });
       if (sent) return 'SYNC_LOG';
       const unsure = await tx.integrationOutbox.findFirst({
         where: {
@@ -1277,7 +1379,12 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     payload: { document?: CanonicalDocument; ref?: ExternalRef },
     secrets: string[],
     connector: Connector,
-    o: { sent: Record<string, unknown>; mode: SendMode; parts: Record<SyncPart, string> | null },
+    o: {
+      sent: Record<string, unknown>;
+      mode: SendMode;
+      parts: Record<SyncPart, string> | null;
+      priorKnown?: boolean;
+    },
   ): Promise<{ result: Record<string, unknown> }> {
     const { sent, mode, parts } = o;
     const doc = payload.document ?? (payload as CanonicalDocument);
@@ -1323,7 +1430,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
           // → หาเอกสารของเราฝั่ง ERP ก่อน (list/fetch) · พบ = จบด้วย mapping ไม่ส่งซ้ำ · ไม่พบ/ค้นไม่ได้ = ส่ง (ERP กันซ้ำด้วยเลขอ้างอิง)
           // ค้นแล้วปลายทางล่ม = TRANSIENT (ลองใหม่ตามตาราง — ไม่ส่งแบบไม่รู้ผล)
           if (entity) {
-            const evidence = await this.earlierSend(d, connector);
+            const evidence = await this.earlierSend(d, connector, o.priorKnown === true);
             if (evidence) {
               let f: Awaited<ReturnType<ErpAdapterSink['lookup']>>;
               try {
@@ -1392,6 +1499,13 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         },
       };
     }
+    // ST8-T08 (review H1) ส่งได้บางใบแล้วล้ม → เก็บใบที่สร้างแล้วใน mapping (ยังไม่ SYNCED) ให้รอบถัดไปไม่สร้างซ้ำ
+    if (entity && Array.isArray(r.documents) && r.documents.length)
+      await this.recordPartial(d, connector, payload, r.documents, r.documentsComplete === true);
+    /** ผลที่ adapter รายงานว่ารู้แน่ (เก็บใน last_error ของคำสั่ง → รอบถัดไปไม่ต้องค้นก่อนส่ง) */
+    const outcome = Array.isArray(r.documents)
+      ? { knownOutcome: r.documentsComplete === true, documentsCreated: r.documents.length }
+      : {};
     // ST7-T16 DUPLICATE (docs/01 §6.3): ERP มีเลขอ้างอิงนี้แล้ว — ไม่ใช่ error: หาเอกสารฝั่ง ERP แล้วบันทึก mapping (SYNCED เมื่อเนื้อหาตรง
     // · MISMATCH เมื่อต่าง/ไม่รู้) · หาไม่เจอ = FAILED_FINAL `duplicate_unresolved` ให้คนกรอกเลขจากระบบบัญชี (mapping MISMATCH)
     if (r.errorClass === 'DUPLICATE' && entity && mode.kind === 'push') {
@@ -1433,6 +1547,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
       await d.withTx((tx) => this.connectors.markError(tx, connector, problem));
     throw new OutboxSinkError(problem.message || problem.code, r.errorClass, {
       ...problem,
+      ...outcome,
       ...(Array.isArray(r.problem?.fields)
         ? {
             fields: r.problem.fields.slice(0, 50).map((f) => ({

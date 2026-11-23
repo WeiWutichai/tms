@@ -142,6 +142,11 @@ describe('A.1 สำเร็จ: POST 201 / PUT 200 / GET 200', () => {
     const got = await call('GET', `/invoice/${created.transactionNo}`);
     expect(got.body.lines.map((l: KrsInvoiceLine) => l.lineId)).toEqual([9]);
     expect(mock.getInvoice(created.transactionNo)?.revision).toBe(2);
+    // ST8-T08 fault `skip`: ปล่อย GET ครั้งแรกผ่าน แล้วล้มครั้งที่ 2
+    mock.injectFault({ status: 503, method: 'GET', skip: 1 });
+    expect((await call('GET', `/invoice/${created.transactionNo}`)).status).toBe(200);
+    expect((await call('GET', `/invoice/${created.transactionNo}`)).status).toBe(503);
+    expect((await call('GET', `/invoice/${created.transactionNo}`)).status).toBe(200);
     // ST8-T08 ตัวช่วยของ test: หาใบด้วย tmsVoucherNo (KRS จริงไม่มี endpoint นี้)
     expect(mock.getInvoiceByTmsVoucherNo('INV-1')?.transactionNo).toBe(created.transactionNo);
     expect(mock.getInvoiceByTmsVoucherNo('INV-NOPE')).toBeUndefined();

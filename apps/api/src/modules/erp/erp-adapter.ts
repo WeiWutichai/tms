@@ -83,6 +83,11 @@ export interface ErpContext {
    * ไม่มี = ไม่บันทึก (เช่น contract test / healthCheck) · ห้าม throw
    */
   onHttpCall?: (call: ErpHttpCall) => void;
+  /**
+   * ST8-T08 (review H1) เอกสารฝั่ง ERP ที่สร้างไปแล้วจากการส่งเอกสารนี้ครั้งก่อนที่ไม่ครบ (`PushResult.documents` ของผลล้ม) —
+   * adapter ที่แยกใบ **ต้องไม่สร้างซ้ำ** ใบที่ `ref` อยู่ในนี้ · ไม่มี = ยังไม่เคยสร้าง
+   */
+  priorDocuments?: readonly ExternalDocumentPart[];
 }
 
 /** ST7-T16 การเรียก HTTP 1 ครั้งของ adapter (ส่งให้ `ErpContext.onHttpCall`) — ไม่มี header */
@@ -249,7 +254,26 @@ export type PushResult =
       documents?: readonly ExternalDocumentPart[];
       raw?: unknown;
     }
-  | { ok: false; errorClass: ErrorClass; retryable: boolean; problem: Problem; raw?: unknown };
+  | {
+      ok: false;
+      errorClass: ErrorClass;
+      retryable: boolean;
+      problem: Problem;
+      /**
+       * ST8-T08 (review H1/M2) เอกสารฝั่ง ERP ที่ถูกสร้างแล้วจากการส่งเอกสาร TMS ใบนี้ (รวมที่ได้จาก `ctx.priorDocuments`) — ไม่ระบุ = adapter ไม่รายงาน
+       * มีรายการ = core เก็บใน external_mapping (ยังไม่ SYNCED) แล้วส่งกลับมาใน `ctx.priorDocuments` รอบถัดไป · `[]` = ไม่มีเอกสารใดถูกสร้าง
+       */
+      documents?: readonly ExternalDocumentPart[];
+      /**
+       * true = adapter **รู้แน่** ว่าฝั่ง ERP มีเฉพาะ `documents` (ใบที่ล้มได้คำตอบชัด/ไม่ได้ส่งออกไป) → core ส่งซ้ำได้โดยไม่ต้องค้นก่อน ·
+       * false/ไม่ระบุ = อาจมีเอกสารเพิ่ม (timeout / สายหลุด) → core ค้นก่อนส่งซ้ำตามกติกา ST7-T16
+       */
+      documentsComplete?: boolean;
+      raw?: unknown;
+    };
+
+/** ST8-T08 จำนวนเอกสารฝั่ง ERP สูงสุดต่อเอกสาร TMS — adapter ที่แยกใบต้องไม่สร้างเกินนี้ (เกิน = VALIDATION ก่อนส่ง) */
+export const MAX_EXTERNAL_DOCUMENTS = 200;
 
 /** ST8-T08 เอกสาร 1 ใบฝั่ง ERP ของเอกสาร TMS ที่ถูกแยกเป็นหลายใบ (`PushResult.documents`) */
 export interface ExternalDocumentPart {

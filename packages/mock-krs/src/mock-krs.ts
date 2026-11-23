@@ -111,6 +111,8 @@ export interface FaultSpec {
   method?: 'POST' | 'PUT' | 'GET';
   /** ใช้กี่ครั้ง (ค่าเริ่ม 1) · 0 = ทุกคำขอจนกว่าจะล้างสวิตช์ */
   times?: number;
+  /** ST8-T08 ปล่อยคำขอที่ตรงเงื่อนไข N ครั้งแรกผ่านไปก่อน (เช่น `skip: 1` = ล้มที่ POST ครั้งที่ 2) · ค่าเริ่ม 0 */
+  skip?: number;
 }
 
 /**
@@ -402,7 +404,9 @@ export class MockKrs {
       throw new HttpError(400, 'method must be POST, PUT or GET');
     const times = spec.times ?? 1;
     if (!Number.isInteger(times) || times < 0) throw new HttpError(400, 'times must be int >= 0');
-    this.faults = [...this.faults, { ...spec, kind, status, times, remaining: times }];
+    const skip = spec.skip ?? 0;
+    if (!Number.isInteger(skip) || skip < 0) throw new HttpError(400, 'skip must be int >= 0');
+    this.faults = [...this.faults, { ...spec, kind, status, times, skip, remaining: times }];
   }
 
   clearFaults(): void {
@@ -753,6 +757,10 @@ export class MockKrs {
     const i = this.faults.findIndex((f) => !f.method || f.method === method);
     if (i < 0) return null;
     const f = this.faults[i]!;
+    if (f.skip) {
+      f.skip -= 1;
+      return null;
+    }
     if (f.times !== 0) {
       f.remaining -= 1;
       if (f.remaining <= 0) this.faults.splice(i, 1);

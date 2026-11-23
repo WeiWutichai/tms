@@ -108,7 +108,7 @@ describe('KRS pushInvoice ครบวงจร (ST8-T08)', { timeout: 600_000 }
   const posts = () => mock.requests().filter((q) => q.method === 'POST');
 
   /** DO 1 ใบ (SO จาก KRS บริษัท NSF) + เที่ยว: รถบริษัท (มีชื่อคนขับ) หรือ รถร่วม (ไม่มีชื่อคนขับ) */
-  async function deliveryOrder(kind: 'own' | 'subcon') {
+  async function deliveryOrder(kind: 'own' | 'subcon' | 'subcon-blank') {
     const tag = `P${++seq}`;
     const site = (k: string) =>
       plat.customerSite.create({
@@ -134,7 +134,13 @@ describe('KRS pushInvoice ครบวงจร (ST8-T08)', { timeout: 600_000 }
         tripNo: `TRP-${tag}`,
         tripDate: new Date(`${today}T00:00:00Z`),
         vehiclePlateSnapshot: kind === 'own' ? '70-1234' : '71-9999',
-        ...(kind === 'own' ? { driverNameSnapshot: DRIVER } : { carrierNameSnapshot: CARRIER }),
+        ...(kind === 'own'
+          ? { driverNameSnapshot: DRIVER }
+          : // review L1: ชื่อคนขับที่เป็นช่องว่างล้วน = ไม่มีชื่อ
+            {
+              carrierNameSnapshot: CARRIER,
+              ...(kind === 'subcon-blank' ? { driverNameSnapshot: '   ' } : {}),
+            }),
       },
     });
     return plat.deliveryOrder.create({
@@ -391,6 +397,9 @@ describe('KRS pushInvoice ครบวงจร (ST8-T08)', { timeout: 600_000 }
     expect(logs[0]!.responseBody).toContain(got.transactionNo);
     expect(logs[0]!.requestBody).not.toContain(DRIVER);
     expect(JSON.stringify(logs)).not.toContain(KEY);
+    // review M1: KRS สะท้อนรายการกลับใน response — ชื่อคนขับต้องไม่อยู่ในแถวใดของ sync log
+    expect(JSON.stringify(logs)).not.toContain(DRIVER);
+    expect(logs[0]!.responseBody).toContain('"carPerson":"***"');
     // สั่งส่งซ้ำ (payload เดิม) = ไม่ POST ซ้ำ
     await plat.$executeRaw`UPDATE integration_outbox SET status = 'PENDING', attempt = 0 WHERE id = ${cmd.id}::uuid`;
     await drain();
@@ -462,17 +471,19 @@ describe('KRS pushInvoice ครบวงจร (ST8-T08)', { timeout: 600_000 }
   it('D-64: เที่ยวรถร่วมไม่มีชื่อคนขับ → เตือนตั้งแต่ร่าง · KRS ได้ carPerson = ชื่อบริษัทรถร่วม', async () => {
     const own = await deliveryOrder('own');
     const sub = await deliveryOrder('subcon');
+    const blank = await deliveryOrder('subcon-blank');
     const inv = await draft([
       { doId: own.id, vat: 'EXEMPT_TRANSPORT', amount: '1000.00' },
       { doId: sub.id, vat: 'EXEMPT_TRANSPORT', amount: '1200.00' },
+      { doId: blank.id, vat: 'EXEMPT_TRANSPORT', amount: '1100.00' },
     ]);
     const warn = (await getInv(inv.id)).erpWarnings;
     expect(warn).toEqual([
       {
         code: ERP_DRIVER_NAME_SUBSTITUTED,
-        message: expect.stringContaining('ชื่อบริษัทรถร่วมแทนชื่อคนขับ'),
+        message: expect.stringContaining('จะส่งชื่อบริษัทรถร่วมแทนชื่อคนขับ'),
         connectorId: conId,
-        deliveryOrderNos: [sub.doNo],
+        deliveryOrderNos: [sub.doNo, blank.doNo],
       },
     ]);
     const invoiceNo = await finalize(inv);
@@ -483,8 +494,18 @@ describe('KRS pushInvoice ครบวงจร (ST8-T08)', { timeout: 600_000 }
     expect(got.data.lines.map((l) => [l.flowNo, l.carPerson, l.carId])).toEqual([
       [own.doNo, DRIVER, '70-1234'],
       [sub.doNo, CARRIER, '71-9999'],
+      [blank.doNo, CARRIER, '71-9999'],
     ]);
     expect((await mapping(inv.uuid))?.status).toBe('SYNCED');
+    // review L1: ส่งแล้ว = ข้อความแบบอดีต (ไม่ใช่ "จะส่ง")
+    const after = (await getInv(inv.id)).erpWarnings;
+    expect(after[0].message).toContain('ส่งชื่อบริษัทรถร่วมแทนชื่อคนขับเข้าระบบบัญชีแล้ว');
+    expect(after[0].message).not.toContain('จะส่ง');
+    // review M1: ไม่มีชื่อคนขับใน sync log ของใบนี้ทั้ง request และ response
+    const cmd = (await commands(inv.uuid)).find((c) => c.operation === 'PUSH_INVOICE')!;
+    const logs = await plat.erpSyncLog.findMany({ where: { outboxId: cmd.id } });
+    expect(logs.length).toBeGreaterThan(0);
+    expect(JSON.stringify(logs)).not.toContain(DRIVER);
   });
 
   it('routing ตามนิติบุคคล: ใบที่ออกในนิติบุคคลที่ไม่มี connector ไม่ถูกส่งเข้า KRS และไม่มีคำเตือน', async () => {
@@ -531,5 +552,93 @@ describe('KRS pushInvoice ครบวงจร (ST8-T08)', { timeout: 600_000 }
       externalId: null,
       lastError: { code: 'krs_rejected', errorClass: 'VALIDATION' },
     });
+  });
+  /** ร่างใบที่แยก 2 เอกสาร KRS (ยกเว้น + 7%) แล้ว finalize */
+  async function splitInvoice() {
+    const d1 = await deliveryOrder('own');
+    const d2 = await deliveryOrder('own');
+    const inv = await draft([
+      { doId: d1.id, vat: 'EXEMPT_TRANSPORT', amount: '3000.00' },
+      { doId: d2.id, vat: 'VAT_7', amount: '400.00' },
+    ]);
+    const invoiceNo = await finalize(inv);
+    return { inv, invoiceNo };
+  }
+
+  for (const [label, status, retry] of [
+    ['503 (TRANSIENT — ลองใหม่ตามรอบ)', 503, 'auto'],
+    ['400 (VALIDATION — ส่งใหม่ด้วยมือ)', 400, 'manual'],
+  ] as const)
+    it(`review H1: ใบที่ 2 ล้ม ${label} → mapping เก็บใบแรก (ยังไม่ SYNCED) → ส่งซ้ำ POST เฉพาะใบที่ขาด → mapping ครบ 2 ใบ`, async () => {
+      mock.injectFault({ kind: 'status', status, method: 'POST', skip: 1, times: 1 });
+      const before = posts().length;
+      const { inv, invoiceNo } = await splitInvoice();
+      await drain();
+      expect(posts().length - before).toBe(2);
+      const first = mock.getInvoiceByTmsVoucherNo(invoiceNo)!;
+      expect(mock.getInvoiceByTmsVoucherNo(`${invoiceNo}-V7`)).toBeUndefined();
+      const cmd = (await commands(inv.uuid)).find((c) => c.operation === 'PUSH_INVOICE')!;
+      const row = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } });
+      expect(row).toMatchObject(
+        status === 503
+          ? { status: 'FAILED_RETRYABLE', errorClass: 'TRANSIENT' }
+          : { status: 'FAILED_FINAL', errorClass: 'VALIDATION' },
+      );
+      expect(row.lastError).toMatchObject({ knownOutcome: true, documentsCreated: 1 });
+      const m1 = await mapping(inv.uuid);
+      expect(m1).toMatchObject({
+        externalId: first.transactionNo,
+        externalDocNo: first.voucherNo,
+        lastSyncedHash: null,
+      });
+      expect(m1!.status).not.toBe('SYNCED');
+      expect(m1!.detail).toMatchObject({
+        documentsPartial: true,
+        documentsComplete: true,
+        documents: [{ ref: invoiceNo, externalId: first.transactionNo, group: 'EXEMPT_TRANSPORT' }],
+      });
+      // ส่งซ้ำ: อัตโนมัติ (TRANSIENT) / ผู้ใช้สั่งส่งใหม่ (VALIDATION → ตั้งคำสั่งกลับเป็น PENDING)
+      if (retry === 'manual')
+        await plat.$executeRaw`UPDATE integration_outbox SET status = 'PENDING', attempt = 0, done_at = NULL WHERE id = ${cmd.id}::uuid`;
+      await drain();
+      const sent = posts().slice(before + 2);
+      expect(sent).toHaveLength(1);
+      expect(sent[0]!.status).toBe(201);
+      const second = mock.getInvoiceByTmsVoucherNo(`${invoiceNo}-V7`)!;
+      expect(second).toBeTruthy();
+      expect(mock.listInvoices().filter((i) => i.data.tmsVoucherNo === invoiceNo)).toHaveLength(1);
+      expect(
+        (await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } })).status,
+      ).toBe('DONE');
+      const m2 = await mapping(inv.uuid);
+      expect(m2).toMatchObject({ status: 'SYNCED', externalId: first.transactionNo });
+      const detail = m2!.detail as Record<string, unknown>;
+      expect(detail.documentsPartial).toBeUndefined();
+      expect(detail.documentsComplete).toBeUndefined();
+      expect((detail.documents as { externalId: string }[]).map((x) => x.externalId)).toEqual([
+        first.transactionNo,
+        second.transactionNo,
+      ]);
+    });
+
+  it('review M2: ใบแรกล้ม 503 (ได้คำตอบชัด = ไม่มีใบใดถูกสร้าง) → ลองใหม่ตามปกติ ไม่พักคำสั่ง', async () => {
+    const d = await deliveryOrder('own');
+    const inv = await draft([{ doId: d.id, vat: 'EXEMPT_TRANSPORT', amount: '820.00' }]);
+    mock.injectFault({ kind: 'status', status: 503, method: 'POST', times: 1 });
+    const before = posts().length;
+    const invoiceNo = await finalize(inv);
+    await drain();
+    const cmd = (await commands(inv.uuid)).find((c) => c.operation === 'PUSH_INVOICE')!;
+    const row = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } });
+    expect(row).toMatchObject({ status: 'FAILED_RETRYABLE', errorClass: 'TRANSIENT' });
+    expect(row.lastError).toMatchObject({ knownOutcome: true, documentsCreated: 0 });
+    expect(await mapping(inv.uuid)).toBeNull();
+    await drain();
+    expect(posts().length - before).toBe(2);
+    expect((await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } })).status).toBe(
+      'DONE',
+    );
+    expect(mock.getInvoiceByTmsVoucherNo(invoiceNo)).toBeTruthy();
+    expect((await mapping(inv.uuid))?.status).toBe('SYNCED');
   });
 });

@@ -33,7 +33,7 @@ export class ErpDocumentWarningDto {
 }
 
 export const ERP_WARNINGS_DOC =
-  'D-64 (ST8-T08) คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว = `[]` · ' +
+  'D-64 (ST8-T08) คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว / วันที่ก่อนวันเริ่มซิงก์ = `[]` · ส่งสำเร็จแล้ว = ข้อความแบบอดีต · ' +
   'มีเฉพาะ `GET /{id}`';
 
 /**
@@ -50,7 +50,7 @@ export class ErpDocumentWarningsService {
   async invoiceWarnings(invoiceId: string, tx: Tx = this.db.tx): Promise<ErpDocumentWarningDto[]> {
     const inv = await tx.invoice.findUnique({
       where: { id: invoiceId },
-      select: { status: true, issuingCompanyId: true, issuingBranchId: true },
+      select: { status: true, issuingCompanyId: true, issuingBranchId: true, issueDate: true },
     });
     if (!inv || inv.status === 'CANCELLED') return [];
     const r = await this.resolver.forCompany(tx, inv.issuingCompanyId, inv.issuingBranchId);
@@ -58,30 +58,56 @@ export class ErpDocumentWarningsService {
       return [];
     const subs = r.adapter.fieldSubstitutions ?? [];
     if (!subs.includes('trip.driverName→trip.carrierName')) return [];
+    // ใบที่วันที่ก่อนวันเริ่มซิงก์ไม่ถูกส่ง (ST7-T16) = ไม่มีอะไรจะเตือน
+    const from = r.connector.syncFromDate?.toISOString().slice(0, 10);
+    const issued = inv.issueDate?.toISOString().slice(0, 10);
+    if (from && issued && issued < from) return [];
     const lines = await tx.invoiceLine.findMany({
       where: {
         invoiceId,
         active: true,
-        // ไม่มีชื่อคนขับ (null / ว่าง) แต่มีชื่อรถร่วม — ตรงกับเงื่อนไขใช้ค่าแทนของ adapter
+        deliveryOrder: { trip: { carrierNameSnapshot: { not: null } } },
+      },
+      orderBy: { lineNo: 'asc' },
+      select: {
         deliveryOrder: {
-          trip: {
-            carrierNameSnapshot: { not: null },
-            NOT: { carrierNameSnapshot: '' },
-            OR: [{ driverNameSnapshot: null }, { driverNameSnapshot: '' }],
+          select: {
+            doNo: true,
+            trip: { select: { driverNameSnapshot: true, carrierNameSnapshot: true } },
           },
         },
       },
-      orderBy: { lineNo: 'asc' },
-      select: { deliveryOrder: { select: { doNo: true } } },
     });
+    // ไม่มีชื่อคนขับ (null / ว่าง / ช่องว่างล้วน) แต่มีชื่อรถร่วม — ตรงกับเงื่อนไขใช้ค่าแทนของ adapter (review L1)
     const doNos = [
-      ...new Set(lines.map((l) => l.deliveryOrder?.doNo).filter((n): n is string => !!n)),
+      ...new Set(
+        lines
+          .filter(
+            (l) =>
+              !l.deliveryOrder?.trip?.driverNameSnapshot?.trim() &&
+              !!l.deliveryOrder?.trip?.carrierNameSnapshot?.trim(),
+          )
+          .map((l) => l.deliveryOrder?.doNo)
+          .filter((n): n is string => !!n),
+      ),
     ];
     if (!doNos.length) return [];
+    // ส่งสำเร็จแล้ว = แจ้งเป็นอดีต (review L1)
+    const synced = await tx.externalMapping.findFirst({
+      where: {
+        connectorId: r.connector.id,
+        entityType: 'INVOICE',
+        localId: invoiceId,
+        status: 'SYNCED',
+      },
+      select: { id: true },
+    });
     return [
       {
         code: ERP_DRIVER_NAME_SUBSTITUTED,
-        message: `ใบนี้จะส่งชื่อบริษัทรถร่วมแทนชื่อคนขับเข้าระบบบัญชี (${doNos.length} DO)`,
+        message: synced
+          ? `ใบนี้ส่งชื่อบริษัทรถร่วมแทนชื่อคนขับเข้าระบบบัญชีแล้ว (${doNos.length} DO)`
+          : `ใบนี้จะส่งชื่อบริษัทรถร่วมแทนชื่อคนขับเข้าระบบบัญชี (${doNos.length} DO)`,
         connectorId: encodeId('connector', r.connector.id),
         deliveryOrderNos: doNos.slice(0, MAX_DO_NOS),
       },

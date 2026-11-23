@@ -1,10 +1,11 @@
 import type { ErrorClass } from '../../modules/integration/outbox.types';
-import type {
-  CanonicalDocument,
-  ErpContext,
-  ExternalDocumentPart,
-  Problem,
-  PushResult,
+import {
+  MAX_EXTERNAL_DOCUMENTS,
+  type CanonicalDocument,
+  type ErpContext,
+  type ExternalDocumentPart,
+  type Problem,
+  type PushResult,
 } from '../../modules/erp/erp-adapter';
 import { safeHttpRequest, type SendOptions } from '../../modules/webhooks/webhook-http';
 import {
@@ -29,6 +30,8 @@ import {
  *   ใบออกในบริษัทที่ connector ผูก (PP) เสมอ
  * - ส่งทีละใบตามลำดับ · 201 → `transactionNo` / `voucherNo` · ผลรวม: ใบแรก = `externalId` / `externalDocNo` + `documents` ทุกใบ
  * - ทุก HTTP call รายงาน `ctx.onHttpCall` (sync log ST7-T16) — ไม่ส่ง header (`X-API-Key`) · `carPerson` (ชื่อคนขับ = ข้อมูลส่วนบุคคล) แทนด้วย `***`
+ * - ส่งไม่ครบ (review H1/M2): ผลล้มรายงาน `documents` (ใบที่สร้างแล้ว) + `documentsComplete` (ใบที่ล้มได้คำตอบชัด = รู้แน่) →
+ *   core เก็บใน mapping แล้วส่งกลับใน `ctx.priorDocuments` → รอบถัดไป POST เฉพาะใบที่ยังไม่มี · ใบแรกล้มแบบรู้แน่ = ลองใหม่ตามปกติ
  * - error: แปลง HTTP เป็น ErrorClass กลางแบบพื้นฐาน (docs/01 §6.3 / A.5 คอลัมน์ ErrorClass) — การจัดการเต็มของ A.5 (409 หา `transactionNo`,
  *   backoff, หยุดคิว ฯลฯ) = ST8-T09 · ส่งได้บางใบแล้วใบถัดไปล้ม = คืนผลล้มของใบนั้น (ข้อความบอกใบที่สร้างแล้ว · response 201 อยู่ใน sync log)
  *   — core ไม่ส่งซ้ำแบบไม่รู้ผล (มี POST ใน sync log → หาเอกสารก่อน — `fetchDocument` = ST8-T10)
@@ -141,6 +144,16 @@ export function redactKrsBody(body: KrsInvoiceRequest): unknown {
   };
 }
 
+/** ชื่อคนขับในข้อความ JSON (รวม response ที่ถูกตัดกลาง) → `***` — ใช้กับ body ที่ส่งเข้า sync log */
+export function maskKrsPersonText(text: string): string {
+  return (
+    text
+      .replace(/("carPerson"\s*:\s*)"(?:[^"\\]|\\.)*"/g, '$1"***"')
+      // response ที่ถูกตัดกลางค่า (ไม่มีเครื่องหมายปิด)
+      .replace(/("carPerson"\s*:\s*)"(?:[^"\\]|\\.)*$/, '$1"***')
+  );
+}
+
 /** response 201 → เลขที่ KRS ออก · JSON ถูกตัด/เสีย = หาเลขจากข้อความ (ใบถูกสร้างแล้ว — ห้ามทิ้งเลข) */
 export function parseKrsCreated(
   text: string,
@@ -221,7 +234,11 @@ async function postOne(
   key: string,
   d: KrsInvoiceDocument,
   http: Pick<SendOptions, 'allowPrivate' | 'resolver'>,
-): Promise<{ ok: true; transactionNo: string; voucherNo: string | null } | Fail> {
+): Promise<
+  { ok: true; transactionNo: string; voucherNo: string | null } | (Fail & { definite: boolean })
+> {
+  /** definite = รู้แน่ว่าใบนี้ไม่ถูกสร้าง (ได้คำตอบ HTTP ที่ไม่ใช่ 2xx / ไม่ได้ส่งออกไป) · timeout / สายหลุด / 2xx แปลก = ไม่รู้ */
+  const no = (f: Fail, definite: boolean) => ({ ...f, definite });
   const url = `${base}/invoice`;
   const started = Date.now();
   const at = new Date();
@@ -244,7 +261,8 @@ async function postOne(
       url,
       requestBody: redactKrsBody(d.body),
       status: r.status,
-      responseBody: r.status === null ? null : r.body,
+      // review M1: KRS สะท้อนรายการกลับ (มี carPerson) → ปิดชื่อคนขับก่อนเข้า sync log
+      responseBody: r.status === null ? null : maskKrsPersonText(r.body),
       errorCode:
         r.status === null
           ? (r.errorCode ?? 'network')
@@ -261,36 +279,54 @@ async function postOne(
     switch (r.errorCode) {
       case 'timeout':
         // ส่งออกไปแล้วแต่ไม่รู้ผล (docs/01 §6.3 / A.5) — core ไม่ POST ซ้ำทันที
-        return krsFail(
-          'AMBIGUOUS',
-          'timeout',
-          `KRS did not answer within ${KRS_PUSH_TIMEOUT_MS} ms`,
+        return no(
+          krsFail('AMBIGUOUS', 'timeout', `KRS did not answer within ${KRS_PUSH_TIMEOUT_MS} ms`),
+          false,
         );
       case 'network':
       case 'aborted':
-        return krsFail('TRANSIENT', 'unreachable', `KRS unreachable: ${r.errorMessage ?? ''}`);
+        // สายหลุดอาจเกิดหลังส่งถึงแล้ว — ไม่ถือว่ารู้แน่
+        return no(
+          krsFail('TRANSIENT', 'unreachable', `KRS unreachable: ${r.errorMessage ?? ''}`),
+          false,
+        );
       case 'ssrf_blocked':
-        return krsFail(
-          'VALIDATION',
-          'url_not_allowed',
-          r.errorMessage ?? 'destination not allowed',
+        return no(
+          krsFail('VALIDATION', 'url_not_allowed', r.errorMessage ?? 'destination not allowed'),
+          true,
         );
       default:
-        return krsFail('VALIDATION', 'invalid_request', r.errorMessage ?? 'cannot build request');
+        return no(
+          krsFail('VALIDATION', 'invalid_request', r.errorMessage ?? 'cannot build request'),
+          true,
+        );
     }
   }
-  if (r.status === 201 || r.status === 200) {
+  if (r.status === 201) {
     const got = parseKrsCreated(r.body);
     // สร้างแล้วแต่อ่านเลขไม่ได้ = ไม่รู้ผล (ห้ามส่งซ้ำแบบไม่รู้ — ได้ 409)
     if (!got)
-      return krsFail(
-        'AMBIGUOUS',
-        'invalid_response',
-        `KRS answered HTTP ${r.status} without a transactionNo for ${d.tmsVoucherNo}`,
+      return no(
+        krsFail(
+          'AMBIGUOUS',
+          'invalid_response',
+          `KRS answered HTTP 201 without a transactionNo for ${d.tmsVoucherNo}`,
+        ),
+        false,
       );
     return { ok: true, ...got };
   }
-  return classifyStatus(r.status, r.body, d.tmsVoucherNo);
+  // review L3: สัญญา POST = 201 เท่านั้น (A.1) — 2xx อื่นอาจสร้างแล้วหรือไม่ก็ได้ → AMBIGUOUS (ไม่ POST ซ้ำแบบไม่รู้ผล)
+  if (r.status >= 200 && r.status < 300)
+    return no(
+      krsFail(
+        'AMBIGUOUS',
+        'unexpected_status',
+        `KRS answered HTTP ${r.status} (contract: 201) for ${d.tmsVoucherNo}`,
+      ),
+      false,
+    );
+  return no(classifyStatus(r.status, r.body, d.tmsVoucherNo), true);
 }
 
 /** ST8-T08 ส่งใบแจ้งหนี้ 1 ใบ (อาจเป็นหลายเอกสาร KRS) */
@@ -342,19 +378,44 @@ export async function pushKrsInvoice(
       'เลขเอกสาร (tmsVoucherNo) ของใบที่แยกซ้ำกัน',
     );
 
+  // review L2: เกินจำนวนเอกสารที่ core เก็บได้ต่อใบ = ไม่ส่ง (ไม่ตัดทิ้งเงียบ)
+  if (plan.length > MAX_EXTERNAL_DOCUMENTS)
+    return krsFail(
+      'VALIDATION',
+      'krs_too_many_documents',
+      `ใบนี้ต้องแยกเป็น ${plan.length} เอกสารใน KRS — เกินเพดาน ${MAX_EXTERNAL_DOCUMENTS} (แบ่งรอบวางบิลให้เล็กลง)`,
+    );
+
+  // review H1: ใบที่สร้างไปแล้วในครั้งก่อน (core ส่งมาใน ctx.priorDocuments) ไม่ POST ซ้ำ
+  const prior = new Map((ctx.priorDocuments ?? []).map((p) => [p.ref, p]));
+  const planned = new Set(plan.map((p) => p.doc.tmsVoucherNo));
+  const stray = [...prior.keys()].filter((ref) => !planned.has(ref));
+  if (stray.length)
+    return krsFail(
+      'VALIDATION',
+      'krs_partial_plan_changed',
+      `เอกสารที่สร้างใน KRS แล้ว (${stray.join(', ').slice(0, 200)}) ไม่ตรงกับการแยกใบครั้งนี้ — ต้องให้คนตรวจ`,
+    );
   const created: ExternalDocumentPart[] = [];
   for (const p of plan) {
+    const known = prior.get(p.doc.tmsVoucherNo);
+    if (known) {
+      created.push({ ...known, group: p.group, lineNos: p.doc.lineNos });
+      continue;
+    }
     const r = await postOne(ctx, base, key, p.doc, http);
     if (!r.ok) {
-      if (!created.length) return r;
-      // ส่งได้บางใบแล้ว — ใบที่สร้างแล้วอยู่ใน sync log (response 201) · การกู้คืน (หา/กรอก transactionNo) = ST8-T09/T10
+      const { definite, ...fail } = r;
+      // review H1/M2: รายงานใบที่สร้างแล้ว (core เก็บใน mapping) + รู้แน่ไหมว่ามีแค่นี้ (ใบที่ล้มได้คำตอบชัด = ไม่ถูกสร้าง)
+      const out: Fail = { ...fail, documents: created, documentsComplete: definite };
+      if (!created.length) return out;
       const done = created.map((c) => `${c.ref}→${c.externalId}`).join(', ');
       return {
-        ...r,
+        ...out,
         problem: {
-          ...r.problem,
+          ...fail.problem,
           message:
-            `${r.problem.message} — part ${p.doc.tmsVoucherNo} failed after ${created.length} of ${plan.length} KRS document(s) were created (${done})`.slice(
+            `${fail.problem.message} — part ${p.doc.tmsVoucherNo} failed after ${created.length} of ${plan.length} KRS document(s) were created (${done})`.slice(
               0,
               500,
             ),
