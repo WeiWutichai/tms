@@ -388,9 +388,7 @@ describe('Dashboard บิล (ST9-T02)', { timeout: 300_000 }, () => {
     // ครบกำหนด = เกินกำหนด ∪ ใบค้างที่ครบวันนี้ (อยู่ในแท็บ "ออกแล้ว"/"ชำระบางส่วน" — การ์ดเหล่านี้คงนิยามเดิม)
     const dueToday = [...issued, ...partial].filter((x) => x.dueDate === today);
     expect(dueToday.map((x) => x.sellTotal)).toEqual(['321.07']);
-    expect(new Set(due.map((x) => x.id))).toEqual(
-      new Set([...over, ...dueToday].map((x) => x.id)),
-    );
+    expect(new Set(due.map((x) => x.id))).toEqual(new Set([...over, ...dueToday].map((x) => x.id)));
     expect(sum([s.sellOverdueOutstanding, ...dueToday.map((x) => x.sellOutstanding)])).toBe(
       s.sellDueOutstanding,
     );

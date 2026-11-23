@@ -699,8 +699,7 @@ export class InvoiceSummaryCountsDto {
   due!: number;
   @ApiPropertyOptional({
     example: '12821.07',
-    description:
-      'D-81 · D68-94 Σ ยอดค้างของใบครบกำหนด (ชุดเดียวกับ `due`) — `prices.sell:read`',
+    description: 'D-81 · D68-94 Σ ยอดค้างของใบครบกำหนด (ชุดเดียวกับ `due`) — `prices.sell:read`',
   })
   @PriceField('sell')
   sellDueOutstanding?: string;

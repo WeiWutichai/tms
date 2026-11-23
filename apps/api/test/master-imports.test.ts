@@ -664,9 +664,9 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
     );
     // D-81 · D68-21: เกินโควตา = คำเตือนรายแถว (แถวใหม่ส่วนเกิน) — ไม่ปฏิเสธทั้งไฟล์
     expect(q).toMatchObject({ status: 'validated', errorRows: 0, fileErrorCode: null });
-    const qw = (q.issues as { row: number; code: string; severity: string; message: string }[]).filter(
-      (i) => i.code === 'quota_exceeded',
-    );
+    const qw = (
+      q.issues as { row: number; code: string; severity: string; message: string }[]
+    ).filter((i) => i.code === 'quota_exceeded');
     expect(qw.map((i) => [i.row, i.severity])).toEqual([
       [2, 'warning'],
       [3, 'warning'],

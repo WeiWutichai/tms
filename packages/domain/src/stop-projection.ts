@@ -168,8 +168,13 @@ export function orderDeliveryEvent(
 ): Extract<SoEvent, 'deliver' | 'deliver_partial' | 'resume'> | null {
   let ev: Extract<SoEvent, 'deliver' | 'deliver_partial' | 'resume'> | null = null;
   if (f.allDelivered) ev = 'deliver';
-  else if (status === 'IN_TRANSIT' && f.anyDelivered && !f.movedAfterDelivery) ev = 'deliver_partial';
-  else if (status === 'PARTIALLY_DELIVERED' && f.moving && (f.movedAfterDelivery || !f.anyDelivered))
+  else if (status === 'IN_TRANSIT' && f.anyDelivered && !f.movedAfterDelivery)
+    ev = 'deliver_partial';
+  else if (
+    status === 'PARTIALLY_DELIVERED' &&
+    f.moving &&
+    (f.movedAfterDelivery || !f.anyDelivered)
+  )
     ev = 'resume';
   if (!ev) return null;
   return SO_TRANSITIONS[status]?.[ev] ? ev : null;

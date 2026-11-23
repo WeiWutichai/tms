@@ -340,7 +340,8 @@ export class OrderStateService {
     tx: Tx,
     dos: { id: string; status: string }[],
   ): Promise<boolean> {
-    const ids = (set: readonly string[]) => dos.filter((d) => set.includes(d.status)).map((d) => d.id);
+    const ids = (set: readonly string[]) =>
+      dos.filter((d) => set.includes(d.status)).map((d) => d.id);
     const last = async (docIds: string[], events: string[]) =>
       (
         await tx.docStatusHistory.aggregate({

@@ -317,12 +317,12 @@ describe('Dashboard บิล (ST9-T02)', () => {
     expect(screen.getByTestId('kpi-invOver-sub')).toHaveTextContent('ค้าง 12,500.00');
     const v = (id: string) => screen.getByTestId(id).textContent;
     await waitFor(() => expect(v('bill-ready-v')).toBe('2,987.05'));
-    expect([
-      v('bill-draft-v'),
-      v('bill-issued-v'),
-      v('bill-due-v'),
-      v('bill-partial-v'),
-    ]).toEqual(['3,500.50', '15,221.07', '12,821.07', '3,765.44']);
+    expect([v('bill-draft-v'), v('bill-issued-v'), v('bill-due-v'), v('bill-partial-v')]).toEqual([
+      '3,500.50',
+      '15,221.07',
+      '12,821.07',
+      '3,765.44',
+    ]);
     expect([
       v('bill-draft-n'),
       v('bill-ready-n'),

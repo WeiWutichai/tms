@@ -526,7 +526,11 @@ describe('stop projection / status cascade (ST4-T03)', () => {
       where: { docType: 'sales_order', docId: soId },
       orderBy: { at: 'asc' },
     });
-    expect(soHist.map((x) => x.event).slice(-3)).toEqual(['dispatch', 'deliver_partial', 'deliver']);
+    expect(soHist.map((x) => x.event).slice(-3)).toEqual([
+      'dispatch',
+      'deliver_partial',
+      'deliver',
+    ]);
   });
 
   it('เวลาเครื่องเพี้ยน → ไม่ไล่จนกว่าผู้จัดรถ "ใช้" (ทาง resolve ไล่สถานะ) · เที่ยวจบแล้ว event ที่มาทีหลังแม้ "ใช้" ไม่เปลี่ยนจุด/เที่ยว/DO', async () => {
