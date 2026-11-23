@@ -25,6 +25,7 @@ export const RECONCILE_OUTCOMES = [
   'MISMATCH',
   'REMOTE_MISSING',
   'ERP_UNREACHABLE',
+  'NOT_COMPARABLE',
 ] as const;
 
 export class ReconcileResultListQuery extends ListQuery {
@@ -144,6 +145,19 @@ export class ReconcileDocumentDiffDto {
   truncated!: boolean;
 }
 
+/** ST8-T11 เอกสารฝั่งระบบบัญชีที่ไม่ใช่ของใบนี้ */
+export class ReconcileRefMismatchDto {
+  @ApiProperty({ example: '100002' }) externalId!: string;
+  @ApiProperty({ example: 'INV-00000-6911-0001', description: 'เลขอ้างอิงที่ TMS คาด' })
+  expectedRef!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'เลขอ้างอิงที่อยู่ในเอกสารฝั่งระบบบัญชี',
+  })
+  actualRef!: string | null;
+}
+
 /**
  * ผลกระทบยอดกับระบบภายนอก 1 รายการ (ST7-T21; docs/01 §3.7 `reconcile_result`)
  * ตอนนี้มีเฉพาะ "ยอดรับชำระฝั่งระบบบัญชี ≠ TMS" (`check` = PAYMENT_STATUS) — การเทียบเอกสารรายบรรทัด = ST8-T11
@@ -186,7 +200,9 @@ export class ReconcileResultDto {
       '`remote_paid_at_invalid` วันที่รับชำระไม่มี/เป็นอนาคต/ก่อนวันออกใบ · `payment_rejected` กฎรับชำระของ TMS ไม่รับ (ดู `reason`) · ' +
       '`remote_missing` (ST7-T16) แทนที่/อ่านเอกสารแล้วระบบบัญชีตอบว่าไม่พบ — ส่งใหม่เป็นเลขใหม่ต้องให้บัญชีรับรู้ · ' +
       '`content_mismatch` (ST8-T11) เนื้อหาเอกสารในระบบบัญชีไม่ตรงกับที่ TMS ออก (ดู `documentDiff`) · ' +
-      '`erp_unreachable` (ST8-T11) อ่านเอกสารจากระบบบัญชีไม่สำเร็จจนหมดรอบลองใหม่ (INFO)',
+      '`erp_unreachable` (ST8-T11) อ่านเอกสารจากระบบบัญชีไม่สำเร็จจนหมดรอบลองใหม่ (INFO) · ' +
+      '`remote_ref_mismatch` (ST8-T11) เลขเอกสารฝั่งระบบบัญชีที่รู้ชี้ไปเอกสารที่ไม่ใช่ของใบนี้ (ดู `refMismatches`, MONEY) · ' +
+      '`not_comparable` (ST8-T11) เทียบเนื้อหาไม่ได้ — ระบบบัญชีนี้ไม่ประกาศส่วนที่เทียบได้ / ไม่มีข้อมูลการส่งของใบ (INFO, `reason`)',
   })
   code!: string | null;
   @ApiProperty({
@@ -214,6 +230,13 @@ export class ReconcileResultDto {
   @ApiPropertyOptional({ description: 'ระบบบัญชี − TMS — `prices.sell:read`' })
   @PriceField('sell')
   sellDifferenceAmount?: string;
+  @ApiProperty({
+    type: [ReconcileRefMismatchDto],
+    nullable: true,
+    description:
+      'ST8-T11 `code` remote_ref_mismatch: เอกสารฝั่งระบบบัญชีที่เลขที่รู้ชี้ไป แต่เลขอ้างอิงของเราในเอกสารไม่ตรง (ไม่ใช่ของใบนี้) · อื่น ๆ = null',
+  })
+  refMismatches!: ReconcileRefMismatchDto[] | null;
   @ApiProperty({
     type: ReconcileDocumentDiffDto,
     nullable: true,

@@ -1,3 +1,4 @@
+import { scopeAllows } from '@tms/domain';
 import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
 import { ApiAcceptedResponse, ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import {
@@ -39,7 +40,7 @@ const E409_RUN = {
   status: 409,
   description:
     '`invalid_state_transition` — connector นี้ดึงสถานะรับชำระไม่ได้ตอนนี้ (`reason`: `connector_not_active` ยังไม่เปิดใช้/หยุดอยู่ · ' +
-    '`capability_not_enabled` ระบบบัญชีนี้ไม่รองรับหรือยังไม่เปิด `fetchPaymentStatus` (DOCUMENT: `fetchDocument`) · `adapter_unavailable`)',
+    '`capability_not_enabled` ระบบบัญชีนี้ไม่รองรับหรือยังไม่เปิด `fetchPaymentStatus` (DOCUMENT: `fetchDocument`) · `adapter_unavailable` · DOCUMENT: `connector_unhealthy` ระบบบัญชีไม่ตอบ คิวพักอยู่)',
   examples: {
     invalid_state_transition: prob(
       'invalid_state_transition',
@@ -93,7 +94,8 @@ export class ReconcileController {
 
   @Post('reconcile-runs')
   @HttpCode(202)
-  @RequireScope('settings:write')
+  // ST8-T11 (docs/01 §6.5 "บัญชีแก้แล้วอยากยืนยัน"): DOCUMENT สั่งได้ด้วย integrations:retry (role บัญชีมี) · PAYMENT_STATUS ยังต้อง settings:write
+  @RequireScope('settings:write', 'integrations:retry')
   @ApiAcceptedResponse({
     type: ReconcileRunDto,
     description:
@@ -101,7 +103,8 @@ export class ReconcileController {
       '· `check` DOCUMENT (ST8-T11): อ่านใบแจ้งหนี้ที่เลือก (`invoiceIds` 1–200) กลับจากระบบบัญชีแล้วเทียบเนื้อหา (คำสั่ง FETCH_DOCUMENT ผ่านคิวของ connector · ' +
       'ต้องมี `reason` ≥ 10 ตัวอักษร ลง audit · ใบที่ไม่อยู่ในระบบบัญชีนี้คืนใน `notInErp` · ผลดูที่ `GET /reconcile-results` และ `sync.reconcileState` ของใบ) ' +
       '(ปกติระบบดึงเองวันละครั้งตั้งแต่ 06:00 น.) · ทำงานเบื้องหลัง — ผลดูที่ `GET /payments` (รายการ source CONNECTOR) และ `GET /reconcile-results` · ' +
-      'มีรอบของ connector นี้ค้างอยู่ = `ALREADY_QUEUED` · connector ไม่พบ → 404 · ดึงไม่ได้ตอนนี้ → 409 · เฉพาะผู้ใช้ (API key สั่งไม่ได้ → 403)',
+      'มีรอบของ connector นี้ค้างอยู่ = `ALREADY_QUEUED` · connector ไม่พบ → 404 · ดึงไม่ได้ตอนนี้ → 409 · เฉพาะผู้ใช้ (API key สั่งไม่ได้ → 403) · ' +
+      'สิทธิ์: PAYMENT_STATUS ต้อง `settings:write` · DOCUMENT ใช้ `settings:write` หรือ `integrations:retry` (ฝ่ายบัญชี — docs/01 §6.5)',
   })
   @ApiProblems(E409_RUN)
   async run(@Body() body: CreateReconcileRunDto): Promise<ReconcileRunDto> {
@@ -141,6 +144,8 @@ export class ReconcileController {
         notInErp: [...bad, ...r.notInErp.map((u) => encodeId('invoice', u))],
       };
     }
+    if (!scopeAllows(requestContext.require().scopes ?? [], 'settings:write'))
+      throw new ProblemException('forbidden', 'PAYMENT_STATUS requires settings:write');
     const why = await this.pull.whyNot(tenantId, row);
     if (why)
       throw new ProblemException('invalid_state_transition', undefined, undefined, { reason: why });

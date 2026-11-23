@@ -77,6 +77,8 @@ export interface NotificationVars {
    * ST8-T11 เนื้อหาใบแจ้งหนี้ในระบบบัญชีไม่ตรงกับที่ TMS ออก (docs/01 §6.5) · label = ชื่อระบบบัญชี · connectorId = รวมกลุ่มต่อ connector ·
    * count = ใบที่พบส่วนต่างใหม่ · invoiceNos = ตัวอย่างเลขใบไม่เกิน 5 · money = มีส่วนต่างระดับ MONEY (รายการหาย/เกิน/ยอด) · ไม่ใส่ยอดเงิน
    */
+  /** ST8-T11 อ่านเอกสารจากระบบบัญชีไม่สำเร็จ 2 รอบติด (ERP_UNREACHABLE) · label = ชื่อระบบบัญชี · invoiceNo = ใบล่าสุดที่อ่านไม่ได้ */
+  'connector.reconcile_unreachable': { label: string; invoiceNo: string };
   'reconcile.document_mismatch_found': {
     label: string;
     connectorId: string;
@@ -723,6 +725,16 @@ const TEMPLATES: {
           ? ` (${v.invoiceNos.map((x) => safeName(x, 40)).join(', ')}${v.count > v.invoiceNos.length ? ' …' : ''})`
           : ''
       } — TMS does not adjust them automatically; fix the cause.`,
+    }),
+  },
+  'connector.reconcile_unreachable': {
+    th: (v) => ({
+      title: 'กระทบยอดกับระบบบัญชีไม่ได้',
+      body: `อ่านเอกสารจาก ${safeName(v.label, 80)} ไม่สำเร็จ 2 รอบติดกัน (ล่าสุด ${safeName(v.invoiceNo, 40)}) — ตรวจการเชื่อมต่อ และแจ้งผู้ดูแลระบบบัญชี`,
+    }),
+    en: (v) => ({
+      title: 'Cannot reconcile with the accounting system',
+      body: `Reading documents from ${safeName(v.label, 80)} failed in 2 consecutive rounds (latest ${safeName(v.invoiceNo, 40)}) — check the connection and inform the accounting system administrator.`,
     }),
   },
   'reconcile.document_mismatch_found': {

@@ -5,7 +5,7 @@ import { type MockKrs, startMockKrs } from '@tms/mock-krs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { KrsAdapter } from '../src/erp-adapters/krs/krs.adapter';
-import type { CanonicalDocument } from '../src/modules/erp/erp-adapter';
+import { type CanonicalDocument, ErpAdapterError } from '../src/modules/erp/erp-adapter';
 import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
 import {
   DocumentReconcileService,
@@ -129,6 +129,20 @@ describe('compareDocuments (ST8-T11) — ไม่แตะฐานข้อม
     expect(p.diff.header).toEqual([
       { field: 'parts[INV-1-V7].dueDate', local: null, remote: '2027-01-01' },
     ]);
+  });
+
+  it('canonical รุ่นเก่า (onlyLocalPaths): ช่องที่ฉบับที่ส่งไม่มีไม่เทียบ · เลขประจำตัวผู้เสียภาษีรถร่วมเก็บ ***', () => {
+    const a = doc([line(1)]);
+    const b = doc([line(1, { route: { originName: 'A', destinationName: 'B' }, newField: 'x' })], {
+      newHeader: 'y',
+    });
+    expect(compareDocuments(a, b).matched).toBe(false);
+    expect(compareDocuments(a, b, { onlyLocalPaths: true }).matched).toBe(true);
+    const r = compareDocuments(
+      doc([], { carrier: { taxId: '1234567890123' } }),
+      doc([], { carrier: { taxId: '' } }),
+    );
+    expect(r.diff.header).toEqual([{ field: 'carrier.taxId', local: '***', remote: null }]);
   });
 
   it('วันทำการสุดท้ายของเดือน (จันทร์–ศุกร์)', () => {
@@ -632,8 +646,17 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
       errorClass: 'TRANSIENT',
       code: 'unreachable',
     };
+    const unreach = () =>
+      plat.notification.count({
+        where: { tenantId, templateCode: 'connector.reconcile_unreachable', channel: 'in_app' },
+      });
     await engine.onSettled(cmd);
+    expect(await unreach()).toBe(0); // รอบแรก = ยังไม่แจ้ง
     await engine.onSettled(cmd);
+    // 2 รอบติด → แจ้งผู้ดูแลการเชื่อมต่อฝั่ง TMS (role บัญชีมี integrations:retry) ครั้งเดียว
+    expect(await unreach()).toBe(1);
+    await engine.onSettled(cmd);
+    expect(await unreach()).toBe(1);
     const rows = await results(inv.uuid);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ result: 'ERP_UNREACHABLE', severity: 'INFO' });
@@ -644,7 +667,7 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
   });
 
   it('สั่งเอง: เหตุผล < 10 = 422 · ไม่เลือกใบ = 422 · ใบที่ไม่อยู่ใน ERP = notInErp · tenant อื่น = 404', async () => {
-    // ไม่มี settings:write (role บัญชี) = 403
+    // ฝ่ายบัญชี (integrations:retry) สั่งเทียบเอกสารได้ (docs/01 §6.5) · ดึงสถานะรับชำระยังต้อง settings:write
     const acc = await api(app, accounting)
       .post('/v1/reconcile-runs')
       .send({
@@ -653,7 +676,25 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
         invoiceIds: ['ivc_x'],
         reason: 'ตรวจซ้ำหลังแก้ในระบบบัญชี',
       });
-    expect(acc.status).toBe(403);
+    expect(acc.status, JSON.stringify(acc.body)).toBe(202);
+    expect(acc.body.notInErp).toEqual(['ivc_x']);
+    const pay = await api(app, accounting)
+      .post('/v1/reconcile-runs')
+      .send({ connectorId: conId, check: 'PAYMENT_STATUS' });
+    expect(pay.status).toBe(403);
+    const planner = await tokenFor(tenantId, 'orders:read', 'u-pln');
+    expect(
+      (
+        await api(app, planner)
+          .post('/v1/reconcile-runs')
+          .send({
+            connectorId: conId,
+            check: 'DOCUMENT',
+            invoiceIds: ['ivc_x'],
+            reason: 'ตรวจซ้ำหลังแก้ในระบบบัญชี',
+          })
+      ).status,
+    ).toBe(403);
     const bad = await api(app, admin)
       .post('/v1/reconcile-runs')
       .send({ connectorId: conId, check: 'DOCUMENT', invoiceIds: ['ivc_x'], reason: 'สั้น' });
@@ -708,22 +749,157 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
     expect((await jobs()).map((j) => j.payload)).toEqual([
       { connectorId: conUuid, source: 'NIGHTLY', day: '2026-11-24' },
     ]);
-    // 2026-11-30 (จันทร์ — วันทำการสุดท้าย) 16:59 ไทย = NIGHTLY เท่านั้น · 17:00 = PRE_CLOSE
-    expect(await engine.scheduleRounds(new Date('2026-11-30T09:59:00Z'))).toBe(1);
+    // NIGHTLY เฉพาะ 02:00–06:00 — 06:00 ไทย (2026-11-24T23:00Z = 25 พ.ย. 06:00) ไม่ตั้งแล้ว
+    expect(await engine.scheduleRounds(new Date('2026-11-24T23:00:00Z'))).toBe(0);
+    // 2026-11-30 (จันทร์ — วันทำการสุดท้าย) 16:59 ไทย = ไม่มีรอบ · 17:00 = PRE_CLOSE
+    expect(await engine.scheduleRounds(new Date('2026-11-30T09:59:00Z'))).toBe(0);
     expect(await engine.scheduleRounds(new Date('2026-11-30T10:00:00Z'))).toBe(1);
     expect(await engine.scheduleRounds(new Date('2026-11-30T12:00:00Z'))).toBe(0);
     expect((await jobs()).map((j) => (j.payload as { source: string }).source).sort()).toEqual([
-      'NIGHTLY',
       'NIGHTLY',
       'PRE_CLOSE',
     ]);
     // 2026-11-27 (ศุกร์ ไม่ใช่วันทำการสุดท้าย) 18:00 ไทย = ไม่มี PRE_CLOSE
     await plat.job.deleteMany({ where: { tenantId, type: RECONCILE_JOB } });
-    expect(await engine.scheduleRounds(new Date('2026-11-27T11:00:00Z'))).toBe(1);
-    expect((await jobs()).map((j) => (j.payload as { source: string }).source)).toEqual([
-      'NIGHTLY',
-    ]);
+    expect(await engine.scheduleRounds(new Date('2026-11-27T11:00:00Z'))).toBe(0);
+    // connector ที่ health กำลังล้ม (คิวพัก) = ไม่ตั้งรอบ
+    await plat.connector.update({
+      where: { id: conUuid },
+      data: { healthFailingSince: new Date() },
+    });
+    expect(await engine.scheduleRounds(new Date('2026-11-23T19:00:00Z'))).toBe(0);
+    expect((await engine.runRound(tenantId, conUuid, 'NIGHTLY', today)).skipped).toBe(
+      'connector_unhealthy',
+    );
+    await plat.connector.update({ where: { id: conUuid }, data: { healthFailingSince: null } });
     await plat.job.deleteMany({ where: { tenantId, type: RECONCILE_JOB } });
+  });
+
+  it('ฐานของการส่ง: แก้รหัสสินค้า ERP หลังส่ง ไม่ทำให้ MISMATCH (เทียบกับค่าที่ส่งจริง) · ไม่มีฐาน = NOT_COMPARABLE (INFO ครั้งเดียว)', async () => {
+    const inv = await issued(await deliveryOrders(2));
+    const push = (
+      await plat.integrationOutbox.findMany({
+        where: { tenantId, localId: inv.uuid, operation: 'PUSH_INVOICE', status: 'DONE' },
+      })
+    )[0]!;
+    expect(
+      (push.result as { reconcileBasis: { itemCodes: unknown } }).reconcileBasis.itemCodes,
+    ).toEqual({
+      [freight]: 'SAMPLE-ITEM-FRT',
+    });
+    expect(JSON.stringify(push.result)).not.toContain(KEY); // ไม่เก็บ credential
+    await plat.erpCodeMapping.updateMany({
+      where: { tenantId, connectorId: conUuid, serviceItemId: freight },
+      data: { itemCode: 'SAMPLE-ITEM-FRT-NEW' },
+    });
+    await engine.scheduleAfterPush();
+    await drain();
+    expect(await mapping(inv.uuid)).toMatchObject({ reconcileState: 'ACCEPTED' });
+    expect(await results(inv.uuid)).toHaveLength(0);
+    await plat.erpCodeMapping.updateMany({
+      where: { tenantId, connectorId: conUuid, serviceItemId: freight },
+      data: { itemCode: 'SAMPLE-ITEM-FRT' },
+    });
+    // คำสั่งส่งที่ไม่มีฐาน (ส่งก่อน deploy / คนกรอกเลขเอง) = เทียบไม่ได้ — บันทึก INFO ครั้งเดียว ไม่เปลี่ยนผลกระทบยอด
+    await plat.$executeRaw`UPDATE integration_outbox SET result = result - 'reconcileBasis' WHERE id = ${push.id}::uuid`;
+    for (const day of [addDay(today, 4), addDay(today, 5)]) {
+      await engine.runRound(tenantId, conUuid, 'NIGHTLY', day);
+      await drain();
+    }
+    const rows = await results(inv.uuid);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ result: 'NOT_COMPARABLE', severity: 'INFO' });
+    expect(rows[0]!.diff).toMatchObject({ code: 'not_comparable', reason: 'no_push_basis' });
+    expect(await mapping(inv.uuid)).toMatchObject({ reconcileState: 'ACCEPTED', status: 'SYNCED' });
+  });
+
+  it('คิว: ไม่ซ้อนคำสั่งอ่านที่ค้าง · ช่องลำดับแยก (อ่านล้มไม่กั้นการส่งของลูกค้า) · ลอง 3 ครั้ง · วัน PRE_CLOSE NIGHTLY ไม่อ่านใบของเดือนนี้', async () => {
+    const a = await issued(await deliveryOrders(1));
+    mock.injectFault({ kind: 'status', status: 503, method: 'GET', times: 0 });
+    const m1 = await api(app, admin)
+      .post('/v1/reconcile-runs')
+      .send({
+        connectorId: conId,
+        check: 'DOCUMENT',
+        invoiceIds: [a.id],
+        reason: 'ตรวจซ้ำหลังแก้ในระบบบัญชี',
+      });
+    expect(m1.body.queued).toBe(1);
+    const m2 = await api(app, admin)
+      .post('/v1/reconcile-runs')
+      .send({
+        connectorId: conId,
+        check: 'DOCUMENT',
+        invoiceIds: [a.id],
+        reason: 'ตรวจซ้ำหลังแก้ในระบบบัญชี',
+      });
+    expect(m2.body.queued).toBe(0);
+    await drain(); // GET 503 → FAILED_RETRYABLE
+    const open = (await fetches(a.uuid)).filter((f) => f.status !== 'DONE');
+    expect(open).toHaveLength(1);
+    expect(open[0]).toMatchObject({ status: 'FAILED_RETRYABLE', maxAttempt: 3 });
+    expect(open[0]!.serializeKey).toContain(`:recon:`);
+    // ส่งใบใหม่ของลูกค้าเดียวกันได้ระหว่างที่การอ่านรอลองใหม่ (ไม่ติดหัวคิว)
+    const posts = mock.requests().filter((q) => q.method === 'POST').length;
+    await plat.connector.update({ where: { id: conUuid }, data: { healthFailingSince: null } });
+    mock.clearFaults();
+    mock.injectFault({ kind: 'status', status: 503, method: 'GET', times: 0 });
+    const b = await issued(await deliveryOrders(1));
+    expect(mock.requests().filter((q) => q.method === 'POST').length).toBe(posts + 1);
+    expect(b.transactionNo).toBeTruthy();
+    mock.clearFaults();
+    await plat.connector.update({ where: { id: conUuid }, data: { healthFailingSince: null } });
+    await drain();
+    // วันทำการสุดท้ายของเดือน: NIGHTLY ไม่อ่านใบที่ออกเดือนนี้ (รอบ PRE_CLOSE 17:00 อ่าน)
+    const last = (await import('../src/modules/erp/document-reconcile.service')).lastBusinessDay(
+      today,
+    );
+    if (last.slice(0, 7) === today.slice(0, 7) && last >= today)
+      expect((await engine.runRound(tenantId, conUuid, 'NIGHTLY', last)).queued).toBe(0);
+  });
+
+  it('เลขฝั่ง ERP ชี้ไปเอกสารที่ไม่ใช่ของใบนี้ (error ที่มี mismatched — ST8-T09) → MISMATCH MONEY remote_ref_mismatch + แจ้ง', async () => {
+    const inv = await issued(await deliveryOrders(1));
+    const reg = app.get(ErpAdapterRegistry);
+    class Swapped extends KrsAdapter {
+      override async fetchDocument(): Promise<CanonicalDocument | null> {
+        const e = new ErpAdapterError('VALIDATION', { code: 'krs_ref_mismatch', message: 'x' });
+        Object.assign(e, {
+          mismatched: [
+            { externalId: inv.transactionNo, expectedRef: inv.invoiceNo, actualRef: 'INV-OTHER' },
+          ],
+          missing: [],
+        });
+        throw e;
+      }
+    }
+    reg.replace(new Swapped({ allowPrivate: true }));
+    try {
+      const before = (await noti()).length + (await noti('email')).length;
+      await engine.runRound(tenantId, conUuid, 'NIGHTLY', addDay(today, 6));
+      await drain();
+      const [row] = await results(inv.uuid);
+      expect(row).toMatchObject({ result: 'MISMATCH', severity: 'MONEY' });
+      expect(row!.diff).toMatchObject({
+        code: 'remote_ref_mismatch',
+        mismatched: [
+          { externalId: inv.transactionNo, expectedRef: inv.invoiceNo, actualRef: 'INV-OTHER' },
+        ],
+      });
+      expect(await mapping(inv.uuid)).toMatchObject({
+        status: 'MISMATCH',
+        reconcileState: 'MISMATCH',
+      });
+      const list = await api(app, admin)
+        .get(`/v1/reconcile-results?invoiceId=${inv.id}`)
+        .expect(200);
+      expect(list.body.data[0].refMismatches).toEqual([
+        { externalId: inv.transactionNo, expectedRef: inv.invoiceNo, actualRef: 'INV-OTHER' },
+      ]);
+      expect((await noti()).length + (await noti('email')).length).toBeGreaterThan(before);
+    } finally {
+      reg.replace(new KrsAdapter({ allowPrivate: true }));
+    }
   });
 });
 

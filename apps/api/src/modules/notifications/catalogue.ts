@@ -74,6 +74,8 @@ export const EVENT_CATALOGUE: Record<NotificationEvent, EventDefinition> = {
       'connector.recovered',
       'webhook.auto_disabled',
       'connector.document_not_sent',
+      // ST8-T11 อ่านเอกสารจากระบบบัญชีไม่สำเร็จ 2 รอบติด (ERP_UNREACHABLE)
+      'connector.reconcile_unreachable',
     ],
     defaults: { in_app: true, email: true },
     pending: null,

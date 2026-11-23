@@ -65,7 +65,8 @@ const HEADER_META = new Set([
   'totals',
 ]);
 const LINE_META = new Set(['lineNo']);
-const PERSON_FIELDS = new Set(['trip.driverName']);
+/** ข้อมูลส่วนบุคคลที่ adapter ขอได้ (`CanonicalPersonalField`) — เก็บเป็น `***` ในผลเทียบ */
+const PERSON_FIELDS = new Set(['trip.driverName', 'carrier.taxId']);
 
 export interface FieldDiff {
   field: string;
@@ -137,11 +138,18 @@ function sameValue(a: string | null, b: string | null): boolean {
   return false;
 }
 
-function fieldDiffs(local: Rec, remote: Rec, skip: ReadonlySet<string>): FieldDiff[] {
+function fieldDiffs(
+  local: Rec,
+  remote: Rec,
+  skip: ReadonlySet<string>,
+  onlyLocal = false,
+): FieldDiff[] {
   const l = flatten(local, skip);
   const r = flatten(remote, skip);
   const out: FieldDiff[] = [];
   for (const path of [...new Set([...l.keys(), ...r.keys()])].sort()) {
+    // canonical รุ่นเก่า: ช่องที่ฉบับที่ส่งไม่มีเลย (ไม่ใช่ค่าว่าง) ไม่เทียบ
+    if (onlyLocal && !l.has(path)) continue;
     const a = leaf(l.get(path));
     const b = leaf(r.get(path));
     if (!sameValue(a, b)) out.push({ field: path, local: a, remote: b });
@@ -188,9 +196,11 @@ function cap<T>(
 export function compareDocuments(
   expected: CanonicalDocument,
   remote: CanonicalDocument,
+  opts: { onlyLocalPaths?: boolean } = {},
 ): CompareResult {
+  const only = opts.onlyLocalPaths === true;
   // ---------- HEADER ----------
-  const header = fieldDiffs(expected as Rec, remote as Rec, HEADER_META);
+  const header = fieldDiffs(expected as Rec, remote as Rec, HEADER_META, only);
   // หัวของใบอื่นที่ ERP แยกเก็บ (เช่น ใบที่แยกตาม vat_type) ต่างจากใบหลัก
   const parts = Array.isArray(remote.partHeaderDiffs) ? remote.partHeaderDiffs : [];
   for (const p of parts) {
@@ -220,7 +230,7 @@ export function compareDocuments(
       continue;
     }
     const [g] = cands.splice(i, 1);
-    for (const d of fieldDiffs(e, g!, LINE_META)) lineFields.push({ ...lineRef(e), ...d });
+    for (const d of fieldDiffs(e, g!, LINE_META, only)) lineFields.push({ ...lineRef(e), ...d });
   }
   const extraLines: LineRef[] = [...pool.values()].flat().map(lineRef);
 

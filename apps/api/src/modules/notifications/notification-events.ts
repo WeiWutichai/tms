@@ -1,3 +1,4 @@
+import { Clock } from '../../common/clock';
 import { safeName } from '../../common/safe-text';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
@@ -43,6 +44,7 @@ export class NotificationEvents implements OnModuleInit {
   constructor(
     private readonly notifications: NotificationService,
     private readonly state: StateService,
+    private readonly clock: Clock,
   ) {}
 
   onModuleInit() {
@@ -303,6 +305,26 @@ export class NotificationEvents implements OnModuleInit {
   }
 
   /**
+   * ST8-T11 (review b) อ่านเอกสารจากระบบบัญชีไม่สำเร็จ (ERP_UNREACHABLE) **2 รอบติด** (docs/01 §6.5 "แจ้งผู้ดูแลทั้งสองฝั่ง")
+   * → ผู้ดูแลการเชื่อมต่อฝั่ง TMS (ผู้รับเดียวกับ connector ล่ม) ครั้งเดียวต่อส่วนต่าง · ฝั่ง ERP แจ้งไม่ได้ (ไม่มีช่องทางถึงผู้ดูแลฝั่งนั้น)
+   */
+  async reconcileUnreachable(
+    tx: Tx,
+    input: { tenantId: string; connectorId: string; label: string; invoiceNo: string | null },
+  ): Promise<void> {
+    await this.safely(tx, 'connector.reconcile_unreachable', () =>
+      this.notifications.notify(tx, {
+        tenantId: input.tenantId,
+        to: { permissions: ['settings:write', 'integrations:retry'] },
+        template: 'connector.reconcile_unreachable',
+        vars: { label: input.label, invoiceNo: input.invoiceNo ?? '-' },
+        link: '/settings?sec=conn',
+        entity: { type: 'connector', id: encodeId('connector', input.connectorId) },
+      }),
+    );
+  }
+
+  /**
    * ST8-T11 reconcile พบส่วนต่างของเนื้อหาใบแจ้งหนี้**ใหม่** (docs/01 §6.5) → ผู้ดูแลรับชำระ `payments:record` (ชุดเดียวกับ D68-61)
    * · severity MONEY (รายการหาย/เกิน/ยอด) = ในระบบ + อีเมล ทันที · FIELD = ในระบบอย่างเดียว (ขึ้นสรุปเช้า 08:00 — docs/01 §6.5)
    * · ส่วนต่างเดิม (diff_hash เท่าเดิม) ไม่ถึงที่นี่ — ผู้เรียกแจ้งเฉพาะ `created`
@@ -327,11 +349,13 @@ export class NotificationEvents implements OnModuleInit {
     const no = input.invoiceNo ?? invoiceRef;
     const money = input.severity === 'MONEY';
     await this.safely(tx, template, async () => {
+      // review 7: รวมกลุ่มต่อ connector ทีละ transaction (คำสั่งอ่านขนานกันไม่สร้างแถวซ้อน) · เวลาจาก Clock
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(9, hashtext(${`${template}:${input.connectorId}`}))`;
       const to = await this.notifications.resolve(tx, input.tenantId, {
         permissions: ['payments:record'],
       });
       if (!to.length) return;
-      const since = new Date(Date.now() - DOC_NOT_SENT_GROUP_MS);
+      const since = new Date(this.clock.now().getTime() - DOC_NOT_SENT_GROUP_MS);
       const open = await tx.notification.findMany({
         where: {
           tenantId: input.tenantId,

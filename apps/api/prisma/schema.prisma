@@ -3669,6 +3669,8 @@ enum ReconcileOutcome {
   MISMATCH
   REMOTE_MISSING
   ERP_UNREACHABLE
+  /// ST8-T11 (เพิ่มจาก docs/01 §3.7) adapter ไม่ประกาศ `comparableDocument` / ไม่มีฐานของการส่ง — เทียบไม่ได้ (INFO)
+  NOT_COMPARABLE
 
   @@map("reconcile_outcome")
 }

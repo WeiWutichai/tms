@@ -35,15 +35,28 @@ export const DOCUMENT_RESULT_CODES = [
   'content_mismatch',
   'remote_missing',
   'erp_unreachable',
+  'remote_ref_mismatch',
+  'not_comparable',
 ] as const;
 /** รหัส `last_error` ของ external_mapping ที่ reconcile ตั้ง (รอบถัดไปตรง = คืน SYNCED) */
-const RECONCILE_MAPPING_CODES = new Set(['reconcile_mismatch', 'remote_missing']);
+const RECONCILE_MAPPING_CODES = new Set([
+  'reconcile_mismatch',
+  'remote_missing',
+  'remote_ref_mismatch',
+]);
 
 export type DocumentOutcome =
   | { kind: 'MATCH' }
   | { kind: 'MISMATCH'; compare: CompareResult }
   | { kind: 'REMOTE_MISSING'; externalId: string }
-  | { kind: 'ERP_UNREACHABLE'; errorClass: string | null };
+  | { kind: 'ERP_UNREACHABLE'; errorClass: string | null }
+  /** ST8-T11 (review 1) เลขฝั่ง ERP ที่รู้ชี้ไปเอกสารที่ไม่ใช่ของใบนี้ (เลขอ้างอิงของเราไม่ตรง) — MISMATCH MONEY */
+  | {
+      kind: 'REF_MISMATCH';
+      mismatched: { externalId: string; expectedRef: string; actualRef: string | null }[];
+    }
+  /** ST8-T11 (review 4) เทียบไม่ได้ (adapter ไม่มี comparableDocument / ไม่มีฐานของการส่ง / ผังรหัสไม่ครบ) — INFO ครั้งเดียว */
+  | { kind: 'NOT_COMPARABLE'; reason: string };
 
 export interface DocumentOutcomeInput {
   connectorId: string;
@@ -122,6 +135,12 @@ export const pullPaymentKeyPrefix = (invoiceId: string) =>
   `${PULL_PAYMENT_KEY_PREFIX}${invoiceId}:`;
 
 const sha = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
+const mappingCode = (k: DocumentOutcome['kind']) =>
+  k === 'MISMATCH'
+    ? 'reconcile_mismatch'
+    : k === 'REF_MISMATCH'
+      ? 'remote_ref_mismatch'
+      : 'remote_missing';
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
 /**
@@ -286,7 +305,7 @@ export class ReconcileResultsService {
     }
     let diff: Record<string, unknown>;
     let diffHash: string;
-    let result: 'MISMATCH' | 'REMOTE_MISSING' | 'ERP_UNREACHABLE';
+    let result: 'MISMATCH' | 'REMOTE_MISSING' | 'ERP_UNREACHABLE' | 'NOT_COMPARABLE';
     let severity: 'MONEY' | 'FIELD' | 'INFO';
     if (o.kind === 'MISMATCH') {
       diff = o.compare.diff as unknown as Record<string, unknown>;
@@ -303,6 +322,28 @@ export class ReconcileResultsService {
       diffHash = sha256(canonicalJson(diff));
       result = 'REMOTE_MISSING';
       severity = 'MONEY';
+    } else if (o.kind === 'REF_MISMATCH') {
+      diff = {
+        check: RECONCILE_CHECK_DOCUMENT,
+        code: 'remote_ref_mismatch',
+        mismatched: o.mismatched.slice(0, 200).map((x) => ({
+          externalId: x.externalId.slice(0, 100),
+          expectedRef: x.expectedRef.slice(0, 100),
+          actualRef: x.actualRef?.slice(0, 100) ?? null,
+        })),
+      };
+      diffHash = sha256(canonicalJson(diff));
+      result = 'MISMATCH';
+      severity = 'MONEY';
+    } else if (o.kind === 'NOT_COMPARABLE') {
+      diff = {
+        check: RECONCILE_CHECK_DOCUMENT,
+        code: 'not_comparable',
+        reason: /^[a-z0-9_.]{1,60}$/.test(o.reason) ? o.reason : 'not_comparable',
+      };
+      diffHash = sha256(canonicalJson(diff));
+      result = 'NOT_COMPARABLE';
+      severity = 'INFO';
     } else {
       diff = { check: RECONCILE_CHECK_DOCUMENT, code: 'erp_unreachable' };
       diffHash = sha256(canonicalJson(diff));
@@ -312,19 +353,14 @@ export class ReconcileResultsService {
     const same = openDocs.find((r) => r.diffHash === diffHash);
     if (same) {
       await tx.reconcileResult.update({ where: { id: same.id }, data: { lastSeenAt: m.runAt } });
-      if (o.kind === 'ERP_UNREACHABLE')
+      if (o.kind === 'ERP_UNREACHABLE' || o.kind === 'NOT_COMPARABLE')
         return { id: same.id, created: false, repeated: true, severity, state: null };
       const state = same.acknowledgedAt ? 'ACCEPTED' : 'MISMATCH';
-      await this.setMappingState(
-        tx,
-        m,
-        state,
-        o.kind === 'MISMATCH' ? 'reconcile_mismatch' : 'remote_missing',
-      );
+      await this.setMappingState(tx, m, state, mappingCode(o.kind));
       return { id: same.id, created: false, repeated: false, severity, state };
     }
     // ส่วนต่างเปลี่ยน → ปิดแถวเดิม (ไม่ใช่ "ตรงกันแล้ว" — ไม่ลง audit resolved) · อ่านไม่ได้ ไม่ปิดส่วนต่างที่รู้อยู่
-    if (o.kind !== 'ERP_UNREACHABLE')
+    if (o.kind !== 'ERP_UNREACHABLE' && o.kind !== 'NOT_COMPARABLE')
       await tx.reconcileResult.updateMany({
         where: { id: { in: openDocs.map((r) => r.id) } },
         data: { resolvedAt: m.runAt },
@@ -349,7 +385,7 @@ export class ReconcileResultsService {
     });
     const d = o.kind === 'MISMATCH' ? o.compare.diff : null;
     await this.audit.record({
-      action: 'reconcile.mismatch_found',
+      action: o.kind === 'NOT_COMPARABLE' ? 'reconcile.not_comparable' : 'reconcile.mismatch_found',
       entityType: ENTITY,
       entityId: row.id,
       after: {
@@ -374,15 +410,9 @@ export class ReconcileResultsService {
           : {}),
       },
     });
-    if (o.kind === 'ERP_UNREACHABLE')
+    if (o.kind === 'ERP_UNREACHABLE' || o.kind === 'NOT_COMPARABLE')
       return { id: row.id, created: true, repeated: false, severity, state: null };
-    await this.setMappingState(
-      tx,
-      m,
-      'MISMATCH',
-      o.kind === 'MISMATCH' ? 'reconcile_mismatch' : 'remote_missing',
-      row.id,
-    );
+    await this.setMappingState(tx, m, 'MISMATCH', mappingCode(o.kind), row.id);
     return { id: row.id, created: true, repeated: false, severity, state: 'MISMATCH' };
   }
 
@@ -503,6 +533,14 @@ export function toReconcileResultDto(
     sellLocalPaidAmount: str(diff.localPaid) ?? undefined,
     sellRemotePaidAmount: str(diff.remotePaid) ?? undefined,
     sellDifferenceAmount: str(diff.difference) ?? undefined,
+    refMismatches:
+      diff.check === RECONCILE_CHECK_DOCUMENT && Array.isArray(diff.mismatched)
+        ? (diff.mismatched as {
+            externalId: string;
+            expectedRef: string;
+            actualRef: string | null;
+          }[])
+        : null,
     documentDiff:
       diff.check === RECONCILE_CHECK_DOCUMENT && diff.code === 'content_mismatch'
         ? documentDiffDto(diff as unknown as DocumentDiff)

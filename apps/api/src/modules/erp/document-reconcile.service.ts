@@ -8,11 +8,10 @@ import { DbService, type Tx } from '../../db/db.service';
 import { PrismaService } from '../../db/prisma.service';
 import { JobQueue } from '../../jobs/job-queue.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
-import { OutboxService } from '../integration/outbox.service';
+import { customerKey, OutboxService } from '../integration/outbox.service';
 import type { OutboxDelivery, SettledCommand } from '../integration/outbox.types';
 import { NotificationEvents } from '../notifications/notification-events';
 import { addDays, bangkokToday } from '../vehicle-documents/expiry';
-import { CANONICAL_INVOICE_INCLUDE, canonicalInvoice } from './canonical';
 import { ConnectorResolver } from './connector-resolver';
 import { ConnectorsService } from './connectors.service';
 import {
@@ -24,9 +23,8 @@ import {
   readyCapabilities,
 } from './erp-adapter';
 import { ErpAdapterRegistry } from './erp-adapter.registry';
-import { ErpMasterCodesService } from './erp-master-codes.service';
-import { ExternalMappingService } from './external-mapping.service';
 import { injectPersonalData } from './personal-data';
+import { applyReconcileBasis, CANONICAL_VERSION, parseReconcileBasis } from './reconcile-basis';
 import { compareDocuments } from './reconcile-compare';
 import { type DocumentOutcome, ReconcileResultsService } from './reconcile-results.service';
 
@@ -41,9 +39,14 @@ export const RECONCILE_CHECK_EVERY_MS = 5 * 60_000;
 export const AFTER_PUSH_STAGES_MIN = [0, 60] as const;
 /** คำสั่งส่งที่จบนานกว่านี้แล้วไม่ตั้งรอบ AFTER_PUSH ย้อนหลัง (worker หยุดนาน = รอบ NIGHTLY เก็บต่อ) */
 const AFTER_PUSH_LOOKBACK_MS = 3 * 3600_000;
+/** คำสั่งส่งต่อรอบตรวจ (5 นาที) */
+const AFTER_PUSH_BATCH = 500;
 /** docs/01 §6.5 NIGHTLY 02:00 · PRE_CLOSE วันทำการสุดท้ายของเดือน 17:00 (เวลาไทย) */
 export const NIGHTLY_HOUR_BKK = 2;
+export const NIGHTLY_UNTIL_HOUR_BKK = 6;
 export const PRE_CLOSE_HOUR_BKK = 17;
+/** ครั้งที่ลองอ่านต่อคำสั่ง (คำสั่งส่งใช้ 7) */
+export const RECONCILE_MAX_ATTEMPTS = 3;
 /** docs/01 §6.5 NIGHTLY: mapping SYNCED/MISMATCH ที่ issue_date ภายใน 90 วัน */
 export const NIGHTLY_WINDOW_DAYS = 90;
 /** เพดานใบต่อรอบต่อ connector (docs/01 §6.5 ≈ 900 ใบ/รอบ) */
@@ -55,6 +58,7 @@ export type ReconcileSkip =
   | 'sandbox'
   | 'feature_off'
   | 'connector_not_active'
+  | 'connector_unhealthy'
   | 'adapter_unavailable'
   | 'capability_not_enabled';
 
@@ -90,11 +94,14 @@ function monthEnd(day: string): string {
 const bkkHour = (now: Date) => new Date(now.getTime() + 7 * 3600_000).getUTCHours();
 
 interface Expected {
-  /** เอกสารที่ส่ง (ฉบับที่ออก + รหัสฝั่ง ERP ณ ตอนนี้) — ใช้เป็น hint จับคู่รายการตอนอ่าน */
-  sent: CanonicalDocument;
-  /** ส่วนที่ ERP เก็บได้ (`comparableDocument`) — null = เทียบไม่ได้ */
+  /** เอกสารที่ส่ง (ฉบับที่ออก + ฐานของการส่ง) — hint จับคู่รายการตอนอ่าน · null = ไม่มีคำสั่งส่ง */
+  hint: CanonicalDocument | null;
+  number: string | null;
+  /** ส่วนที่ ERP เก็บได้ (`comparableDocument`) — null = เทียบไม่ได้ (`problem`) */
   comparable: CanonicalDocument | null;
   problem: string | null;
+  /** canonical ที่ส่งเป็นรุ่นเก่ากว่าปัจจุบัน → ไม่เทียบช่องที่ฉบับนั้นไม่มี */
+  olderCanonical: boolean;
 }
 
 /**
@@ -131,8 +138,6 @@ export class DocumentReconcileService implements OnModuleInit {
     private readonly resolver: ConnectorResolver,
     private readonly connectors: ConnectorsService,
     private readonly entitlements: EntitlementService,
-    private readonly masterCodes: ErpMasterCodesService,
-    private readonly mappings: ExternalMappingService,
     private readonly results: ReconcileResultsService,
     private readonly events: NotificationEvents,
     private readonly audit: AuditService,
@@ -169,6 +174,8 @@ export class DocumentReconcileService implements OnModuleInit {
     if (!t || (sandbox && !this.resolver.isSandboxAdapter(row.adapterKey))) return 'sandbox';
     if (!(await this.entitlements.enabled(tenantId, 'conn'))) return 'feature_off';
     if (row.status !== 'ACTIVE') return 'connector_not_active';
+    // review 2: health กำลังล้ม (คิวพักอยู่) = ไม่ตั้งรอบ — คำสั่งจะค้างคิวเปล่า ๆ
+    if (row.healthFailingSince) return 'connector_unhealthy';
     const r = this.resolver.describe(row, null, undefined, sandbox);
     if (!r.adapter || !this.adapters.get(row.adapterKey)) return 'adapter_unavailable';
     if (
@@ -204,6 +211,19 @@ export class DocumentReconcileService implements OnModuleInit {
       run: string;
     },
   ): Promise<boolean> {
+    // review 2: ใบนี้มีคำสั่งอ่านค้างอยู่แล้ว (รอ/กำลังอ่าน/รอลองใหม่) = ไม่สร้างซ้อน (ผลของคำสั่งนั้นพอ)
+    const open = await tx.integrationOutbox.findFirst({
+      where: {
+        sink: SINK,
+        targetId: x.connectorId,
+        operation: 'FETCH_DOCUMENT',
+        entityType: ENTITY,
+        localId: x.invoiceId,
+        status: { in: ['PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE'] },
+      },
+      select: { id: true },
+    });
+    if (open) return false;
     const ref: ExternalRef = {
       entityType: ENTITY,
       localId: x.invoiceId,
@@ -218,8 +238,11 @@ export class DocumentReconcileService implements OnModuleInit {
       operation: 'FETCH_DOCUMENT',
       entityType: ENTITY,
       localId: x.invoiceId,
-      // ลำดับเดียวกับคำสั่งส่งของลูกค้ารายนี้ — ไม่อ่านแซงการส่ง/แทนที่ที่ค้าง
       customerId: x.customerId,
+      // review 2: ช่องลำดับแยกของการอ่าน (`erp:{connector}:recon:{ลูกค้า}`) — อ่านค้าง/ลองใหม่ไม่กั้นการส่งเอกสารของลูกค้า
+      serializeKey: `${SINK}:${x.connectorId}:recon:${customerKey(x.customerId) ?? `${ENTITY}:${x.invoiceId}`}`,
+      // อ่านอย่างเดียว — ลองไม่กี่ครั้ง (ไม่ได้ = ERP_UNREACHABLE; รอบถัดไปอ่านใหม่)
+      maxAttempt: RECONCILE_MAX_ATTEMPTS,
       payload: { ref, reconcile: { source: x.source, run: x.run } },
     });
     return r.created;
@@ -273,10 +296,15 @@ export class DocumentReconcileService implements OnModuleInit {
     if (!row) return { source, day, queued: 0, skipped: 'connector_not_found' };
     const why = await this.whyNot(tenantId, row);
     if (why) return { source, day, queued: 0, skipped: why };
+    // review 10: วัน PRE_CLOSE — ใบของเดือนนี้รอรอบ 17:00 (NIGHTLY ไม่อ่านซ้ำ)
+    const monthStart = `${day.slice(0, 8)}01`;
     const range =
       source === 'NIGHTLY'
-        ? { from: addDays(day, -NIGHTLY_WINDOW_DAYS), to: day }
-        : { from: `${day.slice(0, 8)}01`, to: monthEnd(day) };
+        ? {
+            from: addDays(day, -NIGHTLY_WINDOW_DAYS),
+            to: day === lastBusinessDay(day) ? addDays(monthStart, -1) : day,
+          }
+        : { from: monthStart, to: monthEnd(day) };
     const run = source === 'NIGHTLY' ? `nightly:${day}` : `pre_close:${day.slice(0, 7)}`;
     const queued = await withTx(async (tx) => {
       let n = 0;
@@ -361,10 +389,20 @@ export class DocumentReconcileService implements OnModuleInit {
   /** ใบที่เพิ่งส่งสำเร็จ (DONE + externalId) → อ่านทันที และอีกครั้งเมื่อครบ 60 นาที */
   async scheduleAfterPush(now: Date = this.clock.now()): Promise<number> {
     const since = new Date(now.getTime() - AFTER_PUSH_LOOKBACK_MS - 60 * 60_000);
+    const hourAgo = new Date(now.getTime() - 60 * 60_000);
+    // review 5: ขั้นที่ตั้งแล้วจดใน `result.reconcileStages` ของคำสั่งส่ง → ไม่ดึงแถวเดิมซ้ำทุกรอบ · ใหม่สุดก่อน (ไม่อด)
     const done = await this.prisma.platform.$queryRaw<
-      { id: string; tenant_id: string; target_id: string; local_id: string; done_at: Date }[]
+      {
+        id: string;
+        tenant_id: string;
+        target_id: string;
+        local_id: string;
+        done_at: Date;
+        stages: number[] | null;
+      }[]
     >`
-      SELECT o.id, o.tenant_id, o.target_id, o.local_id, o.done_at
+      SELECT o.id, o.tenant_id, o.target_id, o.local_id, o.done_at,
+             ARRAY(SELECT jsonb_array_elements_text(COALESCE(o.result->'reconcileStages', '[]'::jsonb))::int) AS stages
         FROM integration_outbox o
        WHERE o.status = 'DONE' AND o.sink = ${SINK} AND o.entity_type = ${ENTITY}
          AND o.operation IN ('PUSH_INVOICE', 'REPLACE_DOCUMENT')
@@ -372,13 +410,18 @@ export class DocumentReconcileService implements OnModuleInit {
          AND o.done_at >= ${since} AND o.done_at <= ${now}
          AND o.target_id IS NOT NULL
          AND COALESCE(o.result->>'externalId', '') <> ''
-       ORDER BY o.done_at
-       LIMIT ${MAX_PER_RUN}`;
+         AND (NOT COALESCE(o.result->'reconcileStages', '[]'::jsonb) @> '[0]'::jsonb
+              OR (o.done_at <= ${hourAgo}
+                  AND NOT COALESCE(o.result->'reconcileStages', '[]'::jsonb) @> '[60]'::jsonb))
+       ORDER BY o.done_at DESC
+       LIMIT ${AFTER_PUSH_BATCH}`;
     if (!done.length) return 0;
     let n = 0;
     const ok = new Map<string, boolean>();
     for (const o of done) {
+      const marked = new Set(o.stages ?? []);
       const stages = AFTER_PUSH_STAGES_MIN.filter((m) => {
+        if (marked.has(m)) return false;
         const due = o.done_at.getTime() + m * 60_000;
         // ขั้นที่ถึงเวลาแล้ว และยังไม่เลยหน้าต่างย้อนหลัง (worker หยุดนาน = ไม่ตามย้อน — รอบ NIGHTLY เก็บ)
         return due <= now.getTime() && due >= now.getTime() - AFTER_PUSH_LOOKBACK_MS;
@@ -395,28 +438,35 @@ export class DocumentReconcileService implements OnModuleInit {
             !(await this.whyNot(o.tenant_id, row)),
         );
       }
+      // connector ใช้ไม่ได้ตอนนี้ = ไม่จด (กลับมาภายในหน้าต่างย้อนหลังยังตั้งได้)
       if (!ok.get(key)) continue;
       try {
         n += await this.db.withTenant(o.tenant_id, async (tx) => {
           const [c] = await this.candidates(tx, o.target_id, { ids: [o.local_id] });
-          if (!c) return 0;
           let k = 0;
-          for (const m of stages)
-            if (
-              await this.enqueueFetch(tx, {
-                tenantId: o.tenant_id,
-                connectorId: o.target_id,
-                invoiceId: c.local_id,
-                number: c.number ?? '',
-                externalId: c.external_id,
-                customerId: c.customer_id,
-                source: 'AFTER_PUSH',
-                run: `after_push:${o.id}:${m}`,
-              })
-            )
-              k += 1;
+          if (c)
+            for (const m of stages)
+              if (
+                await this.enqueueFetch(tx, {
+                  tenantId: o.tenant_id,
+                  connectorId: o.target_id,
+                  invoiceId: c.local_id,
+                  number: c.number ?? '',
+                  externalId: c.external_id,
+                  customerId: c.customer_id,
+                  source: 'AFTER_PUSH',
+                  run: `after_push:${o.id}:${m}`,
+                })
+              )
+                k += 1;
           return k;
         });
+        // จดว่าตั้งแล้ว (รวมกรณีใบไม่อยู่ใน ERP แล้ว / มีคำสั่งอ่านค้างอยู่ — ไม่ต้องตั้งซ้ำ)
+        const all = [...new Set([...marked, ...stages])].sort((x, y) => x - y);
+        await this.prisma.platform.$executeRaw`
+          UPDATE integration_outbox
+             SET result = jsonb_set(COALESCE(result, '{}'::jsonb), '{reconcileStages}', ${JSON.stringify(all)}::jsonb)
+           WHERE id = ${o.id}::uuid`;
       } catch (e) {
         this.logger.warn(
           `after-push reconcile ${o.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`,
@@ -431,14 +481,15 @@ export class DocumentReconcileService implements OnModuleInit {
     const today = bangkokToday(now);
     const hour = bkkHour(now);
     const due: { source: 'NIGHTLY' | 'PRE_CLOSE' }[] = [];
-    if (hour >= NIGHTLY_HOUR_BKK) due.push({ source: 'NIGHTLY' });
+    // review 6: NIGHTLY เฉพาะช่วง 02:00–06:00 (worker หยุดทั้งคืน = ไม่ไล่อ่านกลางวัน — รอคืนถัดไป)
+    if (hour >= NIGHTLY_HOUR_BKK && hour < NIGHTLY_UNTIL_HOUR_BKK) due.push({ source: 'NIGHTLY' });
     if (today === lastBusinessDay(today) && hour >= PRE_CLOSE_HOUR_BKK)
       due.push({ source: 'PRE_CLOSE' });
     if (!due.length) return 0;
     return this.prisma.platform.$transaction(async (db) => {
       await db.$executeRaw`SELECT pg_advisory_xact_lock(8, hashtext(${RECONCILE_JOB}))`;
       const rows = await db.connector.findMany({
-        where: { status: 'ACTIVE', capabilitiesEnabled: { has: CAP } },
+        where: { status: 'ACTIVE', healthFailingSince: null, capabilitiesEnabled: { has: CAP } },
         select: { id: true, tenantId: true, adapterKey: true },
         orderBy: { createdAt: 'asc' },
       });
@@ -503,7 +554,9 @@ export class DocumentReconcileService implements OnModuleInit {
 
   /**
    * คำสั่ง FETCH_DOCUMENT ของ reconcile — ErpAdapterSink ตรวจประตูทั้งหมดแล้ว (connector ACTIVE, health, capability, sandbox)
-   * error ของการอ่านที่ไม่ใช่ "ไม่พบ" โยนต่อ (sink แปลงเป็นผลของคำสั่งตาม ErrorClass)
+   * - ไม่พบ (NOT_FOUND / null) = REMOTE_MISSING · เลขฝั่ง ERP ชี้ไปเอกสารที่ไม่ใช่ของใบนี้ (error ที่มี `mismatched`) = MISMATCH MONEY
+   *   `remote_ref_mismatch` · error อื่นโยนต่อ (sink แปลงเป็นผลของคำสั่งตาม ErrorClass)
+   * - เทียบได้เฉพาะเมื่อ adapter ประกาศ `comparableDocument` และมีฐานของการส่ง (`result.reconcileBasis`) — ไม่งั้น NOT_COMPARABLE (INFO ครั้งเดียว)
    */
   async deliver(
     d: OutboxDelivery,
@@ -512,31 +565,36 @@ export class DocumentReconcileService implements OnModuleInit {
     const rc = reconcileOf(d.payload)!;
     const { connector, adapter, ctx, ref } = x;
     const exp = await d.withTx((tx) => this.expected(tx, d, connector, adapter, ctx));
-    let got: CanonicalDocument | null;
+    let got: CanonicalDocument | null = null;
+    let refMismatch: { externalId: string; expectedRef: string; actualRef: string | null }[] = [];
     try {
-      got = await adapter.fetchDocument!(ctx, ref, exp?.sent);
+      got = await adapter.fetchDocument!(ctx, ref, exp.hint ?? undefined);
     } catch (e) {
-      if (!(e instanceof ErpAdapterError && e.errorClass === 'NOT_FOUND')) throw e;
-      got = null;
+      // ST8-T09 `ExternalPartsError` (ตรวจด้วยรูป ไม่ผูก class — ใช้ได้ทั้งก่อน/หลัง T09 merge)
+      const mism = (e as { mismatched?: unknown } | null)?.mismatched;
+      if (e instanceof ErpAdapterError && Array.isArray(mism) && mism.length)
+        refMismatch = mism
+          .filter(
+            (m): m is { externalId: string; expectedRef: string; actualRef?: unknown } =>
+              typeof m?.externalId === 'string' && typeof m?.expectedRef === 'string',
+          )
+          .map((m) => ({
+            externalId: m.externalId,
+            expectedRef: m.expectedRef,
+            actualRef: typeof m.actualRef === 'string' ? m.actualRef : null,
+          }));
+      else if (!(e instanceof ErpAdapterError && e.errorClass === 'NOT_FOUND')) throw e;
     }
     const runAt = this.clock.now();
-    const number = exp?.sent.number ?? ref.number;
+    const number = exp.number ?? ref.number;
     let outcome: DocumentOutcome;
     let totalSkipped: string | null = null;
-    if (!got) outcome = { kind: 'REMOTE_MISSING', externalId: ref.externalId ?? '' };
-    else if (!exp?.comparable)
-      // เทียบไม่ได้ (ผังรหัสไม่ครบ ฯลฯ) — ไม่ตัดสินแทน ไม่เปลี่ยนผลกระทบยอด
-      return {
-        result: {
-          reconcile: {
-            source: rc.source,
-            outcome: 'NOT_COMPARABLE',
-            code: exp?.problem ?? 'document_unavailable',
-          },
-        },
-      };
+    if (refMismatch.length) outcome = { kind: 'REF_MISMATCH', mismatched: refMismatch };
+    else if (!got) outcome = { kind: 'REMOTE_MISSING', externalId: ref.externalId ?? '' };
+    else if (!exp.comparable)
+      outcome = { kind: 'NOT_COMPARABLE', reason: exp.problem ?? 'not_comparable' };
     else {
-      const cmp = compareDocuments(exp.comparable, got);
+      const cmp = compareDocuments(exp.comparable, got, { onlyLocalPaths: exp.olderCanonical });
       totalSkipped = cmp.totalSkipped;
       outcome = cmp.matched ? { kind: 'MATCH' } : { kind: 'MISMATCH', compare: cmp };
     }
@@ -554,7 +612,7 @@ export class DocumentReconcileService implements OnModuleInit {
           runAt,
           outcome,
           outboxId: d.id,
-          local: { number, lines: lines(exp?.comparable ?? exp?.sent) },
+          local: { number, lines: lines(exp.comparable ?? exp.hint) },
           remote: {
             externalId: (got?.externalId as string | undefined) ?? ref.externalId,
             externalDocNo: (got?.externalDocNo as string | undefined) ?? null,
@@ -585,6 +643,7 @@ export class DocumentReconcileService implements OnModuleInit {
           newMismatch: r.created,
           ...(r.id ? { reconcileResultId: encodeId('reconcileResult', r.id) } : {}),
           ...(cmp ? { levels: cmp.levels, severity: cmp.severity } : {}),
+          ...(outcome.kind === 'NOT_COMPARABLE' ? { code: outcome.reason } : {}),
           ...(totalSkipped ? { totalSkipped } : {}),
         },
       },
@@ -594,6 +653,7 @@ export class DocumentReconcileService implements OnModuleInit {
   /**
    * คำสั่งอ่านของ reconcile จบแบบไม่สำเร็จ (FAILED_FINAL — ลองครบแล้วปลายทางยังล่ม) → ERP_UNREACHABLE (INFO)
    * ไม่เปลี่ยนผลกระทบยอดของใบ · SKIPPED (capability/sandbox/connector ยกเลิก) = ไม่บันทึก
+   * review b: รอบที่ 2 ติดกัน (แถวเดิมยังเปิด) → แจ้งผู้ดูแลการเชื่อมต่อฝั่ง TMS ครั้งเดียวต่อแถว (audit `reconcile.unreachable_notified`)
    */
   async onSettled(c: SettledCommand): Promise<void> {
     const rc = reconcileOf(c.payload);
@@ -601,31 +661,51 @@ export class DocumentReconcileService implements OnModuleInit {
     if (c.errorClass !== 'TRANSIENT' && c.errorClass !== 'AMBIGUOUS') return;
     const connectorId = c.targetId;
     const ref = (c.payload as { ref?: { number?: unknown } }).ref;
+    const number = typeof ref?.number === 'string' ? ref.number : null;
     await this.db.withTenant(c.tenantId, async (tx) => {
       const row = await tx.connector.findUnique({ where: { id: connectorId } });
       if (!row) return;
-      await requestContext.run(this.actor(c.tenantId, row, `outbox:${c.id}`, tx), () =>
-        this.results.recordDocumentOutcome(tx, c.tenantId, {
+      await requestContext.run(this.actor(c.tenantId, row, `outbox:${c.id}`, tx), async () => {
+        const res = await this.results.recordDocumentOutcome(tx, c.tenantId, {
           connectorId,
           adapterKey: row.adapterKey,
           entityType: 'INVOICE',
           localId: c.localId,
-          localNumber: typeof ref?.number === 'string' ? ref.number : null,
+          localNumber: number,
           source: rc.source,
           runAt: this.clock.now(),
           outcome: { kind: 'ERP_UNREACHABLE', errorClass: c.errorClass },
           outboxId: c.id,
-          local: { number: typeof ref?.number === 'string' ? ref.number : null },
+          local: { number },
           remote: { found: null, errorClass: c.errorClass, code: c.code },
-        }),
-      );
+        });
+        if (!res.repeated || !res.id) return;
+        const told = await tx.auditLog.findFirst({
+          where: { action: 'reconcile.unreachable_notified', entityId: res.id },
+          select: { id: true },
+        });
+        if (told) return;
+        await this.audit.record({
+          action: 'reconcile.unreachable_notified',
+          entityType: 'reconcile_result',
+          entityId: res.id,
+          after: { connector: row.adapterKey, invoiceNo: number },
+        });
+        await this.events.reconcileUnreachable(tx, {
+          tenantId: c.tenantId,
+          connectorId,
+          label: this.connectors.adapterLabel(row.adapterKey),
+          invoiceNo: number,
+        });
+      });
     });
   }
 
   /**
-   * เอกสารฉบับที่ออกที่ใช้เทียบ: payload ของคำสั่ง PUSH_INVOICE แรก (canonical ณ ตอนออก — ST7-T16 `resend` ใช้ฉบับเดียวกัน)
-   * ไม่มี (mapping ที่คนกรอกเอง) = canonical จากใบที่ออกแล้ว · ใส่รหัสฝั่ง ERP ณ ตอนนี้ทางเดียวกับตอนส่ง (party codes → ผังรหัส →
-   * ข้อมูลส่วนบุคคลที่ adapter ประกาศ) แล้วให้ adapter ตัดเหลือส่วนที่ ERP เก็บ (`comparableDocument`)
+   * เอกสารที่คาด (review 3): payload ฉบับที่ออก ของคำสั่งส่งล่าสุดที่สำเร็จ + **ฐานของการส่ง** (`result.reconcileBasis` — รหัส/ค่าตั้งที่ใส่
+   * ณ ตอนส่งจริง) → `comparableDocument` ของ adapter · ไม่ resolve รหัส/ค่าตั้งปัจจุบันใหม่ (แก้ mapping หลังส่ง ≠ ERP ต่าง)
+   * เทียบไม่ได้ (`problem`): adapter ไม่ประกาศ `comparableDocument` · ไม่มีคำสั่งส่งที่มีฐาน (เช่น คนกรอกเลขฝั่ง ERP เอง / ส่งก่อน deploy) ·
+   * adapter สร้างส่วนที่เทียบได้ไม่ได้ · canonical ฉบับเก่ากว่า `CANONICAL_VERSION` = ไม่เทียบช่องที่ฉบับนั้นไม่มี
    */
   private async expected(
     tx: Tx,
@@ -633,47 +713,53 @@ export class DocumentReconcileService implements OnModuleInit {
     connector: Connector,
     adapter: ErpAdapter,
     ctx: ErpContext,
-  ): Promise<Expected | null> {
-    const first = await tx.integrationOutbox.findFirst({
+  ): Promise<Expected> {
+    const pushes = await tx.integrationOutbox.findMany({
       where: {
         sink: SINK,
         targetId: connector.id,
-        operation: 'PUSH_INVOICE',
+        operation: { in: ['PUSH_INVOICE', 'REPLACE_DOCUMENT'] },
         entityType: ENTITY,
         localId: d.localId,
+        status: 'DONE',
       },
-      orderBy: { seq: 'asc' },
-      select: { payload: true },
+      orderBy: { seq: 'desc' },
+      take: 20,
+      select: { payload: true, result: true },
     });
-    let doc = (first?.payload as { document?: CanonicalDocument } | null)?.document ?? null;
-    if (!doc) {
-      const inv = await tx.invoice.findUnique({
-        where: { id: d.localId },
-        include: CANONICAL_INVOICE_INCLUDE,
-      });
-      if (!inv || !inv.invoiceNo) return null;
-      const code = await this.mappings.customerErpCode(tx, connector.id, inv.customerId);
-      doc = canonicalInvoice(inv, code, adapter.personalDataNeeds ?? []) as CanonicalDocument;
-    }
-    const prep = await this.masterCodes.prepareForPush(
-      tx,
-      connector.id,
-      adapter,
-      ctx,
-      'PUSH_INVOICE',
-      await this.mappings.withPartyCodes(tx, connector.id, doc),
+    const last = pushes.find((p) =>
+      parseReconcileBasis((p.result as { reconcileBasis?: unknown } | null)?.reconcileBasis),
     );
-    if (!prep.ok) return { sent: doc, comparable: null, problem: prep.problem.code };
-    const pii = await injectPersonalData(tx, prep.document, adapter.personalDataNeeds ?? []);
-    ctx.masterCodes = prep.masterCodes;
-    const sent = pii.document;
+    const doc =
+      (last?.payload as { document?: CanonicalDocument } | null)?.document ??
+      (pushes[0]?.payload as { document?: CanonicalDocument } | null)?.document ??
+      null;
+    const base = {
+      hint: doc,
+      number: typeof doc?.number === 'string' ? doc.number : null,
+      olderCanonical: false,
+    };
+    if (!adapter.comparableDocument)
+      return { ...base, comparable: null, problem: 'adapter_not_comparable' };
+    const basis = parseReconcileBasis(
+      (last?.result as { reconcileBasis?: unknown } | null)?.reconcileBasis,
+    );
+    if (!doc || !basis) return { ...base, comparable: null, problem: 'no_push_basis' };
+    const applied = applyReconcileBasis(doc, basis, ctx);
+    const pii = await injectPersonalData(tx, applied.doc, adapter.personalDataNeeds ?? []);
     let comparable: CanonicalDocument | null;
     try {
-      comparable = adapter.comparableDocument ? adapter.comparableDocument(ctx, sent) : sent;
+      comparable = adapter.comparableDocument(applied.ctx, pii.document);
     } catch {
       comparable = null;
     }
-    return { sent, comparable, problem: comparable ? null : 'not_comparable' };
+    return {
+      hint: pii.document,
+      number: base.number,
+      comparable,
+      problem: comparable ? null : 'comparable_unavailable',
+      olderCanonical: basis.canonicalVersion < CANONICAL_VERSION,
+    };
   }
 
   private actor(tenantId: string, row: Connector, requestId: string, tx: Tx): RequestContext {

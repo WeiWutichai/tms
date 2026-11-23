@@ -34,6 +34,7 @@ import {
 import { canonicalProblems } from './canonical-validation';
 import { ConnectorResolver } from './connector-resolver';
 import { DocumentReconcileService, reconcileOf } from './document-reconcile.service';
+import { buildReconcileBasis } from './reconcile-basis';
 import { ConnectorsService, HEALTH_STOP_CLASSES, redactSecrets } from './connectors.service';
 import { ErpMasterCodesService, type PushPreparation } from './erp-master-codes.service';
 import { recordSyncLog } from './erp-sync-log';
@@ -872,6 +873,14 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         sentHash: ready.sync!.hash,
         ...partyCodesOf(ready),
         ...(pii.fields.length ? { personalDataSent: pii.fields } : {}),
+        // ST8-T11 ค่าที่ใส่ ณ ตอนส่ง (ไม่มีข้อมูลลับ) — reconcile เทียบกับฐานนี้ ไม่ resolve รหัสปัจจุบันใหม่
+        reconcileBasis: buildReconcileBasis(
+          connector,
+          ctx,
+          prep.masterCodes,
+          ready,
+          partyCodesOf(ready),
+        ),
       };
       // D-80 ลง audit ก่อนเรียก adapter — เรียกแล้ว = ข้อมูล**อาจ**ออกนอก TMS แล้วแม้ผลจะล้ม (ทุกครั้งที่ส่ง/ลองใหม่)
       // `mayInclude`: core ส่งค่าให้ adapter แล้ว แต่ adapter อาจไม่ได้ใช้จริง (เช่น จับคู่คู่ค้าด้วยรหัสที่ map ไว้) — core ไม่รู้
