@@ -109,7 +109,7 @@ export class ReconcileController {
     summary: 'รายงานปิดงวดต่อ connector ต่อเดือน (ST8-T14)',
     description:
       'หลักฐานของเกณฑ์ผ่าน (ก) docs/02 §7 "ปิดงวดผ่าน reconcile — MISMATCH ค้าง = 0" · 3 ส่วน: ' +
-      '(1) `outstanding` MISMATCH ค้าง ณ สิ้นเดือน (เวลาไทย) = รายการ `result` MISMATCH/REMOTE_MISSING severity MONEY/FIELD ที่พบก่อนสิ้นเดือน ' +
+      '(1) `outstanding` MISMATCH ค้าง ณ สิ้นเดือน (เวลาไทย) = รายการ `result` MISMATCH/REMOTE_MISSING severity MONEY/FIELD ที่รอบตรวจพบ (`run_at`) ก่อนสิ้นเดือน ' +
       'และ ณ สิ้นเดือนยังไม่ถูกปิดและยังไม่มีคนยอมรับ — ปิดหลังสิ้นเดือนยังนับเป็นค้างของงวด · พบหลังสิ้นเดือนไม่นับ · INFO (อ่าน/เทียบไม่ได้) นับแยกใน `summary.unverified` ' +
       '(2) `acknowledged` รายการที่ยอมรับความต่างในเดือน + ผู้ยอมรับ + เหตุผล ' +
       '(3) `notSent` เอกสารที่วันที่ไม่เกินสิ้นเดือนและคำสั่งส่งล่าสุดยังอยู่แท็บรอคิว/ล้มเหลวของคิว (`GET /connectors/{id}/queue`) **ณ เวลาที่ออกรายงาน** · ' +

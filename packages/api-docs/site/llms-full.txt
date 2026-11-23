@@ -19749,7 +19749,7 @@ const { data, error } = await tms.GET('/v1/connectors/{id}/mappings', {
 
 scope: `integrations:read` · operationId: `Reconcile_periodCloseReport`
 
-หลักฐานของเกณฑ์ผ่าน (ก) "ปิดงวดผ่าน reconcile — MISMATCH ค้าง = 0" · 3 ส่วน: (1) `outstanding` MISMATCH ค้าง ณ สิ้นเดือน (เวลาไทย) = รายการ `result` MISMATCH/REMOTE_MISSING severity MONEY/FIELD ที่พบก่อนสิ้นเดือน และ ณ สิ้นเดือนยังไม่ถูกปิดและยังไม่มีคนยอมรับ — ปิดหลังสิ้นเดือนยังนับเป็นค้างของงวด · พบหลังสิ้นเดือนไม่นับ · INFO (อ่าน/เทียบไม่ได้) นับแยกใน `summary.unverified` (2) `acknowledged` รายการที่ยอมรับความต่างในเดือน + ผู้ยอมรับ + เหตุผล (3) `notSent` เอกสารที่วันที่ไม่เกินสิ้นเดือนและคำสั่งส่งล่าสุดยังอยู่แท็บรอคิว/ล้มเหลวของคิว (`GET /connectors/{id}/queue`) **ณ เวลาที่ออกรายงาน** · `passed` = เดือนจบแล้ว และ `summary.outstanding` = 0 · เดือนที่ยังไม่จบตัด ณ เวลาปัจจุบัน · connector ไม่พบ/ของ tenant อื่น → 404 · ยอดเงิน `sell*` ต้องมี `prices.sell:read` · `buy*` ต้องมี `prices.buy:read` · ส่งออก: `POST /v1/exports` resource `reconcile-period-close` (xlsx / csv / pdf) ตัวกรอง `connectorId`, `month`
+หลักฐานของเกณฑ์ผ่าน (ก) "ปิดงวดผ่าน reconcile — MISMATCH ค้าง = 0" · 3 ส่วน: (1) `outstanding` MISMATCH ค้าง ณ สิ้นเดือน (เวลาไทย) = รายการ `result` MISMATCH/REMOTE_MISSING severity MONEY/FIELD ที่รอบตรวจพบ (`run_at`) ก่อนสิ้นเดือน และ ณ สิ้นเดือนยังไม่ถูกปิดและยังไม่มีคนยอมรับ — ปิดหลังสิ้นเดือนยังนับเป็นค้างของงวด · พบหลังสิ้นเดือนไม่นับ · INFO (อ่าน/เทียบไม่ได้) นับแยกใน `summary.unverified` (2) `acknowledged` รายการที่ยอมรับความต่างในเดือน + ผู้ยอมรับ + เหตุผล (3) `notSent` เอกสารที่วันที่ไม่เกินสิ้นเดือนและคำสั่งส่งล่าสุดยังอยู่แท็บรอคิว/ล้มเหลวของคิว (`GET /connectors/{id}/queue`) **ณ เวลาที่ออกรายงาน** · `passed` = เดือนจบแล้ว และ `summary.outstanding` = 0 · เดือนที่ยังไม่จบตัด ณ เวลาปัจจุบัน · connector ไม่พบ/ของ tenant อื่น → 404 · ยอดเงิน `sell*` ต้องมี `prices.sell:read` · `buy*` ต้องมี `prices.buy:read` · ส่งออก: `POST /v1/exports` resource `reconcile-period-close` (xlsx / csv / pdf) ตัวกรอง `connectorId`, `month`
 
 **Parameters**
 
@@ -20411,7 +20411,7 @@ const { data, error } = await tms.POST('/v1/reconcile-runs', {
 | `passed` | ใช่ | `boolean` |   | ผ่านเกณฑ์ (ก) ของงวดนี้ — เดือนจบแล้ว และ MISMATCH ค้าง ณ สิ้นเดือน = 0 (เอกสารที่ยังไม่ส่ง/INFO แสดงประกอบ ไม่ตัดสิน) |   |
 | `generatedAt` | ใช่ | `string (date-time)` |   |   |   |
 | `summary` | ใช่ | `PeriodCloseSummaryDto` |   |   |   |
-| `outstanding` | ใช่ | `array<PeriodCloseMismatchDto>` |   | (1) MISMATCH ค้าง ณ สิ้นเดือน: พบก่อนสิ้นเดือน และยังไม่ปิด/ยอมรับ ณ สิ้นเดือน (ปิดหลังสิ้นเดือน = ยังนับ) · พบหลังสิ้นเดือน = ไม่นับ |   |
+| `outstanding` | ใช่ | `array<PeriodCloseMismatchDto>` |   | (1) MISMATCH ค้าง ณ สิ้นเดือน: รอบตรวจพบ (`run_at`) ก่อนสิ้นเดือน และยังไม่ปิด/ยอมรับ ณ สิ้นเดือน (ปิดหลังสิ้นเดือน = ยังนับ) · พบหลังสิ้นเดือน = ไม่นับ |   |
 | `acknowledged` | ใช่ | `array<PeriodCloseAcknowledgedDto>` |   | (2) รายการที่ยอมรับความต่างในเดือนนี้ พร้อมผู้ยอมรับและเหตุผล |   |
 | `notSent` | ใช่ | `array<PeriodCloseUnsentDto>` |   | (3) เอกสารที่ยังไม่ถูกส่ง — วันที่เอกสารไม่เกินสิ้นเดือน และคำสั่งล่าสุดยังอยู่แท็บรอคิว/ล้มเหลวของคิว **ณ เวลาที่ออกรายงาน** |   |
 | `truncated` | ใช่ | `boolean` |   | รายการบางส่วนถูกตัดที่เพดาน 5,000 ต่อส่วน (ตัวนับใน `summary` ครบ) |   |

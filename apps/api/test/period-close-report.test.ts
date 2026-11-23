@@ -6,8 +6,16 @@ import type { OutboxStatus, ReconcileOutcome, ReconcileSeverity } from '@prisma/
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ensureSystemRoles } from '../src/auth/system-roles';
 import { encodeId } from '../src/common/ids';
+import { requestContext } from '../src/common/request-context';
+import { DbService } from '../src/db/db.service';
 import { JobQueue } from '../src/jobs/job-queue.service';
+import { periodCloseExportRows } from '../src/modules/erp/period-close-export';
+import type { PeriodCloseReportDto } from '../src/modules/erp/period-close-report.dto';
 import { bangkokMonthBounds } from '../src/modules/erp/period-close-report.service';
+import {
+  type DocumentOutcome,
+  ReconcileResultsService,
+} from '../src/modules/erp/reconcile-results.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { api, bootApp, platform, tokenFor, truncateAll } from './helpers';
 
@@ -402,6 +410,91 @@ describe('รายงานปิดงวด (ST8-T14)', { timeout: 600_000 },
     expect(r.summary.outstanding).toBe(1);
     expect(r.notSent).toEqual([]);
     expect(r.acknowledged).toEqual([]);
+  });
+
+  it('review: นับตามเวลาของรอบตรวจ (run_at) ผ่าน recordDocumentOutcome — ส่วนต่างเปลี่ยนในเดือนหลังยอมรับ = รายการใหม่ค้าง · รอบใกล้เที่ยงคืน', async () => {
+    const svc = app.get(ReconcileResultsService);
+    const record = (localId: string, runAt: string, outcome: DocumentOutcome) =>
+      app.get(DbService).withTenant(tenantId, (tx) =>
+        requestContext.run(
+          { requestId: randomUUID(), tenantId, actorId: 'system:reconcile', locale: 'th', tx },
+          () =>
+            svc.recordDocumentOutcome(tx, tenantId, {
+              connectorId: conUuid,
+              adapterKey: 'demo',
+              entityType: 'INVOICE',
+              localId,
+              localNumber: `INV-RUN-${localId.slice(0, 4)}`,
+              source: 'NIGHTLY',
+              runAt: at(runAt),
+              outcome,
+              local: {},
+              remote: {},
+            }),
+        ),
+      );
+    const missing = (externalId: string): DocumentOutcome => ({
+      kind: 'REMOTE_MISSING',
+      externalId,
+    });
+    // ใบ A: พบ 5 ก.ย. → คนยอมรับ 6 ก.ย. → 20 ก.ย. ส่วนต่างเปลี่ยน (แถวเดิมปิด แถวใหม่เปิด) = ค้าง
+    const a = randomUUID();
+    const first = await record(a, '2025-09-05T03:00:00Z', missing('X-1'));
+    await db.reconcileResult.update({
+      where: { id: first.id! },
+      data: {
+        acknowledgedAt: at('2025-09-06T03:00:00Z'),
+        acknowledgedBy: ackUser,
+        ackReason: 'ยอมรับไว้ก่อน รอบัญชีตรวจ',
+      },
+    });
+    const second = await record(a, '2025-09-20T03:00:00Z', missing('X-2'));
+    expect(second.created).toBe(true);
+    // ใบ B: รอบ 23:59 น. วันสุดท้าย (เวลาไทย) = ค้าง · ใบ C: รอบ 00:00 น. วันที่ 1 ต.ค. = ไม่นับ
+    const b = await record(randomUUID(), '2025-09-30T16:59:00Z', missing('X-3'));
+    await record(randomUUID(), '2025-09-30T17:00:00Z', missing('X-4'));
+    // แถวที่ระบบบันทึก created_at = เวลาจริง (หลังสิ้นเดือนเสมอ) — ถ้านับตาม created_at จะไม่เห็นเลย
+    const r = await report('2025-09');
+    expect(r.outstanding.map((x: Row) => x.id).sort()).toEqual(
+      [encodeId('reconcileResult', second.id!), encodeId('reconcileResult', b.id!)].sort(),
+    );
+    expect(
+      r.outstanding.find((x: Row) => x.id === encodeId('reconcileResult', b.id!)).foundAt,
+    ).toBe('2025-09-30T16:59:00.000Z');
+    expect(r.acknowledged.map((x: Row) => [x.id, x.currentStatus])).toEqual([
+      [encodeId('reconcileResult', first.id!), 'RESOLVED'],
+    ]);
+    expect(r.passed).toBe(false);
+  });
+
+  it('review: ไฟล์ส่งออกบอก "(แสดงไม่ครบ)" ในแถวสรุปเมื่อรายการถูกตัดที่เพดาน', () => {
+    const base = {
+      connector: { id: 'con_1', adapterKey: 'demo', displayName: 'Demo' },
+      month: '2025-06',
+      periodStart: '2025-06-01',
+      periodEnd: '2025-06-30',
+      asOf: '2025-06-30T17:00:00.000Z',
+      monthEnded: true,
+      passed: false,
+      generatedAt: '2025-07-01T00:00:00.000Z',
+      summary: {
+        outstanding: 5001,
+        outstandingMoney: 5001,
+        outstandingField: 0,
+        unverified: 0,
+        acknowledged: 0,
+        notSent: 0,
+        notSentQueued: 0,
+        notSentFailed: 0,
+      },
+      outstanding: [],
+      acknowledged: [],
+      notSent: [],
+    };
+    const summary = (truncated: boolean) =>
+      periodCloseExportRows({ ...base, truncated } as PeriodCloseReportDto)[0]!.detail!;
+    expect(summary(true)).toMatch(/ \(แสดงไม่ครบ\)$/);
+    expect(summary(false)).not.toContain('แสดงไม่ครบ');
   });
 
   describe('ส่งออก (POST /v1/exports resource reconcile-period-close)', () => {

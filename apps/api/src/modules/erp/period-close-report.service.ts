@@ -78,7 +78,7 @@ function mismatchDto(r: ReconcileResult, asOf: Date): PeriodCloseMismatchDto {
     code: str(diff.code),
     result: r.result,
     severity: r.severity,
-    foundAt: r.createdAt.toISOString(),
+    foundAt: r.runAt.toISOString(),
     lastSeenAt: r.lastSeenAt.toISOString(),
     currentStatus: r.resolvedAt ? 'RESOLVED' : r.acknowledgedAt ? 'ACKNOWLEDGED' : 'OPEN',
     closedAt: closed?.toISOString() ?? null,
@@ -107,7 +107,7 @@ interface UnsentRow {
 
 /**
  * ST8-T14 รายงานปิดงวดต่อ connector ต่อเดือน (docs/02 §7 เกณฑ์ผ่าน (ก) "KRS ปิดงวด 2 เดือนติด MISMATCH ค้าง = 0"; docs/01 §6.5)
- * - (1) MISMATCH ค้าง ณ สิ้นเดือน = `reconcile_result` result MISMATCH/REMOTE_MISSING severity MONEY/FIELD ที่สร้างก่อนสิ้นเดือน
+ * - (1) MISMATCH ค้าง ณ สิ้นเดือน = `reconcile_result` result MISMATCH/REMOTE_MISSING severity MONEY/FIELD ที่รอบตรวจพบ (`run_at`) ก่อนสิ้นเดือน
  *   และ ณ สิ้นเดือนยังไม่ถูกระบบปิด (`resolved_at`) และยังไม่มีคนยอมรับ (`acknowledged_at`) — ปิดหลังสิ้นเดือนยังนับ · พบหลังสิ้นเดือนไม่นับ
  * - (2) รายการที่ยอมรับความต่างในเดือน (`acknowledged_at` ในเดือน) + ผู้ยอมรับ + เหตุผล
  * - (3) เอกสารที่ยังไม่ถูกส่ง = วันที่เอกสาร ≤ สิ้นเดือน และคำสั่งส่งล่าสุดอยู่แท็บ "รอคิว"/"ล้มเหลว" ของคิว ST7-T19 ณ เวลาที่ออกรายงาน
@@ -138,7 +138,8 @@ export class PeriodCloseReportService {
 
     const outstandingWhere: Prisma.ReconcileResultWhereInput = {
       connectorId: c.id,
-      createdAt: { lt: asOf },
+      // review: ใช้เวลาของรอบตรวจ (`run_at`) ไม่ใช่เวลาบันทึก — ฝั่งปิดก็เป็นเวลาของรอบ (`resolved_at` = run_at ของรอบที่ปิด)
+      runAt: { lt: asOf },
       result: { in: [...MISMATCH_RESULTS] },
       severity: { in: ['MONEY', 'FIELD'] },
       AND: [
@@ -153,7 +154,7 @@ export class PeriodCloseReportService {
     const [outstandingRows, bySeverity, unverified, ackRows, ackCount, unsent] = await Promise.all([
       tx.reconcileResult.findMany({
         where: outstandingWhere,
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        orderBy: [{ runAt: 'asc' }, { id: 'asc' }],
         take: PERIOD_CLOSE_MAX_ROWS,
       }),
       tx.reconcileResult.groupBy({

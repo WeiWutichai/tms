@@ -76,7 +76,7 @@ const bkk = (iso: string | null) =>
     ? new Date(new Date(iso).getTime() + 7 * 3600_000).toISOString().slice(0, 16).replace('T', ' ')
     : null;
 
-/** แปลงรายงานเป็นแถวไฟล์: สรุป → (1) ค้าง → (2) ยอมรับ → (3) ยังไม่ส่ง */
+/** แปลงรายงานเป็นแถวไฟล์: สรุป → (1) ค้าง → (2) ยอมรับ → (3) ยังไม่ส่ง · `truncated` = ต่อท้ายรายละเอียดสรุปด้วย "(แสดงไม่ครบ)" */
 export function periodCloseExportRows(r: PeriodCloseReportDto): PeriodCloseExportRow[] {
   const s = r.summary;
   const name = r.connector.displayName ?? r.connector.adapterKey;
@@ -90,7 +90,9 @@ export function periodCloseExportRows(r: PeriodCloseReportDto): PeriodCloseExpor
       detail:
         `MISMATCH ค้าง ณ สิ้นเดือน ${s.outstanding} รายการ (ยอดเงิน ${s.outstandingMoney} · ข้อมูลเอกสาร ${s.outstandingField}) · ` +
         `ยอมรับความต่าง ${s.acknowledged} · ยังไม่ถูกส่ง ${s.notSent} (รอคิว ${s.notSentQueued} · ล้มเหลว ${s.notSentFailed}) · ` +
-        `ยังไม่ได้ยืนยัน ${s.unverified}`,
+        `ยังไม่ได้ยืนยัน ${s.unverified}` +
+        // review: รายการถูกตัดที่เพดาน (ตัวนับครบ) — บอกในไฟล์ด้วย
+        (r.truncated ? ' (แสดงไม่ครบ)' : ''),
       state: verdict,
       at: bkk(r.asOf),
       closedAt: null,

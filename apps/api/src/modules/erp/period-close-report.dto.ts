@@ -63,7 +63,8 @@ export class PeriodCloseMismatchDto {
   @ApiProperty({ nullable: true, type: String, example: 'content_mismatch' }) code!: string | null;
   @ApiProperty({ enum: RECONCILE_OUTCOMES }) result!: string;
   @ApiProperty({ enum: RECONCILE_SEVERITIES }) severity!: string;
-  @ApiProperty({ format: 'date-time', description: 'เวลาที่พบ (สร้างรายการ)' }) foundAt!: string;
+  @ApiProperty({ format: 'date-time', description: 'เวลาของรอบตรวจที่พบ (`run_at`)' })
+  foundAt!: string;
   @ApiProperty({ format: 'date-time' }) lastSeenAt!: string;
   @ApiProperty({
     enum: ['OPEN', 'ACKNOWLEDGED', 'RESOLVED'],
@@ -164,7 +165,7 @@ export class PeriodCloseReportDto {
   @ApiProperty({
     type: [PeriodCloseMismatchDto],
     description:
-      '(1) MISMATCH ค้าง ณ สิ้นเดือน: พบก่อนสิ้นเดือน และยังไม่ปิด/ยอมรับ ณ สิ้นเดือน (ปิดหลังสิ้นเดือน = ยังนับ) · พบหลังสิ้นเดือน = ไม่นับ',
+      '(1) MISMATCH ค้าง ณ สิ้นเดือน: รอบตรวจพบ (`run_at`) ก่อนสิ้นเดือน และยังไม่ปิด/ยอมรับ ณ สิ้นเดือน (ปิดหลังสิ้นเดือน = ยังนับ) · พบหลังสิ้นเดือน = ไม่นับ',
   })
   outstanding!: PeriodCloseMismatchDto[];
   @ApiProperty({
