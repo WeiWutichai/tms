@@ -3,7 +3,8 @@ import { anyShort, linesBody, linesDraftOf, milli, qtyStr, rejectOf } from './ac
 import type { DoPod } from './usePod';
 
 /** ST4-T10 ยอดส่งจริงในฟอร์มหลักฐานส่ง — ค่าเริ่ม = แผน · ส่ง lines เฉพาะเมื่อแก้ · เหตุผลชุดเดียวใช้กับบรรทัดที่ขาด */
-const L = (x: Partial<DoPod['lines'][number]> = {}) => ({
+const L = (x: Partial<DoPod['lines'][number]> = {}): DoPod['lines'][number] => ({
+  doLineId: `dol_${String(x.lineNo ?? 1).padStart(32, '0')}`,
   lineNo: 1,
   description: 'ปูนซีเมนต์',
   unit: 'ตัน',

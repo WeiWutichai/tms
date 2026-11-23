@@ -565,7 +565,15 @@ describe('ส่ง POD ผ่านลิงก์ (ST4-T09)', () => {
     search['DO-2611-00069'] = pv({
       query: 'DO-2611-00069',
       match: atDropDo({
-        lines: [{ lineNo: 1, description: 'ปูนซีเมนต์', unit: 'ตัน', qtyPlanned: '5' }],
+        lines: [
+          {
+            doLineId: `dol_${'1'.padStart(32, '0')}`,
+            lineNo: 1,
+            description: 'ปูนซีเมนต์',
+            unit: 'ตัน',
+            qtyPlanned: '5',
+          },
+        ],
         rejectReasons: [
           { id: 'rsn_s', label: 'จำนวนไม่ครบ', requiresNote: false, requiresPhoto: true },
           {

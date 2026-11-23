@@ -306,6 +306,7 @@ describe('actual quantity + reject reason (ST4-T10)', () => {
     expect(ok.body.doStatus).toBe('UNBILLED');
     expect(ok.body.lines).toEqual([
       {
+        doLineId: expect.stringMatching(/^dol_[0-9a-f]{32}$/),
         lineNo: 1,
         description: 'ปูนซีเมนต์',
         unit: expect.any(String),
@@ -382,6 +383,81 @@ describe('actual quantity + reject reason (ST4-T10)', () => {
     expect(nf.body.errors).toEqual([
       expect.objectContaining({ field: 'lines', code: 'not_applicable' }),
     ]);
+  });
+
+  it('D-81 · D68-52: บรรทัด DO มี doLineId (GET DO / GET pod / pod.captured) · อ้างบรรทัดด้วย doLineId แทน lineNo ได้ · ทั้งคู่ต้องตรง · บรรทัดของ DO อื่น = 422 unknown_line · ไม่ส่งเลย = 422 · tenant อื่น 404', async () => {
+    const d = await delivered({ podRequirements: { success: { fields: [] } } });
+    const short = await reason('REJECTED_BY_RECEIVER', 'SHORT_QTY');
+    const g = await api(app, admin).get(`/v1/delivery-orders/${d.doId}`).expect(200);
+    const [l1, l2] = g.body.lines as { doLineId: string; lineNo: number }[];
+    const rows = await db.deliveryOrderLine.findMany({
+      where: { deliveryOrderId: d.uuid },
+      orderBy: { lineNo: 'asc' },
+    });
+    expect([l1!.doLineId, l2!.doLineId]).toEqual(
+      rows.map((r) => encodeId('deliveryOrderLine', r.id)),
+    );
+    const v0 = await api(app, admin).get(`/v1/delivery-orders/${d.doId}/pod`).expect(200);
+    expect(v0.body.lines.map((l: { doLineId: string }) => l.doLineId)).toEqual([
+      l1!.doLineId,
+      l2!.doLineId,
+    ]);
+
+    const otherDo = await delivered({ podRequirements: { success: { fields: [] } } });
+    const otherLine = (await api(app, admin).get(`/v1/delivery-orders/${otherDo.doId}`).expect(200))
+      .body.lines[0].doLineId as string;
+    const codes = async (lines: object[]) =>
+      (await putPod(d.doId, { lines }).expect(422)).body.errors.map(
+        (e: { field: string; code: string }) => `${e.field}:${e.code}`,
+      );
+    expect(await codes([{ doLineId: otherLine, qtyActual: '1' }])).toEqual([
+      'lines.0.doLineId:unknown_line',
+    ]);
+    expect(
+      await codes([{ doLineId: encodeId('deliveryOrderLine', randomUUID()), qtyActual: '1' }]),
+    ).toEqual(['lines.0.doLineId:unknown_line']);
+    expect(await codes([{ lineNo: 2, doLineId: l1!.doLineId, qtyActual: '1' }])).toEqual([
+      'lines.0.lineNo:line_ref_mismatch',
+    ]);
+    expect(await codes([{ qtyActual: '1' }])).toEqual(['lines.0.lineNo:line_ref_required']);
+    await putPod(d.doId, { lines: [{ doLineId: 'do_123', qtyActual: '1' }] }).expect(422);
+    // tenant อื่น: DO ไม่พบ (404) แม้ส่ง doLineId ที่ถูกต้องของ DO นั้น
+    await putPod(d.doId, { lines: [{ doLineId: l1!.doLineId, qtyActual: '20' }] }, other).expect(
+      404,
+    );
+    expect(await db.deliveryOrderPod.count({ where: { deliveryOrderId: d.uuid } })).toBe(0);
+
+    const photo = await doc('POD_PHOTO');
+    const ok = await putPod(d.doId, {
+      photoDocumentIds: [photo],
+      lines: [
+        { doLineId: l1!.doLineId, qtyActual: '18', rejectReasonCodeId: short },
+        { lineNo: 2, doLineId: l2!.doLineId, qtyActual: '5' },
+      ],
+    })
+      .set('If-Match', '"0"')
+      .expect(200);
+    expect(ok.body.lines).toEqual([
+      expect.objectContaining({
+        doLineId: l1!.doLineId,
+        lineNo: 1,
+        qtyActual: '18',
+        rejectQty: '2',
+      }),
+      expect.objectContaining({
+        doLineId: l2!.doLineId,
+        lineNo: 2,
+        qtyActual: '5',
+        rejectQty: '0',
+      }),
+    ]);
+    const ev = await db.domainEvent.findFirstOrThrow({
+      where: { tenantId, type: 'pod.captured', localId: d.uuid },
+      orderBy: { occurredAt: 'desc' },
+    });
+    expect((ev.snapshot as { lines: { doLineId: string }[] }).lines[0]!.doLineId).toBe(
+      l1!.doLineId,
+    );
   });
 
   it('แก้หลัง UNBILLED = ฉบับใหม่ + เหตุผล + If-Match (412 เมื่อเก่า) · บรรทัดที่ไม่ส่ง = คงเดิม · audit มีบรรทัด', async () => {

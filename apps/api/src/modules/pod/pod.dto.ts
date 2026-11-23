@@ -35,15 +35,26 @@ import { EffectivePodChecklistDto } from './pod-checklist.dto';
 
 const DOC_ID = /^doc_[0-9a-f]{32}$/;
 
-/** ST4-T10 ยอดส่งจริงของบรรทัด DO หนึ่งบรรทัด (docs/01 §5.3 `lines[]` — อ้างบรรทัดด้วย `lineNo` ของ DO) */
+/** ST4-T10 ยอดส่งจริงของบรรทัด DO หนึ่งบรรทัด (docs/01 §3.9/§5.5 `lines[]` — อ้างบรรทัดด้วย `doLineId` หรือ `lineNo` ของ DO) */
 export class PodLineInputDto {
-  @ApiProperty({
+  @ApiPropertyOptional({
     example: 1,
-    description: 'ลำดับบรรทัดของ DO (`lines[].lineNo` ของ GET /v1/delivery-orders/{id})',
+    description:
+      'ลำดับบรรทัดของ DO (`lines[].lineNo` ของ GET /v1/delivery-orders/{id}) — ส่ง `lineNo` หรือ `doLineId` อย่างน้อยหนึ่งช่อง (ไม่ส่งเลย → 422 `line_ref_required`)',
   })
+  @IsOptional()
   @IsInt()
   @Min(1)
-  lineNo!: number;
+  lineNo?: number;
+
+  @ApiPropertyOptional({
+    example: 'dol_3f2a…',
+    description:
+      'public id ของบรรทัด DO (`lines[].doLineId`) — ไม่ใช่บรรทัดของ DO ใบนี้ → 422 `unknown_line` · ส่งคู่กับ `lineNo` ต้องตรงกัน ไม่งั้น 422 `line_ref_mismatch` (D-81 · D68-52)',
+  })
+  @IsOptional()
+  @Matches(/^dol_[0-9a-f]{32}$/)
+  doLineId?: string;
 
   @ApiProperty({
     example: '90',
@@ -368,6 +379,8 @@ export class PodLineReasonDto {
 
 /** ST4-T10 บรรทัด DO + ยอดส่งจริงปัจจุบัน (ฉบับล่าสุด) */
 export class PodLineDto {
+  @ApiProperty({ example: 'dol_3f2a…', description: 'public id ของบรรทัด DO (D-81 · D68-52)' })
+  doLineId!: string;
   @ApiProperty({ example: 1 }) lineNo!: number;
   @ApiProperty() description!: string;
   @ApiProperty({

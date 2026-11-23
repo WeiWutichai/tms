@@ -362,6 +362,7 @@ describe('TripDocsTab errors', () => {
 describe('ST4-T10 จำนวนที่ส่งจริง', () => {
   const lines = [
     {
+      doLineId: `dol_${'1'.padStart(32, '0')}`,
       lineNo: 1,
       description: 'ปูนซีเมนต์',
       unit: 'ตัน',
