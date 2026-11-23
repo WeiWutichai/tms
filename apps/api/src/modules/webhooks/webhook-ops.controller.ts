@@ -35,7 +35,7 @@ export class WebhookDeliveriesController {
   constructor(private readonly ops: WebhookOpsService) {}
 
   @Get()
-  @RequireScope('settings:read')
+  @RequireScope('settings:read', 'webhooks:manage')
   @ApiOkResponse({
     type: WebhookDeliveryPageDto,
     description:
@@ -47,7 +47,7 @@ export class WebhookDeliveriesController {
 
   @Get(':id')
   @TenantResource('webhookDelivery')
-  @RequireScope('settings:read')
+  @RequireScope('settings:read', 'webhooks:manage')
   @ApiOkResponse({
     type: WebhookDeliveryDetailDto,
     description:
@@ -62,7 +62,7 @@ export class WebhookDeliveriesController {
   @HttpCode(200)
   @NoTransaction()
   @TenantResource('webhookDelivery')
-  @RequireScope('settings:write')
+  @RequireScope('settings:write', 'webhooks:manage')
   @ApiOkResponse({
     type: WebhookResendResultDto,
     description:
@@ -112,7 +112,7 @@ export class EventsController {
   @HttpCode(200)
   @NoTransaction()
   @TenantResource('event')
-  @RequireScope('settings:write')
+  @RequireScope('settings:write', 'webhooks:manage')
   @ApiOkResponse({
     type: WebhookRedeliverResultDto,
     description:

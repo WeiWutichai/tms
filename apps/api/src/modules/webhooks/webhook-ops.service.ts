@@ -23,31 +23,9 @@ import type {
 import { MANUAL_OP, WEBHOOK_SINK } from './webhook.sink';
 import { WebhookEngine } from './webhook-engine';
 import { WebhooksService } from './webhooks.service';
+import { assertKeyEventScope, eventReadScope } from './event-read-scope';
 
-/**
- * ST7-T11 (review M1): scope อ่านของ resource ของ event — `GET /v1/events` เห็นเฉพาะ event ที่ผู้เรียกอ่าน REST ได้
- * (ตรงกับ scope ของ endpoint เจ้าของ object: DO/POD ใช้ orders/trips ตาม A3, connector = settings) · ไม่รู้จัก = ไม่มีใครอ่านได้
- */
-const EVENT_READ_SCOPE: Record<string, string> = {
-  order: 'orders:read',
-  delivery_order: 'orders:read',
-  trip: 'trips:read',
-  stop: 'trips:read',
-  pod: 'trips:read',
-  invoice: 'invoices:read',
-  credit_note: 'invoices:read',
-  debit_note: 'invoices:read',
-  payment: 'invoices:read',
-  receipt: 'invoices:read',
-  wht_certificate: 'invoices:read',
-  settlement: 'settlements:read',
-  connector: 'settings:read',
-  reconcile: 'integrations:read',
-  job: 'jobs:read',
-};
-export function eventReadScope(type: string): string {
-  return EVENT_READ_SCOPE[type.split('.')[0]!] ?? 'events:none';
-}
+export { eventReadScope } from './event-read-scope';
 
 const DAY = 24 * 60 * 60 * 1000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -308,7 +286,7 @@ export class WebhookOpsService {
 
   /** `POST /webhook-deliveries/{id}/retry` — ส่ง event ของรายการนี้ไปยัง endpoint เดิมอีกครั้ง */
   async retry(id: string): Promise<WebhookResendResultDto> {
-    this.hooks.assertHuman();
+    this.hooks.assertCanManage();
     const tenantId = requestContext.require().tenantId!;
     const started = Date.now();
     const d = await this.withTx(tenantId, (tx) => this.get(id, tx));
@@ -323,7 +301,7 @@ export class WebhookOpsService {
 
   /** `POST /events/{id}/redeliver?endpointId=` — ส่ง event ไปยัง endpoint ที่ระบุ หรือทุก endpoint ที่เปิดอยู่และสมัคร event นี้ */
   async redeliver(eventId: string, endpointId?: string): Promise<WebhookResendResultDto[]> {
-    this.hooks.assertHuman();
+    this.hooks.assertCanManage();
     const tenantId = requestContext.require().tenantId!;
     const started = Date.now();
     const prepared = await this.withTx(tenantId, async (tx) => {
@@ -374,6 +352,8 @@ export class WebhookOpsService {
       !eventMatches(ev.type, e.events)
     )
       throw new ProblemException('webhook_event_not_subscribed');
+    // review G-1: API key ส่งซ้ำได้เฉพาะ event ของ resource ที่ key อ่านได้ (retry + redeliver)
+    assertKeyEventScope([ev.type]);
     return { endpointId, eventId, ev };
   }
 

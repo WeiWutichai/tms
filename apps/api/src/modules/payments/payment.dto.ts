@@ -221,6 +221,13 @@ export class PaymentDto {
   @ApiProperty({ example: 'pay_…' }) id!: string;
   @ApiProperty({ example: 'PAY-2611-0001', description: 'เลขภายใน (ไม่ใช่ใบเสร็จ — D-56)' })
   paymentNo!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'เลขของระบบต้นทาง (ERP) — ตั้งได้ตอนบันทึกผ่าน `PUT /payments/external/{externalId}` เท่านั้น (D68-45)',
+  })
+  externalId!: string | null;
   @ApiProperty({ type: PaymentCustomerDto }) customer!: PaymentCustomerDto;
   @ApiProperty({ example: '2026-11-21' }) receivedDate!: string;
   @ApiProperty({ enum: PAYMENT_METHODS }) method!: PaymentMethodDto;

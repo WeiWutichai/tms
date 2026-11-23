@@ -120,14 +120,28 @@ export function fieldSyncErrors(
 /**
  * **จุดตัดสินเดียว** ว่า TMS ออกเลขใบกำกับภาษี (`tax_invoice_no`) ได้ไหม — ST5-T09 (finalize/ออกเลข) ต้องเรียกผ่าน
  * `SystemOfRecordPolicy.assertCanIssueTaxDocumentNumber` ก่อนออกเลขใบกำกับภาษีทุกครั้ง
- * false เฉพาะเมื่อ ERP เป็นเจ้าของเอกสารภาษี **และ** ใบแจ้งหนี้ไปถึง ERP ได้จริงตามค่าตั้ง (`invoiceReachesErp`)
- * → TMS ออกเฉพาะใบแจ้งหนี้/ใบวางบิล · ไม่เช่นนั้น (standalone-first) TMS ออกเลขเองเสมอ — ไม่ปล่อยให้ไม่มีใครออก
+ * **`taxDocumentOwner = ERP` → false เสมอ ไม่ว่า connector พร้อมส่งหรือไม่** (D-81 · D68-04 · 23 พ.ย. 2569 — docs/01 §8.1:
+ * เลขที่ออกแล้วย้อนไม่ได้ เสี่ยงเอกสารซ้ำสองระบบ) · connector ยังส่งไม่ถึง ERP → ผู้เรียกแสดงคำเตือน (`taxDocumentOwnerWarning`)
+ * และผู้ใช้ต้องสลับเจ้าของเป็น TMS เองอย่างชัดเจน (`PUT /connectors/{id}/system-of-record` + เหตุผล + audit) — ระบบไม่สลับให้
+ * TMS / ยังไม่เลือก (null) / Standalone (ไม่มี connector หรือยกเลิกการเชื่อมแล้ว) → TMS ออกเลข
  */
-export function canIssueTaxDocumentNumber(
+export function canIssueTaxDocumentNumber(sor: Pick<SystemOfRecord, 'taxDocumentOwner'>): boolean {
+  return sor.taxDocumentOwner !== 'ERP';
+}
+
+/**
+ * คำเตือนเจ้าของเอกสารภาษี (D68-04): `ERP_NOT_CONNECTED` = ตั้งให้ ERP ออกใบกำกับภาษี แต่ใบแจ้งหนี้ยังไปไม่ถึง ERP
+ * (connector ยังไม่เคยเปิดใช้ / ไม่มี pushInvoice / แพ็กเกจไม่มี conn) → **ไม่มีใครออกใบกำกับภาษี** จนกว่าจะเชื่อมสำเร็จ
+ * หรือผู้ใช้สลับเจ้าของเป็น TMS เอง · null = ไม่มีอะไรต้องเตือน
+ */
+export const SOR_TAX_OWNER_WARNINGS = ['ERP_NOT_CONNECTED'] as const;
+export type SorTaxOwnerWarning = (typeof SOR_TAX_OWNER_WARNINGS)[number];
+
+export function taxDocumentOwnerWarning(
   sor: Pick<SystemOfRecord, 'taxDocumentOwner'>,
   invoiceReachesErp: boolean,
-): boolean {
-  return !(sor.taxDocumentOwner === 'ERP' && invoiceReachesErp);
+): SorTaxOwnerWarning | null {
+  return sor.taxDocumentOwner === 'ERP' && !invoiceReachesErp ? 'ERP_NOT_CONNECTED' : null;
 }
 
 /** สถานะใบแจ้งหนี้ที่นับว่า "รับชำระแล้ว" — รับบางส่วนก็นับ (แบบระมัดระวัง: ERP อาจตัดชำระกับใบนั้นแล้ว) */

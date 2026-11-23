@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type WebhookEndpoint } from '@prisma/client';
-import { WEBHOOK_ROTATION_GRACE_HOURS } from '@tms/domain';
+import { scopeAllows, WEBHOOK_ROTATION_GRACE_HOURS } from '@tms/domain';
 import { eventSample } from './event-openapi';
 import { findUsers } from '../sandbox/users';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -10,6 +10,7 @@ import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { assertHumanStepUp } from '../../auth/step-up';
+import { assertKeyEventScope } from './event-read-scope';
 import { DbService, type Tx } from '../../db/db.service';
 import { RateLimitService, slidingWindow } from '../../http/rate-limit/rate-limit.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
@@ -93,14 +94,46 @@ export class WebhooksService {
     private readonly limiter: RateLimitService,
   ) {}
 
+  /** หมุน secret — ผู้ใช้เท่านั้น (D-67 step-up · API key ทำ step-up ไม่ได้ แม้มี `webhooks:manage`) */
   assertHuman(): void {
     const pt = requestContext.require().principalType;
     if (pt !== 'user' && pt !== 'dev')
       throw new ProblemException('permission_denied', undefined, undefined, {
         module: 'webhooks',
-        action: 'manage',
+        action: 'rotate_secret',
         required: ['settings:write'],
       });
+  }
+
+  /**
+   * review G-1: API key เปลี่ยน url / header ลับได้เฉพาะ endpoint ที่ key ดอกเดียวกันสร้าง (`created_by` = `apikey:<uuid>`)
+   * — endpoint ที่ผู้ใช้สร้าง (หรือ key อื่น) → 403 (กัน key ย้าย event + header ลับของผู้ใช้ไปปลายทางอื่น) · ผู้ใช้ไม่ถูกจำกัด
+   */
+  private assertKeyOwnsEndpoint(e: WebhookEndpoint): void {
+    const ctx = requestContext.require();
+    if (ctx.principalType !== 'client') return;
+    if (e.createdBy && e.createdBy === ctx.actorId) return;
+    throw new ProblemException('permission_denied', undefined, undefined, {
+      module: 'webhooks',
+      action: 'change_destination',
+      required: ['webhooks:manage'],
+      reason: 'endpoint_not_created_by_this_key',
+    });
+  }
+
+  /**
+   * สมัคร/แก้/ส่งซ้ำ webhook — ผู้ใช้ (`settings:write` หรือ `webhooks:manage`) หรือ API key / OAuth client ที่มี `webhooks:manage`
+   * (D-81 · D68-49/62 · 23 พ.ย. 2569 — Open API first-class; `settings:write` ห้ามให้ key)
+   */
+  assertCanManage(): void {
+    const ctx = requestContext.require();
+    if (ctx.principalType === 'user' || ctx.principalType === 'dev') return;
+    if (scopeAllows(ctx.scopes ?? [], 'webhooks:manage')) return;
+    throw new ProblemException('permission_denied', undefined, undefined, {
+      module: 'webhooks',
+      action: 'manage',
+      required: ['webhooks:manage'],
+    });
   }
 
   // ---------- read ----------
@@ -275,13 +308,14 @@ export class WebhooksService {
   // ---------- write ----------
 
   async create(body: CreateWebhookDto): Promise<WebhookEndpointSecretDto> {
-    this.assertHuman();
+    this.assertCanManage();
     const ctx = requestContext.require();
     const tx = this.db.tx;
     const tenantId = ctx.tenantId!;
     const url = await this.checkUrl(body.url);
     const headers = this.checkHeaders(body.extraHeaders);
     const events = this.sortedEvents(body.events);
+    assertKeyEventScope(events); // review G-1 — key สมัครได้เฉพาะ event ของ resource ที่อ่านได้
     await this.assertLimit(tx, tenantId);
     await this.assertUrlFree(tx, url);
     const secret = generateWebhookSecret();
@@ -356,7 +390,7 @@ export class WebhooksService {
   }
 
   async update(id: string, body: UpdateWebhookDto, expected?: number): Promise<WebhookEndpoint> {
-    this.assertHuman();
+    this.assertCanManage();
     const tx = this.db.tx;
     const cur = await this.get(id);
     this.version(cur, expected);
@@ -374,7 +408,10 @@ export class WebhooksService {
     }
     if (body.events !== undefined) {
       const ev = this.sortedEvents(body.events);
-      if (ev.join() !== cur.events.join()) data.events = ev;
+      if (ev.join() !== cur.events.join()) {
+        assertKeyEventScope(ev); // review G-1
+        data.events = ev;
+      }
     }
     if (body.description !== undefined) {
       const d = body.description?.trim() || null;
@@ -396,7 +433,10 @@ export class WebhooksService {
       }
     }
     // D-67 review M1: เปลี่ยนปลายทาง/header ลับ = event (และ header ลับ) ไปที่อื่น → ต้อง step-up 2FA
-    if (urlChanged || headersChanged) assertHumanStepUp();
+    if (urlChanged || headersChanged) {
+      assertHumanStepUp();
+      this.assertKeyOwnsEndpoint(cur);
+    }
     if (!Object.keys(data).length) return cur;
     const n = await tx.webhookEndpoint.updateMany({
       where: { id, version: cur.version },
@@ -464,7 +504,7 @@ export class WebhooksService {
   }
 
   private async setActive(id: string, on: boolean, body: WebhookActionDto, expected?: number) {
-    this.assertHuman();
+    this.assertCanManage();
     const ctx = requestContext.require();
     const tx = this.db.tx;
     const cur = await this.get(id);
@@ -508,7 +548,7 @@ export class WebhooksService {
 
   /** ลบ (soft) — หยุดรับ event ทันที · ประวัติการส่งเก็บตาม retention */
   async remove(id: string, body: WebhookReasonDto, expected?: number): Promise<void> {
-    this.assertHuman();
+    this.assertCanManage();
     const tx = this.db.tx;
     const cur = await this.get(id);
     this.version(cur, expected);
@@ -535,7 +575,7 @@ export class WebhooksService {
    * endpoint ต้องเปิดอยู่ · payload ตัวอย่างของ event ที่เลือก + `"test": true` · ไม่นับอัตราสำเร็จ/ปิดอัตโนมัติ
    */
   async test(id: string, body: WebhookTestDto): Promise<WebhookTestResultDto> {
-    this.assertHuman();
+    this.assertCanManage();
     const ctx = requestContext.require();
     const tenantId = ctx.tenantId!;
     const withTx = <T>(fn: (tx: Tx) => Promise<T>) => this.db.withTenant(tenantId, fn);

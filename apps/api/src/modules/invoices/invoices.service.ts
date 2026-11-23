@@ -20,7 +20,7 @@ import {
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { Clock } from '../../common/clock';
-import { EXT_PREFIX, EXTERNAL_ID_RE } from '../../common/external-id';
+import { EXT_PREFIX, EXTERNAL_ID_RE, lockExternalId, resolveRef } from '../../common/external-id';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException, type FieldError } from '../../common/problem';
@@ -158,6 +158,26 @@ export class InvoicesService {
     return page as InvoicePageDto;
   }
 
+  /**
+   * `{id}` ของ path หรือ `ext:{externalId}` (D68-45) → uuid · ไม่พบ/ผิดรูปแบบ/tenant อื่น (RLS) → 404
+   * route ที่ไม่เปิด transaction (`@NoTransaction` — PDF/อีเมล) หาใน transaction สั้นของ tenant เอง
+   */
+  idOf(ref: string): Promise<string> {
+    return resolveRef(
+      'invoice',
+      ref,
+      async (u) => u,
+      async (ext) => {
+        const find = (tx: Tx) =>
+          tx.invoice.findFirst({ where: { externalId: ext }, select: { id: true } });
+        const ctx = requestContext.require();
+        const r = ctx.tx ? await find(ctx.tx) : await this.db.withTenant(ctx.tenantId!, find);
+        if (!r) throw new ProblemException('not_found');
+        return r.id;
+      },
+    );
+  }
+
   async get(id: string, tx: Tx = this.db.tx): Promise<InvoiceDto> {
     const r = await tx.invoice.findUnique({ where: { id }, include: LOAD });
     if (!r) throw new ProblemException('not_found');
@@ -167,7 +187,10 @@ export class InvoicesService {
   // ---------- เขียน ----------
 
   /** `o.createdBy` = ผู้สร้างที่เป็นระบบ (`system:invoice-run` — ST5-T12: ไม่นับเป็นผู้เตรียมในกฎแบ่งหน้าที่ของ finalize) */
-  async create(body: CreateInvoiceDto, o: { createdBy?: string } = {}): Promise<InvoiceDto> {
+  async create(
+    body: CreateInvoiceDto,
+    o: { createdBy?: string; externalId?: string } = {},
+  ): Promise<InvoiceDto> {
     const tx = this.db.tx;
     const ctx = requestContext.require();
     const customerId = await this.customerRef(tx, body.customerId);
@@ -195,6 +218,7 @@ export class InvoicesService {
       data: {
         tenantId: ctx.tenantId!,
         customerId: customer.id,
+        externalId: o.externalId ?? null,
         issuingCompanyId: issuer.companyId,
         issuingBranchId: issuer.branchId,
         creditTermDays: customer.paymentTermDays,
@@ -238,6 +262,59 @@ export class InvoicesService {
       },
     });
     return out;
+  }
+
+  /**
+   * D-81 · D68-45 `PUT /invoices/external/{externalId}` (docs/04 G1 "External id") — ERP อ้างใบแจ้งหนี้ด้วยรหัสของตัวเอง
+   * - ยังไม่มี → สร้างร่าง (กติกาเดียวกับ `POST /invoices`) → `created`
+   * - มีแล้ว: ลูกค้า/ชุด DO ต้องตรงกับใบ (เพิ่ม/ถอด DO ใช้ `/invoices/{id}/delivery-orders…`) ไม่ตรง → 409 `conflict`
+   *   · ช่องหัวใบ (งวด รูปบรรทัด เลข PO หมายเหตุ) เหมือนเดิม → คืนใบเดิม (ส่งซ้ำได้ version ไม่เปลี่ยน)
+   *   · ต่าง: ร่าง → แก้แบบ `PATCH /invoices/{id}` · **ออกแล้ว/ยกเลิก → 409 `invalid_state_transition`** (เอกสารที่ออกแล้วแก้ไม่ได้ — docs/04 F3)
+   */
+  async upsertExternal(
+    externalId: string,
+    body: CreateInvoiceDto,
+    expected?: number,
+  ): Promise<{ out: InvoiceDto; created: boolean }> {
+    const tx = this.db.tx;
+    await lockExternalId(tx, 'invoice', externalId);
+    const row = await tx.invoice.findFirst({ where: { externalId }, select: { id: true } });
+    if (!row) return { out: await this.create(body, { externalId }), created: true };
+    await tx.$queryRaw`SELECT id FROM invoice WHERE id = ${row.id}::uuid FOR UPDATE`;
+    const inv = await tx.invoice.findUniqueOrThrow({ where: { id: row.id } });
+    if (expected !== undefined && expected !== inv.version)
+      throw new ProblemException('precondition_failed');
+    const cur = await this.get(inv.id);
+    const want = new Set(this.decodeDos(body.deliveryOrderIds));
+    const have = new Set(cur.deliveryOrders.map((d) => tryDecodeId('deliveryOrder', d.id)!));
+    const customerId = await this.customerRef(tx, body.customerId);
+    if (
+      customerId !== inv.customerId ||
+      want.size !== have.size ||
+      [...want].some((d) => !have.has(d))
+    )
+      throw new ProblemException(
+        'conflict',
+        'invoice with this externalId has a different customer or delivery orders — add/remove delivery orders with /invoices/{id}/delivery-orders',
+        undefined,
+        { id: cur.id, currentStatus: inv.status },
+      );
+    const patch: UpdateInvoiceDto = {};
+    if (body.lineMode !== undefined && body.lineMode !== inv.lineMode)
+      patch.lineMode = body.lineMode;
+    if (body.periodFrom !== undefined && body.periodFrom !== cur.periodFrom)
+      patch.periodFrom = body.periodFrom;
+    if (body.periodTo !== undefined && body.periodTo !== cur.periodTo)
+      patch.periodTo = body.periodTo;
+    if (body.customerPoNo !== undefined && (body.customerPoNo || null) !== inv.customerPoNo)
+      patch.customerPoNo = body.customerPoNo;
+    if (body.note !== undefined && (body.note || null) !== inv.note) patch.note = body.note;
+    if (!Object.keys(patch).length) return { out: cur, created: false };
+    if (inv.status !== 'DRAFT')
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        currentStatus: inv.status,
+      });
+    return { out: await this.update(inv.id, patch, expected), created: false };
   }
 
   async update(id: string, body: UpdateInvoiceDto, expected?: number): Promise<InvoiceDto> {
@@ -1132,6 +1209,7 @@ function summary(
   return {
     id: encodeId('invoice', r.id),
     invoiceNo: r.invoiceNo,
+    externalId: r.externalId,
     status: r.status as InvoiceStatus,
     customer: customerDto(r.customer, r.customerSnapshot),
     periodFrom: r.periodFrom ? ymd(r.periodFrom) : null,

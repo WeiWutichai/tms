@@ -440,6 +440,13 @@ export class InvoiceSummaryDto {
     description: 'เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร)',
   })
   invoiceNo!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'เลขของระบบต้นทาง (ERP) — ตั้งได้ตอนสร้างผ่าน `PUT /invoices/external/{externalId}` เท่านั้น (D68-45)',
+  })
+  externalId!: string | null;
   @ApiProperty({ enum: INVOICE_STATUSES }) status!: InvoiceStatusDto;
   @ApiProperty({ type: InvoiceCustomerDto }) customer!: InvoiceCustomerDto;
   @ApiProperty({ nullable: true, type: String }) periodFrom!: string | null;

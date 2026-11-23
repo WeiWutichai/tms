@@ -6,8 +6,10 @@ import {
   normalizeFieldSync,
   type SorChangeDecision,
   type SorFieldGroup,
+  type SorTaxOwnerWarning,
   STANDALONE_SOR,
   type SystemOfRecord,
+  taxDocumentOwnerWarning,
 } from '@tms/domain';
 import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -25,8 +27,10 @@ export interface EffectiveSystemOfRecord extends SystemOfRecord {
    * + connector ACTIVE หรือเคยเปิดใช้แล้ว (PAUSED/ERROR หลังเปิดใช้ = คิวส่งทีหลัง)
    */
   invoiceReachesErp: boolean;
-  /** TMS ออกเลขใบกำกับภาษีได้ไหม (ผลของ canIssueTaxDocumentNumber) */
+  /** TMS ออกเลขใบกำกับภาษีได้ไหม (ผลของ canIssueTaxDocumentNumber — ERP = false เสมอ, D68-04) */
   canIssueTaxDocumentNumber: boolean;
+  /** D68-04: ERP เป็นเจ้าของแต่ใบแจ้งหนี้ยังไปไม่ถึง ERP → `ERP_NOT_CONNECTED` (ผู้เรียกแสดงคำเตือน) */
+  taxDocumentOwnerWarning: SorTaxOwnerWarning | null;
 }
 
 /** ค่าตั้ง system-of-record ของแถว connector (null/ยกเลิกแล้ว = Standalone) */
@@ -51,8 +55,9 @@ export function invoiceReachesErp(r: ResolvedConnector, entitled: boolean): bool
 /**
  * **จุดบังคับใช้เดียว** ของ system-of-record rules (ST7-T17; docs/04 G3; docs/01 §8.1; plan/05 D-27)
  * - ใช้ connector ตาม routing นิติบุคคล (ConnectorResolver: ของนิติบุคคล → ทุกนิติบุคคล → Standalone) ไม่ดู adapter_key
- * - standalone-first: TMS ไม่ออกเลขใบกำกับภาษี **เฉพาะ** เมื่อ ERP เป็นเจ้าของ **และ** ใบแจ้งหนี้ไปถึง ERP ได้จริง
- *   (connector ที่ยังไม่เคยเปิดใช้ / ไม่มี pushInvoice / แพ็กเกจไม่มี `conn` / ยังไม่เลือกเจ้าของ = TMS ออกเลขเอง)
+ * - D68-04 (D-81 · 23 พ.ย. 2569): ERP เป็นเจ้าของเอกสารภาษี → TMS **ไม่ออกเลขใบกำกับภาษีทุกกรณี** แม้ connector ยังส่งไม่ถึง ERP
+ *   (ยังไม่เคยเปิดใช้ / ไม่มี pushInvoice) — กรณีนั้นคืนคำเตือน `ERP_NOT_CONNECTED` ให้ผู้ใช้สลับเจ้าของเป็น TMS เอง (มีเหตุผล + audit)
+ *   · ยังไม่เลือกเจ้าของ / ยกเลิกการเชื่อม / แพ็กเกจไม่มี `conn` (effective Standalone) = TMS ออกเลข
  * - ผู้เรียก (ST5-T09 finalize/ออกเลข, ST7-T16 push/regenerate) ต้องเรียกใน transaction เดียวกับการออกเลข/สร้างคำสั่ง
  */
 @Injectable()
@@ -64,17 +69,19 @@ export class SystemOfRecordPolicy {
 
   /** ผลของ connector ที่ resolve แล้ว (ใช้ร่วมกับ `GET /connectors/effective`) */
   async describe(r: ResolvedConnector): Promise<EffectiveSystemOfRecord> {
-    const sor = sorOf(r.connector);
     const entitled = r.connector
       ? await this.entitlements.enabled(r.connector.tenantId, 'conn')
       : false;
+    // แพ็กเกจไม่มี `conn` = ไม่มี connector ที่ใช้ได้ → Standalone (TMS/TMS) แบบเดียวกับ `GET /connectors/effective`
+    const sor = sorOf(entitled ? r.connector : null);
     const reaches = invoiceReachesErp(r, entitled);
     return {
       ...sor,
-      standalone: r.standalone,
+      standalone: r.standalone || !entitled,
       connectorId: r.connector ? encodeId('connector', r.connector.id) : null,
       invoiceReachesErp: reaches,
-      canIssueTaxDocumentNumber: canIssueTaxDocumentNumber(sor, reaches),
+      canIssueTaxDocumentNumber: canIssueTaxDocumentNumber(sor),
+      taxDocumentOwnerWarning: taxDocumentOwnerWarning(sor, reaches),
     };
   }
 
@@ -96,6 +103,7 @@ export class SystemOfRecordPolicy {
     if (!sor.canIssueTaxDocumentNumber)
       throw new ProblemException('tax_document_owned_by_erp', undefined, undefined, {
         connectorId: sor.connectorId,
+        warning: sor.taxDocumentOwnerWarning,
       });
   }
 

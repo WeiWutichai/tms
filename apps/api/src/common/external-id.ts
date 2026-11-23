@@ -1,6 +1,7 @@
 import { applyDecorators, Injectable, type PipeTransform } from '@nestjs/common';
 import { ApiParam, type OpenAPIObject } from '@nestjs/swagger';
 import { decodeIdOr404, type IdKind } from './ids';
+import { requestContext } from './request-context';
 import { PROBLEMS, ProblemException, type ProblemCode } from './problem';
 import { ApiProblems } from './problem.dto';
 
@@ -31,7 +32,9 @@ export const EXT_REF_RESOURCES = [
   'customer-sites',
   'customers',
   'drivers',
+  'invoices',
   'orders',
+  'payments',
   'products',
   'rate-cards',
   'reason-codes',
@@ -184,4 +187,20 @@ export function refToId(kind: IdKind, ref: string, delegate: ExtDelegate): Promi
     async (u) => u,
     (e) => idByExternalId(delegate, e),
   );
+}
+
+/** advisory lock ของ upsert ด้วย externalId (เอกสาร: invoices / payments — D68-45) */
+export const EXT_UPSERT_LOCK_NS = 0x1a45;
+
+/**
+ * ล็อกตามค่า `(tenant, resource, externalId)` ก่อนหาแถว — กันสองคำขอ `PUT …/external/{id}` พร้อมกันสร้างซ้ำ
+ * (ยังไม่มีแถวให้ `FOR UPDATE`; คนที่สองรอแล้วเห็นแถวของคนแรก)
+ */
+export async function lockExternalId(
+  tx: { $queryRaw: (q: TemplateStringsArray, ...v: unknown[]) => Promise<unknown> },
+  resource: string,
+  externalId: string,
+): Promise<void> {
+  const key = `${requestContext.require().tenantId}:${resource}:${externalId}`;
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(${EXT_UPSERT_LOCK_NS}::int, hashtext(${key}))::text`;
 }

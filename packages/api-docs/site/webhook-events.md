@@ -153,6 +153,7 @@
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `ivc_…` |
 | `invoiceNo` | ใช่ | `string` | null ได้ | เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร) |   |
+| `externalId` | ใช่ | `string` | null ได้ | เลขของระบบต้นทาง (ERP) — ตั้งได้ตอนสร้างผ่าน `PUT /invoices/external/{externalId}` เท่านั้น (D68-45) |   |
 | `status` | ใช่ | `string` | ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |   |
 | `customer` | ใช่ | `InvoiceCustomerDto` |   |   |   |
 | `periodFrom` | ใช่ | `string` | null ได้ |   |   |
@@ -190,6 +191,7 @@
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `ivc_…` |
 | `invoiceNo` | ใช่ | `string` | null ได้ | เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร) |   |
+| `externalId` | ใช่ | `string` | null ได้ | เลขของระบบต้นทาง (ERP) — ตั้งได้ตอนสร้างผ่าน `PUT /invoices/external/{externalId}` เท่านั้น (D68-45) |   |
 | `status` | ใช่ | `string` | ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |   |
 | `customer` | ใช่ | `InvoiceCustomerDto` |   |   |   |
 | `periodFrom` | ใช่ | `string` | null ได้ |   |   |
@@ -227,6 +229,7 @@
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `ivc_…` |
 | `invoiceNo` | ใช่ | `string` | null ได้ | เลขใบแจ้งหนี้ — **ร่างไม่มีเลข** (ออกตอนออกเอกสาร) |   |
+| `externalId` | ใช่ | `string` | null ได้ | เลขของระบบต้นทาง (ERP) — ตั้งได้ตอนสร้างผ่าน `PUT /invoices/external/{externalId}` เท่านั้น (D68-45) |   |
 | `status` | ใช่ | `string` | ค่า: `DRAFT`, `ISSUED`, `PARTIALLY_PAID`, `PAID`, `ADJUSTED`, `VOIDED`, `CANCELLED` |   |   |
 | `customer` | ใช่ | `InvoiceCustomerDto` |   |   |   |
 | `periodFrom` | ใช่ | `string` | null ได้ |   |   |
@@ -452,6 +455,7 @@
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `pay_…` |
 | `paymentNo` | ใช่ | `string` |   | เลขภายใน | `PAY-2611-0001` |
+| `externalId` | ใช่ | `string` | null ได้ | เลขของระบบต้นทาง (ERP) — ตั้งได้ตอนบันทึกผ่าน `PUT /payments/external/{externalId}` เท่านั้น (D68-45) |   |
 | `customer` | ใช่ | `PaymentCustomerDto` |   |   |   |
 | `receivedDate` | ใช่ | `string` |   |   | `2026-11-21` |
 | `method` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH`, `OFFSET` |   |   |
@@ -479,6 +483,7 @@
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `pay_…` |
 | `paymentNo` | ใช่ | `string` |   | เลขภายใน | `PAY-2611-0001` |
+| `externalId` | ใช่ | `string` | null ได้ | เลขของระบบต้นทาง (ERP) — ตั้งได้ตอนบันทึกผ่าน `PUT /payments/external/{externalId}` เท่านั้น (D68-45) |   |
 | `customer` | ใช่ | `PaymentCustomerDto` |   |   |   |
 | `receivedDate` | ใช่ | `string` |   |   | `2026-11-21` |
 | `method` | ใช่ | `string` | ค่า: `TRANSFER`, `CHEQUE`, `CASH`, `OFFSET` |   |   |

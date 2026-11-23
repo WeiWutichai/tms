@@ -423,34 +423,48 @@ describe('webhooks (ST7-T04)', () => {
     expect(g.body).toMatchObject({ status: 'failing', consecutiveFailures: 1, successRate7d: 0 });
   });
 
-  it('4xx (400/401/410) และ redirect 3xx ไม่ retry → EXHAUSTED ครั้งแรก · ไม่ follow redirect', async () => {
+  it('D68-48: 3xx/4xx (400/401/404/302) retry ตามตาราง (ไม่ follow redirect) · 410 ไม่ retry → EXHAUSTED ครั้งแรก', async () => {
     const h = await createHook({ url: rx.url(), events: ['stop.arrived'] });
     await skipVerification();
     const cases: [number, Record<string, string>][] = [
       [400, {}],
       [401, {}],
-      [410, {}],
+      [404, {}],
       [302, { location: 'http://127.0.0.1:1/elsewhere' }],
+      [410, {}],
     ];
     for (const [status, extra] of cases) {
       rx.reset();
       rx.reply = () => ({ status, headers: extra });
       await emit(tenantId, 'stop.arrived', { id: `stp_${status}` });
-      await drainAll();
+      await dispatcher.drain(); // ครั้งแรกเท่านั้น (รอบ retry ยังไม่ถึงเวลา)
       expect(rx.hits, String(status)).toHaveLength(1);
     }
     const d = await plat.webhookDelivery.findMany({
       where: { endpointId: uuid(h.id) },
       orderBy: { sentAt: 'asc' },
     });
-    expect(d.map((x) => [x.responseStatus, x.status, x.errorCode])).toEqual([
-      [400, 'EXHAUSTED', 'http_status'],
-      [401, 'EXHAUSTED', 'http_status'],
-      [410, 'EXHAUSTED', 'http_status'],
-      [302, 'EXHAUSTED', 'redirect'],
+    // คำสั่งที่รอ retry ไม่ให้รบกวน test ถัดไป
+    const pending = await plat.integrationOutbox.updateMany({
+      where: { targetId: uuid(h.id), status: 'FAILED_RETRYABLE' },
+      data: { status: 'SKIPPED' },
+    });
+    expect(pending.count).toBe(4);
+    expect(d.map((x) => [x.responseStatus, x.status, x.errorCode, x.errorClass])).toEqual([
+      [400, 'FAILED', 'http_status', 'TRANSIENT'],
+      [401, 'FAILED', 'http_status', 'TRANSIENT'],
+      [404, 'FAILED', 'http_status', 'TRANSIENT'],
+      [302, 'FAILED', 'redirect', 'TRANSIENT'],
+      [410, 'EXHAUSTED', 'http_status', 'VALIDATION'],
     ]);
+    // retry ตามตาราง (ครั้งถัดไป ~1 นาที) — event ที่ยังรอ retry ไม่นับเข้าการปิดอัตโนมัติ · 410 นับ
+    for (const x of d.slice(0, 4)) {
+      const gap = (x.nextRetryAt!.getTime() - x.sentAt.getTime()) / 60_000;
+      expect(gap).toBeGreaterThan(0.89);
+      expect(gap).toBeLessThan(1.2);
+    }
     const e = await plat.webhookEndpoint.findUniqueOrThrow({ where: { id: uuid(h.id) } });
-    expect(e.consecutiveFailures).toBe(4);
+    expect(e.consecutiveFailures).toBe(1);
   });
 
   it('ส่งสำเร็จ = ตัวนับล้มเหลวกลับเป็น 0 · ล้มครบ 50 event ติด → AUTO_DISABLED + หยุดรับ event + audit + แจ้งอีเมลผู้ดูแล', async () => {
@@ -462,7 +476,7 @@ describe('webhooks (ST7-T04)', () => {
     await skipVerification();
     const id = uuid(h.id);
     await plat.webhookEndpoint.update({ where: { id }, data: { consecutiveFailures: 48 } });
-    rx.reply = () => ({ status: 404 });
+    rx.reply = () => ({ status: 410 });
     await emit(tenantId, 'trip.completed', { id: 'trp_a' });
     await drainAll();
     expect(
@@ -476,7 +490,7 @@ describe('webhooks (ST7-T04)', () => {
     ).toBe(0);
 
     await plat.webhookEndpoint.update({ where: { id }, data: { consecutiveFailures: 49 } });
-    rx.reply = () => ({ status: 404 });
+    rx.reply = () => ({ status: 410 });
     await emit(tenantId, 'trip.completed', { id: 'trp_c' });
     await drainAll();
     const e = await plat.webhookEndpoint.findUniqueOrThrow({ where: { id } });
