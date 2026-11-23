@@ -8,6 +8,7 @@ import {
   fieldChangePolicy,
   isErpOperation,
   type SorChangeDecision,
+  SOR_PAYMENT_RECEIVED_STATUSES,
   SOR_TAX_PUSH_CAPABILITIES,
 } from '@tms/domain';
 import { Clock } from '../../common/clock';
@@ -89,8 +90,11 @@ async function sourceState(
  * เนื้อหาเปลี่ยน (เช่น แก้รหัสลูกค้าแล้วส่งคำสั่งเดิมใหม่) = key ใหม่ → ERP ที่กันซ้ำด้วย key ไม่คืนของเก่าเงียบ ๆ
  */
 export function sentIdempotencyKey(commandKey: string, sentHash: string): string {
-  const i = commandKey.lastIndexOf(':');
-  return `${i > 0 ? commandKey.slice(0, i) : commandKey}:${sentHash}`;
+  // `sink:target:entity:local` (4 ส่วนแรก) — คำสั่งส่งใหม่ (ST7-T16 `resend`) มีส่วนท้าย `:resend-…` ต่อจาก hash ของคำสั่ง
+  // แต่ key ที่ ERP เห็นต้องเหมือนการส่งครั้งก่อนเมื่อเนื้อหาเดิม (ERP คืนของเดิม ไม่สร้างใบที่สอง)
+  const parts = commandKey.split(':');
+  const head = parts.length >= 5 ? parts.slice(0, 4).join(':') : parts.slice(0, -1).join(':');
+  return `${head || commandKey}:${sentHash}`;
 }
 
 /** รหัสคู่ค้าฝั่ง ERP ในเอกสารที่ส่งจริง (null = ไม่มีรหัส — adapter จับคู่เอง) · เอกสารไม่มีคู่ค้าชนิดนั้น = ไม่มี key */
@@ -161,6 +165,10 @@ interface DeliveryState {
   secrets: string[];
   connector: Connector | null;
   number: string | null;
+  /** review: เรียก adapter ส่ง/แทนที่/อ่านเอกสารแล้ว — ผลต่อ mapping เฉพาะความล้มที่ adapter ตอบ (ไม่ใช่ประตูก่อนถึง adapter) */
+  adapterCalled: boolean;
+  /** capability ที่ใช้จริงในการเรียกครั้งนี้ (แทนที่ = replaceDocument) — ใช้พักคำสั่งเมื่อ adapter ตอบ not_implemented */
+  cap: ErpCapability | null;
 }
 
 /** ST7-T16 เนื้อหาของเอกสารสองฝั่งตรงกันไหม (ไม่นับ `sync` และเลขฝั่ง ERP ที่ adapter แนบกลับ) */
@@ -283,7 +291,14 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
   }
 
   async deliver(d: OutboxDelivery): Promise<{ result: Record<string, unknown> }> {
-    const st: DeliveryState = { calls: [], secrets: [], connector: null, number: null };
+    const st: DeliveryState = {
+      calls: [],
+      secrets: [],
+      connector: null,
+      number: null,
+      adapterCalled: false,
+      cap: null,
+    };
     try {
       return await this.deliverOnce(d, st);
     } catch (e) {
@@ -335,7 +350,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
   private async afterFailure(d: OutboxDelivery, st: DeliveryState, e: OutboxSinkError) {
     const c = st.connector;
     const entity = MAPPED_ENTITIES[d.entityType];
-    if (!c || !entity) return;
+    if (!c || !entity || !st.adapterCalled) return;
     const push = PUSH_OPERATIONS.has(d.operation);
     const validation = e.errorClass === 'VALIDATION' && push;
     const notFound = e.errorClass === 'NOT_FOUND' && (push || d.operation === 'FETCH_DOCUMENT');
@@ -355,6 +370,8 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         });
         const inErp = !!m?.externalId && m.externalStatus !== 'VOIDED';
         if (validation) {
+          if (inErp)
+            this.logger.warn(`VALIDATION on document already in ERP ${d.localId} → mapping FAILED`);
           const lastError = {
             code: code ?? 'validation',
             errorClass: 'VALIDATION',
@@ -365,7 +382,8 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
             await tx.externalMapping.update({
               where: { id: m.id },
               data: {
-                status: inErp ? 'MISMATCH' : 'FAILED',
+                // docs/01 §6.3 VALIDATION → mapping FAILED (รวมเอกสารที่อยู่ใน ERP แล้ว — ทีมเสนอ MISMATCH: คำถามค้าง #85)
+                status: 'FAILED',
                 lastError,
                 updatedBy: 'system:erp-sink',
                 version: { increment: 1 },
@@ -768,18 +786,28 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         );
     }
     try {
-      return await this.call(d, adapter, resolved.capabilities, ctx, payload, secrets, connector, {
-        sent,
-        mode,
-        parts,
-      });
+      return await this.call(
+        d,
+        st,
+        adapter,
+        resolved.capabilities,
+        ctx,
+        payload,
+        secrets,
+        connector,
+        {
+          sent,
+          mode,
+          parts,
+        },
+      );
     } catch (e) {
       if (e instanceof OutboxSinkError) {
         if (e.errorClass === 'TRANSIENT') await this.stopIfDown(d, connector);
         throw e;
       }
       if (e instanceof ErpAdapterError) {
-        if (e.problem?.code === NOT_IMPLEMENTED) throw parkedNotImplemented(cap);
+        if (e.problem?.code === NOT_IMPLEMENTED) throw parkedNotImplemented(st.cap ?? cap);
         const problem = {
           code: scrub(String(e.problem?.code ?? 'error'), secrets).slice(0, 60),
           message: scrub(String(e.problem?.message ?? ''), secrets).slice(0, 500),
@@ -892,6 +920,72 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     });
   }
 
+  /**
+   * review: หลักฐานว่าเอกสารนี้ (ยังไม่มี id ฝั่ง ERP) อาจเคยถึง ERP แล้ว — คืนชนิดหลักฐาน / null
+   * - `AMBIGUOUS` คำสั่งนี้ล้มแบบไม่รู้ผลรอบก่อน · `LEASE_RECLAIMED` ครั้งก่อนไม่ได้บันทึกผล (worker ตาย/ปิดระหว่างส่ง)
+   * - `SYNC_LOG` มี POST/PUT ของเอกสารนี้ไป connector นี้ในบันทึกการซิงก์ (คำสั่งใดก็ได้ — รวมคำสั่งที่ส่งใหม่)
+   * - `EARLIER_COMMAND` คำสั่งก่อนหน้าของเอกสารนี้จบแบบไม่รู้ผล (AMBIGUOUS / lease_expired / worker_shutdown)
+   */
+  private async earlierSend(d: OutboxDelivery, c: Connector): Promise<string | null> {
+    return d.withTx(async (tx) => {
+      const self = await tx.integrationOutbox.findUnique({
+        where: { id: d.id },
+        select: { errorClass: true, lastError: true },
+      });
+      const code = (self?.lastError as { code?: unknown } | null)?.code;
+      if (self?.errorClass === 'AMBIGUOUS') return 'AMBIGUOUS';
+      if (d.attempt > 1 && (self?.errorClass == null || code === 'worker_shutdown'))
+        return 'LEASE_RECLAIMED';
+      const sent = await tx.erpSyncLog.findFirst({
+        where: {
+          connectorId: c.id,
+          entityType: d.entityType,
+          localId: d.localId,
+          method: { in: ['POST', 'PUT'] },
+        },
+        select: { id: true },
+      });
+      if (sent) return 'SYNC_LOG';
+      const unsure = await tx.integrationOutbox.findFirst({
+        where: {
+          sink: ERP_SINK,
+          targetId: c.id,
+          entityType: d.entityType,
+          localId: d.localId,
+          id: { not: d.id },
+          OR: [
+            { errorClass: 'AMBIGUOUS' },
+            { lastError: { path: ['code'], equals: 'lease_expired' } },
+            { lastError: { path: ['code'], equals: 'worker_shutdown' } },
+          ],
+        },
+        select: { id: true },
+      });
+      return unsure ? 'EARLIER_COMMAND' : null;
+    });
+  }
+
+  /** แจ้งฝ่ายบัญชีให้ทำต่อด้วยมือ (คำสั่งที่จบ DONE แต่ยังต้องมีคน — เช่น DUPLICATE ที่หา id ฝั่ง ERP ไม่ได้) */
+  private async notifyManual(d: OutboxDelivery, c: Connector, number: string | null) {
+    try {
+      await d.withTx((tx) =>
+        this.events.documentNotSent(tx, {
+          tenantId: d.tenantId,
+          connectorId: c.id,
+          errorClass: 'DUPLICATE',
+          entityType: d.entityType,
+          localId: d.localId,
+          documentNo: number,
+          label: this.connectors.adapterLabel(c.adapterKey),
+          outcome: 'FAILED_FINAL',
+          code: 'duplicate_unresolved',
+        }),
+      );
+    } catch (e) {
+      this.logger.warn(`notify ${d.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`);
+    }
+  }
+
   /** อ้างอิงเอกสารของเรา (ยังไม่รู้ id ฝั่ง ERP) — ใช้ค้นด้วยเลขอ้างอิง */
   private refOf(d: OutboxDelivery, doc: CanonicalDocument): ExternalRef {
     return {
@@ -947,6 +1041,20 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     );
   }
 
+  /**
+   * review: capability ที่ adapter ประกาศแต่ยังไม่ได้ทำ (`pendingCapabilities`) = **พักคำสั่ง** (PENDING ไม่นับครั้ง — docs/01 §6.3
+   * CAPABILITY, D-81 · D68-65) ไม่ใช่ SKIPPED · ใช้ได้ = true · ไม่รองรับ/tenant ไม่เปิด = false (ผู้เรียกตัดสินต่อ)
+   */
+  private usableOrPark(
+    adapter: ErpAdapter,
+    enabled: readonly string[],
+    cap: ErpCapability,
+  ): boolean {
+    if (adapter.capabilities().has(cap) && isPendingCapability(adapter, cap))
+      throw parkedNotImplemented(cap);
+    return this.usable(adapter, enabled, cap);
+  }
+
   /** คำสั่งส่งเอกสารที่ไม่ส่ง (SKIPPED + audit + แจ้งบัญชีตาม `onSettled`) */
   private async skip(
     d: OutboxDelivery,
@@ -989,7 +1097,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     if (!prior || !inErp) {
       if (d.operation === 'REPLACE_DOCUMENT') {
         const cap = PUSH_CAPABILITY_OF[d.entityType];
-        if (!cap || !this.usable(adapter, enabled, cap))
+        if (!cap || !this.usableOrPark(adapter, enabled, cap))
           await this.skip(
             d,
             connector,
@@ -1011,6 +1119,13 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
             )
           )?.status ?? null)
         : null;
+    // review: "แก้ได้จนรับชำระ" เป็นกฎ — ใบที่รับชำระแล้วไม่แทนที่ใน ERP เลย แม้ไม่มีกลุ่มที่เปลี่ยน (เช่น ส่งใหม่หลัง MISMATCH)
+    if (status && (SOR_PAYMENT_RECEIVED_STATUSES as readonly string[]).includes(status))
+      await this.skip(d, connector, 'paid_locked', 'document already paid — changes are not sent', {
+        changed,
+        externalId: prior.externalId,
+        externalDocNo: prior.externalDocNo,
+      });
     const sor = sorOf(connector);
     const decision = combineDecisions(
       changed.map((g) =>
@@ -1046,7 +1161,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         'document is posted in the accounting system — replacing needs approval',
         detail,
       );
-    if (!this.usable(adapter, enabled, 'replaceDocument'))
+    if (!this.usableOrPark(adapter, enabled, 'replaceDocument'))
       await this.skip(
         d,
         connector,
@@ -1089,7 +1204,13 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
   > {
     const canList = this.usable(adapter, enabled, 'listDocuments') && !!adapter.listDocuments;
     const canFetch = this.usable(adapter, enabled, 'fetchDocument') && !!adapter.fetchDocument;
-    if (!canList && !canFetch) return { searched: false };
+    if (!canList && !canFetch) {
+      // review: ค้นได้เมื่อ adapter ทำเสร็จ (ประกาศแต่ยัง pending) → พักคำสั่ง ไม่ส่งซ้ำแบบไม่รู้ผล
+      for (const cap of ['fetchDocument', 'listDocuments'] as const)
+        if (adapter.capabilities().has(cap) && isPendingCapability(adapter, cap))
+          throw parkedNotImplemented(cap);
+      return { searched: false };
+    }
     let externalId = ref.externalId;
     if (!externalId && canList) {
       const page = await adapter.listDocuments!(ctx, { ref: ref.number, limit: 10 });
@@ -1119,6 +1240,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
 
   private async call(
     d: OutboxDelivery,
+    st: DeliveryState,
     adapter: ErpAdapter,
     enabled: readonly string[],
     ctx: ErpContext,
@@ -1133,7 +1255,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     /** ST7-T16 พบเอกสารของเราฝั่ง ERP แล้ว (หลัง AMBIGUOUS / DUPLICATE) → mapping + ผล DONE */
     const recovered = async (
       found: { externalId: string; externalDocNo: string | null; same: boolean | null },
-      after: 'AMBIGUOUS' | 'DUPLICATE',
+      after: 'AMBIGUOUS' | 'EARLIER_SEND' | 'DUPLICATE',
     ) => {
       const applied = found.same === true;
       await this.recordMapping(
@@ -1157,6 +1279,8 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     };
     let r: PushResult;
     if (mode.kind === 'replace') {
+      st.cap = 'replaceDocument';
+      st.adapterCalled = true;
       r = await adapter.replaceDocument!(ctx, mode.ref, doc);
     } else
       switch (d.operation) {
@@ -1164,18 +1288,27 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         case 'PUSH_CREDIT_NOTE':
         case 'PUSH_SETTLEMENT':
         case 'REPLACE_DOCUMENT': {
-          // ST7-T16 AMBIGUOUS (docs/01 §6.3): ไม่ส่งซ้ำทันที — รอบก่อนอาจถึงแล้ว → หาเอกสารของเราฝั่ง ERP ก่อน (list/fetch)
-          // พบ = จบด้วย mapping (ไม่ส่งซ้ำ) · ไม่พบ/หาไม่ได้ = ส่งใหม่ (dispatcher รอ 2 นาทีแล้ว — ถ้าถึงแล้ว ERP ตอบ DUPLICATE)
-          if (entity && d.attempt > 1) {
-            const prev = await d.withTx((tx) =>
-              tx.integrationOutbox.findUnique({
-                where: { id: d.id },
-                select: { errorClass: true },
-              }),
-            );
-            if (prev?.errorClass === 'AMBIGUOUS') {
-              const f = await this.lookup(adapter, enabled, ctx, this.refOf(d, doc), doc);
-              if (f.searched && f.found) return recovered(f, 'AMBIGUOUS');
+          // ST7-T16 (docs/01 §6.3 AMBIGUOUS + review): เอกสารยังไม่มี id ฝั่ง ERP แต่มีหลักฐานว่าอาจเคยส่งถึงแล้ว
+          // (AMBIGUOUS รอบก่อน · lease หลุด/worker ปิดระหว่างส่ง · sync log มี POST/PUT ของเอกสารนี้ · คำสั่งเดิมเคยค้างแบบไม่รู้ผล)
+          // → หาเอกสารของเราฝั่ง ERP ก่อน (list/fetch) · พบ = จบด้วย mapping ไม่ส่งซ้ำ · ไม่พบ/ค้นไม่ได้ = ส่ง (ERP กันซ้ำด้วยเลขอ้างอิง)
+          // ค้นแล้วปลายทางล่ม = TRANSIENT (ลองใหม่ตามตาราง — ไม่ส่งแบบไม่รู้ผล)
+          if (entity) {
+            const evidence = await this.earlierSend(d, connector);
+            if (evidence) {
+              let f: Awaited<ReturnType<ErpAdapterSink['lookup']>>;
+              try {
+                f = await this.lookup(adapter, enabled, ctx, this.refOf(d, doc), doc);
+              } catch (e) {
+                if (e instanceof OutboxSinkError) throw e;
+                const msg = scrub(String((e as Error)?.message ?? e), secrets).slice(0, 500);
+                throw new OutboxSinkError(msg || 'lookup failed', 'TRANSIENT', {
+                  code: 'erp_lookup_failed',
+                  message: msg,
+                  evidence,
+                });
+              }
+              if (f.searched && f.found)
+                return recovered(f, evidence === 'AMBIGUOUS' ? 'AMBIGUOUS' : 'EARLIER_SEND');
             }
           }
           const method =
@@ -1185,12 +1318,15 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
                   d.operation === 'PUSH_SETTLEMENT'
                 ? 'pushSettlement'
                 : 'pushInvoice';
+          st.cap = method;
+          st.adapterCalled = true;
           r = await adapter[method]!(ctx, doc);
           break;
         }
         case 'FETCH_DOCUMENT': {
           if (!payload.ref)
             throw new OutboxSinkError('ref required', 'VALIDATION', { code: 'invalid_payload' });
+          st.adapterCalled = true;
           const doc = await adapter.fetchDocument!(ctx, payload.ref);
           return { result: { found: !!doc, document: doc } };
         }
@@ -1244,15 +1380,18 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         entity,
         typeof doc?.number === 'string' ? doc.number : null,
       );
+      // docs/01 §6.3 DUPLICATE → outbox DONE (dispatcher) · หา id ไม่ได้ = ต้องให้คนกรอกเลขจากระบบบัญชี → แจ้งบัญชีเอง
+      // (DONE ไม่ผ่าน onSettled — ไม่ให้เงียบ) · ทีมเสนอ FAILED_FINAL: คำถามค้าง #85
+      await this.notifyManual(d, connector, typeof doc?.number === 'string' ? doc.number : null);
       throw new OutboxSinkError(
         'accounting system already has this reference but the document could not be found — enter its id manually',
         'DUPLICATE',
-        { code: 'duplicate_unresolved', unresolved: true, searched: f.searched },
+        { code: 'duplicate_unresolved', manualExternalIdRequired: true, searched: f.searched },
       );
     }
     if (r.problem?.code === NOT_IMPLEMENTED)
       throw parkedNotImplemented(
-        ERP_OPERATION_CAPABILITY[d.operation as keyof typeof ERP_OPERATION_CAPABILITY],
+        st.cap ?? ERP_OPERATION_CAPABILITY[d.operation as keyof typeof ERP_OPERATION_CAPABILITY],
       );
     const problem = {
       code: scrub(String(r.problem?.code ?? 'error'), secrets).slice(0, 60),

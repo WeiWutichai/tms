@@ -298,7 +298,7 @@ describe('Push pipeline (ST7-T16)', () => {
     );
   });
 
-  it('DUPLICATE ที่หาเอกสารฝั่ง ERP ไม่ได้ (ไม่มี fetch/list) → FAILED_FINAL duplicate_unresolved ให้คนกรอกเลข · mapping MISMATCH', async () => {
+  it('DUPLICATE ที่หาเอกสารฝั่ง ERP ไม่ได้ (ไม่มี fetch/list) → DONE ตาม docs + duplicate_unresolved (ต้องกรอกเลขเอง) · mapping MISMATCH', async () => {
     const con = await connector({
       capabilities: ['pushInvoice'],
       settings: { failMode: 'DUPLICATE' },
@@ -307,8 +307,11 @@ describe('Push pipeline (ST7-T16)', () => {
     const id = await enqueue(con.uuid, doc);
     await drain();
     const c = await cmd(id);
-    expect(c).toMatchObject({ status: 'FAILED_FINAL', errorClass: 'DUPLICATE' });
-    expect(c.lastError).toMatchObject({ code: 'duplicate_unresolved', unresolved: true });
+    expect(c).toMatchObject({ status: 'DONE', errorClass: 'DUPLICATE' });
+    expect(c.lastError).toMatchObject({
+      code: 'duplicate_unresolved',
+      manualExternalIdRequired: true,
+    });
     expect(await mapping(doc.id)).toMatchObject({ status: 'MISMATCH', externalId: null });
     // แจ้งฝ่ายบัญชีผ่าน onSettled (FAILED_FINAL ของคำสั่งส่งเอกสาร — ทางเดียวกับ D68-57: test ใน d68-connector-queue)
   });
@@ -443,7 +446,7 @@ describe('Push pipeline (ST7-T16)', () => {
     expect(demo.documents(tenantId, con.uuid)[0]!.version).toBe(1);
   });
 
-  it('resend: ใช้ canonical ฉบับที่ออก · ยังไม่อยู่ใน ERP = ปลุกคำสั่ง PUSH เดิม · อยู่ใน ERP แล้ว = REPLACE_DOCUMENT (FOR SHARE connector) · รหัสลูกค้าเปลี่ยน = REGENERATE', async () => {
+  it('resend: คำสั่งใหม่ใน transaction ของ tenant (canonical ฉบับที่ออก) · ยังไม่อยู่ใน ERP = PUSH · อยู่ใน ERP แล้ว = REPLACE_DOCUMENT · รหัสลูกค้าเปลี่ยน = REGENERATE', async () => {
     const con = await connector({ settings: { failMode: 'VALIDATION' } });
     const doc = invoiceDoc();
     await invoiceRow(doc);
@@ -452,15 +455,35 @@ describe('Push pipeline (ST7-T16)', () => {
     expect((await cmd(first)).status).toBe('FAILED_FINAL');
     expect((await mapping(doc.id))!.status).toBe('FAILED');
 
-    // แก้ที่ระบบบัญชีแล้ว → ส่งใหม่: คำสั่งเดิม (payload เดิม) กลับเป็น PENDING แล้วสำเร็จ
+    // แก้ที่ระบบบัญชีแล้ว → ส่งใหม่: คำสั่งใหม่ (payload ฉบับที่ออก, ช่องผล/lease ว่าง) · คำสั่งเดิมคงผลไว้
     await settings(con.id, {});
-    const again = await db.withTenant(tenantId, (tx) =>
+    const again = (await db.withTenant(tenantId, (tx) =>
       app.get(ErpSyncService).resend(tx, 'invoice', doc.id, con.uuid),
-    );
-    expect(again).toBe(first);
+    ))!;
+    expect(again).not.toBe(first);
+    const fresh = await cmd(again);
+    expect(fresh).toMatchObject({
+      status: 'PENDING',
+      attempt: 0,
+      errorClass: null,
+      lastError: null,
+      result: null,
+      leaseId: null,
+      operation: 'PUSH_INVOICE',
+      payload: { document: { id: doc.id, sync: doc.sync } },
+    });
+    expect(fresh.idempotencyKey).toMatch(/:resend-[0-9a-f-]{36}$/);
+    // มีคำสั่งค้างอยู่ = คืนคำสั่งนั้น (ไม่สร้างซ้ำ)
+    expect(
+      await db.withTenant(tenantId, (tx) =>
+        app.get(ErpSyncService).resend(tx, 'invoice', doc.id, con.uuid),
+      ),
+    ).toBe(again);
     await drain();
-    expect(await cmd(first)).toMatchObject({ status: 'DONE' });
+    expect(await cmd(again)).toMatchObject({ status: 'DONE' });
+    expect((await cmd(first)).status).toBe('FAILED_FINAL');
     expect((await mapping(doc.id))!.status).toBe('SYNCED');
+    expect(demo.documents(tenantId, con.uuid)).toHaveLength(1);
 
     // อยู่ใน ERP แล้ว + map รหัสลูกค้าฝั่ง ERP ทีหลัง → resend = REPLACE_DOCUMENT ของฉบับที่ออก · ลูกค้าเปลี่ยน = REGENERATE (ไม่ส่ง)
     await api(app, token)
@@ -534,12 +557,117 @@ describe('Push pipeline (ST7-T16)', () => {
           .expect(200)
       ).body.data,
     ).toHaveLength(1);
+    // keyset cursor (docs/01 §5.1): limit 1 + ส่งอีกใบ → 2 หน้า ไม่ซ้ำ
+    await enqueue(con.uuid, invoiceDoc());
+    await drain();
+    const p1 = (await api(app, token).get(`/v1/connectors/${con.id}/sync-log?limit=1`).expect(200))
+      .body;
+    expect(p1).toMatchObject({ hasMore: true });
+    expect(p1.data).toHaveLength(1);
+    const p2 = (
+      await api(app, token)
+        .get(`/v1/connectors/${con.id}/sync-log?limit=1&cursor=${p1.nextCursor}`)
+        .expect(200)
+    ).body;
+    expect(p2).toMatchObject({ hasMore: false, nextCursor: null });
+    expect(p2.data[0].id).not.toBe(p1.data[0].id);
+    await api(app, token).get(`/v1/connectors/${con.id}/sync-log?cursor=bad`).expect(422);
     // ข้าม tenant: connector ของอีก tenant = 404 · RLS: อีก tenant มองไม่เห็นแถว
     await api(app, other).get(`/v1/connectors/${con.id}/sync-log`).expect(404);
     expect(await db.withTenant(otherTenantId, (tx) => tx.erpSyncLog.count())).toBe(0);
     expect(await db.withTenant(tenantId, (tx) => tx.erpSyncLog.count())).toBeGreaterThan(0);
     // แอปแก้/ลบบันทึกไม่ได้
     await expect(db.withTenant(tenantId, (tx) => tx.erpSyncLog.deleteMany({}))).rejects.toThrow();
+  });
+
+  it('review: กันส่งซ้ำ — lease หลุดหลังส่ง / dead-letter ที่ถูกส่งใหม่ → ค้นฝั่ง ERP ก่อน ไม่ POST ซ้ำ · AMBIGUOUS + ค้นแล้วล่ม = TRANSIENT', async () => {
+    const con = await connector({ settings: { failMode: 'AMBIGUOUS', failTimes: '1' } });
+    const posts = (localId: string) =>
+      plat.erpSyncLog.count({ where: { localId, method: 'POST' } });
+
+    // (1) lease หลุด: ครั้งแรกถึง ERP แล้ว แต่ worker ตายก่อนบันทึกผล (ไม่มี error_class) → หยิบใหม่ = ค้นก่อน
+    const a = invoiceDoc();
+    const ia = await enqueue(con.uuid, a);
+    await drain();
+    expect(await posts(a.id)).toBe(1);
+    await plat.$executeRaw`UPDATE integration_outbox SET status = 'IN_FLIGHT', error_class = NULL, last_error = NULL,
+                                  lease_id = gen_random_uuid(), lease_until = now() - interval '1 second'
+                            WHERE id = ${ia}::uuid`;
+    await dispatcher.drain();
+    expect(await cmd(ia)).toMatchObject({
+      status: 'DONE',
+      result: { recoveredAfter: 'EARLIER_SEND', applied: true },
+    });
+    expect(await posts(a.id)).toBe(1);
+
+    // (2) AMBIGUOUS แล้วค้นไม่ได้ (ปลายทางล่ม) → TRANSIENT `erp_lookup_failed` ไม่ POST ซ้ำแบบไม่รู้ผล
+    const b = invoiceDoc();
+    const ib = await enqueue(con.uuid, b);
+    await drain();
+    expect((await cmd(ib)).errorClass).toBe('AMBIGUOUS');
+    const list = demo.listDocuments.bind(demo);
+    demo.listDocuments = async () => {
+      throw new Error('demo ERP list unavailable (test)');
+    };
+    try {
+      await drain();
+    } finally {
+      demo.listDocuments = list;
+    }
+    expect(await cmd(ib)).toMatchObject({ status: 'FAILED_RETRYABLE', errorClass: 'TRANSIENT' });
+    expect((await cmd(ib)).lastError).toMatchObject({ code: 'erp_lookup_failed' });
+    expect(await posts(b.id)).toBe(1);
+
+    // (3) dead-letter (lease หมดครั้งสุดท้าย) แล้วผู้ใช้กดส่งใหม่ → คำสั่งใหม่ค้นก่อน (หลักฐานจากคำสั่งเดิม/sync log)
+    const c = invoiceDoc();
+    const ic = await enqueue(con.uuid, c);
+    await drain();
+    await plat.$executeRaw`UPDATE integration_outbox SET status = 'FAILED_FINAL', error_class = 'AMBIGUOUS',
+                                  last_error = '{"code":"lease_expired"}'::jsonb, done_at = now()
+                            WHERE id = ${ic}::uuid`;
+    const r = (await db.withTenant(tenantId, (tx) =>
+      app.get(ErpSyncService).resend(tx, 'invoice', c.id, con.uuid),
+    ))!;
+    expect(r).not.toBe(ic);
+    await drain();
+    expect(await cmd(r)).toMatchObject({
+      status: 'DONE',
+      result: { recoveredAfter: 'EARLIER_SEND' },
+    });
+    expect(await posts(c.id)).toBe(1);
+    expect(demo.documents(tenantId, con.uuid).filter((d) => d.number === c.number)).toHaveLength(1);
+  });
+
+  it('review: capability ที่ adapter ประกาศแต่ยังไม่ได้ทำ (replaceDocument pending) = พักคำสั่ง ไม่ SKIPPED · paid_locked ใช้แม้ไม่มีกลุ่มที่เปลี่ยน', async () => {
+    const con = await connector();
+    const doc = invoiceDoc();
+    await invoiceRow(doc);
+    await enqueue(con.uuid, doc);
+    await drain();
+    const m = (await mapping(doc.id))!;
+    const d = demo as unknown as { pendingCapabilities?: readonly string[] };
+    d.pendingCapabilities = ['replaceDocument'];
+    try {
+      const id = await enqueue(con.uuid, changed(doc, { dueDate: '2026-12-28' }));
+      await drain();
+      expect(await cmd(id)).toMatchObject({ status: 'PENDING', errorClass: 'AUTH' });
+      expect((await cmd(id)).lastError).toMatchObject({
+        code: 'capability_not_implemented',
+        capability: 'replaceDocument',
+      });
+      await plat.integrationOutbox.update({ where: { id }, data: { status: 'SKIPPED' } });
+    } finally {
+      delete d.pendingCapabilities;
+    }
+    // MISMATCH (เนื้อหาเท่าเดิม — ไม่มีกลุ่มที่เปลี่ยน) + รับชำระแล้ว → ส่งใหม่ = paid_locked (ไม่แทนที่)
+    await plat.externalMapping.update({ where: { id: m.id }, data: { status: 'MISMATCH' } });
+    await plat.$executeRaw`UPDATE invoice SET status = 'PAID' WHERE id = ${doc.id}::uuid`;
+    const rid = (await db.withTenant(tenantId, (tx) =>
+      app.get(ErpSyncService).resend(tx, 'invoice', doc.id, con.uuid),
+    ))!;
+    await drain();
+    expect((await cmd(rid)).lastError).toMatchObject({ code: 'paid_locked', changed: [] });
+    expect(demo.documents(tenantId, con.uuid)[0]!.version).toBe(1);
   });
 
   it('unit: scrub ตัด secret / query string / ขนาด · hash ต่อกลุ่ม field แยกการเปลี่ยนได้', () => {
@@ -549,6 +677,14 @@ describe('Push pipeline (ST7-T16)', () => {
     expect(scrubBody({ token: 'abcd1234' }, ['abcd1234'])).toBe('{"token":"***"}');
     expect(scrubBody('x'.repeat(20_000), [])!.length).toBe(16_000);
     expect(scrubBody(undefined, [])).toBeNull();
+    // ช่องข้อมูลส่วนบุคคล/เลขผู้เสียภาษี = *** ตอนเขียน (object และสตริง JSON)
+    expect(
+      scrubBody(
+        { carrier: { taxId: '3101234567890', name: 'นาย ก' }, trip: { driverName: 'สมชาย' } },
+        [],
+      ),
+    ).toBe('{"carrier":{"taxId":"***","name":"นาย ก"},"trip":{"driverName":"***"}}');
+    expect(scrubBody('{"tax_id":"0105555000001","x":null}', [])).toBe('{"tax_id":"***","x":null}');
     const a = invoiceDoc();
     const p = syncParts(a);
     expect(changedSyncParts(p, syncParts(a))).toEqual([]);

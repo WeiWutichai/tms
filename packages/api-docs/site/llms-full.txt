@@ -19308,6 +19308,7 @@ scope: `settings:read` · operationId: `Connectors_syncLog`
 | `commandId` | query |   | `string` | เฉพาะการเรียกของคำสั่งนี้ (บันทึกการซิงก์) |
 | `documentNo` | query |   | `string` | เลขเอกสาร TMS |
 | `limit` | query |   | `number` |   |
+| `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (เรียงใหม่สุดก่อน) |
 
 **Responses**
 
@@ -19601,6 +19602,8 @@ const { data, error } = await tms.GET('/v1/reconcile-results/{id}', {
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `data` | ใช่ | `array<ErpSyncLogDto>` |   |   |   |
+| `nextCursor` | ใช่ | `string` | null ได้ | ส่งเป็น `cursor` เพื่อดูหน้าถัดไป |   |
+| `hasMore` | ใช่ | `boolean` |   |   |   |
 
 ### ReconcileResultDto {#schema-ReconcileResultDto}
 

@@ -12,12 +12,48 @@ import { redactNationalIds } from './personal-data';
 export const SYNC_LOG_BODY_MAX = 16_000;
 const TRUNCATED = '…[truncated]';
 
-/** ข้อความ/ค่า → สตริงที่ตัด credential + เลขบัตรประชาชน (D-80) + ตัดขนาดแล้ว · ไม่มีค่า = null */
+/**
+ * review (PDPA): ช่องข้อมูลส่วนบุคคล/เลขผู้เสียภาษีใน body ถูกแทนด้วย `***` ตอนเขียน (ชื่อช่องรูปต่าง ๆ ของ adapter) —
+ * sync log ใช้ดูว่าเรียกอะไร ไม่ใช่คลังข้อมูลส่วนบุคคล (เลขบัตรที่ใส่ ณ ตอนส่งถูกตัดซ้ำอีกชั้นด้วย `redactNationalIds`)
+ */
+const PII_KEYS: ReadonlySet<string> = new Set([
+  'drivername',
+  'driver_name',
+  'taxid',
+  'tax_id',
+  'nationalid',
+  'national_id',
+  'idcard',
+  'id_card',
+]);
+
+function maskPii(v: unknown, depth = 0): unknown {
+  if (depth > 20 || v === null || typeof v !== 'object') return v;
+  if (Array.isArray(v)) return v.map((x) => maskPii(x, depth + 1));
+  return Object.fromEntries(
+    Object.entries(v as Record<string, unknown>).map(([k, x]) => [
+      k,
+      PII_KEYS.has(k.toLowerCase()) && x !== null && x !== undefined && x !== ''
+        ? '***'
+        : maskPii(x, depth + 1),
+    ]),
+  );
+}
+
+/** ข้อความ/ค่า → สตริงที่ตัด credential + ช่องข้อมูลส่วนบุคคล + เลขบัตรประชาชน (D-80) + ตัดขนาดแล้ว · ไม่มีค่า = null */
 export function scrubBody(v: unknown, secrets: readonly string[]): string | null {
   if (v === undefined || v === null || v === '') return null;
+  let obj: unknown = v;
+  if (typeof v === 'string') {
+    try {
+      obj = JSON.parse(v);
+    } catch {
+      obj = v;
+    }
+  }
   let text: string;
   try {
-    text = typeof v === 'string' ? v : JSON.stringify(v);
+    text = typeof obj === 'string' ? obj : JSON.stringify(maskPii(obj));
   } catch {
     text = String(v);
   }
@@ -114,6 +150,12 @@ export class ErpSyncLogQuery {
   @Min(1)
   @Max(200)
   limit?: number;
+
+  @ApiPropertyOptional({ description: 'ค่า nextCursor จากหน้าก่อน (เรียงใหม่สุดก่อน)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  cursor?: string;
 }
 
 /** การเรียกระบบบัญชี 1 ครั้ง (docs/01 §6.4) — ตัด credential / เลขบัตรประชาชนแล้ว · ไม่มี header */
@@ -151,7 +193,13 @@ export class ErpSyncLogDto {
 
 export class ErpSyncLogListDto {
   @ApiProperty({ type: [ErpSyncLogDto] }) data!: ErpSyncLogDto[];
+  @ApiProperty({ nullable: true, type: String, description: 'ส่งเป็น `cursor` เพื่อดูหน้าถัดไป' })
+  nextCursor!: string | null;
+  @ApiProperty() hasMore!: boolean;
 }
+
+/** keyset (occurred_at, id) เรียงใหม่สุดก่อน — cursor รูปเดียวกับ list มาตรฐาน (docs/01 §5.1) */
+export const SYNC_LOG_SORT = '-occurredAt';
 
 function publicId(entityType: string | null, id: string | null): string | null {
   if (!id) return null;

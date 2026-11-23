@@ -268,8 +268,8 @@ describe('Standalone + DemoProvider (ST7-T14)', () => {
     const other = await enqueue(con.uuid, 'PUSH_INVOICE', inv.payload, randomUUID());
     await drain();
     // ST7-T16 (docs/01 §6.3 DUPLICATE): sink ค้นเอกสารฝั่ง ERP — เลขนี้เป็นของเอกสาร TMS อื่น (local id ต่าง) → ไม่ผูกมั่ว
-    // = FAILED_FINAL `duplicate_unresolved` ให้คนตรวจ/กรอกเลขเอง
-    expect(await cmd(other)).toMatchObject({ status: 'FAILED_FINAL', errorClass: 'DUPLICATE' });
+    // = DONE (docs/01 §6.3) + `duplicate_unresolved` แจ้งบัญชีให้ตรวจ/กรอกเลขเอง
+    expect(await cmd(other)).toMatchObject({ status: 'DONE', errorClass: 'DUPLICATE' });
     expect((await cmd(other)).lastError).toMatchObject({ code: 'duplicate_unresolved' });
     expect(demo.documents(tenantId, con.uuid)).toHaveLength(1);
     // อ่านกลับ: fetch + สถานะรับชำระ (ตามค่าตั้ง paymentStatus)

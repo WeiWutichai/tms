@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { tryDecodeId } from '../../common/ids';
 import type { Tx } from '../../db/db.service';
-import { PrismaService } from '../../db/prisma.service';
+import { randomUUID } from 'node:crypto';
 import { OutboxService } from '../integration/outbox.service';
 import type { SettlementDto } from '../settlements/settlement.dto';
 import {
@@ -37,7 +37,7 @@ export const ERP_ENTITY = {
  * - กันซ้ำ: payload เดิม = คำสั่งเดิม (`enqueueCommand` idempotency_key ตาม hash) + adapter ส่งเลข TMS เป็น ref กันซ้ำฝั่ง ERP
  * - ST7-T16 ประตู `syncFromDate` (docs/01 §6.4 "ไม่ถูกสร้าง outbox"): เอกสารที่วันที่ก่อนวันเริ่มซิงก์ของ connector **ไม่มีคำสั่ง**
  *   (บัญชีคีย์ไว้เองก่อน go-live) · คำสั่งที่สร้างไว้ก่อนผู้ดูแลเลื่อนวัน = sink ข้ามเป็น SKIPPED `before_sync_from_date` ตอนส่ง
- * - ST7-T16 ตอนสร้างคำสั่ง PUSH_* / REPLACE_DOCUMENT ล็อกแถว connector `FOR SHARE` ใน transaction เดียวกัน — กัน TOCTOU กับการเปลี่ยน
+ * - ST7-T16 ตอนสร้างคำสั่ง PUSH_* / REPLACE_DOCUMENT ล็อกแถว connector `FOR KEY SHARE` ใน transaction เดียวกัน — กัน TOCTOU กับการเปลี่ยน
  *   เจ้าของเอกสาร (`setSystemOfRecord` ใช้ FOR UPDATE)
  * - ST7-T16 ส่งใหม่ (`resend`): ใช้ canonical **ฉบับที่ออก** (payload ของคำสั่งส่งครั้งแรก — ไม่สร้างจากข้อมูลปัจจุบัน) · เอกสารอยู่ใน ERP แล้ว
  *   = REPLACE_DOCUMENT · การเปลี่ยนถึง ERP แบบไหนตัดสินที่ sink ด้วย `fieldChangePolicy` (`documentInErp` จาก external_mapping)
@@ -50,7 +50,6 @@ export class ErpSyncService {
     private readonly resolver: ConnectorResolver,
     private readonly outbox: OutboxService,
     private readonly mappings: ExternalMappingService,
-    private readonly prisma: PrismaService,
   ) {}
 
   /** ใบแจ้งหนี้ที่ออกเลขแล้ว (ST5-T09) → PUSH_INVOICE */
@@ -176,8 +175,11 @@ export class ErpSyncService {
    * - ใช้ canonical **ฉบับที่ออก** = payload ของคำสั่ง PUSH_* ล่าสุดของเอกสารนี้ต่อ connector (ไม่สร้างใหม่จากข้อมูลปัจจุบัน —
    *   เอกสารที่ออกแล้วแก้ไม่ได้; ส่วนที่ใส่ ณ ตอนส่ง เช่น รหัสฝั่ง ERP sink ใส่ใหม่ทุกครั้ง)
    * - external_mapping บอกว่าเอกสารอยู่ใน ERP แล้ว (มี external_id, ฝั่ง ERP ไม่ได้ยกเลิก) → REPLACE_DOCUMENT `{ref, document}`
-   *   ไม่อยู่ → คำสั่ง PUSH_* เดิม (payload เดิม = คำสั่งเดิม — docs/01 §6.2 "กดส่งใหม่กี่ครั้งได้คำสั่งเดียว")
-   * - คำสั่งที่จบแล้ว (DONE/SKIPPED/FAILED_FINAL) ถูกปลุกกลับเป็น PENDING · ยังค้างอยู่ = ไม่ทำอะไร
+   *   ไม่อยู่ → PUSH_* ด้วย payload ฉบับที่ออก
+   * - review: สร้าง**คำสั่งใหม่**ใน transaction ของผู้เรียก (RLS ของ tenant — ไม่ใช้ role platform ไม่เขียนนอก transaction) ·
+   *   idempotency key ต่อท้าย `:resend-{nonce}` (คำสั่งเดิมคงผล/ประวัติไว้) · ช่องผล/ข้อผิดพลาด/lease ว่างเหมือนคำสั่งใหม่ ·
+   *   key ที่ ERP เห็นยังผูกกับเนื้อหา (`sentIdempotencyKey`) และ sink ค้นเอกสารฝั่ง ERP ก่อนส่งถ้าเคยส่งแบบไม่รู้ผล
+   * - มีคำสั่งของเอกสารนี้ค้างอยู่ (PENDING / IN_FLIGHT / FAILED_RETRYABLE) = คืนคำสั่งนั้น ไม่สร้างซ้ำ
    * - sink ตัดสินต่อ: hash เท่าเดิม = ไม่ส่ง · เนื้อหาเปลี่ยน = `fieldChangePolicy` (AUTO_SYNC → replaceDocument / REGENERATE / BLOCKED)
    * คืน id คำสั่ง (null = ไม่เคยมีคำสั่งส่งเอกสารนี้ไป connector นั้น / connector ยกเลิกแล้ว)
    */
@@ -207,7 +209,20 @@ export class ErpSyncService {
       },
     });
     const inErp = !!m?.externalId && m.externalStatus !== 'VOIDED';
+    const open = await tx.integrationOutbox.findFirst({
+      where: {
+        sink: ERP_SINK,
+        targetId: connectorId,
+        entityType: entity,
+        localId,
+        operation: { in: [op, 'REPLACE_DOCUMENT'] },
+        status: { in: ['PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE'] },
+      },
+      select: { id: true },
+    });
+    if (open) return open.id;
     const r = await this.enqueue(tx, c.syncFromDate, {
+      resendNonce: randomUUID(),
       tenantId: c.tenantId,
       connectorId,
       operation: inErp ? 'REPLACE_DOCUMENT' : op,
@@ -232,14 +247,6 @@ export class ErpSyncService {
         : (payload as Record<string, unknown>),
     });
     if (!r) return null; // เอกสารก่อน syncFromDate — ไม่สร้างคำสั่ง (docs/01 §6.4)
-    // คำสั่งเดิม (payload เดิม) ที่จบแล้ว → ปลุกให้ส่งอีกครั้ง · role แอปแก้ integration_outbox ไม่ได้ → role platform
-    // (แถวเดิม commit แล้ว — คำสั่งใหม่ใน transaction นี้เป็น PENDING อยู่แล้ว)
-    if (!r.created)
-      await this.prisma.platform.$executeRaw`
-        UPDATE integration_outbox
-           SET status = 'PENDING', attempt = 0, done_at = NULL, next_run_at = now(), updated_at = now()
-         WHERE id = ${r.id}::uuid AND tenant_id = ${c.tenantId}::uuid
-           AND status IN ('DONE', 'SKIPPED', 'FAILED_FINAL')`;
     return r.id;
   }
 
@@ -254,11 +261,12 @@ export class ErpSyncService {
       localId: string;
       customerId: string | null;
       payload: Record<string, unknown>;
+      resendNonce?: string;
     },
   ): Promise<{ id: string; created: boolean } | null> {
-    // ST7-T16 (backlog ST7-T16/T17) ล็อกแถว connector ร่วม (FOR SHARE) — `setSystemOfRecord` (FOR UPDATE) รอจนคำสั่งนี้ commit
+    // ST7-T16 (backlog ST7-T16/T17) ล็อกแถว connector ร่วม (FOR KEY SHARE) — `setSystemOfRecord` (FOR UPDATE) รอจนคำสั่งนี้ commit
     // แล้วเห็นคำสั่ง/เอกสารนี้ตอนตรวจ "เปลี่ยนเจ้าของได้ไหม" (กัน TOCTOU)
-    await tx.$queryRaw`SELECT 1 FROM connector WHERE id = ${c.connectorId}::uuid FOR SHARE`;
+    await tx.$queryRaw`SELECT 1 FROM connector WHERE id = ${c.connectorId}::uuid FOR KEY SHARE`;
     // ST7-T16 ประตู syncFromDate (docs/01 §6.4 "เอกสารที่ issue_date ก่อนวันนี้ไม่ถูกสร้าง outbox") — ไม่สร้างคำสั่ง
     const from = syncFromDate ? syncFromDate.toISOString().slice(0, 10) : null;
     const date = documentDate((c.payload as { document?: unknown }).document);
@@ -278,6 +286,7 @@ export class ErpSyncService {
       localId: c.localId,
       customerId: c.customerId,
       payload: c.payload,
+      ...(c.resendNonce ? { resendNonce: c.resendNonce } : {}),
     });
     this.logger.debug(
       `${c.operation} ${c.entityType}/${c.localId} → connector ${c.connectorId} (${r.created ? 'new' : 'same payload'})`,

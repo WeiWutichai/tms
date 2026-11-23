@@ -175,7 +175,7 @@ export class ConnectorsController {
       '`commandId` = เฉพาะการเรียกของคำสั่งนั้น · `documentNo` = เลขเอกสาร TMS',
   })
   async syncLog(@Param('id') id: string, @Query() q: ErpSyncLogQuery): Promise<ErpSyncLogListDto> {
-    return { data: await this.connectors.syncLog(decodeIdOr404('connector', id), q) };
+    return this.connectors.syncLog(decodeIdOr404('connector', id), q);
   }
 
   @Patch(':id')

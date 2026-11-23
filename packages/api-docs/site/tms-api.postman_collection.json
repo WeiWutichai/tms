@@ -16878,6 +16878,12 @@
                   "value": "",
                   "description": "",
                   "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "ค่า nextCursor จากหน้าก่อน (เรียงใหม่สุดก่อน)",
+                  "disabled": true
                 }
               ],
               "variable": [

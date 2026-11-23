@@ -474,8 +474,8 @@ describe('external_mapping + canonical (ST7-T15)', () => {
       missing: [{ kind: 'CUSTOMER', status: 'MISSING', fields: ['customer.externalId'] }],
     });
     expect(erp.calls).toHaveLength(0);
-    // ST7-T16 VALIDATION → mapping FAILED (docs/01 §6.3) — เอกสารยังไม่อยู่ใน ERP
-    expect(await mapping('INVOICE', doc.id)).toMatchObject({ status: 'FAILED', externalId: null });
+    // ST7-T16: ประตูก่อนถึง adapter ไม่แตะ mapping (VALIDATION → FAILED เฉพาะที่ adapter ตอบ)
+    expect(await mapping('INVOICE', doc.id)).toBeNull();
 
     const cus = encodeId('customer', customerId);
     await api(app, token)

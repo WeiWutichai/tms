@@ -28153,6 +28153,15 @@
             }
           },
           {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (เรียงใหม่สุดก่อน)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -84747,10 +84756,20 @@
             "items": {
               "$ref": "#/components/schemas/ErpSyncLogDto"
             }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "ส่งเป็น `cursor` เพื่อดูหน้าถัดไป"
+          },
+          "hasMore": {
+            "type": "boolean"
           }
         },
         "required": [
-          "data"
+          "data",
+          "nextCursor",
+          "hasMore"
         ]
       },
       "UpdateConnectorDto": {
