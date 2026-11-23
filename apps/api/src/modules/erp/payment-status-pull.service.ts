@@ -225,18 +225,21 @@ export class PaymentStatusPullService implements OnModuleInit {
       ).filter((r) => this.pullable(r));
       if (!rows.length) return 0;
       const tenantIds = [...new Set(rows.map((r) => r.tenantId))];
-      const live = new Set(
+      const modes = new Map(
         (
           await db.tenant.findMany({
-            where: { id: { in: tenantIds }, status: { in: ['TRIAL', 'ACTIVE'] }, mode: 'live' },
-            select: { id: true },
+            where: { id: { in: tenantIds }, status: { in: ['TRIAL', 'ACTIVE'] } },
+            select: { id: true, mode: true },
           })
-        ).map((t) => t.id),
+        ).map((t) => [t.id, t.mode === 'test']),
       );
+      // D-81 · D68-58/96 sandbox = เฉพาะ DemoProvider · demo ใน production = เฉพาะ sandbox (`usableIn`)
+      const usable = (r: { tenantId: string; adapterKey: string }) =>
+        modes.has(r.tenantId) && !!this.adapters.usableIn(r.adapterKey, modes.get(r.tenantId)!);
       const allowed = new Set(
         await this.entitlements.tenantsWith(
           'conn',
-          tenantIds.filter((t) => live.has(t)),
+          tenantIds.filter((t) => rows.some((r) => r.tenantId === t && usable(r))),
         ),
       );
       const existing = await db.job.findMany({
@@ -255,7 +258,7 @@ export class PaymentStatusPullService implements OnModuleInit {
       );
       let n = 0;
       for (const r of rows) {
-        if (!allowed.has(r.tenantId) || done.has(r.id)) continue;
+        if (!allowed.has(r.tenantId) || !usable(r) || done.has(r.id)) continue;
         if (await this.hasOpenJob(db as unknown as Tx, r.tenantId, r.id)) continue;
         await this.queue.enqueue(db as unknown as Tx, {
           tenantId: r.tenantId,
@@ -292,11 +295,12 @@ export class PaymentStatusPullService implements OnModuleInit {
       where: { id: tenantId },
       select: { mode: true },
     });
-    // ST7-T09 sandbox ไม่ติดต่อระบบบัญชี (connector สร้างใน sandbox ไม่ได้อยู่แล้ว — กันชั้นที่ 2)
-    if (t?.mode !== 'live') return 'sandbox';
+    // ST7-T09 sandbox ไม่ติดต่อระบบบัญชีจริง (กันชั้นที่ 2) — D-81 · D68-58/96 ยกเว้น DemoProvider (ERP จำลองในระบบ)
+    const sandbox = t?.mode === 'test';
+    if (!t || (sandbox && !this.resolver.isSandboxAdapter(row.adapterKey))) return 'sandbox';
     if (!(await this.entitlements.enabled(tenantId, 'conn'))) return 'feature_off';
     if (row.status !== 'ACTIVE') return 'connector_not_active';
-    const r = this.resolver.describe(row);
+    const r = this.resolver.describe(row, null, undefined, sandbox);
     if (!r.adapter || !this.adapters.get(row.adapterKey)) return 'adapter_unavailable';
     if (!r.capabilities.includes(CAPABILITY) || typeof r.adapter.fetchPaymentStatus !== 'function')
       return 'capability_not_enabled';

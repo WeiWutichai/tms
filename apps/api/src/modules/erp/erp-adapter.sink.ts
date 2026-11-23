@@ -10,7 +10,14 @@ import { Clock } from '../../common/clock';
 import type { Tx } from '../../db/db.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { OutboxSinkRegistry } from '../integration/outbox-sink.registry';
-import { OutboxSinkError, type OutboxDelivery, type OutboxSink } from '../integration/outbox.types';
+import {
+  OutboxSinkError,
+  type OutboxDelivery,
+  type OutboxSink,
+  type SettledCommand,
+} from '../integration/outbox.types';
+import { DbService } from '../../db/db.service';
+import { NotificationEvents } from '../notifications/notification-events';
 import { withSyncHash } from './canonical';
 import { canonicalProblems } from './canonical-validation';
 import { ConnectorResolver } from './connector-resolver';
@@ -95,6 +102,27 @@ const MAPPED_ENTITIES: Readonly<Record<string, 'INVOICE' | 'SETTLEMENT'>> = {
   settlement: 'SETTLEMENT',
 };
 
+/**
+ * D68-57 SKIPPED ที่ไม่ต้องแจ้งบัญชี (ทีละคำสั่ง): ส่งถึงแล้ว (`payload_unchanged`) · เอกสารถูกยกเลิกก่อนส่ง (`document_cancelled` — ไม่มีอะไรใน ERP)
+ * · sandbox (`sandbox_unsupported` — ไม่ส่งออกนอกระบบโดยตั้งใจ)
+ */
+const NOT_NOTIFIED_SKIPS: ReadonlySet<string> = new Set([
+  // review M1: ยกเลิกการเชื่อมแจ้งฉบับเดียวจาก `ConnectorsService.disconnect` (จำนวนคำสั่งค้าง) — ไม่แจ้งทีละคำสั่ง
+  'connector_disconnected',
+  'payload_unchanged',
+  'document_cancelled',
+  'sandbox_unsupported',
+]);
+
+/** คำสั่งที่แจ้งบัญชีเมื่อไม่ถึง ERP (ส่งเอกสาร + แจ้งยกเลิกเอกสาร) */
+const DOCUMENT_OPERATIONS: ReadonlySet<string> = new Set([
+  'PUSH_INVOICE',
+  'PUSH_CREDIT_NOTE',
+  'PUSH_SETTLEMENT',
+  'REPLACE_DOCUMENT',
+  'VOID_DOCUMENT',
+]);
+
 /** คำสั่งที่ส่งเอกสารเข้า ERP (ผ่านประตู mapping/ผังรหัสก่อน) */
 const PUSH_OPERATIONS: ReadonlySet<string> = new Set([
   'PUSH_INVOICE',
@@ -116,6 +144,8 @@ function parkedNotImplemented(cap: string): OutboxSinkError {
  * คำสั่ง: target_id = connector id · operation ∈ ERP_OPERATION_CAPABILITY (PUSH_INVOICE ฯลฯ) · payload = canonical (ST7-T15)
  * - ยกเลิกการเชื่อม / ไม่มี connector → SKIPPED (CAPABILITY — INT-016 หยุดส่งทันที)
  * - PAUSED / ERROR / tenant ถูกระงับ / แพ็กเกจไม่มี `conn` / adapter ไม่ได้ติดตั้ง → คงคำสั่งไว้ (AUTH = PENDING ไม่นับครั้ง)
+ * - D-81 · D68-57 healthCheck กำลังล้ม (`health_failing_since` มีค่า) → พักทั้งคิว `connector_unhealthy` (AUTH = PENDING ไม่นับครั้ง)
+ * - D-81 · D68-57 คำสั่งส่ง/ยกเลิกเอกสารจบ FAILED_FINAL / SKIPPED (ที่ต้องมีคนทำ) → แจ้งฝ่ายบัญชี (`onSettled`)
  * - capability ไม่ได้เปิด/ไม่รองรับ → SKIPPED (CAPABILITY — docs/01 §6.3)
  * - adapter ตอบ AUTH → connector = ERROR (หยุดทั้งตัว) แล้วคำสั่งรอ · class อื่นตาม retry policy ของ dispatcher
  * - ST8-T03 adapter ตอบ/throw TRANSIENT → เรียก healthCheck 1 ครั้ง: AUTH = ERROR ทันที · TRANSIENT = นับเวลาล้มต่อเนื่อง
@@ -160,10 +190,42 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     private readonly masterCodes: ErpMasterCodesService,
     private readonly clock: Clock,
     private readonly mappings: ExternalMappingService,
+    private readonly db: DbService,
+    private readonly events: NotificationEvents,
   ) {}
 
   onModuleInit() {
     if (!this.registry.get(this.key)) this.registry.register(this);
+  }
+
+  /**
+   * D-81 · D68-57 (+ เงื่อนไข D68-09) เอกสารไม่ถูกส่งเข้า ERP → แจ้งฝ่ายบัญชี (docs/01 §6.3 CAPABILITY "SKIPPED + แจ้งบัญชี";
+   * FAILED_FINAL ทุก class รวม `erp_mapping_incomplete`) — เฉพาะคำสั่งส่ง/ยกเลิกเอกสาร (ไม่ใช่คำสั่งดึงข้อมูล)
+   * · SKIPPED ที่ไม่ใช่งานของคน (`NOT_NOTIFIED_SKIPS`) ไม่แจ้ง · แจ้งใน transaction ของ tenant (RLS) แยกจากการบันทึกผลคำสั่ง
+   */
+  async onSettled(c: SettledCommand): Promise<void> {
+    if (!DOCUMENT_OPERATIONS.has(c.operation) || !c.targetId) return;
+    if (c.status === 'SKIPPED' && (!c.code || NOT_NOTIFIED_SKIPS.has(c.code))) return;
+    const connectorId = c.targetId;
+    const p = (c.payload ?? {}) as { document?: { number?: unknown }; number?: unknown };
+    const no = p.document?.number ?? p.number;
+    await this.db.withTenant(c.tenantId, async (tx) => {
+      const connector = await tx.connector.findUnique({
+        where: { id: connectorId },
+        select: { adapterKey: true },
+      });
+      await this.events.documentNotSent(tx, {
+        tenantId: c.tenantId,
+        connectorId,
+        errorClass: c.errorClass,
+        entityType: c.entityType,
+        localId: c.localId,
+        documentNo: typeof no === 'string' && no ? no : null,
+        label: connector ? this.connectors.adapterLabel(connector.adapterKey) : '-',
+        outcome: c.status,
+        code: (c.code ?? c.errorClass ?? 'error').slice(0, 60),
+      });
+    });
   }
 
   async deliver(d: OutboxDelivery): Promise<{ result: Record<string, unknown> }> {
@@ -175,8 +237,9 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         select: { status: true, mode: true },
       }),
     }));
-    // ST7-T09 กันชั้นที่ 2: sandbox ไม่ส่งอะไรเข้า ERP จริงเลย (connector สร้างใน sandbox ไม่ได้อยู่แล้ว — @LiveOnly)
-    if (tenant?.mode === 'test')
+    // ST7-T09 กันชั้นที่ 2: sandbox ไม่ส่งอะไรเข้า ERP จริงเลย — D-81 · D68-58/96 ยกเว้น DemoProvider (ERP จำลองในระบบ ไม่ออกนอกระบบ)
+    const sandbox = tenant?.mode === 'test';
+    if (sandbox && !(connector && this.resolver.isSandboxAdapter(connector.adapterKey)))
       throw new OutboxSinkError('sandbox tenant — ERP push suppressed', 'CAPABILITY', {
         code: 'sandbox_unsupported',
       });
@@ -194,9 +257,17 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         code: 'connector_not_active',
         status: connector.status,
       });
+    // D-81 · D68-57 healthCheck ของ connector กำลังล้ม (TRANSIENT ต่อเนื่อง — ยังไม่ครบ 30 นาทีที่จะเป็น ERROR, D68-65) → พักทั้งคิว
+    // ไม่ยิงปลายทาง ไม่เสียจำนวนครั้ง (docs/01 §6.3 "ถ้า healthCheck ล้ม → หยุดทั้งคิวของ connector นั้น") · ผ่านเมื่อไร worker
+    // (`recheckUnhealthy` ทุก 5 นาที) / ผู้ดูแลกด "ทดสอบการเชื่อมต่อ" ล้างเวลาแล้วปลุกคิว (`wakeParked`)
+    if (connector.healthFailingSince)
+      throw new OutboxSinkError('connector health check failing — queue paused', 'AUTH', {
+        code: 'connector_unhealthy',
+        since: connector.healthFailingSince.toISOString(),
+      });
     if (!(await this.entitlements.enabled(d.tenantId, 'conn')))
       throw new OutboxSinkError('connectors not in plan — paused', 'AUTH', { code: 'feature_off' });
-    const resolved = this.resolver.describe(connector);
+    const resolved = this.resolver.describe(connector, null, undefined, sandbox);
     const adapter = resolved.adapter;
     if (!adapter)
       throw new OutboxSinkError('adapter not installed — paused', 'AUTH', {
@@ -444,9 +515,10 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     try {
       const h = await this.connectors.runHealth(connector);
       if (!h.ok && !HEALTH_STOP_CLASSES.has(h.errorClass)) return;
-      await d.withTx((tx) =>
+      const back = await d.withTx((tx) =>
         this.connectors.applySystemHealth(tx, connector.id, h, this.clock.now()),
       );
+      if (back) await this.connectors.wakeParked(d.tenantId, connector.id);
     } catch {
       /* ตรวจไม่ได้ = คงสถานะเดิม (คำสั่งนี้ลองใหม่ตาม policy) */
     }

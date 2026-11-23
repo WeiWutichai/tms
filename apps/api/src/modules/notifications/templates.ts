@@ -76,6 +76,23 @@ export interface NotificationVars {
   /** ST8-T03 connector กลับมาทำงานเอง (ปลายทางตอบอีกครั้ง — ERROR → ACTIVE โดยระบบ) */
   'connector.recovered': { label: string };
   /**
+   * D-81 · D68-57 เอกสารไม่ถูกส่งเข้าระบบบัญชี (docs/01 §6.3 "แจ้งบัญชี") · label = ชื่อระบบบัญชี · รวมกลุ่มต่อ (connector, รหัส) ใน 1 ชม. ·
+   * outcome = FAILED_FINAL (ส่งไม่สำเร็จ ระบบไม่ลองเองอีก) / SKIPPED (ไม่ส่ง — ต้องทำในระบบบัญชีเอง) · code = รหัสปัญหา · ไม่ใส่ยอดเงิน
+   */
+  'connector.document_not_sent': {
+    label: string;
+    /** connector id (public) — ใช้จัดกลุ่ม (review M1) */
+    connectorId: string;
+    /** ตัวอย่างเลขเอกสาร ไม่เกิน 5 (ใบล่าสุดท้ายสุด) */
+    documentNos: string[];
+    /** จำนวนเอกสารในกลุ่ม (รวมที่ไม่อยู่ในตัวอย่าง) */
+    count: number;
+    outcome: 'FAILED_FINAL' | 'SKIPPED';
+    code: string;
+    /** ErrorClass ของคำสั่ง — AMBIGUOUS = อาจถึงระบบบัญชีแล้ว (review M2) */
+    errorClass: string | null;
+  };
+  /**
    * ST7-T20 ทีม Innovera เปลี่ยน connector จาก Platform Console (แบบเดียวกับแจ้ง owner ตอนเข้าใช้งานแทน — docs/04 A6)
    * action = created / credentials / resumed / paused / error / recovered · reason = เหตุผลของทีมงาน (safeName)
    */
@@ -99,6 +116,38 @@ export interface DailyDigestGroup {
   event: string;
   count: number;
   titles: string[];
+}
+/** D68-57 คำแนะนำต่อรหัสปัญหาของเอกสารที่ไม่ถูกส่งเข้าระบบบัญชี (ไม่มี = ข้อความตามผล) */
+const DOC_NOT_SENT_HINT_TH: Readonly<Record<string, string>> = {
+  erp_mapping_incomplete: 'จับคู่รหัสค่าบริการกับระบบบัญชีให้ครบแล้วส่งใหม่',
+  erp_master_code_unknown: 'ซิงก์/แก้รหัสในผังรหัสระบบบัญชีแล้วส่งใหม่',
+  void_manual_required: 'เอกสารถูกยกเลิกใน TMS — ยกเลิกในระบบบัญชีเอง',
+  connector_disconnected: 'ยกเลิกการเชื่อมต่อแล้ว — บันทึกเอกสารนี้ในระบบบัญชีเอง',
+  capability_not_supported: 'ระบบบัญชีนี้ไม่รองรับเอกสารชนิดนี้ — บันทึกในระบบบัญชีเอง',
+};
+const DOC_NOT_SENT_HINT_EN: Readonly<Record<string, string>> = {
+  erp_mapping_incomplete: 'map the service items to accounting codes, then resend.',
+  erp_master_code_unknown: 'sync or fix the accounting master codes, then resend.',
+  void_manual_required: 'it was cancelled in TMS — cancel it in the accounting system manually.',
+  connector_disconnected:
+    'the connection was removed — record it in the accounting system manually.',
+  capability_not_supported:
+    'this accounting system does not accept this document type — record it manually.',
+};
+/** review M2: AMBIGUOUS (timeout หลังส่ง / lease หมดครั้งสุดท้าย) — เอกสารอาจถึงระบบบัญชีแล้ว */
+const DOC_NOT_SENT_AMBIGUOUS_TH = 'อาจถึงระบบบัญชีแล้ว — ตรวจในระบบบัญชีก่อนส่งใหม่หรือบันทึกเอง';
+const DOC_NOT_SENT_AMBIGUOUS_EN =
+  'it may have reached the accounting system — check there before resending or recording it manually.';
+/** เลขเอกสารในข้อความ: 1 ใบ = เลข · หลายใบ = "N ใบ (ตัวอย่าง …)" */
+function docList(
+  v: { documentNos: string[]; count: number },
+  lang: NotificationLocale = 'th',
+): string {
+  const sample = v.documentNos.map((x) => safeName(x, 60)).join(', ');
+  if (v.count <= 1) return sample || '-';
+  const more = v.count > v.documentNos.length ? ' …' : '';
+  const head = lang === 'th' ? `เอกสาร ${n(v.count)} ใบ` : `${n(v.count)} document(s)`;
+  return sample ? `${head} (${sample}${more})` : head;
 }
 /** ชื่อ event ในสรุปรายวัน (ไทยตรงกับหน้าตั้งค่า — apps/web i18n `noti.ev.*`) */
 const EVENT_NAME: Record<string, Record<NotificationLocale, string>> = {
@@ -606,6 +655,32 @@ const TEMPLATES: {
     en: (v) => ({
       title: 'Connector back online',
       body: `Connector ${v.label} can reach the destination again — it was resumed and parked work is being sent.`,
+    }),
+  },
+  'connector.document_not_sent': {
+    th: (v) => ({
+      title: 'เอกสารไม่ถูกส่งเข้าระบบบัญชี',
+      body: `${docList(v)} ${
+        v.outcome === 'SKIPPED' ? 'ไม่ถูกส่งเข้า' : 'ส่งเข้าไม่สำเร็จ —'
+      } ${safeName(v.label, 80)} (${safeName(v.code, 60)}) — ${
+        (v.errorClass === 'AMBIGUOUS' ? DOC_NOT_SENT_AMBIGUOUS_TH : undefined) ??
+        DOC_NOT_SENT_HINT_TH[v.code] ??
+        (v.outcome === 'SKIPPED'
+          ? 'บันทึกเอกสารนี้ในระบบบัญชีเอง'
+          : 'ระบบไม่ลองส่งเองอีก ตรวจสาเหตุแล้วส่งใหม่ หรือบันทึกในระบบบัญชีเอง')
+      }`,
+    }),
+    en: (v) => ({
+      title: 'Document not sent to the accounting system',
+      body: `${docList(v, 'en')} ${
+        v.outcome === 'SKIPPED' ? 'was not sent to' : 'could not be sent to'
+      } ${safeName(v.label, 80)} (${safeName(v.code, 60)}) — ${
+        (v.errorClass === 'AMBIGUOUS' ? DOC_NOT_SENT_AMBIGUOUS_EN : undefined) ??
+        DOC_NOT_SENT_HINT_EN[v.code] ??
+        (v.outcome === 'SKIPPED'
+          ? 'record it in the accounting system manually.'
+          : 'it will not be retried automatically; fix the cause and resend, or record it manually.')
+      }`,
     }),
   },
   'reconcile.mismatch_found': {

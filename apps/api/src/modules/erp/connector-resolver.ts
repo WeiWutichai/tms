@@ -6,6 +6,7 @@ import {
   ERP_CAPABILITIES,
   type ErpCapability,
 } from '@tms/domain';
+import { requestContext } from '../../common/request-context';
 import type { Tx } from '../../db/db.service';
 import {
   resolveDocumentEntity,
@@ -65,7 +66,17 @@ export class ConnectorResolver {
     });
     const own = companyId ? rows.find((r) => r.companyId === companyId) : undefined;
     const row = own ?? rows.find((r) => r.companyId === null) ?? null;
-    return this.describe(row, branchId ?? null, own ? 'company' : row ? 'tenant' : 'none');
+    // D68-58/96 โหมด tenant มีผลเฉพาะ adapter จำลอง/tenant sandbox — ไม่รู้จากคำขอ (งานเบื้องหลัง) → อ่านจากแถว tenant
+    let sandbox = requestContext.get()?.sandbox ? true : undefined;
+    if (
+      row &&
+      sandbox === undefined &&
+      this.adapters.usableIn(row.adapterKey, true) !== this.adapters.usableIn(row.adapterKey, false)
+    ) {
+      const t = await tx.tenant.findUnique({ where: { id: row.tenantId }, select: { mode: true } });
+      sandbox = t?.mode === 'test';
+    }
+    return this.describe(row, branchId ?? null, own ? 'company' : row ? 'tenant' : 'none', sandbox);
   }
 
   /** เอกสารที่ออกในนามนิติบุคคล (Invoice As / Tender As — resolver ของ ST1-T16) → connector */
@@ -78,11 +89,21 @@ export class ConnectorResolver {
     return { ...(await this.forCompany(tx, routing.company.id, routing.branch.id)), routing };
   }
 
-  /** สรุปของแถว connector (ใช้ใน DTO/หน้าจอด้วย) */
+  /** D68-58 adapter ของ key นี้เป็นตัวจำลอง (DemoProvider — tenant sandbox ใช้ได้) ไหม */
+  isSandboxAdapter(key: string): boolean {
+    return this.adapters.get(key)?.localOnly === true;
+  }
+
+  /**
+   * สรุปของแถว connector (ใช้ใน DTO/หน้าจอด้วย)
+   * `sandbox` = tenant เป็น sandbox ไหม (D68-58/96 — sandbox ใช้ได้เฉพาะ DemoProvider; demo ใน production ใช้ได้เฉพาะ sandbox) ·
+   * ไม่ระบุ = ดูจากคำขอ (ไม่มีคำขอ = บริษัทจริง)
+   */
   describe(
     row: Connector | null,
     branchId: string | null = null,
     scope: ResolvedConnector['scope'] = row ? (row.companyId ? 'company' : 'tenant') : 'none',
+    sandbox?: boolean,
   ): ResolvedConnector {
     if (!row || row.status === 'DISCONNECTED')
       return {
@@ -95,12 +116,17 @@ export class ConnectorResolver {
         erpCompanyCode: null,
         scope: 'none',
       };
-    const adapter = this.adapters.get(row.adapterKey);
+    const installed = this.adapters.get(row.adapterKey);
+    const adapter = this.adapters.usableIn(
+      row.adapterKey,
+      sandbox ?? !!requestContext.get()?.sandbox,
+    );
     // adapter หาย (deploy ไม่ครบ): เชื่อชุดที่ตรวจตอนบันทึก — เอกสารยังเข้าคิวรอ ไม่ถูกปฏิบัติเหมือน Standalone
-    // ยกเว้น adapter ที่ปิดใน environment นี้ (demo ใน production — ST7-T14): ใช้ไม่ได้ = ไม่มี capability ไม่มีขั้น sync
+    // ยกเว้น adapter ที่ปิดใน environment นี้ / ใช้ไม่ได้ในโหมดของ tenant (demo ของบริษัทจริงใน production, connector จริงใน
+    // sandbox — ST7-T14, D68-58/96): ใช้ไม่ได้ = ไม่มี capability ไม่มีขั้น sync
     const declared = adapter
       ? readyCapabilities(adapter)
-      : this.adapters.isRefused(row.adapterKey)
+      : installed || this.adapters.isRefused(row.adapterKey)
         ? new Set<string>()
         : new Set<string>(ERP_CAPABILITIES);
     const map = (row.branchMap ?? {}) as Record<string, unknown>;

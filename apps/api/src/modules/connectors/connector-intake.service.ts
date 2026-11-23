@@ -323,8 +323,8 @@ export class ConnectorIntakeService implements OnModuleInit {
     connectorId: string,
     opts: { pageSize?: number; maxPages?: number } = {},
   ): Promise<PullRunResult> {
-    if (!(await this.tenantActive(tenantId)))
-      throw new Error(`tenant ${tenantId} is not active — pull refused`);
+    const mode = await this.tenantMode(tenantId);
+    if (!mode) throw new Error(`tenant ${tenantId} is not active — pull refused`);
     const row = await this.db.withTenant(tenantId, (tx) =>
       tx.connector.findUnique({ where: { id: connectorId } }),
     );
@@ -340,7 +340,8 @@ export class ConnectorIntakeService implements OnModuleInit {
     });
     if (!(await this.entitlements.enabled(tenantId, 'conn'))) return skip('feature_off');
     if (row.status !== 'ACTIVE') return skip('connector_not_active');
-    const r = this.resolver.describe(row);
+    // D68-58/96 sandbox ดึงได้เฉพาะจาก DemoProvider (ERP จำลอง) · demo ใน production = เฉพาะ sandbox
+    const r = this.resolver.describe(row, null, undefined, mode === 'test');
     if (!r.adapter) return skip('adapter_unavailable');
     if (!r.capabilities.includes('pullOrders') || !r.adapter.pullOrders)
       return skip('pull_not_enabled');
@@ -1078,11 +1079,20 @@ export class ConnectorIntakeService implements OnModuleInit {
   }
 
   private async tenantActive(tenantId: string): Promise<boolean> {
+    // ST7-T09: ต้นทางทดสอบ (mock) ดึงให้บริษัทจริงเท่านั้น
+    return (await this.tenantMode(tenantId)) === 'live';
+  }
+
+  /**
+   * โหมดของ tenant ที่ยังใช้งานได้ (TRIAL/ACTIVE) — null = ไม่มี/ถูกระงับ (ไม่ดึง)
+   * D-81 · D68-58/96: sandbox ดึงผ่าน connector ได้ (เฉพาะ DemoProvider — ตัดสินใน `describe`)
+   */
+  private async tenantMode(tenantId: string): Promise<'live' | 'test' | null> {
     const t = await this.prisma.platform.tenant.findUnique({
       where: { id: tenantId },
       select: { status: true, mode: true },
     });
-    // ST7-T09: sandbox ไม่ดึงข้อมูลจาก connector (ไม่มี connector ใน sandbox — @LiveOnly)
-    return t?.mode === 'live' && (t.status === 'TRIAL' || t.status === 'ACTIVE');
+    if (!t || (t.status !== 'TRIAL' && t.status !== 'ACTIVE')) return null;
+    return t.mode === 'test' ? 'test' : 'live';
   }
 }

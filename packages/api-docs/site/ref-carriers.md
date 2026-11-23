@@ -31,6 +31,7 @@ scope: `master:read` · operationId: `CarrierErpCodes_list`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
 | `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 
 **Responses**

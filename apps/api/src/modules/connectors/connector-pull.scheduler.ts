@@ -35,20 +35,30 @@ export class ConnectorPullScheduler {
         select: { id: true, tenantId: true, adapterKey: true },
         orderBy: { createdAt: 'asc' },
       });
-      const pullable = rows.filter((r) => {
+      const installed = rows.filter((r) => {
         const a = this.adapters.get(r.adapterKey);
         return !!a && readyCapabilities(a).has('pullOrders') && typeof a.pullOrders === 'function';
       });
-      if (!pullable.length) return 0;
-      const tenantIds = [...new Set(pullable.map((r) => r.tenantId))];
-      const active = new Set(
+      if (!installed.length) return 0;
+      const modes = new Map(
         (
           await db.tenant.findMany({
-            where: { id: { in: tenantIds }, status: { in: ['TRIAL', 'ACTIVE'] }, mode: 'live' },
-            select: { id: true },
+            where: {
+              id: { in: [...new Set(installed.map((r) => r.tenantId))] },
+              status: { in: ['TRIAL', 'ACTIVE'] },
+            },
+            select: { id: true, mode: true },
           })
-        ).map((t) => t.id),
+        ).map((t) => [t.id, t.mode === 'test']),
       );
+      // D-81 · D68-58/96: sandbox ดึงได้เฉพาะ DemoProvider · demo ใน production = เฉพาะ sandbox (`usableIn`)
+      const pullable = installed.filter(
+        (r) =>
+          modes.has(r.tenantId) && !!this.adapters.usableIn(r.adapterKey, modes.get(r.tenantId)!),
+      );
+      if (!pullable.length) return 0;
+      const tenantIds = [...new Set(pullable.map((r) => r.tenantId))];
+      const active = new Set(tenantIds);
       const allowed = new Set(
         await this.entitlements.tenantsWith(
           'conn',

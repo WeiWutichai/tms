@@ -2,7 +2,12 @@ import { Body, Controller, Get, Param, Put, Req, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { expectedVersion, setEtag } from '../../common/etag';
-import { LiveOnly, RequireFeature, RequireScope, TenantResource } from '../../common/decorators';
+import {
+  RequireFeature,
+  RequireScope,
+  SandboxAware,
+  TenantResource,
+} from '../../common/decorators';
 import { encodeId } from '../../common/ids';
 import { ApiProblems } from '../../common/problem.dto';
 import {
@@ -64,12 +69,12 @@ const E422_ERP = {
 
 /**
  * รหัสลูกค้าในระบบบัญชีที่เชื่อมต่อ (ST8-T05; docs/01 §3.7 external_mapping CUSTOMER, A.4; ต้นแบบ TMS v4 drawer ลูกค้า แท็บ "รหัสระบบบัญชี")
- * อ่าน `master:read` · แก้ `settings:write` (ค่าตั้งระบบบัญชี — แบบเดียวกับ mapping ค่าบริการ ST7-T18) · ฟีเจอร์ `conn` · sandbox ใช้ไม่ได้ (ไม่มี connector — ST7-T09)
+ * อ่าน `master:read` · แก้ `settings:write` (ค่าตั้งระบบบัญชี — แบบเดียวกับ mapping ค่าบริการ ST7-T18) · ฟีเจอร์ `conn` · sandbox ใช้ได้กับ DemoProvider เท่านั้น (D-81 · D68-58)
  */
 @ApiTags('customers')
 @ApiBearerAuth()
+@SandboxAware()
 @RequireFeature('conn')
-@LiveOnly()
 @Controller('customers')
 export class CustomerErpCodesController {
   constructor(private readonly svc: ExternalMappingService) {}
