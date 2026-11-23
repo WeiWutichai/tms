@@ -21,7 +21,7 @@ export interface PersonalDataInjection<T extends CanonicalDocument> {
   document: T;
   /** เอกสารเดียวกันแต่ช่องที่ใส่แทนด้วย blind index — ใช้คำนวณ `sync.hash` */
   forHash: T;
-  /** ค่าเต็มที่ใส่ (sink ตัดออกจากข้อความ error/ผลของคำสั่งก่อนเก็บ) */
+  /** ค่าเต็มที่ใส่ (sink ตัดออกจากข้อความ error/ผลของคำสั่งก่อนเก็บ — `redactSecrets` + `redactNationalIds`) */
   secrets: string[];
   /** ช่องที่ใส่ค่าจริง (ลง audit — ไม่มีตัวเลข) */
   fields: CanonicalPersonalField[];
@@ -30,13 +30,35 @@ export interface PersonalDataInjection<T extends CanonicalDocument> {
 let cipher: FieldCipher | undefined;
 let blind: BlindIndex | undefined;
 
-/** เลขบัตร 13 หลัก → รูปที่มักพิมพ์ในข้อความ (ตัวเลขล้วน + มีขีด 1-2345-67890-12-3) */
-function forms(id: string): string[] {
-  const d = id.replace(/\D/g, '');
-  const out = new Set([id, d]);
-  if (d.length === 13)
-    out.add(`${d[0]}-${d.slice(1, 5)}-${d.slice(5, 10)}-${d.slice(10, 12)}-${d[12]}`);
-  return [...out].filter((s) => s.length >= 4);
+/** ตัวเลขต่อเนื่องอย่างน้อยเท่านี้ของเลขลับ = ถือว่ารั่ว (ข้อความที่ถูกตัดยาวกลางเลขยังเหลือส่วนหน้า/ท้าย) */
+const MIN_RUN = 6;
+const NATIONAL_ID_RE = /^\d{13}$/;
+
+/**
+ * regex ของทุกช่วงตัวเลขติดกัน ≥ 6 ตัวของเลขลับ โดยยอมช่องว่าง/ขีดคั่นระหว่างตัวเลขได้ (เต็ม / มีขีด / เว้นวรรค / ปน /
+ * ถูกตัดกลางเลข) — ยาวก่อนสั้น เพื่อแทนช่วงยาวที่สุดในครั้งเดียว
+ */
+function digitRunPattern(digits: string): RegExp {
+  const parts: string[] = [];
+  for (let len = digits.length; len >= MIN_RUN; len--)
+    for (let i = 0; i + len <= digits.length; i++)
+      parts.push(
+        digits
+          .slice(i, i + len)
+          .split('')
+          .join('[\\s-]?'),
+      );
+  return new RegExp(parts.join('|'), 'g');
+}
+
+/**
+ * D-80 แทนเลขบัตรประชาชน (13 หลัก) ในข้อความด้วย `***` — รวมรูปมีขีด/เว้นวรรค และช่วงตัวเลข ≥ 6 ตัวของเลข (ข้อความที่ adapter
+ * ตัดยาวกลางเลข) · ค่าใน `secrets` ที่ไม่ใช่ 13 หลักไม่สนใจ (credential ใช้ `redactSecrets`)
+ */
+export function redactNationalIds(text: string, secrets: Iterable<string>): string {
+  let out = text;
+  for (const s of secrets) if (NATIONAL_ID_RE.test(s)) out = out.replace(digitRunPattern(s), '***');
+  return out;
 }
 
 /**
@@ -73,7 +95,7 @@ export async function injectPersonalData<T extends CanonicalDocument>(
   return {
     document: { ...doc, carrier: { ...carrier, taxId: plain } },
     forHash: { ...doc, carrier: { ...carrier, taxId: digest } },
-    secrets: forms(plain),
+    secrets: plain.replace(/\D/g, '').length === 13 ? [plain.replace(/\D/g, '')] : [plain],
     fields: ['carrier.taxId'],
   };
 }

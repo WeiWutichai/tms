@@ -480,6 +480,7 @@
   - **audit** `connector.pii_sent` ทุกครั้งที่เรียก adapter พร้อมเลข (ไม่มีตัวเลข) + ป้ายประวัติ connector `cnx.ha.connector.pii_sent` (ไทย) · `result.personalDataSent` = ชื่อช่องเท่านั้น · error จาก adapter/ปลายทาง → เลข (ตัวเลขล้วน/มีขีด) ถูกแทน `***` ก่อนเก็บใน `last_error`
 - **ไฟล์:** `apps/api/src/modules/erp/{personal-data.ts (ใหม่), erp-adapter.sink.ts, erp-adapter.ts, canonical.ts}`, `apps/api/src/erp-adapters/accountsystem/accountsystem.adapter.ts`, `apps/web/src/i18n/th.ts`, test `erp-accountsystem-flow.test.ts` (+2), `krs-invoice-payload.test.ts` · ไม่มี migration · OpenAPI ไม่เปลี่ยน
 - **เอกสาร:** plan/05 แถว D-80 · spec/12 §3 แถว D-80 · คำถามค้าง #82 (D-71 อายุร่าง — แถวหายจาก main เพราะเลข #81 ชนกับรีเซ็ต 2FA) + spec/12 ST9-T06 ข้อ (17) / plan/05 D-71 ชี้ #82
+- **แก้ตาม review (lead):** ตัดเลขด้วย regex ทุกรูป (ล้วน/ขีด/เว้นวรรค/ปน) + ทุกช่วงตัวเลขติดกัน ≥ 6 หลัก (`redactNationalIds` — ข้อความที่ AccountSystem ตัด 300 ตัวกลางเลข) · ตัด `fields[].field` ด้วย · audit `after.mayInclude: true` (adapter อาจไม่ใช้ค่า) · test เพิ่ม: ErpAdapterError / exception / ตัดกลางเลข / รูปขีด-เว้นวรรค
 - **ค้าง:** request/response log ของ ST7-T19 (ยังไม่ทำ) ต้องตัดเลขแบบเดียวกัน · ไม่ได้รัน `pnpm ci:local` (lead รัน)
 
 ### 23 พ.ย. 2569 (D-73 ไฟล์ส่งออกให้นักบัญชี — สรุป WHT / ใบยกเลิก / เลขบัตรประชาชน · lane lw, `fix/d73-accountant-export-additions`)

@@ -8,8 +8,9 @@ import { DbService } from '../src/db/db.service';
 import { AccountSystemAdapter } from '../src/erp-adapters/accountsystem/accountsystem.adapter';
 import { JobQueue } from '../src/jobs/job-queue.service';
 import { ERP_ADAPTER_FACTORIES } from '../src/erp-adapters';
+import { ErpAdapterError } from '../src/modules/erp/erp-adapter';
 import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
-import { injectPersonalData } from '../src/modules/erp/personal-data';
+import { injectPersonalData, redactNationalIds } from '../src/modules/erp/personal-data';
 import { OutboxDispatcher } from '../src/modules/integration/outbox.dispatcher';
 import { rateLimitInstance } from '../src/http/rate-limit/rate-limit.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
@@ -659,35 +660,76 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
       ),
     ).toHaveLength(1);
 
-    // ปลายทางตอบ error ที่สะท้อนเลขกลับมา → last_error ที่เก็บถูกตัดเลข
-    const s2 = await paidSettlement(carrierId, '2500.00');
-    const cmd2 = (await commands('PUSH_SETTLEMENT')).find((c) => c.localId === s2.uuid)!;
-    class EchoAdapter extends AccountSystemAdapter {
-      override async pushSettlement(_ctx: unknown, doc: any) {
-        return {
-          ok: false as const,
-          errorClass: 'VALIDATION' as const,
-          retryable: false,
-          problem: {
-            code: 'contact_invalid',
-            message: `tax_id ${doc.carrier.taxId} rejected`,
-            fields: [{ field: 'tax_id', code: 'invalid', message: `bad ${doc.carrier.taxId}` }],
-          },
-        };
-      }
-    }
+    // ปลายทางตอบ error ที่สะท้อนเลขกลับมา (เต็ม / มีขีด / เว้นวรรค / ถูกตัดกลางเลข) → last_error ที่เก็บถูกตัดเลข
+    // ทั้ง 3 ทาง: ผล ok:false · throw ErpAdapterError · throw Error ธรรมดา (TRANSIENT)
+    const dashed = (d: string) =>
+      `${d[0]}-${d.slice(1, 5)}-${d.slice(5, 10)}-${d.slice(10, 12)}-${d[12]}`;
+    const spaced = (d: string) =>
+      `${d[0]} ${d.slice(1, 5)} ${d.slice(5, 10)} ${d.slice(10, 12)} ${d[12]}`;
+    /** ข้อความแบบ AccountSystem ที่ตัด 300 ตัวอักษรกลางเลข (เหลือ 8 หลักแรก) */
+    const truncated = (d: string) => `${'x'.repeat(292)}${d}`.slice(0, 300);
+    const leaks = (v: unknown) => {
+      const t = JSON.stringify(v);
+      return [nid, dashed(nid), spaced(nid), nid.slice(0, 8), nid.slice(-6)].filter((f) =>
+        t.includes(f),
+      );
+    };
+    const echo = (d: string) => ({
+      code: 'contact_invalid',
+      message: `tax_id ${dashed(d)} / ${spaced(d)} rejected · ${truncated(d)}`,
+      fields: [{ field: `contacts[${d}]`, code: 'invalid', message: `bad ${d} (${dashed(d)})` }],
+    });
+    const modes = {
+      result: (d: string) => ({
+        ok: false as const,
+        errorClass: 'VALIDATION' as const,
+        retryable: false,
+        problem: echo(d),
+      }),
+      adapterError: (d: string) => {
+        throw new ErpAdapterError('VALIDATION', echo(d));
+      },
+      thrown: (d: string) => {
+        throw new Error(`socket hang up while sending ${spaced(d)} · ${truncated(d)}`);
+      },
+    } as const;
     const reg = app.get(ErpAdapterRegistry);
-    reg.replace(new EchoAdapter({ allowPrivate: true }));
-    try {
-      await drainOutbox();
-    } finally {
-      reg.replace(new AccountSystemAdapter({ allowPrivate: true }));
+    for (const [mode, respond] of Object.entries(modes)) {
+      const sN = await paidSettlement(carrierId, '2500.00');
+      const cmdN = (await commands('PUSH_SETTLEMENT')).find((c) => c.localId === sN.uuid)!;
+      class EchoAdapter extends AccountSystemAdapter {
+        override async pushSettlement(_ctx: unknown, doc: any): Promise<any> {
+          return respond(doc.carrier.taxId);
+        }
+      }
+      reg.replace(new EchoAdapter({ allowPrivate: true }));
+      try {
+        await drainOutbox();
+      } finally {
+        reg.replace(new AccountSystemAdapter({ allowPrivate: true }));
+      }
+      const failed = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmdN.id } });
+      expect(failed.status, mode).toBe(mode === 'thrown' ? 'FAILED_RETRYABLE' : 'FAILED_FINAL');
+      expect(JSON.stringify(failed.lastError), mode).toContain('***');
+      expect(leaks(failed.lastError), mode).toEqual([]);
+      expect(leaks(failed.payload), mode).toEqual([]);
+      expect(leaks(failed.result), mode).toEqual([]);
+      // ปิดคำสั่งที่รอลองใหม่ ไม่ให้ค้างไปข้ออื่น
+      await plat.$executeRaw`UPDATE integration_outbox SET status = 'FAILED_FINAL' WHERE id = ${cmdN.id}::uuid`;
     }
-    const failed = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd2.id } });
-    expect(failed.status).toBe('FAILED_FINAL');
-    expect(JSON.stringify(failed.lastError)).toContain('***');
-    expect(JSON.stringify(failed.lastError)).not.toContain(nid);
-    expect(JSON.stringify(failed.payload)).not.toContain(nid);
+  });
+
+  it('D-80 redactNationalIds: เต็ม / มีขีด / เว้นวรรค / ปน / ช่วง ≥ 6 หลัก (ถูกตัดกลางเลข) → *** · ช่วงสั้นกว่า 6 / เลขอื่น ไม่แตะ', () => {
+    const d = '1101700230705';
+    const r = (t: string) => redactNationalIds(t, ['key-not-an-id', d]);
+    expect(r(`id ${d}.`)).toBe('id ***.');
+    expect(r('id 1-1017-00230-70-5')).toBe('id ***');
+    expect(r('id 1 1017 00230 70 5')).toBe('id ***');
+    expect(r('id 1-1017 0023-0705')).toBe('id ***');
+    expect(r('cut 11017002')).toBe('cut ***');
+    expect(r('tail 230705')).toBe('tail ***');
+    expect(r('short 11017 / other 9999999999999')).toBe('short 11017 / other 9999999999999');
+    expect(redactNationalIds(`x ${d}`, ['abc'])).toBe(`x ${d}`);
   });
 
   it('D-80: adapter อื่น (Demo / KRS) ไม่ประกาศ carrier.taxId → ไม่ได้เลข · นิติบุคคลไม่ผ่านทางนี้ · รถร่วม tenant อื่น (RLS) ไม่ได้เลข', async () => {
