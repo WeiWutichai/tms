@@ -5,7 +5,6 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { encodeId } from '../../common/ids';
 import { requestContext } from '../../common/request-context';
 import type { Tx } from '../../db/db.service';
-import { PrismaService } from '../../db/prisma.service';
 import { StateService } from '../../state/state.service';
 import { NotificationService } from './notification.service';
 import { renderNotification, type NotificationVars } from './templates';
@@ -44,7 +43,6 @@ export class NotificationEvents implements OnModuleInit {
   constructor(
     private readonly notifications: NotificationService,
     private readonly state: StateService,
-    private readonly prisma: PrismaService,
   ) {}
 
   onModuleInit() {
@@ -368,9 +366,8 @@ export class NotificationEvents implements OnModuleInit {
           errorClass: prev.errorClass === 'AMBIGUOUS' ? prev.errorClass : input.errorClass,
         };
         const text = renderNotification(template, row.locale, vars);
-        // role ของแอปแก้ได้เฉพาะ status/read_at (migration 0026 — ข้อความแจ้งเตือนเป็น append-only สำหรับผู้ใช้) →
-        // รวมกลุ่มด้วย role platform เฉพาะแถวของ tenant นี้ที่เพิ่งอ่านใต้ RLS (ระบบเป็นผู้แก้ ไม่ใช่คำขอผู้ใช้)
-        const done = await this.prisma.platform.notification.updateMany({
+        // migration 0163: role แอปแก้ title/body/payload ได้ — แก้ใต้ RLS ใน transaction เดียวกับงานที่ทำให้เกิดเหตุ
+        const done = await tx.notification.updateMany({
           where: { id: row.id, tenantId: input.tenantId, readAt: null },
           data: {
             title: text.title,
@@ -378,7 +375,7 @@ export class NotificationEvents implements OnModuleInit {
             payload: vars as unknown as Prisma.InputJsonValue,
           },
         });
-        // แถวยังไม่ commit (สร้างใน transaction เดียวกัน) / ถูกอ่านพอดี = แจ้งใหม่แทน
+        // ถูกอ่านพอดี = แจ้งใหม่แทน
         if (done.count === 1) grouped.add(row.recipientId);
       }
       const fresh = to.filter((u) => !grouped.has(u.id)).map((u) => u.id);

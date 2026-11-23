@@ -318,6 +318,40 @@ describe('D-81 (F)(I) connector: AUTH/health หยุดคิว · แจ้�
     expect(again).toHaveLength(2);
   });
 
+  it('review M1 migration 0163: role แอปแก้ได้เฉพาะ title/body/payload (+ สถานะการอ่าน) — ผู้รับ/tenant/template/ลิงก์ แก้ไม่ได้', async () => {
+    const row = await plat.notification.create({
+      data: {
+        tenantId,
+        recipientId: accounting,
+        channel: 'in_app',
+        templateCode: 'connector.document_not_sent',
+        locale: 'th',
+        title: 'x',
+        body: 'x',
+      },
+    });
+    // ใต้ RLS ของ tenant (role tms_app) — คอลัมน์ที่อนุญาต
+    await db.withTenant(tenantId, (tx) =>
+      tx.notification.update({
+        where: { id: row.id },
+        data: { title: 'y', body: 'y', payload: { count: 2 } },
+      }),
+    );
+    expect(await plat.notification.findUniqueOrThrow({ where: { id: row.id } })).toMatchObject({
+      title: 'y',
+      payload: { count: 2 },
+    });
+    for (const col of ['recipient_id', 'tenant_id', 'template_code', 'link', 'channel'])
+      await expect(
+        db.withTenant(tenantId, (tx) =>
+          tx.$executeRawUnsafe(
+            `UPDATE notification SET ${col} = ${col} WHERE id = '${row.id}'::uuid`,
+          ),
+        ),
+        col,
+      ).rejects.toThrow(/permission denied/);
+  });
+
   it('review M1/L1: ยกเลิกการเชื่อมที่มีคำสั่งค้าง → แจ้งบัญชีฉบับเดียว (จำนวนค้าง) ไม่แจ้งทีละคำสั่ง · DemoProvider ทิ้งข้อมูลของ connector', async () => {
     const con = await connector(token);
     const first = await enqueue(tenantId, con.uuid, 300);
