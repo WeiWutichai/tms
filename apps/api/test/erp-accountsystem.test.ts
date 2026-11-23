@@ -143,6 +143,7 @@ export const sampleSettlement = (n = 1): CanonicalSettlementPayload =>
         lineNo: 1,
         lineType: 'FREIGHT',
         trip: { number: 'TRP-0001' },
+        deliveryOrders: [{ number: 'DO-0001' }, { number: 'DO-0002' }],
         description: 'ค่าจ้างรถ',
         amount: '9000.00',
         vatType: 'EXEMPT_TRANSPORT',
@@ -153,6 +154,7 @@ export const sampleSettlement = (n = 1): CanonicalSettlementPayload =>
         lineNo: 2,
         lineType: 'DEDUCTION',
         trip: null,
+        deliveryOrders: [],
         description: 'เงินเบิกล่วงหน้า',
         amount: '-2000.00',
         vatType: null,
@@ -269,7 +271,10 @@ describe('AccountSystemAdapter (ST8-T16) — กับ mock จาก contract',
       external_source: 'tms.settlement',
       external_ref: 'SA-2026-0001',
     });
-    expect(d.lines[0]).toMatchObject({ amount: '9000.00', description: 'ค่าจ้างรถ (TRP-0001)' });
+    expect(d.lines[0]).toMatchObject({
+      amount: '9000.00',
+      description: 'ค่าจ้างรถ (TRP-0001 · DO-0001, DO-0002)', // D68-81 เลข DO ต่อบรรทัด
+    });
     expect(d.lines[1]).toMatchObject({ amount: '-2000.00' });
     const notes = d.lines.filter((l) => l.line_type === 'note').map((l) => l.description);
     expect(notes[0]).toContain(

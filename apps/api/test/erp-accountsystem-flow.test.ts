@@ -129,7 +129,11 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
   };
 
   /** เที่ยว + ค่าจ้างรถร่วม → ใบสำคัญจ่ายร่าง (helper เดียวกับ test อื่น) → อนุมัติ → บันทึกจ่าย ผ่าน API */
-  const paidSettlement = async (carrierId: string, amount = '9000.00') => {
+  const paidSettlement = async (
+    carrierId: string,
+    amount = '9000.00',
+    dos: { doNo: string; status?: 'CANCELLED' | 'DELIVERED' }[] = [],
+  ) => {
     const trip = await plat.trip.create({
       data: {
         tenantId,
@@ -137,6 +141,41 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
         tripDate: new Date(`${today}T00:00:00Z`),
       },
     });
+    // D68-81 DO ของเที่ยว → เลข DO ต่อบรรทัดใน CanonicalSettlement
+    if (dos.length) {
+      const site = (k: string) =>
+        plat.customerSite.create({
+          data: { tenantId, code: `ST${k}-${seq}`, name: `สถานที่ ${k}`, address: { line1: 'x' } },
+        });
+      const [a, b] = [await site('A'), await site('B')];
+      const so = await plat.salesOrder.create({
+        data: {
+          tenantId,
+          soNo: `SO-STL-${seq}`,
+          source: 'MANUAL',
+          customerId,
+          billingCompanyId: companyId,
+          requestedDate: new Date(`${today}T00:00:00Z`),
+          status: 'RECEIVED',
+        },
+      });
+      for (const d of dos)
+        await plat.deliveryOrder.create({
+          data: {
+            tenantId,
+            doNo: d.doNo,
+            doDate: new Date(`${today}T00:00:00Z`),
+            salesOrderId: so.id,
+            customerId,
+            tripId: trip.id,
+            originSiteId: a.id,
+            destSiteId: b.id,
+            originStopSeq: 1,
+            destStopSeq: 2,
+            ...(d.status ? { status: d.status } : {}),
+          },
+        });
+    }
     await plat.tripCost.create({
       data: {
         tenantId,
@@ -552,9 +591,20 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
         phone: '081-234-5678',
       });
     expect(car.status, JSON.stringify(car.body)).toBe(201);
-    const s = await paidSettlement(uuid('carrier', car.body.id));
+    const s = await paidSettlement(uuid('carrier', car.body.id), '9000.00', [
+      { doNo: 'DO-STL-B' },
+      { doNo: 'DO-STL-A' },
+      { doNo: 'DO-STL-X', status: 'CANCELLED' },
+    ]);
     const cmds = await commands('PUSH_SETTLEMENT');
     expect(cmds).toHaveLength(1);
+    // D68-81 (docs/01 §7.3): เลข DO ต่อบรรทัด — DO ของเที่ยวที่ไม่ถูกยกเลิก เรียงตามเลข
+    const stlDoc = (cmds[0]!.payload as { document: { lines: { deliveryOrders: unknown }[] } })
+      .document;
+    expect(stlDoc.lines[0]!.deliveryOrders).toEqual([
+      { number: 'DO-STL-A' },
+      { number: 'DO-STL-B' },
+    ]);
     await drainOutbox();
     expect((await commands('PUSH_SETTLEMENT'))[0]!.status).toBe('DONE');
     const ap = mock.byRef(s.number, 'tms.settlement');
@@ -562,6 +612,7 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
     expect(ap[0]).toMatchObject({ doc_type: 'AP', issue_date: today });
     expect(ap[0]!.contact_code).toMatch(/^EXT-/);
     expect(ap[0]!.lines[0]).toMatchObject({ line_type: 'item', amount: '9000.00' });
+    expect(ap[0]!.lines[0]!.description).toContain('DO-STL-A, DO-STL-B');
     const note = ap[0]!.lines.find((l) => l.line_type === 'note')!;
     expect(note.description).toContain('90.00 บาท (ภ.ง.ด.53)');
     expect(await mapping('SETTLEMENT', s.uuid)).toMatchObject({ externalId: ap[0]!.id });

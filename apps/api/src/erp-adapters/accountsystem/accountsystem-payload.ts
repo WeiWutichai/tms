@@ -120,7 +120,13 @@ export function settlementDraft(
     const amount = money(l.amount);
     return {
       line_type: 'item',
-      description: desc(l.description, l.trip?.number ?? null),
+      // D68-81 อ้างอิงเที่ยว + เลข DO ของบรรทัด (กระทบยอดรายบรรทัดกับ DO ฝั่ง AP) — AccountSystem ไม่มีช่องอ้างอิงแยก
+      description: desc(
+        l.description,
+        [l.trip?.number, (l.deliveryOrders ?? []).map((d) => d.number).join(', ')]
+          .filter(Boolean)
+          .join(' · ') || null,
+      ),
       // บรรทัดหักเป็นยอดติดลบอยู่แล้ว (CHECK settlement_line_ref_check) — ส่งตามจริง
       amount,
       ...(vat !== undefined ? { vat_rate: vat } : {}),
