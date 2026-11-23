@@ -717,12 +717,13 @@ describe('KRS pushInvoice ครบวงจร (ST8-T08)', { timeout: 600_000 }
     });
   });
 
-  it('ST8-T10: ผลของคำสั่งหายแต่ sync log มี 201 พร้อมเลข KRS → ค้นด้วย GET แล้วเนื้อหาตรง = mapping SYNCED ไม่ POST ซ้ำ', async () => {
-    const d = await deliveryOrder('own');
-    const inv = await draft([{ doId: d.id, vat: 'EXEMPT_TRANSPORT', amount: '1234.00' }]);
-    // KRS บันทึกใบแล้วแต่สายหลุด (ผลไม่รู้) — จำลองว่า sync log ของครั้งนั้นได้ 201 (เช่น บันทึก mapping ล้มหลังได้คำตอบ)
+  /**
+   * ใบเดียวที่ KRS บันทึกแล้วแต่ผลหาย (สายหลุดหลังบันทึก) → จำลองว่า sync log ของครั้งนั้นได้ 201 (เช่น บันทึก mapping ล้มหลังได้คำตอบ)
+   * `transactionNo` = เลขที่ใส่ใน response ของ sync log (ไม่ระบุ = เลขจริงใน KRS) · `truncate` = request body ใน sync log ถูกตัดท้าย
+   */
+  async function lostResult(lines: Line[], o: { transactionNo?: string; truncate?: boolean } = {}) {
+    const inv = await draft(lines);
     mock.injectFault({ kind: 'reset-after-commit', method: 'POST', times: 1 });
-    const before = posts().length;
     const invoiceNo = await finalize(inv);
     await drain();
     const got = mock.getInvoiceByTmsVoucherNo(invoiceNo)!;
@@ -731,34 +732,134 @@ describe('KRS pushInvoice ครบวงจร (ST8-T08)', { timeout: 600_000 }
     expect((await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } })).status).toBe(
       'FAILED_RETRYABLE',
     );
-    const n = await plat.$executeRaw`UPDATE erp_sync_log
-        SET status_code = 201, error_code = NULL,
-            response_body = ${JSON.stringify({ transactionNo: got.transactionNo, voucherNo: got.voucherNo })}
-      WHERE outbox_id = ${cmd.id}::uuid AND method = 'POST'`;
-    expect(n).toBe(1);
-    const gets = mock.requests().filter((q) => q.method === 'GET').length;
+    const log = await plat.erpSyncLog.findFirstOrThrow({
+      where: { outboxId: cmd.id, method: 'POST' },
+    });
+    await plat.erpSyncLog.update({
+      where: { id: log.id },
+      data: {
+        statusCode: 201,
+        errorCode: null,
+        responseBody: JSON.stringify({
+          transactionNo: o.transactionNo ?? got.transactionNo,
+          voucherNo: got.voucherNo,
+        }),
+        ...(o.truncate ? { requestBody: log.requestBody!.slice(0, 80) } : {}),
+      },
+    });
+    return { inv, invoiceNo, got, cmd };
+  }
+  const gets = () => mock.requests().filter((q) => q.method === 'GET').length;
+
+  for (const truncate of [false, true])
+    it(`ST8-T10: ผลหายแต่ sync log มี 201 พร้อมเลข KRS${truncate ? ' (review H1: request body ถูกตัด — ไม่รู้รายการของใบ)' : ''} → GET แล้วเทียบ: ตรง = SYNCED ไม่ POST ซ้ำ`, async () => {
+      const d = await deliveryOrder('own');
+      const before = posts().length;
+      const { inv, got, cmd } = await lostResult(
+        [{ doId: d.id, vat: 'EXEMPT_TRANSPORT', amount: truncate ? '1235.00' : '1234.00' }],
+        { truncate },
+      );
+      const g = gets();
+      await drain();
+      expect(posts().length - before).toBe(1);
+      // review H1: ต้อง GET ยืนยันก่อนเสมอ (ไม่เชื่อหลักฐานใน sync log อย่างเดียว)
+      expect(gets() - g).toBe(1);
+      const row = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } });
+      expect(row.status).toBe('DONE');
+      expect(row.result).toMatchObject({
+        externalId: got.transactionNo,
+        externalDocNo: got.voucherNo,
+        applied: true,
+        recoveredAfter: 'EARLIER_SEND',
+      });
+      expect(await mapping(inv.uuid)).toMatchObject({
+        status: 'SYNCED',
+        externalId: got.transactionNo,
+        externalDocNo: got.voucherNo,
+      });
+      // GET อยู่ใน sync log — ไม่มีชื่อคนขับ / API key
+      const logs = await plat.erpSyncLog.findMany({ where: { outboxId: cmd.id, method: 'GET' } });
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toMatchObject({ statusCode: 200 });
+      expect(JSON.stringify(logs)).not.toContain(DRIVER);
+      expect(JSON.stringify(logs)).not.toContain(KEY);
+    });
+
+  it('review H1: รู้เลข KRS แต่รายการที่อ่านกลับไม่ครบ (KRS ทำรายการหาย) และไม่มีใบที่ต้องส่งเพิ่ม → ไม่ POST · ไม่ SYNCED (MISMATCH ไม่ยืนยันเนื้อหา)', async () => {
+    const d1 = await deliveryOrder('own');
+    const d2 = await deliveryOrder('own');
+    const before = posts().length;
+    const { inv, got, cmd } = await lostResult(
+      [
+        { doId: d1.id, vat: 'EXEMPT_TRANSPORT', amount: '410.00' },
+        { doId: d2.id, vat: 'EXEMPT_TRANSPORT', amount: '420.00' },
+      ],
+      { truncate: true },
+    );
+    mock.overwriteInvoice(got.transactionNo, { keepLines: null, dropFlowNos: [d2.doNo!] });
     await drain();
     expect(posts().length - before).toBe(1);
-    expect(mock.requests().filter((q) => q.method === 'GET').length - gets).toBe(1);
     const row = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } });
     expect(row.status).toBe('DONE');
-    expect(row.result).toMatchObject({
-      externalId: got.transactionNo,
-      externalDocNo: got.voucherNo,
-      applied: true,
-      recoveredAfter: 'EARLIER_SEND',
-    });
+    expect(row.result).toMatchObject({ externalId: got.transactionNo, applied: false });
     expect(await mapping(inv.uuid)).toMatchObject({
-      status: 'SYNCED',
+      status: 'MISMATCH',
       externalId: got.transactionNo,
-      externalDocNo: got.voucherNo,
+      lastSyncedHash: null,
+      lastError: { code: 'erp_content_unverified' },
     });
-    // GET อยู่ใน sync log — ไม่มีชื่อคนขับ / API key
-    const logs = await plat.erpSyncLog.findMany({ where: { outboxId: cmd.id, method: 'GET' } });
-    expect(logs).toHaveLength(1);
-    expect(logs[0]).toMatchObject({ statusCode: 200 });
-    expect(JSON.stringify(logs)).not.toContain(DRIVER);
-    expect(JSON.stringify(logs)).not.toContain(KEY);
+  });
+
+  it('review H2: เลข KRS ที่รู้จาก sync log แต่ GET ได้ 404 → ไม่ POST ใหม่ · FAILED_FINAL NOT_FOUND + mapping MISMATCH remote_missing + REMOTE_MISSING ให้คนตัดสิน', async () => {
+    const d = await deliveryOrder('own');
+    const before = posts().length;
+    const { inv, cmd } = await lostResult(
+      [{ doId: d.id, vat: 'EXEMPT_TRANSPORT', amount: '640.00' }],
+      {
+        transactionNo: '99999901',
+      },
+    );
+    await drain();
+    expect(posts().length - before).toBe(1);
+    const row = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } });
+    expect(row).toMatchObject({ status: 'FAILED_FINAL', errorClass: 'NOT_FOUND' });
+    expect(row.lastError).toMatchObject({ code: 'remote_missing' });
+    expect(await mapping(inv.uuid)).toMatchObject({
+      status: 'MISMATCH',
+      externalId: '99999901',
+      lastError: { code: 'remote_missing', errorClass: 'NOT_FOUND' },
+    });
+    expect(
+      await plat.reconcileResult.count({ where: { tenantId, localId: inv.uuid } }),
+    ).toBeGreaterThan(0);
+  });
+
+  it('review H2 (ใบที่แยก): ใบแรกที่รู้เลข (mapping) GET ได้ 404 → ไม่ POST ใบใดเลย ให้คนตัดสิน', async () => {
+    mock.injectFault({ kind: 'status', status: 504, method: 'POST', skip: 1, times: 1 });
+    const before = posts().length;
+    const { inv } = await splitInvoice();
+    await drain();
+    expect(posts().length - before).toBe(2);
+    const m = (await mapping(inv.uuid))!;
+    const detail = m.detail as { documents: { externalId: string }[] };
+    detail.documents[0]!.externalId = '99999902';
+    await plat.externalMapping.update({
+      where: { id: m.id },
+      data: { detail, externalId: '99999902' },
+    });
+    await drain();
+    expect(posts().length - before).toBe(2);
+    const cmd = (await commands(inv.uuid)).find((c) => c.operation === 'PUSH_INVOICE')!;
+    expect(await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } })).toMatchObject(
+      {
+        status: 'FAILED_FINAL',
+        errorClass: 'NOT_FOUND',
+      },
+    );
+    expect(await mapping(inv.uuid)).toMatchObject({
+      status: 'MISMATCH',
+      lastError: { code: 'remote_missing' },
+    });
   });
 
   it('ST8-T10 (A.5 timeout/สายหลุด): ไม่รู้เลข KRS เลย → POST ใหม่ · ถึงแล้วได้ 409 → DUPLICATE ให้คนกรอก transactionNo (ไม่สร้างซ้ำ ไม่พักเงียบ)', async () => {

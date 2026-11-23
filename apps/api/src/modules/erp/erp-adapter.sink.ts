@@ -180,13 +180,19 @@ function mergeDocuments(...lists: (readonly ExternalDocumentPart[] | undefined)[
   return [...out.values()].slice(0, MAX_EXTERNAL_DOCUMENTS);
 }
 
-/** ST8-T10 เอกสารฝั่ง ERP ที่รู้ id ครอบคลุมทุกรายการของเอกสารที่ส่งไหม (เทียบ `lineNo`) — ไม่ครอบคลุม = ยังมีใบที่ไม่รู้ว่าอยู่ใน ERP หรือไม่ */
-function coversAllLines(known: readonly ExternalDocumentPart[], sent: CanonicalDocument): boolean {
-  const lines = Array.isArray(sent.lines) ? (sent.lines as { lineNo?: unknown }[]) : [];
-  const want = lines.map((l) => l?.lineNo).filter((n): n is number => Number.isInteger(n));
-  if (!want.length) return known.length > 0;
-  const have = new Set(known.flatMap((p) => p.lineNos));
-  return want.every((n) => have.has(n));
+/** `lineNo` ของรายการใน canonical */
+function linesOf(doc: CanonicalDocument): number[] {
+  const lines = Array.isArray(doc.lines) ? (doc.lines as { lineNo?: unknown }[]) : [];
+  return lines.map((l) => l?.lineNo).filter((n): n is number => Number.isInteger(n));
+}
+
+/**
+ * ST8-T10 (review H1) รายการที่อ่านกลับจาก ERP ครอบคลุมทุกรายการของเอกสารที่ส่งไหม (เทียบ `lineNo` หลัง adapter จับคู่)
+ * ไม่ครอบคลุม = ยังมีใบที่ไม่รู้ว่าอยู่ใน ERP หรือไม่ (หรือ ERP ทำรายการหาย — ตัดสินต่อด้วยการส่งใบที่ขาด/ไม่ยืนยันเนื้อหา)
+ */
+function coversAllLines(got: readonly number[], sent: CanonicalDocument): boolean {
+  const have = new Set(got);
+  return linesOf(sent).every((n) => have.has(n));
 }
 
 /** entity ที่เก็บ external_mapping หลัง push สำเร็จ (ST8-T16) */
@@ -1394,7 +1400,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     seed: readonly ExternalDocumentPart[] = [],
   ): Promise<
     | { searched: false; prior?: ExternalDocumentPart[] }
-    | { searched: true; found: false }
+    | { searched: true; found: false; missing?: ExternalDocumentPart[] }
     | {
         searched: true;
         found: true;
@@ -1430,8 +1436,8 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     let known: ExternalDocumentPart[] = [];
     if (!externalId && adapter.fetchNeedsExternalId) {
       known = mergeDocuments(seed, await this.loggedDocuments(d, connector, adapter));
+      // ไม่รู้ id ฝั่ง ERP เลย = ค้นไม่ได้ → ส่งตามปกติ (ERP กันซ้ำด้วยเลขอ้างอิงของเรา — docs/01 A.5)
       if (!known.length) return { searched: false };
-      if (!coversAllLines(known, sent)) return { searched: false, prior: known };
       externalId = known[0]!.externalId;
     }
     let got: CanonicalDocument | null;
@@ -1442,10 +1448,18 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         sent,
       );
     } catch (e) {
-      if (e instanceof ErpAdapterError && e.errorClass === 'NOT_FOUND')
-        return { searched: true, found: false };
+      // review H2: id ที่รู้จากหลักฐาน (mapping / ผลล้มรอบนี้ / sync log) แต่ ERP ตอบไม่พบ = เอกสารอาจถูกลบฝั่ง ERP
+      // → ห้ามส่งใหม่ ให้คนตัดสิน (docs/01 A.5 404 → REMOTE_MISSING; §6.3 NOT_FOUND) · ใบที่แยก: ใบใดหาย = ไม่ส่งใบใดเลย
+      // ไม่มีหลักฐาน (id จาก listDocuments ฯลฯ) = พฤติกรรมเดิมของ core (ผู้เรียกตัดสินตาม error)
+      if (known.length && e instanceof ErpAdapterError && e.errorClass === 'NOT_FOUND')
+        return { searched: true, found: false, missing: known };
       throw e;
     }
+    if (known.length && !got) return { searched: true, found: false, missing: known };
+    // review H1: ความครอบคลุมนับจากรายการที่**อ่านกลับมาจริง** (ไม่เชื่อ `lineNos` ของหลักฐาน — เช่น body ใน sync log ถูกตัด = ว่าง)
+    // ไม่ครอบคลุม = ยังมีใบที่ไม่รู้ว่าอยู่ใน ERP → บอก adapter ว่าใบใดมีแล้ว (ตรวจแล้วว่ามีจริง) ส่งเฉพาะใบที่ขาด
+    if (known.length && !coversAllLines(linesOf(got!), sent))
+      return { searched: false, prior: known };
     const gotId =
       typeof got?.externalId === 'string' && got.externalId ? got.externalId : externalId;
     if (!got || !gotId) return { searched: true, found: false };
@@ -1458,6 +1472,49 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
       same: expected ? sameContent(got, expected) : null,
       ...(known.length > 1 ? { documents: known } : {}),
     };
+  }
+
+  /**
+   * review H2: เอกสารฝั่ง ERP ที่รู้ id จากหลักฐานแต่ ERP ตอบไม่พบ → mapping (id ที่รู้ + ทุกใบ) แล้วโยน NOT_FOUND
+   * (afterFailure: mapping MISMATCH `remote_missing` + reconcile_result REMOTE_MISSING) — ไม่ส่งใหม่
+   */
+  private async knownMissing(
+    d: OutboxDelivery,
+    st: DeliveryState,
+    c: Connector,
+    entity: 'INVOICE' | 'SETTLEMENT',
+    number: string | null,
+    missing: readonly ExternalDocumentPart[],
+  ): Promise<never> {
+    const head = missing[0]!;
+    const docs = externalDocumentsOf({ documents: missing });
+    const docsJson = docs ? JSON.stringify({ documents: docs }) : null;
+    await d.withTx(
+      (tx) => tx.$executeRaw`
+        INSERT INTO external_mapping (id, tenant_id, connector_id, entity_type, local_id, local_number, external_id,
+                                      external_doc_no, status, detail, created_by, updated_at)
+        VALUES (gen_random_uuid(), ${d.tenantId}::uuid, ${c.id}::uuid, ${entity}::"ExternalEntityType",
+                ${d.localId}::uuid, ${number?.slice(0, 60) ?? null}, ${head.externalId.slice(0, 100)},
+                ${head.externalDocNo?.slice(0, 100) ?? null}, 'MISMATCH', ${docsJson}::jsonb, 'system:erp-sink', now())
+        ON CONFLICT (connector_id, entity_type, local_id) DO UPDATE
+           SET external_id = coalesce(external_mapping.external_id, EXCLUDED.external_id),
+               external_doc_no = coalesce(external_mapping.external_doc_no, EXCLUDED.external_doc_no),
+               local_number = coalesce(external_mapping.local_number, EXCLUDED.local_number),
+               detail = CASE WHEN EXCLUDED.detail IS NOT NULL
+                             THEN (coalesce(external_mapping.detail, '{}'::jsonb)
+                                   - 'documentsPartial' - 'documentsComplete') || EXCLUDED.detail
+                             ELSE external_mapping.detail END,
+               updated_by = 'system:erp-sink', version = external_mapping.version + 1, updated_at = now()`,
+    );
+    st.adapterCalled = true;
+    throw new OutboxSinkError(
+      'accounting system no longer has the document this system already sent — not re-sent; review it',
+      'NOT_FOUND',
+      {
+        code: 'remote_missing',
+        externalIds: missing.map((p) => p.externalId).slice(0, 50),
+      },
+    );
   }
 
   /** ST8-T10 เอกสารฝั่ง ERP ที่ถูกสร้างแล้วตามหลักฐานใน sync log ของเอกสารนี้ (adapter อ่าน response ของตัวเอง) */
@@ -1473,10 +1530,11 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
           connectorId: c.id,
           entityType: d.entityType,
           localId: d.localId,
-          method: { in: ['POST', 'PUT'] },
+          // review LOW: เฉพาะการสร้าง (POST) · ใหม่สุดก่อน (เกินเพดานแล้วยังได้หลักฐานล่าสุด)
+          method: 'POST',
           statusCode: { gte: 200, lt: 300 },
         },
-        orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
+        orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
         take: MAX_EXTERNAL_DOCUMENTS,
         select: {
           method: true,
@@ -1606,6 +1664,8 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
               }
               if (f.searched && f.found)
                 return recovered(f, evidence === 'AMBIGUOUS' ? 'AMBIGUOUS' : 'EARLIER_SEND');
+              if (f.searched && f.missing?.length)
+                await this.knownMissing(d, st, connector, entity, st.number, f.missing);
               // ST8-T10 รู้ id บางใบ (ส่งไม่ครบ) → บอก adapter ว่าใบใดสร้างแล้ว ส่งเฉพาะใบที่ขาด (ใบที่อาจถึงแล้ว ERP ตอบซ้ำ = DUPLICATE)
               if (!f.searched && f.prior?.length)
                 ctx.priorDocuments = mergeDocuments(ctx.priorDocuments, f.prior);
@@ -1711,6 +1771,8 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         });
       }
       if (f.searched && f.found) return recovered(f, 'DUPLICATE');
+      if (f.searched && f.missing?.length)
+        await this.knownMissing(d, st, connector, entity, st.number, f.missing);
       await this.duplicateUnresolved(
         d,
         connector,

@@ -437,6 +437,7 @@ export async function pushKrsInvoice(
       `เอกสารที่สร้างใน KRS แล้ว (${stray.join(', ').slice(0, 200)}) ไม่ตรงกับการแยกใบครั้งนี้ — ต้องให้คนตรวจ`,
     );
   const created: ExternalDocumentPart[] = [];
+  let posted = 0;
   for (const p of plan) {
     const known = prior.get(p.doc.tmsVoucherNo);
     if (known) {
@@ -462,6 +463,7 @@ export async function pushKrsInvoice(
         },
       };
     }
+    posted += 1;
     created.push({
       ref: p.doc.tmsVoucherNo,
       externalId: r.transactionNo,
@@ -475,8 +477,9 @@ export async function pushKrsInvoice(
     ok: true,
     externalId: head.externalId,
     ...(head.externalDocNo ? { externalDocNo: head.externalDocNo } : {}),
-    // POST 201 = KRS สร้างใบใหม่จาก payload ครั้งนี้ทั้งหมด
-    applied: true,
+    // POST 201 = KRS สร้างใบใหม่จาก payload ครั้งนี้ · review H1 (ST8-T10): ทุกใบมาจาก `ctx.priorDocuments` (ไม่ได้ POST เลย)
+    // = ไม่ได้ยืนยันเนื้อหาครั้งนี้ → `applied: false` (core: mapping MISMATCH `erp_content_unverified` รอ reconcile)
+    applied: posted > 0,
     documents: created,
   };
 }

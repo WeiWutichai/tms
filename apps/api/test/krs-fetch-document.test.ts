@@ -338,6 +338,21 @@ describe('KRS fetchDocument (ST8-T10) — กับ mock KRS ไม่แตะ�
     expect(calls[0]).toMatchObject({ method: 'GET', status: 404, errorCode: 'http_404' });
   });
 
+  it('review H1: ทุกใบมาจาก priorDocuments (ไม่ได้ POST เลย) → applied: false (ไม่ยืนยันเนื้อหา)', async () => {
+    const doc = invoice([
+      { lineNo: 1, doNo: 'DO-G1', vat: 'VAT_7', qty: '1', price: '11.00' },
+      { lineNo: 2, doNo: 'DO-G2', vat: 'EXEMPT_TRANSPORT', qty: '1', price: '22.00' },
+    ]);
+    const ctx = context(mock);
+    const r = await krs.pushInvoice(ctx, doc);
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    expect(r.applied).toBe(true);
+    const posts = mock.requests().filter((q) => q.method === 'POST').length;
+    const again = await krs.pushInvoice({ ...ctx, priorDocuments: r.documents }, doc);
+    expect(mock.requests().filter((q) => q.method === 'POST').length).toBe(posts);
+    expect(again).toMatchObject({ ok: true, externalId: r.externalId, applied: false });
+  });
+
   it('documentsFromSyncLog: เลข KRS จาก POST 201 ใน sync log · body ถูกตัดท้ายยังได้ ref (lineNos ว่าง) · ไม่ใช่ 201 = ข้าม', async () => {
     const doc = invoice([
       { lineNo: 1, doNo: 'DO-F1', vat: 'VAT_7', qty: '1', price: '10.00' },
