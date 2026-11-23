@@ -7,7 +7,7 @@
     "dev": "NODE_ENV=development SWC_NODE_PROJECT=tsconfig.json node --watch -r @swc-node/register src/main.ts",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" && node scripts/lint-dto.mjs && node scripts/lint-adapters.mjs",
+    "lint": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"scripts/**/*.ts\" && node scripts/lint-dto.mjs && node scripts/lint-adapters.mjs",
     "test": "vitest run",
     "prisma:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy && pnpm -s tenants:bootstrap",
@@ -20,7 +20,8 @@
     "openapi:diff": "SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register scripts/openapi-diff.ts",
     "dev:worker": "NODE_ENV=development SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register src/worker.ts",
     "openapi:check": "SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register scripts/export-openapi.ts && git diff --exit-code -- ../../packages/contracts/openapi.json",
-    "platform:user": "SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register scripts/platform-user.ts"
+    "platform:user": "SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register scripts/platform-user.ts",
+    "perf": "node scripts/perf/cli.mjs"
   },
   "dependencies": {
     "@fontsource/sarabun": "^5.3.0",
