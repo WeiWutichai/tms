@@ -475,6 +475,60 @@ describe('stop projection / status cascade (ST4-T03)', () => {
     ]);
   });
 
+  it('D-81 · D68-35: SO หลาย DO ส่งแล้วบางใบขณะใบอื่นยังวิ่ง → PARTIALLY_DELIVERED (docs/01 §4.1) + order.updated · ส่งครบ → DELIVERED', async () => {
+    const { soId, dos } = await newOrder('2');
+    const lines = await db.salesOrderLine.findMany({ where: { salesOrderId: soId } });
+    const kids = await run((tx) =>
+      app
+        .get(DeliveryOrderService)
+        .split(
+          dos[0]!.id,
+          [
+            [{ salesOrderLineId: lines[0]!.id, qty: '1' }],
+            [{ salesOrderLineId: lines[0]!.id, qty: '1' }],
+          ],
+          tx,
+        ),
+    );
+    // ทั้งสองใบออกรถก่อนการส่งถึง
+    const t1 = await dispatched([encodeId('deliveryOrder', kids[0]!.id)]);
+    const t2 = await dispatched([encodeId('deliveryOrder', kids[1]!.id)]);
+    expect(await soStatus(soId)).toBe('IN_TRANSIT');
+    const before = new Set(
+      (await db.domainEvent.findMany({ where: { tenantId, localId: soId } })).map((e) => e.id),
+    );
+    const [p1, d1] = [...t1.stops].sort((x, y) => x.sequence - y.sequence);
+    await post(p1!.id, 'arrive', 100).expect(201);
+    await post(p1!.id, 'complete', 95, { outcome: 'DELIVERED' }).expect(201);
+    await post(d1!.id, 'arrive', 90).expect(201);
+    await post(d1!.id, 'complete', 85, { outcome: 'DELIVERED' }).expect(201);
+    expect(await doStatus(kids[1]!.id)).toBe('DISPATCHED');
+    expect(await soStatus(soId)).toBe('PARTIALLY_DELIVERED');
+    // webhook order.* (event-contract): ส่งบางส่วน = order.updated ตัวเดียว · snapshot สถานะใหม่ · ค่าเดิม IN_TRANSIT
+    const evs = (
+      await db.domainEvent.findMany({
+        where: { tenantId, localId: soId },
+        orderBy: { occurredAt: 'asc' },
+      })
+    ).filter((e) => !before.has(e.id));
+    expect(evs.map((e) => e.type)).toEqual(['order.updated']);
+    expect(evs[0]!.snapshot).toMatchObject({ status: 'partially_delivered' });
+    expect(evs[0]!.previousAttributes).toMatchObject({ status: 'in_transit' });
+
+    const [p2, d2] = [...t2.stops].sort((x, y) => x.sequence - y.sequence);
+    await post(p2!.id, 'arrive', 50).expect(201);
+    await post(p2!.id, 'complete', 45, { outcome: 'DELIVERED' }).expect(201);
+    expect(await soStatus(soId)).toBe('PARTIALLY_DELIVERED'); // รับของใบที่เหลือ ≠ ออกรถใหม่
+    await post(d2!.id, 'arrive', 30).expect(201);
+    await post(d2!.id, 'complete', 25, { outcome: 'DELIVERED' }).expect(201);
+    expect(await soStatus(soId)).toBe('DELIVERED');
+    const soHist = await db.docStatusHistory.findMany({
+      where: { docType: 'sales_order', docId: soId },
+      orderBy: { at: 'asc' },
+    });
+    expect(soHist.map((x) => x.event).slice(-3)).toEqual(['dispatch', 'deliver_partial', 'deliver']);
+  });
+
   it('เวลาเครื่องเพี้ยน → ไม่ไล่จนกว่าผู้จัดรถ "ใช้" (ทาง resolve ไล่สถานะ) · เที่ยวจบแล้ว event ที่มาทีหลังแม้ "ใช้" ไม่เปลี่ยนจุด/เที่ยว/DO', async () => {
     const { dos } = await newOrder();
     const t = await dispatched([encodeId('deliveryOrder', dos[0]!.id)]);

@@ -147,14 +147,20 @@ export interface OrderDeliveryFacts {
   allDelivered: boolean;
   /** มี DO ออกรถอยู่ (DISPATCHED/PICKED_UP) */
   moving: boolean;
+  /**
+   * D-81 · D68-35: มี DO ที่วิ่งอยู่ซึ่งออกรถ **หลัง** การส่งถึงครั้งล่าสุดของ SO ("DO ที่เหลือออกรถ" ของ docs/01 §4.1)
+   * — DO ที่วิ่งอยู่ก่อนแล้วตอนอีกใบส่งถึงไม่นับ
+   */
+  movedAfterDelivery: boolean;
 }
 
 /**
  * ความคืบหน้าการส่งของ SO (docs/01 §4.1) — สถานะคำนวณจากชุด DO ทุกครั้ง (ไม่ขึ้นกับลำดับที่เรียก):
  * - ส่งครบทุกบรรทัด → `deliver` (IN_TRANSIT / PARTIALLY_DELIVERED → DELIVERED)
- * - ส่งแล้วบางส่วน และไม่มี DO วิ่งอยู่ → `deliver_partial` (IN_TRANSIT → PARTIALLY_DELIVERED)
- * - PARTIALLY_DELIVERED แล้วมี DO ที่เหลือออกรถ → `resume` (→ IN_TRANSIT)
- * [DECISION spec/12 §3] ส่งแล้วบางใบขณะ DO อื่นของ SO ยังวิ่งอยู่ = คง IN_TRANSIT (ไม่สลับไปมาระหว่างวิ่ง)
+ * - "DO บางส่วน DELIVERED" → `deliver_partial` (IN_TRANSIT → PARTIALLY_DELIVERED) **แม้ DO อื่นยังวิ่งอยู่** (D-81 · D68-35 —
+ *   เดิม [DECISION spec/12 §3] คง IN_TRANSIT จนไม่มี DO วิ่ง)
+ * - "DO ที่เหลือออกรถ" (ออกรถหลังการส่งถึงครั้งล่าสุด) → `resume` (PARTIALLY_DELIVERED → IN_TRANSIT) · ส่งถึงใบถัดไป → ส่งบางส่วนอีกครั้ง
+ * - ใบที่ส่งถึงถูกย้อนผลจนไม่มีใบส่งถึง และมี DO วิ่ง → `resume`
  */
 export function orderDeliveryEvent(
   status: SoStatus,
@@ -162,8 +168,9 @@ export function orderDeliveryEvent(
 ): Extract<SoEvent, 'deliver' | 'deliver_partial' | 'resume'> | null {
   let ev: Extract<SoEvent, 'deliver' | 'deliver_partial' | 'resume'> | null = null;
   if (f.allDelivered) ev = 'deliver';
-  else if (status === 'IN_TRANSIT' && f.anyDelivered && !f.moving) ev = 'deliver_partial';
-  else if (status === 'PARTIALLY_DELIVERED' && f.moving) ev = 'resume';
+  else if (status === 'IN_TRANSIT' && f.anyDelivered && !f.movedAfterDelivery) ev = 'deliver_partial';
+  else if (status === 'PARTIALLY_DELIVERED' && f.moving && (f.movedAfterDelivery || !f.anyDelivered))
+    ev = 'resume';
   if (!ev) return null;
   return SO_TRANSITIONS[status]?.[ev] ? ev : null;
 }
