@@ -10,6 +10,7 @@ import { DbService, type Tx } from '../../db/db.service';
 import { PrismaService } from '../../db/prisma.service';
 import { JobQueue } from '../../jobs/job-queue.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
+import { NotificationEvents } from '../notifications/notification-events';
 import { PaymentsService } from '../payments/payments.service';
 import { bangkokToday } from '../vehicle-documents/expiry';
 import { ConnectorResolver } from './connector-resolver';
@@ -153,6 +154,7 @@ export class PaymentStatusPullService implements OnModuleInit {
     private readonly reconcile: ReconcileResultsService,
     private readonly audit: AuditService,
     private readonly clock: Clock,
+    private readonly events: NotificationEvents,
   ) {}
 
   onModuleInit() {
@@ -349,6 +351,8 @@ export class PaymentStatusPullService implements OnModuleInit {
         await opts.onProgress(Math.max(0, Math.min(99, Math.floor(pct)))).catch(() => undefined);
     };
     let consecutive = 0;
+    /** เลขใบที่พบส่วนต่างใหม่ในรอบนี้ (ตัวอย่างในแจ้งเตือน — D68-61) */
+    const newMismatchNos: string[] = [];
     paging: for (;;) {
       await beat((out.counts.checked / max) * 100);
       const page = await this.db.withTenant(tenantId, (tx) => this.candidates(tx, row, started));
@@ -403,6 +407,7 @@ export class PaymentStatusPullService implements OnModuleInit {
           if (o === 'newMismatch') {
             out.counts.mismatched += 1;
             out.counts.newMismatches += 1;
+            if (newMismatchNos.length < 5) newMismatchNos.push(c.invoice_no ?? '-');
           } else out.counts[o] += 1;
         } catch (e) {
           if (e instanceof InvalidAnswer) {
@@ -440,6 +445,19 @@ export class PaymentStatusPullService implements OnModuleInit {
               },
             }),
           ),
+        )
+        .catch((e) => this.logger.error(e));
+    // D-81 · D68-61 ส่วนต่างใหม่ (severity MONEY) → แจ้งหัวหน้าบัญชีทันที 1 ฉบับต่อรอบ (docs/01 §6.5) — แจ้งไม่สำเร็จไม่กระทบผลรอบ
+    if (c.newMismatches)
+      await this.db
+        .withTenant(tenantId, (tx) =>
+          this.events.reconcileMismatch(tx, {
+            tenantId,
+            connectorId: row.id,
+            label: row.adapterKey,
+            count: c.newMismatches,
+            invoiceNos: newMismatchNos,
+          }),
         )
         .catch((e) => this.logger.error(e));
     return out;

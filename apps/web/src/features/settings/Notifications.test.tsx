@@ -10,6 +10,7 @@ const EVENTS = [
   'approval.requested',
   'document.expiring',
   'connector.down',
+  'reconcile.mismatch',
   'delivery_order.unbilled',
   'payment.due',
 ];

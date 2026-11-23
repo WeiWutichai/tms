@@ -928,6 +928,7 @@ export const th = {
   'noti.ev.approval.requested': 'รายการรออนุมัติ',
   'noti.ev.document.expiring': 'เอกสารรถ / ใบขับขี่ / rate card ใกล้หมดอายุ',
   'noti.ev.connector.down': 'การเชื่อมต่อขัดข้อง (connector / webhook)',
+  'noti.ev.reconcile.mismatch': 'ข้อมูลไม่ตรงกับระบบบัญชี',
   'noti.ev.delivery_order.unbilled': 'DO ยังไม่วางบิล',
   'noti.ev.payment.due': 'ครบกำหนดชำระ',
   'noti.ev.digest': 'สรุปรายวัน 08:00 น.',
