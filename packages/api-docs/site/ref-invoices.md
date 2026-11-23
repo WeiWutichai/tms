@@ -1,6 +1,6 @@
 # invoices
 
-27 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+28 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -27,6 +27,7 @@
 | [`POST /v1/invoices/{id}/cancel`](#post-invoices-id-cancel) | `invoices:draft` |
 | [`POST /v1/invoices/{id}/void`](#post-invoices-id-void) | `invoices:void` |
 | [`POST /v1/invoices/{id}/mark-sent`](#post-invoices-id-mark-sent) | `invoices:finalize` |
+| [`POST /v1/invoices/{id}/erp-posted`](#post-invoices-id-erp-posted) | `integrations:retry` |
 | [`POST /v1/invoices/{id}/unmark-sent`](#post-invoices-id-unmark-sent) | `invoices:void` |
 | [`POST /v1/invoices/{id}/send`](#post-invoices-id-send) | `invoices:finalize` |
 | [`GET /v1/invoices/{id}/emails`](#get-invoices-id-emails) | `invoices:read` |
@@ -1190,6 +1191,45 @@ curl -sS -X POST "$TMS_BASE_URL/v1/invoices/<id>/mark-sent" \
 
 ```ts
 const { data, error } = await tms.POST('/v1/invoices/{id}/mark-sent', {
+  params: { path: { id: "…" } },
+});
+```
+
+## ปุ่ม "ลงบัญชีแล้ว" — ใบนี้ลงบัญชีในระบบบัญชีที่เชื่อมแล้ว (แทนที่ต้องมีผู้อนุมัติ) {#post-invoices-id-erp-posted}
+
+`POST /v1/invoices/{id}/erp-posted`
+
+scope: `integrations:retry` · operationId: `Invoices_markErpPosted`
+
+สิทธิ์ `integrations:retry` (บัญชี/ผู้วางบิล/ผู้อนุมัติ) · ตั้ง `sync.postedAt` ของเอกสารนี้ในระบบบัญชีที่เชื่อม → หลังจากนี้การแทนที่เอกสารในระบบบัญชี (ส่งซ้ำ / ยกเลิกแล้วออกใหม่) ขึ้นคิว "ต้องอนุมัติ" (`replace_requires_approval`) จนผู้อนุมัติคนอื่นอนุมัติ · กดซ้ำ = คงเวลาเดิม · ใบที่ยังไม่อยู่ในระบบบัญชี → 409 `invalid_state_transition` · audit `invoice.erp_posted_marked` · **ยกเลิกแล้วออกใหม่: กดที่ใบเดิมก่อนออกใบใหม่แทน** (ธงอยู่กับเอกสารในระบบบัญชี — แทนที่สำเร็จแล้วย้ายตามไปใบใหม่; ใบเดิมที่ยกเลิกแล้วกดได้จนกว่าจะแทนที่)
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `InvoiceDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`integrations:retry`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/invoices/<id>/erp-posted" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)"
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/invoices/{id}/erp-posted', {
   params: { path: { id: "…" } },
 });
 ```

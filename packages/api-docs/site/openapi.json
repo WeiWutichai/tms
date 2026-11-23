@@ -21483,6 +21483,107 @@
         ]
       }
     },
+    "/v1/connectors/{id}/queue/{commandId}/approve": {
+      "post": {
+        "operationId": "Connectors_queueApprove",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "commandId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueueApproveDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "อนุมัติการแทนที่เอกสารในระบบบัญชี (รายการ `replace_requires_approval` — ลงบัญชีแล้ว (ERP แจ้ง / ปุ่ม \"ลงบัญชีแล้ว\") หรือใบอายุเกิน `billing.erpReplaceApprovalDays` วัน, A.2) — คนเท่านั้น · เหตุผล ≥ 10 ตัว · ผู้อนุมัติต้องไม่ใช่ผู้ขอ (ผู้ออกใบใหม่ / ผู้ยกเลิกใบเดิม / ผู้สั่งส่งซ้ำ) → 403 `erp_replace_self_approval` · ผล: คำสั่งใหม่ที่ส่งได้ทันที (`resolution.supersededBy`) · audit `connector.queue_approved` · ไม่ใช่รายการรออนุมัติ → 409 `queue_action_not_allowed` (`why`: `not_awaiting_approval` ฯลฯ)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorQueueItemDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_credit-notes.approve"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "credit-notes:approve"
+        ]
+      }
+    },
     "/v1/connectors/{id}/queue/{commandId}/external-id": {
       "post": {
         "operationId": "Connectors_queueExternalId",
@@ -22078,13 +22179,14 @@
             "name": "overwriteStatus",
             "required": false,
             "in": "query",
-            "description": "ขั้นของ \"ส่งทับระบบบัญชีด้วยค่า TMS\": REQUESTED = รออนุมัติ · APPROVED = อนุมัติแล้ว รอส่ง/รอรอบเทียบ · REJECTED · NONE = ยังไม่มีคำขอ (หรือถูกปฏิเสธ)",
+            "description": "ขั้นของ \"ส่งทับระบบบัญชีด้วยค่า TMS\": SENT = ส่งซ้ำตรง · REQUESTED = รออนุมัติ · APPROVED = อนุมัติแล้ว · REJECTED · NONE = ไม่มีคำขอรออนุมัติ (ทุกค่ายกเว้น REQUESTED)",
             "schema": {
               "type": "string",
               "enum": [
                 "REQUESTED",
                 "APPROVED",
                 "REJECTED",
+                "SENT",
                 "NONE"
               ]
             }
@@ -22226,7 +22328,7 @@
     },
     "/v1/reconcile-results/{id}/acknowledge": {
       "post": {
-        "description": "สิทธิ์ `integrations:retry` (ฝ่ายบัญชี) · คนเท่านั้น (API key → 403) · ใช้ได้กับรายการ `result` MISMATCH / REMOTE_MISSING ที่ยังเปิด (ทั้งยอดรับชำระและเนื้อหาเอกสาร) · เนื้อหาเอกสาร: `sync.reconcileState` ของใบ → ACCEPTED · มีคำขอส่งทับค้าง → 409 `overwrite_in_progress` · ปิดแล้ว/ยอมรับแล้ว → 409 (`already_resolved` / `already_acknowledged`) · audit `reconcile.mismatch_acknowledged`",
+        "description": "สิทธิ์ `integrations:retry` (ฝ่ายบัญชี) · คนเท่านั้น (API key → 403) · ใช้ได้กับรายการ `result` MISMATCH / REMOTE_MISSING ที่ยังเปิด (ทั้งยอดรับชำระและเนื้อหาเอกสาร) · เนื้อหาเอกสาร: `sync.reconcileState` ของใบ → ACCEPTED · การส่งทับยังดำเนินอยู่ → 409 `overwrite_in_progress` (คำสั่งจบแบบไม่สำเร็จ = ปิดได้) · ปิดแล้ว/ยอมรับแล้ว → 409 (`already_resolved` / `already_acknowledged`) · audit `reconcile.mismatch_acknowledged`",
         "operationId": "Reconcile_acknowledge",
         "parameters": [
           {
@@ -22299,7 +22401,7 @@
             "$ref": "#/components/responses/NotFound"
           },
           "409": {
-            "description": "`invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `connector_disconnected` · `replace_not_supported` · `nothing_to_resend`",
+            "description": "`invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` (คำขอรออนุมัติ / คำสั่งส่งทับยังไม่จบหรือส่งแล้วรอรอบเทียบ) · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `paid_locked` (รับชำระแล้ว) · `connector_disconnected` · `command_in_progress` (มีคำสั่งส่งของเอกสารนี้ค้าง) · `capability_not_implemented` (ระบบบัญชียังแทนที่ไม่ได้) · `replace_not_supported` · `nothing_to_resend`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -22415,7 +22517,7 @@
             "$ref": "#/components/responses/NotFound"
           },
           "409": {
-            "description": "`invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `connector_disconnected` · `replace_not_supported` · `nothing_to_resend`",
+            "description": "`invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` (คำขอรออนุมัติ / คำสั่งส่งทับยังไม่จบหรือส่งแล้วรอรอบเทียบ) · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `paid_locked` (รับชำระแล้ว) · `connector_disconnected` · `command_in_progress` (มีคำสั่งส่งของเอกสารนี้ค้าง) · `capability_not_implemented` (ระบบบัญชียังแทนที่ไม่ได้) · `replace_not_supported` · `nothing_to_resend`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -22456,9 +22558,125 @@
         ]
       }
     },
+    "/v1/reconcile-results/{id}/resend": {
+      "post": {
+        "description": "สิทธิ์ `integrations:retry` · คนเท่านั้น · เฉพาะเนื้อหาเอกสารที่ยังเปิด · คำสั่ง REPLACE_DOCUMENT (หรือส่งใหม่เมื่อไม่อยู่ในระบบบัญชี) ผ่านประตูอนุมัติของ — ลงบัญชีแล้ว/อายุใบเกิน N วัน = คำสั่ง SKIPPED `replace_requires_approval` (`overwrite.commandErrorCode`) → ใช้ \"ขออนุมัติแก้\" · รับชำระแล้ว → 409 `paid_locked` · มีคำสั่งค้าง → 409 `command_in_progress` · ระบบบัญชีแทนที่ไม่ได้ → 409 `capability_not_implemented` / `replace_not_supported` · `overwrite.status` SENT · รอบเทียบหลังส่งตรง = ปิดเอง ERP_OVERWRITTEN · audit `reconcile.overwrite_sent`",
+        "operationId": "Reconcile_resend",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReconcileReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconcileResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_integrations.retry"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "`invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` (คำขอรออนุมัติ / คำสั่งส่งทับยังไม่จบหรือส่งแล้วรอรอบเทียบ) · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `paid_locked` (รับชำระแล้ว) · `connector_disconnected` · `command_in_progress` (มีคำสั่งส่งของเอกสารนี้ค้าง) · `capability_not_implemented` (ระบบบัญชียังแทนที่ไม่ได้) · `replace_not_supported` · `nothing_to_resend`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "reason": "invoice_not_voided"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ใช้ค่า TMS ส่งซ้ำ — ส่งเอกสารฉบับที่ออกทับระบบบัญชี (ทางที่ 2 \"TMS ถูก\")",
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "integrations:retry"
+        ]
+      }
+    },
     "/v1/reconcile-results/{id}/overwrite-request": {
       "post": {
-        "description": "สิทธิ์ `integrations:retry` · คนเท่านั้น · เฉพาะเนื้อหาเอกสารที่ยังเปิด · ใบยกเลิกแล้ว → 409 `invoice_voided` · connector ยกเลิกการเชื่อม → 409 `connector_disconnected` · ระบบบัญชีแทนที่เอกสารไม่ได้/ไม่เปิด → 409 `replace_not_supported` · มีคำขอค้าง → 409 `overwrite_in_progress` · ถูกปฏิเสธแล้วขอใหม่ได้ · audit `reconcile.overwrite_requested`",
+        "description": "\"ขออนุมัติแก้\" · สิทธิ์ `integrations:retry` · คนเท่านั้น · เฉพาะเนื้อหาเอกสารที่ยังเปิด · ใบยกเลิกแล้ว → 409 `invoice_voided` · รับชำระแล้ว → 409 `paid_locked` · connector ยกเลิกการเชื่อม → 409 `connector_disconnected` · มีคำสั่งค้าง → 409 `command_in_progress` · ระบบบัญชีแทนที่ไม่ได้ → 409 `capability_not_implemented` / `replace_not_supported` · การส่งทับยังดำเนินอยู่ → 409 `overwrite_in_progress` · ถูกปฏิเสธแล้วขอใหม่ได้ · audit `reconcile.overwrite_requested`",
         "operationId": "Reconcile_requestOverwrite",
         "parameters": [
           {
@@ -22531,7 +22749,7 @@
             "$ref": "#/components/responses/NotFound"
           },
           "409": {
-            "description": "`invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `connector_disconnected` · `replace_not_supported` · `nothing_to_resend`",
+            "description": "`invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` (คำขอรออนุมัติ / คำสั่งส่งทับยังไม่จบหรือส่งแล้วรอรอบเทียบ) · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `paid_locked` (รับชำระแล้ว) · `connector_disconnected` · `command_in_progress` (มีคำสั่งส่งของเอกสารนี้ค้าง) · `capability_not_implemented` (ระบบบัญชียังแทนที่ไม่ได้) · `replace_not_supported` · `nothing_to_resend`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -22574,7 +22792,7 @@
     },
     "/v1/reconcile-results/{id}/overwrite-request/approve": {
       "post": {
-        "description": "สิทธิ์ `credit-notes:approve` · คนเท่านั้น · **ผู้อนุมัติต้องไม่ใช่ผู้ขอ** (403 `self_approval_forbidden`) · สร้างคำสั่ง REPLACE_DOCUMENT ด้วยเอกสารฉบับที่ออก (`ErpSyncService.resend` — คำสั่งนี้ผ่านประตู \"ลงบัญชีแล้วต้องอนุมัติ\") · ระบบบัญชีที่ประกาศแต่ยังไม่ได้ทำการแทนที่ = **พักไว้**: บันทึกการอนุมัติ ไม่สร้างคำสั่ง (`overwrite.commandId` null · `commandErrorCode` = `capability_not_implemented` — คำสั่งที่พักในคิวจะกั้นเอกสารอื่นของลูกค้า) · รอบเทียบหลังส่งตรงกัน = ปิดเอง (`resolution` ERP_OVERWRITTEN) · ไม่มีคำขอ → 409 `overwrite_not_requested` · audit `reconcile.overwrite_approved` (+ `commandId`)",
+        "description": "สิทธิ์ `credit-notes:approve` · คนเท่านั้น · **ผู้อนุมัติต้องไม่ใช่ผู้ขอ และไม่ใช่ผู้สร้าง/แก้/ออกเลขใบ** (403 `erp_replace_self_approval`) · สร้างคำสั่งด้วยเอกสารฉบับที่ออก + `approval` {approvedBy, approvedAt, reason, reconcileResultId} ผ่านประตูอนุมัติของ · มีคำสั่งของเอกสารค้าง → 409 `command_in_progress` · รับชำระแล้ว → 409 `paid_locked` · ระบบบัญชีแทนที่ไม่ได้ → 409 `capability_not_implemented` / `replace_not_supported` · รอบเทียบหลังส่งตรงกัน = ปิดเอง (`resolution` ERP_OVERWRITTEN) · ไม่มีคำขอ → 409 `overwrite_not_requested` · audit `reconcile.overwrite_approved` (+ `commandId`)",
         "operationId": "Reconcile_approveOverwrite",
         "parameters": [
           {
@@ -22647,7 +22865,7 @@
             "$ref": "#/components/responses/NotFound"
           },
           "409": {
-            "description": "`invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `connector_disconnected` · `replace_not_supported` · `nothing_to_resend`",
+            "description": "`invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` (คำขอรออนุมัติ / คำสั่งส่งทับยังไม่จบหรือส่งแล้วรอรอบเทียบ) · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `paid_locked` (รับชำระแล้ว) · `connector_disconnected` · `command_in_progress` (มีคำสั่งส่งของเอกสารนี้ค้าง) · `capability_not_implemented` (ระบบบัญชียังแทนที่ไม่ได้) · `replace_not_supported` · `nothing_to_resend`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -22690,7 +22908,7 @@
     },
     "/v1/reconcile-results/{id}/overwrite-request/reject": {
       "post": {
-        "description": "สิทธิ์ `credit-notes:approve` · คนเท่านั้น · ผู้ปฏิเสธต้องไม่ใช่ผู้ขอ · ขอใหม่ได้ · audit `reconcile.overwrite_rejected`",
+        "description": "สิทธิ์ `credit-notes:approve` · คนเท่านั้น · ผู้ปฏิเสธต้องไม่ใช่ผู้ขอ (403 `erp_replace_self_approval`) · ขอใหม่ได้ · audit `reconcile.overwrite_rejected`",
         "operationId": "Reconcile_rejectOverwrite",
         "parameters": [
           {
@@ -22763,7 +22981,7 @@
             "$ref": "#/components/responses/NotFound"
           },
           "409": {
-            "description": "`invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `connector_disconnected` · `replace_not_supported` · `nothing_to_resend`",
+            "description": "`invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` (คำขอรออนุมัติ / คำสั่งส่งทับยังไม่จบหรือส่งแล้วรอรอบเทียบ) · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `paid_locked` (รับชำระแล้ว) · `connector_disconnected` · `command_in_progress` (มีคำสั่งส่งของเอกสารนี้ค้าง) · `capability_not_implemented` (ระบบบัญชียังแทนที่ไม่ได้) · `replace_not_supported` · `nothing_to_resend`",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -40053,6 +40271,163 @@
         ],
         "x-required-scopes": [
           "invoices:finalize"
+        ]
+      }
+    },
+    "/v1/invoices/{id}/erp-posted": {
+      "post": {
+        "description": "สิทธิ์ `integrations:retry` (บัญชี/ผู้วางบิล/ผู้อนุมัติ) · ตั้ง `sync.postedAt` ของเอกสารนี้ในระบบบัญชีที่เชื่อม → หลังจากนี้การแทนที่เอกสารในระบบบัญชี (ส่งซ้ำ / ยกเลิกแล้วออกใหม่) ขึ้นคิว \"ต้องอนุมัติ\" (`replace_requires_approval`) จนผู้อนุมัติคนอื่นอนุมัติ · กดซ้ำ = คงเวลาเดิม · ใบที่ยังไม่อยู่ในระบบบัญชี → 409 `invalid_state_transition` · audit `invoice.erp_posted_marked` · **ยกเลิกแล้วออกใหม่: กดที่ใบเดิมก่อนออกใบใหม่แทน** (ธงอยู่กับเอกสารในระบบบัญชี — แทนที่สำเร็จแล้วย้ายตามไปใบใหม่; ใบเดิมที่ยกเลิกแล้วกดได้จนกว่าจะแทนที่)",
+        "operationId": "Invoices_markErpPosted",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`integrations:retry`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "integrations",
+                      "action": "retry",
+                      "required": [
+                        "integrations:retry"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ปุ่ม \"ลงบัญชีแล้ว\" — ใบนี้ลงบัญชีในระบบบัญชีที่เชื่อมแล้ว (แทนที่ต้องมีผู้อนุมัติ)",
+        "tags": [
+          "invoices"
+        ],
+        "x-required-scopes": [
+          "integrations:retry"
         ]
       }
     },
@@ -67935,6 +68310,12 @@
             "format": "date-time",
             "description": "เวลาที่เทียบเนื้อหาล่าสุด"
           },
+          "postedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "เวลาที่ฝ่ายบัญชีกด \"ลงบัญชีแล้ว\" (ระบบบัญชีที่บอกสถานะลงบัญชีไม่ได้ เช่น KRS) — มีค่า = แทนที่เอกสารในระบบบัญชีต้องมีผู้อนุมัติ"
+          },
           "externalDocuments": {
             "description": "เอกสารฝั่งระบบบัญชีทุกใบ เมื่อระบบบัญชีรับใบนี้เป็นหลายเอกสาร · ใบแรก = `externalId` / `externalDocNo` · เอกสารเดียว = `[]`",
             "type": "array",
@@ -67952,6 +68333,7 @@
           "lastSyncedAt",
           "reconcileState",
           "reconciledAt",
+          "postedAt",
           "externalDocuments"
         ]
       },
@@ -74392,12 +74774,31 @@
           "externalId": {
             "type": "boolean",
             "description": "กรอกเลขเอกสารฝั่งระบบบัญชีเองได้"
+          },
+          "approve": {
+            "type": "boolean",
+            "description": "อนุมัติการแทนที่เอกสารในระบบบัญชีได้ (รายการ `replace_requires_approval`) — ผู้เรียกต้องมีสิทธิ์อนุมัติและไม่ใช่ผู้ขอ"
           }
         },
         "required": [
           "retry",
           "skip",
-          "externalId"
+          "externalId",
+          "approve"
+        ]
+      },
+      "QueueApproveDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569"
+          }
+        },
+        "required": [
+          "reason"
         ]
       },
       "QueueExternalDocumentDto": {
@@ -75546,7 +75947,8 @@
             "enum": [
               "REQUESTED",
               "APPROVED",
-              "REJECTED"
+              "REJECTED",
+              "SENT"
             ]
           },
           "requestedAt": {
@@ -75555,7 +75957,7 @@
           },
           "reason": {
             "type": "string",
-            "description": "เหตุผลของผู้ขอ"
+            "description": "เหตุผลของผู้ขอ / ผู้สั่งส่งซ้ำ"
           },
           "requestedByMe": {
             "type": "boolean",
@@ -75587,7 +75989,7 @@
             "type": "string",
             "nullable": true,
             "example": "capability_not_implemented",
-            "description": "รหัสผิดพลาดล่าสุดของคำสั่ง · `capability_not_implemented` = ระบบบัญชียังไม่รองรับการแทนที่เอกสาร — **พักไว้**: บันทึกการอนุมัติแล้วแต่ยังไม่สร้างคำสั่ง (`commandId` null — ไม่กั้นคิวของลูกค้า) จนกว่า adapter รองรับ"
+            "description": "รหัสผิดพลาดล่าสุดของคำสั่ง"
           }
         },
         "required": [
@@ -92944,6 +93346,33 @@
           }
         }
       },
+      "Forbidden_credit-notes.approve": {
+        "description": "ไม่มีสิทธิ์ (`credit-notes:approve`)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDto"
+            },
+            "examples": {
+              "permission_denied": {
+                "value": {
+                  "type": "https://docs.tms.example/problems/permission_denied",
+                  "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                  "status": 403,
+                  "code": "permission_denied",
+                  "instance": "/v1/connectors/3f2a…/queue/3f2a…/approve",
+                  "requestId": "b6a1c2d3-…",
+                  "module": "credit-notes",
+                  "action": "approve",
+                  "required": [
+                    "credit-notes:approve"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
       "Forbidden_integrations.read": {
         "description": "ไม่มีสิทธิ์ (`integrations:read`)",
         "content": {
@@ -92991,33 +93420,6 @@
                   "action": "retry",
                   "required": [
                     "integrations:retry"
-                  ]
-                }
-              }
-            }
-          }
-        }
-      },
-      "Forbidden_credit-notes.approve": {
-        "description": "ไม่มีสิทธิ์ (`credit-notes:approve`)",
-        "content": {
-          "application/problem+json": {
-            "schema": {
-              "$ref": "#/components/schemas/ProblemDto"
-            },
-            "examples": {
-              "permission_denied": {
-                "value": {
-                  "type": "https://docs.tms.example/problems/permission_denied",
-                  "title": "ไม่มีสิทธิ์ทำรายการนี้",
-                  "status": 403,
-                  "code": "permission_denied",
-                  "instance": "/v1/reconcile-results/3f2a…/overwrite-request/approve",
-                  "requestId": "b6a1c2d3-…",
-                  "module": "credit-notes",
-                  "action": "approve",
-                  "required": [
-                    "credit-notes:approve"
                   ]
                 }
               }
@@ -93669,6 +94071,11 @@
       "status": 422,
       "title": "ไฟล์ใหญ่เกินกว่าจะส่งทางอีเมล — ดาวน์โหลด PDF แล้วส่งเอง",
       "titleEn": "The file is too large to email — download the PDF and send it yourself"
+    },
+    "erp_replace_self_approval": {
+      "status": 403,
+      "title": "ผู้ขอแทนที่เอกสารในระบบบัญชี (ผู้ออกใบใหม่ ผู้ยกเลิกใบเดิม หรือผู้สั่งส่งซ้ำ) อนุมัติเองไม่ได้ ต้องให้ผู้อนุมัติคนอื่น",
+      "titleEn": "Whoever requested replacing the accounting-system document cannot approve it"
     },
     "external_id_conflict": {
       "status": 409,

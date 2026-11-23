@@ -179,6 +179,13 @@ describe('Push pipeline (ST7-T16)', () => {
     await plat.tenant.updateMany({ data: { planCode: 'ent' } });
     token = await tokenFor(tenantId);
     other = await tokenFor(otherTenantId);
+    // ST8-T13 ระบบบัญชีจำลองไม่บอกสถานะลงบัญชี (ไม่มี postedStatus) → กฎอายุ N วันบังคับอนุมัติก่อนแทนที่ (ค่าเริ่ม N = 0) ·
+    // ชุดนี้ทดสอบเรื่องอื่นของการแทนที่ → ตั้ง N กว้าง (ประตูอนุมัติทดสอบใน krs-replace.test)
+    await plat.tenantSetting.upsert({
+      where: { tenantId_key: { tenantId, key: 'billing.erpReplaceApprovalDays' } },
+      create: { tenantId, key: 'billing.erpReplaceApprovalDays', value: 3650 },
+      update: { value: 3650 },
+    });
     customerId = (
       await plat.customer.create({
         data: {
@@ -424,9 +431,15 @@ describe('Push pipeline (ST7-T16)', () => {
       code: 'replace_requires_approval',
       changed: ['DATES'],
     });
-    // ST8-T12 คำสั่งส่งทับที่คนอนุมัติแล้ว (หน้า MISMATCH — `payload.approval`) ผ่านประตูนี้ → แทนที่จริง
+    // ST8-T12 คำสั่งส่งทับที่อนุมัติแล้วจากหน้า MISMATCH (`payload.approval` รูปเดียวกับ ST8-T13 + reconcileResultId) ผ่านประตูนี้ → แทนที่จริง
     const r3a = await enqueue(con.uuid, dates, {
-      approval: { reconcileResultId: 'rec_x', approvedBy: 'u-appr', requestedBy: 'u-acc' },
+      requestedBy: ['u-acc'],
+      approval: {
+        approvedBy: 'u-appr',
+        approvedAt: new Date().toISOString(),
+        reason: 'ตรวจแล้ว อนุมัติส่งทับ',
+        reconcileResultId: 'rec_x',
+      },
     });
     await drain();
     expect(await cmd(r3a)).toMatchObject({ status: 'DONE', result: { applied: true } });

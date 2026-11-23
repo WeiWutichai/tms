@@ -17168,6 +17168,68 @@
           }
         },
         {
+          "name": "POST /v1/connectors/{id}/queue/{commandId}/approve",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/connectors/:id/queue/:commandId/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "connectors",
+                ":id",
+                "queue",
+                ":commandId",
+                "approve"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                },
+                {
+                  "key": "commandId",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: credit-notes:approve",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"เลิกใช้บริการตั้งแต่ ธ.ค. 2569\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "POST /v1/connectors/{id}/queue/{commandId}/external-id",
           "request": {
             "method": "POST",
@@ -17414,7 +17476,7 @@
                 {
                   "key": "overwriteStatus",
                   "value": "",
-                  "description": "ขั้นของ \"ส่งทับระบบบัญชีด้วยค่า TMS\": REQUESTED = รออนุมัติ · APPROVED = อนุมัติแล้ว รอส่ง/รอรอบเทียบ · REJECTED · NONE = ยังไม่มีคำขอ (หรือถูกปฏิเสธ)",
+                  "description": "ขั้นของ \"ส่งทับระบบบัญชีด้วยค่า TMS\": SENT = ส่งซ้ำตรง · REQUESTED = รออนุมัติ · APPROVED = อนุมัติแล้ว · REJECTED · NONE = ไม่มีคำขอรออนุมัติ (ทุกค่ายกเว้น REQUESTED)",
                   "disabled": true
                 }
               ]
@@ -17502,7 +17564,7 @@
                 }
               ]
             },
-            "description": "scope: integrations:retry\n\nสิทธิ์ `integrations:retry` (ฝ่ายบัญชี) · คนเท่านั้น (API key → 403) · ใช้ได้กับรายการ `result` MISMATCH / REMOTE_MISSING ที่ยังเปิด (ทั้งยอดรับชำระและเนื้อหาเอกสาร) · เนื้อหาเอกสาร: `sync.reconcileState` ของใบ → ACCEPTED · มีคำขอส่งทับค้าง → 409 `overwrite_in_progress` · ปิดแล้ว/ยอมรับแล้ว → 409 (`already_resolved` / `already_acknowledged`) · audit `reconcile.mismatch_acknowledged`",
+            "description": "scope: integrations:retry\n\nสิทธิ์ `integrations:retry` (ฝ่ายบัญชี) · คนเท่านั้น (API key → 403) · ใช้ได้กับรายการ `result` MISMATCH / REMOTE_MISSING ที่ยังเปิด (ทั้งยอดรับชำระและเนื้อหาเอกสาร) · เนื้อหาเอกสาร: `sync.reconcileState` ของใบ → ACCEPTED · การส่งทับยังดำเนินอยู่ → 409 `overwrite_in_progress` (คำสั่งจบแบบไม่สำเร็จ = ปิดได้) · ปิดแล้ว/ยอมรับแล้ว → 409 (`already_resolved` / `already_acknowledged`) · audit `reconcile.mismatch_acknowledged`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"reason\": \"string\"\n}",
@@ -17570,6 +17632,61 @@
           }
         },
         {
+          "name": "ใช้ค่า TMS ส่งซ้ำ — ส่งเอกสารฉบับที่ออกทับระบบบัญชี (ทางที่ 2 \"TMS ถูก\")",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/reconcile-results/:id/resend",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "reconcile-results",
+                ":id",
+                "resend"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: integrations:retry\n\nสิทธิ์ `integrations:retry` · คนเท่านั้น · เฉพาะเนื้อหาเอกสารที่ยังเปิด · คำสั่ง REPLACE_DOCUMENT (หรือส่งใหม่เมื่อไม่อยู่ในระบบบัญชี) ผ่านประตูอนุมัติของ — ลงบัญชีแล้ว/อายุใบเกิน N วัน = คำสั่ง SKIPPED `replace_requires_approval` (`overwrite.commandErrorCode`) → ใช้ \"ขออนุมัติแก้\" · รับชำระแล้ว → 409 `paid_locked` · มีคำสั่งค้าง → 409 `command_in_progress` · ระบบบัญชีแทนที่ไม่ได้ → 409 `capability_not_implemented` / `replace_not_supported` · `overwrite.status` SENT · รอบเทียบหลังส่งตรง = ปิดเอง ERP_OVERWRITTEN · audit `reconcile.overwrite_sent`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "ขออนุมัติส่งทับระบบบัญชีด้วยค่า TMS (ทางที่ 2 \"TMS ถูก\")",
           "request": {
             "method": "POST",
@@ -17612,7 +17729,7 @@
                 }
               ]
             },
-            "description": "scope: integrations:retry\n\nสิทธิ์ `integrations:retry` · คนเท่านั้น · เฉพาะเนื้อหาเอกสารที่ยังเปิด · ใบยกเลิกแล้ว → 409 `invoice_voided` · connector ยกเลิกการเชื่อม → 409 `connector_disconnected` · ระบบบัญชีแทนที่เอกสารไม่ได้/ไม่เปิด → 409 `replace_not_supported` · มีคำขอค้าง → 409 `overwrite_in_progress` · ถูกปฏิเสธแล้วขอใหม่ได้ · audit `reconcile.overwrite_requested`",
+            "description": "scope: integrations:retry\n\n\"ขออนุมัติแก้\" · สิทธิ์ `integrations:retry` · คนเท่านั้น · เฉพาะเนื้อหาเอกสารที่ยังเปิด · ใบยกเลิกแล้ว → 409 `invoice_voided` · รับชำระแล้ว → 409 `paid_locked` · connector ยกเลิกการเชื่อม → 409 `connector_disconnected` · มีคำสั่งค้าง → 409 `command_in_progress` · ระบบบัญชีแทนที่ไม่ได้ → 409 `capability_not_implemented` / `replace_not_supported` · การส่งทับยังดำเนินอยู่ → 409 `overwrite_in_progress` · ถูกปฏิเสธแล้วขอใหม่ได้ · audit `reconcile.overwrite_requested`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"reason\": \"string\"\n}",
@@ -17668,7 +17785,7 @@
                 }
               ]
             },
-            "description": "scope: credit-notes:approve\n\nสิทธิ์ `credit-notes:approve` · คนเท่านั้น · **ผู้อนุมัติต้องไม่ใช่ผู้ขอ** (403 `self_approval_forbidden`) · สร้างคำสั่ง REPLACE_DOCUMENT ด้วยเอกสารฉบับที่ออก (`ErpSyncService.resend` — คำสั่งนี้ผ่านประตู \"ลงบัญชีแล้วต้องอนุมัติ\") · ระบบบัญชีที่ประกาศแต่ยังไม่ได้ทำการแทนที่ = **พักไว้**: บันทึกการอนุมัติ ไม่สร้างคำสั่ง (`overwrite.commandId` null · `commandErrorCode` = `capability_not_implemented` — คำสั่งที่พักในคิวจะกั้นเอกสารอื่นของลูกค้า) · รอบเทียบหลังส่งตรงกัน = ปิดเอง (`resolution` ERP_OVERWRITTEN) · ไม่มีคำขอ → 409 `overwrite_not_requested` · audit `reconcile.overwrite_approved` (+ `commandId`)",
+            "description": "scope: credit-notes:approve\n\nสิทธิ์ `credit-notes:approve` · คนเท่านั้น · **ผู้อนุมัติต้องไม่ใช่ผู้ขอ และไม่ใช่ผู้สร้าง/แก้/ออกเลขใบ** (403 `erp_replace_self_approval`) · สร้างคำสั่งด้วยเอกสารฉบับที่ออก + `approval` {approvedBy, approvedAt, reason, reconcileResultId} ผ่านประตูอนุมัติของ · มีคำสั่งของเอกสารค้าง → 409 `command_in_progress` · รับชำระแล้ว → 409 `paid_locked` · ระบบบัญชีแทนที่ไม่ได้ → 409 `capability_not_implemented` / `replace_not_supported` · รอบเทียบหลังส่งตรงกัน = ปิดเอง (`resolution` ERP_OVERWRITTEN) · ไม่มีคำขอ → 409 `overwrite_not_requested` · audit `reconcile.overwrite_approved` (+ `commandId`)",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"reason\": \"string\"\n}",
@@ -17724,7 +17841,7 @@
                 }
               ]
             },
-            "description": "scope: credit-notes:approve\n\nสิทธิ์ `credit-notes:approve` · คนเท่านั้น · ผู้ปฏิเสธต้องไม่ใช่ผู้ขอ · ขอใหม่ได้ · audit `reconcile.overwrite_rejected`",
+            "description": "scope: credit-notes:approve\n\nสิทธิ์ `credit-notes:approve` · คนเท่านั้น · ผู้ปฏิเสธต้องไม่ใช่ผู้ขอ (403 `erp_replace_self_approval`) · ขอใหม่ได้ · audit `reconcile.overwrite_rejected`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"reason\": \"string\"\n}",
@@ -20258,6 +20375,42 @@
               ]
             },
             "description": "scope: invoices:finalize\n\nสิทธิ์ `invoices:finalize` · ใบที่ออกเลขแล้วและไม่ถูกยกเลิก (ISSUED / PARTIALLY_PAID / PAID / ADJUSTED — อื่น ๆ 409 `invalid_state_transition`) · ส่งแล้วอยู่แล้ว = คืนค่าเดิม (ไม่เปลี่ยน) · audit `invoice.sent_to_customer` · ส่งแล้ว**ยกเลิกใบไม่ได้** (`/void` → 409 `invoice_sent_to_customer`) · ออกใบวางบิลตั้งธงนี้ให้อัตโนมัติ (ช่องทาง BILLING_NOTE) · ส่งอีเมล (`POST /invoices/{id}/send`, ชุดใบวางบิล) ตั้งช่องทาง EMAIL"
+          }
+        },
+        {
+          "name": "ปุ่ม \"ลงบัญชีแล้ว\" — ใบนี้ลงบัญชีในระบบบัญชีที่เชื่อมแล้ว (แทนที่ต้องมีผู้อนุมัติ)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/:id/erp-posted",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                ":id",
+                "erp-posted"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: integrations:retry\n\nสิทธิ์ `integrations:retry` (บัญชี/ผู้วางบิล/ผู้อนุมัติ) · ตั้ง `sync.postedAt` ของเอกสารนี้ในระบบบัญชีที่เชื่อม → หลังจากนี้การแทนที่เอกสารในระบบบัญชี (ส่งซ้ำ / ยกเลิกแล้วออกใหม่) ขึ้นคิว \"ต้องอนุมัติ\" (`replace_requires_approval`) จนผู้อนุมัติคนอื่นอนุมัติ · กดซ้ำ = คงเวลาเดิม · ใบที่ยังไม่อยู่ในระบบบัญชี → 409 `invalid_state_transition` · audit `invoice.erp_posted_marked` · **ยกเลิกแล้วออกใหม่: กดที่ใบเดิมก่อนออกใบใหม่แทน** (ธงอยู่กับเอกสารในระบบบัญชี — แทนที่สำเร็จแล้วย้ายตามไปใบใหม่; ใบเดิมที่ยกเลิกแล้วกดได้จนกว่าจะแทนที่)"
           }
         },
         {

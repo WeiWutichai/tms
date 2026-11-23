@@ -136,13 +136,19 @@ export function ErpDrawer({
   const rows = compareRows(t, x, erp);
   const nd = rows.filter((r) => r.diff).length;
   const no = x.localNumber ?? x.invoiceId ?? x.id;
-  const useTmsHint = !can.approve
-    ? t('erpq.hint.noApprove')
-    : st !== 'appr'
-      ? t('erpq.hint.askFirst')
-      : x.overwrite?.requestedByMe
-        ? t('erpq.hint.self')
-        : null;
+  // "ใช้ค่า TMS ส่งซ้ำ": ไม่ตรง = ส่งซ้ำตรง (integrations:retry) · รออนุมัติ = ผู้อนุมัติ (≠ ผู้ขอ) อนุมัติคำขอ
+  const useTmsHint =
+    st === 'mm'
+      ? can.act
+        ? null
+        : t('erpq.hint.noAct')
+      : st === 'appr'
+        ? !can.approve
+          ? t('erpq.hint.noApprove')
+          : x.overwrite?.requestedByMe
+            ? t('erpq.hint.self')
+            : null
+        : t('erpq.hint.running');
   return (
     <Drawer
       open

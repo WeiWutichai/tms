@@ -17,7 +17,7 @@ import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './hel
  * ST8-T12 หน้า MISMATCH — ปิดรายการไม่ตรง 3 ทาง (docs/01 §6.5) · ทดสอบกับ KRS adapter ตัวจริง + mock KRS (MISMATCH จริงจากรอบเทียบ ST8-T11)
  * เกณฑ์ตรวจรับ (plan/01 ST8-T12): MISMATCH ตัวอย่างปิดได้ครบ 3 ทาง และแต่ละทางมีบันทึกผู้ทำ/เหตุผลใน audit
  * - (1) แก้ที่ TMS: D-54 ระหว่างรอ = ยกเลิกใบ + ออกใหม่ (ST5-T10) แล้วปิด `resolve-in-tms`
- * - (2) ส่งทับด้วยค่า TMS: ขออนุมัติ → ผู้อนุมัติคนละคน → REPLACE_DOCUMENT (KRS `replaceDocument` ยัง pending = พักคำสั่ง — ST8-T13)
+ * - (2) ส่งทับด้วยค่า TMS: ส่งซ้ำตรง (ประตูอนุมัติของ ST8-T13) หรือขออนุมัติ → ผู้อนุมัติคนละคน → PUT จริงของ KRS (ST8-T13) → รอบเทียบตรง = ปิด
  * - (3) ยอมรับความต่าง: ack + `reconcile_state` ACCEPTED · รอบถัดไปไม่แจ้งซ้ำ
  */
 const KEY = 'krs-reconcile-close-key-5c11';
@@ -284,7 +284,13 @@ describe('ปิดรายการไม่ตรง 3 ทาง (ST8-T12)', 
     await api(app, admin)
       .patch(`/v1/connectors/${conId}`)
       .send({
-        capabilitiesEnabled: ['pullOrders', 'pushInvoice', 'ownsDocumentNumber', 'fetchDocument'],
+        capabilitiesEnabled: [
+          'pullOrders',
+          'pushInvoice',
+          'ownsDocumentNumber',
+          'fetchDocument',
+          'replaceDocument',
+        ],
       })
       .expect(200);
   });
@@ -420,13 +426,33 @@ describe('ปิดรายการไม่ตรง 3 ทาง (ST8-T12)', 
     expect(dup.body.reason).toBe('already_resolved');
   });
 
-  it('ทางที่ 2 ส่งทับ: ขออนุมัติ → ผู้ขออนุมัติเองไม่ได้ · บัญชีไม่มีสิทธิ์อนุมัติ · ผู้อนุมัติ → KRS ยังไม่รองรับการแทนที่ = พักไว้ (ไม่สร้างคำสั่ง) · audit ทุกขั้น', async () => {
+  const rerun = async (id: string) => {
+    await api(app, accounting)
+      .post('/v1/reconcile-runs')
+      .send({
+        connectorId: conId,
+        check: 'DOCUMENT',
+        invoiceIds: [id],
+        reason: 'ตรวจซ้ำหลังส่งทับ',
+      })
+      .expect(202);
+    await drain();
+  };
+  const cmd = (obx: string) =>
+    plat.integrationOutbox.findUniqueOrThrow({ where: { id: tryDecodeId('outboxCommand', obx)! } });
+
+  it('ทางที่ 2 ขออนุมัติแก้ (ลงบัญชีแล้ว): ผู้ขอ A → ผู้อนุมัติ B · ผู้ขอ/ผู้ออกใบอนุมัติไม่ได้ · PUT จริงผ่านประตูอนุมัติ ST8-T13 → DONE → รอบเทียบตรง = ปิด ERP_OVERWRITTEN', async () => {
     const m = await mismatch();
     const base = `/v1/reconcile-results/${m.recId}/overwrite-request`;
     // ยังไม่ขอ = อนุมัติไม่ได้
     const none = await api(app, approver).post(`${base}/approve`).send({ reason });
     expect(none.status).toBe(409);
     expect(none.body.reason).toBe('overwrite_not_requested');
+    // ฝ่ายบัญชีกด "ลงบัญชีแล้ว" ใน KRS → แทนที่ต้องอนุมัติ (approvalGate ของ ST8-T13)
+    await plat.externalMapping.updateMany({
+      where: { tenantId, entityType: 'INVOICE', localId: m.uuid },
+      data: { postedAt: new Date(), postedBy: 'u-acc' },
+    });
     const req = await api(app, accounting)
       .post(base)
       .send({ reason: 'ค่าใน TMS ถูกต้อง ให้ส่งทับ KRS' });
@@ -436,17 +462,15 @@ describe('ปิดรายการไม่ตรง 3 ทาง (ST8-T12)', 
       requestedByMe: true,
       commandId: null,
     });
-    // ขอซ้ำ / ยอมรับความต่าง / ปิดทาง TMS ระหว่างรออนุมัติ = 409
+    // ขอซ้ำ / ยอมรับความต่าง / ส่งซ้ำตรง ระหว่างรออนุมัติ = 409
     expect((await api(app, accounting).post(base).send({ reason })).body.reason).toBe(
       'overwrite_in_progress',
     );
-    expect(
-      (
-        await api(app, accounting)
-          .post(`/v1/reconcile-results/${m.recId}/acknowledge`)
-          .send({ reason })
-      ).body.reason,
-    ).toBe('overwrite_in_progress');
+    for (const p of ['acknowledge', 'resend'])
+      expect(
+        (await api(app, accounting).post(`/v1/reconcile-results/${m.recId}/${p}`).send({ reason }))
+          .body.reason,
+      ).toBe('overwrite_in_progress');
     // รายการ "รออนุมัติ"
     const list = await api(app, approver)
       .get('/v1/reconcile-results?check=DOCUMENT&actionable=true&overwriteStatus=REQUESTED')
@@ -458,32 +482,49 @@ describe('ปิดรายการไม่ตรง 3 ทาง (ST8-T12)', 
       connector: { adapterKey: 'krs' },
     });
     expect(mine.sends.count).toBeGreaterThanOrEqual(1);
-    // บัญชีไม่มี credit-notes:approve → 403 · ผู้ขอเอง (มีสิทธิ์อนุมัติ) → 403 self_approval_forbidden
+    // บัญชีไม่มี credit-notes:approve → 403 · ผู้ขอ (= ผู้ออกใบด้วย) ที่มีสิทธิ์ → 403 erp_replace_self_approval
     await api(app, accounting).post(`${base}/approve`).send({ reason }).expect(403);
-    const selfTok = await tokenFor(tenantId, '*', 'u-acc');
-    const self = await api(app, selfTok).post(`${base}/approve`).send({ reason });
+    const self = await api(app, await tokenFor(tenantId, '*', 'u-acc'))
+      .post(`${base}/approve`)
+      .send({ reason });
     expect(self.status).toBe(403);
-    expect(self.body.code).toBe('self_approval_forbidden');
-    const cmds0 = await plat.integrationOutbox.count({ where: { tenantId, localId: m.uuid } });
+    expect(self.body.code).toBe('erp_replace_self_approval');
     const ok = await api(app, approver)
       .post(`${base}/approve`)
       .send({ reason: 'ตรวจแล้ว ค่า TMS ถูกต้อง อนุมัติส่งทับ' });
     expect(ok.status, JSON.stringify(ok.body)).toBe(200);
-    expect(ok.body.status).toBe('OPEN');
-    // KRS ประกาศ replaceDocument แต่ยังไม่ได้ทำ (ST8-T13) → พักไว้: บันทึกการอนุมัติ ไม่สร้างคำสั่ง (ไม่กั้นคิวของลูกค้า) · หน้าจอเห็นสถานะ
-    expect(ok.body.overwrite).toMatchObject({
-      status: 'APPROVED',
-      commandId: null,
-      commandErrorCode: 'capability_not_implemented',
-      decisionReason: 'ตรวจแล้ว ค่า TMS ถูกต้อง อนุมัติส่งทับ',
+    expect(ok.body).toMatchObject({ status: 'OPEN', overwrite: { status: 'APPROVED' } });
+    const c = await cmd(ok.body.overwrite.commandId);
+    expect(c.operation).toBe('REPLACE_DOCUMENT');
+    const pl = c.payload as { approval: Record<string, unknown>; requestedBy: string[] };
+    expect(pl.approval).toMatchObject({
+      approvedBy: 'u-appr',
+      reason: 'ตรวจแล้ว ค่า TMS ถูกต้อง อนุมัติส่งทับ',
+      reconcileResultId: m.recId,
     });
-    expect(await plat.integrationOutbox.count({ where: { tenantId, localId: m.uuid } })).toBe(
-      cmds0,
-    );
-    const list2 = await api(app, accounting)
-      .get('/v1/reconcile-results?check=DOCUMENT&overwriteStatus=APPROVED')
-      .expect(200);
-    expect(list2.body.data.map((x: { id: string }) => x.id)).toContain(m.recId);
+    expect(typeof pl.approval.approvedAt).toBe('string');
+    expect(pl.requestedBy).toContain('u-acc');
+    expect(pl.requestedBy).not.toContain('u-appr');
+    // อนุมัติซ้ำ = 409
+    expect((await api(app, approver).post(`${base}/approve`).send({ reason })).status).toBe(409);
+    // PUT จริง (KRS replaceDocument — ST8-T13) → DONE · mock กลับมา 3 รายการ
+    const puts0 = mock.requests().filter((q) => q.method === 'PUT').length;
+    await drain();
+    expect((await cmd(ok.body.overwrite.commandId)).status).toBe('DONE');
+    expect(mock.requests().filter((q) => q.method === 'PUT').length).toBeGreaterThan(puts0);
+    expect(mock.getInvoice(m.transactionNo)!.data.lines).toHaveLength(3);
+    // ส่งแล้วรอรอบเทียบ = ยังปิดทางอื่นไม่ได้
+    expect(
+      (
+        await api(app, accounting)
+          .post(`/v1/reconcile-results/${m.recId}/acknowledge`)
+          .send({ reason })
+      ).body.reason,
+    ).toBe('overwrite_in_progress');
+    await rerun(m.id);
+    const done = await api(app, accounting).get(`/v1/reconcile-results/${m.recId}`).expect(200);
+    expect(done.body).toMatchObject({ status: 'RESOLVED', resolution: 'ERP_OVERWRITTEN' });
+    expect(await mapping(m.uuid)).toMatchObject({ reconcileState: 'ACCEPTED' });
     const acts = (await audits(m.recUuid)).map((x) => [x.action, x.actorId, x.reason]);
     expect(acts).toEqual(
       expect.arrayContaining([
@@ -491,8 +532,101 @@ describe('ปิดรายการไม่ตรง 3 ทาง (ST8-T12)', 
         ['reconcile.overwrite_approved', 'u-appr', 'ตรวจแล้ว ค่า TMS ถูกต้อง อนุมัติส่งทับ'],
       ]),
     );
-    // อนุมัติซ้ำ = 409
-    expect((await api(app, approver).post(`${base}/approve`).send({ reason })).status).toBe(409);
+  });
+
+  it('ใช้ค่า TMS ส่งซ้ำ (ตรง): ยังไม่ลงบัญชี → PUT → ปิด ERP_OVERWRITTEN · ลงบัญชีแล้ว → SKIPPED replace_requires_approval แล้วปิดทางอื่นได้ · รับชำระแล้ว 409 paid_locked', async () => {
+    const m = await mismatch();
+    const url = `/v1/reconcile-results/${m.recId}/resend`;
+    await api(app, viewer).post(url).send({ reason }).expect(403);
+    const r = await api(app, accounting).post(url).send({ reason: 'ค่าใน TMS ถูกต้องตามใบส่งของ' });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(r.body.overwrite).toMatchObject({ status: 'SENT', requestedByMe: true });
+    await drain();
+    expect((await cmd(r.body.overwrite.commandId)).status).toBe('DONE');
+    await rerun(m.id);
+    expect(
+      (await api(app, accounting).get(`/v1/reconcile-results/${m.recId}`).expect(200)).body,
+    ).toMatchObject({ status: 'RESOLVED', resolution: 'ERP_OVERWRITTEN' });
+
+    // ลงบัญชีแล้ว → ประตูของ ST8-T13 ข้ามคำสั่ง (ต้องขออนุมัติแก้) → คำสั่งจบไม่สำเร็จ = ยอมรับความต่างได้
+    const p = await mismatch();
+    await plat.externalMapping.updateMany({
+      where: { tenantId, entityType: 'INVOICE', localId: p.uuid },
+      data: { externalStatus: 'POSTED' },
+    });
+    const s2 = await api(app, accounting)
+      .post(`/v1/reconcile-results/${p.recId}/resend`)
+      .send({ reason: 'ค่าใน TMS ถูกต้องตามใบส่งของ' });
+    expect(s2.status, JSON.stringify(s2.body)).toBe(200);
+    await drain();
+    const after = await api(app, accounting).get(`/v1/reconcile-results/${p.recId}`).expect(200);
+    expect(after.body.overwrite).toMatchObject({
+      status: 'SENT',
+      commandStatus: 'SKIPPED',
+      commandErrorCode: 'replace_requires_approval',
+    });
+    await api(app, accounting)
+      .post(`/v1/reconcile-results/${p.recId}/acknowledge`)
+      .send({ reason })
+      .expect(200);
+
+    // รับชำระแล้ว = ส่งทับไม่ได้ (กฎ "แก้ได้จนรับชำระ")
+    const q = await mismatch();
+    await plat.$executeRaw`UPDATE invoice SET status = 'PAID' WHERE id = ${q.uuid}::uuid`;
+    for (const path of ['resend', 'overwrite-request']) {
+      const x = await api(app, accounting)
+        .post(`/v1/reconcile-results/${q.recId}/${path}`)
+        .send({ reason });
+      expect(x.status).toBe(409);
+      expect(x.body.reason).toBe('paid_locked');
+    }
+  });
+
+  it('M1 มีคำสั่งของเอกสารค้าง → อนุมัติ 409 command_in_progress (ไม่ทิ้งการอนุมัติเงียบ ๆ) · adapter ยังไม่ทำ replaceDocument → 409 capability_not_implemented', async () => {
+    const m = await mismatch();
+    const base = `/v1/reconcile-results/${m.recId}/overwrite-request`;
+    await api(app, accounting)
+      .post(base)
+      .send({ reason: 'ค่าใน TMS ถูกต้อง ขอส่งทับ' })
+      .expect(200);
+    const src = await plat.integrationOutbox.findFirstOrThrow({
+      where: { tenantId, localId: m.uuid, operation: 'PUSH_INVOICE' },
+    });
+    const open = await plat.integrationOutbox.create({
+      data: {
+        tenantId,
+        kind: src.kind,
+        sink: src.sink,
+        targetId: src.targetId,
+        operation: 'PUSH_INVOICE',
+        entityType: src.entityType,
+        localId: src.localId,
+        serializeKey: src.serializeKey,
+        idempotencyKey: `${src.idempotencyKey}:open-t12`,
+        payload: src.payload as object,
+        status: 'PENDING',
+        nextRunAt: new Date(Date.now() + 3600_000),
+      },
+    });
+    const busy = await api(app, approver).post(`${base}/approve`).send({ reason });
+    expect(busy.status).toBe(409);
+    expect(busy.body.reason).toBe('command_in_progress');
+    expect(
+      (await api(app, approver).get(`/v1/reconcile-results/${m.recId}`)).body.overwrite.status,
+    ).toBe('REQUESTED');
+    await plat.integrationOutbox.update({ where: { id: open.id }, data: { status: 'SKIPPED' } });
+    // adapter ประกาศ replaceDocument แต่ยังไม่ได้ทำ → ไม่เก็บการอนุมัติ (ไม่พัก)
+    const reg = app.get(ErpAdapterRegistry);
+    const pending = new KrsAdapter({ allowPrivate: true });
+    Object.defineProperty(pending, 'pendingCapabilities', { value: ['replaceDocument'] });
+    reg.replace(pending);
+    try {
+      const nope = await api(app, approver).post(`${base}/approve`).send({ reason });
+      expect(nope.status).toBe(409);
+      expect(nope.body.reason).toBe('capability_not_implemented');
+    } finally {
+      reg.replace(new KrsAdapter({ allowPrivate: true }));
+    }
   });
 
   it('ไม่อนุมัติ: ผู้อนุมัติปฏิเสธพร้อมเหตุผล → กลับเป็นไม่ตรง (ขอใหม่ได้) · tenant อื่น = 404', async () => {

@@ -1,6 +1,6 @@
 -- ST8-T12 หน้า MISMATCH: ปิดรายการที่ข้อมูลไม่ตรงกับระบบบัญชีได้ 3 ทาง (docs/01 §6.5) — บันทึกคน + เหตุผลทุกทาง (audit ด้วย)
 -- (1) แก้ที่ TMS: D-54 ระหว่างรอ = ยกเลิกใบแล้วออกใหม่ (ST5-T10) → resolution FIXED_IN_TMS
--- (2) ส่งทับระบบบัญชีด้วยค่า TMS: ขออนุมัติ (overwrite_status REQUESTED) → ผู้อนุมัติ (≠ ผู้ขอ) อนุมัติ → คำสั่ง REPLACE_DOCUMENT
+-- (2) ส่งทับระบบบัญชีด้วยค่า TMS: ส่งซ้ำตรง (SENT — ประตูอนุมัติของ ST8-T13 ตัดสินที่ sink) หรือขออนุมัติ (REQUESTED) → ผู้อนุมัติ (≠ ผู้ขอ) → APPROVED → คำสั่ง REPLACE_DOCUMENT
 --     (overwrite_command_id) · รอบเทียบถัดไปตรงกัน = ปิดเอง (resolution ERP_OVERWRITTEN)
 -- (3) ยอมรับความต่าง: ช่อง acknowledged_* เดิม (ST7-T21)
 -- ตาราง reconcile_result มี RLS อยู่แล้ว (ไม่มีตารางใหม่) · ไม่มี hard delete
@@ -21,7 +21,7 @@ ALTER TABLE "reconcile_result"
   ADD CONSTRAINT "reconcile_result_resolution_check"
     CHECK ("resolution" IS NULL OR "resolution" IN ('FIXED_IN_TMS', 'ERP_OVERWRITTEN', 'NEXT_RUN_MATCHED')),
   ADD CONSTRAINT "reconcile_result_overwrite_status_check"
-    CHECK ("overwrite_status" IS NULL OR "overwrite_status" IN ('REQUESTED', 'APPROVED', 'REJECTED'));
+    CHECK ("overwrite_status" IS NULL OR "overwrite_status" IN ('REQUESTED', 'APPROVED', 'REJECTED', 'SENT'));
 
 -- แอปแก้ได้เฉพาะคอลัมน์การปิด/ยอมรับ/คำขอส่งทับ (ตัวผลเทียบ + snapshot ยังแก้ไม่ได้ — แนวเดียวกับ 0158)
 DO $$

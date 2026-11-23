@@ -300,9 +300,11 @@ export class ReconcileResultsService {
     const o = m.outcome;
     if (o.kind === 'MATCH') {
       for (const r of openDocs) {
-        // ST8-T12 ส่งทับที่อนุมัติแล้วแล้วรอบถัดไปตรง = ปิดทาง "TMS ถูก" (ERP_OVERWRITTEN) · อื่น ๆ = ตรงเอง
+        // ST8-T12 ส่งทับแล้ว (ส่งซ้ำตรง/อนุมัติแล้ว) รอบถัดไปตรง = ปิดทาง "TMS ถูก" (ERP_OVERWRITTEN) · อื่น ๆ = ตรงเอง
         const resolution =
-          r.overwriteStatus === 'APPROVED' ? 'ERP_OVERWRITTEN' : 'NEXT_RUN_MATCHED';
+          r.overwriteStatus === 'APPROVED' || r.overwriteStatus === 'SENT'
+            ? 'ERP_OVERWRITTEN'
+            : 'NEXT_RUN_MATCHED';
         await tx.reconcileResult.update({
           where: { id: r.id },
           data: { resolvedAt: m.runAt, resolution },
@@ -511,7 +513,7 @@ export class ReconcileResultsService {
     if (q.actionable === 'true') and.push({ severity: { in: ['MONEY', 'FIELD'] } });
     else if (q.actionable === 'false') and.push({ severity: 'INFO' });
     if (q.overwriteStatus === 'NONE')
-      and.push({ OR: [{ overwriteStatus: null }, { overwriteStatus: 'REJECTED' }] });
+      and.push({ OR: [{ overwriteStatus: null }, { NOT: { overwriteStatus: 'REQUESTED' } }] });
     else if (q.overwriteStatus) and.push({ overwriteStatus: q.overwriteStatus });
     const rows = await tx.reconcileResult.findMany({
       where: { AND: and },
@@ -674,11 +676,7 @@ function toReconcileResultDto(
               ? encodeId('outboxCommand', r.overwriteCommandId)
               : null,
             commandStatus: cmd?.status ?? null,
-            // อนุมัติแล้วแต่ไม่มีคำสั่ง = พักไว้เพราะระบบบัญชียังไม่รองรับการแทนที่ (ReconcileCloseService)
-            commandErrorCode:
-              r.overwriteStatus === 'APPROVED' && !r.overwriteCommandId
-                ? 'capability_not_implemented'
-                : str((cmd?.lastError as { code?: unknown } | null)?.code),
+            commandErrorCode: str((cmd?.lastError as { code?: unknown } | null)?.code),
           }
         : null,
     customer: inv

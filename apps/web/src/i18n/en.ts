@@ -1404,4 +1404,5 @@ export const en: Partial<Record<MessageKey, string>> = {
   'erpq.v.none': 'None',
   'erpq.step.fail': 'Failed',
   'erpq.dlg.askFix.ok': 'Request approval',
+  'erpq.dlg.useTms.ok': 'Resend',
 };

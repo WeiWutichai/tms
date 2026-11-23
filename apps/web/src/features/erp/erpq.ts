@@ -5,7 +5,8 @@ import type { ReconcileResult } from './useReconcile';
 
 /**
  * หน้า "คิวเชื่อมระบบบัญชี" ส่วนรายการไม่ตรง (ST8-T12; ต้นแบบ TMS v4 `specErp` + vPanel kind `erp`) — ฟังก์ชันล้วน
- * สถานะของต้นแบบ ← ข้อมูลจริง: ไม่ตรง (เปิด ไม่มีคำขอ/ถูกปฏิเสธ) · รออนุมัติ (ขอส่งทับ) · รอส่งซ้ำ (อนุมัติส่งทับแล้ว รอส่ง/รอรอบเทียบ — รวมที่พักไว้)
+ * สถานะของต้นแบบ ← ข้อมูลจริง: ไม่ตรง (เปิด ไม่มีคำขอ/ถูกปฏิเสธ/คำสั่งส่งทับจบไม่สำเร็จ) · รออนุมัติ (ขออนุมัติแก้) ·
+ * รอส่งซ้ำ (ส่งซ้ำตรง/อนุมัติแล้ว — คำสั่งยังไม่จบ หรือส่งสำเร็จแล้วรอรอบเทียบ)
  * · ปิดแล้ว (ยอมรับความต่าง / แก้ที่ TMS / รอบถัดไปตรง)
  */
 export type RowStatus = 'mm' | 'appr' | 'resend' | 'closed';
@@ -19,10 +20,21 @@ export const TAB_QUERY: Record<Tab, Record<string, string>> = {
   appr: { status: 'OPEN', overwriteStatus: 'REQUESTED' },
 };
 
+const RUNNING = ['PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE', 'DONE'];
+/** คำสั่งส่งทับยังดำเนินอยู่ (ยังไม่จบ / ส่งสำเร็จรอรอบเทียบ) — จบไม่สำเร็จ = กลับเป็น "ไม่ตรง" (ปิดทางอื่นได้) */
+export function overwriteRunning(x: Pick<ReconcileResult, 'overwrite'>): boolean {
+  const o = x.overwrite;
+  return (
+    !!o &&
+    (o.status === 'APPROVED' || o.status === 'SENT') &&
+    RUNNING.includes(o.commandStatus ?? '')
+  );
+}
+
 export function rowStatus(x: Pick<ReconcileResult, 'status' | 'overwrite'>): RowStatus {
   if (x.status !== 'OPEN') return 'closed';
   if (x.overwrite?.status === 'REQUESTED') return 'appr';
-  if (x.overwrite?.status === 'APPROVED') return 'resend';
+  if (overwriteRunning(x)) return 'resend';
   return 'mm';
 }
 /** ป้ายสถานะ (ข้อความเดียวกับ STATUS_BADGES ของต้นแบบ) */
@@ -193,12 +205,14 @@ export function messageOf(t: T, x: ReconcileResult, erp: string): string | null 
   if (x.status !== 'OPEN') return null;
   const st = rowStatus(x);
   if (st === 'appr') return t('erpq.msg.appr');
-  if (st === 'resend')
+  if (st === 'resend') return t('erpq.msg.resend', { erp });
+  // ส่งทับแล้วคำสั่งจบไม่สำเร็จ — บอกเหตุ (ลงบัญชีแล้ว/อายุเกิน = ต้องขออนุมัติแก้ · อื่น ๆ = ส่งไม่สำเร็จ)
+  if (x.overwrite && (x.overwrite.status === 'SENT' || x.overwrite.status === 'APPROVED'))
     return t(
-      x.overwrite?.commandErrorCode === 'capability_not_implemented'
-        ? 'erpq.msg.parked'
-        : 'erpq.msg.resend',
-      { erp },
+      x.overwrite.commandErrorCode === 'replace_requires_approval'
+        ? 'erpq.msg.needApproval'
+        : 'erpq.msg.sendFailed',
+      { erp, code: x.overwrite.commandErrorCode ?? x.overwrite.commandStatus ?? '—' },
     );
   const base =
     x.code === 'remote_missing'

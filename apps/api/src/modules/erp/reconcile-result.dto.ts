@@ -27,8 +27,8 @@ export const RECONCILE_RESOLUTIONS = [
   'ERP_OVERWRITTEN',
   'NEXT_RUN_MATCHED',
 ] as const;
-/** ST8-T12 ขั้นของการส่งทับระบบบัญชีด้วยค่า TMS (ต้องอนุมัติ — ผู้อนุมัติ ≠ ผู้ขอ) */
-export const RECONCILE_OVERWRITE_STATUSES = ['REQUESTED', 'APPROVED', 'REJECTED'] as const;
+/** ST8-T12 ขั้นของการส่งทับระบบบัญชีด้วยค่า TMS: SENT = ส่งซ้ำตรง · REQUESTED → APPROVED / REJECTED = ขออนุมัติแก้ (ผู้อนุมัติ ≠ ผู้ขอ) */
+export const RECONCILE_OVERWRITE_STATUSES = ['REQUESTED', 'APPROVED', 'REJECTED', 'SENT'] as const;
 /** ST8-T12 เหตุผลขั้นต่ำของการปิด/ขออนุมัติ/อนุมัติ */
 export const RECONCILE_REASON_MIN = 10;
 export const RECONCILE_OUTCOMES = [
@@ -86,7 +86,7 @@ export class ReconcileResultListQuery extends ListQuery {
   @ApiPropertyOptional({
     enum: [...RECONCILE_OVERWRITE_STATUSES, 'NONE'],
     description:
-      'ST8-T12 ขั้นของ "ส่งทับระบบบัญชีด้วยค่า TMS": REQUESTED = รออนุมัติ · APPROVED = อนุมัติแล้ว รอส่ง/รอรอบเทียบ · REJECTED · NONE = ยังไม่มีคำขอ (หรือถูกปฏิเสธ)',
+      'ST8-T12 ขั้นของ "ส่งทับระบบบัญชีด้วยค่า TMS": SENT = ส่งซ้ำตรง · REQUESTED = รออนุมัติ · APPROVED = อนุมัติแล้ว · REJECTED · NONE = ไม่มีคำขอรออนุมัติ (ทุกค่ายกเว้น REQUESTED)',
   })
   @IsOptional()
   @IsIn([...RECONCILE_OVERWRITE_STATUSES, 'NONE'])
@@ -126,11 +126,11 @@ export class ReconcileInvoiceRefDto {
   number!: string | null;
 }
 
-/** ST8-T12 คำขอส่งทับระบบบัญชีด้วยค่า TMS (docs/01 §6.5 ทาง "TMS ถูก" — ต้องอนุมัติ) */
+/** ST8-T12 การส่งทับระบบบัญชีด้วยค่า TMS (docs/01 §6.5 ทาง "TMS ถูก") — ส่งซ้ำตรง หรือขออนุมัติแก้ */
 export class ReconcileOverwriteDto {
   @ApiProperty({ enum: RECONCILE_OVERWRITE_STATUSES }) status!: string;
   @ApiProperty({ format: 'date-time' }) requestedAt!: string;
-  @ApiProperty({ description: 'เหตุผลของผู้ขอ' }) reason!: string;
+  @ApiProperty({ description: 'เหตุผลของผู้ขอ / ผู้สั่งส่งซ้ำ' }) reason!: string;
   @ApiProperty({ description: 'ผู้เรียกเป็นผู้ขอเอง (อนุมัติเองไม่ได้)' }) requestedByMe!: boolean;
   @ApiProperty({ nullable: true, type: String, format: 'date-time' }) decidedAt!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'เหตุผลของผู้อนุมัติ/ผู้ปฏิเสธ' })
@@ -155,7 +155,7 @@ export class ReconcileOverwriteDto {
     type: String,
     example: 'capability_not_implemented',
     description:
-      'รหัสผิดพลาดล่าสุดของคำสั่ง · `capability_not_implemented` = ระบบบัญชียังไม่รองรับการแทนที่เอกสาร — **พักไว้**: บันทึกการอนุมัติแล้วแต่ยังไม่สร้างคำสั่ง (`commandId` null — ไม่กั้นคิวของลูกค้า) จนกว่า adapter รองรับ (KRS = ST8-T13)',
+      'รหัสผิดพลาดล่าสุดของคำสั่ง (เช่น `replace_requires_approval` = เอกสารลงบัญชีแล้ว/อายุเกิน ต้องขออนุมัติแก้ — ST8-T13)',
   })
   commandErrorCode!: string | null;
 }

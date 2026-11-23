@@ -116,7 +116,16 @@ describe('erpq — สถานะ / ตารางเทียบ / เรี�
     expect(rowStatus(base())).toBe('mm');
     expect(rowStatus(base({ overwrite: { status: 'REJECTED' } as never }))).toBe('mm');
     expect(rowStatus(base({ overwrite: { status: 'REQUESTED' } as never }))).toBe('appr');
-    expect(rowStatus(base({ overwrite: { status: 'APPROVED' } as never }))).toBe('resend');
+    expect(
+      rowStatus(base({ overwrite: { status: 'APPROVED', commandStatus: 'PENDING' } as never })),
+    ).toBe('resend');
+    expect(rowStatus(base({ overwrite: { status: 'SENT', commandStatus: 'DONE' } as never }))).toBe(
+      'resend',
+    );
+    // คำสั่งส่งทับจบไม่สำเร็จ = กลับเป็นไม่ตรง (ปิดทางอื่นได้)
+    expect(
+      rowStatus(base({ overwrite: { status: 'SENT', commandStatus: 'SKIPPED' } as never })),
+    ).toBe('mm');
     expect(rowStatus(base({ status: 'ACKNOWLEDGED' }))).toBe('closed');
     expect(rowStatus(base({ status: 'RESOLVED' }))).toBe('closed');
     expect(TAB_QUERY.mm).toEqual({ status: 'OPEN', overwriteStatus: 'NONE' });
@@ -152,7 +161,7 @@ describe('erpq — สถานะ / ตารางเทียบ / เรี�
     ]);
   });
 
-  it('เรียง MONEY ก่อน FIELD แล้วใหม่สุดก่อน · ข้อความแถบแดงตามสถานะ (พักไว้ = ระบบบัญชียังไม่รองรับ)', () => {
+  it('เรียง MONEY ก่อน FIELD แล้วใหม่สุดก่อน · ข้อความแถบแดงตามสถานะ (ส่งทับถูกข้ามเพราะลงบัญชีแล้ว = ต้องขออนุมัติแก้)', () => {
     const a = base({ id: 'a', severity: 'FIELD', lastSeenAt: '2026-11-23T05:00:00Z' });
     const b = base({ id: 'b', severity: 'MONEY', lastSeenAt: '2026-11-22T05:00:00Z' });
     const c = base({ id: 'c', severity: 'MONEY', lastSeenAt: '2026-11-23T05:00:00Z' });
@@ -163,13 +172,14 @@ describe('erpq — สถานะ / ตารางเทียบ / เรี�
         t,
         base({
           overwrite: {
-            status: 'APPROVED',
-            commandErrorCode: 'capability_not_implemented',
+            status: 'SENT',
+            commandStatus: 'SKIPPED',
+            commandErrorCode: 'replace_requires_approval',
           } as never,
         }),
         'KRS',
       ),
-    ).toContain('ยังไม่รองรับการแทนที่เอกสาร');
+    ).toContain('ต้องขออนุมัติแก้');
     expect(messageOf(t, base({ status: 'RESOLVED' }), 'KRS')).toBeNull();
   });
 
@@ -205,10 +215,15 @@ describe('drawer + dialog ปิด 3 ทาง', () => {
     expect(screen.getByRole('alert').textContent).toContain('ไม่ตรงกับ TMS');
     expect(screen.getByRole('button', { name: 'รับค่า KRS' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'ขออนุมัติแก้' })).toBeTruthy();
+    // ไม่ตรง = ส่งซ้ำตรงได้ (integrations:retry) · ไม่มีสิทธิ์ = ปิดพร้อมเหตุ
     const use = screen.getByRole('button', { name: /ใช้ค่า TMS ส่งซ้ำ/ }) as HTMLButtonElement;
-    expect(use.disabled).toBe(true);
-    expect(use.title).toBe(th['erpq.hint.askFirst']);
+    expect(use.disabled).toBe(false);
     unmount();
+    const r0 = wrap(<ErpDrawer {...props} can={{ act: false, approve: true }} />);
+    const use0 = screen.getByRole('button', { name: /ใช้ค่า TMS ส่งซ้ำ/ }) as HTMLButtonElement;
+    expect(use0.disabled).toBe(true);
+    expect(use0.title).toBe(th['erpq.hint.noAct']);
+    r0.unmount();
     // มีคำขอของผู้อื่น + มีสิทธิ์อนุมัติ → กดได้
     state.one = base({
       overwrite: { status: 'REQUESTED', requestedByMe: false, reason: 'ค่า TMS ถูก' } as never,
@@ -246,6 +261,37 @@ describe('drawer + dialog ปิด 3 ทาง', () => {
     expect(screen.getByRole('link', { name: 'เปิดใบแจ้งหนี้' }).getAttribute('href')).toBe(
       '/bill?invoice=ivc_1',
     );
+  });
+
+  it('ใช้ค่า TMS ส่งซ้ำ = ส่งซ้ำตรง (resend) · บนรายการรออนุมัติ = อนุมัติ (approve)', () => {
+    mutate.mockClear();
+    const { unmount } = wrap(
+      <CloseDialog
+        kind="useTms"
+        x={base()}
+        erp="KRS"
+        onClose={() => undefined}
+        onDone={() => undefined}
+      />,
+    );
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'ค่าใน TMS ถูกต้องตามใบส่งของ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'ส่งซ้ำ' }));
+    expect(mutate).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'resend' }));
+    unmount();
+    wrap(
+      <CloseDialog
+        kind="approve"
+        x={base()}
+        erp="KRS"
+        onClose={() => undefined}
+        onDone={() => undefined}
+      />,
+    );
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'ตรวจแล้ว อนุมัติส่งทับ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'อนุมัติและส่งซ้ำ' }));
+    expect(mutate).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'approve' }));
   });
 
   it('ใบยกเลิกแล้ว → ค่าเริ่ม "แก้ที่ TMS" ส่ง resolve · ขออนุมัติแก้ = ตาราง ค่า ERP | ค่า TMS แล้วส่ง request', () => {

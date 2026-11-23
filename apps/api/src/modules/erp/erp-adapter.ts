@@ -289,6 +289,11 @@ export type PushResult =
        * false/ไม่ระบุ = อาจมีเอกสารเพิ่ม (timeout / สายหลุด) → core ค้นก่อนส่งซ้ำตามกติกา ST7-T16
        */
       documentsComplete?: boolean;
+      /**
+       * ST8-T13 (review L1) `replaceDocument` ของเอกสารที่ ERP เก็บหลายใบ: ใบที่**ถูกแทนที่แล้ว**ก่อนใบถัดไปล้ม — core บันทึกใน mapping
+       * (`detail.replacePartial` + MISMATCH) ให้คนเห็นว่าเอกสารฝั่ง ERP ปนกันระหว่างฉบับเดิมกับฉบับหลังปรับ
+       */
+      replacedDocuments?: readonly ExternalDocumentPart[];
       raw?: unknown;
     };
 

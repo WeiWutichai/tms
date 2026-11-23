@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { ReconcileResult } from '@prisma/client';
+import { SOR_PAYMENT_RECEIVED_STATUSES } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { Clock } from '../../common/clock';
 import { encodeId } from '../../common/ids';
@@ -9,7 +10,9 @@ import { DbService, type Tx } from '../../db/db.service';
 import { ConnectorResolver } from './connector-resolver';
 import { ConnectorsService } from './connectors.service';
 import { isPendingCapability } from './erp-adapter';
+import { ERP_SINK } from './erp-adapter.sink';
 import { ErpAdapterRegistry } from './erp-adapter.registry';
+import { invoiceActors, isPersonActor } from './erp-reissue';
 import { ErpSyncService } from './erp-sync.service';
 import { RECONCILE_REASON_MIN, type ReconcileResultDto } from './reconcile-result.dto';
 import { ReconcileResultsService } from './reconcile-results.service';
@@ -18,6 +21,8 @@ import { RECONCILE_CHECK_DOCUMENT } from './reconcile-compare';
 const ENTITY = 'reconcile_result';
 /** ผลที่ต้องให้คนตัดสิน (INFO = อ่านเอกสารไม่ได้ / เทียบไม่ได้ — ไม่ใช่ความต่าง) */
 const CLOSABLE_RESULTS = new Set(['MISMATCH', 'REMOTE_MISSING']);
+/** คำสั่งที่ยังไม่จบ (จะส่ง/กำลังส่ง/รอลองใหม่) */
+const OPEN_COMMAND = ['PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE'];
 
 const conflict = (reason: string, extra: Record<string, unknown> = {}) =>
   new ProblemException('invalid_state_transition', undefined, undefined, { reason, ...extra });
@@ -26,16 +31,16 @@ const conflict = (reason: string, extra: Record<string, unknown> = {}) =>
  * ST8-T12 ปิดรายการที่ข้อมูลไม่ตรงกับระบบบัญชี (docs/01 §6.5 "ปิด MISMATCH ได้ 3 ทาง บันทึกคนและเหตุผลทุกครั้ง") — ไม่ผูก ERP ใด
  *
  * 1. **แก้ที่ TMS** (ERP ถูก): docs = credit/debit note — **D-54 [OPEN — PO]** ใบลด/เพิ่มหนี้ไม่อยู่ใน TMS เฟส 0 → ระหว่างรอ = ยกเลิกใบ
- *    แล้วออกใหม่ (ST5-T10 `POST /invoices/{id}/void` + `reissue` — สิทธิ์/step-up/If-Match ของ endpoint นั้น) แล้วปิดรายการนี้ด้วย
- *    `resolve-in-tms` (ตรวจว่าใบยกเลิกแล้วจริง) → `resolution` FIXED_IN_TMS
- * 2. **ส่งทับระบบบัญชีด้วยค่า TMS** (TMS ถูก): ขออนุมัติ (`overwrite-request`) → ผู้อนุมัติ **คนละคน** อนุมัติ → คำสั่ง REPLACE_DOCUMENT
- *    ผ่าน `ErpSyncService.resend` (canonical ฉบับที่ออก + `payload.approval` — ผ่านประตู "ลงบัญชีแล้วต้องอนุมัติ" ของ sink) ·
- *    adapter ยังไม่รองรับ `replaceDocument` (เช่น KRS — ST8-T13) = sink พักคำสั่ง (`capability_not_implemented`) — หน้าจอแสดงสถานะ ·
- *    รอบเทียบหลังส่ง (AFTER_PUSH) ตรงกัน = ปิดเอง `resolution` ERP_OVERWRITTEN
- * 3. **ยอมรับความต่าง** (`acknowledge`): `acknowledged_*` + `external_mapping.reconcile_state` ACCEPTED (docs/01 §4.4) ·
- *    รอบถัดไป `diff_hash` เท่าเดิม = ไม่แจ้งซ้ำ (ST8-T11)
+ *    แล้วออกใหม่ (ST5-T10 `POST /invoices/{id}/void`) แล้วปิดรายการนี้ด้วย `resolve-in-tms` (ตรวจว่าใบยกเลิกแล้วจริง) → FIXED_IN_TMS
+ * 2. **ส่งทับระบบบัญชีด้วยค่า TMS** (TMS ถูก — docs `replaceDocument`, ต้อง approval ถ้า posted):
+ *    - `resend` ("ใช้ค่า TMS ส่งซ้ำ") = ส่งซ้ำตรง (`integrations:retry`) → ประตูอนุมัติของ ST8-T13 (`approvalGate` ใน sink: ลงบัญชีแล้ว /
+ *      อายุใบเกิน N วัน) ตัดสิน — ต้องอนุมัติ = คำสั่ง SKIPPED `replace_requires_approval` → ใช้ทาง "ขออนุมัติแก้"
+ *    - `overwrite-request` ("ขออนุมัติแก้") → `approve` โดยผู้อนุมัติที่**ไม่ใช่ผู้ขอและไม่ใช่ผู้สร้าง/แก้/ออกเลขใบ** (`erp_replace_self_approval`)
+ *      → คำสั่งพร้อม `approval` {approvedBy, approvedAt, reason, reconcileResultId} ผ่านประตูของ ST8-T13
+ *    - รอบเทียบหลังส่ง (AFTER_PUSH) ตรงกัน = ปิดเอง `resolution` ERP_OVERWRITTEN · คำสั่งจบแบบไม่สำเร็จ = กลับมาปิดทางอื่นได้
+ * 3. **ยอมรับความต่าง** (`acknowledge`): `acknowledged_*` + `external_mapping.reconcile_state` ACCEPTED (docs/01 §4.4)
  *
- * ทุกทาง: คนเท่านั้น (API key → 403) · เหตุผล ≥ 10 ตัวอักษร · audit มีผู้ทำ (actor) + เหตุผล · tenant อื่น = 404 (RLS + `@TenantResource`)
+ * ทุกทาง: คนเท่านั้น (API key → 403) · เหตุผล ≥ 10 ตัวอักษร · audit มีผู้ทำ (actor) + เหตุผล · tenant อื่น = 404
  */
 @Injectable()
 export class ReconcileCloseService {
@@ -54,8 +59,7 @@ export class ReconcileCloseService {
   async acknowledge(id: string, reasonRaw: string): Promise<ReconcileResultDto> {
     const { tx, r, actor, reason } = await this.prepare(id, reasonRaw);
     this.assertOpen(r);
-    if (r.overwriteStatus === 'REQUESTED' || r.overwriteStatus === 'APPROVED')
-      throw conflict('overwrite_in_progress', { overwriteStatus: r.overwriteStatus });
+    await this.assertNoOverwriteInProgress(tx, r);
     const now = this.clock.now();
     await tx.reconcileResult.update({
       where: { id },
@@ -89,8 +93,7 @@ export class ReconcileCloseService {
   async resolveInTms(id: string, reasonRaw: string): Promise<ReconcileResultDto> {
     const { tx, r, actor, reason } = await this.prepare(id, reasonRaw);
     this.assertDocumentOpen(r);
-    if (r.overwriteStatus === 'REQUESTED' || r.overwriteStatus === 'APPROVED')
-      throw conflict('overwrite_in_progress', { overwriteStatus: r.overwriteStatus });
+    await this.assertNoOverwriteInProgress(tx, r);
     const inv = await tx.invoice.findUnique({
       where: { id: r.localId },
       select: {
@@ -110,11 +113,10 @@ export class ReconcileCloseService {
         invoiceId: encodeId('invoice', inv.id),
         invoiceStatus: inv.status,
       });
-    const now = this.clock.now();
     await tx.reconcileResult.update({
       where: { id },
       data: {
-        resolvedAt: now,
+        resolvedAt: this.clock.now(),
         resolvedBy: actor,
         resolution: 'FIXED_IN_TMS',
         resolutionReason: reason,
@@ -138,20 +140,57 @@ export class ReconcileCloseService {
     return this.results.get(id);
   }
 
-  /** (2ก) ขออนุมัติส่งทับระบบบัญชีด้วยค่า TMS */
+  /**
+   * (2) "ใช้ค่า TMS ส่งซ้ำ" — ส่งเอกสารฉบับที่ออกทับระบบบัญชีทันที (docs/01 §6.5) · ประตูอนุมัติของ ST8-T13 ตัดสินที่ sink
+   * (ลงบัญชีแล้ว/อายุใบเกิน → SKIPPED `replace_requires_approval` → ขออนุมัติแก้) · `overwrite_status` SENT
+   */
+  async resend(id: string, reasonRaw: string): Promise<ReconcileResultDto> {
+    const { tx, r, reason } = await this.prepare(id, reasonRaw);
+    this.assertDocumentOpen(r);
+    await this.assertNoOverwriteInProgress(tx, r);
+    await this.assertResendable(tx, r);
+    const commandId = await this.erpSync.resend(tx, 'invoice', r.localId, r.connectorId);
+    if (!commandId) throw conflict('nothing_to_resend');
+    await tx.reconcileResult.update({
+      where: { id },
+      data: {
+        overwriteStatus: 'SENT',
+        overwriteRequestedBy: requestContext.require().actorId ?? null,
+        overwriteRequestedAt: this.clock.now(),
+        overwriteReason: reason,
+        overwriteDecidedBy: null,
+        overwriteDecidedAt: null,
+        overwriteDecisionReason: null,
+        overwriteCommandId: commandId,
+      },
+    });
+    await this.audit.record({
+      action: 'reconcile.overwrite_sent',
+      entityType: ENTITY,
+      entityId: id,
+      reason,
+      before: { overwriteStatus: r.overwriteStatus },
+      after: {
+        overwriteStatus: 'SENT',
+        ...this.ref(r),
+        commandId: encodeId('outboxCommand', commandId),
+      },
+    });
+    return this.results.get(id);
+  }
+
+  /** (2ก) ขออนุมัติส่งทับระบบบัญชีด้วยค่า TMS ("ขออนุมัติแก้") */
   async requestOverwrite(id: string, reasonRaw: string): Promise<ReconcileResultDto> {
     const { tx, r, actor, reason } = await this.prepare(id, reasonRaw);
     this.assertDocumentOpen(r);
-    if (r.overwriteStatus === 'REQUESTED' || r.overwriteStatus === 'APPROVED')
-      throw conflict('overwrite_in_progress', { overwriteStatus: r.overwriteStatus });
+    await this.assertNoOverwriteInProgress(tx, r);
     await this.assertResendable(tx, r);
-    const now = this.clock.now();
     await tx.reconcileResult.update({
       where: { id },
       data: {
         overwriteStatus: 'REQUESTED',
         overwriteRequestedBy: actor,
-        overwriteRequestedAt: now,
+        overwriteRequestedAt: this.clock.now(),
         overwriteReason: reason,
         overwriteDecidedBy: null,
         overwriteDecidedAt: null,
@@ -170,26 +209,39 @@ export class ReconcileCloseService {
     return this.results.get(id);
   }
 
-  /** (2ข) อนุมัติ — ผู้อนุมัติ ≠ ผู้ขอ → คำสั่งส่งทับ (REPLACE_DOCUMENT) */
+  /**
+   * (2ข) อนุมัติ → คำสั่งส่งทับพร้อม `approval` (ผ่าน approvalGate ของ ST8-T13) · ผู้อนุมัติต้องไม่ใช่ผู้ขอ และไม่ใช่ผู้สร้าง/แก้/ออกเลขใบ
+   * (403 `erp_replace_self_approval` — กติกาเดียวกับคิว ST8-T13) · มีคำสั่งของเอกสารค้างอยู่ = 409 `command_in_progress` (ไม่ทิ้งการอนุมัติเงียบ ๆ)
+   */
   async approveOverwrite(id: string, reasonRaw: string): Promise<ReconcileResultDto> {
     const { tx, r, actor, reason } = await this.prepare(id, reasonRaw);
     this.assertDocumentOpen(r);
     if (r.overwriteStatus !== 'REQUESTED')
       throw conflict('overwrite_not_requested', { overwriteStatus: r.overwriteStatus });
-    if (r.overwriteRequestedBy === actor) throw new ProblemException('self_approval_forbidden');
-    const plan = await this.assertResendable(tx, r);
-    // ระบบบัญชียังไม่รองรับการแทนที่ (adapter ประกาศแต่ยังไม่ได้ทำ — KRS ก่อน ST8-T13) = **พักไว้**: บันทึกการอนุมัติ ไม่สร้างคำสั่ง
-    // (คำสั่งที่พักในคิวจะกั้นการส่งเอกสารอื่นของลูกค้ารายเดียวกัน — ลำดับต่อลูกค้า) · `overwrite.commandErrorCode` = capability_not_implemented
-    let commandId: string | null = null;
-    if (plan === 'send') {
-      commandId = await this.erpSync.resend(tx, 'invoice', r.localId, r.connectorId, {
-        reconcileResultId: encodeId('reconcileResult', r.id),
-        approvedBy: actor,
-        requestedBy: r.overwriteRequestedBy ?? '',
+    const requesters = [
+      ...new Set(
+        [
+          ...(r.overwriteRequestedBy ? [r.overwriteRequestedBy] : []),
+          ...(await invoiceActors(tx, [r.localId])),
+        ].filter(isPersonActor),
+      ),
+    ];
+    if (!actor || !isPersonActor(actor) || requesters.includes(actor))
+      throw new ProblemException('erp_replace_self_approval', undefined, undefined, {
+        requestedBy: requesters,
       });
-      if (!commandId) throw conflict('nothing_to_resend');
-    }
+    await this.assertResendable(tx, r);
     const now = this.clock.now();
+    const commandId = await this.erpSync.resend(tx, 'invoice', r.localId, r.connectorId, {
+      approval: {
+        approvedBy: actor,
+        approvedAt: now.toISOString(),
+        reason,
+        reconcileResultId: encodeId('reconcileResult', r.id),
+      },
+      requesters: r.overwriteRequestedBy ? [r.overwriteRequestedBy] : [],
+    });
+    if (!commandId) throw conflict('nothing_to_resend');
     await tx.reconcileResult.update({
       where: { id },
       data: {
@@ -209,9 +261,9 @@ export class ReconcileCloseService {
       after: {
         overwriteStatus: 'APPROVED',
         ...this.ref(r),
-        requestedBy: r.overwriteRequestedBy,
-        commandId: commandId ? encodeId('outboxCommand', commandId) : null,
-        parked: plan === 'park' ? 'capability_not_implemented' : null,
+        requestedBy: requesters,
+        approvedBy: actor,
+        commandId: encodeId('outboxCommand', commandId),
       },
     });
     return this.results.get(id);
@@ -223,7 +275,10 @@ export class ReconcileCloseService {
     this.assertDocumentOpen(r);
     if (r.overwriteStatus !== 'REQUESTED')
       throw conflict('overwrite_not_requested', { overwriteStatus: r.overwriteStatus });
-    if (r.overwriteRequestedBy === actor) throw new ProblemException('self_approval_forbidden');
+    if (r.overwriteRequestedBy === actor)
+      throw new ProblemException('erp_replace_self_approval', undefined, undefined, {
+        requestedBy: [r.overwriteRequestedBy],
+      });
     await tx.reconcileResult.update({
       where: { id },
       data: {
@@ -284,13 +339,35 @@ export class ReconcileCloseService {
   }
 
   /**
-   * ส่งทับได้: ใบยังไม่ยกเลิก + connector ยังไม่ยกเลิกการเชื่อม + ระบบบัญชีแทนที่เอกสารได้ (รับชำระแล้ว = sink ข้าม `paid_locked` ตามกฎเดิม)
-   * คืน `send` = สร้างคำสั่งได้ · `park` = adapter ประกาศ `replaceDocument` แต่ยังไม่ได้ทำ (พักไว้) ·
-   * ไม่รองรับ/ไม่เปิด `replaceDocument` → 409 `replace_not_supported` (docs/01 §6.1 แจ้งบัญชีแก้เอง — TMS ไม่ออกใบลด/เพิ่มหนี้ D-54)
-   * เอกสารยังไม่อยู่ในระบบบัญชี (ไม่พบ/ยกเลิกฝั่ง ERP) = ส่งเป็นเอกสารใหม่ (`resend` → PUSH_*) ไม่ต้องใช้ replaceDocument
+   * การส่งทับยังดำเนินอยู่ = มีคำขอรออนุมัติ หรือคำสั่งส่งทับ (SENT/APPROVED) ยังไม่จบ / ส่งสำเร็จแล้วรอรอบเทียบ (DONE)
+   * คำสั่งจบแบบไม่สำเร็จ (FAILED_FINAL / SKIPPED) หรือไม่มีคำสั่ง = ปิดทางอื่น/ส่งใหม่ได้
    */
-  private async assertResendable(tx: Tx, r: ReconcileResult): Promise<'send' | 'park'> {
-    const [inv, c, m] = await Promise.all([
+  private async assertNoOverwriteInProgress(tx: Tx, r: ReconcileResult): Promise<void> {
+    if (r.overwriteStatus === 'REQUESTED')
+      throw conflict('overwrite_in_progress', { overwriteStatus: r.overwriteStatus });
+    if (
+      (r.overwriteStatus === 'APPROVED' || r.overwriteStatus === 'SENT') &&
+      r.overwriteCommandId
+    ) {
+      const c = await tx.integrationOutbox.findUnique({
+        where: { id: r.overwriteCommandId },
+        select: { status: true },
+      });
+      if (c && (OPEN_COMMAND.includes(c.status) || c.status === 'DONE'))
+        throw conflict('overwrite_in_progress', {
+          overwriteStatus: r.overwriteStatus,
+          commandStatus: c.status,
+        });
+    }
+  }
+
+  /**
+   * ส่งทับได้: ใบยังไม่ยกเลิก · ยังไม่รับชำระ (`paid_locked` — กฎ "แก้ได้จนรับชำระ") · connector ยังไม่ยกเลิก ·
+   * ไม่มีคำสั่งของเอกสารนี้ค้าง (`command_in_progress`) · ระบบบัญชีแทนที่เอกสารได้ (adapter ยังไม่ทำ = `capability_not_implemented`
+   * · ไม่รองรับ/ไม่เปิด = `replace_not_supported`) — เอกสารยังไม่อยู่ในระบบบัญชี = ส่งเป็นเอกสารใหม่ (ไม่ต้องแทนที่)
+   */
+  private async assertResendable(tx: Tx, r: ReconcileResult): Promise<void> {
+    const [inv, c, m, open] = await Promise.all([
       tx.invoice.findUnique({ where: { id: r.localId }, select: { status: true } }),
       tx.connector.findUnique({ where: { id: r.connectorId } }),
       tx.externalMapping.findUnique({
@@ -303,17 +380,36 @@ export class ReconcileCloseService {
         },
         select: { externalId: true, externalStatus: true, detail: true },
       }),
+      tx.integrationOutbox.findFirst({
+        where: {
+          sink: ERP_SINK,
+          targetId: r.connectorId,
+          entityType: 'invoice',
+          localId: r.localId,
+          operation: { in: ['PUSH_INVOICE', 'REPLACE_DOCUMENT'] },
+          status: { in: OPEN_COMMAND as never },
+        },
+        select: { id: true, status: true },
+      }),
     ]);
     if (!inv) throw new ProblemException('not_found');
     if (inv.status === 'CANCELLED') throw conflict('invoice_voided');
+    if ((SOR_PAYMENT_RECEIVED_STATUSES as readonly string[]).includes(inv.status))
+      throw conflict('paid_locked', { invoiceStatus: inv.status });
     if (!c || c.status === 'DISCONNECTED') throw conflict('connector_disconnected');
+    if (open)
+      throw conflict('command_in_progress', {
+        commandId: encodeId('outboxCommand', open.id),
+        commandStatus: open.status,
+      });
     // เงื่อนไข "อยู่ใน ERP แล้ว" เดียวกับ ErpSyncService.resend
     const partial = (m?.detail as { documentsPartial?: unknown } | null)?.documentsPartial === true;
     const inErp = !!m?.externalId && m.externalStatus !== 'VOIDED' && !partial;
-    if (!inErp) return 'send';
-    if (this.resolver.describe(c).capabilities.includes('replaceDocument')) return 'send';
+    if (!inErp) return;
+    if (this.resolver.describe(c).capabilities.includes('replaceDocument')) return;
     const adapter = this.adapters.get(c.adapterKey);
-    if (adapter && isPendingCapability(adapter, 'replaceDocument')) return 'park';
+    if (adapter && isPendingCapability(adapter, 'replaceDocument'))
+      throw conflict('capability_not_implemented');
     throw conflict('replace_not_supported');
   }
 

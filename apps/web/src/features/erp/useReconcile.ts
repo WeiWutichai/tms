@@ -20,14 +20,14 @@ export function useReconcileList(filters: Record<string, string>) {
   );
 }
 
-/** ตัวนับการ์ด/แท็บ: รายการที่ยังเปิด (สูงสุด 200 — เกิน = "200+") */
-export function useReconcileOpen() {
+/** ตัวนับแถบสรุป/แท็บ (ทั้งหมด · ไม่ตรง · รออนุมัติ) — สูงสุด 200 รายการล่าสุด (เกิน = "200+") */
+export function useReconcileCounts() {
   return useQuery({
-    queryKey: [KEY, 'open'],
+    queryKey: [KEY, 'counts'],
     queryFn: () =>
       unwrap(
         api.GET('/v1/reconcile-results', {
-          params: { query: { ...BASE_QUERY, status: 'OPEN', limit: 200 } as never },
+          params: { query: { ...BASE_QUERY, limit: 200 } as never },
         }),
       ),
   });
@@ -56,7 +56,7 @@ export function useDocumentSyncLog(connectorId: string | null, documentNo: strin
   });
 }
 
-export type CloseAction = 'acknowledge' | 'resolve' | 'request' | 'approve';
+export type CloseAction = 'acknowledge' | 'resolve' | 'resend' | 'request' | 'approve';
 
 /** ปิด 3 ทาง + ขอ/อนุมัติส่งทับ — เหตุผล ≥ 10 ตัวอักษร (API ลง audit ผู้ทำ + เหตุผล) */
 export function useCloseAction() {
@@ -69,6 +69,8 @@ export function useCloseAction() {
           return unwrap(api.POST('/v1/reconcile-results/{id}/acknowledge', opts));
         case 'resolve':
           return unwrap(api.POST('/v1/reconcile-results/{id}/resolve-in-tms', opts));
+        case 'resend':
+          return unwrap(api.POST('/v1/reconcile-results/{id}/resend', opts));
         case 'request':
           return unwrap(api.POST('/v1/reconcile-results/{id}/overwrite-request', opts));
         case 'approve':

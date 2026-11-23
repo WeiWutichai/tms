@@ -1404,4 +1404,5 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'erpq.v.none': '无',
   'erpq.step.fail': '失败',
   'erpq.dlg.askFix.ok': '申请审批',
+  'erpq.dlg.useTms.ok': '重发',
 };

@@ -63,7 +63,9 @@ const E409_CLOSE = {
   status: 409,
   description:
     '`invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · ' +
-    '`overwrite_in_progress` · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `connector_disconnected` · `replace_not_supported` · `nothing_to_resend`',
+    '`overwrite_in_progress` (คำขอรออนุมัติ / คำสั่งส่งทับยังไม่จบหรือส่งแล้วรอรอบเทียบ) · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · ' +
+    '`paid_locked` (รับชำระแล้ว) · `connector_disconnected` · `command_in_progress` (มีคำสั่งส่งของเอกสารนี้ค้าง) · `capability_not_implemented` (ระบบบัญชียังแทนที่ไม่ได้) · ' +
+    '`replace_not_supported` · `nothing_to_resend`',
   examples: {
     invalid_state_transition: prob(
       'invalid_state_transition',
@@ -129,7 +131,7 @@ export class ReconcileController {
     description:
       'ST8-T12 (docs/01 §6.5 "ยอมรับความต่าง → ack พร้อมเหตุผล; รอบถัดไปไม่แจ้งซ้ำถ้า `diff_hash` เท่าเดิม") · สิทธิ์ `integrations:retry` (ฝ่ายบัญชี) · ' +
       'คนเท่านั้น (API key → 403) · ใช้ได้กับรายการ `result` MISMATCH / REMOTE_MISSING ที่ยังเปิด (ทั้งยอดรับชำระและเนื้อหาเอกสาร) · ' +
-      'เนื้อหาเอกสาร: `sync.reconcileState` ของใบ → ACCEPTED (docs/01 §4.4) · มีคำขอส่งทับค้าง → 409 `overwrite_in_progress` · ' +
+      'เนื้อหาเอกสาร: `sync.reconcileState` ของใบ → ACCEPTED (docs/01 §4.4) · การส่งทับยังดำเนินอยู่ → 409 `overwrite_in_progress` (คำสั่งจบแบบไม่สำเร็จ = ปิดได้) · ' +
       'ปิดแล้ว/ยอมรับแล้ว → 409 (`already_resolved` / `already_acknowledged`) · audit `reconcile.mismatch_acknowledged`',
   })
   @ApiOkResponse({ type: ReconcileResultDto })
@@ -162,6 +164,25 @@ export class ReconcileController {
     return this.close.resolveInTms(decodeIdOr404('reconcileResult', id), body.reason);
   }
 
+  @Post('reconcile-results/:id/resend')
+  @HttpCode(200)
+  @TenantResource('reconcileResult')
+  @RequireScope('integrations:retry')
+  @ApiOperation({
+    summary: 'ใช้ค่า TMS ส่งซ้ำ — ส่งเอกสารฉบับที่ออกทับระบบบัญชี (ทางที่ 2 "TMS ถูก")',
+    description:
+      'ST8-T12 (docs/01 §6.5 ทางที่ 2 `replaceDocument`) · สิทธิ์ `integrations:retry` · คนเท่านั้น · เฉพาะเนื้อหาเอกสารที่ยังเปิด · ' +
+      'คำสั่ง REPLACE_DOCUMENT (หรือส่งใหม่เมื่อไม่อยู่ในระบบบัญชี) ผ่านประตูอนุมัติของ ST8-T13 — ลงบัญชีแล้ว/อายุใบเกิน N วัน = คำสั่ง SKIPPED ' +
+      '`replace_requires_approval` (`overwrite.commandErrorCode`) → ใช้ "ขออนุมัติแก้" · รับชำระแล้ว → 409 `paid_locked` · มีคำสั่งค้าง → 409 `command_in_progress` · ' +
+      'ระบบบัญชีแทนที่ไม่ได้ → 409 `capability_not_implemented` / `replace_not_supported` · `overwrite.status` SENT · รอบเทียบหลังส่งตรง = ปิดเอง ERP_OVERWRITTEN · ' +
+      'audit `reconcile.overwrite_sent`',
+  })
+  @ApiOkResponse({ type: ReconcileResultDto })
+  @ApiProblems(E409_CLOSE)
+  resend(@Param('id') id: string, @Body() body: ReconcileReasonDto): Promise<ReconcileResultDto> {
+    return this.close.resend(decodeIdOr404('reconcileResult', id), body.reason);
+  }
+
   @Post('reconcile-results/:id/overwrite-request')
   @HttpCode(200)
   @TenantResource('reconcileResult')
@@ -169,9 +190,9 @@ export class ReconcileController {
   @ApiOperation({
     summary: 'ขออนุมัติส่งทับระบบบัญชีด้วยค่า TMS (ทางที่ 2 "TMS ถูก")',
     description:
-      'ST8-T12 (docs/01 §6.5 ทางที่ 2 `replaceDocument` — ต้อง approval) · สิทธิ์ `integrations:retry` · คนเท่านั้น · เฉพาะเนื้อหาเอกสารที่ยังเปิด · ' +
-      'ใบยกเลิกแล้ว → 409 `invoice_voided` · connector ยกเลิกการเชื่อม → 409 `connector_disconnected` · ระบบบัญชีแทนที่เอกสารไม่ได้/ไม่เปิด → 409 `replace_not_supported` · ' +
-      'มีคำขอค้าง → 409 `overwrite_in_progress` · ' +
+      'ST8-T12 "ขออนุมัติแก้" (docs/01 §6.5 ทางที่ 2 — `replaceDocument` ต้อง approval ถ้าลงบัญชีแล้ว) · สิทธิ์ `integrations:retry` · คนเท่านั้น · เฉพาะเนื้อหาเอกสารที่ยังเปิด · ' +
+      'ใบยกเลิกแล้ว → 409 `invoice_voided` · รับชำระแล้ว → 409 `paid_locked` · connector ยกเลิกการเชื่อม → 409 `connector_disconnected` · ' +
+      'มีคำสั่งค้าง → 409 `command_in_progress` · ระบบบัญชีแทนที่ไม่ได้ → 409 `capability_not_implemented` / `replace_not_supported` · การส่งทับยังดำเนินอยู่ → 409 `overwrite_in_progress` · ' +
       'ถูกปฏิเสธแล้วขอใหม่ได้ · audit `reconcile.overwrite_requested`',
   })
   @ApiOkResponse({ type: ReconcileResultDto })
@@ -190,10 +211,11 @@ export class ReconcileController {
   @ApiOperation({
     summary: 'อนุมัติส่งทับระบบบัญชีด้วยค่า TMS → คำสั่งแทนที่เอกสาร',
     description:
-      'ST8-T12 · สิทธิ์ `credit-notes:approve` (ผู้อนุมัติการแก้เอกสารขายที่ออกแล้ว — [DECISION ย้อนได้] spec/12 §3 แถว ST8-T12) · คนเท่านั้น · ' +
-      '**ผู้อนุมัติต้องไม่ใช่ผู้ขอ** (403 `self_approval_forbidden`) · สร้างคำสั่ง REPLACE_DOCUMENT ด้วยเอกสารฉบับที่ออก (`ErpSyncService.resend` — ' +
-      'คำสั่งนี้ผ่านประตู "ลงบัญชีแล้วต้องอนุมัติ") · ระบบบัญชีที่ประกาศแต่ยังไม่ได้ทำการแทนที่ (เช่น KRS ก่อน ST8-T13) = **พักไว้**: บันทึกการอนุมัติ ไม่สร้างคำสั่ง ' +
-      '(`overwrite.commandId` null · `commandErrorCode` = `capability_not_implemented` — คำสั่งที่พักในคิวจะกั้นเอกสารอื่นของลูกค้า) · รอบเทียบหลังส่งตรงกัน = ปิดเอง (`resolution` ERP_OVERWRITTEN) · ไม่มีคำขอ → 409 `overwrite_not_requested` · ' +
+      'ST8-T12 · สิทธิ์ `credit-notes:approve` (ชุดเดียวกับการอนุมัติแทนที่ในคิว ST8-T13) · คนเท่านั้น · ' +
+      '**ผู้อนุมัติต้องไม่ใช่ผู้ขอ และไม่ใช่ผู้สร้าง/แก้/ออกเลขใบ** (403 `erp_replace_self_approval`) · สร้างคำสั่งด้วยเอกสารฉบับที่ออก + `approval` ' +
+      '{approvedBy, approvedAt, reason, reconcileResultId} ผ่านประตูอนุมัติของ ST8-T13 · มีคำสั่งของเอกสารค้าง → 409 `command_in_progress` · ' +
+      'รับชำระแล้ว → 409 `paid_locked` · ระบบบัญชีแทนที่ไม่ได้ → 409 `capability_not_implemented` / `replace_not_supported` · ' +
+      'รอบเทียบหลังส่งตรงกัน = ปิดเอง (`resolution` ERP_OVERWRITTEN) · ไม่มีคำขอ → 409 `overwrite_not_requested` · ' +
       'audit `reconcile.overwrite_approved` (+ `commandId`)',
   })
   @ApiOkResponse({ type: ReconcileResultDto })
@@ -212,7 +234,7 @@ export class ReconcileController {
   @ApiOperation({
     summary: 'ไม่อนุมัติการส่งทับ — รายการกลับเป็น "ไม่ตรง"',
     description:
-      'ST8-T12 · สิทธิ์ `credit-notes:approve` · คนเท่านั้น · ผู้ปฏิเสธต้องไม่ใช่ผู้ขอ · ขอใหม่ได้ · audit `reconcile.overwrite_rejected`',
+      'ST8-T12 · สิทธิ์ `credit-notes:approve` · คนเท่านั้น · ผู้ปฏิเสธต้องไม่ใช่ผู้ขอ (403 `erp_replace_self_approval`) · ขอใหม่ได้ · audit `reconcile.overwrite_rejected`',
   })
   @ApiOkResponse({ type: ReconcileResultDto })
   @ApiProblems(E409_CLOSE)

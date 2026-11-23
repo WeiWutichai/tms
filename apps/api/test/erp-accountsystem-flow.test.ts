@@ -391,6 +391,7 @@ describe('AccountSystem connector — ครบวงจร (ST8-T16)', { timeou
       // ST8-T11 ส่งแล้วยังไม่ได้อ่านกลับมาเทียบ (docs/01 §4.4 SENT)
       reconcileState: 'SENT',
       reconciledAt: null,
+      postedAt: null,
       externalDocuments: [],
     });
     // ST8-T05 รหัสลูกค้าฝั่งระบบบัญชีที่ map ไว้ (customerErpCode) ชนะการจับคู่ด้วยเลขภาษี

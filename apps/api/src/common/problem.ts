@@ -407,6 +407,12 @@ export const PROBLEMS = {
     th: 'บรรทัดต้นทุนนี้อยู่ในใบสำคัญจ่ายอื่นแล้ว — จ่ายซ้ำไม่ได้',
     en: 'Trip cost line is already in another active settlement',
   },
+  /** ST8-T13 ผู้อนุมัติการแทนที่เอกสารในระบบบัญชีต้องไม่ใช่ผู้ขอ (ผู้ออกใบใหม่ / ผู้ยกเลิกใบเดิม / ผู้สั่งส่งซ้ำ) — docs/01 A.2 approval */
+  erp_replace_self_approval: {
+    status: 403,
+    th: 'ผู้ขอแทนที่เอกสารในระบบบัญชี (ผู้ออกใบใหม่ ผู้ยกเลิกใบเดิม หรือผู้สั่งส่งซ้ำ) อนุมัติเองไม่ได้ ต้องให้ผู้อนุมัติคนอื่น',
+    en: 'Whoever requested replacing the accounting-system document cannot approve it',
+  },
   /** ST6-T07 separation of duties (docs/04 F6 Approve, A3): ผู้สร้างใบสำคัญจ่ายอนุมัติใบตัวเองไม่ได้ */
   settlement_self_approval: {
     status: 403,

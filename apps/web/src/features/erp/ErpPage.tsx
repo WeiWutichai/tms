@@ -27,7 +27,7 @@ import { pick, useSavedViews } from '../views/useSavedViews';
 import { CloseDialog, type DialogKind } from './ErpDialogs';
 import { ErpDrawer } from './ErpDrawer';
 import { bySeverity, diffFields, rowStatus, statusKey, TAB_QUERY, TABS, type Tab } from './erpq';
-import { type ReconcileResult, useReconcileList, useReconcileOpen } from './useReconcile';
+import { type ReconcileResult, useReconcileCounts, useReconcileList } from './useReconcile';
 
 const EMPTY_COL = { no: '', type: '', cust: '', fields: '', st: '' };
 const ST_OPTS = ['mm', 'resend', 'appr', 'closed'] as const;
@@ -35,7 +35,8 @@ const ST_OPTS = ['mm', 'resend', 'appr', 'closed'] as const;
 /**
  * บัญชี → คิวเชื่อมระบบบัญชี — ส่วน "ไม่ตรง" (ST8-T12; ต้นแบบ TMS v4 หน้า `erp` = kpis('erp') + specErp + vPanel kind `erp` + askFix)
  * รายการ = ผลเทียบเนื้อหาเอกสาร (ST8-T11 `GET /reconcile-results?check=DOCUMENT&actionable=true`) เรียงตาม severity (MONEY ก่อน)
- * ปิดได้ 3 ทาง (docs/01 §6.5): รับค่า {ERP} → ยอมรับความต่าง / แก้ที่ TMS แล้ว (D-54 ยกเลิก+ออกใหม่) · ขออนุมัติแก้ → ใช้ค่า TMS ส่งซ้ำ (ผู้อนุมัติ)
+ * ปิดได้ 3 ทาง (docs/01 §6.5): รับค่า {ERP} → ยอมรับความต่าง / แก้ที่ TMS แล้ว (D-54 ยกเลิก+ออกใหม่) · ใช้ค่า TMS ส่งซ้ำ (ส่งตรง —
+ * ลงบัญชีแล้ว/อายุเกินต้องอนุมัติตามประตูของ ST8-T13) · ขออนุมัติแก้ → ผู้อนุมัติ (≠ ผู้ขอ) อนุมัติด้วยปุ่ม "ใช้ค่า TMS ส่งซ้ำ" ของรายการรออนุมัติ
  * ความต่างจากต้นแบบ [DECISION spec/12 §3 แถว ST8-T12 — PO #86 ยังค้าง]: แท็บ "รอส่งซ้ำ" / "ถูกปฏิเสธ", การ์ด "รอส่งซ้ำ" / "ส่งไม่สำเร็จ" /
  * "สำเร็จ 24 ชม." และปุ่ม "ส่งซ้ำทั้งหมดที่รอ" / bulk = คิวส่งไม่สำเร็จ (ST7-T19) ยังไม่แสดง · ประเภทมีเฉพาะใบแจ้งหนี้ (เทียบเฉพาะใบแจ้งหนี้ — #87)
  */
@@ -85,17 +86,21 @@ export function ErpPage() {
   });
   const curTab = TABS.includes(tab) ? tab : 'all';
   const list = useReconcileList(TAB_QUERY[curTab]);
-  const openQ = useReconcileOpen();
-  const openRows = openQ.data?.data ?? [];
-  const more = openQ.data?.hasMore ?? false;
+  const countQ = useReconcileCounts();
+  const allRows = countQ.data?.data ?? [];
+  const openRows = allRows.filter((x) => x.status === 'OPEN');
+  const more = countQ.data?.hasMore ?? false;
   const cnt = (n: number) => (more ? `${n}+` : n);
-  const counts = {
-    mm: openRows.filter((x) => rowStatus(x) === 'mm').length,
-    appr: openRows.filter((x) => rowStatus(x) === 'appr').length,
+  // แถบสรุป "ไม่ตรง" = สถานะไม่ตรง · แท็บนับตามตัวกรองของแท็บ (TAB_QUERY) · "ทั้งหมด" = ทุกรายการ (ต้นแบบมีตัวนับทุกแท็บ)
+  const kpiMm = openRows.filter((x) => rowStatus(x) === 'mm').length;
+  const counts: Record<Tab, number> = {
+    all: allRows.length,
+    mm: openRows.filter((x) => x.overwrite?.status !== 'REQUESTED').length,
+    appr: openRows.filter((x) => x.overwrite?.status === 'REQUESTED').length,
   };
   const erpName = (x: ReconcileResult) =>
     adapterName(t, x.connector.adapterKey, x.connector.displayName);
-  const anyRow = list.rows[0] ?? openRows[0];
+  const anyRow = list.rows[0] ?? allRows[0];
   const pageErp = anyRow ? erpName(anyRow) : t('erpq.erpDefault');
   const shown = list.rows
     .filter(
@@ -113,8 +118,13 @@ export function ErpPage() {
   };
   const pickTab = (k: Tab) => setTab(curTab === k ? 'all' : k);
   const ask = (kind: DialogKind, x: ReconcileResult) => setDialog({ kind, x });
-  const canUseTms = (x: ReconcileResult) =>
-    canApprove && rowStatus(x) === 'appr' && !x.overwrite?.requestedByMe;
+  // "ใช้ค่า TMS ส่งซ้ำ" = ส่งซ้ำตรง (ไม่ตรง · integrations:retry) หรือผู้อนุมัติอนุมัติคำขอ "ขออนุมัติแก้" ของผู้อื่น (รออนุมัติ)
+  const useTmsKind = (x: ReconcileResult): DialogKind | null => {
+    const st = rowStatus(x);
+    if (st === 'mm' && canAct) return 'useTms';
+    if (st === 'appr' && canApprove && !x.overwrite?.requestedByMe) return 'approve';
+    return null;
+  };
 
   const columns: Column<ReconcileResult>[] = [
     {
@@ -195,7 +205,7 @@ export function ErpPage() {
       <SummaryStrip
         items={[
           {
-            value: openQ.data ? cnt(counts.mm) : '—',
+            value: countQ.data ? cnt(kpiMm) : '—',
             label: t('erpq.kpi.mm'),
             color: '#B3322A',
             onClick: () => pickTab('mm'),
@@ -210,7 +220,7 @@ export function ErpPage() {
           items={TABS.map((k) => ({
             key: k,
             label: t(`erpq.tab.${k}` as MessageKey),
-            ...(k !== 'all' && openQ.data ? { count: counts[k] } : {}),
+            ...(countQ.data ? { count: counts[k] } : {}),
           }))}
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
@@ -245,12 +255,12 @@ export function ErpPage() {
             onRowClick={(x) => view(x)}
             rowMenu={(x) => [
               { label: t('erpq.menu.view'), icon: 'eye', run: () => view(x) },
-              ...(canUseTms(x)
+              ...(useTmsKind(x)
                 ? [
                     {
                       label: t('erpq.menu.useTms'),
                       icon: 'refresh-cw',
-                      run: () => ask('useTms', x),
+                      run: () => ask(useTmsKind(x)!, x),
                     },
                   ]
                 : []),
@@ -290,7 +300,10 @@ export function ErpPage() {
           onClose={() => setOpen(null)}
           onAccept={(x) => ask('accept', x)}
           onAskFix={(x) => ask('askFix', x)}
-          onUseTms={(x) => ask('useTms', x)}
+          onUseTms={(x) => {
+            const k = useTmsKind(x);
+            if (k) ask(k, x);
+          }}
         />
       )}
       {dialog && (
