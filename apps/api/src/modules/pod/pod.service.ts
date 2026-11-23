@@ -18,6 +18,7 @@ import {
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { FieldCipher } from '../../common/crypto';
+import { resolveDoLineRefs } from '../delivery-orders/do-line-ref';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { assertDeliveryUnlocked } from '../invoices/billing-lock';
 import { ProblemException, type FieldError } from '../../common/problem';
@@ -106,6 +107,7 @@ export class PodService {
       where: { deliveryOrderId },
       orderBy: { lineNo: 'asc' },
       select: {
+        id: true,
         lineNo: true,
         description: true,
         unit: true,
@@ -283,16 +285,18 @@ export class PodService {
       orderBy: { lineNo: 'asc' },
       select: { id: true, lineNo: true, qtyPlanned: true },
     });
-    if (input.lines !== undefined && input.lines.length && set !== 'SUCCESS')
+    // D-81 · D68-52: บรรทัดอ้างด้วย `doLineId` หรือ `lineNo` (ทั้งคู่ต้องตรงกัน) → ใช้ `lineNo` ต่อจากนี้
+    const inLines = input.lines === undefined ? undefined : resolveDoLineRefs(input.lines, doLines);
+    if (inLines !== undefined && inLines.length && set !== 'SUCCESS')
       errors.push({
         field: 'lines',
         code: 'not_applicable',
         message: 'actual quantities are recorded for delivered orders only',
       });
-    else if (input.lines?.length) {
+    else if (inLines?.length) {
       const checked = checkActualLines(
         doLines.map((l) => ({ lineNo: l.lineNo, qtyPlanned: l.qtyPlanned.toFixed() })),
-        input.lines,
+        inLines,
         prevLines.map(valueOf),
       );
       for (const e of checked.errors)
@@ -303,7 +307,7 @@ export class PodService {
         });
       if (!checked.errors.length) {
         // เหตุผล: ตรวจหมวด/ใช้งาน + snapshot เฉพาะบรรทัดที่ส่งมา (บรรทัดที่คงเดิมใช้ snapshot เดิม)
-        const sent = new Map(input.lines.map((l, i) => [l.lineNo, i]));
+        const sent = new Map(inLines.map((l, i) => [l.lineNo, i]));
         const prevBy = new Map(prevLines.map((l) => [l.lineNo, l]));
         lines = [];
         for (const v of checked.lines) {
@@ -337,7 +341,7 @@ export class PodService {
     // ธงของเหตุผล (ทุกบรรทัดที่มีปฏิเสธ รวมที่คงเดิม): บังคับโน้ต / บังคับรูป (รูปของหลักฐานส่งฉบับนี้)
     lines.forEach((l) => {
       if (!l.reason) return;
-      const i = input.lines?.findIndex((x) => x.lineNo === l.lineNo) ?? -1;
+      const i = inLines?.findIndex((x) => x.lineNo === l.lineNo) ?? -1;
       if (l.reason.flags.requiresNote && !l.note)
         errors.push({
           field: i >= 0 ? `lines.${i}.note` : 'lines',
@@ -353,7 +357,7 @@ export class PodService {
     });
 
     // ST4-T11: ของที่ปฏิเสธรับซึ่งส่งซ้ำ/คืนคลังไปแล้ว — ฉบับแก้ต้องคงยอดปฏิเสธ ≥ ที่จัดการแล้ว (ยกเลิกใบส่งซ้ำก่อน)
-    if (input.lines?.length && set === 'SUCCESS') {
+    if (inLines?.length && set === 'SUCCESS') {
       const doRec = await this.dos.get(deliveryOrderId, tx);
       const bal = (await this.dos.rejectionBalance(tx, [doRec])).get(deliveryOrderId) ?? [];
       for (const b of bal) {
@@ -361,7 +365,7 @@ export class PodService {
         if (done.lte(0)) continue;
         const l = lines.find((x) => x.lineNo === b.line.lineNo);
         if (l && new Prisma.Decimal(l.rejectQty).lt(done)) {
-          const i = input.lines.findIndex((x) => x.lineNo === b.line.lineNo);
+          const i = inLines.findIndex((x) => x.lineNo === b.line.lineNo);
           errors.push({
             field: i >= 0 ? `lines.${i}.qtyActual` : 'lines',
             code: 'reject_resolved',
@@ -826,6 +830,7 @@ const LINE_MESSAGES: Record<ActualLineErrorCode, string> = {
 /** บรรทัด DO + ค่าปัจจุบัน (ไม่มีในฉบับ = ยังไม่บันทึก) */
 function linesDto(
   doLines: {
+    id: string;
     lineNo: number;
     description: string;
     unit: string;
@@ -838,6 +843,7 @@ function linesDto(
   return doLines.map((d) => {
     const l = by.get(d.lineNo);
     return {
+      doLineId: encodeId('deliveryOrderLine', d.id),
       lineNo: d.lineNo,
       description: d.description,
       // ชื่อหน่วยที่ผู้ใช้เห็น (ตัน ถุง …) — ไม่มีหน่วยใน master = ข้อความหน่วย snapshot

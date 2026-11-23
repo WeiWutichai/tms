@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { Clock } from '../../common/clock';
 import { ProblemException } from '../../common/problem';
 import { assertDeliveryUnlocked } from '../invoices/billing-lock';
+import { type DoLineRefInput, resolveDoLineRefs } from './do-line-ref';
 import { DbService, type Tx } from '../../db/db.service';
 import { cleanLine } from '../master/master-kit';
 import { OrderStateService } from '../orders/order-state.service';
@@ -18,7 +19,8 @@ import {
 export interface ResolveInput {
   reasonCodeId: string;
   note?: string | null;
-  lines?: { lineNo: number; qty: string }[];
+  /** D-81 · D68-52 อ้างบรรทัดด้วย `lineNo` หรือ `doLineId` (ทั้งคู่ต้องตรงกัน) */
+  lines?: (DoLineRefInput & { qty: string })[];
   /** เฉพาะส่งซ้ำ */
   doDate?: string;
 }
@@ -174,7 +176,10 @@ export class DeliveryOrderReturnService {
       throw field422('lines', 'not_applicable', 'a failed delivery order is resolved as a whole');
     const balance =
       mode === 'rejected' ? (await this.dos.rejectionBalance(tx, [src])).get(src.id)! : [];
-    const take = mode === 'rejected' ? pickLines(balance, input.lines) : [];
+    const take =
+      mode === 'rejected'
+        ? pickLines(balance, input.lines ? resolveDoLineRefs(input.lines, src.lines) : undefined)
+        : [];
     if (snap.flags.requiresPhoto) {
       // รูปของหลักฐานส่ง (ฉบับล่าสุด) — ไม่มีปุ่มแนบรูปแยก (spec/12 §3 ST4-T10/T11)
       const pod = await tx.deliveryOrderPod.findFirst({

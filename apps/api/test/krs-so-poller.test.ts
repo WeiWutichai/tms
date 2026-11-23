@@ -11,6 +11,7 @@ import { KrsAdapter } from '../src/erp-adapters/krs/krs.adapter';
 import { KRS_ISSUE, krsLinesIncomplete } from '../src/erp-adapters/krs/krs-so-poller';
 import { type KrsSalesOrder, loadKrsSoMapping } from '../src/erp-adapters/krs/krs-so-source';
 import { ConnectorIntakeService } from '../src/modules/connectors/connector-intake.service';
+import { SOURCE_DOWN_ISSUE } from '../src/modules/orders/order-intake.service';
 import { ConnectorPullScheduler } from '../src/modules/connectors/connector-pull.scheduler';
 import { ErpAdapterError, type ErpContext } from '../src/modules/erp/erp-adapter';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
@@ -334,11 +335,24 @@ describe('KRS SO poller ต่อ tenant (ST8-T04) — mock → order', () => {
       before1.lines.map((l) => [l.lineNo, String(l.qtyOrdered)]),
     );
     expect(held1.rawPayload).toEqual(before1.rawPayload);
+    // ตั้งปัญหาของหน้า + D-81 · D68-63 พักทุกใบที่ค้างของต้นทาง (ปัญหา "ต้นทางใช้ไม่ได้")
     expect(
       await plat.auditLog.count({
         where: { tenantId, entityId: held1.id, action: 'sales_order.source_held' },
       }),
-    ).toBe(1);
+    ).toBe(2);
+    expect(held1.sourceIssues).toContain(SOURCE_DOWN_ISSUE);
+    // D-81 · D68-63 ใบเก่าที่ไม่อยู่ในหน้านี้ก็ถูกพัก (docs/01 A.2 "ทุก SO ที่ค้าง")
+    const all = await orders();
+    const marked = all.filter((o) => (o.sourceIssues as string[]).includes(SOURCE_DOWN_ISSUE));
+    expect(marked.length).toBe(all.length); // ทุกใบของต้นทางยังไม่วางแผน
+    expect(r.sourceHeld).toBe(all.length);
+    for (const n of [2, 3, 4]) {
+      const x = await byExt(EXT(n));
+      expect(x.status).toBe('ON_HOLD');
+      expect(x.holdReasonCode?.code).toBe('SOURCE_ERROR');
+      expect(x.sourceIssues).toEqual([SOURCE_DOWN_ISSUE]);
+    }
     expect((await cursor())!.cursor).toBe(wmBefore);
     const c = await connector();
     expect(c.status).toBe('ERROR');
@@ -367,11 +381,13 @@ describe('KRS SO poller ต่อ tenant (ST8-T04) — mock → order', () => {
     const fixed = await svc.pullConnector(tenantId, connectorId);
     expect(fixed.sourceError).toBeUndefined();
     expect(fixed.counts).toMatchObject({ updated: 2, error: 0 });
-    for (const ext of [EXT(1), 'KRS-SAMPLE-SAMPLE-SO-6911-0010']) {
-      const x = await byExt(ext);
+    // ใบในหน้านี้ 2 ใบถูกเขียนทับด้วยข้อมูลครบแล้ว · ที่เหลือปล่อยเมื่อดึงได้อีกครั้ง
+    expect(fixed.sourceReleased).toBe(all.length - 2);
+    for (const x of await orders()) {
       expect(x.sourceIssues ?? []).toEqual([]);
       expect(x.holdReasonCode?.code).not.toBe('SOURCE_ERROR');
-      expect(x.lines).toHaveLength(1);
+      if ([EXT(1), 'KRS-SAMPLE-SAMPLE-SO-6911-0010'].includes(x.externalId!))
+        expect(x.lines).toHaveLength(1);
     }
     expect((await cursor())!.cursor).toBe('900001');
   });
@@ -381,15 +397,38 @@ describe('KRS SO poller ต่อ tenant (ST8-T04) — mock → order', () => {
     customReply = { status: 404, body: {} };
     const wm = (await cursor())!.cursor;
     const n = (await orders()).length;
+    const before = new Map((await orders()).map((o) => [o.id, o.holdReasonCode?.code ?? null]));
+    expect([...before.values()]).not.toContain('SOURCE_ERROR');
     const r = await svc.pullConnector(tenantId, connectorId);
     expect(r.sourceError).toBeTruthy();
     expect((await connector()).status).toBe('ERROR');
     expect((await connector()).lastHealthError).toMatchObject({ code: 'source_not_found' });
     expect((await orders()).length).toBe(n);
     expect((await cursor())!.cursor).toBe(wm);
+    // D-81 · D68-63 (docs/01 A.2): ทุกใบที่ค้างของต้นทาง → ON_HOLD(SOURCE_ERROR) (แจ้งผู้ดูแลผ่าน connector ERROR — ทดสอบใน krs-mapping-cancel)
+    expect(r.sourceHeld).toBe(n);
+    for (const o of await orders()) {
+      expect(o.status).toBe('ON_HOLD');
+      expect(o.holdReasonCode?.code).toBe('SOURCE_ERROR');
+      expect(o.sourceIssues).toContain(SOURCE_DOWN_ISSUE);
+    }
+    // ดึงซ้ำระหว่าง ERROR ไม่ได้ (connector_not_active) — ใบคงค้าง
     await resume().expect(409); // ตรวจแหล่ง SO ด้วย — ยังหาย = เปิดไม่ได้
     customReply = { status: 200, body: { rows: [], next: null, hasMore: false } };
     await resume().expect(200);
+    // ต้นทางกลับมา → รอบดึงแรกที่สำเร็จปล่อยใบที่พักไว้ (ถอดเฉพาะปัญหานี้) + audit
+    const back = await svc.pullConnector(tenantId, connectorId);
+    expect(back.sourceError).toBeUndefined();
+    expect(back.sourceReleased).toBe(n);
+    for (const o of await orders()) {
+      expect(o.sourceIssues).not.toContain(SOURCE_DOWN_ISSUE);
+      expect(o.holdReasonCode?.code ?? null).toBe(before.get(o.id)); // กลับเป็นเหตุเดิม (ถ้ามี)
+    }
+    expect(
+      await plat.auditLog.count({ where: { tenantId, action: 'sales_order.source_released' } }),
+    ).toBeGreaterThanOrEqual(n);
+    // ดึงซ้ำ = ไม่มีใบให้ปล่อยอีก
+    expect((await svc.pullConnector(tenantId, connectorId)).sourceReleased).toBe(0);
   });
 
   it('M1 รายการท้ายใบหาย (ได้ 1..1 จาก 2) → ใบเดิมไม่ถูกลดรายการ ค้าง SOURCE_ERROR · connector ACTIVE · watermark เดินต่อ', async () => {

@@ -14,7 +14,7 @@ import { EntitlementService } from '../entitlements/entitlement.service';
 import { ConnectorResolver } from '../erp/connector-resolver';
 import { ConnectorsService, redactSecrets } from '../erp/connectors.service';
 import { ErpAdapterError } from '../erp/erp-adapter';
-import { OrderIntakeService } from '../orders/order-intake.service';
+import { OrderIntakeService, SOURCE_DOWN_ISSUE } from '../orders/order-intake.service';
 import { OrderStateService } from '../orders/order-state.service';
 import { bangkokToday } from '../vehicle-documents/expiry';
 import {
@@ -115,7 +115,14 @@ export interface PullRunResult {
   sourceError?: string;
   /** ST8-T04 คำเตือนจากต้นทางที่ไม่หยุดรอบ (`PullPage.warnings`) */
   warnings?: string[];
+  /** D-81 · D68-63 จำนวนใบค้างที่พักไว้เพราะต้นทางเสีย (รอบนี้) */
+  sourceHeld?: number;
+  /** D-81 · D68-63 จำนวนใบที่ปล่อยเมื่อดึงจากต้นทางได้อีกครั้ง (รอบนี้) */
+  sourceReleased?: number;
 }
+
+/** D-81 · D68-63 เพดานใบต่อรอบที่พัก/ปล่อยเมื่อต้นทางเสีย/กลับมา (ที่เหลือทำรอบถัดไป — ปล่อยทำทุกรอบที่ดึงสำเร็จ) */
+const SOURCE_DOWN_MAX = 2000;
 
 /** Prisma: ต่อฐานไม่ได้ / pool เต็ม / transaction หมดเวลา / deadlock-serialization */
 const TRANSIENT_CODES = new Set(['P1001', 'P1002', 'P1008', 'P1017', 'P2024', 'P2028', 'P2034']);
@@ -374,6 +381,7 @@ export class ConnectorIntakeService implements OnModuleInit {
     run.cursor = claimed.cursor;
 
     let ownLease = true;
+    let released = false;
     try {
       for (let page = 0; page < maxPages; page++) {
         let got;
@@ -398,12 +406,16 @@ export class ConnectorIntakeService implements OnModuleInit {
           if (
             e instanceof ErpAdapterError &&
             (e.errorClass === 'AUTH' || e.errorClass === 'VALIDATION')
-          )
+          ) {
             await this.stopConnector(tenantId, source, {
               errorClass: e.errorClass,
               code: e.problem.code,
               message: run.sourceError,
             });
+            // D-81 · D68-63 ต้นทางผิดโครงสร้าง (view หาย ฯลฯ) → ทุกใบที่ค้างของต้นทางนี้ ON_HOLD(SOURCE_ERROR) (docs/01 A.2)
+            if (e.errorClass === 'VALIDATION')
+              run.sourceHeld = await this.sourceDown(tenantId, source, leaseId, true);
+          }
           // ST8-T04 ปลายทางล่มชั่วคราว (TRANSIENT) นับรวมกติกา 30 นาทีของ spec/07 §1 (เหมือนผล healthCheck ที่ระบบตรวจเอง)
           else if (e instanceof ErpAdapterError && e.errorClass === 'TRANSIENT')
             await this.noteTransient(tenantId, source, e.problem.code, run.sourceError);
@@ -457,7 +469,15 @@ export class ConnectorIntakeService implements OnModuleInit {
           run.sourceError = problem.message;
           this.logger.warn(`tenant ${tenantId} connector ${connector}: ${problem.message}`);
           await this.stopConnector(tenantId, source, problem);
+          // D-81 · D68-63 คอลัมน์หาย ฯลฯ → ทุกใบที่ค้างของต้นทางนี้ ON_HOLD(SOURCE_ERROR) ไม่ใช่เฉพาะใบในหน้านี้ (docs/01 A.2)
+          if (problem.errorClass === 'VALIDATION')
+            run.sourceHeld = await this.sourceDown(tenantId, source, leaseId, true);
           break;
+        }
+        // D-81 · D68-63 ดึงจากต้นทางได้อีกครั้ง → ปล่อยใบที่พักไว้เพราะต้นทางเสีย (ครั้งเดียวต่อรอบ)
+        if (!released) {
+          released = true;
+          run.sourceReleased = await this.sourceDown(tenantId, source, leaseId, false);
         }
         // หน้านี้มีใบที่ไม่ได้ผลสุดท้าย → ไม่เลื่อน cursor (รอบหน้าดึงหน้าเดิมซ้ำ — idempotent)
         if (pageErrors) break;
@@ -703,6 +723,80 @@ export class ConnectorIntakeService implements OnModuleInit {
         error: { code: e instanceof ProblemException ? e.code : 'internal_error', message: msg },
       };
     }
+  }
+
+  /**
+   * D-81 · D68-63 (docs/01 A.2): ต้นทางเสีย → ตั้งปัญหา `SOURCE_DOWN_ISSUE` บนทุกใบที่ยังค้างของต้นทางนี้ (ใบค้าง SOURCE_ERROR —
+   * ผู้ดูแลได้แจ้งเตือนจาก connector ERROR + แจ้งใบค้างรวมฉบับเดียว) · ต้นทางกลับมา (`down = false`) → ถอดเฉพาะปัญหานี้
+   * ทีละใบใน transaction ของใบ (ผู้กระทำ `connector:{key}`) · ใบที่ล้มไม่หยุดใบอื่น (log) · คืนจำนวนใบที่เปลี่ยน
+   * ต้นทางทดสอบตามรหัส (ไม่มีแถว connector) = ไม่ทำอะไร (เหมือน stopConnector)
+   */
+  private async sourceDown(
+    tenantId: string,
+    source: PullSource,
+    runId: string,
+    down: boolean,
+  ): Promise<number> {
+    if (!source.connectorId) return 0;
+    const connector = source.key;
+    let changed = 0;
+    try {
+      const ids = await this.db.withTenant(tenantId, (tx) =>
+        tx.salesOrder.findMany({
+          where: {
+            source: 'CONNECTOR',
+            sourceConnector: connector,
+            status: { in: ['DRAFT', 'RECEIVED', 'ON_HOLD'] },
+            ...(down ? {} : { sourceIssues: { array_contains: [SOURCE_DOWN_ISSUE] } }),
+          },
+          select: { id: true },
+          orderBy: { id: 'asc' },
+          take: SOURCE_DOWN_MAX,
+        }),
+      );
+      const { held } = await this.events.batchOrderHolds(async () => {
+        for (const { id } of ids) {
+          try {
+            const r = await this.db.withTenant(tenantId, (tx) =>
+              requestContext.run(
+                {
+                  requestId: `connector:${connector}:${runId}`,
+                  tenantId,
+                  actorId: `connector:${connector}`,
+                  principalType: 'connector',
+                  scopes: [],
+                  locale: 'th',
+                  tx,
+                },
+                () => this.intake.markSourceDown(tx, id, down),
+              ),
+            );
+            if (r) changed += 1;
+          } catch (e) {
+            this.logger.warn(
+              `tenant ${tenantId} connector ${connector}: ${down ? 'hold' : 'release'} order ${id} failed — ${show(e)}`,
+            );
+          }
+        }
+      });
+      if (held.length)
+        await this.db
+          .withTenant(tenantId, (tx) => this.events.flushOrderHolds(tx, tenantId, held))
+          .catch((e) =>
+            this.logger.warn(
+              `tenant ${tenantId} connector ${connector}: hold notify failed — ${show(e)}`,
+            ),
+          );
+    } catch (e) {
+      this.logger.warn(
+        `tenant ${tenantId} connector ${connector}: source ${down ? 'hold' : 'release'} failed — ${show(e)}`,
+      );
+    }
+    if (changed)
+      this.logger.warn(
+        `tenant ${tenantId} connector ${connector}: ${down ? 'held' : 'released'} ${changed} pending order(s) (source ${down ? 'down' : 'recovered'})`,
+      );
+    return changed;
   }
 
   /**

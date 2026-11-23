@@ -6,6 +6,7 @@ import {
   DO_UNDELIVERED_STATUSES,
   SO_TRANSITIONS,
   canCancelOrder,
+  isIntakeHoldCode,
   orderDeliveryEvent,
   transition,
   type SoEvent,
@@ -103,6 +104,7 @@ export class OrderStateService {
         source: true,
         sourceConnector: true,
         sourceCancelledAt: true,
+        holdReasonCode: { select: { code: true } },
       },
     });
     const out = (
@@ -122,7 +124,13 @@ export class OrderStateService {
       (await tx.deliveryOrder.count({
         where: { salesOrderId: so.id, status: { notIn: ['DRAFT', 'CANCELLED', 'RETURNED'] } },
       })) + ((await this.deliveryOrders.hasDoOnTrip(tx, so.id)) ? 1 : 0);
-    if (!dos && canCancelOrder(so.status as SoStatus)) {
+    // D-81 · D68-63 (A.4 "ใบ PLANNED+ ห้ามเงียบ"): ยกเลิกเองเฉพาะใบที่ยังไม่เคยวางแผน — DRAFT/RECEIVED หรือค้างด้วยเหตุของทางเข้า
+    // (ON_HOLD ด้วยเหตุตอนจัดรถ/ALL_RETURNED = เคยมี DO ในเที่ยวแล้ว → แจ้งเตือนแทน แม้ DO ที่เหลือจะคืนคลัง/ยกเลิกหมด)
+    const preplan =
+      so.status === 'DRAFT' ||
+      so.status === 'RECEIVED' ||
+      (so.status === 'ON_HOLD' && isIntakeHoldCode(so.holdReasonCode?.code ?? null));
+    if (!dos && preplan && canCancelOrder(so.status as SoStatus)) {
       await tx.salesOrder.update({
         where: { id: so.id },
         data: { sourceCancelledAt: new Date() },
