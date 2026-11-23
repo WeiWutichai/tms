@@ -7,7 +7,7 @@
     "dev": "NODE_ENV=development SWC_NODE_PROJECT=tsconfig.json node --watch -r @swc-node/register src/main.ts",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" && node scripts/lint-dto.mjs && node scripts/lint-adapters.mjs",
+    "lint": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"scripts/**/*.ts\" && node scripts/lint-dto.mjs && node scripts/lint-adapters.mjs",
     "test": "vitest run",
     "prisma:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy && pnpm -s tenants:bootstrap",

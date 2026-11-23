@@ -329,6 +329,29 @@ describe('ready-to-bill queue (ST5-T04)', { timeout: 300_000 }, () => {
     const d2 = await queue(`?limit=2&sort=-updatedAt&cursor=${d1.nextCursor}`);
     expect([...ids(d1), ...ids(d2)]).toEqual([...ids(all)].reverse());
     expect(d2.hasMore).toBe(false);
+    // review L1: updated_at ซ้ำกัน → ตัวตัดสินคือ id ข้ามขอบหน้า (limit=1 ทั้งสองทิศ ไม่ซ้ำ/ไม่ตกหล่น)
+    const same = new Date(Date.now() - 3_600_000);
+    await db.deliveryOrder.updateMany({
+      where: { id: { in: ids(all).map((x) => uuid('deliveryOrder', x)) } },
+      data: { updatedAt: same },
+    });
+    const walk = async (sort: string) => {
+      const out: string[] = [];
+      let cursor: string | null = null;
+      do {
+        const p: Awaited<ReturnType<typeof queue>> = await queue(
+          `?limit=1${sort}${cursor ? `&cursor=${cursor}` : ''}`,
+        );
+        out.push(...ids(p));
+        cursor = p.nextCursor;
+      } while (cursor);
+      return out;
+    };
+    const byId = [...ids(all)].sort((a, b) =>
+      uuid('deliveryOrder', a) < uuid('deliveryOrder', b) ? -1 : 1,
+    );
+    expect(await walk('')).toEqual(byId);
+    expect(await walk('&sort=-updatedAt')).toEqual([...byId].reverse());
     // customers[] ไม่ขึ้นกับหน้า
     expect(p1.customers).toHaveLength(3);
     // updatedAfter ใช้ทั้งแถวและยอดรวมต่อลูกค้า (review L)
