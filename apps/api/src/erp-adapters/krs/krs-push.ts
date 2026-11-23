@@ -38,6 +38,14 @@ import {
  *   ไม่รู้ = POST ใหม่ ถ้าถึงแล้ว KRS ตอบ 409 — A.5)
  */
 
+/**
+ * ตัวเลือก HTTP ของ KRS adapter (ไม่ใช่ค่าตั้งของ tenant) — `allowPrivate`/`resolver` สำหรับ test/mock · `timeoutMs` = **test เท่านั้น**
+ * (แทน timeout ของทุกคำขอ — ST8-T09 จำลอง client timeout ของ A.5 AMBIGUOUS โดยไม่ต้องรอ 120 วิ)
+ */
+export type KrsHttpOptions = Pick<SendOptions, 'allowPrivate' | 'resolver'> & {
+  timeoutMs?: number;
+};
+
 /** timeout ต่อคำขอ (docs/01 §8.1 "timeout client 120 วินาที" สำหรับใบใหญ่) */
 export const KRS_PUSH_TIMEOUT_MS = 120_000;
 /** response ของ POST สะท้อนรายการกลับมา (ใบ 446 รายการ) — อ่านได้ถึง 16 MB */
@@ -242,7 +250,7 @@ async function postOne(
   base: string,
   key: string,
   d: KrsInvoiceDocument,
-  http: Pick<SendOptions, 'allowPrivate' | 'resolver'>,
+  http: KrsHttpOptions,
 ): Promise<
   { ok: true; transactionNo: string; voucherNo: string | null } | (Fail & { definite: boolean })
 > {
@@ -421,7 +429,7 @@ export function planKrsInvoice(
 export async function pushKrsInvoice(
   ctx: ErpContext,
   inv: CanonicalDocument,
-  http: Pick<SendOptions, 'allowPrivate' | 'resolver'>,
+  http: KrsHttpOptions,
 ): Promise<PushResult> {
   const base = (ctx.config.baseUrl ?? '').trim().replace(/\/+$/, '');
   const key = ctx.config.apiKey ?? '';

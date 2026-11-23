@@ -211,6 +211,26 @@ export class ErpAdapterError extends Error {
   }
 }
 
+/**
+ * ST8-T09 (review H1) `fetchDocument` ของเอกสารหลายใบ/ใบที่รู้ id: เอกสารที่ ERP คืนมา**ไม่ใช่ของเรา** (เลขอ้างอิงของเราในเอกสาร
+ * ไม่ตรงกับ `ref` ที่คาด — เช่น คนกรอก id ผิดใบ/สลับใบ) และ/หรือ id ที่ ERP ตอบไม่พบ — ระบุทีละ id ให้ core ตัดสินต่อใบ
+ * class: มีใบที่ไม่ตรง = VALIDATION · ไม่พบอย่างเดียว = NOT_FOUND · core ห้ามนับใบเหล่านี้ว่า "มีอยู่แล้ว" (ไม่เข้า prior / applied)
+ */
+export class ExternalPartsError extends ErpAdapterError {
+  constructor(
+    problem: Problem,
+    readonly mismatched: readonly {
+      externalId: string;
+      expectedRef: string;
+      actualRef: string | null;
+    }[],
+    readonly missing: readonly string[],
+  ) {
+    super(mismatched.length ? 'VALIDATION' : 'NOT_FOUND', problem);
+    this.name = 'ExternalPartsError';
+  }
+}
+
 /** รหัสของ capability ที่ adapter ประกาศแล้วแต่ยังไม่ได้ทำ (โครง adapter — เช่น adapter `krs` ก่อน ST8-T04/T08/T10) */
 export const NOT_IMPLEMENTED = 'not_implemented';
 
@@ -285,6 +305,11 @@ export interface ExternalDocumentPart {
   group: string | null;
   /** `lineNo` ของ canonical ที่อยู่ในเอกสารนี้ */
   lineNos: readonly number[];
+  /**
+   * ST8-T09 (review M1) ที่มาของ id: `manual` = คนกรอกเองในคิวและ**ยังไม่ได้ยืนยัน**กับ ERP (GET แล้วเลขอ้างอิงตรง) ·
+   * ไม่มี = ระบบได้จาก ERP เอง/ยืนยันแล้ว — core ใช้ตัดสินเมื่อยืนยันไม่ผ่าน (manual = ถอยกลับให้คนกรอกใหม่ ไม่ใช่ REMOTE_MISSING)
+   */
+  source?: 'manual';
 }
 
 /** ST8-T09 เอกสาร 1 ใบในแผนของ adapter (`ErpAdapter.plannedDocuments`) — ยังไม่มีเลขฝั่ง ERP */

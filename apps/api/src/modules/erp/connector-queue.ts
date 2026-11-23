@@ -172,6 +172,11 @@ const CODE_GUIDE: Record<string, Guide> = {
     action: 'ยกเลิกเอกสารเลขนี้ในระบบบัญชี แล้วข้ามพร้อมเหตุผล',
   },
   duplicate_unresolved: CLASS_GUIDE.DUPLICATE!,
+  manual_external_id_rejected: {
+    title: 'เลขเอกสารที่กรอกไว้ยืนยันกับระบบบัญชีไม่ผ่าน',
+    action:
+      'เลขที่กรอกไม่พบในระบบบัญชี หรือเป็นเอกสารของใบอื่น/สลับใบกัน — ตรวจเลขของแต่ละใบในระบบบัญชีแล้วกรอกใหม่',
+  },
 };
 
 /** คู่มือของคำสั่ง (รหัสเฉพาะก่อน แล้วตาม ErrorClass) — null = ไม่มีปัญหาที่ต้องอธิบาย */
@@ -790,6 +795,7 @@ export class ConnectorQueueService {
     );
     const planned = new Map(parts.map((p, i) => [p.ref, { ...p, i }]));
     const entered = new Map<string, { externalId: string; externalDocNo: string | null }>();
+    const replaced: { ref: string; from: string; to: string }[] = [];
     const ids = new Set<string>();
     docs.forEach((d, i) => {
       const ref = d.ref.trim();
@@ -808,7 +814,10 @@ export class ConnectorQueueService {
       if (ids.has(externalId))
         throw invalid(`documents[${i}].externalId`, 'duplicate', 'ใช้ id เดียวกันกับหลายใบไม่ได้');
       const k = known.get(ref);
-      if (k && k.externalId !== externalId)
+      // review M1: ใบที่คนกรอกไว้แต่ยังไม่ยืนยันกับระบบบัญชี — แก้ทับได้ (ลง audit `replaced`) · ใบที่ระบบยืนยันแล้วต้องตรง
+      if (k?.source === 'manual' && k.externalId !== externalId)
+        replaced.push({ ref, from: k.externalId, to: externalId });
+      else if (k && k.externalId !== externalId)
         throw invalid(
           `documents[${i}].externalId`,
           'known_mismatch',
@@ -841,6 +850,8 @@ export class ConnectorQueueService {
           externalDocNo: e?.externalDocNo ?? k?.externalDocNo ?? null,
           group: p.group,
           lineNos: [...p.lineNos],
+          // review M1: ที่มาของ id — กรอกครั้งนี้ / กรอกไว้ก่อนแต่ยังไม่ยืนยัน = manual (ยืนยันไม่ผ่าน → ถอยกลับให้คนกรอกใหม่)
+          ...(e || k?.source === 'manual' ? { source: 'manual' as const } : {}),
         },
       ];
     });
@@ -917,6 +928,7 @@ export class ConnectorQueueService {
         entered: entered.has(p.ref),
       })),
       documentsPlanned: parts.length,
+      ...(replaced.length ? { replaced } : {}),
       verifyCommandId: verify ? encodeId('outboxCommand', verify) : null,
     });
     const [fresh] = await this.rows(tx, c, [row.id]);

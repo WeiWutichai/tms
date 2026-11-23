@@ -17,10 +17,10 @@ import {
   type PlannedDocumentPart,
   type PushResult,
 } from '../../modules/erp/erp-adapter';
-import { safeHttpRequest, type SendOptions } from '../../modules/webhooks/webhook-http';
+import { safeHttpRequest } from '../../modules/webhooks/webhook-http';
 import { krsMasterCodeRefs, krsPushReadiness } from './krs-master-codes';
 import { fetchKrsDocument, krsComparable, krsDocumentsFromSyncLog } from './krs-fetch';
-import { planKrsInvoice, pushKrsInvoice } from './krs-push';
+import { type KrsHttpOptions, planKrsInvoice, pushKrsInvoice, splitByVatType } from './krs-push';
 import { probeKrsSoSource, pullKrsOrders } from './krs-so-poller';
 
 /**
@@ -89,7 +89,7 @@ export class KrsAdapter implements ErpAdapter {
   ] as ErpFieldSubstitution[]);
 
   /** test: ตัวเลือกของ HTTP client (เช่น resolver) */
-  constructor(private readonly http: Pick<SendOptions, 'allowPrivate' | 'resolver'> = {}) {}
+  constructor(private readonly http: KrsHttpOptions = {}) {}
 
   capabilities(): ReadonlySet<ErpCapability> {
     return new Set(CAPS);
@@ -215,11 +215,22 @@ export class KrsAdapter implements ErpAdapter {
    */
   plannedDocuments(ctx: ErpContext, doc: CanonicalDocument): readonly PlannedDocumentPart[] | null {
     const pl = planKrsInvoice(ctx, doc);
-    if (!pl.ok) return null;
-    return pl.plan.map((p) => ({
-      ref: p.doc.tmsVoucherNo,
-      group: p.group,
-      lineNos: p.doc.lineNos,
+    if (pl.ok)
+      return pl.plan.map((p) => ({
+        ref: p.doc.tmsVoucherNo,
+        group: p.group,
+        lineNos: p.doc.lineNos,
+      }));
+    // review L3: สร้าง payload ไม่ได้ (เช่น ผังรหัสยังไม่ครบ) — เลขอ้างอิงขึ้นกับเลขใบแจ้งหนี้ + กลุ่ม VAT เท่านั้น
+    // (ยกเว้นใบใหญ่เกินเพดานที่แบ่ง `-P{n}` — กรณีนั้น ref ที่คนกรอกจะไม่อยู่ในแผน = 422 ปลอดภัย ไม่ผูกผิดใบ)
+    const split = splitByVatType(doc);
+    if (!split.ok) return null;
+    return split.groups.map((g) => ({
+      ref: g.tmsVoucherNo,
+      group: g.group,
+      lineNos: (Array.isArray(g.doc.lines) ? (g.doc.lines as { lineNo?: unknown }[]) : [])
+        .map((l) => l?.lineNo)
+        .filter((n): n is number => Number.isInteger(n)),
     }));
   }
 

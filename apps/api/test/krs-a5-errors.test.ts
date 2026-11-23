@@ -17,6 +17,9 @@ import {
   type ClaimedCommand,
 } from '../src/modules/integration/outbox.dispatcher';
 import { OutboxService } from '../src/modules/integration/outbox.service';
+import { OutboxSinkRegistry } from '../src/modules/integration/outbox-sink.registry';
+import { PrismaService } from '../src/db/prisma.service';
+import { ErpAdapterSink } from '../src/modules/erp/erp-adapter.sink';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { safeHttpRequest } from '../src/modules/webhooks/webhook-http';
@@ -69,6 +72,27 @@ describe('ST8-T09 ไม่แตะฐาน: แยก "ต่อไม่ต�
     } finally {
       await mock.stop();
     }
+  });
+});
+
+describe('ST8-T09 review L3: แผนการแยกใบของ KRS ไม่ต้องผ่านผังรหัส', () => {
+  it('สร้าง payload ไม่ได้ (ไม่มีผังรหัส) → ยังได้ ref ตามกลุ่ม VAT (เลขใบแจ้งหนี้ / -V7)', () => {
+    const doc = {
+      id: 'x',
+      number: 'INV-L3',
+      lines: [
+        { lineNo: 1, vatType: 'VAT_7' },
+        { lineNo: 2, vatType: 'EXEMPT_TRANSPORT' },
+      ],
+    };
+    const parts = new KrsAdapter().plannedDocuments(
+      { tenantId: 't', connectorId: null, companyId: null, erpCompanyCode: null, config: {} },
+      doc,
+    );
+    expect(parts).toEqual([
+      { ref: 'INV-L3', group: 'EXEMPT_TRANSPORT', lineNos: [2] },
+      { ref: 'INV-L3-V7', group: 'VAT_7', lineNos: [1] },
+    ]);
   });
 });
 
@@ -358,12 +382,16 @@ describe('ST8-T09 KRS error handling ตาม A.5', { timeout: 600_000 }, () =>
     expect(new Set(cmds.map((c) => c.serializeKey)).size).toBe(5);
     await plat.$executeRaw`UPDATE integration_outbox SET next_run_at = now() - interval '1 second'
                             WHERE tenant_id = ${tenantId}::uuid AND status = 'PENDING'`;
-    const claimed: ClaimedCommand[] = [];
-    for (let i = 0; i < 10; i++) {
-      const c = await dispatcher.claim();
-      if (!c) break;
-      claimed.push(c);
-    }
+    // review L1: 2 dispatcher (เหมือน 2 process — mutex ในหน่วยความจำไม่ช่วย) หยิบพร้อมกัน — advisory lock ต่อปลายทางกันนับเกิน
+    const other = new OutboxDispatcher(
+      app.get(PrismaService),
+      app.get(DbService),
+      app.get(OutboxSinkRegistry),
+    );
+    const got = await Promise.all(
+      Array.from({ length: 10 }, (_, i) => (i % 2 ? other : dispatcher).claim()),
+    );
+    const claimed: ClaimedCommand[] = got.filter((c): c is ClaimedCommand => !!c);
     try {
       // เพดาน 3 ต่อ connector (docs/01 §6.2 config.maxConcurrency default 3; A.5 "จำกัด 3 ต่อ connector")
       expect(claimed).toHaveLength(3);
@@ -399,6 +427,15 @@ describe('ST8-T09 KRS error handling ตาม A.5', { timeout: 600_000 }, () =>
       externalDocNo: got.voucherNo,
     });
   });
+
+  // M2 (review): แถว A.5 ที่ย้ายไป task อื่น (plan/01 แถว ST8-T09)
+  it.todo(
+    'A5-201→GET: GET ทันที 1 ครั้งหลัง 201 (reconcile AFTER_PUSH → ACCEPTED/MISMATCH) — ST8-T11 (docs/01 §6.5)',
+  );
+  it.todo(
+    'A5-PUT-200: replaceDocument PUT 200 → mapping + GET เทียบ — ST8-T13 (replaceDocument ยัง pending)',
+  );
+  it.todo('A5-PUT-404: PUT ได้ 404 → REMOTE_MISSING — ST8-T13');
 
   // ---------- 409 DUPLICATE ----------
 
@@ -608,28 +645,168 @@ describe('ST8-T09 KRS error handling ตาม A.5', { timeout: 600_000 }, () =>
     expect(r.body.code).toBe('external_id_conflict');
   });
 
-  it('A5-409d: กรอกเลขผิด (เป็นใบของเอกสารอื่นใน KRS) → GET แล้วเนื้อหาไม่ตรง = MISMATCH ไม่ SYNCED ไม่ POST', async () => {
-    const decoy = await single('409.40');
+  /** ใบใน KRS ที่ไม่มี mapping ฝั่ง TMS (เช่น ของใบอื่น) — คืน transactionNo */
+  async function decoyKrsDoc(amount: string) {
+    const decoy = await single(amount);
     await drain();
-    const decoyNo = mock.getInvoiceByTmsVoucherNo(decoy.invoiceNo)!.transactionNo;
-    // ลบ mapping ของใบล่อ (ทำเหมือนเป็นใบที่ TMS ไม่รู้จัก) — ทดสอบการเทียบเนื้อหาเท่านั้น
+    const no = mock.getInvoiceByTmsVoucherNo(decoy.invoiceNo)!.transactionNo;
+    // ลบ mapping ของใบล่อ (ทำเหมือนเป็นใบที่ TMS ไม่รู้จัก) — ทดสอบการตรวจ ref เท่านั้น
     await plat.externalMapping.deleteMany({ where: { tenantId, localId: decoy.uuid } });
-    const inv = await single('409.41');
+    return no;
+  }
+  /** ใบแยก 2 ใบ: ใบแรกถึง KRS แต่ผลหาย → POST ซ้ำได้ 409 → คิวให้คนกรอก (ไม่รู้เลขใบใดเลย · ใบที่ 2 ยังไม่ถูกสร้าง) */
+  async function splitUnresolved(a: string, b: string) {
     mock.injectFault({ kind: 'reset-after-commit', method: 'POST', times: 1 });
+    const inv = await split(a, b);
     await drain();
     await drain();
     const cmd = await pushCmd(inv.uuid);
-    const r = await enterIds(cmd.id, { externalId: decoyNo });
+    expect(await reload(cmd.id)).toMatchObject({ status: 'DONE', errorClass: 'DUPLICATE' });
+    expect(mock.getInvoiceByTmsVoucherNo(`${inv.invoiceNo}-V7`)).toBeUndefined();
+    return { inv, cmd };
+  }
+  const rejectedBack = async (commandId: string) => {
+    const row = await reload(commandId);
+    expect(row).toMatchObject({ status: 'DONE', errorClass: 'DUPLICATE' });
+    expect(row.lastError).toMatchObject({
+      code: 'manual_external_id_rejected',
+      manualExternalIdRequired: true,
+    });
+    // กลับเข้าคิวล้มเหลวให้คนกรอกใหม่
+    const q = await api(app, accounting)
+      .get(`/v1/connectors/${conId}/queue?tab=failed&errorClass=DUPLICATE`)
+      .expect(200);
+    const item = q.body.data.find(
+      (x: { id: string }) => x.id === encodeId('outboxCommand', commandId),
+    );
+    expect(item).toMatchObject({
+      manualExternalIdRequired: true,
+      actions: { externalId: true, retry: false },
+      guide: { key: 'manual_external_id_rejected' },
+    });
+    return row;
+  };
+
+  it('A5-409d (review H1): กรอก id ที่มีอยู่ใน KRS แต่เป็นของใบอื่น (ใบอื่นไม่ได้กรอก) → GET แล้ว tmsVoucherNo ไม่ตรง = ไม่นับว่ามี · ไม่ POST ใบที่เหลือ · กลับเข้าคิว', async () => {
+    const decoyNo = await decoyKrsDoc('409.40');
+    const { inv, cmd } = await splitUnresolved('3200.00', '470.00');
+    const r = await enterIds(cmd.id, { documents: [{ ref: inv.invoiceNo, externalId: decoyNo }] });
     expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const p = posts().length;
+    const g = gets().length;
+    await drain();
+    // ก่อนแก้ H1: ใบแรก "มีแล้ว" → POST ใบ -V7 ทั้งที่ใบแรกผิด · ตอนนี้: GET แล้วหยุด
+    expect(posts().length).toBe(p);
+    expect(gets().length - g).toBe(1);
+    expect(mock.getInvoiceByTmsVoucherNo(`${inv.invoiceNo}-V7`)).toBeUndefined();
+    const verify = tryDecodeId('outboxCommand', r.body.resolution.supersededBy)!;
+    const row = await rejectedBack(verify);
+    expect(row.lastError).toMatchObject({
+      mismatched: [{ externalId: decoyNo, expectedRef: inv.invoiceNo }],
+    });
+    const m = await mapping(inv.uuid);
+    expect(m).toMatchObject({
+      status: 'MISMATCH',
+      externalId: null,
+      lastError: { code: 'manual_external_id_rejected' },
+    });
+    expect((m!.detail as Record<string, unknown> | null)?.documents).toBeUndefined();
+    expect(await plat.reconcileResult.count({ where: { tenantId, localId: inv.uuid } })).toBe(0);
+  });
+
+  it('A5-409e (review H1/M1): สลับเลขของ 2 ใบ → ไม่ตรงทั้งคู่ → ตัดเลขที่กรอกทิ้ง กลับเข้าคิว · กรอกใหม่ถูกใบ → GET ทั้งสองใบ → SYNCED ไม่ POST', async () => {
+    const { inv, cmd } = await splitUnresolved('3300.00', '480.00');
+    // ใบที่ 2 ถูกสร้างใน KRS ทางอื่น (เช่น worker ตายหลัง 201)
+    const p1 = mock.getInvoiceByTmsVoucherNo(inv.invoiceNo)!;
+    const res = await fetch(`${mock.apiBaseUrl}/invoice`, {
+      method: 'POST',
+      headers: { 'X-API-Key': KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...p1.data,
+        tmsVoucherNo: `${inv.invoiceNo}-V7`,
+        lines: p1.data.lines,
+      }),
+    });
+    expect(res.status).toBe(201);
+    const p2 = mock.getInvoiceByTmsVoucherNo(`${inv.invoiceNo}-V7`)!;
+    const swapped = await enterIds(cmd.id, {
+      documents: [
+        { ref: inv.invoiceNo, externalId: p2.transactionNo },
+        { ref: `${inv.invoiceNo}-V7`, externalId: p1.transactionNo },
+      ],
+    });
+    expect(swapped.status, JSON.stringify(swapped.body)).toBe(200);
     const p = posts().length;
     await drain();
     expect(posts().length).toBe(p);
-    expect(await mapping(inv.uuid)).toMatchObject({
-      status: 'MISMATCH',
-      externalId: decoyNo,
-      lastSyncedHash: null,
-      lastError: { code: 'erp_content_unverified' },
+    const verify = tryDecodeId('outboxCommand', swapped.body.resolution.supersededBy)!;
+    const row = await rejectedBack(verify);
+    expect((row.lastError as { mismatched: unknown[] }).mismatched).toHaveLength(2);
+    expect(await mapping(inv.uuid)).toMatchObject({ status: 'MISMATCH', externalId: null });
+    // กรอกใหม่บนคำสั่งยืนยันที่กลับเข้าคิว — ใบที่ 2 ของ KRS ถูกสร้างด้วยรายการของใบแรก → เนื้อหาไม่ตรง = MISMATCH (ไม่ SYNCED)
+    const fixed = await enterIds(verify, {
+      documents: [
+        { ref: inv.invoiceNo, externalId: p1.transactionNo },
+        { ref: `${inv.invoiceNo}-V7`, externalId: p2.transactionNo },
+      ],
     });
+    expect(fixed.status, JSON.stringify(fixed.body)).toBe(200);
+    await drain();
+    expect(posts().length).toBe(p);
+    const m = await mapping(inv.uuid);
+    expect(m).toMatchObject({ externalId: p1.transactionNo });
+    expect(m!.status).not.toBe('PENDING');
+    expect(
+      (m!.detail as { documents: { externalId: string }[] }).documents.map((x) => x.externalId),
+    ).toEqual([p1.transactionNo, p2.transactionNo]);
+  });
+
+  it('A5-409f (review M1): เลขที่คนกรอกแต่ยังไม่ได้ยืนยัน แก้ทับได้ (audit replaced) · เลขที่ระบบยืนยันแล้วแก้ไม่ได้ (422)', async () => {
+    mock.injectFault({ kind: 'reset-after-commit', method: 'POST', skip: 1, times: 1 });
+    const inv = await split('3400.00', '490.00');
+    await drain();
+    await drain();
+    const cmd = await pushCmd(inv.uuid);
+    expect(await reload(cmd.id)).toMatchObject({ errorClass: 'DUPLICATE' });
+    const p1 = mock.getInvoiceByTmsVoucherNo(inv.invoiceNo)!;
+    const p2 = mock.getInvoiceByTmsVoucherNo(`${inv.invoiceNo}-V7`)!;
+    const first = await enterIds(cmd.id, {
+      documents: [{ ref: `${inv.invoiceNo}-V7`, externalId: '99999913' }],
+    });
+    expect(first.status, JSON.stringify(first.body)).toBe(200);
+    // จำลอง: คำสั่งยืนยันกลับเข้าคิวก่อนได้อ่าน KRS (ยังไม่ยืนยันเลขที่กรอก)
+    const verify = tryDecodeId('outboxCommand', first.body.resolution.supersededBy)!;
+    await plat.$executeRaw`UPDATE integration_outbox
+                              SET status = 'DONE', error_class = 'DUPLICATE', done_at = now(),
+                                  last_error = '{"code":"duplicate_unresolved","manualExternalIdRequired":true}'::jsonb
+                            WHERE id = ${verify}::uuid`;
+    expect((await mapping(inv.uuid))!.detail).toMatchObject({
+      documents: [
+        { ref: inv.invoiceNo, externalId: p1.transactionNo },
+        { ref: `${inv.invoiceNo}-V7`, externalId: '99999913', source: 'manual' },
+      ],
+    });
+    // ใบแรก (ระบบยืนยันเอง) แก้ไม่ได้
+    const locked = await enterIds(verify, {
+      documents: [{ ref: inv.invoiceNo, externalId: '99999914' }],
+    });
+    expect(locked.status).toBe(422);
+    expect(locked.body.errors[0]).toMatchObject({ code: 'known_mismatch' });
+    const again = await enterIds(verify, {
+      documents: [{ ref: `${inv.invoiceNo}-V7`, externalId: p2.transactionNo }],
+    });
+    expect(again.status, JSON.stringify(again.body)).toBe(200);
+    const audit = await plat.auditLog.findFirst({
+      where: { tenantId, action: 'connector.queue_external_id' },
+      orderBy: { seq: 'desc' },
+    });
+    expect(audit?.after).toMatchObject({
+      replaced: [{ ref: `${inv.invoiceNo}-V7`, from: '99999913', to: p2.transactionNo }],
+    });
+    const p = posts().length;
+    await drain();
+    expect(posts().length).toBe(p);
+    expect(await mapping(inv.uuid)).toMatchObject({ status: 'SYNCED' });
   });
 
   // ---------- 503 TRANSIENT ----------
@@ -756,6 +933,25 @@ describe('ST8-T09 KRS error handling ตาม A.5', { timeout: 600_000 }, () =>
     });
   });
 
+  it('A5-AMBc (review L4): client timeout (KRS ไม่ตอบภายในเวลา) = AMBIGUOUS `timeout` · ไม่ POST ซ้ำทันที', async () => {
+    const reg = app.get(ErpAdapterRegistry);
+    reg.replace(new KrsAdapter({ allowPrivate: true, timeoutMs: 100 }));
+    try {
+      const inv = await single('604.20');
+      mock.injectFault({ kind: 'timeout-after-commit', method: 'POST', times: 1 });
+      const before = posts().length;
+      await dispatcher.drain();
+      const row = await reload((await pushCmd(inv.uuid)).id);
+      expect(row).toMatchObject({ status: 'FAILED_RETRYABLE', errorClass: 'AMBIGUOUS' });
+      expect(row.lastError).toMatchObject({ code: 'timeout', knownOutcome: false });
+      expect(row.nextRunAt.getTime() - Date.now()).toBeGreaterThan(1.8 * 60_000);
+      await dispatcher.drain();
+      expect(posts().length - before).toBe(1);
+    } finally {
+      reg.replace(new KrsAdapter({ allowPrivate: true }));
+    }
+  });
+
   // ---------- 400 VALIDATION ----------
 
   it('A5-400: ไม่ retry · เก็บ response ตัวเต็ม (sync log) + ช่องที่ผิด · ขึ้นคิวล้มเหลว (VALIDATION)', async () => {
@@ -833,19 +1029,26 @@ describe('ST8-T09 KRS error handling ตาม A.5', { timeout: 600_000 }, () =>
 
   // ---------- 404 NOT_FOUND ----------
 
-  it('A5-404a (GET ยืนยันหลังกรอกเลข): KRS ไม่มีใบเลขนั้น → ไม่ POST · FAILED_FINAL NOT_FOUND + REMOTE_MISSING ให้คนตัดสิน', async () => {
+  it('A5-404a (GET ของเลขที่ระบบรู้เอง — sync log มี 201): KRS ไม่มีใบเลขนั้นแล้ว → ไม่ POST · FAILED_FINAL NOT_FOUND + REMOTE_MISSING ให้คนตัดสิน', async () => {
     const inv = await single('404.00');
     mock.injectFault({ kind: 'reset-after-commit', method: 'POST', times: 1 });
     await drain();
-    await drain();
     const cmd = await pushCmd(inv.uuid);
-    const r = await enterIds(cmd.id, { externalId: '99999404' });
-    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const log = await plat.erpSyncLog.findFirstOrThrow({
+      where: { outboxId: cmd.id, method: 'POST' },
+    });
+    await plat.erpSyncLog.update({
+      where: { id: log.id },
+      data: {
+        statusCode: 201,
+        errorCode: null,
+        responseBody: JSON.stringify({ transactionNo: '99999404', voucherNo: 'SA-S0000-0000' }),
+      },
+    });
     const p = posts().length;
     await drain();
     expect(posts().length).toBe(p);
-    const verify = await reload(tryDecodeId('outboxCommand', r.body.resolution.supersededBy)!);
-    expect(verify).toMatchObject({ status: 'FAILED_FINAL', errorClass: 'NOT_FOUND' });
+    expect(await reload(cmd.id)).toMatchObject({ status: 'FAILED_FINAL', errorClass: 'NOT_FOUND' });
     expect(await mapping(inv.uuid)).toMatchObject({
       status: 'MISMATCH',
       externalId: '99999404',
@@ -854,6 +1057,33 @@ describe('ST8-T09 KRS error handling ตาม A.5', { timeout: 600_000 }, () =>
     expect(
       await plat.reconcileResult.findFirst({ where: { tenantId, localId: inv.uuid } }),
     ).toMatchObject({ result: 'REMOTE_MISSING', severity: 'MONEY' });
+  });
+
+  it('A5-404c (review M1): เลขที่คนกรอกเอง GET ได้ 404 → ไม่ใช่ REMOTE_MISSING — ตัดเลขทิ้ง กลับเข้าคิวให้กรอกใหม่ · กรอกถูก → SYNCED', async () => {
+    const inv = await single('404.20');
+    mock.injectFault({ kind: 'reset-after-commit', method: 'POST', times: 1 });
+    await drain();
+    await drain();
+    const cmd = await pushCmd(inv.uuid);
+    const r = await enterIds(cmd.id, { externalId: '99999406' });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const p = posts().length;
+    await drain();
+    expect(posts().length).toBe(p);
+    const verify = tryDecodeId('outboxCommand', r.body.resolution.supersededBy)!;
+    const row = await rejectedBack(verify);
+    expect(row.lastError).toMatchObject({ missing: ['99999406'] });
+    expect(await mapping(inv.uuid)).toMatchObject({ status: 'MISMATCH', externalId: null });
+    expect(await plat.reconcileResult.count({ where: { tenantId, localId: inv.uuid } })).toBe(0);
+    const got = mock.getInvoiceByTmsVoucherNo(inv.invoiceNo)!;
+    const fixed = await enterIds(verify, { externalId: got.transactionNo });
+    expect(fixed.status, JSON.stringify(fixed.body)).toBe(200);
+    await drain();
+    expect(posts().length).toBe(p);
+    expect(await mapping(inv.uuid)).toMatchObject({
+      status: 'SYNCED',
+      externalId: got.transactionNo,
+    });
   });
 
   it('A5-404b (คำสั่ง FETCH_DOCUMENT ของใบที่ mapping บอกว่าอยู่ใน KRS): ใบถูกลบฝั่ง KRS → MISMATCH + REMOTE_MISSING', async () => {
@@ -896,5 +1126,16 @@ describe('ST8-T09 KRS error handling ตาม A.5', { timeout: 600_000 }, () =>
     expect(
       await plat.reconcileResult.findFirst({ where: { tenantId, localId: inv.uuid } }),
     ).toMatchObject({ result: 'REMOTE_MISSING' });
+  });
+
+  it('review L2: adapter ไม่ได้ติดตั้ง / ไม่มี plannedDocuments = เอกสารเดียว (ทางกรอกเลขเดี่ยวของ ST7-T19)', async () => {
+    const sink = app.get(ErpAdapterSink);
+    const c = await connector();
+    const r = await app
+      .get(DbService)
+      .withTenant(tenantId, (tx) =>
+        sink.plannedDocuments(tx, { ...c, adapterKey: 'not-installed' }, 'PUSH_INVOICE', null),
+      );
+    expect(r).toEqual({ kind: 'single' });
   });
 });
