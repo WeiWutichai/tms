@@ -49,7 +49,7 @@ describeErpAdapterContract('krs (KrsAdapter — โครง)', {
   make: () => new KrsAdapter({ allowPrivate: true }),
   config: good,
   badConfig: bad,
-  notImplemented: ['fetchDocument', 'replaceDocument'],
+  notImplemented: ['replaceDocument'],
   // ST8-T08 pushInvoice ทำแล้ว — ใบตัวอย่างที่ผ่านผังรหัส (ctx.masterCodes) → POST จริงกับ mock · ส่งซ้ำ = 409 DUPLICATE
   samples: { invoice: contractInvoice() },
   context: contractContext(),
@@ -310,8 +310,8 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
       'ownsDocumentNumber',
     ];
     expect(k.capabilities).toEqual(all);
-    // ST8-T04 pullOrders · ST8-T08 pushInvoice + ownsDocumentNumber ทำแล้ว — ที่เหลือยังเป็นโครง
-    expect(k.capabilitiesPending).toEqual(['fetchDocument', 'replaceDocument']);
+    // ST8-T04 pullOrders · ST8-T08 pushInvoice + ownsDocumentNumber · ST8-T10 fetchDocument ทำแล้ว — ที่เหลือยังเป็นโครง
+    expect(k.capabilitiesPending).toEqual(['replaceDocument']);
     expect(k.configFields.map((f: { key: string }) => f.key)).toEqual([
       'baseUrl',
       'apiKey',
@@ -327,13 +327,14 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
   it('M1: capability ที่ยังไม่ได้ทำไม่เปิดเป็นค่าเริ่มต้น · ขอเปิด = 422 · คำสั่ง REPLACE_DOCUMENT ที่ค้าง = PENDING (ไม่ SKIPPED ไม่เสียครั้ง)', async () => {
     const r = await createKrs();
     expect(r.status, JSON.stringify(r.body)).toBe(201);
-    // ST8-T04 pullOrders · ST8-T08 pushInvoice พร้อมแล้ว · ที่เหลือยังไม่รองรับ
+    // ST8-T04 pullOrders · ST8-T08 pushInvoice · ST8-T10 fetchDocument พร้อมแล้ว · ที่เหลือยังไม่รองรับ
     expect(r.body.capabilitiesSupported).toEqual([
       'pullOrders',
       'pushInvoice',
+      'fetchDocument',
       'ownsDocumentNumber',
     ]);
-    expect(r.body.capabilitiesPending).toEqual(['fetchDocument', 'replaceDocument']);
+    expect(r.body.capabilitiesPending).toEqual(['replaceDocument']);
     const bad = await api(app, token)
       .patch(`/v1/connectors/${r.body.id}`)
       .send({ capabilitiesEnabled: ['replaceDocument'] });

@@ -12,7 +12,7 @@ import {
  * Payload builder ของ KRS (ST8-T07; docs/01 A.3, §7.4) — canonical invoice (docs/01 §7.1–7.2) → body ของ
  * `POST /invoice` / `PUT /invoice/{transactionNo}` ตาม contract `packages/contracts/krs/invoice-request.schema.json`
  *
- * ฟังก์ชันบริสุทธิ์: ไม่มี I/O ไม่อ่านฐานข้อมูล ไม่เรียก KRS — การส่ง (`pushInvoice`) = ST8-T08, error = ST8-T09, GET = ST8-T10
+ * ฟังก์ชันบริสุทธิ์: ไม่มี I/O ไม่อ่านฐานข้อมูล ไม่เรียก KRS — การส่ง (`pushInvoice`) = ST8-T08, error = ST8-T09, GET = ST8-T10 (`krs-fetch.ts`)
  *
  * - **whitelist**: สร้าง object ใหม่ทีละฟิลด์จาก `KRS_INVOICE_HEADER_FIELDS` / `KRS_INVOICE_LINE_FIELDS` เท่านั้น (KRS: ส่งเกิน = 400)
  *   ไม่ serialize canonical ทั้งก้อน · ก่อนคืนผลตรวจซ้ำว่าไม่มี key นอกรายการ (`assertKrsWhitelist`) · test เทียบรายการกับ schema ของ contract
@@ -20,7 +20,7 @@ import {
  * - `lineId` = `lineNo` ของ canonical (int) · 1 รายการ canonical = 1 รายการ KRS (ไม่รวม/ไม่แตกรายการ)
  * - ตัวเลข (`mainQuantity`, `unitPrice`): contract เป็น JSON number → แปลงจากสตริงทศนิยมของ canonical **เฉพาะเมื่อแปลงกลับได้ค่าเดิมทุกหลัก**
  *   (ไม่ปัด ไม่ใช้ float คำนวณ) — แปลงแล้วเพี้ยน = ไม่ส่ง (`number_not_exact`)
- * - ไม่ส่งส่วนลด/ยอดเงิน/VAT (A.3: KRS คำนวณเอง) — `expectedAmount` ของแต่ละใบ = ผลรวม `amount` ของ canonical เก็บไว้เทียบ (ST8-T10)
+ * - ไม่ส่งส่วนลด/ยอดเงิน/VAT (A.3: KRS คำนวณเอง) — `expectedAmount` ของแต่ละใบ = ผลรวม `amount` ของ canonical เก็บไว้เทียบ (ST8-T11 reconcile ระดับ TOTAL — ST8-T10 ไม่เทียบยอด: GET ของ KRS จะคืนยอดไหม/ปัดอย่างไร [OPEN — KRS])
  * - `accountCode`: ส่งเฉพาะค่าที่หาเจอในผัง ACCOUNT ที่นำเข้าแล้ว — ยังไม่มีผัง = ไม่ส่ง key (A.3: ให้ KRS กำหนด default)
  * - รหัส master: ใช้ค่าที่ core ตรวจกับผังรหัสแล้ว (`ctx.masterCodes` — ST8-T06 `krsMasterCodeRefs`) · ค่าที่ไม่ได้ผ่านการตรวจ = ไม่ส่ง
  *   คืนรายการรหัสที่ขาดใน `missingMasterCodes`
@@ -168,7 +168,7 @@ export interface KrsInvoiceDocument {
   /** ผลรวม `amount` ของ canonical ในใบนี้ (สตริงทศนิยม 2 ตำแหน่ง) — ไม่ส่งให้ KRS เก็บไว้เทียบกับยอดที่ KRS คำนวณ */
   expectedAmount: string;
   /**
-   * `amount` ของ canonical ต่อรายการ (ลำดับเดียวกับ `body.lines`) — ST8-T10 เทียบกับยอดต่อรายการที่ KRS คำนวณ
+   * `amount` ของ canonical ต่อรายการ (ลำดับเดียวกับ `body.lines`) — ST8-T11 เทียบกับยอดต่อรายการที่ KRS คำนวณ (ST8-T10 ไม่เทียบยอด)
    * จับคู่ด้วย `lineId` + `flowNo` (`flowNo` ซ้ำในใบได้ — หลายรายการต่อ DO) · KRS ปัดยอดอย่างไรยังไม่รู้ [OPEN — KRS]
    */
   expectedLines: { lineId: number; flowNo: string; amount: string }[];

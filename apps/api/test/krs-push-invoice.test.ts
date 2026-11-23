@@ -308,7 +308,9 @@ describe('KRS pushInvoice ครบวงจร (ST8-T08)', { timeout: 600_000 }
     await api(app, admin).post(`/v1/connectors/${conId}/resume`).send({}).expect(200);
     const on = await api(app, admin)
       .patch(`/v1/connectors/${conId}`)
-      .send({ capabilitiesEnabled: ['pullOrders', 'pushInvoice', 'ownsDocumentNumber'] });
+      .send({
+        capabilitiesEnabled: ['pullOrders', 'pushInvoice', 'ownsDocumentNumber', 'fetchDocument'],
+      });
     expect(on.status, JSON.stringify(on.body)).toBe(200);
     expect(on.body.capabilitiesEnabled).toEqual(
       expect.arrayContaining(['pushInvoice', 'ownsDocumentNumber']),
@@ -323,10 +325,10 @@ describe('KRS pushInvoice ครบวงจร (ST8-T08)', { timeout: 600_000 }
     await plat.$disconnect();
   });
 
-  it('catalog: pushInvoice + ownsDocumentNumber ไม่ pending แล้ว (ค้าง fetchDocument / replaceDocument)', async () => {
+  it('catalog: pushInvoice + ownsDocumentNumber + fetchDocument (ST8-T10) ไม่ pending แล้ว (ค้าง replaceDocument)', async () => {
     const cat = await api(app, admin).get('/v1/connectors/adapters').expect(200);
     const k = cat.body.data.find((a: { key: string }) => a.key === 'krs');
-    expect(k.capabilitiesPending).toEqual(['fetchDocument', 'replaceDocument']);
+    expect(k.capabilitiesPending).toEqual(['replaceDocument']);
   });
 
   it('เกณฑ์ตรวจรับ: finalize → mock ได้ POST 1 ครั้ง (tmsVoucherNo = เลขใบแจ้งหนี้) → mapping มี transactionNo / voucherNo', async () => {
@@ -641,10 +643,10 @@ describe('KRS pushInvoice ครบวงจร (ST8-T08)', { timeout: 600_000 }
     expect(mock.getInvoiceByTmsVoucherNo(invoiceNo)).toBeTruthy();
     expect((await mapping(inv.uuid))?.status).toBe('SYNCED');
   });
-  it('re-review M1: ใบที่ 2 ล้ม 504 (ไม่รู้แน่ว่าสร้างหรือไม่) → mapping เก็บใบแรกแบบไม่ครบ · รอบถัดไปค้นก่อน (พักรอ fetchDocument) ไม่ POST ซ้ำ', async () => {
+  it('re-review M1 + ST8-T10: ใบที่ 2 ล้ม 504 (ไม่รู้แน่) → รอบถัดไปค้นก่อน: รู้เลข KRS ของใบแรก (mapping) แต่ไม่ครบทุกรายการ → POST เฉพาะใบที่ขาด', async () => {
     mock.injectFault({ kind: 'status', status: 504, method: 'POST', skip: 1, times: 1 });
     const before = posts().length;
-    const { inv } = await splitInvoice();
+    const { inv, invoiceNo } = await splitInvoice();
     await drain();
     expect(posts().length - before).toBe(2);
     const cmd = (await commands(inv.uuid)).find((c) => c.operation === 'PUSH_INVOICE')!;
@@ -656,15 +658,21 @@ describe('KRS pushInvoice ครบวงจร (ST8-T08)', { timeout: 600_000 }
       documentsComplete: false,
     });
     await drain();
-    expect(posts().length - before).toBe(2);
-    const parked = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } });
-    expect(parked.status).toBe('PENDING');
-    expect(parked.lastError).toMatchObject({ code: 'capability_not_implemented' });
-    // คำสั่งที่พักไว้อยู่หัวคิวของลูกค้า (serialize ต่อลูกค้า) — ปิดทิ้งให้ข้อถัดไปส่งได้
-    await plat.integrationOutbox.update({ where: { id: cmd.id }, data: { status: 'SKIPPED' } });
+    // KRS ไม่มีใบ -V7 (504 ของ mock ไม่บันทึก) — ใบที่อาจถึงแล้ว KRS จะตอบ 409 (A.5) จึงส่งได้โดยไม่สร้างซ้ำ
+    const sent = posts().slice(before + 2);
+    expect(sent.map((q) => q.status)).toEqual([201]);
+    expect(mock.listInvoices().filter((i) => i.data.tmsVoucherNo === invoiceNo)).toHaveLength(1);
+    const done = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } });
+    expect(done.status).toBe('DONE');
+    const m = await mapping(inv.uuid);
+    expect(m).toMatchObject({ status: 'SYNCED' });
+    expect((m!.detail as { documents: { ref: string }[] }).documents.map((x) => x.ref)).toEqual([
+      invoiceNo,
+      `${invoiceNo}-V7`,
+    ]);
   });
 
-  it('re-review M2: worker ตายหลัง KRS ตอบ 201 (ผลไม่ถูกบันทึก) → ยึดคืนคำสั่ง → ไม่ POST ซ้ำ (ค้นก่อน/พัก)', async () => {
+  it('re-review M2 + ST8-T10: worker ตายหลัง KRS ตอบ 201 (ไม่มีผล/ sync log) → ยึดคืน → POST ใบที่ขาด ได้ 409 → DUPLICATE ให้คนกรอกเลข (A.5) ไม่สร้างซ้ำ', async () => {
     mock.injectFault({ kind: 'status', status: 503, method: 'POST', skip: 1, times: 1 });
     const before = posts().length;
     const { inv, invoiceNo } = await splitInvoice();
@@ -687,16 +695,93 @@ describe('KRS pushInvoice ครบวงจร (ST8-T08)', { timeout: 600_000 }
                             WHERE id = ${cmd.id}::uuid`;
     const crashed = posts().length;
     await drain();
-    // ยึดคืนแล้ว: ผล "รู้แน่" ของรอบก่อนใช้ไม่ได้ → ค้นก่อน (fetchDocument ยังไม่ทำ = พัก) — ไม่ POST ใบที่ 2 ซ้ำ
-    expect(posts().length).toBe(crashed);
-    expect(posts().length - before).toBe(3);
+    // ยึดคืนแล้ว: ค้นก่อน — รู้แค่ใบแรก (KRS ค้นด้วย tmsVoucherNo ไม่ได้) → POST เฉพาะใบที่ขาด → KRS ตอบ 409 (มีอยู่แล้ว)
+    expect(
+      posts()
+        .slice(crashed)
+        .map((q) => q.status),
+    ).toEqual([409]);
+    expect(posts().length - before).toBe(4);
     const row = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } });
-    expect(row.status).toBe('PENDING');
-    expect(row.lastError).toMatchObject({ code: 'capability_not_implemented' });
+    expect(row).toMatchObject({ status: 'DONE', errorClass: 'DUPLICATE' });
+    expect(row.lastError).toMatchObject({
+      code: 'duplicate_unresolved',
+      manualExternalIdRequired: true,
+    });
     expect(
       mock.listInvoices().filter((i) => i.data.tmsVoucherNo === `${invoiceNo}-V7`),
     ).toHaveLength(1);
-    // คำสั่งที่พักไว้อยู่หัวคิวของลูกค้า (serialize ต่อลูกค้า) — ปิดทิ้งให้ข้อถัดไปส่งได้
-    await plat.integrationOutbox.update({ where: { id: cmd.id }, data: { status: 'SKIPPED' } });
+    expect(await mapping(inv.uuid)).toMatchObject({
+      status: 'MISMATCH',
+      externalId: part1.transactionNo,
+    });
+  });
+
+  it('ST8-T10: ผลของคำสั่งหายแต่ sync log มี 201 พร้อมเลข KRS → ค้นด้วย GET แล้วเนื้อหาตรง = mapping SYNCED ไม่ POST ซ้ำ', async () => {
+    const d = await deliveryOrder('own');
+    const inv = await draft([{ doId: d.id, vat: 'EXEMPT_TRANSPORT', amount: '1234.00' }]);
+    // KRS บันทึกใบแล้วแต่สายหลุด (ผลไม่รู้) — จำลองว่า sync log ของครั้งนั้นได้ 201 (เช่น บันทึก mapping ล้มหลังได้คำตอบ)
+    mock.injectFault({ kind: 'reset-after-commit', method: 'POST', times: 1 });
+    const before = posts().length;
+    const invoiceNo = await finalize(inv);
+    await drain();
+    const got = mock.getInvoiceByTmsVoucherNo(invoiceNo)!;
+    expect(got).toBeTruthy();
+    const cmd = (await commands(inv.uuid)).find((c) => c.operation === 'PUSH_INVOICE')!;
+    expect((await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } })).status).toBe(
+      'FAILED_RETRYABLE',
+    );
+    const n = await plat.$executeRaw`UPDATE erp_sync_log
+        SET status_code = 201, error_code = NULL,
+            response_body = ${JSON.stringify({ transactionNo: got.transactionNo, voucherNo: got.voucherNo })}
+      WHERE outbox_id = ${cmd.id}::uuid AND method = 'POST'`;
+    expect(n).toBe(1);
+    const gets = mock.requests().filter((q) => q.method === 'GET').length;
+    await drain();
+    expect(posts().length - before).toBe(1);
+    expect(mock.requests().filter((q) => q.method === 'GET').length - gets).toBe(1);
+    const row = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } });
+    expect(row.status).toBe('DONE');
+    expect(row.result).toMatchObject({
+      externalId: got.transactionNo,
+      externalDocNo: got.voucherNo,
+      applied: true,
+      recoveredAfter: 'EARLIER_SEND',
+    });
+    expect(await mapping(inv.uuid)).toMatchObject({
+      status: 'SYNCED',
+      externalId: got.transactionNo,
+      externalDocNo: got.voucherNo,
+    });
+    // GET อยู่ใน sync log — ไม่มีชื่อคนขับ / API key
+    const logs = await plat.erpSyncLog.findMany({ where: { outboxId: cmd.id, method: 'GET' } });
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ statusCode: 200 });
+    expect(JSON.stringify(logs)).not.toContain(DRIVER);
+    expect(JSON.stringify(logs)).not.toContain(KEY);
+  });
+
+  it('ST8-T10 (A.5 timeout/สายหลุด): ไม่รู้เลข KRS เลย → POST ใหม่ · ถึงแล้วได้ 409 → DUPLICATE ให้คนกรอก transactionNo (ไม่สร้างซ้ำ ไม่พักเงียบ)', async () => {
+    const d = await deliveryOrder('own');
+    const inv = await draft([{ doId: d.id, vat: 'EXEMPT_TRANSPORT', amount: '777.00' }]);
+    mock.injectFault({ kind: 'reset-after-commit', method: 'POST', times: 1 });
+    const before = posts().length;
+    const invoiceNo = await finalize(inv);
+    await drain();
+    await drain();
+    expect(
+      posts()
+        .slice(before)
+        .map((q) => q.status),
+    ).toEqual(['reset', 409]);
+    expect(mock.listInvoices().filter((i) => i.data.tmsVoucherNo === invoiceNo)).toHaveLength(1);
+    const cmd = (await commands(inv.uuid)).find((c) => c.operation === 'PUSH_INVOICE')!;
+    const row = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: cmd.id } });
+    expect(row).toMatchObject({ status: 'DONE', errorClass: 'DUPLICATE' });
+    expect(row.lastError).toMatchObject({
+      code: 'duplicate_unresolved',
+      manualExternalIdRequired: true,
+    });
+    expect(await mapping(inv.uuid)).toMatchObject({ status: 'MISMATCH', externalId: null });
   });
 });

@@ -298,6 +298,23 @@ export interface ExternalRef {
   /** เลขอ้างอิงของเรา (invoice_no ฯลฯ) — ใช้ค้นถ้ายังไม่มี externalId */
   number: string;
   externalId: string | null;
+  /**
+   * ST8-T10 เอกสาร TMS ใบนี้อยู่ฝั่ง ERP เป็น**หลายเอกสาร** (`PushResult.documents` / `external_mapping.detail.documents`) —
+   * `fetchDocument` ต้องอ่านทุกใบแล้วรวมเป็น canonical เดียว (ลำดับตามที่ส่ง · `externalId` = ใบแรก) · ไม่มี = เอกสารเดียว
+   */
+  documents?: readonly ExternalDocumentPart[];
+}
+
+/**
+ * ST8-T10 การเรียก HTTP ที่บันทึกใน sync log แล้ว (body = ข้อความที่ตัด credential/ข้อมูลส่วนบุคคล และอาจถูกตัดท้าย) —
+ * ส่งให้ `ErpAdapter.documentsFromSyncLog`
+ */
+export interface LoggedHttpCall {
+  method: string;
+  url: string;
+  status: number | null;
+  requestBody: string | null;
+  responseBody: string | null;
 }
 
 /** ฐานของ canonical payload (docs/01 §7) — ช่องเต็มกำหนดใน ST7-T15 */
@@ -486,7 +503,34 @@ export interface ErpAdapter {
   pushSettlement?(ctx: ErpContext, stl: CanonicalSettlement): Promise<PushResult>;
   /** แก้ทั้งใบ (fallback เมื่อไม่มี pushCreditNote — docs/01 §6.1) */
   replaceDocument?(ctx: ErpContext, ref: ExternalRef, inv: CanonicalInvoice): Promise<PushResult>;
-  fetchDocument?(ctx: ErpContext, ref: ExternalRef): Promise<CanonicalDocument | null>;
+  /**
+   * อ่านเอกสารฝั่ง ERP กลับเป็น canonical (docs/01 §6.5 "adapter แปลง response ERP กลับเป็น canonical") · ไม่พบ = `null`
+   * หรือโยน `ErpAdapterError` class `NOT_FOUND` · ปลายทางล่ม = throw (TRANSIENT) · `ref.documents` = อ่านทุกใบแล้วรวมเป็นใบเดียว
+   * ST8-T10 `hint` (ไม่บังคับ) = canonical ที่ TMS ส่งไป — ใช้**จับคู่รายการ**เท่านั้น (เช่น จับด้วยเลข DO เมื่อ ERP เรียงเลขบรรทัดใหม่)
+   * ห้ามเอาค่าจาก hint มาเติมแทนข้อมูลฝั่ง ERP
+   */
+  fetchDocument?(
+    ctx: ErpContext,
+    ref: ExternalRef,
+    hint?: CanonicalDocument,
+  ): Promise<CanonicalDocument | null>;
+  /**
+   * ST8-T10 `fetchDocument` ค้นด้วยเลขอ้างอิงของเรา (`ref.number`) ไม่ได้ — ต้องมี `externalId` (เช่น ERP ไม่มี endpoint ค้น/list)
+   * core ค้นหลัง AMBIGUOUS / DUPLICATE ได้เฉพาะเมื่อรู้ id ฝั่ง ERP แล้ว (mapping ที่ส่งไม่ครบ หรือ response สำเร็จใน sync log —
+   * `documentsFromSyncLog`) · ไม่รู้ id = ถือว่าค้นไม่ได้ (ERP กันซ้ำด้วยเลขอ้างอิงของเรา — docs/01 §6.3, A.5)
+   */
+  readonly fetchNeedsExternalId?: boolean;
+  /**
+   * ST8-T10 (ไม่บังคับ — ฟังก์ชันบริสุทธิ์ ห้ามเรียกภายนอก/throw) เอกสารฝั่ง ERP ที่ถูกสร้างแล้วตามหลักฐานใน sync log ของเอกสารนี้
+   * (เช่น response 201 ที่มีเลขเอกสาร แต่ผลของคำสั่งไม่ถูกบันทึก) — core ส่งเฉพาะการเรียก POST/PUT ที่ได้ 2xx เรียงตามเวลา
+   */
+  documentsFromSyncLog?(calls: readonly LoggedHttpCall[]): ExternalDocumentPart[];
+  /**
+   * ST8-T10 (ไม่บังคับ — ฟังก์ชันบริสุทธิ์) ส่วนของ canonical ที่ ERP เก็บได้ ในรูปเดียวกับผลของ `fetchDocument`
+   * (ERP ที่เก็บไม่ครบทุกช่องของ canonical) — core เทียบผลของ `fetchDocument` กับค่านี้แทน canonical ทั้งก้อน · null = เทียบไม่ได้
+   * ไม่มี = ERP เก็บ canonical ทั้งก้อน (เทียบตรง)
+   */
+  comparableDocument?(ctx: ErpContext, doc: CanonicalDocument): CanonicalDocument | null;
   fetchPaymentStatus?(ctx: ErpContext, ref: ExternalRef): Promise<PaymentStatus | null>;
   listDocuments?(
     ctx: ErpContext,
@@ -591,6 +635,10 @@ export function adapterShapeProblems(a: ErpAdapter): string[] {
   if (typeof a.healthCheck !== 'function') out.push('healthCheck() required');
   for (const c of a.pendingCapabilities ?? [])
     if (!caps.has(c)) out.push(`pending capability '${String(c)}' not declared in capabilities()`);
+  // ST8-T10 ส่วนเสริมของการอ่านเอกสาร ใช้ได้เฉพาะ adapter ที่มี fetchDocument
+  if (typeof a.fetchDocument !== 'function')
+    for (const m of ['fetchNeedsExternalId', 'documentsFromSyncLog', 'comparableDocument'] as const)
+      if (a[m] !== undefined) out.push(`${m} declared but fetchDocument() missing`);
   const kinds = a.masterCodeKinds ?? [];
   for (const k of kinds)
     if (!isErpMasterCodeKind(k)) out.push(`unknown master code kind '${String(k)}'`);
