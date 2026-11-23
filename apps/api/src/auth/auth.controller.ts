@@ -3,6 +3,7 @@ import { isLocalEnv } from './tokens';
 import { Body, Controller, Get, HttpCode, Post, Req, Res } from '@nestjs/common';
 import {
   ApiConflictResponse,
+  ApiConsumes,
   ApiNoContentResponse,
   ApiOkResponse,
   ApiProperty,
@@ -62,14 +63,29 @@ export class LoginResultDto {
   @ApiProperty({ example: 60 }) expiresIn!: number;
 }
 
+const GRANT_TYPES = ['authorization_code', 'refresh_token', 'client_credentials'] as const;
+type GrantType = (typeof GRANT_TYPES)[number];
+
+/**
+ * คำขอ token — รับได้ 2 รูปแบบ (D-81 · D68-42 · 23 พ.ย. 2569, docs/04 G1 "OAuth2 client credentials"):
+ * - JSON camelCase (เดิม: `grantType`, `clientId`, `clientSecret`, `codeVerifier`)
+ * - `application/x-www-form-urlencoded` ชื่อ snake_case ตาม RFC 6749 (`grant_type`, `client_id`, `client_secret`, `code_verifier`)
+ * ส่งชื่อแบบใดแบบหนึ่ง (ส่งทั้งสองแบบแล้วค่าไม่ตรงกัน → 422)
+ */
 export class TokenRequestDto {
-  @ApiProperty({
-    enum: ['authorization_code', 'refresh_token', 'client_credentials'],
+  @ApiPropertyOptional({
+    enum: GRANT_TYPES,
     description:
-      'client_credentials (ST7-T01) = client ภายนอกด้วย API key: clientId `key_…` + clientSecret `tk_live_…` (หรือ HTTP Basic) → JWT RS256 1 ชม.',
+      'client_credentials (ST7-T01) = client ภายนอกด้วย API key: clientId `key_…` + clientSecret `tk_live_…` (หรือ HTTP Basic) → JWT RS256 1 ชม. · ต้องส่ง grantType หรือ grant_type',
   })
-  @IsIn(['authorization_code', 'refresh_token', 'client_credentials'])
-  grantType!: 'authorization_code' | 'refresh_token' | 'client_credentials';
+  @IsOptional()
+  @IsIn(GRANT_TYPES)
+  grantType?: GrantType;
+
+  @ApiPropertyOptional({ enum: GRANT_TYPES, description: 'RFC 6749 — เหมือน grantType' })
+  @IsOptional()
+  @IsIn(GRANT_TYPES)
+  grant_type?: GrantType;
 
   @ApiPropertyOptional({ description: 'grantType=authorization_code' })
   @IsOptional()
@@ -82,6 +98,11 @@ export class TokenRequestDto {
   @Matches(PKCE)
   codeVerifier?: string;
 
+  @ApiPropertyOptional({ description: 'RFC 6749/7636 — เหมือน codeVerifier' })
+  @IsOptional()
+  @Matches(PKCE)
+  code_verifier?: string;
+
   @ApiPropertyOptional({
     example: 'tk_live_8f3a',
     description:
@@ -92,6 +113,12 @@ export class TokenRequestDto {
   @MaxLength(100)
   clientId?: string;
 
+  @ApiPropertyOptional({ description: 'RFC 6749 — เหมือน clientId' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  client_id?: string;
+
   @ApiPropertyOptional({
     description: 'grantType=client_credentials — API key เต็ม (`tk_live_…`)',
     format: 'password',
@@ -100,6 +127,12 @@ export class TokenRequestDto {
   @IsString()
   @MaxLength(100)
   clientSecret?: string;
+
+  @ApiPropertyOptional({ description: 'RFC 6749 — เหมือน clientSecret', format: 'password' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  client_secret?: string;
 
   @ApiPropertyOptional({
     example: 'orders:read orders:write',
@@ -112,11 +145,57 @@ export class TokenRequestDto {
   scope?: string;
 }
 
+/** รวมชื่อ camelCase / snake_case (RFC 6749) เป็นค่าเดียว — ส่งทั้งคู่แต่ไม่ตรงกัน = 422 */
+export function normalizeTokenRequest(b: TokenRequestDto): {
+  grantType: GrantType;
+  code?: string;
+  codeVerifier?: string;
+  clientId?: string;
+  clientSecret?: string;
+  scope?: string;
+} {
+  const errors: { field: string; code: string; message: string }[] = [];
+  const pick = <T>(camel: keyof TokenRequestDto, snake: keyof TokenRequestDto): T | undefined => {
+    const a = b[camel] as T | undefined;
+    const s = b[snake] as T | undefined;
+    if (a !== undefined && s !== undefined && a !== s)
+      errors.push({
+        field: String(snake),
+        code: 'conflict',
+        message: `${String(camel)} and ${String(snake)} differ`,
+      });
+    return a ?? s;
+  };
+  const grantType = pick<GrantType>('grantType', 'grant_type');
+  const codeVerifier = pick<string>('codeVerifier', 'code_verifier');
+  const clientId = pick<string>('clientId', 'client_id');
+  const clientSecret = pick<string>('clientSecret', 'client_secret');
+  if (!grantType)
+    errors.push({ field: 'grantType', code: 'isIn', message: 'grantType or grant_type is required' });
+  if (errors.length || !grantType)
+    throw new ProblemException('validation_failed', undefined, errors);
+  return { grantType, code: b.code, codeVerifier, clientId, clientSecret, scope: b.scope };
+}
+
 export class TokenDto {
   @ApiProperty() accessToken!: string;
   @ApiProperty({ example: 'Bearer' }) tokenType!: string;
   @ApiProperty({ example: 900, description: 'วินาที' }) expiresIn!: number;
   @ApiPropertyOptional({ description: 'client_credentials: scope ที่ได้จริง' }) scope?: string;
+  @ApiPropertyOptional({
+    description: 'RFC 6749 §5.1 — มีเฉพาะเมื่อขอแบบ application/x-www-form-urlencoded (ค่าเดียวกับ accessToken)',
+  })
+  access_token?: string;
+  @ApiPropertyOptional({ example: 'Bearer', description: 'RFC 6749 §5.1 — เฉพาะคำขอแบบ form' })
+  token_type?: string;
+  @ApiPropertyOptional({ example: 3600, description: 'RFC 6749 §5.1 — เฉพาะคำขอแบบ form' })
+  expires_in?: number;
+}
+
+/** คำขอแบบ form (RFC 6749) → ตอบชื่อ snake_case ตาม §5.1 ด้วย (คงชื่อ camelCase เดิมไว้ — ไม่เปลี่ยนสัญญา JSON) */
+function withRfcFields(req: Request, t: TokenDto): TokenDto {
+  if (!req.is('application/x-www-form-urlencoded')) return t;
+  return { ...t, access_token: t.accessToken, token_type: t.tokenType, expires_in: t.expiresIn };
 }
 
 export class JwksDto {
@@ -207,6 +286,7 @@ export class AuthController {
 
   @Post('oauth/token')
   @HttpCode(200)
+  @ApiConsumes('application/json', 'application/x-www-form-urlencoded')
   @ApiOkResponse({
     type: TokenDto,
     description:
@@ -216,11 +296,12 @@ export class AuthController {
     description: `rate_limited — เกิน ${TOKEN_PER_IP_PER_MIN} ครั้ง/นาที ต่อ IP หรือ ${TOKEN_PER_CLIENT_PER_MIN} ครั้ง/นาที ต่อ client id (client_credentials) มี header Retry-After`,
   })
   async token(
-    @Body() body: TokenRequestDto,
+    @Body() raw: TokenRequestDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<TokenDto> {
     let pair: TokenPair;
+    const body = normalizeTokenRequest(raw);
     const basic = body.grantType === 'client_credentials' ? basicCredentials(req) : null;
     const id = basic?.[0] ?? body.clientId;
     // ST7-T08 (review M3): จำกัดก่อนตรวจรหัส (กันเดา secret) — ต่อ IP ทุก grant + ต่อ client id · ฐานใช้ไม่ได้ = 503
@@ -245,17 +326,20 @@ export class AuthController {
       if (!id || !sec) throw new ProblemException('invalid_client');
       const t = await this.apiKeys.issueToken(id, sec, body.scope, req.ip);
       res.setHeader('Cache-Control', 'no-store');
-      return {
+      return withRfcFields(req, {
         accessToken: t.accessToken,
         tokenType: 'Bearer',
         expiresIn: t.expiresIn,
         scope: t.scope,
-      };
+      });
     }
     if (body.grantType === 'authorization_code') {
       if (!body.code || !body.codeVerifier) throw new ProblemException('invalid_grant');
       pair = await this.auth.exchangeCode(body.code, body.codeVerifier, clientOf(req));
     } else {
+      // refresh ของ UI อ่าน cookie เท่านั้น — คำขอแบบ form (ส่งข้ามเว็บได้โดยไม่ preflight) ไม่รับ grant นี้
+      // (`refresh_token` ใน body ตาม RFC 6749 §6 มากับงาน Auth Code + PKCE/RS256 ของ UI ก่อนเปิด Open API — D68-42)
+      if (req.is('application/x-www-form-urlencoded')) throw new ProblemException('invalid_grant');
       const rt = req.cookies?.[REFRESH_COOKIE] as string | undefined;
       // ไม่มี cookie เลย = ไม่ได้ login (401 — เว็บไม่ต้องลองซ้ำ; 400 สงวนไว้สำหรับ cookie ที่เพิ่งถูกหมุน)
       if (!rt) throw new ProblemException('unauthorized');
@@ -268,7 +352,11 @@ export class AuthController {
     }
     res.cookie(REFRESH_COOKIE, pair.refreshToken, cookieOptions(pair.refreshExpiresAt));
     res.setHeader('Cache-Control', 'no-store');
-    return { accessToken: pair.accessToken, tokenType: 'Bearer', expiresIn: pair.expiresIn };
+    return withRfcFields(req, {
+      accessToken: pair.accessToken,
+      tokenType: 'Bearer',
+      expiresIn: pair.expiresIn,
+    });
   }
 
   /** กุญแจสาธารณะสำหรับตรวจ token ของ client credentials (RS256) — หมุนกุญแจดู auth/signing-keys.ts */

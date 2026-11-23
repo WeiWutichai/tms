@@ -315,6 +315,67 @@ describe('API keys + client credentials (ST7-T01)', () => {
     await request(srv()).get('/v1/orders').set(bearer(t3.body.accessToken)).expect(403);
   });
 
+  it('D68-42: /oauth/token รับ form-urlencoded + snake_case ตาม RFC 6749 (JSON camelCase เดิมยังใช้ได้)', async () => {
+    const k = await createKey({ name: 'RFC form', scopes: ['orders:read', 'orders:write'] });
+    const t = await request(srv())
+      .post('/v1/oauth/token')
+      .type('form')
+      .send({
+        grant_type: 'client_credentials',
+        client_id: k.clientId,
+        client_secret: k.secret,
+        scope: 'orders:read',
+      })
+      .expect(200);
+    // RFC 6749 §5.1 — ชื่อ snake_case (+ camelCase เดิม) · no-store
+    expect(t.body.token_type).toBe('Bearer');
+    expect(t.body.access_token).toBe(t.body.accessToken);
+    expect(t.body.expires_in).toBeGreaterThan(3590);
+    expect(t.body.scope).toBe('orders:read');
+    expect(t.headers['cache-control']).toBe('no-store');
+    await request(srv()).get('/v1/orders').set(bearer(t.body.access_token)).expect(200);
+    // form + HTTP Basic (RFC 6749 §2.3.1)
+    const basic = Buffer.from(`${k.clientId}:${k.secret}`).toString('base64');
+    const b = await request(srv())
+      .post('/v1/oauth/token')
+      .type('form')
+      .set('Authorization', `Basic ${basic}`)
+      .send({ grant_type: 'client_credentials' })
+      .expect(200);
+    expect(b.body.scope).toBe('orders:read orders:write');
+    // JSON ด้วยชื่อ snake_case ก็ได้ · คำขอ JSON ไม่เพิ่มชื่อ snake_case ในผลตอบ
+    const j = await request(srv())
+      .post('/v1/oauth/token')
+      .send({ grant_type: 'client_credentials', client_id: k.clientId, client_secret: k.secret })
+      .expect(200);
+    expect(j.body.accessToken).toBeTruthy();
+    expect(j.body.access_token).toBeUndefined();
+    // secret ผิด → 401 invalid_client · ไม่ส่ง grant → 422 · ชื่อสองแบบค่าไม่ตรงกัน → 422
+    const wrong = await request(srv())
+      .post('/v1/oauth/token')
+      .type('form')
+      .send({ grant_type: 'client_credentials', client_id: k.clientId, client_secret: 'tk_live_x' });
+    expect(wrong.status).toBe(401);
+    expect(wrong.body.code).toBe('invalid_client');
+    await request(srv())
+      .post('/v1/oauth/token')
+      .type('form')
+      .send({ client_id: k.clientId, client_secret: k.secret })
+      .expect(422);
+    const both = await request(srv())
+      .post('/v1/oauth/token')
+      .send({ grantType: 'client_credentials', grant_type: 'refresh_token' });
+    expect(both.status).toBe(422);
+    expect(both.body.code).toBe('validation_failed');
+    // refresh ของ UI ผ่าน form ไม่ได้ (cookie เท่านั้น — กันส่งข้ามเว็บ)
+    const rf = await request(srv())
+      .post('/v1/oauth/token')
+      .type('form')
+      .send({ grant_type: 'refresh_token' });
+    expect(rf.status).toBe(400);
+    expect(rf.body.code).toBe('invalid_grant');
+  });
+
   it('สิทธิ์: scope ที่ผู้สร้างไม่มี → 422 · API key จัดการ key ไม่ได้ · ไม่มี settings:write → 403', async () => {
     const limited = await tokenFor(tenantId, 'settings:read settings:write orders:read', userId);
     const r = await api(app, limited)
