@@ -796,7 +796,10 @@ export class InvoicesController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
-    const out = await this.svc.cancel(await this.svc.idOf(id), body.reason, expectedVersion(req));
+    const uuid = await this.svc.idOf(id);
+    const out = await this.svc.cancel(uuid, body.reason, expectedVersion(req));
+    // ST8-T13 ร่างใบออกใหม่ (แทนใบที่ยกเลิก) ถูกยกเลิก → เอกสารของใบเดิมในระบบบัญชีจะไม่ถูกแทนที่ → แจ้งบัญชียกเลิกเอง
+    await this.canceller.reissueDraftCancelled(uuid);
     setEtag(res, out.version);
     return out;
   }
@@ -895,6 +898,34 @@ export class InvoicesController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<InvoiceDto> {
     const out = await this.status.markSent(await this.svc.idOf(id), expectedVersion(req));
+    setEtag(res, out.version);
+    return out;
+  }
+
+  @Post(':id/erp-posted')
+  @HttpCode(200)
+  @TenantResource('issuedInvoice')
+  @RequireScope('integrations:retry')
+  @ApiOperation({
+    summary: 'ปุ่ม "ลงบัญชีแล้ว" — ใบนี้ลงบัญชีในระบบบัญชีที่เชื่อมแล้ว (แทนที่ต้องมีผู้อนุมัติ)',
+    description:
+      'ST8-T13 (docs/01 A.2/A.6 — ระบบบัญชีที่บอกสถานะลง GL ไม่ได้ เช่น KRS: "ปุ่ม ลงบัญชีแล้ว + กฎอายุ N วัน") · สิทธิ์ `integrations:retry` ' +
+      '(บัญชี/ผู้วางบิล/ผู้อนุมัติ) · ตั้ง `sync.postedAt` ของเอกสารนี้ในระบบบัญชีที่เชื่อม → หลังจากนี้การแทนที่เอกสารในระบบบัญชี ' +
+      '(ส่งซ้ำ / ยกเลิกแล้วออกใหม่) ขึ้นคิว "ต้องอนุมัติ" (`replace_requires_approval`) จนผู้อนุมัติคนอื่นอนุมัติ · กดซ้ำ = คงเวลาเดิม · ' +
+      'ใบที่ยังไม่อยู่ในระบบบัญชี → 409 `invalid_state_transition` · audit `invoice.erp_posted_marked` · ' +
+      '**ยกเลิกแล้วออกใหม่: กดที่ใบเดิมก่อนออกใบใหม่แทน** (ธงอยู่กับเอกสารในระบบบัญชี — แทนที่สำเร็จแล้วย้ายตามไปใบใหม่; ใบเดิมที่ยกเลิกแล้วกดได้จนกว่าจะแทนที่)',
+  })
+  @ApiProblems(T403('integrations:retry'), NF, T409())
+  @ApiOkResponse({ type: InvoiceDto })
+  async markErpPosted(
+    @Param('id') id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<InvoiceDto> {
+    const uuid = await this.svc.idOf(id);
+    await this.svc.get(uuid); // ไม่พบ / tenant อื่น → 404 (ก่อนตรวจ mapping)
+    await this.mappings.markPosted('INVOICE', uuid);
+    const out = await this.svc.get(uuid);
+    out.sync = documentSyncDto(await this.mappings.documentSync('INVOICE', uuid));
     setEtag(res, out.version);
     return out;
   }

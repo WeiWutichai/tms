@@ -44,6 +44,7 @@ import {
 import { canSeeBodies } from './erp-sync-log';
 import { documentDate } from './canonical';
 import { MAP_ENTITY, ErpSyncService } from './erp-sync.service';
+import { invoiceActors, isPersonActor } from './erp-reissue';
 
 /**
  * ST7-T19 คิวเชื่อมระบบบัญชีที่ลูกค้าดูเอง (docs/01 §6.4 "Error queue UI"; docs/04 G3 "Error queue ลูกค้าดูเอง"; spec/07 §2)
@@ -156,8 +157,10 @@ const CODE_GUIDE: Record<string, Guide> = {
     action: 'ยกเลิกเอกสารเดิมและออกใหม่ในระบบบัญชีเอง แล้วข้ามพร้อมเหตุผล',
   },
   replace_requires_approval: {
-    title: 'ระบบบัญชีลงบัญชีเอกสารนี้แล้ว',
-    action: 'แก้เอกสารในระบบบัญชีเองตามขั้นตอนอนุมัติของฝ่ายบัญชี แล้วข้ามพร้อมเหตุผล',
+    title: 'ต้องมีผู้อนุมัติก่อนแทนที่เอกสารในระบบบัญชี (ลงบัญชีแล้ว หรือใบเก่าเกินกำหนด)',
+    action:
+      'ผู้อนุมัติ (คนละคนกับผู้ขอ) ตรวจยอดหลังปรับแล้วกดอนุมัติพร้อมเหตุผล ระบบจึงส่ง — ถ้าแก้ในระบบบัญชีเองแล้ว ให้ข้ามพร้อมเหตุผล · ' +
+      'ยกเลิกแล้วออกใหม่: ปุ่ม "ลงบัญชีแล้ว" ต้องกดที่ใบเดิมก่อนออกใบใหม่แทน (หลังแทนที่ ธงย้ายตามไปใบใหม่)',
   },
   replace_not_supported: {
     title: 'ระบบบัญชีแก้เอกสารผ่านการเชื่อมต่อไม่ได้',
@@ -267,6 +270,11 @@ export class QueueActionsDto {
   @ApiProperty({ description: 'ส่งซ้ำได้' }) retry!: boolean;
   @ApiProperty({ description: 'ข้ามพร้อมเหตุผลได้' }) skip!: boolean;
   @ApiProperty({ description: 'กรอกเลขเอกสารฝั่งระบบบัญชีเองได้' }) externalId!: boolean;
+  @ApiProperty({
+    description:
+      'ST8-T13 อนุมัติการแทนที่เอกสารในระบบบัญชีได้ (รายการ `replace_requires_approval`) — ผู้เรียกต้องมีสิทธิ์อนุมัติและไม่ใช่ผู้ขอ',
+  })
+  approve!: boolean;
 }
 
 export class ConnectorQueueItemDto extends ConnectorCommandDto {
@@ -344,6 +352,9 @@ export class QueueRetryAllResultDto {
 }
 
 export class QueueSkipDto extends MasterReasonDto {}
+
+/** ST8-T13 อนุมัติการแทนที่เอกสารในระบบบัญชี — เหตุผล ≥ 10 ตัว */
+export class QueueApproveDto extends MasterReasonDto {}
 
 /** ST8-T09 เลขฝั่งระบบบัญชีของเอกสาร 1 ใบ (เอกสาร TMS ที่ระบบบัญชีเก็บเป็นหลายใบ — เช่น KRS แยกใบตาม vat_type) */
 export class QueueExternalDocumentDto {
@@ -642,6 +653,67 @@ export class ConnectorQueueService {
     if (!this.actions(row, f).skip) throw notAllowed(this.why(row, f));
     await this.resolve(tx, c.id, row, { kind: 'SKIPPED', reason: body.reason });
     await this.audit(tx, c.id, 'connector.queue_skipped', row, body.reason, {});
+    const [fresh] = await this.rows(tx, c, [row.id]);
+    return this.item(fresh!.row, fresh!.f);
+  }
+
+  /**
+   * ST8-T13 อนุมัติการแทนที่เอกสารในระบบบัญชี (docs/01 §6.1 "replaceDocument ต้องมี approval ถ้าลงบัญชีแล้ว"; A.2 KRS "approval ถ้า
+   * posted_at ไม่ว่าง หรืออายุใบ > N วัน") — รายการ SKIPPED `replace_requires_approval` เท่านั้น
+   * - คนเท่านั้น (API key → 403) · เหตุผล ≥ 10 ตัว · **ผู้อนุมัติ ≠ ผู้ขอ** (`requestedBy` ของคำสั่ง: ผู้ออกใบใหม่/ผู้ยกเลิกใบเดิม/ผู้สั่งส่งซ้ำ)
+   *   → 403 `erp_replace_self_approval`
+   * - ผล: คำสั่งใหม่ (payload เดิม + `approval`) → sink ส่งได้โดยไม่ถามซ้ำ · รายการเดิม = RETRIED (`supersededBy`, เหตุผล) ·
+   *   audit `connector.queue_approved` (ผู้อนุมัติ / ผู้ขอ / เหตุผล)
+   */
+  async approve(
+    id: string,
+    commandRef: string,
+    body: QueueApproveDto,
+    tx: Tx = this.db.tx,
+  ): Promise<ConnectorQueueItemDto> {
+    const c = await this.connectors.get(id, tx);
+    this.connectors.assertHuman();
+    const { row, f } = await this.command(tx, c, commandRef);
+    if (!this.actions(row, f).approve) throw notAllowed(this.why(row, f, 'approve'));
+    const actor = requestContext.get()?.actorId ?? null;
+    const p = (row.payload ?? {}) as { requestedBy?: unknown };
+    // review M3: ผู้ขอ = รายชื่อในคำสั่ง ∪ ทุกคนที่สร้าง/แก้/ออกเลขเอกสารนี้ (อ่าน ณ ตอนอนุมัติ)
+    const requesters = [
+      ...new Set([
+        ...(Array.isArray(p.requestedBy)
+          ? (p.requestedBy as unknown[]).filter(
+              (x): x is string => typeof x === 'string' && isPersonActor(x),
+            )
+          : []),
+        ...(row.entityType === 'invoice' ? await invoiceActors(tx, [row.localId]) : []),
+      ]),
+    ];
+    // ไม่รู้ผู้ขอ (สร้างโดยระบบ) = ผู้อนุมัติต้องเป็นคน (ตรวจแล้ว) + บันทึกว่าไม่รู้ผู้ขอใน audit
+    if (!actor || !isPersonActor(actor) || requesters.includes(actor))
+      throw new ProblemException('erp_replace_self_approval', undefined, undefined, {
+        requestedBy: requesters,
+      });
+    const newId = await this.sync.approveReplace(tx, row, {
+      approvedBy: actor,
+      reason: body.reason.trim(),
+      approvedAt: new Date(),
+    });
+    if (!newId || newId === row.id) throw notAllowed('resend_unavailable');
+    await this.resolve(tx, c.id, row, {
+      kind: 'RETRIED',
+      reason: body.reason,
+      supersededBy: newId,
+    });
+    await this.audit(tx, c.id, 'connector.queue_approved', row, body.reason, {
+      newCommandId: encodeId('outboxCommand', newId),
+      requestedBy: requesters,
+      ...(requesters.length ? {} : { requestersUnknown: true }),
+      approvedBy: actor,
+      replacedInvoiceId:
+        typeof (row.payload as { reissueOf?: unknown } | null)?.reissueOf === 'string'
+          ? encodeId('invoice', (row.payload as { reissueOf: string }).reissueOf)
+          : null,
+    });
     const [fresh] = await this.rows(tx, c, [row.id]);
     return this.item(fresh!.row, fresh!.f);
   }
@@ -1047,16 +1119,19 @@ export class ConnectorQueueService {
             sink: ERP_SINK,
             targetId: c.id,
             localId: { in: localIds },
-            operation: { in: ['PUSH_INVOICE', 'PUSH_SETTLEMENT'] },
+            // ST8-T13 ใบออกใหม่ที่แทนที่เอกสารของใบเดิม: ฉบับที่ออก = payload ของคำสั่งแทนที่ครั้งแรก (ไม่มี PUSH)
+            operation: { in: ['PUSH_INVOICE', 'PUSH_SETTLEMENT', 'REPLACE_DOCUMENT'] },
           },
           orderBy: { seq: 'asc' },
-          select: { entityType: true, localId: true, payload: true },
+          select: { entityType: true, localId: true, payload: true, operation: true },
         })
       : [];
     const issued = new Map<string, unknown>();
     for (const r of firsts) {
       const k = `${r.entityType}:${r.localId}`;
-      if (!issued.has(k)) issued.set(k, (r.payload as { document?: unknown } | null)?.document);
+      const p = r.payload as { document?: unknown; reissueOf?: unknown } | null;
+      if (r.operation === 'REPLACE_DOCUMENT' && typeof p?.reissueOf !== 'string') continue;
+      if (!issued.has(k)) issued.set(k, p?.document);
     }
     const maps = localIds.length
       ? await tx.externalMapping.findMany({
@@ -1099,9 +1174,10 @@ export class ConnectorQueueService {
 
   private actions(row: IntegrationOutbox, f: Facts): QueueActionsDto {
     if (f.res || f.superseded || !needsHuman(row))
-      return { retry: false, skip: false, externalId: false };
+      return { retry: false, skip: false, externalId: false, approve: false };
     const e = (row.lastError ?? null) as ErrorDetail | null;
     const code = typeof e?.code === 'string' ? e.code : null;
+    const reissue = typeof (row.payload as { reissueOf?: unknown } | null)?.reissueOf === 'string';
     return {
       // review L3: DUPLICATE ที่ต้องกรอกเลขเอง — ส่งซ้ำได้ผลเดิม
       retry:
@@ -1110,16 +1186,26 @@ export class ConnectorQueueService {
         e?.manualExternalIdRequired !== true &&
         !(code && NOT_RETRYABLE_CODES.has(code)),
       skip: true,
-      externalId: isDocPush(row) && !f.mapped,
+      // ST8-T13 ใบออกใหม่ที่แทนที่เอกสารของใบเดิม — เลขฝั่งระบบบัญชีเป็นของใบเดิมอยู่แล้ว (ไม่กรอกเอง)
+      externalId: isDocPush(row) && !f.mapped && !reissue,
+      approve:
+        row.operation === 'REPLACE_DOCUMENT' &&
+        row.status === 'SKIPPED' &&
+        code === 'replace_requires_approval',
     };
   }
 
   /** เหตุผลที่ทำไม่ได้ (`why` ของ 409) */
-  private why(row: IntegrationOutbox, f: Facts, action?: 'retry' | 'externalId'): string {
+  private why(
+    row: IntegrationOutbox,
+    f: Facts,
+    action?: 'retry' | 'externalId' | 'approve',
+  ): string {
     if (f.res) return 'already_resolved';
     if (f.superseded) return 'superseded';
     if (!needsHuman(row)) return 'not_failed';
     if (!isDocPush(row)) return 'not_a_document_push';
+    if (action === 'approve') return 'not_awaiting_approval';
     if (action === 'externalId' && f.mapped) return 'mapping_exists';
     if (action === 'retry' && !f.resendable) return 'resend_unavailable';
     return 'not_retryable';

@@ -255,6 +255,13 @@ describe('external_mapping + canonical (ST7-T15)', () => {
     await plat.tenant.updateMany({ data: { planCode: 'ent' } });
     token = await tokenFor(tenantId);
     reader = await tokenFor(tenantId, 'master:read');
+    // ST8-T13 ระบบบัญชีจำลองไม่บอกสถานะลงบัญชี (ไม่มี postedStatus) → กฎอายุ N วันบังคับอนุมัติก่อนแทนที่ (ค่าเริ่ม N = 0) ·
+    // ชุดนี้ทดสอบเรื่องอื่นของการแทนที่ → ตั้ง N กว้าง (ประตูอนุมัติทดสอบใน krs-replace.test)
+    await plat.tenantSetting.upsert({
+      where: { tenantId_key: { tenantId, key: 'billing.erpReplaceApprovalDays' } },
+      create: { tenantId, key: 'billing.erpReplaceApprovalDays', value: 3650 },
+      update: { value: 3650 },
+    });
     other = await tokenFor(otherTenantId);
     customerId = (
       await plat.customer.create({

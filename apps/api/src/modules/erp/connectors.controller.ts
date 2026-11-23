@@ -66,6 +66,7 @@ import {
   QueueRetryAllDto,
   QueueRetryAllResultDto,
   QueueRetryResultDto,
+  QueueApproveDto,
   QueueSkipDto,
 } from './connector-queue';
 
@@ -272,6 +273,27 @@ export class ConnectorsController {
     @Body() body: QueueSkipDto,
   ): Promise<ConnectorQueueItemDto> {
     return this.queue.skip(decodeIdOr404('connector', id), commandId, body);
+  }
+
+  @Post(':id/queue/:commandId/approve')
+  @HttpCode(200)
+  @TenantResource('connector')
+  @RequireScope('credit-notes:approve')
+  @ApiOkResponse({
+    type: ConnectorQueueItemDto,
+    description:
+      'ST8-T13 อนุมัติการแทนที่เอกสารในระบบบัญชี (รายการ `replace_requires_approval` — ลงบัญชีแล้ว (ERP แจ้ง / ปุ่ม "ลงบัญชีแล้ว") ' +
+      'หรือใบอายุเกิน `billing.erpReplaceApprovalDays` วัน; docs/01 §6.1, A.2) — คนเท่านั้น · เหตุผล ≥ 10 ตัว · ' +
+      'ผู้อนุมัติต้องไม่ใช่ผู้ขอ (ผู้ออกใบใหม่ / ผู้ยกเลิกใบเดิม / ผู้สั่งส่งซ้ำ) → 403 `erp_replace_self_approval` · ' +
+      'ผล: คำสั่งใหม่ที่ส่งได้ทันที (`resolution.supersededBy`) · audit `connector.queue_approved` · ' +
+      'ไม่ใช่รายการรออนุมัติ → 409 `queue_action_not_allowed` (`why`: `not_awaiting_approval` ฯลฯ)',
+  })
+  queueApprove(
+    @Param('id') id: string,
+    @Param('commandId') commandId: string,
+    @Body() body: QueueApproveDto,
+  ): Promise<ConnectorQueueItemDto> {
+    return this.queue.approve(decodeIdOr404('connector', id), commandId, body);
   }
 
   @Post(':id/queue/:commandId/external-id')

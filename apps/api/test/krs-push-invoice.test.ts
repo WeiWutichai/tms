@@ -325,10 +325,10 @@ describe('KRS pushInvoice ครบวงจร (ST8-T08)', { timeout: 600_000 }
     await plat.$disconnect();
   });
 
-  it('catalog: pushInvoice + ownsDocumentNumber + fetchDocument (ST8-T10) ไม่ pending แล้ว (ค้าง replaceDocument)', async () => {
+  it('catalog: pushInvoice + ownsDocumentNumber + fetchDocument (ST8-T10) + replaceDocument (ST8-T13) ไม่ pending แล้ว', async () => {
     const cat = await api(app, admin).get('/v1/connectors/adapters').expect(200);
     const k = cat.body.data.find((a: { key: string }) => a.key === 'krs');
-    expect(k.capabilitiesPending).toEqual(['replaceDocument']);
+    expect(k.capabilitiesPending).toEqual([]);
   });
 
   it('เกณฑ์ตรวจรับ: finalize → mock ได้ POST 1 ครั้ง (tmsVoucherNo = เลขใบแจ้งหนี้) → mapping มี transactionNo / voucherNo', async () => {

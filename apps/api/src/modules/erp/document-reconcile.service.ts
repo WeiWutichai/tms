@@ -12,6 +12,7 @@ import { customerKey, OutboxService } from '../integration/outbox.service';
 import type { OutboxDelivery, SettledCommand } from '../integration/outbox.types';
 import { NotificationEvents } from '../notifications/notification-events';
 import { addDays, bangkokToday } from '../vehicle-documents/expiry';
+import { externalRefOf } from './erp-reissue';
 import { ConnectorResolver } from './connector-resolver';
 import { ConnectorsService } from './connectors.service';
 import {
@@ -742,7 +743,19 @@ export class DocumentReconcileService implements OnModuleInit {
       (last?.result as { reconcileBasis?: unknown } | null)?.reconcileBasis,
     );
     if (!doc || !basis) return { ...base, comparable: null, problem: 'no_push_basis' };
-    const applied = applyReconcileBasis(doc, basis, ctx);
+    // ST8-T13 ใบออกใหม่ที่แทนที่เอกสารของใบเดิม: ระบบบัญชีเห็นเลขอ้างอิงของใบเดิม (`detail.externalRef`) — เทียบด้วยเลขนั้น
+    const m = await tx.externalMapping.findUnique({
+      where: {
+        connectorId_entityType_localId: {
+          connectorId: connector.id,
+          entityType: 'INVOICE',
+          localId: d.localId,
+        },
+      },
+      select: { detail: true },
+    });
+    const seenRef = externalRefOf(m?.detail);
+    const applied = applyReconcileBasis(seenRef ? { ...doc, number: seenRef } : doc, basis, ctx);
     const pii = await injectPersonalData(tx, applied.doc, adapter.personalDataNeeds ?? []);
     let comparable: CanonicalDocument | null;
     try {

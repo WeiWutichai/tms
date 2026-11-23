@@ -28776,6 +28776,107 @@
         ]
       }
     },
+    "/v1/connectors/{id}/queue/{commandId}/approve": {
+      "post": {
+        "operationId": "Connectors_queueApprove",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "commandId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueueApproveDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ST8-T13 อนุมัติการแทนที่เอกสารในระบบบัญชี (รายการ `replace_requires_approval` — ลงบัญชีแล้ว (ERP แจ้ง / ปุ่ม \"ลงบัญชีแล้ว\") หรือใบอายุเกิน `billing.erpReplaceApprovalDays` วัน; docs/01 §6.1, A.2) — คนเท่านั้น · เหตุผล ≥ 10 ตัว · ผู้อนุมัติต้องไม่ใช่ผู้ขอ (ผู้ออกใบใหม่ / ผู้ยกเลิกใบเดิม / ผู้สั่งส่งซ้ำ) → 403 `erp_replace_self_approval` · ผล: คำสั่งใหม่ที่ส่งได้ทันที (`resolution.supersededBy`) · audit `connector.queue_approved` · ไม่ใช่รายการรออนุมัติ → 409 `queue_action_not_allowed` (`why`: `not_awaiting_approval` ฯลฯ)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorQueueItemDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_credit-notes.approve"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "credit-notes:approve"
+        ]
+      }
+    },
     "/v1/connectors/{id}/queue/{commandId}/external-id": {
       "post": {
         "operationId": "Connectors_queueExternalId",
@@ -48590,6 +48691,163 @@
         ],
         "x-required-scopes": [
           "invoices:finalize"
+        ]
+      }
+    },
+    "/v1/invoices/{id}/erp-posted": {
+      "post": {
+        "description": "ST8-T13 (docs/01 A.2/A.6 — ระบบบัญชีที่บอกสถานะลง GL ไม่ได้ เช่น KRS: \"ปุ่ม ลงบัญชีแล้ว + กฎอายุ N วัน\") · สิทธิ์ `integrations:retry` (บัญชี/ผู้วางบิล/ผู้อนุมัติ) · ตั้ง `sync.postedAt` ของเอกสารนี้ในระบบบัญชีที่เชื่อม → หลังจากนี้การแทนที่เอกสารในระบบบัญชี (ส่งซ้ำ / ยกเลิกแล้วออกใหม่) ขึ้นคิว \"ต้องอนุมัติ\" (`replace_requires_approval`) จนผู้อนุมัติคนอื่นอนุมัติ · กดซ้ำ = คงเวลาเดิม · ใบที่ยังไม่อยู่ในระบบบัญชี → 409 `invalid_state_transition` · audit `invoice.erp_posted_marked` · **ยกเลิกแล้วออกใหม่: กดที่ใบเดิมก่อนออกใบใหม่แทน** (ธงอยู่กับเอกสารในระบบบัญชี — แทนที่สำเร็จแล้วย้ายตามไปใบใหม่; ใบเดิมที่ยกเลิกแล้วกดได้จนกว่าจะแทนที่)",
+        "operationId": "Invoices_markErpPosted",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`integrations:retry`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "integrations",
+                      "action": "retry",
+                      "required": [
+                        "integrations:retry"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบแจ้งหนี้ (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ปุ่ม \"ลงบัญชีแล้ว\" — ใบนี้ลงบัญชีในระบบบัญชีที่เชื่อมแล้ว (แทนที่ต้องมีผู้อนุมัติ)",
+        "tags": [
+          "invoices"
+        ],
+        "x-required-scopes": [
+          "integrations:retry"
         ]
       }
     },
@@ -85626,12 +85884,17 @@
           "externalId": {
             "type": "boolean",
             "description": "กรอกเลขเอกสารฝั่งระบบบัญชีเองได้"
+          },
+          "approve": {
+            "type": "boolean",
+            "description": "ST8-T13 อนุมัติการแทนที่เอกสารในระบบบัญชีได้ (รายการ `replace_requires_approval`) — ผู้เรียกต้องมีสิทธิ์อนุมัติและไม่ใช่ผู้ขอ"
           }
         },
         "required": [
           "retry",
           "skip",
-          "externalId"
+          "externalId",
+          "approve"
         ]
       },
       "ConnectorQueueItemDto": {
@@ -85900,6 +86163,20 @@
         ]
       },
       "QueueSkipDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "QueueApproveDto": {
         "type": "object",
         "properties": {
           "reason": {
@@ -92864,6 +93141,12 @@
             "format": "date-time",
             "description": "ST8-T11 เวลาที่เทียบเนื้อหาล่าสุด"
           },
+          "postedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ST8-T13 เวลาที่ฝ่ายบัญชีกด \"ลงบัญชีแล้ว\" (ระบบบัญชีที่บอกสถานะลงบัญชีไม่ได้ เช่น KRS) — มีค่า = แทนที่เอกสารในระบบบัญชีต้องมีผู้อนุมัติ"
+          },
           "externalDocuments": {
             "description": "ST8-T08 เอกสารฝั่งระบบบัญชีทุกใบ เมื่อระบบบัญชีรับใบนี้เป็นหลายเอกสาร (เช่น KRS แยกใบตาม `vat_type` เพราะสัญญาไม่มี VAT ต่อรายการ — docs/01 A.6) · ใบแรก = `externalId` / `externalDocNo` · เอกสารเดียว = `[]`",
             "type": "array",
@@ -92881,6 +93164,7 @@
           "lastSyncedAt",
           "reconcileState",
           "reconciledAt",
+          "postedAt",
           "externalDocuments"
         ]
       },
@@ -111625,6 +111909,33 @@
           }
         }
       },
+      "Forbidden_credit-notes.approve": {
+        "description": "ไม่มีสิทธิ์ (`credit-notes:approve`)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDto"
+            },
+            "examples": {
+              "permission_denied": {
+                "value": {
+                  "type": "https://docs.tms.example/problems/permission_denied",
+                  "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                  "status": 403,
+                  "code": "permission_denied",
+                  "instance": "/v1/connectors/3f2a…/queue/3f2a…/approve",
+                  "requestId": "b6a1c2d3-…",
+                  "module": "credit-notes",
+                  "action": "approve",
+                  "required": [
+                    "credit-notes:approve"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
       "Forbidden_integrations.read": {
         "description": "ไม่มีสิทธิ์ (`integrations:read`)",
         "content": {
@@ -112302,6 +112613,11 @@
       "status": 422,
       "title": "ไฟล์ใหญ่เกินกว่าจะส่งทางอีเมล — ดาวน์โหลด PDF แล้วส่งเอง",
       "titleEn": "The file is too large to email — download the PDF and send it yourself"
+    },
+    "erp_replace_self_approval": {
+      "status": 403,
+      "title": "ผู้ขอแทนที่เอกสารในระบบบัญชี (ผู้ออกใบใหม่ ผู้ยกเลิกใบเดิม หรือผู้สั่งส่งซ้ำ) อนุมัติเองไม่ได้ ต้องให้ผู้อนุมัติคนอื่น",
+      "titleEn": "Whoever requested replacing the accounting-system document cannot approve it"
     },
     "external_id_conflict": {
       "status": 409,

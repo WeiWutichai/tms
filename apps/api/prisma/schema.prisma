@@ -3550,6 +3550,11 @@ model ExternalMapping {
   externalStatus  String?               @map("external_status")
   /// ST8-T16 รายละเอียดจาก ERP (เลขใบจ่าย / เลข 50 ทวิ / เหตุยกเลิก) — ห้ามมี credential
   detail          Json?
+  /// ST8-T13 เวลาที่ฝ่ายบัญชีกดปุ่ม "ลงบัญชีแล้ว" (ERP ที่ไม่มี capability `postedStatus` — docs/01 A.2/A.6, §6.5 `posted_at`) —
+  /// มีค่า = การแทนที่เอกสารฝั่ง ERP (`replaceDocument`) ต้องมีผู้อนุมัติก่อนส่ง
+  postedAt        DateTime?             @map("posted_at") @db.Timestamptz(6)
+  /// ST8-T13 ผู้กดปุ่ม "ลงบัญชีแล้ว"
+  postedBy        String?               @map("posted_by")
   /// ST7-T21 เวลาที่รอบ "Payment status pull" ถามสถานะรับชำระของเอกสารนี้ล่าสุด — รอบถัดไปเริ่มจากใบที่ถามนานสุด (ท้ายแถวไม่อด)
   paymentCheckedAt DateTime?            @map("payment_checked_at") @db.Timestamptz(6)
   /// ST8-T11 ผลกระทบยอดเนื้อหาเอกสารล่าสุด (docs/01 §4.4 `SENT → ACCEPTED / MISMATCH`) — null = ยังไม่เคยเทียบ (ส่งแล้ว = SENT)

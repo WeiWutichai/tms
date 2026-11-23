@@ -73,6 +73,14 @@ export class ErpDocumentSyncDto {
   })
   reconciledAt!: string | null;
   @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date-time',
+    description:
+      'ST8-T13 เวลาที่ฝ่ายบัญชีกด "ลงบัญชีแล้ว" (ระบบบัญชีที่บอกสถานะลงบัญชีไม่ได้ เช่น KRS) — มีค่า = แทนที่เอกสารในระบบบัญชีต้องมีผู้อนุมัติ',
+  })
+  postedAt!: string | null;
+  @ApiProperty({
     type: [ErpExternalDocumentDto],
     description:
       'ST8-T08 เอกสารฝั่งระบบบัญชีทุกใบ เมื่อระบบบัญชีรับใบนี้เป็นหลายเอกสาร (เช่น KRS แยกใบตาม `vat_type` เพราะสัญญาไม่มี VAT ต่อรายการ — docs/01 A.6) · ' +
@@ -92,6 +100,7 @@ export function documentSyncDto(v: DocumentSyncView | null): ErpDocumentSyncDto 
     lastSyncedAt: v.lastSyncedAt?.toISOString() ?? null,
     reconcileState: v.reconcileState,
     reconciledAt: v.reconciledAt?.toISOString() ?? null,
+    postedAt: v.postedAt?.toISOString() ?? null,
     externalDocuments: v.externalDocuments.map((d) => ({ ...d })),
   };
 }
