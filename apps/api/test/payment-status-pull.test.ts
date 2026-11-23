@@ -877,7 +877,7 @@ describe('Payment status pull (ST7-T21)', { timeout: 600_000 }, () => {
     // RLS: role แอปภายใต้ tenant อื่นไม่เห็นแถว
     const seen = await db.withTenant(otherTenantId, (tx) => tx.reconcileResult.count());
     expect(seen).toBe(0);
-    // sandbox (mode test): connector สร้างใน sandbox ไม่ได้ (@LiveOnly) — จำลองแถวที่หลุดเข้ามา: รอบดึงข้าม + scheduler ไม่สร้าง job
+    // sandbox (mode test): D-81 · D68-58/96 ใช้ได้เฉพาะ DemoProvider — connector จริง (แถวที่หลุดเข้ามา) ข้าม + scheduler ไม่สร้าง job
     const sandbox = await plat.tenant.create({
       data: {
         name: 'sandbox ดึงสถานะรับชำระ',
@@ -890,7 +890,7 @@ describe('Payment status pull (ST7-T21)', { timeout: 600_000 }, () => {
     const sbCon = await plat.connector.create({
       data: {
         tenantId: sandbox.id,
-        adapterKey: 'demo',
+        adapterKey: 'krs',
         capabilitiesEnabled: ['fetchPaymentStatus'],
         credentialKeys: live.credentialKeys,
         credentialsEnc: live.credentialsEnc,
@@ -898,14 +898,18 @@ describe('Payment status pull (ST7-T21)', { timeout: 600_000 }, () => {
       },
     });
     expect((await pull.pullConnector(sandbox.id, sbCon.id)).skipped).toBe('sandbox');
+    // DemoProvider ใน sandbox = ดึงได้ (ไม่ถูกข้ามเพราะ sandbox)
+    expect(await pull.whyNot(sandbox.id, { ...sbCon, adapterKey: 'demo' })).toBeNull();
     await plat.job.updateMany({
       where: { tenantId, type: PAYMENT_STATUS_PULL_JOB },
       data: { payload: { connectorId: conUuid, day: '2000-01-01' } },
     });
-    expect(await pull.scheduleDue(at0730)).toBe(1); // เฉพาะ connector ของบริษัทจริง
+    expect(await pull.scheduleDue(at0730)).toBe(1); // เฉพาะ connector ของบริษัทจริง (krs ของ sandbox ข้าม)
     expect(await plat.job.count({ where: { tenantId: sandbox.id } })).toBe(0);
+    // D68-58: route กระทบยอดใช้ได้ใน sandbox แล้ว — เห็นเฉพาะของ sandbox (ว่าง) ไม่เห็นของบริษัทจริง
     const sbApi = await api(app, await tokenFor(sandbox.id)).get('/v1/reconcile-results');
-    expect(sbApi.status).toBe(403);
+    expect(sbApi.status).toBe(200);
+    expect(sbApi.body.data).toEqual([]);
   });
 
   it('รับชำระเข้าได้ทางเดียวต่อ connector: เปิด fetchPaymentStatus แล้ว webhook รับชำระ (paymentReceived) ไม่ถูกบันทึก → คิวตรวจ payment_channel_conflict', async () => {

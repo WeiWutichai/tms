@@ -299,6 +299,43 @@ export class NotificationEvents implements OnModuleInit {
   }
 
   /**
+   * D-81 · D68-57 (+ เงื่อนไข D68-09) เอกสารไม่ถูกส่งเข้าระบบบัญชี (docs/01 §6.3: CAPABILITY "SKIPPED + แจ้งบัญชี" · FAILED_FINAL
+   * รวม `erp_mapping_incomplete`) → ฝ่ายบัญชี `payments:record` (ผู้รับชุดเดียวกับ D68-61) 1 ฉบับต่อคำสั่ง · หมวด "การเชื่อมต่อขัดข้อง"
+   * · ไม่ใส่ยอดเงิน · ลิงก์ไปหน้าของเอกสาร (ใบแจ้งหนี้ → หน้าวางบิล, ใบสำคัญจ่าย → หน้าจ่ายรถร่วม)
+   */
+  async documentNotSent(
+    tx: Tx,
+    input: {
+      tenantId: string;
+      entityType: string;
+      localId: string;
+      documentNo: string | null;
+      label: string;
+      outcome: 'FAILED_FINAL' | 'SKIPPED';
+      code: string;
+    },
+  ): Promise<void> {
+    const settlement = input.entityType === 'settlement';
+    const kind = input.entityType === 'invoice' ? 'invoice' : settlement ? 'settlement' : null;
+    const ref = kind ? encodeId(kind, input.localId) : null;
+    await this.safely(tx, 'connector.document_not_sent', () =>
+      this.notifications.notify(tx, {
+        tenantId: input.tenantId,
+        to: { permissions: ['payments:record'] },
+        template: 'connector.document_not_sent',
+        vars: {
+          label: input.label,
+          documentNo: input.documentNo ?? ref ?? '-',
+          outcome: input.outcome,
+          code: input.code,
+        },
+        link: settlement ? '/settle' : '/bill',
+        ...(kind && ref ? { entity: { type: kind, id: ref } } : {}),
+      }),
+    );
+  }
+
+  /**
    * ST7-T20 ทีม Innovera เปลี่ยน connector (credential/สถานะ) จาก Platform Console → แจ้ง owner ทุกคน ในระบบ + อีเมล
    * (สอดคล้องกับเข้าใช้งานแทน — docs/04 A6 "อีเมลแจ้ง tenant owner ทุกครั้ง") [DECISION spec/12 §3]
    */

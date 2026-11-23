@@ -7,6 +7,7 @@ import { encodeId, tryDecodeId } from '../src/common/ids';
 import { DbService } from '../src/db/db.service';
 import { EntitlementService } from '../src/modules/entitlements/entitlement.service';
 import { ConnectorResolver } from '../src/modules/erp/connector-resolver';
+import { ConnectorsService } from '../src/modules/erp/connectors.service';
 import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
 import { ERP_SINK, sentIdempotencyKey } from '../src/modules/erp/erp-adapter.sink';
 import { OutboxDispatcher } from '../src/modules/integration/outbox.dispatcher';
@@ -564,8 +565,15 @@ describe('connectors (ST7-T13)', () => {
       const first = await plat.connector.findUniqueOrThrow({ where: { id: cid } });
       expect(first.status).toBe('ACTIVE');
       expect(first.healthFailingSince?.toISOString()).toBe(t0.toISOString());
+      // D-81 · D68-57 ระหว่าง healthCheck ล้ม = พักทั้งคิว: รอบส่งซ้ำไม่ถึง adapter ไม่เสียครั้ง
+      const before = fake.calls.length;
+      await drain();
+      expect(fake.calls).toHaveLength(before);
+      expect(await cmd(a)).toMatchObject({ status: 'PENDING', errorClass: 'AUTH', attempt: 1 });
+      expect((await cmd(a)).lastError).toMatchObject({ code: 'connector_unhealthy' });
       clock.set(new Date(t0.getTime() + 31 * 60_000));
-      await drain(); // ส่งซ้ำ → ล้มอีก → ล้มต่อเนื่องครบ 30 นาที
+      // worker ตรวจซ้ำ (ทุก 5 นาที) → ล้มต่อเนื่องครบ 30 นาที
+      await app.get(ConnectorsService).recheckUnhealthy();
       clock.set(null);
       const con = await plat.connector.findUniqueOrThrow({ where: { id: cid } });
       expect(con).toMatchObject({

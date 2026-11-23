@@ -76,6 +76,16 @@ export interface NotificationVars {
   /** ST8-T03 connector กลับมาทำงานเอง (ปลายทางตอบอีกครั้ง — ERROR → ACTIVE โดยระบบ) */
   'connector.recovered': { label: string };
   /**
+   * D-81 · D68-57 เอกสารไม่ถูกส่งเข้าระบบบัญชี (docs/01 §6.3 "แจ้งบัญชี") · label = ชื่อระบบบัญชี · documentNo = เลขเอกสาร TMS ·
+   * outcome = FAILED_FINAL (ส่งไม่สำเร็จ ระบบไม่ลองเองอีก) / SKIPPED (ไม่ส่ง — ต้องทำในระบบบัญชีเอง) · code = รหัสปัญหา · ไม่ใส่ยอดเงิน
+   */
+  'connector.document_not_sent': {
+    label: string;
+    documentNo: string;
+    outcome: 'FAILED_FINAL' | 'SKIPPED';
+    code: string;
+  };
+  /**
    * ST7-T20 ทีม Innovera เปลี่ยน connector จาก Platform Console (แบบเดียวกับแจ้ง owner ตอนเข้าใช้งานแทน — docs/04 A6)
    * action = created / credentials / resumed / paused / error / recovered · reason = เหตุผลของทีมงาน (safeName)
    */
@@ -100,6 +110,23 @@ export interface DailyDigestGroup {
   count: number;
   titles: string[];
 }
+/** D68-57 คำแนะนำต่อรหัสปัญหาของเอกสารที่ไม่ถูกส่งเข้าระบบบัญชี (ไม่มี = ข้อความตามผล) */
+const DOC_NOT_SENT_HINT_TH: Readonly<Record<string, string>> = {
+  erp_mapping_incomplete: 'จับคู่รหัสค่าบริการกับระบบบัญชีให้ครบแล้วส่งใหม่',
+  erp_master_code_unknown: 'ซิงก์/แก้รหัสในผังรหัสระบบบัญชีแล้วส่งใหม่',
+  void_manual_required: 'เอกสารถูกยกเลิกใน TMS — ยกเลิกในระบบบัญชีเอง',
+  connector_disconnected: 'ยกเลิกการเชื่อมต่อแล้ว — บันทึกเอกสารนี้ในระบบบัญชีเอง',
+  capability_not_supported: 'ระบบบัญชีนี้ไม่รองรับเอกสารชนิดนี้ — บันทึกในระบบบัญชีเอง',
+};
+const DOC_NOT_SENT_HINT_EN: Readonly<Record<string, string>> = {
+  erp_mapping_incomplete: 'map the service items to accounting codes, then resend.',
+  erp_master_code_unknown: 'sync or fix the accounting master codes, then resend.',
+  void_manual_required: 'it was cancelled in TMS — cancel it in the accounting system manually.',
+  connector_disconnected:
+    'the connection was removed — record it in the accounting system manually.',
+  capability_not_supported:
+    'this accounting system does not accept this document type — record it manually.',
+};
 /** ชื่อ event ในสรุปรายวัน (ไทยตรงกับหน้าตั้งค่า — apps/web i18n `noti.ev.*`) */
 const EVENT_NAME: Record<string, Record<NotificationLocale, string>> = {
   'order.on_hold': { th: 'ใบค้างใหม่', en: 'New on-hold orders' },
@@ -606,6 +633,30 @@ const TEMPLATES: {
     en: (v) => ({
       title: 'Connector back online',
       body: `Connector ${v.label} can reach the destination again — it was resumed and parked work is being sent.`,
+    }),
+  },
+  'connector.document_not_sent': {
+    th: (v) => ({
+      title: 'เอกสารไม่ถูกส่งเข้าระบบบัญชี',
+      body: `${safeName(v.documentNo, 60)} ${
+        v.outcome === 'SKIPPED' ? 'ไม่ถูกส่งเข้า' : 'ส่งเข้าไม่สำเร็จ —'
+      } ${safeName(v.label, 80)} (${safeName(v.code, 60)}) — ${
+        DOC_NOT_SENT_HINT_TH[v.code] ??
+        (v.outcome === 'SKIPPED'
+          ? 'บันทึกเอกสารนี้ในระบบบัญชีเอง'
+          : 'ระบบไม่ลองส่งเองอีก ตรวจสาเหตุแล้วส่งใหม่ หรือบันทึกในระบบบัญชีเอง')
+      }`,
+    }),
+    en: (v) => ({
+      title: 'Document not sent to the accounting system',
+      body: `${safeName(v.documentNo, 60)} ${
+        v.outcome === 'SKIPPED' ? 'was not sent to' : 'could not be sent to'
+      } ${safeName(v.label, 80)} (${safeName(v.code, 60)}) — ${
+        DOC_NOT_SENT_HINT_EN[v.code] ??
+        (v.outcome === 'SKIPPED'
+          ? 'record it in the accounting system manually.'
+          : 'it will not be retried automatically; fix the cause and resend, or record it manually.')
+      }`,
     }),
   },
   'reconcile.mismatch_found': {

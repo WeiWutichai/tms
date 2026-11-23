@@ -24,10 +24,10 @@ import {
   NoTransaction,
   RequireFeature,
   RequireScope,
+  SandboxAware,
   StepUpAlways,
   StepUpWhen,
   TenantResource,
-  LiveOnly,
 } from '../../common/decorators';
 import { assertHumanStepUp, assertStepUp } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
@@ -75,11 +75,12 @@ const IF_MATCH = { name: 'If-Match', required: false, description: 'ETag จา�
  * ไม่มี connector = Standalone (ทุก flow ทำใน TMS) · หน้าจอจัดการ = ST7-T20 · admin portal = ST7-T20
  * อ่าน `settings:read` · จัดการ `settings:write` (owner/admin) · ฟีเจอร์ `conn` ของแพ็กเกจ (จำนวนตาม limit)
  * credential ไม่ส่งกลับทุก endpoint (มีแค่ `credentialKeys`)
+ * sandbox (D-81 · D68-58/96; docs/04 G3/J): ใช้ได้เฉพาะ DemoProvider (`demo`) — adapter จริงตอบ 403 `sandbox_unsupported`
  */
 @ApiTags('connectors')
 @ApiBearerAuth()
+@SandboxAware()
 @RequireFeature('conn')
-@LiveOnly()
 @Controller('connectors')
 export class ConnectorsController {
   constructor(
@@ -401,7 +402,7 @@ export class ConnectorsController {
  */
 @ApiTags('connectors')
 @ApiBearerAuth()
-@LiveOnly()
+@SandboxAware()
 @Controller('connectors')
 export class ConnectorsEffectiveController {
   constructor(private readonly connectors: ConnectorsService) {}

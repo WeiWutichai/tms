@@ -8,6 +8,7 @@ import {
   type ErrorClass,
   type OutboxEvent,
   type OutboxSink,
+  type SettledCommand,
 } from './outbox.types';
 
 /** lease ค่าเริ่มต้น (docs/01 §6.2: 5 นาที; sink ใบใหญ่ตั้ง `leaseMs` เอง) */
@@ -16,7 +17,11 @@ export const DEFAULT_LEASE_MS = 5 * 60_000;
 export const RETRY_SCHEDULE_MIN = [1, 2, 5, 15, 30, 60] as const;
 /** AMBIGUOUS: ไม่ส่งซ้ำทันที — รอ 2 นาที (docs/01 §6.3) */
 const AMBIGUOUS_DELAY_MIN = 2;
-/** AUTH: คำสั่งคง PENDING ไม่นับครั้ง — ลองใหม่ทุก 15 นาที (หยุด connector ทั้งตัวทำใน ST7-T13/T16) */
+/**
+ * AUTH: คำสั่งคง PENDING ไม่นับครั้ง — ตรวจอีกครั้งทุก 15 นาที (docs/01 §6.3 "คำสั่งคง `PENDING`") · sink เป็นผู้หยุด connector ทั้งตัว
+ * (`ERROR` + แจ้ง admin ทันที — ErpAdapterSink/ConnectorsService.markError; D-81 · D68-47) แล้วรอบถัดไปพักโดยไม่เรียกปลายทาง
+ * (ไม่ retry ด้วย credential เดิม) · ปลุกทันทีเมื่อ connector กลับมา ACTIVE (`wakeParked`)
+ */
 const AUTH_DELAY_MIN = 15;
 /** คำสั่งที่ส่งพร้อมกันต่อปลายทาง (docs/01 §6.2 config.maxConcurrency default 3) — นับแบบหลวม (soft cap) */
 export const MAX_IN_FLIGHT_PER_TARGET = 3;
@@ -98,12 +103,16 @@ export class OutboxDispatcher {
   private async claimNow(leaseMs: number): Promise<ClaimedCommand | null> {
     const db = this.prisma.platform;
     // lease หมดในครั้งสุดท้าย (worker ตายระหว่างส่ง) → dead-letter ไม่วนไม่จบ (อาจส่งถึงแล้ว → AMBIGUOUS ให้คนตรวจ)
-    await db.$executeRaw`
+    const dead = await db.$queryRaw<Omit<SettledCommand, 'status' | 'code'>[]>`
       UPDATE integration_outbox
          SET status = 'FAILED_FINAL', error_class = 'AMBIGUOUS', lease_id = NULL, lease_until = NULL, done_at = now(),
              last_error = jsonb_build_object('code', 'lease_expired', 'message', 'worker lease expired on last attempt'),
              updated_at = now()
-       WHERE status = 'IN_FLIGHT' AND lease_until < now() AND attempt >= max_attempt`;
+       WHERE status = 'IN_FLIGHT' AND lease_until < now() AND attempt >= max_attempt
+      RETURNING id, tenant_id AS "tenantId", sink, target_id AS "targetId", operation, entity_type AS "entityType",
+                local_id AS "localId", payload, error_class AS "errorClass"`;
+    for (const r of dead)
+      await this.settled({ ...r, status: 'FAILED_FINAL', code: 'lease_expired' });
     const rows = await db.$queryRaw<ClaimedCommand[]>`
       WITH heads AS (
         SELECT DISTINCT ON (o.tenant_id, o.serialize_key)
@@ -313,7 +322,7 @@ export class OutboxDispatcher {
             : (own ?? retryDelayMin(c.attempt, sink?.retry?.scheduleMin ?? RETRY_SCHEDULE_MIN));
       }
     }
-    await this.finish(c, {
+    const ok = await this.finish(c, {
       status,
       errorClass: cls,
       lastError: { ...detail, attempt: c.attempt, at: new Date().toISOString() },
@@ -322,6 +331,31 @@ export class OutboxDispatcher {
       attempt,
     });
     this.log(c, `${status}:${cls}`, started);
+    if (ok && (status === 'FAILED_FINAL' || status === 'SKIPPED'))
+      await this.settled({
+        id: c.id,
+        tenantId: c.tenantId,
+        sink: c.sink,
+        targetId: c.targetId,
+        operation: c.operation,
+        entityType: c.entityType,
+        localId: c.localId,
+        payload: c.payload,
+        status,
+        errorClass: cls,
+        code: typeof detail.code === 'string' ? detail.code : null,
+      });
+  }
+
+  /** D68-57 แจ้ง sink ว่าคำสั่งจบแบบไม่ถึงปลายทาง — ล้ม = log (ผลของคำสั่งบันทึกแล้ว ไม่ย้อน) */
+  private async settled(c: SettledCommand): Promise<void> {
+    const sink = this.sinks.get(c.sink);
+    if (!sink?.onSettled) return;
+    try {
+      await sink.onSettled(c);
+    } catch (e) {
+      this.logger.warn(`outbox ${c.id} onSettled failed: ${String(e)}`);
+    }
   }
 
   /** เขียนผลเฉพาะถ้ายังถือ lease (worker อื่นอาจหยิบซ้ำหลัง lease หมด) — คืน false ถ้าเสีย lease แล้ว */

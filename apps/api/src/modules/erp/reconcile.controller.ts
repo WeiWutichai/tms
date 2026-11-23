@@ -1,6 +1,11 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
 import { ApiAcceptedResponse, ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
-import { LiveOnly, RequireFeature, RequireScope, TenantResource } from '../../common/decorators';
+import {
+  RequireFeature,
+  RequireScope,
+  SandboxAware,
+  TenantResource,
+} from '../../common/decorators';
 import { decodeIdOr404, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
@@ -47,12 +52,12 @@ const E409_RUN = {
 /**
  * ผลกระทบยอดกับระบบภายนอก (ST7-T21; docs/01 §5.2 กลุ่ม 14 `reconcile-results`, `POST /reconcile-runs`; docs/04 G3 "Payment status pull")
  * ตอนนี้ครอบเฉพาะ "สถานะรับชำระจากระบบบัญชี" — เทียบเอกสาร 4 รอบ (ST8-T11) และการปิดรายการ/หน้า MISMATCH (ST8-T12) ต่อยอดจาก resource นี้
- * อ่าน `integrations:read` · สั่งรอบเอง `settings:write` (คนเท่านั้น — แบบเดียวกับการจัดการ connector) · ฟีเจอร์ `conn` · sandbox ใช้ไม่ได้ (ST7-T09)
+ * อ่าน `integrations:read` · สั่งรอบเอง `settings:write` (คนเท่านั้น — แบบเดียวกับการจัดการ connector) · ฟีเจอร์ `conn` · sandbox ใช้ได้กับ DemoProvider เท่านั้น (D-81 · D68-58)
  */
 @ApiTags('connectors')
 @ApiBearerAuth()
+@SandboxAware()
 @RequireFeature('conn')
-@LiveOnly()
 @Controller()
 export class ReconcileController {
   constructor(

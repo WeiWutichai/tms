@@ -66,9 +66,15 @@ export const EVENT_CATALOGUE: Record<NotificationEvent, EventDefinition> = {
     defaults: { in_app: true, email: true },
     pending: null,
   },
-  // connector → ERROR (ST7-T13) · webhook ถูกปิดอัตโนมัติ (ST7-T04)
+  // connector → ERROR (ST7-T13) · webhook ถูกปิดอัตโนมัติ (ST7-T04) · D-81 · D68-57 เอกสารไม่ถูกส่งเข้าระบบบัญชี → ฝ่ายบัญชี
+  // (ต้นแบบไม่มีหมวดแยก — อยู่ใต้ "การเชื่อมต่อขัดข้อง")
   'connector.down': {
-    templates: ['connector.error', 'connector.recovered', 'webhook.auto_disabled'],
+    templates: [
+      'connector.error',
+      'connector.recovered',
+      'webhook.auto_disabled',
+      'connector.document_not_sent',
+    ],
     defaults: { in_app: true, email: true },
     pending: null,
   },

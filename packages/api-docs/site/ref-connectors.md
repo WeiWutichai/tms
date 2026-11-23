@@ -25,6 +25,7 @@ scope: `settings:read` · operationId: `ConnectorsEffective_effective`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
 | `companyId` | query |   | `string` | นิติบุคคล — ไม่ระบุทั้งนิติบุคคลและสาขา = ค่าเริ่มต้นระดับ tenant (connector ทุกนิติบุคคล หรือ Standalone) |
 | `branchId` | query |   | `string` |   |
 | `kind` | query |   | `string` ค่า: `invoice`, `tender` | ออกบิลในนาม / จ้างในนาม |
@@ -60,6 +61,7 @@ scope: `settings:read` · operationId: `Connectors_list`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
 | `status` | query |   | `string` ค่า: `ACTIVE`, `PAUSED`, `ERROR`, `DISCONNECTED` | ไม่ระบุ = ทุกสถานะยกเว้น DISCONNECTED |
 
 **Responses**
@@ -88,6 +90,12 @@ const { data, error } = await tms.GET('/v1/connectors');
 `GET /v1/connectors/adapters`
 
 scope: `settings:read` · operationId: `Connectors_adapters`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
 
 **Responses**
 
@@ -119,6 +127,7 @@ scope: `settings:read` · operationId: `Connectors_get`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
 | `id` | path | ใช่ | `string` |   |
 
 **Responses**
@@ -154,6 +163,7 @@ scope: `settings:read` · operationId: `Connectors_history`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
 | `id` | path | ใช่ | `string` |   |
 | `limit` | query |   | `number` |   |
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน |
@@ -192,6 +202,7 @@ scope: `settings:read` · operationId: `Connectors_commands`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
 | `id` | path | ใช่ | `string` |   |
 | `status` | query |   | `string` ค่า: `PENDING`, `IN_FLIGHT`, `DONE`, `FAILED_RETRYABLE`, `FAILED_FINAL`, `SKIPPED` |   |
 | `limit` | query |   | `number` |   |
@@ -230,6 +241,7 @@ scope: `settings:read` · operationId: `ErpMasterCodes_list`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
 | `id` | path | ใช่ | `string` |   |
 | `kind` | query |   | `string` ค่า: `UNIT`, `SALESPERSON`, `ACCOUNT`, `ITEM`, `VAT_RATE` |   |
 | `includeInactive` | query |   | `boolean` | true = รวมรหัสที่ปิดใช้แล้ว |
@@ -268,6 +280,7 @@ scope: `settings:read` · operationId: `ErpMasterCodes_mappings`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
 | `id` | path | ใช่ | `string` |   |
 
 **Responses**
@@ -303,6 +316,7 @@ scope: `integrations:read` · operationId: `Reconcile_list`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
 | `limit` | query |   | `number` |   |
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull) |
@@ -344,6 +358,7 @@ scope: `integrations:read` · operationId: `Reconcile_get`
 
 | ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
 |---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
 | `id` | path | ใช่ | `string` |   |
 
 **Responses**
