@@ -436,6 +436,187 @@ describe('Connector queue (ST7-T19)', () => {
     expect(r.body.why).toBe('resend_unavailable');
   });
 
+  /** คำสั่ง FAILED_FINAL (VALIDATION) ของเอกสาร — จำลองผลที่ตัวส่งบันทึก */
+  async function failed(conUuid: string, document = invoiceDoc(), key?: string) {
+    const raw = key
+      ? (
+          await plat.integrationOutbox.create({
+            data: {
+              tenantId,
+              kind: 'ADAPTER',
+              sink: ERP_SINK,
+              targetId: conUuid,
+              operation: 'PUSH_INVOICE',
+              entityType: 'invoice',
+              localId: document.id,
+              serializeKey: `erp:${conUuid}:cus:${customerId}`,
+              idempotencyKey: key,
+              payload: { document } as object,
+            },
+          })
+        ).id
+      : await enqueue(conUuid, document);
+    await plat.integrationOutbox.update({
+      where: { id: raw },
+      data: {
+        status: 'FAILED_FINAL',
+        errorClass: 'VALIDATION',
+        lastError: { code: 'customer_unmapped', message: 'x' },
+        doneAt: new Date(),
+      },
+    });
+    return { raw, id: encodeId('outboxCommand', raw), document };
+  }
+
+  it('review H1: ไม่มีสิทธิ์ดูราคาขาย → sync log ไม่มี body (bodiesHidden) · รายการคิวบอกให้ซ่อนปุ่ม', async () => {
+    const con = await connector({ settings: { failMode: 'PERIOD_CLOSED' } });
+    const id = encodeId('outboxCommand', await enqueue(con.uuid, invoiceDoc()));
+    await drain();
+    const owner = (
+      await api(app, token).get(`/v1/connectors/${con.id}/sync-log?commandId=${id}`).expect(200)
+    ).body.data;
+    expect(owner[0]).toMatchObject({ bodiesHidden: false });
+    expect(owner[0].requestBody).toContain('1000.00');
+    const viewer = await tokenFor(tenantId, 'integrations:read');
+    const v = (
+      await api(app, viewer).get(`/v1/connectors/${con.id}/sync-log?commandId=${id}`).expect(200)
+    ).body.data;
+    expect(v[0]).toMatchObject({ bodiesHidden: true, requestBody: null, responseBody: null });
+    expect(JSON.stringify(v)).not.toContain('1000.00');
+    const q = (await api(app, viewer).get(`/v1/connectors/${con.id}/queue`).expect(200)).body;
+    expect(q.data[0]).toMatchObject({ id, bodiesHidden: true });
+    const sell = await tokenFor(tenantId, 'integrations:read prices.sell:read');
+    const s = (
+      await api(app, sell).get(`/v1/connectors/${con.id}/sync-log?commandId=${id}`).expect(200)
+    ).body.data;
+    expect(s[0].bodiesHidden).toBe(false);
+  });
+
+  it('review M1/L3: ส่งซ้ำทั้งหมด — แถวที่ล้มไม่ย้อนแถวอื่น · ก่อนวันเริ่มซิงก์ / ต้องกรอกเลขเอง = ส่งซ้ำไม่ได้', async () => {
+    const con = await connector();
+    const ok = await failed(con.uuid);
+    // 2 คำสั่งล้มเหลวของเอกสารเดียวกัน: ตัวแรกส่งซ้ำแล้ว ตัวที่สองถูกแทน (SAVEPOINT — ไม่ย้อนตัวแรก)
+    const twin = await failed(con.uuid, ok.document, `t19-twin-${randomUUID()}`);
+    const old = await failed(con.uuid, {
+      ...invoiceDoc(),
+      issueDate: '2026-10-01',
+    } as CanonicalDocument);
+    const dup = await failed(con.uuid);
+    await plat.integrationOutbox.update({
+      where: { id: dup.raw },
+      data: {
+        status: 'DONE',
+        errorClass: 'DUPLICATE',
+        lastError: { code: 'duplicate_unresolved', manualExternalIdRequired: true },
+      },
+    });
+    await api(app, token)
+      .patch(`/v1/connectors/${con.id}`)
+      .send({ syncFromDate: '2026-11-01' })
+      .expect(200);
+    const f = (await queue(con.id, 'failed')).body.data as {
+      id: string;
+      actions: { retry: boolean };
+    }[];
+    const act = (x: { id: string }) => f.find((r) => r.id === x.id)!.actions.retry;
+    expect([act(ok), act(twin), act(old), act(dup)]).toEqual([true, true, false, false]);
+    const r = await api(app, token)
+      .post(`/v1/connectors/${con.id}/queue/retry`)
+      .send({})
+      .expect(200);
+    expect(r.body).toEqual({ retried: 1, notRetryable: 3, remaining: 0 });
+    const left = ids((await queue(con.id, 'failed')).body);
+    expect(left).not.toContain(ok.id);
+    expect(left).not.toContain(twin.id); // ถูกแทนด้วยคำสั่งใหม่ที่ยังค้าง (M3)
+    expect(left).toEqual(expect.arrayContaining([old.id, dup.id]));
+    const one = await api(app, token)
+      .post(`/v1/connectors/${con.id}/queue/${old.id}/retry`)
+      .expect(409);
+    expect(one.body.why).toBe('resend_unavailable');
+  });
+
+  it('review M2: เอกสารที่มี external_id แล้ว กรอกเลขเองไม่ได้ (409 mapping_exists)', async () => {
+    const con = await connector();
+    const x = await failed(con.uuid);
+    await plat.externalMapping.create({
+      data: {
+        tenantId,
+        connectorId: con.uuid,
+        entityType: 'INVOICE',
+        localId: x.document.id,
+        externalId: 'ERP-EXIST',
+        status: 'SYNCED',
+      },
+    });
+    const f = (await queue(con.id, 'failed')).body.data.find((r: { id: string }) => r.id === x.id);
+    expect(f.actions.externalId).toBe(false);
+    const r = await api(app, token)
+      .post(`/v1/connectors/${con.id}/queue/${x.id}/external-id`)
+      .send({ externalId: 'ERP-NEW', reason: 'ลองทับเลขที่มีอยู่แล้ว' })
+      .expect(409);
+    expect(r.body.why).toBe('mapping_exists');
+  });
+
+  it('review M3: คำสั่งที่ล้มแต่มีคำสั่งหลังกว่าของเอกสารเดียวกันสำเร็จแล้ว ไม่อยู่ในแท็บล้มเหลว · badge ตรงกัน', async () => {
+    const con = await connector();
+    const x = await failed(con.uuid);
+    expect(
+      (await api(app, token).get(`/v1/connectors/${con.id}/queue/summary`).expect(200)).body.failed,
+    ).toBe(1);
+    await plat.integrationOutbox.create({
+      data: {
+        tenantId,
+        kind: 'ADAPTER',
+        sink: ERP_SINK,
+        targetId: con.uuid,
+        operation: 'PUSH_INVOICE',
+        entityType: 'invoice',
+        localId: x.document.id,
+        serializeKey: `erp:${con.uuid}:cus:${customerId}`,
+        idempotencyKey: `t19-later-${randomUUID()}`,
+        payload: { document: x.document } as object,
+        status: 'DONE',
+        doneAt: new Date(),
+      },
+    });
+    expect(ids((await queue(con.id, 'failed')).body)).toEqual([]);
+    expect(
+      (await api(app, token).get(`/v1/connectors/${con.id}/queue/summary`).expect(200)).body.failed,
+    ).toBe(0);
+    const r = await api(app, token)
+      .post(`/v1/connectors/${con.id}/queue/${x.id}/skip`)
+      .send({ reason: 'ข้ามรายการที่ถูกแทนแล้ว' })
+      .expect(409);
+    expect(r.body.why).toBe('superseded');
+  });
+
+  it('review L2: API key ส่งซ้ำได้ แต่ข้าม / กรอกเลขเอง ไม่ได้ (403 — ต้องเป็นคน)', async () => {
+    const con = await connector();
+    const x = await failed(con.uuid);
+    const u = await plat.appUser.create({
+      data: {
+        tenantId,
+        email: `key-${randomUUID()}@t19.test`,
+        name: 'เจ้าของ key',
+        status: 'ACTIVE',
+      },
+    });
+    const k = await api(app, await tokenFor(tenantId, '*', u.id))
+      .post('/v1/api-keys')
+      .send({ name: 'ERP queue', scopes: ['integrations:read', 'integrations:retry'] });
+    expect(k.status, JSON.stringify(k.body)).toBe(201);
+    const key = k.body.secret as string;
+    await api(app, key)
+      .post(`/v1/connectors/${con.id}/queue/${x.id}/skip`)
+      .send({ reason: 'ข้ามด้วย API key ไม่ควรได้' })
+      .expect(403);
+    await api(app, key)
+      .post(`/v1/connectors/${con.id}/queue/${x.id}/external-id`)
+      .send({ externalId: 'K-1', reason: 'กรอกด้วย API key ไม่ควรได้' })
+      .expect(403);
+    await api(app, key).post(`/v1/connectors/${con.id}/queue/${x.id}/retry`).expect(200);
+  });
+
   it('queueGuide: รหัสเฉพาะก่อน แล้วตาม ErrorClass · ไม่รู้จัก = null', () => {
     expect(queueGuide('VALIDATION', 'erp_master_code_unknown')?.key).toBe(
       'erp_master_code_unknown',

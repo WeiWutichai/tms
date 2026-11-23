@@ -4965,6 +4965,7 @@ export const th = {
   'cnx.log.payload': 'Payload',
   'cnx.log.viewPayload': 'ดู payload',
   'cnx.pl.title': 'Payload ที่ส่งเข้า {n}',
+  'cnx.pl.more': 'แสดง {n} ครั้งแรก — มีต่อ',
   'cnx.pl.none': 'คำสั่งนี้ยังไม่ได้เรียกระบบบัญชี (ยังไม่มี request/response)',
   'cnx.log.empty': 'ยังไม่มีบันทึกการซิงก์',
   'cnx.log.emptyD': 'เชื่อมต่อ {n} เพื่อเริ่มส่งข้อมูล บันทึกและ payload จะแสดงที่นี่',

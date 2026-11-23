@@ -19848,6 +19848,7 @@ const { data, error } = await tms.GET('/v1/reconcile-results/{id}', {
 | `guide` | ใช่ | `QueueGuideDto` | null ได้ |   |   |
 | `resolution` | ใช่ | `QueueResolutionDto` | null ได้ |   |   |
 | `actions` | ใช่ | `QueueActionsDto` |   |   |   |
+| `bodiesHidden` | ใช่ | `boolean` |   | ผู้เรียกไม่มีสิทธิ์ดูราคาของเอกสารชนิดนี้ — sync log ของคำสั่งนี้จะไม่มี body (ซ่อนปุ่ม "ดู payload") |   |
 
 ### ConnectorQueueListDto {#schema-ConnectorQueueListDto}
 

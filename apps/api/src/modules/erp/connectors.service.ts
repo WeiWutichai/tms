@@ -434,7 +434,7 @@ export class ConnectorsService {
     const page = hasMore ? rows.slice(0, limit) : rows;
     const last = page[page.length - 1];
     return {
-      data: page.map(syncLogDto),
+      data: page.map((r) => syncLogDto(r, requestContext.get()?.scopes ?? [])),
       nextCursor:
         hasMore && last
           ? encodeCursor({ updatedAt: last.occurredAt, id: last.id }, SYNC_LOG_SORT)

@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { type IntegrationOutbox, Prisma, type QueueResolutionKind } from '@prisma/client';
+import {
+  type Connector,
+  type IntegrationOutbox,
+  Prisma,
+  type QueueResolutionKind,
+} from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsIn,
@@ -22,6 +27,8 @@ import { CleanText, lockKey, MasterReasonDto } from '../master/master-kit';
 import { commandDto, ConnectorsService } from './connectors.service';
 import { ConnectorCommandDto } from './connector.dto';
 import { ERP_SINK, NOT_NOTIFIED_SKIPS } from './erp-adapter.sink';
+import { canSeeBodies } from './erp-sync-log';
+import { documentDate } from './canonical';
 import { MAP_ENTITY, ErpSyncService } from './erp-sync.service';
 
 /**
@@ -269,6 +276,11 @@ export class ConnectorQueueItemDto extends ConnectorCommandDto {
   @ApiProperty({ nullable: true, type: QueueGuideDto }) guide!: QueueGuideDto | null;
   @ApiProperty({ nullable: true, type: QueueResolutionDto }) resolution!: QueueResolutionDto | null;
   @ApiProperty({ type: QueueActionsDto }) actions!: QueueActionsDto;
+  @ApiProperty({
+    description:
+      'ผู้เรียกไม่มีสิทธิ์ดูราคาของเอกสารชนิดนี้ — sync log ของคำสั่งนี้จะไม่มี body (ซ่อนปุ่ม "ดู payload")',
+  })
+  bodiesHidden!: boolean;
 }
 
 export class ConnectorQueueListDto {
@@ -351,6 +363,17 @@ type Resolution = {
   resolvedAt: Date;
 };
 
+/** ข้อเท็จจริงต่อคำสั่งที่ใช้ตัดสินแท็บ/ปุ่ม (คำนวณเป็นชุด) */
+interface Facts {
+  res: Resolution | null;
+  /** review M3: มีคำสั่งหลังกว่าของเอกสารเดียวกัน (connector เดียวกัน) ที่สำเร็จ/ยังค้างอยู่ — รายการนี้ไม่ใช่งานของคนแล้ว */
+  superseded: boolean;
+  /** review M1: `resend` จะสร้างคำสั่งได้ (connector ไม่ยกเลิก · มีฉบับที่ออก · ไม่ก่อนวันเริ่มซิงก์) */
+  resendable: boolean;
+  /** review M2: external_mapping ของเอกสารนี้มี external_id แล้ว */
+  mapped: boolean;
+}
+
 interface ErrorDetail {
   code?: unknown;
   message?: unknown;
@@ -362,6 +385,10 @@ interface ErrorDetail {
 
 const str = (v: unknown, max: number): string | null =>
   typeof v === 'string' && v ? v.slice(0, max) : null;
+
+const isDocPush = (row: Pick<IntegrationOutbox, 'operation' | 'entityType'>) =>
+  DOCUMENT_PUSH_OPS.has(row.operation) &&
+  (row.entityType === 'invoice' || row.entityType === 'settlement');
 
 /** ต้องมีคนทำ (ไม่รวมว่าจัดการแล้วหรือยัง) — เงื่อนไขเดียวกับ SQL `NEEDS_HUMAN` */
 export function needsHuman(r: Pick<IntegrationOutbox, 'status' | 'lastError'>): boolean {
@@ -381,13 +408,20 @@ const NEEDS_HUMAN_SQL = Prisma.sql`COALESCE(
   OR (o.status = 'DONE' AND (o.last_error->>'manualExternalIdRequired') = 'true'), false)`;
 const RESOLVED_SQL = Prisma.sql`EXISTS (SELECT 1 FROM connector_queue_resolution r WHERE r.outbox_id = o.id)`;
 const RETRIED_SQL = Prisma.sql`EXISTS (SELECT 1 FROM connector_queue_resolution r WHERE r.outbox_id = o.id AND r.kind = 'RETRIED')`;
+/** review M3: คำสั่งหลังกว่าของเอกสารเดียวกันสำเร็จแล้ว/ยังค้าง (เช่น ระบบส่งใหม่เองหลังเอกสารเปลี่ยน) */
+const SUPERSEDED_SQL = Prisma.sql`EXISTS (SELECT 1 FROM integration_outbox o2
+   WHERE o2.sink = o.sink AND o2.target_id = o.target_id AND o2.entity_type = o.entity_type
+     AND o2.local_id = o.local_id AND o2.seq > o.seq
+     AND o2.status IN ('DONE', 'PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE'))`;
+const OPEN_STATUSES = ['PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE'];
 
+/** แท็บ — รายการต้องมีคนทำที่ถูกแทนแล้ว (ส่งซ้ำ / คำสั่งหลังกว่า) ไม่อยู่ในแท็บใด */
 function tabSql(tab: QueueTab): Prisma.Sql {
   switch (tab) {
     case 'queued':
       return Prisma.sql`o.status IN ('PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE')`;
     case 'failed':
-      return Prisma.sql`${NEEDS_HUMAN_SQL} AND NOT ${RESOLVED_SQL}`;
+      return Prisma.sql`${NEEDS_HUMAN_SQL} AND NOT ${RESOLVED_SQL} AND NOT ${SUPERSEDED_SQL}`;
     case 'done':
       return Prisma.sql`o.status IN ('DONE', 'SKIPPED', 'FAILED_FINAL') AND (NOT ${NEEDS_HUMAN_SQL} OR ${RESOLVED_SQL})`;
   }
@@ -429,10 +463,10 @@ export class ConnectorQueueService {
        LIMIT ${limit + 1}`;
     const hasMore = ids.length > limit;
     const pageIds = (hasMore ? ids.slice(0, limit) : ids).map((r) => r.id);
-    const rows = await this.rows(tx, pageIds);
+    const rows = await this.rows(tx, c, pageIds);
     const last = rows[rows.length - 1];
     return {
-      data: rows.map((r) => this.item(r.row, r.res)),
+      data: rows.map((r) => this.item(r.row, r.f)),
       nextCursor:
         hasMore && last
           ? encodeCursor({ updatedAt: last.row.updatedAt, id: last.row.id }, QUEUE_SORT)
@@ -441,7 +475,7 @@ export class ConnectorQueueService {
     };
   }
 
-  /** ตัวนับต่อแท็บ + แท็บล้มเหลวแยก ErrorClass (badge ที่เมนู = `failed`) */
+  /** ตัวนับต่อแท็บ + แท็บล้มเหลวแยก ErrorClass (badge ที่เมนู = `failed` — เงื่อนไขเดียวกับรายการ) */
   async summary(id: string, tx: Tx = this.db.tx): Promise<ConnectorQueueSummaryDto> {
     const c = await this.connectors.get(id, tx);
     const base = Prisma.sql`o.sink = ${ERP_SINK} AND o.target_id = ${c.id} AND NOT ${RETRIED_SQL}`;
@@ -464,13 +498,17 @@ export class ConnectorQueueService {
   /** ส่งซ้ำ 1 รายการ (หลังแก้ mapping / ผังรหัส / เปิดงวดบัญชี ฯลฯ) — คำสั่งใหม่ผ่าน `ErpSyncService.resend` */
   async retry(id: string, commandRef: string, tx: Tx = this.db.tx): Promise<QueueRetryResultDto> {
     const c = await this.connectors.get(id, tx);
-    const { row } = await this.command(tx, c.id, commandRef);
-    const newId = await this.retryRow(tx, c.id, row);
-    const [fresh] = await this.rows(tx, [newId]);
-    return { command: this.item(fresh!.row, fresh!.res) };
+    const { row } = await this.command(tx, c, commandRef);
+    const newId = await this.retryRow(tx, c, row);
+    const [fresh] = await this.rows(tx, c, [newId]);
+    return { command: this.item(fresh!.row, fresh!.f) };
   }
 
-  /** ส่งซ้ำทุกรายการในแท็บล้มเหลวที่ส่งซ้ำได้ (ครั้งละไม่เกิน 200 — ตัวที่เหลือกดอีกครั้ง) */
+  /**
+   * ส่งซ้ำทุกรายการในแท็บล้มเหลวที่ส่งซ้ำได้ (ครั้งละไม่เกิน 200 — ตัวที่เหลือกดอีกครั้ง)
+   * review M1: ทำทีละรายการใน SAVEPOINT — รายการที่ล้ม (จัดการไปแล้วพร้อมกัน / resend ไม่สร้างคำสั่ง) นับเป็น `notRetryable`
+   * และไม่ย้อนรายการอื่น
+   */
   async retryAll(
     id: string,
     body: QueueRetryAllDto,
@@ -485,13 +523,14 @@ export class ConnectorQueueService {
        ORDER BY o.seq ASC`;
     const rows = await this.rows(
       tx,
+      c,
       ids.map((r) => r.id),
     );
     let retried = 0;
     let notRetryable = 0;
     let remaining = 0;
-    for (const { row, res } of rows) {
-      if (!this.actions(row, res).retry) {
+    for (const { row, f } of rows) {
+      if (!this.actions(row, f).retry) {
         notRetryable++;
         continue;
       }
@@ -499,13 +538,21 @@ export class ConnectorQueueService {
         remaining++;
         continue;
       }
-      await this.retryRow(tx, c.id, row);
-      retried++;
+      await tx.$executeRawUnsafe('SAVEPOINT queue_retry_row');
+      try {
+        await this.retryRow(tx, c, row);
+        await tx.$executeRawUnsafe('RELEASE SAVEPOINT queue_retry_row');
+        retried++;
+      } catch (e) {
+        await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT queue_retry_row');
+        if (!(e instanceof ProblemException)) throw e;
+        notRetryable++;
+      }
     }
     return { retried, notRetryable, remaining };
   }
 
-  /** ข้ามพร้อมเหตุผล (override — audit) */
+  /** ข้ามพร้อมเหตุผล (override — คนเท่านั้น + audit) */
   async skip(
     id: string,
     commandRef: string,
@@ -513,17 +560,19 @@ export class ConnectorQueueService {
     tx: Tx = this.db.tx,
   ): Promise<ConnectorQueueItemDto> {
     const c = await this.connectors.get(id, tx);
-    const { row, res } = await this.command(tx, c.id, commandRef);
-    if (!this.actions(row, res).skip) throw notAllowed(res ? 'already_resolved' : 'not_failed');
+    this.connectors.assertHuman(); // review L2: override ต้องเป็นคน (API key → 403) — แบบ reconcile รอบ MANUAL
+    const { row, f } = await this.command(tx, c, commandRef);
+    if (!this.actions(row, f).skip) throw notAllowed(this.why(row, f));
     await this.resolve(tx, c.id, row, { kind: 'SKIPPED', reason: body.reason });
     await this.audit(tx, c.id, 'connector.queue_skipped', row, body.reason, {});
-    const [fresh] = await this.rows(tx, [row.id]);
-    return this.item(fresh!.row, fresh!.res);
+    const [fresh] = await this.rows(tx, c, [row.id]);
+    return this.item(fresh!.row, fresh!.f);
   }
 
   /**
-   * กรอกเลขเอกสารฝั่งระบบบัญชีเอง (override — audit) — DUPLICATE ที่หาไม่เจอ (`manualExternalIdRequired`) หรือคำสั่งส่งเอกสารที่ล้มเหลว
-   * แต่บัญชียืนยันว่าเอกสารอยู่ในระบบบัญชีแล้ว · บันทึก external_mapping (MISMATCH `erp_content_unverified` — รอ reconcile ยืนยัน)
+   * กรอกเลขเอกสารฝั่งระบบบัญชีเอง (override — คนเท่านั้น + audit) — DUPLICATE ที่หาไม่เจอ (`manualExternalIdRequired`) หรือคำสั่งส่งเอกสาร
+   * ที่ล้มเหลวแต่บัญชียืนยันว่าเอกสารอยู่ในระบบบัญชีแล้ว · บันทึก external_mapping (MISMATCH `erp_content_unverified` — รอ reconcile ยืนยัน)
+   * review M2: เฉพาะเอกสารที่ยังไม่มี external_id (มีแล้ว = 409 `mapping_exists` — ไม่ทับเลขที่ยืนยันแล้วจากคิว)
    * id นี้ผูกกับเอกสารอื่นของ connector เดียวกันอยู่ → 409 `external_id_conflict`
    */
   async externalId(
@@ -533,14 +582,13 @@ export class ConnectorQueueService {
     tx: Tx = this.db.tx,
   ): Promise<ConnectorQueueItemDto> {
     const c = await this.connectors.get(id, tx);
-    const { row, res } = await this.command(tx, c.id, commandRef);
-    if (!this.actions(row, res).externalId)
-      throw notAllowed(
-        res ? 'already_resolved' : needsHuman(row) ? 'not_a_document_push' : 'not_failed',
-      );
+    this.connectors.assertHuman(); // review L2: override ต้องเป็นคน (API key → 403) — แบบ reconcile รอบ MANUAL
+    const { row, f } = await this.command(tx, c, commandRef);
     const entity = row.entityType === 'invoice' ? MAP_ENTITY.invoice : MAP_ENTITY.settlement;
+    if (isDocPush(row))
+      await lockKey(tx, `external_mapping:${c.id}:${entity}:local:${row.localId}`);
+    if (!this.actions(row, f).externalId) throw notAllowed(this.why(row, f, 'externalId'));
     const externalId = body.externalId.trim();
-    await lockKey(tx, `external_mapping:${c.id}:${entity}:local:${row.localId}`);
     await lockKey(tx, `external_mapping:${c.id}:${entity}:ext:${externalId}`);
     const other = await tx.externalMapping.findFirst({
       where: { connectorId: c.id, entityType: entity, externalId, localId: { not: row.localId } },
@@ -559,14 +607,16 @@ export class ConnectorQueueService {
         },
       );
     const actor = requestContext.get()?.actorId ?? null;
-    const key = {
-      connectorId_entityType_localId: {
-        connectorId: c.id,
-        entityType: entity,
-        localId: row.localId,
+    const before = await tx.externalMapping.findUnique({
+      where: {
+        connectorId_entityType_localId: {
+          connectorId: c.id,
+          entityType: entity,
+          localId: row.localId,
+        },
       },
-    };
-    const before = await tx.externalMapping.findUnique({ where: key });
+    });
+    if (before?.externalId) throw notAllowed('mapping_exists');
     const lastError = {
       code: 'erp_content_unverified',
       source: 'manual',
@@ -610,45 +660,45 @@ export class ConnectorQueueService {
     await this.audit(tx, c.id, 'connector.queue_external_id', row, body.reason, {
       externalId,
       externalDocNo: docNo,
-      previousExternalId: before?.externalId ?? null,
     });
-    const [fresh] = await this.rows(tx, [row.id]);
-    return this.item(fresh!.row, fresh!.res);
+    const [fresh] = await this.rows(tx, c, [row.id]);
+    return this.item(fresh!.row, fresh!.f);
   }
 
   // ---------- ภายใน ----------
 
-  private async retryRow(tx: Tx, connectorId: string, row: IntegrationOutbox): Promise<string> {
+  private async retryRow(tx: Tx, c: Connector, row: IntegrationOutbox): Promise<string> {
     await lockKey(tx, `queue:${row.id}`);
-    const res = await tx.connectorQueueResolution.findUnique({ where: { outboxId: row.id } });
-    const a = this.actions(row, res);
-    if (!a.retry)
-      throw notAllowed(res ? 'already_resolved' : needsHuman(row) ? 'not_retryable' : 'not_failed');
     const entity = row.entityType as 'invoice' | 'settlement';
-    const newId = await this.sync.resend(tx, entity, row.localId, connectorId);
+    // review L1: ส่งซ้ำเอกสารเดียวกันพร้อมกัน (2 แถวของใบเดียว / 2 คน) — ตรวจคำสั่งที่ค้างของ resend ต้องไม่ race
+    await lockKey(tx, `erp-resend:${c.id}:${entity}:${row.localId}`);
+    const [{ f }] = (await this.rows(tx, c, [row.id])) as [{ row: IntegrationOutbox; f: Facts }];
+    if (!this.actions(row, f).retry) throw notAllowed(this.why(row, f, 'retry'));
+    const newId = await this.sync.resend(tx, entity, row.localId, c.id);
     // null = connector ยกเลิกแล้ว / ไม่มีฉบับที่ออก / เอกสารก่อนวันเริ่มซิงก์ (docs/01 §6.4 — ไม่สร้างคำสั่ง)
     if (!newId || newId === row.id) throw notAllowed('resend_unavailable');
-    await this.resolve(tx, connectorId, row, { kind: 'RETRIED', supersededBy: newId });
-    await this.audit(tx, connectorId, 'connector.queue_retried', row, null, {
+    await this.resolve(tx, c.id, row, { kind: 'RETRIED', supersededBy: newId });
+    await this.audit(tx, c.id, 'connector.queue_retried', row, null, {
       newCommandId: encodeId('outboxCommand', newId),
     });
     return newId;
   }
 
-  private async command(tx: Tx, connectorId: string, ref: string) {
+  private async command(tx: Tx, c: Connector, ref: string) {
     const outboxId = tryDecodeId('outboxCommand', ref);
     const row = outboxId
       ? await tx.integrationOutbox.findFirst({
-          where: { id: outboxId, sink: ERP_SINK, targetId: connectorId },
+          where: { id: outboxId, sink: ERP_SINK, targetId: c.id },
         })
       : null;
     if (!row) throw new ProblemException('not_found');
     await lockKey(tx, `queue:${row.id}`);
-    const res = await tx.connectorQueueResolution.findUnique({ where: { outboxId: row.id } });
-    return { row, res };
+    const [{ f }] = (await this.rows(tx, c, [row.id])) as [{ row: IntegrationOutbox; f: Facts }];
+    return { row, f };
   }
 
-  private async rows(tx: Tx, ids: string[]) {
+  /** แถว + ข้อเท็จจริง (resolution, ถูกแทน, ส่งซ้ำได้, มี external_id แล้ว) เป็นชุด */
+  private async rows(tx: Tx, c: Connector, ids: string[]) {
     if (!ids.length) return [];
     const [rows, res] = await Promise.all([
       tx.integrationOutbox.findMany({ where: { id: { in: ids } } }),
@@ -656,35 +706,108 @@ export class ConnectorQueueService {
     ]);
     const byId = new Map(rows.map((r) => [r.id, r]));
     const resBy = new Map(res.map((r) => [r.outboxId, r]));
-    return ids
-      .map((i) => byId.get(i))
-      .filter((r): r is IntegrationOutbox => !!r)
-      .map((row) => ({ row, res: resBy.get(row.id) ?? null }));
+    const ordered = ids.map((i) => byId.get(i)).filter((r): r is IntegrationOutbox => !!r);
+    const docRows = ordered.filter(isDocPush);
+    const localIds = [...new Set(docRows.map((r) => r.localId))];
+    const later = localIds.length
+      ? await tx.integrationOutbox.findMany({
+          where: {
+            sink: ERP_SINK,
+            targetId: c.id,
+            localId: { in: localIds },
+            status: { in: ['DONE', ...OPEN_STATUSES] as IntegrationOutbox['status'][] },
+          },
+          select: { seq: true, entityType: true, localId: true },
+        })
+      : [];
+    // ฉบับที่ออก (payload ของคำสั่ง PUSH_* แรก — ที่ resend ใช้)
+    const firsts = localIds.length
+      ? await tx.integrationOutbox.findMany({
+          where: {
+            sink: ERP_SINK,
+            targetId: c.id,
+            localId: { in: localIds },
+            operation: { in: ['PUSH_INVOICE', 'PUSH_SETTLEMENT'] },
+          },
+          orderBy: { seq: 'asc' },
+          select: { entityType: true, localId: true, payload: true },
+        })
+      : [];
+    const issued = new Map<string, unknown>();
+    for (const r of firsts) {
+      const k = `${r.entityType}:${r.localId}`;
+      if (!issued.has(k)) issued.set(k, (r.payload as { document?: unknown } | null)?.document);
+    }
+    const maps = localIds.length
+      ? await tx.externalMapping.findMany({
+          where: {
+            connectorId: c.id,
+            localId: { in: localIds },
+            entityType: { in: [MAP_ENTITY.invoice, MAP_ENTITY.settlement] },
+          },
+          select: { entityType: true, localId: true, externalId: true },
+        })
+      : [];
+    const mapped = new Set(
+      maps.filter((m) => m.externalId).map((m) => `${m.entityType}:${m.localId}`),
+    );
+    const from = c.syncFromDate ? c.syncFromDate.toISOString().slice(0, 10) : null;
+    return ordered.map((row) => {
+      const k = `${row.entityType}:${row.localId}`;
+      const doc = issued.get(k);
+      const date = doc ? documentDate(doc) : null;
+      const mapKey = `${row.entityType === 'invoice' ? MAP_ENTITY.invoice : MAP_ENTITY.settlement}:${row.localId}`;
+      const f: Facts = {
+        res: resBy.get(row.id) ?? null,
+        superseded: later.some(
+          (l) => l.entityType === row.entityType && l.localId === row.localId && l.seq > row.seq,
+        ),
+        resendable:
+          isDocPush(row) && c.status !== 'DISCONNECTED' && !!doc && !(from && date && date < from),
+        mapped: isDocPush(row) && mapped.has(mapKey),
+      };
+      return { row, f };
+    });
   }
 
-  private actions(row: IntegrationOutbox, res: Resolution | null): QueueActionsDto {
-    if (res || !needsHuman(row)) return { retry: false, skip: false, externalId: false };
+  private actions(row: IntegrationOutbox, f: Facts): QueueActionsDto {
+    if (f.res || f.superseded || !needsHuman(row))
+      return { retry: false, skip: false, externalId: false };
     const e = (row.lastError ?? null) as ErrorDetail | null;
     const code = typeof e?.code === 'string' ? e.code : null;
-    const docPush =
-      DOCUMENT_PUSH_OPS.has(row.operation) &&
-      (row.entityType === 'invoice' || row.entityType === 'settlement');
     return {
-      retry: docPush && !(code && NOT_RETRYABLE_CODES.has(code)),
+      // review L3: DUPLICATE ที่ต้องกรอกเลขเอง — ส่งซ้ำได้ผลเดิม
+      retry:
+        isDocPush(row) &&
+        f.resendable &&
+        e?.manualExternalIdRequired !== true &&
+        !(code && NOT_RETRYABLE_CODES.has(code)),
       skip: true,
-      externalId: docPush,
+      externalId: isDocPush(row) && !f.mapped,
     };
   }
 
-  private tabOf(row: IntegrationOutbox, res: Resolution | null): QueueTab {
-    if (['PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE'].includes(row.status)) return 'queued';
-    return needsHuman(row) && !res ? 'failed' : 'done';
+  /** เหตุผลที่ทำไม่ได้ (`why` ของ 409) */
+  private why(row: IntegrationOutbox, f: Facts, action?: 'retry' | 'externalId'): string {
+    if (f.res) return 'already_resolved';
+    if (f.superseded) return 'superseded';
+    if (!needsHuman(row)) return 'not_failed';
+    if (!isDocPush(row)) return 'not_a_document_push';
+    if (action === 'externalId' && f.mapped) return 'mapping_exists';
+    if (action === 'retry' && !f.resendable) return 'resend_unavailable';
+    return 'not_retryable';
   }
 
-  private item(row: IntegrationOutbox, res: Resolution | null): ConnectorQueueItemDto {
+  private tabOf(row: IntegrationOutbox, f: Facts): QueueTab {
+    if (OPEN_STATUSES.includes(row.status)) return 'queued';
+    return needsHuman(row) && !f.res ? 'failed' : 'done';
+  }
+
+  private item(row: IntegrationOutbox, f: Facts): ConnectorQueueItemDto {
     const e = (row.lastError ?? null) as ErrorDetail | null;
     const base = commandDto(row);
-    const tab = this.tabOf(row, res);
+    const tab = this.tabOf(row, f);
+    const res = f.res;
     return {
       ...base,
       tab,
@@ -707,7 +830,8 @@ export class ConnectorQueueService {
             resolvedAt: res.resolvedAt.toISOString(),
           }
         : null,
-      actions: this.actions(row, res),
+      actions: this.actions(row, f),
+      bodiesHidden: !canSeeBodies(row.entityType, requestContext.get()?.scopes ?? []),
     };
   }
 

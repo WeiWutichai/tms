@@ -62788,6 +62788,10 @@
           },
           "actions": {
             "$ref": "#/components/schemas/QueueActionsDto"
+          },
+          "bodiesHidden": {
+            "type": "boolean",
+            "description": "ผู้เรียกไม่มีสิทธิ์ดูราคาของเอกสารชนิดนี้ — sync log ของคำสั่งนี้จะไม่มี body (ซ่อนปุ่ม \"ดู payload\")"
           }
         },
         "required": [
@@ -62812,7 +62816,8 @@
           "manualExternalIdRequired",
           "guide",
           "resolution",
-          "actions"
+          "actions",
+          "bodiesHidden"
         ]
       },
       "ConnectorQueueListDto": {
@@ -67436,12 +67441,16 @@
           "requestBody": {
             "type": "string",
             "nullable": true,
-            "description": "body ที่ส่ง (ตัดแล้ว ≤ 16 KB)"
+            "description": "body ที่ส่ง (ตัดแล้ว ≤ 16 KB) — null เมื่อ `bodiesHidden`"
           },
           "responseBody": {
             "type": "string",
             "nullable": true,
-            "description": "body ที่ได้กลับ (ตัดแล้ว ≤ 16 KB)"
+            "description": "body ที่ได้กลับ (ตัดแล้ว ≤ 16 KB) — null เมื่อ `bodiesHidden`"
+          },
+          "bodiesHidden": {
+            "type": "boolean",
+            "description": "body มีราคา: ใบแจ้งหนี้/รับชำระ ต้องมี `prices.sell:read` · ใบสำคัญจ่ายรถร่วม ต้องมี `prices.buy:read` · ไม่รู้ชนิด ต้องมีทั้งคู่ — ไม่มีสิทธิ์ = body เป็น null และ flag นี้ true"
           },
           "occurredAt": {
             "type": "string",
@@ -67464,6 +67473,7 @@
           "durationMs",
           "requestBody",
           "responseBody",
+          "bodiesHidden",
           "occurredAt"
         ]
       },

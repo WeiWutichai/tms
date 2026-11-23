@@ -12,6 +12,8 @@ import '../webhooks/webhooks.css';
 import { HistoryTab } from '../master/HistoryTab';
 import { problemText } from '../master/problems';
 import { stepUpHeaders, withStepUp } from '../stepup/stepUp';
+import { can } from '../../nav';
+import { useMe } from '../../shell/AppShell';
 import { MappingTable } from './Connectors';
 import { Radio } from './OrgSections';
 import { Toggle } from './Settings';
@@ -1067,16 +1069,33 @@ function LogTab({
   const [toast, setToast] = useState<{ m: string; err: boolean } | null>(null);
   const rows: Command[] = q.data?.data ?? [];
   // ST7-T19 "ดู payload" (ต้นแบบ l.view → PL): request/response ของคำสั่งจาก sync log (ตัด secret แล้ว — ST7-T16)
+  const scopes = useMe().data?.scopes ?? [];
+  // review H1: body มียอดเงิน — ไม่มีสิทธิ์ดูราคาของเอกสารชนิดนั้น = API ไม่ส่ง body → ไม่แสดงปุ่ม
+  const canView = (r: Command) => bodyScopes(r.entityType).every((x) => can(scopes, x));
   const open = async (r: Command) => {
-    const sub = `${operationLabel(t, r.operation)} · ${docLabel(t, r)} · ${formatDateTime(r.createdAt, lang)}`;
+    let sub = `${operationLabel(t, r.operation)} · ${docLabel(t, r)} · ${formatDateTime(r.createdAt, lang)}`;
     const title = t('cnx.pl.title', { n });
     try {
-      const log = await unwrap(
-        api.GET('/v1/connectors/{id}/sync-log', {
-          params: { path: { id: c.id }, query: { commandId: r.id, limit: 50 } },
-        }),
-      );
-      setView({ title, sub, json: payloadJson(log.data) ?? t('cnx.pl.none') });
+      // review L4: ไล่ cursor ของ sync log (สูงสุด 4 หน้า × 50 ครั้ง) — เกินแล้วบอกว่ามีต่อ
+      const all: SyncLog[] = [];
+      let cursor: string | undefined;
+      let more = false;
+      for (let i = 0; i < 4; i++) {
+        const page = await unwrap(
+          api.GET('/v1/connectors/{id}/sync-log', {
+            params: {
+              path: { id: c.id },
+              query: { commandId: r.id, limit: 50, ...(cursor ? { cursor } : {}) },
+            },
+          }),
+        );
+        all.push(...page.data);
+        more = page.hasMore && !!page.nextCursor;
+        if (!more) break;
+        cursor = page.nextCursor ?? undefined;
+      }
+      if (more) sub += ` · ${t('cnx.pl.more', { n: all.length })}`;
+      setView({ title, sub, json: payloadJson(all) ?? t('cnx.pl.none') });
     } catch (e) {
       const m = problemText(e, t);
       if (m) setToast({ m, err: true });
@@ -1127,10 +1146,12 @@ function LogTab({
                   </span>
                 </td>
                 <td style={{ textAlign: 'right' }}>
-                  <button type="button" className="cnx-pl" onClick={() => void open(r)}>
-                    <Icon n="braces" s={16} />
-                    {t('cnx.log.viewPayload')}
-                  </button>
+                  {canView(r) && (
+                    <button type="button" className="cnx-pl" onClick={() => void open(r)}>
+                      <Icon n="braces" s={16} />
+                      {t('cnx.log.viewPayload')}
+                    </button>
+                  )}
                 </td>
               </tr>
             );
@@ -1161,6 +1182,13 @@ function LogTab({
  * ST7-T19 การเรียกระบบบัญชีของคำสั่ง → JSON แบบต้นแบบ `{ request, response }` (หลายครั้ง = รายการเรียงตามเวลา) · ไม่มีการเรียก = null
  * body ที่เป็น JSON แสดงเป็น object (ไม่เป็นสตริงซ้อน) · ไม่มี header (ไม่เก็บ — ST7-T16)
  */
+/** scope ราคาที่ต้องมีเพื่อดู body ของคำสั่งชนิดนี้ (ตรงกับ `bodyPriceScopes` ฝั่ง API) */
+export function bodyScopes(entityType: string): string[] {
+  if (entityType === 'invoice' || entityType === 'payment') return ['prices.sell:read'];
+  if (entityType === 'settlement') return ['prices.buy:read'];
+  return ['prices.sell:read', 'prices.buy:read'];
+}
+
 export function payloadJson(calls: readonly SyncLog[]): string | null {
   if (!calls.length) return null;
   const body = (v: string | null) => {
