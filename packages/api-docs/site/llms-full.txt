@@ -1,7 +1,7 @@
 <!-- index.md -->
 # TMS API v1
 
-เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 400 endpoint
+เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 406 endpoint
 
 เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
 
@@ -51,7 +51,7 @@
 - [วางแผน (planning)](ref-planning.md) — 2 endpoint: GET /v1/planning/board, GET /v1/planning/eligibility
 - [ตารางงาน (schedule)](ref-schedule.md) — 4 endpoint: GET /v1/schedule-entries, POST /v1/schedule-entries, GET /v1/schedule-entries/{id}, POST /v1/schedule-entries/{id}/cancel
 - [ส่งออกไฟล์ (exports)](ref-exports.md) — 3 endpoint: POST /v1/exports, GET /v1/exports/{id}, GET /v1/accounting-exports/summary
-- [Connector ERP (connectors)](ref-connectors.md) — 11 endpoint: GET /v1/connectors/effective, GET /v1/connectors, GET /v1/connectors/adapters, GET /v1/connectors/{id}, GET /v1/connectors/{id}/history, GET /v1/connectors/{id}/commands, …
+- [Connector ERP (connectors)](ref-connectors.md) — 17 endpoint: GET /v1/connectors/effective, GET /v1/connectors, GET /v1/connectors/adapters, GET /v1/connectors/{id}, GET /v1/connectors/{id}/history, GET /v1/connectors/{id}/commands, …
 - [ส่งข้อความ (messaging)](ref-messaging.md) — 5 endpoint: POST /v1/messages/send-link, GET /v1/messages, GET /v1/messages/channels, GET /v1/messages/{id}, GET /v1/settings/messaging
 - [นิติบุคคล (companies)](ref-companies.md) — 2 endpoint: GET /v1/companies, GET /v1/companies/{id}
 - [สาขา (branches)](ref-branches.md) — 2 endpoint: GET /v1/branches, GET /v1/branches/{id}
@@ -67,7 +67,7 @@
 ## อ้างอิง
 
 - [Webhook events](webhook-events.md) — 31 event: connector.health_changed, credit_note.finalized, debit_note.finalized, delivery_order.status_changed, invoice.adjusted, invoice.finalized, invoice.paid, invoice.voided, …
-- [รหัส error](errors.md) — 135 code ของ problem+json
+- [รหัส error](errors.md) — 136 code ของ problem+json
 - [Changelog](changelog.md) — ประวัติเวอร์ชันของ API (added/changed/deprecated)
 
 ---
@@ -19061,7 +19061,7 @@ const { data, error } = await tms.GET('/v1/accounting-exports/summary');
 <!-- ref-connectors.md -->
 # Connector ERP (connectors)
 
-11 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+17 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -19071,7 +19071,13 @@ const { data, error } = await tms.GET('/v1/accounting-exports/summary');
 | [`GET /v1/connectors/{id}`](#get-connectors-id) | `settings:read` |
 | [`GET /v1/connectors/{id}/history`](#get-connectors-id-history) | `settings:read` |
 | [`GET /v1/connectors/{id}/commands`](#get-connectors-id-commands) | `settings:read` |
-| [`GET /v1/connectors/{id}/sync-log`](#get-connectors-id-sync-log) | `settings:read` |
+| [`GET /v1/connectors/{id}/sync-log`](#get-connectors-id-sync-log) | `settings:read` / `integrations:read` |
+| [`GET /v1/connectors/{id}/queue`](#get-connectors-id-queue) | `settings:read` / `integrations:read` |
+| [`GET /v1/connectors/{id}/queue/summary`](#get-connectors-id-queue-summary) | `settings:read` / `integrations:read` |
+| [`POST /v1/connectors/{id}/queue/retry`](#post-connectors-id-queue-retry) | `settings:write` / `integrations:retry` |
+| [`POST /v1/connectors/{id}/queue/{commandId}/retry`](#post-connectors-id-queue-commandId-retry) | `settings:write` / `integrations:retry` |
+| [`POST /v1/connectors/{id}/queue/{commandId}/skip`](#post-connectors-id-queue-commandId-skip) | `settings:write` / `integrations:retry` |
+| [`POST /v1/connectors/{id}/queue/{commandId}/external-id`](#post-connectors-id-queue-commandId-external-id) | `settings:write` / `integrations:retry` |
 | [`GET /v1/connectors/{id}/master-codes`](#get-connectors-id-master-codes) | `settings:read` |
 | [`GET /v1/connectors/{id}/mappings`](#get-connectors-id-mappings) | `settings:read` |
 | [`GET /v1/reconcile-results`](#get-reconcile-results) | `integrations:read` |
@@ -19297,7 +19303,7 @@ const { data, error } = await tms.GET('/v1/connectors/{id}/commands', {
 
 `GET /v1/connectors/{id}/sync-log`
 
-scope: `settings:read` · operationId: `Connectors_syncLog`
+scope: `settings:read` หรือ `integrations:read` · operationId: `Connectors_syncLog`
 
 **Parameters**
 
@@ -19316,7 +19322,7 @@ scope: `settings:read` · operationId: `Connectors_syncLog`
 |---|---|---|
 | `200` | sync log: 1 แถวต่อ 1 HTTP call ที่ connector นี้เรียกระบบบัญชี (ใหม่สุดก่อน) — body ตัด credential / เลขบัตรประชาชนแล้ว (≤ 16 KB) · ไม่มี header · URL ไม่มี query string · `commandId` = เฉพาะการเรียกของคำสั่งนั้น · `documentNo` = เลขเอกสาร TMS | `ErpSyncLogListDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`settings:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:read` / `integrations:read` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
@@ -19331,6 +19337,271 @@ curl -sS -X GET "$TMS_BASE_URL/v1/connectors/<id>/sync-log" \
 ```ts
 const { data, error } = await tms.GET('/v1/connectors/{id}/sync-log', {
   params: { path: { id: "…" } },
+});
+```
+
+## GET /v1/connectors/{id}/queue {#get-connectors-id-queue}
+
+`GET /v1/connectors/{id}/queue`
+
+scope: `settings:read` หรือ `integrations:read` · operationId: `Connectors_queueList`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+| `tab` | query |   | `string` ค่า: `queued`, `failed`, `done` | รอคิว / ล้มเหลว (ต้องมีคนทำ) / สำเร็จ |
+| `errorClass` | query |   | `string` ค่า: `TRANSIENT`, `AMBIGUOUS`, `DUPLICATE`, `VALIDATION`, `AUTH`, `NOT_FOUND`, `PERIOD_CLOSED`, `CAPABILITY` | กรองตาม ErrorClass (จัดกลุ่มแท็บล้มเหลว) |
+| `limit` | query |   | `number` |   |
+| `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (เรียงตามเวลาที่เปลี่ยนล่าสุด ใหม่สุดก่อน) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | คิวของ connector แยกแท็บ `queued` (PENDING/IN_FLIGHT/FAILED_RETRYABLE + `nextRunAt`) / `failed` (ต้องมีคนทำ: FAILED_FINAL, SKIPPED ที่แจ้งบัญชี, DUPLICATE ที่ต้องกรอกเลขเอง — ยังไม่ได้จัดการ) / `done` · `errorClass` กรองกลุ่ม · แต่ละรายการมี `guide` (คู่มือภาษาไทยต่อ error code), `link` + `missing[]` (mapping/ผังรหัสที่ขาด), `actions` · request/response ของคำสั่ง = `GET /connectors/{id}/sync-log?commandId=` · keyset cursor | `ConnectorQueueListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:read` / `integrations:read` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/connectors/<id>/queue" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/connectors/{id}/queue', {
+  params: { path: { id: "…" } },
+});
+```
+
+## GET /v1/connectors/{id}/queue/summary {#get-connectors-id-queue-summary}
+
+`GET /v1/connectors/{id}/queue/summary`
+
+scope: `settings:read` หรือ `integrations:read` · operationId: `Connectors_queueSummary`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ตัวนับต่อแท็บ (`failed` = badge ที่เมนู — ไม่รวมคิวที่ระบบกำลังส่งเอง) + แท็บล้มเหลวแยก ErrorClass | `ConnectorQueueSummaryDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:read` / `integrations:read` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/connectors/<id>/queue/summary" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/connectors/{id}/queue/summary', {
+  params: { path: { id: "…" } },
+});
+```
+
+## POST /v1/connectors/{id}/queue/retry {#post-connectors-id-queue-retry}
+
+`POST /v1/connectors/{id}/queue/retry`
+
+scope: `settings:write` หรือ `integrations:retry` · operationId: `Connectors_queueRetryAll`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+
+**Request body** `QueueRetryAllDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `errorClass` |   | `string` | ค่า: `TRANSIENT`, `AMBIGUOUS`, `DUPLICATE`, `VALIDATION`, `AUTH`, `NOT_FOUND`, `PERIOD_CLOSED`, `CAPABILITY` | ส่งซ้ำเฉพาะ ErrorClass นี้ (ไม่ส่ง = ทุกรายการที่ส่งซ้ำได้) |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ส่งซ้ำทุกรายการในแท็บล้มเหลวที่ส่งซ้ำได้ (ครั้งละ ≤ 200; `errorClass` = เฉพาะกลุ่ม) — แต่ละรายการ = `ErpSyncService.resend` (canonical ฉบับที่ออก) · รายการที่ต้องทำในระบบบัญชีเองนับใน `notRetryable` | `QueueRetryAllResultDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:write` / `integrations:retry` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/connectors/<id>/queue/retry" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/connectors/{id}/queue/retry', {
+  params: { path: { id: "…" } },
+  body: {},
+});
+```
+
+## POST /v1/connectors/{id}/queue/{commandId}/retry {#post-connectors-id-queue-commandId-retry}
+
+`POST /v1/connectors/{id}/queue/{commandId}/retry`
+
+scope: `settings:write` หรือ `integrations:retry` · operationId: `Connectors_queueRetry`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+| `commandId` | path | ใช่ | `string` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ส่งซ้ำ 1 รายการในแท็บล้มเหลว (หลังแก้ mapping / ผังรหัส / เปิดงวดบัญชี) → คำสั่งใหม่ (รายการเดิมออกจากคิว) · ส่งซ้ำไม่ได้ (จัดการแล้ว / ไม่ใช่รายการล้มเหลว / ต้องทำในระบบบัญชีเอง / ก่อนวันเริ่มซิงก์) → 409 `queue_action_not_allowed` (`why`) | `QueueRetryResultDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:write` / `integrations:retry` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/connectors/<id>/queue/<commandId>/retry" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)"
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/connectors/{id}/queue/{commandId}/retry', {
+  params: { path: { id: "…", commandId: "…" } },
+});
+```
+
+## POST /v1/connectors/{id}/queue/{commandId}/skip {#post-connectors-id-queue-commandId-skip}
+
+`POST /v1/connectors/{id}/queue/{commandId}/skip`
+
+scope: `settings:write` หรือ `integrations:retry` · operationId: `Connectors_queueSkip`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+| `commandId` | path | ใช่ | `string` |   |
+
+**Request body** `QueueSkipDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `เลิกใช้บริการตั้งแต่ ธ.ค. 2569` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ข้ามรายการในแท็บล้มเหลว (เช่น บัญชีบันทึกในระบบบัญชีเองแล้ว / งวดปิดและรับทราบ) — เหตุผล ≥ 10 ตัว · audit `connector.queue_skipped` · ย้ายไปแท็บสำเร็จ | `ConnectorQueueItemDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:write` / `integrations:retry` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/connectors/<id>/queue/<commandId>/skip" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"เลิกใช้บริการตั้งแต่ ธ.ค. 2569"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/connectors/{id}/queue/{commandId}/skip', {
+  params: { path: { id: "…", commandId: "…" } },
+  body: {
+    "reason": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569"
+  },
+});
+```
+
+## POST /v1/connectors/{id}/queue/{commandId}/external-id {#post-connectors-id-queue-commandId-external-id}
+
+`POST /v1/connectors/{id}/queue/{commandId}/external-id`
+
+scope: `settings:write` หรือ `integrations:retry` · operationId: `Connectors_queueExternalId`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+| `commandId` | path | ใช่ | `string` |   |
+
+**Request body** `QueueExternalIdDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `เลิกใช้บริการตั้งแต่ ธ.ค. 2569` |
+| `externalId` | ใช่ | `string` | ยาว ≤ 100 · ยาว ≥ 1 | id เอกสารฝั่งระบบบัญชี | `IV6611-00042` |
+| `externalDocNo` |   | `string` | ยาว ≤ 60 | เลขเอกสารที่แสดงในระบบบัญชี (ถ้าต่างจาก id) |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | กรอกเลขเอกสารฝั่งระบบบัญชีเอง (DUPLICATE ที่หาไม่เจอ หรือคำสั่งส่งเอกสารที่ล้มเหลวแต่เอกสารอยู่ในระบบบัญชีแล้ว) — เหตุผล ≥ 10 ตัว · audit `connector.queue_external_id` · external_mapping = MISMATCH `erp_content_unverified` (รอบ reconcile ยืนยัน) · เลขผูกกับเอกสารอื่นแล้ว → 409 `external_id_conflict` | `ConnectorQueueItemDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:write` / `integrations:retry` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/connectors/<id>/queue/<commandId>/external-id" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"เลิกใช้บริการตั้งแต่ ธ.ค. 2569","externalId":"IV6611-00042"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/connectors/{id}/queue/{commandId}/external-id', {
+  params: { path: { id: "…", commandId: "…" } },
+  body: {
+    "reason": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569",
+    "externalId": "IV6611-00042"
+  },
 });
 ```
 
@@ -19549,6 +19820,57 @@ const { data, error } = await tms.GET('/v1/reconcile-results/{id}', {
 |---|---|---|---|---|---|
 | `data` | ใช่ | `array<ConnectorDto>` |   |   |   |
 
+### ConnectorQueueItemDto {#schema-ConnectorQueueItemDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `obx_…` |
+| `operation` | ใช่ | `string` |   |   | `PUSH_INVOICE` |
+| `entityType` | ใช่ | `string` |   |   | `invoice` |
+| `localId` | ใช่ | `string` |   | id ของเอกสารใน TMS (uuid) |   |
+| `status` | ใช่ | `string` | ค่า: `PENDING`, `IN_FLIGHT`, `DONE`, `FAILED_RETRYABLE`, `FAILED_FINAL`, `SKIPPED` |   |   |
+| `attempt` | ใช่ | `number` |   |   |   |
+| `errorClass` | ใช่ | `string` | null ได้ |   | `TRANSIENT` |
+| `errorCode` | ใช่ | `string` | null ได้ | รหัสผิดพลาดล่าสุด (ไม่มีข้อความดิบ) |   |
+| `createdAt` | ใช่ | `string (date-time)` |   |   |   |
+| `doneAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
+| `updatedAt` | ใช่ | `string (date-time)` |   |   |   |
+| `tab` | ใช่ | `string` | ค่า: `queued`, `failed`, `done` |   |   |
+| `documentNo` | ใช่ | `string` | null ได้ |   | `2611-0001` |
+| `nextRunAt` | ใช่ | `string (date-time)` | null ได้ | รอคิว: เวลาที่จะลองครั้งถัดไป |   |
+| `errorMessage` | ใช่ | `string` | null ได้ | ข้อความผิดพลาด (ตัด secret แล้ว) |   |
+| `link` | ใช่ | `string` | null ได้ | ลิงก์หน้าที่ต้องแก้ (mapping / ผังรหัส) |   |
+| `missing` | ใช่ | `array<QueueMissingDto>` |   |   |   |
+| `fields` | ใช่ | `array<QueueFieldErrorDto>` |   | ช่องที่ระบบบัญชีแจ้งว่าผิด |   |
+| `manualExternalIdRequired` | ใช่ | `boolean` |   |   |   |
+| `guide` | ใช่ | `QueueGuideDto` | null ได้ |   |   |
+| `resolution` | ใช่ | `QueueResolutionDto` | null ได้ |   |   |
+| `actions` | ใช่ | `QueueActionsDto` |   |   |   |
+| `bodiesHidden` | ใช่ | `boolean` |   | ผู้เรียกไม่มีสิทธิ์ดูราคาของเอกสารชนิดนี้ — sync log ของคำสั่งนี้จะไม่มี body (ซ่อนปุ่ม "ดู payload") |   |
+
+### ConnectorQueueListDto {#schema-ConnectorQueueListDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<ConnectorQueueItemDto>` |   |   |   |
+| `nextCursor` | ใช่ | `string` | null ได้ |   |   |
+| `hasMore` | ใช่ | `boolean` |   |   |   |
+
+### ConnectorQueueSummaryDto {#schema-ConnectorQueueSummaryDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `queued` | ใช่ | `number` |   |   |   |
+| `failed` | ใช่ | `number` |   | ต้องมีคนทำ (badge ที่เมนู) |   |
+| `done` | ใช่ | `number` |   |   |   |
+| `failedByClass` | ใช่ | `object` |   | แท็บล้มเหลวแยกตาม ErrorClass | `{"VALIDATION":2,"PERIOD_CLOSED":1}` |
+
 ### EffectiveConnectorDto {#schema-EffectiveConnectorDto}
 
 
@@ -19604,6 +19926,24 @@ const { data, error } = await tms.GET('/v1/reconcile-results/{id}', {
 | `data` | ใช่ | `array<ErpSyncLogDto>` |   |   |   |
 | `nextCursor` | ใช่ | `string` | null ได้ | ส่งเป็น `cursor` เพื่อดูหน้าถัดไป |   |
 | `hasMore` | ใช่ | `boolean` |   |   |   |
+
+### QueueRetryAllResultDto {#schema-QueueRetryAllResultDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `retried` | ใช่ | `number` |   | จำนวนที่สร้างคำสั่งส่งซ้ำ |   |
+| `notRetryable` | ใช่ | `number` |   | จำนวนในแท็บล้มเหลวที่ส่งซ้ำไม่ได้ (ต้องข้าม/กรอกเลขเอง) |   |
+| `remaining` | ใช่ | `number` |   | เหลือที่ยังไม่ได้ทำ (ทำครั้งละไม่เกิน 200) |   |
+
+### QueueRetryResultDto {#schema-QueueRetryResultDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `command` | ใช่ | `ConnectorQueueItemDto` |   | คำสั่งใหม่ที่ส่งแทน |   |
 
 ### ReconcileResultDto {#schema-ReconcileResultDto}
 
@@ -22689,6 +23029,7 @@ const { data, error } = await tms.POST('/v1/invoice-runs', {
 | `createdAt` | ใช่ | `string` |   |   |   |
 | `updatedAt` | ใช่ | `string` |   |   |   |
 | `sync` |   | `ErpDocumentSyncDto` | null ได้ | ผลการส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (เลขเอกสารสองฝั่ง — `externalDocNo` = เลขที่ระบบบัญชีออก) · แยกจาก `status` ของเอกสาร · มีเฉพาะ `GET /{id}` · null = ยังไม่มีผลการส่ง (ไม่ได้เชื่อมระบบบัญชี / ยังรอคิว / ส่งไม่สำเร็จ — ดูคิวของ connector) |   |
+| `erpWarnings` |   | `array<ErpDocumentWarningDto>` |   | คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว / วันที่ก่อนวันเริ่มซิงก์ = `[]` · ส่งสำเร็จแล้ว = ข้อความแบบอดีต · มีเฉพาะ `GET /{id}` |   |
 | `issuingCompanyId` | ใช่ | `string` |   |   | `cmp_…` |
 | `issuingBranchId` | ใช่ | `string` |   |   | `brn_…` |
 | `creditTermDays` | ใช่ | `number` |   |   |   |
@@ -23614,6 +23955,7 @@ const { data, error } = await tms.GET('/v1/reports/unbilled-delivery-orders');
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
 | `updatedAt` | ใช่ | `string` |   |   |   |
+| `erpWarnings` |   | `array<ErpDocumentWarningDto>` |   | คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว / วันที่ก่อนวันเริ่มซิงก์ = `[]` · ส่งสำเร็จแล้ว = ข้อความแบบอดีต · มีเฉพาะ `GET /{id}` |   |
 | `issuingCompanyId` | ใช่ | `string` |   |   | `cmp_…` |
 | `issuingBranchId` | ใช่ | `string` |   |   | `brn_…` |
 | `creditTermDays` | ใช่ | `number` |   |   |   |
@@ -23652,6 +23994,7 @@ const { data, error } = await tms.GET('/v1/reports/unbilled-delivery-orders');
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
 | `updatedAt` | ใช่ | `string` |   |   |   |
+| `erpWarnings` |   | `array<ErpDocumentWarningDto>` |   | คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว / วันที่ก่อนวันเริ่มซิงก์ = `[]` · ส่งสำเร็จแล้ว = ข้อความแบบอดีต · มีเฉพาะ `GET /{id}` |   |
 | `issuingCompanyId` | ใช่ | `string` |   |   | `cmp_…` |
 | `issuingBranchId` | ใช่ | `string` |   |   | `brn_…` |
 | `creditTermDays` | ใช่ | `number` |   |   |   |
@@ -23690,6 +24033,7 @@ const { data, error } = await tms.GET('/v1/reports/unbilled-delivery-orders');
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
 | `updatedAt` | ใช่ | `string` |   |   |   |
+| `erpWarnings` |   | `array<ErpDocumentWarningDto>` |   | คำเตือนก่อนส่งใบนี้เข้าระบบบัญชีที่เชื่อมต่อ (ร่าง/ออกแล้ว — ไม่บล็อกการออกเอกสาร) · ไม่เชื่อมระบบบัญชี / ไม่เปิดส่งใบแจ้งหนี้ / ยกเลิกแล้ว / วันที่ก่อนวันเริ่มซิงก์ = `[]` · ส่งสำเร็จแล้ว = ข้อความแบบอดีต · มีเฉพาะ `GET /{id}` |   |
 | `issuingCompanyId` | ใช่ | `string` |   |   | `cmp_…` |
 | `issuingBranchId` | ใช่ | `string` |   |   | `brn_…` |
 | `creditTermDays` | ใช่ | `number` |   |   |   |
@@ -24463,6 +24807,7 @@ const { data, error } = await tms.GET('/v1/reports/unbilled-delivery-orders');
 | [`payment_exceeds_outstanding`](#payment_exceeds_outstanding) | 409 | ยอดตัดหนี้เกินยอดคงค้าง |
 | [`pod_exists`](#pod_exists) | 409 | ส่ง POD ของใบส่งของนี้แล้ว |
 | [`pod_not_allowed`](#pod_not_allowed) | 409 | บันทึกหลักฐานส่งของใบส่งของนี้ไม่ได้ในสถานะปัจจุบัน |
+| [`queue_action_not_allowed`](#queue_action_not_allowed) | 409 | ทำรายการนี้กับคำสั่งนี้ไม่ได้ (จัดการไปแล้ว หรือไม่ใช่รายการที่ล้มเหลว หรือต้องทำในระบบบัญชีเอง) |
 | [`sandbox_finalize_disabled`](#sandbox_finalize_disabled) | 409 | โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้ |
 | [`saved_view_limit`](#saved_view_limit) | 409 | บันทึกได้สูงสุด 50 มุมมองต่อหน้า |
 | [`seat_limit_reached`](#seat_limit_reached) | 409 | จำนวนผู้ใช้ครบตามแพ็กเกจแล้ว |
@@ -24605,7 +24950,7 @@ HTTP `401` · กรอกรหัสยืนยันตัวตน 2 ชั
 
 HTTP `401` · ต้องเข้าสู่ระบบ
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 382 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 388 endpoint
 
 ## bank_change_requires_user {#bank_change_requires_user}
 
@@ -24659,7 +25004,7 @@ HTTP `403` · ส่วนต่างเกินวงเงินที่ต
 
 HTTP `403` · ไม่มีสิทธิ์ทำรายการนี้
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 382 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 388 endpoint
 
 ## sandbox_only {#sandbox_only}
 
@@ -24707,7 +25052,7 @@ HTTP `403` · บัญชีนี้ต้องตั้งการยืน
 
 HTTP `404` · ไม่พบข้อมูล
 
-พบใน: [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/documents/{id}/content`](ref-documents.md#get-documents-id-content), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/jobs/{id}`](ref-jobs.md#get-jobs-id), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`GET /v1/customers/{id}`](ref-customers.md#get-customers-id), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`GET /v1/customers/{id}/history`](ref-customers.md#get-customers-id-history) และอีก 245 endpoint
+พบใน: [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/documents/{id}/content`](ref-documents.md#get-documents-id-content), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/jobs/{id}`](ref-jobs.md#get-jobs-id), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`GET /v1/customers/{id}`](ref-customers.md#get-customers-id), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`GET /v1/customers/{id}/history`](ref-customers.md#get-customers-id-history) และอีก 251 endpoint
 
 ## method_not_allowed {#method_not_allowed}
 
@@ -25009,6 +25354,12 @@ HTTP `409` · บันทึกหลักฐานส่งของใบส
 
 พบใน: [`PUT /v1/delivery-orders/{id}/pod`](ref-delivery-orders.md#put-delivery-orders-id-pod)
 
+## queue_action_not_allowed {#queue_action_not_allowed}
+
+HTTP `409` · ทำรายการนี้กับคำสั่งนี้ไม่ได้ (จัดการไปแล้ว หรือไม่ใช่รายการที่ล้มเหลว หรือต้องทำในระบบบัญชีเอง)
+
+อาจตอบได้จากหลาย endpoint
+
 ## sandbox_finalize_disabled {#sandbox_finalize_disabled}
 
 HTTP `409` · โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้
@@ -25271,7 +25622,7 @@ HTTP `422` · ลำดับจุดไม่ถูกต้อง — จุ�
 
 HTTP `422` · ข้อมูลไม่ถูกต้อง
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId) และอีก 274 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId) และอีก 278 endpoint
 
 ## webhook_event_expired {#webhook_event_expired}
 

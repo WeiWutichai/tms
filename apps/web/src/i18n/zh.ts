@@ -1337,6 +1337,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'cnx.log.doc': '文件',
   'cnx.log.action': '操作',
   'cnx.log.result': '结果',
+  'cnx.log.viewPayload': '查看 payload',
   'cnx.cmd.DONE': '成功',
   'cnx.cmd.FAILED_FINAL': '失败',
   'cnx.cmd.FAILED_RETRYABLE': '待重发',

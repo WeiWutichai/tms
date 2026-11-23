@@ -35,7 +35,7 @@ const ctx = (config: Record<string, string>): ErpContext => ({
 
 // contract (ค่า baseUrl ตั้งหลัง mock เริ่ม — contract อ่าน config ตอนรันแต่ละข้อ)
 const contractMock: { m?: MockKrs } = {};
-const good: Record<string, string> = { baseUrl: '', apiKey: KEY };
+const good: Record<string, string> = { baseUrl: '', apiKey: KEY, salePerson: 'S001' };
 const bad: Record<string, string> = { baseUrl: '', apiKey: 'wrong-key' };
 beforeAll(async () => {
   contractMock.m = await startMockKrs({ apiKey: KEY });
@@ -49,7 +49,10 @@ describeErpAdapterContract('krs (KrsAdapter — โครง)', {
   make: () => new KrsAdapter({ allowPrivate: true }),
   config: good,
   badConfig: bad,
-  notImplemented: ['pushInvoice', 'fetchDocument', 'replaceDocument'],
+  notImplemented: ['fetchDocument', 'replaceDocument'],
+  // ST8-T08 pushInvoice ทำแล้ว — ใบตัวอย่างที่ผ่านผังรหัส (ctx.masterCodes) → POST จริงกับ mock · ส่งซ้ำ = 409 DUPLICATE
+  samples: { invoice: contractInvoice() },
+  context: contractContext(),
 });
 
 describe('KrsAdapter (ST8-T03) — ไม่แตะฐานข้อมูล', () => {
@@ -307,8 +310,8 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
       'ownsDocumentNumber',
     ];
     expect(k.capabilities).toEqual(all);
-    // ST8-T04 pullOrders ทำแล้ว — ที่เหลือยังเป็นโครง
-    expect(k.capabilitiesPending).toEqual(all.filter((c) => c !== 'pullOrders'));
+    // ST8-T04 pullOrders · ST8-T08 pushInvoice + ownsDocumentNumber ทำแล้ว — ที่เหลือยังเป็นโครง
+    expect(k.capabilitiesPending).toEqual(['fetchDocument', 'replaceDocument']);
     expect(k.configFields.map((f: { key: string }) => f.key)).toEqual([
       'baseUrl',
       'apiKey',
@@ -321,33 +324,33 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
     ]);
   });
 
-  it('M1: capability ที่ยังไม่ได้ทำไม่เปิดเป็นค่าเริ่มต้น · ขอเปิด = 422 · คำสั่ง PUSH_INVOICE ที่ค้าง = PENDING (ไม่ SKIPPED ไม่เสียครั้ง)', async () => {
+  it('M1: capability ที่ยังไม่ได้ทำไม่เปิดเป็นค่าเริ่มต้น · ขอเปิด = 422 · คำสั่ง REPLACE_DOCUMENT ที่ค้าง = PENDING (ไม่ SKIPPED ไม่เสียครั้ง)', async () => {
     const r = await createKrs();
     expect(r.status, JSON.stringify(r.body)).toBe(201);
-    // ST8-T04 pullOrders พร้อมแล้ว = เปิดเป็นค่าเริ่มต้น · ที่เหลือยังไม่รองรับ
-    expect(r.body).toMatchObject({
-      capabilitiesSupported: ['pullOrders'],
-      capabilitiesEnabled: ['pullOrders'],
-      capabilities: ['pullOrders'],
-    });
-    expect(r.body.capabilitiesPending).toContain('pushInvoice');
+    // ST8-T04 pullOrders · ST8-T08 pushInvoice พร้อมแล้ว · ที่เหลือยังไม่รองรับ
+    expect(r.body.capabilitiesSupported).toEqual([
+      'pullOrders',
+      'pushInvoice',
+      'ownsDocumentNumber',
+    ]);
+    expect(r.body.capabilitiesPending).toEqual(['fetchDocument', 'replaceDocument']);
     const bad = await api(app, token)
       .patch(`/v1/connectors/${r.body.id}`)
-      .send({ capabilitiesEnabled: ['pushInvoice'] });
+      .send({ capabilitiesEnabled: ['replaceDocument'] });
     expect(bad.status).toBe(422);
     expect(bad.body.errors[0]).toMatchObject({
       field: 'capabilitiesEnabled',
       code: 'capability_not_supported',
     });
     await api(app, token).post(`/v1/connectors/${r.body.id}/resume`).send({}).expect(200);
-    const c = await enqueue(uuid(r.body.id));
+    const c = await enqueue(uuid(r.body.id), 'REPLACE_DOCUMENT');
     await drain();
     await drain();
     const row = await cmd(c);
     expect(row).toMatchObject({ status: 'PENDING', errorClass: 'AUTH', attempt: 0 });
     expect(row.lastError).toMatchObject({
       code: 'capability_not_implemented',
-      capability: 'pushInvoice',
+      capability: 'replaceDocument',
     });
     expect(mock.requests().some((q) => q.method === 'POST')).toBe(false);
   });
@@ -420,7 +423,7 @@ describe('connector KRS ต่อ tenant (ST8-T03) — API + คิว', () => {
     row = await plat.connector.findUniqueOrThrow({ where: { id: uuid(id) } });
     expect(row).toMatchObject({ status: 'ERROR', statusReason: 'unreachable' });
     expect(row.lastHealthError).toMatchObject({ errorClass: 'TRANSIENT' });
-    const c = await enqueue(uuid(id));
+    const c = await enqueue(uuid(id), 'REPLACE_DOCUMENT');
     await drain();
     expect(await cmd(c)).toMatchObject({ status: 'PENDING', errorClass: 'AUTH', attempt: 0 });
     expect((await cmd(c)).lastError).toMatchObject({ code: 'connector_not_active' });
@@ -537,5 +540,48 @@ function sampleInvoice() {
         toWay: 'ปลายทาง',
       },
     ],
+  };
+}
+
+/** ST8-T08 ใบตัวอย่าง (canonical) สำหรับ contract — รายการผูก DO ครบตามสัญญา KRS */
+function contractInvoice() {
+  const id = randomUUID();
+  return {
+    id,
+    number: `INV-CONTRACT-${id.slice(0, 8)}`,
+    issueDate: '2026-11-19',
+    dueDate: '2026-12-19',
+    customer: {
+      externalId: 'C001',
+      legalName: 'ลูกค้า ทดสอบ',
+      paymentTermDays: 30,
+      billingAddress: 'กรุงเทพฯ',
+    },
+    lines: [
+      {
+        lineNo: 1,
+        deliveryOrder: { number: 'DO-0001', date: '2026-11-19' },
+        trip: { vehiclePlate: '70-1234', driverName: 'คนขับ', carrierName: null },
+        route: { originName: 'ต้นทาง', destinationName: 'ปลายทาง' },
+        serviceItem: { externalId: null },
+        quantity: '1',
+        unitLabel: 'เที่ยว',
+        unitPrice: '1000',
+        discount: '0.00',
+        amount: '1000.00',
+        vatType: 'EXEMPT_TRANSPORT',
+      },
+    ],
+  };
+}
+
+/** ผังรหัสที่ core ตรวจแล้ว (ST8-T06) สำหรับ contract */
+function contractContext(): Pick<ErpContext, 'masterCodes'> {
+  return {
+    masterCodes: {
+      CUSTOMER: new Map([['c001', { code: 'C001', name: null }]]),
+      UNIT: new Map([['เที่ยว', { code: 'เที่ยว', name: 'เที่ยว', fromCatalogue: true }]]),
+      SALESPERSON: new Map([['s001', { code: 'S001', name: 'พนักงานขาย', fromCatalogue: true }]]),
+    },
   };
 }

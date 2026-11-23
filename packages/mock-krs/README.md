@@ -83,7 +83,7 @@ error body: `{ status, error, message, errors? }`
 |---|---|
 | `POST /__mock/reset` | ล้างใบ เลขเริ่มใหม่ ปิดทุกสวิตช์ |
 | `GET /__mock/state` | ใบทั้งหมด (+ `revision`, `overwriteCount`) สวิตช์ และ log คำขอ |
-| `POST /__mock/faults` `{kind?, status?, method?, times?, body?}` (หรือ array) | kind: `status` (ค่าเริ่ม 503 — ทุก code ใน A.1 ได้) · `timeout` · `reset` · `timeout-after-commit` / `reset-after-commit` (บันทึกแล้วแต่ response หาย — เคส AMBIGUOUS ของ A.5) · `times` ค่าเริ่ม 1, `0` = จนกว่าจะล้าง |
+| `POST /__mock/faults` `{kind?, status?, method?, times?, skip?, body?}` (หรือ array) | kind: `status` (ค่าเริ่ม 503 — ทุก code ใน A.1 ได้) · `timeout` · `reset` · `timeout-after-commit` / `reset-after-commit` (บันทึกแล้วแต่ response หาย — เคส AMBIGUOUS ของ A.5) · `times` ค่าเริ่ม 1, `0` = จนกว่าจะล้าง · `skip` (ST8-T08) = ปล่อยคำขอที่ตรงเงื่อนไข N ครั้งแรกผ่านก่อน (เช่น ล้มที่ POST ใบที่ 2) |
 | `DELETE /__mock/faults` | ล้าง fault |
 | header `X-Mock-Fault` | fault ต่อคำขอ: ตัวเลข 3 หลัก `400`–`599` (status) หรือชนิด `timeout` / `reset` / `timeout-after-commit` / `reset-after-commit` — ค่าอื่น = 400 · ปิดได้ด้วย `allowHeaderFaults: false` |
 | `PUT /__mock/overwrite` `{enabled, rule?}` | **บัญชีกดบันทึกแล้วรายการถูกเขียนใหม่** — เปิดแล้วใบที่มีถูกเขียนทับทันที และใบที่ POST/PUT หลังจากนั้นถูกเขียนทับหลังตอบ (GET ถัดไปได้รายการที่เปลี่ยน) |

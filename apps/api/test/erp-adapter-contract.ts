@@ -41,6 +41,8 @@ export interface ErpAdapterContractOptions {
    * (push/replace คืน PushResult · pull/fetch throw `ErpAdapterError`) แทนการตรวจผลจริง
    */
   notImplemented?: ErpCapability[];
+  /** ST8-T08 ช่องเพิ่มของ ErpContext ตอนเรียก push (เช่น `masterCodes` ที่ core ตรวจแล้ว) — ไม่ส่ง = ไม่มี */
+  context?: Partial<Pick<ErpContext, 'masterCodes' | 'companyId' | 'erpCompanyCode'>>;
 }
 
 const SENTINEL = 'SENTINEL-secret-9f2c7e41b6';
@@ -152,7 +154,7 @@ export function describeErpAdapterContract(name: string, opts: ErpAdapterContrac
       for (const [cap, doc, m] of pushes) {
         if (!caps.has(cap) || !doc || opts.notImplemented?.includes(cap)) continue;
         const fn = a[m] as (c: ErpContext, d: CanonicalDocument) => Promise<PushResult>;
-        const ctx = ctxOf(a, opts.config, `contract:${cap}:${doc.id}`);
+        const ctx = { ...ctxOf(a, opts.config, `contract:${cap}:${doc.id}`), ...opts.context };
         const r1 = await fn.call(a, ctx, doc);
         expectPushShape(r1);
         const r2 = await fn.call(a, ctx, doc);
@@ -162,7 +164,9 @@ export function describeErpAdapterContract(name: string, opts: ErpAdapterContrac
         if (r2.ok) expect(typeof r2.applied).toBe('boolean');
         if (r1.ok)
           expect(r2.ok ? r2.externalId : r2.errorClass).toBe(r2.ok ? r1.externalId : 'DUPLICATE');
-        await noLeak(() => fn.call(a, ctxOf(a, leakConfig(), `contract:leak:${cap}`), doc));
+        await noLeak(() =>
+          fn.call(a, { ...ctxOf(a, leakConfig(), `contract:leak:${cap}`), ...opts.context }, doc),
+        );
       }
       if (s.ref && caps.has('fetchDocument') && !opts.notImplemented?.includes('fetchDocument'))
         await noLeak(() => a.fetchDocument!(ctxOf(a, leakConfig()), s.ref!));

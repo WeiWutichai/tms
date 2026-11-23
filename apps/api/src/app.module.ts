@@ -108,6 +108,7 @@ import { ErpMasterCodesService } from './modules/erp/erp-master-codes.service';
 import { CarrierErpCodesController } from './modules/erp/carrier-erp-codes.controller';
 import { CustomerErpCodesController } from './modules/erp/customer-erp-codes.controller';
 import { ExternalMappingService } from './modules/erp/external-mapping.service';
+import { ErpDocumentWarningsService } from './modules/erp/erp-document-warnings';
 import { InboundWebhookController } from './modules/erp/inbound-webhook.controller';
 import { InboundWebhookService } from './modules/erp/inbound-webhook.service';
 import { ConnectorResolver } from './modules/erp/connector-resolver';
@@ -115,6 +116,7 @@ import { SystemOfRecordPolicy } from './modules/erp/system-of-record.policy';
 import { ErpAdapterRegistry } from './modules/erp/erp-adapter.registry';
 import { ErpAdapterSink } from './modules/erp/erp-adapter.sink';
 import { ErpSyncService } from './modules/erp/erp-sync.service';
+import { ConnectorQueueService } from './modules/erp/connector-queue';
 import { ErpInboundEffects } from './modules/erp/erp-inbound-effects';
 import { PaymentStatusPullService } from './modules/erp/payment-status-pull.service';
 import { ReconcileController } from './modules/erp/reconcile.controller';
@@ -507,9 +509,11 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ConnectorsService,
     ErpMasterCodesService,
     ExternalMappingService,
+    ErpDocumentWarningsService,
     InboundWebhookService,
     ErpAdapterSink,
     ErpSyncService,
+    ConnectorQueueService,
     ErpInboundEffects,
     ReconcileResultsService,
     PaymentStatusPullService,

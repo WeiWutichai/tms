@@ -3162,6 +3162,7 @@ model Connector {
   externalMappings ExternalMapping[]
   reconcileResults ReconcileResult[]
   syncLogs         ErpSyncLog[]
+  queueResolutions ConnectorQueueResolution[]
 
   @@index([tenantId, createdAt, id])
   @@index([tenantId, companyId])
@@ -3608,6 +3609,41 @@ model ErpSyncLog {
   @@index([outboxId])
   @@index([connectorId, localNumber])
   @@map("erp_sync_log")
+}
+
+// ---------- ST7-T19 คิวเชื่อมระบบบัญชีที่ลูกค้าจัดการเอง (docs/01 §6.4 error queue; docs/04 G3) ----------
+
+/// ST7-T19 วิธีที่คนจัดการคำสั่งที่ล้มเหลว/ต้องมีคนทำ
+enum QueueResolutionKind {
+  /// ส่งซ้ำ — มีคำสั่งใหม่แทน (`superseded_by`)
+  RETRIED
+  /// ข้ามพร้อมเหตุผล (เช่น บัญชีคีย์เองในระบบบัญชีแล้ว / งวดปิดและรับทราบ)
+  SKIPPED
+  /// กรอกเลขเอกสารฝั่งระบบบัญชีเอง (DUPLICATE ที่หาไม่เจอ ฯลฯ) — บันทึก external_mapping
+  MANUAL_EXTERNAL_ID
+}
+
+/// ST7-T19 การจัดการคำสั่งในคิว (sink `erp`) โดยคน — แยกจาก integration_outbox เพราะแอปแก้แถวคิวไม่ได้ (0090)
+/// 1 คำสั่ง = จัดการได้ครั้งเดียว · แอปเพิ่มได้อย่างเดียว (ไม่แก้/ไม่ลบ — หลักฐาน; audit อยู่ใน audit_log ด้วย)
+model ConnectorQueueResolution {
+  id           String              @id @default(uuid()) @db.Uuid
+  tenantId     String              @map("tenant_id") @db.Uuid
+  connectorId  String              @map("connector_id") @db.Uuid
+  connector    Connector           @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// คำสั่งใน integration_outbox ที่ถูกจัดการ
+  outboxId     String              @map("outbox_id") @db.Uuid
+  kind         QueueResolutionKind
+  reason       String?
+  /// RETRIED: คำสั่งใหม่ที่ส่งแทน
+  supersededBy String?             @map("superseded_by") @db.Uuid
+  /// MANUAL_EXTERNAL_ID: id เอกสารฝั่งระบบบัญชีที่กรอก
+  externalId   String?             @map("external_id")
+  resolvedBy   String?             @map("resolved_by")
+  resolvedAt   DateTime            @default(now()) @map("resolved_at") @db.Timestamptz(6)
+
+  @@unique([outboxId])
+  @@index([tenantId, connectorId])
+  @@map("connector_queue_resolution")
 }
 
 // ---------- ST7-T21 ผลกระทบยอดกับระบบภายนอก (docs/01 §3.7 `reconcile_result`) ----------

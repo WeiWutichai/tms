@@ -28,6 +28,7 @@ import {
 import { ListQuery } from '../../common/pagination';
 import { PriceField } from '../../common/price-fields';
 import { DOCUMENT_SYNC_DOC, ErpDocumentSyncDto } from '../erp/document-sync.dto';
+import { ERP_WARNINGS_DOC, ErpDocumentWarningDto } from '../erp/erp-document-warnings';
 import { CleanText } from '../master/master-kit';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -544,6 +545,8 @@ export class InvoiceReplacedByDto {
 export class InvoiceDto extends InvoiceSummaryDto {
   @ApiPropertyOptional({ nullable: true, type: ErpDocumentSyncDto, description: DOCUMENT_SYNC_DOC })
   sync?: ErpDocumentSyncDto | null;
+  @ApiPropertyOptional({ type: [ErpDocumentWarningDto], description: ERP_WARNINGS_DOC })
+  erpWarnings?: ErpDocumentWarningDto[];
   @ApiProperty({ example: 'cmp_…' }) issuingCompanyId!: string;
   @ApiProperty({ example: 'brn_…' }) issuingBranchId!: string;
   @ApiProperty() creditTermDays!: number;

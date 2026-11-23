@@ -1166,6 +1166,11 @@ const BODY_FOR_PATH: Record<string, object> = {
   '/v1/connectors/:id/inbound-token/rotate': { reason: 'isolation test reason' }, // ST7-T22
   '/v1/connectors/:id/inbound-token/revoke': { reason: 'isolation test reason' }, // ST7-T22
   '/v1/connectors/:id/mappings/:serviceItemId': { itemCode: null }, // ST7-T18
+  '/v1/connectors/:id/queue/:commandId/skip': { reason: 'isolation test reason' }, // ST7-T19
+  '/v1/connectors/:id/queue/:commandId/external-id': {
+    externalId: 'ISO-1',
+    reason: 'isolation test reason',
+  }, // ST7-T19
   '/v1/customers/:id/erp-codes/:connectorId': { externalId: null }, // ST8-T05
   '/v1/carriers/:id/erp-codes/:connectorId': { externalId: null }, // ST7-T15
   // DELETE ที่มี body (เหตุผลบังคับ) — key `DELETE <path>`

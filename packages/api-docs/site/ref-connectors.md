@@ -1,6 +1,6 @@
 # Connector ERP (connectors)
 
-11 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+17 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -10,7 +10,13 @@
 | [`GET /v1/connectors/{id}`](#get-connectors-id) | `settings:read` |
 | [`GET /v1/connectors/{id}/history`](#get-connectors-id-history) | `settings:read` |
 | [`GET /v1/connectors/{id}/commands`](#get-connectors-id-commands) | `settings:read` |
-| [`GET /v1/connectors/{id}/sync-log`](#get-connectors-id-sync-log) | `settings:read` |
+| [`GET /v1/connectors/{id}/sync-log`](#get-connectors-id-sync-log) | `settings:read` / `integrations:read` |
+| [`GET /v1/connectors/{id}/queue`](#get-connectors-id-queue) | `settings:read` / `integrations:read` |
+| [`GET /v1/connectors/{id}/queue/summary`](#get-connectors-id-queue-summary) | `settings:read` / `integrations:read` |
+| [`POST /v1/connectors/{id}/queue/retry`](#post-connectors-id-queue-retry) | `settings:write` / `integrations:retry` |
+| [`POST /v1/connectors/{id}/queue/{commandId}/retry`](#post-connectors-id-queue-commandId-retry) | `settings:write` / `integrations:retry` |
+| [`POST /v1/connectors/{id}/queue/{commandId}/skip`](#post-connectors-id-queue-commandId-skip) | `settings:write` / `integrations:retry` |
+| [`POST /v1/connectors/{id}/queue/{commandId}/external-id`](#post-connectors-id-queue-commandId-external-id) | `settings:write` / `integrations:retry` |
 | [`GET /v1/connectors/{id}/master-codes`](#get-connectors-id-master-codes) | `settings:read` |
 | [`GET /v1/connectors/{id}/mappings`](#get-connectors-id-mappings) | `settings:read` |
 | [`GET /v1/reconcile-results`](#get-reconcile-results) | `integrations:read` |
@@ -236,7 +242,7 @@ const { data, error } = await tms.GET('/v1/connectors/{id}/commands', {
 
 `GET /v1/connectors/{id}/sync-log`
 
-scope: `settings:read` · operationId: `Connectors_syncLog`
+scope: `settings:read` หรือ `integrations:read` · operationId: `Connectors_syncLog`
 
 **Parameters**
 
@@ -255,7 +261,7 @@ scope: `settings:read` · operationId: `Connectors_syncLog`
 |---|---|---|
 | `200` | sync log: 1 แถวต่อ 1 HTTP call ที่ connector นี้เรียกระบบบัญชี (ใหม่สุดก่อน) — body ตัด credential / เลขบัตรประชาชนแล้ว (≤ 16 KB) · ไม่มี header · URL ไม่มี query string · `commandId` = เฉพาะการเรียกของคำสั่งนั้น · `documentNo` = เลขเอกสาร TMS | `ErpSyncLogListDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`settings:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:read` / `integrations:read` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
@@ -270,6 +276,271 @@ curl -sS -X GET "$TMS_BASE_URL/v1/connectors/<id>/sync-log" \
 ```ts
 const { data, error } = await tms.GET('/v1/connectors/{id}/sync-log', {
   params: { path: { id: "…" } },
+});
+```
+
+## GET /v1/connectors/{id}/queue {#get-connectors-id-queue}
+
+`GET /v1/connectors/{id}/queue`
+
+scope: `settings:read` หรือ `integrations:read` · operationId: `Connectors_queueList`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+| `tab` | query |   | `string` ค่า: `queued`, `failed`, `done` | รอคิว / ล้มเหลว (ต้องมีคนทำ) / สำเร็จ |
+| `errorClass` | query |   | `string` ค่า: `TRANSIENT`, `AMBIGUOUS`, `DUPLICATE`, `VALIDATION`, `AUTH`, `NOT_FOUND`, `PERIOD_CLOSED`, `CAPABILITY` | กรองตาม ErrorClass (จัดกลุ่มแท็บล้มเหลว) |
+| `limit` | query |   | `number` |   |
+| `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (เรียงตามเวลาที่เปลี่ยนล่าสุด ใหม่สุดก่อน) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | คิวของ connector แยกแท็บ `queued` (PENDING/IN_FLIGHT/FAILED_RETRYABLE + `nextRunAt`) / `failed` (ต้องมีคนทำ: FAILED_FINAL, SKIPPED ที่แจ้งบัญชี, DUPLICATE ที่ต้องกรอกเลขเอง — ยังไม่ได้จัดการ) / `done` · `errorClass` กรองกลุ่ม · แต่ละรายการมี `guide` (คู่มือภาษาไทยต่อ error code), `link` + `missing[]` (mapping/ผังรหัสที่ขาด), `actions` · request/response ของคำสั่ง = `GET /connectors/{id}/sync-log?commandId=` · keyset cursor | `ConnectorQueueListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:read` / `integrations:read` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/connectors/<id>/queue" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/connectors/{id}/queue', {
+  params: { path: { id: "…" } },
+});
+```
+
+## GET /v1/connectors/{id}/queue/summary {#get-connectors-id-queue-summary}
+
+`GET /v1/connectors/{id}/queue/summary`
+
+scope: `settings:read` หรือ `integrations:read` · operationId: `Connectors_queueSummary`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ตัวนับต่อแท็บ (`failed` = badge ที่เมนู — ไม่รวมคิวที่ระบบกำลังส่งเอง) + แท็บล้มเหลวแยก ErrorClass | `ConnectorQueueSummaryDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:read` / `integrations:read` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/connectors/<id>/queue/summary" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/connectors/{id}/queue/summary', {
+  params: { path: { id: "…" } },
+});
+```
+
+## POST /v1/connectors/{id}/queue/retry {#post-connectors-id-queue-retry}
+
+`POST /v1/connectors/{id}/queue/retry`
+
+scope: `settings:write` หรือ `integrations:retry` · operationId: `Connectors_queueRetryAll`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+
+**Request body** `QueueRetryAllDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `errorClass` |   | `string` | ค่า: `TRANSIENT`, `AMBIGUOUS`, `DUPLICATE`, `VALIDATION`, `AUTH`, `NOT_FOUND`, `PERIOD_CLOSED`, `CAPABILITY` | ส่งซ้ำเฉพาะ ErrorClass นี้ (ไม่ส่ง = ทุกรายการที่ส่งซ้ำได้) |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ส่งซ้ำทุกรายการในแท็บล้มเหลวที่ส่งซ้ำได้ (ครั้งละ ≤ 200; `errorClass` = เฉพาะกลุ่ม) — แต่ละรายการ = `ErpSyncService.resend` (canonical ฉบับที่ออก) · รายการที่ต้องทำในระบบบัญชีเองนับใน `notRetryable` | `QueueRetryAllResultDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:write` / `integrations:retry` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/connectors/<id>/queue/retry" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/connectors/{id}/queue/retry', {
+  params: { path: { id: "…" } },
+  body: {},
+});
+```
+
+## POST /v1/connectors/{id}/queue/{commandId}/retry {#post-connectors-id-queue-commandId-retry}
+
+`POST /v1/connectors/{id}/queue/{commandId}/retry`
+
+scope: `settings:write` หรือ `integrations:retry` · operationId: `Connectors_queueRetry`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+| `commandId` | path | ใช่ | `string` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ส่งซ้ำ 1 รายการในแท็บล้มเหลว (หลังแก้ mapping / ผังรหัส / เปิดงวดบัญชี) → คำสั่งใหม่ (รายการเดิมออกจากคิว) · ส่งซ้ำไม่ได้ (จัดการแล้ว / ไม่ใช่รายการล้มเหลว / ต้องทำในระบบบัญชีเอง / ก่อนวันเริ่มซิงก์) → 409 `queue_action_not_allowed` (`why`) | `QueueRetryResultDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:write` / `integrations:retry` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/connectors/<id>/queue/<commandId>/retry" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)"
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/connectors/{id}/queue/{commandId}/retry', {
+  params: { path: { id: "…", commandId: "…" } },
+});
+```
+
+## POST /v1/connectors/{id}/queue/{commandId}/skip {#post-connectors-id-queue-commandId-skip}
+
+`POST /v1/connectors/{id}/queue/{commandId}/skip`
+
+scope: `settings:write` หรือ `integrations:retry` · operationId: `Connectors_queueSkip`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+| `commandId` | path | ใช่ | `string` |   |
+
+**Request body** `QueueSkipDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `เลิกใช้บริการตั้งแต่ ธ.ค. 2569` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ข้ามรายการในแท็บล้มเหลว (เช่น บัญชีบันทึกในระบบบัญชีเองแล้ว / งวดปิดและรับทราบ) — เหตุผล ≥ 10 ตัว · audit `connector.queue_skipped` · ย้ายไปแท็บสำเร็จ | `ConnectorQueueItemDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:write` / `integrations:retry` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/connectors/<id>/queue/<commandId>/skip" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"เลิกใช้บริการตั้งแต่ ธ.ค. 2569"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/connectors/{id}/queue/{commandId}/skip', {
+  params: { path: { id: "…", commandId: "…" } },
+  body: {
+    "reason": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569"
+  },
+});
+```
+
+## POST /v1/connectors/{id}/queue/{commandId}/external-id {#post-connectors-id-queue-commandId-external-id}
+
+`POST /v1/connectors/{id}/queue/{commandId}/external-id`
+
+scope: `settings:write` หรือ `integrations:retry` · operationId: `Connectors_queueExternalId`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `X-Tms-Mode` | header |   | `string` ค่า: `live`, `test` | เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key) |
+| `id` | path | ใช่ | `string` |   |
+| `commandId` | path | ใช่ | `string` |   |
+
+**Request body** `QueueExternalIdDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `เลิกใช้บริการตั้งแต่ ธ.ค. 2569` |
+| `externalId` | ใช่ | `string` | ยาว ≤ 100 · ยาว ≥ 1 | id เอกสารฝั่งระบบบัญชี | `IV6611-00042` |
+| `externalDocNo` |   | `string` | ยาว ≤ 60 | เลขเอกสารที่แสดงในระบบบัญชี (ถ้าต่างจาก id) |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | กรอกเลขเอกสารฝั่งระบบบัญชีเอง (DUPLICATE ที่หาไม่เจอ หรือคำสั่งส่งเอกสารที่ล้มเหลวแต่เอกสารอยู่ในระบบบัญชีแล้ว) — เหตุผล ≥ 10 ตัว · audit `connector.queue_external_id` · external_mapping = MISMATCH `erp_content_unverified` (รอบ reconcile ยืนยัน) · เลขผูกกับเอกสารอื่นแล้ว → 409 `external_id_conflict` | `ConnectorQueueItemDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:write` / `integrations:retry` — มีตัวใดตัวหนึ่งก็พอ) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/connectors/<id>/queue/<commandId>/external-id" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"เลิกใช้บริการตั้งแต่ ธ.ค. 2569","externalId":"IV6611-00042"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/connectors/{id}/queue/{commandId}/external-id', {
+  params: { path: { id: "…", commandId: "…" } },
+  body: {
+    "reason": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569",
+    "externalId": "IV6611-00042"
+  },
 });
 ```
 
@@ -488,6 +759,57 @@ const { data, error } = await tms.GET('/v1/reconcile-results/{id}', {
 |---|---|---|---|---|---|
 | `data` | ใช่ | `array<ConnectorDto>` |   |   |   |
 
+### ConnectorQueueItemDto {#schema-ConnectorQueueItemDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `obx_…` |
+| `operation` | ใช่ | `string` |   |   | `PUSH_INVOICE` |
+| `entityType` | ใช่ | `string` |   |   | `invoice` |
+| `localId` | ใช่ | `string` |   | id ของเอกสารใน TMS (uuid) |   |
+| `status` | ใช่ | `string` | ค่า: `PENDING`, `IN_FLIGHT`, `DONE`, `FAILED_RETRYABLE`, `FAILED_FINAL`, `SKIPPED` |   |   |
+| `attempt` | ใช่ | `number` |   |   |   |
+| `errorClass` | ใช่ | `string` | null ได้ |   | `TRANSIENT` |
+| `errorCode` | ใช่ | `string` | null ได้ | รหัสผิดพลาดล่าสุด (ไม่มีข้อความดิบ) |   |
+| `createdAt` | ใช่ | `string (date-time)` |   |   |   |
+| `doneAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
+| `updatedAt` | ใช่ | `string (date-time)` |   |   |   |
+| `tab` | ใช่ | `string` | ค่า: `queued`, `failed`, `done` |   |   |
+| `documentNo` | ใช่ | `string` | null ได้ |   | `2611-0001` |
+| `nextRunAt` | ใช่ | `string (date-time)` | null ได้ | รอคิว: เวลาที่จะลองครั้งถัดไป |   |
+| `errorMessage` | ใช่ | `string` | null ได้ | ข้อความผิดพลาด (ตัด secret แล้ว) |   |
+| `link` | ใช่ | `string` | null ได้ | ลิงก์หน้าที่ต้องแก้ (mapping / ผังรหัส) |   |
+| `missing` | ใช่ | `array<QueueMissingDto>` |   |   |   |
+| `fields` | ใช่ | `array<QueueFieldErrorDto>` |   | ช่องที่ระบบบัญชีแจ้งว่าผิด |   |
+| `manualExternalIdRequired` | ใช่ | `boolean` |   |   |   |
+| `guide` | ใช่ | `QueueGuideDto` | null ได้ |   |   |
+| `resolution` | ใช่ | `QueueResolutionDto` | null ได้ |   |   |
+| `actions` | ใช่ | `QueueActionsDto` |   |   |   |
+| `bodiesHidden` | ใช่ | `boolean` |   | ผู้เรียกไม่มีสิทธิ์ดูราคาของเอกสารชนิดนี้ — sync log ของคำสั่งนี้จะไม่มี body (ซ่อนปุ่ม "ดู payload") |   |
+
+### ConnectorQueueListDto {#schema-ConnectorQueueListDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<ConnectorQueueItemDto>` |   |   |   |
+| `nextCursor` | ใช่ | `string` | null ได้ |   |   |
+| `hasMore` | ใช่ | `boolean` |   |   |   |
+
+### ConnectorQueueSummaryDto {#schema-ConnectorQueueSummaryDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `queued` | ใช่ | `number` |   |   |   |
+| `failed` | ใช่ | `number` |   | ต้องมีคนทำ (badge ที่เมนู) |   |
+| `done` | ใช่ | `number` |   |   |   |
+| `failedByClass` | ใช่ | `object` |   | แท็บล้มเหลวแยกตาม ErrorClass | `{"VALIDATION":2,"PERIOD_CLOSED":1}` |
+
 ### EffectiveConnectorDto {#schema-EffectiveConnectorDto}
 
 
@@ -543,6 +865,24 @@ const { data, error } = await tms.GET('/v1/reconcile-results/{id}', {
 | `data` | ใช่ | `array<ErpSyncLogDto>` |   |   |   |
 | `nextCursor` | ใช่ | `string` | null ได้ | ส่งเป็น `cursor` เพื่อดูหน้าถัดไป |   |
 | `hasMore` | ใช่ | `boolean` |   |   |   |
+
+### QueueRetryAllResultDto {#schema-QueueRetryAllResultDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `retried` | ใช่ | `number` |   | จำนวนที่สร้างคำสั่งส่งซ้ำ |   |
+| `notRetryable` | ใช่ | `number` |   | จำนวนในแท็บล้มเหลวที่ส่งซ้ำไม่ได้ (ต้องข้าม/กรอกเลขเอง) |   |
+| `remaining` | ใช่ | `number` |   | เหลือที่ยังไม่ได้ทำ (ทำครั้งละไม่เกิน 200) |   |
+
+### QueueRetryResultDto {#schema-QueueRetryResultDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `command` | ใช่ | `ConnectorQueueItemDto` |   | คำสั่งใหม่ที่ส่งแทน |   |
 
 ### ReconcileResultDto {#schema-ReconcileResultDto}
 
