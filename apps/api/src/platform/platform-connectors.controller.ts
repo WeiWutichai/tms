@@ -255,11 +255,13 @@ export class PlatformConnectorsController {
   }
 
   /**
-   * ST9-T04 หน้า Health (docs/02 §5 "คิวค้าง, MISMATCH เปิดอยู่, poller ล่าสุด, error rate 7 วัน ต่อ tenant") — อ่านอย่างเดียว ทุก role
+   * ST9-T04 `GET /v1/platform/connectors/health` — ข้อมูลของหน้า Health (docs/02 §5 "คิวค้าง, MISMATCH เปิดอยู่, poller ล่าสุด,
+   * error rate 7 วัน ต่อ tenant"; หน้าจอยังไม่มีในต้นแบบ — PROGRESS #96) · อ่านอย่างเดียว ทุก role (ไม่ต้อง step-up)
+   * (คนละ route กับ `POST /platform/connectors/{id}/health` = สั่ง healthCheck connector ตัวเดียว)
    * เฉพาะ tenant โหมด live ที่มี connector ยังไม่ยกเลิก · ตัวเลขชุดเดียวกับ `GET /v1/connectors/metrics` (ตัวนับ/เวลา/รหัสเท่านั้น
    * — ไม่มีเนื้อหาเอกสาร ยอดเงิน หรือข้อความ error ดิบของลูกค้า) · เรียง tenant ที่มีปัญหาก่อน (DOWN/DEGRADED → ล้มเหลว → lag) แล้วตามชื่อ
    */
-  @Get('health')
+  @Get('connectors/health')
   @PlatformAuth()
   @ApiOkResponse({ type: PlatformHealthListDto })
   async healthOverview(@Query() q: PlatformHealthQuery): Promise<PlatformHealthListDto> {

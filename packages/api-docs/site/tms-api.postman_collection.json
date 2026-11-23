@@ -17412,6 +17412,50 @@
           }
         },
         {
+          "name": "รายงานปิดงวดต่อ connector ต่อเดือน",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/reconcile-reports/period-close?connectorId=con_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e&month=2026-11",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "reconcile-reports",
+                "period-close"
+              ],
+              "query": [
+                {
+                  "key": "connectorId",
+                  "value": "con_0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+                  "description": "connector ที่ปิดงวด",
+                  "disabled": false
+                },
+                {
+                  "key": "month",
+                  "value": "2026-11",
+                  "description": "งวด (YYYY-MM) — สิ้นเดือน = 00:00 น. วันที่ 1 ของเดือนถัดไป เวลาไทย",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "scope: integrations:read\n\nหลักฐานของเกณฑ์ผ่าน (ก) \"ปิดงวดผ่าน reconcile — MISMATCH ค้าง = 0\" · 3 ส่วน: (1) `outstanding` MISMATCH ค้าง ณ สิ้นเดือน (เวลาไทย) = รายการ `result` MISMATCH/REMOTE_MISSING severity MONEY/FIELD ที่รอบตรวจพบ (`run_at`) ก่อนสิ้นเดือน และ ณ สิ้นเดือนยังไม่ถูกปิดและยังไม่มีคนยอมรับ — ปิดหลังสิ้นเดือนยังนับเป็นค้างของงวด · พบหลังสิ้นเดือนไม่นับ · INFO (อ่าน/เทียบไม่ได้) นับแยกใน `summary.unverified` (2) `acknowledged` รายการที่ยอมรับความต่างในเดือน + ผู้ยอมรับ + เหตุผล (3) `notSent` เอกสารที่วันที่ไม่เกินสิ้นเดือนและคำสั่งส่งล่าสุดยังอยู่แท็บรอคิว/ล้มเหลวของคิว (`GET /connectors/{id}/queue`) **ณ เวลาที่ออกรายงาน** · `passed` = เดือนจบแล้ว และ `summary.outstanding` = 0 · เดือนที่ยังไม่จบตัด ณ เวลาปัจจุบัน · connector ไม่พบ/ของ tenant อื่น → 404 · ยอดเงิน `sell*` ต้องมี `prices.sell:read` · `buy*` ต้องมี `prices.buy:read` · ส่งออก: `POST /v1/exports` resource `reconcile-period-close` (xlsx / csv / pdf) ตัวกรอง `connectorId`, `month`"
+          }
+        },
+        {
           "name": "GET /v1/reconcile-results",
           "request": {
             "method": "GET",

@@ -1713,8 +1713,13 @@ export class ConnectorsService {
   /**
    * ST9-T04 healthCheck ตามรอบ (docs/01 §A.4 "healthCheck — ก่อนเริ่ม batch, ทุก 5 นาที"): connector ACTIVE ที่ยังไม่ล้ม
    * และตรวจล่าสุดเกิน `HEALTH_RECHECK_EVERY_MS` (หัก 30 วิ กันรอบเหลื่อม) — ปลายทางล่มโดยไม่มีคำสั่งส่ง dashboard ก็เห็น health แดงภายใน 5 นาที
-   * ผลบันทึกทางเดียวกับ `recheckUnhealthy` (`applySystemHealth`: TRANSIENT = เริ่มนับ 30 นาที + พักคิว · AUTH = ERROR ทันที)
-   * เฉพาะ tenant TRIAL/ACTIVE (ระงับ/ปิด = ไม่เรียกระบบบัญชีของลูกค้า) · `tenantId` = จำกัด tenant (test) · คืนจำนวนที่ตรวจ
+   * - review M1: ล้มแบบหยุดคิวได้ (TRANSIENT / AUTH) ครั้งแรกยังไม่บันทึก — ตรวจยืนยันอีกครั้งหลัง `sweepConfirmMs` (60 วิ)
+   *   ล้มติดกัน 2 ครั้งจึงบันทึกผ่าน `applySystemHealth` (TRANSIENT = เริ่มนับ 30 นาที + พักคิว · AUTH = ERROR) · ครั้งที่สองผ่าน = บันทึกว่าผ่าน
+   *   (กันปลายทางสะดุดชั่วขณะทำให้คิวพัก/connector หยุด) · class อื่น (VALIDATION/CAPABILITY) บันทึกผลทันที (ไม่หยุดอะไร)
+   * - เฉพาะ tenant TRIAL/ACTIVE ที่แพ็กเกจมี `conn` (ระงับ/ปิด/ไม่มีสิทธิ์ = ไม่เรียกระบบบัญชีของลูกค้า)
+   * - `tenantId` = จำกัด tenant (test) · คืนจำนวนที่ตรวจ
+   * TODO(ST9-T04 review L1): กันรอบซ้อน (`sweepRunning`) เป็นต่อ process — ถ้ามี worker หลายตัวจะตรวจซ้ำกันได้ (ไม่ผิด แค่เรียกปลายทางซ้ำ)
+   *   → ใช้ advisory lock / lease ต่อ connector เมื่อ deploy worker > 1 ตัว
    */
   async healthSweep(opts: { tenantId?: string } = {}): Promise<number> {
     if (this.sweepRunning) return 0;
@@ -1732,40 +1737,57 @@ export class ConnectorsService {
         take: 200,
       });
       if (!rows.length) return 0;
-      const open = new Set(
-        (
-          await this.prisma.platform.tenant.findMany({
-            where: {
-              id: { in: [...new Set(rows.map((r) => r.tenantId))] },
-              status: { in: ['TRIAL', 'ACTIVE'] },
-            },
-            select: { id: true },
-          })
-        ).map((t) => t.id),
-      );
-      let n = 0;
-      for (const c of rows) {
-        if (!open.has(c.tenantId)) continue;
-        n += 1;
+      const tenantIds = [...new Set(rows.map((r) => r.tenantId))];
+      const active = (
+        await this.prisma.platform.tenant.findMany({
+          where: { id: { in: tenantIds }, status: { in: ['TRIAL', 'ACTIVE'] } },
+          select: { id: true },
+        })
+      ).map((t) => t.id);
+      // review L2: แพ็กเกจไม่มี `conn` = ไม่ตรวจ
+      const open = new Set(await this.entitlements.tenantsWith('conn', active));
+      const todo = rows.filter((c) => open.has(c.tenantId));
+      const suspects: Connector[] = [];
+      for (const c of todo) {
         try {
           const r = await this.runHealth(c);
-          const at = this.clock.now();
-          const back = await this.db.withTenant(c.tenantId, (tx) =>
-            this.applySystemHealth(tx, c.id, r, at),
-          );
-          if (back) await this.wakeParked(c.tenantId, c.id);
+          if (!r.ok && HEALTH_STOP_CLASSES.has(r.errorClass)) suspects.push(c);
+          else await this.recordSweep(c, r);
         } catch (e) {
           this.logger.warn(
             `connector ${c.id} health sweep failed: ${String((e as Error)?.message ?? e)}`,
           );
         }
       }
-      return n;
+      if (suspects.length) {
+        if (this.sweepConfirmMs > 0)
+          await new Promise((res) => setTimeout(res, this.sweepConfirmMs));
+        for (const c of suspects) {
+          try {
+            await this.recordSweep(c, await this.runHealth(c));
+          } catch (e) {
+            this.logger.warn(
+              `connector ${c.id} health sweep confirm failed: ${String((e as Error)?.message ?? e)}`,
+            );
+          }
+        }
+      }
+      return todo.length;
     } finally {
       this.sweepRunning = false;
     }
   }
   private sweepRunning = false;
+  /** ระยะรอก่อนตรวจยืนยันครั้งที่ 2 ของ healthSweep (test ตั้ง 0) */
+  sweepConfirmMs = 60_000;
+
+  private async recordSweep(c: Connector, r: HealthResult): Promise<void> {
+    const at = this.clock.now();
+    const back = await this.db.withTenant(c.tenantId, (tx) =>
+      this.applySystemHealth(tx, c.id, r, at),
+    );
+    if (back) await this.wakeParked(c.tenantId, c.id);
+  }
 
   /** ชื่อระบบบัญชีของ adapter (ข้อความแจ้งเตือน) — ไม่มี = รหัส adapter */
   adapterLabel(adapterKey: string): string {

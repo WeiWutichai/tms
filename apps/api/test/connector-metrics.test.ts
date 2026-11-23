@@ -7,6 +7,7 @@ import { signPlatformToken } from '../src/auth/tokens';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { DbService } from '../src/db/db.service';
 import { ConnectorsService } from '../src/modules/erp/connectors.service';
+import { EntitlementService } from '../src/modules/entitlements/entitlement.service';
 import { ERP_SINK } from '../src/modules/erp/erp-adapter.sink';
 import { OutboxDispatcher } from '../src/modules/integration/outbox.dispatcher';
 import { OutboxService } from '../src/modules/integration/outbox.service';
@@ -230,6 +231,7 @@ describe('connector metrics (ST9-T04)', () => {
     const id = r.body.id as string;
     await api(app, token).post(`/v1/connectors/${id}/resume`).send({}).expect(200);
     const svc = app.get(ConnectorsService);
+    svc.sweepConfirmMs = 0; // ตรวจยืนยันครั้งที่ 2 ทันที (จริง 60 วิ)
     // ผ่านล่าสุดเมื่อ 6 นาทีก่อน (ถึงรอบ) · มีคำสั่งค้าง
     await plat.connector.update({
       where: { id: uuid(id) },
@@ -270,11 +272,84 @@ describe('connector metrics (ST9-T04)', () => {
     } finally {
       await plat.tenant.update({ where: { id: tenantId }, data: { status: prev } });
     }
+    // review L2: แพ็กเกจไม่มี `conn` = ไม่ตรวจ
+    const ent = app.get(EntitlementService);
+    await plat.tenant.update({ where: { id: tenantId }, data: { planCode: 'start' } });
+    ent.invalidate(tenantId);
+    try {
+      expect(await svc.healthSweep({ tenantId })).toBe(0);
+    } finally {
+      await plat.tenant.update({ where: { id: tenantId }, data: { planCode: 'ent' } });
+      ent.invalidate(tenantId);
+    }
 
     await plat.connector.update({ where: { id: uuid(id) }, data: { status: 'ERROR' } });
     expect((await metrics())[0]!.health.state).toBe('DOWN');
     await plat.connector.update({ where: { id: uuid(id) }, data: { status: 'PAUSED' } });
     expect((await metrics())[0]!.health.state).toBe('PAUSED');
+  });
+
+  it('review M1: healthCheck ตามรอบต้องล้มติดกัน 2 ครั้ง — สะดุดครั้งเดียว (503 / 401) ไม่พักคิว ไม่หยุด · 401 ติดกัน 2 ครั้ง = ERROR', async () => {
+    const svc = app.get(ConnectorsService);
+    svc.sweepConfirmMs = 0;
+    const r = await api(app, token)
+      .post('/v1/connectors')
+      .send({
+        taxDocumentOwner: 'TMS',
+        adapterKey: 'krs',
+        settings: { baseUrl: mock.apiBaseUrl },
+        credentials: { apiKey: KEY },
+      });
+    expect(r.status, JSON.stringify(r.body)).toBe(201);
+    const id = r.body.id as string;
+    await api(app, token).post(`/v1/connectors/${id}/resume`).send({}).expect(200);
+    const due = () =>
+      plat.connector.update({
+        where: { id: uuid(id) },
+        data: { lastHealthAt: new Date(Date.now() - 6 * 60_000) },
+      });
+    const row = () => plat.connector.findUniqueOrThrow({ where: { id: uuid(id) } });
+    try {
+      // 503 ครั้งเดียว → ครั้งยืนยันผ่าน = ปกติ
+      await due();
+      mock.injectFault({ status: 503, method: 'GET', times: 1 });
+      expect(await svc.healthSweep({ tenantId })).toBe(1);
+      expect(await row()).toMatchObject({
+        status: 'ACTIVE',
+        healthFailingSince: null,
+        lastHealthOk: true,
+      });
+      expect((await metrics())[0]!.health.state).toBe('OK');
+      // 401 ครั้งเดียว → ไม่หยุด connector
+      await due();
+      mock.injectFault({ status: 401, method: 'GET', times: 1 });
+      await svc.healthSweep({ tenantId });
+      expect(await row()).toMatchObject({ status: 'ACTIVE', lastHealthOk: true });
+      // 503 ติดกัน → DEGRADED (พักคิว)
+      await due();
+      mock.injectFault({ status: 503, method: 'GET', times: 2 });
+      await svc.healthSweep({ tenantId });
+      expect((await row()).healthFailingSince).not.toBeNull();
+      expect((await metrics())[0]!.health).toMatchObject({
+        state: 'DEGRADED',
+        errorClass: 'TRANSIENT',
+      });
+      // 401 ติดกัน → ERROR (DOWN)
+      await plat.connector.update({
+        where: { id: uuid(id) },
+        data: {
+          healthFailingSince: null,
+          lastHealthOk: true,
+          lastHealthAt: new Date(Date.now() - 6 * 60_000),
+        },
+      });
+      mock.injectFault({ status: 401, method: 'GET', times: 2 });
+      await svc.healthSweep({ tenantId });
+      expect(await row()).toMatchObject({ status: 'ERROR' });
+      expect((await metrics())[0]!.health).toMatchObject({ state: 'DOWN', errorClass: 'AUTH' });
+    } finally {
+      mock.clearFaults();
+    }
   });
 
   it('Console หน้า Health: ทุก role อ่านได้ · token ลูกค้า 401 · ต่อ tenant (live เท่านั้น) · ตัวนับเท่านั้น ไม่มี credential/ข้อความ error', async () => {
@@ -304,10 +379,11 @@ describe('connector metrics (ST9-T04)', () => {
     });
 
     for (const role of ['SUPPORT', 'BILLING', 'SUPER_ADMIN'])
-      await api(app, staff[role]).get('/v1/platform/health').expect(200);
-    await api(app, token).get('/v1/platform/health').expect(401);
+      await api(app, staff[role]).get('/v1/platform/connectors/health').expect(200);
+    await api(app, token).get('/v1/platform/connectors/health').expect(401);
 
-    const res = (await api(app, staff.SUPPORT).get('/v1/platform/health').expect(200)).body;
+    const res = (await api(app, staff.SUPPORT).get('/v1/platform/connectors/health').expect(200))
+      .body;
     expect(res.data.map((x: { tenantName: string }) => x.tenantName)).toEqual([
       'บริษัท อื่น', // DOWN ขึ้นก่อน
       'บริษัท แดชบอร์ดเชื่อม',
@@ -332,7 +408,7 @@ describe('connector metrics (ST9-T04)', () => {
     // กรอง tenant
     const one = (
       await api(app, staff.SUPPORT)
-        .get(`/v1/platform/health?tenantId=${encodeId('tenant', tenantId)}`)
+        .get(`/v1/platform/connectors/health?tenantId=${encodeId('tenant', tenantId)}`)
         .expect(200)
     ).body;
     expect(one.data).toHaveLength(1);

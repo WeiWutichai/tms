@@ -94,6 +94,8 @@ test.describe('การ์ดการเชื่อมต่อ (ST9-T04)', (
       await page.reload();
       await expect(page.getByTestId('dash-conn-state')).toHaveText('ผิดพลาด');
       await expect(page.getByTestId('dash-conn-state')).toHaveCSS('color', 'rgb(179, 50, 42)');
+      // ท้าย sidebar สถานะเดียวกับการ์ด (review L5)
+      await expect(page.getByText('ERP จำลอง (Demo) ผิดพลาด')).toBeVisible();
 
       await card.getByRole('button', { name: 'ดูคิวเชื่อมระบบบัญชี' }).click();
       await expect(page).toHaveURL(/\/erp/);

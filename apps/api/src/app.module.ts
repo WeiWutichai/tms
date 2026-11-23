@@ -124,6 +124,7 @@ import { DocumentReconcileService } from './modules/erp/document-reconcile.servi
 import { ReconcileController } from './modules/erp/reconcile.controller';
 import { ReconcileCloseService } from './modules/erp/reconcile-close.service';
 import { ReconcileResultsService } from './modules/erp/reconcile-results.service';
+import { PeriodCloseReportService } from './modules/erp/period-close-report.service';
 import { ErpAdaptersBootstrap } from './erp-adapters';
 import {
   EventsController,
@@ -520,6 +521,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ConnectorMetricsService,
     ErpInboundEffects,
     ReconcileResultsService,
+    PeriodCloseReportService,
     ReconcileCloseService,
     PaymentStatusPullService,
     DocumentReconcileService,

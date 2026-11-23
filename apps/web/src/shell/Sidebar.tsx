@@ -778,6 +778,9 @@ function useErpFoot(enabled: boolean): { dot: string; label: string | null; sync
         timeZone: 'Asia/Bangkok',
       }).format(new Date(at))
     : null;
+  // ST9-T04 (review L5): สถานะเดียวกับการ์ดการเชื่อมต่อ — ACTIVE แต่ healthCheck ล่าสุดล้ม (DEGRADED) = แดง
+  if (c.status === 'ACTIVE' && c.lastHealthOk === false)
+    return { dot: '#B3322A', label: t('shell.erpErr', { n }), sync: null };
   if (c.status === 'ACTIVE') return { dot: '#17733F', label: t('shell.erpOn', { n }), sync: hhmm };
   if (c.status === 'ERROR') return { dot: '#B3322A', label: t('shell.erpErr', { n }), sync: null };
   return { dot: '#59606B', label: t('shell.erpPaused', { n }), sync: null };

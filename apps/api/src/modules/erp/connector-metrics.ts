@@ -20,7 +20,7 @@ import { PAYMENT_STATUS_PULL_JOB } from './payment-status-pull.service';
  * - error rate 7 วัน = สัดส่วนการเรียกระบบบัญชี (erp_sync_log) ที่ปลายทางไม่ตอบ / 5xx / 401 / 403 / 408 / 429 —
  *   ความผิดพลาดของระบบ/การเชื่อมต่อ ไม่นับคำตอบทางธุรกิจ (400/404/409/422 = ข้อมูลไม่ผ่าน/ไม่พบ) [DECISION spec/12 §3 ST9-T04]
  * - ไม่มีเนื้อหาเอกสาร/ยอดเงิน/ข้อความ error ดิบ — เฉพาะตัวนับ เวลา และรหัส
- * query ต่อ connector ใช้ index: integration_outbox (target_id, status, done_at) WHERE sink='erp' (migration 0173),
+ * query ต่อ connector ใช้ index: integration_outbox (target_id, status, done_at) WHERE sink='erp' (migration 0172),
  * erp_sync_log (tenant_id, connector_id, occurred_at), reconcile_result (connector_id, …), connector_cursor (connector_id),
  * job (tenant_id, created_at) ช่วง 8 วัน
  */

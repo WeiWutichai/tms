@@ -26,6 +26,7 @@ import { sampleLongTripSheet, sampleTripSheet } from '../src/modules/trip-sheets
 import { tripSheetDocument } from '../src/modules/trip-sheets/trip-sheet.template';
 import {
   sampleAgingPdf,
+  samplePeriodClosePdf,
   sampleRevenueRoutePdf,
   sampleUnbilledPdf,
 } from '../src/modules/exports/export-pdf.sample';
@@ -94,6 +95,24 @@ const KINDS: Array<{
       'พิมพ์เมื่อ',
       '48,250.00',
       '1,350.49',
+    ],
+  },
+  {
+    kind: 'ไฟล์ส่งออกรายงาน PDF — รายงานปิดงวดเชื่อมระบบบัญชี (ST8-T14)',
+    module: 'src/modules/exports',
+    docs: () => [samplePeriodClosePdf()],
+    labels: [
+      'รายงานปิดงวดเชื่อมระบบบัญชี',
+      'งวด พฤศจิกายน 2569',
+      'MISMATCH ค้าง ณ สิ้นเดือน 0 รายการ',
+      'ผ่าน',
+      'ยอมรับความต่าง',
+      'ยังไม่ถูกส่ง',
+      'สมหญิง บัญชีดี',
+      'พิมพ์เมื่อ',
+      '-1,250.50',
+      '48,250.00',
+      '1,750.00',
     ],
   },
   {

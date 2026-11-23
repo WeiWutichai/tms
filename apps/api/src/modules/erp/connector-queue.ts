@@ -79,7 +79,7 @@ const ERROR_CLASSES = [
 ] as const;
 const QUEUE_SORT = 'queue.updatedAt';
 /** คำสั่งส่งเอกสารที่ส่งซ้ำ/กรอกเลขเองได้ (ErpSyncService.resend รองรับ) */
-const DOCUMENT_PUSH_OPS: ReadonlySet<string> = new Set([
+export const DOCUMENT_PUSH_OPS: ReadonlySet<string> = new Set([
   'PUSH_INVOICE',
   'PUSH_SETTLEMENT',
   'REPLACE_DOCUMENT',
@@ -502,7 +502,7 @@ const SUPERSEDED_SQL = Prisma.sql`EXISTS (SELECT 1 FROM integration_outbox o2
      AND o2.status IN ('DONE', 'PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE'))`;
 const OPEN_STATUSES = ['PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE'];
 
-/** แท็บ — รายการต้องมีคนทำที่ถูกแทนแล้ว (ส่งซ้ำ / คำสั่งหลังกว่า) ไม่อยู่ในแท็บใด (ST9-T04 ใช้นับใน dashboard เชื่อมต่อ — alias `o`) */
+/** แท็บ — รายการต้องมีคนทำที่ถูกแทนแล้ว (ส่งซ้ำ / คำสั่งหลังกว่า) ไม่อยู่ในแท็บใด · ST8-T14 รายงานปิดงวด + ST9-T04 dashboard เชื่อมต่อใช้เงื่อนไขเดียวกัน (alias `o`) */
 export function tabSql(tab: QueueTab): Prisma.Sql {
   switch (tab) {
     case 'queued':

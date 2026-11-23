@@ -48,6 +48,8 @@ export const EXPORT_RESOURCES = [
   'accounting-settlements',
   // D-73 สรุปหัก ณ ที่จ่าย (ประมาณการ) ต่อคู่ค้า
   'accounting-wht-summary',
+  // ST8-T14 รายงานปิดงวดเชื่อมระบบบัญชี (ตัวกรอง connectorId + month · xlsx / csv / pdf)
+  'reconcile-period-close',
 ] as const;
 
 /** resource ของไฟล์ที่ระบบสร้างเองจากงานอื่น (ไม่รับใน `POST /exports`) — ST5-T12b ไฟล์สรุปรอบวางบิล */
@@ -64,7 +66,7 @@ export class CreateExportDto {
     enum: ['xlsx', 'csv', 'pdf'],
     default: 'xlsx',
     description:
-      '.xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ .csv UTF-8 + BOM · `pdf` (ตาราง A4 ≤ 2,000 แถว) เฉพาะรายงาน — resource `revenue`, `unbilled-delivery-orders`, `receivables-aging` (อื่น ๆ = 422)',
+      '.xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ .csv UTF-8 + BOM · `pdf` (ตาราง A4 ≤ 2,000 แถว) เฉพาะรายงาน — resource `revenue`, `unbilled-delivery-orders`, `receivables-aging`, `reconcile-period-close` (อื่น ๆ = 422)',
   })
   @IsOptional()
   @IsIn(['xlsx', 'csv', 'pdf'])
