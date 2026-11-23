@@ -266,7 +266,13 @@ export class OrdersService {
   }
 
   /** ใบค้างที่มีเหตุนี้ (เหตุหลักหรือเหตุรอง — เงื่อนไขเดียวกับตัวกรอง `status=on_hold&holdReason=`) */
-  private async countHeld(code: string): Promise<number> {
+  /** D-81 · D68-89 badge "ใบสั่งขนส่ง" = ใบค้างที่มีเหตุใดเหตุหนึ่ง (นับใบเดียวครั้งเดียว — ใบที่มีทั้งสองเหตุไม่นับซ้ำ) */
+  async countHeldAny(codes: string[]): Promise<number> {
+    const or = await Promise.all(codes.map((c) => this.where({ holdReason: c } as OrderListQuery)));
+    return this.db.tx.salesOrder.count({ where: { AND: [{ status: 'ON_HOLD' }, { OR: or }] } });
+  }
+
+  async countHeld(code: string): Promise<number> {
     return this.db.tx.salesOrder.count({
       where: {
         AND: [{ status: 'ON_HOLD' }, await this.where({ holdReason: code } as OrderListQuery)],

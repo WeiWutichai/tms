@@ -74818,6 +74818,7 @@
             "enum": [
               "ARRIVE",
               "DEPART",
+              "LOADED",
               "COMPLETE",
               "FAIL"
             ]
@@ -77553,6 +77554,7 @@
             "enum": [
               "ARRIVE",
               "DEPART",
+              "LOADED",
               "COMPLETE",
               "FAIL"
             ]
@@ -79868,6 +79870,7 @@
             "enum": [
               "ARRIVE",
               "DEPART",
+              "LOADED",
               "COMPLETE",
               "FAIL"
             ]

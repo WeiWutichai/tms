@@ -335,11 +335,7 @@ describe('subcon link POD (ST4-T09)', () => {
     await dispatch(a.t.id);
     const m = (await view(a.podToken, a.doNo).expect(200)).body.match;
     await press(a.podToken, m.pickup.id, { type: 'ARRIVE', occurredAt: bkk(30) }).expect(201);
-    await press(a.podToken, m.pickup.id, {
-      type: 'COMPLETE',
-      outcome: 'DELIVERED',
-      occurredAt: bkk(25),
-    }).expect(201);
+    await press(a.podToken, m.pickup.id, { type: 'LOADED', occurredAt: bkk(25) }).expect(201);
     await press(a.podToken, m.delivery.id, { type: 'DEPART', occurredAt: bkk(25) }).expect(201);
     await press(a.podToken, m.delivery.id, { type: 'ARRIVE', occurredAt: bkk(5) }).expect(201);
     return {
@@ -879,11 +875,7 @@ describe('subcon link POD (ST4-T09)', () => {
     await dispatch(a.t.id);
     const m = (await view(a.podToken, x!.doNo).expect(200)).body.match;
     await press(a.podToken, m.pickup.id, { type: 'ARRIVE', occurredAt: bkk(30) }).expect(201);
-    await press(a.podToken, m.pickup.id, {
-      type: 'COMPLETE',
-      outcome: 'DELIVERED',
-      occurredAt: bkk(25),
-    }).expect(201);
+    await press(a.podToken, m.pickup.id, { type: 'LOADED', occurredAt: bkk(25) }).expect(201);
     await press(a.podToken, m.delivery.id, { type: 'ARRIVE', occurredAt: bkk(5) }).expect(201);
     const p1 = await upload(a.podToken, x!.doNo);
     const s1 = await upload(a.podToken, x!.doNo, 'POD_SIGNATURE');

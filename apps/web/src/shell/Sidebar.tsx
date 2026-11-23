@@ -50,6 +50,7 @@ export function Sidebar({
   // ปุ่ม "ไม่ได้เชื่อมระบบบัญชี" พาไปตั้งค่าการเชื่อมต่อ — ต้องมีสิทธิ์ตั้งค่าองค์กร (master:read เข้าหน้าตั้งค่าได้แค่หัวข้อ "เหตุผล")
   const canSettings = canAny(scopes, ['settings:read', 'settings:write']);
   const erp = useErpFoot(canAny(scopes, ['settings:read']) && !!features?.includes('conn'));
+  const badges = useNavBadges();
   // ตัวย่อ = พยัญชนะ/ตัวอักษรแรกของชื่อ + ของนามสกุล (ต้นแบบ: พรทิพย์ ศรีวงศ์ → พศ; ข้ามสระนำ เ แ โ ใ ไ)
   const first = (w: string) => [...w].find((ch) => /[\u0E01-\u0E2EA-Za-z0-9]/.test(ch)) ?? '';
   const words = actor.trim().split(/\s+/);
@@ -285,6 +286,7 @@ export function Sidebar({
                 }
                 go={(p) => nav(p)}
                 features={features}
+                badges={badges}
               />
             ))}
         </nav>
@@ -462,6 +464,36 @@ export function Sidebar({
   );
 }
 
+/** เมนูที่ badge เป็นงานเร่ง (ต้นแบบ vNav `URG` — ติดตามรถยังไม่มีในเฟส 0) → pill แดง / จุดแดงตอนย่อ */
+const URGENT = new Set(['pay', 'track', 'fdoc', 'exc']);
+
+/** pill ตัวนับงานค้าง — ค่าจาก `it.badge` / `g.badge` ของต้นแบบ TMS v4 (เร่ง = พื้น #FBE9E7 ตัวแดง) */
+function Badge({ n, urgent }: { n: number; urgent: boolean }) {
+  return (
+    <span
+      data-testid="nav-badge"
+      style={{
+        minWidth: 22,
+        height: 20,
+        padding: '0 7px',
+        borderRadius: 999,
+        background: urgent ? '#FBE9E7' : '#FFFFFF',
+        border: `1px solid ${urgent ? '#FBE9E7' : '#D9DCD4'}`,
+        color: urgent ? '#B3322A' : '#3B424C',
+        fontSize: 12,
+        fontWeight: 600,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontVariantNumeric: 'tabular-nums',
+        boxSizing: 'border-box',
+      }}
+    >
+      {n}
+    </span>
+  );
+}
+
 function Group({
   g,
   mini,
@@ -470,7 +502,10 @@ function Group({
   onToggle,
   go,
   features,
+  badges = {},
 }: {
+  /** ตัวนับงานค้างต่อ key ของเมนู (D68-89 — `GET /v1/me/badges`) */
+  badges?: Readonly<Record<string, number>>;
   features?: readonly string[];
   g: NavGroup;
   mini: boolean;
@@ -484,6 +519,10 @@ function Group({
   const childOn = hasKids && g.kids!.some((k) => isOn(k.path));
   const on = (!hasKids && !!g.path && isOn(g.path)) || (hasKids && !open && childOn);
   const label = t(g.label);
+  // ต้นแบบ vNav: กลุ่มที่ปิดอยู่ (หรือแถบย่อ) แสดงผลรวมของเมนูลูก · เร่งถ้ามีเมนูลูกที่เร่ง
+  const kidN = (k: { key: string }) => (g.key === 'fav' ? 0 : (badges[k.key] ?? 0));
+  const sum = hasKids && !open ? g.kids!.reduce((a, k) => a + kidN(k), 0) : 0;
+  const urgS = hasKids && !open && g.kids!.some((k) => URGENT.has(k.key) && kidN(k) > 0);
   return (
     <>
       {g.sepBefore && (
@@ -545,6 +584,21 @@ function Group({
           }}
         >
           <Icon n={g.icon} s={16} />
+          {mini && sum > 0 && (
+            <span
+              data-testid="nav-dot"
+              style={{
+                position: 'absolute',
+                top: -3,
+                right: -3,
+                width: 9,
+                height: 9,
+                borderRadius: '50%',
+                background: urgS ? '#B3322A' : '#2257C4',
+                border: '2px solid #FFFFFF',
+              }}
+            />
+          )}
         </span>
         {!mini && (
           <>
@@ -566,6 +620,7 @@ function Group({
                 aria-label={t('nav.locked')}
               />
             )}
+            {sum > 0 && <Badge n={sum} urgent={urgS} />}
             {hasKids && (
               <Icon
                 n={open ? 'chevron-down' : 'chevron-right'}
@@ -659,6 +714,7 @@ function Group({
                     aria-label={t('nav.locked')}
                   />
                 )}
+                {kidN(k) > 0 && <Badge n={kidN(k)} urgent={URGENT.has(k.key)} />}
               </button>
             );
           })}
@@ -666,6 +722,21 @@ function Group({
       )}
     </>
   );
+}
+
+/**
+ * D-81 · D68-89 badge งานค้างบนเมนู (docs/03 §1/§4, ต้นแบบ TMS v4 `counts()`) — `GET /v1/me/badges` คืนเฉพาะเมนูที่ผู้ใช้มีสิทธิ์
+ * ดึงทุก 60 วินาที + เมื่อกลับมาที่หน้าต่าง · ผิดพลาด = ไม่แสดง badge (ไม่บล็อกเมนู)
+ */
+function useNavBadges(): Record<string, number> {
+  const q = useQuery({
+    queryKey: ['nav-badges'],
+    queryFn: () => unwrap(api.GET('/v1/me/badges')),
+    retry: false,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  return Object.fromEntries((q.data?.data ?? []).map((b) => [b.key, b.count]));
 }
 
 /**
