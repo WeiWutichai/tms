@@ -2357,6 +2357,8 @@ model SubconOffer {
 enum StopEventType {
   ARRIVE
   DEPART
+  /// ขึ้นของเสร็จ — จุดรับเท่านั้น (docs/01 §3.9; D-81 · D68-39 — migration 0164)
+  LOADED
   COMPLETE
   FAIL
 

@@ -459,7 +459,7 @@ export class TrackingService {
     const raw: (Date | null)[] = [
       trip?.assignedAt ?? trip?.dispatchedAt ?? d.createdAt,
       departAll[0]?.occurredAt ?? events[0]?.occurredAt ?? firstAt(['DISPATCHED']),
-      evAt(['COMPLETE'], d.pickupTripStopId) ?? firstAt(['PICKED_UP']),
+      evAt(['COMPLETE', 'LOADED'], d.pickupTripStopId) ?? firstAt(['PICKED_UP']),
       stage === 'FAILED'
         ? (evAt(['FAIL', 'COMPLETE'], d.tripStopId) ?? lastAt(['FAILED', 'RETURNED']))
         : (evAt(['COMPLETE'], d.tripStopId) ?? lastAt(['DELIVERED'])),

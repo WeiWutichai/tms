@@ -14,9 +14,10 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { POD_STATUSES, STOP_EVENT_SOURCES } from '@tms/domain';
+import { POD_STATUSES, STOP_EVENT_SOURCES, STOP_OUTCOMES } from '@tms/domain';
 import { PodFieldDto } from '../pod/pod-checklist.dto';
 import { PodLineInputDto, SubmitPodDto } from '../pod/pod.dto';
+import { IsNullable } from '../master/master-kit';
 import { StopEventBaseDto } from '../stops/stop-event.dto';
 import { OfferLinkViewDto } from './offer.dto';
 
@@ -31,8 +32,11 @@ export const POD_LINK_FILE_MIME = ['application/pdf', ...POD_LINK_IMAGE_MIME] as
 export const POD_LINK_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const DOC_ID = /^doc_[0-9a-f]{32}$/;
 
-/** ชนิด event ที่ลิงก์รถร่วมส่งได้ (ST4-T08): ถึง / ออก(ไปจุดถัดไป) / ปิดงานจุดรับ / จุดส่ง (+ POD — ST4-T09) */
-export const POD_LINK_EVENT_TYPES = ['ARRIVE', 'DEPART', 'COMPLETE'] as const;
+/**
+ * ชนิด event ที่ลิงก์รถร่วมส่งได้ (ST4-T08): ถึง / ออก(ไปจุดถัดไป) / ขึ้นของเสร็จ (จุดรับ — D68-39) / ปิดงาน (+ POD — ST4-T09)
+ * / ไม่สำเร็จ (D-81 · D68-39 — รับไม่สำเร็จ/ส่งไม่สำเร็จพร้อมเหตุผล)
+ */
+export const POD_LINK_EVENT_TYPES = ['ARRIVE', 'DEPART', 'LOADED', 'COMPLETE', 'FAIL'] as const;
 export const POD_STOP_STATUSES = ['PENDING', 'ARRIVED', 'COMPLETED', 'FAILED', 'SKIPPED'] as const;
 
 export class PodLinkQueryDto {
@@ -104,6 +108,15 @@ export class PodLinkReasonDto {
   @ApiProperty() requiresPhoto!: boolean;
 }
 
+/** D-81 · D68-39 เหตุผลแจ้งรับ/ส่งไม่สำเร็จ หรือรับ/ส่งบางส่วน (หมวด DELIVERY_FAILED / REJECTED_BY_RECEIVER ที่ใช้งานอยู่) */
+export class PodLinkFailReasonDto extends PodLinkReasonDto {
+  @ApiProperty({
+    enum: ['DELIVERY_FAILED', 'REJECTED_BY_RECEIVER'],
+    description: 'หมวด — ผล `UNDELIVERED_RETAIN` (ของยังอยู่บนรถ) ใช้ได้เฉพาะ DELIVERY_FAILED',
+  })
+  category!: string;
+}
+
 /**
  * ส่ง POD ของ DO ผ่านลิงก์ได้หรือไม่ (ST4-T09) — ไม่มีรูป/ลิงก์ไฟล์/PIN/ชื่อผู้บันทึก
  * `mode`: CLOSE = ถึงจุดส่งแล้ว ส่ง POD = ปิดงานจุดส่ง (COMPLETE + POD ในคำขอเดียว) ·
@@ -153,6 +166,12 @@ export class PodDoDto {
   retries!: PodRetryDto[];
   @ApiProperty({ type: PodLinkDoPodDto, description: 'หลักฐานส่งของ DO นี้ (ST4-T09)' })
   pod!: PodLinkDoPodDto;
+  @ApiProperty({
+    type: [PodLinkFailReasonDto],
+    description:
+      'D-81 · D68-39 เหตุผลที่เลือกได้เมื่อแจ้งรับ/ส่งไม่สำเร็จ (`FAIL` หรือ `COMPLETE` FAILED/UNDELIVERED_RETAIN) หรือรับ/ส่งบางส่วน (`COMPLETE` PARTIAL)',
+  })
+  failReasons!: PodLinkFailReasonDto[];
 }
 
 /**
@@ -290,9 +309,9 @@ export class PodLinkFileDto {
 }
 
 /**
- * กดถึง/ออกผ่านลิงก์ (docs/01 §5.5 `POST /public/pod/{token}/stops/{id}/events` — body เดียวกับ `/driver/*`)
- * `clientEventId` บังคับทุกครั้ง (ไม่มี outbox แต่ idempotent — refresh แล้วกดซ้ำไม่เกิด event ซ้ำ)
- * · ไม่รับเหตุผล/หมายเหตุ (หน้าลิงก์ไม่มีช่อง) · `source` = LINK ที่ server กำหนด
+ * กดถึง/ออก/ปิดงานผ่านลิงก์ (docs/01 §5.5 `POST /public/pod/{token}/stops/{id}/events` — body เดียวกับ `/driver/*`)
+ * `clientEventId` บังคับทุกครั้ง (ไม่มี outbox แต่ idempotent — refresh แล้วกดซ้ำไม่เกิด event ซ้ำ) · `source` = LINK ที่ server กำหนด
+ * D-81 · D68-39: จุดรับปิดด้วย `LOADED` · แจ้งไม่สำเร็จ/บางส่วนพร้อมเหตุผล (`reasonCodeId` + `note`) — เหตุผลรับเฉพาะ event ปิดงานที่ไม่ครบ
  */
 export class PodLinkEventDto extends PickType(StopEventBaseDto, [
   'clientEventId',
@@ -300,29 +319,33 @@ export class PodLinkEventDto extends PickType(StopEventBaseDto, [
   'lat',
   'lng',
   'accuracyM',
+  'reasonCodeId',
+  'note',
 ] as const) {
   @ApiProperty({
     enum: POD_LINK_EVENT_TYPES,
     description:
-      'ARRIVE ถึงจุด · DEPART ออกเดินทางมุ่งหน้าไปจุดนี้ (ปุ่ม "ออกจากจุด" ส่งที่จุดถัดไป) · COMPLETE ปิดงาน (outcome `DELIVERED` เท่านั้น) — จุดส่งต้องแนบ `pod` (ST4-T09)',
+      'ARRIVE ถึงจุด · DEPART ออกเดินทางมุ่งหน้าไปจุดนี้ (ปุ่ม "ออกจากจุด" ส่งที่จุดถัดไป) · LOADED ขึ้นของเสร็จ (**จุดรับเท่านั้น** — ปิดจุดรับครบ; D68-39) · COMPLETE ปิดงานพร้อมผล — จุดรับ: PARTIAL/FAILED/UNDELIVERED_RETAIN (รับครบใช้ LOADED) · จุดส่ง DELIVERED/PARTIAL ต้องแนบ `pod` (ST4-T09) · FAIL ไม่สำเร็จ (ยังไม่ถึงจุดก็ได้) · ต้องกดถึงจุดก่อนปิดงาน (409 `stop_not_arrived`) · จุดคืนสินค้าปิดผ่านลิงก์ไม่ได้',
   })
   @IsIn(POD_LINK_EVENT_TYPES)
   type!: (typeof POD_LINK_EVENT_TYPES)[number];
 
   @ApiPropertyOptional({
-    enum: ['DELIVERED'],
+    enum: STOP_OUTCOMES,
     nullable: true,
     type: String,
-    description: 'เฉพาะ COMPLETE = DELIVERED (จุดรับ = รับของครบ · จุดส่ง = ส่งครบ)',
+    description:
+      'COMPLETE บังคับ (จุดรับห้าม DELIVERED — ใช้ LOADED) · FAIL ไม่ส่ง/FAILED/UNDELIVERED_RETAIN · ARRIVE/DEPART/LOADED ห้ามส่ง',
   })
   @IsOptional()
-  @IsIn(['DELIVERED'])
-  outcome?: 'DELIVERED' | null;
+  @IsNullable()
+  @IsIn(STOP_OUTCOMES)
+  outcome?: (typeof STOP_OUTCOMES)[number] | null;
 
   @ApiPropertyOptional({
     type: PodLinkCaptureDto,
     description:
-      'ST4-T09 **บังคับเมื่อ COMPLETE จุดส่ง** — หลักฐานของ DO ที่จุดนี้: ปิดงาน + บันทึก POD ในคำขอเดียว (ไม่ครบ checklist → 422 ไม่ปิดงาน) · ส่งซ้ำ clientEventId เดิม = ผลเดิม · จุดอื่นไม่รับ',
+      'ST4-T09 **บังคับเมื่อ COMPLETE จุดส่ง ผล DELIVERED/PARTIAL** — หลักฐานของ DO ที่จุดนี้: ปิดงาน + บันทึก POD ในคำขอเดียว (ไม่ครบ checklist → 422 ไม่ปิดงาน) · ส่งซ้ำ clientEventId เดิม = ผลเดิม · จุดอื่นไม่รับ',
   })
   @IsOptional()
   @ValidateNested()

@@ -8,8 +8,9 @@ import type { TripStatus } from './trip';
 /**
  * ชนิด event (docs/04 E1): `DEPART` = ออกเดินทางมุ่งหน้าไปจุดนี้ (docs/01 §3.9 — เวลาออกจากจุดก่อนหน้า =
  * DEPART ของจุดถัดไปหรือ COMPLETE) · `ARRIVE` = ถึงจุด · `COMPLETE` = ปิดงานที่จุด (มี outcome) · `FAIL` = ส่งไม่สำเร็จ
+ * · `LOADED` = ขึ้นของเสร็จ — **จุดรับเท่านั้น** (docs/01 §3.9; D-81 · D68-39) ปิดจุดรับสำเร็จ (ผลเท่ากับรับของครบ, ไม่มี outcome)
  */
-export const STOP_EVENT_TYPES = ['ARRIVE', 'DEPART', 'COMPLETE', 'FAIL'] as const;
+export const STOP_EVENT_TYPES = ['ARRIVE', 'DEPART', 'LOADED', 'COMPLETE', 'FAIL'] as const;
 export type StopEventType = (typeof STOP_EVENT_TYPES)[number];
 
 /** ผลปิดงาน (docs/04 E1: delivered / partial / failed / undelivered_retain) */
@@ -67,6 +68,8 @@ export function stopEventReasonRule(
     case 'ARRIVE':
     case 'DEPART':
       return { required: false, categories: ['DELAY', 'OVERRIDE'] };
+    case 'LOADED':
+      return { required: false, categories: [] };
     case 'FAIL':
       return {
         required: true,
@@ -83,7 +86,7 @@ export function stopEventReasonRule(
 
 /**
  * ตรวจคู่ชนิด/ผล (CHECK `stop_event_outcome` ในฐานตัวเดียวกัน) — คืนรหัสข้อผิดพลาดของช่อง `outcome` หรือ null
- * `required` = COMPLETE ไม่มี outcome · `not_applicable` = ARRIVE/DEPART มี outcome · `invalid` = FAIL กับ DELIVERED/PARTIAL
+ * `required` = COMPLETE ไม่มี outcome · `not_applicable` = ARRIVE/DEPART/LOADED มี outcome · `invalid` = FAIL กับ DELIVERED/PARTIAL
  */
 export function stopOutcomeError(
   type: StopEventType,
@@ -128,6 +131,8 @@ export function stopEventTarget(type: StopEventType, outcome: StopOutcome | null
       return 'EN_ROUTE';
     case 'ARRIVE':
       return 'ARRIVED';
+    case 'LOADED':
+      return 'COMPLETED';
     case 'FAIL':
       return 'FAILED';
     case 'COMPLETE':
@@ -153,6 +158,7 @@ export function stopEventTransition(
     case 'ARRIVE':
       return state === 'ARRIVED' ? 'redundant' : 'apply';
     case 'COMPLETE':
+    case 'LOADED':
       return state === 'ARRIVED' ? 'apply' : 'conflict';
     case 'FAIL':
       return 'apply';
@@ -160,7 +166,13 @@ export function stopEventTransition(
 }
 
 /** ลำดับชนิดเมื่อ `occurredAt` เท่ากัน (ออกเดินทาง → ถึง → ปิดงาน) */
-const TYPE_RANK: Record<StopEventType, number> = { DEPART: 0, ARRIVE: 1, COMPLETE: 2, FAIL: 2 };
+const TYPE_RANK: Record<StopEventType, number> = {
+  DEPART: 0,
+  ARRIVE: 1,
+  LOADED: 2,
+  COMPLETE: 2,
+  FAIL: 2,
+};
 
 /**
  * เหตุที่ event มาหลังเที่ยว/จุดปิดไปแล้ว (spec/04 DRV-072/075 — รับเก็บเป็นประวัติ ไม่ทิ้งหลักฐาน + ธงให้ dispatcher ตัดสิน)
@@ -377,7 +389,9 @@ export function displayResolution<R extends StopSeqResolution>(
   return best;
 }
 
-const isClose = (t: StopEventType) => t === 'COMPLETE' || t === 'FAIL';
+/** event ปิดงานของจุด (ปิดจุดรับด้วย LOADED ได้ — D68-39) */
+export const isStopCloseType = (t: string) => t === 'COMPLETE' || t === 'FAIL' || t === 'LOADED';
+const isClose = (t: StopEventType) => isStopCloseType(t);
 
 /**
  * ลำดับ event ที่มีผลของจุดหนึ่ง (docs/01 §3.9 "เรียงด้วย occurred_at ต่อ trip_stop_id ก่อน apply state machine") —
@@ -476,7 +490,13 @@ export function effectiveStopSequence<E extends StopSeqEvent>(
     if (tr === 'apply' || (tr === 'conflict' && STATE_RANK[target] >= STATE_RANK[state])) {
       state = target;
       if (isTerminalStopState(target)) {
-        outcome = e.type === 'FAIL' ? (e.outcome ?? 'FAILED') : e.outcome;
+        // LOADED (ขึ้นของเสร็จที่จุดรับ) = ผลเท่ากับรับของครบ
+        outcome =
+          e.type === 'FAIL'
+            ? (e.outcome ?? 'FAILED')
+            : e.type === 'LOADED'
+              ? 'DELIVERED'
+              : e.outcome;
         closedAt = e.occurredAt;
         closedByAccept = tr === 'conflict';
       }

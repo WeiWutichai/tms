@@ -1169,6 +1169,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'exc.ev.ARRIVE': '到达',
   'exc.ev.DEPART': '出发',
   'exc.ev.COMPLETE': '关闭工单',
+  'exc.ev.LOADED': '装货完成',
   'exc.ev.FAIL': '送货失败',
   'exc.out.PARTIAL': '部分送达',
   'exc.out.FAILED': '送货失败',

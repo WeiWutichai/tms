@@ -265,6 +265,7 @@ import { MonitorScheduler } from './modules/monitoring/monitor-scheduler';
 import { httpMetricsMiddleware } from './modules/monitoring/http-metrics';
 import { JobsController } from './modules/jobs/jobs.controller';
 import { MeController } from './modules/me/me.controller';
+import { NavBadgesController, NavBadgesService } from './modules/me/nav-badges.controller';
 import { ProfileController } from './modules/me/profile.controller';
 import { SavedViewsController } from './modules/saved-views/saved-views.controller';
 import { SavedViewsService } from './modules/saved-views/saved-views.service';
@@ -304,6 +305,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     MonitoringController,
     PlatformMonitoringController,
     MeController,
+    NavBadgesController,
     ProfileController,
     SavedViewsController,
     SearchController,
@@ -473,6 +475,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     TripSheetsService,
     TripSheetLinks,
     PlanningService,
+    NavBadgesService,
     ScheduleService,
     BoardPreferencesService,
     SavedViewsService,
