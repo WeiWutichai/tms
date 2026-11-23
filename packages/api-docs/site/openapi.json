@@ -20306,6 +20306,19 @@
         "operationId": "ConnectorsEffective_effective",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "name": "companyId",
             "required": false,
             "in": "query",
@@ -20398,6 +20411,19 @@
         "operationId": "Connectors_list",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "name": "status",
             "required": false,
             "in": "query",
@@ -20472,6 +20498,19 @@
         "operationId": "Connectors_adapters",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -20527,6 +20566,19 @@
       "get": {
         "operationId": "Connectors_get",
         "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
           {
             "name": "id",
             "required": true,
@@ -20594,6 +20646,19 @@
       "get": {
         "operationId": "Connectors_history",
         "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
           {
             "name": "id",
             "required": true,
@@ -20684,6 +20749,19 @@
       "get": {
         "operationId": "Connectors_commands",
         "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
           {
             "name": "id",
             "required": true,
@@ -20782,6 +20860,19 @@
         "operationId": "ErpMasterCodes_list",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "name": "id",
             "required": true,
             "in": "path",
@@ -20876,6 +20967,19 @@
         "operationId": "ErpMasterCodes_mappings",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "name": "id",
             "required": true,
             "in": "path",
@@ -20942,6 +21046,19 @@
       "get": {
         "operationId": "CustomerErpCodes_list",
         "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
           {
             "name": "id",
             "required": true,
@@ -21011,6 +21128,19 @@
         "operationId": "CarrierErpCodes_list",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "name": "id",
             "required": true,
             "in": "path",
@@ -21078,6 +21208,19 @@
       "get": {
         "operationId": "Reconcile_list",
         "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
           {
             "name": "limit",
             "required": false,
@@ -21234,6 +21377,19 @@
       "get": {
         "operationId": "Reconcile_get",
         "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
           {
             "name": "id",
             "required": true,

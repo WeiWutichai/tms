@@ -2,7 +2,12 @@ import { Body, Controller, Get, Param, Put, Req, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { expectedVersion, setEtag } from '../../common/etag';
-import { LiveOnly, RequireFeature, RequireScope, TenantResource } from '../../common/decorators';
+import {
+  RequireFeature,
+  RequireScope,
+  SandboxAware,
+  TenantResource,
+} from '../../common/decorators';
 import { encodeId } from '../../common/ids';
 import { ApiProblems } from '../../common/problem.dto';
 import {
@@ -64,13 +69,13 @@ const E422_ERP = {
 
 /**
  * รหัสรถร่วม (ผู้ขาย/เจ้าหนี้) ในระบบบัญชีที่เชื่อมต่อ (ST7-T15; docs/01 §3.7 external_mapping CARRIER, §7.3–7.4) — ไม่ผูก ERP ใด
- * อ่าน `master:read` · แก้ `settings:write` (ค่าตั้งระบบบัญชี — แบบเดียวกับรหัสลูกค้า ST8-T05) · ฟีเจอร์ `conn` · sandbox ใช้ไม่ได้ (ไม่มี connector — ST7-T09)
+ * อ่าน `master:read` · แก้ `settings:write` (ค่าตั้งระบบบัญชี — แบบเดียวกับรหัสลูกค้า ST8-T05) · ฟีเจอร์ `conn` · sandbox ใช้ได้กับ DemoProvider เท่านั้น (D-81 · D68-58)
  * ต้นแบบยังไม่มีหน้าจอของส่วนนี้ (drawer รถร่วมไม่มีแท็บ "รหัสระบบบัญชี") — API อย่างเดียว (spec/12 §3 [OPEN])
  */
 @ApiTags('carriers')
 @ApiBearerAuth()
+@SandboxAware()
 @RequireFeature('conn')
-@LiveOnly()
 @Controller('carriers')
 export class CarrierErpCodesController {
   constructor(private readonly svc: ExternalMappingService) {}

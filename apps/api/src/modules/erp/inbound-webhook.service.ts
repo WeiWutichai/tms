@@ -20,7 +20,7 @@ import {
   INBOUND_TRIGGERS,
   readyCapabilities,
 } from './erp-adapter';
-import { ErpAdapterRegistry } from './erp-adapter.registry';
+import { ErpAdapterRegistry, usableAdapter } from './erp-adapter.registry';
 import { ErpInboundEffects, type InboundEffectsResult } from './erp-inbound-effects';
 import {
   hashInboundToken,
@@ -167,7 +167,8 @@ export class InboundWebhookService implements OnModuleInit {
     });
     if (!tenant || !['TRIAL', 'ACTIVE'].includes(tenant.status)) throw denied();
     if (!(await this.entitlements.enabled(c.tenantId, 'conn'))) throw denied();
-    const adapter = this.adapters.get(c.adapterKey);
+    // D68-58/96 ตามโหมดของ tenant (sandbox = เฉพาะ DemoProvider · demo ใน production = เฉพาะ sandbox)
+    const adapter = await usableAdapter(this.adapters, this.prisma.platform, c);
     if (!adapter?.inbound) throw denied();
     let ctx: ErpContext;
     try {
@@ -280,7 +281,7 @@ export class InboundWebhookService implements OnModuleInit {
     const c = await this.db.withTenant(tenantId, (tx) =>
       tx.connector.findUnique({ where: { id: row.connectorId } }),
     );
-    const adapter = c ? this.adapters.get(c.adapterKey) : undefined;
+    const adapter = c ? await usableAdapter(this.adapters, this.prisma.platform, c) : undefined;
     if (!c || c.status === 'DISCONNECTED' || !adapter?.inbound) {
       await this.db.withTenant(tenantId, (tx) =>
         this.fail(

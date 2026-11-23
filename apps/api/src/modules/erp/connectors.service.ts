@@ -50,7 +50,7 @@ import {
   isPendingCapability,
   readyCapabilities,
 } from './erp-adapter';
-import { ErpAdapterRegistry } from './erp-adapter.registry';
+import { ErpAdapterRegistry, usableAdapter } from './erp-adapter.registry';
 import {
   checkMasterCodeRefs,
   MASTER_CODE_KIND_TH,
@@ -274,8 +274,13 @@ export class ConnectorsService {
 
   // ---------- read ----------
 
+  /** D68-58/96 คำขอนี้มาจาก tenant sandbox ไหม (sandbox ใช้ได้เฉพาะ DemoProvider) */
+  private inSandbox(): boolean {
+    return !!requestContext.get()?.sandbox;
+  }
+
   adapterCatalog(): ErpAdapterDto[] {
-    return this.adapters.list().map((a) => ({
+    return this.adapters.list(this.inSandbox()).map((a) => ({
       key: a.key,
       displayName: a.displayName,
       demo: !!a.localOnly,
@@ -297,7 +302,7 @@ export class ConnectorsService {
   }
 
   toDto(c: Connector): ConnectorDto {
-    const adapter = this.adapters.get(c.adapterKey);
+    const adapter = this.adapters.usableIn(c.adapterKey, this.inSandbox());
     const ready = adapter ? readyCapabilities(adapter) : new Set<string>();
     const supported = ERP_CAPABILITIES.filter((x) => ready.has(x));
     const map = (c.branchMap ?? {}) as Record<string, string>;
@@ -478,7 +483,16 @@ export class ConnectorsService {
   // ---------- validate ----------
 
   private adapterOr422(key: string): ErpAdapter {
-    const a = this.adapters.get(key);
+    const installed = this.adapters.get(key);
+    // D-81 · D68-58/96: tenant sandbox ใช้ได้เฉพาะ DemoProvider — connector จริงใน sandbox ยังปิด (403 เดิมของ ST7-T09)
+    if (
+      this.inSandbox() &&
+      installed &&
+      installed !== this.adapters.standalone &&
+      !installed.localOnly
+    )
+      throw new ProblemException('sandbox_unsupported');
+    const a = this.adapters.usableIn(key, this.inSandbox());
     if (!a || a === this.adapters.standalone)
       throw field422('adapterKey', 'unknown_adapter', `adapter '${key}' is not available`);
     return a;
@@ -1191,13 +1205,33 @@ export class ConnectorsService {
       // ST7-T22 เลิกรับ webhook ขาเข้าด้วย (URL เดิมตอบ 401)
       { disconnectedAt: new Date(), inboundTokenHash: null, inboundTokenPrefix: null },
     );
-    if (pending)
+    if (pending) {
       await this.audit(tx, {
         action: 'connector.commands_abandoned',
         entityId: cur.id,
         after: { pendingCommands: pending },
         reason: body.reason,
       });
+      // D-81 · D68-57 (review M1) แจ้งฝ่ายบัญชีฉบับเดียว: เอกสารที่ค้างส่ง N รายการจะไม่ถูกส่ง (sink ไม่แจ้งทีละคำสั่ง)
+      await this.events.documentNotSent(tx, {
+        tenantId: cur.tenantId,
+        connectorId: cur.id,
+        entityType: 'document',
+        localId: null,
+        documentNo: null,
+        label: this.adapterLabel(cur.adapterKey),
+        outcome: 'SKIPPED',
+        code: 'connector_disconnected',
+        errorClass: 'CAPABILITY',
+        count: pending,
+      });
+    }
+    // review L1: ให้ adapter ทิ้งข้อมูลในหน่วยความจำของ connector นี้ (เช่น DemoProvider)
+    try {
+      this.adapters.get(cur.adapterKey)?.forget?.(cur.tenantId, cur.id);
+    } catch {
+      /* ไม่ย้อนการยกเลิก */
+    }
     return row;
   }
 
@@ -1334,7 +1368,8 @@ export class ConnectorsService {
 
   /** เรียก healthCheck แบบมีเพดานเวลา — ไม่ throw · ข้อความตัด credential แล้ว */
   async runHealth(c: Connector): Promise<HealthResult> {
-    const adapter = this.adapters.get(c.adapterKey);
+    // D68-58/96 ตามโหมดของ tenant (demo ใน production = เฉพาะ sandbox · sandbox = เฉพาะ demo)
+    const adapter = await usableAdapter(this.adapters, this.prisma.platform, c);
     if (!adapter)
       return {
         ok: false,
@@ -1440,8 +1475,13 @@ export class ConnectorsService {
         return this.transition(tx, now, 'ACTIVE', 'connector.recovered', null);
       return this.get(id, tx);
     });
-    // ERROR → ACTIVE: ส่งคิวค้างต่อทันที (spec/07 §1.6) ไม่ต้องรอรอบพัก 15 นาที
-    if (cur.status !== 'ACTIVE' && row.status === 'ACTIVE') await this.wakeParked(tenantId, id);
+    // ERROR → ACTIVE: ส่งคิวค้างต่อทันที (spec/07 §1.6) ไม่ต้องรอรอบพัก 15 นาที · D68-57 ACTIVE ที่คิวพักเพราะ healthCheck ล้ม
+    // แล้วผู้ดูแลทดสอบผ่าน = เปิดคิวต่อทันที
+    if (
+      row.status === 'ACTIVE' &&
+      (cur.status !== 'ACTIVE' || (r.ok && cur.healthFailingSince !== null))
+    )
+      await this.wakeParked(tenantId, id);
     return {
       ok: r.ok,
       errorClass: r.ok ? null : r.errorClass,
@@ -1529,7 +1569,7 @@ export class ConnectorsService {
   /**
    * ST8-T03 บันทึกผล healthCheck ที่ระบบตรวจเอง (sink หลังส่งล้ม TRANSIENT / worker ตรวจซ้ำ) — ไม่มีผู้ใช้ (actor null)
    * AUTH → ERROR ทันที · TRANSIENT → จดเวลาเริ่มล้ม, ครบ 30 นาที → ERROR · ผ่าน → ล้างเวลา และ ERROR ที่เกิดจาก TRANSIENT → ACTIVE
-   * คืน true เมื่อกลับเป็น ACTIVE (ผู้เรียกปลุกคิวหลัง commit ด้วย `wakeParked`) · ไม่ทับ PAUSED/DISCONNECTED
+   * คืน true เมื่อกลับเป็น ACTIVE หรือ healthCheck ที่ล้มอยู่กลับมาผ่าน (ผู้เรียกปลุกคิวหลัง commit ด้วย `wakeParked`) · ไม่ทับ PAUSED/DISCONNECTED
    */
   async applySystemHealth(
     tx: Tx,
@@ -1544,7 +1584,8 @@ export class ConnectorsService {
       await tx.connector.update({ where: { id: c.id }, data });
       if (!r.ok && healthShouldStop(r, data.healthFailingSince, at))
         await this.markError(tx, c, r.problem, r.errorClass);
-      return false;
+      // D68-57 คิวที่พักระหว่าง healthCheck ล้ม (`connector_unhealthy`) → ผ่านแล้ว ผู้เรียกปลุกคิว
+      return r.ok && c.healthFailingSince !== null;
     }
     // ERROR: กู้คืนเองเฉพาะที่หยุดเพราะปลายทางล่ม (TRANSIENT) — AUTH ต้องให้คนแก้ credential (เหตุผลเดิมคงไว้)
     const why = ((c.lastHealthError ?? {}) as { errorClass?: string }).errorClass;
@@ -1589,6 +1630,18 @@ export class ConnectorsService {
    * คืนจำนวน connector ที่ตรวจ
    */
   async recheckUnhealthy(): Promise<number> {
+    // review L3: รอบก่อนยังไม่จบ (ปลายทางช้า — healthCheck มีเพดาน 15 วิ/ตัว) → ข้ามรอบนี้
+    if (this.recheckRunning) return 0;
+    this.recheckRunning = true;
+    try {
+      return await this.recheckUnhealthyNow();
+    } finally {
+      this.recheckRunning = false;
+    }
+  }
+  private recheckRunning = false;
+
+  private async recheckUnhealthyNow(): Promise<number> {
     const rows = await this.prisma.platform.connector.findMany({
       where: {
         OR: [
@@ -1614,6 +1667,11 @@ export class ConnectorsService {
       }
     }
     return rows.length;
+  }
+
+  /** ชื่อระบบบัญชีของ adapter (ข้อความแจ้งเตือน) — ไม่มี = รหัส adapter */
+  adapterLabel(adapterKey: string): string {
+    return this.adapters.get(adapterKey)?.displayName ?? adapterKey;
   }
 
   /** ST9-T08 "connector ล่ม" (docs/04 I) — ใน transaction เดียวกับการเปลี่ยนเป็น ERROR */

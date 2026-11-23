@@ -24,9 +24,11 @@ import type { ErrorClass } from '../../modules/integration/outbox.types';
  * DemoProvider (ST7-T14; docs/04 G3 "Provider factory + StandaloneProvider + DemoProvider"; docs/04 J Environments)
  * ERP **จำลองในหน่วยความจำ** สำหรับสาธิต/staging/sandbox และ test — ไม่ติดต่อภายนอก ไม่ส่งข้อมูลไปที่ใด
  *
- * - `localOnly` → ลงทะเบียนได้เฉพาะ dev/test หรือ `ERP_DEMO_ADAPTERS=1` (production ไม่มี) · catalog ติดธง `demo: true`
+ * - `localOnly` → ทุก tenant ใน dev/test หรือ `ERP_DEMO_ADAPTERS=1` (staging) · NODE_ENV=production = เฉพาะ tenant sandbox
+ *   (D-81 · D68-58/96 — `ErpAdapterRegistry.usableIn`) · catalog ติดธง `demo: true`
  * - ไม่เป็นค่าเริ่มต้นของ tenant ใด (ไม่มีแถว connector = Standalone) — ต้องสร้าง connector `adapterKey: demo` เอง
- * - ข้อมูลอยู่ใน process (หายเมื่อ restart) แยกตาม (tenant, connector) — ไม่ข้าม tenant
+ * - ข้อมูลอยู่ใน process (หายเมื่อ restart) แยกตาม (tenant, connector) — ไม่ข้าม tenant · ยกเลิกการเชื่อม = ทิ้ง (`forget`) ·
+ *   เก็บไม่เกิน `DEMO_MAX_SCOPES` ชุดต่อ process (ใช้ล่าสุดอยู่ต่อ — LRU; ชุดเก่าสุดถูกทิ้ง) กันหน่วยความจำโตไม่จำกัดใน sandbox
  *   **ข้อจำกัดของ demo:** การจับเลขอ้างอิงซ้ำ (DUPLICATE), fetch/สถานะรับชำระ/list และจำนวนเอกสารใน healthCheck
  *   เห็นเฉพาะสิ่งที่ process นี้ได้รับตั้งแต่บูต (API กับ worker คนละ process — push/fetch ผ่าน outbox อยู่ใน worker เดียวกัน)
  * - เลขภายนอก `DEMO-INV-{hash 12 ตัว}` มาจาก hash ของ (tenant, connector, ประเภท, idempotency key) — restart ไม่ให้เลขซ้ำกับเอกสารอื่น
@@ -41,6 +43,8 @@ import type { ErrorClass } from '../../modules/integration/outbox.types';
  *   type `orders.changed` → ขอให้ core ดึง order ทันที · `demo.fail` → ล้ม (ไม่ลองใหม่) · `demo.retry` → throw (ลองใหม่)
  */
 export const DEMO_ADAPTER_KEY = 'demo';
+/** review L1 จำนวนชุดข้อมูล (tenant, connector) สูงสุดที่เก็บในหน่วยความจำต่อ process */
+export const DEMO_MAX_SCOPES = 500;
 
 /** ErrorClass ที่ฉีดได้ (docs/01 §6.3) — `none` = ทำงานปกติ */
 export const DEMO_FAIL_MODES = [
@@ -227,10 +231,19 @@ export class DemoAdapter implements ErpAdapter {
 
   // ---------- สถานะภายใน (test/สาธิต) ----------
 
+  /** review L1: connector ถูกยกเลิกการเชื่อม → ทิ้งข้อมูลจำลองของ connector นี้ */
+  forget(tenantId: string, connectorId: string): void {
+    this.scopes.delete(`${tenantId}:${connectorId}`);
+  }
+
   private scope(ctx: ErpContext): Scope {
     const id = `${ctx.tenantId}:${ctx.connectorId ?? '-'}`;
     let s = this.scopes.get(id);
-    if (!s) {
+    if (s) {
+      // LRU: ย้ายไปท้าย (ใช้ล่าสุด)
+      this.scopes.delete(id);
+      this.scopes.set(id, s);
+    } else {
       s = {
         docs: new Map(),
         byKey: new Map(),
@@ -242,6 +255,8 @@ export class DemoAdapter implements ErpAdapter {
         inbound: [],
       };
       this.scopes.set(id, s);
+      while (this.scopes.size > DEMO_MAX_SCOPES)
+        this.scopes.delete(this.scopes.keys().next().value as string);
     }
     return s;
   }

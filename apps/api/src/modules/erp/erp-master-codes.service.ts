@@ -228,7 +228,8 @@ export class ErpMasterCodesService implements OnModuleInit {
     const tenantId = requestContext.require().tenantId!;
     const c = await this.db.withTenant(tenantId, (tx) => this.connectors.get(connectorId, tx));
     if (c.status === 'DISCONNECTED') throw new ProblemException('invalid_state_transition');
-    const adapter = this.adapters.get(c.adapterKey);
+    // D68-58/96 sandbox = เฉพาะ DemoProvider · demo ใน production = เฉพาะ sandbox
+    const adapter = this.adapters.usableIn(c.adapterKey, !!requestContext.get()?.sandbox);
     const can = this.fetchableKinds(c);
     if (!adapter?.fetchMasterCodes || !can.length)
       throw new ProblemException('master_sync_not_supported');
