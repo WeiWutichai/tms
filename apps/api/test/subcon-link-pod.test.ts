@@ -994,4 +994,52 @@ describe('subcon link POD (ST4-T09)', () => {
       rejectReason: { label: 'จำนวนไม่ครบ' },
     });
   });
+  it('D-81 · D68-39 review: ส่งบางส่วนผ่านลิงก์ (COMPLETE PARTIAL + เหตุผล) พร้อม POD ยอดขาด → จุดส่ง COMPLETED ผล PARTIAL · ยอดส่งจริงลงบรรทัด · เหตุผลบังคับรูปใช้ได้เมื่อ POD มีรูป', async () => {
+    const a = await atDrop();
+    const v0 = (await view(a.podToken, a.doNo).expect(200)).body;
+    const short = (v0.match.pod.rejectReasons as { id: string; label: string }[]).find(
+      (r) => r.label === 'จำนวนไม่ครบ',
+    )!; // บังคับรูป
+    const p1 = await upload(a.podToken, a.doNo);
+    const sig = await upload(a.podToken, a.doNo, 'POD_SIGNATURE');
+    const lines = [
+      { doLineId: v0.match.pod.lines[0].doLineId, qtyActual: '3', rejectReasonCodeId: short.id },
+    ];
+    // บางส่วนต้องมีเหตุผลของจุด
+    expect(
+      (
+        await close(
+          a.podToken,
+          a.m.delivery.id,
+          {
+            doNo: a.doNo,
+            photoDocumentIds: [p1],
+            signatureDocumentId: sig,
+            lines,
+          },
+          { outcome: 'PARTIAL' },
+        ).expect(422)
+      ).body.errors[0],
+    ).toMatchObject({ field: 'reasonCodeId', code: 'required' });
+    const ok = await close(
+      a.podToken,
+      a.m.delivery.id,
+      { doNo: a.doNo, photoDocumentIds: [p1], signatureDocumentId: sig, lines },
+      { outcome: 'PARTIAL', reasonCodeId: short.id },
+    ).expect(201);
+    expect(ok.body).toMatchObject({ type: 'COMPLETE', outcome: 'PARTIAL', counted: true });
+    expect(ok.body.pod).toMatchObject({ doStatus: 'UNBILLED' });
+    expect((await view(a.podToken, a.doNo).expect(200)).body.match.delivery).toMatchObject({
+      status: 'COMPLETED',
+      outcome: 'PARTIAL',
+    });
+    const line = await db.deliveryOrderLine.findFirstOrThrow({
+      where: { deliveryOrderId: a.doId },
+    });
+    expect([line.qtyActual?.toFixed(), line.rejectQty?.toFixed()]).toEqual(['3', '2']);
+    const ev = await db.stopEvent.findFirstOrThrow({
+      where: { tripStopId: uuid('tripStop', a.m.delivery.id), type: 'COMPLETE' },
+    });
+    expect(ev.reasonCodeId).toBe(uuid('reasonCode', short.id));
+  });
 });

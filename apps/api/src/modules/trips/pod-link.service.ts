@@ -205,11 +205,13 @@ export class PodLinkService {
           select: { id: true, labelTh: true, requiresNote: true, requiresPhoto: true },
         }),
         // D-81 · D68-39 เหตุผลแจ้งไม่สำเร็จ/บางส่วนผ่านลิงก์ (หมวดเดียวกับที่ StopEventsService รับ)
+        // review M1: เหตุผลที่บังคับรูปไม่แสดง — แจ้งไม่สำเร็จ/บางส่วนผ่านลิงก์แนบรูปไม่ได้ (ยกเว้นส่งบางส่วนพร้อม POD)
         tx.reasonCode.findMany({
           where: {
             category: { in: ['DELIVERY_FAILED', 'REJECTED_BY_RECEIVER'] },
             status: 'ACTIVE',
             deletedAt: null,
+            requiresPhoto: false,
           },
           orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }, { code: 'asc' }],
           select: {
@@ -352,6 +354,20 @@ export class PodLinkService {
       body.type === 'COMPLETE' &&
       stop.type === 'DELIVERY' &&
       (outcome === 'DELIVERED' || outcome === 'PARTIAL');
+    // review M1: เหตุผลที่ "ต้องมีรูป" — ผ่านลิงก์ใช้ได้เฉพาะส่งบางส่วนพร้อม POD ที่มีรูป (แจ้งไม่สำเร็จแนบรูปไม่ได้)
+    // id ผิด/บริษัทอื่น/หมวดไม่ตรง → ให้ StopEventsService ตอบ 422 ตามเดิม (`reason_not_found` ฯลฯ)
+    if (short && body.reasonCodeId) {
+      const rid = tryDecodeId('reasonCode', body.reasonCodeId);
+      const rc = rid
+        ? await tx.reasonCode.findFirst({ where: { id: rid }, select: { requiresPhoto: true } })
+        : null;
+      if (rc?.requiresPhoto && !(closeDrop && body.pod?.photoDocumentIds?.length))
+        throw field422(
+          'reasonCodeId',
+          'photo_required',
+          'this reason requires a photo — not available for this report via the link',
+        );
+    }
     if (closeDrop && !body.pod)
       throw field422(
         'pod',
@@ -367,7 +383,7 @@ export class PodLinkService {
       );
     // ปิดงานผ่านลิงก์ไม่สร้าง event ขัดลำดับ (ลิงก์ไม่มีหน้าตัดสินธง): ปิดแล้ว → 409 · ปิดด้วยผล (LOADED/COMPLETE) ต้องถึงจุดก่อน
     if (close && !isReplay && !closeDrop) {
-      if (stop.status === 'COMPLETED' || stop.status === 'FAILED')
+      if (stop.status === 'COMPLETED' || stop.status === 'FAILED' || stop.status === 'SKIPPED')
         throw new ProblemException('stop_already_closed');
       if (body.type !== 'FAIL' && stop.status !== 'ARRIVED')
         throw new ProblemException('stop_not_arrived');

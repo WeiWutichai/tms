@@ -726,7 +726,7 @@ function Group({
 
 /**
  * D-81 · D68-89 badge งานค้างบนเมนู (docs/03 §1/§4, ต้นแบบ TMS v4 `counts()`) — `GET /v1/me/badges` คืนเฉพาะเมนูที่ผู้ใช้มีสิทธิ์
- * ดึงทุก 60 วินาที + เมื่อกลับมาที่หน้าต่าง · ผิดพลาด = ไม่แสดง badge (ไม่บล็อกเมนู)
+ * ดึงทุก 60 วินาที + เมื่อกลับมาที่หน้าต่าง + หลังการเปลี่ยนข้อมูลสำเร็จทุกครั้ง (MutationCache ใน api.ts) · ผิดพลาด = ไม่แสดง badge (ไม่บล็อกเมนู)
  */
 function useNavBadges(): Record<string, number> {
   const q = useQuery({
@@ -735,6 +735,7 @@ function useNavBadges(): Record<string, number> {
     retry: false,
     staleTime: 30_000,
     refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
   });
   return Object.fromEntries((q.data?.data ?? []).map((b) => [b.key, b.count]));
 }
