@@ -1,4 +1,4 @@
-import { DEMO_PASSWORD, DEMO_TOTP_SECRET, expect, test, totp } from './fixtures';
+import { DEMO_PASSWORD, expect, freshCode, test } from './fixtures';
 
 /** ST1-T05: role ที่บังคับ 2FA ต้องกรอกรหัสจากแอปหลังรหัสผ่าน */
 test.describe('ยืนยันตัวตน 2 ชั้น', () => {
@@ -14,7 +14,7 @@ test.describe('ยืนยันตัวตน 2 ชั้น', () => {
     await page.getByLabel('รหัส 6 หลัก').fill('000000');
     await page.getByRole('button', { name: 'ยืนยัน' }).click();
     await expect(page.getByRole('alert')).toHaveText('รหัสยืนยันไม่ถูกต้องหรือหมดอายุ');
-    await page.getByLabel('รหัส 6 หลัก').fill(totp(DEMO_TOTP_SECRET, 1));
+    await page.getByLabel('รหัส 6 หลัก').fill(await freshCode());
     await page.getByRole('button', { name: 'ยืนยัน' }).click();
     await expect(page.getByText('ผู้ดูแล ตัวอย่าง')).toBeVisible();
   });
