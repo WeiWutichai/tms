@@ -79,8 +79,9 @@ test.describe.serial('นักพัฒนา / Open API → Sandbox', () => {
         r.request().headers()['x-tms-mode'] === 'test',
     );
     await modes.getByRole('button', { name: 'Sandbox' }).click();
-    expect((await listRes).status()).toBe(200);
+    // toast ขึ้นทันทีที่กดและหายเองใน 3.6 วิ — ตรวจก่อนรอรายการ key (เครื่องโหลดหนัก GET /v1/api-keys ช้ากว่า 3.6 วิ → toast หายไปก่อน)
     await expect(page.getByRole('status').filter({ hasText: 'สลับเป็น Sandbox' })).toBeVisible();
+    expect((await listRes).status()).toBe(200);
     await expect(
       page.getByText('โหมดทดสอบ · key, webhook และ log แยกจาก Production และไม่กระทบงานจริง'),
     ).toBeVisible();

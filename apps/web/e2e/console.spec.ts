@@ -1,29 +1,21 @@
 import { expect, test, type Page } from '@playwright/test';
-import { DEMO_PASSWORD, DEMO_TOTP_SECRET, E2E_WEB, totp } from './fixtures';
+import { DEMO_PASSWORD, E2E_WEB, freshCode } from './fixtures';
 
 /**
  * Platform Console (ST1-T24) — login 2 ขั้น + ลูกค้า + เข้าใช้งานแทน
  * ไม่ใช้ fixture loggedIn ของแอปลูกค้า: Console มี login/token ของตัวเอง และแท็บที่เข้าใช้งานแทนต้องไม่พึ่ง refresh cookie
  * ผู้ใช้ทีมงานจาก seed: super-admin / support / billing @platform.test · TOTP เดียวกับผู้ใช้เดโม
  */
-async function consoleLogin(page: Page, email: string) {
+async function consoleLogin(page: Page, email: `${string}@platform.test`) {
   await page.goto('/console');
   await expect(page).toHaveURL(/\/console\/login/);
   await page.getByLabel('อีเมล').fill(email);
   await page.getByLabel('รหัสผ่าน').fill(DEMO_PASSWORD);
   await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
-  // รหัสใช้ซ้ำไม่ได้ (กัน replay) — spec อื่น (connectors.spec) อาจใช้ช่วงเวลาเดียวกันไปแล้ว → ลองช่วงถัดไป
-  for (const off of [0, 1]) {
-    await page.getByLabel('รหัส 6 หลัก').fill(totp(DEMO_TOTP_SECRET, off));
-    await page.getByRole('button', { name: 'ยืนยัน' }).click();
-    if (
-      await page.waitForURL(/\/console\/tenants$/, { timeout: 3000 }).then(
-        () => true,
-        () => false,
-      )
-    )
-      break;
-  }
+  // รหัสใช้ซ้ำไม่ได้ (กัน replay: server ไม่รับ step ≤ step ล่าสุดของผู้ใช้) — connectors.spec (รันก่อนไฟล์นี้) ใช้ super-admin
+  // login + step-up ไปแล้วถึง step ถัดไป (now+1) → ห้ามเดา offset เอง ใช้ step ที่บัญชีนี้ยังไม่ใช้จาก fixtures (รอข้ามช่วงถ้าจำเป็น)
+  await page.getByLabel('รหัส 6 หลัก').fill(await freshCode(email));
+  await page.getByRole('button', { name: 'ยืนยัน' }).click();
   await expect(page).toHaveURL(/\/console\/tenants$/);
   await expect(page.getByRole('heading', { name: 'ลูกค้า', level: 1 })).toBeVisible();
 }
@@ -40,7 +32,7 @@ test.describe('Platform Console', () => {
     await expect(page.getByRole('alert')).toHaveText('อีเมลหรือรหัสผ่านไม่ถูกต้อง');
     await page.getByLabel('รหัสผ่าน').fill(DEMO_PASSWORD);
     await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
-    await page.getByLabel('รหัส 6 หลัก').fill(totp(DEMO_TOTP_SECRET));
+    await page.getByLabel('รหัส 6 หลัก').fill(await freshCode('billing@platform.test'));
     await page.getByRole('button', { name: 'ยืนยัน' }).click();
     await expect(page).toHaveURL(/\/console\/tenants$/);
     // billing: เปลี่ยนแพ็กเกจได้ แต่สร้าง/ระงับ/เข้าใช้งานแทนไม่ได้ (ปุ่มไม่แสดง)

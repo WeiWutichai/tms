@@ -87,37 +87,42 @@ export const test = base.extend<{ loginEmail: string; loggedIn: void }>({
 export { expect };
 
 /**
- * time-step ล่าสุดที่ spec ใน process นี้ใช้กับ TOTP ของผู้ใช้เดโม (workers = 1 → ทุก spec ผ่าน fixtures เดียวกัน)
- * server ไม่รับ step ที่ ≤ ช่วงที่ใช้ไปแล้ว และรหัสผิดนับเป็นความพยายามล้มเหลว (ครบแล้วล็อกบัญชี) —
- * step-up (D-67) จึงเลือก step ที่ยังไม่ถูกใช้เอง แทนการลองผิดลองถูก
+ * time-step ล่าสุดที่ใช้แล้วกับ TOTP ของผู้ใช้เดโม **แยกตามบัญชี** (server เก็บ `totp_last_step` ต่อผู้ใช้)
+ * server ไม่รับ step ที่ ≤ ช่วงที่บัญชีนั้นใช้ไปแล้ว และรหัสผิดนับเป็นความพยายามล้มเหลว (ครบแล้วล็อกบัญชี) —
+ * จึงเลือก step ที่ยังไม่ถูกใช้เอง (`freshCode`) แทนการลองผิดลองถูก
+ * - `'tenant'` = ผู้ใช้เดโมของแอปลูกค้าทุกคน (นับรวม — ปลอดภัยกว่าแยก เพราะ helper login/step-up ไม่รู้ว่าเป็นผู้ใช้คนไหน)
+ * - ทีมงาน Console = อีเมล เช่น `'super-admin@platform.test'` (connectors.spec login + step-up super-admin แล้ว console.spec
+ *   login super-admin ต่อในช่วง 30 วิ เดียวกัน — ถ้านับรวมทุกบัญชี ทุก login ของ Console ต้องรอข้ามช่วง)
+ * จำข้าม process ด้วย — ci รอบ retry (process ใหม่) ใช้ฐาน/server เดิม · เก็บในไฟล์ชั่วคราวแยกตามพอร์ต API ของ E2E (lane ต่างกันไม่ชนกัน)
  */
-let usedStep = 0;
-/**
- * step ที่ใช้แล้วต้องจำข้าม process ด้วย — ci รอบ retry (process ใหม่) ใช้ฐาน/server เดิม ถ้าเริ่มนับ 0 ใหม่จะได้ step ที่รอบแรกใช้ไปแล้ว → server ปฏิเสธ
- * เก็บในไฟล์ชั่วคราวแยกตามพอร์ต API ของ E2E (lane ต่างกันไม่ชนกัน)
- */
-const STEP_FILE = join(tmpdir(), `tms-e2e-totp-step-${process.env.E2E_API_PORT ?? '4510'}`);
-function loadStep(): number {
+export type TotpAccount = 'tenant' | `${string}@platform.test`;
+const usedSteps: Record<string, number> = {};
+const STEP_FILE = join(tmpdir(), `tms-e2e-totp-steps-${process.env.E2E_API_PORT ?? '4510'}.json`);
+function loadSteps(): Record<string, number> {
   try {
-    return Number(readFileSync(STEP_FILE, 'utf8')) || 0;
+    return JSON.parse(readFileSync(STEP_FILE, 'utf8')) as Record<string, number>;
   } catch {
-    return 0;
+    return {};
   }
 }
-function saveStep(step: number): void {
+function usedStep(account: TotpAccount): number {
+  return Math.max(usedSteps[account] ?? 0, loadSteps()[account] ?? 0);
+}
+function saveStep(account: TotpAccount, step: number): void {
+  usedSteps[account] = step;
   try {
-    writeFileSync(STEP_FILE, String(step));
+    writeFileSync(STEP_FILE, JSON.stringify({ ...loadSteps(), [account]: step }));
   } catch {
     /* ไม่มีที่เขียน = ใช้ค่าใน process อย่างเดียว */
   }
 }
 
-/** RFC 6238 ในฝั่ง test (ไม่พึ่งโค้ดของแอป) */
+/**
+ * RFC 6238 ในฝั่ง test (ไม่พึ่งโค้ดของแอป) — ใช้กับ secret ใหม่ที่ test เพิ่งได้มาเท่านั้น (เช่น ผู้ถูกเชิญตั้ง 2FA)
+ * ผู้ใช้เดโม/ทีมงาน Console (secret `DEMO_TOTP_SECRET`) ต้องใช้ `freshCode(account)` — เดา offset เองชน step ที่ spec ก่อนหน้าใช้ไปแล้ว
+ */
 export function totp(secret: string, offset = 0): string {
-  const step = Math.floor(Date.now() / 30000) + offset;
-  usedStep = Math.max(usedStep, loadStep(), step);
-  saveStep(usedStep);
-  return totpAt(secret, step);
+  return totpAt(secret, Math.floor(Date.now() / 30000) + offset);
 }
 
 function totpAt(secret: string, step: number): string {
@@ -147,10 +152,10 @@ function totpAt(secret: string, step: number): string {
  * กรอก TOTP ของผู้ใช้เดโม — รหัสช่วงเวลาเดียวกันใช้ซ้ำไม่ได้ (spec อื่นอาจใช้ไปแล้ว) → ลองช่วงถัดไป
  * ยืนยันแล้ว token ใช้ต่อได้ 5 นาทีในหน้าเดิม (ไม่ถามซ้ำ) — เรียกเฉพาะครั้งแรกของแต่ละ test
  */
-export async function confirmStepUp(page: Page): Promise<void> {
+export async function confirmStepUp(page: Page, account: TotpAccount = 'tenant'): Promise<void> {
   const box = page.getByRole('group', { name: 'ยืนยันตัวตน 2 ชั้นอีกครั้ง' });
   await expect(box).toBeVisible({ timeout: 15_000 });
-  await box.getByLabel('รหัส 6 หลัก').fill(await freshCode());
+  await box.getByLabel('รหัส 6 หลัก').fill(await freshCode(account));
   await box.getByRole('button', { name: 'ยืนยัน' }).click();
   await expect(box).toBeHidden({ timeout: 10_000 });
 }
@@ -173,16 +178,15 @@ export async function withStepUp(
  * รหัส TOTP ของ step ที่ยังไม่ถูกใช้ (server รับ ±1 ช่วงจากปัจจุบัน) — ไม่มีให้ใช้ = รอข้ามช่วง (ยืดเวลาของ test)
  * ใช้ครั้งเดียวต่อรหัส ไม่ลองซ้ำด้วยรหัสที่อาจผิด (รหัสผิดนับเป็นความพยายามล้มเหลว — กันบัญชีเดโมถูกล็อก)
  */
-export async function freshCode(): Promise<string> {
+export async function freshCode(account: TotpAccount = 'tenant'): Promise<string> {
   for (;;) {
     const now = Math.floor(Date.now() / 30000);
     // ช่วง 2 วินาทีสุดท้ายไม่ใช้ step ปัจจุบัน (อาจหลุดหน้าต่างระหว่างส่ง) — ใช้ step ถัดไปแทน
     const late = Date.now() % 30000 > 28_000;
-    usedStep = Math.max(usedStep, loadStep());
-    const step = [now, now + 1].find((x) => x > usedStep && !(late && x === now));
+    const used = usedStep(account);
+    const step = [now, now + 1].find((x) => x > used && !(late && x === now));
     if (step !== undefined) {
-      usedStep = step;
-      saveStep(step);
+      saveStep(account, step);
       return totpAt(DEMO_TOTP_SECRET, step);
     }
     await nextTotpStep();

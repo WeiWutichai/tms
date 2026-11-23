@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { DEMO_TOTP_SECRET, expect, test, totp } from './fixtures';
+import { expect, freshCode, test, totp } from './fixtures';
 
 /** E2E ST1-T07: เชิญผู้ใช้จากตั้งค่า (step-up) → ลิงก์ในอีเมล → ตั้งรหัส → เข้าระบบด้วย role ที่กำหนด */
 const env = Object.fromEntries(
@@ -32,7 +32,7 @@ test('เชิญผู้ใช้ → รับคำเชิญ → login �
   await drawer.getByRole('checkbox', { name: 'ผู้วางแผน' }).check();
   await page.getByRole('button', { name: 'ส่งคำเชิญ' }).click();
   const box = page.getByRole('group', { name: 'ยืนยันตัวตน 2 ชั้นอีกครั้ง' });
-  await box.getByLabel('รหัส 6 หลัก').fill(totp(DEMO_TOTP_SECRET));
+  await box.getByLabel('รหัส 6 หลัก').fill(await freshCode());
   await box.getByRole('button', { name: 'ยืนยัน' }).click();
   await expect(page.getByRole('status')).toHaveText('ส่งคำเชิญทางอีเมลแล้ว');
   const row = page.getByRole('row').filter({ hasText: email });
