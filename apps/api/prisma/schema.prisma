@@ -3749,6 +3749,8 @@ model Invoice {
   tenantId              String          @map("tenant_id") @db.Uuid
   /// ออกตอน ISSUED (ST5-T09) — ร่างไม่มีเลข · unique(tenant_id, issuing_branch_id, invoice_no)
   invoiceNo             String?         @map("invoice_no")
+  /// D-81 · D68-45 เลขของระบบต้นทาง (ERP) — unique ต่อ tenant · ตั้งได้ตอนสร้างเท่านั้น (trigger 0162 กันเปลี่ยน)
+  externalId            String?         @map("external_id")
   customerId            String          @map("customer_id") @db.Uuid
   customer              Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
   issuingCompanyId      String          @map("issuing_company_id") @db.Uuid
@@ -3818,6 +3820,7 @@ model Invoice {
   /// ST5-T11 ใบวางบิลที่ใบนี้เคยอยู่ (ตัวกัน: active ได้ใบเดียว)
   billingNoteLinks BillingNoteInvoice[]
 
+  @@unique([tenantId, externalId])
   @@unique([tenantId, issuingBranchId, invoiceNo])
   @@index([tenantId, customerId, status])
   @@index([tenantId, status])
@@ -3924,6 +3927,8 @@ model Payment {
   tenantId         String        @map("tenant_id") @db.Uuid
   /// เลขภายใน series PAY (ไม่ใช่ใบเสร็จ)
   paymentNo        String        @map("payment_no")
+  /// D-81 · D68-45 เลขของระบบต้นทาง (ERP) — unique ต่อ tenant · ตั้งได้ตอนบันทึกเท่านั้น (trigger 0162 กันเปลี่ยน)
+  externalId       String?       @map("external_id")
   customerId       String        @map("customer_id") @db.Uuid
   customer         Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
   /// วันที่รับ (เวลาไทย) ≤ วันนี้
@@ -3959,6 +3964,7 @@ model Payment {
 
   allocations PaymentAllocation[]
 
+  @@unique([tenantId, externalId])
   @@unique([tenantId, paymentNo])
   @@index([tenantId, customerId])
   @@index([tenantId, receivedDate])
