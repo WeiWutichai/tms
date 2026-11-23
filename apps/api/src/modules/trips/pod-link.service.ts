@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { DeliveryOrderPod, StopEvent } from '@prisma/client';
-import type { PodMissing } from '@tms/domain';
+import { isStopCloseType, type PodMissing } from '@tms/domain';
 import { Clock } from '../../common/clock';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException, type FieldError } from '../../common/problem';
@@ -163,7 +163,7 @@ export class PodLinkService {
         if (i < 0) return null;
         const s = stops[i]!;
         const next = stops[i + 1];
-        countIgnored(s.id, await seqOf(s.id), ['ARRIVE', 'COMPLETE']);
+        countIgnored(s.id, await seqOf(s.id), ['ARRIVE', 'LOADED', 'COMPLETE', 'FAIL']);
         // ออกจากจุด = DEPART ที่นับของจุดถัดไป (docs/01 §3.9 — ไม่ใช้ departed_at ที่ถอยเป็นเวลาปิดงาน)
         const ns = next ? await seqOf(next.id) : null;
         if (next && ns) countIgnored(next.id, ns, ['DEPART']);
@@ -186,7 +186,7 @@ export class PodLinkService {
       const sent = latestPod.has(hit.id);
       const cl = await this.checklist.forCustomer(hit.customerId, 'SUCCESS');
       // ST4-T10 บรรทัดสินค้า + เหตุผลปฏิเสธรับ (ไม่มีราคา)
-      const [doLines, reasons] = await Promise.all([
+      const [doLines, reasons, failReasons] = await Promise.all([
         tx.deliveryOrderLine.findMany({
           where: { deliveryOrderId: hit.id },
           orderBy: { lineNo: 'asc' },
@@ -203,6 +203,24 @@ export class PodLinkService {
           where: { category: 'REJECTED_BY_RECEIVER', status: 'ACTIVE', deletedAt: null },
           orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
           select: { id: true, labelTh: true, requiresNote: true, requiresPhoto: true },
+        }),
+        // D-81 · D68-39 เหตุผลแจ้งไม่สำเร็จ/บางส่วนผ่านลิงก์ (หมวดเดียวกับที่ StopEventsService รับ)
+        // review M1: เหตุผลที่บังคับรูปไม่แสดง — แจ้งไม่สำเร็จ/บางส่วนผ่านลิงก์แนบรูปไม่ได้ (ยกเว้นส่งบางส่วนพร้อม POD)
+        tx.reasonCode.findMany({
+          where: {
+            category: { in: ['DELIVERY_FAILED', 'REJECTED_BY_RECEIVER'] },
+            status: 'ACTIVE',
+            deletedAt: null,
+            requiresPhoto: false,
+          },
+          orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }, { code: 'asc' }],
+          select: {
+            id: true,
+            category: true,
+            labelTh: true,
+            requiresNote: true,
+            requiresPhoto: true,
+          },
         }),
       ]);
       const pod: PodLinkDoPodDto = {
@@ -250,6 +268,13 @@ export class PodLinkService {
         delivery,
         retries,
         pod,
+        failReasons: failReasons.map((r) => ({
+          id: encodeId('reasonCode', r.id),
+          category: r.category,
+          label: r.labelTh,
+          requiresNote: r.requiresNote,
+          requiresPhoto: r.requiresPhoto,
+        })),
       };
     }
     const me = `link:${linkId}`;
@@ -301,10 +326,48 @@ export class PodLinkService {
       throw new ProblemException('trip_not_in_progress', undefined, undefined, {
         tripStatus: trip.status,
       });
+    const close = isStopCloseType(body.type);
+    const outcome = body.outcome ?? null;
     // จุดคืนสินค้า (RETURN) ปิดงานผ่านลิงก์ไม่ได้ (ผู้จัดรถทำในเว็บ)
-    if (body.type === 'COMPLETE' && stop.type === 'RETURN')
+    if (close && stop.type === 'RETURN')
       throw field422('type', 'not_applicable', 'return stops cannot be closed via this link');
-    const closeDrop = body.type === 'COMPLETE' && stop.type === 'DELIVERY';
+    // D-81 · D68-39 (docs/01 §3.9): ขึ้นของเสร็จ = จุดรับเท่านั้น · ปิดจุดรับครบใช้ LOADED (ไม่ใช่ COMPLETE DELIVERED)
+    if (body.type === 'LOADED' && stop.type !== 'PICKUP')
+      throw field422('type', 'not_applicable', 'LOADED is only for pickup stops');
+    if (body.type === 'COMPLETE' && !outcome)
+      throw field422('outcome', 'required', 'outcome is required for COMPLETE');
+    if (body.type === 'COMPLETE' && stop.type === 'PICKUP' && outcome === 'DELIVERED')
+      throw field422('outcome', 'not_applicable', 'close a pickup stop with LOADED');
+    if (!(body.type === 'COMPLETE' || body.type === 'FAIL') && outcome)
+      throw field422('outcome', 'not_applicable', `outcome not applicable for ${body.type}`);
+    // เหตุผล/หมายเหตุ: เฉพาะแจ้งไม่สำเร็จหรือบางส่วน — บางส่วนผ่านลิงก์บังคับเหตุผล (D68-39 "พร้อมเหตุผล")
+    const short = body.type === 'FAIL' || (body.type === 'COMPLETE' && outcome !== 'DELIVERED');
+    if (!short && (body.reasonCodeId || body.note))
+      throw field422(
+        body.reasonCodeId ? 'reasonCodeId' : 'note',
+        'not_applicable',
+        `reason/note not accepted for ${body.type}${outcome ? ` ${outcome}` : ''} via this link`,
+      );
+    if (short && !body.reasonCodeId)
+      throw field422('reasonCodeId', 'required', 'reason is required');
+    const closeDrop =
+      body.type === 'COMPLETE' &&
+      stop.type === 'DELIVERY' &&
+      (outcome === 'DELIVERED' || outcome === 'PARTIAL');
+    // review M1: เหตุผลที่ "ต้องมีรูป" — ผ่านลิงก์ใช้ได้เฉพาะส่งบางส่วนพร้อม POD ที่มีรูป (แจ้งไม่สำเร็จแนบรูปไม่ได้)
+    // id ผิด/บริษัทอื่น/หมวดไม่ตรง → ให้ StopEventsService ตอบ 422 ตามเดิม (`reason_not_found` ฯลฯ)
+    if (short && body.reasonCodeId) {
+      const rid = tryDecodeId('reasonCode', body.reasonCodeId);
+      const rc = rid
+        ? await tx.reasonCode.findFirst({ where: { id: rid }, select: { requiresPhoto: true } })
+        : null;
+      if (rc?.requiresPhoto && !(closeDrop && body.pod?.photoDocumentIds?.length))
+        throw field422(
+          'reasonCodeId',
+          'photo_required',
+          'this reason requires a photo — not available for this report via the link',
+        );
+    }
     if (closeDrop && !body.pod)
       throw field422(
         'pod',
@@ -316,12 +379,15 @@ export class PodLinkService {
       throw field422(
         'pod',
         'not_applicable',
-        'pod is accepted only with COMPLETE of a delivery stop',
+        'pod is accepted only with COMPLETE (DELIVERED/PARTIAL) of a delivery stop',
       );
-    if (body.type === 'COMPLETE' && body.outcome !== 'DELIVERED')
-      throw field422('outcome', 'required', 'outcome DELIVERED is required for COMPLETE');
-    if (body.type !== 'COMPLETE' && body.outcome)
-      throw field422('outcome', 'not_applicable', `outcome not applicable for ${body.type}`);
+    // ปิดงานผ่านลิงก์ไม่สร้าง event ขัดลำดับ (ลิงก์ไม่มีหน้าตัดสินธง): ปิดแล้ว → 409 · ปิดด้วยผล (LOADED/COMPLETE) ต้องถึงจุดก่อน
+    if (close && !isReplay && !closeDrop) {
+      if (stop.status === 'COMPLETED' || stop.status === 'FAILED' || stop.status === 'SKIPPED')
+        throw new ProblemException('stop_already_closed');
+      if (body.type !== 'FAIL' && stop.status !== 'ARRIVED')
+        throw new ProblemException('stop_not_arrived');
+    }
     // ST4-T09 ปิดงานจุดส่ง: DO ต้องส่งที่จุดนี้ · ตรวจก่อนสร้าง event (ส่งซ้ำ clientEventId เดิมข้ามไปคืนผลเดิม)
     let dropDo: LinkDo | null = null;
     if (closeDrop) {
@@ -353,7 +419,9 @@ export class PodLinkService {
         {
           clientEventId: body.clientEventId,
           occurredAt: body.occurredAt,
-          outcome: body.type === 'COMPLETE' ? 'DELIVERED' : null,
+          outcome,
+          reasonCodeId: body.reasonCodeId ?? null,
+          note: body.note ?? null,
           lat: body.lat ?? null,
           lng: body.lng ?? null,
           accuracyM: body.accuracyM ?? null,
@@ -383,7 +451,7 @@ export class PodLinkService {
         });
         if ((me && !me.counted) || !now || !SUBMITTABLE.has(now.status)) {
           const closedByOther = seq.events.some(
-            (e) => e.id !== out.event.id && e.type === 'COMPLETE' && e.counted,
+            (e) => e.id !== out.event.id && isStopCloseType(e.type) && e.counted,
           );
           throw new ProblemException(closedByOther ? 'stop_already_closed' : 'stop_not_ready');
         }

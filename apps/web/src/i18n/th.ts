@@ -4111,6 +4111,8 @@ export const th = {
   'exc.ev.ARRIVE': 'ถึงจุด',
   'exc.ev.DEPART': 'ออกเดินทาง',
   'exc.ev.COMPLETE': 'ปิดงาน',
+  // D-81 · D68-39 ขึ้นของเสร็จ (จุดรับ) — ข้อความจากต้นแบบ TMS Driver App "ขึ้นของเสร็จ"
+  'exc.ev.LOADED': 'ขึ้นของเสร็จ',
   'exc.ev.FAIL': 'ส่งไม่สำเร็จ',
   'exc.out.DELIVERED': 'ส่งสำเร็จ',
   'exc.out.PARTIAL': 'ส่งบางส่วน',

@@ -121,9 +121,12 @@ export class StopEventsService {
     const tenantId = ctx.tenantId!;
     const stop = await tx.tripStop.findFirst({
       where: { id: stopId },
-      select: { id: true, tripId: true, removedAt: true },
+      select: { id: true, tripId: true, removedAt: true, type: true },
     });
     if (!stop) throw new ProblemException('not_found');
+    // D-81 · D68-39: LOADED (ขึ้นของเสร็จ) ปิดได้เฉพาะจุดรับ (docs/01 §3.9)
+    if (type === 'LOADED' && stop.type !== 'PICKUP')
+      throw field422('type', 'not_applicable', 'LOADED is only for pickup stops');
     const { status: tripStatus, dispatched } = await this.lockTrip(tx, stop.tripId);
 
     // ส่งซ้ำ (หลังล็อก — คำขอพร้อมกันของเที่ยวเดียวกันเห็นแถวที่ commit แล้ว)
@@ -461,18 +464,14 @@ export class StopEventsService {
   }
 
   /** ตัวเลขบนการ์ด: ใหม่ (ยังไม่มีการตัดสินที่มีผล) · ตัดสินแล้ว · ตัดสินแล้ววันนี้ (วันตามเวลาไทย) */
+  /** ธงที่ยังไม่ตัดสิน (การ์ด "ใหม่" ของศูนย์ข้อยกเว้น + badge sidebar — D68-89) */
+  openFlagCount(): Promise<number> {
+    return this.db.tx.stopEvent.count({ where: { AND: [FLAGGED, { resolutionId: null }] } });
+  }
+
   async flagSummary() {
-    const flagged: Prisma.StopEventWhereInput = {
-      OR: [
-        { sequenceConflict: true },
-        { clockSkew: true },
-        { lateReason: { not: null } },
-        { pickupPending: true },
-        { outcomeMismatch: true },
-      ],
-    };
     const [open, resolved, resolvedToday] = await Promise.all([
-      this.db.tx.stopEvent.count({ where: { AND: [flagged, { resolutionId: null }] } }),
+      this.openFlagCount(),
       this.db.tx.stopEvent.count({ where: { resolutionId: { not: null } } }),
       this.db.tx.stopEvent.count({
         where: { resolution: { createdAt: { gte: this.startOfToday() } } },
@@ -549,6 +548,16 @@ export class StopEventsService {
     return snap;
   }
 }
+
+const FLAGGED: Prisma.StopEventWhereInput = {
+  OR: [
+    { sequenceConflict: true },
+    { clockSkew: true },
+    { lateReason: { not: null } },
+    { pickupPending: true },
+    { outcomeMismatch: true },
+  ],
+};
 
 export const FLAG_INCLUDE = {
   resolution: true,

@@ -1169,6 +1169,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'exc.ev.ARRIVE': 'Arrived',
   'exc.ev.DEPART': 'Depart',
   'exc.ev.COMPLETE': 'Close job',
+  'exc.ev.LOADED': 'Loading done',
   'exc.ev.FAIL': 'Failed',
   'exc.out.PARTIAL': 'Partial delivery',
   'exc.out.FAILED': 'Failed',

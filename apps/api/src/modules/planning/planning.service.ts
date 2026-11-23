@@ -29,6 +29,25 @@ const POOL_LIMIT = 500;
 /** DO รอจัด = DRAFT ที่ยังไม่อยู่ในเที่ยว */
 export const POOL_DO = { status: 'DRAFT' as const, tripId: null };
 
+/** SO ที่อยู่ใน "SO รอจัด" ของกระดาน (ใช้ทั้งรายการและ badge บน sidebar — D68-89) */
+const POOL_SO: Prisma.SalesOrderWhereInput = {
+  OR: [
+    {
+      status: { in: [...PLANNABLE_SO_STATUSES] },
+      OR: [
+        { holdReasonCodeId: null },
+        { holdReasonCode: { code: { notIn: [...NOT_READY_HOLDS] } } },
+      ],
+      deliveryOrders: { some: POOL_DO },
+    },
+    // ST4-T11: SO ส่งครบแล้ว (คงสถานะ) ที่มีใบส่งซ้ำของที่ถูกปฏิเสธรับรอจัด
+    {
+      status: 'DELIVERED',
+      deliveryOrders: { some: { ...POOL_DO, rejectedFromId: { not: null } } },
+    },
+  ],
+};
+
 const dec = (v: Prisma.Decimal | null | undefined) =>
   v === null || v === undefined ? null : v.toFixed(3).replace(/\.?0+$/, '') || '0';
 const sum = (vs: (Prisma.Decimal | null)[]) =>
@@ -294,28 +313,17 @@ export class PlanningService {
    */
   async poolOrderIds(tx: Tx): Promise<string[]> {
     const sos = await tx.salesOrder.findMany({
-      where: {
-        OR: [
-          {
-            status: { in: [...PLANNABLE_SO_STATUSES] },
-            OR: [
-              { holdReasonCodeId: null },
-              { holdReasonCode: { code: { notIn: [...NOT_READY_HOLDS] } } },
-            ],
-            deliveryOrders: { some: POOL_DO },
-          },
-          // ST4-T11: SO ส่งครบแล้ว (คงสถานะ) ที่มีใบส่งซ้ำของที่ถูกปฏิเสธรับรอจัด
-          {
-            status: 'DELIVERED',
-            deliveryOrders: { some: { ...POOL_DO, rejectedFromId: { not: null } } },
-          },
-        ],
-      },
+      where: POOL_SO,
       orderBy: [{ requestedDate: 'asc' }, { soNo: 'asc' }],
       take: POOL_LIMIT,
       select: { id: true },
     });
     return sos.map((x) => x.id);
+  }
+
+  /** D-81 · D68-89 badge "กระดานวางแผน" บน sidebar = จำนวน SO รอจัด (ชุดเดียวกับ `poolOrderIds` ไม่จำกัดจำนวน) */
+  poolOrderCount(tx: Tx): Promise<number> {
+    return tx.salesOrder.count({ where: POOL_SO });
   }
 
   private async pool(tx: Tx): Promise<BoardPoolOrderDto[]> {

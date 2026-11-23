@@ -1,5 +1,5 @@
 import { createTmsClient, type Problem } from '@tms/contracts';
-import { QueryClient } from '@tanstack/react-query';
+import { MutationCache, QueryClient } from '@tanstack/react-query';
 import { dropAccessToken, getAccessToken, requireTwoFactorEnrolment } from './auth/session';
 import { getApiMode, isSandboxPath } from './features/api-keys/mode';
 
@@ -88,6 +88,11 @@ export async function idempotent<T>(
   }
 }
 
-export const queryClient = new QueryClient({
+export const queryClient: QueryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000, refetchOnWindowFocus: false } },
+  // D-81 · D68-89 badge งานค้างบน sidebar: การเปลี่ยนข้อมูลใด ๆ สำเร็จ (ตัดสินธง / อนุมัติ settlement / rate card / ใบแจ้งหนี้ ฯลฯ)
+  // → ดึงตัวนับใหม่ทันที (ไม่รอรอบ 60 วินาที) — คำขอเดียว `GET /v1/me/badges` ต่อการเปลี่ยน
+  mutationCache: new MutationCache({
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['nav-badges'] }),
+  }),
 });

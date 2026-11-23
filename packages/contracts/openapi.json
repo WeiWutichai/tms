@@ -4214,6 +4214,58 @@
         ]
       }
     },
+    "/v1/me/badges": {
+      "get": {
+        "description": "นิยามตัวนับเดียวกับแท็บ/การ์ดของหน้านั้น (ดู `key`) · ไม่มีสิทธิ์อ่านของเมนูใด = ไม่มี key นั้น · ฟีเจอร์แพ็กเกจปิด = ไม่มี",
+        "operationId": "NavBadges_badges",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NavBadgesDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ตัวนับงานค้างของเมนู (sidebar badge) — เฉพาะเมนูที่ผู้เรียกมีสิทธิ์",
+        "tags": [
+          "platform"
+        ]
+      }
+    },
     "/v1/me/profile": {
       "get": {
         "operationId": "Profile_get",
@@ -74684,6 +74736,54 @@
           "lockedIn"
         ]
       },
+      "NavBadgeDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": [
+              "plan",
+              "exc",
+              "so",
+              "bill",
+              "pay",
+              "settle",
+              "fdoc",
+              "rate"
+            ],
+            "description": "เมนู: plan กระดานวางแผน (SO รอจัด) · exc ศูนย์ข้อยกเว้น (ธงรอตัดสิน) · so ใบสั่งขนส่ง (ค้าง: รอกำหนดเส้นทาง + ยังไม่จับคู่ลูกค้า) · bill วางบิล (DO พร้อมวางบิล) · pay รับชำระ (ใบแจ้งหนี้เกินกำหนด) · settle Settlement รถร่วม (รอตรวจ + รออนุมัติ) · fdoc เอกสารรถ (หมดอายุ/จะหมดใน 30 วัน) · rate Rate card (รออนุมัติ)"
+          },
+          "count": {
+            "type": "number",
+            "example": 3,
+            "description": "จำนวนงานค้าง (0 = ไม่แสดง badge)"
+          }
+        },
+        "required": [
+          "key",
+          "count"
+        ]
+      },
+      "NavBadgesDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "description": "เฉพาะเมนูที่ผู้เรียกมีสิทธิ์ดูและแพ็กเกจเปิด — ไม่มีสิทธิ์ = ไม่มีในรายการ (ไม่คำนวณ)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NavBadgeDto"
+            }
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "data",
+          "asOf"
+        ]
+      },
       "ProfileSignatureDto": {
         "type": "object",
         "properties": {
@@ -79557,6 +79657,7 @@
             "enum": [
               "ARRIVE",
               "DEPART",
+              "LOADED",
               "COMPLETE",
               "FAIL"
             ]
@@ -97430,6 +97531,7 @@
             "enum": [
               "ARRIVE",
               "DEPART",
+              "LOADED",
               "COMPLETE",
               "FAIL"
             ]
@@ -97930,6 +98032,7 @@
             "enum": [
               "ARRIVE",
               "DEPART",
+              "LOADED",
               "COMPLETE",
               "FAIL"
             ]
@@ -98912,7 +99015,9 @@
             "enum": [
               "ARRIVE",
               "DEPART",
-              "COMPLETE"
+              "LOADED",
+              "COMPLETE",
+              "FAIL"
             ]
           },
           "n": {
@@ -99045,6 +99150,40 @@
           "rejectReasons"
         ]
       },
+      "PodLinkFailReasonDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "rsn_3f2a…"
+          },
+          "label": {
+            "type": "string",
+            "example": "จำนวนไม่ครบ"
+          },
+          "requiresNote": {
+            "type": "boolean"
+          },
+          "requiresPhoto": {
+            "type": "boolean"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "DELIVERY_FAILED",
+              "REJECTED_BY_RECEIVER"
+            ],
+            "description": "หมวด — ผล `UNDELIVERED_RETAIN` (ของยังอยู่บนรถ) ใช้ได้เฉพาะ DELIVERY_FAILED"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "requiresNote",
+          "requiresPhoto",
+          "category"
+        ]
+      },
       "PodDoDto": {
         "type": "object",
         "properties": {
@@ -99093,6 +99232,13 @@
                 "$ref": "#/components/schemas/PodLinkDoPodDto"
               }
             ]
+          },
+          "failReasons": {
+            "description": "D-81 · D68-39 เหตุผลที่เลือกได้เมื่อแจ้งรับ/ส่งไม่สำเร็จ (`FAIL` หรือ `COMPLETE` FAILED/UNDELIVERED_RETAIN) หรือรับ/ส่งบางส่วน (`COMPLETE` PARTIAL)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodLinkFailReasonDto"
+            }
           }
         },
         "required": [
@@ -99102,7 +99248,8 @@
           "pickup",
           "delivery",
           "retries",
-          "pod"
+          "pod",
+          "failReasons"
         ]
       },
       "PodLinkSentDto": {
@@ -99309,25 +99456,42 @@
             "example": 12.5,
             "description": "ความแม่นของพิกัด (เมตร)"
           },
+          "reasonCodeId": {
+            "type": "string",
+            "nullable": true,
+            "example": "rsn_3f2a…",
+            "description": "เหตุผลมาตรฐาน — ถึง/ออก: ล่าช้า (DELAY) หรือกดนอกรัศมี (OVERRIDE) ไม่บังคับ · ส่งไม่สำเร็จ: บังคับ (DELIVERY_FAILED / REJECTED_BY_RECEIVER)"
+          },
+          "note": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500,
+            "description": "หมายเหตุ (บังคับเมื่อเหตุผลที่เลือกตั้ง \"ต้องมีหมายเหตุ\")"
+          },
           "type": {
             "type": "string",
             "enum": [
               "ARRIVE",
               "DEPART",
-              "COMPLETE"
+              "LOADED",
+              "COMPLETE",
+              "FAIL"
             ],
-            "description": "ARRIVE ถึงจุด · DEPART ออกเดินทางมุ่งหน้าไปจุดนี้ (ปุ่ม \"ออกจากจุด\" ส่งที่จุดถัดไป) · COMPLETE ปิดงาน (outcome `DELIVERED` เท่านั้น) — จุดส่งต้องแนบ `pod` (ST4-T09)"
+            "description": "ARRIVE ถึงจุด · DEPART ออกเดินทางมุ่งหน้าไปจุดนี้ (ปุ่ม \"ออกจากจุด\" ส่งที่จุดถัดไป) · LOADED ขึ้นของเสร็จ (**จุดรับเท่านั้น** — ปิดจุดรับครบ; D68-39) · COMPLETE ปิดงานพร้อมผล — จุดรับ: PARTIAL/FAILED/UNDELIVERED_RETAIN (รับครบใช้ LOADED) · จุดส่ง DELIVERED/PARTIAL ต้องแนบ `pod` (ST4-T09) · FAIL ไม่สำเร็จ (ยังไม่ถึงจุดก็ได้) · ต้องกดถึงจุดก่อนปิดงาน (409 `stop_not_arrived`) · จุดคืนสินค้าปิดผ่านลิงก์ไม่ได้"
           },
           "outcome": {
             "type": "string",
             "enum": [
-              "DELIVERED"
+              "DELIVERED",
+              "PARTIAL",
+              "FAILED",
+              "UNDELIVERED_RETAIN"
             ],
             "nullable": true,
-            "description": "เฉพาะ COMPLETE = DELIVERED (จุดรับ = รับของครบ · จุดส่ง = ส่งครบ)"
+            "description": "COMPLETE บังคับ (จุดรับห้าม DELIVERED — ใช้ LOADED) · FAIL ไม่ส่ง/FAILED/UNDELIVERED_RETAIN · ARRIVE/DEPART/LOADED ห้ามส่ง"
           },
           "pod": {
-            "description": "ST4-T09 **บังคับเมื่อ COMPLETE จุดส่ง** — หลักฐานของ DO ที่จุดนี้: ปิดงาน + บันทึก POD ในคำขอเดียว (ไม่ครบ checklist → 422 ไม่ปิดงาน) · ส่งซ้ำ clientEventId เดิม = ผลเดิม · จุดอื่นไม่รับ",
+            "description": "ST4-T09 **บังคับเมื่อ COMPLETE จุดส่ง ผล DELIVERED/PARTIAL** — หลักฐานของ DO ที่จุดนี้: ปิดงาน + บันทึก POD ในคำขอเดียว (ไม่ครบ checklist → 422 ไม่ปิดงาน) · ส่งซ้ำ clientEventId เดิม = ผลเดิม · จุดอื่นไม่รับ",
             "allOf": [
               {
                 "$ref": "#/components/schemas/PodLinkCaptureDto"
@@ -99406,7 +99570,9 @@
             "enum": [
               "ARRIVE",
               "DEPART",
-              "COMPLETE"
+              "LOADED",
+              "COMPLETE",
+              "FAIL"
             ]
           },
           "outcome": {
