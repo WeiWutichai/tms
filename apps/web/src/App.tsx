@@ -39,6 +39,7 @@ import { SettlementLinkPage } from './public/SettlementLink';
 import { CarrierPayLinkPage } from './public/CarrierPayLink';
 import { TrackingPage } from './public/Tracking';
 import { SettlePage } from './features/settlements/SettlePage';
+import { ErpPage } from './features/erp/ErpPage';
 import { ConsoleApp } from './console/ConsoleApp';
 import { ReportPage } from './features/reports/ReportPage';
 import { AppShell, useMe } from './shell/AppShell';
@@ -66,6 +67,7 @@ const READY: Record<string, () => ReactNode> = {
   '/bill': () => <BillPage />,
   '/pay': () => <PayPage />,
   '/settle': () => <SettlePage />,
+  '/erp': () => <ErpPage />,
   '/exceptions': () => <ExceptionsPage />,
   '/master/customers': () => <CustomersPage />,
   '/master/locations': () => <SitesPage />,

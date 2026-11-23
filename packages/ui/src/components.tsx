@@ -503,6 +503,8 @@ export function DrawerFooterButtons({
     type?: 'button' | 'submit';
     form?: string;
     disabled?: boolean;
+    /** tooltip — เช่น เหตุที่ปุ่มปิดอยู่ */
+    title?: string;
   };
 }) {
   return (
@@ -519,6 +521,7 @@ export function DrawerFooterButtons({
           className="tms-drawer__pri"
           onClick={primary.onClick}
           disabled={primary.disabled}
+          title={primary.title}
         >
           {primary.icon && <Icon n={primary.icon} s={16} />}
           {primary.label}

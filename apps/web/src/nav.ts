@@ -163,6 +163,17 @@ export const NAV: NavGroup[] = [
         path: '/settle',
         stage: 'ST6',
       },
+      {
+        // ST8-T12 คิวเชื่อมระบบบัญชี (ต้นแบบแสดงเมื่อเชื่อมระบบบัญชี — ที่นี่ตามแพ็กเกจ `conn` + สิทธิ์อ่านการเชื่อมต่อ;
+        // role บัญชีไม่มีสิทธิ์อ่านรายการ connector จึงรู้ไม่ได้ว่าเชื่อมอยู่ไหม) [DECISION spec/12 §3 แถว ST8-T12]
+        key: 'erp',
+        feature: 'conn',
+        perm: ['integrations:read'],
+        page: 'erp',
+        label: 'nav.acc.erp',
+        path: '/erp',
+        stage: 'ST8',
+      },
     ],
   },
   {
