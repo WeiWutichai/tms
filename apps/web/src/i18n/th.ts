@@ -1805,8 +1805,7 @@ export const th = {
   'veh.busy.true': 'กำลังใช้งาน',
   'veh.busy.false': 'ไม่ได้ใช้งาน',
   'veh.busy.clear': 'ล้างตัวกรองการใช้งาน',
-  'veh.quota':
-    'รถ active จะเกินโควตา · แพ็กเกจรองรับ {limit} คัน · ตอนนี้ {used} คัน — เพิ่มได้ ส่วนเกินคิดตามแพ็กเกจ',
+  'veh.quota': 'รถในทะเบียน {used} คัน / โควตา {limit} คัน',
   'veh.col.plate': 'ทะเบียน',
   'veh.col.model': 'ยี่ห้อ / รุ่น / ปี',
   'veh.col.type': 'ประเภท',

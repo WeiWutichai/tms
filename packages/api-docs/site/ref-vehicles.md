@@ -118,7 +118,7 @@ scope: `master:write` · operationId: `Vehicles_create`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `201` | สร้างแล้ว — เกินโควตารถ: `quotaExceeded: true` + header `Warning: 299` (ยังสร้างได้) | `VehicleDto` |
+| `201` | สร้างแล้ว — โควตารถเป็น soft limit ที่นับรถ active ในเดือน (D68-14) — การสร้างไม่ถูกจำกัดและยังไม่ส่งสัญญาณเกินโควตา | `VehicleDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
@@ -876,7 +876,7 @@ const { data, error } = await tms.POST('/v1/vehicles/{id}/odometer/correct', {
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string (date-time)` |   |   |   |
 | `updatedAt` | ใช่ | `string (date-time)` |   |   |   |
-| `quotaExceeded` |   | `boolean` |   | มีเฉพาะในผลการสร้าง: true = รถที่นับโควตา (ยังไม่ปลดระวาง) เกินโควตาของ tenant แล้ว — soft limit ยังสร้างได้ (header `Warning: 299` ด้วย) |   |
+| `quotaExceeded` |   | `boolean` |   | มีเฉพาะในผลการสร้าง · D68-14: โควตารถนับ**รถ active** ไม่ใช่จำนวนในทะเบียน · ตอนนี้ `false` เสมอจนกว่าจะมีการนับรถ active (metering) — soft limit ไม่จำกัดการสร้าง |   |
 | `docAlert` |   | `VehicleDocAlertDto` |   | มีเฉพาะในรายการ (GET /vehicles): เอกสารใกล้หมด 30 วัน/หมดแล้วของคันนี้ (รถปลดระวาง = 0) · คำนวณจากเอกสารและวันนี้ทุกครั้ง **ไม่ทำให้ `updatedAt` ของรถเปลี่ยน** — ผู้ที่ sync แบบ `updatedAfter` ให้ดึงเอกสารจาก `GET /vehicle-documents` แทน |   |
 
 ### VehiclePageDto {#schema-VehiclePageDto}

@@ -5,7 +5,6 @@ import { ProblemException } from '../../common/problem';
 import { assertPriceWriteAllowed } from '../../common/price-fields';
 import { createValidationPipe } from '../../common/validation';
 import { cleanLine } from '../master/master-kit';
-import { ImportFileError } from './parse';
 import type { Tx } from '../../db/db.service';
 import { provinceOf } from '../vehicles/provinces';
 import { plateKey, plateNorm } from '../vehicles/vehicles.service';
@@ -448,7 +447,7 @@ export interface MasterImportDef {
    * แถวอื่นย้อนทิ้งทันทีหลังตรวจ (ไม่ถือ lock ของ service ข้ามแถว)
    */
   selfRef?: { column: string; identities(values: Record<string, string>): string[] };
-  /** โควตา (MD-289): นับเฉพาะแถวที่จะสร้างใหม่จริง (ผ่านการตรวจ) */
+  /** โควตา (MD-289 · D68-21): นับเฉพาะแถวที่จะสร้างใหม่จริง (ผ่านการตรวจ) — เกิน = คำเตือนรายแถว ไม่ปฏิเสธไฟล์ */
   quota?(tx: Tx): Promise<{ limit: number; used: number; label: string } | null>;
   /** แถว → body ของ API (create = POST, update = PATCH; current = แถวเดิมเมื่อแก้) */
   build(
@@ -683,7 +682,7 @@ export function defineMasterImport(def: MasterImportDef): ImportSpec<MasterValue
       const quota = def.quota ? await def.quota(ctx.tx) : null;
       const out: RowResult<MasterValue>[] = [];
       // ขั้นตรวจ (MD-281): ทุกการเขียนอยู่ใน savepoint นี้ แล้วย้อนทิ้งทั้งหมดตอนจบ
-      // ยืนยัน: เก็บไว้ (แถวผิดย้อนทีละแถวแล้ว) ยกเว้นทั้งหมดหรือไม่เลยที่มีแถวผิด / เกินโควตา
+      // ยืนยัน: เก็บไว้ (แถวผิดย้อนทีละแถวแล้ว) ยกเว้นทั้งหมดหรือไม่เลยที่มีแถวผิด
       await ctx.tx.$executeRawUnsafe('SAVEPOINT tms_import_dry');
       const discard = async () => {
         await ctx.tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT tms_import_dry');
@@ -696,12 +695,17 @@ export function defineMasterImport(def: MasterImportDef): ImportSpec<MasterValue
         throw e;
       }
       const creates = out.filter((x) => x.value?.op === 'create').length;
+      // D-81 · D68-21: เกินโควตา = **คำเตือน** ที่แถวใหม่ส่วนเกิน — ไม่ปฏิเสธทั้งไฟล์ (โควตาคิดจากรถ active ในเดือน — docs/02 §2/§6)
       if (quota && quota.used + creates > quota.limit) {
-        await discard();
-        throw new ImportFileError(
-          'quota_exceeded',
-          `เกินโควตา${quota.label}ตามแพ็กเกจ: ใช้อยู่ ${quota.used} จาก ${quota.limit} ไฟล์นี้เพิ่มใหม่ ${creates} (เหลือได้อีก ${Math.max(0, quota.limit - quota.used)}) — ซื้อ add-on หรือแบ่งไฟล์`,
-        );
+        const room = Math.max(0, quota.limit - quota.used);
+        let k = 0;
+        for (const x of out)
+          if (x.value?.op === 'create' && ++k > room)
+            x.issues.push({
+              code: 'quota_exceeded',
+              severity: 'warning',
+              message: `${quota.label}ในทะเบียนจะเป็น ${quota.used + creates} คัน เกินโควตา ${quota.limit} คัน — ยังนำเข้าได้ (โควตาคิดจาก${quota.label} active ที่มีเที่ยวในเดือน)`,
+            });
       }
       const keep =
         apply &&

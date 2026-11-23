@@ -202,7 +202,8 @@ export class ImportDto {
       'file_rejected',
       'quota_exceeded',
     ],
-    description: 'code ของ fileError (เช่น quota_exceeded = เกินโควตา — spec/02 MD-289)',
+    description:
+      'code ของ fileError · `quota_exceeded` ไม่ออกแล้ว (D-81 · D68-21: เกินโควตารถ = คำเตือนรายแถว `quota_exceeded` ไม่ปฏิเสธทั้งไฟล์ — spec/02 MD-289)',
   })
   fileErrorCode!: string | null;
   @ApiProperty({ nullable: true, type: String }) jobId!: string | null;
