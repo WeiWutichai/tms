@@ -10,7 +10,7 @@ import { KrsAdapter } from '../src/erp-adapters/krs/krs.adapter';
 import { ConnectorIntakeService } from '../src/modules/connectors/connector-intake.service';
 import { DeliveryOrderService } from '../src/modules/delivery-orders/delivery-order.service';
 import { connectorKeyOfSource } from '../src/modules/erp/external-mapping.service';
-import { OrderIntakeService, SOURCE_DOWN_ISSUE } from '../src/modules/orders/order-intake.service';
+import { OrderIntakeService, sourceDownIssue } from '../src/modules/orders/order-intake.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
@@ -721,7 +721,7 @@ describe('KRS mapping ลูกค้า + ยกเลิก SO (ST8-T05) — m
       });
       expect(x.status).toBe('ON_HOLD');
       expect(x.holdReasonCode?.code).toBe('SOURCE_ERROR');
-      expect(x.sourceIssues).toContain(SOURCE_DOWN_ISSUE);
+      expect(x.sourceIssues).toContain(sourceDownIssue(connectorPub));
       const a = await plat.auditLog.findFirstOrThrow({
         where: { tenantId, entityId: o.id, action: 'sales_order.source_held' },
         orderBy: { at: 'desc' },

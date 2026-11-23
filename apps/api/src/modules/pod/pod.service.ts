@@ -285,9 +285,14 @@ export class PodService {
       orderBy: { lineNo: 'asc' },
       select: { id: true, lineNo: true, qtyPlanned: true },
     });
+    // ยอดส่งจริงใช้กับชุดสำเร็จเท่านั้น — ตรวจก่อนแปลงการอ้างบรรทัด (ชุดไม่สำเร็จได้ not_applicable ไม่ใช่ 422 ของ doLineId)
+    const notApplicable = !!input.lines?.length && set !== 'SUCCESS';
     // D-81 · D68-52: บรรทัดอ้างด้วย `doLineId` หรือ `lineNo` (ทั้งคู่ต้องตรงกัน) → ใช้ `lineNo` ต่อจากนี้
-    const inLines = input.lines === undefined ? undefined : resolveDoLineRefs(input.lines, doLines);
-    if (inLines !== undefined && inLines.length && set !== 'SUCCESS')
+    const inLines =
+      input.lines === undefined || notApplicable
+        ? undefined
+        : resolveDoLineRefs(input.lines, doLines);
+    if (notApplicable)
       errors.push({
         field: 'lines',
         code: 'not_applicable',

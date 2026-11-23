@@ -5,6 +5,7 @@ import { CONNECTOR_KEY_RE } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { Clock } from '../../common/clock';
 import { iEquals } from '../../common/ilike';
+import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
@@ -14,7 +15,7 @@ import { EntitlementService } from '../entitlements/entitlement.service';
 import { ConnectorResolver } from '../erp/connector-resolver';
 import { ConnectorsService, redactSecrets } from '../erp/connectors.service';
 import { ErpAdapterError } from '../erp/erp-adapter';
-import { OrderIntakeService, SOURCE_DOWN_ISSUE } from '../orders/order-intake.service';
+import { OrderIntakeService, sourceDownIssue } from '../orders/order-intake.service';
 import { OrderStateService } from '../orders/order-state.service';
 import { bangkokToday } from '../vehicle-documents/expiry';
 import {
@@ -121,8 +122,8 @@ export interface PullRunResult {
   sourceReleased?: number;
 }
 
-/** D-81 · D68-63 เพดานใบต่อรอบที่พัก/ปล่อยเมื่อต้นทางเสีย/กลับมา (ที่เหลือทำรอบถัดไป — ปล่อยทำทุกรอบที่ดึงสำเร็จ) */
-const SOURCE_DOWN_MAX = 2000;
+/** D-81 · D68-63 ขนาดชุดตอนพัก/ปล่อยใบเมื่อต้นทางเสีย/กลับมา (ไล่จนหมด — ต่อ lease ระหว่างชุด) */
+export const SOURCE_DOWN_CHUNK = 500;
 
 /** Prisma: ต่อฐานไม่ได้ / pool เต็ม / transaction หมดเวลา / deadlock-serialization */
 const TRANSIENT_CODES = new Set(['P1001', 'P1002', 'P1008', 'P1017', 'P2024', 'P2028', 'P2034']);
@@ -217,6 +218,8 @@ const emptyCounts = (): PullCounts => ({
 @Injectable()
 export class ConnectorIntakeService implements OnModuleInit {
   private readonly logger = new Logger('ConnectorIntake');
+  /** D-81 · D68-63 ขนาดชุดตอนพัก/ปล่อยใบ (test ตั้งค่าเล็กได้) */
+  sourceDownChunk = SOURCE_DOWN_CHUNK;
 
   constructor(
     private readonly db: DbService,
@@ -446,6 +449,10 @@ export class ConnectorIntakeService implements OnModuleInit {
             if (r.outcome === 'error') pageErrors += 1;
             run.results.push(r);
           }
+          // D-81 · D68-63 คอลัมน์หาย ฯลฯ → ทุกใบที่ค้างของต้นทางนี้ ON_HOLD(SOURCE_ERROR) ไม่ใช่เฉพาะใบในหน้านี้ (docs/01 A.2)
+          // — อยู่ในชุดแจ้งใบค้างเดียวกับหน้านี้ (แจ้งรวมฉบับเดียว)
+          if (got.problem?.errorClass === 'VALIDATION')
+            run.sourceHeld = await this.sourceDown(tenantId, source, leaseId, true, true);
         });
         if (held.length)
           await this.db
@@ -469,9 +476,6 @@ export class ConnectorIntakeService implements OnModuleInit {
           run.sourceError = problem.message;
           this.logger.warn(`tenant ${tenantId} connector ${connector}: ${problem.message}`);
           await this.stopConnector(tenantId, source, problem);
-          // D-81 · D68-63 คอลัมน์หาย ฯลฯ → ทุกใบที่ค้างของต้นทางนี้ ON_HOLD(SOURCE_ERROR) ไม่ใช่เฉพาะใบในหน้านี้ (docs/01 A.2)
-          if (problem.errorClass === 'VALIDATION')
-            run.sourceHeld = await this.sourceDown(tenantId, source, leaseId, true);
           break;
         }
         // D-81 · D68-63 ดึงจากต้นทางได้อีกครั้ง → ปล่อยใบที่พักไว้เพราะต้นทางเสีย (ครั้งเดียวต่อรอบ)
@@ -726,41 +730,52 @@ export class ConnectorIntakeService implements OnModuleInit {
   }
 
   /**
-   * D-81 · D68-63 (docs/01 A.2): ต้นทางเสีย → ตั้งปัญหา `SOURCE_DOWN_ISSUE` บนทุกใบที่ยังค้างของต้นทางนี้ (ใบค้าง SOURCE_ERROR —
-   * ผู้ดูแลได้แจ้งเตือนจาก connector ERROR + แจ้งใบค้างรวมฉบับเดียว) · ต้นทางกลับมา (`down = false`) → ถอดเฉพาะปัญหานี้
-   * ทีละใบใน transaction ของใบ (ผู้กระทำ `connector:{key}`) · ใบที่ล้มไม่หยุดใบอื่น (log) · คืนจำนวนใบที่เปลี่ยน
+   * D-81 · D68-63 (docs/01 A.2): ต้นทางเสีย → ตั้งปัญหา `sourceDownIssue(connector)` บนทุกใบที่ยังค้างของต้นทางนี้ (ใบค้าง SOURCE_ERROR —
+   * ผู้ดูแลได้แจ้งเตือนจาก connector ERROR + แจ้งใบค้างรวมฉบับเดียว) · ต้นทางกลับมา (`down = false`) → ถอดเฉพาะปัญหาที่ **connector นี้** ตั้ง
+   * - ไล่ทีละชุด (`sourceDownChunk`, keyset ตาม id) จนหมด — ไม่มีเพดานเงียบ · ต่อ lease ของรอบดึงระหว่างชุด (lease หลุด = หยุด + log)
+   * - ขอบเขตใบ = `source_connector` (รหัส adapter — SO ไม่มีลิงก์ถึงแถว connector) → tenant ที่มี connector adapter เดียวกัน > 1 ตัว:
+   *   ตอนพัก ใบของอีกตัวถูกพักด้วย แต่ปล่อยได้เฉพาะ connector ที่พัก (ข้อความปัญหามี id ของ connector) [ข้อจำกัด — spec/12 §3]
+   * - ทีละใบใน transaction ของใบ (ผู้กระทำ `connector:{key}`) · ใบที่ล้มไม่หยุดใบอื่น (log) · คืนจำนวนใบที่เปลี่ยน
+   * - `batched` = ผู้เรียกครอบ `batchOrderHolds` อยู่แล้ว (แจ้งรวมกับใบของหน้า)
    * ต้นทางทดสอบตามรหัส (ไม่มีแถว connector) = ไม่ทำอะไร (เหมือน stopConnector)
    */
   private async sourceDown(
     tenantId: string,
     source: PullSource,
-    runId: string,
+    leaseId: string,
     down: boolean,
+    batched = false,
   ): Promise<number> {
     if (!source.connectorId) return 0;
     const connector = source.key;
+    const issue = sourceDownIssue(encodeId('connector', source.connectorId));
     let changed = 0;
-    try {
-      const ids = await this.db.withTenant(tenantId, (tx) =>
-        tx.salesOrder.findMany({
-          where: {
-            source: 'CONNECTOR',
-            sourceConnector: connector,
-            status: { in: ['DRAFT', 'RECEIVED', 'ON_HOLD'] },
-            ...(down ? {} : { sourceIssues: { array_contains: [SOURCE_DOWN_ISSUE] } }),
-          },
-          select: { id: true },
-          orderBy: { id: 'asc' },
-          take: SOURCE_DOWN_MAX,
-        }),
-      );
-      const { held } = await this.events.batchOrderHolds(async () => {
+    let failed = 0;
+    const work = async () => {
+      let after: string | null = null;
+      for (;;) {
+        const ids: { id: string }[] = await this.db.withTenant(tenantId, (tx) =>
+          tx.salesOrder.findMany({
+            where: {
+              source: 'CONNECTOR',
+              sourceConnector: connector,
+              status: { in: ['DRAFT', 'RECEIVED', 'ON_HOLD'] },
+              ...(after ? { id: { gt: after } } : {}),
+              ...(down
+                ? { NOT: { sourceIssues: { array_contains: [issue] } } }
+                : { sourceIssues: { array_contains: [issue] } }),
+            },
+            select: { id: true },
+            orderBy: { id: 'asc' },
+            take: this.sourceDownChunk,
+          }),
+        );
         for (const { id } of ids) {
           try {
             const r = await this.db.withTenant(tenantId, (tx) =>
               requestContext.run(
                 {
-                  requestId: `connector:${connector}:${runId}`,
+                  requestId: `connector:${connector}:${leaseId}`,
                   tenantId,
                   actorId: `connector:${connector}`,
                   principalType: 'connector',
@@ -768,35 +783,69 @@ export class ConnectorIntakeService implements OnModuleInit {
                   locale: 'th',
                   tx,
                 },
-                () => this.intake.markSourceDown(tx, id, down),
+                () => this.intake.markSourceDown(tx, id, down, issue),
               ),
             );
             if (r) changed += 1;
           } catch (e) {
+            failed += 1;
             this.logger.warn(
               `tenant ${tenantId} connector ${connector}: ${down ? 'hold' : 'release'} order ${id} failed — ${show(e)}`,
             );
           }
         }
-      });
-      if (held.length)
-        await this.db
-          .withTenant(tenantId, (tx) => this.events.flushOrderHolds(tx, tenantId, held))
-          .catch((e) =>
-            this.logger.warn(
-              `tenant ${tenantId} connector ${connector}: hold notify failed — ${show(e)}`,
-            ),
+        if (ids.length < this.sourceDownChunk) break;
+        after = ids[ids.length - 1]!.id;
+        // ชุดถัดไป: ต่อ lease ของรอบดึง (รอบอื่นหยิบไปแล้ว = หยุด — รอบนั้นทำต่อเอง)
+        const own = await this.db.withTenant(tenantId, (tx) =>
+          this.renewLease(tx, tenantId, source, leaseId),
+        );
+        if (!own) {
+          this.logger.warn(
+            `tenant ${tenantId} connector ${connector}: lease lost during source ${down ? 'hold' : 'release'} — stop`,
           );
+          break;
+        }
+      }
+    };
+    try {
+      if (batched) await work();
+      else {
+        const { held } = await this.events.batchOrderHolds(work);
+        if (held.length)
+          await this.db
+            .withTenant(tenantId, (tx) => this.events.flushOrderHolds(tx, tenantId, held))
+            .catch((e) =>
+              this.logger.warn(
+                `tenant ${tenantId} connector ${connector}: hold notify failed — ${show(e)}`,
+              ),
+            );
+      }
     } catch (e) {
       this.logger.warn(
         `tenant ${tenantId} connector ${connector}: source ${down ? 'hold' : 'release'} failed — ${show(e)}`,
       );
     }
-    if (changed)
+    if (changed || failed)
       this.logger.warn(
-        `tenant ${tenantId} connector ${connector}: ${down ? 'held' : 'released'} ${changed} pending order(s) (source ${down ? 'down' : 'recovered'})`,
+        `tenant ${tenantId} connector ${connector}: ${down ? 'held' : 'released'} ${changed} pending order(s), ${failed} failed (source ${down ? 'down' : 'recovered'})`,
       );
     return changed;
+  }
+
+  /** ต่อ lease ของรอบดึง (ไม่เลื่อน cursor) — false = lease หลุด */
+  private async renewLease(
+    tx: Tx,
+    tenantId: string,
+    source: PullSource,
+    leaseId: string,
+  ): Promise<boolean> {
+    const n = await tx.$executeRaw`
+      UPDATE connector_cursor
+         SET lease_until = now() + (${PULL_LEASE_MS}::int * interval '1 millisecond'),
+             updated_at = now()
+       WHERE tenant_id = ${tenantId}::uuid AND ${this.cursorWhere(source)} AND lease_id = ${leaseId}::uuid`;
+    return n === 1;
   }
 
   /**
