@@ -448,7 +448,7 @@ export interface MasterImportDef {
    */
   selfRef?: { column: string; identities(values: Record<string, string>): string[] };
   /** โควตา (MD-289 · D68-21): นับเฉพาะแถวที่จะสร้างใหม่จริง (ผ่านการตรวจ) — เกิน = คำเตือนรายแถว ไม่ปฏิเสธไฟล์ */
-  quota?(tx: Tx): Promise<{ limit: number; used: number; label: string } | null>;
+  quota?(tx: Tx): Promise<{ limit: number; used: number; label: string; unit: string } | null>;
   /** แถว → body ของ API (create = POST, update = PATCH; current = แถวเดิมเมื่อแก้) */
   build(
     r: RowReader,
@@ -704,7 +704,7 @@ export function defineMasterImport(def: MasterImportDef): ImportSpec<MasterValue
             x.issues.push({
               code: 'quota_exceeded',
               severity: 'warning',
-              message: `${quota.label}ในทะเบียนจะเป็น ${quota.used + creates} คัน เกินโควตา ${quota.limit} คัน — ยังนำเข้าได้ (โควตาคิดจาก${quota.label} active ที่มีเที่ยวในเดือน)`,
+              message: `${quota.label}ในทะเบียนจะเป็น ${quota.used + creates} ${quota.unit} เกินโควตา ${quota.limit} ${quota.unit} — ยังนำเข้าได้ (โควตาคิดจาก${quota.label} active ที่มีเที่ยวในเดือน)`,
             });
       }
       const keep =

@@ -69950,7 +69950,8 @@
           },
           "code": {
             "type": "string",
-            "example": "required"
+            "example": "required",
+            "description": "รหัสปัญหาของแถว · `severity: warning` = ไม่ขวางการนำเข้า เช่น `quota_exceeded` (D-81 · D68-21: แถวรถใหม่ส่วนที่เกินโควตา — ยังนำเข้าได้ ไม่ปฏิเสธทั้งไฟล์), `leading_zero_restored`"
           },
           "message": {
             "type": "string"

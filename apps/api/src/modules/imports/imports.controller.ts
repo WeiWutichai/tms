@@ -132,7 +132,13 @@ export class ImportIssueDto {
   @ApiProperty({ description: 'เลขแถวในไฟล์ (ตรงกับ Excel)' }) row!: number;
   @ApiPropertyOptional() column?: string;
   @ApiPropertyOptional() value?: string;
-  @ApiProperty({ example: 'required' }) code!: string;
+  @ApiProperty({
+    example: 'required',
+    description:
+      'รหัสปัญหาของแถว · `severity: warning` = ไม่ขวางการนำเข้า เช่น `quota_exceeded` (D-81 · D68-21: แถวรถใหม่ส่วนที่เกินโควตา — ' +
+      'ยังนำเข้าได้ ไม่ปฏิเสธทั้งไฟล์), `leading_zero_restored`',
+  })
+  code!: string;
   @ApiProperty() message!: string;
   @ApiProperty({ enum: ['error', 'warning'] }) severity!: string;
 }

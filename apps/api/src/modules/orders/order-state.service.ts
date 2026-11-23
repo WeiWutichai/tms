@@ -335,6 +335,10 @@ export class OrderStateService {
   /**
    * D-81 · D68-35 "DO ที่เหลือออกรถ" (docs/01 §4.1 PARTIALLY_DELIVERED → IN_TRANSIT): DO ที่วิ่งอยู่ออกรถ (dispatch/restore)
    * หลังการส่งถึง (deliver) ครั้งล่าสุดของ DO ใน SO — อ่านจาก doc_status_history (เวลาเท่ากัน = ไม่นับว่าออกหลัง)
+   *
+   * ข้อจำกัด (ยอมรับได้ก่อน pilot — D-76): ลำดับใช้ `doc_status_history.at` = เวลาเริ่ม transaction (`now()`) ไม่ใช่เวลาเกิดเหตุ —
+   * event ที่เกิดพร้อมกัน/ซิงก์มาทีหลัง (offline) อาจทำให้ SO คง PARTIALLY_DELIVERED ทั้งที่ DO ที่เหลือออกรถหลังการส่งถึงจริง ·
+   * DO ที่ส่งถึงแล้วแต่ไม่มีประวัติ `deliver` (ข้อมูลเก่า/ทางอื่น) ไม่มีเวลาส่งถึงให้เทียบ → DO ที่วิ่งอยู่นับเป็น "ออกหลัง" (resume)
    */
   private async movedAfterDelivery(
     tx: Tx,

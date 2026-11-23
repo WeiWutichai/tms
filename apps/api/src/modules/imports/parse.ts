@@ -15,12 +15,7 @@ export interface ParsedSheet {
 export class ImportFileError extends Error {
   constructor(
     readonly code:
-      | 'no_header'
-      | 'too_many_rows'
-      | 'unreadable'
-      | 'duplicate_header'
-      | 'file_rejected'
-      | 'quota_exceeded',
+      'no_header' | 'too_many_rows' | 'unreadable' | 'duplicate_header' | 'file_rejected',
     message: string,
   ) {
     super(message);
