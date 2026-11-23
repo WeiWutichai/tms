@@ -3530,46 +3530,46 @@ enum ExternalMappingStatus {
 ///   คน map ครั้งเดียว = ได้ทั้งสองรหัส (adapter `deriveCustomerCode`) · ตารางเดียวกันใช้กับเอกสาร/hash/เลขเอกสารฝั่ง ERP ใน ST7-T15
 /// ไม่มี hard delete — ยกเลิก = external_id null / status RETIRED
 model ExternalMapping {
-  id              String                @id @default(uuid()) @db.Uuid
-  tenantId        String                @map("tenant_id") @db.Uuid
-  connectorId     String                @map("connector_id") @db.Uuid
-  connector       Connector             @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  entityType      ExternalEntityType    @map("entity_type")
+  id               String                  @id @default(uuid()) @db.Uuid
+  tenantId         String                  @map("tenant_id") @db.Uuid
+  connectorId      String                  @map("connector_id") @db.Uuid
+  connector        Connector               @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  entityType       ExternalEntityType      @map("entity_type")
   /// id ฝั่ง TMS (uuid ของ entity)
-  localId         String                @map("local_id") @db.Uuid
+  localId          String                  @map("local_id") @db.Uuid
   /// id/รหัสฝั่ง ERP ที่ใช้เป็น key (เช่น transactionNo, custOrSuppCode) — null = ยังไม่ map
-  externalId      String?               @map("external_id")
+  externalId       String?                 @map("external_id")
   /// เลขเอกสารที่ ERP ออก (เช่น voucherNo)
-  externalDocNo   String?               @map("external_doc_no")
-  externalVersion String?               @map("external_version")
+  externalDocNo    String?                 @map("external_doc_no")
+  externalVersion  String?                 @map("external_version")
   /// ST8-T05 รหัสของ entity นี้ในข้อมูลขาเข้าของ connector (จับคู่ตอนดึง) — null = ไม่มี/ใช้ external_id
-  sourceCode      String?               @map("source_code")
+  sourceCode       String?                 @map("source_code")
   /// ST8-T16 เลขเอกสาร TMS ตอนส่ง (invoice_no / settlement_no / payment_no) — หาเอกสารจากเลขใน webhook
-  localNumber     String?               @map("local_number")
+  localNumber      String?                 @map("local_number")
   /// ST8-T16 สถานะเอกสารฝั่ง ERP (แยกจาก `status` ของการซิงก์): DRAFT / POSTED / VOIDED / PAID
-  externalStatus  String?               @map("external_status")
+  externalStatus   String?                 @map("external_status")
   /// ST8-T16 รายละเอียดจาก ERP (เลขใบจ่าย / เลข 50 ทวิ / เหตุยกเลิก) — ห้ามมี credential
-  detail          Json?
+  detail           Json?
   /// ST7-T21 เวลาที่รอบ "Payment status pull" ถามสถานะรับชำระของเอกสารนี้ล่าสุด — รอบถัดไปเริ่มจากใบที่ถามนานสุด (ท้ายแถวไม่อด)
-  paymentCheckedAt DateTime?            @map("payment_checked_at") @db.Timestamptz(6)
+  paymentCheckedAt DateTime?               @map("payment_checked_at") @db.Timestamptz(6)
   /// ST8-T11 ผลกระทบยอดเนื้อหาเอกสารล่าสุด (docs/01 §4.4 `SENT → ACCEPTED / MISMATCH`) — null = ยังไม่เคยเทียบ (ส่งแล้ว = SENT)
   /// แยกจาก `status` (ผลการส่ง/ซิงก์) · ACCEPTED = อ่านกลับแล้วตรง หรือคนยอมรับส่วนต่างนั้นแล้ว
-  reconcileState  ReconcileDocumentState? @map("reconcile_state")
+  reconcileState   ReconcileDocumentState? @map("reconcile_state")
   /// ST8-T11 เวลาที่เทียบเนื้อหาล่าสุด
-  reconciledAt    DateTime?             @map("reconciled_at") @db.Timestamptz(6)
+  reconciledAt     DateTime?               @map("reconciled_at") @db.Timestamptz(6)
   /// sha256 ของ canonical payload ล่าสุดที่ส่งสำเร็จ (ST7-T15)
-  lastSyncedHash  String?               @map("last_synced_hash")
+  lastSyncedHash   String?                 @map("last_synced_hash")
   /// ST7-T16 hash แยกตามกลุ่ม field (CUSTOMER / DATES / PRICE / ACCESSORIAL / OTHER) ของ payload ล่าสุดที่ส่งสำเร็จ —
   /// ใช้ตัดสินว่าเอกสารที่ส่งแล้วเปลี่ยนกลุ่มไหน (`fieldChangePolicy`) · null = ไม่รู้ (ถือว่าเปลี่ยนทุกกลุ่ม)
-  lastSyncedParts Json?                 @map("last_synced_parts")
-  lastSyncedAt    DateTime?             @map("last_synced_at") @db.Timestamptz(6)
-  status          ExternalMappingStatus @default(PENDING)
-  lastError       Json?                 @map("last_error")
-  createdBy       String?               @map("created_by")
-  updatedBy       String?               @map("updated_by")
-  version         Int                   @default(1)
-  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  lastSyncedParts  Json?                   @map("last_synced_parts")
+  lastSyncedAt     DateTime?               @map("last_synced_at") @db.Timestamptz(6)
+  status           ExternalMappingStatus   @default(PENDING)
+  lastError        Json?                   @map("last_error")
+  createdBy        String?                 @map("created_by")
+  updatedBy        String?                 @map("updated_by")
+  version          Int                     @default(1)
+  createdAt        DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([connectorId, entityType, localId])
   @@unique([connectorId, entityType, externalId])
@@ -3699,33 +3699,48 @@ enum ReconcileSeverity {
 /// - `acknowledged_*` / `ack_reason`: คนยอมรับความต่างพร้อมเหตุผล — route ปิดรายการ = ST8-T12
 /// - ไม่มี hard delete (REVOKE DELETE) · snapshot/diff ห้ามมี credential
 model ReconcileResult {
-  id             String             @id @default(uuid()) @db.Uuid
-  tenantId       String             @map("tenant_id") @db.Uuid
-  connectorId    String             @map("connector_id") @db.Uuid
-  connector      Connector          @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  entityType     ExternalEntityType @map("entity_type")
+  id                      String             @id @default(uuid()) @db.Uuid
+  tenantId                String             @map("tenant_id") @db.Uuid
+  connectorId             String             @map("connector_id") @db.Uuid
+  connector               Connector          @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  entityType              ExternalEntityType @map("entity_type")
   /// id ฝั่ง TMS (uuid ของ entity)
-  localId        String             @map("local_id") @db.Uuid
+  localId                 String             @map("local_id") @db.Uuid
   /// เลขเอกสาร TMS ณ เวลาที่ตรวจ (แสดงผล/ค้นหา)
-  localNumber    String?            @map("local_number")
-  runAt          DateTime           @map("run_at") @db.Timestamptz(6)
-  source         ReconcileSource
-  localSnapshot  Json               @map("local_snapshot")
-  remoteSnapshot Json               @map("remote_snapshot")
+  localNumber             String?            @map("local_number")
+  runAt                   DateTime           @map("run_at") @db.Timestamptz(6)
+  source                  ReconcileSource
+  localSnapshot           Json               @map("local_snapshot")
+  remoteSnapshot          Json               @map("remote_snapshot")
   /// รายการที่ต่าง — ST7-T21: `{check: 'PAYMENT_STATUS', code, ...}`
-  diff           Json
-  diffHash       String             @map("diff_hash") @db.Char(64)
-  result         ReconcileOutcome
-  severity       ReconcileSeverity
-  acknowledgedBy String?            @map("acknowledged_by")
-  acknowledgedAt DateTime?          @map("acknowledged_at") @db.Timestamptz(6)
-  ackReason      String?            @map("ack_reason")
+  diff                    Json
+  diffHash                String             @map("diff_hash") @db.Char(64)
+  result                  ReconcileOutcome
+  severity                ReconcileSeverity
+  acknowledgedBy          String?            @map("acknowledged_by")
+  acknowledgedAt          DateTime?          @map("acknowledged_at") @db.Timestamptz(6)
+  ackReason               String?            @map("ack_reason")
+  /// ST8-T12 ผู้ปิด (คน — แก้ที่ TMS) · null = ระบบปิดเอง
+  resolvedBy              String?            @map("resolved_by")
+  /// ST8-T12 วิธีปิด: FIXED_IN_TMS (ยกเลิก+ออกใหม่ — D-54) / ERP_OVERWRITTEN (ส่งทับที่อนุมัติแล้ว รอบถัดไปตรง) / NEXT_RUN_MATCHED
+  resolution              String?
+  resolutionReason        String?            @map("resolution_reason")
+  /// ST8-T12 ส่งทับระบบบัญชีด้วยค่า TMS (ต้องอนุมัติ — ผู้อนุมัติ ≠ ผู้ขอ): REQUESTED / APPROVED / REJECTED
+  overwriteStatus         String?            @map("overwrite_status")
+  overwriteRequestedBy    String?            @map("overwrite_requested_by")
+  overwriteRequestedAt    DateTime?          @map("overwrite_requested_at") @db.Timestamptz(6)
+  overwriteReason         String?            @map("overwrite_reason")
+  overwriteDecidedBy      String?            @map("overwrite_decided_by")
+  overwriteDecidedAt      DateTime?          @map("overwrite_decided_at") @db.Timestamptz(6)
+  overwriteDecisionReason String?            @map("overwrite_decision_reason")
+  /// คำสั่ง REPLACE_DOCUMENT/PUSH_* ที่สร้างตอนอนุมัติ (integration_outbox.id)
+  overwriteCommandId      String?            @map("overwrite_command_id") @db.Uuid
   /// ระบบปิดเอง: รอบถัดไปตรงกัน หรือส่วนต่างเปลี่ยน (มีแถวใหม่แทน)
-  resolvedAt     DateTime?          @map("resolved_at") @db.Timestamptz(6)
+  resolvedAt              DateTime?          @map("resolved_at") @db.Timestamptz(6)
   /// รอบล่าสุดที่ยังเห็นส่วนต่างเดิม (ไม่สร้างแถวซ้ำ)
-  lastSeenAt     DateTime           @map("last_seen_at") @db.Timestamptz(6)
-  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  lastSeenAt              DateTime           @map("last_seen_at") @db.Timestamptz(6)
+  createdAt               DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([tenantId, updatedAt, id])
   @@index([tenantId, entityType, localId])

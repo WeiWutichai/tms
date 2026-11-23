@@ -80,7 +80,11 @@ describe('Push pipeline (ST7-T16)', () => {
   const settings = (conId: string, s: Record<string, string>) =>
     api(app, token).patch(`/v1/connectors/${conId}`).send({ settings: s }).expect(200);
 
-  async function enqueue(connectorId: string, document: CanonicalDocument) {
+  async function enqueue(
+    connectorId: string,
+    document: CanonicalDocument,
+    extra: Record<string, unknown> = {},
+  ) {
     const { id } = await db.withTenant(tenantId, (tx) =>
       app.get(OutboxService).enqueueCommand(tx, {
         tenantId,
@@ -91,7 +95,7 @@ describe('Push pipeline (ST7-T16)', () => {
         entityType: 'invoice',
         localId: document.id,
         customerId,
-        payload: { document },
+        payload: { document, ...extra },
       }),
     );
     return id;
@@ -420,6 +424,13 @@ describe('Push pipeline (ST7-T16)', () => {
       code: 'replace_requires_approval',
       changed: ['DATES'],
     });
+    // ST8-T12 คำสั่งส่งทับที่คนอนุมัติแล้ว (หน้า MISMATCH — `payload.approval`) ผ่านประตูนี้ → แทนที่จริง
+    const r3a = await enqueue(con.uuid, dates, {
+      approval: { reconcileResultId: 'rec_x', approvedBy: 'u-appr', requestedBy: 'u-acc' },
+    });
+    await drain();
+    expect(await cmd(r3a)).toMatchObject({ status: 'DONE', result: { applied: true } });
+    expect(demo.documents(tenantId, con.uuid)[0]!.version).toBe(3);
     await plat.externalMapping.update({ where: { id: m2.id }, data: { externalStatus: 'DRAFT' } });
 
     // รับชำระแล้ว → BLOCKED paid_locked (กฎ "แก้ได้จนรับชำระ")
@@ -428,7 +439,7 @@ describe('Push pipeline (ST7-T16)', () => {
     const r4 = await enqueue(con.uuid, late);
     await drain();
     expect((await cmd(r4)).lastError).toMatchObject({ code: 'paid_locked' });
-    expect(demo.documents(tenantId, con.uuid)[0]!.version).toBe(2);
+    expect(demo.documents(tenantId, con.uuid)[0]!.version).toBe(3);
   });
 
   it('เปลี่ยนแบบ AUTO_SYNC แต่ระบบบัญชีไม่มี/ไม่เปิด replaceDocument → SKIPPED replace_not_supported (แจ้งบัญชีแก้เอง — TMS ไม่ออกใบลด/เพิ่มหนี้ D-54)', async () => {

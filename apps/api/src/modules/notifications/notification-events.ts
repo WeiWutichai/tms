@@ -330,7 +330,7 @@ export class NotificationEvents implements OnModuleInit {
    * · ส่วนต่างเดิม (diff_hash เท่าเดิม) ไม่ถึงที่นี่ — ผู้เรียกแจ้งเฉพาะ `created`
    * · กันท่วม (รอบรายวันอ่านหลายร้อยใบ): ผู้รับที่มีแจ้งเตือนเดียวกันของ connector นี้ **ยังไม่อ่าน** ภายใน `DOC_NOT_SENT_GROUP_MS`
    *   → รวมเข้าแถวเดิม (เพิ่มจำนวน + ตัวอย่างเลขไม่เกิน 5 · ไม่ส่งอีเมลซ้ำ) — ยกเว้นแถวเดิมไม่มี MONEY แต่ครั้งนี้มี (แจ้งใหม่พร้อมอีเมล)
-   * · ไม่ใส่ยอดเงิน · ลิงก์หน้าวางบิล (หน้า MISMATCH = ST8-T12)
+   * · ไม่ใส่ยอดเงิน · ลิงก์หน้า MISMATCH แท็บ "ไม่ตรง" (ST8-T12)
    */
   async documentMismatch(
     tx: Tx,
@@ -397,7 +397,7 @@ export class NotificationEvents implements OnModuleInit {
         template,
         vars: { label: input.label, connectorId: connectorRef, count: 1, invoiceNos: [no], money },
         channels: money ? ['in_app', 'email'] : ['in_app'],
-        link: '/bill',
+        link: '/erp?tab=mm',
         entity: { type: 'invoice', id: invoiceRef },
       });
     });

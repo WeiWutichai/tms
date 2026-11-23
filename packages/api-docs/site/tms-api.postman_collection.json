@@ -17398,6 +17398,24 @@
                   "value": "",
                   "description": "",
                   "disabled": true
+                },
+                {
+                  "key": "check",
+                  "value": "",
+                  "description": "PAYMENT_STATUS = ยอดรับชำระ · DOCUMENT = เนื้อหาเอกสาร (หน้า MISMATCH)",
+                  "disabled": true
+                },
+                {
+                  "key": "actionable",
+                  "value": "",
+                  "description": "`true` = เฉพาะรายการที่ต้องมีคนตัดสิน (severity MONEY/FIELD — ไม่รวม INFO: อ่านเอกสารไม่ได้ / เทียบไม่ได้)",
+                  "disabled": true
+                },
+                {
+                  "key": "overwriteStatus",
+                  "value": "",
+                  "description": "ขั้นของ \"ส่งทับระบบบัญชีด้วยค่า TMS\": REQUESTED = รออนุมัติ · APPROVED = อนุมัติแล้ว รอส่ง/รอรอบเทียบ · REJECTED · NONE = ยังไม่มีคำขอ (หรือถูกปฏิเสธ)",
+                  "disabled": true
                 }
               ]
             },
@@ -17439,6 +17457,283 @@
               ]
             },
             "description": "scope: integrations:read"
+          }
+        },
+        {
+          "name": "ยอมรับความต่าง (ack) พร้อมเหตุผล — ปิดรายการไม่ตรงทางที่ 3",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/reconcile-results/:id/acknowledge",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "reconcile-results",
+                ":id",
+                "acknowledge"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: integrations:retry\n\nสิทธิ์ `integrations:retry` (ฝ่ายบัญชี) · คนเท่านั้น (API key → 403) · ใช้ได้กับรายการ `result` MISMATCH / REMOTE_MISSING ที่ยังเปิด (ทั้งยอดรับชำระและเนื้อหาเอกสาร) · เนื้อหาเอกสาร: `sync.reconcileState` ของใบ → ACCEPTED · มีคำขอส่งทับค้าง → 409 `overwrite_in_progress` · ปิดแล้ว/ยอมรับแล้ว → 409 (`already_resolved` / `already_acknowledged`) · audit `reconcile.mismatch_acknowledged`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ปิดรายการไม่ตรงทาง \"แก้ที่ TMS\" — ใบยกเลิกแล้ว (ออกใบใหม่แทน)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/reconcile-results/:id/resolve-in-tms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "reconcile-results",
+                ":id",
+                "resolve-in-tms"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: integrations:retry\n\n**:** ใบลด/เพิ่มหนี้ไม่อยู่ใน TMS เฟส 0 → ระหว่างรอ ยกเลิกใบแล้วออกใหม่ด้วย `POST /invoices/{id}/void` (`reissue: true` — สิทธิ์ `invoices:void` + step-up ตาม endpoint นั้น) แล้วเรียก endpoint นี้ปิดรายการ · สิทธิ์ `integrations:retry` · คนเท่านั้น · เฉพาะเนื้อหาเอกสาร (`check` DOCUMENT) ที่ยังเปิด · ใบยังไม่ยกเลิก → 409 `invoice_not_voided` · `resolution` FIXED_IN_TMS + audit `reconcile.mismatch_closed` (ผู้ทำ + เหตุผล + ใบที่ออกแทน)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ขออนุมัติส่งทับระบบบัญชีด้วยค่า TMS (ทางที่ 2 \"TMS ถูก\")",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/reconcile-results/:id/overwrite-request",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "reconcile-results",
+                ":id",
+                "overwrite-request"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: integrations:retry\n\nสิทธิ์ `integrations:retry` · คนเท่านั้น · เฉพาะเนื้อหาเอกสารที่ยังเปิด · ใบยกเลิกแล้ว → 409 `invoice_voided` · connector ยกเลิกการเชื่อม → 409 `connector_disconnected` · ระบบบัญชีแทนที่เอกสารไม่ได้/ไม่เปิด → 409 `replace_not_supported` · มีคำขอค้าง → 409 `overwrite_in_progress` · ถูกปฏิเสธแล้วขอใหม่ได้ · audit `reconcile.overwrite_requested`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "อนุมัติส่งทับระบบบัญชีด้วยค่า TMS → คำสั่งแทนที่เอกสาร",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/reconcile-results/:id/overwrite-request/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "reconcile-results",
+                ":id",
+                "overwrite-request",
+                "approve"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: credit-notes:approve\n\nสิทธิ์ `credit-notes:approve` · คนเท่านั้น · **ผู้อนุมัติต้องไม่ใช่ผู้ขอ** (403 `self_approval_forbidden`) · สร้างคำสั่ง REPLACE_DOCUMENT ด้วยเอกสารฉบับที่ออก (`ErpSyncService.resend` — คำสั่งนี้ผ่านประตู \"ลงบัญชีแล้วต้องอนุมัติ\") · ระบบบัญชีที่ประกาศแต่ยังไม่ได้ทำการแทนที่ = **พักไว้**: บันทึกการอนุมัติ ไม่สร้างคำสั่ง (`overwrite.commandId` null · `commandErrorCode` = `capability_not_implemented` — คำสั่งที่พักในคิวจะกั้นเอกสารอื่นของลูกค้า) · รอบเทียบหลังส่งตรงกัน = ปิดเอง (`resolution` ERP_OVERWRITTEN) · ไม่มีคำขอ → 409 `overwrite_not_requested` · audit `reconcile.overwrite_approved` (+ `commandId`)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ไม่อนุมัติการส่งทับ — รายการกลับเป็น \"ไม่ตรง\"",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Tms-Mode",
+                "value": "",
+                "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/reconcile-results/:id/overwrite-request/reject",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "reconcile-results",
+                ":id",
+                "overwrite-request",
+                "reject"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: credit-notes:approve\n\nสิทธิ์ `credit-notes:approve` · คนเท่านั้น · ผู้ปฏิเสธต้องไม่ใช่ผู้ขอ · ขอใหม่ได้ · audit `reconcile.overwrite_rejected`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           }
         },
         {

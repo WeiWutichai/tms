@@ -25,6 +25,7 @@ export const NAV_BADGE_KEYS = [
   'bill',
   'pay',
   'settle',
+  'erp',
   'fdoc',
   'rate',
 ] as const;
@@ -38,6 +39,7 @@ const ACCESS: Record<NavBadgeKey, { perm: string[]; feature?: string }> = {
   bill: { perm: ['invoices:read'] },
   pay: { perm: ['invoices:read'] },
   settle: { perm: ['settlements:read'], feature: 'settle' },
+  erp: { perm: ['integrations:read'], feature: 'conn' },
   fdoc: { perm: ['master:read'], feature: 'fleet' },
   rate: { perm: ['master:read'] },
 };
@@ -46,7 +48,7 @@ export class NavBadgeDto {
   @ApiProperty({
     enum: NAV_BADGE_KEYS,
     description:
-      'เมนู: plan กระดานวางแผน (SO รอจัด) · exc ศูนย์ข้อยกเว้น (ธงรอตัดสิน) · so ใบสั่งขนส่ง (ค้าง: รอกำหนดเส้นทาง + ยังไม่จับคู่ลูกค้า) · bill วางบิล (DO พร้อมวางบิล) · pay รับชำระ (ใบแจ้งหนี้เกินกำหนด) · settle Settlement รถร่วม (รอตรวจ + รออนุมัติ) · fdoc เอกสารรถ (หมดอายุ/จะหมดใน 30 วัน) · rate Rate card (รออนุมัติ)',
+      'เมนู: plan กระดานวางแผน (SO รอจัด) · exc ศูนย์ข้อยกเว้น (ธงรอตัดสิน) · so ใบสั่งขนส่ง (ค้าง: รอกำหนดเส้นทาง + ยังไม่จับคู่ลูกค้า) · bill วางบิล (DO พร้อมวางบิล) · pay รับชำระ (ใบแจ้งหนี้เกินกำหนด) · settle Settlement รถร่วม (รอตรวจ + รออนุมัติ) · erp คิวเชื่อมระบบบัญชี (ST8-T12: เนื้อหาเอกสารไม่ตรงที่ยังเปิด — ไม่ตรง + รออนุมัติ + รอส่งซ้ำ; ส่วนคิวส่งไม่สำเร็จรอ PO #86) · fdoc เอกสารรถ (หมดอายุ/จะหมดใน 30 วัน) · rate Rate card (รออนุมัติ)',
   })
   key!: NavBadgeKey;
   @ApiProperty({ example: 3, description: 'จำนวนงานค้าง (0 = ไม่แสดง badge)' }) count!: number;
@@ -92,6 +94,16 @@ export class NavBadgesService {
         // แท็บ "รอตรวจ" (DRAFT, DISPUTED) + "รออนุมัติ" (SENT_TO_CARRIER) ของหน้า settle
         return tx.carrierSettlement.count({
           where: { status: { in: ['DRAFT', 'DISPUTED', 'SENT_TO_CARRIER'] } },
+        });
+      case 'erp':
+        // ST8-T12 รายการไม่ตรง (เนื้อหาเอกสาร) ที่ยังเปิด — ชุดเดียวกับแท็บ "ทั้งหมด" ที่ยังไม่ปิดของหน้า `erp`
+        return tx.reconcileResult.count({
+          where: {
+            resolvedAt: null,
+            acknowledgedAt: null,
+            severity: { in: ['MONEY', 'FIELD'] },
+            diff: { path: ['check'], equals: 'DOCUMENT' },
+          },
         });
       case 'fdoc':
         return this.docs.dueCount(30);

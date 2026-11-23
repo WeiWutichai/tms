@@ -121,6 +121,7 @@ import { ErpInboundEffects } from './modules/erp/erp-inbound-effects';
 import { PaymentStatusPullService } from './modules/erp/payment-status-pull.service';
 import { DocumentReconcileService } from './modules/erp/document-reconcile.service';
 import { ReconcileController } from './modules/erp/reconcile.controller';
+import { ReconcileCloseService } from './modules/erp/reconcile-close.service';
 import { ReconcileResultsService } from './modules/erp/reconcile-results.service';
 import { ErpAdaptersBootstrap } from './erp-adapters';
 import {
@@ -517,6 +518,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ConnectorQueueService,
     ErpInboundEffects,
     ReconcileResultsService,
+    ReconcileCloseService,
     PaymentStatusPullService,
     DocumentReconcileService,
     ErpAdaptersBootstrap,

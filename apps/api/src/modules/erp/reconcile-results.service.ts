@@ -5,8 +5,10 @@ import { AuditService } from '../../audit/audit.service';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException } from '../../common/problem';
+import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { canonicalJson } from '../integration/outbox.service';
+import { ErpAdapterRegistry } from './erp-adapter.registry';
 import {
   type CompareResult,
   type DocumentDiff,
@@ -156,6 +158,7 @@ export class ReconcileResultsService {
   constructor(
     private readonly db: DbService,
     private readonly audit: AuditService,
+    private readonly adapters: ErpAdapterRegistry,
   ) {}
 
   /** คืน `created: false` เมื่อส่วนต่างเดิมยังเปิดอยู่ (ไม่แจ้งซ้ำ) */
@@ -247,7 +250,10 @@ export class ReconcileResultsService {
       (r) => (r.diff as { check?: unknown } | null)?.check === RECONCILE_CHECK_PAYMENT_STATUS,
     );
     for (const r of mine) {
-      await tx.reconcileResult.update({ where: { id: r.id }, data: { resolvedAt: at } });
+      await tx.reconcileResult.update({
+        where: { id: r.id },
+        data: { resolvedAt: at, resolution: 'NEXT_RUN_MATCHED' },
+      });
       await this.audit.record({
         action: 'reconcile.mismatch_resolved',
         entityType: ENTITY,
@@ -281,19 +287,33 @@ export class ReconcileResultsService {
     const openDocs = (
       await tx.reconcileResult.findMany({
         where: scope,
-        select: { id: true, diff: true, diffHash: true, acknowledgedAt: true, result: true },
+        select: {
+          id: true,
+          diff: true,
+          diffHash: true,
+          acknowledgedAt: true,
+          result: true,
+          overwriteStatus: true,
+        },
       })
     ).filter((r) => (r.diff as { check?: unknown } | null)?.check === RECONCILE_CHECK_DOCUMENT);
     const o = m.outcome;
     if (o.kind === 'MATCH') {
       for (const r of openDocs) {
-        await tx.reconcileResult.update({ where: { id: r.id }, data: { resolvedAt: m.runAt } });
+        // ST8-T12 ส่งทับที่อนุมัติแล้วแล้วรอบถัดไปตรง = ปิดทาง "TMS ถูก" (ERP_OVERWRITTEN) · อื่น ๆ = ตรงเอง
+        const resolution =
+          r.overwriteStatus === 'APPROVED' ? 'ERP_OVERWRITTEN' : 'NEXT_RUN_MATCHED';
+        await tx.reconcileResult.update({
+          where: { id: r.id },
+          data: { resolvedAt: m.runAt, resolution },
+        });
         await this.audit.record({
           action: 'reconcile.mismatch_resolved',
           entityType: ENTITY,
           entityId: r.id,
           after: {
             check: RECONCILE_CHECK_DOCUMENT,
+            resolution,
             resolvedBy: 'next_run_matched',
             source: m.source,
             connector: m.adapterKey,
@@ -421,9 +441,9 @@ export class ReconcileResultsService {
    * ACCEPTED (รอบนี้ตรง / คนยอมรับส่วนต่าง) — mapping ที่ reconcile ตั้ง MISMATCH ไว้คืน SYNCED ·
    * MISMATCH — mapping `status` MISMATCH + `last_error` (รหัส reconcile) ให้หน้าคิว/การส่งใหม่เห็น
    */
-  private async setMappingState(
+  async setMappingState(
     tx: Tx,
-    m: DocumentOutcomeInput,
+    m: Pick<DocumentOutcomeInput, 'connectorId' | 'entityType' | 'localId' | 'runAt' | 'source'>,
     state: 'ACCEPTED' | 'MISMATCH',
     code: string | null,
     resultId?: string,
@@ -486,36 +506,125 @@ export class ReconcileResultsService {
     if (q.invoiceId !== undefined)
       and.push({ entityType: 'INVOICE', localId: tryDecodeId('invoice', q.invoiceId) ?? NONE });
     if (q.severity) and.push({ severity: q.severity });
+    // ST8-T12 ตัวกรองของหน้า MISMATCH
+    if (q.check) and.push({ diff: { path: ['check'], equals: q.check } });
+    if (q.actionable === 'true') and.push({ severity: { in: ['MONEY', 'FIELD'] } });
+    else if (q.actionable === 'false') and.push({ severity: 'INFO' });
+    if (q.overwriteStatus === 'NONE')
+      and.push({ OR: [{ overwriteStatus: null }, { overwriteStatus: 'REJECTED' }] });
+    else if (q.overwriteStatus) and.push({ overwriteStatus: q.overwriteStatus });
     const rows = await tx.reconcileResult.findMany({
       where: { AND: and },
       orderBy: k.orderBy as unknown as Prisma.ReconcileResultOrderByWithRelationInput[],
       take: k.take,
       include: { connector: { select: { adapterKey: true } } },
     });
-    return toPage(rows, k, toReconcileResultDto, q.fields) as ReconcileResultPageDto;
+    const ctx = await this.context(tx, rows.slice(0, k.limit));
+    return toPage(rows, k, (r) => toReconcileResultDto(r, ctx), q.fields) as ReconcileResultPageDto;
   }
 
   async get(id: string): Promise<ReconcileResultDto> {
-    const r = await this.db.tx.reconcileResult.findUnique({
+    const tx = this.db.tx;
+    const r = await tx.reconcileResult.findUnique({
       where: { id },
       include: { connector: { select: { adapterKey: true } } },
     });
     if (!r) throw new ProblemException('not_found');
-    return toReconcileResultDto(r);
+    return toReconcileResultDto(r, await this.context(tx, [r]));
   }
+
+  /** ST8-T12 ข้อมูลประกอบของหน้า MISMATCH (ลูกค้า สถานะใบ ใบที่ออกแทน การส่ง คำสั่งส่งทับ) — ดึงเป็นชุดต่อหน้า */
+  private async context(tx: Tx, rows: ReconcileResult[]): Promise<ResultContext> {
+    const invIds = [
+      ...new Set(rows.filter((r) => r.entityType === 'INVOICE').map((r) => r.localId)),
+    ];
+    const cmdIds = rows.map((r) => r.overwriteCommandId).filter((x): x is string => !!x);
+    const [invoices, sends, commands] = await Promise.all([
+      invIds.length
+        ? tx.invoice.findMany({
+            where: { id: { in: invIds } },
+            select: {
+              id: true,
+              status: true,
+              customerId: true,
+              customerSnapshot: true,
+              customer: { select: { legalName: true } },
+              replacedBy: {
+                select: { id: true, invoiceNo: true },
+                orderBy: { createdAt: 'desc' },
+                take: 1,
+              },
+            },
+          })
+        : [],
+      invIds.length
+        ? tx.$queryRaw<{ local_id: string; target_id: string; n: bigint; last: Date | null }[]>`
+            SELECT local_id, target_id, count(*) AS n, max(COALESCE(done_at, created_at)) AS last
+              FROM integration_outbox
+             WHERE sink = ${ERP_SINK_KEY} AND entity_type = 'invoice'
+               AND operation IN ('PUSH_INVOICE', 'REPLACE_DOCUMENT')
+               AND local_id IN (${Prisma.join(invIds.map((x) => Prisma.sql`${x}::uuid`))})
+             GROUP BY local_id, target_id`
+        : [],
+      cmdIds.length
+        ? tx.integrationOutbox.findMany({
+            where: { id: { in: cmdIds } },
+            select: { id: true, status: true, lastError: true },
+          })
+        : [],
+    ]);
+    return {
+      invoices: new Map(invoices.map((i) => [i.id, i])),
+      sends: new Map(sends.map((x) => [`${x.local_id}:${x.target_id}`, x])),
+      commands: new Map(commands.map((c) => [c.id, c])),
+      actorId: requestContext.get()?.actorId ?? null,
+      adapterName: (key) => this.adapters.get(key)?.displayName ?? null,
+    };
+  }
+}
+
+/** sink key ของคำสั่ง ERP (ค่าเดียวกับ `ERP_SINK` — ไม่ import sink เพื่อกันวนของโมดูล) */
+const ERP_SINK_KEY = 'erp';
+
+interface ResultContext {
+  invoices: Map<
+    string,
+    {
+      id: string;
+      status: string;
+      customerId: string;
+      customerSnapshot: unknown;
+      customer: { legalName: string };
+      replacedBy: { id: string; invoiceNo: string | null }[];
+    }
+  >;
+  sends: Map<string, { n: bigint; last: Date | null }>;
+  commands: Map<string, { id: string; status: string; lastError: unknown }>;
+  actorId: string | null;
+  adapterName: (key: string) => string | null;
 }
 
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 
-export function toReconcileResultDto(
+function toReconcileResultDto(
   r: ReconcileResult & { connector: { adapterKey: string } },
+  ctx: ResultContext,
 ): ReconcileResultDto {
   const diff = (r.diff ?? {}) as Record<string, unknown>;
   const remote = (r.remoteSnapshot ?? {}) as Record<string, unknown>;
   const local = (r.localSnapshot ?? {}) as Record<string, unknown>;
+  const inv = r.entityType === 'INVOICE' ? ctx.invoices.get(r.localId) : undefined;
+  const snap = (inv?.customerSnapshot ?? null) as { name?: unknown } | null;
+  const send = ctx.sends.get(`${r.localId}:${r.connectorId}`);
+  const cmd = r.overwriteCommandId ? ctx.commands.get(r.overwriteCommandId) : undefined;
+  const rep = inv?.replacedBy[0];
   return {
     id: encodeId('reconcileResult', r.id),
-    connector: { id: encodeId('connector', r.connectorId), adapterKey: r.connector.adapterKey },
+    connector: {
+      id: encodeId('connector', r.connectorId),
+      adapterKey: r.connector.adapterKey,
+      displayName: ctx.adapterName(r.connector.adapterKey),
+    },
     entityType: r.entityType,
     invoiceId: r.entityType === 'INVOICE' ? encodeId('invoice', r.localId) : null,
     localNumber: r.localNumber,
@@ -549,6 +658,38 @@ export function toReconcileResultDto(
     lastSeenAt: r.lastSeenAt.toISOString(),
     resolvedAt: r.resolvedAt?.toISOString() ?? null,
     acknowledgedAt: r.acknowledgedAt?.toISOString() ?? null,
+    ackReason: r.ackReason,
+    resolution: r.resolution,
+    resolutionReason: r.resolutionReason,
+    overwrite:
+      r.overwriteStatus && r.overwriteRequestedAt
+        ? {
+            status: r.overwriteStatus,
+            requestedAt: r.overwriteRequestedAt.toISOString(),
+            reason: r.overwriteReason ?? '',
+            requestedByMe: !!ctx.actorId && r.overwriteRequestedBy === ctx.actorId,
+            decidedAt: r.overwriteDecidedAt?.toISOString() ?? null,
+            decisionReason: r.overwriteDecisionReason,
+            commandId: r.overwriteCommandId
+              ? encodeId('outboxCommand', r.overwriteCommandId)
+              : null,
+            commandStatus: cmd?.status ?? null,
+            // อนุมัติแล้วแต่ไม่มีคำสั่ง = พักไว้เพราะระบบบัญชียังไม่รองรับการแทนที่ (ReconcileCloseService)
+            commandErrorCode:
+              r.overwriteStatus === 'APPROVED' && !r.overwriteCommandId
+                ? 'capability_not_implemented'
+                : str((cmd?.lastError as { code?: unknown } | null)?.code),
+          }
+        : null,
+    customer: inv
+      ? {
+          id: encodeId('customer', inv.customerId),
+          name: typeof snap?.name === 'string' ? snap.name : inv.customer.legalName,
+        }
+      : null,
+    invoiceStatus: inv?.status ?? null,
+    replacedByInvoice: rep ? { id: encodeId('invoice', rep.id), number: rep.invoiceNo } : null,
+    sends: send ? { count: Number(send.n), lastSentAt: send.last?.toISOString() ?? null } : null,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
   };

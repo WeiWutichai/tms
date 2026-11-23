@@ -72,6 +72,7 @@ describe('nav badges (D68-89)', () => {
       bill: 0,
       pay: 0,
       settle: 0,
+      erp: 0,
       fdoc: 0,
       rate: 0,
     });
@@ -152,13 +153,43 @@ describe('nav badges (D68-89)', () => {
         },
       });
 
+    // ST8-T12 คิวเชื่อมระบบบัญชี: นับเฉพาะเนื้อหาเอกสารไม่ตรงที่ยังเปิด (MONEY/FIELD) — ไม่นับที่ยอมรับแล้ว / INFO / ยอดรับชำระ
+    const con = await db.connector.create({
+      data: { tenantId: tA, adapterKey: 'demo', status: 'PAUSED', taxDocumentOwner: 'TMS' },
+    });
+    const rec = (diff: object, severity: 'MONEY' | 'FIELD' | 'INFO', ack = false) =>
+      db.reconcileResult.create({
+        data: {
+          tenantId: tA,
+          connectorId: con.id,
+          entityType: 'INVOICE',
+          localId: randomUUID(),
+          runAt: new Date(),
+          source: 'NIGHTLY',
+          localSnapshot: {},
+          remoteSnapshot: {},
+          diff,
+          diffHash: randomUUID().replace(/-/g, '').padEnd(64, '0'),
+          result: severity === 'INFO' ? 'ERP_UNREACHABLE' : 'MISMATCH',
+          severity,
+          lastSeenAt: new Date(),
+          ...(ack
+            ? { acknowledgedAt: new Date(), acknowledgedBy: 'u', ackReason: 'ยอมรับแล้วทดสอบ' }
+            : {}),
+        },
+      });
+    await rec({ check: 'DOCUMENT', code: 'content_mismatch' }, 'MONEY');
+    await rec({ check: 'DOCUMENT', code: 'content_mismatch' }, 'FIELD', true);
+    await rec({ check: 'DOCUMENT', code: 'erp_unreachable' }, 'INFO');
+    await rec({ check: 'PAYMENT_STATUS', code: 'remote_less_than_tms' }, 'MONEY');
+
     const got = await badges(adminA);
-    expect(got).toMatchObject({ so: 1, rate: 1, fdoc: 1, exc: 0, pay: 0 });
+    expect(got).toMatchObject({ so: 1, rate: 1, fdoc: 1, exc: 0, pay: 0, erp: 1 });
     // ใบเดียวมีทั้งสองเหตุ (ลูกค้า + สถานที่) → แท็บ SO นับทั้งสองแท็บ แต่ badge นับใบเดียว
     const sum = (await api(app, adminA).get('/v1/orders/summary').expect(200)).body;
     expect([sum.locationUnmapped, sum.customerUnmapped]).toEqual([1, 1]);
     // บริษัทอื่นไม่เห็น (RLS)
-    expect(await badges(adminB)).toMatchObject({ so: 0, rate: 0, fdoc: 0 });
+    expect(await badges(adminB)).toMatchObject({ so: 0, rate: 0, fdoc: 0, erp: 0 });
   });
 
   it('เฉพาะเมนูที่มีสิทธิ์: orders:read → so อย่างเดียว · master:read → fdoc + rate · ไม่มีสิทธิ์ใดเลย = ว่าง', async () => {
@@ -170,6 +201,9 @@ describe('nav badges (D68-89)', () => {
     expect(
       Object.keys(await badges(await tokenFor(tA, 'invoices:read settlements:read', 'u-i'))),
     ).toEqual(['bill', 'pay', 'settle']);
+    expect(Object.keys(await badges(await tokenFor(tA, 'integrations:read', 'u-n')))).toEqual([
+      'erp',
+    ]);
     expect(await badges(await tokenFor(tA, 'reports.ops:read', 'u-r'))).toEqual({});
   });
 

@@ -188,6 +188,11 @@ export class ErpSyncService {
     entity: 'invoice' | 'settlement',
     localId: string,
     connectorId: string,
+    /**
+     * ST8-T12 ส่งทับที่อนุมัติแล้ว (ปิด MISMATCH ทาง "TMS ถูก") — ใส่ `approval` ลง payload ของคำสั่ง (sink ยอมแทนที่เอกสารที่ลงบัญชีแล้ว
+     * เฉพาะคำสั่งที่มีการอนุมัติ — docs/01 §6.1/§6.5 "ต้อง approval ถ้า posted") · มีคำสั่งค้างอยู่ = คืนคำสั่งนั้น (ไม่ใส่ approval ย้อนหลัง)
+     */
+    approval?: { reconcileResultId: string; approvedBy: string; requestedBy: string },
   ): Promise<string | null> {
     const op = entity === 'invoice' ? 'PUSH_INVOICE' : 'PUSH_SETTLEMENT';
     const c = await tx.connector.findUnique({ where: { id: connectorId } });
@@ -240,6 +245,7 @@ export class ErpSyncService {
       payload: inErp
         ? {
             ...(payload as Record<string, unknown>),
+            ...(approval ? { approval } : {}),
             ref: {
               entityType: entity,
               localId,
@@ -247,7 +253,7 @@ export class ErpSyncService {
               externalId: m!.externalId,
             },
           }
-        : (payload as Record<string, unknown>),
+        : { ...(payload as Record<string, unknown>), ...(approval ? { approval } : {}) },
     });
     if (!r) return null; // เอกสารก่อน syncFromDate — ไม่สร้างคำสั่ง (docs/01 §6.4)
     return r.id;

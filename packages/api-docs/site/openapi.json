@@ -22049,6 +22049,47 @@
             }
           },
           {
+            "name": "check",
+            "required": false,
+            "in": "query",
+            "description": "PAYMENT_STATUS = ยอดรับชำระ · DOCUMENT = เนื้อหาเอกสาร (หน้า MISMATCH)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PAYMENT_STATUS",
+                "DOCUMENT"
+              ]
+            }
+          },
+          {
+            "name": "actionable",
+            "required": false,
+            "in": "query",
+            "description": "`true` = เฉพาะรายการที่ต้องมีคนตัดสิน (severity MONEY/FIELD — ไม่รวม INFO: อ่านเอกสารไม่ได้ / เทียบไม่ได้)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "overwriteStatus",
+            "required": false,
+            "in": "query",
+            "description": "ขั้นของ \"ส่งทับระบบบัญชีด้วยค่า TMS\": REQUESTED = รออนุมัติ · APPROVED = อนุมัติแล้ว รอส่ง/รอรอบเทียบ · REJECTED · NONE = ยังไม่มีคำขอ (หรือถูกปฏิเสธ)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "REQUESTED",
+                "APPROVED",
+                "REJECTED",
+                "NONE"
+              ]
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -22180,6 +22221,586 @@
         ],
         "x-required-scopes": [
           "integrations:read"
+        ]
+      }
+    },
+    "/v1/reconcile-results/{id}/acknowledge": {
+      "post": {
+        "description": "สิทธิ์ `integrations:retry` (ฝ่ายบัญชี) · คนเท่านั้น (API key → 403) · ใช้ได้กับรายการ `result` MISMATCH / REMOTE_MISSING ที่ยังเปิด (ทั้งยอดรับชำระและเนื้อหาเอกสาร) · เนื้อหาเอกสาร: `sync.reconcileState` ของใบ → ACCEPTED · มีคำขอส่งทับค้าง → 409 `overwrite_in_progress` · ปิดแล้ว/ยอมรับแล้ว → 409 (`already_resolved` / `already_acknowledged`) · audit `reconcile.mismatch_acknowledged`",
+        "operationId": "Reconcile_acknowledge",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReconcileReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconcileResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_integrations.retry"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "`invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `connector_disconnected` · `replace_not_supported` · `nothing_to_resend`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "reason": "invoice_not_voided"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ยอมรับความต่าง (ack) พร้อมเหตุผล — ปิดรายการไม่ตรงทางที่ 3",
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "integrations:retry"
+        ]
+      }
+    },
+    "/v1/reconcile-results/{id}/resolve-in-tms": {
+      "post": {
+        "description": "**:** ใบลด/เพิ่มหนี้ไม่อยู่ใน TMS เฟส 0 → ระหว่างรอ ยกเลิกใบแล้วออกใหม่ด้วย `POST /invoices/{id}/void` (`reissue: true` — สิทธิ์ `invoices:void` + step-up ตาม endpoint นั้น) แล้วเรียก endpoint นี้ปิดรายการ · สิทธิ์ `integrations:retry` · คนเท่านั้น · เฉพาะเนื้อหาเอกสาร (`check` DOCUMENT) ที่ยังเปิด · ใบยังไม่ยกเลิก → 409 `invoice_not_voided` · `resolution` FIXED_IN_TMS + audit `reconcile.mismatch_closed` (ผู้ทำ + เหตุผล + ใบที่ออกแทน)",
+        "operationId": "Reconcile_resolveInTms",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReconcileReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconcileResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_integrations.retry"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "`invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `connector_disconnected` · `replace_not_supported` · `nothing_to_resend`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "reason": "invoice_not_voided"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ปิดรายการไม่ตรงทาง \"แก้ที่ TMS\" — ใบยกเลิกแล้ว (ออกใบใหม่แทน)",
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "integrations:retry"
+        ]
+      }
+    },
+    "/v1/reconcile-results/{id}/overwrite-request": {
+      "post": {
+        "description": "สิทธิ์ `integrations:retry` · คนเท่านั้น · เฉพาะเนื้อหาเอกสารที่ยังเปิด · ใบยกเลิกแล้ว → 409 `invoice_voided` · connector ยกเลิกการเชื่อม → 409 `connector_disconnected` · ระบบบัญชีแทนที่เอกสารไม่ได้/ไม่เปิด → 409 `replace_not_supported` · มีคำขอค้าง → 409 `overwrite_in_progress` · ถูกปฏิเสธแล้วขอใหม่ได้ · audit `reconcile.overwrite_requested`",
+        "operationId": "Reconcile_requestOverwrite",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReconcileReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconcileResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_integrations.retry"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "`invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `connector_disconnected` · `replace_not_supported` · `nothing_to_resend`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "reason": "invoice_not_voided"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ขออนุมัติส่งทับระบบบัญชีด้วยค่า TMS (ทางที่ 2 \"TMS ถูก\")",
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "integrations:retry"
+        ]
+      }
+    },
+    "/v1/reconcile-results/{id}/overwrite-request/approve": {
+      "post": {
+        "description": "สิทธิ์ `credit-notes:approve` · คนเท่านั้น · **ผู้อนุมัติต้องไม่ใช่ผู้ขอ** (403 `self_approval_forbidden`) · สร้างคำสั่ง REPLACE_DOCUMENT ด้วยเอกสารฉบับที่ออก (`ErpSyncService.resend` — คำสั่งนี้ผ่านประตู \"ลงบัญชีแล้วต้องอนุมัติ\") · ระบบบัญชีที่ประกาศแต่ยังไม่ได้ทำการแทนที่ = **พักไว้**: บันทึกการอนุมัติ ไม่สร้างคำสั่ง (`overwrite.commandId` null · `commandErrorCode` = `capability_not_implemented` — คำสั่งที่พักในคิวจะกั้นเอกสารอื่นของลูกค้า) · รอบเทียบหลังส่งตรงกัน = ปิดเอง (`resolution` ERP_OVERWRITTEN) · ไม่มีคำขอ → 409 `overwrite_not_requested` · audit `reconcile.overwrite_approved` (+ `commandId`)",
+        "operationId": "Reconcile_approveOverwrite",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReconcileReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconcileResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_credit-notes.approve"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "`invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `connector_disconnected` · `replace_not_supported` · `nothing_to_resend`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "reason": "invoice_not_voided"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "อนุมัติส่งทับระบบบัญชีด้วยค่า TMS → คำสั่งแทนที่เอกสาร",
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "credit-notes:approve"
+        ]
+      }
+    },
+    "/v1/reconcile-results/{id}/overwrite-request/reject": {
+      "post": {
+        "description": "สิทธิ์ `credit-notes:approve` · คนเท่านั้น · ผู้ปฏิเสธต้องไม่ใช่ผู้ขอ · ขอใหม่ได้ · audit `reconcile.overwrite_rejected`",
+        "operationId": "Reconcile_rejectOverwrite",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReconcileReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconcileResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_credit-notes.approve"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "`invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · `overwrite_in_progress` · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `connector_disconnected` · `replace_not_supported` · `nothing_to_resend`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "reason": "invoice_not_voided"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ไม่อนุมัติการส่งทับ — รายการกลับเป็น \"ไม่ตรง\"",
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "credit-notes:approve"
         ]
       }
     },
@@ -74671,11 +75292,35 @@
             "type": "string",
             "example": "demo",
             "description": "รหัส adapter ของ connector"
+          },
+          "displayName": {
+            "type": "string",
+            "nullable": true,
+            "example": "Demo ERP",
+            "description": "ชื่อระบบบัญชี (null = adapter ไม่ได้ติดตั้งในระบบนี้)"
           }
         },
         "required": [
           "id",
-          "adapterKey"
+          "adapterKey",
+          "displayName"
+        ]
+      },
+      "ReconcileCustomerDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cus_…"
+          },
+          "name": {
+            "type": "string",
+            "example": "บริษัท ตัวอย่าง จำกัด"
+          }
+        },
+        "required": [
+          "id",
+          "name"
         ]
       },
       "ReconcileDocumentDiffDto": {
@@ -74794,6 +75439,24 @@
           "remote"
         ]
       },
+      "ReconcileInvoiceRefDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ivc_…"
+          },
+          "number": {
+            "type": "string",
+            "nullable": true,
+            "example": "INV-00000-2611-0002"
+          }
+        },
+        "required": [
+          "id",
+          "number"
+        ]
+      },
       "ReconcileLineCountDto": {
         "type": "object",
         "properties": {
@@ -74873,6 +75536,83 @@
         "required": [
           "lineNo",
           "deliveryOrderNumber"
+        ]
+      },
+      "ReconcileOverwriteDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "REQUESTED",
+              "APPROVED",
+              "REJECTED"
+            ]
+          },
+          "requestedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string",
+            "description": "เหตุผลของผู้ขอ"
+          },
+          "requestedByMe": {
+            "type": "boolean",
+            "description": "ผู้เรียกเป็นผู้ขอเอง (อนุมัติเองไม่ได้)"
+          },
+          "decidedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "decisionReason": {
+            "type": "string",
+            "nullable": true,
+            "description": "เหตุผลของผู้อนุมัติ/ผู้ปฏิเสธ"
+          },
+          "commandId": {
+            "type": "string",
+            "nullable": true,
+            "example": "obx_…",
+            "description": "คำสั่งส่งทับที่สร้างตอนอนุมัติ (ดูใน `GET /connectors/{id}/sync-log?commandId=`)"
+          },
+          "commandStatus": {
+            "type": "string",
+            "nullable": true,
+            "example": "PENDING",
+            "description": "สถานะคำสั่ง (PENDING / IN_FLIGHT / DONE / FAILED_RETRYABLE / FAILED_FINAL / SKIPPED)"
+          },
+          "commandErrorCode": {
+            "type": "string",
+            "nullable": true,
+            "example": "capability_not_implemented",
+            "description": "รหัสผิดพลาดล่าสุดของคำสั่ง · `capability_not_implemented` = ระบบบัญชียังไม่รองรับการแทนที่เอกสาร — **พักไว้**: บันทึกการอนุมัติแล้วแต่ยังไม่สร้างคำสั่ง (`commandId` null — ไม่กั้นคิวของลูกค้า) จนกว่า adapter รองรับ"
+          }
+        },
+        "required": [
+          "status",
+          "requestedAt",
+          "reason",
+          "requestedByMe",
+          "decidedAt",
+          "decisionReason",
+          "commandId",
+          "commandStatus",
+          "commandErrorCode"
+        ]
+      },
+      "ReconcileReasonDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "reason"
         ]
       },
       "ReconcileRefMismatchDto": {
@@ -75064,6 +75804,72 @@
             "nullable": true,
             "format": "date-time"
           },
+          "ackReason": {
+            "type": "string",
+            "nullable": true,
+            "description": "เหตุผลที่ยอมรับความต่าง"
+          },
+          "resolution": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "FIXED_IN_TMS",
+              "ERP_OVERWRITTEN",
+              "NEXT_RUN_MATCHED"
+            ],
+            "description": "วิธีปิด: FIXED_IN_TMS = แก้ที่ TMS · ERP_OVERWRITTEN = ส่งทับที่อนุมัติแล้ว + รอบเทียบถัดไปตรง · NEXT_RUN_MATCHED = รอบถัดไปตรงเอง · null = ยังไม่ปิด / ปิดเพราะส่วนต่างเปลี่ยน (มีแถวใหม่แทน)"
+          },
+          "resolutionReason": {
+            "type": "string",
+            "nullable": true,
+            "description": "เหตุผลของผู้ปิด (FIXED_IN_TMS)"
+          },
+          "overwrite": {
+            "nullable": true,
+            "description": "คำขอส่งทับ (null = ไม่มี)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReconcileOverwriteDto"
+              }
+            ]
+          },
+          "customer": {
+            "nullable": true,
+            "description": "ลูกค้าของใบ",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReconcileCustomerDto"
+              }
+            ]
+          },
+          "invoiceStatus": {
+            "type": "string",
+            "nullable": true,
+            "example": "ISSUED",
+            "description": "สถานะใบใน TMS ตอนนี้ (CANCELLED = ยกเลิกแล้ว — ปิดทาง \"แก้ที่ TMS\" ได้)"
+          },
+          "replacedByInvoice": {
+            "nullable": true,
+            "description": "ใบที่ออกแทน",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReconcileInvoiceRefDto"
+              }
+            ]
+          },
+          "sends": {
+            "nullable": true,
+            "description": "การส่งใบนี้เข้า connector",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReconcileSendsDto"
+              }
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -75096,6 +75902,14 @@
           "lastSeenAt",
           "resolvedAt",
           "acknowledgedAt",
+          "ackReason",
+          "resolution",
+          "resolutionReason",
+          "overwrite",
+          "customer",
+          "invoiceStatus",
+          "replacedByInvoice",
+          "sends",
           "createdAt",
           "updatedAt"
         ]
@@ -75158,6 +75972,25 @@
           "status",
           "check",
           "connectorId"
+        ]
+      },
+      "ReconcileSendsDto": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "description": "จำนวนครั้งที่สั่งส่ง (คำสั่งส่ง/ส่งทับ)"
+          },
+          "lastSentAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ส่งล่าสุด"
+          }
+        },
+        "required": [
+          "count",
+          "lastSentAt"
         ]
       },
       "RedeliverDeliveryOrderDto": {
@@ -92131,6 +92964,60 @@
                   "action": "read",
                   "required": [
                     "integrations:read"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "Forbidden_integrations.retry": {
+        "description": "ไม่มีสิทธิ์ (`integrations:retry`)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDto"
+            },
+            "examples": {
+              "permission_denied": {
+                "value": {
+                  "type": "https://docs.tms.example/problems/permission_denied",
+                  "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                  "status": 403,
+                  "code": "permission_denied",
+                  "instance": "/v1/reconcile-results/3f2a…/acknowledge",
+                  "requestId": "b6a1c2d3-…",
+                  "module": "integrations",
+                  "action": "retry",
+                  "required": [
+                    "integrations:retry"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "Forbidden_credit-notes.approve": {
+        "description": "ไม่มีสิทธิ์ (`credit-notes:approve`)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDto"
+            },
+            "examples": {
+              "permission_denied": {
+                "value": {
+                  "type": "https://docs.tms.example/problems/permission_denied",
+                  "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                  "status": 403,
+                  "code": "permission_denied",
+                  "instance": "/v1/reconcile-results/3f2a…/overwrite-request/approve",
+                  "requestId": "b6a1c2d3-…",
+                  "module": "credit-notes",
+                  "action": "approve",
+                  "required": [
+                    "credit-notes:approve"
                   ]
                 }
               }

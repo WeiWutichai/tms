@@ -1345,7 +1345,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
    *   · รับชำระแล้ว → SKIPPED `paid_locked` (กฎ "แก้ได้จนรับชำระ" — ไม่ส่ง)
    *   · กลุ่มที่ต้อง regenerate (ลูกค้า / ช่องนอกกลุ่ม) → SKIPPED `regenerate_required` (ยกเลิกใบเดิมในระบบบัญชีแล้วออกใหม่ — ทำมือ)
    *   · auto-sync → แทนที่ทั้งใบด้วย `replaceDocument` (canonical ฉบับที่ออก + รหัส ณ ตอนส่ง) · ERP แจ้งว่าลงบัญชีแล้ว (`POSTED`)
-   *     → SKIPPED `replace_requires_approval` (docs/01 §6.1 ต้องอนุมัติ — ยังไม่มีขั้นอนุมัติ) · adapter ไม่มี/ไม่เปิด replaceDocument
+   *     → SKIPPED `replace_requires_approval` (docs/01 §6.1 ต้องอนุมัติ — ยกเว้นคำสั่งส่งทับที่อนุมัติแล้วจากหน้า MISMATCH ST8-T12 `payload.approval`) · adapter ไม่มี/ไม่เปิด replaceDocument
    *     → SKIPPED `replace_not_supported` (docs/01 §6.1: ไม่มีทั้ง pushCreditNote/replaceDocument → แจ้งบัญชีทำมือ; TMS ไม่ออกใบลด/เพิ่มหนี้ — D-54)
    * เอกสารภาษีที่ออกแล้วใน TMS ไม่ถูกแก้ที่นี่ — ส่งเฉพาะสิ่งที่ TMS ถืออยู่ (ฉบับที่ออก) ไปแทนฉบับใน ERP
    */
@@ -1423,7 +1423,10 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         'change requires regenerating the document in the accounting system — not sent',
         detail,
       );
-    if (prior.externalStatus === 'POSTED')
+    // ST8-T12 คำสั่งส่งทับที่คนอนุมัติแล้ว (ผู้อนุมัติ ≠ ผู้ขอ — หน้า MISMATCH) = ผ่านประตู "ลงบัญชีแล้วต้องอนุมัติ" (docs/01 §6.1/§6.5)
+    const approved = !!(d.payload as { approval?: { approvedBy?: unknown } } | null)?.approval
+      ?.approvedBy;
+    if (prior.externalStatus === 'POSTED' && !approved)
       await this.skip(
         d,
         connector,

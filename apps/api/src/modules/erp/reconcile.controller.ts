@@ -1,6 +1,12 @@
 import { scopeAllows } from '@tms/domain';
 import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
-import { ApiAcceptedResponse, ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiAcceptedResponse,
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import {
   RequireFeature,
   RequireScope,
@@ -17,11 +23,13 @@ import { DocumentReconcileService } from './document-reconcile.service';
 import { PaymentStatusPullService } from './payment-status-pull.service';
 import {
   CreateReconcileRunDto,
+  ReconcileReasonDto,
   ReconcileResultDto,
   ReconcileResultListQuery,
   ReconcileResultPageDto,
   ReconcileRunDto,
 } from './reconcile-result.dto';
+import { ReconcileCloseService } from './reconcile-close.service';
 import { ReconcileResultsService } from './reconcile-results.service';
 
 const prob = (
@@ -51,9 +59,26 @@ const E409_RUN = {
   },
 };
 
+const E409_CLOSE = {
+  status: 409,
+  description:
+    '`invalid_state_transition` — `reason`: `already_resolved` · `already_acknowledged` · `not_a_mismatch` (INFO) · `not_a_document_mismatch` · ' +
+    '`overwrite_in_progress` · `overwrite_not_requested` · `invoice_not_voided` · `invoice_voided` · `connector_disconnected` · `replace_not_supported` · `nothing_to_resend`',
+  examples: {
+    invalid_state_transition: prob(
+      'invalid_state_transition',
+      409,
+      'ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน',
+      {
+        reason: 'invoice_not_voided',
+      },
+    ),
+  },
+};
+
 /**
  * ผลกระทบยอดกับระบบภายนอก (ST7-T21; docs/01 §5.2 กลุ่ม 14 `reconcile-results`, `POST /reconcile-runs`; docs/04 G3 "Payment status pull")
- * ตอนนี้ครอบเฉพาะ "สถานะรับชำระจากระบบบัญชี" — เทียบเอกสาร 4 รอบ (ST8-T11) และการปิดรายการ/หน้า MISMATCH (ST8-T12) ต่อยอดจาก resource นี้
+ * สถานะรับชำระจากระบบบัญชี (ST7-T21) · เทียบเอกสาร 4 รอบ (ST8-T11) · ปิดรายการไม่ตรง 3 ทาง + หน้า MISMATCH (ST8-T12)
  * อ่าน `integrations:read` · สั่งรอบเอง `settings:write` (คนเท่านั้น — แบบเดียวกับการจัดการ connector) · ฟีเจอร์ `conn` · sandbox ใช้ได้กับ DemoProvider เท่านั้น (D-81 · D68-58)
  */
 @ApiTags('connectors')
@@ -68,6 +93,7 @@ export class ReconcileController {
     private readonly reconcile: DocumentReconcileService,
     private readonly connectors: ConnectorsService,
     private readonly db: DbService,
+    private readonly close: ReconcileCloseService,
   ) {}
 
   @Get('reconcile-results')
@@ -90,6 +116,111 @@ export class ReconcileController {
   @ApiOkResponse({ type: ReconcileResultDto })
   get(@Param('id') id: string): Promise<ReconcileResultDto> {
     return this.results.get(decodeIdOr404('reconcileResult', id));
+  }
+
+  // ---------- ST8-T12 ปิดรายการไม่ตรง 3 ทาง (docs/01 §6.5) — คนเท่านั้น · เหตุผล ≥ 10 ตัวอักษร · audit ผู้ทำ + เหตุผล ----------
+
+  @Post('reconcile-results/:id/acknowledge')
+  @HttpCode(200)
+  @TenantResource('reconcileResult')
+  @RequireScope('integrations:retry')
+  @ApiOperation({
+    summary: 'ยอมรับความต่าง (ack) พร้อมเหตุผล — ปิดรายการไม่ตรงทางที่ 3',
+    description:
+      'ST8-T12 (docs/01 §6.5 "ยอมรับความต่าง → ack พร้อมเหตุผล; รอบถัดไปไม่แจ้งซ้ำถ้า `diff_hash` เท่าเดิม") · สิทธิ์ `integrations:retry` (ฝ่ายบัญชี) · ' +
+      'คนเท่านั้น (API key → 403) · ใช้ได้กับรายการ `result` MISMATCH / REMOTE_MISSING ที่ยังเปิด (ทั้งยอดรับชำระและเนื้อหาเอกสาร) · ' +
+      'เนื้อหาเอกสาร: `sync.reconcileState` ของใบ → ACCEPTED (docs/01 §4.4) · มีคำขอส่งทับค้าง → 409 `overwrite_in_progress` · ' +
+      'ปิดแล้ว/ยอมรับแล้ว → 409 (`already_resolved` / `already_acknowledged`) · audit `reconcile.mismatch_acknowledged`',
+  })
+  @ApiOkResponse({ type: ReconcileResultDto })
+  @ApiProblems(E409_CLOSE)
+  acknowledge(
+    @Param('id') id: string,
+    @Body() body: ReconcileReasonDto,
+  ): Promise<ReconcileResultDto> {
+    return this.close.acknowledge(decodeIdOr404('reconcileResult', id), body.reason);
+  }
+
+  @Post('reconcile-results/:id/resolve-in-tms')
+  @HttpCode(200)
+  @TenantResource('reconcileResult')
+  @RequireScope('integrations:retry')
+  @ApiOperation({
+    summary: 'ปิดรายการไม่ตรงทาง "แก้ที่ TMS" — ใบยกเลิกแล้ว (ออกใบใหม่แทน)',
+    description:
+      'ST8-T12 (docs/01 §6.5 ทางที่ 1 "ERP ถูก → แก้ที่ TMS ด้วย credit/debit note") · **D-54 [OPEN — PO]:** ใบลด/เพิ่มหนี้ไม่อยู่ใน TMS เฟส 0 → ระหว่างรอ ' +
+      'ยกเลิกใบแล้วออกใหม่ด้วย `POST /invoices/{id}/void` (`reissue: true` — สิทธิ์ `invoices:void` + step-up ตาม endpoint นั้น) แล้วเรียก endpoint นี้ปิดรายการ · ' +
+      'สิทธิ์ `integrations:retry` · คนเท่านั้น · เฉพาะเนื้อหาเอกสาร (`check` DOCUMENT) ที่ยังเปิด · ใบยังไม่ยกเลิก → 409 `invoice_not_voided` · ' +
+      '`resolution` FIXED_IN_TMS + audit `reconcile.mismatch_closed` (ผู้ทำ + เหตุผล + ใบที่ออกแทน)',
+  })
+  @ApiOkResponse({ type: ReconcileResultDto })
+  @ApiProblems(E409_CLOSE)
+  resolveInTms(
+    @Param('id') id: string,
+    @Body() body: ReconcileReasonDto,
+  ): Promise<ReconcileResultDto> {
+    return this.close.resolveInTms(decodeIdOr404('reconcileResult', id), body.reason);
+  }
+
+  @Post('reconcile-results/:id/overwrite-request')
+  @HttpCode(200)
+  @TenantResource('reconcileResult')
+  @RequireScope('integrations:retry')
+  @ApiOperation({
+    summary: 'ขออนุมัติส่งทับระบบบัญชีด้วยค่า TMS (ทางที่ 2 "TMS ถูก")',
+    description:
+      'ST8-T12 (docs/01 §6.5 ทางที่ 2 `replaceDocument` — ต้อง approval) · สิทธิ์ `integrations:retry` · คนเท่านั้น · เฉพาะเนื้อหาเอกสารที่ยังเปิด · ' +
+      'ใบยกเลิกแล้ว → 409 `invoice_voided` · connector ยกเลิกการเชื่อม → 409 `connector_disconnected` · ระบบบัญชีแทนที่เอกสารไม่ได้/ไม่เปิด → 409 `replace_not_supported` · ' +
+      'มีคำขอค้าง → 409 `overwrite_in_progress` · ' +
+      'ถูกปฏิเสธแล้วขอใหม่ได้ · audit `reconcile.overwrite_requested`',
+  })
+  @ApiOkResponse({ type: ReconcileResultDto })
+  @ApiProblems(E409_CLOSE)
+  requestOverwrite(
+    @Param('id') id: string,
+    @Body() body: ReconcileReasonDto,
+  ): Promise<ReconcileResultDto> {
+    return this.close.requestOverwrite(decodeIdOr404('reconcileResult', id), body.reason);
+  }
+
+  @Post('reconcile-results/:id/overwrite-request/approve')
+  @HttpCode(200)
+  @TenantResource('reconcileResult')
+  @RequireScope('credit-notes:approve')
+  @ApiOperation({
+    summary: 'อนุมัติส่งทับระบบบัญชีด้วยค่า TMS → คำสั่งแทนที่เอกสาร',
+    description:
+      'ST8-T12 · สิทธิ์ `credit-notes:approve` (ผู้อนุมัติการแก้เอกสารขายที่ออกแล้ว — [DECISION ย้อนได้] spec/12 §3 แถว ST8-T12) · คนเท่านั้น · ' +
+      '**ผู้อนุมัติต้องไม่ใช่ผู้ขอ** (403 `self_approval_forbidden`) · สร้างคำสั่ง REPLACE_DOCUMENT ด้วยเอกสารฉบับที่ออก (`ErpSyncService.resend` — ' +
+      'คำสั่งนี้ผ่านประตู "ลงบัญชีแล้วต้องอนุมัติ") · ระบบบัญชีที่ประกาศแต่ยังไม่ได้ทำการแทนที่ (เช่น KRS ก่อน ST8-T13) = **พักไว้**: บันทึกการอนุมัติ ไม่สร้างคำสั่ง ' +
+      '(`overwrite.commandId` null · `commandErrorCode` = `capability_not_implemented` — คำสั่งที่พักในคิวจะกั้นเอกสารอื่นของลูกค้า) · รอบเทียบหลังส่งตรงกัน = ปิดเอง (`resolution` ERP_OVERWRITTEN) · ไม่มีคำขอ → 409 `overwrite_not_requested` · ' +
+      'audit `reconcile.overwrite_approved` (+ `commandId`)',
+  })
+  @ApiOkResponse({ type: ReconcileResultDto })
+  @ApiProblems(E409_CLOSE)
+  approveOverwrite(
+    @Param('id') id: string,
+    @Body() body: ReconcileReasonDto,
+  ): Promise<ReconcileResultDto> {
+    return this.close.approveOverwrite(decodeIdOr404('reconcileResult', id), body.reason);
+  }
+
+  @Post('reconcile-results/:id/overwrite-request/reject')
+  @HttpCode(200)
+  @TenantResource('reconcileResult')
+  @RequireScope('credit-notes:approve')
+  @ApiOperation({
+    summary: 'ไม่อนุมัติการส่งทับ — รายการกลับเป็น "ไม่ตรง"',
+    description:
+      'ST8-T12 · สิทธิ์ `credit-notes:approve` · คนเท่านั้น · ผู้ปฏิเสธต้องไม่ใช่ผู้ขอ · ขอใหม่ได้ · audit `reconcile.overwrite_rejected`',
+  })
+  @ApiOkResponse({ type: ReconcileResultDto })
+  @ApiProblems(E409_CLOSE)
+  rejectOverwrite(
+    @Param('id') id: string,
+    @Body() body: ReconcileReasonDto,
+  ): Promise<ReconcileResultDto> {
+    return this.close.rejectOverwrite(decodeIdOr404('reconcileResult', id), body.reason);
   }
 
   @Post('reconcile-runs')
