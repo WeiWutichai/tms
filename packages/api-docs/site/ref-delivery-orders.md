@@ -30,7 +30,7 @@
 
 scope: `orders:read` · operationId: `DeliveryOrders_summary`
 
-นับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง
+นับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง · ช่องที่เหลือ (`draft` / `inTransit` / `unbilled` / …) นับทุกวันที่
 
 **Responses**
 
@@ -72,6 +72,14 @@ scope: `orders:read` · operationId: `DeliveryOrders_list`
 | `status` | query |   | `string` | สถานะ คั่นด้วย, (DRAFT / PLANNED / DISPATCHED / PICKED_UP / DELIVERED / FAILED / RETURNED / POD_PENDING / UNBILLED / BILLED / CANCELLED) |
 | `dateFrom` | query |   | `string` | วันที่ DO ตั้งแต่ (YYYY-MM-DD) |
 | `dateTo` | query |   | `string` | วันที่ DO ถึง (YYYY-MM-DD) |
+| `doNo` | query |   | `string` | ค้นเลข DO (มีคำนี้ ไม่สนตัวพิมพ์) |
+| `customerName` | query |   | `string` | ค้นชื่อลูกค้า (มีคำนี้) |
+| `vehiclePlate` | query |   | `string` | ค้นทะเบียนรถของเที่ยว (snapshot — มีคำนี้) |
+| `driverName` | query |   | `string` | ค้นชื่อคนขับ / รถร่วมของเที่ยว (snapshot — มีคำนี้) |
+| `product` | query |   | `string` | ค้นสินค้า (คำอธิบายบรรทัดของ DO — มีคำนี้) |
+| `inTrip` | query |   | `string` ค่า: `true`, `false` | อยู่ในเที่ยวที่ยังใช้งาน (ไม่ยกเลิก) หรือไม่ — `false` = ยังไม่เข้าเที่ยว |
+| `rejected` | query |   | `string` ค่า: `true`, `false` | มีบรรทัดที่ผู้รับปฏิเสธรับ (`lines[].rejectQty` > 0) หรือไม่ |
+| `route` | query |   | `string` | ค้นชื่อจุดรับหรือจุดส่ง (มีคำนี้) |
 
 **Responses**
 
@@ -991,6 +999,7 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `destSiteName` | ใช่ | `string` |   | ชื่อจุดส่ง |   |
 | `tripNo` | ใช่ | `string` | null ได้ |   | `TRP-6911-0001` |
 | `vehiclePlate` | ใช่ | `string` | null ได้ | ทะเบียนรถของเที่ยว (snapshot) |   |
+| `vehicleTypeName` | ใช่ | `string` | null ได้ | ประเภทรถของเที่ยว (snapshot) | `6 ล้อ` |
 | `driverName` | ใช่ | `string` | null ได้ | คนขับของเที่ยว (snapshot) |   |
 | `carrierName` | ใช่ | `string` | null ได้ | รถร่วมของเที่ยว (snapshot) |   |
 | `weightKg` | ใช่ | `string` | null ได้ |   |   |
@@ -1072,6 +1081,15 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `today` | ใช่ | `number` |   | งานวันนี้ = `?dateFrom=date&dateTo=date&status=` ทุกสถานะยกเว้น CANCELLED |   |
 | `delivered` | ใช่ | `number` |   | ส่งแล้ว = `status=DELIVERED,POD_PENDING,UNBILLED,BILLED` ของวัน `date` |   |
 | `failed` | ใช่ | `number` |   | ส่งไม่สำเร็จ = `status=FAILED` ของวัน `date` |   |
+| `draft` | ใช่ | `number` |   | ทุกวันที่ `status=DRAFT,PLANNED` (ยังไม่ปล่อยรถ) |   |
+| `inTransit` | ใช่ | `number` |   | ทุกวันที่ `status=DISPATCHED,PICKED_UP` (ระหว่างส่ง) |   |
+| `unbilled` | ใช่ | `number` |   | ทุกวันที่ `status=DELIVERED,POD_PENDING,UNBILLED` (ส่งถึงแล้ว ยังไม่วางบิล) |   |
+| `sellUnbilledAmount` |   | `string` |   | มูลค่ารวมของ DO ชุด `unbilled` = Σ บรรทัดรายได้ที่ใช้อยู่ (ก่อน VAT) — เห็นเมื่อมี `prices.sell:read` | `125400.00` |
+| `deliveredClean` | ใช่ | `number` |   | ชุด `unbilled` ที่ไม่มีบรรทัดปฏิเสธรับ = `status=DELIVERED,POD_PENDING,UNBILLED&rejected=false` |   |
+| `rejected` | ใช่ | `number` |   | ชุด `unbilled` ที่มีบรรทัดปฏิเสธรับ = `status=DELIVERED,POD_PENDING,UNBILLED&rejected=true` |   |
+| `failedTotal` | ใช่ | `number` |   | ทุกวันที่ `status=FAILED,RETURNED` |   |
+| `billed` | ใช่ | `number` |   | ทุกวันที่ `status=BILLED` |   |
+| `total` | ใช่ | `number` |   | DO ทั้งหมด (ไม่มีตัวกรอง — รวมที่ยกเลิก) |   |
 
 ### RedeliverResultDto {#schema-RedeliverResultDto}
 

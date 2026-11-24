@@ -27,6 +27,26 @@ const STATUS_TO_CODE: Record<number, ProblemCode> = {
 /** SQLSTATE ที่ลองใหม่ได้: 40P01 deadlock_detected, 40001 serialization_failure */
 const RETRYABLE_SQLSTATE = /\b(40P01|40001)\b|deadlock detected|could not serialize access/i;
 
+/**
+ * ST9-T13 R2 (L-02): สรุป error ของ Prisma สำหรับ log — ชื่อ + รหัส + ชื่อ field ที่ชน (ถ้ามี) + บรรทัด stack ที่เป็นโค้ดเรา (`src/` ตอน dev · `dist/` ตอนรันจาก build)
+ * ไม่ใส่ข้อความ (Prisma ใส่ค่า argument / ค่าที่ชน unique ลงในข้อความ)
+ */
+export function prismaSummary(e: Error & { code?: unknown; meta?: unknown }): string {
+  const target = (e.meta as { target?: unknown } | undefined)?.target;
+  const frames = (e.stack ?? '')
+    .split('\n')
+    .slice(1)
+    .filter((l) => (l.includes('/src/') || l.includes('/dist/')) && !l.includes('node_modules'))
+    .slice(0, 5)
+    .map((l) => l.trim());
+  return [
+    `${e.name}${typeof e.code === 'string' ? ` ${e.code}` : ''}${
+      Array.isArray(target) ? ` target=${target.map(String).join(',')}` : ''
+    } (message hidden)`,
+    ...frames,
+  ].join('\n    ');
+}
+
 /** error ของฐานข้อมูลที่ส่งคำขอซ้ำแล้วน่าจะผ่าน (Prisma P2034 หรือ SQLSTATE 40P01/40001 จาก raw query/driver) */
 export function isRetryableDbError(e: unknown): boolean {
   if (e instanceof Prisma.PrismaClientKnownRequestError) {
@@ -80,7 +100,7 @@ export class ProblemFilter implements ExceptionFilter {
         code = 'service_busy';
         extra = { retryAfter: 2, retryable: true };
         this.logger.warn(`db busy: ${exception.code}`);
-      } else this.logger.error(exception);
+      } else this.logger.error(prismaSummary(exception));
     } else if (exception instanceof HttpException) {
       code = STATUS_TO_CODE[exception.getStatus()] ?? 'internal_error';
       if (exception.getStatus() === HttpStatus.NOT_FOUND) detail = undefined;
@@ -97,6 +117,9 @@ export class ProblemFilter implements ExceptionFilter {
     ) {
       // error อื่นของตัวอ่าน body (เช่น encoding ไม่รองรับ 415) → ส่งเป็น bad_request แทน 500
       code = 'bad_request';
+    } else if (exception instanceof Prisma.PrismaClientValidationError) {
+      // ST9-T13 R2 (L-02): ข้อความของ Prisma ใส่ค่า argument ทั้งก้อน (อาจมี hash / ค่าเข้ารหัส / ข้อมูลส่วนบุคคล) → log เฉพาะชื่อ + ตำแหน่งในโค้ด
+      this.logger.error(prismaSummary(exception));
     } else {
       this.logger.error(exception instanceof Error ? exception.stack : String(exception));
     }

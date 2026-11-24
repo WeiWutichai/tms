@@ -71,8 +71,11 @@ describe('docs site (ST7-T12)', () => {
       if (o.scopes.length)
         expect(o.scopes.some((s) => (API_KEY_SCOPES as readonly string[]).includes(s))).toBe(true);
     }
-    // scope ที่ให้ key ไม่ได้ (settings:write) ไม่อยู่ในเอกสาร
-    expect(isPublicOperation('post', '/v1/webhooks', doc.paths['/v1/webhooks'].post)).toBe(false);
+    // scope ที่ให้ key ไม่ได้ (settings:write อย่างเดียว) ไม่อยู่ในเอกสาร
+    expect(isPublicOperation('post', '/v1/companies', doc.paths['/v1/companies'].post)).toBe(false);
+    // D-81 · D68-49/62: จัดการ webhook ด้วย API key ได้ผ่าน scope `webhooks:manage` (settings:write ยังให้ key ไม่ได้) → อยู่ในเอกสาร
+    expect(doc.paths['/v1/webhooks'].post['x-required-scopes']).toContain('webhooks:manage');
+    expect(isPublicOperation('post', '/v1/webhooks', doc.paths['/v1/webhooks'].post)).toBe(true);
     expect(isPublicOperation('post', '/v1/auth/login', doc.paths['/v1/auth/login'].post)).toBe(
       false,
     );

@@ -34,6 +34,7 @@ export function toDeliveryOrderDto(
     destSiteName: d.destSite.name,
     tripNo: d.trip?.tripNo ?? null,
     vehiclePlate: d.trip?.vehiclePlateSnapshot ?? null,
+    vehicleTypeName: d.trip?.vehicleTypeSnapshot ?? null,
     driverName: d.trip?.driverNameSnapshot ?? null,
     carrierName: d.trip?.carrierNameSnapshot ?? null,
     weightKg: dec(d.weightKg),

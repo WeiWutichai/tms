@@ -2,6 +2,8 @@
  * สร้างบัญชีทีม Innovera สำหรับ Platform Console (ST1-T24) — ใช้บนเครื่อง ops เท่านั้น (ต่อฐานด้วย PLATFORM_DATABASE_URL)
  * ใช้: pnpm --filter @tms/api platform:user <email> "<ชื่อ>" <SUPER_ADMIN|SUPPORT|BILLING>
  * พิมพ์รหัสผ่านชั่วคราว + otpauth URI (สแกนด้วยแอป authenticator) ครั้งเดียว — ไม่เก็บค่าจริงที่ใดอีก
+ * ⚠ ต้องตั้ง `NODE_ENV` ให้ตรงกับ environment ของฐานนั้น (เช่น `NODE_ENV=production pnpm --filter @tms/api platform:user …`)
+ *   และ `FIELD_ENCRYPTION_KEYS` ชุดเดียวกับ API — ไม่ตั้ง NODE_ENV = ถือว่าไม่ใช่ dev: กุญแจตัวอย่างของ `.env.example` ใช้ไม่ได้ (ST9-T13 R2-M01)
  */
 import { PrismaClient } from '@prisma/client';
 import { randomBytes } from 'node:crypto';

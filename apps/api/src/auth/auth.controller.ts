@@ -402,6 +402,8 @@ export class AuthController {
   @HttpCode(204)
   @ApiNoContentResponse()
   async revoke(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<void> {
+    // ST9-T13 R2 (L-03): ใช้ cookie เหมือน refresh — รับเฉพาะคำขอจากหน้าเว็บเดียวกัน (Sec-Fetch-Site / Origin) กันบังคับออกจากระบบข้ามเว็บ
+    assertCookieGrantSameSite(req);
     await this.auth.logout(req.cookies?.[REFRESH_COOKIE] as string | undefined);
     res.clearCookie(REFRESH_COOKIE, cookieOptions());
   }

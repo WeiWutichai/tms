@@ -23,6 +23,7 @@ import {
   type DoStatus,
 } from '@tms/domain';
 import { ListQuery } from '../../common/pagination';
+import { PriceField } from '../../common/price-fields';
 import { CleanText, IsNullable } from '../master/master-kit';
 
 /** ทศนิยมเป็นสตริง ≤ 3 ตำแหน่ง (numeric(14,3)) — ไม่รับ number กัน float */
@@ -66,6 +67,70 @@ export class DeliveryOrderListQuery extends ListQuery {
   @IsOptional()
   @Matches(DATE_RE)
   dateTo?: string;
+
+  @ApiPropertyOptional({
+    example: 'DO-2611',
+    description: 'ค้นเลข DO (มีคำนี้ ไม่สนตัวพิมพ์)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  doNo?: string;
+
+  @ApiPropertyOptional({ example: 'ศรีไทย', description: 'ค้นชื่อลูกค้า (มีคำนี้)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  customerName?: string;
+
+  @ApiPropertyOptional({
+    example: '70-1234',
+    description: 'ค้นทะเบียนรถของเที่ยว (snapshot — มีคำนี้)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  vehiclePlate?: string;
+
+  @ApiPropertyOptional({
+    example: 'สมชาย',
+    description: 'ค้นชื่อคนขับ / รถร่วมของเที่ยว (snapshot — มีคำนี้)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  driverName?: string;
+
+  @ApiPropertyOptional({
+    example: 'ปูน',
+    description: 'ค้นสินค้า (คำอธิบายบรรทัดของ DO — มีคำนี้)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  product?: string;
+
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description: 'อยู่ในเที่ยวที่ยังใช้งาน (ไม่ยกเลิก) หรือไม่ — `false` = ยังไม่เข้าเที่ยว',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  inTrip?: 'true' | 'false';
+
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description: 'มีบรรทัดที่ผู้รับปฏิเสธรับ (`lines[].rejectQty` > 0) หรือไม่',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  rejected?: 'true' | 'false';
+
+  @ApiPropertyOptional({ example: 'บางนา', description: 'ค้นชื่อจุดรับหรือจุดส่ง (มีคำนี้)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  route?: string;
 }
 
 export class DeliveryOrderLineQtyDto {
@@ -269,6 +334,13 @@ export class DeliveryOrderDto {
   @ApiProperty({ nullable: true, type: String, example: 'TRP-6911-0001' }) tripNo!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'ทะเบียนรถของเที่ยว (snapshot)' })
   vehiclePlate!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '6 ล้อ',
+    description: 'ประเภทรถของเที่ยว (snapshot)',
+  })
+  vehicleTypeName!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'คนขับของเที่ยว (snapshot)' })
   driverName!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'รถร่วมของเที่ยว (snapshot)' })
@@ -358,6 +430,38 @@ export class DeliveryOrderSummaryDto {
   delivered!: number;
   @ApiProperty({ description: 'ส่งไม่สำเร็จ = `status=FAILED` ของวัน `date`' })
   failed!: number;
+  @ApiProperty({ description: 'ทุกวันที่ `status=DRAFT,PLANNED` (ยังไม่ปล่อยรถ)' })
+  draft!: number;
+  @ApiProperty({ description: 'ทุกวันที่ `status=DISPATCHED,PICKED_UP` (ระหว่างส่ง)' })
+  inTransit!: number;
+  @ApiProperty({
+    description: 'ทุกวันที่ `status=DELIVERED,POD_PENDING,UNBILLED` (ส่งถึงแล้ว ยังไม่วางบิล)',
+  })
+  unbilled!: number;
+  @ApiPropertyOptional({
+    type: String,
+    example: '125400.00',
+    description:
+      'มูลค่ารวมของ DO ชุด `unbilled` = Σ บรรทัดรายได้ที่ใช้อยู่ (ก่อน VAT) — เห็นเมื่อมี `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellUnbilledAmount?: string;
+  @ApiProperty({
+    description:
+      'ชุด `unbilled` ที่ไม่มีบรรทัดปฏิเสธรับ = `status=DELIVERED,POD_PENDING,UNBILLED&rejected=false`',
+  })
+  deliveredClean!: number;
+  @ApiProperty({
+    description:
+      'ชุด `unbilled` ที่มีบรรทัดปฏิเสธรับ = `status=DELIVERED,POD_PENDING,UNBILLED&rejected=true`',
+  })
+  rejected!: number;
+  @ApiProperty({ description: 'ทุกวันที่ `status=FAILED,RETURNED`' })
+  failedTotal!: number;
+  @ApiProperty({ description: 'ทุกวันที่ `status=BILLED`' })
+  billed!: number;
+  @ApiProperty({ description: 'DO ทั้งหมด (ไม่มีตัวกรอง — รวมที่ยกเลิก)' })
+  total!: number;
 }
 
 export class DeliveryOrderPageDto {

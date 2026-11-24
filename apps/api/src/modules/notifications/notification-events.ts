@@ -1,7 +1,6 @@
 import { Clock } from '../../common/clock';
 import { safeName } from '../../common/safe-text';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { encodeId } from '../../common/ids';
 import { requestContext } from '../../common/request-context';
@@ -22,6 +21,21 @@ const holdBatch = new AsyncLocalStorage<{ ids: Set<string> }>();
 const BATCH_SAMPLE = 5;
 /** review M1 รวมแจ้ง "เอกสารไม่ถูกส่งเข้าระบบบัญชี" ที่ยังไม่อ่านภายในช่วงนี้ (connector + รหัสเดียวกัน) */
 export const DOC_NOT_SENT_GROUP_MS = 60 * 60_000;
+
+/**
+ * รวมกลุ่มแจ้งเตือนที่ยังไม่อ่าน (แก้ title/body/payload) ผ่าน `tms_notification_regroup` (migration 0174)
+ * — role แอปไม่มีสิทธิ์ UPDATE ข้อความตรง ๆ · คืนจำนวนแถวที่แก้ (0 = ถูกอ่านพอดี/ไม่ใช่แถวที่รวมกลุ่มได้)
+ */
+async function regroup(
+  tx: Tx,
+  id: string,
+  text: { title: string; body: string },
+  payload: unknown,
+): Promise<number> {
+  const r = await tx.$queryRaw<{ n: number }[]>`
+    SELECT tms_notification_regroup(${id}::uuid, ${text.title}, ${text.body}, ${JSON.stringify(payload)}::jsonb) AS n`;
+  return Number(r[0]?.n ?? 0);
+}
 let savepointSeq = 0;
 
 /**
@@ -379,15 +393,10 @@ export class NotificationEvents implements OnModuleInit {
           count: (prev.count ?? 1) + 1,
         };
         const text = renderNotification(template, row.locale, vars);
-        const done = await tx.notification.updateMany({
-          where: { id: row.id, tenantId: input.tenantId, readAt: null },
-          data: {
-            title: text.title,
-            body: text.body,
-            payload: vars as unknown as Prisma.InputJsonValue,
-          },
-        });
-        if (done.count === 1) grouped.add(row.recipientId);
+        // migration 0174: role แอปแก้ข้อความแจ้งเตือนตรง ๆ ไม่ได้ (ST1-T23) — รวมกลุ่มผ่านฟังก์ชันแคบ
+        // (tenant ของ transaction · in_app ที่ยังไม่อ่าน · template ที่รวมกลุ่มได้) ใน transaction เดียวกับงานที่ทำให้เกิดเหตุ
+        const done = await regroup(tx, row.id, text, vars);
+        if (done === 1) grouped.add(row.recipientId);
       }
       const fresh = to.filter((u) => !grouped.has(u.id)).map((u) => u.id);
       if (!fresh.length) return;
@@ -467,17 +476,11 @@ export class NotificationEvents implements OnModuleInit {
           errorClass: prev.errorClass === 'AMBIGUOUS' ? prev.errorClass : input.errorClass,
         };
         const text = renderNotification(template, row.locale, vars);
-        // migration 0163: role แอปแก้ title/body/payload ได้ — แก้ใต้ RLS ใน transaction เดียวกับงานที่ทำให้เกิดเหตุ
-        const done = await tx.notification.updateMany({
-          where: { id: row.id, tenantId: input.tenantId, readAt: null },
-          data: {
-            title: text.title,
-            body: text.body,
-            payload: vars as unknown as Prisma.InputJsonValue,
-          },
-        });
+        // migration 0174: role แอปแก้ข้อความแจ้งเตือนตรง ๆ ไม่ได้ (ST1-T23) — รวมกลุ่มผ่านฟังก์ชันแคบ
+        // (tenant ของ transaction · in_app ที่ยังไม่อ่าน · template ที่รวมกลุ่มได้) ใน transaction เดียวกับงานที่ทำให้เกิดเหตุ
+        const done = await regroup(tx, row.id, text, vars);
         // ถูกอ่านพอดี = แจ้งใหม่แทน
-        if (done.count === 1) grouped.add(row.recipientId);
+        if (done === 1) grouped.add(row.recipientId);
       }
       const fresh = to.filter((u) => !grouped.has(u.id)).map((u) => u.id);
       if (!fresh.length) return;

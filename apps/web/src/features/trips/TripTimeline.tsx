@@ -1,6 +1,6 @@
 import { ChoiceGroup, EmptyState, Icon, useEscapeLayer } from '@tms/ui';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { problemText } from '../master/problems';
@@ -102,8 +102,11 @@ export function TripTimeline({
   onFailRestClose,
   onToast,
   onOpenFlags,
+  completeStopId,
 }: {
   trip: TripDetail;
+  /** เปิด dialog "ปิดงาน" ของจุดนี้ทันทีเมื่อบันทึกได้ (ปุ่ม "ยืนยันส่งแล้ว" ของ DO) — ครั้งเดียว */
+  completeStopId?: string;
   /** `trips:dispatch` + เที่ยวปล่อยแล้ว/กำลังวิ่ง */
   canRecord: boolean;
   /** footer "ส่งไม่สำเร็จจุดที่เหลือ" ถูกกด */
@@ -130,6 +133,16 @@ export function TripTimeline({
   const hm = (iso: string) =>
     toBangkok(iso).date === trip.tripDate ? toBangkok(iso).time : dt(iso);
   const doNo = (id: string) => trip.deliveryOrders.find((d) => d.id === id)?.doNo ?? '';
+  // ปุ่ม "ยืนยันส่งแล้ว" ของ DO → เปิด dialog ปิดงานของจุดส่งนั้น (event ต่อจุดต้องมี occurredAt — docs/04 E1 → ไม่มีแบบหลายใบ)
+  const autoDone = useRef(false);
+  useEffect(() => {
+    if (autoDone.current || !completeStopId || !canRecord || !q.data) return;
+    autoDone.current = true;
+    const i = trip.stops.findIndex((x) => x.id === completeStopId);
+    const s = trip.stops[i];
+    if (s && stepActions(trip.stops, q.data, i)?.complete)
+      setAsk({ kind: 'complete', stop: s, needArrive: s.status === 'PENDING' });
+  }, [completeStopId, canRecord, q.data, trip.stops]);
   const rest = restOf(trip.stops, events);
   const current: Ask | null = failRest && rest.length ? { kind: 'failRest', stops: rest } : ask;
 
