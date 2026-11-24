@@ -277,6 +277,36 @@ export class QueueActionsDto {
   approve!: boolean;
 }
 
+/** ST8-T09 / PO 24 พ.ย. 2569 ใบ 1 ใบในการแยกเอกสารของระบบบัญชี (ช่องกรอกเลขต่อใบของหน้าคิว) */
+export class QueuePlannedDocumentDto {
+  @ApiProperty({
+    example: 'INV-00000-6911-0001-V7',
+    description: 'เลขอ้างอิงที่ TMS ส่ง (`documents[].ref` ของ `POST …/external-id`)',
+  })
+  ref!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'VAT_7',
+    description: 'กลุ่มที่แยก (เช่น `vat_type` ของรายการในใบนั้น)',
+  })
+  group!: string | null;
+  @ApiProperty({ type: [Number], description: 'ลำดับรายการของเอกสาร TMS ที่อยู่ในใบนี้' })
+  lineNos!: number[];
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'เลขฝั่งระบบบัญชีที่ระบบรู้แล้ว (ส่งไม่ครบ / กรอกไว้ก่อน) — null = ยังไม่รู้',
+  })
+  externalId!: string | null;
+  @ApiProperty({ nullable: true, type: String }) externalDocNo!: string | null;
+  @ApiProperty({
+    description:
+      'เลขที่รู้แล้วได้จากระบบบัญชีเอง (ยืนยันแล้ว — ต้องตรงกัน แก้ไม่ได้) · false = ยังไม่รู้ หรือคนกรอกไว้ (แก้ทับได้)',
+  })
+  confirmed!: boolean;
+}
+
 export class ConnectorQueueItemDto extends ConnectorCommandDto {
   @ApiProperty({ enum: QUEUE_TABS }) tab!: string;
   @ApiProperty({ nullable: true, type: String, example: 'INV-00000-2611-0001' })
@@ -313,6 +343,13 @@ export class ConnectorQueueItemDto extends ConnectorCommandDto {
   @ApiProperty({ nullable: true, type: QueueResolutionDto }) resolution!: QueueResolutionDto | null;
   @ApiProperty({ type: QueueActionsDto }) actions!: QueueActionsDto;
   @ApiProperty({
+    type: [QueuePlannedDocumentDto],
+    description:
+      'PO 24 พ.ย. 2569 (ST8-T09) รายการที่กรอกเลขเองได้ (`actions.externalId`) และระบบบัญชีแยกเอกสารนี้เป็น**หลายใบ** (เช่น KRS แยกตามชนิด VAT) — ' +
+      'ใบตามแผนการแยก (ส่งเป็น `documents` ของ `POST …/external-id`) · มีเฉพาะใน `GET …/queue` · เอกสารเดียว / กรอกเองไม่ได้ / ตรวจแผนไม่ได้ = `[]`',
+  })
+  documents!: QueuePlannedDocumentDto[];
+  @ApiProperty({
     description:
       'รายการรออนุมัติแทนที่ (`replace_requires_approval`): ผู้เรียกอยู่ในรายชื่อผู้ขอ (ผู้สั่งส่ง/ผู้สร้าง/แก้/ออกเลขเอกสาร) — ' +
       'อนุมัติเองไม่ได้ (`POST …/approve` ตอบ 403 `erp_replace_self_approval`) · รายการอื่น = false',
@@ -335,6 +372,16 @@ export class ConnectorQueueSummaryDto {
   @ApiProperty() queued!: number;
   @ApiProperty({ description: 'ต้องมีคนทำ (badge ที่เมนู)' }) failed!: number;
   @ApiProperty() done!: number;
+  @ApiProperty({
+    description:
+      'คำสั่งที่ส่งสำเร็จ (DONE) ใน 24 ชั่วโมงล่าสุด — การ์ด "สำเร็จ 24 ชม." ของหน้าคิว (ต้นแบบ kpis(\'erp\'); PO 24 พ.ย. 2569)',
+  })
+  succeeded24h!: number;
+  @ApiProperty({
+    description:
+      'คำสั่งที่จบใน 24 ชั่วโมงล่าสุด (DONE + FAILED_FINAL) — อัตราสำเร็จ = `succeeded24h` / `finished24h` (0 = ไม่มีคำสั่งที่จบ)',
+  })
+  finished24h!: number;
   @ApiProperty({
     type: 'object',
     additionalProperties: { type: 'integer' },
@@ -570,8 +617,13 @@ export class ConnectorQueueService {
     const pageIds = (hasMore ? ids.slice(0, limit) : ids).map((r) => r.id);
     const rows = await this.rows(tx, c, pageIds);
     const last = rows[rows.length - 1];
+    const data = rows.map((r) => this.item(r.row, r.f));
+    // PO 24 พ.ย. 2569: แผนการแยกใบของรายการที่กรอกเลขเองได้ (ช่องกรอกต่อใบ) — เฉพาะรายการนั้น (แท็บล้มเหลวมีไม่กี่รายการ)
+    for (const [i, r] of rows.entries())
+      if (data[i]!.actions.externalId && isDocPush(r.row))
+        data[i]!.documents = await this.plannedFor(tx, c, r.row);
     return {
-      data: rows.map((r) => this.item(r.row, r.f)),
+      data,
       nextCursor:
         hasMore && last
           ? encodeCursor({ updatedAt: last.row.updatedAt, id: last.row.id }, QUEUE_SORT)
@@ -584,10 +636,14 @@ export class ConnectorQueueService {
   async summary(id: string, tx: Tx = this.db.tx): Promise<ConnectorQueueSummaryDto> {
     const c = await this.connectors.get(id, tx);
     const base = Prisma.sql`o.sink = ${ERP_SINK} AND o.target_id = ${c.id} AND NOT ${RETRIED_SQL}`;
-    const [counts] = await tx.$queryRaw<{ queued: number; failed: number; done: number }[]>`
+    const [counts] = await tx.$queryRaw<
+      { queued: number; failed: number; done: number; ok24: number; fin24: number }[]
+    >`
       SELECT count(*) FILTER (WHERE ${tabSql('queued')})::int AS queued,
              count(*) FILTER (WHERE ${tabSql('failed')})::int AS failed,
-             count(*) FILTER (WHERE ${tabSql('done')})::int AS done
+             count(*) FILTER (WHERE ${tabSql('done')})::int AS done,
+             count(*) FILTER (WHERE o.status = 'DONE' AND o.done_at >= now() - interval '24 hours')::int AS ok24,
+             count(*) FILTER (WHERE o.status IN ('DONE', 'FAILED_FINAL') AND o.done_at >= now() - interval '24 hours')::int AS fin24
         FROM integration_outbox o WHERE ${base}`;
     const byClass = await tx.$queryRaw<{ cls: string | null; n: number }[]>`
       SELECT o.error_class AS cls, count(*)::int AS n FROM integration_outbox o
@@ -596,6 +652,8 @@ export class ConnectorQueueService {
       queued: counts?.queued ?? 0,
       failed: counts?.failed ?? 0,
       done: counts?.done ?? 0,
+      succeeded24h: counts?.ok24 ?? 0,
+      finished24h: counts?.fin24 ?? 0,
       failedByClass: Object.fromEntries(byClass.map((r) => [r.cls ?? 'UNKNOWN', r.n])),
     };
   }
@@ -1013,6 +1071,52 @@ export class ConnectorQueueService {
     return this.item(fresh!.row, fresh!.f);
   }
 
+  /**
+   * PO 24 พ.ย. 2569 ใบตามแผนการแยก (≥ 2 ใบ) + เลขที่ระบบรู้แล้ว (mapping ส่งไม่ครบ / กรอกไว้) — ให้หน้าคิวแสดงช่องกรอกต่อใบ
+   * ตรวจแผนไม่ได้ / เอกสารเดียว = [] (ทางกรอกเลขเดี่ยวเดิม — API ตอบ 422 ตามเดิมถ้าไม่ใช่)
+   */
+  private async plannedFor(
+    tx: Tx,
+    c: Connector,
+    row: IntegrationOutbox,
+  ): Promise<QueuePlannedDocumentDto[]> {
+    let plan: Awaited<ReturnType<ErpAdapterSink['plannedDocuments']>>;
+    try {
+      plan = await this.plan(tx, c, row);
+    } catch {
+      return [];
+    }
+    if (plan.kind !== 'planned' || plan.parts.length < 2) return [];
+    const m = await tx.externalMapping.findUnique({
+      where: {
+        connectorId_entityType_localId: {
+          connectorId: c.id,
+          entityType: row.entityType === 'invoice' ? MAP_ENTITY.invoice : MAP_ENTITY.settlement,
+          localId: row.localId,
+        },
+      },
+      select: { detail: true },
+    });
+    const detail = (m?.detail ?? {}) as { documentsPartial?: unknown };
+    const known = new Map(
+      (detail.documentsPartial === true ? mappingDocumentsOf(m?.detail) : []).map((p) => [
+        p.ref,
+        p,
+      ]),
+    );
+    return plan.parts.map((p) => {
+      const k = known.get(p.ref);
+      return {
+        ref: p.ref,
+        group: p.group ?? null,
+        lineNos: [...p.lineNos],
+        externalId: k?.externalId ?? null,
+        externalDocNo: k?.externalDocNo ?? null,
+        confirmed: !!k && k.source !== 'manual',
+      };
+    });
+  }
+
   /** ST8-T09 แผนการแยกใบ (adapter `plannedDocuments`) ของฉบับที่ออก */
   private async plan(tx: Tx, c: Connector, row: IntegrationOutbox) {
     const op = row.entityType === 'invoice' ? 'PUSH_INVOICE' : 'PUSH_SETTLEMENT';
@@ -1280,6 +1384,7 @@ export class ConnectorQueueService {
           }
         : null,
       actions: this.actions(row, f),
+      documents: [],
       requestedByMe: f.requestedByMe,
       bodiesHidden: !canSeeBodies(row.entityType, requestContext.get()?.scopes ?? []),
     };

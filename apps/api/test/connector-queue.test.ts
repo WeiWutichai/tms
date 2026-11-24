@@ -198,6 +198,8 @@ describe('Connector queue (ST7-T19)', () => {
       queued: 0,
       failed: 1,
       done: 0,
+      succeeded24h: 0,
+      finished24h: 1,
       failedByClass: { PERIOD_CLOSED: 1 },
     });
     // request/response ของคำสั่งนี้ (ตัด secret แล้ว) จาก sync log
@@ -225,6 +227,12 @@ describe('Connector queue (ST7-T19)', () => {
     const done = (await queue(con.id, 'done')).body;
     expect(ids(done)).toEqual([newId]);
     expect(done.data[0]).toMatchObject({ status: 'DONE', tab: 'done', guide: null });
+    // การ์ด "สำเร็จ 24 ชม." (ต้นแบบ kpis('erp'); PO 24 พ.ย. 2569) — คำสั่งที่ส่งสำเร็จใน 24 ชม. ล่าสุด
+    const s24 = (await api(app, token).get(`/v1/connectors/${con.id}/queue/summary`).expect(200))
+      .body;
+    expect(s24).toMatchObject({ failed: 0, done: 1, succeeded24h: 1, finished24h: 1 });
+    // documents (ช่องกรอกต่อใบ) มีเฉพาะรายการที่กรอกเลขเองได้ของ adapter ที่แยกใบ — Demo = เอกสารเดียว
+    expect(done.data[0].documents).toEqual([]);
     // คำสั่งเดิมไม่อยู่ในแท็บใด (ถูกแทนที่) — ส่งซ้ำอีกไม่ได้
     for (const tab of ['queued', 'failed', 'done'])
       expect(ids((await queue(con.id, tab)).body)).not.toContain(cmdId);

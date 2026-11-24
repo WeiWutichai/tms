@@ -87436,6 +87436,50 @@
           "approve"
         ]
       },
+      "QueuePlannedDocumentDto": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "example": "INV-00000-6911-0001-V7",
+            "description": "เลขอ้างอิงที่ TMS ส่ง (`documents[].ref` ของ `POST …/external-id`)"
+          },
+          "group": {
+            "type": "string",
+            "nullable": true,
+            "example": "VAT_7",
+            "description": "กลุ่มที่แยก (เช่น `vat_type` ของรายการในใบนั้น)"
+          },
+          "lineNos": {
+            "description": "ลำดับรายการของเอกสาร TMS ที่อยู่ในใบนี้",
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขฝั่งระบบบัญชีที่ระบบรู้แล้ว (ส่งไม่ครบ / กรอกไว้ก่อน) — null = ยังไม่รู้"
+          },
+          "externalDocNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "confirmed": {
+            "type": "boolean",
+            "description": "เลขที่รู้แล้วได้จากระบบบัญชีเอง (ยืนยันแล้ว — ต้องตรงกัน แก้ไม่ได้) · false = ยังไม่รู้ หรือคนกรอกไว้ (แก้ทับได้)"
+          }
+        },
+        "required": [
+          "ref",
+          "group",
+          "lineNos",
+          "externalId",
+          "externalDocNo",
+          "confirmed"
+        ]
+      },
       "ConnectorQueueItemDto": {
         "type": "object",
         "properties": {
@@ -87564,6 +87608,13 @@
           "actions": {
             "$ref": "#/components/schemas/QueueActionsDto"
           },
+          "documents": {
+            "description": "PO 24 พ.ย. 2569 (ST8-T09) รายการที่กรอกเลขเองได้ (`actions.externalId`) และระบบบัญชีแยกเอกสารนี้เป็น**หลายใบ** (เช่น KRS แยกตามชนิด VAT) — ใบตามแผนการแยก (ส่งเป็น `documents` ของ `POST …/external-id`) · มีเฉพาะใน `GET …/queue` · เอกสารเดียว / กรอกเองไม่ได้ / ตรวจแผนไม่ได้ = `[]`",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueuePlannedDocumentDto"
+            }
+          },
           "requestedByMe": {
             "type": "boolean",
             "description": "รายการรออนุมัติแทนที่ (`replace_requires_approval`): ผู้เรียกอยู่ในรายชื่อผู้ขอ (ผู้สั่งส่ง/ผู้สร้าง/แก้/ออกเลขเอกสาร) — อนุมัติเองไม่ได้ (`POST …/approve` ตอบ 403 `erp_replace_self_approval`) · รายการอื่น = false"
@@ -87597,6 +87648,7 @@
           "guide",
           "resolution",
           "actions",
+          "documents",
           "requestedByMe",
           "bodiesHidden"
         ]
@@ -87637,6 +87689,14 @@
           "done": {
             "type": "number"
           },
+          "succeeded24h": {
+            "type": "number",
+            "description": "คำสั่งที่ส่งสำเร็จ (DONE) ใน 24 ชั่วโมงล่าสุด — การ์ด \"สำเร็จ 24 ชม.\" ของหน้าคิว (ต้นแบบ kpis('erp'); PO 24 พ.ย. 2569)"
+          },
+          "finished24h": {
+            "type": "number",
+            "description": "คำสั่งที่จบใน 24 ชั่วโมงล่าสุด (DONE + FAILED_FINAL) — อัตราสำเร็จ = `succeeded24h` / `finished24h` (0 = ไม่มีคำสั่งที่จบ)"
+          },
           "failedByClass": {
             "type": "object",
             "additionalProperties": {
@@ -87653,6 +87713,8 @@
           "queued",
           "failed",
           "done",
+          "succeeded24h",
+          "finished24h",
           "failedByClass"
         ]
       },
