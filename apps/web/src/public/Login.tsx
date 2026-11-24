@@ -27,6 +27,16 @@ export function initials(name: string): string {
     .toUpperCase();
 }
 
+/**
+ * `?next=` หลัง login — รับเฉพาะ path ภายในแอป (ST9-T13 รอบสุดท้าย R2-L01): ต้องขึ้นต้น `/` ตัวเดียว และห้าม backslash
+ * (เบราว์เซอร์แปลง `/\evil.com` เป็น `//evil.com` — react-router <7.18 GHSA-wrjc-x8rr-h8h6) และอักขระควบคุม/ช่องว่าง
+ */
+export function safeNextPath(n: string | null): string {
+  if (!n || !n.startsWith('/') || n.startsWith('//')) return '/';
+  if (/[\\\u0000-\u0020\u007f]/.test(n)) return '/';
+  return n;
+}
+
 /** หน้าเข้าสู่ระบบ (au.login) + เลือกบริษัท (au.pick) — ST1-T01 */
 export function LoginPage() {
   const { t } = useI18n();
@@ -40,10 +50,7 @@ export function LoginPage() {
   const [tenants, setTenants] = useState<TenantChoice[] | null>(null);
   const [mfa, setMfa] = useState<{ step: MfaStep; enroll: boolean } | null>(null);
 
-  const next = () => {
-    const n = params.get('next');
-    nav(n && n.startsWith('/') && !n.startsWith('//') ? n : '/', { replace: true });
-  };
+  const next = () => nav(safeNextPath(params.get('next')), { replace: true });
 
   async function attempt(tenantId?: string) {
     setBusy(true);

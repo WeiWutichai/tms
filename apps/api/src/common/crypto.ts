@@ -1,4 +1,34 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { isLocalEnv } from '../auth/tokens';
+
+/**
+ * ST9-T13 รอบสุดท้าย (R2-M01): กุญแจตัวอย่างที่เผยแพร่ใน `.env.example` / CI — ใช้ได้เฉพาะ dev/test
+ * นอก dev/test (staging/production) ใช้ค่านี้ = ข้อมูลที่เข้ารหัส (เลขบัตร/บัญชี/credential/TOTP) ถอดได้ด้วยค่าที่อยู่ใน repo → ไม่ยอมเริ่ม
+ */
+export const DEV_FIELD_ENCRYPTION_KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=';
+export const DEV_BLIND_INDEX_KEY = 'YmxpbmQtaW5kZXgtZGV2LW9ubHktMDEyMzQ1Njc4OWE=';
+
+/** ค่ากุญแจจาก env ใช้กุญแจตัวอย่างของ repo ไหม (เทียบที่ไบต์ของกุญแจ — base64 คนละรูปแบบก็จับได้) */
+export function usesDevKey(spec: string, dev: string): boolean {
+  const devKey = Buffer.from(dev, 'base64');
+  return spec
+    .split(',')
+    .map((e) => e.trim())
+    .filter(Boolean)
+    .some((e) => {
+      const b64 = e.includes(':') ? e.slice(e.indexOf(':') + 1) : e;
+      return Buffer.from(b64, 'base64').equals(devKey);
+    });
+}
+
+/** ตรวจตอนบูต + ตอนสร้างตัวเข้ารหัส: นอก dev/test ห้ามใช้กุญแจตัวอย่าง (fail closed — แบบ API_KEY_PEPPER) */
+export function assertNoDevKeys(env: NodeJS.ProcessEnv = process.env, local = isLocalEnv()): void {
+  if (local) return;
+  if (usesDevKey(env.FIELD_ENCRYPTION_KEYS ?? '', DEV_FIELD_ENCRYPTION_KEY))
+    throw new Error('FIELD_ENCRYPTION_KEYS must not use the dev key from .env.example');
+  if (usesDevKey(env.BLIND_INDEX_KEY ?? '', DEV_BLIND_INDEX_KEY))
+    throw new Error('BLIND_INDEX_KEY must not be the dev key from .env.example');
+}
 
 /**
  * เข้ารหัสระดับ field ด้วย AES-256-GCM (ST0-T12) — ใช้กับเลขบัตร/บัญชีธนาคาร/credential ของ connector
@@ -23,6 +53,8 @@ export class FieldCipher {
     }
     const first = entries[0]?.split(':')[0];
     if (!first) throw new Error('FIELD_ENCRYPTION_KEYS required');
+    if (!isLocalEnv() && usesDevKey(spec, DEV_FIELD_ENCRYPTION_KEY))
+      throw new Error('FIELD_ENCRYPTION_KEYS must not use the dev key from .env.example');
     this.currentId = first;
   }
 

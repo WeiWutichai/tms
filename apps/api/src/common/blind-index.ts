@@ -1,4 +1,6 @@
 import { createHmac } from 'node:crypto';
+import { isLocalEnv } from '../auth/tokens';
+import { DEV_BLIND_INDEX_KEY, usesDevKey } from './crypto';
 
 /**
  * blind index (HMAC-SHA256) ของค่าลับที่ต้องตรวจซ้ำได้ (ST2-T05: เลขบัตรประชาชนของรถร่วมบุคคลธรรมดา)
@@ -11,6 +13,8 @@ export class BlindIndex {
   constructor(spec = process.env.BLIND_INDEX_KEY ?? '') {
     const key = Buffer.from(spec, 'base64');
     if (key.length !== 32) throw new Error('BLIND_INDEX_KEY required (base64, 32 bytes)');
+    if (!isLocalEnv() && usesDevKey(spec, DEV_BLIND_INDEX_KEY))
+      throw new Error('BLIND_INDEX_KEY must not be the dev key from .env.example');
     this.key = key;
   }
 

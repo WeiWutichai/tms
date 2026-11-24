@@ -346,6 +346,9 @@ export class PlatformTenantsController {
   @Post(':id/impersonate')
   @HttpCode(200)
   @PlatformAuth('SUPER_ADMIN', 'SUPPORT')
+  // ST9-T13 R2-M02: เข้าใช้งานแทน = เห็นข้อมูลทั้งบริษัทของลูกค้า 60 นาที → ยืนยัน 2FA ซ้ำแบบ D-77 (ตรวจหลัง 404/สถานะ)
+  // [DECISION — lead 24 พ.ย. เพื่อ UAT, ย้อนได้]
+  @StepUpAlways('platform') // ประกาศ X-Step-Up (ไม่บังคับใน schema — ไม่ breaking) + 403 ใน OpenAPI
   @ApiOkResponse({ type: ImpersonationStartDto })
   async impersonate(
     @Param('id') id: string,
@@ -357,6 +360,7 @@ export class PlatformTenantsController {
     const staff = await db.platformUser.findUniqueOrThrow({ where: { id: ctx.platformUser!.id } });
     const t = await this.tenant(id);
     if (t.status === 'CANCELLED') throw new ProblemException('invalid_state_transition');
+    assertStepUp(); // R2-M02
     // owner ทุกคน (รวมที่ยังรับคำเชิญไม่เสร็จ) ต้องได้อีเมลแจ้งทุกครั้ง (docs/04 A6) — ไม่มี owner = ห้ามเข้า
     const owners = await this.owners(t.id, ['ACTIVE', 'INVITED']);
     if (!owners.length)

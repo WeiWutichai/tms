@@ -28,6 +28,7 @@ import { VehicleProfilePage } from './features/vehicles/VehicleProfilePage';
 import { Dashboard } from './pages/Dashboard';
 import { DesignSystem } from './pages/DesignSystem';
 import { ErrorBoundary, ErrorPage, LockedPage, NoAccess, NotFound, NotReady } from './pages/Simple';
+import { PrivateLinkLayout } from './public/privacyMeta';
 import { LoginPage } from './public/Login';
 import { ForgotPasswordPage, ResetPasswordPage } from './public/Password';
 import { InvitePage } from './public/Invite';
@@ -152,19 +153,22 @@ export function App() {
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/forgot" element={<ForgotPasswordPage />} />
-            <Route path="/reset-password" element={<ResetPasswordPage />} />
-            <Route path="/invite" element={<InvitePage />} />
-            <Route path="/impersonate" element={<ImpersonatePage />} />
-            {/* ลิงก์รถร่วมส่งเอกสาร (ST2-T21) — magic link ไม่ต้อง login */}
-            <Route path="/link/carrier-docs/:token" element={<CarrierDocsLinkPage />} />
-            {/* ลิงก์ข้อเสนองานของรถร่วม (ST3-T23) — รับ/ปฏิเสธโดยไม่ต้อง login */}
-            <Route path="/link/offer/:token" element={<OfferLinkPage />} />
-            <Route path="/link/pod/:token" element={<PodLinkPage />} />
-            {/* รถร่วมตรวจใบสำคัญจ่าย (ST6-T05) — ยอมรับ/โต้แย้งรายการโดยไม่ต้อง login */}
-            <Route path="/link/settlement/:token" element={<SettlementLinkPage />} />
-            {/* ค่าเที่ยวของฉัน (ST6-T11) — รถร่วมดูเที่ยวที่จบ ยอด สถานะจ่าย โดยไม่ต้อง login */}
-            <Route path="/link/carrier-pay/:token" element={<CarrierPayLinkPage />} />
-            {/* หน้าติดตามของผู้รับ (ST4-T14) — ลิงก์ต่อ DO / ของลูกค้า ไม่ต้อง login */}
+            {/* ST9-T13 R2 (L-01): หน้าที่มี token ใน URL — noindex + no-referrer */}
+            <Route element={<PrivateLinkLayout />}>
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
+              <Route path="/invite" element={<InvitePage />} />
+              <Route path="/impersonate" element={<ImpersonatePage />} />
+              {/* ลิงก์รถร่วมส่งเอกสาร (ST2-T21) — magic link ไม่ต้อง login */}
+              <Route path="/link/carrier-docs/:token" element={<CarrierDocsLinkPage />} />
+              {/* ลิงก์ข้อเสนองานของรถร่วม (ST3-T23) — รับ/ปฏิเสธโดยไม่ต้อง login */}
+              <Route path="/link/offer/:token" element={<OfferLinkPage />} />
+              <Route path="/link/pod/:token" element={<PodLinkPage />} />
+              {/* รถร่วมตรวจใบสำคัญจ่าย (ST6-T05) — ยอมรับ/โต้แย้งรายการโดยไม่ต้อง login */}
+              <Route path="/link/settlement/:token" element={<SettlementLinkPage />} />
+              {/* ค่าเที่ยวของฉัน (ST6-T11) — รถร่วมดูเที่ยวที่จบ ยอด สถานะจ่าย โดยไม่ต้อง login */}
+              <Route path="/link/carrier-pay/:token" element={<CarrierPayLinkPage />} />
+            </Route>
+            {/* หน้าติดตามของผู้รับ (ST4-T14) — ลิงก์ต่อ DO / ของลูกค้า ไม่ต้อง login (ใส่ meta เองใน TrackingPage) */}
             <Route path="/t/:token" element={<TrackingPage />} />
             {/* Platform Console (ST1-T24) — layout/login/token แยกจากแอปลูกค้า ไม่ผ่าน RequireAuth */}
             <Route path="/console/*" element={<ConsoleApp />} />

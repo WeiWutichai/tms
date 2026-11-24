@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { DEMO_PASSWORD, E2E_WEB, freshCode } from './fixtures';
+import { confirmStepUp, DEMO_PASSWORD, E2E_WEB, freshCode } from './fixtures';
 
 /**
  * Platform Console (ST1-T24) — login 2 ขั้น + ลูกค้า + เข้าใช้งานแทน
@@ -128,8 +128,11 @@ test.describe('Platform Console', () => {
     await expect(dlg.getByText('ลูกค้าได้รับอีเมลแจ้งเมื่อมีการเข้าใช้งานแทน')).toBeVisible();
     await dlg.getByLabel('เลข ticket (ไม่บังคับ)').fill('#4412');
     await dlg.getByLabel('เหตุผล').fill('ลูกค้าแจ้งนำเข้า Excel รถไม่ผ่าน');
-    const popupP = context.waitForEvent('page');
     await dlg.getByRole('button', { name: 'เข้าใช้งานแทน' }).click();
+    // ST9-T13 R2-M02: ยืนยัน 2FA ของ Console ก่อน (ยังไม่เปิดแท็บ) → ได้ URL แล้วจึงเปิดแท็บใหม่
+    expect(context.pages()).toHaveLength(1);
+    const popupP = context.waitForEvent('page');
+    await confirmStepUp(page, 'support@platform.test');
     const app = await popupP;
     await app.waitForURL(`${E2E_WEB}/`);
     // token ไม่ค้างใน URL

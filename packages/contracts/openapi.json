@@ -3155,6 +3155,15 @@
             }
           },
           {
+            "name": "X-Step-Up",
+            "in": "header",
+            "required": false,
+            "description": "stepUpToken จาก `POST /v1/platform/auth/step-up` (ทีม Innovera ยืนยัน TOTP ซ้ำ อายุ 5 นาที — D-77) — ผู้ใช้ต้องส่งทุกครั้ง ไม่งั้น 403 `step_up_required`",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -3187,6 +3196,28 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "description": "ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/platform/tenants/3f2a…/impersonate",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
@@ -3201,7 +3232,10 @@
         ],
         "tags": [
           "platform-console"
-        ]
+        ],
+        "x-step-up": {
+          "mode": "platform"
+        }
       }
     },
     "/v1/platform/tenants/{id}/users/{userId}/reset-2fa": {
