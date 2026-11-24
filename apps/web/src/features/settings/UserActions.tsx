@@ -52,11 +52,14 @@ export function userMenu(
     t: (k: MessageKey) => string;
     canWrite: boolean;
     self: boolean;
+    /** เป้าหมายเป็นเจ้าของ แต่ผู้ทำไม่ใช่เจ้าของ */
+    ownerLocked?: boolean;
     invitation?: Invitation;
     open: (a: Act | 'roles' | 'resend' | 'history') => void;
   },
 ): MenuItem[] {
-  const { t, canWrite, self, invitation, open } = o;
+  const { t, self, invitation, open } = o;
+  const canWrite = o.canWrite && !o.ownerLocked;
   const m: MenuItem[] = [];
   if (u.status === 'invited') {
     if (canWrite && invitation) {

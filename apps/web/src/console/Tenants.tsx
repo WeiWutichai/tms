@@ -445,7 +445,7 @@ function Members({
           <div
             key={m.id}
             className="con-row"
-            style={{ gridTemplateColumns: 'minmax(0,1fr) auto auto auto' }}
+            style={{ gridTemplateColumns: `minmax(0,1fr) auto auto${onReset ? ' 112px' : ''}` }}
           >
             <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               <span style={{ fontWeight: 500 }}>{m.name}</span>
@@ -483,9 +483,9 @@ function Members({
                 <Icon n="key-round" s={14} strokeWidth={1.8} />
                 {t('con.act.reset2fa')}
               </button>
-            ) : (
+            ) : onReset ? (
               <span />
-            )}
+            ) : null}
           </div>
         ))}
         {!x.members.length && <span style={{ color: '#59606B' }}>{t('con.usr.empty')}</span>}

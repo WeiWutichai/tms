@@ -35,6 +35,13 @@ const USERS = [
     roles: [{ id: 'rol_a', code: 'admin', name: 'ผู้ดูแลระบบ' }],
   }),
   U({ id: 'usr_a', name: 'สมชาย ใจดี', email: 'a@x.th', twoFactorEnabled: true }),
+  U({
+    id: 'usr_o',
+    name: 'เจ้าของ บริษัท',
+    email: 'o@x.th',
+    twoFactorEnabled: true,
+    roles: [{ id: 'rol_o', code: 'owner', name: 'เจ้าของ' }],
+  }),
   U({ id: 'usr_d', name: 'สมหญิง พักงาน', email: 'd@x.th', status: 'disabled' }),
   U({ id: 'usr_i', name: 'รอรับ เชิญ', email: 'i@x.th', status: 'invited' }),
   U({ id: 'usr_e', name: 'หมด อายุ', email: 'e@x.th', status: 'invited' }),
@@ -133,6 +140,9 @@ describe('UsersSection — เมนูต่อแถว', () => {
     ]);
     fireEvent.click(document.body);
     expect(await openMenu('ฉันเอง')).toEqual(['ประวัติเข้าสู่ระบบ']);
+    fireEvent.click(document.body);
+    // ผู้ทำไม่ใช่เจ้าของ → จัดการเจ้าของไม่ได้ (API 403 manage_owner)
+    expect(await openMenu('เจ้าของ บริษัท')).toEqual(['ประวัติเข้าสู่ระบบ']);
     fireEvent.click(document.body);
     await waitFor(async () =>
       expect(await openMenu('รอรับ เชิญ')).toEqual(['ส่งคำเชิญใหม่', 'เพิกถอนคำเชิญ']),

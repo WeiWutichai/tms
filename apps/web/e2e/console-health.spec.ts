@@ -23,9 +23,13 @@ test('support: แท็บสุขภาพการเชื่อมต่�
   await drawer.getByRole('tab', { name: 'ผู้ใช้' }).click();
   await expect(drawer.getByText('เปิด 2FA').first()).toBeVisible();
   await expect(drawer.getByRole('button', { name: 'รีเซ็ต 2FA' })).toHaveCount(0);
-  await page.keyboard.press('Escape');
 
-  await page.goto('/console/connectors');
+  // token Console อยู่ในหน่วยความจำ (reload = login ใหม่) → ปิด drawer แล้วไปทางเมนู
+  await page.keyboard.press('Escape');
+  await page
+    .getByRole('navigation', { name: 'เมนู Platform Console' })
+    .getByRole('button', { name: 'Connector ระบบบัญชี' })
+    .click();
   await page.getByRole('tab', { name: /สุขภาพการเชื่อมต่อ/ }).click();
   const tbl = page.getByRole('table', { name: 'สุขภาพการเชื่อมต่อ' });
   await expect(tbl.getByRole('columnheader', { name: 'ค้างนานสุด' })).toBeVisible();

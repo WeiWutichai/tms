@@ -164,6 +164,8 @@ export function UsersSection({ canWrite }: { canWrite: boolean }) {
                       t,
                       canWrite: canWrite && !isImpersonating(),
                       self: !!me.data?.user && me.data.user.email === u.email,
+                      // จัดการเจ้าของได้เฉพาะ owner (API ตอบ 403 manage_owner) — ไม่แสดงเมนูที่ทำไม่ได้
+                      ownerLocked: u.roles.some((r) => r.code === 'owner') && !isOwner,
                       invitation: invOf(u),
                       open: (a) => {
                         if (a === 'roles') setRolesFor(u);
