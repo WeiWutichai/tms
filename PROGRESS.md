@@ -30,7 +30,7 @@
 | ST0-T18 ชุดคำถามภายนอก | ส่ง `plan/06` (นักบัญชี), `plan/07` (ทนาย), `plan/08` (KRS) แล้วบันทึกคำตอบ — ตารางคำถามค้าง #6–#8 ยังเป็น "ยังไม่ส่ง" | PO ส่ง → นักบัญชี / ทนาย / KRS ตอบ | ไม่ |
 | ST4-T15 ทดสอบหน้า public บนมือถือจริง | checklist 3 browser (Chrome Android, Safari iOS, LINE in-app) × 3 หน้า (ข้อเสนองาน, POD, tracking) | ต้องใช้อุปกรณ์จริง (real devices) + คนทดสอบ | ไม่ |
 | ST5-T03 เอกสารที่มี VAT ปน | **ไม่ทำใน TMS — ย้าย/ย่อตาม D-54 (D-69, PO 22 พ.ย. 2569)** · แยกเอกสารตาม `vat_type` ทำที่ตัวเชื่อมระบบบัญชี (ST8-T08) · ค่าตั้ง `tax.separateVatDocs` ที่มีอยู่ยังไม่ถูกใช้ (ยังไม่ตัดสินว่าจะลบ) | — (ไปอยู่ที่ ST8-T08) | ไม่ต้องทำ |
-| ST5-T25 ชุดตรวจ AR/AP แบบเบา (รวม ST6-T12) | สร้างชุดเอกสารตัวอย่างจาก seed + checklist → ให้ผู้เซ็นรับตรวจ → แก้ defect | [OPEN — PO] ผู้เซ็นรับ = PO หรือนักบัญชีของ tenant นำร่อง · นักบัญชีตรวจ (#6, #62, #63) | บางส่วน — เตรียมชุดเอกสาร + checklist ได้; การเซ็นรับ ไม่ |
+| ST5-T25 ชุดตรวจ AR/AP แบบเบา (รวม ST6-T12) | **ร่างแล้ว (รอ PO ตรวจ/เซ็น + นักบัญชีปิดข้อ ⏸)** — ชุดเอกสาร `pnpm --filter @tms/api uat:samples` (16 กรณี, PDF 9) + checklist `plan/sign-offs/st5-t25-ar-ap-checklist.md` | ผู้เซ็นรับรอบนี้ = PO [DECISION — lead 24 พ.ย. เพื่อ UAT, ย้อนได้] · นักบัญชีตรวจ (#6, #62, #63) ก่อน go-live | ใช่ (ชุด + checklist เสร็จ) · การเซ็นรับ ไม่ |
 | ST6-T11 ลิงก์ "ค่าเที่ยวของฉัน" ของรถร่วม | **merge แล้ว PR #166** (22 พ.ย.) · ค้าง: ลิงก์ไป 50 ทวิ ของ AccountSystem + หน้าจอส่วน "ยังไม่เข้างวด" | PO / Claude Design (#68) | เสร็จ |
 | ST7-T15 `external_mapping` + canonical payload | **merge แล้ว PR #167** (22 พ.ย.) · ส่งต่อ ST7-T16: `REPLACE_DOCUMENT` / reconcile เมื่อ ERP มีเอกสารอยู่แล้ว · จุดที่ต่างจาก docs/01 §7.4 รอ PO (#75, D-68) | PO (#75) | เสร็จ |
 | ST7-T16 Push pipeline | **dev เสร็จ — รอ review/QA** (`st7/t16-push-pipeline`, migration `0165_erp_sync_log`): ประตู `syncFromDate` (ตอนสร้างคำสั่ง + ตอนส่ง), ส่งใหม่เมื่อเอกสารเปลี่ยนตาม `fieldChangePolicy` (REPLACE_DOCUMENT / regenerate / paid_locked), ErrorClass ครบตาราง 01§6.3 (DUPLICATE/AMBIGUOUS ค้นเอกสารฝั่ง ERP, VALIDATION → mapping FAILED, NOT_FOUND → MISMATCH + REMOTE_MISSING), sync log 1 แถวต่อ HTTP call (`GET /connectors/{id}/sync-log`) · void ผ่านใบลดหนี้ = ไม่ทำ (D-54 — คำถามค้าง #85) | review/QA · PO #85 | เสร็จ (รอ merge) |
@@ -53,9 +53,9 @@
 | ST9-T16 ชุด PDPA (ร่าง merge แล้ว #129) | ทนายตรวจเอกสาร 4 ชิ้นใน `plan/legal/` แล้วแก้ตาม | PO ส่งทนาย → ทนาย (คำถามค้าง #59, #7) | ไม่ |
 | ST9-T17 ทดสอบประสิทธิภาพ | **dev เสร็จ — รอ review/QA** (`st9/t17-perf-tests`, ไม่มี migration): วัดบนเครื่องว่าง 24 พ.ย. (M2 8 core, load ≤ 7.5) **ผ่านทุกเป้า** — ตาราง 10,000 แถว max ≤ 176 ms · finalize 500 DO 1.28 วิ / 1,000 DO 1.95 วิ · invoice run 2,000 DO 4.6 วิ / 31.9 วิ (ส่งบัญชีในรอบ) · API p95 72 ms · webhook max 0.75 วิ · แก้คิวพร้อมวางบิล p95 610 → 115 ms · `docs/perf/st9-t17-report.md` | review/QA → merge · ค้าง P-4 (100 tenant + k6 บน staging) | ใช่ |
 | ST9-T18 Backup/restore | snapshot + WAL + ซ้อมกู้คืนวัด RPO/RTO | ต้องมี environment จริง (cloud decision, ST0-T03) | ไม่ |
-| ST9-T21 UAT ชุด (ก) KRS | สคริปต์รอบเดือน + เซ็นรับ | ทีม KRS + ST8-T15 (staging) | ไม่ (ร่างสคริปต์ได้) |
-| ST9-T22 UAT ชุด (ข) Standalone | สคริปต์รอบเดือน + เซ็นรับ | PO ระบุ tenant นำร่อง (D-14, #2) + ถ้อยคำเกณฑ์ (ข) (#60 ข้อ ง) · ST5-T25 · AccountSystem go-live (#61) | ไม่ (ร่างสคริปต์ได้) |
-| ST9-T23 Checklist ขึ้นใช้งานจริง + runbook | ยังไม่เริ่ม | ต่อจาก ST9-T21/T22 · environment จริง (cloud) | ไม่ (ร่าง runbook ได้) |
+| ST9-T21 UAT ชุด (ก) KRS | **ร่างแล้ว (รอ ST8-T15 staging + ระบบทดสอบ KRS)** — `plan/sign-offs/st9-t21-uat-krs.md`: รอบซ้อม R ด้วย "ERP จำลอง (Demo)" ทำได้ตอนนี้ (ไม่นับงวด) + 2 งวดจริง | ทีม KRS + ST8-T15 (staging) | ซ้อมได้ · งวดจริง ไม่ |
+| ST9-T22 UAT ชุด (ข) Standalone | **ร่างแล้ว (รอ PO ทำรอบ 0 บนระบบปัจจุบัน → รอบ 1 กับ tenant นำร่อง D-14)** — `plan/sign-offs/st9-t22-uat-standalone.md` (เมนู/ปุ่มจริง, ผู้ใช้เดโม, 3 จุดที่ยังต้องใช้ API) | D-14 + AccountSystem (#61) สำหรับรอบ 1 · ถ้อยคำเกณฑ์ (ข) ใช้ฉบับย่อของ plan/01 [DECISION — lead 24 พ.ย. เพื่อ UAT, ย้อนได้] | รอบ 0 ใช้ได้ทันที |
+| ST9-T23 Checklist ขึ้นใช้งานจริง + runbook | **ร่างแล้ว (รอ cloud decision + T21/T22)** — `docs/ops/st9-t23-go-live-runbook.md` (checklist 14 ข้อ, deploy/rollback, onboarding, runbook 4 เรื่อง + backup/monitoring/PDPA/2FA reset) · ส่วน cloud ติด [รอ cloud decision] | environment จริง (cloud) · ST9-T18 | ร่างแล้ว |
 
 ### งานต่อจากคำตัดสิน 22 พ.ย.
 
@@ -292,7 +292,7 @@
 | T11 ใบวางบิล `billing_note` | เสร็จ — merge PR #145 | ดูบันทึกรายวัน |
 | T03 เอกสารที่มี VAT ปน (แยก 1 ใบ / 2 ใบ) | **ย้าย/ย่อตาม D-54 — ไม่ทำใน TMS (D-69, PO 22 พ.ย. 2569)** | แยกตาม `vat_type` ที่ตัวเชื่อมระบบบัญชี (ST8-T08) |
 | T14–T17, T19, T20, T23, T24 | **ย้ายไป AccountSystem (D-54)** — ไม่ทำใน TMS เฟส 0 | ใบเสร็จ, ใบกำกับภาษี, tax point, รับ 50 ทวิ, ใบลด/เพิ่มหนี้, รายงานภาษีขาย, ETDA |
-| T25 ชุดตรวจ AR/AP แบบเบา (รวม ST6-T12) | **ยังไม่เริ่ม** — รอ PO ชี้ผู้เซ็นรับ + นักบัญชี | เตรียมชุดเอกสารตัวอย่าง + checklist ได้ก่อน |
+| T25 ชุดตรวจ AR/AP แบบเบา (รวม ST6-T12) | **ร่างแล้ว (รอ PO เซ็น + นักบัญชี)** — `uat:samples` + `plan/sign-offs/st5-t25-ar-ap-checklist.md` | ผู้เซ็นรอบนี้ = PO [DECISION — lead 24 พ.ย.] |
 
 ### งาน ST6 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
 
@@ -386,9 +386,9 @@
 | T18 Backup/restore | **ยังไม่เริ่ม** — ติด cloud decision | |
 | T19 Monitoring + alert | เสร็จ — merge PR #110 | UI Console รอต้นแบบ (spec/12 §3) |
 | T20 Accessibility + browser | เสร็จ — merge PR #109 | |
-| T21 UAT ชุด (ก) KRS | **ยังไม่เริ่ม** — ติด KRS + ST8-T15 | |
-| T22 UAT ชุด (ข) Standalone (ย่อ D-54) | **ยังไม่เริ่ม** — ติด D-14 tenant นำร่อง + AccountSystem + ST5-T25 | |
-| T23 Checklist ขึ้นใช้งานจริง + runbook | **ยังไม่เริ่ม** — หลัง T21/T22 | |
+| T21 UAT ชุด (ก) KRS | **ร่างแล้ว (รอ ST8-T15 + KRS)** — `plan/sign-offs/st9-t21-uat-krs.md` | |
+| T22 UAT ชุด (ข) Standalone (ย่อ D-54) | **ร่างแล้ว (รอ PO ทำรอบ 0 → tenant นำร่อง)** — `plan/sign-offs/st9-t22-uat-standalone.md` | |
+| T23 Checklist ขึ้นใช้งานจริง + runbook | **ร่างแล้ว (รอ cloud decision)** — `docs/ops/st9-t23-go-live-runbook.md` | |
 
 ## สัปดาห์นี้ (สัปดาห์ 16–22 พ.ย. 2569 → ต่อสัปดาห์ 23–29 พ.ย.)
 
@@ -518,6 +518,15 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step)
 
 ## บันทึกรายวัน
+
+### 24 พ.ย. 2569 (ST5-T25 ชุดตรวจ AR/AP + ST9-T21/T22 สคริปต์ UAT + ST9-T23 runbook — ร่าง · lane me, `docs/uat-runbook-drafts`, ไม่มี migration)
+
+- **ทำ:** (1) สคริปต์ชุดเอกสารตัวอย่าง `pnpm --filter @tms/api uat:samples` (`apps/api/scripts/uat/cli.mjs` + `ar-ap-sample-set.ts`) — รันได้เฉพาะ worktree ที่ตั้ง lane (ปฏิเสธฐาน `tms`), ลบ/สร้างฐาน `tms_<lane>_uat` → `db:migrate` → สร้าง 16 กรณีผ่าน `/v1` จริง (ใบแจ้งหนี้ ยกเว้น/ปน VAT/ต่ำกว่า 1,000, ยกเลิก+ออกแทน, ร่างยกเลิก, ใบวางบิล+ผู้รับวางบิล, รับบางส่วน/เช็คผ่าน/เช็คคืน/เงินสด, ใบสำคัญจ่ายนิติ/บุคคล + รายการหัก + ร่างยกเลิก) → PDF + `manifest.md` ใน `apps/api/.data/uat/ar-ap/` · รันจริงแล้ว (~25 วิ) (2) checklist ผู้ตรวจ `plan/sign-offs/st5-t25-ar-ap-checklist.md` — อ้าง research ทุกข้อ, ข้อที่ research ไม่ตอบติด [ถามนักบัญชี ACC-n] (3) สคริปต์ UAT `plan/sign-offs/st9-t22-uat-standalone.md` (ทำก่อนตามคำสั่ง PO 24 พ.ย.) และ `st9-t21-uat-krs.md` — ชื่อเมนู/ปุ่มจาก `nav.ts`/`th.ts`, ผู้ใช้เดโม, ขั้น/ผู้ทำ/ผลที่คาด/หลักฐาน/ผล (4) `docs/ops/st9-t23-go-live-runbook.md` (5) `plan/sign-offs/README.md` รายการแบบฟอร์ม
+- **FACT ที่พบระหว่างทำ (ให้ PO ดู):** หน้าเว็บยังไม่มี (ก) ปุ่มปิดต้นทุนเที่ยว `POST /v1/trips/{id}/cost` (ข) หน้าสร้างใบสำคัญจ่าย ("สร้างงวดใหม่" ปิดอยู่) (ค) ปุ่มรีเซ็ต 2FA ฝั่งบริษัท (ง) หน้ารายงานปิดงวด · เมนู `/trips` `/do` `/sub` = "ยังไม่เปิดใช้" → สคริปต์ UAT ใช้ Open API แทน [DECISION — lead 24 พ.ย. เพื่อ UAT, ย้อนได้] · ผลชุดตัวอย่าง: WHT ประมาณการยังแสดงเมื่อยอด < 1,000 (ค่าตั้ง `tax.whtMinimumAmount` = 0 — ACC-9) และเมื่อลูกค้าตั้ง "ไม่หัก" (อัตราจากบรรทัด — checklist I-10) · ใบสำคัญจ่าย 3 เที่ยวขึ้นยอดรวมหน้า 2 ทั้งที่หน้า 1 ว่าง (S-9 เทียบต้นแบบ)
+- **[DECISION — lead 24 พ.ย. เพื่อ UAT, ย้อนได้] (PO สั่งไม่ให้ค้าง [OPEN — PO]):** ผู้เซ็น ST5-T25 รอบนี้ = PO · ถ้อยคำเกณฑ์ (ข) = ฉบับย่อของ plan/01 ST9-T22 · UAT (ข) รอบ 0 บนระบบปัจจุบัน (tenant demo-a) / รอบ 1 กับ tenant นำร่อง · UAT (ก) ซ้อมด้วย Demo ERP (ไม่นับงวด) · ช่องทาง support นำร่อง + ยืนยันตัวก่อนรีเซ็ต 2FA ผ่าน Console + ขั้นคำขอ PDPA ด้วยมือ
+- **ค้าง:** PO ทำ UAT รอบ 0 + เซ็น · ส่ง ACC-4/6/8/9/10/11/12/13/15/26/27/37 ให้นักบัญชี (#6) · ST8-T15 + ระบบทดสอบ KRS · cloud decision (ส่วน [รอ cloud decision] ใน runbook, ST9-T18) · ช่องว่างหน้าเว็บ (ก)–(ง) ส่งให้ PO/Claude Design ตาม spec/12 §3
+- **ไฟล์:** `apps/api/scripts/uat/{cli.mjs,ar-ap-sample-set.ts}`, `apps/api/package.json` (`uat:samples`), `plan/sign-offs/{README.md,st5-t25-ar-ap-checklist.md,st9-t21-uat-krs.md,st9-t22-uat-standalone.md}`, `docs/ops/st9-t23-go-live-runbook.md`, `PROGRESS.md`
+
 
 ### 24 พ.ย. 2569 (คำตัดสิน PO 24 พ.ย. — #82, #89, #91, #95-b, Q-BILLRUN · lane mc, `po/q82-q89-q95b-billrun`, migration 0173)
 

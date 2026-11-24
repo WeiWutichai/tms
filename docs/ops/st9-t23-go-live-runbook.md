@@ -1,0 +1,120 @@
+# ST9-T23 — Checklist ขึ้นใช้งานจริง + Runbook (ร่าง)
+
+> ร่าง 24 พ.ย. 2569 (lane me, `docs/uat-runbook-drafts`) · เอกสารทีม (แบบเดียวกับ `docs/perf/`, `docs/security/`) ไม่ใช่ docs v2 ของเจ้าของสินค้า
+> ที่มา: `plan/01` ST9-T18/T19/T21/T22/T23 · `plan/09` §2–§5 · `plan/03` §6 · `plan/templates/release-checklist.md` · `plan/legal/` (ST9-T16) · `docs/security/st9-t13-review.md`, `st9-t15-retention.md` · `infra/monitoring/` (ST9-T19) · CLAUDE.md
+> ป้าย: **FACT** = มีในโค้ด/เอกสารแล้ว · **[DECISION — lead 24 พ.ย. เพื่อ UAT, ย้อนได้]** · **[รอ cloud decision]** = ขึ้นกับ ST0-T01/T03 (cloud/region, object storage, อีเมล/SMS) — เติมเมื่อตัดสินแล้ว
+
+## 1. Checklist ขึ้นใช้งานจริง (ประตูสุดท้าย — `plan/01` ST9-T23: ติ๊กครบ + เจ้าของเซ็นก่อนเปิด production ให้ pilot)
+
+| # | รายการ | หลักฐาน / ที่มา | เจ้าของ | ✔ |
+|---|---|---|---|---|
+| G-1 | เกณฑ์ go-live `plan/03` §6 ครบ: ไม่มี defect "ขวางงาน" ค้าง · "ลำบาก" มีทางเลี่ยงเขียนไว้ · tenant isolation เขียว 100% | ผล `pnpm ci:local` / GitHub CI รอบ release | Tech lead | ☐ |
+| G-2 | ชุดตรวจ ST5-T25 เซ็นแล้ว + ข้อ ⏸ [ถามนักบัญชี] ปิดกับนักบัญชีของ tenant นำร่อง | `plan/sign-offs/st5-t25-ar-ap-checklist.md` | PO + นักบัญชี | ☐ |
+| G-3 | UAT (ข) Standalone เซ็นแล้ว (รอบ 1 กับ tenant นำร่อง) | `plan/sign-offs/st9-t22-uat-standalone.md` | PO + นักบัญชี | ☐ |
+| G-4 | UAT (ก) KRS 2 งวดผ่าน (เฉพาะ tenant KRS) | `plan/sign-offs/st9-t21-uat-krs.md` | ผู้ใช้ KRS + PO | ☐ |
+| G-5 | ซ้อมกู้คืนจาก backup สำเร็จ 1 ครั้ง (จับเวลา RPO ≤ 1 ชม. / RTO ≤ 4 ชม.) | §4.4 · ST9-T18 | DevOps | ☐ [รอ cloud decision] |
+| G-6 | Monitoring + alert ทำงานบน production: จำลองคิวค้าง → ทีมได้ alert ใน 5 นาที | §4.5 · ST9-T19 | DevOps | ☐ |
+| G-7 | Runbook 4 เรื่องของ `plan/09` §3: ระบบล่ม (§4.6) · connector ล้ม (§4.7) · เลขเอกสารผิด (§4.8) · ขอลบข้อมูล (§4.10) | ไฟล์นี้ | Tech lead | ☐ |
+| G-8 | เลขเริ่มต้นทุกชุดเอกสารตั้งถูก (ทดสอบออก 1 ใบใน tenant ทดสอบที่คัดลอกค่า) | §3 ขั้น O-5 | PO + นักบัญชี | ☐ |
+| G-9 | ผู้ใช้ทุกคนเข้าได้ · 2FA ครบทุก role ที่บังคับ (D-78) | ตั้งค่า → ผู้ใช้และสิทธิ์ คอลัมน์ "ยืนยันตัวตน 2 ชั้น" | admin ของ tenant | ☐ |
+| G-10 | เอกสารสัญญา/PDPA: เงื่อนไขนำร่อง, privacy notice, DPA (`plan/legal/01-03`) ผ่านทนาย | #7, #59 | PO | ☐ |
+| G-11 | ตาราง system-of-record ที่ตกลง + `syncFromDate` (tenant ที่มี connector) | §5 | PO + ลูกค้า | ☐ |
+| G-12 | อบรมผู้ใช้ตามบทบาท (สคริปต์ UAT ใช้เป็นคู่มือ) + ช่องทาง support (ตอบใน 4 ชม.ทำการ — `plan/09` §2 ขั้น 6) | รายชื่อผู้เข้าอบรม | PO | ☐ |
+| G-13 | แผนถอย (`plan/09` §5) แจ้งลูกค้าแล้ว: 2 สัปดาห์แรกคู่ขนานส่วนเอกสาร; export Excel ได้ตลอด | §4.9 | PO | ☐ |
+| G-14 | ค่า env production ไม่มีค่าเดโม: `NODE_ENV=production`, ไม่รัน seed, `ERP_DEMO_ADAPTERS` ไม่ตั้ง, `EMAIL_TRANSPORT` จริง, `TRIP_COSTING_ENABLED` ไม่ปิด | `.env.example` | DevOps | ☐ [รอ cloud decision] |
+
+ลงนามเจ้าของ: PO ______ · Tech lead ______ · วันที่ ______
+
+## 2. Deploy / Rollback / Migration
+
+**FACT** ขั้นตอน release = `plan/templates/release-checklist.md` (คัดลอกต่อ release) · CI ต้องเขียวก่อน push (`pnpm ci:local`; GitHub CI รันด้วยมือ)
+
+| ขั้น | ทำ | หมายเหตุ |
+|---|---|---|
+| D-1 | backup production ก่อน deploy ทุกครั้ง + ยืนยันว่าเสร็จ | [รอ cloud decision] (snapshot ของ managed PostgreSQL) |
+| D-2 | migration: `pnpm --filter @tms/api db:migrate:prod` (= `prisma migrate deploy` + `bootstrap-tenants`) | **ห้าม** `prisma migrate reset` / `migrate dev` / `db:reset` บนฐานที่มีข้อมูล (CLAUDE.md) · migration ต้อง expand-only (release checklist) · ทุกตารางใหม่มี `tms_enable_tenant_rls` |
+| D-3 | deploy image API + worker + web (เวอร์ชันเดียวกัน) | worker ต้องขึ้นด้วย (PDF/outbox/แจ้งเตือน/reconcile) · [รอ cloud decision] |
+| D-4 | smoke: `GET /v1/health` · login · กระดานวางแผน · สร้าง SO ใน tenant demo · ออก PDF 1 ใบ · webhook test | release checklist |
+| D-5 | ดู error rate / latency 15 นาที | Prometheus / alert §4.5 |
+| R-1 | **Rollback = ถอย image** ไปเวอร์ชันก่อน (migration expand-only ทำให้โค้ดเก่ายังใช้ schema ใหม่ได้) — **ไม่ย้อน migration ด้วยการลบ** | ถ้า migration เสีย: เขียน migration ใหม่แก้ (forward-fix) · กู้ backup เฉพาะเมื่อข้อมูลเสียหาย (§4.4) และต้องตัดสินโดย Tech lead + PO |
+| R-2 | บันทึก incident note: เวลา เหตุ ผลกระทบ | `PROGRESS.md` §Defect / Incident |
+
+## 3. Onboard tenant (`plan/09` §2)
+
+| ขั้น | ทำ | ที่ไหน (FACT) | ผู้ทำ |
+|---|---|---|---|
+| O-1 | สร้าง tenant + แพ็กเกจ | Platform Console `/console` (SUPER_ADMIN) → `POST /v1/platform/tenants`; หรือ signup self-serve | Innovera |
+| O-2 | นิติบุคคล/สาขา (เลขผู้เสียภาษี 13 หลัก, สาขา 5 หลัก, ผู้ออกเริ่มต้น) | ตั้งค่า → นิติบุคคลและสาขา | Innovera + ลูกค้า |
+| O-3 | เชิญผู้ใช้ + role (ตาราง A3) · บังคับ 2FA (D-78) | ตั้งค่า → ผู้ใช้และสิทธิ์ → เชิญผู้ใช้ | admin ลูกค้า |
+| O-4 | ค่าภาษีประมาณการ (`tax.*`, ขั้นต่ำ WHT ตามคำตอบ ACC-9) · ค่าบริการเสริม (VAT/WHT ต่อรายการ) | ตั้งค่า → ภาษี · ข้อมูลหลัก → ค่าบริการเสริม | Innovera + นักบัญชี |
+| O-5 | เลขที่เอกสาร: เริ่มต่อจากเล่มเดิมหรือชุดใหม่ (นักบัญชีเลือก) → ทดสอบออก 1 ใบใน tenant ทดสอบ | ตั้งค่า → เลขที่เอกสาร | นักบัญชี |
+| O-6 | นำเข้าข้อมูลหลักจาก Excel: dry-run → แก้แถวผิด → commit (ลูกค้า จุดส่ง รถ คนขับ รถร่วม rate card) | หน้าข้อมูลหลักแต่ละหน้า (นำเข้า) | ลูกค้า (เราช่วย) |
+| O-7 | (ถ้ามี) connector: credential, `syncFromDate` = วันแรกของงวด, mapping รหัสครบ, ทดสอบ | ตั้งค่า → การเชื่อมต่อ | Innovera |
+| O-8 | ซ้อมคู่ขนาน 3–5 วัน (รับงาน → POD → วางบิลทดลองไม่ส่งลูกค้า) | สคริปต์ UAT | ลูกค้า |
+| O-9 | ตัดระบบวันแรกของงวด · งานค้างระบบเดิมไม่ย้าย (ยกเว้นยอดลูกหนี้ยกมาถ้าต้องการ aging) | — | ทั้งสองฝ่าย |
+| O-10 | ประคอง 4 สัปดาห์: ช่องทางตรง ตอบใน 4 ชม.ทำการ · ประชุมสั้นรายสัปดาห์ | — | Innovera |
+
+## 4. Runbook
+
+### 4.1 ช่องทางและบทบาท
+On-call ฝั่ง Innovera รับ alert จาก §4.5 · ช่องทาง support ลูกค้า [DECISION — lead 24 พ.ย. เพื่อ UAT, ย้อนได้]: LINE กลุ่มต่อ tenant + อีเมล support ระหว่างนำร่อง; ระดับ "ขวางงาน" ต้องปิดใน 1 วันทำการ (`plan/09` §4)
+
+### 4.2 ระดับเหตุ
+ขวางงาน (ทำงานหลักไม่ได้ / เอกสารเงินผิด) → แจ้ง PO ทันที · ลำบาก (มีทางเลี่ยง) → แก้ใน release ถัดไป · เล็กน้อย → backlog · ข้อมูลรั่ว → §4.10 + `plan/legal/04-breach-response-72h.md`
+
+### 4.3 สุขภาพระบบ
+`GET /v1/health` · `healthz` / `readyz` / `metrics` (Prometheus) · Console: `/v1/platform/monitoring/{status,alerts,availability}` (ST9-T19) · หน้า Health/Dashboard เชื่อมต่อ (ST9-T04)
+
+### 4.4 Backup / restore (ST9-T18 — placeholder)
+เป้า (FACT `plan/01` ST9-T18): snapshot ทุก 6 ชม. + WAL เก็บ 30 วัน · ไฟล์ (PDF/POD) versioned · RPO 1 ชม. / RTO 4 ชม. · ซ้อมกู้ลง environment ใหม่ + บันทึกผล
+ขั้นซ้อม: (1) เลือกเวลาเป้า (2) กู้ฐาน + ไฟล์ลง environment ใหม่ (3) `db:migrate:prod` (ต้องไม่มี migration ค้าง) (4) smoke D-4 + เทียบจำนวนเอกสารที่ออกเลขล่าสุดกับต้นทาง (5) บันทึกเวลาเริ่ม/จบ + ข้อมูลที่หาย — คำสั่งจริง [รอ cloud decision]
+**FACT:** เอกสารที่ออกเลขแล้วห้ามหาย (DELETE ถูกปฏิเสธในฐาน — `docs/security/st9-t15-retention.md`) · กู้แล้วต้องตรวจว่าเลขเอกสารไม่ซ้ำกับที่ออกหลังจุดกู้ (§4.8)
+
+### 4.5 Monitoring / alert (FACT ST9-T19 — `infra/monitoring/alert-rules.yml`)
+| alert | หมายถึง | ทำอะไรก่อน |
+|---|---|---|
+| `TmsApiDown` / `TmsReadyzFailing` | API ไม่ตอบ / ฐานหรือ dependency ไม่พร้อม | §4.6 |
+| `TmsHigh5xxRate` | 5xx สูง | ดู log ตาม `requestId` · release ล่าสุด → พิจารณา R-1 |
+| `TmsWorkerDown` / `TmsJobLag` / `TmsEmailLag` | worker ไม่ทำงาน / งานค้าง | restart worker · ดูงานที่ล้มซ้ำ |
+| `TmsOutboxLag` / `TmsOutboxBacklogAge` / `TmsWebhookFailureRate` | outbox/webhook ค้าง | §4.7 |
+| `TmsConnectorUnhealthy` / `TmsConnectorLag` | connector ERP ล้ม | §4.7 |
+| `TmsDiskUsage` | ดิสก์ใกล้เต็ม | ขยาย/ล้างไฟล์ชั่วคราว (ห้ามลบไฟล์เอกสาร) [รอ cloud decision] |
+| `TmsAvailabilityBelowTarget` | ต่ำกว่า 99.5% | รายงาน PO |
+ปลายทาง alert (อีเมล/LINE ของทีม) [รอ cloud decision]
+
+### 4.6 ระบบล่ม
+1. ยืนยันจาก `/v1/health` + alert · 2. แจ้ง tenant นำร่อง (ข้อความที่ PO อนุมัติ) · 3. ตรวจฐาน/ดิสก์/release ล่าสุด → R-1 ถ้าเกิดหลัง deploy · 4. ระหว่างล่ม: ลูกค้าใช้วิธีเดิม (แผนถอย) · ข้อมูลจากอุปกรณ์/ลิงก์ที่ส่งไม่สำเร็จ ส่งซ้ำได้ (`clientEventId` กันซ้ำ, เก็บ `occurredAt`) · 5. หลังกลับ: ตรวจคิว outbox/งานค้าง + incident note
+
+### 4.7 Connector / ERP ล่ม (FACT ST7-T16/T19, ST8-T09/T11)
+- TMS ทำงานต่อแบบ standalone เสมอ — เอกสารใหม่รอใน outbox/คิว ไม่ต้องหยุดวางบิล
+- ตั้งค่า → การเชื่อมต่อ → หยุดชั่วคราว ถ้าปลายทางล่มนาน (กันคิวล้มซ้ำ) → เปิดใหม่เมื่อพร้อม
+- คิวเชื่อมระบบบัญชี (`/erp`): แท็บ ล้มเหลว → ส่งซ้ำ / "ส่งซ้ำทั้งหมดที่รอ" · ล้มถาวร → ข้ามพร้อมเหตุผล / กรอกเลขเอง · AUTH → เปลี่ยน credential ("เปลี่ยน key") · ผลไม่ชัด (timeout) ระบบตรวจซ้ำก่อนส่งใหม่ (กันเอกสารซ้ำ)
+- หลังกลับ: รอบ reconcile (หลัง push / รายคืน / ก่อนปิดงวด) → แท็บ "ไม่ตรง" ปิดให้ครบก่อนสิ้นเดือน · ระหว่างล่มนาน: "ส่งออกให้นักบัญชี" ให้บัญชีคีย์เอง (`plan/09` §5)
+
+### 4.8 เลขเอกสารผิด
+- ใบออกเลขแล้วแก้ไม่ได้ (CLAUDE.md) → ยกเลิกคงเลข + ออกฉบับใหม่แทน (D-20; ใบที่ส่งลูกค้า/รับชำระแล้วตามกติกาที่ PO/นักบัญชีตัดสินใน ACC-37) — ห้ามแก้เลขในฐานข้อมูลตรง
+- ชุดเลขเริ่มผิด (ยังไม่ออกใบ) → แก้ที่ ตั้งค่า → เลขที่เอกสาร · ออกไปแล้ว → ปรึกษานักบัญชี บันทึกเหตุผลใน audit + incident note
+
+### 4.9 แผนถอย (FACT `plan/09` §5)
+2 สัปดาห์แรกคู่ขนานส่วนเอกสาร · ปิด connector ได้โดย TMS ยังทำงาน · export Excel ทุกตารางหลักได้ตลอดนำร่อง
+
+### 4.10 คำขอ PDPA / เหตุข้อมูลรั่ว
+- **FACT** (`plan/legal/README.md`): เครื่องมือ DSAR อัตโนมัติ = P1 — เฟส 0 ทำ**ด้วยมือตาม DPA ข้อ 7** (`plan/legal/01-dpa.md`) · Innovera = ผู้ประมวลผล, tenant = ผู้ควบคุม → คำขอจากเจ้าของข้อมูลส่งผ่าน tenant
+- ขั้นตอน [DECISION — lead 24 พ.ย. เพื่อ UAT, ย้อนได้]: (1) tenant ยืนยันตัวผู้ขอ (2) ค้นข้อมูลตาม RoPA (`plan/legal/02-ropa.md`) (3) เข้าถึง/สำเนา: ส่งออกจากหน้าข้อมูลหลัก (4) ลบ/ระงับ: ผู้ใช้ → `POST /v1/users/{id}/delete` (เหตุผล + audit); คนขับ/รถร่วม → ปิดใช้งาน; **ข้อมูลในเอกสารที่ออกเลขแล้วลบไม่ได้** (หน้าที่ตามกฎหมาย — research §5.1 ม.87/3 ≥ 5 ปี) แจ้งเหตุผลกลับ (5) ปิดภายในกรอบเวลาตาม DPA และบันทึกทะเบียนคำขอ
+- เหตุรั่ว: `plan/legal/04-breach-response-72h.md` (แจ้ง สคส. ใน 72 ชม. — research §5.4)
+
+### 4.11 รีเซ็ต 2FA (FACT #81)
+- ฝั่งบริษัท: admin/owner → `POST /v1/users/{id}/reset-2fa` (สิทธิ์ `users:write` + step-up 2FA ของผู้ทำ + เหตุผล; ทำกับตัวเองไม่ได้; reset owner ต้องเป็น owner) — หน้าเว็บยังไม่มีปุ่ม: ใช้ API key/Open API [DECISION — lead 24 พ.ย. เพื่อ UAT, ย้อนได้]
+- ฝั่ง Innovera (เมื่อ admin ของ tenant ล็อกเอง): Console `/console` → tenant → สมาชิก → reset 2FA = `POST /v1/platform/tenants/{id}/users/{userId}/reset-2fa` (SUPER_ADMIN + step-up + เหตุผล ≥ 10) · **ต้องยืนยันตัวผู้ขอนอกระบบก่อน** (โทรกลับเบอร์ที่ลงทะเบียน/ผู้มีอำนาจของ tenant ยืนยันเป็นลายลักษณ์อักษร) [DECISION — lead 24 พ.ย. เพื่อ UAT, ย้อนได้]
+- ผล: ล้าง TOTP + รหัสสำรอง, เพิกถอน session/อุปกรณ์ที่จำ, อีเมลแจ้งผู้ใช้, audit `user.2fa_reset` → login ครั้งถัดไปต้องตั้ง 2FA ใหม่
+
+## 5. ตาราง system-of-record (ร่างต่อ tenant — กรอกตอน O-7)
+
+| ข้อมูล | เจ้าของ (FACT ค่าตั้งต้น) | ตกลงกับลูกค้า |
+|---|---|---|
+| SO / งานขนส่ง | TMS (KRS: ต้นทาง SO = KRS, แก้หลังวางแผน → ใบค้าง) | |
+| เลขใบแจ้งหนี้ / ใบวางบิล / ใบสำคัญจ่าย | TMS ออกเองเสมอ (D-55) | |
+| เอกสารภาษี (ใบกำกับ ใบเสร็จ ใบลด/เพิ่มหนี้ 50 ทวิ) | ระบบบัญชี (D-55/D-56/D-58) | |
+| สถานะรับชำระ | TMS (บันทึกเอง) หรือดึงจาก ERP (ST7-T21) | |
+| ข้อมูลหลักลูกค้า/รหัส ERP | TMS + mapping (`external_mapping`) | |
+| `syncFromDate` | วันแรกของงวดที่ตัดระบบ | |
