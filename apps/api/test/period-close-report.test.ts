@@ -5,7 +5,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { OutboxStatus, ReconcileOutcome, ReconcileSeverity } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ensureSystemRoles } from '../src/auth/system-roles';
-import { encodeId } from '../src/common/ids';
+import { encodeId, tryDecodeId } from '../src/common/ids';
 import { requestContext } from '../src/common/request-context';
 import { DbService } from '../src/db/db.service';
 import { JobQueue } from '../src/jobs/job-queue.service';
@@ -151,7 +151,7 @@ describe('รายงานปิดงวด (ST8-T14)', { timeout: 600_000 },
     ).body as Row;
 
   const ids: Record<string, string> = {};
-  const docs: Record<string, { id: string; number: string }> = {};
+  const docs: Record<string, { id: string; number: string; raw: string }> = {};
 
   beforeAll(async () => {
     await truncateAll();
@@ -247,12 +247,12 @@ describe('รายงานปิดงวด (ST8-T14)', { timeout: 600_000 },
 
     // เอกสารที่ยังไม่ส่ง
     const f = await command({ status: 'FAILED_FINAL', date: '2025-06-20' });
-    docs.failed = { id: f.id, number: f.number };
+    docs.failed = { id: f.id, number: f.number, raw: f.raw };
     const q = await command({ status: 'PENDING', entity: 'settlement', date: '2025-06-30' });
-    docs.queued = { id: q.id, number: q.number };
+    docs.queued = { id: q.id, number: q.number, raw: q.raw };
     await command({ status: 'DONE', date: '2025-06-10' });
     const later = await command({ status: 'FAILED_FINAL', date: '2025-07-05' });
-    docs.julyFailed = { id: later.id, number: later.number };
+    docs.julyFailed = { id: later.id, number: later.number, raw: later.raw };
     // ล้มแล้วส่งใหม่สำเร็จ (คำสั่งหลังกว่า DONE) = ไม่ค้าง
     const old = await command({ status: 'FAILED_FINAL', date: '2025-06-11' });
     await command({ status: 'DONE', date: '2025-06-11', localId: old.localId, number: old.number });
@@ -350,21 +350,56 @@ describe('รายงานปิดงวด (ST8-T14)', { timeout: 600_000 },
     expect(r.truncated).toBe(false);
   });
 
-  it('เกณฑ์ตรวจรับ: สิงหาคม ปิดครบ = ค้าง 0 · passed · รายการที่ยอมรับมีผู้ทำ + เหตุผล', async () => {
+  it('เกณฑ์ตรวจรับ: สิงหาคม ปิดครบ = ค้าง 0 · passed เมื่อไม่มีเอกสารค้างส่ง/ยังไม่ยืนยันด้วย (#95-b) · รายการที่ยอมรับมีผู้ทำ + เหตุผล', async () => {
     const r = await report(AUG);
     expect(r.summary.outstanding).toBe(0);
     expect(r.outstanding).toEqual([]);
-    expect(r.passed).toBe(true);
+    // PO 24 พ.ย. 2569 (#95-b): ค้าง 0 แต่ยังมีเอกสารไม่ส่ง 3 ใบ + INFO ของมิถุนายนที่ยังเปิด (ยังไม่ได้ยืนยัน) → ไม่ผ่าน
+    expect(r.summary).toMatchObject({ notSent: 3, unverified: 1 });
+    expect(r.passed).toBe(false);
     expect(r.acknowledged.map((x: Row) => [x.id, x.ackReason, x.acknowledgedByName])).toEqual([
       [ids.augAck, 'ยอดต่างจากการปัดเศษในระบบบัญชี ยอมรับแล้ว', 'สมหญิง บัญชีดี'],
     ]);
     expect(r.acknowledged[0].sellDifferenceAmount).toBe('-0.01');
-    // เอกสารที่ยังไม่ส่งแสดงประกอบ (ไม่ตัดสินผล) — วันที่ ≤ สิ้นเดือนทุกเดือนก่อนหน้า
+    // เอกสารที่ยังไม่ส่ง — วันที่ ≤ สิ้นเดือนทุกเดือนก่อนหน้า
     expect(r.notSent.map((x: Row) => x.commandId)).toEqual([
       docs.failed!.id,
       docs.queued!.id,
       docs.julyFailed!.id,
     ]);
+    const unsentRaw = [docs.failed!.raw, docs.queued!.raw, docs.julyFailed!.raw];
+    await db.integrationOutbox.updateMany({
+      where: { id: { in: unsentRaw } },
+      data: { status: 'DONE', doneAt: new Date() },
+    });
+    const infoUuid = tryDecodeId('reconcileResult', ids.info!)!;
+    try {
+      // ส่งครบแล้ว (สถานะคิว ณ เวลาที่ออกรายงาน) แต่ยังมีรายการยังไม่ได้ยืนยัน → ยังไม่ผ่าน
+      const un = await report(AUG);
+      expect(un.summary).toMatchObject({ outstanding: 0, notSent: 0, unverified: 1 });
+      expect(un.passed).toBe(false);
+      // INFO ปิดก่อนสิ้นเดือนสิงหาคม → ผ่าน
+      await db.reconcileResult.update({
+        where: { id: infoUuid },
+        data: { resolvedAt: new Date('2025-07-10T03:00:00Z'), resolution: 'NEXT_RUN_MATCHED' },
+      });
+      const ok = await report(AUG);
+      expect(ok.summary).toMatchObject({ outstanding: 0, notSent: 0, unverified: 0 });
+      expect(ok.passed).toBe(true);
+    } finally {
+      await db.reconcileResult.update({
+        where: { id: infoUuid },
+        data: { resolvedAt: null, resolution: null },
+      });
+      await db.integrationOutbox.updateMany({
+        where: { id: { in: unsentRaw } },
+        data: { status: 'FAILED_FINAL', doneAt: new Date() },
+      });
+      await db.integrationOutbox.update({
+        where: { id: docs.queued!.raw },
+        data: { status: 'PENDING', doneAt: null },
+      });
+    }
   });
 
   it('เดือนปัจจุบันยังไม่จบ: ตัด ณ ตอนนี้ · passed = false แม้ไม่มีค้าง', async () => {
@@ -529,7 +564,7 @@ describe('รายงานปิดงวด (ST8-T14)', { timeout: 600_000 },
       return out;
     };
 
-    it('xlsx สิงหาคม: แถวสรุป "ค้าง 0 · ผ่าน" + ยอมรับ (ผู้ทำ/เหตุผล) + ยังไม่ส่ง · ผู้ไม่มีสิทธิ์ราคาไม่มีคอลัมน์เงิน', async () => {
+    it('xlsx สิงหาคม: แถวสรุป "ค้าง 0 · ไม่ผ่าน (ยังมีเอกสารไม่ส่ง — #95-b)" + ยอมรับ (ผู้ทำ/เหตุผล) + ยังไม่ส่ง · ผู้ไม่มีสิทธิ์ราคาไม่มีคอลัมน์เงิน', async () => {
       const st = await exportNow({
         resource: 'reconcile-period-close',
         format: 'xlsx',
@@ -557,7 +592,7 @@ describe('รายงานปิดงวด (ST8-T14)', { timeout: 600_000 },
       ]);
       expect(out[1]![0]).toBe('สรุป');
       expect(out[1]![3]).toContain('MISMATCH ค้าง ณ สิ้นเดือน 0 รายการ');
-      expect(out[1]![4]).toBe('ผ่าน');
+      expect(out[1]![4]).toBe('ไม่ผ่าน');
       expect(out[2]!.slice(0, 1).concat(out[2]!.slice(7, 10))).toEqual([
         'ยอมรับความต่าง',
         'สมหญิง บัญชีดี',

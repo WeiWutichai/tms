@@ -33,7 +33,7 @@ export class UnbilledReportQuery {
     enum: ['true', 'false'],
     default: 'false',
     description:
-      'D-71: รวม DO ที่อยู่ใน**ร่าง**ใบแจ้งหนี้ (`billingStatus` IN_DRAFT) นานเกิน N วัน (วันนี้ − วันที่ DO เข้าร่าง > N เวลาไทย — ' +
+      'D-71: รวม DO ที่อยู่ใน**ร่าง**ใบแจ้งหนี้ (`billingStatus` IN_DRAFT) นานเกิน N วัน (วันนี้ − วันแรกที่ DO เข้าร่างใดก็ได้ > N เวลาไทย — ย้ายร่าง/ถอดแล้วใส่ใหม่ไม่เริ่มนับใหม่ · ' +
       'N ตัวเดียวกับ `minDays`) — แถวนั้นมี `draftInvoice` · ไม่ส่ง/false = เฉพาะ DO ที่ยังไม่อยู่ในใบใด (เดิม)',
   })
   @IsOptional()
@@ -76,16 +76,17 @@ export class UnbilledDraftRefDto {
   id!: string;
   @ApiProperty({
     example: '2026-11-03T03:00:00.000Z',
-    description: 'เวลาที่ DO เข้าร่างนี้ (เวลาสร้างบรรทัดหลักของ DO ในร่าง)',
+    description:
+      'เวลาที่ DO เข้าร่างใบแจ้งหนี้ใด ๆ ครั้งแรก (PO 24 พ.ย. 2569 — ย้ายไปร่างอื่น/ถอดแล้วใส่ใหม่ไม่เริ่มนับใหม่)',
   })
   addedAt!: string;
-  @ApiProperty({ example: '2026-11-03', description: 'วันที่เข้าร่าง (เวลาไทย)' })
+  @ApiProperty({ example: '2026-11-03', description: 'วันแรกที่เข้าร่าง (เวลาไทย)' })
   addedOn!: string;
   @ApiProperty({ example: '2026-11-01', description: 'วันที่สร้างร่างใบแจ้งหนี้ (เวลาไทย)' })
   createdOn!: string;
   @ApiProperty({
     example: 9,
-    description: 'อายุในร่าง = วันนี้ − วันที่เข้าร่าง (วัน, เวลาไทย) — > N',
+    description: 'อายุในร่าง = วันนี้ − วันแรกที่เข้าร่าง (วัน, เวลาไทย) — > N',
   })
   ageDays!: number;
 }

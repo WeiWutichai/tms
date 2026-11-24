@@ -35,10 +35,18 @@ const SINK = 'erp';
 const CAP = 'fetchDocument';
 const ENTITY = 'invoice';
 export const RECONCILE_JOB = 'connector.reconcile';
-/** worker ตรวจรอบที่ถึงเวลา (AFTER_PUSH / NIGHTLY / PRE_CLOSE) ทุก 5 นาที */
+/** worker ตรวจรอบ NIGHTLY / PRE_CLOSE ที่ถึงเวลาทุก 5 นาที */
 export const RECONCILE_CHECK_EVERY_MS = 5 * 60_000;
-/** docs/01 §6.5 AFTER_PUSH "ทันทีหลัง push สำเร็จ และอีกครั้ง +60 นาที" */
+/** PO 24 พ.ย. 2569 (#89): worker ตรวจ AFTER_PUSH ที่ถึงเวลาทุก 1 นาที — ให้ค่าหน่วงเวลาต่อ connector (นาที) ละเอียดพอ */
+export const AFTER_PUSH_CHECK_EVERY_MS = 60_000;
+/**
+ * docs/01 §6.5 AFTER_PUSH "ทันทีหลัง push สำเร็จ และอีกครั้ง +60 นาที" — ชื่อขั้น (จดใน `result.reconcileStages`):
+ * 0 = อ่านครั้งแรก (ครบ `connector.after_push_reconcile_delay_min` หลังส่งสำเร็จ) · 60 = อ่านอีกครั้ง +60 นาทีจากครั้งแรก
+ */
 export const AFTER_PUSH_STAGES_MIN = [0, 60] as const;
+/** PO 24 พ.ย. 2569 (#89) ค่าหน่วงเวลาอ่านครั้งแรกหลังส่งสำเร็จ (นาที) ต่อ connector: 0 = ทันทีที่ worker รอบถัดไปเห็น (≤ 1 นาที) */
+export const AFTER_PUSH_DELAY_DEFAULT_MIN = 0;
+export const AFTER_PUSH_DELAY_MAX_MIN = 1440;
 /** คำสั่งส่งที่จบนานกว่านี้แล้วไม่ตั้งรอบ AFTER_PUSH ย้อนหลัง (worker หยุดนาน = รอบ NIGHTLY เก็บต่อ) */
 const AFTER_PUSH_LOOKBACK_MS = 3 * 3600_000;
 /** คำสั่งส่งต่อรอบตรวจ (5 นาที) */
@@ -111,8 +119,9 @@ interface Expected {
  *
  * รอบ (ทุกรอบสร้างคำสั่ง `FETCH_DOCUMENT` ใน outbox ของ connector — ไม่เรียก ERP ตรง: คิวเคารพ concurrency ต่อ connector, ลำดับต่อลูกค้า
  * (serialize_key เดียวกับการส่ง — ไม่อ่านก่อนการแทนที่ที่ค้าง), การพักคิวเมื่อ health ล้ม/connector หยุด และ retry ตาม ErrorClass):
- * - `AFTER_PUSH` — คำสั่งส่งใบแจ้งหนี้ (PUSH_INVOICE / REPLACE_DOCUMENT) ที่ DONE พร้อม `externalId` → อ่านทันที + อีกครั้ง +60 นาที
- *   (worker ตรวจทุก 5 นาที — ไม่ตั้งคำสั่งล่วงหน้าเพราะคำสั่งที่ยังไม่ถึงเวลาจะกั้นคิวของลูกค้ารายนั้น)
+ * - `AFTER_PUSH` — คำสั่งส่งใบแจ้งหนี้ (PUSH_INVOICE / REPLACE_DOCUMENT) ที่ DONE พร้อม `externalId` → อ่านเมื่อครบค่าหน่วงของ connector
+ *   (`afterPushReconcileDelayMinutes` ค่าเริ่ม 0 = ทันที — PO 24 พ.ย. 2569 #89) + อีกครั้ง +60 นาทีจากครั้งแรก
+ *   (worker ตรวจทุก 1 นาที — ไม่ตั้งคำสั่งล่วงหน้าเพราะคำสั่งที่ยังไม่ถึงเวลาจะกั้นคิวของลูกค้ารายนั้น)
  * - `NIGHTLY` — 02:00 เวลาไทย: ทุกใบที่ mapping SYNCED/MISMATCH และ issue_date ภายใน 90 วัน (1 job ต่อ connector ต่อวัน)
  * - `PRE_CLOSE` — วันทำการสุดท้ายของเดือน 17:00: ทุกใบของเดือนนั้น (TMS ไม่มีการปิดงวด — งวดปิดในระบบบัญชี D-54 จึงใช้เวลาตาม docs)
  * - `MANUAL` — `POST /v1/reconcile-runs` `check: DOCUMENT` (คน + `settings:write` + เหตุผล + audit) เฉพาะใบที่เลือก
@@ -382,17 +391,23 @@ export class DocumentReconcileService implements OnModuleInit {
 
   // ---------- ตั้งรอบ (worker) ----------
 
-  /** เรียกทุก 5 นาทีจาก worker — AFTER_PUSH ที่ถึงเวลา + job ของ NIGHTLY / PRE_CLOSE ที่ถึงเวลา */
+  /** AFTER_PUSH ที่ถึงเวลา + job ของ NIGHTLY / PRE_CLOSE ที่ถึงเวลา (worker เรียกสองส่วนแยกกัน: AFTER_PUSH ทุก 1 นาที · รอบทุก 5 นาที) */
   async scheduleDue(now: Date = this.clock.now()): Promise<{ afterPush: number; rounds: number }> {
     const afterPush = await this.scheduleAfterPush(now);
     const rounds = await this.scheduleRounds(now);
     return { afterPush, rounds };
   }
 
-  /** ใบที่เพิ่งส่งสำเร็จ (DONE + externalId) → อ่านทันที และอีกครั้งเมื่อครบ 60 นาที */
+  /**
+   * ใบที่เพิ่งส่งสำเร็จ (DONE + externalId) → อ่านเมื่อครบค่าหน่วงของ connector (PO 24 พ.ย. 2569 #89 — ค่าเริ่ม 0 = ทันที)
+   * และอีกครั้งเมื่อครบ 60 นาทีจากครั้งแรก · worker เรียกทุก 1 นาที (`AFTER_PUSH_CHECK_EVERY_MS`)
+   */
   async scheduleAfterPush(now: Date = this.clock.now()): Promise<number> {
-    const since = new Date(now.getTime() - AFTER_PUSH_LOOKBACK_MS - 60 * 60_000);
-    const hourAgo = new Date(now.getTime() - 60 * 60_000);
+    // หน้าต่างย้อนหลังกว้างตามค่าหน่วงที่มากที่สุดที่ตั้งจริง (ค่าเริ่ม 0 → หน้าต่างเท่าเดิม ≈ 4 ชม.)
+    const [mx] = await this.prisma.platform.$queryRaw<{ m: number | null }[]>`
+      SELECT max(after_push_reconcile_delay_min)::int AS m FROM connector`;
+    const maxDelay = Math.min(Math.max(mx?.m ?? 0, 0), AFTER_PUSH_DELAY_MAX_MIN);
+    const since = new Date(now.getTime() - AFTER_PUSH_LOOKBACK_MS - (maxDelay + 60) * 60_000);
     // review 5: ขั้นที่ตั้งแล้วจดใน `result.reconcileStages` ของคำสั่งส่ง → ไม่ดึงแถวเดิมซ้ำทุกรอบ · ใหม่สุดก่อน (ไม่อด)
     const done = await this.prisma.platform.$queryRaw<
       {
@@ -401,20 +416,23 @@ export class DocumentReconcileService implements OnModuleInit {
         target_id: string;
         local_id: string;
         done_at: Date;
+        delay_min: number;
         stages: number[] | null;
       }[]
     >`
-      SELECT o.id, o.tenant_id, o.target_id, o.local_id, o.done_at,
+      SELECT o.id, o.tenant_id, o.target_id, o.local_id, o.done_at, c.after_push_reconcile_delay_min AS delay_min,
              ARRAY(SELECT jsonb_array_elements_text(COALESCE(o.result->'reconcileStages', '[]'::jsonb))::int) AS stages
         FROM integration_outbox o
+        JOIN connector c ON c.id::text = o.target_id AND c.tenant_id = o.tenant_id
        WHERE o.status = 'DONE' AND o.sink = ${SINK} AND o.entity_type = ${ENTITY}
          AND o.operation IN ('PUSH_INVOICE', 'REPLACE_DOCUMENT')
          AND o.next_run_at >= ${new Date(since.getTime() - 86_400_000)}
          AND o.done_at >= ${since} AND o.done_at <= ${now}
          AND o.target_id IS NOT NULL
          AND COALESCE(o.result->>'externalId', '') <> ''
-         AND (NOT COALESCE(o.result->'reconcileStages', '[]'::jsonb) @> '[0]'::jsonb
-              OR (o.done_at <= ${hourAgo}
+         AND ((o.done_at + make_interval(mins => c.after_push_reconcile_delay_min) <= ${now}
+               AND NOT COALESCE(o.result->'reconcileStages', '[]'::jsonb) @> '[0]'::jsonb)
+              OR (o.done_at + make_interval(mins => c.after_push_reconcile_delay_min + 60) <= ${now}
                   AND NOT COALESCE(o.result->'reconcileStages', '[]'::jsonb) @> '[60]'::jsonb))
        ORDER BY o.done_at DESC
        LIMIT ${AFTER_PUSH_BATCH}`;
@@ -425,7 +443,7 @@ export class DocumentReconcileService implements OnModuleInit {
       const marked = new Set(o.stages ?? []);
       const stages = AFTER_PUSH_STAGES_MIN.filter((m) => {
         if (marked.has(m)) return false;
-        const due = o.done_at.getTime() + m * 60_000;
+        const due = o.done_at.getTime() + (o.delay_min + m) * 60_000;
         // ขั้นที่ถึงเวลาแล้ว และยังไม่เลยหน้าต่างย้อนหลัง (worker หยุดนาน = ไม่ตามย้อน — รอบ NIGHTLY เก็บ)
         return due <= now.getTime() && due >= now.getTime() - AFTER_PUSH_LOOKBACK_MS;
       });

@@ -131,7 +131,8 @@ export function samplePeriodClosePdf() {
     periodEnd: '2026-11-30',
     asOf: '2026-11-30T17:00:00.000Z',
     monthEnded: true,
-    passed: true,
+    // มีเอกสารยังไม่ส่ง 2 ใบ → ไม่ผ่าน (PO 24 พ.ย. 2569 — #95-b)
+    passed: false,
     generatedAt: '2026-12-01T02:30:00.000Z',
     summary: {
       outstanding: 0,

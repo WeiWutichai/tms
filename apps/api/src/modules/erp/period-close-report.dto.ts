@@ -39,11 +39,12 @@ export class PeriodCloseSummaryDto {
   @ApiProperty({ description: 'ในจำนวนที่ค้าง: severity FIELD' }) outstandingField!: number;
   @ApiProperty({
     description:
-      'รายการ INFO ที่ยังเปิด ณ สิ้นเดือน (อ่านเอกสารจากระบบบัญชีไม่ได้ / เทียบไม่ได้) — ไม่นับเป็นค้าง แต่แปลว่ามีเอกสารที่ยังไม่ได้ยืนยัน',
+      'รายการ INFO ที่ยังเปิด ณ สิ้นเดือน (อ่านเอกสารจากระบบบัญชีไม่ได้ / เทียบไม่ได้) — ไม่นับเป็นค้าง แต่แปลว่ามีเอกสารที่ยังไม่ได้ยืนยัน · > 0 = `passed` false',
   })
   unverified!: number;
   @ApiProperty({ description: 'รายการที่ยอมรับความต่าง (ack) ในเดือนนี้' }) acknowledged!: number;
-  @ApiProperty({ description: 'เอกสารที่ยังไม่ถูกส่ง (ณ เวลาที่ออกรายงาน)' }) notSent!: number;
+  @ApiProperty({ description: 'เอกสารที่ยังไม่ถูกส่ง (ณ เวลาที่ออกรายงาน) · > 0 = `passed` false' })
+  notSent!: number;
   @ApiProperty({ description: 'ในจำนวนที่ยังไม่ส่ง: รอคิว (ระบบส่งเอง)' }) notSentQueued!: number;
   @ApiProperty({ description: 'ในจำนวนที่ยังไม่ส่ง: ล้มเหลว (ต้องมีคนทำ)' }) notSentFailed!: number;
 }
@@ -157,7 +158,8 @@ export class PeriodCloseReportDto {
   @ApiProperty({ description: 'เดือนจบแล้ว (เวลาปัจจุบัน ≥ สิ้นเดือน)' }) monthEnded!: boolean;
   @ApiProperty({
     description:
-      'ผ่านเกณฑ์ (ก) docs/02 §7 ของงวดนี้ — เดือนจบแล้ว และ MISMATCH ค้าง ณ สิ้นเดือน = 0 (เอกสารที่ยังไม่ส่ง/INFO แสดงประกอบ ไม่ตัดสิน)',
+      'ผ่านเกณฑ์ (ก) docs/02 §7 ของงวดนี้ — เดือนจบแล้ว และ MISMATCH ค้าง ณ สิ้นเดือน = 0 และเอกสารที่ยังไม่ส่ง (`summary.notSent`) = 0 ' +
+      'และยังไม่ได้ยืนยัน (`summary.unverified`) = 0 (PO 24 พ.ย. 2569) — ยังไม่ส่งนับ ณ เวลาที่ออกรายงาน',
   })
   passed!: boolean;
   @ApiProperty({ format: 'date-time' }) generatedAt!: string;

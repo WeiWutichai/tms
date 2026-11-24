@@ -556,6 +556,8 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     const d = (s: string) => new Date(`${s}T00:00:00.000Z`);
     const back = (n: number) =>
       new Date(Date.parse(`${today}T00:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
+    const fwd = (n: number) =>
+      new Date(Date.parse(`${today}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
     /** `period` = งวดของใบ (ค่าเริ่มต้น = งวดของรอบ) · null = ใบไม่มีงวด (ใช้ `issueDate`) */
     const mk = (
       no: string,
@@ -590,9 +592,11 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     await mk('INV-T12-0002');
     await mk('INV-T12-0003', { branch: branch2.id });
     await mk('INV-T12-0004', { status: 'PAID' });
-    // PO 22 พ.ย. 2569: เฉพาะใบของงวดของรอบ — งวดก่อนหน้า / งวดคร่อมออกนอกรอบ / ไม่มีงวด + วันที่ออกนอกงวด ไม่เข้า
+    // PO 22 พ.ย. 2569: เฉพาะใบของงวดของรอบ — งวดก่อนหน้า / ไม่มีงวด + วันที่ออกนอกงวด ไม่เข้า
+    // PO 24 พ.ย. 2569 (Q-BILLRUN): งวดคร่อมขอบรอบ → เข้ารอบที่ `periodTo` อยู่ (เริ่มก่อนรอบแต่จบในรอบ = เข้า; จบหลังรอบ = ไม่เข้า)
     const older = await mk('INV-T12-0005', { period: [back(40), back(35)] });
     const straddle = await mk('INV-T12-0006', { period: [back(2), today] });
+    const straddleOut = await mk('INV-T12-0009', { period: [yesterday, fwd(3)] });
     const noPeriodIn = await mk('INV-T12-0007', { period: null, issueDate: today });
     const noPeriodOut = await mk('INV-T12-0008', { period: null, issueDate: back(40) });
     const off = await startRun({ ...monthly, billingNotes: false });
@@ -605,7 +609,7 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     const r = resultOf(j, c);
     expect(r).toMatchObject({ outcome: 'SUCCEEDED', invoices: [] });
     expect(r.billingNotes.map((b: { invoiceCount: number }) => b.invoiceCount).sort()).toEqual([
-      1, 3,
+      1, 4,
     ]);
     for (const b of r.billingNotes) {
       expect(b.url).toBe(`/v1/billing-notes/${b.id}`);
@@ -615,7 +619,8 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     const linked = async (invoiceId: string) =>
       db.billingNoteInvoice.count({ where: { invoiceId, active: true } });
     expect(await linked(noPeriodIn.id)).toBe(1);
-    for (const x of [older, straddle, noPeriodOut])
+    expect(await linked(straddle.id)).toBe(1);
+    for (const x of [older, straddleOut, noPeriodOut])
       expect(await linked(x.id), x.invoiceNo!).toBe(0);
     const again = await startRun(monthly);
     await drain();
@@ -624,7 +629,16 @@ describe('invoice runs (ST5-T12)', { timeout: 900_000 }, () => {
     const wide = await startRun({ ...monthly, periodFrom: back(45) });
     await drain();
     const rw = resultOf(await job(wide), c);
-    expect(rw.billingNotes.map((b: { invoiceCount: number }) => b.invoiceCount)).toEqual([3]);
+    // older + noPeriodOut (straddle อยู่ในใบวางบิล active แล้ว — ไม่ซ้ำ · straddleOut จบหลังรอบ — ไม่เข้า)
+    expect(rw.billingNotes.map((b: { invoiceCount: number }) => b.invoiceCount)).toEqual([2]);
+    expect(await linked(straddleOut.id)).toBe(0);
+    // รอบถัดไป (งวดติดกัน) ที่ครอบ periodTo ของ straddleOut → เข้ารอบนั้นครั้งเดียว
+    const next = await startRun({ ...monthly, periodFrom: fwd(1), periodTo: fwd(30) });
+    await drain();
+    const rn = resultOf(await job(next), c);
+    expect(rn.billingNotes.map((b: { invoiceCount: number }) => b.invoiceCount)).toEqual([1]);
+    expect(await linked(straddleOut.id)).toBe(1);
+    for (const x of [straddle, noPeriodIn]) expect(await linked(x.id), x.invoiceNo!).toBe(1);
     await park(c);
   });
 

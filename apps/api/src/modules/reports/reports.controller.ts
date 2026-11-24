@@ -69,7 +69,7 @@ export class ReportsController {
     description:
       'DO ที่ส่งถึงแล้ว (DELIVERED / POD_PENDING / UNBILLED) และ**ยังไม่อยู่ในใบแจ้งหนี้ใด** (`billingStatus` UNBILLED / CREDITED — ' +
       'นิยามเดียวกับคิวพร้อมวางบิลและการกันวางบิลซ้ำ ST5-T05; ใบที่ยกเลิกคืน DO กลับมาในรายงาน; DO ในร่างใบแจ้งหนี้ไม่ขึ้น) ' +
-      '· D-71: `includeStaleDrafts=true` รวม DO ที่อยู่ในร่างใบแจ้งหนี้นานเกิน N วัน (วันนี้ − วันที่เข้าร่าง > N) พร้อม `draftInvoice` (id ร่าง + อายุ) ' +
+      '· D-71: `includeStaleDrafts=true` รวม DO ที่อยู่ในร่างใบแจ้งหนี้นานเกิน N วัน (วันนี้ − วันแรกที่ DO เข้าร่างใดก็ได้ > N — ย้ายร่าง/ถอดแล้วใส่ใหม่ไม่เริ่มนับใหม่) พร้อม `draftInvoice` (id ร่าง + อายุ) ' +
       'ที่ **วันนี้ − วันที่ส่งถึง > N** (เวลาไทย) · วันที่ส่งถึง = เวลาบันทึกสถานะส่งถึงครั้งล่าสุด (ไม่มีประวัติ = วันที่ DO) · ' +
       'N = `minDays` หรือค่าตั้งองค์กร `billing.unbilledAlertDays` (ค่าเริ่ม 7) · เรียงส่งถึงเก่าสุดก่อน cursor (วันที่ส่งถึง, id) · ' +
       'มูลค่า = Σ บรรทัดรายได้ที่ยังใช้ (ก่อน VAT) — `sell*` เห็นเมื่อมี `prices.sell:read` · ส่งออก: `POST /v1/exports` resource `unbilled-delivery-orders`',

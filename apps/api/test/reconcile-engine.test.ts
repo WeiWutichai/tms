@@ -913,6 +913,43 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
       ),
     ).toBe(true);
   });
+
+  it('PO 24 พ.ย. 2569 (#89): หน่วงเวลา AFTER_PUSH ต่อ connector — PATCH 0–1440 (นอกช่วง/ไม่ใช่จำนวนเต็ม = 422) + audit · ครบค่าหน่วงจึงอ่าน · อีกครั้ง +60 นาทีจากครั้งแรก', async () => {
+    const patch = (v: unknown) =>
+      api(app, admin).patch(`/v1/connectors/${conId}`).send({ afterPushReconcileDelayMinutes: v });
+    for (const bad of [-1, 1441, 1.5, '5', null]) await patch(bad).expect(422);
+    expect(
+      (await api(app, admin).get(`/v1/connectors/${conId}`).expect(200)).body
+        .afterPushReconcileDelayMinutes,
+    ).toBe(0);
+    expect((await patch(10).expect(200)).body.afterPushReconcileDelayMinutes).toBe(10);
+    const audit = await plat.auditLog.findFirstOrThrow({
+      where: { tenantId, action: 'connector.updated', entityId: conUuid },
+      orderBy: { seq: 'desc' },
+    });
+    expect(audit.after).toMatchObject({ afterPushReconcileDelayMinutes: 10 });
+    try {
+      const inv = await issued(await deliveryOrders(1));
+      const mine = async () =>
+        (await fetches(inv.uuid)).filter(
+          (f) =>
+            (f.payload as { reconcile?: { source?: string } }).reconcile?.source === 'AFTER_PUSH',
+        ).length;
+      await engine.scheduleAfterPush();
+      await engine.scheduleAfterPush(later(9));
+      expect(await mine()).toBe(0); // ยังไม่ครบ 10 นาที
+      await engine.scheduleAfterPush(later(11));
+      expect(await mine()).toBe(1);
+      await drain();
+      await engine.scheduleAfterPush(later(69)); // ครั้งที่ 2 = 10 + 60 นาที
+      expect(await mine()).toBe(1);
+      await engine.scheduleAfterPush(later(71));
+      expect(await mine()).toBe(2);
+      await drain();
+    } finally {
+      await patch(0).expect(200);
+    }
+  });
 });
 
 function addDay(day: string, n: number): string {

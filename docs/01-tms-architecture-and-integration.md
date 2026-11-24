@@ -587,7 +587,7 @@ erDiagram
 
 **integration_sync_log** — 1 แถวต่อ 1 HTTP call (รวม GET ที่ใช้เทียบ): `id` bigserial, `outbox_id` FK null, `connector_id`, `attempt_no`, `direction` enum `OUTBOUND`/`INBOUND`, `method`, `url`, `request_headers` jsonb (ตัด credential), `request_body` jsonb, `response_status`, `response_body` jsonb, `duration_ms`, `sent_at`; index บน `local_id`, `external_id`, GIN บน `request_body`; retention 24 เดือน
 
-**reconcile_result** — `id`, `connector_id`, `entity_type`, `local_id`, `run_at`, `source` enum `AFTER_PUSH`/`NIGHTLY`/`PRE_CLOSE`/`MANUAL`, `local_snapshot` jsonb, `remote_snapshot` jsonb, `diff` jsonb (รายการที่หาย/เกิน/ฟิลด์ต่าง), `diff_hash`, `result` enum `MATCH`/`MISMATCH`/`REMOTE_MISSING`/`ERP_UNREACHABLE`, `severity` enum `MONEY`/`FIELD`/`INFO`, `acknowledged_by`, `acknowledged_at`, `ack_reason`
+**reconcile_result** — `id`, `connector_id`, `entity_type`, `local_id`, `run_at`, `source` enum `AFTER_PUSH`/`NIGHTLY`/`PRE_CLOSE`/`MANUAL`, `local_snapshot` jsonb, `remote_snapshot` jsonb, `diff` jsonb (รายการที่หาย/เกิน/ฟิลด์ต่าง), `diff_hash`, `result` enum `MATCH`/`MISMATCH`/`REMOTE_MISSING`/`ERP_UNREACHABLE`/`NOT_COMPARABLE` (severity `INFO` บันทึกครั้งเดียวต่อเอกสารเมื่อเทียบเนื้อหาไม่ได้ — PO 24 พ.ย. 2569 — ข้อ #91), `severity` enum `MONEY`/`FIELD`/`INFO`, `acknowledged_by`, `acknowledged_at`, `ack_reason`
 
 **webhook_endpoint** — `id` (`whe_`), `url`, `description`, `events` text[], `secret_hash`, `secret_prev_hash`, `secret_rotated_at`, `status` enum `ACTIVE`/`DISABLED`/`AUTO_DISABLED`, `consecutive_failures` int, `created_by`
 

@@ -32,6 +32,7 @@ const row = (over: Partial<Connector> = {}): Connector => ({
   credentialKeys: [],
   credentialsUpdatedAt: null,
   syncFromDate: null,
+  afterPushReconcileDelayMin: 0,
   customerOwner: null,
   taxDocumentOwner: 'TMS',
   fieldSync: {},

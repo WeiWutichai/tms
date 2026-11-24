@@ -1082,6 +1082,12 @@ export class DeliveryOrderService {
         data: { billingStatus: g.to, ...stamp, version: { increment: 1 } },
       });
       if (r.count !== new Set(g.ids).size) throw new ProblemException('concurrent_update');
+      // D-71 (PO 24 พ.ย. 2569 — ข้อ #82): เวลาเข้าร่างครั้งแรก — เขียนเฉพาะที่ยังว่าง (ย้ายร่าง/ถอดแล้วใส่ใหม่ไม่เริ่มนับใหม่)
+      if (event === 'draft')
+        await tx.deliveryOrder.updateMany({
+          where: { id: { in: g.ids }, firstDraftedAt: null },
+          data: { firstDraftedAt: at },
+        });
       await tx.docStatusHistory.createMany({
         data: g.ids.map((id) => ({
           tenantId,

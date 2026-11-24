@@ -113,6 +113,9 @@ interface UnsentRow {
  * - (3) เอกสารที่ยังไม่ถูกส่ง = วันที่เอกสาร ≤ สิ้นเดือน และคำสั่งส่งล่าสุดอยู่แท็บ "รอคิว"/"ล้มเหลว" ของคิว ST7-T19 ณ เวลาที่ออกรายงาน
  *   (เงื่อนไขแท็บชุดเดียวกับ `ConnectorQueueService` — รายการที่คนข้าม/กรอกเลขเองแล้วไม่นับ)
  * - เดือนที่ยังไม่จบ: ตัด ณ เวลาปัจจุบัน (`monthEnded` false → `passed` false)
+ * - `passed` (PO 24 พ.ย. 2569 — ข้อ #95-b) = เดือนจบแล้ว **และ** MISMATCH ค้าง ณ สิ้นเดือน = 0 **และ** เอกสารที่ยังไม่ส่ง (`notSent`) = 0
+ *   **และ** ยังไม่ได้ยืนยัน (`unverified` — INFO ที่เปิด ณ สิ้นเดือน) = 0 · `notSent` เป็นสถานะคิว ณ เวลาที่ออกรายงาน → ผลของเดือนที่จบแล้ว
+ *   เปลี่ยนจาก "ไม่ผ่าน" เป็น "ผ่าน" ได้เมื่อส่งเอกสารค้างครบ
  * อ่านอย่างเดียว · ใน transaction ของ tenant (RLS) · connector ของ tenant อื่น = 404
  */
 @Injectable()
@@ -195,7 +198,8 @@ export class PeriodCloseReportService {
       periodEnd: range.to,
       asOf: asOf.toISOString(),
       monthEnded,
-      passed: monthEnded && outstanding === 0,
+      // PO 24 พ.ย. 2569 (#95-b): ค้าง = 0 และยังไม่ส่ง = 0 และยังไม่ได้ยืนยัน = 0
+      passed: monthEnded && outstanding === 0 && unsent.length === 0 && unverified === 0,
       generatedAt: now.toISOString(),
       summary: {
         outstanding,
