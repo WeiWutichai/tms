@@ -689,3 +689,142 @@ export function SecuritySection({ canWrite }: { canWrite: boolean }) {
     </Card>
   );
 }
+
+/** ช่องตัวเลขของหน้าตั้งค่า (ช่องแบบ inputStyle ของต้นแบบ) — ค่านอกช่วง = ข้อความแดงใต้ช่อง */
+function IntField({
+  label,
+  hint,
+  value,
+  min,
+  max,
+  disabled,
+  onChange,
+  bad,
+}: {
+  label: string;
+  hint: string;
+  value: unknown;
+  min: number;
+  max: number;
+  disabled?: boolean;
+  onChange: (v: number | '') => void;
+  bad: string | null;
+}) {
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 420 }}>
+      <span style={lbl}>{label}</span>
+      <input
+        type="number"
+        inputMode="numeric"
+        min={min}
+        max={max}
+        step={1}
+        aria-label={label}
+        style={{ ...inputStyle, width: 140 }}
+        value={value === '' || value === undefined || value === null ? '' : String(value)}
+        disabled={disabled}
+        aria-invalid={!!bad || undefined}
+        onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
+      />
+      <span style={{ fontSize: 12.5, color: bad ? '#B3322A' : '#59606B' }}>{bad ?? hint}</span>
+    </label>
+  );
+}
+
+const intBad = (v: unknown, min: number, max: number) =>
+  !(typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max);
+
+/**
+ * ตั้งค่า → การจ่ายงานและติดตาม — [DECISION — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ] ต้นแบบไม่มีหัวข้อนี้
+ * ค่าที่ API มีแล้วแต่ไม่มีช่อง: `dispatch.subconResponseHours` (docs/04 D3), `dispatch.maxAutoReschedules` (ST4-T12),
+ * `tracking.contactPhone` / `tracking.showPod` / `tracking.linkDays` (ST4-T14) — การ์ด/ช่อง/สวิตช์/ปุ่มบันทึกลอยแบบหัวข้อ "ความปลอดภัย"
+ */
+export function DispatchSection({ canWrite }: { canWrite: boolean }) {
+  const { t } = useI18n();
+  const d = useDraft([
+    'dispatch.subconResponseHours',
+    'dispatch.maxAutoReschedules',
+    'tracking.contactPhone',
+    'tracking.showPod',
+    'tracking.linkDays',
+  ]);
+  const flow = useSaveFlow('set.menu.ops', d);
+  const off = !canWrite || d.save.isPending;
+  const phone = String(d.draft['tracking.contactPhone'] ?? '');
+  const bad = {
+    hours: intBad(d.draft['dispatch.subconResponseHours'], 1, 47) ? t('ops.e.hours') : null,
+    max: intBad(d.draft['dispatch.maxAutoReschedules'], 0, 10) ? t('ops.e.max') : null,
+    days: intBad(d.draft['tracking.linkDays'], 7, 90) ? t('ops.e.days') : null,
+    phone: phone && !/^\+?[0-9][0-9 -]{5,24}$/.test(phone.trim()) ? t('ops.e.phone') : null,
+  };
+  const invalid = !!d.q.data && Object.values(bad).some(Boolean);
+  return (
+    <Card title={t('set.menu.ops')} load={d.q}>
+      <span style={{ fontWeight: 600 }}>{t('ops.dispatch')}</span>
+      <IntField
+        label={t('ops.hours')}
+        hint={t('ops.hoursHint')}
+        value={d.draft['dispatch.subconResponseHours']}
+        min={1}
+        max={47}
+        disabled={off}
+        bad={d.q.data ? bad.hours : null}
+        onChange={(v) => d.set('dispatch.subconResponseHours', v)}
+      />
+      <IntField
+        label={t('ops.max')}
+        hint={t('ops.maxHint')}
+        value={d.draft['dispatch.maxAutoReschedules']}
+        min={0}
+        max={10}
+        disabled={off}
+        bad={d.q.data ? bad.max : null}
+        onChange={(v) => d.set('dispatch.maxAutoReschedules', v)}
+      />
+      <span style={{ fontWeight: 600 }}>{t('ops.tracking')}</span>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 420 }}>
+        <span style={lbl}>{t('ops.phone')}</span>
+        <input
+          type="tel"
+          inputMode="tel"
+          maxLength={20}
+          aria-label={t('ops.phone')}
+          style={{ ...inputStyle, width: 220 }}
+          value={phone}
+          disabled={off}
+          aria-invalid={!!bad.phone || undefined}
+          onChange={(e) => d.set('tracking.contactPhone', e.target.value.trim() || null)}
+        />
+        <span style={{ fontSize: 12.5, color: bad.phone ? '#B3322A' : '#59606B' }}>
+          {bad.phone ?? t('ops.phoneHint')}
+        </span>
+      </label>
+      <ToggleRow
+        label={t('ops.showPod')}
+        on={d.draft['tracking.showPod'] === true}
+        disabled={off}
+        onChange={() => d.set('tracking.showPod', !(d.draft['tracking.showPod'] === true))}
+      />
+      <IntField
+        label={t('ops.days')}
+        hint={t('ops.daysHint')}
+        value={d.draft['tracking.linkDays']}
+        min={7}
+        max={90}
+        disabled={off}
+        bad={d.q.data ? bad.days : null}
+        onChange={(v) => d.set('tracking.linkDays', v)}
+      />
+      {canWrite && (
+        <SaveBar
+          dirty={Object.keys(d.dirty).length > 0}
+          busy={d.busy || invalid}
+          onSave={flow.onSave}
+          saved={flow.saved}
+          error={flow.error}
+          onDismiss={flow.dismiss}
+        />
+      )}
+    </Card>
+  );
+}

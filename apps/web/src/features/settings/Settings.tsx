@@ -9,7 +9,7 @@ import { ConnectorSettingsSection } from './ConnectorSettings';
 import { EntitiesSection } from './Entities';
 import { NotificationsSection } from './Notifications';
 import { NumbersSection } from './Numbers';
-import { OrgSection, SecuritySection, TaxSection } from './OrgSections';
+import { DispatchSection, OrgSection, SecuritySection, TaxSection } from './OrgSections';
 import { ReasonsSection } from './Reasons';
 import { PodSection } from '../pod/PodSection';
 import { UsersSection } from './Users';
@@ -42,6 +42,8 @@ export const SECTIONS: Array<{
   { k: 'reason', icon: 'list-checks', perm: ['master:read'] },
   // ST4-T05: POD checklist ค่าเริ่มต้น (docs/04 I) — ต้นแบบไม่มีหัวข้อนี้ [DECISION spec/12 §3] วางต่อจาก เหตุผล (งานหน้างาน)
   { k: 'pod', icon: 'clipboard-check', perm: ['settings:read'] },
+  // PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ: ค่าการจ่ายงาน/หน้าติดตามผู้รับที่ API มีแล้ว (ST4-T12/T14, docs/04 D3) — ต่อจาก POD (งานหน้างาน)
+  { k: 'ops', icon: 'truck', perm: ['settings:read'] },
   { k: 'sec', icon: 'shield', perm: ['settings:read'] },
   { k: 'docalert', icon: 'bell-ring', perm: ['settings:read'], stage: 'ST2' },
 ];
@@ -82,6 +84,7 @@ export function SettingsPage() {
           {sec?.k === 'users' && <UsersSection canWrite={can(scopes, 'users:write')} />}
           {sec?.k === 'reason' && <ReasonsSection canWrite={can(scopes, 'master:write')} />}
           {sec?.k === 'pod' && <PodSection canWrite={canWrite} />}
+          {sec?.k === 'ops' && <DispatchSection canWrite={canWrite} />}
           {sec?.k === 'noti' && <NotificationsSection />}
           {sec?.k === 'conn' && <ConnectorSettingsSection canWrite={canWrite} />}
           {sec?.stage && (

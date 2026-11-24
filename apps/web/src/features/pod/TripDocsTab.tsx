@@ -12,6 +12,7 @@ import { useMe } from '../../shell/AppShell';
 import { ActualQtySection } from './ActualQtySection';
 import { linesBody, linesDraftOf, milli, type LinesDraft } from './actualQty';
 import { ReturnDialog } from './ReturnDialog';
+import { TrackingLinkBlock } from '../tracking/TrackingLinkBlock';
 import {
   RESOLVABLE_DELIVERED,
   canResolve as canResolveDo,
@@ -164,6 +165,8 @@ export function TripDocsTab({
   // ST4-T11 ส่งซ้ำ/คืนคลังสร้าง/เปลี่ยนใบส่งของ → สิทธิ์ orders:write (เหมือนสร้าง/แยก DO)
   const me = useMe();
   const canResolve = can(me.data?.scopes ?? [], 'orders:write');
+  // ลิงก์ติดตามของ DO (spec/04 §4 — orders:write / trips:dispatch ตาม API)
+  const canLink = canResolve || can(me.data?.scopes ?? [], 'trips:dispatch');
   // DO ที่มีจุดส่งในเที่ยว เรียงตามลำดับจุดส่ง
   const dos = useMemo(() => {
     const seq = new Map(trip.stops.map((s) => [s.id, s]));
@@ -227,6 +230,7 @@ export function TripDocsTab({
             doId={d.id}
             canEdit={canEdit}
             canResolve={canResolve}
+            canLink={canLink}
             onToast={onToast}
           />
         );
@@ -247,6 +251,7 @@ function DoPodBlock({
   onToggle,
   canEdit,
   canResolve = false,
+  canLink = false,
   onToast,
 }: {
   doId: string;
@@ -260,6 +265,8 @@ function DoPodBlock({
   canEdit: boolean;
   /** ST4-T11 ส่งซ้ำ/คืนคลัง (orders:write) */
   canResolve?: boolean;
+  /** ลิงก์ติดตามสำหรับผู้รับ (orders:write / trips:dispatch) */
+  canLink?: boolean;
   onToast: (msg: string) => void;
 }) {
   const { t } = useI18n();
@@ -364,6 +371,7 @@ function DoPodBlock({
               )}
             </div>
           )}
+          {canLink && <TrackingLinkBlock kind="do" id={doId} onToast={onToast} />}
         </div>
       )}
       {rtOpen && doQ.data && pod && mode && (
