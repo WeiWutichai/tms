@@ -5374,6 +5374,7 @@ export const th = {
   'erpq.qdlg.skip.desc':
     'ไม่ส่งเอกสารนี้เข้า {erp} อีก — ใช้เมื่อบัญชีบันทึกใน {erp} เองแล้ว หรือรับทราบว่างวดปิด · เหตุผลบันทึกใน audit',
   'erpq.qdlg.skip.ok': 'ข้ามรายการ',
+  'erpq.qdlg.skip.ph': 'เช่น ฝ่ายบัญชีบันทึกใน {erp} เองแล้ว',
   'erpq.qdlg.externalId.title': 'กรอกเลขเอกสารใน {erp} · {no}',
   'erpq.qdlg.externalId.desc':
     'เอกสารนี้อยู่ใน {erp} แล้ว — ระบบจะอ่านเอกสารจาก {erp} มาเทียบก่อน ไม่ส่งซ้ำ',

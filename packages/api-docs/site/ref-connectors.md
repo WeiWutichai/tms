@@ -1288,7 +1288,7 @@ const { data, error } = await tms.POST('/v1/reconcile-runs', {
 | `updatedAt` | ใช่ | `string (date-time)` |   |   |   |
 | `tab` | ใช่ | `string` | ค่า: `queued`, `failed`, `done` |   |   |
 | `documentNo` | ใช่ | `string` | null ได้ |   | `2611-0001` |
-| `partyName` | ใช่ | `string` | null ได้ | #86 (24 พ.ย. 2569) คู่ค้าของเอกสารจาก payload — ใบแจ้งหนี้ = ลูกค้า · ใบสำคัญจ่าย = รถร่วม (คอลัมน์ "ลูกค้า" ของหน้าคิว) | `บริษัท ลูกค้า จำกัด` |
+| `partyName` | ใช่ | `string` | null ได้ | #86 (24 พ.ย. 2569) คู่ค้าของเอกสารจาก payload — ใบแจ้งหนี้ = ลูกค้า · ใบสำคัญจ่าย = รถร่วม (คอลัมน์ "ลูกค้า" ของหน้าคิว) · เป็นชื่อตามกฎหมาย (`legalName`) ของลูกค้า/รถร่วมเท่านั้น ไม่มีเลขผู้เสียภาษีหรือข้อมูลส่วนบุคคลอื่น | `บริษัท ลูกค้า จำกัด` |
 | `nextRunAt` | ใช่ | `string (date-time)` | null ได้ | รอคิว: เวลาที่จะลองครั้งถัดไป |   |
 | `errorMessage` | ใช่ | `string` | null ได้ | ข้อความผิดพลาด (ตัด secret แล้ว) |   |
 | `link` | ใช่ | `string` | null ได้ | ลิงก์หน้าที่ต้องแก้ (mapping / ผังรหัส) |   |
@@ -1298,6 +1298,7 @@ const { data, error } = await tms.POST('/v1/reconcile-runs', {
 | `guide` | ใช่ | `QueueGuideDto` | null ได้ |   |   |
 | `resolution` | ใช่ | `QueueResolutionDto` | null ได้ |   |   |
 | `actions` | ใช่ | `QueueActionsDto` |   |   |   |
+| `requestedByMe` | ใช่ | `boolean` |   | รายการรออนุมัติแทนที่ (`replace_requires_approval`): ผู้เรียกอยู่ในรายชื่อผู้ขอ (ผู้สั่งส่ง/ผู้สร้าง/แก้/ออกเลขเอกสาร) — อนุมัติเองไม่ได้ (`POST …/approve` ตอบ 403 `erp_replace_self_approval`) · รายการอื่น = false |   |
 | `bodiesHidden` | ใช่ | `boolean` |   | ผู้เรียกไม่มีสิทธิ์ดูราคาของเอกสารชนิดนี้ — sync log ของคำสั่งนี้จะไม่มี body (ซ่อนปุ่ม "ดู payload") |   |
 
 ### ConnectorQueueListDto {#schema-ConnectorQueueListDto}

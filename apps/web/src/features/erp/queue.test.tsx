@@ -34,6 +34,7 @@ const { queueStatusKey, queueFields, queueMessage, queueErrorText, queueType } =
 const { QueueDrawer } = await import('./QueueDrawer');
 const { QueueDialog } = await import('./QueueDialogs');
 const { asTab, isQueueTab, TABS } = await import('./erpq');
+const { pickErpConnector } = await import('./useQueue');
 
 const t = ((k: string, p?: Record<string, unknown>) =>
   String((th as Record<string, string>)[k] ?? k).replace(/\{(\w+)\}/g, (_, n) =>
@@ -66,6 +67,7 @@ const item = (over: Partial<QueueItem> = {}): QueueItem =>
     resolution: null,
     actions: { retry: true, skip: true, externalId: true, approve: false },
     bodiesHidden: false,
+    requestedByMe: false,
     ...over,
   }) as QueueItem;
 
@@ -131,6 +133,19 @@ describe('แท็บและสถานะของคิว', () => {
       ),
     ).toBe('ระบบจะลองใหม่ @X');
     expect(queueMessage(t, item({ tab: 'done' }), (s) => s)).toBeNull();
+  });
+
+  it('review M1: หน้าเปิด connector ที่ล้มเหลวมากสุด (เท่ากัน → ACTIVE → ERROR → ตัวแรก)', () => {
+    const c = (id: string, status: string, failed: number) =>
+      ({ id, status, queue: { failed } }) as never;
+    expect(pickErpConnector([])).toBeNull();
+    expect(pickErpConnector([c('a', 'ACTIVE', 1), c('b', 'ERROR', 3)])).toMatchObject({ id: 'b' });
+    expect(
+      pickErpConnector([c('a', 'PAUSED', 2), c('b', 'ERROR', 2), c('c', 'ACTIVE', 2)]),
+    ).toMatchObject({
+      id: 'c',
+    });
+    expect(pickErpConnector([c('a', 'PAUSED', 0), c('b', 'PAUSED', 0)])).toMatchObject({ id: 'a' });
   });
 
   it('ข้อความ 409 ตาม why + เลขซ้ำ', () => {
@@ -221,6 +236,43 @@ describe('drawer + dialog ของคิว', () => {
     fireEvent.click(screen.getByRole('button', { name: /อนุมัติแทนที่/ }));
     expect(onAsk).toHaveBeenLastCalledWith('approve', expect.anything());
     r.unmount();
+    // review L1: ผู้ขอเอง = ปุ่มปิดพร้อมเหตุ
+    const rs = wrap(
+      <QueueDrawer
+        {...props}
+        x={item({
+          status: 'SKIPPED',
+          operation: 'REPLACE_DOCUMENT',
+          errorCode: 'replace_requires_approval',
+          requestedByMe: true,
+          actions: { retry: false, skip: true, externalId: false, approve: true },
+        })}
+        canAct
+        canApprove
+        onRetry={() => undefined}
+        onAsk={onAsk}
+      />,
+    );
+    const ap = screen.getByRole('button', { name: /อนุมัติแทนที่/ }) as HTMLButtonElement;
+    expect(ap.disabled).toBe(true);
+    expect(ap.title).toBe(th['erpq.hint.self']);
+    rs.unmount();
+    // review L2: กำลังส่งซ้ำ = ปุ่มส่งซ้ำปิด
+    const rb = wrap(
+      <QueueDrawer
+        {...props}
+        x={item()}
+        canAct
+        canApprove
+        busy
+        onRetry={() => undefined}
+        onAsk={onAsk}
+      />,
+    );
+    expect((screen.getByRole('button', { name: /ส่งซ้ำ/ }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    rb.unmount();
     wrap(
       <QueueDrawer
         {...props}
@@ -247,6 +299,9 @@ describe('drawer + dialog ของคิว', () => {
         onClose={() => undefined}
         onDone={done}
       />,
+    );
+    expect(screen.getByRole('textbox').getAttribute('placeholder')).toBe(
+      'เช่น ฝ่ายบัญชีบันทึกใน KRS เองแล้ว',
     );
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'บัญชีบันทึกใน KRS เองแล้ว' },

@@ -40,13 +40,14 @@ export function QueueDialog({
       title={t(`erpq.qdlg.${kind}.title`, { no, erp })}
       description={t(`erpq.qdlg.${kind}.desc`, { erp })}
       label={t('ord.dlg.reason')}
-      placeholder={t('ord.dlg.reasonPh')}
+      placeholder={kind === 'skip' ? t('erpq.qdlg.skip.ph', { erp }) : t('ord.dlg.reasonPh')}
       hint={(n, ok) => (ok ? t('ord.dlg.hintOk') : t('ord.dlg.hintMin', { n }))}
       okLabel={t(`erpq.qdlg.${kind}.ok`)}
       {...(kind === 'approve' ? { okIcon: 'refresh-cw' } : {})}
       cancelLabel={t('common.cancel')}
       closeLabel={t('drawer.close')}
-      busy={m.isPending || needExt}
+      busy={m.isPending}
+      okDisabled={needExt}
       error={queueErrorText(m.error, t)}
       extra={
         kind === 'externalId' ? (

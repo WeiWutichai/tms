@@ -1,11 +1,68 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { Schemas } from '@tms/contracts';
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrap } from '../../api';
+import { can } from '../../nav';
+import { useMe } from '../../shell/AppShell';
 import { useCursorList } from '../master/useCursorList';
 import type { QueueTab } from './erpq';
 import type { QueueItem } from './queue';
 
 /** รายการ + ตัวนับ + log ใช้ key เดียว — ทำรายการแล้วโหลดใหม่พร้อมกัน (+ การ์ดภาพรวม `connector-metrics`) */
 const KEY = 'erp-queue';
+
+/**
+ * review q86 L3: งานของหน้านี้กระทบกันข้ามแหล่ง (ส่งซ้ำ/ข้าม/กรอกเลข ↔ ผลเทียบ ↔ การ์ดภาพรวม) — ทำรายการใดก็โหลดใหม่ทั้งสามชุด
+ * (badge เมนูโหลดใหม่จาก MutationCache ใน api.ts)
+ */
+export function invalidateErp(qc: QueryClient) {
+  for (const k of [KEY, 'reconcile-results', 'connector-metrics'])
+    void qc.invalidateQueries({ queryKey: [k] });
+}
+
+type Metrics = Schemas['ConnectorMetricsDto'];
+const LIVE_ORDER: Record<string, number> = { ACTIVE: 0, ERROR: 1 };
+
+/**
+ * connector ที่หน้า "คิวเชื่อมระบบบัญชี" แสดง (review q86 M1 — ชั่วคราว): ตัวที่มีรายการล้มเหลวมากสุด
+ * (เท่ากัน → ACTIVE → ERROR → ตัวแรกตามลำดับของ API) — badge เมนูนับล้มเหลวของทุก connector ที่ยังเชื่อม จึงให้หน้าเปิดตัวที่มีงานค้างมากสุด
+ * ต้นแบบไม่มีตัวเลือก connector บนหน้า `erp` [OPEN — PO / Claude Design] · การ์ดภาพรวมใช้ตัวเลือกของตัวเอง (ACTIVE ก่อน) ไม่เปลี่ยน
+ */
+export function pickErpConnector(cs: readonly Metrics[]): Metrics | null {
+  let best: Metrics | null = null;
+  let bestIdx = -1;
+  cs.forEach((c, i) => {
+    if (!best) {
+      best = c;
+      bestIdx = i;
+      return;
+    }
+    const d = c.queue.failed - best.queue.failed;
+    const rank = (x: Metrics) => LIVE_ORDER[x.status] ?? 2;
+    if (d > 0 || (d === 0 && rank(c) < rank(best))) {
+      best = c;
+      bestIdx = i;
+    }
+  });
+  return bestIdx < 0 ? null : best;
+}
+
+/** connector ของหน้านี้ — query เดียวกับการ์ดภาพรวม (`GET /connectors/metrics`) · ไม่มีสิทธิ์อ่าน/แพ็กเกจไม่มี `conn` = ไม่เรียก */
+export function useErpConnector(): Metrics | null {
+  const me = useMe();
+  const scopes = me.data?.scopes ?? [];
+  const enabled =
+    !!me.data &&
+    (can(scopes, 'integrations:read') || can(scopes, 'settings:read')) &&
+    !!me.data.features?.includes('conn');
+  const q = useQuery({
+    queryKey: ['connector-metrics'],
+    queryFn: () => unwrap(api.GET('/v1/connectors/metrics')),
+    enabled,
+    retry: false,
+    refetchInterval: 60_000,
+  });
+  return enabled ? pickErpConnector(q.data?.data ?? []) : null;
+}
 
 /** รายการในแท็บคิว (keyset ตามเวลาเปลี่ยนล่าสุด — API ไม่รับ `sort`) · `errorClass` = กลุ่มของแท็บล้มเหลว */
 export function useQueueList(connectorId: string | null, tab: QueueTab, errorClass: string) {
@@ -98,10 +155,7 @@ export function useQueueAction(connectorId: string) {
           );
       }
     },
-    onSettled: () => {
-      void qc.invalidateQueries({ queryKey: [KEY] });
-      void qc.invalidateQueries({ queryKey: ['connector-metrics'] });
-    },
+    onSettled: () => invalidateErp(qc),
   });
 }
 
@@ -116,9 +170,6 @@ export function useRetryAll(connectorId: string | null) {
           body: {},
         }),
       ),
-    onSettled: () => {
-      void qc.invalidateQueries({ queryKey: [KEY] });
-      void qc.invalidateQueries({ queryKey: ['connector-metrics'] });
-    },
+    onSettled: () => invalidateErp(qc),
   });
 }

@@ -105,7 +105,8 @@ export function CloseDialog({
       {...(kind === 'useTms' || kind === 'approve' ? { okIcon: 'refresh-cw' } : {})}
       cancelLabel={t('common.cancel')}
       closeLabel={t('drawer.close')}
-      busy={m.isPending || fixBlocked}
+      busy={m.isPending}
+      okDisabled={fixBlocked}
       error={closeErrorText(m.error, t)}
       {...(kind !== 'accept'
         ? {

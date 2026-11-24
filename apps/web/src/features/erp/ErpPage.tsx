@@ -24,7 +24,6 @@ import { useSessionState, useUrlSeed } from '../master/useCursorList';
 import { adapterName } from '../settings/ConnectorSettings';
 import { SavedViewMenu } from '../views/SavedViewMenu';
 import { pick, useSavedViews } from '../views/useSavedViews';
-import { useConnectorMetrics } from '../dashboard/ConnectorDash';
 import { CloseDialog, type DialogKind } from './ErpDialogs';
 import { ErpDrawer } from './ErpDrawer';
 import {
@@ -41,7 +40,7 @@ import {
 } from './erpq';
 import { QueuePanel } from './QueuePanel';
 import { queueErrorText } from './queue';
-import { useQueueSummary, useRetryAll } from './useQueue';
+import { useErpConnector, useQueueSummary, useRetryAll } from './useQueue';
 import { type ReconcileResult, useReconcileCounts, useReconcileList } from './useReconcile';
 
 const EMPTY_COL = { no: '', type: '', cust: '', fields: '', st: '' };
@@ -50,7 +49,7 @@ const ST_OPTS = ['mm', 'resend', 'appr', 'closed'] as const;
 /**
  * บัญชี → คิวเชื่อมระบบบัญชี (ต้นแบบ TMS v4 หน้า `erp` = kpis('erp') + specErp + vPanel kind `erp` + askFix + actions.erp)
  * **PO #86 ตัดสิน 24 พ.ย. 2569 ทางเลือก (ก):** หน้าตาตามต้นแบบ แต่แท็บตาม docs/04 G3 + docs/01 §6.4 — **รอคิว / ล้มเหลว / สำเร็จ**
- * (คิวส่งเข้าระบบบัญชี ST7-T19 ของ connector ที่เชื่อมอยู่ — ตัวเดียวกับการ์ดภาพรวม) + แท็บของต้นแบบที่เป็นงาน MISMATCH **ไม่ตรง / รออนุมัติ**
+ * (คิวส่งเข้าระบบบัญชี ST7-T19 ของ connector ที่ล้มเหลวมากสุด — `useErpConnector`) + แท็บของต้นแบบที่เป็นงาน MISMATCH **ไม่ตรง / รออนุมัติ**
  * (ผลเทียบเนื้อหาเอกสาร ST8-T12 `GET /reconcile-results?check=DOCUMENT&actionable=true`) · แท็บเริ่ม = ล้มเหลว (ต้องมีคนทำ)
  * แถบสรุป: ไม่ตรง · รอคิว · ส่งไม่สำเร็จ (การ์ด "สำเร็จ 24 ชม." ไม่มี API) · ปุ่มหัว "ส่งซ้ำทั้งหมดที่รอ" = ส่งซ้ำแท็บล้มเหลวที่ส่งซ้ำได้
  * ไม่ตรง ปิดได้ 3 ทาง (docs/01 §6.5): รับค่า {ERP} → ยอมรับความต่าง / แก้ที่ TMS แล้ว (D-54) · ใช้ค่า TMS ส่งซ้ำ · ขออนุมัติแก้ →
@@ -110,8 +109,7 @@ export function ErpPage() {
     setCol((c) => (c.st ? { ...c, st: '' } : c));
   };
   const list = useReconcileList(TAB_QUERY[queueTab ? 'mm' : curTab], !queueTab);
-  const conn = useConnectorMetrics();
-  const connector = conn.data;
+  const connector = useErpConnector();
   const qSum = useQueueSummary(connector?.id ?? null);
   const retryAll = useRetryAll(connector?.id ?? null);
   const countQ = useReconcileCounts();

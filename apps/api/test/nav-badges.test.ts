@@ -225,6 +225,47 @@ describe('nav badges (D68-89)', () => {
     expect(await badges(adminB)).toMatchObject({ so: 0, rate: 0, fdoc: 0, erp: 0 });
   });
 
+  it('review q86 M1: badge erp นับแท็บล้มเหลวของทุก connector ที่ยังเชื่อม (หลายขอบเขตนิติบุคคล) — ไม่ใช่เฉพาะตัวที่หน้าแสดง', async () => {
+    const before = (await badges(adminA)).erp!;
+    const company = await db.company.findFirstOrThrow({ where: { tenantId: tA } });
+    // connector ที่ 2 ที่ยังเชื่อม (ขอบเขตนิติบุคคล — ตัวแรกเป็นขอบเขต "ทุกนิติบุคคล")
+    const second = await db.connector.create({
+      data: {
+        tenantId: tA,
+        companyId: company.id,
+        adapterKey: 'demo',
+        status: 'ERROR',
+        taxDocumentOwner: 'TMS',
+      },
+    });
+    const live = await db.connector.count({
+      where: { tenantId: tA, status: { not: 'DISCONNECTED' } },
+    });
+    expect(live).toBe(2);
+    for (const status of ['FAILED_FINAL', 'FAILED_FINAL', 'PENDING'] as const) {
+      const localId = randomUUID();
+      await db.integrationOutbox.create({
+        data: {
+          tenantId: tA,
+          kind: 'ADAPTER',
+          sink: 'erp',
+          targetId: second.id,
+          operation: 'PUSH_INVOICE',
+          entityType: 'invoice',
+          localId,
+          serializeKey: `erp:${second.id}:t:${localId}`,
+          idempotencyKey: `badge2-${localId}`,
+          status,
+          errorClass: status === 'FAILED_FINAL' ? 'TRANSIENT' : null,
+          lastError: status === 'FAILED_FINAL' ? { code: 'unreachable' } : undefined,
+        },
+      });
+    }
+    // ล้มเหลว 2 ของ connector ที่ 2 บวกเพิ่ม (รอคิวไม่นับ) — ของ connector แรกยังนับอยู่
+    expect((await badges(adminA)).erp).toBe(before + 2);
+    expect(before).toBeGreaterThanOrEqual(2);
+  });
+
   it('เฉพาะเมนูที่มีสิทธิ์: orders:read → so อย่างเดียว · master:read → fdoc + rate · ไม่มีสิทธิ์ใดเลย = ว่าง', async () => {
     expect(Object.keys(await badges(await tokenFor(tA, 'orders:read', 'u-o')))).toEqual(['so']);
     expect(Object.keys(await badges(await tokenFor(tA, 'master:read', 'u-m')))).toEqual([

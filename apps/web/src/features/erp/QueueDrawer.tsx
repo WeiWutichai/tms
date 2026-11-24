@@ -22,6 +22,7 @@ export function QueueDrawer({
   onTab,
   canAct,
   canApprove,
+  busy = false,
   onClose,
   onRetry,
   onAsk,
@@ -33,6 +34,8 @@ export function QueueDrawer({
   onTab: (k: string) => void;
   canAct: boolean;
   canApprove: boolean;
+  /** กำลังส่งซ้ำ — ปิดปุ่มกันกดซ้ำ (review q86 L2) */
+  busy?: boolean;
   onClose: () => void;
   onRetry: (x: QueueItem) => void;
   onAsk: (kind: QueueDialogKind, x: QueueItem) => void;
@@ -50,8 +53,12 @@ export function QueueDrawer({
     : x.actions.retry
       ? null
       : t('erpq.hint.noRetry');
-  // ผู้ขอ/ผู้ออกใบอนุมัติเองไม่ได้ — API ตอบ 403 `erp_replace_self_approval` (แสดงใน dialog)
-  const approveHint = canApprove ? null : t('erpq.hint.noApprove');
+  // ผู้ขอ/ผู้ออกใบอนุมัติเองไม่ได้ (`requestedByMe` — API ตอบ 403 `erp_replace_self_approval`)
+  const approveHint = !canApprove
+    ? t('erpq.hint.noApprove')
+    : x.requestedByMe
+      ? t('erpq.hint.self')
+      : null;
   const secondary = canAct
     ? [
         ...(x.actions.skip ? [{ label: t('erpq.q.skip'), onClick: () => onAsk('skip', x) }] : []),
@@ -93,7 +100,7 @@ export function QueueDrawer({
                   : {
                       label: t('erpq.q.retry'),
                       icon: 'refresh-cw',
-                      disabled: !!retryHint,
+                      disabled: !!retryHint || busy,
                       onClick: () => onRetry(x),
                       ...(retryHint ? { title: retryHint } : {}),
                     }

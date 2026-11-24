@@ -194,9 +194,22 @@ test.describe('คิวเชื่อมระบบบัญชี — แท
       expect(after.overwriteStatus).toBe('REJECTED');
       expect(after.overwriteDecidedBy).toBe(owner.id);
     } finally {
+      // review q86 L8: ไม่ทิ้งงานค้างให้ spec อื่น/badge — คำสั่งของเอกสารทดสอบทุกตัว (รวมคำสั่งที่ระบบสร้างหลังกรอกเลข)
+      // = SKIPPED ไม่มีรหัสผิดพลาด (ไม่ต้องมีคนทำ) · ผลเทียบ = ปิด (ยอมรับความต่าง) · ลบ external_mapping ที่กรอก
       await db.integrationOutbox.updateMany({
-        where: { id: { in: [ca.id, cb.id] } },
-        data: { status: 'SKIPPED' },
+        where: { tenantId, sink: 'erp', localId: { in: [ca.localId, cb.localId] } },
+        data: { status: 'SKIPPED', lastError: {} },
+      });
+      await db.reconcileResult.update({
+        where: { id: rec.id },
+        data: {
+          acknowledgedAt: new Date(),
+          acknowledgedBy: owner.id,
+          ackReason: 'ล้างข้อมูลหลัง E2E',
+        },
+      });
+      await db.externalMapping.deleteMany({
+        where: { tenantId, connectorId: con.id, localId: cb.localId },
       });
       if (existing) await db.connector.update({ where: { id: con.id }, data: before });
       else

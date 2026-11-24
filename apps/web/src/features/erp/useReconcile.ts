@@ -2,6 +2,7 @@ import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrap } from '../../api';
 import { useCursorList } from '../master/useCursorList';
+import { invalidateErp } from './useQueue';
 
 export type ReconcileResult = Schemas['ReconcileResultDto'];
 export type SyncLog = Schemas['ErpSyncLogDto'];
@@ -80,6 +81,6 @@ export function useCloseAction() {
           return unwrap(api.POST('/v1/reconcile-results/{id}/overwrite-request/reject', opts));
       }
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: [KEY] }),
+    onSettled: () => invalidateErp(qc),
   });
 }

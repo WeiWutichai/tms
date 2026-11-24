@@ -69,7 +69,9 @@ export function QueuePanel({
     setPtab(p);
     setOpen(x.id);
   };
-  const retry = (x: QueueItem) =>
+  // review q86 L2: กันส่งซ้ำ 2 ครั้ง (ดับเบิลคลิก / เมนูแถว + ปุ่ม drawer) — ระหว่างรอผลไม่เรียกซ้ำ
+  const retry = (x: QueueItem) => {
+    if (act.isPending) return;
     act.mutate(
       { action: 'retry', id: x.id },
       {
@@ -80,6 +82,7 @@ export function QueuePanel({
         onError: (e) => onToast(queueErrorText(e, t) ?? t('erpq.loadError')),
       },
     );
+  };
   const ask = (kind: QueueDialogKind, x: QueueItem) => setDialog({ kind, x });
   const classes = Object.keys(byClass).filter(isErrorClass);
 
@@ -195,7 +198,7 @@ export function QueuePanel({
             ...(canAct && x.actions.retry
               ? [{ label: t('erpq.q.retry'), icon: 'refresh-cw', run: () => retry(x) }]
               : []),
-            ...(canApprove && x.actions.approve
+            ...(canApprove && x.actions.approve && !x.requestedByMe
               ? [{ label: t('erpq.q.approve'), icon: 'refresh-cw', run: () => ask('approve', x) }]
               : []),
             ...(canAct && x.actions.skip
@@ -229,6 +232,7 @@ export function QueuePanel({
           onTab={setPtab}
           canAct={canAct}
           canApprove={canApprove}
+          busy={act.isPending}
           onClose={() => setOpen(null)}
           onRetry={retry}
           onAsk={ask}
