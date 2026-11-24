@@ -8,6 +8,7 @@ import { useReasonCodes } from '../settings/useReasonCodes';
 import {
   bodyOf,
   fmtQty,
+  qtyOk,
   openLines,
   problems,
   type DeliveryOrder,
@@ -95,7 +96,7 @@ export function ReturnDialog({
   const flags = cur
     ? { label: cur.label, requiresPhoto: cur.requiresPhoto, requiresNote: cur.requiresNote }
     : undefined;
-  const miss = problems(mode, { ...draft, reasonId }, flags, photos);
+  const miss = problems(mode, { ...draft, reasonId }, flags, photos, lines);
   const ok = miss.length === 0 && !save.isPending;
   const set = (p: Partial<ReturnDraft>) => setDraft((x) => ({ ...x, ...p }));
   const unitOf = (lineNo: number) => pod.lines.find((l) => l.lineNo === lineNo)?.unit ?? '';
@@ -112,12 +113,14 @@ export function ReturnDialog({
             : 'prt.hintReturn') as MessageKey,
         { n },
       )
-    : miss.includes('short') && miss.length === 1
-      ? t('prt.hintShort')
-      : `${mode === 'rejected' ? t('prt.hintPick') : ''}${flags?.requiresPhoto ? t('prt.hintPhoto') : ''}${flags?.requiresNote ? t('prt.hintNote') : ''}`.replace(
-          /^ · /,
-          '',
-        );
+    : miss.includes('qty')
+      ? t('prt.hintQty')
+      : miss.includes('short') && miss.length === 1
+        ? t('prt.hintShort')
+        : `${mode === 'rejected' ? t('prt.hintPick') : ''}${flags?.requiresPhoto ? t('prt.hintPhoto') : ''}${flags?.requiresNote ? t('prt.hintNote') : ''}`.replace(
+            /^ · /,
+            '',
+          );
 
   const submit = () => {
     if (!ok) return;
@@ -204,12 +207,43 @@ export function ReturnDialog({
                     }
                   />
                   <span style={{ flex: 1 }}>{l.description}</span>
-                  <span style={{ color: '#3B424C', fontVariantNumeric: 'tabular-nums' }}>
-                    {t('prt.qty', {
-                      n: fmtQty(mode === 'failed' ? l.qtyPlanned : l.openRejectQty),
-                      u: unitOf(l.lineNo),
-                    })}
-                  </span>
+                  {mode === 'rejected' && draft.items.includes(l.lineNo) ? (
+                    // จำนวนบางส่วน (เริ่ม = คงเหลือ) — ช่องตัวเลขแบบช่องยอดส่งจริงของหลักฐานส่ง
+                    <span
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                      onClick={(e) => e.preventDefault()}
+                    >
+                      <input
+                        inputMode="decimal"
+                        aria-label={t('prt.qtyInput', { d: l.description })}
+                        aria-invalid={!qtyOk(l.openRejectQty, draft.qty?.[l.lineNo]) || undefined}
+                        value={draft.qty?.[l.lineNo] ?? l.openRejectQty}
+                        onChange={(e) =>
+                          set({ qty: { ...(draft.qty ?? {}), [l.lineNo]: e.target.value } })
+                        }
+                        style={{
+                          width: 84,
+                          height: 30,
+                          padding: '0 8px',
+                          border: `1px solid ${qtyOk(l.openRejectQty, draft.qty?.[l.lineNo]) ? '#CDD1C8' : '#B3322A'}`,
+                          borderRadius: 8,
+                          textAlign: 'right',
+                          fontVariantNumeric: 'tabular-nums',
+                          font: 'inherit',
+                        }}
+                      />
+                      <span style={{ color: '#3B424C', fontVariantNumeric: 'tabular-nums' }}>
+                        {t('prt.qtyOf', { n: fmtQty(l.openRejectQty), u: unitOf(l.lineNo) })}
+                      </span>
+                    </span>
+                  ) : (
+                    <span style={{ color: '#3B424C', fontVariantNumeric: 'tabular-nums' }}>
+                      {t('prt.qty', {
+                        n: fmtQty(mode === 'failed' ? l.qtyPlanned : l.openRejectQty),
+                        u: unitOf(l.lineNo),
+                      })}
+                    </span>
+                  )}
                 </label>
               ))}
             </div>
