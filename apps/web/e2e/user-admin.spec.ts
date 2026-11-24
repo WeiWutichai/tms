@@ -47,7 +47,11 @@ async function act(page: Page, who: string, item: string, reason?: string) {
   await expect(dlg).toBeHidden();
 }
 
-test('ผู้ใช้: ระงับ → เปิดใช้ → ประวัติเข้าสู่ระบบ → ลบ (เหตุผลบังคับ)', async ({ page, browser }) => {
+test('ผู้ใช้: ระงับ → เปิดใช้ → ประวัติเข้าสู่ระบบ → ลบ (เหตุผลบังคับ)', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(90_000);
   const stamp = Date.now();
   const email = `lifecycle-${stamp}@demo-a.test`;
   const name = `ทดสอบ วงจร ${stamp % 100000}`;
@@ -55,13 +59,14 @@ test('ผู้ใช้: ระงับ → เปิดใช้ → ปร�
   await invite(page, email, name, true);
   const mail = await db.emailOutbox.findFirst({ where: { toAddress: email } });
   const token = /invite#token=([A-Za-z0-9_-]+)/.exec(mail?.textBody ?? '')?.[1];
-  const acc = await page.request.post('/v1/auth/invitations/accept', {
-    data: { token, name, password: 'lifecycle-person-2569' },
-  });
-  expect(acc.status(), await acc.text()).toBe(204);
-  // เข้าสู่ระบบ 1 ครั้งให้มีประวัติ (เบราว์เซอร์แยก)
+  // ผู้รับเปิดลิงก์ในเบราว์เซอร์ใหม่ → รับคำเชิญ → เข้าสู่ระบบ 1 ครั้ง (ให้มีประวัติ) — แบบ invite.spec
   const guest = await (await browser.newContext()).newPage();
-  await guest.goto('/login');
+  await guest.goto(`/invite#token=${token}`);
+  await guest.getByLabel('ตั้งรหัสผ่าน').fill('lifecycle-person-2569');
+  await guest.getByLabel('ยืนยันรหัสผ่าน').fill('lifecycle-person-2569');
+  await guest.getByRole('button', { name: 'รับคำเชิญ' }).click();
+  await expect(guest.getByRole('status')).toContainText('เข้าร่วม');
+  await guest.getByRole('link', { name: 'กลับไปเข้าสู่ระบบ' }).click();
   await guest.getByLabel('อีเมล').fill(email);
   await guest.getByLabel('รหัสผ่าน').fill('lifecycle-person-2569');
   await guest.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
