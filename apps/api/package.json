@@ -21,7 +21,8 @@
     "dev:worker": "NODE_ENV=development SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register src/worker.ts",
     "openapi:check": "SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register scripts/export-openapi.ts && git diff --exit-code -- ../../packages/contracts/openapi.json",
     "platform:user": "SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register scripts/platform-user.ts",
-    "perf": "node scripts/perf/cli.mjs"
+    "perf": "node scripts/perf/cli.mjs",
+    "uat:samples": "node scripts/uat/cli.mjs"
   },
   "dependencies": {
     "@fontsource/sarabun": "^5.3.0",
