@@ -445,7 +445,7 @@ function Members({
           <div
             key={m.id}
             className="con-row"
-            style={{ gridTemplateColumns: `minmax(0,1fr) auto auto${onReset ? ' 112px' : ''}` }}
+            style={{ gridTemplateColumns: `minmax(0,1fr) 200px 150px${onReset ? ' 112px' : ''}` }}
           >
             <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               <span style={{ fontWeight: 500 }}>{m.name}</span>
@@ -453,7 +453,17 @@ function Members({
                 {m.roles.map(roleName).join(', ') || '—'}
               </span>
             </div>
-            <span style={{ color: '#3B424C', whiteSpace: 'nowrap' }}>{m.email}</span>
+            <span
+              title={m.email}
+              style={{
+                color: '#3B424C',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {m.email}
+            </span>
             <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
               {m.status !== 'active' && (
                 <span className="con-badge" style={{ background: '#FCF0DC', color: '#8F5500' }}>

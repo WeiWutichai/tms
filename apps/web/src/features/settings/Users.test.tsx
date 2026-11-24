@@ -11,6 +11,7 @@ import { I18nProvider } from '../../i18n';
 type Call = { method: string; path: string; opts?: { params?: unknown; body?: unknown } };
 const calls: Call[] = [];
 let scopes: string[] = [];
+let resendFail = false;
 const ok = (data: unknown) =>
   Promise.resolve({ data, response: new Response(null, { status: 200 }) });
 
@@ -90,6 +91,11 @@ vi.mock('../../api', async (orig) => {
         ],
         hasMore: true,
         nextCursor: 'c2',
+      });
+    if (path === '/v1/users/invitations/{id}/resend' && resendFail)
+      return Promise.resolve({
+        error: { code: 'rate_limited', status: 429, title: '', type: '' },
+        response: new Response(null, { status: 429 }),
       });
     return ok({ id: 'x', status: 'active' });
   };
@@ -205,7 +211,8 @@ describe('UsersSection — เมนูต่อแถว', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'ผู้ดูแลระบบ' }));
     const save = screen.getByRole('button', { name: /บันทึกบทบาท/ }) as HTMLButtonElement;
     expect(save.disabled).toBe(true); // ยังไม่มีเหตุผล
-    fireEvent.change(screen.getByLabelText('เหตุผล'), {
+    expect(screen.getByText('กรอกอย่างน้อย 10 ตัวอักษร (0/10)')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/^เหตุผล/), {
       target: { value: 'ย้ายมาดูแลระบบแทนคนเดิม' },
     });
     fireEvent.click(save);
@@ -215,6 +222,24 @@ describe('UsersSection — เมนูต่อแถว', () => {
         body: { roles: ['planner', 'admin'], reason: 'ย้ายมาดูแลระบบแทนคนเดิม' },
       }),
     );
+  });
+
+  it('ส่งคำเชิญใหม่ล้มเหลว = toast แดง (ไม่ใช่สำเร็จ) · เปิดเมนูแถวใหม่ = เมนูเดิมปิด', async () => {
+    resendFail = true;
+    mount();
+    await openMenu('สมชาย ใจดี');
+    fireEvent.click(within(await row('สมหญิง พักงาน')).getByRole('button', { name: 'การกระทำ' }));
+    expect(screen.getAllByRole('menu')).toHaveLength(1);
+    expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toContain(
+      'เปิดใช้งานอีกครั้ง',
+    );
+    fireEvent.click(document.body);
+    await waitFor(async () => expect(await openMenu('รอรับ เชิญ')).toContain('ส่งคำเชิญใหม่'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'ส่งคำเชิญใหม่' }));
+    const st = await screen.findByRole('status');
+    await waitFor(() => expect(st.textContent).toContain('เรียกถี่เกินไป'));
+    expect(st.textContent).not.toContain('ส่งคำเชิญใหม่ถึง');
+    resendFail = false;
   });
 
   it('คำเชิญ: ส่งใหม่ = POST resend · เพิกถอน = dialog เหตุผล → POST revoke', async () => {

@@ -11,6 +11,8 @@ import { I18nProvider } from '../../i18n';
 type Call = { method: string; path: string; opts?: Record<string, unknown> };
 const calls: Call[] = [];
 let twoFa = { enabled: true, required: true, backupCodesRemaining: 2 };
+let scopes = ['documents:write'];
+let profile: Record<string, unknown> = {};
 const logout = vi.fn(() => Promise.resolve());
 const res = (data: unknown, status = 200, headers: Record<string, string> = {}) =>
   Promise.resolve({
@@ -35,8 +37,21 @@ vi.mock('../../api', async (orig) => {
   const real = await orig<typeof import('../../api')>();
   const handle = (method: string) => (path: string, opts?: Record<string, unknown>) => {
     calls.push({ method, path, opts });
-    if (path === '/v1/me/profile' && method === 'GET') return res(PROFILE, 200, { ETag: '"3"' });
-    if (path === '/v1/me/profile') return res({ ...PROFILE, ...(opts?.body as object) });
+    if (path === '/v1/me') return res({ scopes, user: { name: 'x', email: 'a@x.th', roles: [] } });
+    if (path === '/v1/me/profile' && method === 'GET')
+      return res({ ...profile }, 200, { ETag: '"3"' });
+    if (path === '/v1/me/profile') {
+      const b = opts?.body as { signatureDocumentId?: string | null };
+      // ลายเซ็นเปลี่ยน → GET ครั้งถัดไปคืนข้อมูลใหม่ (ชื่อ/เบอร์ไม่ได้ส่ง = คงเดิม)
+      if (b && 'signatureDocumentId' in b)
+        profile = {
+          ...profile,
+          signature: b.signatureDocumentId
+            ? { id: b.signatureDocumentId, mime: 'image/png', downloadUrl: '/sig.png' }
+            : null,
+        };
+      return res({ ...PROFILE, ...(opts?.body as object) });
+    }
     if (path === '/v1/me/2fa') return res(twoFa);
     if (path === '/v1/me/password') {
       const b = opts?.body as { currentPassword: string };
@@ -83,6 +98,8 @@ describe('ProfilePage (ST1-T09)', () => {
     calls.length = 0;
     logout.mockClear();
     twoFa = { enabled: true, required: true, backupCodesRemaining: 2 };
+    scopes = ['documents:write'];
+    profile = { ...PROFILE };
   });
 
   it('แก้ชื่อ/เบอร์ → ปุ่มบันทึกลอย → PATCH พร้อม If-Match · อีเมลแก้ไม่ได้', async () => {
@@ -106,7 +123,15 @@ describe('ProfilePage (ST1-T09)', () => {
     vi.stubGlobal('fetch', fetchMock);
     mount();
     const input = (await screen.findByTestId('profile-signature-file')) as HTMLInputElement;
-    await screen.findByDisplayValue('สมชาย ใจดี');
+    // แก้ชื่อค้างไว้ (ยังไม่บันทึก) — อัปโหลดลายเซ็นต้องไม่ทับ
+    fireEvent.change(await screen.findByDisplayValue('สมชาย ใจดี'), {
+      target: { value: 'ชื่อที่ยังไม่บันทึก' },
+    });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: /อัปโหลดลายเซ็น/ }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
     fireEvent.change(input, {
       target: { files: [new File(['x'], 'a.pdf', { type: 'application/pdf' })] },
     });
@@ -127,7 +152,23 @@ describe('ProfilePage (ST1-T09)', () => {
       '/v1/uploads/x?sig=1',
       expect.objectContaining({ method: 'PUT' }),
     );
+    expect(await screen.findByRole('img', { name: 'ลายเซ็น' })).toBeTruthy(); // โหลดโปรไฟล์ใหม่แล้ว
+    expect((screen.getByLabelText('ชื่อที่แสดง') as HTMLInputElement).value).toBe(
+      'ชื่อที่ยังไม่บันทึก',
+    );
     vi.unstubAllGlobals();
+  });
+
+  it('ไม่มี documents:write (เช่น ดูอย่างเดียว) = ปุ่มอัปโหลดลายเซ็นปิด + บอกเหตุผล', async () => {
+    scopes = ['orders:read'];
+    mount();
+    await screen.findByDisplayValue('สมชาย ใจดี');
+    expect(
+      await screen.findByText('บทบาทของคุณอัปโหลดไฟล์ไม่ได้ ติดต่อผู้ดูแลระบบหากต้องการใช้ลายเซ็น'),
+    ).toBeTruthy();
+    expect(
+      (screen.getByRole('button', { name: /อัปโหลดลายเซ็น/ }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it('เปลี่ยนรหัสผ่าน: ตรวจสั้น/ไม่ตรง ก่อนส่ง · รหัสเดิมผิด = แจ้ง · สำเร็จ = ออกจากระบบ', async () => {

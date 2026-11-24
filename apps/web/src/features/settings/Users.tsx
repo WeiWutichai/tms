@@ -74,7 +74,13 @@ export function UsersSection({ canWrite }: { canWrite: boolean }) {
   } | null>(null);
   const [rolesFor, setRolesFor] = useState<User | null>(null);
   const [histUser, setHistUser] = useState('');
-  const resend = useResendInvitation(setToast);
+  // ส่งคำเชิญใหม่ล้มเหลว (เช่น เรียกถี่เกินไป) = toast แดง ไม่ใช่ toast สำเร็จ (review)
+  const [toastErr, setToastErr] = useState(false);
+  const say = (m: string, err = false) => {
+    setToastErr(err);
+    setToast(m);
+  };
+  const resend = useResendInvitation(say, (m) => say(m, true));
   const invOf = (u: User) => invitations.data?.data.find((i) => i.userId === u.id);
   const ownerName = roles.data?.data.find((r) => r.code === 'owner')?.name;
   const isOwner = !!ownerName && !!me.data?.user?.roles.includes(ownerName);
@@ -174,7 +180,8 @@ export function UsersSection({ canWrite }: { canWrite: boolean }) {
                           setTab('hist');
                         } else if (a === 'resend') {
                           const inv = invOf(u);
-                          if (inv) resend.mutate({ inv, name: u.name });
+                          // กันกดซ้ำระหว่างรอผล
+                          if (inv && !resend.isPending) resend.mutate({ inv, name: u.name });
                         } else setAct({ a, u });
                       },
                     })}
@@ -232,7 +239,7 @@ export function UsersSection({ canWrite }: { canWrite: boolean }) {
         onClose={() => setAct(null)}
         onDone={(m) => {
           setAct(null);
-          setToast(m);
+          say(m);
         }}
       />
       {rolesFor && (
@@ -243,7 +250,7 @@ export function UsersSection({ canWrite }: { canWrite: boolean }) {
           onClose={() => setRolesFor(null)}
           onDone={(m) => {
             setRolesFor(null);
-            setToast(m);
+            say(m);
           }}
         />
       )}
@@ -253,14 +260,14 @@ export function UsersSection({ canWrite }: { canWrite: boolean }) {
           onClose={() => setInviting(false)}
           onSent={() => {
             setInviting(false);
-            setToast(t('users.inviteSent'));
+            say(t('users.inviteSent'));
           }}
         />
       )}
       {toast && (
         <div role="status" className="set-toast">
-          <span className="set-toast__ic">
-            <Icon n="check" s={14} />
+          <span className="set-toast__ic" style={toastErr ? { background: '#B3322A' } : undefined}>
+            <Icon n={toastErr ? 'x' : 'check'} s={14} />
           </span>
           <span>{toast}</span>
         </div>

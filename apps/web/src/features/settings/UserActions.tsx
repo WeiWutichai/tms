@@ -9,7 +9,7 @@ import {
   useEscapeLayer,
 } from '@tms/ui';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { api, unwrap } from '../../api';
 import { formatDateTime, useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
@@ -88,15 +88,24 @@ export function userMenu(
   return m;
 }
 
+const OPEN_EVENT = 'tms:user-rowmenu-open';
+
 /** ปุ่ม ⋮ + เมนูลอย — คลาสเดียวกับ DataTable (`tms-rowmenu-btn` / `tms-rowmenu`) */
 export function RowMenu({ items, label }: { items: MenuItem[]; label: string }) {
   const [open, setOpen] = useState(false);
+  const id = useId();
   useEffect(() => {
     if (!open) return;
     const close = () => setOpen(false);
+    // เปิดเมนูของแถวอื่น → ปิดเมนูนี้ (เปิดได้ทีละเมนู แบบ DataTable)
+    const other = (e: Event) => (e as CustomEvent<string>).detail !== id && setOpen(false);
     window.addEventListener('click', close);
-    return () => window.removeEventListener('click', close);
-  }, [open]);
+    window.addEventListener(OPEN_EVENT, other);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener(OPEN_EVENT, other);
+    };
+  }, [open, id]);
   useEscapeLayer(open, () => setOpen(false));
   if (!items.length) return null;
   return (
@@ -110,6 +119,7 @@ export function RowMenu({ items, label }: { items: MenuItem[]; label: string }) 
         aria-expanded={open}
         onClick={(e) => {
           e.stopPropagation();
+          if (!open) window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: id }));
           setOpen(!open);
         }}
       >
@@ -233,6 +243,7 @@ export function UserActionDialog({
       placeholder={t('users.reasonPh')}
       okLabel={c ? t(c.ok) : ''}
       okIcon={c?.icon}
+      hint={(n, ok) => (ok ? t('con.reasonOk') : t('ord.dlg.hintMin', { n }))}
       cancelLabel={t('common.cancel')}
       closeLabel={t('drawer.close')}
       busy={run.isPending}
@@ -247,7 +258,7 @@ export function UserActionDialog({
 }
 
 /** ส่งคำเชิญใหม่ (ไม่ต้องมีเหตุผล — API ไม่รับ) */
-export function useResendInvitation(onDone: (msg: string) => void) {
+export function useResendInvitation(onDone: (msg: string) => void, onFail: (msg: string) => void) {
   const { t } = useI18n();
   const qc = useQueryClient();
   return useMutation({
@@ -257,7 +268,7 @@ export function useResendInvitation(onDone: (msg: string) => void) {
       void qc.invalidateQueries({ queryKey: ['users'] });
       onDone(t('users.done.resend', { n: v.name }));
     },
-    onError: (e) => onDone(problemText(e, t) ?? t('problem.internal_error')),
+    onError: (e) => onFail(problemText(e, t) ?? t('problem.internal_error')),
   });
 }
 
@@ -344,7 +355,16 @@ export function RolesDrawer({
             ))}
           </div>
         </fieldset>
-        <Field label={t('users.reason')}>
+        <Field
+          label={t('users.reason')}
+          hint={
+            <span style={{ color: reason.trim().length >= 10 ? '#17733F' : undefined }}>
+              {reason.trim().length >= 10
+                ? t('con.reasonOk')
+                : t('ord.dlg.hintMin', { n: reason.trim().length })}
+            </span>
+          }
+        >
           {(a) => (
             <TextInput
               {...a}

@@ -208,6 +208,7 @@ export function SaveBar({
   dirty,
   onSave,
   busy,
+  invalid,
   saved,
   error,
   onDismiss,
@@ -216,6 +217,8 @@ export function SaveBar({
   dirty: boolean;
   onSave: () => void;
   busy: boolean;
+  /** ข้อมูลยังไม่ถูกต้อง (ข้อความอยู่ที่ช่อง) — ปุ่มจาง กดไม่ได้ (ต่างจาก busy ที่กำลังส่ง) */
+  invalid?: boolean;
   saved: string | null;
   error: string | null;
 }) {
@@ -282,8 +285,10 @@ export function SaveBar({
           <button
             type="button"
             onClick={onSave}
-            disabled={busy}
+            disabled={busy || invalid}
+            aria-busy={busy || undefined}
             style={{
+              ...(invalid ? { opacity: 0.5 } : {}),
               display: 'inline-flex',
               alignItems: 'center',
               gap: 8,
@@ -294,7 +299,7 @@ export function SaveBar({
               background: '#2257C4',
               color: '#FFFFFF',
               fontWeight: 500,
-              cursor: 'pointer',
+              cursor: invalid ? 'not-allowed' : 'pointer',
               whiteSpace: 'nowrap',
               boxShadow: '0 8px 20px rgba(16,24,40,.16)',
               font: 'inherit',
@@ -586,8 +591,17 @@ export function TaxSection({ canWrite }: { canWrite: boolean }) {
     'routing.tenderAsCompanyId',
   ]);
   const flow = useSaveFlow('set.menu.tax', d);
-  const companies = (useCompaniesAll().data?.data ?? []).filter((c) => c.status === 'active');
+  const allCompanies = useCompaniesAll().data?.data ?? [];
+  const companies = allCompanies.filter((c) => c.status === 'active');
   const free = d.draft['billing.freeTimeMinutes'];
+  const freeBad = free !== null && free !== undefined && !validFree(free);
+  /** ตัวเลือกนิติบุคคล: ที่ใช้งาน + ค่าที่บันทึกไว้แต่เลิกใช้แล้ว (แสดงพร้อมป้าย ไม่ตกไปเป็น "ไม่ระบุ" — review) */
+  const companyOpts = (k: string) => {
+    const cur = allCompanies.find((c) => c.id === d.draft[k] && c.status !== 'active');
+    return cur
+      ? [...companies, { ...cur, legalName: `${cur.legalName} (${t('bill.inactive')})` }]
+      : companies;
+  };
   return (
     <>
       <Card title={t('set.menu.tax')} load={d.q}>
@@ -639,7 +653,8 @@ export function TaxSection({ canWrite }: { canWrite: boolean }) {
         {canWrite && (
           <SaveBar
             dirty={Object.keys(d.dirty).length > 0}
-            busy={d.busy || (free !== null && free !== undefined && !validFree(free))}
+            busy={d.busy}
+            invalid={freeBad}
             onSave={flow.onSave}
             saved={flow.saved}
             error={flow.error}
@@ -665,6 +680,7 @@ export function TaxSection({ canWrite }: { canWrite: boolean }) {
             style={{ ...inputStyle, fontVariantNumeric: 'tabular-nums' }}
             inputMode="numeric"
             aria-label={t('cust.c.free')}
+            aria-invalid={freeBad || undefined}
             value={free === null || free === undefined ? '' : String(free)}
             placeholder={t('bill.freeNone')}
             disabled={!canWrite || d.save.isPending}
@@ -673,17 +689,17 @@ export function TaxSection({ canWrite }: { canWrite: boolean }) {
               d.set('billing.freeTimeMinutes', v === '' ? null : /^\d+$/.test(v) ? Number(v) : v);
             }}
           />
-          <span
-            style={{
-              fontSize: 12.5,
-              color:
-                free !== null && free !== undefined && !validFree(free) ? '#B3322A' : '#59606B',
-            }}
-          >
-            {t('bill.freeHint')}
-          </span>
+          {freeBad ? (
+            <span className="tms-field-error" role="alert">
+              {t('bill.freeInvalid')}
+            </span>
+          ) : (
+            <span style={{ fontSize: 12.5, color: '#59606B' }}>{t('bill.freeHint')}</span>
+          )}
         </label>
-        {companies.length > 1 &&
+        {(companies.length > 1 ||
+          !!d.draft['routing.invoiceAsCompanyId'] ||
+          !!d.draft['routing.tenderAsCompanyId']) &&
           (
             [
               ['routing.invoiceAsCompanyId', 'cust.c.billAs'],
@@ -703,7 +719,7 @@ export function TaxSection({ canWrite }: { canWrite: boolean }) {
                 onChange={(e) => d.set(k, e.target.value || null)}
               >
                 <option value="">{t('bill.asNone')}</option>
-                {companies.map((c) => (
+                {companyOpts(k).map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.legalName}
                   </option>

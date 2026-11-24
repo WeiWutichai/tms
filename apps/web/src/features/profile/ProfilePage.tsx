@@ -5,6 +5,8 @@ import { useNavigate } from 'react-router-dom';
 import { api, ApiError, queryClient, unwrap } from '../../api';
 import { isImpersonating, logout } from '../../auth/session';
 import { useI18n } from '../../i18n';
+import { can } from '../../nav';
+import { useMe } from '../../shell/AppShell';
 import { PageHeader } from '../../shell/Header';
 import { fieldErrors, problemText } from '../master/problems';
 import { TwoFaBadge } from '../settings/Settings';
@@ -117,8 +119,24 @@ function InfoCard() {
   const [msg, setMsg] = useState<{ ok?: string; err?: string } | null>(null);
   const file = useRef<HTMLInputElement>(null);
   const ro = isImpersonating();
+  const me = useMe();
+  // อัปโหลดลายเซ็นต้องสร้างเอกสาร (`documents:write`) — role ที่ไม่มี (เช่น ดูอย่างเดียว) ปิดปุ่มพร้อมบอกเหตุผล (ลบลายเซ็นไม่ต้องใช้)
+  const canUpload = can(me.data?.scopes ?? [], 'documents:write');
+  // ค่าจาก server ที่ฟอร์มตั้งต้น — โหลดใหม่ (เช่น หลังอัปโหลดลายเซ็น) แทนเฉพาะช่องที่ผู้ใช้ยังไม่แก้ (review: ไม่ทับค่าที่กำลังพิมพ์)
+  const base = useRef<{ name: string; phone: string } | null>(null);
   useEffect(() => {
-    if (p.data) setForm({ name: p.data.data.name, phone: p.data.data.phone ?? '' });
+    if (!p.data) return;
+    const next = { name: p.data.data.name, phone: p.data.data.phone ?? '' };
+    const prev = base.current;
+    base.current = next;
+    setForm((f) =>
+      prev
+        ? {
+            name: f.name === prev.name ? next.name : f.name,
+            phone: f.phone === prev.phone ? next.phone : f.phone,
+          }
+        : next,
+    );
   }, [p.data]);
   useEffect(() => {
     if (!msg) return;
@@ -268,7 +286,8 @@ function InfoCard() {
             <button
               type="button"
               className="set-btn2"
-              disabled={!d || ro || sig.isPending}
+              disabled={!d || ro || sig.isPending || !canUpload}
+              title={canUpload ? undefined : t('profile.signatureNoPerm')}
               onClick={() => file.current?.click()}
             >
               <Icon n="upload" s={16} />
@@ -287,11 +306,14 @@ function InfoCard() {
             )}
           </div>
         </div>
-        <span style={{ fontSize: 12.5, color: '#59606B' }}>{t('profile.signatureHint')}</span>
+        <span style={{ fontSize: 12.5, color: '#59606B' }}>
+          {t(canUpload ? 'profile.signatureHint' : 'profile.signatureNoPerm')}
+        </span>
       </div>
       <SaveBar
         dirty={dirty && !ro}
-        busy={patch.isPending || !form.name.trim()}
+        busy={patch.isPending}
+        invalid={!form.name.trim()}
         onSave={save}
         saved={msg?.ok ?? null}
         error={msg?.err ?? null}

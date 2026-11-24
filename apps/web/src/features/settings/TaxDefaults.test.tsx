@@ -70,7 +70,30 @@ describe('TaxSection: ค่าเริ่มต้นการวางบิ�
       target: { value: '2000' },
     });
     expect(screen.getByRole('button', { name: 'บันทึก' })).toBeDisabled();
+    expect(screen.getByRole('alert').textContent).toBe('ใส่จำนวนเต็ม 0–1440 นาที หรือเว้นว่าง');
+    expect(screen.getByRole('button', { name: 'บันทึก' }).getAttribute('aria-busy')).toBeNull();
     expect(screen.queryByLabelText('ออกบิลในนาม')).toBeNull();
+  });
+
+  it('ค่าที่บันทึกชี้นิติบุคคลที่เลิกใช้ = แสดงชื่อพร้อมป้าย "เลิกใช้แล้ว" (ไม่ตกเป็น "ไม่ระบุ")', () => {
+    const row = SETTINGS.find((x) => x.key === 'routing.invoiceAsCompanyId')!;
+    row.value = 'cmp_old';
+    companies = [
+      ...companies,
+      { id: 'cmp_old', legalName: 'บริษัท เก่า จำกัด', status: 'inactive' },
+    ];
+    try {
+      wrap();
+      const sel = screen.getByLabelText('ออกบิลในนาม') as HTMLSelectElement;
+      expect(sel.value).toBe('cmp_old');
+      expect(sel.selectedOptions[0]!.textContent).toBe('บริษัท เก่า จำกัด (เลิกใช้แล้ว)');
+      // นิติบุคคลที่เลิกใช้ไม่เป็นตัวเลือกของช่องอื่น
+      expect((screen.getByLabelText('จ้างในนาม') as HTMLSelectElement).textContent).not.toContain(
+        'บริษัท เก่า',
+      );
+    } finally {
+      row.value = null;
+    }
   });
 
   it('หลายนิติบุคคล → เลือก "ออกบิลในนาม" / "จ้างในนาม" ได้', () => {
