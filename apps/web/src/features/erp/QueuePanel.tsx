@@ -7,6 +7,7 @@ import type { QueueTab } from './erpq';
 import {
   classKey,
   isErrorClass,
+  bulkFailList,
   queueErrorText,
   queueFields,
   queueStatusKey,
@@ -15,7 +16,7 @@ import {
 } from './queue';
 import { QueueDialog, type QueueDialogKind } from './QueueDialogs';
 import { QueueDrawer } from './QueueDrawer';
-import { useQueueAction, useQueueList } from './useQueue';
+import { useBulkRetry, useQueueAction, useQueueList } from './useQueue';
 
 export type ColFilter = { no: string; type: string; cust: string; fields: string; st: string };
 
@@ -82,6 +83,33 @@ export function QueuePanel({
         onError: (e) => onToast(queueErrorText(e, t) ?? t('erpq.loadError')),
       },
     );
+  };
+  // ต้นแบบ erp bulk "ส่งซ้ำหลายรายการ" (PO 24 พ.ย. 2569 — #86 ค้าง) = ส่งซ้ำทีละรายการของที่เลือกในหน้านี้ · โหลดใหม่ครั้งเดียว ·
+  // รายการที่ไม่สำเร็จแจ้งพร้อมเหตุ (review L3)
+  const bulk = useBulkRetry(connectorId);
+  const retryMany = (ids: string[]) => {
+    if (bulk.isPending || act.isPending) return;
+    const pick = list.rows.filter((x) => ids.includes(x.id));
+    bulk.mutate(pick, {
+      onSuccess: (r) =>
+        onToast(
+          r.failed.length
+            ? t('erpq.bulk.retrySome', {
+                n: r.ok.length,
+                m: r.failed.length,
+                list: bulkFailList(
+                  r.failed.map((f) => ({
+                    no: f.x.documentNo ?? f.x.id,
+                    why:
+                      f.err === 'not_retryable'
+                        ? t('erpq.qerr.not_retryable')
+                        : queueErrorText(f.err, t),
+                  })),
+                ),
+              })
+            : t('dash.conn.retried', { n: r.ok.length }),
+        ),
+    });
   };
   const ask = (kind: QueueDialogKind, x: QueueItem) => setDialog({ kind, x });
   const classes = Object.keys(byClass).filter(isErrorClass);
@@ -193,6 +221,21 @@ export function QueuePanel({
           onHiddenColumnsChange={setHidden}
           onFilterChange={(k, v) => setCol((c) => ({ ...c, [k]: v }))}
           onRowClick={(x) => view(x)}
+          pageScopedSelection
+          bulkActions={
+            // review L4: ช่องเลือกแถวตามต้นแบบทุกแท็บ · แถบ bulk แสดงเฉพาะการกระทำที่ใช้ได้กับแท็บนี้
+            tab === 'failed' && canAct
+              ? [
+                  {
+                    label: t('erpq.bulk.retry'),
+                    icon: 'refresh-cw',
+                    run: retryMany,
+                    disabled: bulk.isPending || act.isPending,
+                    clearOnRun: true,
+                  },
+                ]
+              : []
+          }
           rowMenu={(x) => [
             { label: t('erpq.menu.view'), icon: 'eye', run: () => view(x) },
             ...(canAct && x.actions.retry

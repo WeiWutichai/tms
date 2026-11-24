@@ -440,7 +440,8 @@ export class ConnectorsController {
   @ApiOkResponse({
     type: ConnectorDto,
     description:
-      'เปิดใช้ (PAUSED/ERROR → ACTIVE) หลัง healthCheck ผ่าน · ไม่ผ่าน → 409 `connector_health_failed`',
+      'เปิดใช้ (PAUSED/ERROR → ACTIVE) หลัง healthCheck ผ่าน · ไม่ผ่าน → 409 `connector_health_failed` · ' +
+      'จาก ERROR ต้องมี `reason` ≥ 10 ตัว (Q-RES — ลง audit `connector.resumed`) ไม่มี/สั้น → 422 `reason_required`',
   })
   async resume(
     @Param('id') id: string,

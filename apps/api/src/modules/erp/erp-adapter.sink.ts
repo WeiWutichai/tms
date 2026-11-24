@@ -430,6 +430,11 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
    * ใช้ตรวจ `ref` ของเลขฝั่ง ERP ที่คนกรอกเองต่อใบ (คิว ST7-T19 — docs/01 A.5 409) ·
    * `single` = adapter สร้างเอกสารเดียวเสมอ (ไม่มี hook) · `unavailable` = เตรียมไม่ได้ (ข้อมูล/ผังรหัสไม่ครบ — `code`)
    */
+  /** review M2: adapter ของ connector นี้แยกเอกสารเป็นหลายใบได้ (มี hook `plannedDocuments`) — ไม่ติดต่อ ERP / ไม่ query */
+  canPlanDocuments(connector: Connector): boolean {
+    return !!this.resolver.describe(connector, null, undefined, false).adapter?.plannedDocuments;
+  }
+
   async plannedDocuments(
     tx: Tx,
     connector: Connector,

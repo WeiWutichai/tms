@@ -627,6 +627,32 @@ describe('ST8-T09 KRS error handling ตาม A.5', { timeout: 600_000 }, () =>
     const one = await enterIds(cmd.id, { externalId: p2.transactionNo });
     expect(one.status).toBe(422);
     expect(one.body.errors[0]).toMatchObject({ field: 'documents', code: 'documents_required' });
+    // PO 24 พ.ย. 2569: รายการคิวบอกใบตามแผนการแยก (ช่องกรอกต่อใบของหน้าคิว) + เลขที่ระบบรู้แล้ว (ยืนยันจาก KRS)
+    const listed = await api(app, accounting)
+      .get(`/v1/connectors/${conId}/queue`)
+      .query({ tab: 'failed' })
+      .expect(200);
+    const item = (listed.body.data as { id: string; documents: unknown[] }[]).find(
+      (x) => x.id === encodeId('outboxCommand', cmd.id),
+    );
+    expect(item?.documents).toEqual([
+      {
+        ref: inv.invoiceNo,
+        group: 'EXEMPT_TRANSPORT',
+        lineNos: expect.any(Array),
+        externalId: p1.transactionNo,
+        externalDocNo: expect.anything(),
+        confirmed: true,
+      },
+      {
+        ref: `${inv.invoiceNo}-V7`,
+        group: 'VAT_7',
+        lineNos: expect.any(Array),
+        externalId: null,
+        externalDocNo: null,
+        confirmed: false,
+      },
+    ]);
     // ref นอกแผน
     const bad = await enterIds(cmd.id, {
       documents: [{ ref: `${inv.invoiceNo}-V0`, externalId: p2.transactionNo }],
@@ -1121,7 +1147,10 @@ describe('ST8-T09 KRS error handling ตาม A.5', { timeout: 600_000 }, () =>
     await drain();
     expect(posts().length - before).toBe(1);
     // ผู้ดูแลแก้ key แล้วเปิดต่อ → ส่งต่อเอง
-    await api(app, admin).post(`/v1/connectors/${conId}/resume`).send({}).expect(200);
+    await api(app, admin)
+      .post(`/v1/connectors/${conId}/resume`)
+      .send({ reason: 'แก้ key แล้ว เปิดใช้ต่อ (Q-RES)' })
+      .expect(200);
     await drain();
     expect(posts().length - before).toBe(2);
     expect(await reload(cmd.id)).toMatchObject({ status: 'DONE' });

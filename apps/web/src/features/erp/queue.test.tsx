@@ -66,6 +66,7 @@ const item = (over: Partial<QueueItem> = {}): QueueItem =>
     guide: { key: 'PERIOD_CLOSED', title: 'งวดบัญชีปิดแล้ว', action: 'เปิดงวดแล้วส่งซ้ำ' },
     resolution: null,
     actions: { retry: true, skip: true, externalId: true, approve: false },
+    documents: [],
     bodiesHidden: false,
     requestedByMe: false,
     ...over,
@@ -82,7 +83,7 @@ const wrap = (ui: ReactNode) =>
 
 describe('แท็บและสถานะของคิว', () => {
   it('แท็บตาม docs (รอคิว/ล้มเหลว/สำเร็จ) + แท็บ MISMATCH ของต้นแบบ · แท็บเก่า "ทั้งหมด" → ล้มเหลว', () => {
-    expect([...TABS]).toEqual(['queued', 'failed', 'done', 'mm', 'appr']);
+    expect([...TABS]).toEqual(['queued', 'failed', 'done', 'mm', 'appr', 'close']);
     expect(asTab('all')).toBe('failed');
     expect(asTab('mm')).toBe('mm');
     expect(isQueueTab('done')).toBe(true);
@@ -336,5 +337,61 @@ describe('drawer + dialog ของคิว', () => {
       reason: 'เอกสารอยู่ใน KRS แล้ว ตรวจแล้ว',
       externalId: '100042',
     });
+  });
+
+  it('PO 24 พ.ย.: ระบบบัญชีแยกหลายใบ → ช่องกรอกต่อใบ (ใบที่ยืนยันแล้วแสดงอย่างเดียว) → documents[] เฉพาะใบที่กรอก', () => {
+    mutate.mockClear();
+    const done = vi.fn();
+    wrap(
+      <QueueDialog
+        kind="externalId"
+        x={item({
+          documents: [
+            {
+              ref: 'INV-1',
+              group: 'EXEMPT_TRANSPORT',
+              lineNos: [1, 2],
+              externalId: '100001',
+              externalDocNo: 'SA-1',
+              confirmed: true,
+            },
+            {
+              ref: 'INV-1-V7',
+              group: 'VAT_7',
+              lineNos: [3],
+              externalId: null,
+              externalDocNo: null,
+              confirmed: false,
+            },
+          ],
+        })}
+        erp="KRS"
+        connectorId="con_1"
+        onClose={() => undefined}
+        onDone={done}
+      />,
+    );
+    expect(screen.getAllByTestId('erpq-part')).toHaveLength(2);
+    expect(screen.getByText('ระบบรู้เลขแล้ว: SA-1')).toBeTruthy();
+    expect(screen.getByText('ยกเว้น VAT · รายการที่ 1, 2')).toBeTruthy();
+    expect(screen.getByText('VAT 7% · รายการที่ 3')).toBeTruthy();
+    // เหตุผล + ใบที่ 2 (id + เลขที่แสดง) — ใบแรกไม่มีช่อง
+    const boxes = screen.getAllByRole('textbox');
+    expect(boxes).toHaveLength(3);
+    fireEvent.change(boxes[0]!, { target: { value: 'ใบ V7 อยู่ใน KRS แล้ว ตรวจแล้ว' } });
+    const ok = screen.getByRole('button', { name: 'บันทึกเลข' }) as HTMLButtonElement;
+    expect(ok.disabled).toBe(true);
+    fireEvent.change(boxes[1]!, { target: { value: ' 100002 ' } });
+    fireEvent.change(boxes[2]!, { target: { value: 'SA-2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึกเลข' }));
+    expect(mutate).toHaveBeenLastCalledWith({
+      action: 'externalDocuments',
+      id: 'obx_1',
+      reason: 'ใบ V7 อยู่ใน KRS แล้ว ตรวจแล้ว',
+      documents: [{ ref: 'INV-1-V7', externalId: '100002', externalDocNo: 'SA-2' }],
+    });
+    expect(done).toHaveBeenCalledWith(
+      'บันทึกเลข 100002 ของ INV-00000-6911-0001 แล้ว — รอตรวจเทียบกับ KRS',
+    );
   });
 });

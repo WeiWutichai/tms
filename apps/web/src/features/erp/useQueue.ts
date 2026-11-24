@@ -3,7 +3,7 @@ import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tansta
 import { api, unwrap } from '../../api';
 import { can } from '../../nav';
 import { useMe } from '../../shell/AppShell';
-import { useCursorList } from '../master/useCursorList';
+import { useCursorList, useSessionState } from '../master/useCursorList';
 import type { QueueTab } from './erpq';
 import type { QueueItem } from './queue';
 
@@ -25,7 +25,7 @@ const LIVE_ORDER: Record<string, number> = { ACTIVE: 0, ERROR: 1 };
 /**
  * connector ที่หน้า "คิวเชื่อมระบบบัญชี" แสดง (review q86 M1 — ชั่วคราว): ตัวที่มีรายการล้มเหลวมากสุด
  * (เท่ากัน → ACTIVE → ERROR → ตัวแรกตามลำดับของ API) — badge เมนูนับล้มเหลวของทุก connector ที่ยังเชื่อม จึงให้หน้าเปิดตัวที่มีงานค้างมากสุด
- * ต้นแบบไม่มีตัวเลือก connector บนหน้า `erp` [OPEN — PO / Claude Design] · การ์ดภาพรวมใช้ตัวเลือกของตัวเอง (ACTIVE ก่อน) ไม่เปลี่ยน
+ * = ค่าเริ่มของตัวเลือก connector บนหน้า `erp` (PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ) · การ์ดภาพรวมใช้ตัวเลือกของตัวเอง (ACTIVE ก่อน) ไม่เปลี่ยน
  */
 export function pickErpConnector(cs: readonly Metrics[]): Metrics | null {
   let best: Metrics | null = null;
@@ -46,8 +46,16 @@ export function pickErpConnector(cs: readonly Metrics[]): Metrics | null {
   return bestIdx < 0 ? null : best;
 }
 
-/** connector ของหน้านี้ — query เดียวกับการ์ดภาพรวม (`GET /connectors/metrics`) · ไม่มีสิทธิ์อ่าน/แพ็กเกจไม่มี `conn` = ไม่เรียก */
-export function useErpConnector(): Metrics | null {
+/**
+ * connector ของหน้านี้ — query เดียวกับการ์ดภาพรวม (`GET /connectors/metrics`) · ไม่มีสิทธิ์อ่าน/แพ็กเกจไม่มี `conn` = ไม่เรียก
+ * PO 24 พ.ย. 2569 (ประกอบจากโครงสร้างต้นแบบ): มี connector มากกว่า 1 ตัว → ตัวเลือกบนแถบเครื่องมือของหน้า (`pick`) ·
+ * ยังไม่เลือก / ตัวที่เลือกไว้หายไป = ตัวที่ล้มเหลวมากสุด (`pickErpConnector`) · จำค่าที่เลือกใน session
+ */
+export function useErpConnectors(): {
+  list: Metrics[];
+  current: Metrics | null;
+  pick: (id: string) => void;
+} {
   const me = useMe();
   const scopes = me.data?.scopes ?? [];
   const enabled =
@@ -61,7 +69,36 @@ export function useErpConnector(): Metrics | null {
     retry: false,
     refetchInterval: 60_000,
   });
-  return enabled ? pickErpConnector(q.data?.data ?? []) : null;
+  const [want, setWant] = useSessionState<string>('erp.conn', '');
+  const list = enabled ? (q.data?.data ?? []) : [];
+  const current = list.find((c) => c.id === want) ?? pickErpConnector(list);
+  return { list, current, pick: setWant };
+}
+
+/**
+ * review L9: ชื่อระบบบัญชีต่อ connector สำหรับหน้าอื่น (เช่น drawer ใบแจ้งหนี้) — ใช้ cache เดียวกับหน้าคิว ไม่โหลดซ้ำเป็นรอบ
+ * (ไม่มี refetchInterval · ข้อมูลเก่าได้ 10 นาที) · ไม่มีสิทธิ์/แพ็กเกจไม่มี `conn` = ไม่เรียก
+ */
+export function useErpConnectorList(): Metrics[] {
+  const me = useMe();
+  const scopes = me.data?.scopes ?? [];
+  const enabled =
+    !!me.data &&
+    (can(scopes, 'integrations:read') || can(scopes, 'settings:read')) &&
+    !!me.data.features?.includes('conn');
+  const q = useQuery({
+    queryKey: ['connector-metrics'],
+    queryFn: () => unwrap(api.GET('/v1/connectors/metrics')),
+    enabled,
+    retry: false,
+    staleTime: 10 * 60_000,
+  });
+  return enabled ? (q.data?.data ?? []) : [];
+}
+
+/** connector ของหน้านี้ (ตัวที่เลือก / ล้มเหลวมากสุด) */
+export function useErpConnector(): Metrics | null {
+  return useErpConnectors().current;
 }
 
 /** รายการในแท็บคิว (keyset ตามเวลาเปลี่ยนล่าสุด — API ไม่รับ `sort`) · `errorClass` = กลุ่มของแท็บล้มเหลว */
@@ -115,6 +152,12 @@ export type QueueAction =
       reason: string;
       externalId: string;
       externalDocNo?: string;
+    }
+  | {
+      action: 'externalDocuments';
+      id: string;
+      reason: string;
+      documents: { ref: string; externalId: string; externalDocNo?: string }[];
     };
 
 /** ส่งซ้ำ / ข้ามพร้อมเหตุผล / อนุมัติแทนที่ / กรอกเลขเอง (ST7-T19 / ST8-T13 — เหตุผล ≥ 10 ลง audit) */
@@ -153,6 +196,14 @@ export function useQueueAction(connectorId: string) {
               },
             }),
           );
+        case 'externalDocuments':
+          // ระบบบัญชีแยกเอกสารเป็นหลายใบ — กรอกต่อใบ (ST8-T09; PO 24 พ.ย. 2569)
+          return unwrap(
+            api.POST('/v1/connectors/{id}/queue/{commandId}/external-id', {
+              params: { path },
+              body: { reason: v.reason, documents: v.documents },
+            }),
+          );
       }
     },
     onSettled: () => invalidateErp(qc),
@@ -170,6 +221,39 @@ export function useRetryAll(connectorId: string | null) {
           body: {},
         }),
       ),
+    onSettled: () => invalidateErp(qc),
+  });
+}
+
+export type BulkResult<X> = { ok: X[]; failed: { x: X; err: unknown }[] };
+
+/**
+ * ต้นแบบ erp bulk "ส่งซ้ำหลายรายการ" (review M2/L3): ส่งซ้ำทีละรายการ (`POST …/retry`) แล้วโหลดใหม่ครั้งเดียวหลังจบทั้งชุด
+ * รายการที่ส่งซ้ำไม่ได้ (`actions.retry` = false) นับเป็นไม่สำเร็จพร้อมเหตุ
+ */
+export function useBulkRetry(connectorId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (items: QueueItem[]): Promise<BulkResult<QueueItem>> => {
+      const r: BulkResult<QueueItem> = { ok: [], failed: [] };
+      for (const x of items) {
+        if (!x.actions.retry) {
+          r.failed.push({ x, err: 'not_retryable' });
+          continue;
+        }
+        try {
+          await unwrap(
+            api.POST('/v1/connectors/{id}/queue/{commandId}/retry', {
+              params: { path: { id: connectorId, commandId: x.id } },
+            }),
+          );
+          r.ok.push(x);
+        } catch (err) {
+          r.failed.push({ x, err });
+        }
+      }
+      return r;
+    },
     onSettled: () => invalidateErp(qc),
   });
 }

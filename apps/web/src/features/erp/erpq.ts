@@ -16,11 +16,14 @@ export type RowStatus = 'mm' | 'appr' | 'resend' | 'closed';
  * **รอคิว / ล้มเหลว / สำเร็จ** (คิวส่งเข้าระบบบัญชี ST7-T19 `/connectors/{id}/queue?tab=`) แล้วตามด้วยแท็บของต้นแบบที่เป็นงาน MISMATCH
  * **ไม่ตรง / รออนุมัติ** (ผลเทียบเอกสาร ST8-T12 `/reconcile-results`) · แท็บ "ทั้งหมด / รอส่งซ้ำ / ถูกปฏิเสธ" ของต้นแบบเลิกใช้
  * (สองแหล่งข้อมูลรวมเป็นรายการเดียวไม่ได้ — keyset คนละชุด) [DECISION spec/12 §3 แถว ST7-T19]
+ * + แท็บท้าย **ปิดงวด** (รายงานปิดงวด ST8-T14 — #95) [DECISION — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ]
  */
-export const TABS = ['queued', 'failed', 'done', 'mm', 'appr'] as const;
+export const TABS = ['queued', 'failed', 'done', 'mm', 'appr', 'close'] as const;
 export type Tab = (typeof TABS)[number];
 export const DEFAULT_TAB: Tab = 'failed';
 export type QueueTab = 'queued' | 'failed' | 'done';
+/** แท็บผลเทียบเอกสาร (รายการ MISMATCH) */
+export const isMismatchTab = (k: Tab): k is 'mm' | 'appr' => k === 'mm' || k === 'appr';
 export const isQueueTab = (k: Tab): k is QueueTab =>
   k === 'queued' || k === 'failed' || k === 'done';
 /** ตัวกรองของ API ต่อแท็บ MISMATCH */

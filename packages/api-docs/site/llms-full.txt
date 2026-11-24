@@ -20801,6 +20801,7 @@ const { data, error } = await tms.POST('/v1/reconcile-runs', {
 | `guide` | ใช่ | `QueueGuideDto` | null ได้ |   |   |
 | `resolution` | ใช่ | `QueueResolutionDto` | null ได้ |   |   |
 | `actions` | ใช่ | `QueueActionsDto` |   |   |   |
+| `documents` | ใช่ | `array<QueuePlannedDocumentDto>` |   | 24 พ.ย. 2569 รายการที่กรอกเลขเองได้ (`actions.externalId`) และระบบบัญชีแยกเอกสารนี้เป็น**หลายใบ** (เช่น KRS แยกตามชนิด VAT) — ใบตามแผนการแยก (ส่งเป็น `documents` ของ `POST …/external-id`) · มีเฉพาะใน `GET …/queue` · เอกสารเดียว / กรอกเองไม่ได้ / ตรวจแผนไม่ได้ = `[]` |   |
 | `requestedByMe` | ใช่ | `boolean` |   | รายการรออนุมัติแทนที่ (`replace_requires_approval`): ผู้เรียกอยู่ในรายชื่อผู้ขอ (ผู้สั่งส่ง/ผู้สร้าง/แก้/ออกเลขเอกสาร) — อนุมัติเองไม่ได้ (`POST …/approve` ตอบ 403 `erp_replace_self_approval`) · รายการอื่น = false |   |
 | `bodiesHidden` | ใช่ | `boolean` |   | ผู้เรียกไม่มีสิทธิ์ดูราคาของเอกสารชนิดนี้ — sync log ของคำสั่งนี้จะไม่มี body (ซ่อนปุ่ม "ดู payload") |   |
 
@@ -20823,6 +20824,8 @@ const { data, error } = await tms.POST('/v1/reconcile-runs', {
 | `queued` | ใช่ | `number` |   |   |   |
 | `failed` | ใช่ | `number` |   | ต้องมีคนทำ (badge ที่เมนู) |   |
 | `done` | ใช่ | `number` |   |   |   |
+| `succeeded24h` | ใช่ | `number` |   | คำสั่งที่ส่งสำเร็จ (DONE ที่ไม่ต้องกรอกเลขเอง — DUPLICATE ที่หาเลขไม่เจอไม่นับ) ใน 24 ชั่วโมงล่าสุด — การ์ด "สำเร็จ 24 ชม." ของหน้าคิว (ต้นแบบ kpis('erp') 24 พ.ย. 2569) |   |
+| `finished24h` | ใช่ | `number` |   | คำสั่งที่จบใน 24 ชั่วโมงล่าสุด (DONE + FAILED_FINAL) — อัตราสำเร็จ = `succeeded24h` / `finished24h` (0 = ไม่มีคำสั่งที่จบ) |   |
 | `failedByClass` | ใช่ | `object` |   | แท็บล้มเหลวแยกตาม ErrorClass | `{"VALIDATION":2,"PERIOD_CLOSED":1}` |
 
 ### EffectiveConnectorDto {#schema-EffectiveConnectorDto}

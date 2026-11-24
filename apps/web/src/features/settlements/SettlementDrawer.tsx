@@ -92,19 +92,20 @@ function Step({ title, state, at }: { title: string; state: 'done' | string; at?
  * กล่องลิงก์ที่เพิ่งออก (D-63 "ออกลิงก์ใหม่" — ต้นแบบไม่มี; ใช้กล่องลิงก์ + ปุ่มคัดลอก/ส่ง LINE/SMS ชุดเดียวกับแท็บเอกสารแนบของผู้รับเหมา)
  * ส่ง LINE/SMS ผ่าน `POST /v1/messages/send-link` (D-62 — ใบ APPROVED/PAID ใช้แม่แบบ "ดูสถานะการจ่าย") · ช่องที่ใช้ไม่ได้ไม่แสดงปุ่ม
  */
-function LinkBox({
-  s,
+/** กล่องลิงก์ (คัดลอก / ส่ง LINE · SMS) — ใช้ร่วมกับ drawer ผู้รับเหมา (ลิงก์ค่าเที่ยว ST6-T11) */
+export function LinkBox({
+  carrierId,
   link: issued,
   onToast,
 }: {
-  s: Settlement;
+  carrierId: string;
   link: { link: SettlementLink; viewOnly: boolean; pay?: boolean };
   onToast: (m: string) => void;
 }) {
   const { t, lang } = useI18n();
   const link = issued.link;
   const channels = useMessageChannels();
-  const send = useSendLink(s.carrier.id);
+  const send = useSendLink(carrierId);
   const usable = (['line', 'sms'] as const).filter((c) => channels.data?.has(c));
   const copy = () => {
     void navigator.clipboard?.writeText(link.url).catch(() => undefined);
@@ -350,7 +351,7 @@ export function SettlementDrawer({
     >
       {tab === 'sum' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {link && <LinkBox s={s} link={link} onToast={onToast} />}
+          {link && <LinkBox carrierId={s.carrier.id} link={link} onToast={onToast} />}
           <section style={SEC}>
             <span style={SEC_T}>{t('settle.kv.title')}</span>
             <div

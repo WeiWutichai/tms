@@ -326,6 +326,37 @@ describe('DataTable', () => {
     expect(run).toHaveBeenCalledWith(['a', 'b']);
   });
 
+  it('bulk: clearOnRun ล้างการเลือกหลังกด · disabled ปิดปุ่ม · pageScopedSelection ตัดแถวที่ไม่อยู่ในหน้า', () => {
+    const run = vi.fn();
+    const { rerender } = render(
+      <DataTable
+        {...base}
+        pageScopedSelection
+        bulkActions={[{ label: 'ส่งซ้ำ', icon: 'refresh-cw', run, clearOnRun: true }]}
+      />,
+    );
+    const boxes = screen.getAllByRole('checkbox', { name: 'เลือก' });
+    fireEvent.click(boxes[0]!);
+    fireEvent.click(screen.getByRole('button', { name: /ส่งซ้ำ/ }));
+    expect(run).toHaveBeenCalledWith(['a']);
+    expect(screen.queryByText(/เลือก 1 รายการ/)).toBeNull();
+    // เลือก 2 แถว แล้วหน้าเปลี่ยน (เหลือแถว b) → การเลือกเหลือเฉพาะ b
+    fireEvent.click(screen.getAllByRole('checkbox', { name: 'เลือก' })[0]!);
+    fireEvent.click(screen.getAllByRole('checkbox', { name: 'เลือก' })[1]!);
+    rerender(
+      <DataTable
+        {...base}
+        rows={rows.slice(1)}
+        pageScopedSelection
+        bulkActions={[
+          { label: 'ส่งซ้ำ', icon: 'refresh-cw', run, clearOnRun: true, disabled: true },
+        ]}
+      />,
+    );
+    expect(screen.getByText('เลือก 1 รายการ')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /ส่งซ้ำ/ })).toBeDisabled();
+  });
+
   it('selectable=false → ไม่มีช่องเลือกแถว (ผู้ใช้ไม่มี bulk action — QA ST2-T19)', () => {
     render(<DataTable {...base} selectable={false} />);
     expect(screen.queryAllByRole('checkbox')).toHaveLength(0);

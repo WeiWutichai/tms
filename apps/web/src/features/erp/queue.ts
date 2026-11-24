@@ -83,3 +83,9 @@ export function queueErrorText(err: unknown, t: T): string | null {
   }
   return actionErrorText(err, t);
 }
+
+/** review L3 รายการที่ทำไม่สำเร็จของ bulk: "เลข (เหตุ); …" สูงสุด 5 รายการ แล้วต่อ " …" */
+export function bulkFailList(fails: { no: string; why: string | null }[]): string {
+  const head = fails.slice(0, 5).map((f) => (f.why ? `${f.no} (${f.why})` : f.no));
+  return head.join('; ') + (fails.length > 5 ? ' …' : '');
+}

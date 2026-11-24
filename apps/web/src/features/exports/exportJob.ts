@@ -48,7 +48,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export async function exportList(
   resource: ExportResource,
   filter: object,
-  format: 'csv' | 'xlsx' = 'csv',
+  format: 'csv' | 'xlsx' | 'pdf' = 'csv',
 ): Promise<number> {
   const clean = Object.fromEntries(
     Object.entries(filter).filter(

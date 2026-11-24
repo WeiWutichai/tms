@@ -430,6 +430,7 @@ export function CarriersPage() {
           onStatusChange={toggleStatus}
           onDelete={() => current && setDialog({ kind: 'delete', c: current })}
           onClose={closeDrawer}
+          onToast={setToast}
         />
       )}
       <ReasonDialog

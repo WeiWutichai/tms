@@ -465,7 +465,10 @@ describe('event registry contract (ST7-T06)', () => {
         .get(ConnectorsService)
         .markError(tx, conRow, { code: 'auth_failed', message: 'credential ผิด' }),
     );
-    await api(app, admin).post(`/v1/connectors/${con.id}/resume`).send({}).expect(200);
+    await api(app, admin)
+      .post(`/v1/connectors/${con.id}/resume`)
+      .send({ reason: 'แก้ key แล้ว เปิดใช้ต่อ (Q-RES)' })
+      .expect(200);
     await api(app, admin)
       .post(`/v1/connectors/${con.id}/pause`)
       .send({ reason: 'ปิดชั่วคราวระหว่างทดสอบ' })
