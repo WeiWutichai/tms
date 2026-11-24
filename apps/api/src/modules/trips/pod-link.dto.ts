@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional, PickType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsIn,
   IsInt,
@@ -309,6 +310,35 @@ export class PodLinkFileDto {
 }
 
 /**
+ * Q-LINK (D-81 · D68-39; PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ) รูปประกอบการแจ้งรับ/ส่งไม่สำเร็จผ่านลิงก์ —
+ * บันทึกเป็นหลักฐานชุด "ไม่สำเร็จ" ของ DO (ชุดเดียวกับที่ผู้จัดรถบันทึกในแท็บเอกสารแนบของเที่ยว — ST4-T06/T12 H2)
+ * ไฟล์ต้องจองผ่าน `POST /v1/public/pod/{token}/files` (kind `POD_PHOTO`) ของลิงก์นี้สำหรับ DO นี้
+ */
+export class PodLinkFailurePhotosDto {
+  @ApiProperty({
+    example: 'DO-2611-00069',
+    maxLength: 40,
+    description: 'เลข DO ที่จุดนี้ (รับหรือส่ง)',
+  })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(40)
+  doNo!: string;
+
+  @ApiProperty({
+    type: [String],
+    minItems: 1,
+    maxItems: POD_LINK_PHOTOS_MAX,
+    description: `รูป (kind \`POD_PHOTO\`) 1–${POD_LINK_PHOTOS_MAX} ใบ`,
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(POD_LINK_PHOTOS_MAX)
+  @Matches(DOC_ID, { each: true })
+  photoDocumentIds!: string[];
+}
+
+/**
  * กดถึง/ออก/ปิดงานผ่านลิงก์ (docs/01 §5.5 `POST /public/pod/{token}/stops/{id}/events` — body เดียวกับ `/driver/*`)
  * `clientEventId` บังคับทุกครั้ง (ไม่มี outbox แต่ idempotent — refresh แล้วกดซ้ำไม่เกิด event ซ้ำ) · `source` = LINK ที่ server กำหนด
  * D-81 · D68-39: จุดรับปิดด้วย `LOADED` · แจ้งไม่สำเร็จ/บางส่วนพร้อมเหตุผล (`reasonCodeId` + `note`) — เหตุผลรับเฉพาะ event ปิดงานที่ไม่ครบ
@@ -351,6 +381,16 @@ export class PodLinkEventDto extends PickType(StopEventBaseDto, [
   @ValidateNested()
   @Type(() => PodLinkCaptureDto)
   pod?: PodLinkCaptureDto;
+
+  @ApiPropertyOptional({
+    type: PodLinkFailurePhotosDto,
+    description:
+      'Q-LINK รูปประกอบเมื่อแจ้งไม่สำเร็จ (`FAIL` หรือ `COMPLETE` FAILED/UNDELIVERED_RETAIN) — บันทึกเป็นหลักฐานชุด "ไม่สำเร็จ" ของ DO หลัง DO เป็นส่งไม่สำเร็จ (event ไม่ถูกนับ → 409 `stop_not_ready` ยกเลิกทั้งคำขอ) · เหตุผลที่ตั้ง "ต้องมีรูป" ต้องแนบ (ไม่มี → 422 `photo_required`) · event อื่น/บางส่วน → 422 `not_applicable`',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PodLinkFailurePhotosDto)
+  failurePhotos?: PodLinkFailurePhotosDto;
 }
 
 /** ผลการกด (สร้างใหม่ 201 · ส่งซ้ำ clientEventId เดิม 200 + event เดิม) */

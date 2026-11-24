@@ -102334,6 +102334,30 @@
           "doNo"
         ]
       },
+      "PodLinkFailurePhotosDto": {
+        "type": "object",
+        "properties": {
+          "doNo": {
+            "type": "string",
+            "example": "DO-2611-00069",
+            "maxLength": 40,
+            "description": "เลข DO ที่จุดนี้ (รับหรือส่ง)"
+          },
+          "photoDocumentIds": {
+            "minItems": 1,
+            "maxItems": 5,
+            "description": "รูป (kind `POD_PHOTO`) 1–5 ใบ",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "doNo",
+          "photoDocumentIds"
+        ]
+      },
       "PodLinkEventDto": {
         "type": "object",
         "properties": {
@@ -102411,6 +102435,14 @@
             "allOf": [
               {
                 "$ref": "#/components/schemas/PodLinkCaptureDto"
+              }
+            ]
+          },
+          "failurePhotos": {
+            "description": "Q-LINK รูปประกอบเมื่อแจ้งไม่สำเร็จ (`FAIL` หรือ `COMPLETE` FAILED/UNDELIVERED_RETAIN) — บันทึกเป็นหลักฐานชุด \"ไม่สำเร็จ\" ของ DO หลัง DO เป็นส่งไม่สำเร็จ (event ไม่ถูกนับ → 409 `stop_not_ready` ยกเลิกทั้งคำขอ) · เหตุผลที่ตั้ง \"ต้องมีรูป\" ต้องแนบ (ไม่มี → 422 `photo_required`) · event อื่น/บางส่วน → 422 `not_applicable`",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PodLinkFailurePhotosDto"
               }
             ]
           }

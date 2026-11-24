@@ -298,4 +298,50 @@ test.describe.serial('ลิงก์รถร่วม ส่วนสถาน
     );
     expect(flags.data).toHaveLength(0);
   });
+
+  test('Q-LINK: ส่งไม่สำเร็จที่จุดส่ง พร้อมเหตุผลบังคับรูป + รูป → จุดส่งไม่สำเร็จ · รูปเป็นหลักฐานชุด "ไม่สำเร็จ" ของ DO ที่ผู้จัดรถเห็น', async ({
+    page,
+    browser,
+  }) => {
+    const { ctx, p } = await mobile(browser, S.podUrl!);
+    await p.getByTestId('pdl-q').fill(S.doNo!);
+    await expect(p.getByTestId('pdl-pod-submit')).toBeVisible();
+    await p.getByTestId('pdl-fail-open').click();
+    const f = p.getByTestId('pdl-fail');
+    await expect(f).toContainText('แจ้งปัญหาที่จุดส่ง');
+    await f.getByRole('button', { name: 'ส่งไม่สำเร็จ', exact: true }).click();
+    await f.getByRole('button', { name: 'ที่อยู่ผิด' }).click();
+    await expect(f).toContainText('รูปประกอบ (ต้องแนบอย่างน้อย 1 รูป)');
+    await f.getByTestId('pdl-fail-note').fill('เลขที่บ้านไม่ตรงกับใบสั่ง');
+    await f.getByTestId('pdl-fail-ok').click();
+    await expect(f.getByTestId('pdl-fail-err')).toHaveText('เหตุผลนี้ต้องแนบรูปอย่างน้อย 1 รูป');
+    const PNG = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from('0123456789abcdef'),
+    ]);
+    await f
+      .getByTestId('pdl-fail-photo-input')
+      .setInputFiles({ name: 'gate.png', mimeType: 'image/png', buffer: PNG });
+    await expect(f.getByText('รูปที่ 1')).toBeVisible();
+    await f.getByTestId('pdl-fail-ok').click();
+    await expect(p.getByRole('status')).toContainText('แจ้งแล้ว');
+    await expect(p.getByTestId('pdl-fail-done')).toBeVisible();
+    await expect(p.getByTestId('pdl-stop-DELIVERY')).toContainText('ไม่สำเร็จ');
+    await ctx.close();
+
+    const ev = await events(page);
+    expect(ev.at(-1)).toMatchObject({ type: 'COMPLETE', source: 'LINK' });
+    const d = (
+      await get<{ data: { id: string; status: string }[] }>(
+        page,
+        `/v1/delivery-orders?orderId=${S.so!.id}`,
+      )
+    ).data[0]!;
+    expect(d.status).toBe('FAILED');
+    const pod = await get<{ current: { outcome: string; photos: unknown[] } }>(
+      page,
+      `/v1/delivery-orders/${d.id}/pod`,
+    );
+    expect(pod.current.photos).toHaveLength(1);
+  });
 });

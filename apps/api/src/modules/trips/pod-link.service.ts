@@ -116,17 +116,21 @@ export class PodLinkService {
       orderBy: { doNo: 'asc' },
     });
     // หลักฐานฉบับล่าสุดต่อ DO (ST4-T09) — "ส่งแล้ว" ของลิงก์นี้ + DO ที่มี POD แล้วส่งซ้ำไม่ได้
-    const latestPod = new Map<string, { createdBy: string | null; photos: number }>();
+    const latestPod = new Map<
+      string,
+      { createdBy: string | null; photos: number; outcome: string }
+    >();
     if (dos.length)
       for (const p of await tx.deliveryOrderPod.findMany({
         where: { deliveryOrderId: { in: dos.map((d) => d.id) } },
         orderBy: { version: 'desc' },
-        select: { deliveryOrderId: true, createdBy: true, photoDocumentIds: true },
+        select: { deliveryOrderId: true, createdBy: true, photoDocumentIds: true, outcome: true },
       }))
         if (!latestPod.has(p.deliveryOrderId))
           latestPod.set(p.deliveryOrderId, {
             createdBy: p.createdBy,
             photos: p.photoDocumentIds.length,
+            outcome: p.outcome,
           });
     const recordable = RECORDABLE.has(trip.status);
     const query = doNo?.trim() ? normalizeDoNo(doNo) : null;
@@ -205,13 +209,13 @@ export class PodLinkService {
           select: { id: true, labelTh: true, requiresNote: true, requiresPhoto: true },
         }),
         // D-81 · D68-39 เหตุผลแจ้งไม่สำเร็จ/บางส่วนผ่านลิงก์ (หมวดเดียวกับที่ StopEventsService รับ)
-        // review M1: เหตุผลที่บังคับรูปไม่แสดง — แจ้งไม่สำเร็จ/บางส่วนผ่านลิงก์แนบรูปไม่ได้ (ยกเว้นส่งบางส่วนพร้อม POD)
+        // Q-LINK (PO 24 พ.ย. 2569): เหตุผลที่บังคับรูปแสดงด้วย — แจ้งไม่สำเร็จแนบรูปได้ (`failurePhotos`);
+        // รับบางส่วนที่จุดรับยังแนบรูปไม่ได้ → หน้าลิงก์ซ่อนเหตุผลบังคับรูปเฉพาะกรณีนั้น
         tx.reasonCode.findMany({
           where: {
             category: { in: ['DELIVERY_FAILED', 'REJECTED_BY_RECEIVER'] },
             status: 'ACTIVE',
             deletedAt: null,
-            requiresPhoto: false,
           },
           orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }, { code: 'asc' }],
           select: {
@@ -287,7 +291,10 @@ export class PodLinkService {
       match,
       sent: dos.flatMap((d) => {
         const p = latestPod.get(d.id);
-        return p && p.createdBy === me ? [{ doNo: d.doNo!, photoCount: p.photos }] : [];
+        // Q-LINK: รูปแจ้งไม่สำเร็จ (ชุด FAILURE) ไม่ใช่ "ส่ง POD แล้ว"
+        return p && p.createdBy === me && p.outcome === 'SUCCESS'
+          ? [{ doNo: d.doNo!, photoCount: p.photos }]
+          : [];
       }),
       serverTime: this.clock.now().toISOString(),
     };
@@ -350,6 +357,17 @@ export class PodLinkService {
       );
     if (short && !body.reasonCodeId)
       throw field422('reasonCodeId', 'required', 'reason is required');
+    // Q-LINK รูปประกอบ = เฉพาะผลไม่สำเร็จ (DO เป็นส่งไม่สำเร็จ → หลักฐานชุด "ไม่สำเร็จ")
+    const failOutcome =
+      body.type === 'FAIL' ||
+      (body.type === 'COMPLETE' && (outcome === 'FAILED' || outcome === 'UNDELIVERED_RETAIN'));
+    const failPhotos = body.failurePhotos;
+    if (failPhotos && !failOutcome)
+      throw field422(
+        'failurePhotos',
+        'not_applicable',
+        'failurePhotos is accepted only with FAIL or COMPLETE FAILED/UNDELIVERED_RETAIN',
+      );
     const closeDrop =
       body.type === 'COMPLETE' &&
       stop.type === 'DELIVERY' &&
@@ -361,11 +379,15 @@ export class PodLinkService {
       const rc = rid
         ? await tx.reasonCode.findFirst({ where: { id: rid }, select: { requiresPhoto: true } })
         : null;
-      if (rc?.requiresPhoto && !(closeDrop && body.pod?.photoDocumentIds?.length))
+      if (
+        rc?.requiresPhoto &&
+        !(closeDrop && body.pod?.photoDocumentIds?.length) &&
+        !failPhotos?.photoDocumentIds.length
+      )
         throw field422(
           'reasonCodeId',
           'photo_required',
-          'this reason requires a photo — not available for this report via the link',
+          'this reason requires a photo — attach failurePhotos (or pod photos for a partial delivery)',
         );
     }
     if (closeDrop && !body.pod)
@@ -409,6 +431,32 @@ export class PodLinkService {
         if (await tx.deliveryOrderPod.count({ where: { deliveryOrderId: dropDo.id } }))
           throw new ProblemException('pod_exists');
         await this.assertLinkFiles(linkId, dropDo.id, body.pod!, 'pod.');
+      }
+    }
+    // Q-LINK: DO ของรูปต้องรับ/ส่งที่จุดนี้ · ยังไม่มีหลักฐาน · ไฟล์จองผ่านลิงก์นี้สำหรับ DO นี้
+    let failDo: LinkDo | null = null;
+    if (failPhotos) {
+      failDo = await tx.deliveryOrder.findFirst({
+        where: {
+          tripId: trip.id,
+          doNo: normalizeDoNo(failPhotos.doNo),
+          OR: [{ tripStopId: stop.id }, { pickupTripStopId: stop.id }],
+          // ส่งซ้ำ: ใบเดิมอาจถูกยกเลิกด้วยนัดส่งใหม่อัตโนมัติแล้ว (ST4-T12)
+          ...(isReplay ? {} : { status: { not: 'CANCELLED' } }),
+        },
+        select: LINK_DO,
+      });
+      if (!failDo)
+        throw field422('failurePhotos.doNo', 'not_found', 'delivery order is not at this stop');
+      if (!isReplay) {
+        if (await tx.deliveryOrderPod.count({ where: { deliveryOrderId: failDo.id } }))
+          throw new ProblemException('pod_exists');
+        await this.assertLinkFiles(
+          linkId,
+          failDo.id,
+          { doNo: failPhotos.doNo, photoDocumentIds: failPhotos.photoDocumentIds },
+          'failurePhotos.',
+        );
       }
     }
     let out: { event: StopEvent; replayed: boolean };
@@ -469,6 +517,16 @@ export class PodLinkService {
             );
           throw e;
         });
+      }
+    }
+    if (failDo) {
+      if (out.replayed) {
+        const v = await this.pods.view(failDo.id, tx);
+        pod = v.current ? captureResult(failDo.doNo!, v, true) : undefined;
+      } else {
+        // event ไม่ถูกนับ (ธง/ขัดลำดับ) → DO ยังไม่เป็นส่งไม่สำเร็จ บันทึกชุด "ไม่สำเร็จ" ไม่ได้ — ยกเลิกทั้งคำขอ
+        if (me && !me.counted) throw new ProblemException('stop_not_ready');
+        pod = await this.submitFailurePhotos(failDo, failPhotos!.photoDocumentIds, body.note);
       }
     }
     return {
@@ -679,6 +737,48 @@ export class PodLinkService {
         { missing: v.missing as PodMissing[] },
       );
     return captureResult(d.doNo!, v, false);
+  }
+
+  /**
+   * Q-LINK รูปประกอบการแจ้งไม่สำเร็จ → หลักฐานชุด "ไม่สำเร็จ" ของ DO (PodService เลือกชุดตามสถานะ DO — FAILED/ยกเลิกด้วยนัดส่งใหม่)
+   * ไม่บังคับครบ checklist ชุดไม่สำเร็จ (ลิงก์ไม่มีช่องอื่น — ผู้จัดรถเติมในเว็บได้) · DO ยังไม่เป็นส่งไม่สำเร็จ → 409 `stop_not_ready`
+   */
+  private async submitFailurePhotos(
+    d: LinkDo,
+    photoDocumentIds: string[],
+    note: string | null | undefined,
+  ): Promise<PodLinkCaptureResultDto> {
+    const input: SubmitPodDto = {
+      photoDocumentIds,
+      fileDocumentIds: [],
+      signatureDocumentId: null,
+      note: note?.trim() ? note.trim() : null,
+      checks: {},
+      choices: {},
+      barcodes: [],
+      pin: null,
+      rating: null,
+    };
+    try {
+      return captureResult(
+        d.doNo!,
+        await this.pods.submit(d.id, input, { source: 'LINK', expectedVersion: 0 }),
+        false,
+      );
+    } catch (e) {
+      if (e instanceof ProblemException && e.code === 'precondition_failed')
+        throw new ProblemException('pod_exists');
+      if (e instanceof ProblemException && e.code === 'pod_not_allowed')
+        throw new ProblemException('stop_not_ready');
+      if (e instanceof ProblemException && e.errors?.length)
+        throw new ProblemException(
+          e.code,
+          e.detail,
+          e.errors.map((x) => ({ ...x, field: `failurePhotos.${x.field}` })),
+          e.extra,
+        );
+      throw e;
+    }
   }
 }
 
