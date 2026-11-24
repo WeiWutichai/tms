@@ -284,6 +284,15 @@ export class ConnectorQueueItemDto extends ConnectorCommandDto {
   @ApiProperty({
     nullable: true,
     type: String,
+    example: 'บริษัท ลูกค้า จำกัด',
+    description:
+      'PO #86 (24 พ.ย. 2569) คู่ค้าของเอกสารจาก payload — ใบแจ้งหนี้ = ลูกค้า · ใบสำคัญจ่าย = รถร่วม (คอลัมน์ "ลูกค้า" ของหน้าคิว) · ' +
+      'เป็นชื่อตามกฎหมาย (`legalName`) ของลูกค้า/รถร่วมเท่านั้น ไม่มีเลขผู้เสียภาษีหรือข้อมูลส่วนบุคคลอื่น',
+  })
+  partyName!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
     format: 'date-time',
     description: 'รอคิว: เวลาที่จะลองครั้งถัดไป',
   })
@@ -303,6 +312,12 @@ export class ConnectorQueueItemDto extends ConnectorCommandDto {
   @ApiProperty({ nullable: true, type: QueueGuideDto }) guide!: QueueGuideDto | null;
   @ApiProperty({ nullable: true, type: QueueResolutionDto }) resolution!: QueueResolutionDto | null;
   @ApiProperty({ type: QueueActionsDto }) actions!: QueueActionsDto;
+  @ApiProperty({
+    description:
+      'รายการรออนุมัติแทนที่ (`replace_requires_approval`): ผู้เรียกอยู่ในรายชื่อผู้ขอ (ผู้สั่งส่ง/ผู้สร้าง/แก้/ออกเลขเอกสาร) — ' +
+      'อนุมัติเองไม่ได้ (`POST …/approve` ตอบ 403 `erp_replace_self_approval`) · รายการอื่น = false',
+  })
+  requestedByMe!: boolean;
   @ApiProperty({
     description:
       'ผู้เรียกไม่มีสิทธิ์ดูราคาของเอกสารชนิดนี้ — sync log ของคำสั่งนี้จะไม่มี body (ซ่อนปุ่ม "ดู payload")',
@@ -459,6 +474,8 @@ interface Facts {
   resendable: boolean;
   /** review M2: external_mapping ของเอกสารนี้มี external_id แล้ว */
   mapped: boolean;
+  /** review q86 L1: ผู้เรียกอยู่ในรายชื่อผู้ขอของรายการรออนุมัติแทนที่ (อนุมัติเองไม่ได้ — 403 `erp_replace_self_approval`) */
+  requestedByMe: boolean;
 }
 
 interface ErrorDetail {
@@ -676,18 +693,7 @@ export class ConnectorQueueService {
     const { row, f } = await this.command(tx, c, commandRef);
     if (!this.actions(row, f).approve) throw notAllowed(this.why(row, f, 'approve'));
     const actor = requestContext.get()?.actorId ?? null;
-    const p = (row.payload ?? {}) as { requestedBy?: unknown };
-    // review M3: ผู้ขอ = รายชื่อในคำสั่ง ∪ ทุกคนที่สร้าง/แก้/ออกเลขเอกสารนี้ (อ่าน ณ ตอนอนุมัติ)
-    const requesters = [
-      ...new Set([
-        ...(Array.isArray(p.requestedBy)
-          ? (p.requestedBy as unknown[]).filter(
-              (x): x is string => typeof x === 'string' && isPersonActor(x),
-            )
-          : []),
-        ...(row.entityType === 'invoice' ? await invoiceActors(tx, [row.localId]) : []),
-      ]),
-    ];
+    const requesters = await this.requesters(tx, row);
     // ไม่รู้ผู้ขอ (สร้างโดยระบบ) = ผู้อนุมัติต้องเป็นคน (ตรวจแล้ว) + บันทึกว่าไม่รู้ผู้ขอใน audit
     if (!actor || !isPersonActor(actor) || requesters.includes(actor))
       throw new ProblemException('erp_replace_self_approval', undefined, undefined, {
@@ -1154,6 +1160,19 @@ export class ConnectorQueueService {
         .map((m) => `${m.entityType}:${m.localId}`),
     );
     const from = c.syncFromDate ? c.syncFromDate.toISOString().slice(0, 10) : null;
+    // review q86 L1: ผู้เรียกเป็นผู้ขอของรายการรออนุมัติแทนที่ไหม (เฉพาะรายการรออนุมัติ — มีไม่กี่รายการ)
+    const actor = requestContext.get()?.actorId ?? null;
+    const mine = new Set<string>();
+    if (actor)
+      for (const row of ordered)
+        if (
+          row.operation === 'REPLACE_DOCUMENT' &&
+          row.status === 'SKIPPED' &&
+          (row.lastError as ErrorDetail | null)?.code === 'replace_requires_approval' &&
+          !resBy.has(row.id) &&
+          (await this.requesters(tx, row)).includes(actor)
+        )
+          mine.add(row.id);
     return ordered.map((row) => {
       const k = `${row.entityType}:${row.localId}`;
       const doc = issued.get(k);
@@ -1167,9 +1186,25 @@ export class ConnectorQueueService {
         resendable:
           isDocPush(row) && c.status !== 'DISCONNECTED' && !!doc && !(from && date && date < from),
         mapped: isDocPush(row) && mapped.has(mapKey),
+        requestedByMe: mine.has(row.id),
       };
       return { row, f };
     });
+  }
+
+  /** review M3: ผู้ขอแทนที่ = รายชื่อในคำสั่ง ∪ ทุกคนที่สร้าง/แก้/ออกเลขเอกสารนี้ (อ่าน ณ ตอนเรียก) */
+  private async requesters(tx: Tx, row: IntegrationOutbox): Promise<string[]> {
+    const p = (row.payload ?? {}) as { requestedBy?: unknown };
+    return [
+      ...new Set([
+        ...(Array.isArray(p.requestedBy)
+          ? (p.requestedBy as unknown[]).filter(
+              (x): x is string => typeof x === 'string' && isPersonActor(x),
+            )
+          : []),
+        ...(row.entityType === 'invoice' ? await invoiceActors(tx, [row.localId]) : []),
+      ]),
+    ];
   }
 
   private actions(row: IntegrationOutbox, f: Facts): QueueActionsDto {
@@ -1225,6 +1260,7 @@ export class ConnectorQueueService {
       ...base,
       tab,
       documentNo: documentNo(row),
+      partyName: partyName(row),
       nextRunAt: tab === 'queued' ? row.nextRunAt.toISOString() : null,
       errorMessage: str(e?.message, 500),
       link: typeof e?.link === 'string' && e.link.startsWith('/') ? e.link.slice(0, 300) : null,
@@ -1244,6 +1280,7 @@ export class ConnectorQueueService {
           }
         : null,
       actions: this.actions(row, f),
+      requestedByMe: f.requestedByMe,
       bodiesHidden: !canSeeBodies(row.entityType, requestContext.get()?.scopes ?? []),
     };
   }
@@ -1316,6 +1353,13 @@ function invalid(field: string, code: string, message: string) {
 
 function notAllowed(why: string) {
   return new ProblemException('queue_action_not_allowed', undefined, undefined, { why });
+}
+
+/** ชื่อคู่ค้าจาก payload (canonical `document.customer.legalName` / `document.carrier.legalName`) */
+function partyName(row: Pick<IntegrationOutbox, 'payload'>): string | null {
+  const d = ((row.payload ?? null) as { document?: Record<string, unknown> } | null)?.document;
+  const party = (d?.customer ?? d?.carrier) as { legalName?: unknown } | undefined;
+  return str(party?.legalName, 200);
 }
 
 /** เลขเอกสาร TMS จาก payload (canonical `document.number` หรือ `ref.number`) */
