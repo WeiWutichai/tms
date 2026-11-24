@@ -196,7 +196,12 @@ describe('KRS SO poller ต่อ tenant (ST8-T04) — mock → order', () => {
         credentials: { apiKey: KEY },
       });
     expect(c.status, JSON.stringify(c.body)).toBe(201);
-    expect(c.body.capabilitiesEnabled).toEqual(['pullOrders']);
+    // ค่าเริ่ม = capability ที่ KRS ทำแล้ว (ST8-T08/T10 — pendingCapabilities ว่าง) ยกเว้นส่งเอกสาร (ผังรหัสยังไม่พร้อม — ST8-T06)
+    expect(c.body.capabilitiesEnabled).toEqual([
+      'pullOrders',
+      'fetchDocument',
+      'ownsDocumentNumber',
+    ]);
     publicId = c.body.id;
     connectorId = tryDecodeId('connector', publicId)!;
     await resume().expect(200);
