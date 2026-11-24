@@ -17,6 +17,7 @@ import { Logger } from '@nestjs/common';
 import { isLocalEnv } from './auth/tokens';
 import { assertSigningKeys } from './auth/signing-keys';
 import { assertApiKeyPepper } from './modules/api-keys/key-material';
+import { assertNoDevKeys } from './common/crypto';
 import { isInboundWebhookRequest } from './modules/erp/inbound-webhook.controller';
 import { INBOUND_MAX_BYTES } from './modules/erp/inbound-webhook.service';
 
@@ -80,6 +81,7 @@ export async function createApp(module: unknown = AppModule): Promise<NestExpres
     // ไม่มี pepper / กุญแจเซ็น token = ไม่ยอมเริ่ม (fail closed ตั้งแต่บูต ไม่ใช่ตอนมีคนเรียก — review M2)
     assertApiKeyPepper();
     assertSigningKeys();
+    assertNoDevKeys(); // R2-M01 กุญแจเข้ารหัส/blind index ตัวอย่างของ repo
   }
   // Security baseline (ST0-T12): HSTS, CSP (API คืน JSON ล้วน → default-src 'none'), frame deny, referrer
   app.use(

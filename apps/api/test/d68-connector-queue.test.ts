@@ -318,30 +318,50 @@ describe('D-81 (F)(I) connector: AUTH/health หยุดคิว · แจ้�
     expect(again).toHaveLength(2);
   });
 
-  it('review M1 migration 0163: role แอปแก้ได้เฉพาะ title/body/payload (+ สถานะการอ่าน) — ผู้รับ/tenant/template/ลิงก์ แก้ไม่ได้', async () => {
-    const row = await plat.notification.create({
-      data: {
-        tenantId,
-        recipientId: accounting,
-        channel: 'in_app',
-        templateCode: 'connector.document_not_sent',
-        locale: 'th',
-        title: 'x',
-        body: 'x',
-      },
-    });
-    // ใต้ RLS ของ tenant (role tms_app) — คอลัมน์ที่อนุญาต
-    await db.withTenant(tenantId, (tx) =>
-      tx.notification.update({
-        where: { id: row.id },
-        data: { title: 'y', body: 'y', payload: { count: 2 } },
-      }),
-    );
+  it('review M1 migration 0163→0174: role แอปแก้ข้อความแจ้งเตือนตรง ๆ ไม่ได้ — รวมกลุ่มผ่าน tms_notification_regroup (tenant ตัวเอง · ยังไม่อ่าน · template ที่รวมกลุ่มได้) เท่านั้น', async () => {
+    const mk = (templateCode: string) =>
+      plat.notification.create({
+        data: {
+          tenantId,
+          recipientId: accounting,
+          channel: 'in_app',
+          templateCode,
+          locale: 'th',
+          title: 'x',
+          body: 'x',
+        },
+      });
+    const row = await mk('connector.document_not_sent');
+    const regroup = (t: string, id: string) =>
+      db.withTenant(
+        t,
+        (tx) =>
+          tx.$queryRaw<{ n: number }[]>`
+          SELECT tms_notification_regroup(${id}::uuid, 'y', 'y', '{"count":2}'::jsonb) AS n`,
+      );
+    // ใต้ RLS ของ tenant (role tms_app) ผ่านฟังก์ชัน
+    expect((await regroup(tenantId, row.id))[0]!.n).toBe(1);
     expect(await plat.notification.findUniqueOrThrow({ where: { id: row.id } })).toMatchObject({
       title: 'y',
       payload: { count: 2 },
     });
-    for (const col of ['recipient_id', 'tenant_id', 'template_code', 'link', 'channel'])
+    // tenant อื่น / template อื่น / อ่านแล้ว = ไม่แก้
+    const other = await plat.tenant.create({ data: { name: 'd68-regroup-other' } });
+    expect((await regroup(other.id, row.id))[0]!.n).toBe(0);
+    const job = await mk('job.succeeded');
+    expect((await regroup(tenantId, job.id))[0]!.n).toBe(0);
+    await plat.notification.update({ where: { id: row.id }, data: { readAt: new Date() } });
+    expect((await regroup(tenantId, row.id))[0]!.n).toBe(0);
+    for (const col of [
+      'title',
+      'body',
+      'payload',
+      'recipient_id',
+      'tenant_id',
+      'template_code',
+      'link',
+      'channel',
+    ])
       await expect(
         db.withTenant(tenantId, (tx) =>
           tx.$executeRawUnsafe(
