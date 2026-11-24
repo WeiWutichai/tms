@@ -48,7 +48,7 @@ async function main() {
   const log = createLogger();
   assertNoDevKeys(); // R2-M01 นอก dev/test ห้ามใช้กุญแจตัวอย่างของ repo (เหมือน API ตอนบูต)
   const ctx = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
-  ctx.useLogger(new PinoNestLogger(log)); // ST9-T13 R2 (L-02) — log ของโมดูลออกทาง pino (requestId/tenantId + redact)
+  ctx.useLogger(new PinoNestLogger(log, ['error', 'warn', 'fatal'])); // ST9-T13 R2 (L-02) — log ของโมดูลออกทาง pino (requestId/tenantId + redact)
   const queue = ctx.get(JobQueue);
   const mail = ctx.get(EmailDispatcher);
   mail.init();

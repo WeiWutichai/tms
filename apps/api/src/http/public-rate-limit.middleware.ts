@@ -23,6 +23,18 @@ export const PUBLIC_LIMIT_PER_MIN = Number(
   process.env.PUBLIC_RATE_LIMIT_PER_MIN ?? (isLocalEnv() ? 120 : 60),
 );
 const WINDOW_MS = 60_000;
+
+/**
+ * ST9-T13 R2 review: แยกตัวนับต่อกลุ่ม route — ลิงก์สาธารณะ / login Console / คำเชิญ ไม่ใช้เพดานร่วมกัน
+ * (ผู้ใช้หลายคนหลัง NAT เดียวกันเปิดลิงก์รถร่วมเยอะ ไม่ทำให้ทีม Innovera login Console หรือผู้ถูกเชิญรับคำเชิญไม่ได้)
+ * ⚠ ต่อ IP ต้องตั้ง `TRUST_PROXY` ให้ตรงกับจำนวน proxy (UAT/production) — ไม่ตั้ง = ทุกคำขอเป็น IP ของ load balancer = เพดานเดียวทั้งระบบ
+ */
+export function publicBucketGroup(url: string): 'public' | 'console' | 'invite' {
+  const path = url.split('?')[0] ?? '';
+  if (/^\/v1\/platform\/auth\//.test(path)) return 'console';
+  if (/^\/v1\/auth\/invitations\//.test(path)) return 'invite';
+  return 'public';
+}
 export { rateKey };
 
 @Injectable()
@@ -36,7 +48,14 @@ export class PublicRateLimitMiddleware implements NestMiddleware {
     // ⚠ req.ip เชื่อ X-Forwarded-For ตาม TRUST_PROXY — deployment ต้องตั้งจำนวน proxy ให้ตรง
     try {
       await this.limiter.assert(
-        [slidingWindow(`ip:${ipKey(req.ip)}`, PUBLIC_LIMIT_PER_MIN, WINDOW_MS, 'ip')],
+        [
+          slidingWindow(
+            `ip:${publicBucketGroup(req.originalUrl ?? req.url)}:${ipKey(req.ip)}`,
+            PUBLIC_LIMIT_PER_MIN,
+            WINDOW_MS,
+            'ip',
+          ),
+        ],
         res,
       );
     } catch (e) {

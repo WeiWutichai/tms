@@ -61,4 +61,20 @@ describe('ProblemFilter: log ไม่รั่วค่า argument ของ P
       spy.mockRestore();
     }
   });
+
+  it('prismaSummary เก็บบรรทัด stack ของ src/ และ dist/ (รันจาก build) ไม่เก็บ node_modules', async () => {
+    const { prismaSummary } = await import('./problem.filter');
+    const e = known('P2003', 'secret message');
+    e.stack = [
+      'PrismaClientKnownRequestError: secret message',
+      '    at a (/app/node_modules/@prisma/client/runtime.js:1:1)',
+      '    at b (/app/apps/api/dist/modules/x.service.js:10:5)',
+      '    at c (/repo/apps/api/src/modules/y.service.ts:20:3)',
+    ].join('\n');
+    const out = prismaSummary(e);
+    expect(out).toContain('dist/modules/x.service.js');
+    expect(out).toContain('src/modules/y.service.ts');
+    expect(out).not.toContain('node_modules');
+    expect(out).not.toContain('secret message');
+  });
 });

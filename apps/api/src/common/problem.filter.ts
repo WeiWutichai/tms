@@ -28,7 +28,7 @@ const STATUS_TO_CODE: Record<number, ProblemCode> = {
 const RETRYABLE_SQLSTATE = /\b(40P01|40001)\b|deadlock detected|could not serialize access/i;
 
 /**
- * ST9-T13 R2 (L-02): สรุป error ของ Prisma สำหรับ log — ชื่อ + รหัส + ชื่อ field ที่ชน (ถ้ามี) + บรรทัด stack ที่เป็นโค้ดเรา
+ * ST9-T13 R2 (L-02): สรุป error ของ Prisma สำหรับ log — ชื่อ + รหัส + ชื่อ field ที่ชน (ถ้ามี) + บรรทัด stack ที่เป็นโค้ดเรา (`src/` ตอน dev · `dist/` ตอนรันจาก build)
  * ไม่ใส่ข้อความ (Prisma ใส่ค่า argument / ค่าที่ชน unique ลงในข้อความ)
  */
 export function prismaSummary(e: Error & { code?: unknown; meta?: unknown }): string {
@@ -36,7 +36,7 @@ export function prismaSummary(e: Error & { code?: unknown; meta?: unknown }): st
   const frames = (e.stack ?? '')
     .split('\n')
     .slice(1)
-    .filter((l) => l.includes('/src/') && !l.includes('node_modules'))
+    .filter((l) => (l.includes('/src/') || l.includes('/dist/')) && !l.includes('node_modules'))
     .slice(0, 5)
     .map((l) => l.trim());
   return [

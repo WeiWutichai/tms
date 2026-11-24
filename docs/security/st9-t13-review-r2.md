@@ -31,6 +31,18 @@
 | I-02 | Info | ส่งออก reconcile-period-close ไม่อยู่ในรายการ "ทุกครั้ง" แต่ query ไม่มี `ids` (ส่ง `ids` = 422 forbidNonWhitelisted) → step-up ทุกครั้งโดยปริยาย | ไม่ใช่ defect | `auth/step-up.ts` `exportNeedsStepUp` + `exports.service.ts:284-285` |
 | I-03 | Info | Console ระงับ/เปิดใช้ tenant, pause/resume connector ไม่ต้อง step-up (SUPER_ADMIN + เหตุผล + audit) — ย้อนได้ ไม่เปิดข้อมูล | ไม่เปลี่ยน | — |
 
+## 1.1 แก้ตาม independent review ของ PR นี้ (24 พ.ย.)
+
+| # | ระดับ | แก้ |
+|---|---|---|
+| 1 | High | E2E `console.spec.ts` เข้าใช้งานแทน: ยืนยัน 2FA ใน StepUpBox (`confirmStepUp(page, 'support@platform.test')` — `freshCode` กันใช้ step ซ้ำ) และตรวจว่ายังไม่เปิดแท็บก่อนยืนยัน |
+| 2 | Medium | UX เข้าใช้งานแทน: `ActionDialog` `stepUpFirst` — ยังไม่มี step-up ของ Console = แสดง StepUpBox ก่อน (ไม่ส่งคำขอ ไม่เปิดแท็บเปล่า) → ได้ URL แล้วจึง `window.open` · ถูกบล็อก (`null`) = กล่องแสดงข้อความ + ลิงก์ "เปิดแท็บ" (`con.dlg.impBlocked` / `con.act.openTab`; `rel="noopener noreferrer"`) ไม่ปิดเงียบ · test `console/consoleImpersonate.test.tsx` |
+| 3 | Medium | ตัวนับต่อ IP แยกกลุ่ม `public` / `console` (`platform/auth/*`) / `invite` (`auth/invitations/*`) — `publicBucketGroup()` · `.env.example` + `HANDOFF.md` §deploy: UAT/production ต้องตั้ง `TRUST_PROXY` (ไม่ตั้ง = ทุกคนใช้เพดานเดียว) · test `http/public-rate-limit.middleware.test.ts` |
+| 4 | Low | `prismaSummary` เก็บบรรทัด stack ของ `dist/` ด้วย (รันจาก build) |
+| 5 | Low | worker คงระดับ log เดิม: `PinoNestLogger(log, ['error','warn','fatal'])` |
+| 6 | Low | `PinoNestLogger.fatal` · `error(msg, stack)` ไม่มี context → ค่าที่สองเป็น stack (ถ้าเป็น stack trace) |
+| 7 | Low | `scripts/platform-user.ts` + `HANDOFF.md`: ต้องตั้ง `NODE_ENV` และกุญแจชุดเดียวกับ API |
+
 ## 2. ผลตาม checklist (รันซ้ำ + ขยายพื้นผิวใหม่)
 
 ### 2.1 Coverage ข้าม tenant
