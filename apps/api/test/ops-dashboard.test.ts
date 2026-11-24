@@ -344,9 +344,34 @@ describe('ops dashboard (ST9-T01)', () => {
 
     // ---------- เที่ยว ----------
     const tr = (await api(app, admin).get('/v1/trips/summary').expect(200)).body;
-    expect(tr).toEqual({ running: 1, offered: 2 });
+    expect(tr).toEqual({ running: 1, offered: 2, planning: 3, inTransit: 3, done: 1, subcon: 2 });
     expect(tr.running).toBe(await rows('/v1/trips?status=IN_PROGRESS'));
     expect(tr.offered).toBe(await rows('/v1/trips?status=OFFERED'));
+    // หน้า `/trips` (UAT 24 พ.ย.) — การ์ด = จำนวนแถวของแท็บ/ตัวกรองเดียวกัน
+    expect(tr.planning).toBe(await rows('/v1/trips?status=PLANNING,OFFERED,ASSIGNED'));
+    expect(tr.inTransit).toBe(await rows('/v1/trips?status=DISPATCHED,IN_PROGRESS'));
+    expect(tr.done).toBe(await rows('/v1/trips?status=COMPLETED,COSTED,SETTLED'));
+    expect(tr.subcon).toBe(
+      await rows(
+        '/v1/trips?ownership=SUBCON&status=PLANNING,OFFERED,ASSIGNED,DISPATCHED,IN_PROGRESS,COMPLETED,COSTED,SETTLED',
+      ),
+    );
+    // ตัวกรองค้นของหน้า `/trips` (มีคำนี้ ไม่สนตัวพิมพ์)
+    expect(await rows('/v1/trips?ownership=OWN')).toBe(6);
+    expect(await rows('/v1/trips?ownership=SUBCON')).toBe(2);
+    expect(await rows('/v1/trips?vehiclePlate=%E0%B8%AB%E0%B8%B2%E0%B8%87')).toBe(1); // "หาง"
+    expect(await rows(`/v1/trips?driverName=${encodeURIComponent('รถร่วม')}`)).toBe(2);
+    expect(await rows(`/v1/trips?tripNo=${tRun.tripNo!.toLowerCase()}`)).toBe(1);
+    // คอลัมน์ รายได้ / ค่าเที่ยว — มีในรายการ (ไม่มีบรรทัด = 0.00)
+    const tl = (await api(app, admin).get('/v1/trips?limit=50').expect(200)).body.data as {
+      id: string;
+      sellAmount?: string;
+      buyTotal?: string;
+    }[];
+    for (const x of tl) {
+      expect(x.sellAmount).toMatch(/^\d+\.\d{2}$/);
+      expect(x.buyTotal).toMatch(/^-?\d+\.\d{2}$/);
+    }
 
     // ---------- รถ (บริษัท) ----------
     const fl = (await api(app, admin).get('/v1/vehicles/summary').expect(200)).body.fleet;
@@ -385,6 +410,31 @@ describe('ops dashboard (ST9-T01)', () => {
     const s2 = await doCards(D2);
     expect(s2).toMatchObject({ today: 2, delivered: 1, failed: 0 });
     clock.set(null);
+    // หน้า `/do` (UAT 24 พ.ย.) — การ์ดทุกวันที่ = จำนวนแถวของแท็บเดียวกัน
+    const all = (await api(app, admin).get('/v1/delivery-orders/summary').expect(200)).body;
+    expect(all.draft).toBe(await rows('/v1/delivery-orders?status=DRAFT,PLANNED'));
+    expect(all.inTransit).toBe(await rows('/v1/delivery-orders?status=DISPATCHED,PICKED_UP'));
+    expect(all.unbilled).toBe(
+      await rows('/v1/delivery-orders?status=DELIVERED,POD_PENDING,UNBILLED'),
+    );
+    expect(all.unbilled).toBe(3);
+    expect(all.inTransit).toBe(1);
+    expect(all.sellUnbilledAmount).toMatch(/^\d+\.\d{2}$/);
+    // ตัวกรองค้นของหน้า `/do`
+    const total = await rows('/v1/delivery-orders');
+    expect(await rows(`/v1/delivery-orders?product=${encodeURIComponent('ปูน')}`)).toBe(total);
+    expect(await rows(`/v1/delivery-orders?customerName=${encodeURIComponent('ลูกค้า')}`)).toBe(
+      total,
+    );
+    expect(await rows(`/v1/delivery-orders?vehiclePlate=${encodeURIComponent('ทดสอบ')}`)).toBe(5);
+    expect(await rows(`/v1/delivery-orders?driverName=${encodeURIComponent('ไม่มีคนนี้')}`)).toBe(
+      0,
+    );
+    const anyDo = (await api(app, admin).get('/v1/delivery-orders?limit=1').expect(200)).body
+      .data[0] as { doNo: string };
+    expect(
+      await rows(`/v1/delivery-orders?doNo=${encodeURIComponent(anyDo.doNo.toLowerCase())}`),
+    ).toBe(1);
 
     // ---------- รายการ DO มีชื่อสำหรับแสดง (ลูกค้า/จุด/เที่ยว) ----------
     const one = (
@@ -399,13 +449,17 @@ describe('ops dashboard (ST9-T01)', () => {
 
   it('แยก tenant: ตัวนับของบริษัทอื่นไม่รวมข้อมูลของเรา', async () => {
     const tr = (await api(app, other).get('/v1/trips/summary').expect(200)).body;
-    expect(tr).toEqual({ running: 0, offered: 1 });
+    expect(tr).toEqual({ running: 0, offered: 1, planning: 1, inTransit: 1, done: 0, subcon: 1 });
     const so = (await api(app, other).get('/v1/orders/summary').expect(200)).body;
     expect(so.waiting).toBe(0);
     const fl = (await api(app, other).get('/v1/vehicles/summary').expect(200)).body.fleet;
     expect(fl).toEqual({ available: 0, inUse: 1, maintenance: 0 });
     const ds = (await api(app, other).get('/v1/delivery-orders/summary').expect(200)).body;
-    expect([ds.today, ds.delivered, ds.failed]).toEqual([0, 0, 0]);
+    expect([ds.today, ds.delivered, ds.failed, ds.draft, ds.inTransit, ds.unbilled]).toEqual([
+      0, 0, 0, 0, 0, 0,
+    ]);
+    expect(ds.sellUnbilledAmount).toBe('0.00');
+    expect(await rows('/v1/trips?ownership=SUBCON', other)).toBe(1);
   });
 
   it('สิทธิ์: ไม่มี scope ของรายการ → 403 (การ์ดนั้นไม่แสดง) · role ปฏิบัติการเห็นครบ · ไม่มีฟิลด์เงิน', async () => {
@@ -430,6 +484,22 @@ describe('ops dashboard (ST9-T01)', () => {
       const r = await api(app, disp).get(p).expect(200);
       expect(JSON.stringify(r.body)).not.toMatch(/amount|price|revenue|outstanding/i);
     }
+    // รายการเที่ยวของ dispatcher: เห็นค่าเที่ยว (prices.buy:read) แต่ไม่เห็นรายได้ (ไม่มี prices.sell:read)
+    const dt = (await api(app, disp).get('/v1/trips?limit=5').expect(200)).body.data as Record<
+      string,
+      unknown
+    >[];
+    expect(dt.length).toBeGreaterThan(0);
+    for (const x of dt) {
+      expect(x).not.toHaveProperty('sellAmount');
+      expect(x).toHaveProperty('buyTotal');
+    }
+    const viewer = await tokenFor(tenantId, 'trips:read', 'u-viewer');
+    const vt = (await api(app, viewer).get('/v1/trips?limit=5').expect(200)).body.data as Record<
+      string,
+      unknown
+    >[];
+    for (const x of vt) expect(x).not.toHaveProperty('buyTotal');
     // รายการ DO ของ dispatcher (ไม่มีสิทธิ์ราคา) ไม่มีรายได้
     const l = await api(app, disp).get('/v1/delivery-orders?limit=5').expect(200);
     expect(JSON.stringify(l.body)).not.toMatch(/revenue|price/i);

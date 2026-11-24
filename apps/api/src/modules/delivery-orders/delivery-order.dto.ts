@@ -23,6 +23,7 @@ import {
   type DoStatus,
 } from '@tms/domain';
 import { ListQuery } from '../../common/pagination';
+import { PriceField } from '../../common/price-fields';
 import { CleanText, IsNullable } from '../master/master-kit';
 
 /** ทศนิยมเป็นสตริง ≤ 3 ตำแหน่ง (numeric(14,3)) — ไม่รับ number กัน float */
@@ -66,6 +67,48 @@ export class DeliveryOrderListQuery extends ListQuery {
   @IsOptional()
   @Matches(DATE_RE)
   dateTo?: string;
+
+  @ApiPropertyOptional({
+    example: 'DO-2611',
+    description: 'ค้นเลข DO (มีคำนี้ ไม่สนตัวพิมพ์) — หน้ารายการ `/do`',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  doNo?: string;
+
+  @ApiPropertyOptional({ example: 'ศรีไทย', description: 'ค้นชื่อลูกค้า (มีคำนี้)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  customerName?: string;
+
+  @ApiPropertyOptional({
+    example: '70-1234',
+    description: 'ค้นทะเบียนรถของเที่ยว (snapshot — มีคำนี้)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  vehiclePlate?: string;
+
+  @ApiPropertyOptional({
+    example: 'สมชาย',
+    description: 'ค้นชื่อคนขับ / รถร่วมของเที่ยว (snapshot — มีคำนี้)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  driverName?: string;
+
+  @ApiPropertyOptional({
+    example: 'ปูน',
+    description: 'ค้นสินค้า (คำอธิบายบรรทัดของ DO — มีคำนี้)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  product?: string;
 }
 
 export class DeliveryOrderLineQtyDto {
@@ -358,6 +401,25 @@ export class DeliveryOrderSummaryDto {
   delivered!: number;
   @ApiProperty({ description: 'ส่งไม่สำเร็จ = `status=FAILED` ของวัน `date`' })
   failed!: number;
+  @ApiProperty({
+    description: 'หน้า `/do` การ์ด "ร่าง" = `status=DRAFT,PLANNED` (ทุกวันที่)',
+  })
+  draft!: number;
+  @ApiProperty({ description: 'การ์ด "ระหว่างส่ง" = `status=DISPATCHED,PICKED_UP` (ทุกวันที่)' })
+  inTransit!: number;
+  @ApiProperty({
+    description:
+      'การ์ด "ยังไม่วางบิล" = `status=DELIVERED,POD_PENDING,UNBILLED` (ทุกวันที่ — ส่งถึงแล้วยังไม่วางบิล)',
+  })
+  unbilled!: number;
+  @ApiPropertyOptional({
+    type: String,
+    example: '125400.00',
+    description:
+      'มูลค่ารวมของ DO "ยังไม่วางบิล" = Σ บรรทัดรายได้ที่ใช้อยู่ (ก่อน VAT) — เห็นเมื่อมี `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellUnbilledAmount?: string;
 }
 
 export class DeliveryOrderPageDto {

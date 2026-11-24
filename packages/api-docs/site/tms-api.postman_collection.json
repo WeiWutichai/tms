@@ -1238,7 +1238,7 @@
                 "summary"
               ]
             },
-            "description": "scope: orders:read\n\nนับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง"
+            "description": "scope: orders:read\n\nนับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง · การ์ดหน้า `/do` (`draft` / `inTransit` / `unbilled`) นับทุกวันที่"
           }
         },
         {
@@ -1319,6 +1319,36 @@
                   "key": "dateTo",
                   "value": "2026-11-30",
                   "description": "วันที่ DO ถึง (YYYY-MM-DD)",
+                  "disabled": true
+                },
+                {
+                  "key": "doNo",
+                  "value": "DO-2611",
+                  "description": "ค้นเลข DO (มีคำนี้ ไม่สนตัวพิมพ์) — หน้ารายการ `/do`",
+                  "disabled": true
+                },
+                {
+                  "key": "customerName",
+                  "value": "ศรีไทย",
+                  "description": "ค้นชื่อลูกค้า (มีคำนี้)",
+                  "disabled": true
+                },
+                {
+                  "key": "vehiclePlate",
+                  "value": "70-1234",
+                  "description": "ค้นทะเบียนรถของเที่ยว (snapshot — มีคำนี้)",
+                  "disabled": true
+                },
+                {
+                  "key": "driverName",
+                  "value": "สมชาย",
+                  "description": "ค้นชื่อคนขับ / รถร่วมของเที่ยว (snapshot — มีคำนี้)",
+                  "disabled": true
+                },
+                {
+                  "key": "product",
+                  "value": "ปูน",
+                  "description": "ค้นสินค้า (คำอธิบายบรรทัดของ DO — มีคำนี้)",
                   "disabled": true
                 }
               ]
@@ -2137,7 +2167,7 @@
                 "summary"
               ]
             },
-            "description": "scope: trips:read\n\nนับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED`"
+            "description": "scope: trips:read\n\nนับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED` · การ์ดหน้า `/trips`: `planning` / `inTransit` / `done` / `subcon` ตามคำอธิบายของแต่ละช่อง"
           }
         },
         {
@@ -2224,6 +2254,30 @@
                   "key": "carrierId",
                   "value": "car_3f2a…",
                   "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "tripNo",
+                  "value": "TRP-2611",
+                  "description": "ค้นเลขเที่ยว (มีคำนี้ ไม่สนตัวพิมพ์) — หน้ารายการเที่ยว `/trips`",
+                  "disabled": true
+                },
+                {
+                  "key": "vehiclePlate",
+                  "value": "70-1234",
+                  "description": "ค้นทะเบียนรถ / หาง / ประเภทรถของเที่ยว (มีคำนี้)",
+                  "disabled": true
+                },
+                {
+                  "key": "driverName",
+                  "value": "สมชาย",
+                  "description": "ค้นชื่อคนขับ / คนขับสำรอง / รถร่วม (สังกัด) ของเที่ยว (มีคำนี้)",
+                  "disabled": true
+                },
+                {
+                  "key": "ownership",
+                  "value": "",
+                  "description": "OWN = รถบริษัท (ไม่มีรถร่วม) · SUBCON = ใช้รถร่วม",
                   "disabled": true
                 }
               ]

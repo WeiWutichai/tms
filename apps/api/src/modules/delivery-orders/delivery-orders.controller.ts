@@ -77,7 +77,7 @@ export class DeliveryOrdersController {
   @ApiOperation({
     summary: 'ตัวนับ DO ของวันนี้ (เวลาไทย)',
     description:
-      'นับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง',
+      'นับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง · การ์ดหน้า `/do` (`draft` / `inTransit` / `unbilled`) นับทุกวันที่',
   })
   @ApiOkResponse({ type: DeliveryOrderSummaryDto })
   summary(): Promise<DeliveryOrderSummaryDto> {

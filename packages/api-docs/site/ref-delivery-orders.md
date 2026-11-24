@@ -30,7 +30,7 @@
 
 scope: `orders:read` · operationId: `DeliveryOrders_summary`
 
-นับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง
+นับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง · การ์ดหน้า `/do` (`draft` / `inTransit` / `unbilled`) นับทุกวันที่
 
 **Responses**
 
@@ -72,6 +72,11 @@ scope: `orders:read` · operationId: `DeliveryOrders_list`
 | `status` | query |   | `string` | สถานะ คั่นด้วย, (DRAFT / PLANNED / DISPATCHED / PICKED_UP / DELIVERED / FAILED / RETURNED / POD_PENDING / UNBILLED / BILLED / CANCELLED) |
 | `dateFrom` | query |   | `string` | วันที่ DO ตั้งแต่ (YYYY-MM-DD) |
 | `dateTo` | query |   | `string` | วันที่ DO ถึง (YYYY-MM-DD) |
+| `doNo` | query |   | `string` | ค้นเลข DO (มีคำนี้ ไม่สนตัวพิมพ์) — หน้ารายการ `/do` |
+| `customerName` | query |   | `string` | ค้นชื่อลูกค้า (มีคำนี้) |
+| `vehiclePlate` | query |   | `string` | ค้นทะเบียนรถของเที่ยว (snapshot — มีคำนี้) |
+| `driverName` | query |   | `string` | ค้นชื่อคนขับ / รถร่วมของเที่ยว (snapshot — มีคำนี้) |
+| `product` | query |   | `string` | ค้นสินค้า (คำอธิบายบรรทัดของ DO — มีคำนี้) |
 
 **Responses**
 
@@ -1060,6 +1065,10 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `today` | ใช่ | `number` |   | งานวันนี้ = `?dateFrom=date&dateTo=date&status=` ทุกสถานะยกเว้น CANCELLED |   |
 | `delivered` | ใช่ | `number` |   | ส่งแล้ว = `status=DELIVERED,POD_PENDING,UNBILLED,BILLED` ของวัน `date` |   |
 | `failed` | ใช่ | `number` |   | ส่งไม่สำเร็จ = `status=FAILED` ของวัน `date` |   |
+| `draft` | ใช่ | `number` |   | หน้า `/do` การ์ด "ร่าง" = `status=DRAFT,PLANNED` (ทุกวันที่) |   |
+| `inTransit` | ใช่ | `number` |   | การ์ด "ระหว่างส่ง" = `status=DISPATCHED,PICKED_UP` (ทุกวันที่) |   |
+| `unbilled` | ใช่ | `number` |   | การ์ด "ยังไม่วางบิล" = `status=DELIVERED,POD_PENDING,UNBILLED` (ทุกวันที่ — ส่งถึงแล้วยังไม่วางบิล) |   |
+| `sellUnbilledAmount` |   | `string` |   | มูลค่ารวมของ DO "ยังไม่วางบิล" = Σ บรรทัดรายได้ที่ใช้อยู่ (ก่อน VAT) — เห็นเมื่อมี `prices.sell:read` | `125400.00` |
 
 ### RedeliverResultDto {#schema-RedeliverResultDto}
 

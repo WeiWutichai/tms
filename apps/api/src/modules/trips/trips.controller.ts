@@ -170,7 +170,7 @@ export class TripsController {
   @ApiOperation({
     summary: 'ตัวนับเที่ยวของ dashboard ปฏิบัติการ',
     description:
-      'นับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED`',
+      'นับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED` · การ์ดหน้า `/trips`: `planning` / `inTransit` / `done` / `subcon` ตามคำอธิบายของแต่ละช่อง',
   })
   @ApiProblems(T403('trips:read'))
   @RequireScope('trips:read')
@@ -200,7 +200,9 @@ export class TripsController {
       driverId: dec('driver', q.driverId),
       carrierId: dec('carrier', q.carrierId),
     });
-    return toPage(rows, k, toTripDto, q.fields);
+    // หน้า `/trips` คอลัมน์ รายได้ / ค่าเที่ยว (ตัดตามสิทธิ์ราคาที่ serializer)
+    const amounts = await this.trips.listAmounts(rows.map((r) => r.id));
+    return toPage(rows, k, (r) => ({ ...toTripDto(r), ...amounts.get(r.id) }), q.fields);
   }
 
   /**

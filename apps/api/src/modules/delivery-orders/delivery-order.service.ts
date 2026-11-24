@@ -30,6 +30,9 @@ import {
   OPS_DO_DELIVERED,
   OPS_DO_FAILED,
   OPS_DO_TODAY,
+  DO_TAB_DELIVERED,
+  DO_TAB_DRAFT,
+  DO_TAB_IN_TRANSIT,
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId } from '../../common/ids';
@@ -79,7 +82,15 @@ export interface DeliveryOrderFilter extends ListQuery {
   /** YYYY-MM-DD */
   dateFrom?: string;
   dateTo?: string;
+  /** หน้า `/do` — ค้นแบบมีคำนี้ (ไม่สนตัวพิมพ์) */
+  doNo?: string;
+  customerName?: string;
+  vehiclePlate?: string;
+  driverName?: string;
+  product?: string;
 }
+
+const has = (v: string) => ({ contains: v.trim(), mode: 'insensitive' as const });
 
 export interface CancelInput {
   /** เหตุผล ≥ 10 ตัวอักษร (MD-222) */
@@ -152,6 +163,22 @@ export function deliveryOrderWhere(
       q.statuses?.length ? { status: { in: q.statuses as DbDoStatus[] } } : {},
       q.dateFrom ? { doDate: { gte: new Date(`${q.dateFrom}T00:00:00Z`) } } : {},
       q.dateTo ? { doDate: { lte: new Date(`${q.dateTo}T00:00:00Z`) } } : {},
+      q.doNo?.trim() ? { doNo: has(q.doNo) } : {},
+      q.customerName?.trim() ? { customer: { is: { legalName: has(q.customerName) } } } : {},
+      q.vehiclePlate?.trim() ? { trip: { is: { vehiclePlateSnapshot: has(q.vehiclePlate) } } } : {},
+      q.driverName?.trim()
+        ? {
+            trip: {
+              is: {
+                OR: [
+                  { driverNameSnapshot: has(q.driverName) },
+                  { carrierNameSnapshot: has(q.driverName) },
+                ],
+              },
+            },
+          }
+        : {},
+      q.product?.trim() ? { lines: { some: { description: has(q.product) } } } : {},
     ],
   };
 }
@@ -299,12 +326,35 @@ export class DeliveryOrderService {
       tx.deliveryOrder.count({
         where: deliveryOrderWhere({ statuses: [...statuses], dateFrom: date, dateTo: date }),
       });
-    const [today, delivered, failed] = await Promise.all([
+    const all = (statuses: readonly DoStatus[]) =>
+      tx.deliveryOrder.count({ where: deliveryOrderWhere({ statuses: [...statuses] }) });
+    const [today, delivered, failed, draft, inTransit, unbilled, amount] = await Promise.all([
       n(OPS_DO_TODAY),
       n(OPS_DO_DELIVERED),
       n(OPS_DO_FAILED),
+      // หน้า `/do` (UAT 24 พ.ย.) — ทุกวันที่ ชุดสถานะเดียวกับแท็บของหน้าเว็บ (`@tms/domain` ops-lists)
+      all(DO_TAB_DRAFT),
+      all(DO_TAB_IN_TRANSIT),
+      all(DO_TAB_DELIVERED),
+      tx.revenueLine.aggregate({
+        where: {
+          status: 'ACTIVE',
+          deliveryOrder: { is: deliveryOrderWhere({ statuses: [...DO_TAB_DELIVERED] }) },
+        },
+        _sum: { amount: true },
+      }),
     ]);
-    return { date, today, delivered, failed };
+    return {
+      date,
+      today,
+      delivered,
+      failed,
+      draft,
+      inTransit,
+      unbilled,
+      // ตัดตามสิทธิ์ `prices.sell:read` ที่ serializer (PriceField)
+      sellUnbilledAmount: (amount._sum.amount ?? new Prisma.Decimal(0)).toFixed(2),
+    };
   }
 
   /** รายการ DO (keyset บน updatedAt,id — docs/01 §5.1) กรองตาม SO / ลูกค้า / สถานะ / ช่วงวันที่ DO */
