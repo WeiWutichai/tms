@@ -1,14 +1,22 @@
 import type { components } from '@tms/contracts';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Icon } from '@tms/ui';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ApiError, queryClient } from '../api';
 import { useI18n, type Lang } from '../i18n';
 import { th, type MessageKey } from '../i18n/th';
 import { useTenantList } from './ConsoleShell';
 import { StepUpBox } from '../features/settings/OrgSections';
-import { can, consoleApi, consoleStepUp, cunwrap, dropConsoleStepUp, useStaff } from './session';
+import {
+  can,
+  consoleApi,
+  consoleStepUp,
+  consoleStepUpHeaders,
+  cunwrap,
+  dropConsoleStepUp,
+  useStaff,
+} from './session';
 
 type Tenant = components['schemas']['PlatformTenantDto'];
 type TenantDetail = components['schemas']['PlatformTenantDetailDto'];
@@ -454,6 +462,8 @@ export function ActionDialog({
   okL,
   danger,
   check,
+  stepUpFirst,
+  extra,
   onOk,
   onClose,
 }: {
@@ -466,6 +476,10 @@ export function ActionDialog({
   okL: string;
   danger?: boolean;
   check?: (v: Record<string, string>) => string;
+  /** ST9-T13 R2-M02: ยืนยัน 2FA (StepUpBox) ก่อนส่งคำขอ เมื่อยังไม่มี step-up ของ Console ในหน่วยความจำ */
+  stepUpFirst?: boolean;
+  /** เนื้อหาเพิ่มใต้ช่องกรอก (เช่น ลิงก์เปิดแท็บเมื่อเบราว์เซอร์บล็อกหน้าต่างใหม่) */
+  extra?: ReactNode;
   onOk: (v: Record<string, string>, reason: string) => Promise<void>;
   onClose: () => void;
 }) {
@@ -503,6 +517,10 @@ export function ActionDialog({
   }
   async function submit() {
     if (!ok) return;
+    if (stepUpFirst && !Object.keys(consoleStepUpHeaders()).length) {
+      setStepUp(true);
+      return;
+    }
     await send();
   }
   async function confirmStepUp(code: string) {
@@ -614,6 +632,7 @@ export function ActionDialog({
               <span>{err}</span>
             </div>
           )}
+          {extra}
         </div>
         <div className="con-dialog__foot">
           <button type="button" className="con-dialog__cancel" onClick={onClose}>
@@ -726,15 +745,40 @@ function StatusDialog({
 }
 
 /** เข้าใช้งานแทน (PLT-120): เลือกผู้ใช้ที่จะสวม + เหตุผล + ticket → เปิดแอปลูกค้าแท็บใหม่ (อ่านอย่างเดียว) */
-function ImpersonateDialog({ x, onClose }: { x: TenantDetail; onClose: () => void }) {
+export function ImpersonateDialog({ x, onClose }: { x: TenantDetail; onClose: () => void }) {
   const { t } = useI18n();
   const roleName = (c: string) =>
     (ROLE_CODES as readonly string[]).includes(c) ? t(`con.trole.${c}` as MessageKey) : c;
   const active = x.members.filter((m) => m.status === 'active');
   const owner = active.find((m) => m.roles.includes('owner')) ?? active[0];
+  // เบราว์เซอร์บล็อกหน้าต่างใหม่ → แสดงลิงก์ให้กดเปิดเอง (session เริ่มแล้ว — ไม่ปิดเงียบ ๆ)
+  const [blockedUrl, setBlockedUrl] = useState<string | null>(null);
   return (
     <ActionDialog
       title={t('con.dlg.impT', { n: x.name })}
+      stepUpFirst
+      extra={
+        blockedUrl && (
+          <div
+            className="con-warn"
+            role="status"
+            style={{ background: '#FCF0DC', color: '#8F5500' }}
+          >
+            <Icon
+              n="external-link"
+              s={16}
+              strokeWidth={1.8}
+              style={{ marginTop: 3, flexShrink: 0 }}
+            />
+            <span>
+              {t('con.dlg.impBlocked')}{' '}
+              <a href={blockedUrl} target="_blank" rel="noopener noreferrer" onClick={onClose}>
+                {t('con.act.openTab')}
+              </a>
+            </span>
+          </div>
+        )
+      }
       desc={t('con.dlg.impD')}
       warn={active.length ? t('con.dlg.impW') : t('con.dlg.impNoUser')}
       fields={[
@@ -755,28 +799,23 @@ function ImpersonateDialog({ x, onClose }: { x: TenantDetail; onClose: () => voi
       check={() => (active.length ? '' : t('con.dlg.impNoUser'))}
       onClose={onClose}
       onOk={async (v, reason) => {
-        // เปิดแท็บเปล่าทันทีตอนกด (ยังอยู่ใน user gesture — กัน popup blocker) แล้วค่อยใส่ URL เมื่อได้ token
-        const w = window.open('about:blank', '_blank');
-        try {
-          const r = await cunwrap(
-            consoleApi.POST('/v1/platform/tenants/{id}/impersonate', {
-              params: { path: { id: x.id } },
-              body: {
-                reason,
-                ...(v.as ? { asUserId: v.as } : {}),
-                ...(v.ticket?.trim() ? { ticketRef: v.ticket.trim() } : {}),
-              },
-            }),
-          );
-          if (w) {
-            w.opener = null;
-            w.location.replace(r.url);
-          } else window.open(r.url, '_blank', 'noopener');
+        // ST9-T13 R2-M02: ยืนยัน 2FA ก่อน (stepUpFirst) → ได้ URL แล้วจึงเปิดแท็บ (ไม่เปิดแท็บเปล่าค้างระหว่างยืนยัน)
+        const r = await cunwrap(
+          consoleApi.POST('/v1/platform/tenants/{id}/impersonate', {
+            params: { path: { id: x.id } },
+            headers: consoleStepUpHeaders(), // ไม่มี/หมดอายุ → 403 step_up_required → กล่องยืนยันของ ActionDialog
+            body: {
+              reason,
+              ...(v.as ? { asUserId: v.as } : {}),
+              ...(v.ticket?.trim() ? { ticketRef: v.ticket.trim() } : {}),
+            },
+          }),
+        );
+        const w = window.open(r.url, '_blank');
+        if (w) {
+          w.opener = null;
           onClose();
-        } catch (e) {
-          w?.close();
-          throw e;
-        }
+        } else setBlockedUrl(r.url);
       }}
     />
   );

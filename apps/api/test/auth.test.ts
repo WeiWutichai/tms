@@ -401,7 +401,17 @@ describe('auth: login + Auth Code/PKCE + refresh', () => {
   it('ออกจากระบบ → refresh cookie ใช้ไม่ได้', async () => {
     await makeUser(tenantA, 'logout@example.co.th');
     const { cookie } = await fullLogin('logout@example.co.th');
-    const r = await request(app.getHttpServer()).post('/v1/oauth/revoke').set('Cookie', cookie);
+    // ST9-T13 R2 (L-03): ออกจากระบบข้ามเว็บ (Sec-Fetch-Site: cross-site) → 403 · session ยังใช้ได้
+    const cross = await request(app.getHttpServer())
+      .post('/v1/oauth/revoke')
+      .set('Cookie', cookie)
+      .set('Sec-Fetch-Site', 'cross-site')
+      .set('Origin', 'https://evil.example');
+    expect(cross.status).toBe(403);
+    const r = await request(app.getHttpServer())
+      .post('/v1/oauth/revoke')
+      .set('Cookie', cookie)
+      .set('Sec-Fetch-Site', 'same-origin');
     expect(r.status).toBe(204);
     expect((await refresh(cookie)).status).toBe(400);
   });
