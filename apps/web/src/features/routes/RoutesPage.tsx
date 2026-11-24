@@ -17,6 +17,7 @@ import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
 import { PageHeader } from '../../shell/Header';
+import { ImportExcelButton } from '../imports/ImportExcelButton';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
 import { downloadFile, exportFailText } from '../master/download';
@@ -182,11 +183,15 @@ export function RoutesPage() {
         title={t('page.route.title')}
         sub={t('page.route.sub')}
         actions={
-          canWrite && (
-            <Button variant="primary" icon="plus" onClick={() => setForm({ route: null })}>
-              {t('rt.add')}
-            </Button>
-          )
+          <>
+            {/* นำเข้า Excel (ST2-T23 — PO 24 พ.ย. 2569: เพิ่มปุ่มแบบหน้าลูกค้า; แสดงเฉพาะผู้มีสิทธิ์นำเข้า) */}
+            <ImportExcelButton kind="route" label={t('rt.import')} onDone={setToast} />
+            {canWrite && (
+              <Button variant="primary" icon="plus" onClick={() => setForm({ route: null })}>
+                {t('rt.add')}
+              </Button>
+            )}
+          </>
         }
       />
       <SummaryStrip

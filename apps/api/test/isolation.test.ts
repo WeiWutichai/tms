@@ -1122,6 +1122,23 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
 
 /** body เฉพาะ route (suffix เดียวกันแต่ validation ต่างกัน) — มาก่อน BODY_FOR_SUFFIX */
 const BODY_FOR_PATH: Record<string, object> = {
+  // PO 24 พ.ย. 2569 ไฟล์แนบคนขับ/ผู้รับเหมา (body ผ่าน validation → ไปถึงการตรวจ tenant)
+  '/v1/drivers/:id/attachments': {
+    documentId: 'doc_00000000000040008000000000000001',
+    attachType: 'LICENCE',
+  },
+  '/v1/drivers/:id/attachments/remove': {
+    documentId: 'doc_00000000000040008000000000000001',
+    reason: 'isolation test reason',
+  },
+  '/v1/carriers/:id/attachments': {
+    documentId: 'doc_00000000000040008000000000000001',
+    attachType: 'CONTRACT',
+  },
+  '/v1/carriers/:id/attachments/remove': {
+    documentId: 'doc_00000000000040008000000000000001',
+    reason: 'isolation test reason',
+  },
   // ST5-T01 เพิ่มบรรทัดรายได้เอง (body ผ่าน validation → ไปถึงการตรวจ tenant)
   '/v1/orders/:id/revenue-lines': {
     serviceItemId: 'svc_00000000000040008000000000000001',

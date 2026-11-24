@@ -207,6 +207,14 @@ test.describe.serial('ตีกลับบางส่วน → ส่งซ�
     await expect(dlg.getByText('รูปหลักฐานส่ง 1 รูป')).toBeVisible();
     await expect(dlg.getByTestId('rt-hint')).toHaveText('เลือกรายการอย่างน้อย 1 รายการ · แนบรูป');
     await dlg.getByRole('checkbox').check();
+    // ช่องจำนวน (PO 24 พ.ย. 2569) เริ่ม = คงเหลือ · เกินคงเหลือ = บันทึกไม่ได้
+    const q = dlg.getByRole('textbox', { name: 'จำนวนที่จัดการ ปูนซีเมนต์' });
+    await expect(q).toHaveValue('10');
+    await q.fill('11');
+    await expect(dlg.getByTestId('rt-hint')).toHaveText(
+      'จำนวนต้องมากกว่า 0 และไม่เกินที่ปฏิเสธรับคงเหลือ',
+    );
+    await q.fill('10');
     await expect(dlg.getByTestId('rt-hint')).toContainText('จะสร้างใบส่งของใหม่ 1 รายการ');
     await dlg.getByRole('button', { name: 'บันทึกตีกลับ' }).click();
     await expect(page.getByRole('status')).toContainText(/สร้างใบส่งของ DO-.+ \(ส่งซ้ำของ DO-/);

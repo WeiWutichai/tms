@@ -3,8 +3,8 @@ import { milli, qtyStr } from './actualQty';
 
 /**
  * ST4-T11 dialog "ตีกลับบางส่วน" (ต้นแบบ TMS v4 vRt) — ฟังก์ชันล้วน
- * - DO ส่งแล้ว: รายการ = บรรทัดที่ยังปฏิเสธรับคงเหลือ (`openRejectQty` > 0) ติ๊กแล้วส่งซ้ำ/คืนคลัง **ทั้งจำนวนคงเหลือ**
- *   (ต้นแบบไม่มีช่องจำนวน — API รับจำนวนบางส่วนได้)
+ * - DO ส่งแล้ว: รายการ = บรรทัดที่ยังปฏิเสธรับคงเหลือ (`openRejectQty` > 0) ติ๊กแล้วส่งซ้ำ/คืนคลัง — จำนวนเริ่ม = คงเหลือ
+ *   แก้เป็นบางส่วนได้ (ช่องจำนวนต่อบรรทัด — [DECISION — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ]; API ST4-T11 รับบางส่วน)
  * - DO ส่งไม่สำเร็จ: ทั้งใบ (ไม่ส่ง lines) · ส่งซ้ำ = ใบเดิมยกเลิก + ใบใหม่ทั้งใบ / คืนคลัง = RETURNED
  * - ผ่านเมื่อ: เลือก ≥ 1 รายการ · รูป (ธงบังคับรูป = รูปหลักฐานส่ง) · โน้ต (ธงบังคับโน้ต ≥ 5 ตัวอักษรตามต้นแบบ)
  *   · ชื่อเหตุผล + โน้ต ≥ 10 ตัวอักษร (MD-222 — ตรงกับ API)
@@ -44,6 +44,8 @@ export function resolvedLines(d: Pick<DeliveryOrder, 'lines'>) {
 export interface ReturnDraft {
   /** lineNo ที่ติ๊ก */
   items: number[];
+  /** จำนวนต่อบรรทัดที่ติ๊ก (ไม่กรอก = คงเหลือทั้งหมด) */
+  qty?: Record<number, string>;
   action: ReturnAction;
   reasonId: string;
   note: string;
@@ -55,7 +57,15 @@ export interface ReasonFlags {
   requiresNote: boolean;
 }
 
-export type ReturnProblem = 'pick' | 'photo' | 'note' | 'short';
+export type ReturnProblem = 'pick' | 'qty' | 'photo' | 'note' | 'short';
+
+/** จำนวนของบรรทัดที่ติ๊กถูกต้อง: 0 < จำนวน ≤ คงเหลือ (ทศนิยม ≤ 3) */
+export function qtyOk(open: string, v: string | undefined): boolean {
+  if (v === undefined) return true;
+  const a = milli(v);
+  const o = milli(open);
+  return a !== null && o !== null && a > 0n && a <= o;
+}
 
 /** สิ่งที่ยังขาด (ว่าง = บันทึกได้) */
 export function problems(
@@ -63,9 +73,17 @@ export function problems(
   draft: ReturnDraft,
   reason: ReasonFlags | undefined,
   photoCount: number,
+  lines: Pick<DeliveryOrder['lines'][number], 'lineNo' | 'openRejectQty'>[] = [],
 ): ReturnProblem[] {
   const out: ReturnProblem[] = [];
   if (mode === 'rejected' && draft.items.length === 0) out.push('pick');
+  if (
+    mode === 'rejected' &&
+    lines.some(
+      (l) => draft.items.includes(l.lineNo) && !qtyOk(l.openRejectQty, draft.qty?.[l.lineNo]),
+    )
+  )
+    out.push('qty');
   if (!reason) {
     out.push('short');
     return out;
@@ -87,7 +105,13 @@ export function bodyOf(mode: ReturnMode, d: DeliveryOrder, draft: ReturnDraft) {
       ? {
           lines: openLines(d)
             .filter((l) => draft.items.includes(l.lineNo))
-            .map((l) => ({ lineNo: l.lineNo, qty: l.openRejectQty })),
+            .map((l) => ({
+              lineNo: l.lineNo,
+              qty: (() => {
+                const m = milli(draft.qty?.[l.lineNo] ?? l.openRejectQty);
+                return m === null ? l.openRejectQty : qtyStr(m);
+              })(),
+            })),
         }
       : {}),
   };

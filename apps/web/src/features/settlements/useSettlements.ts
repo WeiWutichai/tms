@@ -1,6 +1,6 @@
 import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, unwrap } from '../../api';
+import { api, idempotent, unwrap } from '../../api';
 import { useCursorList } from '../master/useCursorList';
 import { showPdf } from '../billing/useInvoices';
 
@@ -99,4 +99,42 @@ export function openVoucherPdf(id: string, no: string | null): Promise<void> {
     () => api.GET('/v1/settlements/{id}/pdf', { params: { path: { id } }, parseAs: 'blob' }),
     `${no ?? 'settlement'}.pdf`,
   );
+}
+
+export type SettlementQueue = Schemas['SettlementQueuePageDto'];
+export type SettlementQueueTrip = Schemas['SettlementQueueTripDto'];
+export type CreateSettlementInput = Schemas['CreateSettlementDto'];
+
+/**
+ * คิวจ่ายรถร่วม (ST6-T02 `GET /v1/settlements/queue`) ของฟอร์ม "สร้างงวดใหม่" — `carriers` = รายชื่อผู้รับเหมาที่มีเที่ยวรอจ่าย
+ * (ไม่ส่ง carrierId) · เลือกผู้รับเหมาแล้วโหลดเที่ยวของรายนั้น (สูงสุด 200 เที่ยวต่อใบ — `tripIds` ≤ 200)
+ */
+export function useSettlementQueue(f: { carrierId?: string; dateFrom?: string; dateTo?: string }) {
+  return useQuery({
+    queryKey: [KEY, 'queue', f],
+    queryFn: () =>
+      unwrap(
+        api.GET('/v1/settlements/queue', {
+          params: { query: { limit: 200, sort: 'updatedAt', ...f } as never },
+        }),
+      ),
+  });
+}
+
+/**
+ * ติ๊กเที่ยว → สร้างร่างใบสำคัญจ่าย (ST6-T03 `POST /v1/settlements`) — ส่ง `Idempotency-Key` (docs/01 §5.1 ทุก POST):
+ * กดซ้ำ/เน็ตหลุดแล้วส่งใหม่ด้วยข้อมูลเดิม = ได้ใบเดิม ไม่สร้างซ้ำ (ผู้เรียกคง key เดิมตราบที่ข้อมูลไม่เปลี่ยน)
+ */
+export function useCreateSettlement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { body: CreateSettlementInput; idempotencyKey: string }) =>
+      idempotent(() =>
+        api.POST('/v1/settlements', {
+          body: v.body,
+          headers: { 'Idempotency-Key': v.idempotencyKey },
+        }),
+      ),
+    onSettled: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
 }

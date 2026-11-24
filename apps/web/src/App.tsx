@@ -6,6 +6,7 @@ import { queryClient } from './api';
 import { I18nProvider } from './i18n';
 import { canAny, featureOf, isLocked, NAV, permOf } from './nav';
 import { SettingsPage } from './features/settings/Settings';
+import { ProfilePage } from './features/profile/ProfilePage';
 import { ApiKeysPage } from './features/api-keys/ApiKeysPage';
 import { CustomersPage } from './features/customers/CustomersPage';
 import { ExceptionsPage } from './features/exceptions/ExceptionsPage';
@@ -42,6 +43,7 @@ import { SettlementLinkPage } from './public/SettlementLink';
 import { CarrierPayLinkPage } from './public/CarrierPayLink';
 import { TrackingPage } from './public/Tracking';
 import { SettlePage } from './features/settlements/SettlePage';
+import { SubPage } from './features/sub/SubPage';
 import { ErpPage } from './features/erp/ErpPage';
 import { ConsoleApp } from './console/ConsoleApp';
 import { ReportPage } from './features/reports/ReportPage';
@@ -69,6 +71,7 @@ const READY: Record<string, () => ReactNode> = {
   '/so': () => <OrdersPage />,
   '/so/hold': () => <HoldPage />,
   '/do': () => <DoPage />,
+  '/sub': () => <SubPage />,
   '/bill': () => <BillPage />,
   '/pay': () => <PayPage />,
   '/settle': () => <SettlePage />,
@@ -101,6 +104,8 @@ function Inside() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/design-system" element={<DesignSystem />} />
+          {/* ST1-T09 โปรไฟล์ของผู้ใช้เอง — ทุก role (API /v1/me/* ไม่ต้องมี scope) · PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ */}
+          <Route path="/profile" element={<ProfilePage />} />
           {import.meta.env.DEV && <Route path="/dev/import" element={<DevImportPage />} />}
           <Route
             path="/reports"

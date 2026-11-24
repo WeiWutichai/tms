@@ -24,6 +24,7 @@ import { money, useDateText } from '../rate-cards/rateFormat';
 import { SavedViewMenu } from '../views/SavedViewMenu';
 import { pick, useSavedViews } from '../views/useSavedViews';
 import { ApproveDialog } from './ApproveDialog';
+import { CreateSettlementDrawer } from './CreateSettlementDrawer';
 import { MarkPaidDialog } from './MarkPaidDialog';
 import {
   canApproveStatus,
@@ -59,7 +60,8 @@ const EMPTY_VIEW = { tab: 'all', no: '', who: '', st: '' };
  * บัญชี → Settlement รถร่วม (ต้นแบบ TMS v4 `settle` = kpisX('settle') + ตาราง specSa + drawer vPanel 'sa' + askApproveSa + vSp)
  * สถานะตาม docs/01 §4.5 → แท็บ/การ์ดของต้นแบบ (ดู `settle.ts`) · อนุมัติ (ST6-T07 SoD + step-up) · บันทึกจ่าย (ST6-T09 + D-60) ·
  * "ออกลิงก์ใหม่" (D-63 — เมนูแถว/เมนู ⋯ ของ drawer; D-59 ใบอนุมัติแล้ว/จ่ายแล้ว = ลิงก์ดูอย่างเดียว) · พิมพ์ใบสำคัญจ่าย (ST6-T04)
- * ความต่างจากต้นแบบ [DECISION spec/12 §3 แถวหน้า settle]: ตัดคอลัมน์ "การแก้ไข" (ไม่มีข้อมูล) · "สร้างงวดใหม่" ปิด (หน้าติ๊กเที่ยว [OPEN Claude Design]) ·
+ * ความต่างจากต้นแบบ [DECISION spec/12 §3 แถวหน้า settle]: ตัดคอลัมน์ "การแก้ไข" (ไม่มีข้อมูล) · "สร้างงวดใหม่" = ฟอร์มติ๊กเที่ยว
+ * (`CreateSettlementDrawer` — [DECISION — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ]) ·
  * "ส่งออกให้นักบัญชี" ปิด (งานส่งออก ST5) · "ตรวจแล้ว ส่งอนุมัติ" ไม่มี (ไม่มีสถานะนี้ใน docs) · "หนังสือรับรอง 50 ทวิ" ตัด (D-54/D-58)
  */
 export function SettlePage() {
@@ -69,6 +71,9 @@ export function SettlePage() {
   const canApprove = can(scopes, 'settlements:approve');
   const canPay = can(scopes, 'settlements:pay');
   const canRelink = can(scopes, 'settlements:create');
+  // ST6-T03 สร้างร่างใบสำคัญจ่าย (A3 "สร้าง": owner/admin/dispatcher/invoicer/accounting)
+  const canCreate = can(scopes, 'settlements:create');
+  const [creating, setCreating] = useState(false);
   const dateText = useDateText();
   // ST9-T03 drill-down จาก Dashboard AP รถร่วม (`/settle?tab=chk`, `/settle?tab=chk&st=DISPUTED`) — เขียนแท็บ/ตัวกรองลง session
   // ก่อน `useSessionState` อ่าน (ยิง API ครั้งแรกด้วยตัวกรองจากลิงก์) · ล้างตัวกรองคอลัมน์อื่น + ไม่ผูกมุมมองที่บันทึกไว้ · คงคอลัมน์ที่ซ่อน (แบบ VehiclesPage/HoldPage)
@@ -303,10 +308,12 @@ export function SettlePage() {
                 {t('bill.xp')}
               </Button>
             )}
-            {/* สร้างงวดใหม่ = หน้าติ๊กเที่ยวจากคิวจ่าย (ต้นแบบเป็น toast — [OPEN Claude Design] spec/12 §3 ST6-T03) */}
-            <Button variant="secondary" icon="plus" disabled title={t('settle.newSoon')}>
-              {t('settle.newPeriod')}
-            </Button>
+            {/* สร้างงวดใหม่ = ติ๊กเที่ยวจากคิวจ่าย → ร่าง (ST6-T03) — [DECISION — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ] */}
+            {canCreate && (
+              <Button variant="secondary" icon="plus" onClick={() => setCreating(true)}>
+                {t('settle.newPeriod')}
+              </Button>
+            )}
           </>
         }
       />
@@ -466,6 +473,16 @@ export function SettlePage() {
           onDone={(no) => {
             setPaying(null);
             setToast(t('settle.pay.done', { no }));
+          }}
+        />
+      )}
+      {creating && (
+        <CreateSettlementDrawer
+          onClose={() => setCreating(false)}
+          onCreated={(id) => {
+            setCreating(false);
+            setOpen(id);
+            setToast(t('settle.new.done'));
           }}
         />
       )}

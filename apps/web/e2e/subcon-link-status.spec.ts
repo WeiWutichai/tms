@@ -298,4 +298,58 @@ test.describe.serial('ลิงก์รถร่วม ส่วนสถาน
     );
     expect(flags.data).toHaveLength(0);
   });
+
+  test('Q-LINK: ส่งไม่สำเร็จที่จุดส่ง · เหตุผลบังคับรูปต้องแนบรูป · เหตุผลนัดส่งใหม่อัตโนมัติ (ลูกค้าปิดทำการ) + รูป → DO เดิมยกเลิก (redeliver) แต่ลิงก์ยังเห็น "แจ้งไม่สำเร็จแล้ว" (review M1) · รูปเป็นหลักฐานชุด "ไม่สำเร็จ"', async ({
+    page,
+    browser,
+  }) => {
+    const { ctx, p } = await mobile(browser, S.podUrl!);
+    await p.getByTestId('pdl-q').fill(S.doNo!);
+    await expect(p.getByTestId('pdl-pod-submit')).toBeVisible();
+    await p.getByTestId('pdl-fail-open').click();
+    const f = p.getByTestId('pdl-fail');
+    await expect(f).toContainText('แจ้งปัญหาที่จุดส่ง');
+    await f.getByRole('button', { name: 'ส่งไม่สำเร็จ', exact: true }).click();
+    await f.getByRole('button', { name: 'ที่อยู่ผิด' }).click();
+    await expect(f).toContainText('รูปประกอบ (ต้องแนบอย่างน้อย 1 รูป)');
+    await f.getByTestId('pdl-fail-note').fill('เลขที่บ้านไม่ตรงกับใบสั่ง');
+    await f.getByTestId('pdl-fail-ok').click();
+    await expect(f.getByTestId('pdl-fail-err')).toHaveText('เหตุผลนี้ต้องแนบรูปอย่างน้อย 1 รูป');
+    const PNG = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from('0123456789abcdef'),
+    ]);
+    await f
+      .getByTestId('pdl-fail-photo-input')
+      .setInputFiles({ name: 'gate.png', mimeType: 'image/png', buffer: PNG });
+    await expect(f.getByText('รูปที่ 1')).toBeVisible();
+    // เปลี่ยนเป็นเหตุผลที่ตั้งนัดส่งใหม่อัตโนมัติ (SHOP_CLOSED — reschedule) — รูปที่แนบยังส่งไปด้วย
+    await f.getByRole('button', { name: 'ลูกค้าปิดทำการ' }).click();
+    await f.getByTestId('pdl-fail-ok').click();
+    await expect(p.getByRole('status')).toContainText('แจ้งแล้ว');
+    await expect(p.getByTestId('pdl-fail-done')).toBeVisible();
+    await expect(p.getByTestId('pdl-stop-DELIVERY')).toContainText('ไม่สำเร็จ');
+    // review M1: โหลดใหม่แล้วค้นเลขเดิม — DO ถูกยกเลิกเพราะนัดส่งใหม่ แต่ยังค้นเจอ + กล่องแจ้งแล้ว
+    await p.reload();
+    await p.getByTestId('pdl-q').fill(S.doNo!);
+    await expect(p.getByTestId('pdl-fail-done')).toBeVisible();
+    await expect(p.getByTestId('pdl-nf')).toHaveCount(0);
+    await ctx.close();
+
+    const ev = await events(page);
+    expect(ev.at(-1)).toMatchObject({ type: 'COMPLETE', source: 'LINK' });
+    const all = (
+      await get<{
+        data: { id: string; doNo: string; status: string; redeliveryOfId: string | null }[];
+      }>(page, `/v1/delivery-orders?orderId=${S.so!.id}`)
+    ).data;
+    const d = all.find((x) => x.doNo === S.doNo)!;
+    expect(d.status).toBe('CANCELLED');
+    expect(all.some((x) => x.redeliveryOfId === d.id && x.status === 'DRAFT')).toBe(true);
+    const pod = await get<{ current: { outcome: string; photos: unknown[] } }>(
+      page,
+      `/v1/delivery-orders/${d.id}/pod`,
+    );
+    expect(pod.current.photos).toHaveLength(1);
+  });
 });

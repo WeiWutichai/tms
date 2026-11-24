@@ -6,6 +6,7 @@ import {
   modeOf,
   openLines,
   problems,
+  qtyOk,
   resolvedLines,
   type DeliveryOrder,
 } from './returnForm';
@@ -86,5 +87,22 @@ describe('returnForm (ST4-T11)', () => {
       reasonCodeId: 'rsn_9',
       note: 'ร้านปิด',
     });
+  });
+
+  it('จำนวนบางส่วน (PO 24 พ.ย. 2569): qtyOk 0 < จำนวน ≤ คงเหลือ · problems "qty" · bodyOf ใช้จำนวนที่กรอก', () => {
+    expect(qtyOk('6', undefined)).toBe(true);
+    expect(qtyOk('6', '2.5')).toBe(true);
+    expect(qtyOk('6', '6')).toBe(true);
+    expect(qtyOk('6', '0')).toBe(false);
+    expect(qtyOk('6', '6.001')).toBe(false);
+    expect(qtyOk('6', 'abc')).toBe(false);
+    const d = doOf('UNBILLED', [line(1, '10', '4', '0', '6'), line(2, '3')]);
+    const r = { label: 'สินค้าเสียหายระหว่างขนส่ง', requiresPhoto: false, requiresNote: false };
+    const draft = { items: [1], action: 'redeliver' as const, reasonId: 'rsn_9', note: '' };
+    expect(problems('rejected', { ...draft, qty: { 1: '7' } }, r, 0, d.lines)).toEqual(['qty']);
+    expect(problems('rejected', { ...draft, qty: { 2: '7' } }, r, 0, d.lines)).toEqual([]);
+    expect(bodyOf('rejected', d, { ...draft, qty: { 1: '2.50' } }).lines).toEqual([
+      { lineNo: 1, qty: '2.5' },
+    ]);
   });
 });

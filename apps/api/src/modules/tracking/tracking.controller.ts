@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiBody,
   ApiCreatedResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -33,6 +34,7 @@ import { apiOrigin } from '../documents/documents.controller';
 import { MasterReasonDto } from '../master/master-kit';
 import { T403, T404, T409, T422 } from '../trips/trip-problems';
 import {
+  IssueTrackingLinkDto,
   TrackingLinkDto,
   TrackingLinkStateDto,
   TrackingLookupDto,
@@ -142,12 +144,13 @@ export class DeliveryOrderTrackingController {
   @TenantResource('deliveryOrder')
   @RequireScope('orders:write', 'trips:dispatch')
   @ApiProblems(T403('orders:write', 'trips:dispatch'), T404, T409('invalid_state_transition'))
+  @ApiBody({ type: IssueTrackingLinkDto, required: false })
   @ApiCreatedResponse({
     type: TrackingLinkDto,
-    description: `ออกลิงก์ใหม่ — ลิงก์เดิมถูกเพิกถอน (1 ลิงก์ต่อ DO) · DO ยกเลิกแล้ว → 409 · ${LINK_DESC}`,
+    description: `ออกลิงก์ใหม่ — ลิงก์เดิมถูกเพิกถอน (1 ลิงก์ต่อ DO) · **มีลิงก์ที่ใช้ได้อยู่ต้องส่ง \`reason\` ≥ 10 ตัวอักษร** (ไม่ส่ง → 422 \`reason\` required) · DO ยกเลิกแล้ว → 409 · ${LINK_DESC}`,
   })
-  issue(@Param('id') id: string): Promise<TrackingLinkDto> {
-    return this.tracking.issue('do', decodeIdOr404('deliveryOrder', id));
+  issue(@Param('id') id: string, @Body() body: IssueTrackingLinkDto): Promise<TrackingLinkDto> {
+    return this.tracking.issue('do', decodeIdOr404('deliveryOrder', id), body?.reason);
   }
 
   @Post(':id/tracking-link/revoke')
@@ -193,12 +196,16 @@ export class CustomerTrackingController {
   @TenantResource('customer')
   @RequireScope('master:write')
   @ApiProblems(T403('master:write'), T404)
+  @ApiBody({ type: IssueTrackingLinkDto, required: false })
   @ApiCreatedResponse({
     type: TrackingLinkDto,
-    description: `ออกลิงก์ใหม่ของลูกค้า — ลิงก์เดิมถูกเพิกถอน · ${LINK_DESC}`,
+    description: `ออกลิงก์ใหม่ของลูกค้า — ลิงก์เดิมถูกเพิกถอน · **มีลิงก์ที่ใช้ได้อยู่ต้องส่ง \`reason\` ≥ 10 ตัวอักษร** (ไม่ส่ง → 422) · ${LINK_DESC}`,
   })
-  async issue(@Param('id') id: string): Promise<TrackingLinkDto> {
-    return this.tracking.issue('customer', await this.ref(id));
+  async issue(
+    @Param('id') id: string,
+    @Body() body: IssueTrackingLinkDto,
+  ): Promise<TrackingLinkDto> {
+    return this.tracking.issue('customer', await this.ref(id), body?.reason);
   }
 
   @Post(':id/tracking-link/revoke')

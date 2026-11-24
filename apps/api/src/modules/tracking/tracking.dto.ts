@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import { CleanText } from '../master/master-kit';
 
 /**
@@ -213,4 +213,18 @@ export class OrderTrackingDto {
       'ทุก DO ของ order (รวมที่ยกเลิก) ตามลำดับที่สร้าง — ขั้น/ETA/รายการใช้กติกาเดียวกับหน้าติดตามสาธารณะ (ST4-T14) แต่ไม่หมดอายุตาม `tracking.linkDays` และไม่มีรูป POD (ดู `GET /v1/orders/{id}/documents`)',
   })
   deliveryOrders!: OrderTrackingShipmentDto[];
+}
+
+/**
+ * ออกลิงก์ติดตามใหม่ — เหตุผลการเพิกถอนลิงก์เดิม (review M2 Q-LINK/ST4-T14; CLAUDE.md "ทุกการยกเลิกต้องมีเหตุผล")
+ * ไม่ส่ง = เหตุผลของระบบ "ออกลิงก์ติดตามใหม่แทน" (เข้ากันได้กับผู้เรียกเดิม) · หน้าเว็บส่งเมื่อมีลิงก์ที่ใช้ได้อยู่
+ */
+export class IssueTrackingLinkDto {
+  @ApiPropertyOptional({ minLength: 10, maxLength: 500, example: 'ส่งลิงก์ให้ผู้รับผิดคน' })
+  @IsOptional()
+  @CleanText()
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason?: string;
 }

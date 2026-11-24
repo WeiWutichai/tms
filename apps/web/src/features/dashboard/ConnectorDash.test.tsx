@@ -178,4 +178,40 @@ describe('ConnectorCard (ST9-T04)', () => {
     expect(screen.queryByRole('button', { name: /ส่งซ้ำ/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /ดูคิวเชื่อมระบบบัญชี/ })).toBeNull();
   });
+
+  it('#96 ช่องเพิ่ม: คิวค้างนานสุด / ดึงข้อมูลล่าสุด / error rate 7 วัน / MISMATCH เปิดอยู่ / ผิดพลาดตั้งแต่', async () => {
+    metrics = [
+      m({
+        health: {
+          ...m().health,
+          state: 'DOWN',
+          failingSince: '2026-11-03T02:00:00.000Z',
+          code: 'erp_timeout',
+        },
+        queue: { queued: 4, failed: 0, oldestQueuedAt: null, lagSeconds: 5400 },
+        poller: {
+          lastRunAt: null,
+          ordersLastRunAt: '2026-11-03T01:00:00.000Z',
+          ordersLastSuccessAt: null,
+          paymentStatusLastRunAt: '2026-11-03T04:30:00.000Z',
+        },
+        errorRate7d: { calls: 200, failed: 5, rate: 0.025 },
+        openMismatches: 2,
+      }),
+    ];
+    const a = mount();
+    expect((await screen.findByTestId('dash-conn-lag')).textContent).toBe('1 ชม.');
+    expect(screen.getByTestId('dash-conn-poll').textContent).toMatch(/^3 พ\.ย\. 2569 \d\d:30$/);
+    expect(screen.getByTestId('dash-conn-err').textContent).toBe('2.5% (5/200 ครั้ง)');
+    expect(screen.getByTestId('dash-conn-err').style.color).toBe('rgb(179, 50, 42)');
+    expect(screen.getByTestId('dash-conn-mm').textContent).toBe('2');
+    expect(screen.getByTestId('dash-conn-failing').textContent).toContain('erp_timeout');
+    a.unmount();
+    metrics = [m({ queue: { queued: 0, failed: 0, oldestQueuedAt: null, lagSeconds: 0 } })];
+    mount();
+    expect((await screen.findByTestId('dash-conn-lag')).textContent).toBe('ไม่มีคิวค้าง');
+    expect(screen.getByTestId('dash-conn-poll').textContent).toBe('—');
+    expect(screen.getByTestId('dash-conn-err').textContent).toBe('—');
+    expect(screen.queryByTestId('dash-conn-failing')).toBeNull();
+  });
 });

@@ -30,8 +30,65 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <main>
 <a class="md-link" href="ref-drivers.md">Markdown</a>
 <h1 id="คนขับ-drivers">คนขับ (drivers)</h1>
-<p>12 endpoint · ทุกคำขอส่ง <code>Authorization: Bearer &lt;API key&gt;</code> — ดู <a href="authentication.html">ยืนยันตัวตน</a> และ <a href="conventions.html">แนวทางการใช้ API</a></p>
-<div class="table"><table><thead><tr><th>Endpoint</th><th>scope</th></tr></thead><tbody><tr><td>[<code>GET /v1/drivers</code>](#get-drivers)</td><td><code>master:read</code></td></tr><tr><td>[<code>POST /v1/drivers</code>](#post-drivers)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/drivers/summary</code>](#get-drivers-summary)</td><td><code>master:read</code></td></tr><tr><td>[<code>GET /v1/drivers/next-code</code>](#get-drivers-next-code)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/drivers/export</code>](#get-drivers-export)</td><td><code>export:run</code></td></tr><tr><td>[<code>PUT /v1/drivers/external/{externalId}</code>](#put-drivers-external-externalId)</td><td><code>master:write</code></td></tr><tr><td>[<code>PATCH /v1/drivers/external/{externalId}</code>](#patch-drivers-external-externalId)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/drivers/{id}</code>](#get-drivers-id)</td><td><code>master:read</code></td></tr><tr><td>[<code>PATCH /v1/drivers/{id}</code>](#patch-drivers-id)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/drivers/{id}/history</code>](#get-drivers-id-history)</td><td><code>master:read</code></td></tr><tr><td>[<code>POST /v1/drivers/{id}/status</code>](#post-drivers-id-status)</td><td><code>master:write</code></td></tr><tr><td>[<code>POST /v1/drivers/{id}/delete</code>](#post-drivers-id-delete)</td><td><code>master:write</code></td></tr></tbody></table></div>
+<p>15 endpoint · ทุกคำขอส่ง <code>Authorization: Bearer &lt;API key&gt;</code> — ดู <a href="authentication.html">ยืนยันตัวตน</a> และ <a href="conventions.html">แนวทางการใช้ API</a></p>
+<div class="table"><table><thead><tr><th>Endpoint</th><th>scope</th></tr></thead><tbody><tr><td>[<code>GET /v1/drivers/{id}/attachments</code>](#get-drivers-id-attachments)</td><td><code>master:read</code></td></tr><tr><td>[<code>POST /v1/drivers/{id}/attachments</code>](#post-drivers-id-attachments)</td><td><code>master:write</code></td></tr><tr><td>[<code>POST /v1/drivers/{id}/attachments/remove</code>](#post-drivers-id-attachments-remove)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/drivers</code>](#get-drivers)</td><td><code>master:read</code></td></tr><tr><td>[<code>POST /v1/drivers</code>](#post-drivers)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/drivers/summary</code>](#get-drivers-summary)</td><td><code>master:read</code></td></tr><tr><td>[<code>GET /v1/drivers/next-code</code>](#get-drivers-next-code)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/drivers/export</code>](#get-drivers-export)</td><td><code>export:run</code></td></tr><tr><td>[<code>PUT /v1/drivers/external/{externalId}</code>](#put-drivers-external-externalId)</td><td><code>master:write</code></td></tr><tr><td>[<code>PATCH /v1/drivers/external/{externalId}</code>](#patch-drivers-external-externalId)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/drivers/{id}</code>](#get-drivers-id)</td><td><code>master:read</code></td></tr><tr><td>[<code>PATCH /v1/drivers/{id}</code>](#patch-drivers-id)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/drivers/{id}/history</code>](#get-drivers-id-history)</td><td><code>master:read</code></td></tr><tr><td>[<code>POST /v1/drivers/{id}/status</code>](#post-drivers-id-status)</td><td><code>master:write</code></td></tr><tr><td>[<code>POST /v1/drivers/{id}/delete</code>](#post-drivers-id-delete)</td><td><code>master:write</code></td></tr></tbody></table></div>
+<h2 id="get-drivers-id-attachments">GET /v1/drivers/{id}/attachments</h2>
+<p><code>GET /v1/drivers/{id}/attachments</code></p>
+<p>scope: <code>master:read</code> · operationId: <code>DriverAttachments_list</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td>id ของ resource หรือ <code>ext:{externalId}</code> (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)</td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td>ไฟล์แนบของคนขับ (รูปใบขับขี่ / บัตร / อื่น ๆ)</td><td><code>AttachmentListDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:read</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบเที่ยว (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X GET &quot;$TMS_BASE_URL/v1/drivers/&lt;id&gt;/attachments&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.GET('/v1/drivers/{id}/attachments', {
+  params: { path: { id: &quot;…&quot; } },
+});</code></pre>
+<h2 id="post-drivers-id-attachments">POST /v1/drivers/{id}/attachments</h2>
+<p><code>POST /v1/drivers/{id}/attachments</code></p>
+<p>scope: <code>master:write</code> · operationId: <code>DriverAttachments_add</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td>id ของ resource หรือ <code>ext:{externalId}</code> (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>AddDriverAttachmentDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>documentId</code></td><td>ใช่</td><td><code>string</code></td><td></td><td>ไฟล์จาก <code>POST /v1/documents</code> ที่อัปโหลดเสร็จแล้ว</td><td><code>doc_…</code></td></tr><tr><td><code>attachType</code></td><td>ใช่</td><td><code>string</code></td><td>ค่า: <code>LICENCE</code>, <code>ID_CARD</code>, <code>OTHER</code></td><td></td><td></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td>ผูกไฟล์ที่อัปโหลดแล้วกับคนขับ (audit)</td><td><code>AttachmentListDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:write</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบเที่ยว (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/drivers/&lt;id&gt;/attachments&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;documentId&quot;:&quot;doc_…&quot;,&quot;attachType&quot;:&quot;LICENCE&quot;}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/drivers/{id}/attachments', {
+  params: { path: { id: &quot;…&quot; } },
+  body: {
+    &quot;documentId&quot;: &quot;doc_…&quot;,
+    &quot;attachType&quot;: &quot;LICENCE&quot;
+  },
+});</code></pre>
+<h2 id="post-drivers-id-attachments-remove">POST /v1/drivers/{id}/attachments/remove</h2>
+<p><code>POST /v1/drivers/{id}/attachments/remove</code></p>
+<p>scope: <code>master:write</code> · operationId: <code>DriverAttachments_remove</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td>id ของ resource หรือ <code>ext:{externalId}</code> (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>RemoveAttachmentDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>documentId</code></td><td>ใช่</td><td><code>string</code></td><td></td><td></td><td><code>doc_…</code></td></tr><tr><td><code>reason</code></td><td>ใช่</td><td><code>string</code></td><td>ยาว ≤ 500 · ยาว ≥ 10</td><td></td><td><code>อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน</code></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td>เอาไฟล์ออก (เหตุผล ≥ 10 + audit — ไม่ลบไฟล์)</td><td><code>AttachmentListDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:write</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบเที่ยว (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/drivers/&lt;id&gt;/attachments/remove&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;documentId&quot;:&quot;doc_…&quot;,&quot;reason&quot;:&quot;อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน&quot;}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/drivers/{id}/attachments/remove', {
+  params: { path: { id: &quot;…&quot; } },
+  body: {
+    &quot;documentId&quot;: &quot;doc_…&quot;,
+    &quot;reason&quot;: &quot;อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน&quot;
+  },
+});</code></pre>
 <h2 id="get-drivers">GET /v1/drivers</h2>
 <p><code>GET /v1/drivers</code></p>
 <p>scope: <code>master:read</code> · operationId: <code>Drivers_list</code></p>
@@ -237,6 +294,8 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
   },
 });</code></pre>
 <h2 id="schemas">Schema ของ response</h2>
+<h3 id="schema-AttachmentListDto">AttachmentListDto</h3>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>data</code></td><td>ใช่</td><td><code>array&lt;AttachmentDto&gt;</code></td><td></td><td></td><td></td></tr></tbody></table></div>
 <h3 id="schema-AuditPageDto">AuditPageDto</h3>
 <div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>data</code></td><td>ใช่</td><td><code>array&lt;AuditEntryDto&gt;</code></td><td></td><td></td><td></td></tr><tr><td><code>nextCursor</code></td><td>ใช่</td><td><code>string</code></td><td>null ได้</td><td></td><td></td></tr><tr><td><code>hasMore</code></td><td>ใช่</td><td><code>boolean</code></td><td></td><td></td><td></td></tr></tbody></table></div>
 <h3 id="schema-DriverDto">DriverDto</h3>

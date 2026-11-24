@@ -2085,6 +2085,10 @@
               {
                 "key": "Idempotency-Key",
                 "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
               }
             ],
             "url": {
@@ -2106,7 +2110,16 @@
                 }
               ]
             },
-            "description": "scope: orders:write | trips:dispatch"
+            "description": "scope: orders:write | trips:dispatch",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"ส่งลิงก์ให้ผู้รับผิดคน\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           }
         },
         {
@@ -3524,6 +3537,97 @@
               ]
             },
             "description": "scope: trips:read"
+          }
+        },
+        {
+          "name": "ตัวนับหน้า \"จ่ายงานรถร่วม\" (รอตอบ/รับงาน/ปฏิเสธ/หมดเวลา + ต้นทุนรถร่วมเดือนนี้)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/subcon-offers/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "subcon-offers",
+                "summary"
+              ]
+            },
+            "description": "scope: trips:read\n\nนับด้วยนิยามเดียวกับ `GET /subcon-offers?status=` · `buyAcceptedThisMonth` เห็นเมื่อมี `prices.buy:read`"
+          }
+        },
+        {
+          "name": "รายการจ่ายงานรถร่วม — การจ้างล่าสุดของแต่ละเที่ยว",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/subcon-offers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "subcon-offers"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "ค่า nextCursor จากหน้าก่อน",
+                  "disabled": true
+                },
+                {
+                  "key": "updatedAfter",
+                  "value": "",
+                  "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+                  "disabled": true
+                },
+                {
+                  "key": "sort",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "fields",
+                  "value": "",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "REJECTED,EXPIRED",
+                  "description": "สถานะ คั่นด้วย, (OFFERED / ACCEPTED / REJECTED / EXPIRED) — EXPIRED รวมข้อเสนอรอตอบที่เลยเวลาหมดอายุของลิงก์แล้ว",
+                  "disabled": true
+                },
+                {
+                  "key": "carrierId",
+                  "value": "car_3f2a…",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "scope: trips:read\n\nหนึ่งแถวต่อเที่ยว (การจ้างล่าสุดที่ไม่ถูกถอน — การจ้างก่อนหน้าดูที่ `GET /trips/{id}/offers`) · แสดงเฉพาะงานที่ยังต้องดูแล: ปฏิเสธ/หมดเวลา = เที่ยวยังรอจัด (PLANNING/OFFERED), รับงาน = เที่ยวยังไม่จบ/ไม่ยกเลิก · กรองสถานะ (คั่นด้วย,) / ผู้รับเหมา · EXPIRED รวมข้อเสนอรอตอบที่ลิงก์หมดอายุแล้ว · cursor มาตรฐาน (updatedAt, id) · ราคาซื้อเห็นเมื่อมี `prices.buy:read`, รายได้เมื่อมี `prices.sell:read`"
           }
         },
         {
@@ -7051,6 +7155,10 @@
               {
                 "key": "Idempotency-Key",
                 "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
               }
             ],
             "url": {
@@ -7072,7 +7180,16 @@
                 }
               ]
             },
-            "description": "scope: master:write"
+            "description": "scope: master:write",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"ส่งลิงก์ให้ผู้รับผิดคน\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           }
         },
         {
@@ -12929,6 +13046,137 @@
           }
         },
         {
+          "name": "GET /v1/carriers/{id}/attachments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/carriers/:id/attachments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "carriers",
+                ":id",
+                "attachments"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:read"
+          }
+        },
+        {
+          "name": "POST /v1/carriers/{id}/attachments",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/carriers/:id/attachments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "carriers",
+                ":id",
+                "attachments"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:write",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentId\": \"doc_…\",\n  \"attachType\": \"VAT_REG\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /v1/carriers/{id}/attachments/remove",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/carriers/:id/attachments/remove",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "carriers",
+                ":id",
+                "attachments",
+                "remove"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:write",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentId\": \"doc_…\",\n  \"reason\": \"อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "GET /v1/carriers/{id}/recent-prices",
           "request": {
             "method": "GET",
@@ -14591,6 +14839,137 @@
     {
       "name": "คนขับ (drivers)",
       "item": [
+        {
+          "name": "GET /v1/drivers/{id}/attachments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/drivers/:id/attachments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "drivers",
+                ":id",
+                "attachments"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:read"
+          }
+        },
+        {
+          "name": "POST /v1/drivers/{id}/attachments",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/drivers/:id/attachments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "drivers",
+                ":id",
+                "attachments"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:write",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentId\": \"doc_…\",\n  \"attachType\": \"LICENCE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /v1/drivers/{id}/attachments/remove",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/drivers/:id/attachments/remove",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "drivers",
+                ":id",
+                "attachments",
+                "remove"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:write",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentId\": \"doc_…\",\n  \"reason\": \"อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
         {
           "name": "GET /v1/drivers",
           "request": {

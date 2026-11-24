@@ -250,6 +250,10 @@ ${d.remarks.map((r) => `<p style="margin:0;color:#3B424C">${e(r)}</p>`).join('')
  * แถวที่สูงเกินที่เหลือ → แยกตามหน่วยย่อย `.dob` (เช่น รายการ DO) ส่วนที่เหลือไปหน้าถัดไปเป็นแถว "(ต่อ)" (เฉพาะช่องที่มี `.desc`; `.mn` อยู่แถวแรก)
  * ไม่วางแถวอื่นซ้อนบนหน้าที่ยืด (review M1) — เลขหน้า x/y = จำนวนหน้า PDF จริง
  * เส้นรวม/ลายเซ็นอยู่หน้าสุดท้าย (ลายเซ็นชิดล่างตามต้นแบบ `margin-top:auto`) · ท้ายทุกหน้า "{เลข} · หน้า x/y"
+ * เส้นรวม + ลายเซ็นไม่พอหน้าสุดท้าย → ย้ายแถวสุดท้าย 1 แถวไปหน้าใหม่พร้อมเส้นรวม/ลายเซ็น (ทุก layout — ใบสำคัญจ่าย/ใบแจ้งหนี้/ใบวางบิล):
+ *   ไม่มีหน้าที่มีแต่เส้นรวม/ลายเซ็นโดยไม่มีรายการ และลายเซ็นไม่แยกจากยอดเงิน (UAT 24 พ.ย. 2569 + review L6 —
+ *   [DECISION — lead 24 พ.ย. เพื่อ UAT, ย้อนได้] spec/12 §3) · หน้านั้นมีแถวเดียว (แถวสูงผิดปกติ) = แบบเดิม (เส้นรวมขึ้นหน้าใหม่)
+ *   · layout เท่านั้น ไม่แตะยอดเงิน/เลขเอกสาร/เนื้อหาภาษี
  */
 const PAGINATE = `(function(){
 function run(){
@@ -297,7 +301,7 @@ newPage(true);
 rows.forEach(place);
 if(tbody&&tbody.rows.length===0&&pages.length>1){pages.pop().remove();pg=pages[pages.length-1];inner=pg.querySelector('.in');}
 inner.appendChild(end);inner.appendChild(sig);
-if(!fits()){end.remove();sig.remove();newPage(false);inner.appendChild(end);inner.appendChild(sig);}
+if(!fits()){end.remove();sig.remove();if(tbody&&tbody.rows.length>1){var last=tbody.rows[tbody.rows.length-1];last.remove();newPage(true);tbody.appendChild(last);}else{newPage(false);}inner.appendChild(end);inner.appendChild(sig);}
 pages.forEach(function(p,i){p.querySelector('.foot').textContent=no+' · หน้า '+(i+1)+'/'+pages.length;});
 document.documentElement.setAttribute('data-paged','1');
 }

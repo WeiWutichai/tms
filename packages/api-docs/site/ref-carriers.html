@@ -30,8 +30,8 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <main>
 <a class="md-link" href="ref-carriers.md">Markdown</a>
 <h1 id="รถร่วม-carriers">รถร่วม (carriers)</h1>
-<p>16 endpoint · ทุกคำขอส่ง <code>Authorization: Bearer &lt;API key&gt;</code> — ดู <a href="authentication.html">ยืนยันตัวตน</a> และ <a href="conventions.html">แนวทางการใช้ API</a></p>
-<div class="table"><table><thead><tr><th>Endpoint</th><th>scope</th></tr></thead><tbody><tr><td>[<code>GET /v1/carriers/{id}/erp-codes</code>](#get-carriers-id-erp-codes)</td><td><code>master:read</code></td></tr><tr><td>[<code>GET /v1/carriers/{id}/recent-prices</code>](#get-carriers-id-recent-prices)</td><td><code>prices.buy:read</code></td></tr><tr><td>[<code>GET /v1/carriers</code>](#get-carriers)</td><td><code>master:read</code></td></tr><tr><td>[<code>POST /v1/carriers</code>](#post-carriers)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/carriers/summary</code>](#get-carriers-summary)</td><td><code>master:read</code></td></tr><tr><td>[<code>GET /v1/carriers/next-code</code>](#get-carriers-next-code)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/carriers/export</code>](#get-carriers-export)</td><td><code>export:run</code></td></tr><tr><td>[<code>PUT /v1/carriers/external/{externalId}</code>](#put-carriers-external-externalId)</td><td><code>master:write</code></td></tr><tr><td>[<code>PATCH /v1/carriers/external/{externalId}</code>](#patch-carriers-external-externalId)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/carriers/{id}</code>](#get-carriers-id)</td><td><code>master:read</code></td></tr><tr><td>[<code>PATCH /v1/carriers/{id}</code>](#patch-carriers-id)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/carriers/{id}/history</code>](#get-carriers-id-history)</td><td><code>master:read</code></td></tr><tr><td>[<code>POST /v1/carriers/{id}/reveal</code>](#post-carriers-id-reveal)</td><td><code>settlements:pay</code></td></tr><tr><td>[<code>POST /v1/carriers/{id}/deactivate</code>](#post-carriers-id-deactivate)</td><td><code>master:write</code></td></tr><tr><td>[<code>POST /v1/carriers/{id}/activate</code>](#post-carriers-id-activate)</td><td><code>master:write</code></td></tr><tr><td>[<code>POST /v1/carriers/{id}/delete</code>](#post-carriers-id-delete)</td><td><code>master:write</code></td></tr></tbody></table></div>
+<p>19 endpoint · ทุกคำขอส่ง <code>Authorization: Bearer &lt;API key&gt;</code> — ดู <a href="authentication.html">ยืนยันตัวตน</a> และ <a href="conventions.html">แนวทางการใช้ API</a></p>
+<div class="table"><table><thead><tr><th>Endpoint</th><th>scope</th></tr></thead><tbody><tr><td>[<code>GET /v1/carriers/{id}/erp-codes</code>](#get-carriers-id-erp-codes)</td><td><code>master:read</code></td></tr><tr><td>[<code>GET /v1/carriers/{id}/attachments</code>](#get-carriers-id-attachments)</td><td><code>master:read</code></td></tr><tr><td>[<code>POST /v1/carriers/{id}/attachments</code>](#post-carriers-id-attachments)</td><td><code>master:write</code></td></tr><tr><td>[<code>POST /v1/carriers/{id}/attachments/remove</code>](#post-carriers-id-attachments-remove)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/carriers/{id}/recent-prices</code>](#get-carriers-id-recent-prices)</td><td><code>prices.buy:read</code></td></tr><tr><td>[<code>GET /v1/carriers</code>](#get-carriers)</td><td><code>master:read</code></td></tr><tr><td>[<code>POST /v1/carriers</code>](#post-carriers)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/carriers/summary</code>](#get-carriers-summary)</td><td><code>master:read</code></td></tr><tr><td>[<code>GET /v1/carriers/next-code</code>](#get-carriers-next-code)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/carriers/export</code>](#get-carriers-export)</td><td><code>export:run</code></td></tr><tr><td>[<code>PUT /v1/carriers/external/{externalId}</code>](#put-carriers-external-externalId)</td><td><code>master:write</code></td></tr><tr><td>[<code>PATCH /v1/carriers/external/{externalId}</code>](#patch-carriers-external-externalId)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/carriers/{id}</code>](#get-carriers-id)</td><td><code>master:read</code></td></tr><tr><td>[<code>PATCH /v1/carriers/{id}</code>](#patch-carriers-id)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/carriers/{id}/history</code>](#get-carriers-id-history)</td><td><code>master:read</code></td></tr><tr><td>[<code>POST /v1/carriers/{id}/reveal</code>](#post-carriers-id-reveal)</td><td><code>settlements:pay</code></td></tr><tr><td>[<code>POST /v1/carriers/{id}/deactivate</code>](#post-carriers-id-deactivate)</td><td><code>master:write</code></td></tr><tr><td>[<code>POST /v1/carriers/{id}/activate</code>](#post-carriers-id-activate)</td><td><code>master:write</code></td></tr><tr><td>[<code>POST /v1/carriers/{id}/delete</code>](#post-carriers-id-delete)</td><td><code>master:write</code></td></tr></tbody></table></div>
 <h2 id="get-carriers-id-erp-codes">GET /v1/carriers/{id}/erp-codes</h2>
 <p><code>GET /v1/carriers/{id}/erp-codes</code></p>
 <p>scope: <code>master:read</code> · operationId: <code>CarrierErpCodes_list</code></p>
@@ -44,6 +44,63 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
   -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
 <pre><code class="language-ts">const { data, error } = await tms.GET('/v1/carriers/{id}/erp-codes', {
   params: { path: { id: &quot;…&quot; } },
+});</code></pre>
+<h2 id="get-carriers-id-attachments">GET /v1/carriers/{id}/attachments</h2>
+<p><code>GET /v1/carriers/{id}/attachments</code></p>
+<p>scope: <code>master:read</code> · operationId: <code>CarrierAttachments_list</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td>id ของ resource หรือ <code>ext:{externalId}</code> (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)</td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td>ไฟล์แนบของผู้รับเหมา (ภ.พ.20 / สัญญาจ้าง / อื่น ๆ)</td><td><code>AttachmentListDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:read</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบเที่ยว (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X GET &quot;$TMS_BASE_URL/v1/carriers/&lt;id&gt;/attachments&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.GET('/v1/carriers/{id}/attachments', {
+  params: { path: { id: &quot;…&quot; } },
+});</code></pre>
+<h2 id="post-carriers-id-attachments">POST /v1/carriers/{id}/attachments</h2>
+<p><code>POST /v1/carriers/{id}/attachments</code></p>
+<p>scope: <code>master:write</code> · operationId: <code>CarrierAttachments_add</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td>id ของ resource หรือ <code>ext:{externalId}</code> (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>AddCarrierAttachmentDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>documentId</code></td><td>ใช่</td><td><code>string</code></td><td></td><td>ไฟล์จาก <code>POST /v1/documents</code> ที่อัปโหลดเสร็จแล้ว</td><td><code>doc_…</code></td></tr><tr><td><code>attachType</code></td><td>ใช่</td><td><code>string</code></td><td>ค่า: <code>VAT_REG</code>, <code>CONTRACT</code>, <code>ID_CARD</code>, <code>BANK_BOOK</code>, <code>OTHER</code></td><td>VAT_REG = ภ.พ.20 · CONTRACT = สัญญาจ้าง</td><td></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td>ผูกไฟล์ที่อัปโหลดแล้วกับผู้รับเหมา (audit)</td><td><code>AttachmentListDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:write</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบเที่ยว (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/carriers/&lt;id&gt;/attachments&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;documentId&quot;:&quot;doc_…&quot;,&quot;attachType&quot;:&quot;VAT_REG&quot;}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/carriers/{id}/attachments', {
+  params: { path: { id: &quot;…&quot; } },
+  body: {
+    &quot;documentId&quot;: &quot;doc_…&quot;,
+    &quot;attachType&quot;: &quot;VAT_REG&quot;
+  },
+});</code></pre>
+<h2 id="post-carriers-id-attachments-remove">POST /v1/carriers/{id}/attachments/remove</h2>
+<p><code>POST /v1/carriers/{id}/attachments/remove</code></p>
+<p>scope: <code>master:write</code> · operationId: <code>CarrierAttachments_remove</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td>id ของ resource หรือ <code>ext:{externalId}</code> (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>RemoveAttachmentDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>documentId</code></td><td>ใช่</td><td><code>string</code></td><td></td><td></td><td><code>doc_…</code></td></tr><tr><td><code>reason</code></td><td>ใช่</td><td><code>string</code></td><td>ยาว ≤ 500 · ยาว ≥ 10</td><td></td><td><code>อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน</code></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td>เอาไฟล์ออก (เหตุผล ≥ 10 + audit — ไม่ลบไฟล์)</td><td><code>AttachmentListDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:write</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบเที่ยว (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/carriers/&lt;id&gt;/attachments/remove&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;documentId&quot;:&quot;doc_…&quot;,&quot;reason&quot;:&quot;อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน&quot;}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/carriers/{id}/attachments/remove', {
+  params: { path: { id: &quot;…&quot; } },
+  body: {
+    &quot;documentId&quot;: &quot;doc_…&quot;,
+    &quot;reason&quot;: &quot;อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน&quot;
+  },
 });</code></pre>
 <h2 id="get-carriers-id-recent-prices">GET /v1/carriers/{id}/recent-prices</h2>
 <p><code>GET /v1/carriers/{id}/recent-prices</code></p>
@@ -297,6 +354,8 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
   },
 });</code></pre>
 <h2 id="schemas">Schema ของ response</h2>
+<h3 id="schema-AttachmentListDto">AttachmentListDto</h3>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>data</code></td><td>ใช่</td><td><code>array&lt;AttachmentDto&gt;</code></td><td></td><td></td><td></td></tr></tbody></table></div>
 <h3 id="schema-AuditPageDto">AuditPageDto</h3>
 <div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>data</code></td><td>ใช่</td><td><code>array&lt;AuditEntryDto&gt;</code></td><td></td><td></td><td></td></tr><tr><td><code>nextCursor</code></td><td>ใช่</td><td><code>string</code></td><td>null ได้</td><td></td><td></td></tr><tr><td><code>hasMore</code></td><td>ใช่</td><td><code>boolean</code></td><td></td><td></td><td></td></tr></tbody></table></div>
 <h3 id="schema-CarrierDto">CarrierDto</h3>

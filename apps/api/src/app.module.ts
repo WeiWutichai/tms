@@ -164,9 +164,16 @@ import {
 import { TrackingService } from './modules/tracking/tracking.service';
 import { PodLinkService } from './modules/trips/pod-link.service';
 import {
+  AttachmentsService,
+  CarrierAttachmentsController,
+  DriverAttachmentsController,
+} from './modules/attachments/attachments.controller';
+import {
   SubconOfferPublicController,
+  SubconOffersController,
   TripOffersController,
 } from './modules/trips/subcon-offer.controller';
+import { SubconOfferListService } from './modules/trips/subcon-offer-list.service';
 import { TripsController } from './modules/trips/trips.controller';
 import {
   DoSurchargesController,
@@ -370,10 +377,13 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     TripEventsController,
     StopEventFlagsController,
     TripOffersController,
+    SubconOffersController,
     SubconOfferPublicController,
     PodLinkPublicController,
     SettlementReviewPublicController,
     CarrierPayLinkController,
+    DriverAttachmentsController,
+    CarrierAttachmentsController,
     CarrierPayLinkPublicController,
     TrackingPublicController,
     DeliveryOrderTrackingController,
@@ -474,9 +484,11 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     StopProjectionService,
     SubconHireService,
     SubconOfferService,
+    SubconOfferListService,
     SubconTimeoutService,
     OfferLinks,
     PodLinkService,
+    AttachmentsService,
     TrackingService,
     TripSheetsService,
     TripSheetLinks,

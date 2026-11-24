@@ -25,7 +25,7 @@ export type PodActionKey = 'arrivePickup' | 'leavePickup' | 'arriveDrop' | 'leav
 /** หนึ่งคำขอของปุ่ม (ส่งตามลำดับ — ARRIVE/LOADED/COMPLETE ก่อน DEPART ของจุดถัดไป) */
 export interface PodStep {
   stopId: string;
-  type: 'ARRIVE' | 'DEPART' | 'LOADED' | 'COMPLETE';
+  type: 'ARRIVE' | 'DEPART' | 'LOADED' | 'COMPLETE' | 'FAIL';
 }
 export interface PodAction {
   key: PodActionKey;
@@ -69,6 +69,98 @@ export function nextPodAction(m: PodDo): PodAction | null {
   return null;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Q-LINK แจ้งรับ/ส่งไม่สำเร็จ หรือรับบางส่วน พร้อมเหตุผล + รูป (D-81 · D68-39; docs/01 §3.9, §5.5)
+
+export type PodFailReason = PodDo['failReasons'][number];
+export type PodFailKindKey = 'pickupPartial' | 'pickupFailed' | 'dropFailed' | 'dropRetain';
+export interface PodFailKind {
+  key: PodFailKindKey;
+  type: 'FAIL' | 'COMPLETE';
+  outcome: 'PARTIAL' | 'FAILED' | 'UNDELIVERED_RETAIN' | null;
+  /** แนบรูปได้ (ผลไม่สำเร็จ → หลักฐานชุด "ไม่สำเร็จ" ของ DO · รับบางส่วนที่จุดรับ → แนบกับ event) */
+  photos: boolean;
+}
+export interface PodFailTarget {
+  stop: PodStop;
+  kinds: PodFailKind[];
+}
+
+/**
+ * จุดที่แจ้งได้ตอนนี้ + ตัวเลือก — จุดรับก่อน (ยังไม่ปิด) แล้วจุดส่ง (เมื่อจุดรับปิดสำเร็จ) ·
+ * ถึงจุดแล้ว = ปิดงานพร้อมผล (`COMPLETE`) · ยังไม่ถึง = `FAIL` (API: ปิดด้วยผลต้องถึงก่อน — 409 `stop_not_arrived`) ·
+ * รับบางส่วนต้องถึงจุดรับก่อน · ส่งบางส่วนที่จุดส่งใช้ช่อง "ส่งจริง" ของฟอร์ม POD เดิม (ST4-T10)
+ */
+export function podFailTarget(m: PodDo): PodFailTarget | null {
+  const open = (s: PodStop | null | undefined): s is PodStop =>
+    !!s && (s.status === 'PENDING' || s.status === 'ARRIVED');
+  const P = m.pickup;
+  const D = m.delivery;
+  if (open(P)) {
+    const at = P.status === 'ARRIVED';
+    return {
+      stop: P,
+      kinds: [
+        ...(at
+          ? [{ key: 'pickupPartial', type: 'COMPLETE', outcome: 'PARTIAL', photos: true } as const]
+          : []),
+        at
+          ? ({ key: 'pickupFailed', type: 'COMPLETE', outcome: 'FAILED', photos: true } as const)
+          : ({ key: 'pickupFailed', type: 'FAIL', outcome: null, photos: true } as const),
+      ],
+    };
+  }
+  if (m.pickup && m.pickup.status !== 'COMPLETED') return null;
+  if (open(D)) {
+    const at = D.status === 'ARRIVED';
+    return {
+      stop: D,
+      kinds: [
+        at
+          ? { key: 'dropFailed', type: 'COMPLETE', outcome: 'FAILED', photos: true }
+          : { key: 'dropFailed', type: 'FAIL', outcome: null, photos: true },
+        {
+          key: 'dropRetain',
+          type: at ? 'COMPLETE' : 'FAIL',
+          outcome: 'UNDELIVERED_RETAIN',
+          photos: true,
+        },
+      ],
+    };
+  }
+  return null;
+}
+
+/**
+ * เหตุผลที่เลือกได้ต่อตัวเลือก — ของยังอยู่บนรถ = หมวด DELIVERY_FAILED เท่านั้น (API 422) ·
+ * ตัวเลือกที่แนบรูปไม่ได้ → ซ่อนเหตุผลที่บังคับรูป (ตอนนี้ทุกตัวเลือกแนบรูปได้)
+ */
+export function podFailReasons(all: PodFailReason[], k: PodFailKind): PodFailReason[] {
+  return all.filter(
+    (r) =>
+      (k.outcome !== 'UNDELIVERED_RETAIN' || r.category === 'DELIVERY_FAILED') &&
+      (k.photos || !r.requiresPhoto),
+  );
+}
+
+/** ข้อที่ยังขาดก่อนส่ง (ฝั่งหน้าจอ — server ตรวจซ้ำ) */
+export function podFailMissing(
+  k: PodFailKind | null,
+  r: PodFailReason | undefined,
+  note: string,
+  photos: number,
+): 'kind' | 'reason' | 'note' | 'photo' | null {
+  if (!k) return 'kind';
+  if (!r) return 'reason';
+  if (r.requiresNote && !note.trim()) return 'note';
+  if (k.photos && r.requiresPhoto && photos === 0) return 'photo';
+  return null;
+}
+
+/** DO นี้แจ้งไม่สำเร็จแล้ว (จุดรับหรือจุดส่งปิดด้วยผลไม่สำเร็จ) */
+export const podFailed = (m: PodDo): boolean =>
+  m.pickup?.status === 'FAILED' || m.delivery?.status === 'FAILED';
+
 /** รอบของ clientEventId ต่อ (จุด, ชนิด) จาก `match.retries` */
 export const retryOf = (m: PodDo, step: PodStep): number =>
   m.retries.find((r) => r.stopId === step.stopId && r.type === step.type)?.n ?? 0;
@@ -105,9 +197,15 @@ export function normalizeDoNo(v: string): string {
  * `clientEventId` คงที่ต่อ (ลิงก์, จุด, ชนิด) — refresh หน้าแล้วกดซ้ำ/เปิดสองเครื่อง ได้ id เดิม → server คืน event เดิม
  * (docs/01 §5.5 "ไม่มี outbox แต่ idempotent เท่ากัน") · UUID รูปแบบ v4 จาก SHA-256
  */
-export async function podClientEventId(token: string, step: PodStep, attempt = 0): Promise<string> {
+export async function podClientEventId(
+  token: string,
+  step: PodStep,
+  attempt = 0,
+  variant?: string,
+): Promise<string> {
   // attempt = ครั้งที่ผู้จัดรถ "ไม่ใช้" event ชนิดนี้ของจุดนี้ (`match.retries`) → กดใหม่ได้ event ใหม่ (QA M2)
-  const base = `tms-pod|${token}|${step.stopId}|${step.type}`;
+  // variant (Q-LINK) = ผลที่แจ้ง — ปิดงานด้วยผลต่างกันได้ id ต่างกัน (ไม่ชนกับ "ส่ง POD" ที่ปิดด้วย DELIVERED)
+  const base = `tms-pod|${token}|${step.stopId}|${step.type}${variant ? `|${variant}` : ''}`;
   const data = new TextEncoder().encode(attempt > 0 ? `${base}|${attempt}` : base);
   const h = new Uint8Array(await crypto.subtle.digest('SHA-256', data)).slice(0, 16);
   h[6] = (h[6]! & 0x0f) | 0x40;

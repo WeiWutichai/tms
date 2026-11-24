@@ -207,7 +207,8 @@ export function TenantsPage() {
   );
 }
 
-type Dlg = 'plan' | 'suspend' | 'reactivate' | 'imp' | null;
+type Dlg =
+  'plan' | 'suspend' | 'reactivate' | 'imp' | { reset2fa: TenantDetail['members'][number] } | null;
 
 function TenantDrawer({
   id,
@@ -341,7 +342,12 @@ function TenantDrawer({
               )}
             </>
           )}
-          {x && tab === 'usr' && <Members x={x} />}
+          {x && tab === 'usr' && (
+            <Members
+              x={x}
+              onReset={can.reset2fa(role) ? (m) => setDlg({ reset2fa: m }) : undefined}
+            />
+          )}
         </div>
         {x && (canImp || can.plan(role)) && (
           <div className="con-drawer__foot">
@@ -392,6 +398,18 @@ function TenantDrawer({
         />
       )}
       {x && dlg === 'imp' && <ImpersonateDialog x={x} onClose={() => setDlg(null)} />}
+      {x && dlg && typeof dlg === 'object' && (
+        <Reset2faDialog
+          x={x}
+          m={dlg.reset2fa}
+          onClose={() => setDlg(null)}
+          onDone={() => {
+            setDlg(null);
+            refresh();
+            onToast(t('con.toast.reset2fa', { n: dlg.reset2fa.name }));
+          }}
+        />
+      )}
     </>
   );
 }
@@ -408,7 +426,14 @@ const ROLE_CODES = [
   'viewer',
 ] as const;
 
-function Members({ x }: { x: TenantDetail }) {
+function Members({
+  x,
+  onReset,
+}: {
+  x: TenantDetail;
+  /** #81 รีเซ็ต 2FA (SUPER_ADMIN เท่านั้น — docs/04 A6) · ไม่ส่ง = ไม่แสดงปุ่ม */
+  onReset?: (m: TenantDetail['members'][number]) => void;
+}) {
   const { t } = useI18n();
   const roleName = (c: string) =>
     (ROLE_CODES as readonly string[]).includes(c) ? t(`con.trole.${c}` as MessageKey) : c;
@@ -417,21 +442,60 @@ function Members({ x }: { x: TenantDetail }) {
       <span className="con-sec__t">{t('con.usr.title', { n: x.members.length })}</span>
       <div style={{ display: 'flex', flexDirection: 'column' }}>
         {x.members.map((m) => (
-          <div key={m.id} className="con-row">
+          <div
+            key={m.id}
+            className="con-row"
+            style={{ gridTemplateColumns: `minmax(0,1fr) 200px 150px${onReset ? ' 112px' : ''}` }}
+          >
             <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               <span style={{ fontWeight: 500 }}>{m.name}</span>
               <span style={{ fontSize: 12.5, color: '#59606B' }}>
                 {m.roles.map(roleName).join(', ') || '—'}
               </span>
             </div>
-            <span style={{ color: '#3B424C', whiteSpace: 'nowrap' }}>{m.email}</span>
-            {m.status !== 'active' ? (
-              <span className="con-badge" style={{ background: '#FCF0DC', color: '#8F5500' }}>
-                {t(m.status === 'invited' ? 'users.invited' : 'con.usr.disabled')}
-              </span>
-            ) : (
+            <span
+              title={m.email}
+              style={{
+                color: '#3B424C',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {m.email}
+            </span>
+            <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+              {m.status !== 'active' && (
+                <span className="con-badge" style={{ background: '#FCF0DC', color: '#8F5500' }}>
+                  {t(m.status === 'invited' ? 'users.invited' : 'con.usr.disabled')}
+                </span>
+              )}
+              {m.status !== 'invited' && (
+                <span
+                  className="con-badge"
+                  style={
+                    m.twoFactorEnabled
+                      ? { background: '#E6F4EC', color: '#17733F' }
+                      : { background: '#EEF0EC', color: '#3B424C' }
+                  }
+                >
+                  {t(m.twoFactorEnabled ? 'users.2faOn' : 'users.2faOff')}
+                </span>
+              )}
+            </span>
+            {onReset && m.twoFactorEnabled && m.status !== 'invited' ? (
+              <button
+                type="button"
+                className="con-sbtn con-sbtn--danger"
+                style={{ height: 30, padding: '0 10px' }}
+                onClick={() => onReset(m)}
+              >
+                <Icon n="key-round" s={14} strokeWidth={1.8} />
+                {t('con.act.reset2fa')}
+              </button>
+            ) : onReset ? (
               <span />
-            )}
+            ) : null}
           </div>
         ))}
         {!x.members.length && <span style={{ color: '#59606B' }}>{t('con.usr.empty')}</span>}
@@ -739,6 +803,43 @@ function StatusDialog({
             : consoleApi.POST('/v1/platform/tenants/{id}/reactivate', opts),
         );
         onDone(n);
+      }}
+    />
+  );
+}
+
+/**
+ * #81 รีเซ็ต 2FA ของผู้ใช้ลูกค้า (PO 24 พ.ย. 2569) — Console ไม่มีหน้านี้ในต้นแบบ → ประกอบจาก vAct (ActionDialog: สรุปผลกระทบ +
+ * เหตุผล ≥ 10 ตัว + step-up D-77 ในกล่องเดียวกัน) [DECISION spec/12 §3] · SUPER_ADMIN เท่านั้น
+ */
+function Reset2faDialog({
+  x,
+  m,
+  onClose,
+  onDone,
+}: {
+  x: TenantDetail;
+  m: TenantDetail['members'][number];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <ActionDialog
+      title={t('con.dlg.reset2faT', { n: m.name, t: x.name })}
+      desc={t('con.dlg.reset2faD')}
+      warn={t('con.dlg.reset2faW')}
+      okL={t('con.act.reset2fa')}
+      danger
+      onClose={onClose}
+      onOk={async (_v, reason) => {
+        await cunwrap(
+          consoleApi.POST('/v1/platform/tenants/{id}/users/{userId}/reset-2fa', {
+            params: { path: { id: x.id, userId: m.id }, header: consoleStepUpHeaders() } as never,
+            body: { reason },
+          }),
+        );
+        onDone();
       }}
     />
   );

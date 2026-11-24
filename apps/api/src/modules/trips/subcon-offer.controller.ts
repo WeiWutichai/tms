@@ -1,8 +1,9 @@
-import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
   ApiOkResponse,
+  ApiOperation,
   ApiParam,
   ApiTags,
   ApiTooManyRequestsResponse,
@@ -21,6 +22,12 @@ import {
   RejectOfferDto,
   SubconOfferListDto,
 } from './offer.dto';
+import {
+  SubconOfferListQuery,
+  SubconOfferPageDto,
+  SubconOfferSummaryDto,
+} from './subcon-offer-list.dto';
+import { SubconOfferListService } from './subcon-offer-list.service';
 import { SubconOfferService } from './subcon-offer.service';
 import { T403, T404, T409, T422 } from './trip-problems';
 import { TripService } from './trip.service';
@@ -133,5 +140,44 @@ export class SubconOfferPublicController {
   })
   reject(@Body() body: RejectOfferDto): Promise<OfferLinkViewDto> {
     return this.offers.reject(this.offerId(), body);
+  }
+}
+
+/**
+ * หน้า "จ่ายงานรถร่วม" (`/sub` — ต้นแบบ TMS v4 `specSub` + `kpisX('sub')`): การจ้างรถร่วมล่าสุดของแต่ละเที่ยว (รอตอบ/รับงาน/ปฏิเสธ/หมดเวลา)
+ * [DECISION — lead 24 พ.ย. 2569 เพื่อ UAT, ย้อนได้ — spec/12 §3 แถว "หน้า /sub"]
+ */
+@ApiTags('trips')
+@ApiBearerAuth()
+@Controller('subcon-offers')
+export class SubconOffersController {
+  constructor(private readonly list: SubconOfferListService) {}
+
+  @Get('summary')
+  @ApiOperation({
+    summary: 'ตัวนับหน้า "จ่ายงานรถร่วม" (รอตอบ/รับงาน/ปฏิเสธ/หมดเวลา + ต้นทุนรถร่วมเดือนนี้)',
+    description:
+      'นับด้วยนิยามเดียวกับ `GET /subcon-offers?status=` · `buyAcceptedThisMonth` เห็นเมื่อมี `prices.buy:read`',
+  })
+  @ApiProblems(T403('trips:read'))
+  @RequireScope('trips:read')
+  @ApiOkResponse({ type: SubconOfferSummaryDto })
+  summary(): Promise<SubconOfferSummaryDto> {
+    return this.list.summary();
+  }
+
+  @Get()
+  @ApiOperation({
+    summary: 'รายการจ่ายงานรถร่วม — การจ้างล่าสุดของแต่ละเที่ยว',
+    description:
+      'หนึ่งแถวต่อเที่ยว (การจ้างล่าสุดที่ไม่ถูกถอน — การจ้างก่อนหน้าดูที่ `GET /trips/{id}/offers`) · แสดงเฉพาะงานที่ยังต้องดูแล: ' +
+      'ปฏิเสธ/หมดเวลา = เที่ยวยังรอจัด (PLANNING/OFFERED), รับงาน = เที่ยวยังไม่จบ/ไม่ยกเลิก · กรองสถานะ (คั่นด้วย ,) / ผู้รับเหมา · ' +
+      'EXPIRED รวมข้อเสนอรอตอบที่ลิงก์หมดอายุแล้ว · cursor มาตรฐาน (updatedAt, id) · ราคาซื้อเห็นเมื่อมี `prices.buy:read`, รายได้เมื่อมี `prices.sell:read`',
+  })
+  @ApiProblems(T403('trips:read'), T422)
+  @RequireScope('trips:read')
+  @ApiOkResponse({ type: SubconOfferPageDto })
+  index(@Query() q: SubconOfferListQuery): Promise<SubconOfferPageDto> {
+    return this.list.list(q);
   }
 }

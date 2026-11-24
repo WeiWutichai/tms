@@ -2,6 +2,7 @@ import type { Schemas } from '@tms/contracts';
 import { Badge, EmptyState, Icon, ReasonDialog, Toast, type Tone } from '@tms/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useState, type ReactNode } from 'react';
+import { LineOaCard } from './LineOaCard';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, ApiError, unwrap } from '../../api';
 import { formatDate, formatDateTime, useI18n } from '../../i18n';
@@ -378,6 +379,10 @@ export function ConnectorSettingsSection({ canWrite }: { canWrite: boolean }) {
           onConnect={() => startResume(selConn)}
         />
       )}
+      {/* ช่องทางส่งข้อความ (ต้นแบบ st.others: การ์ด LINE Official Account) — ST3-T21 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 12 }}>
+        <LineOaCard canWrite={canWrite} onToast={(m, err) => setToast(m, err)} />
+      </div>
       {canWrite && (
         <div className="cnx-api">
           <span className="cnx-ico">

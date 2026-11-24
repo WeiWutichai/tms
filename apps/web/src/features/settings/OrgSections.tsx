@@ -1,5 +1,6 @@
+import { MAX_AUTO_RESCHEDULES_LIMIT, VEHICLE_DOC_TYPES } from '@tms/domain';
 import { EmptyState, Icon } from '@tms/ui';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ApiError } from '../../api';
 import { markReviewed } from '../setup/SetupChecklist';
 import { useI18n } from '../../i18n';
@@ -208,6 +209,7 @@ export function SaveBar({
   dirty,
   onSave,
   busy,
+  invalid,
   saved,
   error,
   onDismiss,
@@ -216,6 +218,8 @@ export function SaveBar({
   dirty: boolean;
   onSave: () => void;
   busy: boolean;
+  /** ข้อมูลยังไม่ถูกต้อง (ข้อความอยู่ที่ช่อง) — ปุ่มจาง กดไม่ได้ (ต่างจาก busy ที่กำลังส่ง) */
+  invalid?: boolean;
   saved: string | null;
   error: string | null;
 }) {
@@ -282,8 +286,10 @@ export function SaveBar({
           <button
             type="button"
             onClick={onSave}
-            disabled={busy}
+            disabled={busy || invalid}
+            aria-busy={busy || undefined}
             style={{
+              ...(invalid ? { opacity: 0.5 } : {}),
               display: 'inline-flex',
               alignItems: 'center',
               gap: 8,
@@ -294,7 +300,7 @@ export function SaveBar({
               background: '#2257C4',
               color: '#FFFFFF',
               fontWeight: 500,
-              cursor: 'pointer',
+              cursor: invalid ? 'not-allowed' : 'pointer',
               whiteSpace: 'nowrap',
               boxShadow: '0 8px 20px rgba(16,24,40,.16)',
               font: 'inherit',
@@ -314,7 +320,12 @@ const REVIEW_STEP: Partial<Record<MessageKey, 'org' | 'tax'>> = {
   'set.menu.tax': 'tax',
 };
 
-function useSaveFlow(section: MessageKey, d: ReturnType<typeof useDraft>) {
+function useSaveFlow(
+  section: MessageKey,
+  d: ReturnType<typeof useDraft>,
+  /** ปรับค่าก่อนส่ง (เช่น ตัดช่องว่างหัวท้ายเบอร์โทร — ตอนบันทึก ไม่ใช่ระหว่างพิมพ์) */
+  prep: (v: Values) => Values = (v) => v,
+) {
   const { t } = useI18n();
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -337,7 +348,7 @@ function useSaveFlow(section: MessageKey, d: ReturnType<typeof useDraft>) {
   const send = (stepUpToken?: string) =>
     d.save.mutate(
       {
-        values: d.dirty,
+        values: prep(d.dirty),
         versions: Object.fromEntries(Object.keys(d.dirty).map((k) => [k, d.versions[k] ?? 0])),
         stepUp: stepUpToken,
       },
@@ -579,61 +590,157 @@ export function TaxSection({ canWrite }: { canWrite: boolean }) {
     'tax.invoiceModePolicy',
     'tax.wht1Enabled',
     'tax.wht3Enabled',
+    'tax.separateVatDocs',
+    'billing.cycleDefault',
+    'billing.freeTimeMinutes',
+    'routing.invoiceAsCompanyId',
+    'routing.tenderAsCompanyId',
   ]);
   const flow = useSaveFlow('set.menu.tax', d);
+  const allCompanies = useCompaniesAll().data?.data ?? [];
+  const companies = allCompanies.filter((c) => c.status === 'active');
+  const free = d.draft['billing.freeTimeMinutes'];
+  const freeBad = free !== null && free !== undefined && !validFree(free);
+  /** ตัวเลือกนิติบุคคล: ที่ใช้งาน + ค่าที่บันทึกไว้แต่เลิกใช้แล้ว (แสดงพร้อมป้าย ไม่ตกไปเป็น "ไม่ระบุ" — review) */
+  const companyOpts = (k: string) => {
+    const cur = allCompanies.find((c) => c.id === d.draft[k] && c.status !== 'active');
+    return cur
+      ? [...companies, { ...cur, legalName: `${cur.legalName} (${t('bill.inactive')})` }]
+      : companies;
+  };
   return (
-    <Card title={t('set.menu.tax')} load={d.q}>
-      <Radio
-        label={t('tax.vatDefault')}
-        value={d.draft['tax.vatDefault']}
-        disabled={!canWrite || d.save.isPending}
-        onChange={(v) => d.set('tax.vatDefault', v)}
-        options={[
-          { v: 'VAT_7', l: t('tax.vat7') },
-          { v: 'EXEMPT_TRANSPORT', l: t('tax.vatExempt') },
-        ]}
-      />
-      <Radio
-        label={t('tax.mode')}
-        value={d.draft['tax.invoiceModePolicy']}
-        disabled={!canWrite || d.save.isPending}
-        onChange={(v) => d.set('tax.invoiceModePolicy', v)}
-        options={[
-          { v: 'ON_PAYMENT', l: t('tax.modePayment') },
-          { v: 'ON_ISSUE', l: t('tax.modeIssue') },
-          { v: 'PER_CUSTOMER', l: t('tax.modeCustomer') },
-        ]}
-      />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <span style={lbl}>{t('tax.whtEnabled')}</span>
-        {(
-          [
-            ['tax.wht1Enabled', 'tax.wht1'],
-            ['tax.wht3Enabled', 'tax.wht3'],
-          ] as const
-        ).map(([k, l]) => (
-          <ToggleRow
-            key={k}
-            label={t(l)}
-            on={d.draft[k] === true}
-            disabled={!canWrite || d.save.isPending}
-            onChange={() => d.set(k, !(d.draft[k] === true))}
-          />
-        ))}
-      </div>
-      {canWrite && (
-        <SaveBar
-          dirty={Object.keys(d.dirty).length > 0}
-          busy={d.busy}
-          onSave={flow.onSave}
-          saved={flow.saved}
-          error={flow.error}
-          onDismiss={flow.dismiss}
+    <>
+      <Card title={t('set.menu.tax')} load={d.q}>
+        <Radio
+          label={t('tax.vatDefault')}
+          value={d.draft['tax.vatDefault']}
+          disabled={!canWrite || d.save.isPending}
+          onChange={(v) => d.set('tax.vatDefault', v)}
+          options={[
+            { v: 'VAT_7', l: t('tax.vat7') },
+            { v: 'EXEMPT_TRANSPORT', l: t('tax.vatExempt') },
+          ]}
         />
-      )}
-    </Card>
+        <Radio
+          label={t('tax.mode')}
+          value={d.draft['tax.invoiceModePolicy']}
+          disabled={!canWrite || d.save.isPending}
+          onChange={(v) => d.set('tax.invoiceModePolicy', v)}
+          options={[
+            { v: 'ON_PAYMENT', l: t('tax.modePayment') },
+            { v: 'ON_ISSUE', l: t('tax.modeIssue') },
+            { v: 'PER_CUSTOMER', l: t('tax.modeCustomer') },
+          ]}
+        />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <span style={lbl}>{t('tax.whtEnabled')}</span>
+          {(
+            [
+              ['tax.wht1Enabled', 'tax.wht1'],
+              ['tax.wht3Enabled', 'tax.wht3'],
+            ] as const
+          ).map(([k, l]) => (
+            <ToggleRow
+              key={k}
+              label={t(l)}
+              on={d.draft[k] === true}
+              disabled={!canWrite || d.save.isPending}
+              onChange={() => d.set(k, !(d.draft[k] === true))}
+            />
+          ))}
+        </div>
+        {/* ST1-T17 ช่องที่ต้นแบบไม่มี — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ (สวิตช์แบบ หัก ณ ที่จ่าย) */}
+        <ToggleRow
+          label={t('tax.separateVatDocs')}
+          on={d.draft['tax.separateVatDocs'] === true}
+          disabled={!canWrite || d.save.isPending}
+          onChange={() => d.set('tax.separateVatDocs', !(d.draft['tax.separateVatDocs'] === true))}
+        />
+        {canWrite && (
+          <SaveBar
+            dirty={Object.keys(d.dirty).length > 0}
+            busy={d.busy}
+            invalid={freeBad}
+            onSave={flow.onSave}
+            saved={flow.saved}
+            error={flow.error}
+            onDismiss={flow.dismiss}
+          />
+        )}
+      </Card>
+      {/* ค่าเริ่มต้นการวางบิล/นิติบุคคล (ST1-T16/T17) — การ์ดที่สองของหัวข้อเดียวกัน ใช้ปุ่มบันทึกลอยร่วมกัน */}
+      <Card title={t('bill.defaults')} load={d.q}>
+        <Radio
+          label={t('bill.cycleDefault')}
+          value={d.draft['billing.cycleDefault']}
+          disabled={!canWrite || d.save.isPending}
+          onChange={(v) => d.set('billing.cycleDefault', v)}
+          options={(['PER_DO', 'WEEKLY', 'MONTHLY', 'MANUAL'] as const).map((v) => ({
+            v,
+            l: t(`cust.cycle.${v}`),
+          }))}
+        />
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 320 }}>
+          <span style={lbl}>{t('cust.c.free')}</span>
+          <input
+            style={{ ...inputStyle, fontVariantNumeric: 'tabular-nums' }}
+            inputMode="numeric"
+            aria-label={t('cust.c.free')}
+            aria-invalid={freeBad || undefined}
+            value={free === null || free === undefined ? '' : String(free)}
+            placeholder={t('bill.freeNone')}
+            disabled={!canWrite || d.save.isPending}
+            onChange={(e) => {
+              const v = e.target.value.trim();
+              d.set('billing.freeTimeMinutes', v === '' ? null : /^\d+$/.test(v) ? Number(v) : v);
+            }}
+          />
+          {freeBad ? (
+            <span className="tms-field-error" role="alert">
+              {t('bill.freeInvalid')}
+            </span>
+          ) : (
+            <span style={{ fontSize: 12.5, color: '#59606B' }}>{t('bill.freeHint')}</span>
+          )}
+        </label>
+        {(companies.length > 1 ||
+          !!d.draft['routing.invoiceAsCompanyId'] ||
+          !!d.draft['routing.tenderAsCompanyId']) &&
+          (
+            [
+              ['routing.invoiceAsCompanyId', 'cust.c.billAs'],
+              ['routing.tenderAsCompanyId', 'car.f.billAs'],
+            ] as const
+          ).map(([k, l]) => (
+            <label
+              key={k}
+              style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 420 }}
+            >
+              <span style={lbl}>{t(l)}</span>
+              <select
+                style={inputStyle}
+                aria-label={t(l)}
+                value={String(d.draft[k] ?? '')}
+                disabled={!canWrite || d.save.isPending}
+                onChange={(e) => d.set(k, e.target.value || null)}
+              >
+                <option value="">{t('bill.asNone')}</option>
+                {companyOpts(k).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.legalName}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+      </Card>
+    </>
   );
 }
+
+/** free time 0–1440 นาที (ตาม registry ของ API) */
+const validFree = (v: unknown) =>
+  typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 1440;
 
 export function SecuritySection({ canWrite }: { canWrite: boolean }) {
   const { t } = useI18n();
@@ -676,6 +783,245 @@ export function SecuritySection({ canWrite }: { canWrite: boolean }) {
       {flow.needStepUp && (
         <StepUpBox onConfirm={(otp) => void flow.confirmStepUp(otp)} onCancel={flow.cancelStepUp} />
       )}
+      {canWrite && (
+        <SaveBar
+          dirty={Object.keys(d.dirty).length > 0}
+          busy={d.busy}
+          onSave={flow.onSave}
+          saved={flow.saved}
+          error={flow.error}
+          onDismiss={flow.dismiss}
+        />
+      )}
+    </Card>
+  );
+}
+
+/** ช่องตัวเลขของหน้าตั้งค่า (ช่องแบบ inputStyle ของต้นแบบ) — ค่านอกช่วง = ข้อความแดงใต้ช่อง */
+function IntField({
+  label,
+  hint,
+  value,
+  min,
+  max,
+  disabled,
+  onChange,
+  bad,
+}: {
+  label: string;
+  hint: string;
+  value: unknown;
+  min: number;
+  max: number;
+  disabled?: boolean;
+  onChange: (v: number | '') => void;
+  bad: string | null;
+}) {
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 420 }}>
+      <span style={lbl}>{label}</span>
+      <input
+        type="number"
+        inputMode="numeric"
+        min={min}
+        max={max}
+        step={1}
+        aria-label={label}
+        style={{ ...inputStyle, width: 140 }}
+        value={value === '' || value === undefined || value === null ? '' : String(value)}
+        disabled={disabled}
+        aria-invalid={!!bad || undefined}
+        onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
+      />
+      <span style={{ fontSize: 12.5, color: bad ? '#B3322A' : '#59606B' }}>{bad ?? hint}</span>
+    </label>
+  );
+}
+
+const intBad = (v: unknown, min: number, max: number) =>
+  !(typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max);
+
+/**
+ * ตั้งค่า → การจ่ายงานและติดตาม — [DECISION — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ] ต้นแบบไม่มีหัวข้อนี้
+ * ค่าที่ API มีแล้วแต่ไม่มีช่อง: `dispatch.subconResponseHours` (docs/04 D3), `dispatch.maxAutoReschedules` (ST4-T12),
+ * `tracking.contactPhone` / `tracking.showPod` / `tracking.linkDays` (ST4-T14) — การ์ด/ช่อง/สวิตช์/ปุ่มบันทึกลอยแบบหัวข้อ "ความปลอดภัย"
+ */
+export function DispatchSection({ canWrite }: { canWrite: boolean }) {
+  const { t } = useI18n();
+  const d = useDraft([
+    'dispatch.subconResponseHours',
+    'dispatch.maxAutoReschedules',
+    'tracking.contactPhone',
+    'tracking.showPod',
+    'tracking.linkDays',
+  ]);
+  const flow = useSaveFlow('set.menu.ops', d, (v) =>
+    typeof v['tracking.contactPhone'] === 'string'
+      ? { ...v, 'tracking.contactPhone': v['tracking.contactPhone'].trim() || null }
+      : v,
+  );
+  const off = !canWrite || d.save.isPending;
+  const phone = String(d.draft['tracking.contactPhone'] ?? '');
+  const bad = {
+    hours: intBad(d.draft['dispatch.subconResponseHours'], 1, 47) ? t('ops.e.hours') : null,
+    max: intBad(d.draft['dispatch.maxAutoReschedules'], 0, MAX_AUTO_RESCHEDULES_LIMIT)
+      ? t('ops.e.max', { n: MAX_AUTO_RESCHEDULES_LIMIT })
+      : null,
+    days: intBad(d.draft['tracking.linkDays'], 7, 90) ? t('ops.e.days') : null,
+    phone: phone && !/^\+?[0-9][0-9 -]{5,24}$/.test(phone.trim()) ? t('ops.e.phone') : null,
+  };
+  const invalid = !!d.q.data && Object.values(bad).some(Boolean);
+  return (
+    <Card title={t('set.menu.ops')} load={d.q}>
+      <span style={{ fontWeight: 600 }}>{t('ops.dispatch')}</span>
+      <IntField
+        label={t('ops.hours')}
+        hint={t('ops.hoursHint')}
+        value={d.draft['dispatch.subconResponseHours']}
+        min={1}
+        max={47}
+        disabled={off}
+        bad={d.q.data ? bad.hours : null}
+        onChange={(v) => d.set('dispatch.subconResponseHours', v)}
+      />
+      <IntField
+        label={t('ops.max')}
+        hint={t('ops.maxHint')}
+        value={d.draft['dispatch.maxAutoReschedules']}
+        min={0}
+        max={MAX_AUTO_RESCHEDULES_LIMIT}
+        disabled={off}
+        bad={d.q.data ? bad.max : null}
+        onChange={(v) => d.set('dispatch.maxAutoReschedules', v)}
+      />
+      <span style={{ fontWeight: 600 }}>{t('ops.tracking')}</span>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 420 }}>
+        <span style={lbl}>{t('ops.phone')}</span>
+        <input
+          type="tel"
+          inputMode="tel"
+          maxLength={20}
+          aria-label={t('ops.phone')}
+          style={{ ...inputStyle, width: 220 }}
+          value={phone}
+          disabled={off}
+          aria-invalid={!!bad.phone || undefined}
+          onChange={(e) =>
+            d.set('tracking.contactPhone', e.target.value === '' ? null : e.target.value)
+          }
+        />
+        <span style={{ fontSize: 12.5, color: bad.phone ? '#B3322A' : '#59606B' }}>
+          {bad.phone ?? t('ops.phoneHint')}
+        </span>
+      </label>
+      <ToggleRow
+        label={t('ops.showPod')}
+        on={d.draft['tracking.showPod'] === true}
+        disabled={off}
+        onChange={() => d.set('tracking.showPod', !(d.draft['tracking.showPod'] === true))}
+      />
+      <IntField
+        label={t('ops.days')}
+        hint={t('ops.daysHint')}
+        value={d.draft['tracking.linkDays']}
+        min={7}
+        max={90}
+        disabled={off}
+        bad={d.q.data ? bad.days : null}
+        onChange={(v) => d.set('tracking.linkDays', v)}
+      />
+      {canWrite && (
+        <SaveBar
+          dirty={Object.keys(d.dirty).length > 0}
+          busy={d.busy || invalid}
+          onSave={flow.onSave}
+          saved={flow.saved}
+          error={flow.error}
+          onDismiss={flow.dismiss}
+        />
+      )}
+    </Card>
+  );
+}
+
+const ALERT_TYPES = [...VEHICLE_DOC_TYPES, 'DRIVER_LICENCE'] as const;
+const ALERT_LEVELS = [60, 30, 7] as const;
+type AlertRow = { levels: number[]; inApp: boolean; email: boolean };
+const chk = { width: 16, height: 16, accentColor: '#2257C4', cursor: 'pointer' } as const;
+
+/**
+ * ตั้งค่า → แจ้งเตือนเอกสารรถ (ต้นแบบ `docalert` — #40; PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ)
+ * ตารางแบบหน้า "เหตุผล" (`set-tbl` + ช่องติ๊ก + ปุ่มบันทึกลอย): ประเภทเอกสาร · ผู้รับผิดชอบ · 60/30/7 วัน · อีเมล · ในระบบ
+ * ค่าเก็บที่ `reminders.expiryAlerts` · ผู้รับผิดชอบ = ผู้มีสิทธิ์แก้ข้อมูลรถ (อ่านอย่างเดียว) · ไม่มีคอลัมน์ LINE
+ * (ยังไม่มีช่องทาง LINE ของพนักงาน) · ไม่แจ้งซ้ำทุกวัน (spec/06 FLT-040) — [DECISION — lead 24 พ.ย. 2569 เพื่อ UAT, ย้อนได้]
+ */
+export function DocAlertSection({ canWrite }: { canWrite: boolean }) {
+  const { t } = useI18n();
+  const KEY = 'reminders.expiryAlerts';
+  const d = useDraft([KEY]);
+  const flow = useSaveFlow('set.menu.docalert', d);
+  const cfg = (d.draft[KEY] ?? {}) as Record<string, AlertRow>;
+  const row = (k: string): AlertRow => cfg[k] ?? { levels: [60, 30, 7], inApp: true, email: true };
+  const setRow = (k: string, r: AlertRow) =>
+    d.set(KEY, { ...Object.fromEntries(ALERT_TYPES.map((x) => [x, row(x)])), [k]: r });
+  const off = !canWrite || d.save.isPending;
+  const name = (k: string) =>
+    k === 'DRIVER_LICENCE' ? t('dal.licence') : t(`vdoc.type.${k}` as MessageKey);
+  return (
+    <Card title={t('dal.title')} load={d.q}>
+      <span style={{ color: '#3B424C' }}>{t('dal.note')}</span>
+      <div className="set-scroll">
+        <table className="set-tbl" data-testid="docalert-table">
+          <thead>
+            <tr>
+              <th>{t('dal.col.type')}</th>
+              <th>{t('dal.col.owner')}</th>
+              {ALERT_LEVELS.map((n) => (
+                <th key={n} className="c">
+                  {t('dal.col.days', { n })}
+                </th>
+              ))}
+              <th className="c">{t('dal.col.email')}</th>
+              <th className="c">{t('dal.col.inApp')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ALERT_TYPES.map((k) => {
+              const r = row(k);
+              const box = (label: string, on: boolean, next: () => AlertRow) => (
+                <td className="c">
+                  <input
+                    type="checkbox"
+                    aria-label={`${label} — ${name(k)}`}
+                    checked={on}
+                    disabled={off}
+                    onChange={() => setRow(k, next())}
+                    style={chk}
+                  />
+                </td>
+              );
+              return (
+                <tr key={k} data-type={k}>
+                  <td style={{ fontWeight: 500 }}>{name(k)}</td>
+                  <td style={{ color: '#3B424C' }}>{t('dal.owner')}</td>
+                  {ALERT_LEVELS.map((n) => (
+                    <Fragment key={n}>
+                      {box(t('dal.col.days', { n }), r.levels.includes(n), () => ({
+                        ...r,
+                        levels: r.levels.includes(n)
+                          ? r.levels.filter((x) => x !== n)
+                          : [...r.levels, n].sort((a, b) => b - a),
+                      }))}
+                    </Fragment>
+                  ))}
+                  {box(t('dal.col.email'), r.email, () => ({ ...r, email: !r.email }))}
+                  {box(t('dal.col.inApp'), r.inApp, () => ({ ...r, inApp: !r.inApp }))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
       {canWrite && (
         <SaveBar
           dirty={Object.keys(d.dirty).length > 0}

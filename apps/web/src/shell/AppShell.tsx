@@ -59,7 +59,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     ? t(`lock.${feature}.t` as MessageKey)
     : page
       ? t(`page.${page}.title` as MessageKey)
-      : '';
+      : loc.pathname === '/profile'
+        ? t('profile.title') // ST1-T09 หน้าโปรไฟล์ไม่อยู่ในเมนู
+        : '';
   return (
     <div
       style={{

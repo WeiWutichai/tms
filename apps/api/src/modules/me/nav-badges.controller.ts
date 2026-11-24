@@ -12,12 +12,13 @@ import { overdueWhere } from '../invoices/invoices.service';
 import { OrdersService } from '../orders/orders.service';
 import { PlanningService } from '../planning/planning.service';
 import { StopEventsService } from '../stops/stop-events.service';
+import { SubconOfferListService } from '../trips/subcon-offer-list.service';
 import { bangkokToday } from '../vehicle-documents/expiry';
 import { VehicleDocumentsService } from '../vehicle-documents/vehicle-documents.service';
 
 /**
  * เมนูที่มี badge งานค้าง (ต้นแบบ TMS v4 `counts()` / `vNav()`; docs/03 §1/§4 "badge งานค้าง") — เฉพาะเมนูเฟส 0 ที่หน้าใช้งานได้แล้ว
- * และระบบมีข้อมูลตรงกับนิยามของต้นแบบ: เที่ยวรถ/ใบส่งของ/จ่ายงานรถร่วม (หน้ายังไม่เปิด) และลูกค้า (ยังไม่ผูก ERP — หน้าไม่มีตัวกรอง)
+ * และระบบมีข้อมูลตรงกับนิยามของต้นแบบ: เที่ยวรถ/ใบส่งของ (หน้ายังไม่เปิด) · จ่ายงานรถร่วม = รอตอบ (เพิ่ม 24 พ.ย. 2569 เมื่อหน้า /sub เปิด) และลูกค้า (ยังไม่ผูก ERP — หน้าไม่มีตัวกรอง)
  * ยังไม่มี badge [DECISION spec/12 §3 D68-89]
  */
 export const NAV_BADGE_KEYS = [
@@ -27,6 +28,7 @@ export const NAV_BADGE_KEYS = [
   'bill',
   'pay',
   'settle',
+  'sub',
   'erp',
   'fdoc',
   'rate',
@@ -41,6 +43,7 @@ const ACCESS: Record<NavBadgeKey, { perm: string[]; feature?: string }> = {
   bill: { perm: ['invoices:read'] },
   pay: { perm: ['invoices:read'] },
   settle: { perm: ['settlements:read'], feature: 'settle' },
+  sub: { perm: ['trips:read'], feature: 'sub' },
   erp: { perm: ['integrations:read'], feature: 'conn' },
   fdoc: { perm: ['master:read'], feature: 'fleet' },
   rate: { perm: ['master:read'] },
@@ -50,7 +53,7 @@ export class NavBadgeDto {
   @ApiProperty({
     enum: NAV_BADGE_KEYS,
     description:
-      'เมนู: plan กระดานวางแผน (SO รอจัด) · exc ศูนย์ข้อยกเว้น (ธงรอตัดสิน) · so ใบสั่งขนส่ง (ค้าง: รอกำหนดเส้นทาง + ยังไม่จับคู่ลูกค้า) · bill วางบิล (DO พร้อมวางบิล) · pay รับชำระ (ใบแจ้งหนี้เกินกำหนด) · settle Settlement รถร่วม (รอตรวจ + รออนุมัติ) · erp คิวเชื่อมระบบบัญชี (ST8-T12: เนื้อหาเอกสารไม่ตรงที่ยังเปิด — ไม่ตรง + รออนุมัติ + รอส่งซ้ำ · PO #86 24 พ.ย. 2569: + แท็บล้มเหลวของคิว ST7-T19 ทุก connector ที่ยังเชื่อม) · fdoc เอกสารรถ (หมดอายุ/จะหมดใน 30 วัน) · rate Rate card (รออนุมัติ)',
+      'เมนู: plan กระดานวางแผน (SO รอจัด) · exc ศูนย์ข้อยกเว้น (ธงรอตัดสิน) · so ใบสั่งขนส่ง (ค้าง: รอกำหนดเส้นทาง + ยังไม่จับคู่ลูกค้า) · bill วางบิล (DO พร้อมวางบิล) · pay รับชำระ (ใบแจ้งหนี้เกินกำหนด) · settle Settlement รถร่วม (รอตรวจ + รออนุมัติ) · sub จ่ายงานรถร่วม (รอตอบ — ต้นแบบ `counts().sub`; นิยามเดียวกับ `GET /subcon-offers/summary` `offered`) · erp คิวเชื่อมระบบบัญชี (ST8-T12: เนื้อหาเอกสารไม่ตรงที่ยังเปิด — ไม่ตรง + รออนุมัติ + รอส่งซ้ำ · PO #86 24 พ.ย. 2569: + แท็บล้มเหลวของคิว ST7-T19 ทุก connector ที่ยังเชื่อม) · fdoc เอกสารรถ (หมดอายุ/จะหมดใน 30 วัน) · rate Rate card (รออนุมัติ)',
   })
   key!: NavBadgeKey;
   @ApiProperty({ example: 3, description: 'จำนวนงานค้าง (0 = ไม่แสดง badge)' }) count!: number;
@@ -77,6 +80,7 @@ export class NavBadgesService {
     private readonly orders: OrdersService,
     private readonly queue: BillingQueueService,
     private readonly docs: VehicleDocumentsService,
+    private readonly subOffers: SubconOfferListService,
   ) {}
 
   private count(key: NavBadgeKey): Promise<number> {
@@ -97,6 +101,9 @@ export class NavBadgesService {
         return tx.carrierSettlement.count({
           where: { status: { in: ['DRAFT', 'DISPUTED', 'SENT_TO_CARRIER'] } },
         });
+      case 'sub':
+        // ต้นแบบ counts(): offers ที่ "รอตอบ" — ตัวเลขเดียวกับแถบสรุปหน้า /sub (การจ้างล่าสุดของเที่ยว ยังไม่หมดเวลา)
+        return this.subOffers.summary().then((x) => x.offered);
       case 'erp':
         return this.erpCount();
       case 'fdoc':
