@@ -578,5 +578,7 @@ export class AppModule implements NestModule {
       .forRoutes('public/{*path}');
     // ST1-T24: login ของ Console จำกัดต่อ IP ด้วย (กันล็อกบัญชีทีมงานซ้ำ ๆ)
     consumer.apply(PublicRateLimitMiddleware).forRoutes('platform/auth/{*path}');
+    // ST9-T13 R2 (L-07): ตรวจ/รับคำเชิญ (ไม่ login) จำกัดต่อ IP แบบเดียวกับลิงก์สาธารณะ
+    consumer.apply(PublicRateLimitMiddleware).forRoutes('auth/invitations/{*path}');
   }
 }
