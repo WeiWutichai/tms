@@ -27,16 +27,7 @@ test.describe('shell', () => {
     await expect(page.getByRole('button', { name: /^ใบสั่งขนส่ง \(SO\)\s?\d*$/ })).toBeVisible();
   });
 
-  test('หน้าที่ยังไม่ถึง stage บอก stage และกลับภาพรวมได้', async ({ page }) => {
-    await page.goto('/');
-    // /so มีหน้าจริงแล้ว (ST3-T02) — ใช้ใบส่งของ (DO) ซึ่งยังเป็นหน้ารอ stage
-    await page.getByRole('button', { name: 'ใบส่งของ (DO)', exact: true }).click();
-    await expect(page).toHaveURL(/\/do$/);
-    await expect(page.getByRole('heading', { level: 1, name: 'ใบส่งของ (DO)' })).toBeVisible();
-    await expect(page.getByText(/ST3/)).toBeVisible();
-    await page.getByRole('button', { name: 'กลับไปภาพรวม' }).click();
-    await expect(page).toHaveURL(/\/$/);
-  });
+  // หน้า "ยังไม่เปิดใช้" (NotReady): ทุกเมนูเฟส 0 มีหน้าจริงแล้ว (/trips /do 24 พ.ย. 2569) — ทดสอบที่ unit test src/app.test.tsx แทน
 
   test('URL ที่ไม่มี → หน้าไม่พบ', async ({ page }) => {
     await page.goto('/no-such-page');

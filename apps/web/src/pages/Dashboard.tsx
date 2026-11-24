@@ -719,6 +719,9 @@ export function Dashboard() {
           canOverride={can(scopes, 'trips:override')}
           canPrint={can(scopes, 'documents:write')}
           canHire={can(scopes, 'trips:assign') && can(scopes, 'prices.buy:read')}
+          canClose={can(scopes, 'trips:close')}
+          canSeeBuy={can(scopes, 'prices.buy:read')}
+          canSeeSell={can(scopes, 'prices.sell:read')}
           onDone={setToast}
           onClose={() => setOpenTrip(null)}
         />

@@ -61,6 +61,55 @@ export class TripListQuery extends ListQuery {
   @IsOptional()
   @Matches(/^car_[0-9a-f]{32}$/)
   carrierId?: string;
+
+  @ApiPropertyOptional({
+    example: 'TRP-2611',
+    description: 'ค้นเลขเที่ยว (มีคำนี้ ไม่สนตัวพิมพ์)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  tripNo?: string;
+
+  @ApiPropertyOptional({
+    example: '70-1234',
+    description: 'ค้นทะเบียนรถ / หาง / ประเภทรถของเที่ยว (มีคำนี้)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  vehiclePlate?: string;
+
+  @ApiPropertyOptional({
+    example: 'สมชาย',
+    description: 'ค้นชื่อคนขับ / คนขับสำรอง / รถร่วม (สังกัด) ของเที่ยว (มีคำนี้)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  driverName?: string;
+
+  @ApiPropertyOptional({
+    enum: ['OWN', 'SUBCON'],
+    description: 'OWN = รถบริษัท (ไม่มีรถร่วม) · SUBCON = ใช้รถร่วม',
+  })
+  @IsOptional()
+  @IsIn(['OWN', 'SUBCON'])
+  ownership?: 'OWN' | 'SUBCON';
+
+  @ApiPropertyOptional({ example: 'บางนา', description: 'ค้นชื่อสถานที่ของจุดแวะ (มีคำนี้)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  route?: string;
+
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description: '`false` = ไม่คำนวณ `sellAmount` / `buyTotal` ต่อแถว (ค่าเริ่ม true)',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  amounts?: 'true' | 'false';
 }
 
 class DeliveryOrderIdsDto {
@@ -775,6 +824,24 @@ export class TripDto {
     description: 'ประวัติการยกเว้น/ยืนยันกฎของเที่ยว (เรียงตามเวลา)',
   })
   ruleOverrides!: TripRuleOverrideDto[];
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: '9500.00',
+    description:
+      'รายได้ของเที่ยว = ผลรวมบรรทัดรายได้ที่ใช้อยู่ของ DO ในเที่ยว (ก่อน VAT) — มีเฉพาะผลของ `GET /trips` · เห็นเมื่อมี `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellAmount?: string | null;
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: '6500.00',
+    description:
+      'ต้นทุนสุทธิของเที่ยว (บรรทัด trip_cost ที่ยืนยันแล้ว รวมกลับรายการ — ชุดเดียวกับ `GET /trips/{id}/costs` summary.buyTotal) — มีเฉพาะผลของ `GET /trips` · เห็นเมื่อมี `prices.buy:read`',
+  })
+  @PriceField('buy')
+  buyTotal?: string | null;
   @ApiProperty() version!: number;
   @ApiProperty() createdAt!: string;
   @ApiProperty() updatedAt!: string;
@@ -786,6 +853,20 @@ export class TripSummaryDto {
   running!: number;
   @ApiProperty({ description: 'งานรถร่วมรอตอบ = `status=OFFERED` (ทุกวันที่)' })
   offered!: number;
+  @ApiProperty({
+    description: '`status=PLANNING,OFFERED,ASSIGNED` (ทุกวันที่ — ก่อนปล่อยรถ)',
+  })
+  planning!: number;
+  @ApiProperty({ description: '`status=DISPATCHED,IN_PROGRESS` (ทุกวันที่)' })
+  inTransit!: number;
+  @ApiProperty({ description: '`status=COMPLETED,COSTED,SETTLED` (ทุกวันที่)' })
+  done!: number;
+  @ApiProperty({
+    description: '`ownership=SUBCON&status=` ทุกสถานะยกเว้น CANCELLED (ทุกวันที่)',
+  })
+  subcon!: number;
+  @ApiProperty({ description: 'เที่ยวทั้งหมด (ไม่มีตัวกรอง — รวมที่ยกเลิก)' })
+  total!: number;
 }
 
 export class TripPageDto {
