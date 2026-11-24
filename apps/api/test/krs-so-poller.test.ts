@@ -196,7 +196,7 @@ describe('KRS SO poller ต่อ tenant (ST8-T04) — mock → order', () => {
         credentials: { apiKey: KEY },
       });
     expect(c.status, JSON.stringify(c.body)).toBe(201);
-    // ค่าเริ่ม = capability ที่ KRS ทำแล้ว (ST8-T08/T10 — pendingCapabilities ว่าง) ยกเว้นส่งเอกสาร (ผังรหัสยังไม่พร้อม — ST8-T06)
+    // ตั้งแต่ ST8-T08/T10 adapter KRS พร้อม fetchDocument/ownsDocumentNumber — เปิดให้ตอนสร้าง; ส่งเอกสารยังปิดจนผังรหัสพร้อม
     expect(c.body.capabilitiesEnabled).toEqual([
       'pullOrders',
       'fetchDocument',
