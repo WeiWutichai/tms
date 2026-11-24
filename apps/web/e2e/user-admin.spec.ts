@@ -83,7 +83,7 @@ async function act(page: Page, who: string, item: string, reason?: string) {
   const dlg = page.getByRole('dialog');
   await dlg.getByRole('textbox').fill(reason);
   await dlg.getByRole('button', { name: item }).click();
-  await expect(dlg).toBeHidden();
+  await expect(dlg).toBeHidden({ timeout: 15_000 }); // เครื่องรวมช้า — เปิดใช้ตรวจ seat ด้วย
 }
 
 test('ผู้ใช้: ระงับ → เปิดใช้ → ประวัติเข้าสู่ระบบ → ลบ (เหตุผลบังคับ)', async ({
