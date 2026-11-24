@@ -123,9 +123,12 @@ interface Draft {
  */
 export function FieldChargesTab({
   trip,
+  doId,
   onToast,
 }: {
   trip: TripDetail;
+  /** drawer DO: แสดง/เพิ่มเฉพาะรายการของ DO นี้ (ฝั่งซื้อล้วนไม่ผูก DO → อยู่ที่ drawer เที่ยว) */
+  doId?: string;
   onToast: (m: string) => void;
 }) {
   const { t } = useI18n();
@@ -145,11 +148,13 @@ export function FieldChargesTab({
   const me_ = me.data?.actorId ?? null;
   /** maker-checker: ผู้บันทึกยืนยัน/ปฏิเสธของตัวเองไม่ได้ */
   const own = (l: FieldCharge) => !!me_ && l.createdBy === me_;
-  const dos = trip.deliveryOrders.filter((d) => d.status !== 'CANCELLED' && d.status !== 'BILLED');
+  const dos = trip.deliveryOrders.filter(
+    (d) => d.status !== 'CANCELLED' && d.status !== 'BILLED' && (!doId || d.id === doId),
+  );
   const open = FIELD_CHARGE_TRIP.has(trip.status);
   const sides: FieldChargeSide[] = [
     ...(canSell && dos.length ? (['SELL'] as const) : []),
-    ...(canBuy ? (['BUY'] as const) : []),
+    ...(canBuy && !doId ? (['BUY'] as const) : []),
     ...(canSell && canBuy && dos.length ? (['BOTH'] as const) : []),
   ];
   const canAdd = open && sides.length > 0;
@@ -158,7 +163,7 @@ export function FieldChargesTab({
   const items = useFieldChargeItems(canAdd);
   const create = useCreateFieldCharge(trip.id);
   const decide = useDecideFieldCharge(trip.id);
-  const lines = q.data ?? [];
+  const lines = (q.data ?? []).filter((l) => !doId || l.deliveryOrderId === doId);
 
   const [draft, setDraft] = useState<Draft | null>(null);
   const [err, setErr] = useState<string | null>(null);

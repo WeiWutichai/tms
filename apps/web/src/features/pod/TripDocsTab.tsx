@@ -236,7 +236,7 @@ export function TripDocsTab({
   );
 }
 
-function DoPodBlock({
+export function DoPodBlock({
   doId,
   doNo,
   siteName,

@@ -114,6 +114,7 @@
 | `destSiteName` | ใช่ | `string` |   | ชื่อจุดส่ง |   |
 | `tripNo` | ใช่ | `string` | null ได้ |   | `TRP-6911-0001` |
 | `vehiclePlate` | ใช่ | `string` | null ได้ | ทะเบียนรถของเที่ยว (snapshot) |   |
+| `vehicleTypeName` | ใช่ | `string` | null ได้ | ประเภทรถของเที่ยว (snapshot) | `6 ล้อ` |
 | `driverName` | ใช่ | `string` | null ได้ | คนขับของเที่ยว (snapshot) |   |
 | `carrierName` | ใช่ | `string` | null ได้ | รถร่วมของเที่ยว (snapshot) |   |
 | `weightKg` | ใช่ | `string` | null ได้ |   |   |

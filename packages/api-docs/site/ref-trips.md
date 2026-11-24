@@ -45,7 +45,7 @@
 
 scope: `trips:read` · operationId: `Trips_summary`
 
-นับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED`
+นับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED` · `planning` / `inTransit` / `done` / `subcon` / `total` ตามคำอธิบายของแต่ละช่อง
 
 **Responses**
 
@@ -88,6 +88,12 @@ scope: `trips:read` · operationId: `Trips_list`
 | `vehicleId` | query |   | `string` |   |
 | `driverId` | query |   | `string` | คนขับหลักหรือคนขับสำรอง |
 | `carrierId` | query |   | `string` |   |
+| `tripNo` | query |   | `string` | ค้นเลขเที่ยว (มีคำนี้ ไม่สนตัวพิมพ์) |
+| `vehiclePlate` | query |   | `string` | ค้นทะเบียนรถ / หาง / ประเภทรถของเที่ยว (มีคำนี้) |
+| `driverName` | query |   | `string` | ค้นชื่อคนขับ / คนขับสำรอง / รถร่วม (สังกัด) ของเที่ยว (มีคำนี้) |
+| `ownership` | query |   | `string` ค่า: `OWN`, `SUBCON` | OWN = รถบริษัท (ไม่มีรถร่วม) · SUBCON = ใช้รถร่วม |
+| `route` | query |   | `string` | ค้นชื่อสถานที่ของจุดแวะ (มีคำนี้) |
+| `amounts` | query |   | `string` ค่า: `true`, `false` | `false` = ไม่คำนวณ `sellAmount` / `buyTotal` ต่อแถว (ค่าเริ่ม true) |
 
 **Responses**
 
@@ -1821,6 +1827,8 @@ const { data, error } = await tms.POST('/v1/trip-sheets', {
 | `route` | ใช่ | `TripRouteSummaryDto` |   | ระยะ/เวลารวมตามลำดับจุดปัจจุบัน (คำนวณใหม่ทุกครั้งที่จุดเปลี่ยน) |   |
 | `warnings` | ใช่ | `array<TripWarningDto>` |   | ผลตรวจกฎตอนจัดล่าสุด |   |
 | `ruleOverrides` | ใช่ | `array<TripRuleOverrideDto>` |   | ประวัติการยกเว้น/ยืนยันกฎของเที่ยว (เรียงตามเวลา) |   |
+| `sellAmount` |   | `string` | null ได้ | รายได้ของเที่ยว = ผลรวมบรรทัดรายได้ที่ใช้อยู่ของ DO ในเที่ยว (ก่อน VAT) — มีเฉพาะผลของ `GET /trips` · เห็นเมื่อมี `prices.sell:read` | `9500.00` |
+| `buyTotal` |   | `string` | null ได้ | ต้นทุนสุทธิของเที่ยว (บรรทัด trip_cost ที่ยืนยันแล้ว รวมกลับรายการ — ชุดเดียวกับ `GET /trips/{id}/costs` summary.buyTotal) — มีเฉพาะผลของ `GET /trips` · เห็นเมื่อมี `prices.buy:read` | `6500.00` |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
 | `updatedAt` | ใช่ | `string` |   |   |   |
@@ -1865,3 +1873,8 @@ const { data, error } = await tms.POST('/v1/trip-sheets', {
 |---|---|---|---|---|---|
 | `running` | ใช่ | `number` |   | เที่ยวกำลังวิ่ง = `status=IN_PROGRESS` |   |
 | `offered` | ใช่ | `number` |   | งานรถร่วมรอตอบ = `status=OFFERED` (ทุกวันที่) |   |
+| `planning` | ใช่ | `number` |   | `status=PLANNING,OFFERED,ASSIGNED` (ทุกวันที่ — ก่อนปล่อยรถ) |   |
+| `inTransit` | ใช่ | `number` |   | `status=DISPATCHED,IN_PROGRESS` (ทุกวันที่) |   |
+| `done` | ใช่ | `number` |   | `status=COMPLETED,COSTED,SETTLED` (ทุกวันที่) |   |
+| `subcon` | ใช่ | `number` |   | `ownership=SUBCON&status=` ทุกสถานะยกเว้น CANCELLED (ทุกวันที่) |   |
+| `total` | ใช่ | `number` |   | เที่ยวทั้งหมด (ไม่มีตัวกรอง — รวมที่ยกเลิก) |   |
