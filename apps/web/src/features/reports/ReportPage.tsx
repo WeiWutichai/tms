@@ -47,14 +47,14 @@ const MONTHS_BACK = 24;
 const MONTH_TAB_SPAN = 12;
 
 /** เซลล์ตาราง (ต้นแบบ vRep `cell()` — mono = 13px) */
-interface Cell {
+export interface Cell {
   v: string;
   r?: boolean;
   mono?: boolean;
   c?: string;
   fw?: number;
 }
-const td = (c: Cell): CSSProperties => ({
+export const td = (c: Cell): CSSProperties => ({
   height: 52,
   padding: '0 12px',
   borderBottom: '1px solid #E4E6E0',
@@ -65,7 +65,7 @@ const td = (c: Cell): CSSProperties => ({
   whiteSpace: 'nowrap',
   fontVariantNumeric: 'tabular-nums',
 });
-const TH: CSSProperties = {
+export const TH: CSSProperties = {
   background: '#F4F5F2',
   height: 40,
   padding: '0 12px',

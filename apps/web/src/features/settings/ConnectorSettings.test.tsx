@@ -681,4 +681,75 @@ describe('ตั้งค่า → การเชื่อมต่อ (ST7-T2
     expect(healthText(t, 'source_columns_missing')).toBe('แหล่งข้อมูล SO ขาดคอลัมน์ที่จำเป็น');
     expect(healthText(t, 'source_not_found')).toBe('ไม่พบแหล่งข้อมูล SO ที่ปลายทาง');
   });
+
+  it('Q-RES (PO 24 พ.ย.): เปิดใช้จาก ERROR ต้องมีเหตุผล ≥ 10 ตัว → resume { reason } · PAUSED เปิดได้เลย', async () => {
+    conns = [{ ...conn('ERROR'), lastHealthError: { code: 'unauthorized' }, activatedAt: 'x' }];
+    wrap();
+    const card = await screen.findByRole('group', { name: 'ERP จำลอง (Demo)' });
+    fireEvent.click(within(card).getByRole('button', { name: 'เชื่อมต่อ' }));
+    const dlg = await screen.findByRole('dialog');
+    expect(within(dlg).getByText('เปิดใช้ ERP จำลอง (Demo) อีกครั้ง')).toBeInTheDocument();
+    expect(POST).not.toHaveBeenCalledWith('/v1/connectors/{id}/resume', expect.anything());
+    const ok = within(dlg).getByRole('button', { name: 'เชื่อมต่อ' }) as HTMLButtonElement;
+    fireEvent.change(within(dlg).getByRole('textbox'), { target: { value: 'สั้น' } });
+    expect(ok.disabled).toBe(true);
+    fireEvent.change(within(dlg).getByRole('textbox'), {
+      target: { value: 'แก้ key ในระบบบัญชีแล้ว' },
+    });
+    fireEvent.click(ok);
+    await waitFor(() =>
+      expect(POST).toHaveBeenCalledWith(
+        '/v1/connectors/{id}/resume',
+        expect.objectContaining({ body: { reason: 'แก้ key ในระบบบัญชีแล้ว' } }),
+      ),
+    );
+  });
+
+  it('PAUSED: กดเชื่อมต่อ → resume ทันที (ไม่มีกล่องเหตุผล)', async () => {
+    conns = [{ ...conn('PAUSED'), activatedAt: 'x' }];
+    wrap();
+    const card = await screen.findByRole('group', { name: 'ERP จำลอง (Demo)' });
+    fireEvent.click(within(card).getByRole('button', { name: 'เชื่อมต่อ' }));
+    await waitFor(() =>
+      expect(POST).toHaveBeenCalledWith(
+        '/v1/connectors/{id}/resume',
+        expect.objectContaining({ body: {} }),
+      ),
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('#89 (PO 24 พ.ย.): ช่อง "ตรวจเทียบหลังส่ง (นาที)" 0–1440 เฉพาะระบบที่อ่านเอกสารกลับได้ · บันทึกเมื่อออกจากช่อง', async () => {
+    conns = [
+      {
+        ...conn('ACTIVE'),
+        activatedAt: 'x',
+        capabilitiesSupported: ['pushInvoice', 'fetchDocument'],
+        afterPushReconcileDelayMinutes: 0,
+      },
+    ];
+    PATCH.mockReset().mockResolvedValue({ data: conns[0] });
+    wrap();
+    const box = await screen.findByLabelText(/ตรวจเทียบหลังส่ง \(นาที\)/);
+    expect(screen.getByText(/0 = อ่านเอกสารจาก .* มาเทียบทันที/)).toBeInTheDocument();
+    fireEvent.change(box, { target: { value: '2000' } });
+    expect(screen.getByText('กรอกจำนวนเต็ม 0–1440 นาที')).toBeInTheDocument();
+    fireEvent.blur(box);
+    expect(PATCH).not.toHaveBeenCalled();
+    fireEvent.change(box, { target: { value: '15' } });
+    fireEvent.blur(box);
+    await waitFor(() =>
+      expect(PATCH).toHaveBeenCalledWith(
+        '/v1/connectors/{id}',
+        expect.objectContaining({ body: { afterPushReconcileDelayMinutes: 15 } }),
+      ),
+    );
+  });
+
+  it('#89: ระบบที่อ่านเอกสารกลับไม่ได้ = ไม่มีช่องหน่วงเวลา', async () => {
+    conns = [{ ...conn('ACTIVE'), activatedAt: 'x' }];
+    wrap();
+    await screen.findByTestId('connector-detail');
+    expect(screen.queryByLabelText(/ตรวจเทียบหลังส่ง \(นาที\)/)).toBeNull();
+  });
 });

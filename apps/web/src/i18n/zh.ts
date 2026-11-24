@@ -1421,4 +1421,13 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'erpq.q.retry': '重发',
   'erpq.q.retryAll': '重发全部待处理',
   'erpq.q.message': '消息',
+  'erpq.conn.l': '财务系统',
+  'erpq.pc.res.pass': '通过',
+  'erpq.pc.res.fail': '未通过',
+  'erpq.pc.sev.MONEY': '金额',
+  'erpq.pc.c.reason': '原因',
+  'erpq.pc.c.amount': '金额 (฿)',
+  'erpq.pc.exp.xlsx': '导出 Excel',
+  'erpq.pc.exp.csv': '导出 CSV',
+  'erpq.bulk.retry': '批量重发',
 };

@@ -83,6 +83,26 @@ export function QueuePanel({
       },
     );
   };
+  // ต้นแบบ erp bulk "ส่งซ้ำหลายรายการ" (PO 24 พ.ย. 2569 — #86 ค้าง) = ส่งซ้ำทีละรายการที่ส่งซ้ำได้ (`actions.retry`) ของที่เลือก
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const retryMany = async (ids: string[]) => {
+    if (bulkBusy || act.isPending) return;
+    const pick = list.rows.filter((x) => ids.includes(x.id));
+    const ok = pick.filter((x) => x.actions.retry);
+    setBulkBusy(true);
+    let n = 0;
+    for (const x of ok) {
+      try {
+        await act.mutateAsync({ action: 'retry', id: x.id });
+        n++;
+      } catch {
+        /* นับเป็นส่งซ้ำไม่ได้ */
+      }
+    }
+    setBulkBusy(false);
+    const m = pick.length - n;
+    onToast(m ? t('dash.conn.retriedSome', { n, m }) : t('dash.conn.retried', { n }));
+  };
   const ask = (kind: QueueDialogKind, x: QueueItem) => setDialog({ kind, x });
   const classes = Object.keys(byClass).filter(isErrorClass);
 
@@ -193,6 +213,18 @@ export function QueuePanel({
           onHiddenColumnsChange={setHidden}
           onFilterChange={(k, v) => setCol((c) => ({ ...c, [k]: v }))}
           onRowClick={(x) => view(x)}
+          selectable={tab === 'failed' && canAct}
+          bulkActions={
+            tab === 'failed' && canAct
+              ? [
+                  {
+                    label: t('erpq.bulk.retry'),
+                    icon: 'refresh-cw',
+                    run: (ids) => void retryMany(ids),
+                  },
+                ]
+              : []
+          }
           rowMenu={(x) => [
             { label: t('erpq.menu.view'), icon: 'eye', run: () => view(x) },
             ...(canAct && x.actions.retry

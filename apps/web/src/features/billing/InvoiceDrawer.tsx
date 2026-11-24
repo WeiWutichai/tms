@@ -15,6 +15,8 @@ import { ApiError } from '../../api';
 import { problemText } from '../master/problems';
 import { cachedStepUp, useInlineStepUp } from '../stepup/stepUp';
 import { bangkokToday, money, useDateText } from '../rate-cards/rateFormat';
+import { useErpConnectors } from '../erp/useQueue';
+import { adapterName } from '../settings/ConnectorSettings';
 import { invoiceDisplayStatus, methodLabel, overdueDays } from './billing';
 import { useInvoicePayments } from './usePayments';
 import {
@@ -27,6 +29,37 @@ import {
   useVoidInvoice,
   type Invoice,
 } from './useInvoices';
+
+/** สถานะซิงก์ของใบ (แยกจากสถานะเอกสาร) → ป้ายเดียวกับหน้าคิวเชื่อมระบบบัญชี (ต้นแบบ kv "สถานะใน {ERP}") */
+const SYNC_KEY: Record<string, MessageKey> = {
+  SYNCED: 'erpq.st.synced',
+  PENDING: 'erpq.st.wait',
+  FAILED: 'erpq.st.failed',
+  MISMATCH: 'erpq.st.mm',
+};
+
+/**
+ * kv ระบบบัญชีของ drawer ใบแจ้งหนี้ (ต้นแบบ vPanel inv: `kv('สถานะใน {ERP}', x.sync)`) + Q-SPLIT เลขเอกสารฝั่งระบบบัญชี
+ * — ระบบบัญชีรับใบนี้เป็นหลายเอกสาร (เช่น KRS แยกตามชนิด VAT) = แสดงทุกเลข คั่นด้วย ", " [DECISION — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ]
+ */
+export function syncKv(t: T, sync: Invoice['sync'], erp: string): { k: string; v: string }[] {
+  if (!sync) return [];
+  const docs = sync.externalDocuments ?? [];
+  const nos = docs.length
+    ? docs.map((d) => d.externalDocNo ?? d.externalId)
+    : [sync.externalDocNo ?? sync.externalId].filter((x): x is string => !!x);
+  return [
+    { k: t('bill.kv.erpState', { erp }), v: t(SYNC_KEY[sync.state] ?? 'erpq.st.wait') },
+    ...(nos.length
+      ? [
+          {
+            k: t(nos.length > 1 ? 'bill.kv.erpNos' : 'bill.kv.erpNo', { erp, n: nos.length }),
+            v: nos.join(', '),
+          },
+        ]
+      : []),
+  ];
+}
 
 const ST_KEY: Record<string, MessageKey> = {
   DRAFT: 'bill.st.DRAFT',
@@ -194,6 +227,12 @@ export function InvoiceDrawer({
   const [reissue, setReissue] = useState(false);
   const labels = { close: t('drawer.close'), more: t('drawer.more') };
   const inv = q.data;
+  const conns = useErpConnectors();
+  /** ชื่อระบบบัญชีของ connector (ไม่มีสิทธิ์อ่าน connector = "ระบบบัญชี") */
+  const erpName = (id: string | null | undefined) => {
+    const c = conns.list.find((x) => x.id === id);
+    return c ? adapterName(t, c.adapterKey, c.displayName) : t('erpq.erpDefault');
+  };
   if (!inv)
     return (
       <Drawer open onClose={onClose} kind={t('bill.kind')} title="…" labels={labels}>
@@ -295,6 +334,7 @@ export function InvoiceDrawer({
           },
         ]
       : []),
+    ...syncKv(t, inv.sync, erpName(inv.sync?.connectorId)),
   ] as { k: string; v: string; open?: string }[];
   const amounts = [
     { k: t('bill.kv.fr'), v: money(fromSatang(fr)) },
@@ -469,6 +509,36 @@ export function InvoiceDrawer({
               ))}
             </div>
           </section>
+          {/* Q-D64 คำเตือนก่อนส่งเข้าระบบบัญชี (`erpWarnings` — D-64) ตั้งแต่ร่าง · ไม่บล็อกการออก */}
+          {/* กล่องเตือนของต้นแบบ vPanel (P.warn #FCF0DC + triangle-alert) [DECISION — PO 24 พ.ย. 2569] */}
+          {(inv.erpWarnings ?? []).map((w, i) => (
+            <div
+              key={`${w.code}-${i}`}
+              data-testid="erp-warning"
+              style={{
+                background: '#FCF0DC',
+                borderRadius: 8,
+                padding: '10px 14px',
+                display: 'flex',
+                gap: 8,
+              }}
+            >
+              <Icon
+                n="triangle-alert"
+                s={16}
+                style={{ color: '#8F5500', marginTop: 3, flexShrink: 0 }}
+              />
+              <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span>{w.message}</span>
+                {/* ข้อความจาก API (ไทย — ส่งแล้ว = แบบอดีต) + เลข DO ที่เกี่ยวข้อง */}
+                {w.deliveryOrderNos.length > 0 && (
+                  <span className="tms-num" style={{ fontSize: 12.5, color: '#3B424C' }}>
+                    {w.deliveryOrderNos.join(', ')}
+                  </span>
+                )}
+              </span>
+            </div>
+          ))}
           {dos.length > 0 && (
             <section style={SEC}>
               <span style={SEC_T}>{t('bill.items', { n: inv.deliveryOrderCount })}</span>

@@ -3,7 +3,7 @@ import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tansta
 import { api, unwrap } from '../../api';
 import { can } from '../../nav';
 import { useMe } from '../../shell/AppShell';
-import { useCursorList } from '../master/useCursorList';
+import { useCursorList, useSessionState } from '../master/useCursorList';
 import type { QueueTab } from './erpq';
 import type { QueueItem } from './queue';
 
@@ -25,7 +25,7 @@ const LIVE_ORDER: Record<string, number> = { ACTIVE: 0, ERROR: 1 };
 /**
  * connector ที่หน้า "คิวเชื่อมระบบบัญชี" แสดง (review q86 M1 — ชั่วคราว): ตัวที่มีรายการล้มเหลวมากสุด
  * (เท่ากัน → ACTIVE → ERROR → ตัวแรกตามลำดับของ API) — badge เมนูนับล้มเหลวของทุก connector ที่ยังเชื่อม จึงให้หน้าเปิดตัวที่มีงานค้างมากสุด
- * ต้นแบบไม่มีตัวเลือก connector บนหน้า `erp` [OPEN — PO / Claude Design] · การ์ดภาพรวมใช้ตัวเลือกของตัวเอง (ACTIVE ก่อน) ไม่เปลี่ยน
+ * = ค่าเริ่มของตัวเลือก connector บนหน้า `erp` (PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ) · การ์ดภาพรวมใช้ตัวเลือกของตัวเอง (ACTIVE ก่อน) ไม่เปลี่ยน
  */
 export function pickErpConnector(cs: readonly Metrics[]): Metrics | null {
   let best: Metrics | null = null;
@@ -46,8 +46,16 @@ export function pickErpConnector(cs: readonly Metrics[]): Metrics | null {
   return bestIdx < 0 ? null : best;
 }
 
-/** connector ของหน้านี้ — query เดียวกับการ์ดภาพรวม (`GET /connectors/metrics`) · ไม่มีสิทธิ์อ่าน/แพ็กเกจไม่มี `conn` = ไม่เรียก */
-export function useErpConnector(): Metrics | null {
+/**
+ * connector ของหน้านี้ — query เดียวกับการ์ดภาพรวม (`GET /connectors/metrics`) · ไม่มีสิทธิ์อ่าน/แพ็กเกจไม่มี `conn` = ไม่เรียก
+ * PO 24 พ.ย. 2569 (ประกอบจากโครงสร้างต้นแบบ): มี connector มากกว่า 1 ตัว → ตัวเลือกบนแถบเครื่องมือของหน้า (`pick`) ·
+ * ยังไม่เลือก / ตัวที่เลือกไว้หายไป = ตัวที่ล้มเหลวมากสุด (`pickErpConnector`) · จำค่าที่เลือกใน session
+ */
+export function useErpConnectors(): {
+  list: Metrics[];
+  current: Metrics | null;
+  pick: (id: string) => void;
+} {
   const me = useMe();
   const scopes = me.data?.scopes ?? [];
   const enabled =
@@ -61,7 +69,15 @@ export function useErpConnector(): Metrics | null {
     retry: false,
     refetchInterval: 60_000,
   });
-  return enabled ? pickErpConnector(q.data?.data ?? []) : null;
+  const [want, setWant] = useSessionState<string>('erp.conn', '');
+  const list = enabled ? (q.data?.data ?? []) : [];
+  const current = list.find((c) => c.id === want) ?? pickErpConnector(list);
+  return { list, current, pick: setWant };
+}
+
+/** connector ของหน้านี้ (ตัวที่เลือก / ล้มเหลวมากสุด) */
+export function useErpConnector(): Metrics | null {
+  return useErpConnectors().current;
 }
 
 /** รายการในแท็บคิว (keyset ตามเวลาเปลี่ยนล่าสุด — API ไม่รับ `sort`) · `errorClass` = กลุ่มของแท็บล้มเหลว */
@@ -115,6 +131,12 @@ export type QueueAction =
       reason: string;
       externalId: string;
       externalDocNo?: string;
+    }
+  | {
+      action: 'externalDocuments';
+      id: string;
+      reason: string;
+      documents: { ref: string; externalId: string; externalDocNo?: string }[];
     };
 
 /** ส่งซ้ำ / ข้ามพร้อมเหตุผล / อนุมัติแทนที่ / กรอกเลขเอง (ST7-T19 / ST8-T13 — เหตุผล ≥ 10 ลง audit) */
@@ -151,6 +173,14 @@ export function useQueueAction(connectorId: string) {
                 externalId: v.externalId,
                 ...(v.externalDocNo ? { externalDocNo: v.externalDocNo } : {}),
               },
+            }),
+          );
+        case 'externalDocuments':
+          // ระบบบัญชีแยกเอกสารเป็นหลายใบ — กรอกต่อใบ (ST8-T09; PO 24 พ.ย. 2569)
+          return unwrap(
+            api.POST('/v1/connectors/{id}/queue/{commandId}/external-id', {
+              params: { path },
+              body: { reason: v.reason, documents: v.documents },
             }),
           );
       }

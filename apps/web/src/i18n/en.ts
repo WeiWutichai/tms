@@ -1421,4 +1421,13 @@ export const en: Partial<Record<MessageKey, string>> = {
   'erpq.q.retry': 'Resend',
   'erpq.q.retryAll': 'Resend all pending',
   'erpq.q.message': 'Messages',
+  'erpq.conn.l': 'Accounting system',
+  'erpq.pc.res.pass': 'Passed',
+  'erpq.pc.res.fail': 'Failed',
+  'erpq.pc.sev.MONEY': 'Amounts',
+  'erpq.pc.c.reason': 'Reasons',
+  'erpq.pc.c.amount': 'Amount (฿)',
+  'erpq.pc.exp.xlsx': 'Export Excel',
+  'erpq.pc.exp.csv': 'Export CSV',
+  'erpq.bulk.retry': 'Resend selected',
 };

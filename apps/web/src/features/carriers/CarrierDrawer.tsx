@@ -12,6 +12,8 @@ import { can } from '../../nav';
 import { useMe } from '../../shell/AppShell';
 import { money } from '../rate-cards/rateFormat';
 import { useRecentPrices } from '../rate-cards/useRateCards';
+import { LinkBox } from '../settlements/SettlementDrawer';
+import { useIssuePayLink, type SettlementLink } from '../settlements/useSettlements';
 import {
   BANK_CODES,
   searchCarriers,
@@ -194,6 +196,7 @@ export function CarrierDrawer({
   onStatusChange,
   onDelete,
   onClose,
+  onToast,
 }: {
   /** null = เพิ่มผู้รับเหมาใหม่ */
   carrier: Carrier | null;
@@ -205,8 +208,26 @@ export function CarrierDrawer({
   onStatusChange: (c: Carrier) => void;
   onDelete: () => void;
   onClose: () => void;
+  /** toast ของหน้า (ลิงก์ค่าเที่ยว) */
+  onToast?: (m: string) => void;
 }) {
   const { t } = useI18n();
+  // ST6-T11 ลิงก์ "ค่าเที่ยวของฉัน" ของรถร่วม — ออกจากหน้าผู้รับเหมาได้ด้วย (เดิมมีเฉพาะหน้า settle) · `settlements:create`
+  // [DECISION — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ: เมนู ⋯ ของ drawer + กล่องลิงก์เดียวกับ drawer ใบสำคัญจ่าย]
+  const me = useMe();
+  const canPayLink = can(me.data?.scopes ?? [], 'settlements:create');
+  const payLink = useIssuePayLink();
+  const [pay, setPay] = useState<SettlementLink | null>(null);
+  const toast = (m: string | null | undefined) => m && onToast?.(m);
+  const issuePay = (id: string) =>
+    payLink.mutate(id, {
+      onSuccess: (l) => {
+        setPay(l);
+        setTab('sum');
+        toast(t('settle.link.payDone'));
+      },
+      onError: (e) => toast(problemText(e, t)),
+    });
   const isNew = !c;
   const [tab, setTab] = useState<Tab>('sum');
   const [base, setBase] = useState<Form>(() => (c ? toForm(c) : EMPTY));
@@ -415,15 +436,33 @@ export function CarrierDrawer({
       title={c ? c.legalName : t('car.new.title')}
       badge={<CarrierBadge c={c} t={t} />}
       labels={{ close: t('drawer.close'), more: t('drawer.more') }}
-      {...(canWrite && c
+      {...(c && (canWrite || canPayLink)
         ? {
             menu: [
-              {
-                label: t(c.status === 'active' ? 'car.menu.off' : 'car.menu.on'),
-                icon: c.status === 'active' ? 'pause' : 'play',
-                onClick: () => onStatusChange(c),
-              },
-              { label: t('car.menu.delete'), icon: 'trash-2', danger: true, onClick: onDelete },
+              ...(canPayLink
+                ? [
+                    {
+                      label: t('settle.menu.payLink'),
+                      icon: 'wallet',
+                      onClick: () => !payLink.isPending && issuePay(c.id),
+                    },
+                  ]
+                : []),
+              ...(canWrite
+                ? [
+                    {
+                      label: t(c.status === 'active' ? 'car.menu.off' : 'car.menu.on'),
+                      icon: c.status === 'active' ? 'pause' : 'play',
+                      onClick: () => onStatusChange(c),
+                    },
+                    {
+                      label: t('car.menu.delete'),
+                      icon: 'trash-2',
+                      danger: true,
+                      onClick: onDelete,
+                    },
+                  ]
+                : []),
             ],
           }
         : {})}
@@ -461,6 +500,13 @@ export function CarrierDrawer({
       {top && <div className="tms-alert">{top}</div>}
       {tab === 'sum' && (
         <>
+          {c && pay && (
+            <LinkBox
+              carrierId={c.id}
+              link={{ link: pay, viewOnly: true, pay: true }}
+              onToast={(m) => toast(m)}
+            />
+          )}
           {c && (
             <section className="tms-kv">
               <span className="tms-kv__title">{t('car.sec.info')}</span>

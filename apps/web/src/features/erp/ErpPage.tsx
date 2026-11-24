@@ -1,6 +1,7 @@
 import {
   Button,
   DataTable,
+  ReasonDialog,
   DocNo,
   EmptyState,
   StatusDot,
@@ -10,8 +11,10 @@ import {
   Toast,
   type Column,
 } from '@tms/ui';
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { api, unwrap } from '../../api';
 import { formatDateTime, useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
@@ -31,6 +34,7 @@ import {
   bySeverity,
   DEFAULT_TAB,
   diffFields,
+  isMismatchTab,
   isQueueTab,
   rowStatus,
   statusKey,
@@ -38,10 +42,22 @@ import {
   TABS,
   type Tab,
 } from './erpq';
+import { PeriodClosePanel } from './PeriodClosePanel';
 import { QueuePanel } from './QueuePanel';
 import { queueErrorText } from './queue';
-import { useErpConnector, useQueueSummary, useRetryAll } from './useQueue';
-import { type ReconcileResult, useReconcileCounts, useReconcileList } from './useReconcile';
+import { useErpConnectors, useQueueSummary, useRetryAll } from './useQueue';
+import {
+  type ReconcileResult,
+  useCloseAction,
+  useReconcileCounts,
+  useReconcileList,
+} from './useReconcile';
+
+/** อัตราสำเร็จ 24 ชม. แบบต้นแบบ "96.4%" (ทศนิยม 1 ตำแหน่ง) · ไม่มีคำสั่งที่จบ = "—" */
+export function okRate(s: { succeeded24h: number; finished24h: number } | undefined): string {
+  if (!s || s.finished24h <= 0) return '—';
+  return `${((s.succeeded24h / s.finished24h) * 100).toFixed(1)}%`;
+}
 
 const EMPTY_COL = { no: '', type: '', cust: '', fields: '', st: '' };
 const ST_OPTS = ['mm', 'resend', 'appr', 'closed'] as const;
@@ -97,6 +113,30 @@ export function ErpPage() {
   const [ptab, setPtab] = useState('sum');
   const [dialog, setDialog] = useState<{ kind: DialogKind; x: ReconcileResult } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // ต้นแบบ erp bulk "รับค่า {ERP}" (PO 24 พ.ย. 2569 — #86 ค้าง): หลายรายการ = ยอมรับความต่าง (ack) ด้วยเหตุผลเดียว ทีละรายการ
+  // (ทาง "แก้ที่ TMS แล้ว" ต้องยกเลิกใบก่อน — ทำทีละรายการจาก dialog เดิม) [DECISION — lead 24 พ.ย. เพื่อ UAT, ย้อนได้]
+  const [bulkAck, setBulkAck] = useState<ReconcileResult[] | null>(null);
+  const closer = useCloseAction();
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const runBulkAck = async (rows: ReconcileResult[], reason: string) => {
+    setBulkBusy(true);
+    let n = 0;
+    for (const x of rows) {
+      try {
+        await closer.mutateAsync({ action: 'acknowledge', id: x.id, reason });
+        n++;
+      } catch {
+        /* นับเป็นไม่สำเร็จ */
+      }
+    }
+    setBulkBusy(false);
+    setBulkAck(null);
+    setToast(
+      n === rows.length
+        ? t('erpq.bulk.acked', { n })
+        : t('erpq.bulk.ackedSome', { n, m: rows.length - n }),
+    );
+  };
   useDeepOpen('open', 'rec', (id) => {
     setPtab('sum');
     setOpen(id);
@@ -108,8 +148,25 @@ export function ErpPage() {
     setTabRaw(k);
     setCol((c) => (c.st ? { ...c, st: '' } : c));
   };
-  const list = useReconcileList(TAB_QUERY[queueTab ? 'mm' : curTab], !queueTab);
-  const connector = useErpConnector();
+  const mmTab = isMismatchTab(curTab);
+  const list = useReconcileList(TAB_QUERY[curTab === 'appr' ? 'appr' : 'mm'], mmTab);
+  const conns = useErpConnectors();
+  const connector = conns.current;
+  // PO 24 พ.ย. 2569 (ประกอบจากโครงสร้างต้นแบบ): connector > 1 ตัว → ตัวเลือกบนแถบเครื่องมือ (ข้อความ 13px แบบ "งวด" ของหน้ารายงาน)
+  // ต่อนิติบุคคล = ชื่อระบบ · ชื่อนิติบุคคล (ต้องมีสิทธิ์อ่านนิติบุคคล — ไม่มี = ชื่อระบบ + ลำดับ)
+  const canCompanies = can(scopes, 'companies:read') && conns.list.some((c) => !!c.companyId);
+  const companies = useQuery({
+    queryKey: ['companies', 'all'],
+    queryFn: () => unwrap(api.GET('/v1/companies', { params: { query: { limit: 200 } } })),
+    enabled: canCompanies,
+    retry: false,
+  });
+  const connLabel = (c: (typeof conns.list)[number], i: number) => {
+    const n = adapterName(t, c.adapterKey, c.displayName);
+    if (!c.companyId) return t('erpq.conn.all', { erp: n });
+    const co = companies.data?.data.find((x) => x.id === c.companyId);
+    return co ? `${n} · ${co.legalName}` : `${n} #${i + 1}`;
+  };
   const qSum = useQueueSummary(connector?.id ?? null);
   const retryAll = useRetryAll(connector?.id ?? null);
   const countQ = useReconcileCounts();
@@ -136,7 +193,9 @@ export function ErpPage() {
     ? curTab === 'failed' && col.st
       ? byClass[col.st]
       : counts[curTab]
-    : list.page.total;
+    : mmTab
+      ? list.page.total
+      : undefined;
   const erpName = (x: ReconcileResult) =>
     adapterName(t, x.connector.adapterKey, x.connector.displayName);
   const anyRow = list.rows[0] ?? allRows[0];
@@ -269,7 +328,7 @@ export function ErpPage() {
           ) : undefined
         }
       />
-      {/* ต้นแบบ kpis('erp') = แถบสรุปบรรทัดเดียว: ไม่ตรง · รอส่งซ้ำ→รอคิว · ส่งไม่สำเร็จ (สำเร็จ 24 ชม. — ไม่มี API) */}
+      {/* ต้นแบบ kpis('erp') = แถบสรุปบรรทัดเดียว: ไม่ตรง · รอส่งซ้ำ→รอคิว · ส่งไม่สำเร็จ · สำเร็จ 24 ชม. */}
       <SummaryStrip
         items={[
           {
@@ -293,6 +352,8 @@ export function ErpPage() {
             onClick: () => pickTab('failed'),
             pressed: curTab === 'failed',
           },
+          // ต้นแบบ kpis('erp') การ์ดที่ 4 "สำเร็จ 24 ชม." = อัตราสำเร็จ (ต้นแบบ "96.4%" ไม่กดได้) — succeeded24h / finished24h
+          { value: okRate(qSum.data), label: t('erpq.kpi.ok24'), color: '#17733F' },
         ]}
       />
       <div className="tms-listbody">
@@ -307,11 +368,51 @@ export function ErpPage() {
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
           <SavedViewMenu b={views} onToast={setToast} />
+          {conns.list.length > 1 && (
+            <label style={{ fontSize: 13, color: '#3B424C' }}>
+              {t('erpq.conn.l')}{' '}
+              <select
+                aria-label={t('erpq.conn.aria')}
+                value={connector?.id ?? ''}
+                onChange={(e) => conns.pick(e.target.value)}
+                style={{
+                  border: 0,
+                  background: 'transparent',
+                  font: 'inherit',
+                  color: '#101418',
+                  fontWeight: 500,
+                  padding: 0,
+                  cursor: 'pointer',
+                }}
+              >
+                {conns.list.map((c, i) => (
+                  <option key={c.id} value={c.id}>
+                    {connLabel(c, i)}
+                    {c.status === 'ACTIVE'
+                      ? ''
+                      : ` (${t(`cnx.b.${c.status.toLowerCase()}` as MessageKey)})`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <span style={{ marginLeft: 'auto', color: '#3B424C', fontSize: 13 }}>
             {total !== undefined && t('table.total', { n: total })}
           </span>
         </div>
-        {queueTab ? (
+        {curTab === 'close' ? (
+          <PeriodClosePanel
+            key={connector?.id ?? 'none'}
+            connectorId={connector?.id ?? null}
+            erp={pageErp}
+            onOpenResult={(id) => {
+              setPtab('sum');
+              setOpen(id);
+            }}
+            onOpenQueue={(k) => setTab(k)}
+            onToast={setToast}
+          />
+        ) : queueTab ? (
           connector ? (
             <QueuePanel
               key={`${connector.id}:${curTab}`}
@@ -354,6 +455,21 @@ export function ErpPage() {
             onHiddenColumnsChange={setHidden}
             onFilterChange={(k, v) => setCol((c) => ({ ...c, [k]: v }))}
             onRowClick={(x) => view(x)}
+            selectable={canAct && curTab === 'mm'}
+            bulkActions={
+              canAct && curTab === 'mm'
+                ? [
+                    {
+                      label: t('erpq.menu.accept', { erp: pageErp }),
+                      icon: 'download',
+                      run: (ids) =>
+                        setBulkAck(
+                          shown.filter((x) => ids.includes(x.id) && rowStatus(x) === 'mm'),
+                        ),
+                    },
+                  ]
+                : []
+            }
             rowMenu={(x) => [
               { label: t('erpq.menu.view'), icon: 'eye', run: () => view(x) },
               ...(useTmsKind(x)
@@ -423,6 +539,22 @@ export function ErpPage() {
           }}
         />
       )}
+      <ReasonDialog
+        open={!!bulkAck}
+        title={t('erpq.bulk.ackT', { erp: pageErp, n: bulkAck?.length ?? 0 })}
+        description={t('erpq.bulk.ackD', { erp: pageErp })}
+        label={t('ord.dlg.reason')}
+        placeholder={t('ord.dlg.reasonPh')}
+        hint={(n, okk) => (okk ? t('ord.dlg.hintOk') : t('ord.dlg.hintMin', { n }))}
+        okLabel={t('erpq.dlg.accept.ok')}
+        cancelLabel={t('common.cancel')}
+        closeLabel={t('drawer.close')}
+        busy={bulkBusy}
+        okDisabled={!bulkAck?.length}
+        error={null}
+        onClose={() => !bulkBusy && setBulkAck(null)}
+        onOk={(reason) => bulkAck && void runBulkAck(bulkAck, reason)}
+      />
       {toast && (
         <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />
       )}

@@ -132,22 +132,33 @@ export function ConnectorSettingsSection({ canWrite }: { canWrite: boolean }) {
   const selConn = !sel && wanted ? wanted : selKey ? connOf(selKey) : undefined;
 
   const resume = useMutation({
-    mutationFn: (c: Connector) =>
+    mutationFn: ({ c, reason }: { c: Connector; reason?: string }) =>
       unwrap(
         api.POST('/v1/connectors/{id}/resume', {
           params: { path: { id: c.id }, header: { 'If-Match': `"${c.version}"` } as never },
-          body: {},
+          body: reason ? { reason } : {},
         }),
       ),
     onSuccess: (c) => {
+      setResumeFor(null);
       refresh();
       setToast(t('cnx.toast.connected', { n: adapterName(t, c.adapterKey, c.displayName) }));
     },
     onError: (e) => {
+      setResumeFor(null);
       refresh();
       setToast(healthFail(t, e), true);
     },
   });
+  // Q-RES (PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ): เปิดใช้จาก ERROR ต้องมีเหตุผล ≥ 10 ตัว (ReasonDialog แบบตัดการเชื่อมต่อ) →
+  // `POST /resume` { reason } ลง audit `connector.resumed` · PAUSED เปิดได้เลยตามเดิม (ทดสอบก่อนเปิดทุกครั้ง — INT-015)
+  const [resumeFor, setResumeFor] = useState<Connector | null>(null);
+  const startResume = (c: Connector) => {
+    if (c.status === 'ERROR') {
+      resume.reset();
+      setResumeFor(c);
+    } else resume.mutate({ c });
+  };
   const health = useMutation({
     mutationFn: async (c: Connector) => {
       const t0 = performance.now();
@@ -317,7 +328,7 @@ export function ConnectorSettingsSection({ canWrite }: { canWrite: boolean }) {
                       e.stopPropagation();
                       setSel(a.key);
                       if (on && c) setDisc([c]);
-                      else if (c) resume.mutate(c);
+                      else if (c) startResume(c);
                       else setConnectFor(a);
                     }}
                   >
@@ -364,7 +375,7 @@ export function ConnectorSettingsSection({ canWrite }: { canWrite: boolean }) {
           setTab={setTab}
           canWrite={canWrite}
           onToast={setToast}
-          onConnect={() => resume.mutate(selConn)}
+          onConnect={() => startResume(selConn)}
         />
       )}
       {canWrite && (
@@ -412,6 +423,23 @@ export function ConnectorSettingsSection({ canWrite }: { canWrite: boolean }) {
           disconnect.reset();
         }}
         onOk={(reason) => disc && disconnect.mutate({ list: disc, reason })}
+      />
+      <ReasonDialog
+        open={!!resumeFor}
+        title={t('cnx.dlg.resumeT', {
+          n: resumeFor ? adapterName(t, resumeFor.adapterKey, resumeFor.displayName) : '',
+        })}
+        description={t('cnx.dlg.resumeD')}
+        label={t('cnx.reason')}
+        placeholder={t('cnx.dlg.resumePh')}
+        okLabel={t('cnx.connect')}
+        okIcon="plug"
+        cancelLabel={t('common.cancel')}
+        closeLabel={t('drawer.close')}
+        busy={resume.isPending}
+        error={null}
+        onClose={() => setResumeFor(null)}
+        onOk={(reason) => resumeFor && resume.mutate({ c: resumeFor, reason })}
       />
       <Toast
         message={toastMsg?.m ?? null}
@@ -727,6 +755,12 @@ function MapTab({
   /** ST7-T21 capability แบบ opt-in ที่กำลังจะเปิด (รอเหตุผล) */
   const [capOn, setCapOn] = useState<string | null>(null);
   useEffect(() => setFrom(c.syncFromDate ?? ''), [c.syncFromDate]);
+  // #89 (PO 24 พ.ย. 2569) หน่วงเวลาตรวจเทียบหลังส่ง 0–1440 นาที — ช่องแบบ "วันที่เริ่มซิงก์" บันทึกเมื่อออกจากช่อง
+  const [delay, setDelay] = useState(String(c.afterPushReconcileDelayMinutes ?? 0));
+  useEffect(
+    () => setDelay(String(c.afterPushReconcileDelayMinutes ?? 0)),
+    [c.afterPushReconcileDelayMinutes],
+  );
   const ifMatch = { 'If-Match': `"${c.version}"` } as never;
   const done = () => void qc.invalidateQueries({ queryKey: ['connectors'] });
   const patch = useMutation({
@@ -803,6 +837,8 @@ function MapTab({
   const secrets = adapter.configFields.filter((f) => f.secret);
   const caps = c.capabilitiesSupported;
   const badDate = !!from && from > todayTh();
+  const delayN = Number(delay);
+  const badDelay = !/^\d{1,4}$/.test(delay.trim()) || delayN > 1440;
   return (
     <div className="cnx-map">
       <label className="cnx-f" htmlFor={`${id}-from`} style={{ maxWidth: 280 }}>
@@ -828,6 +864,35 @@ function MapTab({
               : t('cnx.f.syncFromHint')}
         </span>
       </label>
+
+      {caps.includes('fetchDocument') && (
+        <label className="cnx-f" htmlFor={`${id}-delay`} style={{ maxWidth: 280 }}>
+          <span className="cnx-f__l">{t('cnx.f.rcDelay')}</span>
+          <input
+            id={`${id}-delay`}
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={1440}
+            step={1}
+            className="cnx-in"
+            value={delay}
+            disabled={!canWrite || patch.isPending}
+            onChange={(e) => setDelay(e.target.value)}
+            onBlur={() => {
+              if (badDelay || delayN === (c.afterPushReconcileDelayMinutes ?? 0)) return;
+              patch.mutate({ afterPushReconcileDelayMinutes: delayN });
+            }}
+          />
+          <span className="cnx-f__h" style={badDelay ? { color: '#B3322A' } : undefined}>
+            {badDelay
+              ? t('cnx.f.rcDelayBad')
+              : delayN === 0
+                ? t('cnx.f.rcDelayNow', { n })
+                : t('cnx.f.rcDelayHint', { m: delayN, n })}
+          </span>
+        </label>
+      )}
 
       <div className="cnx-f" data-testid="numbering-owner">
         <Radio
