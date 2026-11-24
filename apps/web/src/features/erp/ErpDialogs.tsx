@@ -8,7 +8,7 @@ import { actionErrorText } from '../settlements/settle';
 import { compareRows } from './erpq';
 import { type CloseAction, type ReconcileResult, useCloseAction } from './useReconcile';
 
-export type DialogKind = 'accept' | 'askFix' | 'useTms' | 'approve';
+export type DialogKind = 'accept' | 'askFix' | 'useTms' | 'approve' | 'reject';
 
 /** ข้อความผิดพลาด: 409 `invalid_state_transition` ที่มี `reason` ของหน้านี้ = ข้อความเฉพาะ · อื่น ๆ ตามกลาง */
 export function closeErrorText(err: unknown, t: T): string | null {
@@ -25,6 +25,7 @@ export function closeErrorText(err: unknown, t: T): string | null {
  * - `askFix` "ขออนุมัติแก้ {เลข}" = ต้นแบบ askFix ตรงตัว (ตาราง ฟิลด์ | ค่า {ERP} | ค่า TMS · ปุ่ม "ส่งขออนุมัติ") → ขออนุมัติส่งทับ
  * - `useTms` "ใช้ค่า TMS ส่งซ้ำ" = ส่งซ้ำตรง (docs/01 §6.5 — ลงบัญชีแล้ว/อายุเกินต้องอนุมัติตามประตูของ ST8-T13) · ต้นแบบส่งทันที → เพิ่มเหตุผล (audit)
  * - `approve` = ปุ่มเดียวกันบนรายการ "รออนุมัติ" ของผู้อนุมัติ (≠ ผู้ขอ / ผู้ออกใบ) → อนุมัติแล้วส่งทับ
+ * - `reject` "ไม่อนุมัติ" (PO #94 24 พ.ย. 2569 — เพิ่มได้โดยไม่ส่ง Claude Design) = ผู้อนุมัติ (≠ ผู้ขอ) ปฏิเสธคำขอ → กลับเป็น "ไม่ตรง"
  * - `accept` "รับค่า {ERP}" = ไม่ส่งค่า TMS ทับ: เลือก ยอมรับความต่าง (ack) / แก้ที่ TMS แล้ว (D-54: ยกเลิกใบ + ออกใหม่ ST5-T10 — ต้องยกเลิกใบก่อน)
  *   ต้นแบบปิดทันที (toast) ไม่มี dialog — เพิ่มตัวเลือก + เหตุผลตาม docs/01 §6.5 "บันทึกคนและเหตุผลทุกครั้ง" [DECISION spec/12 §3 แถว ST8-T12]
  */
@@ -56,9 +57,11 @@ export function CloseDialog({
         ? 'resend'
         : kind === 'approve'
           ? 'approve'
-          : how === 'fix'
-            ? 'resolve'
-            : 'acknowledge';
+          : kind === 'reject'
+            ? 'reject'
+            : how === 'fix'
+              ? 'resolve'
+              : 'acknowledge';
   const fixBlocked = kind === 'accept' && how === 'fix' && !voided;
   const title =
     kind === 'askFix'
@@ -67,7 +70,9 @@ export function CloseDialog({
         ? t('erpq.dlg.useTms.title', { no })
         : kind === 'approve'
           ? t('erpq.dlg.approve.title', { no })
-          : t('erpq.dlg.accept.title', { erp, no });
+          : kind === 'reject'
+            ? t('erpq.dlg.reject.title', { no })
+            : t('erpq.dlg.accept.title', { erp, no });
   const desc =
     kind === 'askFix'
       ? t('erpq.dlg.askFix.desc', { erp })
@@ -75,7 +80,9 @@ export function CloseDialog({
         ? t('erpq.dlg.useTms.desc', { erp })
         : kind === 'approve'
           ? t('erpq.dlg.approve.desc', { erp, r: x.overwrite?.reason ?? '—' })
-          : t('erpq.dlg.accept.desc', { erp });
+          : kind === 'reject'
+            ? t('erpq.dlg.reject.desc', { erp, r: x.overwrite?.reason ?? '—' })
+            : t('erpq.dlg.accept.desc', { erp });
   const ok =
     kind === 'askFix'
       ? t('erpq.dlg.askFix.ok')
@@ -83,7 +90,9 @@ export function CloseDialog({
         ? t('erpq.dlg.useTms.ok')
         : kind === 'approve'
           ? t('erpq.dlg.approve.ok')
-          : t('erpq.dlg.accept.ok');
+          : kind === 'reject'
+            ? t('erpq.dlg.reject.ok')
+            : t('erpq.dlg.accept.ok');
   return (
     <ReasonDialog
       open
@@ -96,7 +105,8 @@ export function CloseDialog({
       {...(kind === 'useTms' || kind === 'approve' ? { okIcon: 'refresh-cw' } : {})}
       cancelLabel={t('common.cancel')}
       closeLabel={t('drawer.close')}
-      busy={m.isPending || fixBlocked}
+      busy={m.isPending}
+      okDisabled={fixBlocked}
       error={closeErrorText(m.error, t)}
       {...(kind !== 'accept'
         ? {
@@ -142,11 +152,13 @@ export function CloseDialog({
               onDone(
                 action === 'request'
                   ? t('erpq.toast.asked', { no })
-                  : action === 'approve' || action === 'resend'
-                    ? t('erpq.toast.sent', { no, erp })
-                    : action === 'resolve'
-                      ? t('erpq.toast.fixed', { no })
-                      : t('erpq.toast.acked', { no }),
+                  : action === 'reject'
+                    ? t('erpq.toast.rejected', { no })
+                    : action === 'approve' || action === 'resend'
+                      ? t('erpq.toast.sent', { no, erp })
+                      : action === 'resolve'
+                        ? t('erpq.toast.fixed', { no })
+                        : t('erpq.toast.acked', { no }),
               ),
           },
         )

@@ -4,6 +4,8 @@ import { scopeAllows } from '@tms/domain';
 import { Clock } from '../../common/clock';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
+import { ERP_SINK } from '../erp/erp-adapter.sink';
+import { RETRIED_SQL, tabSql } from '../erp/connector-queue';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { BillingQueueService } from '../invoices/billing-queue.service';
 import { overdueWhere } from '../invoices/invoices.service';
@@ -48,7 +50,7 @@ export class NavBadgeDto {
   @ApiProperty({
     enum: NAV_BADGE_KEYS,
     description:
-      'เมนู: plan กระดานวางแผน (SO รอจัด) · exc ศูนย์ข้อยกเว้น (ธงรอตัดสิน) · so ใบสั่งขนส่ง (ค้าง: รอกำหนดเส้นทาง + ยังไม่จับคู่ลูกค้า) · bill วางบิล (DO พร้อมวางบิล) · pay รับชำระ (ใบแจ้งหนี้เกินกำหนด) · settle Settlement รถร่วม (รอตรวจ + รออนุมัติ) · erp คิวเชื่อมระบบบัญชี (ST8-T12: เนื้อหาเอกสารไม่ตรงที่ยังเปิด — ไม่ตรง + รออนุมัติ + รอส่งซ้ำ; ส่วนคิวส่งไม่สำเร็จรอ PO #86) · fdoc เอกสารรถ (หมดอายุ/จะหมดใน 30 วัน) · rate Rate card (รออนุมัติ)',
+      'เมนู: plan กระดานวางแผน (SO รอจัด) · exc ศูนย์ข้อยกเว้น (ธงรอตัดสิน) · so ใบสั่งขนส่ง (ค้าง: รอกำหนดเส้นทาง + ยังไม่จับคู่ลูกค้า) · bill วางบิล (DO พร้อมวางบิล) · pay รับชำระ (ใบแจ้งหนี้เกินกำหนด) · settle Settlement รถร่วม (รอตรวจ + รออนุมัติ) · erp คิวเชื่อมระบบบัญชี (ST8-T12: เนื้อหาเอกสารไม่ตรงที่ยังเปิด — ไม่ตรง + รออนุมัติ + รอส่งซ้ำ · PO #86 24 พ.ย. 2569: + แท็บล้มเหลวของคิว ST7-T19 ทุก connector ที่ยังเชื่อม) · fdoc เอกสารรถ (หมดอายุ/จะหมดใน 30 วัน) · rate Rate card (รออนุมัติ)',
   })
   key!: NavBadgeKey;
   @ApiProperty({ example: 3, description: 'จำนวนงานค้าง (0 = ไม่แสดง badge)' }) count!: number;
@@ -96,15 +98,7 @@ export class NavBadgesService {
           where: { status: { in: ['DRAFT', 'DISPUTED', 'SENT_TO_CARRIER'] } },
         });
       case 'erp':
-        // ST8-T12 รายการไม่ตรง (เนื้อหาเอกสาร) ที่ยังเปิด — ชุดเดียวกับแท็บ "ทั้งหมด" ที่ยังไม่ปิดของหน้า `erp`
-        return tx.reconcileResult.count({
-          where: {
-            resolvedAt: null,
-            acknowledgedAt: null,
-            severity: { in: ['MONEY', 'FIELD'] },
-            diff: { path: ['check'], equals: 'DOCUMENT' },
-          },
-        });
+        return this.erpCount();
       case 'fdoc':
         return this.docs.dueCount(30);
       case 'rate':
@@ -113,6 +107,29 @@ export class NavBadgesService {
           where: { deletedAt: null, status: { in: ['DRAFT', 'PENDING_APPROVAL'] } },
         });
     }
+  }
+
+  /**
+   * ST8-T12 รายการไม่ตรง (เนื้อหาเอกสาร) ที่ยังเปิด (แท็บ ไม่ตรง + รออนุมัติ ของหน้า `erp`)
+   * + PO #86 (24 พ.ย. 2569; docs/01 §6.4 "badge นับที่เมนู") แท็บล้มเหลวของคิว (ST7-T19 `tabSql('failed')` — ต้องมีคนทำ)
+   * ของทุก connector ที่ยังไม่ยกเลิกการเชื่อม (เงื่อนไขเดียวกับ `/connectors/metrics` และการ์ดภาพรวม)
+   */
+  private async erpCount(): Promise<number> {
+    const tx = this.db.tx;
+    const mm = await tx.reconcileResult.count({
+      where: {
+        resolvedAt: null,
+        acknowledgedAt: null,
+        severity: { in: ['MONEY', 'FIELD'] },
+        diff: { path: ['check'], equals: 'DOCUMENT' },
+      },
+    });
+    const [q] = await tx.$queryRaw<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM integration_outbox o
+        JOIN connector c ON c.id::text = o.target_id AND c.tenant_id = o.tenant_id
+       WHERE o.sink = ${ERP_SINK} AND c.status <> 'DISCONNECTED'
+         AND NOT ${RETRIED_SQL} AND ${tabSql('failed')}`;
+    return mm + (q?.n ?? 0);
   }
 
   /** นับทีละเมนูใน transaction ของ tenant (RLS) — เฉพาะเมนูที่ผู้เรียกเห็น */

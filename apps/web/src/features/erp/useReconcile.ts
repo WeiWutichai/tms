@@ -2,6 +2,7 @@ import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrap } from '../../api';
 import { useCursorList } from '../master/useCursorList';
+import { invalidateErp } from './useQueue';
 
 export type ReconcileResult = Schemas['ReconcileResultDto'];
 export type SyncLog = Schemas['ErpSyncLogDto'];
@@ -11,12 +12,12 @@ const KEY = 'reconcile-results';
 /** หน้า MISMATCH = เนื้อหาเอกสาร (ST8-T11) ที่ต้องมีคนตัดสิน — ไม่รวม INFO (อ่านไม่ได้ / เทียบไม่ได้) และยอดรับชำระ (#74) */
 export const BASE_QUERY = { check: 'DOCUMENT', actionable: 'true' } as const;
 
-export function useReconcileList(filters: Record<string, string>) {
+export function useReconcileList(filters: Record<string, string>, enabled = true) {
   return useCursorList<ReconcileResult>(
     KEY,
     { ...BASE_QUERY, ...filters },
     (query) => unwrap(api.GET('/v1/reconcile-results', { params: { query: query as never } })),
-    { sort: '-updatedAt' },
+    { sort: '-updatedAt', enabled },
   );
 }
 
@@ -56,7 +57,7 @@ export function useDocumentSyncLog(connectorId: string | null, documentNo: strin
   });
 }
 
-export type CloseAction = 'acknowledge' | 'resolve' | 'resend' | 'request' | 'approve';
+export type CloseAction = 'acknowledge' | 'resolve' | 'resend' | 'request' | 'approve' | 'reject';
 
 /** ปิด 3 ทาง + ขอ/อนุมัติส่งทับ — เหตุผล ≥ 10 ตัวอักษร (API ลง audit ผู้ทำ + เหตุผล) */
 export function useCloseAction() {
@@ -75,8 +76,11 @@ export function useCloseAction() {
           return unwrap(api.POST('/v1/reconcile-results/{id}/overwrite-request', opts));
         case 'approve':
           return unwrap(api.POST('/v1/reconcile-results/{id}/overwrite-request/approve', opts));
+        case 'reject':
+          // #94 (PO 24 พ.ย. 2569) ไม่อนุมัติคำขอแก้ → กลับเป็น "ไม่ตรง" ขอใหม่ได้ · audit `reconcile.overwrite_rejected`
+          return unwrap(api.POST('/v1/reconcile-results/{id}/overwrite-request/reject', opts));
       }
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: [KEY] }),
+    onSettled: () => invalidateErp(qc),
   });
 }

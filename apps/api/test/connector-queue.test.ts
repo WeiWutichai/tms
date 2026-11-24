@@ -181,6 +181,7 @@ describe('Connector queue (ST7-T19)', () => {
       status: 'FAILED_FINAL',
       errorClass: 'PERIOD_CLOSED',
       documentNo: doc.number,
+      partyName: 'บริษัท ลูกค้า จำกัด',
       guide: { key: 'PERIOD_CLOSED' },
       actions: { retry: true, skip: true, externalId: true, approve: false },
       resolution: null,

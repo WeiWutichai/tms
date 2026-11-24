@@ -8,13 +8,19 @@ import {
   statusOf,
   type TimelineItem,
 } from '@tms/ui';
-import { formatDateTime, useI18n } from '../../i18n';
+import type { ReactNode } from 'react';
+import { formatDateTime, useI18n, type T } from '../../i18n';
 import { problemText } from '../master/problems';
 import { compareRows, messageOf, rowStatus, statusKey } from './erpq';
-import { type ReconcileResult, useDocumentSyncLog, useReconcileResult } from './useReconcile';
+import {
+  type ReconcileResult,
+  type SyncLog,
+  useDocumentSyncLog,
+  useReconcileResult,
+} from './useReconcile';
 
 /** แถวขั้นตอน (ต้นแบบ vPanel `steps`: กล่องเทา ไอคอน + ชื่อ + ✓ หรือป้าย · เวลา · หมายเหตุ) */
-function Step({
+export function Step({
   title,
   state,
   at,
@@ -84,7 +90,7 @@ const CMP_GRID = '1.1fr 1fr 1fr 64px';
 /**
  * drawer รายการไม่ตรง (ต้นแบบ TMS v4 vPanel kind `erp`): หัว "คิวเชื่อมระบบบัญชี · {ประเภท}" + เลข + ป้ายสถานะ ·
  * แท็บ สรุป (แถบแดงข้อความ + ตาราง "เทียบข้อมูล TMS กับ {ERP}" / ต่าง n ฟิลด์) / เอกสารแนบ / กิจกรรม (สถานะการซิงก์ + บันทึกการเรียก JSON)
- * footer: รับค่า {ERP} · ขออนุมัติแก้ (รอง) · ใช้ค่า TMS ส่งซ้ำ (หลัก) — ปิดแล้ว = "ปิดหน้าต่าง"
+ * footer: รับค่า {ERP} · ขออนุมัติแก้ (รอง) · ใช้ค่า TMS ส่งซ้ำ (หลัก) — รออนุมัติ: ไม่อนุมัติ (รอง — PO #94 24 พ.ย. 2569) · ปิดแล้ว = "ปิดหน้าต่าง"
  * ความต่างจากต้นแบบ [DECISION spec/12 §3 แถว ST8-T12]: ไม่มียอด "ยอดก่อน VAT ตาม TMS" ที่ footer (DTO ไม่มียอด) · เมนู ⋯ (แก้ไข/คัดลอก/พิมพ์/ยกเลิก
  * ของเอกสารทั่วไป) ไม่มี · ปุ่ม "ลองใหม่" ในขั้นตรวจเทียบไม่มี (ส่งทับต้องอนุมัติ) · "ใช้ค่า TMS ส่งซ้ำ" = ผู้อนุมัติอนุมัติคำขอ (คนละคนกับผู้ขอ)
  */
@@ -98,6 +104,7 @@ export function ErpDrawer({
   onAccept,
   onAskFix,
   onUseTms,
+  onReject,
 }: {
   id: string;
   tab: string;
@@ -108,6 +115,8 @@ export function ErpDrawer({
   onAccept: (x: ReconcileResult) => void;
   onAskFix: (x: ReconcileResult) => void;
   onUseTms: (x: ReconcileResult) => void;
+  /** #94 (PO 24 พ.ย. 2569) "ไม่อนุมัติ" คำขอแก้ของผู้อื่น — ผู้อนุมัติเท่านั้น */
+  onReject: (x: ReconcileResult) => void;
 }) {
   const { t, lang } = useI18n();
   const q = useReconcileResult(id);
@@ -176,7 +185,9 @@ export function ErpDrawer({
                       { label: t('erpq.menu.accept', { erp }), onClick: () => onAccept(x) },
                       { label: t('erpq.menu.askFix'), onClick: () => onAskFix(x) },
                     ]
-                  : []
+                  : st === 'appr' && can.approve && !x.overwrite?.requestedByMe
+                    ? [{ label: t('erpq.menu.reject'), onClick: () => onReject(x) }]
+                    : []
               }
               primary={{
                 label: t('erpq.menu.useTms'),
@@ -199,73 +210,23 @@ export function ErpDrawer({
     >
       {tab === 'sum' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {/* ต้นแบบ kvI "ข้อมูล": ประเภท · ลูกค้า · ครั้งที่ส่ง · ส่งล่าสุด · ปลายทาง · รหัสตอบกลับ */}
-          <section
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-              paddingBottom: 20,
-              borderBottom: '1px solid #E4E6E0',
-            }}
-          >
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: '#3B424C' }}>
-              {t('erpq.kv.title')}
-            </span>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)',
-                gap: '14px 20px',
-              }}
-            >
-              {[
-                { k: t('erpq.col.type'), v: t('erpq.type.INVOICE') },
-                { k: t('erpq.col.cust'), v: x.customer?.name ?? '—' },
-                { k: t('erpq.col.att'), v: String(x.sends?.count ?? 0) },
-                {
-                  k: t('erpq.col.last'),
-                  v: x.sends?.lastSentAt ? formatDateTime(x.sends.lastSentAt, lang) : '—',
-                },
-                {
-                  k: t('erpq.kv.dest'),
-                  v: x.externalDocNo ? `${erp} · ${x.externalDocNo}` : erp,
-                },
-                { k: t('erpq.kv.code'), v: x.code ?? '—' },
-              ].map((it) => (
-                <div
-                  key={it.k}
-                  style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}
-                >
-                  <span style={{ fontSize: 12.5, fontWeight: 500, color: '#59606B' }}>{it.k}</span>
-                  <span
-                    style={{
-                      color: '#101418',
-                      wordBreak: 'break-word',
-                      fontVariantNumeric: 'tabular-nums',
-                    }}
-                  >
-                    {it.v}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </section>
-          {msg && (
-            <div
-              role="alert"
-              style={{
-                background: '#FBE9E7',
-                borderRadius: 8,
-                padding: '12px 14px',
-                display: 'flex',
-                gap: 8,
-              }}
-            >
-              <Icon n="circle-alert" s={16} style={{ color: '#B3322A', marginTop: 3 }} />
-              <span>{msg}</span>
-            </div>
-          )}
+          <KvSection
+            items={[
+              { k: t('erpq.col.type'), v: t('erpq.type.INVOICE') },
+              { k: t('erpq.col.cust'), v: x.customer?.name ?? '—' },
+              { k: t('erpq.col.att'), v: String(x.sends?.count ?? 0) },
+              {
+                k: t('erpq.col.last'),
+                v: x.sends?.lastSentAt ? formatDateTime(x.sends.lastSentAt, lang) : '—',
+              },
+              {
+                k: t('erpq.kv.dest'),
+                v: x.externalDocNo ? `${erp} · ${x.externalDocNo}` : erp,
+              },
+              { k: t('erpq.kv.code'), v: x.code ?? '—' },
+            ]}
+          />
+          {msg && <MsgBar>{msg}</MsgBar>}
           {!open && <ClosedNote x={x} />}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div
@@ -394,20 +355,7 @@ function ClosedNote({ x }: { x: ReconcileResult }) {
       ? t(`erpq.closed.${x.resolution}` as never)
       : t('erpq.closed.superseded');
   const why = x.ackReason ?? x.resolutionReason;
-  return (
-    <div
-      style={{
-        background: '#EEF0EC',
-        borderRadius: 8,
-        padding: '10px 14px',
-        display: 'flex',
-        gap: 8,
-      }}
-    >
-      <Icon n="circle-check" s={16} style={{ color: '#17733F', marginTop: 4, flexShrink: 0 }} />
-      <span>{why ? `${how} · ${why}` : how}</span>
-    </div>
-  );
+  return <DoneNote>{why ? `${how} · ${why}` : how}</DoneNote>;
 }
 
 function LogTab({ x, erp, lang }: { x: ReconcileResult; erp: string; lang: 'th' | 'en' | 'zh' }) {
@@ -420,7 +368,43 @@ function LogTab({ x, erp, lang }: { x: ReconcileResult; erp: string; lang: 'th' 
   const skip = t('bill.step.skip');
   const sendAt = x.sends?.lastSentAt ? formatDateTime(x.sends.lastSentAt, lang) : null;
   const compare = st === 'closed' ? ok : st === 'appr' || st === 'resend' ? pending : fail;
-  const items: TimelineItem[] = (log.data?.data ?? []).map((l) => {
+  const items = logTimeline(t, log.data?.data ?? [], erp, lang);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600 }}>{t('erpq.steps')}</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <Step title={t('erpq.step.payload')} state={ok} />
+          <Step title={t('erpq.step.check')} state={ok} />
+          <Step
+            title={t('erpq.step.send', { erp, n: x.sends?.count ?? 1 })}
+            state={ok}
+            at={sendAt}
+          />
+          <Step
+            title={t('erpq.step.compare', { erp })}
+            state={compare}
+            at={formatDateTime(x.lastSeenAt, lang)}
+            note={compare === fail ? messageOf(t, x, erp) : null}
+          />
+          <Step title={t('erpq.step.post', { erp })} state={st === 'closed' ? pending : skip} />
+        </div>
+      </div>
+      {items.length > 0 && <ActivityTimeline items={items} />}
+    </div>
+  );
+}
+
+/** บันทึกการเรียกระบบบัญชี (sync log) → timeline ของแท็บกิจกรรม (ต้นแบบ: log ต่อครั้งที่ส่ง ขยายดู JSON request/response) */
+export function logTimeline(
+  t: T,
+  logs: SyncLog[],
+  erp: string,
+  lang: 'th' | 'en' | 'zh',
+): TimelineItem[] {
+  const ok = t('bill.step.done');
+  const fail = t('erpq.step.fail');
+  return logs.map((l): TimelineItem => {
     const good = l.statusCode !== null && l.statusCode >= 200 && l.statusCode < 300;
     const parse = (s: string | null) => {
       if (s === null) return null;
@@ -467,28 +451,83 @@ function LogTab({ x, erp, lang }: { x: ReconcileResult; erp: string; lang: 'th' 
       ),
     };
   });
+}
+
+/** ส่วน "ข้อมูล" ของ drawer (ต้นแบบ kvI: 2 คอลัมน์ ป้ายเทา + ค่า) */
+export function KvSection({ items }: { items: { k: string; v: string }[] }) {
+  const { t } = useI18n();
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
-        <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600 }}>{t('erpq.steps')}</h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <Step title={t('erpq.step.payload')} state={ok} />
-          <Step title={t('erpq.step.check')} state={ok} />
-          <Step
-            title={t('erpq.step.send', { erp, n: x.sends?.count ?? 1 })}
-            state={ok}
-            at={sendAt}
-          />
-          <Step
-            title={t('erpq.step.compare', { erp })}
-            state={compare}
-            at={formatDateTime(x.lastSeenAt, lang)}
-            note={compare === fail ? messageOf(t, x, erp) : null}
-          />
-          <Step title={t('erpq.step.post', { erp })} state={st === 'closed' ? pending : skip} />
-        </div>
+    <section
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        paddingBottom: 20,
+        borderBottom: '1px solid #E4E6E0',
+      }}
+    >
+      <span style={{ fontSize: 12.5, fontWeight: 600, color: '#3B424C' }}>
+        {t('erpq.kv.title')}
+      </span>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)',
+          gap: '14px 20px',
+        }}
+      >
+        {items.map((it) => (
+          <div key={it.k} style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 500, color: '#59606B' }}>{it.k}</span>
+            <span
+              style={{
+                color: '#101418',
+                wordBreak: 'break-word',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {it.v}
+            </span>
+          </div>
+        ))}
       </div>
-      {items.length > 0 && <ActivityTimeline items={items} />}
+    </section>
+  );
+}
+
+/** แถบแดงข้อความผิดพลาด (ต้นแบบ `erp.msg`) */
+export function MsgBar({ children }: { children: ReactNode }) {
+  return (
+    <div
+      role="alert"
+      style={{
+        background: '#FBE9E7',
+        borderRadius: 8,
+        padding: '12px 14px',
+        display: 'flex',
+        gap: 8,
+      }}
+    >
+      <Icon n="circle-alert" s={16} style={{ color: '#B3322A', marginTop: 3 }} />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+/** กล่องเทาสรุปการปิด (ปิดแล้ว / ข้ามแล้ว ฯลฯ) */
+export function DoneNote({ children }: { children: ReactNode }) {
+  return (
+    <div
+      style={{
+        background: '#EEF0EC',
+        borderRadius: 8,
+        padding: '10px 14px',
+        display: 'flex',
+        gap: 8,
+      }}
+    >
+      <Icon n="circle-check" s={16} style={{ color: '#17733F', marginTop: 4, flexShrink: 0 }} />
+      <span>{children}</span>
     </div>
   );
 }

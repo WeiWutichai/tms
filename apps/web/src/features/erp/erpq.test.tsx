@@ -208,6 +208,7 @@ describe('drawer + dialog ปิด 3 ทาง', () => {
       onAccept: () => undefined,
       onAskFix: () => undefined,
       onUseTms,
+      onReject: () => undefined,
     };
     const { unmount } = wrap(<ErpDrawer {...props} can={{ act: true, approve: true }} />);
     expect(screen.getByText('เทียบข้อมูล TMS กับ KRS')).toBeTruthy();
@@ -233,6 +234,59 @@ describe('drawer + dialog ปิด 3 ทาง', () => {
     expect(use2.disabled).toBe(false);
     fireEvent.click(use2);
     expect(onUseTms).toHaveBeenCalled();
+  });
+
+  it('#94 รออนุมัติ: ผู้อนุมัติ (ไม่ใช่ผู้ขอ) มีปุ่ม "ไม่อนุมัติ" → dialog ส่ง reject + เหตุผล · ผู้ขอเอง/ไม่มีสิทธิ์ = ไม่มีปุ่ม', () => {
+    mutate.mockClear();
+    const onReject = vi.fn();
+    const appr = (mine: boolean) =>
+      base({
+        overwrite: { status: 'REQUESTED', requestedByMe: mine, reason: 'ค่า TMS ถูก' } as never,
+      });
+    const props = {
+      id: 'rec_1',
+      tab: 'sum',
+      onTab: () => undefined,
+      erpName: () => 'KRS',
+      onClose: () => undefined,
+      onAccept: () => undefined,
+      onAskFix: () => undefined,
+      onUseTms: () => undefined,
+      onReject,
+    };
+    state.one = appr(false);
+    const r1 = wrap(<ErpDrawer {...props} can={{ act: true, approve: true }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'ไม่อนุมัติ' }));
+    expect(onReject).toHaveBeenCalled();
+    r1.unmount();
+    const r2 = wrap(<ErpDrawer {...props} can={{ act: true, approve: false }} />);
+    expect(screen.queryByRole('button', { name: 'ไม่อนุมัติ' })).toBeNull();
+    r2.unmount();
+    state.one = appr(true);
+    const r3 = wrap(<ErpDrawer {...props} can={{ act: true, approve: true }} />);
+    expect(screen.queryByRole('button', { name: 'ไม่อนุมัติ' })).toBeNull();
+    r3.unmount();
+    const done = vi.fn();
+    wrap(
+      <CloseDialog
+        kind="reject"
+        x={appr(false)}
+        erp="KRS"
+        onClose={() => undefined}
+        onDone={done}
+      />,
+    );
+    expect(screen.getByText('ไม่อนุมัติแก้ INV-00000-6911-0001')).toBeTruthy();
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'ยอดใน KRS ถูกต้องแล้ว ไม่ต้องส่งทับ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'ไม่อนุมัติ' }));
+    expect(mutate).toHaveBeenLastCalledWith({
+      action: 'reject',
+      id: 'rec_1',
+      reason: 'ยอดใน KRS ถูกต้องแล้ว ไม่ต้องส่งทับ',
+    });
+    expect(done).toHaveBeenCalledWith('ไม่อนุมัติคำขอแก้ INV-00000-6911-0001 แล้ว');
   });
 
   it('รับค่า ERP: ยอมรับความต่าง (ค่าเริ่ม) ส่ง acknowledge + เหตุผล · แก้ที่ TMS ทำได้เมื่อใบยกเลิกแล้ว → resolve', () => {

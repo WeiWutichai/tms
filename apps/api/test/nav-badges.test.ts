@@ -183,13 +183,87 @@ describe('nav badges (D68-89)', () => {
     await rec({ check: 'DOCUMENT', code: 'erp_unreachable' }, 'INFO');
     await rec({ check: 'PAYMENT_STATUS', code: 'remote_less_than_tms' }, 'MONEY');
 
+    // PO #86 (24 พ.ย. 2569): + แท็บล้มเหลวของคิว (ต้องมีคนทำ) ของ connector ที่ยังเชื่อม — ไม่นับรอคิว / connector ที่ยกเลิกแล้ว
+    const off = await db.connector.create({
+      data: {
+        tenantId: tA,
+        adapterKey: 'demo',
+        status: 'DISCONNECTED',
+        disconnectedAt: new Date(),
+        taxDocumentOwner: 'TMS',
+      },
+    });
+    const cmd = (targetId: string, status: 'FAILED_FINAL' | 'PENDING') => {
+      const localId = randomUUID();
+      return db.integrationOutbox.create({
+        data: {
+          tenantId: tA,
+          kind: 'ADAPTER',
+          sink: 'erp',
+          targetId,
+          operation: 'PUSH_INVOICE',
+          entityType: 'invoice',
+          localId,
+          serializeKey: `erp:${targetId}:t:${localId}`,
+          idempotencyKey: `badge-${localId}`,
+          status,
+          errorClass: status === 'FAILED_FINAL' ? 'VALIDATION' : null,
+          lastError: status === 'FAILED_FINAL' ? { code: 'invalid_payload' } : undefined,
+        },
+      });
+    };
+    await cmd(con.id, 'FAILED_FINAL');
+    await cmd(con.id, 'PENDING');
+    await cmd(off.id, 'FAILED_FINAL');
+
     const got = await badges(adminA);
-    expect(got).toMatchObject({ so: 1, rate: 1, fdoc: 1, exc: 0, pay: 0, erp: 1 });
+    expect(got).toMatchObject({ so: 1, rate: 1, fdoc: 1, exc: 0, pay: 0, erp: 2 });
     // ใบเดียวมีทั้งสองเหตุ (ลูกค้า + สถานที่) → แท็บ SO นับทั้งสองแท็บ แต่ badge นับใบเดียว
     const sum = (await api(app, adminA).get('/v1/orders/summary').expect(200)).body;
     expect([sum.locationUnmapped, sum.customerUnmapped]).toEqual([1, 1]);
     // บริษัทอื่นไม่เห็น (RLS)
     expect(await badges(adminB)).toMatchObject({ so: 0, rate: 0, fdoc: 0, erp: 0 });
+  });
+
+  it('review q86 M1: badge erp นับแท็บล้มเหลวของทุก connector ที่ยังเชื่อม (หลายขอบเขตนิติบุคคล) — ไม่ใช่เฉพาะตัวที่หน้าแสดง', async () => {
+    const before = (await badges(adminA)).erp!;
+    const company = await db.company.findFirstOrThrow({ where: { tenantId: tA } });
+    // connector ที่ 2 ที่ยังเชื่อม (ขอบเขตนิติบุคคล — ตัวแรกเป็นขอบเขต "ทุกนิติบุคคล")
+    const second = await db.connector.create({
+      data: {
+        tenantId: tA,
+        companyId: company.id,
+        adapterKey: 'demo',
+        status: 'ERROR',
+        taxDocumentOwner: 'TMS',
+      },
+    });
+    const live = await db.connector.count({
+      where: { tenantId: tA, status: { not: 'DISCONNECTED' } },
+    });
+    expect(live).toBe(2);
+    for (const status of ['FAILED_FINAL', 'FAILED_FINAL', 'PENDING'] as const) {
+      const localId = randomUUID();
+      await db.integrationOutbox.create({
+        data: {
+          tenantId: tA,
+          kind: 'ADAPTER',
+          sink: 'erp',
+          targetId: second.id,
+          operation: 'PUSH_INVOICE',
+          entityType: 'invoice',
+          localId,
+          serializeKey: `erp:${second.id}:t:${localId}`,
+          idempotencyKey: `badge2-${localId}`,
+          status,
+          errorClass: status === 'FAILED_FINAL' ? 'TRANSIENT' : null,
+          lastError: status === 'FAILED_FINAL' ? { code: 'unreachable' } : undefined,
+        },
+      });
+    }
+    // ล้มเหลว 2 ของ connector ที่ 2 บวกเพิ่ม (รอคิวไม่นับ) — ของ connector แรกยังนับอยู่
+    expect((await badges(adminA)).erp).toBe(before + 2);
+    expect(before).toBeGreaterThanOrEqual(2);
   });
 
   it('เฉพาะเมนูที่มีสิทธิ์: orders:read → so อย่างเดียว · master:read → fdoc + rate · ไม่มีสิทธิ์ใดเลย = ว่าง', async () => {

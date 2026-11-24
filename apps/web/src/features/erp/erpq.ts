@@ -11,14 +11,25 @@ import type { ReconcileResult } from './useReconcile';
  */
 export type RowStatus = 'mm' | 'appr' | 'resend' | 'closed';
 
-export const TABS = ['all', 'mm', 'appr'] as const;
+/**
+ * แท็บ (PO #86 ตัดสิน 24 พ.ย. 2569 — ทางเลือก (ก)): หน้าตาต้นแบบ `erp` แต่แท็บตาม docs/04 G3 + docs/01 §6.4
+ * **รอคิว / ล้มเหลว / สำเร็จ** (คิวส่งเข้าระบบบัญชี ST7-T19 `/connectors/{id}/queue?tab=`) แล้วตามด้วยแท็บของต้นแบบที่เป็นงาน MISMATCH
+ * **ไม่ตรง / รออนุมัติ** (ผลเทียบเอกสาร ST8-T12 `/reconcile-results`) · แท็บ "ทั้งหมด / รอส่งซ้ำ / ถูกปฏิเสธ" ของต้นแบบเลิกใช้
+ * (สองแหล่งข้อมูลรวมเป็นรายการเดียวไม่ได้ — keyset คนละชุด) [DECISION spec/12 §3 แถว ST7-T19]
+ */
+export const TABS = ['queued', 'failed', 'done', 'mm', 'appr'] as const;
 export type Tab = (typeof TABS)[number];
-/** ตัวกรองของ API ต่อแท็บ (แท็บ รอส่งซ้ำ / ถูกปฏิเสธ ของต้นแบบ = คิวส่งไม่สำเร็จ ST7-T19 — รอ PO #86) */
-export const TAB_QUERY: Record<Tab, Record<string, string>> = {
-  all: {},
+export const DEFAULT_TAB: Tab = 'failed';
+export type QueueTab = 'queued' | 'failed' | 'done';
+export const isQueueTab = (k: Tab): k is QueueTab =>
+  k === 'queued' || k === 'failed' || k === 'done';
+/** ตัวกรองของ API ต่อแท็บ MISMATCH */
+export const TAB_QUERY: Record<'mm' | 'appr', Record<string, string>> = {
   mm: { status: 'OPEN', overwriteStatus: 'NONE' },
   appr: { status: 'OPEN', overwriteStatus: 'REQUESTED' },
 };
+/** แท็บที่จำไว้ (session / มุมมองที่บันทึก / ลิงก์เก่า `?tab=all`) ที่ไม่มีแล้ว → แท็บเริ่มต้น */
+export const asTab = (k: unknown): Tab => (TABS.includes(k as Tab) ? (k as Tab) : DEFAULT_TAB);
 
 const RUNNING = ['PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE', 'DONE'];
 /** คำสั่งส่งทับยังดำเนินอยู่ (ยังไม่จบ / ส่งสำเร็จรอรอบเทียบ) — จบไม่สำเร็จ = กลับเป็น "ไม่ตรง" (ปิดทางอื่นได้) */

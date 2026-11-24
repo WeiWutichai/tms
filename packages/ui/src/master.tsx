@@ -343,6 +343,7 @@ export function ReasonDialog({
   minLength = 10,
   error,
   busy,
+  okDisabled,
   okIcon,
   diff,
   hint,
@@ -375,6 +376,8 @@ export function ReasonDialog({
   minLength?: number;
   error?: string | null;
   busy?: boolean;
+  /** ปิดปุ่มยืนยันเพราะช่องอื่นยังไม่ครบ (เช่น ช่องใน `extra`) — ต่างจาก `busy` ที่หมายถึงกำลังส่งคำขอ */
+  okDisabled?: boolean;
   okIcon?: string;
   onOk: (reason: string) => void;
   onClose: () => void;
@@ -418,7 +421,7 @@ export function ReasonDialog({
   const box = useRef<HTMLDivElement>(null);
   useModalFocus(open, box);
   if (!open) return null;
-  const ok = reason.trim().length >= minLength && !busy && !sent;
+  const ok = reason.trim().length >= minLength && !busy && !okDisabled && !sent;
   return (
     <div className="tms-dialog__scrim" onClick={onClose}>
       <div

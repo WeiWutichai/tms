@@ -531,6 +531,14 @@ describe('ST8-T13 KRS replaceDocument (PUT ภาพหลังปรับ)', 
     expect(cmd!.payload).toMatchObject({ requestedBy: expect.arrayContaining(['u-acc', 'u-mgr']) });
     const item = (await failedQueue()).find((x) => x.id === encodeId('outboxCommand', cmd!.id))!;
     expect(item.actions).toMatchObject({ approve: true, retry: false, skip: true });
+    // review q86 L1: ผู้ขอเห็น requestedByMe (UI ปิดปุ่มอนุมัติ) · ผู้อนุมัติคนอื่น = false
+    const mineOf = async (token: string) =>
+      (
+        (await api(app, token).get(`/v1/connectors/${conId}/queue?tab=failed`).expect(200)).body
+          .data as { id: string; requestedByMe: boolean }[]
+      ).find((x) => x.id === encodeId('outboxCommand', cmd!.id))!.requestedByMe;
+    expect(await mineOf(manager)).toBe(true);
+    expect(await mineOf(approver)).toBe(false);
     const url = `/v1/connectors/${conId}/queue/${encodeId('outboxCommand', cmd!.id)}/approve`;
     // ผู้ขอ (ผู้ยกเลิกใบเดิม) อนุมัติเองไม่ได้ · ไม่มีสิทธิ์อนุมัติ = 403 · เหตุผลสั้น = 422
     const self = await api(app, manager).post(url).send({ reason: 'ตรวจยอดหลังปรับแล้วถูกต้อง' });
