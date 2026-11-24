@@ -92,6 +92,11 @@ import {
   ruleState,
   DEFAULT_PREFS,
   orderVehicles,
+  boardGroups,
+  filterVehicles,
+  vehTypeOptions,
+  VEH_FILTER,
+  type VehFilter,
   weekFields,
   type BoardView,
   DIM,
@@ -169,6 +174,21 @@ const SELECT: CSSProperties = {
   color: '#101418',
   fontSize: 13,
   minWidth: 0,
+};
+const NAV_BTN: CSSProperties = {
+  width: 32,
+  height: 32,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  border: '1px solid #D9DCD4',
+  borderRadius: 999,
+  background: '#FFFFFF',
+  color: '#101418',
+  cursor: 'pointer',
+  font: 'inherit',
+  fontWeight: 500,
+  padding: 0,
 };
 const ELL: CSSProperties = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
 
@@ -272,8 +292,13 @@ export function PlanningPage() {
   const canOverride = can(scopes, 'trips:override');
   const [tab, setTab] = useSessionState<Tab>('plan.tab', 'today');
   const [pf, setPf] = useSessionState<PoolFilter>('plan.pool', POOL_FILTER);
-  // วันนี้ตาม server (เวลาไทย) — ไม่ส่ง date ทั้งตอนโหลดและแท็บ (review ST3-T12)
-  const board = useBoard(7);
+  // PLN-049 กลุ่มพับ "รถร่วมทั้งหมด" — ค่าเริ่ม = พับ (จำในแท็บเบราว์เซอร์)
+  const [idleOpen, setIdleOpen] = useSessionState<boolean>('plan.idleOpen', false);
+  // วันแรกของกระดาน (spec/03 §5 ข้อ 3 ตัวเลือกวัน ←/→ "วันนี้") — null = วันนี้ตาม server (เวลาไทย; review ST3-T12)
+  const [start, setStart] = useSessionState<string | null>('plan.start', null);
+  // ตัวกรองแถวรถ + ค้นหา (spec/03 §5 ข้อ 3)
+  const [vf, setVf] = useSessionState<VehFilter>('plan.veh', VEH_FILTER);
+  const board = useBoard(7, start);
   // มุมมอง + field บนการ์ด จำต่อผู้ใช้ฝั่ง server (ST3-T13) — โหลดไม่ได้ = ค่าเริ่มต้น "รถบริษัท + รถร่วม"
   const prefs = useBoardPrefs();
   const view = (prefs.data?.view ?? DEFAULT_PREFS.view) as BoardView;
@@ -372,7 +397,10 @@ export function PlanningPage() {
   const useSendDialogCheck = (day: string, xs: BoardTrip[]) => useSendCheck(day, xs, sendOpen);
 
   const b = board.data;
-  const day0 = b?.today ?? bangkokToday();
+  /** วันนี้จริง (เวลาไทยของ server) — เส้น "ตอนนี้", เกินกำหนด, ไฮไลต์หัววัน */
+  const today = b?.today ?? bangkokToday();
+  /** วันแรกของช่วงที่แสดง (ตัวเลือกวัน) — แท็บ "วันนี้/พรุ่งนี้/7 วัน" นับจากวันนี้ */
+  const day0 = b?.from ?? start ?? today;
   const week = tab === '7d';
   const days = useMemo(
     () =>
@@ -389,16 +417,27 @@ export function PlanningPage() {
       if (x.vehicleId) m.set(x.vehicleId, [...(m.get(x.vehicleId) ?? []), x]);
     return m;
   }, [b]);
-  const pool = useMemo(() => (b ? poolView(b.pool, pf, day0) : []), [b, pf, day0]);
+  const pool = useMemo(() => (b ? poolView(b.pool, pf, today) : []), [b, pf, today]);
   const opts = useMemo(() => poolOptions(b?.pool ?? []), [b]);
   const stats = b ? boardStats(b, days) : null;
+  /** แถวรถที่แสดง (ตัวกรอง/ค้นหา) + กลุ่ม — คำนวณใหม่เมื่อข้อมูล/มุมมอง/ตัวกรองเปลี่ยนเท่านั้น (review L) */
+  const { shownVehicles, groups } = useMemo(() => {
+    const visTrips = (v: BoardVehicle) =>
+      (tripsBy.get(v.id) ?? []).filter((x) => days.some((d) => onDay(x, d)));
+    const shown = b ? filterVehicles(orderVehicles(b.vehicles, view), visTrips, vf) : [];
+    return {
+      shownVehicles: shown,
+      groups: boardGroups(shown, view, (v) => visTrips(v).length > 0),
+    };
+  }, [b, tripsBy, days, view, vf]);
+  const vtOpts = useMemo(() => vehTypeOptions(b?.vehicles ?? []), [b]);
   // ---------------------------------------------------------------- รถ/งานที่รับได้ (ST3-T15)
   // การเลือกที่ยังอยู่บนกระดาน (SO ลงเที่ยวแล้ว/รถหายไป → เลิกเน้นเอง)
   const selOn =
     sel && b && (sel.kind === 'order' ? b.pool : b.vehicles).some((x) => x.id === sel.id)
       ? sel
       : null;
-  const elig = useEligibility(selOn);
+  const elig = useEligibility(selOn, 7, start);
   const eligBy = useMemo(() => {
     const m = new Map<string, EligItem>();
     for (const it of elig.data?.items ?? [])
@@ -1429,7 +1468,7 @@ export function PlanningPage() {
       return { id: x.id, s: sp.s, e: sp.e, x };
     });
     const ln = lanes(items);
-    const showNow = tab === 'today' && nowH >= DAY_START && nowH < DAY_START + DAY_HOURS;
+    const showNow = !week && dsel === today && nowH >= DAY_START && nowH < DAY_START + DAY_HOURS;
     const lv = vehLevel(v.id, dsel);
     return (
       <div
@@ -1716,7 +1755,7 @@ export function PlanningPage() {
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 6,
-                background: blkOn(v, d).length ? HATCH_ROW : d === day0 ? '#F7F8F5' : '#FFFFFF',
+                background: blkOn(v, d).length ? HATCH_ROW : d === today ? '#F7F8F5' : '#FFFFFF',
                 boxShadow: ringOf(v.id, d),
                 minWidth: 0,
                 minHeight: 96,
@@ -1897,7 +1936,7 @@ export function PlanningPage() {
   const poolCard = (o: PoolOrder) => {
     const due = poolDue(o);
     const retained = o.deliveryOrders.find((d) => d.retainedOn)?.retainedOn ?? null;
-    const late = due < day0;
+    const late = due < today;
     const route = `${placeText(o.origin)} → ${placeText(o.dest)}`;
     const w = fmtNum(kg(o.weightKg));
     const picked = selOn?.kind === 'order' && selOn.id === o.id;
@@ -2041,7 +2080,7 @@ export function PlanningPage() {
   };
 
   const nowL = `${((nowH - DAY_START) / DAY_HOURS) * 100}%`;
-  const showNowPill = tab === 'today' && nowH >= DAY_START && nowH < DAY_START + DAY_HOURS;
+  const showNowPill = !week && dsel === today && nowH >= DAY_START && nowH < DAY_START + DAY_HOURS;
   const skeleton = (h: number, n: number) =>
     Array.from({ length: n }, (_, i) => (
       <div key={i} style={{ height: h, borderRadius: 8, background: '#F4F5F2' }} />
@@ -2117,7 +2156,7 @@ export function PlanningPage() {
             key: 'today',
             label: (
               <>
-                {t('plan.tab.today')}
+                {day0 === today ? t('plan.tab.today') : formatDayHead(day0, lang)}
                 {doneMark(day0)}
               </>
             ),
@@ -2127,7 +2166,7 @@ export function PlanningPage() {
             key: 'tomorrow',
             label: (
               <>
-                {t('plan.tab.tomorrow')}
+                {day0 === today ? t('plan.tab.tomorrow') : formatDayHead(addDays(day0, 1), lang)}
                 {doneMark(addDays(day0, 1))}
               </>
             ),
@@ -2140,12 +2179,178 @@ export function PlanningPage() {
           },
         ].map((x) => (x.count === undefined ? { key: x.key, label: x.label } : x))}
       />
-      <BoardViewMenu
-        view={view}
-        fields={cf}
-        disabled={prefs.isPending}
-        onChange={(body) => void savePrefs(body)}
-      />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <BoardViewMenu
+          view={view}
+          fields={cf}
+          disabled={prefs.isPending}
+          onChange={(body) => void savePrefs(body)}
+        />
+        {/* ตัวเลือกวัน (spec/03 §5 ข้อ 3) — ←/→ เลื่อนทีละ 7 วันในแท็บ 7 วัน ไม่งั้นทีละวัน · "วันนี้" กลับวันนี้ */}
+        <div
+          role="group"
+          aria-label={t('plan.nav.label')}
+          style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+        >
+          <button
+            type="button"
+            aria-label={t('plan.nav.prev')}
+            title={t('plan.nav.prev')}
+            onClick={() => {
+              setStart(addDays(day0, week ? -7 : -1));
+              setPop(null);
+            }}
+            style={NAV_BTN}
+          >
+            <Icon n="chevron-left" s={16} />
+          </button>
+          {/* แสดงวันที่ตามปี พ.ศ./ค.ศ. ของบริษัท (แบบหัวหน้า) — ช่องวันที่ของเบราว์เซอร์โปร่งใสซ้อนบนสำหรับเลือกวัน (review L) */}
+          <span
+            style={{
+              ...SELECT,
+              position: 'relative',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              width: 150,
+              boxSizing: 'border-box',
+            }}
+          >
+            <Icon n="calendar" s={14} style={{ color: '#59606B', flexShrink: 0 }} />
+            <span className="tms-num" data-testid="plan-date-text">
+              {dateText(day0)}
+            </span>
+            <input
+              type="date"
+              aria-label={t('plan.nav.date')}
+              data-testid="plan-date"
+              value={day0}
+              onChange={(e) => {
+                if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) setStart(e.target.value);
+                setPop(null);
+              }}
+              onClick={(e) => {
+                try {
+                  (
+                    e.currentTarget as HTMLInputElement & { showPicker?: () => void }
+                  ).showPicker?.();
+                } catch {
+                  /* เบราว์เซอร์ที่ไม่รองรับ — คลิกปกติ */
+                }
+              }}
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                opacity: 0,
+                cursor: 'pointer',
+                border: 0,
+                padding: 0,
+              }}
+            />
+          </span>
+          <button
+            type="button"
+            aria-label={t('plan.nav.next')}
+            title={t('plan.nav.next')}
+            onClick={() => {
+              setStart(addDays(day0, week ? 7 : 1));
+              setPop(null);
+            }}
+            style={NAV_BTN}
+          >
+            <Icon n="chevron-right" s={16} />
+          </button>
+          <button
+            type="button"
+            disabled={day0 === today}
+            onClick={() => {
+              setStart(null);
+              setPop(null);
+            }}
+            style={{
+              ...NAV_BTN,
+              width: 'auto',
+              padding: '0 12px',
+              opacity: day0 === today ? 0.5 : 1,
+              cursor: day0 === today ? 'default' : 'pointer',
+            }}
+          >
+            {t('plan.nav.today')}
+          </button>
+        </div>
+        <label
+          style={{
+            ...SELECT,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            width: 240,
+            boxSizing: 'border-box',
+          }}
+        >
+          <Icon n="search" s={14} style={{ color: '#59606B', flexShrink: 0 }} />
+          <input
+            type="search"
+            data-testid="plan-veh-q"
+            aria-label={t('plan.vf.q')}
+            placeholder={t('plan.vf.q')}
+            value={vf.q}
+            maxLength={60}
+            onChange={(e) => setVf((f) => ({ ...f, q: e.target.value }))}
+            style={{
+              border: 0,
+              outline: 'none',
+              background: 'transparent',
+              font: 'inherit',
+              color: 'inherit',
+              minWidth: 0,
+              flex: 1,
+            }}
+          />
+        </label>
+        <select
+          aria-label={t('plan.vf.vt')}
+          value={vf.vt}
+          onChange={(e) => setVf((f) => ({ ...f, vt: e.target.value }))}
+          style={{ ...SELECT, width: 150 }}
+        >
+          <option value="">{t('plan.vf.allVt')}</option>
+          {vtOpts.map((o) => (
+            <option key={o.v} value={o.v}>
+              {o.l}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label={t('plan.vf.own')}
+          value={vf.own}
+          onChange={(e) => setVf((f) => ({ ...f, own: e.target.value as VehFilter['own'] }))}
+          style={{ ...SELECT, width: 150 }}
+        >
+          <option value="">{t('plan.vf.allOwn')}</option>
+          <option value="OWN">{t('plan.grp.own')}</option>
+          <option value="SUB">{t('plan.grp.sub')}</option>
+        </select>
+        {(vf.q || vf.vt || vf.own) && (
+          <button
+            type="button"
+            onClick={() => setVf(VEH_FILTER)}
+            style={{
+              height: 32,
+              border: 0,
+              background: 'transparent',
+              color: '#2257C4',
+              cursor: 'pointer',
+              font: 'inherit',
+              padding: '0 6px',
+            }}
+          >
+            {t('plan.vf.clear')}
+          </button>
+        )}
+      </div>
       <div
         onClick={() => setPop(null)}
         style={{
@@ -2474,8 +2679,8 @@ export function PlanningPage() {
                         style={{
                           padding: '10px 8px',
                           fontSize: 12.5,
-                          fontWeight: d === day0 ? 600 : 500,
-                          color: done ? '#17733F' : d === day0 ? '#2257C4' : '#3B424C',
+                          fontWeight: d === today ? 600 : 500,
+                          color: done ? '#17733F' : d === today ? '#2257C4' : '#3B424C',
                           background: done ? '#E7F3EC' : undefined,
                           borderLeft: '1px solid #E4E6E0',
                           whiteSpace: 'nowrap',
@@ -2485,7 +2690,7 @@ export function PlanningPage() {
                         }}
                       >
                         {done && <Icon n="circle-check" s={14} />}
-                        {d === day0
+                        {d === today
                           ? t('plan.col.today', { d: formatDayHead(d, lang) })
                           : formatDayHead(d, lang)}
                       </div>
@@ -2538,24 +2743,103 @@ export function PlanningPage() {
                   </div>
                 )}
               </div>
-              {b && !prefs.isPending
-                ? orderVehicles(b.vehicles, view).map((v) => (week ? weekRow(v) : dayRow(v)))
-                : Array.from({ length: 6 }, (_, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '220px minmax(0,1fr)',
-                        borderBottom: '1px solid #E4E6E0',
-                        height: 96,
-                      }}
-                    >
-                      <div style={{ padding: '10px 12px', borderRight: '1px solid #E4E6E0' }}>
-                        {skeleton(14, 1)}
+              {b && !prefs.isPending ? (
+                shownVehicles.length === 0 ? (
+                  <div
+                    data-testid="plan-vf-none"
+                    style={{ padding: '24px 12px', color: '#59606B', fontSize: 13 }}
+                  >
+                    {t('plan.vf.none')}
+                  </div>
+                ) : (
+                  groups.flatMap((g) => {
+                    const rows = g.vs.map((v) => (week ? weekRow(v) : dayRow(v)));
+                    if (g.kind === 'all') return rows;
+                    const fold = g.kind === 'idle';
+                    const label =
+                      g.kind === 'own'
+                        ? t('plan.grp.own')
+                        : g.kind === 'sub'
+                          ? t('plan.grp.sub')
+                          : g.kind === 'idle'
+                            ? t('plan.grp.idle')
+                            : g.carrier
+                              ? t('plan.subcon', { n: g.carrier })
+                              : t('plan.grp.sub');
+                    const head = (
+                      <div
+                        key={`grp-${g.key}`}
+                        data-testid={`plan-grp-${g.kind}`}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          height: 32,
+                          padding: '0 12px',
+                          background: '#F4F5F2',
+                          borderBottom: '1px solid #E4E6E0',
+                          fontSize: 12.5,
+                          fontWeight: 500,
+                          color: '#3B424C',
+                          position: 'sticky',
+                          left: 0,
+                        }}
+                      >
+                        {fold ? (
+                          <button
+                            type="button"
+                            aria-expanded={idleOpen}
+                            onClick={() => setIdleOpen(!idleOpen)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              height: 28,
+                              padding: 0,
+                              border: 0,
+                              background: 'transparent',
+                              font: 'inherit',
+                              color: 'inherit',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <Icon n={idleOpen ? 'chevron-down' : 'chevron-right'} s={14} />
+                            {label}
+                            <span className="tms-num" style={{ color: '#59606B' }}>
+                              {t('plan.grp.n', { n: g.vs.length })}
+                            </span>
+                          </button>
+                        ) : (
+                          <>
+                            {label}
+                            <span className="tms-num" style={{ color: '#59606B' }}>
+                              {t('plan.grp.n', { n: g.vs.length })}
+                            </span>
+                          </>
+                        )}
                       </div>
-                      <div style={{ background: GRID }} />
+                    );
+                    return [head, ...(fold && !idleOpen ? [] : rows)];
+                  })
+                )
+              ) : (
+                Array.from({ length: 6 }, (_, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '220px minmax(0,1fr)',
+                      borderBottom: '1px solid #E4E6E0',
+                      height: 96,
+                    }}
+                  >
+                    <div style={{ padding: '10px 12px', borderRight: '1px solid #E4E6E0' }}>
+                      {skeleton(14, 1)}
                     </div>
-                  ))}
+                    <div style={{ background: GRID }} />
+                  </div>
+                ))
+              )}
             </div>
           )}
         </section>
@@ -2637,6 +2921,9 @@ export function PlanningPage() {
           canOverride={canOverride}
           canPrint={canPrint}
           canHire={can(scopes, 'trips:assign') && can(scopes, 'prices.buy:read')}
+          canClose={can(scopes, 'trips:close')}
+          canSeeBuy={can(scopes, 'prices.buy:read')}
+          canSeeSell={can(scopes, 'prices.sell:read')}
           onDone={setToast}
           onClose={() => setTripId(null)}
         />

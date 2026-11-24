@@ -1238,7 +1238,7 @@
                 "summary"
               ]
             },
-            "description": "scope: orders:read\n\nนับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง"
+            "description": "scope: orders:read\n\nนับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง · ช่องที่เหลือ (`draft` / `inTransit` / `unbilled` / …) นับทุกวันที่"
           }
         },
         {
@@ -1319,6 +1319,54 @@
                   "key": "dateTo",
                   "value": "2026-11-30",
                   "description": "วันที่ DO ถึง (YYYY-MM-DD)",
+                  "disabled": true
+                },
+                {
+                  "key": "doNo",
+                  "value": "DO-2611",
+                  "description": "ค้นเลข DO (มีคำนี้ ไม่สนตัวพิมพ์)",
+                  "disabled": true
+                },
+                {
+                  "key": "customerName",
+                  "value": "ศรีไทย",
+                  "description": "ค้นชื่อลูกค้า (มีคำนี้)",
+                  "disabled": true
+                },
+                {
+                  "key": "vehiclePlate",
+                  "value": "70-1234",
+                  "description": "ค้นทะเบียนรถของเที่ยว (snapshot — มีคำนี้)",
+                  "disabled": true
+                },
+                {
+                  "key": "driverName",
+                  "value": "สมชาย",
+                  "description": "ค้นชื่อคนขับ / รถร่วมของเที่ยว (snapshot — มีคำนี้)",
+                  "disabled": true
+                },
+                {
+                  "key": "product",
+                  "value": "ปูน",
+                  "description": "ค้นสินค้า (คำอธิบายบรรทัดของ DO — มีคำนี้)",
+                  "disabled": true
+                },
+                {
+                  "key": "inTrip",
+                  "value": "",
+                  "description": "อยู่ในเที่ยวที่ยังใช้งาน (ไม่ยกเลิก) หรือไม่ — `false` = ยังไม่เข้าเที่ยว",
+                  "disabled": true
+                },
+                {
+                  "key": "rejected",
+                  "value": "",
+                  "description": "มีบรรทัดที่ผู้รับปฏิเสธรับ (`lines[].rejectQty` > 0) หรือไม่",
+                  "disabled": true
+                },
+                {
+                  "key": "route",
+                  "value": "บางนา",
+                  "description": "ค้นชื่อจุดรับหรือจุดส่ง (มีคำนี้)",
                   "disabled": true
                 }
               ]
@@ -2037,6 +2085,10 @@
               {
                 "key": "Idempotency-Key",
                 "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
               }
             ],
             "url": {
@@ -2058,7 +2110,16 @@
                 }
               ]
             },
-            "description": "scope: orders:write | trips:dispatch"
+            "description": "scope: orders:write | trips:dispatch",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"ส่งลิงก์ให้ผู้รับผิดคน\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           }
         },
         {
@@ -2137,7 +2198,7 @@
                 "summary"
               ]
             },
-            "description": "scope: trips:read\n\nนับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED`"
+            "description": "scope: trips:read\n\nนับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED` · `planning` / `inTransit` / `done` / `subcon` / `total` ตามคำอธิบายของแต่ละช่อง"
           }
         },
         {
@@ -2224,6 +2285,42 @@
                   "key": "carrierId",
                   "value": "car_3f2a…",
                   "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "tripNo",
+                  "value": "TRP-2611",
+                  "description": "ค้นเลขเที่ยว (มีคำนี้ ไม่สนตัวพิมพ์)",
+                  "disabled": true
+                },
+                {
+                  "key": "vehiclePlate",
+                  "value": "70-1234",
+                  "description": "ค้นทะเบียนรถ / หาง / ประเภทรถของเที่ยว (มีคำนี้)",
+                  "disabled": true
+                },
+                {
+                  "key": "driverName",
+                  "value": "สมชาย",
+                  "description": "ค้นชื่อคนขับ / คนขับสำรอง / รถร่วม (สังกัด) ของเที่ยว (มีคำนี้)",
+                  "disabled": true
+                },
+                {
+                  "key": "ownership",
+                  "value": "",
+                  "description": "OWN = รถบริษัท (ไม่มีรถร่วม) · SUBCON = ใช้รถร่วม",
+                  "disabled": true
+                },
+                {
+                  "key": "route",
+                  "value": "บางนา",
+                  "description": "ค้นชื่อสถานที่ของจุดแวะ (มีคำนี้)",
+                  "disabled": true
+                },
+                {
+                  "key": "amounts",
+                  "value": "",
+                  "description": "`false` = ไม่คำนวณ `sellAmount` / `buyTotal` ต่อแถว (ค่าเริ่ม true)",
                   "disabled": true
                 }
               ]
@@ -6967,6 +7064,10 @@
               {
                 "key": "Idempotency-Key",
                 "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
               }
             ],
             "url": {
@@ -6988,7 +7089,16 @@
                 }
               ]
             },
-            "description": "scope: master:write"
+            "description": "scope: master:write",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"ส่งลิงก์ให้ผู้รับผิดคน\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           }
         },
         {
@@ -12845,6 +12955,137 @@
           }
         },
         {
+          "name": "GET /v1/carriers/{id}/attachments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/carriers/:id/attachments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "carriers",
+                ":id",
+                "attachments"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:read"
+          }
+        },
+        {
+          "name": "POST /v1/carriers/{id}/attachments",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/carriers/:id/attachments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "carriers",
+                ":id",
+                "attachments"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:write",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentId\": \"doc_…\",\n  \"attachType\": \"VAT_REG\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /v1/carriers/{id}/attachments/remove",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/carriers/:id/attachments/remove",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "carriers",
+                ":id",
+                "attachments",
+                "remove"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:write",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentId\": \"doc_…\",\n  \"reason\": \"อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "GET /v1/carriers/{id}/recent-prices",
           "request": {
             "method": "GET",
@@ -14507,6 +14748,137 @@
     {
       "name": "คนขับ (drivers)",
       "item": [
+        {
+          "name": "GET /v1/drivers/{id}/attachments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/drivers/:id/attachments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "drivers",
+                ":id",
+                "attachments"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:read"
+          }
+        },
+        {
+          "name": "POST /v1/drivers/{id}/attachments",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/drivers/:id/attachments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "drivers",
+                ":id",
+                "attachments"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:write",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentId\": \"doc_…\",\n  \"attachType\": \"LICENCE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /v1/drivers/{id}/attachments/remove",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/drivers/:id/attachments/remove",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "drivers",
+                ":id",
+                "attachments",
+                "remove"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:write",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentId\": \"doc_…\",\n  \"reason\": \"อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
         {
           "name": "GET /v1/drivers",
           "request": {

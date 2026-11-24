@@ -485,14 +485,14 @@ describe('subcon link status (ST4-T08)', () => {
     expect(ma.failReasons.map((r: { category: string }) => r.category)).toEqual(
       expect.arrayContaining(['DELIVERY_FAILED', 'REJECTED_BY_RECEIVER']),
     );
-    // review M1: เหตุผลที่บังคับรูปไม่แสดงในลิงก์ (แจ้งไม่สำเร็จแนบรูปไม่ได้)
-    expect(ma.failReasons.every((r: { requiresPhoto: boolean }) => !r.requiresPhoto)).toBe(true);
+    // Q-LINK (PO 24 พ.ย. 2569): เหตุผลที่บังคับรูปแสดงด้วย (แนบรูปผ่าน `failurePhotos` ได้)
+    expect(ma.failReasons.some((r: { requiresPhoto: boolean }) => r.requiresPhoto)).toBe(true);
     expect(ma.failReasons[0]).toMatchObject({
       id: expect.stringMatching(/^rsn_/),
       label: expect.any(String),
       requiresNote: expect.any(Boolean),
     });
-    // เหตุผลที่บังคับรูป (ส่งตรงมา) → 422 photo_required
+    // เหตุผลที่บังคับรูป ไม่แนบรูป → 422 photo_required
     expect(
       (
         await press(a.podToken, ma.pickup.id, {

@@ -41,6 +41,7 @@ const ev = (over: Partial<StopEventFlag['event']> = {}): StopEventFlag['event'] 
   recordedBy: 'u-1',
   reason: null,
   note: null,
+  photoDocumentIds: [],
   sequenceConflict: true,
   clockSkew: false,
   lateReason: null,

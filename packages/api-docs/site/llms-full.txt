@@ -1,7 +1,7 @@
 <!-- index.md -->
 # TMS API v1
 
-เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 417 endpoint
+เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 423 endpoint
 
 เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
 
@@ -42,9 +42,9 @@
 - [รหัสเหตุผล (reason-codes)](ref-reason-codes.md) — 12 endpoint: GET /v1/reason-codes, POST /v1/reason-codes, GET /v1/reason-codes/next-code, GET /v1/reason-codes/export, PUT /v1/reason-codes/external/{externalId}, PATCH /v1/reason-codes/external/{externalId}, …
 - [เส้นทาง (routes)](ref-routes.md) — 14 endpoint: GET /v1/routes, POST /v1/routes, GET /v1/routes/summary, GET /v1/routes/next-code, GET /v1/routes/export, POST /v1/routes/estimate, …
 - [ตารางราคา (rate-cards)](ref-rate-cards.md) — 13 endpoint: GET /v1/rate-cards, POST /v1/rate-cards, GET /v1/rate-cards/summary, GET /v1/rate-cards/export, PUT /v1/rate-cards/external/{externalId}, PATCH /v1/rate-cards/external/{externalId}, …
-- [รถร่วม (carriers)](ref-carriers.md) — 16 endpoint: GET /v1/carriers/{id}/erp-codes, GET /v1/carriers/{id}/recent-prices, GET /v1/carriers, POST /v1/carriers, GET /v1/carriers/summary, GET /v1/carriers/next-code, …
+- [รถร่วม (carriers)](ref-carriers.md) — 19 endpoint: GET /v1/carriers/{id}/erp-codes, GET /v1/carriers/{id}/attachments, POST /v1/carriers/{id}/attachments, POST /v1/carriers/{id}/attachments/remove, GET /v1/carriers/{id}/recent-prices, GET /v1/carriers, …
 - [รถ (vehicles)](ref-vehicles.md) — 14 endpoint: GET /v1/vehicles, POST /v1/vehicles, GET /v1/vehicles/summary, GET /v1/vehicles/export, PUT /v1/vehicles/external/{externalId}, PATCH /v1/vehicles/external/{externalId}, …
-- [คนขับ (drivers)](ref-drivers.md) — 12 endpoint: GET /v1/drivers, POST /v1/drivers, GET /v1/drivers/summary, GET /v1/drivers/next-code, GET /v1/drivers/export, PUT /v1/drivers/external/{externalId}, …
+- [คนขับ (drivers)](ref-drivers.md) — 15 endpoint: GET /v1/drivers/{id}/attachments, POST /v1/drivers/{id}/attachments, POST /v1/drivers/{id}/attachments/remove, GET /v1/drivers, POST /v1/drivers, GET /v1/drivers/summary, …
 - [เอกสารรถ (vehicle-documents)](ref-vehicle-documents.md) — 8 endpoint: GET /v1/vehicles/{id}/documents, POST /v1/vehicles/{id}/documents, GET /v1/vehicle-documents/summary, GET /v1/vehicle-documents/export, GET /v1/vehicle-documents, GET /v1/vehicle-documents/{id}, …
 - [เอกสารรถร่วม (carrier-docs)](ref-carrier-docs.md) — 6 endpoint: GET /v1/carriers/{id}/upload-links, POST /v1/carriers/{id}/upload-links, POST /v1/carrier-upload-links/{id}/revoke, GET /v1/carrier-doc-submissions, POST /v1/carrier-doc-submissions/{id}/approve, POST /v1/carrier-doc-submissions/{id}/reject
 - [แม่แบบใบสั่ง (order-templates)](ref-order-templates.md) — 5 endpoint: GET /v1/order-templates, POST /v1/order-templates, GET /v1/order-templates/{id}, PATCH /v1/order-templates/{id}, POST /v1/order-templates/{id}/delete
@@ -2195,7 +2195,7 @@ const { data, error } = await tms.POST('/v1/revenue-lines/{id}/void', {
 
 scope: `orders:read` · operationId: `DeliveryOrders_summary`
 
-นับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง
+นับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง · ช่องที่เหลือ (`draft` / `inTransit` / `unbilled` / …) นับทุกวันที่
 
 **Responses**
 
@@ -2237,6 +2237,14 @@ scope: `orders:read` · operationId: `DeliveryOrders_list`
 | `status` | query |   | `string` | สถานะ คั่นด้วย, (DRAFT / PLANNED / DISPATCHED / PICKED_UP / DELIVERED / FAILED / RETURNED / POD_PENDING / UNBILLED / BILLED / CANCELLED) |
 | `dateFrom` | query |   | `string` | วันที่ DO ตั้งแต่ (YYYY-MM-DD) |
 | `dateTo` | query |   | `string` | วันที่ DO ถึง (YYYY-MM-DD) |
+| `doNo` | query |   | `string` | ค้นเลข DO (มีคำนี้ ไม่สนตัวพิมพ์) |
+| `customerName` | query |   | `string` | ค้นชื่อลูกค้า (มีคำนี้) |
+| `vehiclePlate` | query |   | `string` | ค้นทะเบียนรถของเที่ยว (snapshot — มีคำนี้) |
+| `driverName` | query |   | `string` | ค้นชื่อคนขับ / รถร่วมของเที่ยว (snapshot — มีคำนี้) |
+| `product` | query |   | `string` | ค้นสินค้า (คำอธิบายบรรทัดของ DO — มีคำนี้) |
+| `inTrip` | query |   | `string` ค่า: `true`, `false` | อยู่ในเที่ยวที่ยังใช้งาน (ไม่ยกเลิก) หรือไม่ — `false` = ยังไม่เข้าเที่ยว |
+| `rejected` | query |   | `string` ค่า: `true`, `false` | มีบรรทัดที่ผู้รับปฏิเสธรับ (`lines[].rejectQty` > 0) หรือไม่ |
+| `route` | query |   | `string` | ค้นชื่อจุดรับหรือจุดส่ง (มีคำนี้) |
 
 **Responses**
 
@@ -3036,15 +3044,22 @@ scope: `orders:write` หรือ `trips:dispatch` · operationId: `DeliveryOrd
 |---|---|---|---|---|
 | `id` | path | ใช่ | `string` |   |
 
+**Request body** `IssueTrackingLinkDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` |   | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `ส่งลิงก์ให้ผู้รับผิดคน` |
+
 **Responses**
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `201` | ออกลิงก์ใหม่ — ลิงก์เดิมถูกเพิกถอน (1 ลิงก์ต่อ DO) · DO ยกเลิกแล้ว → 409 · URL มี token — ต้องมีสิทธิ์ออกลิงก์ · ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token) | `TrackingLinkDto` |
+| `201` | ออกลิงก์ใหม่ — ลิงก์เดิมถูกเพิกถอน (1 ลิงก์ต่อ DO) · **มีลิงก์ที่ใช้ได้อยู่ต้องส่ง `reason` ≥ 10 ตัวอักษร** (ไม่ส่ง → 422 `reason` required) · DO ยกเลิกแล้ว → 409 · URL มี token — ต้องมีสิทธิ์ออกลิงก์ · ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token) | `TrackingLinkDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`orders:write` / `trips:dispatch`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
 | `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
 
 **ตัวอย่าง**
@@ -3052,12 +3067,17 @@ scope: `orders:write` หรือ `trips:dispatch` · operationId: `DeliveryOrd
 ```bash
 curl -sS -X POST "$TMS_BASE_URL/v1/delivery-orders/<id>/tracking-link" \
   -H "Authorization: Bearer $TMS_API_KEY" \
-  -H "Idempotency-Key: $(uuidgen)"
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"ส่งลิงก์ให้ผู้รับผิดคน"}'
 ```
 
 ```ts
 const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link', {
   params: { path: { id: "…" } },
+  body: {
+    "reason": "ส่งลิงก์ให้ผู้รับผิดคน"
+  },
 });
 ```
 
@@ -3144,6 +3164,7 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `destSiteName` | ใช่ | `string` |   | ชื่อจุดส่ง |   |
 | `tripNo` | ใช่ | `string` | null ได้ |   | `TRP-6911-0001` |
 | `vehiclePlate` | ใช่ | `string` | null ได้ | ทะเบียนรถของเที่ยว (snapshot) |   |
+| `vehicleTypeName` | ใช่ | `string` | null ได้ | ประเภทรถของเที่ยว (snapshot) | `6 ล้อ` |
 | `driverName` | ใช่ | `string` | null ได้ | คนขับของเที่ยว (snapshot) |   |
 | `carrierName` | ใช่ | `string` | null ได้ | รถร่วมของเที่ยว (snapshot) |   |
 | `weightKg` | ใช่ | `string` | null ได้ |   |   |
@@ -3225,6 +3246,15 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `today` | ใช่ | `number` |   | งานวันนี้ = `?dateFrom=date&dateTo=date&status=` ทุกสถานะยกเว้น CANCELLED |   |
 | `delivered` | ใช่ | `number` |   | ส่งแล้ว = `status=DELIVERED,POD_PENDING,UNBILLED,BILLED` ของวัน `date` |   |
 | `failed` | ใช่ | `number` |   | ส่งไม่สำเร็จ = `status=FAILED` ของวัน `date` |   |
+| `draft` | ใช่ | `number` |   | ทุกวันที่ `status=DRAFT,PLANNED` (ยังไม่ปล่อยรถ) |   |
+| `inTransit` | ใช่ | `number` |   | ทุกวันที่ `status=DISPATCHED,PICKED_UP` (ระหว่างส่ง) |   |
+| `unbilled` | ใช่ | `number` |   | ทุกวันที่ `status=DELIVERED,POD_PENDING,UNBILLED` (ส่งถึงแล้ว ยังไม่วางบิล) |   |
+| `sellUnbilledAmount` |   | `string` |   | มูลค่ารวมของ DO ชุด `unbilled` = Σ บรรทัดรายได้ที่ใช้อยู่ (ก่อน VAT) — เห็นเมื่อมี `prices.sell:read` | `125400.00` |
+| `deliveredClean` | ใช่ | `number` |   | ชุด `unbilled` ที่ไม่มีบรรทัดปฏิเสธรับ = `status=DELIVERED,POD_PENDING,UNBILLED&rejected=false` |   |
+| `rejected` | ใช่ | `number` |   | ชุด `unbilled` ที่มีบรรทัดปฏิเสธรับ = `status=DELIVERED,POD_PENDING,UNBILLED&rejected=true` |   |
+| `failedTotal` | ใช่ | `number` |   | ทุกวันที่ `status=FAILED,RETURNED` |   |
+| `billed` | ใช่ | `number` |   | ทุกวันที่ `status=BILLED` |   |
+| `total` | ใช่ | `number` |   | DO ทั้งหมด (ไม่มีตัวกรอง — รวมที่ยกเลิก) |   |
 
 ### RedeliverResultDto {#schema-RedeliverResultDto}
 
@@ -3303,7 +3333,7 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 
 scope: `trips:read` · operationId: `Trips_summary`
 
-นับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED`
+นับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED` · `planning` / `inTransit` / `done` / `subcon` / `total` ตามคำอธิบายของแต่ละช่อง
 
 **Responses**
 
@@ -3346,6 +3376,12 @@ scope: `trips:read` · operationId: `Trips_list`
 | `vehicleId` | query |   | `string` |   |
 | `driverId` | query |   | `string` | คนขับหลักหรือคนขับสำรอง |
 | `carrierId` | query |   | `string` |   |
+| `tripNo` | query |   | `string` | ค้นเลขเที่ยว (มีคำนี้ ไม่สนตัวพิมพ์) |
+| `vehiclePlate` | query |   | `string` | ค้นทะเบียนรถ / หาง / ประเภทรถของเที่ยว (มีคำนี้) |
+| `driverName` | query |   | `string` | ค้นชื่อคนขับ / คนขับสำรอง / รถร่วม (สังกัด) ของเที่ยว (มีคำนี้) |
+| `ownership` | query |   | `string` ค่า: `OWN`, `SUBCON` | OWN = รถบริษัท (ไม่มีรถร่วม) · SUBCON = ใช้รถร่วม |
+| `route` | query |   | `string` | ค้นชื่อสถานที่ของจุดแวะ (มีคำนี้) |
+| `amounts` | query |   | `string` ค่า: `true`, `false` | `false` = ไม่คำนวณ `sellAmount` / `buyTotal` ต่อแถว (ค่าเริ่ม true) |
 
 **Responses**
 
@@ -4988,6 +5024,8 @@ const { data, error } = await tms.POST('/v1/trip-sheets', {
 | `route` | ใช่ | `TripRouteSummaryDto` |   | ระยะ/เวลารวมตามลำดับจุดปัจจุบัน (คำนวณใหม่ทุกครั้งที่จุดเปลี่ยน) |   |
 | `warnings` | ใช่ | `array<TripWarningDto>` |   | ผลตรวจกฎตอนจัดล่าสุด |   |
 | `ruleOverrides` | ใช่ | `array<TripRuleOverrideDto>` |   | ประวัติการยกเว้น/ยืนยันกฎของเที่ยว (เรียงตามเวลา) |   |
+| `sellAmount` |   | `string` | null ได้ | รายได้ของเที่ยว = ผลรวมบรรทัดรายได้ที่ใช้อยู่ของ DO ในเที่ยว (ก่อน VAT) — มีเฉพาะผลของ `GET /trips` · เห็นเมื่อมี `prices.sell:read` | `9500.00` |
+| `buyTotal` |   | `string` | null ได้ | ต้นทุนสุทธิของเที่ยว (บรรทัด trip_cost ที่ยืนยันแล้ว รวมกลับรายการ — ชุดเดียวกับ `GET /trips/{id}/costs` summary.buyTotal) — มีเฉพาะผลของ `GET /trips` · เห็นเมื่อมี `prices.buy:read` | `6500.00` |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
 | `updatedAt` | ใช่ | `string` |   |   |   |
@@ -5032,6 +5070,11 @@ const { data, error } = await tms.POST('/v1/trip-sheets', {
 |---|---|---|---|---|---|
 | `running` | ใช่ | `number` |   | เที่ยวกำลังวิ่ง = `status=IN_PROGRESS` |   |
 | `offered` | ใช่ | `number` |   | งานรถร่วมรอตอบ = `status=OFFERED` (ทุกวันที่) |   |
+| `planning` | ใช่ | `number` |   | `status=PLANNING,OFFERED,ASSIGNED` (ทุกวันที่ — ก่อนปล่อยรถ) |   |
+| `inTransit` | ใช่ | `number` |   | `status=DISPATCHED,IN_PROGRESS` (ทุกวันที่) |   |
+| `done` | ใช่ | `number` |   | `status=COMPLETED,COSTED,SETTLED` (ทุกวันที่) |   |
+| `subcon` | ใช่ | `number` |   | `ownership=SUBCON&status=` ทุกสถานะยกเว้น CANCELLED (ทุกวันที่) |   |
+| `total` | ใช่ | `number` |   | เที่ยวทั้งหมด (ไม่มีตัวกรอง — รวมที่ยกเลิก) |   |
 
 ---
 
@@ -5566,6 +5609,7 @@ const { data, error } = await tms.POST('/v1/stop-event-flags/{id}/resolve', {
 | `recordedBy` | ใช่ | `string` | null ได้ | ผู้บันทึก (user id) |   |
 | `reason` | ใช่ | `StopEventReasonDto` | null ได้ |   |   |
 | `note` | ใช่ | `string` | null ได้ |   |   |
+| `photoDocumentIds` | ใช่ | `array<string>` |   | รูปประกอบที่แนบกับ event (เช่น รับบางส่วนที่จุดรับผ่านลิงก์รถร่วม — Q-LINK) · เปิดไฟล์ด้วย `GET /v1/documents/{id}` · ว่าง = ไม่มี |   |
 | `sequenceConflict` | ใช่ | `boolean` |   | ขัด state machine ของจุดเมื่อเรียงตาม occurredAt (เช่น ปิดงานก่อนถึงจุด) — คำนวณใหม่ทุกครั้งที่มี event/การตัดสินใหม่ของจุด |   |
 | `clockSkew` | ใช่ | `boolean` |   | occurredAt อนาคตเกิน 5 นาที หรือย้อนหลังเกิน 24 ชม. จาก receivedAt (ธง ไม่แก้เวลา) |   |
 | `lateReason` | ใช่ | `string` | ค่า: `STOP_REMOVED`, `TRIP_CANCELLED`, `TRIP_COMPLETED`, `BILLING_LOCKED` · null ได้ | event มาหลังจุดถูกถอด / เที่ยวยกเลิก / เที่ยวจบ — รับเก็บเป็นประวัติ ไม่นับจนกว่าผู้จัดรถยอมรับ |   |
@@ -8856,14 +8900,21 @@ scope: `master:write` · operationId: `CustomerTracking_issue`
 |---|---|---|---|---|
 | `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
 
+**Request body** `IssueTrackingLinkDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` |   | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `ส่งลิงก์ให้ผู้รับผิดคน` |
+
 **Responses**
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `201` | ออกลิงก์ใหม่ของลูกค้า — ลิงก์เดิมถูกเพิกถอน · URL มี token — ต้องมีสิทธิ์ออกลิงก์ · ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token) | `TrackingLinkDto` |
+| `201` | ออกลิงก์ใหม่ของลูกค้า — ลิงก์เดิมถูกเพิกถอน · **มีลิงก์ที่ใช้ได้อยู่ต้องส่ง `reason` ≥ 10 ตัวอักษร** (ไม่ส่ง → 422) · URL มี token — ต้องมีสิทธิ์ออกลิงก์ · ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token) | `TrackingLinkDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
 
 **ตัวอย่าง**
@@ -8871,12 +8922,17 @@ scope: `master:write` · operationId: `CustomerTracking_issue`
 ```bash
 curl -sS -X POST "$TMS_BASE_URL/v1/customers/<id>/tracking-link" \
   -H "Authorization: Bearer $TMS_API_KEY" \
-  -H "Idempotency-Key: $(uuidgen)"
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"ส่งลิงก์ให้ผู้รับผิดคน"}'
 ```
 
 ```ts
 const { data, error } = await tms.POST('/v1/customers/{id}/tracking-link', {
   params: { path: { id: "…" } },
+  body: {
+    "reason": "ส่งลิงก์ให้ผู้รับผิดคน"
+  },
 });
 ```
 
@@ -14920,11 +14976,14 @@ const { data, error } = await tms.POST('/v1/rate-cards/{id}/delete', {
 <!-- ref-carriers.md -->
 # รถร่วม (carriers)
 
-16 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+19 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
 | [`GET /v1/carriers/{id}/erp-codes`](#get-carriers-id-erp-codes) | `master:read` |
+| [`GET /v1/carriers/{id}/attachments`](#get-carriers-id-attachments) | `master:read` |
+| [`POST /v1/carriers/{id}/attachments`](#post-carriers-id-attachments) | `master:write` |
+| [`POST /v1/carriers/{id}/attachments/remove`](#post-carriers-id-attachments-remove) | `master:write` |
 | [`GET /v1/carriers/{id}/recent-prices`](#get-carriers-id-recent-prices) | `prices.buy:read` |
 | [`GET /v1/carriers`](#get-carriers) | `master:read` |
 | [`POST /v1/carriers`](#post-carriers) | `master:write` |
@@ -14974,6 +15033,141 @@ curl -sS -X GET "$TMS_BASE_URL/v1/carriers/<id>/erp-codes" \
 ```ts
 const { data, error } = await tms.GET('/v1/carriers/{id}/erp-codes', {
   params: { path: { id: "…" } },
+});
+```
+
+## GET /v1/carriers/{id}/attachments {#get-carriers-id-attachments}
+
+`GET /v1/carriers/{id}/attachments`
+
+scope: `master:read` · operationId: `CarrierAttachments_list`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ไฟล์แนบของผู้รับเหมา (ภ.พ.20 / สัญญาจ้าง / อื่น ๆ) | `AttachmentListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/carriers/<id>/attachments" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/carriers/{id}/attachments', {
+  params: { path: { id: "…" } },
+});
+```
+
+## POST /v1/carriers/{id}/attachments {#post-carriers-id-attachments}
+
+`POST /v1/carriers/{id}/attachments`
+
+scope: `master:write` · operationId: `CarrierAttachments_add`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Request body** `AddCarrierAttachmentDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `documentId` | ใช่ | `string` |   | ไฟล์จาก `POST /v1/documents` ที่อัปโหลดเสร็จแล้ว | `doc_…` |
+| `attachType` | ใช่ | `string` | ค่า: `VAT_REG`, `CONTRACT`, `ID_CARD`, `BANK_BOOK`, `OTHER` | VAT_REG = ภ.พ.20 · CONTRACT = สัญญาจ้าง |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ผูกไฟล์ที่อัปโหลดแล้วกับผู้รับเหมา (audit) | `AttachmentListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/carriers/<id>/attachments" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"documentId":"doc_…","attachType":"VAT_REG"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/carriers/{id}/attachments', {
+  params: { path: { id: "…" } },
+  body: {
+    "documentId": "doc_…",
+    "attachType": "VAT_REG"
+  },
+});
+```
+
+## POST /v1/carriers/{id}/attachments/remove {#post-carriers-id-attachments-remove}
+
+`POST /v1/carriers/{id}/attachments/remove`
+
+scope: `master:write` · operationId: `CarrierAttachments_remove`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Request body** `RemoveAttachmentDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `documentId` | ใช่ | `string` |   |   | `doc_…` |
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | เอาไฟล์ออก (เหตุผล ≥ 10 + audit — ไม่ลบไฟล์) | `AttachmentListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/carriers/<id>/attachments/remove" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"documentId":"doc_…","reason":"อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/carriers/{id}/attachments/remove', {
+  params: { path: { id: "…" } },
+  body: {
+    "documentId": "doc_…",
+    "reason": "อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน"
+  },
 });
 ```
 
@@ -15738,6 +15932,14 @@ const { data, error } = await tms.POST('/v1/carriers/{id}/delete', {
 ```
 
 ## Schema ของ response {#schemas}
+
+### AttachmentListDto {#schema-AttachmentListDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<AttachmentDto>` |   |   |   |
 
 ### AuditPageDto {#schema-AuditPageDto}
 
@@ -16752,10 +16954,13 @@ const { data, error } = await tms.POST('/v1/vehicles/{id}/odometer/correct', {
 <!-- ref-drivers.md -->
 # คนขับ (drivers)
 
-12 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+15 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
+| [`GET /v1/drivers/{id}/attachments`](#get-drivers-id-attachments) | `master:read` |
+| [`POST /v1/drivers/{id}/attachments`](#post-drivers-id-attachments) | `master:write` |
+| [`POST /v1/drivers/{id}/attachments/remove`](#post-drivers-id-attachments-remove) | `master:write` |
 | [`GET /v1/drivers`](#get-drivers) | `master:read` |
 | [`POST /v1/drivers`](#post-drivers) | `master:write` |
 | [`GET /v1/drivers/summary`](#get-drivers-summary) | `master:read` |
@@ -16768,6 +16973,141 @@ const { data, error } = await tms.POST('/v1/vehicles/{id}/odometer/correct', {
 | [`GET /v1/drivers/{id}/history`](#get-drivers-id-history) | `master:read` |
 | [`POST /v1/drivers/{id}/status`](#post-drivers-id-status) | `master:write` |
 | [`POST /v1/drivers/{id}/delete`](#post-drivers-id-delete) | `master:write` |
+
+## GET /v1/drivers/{id}/attachments {#get-drivers-id-attachments}
+
+`GET /v1/drivers/{id}/attachments`
+
+scope: `master:read` · operationId: `DriverAttachments_list`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ไฟล์แนบของคนขับ (รูปใบขับขี่ / บัตร / อื่น ๆ) | `AttachmentListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/drivers/<id>/attachments" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/drivers/{id}/attachments', {
+  params: { path: { id: "…" } },
+});
+```
+
+## POST /v1/drivers/{id}/attachments {#post-drivers-id-attachments}
+
+`POST /v1/drivers/{id}/attachments`
+
+scope: `master:write` · operationId: `DriverAttachments_add`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Request body** `AddDriverAttachmentDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `documentId` | ใช่ | `string` |   | ไฟล์จาก `POST /v1/documents` ที่อัปโหลดเสร็จแล้ว | `doc_…` |
+| `attachType` | ใช่ | `string` | ค่า: `LICENCE`, `ID_CARD`, `OTHER` |   |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ผูกไฟล์ที่อัปโหลดแล้วกับคนขับ (audit) | `AttachmentListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/drivers/<id>/attachments" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"documentId":"doc_…","attachType":"LICENCE"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/drivers/{id}/attachments', {
+  params: { path: { id: "…" } },
+  body: {
+    "documentId": "doc_…",
+    "attachType": "LICENCE"
+  },
+});
+```
+
+## POST /v1/drivers/{id}/attachments/remove {#post-drivers-id-attachments-remove}
+
+`POST /v1/drivers/{id}/attachments/remove`
+
+scope: `master:write` · operationId: `DriverAttachments_remove`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Request body** `RemoveAttachmentDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `documentId` | ใช่ | `string` |   |   | `doc_…` |
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | เอาไฟล์ออก (เหตุผล ≥ 10 + audit — ไม่ลบไฟล์) | `AttachmentListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/drivers/<id>/attachments/remove" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"documentId":"doc_…","reason":"อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/drivers/{id}/attachments/remove', {
+  params: { path: { id: "…" } },
+  body: {
+    "documentId": "doc_…",
+    "reason": "อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน"
+  },
+});
+```
 
 ## GET /v1/drivers {#get-drivers}
 
@@ -17344,6 +17684,14 @@ const { data, error } = await tms.POST('/v1/drivers/{id}/delete', {
 ```
 
 ## Schema ของ response {#schemas}
+
+### AttachmentListDto {#schema-AttachmentListDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<AttachmentDto>` |   |   |   |
 
 ### AuditPageDto {#schema-AuditPageDto}
 
@@ -24495,6 +24843,7 @@ const { data, error } = await tms.GET('/v1/reports/unbilled-delivery-orders');
 | `destSiteName` | ใช่ | `string` |   | ชื่อจุดส่ง |   |
 | `tripNo` | ใช่ | `string` | null ได้ |   | `TRP-6911-0001` |
 | `vehiclePlate` | ใช่ | `string` | null ได้ | ทะเบียนรถของเที่ยว (snapshot) |   |
+| `vehicleTypeName` | ใช่ | `string` | null ได้ | ประเภทรถของเที่ยว (snapshot) | `6 ล้อ` |
 | `driverName` | ใช่ | `string` | null ได้ | คนขับของเที่ยว (snapshot) |   |
 | `carrierName` | ใช่ | `string` | null ได้ | รถร่วมของเที่ยว (snapshot) |   |
 | `weightKg` | ใช่ | `string` | null ได้ |   |   |
@@ -25544,7 +25893,7 @@ HTTP `401` · กรอกรหัสยืนยันตัวตน 2 ชั
 
 HTTP `401` · ต้องเข้าสู่ระบบ
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 399 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 405 endpoint
 
 ## bank_change_requires_user {#bank_change_requires_user}
 
@@ -25604,7 +25953,7 @@ HTTP `403` · ส่วนต่างเกินวงเงินที่ต
 
 HTTP `403` · ไม่มีสิทธิ์ทำรายการนี้
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 399 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 405 endpoint
 
 ## sandbox_only {#sandbox_only}
 
@@ -25652,7 +26001,7 @@ HTTP `403` · บัญชีนี้ต้องตั้งการยืน
 
 HTTP `404` · ไม่พบข้อมูล
 
-พบใน: [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/documents/{id}/content`](ref-documents.md#get-documents-id-content), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/jobs/{id}`](ref-jobs.md#get-jobs-id), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`GET /v1/customers/{id}`](ref-customers.md#get-customers-id), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`GET /v1/customers/{id}/history`](ref-customers.md#get-customers-id-history) และอีก 259 endpoint
+พบใน: [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/documents/{id}/content`](ref-documents.md#get-documents-id-content), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/jobs/{id}`](ref-jobs.md#get-jobs-id), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`GET /v1/customers/{id}`](ref-customers.md#get-customers-id), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`GET /v1/customers/{id}/history`](ref-customers.md#get-customers-id-history) และอีก 265 endpoint
 
 ## method_not_allowed {#method_not_allowed}
 
@@ -26186,7 +26535,7 @@ HTTP `422` · ไฟล์ใหญ่เกินกว่าจะส่งท
 
 HTTP `422` · Idempotency-Key นี้เคยใช้กับข้อมูลอื่น
 
-พบใน: [`POST /v1/orders:bulk`](ref-orders.md#post-orders-bulk), [`GET /v1/orders`](ref-orders.md#get-orders), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/stops/{sequence}/map-site`](ref-orders.md#post-orders-id-stops-sequence-map-site), [`POST /v1/orders/{id}/manual-price`](ref-orders.md#post-orders-id-manual-price), [`POST /v1/orders/{id}/resolve-source-error`](ref-orders.md#post-orders-id-resolve-source-error), [`POST /v1/orders/{id}/map-customer`](ref-orders.md#post-orders-id-map-customer), [`POST /v1/delivery-orders/{id}/revert-delivery`](ref-delivery-orders.md#post-delivery-orders-id-revert-delivery), [`GET /v1/trips`](ref-trips.md#get-trips) และอีก 86 endpoint
+พบใน: [`POST /v1/orders:bulk`](ref-orders.md#post-orders-bulk), [`GET /v1/orders`](ref-orders.md#get-orders), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/stops/{sequence}/map-site`](ref-orders.md#post-orders-id-stops-sequence-map-site), [`POST /v1/orders/{id}/manual-price`](ref-orders.md#post-orders-id-manual-price), [`POST /v1/orders/{id}/resolve-source-error`](ref-orders.md#post-orders-id-resolve-source-error), [`POST /v1/orders/{id}/map-customer`](ref-orders.md#post-orders-id-map-customer), [`POST /v1/delivery-orders/{id}/revert-delivery`](ref-delivery-orders.md#post-delivery-orders-id-revert-delivery), [`GET /v1/trips`](ref-trips.md#get-trips) และอีก 90 endpoint
 
 ## pod_incomplete {#pod_incomplete}
 
@@ -26222,7 +26571,7 @@ HTTP `422` · ลำดับจุดไม่ถูกต้อง — จุ�
 
 HTTP `422` · ข้อมูลไม่ถูกต้อง
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId) และอีก 287 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId) และอีก 293 endpoint
 
 ## webhook_event_expired {#webhook_event_expired}
 

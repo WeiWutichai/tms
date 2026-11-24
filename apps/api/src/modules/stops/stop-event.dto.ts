@@ -196,6 +196,12 @@ export class StopEventDto {
   @ApiProperty({ nullable: true, type: StopEventReasonDto }) reason!: StopEventReasonDto | null;
   @ApiProperty({ nullable: true, type: String }) note!: string | null;
   @ApiProperty({
+    type: [String],
+    description:
+      'รูปประกอบที่แนบกับ event (เช่น รับบางส่วนที่จุดรับผ่านลิงก์รถร่วม — Q-LINK) · เปิดไฟล์ด้วย `GET /v1/documents/{id}` · ว่าง = ไม่มี',
+  })
+  photoDocumentIds!: string[];
+  @ApiProperty({
     description:
       'ขัด state machine ของจุดเมื่อเรียงตาม occurredAt (เช่น ปิดงานก่อนถึงจุด) — คำนวณใหม่ทุกครั้งที่มี event/การตัดสินใหม่ของจุด',
   })

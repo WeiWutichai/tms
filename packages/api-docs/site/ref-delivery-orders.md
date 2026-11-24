@@ -30,7 +30,7 @@
 
 scope: `orders:read` · operationId: `DeliveryOrders_summary`
 
-นับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง
+นับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง · ช่องที่เหลือ (`draft` / `inTransit` / `unbilled` / …) นับทุกวันที่
 
 **Responses**
 
@@ -72,6 +72,14 @@ scope: `orders:read` · operationId: `DeliveryOrders_list`
 | `status` | query |   | `string` | สถานะ คั่นด้วย, (DRAFT / PLANNED / DISPATCHED / PICKED_UP / DELIVERED / FAILED / RETURNED / POD_PENDING / UNBILLED / BILLED / CANCELLED) |
 | `dateFrom` | query |   | `string` | วันที่ DO ตั้งแต่ (YYYY-MM-DD) |
 | `dateTo` | query |   | `string` | วันที่ DO ถึง (YYYY-MM-DD) |
+| `doNo` | query |   | `string` | ค้นเลข DO (มีคำนี้ ไม่สนตัวพิมพ์) |
+| `customerName` | query |   | `string` | ค้นชื่อลูกค้า (มีคำนี้) |
+| `vehiclePlate` | query |   | `string` | ค้นทะเบียนรถของเที่ยว (snapshot — มีคำนี้) |
+| `driverName` | query |   | `string` | ค้นชื่อคนขับ / รถร่วมของเที่ยว (snapshot — มีคำนี้) |
+| `product` | query |   | `string` | ค้นสินค้า (คำอธิบายบรรทัดของ DO — มีคำนี้) |
+| `inTrip` | query |   | `string` ค่า: `true`, `false` | อยู่ในเที่ยวที่ยังใช้งาน (ไม่ยกเลิก) หรือไม่ — `false` = ยังไม่เข้าเที่ยว |
+| `rejected` | query |   | `string` ค่า: `true`, `false` | มีบรรทัดที่ผู้รับปฏิเสธรับ (`lines[].rejectQty` > 0) หรือไม่ |
+| `route` | query |   | `string` | ค้นชื่อจุดรับหรือจุดส่ง (มีคำนี้) |
 
 **Responses**
 
@@ -871,15 +879,22 @@ scope: `orders:write` หรือ `trips:dispatch` · operationId: `DeliveryOrd
 |---|---|---|---|---|
 | `id` | path | ใช่ | `string` |   |
 
+**Request body** `IssueTrackingLinkDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` |   | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `ส่งลิงก์ให้ผู้รับผิดคน` |
+
 **Responses**
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `201` | ออกลิงก์ใหม่ — ลิงก์เดิมถูกเพิกถอน (1 ลิงก์ต่อ DO) · DO ยกเลิกแล้ว → 409 · URL มี token — ต้องมีสิทธิ์ออกลิงก์ · ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token) | `TrackingLinkDto` |
+| `201` | ออกลิงก์ใหม่ — ลิงก์เดิมถูกเพิกถอน (1 ลิงก์ต่อ DO) · **มีลิงก์ที่ใช้ได้อยู่ต้องส่ง `reason` ≥ 10 ตัวอักษร** (ไม่ส่ง → 422 `reason` required) · DO ยกเลิกแล้ว → 409 · URL มี token — ต้องมีสิทธิ์ออกลิงก์ · ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token) | `TrackingLinkDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`orders:write` / `trips:dispatch`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
 | `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
 
 **ตัวอย่าง**
@@ -887,12 +902,17 @@ scope: `orders:write` หรือ `trips:dispatch` · operationId: `DeliveryOrd
 ```bash
 curl -sS -X POST "$TMS_BASE_URL/v1/delivery-orders/<id>/tracking-link" \
   -H "Authorization: Bearer $TMS_API_KEY" \
-  -H "Idempotency-Key: $(uuidgen)"
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"ส่งลิงก์ให้ผู้รับผิดคน"}'
 ```
 
 ```ts
 const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link', {
   params: { path: { id: "…" } },
+  body: {
+    "reason": "ส่งลิงก์ให้ผู้รับผิดคน"
+  },
 });
 ```
 
@@ -979,6 +999,7 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `destSiteName` | ใช่ | `string` |   | ชื่อจุดส่ง |   |
 | `tripNo` | ใช่ | `string` | null ได้ |   | `TRP-6911-0001` |
 | `vehiclePlate` | ใช่ | `string` | null ได้ | ทะเบียนรถของเที่ยว (snapshot) |   |
+| `vehicleTypeName` | ใช่ | `string` | null ได้ | ประเภทรถของเที่ยว (snapshot) | `6 ล้อ` |
 | `driverName` | ใช่ | `string` | null ได้ | คนขับของเที่ยว (snapshot) |   |
 | `carrierName` | ใช่ | `string` | null ได้ | รถร่วมของเที่ยว (snapshot) |   |
 | `weightKg` | ใช่ | `string` | null ได้ |   |   |
@@ -1060,6 +1081,15 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `today` | ใช่ | `number` |   | งานวันนี้ = `?dateFrom=date&dateTo=date&status=` ทุกสถานะยกเว้น CANCELLED |   |
 | `delivered` | ใช่ | `number` |   | ส่งแล้ว = `status=DELIVERED,POD_PENDING,UNBILLED,BILLED` ของวัน `date` |   |
 | `failed` | ใช่ | `number` |   | ส่งไม่สำเร็จ = `status=FAILED` ของวัน `date` |   |
+| `draft` | ใช่ | `number` |   | ทุกวันที่ `status=DRAFT,PLANNED` (ยังไม่ปล่อยรถ) |   |
+| `inTransit` | ใช่ | `number` |   | ทุกวันที่ `status=DISPATCHED,PICKED_UP` (ระหว่างส่ง) |   |
+| `unbilled` | ใช่ | `number` |   | ทุกวันที่ `status=DELIVERED,POD_PENDING,UNBILLED` (ส่งถึงแล้ว ยังไม่วางบิล) |   |
+| `sellUnbilledAmount` |   | `string` |   | มูลค่ารวมของ DO ชุด `unbilled` = Σ บรรทัดรายได้ที่ใช้อยู่ (ก่อน VAT) — เห็นเมื่อมี `prices.sell:read` | `125400.00` |
+| `deliveredClean` | ใช่ | `number` |   | ชุด `unbilled` ที่ไม่มีบรรทัดปฏิเสธรับ = `status=DELIVERED,POD_PENDING,UNBILLED&rejected=false` |   |
+| `rejected` | ใช่ | `number` |   | ชุด `unbilled` ที่มีบรรทัดปฏิเสธรับ = `status=DELIVERED,POD_PENDING,UNBILLED&rejected=true` |   |
+| `failedTotal` | ใช่ | `number` |   | ทุกวันที่ `status=FAILED,RETURNED` |   |
+| `billed` | ใช่ | `number` |   | ทุกวันที่ `status=BILLED` |   |
+| `total` | ใช่ | `number` |   | DO ทั้งหมด (ไม่มีตัวกรอง — รวมที่ยกเลิก) |   |
 
 ### RedeliverResultDto {#schema-RedeliverResultDto}
 

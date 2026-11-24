@@ -528,6 +528,7 @@ const { data, error } = await tms.POST('/v1/stop-event-flags/{id}/resolve', {
 | `recordedBy` | ใช่ | `string` | null ได้ | ผู้บันทึก (user id) |   |
 | `reason` | ใช่ | `StopEventReasonDto` | null ได้ |   |   |
 | `note` | ใช่ | `string` | null ได้ |   |   |
+| `photoDocumentIds` | ใช่ | `array<string>` |   | รูปประกอบที่แนบกับ event (เช่น รับบางส่วนที่จุดรับผ่านลิงก์รถร่วม — Q-LINK) · เปิดไฟล์ด้วย `GET /v1/documents/{id}` · ว่าง = ไม่มี |   |
 | `sequenceConflict` | ใช่ | `boolean` |   | ขัด state machine ของจุดเมื่อเรียงตาม occurredAt (เช่น ปิดงานก่อนถึงจุด) — คำนวณใหม่ทุกครั้งที่มี event/การตัดสินใหม่ของจุด |   |
 | `clockSkew` | ใช่ | `boolean` |   | occurredAt อนาคตเกิน 5 นาที หรือย้อนหลังเกิน 24 ชม. จาก receivedAt (ธง ไม่แก้เวลา) |   |
 | `lateReason` | ใช่ | `string` | ค่า: `STOP_REMOVED`, `TRIP_CANCELLED`, `TRIP_COMPLETED`, `BILLING_LOCKED` · null ได้ | event มาหลังจุดถูกถอด / เที่ยวยกเลิก / เที่ยวจบ — รับเก็บเป็นประวัติ ไม่นับจนกว่าผู้จัดรถยอมรับ |   |

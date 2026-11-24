@@ -788,4 +788,36 @@ describe('รถ (vehicles)', () => {
       .expect(200);
     expect(same.body.version).toBe(r.body.version);
   });
+
+  it('รูปรถ (PO 24 พ.ย. 2569 — review L): ต้องเป็นรูปที่อัปโหลดเสร็จ · PDF → 422 not_image · ยังไม่อัปโหลด → 422 not_ready · ไม่พบ → 422', async () => {
+    const doc = (mimeType: string, status: 'READY' | 'PENDING') =>
+      db.storedDocument.create({
+        data: {
+          tenantId,
+          status,
+          kind: 'OTHER',
+          mimeType,
+          sizeBytes: 10,
+          createdBy: 'user-test',
+          ...(status === 'READY' ? { fileKey: `k/${++seed}`, sha256: 'x'.repeat(64) } : {}),
+        },
+      });
+    const enc = (id: string) => `doc_${id.replace(/-/g, '')}`;
+    const img = await doc('image/png', 'READY');
+    const pdf = await doc('application/pdf', 'READY');
+    const pending = await doc('image/jpeg', 'PENDING');
+    const field = async (ids: string[]) =>
+      (await create({ photoDocumentIds: ids }).expect(422)).body.errors[0];
+    expect(await field([enc(pdf.id)])).toMatchObject({
+      field: 'photoDocumentIds',
+      code: 'not_image',
+    });
+    expect(await field([enc(pending.id)])).toMatchObject({
+      field: 'photoDocumentIds',
+      code: 'not_ready',
+    });
+    expect(await field(['doc_' + '0'.repeat(32)])).toMatchObject({ code: 'not_found' });
+    const ok = (await create({ photoDocumentIds: [enc(img.id)] }).expect(201)).body;
+    expect(ok.photoDocumentIds).toEqual([enc(img.id)]);
+  });
 });

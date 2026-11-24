@@ -119,6 +119,24 @@ describe('ReturnDialog (ST4-T11)', () => {
     );
   });
 
+  it('จำนวนบางส่วน: ติ๊กแล้วมีช่องจำนวน (เริ่ม = คงเหลือ) · เกินคงเหลือ = บันทึกไม่ได้ · กรอกบางส่วน → lines.qty', () => {
+    show(d(), pod());
+    fireEvent.click(screen.getByRole('checkbox'));
+    const q = screen.getByRole('textbox', {
+      name: 'จำนวนที่จัดการ ปูนซีเมนต์',
+    }) as HTMLInputElement;
+    expect(q.value).toBe('10');
+    fireEvent.change(q, { target: { value: '11' } });
+    expect(screen.getByTestId('rt-hint').textContent).toBe(
+      'จำนวนต้องมากกว่า 0 และไม่เกินที่ปฏิเสธรับคงเหลือ',
+    );
+    fireEvent.click(screen.getByText('บันทึกตีกลับ'));
+    expect(mutate).not.toHaveBeenCalled();
+    fireEvent.change(q, { target: { value: '4' } });
+    fireEvent.click(screen.getByText('บันทึกตีกลับ'));
+    expect(mutate.mock.calls[0]![0].body.lines).toEqual([{ lineNo: 1, qty: '4' }]);
+  });
+
   it('คืนคลัง + เหตุผลบังคับโน้ต · เหตุผลบังคับรูปแต่ไม่มีรูปหลักฐาน → บันทึกไม่ได้', () => {
     show(d(), pod(0));
     fireEvent.click(screen.getByRole('checkbox'));
@@ -128,7 +146,9 @@ describe('ReturnDialog (ST4-T11)', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'rsn_p' } });
     expect(screen.getByText('โน้ต (บังคับ)')).toBeTruthy();
     fireEvent.click(screen.getByLabelText('คืนคลัง — ไม่ส่งซ้ำ'));
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'กล่องบุบ 3 กล่อง' } });
+    fireEvent.change(screen.getByPlaceholderText(/^เช่น กล่องบุบ/), {
+      target: { value: 'กล่องบุบ 3 กล่อง' },
+    });
     fireEvent.click(screen.getByText('บันทึกตีกลับ'));
     expect(mutate.mock.calls[0]![0]).toMatchObject({
       action: 'return',

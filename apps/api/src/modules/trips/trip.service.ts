@@ -29,9 +29,14 @@ import {
   shiftWindowToDay,
   OPS_TRIP_AWAITING_CARRIER,
   OPS_TRIP_RUNNING,
+  TRIP_NOT_CANCELLED,
+  TRIP_TAB_DONE,
+  TRIP_TAB_IN_TRANSIT,
+  TRIP_TAB_PLANNING,
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId } from '../../common/ids';
+import { likeEscape } from '../../common/ilike';
 import { redactPrices } from '../../common/price-fields';
 import { toTripDto } from './trip-dto';
 import { ProblemException } from '../../common/problem';
@@ -143,7 +148,16 @@ export interface TripFilter extends ListQuery {
   vehicleId?: string;
   driverId?: string;
   carrierId?: string;
+  /** หน้า `/trips` — ค้นแบบมีคำนี้ (ไม่สนตัวพิมพ์) */
+  tripNo?: string;
+  vehiclePlate?: string;
+  driverName?: string;
+  ownership?: 'OWN' | 'SUBCON';
+  /** ค้นชื่อสถานที่ของจุดแวะ */
+  route?: string;
 }
+
+const has = (v: string) => ({ contains: likeEscape(v.trim()), mode: 'insensitive' as const });
 
 /**
  * ตัวกรองของรายการเที่ยว — ใช้ร่วมกับตัวนับ (`summary`) เพื่อให้ตัวเลขบน dashboard = จำนวนแถวของรายการ (ST9-T01)
@@ -157,6 +171,29 @@ export function tripWhere(q: Omit<TripFilter, keyof ListQuery>): Prisma.TripWher
       q.vehicleId ? { vehicleId: q.vehicleId } : {},
       q.driverId ? { OR: [{ driverId: q.driverId }, { reliefDriverId: q.driverId }] } : {},
       q.carrierId ? { carrierId: q.carrierId } : {},
+      q.tripNo?.trim() ? { tripNo: has(q.tripNo) } : {},
+      q.vehiclePlate?.trim()
+        ? {
+            OR: [
+              { vehiclePlateSnapshot: has(q.vehiclePlate) },
+              { vehicle: { is: { plate: has(q.vehiclePlate) } } },
+              { trailerPlateSnapshot: has(q.vehiclePlate) },
+              { vehicleTypeSnapshot: has(q.vehiclePlate) },
+            ],
+          }
+        : {},
+      q.driverName?.trim()
+        ? {
+            OR: [
+              { driverNameSnapshot: has(q.driverName) },
+              { reliefDriverNameSnapshot: has(q.driverName) },
+              { carrierNameSnapshot: has(q.driverName) },
+            ],
+          }
+        : {},
+      q.ownership === 'OWN' ? { carrierId: null } : {},
+      q.ownership === 'SUBCON' ? { carrierId: { not: null } } : {},
+      q.route?.trim() ? { stops: { some: { site: { is: { name: has(q.route) } } } } } : {},
     ],
   };
 }
@@ -284,12 +321,62 @@ export class TripService {
    * ST9-T01 ตัวนับของ dashboard ปฏิบัติการ — นับด้วยตัวกรองชุดเดียวกับ `GET /trips?status=` (`tripWhere`)
    * ตัวเลขจึงเท่ากับจำนวนแถวของรายการเมื่อคลิกเข้าไปดูเสมอ (RPT-001/RPT-005) · RLS จำกัด tenant
    */
-  async summary(tx: Tx = this.db.tx): Promise<{ running: number; offered: number }> {
-    const [running, offered] = await Promise.all([
-      tx.trip.count({ where: tripWhere({ statuses: [...OPS_TRIP_RUNNING] }) }),
-      tx.trip.count({ where: tripWhere({ statuses: [...OPS_TRIP_AWAITING_CARRIER] }) }),
+  async summary(tx: Tx = this.db.tx) {
+    const n = (f: Omit<TripFilter, keyof ListQuery>) => tx.trip.count({ where: tripWhere(f) });
+    const [running, offered, planning, inTransit, done, subcon, total] = await Promise.all([
+      n({ statuses: [...OPS_TRIP_RUNNING] }),
+      n({ statuses: [...OPS_TRIP_AWAITING_CARRIER] }),
+      // ชุดสถานะเดียวกับ `@tms/domain` ops-lists (ตัวกรอง `status` ของรายการ)
+      n({ statuses: [...TRIP_TAB_PLANNING] }),
+      n({ statuses: [...TRIP_TAB_IN_TRANSIT] }),
+      n({ statuses: [...TRIP_TAB_DONE] }),
+      n({ statuses: [...TRIP_NOT_CANCELLED], ownership: 'SUBCON' }),
+      tx.trip.count(),
     ]);
-    return { running, offered };
+    return { running, offered, planning, inTransit, done, subcon, total };
+  }
+
+  /**
+   * ยอดเงินต่อเที่ยวของรายการ (`sellAmount` / `buyTotal`) — aggregate ต่อหน้า
+   * รายได้ = Σ บรรทัดรายได้ ACTIVE ของ DO ในเที่ยว (ไม่นับ DO ยกเลิก) · ค่าเที่ยว = Σ trip_cost CONFIRMED (รวมกลับรายการ = buyTotal)
+   * ตัดตามสิทธิ์ราคาที่ serializer (`sellAmount` / `buyTotal` เป็น PriceField)
+   */
+  async listAmounts(
+    tripIds: string[],
+    tx: Tx = this.db.tx,
+  ): Promise<Map<string, { sellAmount: string; buyTotal: string }>> {
+    const out = new Map<string, { sellAmount: string; buyTotal: string }>();
+    if (!tripIds.length) return out;
+    const [dos, costs] = await Promise.all([
+      tx.deliveryOrder.findMany({
+        where: { tripId: { in: tripIds }, status: { not: 'CANCELLED' } },
+        select: { id: true, tripId: true },
+      }),
+      tx.tripCost.groupBy({
+        by: ['tripId'],
+        where: { tripId: { in: tripIds }, status: 'CONFIRMED' },
+        _sum: { amount: true },
+      }),
+    ]);
+    const rev = dos.length
+      ? await tx.revenueLine.groupBy({
+          by: ['deliveryOrderId'],
+          where: { deliveryOrderId: { in: dos.map((d) => d.id) }, status: 'ACTIVE' },
+          _sum: { amount: true },
+        })
+      : [];
+    const zero = new Prisma.Decimal(0);
+    const revByDo = new Map(rev.map((r) => [r.deliveryOrderId!, r._sum.amount ?? zero]));
+    const sell = new Map<string, Prisma.Decimal>();
+    for (const d of dos)
+      sell.set(d.tripId!, (sell.get(d.tripId!) ?? zero).add(revByDo.get(d.id) ?? zero));
+    const buy = new Map(costs.map((c) => [c.tripId, c._sum.amount ?? zero]));
+    for (const id of tripIds)
+      out.set(id, {
+        sellAmount: (sell.get(id) ?? zero).toFixed(2),
+        buyTotal: (buy.get(id) ?? zero).toFixed(2),
+      });
+    return out;
   }
 
   async list(q: TripFilter, tx: Tx = this.db.tx) {
