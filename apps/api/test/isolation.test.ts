@@ -1054,6 +1054,7 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   activate: { reason: 'isolation test' },
   roles: { roles: ['viewer'], reason: 'isolation test' },
   suspend: { reason: 'isolation test' },
+  'reset-2fa': { reason: 'isolation test' }, // #81
   delete: { reason: 'isolation test reason' },
   revoke: { reason: 'isolation test' },
   cancel: { reason: 'isolation test' },
