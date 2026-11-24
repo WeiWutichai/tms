@@ -31,13 +31,16 @@ export function useTrackingLink(kind: TrackingKind, id: string, enabled = true) 
 export function useTrackingLinkActions(kind: TrackingKind, id: string) {
   const qc = useQueryClient();
   const done = () => qc.invalidateQueries({ queryKey: key(kind, id) });
+  // ออกใหม่แทนลิงก์ที่ใช้ได้ = เพิกถอนลิงก์เดิม → ส่งเหตุผล (review M2) · ลิงก์แรกไม่ต้องมีเหตุผล
   const issue = useMutation({
-    mutationFn: () =>
-      unwrap(
+    mutationFn: (reason?: string) => {
+      const body = reason ? { reason } : {};
+      return unwrap(
         kind === 'do'
-          ? api.POST('/v1/delivery-orders/{id}/tracking-link', { params: { path: { id } } })
-          : api.POST('/v1/customers/{id}/tracking-link', { params: { path: { id } } }),
-      ),
+          ? api.POST('/v1/delivery-orders/{id}/tracking-link', { params: { path: { id } }, body })
+          : api.POST('/v1/customers/{id}/tracking-link', { params: { path: { id } }, body }),
+      );
+    },
     onSuccess: done,
   });
   const revoke = useMutation({
@@ -80,12 +83,20 @@ export function TrackingLinkBlock({
   const q = useTrackingLink(kind, id);
   const { issue, revoke } = useTrackingLinkActions(kind, id);
   const [revoking, setRevoking] = useState(false);
+  const [reissuing, setReissuing] = useState(false);
   const link = q.data?.link ?? null;
   const dt = (iso: string) => formatDate(new Date(iso), lang, ys);
   const copy = (url: string) => {
-    void navigator.clipboard?.writeText(url).catch(() => undefined);
-    onToast(t('trk.link.copied'));
+    // คัดลอกไม่ได้ (ไม่มีสิทธิ์ clipboard / ไม่ใช่ https) → แจ้งให้คัดลอกเองจากแถวลิงก์ (review L)
+    const fail = () => onToast(t('trk.link.copyFailed'));
+    if (!navigator.clipboard?.writeText) return fail();
+    navigator.clipboard.writeText(url).then(() => onToast(t('trk.link.copied')), fail);
   };
+  const create = () =>
+    issue.mutate(undefined, {
+      onSuccess: () => onToast(t('trk.link.issued')),
+      onError: (e) => onToast(problemText(e, t) ?? t('trk.link.error')),
+    });
   return (
     <section
       style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
@@ -153,12 +164,7 @@ export function TrackingLinkBlock({
             type="button"
             className="tms-vdoc__add"
             disabled={issue.isPending}
-            onClick={() =>
-              issue.mutate(undefined, {
-                onSuccess: () => onToast(t(link ? 'trk.link.reissued' : 'trk.link.issued')),
-                onError: (e) => onToast(problemText(e, t) ?? t('trk.link.error')),
-              })
-            }
+            onClick={() => (link ? setReissuing(true) : create())}
           >
             <Icon n={link ? 'refresh-cw' : 'plus'} s={16} />
             {t(link ? 'trk.link.reissue' : 'trk.link.create')}
@@ -166,6 +172,30 @@ export function TrackingLinkBlock({
           {link && <span className="tms-vdoc__sub">{t('trk.link.reissueHint')}</span>}
         </div>
       )}
+      <ReasonDialog
+        open={reissuing}
+        title={t('trk.link.reissueT')}
+        description={t('trk.link.reissueD')}
+        label={t('veh.dlg.reason')}
+        placeholder={t('trk.link.reasonPh')}
+        okLabel={t('trk.link.reissue')}
+        cancelLabel={t('common.cancel')}
+        closeLabel={t('drawer.close')}
+        busy={issue.isPending}
+        error={problemText(issue.error, t)}
+        onClose={() => {
+          setReissuing(false);
+          issue.reset();
+        }}
+        onOk={(reason) =>
+          issue.mutate(reason, {
+            onSuccess: () => {
+              setReissuing(false);
+              onToast(t('trk.link.reissued'));
+            },
+          })
+        }
+      />
       <ReasonDialog
         open={revoking}
         title={t('trk.link.revokeT')}

@@ -1,3 +1,9 @@
+import {
+  DEFAULT_EXPIRY_ALERTS,
+  expiryAlertsError,
+  normalizeExpiryAlerts,
+  type ExpiryAlerts,
+} from '../reminders/expiry-alerts';
 /**
  * Registry ค่าตั้งองค์กร (ST1-T17; docs/04 I "ตั้งค่าองค์กร", spec/01 §13) — stage ถัดไปลงทะเบียน key เพิ่มที่นี่
  * ทุก key มี type + default; ค่าที่ผิด type ถูกปฏิเสธ (422) · ไม่มีแถวใน tenant_setting = ใช้ default
@@ -40,7 +46,9 @@ export type SettingType =
   /** POD checklist ค่าเริ่มต้นของ tenant (ST4-T05) — ตรวจด้วย `parsePodRequirements` ของ @tms/domain */
   | { kind: 'podRequirements' }
   /** เบอร์โทร (ST4-T14 เบอร์บริษัทบนหน้าติดตาม) — null = ไม่ตั้ง */
-  | { kind: 'phone'; nullable: true };
+  | { kind: 'phone'; nullable: true }
+  /** แจ้งเตือนเอกสารรถ/ใบขับขี่ (#40) — ตรวจด้วย `expiryAlertsError` */
+  | { kind: 'expiryAlerts' };
 
 export interface SettingDef {
   type: SettingType;
@@ -56,7 +64,8 @@ export interface SettingDef {
     | 'pod'
     | 'tracking'
     | 'retention'
-    | 'settlement';
+    | 'settlement'
+    | 'reminders';
   store?: { table: 'tenant'; column: 'name' | 'yearStyle' };
   description: string;
 }
@@ -205,6 +214,14 @@ export const SETTINGS = {
     description:
       'POD checklist ค่าเริ่มต้นของลูกค้าทุกราย (docs/04 E2) — ชุด success/failure; ชนิด PHOTO/SIGNATURE/NOTE/BARCODE/PIN/RATING/BOOLEAN/SINGLE_CHOICE ตั้ง DISABLED/ENABLED/REQUIRED; ลูกค้า override ได้ที่ `podRequirements` (แยกต่อชุด)',
   },
+  // #40 (PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ `docalert`): ระดับ/ช่องทางเตือนต่อประเภทเอกสารรถ + ใบขับขี่
+  'reminders.expiryAlerts': {
+    group: 'reminders',
+    type: { kind: 'expiryAlerts' },
+    default: DEFAULT_EXPIRY_ALERTS,
+    description:
+      'แจ้งเตือนเอกสารรถ/ใบขับขี่ใกล้หมด (ST2-T18) ต่อประเภท: `levels` ⊆ [60, 30, 7] วัน (ว่าง = ไม่เตือนประเภทนั้น) + ช่องทาง `inApp` / `email` · ผู้รับ = ผู้มีสิทธิ์แก้ข้อมูลรถ (master:write) · สรุปรายวัน 08:00 ระดับละครั้ง (spec/06 FLT-040) · rate card ใช้ 30/7 วันคงที่',
+  },
   'tracking.contactPhone': {
     group: 'tracking',
     type: { kind: 'phone', nullable: true },
@@ -341,6 +358,8 @@ export function validateSetting(key: SettingKey, value: unknown): string | null 
       return value === null || (typeof value === 'string' && /^cmp_[0-9a-f]{32}$/i.test(value))
         ? null
         : 'must be a company id (cmp_…) or null';
+    case 'expiryAlerts':
+      return expiryAlertsError(value);
     case 'podRequirements': {
       const errs = settingFieldErrors(key, value);
       return errs.length ? errs.map((e) => `${e.path}: ${e.message}`).join('; ') : null;
@@ -372,6 +391,7 @@ export function presentSetting(key: SettingKey, value: unknown): unknown {
 export function normalizeSetting(key: SettingKey, value: unknown): unknown {
   const t: SettingType = SETTINGS[key].type;
   if (t.kind === 'podRequirements') return parsePodRequirements(value, true).value;
+  if (t.kind === 'expiryAlerts') return normalizeExpiryAlerts(value as ExpiryAlerts);
   return typeof value === 'string' ? value.trim() : value;
 }
 

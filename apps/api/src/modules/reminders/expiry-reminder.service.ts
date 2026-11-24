@@ -21,6 +21,10 @@ import {
   type ReminderEntityType,
   type ReminderLevel,
 } from './expiry-policy';
+import { alertChannels, alertRow } from './expiry-alerts';
+import { readSettings } from '../settings/settings.service';
+
+const ALERTS_KEY = 'reminders.expiryAlerts' as const;
 
 export const EXPIRY_REMINDER_JOB = 'expiry.reminders';
 /** สรุปรายวันส่งตั้งแต่ 08:00 เวลาไทย (docs/04 I "สรุปรายวัน 08:00" — ทับ spec/06 FLT-040 06:00; spec/12 §3 #40) */
@@ -38,6 +42,8 @@ const RECIPIENT_SCOPE = {
 type RecipientKey = keyof typeof RECIPIENT_SCOPE;
 
 export interface ExpiryCandidate {
+  /** #40 ช่องทางตามค่าตั้งของประเภท (ไม่ระบุ = in_app + email) */
+  channels?: ('in_app' | 'email')[];
   entityType: ReminderEntityType;
   entityId: string;
   expiresOn: string;
@@ -181,9 +187,13 @@ export class ExpiryReminderService implements OnModuleInit {
   ): Promise<ExpiryRunResult> {
     const statusUpdated = await withTx((tx) => this.syncVehicleDocStatus(tx, today));
     const failed = { items: 0 };
+    // #40 ค่าตั้งแจ้งเตือนเอกสารรถ/ใบขับขี่ของบริษัท
+    const alerts = await withTx(
+      async (tx) => (await readSettings(tx, tenantId, [ALERTS_KEY]))[ALERTS_KEY],
+    );
     const candidates = await withTx(async (tx) => [
-      ...(await this.vehicleDocCandidates(tx, today, failed)),
-      ...(await this.licenceCandidates(tx, today, failed)),
+      ...(await this.vehicleDocCandidates(tx, today, failed, alerts)),
+      ...(await this.licenceCandidates(tx, today, failed, alerts)),
       ...(await this.rateCardCandidates(tx, today, failed)),
     ]);
     const result: ExpiryRunResult = {
@@ -262,6 +272,8 @@ export class ExpiryReminderService implements OnModuleInit {
       tenantId,
       to: { userIds: [userId] },
       template: 'expiry.digest',
+      // #40 ช่องทาง = รวมของรายการในสรุป (ค่าตั้งต่อประเภท)
+      channels: [...new Set(list.flatMap((c) => c.channels ?? (['in_app', 'email'] as const)))],
       vars: {
         total: list.length,
         more: Math.max(0, list.length - DIGEST_MAX_ITEMS),
@@ -367,7 +379,12 @@ export class ExpiryReminderService implements OnModuleInit {
     };
   }
 
-  private async vehicleDocCandidates(tx: Tx, today: string, failed: { items: number }) {
+  private async vehicleDocCandidates(
+    tx: Tx,
+    today: string,
+    failed: { items: number },
+    alerts?: unknown,
+  ) {
     const th = REMINDER_THRESHOLDS.VEHICLE_DOCUMENT;
     const docs = await tx.vehicleDocument.findMany({
       where: {
@@ -385,7 +402,7 @@ export class ExpiryReminderService implements OnModuleInit {
       orderBy: [{ expiresOn: 'asc' }, { id: 'asc' }],
     });
     return this.collect(docs, 'VEHICLE_DOCUMENT', failed, (d) =>
-      this.vehicleDocCandidate(d, today),
+      this.vehicleDocCandidate(d, today, alerts),
     );
   }
 
@@ -399,12 +416,18 @@ export class ExpiryReminderService implements OnModuleInit {
       vehicle: { plate: string };
     },
     today: string,
+    alerts?: unknown,
   ): ExpiryCandidate | null {
     const expiresOn = day(d.expiresOn);
     const days = daysBetween(today, expiresOn);
-    const level = dueLevel(days, REMINDER_THRESHOLDS.VEHICLE_DOCUMENT);
+    // #40 ระดับ/ช่องทางตามประเภทเอกสาร (ไม่มีค่าตั้ง = 60/30/7 + ในระบบ + อีเมล)
+    const row = alertRow(alerts, d.docType);
+    const channels = alertChannels(row);
+    if (!row.levels.length || !channels.length) return null;
+    const level = dueLevel(days, row.levels);
     if (!level) return null;
     return {
+      channels,
       entityType: 'VEHICLE_DOCUMENT',
       entityId: d.id,
       expiresOn,
@@ -422,8 +445,16 @@ export class ExpiryReminderService implements OnModuleInit {
     };
   }
 
-  private async licenceCandidates(tx: Tx, today: string, failed: { items: number }) {
+  private async licenceCandidates(
+    tx: Tx,
+    today: string,
+    failed: { items: number },
+    alerts?: unknown,
+  ) {
     const th = REMINDER_THRESHOLDS.DRIVER_LICENCE;
+    const row = alertRow(alerts, 'DRIVER_LICENCE');
+    const channels = alertChannels(row);
+    if (!row.levels.length || !channels.length) return [];
     const drivers = await tx.driver.findMany({
       where: {
         deletedAt: null,
@@ -436,9 +467,10 @@ export class ExpiryReminderService implements OnModuleInit {
     return this.collect(drivers, 'DRIVER_LICENCE', failed, (d) => {
       const expiresOn = day(d.licenceExpiresAt!);
       const days = daysBetween(today, expiresOn);
-      const level = dueLevel(days, th);
+      const level = dueLevel(days, row.levels);
       if (!level) return null;
       return {
+        channels,
         entityType: 'DRIVER_LICENCE',
         entityId: d.id,
         expiresOn,

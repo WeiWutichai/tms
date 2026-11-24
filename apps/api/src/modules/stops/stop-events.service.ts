@@ -43,12 +43,15 @@ export interface StopEventInput {
   accuracyM?: number | null;
   reasonCodeId?: string | null;
   note?: string | null;
+  /** Q-LINK: รูปประกอบ (uuid ของ stored_document — ผู้เรียกตรวจความเป็นเจ้าของแล้ว) เช่น รับบางส่วนที่จุดรับผ่านลิงก์ */
+  photoDocumentIds?: string[];
 }
 
 /** payload ของแถว (docs/01 §3.9 "snapshot ข้อความลง payload") — ช่องเฉพาะชนิดของ POD = ST4-T07/T09 */
 export interface StopEventPayload {
   note?: string;
   reason?: ReasonSnapshot;
+  photoDocumentIds?: string[];
 }
 
 const field422 = (field: string, code: string, message: string) =>
@@ -170,6 +173,7 @@ export class StopEventsService {
     const payload: StopEventPayload = {};
     if (note) payload.note = note;
     if (reason) payload.reason = reason;
+    if (input.photoDocumentIds?.length) payload.photoDocumentIds = input.photoDocumentIds;
 
     const receivedAt = this.clock.now();
     const occurredAt = new Date(input.occurredAt);

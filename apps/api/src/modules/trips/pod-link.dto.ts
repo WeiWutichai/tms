@@ -385,7 +385,7 @@ export class PodLinkEventDto extends PickType(StopEventBaseDto, [
   @ApiPropertyOptional({
     type: PodLinkFailurePhotosDto,
     description:
-      'Q-LINK รูปประกอบเมื่อแจ้งไม่สำเร็จ (`FAIL` หรือ `COMPLETE` FAILED/UNDELIVERED_RETAIN) — บันทึกเป็นหลักฐานชุด "ไม่สำเร็จ" ของ DO หลัง DO เป็นส่งไม่สำเร็จ (event ไม่ถูกนับ → 409 `stop_not_ready` ยกเลิกทั้งคำขอ) · เหตุผลที่ตั้ง "ต้องมีรูป" ต้องแนบ (ไม่มี → 422 `photo_required`) · event อื่น/บางส่วน → 422 `not_applicable`',
+      'Q-LINK รูปประกอบ — แจ้งไม่สำเร็จ (`FAIL` หรือ `COMPLETE` FAILED/UNDELIVERED_RETAIN): บันทึกเป็นหลักฐานชุด "ไม่สำเร็จ" ของ DO หลัง DO เป็นส่งไม่สำเร็จ (event ไม่ถูกนับ → 409 `stop_not_ready` ยกเลิกทั้งคำขอ) · รับบางส่วนที่จุดรับ (`COMPLETE PARTIAL`): แนบกับ event (`photoDocumentIds` ในไทม์ไลน์) · เหตุผลที่ตั้ง "ต้องมีรูป" ต้องแนบ (ไม่มี → 422 `photo_required`) · event อื่น/ส่งบางส่วนที่จุดส่ง → 422 `not_applicable`',
   })
   @IsOptional()
   @ValidateNested()

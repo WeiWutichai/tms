@@ -89,8 +89,10 @@ export { expect };
 /** กระดานวางแผน: เปิดกลุ่มพับ "รถร่วมทั้งหมด" (PLN-049 — รถร่วมที่ไม่มีงานในวันที่แสดง) ถ้ายังพับอยู่ · เรียกหลังกระดานโหลดแล้ว */
 export async function openIdleSubcon(page: Page): Promise<void> {
   await page.locator('[data-testid^="plan-grp-"], [data-testid^="plan-row-"]').first().waitFor();
-  const b = page.getByTestId('plan-grp-idle').getByRole('button');
-  if ((await b.count()) && (await b.getAttribute('aria-expanded')) === 'false') await b.click();
+  const b = page.getByTestId('plan-grp-idle').locator('button[aria-expanded]');
+  if (!(await b.count())) return;
+  if ((await b.getAttribute('aria-expanded')) !== 'true') await b.click();
+  await expect(b).toHaveAttribute('aria-expanded', 'true');
 }
 
 /**

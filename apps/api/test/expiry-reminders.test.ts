@@ -1,4 +1,5 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import { EXPIRY_ALERT_TYPES, expiryAlertsError } from '../src/modules/reminders/expiry-alerts';
 import { Prisma, type Notification } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ensureSystemRoles } from '../src/auth/system-roles';
@@ -770,4 +771,48 @@ describe('เตือนต่ออายุ: job รายวัน (ST2-T18)
       process.env.NODE_ENV = prev;
     }
   });
+
+  it('#40 ค่าตั้งแจ้งเตือนเอกสารรถ: ปิดระดับของภาษี = ไม่เตือน · ประกันเตือนเฉพาะ 7 วันทางอีเมล · ใบขับขี่ปิด = ไม่เตือน · ค่าผิดรูป → validate', async () => {
+    const cfg = Object.fromEntries(
+      EXPIRY_ALERT_TYPES.map((k) => [k, { levels: [60, 30, 7], inApp: true, email: true }]),
+    ) as Record<string, { levels: number[]; inApp: boolean; email: boolean }>;
+    cfg.ANNUAL_TAX = { levels: [], inApp: true, email: true };
+    cfg.INSURANCE = { levels: [7], inApp: false, email: true };
+    cfg.DRIVER_LICENCE = { levels: [60, 30, 7], inApp: false, email: false };
+    expect(expiryAlertsError(cfg)).toBeNull();
+    expect(
+      expiryAlertsError({ ...cfg, ANNUAL_TAX: { levels: [15], inApp: true, email: true } }),
+    ).toMatch(/levels/);
+    await db.tenantSetting.upsert({
+      where: { tenantId_key: { tenantId: tA, key: 'reminders.expiryAlerts' } },
+      create: { tenantId: tA, key: 'reminders.expiryAlerts', value: cfg },
+      update: { value: cfg },
+    });
+    try {
+      const v = await vehicle(tA, vtA);
+      await doc(tA, v.id, addDays(D0, 30)); // ภาษี — ปิด
+      await doc(tA, v.id, addDays(D0, 30), { docType: 'INSURANCE' }); // 30 วัน — ประกันเตือนแค่ 7
+      await driver(tA, addDays(D0, 7)); // ใบขับขี่ — ปิดทุกช่องทาง
+      await runDay(D0);
+      expect(await db.notification.count({ where: { tenantId: tA } })).toBe(0);
+      const v2 = await vehicle(tA, vtA);
+      await doc(tA, v2.id, addDays(D0, 5), { docType: 'INSURANCE' });
+      await runDay(addDays(D0, 1));
+      // ประกันที่เหลือ 5 วัน → D7 ทางอีเมลอย่างเดียว (ไม่มีกระดิ่ง)
+      expect(await digests(tA)).toHaveLength(0);
+      const mails = await db.notification.findMany({ where: { tenantId: tA, channel: 'email' } });
+      expect(mails.length).toBeGreaterThan(0);
+      expect(
+        mails.every((m) =>
+          (m.payload as unknown as { items: ExpiryDigestItem[] }).items.every(
+            (i) => i.kind === 'VEHICLE_DOCUMENT' && i.docType === 'INSURANCE' && i.level === 'D7',
+          ),
+        ),
+      ).toBe(true);
+    } finally {
+      await db.tenantSetting.delete({
+        where: { tenantId_key: { tenantId: tA, key: 'reminders.expiryAlerts' } },
+      });
+    }
+  }, 120_000);
 });

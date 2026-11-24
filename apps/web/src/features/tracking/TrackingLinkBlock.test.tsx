@@ -55,6 +55,7 @@ describe('TrackingLinkBlock', () => {
     });
     expect(POST).toHaveBeenCalledWith('/v1/delivery-orders/{id}/tracking-link', {
       params: { path: { id: 'do_1' } },
+      body: {},
     });
     expect(onToast).toHaveBeenCalledWith('สร้างลิงก์ติดตามแล้ว');
     await waitFor(() => expect(screen.getByTestId('trk-link-url').textContent).toContain(LINK.url));
@@ -80,5 +81,24 @@ describe('TrackingLinkBlock', () => {
       body: { reason: 'ส่งลิงก์ให้ผู้รับผิดคน' },
     });
     expect(onToast).toHaveBeenCalledWith('เพิกถอนลิงก์ติดตามแล้ว');
+  });
+
+  it('มีลิงก์อยู่แล้ว: "ออกลิงก์ใหม่" ต้องกรอกเหตุผล ≥ 10 → POST พร้อมเหตุผล · คัดลอกไม่ได้ → แจ้งให้คัดลอกเอง', async () => {
+    GET.mockResolvedValue({ link: LINK });
+    POST.mockResolvedValueOnce(LINK);
+    const onToast = show();
+    fireEvent.click(await screen.findByRole('button', { name: 'คัดลอกลิงก์ติดตาม' }));
+    expect(onToast).toHaveBeenCalledWith('คัดลอกอัตโนมัติไม่ได้ — คัดลอกลิงก์จากแถวด้านบนเอง');
+    fireEvent.click(screen.getByRole('button', { name: 'ออกลิงก์ใหม่' }));
+    expect(POST).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'ผู้รับเปลี่ยนเบอร์โทร' } });
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: 'ออกลิงก์ใหม่' }).at(-1)!);
+    });
+    expect(POST).toHaveBeenCalledWith('/v1/delivery-orders/{id}/tracking-link', {
+      params: { path: { id: 'do_1' } },
+      body: { reason: 'ผู้รับเปลี่ยนเบอร์โทร' },
+    });
+    expect(onToast).toHaveBeenCalledWith('ออกลิงก์ใหม่แล้ว — ลิงก์เดิมใช้ไม่ได้');
   });
 });

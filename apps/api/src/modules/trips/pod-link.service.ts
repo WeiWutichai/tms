@@ -12,6 +12,7 @@ import { PodChecklistService } from '../pod/pod-checklist.service';
 import type { DeliveryOrderPodDto, SubmitPodDto } from '../pod/pod.dto';
 import { PodService } from '../pod/pod.service';
 import { StopEventsService } from '../stops/stop-events.service';
+import { DeliveryOrderService } from '../delivery-orders/delivery-order.service';
 import { arabicDigits } from '../vehicles/vehicles.service';
 import { linkWriteBucket } from '../../http/link-rate-limit';
 import { RateLimitService } from '../../http/rate-limit/rate-limit.service';
@@ -77,6 +78,7 @@ export class PodLinkService {
     private readonly pods: PodService,
     private readonly checklist: PodChecklistService,
     private readonly limiter: RateLimitService,
+    private readonly dos: DeliveryOrderService,
   ) {}
 
   /** การจ้าง + เที่ยวของลิงก์ — ใช้ไม่ได้แล้ว → 404 */
@@ -100,8 +102,8 @@ export class PodLinkService {
     const tx = this.db.tx;
     const { trip } = await this.context(offerId);
     const job = await this.offers.view(offerId, false);
-    const dos = await tx.deliveryOrder.findMany({
-      where: { tripId: trip.id, status: { not: 'CANCELLED' }, doNo: { not: null } },
+    const all = await tx.deliveryOrder.findMany({
+      where: { tripId: trip.id, doNo: { not: null } },
       select: {
         id: true,
         doNo: true,
@@ -115,6 +117,12 @@ export class PodLinkService {
       },
       orderBy: { doNo: 'asc' },
     });
+    // review M1 (Q-LINK): ใบที่ยกเลิกเพราะนัดส่งใหม่อัตโนมัติ (redeliver) = ส่งไม่สำเร็จของเที่ยวนี้ — ยังค้น/เห็นผล "แจ้งไม่สำเร็จแล้ว" ได้
+    // (กฎเดียวกับ PodService.effectiveStatus) · ยกเลิกทางอื่น = ไม่แสดง
+    const dos = [];
+    for (const d of all)
+      if (d.status !== 'CANCELLED' || (await this.dos.isRedeliverCancelled(tx, d.id, d.status)))
+        dos.push(d);
     // หลักฐานฉบับล่าสุดต่อ DO (ST4-T09) — "ส่งแล้ว" ของลิงก์นี้ + DO ที่มี POD แล้วส่งซ้ำไม่ได้
     const latestPod = new Map<
       string,
@@ -357,16 +365,19 @@ export class PodLinkService {
       );
     if (short && !body.reasonCodeId)
       throw field422('reasonCodeId', 'required', 'reason is required');
-    // Q-LINK รูปประกอบ = เฉพาะผลไม่สำเร็จ (DO เป็นส่งไม่สำเร็จ → หลักฐานชุด "ไม่สำเร็จ")
+    // Q-LINK รูปประกอบ: ผลไม่สำเร็จ (DO เป็นส่งไม่สำเร็จ) → หลักฐานชุด "ไม่สำเร็จ" ของ DO ·
+    // รับบางส่วนที่จุดรับ (DO ยังวิ่งต่อ — ไม่มีชุดหลักฐานให้ใส่) → แนบกับ event (`payload.photoDocumentIds`, เห็นในไทม์ไลน์)
     const failOutcome =
       body.type === 'FAIL' ||
       (body.type === 'COMPLETE' && (outcome === 'FAILED' || outcome === 'UNDELIVERED_RETAIN'));
+    const pickupPartial =
+      body.type === 'COMPLETE' && outcome === 'PARTIAL' && stop.type === 'PICKUP';
     const failPhotos = body.failurePhotos;
-    if (failPhotos && !failOutcome)
+    if (failPhotos && !failOutcome && !pickupPartial)
       throw field422(
         'failurePhotos',
         'not_applicable',
-        'failurePhotos is accepted only with FAIL or COMPLETE FAILED/UNDELIVERED_RETAIN',
+        'failurePhotos is accepted only with FAIL, COMPLETE FAILED/UNDELIVERED_RETAIN, or COMPLETE PARTIAL at a pickup stop',
       );
     const closeDrop =
       body.type === 'COMPLETE' &&
@@ -449,7 +460,10 @@ export class PodLinkService {
       if (!failDo)
         throw field422('failurePhotos.doNo', 'not_found', 'delivery order is not at this stop');
       if (!isReplay) {
-        if (await tx.deliveryOrderPod.count({ where: { deliveryOrderId: failDo.id } }))
+        if (
+          !pickupPartial &&
+          (await tx.deliveryOrderPod.count({ where: { deliveryOrderId: failDo.id } }))
+        )
           throw new ProblemException('pod_exists');
         await this.assertLinkFiles(
           linkId,
@@ -470,6 +484,13 @@ export class PodLinkService {
           outcome,
           reasonCodeId: body.reasonCodeId ?? null,
           note: body.note ?? null,
+          ...(failPhotos && pickupPartial
+            ? {
+                photoDocumentIds: failPhotos.photoDocumentIds.map((x) =>
+                  tryDecodeId('document', x)!,
+                ),
+              }
+            : {}),
           lat: body.lat ?? null,
           lng: body.lng ?? null,
           accuracyM: body.accuracyM ?? null,
@@ -519,7 +540,7 @@ export class PodLinkService {
         });
       }
     }
-    if (failDo) {
+    if (failDo && !pickupPartial) {
       if (out.replayed) {
         const v = await this.pods.view(failDo.id, tx);
         pod = v.current ? captureResult(failDo.doNo!, v, true) : undefined;

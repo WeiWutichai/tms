@@ -4,9 +4,14 @@ import { I18nProvider } from '../../i18n';
 
 /** wizard นำเข้า: ตัวเลือกวิธีนำเข้า (spec/02 §11.4 — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ) */
 const POST = vi.fn();
+const PATCH = vi.fn();
 vi.mock('../../api', async (orig) => ({
   ...(await orig<typeof import('../../api')>()),
-  api: { POST: (...a: unknown[]) => POST(...a), GET: vi.fn(), PATCH: vi.fn() },
+  api: {
+    POST: (...a: unknown[]) => POST(...a),
+    GET: vi.fn(),
+    PATCH: (...a: unknown[]) => PATCH(...a),
+  },
   unwrap: (p: Promise<unknown>) => p,
 }));
 const { ImportWizard } = await import('./ImportWizard');
@@ -65,6 +70,25 @@ describe('ImportWizard โหมดนำเข้า', () => {
       kind: 'route',
       documentId: 'doc_1',
       mode: 'upsert_by_code',
+    });
+    // เปลี่ยนวิธีหลังเลือกไฟล์ → PATCH งานเดิม ไม่อัปโหลด/สร้างงานใหม่
+    PATCH.mockResolvedValueOnce({
+      id: 'imp_1',
+      status: 'validating',
+      totalRows: 0,
+      okRows: 0,
+      issues: [],
+      mapping: {},
+      sample: [],
+    });
+    POST.mockClear();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('radio', { name: /แก้รายการเดิมตามรหัสเท่านั้น/ }));
+    });
+    expect(POST).not.toHaveBeenCalled();
+    expect(PATCH).toHaveBeenCalledWith('/v1/imports/{id}', {
+      params: { path: { id: 'imp_1' } },
+      body: { mode: 'update_only' },
     });
   });
 

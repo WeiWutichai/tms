@@ -225,9 +225,10 @@ test.describe.serial('ePOD ผ่านเว็บ: หลักฐานส่
     browser,
   }) => {
     const d = await openDocs(page);
-    const block = d.getByTestId('do-pod');
-    if ((await block.getByRole('button').first().getAttribute('aria-expanded')) === 'false')
-      await block.getByRole('button').first().click();
+    // แผง DO: เปิดถ้ายังพับ (ปุ่มหัวแผงมี aria-expanded)
+    const head = d.getByTestId('do-pod').locator('button[aria-expanded]').first();
+    if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click();
+    await expect(head).toHaveAttribute('aria-expanded', 'true');
     const trk = d.getByTestId('trk-link-do');
     await expect(trk).toContainText('ลิงก์ติดตามสำหรับผู้รับ');
     await trk.getByRole('button', { name: 'สร้างลิงก์ติดตาม' }).click();
@@ -239,7 +240,7 @@ test.describe.serial('ePOD ผ่านเว็บ: หลักฐานส่
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const p = await ctx.newPage();
     await p.goto(`${E2E_WEB}${new URL(url).pathname}`);
-    await expect(p.getByText('ลิงก์นี้ใช้ไม่ได้')).toHaveCount(0);
+    await expect(p.getByTestId('trk-status')).toBeVisible();
     await trk.getByRole('button', { name: 'เพิกถอนลิงก์' }).click();
     const dlg = page.getByRole('dialog', { name: 'เพิกถอนลิงก์ติดตาม' });
     await dlg.getByRole('textbox').fill('ส่งลิงก์ให้ผู้รับผิดคน');

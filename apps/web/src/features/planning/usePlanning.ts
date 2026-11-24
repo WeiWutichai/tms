@@ -1,5 +1,5 @@
 import type { Schemas } from '@tms/contracts';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, idempotent, unwrap } from '../../api';
 import { useRef, useState } from 'react';
 import { DEFAULT_PREFS, type Board, type BoardPrefs, type Eligibility } from './board';
@@ -20,6 +20,8 @@ export function useBoard(days: 1 | 7, date: string | null = null) {
   return useQuery({
     queryKey: [KEY, days, date ?? ''],
     staleTime: 0,
+    // เปลี่ยนวัน = คงกระดานเดิมไว้ระหว่างโหลด (ไม่กระพริบเป็นโครงร่าง — review L)
+    placeholderData: keepPreviousData,
     queryFn: () =>
       unwrap(
         api.GET('/v1/planning/board', { params: { query: { days, ...(date ? { date } : {}) } } }),

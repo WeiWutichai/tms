@@ -147,7 +147,11 @@ export class TrackingService {
   }
 
   /** ออกลิงก์ใหม่ — ลิงก์เดิมที่ยังใช้ได้ถูกเพิกถอน (1 ลิงก์ต่อ DO/ลูกค้า — EXE-060 "สร้างใหม่ = เพิกถอนอันเก่า") */
-  async issue(kind: keyof typeof TRACKING_ENTITIES, id: string): Promise<TrackingLinkDto> {
+  async issue(
+    kind: keyof typeof TRACKING_ENTITIES,
+    id: string,
+    reason?: string,
+  ): Promise<TrackingLinkDto> {
     const tx = this.db.tx;
     const entity = await this.assertEntity(tx, kind, id);
     if (kind === 'do' && entity.status === 'CANCELLED')
@@ -163,7 +167,7 @@ export class TrackingService {
     await lockKey(tx, `tracking-link:${entityType}:${id}`);
     const actor = requestContext.get()?.actorId ?? undefined;
     for (const old of await this.activeRows(tx, entityType, id))
-      await this.links.revoke(tx, old.id, 'ออกลิงก์ติดตามใหม่แทน', actor);
+      await this.links.revoke(tx, old.id, reason?.trim() || 'ออกลิงก์ติดตามใหม่แทน', actor);
     const ctx = requestContext.require();
     const l = await this.links.issue(tx, ctx.tenantId!, {
       purpose: TRACKING_PURPOSE,

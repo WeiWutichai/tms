@@ -57,6 +57,7 @@ export function toStopEventDto(e: StopEvent): StopEventDto {
         }
       : null,
     note: p.note ?? null,
+    photoDocumentIds: (p.photoDocumentIds ?? []).map((d) => encodeId('document', d)),
     sequenceConflict: e.sequenceConflict,
     clockSkew: e.clockSkew,
     lateReason: e.lateReason,

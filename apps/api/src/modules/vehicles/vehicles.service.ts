@@ -666,15 +666,23 @@ export class VehiclesService {
       ]);
   }
 
-  /** รูปรถต้องเป็นไฟล์ของ tenant นี้ (RLS) */
+  /** รูปรถต้องเป็นไฟล์ของ tenant นี้ (RLS) · อัปโหลดเสร็จแล้ว · เป็นรูป */
   private async assertPhotos(ids: string[] | undefined) {
     if (!ids?.length) return;
     const uuids = ids.map((d) => tryDecodeId('document', d));
     if (uuids.some((u) => !u))
       throw field422('photoDocumentIds', 'not_found', 'document not found');
-    const n = await this.db.tx.storedDocument.count({ where: { id: { in: uuids as string[] } } });
-    if (n !== new Set(uuids).size)
+    const docs = await this.db.tx.storedDocument.findMany({
+      where: { id: { in: uuids as string[] } },
+      select: { id: true, status: true, mimeType: true },
+    });
+    if (docs.length !== new Set(uuids).size)
       throw field422('photoDocumentIds', 'not_found', 'document not found');
+    // review L (PO 24 พ.ย. 2569 รูปรถ): ต้องเป็นรูปที่อัปโหลดเสร็จแล้ว (READY + image/*) — PDF/ยังไม่อัปโหลด → 422
+    if (docs.some((d) => d.status !== 'READY'))
+      throw field422('photoDocumentIds', 'not_ready', 'document upload is not complete');
+    if (docs.some((d) => !d.mimeType.startsWith('image/')))
+      throw field422('photoDocumentIds', 'not_image', 'vehicle photos must be images');
   }
 
   /**

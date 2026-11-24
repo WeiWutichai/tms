@@ -871,6 +871,12 @@ scope: `orders:write` หรือ `trips:dispatch` · operationId: `DeliveryOrd
 |---|---|---|---|---|
 | `id` | path | ใช่ | `string` |   |
 
+**Request body** `IssueTrackingLinkDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` |   | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `ส่งลิงก์ให้ผู้รับผิดคน` |
+
 **Responses**
 
 | สถานะ | ความหมาย | body |
@@ -880,6 +886,7 @@ scope: `orders:write` หรือ `trips:dispatch` · operationId: `DeliveryOrd
 | `403` | ไม่มีสิทธิ์ (`orders:write` / `trips:dispatch`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
 | `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
 
 **ตัวอย่าง**
@@ -887,12 +894,17 @@ scope: `orders:write` หรือ `trips:dispatch` · operationId: `DeliveryOrd
 ```bash
 curl -sS -X POST "$TMS_BASE_URL/v1/delivery-orders/<id>/tracking-link" \
   -H "Authorization: Bearer $TMS_API_KEY" \
-  -H "Idempotency-Key: $(uuidgen)"
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"ส่งลิงก์ให้ผู้รับผิดคน"}'
 ```
 
 ```ts
 const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link', {
   params: { path: { id: "…" } },
+  body: {
+    "reason": "ส่งลิงก์ให้ผู้รับผิดคน"
+  },
 });
 ```
 

@@ -78,7 +78,7 @@ export interface PodFailKind {
   key: PodFailKindKey;
   type: 'FAIL' | 'COMPLETE';
   outcome: 'PARTIAL' | 'FAILED' | 'UNDELIVERED_RETAIN' | null;
-  /** แนบรูปได้ (ผลไม่สำเร็จ → หลักฐานชุด "ไม่สำเร็จ" ของ DO) */
+  /** แนบรูปได้ (ผลไม่สำเร็จ → หลักฐานชุด "ไม่สำเร็จ" ของ DO · รับบางส่วนที่จุดรับ → แนบกับ event) */
   photos: boolean;
 }
 export interface PodFailTarget {
@@ -102,7 +102,7 @@ export function podFailTarget(m: PodDo): PodFailTarget | null {
       stop: P,
       kinds: [
         ...(at
-          ? [{ key: 'pickupPartial', type: 'COMPLETE', outcome: 'PARTIAL', photos: false } as const]
+          ? [{ key: 'pickupPartial', type: 'COMPLETE', outcome: 'PARTIAL', photos: true } as const]
           : []),
         at
           ? ({ key: 'pickupFailed', type: 'COMPLETE', outcome: 'FAILED', photos: true } as const)
@@ -133,7 +133,7 @@ export function podFailTarget(m: PodDo): PodFailTarget | null {
 
 /**
  * เหตุผลที่เลือกได้ต่อตัวเลือก — ของยังอยู่บนรถ = หมวด DELIVERY_FAILED เท่านั้น (API 422) ·
- * รับบางส่วนแนบรูปไม่ได้ → ซ่อนเหตุผลที่บังคับรูป
+ * ตัวเลือกที่แนบรูปไม่ได้ → ซ่อนเหตุผลที่บังคับรูป (ตอนนี้ทุกตัวเลือกแนบรูปได้)
  */
 export function podFailReasons(all: PodFailReason[], k: PodFailKind): PodFailReason[] {
   return all.filter(

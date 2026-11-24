@@ -33,6 +33,7 @@ import { apiOrigin } from '../documents/documents.controller';
 import { MasterReasonDto } from '../master/master-kit';
 import { T403, T404, T409, T422 } from '../trips/trip-problems';
 import {
+  IssueTrackingLinkDto,
   TrackingLinkDto,
   TrackingLinkStateDto,
   TrackingLookupDto,
@@ -146,8 +147,8 @@ export class DeliveryOrderTrackingController {
     type: TrackingLinkDto,
     description: `ออกลิงก์ใหม่ — ลิงก์เดิมถูกเพิกถอน (1 ลิงก์ต่อ DO) · DO ยกเลิกแล้ว → 409 · ${LINK_DESC}`,
   })
-  issue(@Param('id') id: string): Promise<TrackingLinkDto> {
-    return this.tracking.issue('do', decodeIdOr404('deliveryOrder', id));
+  issue(@Param('id') id: string, @Body() body: IssueTrackingLinkDto): Promise<TrackingLinkDto> {
+    return this.tracking.issue('do', decodeIdOr404('deliveryOrder', id), body?.reason);
   }
 
   @Post(':id/tracking-link/revoke')
@@ -197,8 +198,11 @@ export class CustomerTrackingController {
     type: TrackingLinkDto,
     description: `ออกลิงก์ใหม่ของลูกค้า — ลิงก์เดิมถูกเพิกถอน · ${LINK_DESC}`,
   })
-  async issue(@Param('id') id: string): Promise<TrackingLinkDto> {
-    return this.tracking.issue('customer', await this.ref(id));
+  async issue(
+    @Param('id') id: string,
+    @Body() body: IssueTrackingLinkDto,
+  ): Promise<TrackingLinkDto> {
+    return this.tracking.issue('customer', await this.ref(id), body?.reason);
   }
 
   @Post(':id/tracking-link/revoke')

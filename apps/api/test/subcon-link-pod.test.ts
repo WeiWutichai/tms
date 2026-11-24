@@ -1090,14 +1090,11 @@ describe('subcon link POD (ST4-T09)', () => {
     ).toMatchObject({ field: 'failurePhotos.doNo', code: 'not_found' });
     const p1 = await upload(a.podToken, a.doNo);
     const p2 = await upload(a.podToken, a.doNo);
-    // ใช้กับผลที่ไม่ใช่ไม่สำเร็จ → 422 not_applicable
+    // ใช้กับ event ที่ไม่ใช่แจ้งไม่สำเร็จ/รับบางส่วน → 422 not_applicable
     expect(
       (
-        await press(a.podToken, a.m.pickup.id, {
-          type: 'COMPLETE',
-          outcome: 'PARTIAL',
-          reasonCodeId: wrong,
-          note: 'x',
+        await press(a.podToken, a.m.delivery.id, {
+          type: 'ARRIVE',
           failurePhotos: { doNo: a.doNo, photoDocumentIds: [p1] },
         }).expect(422)
       ).body.errors[0],
@@ -1152,5 +1149,85 @@ describe('subcon link POD (ST4-T09)', () => {
     expect(r.body.pod).toMatchObject({ photoCount: 1 });
     const bDo = await db.deliveryOrder.findFirstOrThrow({ where: { doNo: b.doNo } });
     expect(await db.deliveryOrderPod.count({ where: { deliveryOrderId: bDo.id } })).toBe(1);
+  });
+
+  it('Q-LINK review M1: เหตุผลนัดส่งใหม่อัตโนมัติ (SHOP_CLOSED) → DO เดิมถูกยกเลิกเพราะ redeliver แต่ลิงก์ยังค้นเจอ + จุดส่ง FAILED · รูปบันทึกเป็นหลักฐานชุดไม่สำเร็จ · ส่งซ้ำได้ผลเดิม', async () => {
+    const closed = encodeId(
+      'reasonCode',
+      (
+        await db.reasonCode.findFirstOrThrow({
+          where: { tenantId, category: 'DELIVERY_FAILED', code: 'SHOP_CLOSED' },
+        })
+      ).id,
+    );
+    const a = await atDrop();
+    const p1 = await upload(a.podToken, a.doNo);
+    const cid = randomUUID();
+    const body = {
+      clientEventId: cid,
+      type: 'COMPLETE',
+      outcome: 'FAILED',
+      reasonCodeId: closed,
+      note: 'ร้านปิดวันหยุดประจำปี',
+      failurePhotos: { doNo: a.doNo, photoDocumentIds: [p1] },
+    };
+    const r = await press(a.podToken, a.m.delivery.id, body).expect(201);
+    expect(r.body).toMatchObject({ counted: true, pod: { photoCount: 1 } });
+    // นัดส่งใหม่อัตโนมัติ → ใบเดิม CANCELLED + ใบใหม่อ้างใบเดิม
+    expect((await db.deliveryOrder.findUniqueOrThrow({ where: { id: a.doId } })).status).toBe(
+      'CANCELLED',
+    );
+    expect(await db.deliveryOrder.count({ where: { redeliveryOfId: a.doId } })).toBe(1);
+    const v = (await view(a.podToken, a.doNo).expect(200)).body;
+    expect(v.match).toMatchObject({ doNo: a.doNo, delivery: { status: 'FAILED' } });
+    expect(v.match.pod).toMatchObject({ mode: null, sent: true });
+    expect(v.sent).toEqual([]);
+    const pod = await db.deliveryOrderPod.findFirstOrThrow({ where: { deliveryOrderId: a.doId } });
+    expect(pod.outcome).toBe('FAILURE');
+    // ส่งซ้ำหลังใบเดิมถูกยกเลิก → 200 ผลเดิม
+    const again = await press(a.podToken, a.m.delivery.id, body).expect(200);
+    expect(again.body).toMatchObject({ replayed: true, pod: { photoCount: 1, replayed: true } });
+  });
+
+  it('Q-LINK: รับบางส่วนที่จุดรับพร้อมรูป → เหตุผลบังคับรูปใช้ได้ · รูปแนบกับ event (ไทม์ไลน์) ไม่สร้างหลักฐานของ DO · DO รับของแล้ว', async () => {
+    const damaged = encodeId(
+      'reasonCode',
+      (
+        await db.reasonCode.findFirstOrThrow({
+          where: { tenantId, category: 'REJECTED_BY_RECEIVER', code: 'DAMAGED' },
+        })
+      ).id,
+    );
+    const a = await accepted();
+    await dispatch(a.t.id);
+    const m = (await view(a.podToken, a.doNo).expect(200)).body.match;
+    await press(a.podToken, m.pickup.id, { type: 'ARRIVE' }).expect(201);
+    const partial = (extra: Record<string, unknown>) =>
+      press(a.podToken, m.pickup.id, {
+        type: 'COMPLETE',
+        outcome: 'PARTIAL',
+        reasonCodeId: damaged,
+        ...extra,
+      });
+    expect((await partial({}).expect(422)).body.errors[0]).toMatchObject({
+      field: 'reasonCodeId',
+      code: 'photo_required',
+    });
+    const p1 = await upload(a.podToken, a.doNo);
+    const r = await partial({ failurePhotos: { doNo: a.doNo, photoDocumentIds: [p1] } }).expect(
+      201,
+    );
+    expect(r.body).toMatchObject({ outcome: 'PARTIAL', counted: true });
+    expect(r.body.pod).toBeUndefined();
+    const doId = (await db.deliveryOrder.findFirstOrThrow({ where: { doNo: a.doNo } })).id;
+    expect(await db.deliveryOrderPod.count({ where: { deliveryOrderId: doId } })).toBe(0);
+    expect((await db.deliveryOrder.findUniqueOrThrow({ where: { id: doId } })).status).toBe(
+      'PICKED_UP',
+    );
+    const tl = (await api(app, admin).get(`/v1/trips/${a.t.id}/events`).expect(200)).body.data;
+    expect(tl.find((e: { type: string }) => e.type === 'COMPLETE')).toMatchObject({
+      outcome: 'PARTIAL',
+      photoDocumentIds: [p1],
+    });
   });
 });

@@ -155,7 +155,7 @@ describe('podFailTarget / podFailReasons / podFailMissing', () => {
     const t = podFailTarget(doc({ status: 'ARRIVED' }))!;
     expect(t.stop.role).toBe('PICKUP');
     expect(t.kinds.map((k) => [k.key, k.type, k.outcome, k.photos])).toEqual([
-      ['pickupPartial', 'COMPLETE', 'PARTIAL', false],
+      ['pickupPartial', 'COMPLETE', 'PARTIAL', true],
       ['pickupFailed', 'COMPLETE', 'FAILED', true],
     ]);
   });
@@ -173,9 +173,12 @@ describe('podFailTarget / podFailReasons / podFailMissing', () => {
     expect(podFailTarget(doc({ status: 'COMPLETED' }, { status: 'COMPLETED' }))).toBeNull();
     expect(podFailTarget(doc({ status: 'FAILED' }))).toBeNull();
   });
-  it('เหตุผล: ของยังอยู่บนรถ = DELIVERY_FAILED เท่านั้น · รับบางส่วนซ่อนเหตุผลบังคับรูป', () => {
+  it('เหตุผล: ของยังอยู่บนรถ = DELIVERY_FAILED เท่านั้น · รับบางส่วนแนบรูปได้ (เห็นเหตุผลบังคับรูป)', () => {
     const [partial, failed] = podFailTarget(doc({ status: 'ARRIVED' }))!.kinds;
-    expect(podFailReasons(reasons, partial!).map((r) => r.id)).toEqual(['rsn_closed']);
+    expect(podFailReasons(reasons, partial!)).toHaveLength(3);
+    expect(podFailReasons(reasons, { ...partial!, photos: false }).map((r) => r.id)).toEqual([
+      'rsn_closed',
+    ]);
     expect(podFailReasons(reasons, failed!)).toHaveLength(3);
     const retain = podFailTarget(doc({ status: 'COMPLETED' }, { status: 'ARRIVED' }))!.kinds[1]!;
     expect(podFailReasons(reasons, retain).map((r) => r.id)).toEqual(['rsn_closed', 'rsn_addr']);
@@ -236,7 +239,7 @@ describe('หน้าลิงก์: ฟอร์มแจ้งไม่ส�
     await act(async () => {
       fireEvent.click(screen.getByTestId('pdl-fail-ok'));
     });
-    expect(mutateAsync).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
     const arg = mutateAsync.mock.calls[0]![0];
     expect(arg.stopId).toBe('stp_d');
     expect(arg.body).toMatchObject({
@@ -269,6 +272,7 @@ describe('หน้าลิงก์: ฟอร์มแจ้งไม่ส�
     await act(async () => {
       fireEvent.click(screen.getByTestId('pdl-fail-ok'));
     });
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
     const arg = mutateAsync.mock.calls[0]![0];
     expect(arg).toMatchObject({
       stopId: 'stp_p',
@@ -276,19 +280,21 @@ describe('หน้าลิงก์: ฟอร์มแจ้งไม่ส�
     });
     expect(arg.body.failurePhotos).toBeUndefined();
     expect(arg.body.outcome).toBeUndefined();
-    expect(screen.getByTestId('pdl-fail-err').textContent).toBe(
-      'เหตุผลนี้ต้องแนบรูปอย่างน้อย 1 รูป',
+    await waitFor(() =>
+      expect(screen.getByTestId('pdl-fail-err').textContent).toBe(
+        'เหตุผลนี้ต้องแนบรูปอย่างน้อย 1 รูป',
+      ),
     );
   });
 
-  it('รับบางส่วน: ไม่มีช่องรูป · ย้อนกลับล้างฟอร์ม', async () => {
+  it('รับบางส่วน: มีช่องรูป + เหตุผลบังคับรูป · ย้อนกลับล้างฟอร์ม', async () => {
     at(withR(doc({ status: 'ARRIVED' })));
     show();
     await type('DO-2611-00069');
     fireEvent.click(screen.getByTestId('pdl-fail-open'));
     fireEvent.click(screen.getByRole('button', { name: 'รับของได้บางส่วน' }));
-    expect(screen.queryByRole('button', { name: 'ที่อยู่ผิด' })).toBeNull();
-    expect(screen.queryByTestId('pdl-fail-photos')).toBeNull();
+    expect(screen.getByRole('button', { name: 'ที่อยู่ผิด' })).toBeTruthy();
+    expect(screen.getByTestId('pdl-fail-photos')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'ย้อนกลับ' }));
     expect(screen.getByTestId('pdl-fail-open')).toBeTruthy();
   });

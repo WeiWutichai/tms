@@ -1,10 +1,13 @@
 # รถร่วม (carriers)
 
-16 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+19 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
 | [`GET /v1/carriers/{id}/erp-codes`](#get-carriers-id-erp-codes) | `master:read` |
+| [`GET /v1/carriers/{id}/attachments`](#get-carriers-id-attachments) | `master:read` |
+| [`POST /v1/carriers/{id}/attachments`](#post-carriers-id-attachments) | `master:write` |
+| [`POST /v1/carriers/{id}/attachments/remove`](#post-carriers-id-attachments-remove) | `master:write` |
 | [`GET /v1/carriers/{id}/recent-prices`](#get-carriers-id-recent-prices) | `prices.buy:read` |
 | [`GET /v1/carriers`](#get-carriers) | `master:read` |
 | [`POST /v1/carriers`](#post-carriers) | `master:write` |
@@ -54,6 +57,141 @@ curl -sS -X GET "$TMS_BASE_URL/v1/carriers/<id>/erp-codes" \
 ```ts
 const { data, error } = await tms.GET('/v1/carriers/{id}/erp-codes', {
   params: { path: { id: "…" } },
+});
+```
+
+## GET /v1/carriers/{id}/attachments {#get-carriers-id-attachments}
+
+`GET /v1/carriers/{id}/attachments`
+
+scope: `master:read` · operationId: `CarrierAttachments_list`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ไฟล์แนบของผู้รับเหมา (ภ.พ.20 / สัญญาจ้าง / อื่น ๆ) | `AttachmentListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/carriers/<id>/attachments" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/carriers/{id}/attachments', {
+  params: { path: { id: "…" } },
+});
+```
+
+## POST /v1/carriers/{id}/attachments {#post-carriers-id-attachments}
+
+`POST /v1/carriers/{id}/attachments`
+
+scope: `master:write` · operationId: `CarrierAttachments_add`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Request body** `AddCarrierAttachmentDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `documentId` | ใช่ | `string` |   | ไฟล์จาก `POST /v1/documents` ที่อัปโหลดเสร็จแล้ว | `doc_…` |
+| `attachType` | ใช่ | `string` | ค่า: `VAT_REG`, `CONTRACT`, `ID_CARD`, `BANK_BOOK`, `OTHER` | VAT_REG = ภ.พ.20 · CONTRACT = สัญญาจ้าง |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ผูกไฟล์ที่อัปโหลดแล้วกับผู้รับเหมา (audit) | `AttachmentListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/carriers/<id>/attachments" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"documentId":"doc_…","attachType":"VAT_REG"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/carriers/{id}/attachments', {
+  params: { path: { id: "…" } },
+  body: {
+    "documentId": "doc_…",
+    "attachType": "VAT_REG"
+  },
+});
+```
+
+## POST /v1/carriers/{id}/attachments/remove {#post-carriers-id-attachments-remove}
+
+`POST /v1/carriers/{id}/attachments/remove`
+
+scope: `master:write` · operationId: `CarrierAttachments_remove`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Request body** `RemoveAttachmentDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `documentId` | ใช่ | `string` |   |   | `doc_…` |
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | เอาไฟล์ออก (เหตุผล ≥ 10 + audit — ไม่ลบไฟล์) | `AttachmentListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/carriers/<id>/attachments/remove" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"documentId":"doc_…","reason":"อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/carriers/{id}/attachments/remove', {
+  params: { path: { id: "…" } },
+  body: {
+    "documentId": "doc_…",
+    "reason": "อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน"
+  },
 });
 ```
 
@@ -818,6 +956,14 @@ const { data, error } = await tms.POST('/v1/carriers/{id}/delete', {
 ```
 
 ## Schema ของ response {#schemas}
+
+### AttachmentListDto {#schema-AttachmentListDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<AttachmentDto>` |   |   |   |
 
 ### AuditPageDto {#schema-AuditPageDto}
 

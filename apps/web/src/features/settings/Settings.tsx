@@ -9,7 +9,13 @@ import { ConnectorSettingsSection } from './ConnectorSettings';
 import { EntitiesSection } from './Entities';
 import { NotificationsSection } from './Notifications';
 import { NumbersSection } from './Numbers';
-import { DispatchSection, OrgSection, SecuritySection, TaxSection } from './OrgSections';
+import {
+  DispatchSection,
+  DocAlertSection,
+  OrgSection,
+  SecuritySection,
+  TaxSection,
+} from './OrgSections';
 import { ReasonsSection } from './Reasons';
 import { PodSection } from '../pod/PodSection';
 import { UsersSection } from './Users';
@@ -45,7 +51,8 @@ export const SECTIONS: Array<{
   // PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ: ค่าการจ่ายงาน/หน้าติดตามผู้รับที่ API มีแล้ว (ST4-T12/T14, docs/04 D3) — ต่อจาก POD (งานหน้างาน)
   { k: 'ops', icon: 'truck', perm: ['settings:read'] },
   { k: 'sec', icon: 'shield', perm: ['settings:read'] },
-  { k: 'docalert', icon: 'bell-ring', perm: ['settings:read'], stage: 'ST2' },
+  // #40 (PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ): ค่าตั้ง reminders.expiryAlerts
+  { k: 'docalert', icon: 'bell-ring', perm: ['settings:read'] },
 ];
 
 export function SettingsPage() {
@@ -85,6 +92,7 @@ export function SettingsPage() {
           {sec?.k === 'reason' && <ReasonsSection canWrite={can(scopes, 'master:write')} />}
           {sec?.k === 'pod' && <PodSection canWrite={canWrite} />}
           {sec?.k === 'ops' && <DispatchSection canWrite={canWrite} />}
+          {sec?.k === 'docalert' && <DocAlertSection canWrite={canWrite} />}
           {sec?.k === 'noti' && <NotificationsSection />}
           {sec?.k === 'conn' && <ConnectorSettingsSection canWrite={canWrite} />}
           {sec?.stage && (

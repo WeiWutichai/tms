@@ -1,5 +1,6 @@
+import { MAX_AUTO_RESCHEDULES_LIMIT, VEHICLE_DOC_TYPES } from '@tms/domain';
 import { EmptyState, Icon } from '@tms/ui';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ApiError } from '../../api';
 import { markReviewed } from '../setup/SetupChecklist';
 import { useI18n } from '../../i18n';
@@ -314,7 +315,12 @@ const REVIEW_STEP: Partial<Record<MessageKey, 'org' | 'tax'>> = {
   'set.menu.tax': 'tax',
 };
 
-function useSaveFlow(section: MessageKey, d: ReturnType<typeof useDraft>) {
+function useSaveFlow(
+  section: MessageKey,
+  d: ReturnType<typeof useDraft>,
+  /** ปรับค่าก่อนส่ง (เช่น ตัดช่องว่างหัวท้ายเบอร์โทร — ตอนบันทึก ไม่ใช่ระหว่างพิมพ์) */
+  prep: (v: Values) => Values = (v) => v,
+) {
   const { t } = useI18n();
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -337,7 +343,7 @@ function useSaveFlow(section: MessageKey, d: ReturnType<typeof useDraft>) {
   const send = (stepUpToken?: string) =>
     d.save.mutate(
       {
-        values: d.dirty,
+        values: prep(d.dirty),
         versions: Object.fromEntries(Object.keys(d.dirty).map((k) => [k, d.versions[k] ?? 0])),
         stepUp: stepUpToken,
       },
@@ -748,12 +754,18 @@ export function DispatchSection({ canWrite }: { canWrite: boolean }) {
     'tracking.showPod',
     'tracking.linkDays',
   ]);
-  const flow = useSaveFlow('set.menu.ops', d);
+  const flow = useSaveFlow('set.menu.ops', d, (v) =>
+    typeof v['tracking.contactPhone'] === 'string'
+      ? { ...v, 'tracking.contactPhone': v['tracking.contactPhone'].trim() || null }
+      : v,
+  );
   const off = !canWrite || d.save.isPending;
   const phone = String(d.draft['tracking.contactPhone'] ?? '');
   const bad = {
     hours: intBad(d.draft['dispatch.subconResponseHours'], 1, 47) ? t('ops.e.hours') : null,
-    max: intBad(d.draft['dispatch.maxAutoReschedules'], 0, 10) ? t('ops.e.max') : null,
+    max: intBad(d.draft['dispatch.maxAutoReschedules'], 0, MAX_AUTO_RESCHEDULES_LIMIT)
+      ? t('ops.e.max', { n: MAX_AUTO_RESCHEDULES_LIMIT })
+      : null,
     days: intBad(d.draft['tracking.linkDays'], 7, 90) ? t('ops.e.days') : null,
     phone: phone && !/^\+?[0-9][0-9 -]{5,24}$/.test(phone.trim()) ? t('ops.e.phone') : null,
   };
@@ -776,7 +788,7 @@ export function DispatchSection({ canWrite }: { canWrite: boolean }) {
         hint={t('ops.maxHint')}
         value={d.draft['dispatch.maxAutoReschedules']}
         min={0}
-        max={10}
+        max={MAX_AUTO_RESCHEDULES_LIMIT}
         disabled={off}
         bad={d.q.data ? bad.max : null}
         onChange={(v) => d.set('dispatch.maxAutoReschedules', v)}
@@ -793,7 +805,9 @@ export function DispatchSection({ canWrite }: { canWrite: boolean }) {
           value={phone}
           disabled={off}
           aria-invalid={!!bad.phone || undefined}
-          onChange={(e) => d.set('tracking.contactPhone', e.target.value.trim() || null)}
+          onChange={(e) =>
+            d.set('tracking.contactPhone', e.target.value === '' ? null : e.target.value)
+          }
         />
         <span style={{ fontSize: 12.5, color: bad.phone ? '#B3322A' : '#59606B' }}>
           {bad.phone ?? t('ops.phoneHint')}
@@ -819,6 +833,98 @@ export function DispatchSection({ canWrite }: { canWrite: boolean }) {
         <SaveBar
           dirty={Object.keys(d.dirty).length > 0}
           busy={d.busy || invalid}
+          onSave={flow.onSave}
+          saved={flow.saved}
+          error={flow.error}
+          onDismiss={flow.dismiss}
+        />
+      )}
+    </Card>
+  );
+}
+
+const ALERT_TYPES = [...VEHICLE_DOC_TYPES, 'DRIVER_LICENCE'] as const;
+const ALERT_LEVELS = [60, 30, 7] as const;
+type AlertRow = { levels: number[]; inApp: boolean; email: boolean };
+const chk = { width: 16, height: 16, accentColor: '#2257C4', cursor: 'pointer' } as const;
+
+/**
+ * ตั้งค่า → แจ้งเตือนเอกสารรถ (ต้นแบบ `docalert` — #40; PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ)
+ * ตารางแบบหน้า "เหตุผล" (`set-tbl` + ช่องติ๊ก + ปุ่มบันทึกลอย): ประเภทเอกสาร · ผู้รับผิดชอบ · 60/30/7 วัน · อีเมล · ในระบบ
+ * ค่าเก็บที่ `reminders.expiryAlerts` · ผู้รับผิดชอบ = ผู้มีสิทธิ์แก้ข้อมูลรถ (อ่านอย่างเดียว) · ไม่มีคอลัมน์ LINE
+ * (ยังไม่มีช่องทาง LINE ของพนักงาน) · ไม่แจ้งซ้ำทุกวัน (spec/06 FLT-040) — [DECISION — lead 24 พ.ย. 2569 เพื่อ UAT, ย้อนได้]
+ */
+export function DocAlertSection({ canWrite }: { canWrite: boolean }) {
+  const { t } = useI18n();
+  const KEY = 'reminders.expiryAlerts';
+  const d = useDraft([KEY]);
+  const flow = useSaveFlow('set.menu.docalert', d);
+  const cfg = (d.draft[KEY] ?? {}) as Record<string, AlertRow>;
+  const row = (k: string): AlertRow => cfg[k] ?? { levels: [60, 30, 7], inApp: true, email: true };
+  const setRow = (k: string, r: AlertRow) =>
+    d.set(KEY, { ...Object.fromEntries(ALERT_TYPES.map((x) => [x, row(x)])), [k]: r });
+  const off = !canWrite || d.save.isPending;
+  const name = (k: string) =>
+    k === 'DRIVER_LICENCE' ? t('dal.licence') : t(`vdoc.type.${k}` as MessageKey);
+  return (
+    <Card title={t('dal.title')} load={d.q}>
+      <span style={{ color: '#3B424C' }}>{t('dal.note')}</span>
+      <div className="set-scroll">
+        <table className="set-tbl" data-testid="docalert-table">
+          <thead>
+            <tr>
+              <th>{t('dal.col.type')}</th>
+              <th>{t('dal.col.owner')}</th>
+              {ALERT_LEVELS.map((n) => (
+                <th key={n} className="c">
+                  {t('dal.col.days', { n })}
+                </th>
+              ))}
+              <th className="c">{t('dal.col.email')}</th>
+              <th className="c">{t('dal.col.inApp')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ALERT_TYPES.map((k) => {
+              const r = row(k);
+              const box = (label: string, on: boolean, next: () => AlertRow) => (
+                <td className="c">
+                  <input
+                    type="checkbox"
+                    aria-label={`${label} — ${name(k)}`}
+                    checked={on}
+                    disabled={off}
+                    onChange={() => setRow(k, next())}
+                    style={chk}
+                  />
+                </td>
+              );
+              return (
+                <tr key={k} data-type={k}>
+                  <td style={{ fontWeight: 500 }}>{name(k)}</td>
+                  <td style={{ color: '#3B424C' }}>{t('dal.owner')}</td>
+                  {ALERT_LEVELS.map((n) => (
+                    <Fragment key={n}>
+                      {box(t('dal.col.days', { n }), r.levels.includes(n), () => ({
+                        ...r,
+                        levels: r.levels.includes(n)
+                          ? r.levels.filter((x) => x !== n)
+                          : [...r.levels, n].sort((a, b) => b - a),
+                      }))}
+                    </Fragment>
+                  ))}
+                  {box(t('dal.col.email'), r.email, () => ({ ...r, email: !r.email }))}
+                  {box(t('dal.col.inApp'), r.inApp, () => ({ ...r, inApp: !r.inApp }))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {canWrite && (
+        <SaveBar
+          dirty={Object.keys(d.dirty).length > 0}
+          busy={d.busy}
           onSave={flow.onSave}
           saved={flow.saved}
           error={flow.error}

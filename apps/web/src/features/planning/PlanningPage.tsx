@@ -420,10 +420,16 @@ export function PlanningPage() {
   const pool = useMemo(() => (b ? poolView(b.pool, pf, today) : []), [b, pf, today]);
   const opts = useMemo(() => poolOptions(b?.pool ?? []), [b]);
   const stats = b ? boardStats(b, days) : null;
-  /** เที่ยวของรถในวันที่แสดง */
-  const visTrips = (v: BoardVehicle) =>
-    (tripsBy.get(v.id) ?? []).filter((x) => days.some((d) => onDay(x, d)));
-  const shownVehicles = b ? filterVehicles(orderVehicles(b.vehicles, view), visTrips, vf) : [];
+  /** แถวรถที่แสดง (ตัวกรอง/ค้นหา) + กลุ่ม — คำนวณใหม่เมื่อข้อมูล/มุมมอง/ตัวกรองเปลี่ยนเท่านั้น (review L) */
+  const { shownVehicles, groups } = useMemo(() => {
+    const visTrips = (v: BoardVehicle) =>
+      (tripsBy.get(v.id) ?? []).filter((x) => days.some((d) => onDay(x, d)));
+    const shown = b ? filterVehicles(orderVehicles(b.vehicles, view), visTrips, vf) : [];
+    return {
+      shownVehicles: shown,
+      groups: boardGroups(shown, view, (v) => visTrips(v).length > 0),
+    };
+  }, [b, tripsBy, days, view, vf]);
   const vtOpts = useMemo(() => vehTypeOptions(b?.vehicles ?? []), [b]);
   // ---------------------------------------------------------------- รถ/งานที่รับได้ (ST3-T15)
   // การเลือกที่ยังอยู่บนกระดาน (SO ลงเที่ยวแล้ว/รถหายไป → เลิกเน้นเอง)
@@ -2198,17 +2204,52 @@ export function PlanningPage() {
           >
             <Icon n="chevron-left" s={16} />
           </button>
-          <input
-            type="date"
-            aria-label={t('plan.nav.date')}
-            data-testid="plan-date"
-            value={day0}
-            onChange={(e) => {
-              if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) setStart(e.target.value);
-              setPop(null);
+          {/* แสดงวันที่ตามปี พ.ศ./ค.ศ. ของบริษัท (แบบหัวหน้า) — ช่องวันที่ของเบราว์เซอร์โปร่งใสซ้อนบนสำหรับเลือกวัน (review L) */}
+          <span
+            style={{
+              ...SELECT,
+              position: 'relative',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              width: 150,
+              boxSizing: 'border-box',
             }}
-            style={{ ...SELECT, width: 150 }}
-          />
+          >
+            <Icon n="calendar" s={14} style={{ color: '#59606B', flexShrink: 0 }} />
+            <span className="tms-num" data-testid="plan-date-text">
+              {dateText(day0)}
+            </span>
+            <input
+              type="date"
+              aria-label={t('plan.nav.date')}
+              data-testid="plan-date"
+              value={day0}
+              onChange={(e) => {
+                if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) setStart(e.target.value);
+                setPop(null);
+              }}
+              onClick={(e) => {
+                try {
+                  (
+                    e.currentTarget as HTMLInputElement & { showPicker?: () => void }
+                  ).showPicker?.();
+                } catch {
+                  /* เบราว์เซอร์ที่ไม่รองรับ — คลิกปกติ */
+                }
+              }}
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                opacity: 0,
+                cursor: 'pointer',
+                border: 0,
+                padding: 0,
+              }}
+            />
+          </span>
           <button
             type="button"
             aria-label={t('plan.nav.next')}
@@ -2711,7 +2752,7 @@ export function PlanningPage() {
                     {t('plan.vf.none')}
                   </div>
                 ) : (
-                  boardGroups(shownVehicles, view, (v) => visTrips(v).length > 0).flatMap((g) => {
+                  groups.flatMap((g) => {
                     const rows = g.vs.map((v) => (week ? weekRow(v) : dayRow(v)));
                     if (g.kind === 'all') return rows;
                     const fold = g.kind === 'idle';

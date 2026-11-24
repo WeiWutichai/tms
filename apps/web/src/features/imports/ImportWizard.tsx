@@ -66,6 +66,25 @@ export function ImportWizard({
     return () => clearTimeout(h);
   }, [imp]);
 
+  /** เปลี่ยนวิธีนำเข้า: มีงานแล้ว = PATCH งานเดิม (ไม่อัปโหลดซ้ำ/ไม่สร้างงานใหม่ — server ตรวจใหม่) */
+  async function changeMode(m: KindDto['defaultMode']) {
+    setMode(m);
+    if (!imp) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setImp(
+        await unwrap(
+          api.PATCH('/v1/imports/{id}', { params: { path: { id: imp.id } }, body: { mode: m } }),
+        ),
+      );
+    } catch (e) {
+      setError(problem(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function pick(f: File | undefined, m = mode) {
     if (!f) return;
     setError(null);
@@ -445,11 +464,7 @@ export function ImportWizard({
                         name="imp-mode"
                         checked={mode === m}
                         disabled={busy}
-                        onChange={() => {
-                          setMode(m);
-                          // เปลี่ยนโหมดหลังเลือกไฟล์ = ตรวจไฟล์เดิมใหม่ด้วยโหมดใหม่
-                          if (file) void pick(file, m);
-                        }}
+                        onChange={() => void changeMode(m)}
                         style={{ width: 16, height: 16, margin: '2px 0 0', accentColor: BLUE }}
                       />
                       <span style={{ display: 'flex', flexDirection: 'column' }}>

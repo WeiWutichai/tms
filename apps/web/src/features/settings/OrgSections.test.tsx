@@ -13,7 +13,7 @@ vi.mock('./useSettings', () => ({
   stepUp: vi.fn(),
 }));
 
-const { SecuritySection, DispatchSection } = await import('./OrgSections');
+const { SecuritySection, DispatchSection, DocAlertSection } = await import('./OrgSections');
 
 const wrap = () =>
   render(
@@ -76,7 +76,7 @@ describe('ตั้งค่า → การจ่ายงานและต�
     expect(screen.getByRole('button', { name: 'บันทึก' })).toBeDisabled();
     fireEvent.change(max, { target: { value: '0' } });
     fireEvent.change(screen.getByLabelText('เบอร์ติดต่อบริษัท'), {
-      target: { value: '02 123 4567' },
+      target: { value: ' 02 123 4567 ' },
     });
     fireEvent.click(screen.getByRole('switch', { name: /แสดงหลักฐานการส่ง/ }));
     fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }));
@@ -92,5 +92,28 @@ describe('ตั้งค่า → การจ่ายงานและต�
         'tracking.showPod': 1,
       },
     });
+  });
+});
+
+describe('ตั้งค่า → แจ้งเตือนเอกสารรถ (#40 — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ)', () => {
+  it('ติ๊กปิด 60 วันของภาษี + ปิดอีเมลใบขับขี่ → บันทึกค่าเต็มทุกประเภท + version', () => {
+    state.isError = false;
+    state.pending = false;
+    state.data = { data: [{ key: 'reminders.expiryAlerts', value: {}, version: 2 }] };
+    mutate.mockReset();
+    render(
+      <I18nProvider lang="th">
+        <DocAlertSection canWrite />
+      </I18nProvider>,
+    );
+    expect(screen.getByText('ใบขับขี่คนขับ')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: '60 วัน — ภาษี' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'อีเมล — ใบขับขี่คนขับ' }));
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }));
+    const v = mutate.mock.calls[0]![0].values['reminders.expiryAlerts'];
+    expect(v.ANNUAL_TAX).toEqual({ levels: [30, 7], inApp: true, email: true });
+    expect(v.DRIVER_LICENCE).toEqual({ levels: [60, 30, 7], inApp: true, email: false });
+    expect(Object.keys(v)).toHaveLength(8);
+    expect(mutate.mock.calls[0]![0].versions).toEqual({ 'reminders.expiryAlerts': 2 });
   });
 });

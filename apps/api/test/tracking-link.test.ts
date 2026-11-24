@@ -426,6 +426,20 @@ describe('tracking link (ST4-T14)', () => {
       'magic_link.issued',
       'magic_link.revoked',
     ]);
+    // review M2: ออกใหม่พร้อมเหตุผล → เหตุผลลงการเพิกถอนลิงก์เดิม · เหตุผลสั้นเกิน → 422
+    await api(app, dispatcher)
+      .post(`/v1/delivery-orders/${s.doId}/tracking-link`)
+      .send({ reason: 'สั้น' })
+      .expect(422);
+    await api(app, dispatcher)
+      .post(`/v1/delivery-orders/${s.doId}/tracking-link`)
+      .send({ reason: 'ส่งลิงก์ให้ผู้รับผิดคน' })
+      .expect(201);
+    await view(tokenOf(second.url)).expect(404);
+    const revoked = await db.magicLink.findFirstOrThrow({
+      where: { entityId: s.uuid, revokedReason: 'ส่งลิงก์ให้ผู้รับผิดคน' },
+    });
+    expect(revoked).toBeTruthy();
   });
 
   it('เพิกถอน (เหตุผลบังคับ) / token ปลอม / หมดอายุ → 404 · งานจบเกิน linkDays วัน → 404', async () => {

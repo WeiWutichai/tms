@@ -1,0 +1,163 @@
+import { Badge, Icon } from '@tms/ui';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { api, unwrap } from '../../api';
+import { useI18n } from '../../i18n';
+import { problemText } from '../master/problems';
+import { Toggle } from './Settings';
+
+const KEY = ['settings-messaging'];
+
+/**
+ * การ์ด "LINE Official Account" ของ ตั้งค่า → การเชื่อมต่อ (ST3-T21; ต้นแบบ TMS v4 `st.others` — การ์ดขาว ไอคอน message-circle,
+ * ชื่อ + ข้อมูล + ป้ายสถานะ + ปุ่มข้อความ) — [DECISION — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ]
+ * API `GET/PATCH /v1/settings/messaging`: token เขียนอย่างเดียว (แสดง 4 ตัวท้าย) · เปิด/ปิด LINE และ SMS ·
+ * ปุ่ม "ทดสอบ" ของต้นแบบไม่ทำ — API ยังไม่มีคำสั่งทดสอบการเชื่อมต่อ (ระบบส่งจริงตอนส่งลิงก์ — ดูผลในแท็บเอกสารแนบผู้รับเหมา)
+ */
+export function LineOaCard({
+  canWrite,
+  onToast,
+}: {
+  canWrite: boolean;
+  onToast: (m: string, err?: boolean) => void;
+}) {
+  const { t } = useI18n();
+  const qc = useQueryClient();
+  const q = useQuery({
+    queryKey: KEY,
+    queryFn: () => unwrap(api.GET('/v1/settings/messaging')),
+    retry: false,
+  });
+  const save = useMutation({
+    mutationFn: (body: {
+      lineChannelAccessToken?: string | null;
+      lineEnabled?: boolean;
+      smsEnabled?: boolean;
+    }) => unwrap(api.PATCH('/v1/settings/messaging', { body })),
+    onSuccess: (d) => qc.setQueryData(KEY, d),
+  });
+  const [open, setOpen] = useState(false);
+  const [token, setToken] = useState('');
+  const s = q.data;
+  if (q.isError || !s) return null;
+  const on = s.lineEnabled && s.lineConfigured;
+  const run = (body: Parameters<typeof save.mutate>[0], msg: string) =>
+    save.mutate(body, {
+      onSuccess: () => {
+        setToken('');
+        onToast(msg);
+      },
+      onError: (e) => onToast(problemText(e, t) ?? t('line.e.save'), true),
+    });
+  return (
+    <div className="cnx-card" data-on={on || undefined} data-testid="line-oa-card">
+      <div className="cnx-card__hd">
+        <span className="cnx-ico">
+          <Icon n="message-circle" s={18} />
+        </span>
+        <span className="cnx-card__n">{t('line.n')}</span>
+        {on ? (
+          <Badge label={t('line.st.on')} tone="ok" icon="circle-check" />
+        ) : (
+          <Badge
+            label={t(s.lineConfigured ? 'line.st.off' : 'line.st.none')}
+            tone="off"
+            icon="circle-minus"
+          />
+        )}
+      </div>
+      <span style={{ color: '#3B424C' }}>{t('line.d')}</span>
+      <span className="cnx-card__meta">
+        {s.lineConfigured ? t('line.meta', { h: s.lineTokenHint ?? '••••' }) : t('line.metaNone')}
+      </span>
+      {open && canWrite && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 4 }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 500, color: '#3B424C' }}>
+              {t('line.token')}
+            </span>
+            <input
+              type="password"
+              autoComplete="off"
+              className="tms-input"
+              aria-label={t('line.token')}
+              placeholder={s.lineConfigured ? t('line.tokenKeep') : t('line.tokenPh')}
+              value={token}
+              maxLength={500}
+              onChange={(e) => setToken(e.target.value)}
+            />
+          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Toggle
+              on={s.lineEnabled}
+              disabled={save.isPending || (!s.lineConfigured && !token.trim())}
+              label={t('line.enable')}
+              onChange={() =>
+                run(
+                  { lineEnabled: !s.lineEnabled },
+                  t(s.lineEnabled ? 'line.toast.off' : 'line.toast.on'),
+                )
+              }
+            />
+            <span>{t('line.enable')}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Toggle
+              on={s.smsEnabled}
+              disabled={save.isPending}
+              label={t('line.sms')}
+              onChange={() =>
+                run(
+                  { smsEnabled: !s.smsEnabled },
+                  t(s.smsEnabled ? 'line.toast.smsOff' : 'line.toast.smsOn'),
+                )
+              }
+            />
+            <span>{t('line.sms')}</span>
+          </div>
+        </div>
+      )}
+      {canWrite && (
+        <div className="cnx-card__acts">
+          {open ? (
+            <>
+              <button
+                type="button"
+                className="cnx-tog"
+                disabled={save.isPending || !token.trim()}
+                onClick={() =>
+                  run(
+                    { lineChannelAccessToken: token.trim(), lineEnabled: true },
+                    t('line.toast.saved'),
+                  )
+                }
+              >
+                <Icon n="save" s={16} />
+                {t('line.saveToken')}
+              </button>
+              {s.lineConfigured && (
+                <button
+                  type="button"
+                  className="cnx-tog"
+                  disabled={save.isPending}
+                  onClick={() => run({ lineChannelAccessToken: null }, t('line.toast.removed'))}
+                >
+                  <Icon n="trash-2" s={16} />
+                  {t('line.remove')}
+                </button>
+              )}
+              <button type="button" className="cnx-tog" onClick={() => setOpen(false)}>
+                {t('drawer.close')}
+              </button>
+            </>
+          ) : (
+            <button type="button" className="cnx-tog" onClick={() => setOpen(true)}>
+              <Icon n="settings" s={16} />
+              {t('line.setup')}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
