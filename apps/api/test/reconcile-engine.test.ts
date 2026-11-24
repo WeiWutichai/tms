@@ -8,6 +8,7 @@ import { KrsAdapter } from '../src/erp-adapters/krs/krs.adapter';
 import type { CanonicalDocument } from '../src/modules/erp/erp-adapter';
 import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
 import {
+  AFTER_PUSH_BATCH,
   DocumentReconcileService,
   lastBusinessDay,
   RECONCILE_JOB,
@@ -948,6 +949,79 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
       await drain();
     } finally {
       await patch(0).expect(200);
+    }
+  });
+
+  it('review #89 crowd-out: ค่าหน่วงต่างกันในชุดเดียว · แถวที่ถึงเวลาแต่ตั้งไม่ได้ (tenant ระงับ) เกินเพดานชุด → จดว่าข้าม ไม่กินที่ · ใบที่หน่วงของ tenant ปกติยังถูกอ่าน', async () => {
+    // tenant ระงับ (ไม่ live) มี connector ACTIVE เปิด fetchDocument ค่าหน่วง 0 + คำสั่งส่งสำเร็จ > เพดานชุด (ถึงเวลาก่อนใบที่หน่วง 10 นาที)
+    const susp = (await createTenantWithDefaults(plat, { name: 'บริษัท ระงับ กระทบยอด จำกัด' })).id;
+    await plat.tenant.update({
+      where: { id: susp },
+      data: { planCode: 'ent', status: 'SUSPENDED' },
+    });
+    const sc = await plat.connector.create({
+      data: {
+        tenantId: susp,
+        adapterKey: 'krs',
+        status: 'ACTIVE',
+        capabilitiesEnabled: ['fetchDocument'],
+        afterPushReconcileDelayMin: 0,
+      },
+    });
+    const pushedAt = new Date(Date.now() - 60_000);
+    const crowd = AFTER_PUSH_BATCH + 1;
+    await plat.integrationOutbox.createMany({
+      data: Array.from({ length: crowd }, (_, i) => ({
+        tenantId: susp,
+        kind: 'ADAPTER' as const,
+        sink: 'erp',
+        targetId: sc.id,
+        operation: 'PUSH_INVOICE',
+        entityType: 'invoice',
+        localId: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+        serializeKey: `erp:${sc.id}:invoice:${i}`,
+        idempotencyKey: `crowd-${i}`,
+        status: 'DONE' as const,
+        doneAt: pushedAt,
+        result: { externalId: `X-${i}` },
+      })),
+    });
+    await api(app, admin)
+      .patch(`/v1/connectors/${conId}`)
+      .send({ afterPushReconcileDelayMinutes: 10 })
+      .expect(200);
+    try {
+      const inv = await issued(await deliveryOrders(1));
+      const mine = async () =>
+        (await fetches(inv.uuid)).filter(
+          (f) =>
+            (f.payload as { reconcile?: { source?: string } }).reconcile?.source === 'AFTER_PUSH',
+        ).length;
+      await engine.scheduleAfterPush(later(11));
+      expect(await mine()).toBe(1);
+      // แถวของ tenant ระงับถูกจดว่าข้าม (ขั้น 0) ทุกแถว — ไม่สร้างคำสั่งอ่าน
+      const crowdRows = await plat.integrationOutbox.findMany({
+        where: { tenantId: susp, operation: 'PUSH_INVOICE' },
+        select: { result: true },
+      });
+      expect(
+        crowdRows.every((r) =>
+          ((r.result as { reconcileStages?: number[] }).reconcileStages ?? []).includes(0),
+        ),
+      ).toBe(true);
+      expect(
+        await plat.integrationOutbox.count({
+          where: { tenantId: susp, operation: 'FETCH_DOCUMENT' },
+        }),
+      ).toBe(0);
+      // รอบถัดไปไม่ดึงแถวที่ข้ามแล้วซ้ำ
+      expect(await engine.scheduleAfterPush(later(12))).toBe(0);
+      await drain();
+    } finally {
+      await api(app, admin)
+        .patch(`/v1/connectors/${conId}`)
+        .send({ afterPushReconcileDelayMinutes: 0 })
+        .expect(200);
     }
   });
 });

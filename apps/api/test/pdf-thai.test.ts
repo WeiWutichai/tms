@@ -52,6 +52,8 @@ const KINDS: Array<{
   docs: () => RenderOptions[];
   /** ข้อความไทยที่ต้องอยู่บนเอกสาร */
   labels: string[];
+  /** ข้อความที่ต้องเป็นทั้งช่อง/บรรทัดพอดี (ไม่ใช่แค่ส่วนหนึ่งของข้อความ — เช่น "ผ่าน" กับ "ไม่ผ่าน") */
+  exact?: string[];
 }> = [
   {
     kind: 'ไฟล์ส่งออกรายงาน PDF — รายงานรายได้ต่อเส้นทาง (ST9-T05)',
@@ -105,7 +107,7 @@ const KINDS: Array<{
       'รายงานปิดงวดเชื่อมระบบบัญชี',
       'งวด พฤศจิกายน 2569',
       'MISMATCH ค้าง ณ สิ้นเดือน 0 รายการ',
-      'ผ่าน',
+      'ผ่านเมื่อเดือนจบแล้ว และ MISMATCH ค้าง ณ สิ้นเดือน (เวลาไทย) = 0, ยังไม่ส่ง = 0, ยังไม่ได้ยืนยัน = 0',
       'ยอมรับความต่าง',
       'ยังไม่ถูกส่ง',
       'สมหญิง บัญชีดี',
@@ -114,6 +116,8 @@ const KINDS: Array<{
       '48,250.00',
       '1,750.00',
     ],
+    // #95-b: มีเอกสารยังไม่ส่ง 2 ใบ → ผลต้องเป็น "ไม่ผ่าน" ทั้งช่อง
+    exact: ['ไม่ผ่าน'],
   },
   {
     kind: 'ใบคุมรถ / ใบงานประจำวัน (ST3-T20)',
@@ -291,6 +295,8 @@ describe('ST9-T12 PDF ทุกชนิดเป็นภาษาไทย ฝ
         expect(info.wrongFont).toEqual([]);
         expect(info.fontLoaded).toBe(true);
         for (const l of k.labels) expect(info.text).toContain(l);
+        const cells = info.text.split(/[\t\n]+/).map((x) => x.trim());
+        for (const l of k.exact ?? []) expect(cells).toContain(l);
         const outside = [...new Set([...info.text].filter((c) => !covered(c.codePointAt(0)!)))];
         expect(outside, 'อักขระนอกชุด Sarabun (จะตกไปฟอนต์เครื่อง)').toEqual([]);
         expect(info.text).not.toContain('→');

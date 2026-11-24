@@ -49,8 +49,9 @@ export const AFTER_PUSH_DELAY_DEFAULT_MIN = 0;
 export const AFTER_PUSH_DELAY_MAX_MIN = 1440;
 /** คำสั่งส่งที่จบนานกว่านี้แล้วไม่ตั้งรอบ AFTER_PUSH ย้อนหลัง (worker หยุดนาน = รอบ NIGHTLY เก็บต่อ) */
 const AFTER_PUSH_LOOKBACK_MS = 3 * 3600_000;
-/** คำสั่งส่งต่อรอบตรวจ (5 นาที) */
-const AFTER_PUSH_BATCH = 500;
+/** คำสั่งส่งต่อชุด · ชุดต่อรอบตรวจ (1 นาที) */
+export const AFTER_PUSH_BATCH = 500;
+const AFTER_PUSH_MAX_BATCHES = 20;
 /** docs/01 §6.5 NIGHTLY 02:00 · PRE_CLOSE วันทำการสุดท้ายของเดือน 17:00 (เวลาไทย) */
 export const NIGHTLY_HOUR_BKK = 2;
 export const NIGHTLY_UNTIL_HOUR_BKK = 6;
@@ -401,70 +402,100 @@ export class DocumentReconcileService implements OnModuleInit {
   /**
    * ใบที่เพิ่งส่งสำเร็จ (DONE + externalId) → อ่านเมื่อครบค่าหน่วงของ connector (PO 24 พ.ย. 2569 #89 — ค่าเริ่ม 0 = ทันที)
    * และอีกครั้งเมื่อครบ 60 นาทีจากครั้งแรก · worker เรียกทุก 1 นาที (`AFTER_PUSH_CHECK_EVERY_MS`)
+   * review (crowd-out): เลือกใน SQL เฉพาะขั้นที่ **ถึงเวลาและยังอยู่ในหน้าต่างย้อนหลัง** ของ connector ที่ ACTIVE + ปกติ + เปิด `fetchDocument`
+   * เรียงตามเวลาถึงกำหนด (เก่าก่อน) · แถวที่ถึงเวลาแต่ตั้งไม่ได้ (tenant ไม่ live / sandbox / แพ็กเกจไม่มี / adapter ไม่พร้อม) = จดว่าข้ามแล้ว
+   * (`reconcileStages` เดิม — ไม่วนกลับมากินที่) · ทำทีละชุด ≤ `AFTER_PUSH_BATCH` จนหมดหรือครบ `AFTER_PUSH_MAX_BATCHES` ต่อรอบ
    */
   async scheduleAfterPush(now: Date = this.clock.now()): Promise<number> {
-    // หน้าต่างย้อนหลังกว้างตามค่าหน่วงที่มากที่สุดที่ตั้งจริง (ค่าเริ่ม 0 → หน้าต่างเท่าเดิม ≈ 4 ชม.)
+    // หน้าต่างย้อนหลังกว้างตามค่าหน่วงสูงสุดของ connector ที่ใช้งานได้จริง (ค่าเริ่ม 0 → หน้าต่างเท่าเดิม ≈ 4 ชม.)
     const [mx] = await this.prisma.platform.$queryRaw<{ m: number | null }[]>`
-      SELECT max(after_push_reconcile_delay_min)::int AS m FROM connector`;
+      SELECT max(after_push_reconcile_delay_min)::int AS m FROM connector
+       WHERE status = 'ACTIVE' AND ${CAP} = ANY(capabilities_enabled)`;
     const maxDelay = Math.min(Math.max(mx?.m ?? 0, 0), AFTER_PUSH_DELAY_MAX_MIN);
     const since = new Date(now.getTime() - AFTER_PUSH_LOOKBACK_MS - (maxDelay + 60) * 60_000);
-    // review 5: ขั้นที่ตั้งแล้วจดใน `result.reconcileStages` ของคำสั่งส่ง → ไม่ดึงแถวเดิมซ้ำทุกรอบ · ใหม่สุดก่อน (ไม่อด)
-    const done = await this.prisma.platform.$queryRaw<
-      {
-        id: string;
-        tenant_id: string;
-        target_id: string;
-        local_id: string;
-        done_at: Date;
-        delay_min: number;
-        stages: number[] | null;
-      }[]
-    >`
-      SELECT o.id, o.tenant_id, o.target_id, o.local_id, o.done_at, c.after_push_reconcile_delay_min AS delay_min,
-             ARRAY(SELECT jsonb_array_elements_text(COALESCE(o.result->'reconcileStages', '[]'::jsonb))::int) AS stages
-        FROM integration_outbox o
-        JOIN connector c ON c.id::text = o.target_id AND c.tenant_id = o.tenant_id
-       WHERE o.status = 'DONE' AND o.sink = ${SINK} AND o.entity_type = ${ENTITY}
-         AND o.operation IN ('PUSH_INVOICE', 'REPLACE_DOCUMENT')
-         AND o.next_run_at >= ${new Date(since.getTime() - 86_400_000)}
-         AND o.done_at >= ${since} AND o.done_at <= ${now}
-         AND o.target_id IS NOT NULL
-         AND COALESCE(o.result->>'externalId', '') <> ''
-         AND ((o.done_at + make_interval(mins => c.after_push_reconcile_delay_min) <= ${now}
-               AND NOT COALESCE(o.result->'reconcileStages', '[]'::jsonb) @> '[0]'::jsonb)
-              OR (o.done_at + make_interval(mins => c.after_push_reconcile_delay_min + 60) <= ${now}
-                  AND NOT COALESCE(o.result->'reconcileStages', '[]'::jsonb) @> '[60]'::jsonb))
-       ORDER BY o.done_at DESC
-       LIMIT ${AFTER_PUSH_BATCH}`;
-    if (!done.length) return 0;
+    const oldest = new Date(now.getTime() - AFTER_PUSH_LOOKBACK_MS);
     let n = 0;
     const ok = new Map<string, boolean>();
-    for (const o of done) {
-      const marked = new Set(o.stages ?? []);
-      const stages = AFTER_PUSH_STAGES_MIN.filter((m) => {
-        if (marked.has(m)) return false;
-        const due = o.done_at.getTime() + (o.delay_min + m) * 60_000;
-        // ขั้นที่ถึงเวลาแล้ว และยังไม่เลยหน้าต่างย้อนหลัง (worker หยุดนาน = ไม่ตามย้อน — รอบ NIGHTLY เก็บ)
-        return due <= now.getTime() && due >= now.getTime() - AFTER_PUSH_LOOKBACK_MS;
-      });
-      if (!stages.length) continue;
-      const key = `${o.tenant_id}:${o.target_id}`;
-      if (!ok.has(key)) {
-        const row = await this.prisma.platform.connector.findUnique({ where: { id: o.target_id } });
-        ok.set(
-          key,
-          !!row &&
-            row.tenantId === o.tenant_id &&
-            (await this.tenantLive(o.tenant_id)) &&
-            !(await this.whyNot(o.tenant_id, row)),
-        );
-      }
-      // connector ใช้ไม่ได้ตอนนี้ = ไม่จด (กลับมาภายในหน้าต่างย้อนหลังยังตั้งได้)
-      if (!ok.get(key)) continue;
-      try {
-        n += await this.db.withTenant(o.tenant_id, async (tx) => {
+    for (let b = 0; b < AFTER_PUSH_MAX_BATCHES; b++) {
+      // review 5: ขั้นที่ตั้งแล้ว/ข้ามแล้วจดใน `result.reconcileStages` ของคำสั่งส่ง → ไม่ดึงแถวเดิมซ้ำทุกรอบ
+      const done = await this.prisma.platform.$queryRaw<
+        {
+          id: string;
+          tenant_id: string;
+          target_id: string;
+          local_id: string;
+          done_at: Date;
+          delay_min: number;
+          stages: number[] | null;
+        }[]
+      >`
+        SELECT x.* FROM (
+          SELECT o.id, o.tenant_id, o.target_id, o.local_id, o.done_at, c.after_push_reconcile_delay_min AS delay_min,
+                 ARRAY(SELECT jsonb_array_elements_text(COALESCE(o.result->'reconcileStages', '[]'::jsonb))::int) AS stages,
+                 o.done_at + make_interval(mins => c.after_push_reconcile_delay_min) AS due0,
+                 o.done_at + make_interval(mins => c.after_push_reconcile_delay_min + 60) AS due60,
+                 COALESCE(o.result->'reconcileStages', '[]'::jsonb) AS marked
+            FROM integration_outbox o
+            JOIN connector c ON c.id::text = o.target_id AND c.tenant_id = o.tenant_id
+           WHERE o.status = 'DONE' AND o.sink = ${SINK} AND o.entity_type = ${ENTITY}
+             AND o.operation IN ('PUSH_INVOICE', 'REPLACE_DOCUMENT')
+             AND o.next_run_at >= ${new Date(since.getTime() - 86_400_000)}
+             AND o.done_at >= ${since} AND o.done_at <= ${now}
+             AND o.target_id IS NOT NULL
+             AND COALESCE(o.result->>'externalId', '') <> ''
+             AND c.status = 'ACTIVE' AND c.health_failing_since IS NULL
+             AND ${CAP} = ANY(c.capabilities_enabled)
+        ) x
+         WHERE (x.due0 <= ${now} AND x.due0 >= ${oldest} AND NOT x.marked @> '[0]'::jsonb)
+            OR (x.due60 <= ${now} AND x.due60 >= ${oldest} AND NOT x.marked @> '[60]'::jsonb)
+         ORDER BY CASE WHEN NOT x.marked @> '[0]'::jsonb AND x.due0 >= ${oldest} THEN x.due0 ELSE x.due60 END ASC, x.id
+         LIMIT ${AFTER_PUSH_BATCH}`;
+      for (const o of done) n += await this.afterPushOne(o, now, ok);
+      if (done.length < AFTER_PUSH_BATCH) break;
+    }
+    return n;
+  }
+
+  /** ตั้งคำสั่งอ่านของขั้นที่ถึงเวลาของคำสั่งส่ง 1 แถว แล้วจดขั้น (ตั้งได้หรือข้าม) · คืนจำนวนคำสั่งอ่านที่สร้าง */
+  private async afterPushOne(
+    o: {
+      id: string;
+      tenant_id: string;
+      target_id: string;
+      local_id: string;
+      done_at: Date;
+      delay_min: number;
+      stages: number[] | null;
+    },
+    now: Date,
+    ok: Map<string, boolean>,
+  ): Promise<number> {
+    const marked = new Set(o.stages ?? []);
+    const stages = AFTER_PUSH_STAGES_MIN.filter((m) => {
+      if (marked.has(m)) return false;
+      const due = o.done_at.getTime() + (o.delay_min + m) * 60_000;
+      // ขั้นที่ถึงเวลาแล้ว และยังไม่เลยหน้าต่างย้อนหลัง (worker หยุดนาน = ไม่ตามย้อน — รอบ NIGHTLY เก็บ)
+      return due <= now.getTime() && due >= now.getTime() - AFTER_PUSH_LOOKBACK_MS;
+    });
+    if (!stages.length) return 0;
+    const key = `${o.tenant_id}:${o.target_id}`;
+    if (!ok.has(key)) {
+      const row = await this.prisma.platform.connector.findUnique({ where: { id: o.target_id } });
+      ok.set(
+        key,
+        !!row &&
+          row.tenantId === o.tenant_id &&
+          (await this.tenantLive(o.tenant_id)) &&
+          !(await this.whyNot(o.tenant_id, row)),
+      );
+    }
+    let k = 0;
+    try {
+      // review (crowd-out): ตั้งไม่ได้ (ถึงเวลาแล้ว) = จดว่าข้าม ไม่สร้างคำสั่ง — ไม่วนกลับมาทุกรอบ (รอบ NIGHTLY เก็บต่อ)
+      if (ok.get(key))
+        k = await this.db.withTenant(o.tenant_id, async (tx) => {
           const [c] = await this.candidates(tx, o.target_id, { ids: [o.local_id] });
-          let k = 0;
+          let made = 0;
           if (c)
             for (const m of stages)
               if (
@@ -479,22 +510,21 @@ export class DocumentReconcileService implements OnModuleInit {
                   run: `after_push:${o.id}:${m}`,
                 })
               )
-                k += 1;
-          return k;
+                made += 1;
+          return made;
         });
-        // จดว่าตั้งแล้ว (รวมกรณีใบไม่อยู่ใน ERP แล้ว / มีคำสั่งอ่านค้างอยู่ — ไม่ต้องตั้งซ้ำ)
-        const all = [...new Set([...marked, ...stages])].sort((x, y) => x - y);
-        await this.prisma.platform.$executeRaw`
-          UPDATE integration_outbox
-             SET result = jsonb_set(COALESCE(result, '{}'::jsonb), '{reconcileStages}', ${JSON.stringify(all)}::jsonb)
-           WHERE id = ${o.id}::uuid`;
-      } catch (e) {
-        this.logger.warn(
-          `after-push reconcile ${o.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`,
-        );
-      }
+      // จดว่าตั้งแล้ว (รวมกรณีใบไม่อยู่ใน ERP แล้ว / มีคำสั่งอ่านค้างอยู่ / connector ใช้ไม่ได้ — ไม่ต้องตั้งซ้ำ)
+      const all = [...new Set([...marked, ...stages])].sort((x, y) => x - y);
+      await this.prisma.platform.$executeRaw`
+        UPDATE integration_outbox
+           SET result = jsonb_set(COALESCE(result, '{}'::jsonb), '{reconcileStages}', ${JSON.stringify(all)}::jsonb)
+         WHERE id = ${o.id}::uuid`;
+    } catch (e) {
+      this.logger.warn(
+        `after-push reconcile ${o.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`,
+      );
     }
-    return n;
+    return k;
   }
 
   /** job NIGHTLY (ตั้งแต่ 02:00) / PRE_CLOSE (วันทำการสุดท้ายของเดือน ตั้งแต่ 17:00) — 1 job ต่อ connector ต่อรอบ */

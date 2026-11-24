@@ -1905,8 +1905,9 @@ model DeliveryOrder {
   /// invoiced_at: ใบออกเลข (billing event `invoice`) · ล้างเมื่อดึงเข้าร่างใหม่หลังลดหนี้เต็มใบ · paid_at: รับชำระครบ (ST5-T22 เขียน)
   invoicedAt           DateTime?       @map("invoiced_at") @db.Timestamptz(6)
   paidAt               DateTime?       @map("paid_at") @db.Timestamptz(6)
-  /// D-71 (PO 24 พ.ย. 2569 — ข้อ #82) เวลาที่ DO เข้าร่างใบแจ้งหนี้ใด ๆ **ครั้งแรก** — เขียนครั้งเดียว (billing event `draft` ครั้งแรก) ไม่เขียนทับ
-  /// ย้ายไปร่างอื่น / ถอดแล้วใส่ใหม่ ไม่เริ่มนับใหม่ · ใช้คิดอายุ "ร่างค้างเกิน N วัน" (รายงาน DO ยังไม่วางบิล / แจ้งเตือนรายวัน)
+  /// D-71 (PO 24 พ.ย. 2569 — ข้อ #82) เวลาที่ DO เข้าร่างใบแจ้งหนี้ใด ๆ **ครั้งแรกของรอบวางบิลนี้** — เขียนตอน billing event `draft` เมื่อยังว่าง
+  /// ย้ายไปร่างอื่น / ถอดแล้วใส่ใหม่ ไม่เริ่มนับใหม่ · ล้างเมื่อออกเอกสาร (`invoice`) [DECISION lead — ยกเลิก/ลดหนี้แล้วเข้าร่างใหม่ = นับใหม่]
+  /// ใช้คิดอายุ "ร่างค้างเกิน N วัน" (รายงาน DO ยังไม่วางบิล / แจ้งเตือนรายวัน)
   firstDraftedAt       DateTime?       @map("first_drafted_at") @db.Timestamptz(6)
   redeliveryOfId       String?         @map("redelivery_of_id") @db.Uuid /// D-23 ส่งใหม่ = DO ใบใหม่
   redeliveryOf         DeliveryOrder?  @relation("DoRedelivery", fields: [redeliveryOfId], references: [id], onDelete: Restrict)

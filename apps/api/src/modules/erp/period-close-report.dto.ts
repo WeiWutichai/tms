@@ -159,7 +159,8 @@ export class PeriodCloseReportDto {
   @ApiProperty({
     description:
       'ผ่านเกณฑ์ (ก) docs/02 §7 ของงวดนี้ — เดือนจบแล้ว และ MISMATCH ค้าง ณ สิ้นเดือน = 0 และเอกสารที่ยังไม่ส่ง (`summary.notSent`) = 0 ' +
-      'และยังไม่ได้ยืนยัน (`summary.unverified`) = 0 (PO 24 พ.ย. 2569) — ยังไม่ส่งนับ ณ เวลาที่ออกรายงาน',
+      'และยังไม่ได้ยืนยัน (`summary.unverified`) = 0 (PO 24 พ.ย. 2569) — ยังไม่ส่งนับเอกสารที่วันที่ ≤ สิ้นเดือนซึ่งยังค้างในคิว **ณ เวลาที่ออกรายงาน** ' +
+      'ผลของเดือนที่จบแล้วจึงเปลี่ยนได้ระหว่างการออกรายงานแต่ละครั้ง',
   })
   passed!: boolean;
   @ApiProperty({ format: 'date-time' }) generatedAt!: string;

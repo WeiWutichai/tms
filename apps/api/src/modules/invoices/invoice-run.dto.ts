@@ -39,7 +39,7 @@ export class CreateInvoiceRunDto {
   @ApiPropertyOptional({
     description:
       'สร้างร่างใบวางบิลอัตโนมัติ (docs/04 F2) จากใบแจ้งหนี้ที่ออกแล้วยังค้างและยังไม่อยู่ในใบวางบิลที่ active ' +
-      'ของลูกค้าในรอบนี้ **เฉพาะใบของงวดนี้**: วันสิ้นงวดของใบ (`periodTo`) อยู่ในงวดของรอบ (ใบที่งวดคร่อมขอบรอบเข้ารอบที่งวดของใบจบ) · ' +
+      'ของลูกค้าในรอบนี้ **เฉพาะใบของงวดนี้**: วันสิ้นงวดของใบ (`periodTo`) อยู่ในงวดของรอบ (ใบที่งวดคร่อมขอบรอบเข้ารอบที่งวดของใบจบ) · ใบที่ออกเลขหลังรอบของงวดนั้นสั่งไปแล้ว **ไม่ถูกเลือกโดยรอบถัดไป** (periodTo อยู่นอกงวด) — ทำใบวางบิลมือ (`GET /billing-notes/candidates`) หรือสั่งรอบของงวดนั้นซ้ำ · ' +
       'ใบที่ไม่มีงวดใช้วันที่ออก (`issueDate`) อยู่ในงวดของรอบ (1 ร่างต่อผู้ออก/สาขาผู้ออก) · ไม่ส่ง = true',
   })
   @IsOptional()
@@ -129,7 +129,11 @@ export class InvoiceRunResultDto {
   @ApiProperty() periodTo!: string;
   @ApiProperty() customers!: number;
   @ApiProperty() invoicesCreated!: number;
-  @ApiProperty() billingNotesCreated!: number;
+  @ApiProperty({
+    description:
+      'จำนวนร่างใบวางบิลที่สร้าง (ใบแจ้งหนี้ที่ `periodTo` อยู่ในงวดของรอบ) · ใบที่ออกเลขหลังรอบของงวดนั้นสั่งไปแล้ว **ไม่ถูกเลือกโดยรอบถัดไป** (periodTo อยู่นอกงวด) — ทำใบวางบิลมือ (`GET /billing-notes/candidates`) หรือสั่งรอบของงวดนั้นซ้ำ',
+  })
+  billingNotesCreated!: number;
   @ApiProperty({ description: 'จำนวนลูกค้าที่ PARTIAL/FAILED' }) failed!: number;
   @ApiProperty({ example: MAX_DOS_PER_INVOICE, description: 'เพดาน DO ต่อใบแจ้งหนี้ที่รอบนี้ใช้' })
   maxDeliveryOrdersPerInvoice!: number;

@@ -113,7 +113,7 @@ export class ReconcileController {
       'และ ณ สิ้นเดือนยังไม่ถูกปิดและยังไม่มีคนยอมรับ — ปิดหลังสิ้นเดือนยังนับเป็นค้างของงวด · พบหลังสิ้นเดือนไม่นับ · INFO (อ่าน/เทียบไม่ได้) นับแยกใน `summary.unverified` ' +
       '(2) `acknowledged` รายการที่ยอมรับความต่างในเดือน + ผู้ยอมรับ + เหตุผล ' +
       '(3) `notSent` เอกสารที่วันที่ไม่เกินสิ้นเดือนและคำสั่งส่งล่าสุดยังอยู่แท็บรอคิว/ล้มเหลวของคิว (`GET /connectors/{id}/queue`) **ณ เวลาที่ออกรายงาน** · ' +
-      '`passed` = เดือนจบแล้ว และ `summary.outstanding` = 0 และ `summary.notSent` = 0 และ `summary.unverified` = 0 (PO 24 พ.ย. 2569) · เดือนที่ยังไม่จบตัด ณ เวลาปัจจุบัน · connector ไม่พบ/ของ tenant อื่น → 404 · ' +
+      '`passed` = เดือนจบแล้ว และ `summary.outstanding` = 0 และ `summary.notSent` = 0 และ `summary.unverified` = 0 (PO 24 พ.ย. 2569 — `notSent` นับสถานะคิว ณ เวลาที่ออกรายงาน ผลของเดือนที่จบแล้วจึงเปลี่ยนได้ระหว่างการออกแต่ละครั้ง) · เดือนที่ยังไม่จบตัด ณ เวลาปัจจุบัน · connector ไม่พบ/ของ tenant อื่น → 404 · ' +
       'ยอดเงิน `sell*` ต้องมี `prices.sell:read` · `buy*` ต้องมี `prices.buy:read` · ' +
       'ส่งออก: `POST /v1/exports` resource `reconcile-period-close` (xlsx / csv / pdf) ตัวกรอง `connectorId`, `month`',
   })

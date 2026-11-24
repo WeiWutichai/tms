@@ -81,7 +81,7 @@ type Filter = UnbilledFilter;
  * ไม่มีประวัติ (ข้อมูลเก่า/นำเข้า) = วันที่ DO [DECISION spec/12 §3]
  * D-71 (PO 22 พ.ย. 2569) ธง "ร่างค้างเกิน N วัน": scope `drafts`/`all` เพิ่ม DO ที่ `billing_status` IN_DRAFT และ **วันนี้ − วันที่เข้าร่าง > N**
  * (วันที่เข้าร่าง = **วันแรกที่ DO เข้าร่างใดก็ได้** `delivery_order.first_drafted_at` — PO 24 พ.ย. 2569 ข้อ #82: ย้ายไปร่างอื่น/ถอดแล้วใส่ใหม่
- * ไม่เริ่มนับใหม่ · ค่าว่าง (ข้อมูลที่ไม่ผ่าน billing guard) ใช้ `invoice_line.created_at` ของบรรทัดหลักที่ active · DO ต้องยังอยู่ในร่างสถานะ DRAFT —
+ * ไม่เริ่มนับใหม่ · ล้างเมื่อออกเอกสาร [DECISION lead] → ยกเลิก/ลดหนี้แล้วเข้าร่างใหม่ = นับใหม่ · ค่าว่าง (ข้อมูลที่ไม่ผ่าน billing guard) ใช้ `invoice_line.created_at` ของบรรทัดหลักที่ active · DO ต้องยังอยู่ในร่างสถานะ DRAFT —
  * ถอดออก/ยกเลิกร่าง = บรรทัดไม่ active → หลุดจากชุดนี้ (กลับไปชุด unbilled) ·
  * N = `billing.unbilledAlertDays` ตัวเดียวกัน (ไม่เพิ่มค่าตั้ง)
  */

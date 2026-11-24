@@ -42,7 +42,7 @@ const thMonth = (m: string) =>
 
 export const periodClosePdfTitle = () => 'รายงานปิดงวดเชื่อมระบบบัญชี';
 export const periodClosePdfSubtitle = (month: string) =>
-  `งวด ${thMonth(month)} · MISMATCH ค้าง ณ สิ้นเดือน (เวลาไทย) ต้องเป็น 0`;
+  `งวด ${thMonth(month)} · ผ่านเมื่อเดือนจบแล้ว และ MISMATCH ค้าง ณ สิ้นเดือน (เวลาไทย) = 0, ยังไม่ส่ง = 0, ยังไม่ได้ยืนยัน = 0 (ยังไม่ส่ง/ยังไม่ได้ยืนยัน นับ ณ เวลาที่ออกรายงาน)`;
 export const periodCloseFileName = (month: string) => `รายงานปิดงวด_${month}`;
 
 const SEVERITY_TH: Record<string, string> = {
