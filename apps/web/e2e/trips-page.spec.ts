@@ -180,6 +180,8 @@ test.describe.serial('หน้าเที่ยวรถ /trips', () => {
       deliveryOrders: { id: string }[];
     };
     expect(t.deliveryOrders.map((d) => d.id).sort()).toEqual([dos[0]!.id, dos[1]!.id].sort());
+    // การ์ดเที่ยวสะสมจากรอบก่อน ๆ ดัน "เที่ยวใหม่" ลงล่างของพื้นที่เลื่อน — เลื่อนให้เห็นก่อนลาก
+    await page.getByTestId('trip-new').scrollIntoViewIfNeeded();
     await page
       .getByTestId('trip-pool-do')
       .filter({ hasText: dos[2]!.doNo })
@@ -201,6 +203,7 @@ test.describe.serial('หน้าเที่ยวรถ /trips', () => {
     await page.getByRole('tab', { name: /ทั้งหมด/ }).click();
     await page.locator('thead').getByPlaceholder('ค้นหา').first().fill(tripA.tripNo);
     await expect(page.locator('tbody tr[aria-selected]')).toHaveCount(1, { timeout: 15_000 });
+    await expect(page.locator('tbody tr[aria-selected]').first()).toContainText(tripA.tripNo);
     await page.locator('tbody tr[aria-selected]').first().click();
     const dlg = page.getByRole('dialog');
     await expect(dlg.getByText(tripA.tripNo).first()).toBeVisible();
@@ -212,13 +215,23 @@ test.describe.serial('หน้าเที่ยวรถ /trips', () => {
     const t = await db.trip.findFirstOrThrow({ where: { tripNo: tripA.tripNo } });
     await db.trip.update({
       where: { id: t.id },
-      data: { status: 'COMPLETED', completedAt: new Date(), dispatchedAt: new Date() },
+      // version +1 เหมือนการเปลี่ยนสถานะจริง (ETag ของ GET /trips/{id} = version)
+      data: {
+        status: 'COMPLETED',
+        completedAt: new Date(),
+        dispatchedAt: new Date(),
+        version: { increment: 1 },
+      },
     });
     await db.deliveryOrder.updateMany({ where: { tripId: t.id }, data: { status: 'UNBILLED' } });
     await page.goto('/trips');
     await page.getByRole('tab', { name: /ส่งแล้ว/ }).click();
     await page.locator('thead').getByPlaceholder('ค้นหา').first().fill(tripA.tripNo);
-    await page.locator('tbody tr[aria-selected]').first().click({ timeout: 15_000 });
+    const row = page.locator('tbody tr[aria-selected]');
+    await expect(row).toHaveCount(1, { timeout: 15_000 });
+    await expect(row.first()).toContainText(tripA.tripNo);
+    await expect(row.first()).toContainText('จบเที่ยว');
+    await row.first().click();
     const dlg = page.getByRole('dialog');
     await expect(dlg.getByTestId('trip-money')).toContainText('ยอดเงิน');
     await expect(dlg.getByTestId('trip-money')).toContainText('ยังไม่ปิดต้นทุน');

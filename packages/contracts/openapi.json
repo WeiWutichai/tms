@@ -35015,6 +35015,19 @@
             }
           },
           {
+            "name": "inTrip",
+            "required": false,
+            "in": "query",
+            "description": "อยู่ในเที่ยวที่ยังใช้งาน (ไม่ยกเลิก) หรือไม่ — `false` = DO รอเข้าเที่ยว (กระดานหน้า `/trips`)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],

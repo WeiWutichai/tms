@@ -161,7 +161,9 @@ export function DoDrawer({
           <Kv k={t('dos.kv.date')} v={dateText(d.doDate)} />
           <Kv
             k={t('dos.kv.veh')}
-            v={d.vehiclePlate ? [d.vehiclePlate, d.vehicleTypeName].filter(Boolean).join(' · ') : '—'}
+            v={
+              d.vehiclePlate ? [d.vehiclePlate, d.vehicleTypeName].filter(Boolean).join(' · ') : '—'
+            }
           />
           <Kv k={t('dos.kv.drv')} v={d.driverName ?? d.carrierName ?? '—'} />
           <Kv k={t('dos.kv.prod')} v={products.length ? products.join(', ') : '—'} />

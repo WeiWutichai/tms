@@ -92,6 +92,8 @@ export interface DeliveryOrderFilter extends ListQuery {
   vehiclePlate?: string;
   driverName?: string;
   product?: string;
+  /** 'false' = ไม่อยู่ในเที่ยวที่ยังใช้งาน (กระดานหน้า `/trips`) */
+  inTrip?: 'true' | 'false';
 }
 
 const has = (v: string) => ({ contains: v.trim(), mode: 'insensitive' as const });
@@ -184,6 +186,8 @@ export function deliveryOrderWhere(
           }
         : {},
       q.product?.trim() ? { lines: { some: { description: has(q.product) } } } : {},
+      q.inTrip === 'true' ? ON_ACTIVE_TRIP_WHERE : {},
+      q.inTrip === 'false' ? { NOT: ON_ACTIVE_TRIP_WHERE } : {},
     ],
   };
 }

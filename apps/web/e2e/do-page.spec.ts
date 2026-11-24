@@ -159,7 +159,7 @@ test.describe.serial('หน้าใบส่งของ /do', () => {
     const t = await db.trip.findFirstOrThrow({ where: { tripNo: trip.tripNo } });
     await db.trip.update({
       where: { id: t.id },
-      data: { status: 'IN_PROGRESS', dispatchedAt: new Date() },
+      data: { status: 'IN_PROGRESS', dispatchedAt: new Date(), version: { increment: 1 } },
     });
     await db.deliveryOrder.updateMany({
       where: { tenantId: t.tenantId, doNo: dos[0]!.doNo },
@@ -196,6 +196,7 @@ test.describe.serial('หน้าใบส่งของ /do', () => {
     ['ระหว่างส่ง', 0],
   ] as const)
     test(`การ์ด "${label}" = จำนวนแถวเมื่อคลิก และมี DO ที่คาด`, async () => {
+      await page.evaluate(() => sessionStorage.clear()); // ตัวกรองคอลัมน์จาก test ก่อนจำไว้ใน session
       await page.goto('/do');
       const item = page
         .locator('.tms-strip__item')
@@ -210,10 +211,12 @@ test.describe.serial('หน้าใบส่งของ /do', () => {
     });
 
   test('drawer DO: ข้อมูล + จุดรับ–ส่ง + เปิดเที่ยวรถ', async () => {
+    await page.evaluate(() => sessionStorage.clear());
     await page.goto('/do');
     await page.getByRole('tab', { name: /^ทั้งหมด/ }).click();
     await page.locator('thead').getByPlaceholder('ค้นหา').first().fill(dos[1]!.doNo);
     await expect(page.locator('tbody tr[aria-selected]')).toHaveCount(1, { timeout: 15_000 });
+    await expect(page.locator('tbody tr[aria-selected]').first()).toContainText(dos[1]!.doNo);
     await page.locator('tbody tr[aria-selected]').first().click();
     const dlg = page.getByRole('dialog');
     await expect(dlg.getByText(dos[1]!.doNo).first()).toBeVisible();

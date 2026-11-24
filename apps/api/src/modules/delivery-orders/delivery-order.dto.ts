@@ -109,6 +109,15 @@ export class DeliveryOrderListQuery extends ListQuery {
   @IsString()
   @MaxLength(100)
   product?: string;
+
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description:
+      'อยู่ในเที่ยวที่ยังใช้งาน (ไม่ยกเลิก) หรือไม่ — `false` = DO รอเข้าเที่ยว (กระดานหน้า `/trips`)',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  inTrip?: 'true' | 'false';
 }
 
 export class DeliveryOrderLineQtyDto {

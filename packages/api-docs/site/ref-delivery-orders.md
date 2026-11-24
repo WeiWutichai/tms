@@ -77,6 +77,7 @@ scope: `orders:read` · operationId: `DeliveryOrders_list`
 | `vehiclePlate` | query |   | `string` | ค้นทะเบียนรถของเที่ยว (snapshot — มีคำนี้) |
 | `driverName` | query |   | `string` | ค้นชื่อคนขับ / รถร่วมของเที่ยว (snapshot — มีคำนี้) |
 | `product` | query |   | `string` | ค้นสินค้า (คำอธิบายบรรทัดของ DO — มีคำนี้) |
+| `inTrip` | query |   | `string` ค่า: `true`, `false` | อยู่ในเที่ยวที่ยังใช้งาน (ไม่ยกเลิก) หรือไม่ — `false` = DO รอเข้าเที่ยว (กระดานหน้า `/trips`) |
 
 **Responses**
 

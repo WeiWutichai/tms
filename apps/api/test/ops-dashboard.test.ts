@@ -436,6 +436,10 @@ describe('ops dashboard (ST9-T01)', () => {
     expect(all.sellUnbilledAmount).toMatch(/^\d+\.\d{2}$/);
     // ตัวกรองค้นของหน้า `/do`
     const total = await rows('/v1/delivery-orders');
+    // กระดานหน้า `/trips`: DO รอเข้าเที่ยว = ไม่อยู่ในเที่ยวที่ยังใช้งาน
+    const inTrip = await rows('/v1/delivery-orders?inTrip=true');
+    expect(inTrip).toBe(5);
+    expect(inTrip + (await rows('/v1/delivery-orders?inTrip=false'))).toBe(total);
     expect(await rows(`/v1/delivery-orders?product=${encodeURIComponent('ปูน')}`)).toBe(total);
     expect(await rows(`/v1/delivery-orders?customerName=${encodeURIComponent('ลูกค้า')}`)).toBe(
       total,

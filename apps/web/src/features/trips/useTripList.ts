@@ -39,7 +39,7 @@ export function useTripSummary() {
   });
 }
 
-/** กระดาน: DO รอเข้าเที่ยว (DRAFT = ยังไม่อยู่ในเที่ยว) — ต้นแบบ vTrpB pool */
+/** กระดาน: DO รอเข้าเที่ยว (DRAFT + ไม่อยู่ในเที่ยวที่ยังใช้งาน — DO ในเที่ยวที่ยังวางแผนยังเป็น DRAFT) — ต้นแบบ vTrpB pool */
 export function usePoolDos(enabled: boolean) {
   return useQuery({
     queryKey: [KEY, 'pool'],
@@ -48,7 +48,7 @@ export function usePoolDos(enabled: boolean) {
     queryFn: () =>
       unwrap(
         api.GET('/v1/delivery-orders', {
-          params: { query: { status: 'DRAFT', limit: 100, sort: '-updatedAt' } },
+          params: { query: { status: 'DRAFT', inTrip: 'false', limit: 100, sort: '-updatedAt' } },
         }),
       ) as Promise<Schemas['DeliveryOrderPageDto']>,
   });
