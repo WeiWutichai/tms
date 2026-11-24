@@ -579,61 +579,146 @@ export function TaxSection({ canWrite }: { canWrite: boolean }) {
     'tax.invoiceModePolicy',
     'tax.wht1Enabled',
     'tax.wht3Enabled',
+    'tax.separateVatDocs',
+    'billing.cycleDefault',
+    'billing.freeTimeMinutes',
+    'routing.invoiceAsCompanyId',
+    'routing.tenderAsCompanyId',
   ]);
   const flow = useSaveFlow('set.menu.tax', d);
+  const companies = (useCompaniesAll().data?.data ?? []).filter((c) => c.status === 'active');
+  const free = d.draft['billing.freeTimeMinutes'];
   return (
-    <Card title={t('set.menu.tax')} load={d.q}>
-      <Radio
-        label={t('tax.vatDefault')}
-        value={d.draft['tax.vatDefault']}
-        disabled={!canWrite || d.save.isPending}
-        onChange={(v) => d.set('tax.vatDefault', v)}
-        options={[
-          { v: 'VAT_7', l: t('tax.vat7') },
-          { v: 'EXEMPT_TRANSPORT', l: t('tax.vatExempt') },
-        ]}
-      />
-      <Radio
-        label={t('tax.mode')}
-        value={d.draft['tax.invoiceModePolicy']}
-        disabled={!canWrite || d.save.isPending}
-        onChange={(v) => d.set('tax.invoiceModePolicy', v)}
-        options={[
-          { v: 'ON_PAYMENT', l: t('tax.modePayment') },
-          { v: 'ON_ISSUE', l: t('tax.modeIssue') },
-          { v: 'PER_CUSTOMER', l: t('tax.modeCustomer') },
-        ]}
-      />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <span style={lbl}>{t('tax.whtEnabled')}</span>
-        {(
-          [
-            ['tax.wht1Enabled', 'tax.wht1'],
-            ['tax.wht3Enabled', 'tax.wht3'],
-          ] as const
-        ).map(([k, l]) => (
-          <ToggleRow
-            key={k}
-            label={t(l)}
-            on={d.draft[k] === true}
-            disabled={!canWrite || d.save.isPending}
-            onChange={() => d.set(k, !(d.draft[k] === true))}
-          />
-        ))}
-      </div>
-      {canWrite && (
-        <SaveBar
-          dirty={Object.keys(d.dirty).length > 0}
-          busy={d.busy}
-          onSave={flow.onSave}
-          saved={flow.saved}
-          error={flow.error}
-          onDismiss={flow.dismiss}
+    <>
+      <Card title={t('set.menu.tax')} load={d.q}>
+        <Radio
+          label={t('tax.vatDefault')}
+          value={d.draft['tax.vatDefault']}
+          disabled={!canWrite || d.save.isPending}
+          onChange={(v) => d.set('tax.vatDefault', v)}
+          options={[
+            { v: 'VAT_7', l: t('tax.vat7') },
+            { v: 'EXEMPT_TRANSPORT', l: t('tax.vatExempt') },
+          ]}
         />
-      )}
-    </Card>
+        <Radio
+          label={t('tax.mode')}
+          value={d.draft['tax.invoiceModePolicy']}
+          disabled={!canWrite || d.save.isPending}
+          onChange={(v) => d.set('tax.invoiceModePolicy', v)}
+          options={[
+            { v: 'ON_PAYMENT', l: t('tax.modePayment') },
+            { v: 'ON_ISSUE', l: t('tax.modeIssue') },
+            { v: 'PER_CUSTOMER', l: t('tax.modeCustomer') },
+          ]}
+        />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <span style={lbl}>{t('tax.whtEnabled')}</span>
+          {(
+            [
+              ['tax.wht1Enabled', 'tax.wht1'],
+              ['tax.wht3Enabled', 'tax.wht3'],
+            ] as const
+          ).map(([k, l]) => (
+            <ToggleRow
+              key={k}
+              label={t(l)}
+              on={d.draft[k] === true}
+              disabled={!canWrite || d.save.isPending}
+              onChange={() => d.set(k, !(d.draft[k] === true))}
+            />
+          ))}
+        </div>
+        {/* ST1-T17 ช่องที่ต้นแบบไม่มี — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ (สวิตช์แบบ หัก ณ ที่จ่าย) */}
+        <ToggleRow
+          label={t('tax.separateVatDocs')}
+          on={d.draft['tax.separateVatDocs'] === true}
+          disabled={!canWrite || d.save.isPending}
+          onChange={() => d.set('tax.separateVatDocs', !(d.draft['tax.separateVatDocs'] === true))}
+        />
+        {canWrite && (
+          <SaveBar
+            dirty={Object.keys(d.dirty).length > 0}
+            busy={d.busy || (free !== null && free !== undefined && !validFree(free))}
+            onSave={flow.onSave}
+            saved={flow.saved}
+            error={flow.error}
+            onDismiss={flow.dismiss}
+          />
+        )}
+      </Card>
+      {/* ค่าเริ่มต้นการวางบิล/นิติบุคคล (ST1-T16/T17) — การ์ดที่สองของหัวข้อเดียวกัน ใช้ปุ่มบันทึกลอยร่วมกัน */}
+      <Card title={t('bill.defaults')} load={d.q}>
+        <Radio
+          label={t('bill.cycleDefault')}
+          value={d.draft['billing.cycleDefault']}
+          disabled={!canWrite || d.save.isPending}
+          onChange={(v) => d.set('billing.cycleDefault', v)}
+          options={(['PER_DO', 'WEEKLY', 'MONTHLY', 'MANUAL'] as const).map((v) => ({
+            v,
+            l: t(`cust.cycle.${v}`),
+          }))}
+        />
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 320 }}>
+          <span style={lbl}>{t('cust.c.free')}</span>
+          <input
+            style={{ ...inputStyle, fontVariantNumeric: 'tabular-nums' }}
+            inputMode="numeric"
+            aria-label={t('cust.c.free')}
+            value={free === null || free === undefined ? '' : String(free)}
+            placeholder={t('bill.freeNone')}
+            disabled={!canWrite || d.save.isPending}
+            onChange={(e) => {
+              const v = e.target.value.trim();
+              d.set('billing.freeTimeMinutes', v === '' ? null : /^\d+$/.test(v) ? Number(v) : v);
+            }}
+          />
+          <span
+            style={{
+              fontSize: 12.5,
+              color:
+                free !== null && free !== undefined && !validFree(free) ? '#B3322A' : '#59606B',
+            }}
+          >
+            {t('bill.freeHint')}
+          </span>
+        </label>
+        {companies.length > 1 &&
+          (
+            [
+              ['routing.invoiceAsCompanyId', 'cust.c.billAs'],
+              ['routing.tenderAsCompanyId', 'car.f.billAs'],
+            ] as const
+          ).map(([k, l]) => (
+            <label
+              key={k}
+              style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 420 }}
+            >
+              <span style={lbl}>{t(l)}</span>
+              <select
+                style={inputStyle}
+                aria-label={t(l)}
+                value={String(d.draft[k] ?? '')}
+                disabled={!canWrite || d.save.isPending}
+                onChange={(e) => d.set(k, e.target.value || null)}
+              >
+                <option value="">{t('bill.asNone')}</option>
+                {companies.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.legalName}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+      </Card>
+    </>
   );
 }
+
+/** free time 0–1440 นาที (ตาม registry ของ API) */
+const validFree = (v: unknown) =>
+  typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 1440;
 
 export function SecuritySection({ canWrite }: { canWrite: boolean }) {
   const { t } = useI18n();
