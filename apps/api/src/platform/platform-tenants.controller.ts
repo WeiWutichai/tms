@@ -3,6 +3,7 @@ import type { Request } from 'express';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
+  ApiHeader,
   ApiOkResponse,
   ApiProperty,
   ApiPropertyOptional,
@@ -23,10 +24,12 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { AuthService } from '../auth/auth.service';
+import { assertStepUp } from '../auth/step-up';
+import { resetSecondFactor } from '../auth/two-factor-reset';
 import { webBaseUrl } from '../auth/password-reset.controller';
 import { ensureSystemRoles } from '../auth/system-roles';
 import { signAccessToken } from '../auth/tokens';
-import { PlatformAuth } from '../common/decorators';
+import { PlatformAuth, StepUpAlways } from '../common/decorators';
 import { decodeIdOr404, encodeId, tryDecodeId } from '../common/ids';
 import { ProblemException } from '../common/problem';
 import { requestContext } from '../common/request-context';
@@ -98,6 +101,10 @@ export class UpdatePlanDto extends ReasonBody {
   vehicleQuota?: number | null;
 }
 export class TenantReasonDto extends ReasonBody {}
+export class PlatformUserTwoFactorResetDto {
+  @ApiProperty({ example: 'usr_…' }) id!: string;
+  @ApiProperty({ example: false }) twoFactorEnabled!: boolean;
+}
 export class ImpersonateDto extends ReasonBody {
   @ApiPropertyOptional({ example: 'usr_…', description: 'ผู้ใช้ที่จะสวม (ไม่ส่ง = owner คนแรก)' })
   @IsOptional()
@@ -141,6 +148,8 @@ export class PlatformTenantUserDto {
   @ApiProperty() email!: string;
   @ApiProperty() status!: string;
   @ApiProperty({ type: [String] }) roles!: string[];
+  @ApiProperty({ description: 'ตั้ง 2FA แล้ว (#81 — รีเซ็ตได้เมื่อ true)' })
+  twoFactorEnabled!: boolean;
 }
 export class PlatformTenantDetailDto extends PlatformTenantDto {
   @ApiProperty({ type: [PlatformTenantUserDto] }) members!: PlatformTenantUserDto[];
@@ -219,6 +228,7 @@ export class PlatformTenantsController {
         email: u.email,
         status: u.status.toLowerCase(),
         roles: links.filter((l) => l.userId === u.id).map((l) => code.get(l.roleId) ?? ''),
+        twoFactorEnabled: !!u.totpEnabledAt,
       })),
     };
   }
@@ -440,6 +450,64 @@ export class PlatformTenantsController {
       expiresAt: expiresAt.toISOString(),
       url: `${webBaseUrl()}/impersonate#token=${accessToken}`,
     };
+  }
+
+  /**
+   * รีเซ็ต 2FA ของผู้ใช้ของลูกค้า (คำถามค้าง #81 — PO 24 พ.ย. 2569) — กรณีไม่มีผู้ดูแลในบริษัททำให้ได้ (เช่น owner คนเดียวทำเครื่องหาย)
+   * SUPER_ADMIN เท่านั้น (docs/04 A6: SUPPORT ดู + เข้าใช้งานแทน) · step-up ของ Console (D-77 — ตรวจหลัง 404) · เหตุผล ≥ 10 ตัว
+   * ผลเหมือนฝั่งบริษัท (`POST /v1/users/{id}/reset-2fa`) · audit ลง audit_log ของบริษัทนั้น (actor = `platform:<id>`) + อีเมลแจ้งเจ้าของบัญชี
+   */
+  @Post(':id/users/:userId/reset-2fa')
+  @HttpCode(200)
+  @PlatformAuth('SUPER_ADMIN')
+  @StepUpAlways('platform')
+  @ApiHeader({
+    name: 'X-Step-Up',
+    required: true,
+    description: 'stepUpToken จาก POST /v1/platform/auth/step-up',
+  })
+  @ApiOkResponse({ type: PlatformUserTwoFactorResetDto })
+  async resetTwoFactor(
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+    @Body() body: TenantReasonDto,
+  ): Promise<PlatformUserTwoFactorResetDto> {
+    const db = this.prisma.platform;
+    const t = await this.tenant(id);
+    const uid = decodeIdOr404('user', userId);
+    const user = await db.appUser.findFirst({
+      where: { id: uid, tenantId: t.id, status: { not: 'DELETED' } },
+    });
+    if (!user) throw new ProblemException('not_found');
+    assertStepUp(); // D-77
+    if (!user.totpEnabledAt) throw new ProblemException('invalid_state_transition');
+    const staff = await db.platformUser.findUniqueOrThrow({
+      where: { id: requestContext.require().platformUser!.id },
+    });
+    await db.$transaction(async (tx) => {
+      await resetSecondFactor(tx, tx, this.email, user, {
+        tenantName: t.name,
+        actorName: staff.name,
+        byStaff: true,
+        reason: body.reason,
+      });
+      const ctx = requestContext.require();
+      await tx.auditLog.create({
+        data: {
+          tenantId: t.id,
+          actorId: `platform:${staff.id}`,
+          action: 'user.2fa_reset',
+          entityType: 'user',
+          entityId: user.id,
+          before: { twoFactorEnabled: true },
+          after: { twoFactorEnabled: false },
+          reason: body.reason,
+          requestId: ctx.requestId,
+          ip: ctx.ip ?? null,
+        },
+      });
+    });
+    return { id: encodeId('user', user.id), twoFactorEnabled: false };
   }
 
   private async setStatus(id: string, status: 'ACTIVE' | 'SUSPENDED', reason: string) {

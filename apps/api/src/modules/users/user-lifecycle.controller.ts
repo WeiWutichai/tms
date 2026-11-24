@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiHeader,
   ApiOkResponse,
   ApiProperty,
   ApiPropertyOptional,
@@ -10,12 +11,15 @@ import type { AppUser } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
 import { IsInt, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { AuditService } from '../../audit/audit.service';
-import { RequireScope, TenantResource } from '../../common/decorators';
+import { assertStepUp } from '../../auth/step-up';
+import { resetSecondFactor } from '../../auth/two-factor-reset';
+import { RequireScope, StepUpAlways, TenantResource } from '../../common/decorators';
 import { decodeIdOr404, encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
 import { PrismaService } from '../../db/prisma.service';
+import { EmailService } from '../email/email.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { assertSeat } from './invitations.controller';
 
@@ -91,6 +95,7 @@ export class UserLifecycleController {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly entitlements: EntitlementService,
+    private readonly email: EmailService,
   ) {}
 
   @Post('users/:id/suspend')
@@ -168,6 +173,55 @@ export class UserLifecycleController {
       UPDATE notification n SET status = 'FAILED', failed_reason = 'recipient_deleted', updated_at = now()
         FROM e WHERE n.email_outbox_id = e.id AND n.status = 'QUEUED' AND e.status = 'FAILED'`;
     return result;
+  }
+
+  /**
+   * รีเซ็ต 2FA ของผู้ใช้อื่นในบริษัท (คำถามค้าง #81 — PO 24 พ.ย. 2569): ผู้ใช้ทำเครื่องหาย + รหัสสำรองหมด
+   * ต้องมี `users:write` + step-up 2FA ของผู้ทำ (D-67 — ตรวจหลัง 404) + เหตุผล · ทำกับตัวเองไม่ได้ ·
+   * เป้าหมายเป็น owner → ผู้ทำต้องเป็น owner (กติกาเดียวกับระงับ/ลบ) · ล้าง TOTP + รหัสสำรอง, session ทุกเครื่องหลุด,
+   * อุปกรณ์ที่จำไว้ใช้ไม่ได้ · login ครั้งถัดไปตั้ง 2FA ใหม่ (D-78) · audit `user.2fa_reset` + อีเมลแจ้งเจ้าของบัญชี
+   */
+  @Post('users/:id/reset-2fa')
+  @HttpCode(200)
+  @TenantResource('user')
+  @RequireScope('users:write')
+  @StepUpAlways()
+  @ApiHeader({
+    name: 'X-Step-Up',
+    required: true,
+    description: 'stepUpToken จาก POST /v1/auth/step-up',
+  })
+  @ApiOkResponse({ type: UserStatusDto })
+  async resetTwoFactor(@Param('id') id: string, @Body() body: ReasonDto): Promise<UserStatusDto> {
+    const user = await this.target(id);
+    assertStepUp();
+    if (user.status === 'DELETED' || !user.totpEnabledAt)
+      throw new ProblemException('invalid_state_transition');
+    await this.guardOwner(user, false);
+    const tx = this.db.tx;
+    // actorId ของ token dev ไม่ใช่ uuid → ไม่มีชื่อ (เหมือน guardOwner)
+    const actor = await tx.appUser
+      .findUnique({ where: { id: requestContext.require().actorId ?? '' }, select: { name: true } })
+      .catch(() => null);
+    const tenant = await tx.tenant.findUnique({
+      where: { id: user.tenantId },
+      select: { name: true },
+    });
+    const updated = await resetSecondFactor(tx, this.prisma.platform, this.email, user, {
+      tenantName: tenant?.name ?? '',
+      actorName: actor?.name ?? '',
+      byStaff: false,
+      reason: body.reason,
+    });
+    await this.audit.record({
+      action: 'user.2fa_reset',
+      entityType: 'user',
+      entityId: user.id,
+      before: { twoFactorEnabled: true },
+      after: { twoFactorEnabled: false },
+      reason: body.reason,
+    });
+    return { id: encodeId('user', updated.id), status: updated.status.toLowerCase() };
   }
 
   /** ประวัติ login ของ tenant (ST1-T11) — เก็บ 1 ปี (worker ลบที่เก่ากว่า) · ไม่แสดงแถวภายใน `attempt` */
