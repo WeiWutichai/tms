@@ -1,6 +1,7 @@
 # ST9-T13 ตรวจความปลอดภัย — รอบแรก (22 พ.ย. 2569)
 
 > งาน: `plan/01` ST9-T13 · อ้างอิง: docs/04 A1/A3/J (Security), spec/11 §2–3, §12, §14 · รอบสุดท้ายจะรันซ้ำหลัง ST8-T12
+> **รอบสุดท้าย (24 พ.ย. 2569): `docs/security/st9-t13-review-r2.md`**
 > สถานะ: **PASS ตามเกณฑ์ตรวจรับ** — ไม่พบ defect ระดับ Critical/High · coverage ข้าม tenant = **100% ของ route (523/523)**
 > ผู้ตรวจ: Claude Code (lane lx, branch `st9/t13-security-review`, ฐาน `origin/main` f82c3d36)
 

@@ -9,7 +9,7 @@ import { encodeId } from '../src/common/ids';
 import { EmailDispatcher } from '../src/modules/email/email.service';
 import { MemoryTransport } from '../src/modules/email/transport';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
-import { bootApp, loginFull, platform, tokenFor, truncateAll } from './helpers';
+import { bootApp, loginFull, platform, stepUpHeaderFor, tokenFor, truncateAll } from './helpers';
 
 const SECRET = 'JBSWY3DPEHPK3PXP';
 const PW = 'platform-password-2569';
@@ -50,8 +50,12 @@ describe('platform console (ST1-T24)', () => {
   }
   const as = (token: string) => ({
     get: (p: string) => http().get(p).set('Authorization', `Bearer ${token}`),
-    post: (p: string, b: object = {}) =>
-      http().post(p).set('Authorization', `Bearer ${token}`).send(b),
+    // ST9-T13 R2-M02: เข้าใช้งานแทนต้อง step-up ของ Console — แนบให้อัตโนมัติ (ไม่แนบ = test ด้านล่าง)
+    post: (p: string, b: object = {}) => {
+      const r = http().post(p).set('Authorization', `Bearer ${token}`);
+      const su = /\/impersonate$/.test(p) ? stepUpHeaderFor(token) : null;
+      return (su ? r.set('X-Step-Up', su) : r).send(b);
+    },
     patch: (p: string, b: object) =>
       http().patch(p).set('Authorization', `Bearer ${token}`).send(b),
   });
@@ -244,8 +248,21 @@ describe('platform console (ST1-T24)', () => {
     await bi
       .post(`/v1/platform/tenants/${id}/impersonate`, { reason: 'ลูกค้าแจ้งนำเข้า Excel ไม่ผ่าน' })
       .expect(403);
-    const sp = as(await signIn('SUPPORT'));
+    const supportToken = await signIn('SUPPORT');
+    const sp = as(supportToken);
     await sp.post(`/v1/platform/tenants/${id}/impersonate`, { reason: 'สั้น' }).expect(422);
+    // R2-M02: ไม่มี step-up ของ Console / ใช้ step-up ปลอม → 403 step_up_required (ไม่สร้าง session)
+    for (const su of [undefined, 'x.y.z']) {
+      const q = http()
+        .post(`/v1/platform/tenants/${id}/impersonate`)
+        .set('Authorization', `Bearer ${supportToken}`);
+      const res = await (su ? q.set('X-Step-Up', su) : q).send({
+        reason: 'ลูกค้าแจ้งนำเข้า Excel ไม่ผ่าน',
+      });
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('step_up_required');
+    }
+    expect(await db.impersonationSession.count({ where: { tenantId: t.id } })).toBe(0);
     const r = (
       await sp
         .post(`/v1/platform/tenants/${id}/impersonate`, {
