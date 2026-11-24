@@ -127,7 +127,7 @@ const type = async (v: string) => {
   await act(() => new Promise((r) => setTimeout(r, 350)));
 };
 
-const R = (o: Partial<PodDo['failReasons'][number]>) => ({
+const R = (o: Partial<PodDo['failReasons'][number]>): PodDo['failReasons'][number] => ({
   id: 'rsn_x',
   category: 'DELIVERY_FAILED',
   label: 'x',

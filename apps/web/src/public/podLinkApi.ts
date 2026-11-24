@@ -110,7 +110,7 @@ export function podFailTarget(m: PodDo): PodFailTarget | null {
       ],
     };
   }
-  if (P && P.status !== 'COMPLETED') return null;
+  if (m.pickup && m.pickup.status !== 'COMPLETED') return null;
   if (open(D)) {
     const at = D.status === 'ARRIVED';
     return {
