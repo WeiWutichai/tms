@@ -250,12 +250,15 @@ ${d.remarks.map((r) => `<p style="margin:0;color:#3B424C">${e(r)}</p>`).join('')
  * แถวที่สูงเกินที่เหลือ → แยกตามหน่วยย่อย `.dob` (เช่น รายการ DO) ส่วนที่เหลือไปหน้าถัดไปเป็นแถว "(ต่อ)" (เฉพาะช่องที่มี `.desc`; `.mn` อยู่แถวแรก)
  * ไม่วางแถวอื่นซ้อนบนหน้าที่ยืด (review M1) — เลขหน้า x/y = จำนวนหน้า PDF จริง
  * เส้นรวม/ลายเซ็นอยู่หน้าสุดท้าย (ลายเซ็นชิดล่างตามต้นแบบ `margin-top:auto`) · ท้ายทุกหน้า "{เลข} · หน้า x/y"
+ * `stacked` (ใบสำคัญจ่าย): เส้นรวม + ลายเซ็นไม่พอหน้าที่มีรายการ แต่เส้นรวมพอ → เส้นรวม/จำนวนเงินตัวอักษรอยู่หน้าเดียวกับรายการ
+ *   ลายเซ็นขึ้นหน้าถัดไป (เดิมยกทั้งก้อนไปหน้าใหม่ที่ไม่มีรายการ ทั้งที่หน้าแรกเหลือที่ — UAT 24 พ.ย. 2569
+ *   [DECISION — lead 24 พ.ย. เพื่อ UAT, ย้อนได้] spec/12 §3) · ใบแจ้งหนี้/ใบวางบิล (`side`) คงเดิม
  */
 const PAGINATE = `(function(){
 function run(){
 var FOOT=48;
 var doc=document.querySelector('.fdoc');
-var no=doc.getAttribute('data-no'),draft=doc.hasAttribute('data-draft'),wmText=draft?'ร่าง':doc.getAttribute('data-wm'),wmKind=doc.getAttribute('data-wm-kind')||'void';
+var no=doc.getAttribute('data-no'),splitSig=doc.hasAttribute('data-split-sig'),draft=doc.hasAttribute('data-draft'),wmText=draft?'ร่าง':doc.getAttribute('data-wm'),wmKind=doc.getAttribute('data-wm-kind')||'void';
 var head=doc.querySelector('.head'),cont=doc.querySelector('.cont'),table=doc.querySelector('table'),end=doc.querySelector('.end'),sig=doc.querySelector('.sig');
 var rows=[].slice.call(table.tBodies[0].rows);
 var host=document.createElement('div');doc.parentNode.insertBefore(host,doc);doc.remove();
@@ -297,7 +300,7 @@ newPage(true);
 rows.forEach(place);
 if(tbody&&tbody.rows.length===0&&pages.length>1){pages.pop().remove();pg=pages[pages.length-1];inner=pg.querySelector('.in');}
 inner.appendChild(end);inner.appendChild(sig);
-if(!fits()){end.remove();sig.remove();newPage(false);inner.appendChild(end);inner.appendChild(sig);}
+if(!fits()){sig.remove();if(splitSig&&fits()){newPage(false);inner.appendChild(sig);}else{end.remove();newPage(false);inner.appendChild(end);inner.appendChild(sig);}}
 pages.forEach(function(p,i){p.querySelector('.foot').textContent=no+' · หน้า '+(i+1)+'/'+pages.length;});
 document.documentElement.setAttribute('data-paged','1');
 }
@@ -324,6 +327,6 @@ export function financeDocument(d: FinanceDocument) {
     d.docNo && d.watermark
       ? ` data-wm="${e(d.watermark)}"${d.watermarkKind && d.watermarkKind !== 'void' ? ` data-wm-kind="${d.watermarkKind}"` : ''}`
       : '';
-  const body = `<div data-paginate><div class="fdoc" data-no="${e(no)}"${d.docNo ? '' : ' data-draft'}${wm}>${headBlock(d)}${contBlock(d)}${table(d)}${endBlock(d)}</div></div><script>${PAGINATE}</script>`;
+  const body = `<div data-paginate><div class="fdoc" data-no="${e(no)}"${d.docNo ? '' : ' data-draft'}${d.layout === 'stacked' ? ' data-split-sig' : ''}${wm}>${headBlock(d)}${contBlock(d)}${table(d)}${endBlock(d)}</div></div><script>${PAGINATE}</script>`;
   return { body, css: CSS, title: d.docNo ? `${d.title} ${d.docNo}` : `${d.title} (ร่าง)` };
 }

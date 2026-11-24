@@ -100,3 +100,32 @@ export function openVoucherPdf(id: string, no: string | null): Promise<void> {
     `${no ?? 'settlement'}.pdf`,
   );
 }
+
+export type SettlementQueue = Schemas['SettlementQueuePageDto'];
+export type SettlementQueueTrip = Schemas['SettlementQueueTripDto'];
+export type CreateSettlementInput = Schemas['CreateSettlementDto'];
+
+/**
+ * คิวจ่ายรถร่วม (ST6-T02 `GET /v1/settlements/queue`) ของฟอร์ม "สร้างงวดใหม่" — `carriers` = รายชื่อผู้รับเหมาที่มีเที่ยวรอจ่าย
+ * (ไม่ส่ง carrierId) · เลือกผู้รับเหมาแล้วโหลดเที่ยวของรายนั้น (สูงสุด 200 เที่ยวต่อใบ — `tripIds` ≤ 200)
+ */
+export function useSettlementQueue(f: { carrierId?: string; dateFrom?: string; dateTo?: string }) {
+  return useQuery({
+    queryKey: [KEY, 'queue', f],
+    queryFn: () =>
+      unwrap(
+        api.GET('/v1/settlements/queue', {
+          params: { query: { limit: 200, sort: 'updatedAt', ...f } as never },
+        }),
+      ),
+  });
+}
+
+/** ติ๊กเที่ยว → สร้างร่างใบสำคัญจ่าย (ST6-T03 `POST /v1/settlements`) */
+export function useCreateSettlement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateSettlementInput) => unwrap(api.POST('/v1/settlements', { body })),
+    onSettled: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
