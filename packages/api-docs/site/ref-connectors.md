@@ -1288,6 +1288,7 @@ const { data, error } = await tms.POST('/v1/reconcile-runs', {
 | `updatedAt` | ใช่ | `string (date-time)` |   |   |   |
 | `tab` | ใช่ | `string` | ค่า: `queued`, `failed`, `done` |   |   |
 | `documentNo` | ใช่ | `string` | null ได้ |   | `2611-0001` |
+| `partyName` | ใช่ | `string` | null ได้ | #86 (24 พ.ย. 2569) คู่ค้าของเอกสารจาก payload — ใบแจ้งหนี้ = ลูกค้า · ใบสำคัญจ่าย = รถร่วม (คอลัมน์ "ลูกค้า" ของหน้าคิว) | `บริษัท ลูกค้า จำกัด` |
 | `nextRunAt` | ใช่ | `string (date-time)` | null ได้ | รอคิว: เวลาที่จะลองครั้งถัดไป |   |
 | `errorMessage` | ใช่ | `string` | null ได้ | ข้อความผิดพลาด (ตัด secret แล้ว) |   |
 | `link` | ใช่ | `string` | null ได้ | ลิงก์หน้าที่ต้องแก้ (mapping / ผังรหัส) |   |

@@ -284,6 +284,14 @@ export class ConnectorQueueItemDto extends ConnectorCommandDto {
   @ApiProperty({
     nullable: true,
     type: String,
+    example: 'บริษัท ลูกค้า จำกัด',
+    description:
+      'PO #86 (24 พ.ย. 2569) คู่ค้าของเอกสารจาก payload — ใบแจ้งหนี้ = ลูกค้า · ใบสำคัญจ่าย = รถร่วม (คอลัมน์ "ลูกค้า" ของหน้าคิว)',
+  })
+  partyName!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
     format: 'date-time',
     description: 'รอคิว: เวลาที่จะลองครั้งถัดไป',
   })
@@ -1225,6 +1233,7 @@ export class ConnectorQueueService {
       ...base,
       tab,
       documentNo: documentNo(row),
+      partyName: partyName(row),
       nextRunAt: tab === 'queued' ? row.nextRunAt.toISOString() : null,
       errorMessage: str(e?.message, 500),
       link: typeof e?.link === 'string' && e.link.startsWith('/') ? e.link.slice(0, 300) : null,
@@ -1316,6 +1325,13 @@ function invalid(field: string, code: string, message: string) {
 
 function notAllowed(why: string) {
   return new ProblemException('queue_action_not_allowed', undefined, undefined, { why });
+}
+
+/** ชื่อคู่ค้าจาก payload (canonical `document.customer.legalName` / `document.carrier.legalName`) */
+function partyName(row: Pick<IntegrationOutbox, 'payload'>): string | null {
+  const d = ((row.payload ?? null) as { document?: Record<string, unknown> } | null)?.document;
+  const party = (d?.customer ?? d?.carrier) as { legalName?: unknown } | undefined;
+  return str(party?.legalName, 200);
 }
 
 /** เลขเอกสาร TMS จาก payload (canonical `document.number` หรือ `ref.number`) */
