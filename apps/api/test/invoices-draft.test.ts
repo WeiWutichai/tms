@@ -490,6 +490,13 @@ describe('invoice drafts (ST5-T07)', { timeout: 600_000 }, () => {
     const dup = await create(cus, [d2.doId, d3.doId]).expect(409);
     expect(dup.body).toMatchObject({ code: 'do_already_drafted', doNo: expect.any(String) });
     const b = (await create(cus, [d3.doId]).expect(201)).body;
+    // #82 (PO 24 พ.ย. 2569): เวลาเข้าร่างครั้งแรก — ถอด/ใส่ใหม่/ย้ายร่าง ไม่เริ่มนับใหม่
+    const firstOf = async (u: string) =>
+      (await db.deliveryOrder.findUniqueOrThrow({ where: { id: u } })).firstDraftedAt;
+    const first1 = await firstOf(d1.uuid);
+    const first2 = await firstOf(d2.uuid);
+    expect(first1).toBeInstanceOf(Date);
+    expect(first2).toBeInstanceOf(Date);
 
     // ถอด: เหตุผลบังคับ
     await api(app, invoicer)
@@ -514,6 +521,7 @@ describe('invoice drafts (ST5-T07)', { timeout: 600_000 }, () => {
         .expect(200)
     ).body;
     expect(added.deliveryOrderCount).toBe(2);
+    expect((await firstOf(d2.uuid))?.toISOString()).toBe(first2!.toISOString());
     // ย้าย d1 จาก a → b (ETag = ต้นทาง)
     const mv = await api(app, invoicer)
       .post(`/v1/invoices/${a.id}/delivery-orders/move`)
@@ -523,6 +531,7 @@ describe('invoice drafts (ST5-T07)', { timeout: 600_000 }, () => {
     expect(mv.body.target).toMatchObject({ deliveryOrderCount: 3, sellTotal: '5250.00' });
     expect(mv.headers.etag).toBe(`"${mv.body.source.version}"`);
     expect((await getDo(d1.doId)).billingStatus).toBe('IN_DRAFT');
+    expect((await firstOf(d1.uuid))?.toISOString()).toBe(first1!.toISOString());
     // ย้ายไปร่างของลูกค้าอื่น → 422
     const other = await newCustomer();
     const od = await delivered(other);

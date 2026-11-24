@@ -63,6 +63,7 @@
 | `credentialKeys` | ใช่ | `array<string>` |   | ชื่อช่อง credential ที่ตั้งแล้ว — ค่าไม่ส่งกลับเด็ดขาด | `["apiKey"]` |
 | `credentialsUpdatedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
 | `syncFromDate` | ใช่ | `string (date)` | null ได้ |   | `2026-12-01` |
+| `afterPushReconcileDelayMinutes` | ใช่ | `number` | ≥ 0 · ≤ 1440 | หน่วงเวลาอ่านเอกสารกลับจากระบบบัญชีมาเทียบรอบหลังส่งสำเร็จ (AFTER_PUSH) ครั้งแรก — นาทีหลังส่งสำเร็จ · 0 = ทันที (ระบบตรวจทุก 1 นาที) · อ่านอีกครั้ง +60 นาทีจากครั้งแรก | `0` |
 | `lastHealthAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
 | `lastHealthOk` | ใช่ | `boolean` | null ได้ |   |   |
 | `lastHealthError` | ใช่ | `object` | null ได้ | {errorClass, code, message} ของ healthCheck ล่าสุดที่ล้ม |   |

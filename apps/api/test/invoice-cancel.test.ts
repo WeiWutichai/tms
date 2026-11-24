@@ -339,10 +339,18 @@ describe('invoice cancel (ST5-T10)', { timeout: 900_000 }, () => {
         .expect(200)
     ).body;
     const inv = (await finalize(dr.id, withLine.version).expect(200)).body;
+    // #82 [DECISION lead 24 พ.ย.]: ออกเอกสารแล้ว = จบรอบวางบิลของ DO → ล้างเวลาเข้าร่างครั้งแรก
+    const firstOf = async (u: string) =>
+      (await db.deliveryOrder.findUniqueOrThrow({ where: { id: u } })).firstDraftedAt;
+    expect(await firstOf(d1.uuid)).toBeNull();
+    const beforeCancel = Date.now();
     const r = await cancel(inv.id, inv.version, {
       reason: 'เลขที่ PO ผิด ออกฉบับใหม่แทน',
       reissue: true,
     }).expect(200);
+    // ร่างใหม่ของการออกแทน = เริ่มนับอายุร่างใหม่
+    for (const d of [d1, d2])
+      expect((await firstOf(d.uuid))!.getTime()).toBeGreaterThanOrEqual(beforeCancel - 1000);
     expect(r.body.replacedByInvoice).toMatchObject({ status: 'DRAFT', invoiceNo: null });
     const nid = r.body.replacedByInvoice.id as string;
     const re = await getInv(nid);

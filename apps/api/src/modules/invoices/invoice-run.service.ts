@@ -80,8 +80,8 @@ const chunk = <T>(xs: T[], n: number): T[][] => {
  * ST5-T12b (PO ตัดสิน 22 พ.ย. 2569):
  * - **ลูกค้าหนึ่งราย = ใบแจ้งหนี้ใบเดียวต่อรอบ** (MONTHLY/WEEKLY) — เพดาน `MAX_DOS_PER_INVOICE` (1,000) ต่อร่าง; เกิน = แบ่งหลายร่าง + `splitByCap`
  * - **ลูกค้าปิดใช้ (INACTIVE) ไม่เข้ารอบ** (ทั้งร่างใบแจ้งหนี้และร่างใบวางบิล) — สร้างร่างมือไม่เปลี่ยน
- * - **ร่างใบวางบิลอัตโนมัติเฉพาะงวดของรอบ:** ใบแจ้งหนี้ที่ออกแล้วค้างซึ่ง **งวดของใบ** (`periodFrom`–`periodTo`) อยู่ในงวดของรอบทั้งช่วง
- *   (`periodFrom ≥ รอบ.periodFrom` และ `periodTo ≤ รอบ.periodTo`) · ใบที่ไม่มีงวด (ไม่มี DO) ใช้ **วันที่ออก** (`issueDate`) อยู่ในงวดของรอบ
+ * - **ร่างใบวางบิลอัตโนมัติเฉพาะงวดของรอบ:** ใบแจ้งหนี้ที่ออกแล้วค้างซึ่ง **วันสิ้นงวดของใบ** (`periodTo`) อยู่ในงวดของรอบ
+ *   (PO 24 พ.ย. 2569 — ใบที่งวดคร่อมขอบรอบเข้ารอบที่งวดของใบจบ) · ใบที่ไม่มีงวด (ไม่มี DO) ใช้ **วันที่ออก** (`issueDate`) อยู่ในงวดของรอบ
  *   — ใช้งวดของใบเป็นหลักเพราะรอบของงวดเดือน ต.ค. สั่งต้นเดือน พ.ย. ใบจึงออกเลขนอกงวดเสมอ (ดู `noteCandidates`)
  * - **ไฟล์สรุปรอบ .xlsx** (ไม่มี PDF): แถวต่อร่าง/ลูกค้า — ยอดเงินเฉพาะผู้สั่งที่มี `prices.sell:read` · เก็บ/ดาวน์โหลด/แจ้งเตือนด้วยกรอบงานส่งออก
  *   ST9-T10 (`GET /v1/exports/{jobId}` เฉพาะผู้สั่ง, 7 วัน) · ผู้สั่งต้องมี `export:run` (ไม่มี = ไม่สร้างไฟล์ `summary: null`)
@@ -472,8 +472,9 @@ export class InvoiceRunService implements OnModuleInit {
   /**
    * ใบแจ้งหนี้ที่เข้าร่างใบวางบิลของรอบนี้ = เงื่อนไขของ `GET /billing-notes/candidates` (ออกแล้ว ค้างชำระ ไม่อยู่ในใบวางบิลที่ active)
    * **+ อยู่ในงวดของรอบ** (PO 22 พ.ย. 2569 — ไม่ใช่ทุกใบที่ค้าง):
-   * - ใบที่มีงวด (`periodFrom`/`periodTo` — ใบที่มี DO มีเสมอ): งวดของใบอยู่ในงวดของรอบ**ทั้งช่วง**
-   *   (`periodFrom ≥ รอบ.periodFrom` และ `periodTo ≤ รอบ.periodTo`) — ใบที่งวดคร่อมออกนอกรอบไม่เข้า
+   * - ใบที่มีงวด (`periodTo` — ใบที่มี DO มีเสมอ): **`periodTo` อยู่ใน [รอบ.periodFrom, รอบ.periodTo]** (PO 24 พ.ย. 2569 — Q-BILLRUN)
+   *   — ใบที่งวดคร่อมขอบรอบเข้ารอบที่งวดของใบจบ; วันเดียวอยู่ได้ในรอบเดียวของรอบที่งวดไม่ทับกัน จึงไม่ถูกดึงซ้ำข้ามรอบติดกัน
+   *   (และใบที่อยู่ในใบวางบิล active แล้วไม่ถูกเลือกอีก — กันซ้ำแม้สั่งรอบงวดทับกัน)
    * - ใบที่ไม่มีงวด: `issueDate` (วันที่ออก เวลาไทย) อยู่ใน [รอบ.periodFrom, รอบ.periodTo]
    * ลูกค้าปิดใช้ (INACTIVE) / ลบแล้ว / `billing_cycle` ไม่ตรง ไม่เข้า
    */
@@ -485,11 +486,8 @@ export class InvoiceRunService implements OnModuleInit {
         ...(customerId ? { customerId } : {}),
         customer: { billingCycle: p.billingCycle, deletedAt: null, status: 'ACTIVE' },
         OR: [
-          { periodFrom: { gte: from }, periodTo: { lte: to } },
-          {
-            OR: [{ periodFrom: null }, { periodTo: null }],
-            issueDate: { gte: from, lte: to },
-          },
+          { periodTo: { gte: from, lte: to } },
+          { periodTo: null, issueDate: { gte: from, lte: to } },
         ],
         status: { in: [...BILLABLE_INVOICE] },
         invoiceNo: { not: null },

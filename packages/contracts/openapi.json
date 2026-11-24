@@ -31175,7 +31175,7 @@
     },
     "/v1/reconcile-reports/period-close": {
       "get": {
-        "description": "หลักฐานของเกณฑ์ผ่าน (ก) docs/02 §7 \"ปิดงวดผ่าน reconcile — MISMATCH ค้าง = 0\" · 3 ส่วน: (1) `outstanding` MISMATCH ค้าง ณ สิ้นเดือน (เวลาไทย) = รายการ `result` MISMATCH/REMOTE_MISSING severity MONEY/FIELD ที่รอบตรวจพบ (`run_at`) ก่อนสิ้นเดือน และ ณ สิ้นเดือนยังไม่ถูกปิดและยังไม่มีคนยอมรับ — ปิดหลังสิ้นเดือนยังนับเป็นค้างของงวด · พบหลังสิ้นเดือนไม่นับ · INFO (อ่าน/เทียบไม่ได้) นับแยกใน `summary.unverified` (2) `acknowledged` รายการที่ยอมรับความต่างในเดือน + ผู้ยอมรับ + เหตุผล (3) `notSent` เอกสารที่วันที่ไม่เกินสิ้นเดือนและคำสั่งส่งล่าสุดยังอยู่แท็บรอคิว/ล้มเหลวของคิว (`GET /connectors/{id}/queue`) **ณ เวลาที่ออกรายงาน** · `passed` = เดือนจบแล้ว และ `summary.outstanding` = 0 · เดือนที่ยังไม่จบตัด ณ เวลาปัจจุบัน · connector ไม่พบ/ของ tenant อื่น → 404 · ยอดเงิน `sell*` ต้องมี `prices.sell:read` · `buy*` ต้องมี `prices.buy:read` · ส่งออก: `POST /v1/exports` resource `reconcile-period-close` (xlsx / csv / pdf) ตัวกรอง `connectorId`, `month`",
+        "description": "หลักฐานของเกณฑ์ผ่าน (ก) docs/02 §7 \"ปิดงวดผ่าน reconcile — MISMATCH ค้าง = 0\" · 3 ส่วน: (1) `outstanding` MISMATCH ค้าง ณ สิ้นเดือน (เวลาไทย) = รายการ `result` MISMATCH/REMOTE_MISSING severity MONEY/FIELD ที่รอบตรวจพบ (`run_at`) ก่อนสิ้นเดือน และ ณ สิ้นเดือนยังไม่ถูกปิดและยังไม่มีคนยอมรับ — ปิดหลังสิ้นเดือนยังนับเป็นค้างของงวด · พบหลังสิ้นเดือนไม่นับ · INFO (อ่าน/เทียบไม่ได้) นับแยกใน `summary.unverified` (2) `acknowledged` รายการที่ยอมรับความต่างในเดือน + ผู้ยอมรับ + เหตุผล (3) `notSent` เอกสารที่วันที่ไม่เกินสิ้นเดือนและคำสั่งส่งล่าสุดยังอยู่แท็บรอคิว/ล้มเหลวของคิว (`GET /connectors/{id}/queue`) **ณ เวลาที่ออกรายงาน** · `passed` = เดือนจบแล้ว และ `summary.outstanding` = 0 และ `summary.notSent` = 0 และ `summary.unverified` = 0 (PO 24 พ.ย. 2569 — `notSent` นับสถานะคิว ณ เวลาที่ออกรายงาน ผลของเดือนที่จบแล้วจึงเปลี่ยนได้ระหว่างการออกแต่ละครั้ง) · เดือนที่ยังไม่จบตัด ณ เวลาปัจจุบัน · connector ไม่พบ/ของ tenant อื่น → 404 · ยอดเงิน `sell*` ต้องมี `prices.sell:read` · `buy*` ต้องมี `prices.buy:read` · ส่งออก: `POST /v1/exports` resource `reconcile-period-close` (xlsx / csv / pdf) ตัวกรอง `connectorId`, `month`",
         "operationId": "Reconcile_periodCloseReport",
         "parameters": [
           {
@@ -50621,7 +50621,7 @@
     },
     "/v1/invoice-runs": {
       "post": {
-        "description": "D-54 บัญชีเบา: ร่าง **ไม่มีเลข ไม่ใช่เอกสารภาษี** · ลูกค้าที่ `billingCycle` = รอบที่สั่ง (ไม่รวม `MANUAL` และลูกค้าที่ปิดใช้ `INACTIVE`) ที่มี DO พร้อมวางบิล (กฎเดียวกับ `GET /invoices/queue` + เวลาจุดส่งครบ) วันที่ DO อยู่ในงวด → ร่างผ่านทางเดียวกับ `POST /invoices` (ตรวจซ้ำตอนดึง · กันวางบิลซ้ำระดับ DB · audit `invoice.draft_created`) · `MONTHLY`/`WEEKLY` = **ใบแจ้งหนี้ใบเดียวต่อลูกค้าต่อรอบ** งวด = ที่สั่ง (เพดาน 1000 DO ต่อใบ — เกินจึงแบ่งหลายร่าง + `splitByCap`) · `PER_DO` = 1 ร่างต่อ DO · `billingNotes` (ค่าเริ่มต้น true) = ร่างใบวางบิลจากใบแจ้งหนี้ที่ออกแล้วยังค้าง และยังไม่อยู่ในใบวางบิลที่ active **เฉพาะใบของงวดนี้** (งวดของใบอยู่ในงวดของรอบทั้งช่วง; ใบที่ไม่มีงวดใช้วันที่ออก) (1 ร่างต่อผู้ออก/สาขาผู้ออก) · **สั่งซ้ำไม่สร้างซ้ำ:** DO/ใบแจ้งหนี้ที่ถูกดึงแล้วไม่ถูกเลือกอีก · **ร่างละ transaction** (รวมการส่งบัญชีของ DO ในกลุ่ม) — กลุ่มที่ล้มย้อนทั้งกลุ่ม กลุ่ม/ลูกค้าอื่นไม่ล้มตาม · DO ที่ไม่ผ่านตอนดึง (ระบุตัวได้) ถูกข้าม (`skippedDeliveryOrders`) · ร่างลงชื่อผู้สั่งเป็นผู้สร้าง (กฎแบ่งหน้าที่ของ finalize ใช้เหมือนสร้างมือ) · 202 `{jobId, statusUrl}` → `GET /v1/jobs/{id}`: `progress` ต่อร่าง · `result` = `InvoiceRunResult` (ผลต่อลูกค้า SUCCEEDED/PARTIAL/FAILED/NOTHING_TO_BILL + ลิงก์ร่าง ≤ 50 ต่อลูกค้า — ไม่มียอดเงิน) · ไม่มีลูกค้า PARTIAL/FAILED = `succeeded`, มี = `succeeded_with_errors` · จบ = webhook `job.completed` · **ไฟล์สรุปรอบ .xlsx** (`result.summary.url` = `GET /v1/exports/{jobId}` เฉพาะผู้สั่งที่มี `export:run`; ยอดเงินในไฟล์เฉพาะผู้สั่งที่มี `prices.sell:read`; ใช้ได้ 7 วัน; แจ้งเตือนผู้สั่งพร้อมลิงก์) · ไม่มีรอบอัตโนมัติตามเวลา (สั่งเองเท่านั้น) · ผู้สั่งดู `statusUrl` ได้แม้ไม่มี `jobs:read` · job เก็บ 7 วัน · นับเป็นคำขอหนัก (rate limit ชั้น heavy)",
+        "description": "D-54 บัญชีเบา: ร่าง **ไม่มีเลข ไม่ใช่เอกสารภาษี** · ลูกค้าที่ `billingCycle` = รอบที่สั่ง (ไม่รวม `MANUAL` และลูกค้าที่ปิดใช้ `INACTIVE`) ที่มี DO พร้อมวางบิล (กฎเดียวกับ `GET /invoices/queue` + เวลาจุดส่งครบ) วันที่ DO อยู่ในงวด → ร่างผ่านทางเดียวกับ `POST /invoices` (ตรวจซ้ำตอนดึง · กันวางบิลซ้ำระดับ DB · audit `invoice.draft_created`) · `MONTHLY`/`WEEKLY` = **ใบแจ้งหนี้ใบเดียวต่อลูกค้าต่อรอบ** งวด = ที่สั่ง (เพดาน 1000 DO ต่อใบ — เกินจึงแบ่งหลายร่าง + `splitByCap`) · `PER_DO` = 1 ร่างต่อ DO · `billingNotes` (ค่าเริ่มต้น true) = ร่างใบวางบิลจากใบแจ้งหนี้ที่ออกแล้วยังค้าง และยังไม่อยู่ในใบวางบิลที่ active **เฉพาะใบของงวดนี้** (วันสิ้นงวดของใบ `periodTo` อยู่ในงวดของรอบ — ใบที่งวดคร่อมขอบรอบเข้ารอบที่งวดจบ; ใบที่ออกเลขหลังรอบของงวดนั้นไม่ถูกเลือกโดยรอบถัดไป — ทำใบวางบิลมือหรือสั่งรอบของงวดนั้นซ้ำ; ใบที่ไม่มีงวดใช้วันที่ออก) (1 ร่างต่อผู้ออก/สาขาผู้ออก) · **สั่งซ้ำไม่สร้างซ้ำ:** DO/ใบแจ้งหนี้ที่ถูกดึงแล้วไม่ถูกเลือกอีก · **ร่างละ transaction** (รวมการส่งบัญชีของ DO ในกลุ่ม) — กลุ่มที่ล้มย้อนทั้งกลุ่ม กลุ่ม/ลูกค้าอื่นไม่ล้มตาม · DO ที่ไม่ผ่านตอนดึง (ระบุตัวได้) ถูกข้าม (`skippedDeliveryOrders`) · ร่างลงชื่อผู้สั่งเป็นผู้สร้าง (กฎแบ่งหน้าที่ของ finalize ใช้เหมือนสร้างมือ) · 202 `{jobId, statusUrl}` → `GET /v1/jobs/{id}`: `progress` ต่อร่าง · `result` = `InvoiceRunResult` (ผลต่อลูกค้า SUCCEEDED/PARTIAL/FAILED/NOTHING_TO_BILL + ลิงก์ร่าง ≤ 50 ต่อลูกค้า — ไม่มียอดเงิน) · ไม่มีลูกค้า PARTIAL/FAILED = `succeeded`, มี = `succeeded_with_errors` · จบ = webhook `job.completed` · **ไฟล์สรุปรอบ .xlsx** (`result.summary.url` = `GET /v1/exports/{jobId}` เฉพาะผู้สั่งที่มี `export:run`; ยอดเงินในไฟล์เฉพาะผู้สั่งที่มี `prices.sell:read`; ใช้ได้ 7 วัน; แจ้งเตือนผู้สั่งพร้อมลิงก์) · ไม่มีรอบอัตโนมัติตามเวลา (สั่งเองเท่านั้น) · ผู้สั่งดู `statusUrl` ได้แม้ไม่มี `jobs:read` · job เก็บ 7 วัน · นับเป็นคำขอหนัก (rate limit ชั้น heavy)",
         "operationId": "InvoiceRuns_create",
         "parameters": [
           {
@@ -52670,7 +52670,7 @@
     },
     "/v1/reports/unbilled-delivery-orders": {
       "get": {
-        "description": "DO ที่ส่งถึงแล้ว (DELIVERED / POD_PENDING / UNBILLED) และ**ยังไม่อยู่ในใบแจ้งหนี้ใด** (`billingStatus` UNBILLED / CREDITED — นิยามเดียวกับคิวพร้อมวางบิลและการกันวางบิลซ้ำ ST5-T05; ใบที่ยกเลิกคืน DO กลับมาในรายงาน; DO ในร่างใบแจ้งหนี้ไม่ขึ้น) · D-71: `includeStaleDrafts=true` รวม DO ที่อยู่ในร่างใบแจ้งหนี้นานเกิน N วัน (วันนี้ − วันที่เข้าร่าง > N) พร้อม `draftInvoice` (id ร่าง + อายุ) ที่ **วันนี้ − วันที่ส่งถึง > N** (เวลาไทย) · วันที่ส่งถึง = เวลาบันทึกสถานะส่งถึงครั้งล่าสุด (ไม่มีประวัติ = วันที่ DO) · N = `minDays` หรือค่าตั้งองค์กร `billing.unbilledAlertDays` (ค่าเริ่ม 7) · เรียงส่งถึงเก่าสุดก่อน cursor (วันที่ส่งถึง, id) · มูลค่า = Σ บรรทัดรายได้ที่ยังใช้ (ก่อน VAT) — `sell*` เห็นเมื่อมี `prices.sell:read` · ส่งออก: `POST /v1/exports` resource `unbilled-delivery-orders`",
+        "description": "DO ที่ส่งถึงแล้ว (DELIVERED / POD_PENDING / UNBILLED) และ**ยังไม่อยู่ในใบแจ้งหนี้ใด** (`billingStatus` UNBILLED / CREDITED — นิยามเดียวกับคิวพร้อมวางบิลและการกันวางบิลซ้ำ ST5-T05; ใบที่ยกเลิกคืน DO กลับมาในรายงาน; DO ในร่างใบแจ้งหนี้ไม่ขึ้น) · D-71: `includeStaleDrafts=true` รวม DO ที่อยู่ในร่างใบแจ้งหนี้นานเกิน N วัน (วันนี้ − วันแรกที่ DO เข้าร่างใดก็ได้ > N — ย้ายร่าง/ถอดแล้วใส่ใหม่ไม่เริ่มนับใหม่) พร้อม `draftInvoice` (id ร่าง + อายุ) ที่ **วันนี้ − วันที่ส่งถึง > N** (เวลาไทย) · วันที่ส่งถึง = เวลาบันทึกสถานะส่งถึงครั้งล่าสุด (ไม่มีประวัติ = วันที่ DO) · N = `minDays` หรือค่าตั้งองค์กร `billing.unbilledAlertDays` (ค่าเริ่ม 7) · เรียงส่งถึงเก่าสุดก่อน cursor (วันที่ส่งถึง, id) · มูลค่า = Σ บรรทัดรายได้ที่ยังใช้ (ก่อน VAT) — `sell*` เห็นเมื่อมี `prices.sell:read` · ส่งออก: `POST /v1/exports` resource `unbilled-delivery-orders`",
         "operationId": "Reports_unbilledDeliveryOrders",
         "parameters": [
           {
@@ -52699,7 +52699,7 @@
             "name": "includeStaleDrafts",
             "required": false,
             "in": "query",
-            "description": "D-71: รวม DO ที่อยู่ใน**ร่าง**ใบแจ้งหนี้ (`billingStatus` IN_DRAFT) นานเกิน N วัน (วันนี้ − วันที่ DO เข้าร่าง > N เวลาไทย — N ตัวเดียวกับ `minDays`) — แถวนั้นมี `draftInvoice` · ไม่ส่ง/false = เฉพาะ DO ที่ยังไม่อยู่ในใบใด (เดิม)",
+            "description": "D-71: รวม DO ที่อยู่ใน**ร่าง**ใบแจ้งหนี้ (`billingStatus` IN_DRAFT) นานเกิน N วัน (วันนี้ − วันแรกที่ DO เข้าร่างใดก็ได้ > N เวลาไทย — ย้ายร่าง/ถอดแล้วใส่ใหม่ไม่เริ่มนับใหม่ · N ตัวเดียวกับ `minDays`) — แถวนั้นมี `draftInvoice` · ไม่ส่ง/false = เฉพาะ DO ที่ยังไม่อยู่ในใบใด (เดิม)",
             "schema": {
               "default": "false",
               "type": "string",
@@ -74769,6 +74769,13 @@
             "format": "date",
             "example": "2026-12-01"
           },
+          "afterPushReconcileDelayMinutes": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1440,
+            "example": 0,
+            "description": "หน่วงเวลาอ่านเอกสารกลับจากระบบบัญชีมาเทียบรอบหลังส่งสำเร็จ (AFTER_PUSH) ครั้งแรก — นาทีหลังส่งสำเร็จ · 0 = ทันที (ระบบตรวจทุก 1 นาที) · อ่านอีกครั้ง +60 นาทีจากครั้งแรก (docs/01 §6.5; PO 24 พ.ย. 2569)"
+          },
           "lastHealthAt": {
             "type": "string",
             "nullable": true,
@@ -74840,6 +74847,7 @@
           "credentialKeys",
           "credentialsUpdatedAt",
           "syncFromDate",
+          "afterPushReconcileDelayMinutes",
           "lastHealthAt",
           "lastHealthOk",
           "lastHealthError",
@@ -75337,6 +75345,12 @@
             "format": "date",
             "description": "≤ วันนี้ (เวลาไทย)"
           },
+          "afterPushReconcileDelayMinutes": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1440,
+            "description": "หน่วงเวลาอ่านเอกสารกลับมาเทียบรอบ AFTER_PUSH ครั้งแรก (นาทีหลังส่งสำเร็จ) 0–1440 · ไม่ส่ง = ค่าเดิม (สร้างใหม่ = 0 ทันที)"
+          },
           "reason": {
             "type": "string",
             "minLength": 10,
@@ -75530,6 +75544,13 @@
             "format": "date",
             "example": "2026-12-01"
           },
+          "afterPushReconcileDelayMinutes": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1440,
+            "example": 0,
+            "description": "หน่วงเวลาอ่านเอกสารกลับจากระบบบัญชีมาเทียบรอบหลังส่งสำเร็จ (AFTER_PUSH) ครั้งแรก — นาทีหลังส่งสำเร็จ · 0 = ทันที (ระบบตรวจทุก 1 นาที) · อ่านอีกครั้ง +60 นาทีจากครั้งแรก (docs/01 §6.5; PO 24 พ.ย. 2569)"
+          },
           "lastHealthAt": {
             "type": "string",
             "nullable": true,
@@ -75611,6 +75632,7 @@
           "credentialKeys",
           "credentialsUpdatedAt",
           "syncFromDate",
+          "afterPushReconcileDelayMinutes",
           "lastHealthAt",
           "lastHealthOk",
           "lastHealthError",
@@ -75856,6 +75878,13 @@
             "format": "date",
             "example": "2026-12-01"
           },
+          "afterPushReconcileDelayMinutes": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1440,
+            "example": 0,
+            "description": "หน่วงเวลาอ่านเอกสารกลับจากระบบบัญชีมาเทียบรอบหลังส่งสำเร็จ (AFTER_PUSH) ครั้งแรก — นาทีหลังส่งสำเร็จ · 0 = ทันที (ระบบตรวจทุก 1 นาที) · อ่านอีกครั้ง +60 นาทีจากครั้งแรก (docs/01 §6.5; PO 24 พ.ย. 2569)"
+          },
           "lastHealthAt": {
             "type": "string",
             "nullable": true,
@@ -75917,6 +75946,7 @@
           "credentialKeys",
           "credentialsUpdatedAt",
           "syncFromDate",
+          "afterPushReconcileDelayMinutes",
           "lastHealthAt",
           "lastHealthOk",
           "lastHealthError",
@@ -87028,6 +87058,12 @@
             "nullable": true,
             "format": "date",
             "description": "≤ วันนี้ (เวลาไทย)"
+          },
+          "afterPushReconcileDelayMinutes": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1440,
+            "description": "หน่วงเวลาอ่านเอกสารกลับมาเทียบรอบ AFTER_PUSH ครั้งแรก (นาทีหลังส่งสำเร็จ) 0–1440 · ไม่ส่ง = ค่าเดิม (สร้างใหม่ = 0 ทันที)"
           }
         },
         "required": [
@@ -87816,6 +87852,12 @@
             "type": "string",
             "nullable": true,
             "format": "date"
+          },
+          "afterPushReconcileDelayMinutes": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1440,
+            "description": "หน่วงเวลาอ่านเอกสารกลับมาเทียบรอบ AFTER_PUSH ครั้งแรก (นาทีหลังส่งสำเร็จ) 0–1440 · ไม่ส่ง = ค่าเดิม (สร้างใหม่ = 0 ทันที)"
           }
         }
       },
@@ -88472,7 +88514,7 @@
           },
           "unverified": {
             "type": "number",
-            "description": "รายการ INFO ที่ยังเปิด ณ สิ้นเดือน (อ่านเอกสารจากระบบบัญชีไม่ได้ / เทียบไม่ได้) — ไม่นับเป็นค้าง แต่แปลว่ามีเอกสารที่ยังไม่ได้ยืนยัน"
+            "description": "รายการ INFO ที่ยังเปิด ณ สิ้นเดือน (อ่านเอกสารจากระบบบัญชีไม่ได้ / เทียบไม่ได้) — ไม่นับเป็นค้าง แต่แปลว่ามีเอกสารที่ยังไม่ได้ยืนยัน · > 0 = `passed` false"
           },
           "acknowledged": {
             "type": "number",
@@ -88480,7 +88522,7 @@
           },
           "notSent": {
             "type": "number",
-            "description": "เอกสารที่ยังไม่ถูกส่ง (ณ เวลาที่ออกรายงาน)"
+            "description": "เอกสารที่ยังไม่ถูกส่ง (ณ เวลาที่ออกรายงาน) · > 0 = `passed` false"
           },
           "notSentQueued": {
             "type": "number",
@@ -88831,7 +88873,7 @@
           },
           "passed": {
             "type": "boolean",
-            "description": "ผ่านเกณฑ์ (ก) docs/02 §7 ของงวดนี้ — เดือนจบแล้ว และ MISMATCH ค้าง ณ สิ้นเดือน = 0 (เอกสารที่ยังไม่ส่ง/INFO แสดงประกอบ ไม่ตัดสิน)"
+            "description": "ผ่านเกณฑ์ (ก) docs/02 §7 ของงวดนี้ — เดือนจบแล้ว และ MISMATCH ค้าง ณ สิ้นเดือน = 0 และเอกสารที่ยังไม่ส่ง (`summary.notSent`) = 0 และยังไม่ได้ยืนยัน (`summary.unverified`) = 0 (PO 24 พ.ย. 2569) — ยังไม่ส่งนับเอกสารที่วันที่ ≤ สิ้นเดือนซึ่งยังค้างในคิว **ณ เวลาที่ออกรายงาน** ผลของเดือนที่จบแล้วจึงเปลี่ยนได้ระหว่างการออกรายงานแต่ละครั้ง"
           },
           "generatedAt": {
             "type": "string",
@@ -98390,7 +98432,8 @@
             "type": "number"
           },
           "billingNotesCreated": {
-            "type": "number"
+            "type": "number",
+            "description": "จำนวนร่างใบวางบิลที่สร้าง (ใบแจ้งหนี้ที่ `periodTo` อยู่ในงวดของรอบ) · ใบที่ออกเลขหลังรอบของงวดนั้นสั่งไปแล้ว **ไม่ถูกเลือกโดยรอบถัดไป** (periodTo อยู่นอกงวด) — ทำใบวางบิลมือ (`GET /billing-notes/candidates`) หรือสั่งรอบของงวดนั้นซ้ำ"
           },
           "failed": {
             "type": "number",
@@ -98459,7 +98502,7 @@
           },
           "billingNotes": {
             "type": "boolean",
-            "description": "สร้างร่างใบวางบิลอัตโนมัติ (docs/04 F2) จากใบแจ้งหนี้ที่ออกแล้วยังค้างและยังไม่อยู่ในใบวางบิลที่ active ของลูกค้าในรอบนี้ **เฉพาะใบของงวดนี้**: งวดของใบ (`periodFrom`–`periodTo`) อยู่ในงวดของรอบทั้งช่วง · ใบที่ไม่มีงวดใช้วันที่ออก (`issueDate`) อยู่ในงวดของรอบ (1 ร่างต่อผู้ออก/สาขาผู้ออก) · ไม่ส่ง = true"
+            "description": "สร้างร่างใบวางบิลอัตโนมัติ (docs/04 F2) จากใบแจ้งหนี้ที่ออกแล้วยังค้างและยังไม่อยู่ในใบวางบิลที่ active ของลูกค้าในรอบนี้ **เฉพาะใบของงวดนี้**: วันสิ้นงวดของใบ (`periodTo`) อยู่ในงวดของรอบ (ใบที่งวดคร่อมขอบรอบเข้ารอบที่งวดของใบจบ) · ใบที่ออกเลขหลังรอบของงวดนั้นสั่งไปแล้ว **ไม่ถูกเลือกโดยรอบถัดไป** (periodTo อยู่นอกงวด) — ทำใบวางบิลมือ (`GET /billing-notes/candidates`) หรือสั่งรอบของงวดนั้นซ้ำ · ใบที่ไม่มีงวดใช้วันที่ออก (`issueDate`) อยู่ในงวดของรอบ (1 ร่างต่อผู้ออก/สาขาผู้ออก) · ไม่ส่ง = true"
           }
         },
         "required": [
@@ -99230,12 +99273,12 @@
           "addedAt": {
             "type": "string",
             "example": "2026-11-03T03:00:00.000Z",
-            "description": "เวลาที่ DO เข้าร่างนี้ (เวลาสร้างบรรทัดหลักของ DO ในร่าง)"
+            "description": "เวลาที่ DO เข้าร่างใบแจ้งหนี้ใด ๆ ครั้งแรกของรอบวางบิลนี้ (PO 24 พ.ย. 2569 — ย้ายไปร่างอื่น/ถอดแล้วใส่ใหม่ไม่เริ่มนับใหม่; ยกเลิก/ลดหนี้ใบที่ออกแล้วแล้วเข้าร่างใหม่ = นับใหม่)"
           },
           "addedOn": {
             "type": "string",
             "example": "2026-11-03",
-            "description": "วันที่เข้าร่าง (เวลาไทย)"
+            "description": "วันแรกที่เข้าร่าง (เวลาไทย)"
           },
           "createdOn": {
             "type": "string",
@@ -99245,7 +99288,7 @@
           "ageDays": {
             "type": "number",
             "example": 9,
-            "description": "อายุในร่าง = วันนี้ − วันที่เข้าร่าง (วัน, เวลาไทย) — > N"
+            "description": "อายุในร่าง = วันนี้ − วันแรกที่เข้าร่าง (วัน, เวลาไทย) — > N"
           }
         },
         "required": [
@@ -113367,6 +113410,13 @@
             "format": "date",
             "example": "2026-12-01"
           },
+          "afterPushReconcileDelayMinutes": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1440,
+            "example": 0,
+            "description": "หน่วงเวลาอ่านเอกสารกลับจากระบบบัญชีมาเทียบรอบหลังส่งสำเร็จ (AFTER_PUSH) ครั้งแรก — นาทีหลังส่งสำเร็จ · 0 = ทันที (ระบบตรวจทุก 1 นาที) · อ่านอีกครั้ง +60 นาทีจากครั้งแรก (docs/01 §6.5; PO 24 พ.ย. 2569)"
+          },
           "lastHealthAt": {
             "type": "string",
             "nullable": true,
@@ -113425,6 +113475,7 @@
           "credentialKeys",
           "credentialsUpdatedAt",
           "syncFromDate",
+          "afterPushReconcileDelayMinutes",
           "lastHealthAt",
           "lastHealthOk",
           "lastHealthError",

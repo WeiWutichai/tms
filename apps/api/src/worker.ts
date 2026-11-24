@@ -15,6 +15,7 @@ import {
   PaymentStatusPullService,
 } from './modules/erp/payment-status-pull.service';
 import {
+  AFTER_PUSH_CHECK_EVERY_MS,
   DocumentReconcileService,
   RECONCILE_CHECK_EVERY_MS,
 } from './modules/erp/document-reconcile.service';
@@ -200,15 +201,28 @@ async function main() {
       .catch((e) => log.error(e));
   void schedulePaymentPull();
   const paymentPullTimer = setInterval(schedulePaymentPull, PAYMENT_PULL_CHECK_EVERY_MS);
-  // ST8-T11 reconcile เอกสารกับระบบบัญชี (docs/01 §6.5): ตรวจทุก 5 นาที — AFTER_PUSH (ทันที + 60 นาทีหลังส่งสำเร็จ) ·
-  // NIGHTLY ตั้งแต่ 02:00 · PRE_CLOSE วันทำการสุดท้ายของเดือนตั้งแต่ 17:00 (เวลาไทย) → คำสั่ง FETCH_DOCUMENT เข้าคิวของ connector
+  // ST8-T11 reconcile เอกสารกับระบบบัญชี (docs/01 §6.5) → คำสั่ง FETCH_DOCUMENT เข้าคิวของ connector:
+  // AFTER_PUSH ตรวจทุก 1 นาที (ครบค่าหน่วงของ connector หลังส่งสำเร็จ + อีกครั้ง +60 นาที — PO 24 พ.ย. 2569 #89) ·
+  // NIGHTLY ตั้งแต่ 02:00 · PRE_CLOSE วันทำการสุดท้ายของเดือนตั้งแต่ 17:00 (เวลาไทย) ตรวจทุก 5 นาที
   const reconcile = ctx.get(DocumentReconcileService);
+  let afterPushBusy = false;
+  const scheduleAfterPush = () => {
+    if (afterPushBusy) return; // รอบก่อนยังไม่จบ (ไม่ซ้อน)
+    afterPushBusy = true;
+    reconcile
+      .scheduleAfterPush()
+      .then((n) => n && log.info({ afterPush: n }, 'after-push reconcile scheduled'))
+      .catch((e) => log.error(e))
+      .finally(() => (afterPushBusy = false));
+  };
   const scheduleReconcile = () =>
     reconcile
-      .scheduleDue()
-      .then((r) => (r.afterPush || r.rounds) && log.info({ reconcile: r }, 'reconcile scheduled'))
+      .scheduleRounds()
+      .then((n) => n && log.info({ rounds: n }, 'reconcile rounds scheduled'))
       .catch((e) => log.error(e));
+  scheduleAfterPush();
   void scheduleReconcile();
+  const afterPushTimer = setInterval(scheduleAfterPush, AFTER_PUSH_CHECK_EVERY_MS);
   const reconcileTimer = setInterval(scheduleReconcile, RECONCILE_CHECK_EVERY_MS);
   // ST8-T03 ตรวจซ้ำ connector ที่ปลายทางไม่ตอบ (ACTIVE ล้มต่อเนื่อง ≥ 30 นาที → ERROR) และคืน ERROR(TRANSIENT) → ACTIVE เมื่อกลับมา
   const recheckHealth = () =>
@@ -252,6 +266,7 @@ async function main() {
   clearInterval(pullTimer);
   clearInterval(paymentPullTimer);
   clearInterval(reconcileTimer);
+  clearInterval(afterPushTimer);
   clearInterval(healthTimer);
   clearInterval(outboxStatsTimer);
   monitor.stop();

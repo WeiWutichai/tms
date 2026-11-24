@@ -324,9 +324,9 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
     });
     expect((await report('?includeStaleDrafts=true&minDays=6')).staleDraftCount).toBe(1);
     clock.set(at(8));
-    // อายุนับจากวันที่ DO เข้าร่าง (invoice_line.created_at ของบรรทัดหลัก) — เลื่อนเวลาเข้าร่างไป 3 วันก่อน → 11 วัน
-    await db.$executeRaw`UPDATE invoice_line SET created_at = created_at - interval '3 days'
-      WHERE delivery_order_id = ${d3.uuid}::uuid AND active`;
+    // อายุนับจากวันแรกที่ DO เข้าร่าง (delivery_order.first_drafted_at — #82) — เลื่อนไป 3 วันก่อน → 11 วัน
+    await db.$executeRaw`UPDATE delivery_order SET first_drafted_at = first_drafted_at - interval '3 days'
+      WHERE id = ${d3.uuid}::uuid`;
     try {
       const s2 = await report('?includeStaleDrafts=true&minDays=10');
       expect(ids(s2)).toEqual([d3.doId]);
@@ -335,8 +335,8 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
         ageDays: 11,
       });
     } finally {
-      await db.$executeRaw`UPDATE invoice_line SET created_at = created_at + interval '3 days'
-        WHERE delivery_order_id = ${d3.uuid}::uuid AND active`;
+      await db.$executeRaw`UPDATE delivery_order SET first_drafted_at = first_drafted_at + interval '3 days'
+        WHERE id = ${d3.uuid}::uuid`;
     }
 
     // ยกเลิกร่าง → d3 กลับมา (ใบที่ยกเลิกคืน DO — ST5-T10)
@@ -366,22 +366,26 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
     const r3 = await report();
     expect(ids(r3)).toEqual([d1.doId, d3.doId].sort());
     expect(ids(r3)).toEqual(await direct(addDays(today, 8), 7));
-    // d2 อยู่ในร่างใหม่ 8 วัน (> 7) → ร่างค้าง
+    // d2 เพิ่งเข้าร่างครั้งแรกวันนี้ (+8) → อายุ 0 ยังไม่ค้าง · เวลาเข้าร่างครั้งแรกบันทึกครั้งเดียว
     const s4 = await report('?includeStaleDrafts=true');
-    expect(s4).toMatchObject({ count: 3, staleDraftCount: 1 });
-    expect((s4.data as Row[]).find((x) => x.id === d2.doId)!.draftInvoice).toMatchObject({
+    expect(s4).toMatchObject({ count: 2, staleDraftCount: 0 });
+    const firstOf = async (uuid: string) =>
+      (await db.deliveryOrder.findUniqueOrThrow({ where: { id: uuid } })).firstDraftedAt;
+    const first2 = await firstOf(d2.uuid);
+    expect(first2?.toISOString()).toBe(at(8).toISOString());
+    // จำลองว่าเข้าร่างครั้งแรกเมื่อ 8 วันก่อน → ร่างค้าง (> 7)
+    await db.$executeRaw`UPDATE delivery_order SET first_drafted_at = first_drafted_at - interval '8 days'
+      WHERE id = ${d2.uuid}::uuid`;
+    const s5 = await report('?includeStaleDrafts=true');
+    expect(s5).toMatchObject({ count: 3, staleDraftCount: 1 });
+    expect((s5.data as Row[]).find((x) => x.id === d2.doId)!.draftInvoice).toMatchObject({
       id: inv2,
       ageDays: 8,
+      addedOn: today,
       createdOn: today,
     });
 
-    // review L6 (พฤติกรรมที่บันทึกไว้ — spec/12 ข้อ 17 [DECISION — ย้อนได้]): ย้าย DO ไปร่างใหม่ = นับอายุใหม่จากวันที่เข้าร่างใหม่
-    await db.$executeRaw`UPDATE invoice_line SET created_at = created_at - interval '5 days'
-      WHERE delivery_order_id = ${d2.uuid}::uuid AND active`;
-    expect(
-      ((await report('?includeStaleDrafts=true')).data as Row[]).find((x) => x.id === d2.doId)!
-        .draftInvoice.ageDays,
-    ).toBe(13);
+    // PO 24 พ.ย. 2569 (ข้อ #82): ย้าย DO ไปร่างอื่น / ถอดแล้วใส่ใหม่ **ไม่เริ่มนับใหม่** — นับจากวันแรกที่เข้าร่างใดก็ได้
     await api(app, invoicer)
       .post(`/v1/invoices/${inv2}/cancel`)
       .send({ reason: 'ทดสอบย้าย DO ไปร่างใหม่' })
@@ -396,6 +400,7 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
       ((await report('?includeStaleDrafts=true')).data as Row[]).find((x) => x.id === d2.doId)!
         .draftInvoice,
     ).toMatchObject({ id: inv3, ageDays: 8, addedOn: today });
+    expect((await firstOf(d2.uuid))?.toISOString()).toBe(at(0).toISOString());
   });
 
   it('เกณฑ์ N: minDays / ค่าตั้งองค์กร billing.unbilledAlertDays · ตัวกรองลูกค้า · cursor', async () => {
@@ -650,15 +655,15 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
       expect(await inbox(inv)).toHaveLength(0);
 
       // review L6: ไม่มี DO ค้าง แต่มีร่างค้างเกิน N วัน → ส่ง (ข้อความชวนออกเอกสารร่าง + ลิงก์หน้าวางบิล — L5)
-      await db.$executeRaw`UPDATE invoice_line SET created_at = created_at - interval '10 days'
-        WHERE delivery_order_id = ${d2.uuid}::uuid AND active`;
+      await db.$executeRaw`UPDATE delivery_order SET first_drafted_at = first_drafted_at - interval '10 days'
+        WHERE id = ${d2.uuid}::uuid`;
       try {
         const rd = await reminders.runForTenant(tenantId, today);
         expect(rd).toMatchObject({ outstanding: 0, staleDrafts: 1, fresh: 0 });
         expect(rd.digests).toBeGreaterThanOrEqual(2);
       } finally {
-        await db.$executeRaw`UPDATE invoice_line SET created_at = created_at + interval '10 days'
-          WHERE delivery_order_id = ${d2.uuid}::uuid AND active`;
+        await db.$executeRaw`UPDATE delivery_order SET first_drafted_at = first_drafted_at + interval '10 days'
+          WHERE id = ${d2.uuid}::uuid`;
       }
       const dOnly = (await inApp(inv))[0]!;
       expect(dOnly.title).toBe('ร่างใบแจ้งหนี้ค้างเกิน 7 วัน 1 ใบ');

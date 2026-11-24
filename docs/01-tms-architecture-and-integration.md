@@ -587,7 +587,7 @@ erDiagram
 
 **integration_sync_log** — 1 แถวต่อ 1 HTTP call (รวม GET ที่ใช้เทียบ): `id` bigserial, `outbox_id` FK null, `connector_id`, `attempt_no`, `direction` enum `OUTBOUND`/`INBOUND`, `method`, `url`, `request_headers` jsonb (ตัด credential), `request_body` jsonb, `response_status`, `response_body` jsonb, `duration_ms`, `sent_at`; index บน `local_id`, `external_id`, GIN บน `request_body`; retention 24 เดือน
 
-**reconcile_result** — `id`, `connector_id`, `entity_type`, `local_id`, `run_at`, `source` enum `AFTER_PUSH`/`NIGHTLY`/`PRE_CLOSE`/`MANUAL`, `local_snapshot` jsonb, `remote_snapshot` jsonb, `diff` jsonb (รายการที่หาย/เกิน/ฟิลด์ต่าง), `diff_hash`, `result` enum `MATCH`/`MISMATCH`/`REMOTE_MISSING`/`ERP_UNREACHABLE`, `severity` enum `MONEY`/`FIELD`/`INFO`, `acknowledged_by`, `acknowledged_at`, `ack_reason`
+**reconcile_result** — `id`, `connector_id`, `entity_type`, `local_id`, `run_at`, `source` enum `AFTER_PUSH`/`NIGHTLY`/`PRE_CLOSE`/`MANUAL`, `local_snapshot` jsonb, `remote_snapshot` jsonb, `diff` jsonb (รายการที่หาย/เกิน/ฟิลด์ต่าง), `diff_hash`, `result` enum `MATCH`/`MISMATCH`/`REMOTE_MISSING`/`ERP_UNREACHABLE`/`NOT_COMPARABLE` (severity `INFO` บันทึกครั้งเดียวต่อเอกสารเมื่อเทียบเนื้อหาไม่ได้ — PO 24 พ.ย. 2569 — ข้อ #91), `severity` enum `MONEY`/`FIELD`/`INFO`, `acknowledged_by`, `acknowledged_at`, `ack_reason`
 
 **webhook_endpoint** — `id` (`whe_`), `url`, `description`, `events` text[], `secret_hash`, `secret_prev_hash`, `secret_rotated_at`, `status` enum `ACTIVE`/`DISABLED`/`AUTO_DISABLED`, `consecutive_failures` int, `created_by`
 
@@ -1285,7 +1285,7 @@ Reconcile เป็นกลไกเดียวที่จับการเ�
 
 | รอบ | เวลา | เอกสารที่เทียบ | เหตุผล |
 | --- | --- | --- | --- |
-| `AFTER_PUSH` | ทันทีหลัง push สำเร็จ และอีกครั้ง +60 นาที | เอกสารที่เพิ่งส่ง | จับ "API รับแต่ข้อมูลใน ERP ไม่ตรง" และการแก้ทันทีของบัญชี |
+| `AFTER_PUSH` | ทันทีหลัง push สำเร็จ และอีกครั้ง +60 นาที — (PO 24 พ.ย. 2569 — ข้อ #89) ตั้งค่าหน่วงต่อ connector ได้ 0–1440 นาที ค่าเริ่ม 0 | เอกสารที่เพิ่งส่ง | จับ "API รับแต่ข้อมูลใน ERP ไม่ตรง" และการแก้ทันทีของบัญชี |
 | `NIGHTLY` | 02:00 | ทุก mapping `SYNCED`/`MISMATCH` ที่ `issue_date` ภายใน 90 วัน | การเขียนทับระหว่างวัน |
 | `PRE_CLOSE` | วันทำการสุดท้ายของเดือน 17:00 | ทุกเอกสารของเดือน | ก่อนปิดงวด |
 | `MANUAL` | ปุ่มบนหน้าจอ / `POST /reconcile-runs` | ที่เลือก | หลังบัญชีแก้แล้วอยากยืนยัน |
@@ -1482,7 +1482,7 @@ KRS เป็น connector ตัวแรกที่ implement `ErpAdapter` �
 
 | Response [KRS] | ErrorClass | KrsAdapter / core ทำอะไร [เสนอ] |
 | --- | --- | --- |
-| 201 (POST) / 200 (PUT) | — | บันทึก mapping → `GET` ทันที 1 ครั้ง (reconcile AFTER_PUSH) → `ACCEPTED` หรือ `MISMATCH` |
+| 201 (POST) / 200 (PUT) | — | บันทึก mapping → `GET` ทันที 1 ครั้ง (reconcile AFTER_PUSH — (PO 24 พ.ย. 2569 — ข้อ #89) ตั้งค่าหน่วงต่อ connector ได้ 0–1440 นาที ค่าเริ่ม 0) → `ACCEPTED` หรือ `MISMATCH` |
 | 409 `tmsVoucherNo` ซ้ำ | `DUPLICATE` | หา `transactionNo` จาก `external_mapping`; ไม่มี (POST แรกที่ response หาย) → ขอ KRS endpoint ค้นด้วย `tmsVoucherNo` (A.6); ระหว่างนี้ error queue ให้คนกรอก `transactionNo` จาก ERP มือ; แล้ว `GET` เทียบ — ไม่ retry POST |
 | 503 DB KRS ล่ม | `TRANSIENT` | backoff 1, 2, 5, 15, 30, 60 นาที + jitter; `healthCheck` ยังไม่ผ่าน → หยุดทั้งคิว |
 | timeout / connection reset | `AMBIGUOUS` | ไม่ POST ซ้ำทันที; มี `transactionNo` → GET; ไม่มี → รอ 2 นาทีแล้ว POST ใหม่ (ถ้าถึงแล้วจะได้ 409) |

@@ -257,6 +257,15 @@ export class ConnectorDto {
     string | null;
   @ApiProperty({ nullable: true, type: String, format: 'date', example: '2026-12-01' })
   syncFromDate!: string | null;
+  @ApiProperty({
+    minimum: 0,
+    maximum: 1440,
+    example: 0,
+    description:
+      'หน่วงเวลาอ่านเอกสารกลับจากระบบบัญชีมาเทียบรอบหลังส่งสำเร็จ (AFTER_PUSH) ครั้งแรก — นาทีหลังส่งสำเร็จ · 0 = ทันที (ระบบตรวจทุก 1 นาที) · ' +
+      'อ่านอีกครั้ง +60 นาทีจากครั้งแรก (docs/01 §6.5; PO 24 พ.ย. 2569)',
+  })
+  afterPushReconcileDelayMinutes!: number;
   @ApiProperty({ nullable: true, type: String, format: 'date-time' }) lastHealthAt!: string | null;
   @ApiProperty({ nullable: true, type: Boolean }) lastHealthOk!: boolean | null;
   @ApiProperty({
@@ -392,6 +401,18 @@ export class CreateConnectorDto {
   @Matches(DATE_ONLY)
   @IsISO8601({ strict: true })
   syncFromDate?: string | null;
+
+  @ApiPropertyOptional({
+    minimum: 0,
+    maximum: 1440,
+    description:
+      'หน่วงเวลาอ่านเอกสารกลับมาเทียบรอบ AFTER_PUSH ครั้งแรก (นาทีหลังส่งสำเร็จ) 0–1440 · ไม่ส่ง = ค่าเดิม (สร้างใหม่ = 0 ทันที)',
+  })
+  @IsOptionalNotNull()
+  @IsInt()
+  @Min(0)
+  @Max(1440)
+  afterPushReconcileDelayMinutes?: number;
 }
 
 /** แก้ค่าตั้ง (ไม่แก้นิติบุคคล/adapter — ยกเลิกแล้วสร้างใหม่) */
@@ -442,6 +463,18 @@ export class UpdateConnectorDto {
   @Matches(DATE_ONLY)
   @IsISO8601({ strict: true })
   syncFromDate?: string | null;
+
+  @ApiPropertyOptional({
+    minimum: 0,
+    maximum: 1440,
+    description:
+      'หน่วงเวลาอ่านเอกสารกลับมาเทียบรอบ AFTER_PUSH ครั้งแรก (นาทีหลังส่งสำเร็จ) 0–1440 · ไม่ส่ง = ค่าเดิม (สร้างใหม่ = 0 ทันที)',
+  })
+  @IsOptionalNotNull()
+  @IsInt()
+  @Min(0)
+  @Max(1440)
+  afterPushReconcileDelayMinutes?: number;
 }
 
 export class ConnectorCredentialsDto {

@@ -210,6 +210,7 @@ function auditView(c: Connector) {
     settings: c.settings,
     credentialKeys: c.credentialKeys,
     syncFromDate: c.syncFromDate?.toISOString().slice(0, 10) ?? null,
+    afterPushReconcileDelayMinutes: c.afterPushReconcileDelayMin,
     status: c.status,
     customerOwner: c.customerOwner,
     taxDocumentOwner: c.taxDocumentOwner,
@@ -335,6 +336,7 @@ export class ConnectorsService {
       credentialKeys: [...c.credentialKeys].sort(),
       credentialsUpdatedAt: iso(c.credentialsUpdatedAt),
       syncFromDate: c.syncFromDate?.toISOString().slice(0, 10) ?? null,
+      afterPushReconcileDelayMinutes: c.afterPushReconcileDelayMin,
       lastHealthAt: iso(c.lastHealthAt),
       lastHealthOk: c.lastHealthOk,
       lastHealthError: (c.lastHealthError as Record<string, unknown> | null) ?? null,
@@ -811,6 +813,9 @@ export class ConnectorsService {
           credentialKeys: credKeys,
           credentialsUpdatedAt: credKeys.length ? new Date() : null,
           syncFromDate: syncFromDate ?? null,
+          ...(body.afterPushReconcileDelayMinutes !== undefined
+            ? { afterPushReconcileDelayMin: body.afterPushReconcileDelayMinutes }
+            : {}),
           taxDocumentOwner,
           customerOwner,
           status: 'PAUSED',
@@ -887,6 +892,9 @@ export class ConnectorsService {
     }
     if (body.syncFromDate !== undefined)
       data.syncFromDate = this.checkSyncFromDate(body.syncFromDate);
+    // PO 24 พ.ย. 2569 (#89) — ช่วงค่า 0–1440 ตรวจที่ DTO (+ CHECK ในฐาน) · เปลี่ยนแล้วมีผลกับคำสั่งส่งที่ยังไม่ถึงเวลาอ่าน · audit `connector.updated`
+    if (body.afterPushReconcileDelayMinutes !== undefined)
+      data.afterPushReconcileDelayMin = body.afterPushReconcileDelayMinutes;
     const bm = await this.checkBranchMap(tx, cur.companyId, body.branchMap);
     if (bm !== undefined) data.branchMap = bm;
     if (!Object.keys(data).length) return { before: cur, after: cur };

@@ -721,7 +721,7 @@ const { data, error } = await tms.GET('/v1/connectors/{id}/mappings', {
 
 scope: `integrations:read` · operationId: `Reconcile_periodCloseReport`
 
-หลักฐานของเกณฑ์ผ่าน (ก) "ปิดงวดผ่าน reconcile — MISMATCH ค้าง = 0" · 3 ส่วน: (1) `outstanding` MISMATCH ค้าง ณ สิ้นเดือน (เวลาไทย) = รายการ `result` MISMATCH/REMOTE_MISSING severity MONEY/FIELD ที่รอบตรวจพบ (`run_at`) ก่อนสิ้นเดือน และ ณ สิ้นเดือนยังไม่ถูกปิดและยังไม่มีคนยอมรับ — ปิดหลังสิ้นเดือนยังนับเป็นค้างของงวด · พบหลังสิ้นเดือนไม่นับ · INFO (อ่าน/เทียบไม่ได้) นับแยกใน `summary.unverified` (2) `acknowledged` รายการที่ยอมรับความต่างในเดือน + ผู้ยอมรับ + เหตุผล (3) `notSent` เอกสารที่วันที่ไม่เกินสิ้นเดือนและคำสั่งส่งล่าสุดยังอยู่แท็บรอคิว/ล้มเหลวของคิว (`GET /connectors/{id}/queue`) **ณ เวลาที่ออกรายงาน** · `passed` = เดือนจบแล้ว และ `summary.outstanding` = 0 · เดือนที่ยังไม่จบตัด ณ เวลาปัจจุบัน · connector ไม่พบ/ของ tenant อื่น → 404 · ยอดเงิน `sell*` ต้องมี `prices.sell:read` · `buy*` ต้องมี `prices.buy:read` · ส่งออก: `POST /v1/exports` resource `reconcile-period-close` (xlsx / csv / pdf) ตัวกรอง `connectorId`, `month`
+หลักฐานของเกณฑ์ผ่าน (ก) "ปิดงวดผ่าน reconcile — MISMATCH ค้าง = 0" · 3 ส่วน: (1) `outstanding` MISMATCH ค้าง ณ สิ้นเดือน (เวลาไทย) = รายการ `result` MISMATCH/REMOTE_MISSING severity MONEY/FIELD ที่รอบตรวจพบ (`run_at`) ก่อนสิ้นเดือน และ ณ สิ้นเดือนยังไม่ถูกปิดและยังไม่มีคนยอมรับ — ปิดหลังสิ้นเดือนยังนับเป็นค้างของงวด · พบหลังสิ้นเดือนไม่นับ · INFO (อ่าน/เทียบไม่ได้) นับแยกใน `summary.unverified` (2) `acknowledged` รายการที่ยอมรับความต่างในเดือน + ผู้ยอมรับ + เหตุผล (3) `notSent` เอกสารที่วันที่ไม่เกินสิ้นเดือนและคำสั่งส่งล่าสุดยังอยู่แท็บรอคิว/ล้มเหลวของคิว (`GET /connectors/{id}/queue`) **ณ เวลาที่ออกรายงาน** · `passed` = เดือนจบแล้ว และ `summary.outstanding` = 0 และ `summary.notSent` = 0 และ `summary.unverified` = 0 · เดือนที่ยังไม่จบตัด ณ เวลาปัจจุบัน · connector ไม่พบ/ของ tenant อื่น → 404 · ยอดเงิน `sell*` ต้องมี `prices.sell:read` · `buy*` ต้องมี `prices.buy:read` · ส่งออก: `POST /v1/exports` resource `reconcile-period-close` (xlsx / csv / pdf) ตัวกรอง `connectorId`, `month`
 
 **Parameters**
 
@@ -1242,6 +1242,7 @@ const { data, error } = await tms.POST('/v1/reconcile-runs', {
 | `credentialKeys` | ใช่ | `array<string>` |   | ชื่อช่อง credential ที่ตั้งแล้ว — ค่าไม่ส่งกลับเด็ดขาด | `["apiKey"]` |
 | `credentialsUpdatedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
 | `syncFromDate` | ใช่ | `string (date)` | null ได้ |   | `2026-12-01` |
+| `afterPushReconcileDelayMinutes` | ใช่ | `number` | ≥ 0 · ≤ 1440 | หน่วงเวลาอ่านเอกสารกลับจากระบบบัญชีมาเทียบรอบหลังส่งสำเร็จ (AFTER_PUSH) ครั้งแรก — นาทีหลังส่งสำเร็จ · 0 = ทันที (ระบบตรวจทุก 1 นาที) · อ่านอีกครั้ง +60 นาทีจากครั้งแรก | `0` |
 | `lastHealthAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
 | `lastHealthOk` | ใช่ | `boolean` | null ได้ |   |   |
 | `lastHealthError` | ใช่ | `object` | null ได้ | {errorClass, code, message} ของ healthCheck ล่าสุดที่ล้ม |   |
@@ -1390,7 +1391,7 @@ const { data, error } = await tms.POST('/v1/reconcile-runs', {
 | `periodEnd` | ใช่ | `string (date)` |   |   | `2026-11-30` |
 | `asOf` | ใช่ | `string (date-time)` |   | เวลาที่ใช้ตัด (สิ้นเดือนเวลาไทย หรือเวลาปัจจุบันถ้าเดือนยังไม่จบ) — ส่วน 1–2 คิด ณ เวลานี้ |   |
 | `monthEnded` | ใช่ | `boolean` |   | เดือนจบแล้ว (เวลาปัจจุบัน ≥ สิ้นเดือน) |   |
-| `passed` | ใช่ | `boolean` |   | ผ่านเกณฑ์ (ก) ของงวดนี้ — เดือนจบแล้ว และ MISMATCH ค้าง ณ สิ้นเดือน = 0 (เอกสารที่ยังไม่ส่ง/INFO แสดงประกอบ ไม่ตัดสิน) |   |
+| `passed` | ใช่ | `boolean` |   | ผ่านเกณฑ์ (ก) ของงวดนี้ — เดือนจบแล้ว และ MISMATCH ค้าง ณ สิ้นเดือน = 0 และเอกสารที่ยังไม่ส่ง (`summary.notSent`) = 0 และยังไม่ได้ยืนยัน (`summary.unverified`) = 0 — ยังไม่ส่งนับเอกสารที่วันที่ ≤ สิ้นเดือนซึ่งยังค้างในคิว **ณ เวลาที่ออกรายงาน** ผลของเดือนที่จบแล้วจึงเปลี่ยนได้ระหว่างการออกรายงานแต่ละครั้ง |   |
 | `generatedAt` | ใช่ | `string (date-time)` |   |   |   |
 | `summary` | ใช่ | `PeriodCloseSummaryDto` |   |   |   |
 | `outstanding` | ใช่ | `array<PeriodCloseMismatchDto>` |   | (1) MISMATCH ค้าง ณ สิ้นเดือน: รอบตรวจพบ (`run_at`) ก่อนสิ้นเดือน และยังไม่ปิด/ยอมรับ ณ สิ้นเดือน (ปิดหลังสิ้นเดือน = ยังนับ) · พบหลังสิ้นเดือน = ไม่นับ |   |

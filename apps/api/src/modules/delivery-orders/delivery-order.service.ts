@@ -1059,9 +1059,11 @@ export class DeliveryOrderService {
   ): Promise<void> {
     const ctx = requestContext.require();
     // ST5-T06 timestamp ต่อขั้น (docs/04 F4): ออกเลข → invoiced_at · ดึงเข้าร่างใหม่ (หลังลดหนี้เต็มใบ) / ใบถูกยกเลิก (ST5-T10) → ล้าง invoiced_at/paid_at
+    // D-71 #82 [DECISION — ย้อนได้, lead 24 พ.ย. 2569]: ออกเอกสาร = จบรอบวางบิลของ DO → ล้าง first_drafted_at
+    // (ยกเลิก/ลดหนี้แล้วดึงเข้าร่างใหม่ = เริ่มนับใหม่; ย้ายร่าง/ถอดแล้วใส่ใหม่ก่อนออกเอกสาร = คงวันแรก)
     const stamp: Prisma.DeliveryOrderUncheckedUpdateManyInput =
       event === 'invoice'
-        ? { invoicedAt: at }
+        ? { invoicedAt: at, firstDraftedAt: null }
         : event === 'draft' || event === 'uninvoice'
           ? { invoicedAt: null, paidAt: null }
           : {};
@@ -1082,6 +1084,12 @@ export class DeliveryOrderService {
         data: { billingStatus: g.to, ...stamp, version: { increment: 1 } },
       });
       if (r.count !== new Set(g.ids).size) throw new ProblemException('concurrent_update');
+      // D-71 (PO 24 พ.ย. 2569 — ข้อ #82): เวลาเข้าร่างครั้งแรก — เขียนเฉพาะที่ยังว่าง (ย้ายร่าง/ถอดแล้วใส่ใหม่ไม่เริ่มนับใหม่)
+      if (event === 'draft')
+        await tx.deliveryOrder.updateMany({
+          where: { id: { in: g.ids }, firstDraftedAt: null },
+          data: { firstDraftedAt: at },
+        });
       await tx.docStatusHistory.createMany({
         data: g.ids.map((id) => ({
           tenantId,

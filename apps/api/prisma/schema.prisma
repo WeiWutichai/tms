@@ -1905,6 +1905,10 @@ model DeliveryOrder {
   /// invoiced_at: ใบออกเลข (billing event `invoice`) · ล้างเมื่อดึงเข้าร่างใหม่หลังลดหนี้เต็มใบ · paid_at: รับชำระครบ (ST5-T22 เขียน)
   invoicedAt           DateTime?       @map("invoiced_at") @db.Timestamptz(6)
   paidAt               DateTime?       @map("paid_at") @db.Timestamptz(6)
+  /// D-71 (PO 24 พ.ย. 2569 — ข้อ #82) เวลาที่ DO เข้าร่างใบแจ้งหนี้ใด ๆ **ครั้งแรกของรอบวางบิลนี้** — เขียนตอน billing event `draft` เมื่อยังว่าง
+  /// ย้ายไปร่างอื่น / ถอดแล้วใส่ใหม่ ไม่เริ่มนับใหม่ · ล้างเมื่อออกเอกสาร (`invoice`) [DECISION lead — ยกเลิก/ลดหนี้แล้วเข้าร่างใหม่ = นับใหม่]
+  /// ใช้คิดอายุ "ร่างค้างเกิน N วัน" (รายงาน DO ยังไม่วางบิล / แจ้งเตือนรายวัน)
+  firstDraftedAt       DateTime?       @map("first_drafted_at") @db.Timestamptz(6)
   redeliveryOfId       String?         @map("redelivery_of_id") @db.Uuid /// D-23 ส่งใหม่ = DO ใบใหม่
   redeliveryOf         DeliveryOrder?  @relation("DoRedelivery", fields: [redeliveryOfId], references: [id], onDelete: Restrict)
   redeliveries         DeliveryOrder[] @relation("DoRedelivery")
@@ -3125,6 +3129,8 @@ model Connector {
   credentialsUpdatedAt DateTime?       @map("credentials_updated_at") @db.Timestamptz(6)
   /// ไม่ push เอกสารที่ issue_date ก่อนวันนี้ (docs/01 §6.4)
   syncFromDate         DateTime?       @map("sync_from_date") @db.Date
+  /// PO 24 พ.ย. 2569 (#89) หน่วงเวลาอ่านเอกสารกลับมาเทียบรอบ AFTER_PUSH ครั้งแรก (นาทีหลังส่งสำเร็จ) 0–1440 · 0 = ทันที (worker ≤ 1 นาที) · CHECK
+  afterPushReconcileDelayMin Int       @default(0) @map("after_push_reconcile_delay_min")
   /// ST7-T17 system-of-record (docs/04 G3; docs/01 §8.1) — ใครเป็นเจ้าของข้อมูลลูกค้า(หลัก) · null = ยังไม่เลือก
   customerOwner        SorOwner?       @map("customer_owner")
   /// ST7-T17 ใครเป็นเจ้าของเอกสารภาษี — ERP + ใบแจ้งหนี้ไปถึง ERP = TMS ไม่ออกเลขใบกำกับภาษี (SystemOfRecordPolicy)
