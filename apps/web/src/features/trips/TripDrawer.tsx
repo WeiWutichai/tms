@@ -47,6 +47,7 @@ import { useTripEvents } from './useTripTimeline';
 import { TripTimeline } from './TripTimeline';
 import { TripDocsTab } from '../pod/TripDocsTab';
 import { FieldChargesTab } from './FieldChargesTab';
+import { TripCostCloseButton, TripCostKv } from './TripCost';
 
 /** ป้ายสถานะเที่ยว — สี/ไอคอนตามกลุ่มสถานะของต้นแบบ (วางแผน / จัดรถแล้ว / ระหว่างส่ง / ส่งแล้ว) */
 const TONE: Record<string, { tone: 'off' | 'ok' | 'info' | 'warn' | 'err'; icon: string }> = {
@@ -349,6 +350,8 @@ export function TripDrawer({
   canOverride = false,
   canPrint = false,
   canHire = false,
+  canClose = false,
+  canSeeBuy = false,
   onDone,
   onClose,
 }: {
@@ -363,6 +366,10 @@ export function TripDrawer({
   canPrint?: boolean;
   /** ST3-T22 จ้างรถร่วม: `trips:assign` + `prices.buy:read` — ปุ่ม "ส่งต่อรถร่วม" ของเที่ยวที่ยังวางแผน */
   canHire?: boolean;
+  /** `trips:close` — ปุ่ม "ปิดต้นทุนเที่ยว" ของเที่ยวที่จบแล้ว (ST6-T01 API · UI UAT 24 พ.ย.) */
+  canClose?: boolean;
+  /** `prices.buy:read` — ยอดค่าเที่ยว/ต้นทุนในส่วนข้อมูล */
+  canSeeBuy?: boolean;
   /** ปล่อยเที่ยวสำเร็จ → ผู้เรียกแสดง toast แล้วปิด drawer (ต้นแบบ releaseTrp: ปิดแผง + toast) */
   onDone?: (message: string) => void;
   onClose: () => void;
@@ -590,6 +597,8 @@ export function TripDrawer({
   // ไม่มีคนขับ (ยังไม่จัด/รถร่วมยังไม่ใส่คนขับ) = ไม่มีผู้รับลิงก์ (review ST3-T20 L6)
   // ST4-T04 (review L5): เที่ยวจบ/ยกเลิกแล้วไม่ส่งลิงก์ใบคุมรถให้คนขับ · ระหว่างวิ่งยังส่งซ้ำได้ (คนขับทำลิงก์หาย)
   const showShare = showPrint && canDispatch && !!tr.driver && !DONE_FOR_SHARE.has(tr.status);
+  // ปิดต้นทุนเที่ยว (COMPLETED → COSTED — ST6-T01) [DECISION — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ]
+  const showCost = canClose && tr.status === 'COMPLETED' && tab === 'sum';
   const sheetBusy = print.isPending || shareLink.isPending;
   const printSheet = () => {
     setErr(null);
@@ -717,7 +726,13 @@ export function TripDrawer({
               {err}
             </span>
           )}
-          {(showAssignBtn || showRelease || showPrint || showHire || showOffer || showFailRest) && (
+          {(showAssignBtn ||
+            showRelease ||
+            showPrint ||
+            showHire ||
+            showOffer ||
+            showFailRest ||
+            showCost) && (
             <div
               style={{
                 display: 'flex',
@@ -800,6 +815,14 @@ export function TripDrawer({
                   {t('trip.foot.assign')}
                 </button>
               )}
+              {showCost && (
+                <TripCostCloseButton
+                  trip={tr}
+                  onDone={(m) => {
+                    setToast(m);
+                  }}
+                />
+              )}
               {showRelease && (
                 <button
                   type="button"
@@ -877,6 +900,7 @@ export function TripDrawer({
                 k={t('trip.kv.duration')}
                 v={tr.route.minutes === null ? '—' : durationText(t, tr.route.minutes)}
               />
+              <TripCostKv trip={tr} canSeeBuy={canSeeBuy} />
             </div>
           </section>
           {assignable && (

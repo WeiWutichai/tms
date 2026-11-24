@@ -521,6 +521,8 @@ export function OrdersPage() {
           canOverride={can(scopes, 'trips:override')}
           canPrint={can(scopes, 'documents:write')}
           canHire={can(scopes, 'trips:assign') && can(scopes, 'prices.buy:read')}
+          canClose={can(scopes, 'trips:close')}
+          canSeeBuy={can(scopes, 'prices.buy:read')}
           onDone={setToast}
           onClose={() => setTripId(null)}
         />

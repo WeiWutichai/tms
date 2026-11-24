@@ -2637,6 +2637,8 @@ export function PlanningPage() {
           canOverride={canOverride}
           canPrint={canPrint}
           canHire={can(scopes, 'trips:assign') && can(scopes, 'prices.buy:read')}
+          canClose={can(scopes, 'trips:close')}
+          canSeeBuy={can(scopes, 'prices.buy:read')}
           onDone={setToast}
           onClose={() => setTripId(null)}
         />
