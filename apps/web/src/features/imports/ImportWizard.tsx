@@ -38,6 +38,8 @@ export function ImportWizard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
+  // โหมดนำเข้า (spec/02 §11.4 / MD-284 — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ) — ค่าเริ่ม = defaultMode ของชนิด
+  const [mode, setMode] = useState(kind.defaultMode);
   const input = useRef<HTMLInputElement>(null);
   const dialog = useRef<HTMLDivElement>(null);
   useEffect(() => dialog.current?.focus(), []);
@@ -64,7 +66,7 @@ export function ImportWizard({
     return () => clearTimeout(h);
   }, [imp]);
 
-  async function pick(f: File | undefined) {
+  async function pick(f: File | undefined, m = mode) {
     if (!f) return;
     setError(null);
     const mime = /\.csv$/i.test(f.name) ? 'text/csv' : /\.xlsx$/i.test(f.name) ? XLSX : null;
@@ -84,7 +86,7 @@ export function ImportWizard({
       if (!up.ok) throw new ApiError((await up.json()) as never);
       const r = await unwrap(
         api.POST('/v1/imports', {
-          body: { kind: kind.kind, documentId: doc.id, errorPolicy: 'skip_invalid_rows' },
+          body: { kind: kind.kind, documentId: doc.id, errorPolicy: 'skip_invalid_rows', mode: m },
         }),
       );
       setImp(r);
@@ -419,6 +421,47 @@ export function ImportWizard({
               >
                 {t('imp.template')}
               </a>
+              {kind.modes.length > 1 && (
+                <div
+                  role="radiogroup"
+                  aria-label={t('imp.mode')}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
+                >
+                  <span style={{ fontSize: 12.5, fontWeight: 500, color: '#3B424C' }}>
+                    {t('imp.mode')}
+                  </span>
+                  {kind.modes.map((m) => (
+                    <label
+                      key={m}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 8,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="imp-mode"
+                        checked={mode === m}
+                        disabled={busy}
+                        onChange={() => {
+                          setMode(m);
+                          // เปลี่ยนโหมดหลังเลือกไฟล์ = ตรวจไฟล์เดิมใหม่ด้วยโหมดใหม่
+                          if (file) void pick(file, m);
+                        }}
+                        style={{ width: 16, height: 16, margin: '2px 0 0', accentColor: BLUE }}
+                      />
+                      <span style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span>{t(`imp.mode.${m}` as MessageKey)}</span>
+                        <span style={{ fontSize: 12.5, color: '#59606B' }}>
+                          {t(`imp.modeD.${m}` as MessageKey)}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </>
           )}
 

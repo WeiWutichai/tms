@@ -11,6 +11,7 @@ import { problemText } from '../master/problems';
 import { VehicleActionDialog, type VehicleDialog } from './VehicleActionDialog';
 import { VehicleDocsTab } from './VehicleDocsTab';
 import { VehicleDrawer } from './VehicleDrawer';
+import { VehiclePhoto } from './VehiclePhoto';
 import { useVehicle, vehPlate, type Vehicle } from './useVehicles';
 
 type ProfTab = 'info' | 'docs';
@@ -207,10 +208,7 @@ export function VehicleProfilePage() {
       {header}
       {backBtn}
       <div className="tms-vprof__card tms-vprof__head" data-testid="vprof-head">
-        <div className="tms-vprof__photo">
-          <Icon n="truck" s={40} style={{ color: '#C9CDC3' }} />
-          <span>{t('vprof.photo')}</span>
-        </div>
+        <VehiclePhoto v={v} canWrite={canWrite} onToast={setToast} />
         <div className="tms-vprof__title">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <span className="tms-vprof__plate">{vehPlate(t, v)}</span>
