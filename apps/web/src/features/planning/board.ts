@@ -411,7 +411,7 @@ const byPlate = (a: BoardVehicle, b: BoardVehicle) =>
  * มุมมองกระดาน (ST3-T13; docs/04 D2 "View") — ข้อมูลชุดเดียวกัน จัดกลุ่ม/เรียงแถวรถใหม่ (ไม่กรองแถวทิ้ง):
  * FLEET = "รถบริษัท + รถร่วม" ตามลำดับ server (PLN-049: รถบริษัท ประเภท/ทะเบียน → รถร่วม) ·
  * VEHICLE = ตามทะเบียน · DRIVER = ตามชื่อคนขับประจำ (ยังไม่กำหนดไว้ท้าย) · CARRIER = รถบริษัท (ownership OWN) ก่อน
- * แล้วรถร่วมตามชื่อรถร่วม (ไม่มีชื่อไว้ท้าย) · [DECISION — ย้อนได้ PO 16 พ.ย.] · หัวกลุ่ม = รอต้นแบบ (spec/12 §3)
+ * แล้วรถร่วมตามชื่อรถร่วม (ไม่มีชื่อไว้ท้าย) · [DECISION — ย้อนได้ PO 16 พ.ย.] · หัวกลุ่ม = `boardGroups`
  */
 export function orderVehicles(vs: BoardVehicle[], view: BoardView): BoardVehicle[] {
   if (view === 'FLEET') return vs;
@@ -432,6 +432,89 @@ export function orderVehicles(vs: BoardVehicle[], view: BoardView): BoardVehicle
       (grp(a) === 1 ? th(a.carrierName ?? '', b.carrierName ?? '') : 0) ||
       byPlate(a, b),
   );
+}
+
+/**
+ * ตัวกรองแถวรถของกระดาน (spec/03 §5 ข้อ 3 แถบบน "ตัวกรองรถ (ประเภท, รถบริษัท/รถร่วม) · ค้นหา (ทะเบียน/SO/ลูกค้า)";
+ * [DECISION — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ]) — กรองฝั่งหน้าจอจากข้อมูลกระดานชุดเดียว (ไม่ยิง API ใหม่) ·
+ * สาขา/ลาน ยังไม่มีข้อมูลบนรถ → ไม่ทำ
+ */
+export interface VehFilter {
+  q: string;
+  vt: string;
+  own: '' | 'OWN' | 'SUB';
+}
+export const VEH_FILTER: VehFilter = { q: '', vt: '', own: '' };
+const norm = (x: string) => x.toLowerCase().replace(/[\s\-.]/g, '');
+
+export function filterVehicles(
+  vs: BoardVehicle[],
+  tripsOf: (v: BoardVehicle) => BoardTrip[],
+  f: VehFilter,
+): BoardVehicle[] {
+  const q = norm(f.q.trim());
+  return vs.filter((v) => {
+    if (f.vt && v.vehicleTypeId !== f.vt) return false;
+    if (f.own === 'OWN' && v.ownership !== 'OWN') return false;
+    if (f.own === 'SUB' && v.ownership === 'OWN') return false;
+    if (!q) return true;
+    const texts = [
+      v.plate,
+      v.driver?.name,
+      v.carrierName,
+      ...tripsOf(v).flatMap((x) => [
+        x.tripNo,
+        ...x.orders.flatMap((o) => [o.orderNo, o.customerName]),
+        ...(x.doNos ?? []),
+      ]),
+    ];
+    return texts.some((t) => !!t && norm(t).includes(q));
+  });
+}
+
+/** ตัวเลือกประเภทรถจากแถวรถของกระดาน (เรียงชื่อ) */
+export function vehTypeOptions(vs: BoardVehicle[]) {
+  const m = new Map<string, string>();
+  for (const v of vs) if (v.vehicleTypeId) m.set(v.vehicleTypeId, v.vehicleTypeName ?? '');
+  return [...m].map(([v, l]) => ({ v, l })).sort((a, b) => a.l.localeCompare(b.l, 'th'));
+}
+
+/** กลุ่มแถวรถบนกระดาน — `all` = ไม่มีหัวกลุ่ม · `idle` = กลุ่มพับ "รถร่วมทั้งหมด" */
+export interface BoardGroup {
+  key: string;
+  kind: 'all' | 'own' | 'sub' | 'idle' | 'carrier';
+  /** ชื่อรถร่วม (kind = carrier) — null = ไม่มีชื่อ */
+  carrier?: string | null;
+  vs: BoardVehicle[];
+}
+
+/**
+ * หัวกลุ่ม + กลุ่มพับ (ST3-T13 PLN-049; [DECISION — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ]) — แถวเรียงตาม `orderVehicles` เดิม:
+ * FLEET = "รถบริษัท" → "รถร่วม" (มีงานในวันที่แสดง) → กลุ่มพับ "รถร่วมทั้งหมด" (รถร่วมที่ไม่มีงาน) ·
+ * CARRIER = "รถบริษัท" → "รถร่วม · {ชื่อ}" ต่อรถร่วม (ไม่พับ — มุมมองนี้ผู้ใช้เลือกดูรายรถร่วม) ·
+ * VEHICLE / DRIVER = ไม่มีหัวกลุ่ม · กลุ่มว่างไม่แสดง · "รถร่วมประจำ" ของ PLN-049 ยังไม่มีข้อมูลแยก → รวมใน "รถร่วม"
+ */
+export function boardGroups(
+  ordered: BoardVehicle[],
+  view: BoardView,
+  busy: (v: BoardVehicle) => boolean,
+): BoardGroup[] {
+  if (view === 'VEHICLE' || view === 'DRIVER') return [{ key: 'all', kind: 'all', vs: ordered }];
+  const own = ordered.filter((v) => v.ownership === 'OWN');
+  const sub = ordered.filter((v) => v.ownership !== 'OWN');
+  const out: BoardGroup[] = [{ key: 'own', kind: 'own', vs: own }];
+  if (view === 'FLEET') {
+    out.push({ key: 'sub', kind: 'sub', vs: sub.filter(busy) });
+    out.push({ key: 'idle', kind: 'idle', vs: sub.filter((v) => !busy(v)) });
+  } else {
+    const by = new Map<string, BoardVehicle[]>();
+    for (const v of sub) {
+      const k = v.carrierName ?? '';
+      by.set(k, [...(by.get(k) ?? []), v]);
+    }
+    for (const [k, vs] of by) out.push({ key: `c:${k}`, kind: 'carrier', carrier: k || null, vs });
+  }
+  return out.filter((g) => g.vs.length > 0);
 }
 
 /** ข้อความบนการ์ดตาม field ที่ผู้ใช้เลือก — ส่วนที่ไม่เลือก/ว่างถูกตัด แล้วต่อด้วย " · " */

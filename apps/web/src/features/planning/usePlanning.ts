@@ -12,22 +12,27 @@ const KEY = 'planning-board';
 const TRIPS_KEY = 'trip';
 const PREFS_KEY = ['planning-board-prefs'];
 
-/** กระดาน (GET /v1/planning/board) — เริ่มวันนี้ตาม server (เวลาไทย) + จำนวนวัน (1 / 7) */
-export function useBoard(days: 1 | 7) {
+/**
+ * กระดาน (GET /v1/planning/board) — วันแรก `date` (null = วันนี้ตาม server เวลาไทย) + จำนวนวัน (1 / 7)
+ * ตัวเลือกวัน ←/→ (spec/03 §5 ข้อ 3) ส่ง `date` · ไม่ส่ง = วันนี้ (review ST3-T12)
+ */
+export function useBoard(days: 1 | 7, date: string | null = null) {
   return useQuery({
-    queryKey: [KEY, days],
+    queryKey: [KEY, days, date ?? ''],
     staleTime: 0,
     queryFn: () =>
-      unwrap(api.GET('/v1/planning/board', { params: { query: { days } } })) as Promise<Board>,
+      unwrap(
+        api.GET('/v1/planning/board', { params: { query: { days, ...(date ? { date } : {}) } } }),
+      ) as Promise<Board>,
   });
 }
 
 /** สิ่งที่เลือกบนกระดาน → รถ/งานที่รับได้ (ST3-T15) */
 export type EligSubject = { kind: 'order' | 'vehicle' | 'trip'; id: string };
 
-const eligQuery = (s: EligSubject, days: 1 | 7) => ({
+const eligQuery = (s: EligSubject, days: 1 | 7, date: string | null = null) => ({
   // ใต้ KEY ของกระดาน — การวาง/ย้าย/ยืนยันกฎ invalidate ไปด้วย (ผลตรวจเปลี่ยนตามข้อมูลกระดาน)
-  queryKey: [KEY, 'elig', s.kind, s.id, days],
+  queryKey: [KEY, 'elig', s.kind, s.id, days, date ?? ''],
   staleTime: 0,
   queryFn: () =>
     unwrap(
@@ -39,7 +44,7 @@ const eligQuery = (s: EligSubject, days: 1 | 7) => ({
               : s.kind === 'vehicle'
                 ? { vehicleId: s.id }
                 : { tripId: s.id }),
-            ...(s.kind === 'trip' ? {} : { days }),
+            ...(s.kind === 'trip' ? {} : { days, ...(date ? { date } : {}) }),
           },
         },
       }),
@@ -50,9 +55,9 @@ const eligQuery = (s: EligSubject, days: 1 | 7) => ({
  * Filter รถที่รับได้สองทาง (GET /v1/planning/eligibility — ST3-T15): คลิก SO → รถทุกคัน · คลิกรถ → SO รอจัดทุกใบ
  * ช่วงวันเดียวกับกระดาน (วันนี้ตาม server + 7 วัน) — กฎชุดเดียวกับตอนวางจริง (ST3-T14)
  */
-export function useEligibility(s: EligSubject | null, days: 1 | 7 = 7) {
+export function useEligibility(s: EligSubject | null, days: 1 | 7 = 7, date: string | null = null) {
   return useQuery({
-    ...eligQuery(s ?? { kind: 'order', id: '' }, days),
+    ...eligQuery(s ?? { kind: 'order', id: '' }, days, date),
     enabled: s !== null,
     retry: false,
   });

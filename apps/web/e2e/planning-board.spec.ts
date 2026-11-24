@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Locator, Page } from '@playwright/test';
-import { expect, test } from './fixtures';
+import { expect, openIdleSubcon, test } from './fixtures';
 
 /**
  * E2E ST3-T12 กระดานวางแผน (docs/04 D2; spec/03 §5) — เกณฑ์ตรวจรับ:
@@ -235,6 +235,7 @@ test.describe.serial('กระดานวางแผน (ST3-T12)', () => {
     page,
   }) => {
     await open(page);
+    await openIdleSubcon(page);
     const row = page.getByTestId(`plan-row-${SUB}`);
     await row.scrollIntoViewIfNeeded();
     await expect(page.getByTestId(`plan-blocked-${SUB}`)).toContainText('ยังไม่มี');

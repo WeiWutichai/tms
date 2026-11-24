@@ -86,6 +86,13 @@ export const test = base.extend<{ loginEmail: string; loggedIn: void }>({
 });
 export { expect };
 
+/** กระดานวางแผน: เปิดกลุ่มพับ "รถร่วมทั้งหมด" (PLN-049 — รถร่วมที่ไม่มีงานในวันที่แสดง) ถ้ายังพับอยู่ · เรียกหลังกระดานโหลดแล้ว */
+export async function openIdleSubcon(page: Page): Promise<void> {
+  await page.locator('[data-testid^="plan-grp-"], [data-testid^="plan-row-"]').first().waitFor();
+  const b = page.getByTestId('plan-grp-idle').getByRole('button');
+  if ((await b.count()) && (await b.getAttribute('aria-expanded')) === 'false') await b.click();
+}
+
 /**
  * time-step ล่าสุดที่ใช้แล้วกับ TOTP ของผู้ใช้เดโม **แยกตามบัญชี** (server เก็บ `totp_last_step` ต่อผู้ใช้)
  * server ไม่รับ step ที่ ≤ ช่วงที่บัญชีนั้นใช้ไปแล้ว และรหัสผิดนับเป็นความพยายามล้มเหลว (ครบแล้วล็อกบัญชี) —
