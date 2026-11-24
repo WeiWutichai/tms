@@ -41,6 +41,12 @@ export interface RequestContext {
   /** IP ผู้เรียก (trust proxy 1 ชั้น) — ลง audit log */
   ip?: string;
   tx?: Prisma.TransactionClient;
+  /**
+   * งานที่ต้องทำ**หลัง** transaction ของ request commit แล้วเท่านั้น (TransactionInterceptor เรียก; rollback = ไม่เรียก)
+   * ใช้กับการเขียนผ่าน client platform ที่อยู่นอก transaction ของ request (เช่น เก็บกวาดหลังรีเซ็ต 2FA #81)
+   * ล้มเหลว = log ไว้ ไม่ทำให้คำขอล้ม (ข้อมูลหลัก commit แล้ว) — ห้ามใช้กับงานที่ต้องสำเร็จเพื่อความถูกต้อง
+   */
+  afterCommit?: (() => Promise<void>)[];
   /** ขั้นตรวจของการนำเข้า (ST2-T23): ทุกการเขียนถูกย้อนทิ้ง — งานนอก transaction (audit แยก) ไม่ต้องทำ */
   importDryRun?: boolean;
   /**

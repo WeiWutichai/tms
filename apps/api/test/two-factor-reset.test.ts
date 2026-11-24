@@ -7,9 +7,12 @@ import { ensureSystemRoles } from '../src/auth/system-roles';
 import {
   signPlatformStepUpToken,
   signPlatformToken,
+  pkceChallenge,
   signStepUpToken,
   sha256,
 } from '../src/auth/tokens';
+import { newTotpSecret } from '../src/auth/totp';
+import { FieldCipher } from '../src/common/crypto';
 import { encodeId } from '../src/common/ids';
 import { renderEmail } from '../src/modules/email/templates';
 import { api, bootApp, createTenant, loginFull, platform, tokenFor, truncateAll } from './helpers';
@@ -114,7 +117,6 @@ describe('รีเซ็ต 2FA (#81)', () => {
       .send({ grantType: 'refresh_token' });
     expect(rt.status).toBe(400);
     // login ใหม่ → ขั้นตั้ง 2FA (D-78) — TOTP เดิมใช้ไม่ได้
-    const { pkceChallenge } = await import('../src/auth/tokens');
     const login = await request(srv())
       .post('/v1/auth/login')
       .set('X-Forwarded-For', nextIp())
@@ -147,6 +149,69 @@ describe('รีเซ็ต 2FA (#81)', () => {
     expect(mail[0]!.textBody).toContain(admin.u.name);
     expect(mail[0]!.textBody).toContain('ทำมือถือหาย รหัสสำรองหมด');
     expect(mail[0]!.textBody).not.toContain('ทีมงาน TMS');
+    expect(mail[0]!.textBody).toContain('ระบบจะให้ตั้ง 2FA ใหม่');
+  });
+
+  it('ผู้ใช้ที่ role ไม่บังคับ 2FA: หลังรีเซ็ตเข้าด้วยรหัสผ่านได้เลย (ไม่ถามตั้ง 2FA) + อีเมลบอกว่า 2FA ปิดอยู่', async () => {
+    const admin = await actor('admin');
+    const v = await user('viewer@reset.test', 'viewer');
+    await db.appUser.update({
+      where: { id: v.id },
+      data: { totpEnabledAt: new Date(), totpSecret: new FieldCipher().encrypt(newTotpSecret()) },
+    });
+    expect((await reset(admin.token, v, admin.su)).status).toBe(200);
+    const login = await request(srv())
+      .post('/v1/auth/login')
+      .set('X-Forwarded-For', nextIp())
+      .send({
+        email: 'viewer@reset.test',
+        password: PW,
+        codeChallenge: pkceChallenge('y'.repeat(43)),
+      });
+    expect(login.status, JSON.stringify(login.body)).toBe(200);
+    expect(login.body.code).toBeTruthy();
+    const [mail] = await db.emailOutbox.findMany({
+      where: { toAddress: 'viewer@reset.test', template: 'two_factor_reset' },
+    });
+    expect(mail!.textBody).toContain('ตอนนี้บัญชีของคุณไม่มี 2FA');
+    expect(mail!.textBody).not.toContain('ระบบจะให้ตั้ง 2FA ใหม่');
+  });
+
+  it('ลบแล้ว → 409 · ตัวเอง → 422 · ไม่ส่ง X-Step-Up → 403 step_up_required', async () => {
+    const admin = await actor('admin');
+    const gone = await user('gone@reset.test', 'planner');
+    await db.appUser.update({
+      where: { id: gone.id },
+      data: { status: 'DELETED', totpEnabledAt: new Date(), totpSecret: 'enc' },
+    });
+    expect((await reset(admin.token, gone, admin.su)).status).toBe(409);
+    const self = await reset(admin.token, admin.u, admin.su);
+    expect(self.status).toBe(422);
+    const noSu = await reset(admin.token, gone);
+    expect(noSu.status).toBe(403);
+    expect(noSu.body.code).toBe('step_up_required');
+  });
+
+  it('รีเซ็ตพร้อมกัน 2 ครั้ง → 200 หนึ่งครั้ง 409 หนึ่งครั้ง · audit/อีเมลแถวเดียว', async () => {
+    const admin = await actor('admin');
+    const t = await user('race@reset.test', 'planner');
+    await db.appUser.update({
+      where: { id: t.id },
+      data: { totpEnabledAt: new Date(), totpSecret: 'enc' },
+    });
+    const rs = await Promise.all([
+      reset(admin.token, t, admin.su, 'พร้อมกัน 1'),
+      reset(admin.token, t, admin.su, 'พร้อมกัน 2'),
+    ]);
+    expect(rs.map((r) => r.status).sort()).toEqual([200, 409]);
+    expect(await db.auditLog.count({ where: { entityId: t.id, action: 'user.2fa_reset' } })).toBe(
+      1,
+    );
+    expect(
+      await db.emailOutbox.count({
+        where: { toAddress: 'race@reset.test', template: 'two_factor_reset' },
+      }),
+    ).toBe(1);
   });
 
   it('ยังไม่ได้ตั้ง 2FA → 409 · ข้าม tenant → 404', async () => {
@@ -182,6 +247,10 @@ describe('รีเซ็ต 2FA (#81)', () => {
     const denied = await reset(admin.token, lost, admin.su);
     expect(denied.status).toBe(403);
     expect(denied.body.action).toBe('manage_owner');
+    // owner ที่ยังไม่ตั้ง 2FA: ด่าน owner มาก่อนสถานะ → admin ได้ 403 ไม่ใช่ 409 (ไม่เผยสถานะ 2FA ของ owner)
+    const owner3 = await user('owner3@reset.test', 'owner');
+    expect((await reset(admin.token, owner3, admin.su)).status).toBe(403);
+    expect((await reset(owner.token, owner3, owner.su)).status).toBe(409);
     expect((await reset(owner.token, lost, owner.su)).status).toBe(200);
   });
 
@@ -277,6 +346,39 @@ describe('รีเซ็ต 2FA (#81)', () => {
         .set('Authorization', `Bearer ${sa.token}`);
       expect(detail.body.members[0].twoFactorEnabled).toBe(true);
     });
+
+    it('ผู้ใช้ที่ถูกระงับ: รีเซ็ตได้ (เหมือนฝั่งบริษัท) · ลบแล้ว → 404 · รีเซ็ตพร้อมกัน → 200 + 409', async () => {
+      const sa = await mk('SUPER_ADMIN');
+      const mkUser = (email: string, status: 'DISABLED' | 'DELETED' | 'ACTIVE') =>
+        db.appUser.create({
+          data: {
+            tenantId,
+            email,
+            name: email,
+            status,
+            totpEnabledAt: new Date(),
+            totpSecret: 'e',
+          },
+        });
+      const off = await mkUser('off@reset.test', 'DISABLED');
+      expect((await call(sa, tenantId, off.id)).status).toBe(200);
+      expect(
+        (await db.appUser.findUniqueOrThrow({ where: { id: off.id } })).totpEnabledAt,
+      ).toBeNull();
+      const gone = await mkUser('gone2@reset.test', 'DELETED');
+      expect((await call(sa, tenantId, gone.id)).status).toBe(404);
+      const race = await mkUser('race2@reset.test', 'ACTIVE');
+      const rs = await Promise.all([call(sa, tenantId, race.id), call(sa, tenantId, race.id)]);
+      expect(rs.map((r) => r.status).sort()).toEqual([200, 409]);
+      expect(
+        await db.auditLog.count({ where: { entityId: race.id, action: 'user.2fa_reset' } }),
+      ).toBe(1);
+      expect(
+        await db.emailOutbox.count({
+          where: { toAddress: 'race2@reset.test', template: 'two_factor_reset' },
+        }),
+      ).toBe(1);
+    });
   });
 
   it('template อีเมล: ไทย/อังกฤษ escape HTML', () => {
@@ -286,11 +388,16 @@ describe('รีเซ็ต 2FA (#81)', () => {
       byStaff: false,
       reason: 'หาย',
       at: '24 พ.ย. 2569',
+      mustEnroll: true,
     };
     const th = renderEmail('two_factor_reset', 'th', v);
     expect(th.subject).toContain('2FA');
     expect(th.html).toContain('A&lt;b&gt;');
     const en = renderEmail('two_factor_reset', 'en', { ...v, byStaff: true });
     expect(en.text).toContain('from the TMS team');
+    expect(en.text).toContain('asked to set up 2FA again');
+    const off = renderEmail('two_factor_reset', 'en', { ...v, mustEnroll: false });
+    expect(off.text).toContain('no longer has 2FA');
+    expect(off.text).not.toContain('set up 2FA again');
   });
 });

@@ -25,7 +25,8 @@ import {
 } from 'class-validator';
 import { AuthService } from '../auth/auth.service';
 import { assertStepUp } from '../auth/step-up';
-import { resetSecondFactor } from '../auth/two-factor-reset';
+import { MfaService } from '../auth/mfa.service';
+import { cleanupSecondFactor, resetSecondFactor } from '../auth/two-factor-reset';
 import { webBaseUrl } from '../auth/password-reset.controller';
 import { ensureSystemRoles } from '../auth/system-roles';
 import { signAccessToken } from '../auth/tokens';
@@ -178,6 +179,7 @@ export class PlatformTenantsController {
     private readonly email: EmailService,
     private readonly auth: AuthService,
     private readonly entitlements: EntitlementService,
+    private readonly mfa: MfaService,
   ) {}
 
   @Get()
@@ -455,6 +457,8 @@ export class PlatformTenantsController {
   /**
    * รีเซ็ต 2FA ของผู้ใช้ของลูกค้า (คำถามค้าง #81 — PO 24 พ.ย. 2569) — กรณีไม่มีผู้ดูแลในบริษัททำให้ได้ (เช่น owner คนเดียวทำเครื่องหาย)
    * SUPER_ADMIN เท่านั้น (docs/04 A6: SUPPORT ดู + เข้าใช้งานแทน) · step-up ของ Console (D-77 — ตรวจหลัง 404) · เหตุผล ≥ 10 ตัว
+   * สถานะผู้ใช้: ใช้งาน / ระงับ / รอรับคำเชิญ ที่ตั้ง 2FA แล้ว → รีเซ็ตได้ (เหมือนฝั่งบริษัท — คนที่ถูกระงับได้ 2FA ใหม่ตอนเปิดใช้คืน) ·
+   * ยังไม่ตั้ง 2FA → 409 · ลบแล้ว → 404 (ไม่อยู่ในรายชื่อสมาชิกของ Console; ฝั่งบริษัทตอบ 409 เพราะยังหาแถวเจอ)
    * ผลเหมือนฝั่งบริษัท (`POST /v1/users/{id}/reset-2fa`) · audit ลง audit_log ของบริษัทนั้น (actor = `platform:<id>`) + อีเมลแจ้งเจ้าของบัญชี
    */
   @Post(':id/users/:userId/reset-2fa')
@@ -484,8 +488,9 @@ export class PlatformTenantsController {
     const staff = await db.platformUser.findUniqueOrThrow({
       where: { id: requestContext.require().platformUser!.id },
     });
+    // ทุกขั้นใน transaction เดียว (client platform) — รีเซ็ตซ้อน/ล้มเหลว = ไม่มีอะไรถูกลบ
     await db.$transaction(async (tx) => {
-      await resetSecondFactor(tx, tx, this.email, user, {
+      await resetSecondFactor(tx, this.email, this.mfa, user, {
         tenantName: t.name,
         actorName: staff.name,
         byStaff: true,
@@ -506,6 +511,7 @@ export class PlatformTenantsController {
           ip: ctx.ip ?? null,
         },
       });
+      await cleanupSecondFactor(tx, user);
     });
     return { id: encodeId('user', user.id), twoFactorEnabled: false };
   }

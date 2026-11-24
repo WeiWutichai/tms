@@ -12,7 +12,8 @@ import { Transform, Type } from 'class-transformer';
 import { IsInt, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { AuditService } from '../../audit/audit.service';
 import { assertStepUp } from '../../auth/step-up';
-import { resetSecondFactor } from '../../auth/two-factor-reset';
+import { MfaService } from '../../auth/mfa.service';
+import { cleanupSecondFactor, resetSecondFactor } from '../../auth/two-factor-reset';
 import { RequireScope, StepUpAlways, TenantResource } from '../../common/decorators';
 import { decodeIdOr404, encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -96,6 +97,7 @@ export class UserLifecycleController {
     private readonly audit: AuditService,
     private readonly entitlements: EntitlementService,
     private readonly email: EmailService,
+    private readonly mfa: MfaService,
   ) {}
 
   @Post('users/:id/suspend')
@@ -195,19 +197,22 @@ export class UserLifecycleController {
   async resetTwoFactor(@Param('id') id: string, @Body() body: ReasonDto): Promise<UserStatusDto> {
     const user = await this.target(id);
     assertStepUp();
+    // ลำดับ: 404 / ตัวเอง (422) → step-up → owner (403) → สถานะ (409)
+    await this.guardOwner(user, false);
     if (user.status === 'DELETED' || !user.totpEnabledAt)
       throw new ProblemException('invalid_state_transition');
-    await this.guardOwner(user, false);
+    const ctx = requestContext.require();
     const tx = this.db.tx;
     // actorId ของ token dev ไม่ใช่ uuid → ไม่มีชื่อ (เหมือน guardOwner)
     const actor = await tx.appUser
-      .findUnique({ where: { id: requestContext.require().actorId ?? '' }, select: { name: true } })
+      .findUnique({ where: { id: ctx.actorId ?? '' }, select: { name: true } })
       .catch(() => null);
     const tenant = await tx.tenant.findUnique({
       where: { id: user.tenantId },
       select: { name: true },
     });
-    const updated = await resetSecondFactor(tx, this.prisma.platform, this.email, user, {
+    // ขั้นหลัก (มีเงื่อนไข — รีเซ็ตพร้อมกัน = 409) + อีเมล + audit อยู่ใน transaction ของ request
+    await resetSecondFactor(tx, this.email, this.mfa, user, {
       tenantName: tenant?.name ?? '',
       actorName: actor?.name ?? '',
       byStaff: false,
@@ -221,7 +226,9 @@ export class UserLifecycleController {
       after: { twoFactorEnabled: false },
       reason: body.reason,
     });
-    return { id: encodeId('user', updated.id), status: updated.status.toLowerCase() };
+    // เก็บกวาดตาราง platform หลัง commit เท่านั้น (rollback = รหัสสำรอง/อุปกรณ์ไม่ถูกแตะ)
+    (ctx.afterCommit ??= []).push(() => cleanupSecondFactor(this.prisma.platform, user));
+    return { id: encodeId('user', user.id), status: user.status.toLowerCase() };
   }
 
   /** ประวัติ login ของ tenant (ST1-T11) — เก็บ 1 ปี (worker ลบที่เก่ากว่า) · ไม่แสดงแถวภายใน `attempt` */

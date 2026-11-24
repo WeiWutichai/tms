@@ -523,7 +523,8 @@
 
 - **ทำ:** `POST /v1/users/{id}/reset-2fa` (ฝั่งบริษัท: `users:write` + step-up D-67 หลัง 404 + เหตุผล; ห้ามทำกับตัวเอง; owner → ผู้ทำต้องเป็น owner ตาม `guardOwner` เดิม) · `POST /v1/platform/tenants/{id}/users/{userId}/reset-2fa` (Console: SUPER_ADMIN + step-up D-77 + เหตุผล ≥ 10) · ตัวกลาง `apps/api/src/auth/two-factor-reset.ts` (ล้าง TOTP + รหัสสำรอง, bump tokenVersion, เพิกถอน refresh token / อุปกรณ์ที่จำไว้ / ขั้น 2FA ค้าง, อีเมล `two_factor_reset` ผ่าน outbox) · audit `user.2fa_reset` · login ถัดไปเข้าขั้นตั้ง 2FA (D-78 เดิม) · Console `members[].twoFactorEnabled` · template อีเมลไทย/อังกฤษ · isolation body `reset-2fa` · OpenAPI export (ไม่มี breaking) · เอกสาร API ไม่เปลี่ยน (route `users:*` / Console ไม่อยู่ในเอกสารสาธารณะ)
 - **ต้นแบบ:** TMS v4 ตารางผู้ใช้ไม่มีเมนู/drawer ต่อแถว · Console ไม่มีรายการผู้ใช้/2FA → **ไม่ทำ UI** — spec/12 §3 แถวใหม่ **[OPEN — PO] ต้นแบบไม่มีปุ่มรีเซ็ต 2FA → ส่ง Claude Design**
-- **test:** `test/two-factor-reset.test.ts` (5) · `isolation` · `platform` · `openapi` · `api-conformance` + `step-up-d67` ผ่าน (ไม่ได้รัน ci:local)
+- **แก้ตาม review:** เก็บกวาดตาราง platform หลัง commit (`ctx.afterCommit` ใหม่ใน `transaction.interceptor.ts`) · ล้าง TOTP แบบมีเงื่อนไข (พร้อมกัน = 409, audit/อีเมลแถวเดียว) · ด่าน owner ก่อนสถานะ · ข้อความอีเมลตาม role (บังคับ/ไม่บังคับ 2FA) · Console: ผู้ใช้ที่ถูกระงับรีเซ็ตได้, ลบแล้ว 404
+- **test:** `test/two-factor-reset.test.ts` (9) · `isolation` · `platform` · `openapi` · `api-conformance` + `step-up-d67` ผ่าน (ไม่ได้รัน ci:local)
 - **ค้าง:** lead บันทึกเลข D ใน `plan/05` · ต้นแบบ UI (Claude Design) · SUPPORT ของ Console รีเซ็ตไม่ได้ (ตาม docs/04 A6 — ถ้า PO อยากให้ SUPPORT ทำได้ต้องแก้ docs)
 
 ### 24 พ.ย. 2569 (ST9-T17 ทดสอบประสิทธิภาพ — วัดจริง + แก้คิวพร้อมวางบิล · lane lv, `st9/t17-perf-tests`, ไม่มี migration)
