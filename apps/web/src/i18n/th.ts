@@ -5434,7 +5434,6 @@ export const th = {
   'erpq.pc.k.unsentSub': 'รอคิว {q} · ล้มเหลว {f}',
   'erpq.pc.k.unverified': 'ยังไม่ได้ยืนยัน',
   'erpq.pc.k.unverifiedSub': 'อ่านจาก {erp} ไม่ได้ / เทียบไม่ได้',
-  'erpq.pc.k.ack': 'ยอมรับความต่างในเดือน',
   'erpq.pc.sec.out': 'ไม่ตรงค้าง',
   'erpq.pc.sec.ack': 'ยอมรับความต่าง',
   'erpq.pc.sec.unsent': 'ยังไม่ส่ง',

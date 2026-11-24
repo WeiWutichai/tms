@@ -49,7 +49,7 @@ export function usePeriodClose(connectorId: string | null, month: string) {
 /**
  * แท็บ "ปิดงวด" ของหน้า "คิวเชื่อมระบบบัญชี" (ST8-T14 รายงานปิดงวด — คำถามค้าง #95)
  * [DECISION — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ] ต้นแบบไม่มีหน้ารายงานปิดงวด → ประกอบจากชิ้นที่มี:
- * การ์ด KPI (แบบหน้า settle `tms-kpis`) ผล · MISMATCH ค้าง ณ สิ้นเดือน · ยังไม่ส่ง · ยังไม่ได้ยืนยัน · ยอมรับความต่าง +
+ * การ์ด KPI 4 ใบ (แบบหน้า settle `tms-kpis`) ผล · MISMATCH ค้าง ณ สิ้นเดือน · ยังไม่ส่ง · ยังไม่ได้ยืนยัน (ยอมรับความต่าง = ตัวนับบนแท็บ) +
  * การ์ดรายงาน (แบบหน้า "รายงาน" `vRep`: แถบแท็บขีดเส้นใต้ + "งวด" เลือกเดือนขวาของแถบ + ตาราง) 3 ส่วนของ API ·
  * ปุ่ม "ส่งออก Excel / CSV / PDF" = งานส่งออก `reconcile-period-close` (`export:run`)
  * เกณฑ์ผ่าน = เดือนจบ + ค้าง 0 + ยังไม่ส่ง 0 + ยังไม่ได้ยืนยัน 0 (PO #95-b) — คำนวณที่ API (`passed`) หน้าไม่คิดเอง
@@ -247,12 +247,6 @@ export function PeriodClosePanel({
           value={sum ? sum.unverified : '—'}
           tone={sum && sum.unverified > 0 ? 'warn' : 'neutral'}
           sub={t('erpq.pc.k.unverifiedSub', { erp })}
-        />
-        <KpiCard
-          label={t('erpq.pc.k.ack')}
-          value={sum ? sum.acknowledged : '—'}
-          onClick={() => setSec('ack')}
-          active={sec === 'ack'}
         />
       </div>
       <div

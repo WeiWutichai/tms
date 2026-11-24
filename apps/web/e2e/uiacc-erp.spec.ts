@@ -181,9 +181,15 @@ test.describe('หน้าจอบัญชี/ERP ที่ประกอบ
   }) => {
     const owner = await db.appUser.findUniqueOrThrow({ where: { id: DEMO_IDS[DEMO_EMAIL]! } });
     const tenantId = owner.tenantId as string;
-    const c = await db.carrier.findFirstOrThrow({
-      where: { tenantId, deletedAt: null },
-      orderBy: { createdAt: 'asc' },
+    // รถร่วมทดสอบ (นิติบุคคล — ไม่มีข้อมูลส่วนบุคคล) · ฐาน e2e ใหม่ไม่มีรถร่วมจาก seed
+    const c = await db.carrier.create({
+      data: {
+        tenantId,
+        code: `SUB-UIACC-${RUN}`,
+        legalName: `หจก. ลิงก์ค่าเที่ยว ${RUN}`,
+        entityType: 'JURISTIC',
+        branchCode: '00000',
+      },
     });
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/fleet/drivers?tab=con');
