@@ -1782,3 +1782,4 @@ const { data, error } = await tms.POST('/v1/trip-sheets', {
 | `inTransit` | ใช่ | `number` |   | การ์ด "ระหว่างส่ง" = `status=DISPATCHED,IN_PROGRESS` (ทุกวันที่) |   |
 | `done` | ใช่ | `number` |   | การ์ด "ส่งแล้ว" = `status=COMPLETED,COSTED,SETTLED` (ทุกวันที่) |   |
 | `subcon` | ใช่ | `number` |   | การ์ด "ใช้รถร่วม" = `ownership=SUBCON&status=` ทุกสถานะยกเว้น CANCELLED (ทุกวันที่) |   |
+| `total` | ใช่ | `number` |   | แท็บ "ทั้งหมด" = ทุกเที่ยว (ไม่มีตัวกรอง — รวมที่ยกเลิก) |   |

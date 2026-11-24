@@ -19,6 +19,8 @@ vi.mock('../../api', async (orig) => {
     ...real,
     api: {
       GET: (path: string) => {
+        if (path === '/v1/delivery-orders/{id}/revenue-lines')
+          return ok({ sellRevenueTotal: '4750.25', provisional: false, data: [] });
         if (path === '/v1/me')
           return ok({ scopes: [], user: { roles: ['x'] }, tenant: { yearStyle: 'BE', name: 'x' } });
         return ok(costs);
@@ -32,7 +34,7 @@ vi.mock('../../api', async (orig) => {
     },
   };
 });
-const { TripCostKv, TripCostCloseButton } = await import('./TripCost');
+const { TripMoneySection, TripCostCloseButton } = await import('./TripCost');
 
 const TRIP = {
   id: 'trp_1',
@@ -40,6 +42,7 @@ const TRIP = {
   status: 'COMPLETED',
   version: 7,
   carrier: { id: 'car_1', name: 'หจก. รถร่วม' },
+  deliveryOrders: [{ id: 'do_1' }, { id: 'do_2' }],
 } as unknown as TripDetail;
 
 function mount(ui: React.ReactNode) {
@@ -57,7 +60,7 @@ describe('ปิดต้นทุนเที่ยว', () => {
     fail = null;
   });
 
-  it('kv: ค่าเที่ยวรถร่วม (มีสิทธิ์ราคาซื้อ) + สิ่งที่ขวาง', async () => {
+  it('ส่วนยอดเงิน: รายได้จาก DO (รวมทุกใบ) / ค่าเที่ยวรถร่วม / กำไร (มีทั้งสองสิทธิ์) + สิ่งที่ขวาง', async () => {
     costs = {
       summary: {
         tripStatus: 'COMPLETED',
@@ -67,15 +70,27 @@ describe('ปิดต้นทุนเที่ยว', () => {
         costedAt: null,
       },
     };
-    mount(<TripCostKv trip={TRIP} canSeeBuy />);
-    expect(await screen.findByText('ค่าเที่ยวรถร่วม')).toBeInTheDocument();
+    mount(<TripMoneySection trip={TRIP} canSeeBuy canSeeSell />);
+    expect(await screen.findByText('ยอดเงิน')).toBeInTheDocument();
+    expect(await screen.findByText('9,500.50')).toBeInTheDocument();
+    expect(screen.getByText('ค่าเที่ยวรถร่วม')).toBeInTheDocument();
     expect(screen.getByText('6,500.00')).toBeInTheDocument();
+    expect(screen.getByText('กำไรเที่ยวนี้')).toBeInTheDocument();
+    expect(screen.getByText('3,000.50')).toBeInTheDocument();
     expect(screen.getByText('ยังปิดต้นทุนไม่ได้: มีค่าใช้จ่ายหน้างานรอยืนยัน')).toBeInTheDocument();
   });
 
-  it('ไม่มีสิทธิ์ราคาซื้อ → ไม่แสดงยอด แต่แสดงสถานะต้นทุน', async () => {
+  it('มีสิทธิ์ราคาซื้ออย่างเดียว → ไม่มีรายได้/กำไร · ไม่มีสิทธิ์ราคา → แสดงแค่สถานะต้นทุน', async () => {
+    costs = {
+      summary: { tripStatus: 'COMPLETED', buyTotal: '100.00', pendingCount: 0, blockers: [] },
+    };
+    const { unmount } = mount(<TripMoneySection trip={TRIP} canSeeBuy canSeeSell={false} />);
+    expect(await screen.findByText('100.00')).toBeInTheDocument();
+    expect(screen.queryByText('รายได้จาก DO')).toBeNull();
+    expect(screen.queryByText('กำไรเที่ยวนี้')).toBeNull();
+    unmount();
     costs = { summary: { tripStatus: 'COMPLETED', pendingCount: 0, blockers: [], costedAt: null } };
-    mount(<TripCostKv trip={TRIP} canSeeBuy={false} />);
+    mount(<TripMoneySection trip={TRIP} canSeeBuy={false} canSeeSell={false} />);
     expect(await screen.findByText('ยังไม่ปิดต้นทุน')).toBeInTheDocument();
     expect(screen.queryByText('ค่าเที่ยวรถร่วม')).toBeNull();
   });

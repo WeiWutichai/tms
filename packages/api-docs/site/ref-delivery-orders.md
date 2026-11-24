@@ -984,6 +984,7 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `destSiteName` | ใช่ | `string` |   | ชื่อจุดส่ง |   |
 | `tripNo` | ใช่ | `string` | null ได้ |   | `TRP-6911-0001` |
 | `vehiclePlate` | ใช่ | `string` | null ได้ | ทะเบียนรถของเที่ยว (snapshot) |   |
+| `vehicleTypeName` | ใช่ | `string` | null ได้ | ประเภทรถของเที่ยว (snapshot) — หน้า `/do` คอลัมน์รถบรรทัดรอง | `6 ล้อ` |
 | `driverName` | ใช่ | `string` | null ได้ | คนขับของเที่ยว (snapshot) |   |
 | `carrierName` | ใช่ | `string` | null ได้ | รถร่วมของเที่ยว (snapshot) |   |
 | `weightKg` | ใช่ | `string` | null ได้ |   |   |
@@ -1069,6 +1070,10 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `inTransit` | ใช่ | `number` |   | การ์ด "ระหว่างส่ง" = `status=DISPATCHED,PICKED_UP` (ทุกวันที่) |   |
 | `unbilled` | ใช่ | `number` |   | การ์ด "ยังไม่วางบิล" = `status=DELIVERED,POD_PENDING,UNBILLED` (ทุกวันที่ — ส่งถึงแล้วยังไม่วางบิล) |   |
 | `sellUnbilledAmount` |   | `string` |   | มูลค่ารวมของ DO "ยังไม่วางบิล" = Σ บรรทัดรายได้ที่ใช้อยู่ (ก่อน VAT) — เห็นเมื่อมี `prices.sell:read` | `125400.00` |
+| `returned` | ใช่ | `number` |   | แท็บ "ตีกลับ" = `status=RETURNED` (ทุกวันที่) |   |
+| `failedTotal` | ใช่ | `number` |   | แท็บ "ส่งไม่สำเร็จ" = `status=FAILED` (ทุกวันที่) |   |
+| `billed` | ใช่ | `number` |   | แท็บ "วางบิลแล้ว" = `status=BILLED` (ทุกวันที่) |   |
+| `total` | ใช่ | `number` |   | แท็บ "ทั้งหมด" = ทุก DO (ไม่มีตัวกรอง — รวมที่ยกเลิก) |   |
 
 ### RedeliverResultDto {#schema-RedeliverResultDto}
 

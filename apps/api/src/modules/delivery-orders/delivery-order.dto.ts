@@ -312,6 +312,13 @@ export class DeliveryOrderDto {
   @ApiProperty({ nullable: true, type: String, example: 'TRP-6911-0001' }) tripNo!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'ทะเบียนรถของเที่ยว (snapshot)' })
   vehiclePlate!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '6 ล้อ',
+    description: 'ประเภทรถของเที่ยว (snapshot) — หน้า `/do` คอลัมน์รถบรรทัดรอง',
+  })
+  vehicleTypeName!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'คนขับของเที่ยว (snapshot)' })
   driverName!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'รถร่วมของเที่ยว (snapshot)' })
@@ -420,6 +427,14 @@ export class DeliveryOrderSummaryDto {
   })
   @PriceField('sell')
   sellUnbilledAmount?: string;
+  @ApiProperty({ description: 'แท็บ "ตีกลับ" = `status=RETURNED` (ทุกวันที่)' })
+  returned!: number;
+  @ApiProperty({ description: 'แท็บ "ส่งไม่สำเร็จ" = `status=FAILED` (ทุกวันที่)' })
+  failedTotal!: number;
+  @ApiProperty({ description: 'แท็บ "วางบิลแล้ว" = `status=BILLED` (ทุกวันที่)' })
+  billed!: number;
+  @ApiProperty({ description: 'แท็บ "ทั้งหมด" = ทุก DO (ไม่มีตัวกรอง — รวมที่ยกเลิก)' })
+  total!: number;
 }
 
 export class DeliveryOrderPageDto {

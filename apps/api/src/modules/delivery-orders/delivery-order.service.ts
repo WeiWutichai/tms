@@ -30,9 +30,12 @@ import {
   OPS_DO_DELIVERED,
   OPS_DO_FAILED,
   OPS_DO_TODAY,
+  DO_TAB_BILLED,
   DO_TAB_DELIVERED,
   DO_TAB_DRAFT,
+  DO_TAB_FAILED,
   DO_TAB_IN_TRANSIT,
+  DO_TAB_RETURNED,
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId } from '../../common/ids';
@@ -52,6 +55,7 @@ export type DeliveryOrderRecord = DeliveryOrder & {
     status: string;
     tripNo: string | null;
     vehiclePlateSnapshot: string | null;
+    vehicleTypeSnapshot: string | null;
     driverNameSnapshot: string | null;
     carrierNameSnapshot: string | null;
   } | null;
@@ -141,6 +145,7 @@ const INCLUDE = {
       status: true,
       tripNo: true,
       vehiclePlateSnapshot: true,
+      vehicleTypeSnapshot: true,
       driverNameSnapshot: true,
       carrierNameSnapshot: true,
     },
@@ -328,7 +333,19 @@ export class DeliveryOrderService {
       });
     const all = (statuses: readonly DoStatus[]) =>
       tx.deliveryOrder.count({ where: deliveryOrderWhere({ statuses: [...statuses] }) });
-    const [today, delivered, failed, draft, inTransit, unbilled, amount] = await Promise.all([
+    const [
+      today,
+      delivered,
+      failed,
+      draft,
+      inTransit,
+      unbilled,
+      returned,
+      failedTotal,
+      billed,
+      total,
+      amount,
+    ] = await Promise.all([
       n(OPS_DO_TODAY),
       n(OPS_DO_DELIVERED),
       n(OPS_DO_FAILED),
@@ -336,6 +353,10 @@ export class DeliveryOrderService {
       all(DO_TAB_DRAFT),
       all(DO_TAB_IN_TRANSIT),
       all(DO_TAB_DELIVERED),
+      all(DO_TAB_RETURNED),
+      all(DO_TAB_FAILED),
+      all(DO_TAB_BILLED),
+      tx.deliveryOrder.count(),
       tx.revenueLine.aggregate({
         where: {
           status: 'ACTIVE',
@@ -352,6 +373,10 @@ export class DeliveryOrderService {
       draft,
       inTransit,
       unbilled,
+      returned,
+      failedTotal,
+      billed,
+      total,
       // ตัดตามสิทธิ์ `prices.sell:read` ที่ serializer (PriceField)
       sellUnbilledAmount: (amount._sum.amount ?? new Prisma.Decimal(0)).toFixed(2),
     };

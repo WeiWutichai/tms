@@ -295,7 +295,7 @@ export function TripsPage() {
   ];
 
   const tabCount: Record<Tab, number | undefined> = {
-    all: undefined,
+    all: s?.total,
     planning: s?.planning,
     transit: s?.inTransit,
     done: s?.done,
@@ -474,6 +474,7 @@ export function TripsPage() {
           canHire={canAssign && canBuy}
           canClose={can(scopes, 'trips:close')}
           canSeeBuy={canBuy}
+          canSeeSell={canSell}
           onDone={(m) => {
             setOpenId(null);
             setToast(m);

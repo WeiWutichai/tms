@@ -5479,6 +5479,9 @@ export const th = {
   'dos.foot.so': 'เปิดใบสั่งขนส่ง',
   'dos.loadOneError': 'โหลดใบส่งของไม่สำเร็จ',
   // ---- ปิดต้นทุนเที่ยว (drawer เที่ยว — ST6-T01 API; UI ประกอบจากโครงสร้างต้นแบบ PO 24 พ.ย. 2569) ----
+  'trip.money.title': 'ยอดเงิน',
+  'trip.money.rev': 'รายได้จาก DO',
+  'trip.money.profit': 'กำไรเที่ยวนี้',
   'trip.cost.kvSub': 'ค่าเที่ยวรถร่วม',
   'trip.cost.kvOwn': 'ต้นทุนประเมิน',
   'trip.cost.kvState': 'ต้นทุนเที่ยว',

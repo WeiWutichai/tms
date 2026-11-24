@@ -1,4 +1,4 @@
 /* หน้าเที่ยวรถ `/trips` — กระดาน (ต้นแบบ TMS v4 vTrpB: การ์ด DO style-hover="border-color:#2257C4") */
 .tms-pool-card:hover {
-  border-color: #2257C4 !important;
+  border-color: #2257c4 !important;
 }

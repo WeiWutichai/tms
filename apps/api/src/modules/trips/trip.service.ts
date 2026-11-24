@@ -319,7 +319,7 @@ export class TripService {
    */
   async summary(tx: Tx = this.db.tx) {
     const n = (f: Omit<TripFilter, keyof ListQuery>) => tx.trip.count({ where: tripWhere(f) });
-    const [running, offered, planning, inTransit, done, subcon] = await Promise.all([
+    const [running, offered, planning, inTransit, done, subcon, total] = await Promise.all([
       n({ statuses: [...OPS_TRIP_RUNNING] }),
       n({ statuses: [...OPS_TRIP_AWAITING_CARRIER] }),
       // หน้า `/trips` (UAT 24 พ.ย.) — ชุดสถานะเดียวกับแท็บ/ตัวกรองของหน้าเว็บ (`@tms/domain` ops-lists)
@@ -327,8 +327,9 @@ export class TripService {
       n({ statuses: [...TRIP_TAB_IN_TRANSIT] }),
       n({ statuses: [...TRIP_TAB_DONE] }),
       n({ statuses: [...TRIP_NOT_CANCELLED], ownership: 'SUBCON' }),
+      tx.trip.count(),
     ]);
-    return { running, offered, planning, inTransit, done, subcon };
+    return { running, offered, planning, inTransit, done, subcon, total };
   }
 
   /**

@@ -240,10 +240,16 @@ export function DoPage() {
       label: t('dos.col.veh'),
       width: '1%',
       filter: { type: 'text', placeholder: t('table.search') },
+      // ต้นแบบ cW(ทะเบียน, ประเภทรถ)
       render: (r) => (
-        <span className="tms-num" style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>
-          {r.vehiclePlate ?? '—'}
-        </span>
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.4 }}>
+          <span className="tms-num" style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>
+            {r.vehiclePlate ?? '—'}
+          </span>
+          {r.vehicleTypeName && (
+            <span style={{ color: '#3B424C', whiteSpace: 'nowrap' }}>{r.vehicleTypeName}</span>
+          )}
+        </div>
       ),
       csv: (r) => r.vehiclePlate ?? '',
     },
@@ -315,10 +321,14 @@ export function DoPage() {
     },
   ];
 
-  const tabCount: Partial<Record<Tab, number | undefined>> = {
+  const tabCount: Record<Tab, number | undefined> = {
+    all: s?.total,
     draft: s?.draft,
     transit: s?.inTransit,
     delivered: s?.unbilled,
+    returned: s?.returned,
+    failed: s?.failedTotal,
+    billed: s?.billed,
   };
   const colFiltered = !!(
     col.no ||
@@ -492,6 +502,7 @@ export function DoPage() {
           canHire={can(scopes, 'trips:assign') && can(scopes, 'prices.buy:read')}
           canClose={can(scopes, 'trips:close')}
           canSeeBuy={can(scopes, 'prices.buy:read')}
+          canSeeSell={canSell}
           onDone={(m) => {
             setTripId(null);
             setToast(m);

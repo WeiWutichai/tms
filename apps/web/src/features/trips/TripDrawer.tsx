@@ -47,7 +47,7 @@ import { useTripEvents } from './useTripTimeline';
 import { TripTimeline } from './TripTimeline';
 import { TripDocsTab } from '../pod/TripDocsTab';
 import { FieldChargesTab } from './FieldChargesTab';
-import { TripCostCloseButton, TripCostKv } from './TripCost';
+import { TripCostCloseButton, TripMoneySection } from './TripCost';
 
 /** ป้ายสถานะเที่ยว — สี/ไอคอนตามกลุ่มสถานะของต้นแบบ (วางแผน / จัดรถแล้ว / ระหว่างส่ง / ส่งแล้ว) */
 const TONE: Record<string, { tone: 'off' | 'ok' | 'info' | 'warn' | 'err'; icon: string }> = {
@@ -352,6 +352,7 @@ export function TripDrawer({
   canHire = false,
   canClose = false,
   canSeeBuy = false,
+  canSeeSell = false,
   onDone,
   onClose,
 }: {
@@ -370,6 +371,8 @@ export function TripDrawer({
   canClose?: boolean;
   /** `prices.buy:read` — ยอดค่าเที่ยว/ต้นทุนในส่วนข้อมูล */
   canSeeBuy?: boolean;
+  /** `prices.sell:read` — "รายได้จาก DO" ในส่วนยอดเงิน (กำไร = ต้องมีทั้งสองสิทธิ์) */
+  canSeeSell?: boolean;
   /** ปล่อยเที่ยวสำเร็จ → ผู้เรียกแสดง toast แล้วปิด drawer (ต้นแบบ releaseTrp: ปิดแผง + toast) */
   onDone?: (message: string) => void;
   onClose: () => void;
@@ -900,9 +903,9 @@ export function TripDrawer({
                 k={t('trip.kv.duration')}
                 v={tr.route.minutes === null ? '—' : durationText(t, tr.route.minutes)}
               />
-              <TripCostKv trip={tr} canSeeBuy={canSeeBuy} />
             </div>
           </section>
+          <TripMoneySection trip={tr} canSeeBuy={canSeeBuy} canSeeSell={canSeeSell} />
           {assignable && (
             <section
               data-testid="trip-assign"

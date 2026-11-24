@@ -852,6 +852,8 @@ export class TripSummaryDto {
       'การ์ด "ใช้รถร่วม" = `ownership=SUBCON&status=` ทุกสถานะยกเว้น CANCELLED (ทุกวันที่)',
   })
   subcon!: number;
+  @ApiProperty({ description: 'แท็บ "ทั้งหมด" = ทุกเที่ยว (ไม่มีตัวกรอง — รวมที่ยกเลิก)' })
+  total!: number;
 }
 
 export class TripPageDto {

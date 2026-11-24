@@ -1,5 +1,5 @@
 import type { Schemas } from '@tms/contracts';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, idempotent, unwrap } from '../../api';
 import { useCursorList } from '../master/useCursorList';
 import type { TripDetail } from './useTrips';
@@ -156,4 +156,26 @@ export function useCloseTripCost() {
       qc.invalidateQueries({ queryKey: ['settlements'] });
     },
   });
+}
+
+/**
+ * รายได้จาก DO ของเที่ยว (ส่วนยอดเงินใน drawer) = Σ `sellRevenueTotal` ของแต่ละ DO (GET /delivery-orders/{id}/revenue-lines
+ * — `prices.sell:read`) · ยังโหลดไม่ครบ/ไม่มีสิทธิ์ = undefined
+ */
+export function useTripRevenue(doIds: string[], enabled: boolean): string | undefined {
+  const qs = useQueries({
+    queries: doIds.map((id) => ({
+      queryKey: ['delivery-orders', 'one', id, 'revenue'],
+      enabled,
+      retry: false,
+      queryFn: () =>
+        unwrap(
+          api.GET('/v1/delivery-orders/{id}/revenue-lines', { params: { path: { id } } }),
+        ) as Promise<Schemas['DeliveryOrderRevenueDto']>,
+    })),
+  });
+  if (!enabled || qs.some((q) => !q.data || q.data.sellRevenueTotal === undefined))
+    return undefined;
+  const satang = qs.reduce((a, q) => a + Math.round(Number(q.data!.sellRevenueTotal) * 100), 0);
+  return (satang / 100).toFixed(2);
 }

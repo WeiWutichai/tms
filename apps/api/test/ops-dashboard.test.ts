@@ -344,7 +344,16 @@ describe('ops dashboard (ST9-T01)', () => {
 
     // ---------- เที่ยว ----------
     const tr = (await api(app, admin).get('/v1/trips/summary').expect(200)).body;
-    expect(tr).toEqual({ running: 1, offered: 2, planning: 3, inTransit: 3, done: 1, subcon: 2 });
+    expect(tr).toEqual({
+      running: 1,
+      offered: 2,
+      planning: 3,
+      inTransit: 3,
+      done: 1,
+      subcon: 2,
+      total: 8,
+    });
+    expect(tr.total).toBe(await rows('/v1/trips'));
     expect(tr.running).toBe(await rows('/v1/trips?status=IN_PROGRESS'));
     expect(tr.offered).toBe(await rows('/v1/trips?status=OFFERED'));
     // หน้า `/trips` (UAT 24 พ.ย.) — การ์ด = จำนวนแถวของแท็บ/ตัวกรองเดียวกัน
@@ -418,6 +427,11 @@ describe('ops dashboard (ST9-T01)', () => {
       await rows('/v1/delivery-orders?status=DELIVERED,POD_PENDING,UNBILLED'),
     );
     expect(all.unbilled).toBe(3);
+    expect(all.returned).toBe(await rows('/v1/delivery-orders?status=RETURNED'));
+    expect(all.failedTotal).toBe(await rows('/v1/delivery-orders?status=FAILED'));
+    expect(all.failedTotal).toBe(1);
+    expect(all.billed).toBe(await rows('/v1/delivery-orders?status=BILLED'));
+    expect(all.total).toBe(await rows('/v1/delivery-orders'));
     expect(all.inTransit).toBe(1);
     expect(all.sellUnbilledAmount).toMatch(/^\d+\.\d{2}$/);
     // ตัวกรองค้นของหน้า `/do`
@@ -443,21 +457,39 @@ describe('ops dashboard (ST9-T01)', () => {
         .expect(200)
     ).body.data[0];
     expect(one).toMatchObject({ tripNo: tRun.tripNo, vehiclePlate: 'ทดสอบ' });
+    expect(one).toHaveProperty('vehicleTypeName');
     expect(one.customerName).toMatch(/^ลูกค้า /);
     expect(one.originSiteName).toMatch(/^จุดรับส่ง /);
   });
 
   it('แยก tenant: ตัวนับของบริษัทอื่นไม่รวมข้อมูลของเรา', async () => {
     const tr = (await api(app, other).get('/v1/trips/summary').expect(200)).body;
-    expect(tr).toEqual({ running: 0, offered: 1, planning: 1, inTransit: 1, done: 0, subcon: 1 });
+    expect(tr).toEqual({
+      running: 0,
+      offered: 1,
+      planning: 1,
+      inTransit: 1,
+      done: 0,
+      subcon: 1,
+      total: 2,
+    });
     const so = (await api(app, other).get('/v1/orders/summary').expect(200)).body;
     expect(so.waiting).toBe(0);
     const fl = (await api(app, other).get('/v1/vehicles/summary').expect(200)).body.fleet;
     expect(fl).toEqual({ available: 0, inUse: 1, maintenance: 0 });
     const ds = (await api(app, other).get('/v1/delivery-orders/summary').expect(200)).body;
-    expect([ds.today, ds.delivered, ds.failed, ds.draft, ds.inTransit, ds.unbilled]).toEqual([
-      0, 0, 0, 0, 0, 0,
-    ]);
+    expect([
+      ds.today,
+      ds.delivered,
+      ds.failed,
+      ds.draft,
+      ds.inTransit,
+      ds.unbilled,
+      ds.returned,
+      ds.failedTotal,
+      ds.billed,
+      ds.total,
+    ]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     expect(ds.sellUnbilledAmount).toBe('0.00');
     expect(await rows('/v1/trips?ownership=SUBCON', other)).toBe(1);
   });

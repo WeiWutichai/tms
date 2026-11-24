@@ -67200,6 +67200,12 @@
             "nullable": true,
             "description": "ทะเบียนรถของเที่ยว (snapshot)"
           },
+          "vehicleTypeName": {
+            "type": "string",
+            "nullable": true,
+            "example": "6 ล้อ",
+            "description": "ประเภทรถของเที่ยว (snapshot) — หน้า `/do` คอลัมน์รถบรรทัดรอง"
+          },
           "driverName": {
             "type": "string",
             "nullable": true,
@@ -67329,6 +67335,7 @@
           "destSiteName",
           "tripNo",
           "vehiclePlate",
+          "vehicleTypeName",
           "driverName",
           "carrierName",
           "weightKg",
@@ -67677,6 +67684,22 @@
             "type": "string",
             "example": "125400.00",
             "description": "มูลค่ารวมของ DO \"ยังไม่วางบิล\" = Σ บรรทัดรายได้ที่ใช้อยู่ (ก่อน VAT) — เห็นเมื่อมี `prices.sell:read`"
+          },
+          "returned": {
+            "type": "number",
+            "description": "แท็บ \"ตีกลับ\" = `status=RETURNED` (ทุกวันที่)"
+          },
+          "failedTotal": {
+            "type": "number",
+            "description": "แท็บ \"ส่งไม่สำเร็จ\" = `status=FAILED` (ทุกวันที่)"
+          },
+          "billed": {
+            "type": "number",
+            "description": "แท็บ \"วางบิลแล้ว\" = `status=BILLED` (ทุกวันที่)"
+          },
+          "total": {
+            "type": "number",
+            "description": "แท็บ \"ทั้งหมด\" = ทุก DO (ไม่มีตัวกรอง — รวมที่ยกเลิก)"
           }
         },
         "required": [
@@ -67686,7 +67709,11 @@
           "failed",
           "draft",
           "inTransit",
-          "unbilled"
+          "unbilled",
+          "returned",
+          "failedTotal",
+          "billed",
+          "total"
         ]
       },
       "DepartStopDto": {
@@ -83951,6 +83978,10 @@
           "subcon": {
             "type": "number",
             "description": "การ์ด \"ใช้รถร่วม\" = `ownership=SUBCON&status=` ทุกสถานะยกเว้น CANCELLED (ทุกวันที่)"
+          },
+          "total": {
+            "type": "number",
+            "description": "แท็บ \"ทั้งหมด\" = ทุกเที่ยว (ไม่มีตัวกรอง — รวมที่ยกเลิก)"
           }
         },
         "required": [
@@ -83959,7 +83990,8 @@
           "planning",
           "inTransit",
           "done",
-          "subcon"
+          "subcon",
+          "total"
         ]
       },
       "TripTimelineDto": {
@@ -89439,6 +89471,12 @@
             "nullable": true,
             "description": "ทะเบียนรถของเที่ยว (snapshot)"
           },
+          "vehicleTypeName": {
+            "type": "string",
+            "nullable": true,
+            "example": "6 ล้อ",
+            "description": "ประเภทรถของเที่ยว (snapshot) — หน้า `/do` คอลัมน์รถบรรทัดรอง"
+          },
           "driverName": {
             "type": "string",
             "nullable": true,
@@ -89568,6 +89606,7 @@
           "destSiteName",
           "tripNo",
           "vehiclePlate",
+          "vehicleTypeName",
           "driverName",
           "carrierName",
           "weightKg",

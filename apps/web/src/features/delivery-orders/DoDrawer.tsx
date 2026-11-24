@@ -159,7 +159,10 @@ export function DoDrawer({
           <Kv k={t('dos.kv.from')} v={d.originSiteName ?? '—'} />
           <Kv k={t('dos.kv.to')} v={d.destSiteName ?? '—'} />
           <Kv k={t('dos.kv.date')} v={dateText(d.doDate)} />
-          <Kv k={t('dos.kv.veh')} v={d.vehiclePlate ?? '—'} />
+          <Kv
+            k={t('dos.kv.veh')}
+            v={d.vehiclePlate ? [d.vehiclePlate, d.vehicleTypeName].filter(Boolean).join(' · ') : '—'}
+          />
           <Kv k={t('dos.kv.drv')} v={d.driverName ?? d.carrierName ?? '—'} />
           <Kv k={t('dos.kv.prod')} v={products.length ? products.join(', ') : '—'} />
           <Kv
