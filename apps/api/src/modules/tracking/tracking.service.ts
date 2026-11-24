@@ -147,7 +147,11 @@ export class TrackingService {
   }
 
   /** ออกลิงก์ใหม่ — ลิงก์เดิมที่ยังใช้ได้ถูกเพิกถอน (1 ลิงก์ต่อ DO/ลูกค้า — EXE-060 "สร้างใหม่ = เพิกถอนอันเก่า") */
-  async issue(kind: keyof typeof TRACKING_ENTITIES, id: string): Promise<TrackingLinkDto> {
+  async issue(
+    kind: keyof typeof TRACKING_ENTITIES,
+    id: string,
+    reason?: string,
+  ): Promise<TrackingLinkDto> {
     const tx = this.db.tx;
     const entity = await this.assertEntity(tx, kind, id);
     if (kind === 'do' && entity.status === 'CANCELLED')
@@ -162,8 +166,17 @@ export class TrackingService {
     const entityType = TRACKING_ENTITIES[kind];
     await lockKey(tx, `tracking-link:${entityType}:${id}`);
     const actor = requestContext.get()?.actorId ?? undefined;
-    for (const old of await this.activeRows(tx, entityType, id))
-      await this.links.revoke(tx, old.id, 'ออกลิงก์ติดตามใหม่แทน', actor);
+    const live = await this.activeRows(tx, entityType, id);
+    // review round 2 #8 (CLAUDE.md "ทุกการยกเลิกต้องมีเหตุผล"): ออกใหม่แทนลิงก์ที่ใช้ได้ = เพิกถอนลิงก์เดิม → ต้องมีเหตุผล
+    if (live.length && !reason?.trim())
+      throw new ProblemException('validation_failed', undefined, [
+        {
+          field: 'reason',
+          code: 'required',
+          message: 'reason (≥ 10 chars) is required to replace an active tracking link',
+        },
+      ]);
+    for (const old of live) await this.links.revoke(tx, old.id, reason!.trim(), actor);
     const ctx = requestContext.require();
     const l = await this.links.issue(tx, ctx.tenantId!, {
       purpose: TRACKING_PURPOSE,

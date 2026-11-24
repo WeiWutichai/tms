@@ -7,12 +7,15 @@ import { toBangkok } from '../features/orders/orderForm';
 import { BADGE, day, Job } from './OfferLink';
 import { initials } from './offerTime';
 import { PodLinkCapture } from './PodLinkCapture';
+import { PodLinkFail } from './PodLinkFail';
 import {
   currentPosition,
   nextPodAction,
   normalizeDoNo,
   nowBangkokIso,
   podClientEventId,
+  podFailed,
+  podFailTarget,
   podHint,
   retryOf,
   stopState,
@@ -219,6 +222,15 @@ export function PodLinkPage() {
                   err={err}
                   onAct={(a) => void run(a, match)}
                   say={setToast}
+                  onFail={(r) => {
+                    setToast(
+                      r.counted === false
+                        ? t('pdl.toast.pending')
+                        : t('pdl.f.toast', { t: hm(r.occurredAt) }),
+                    );
+                    void base.refetch();
+                    void found.refetch();
+                  }}
                   onPodDone={(no) => {
                     // ต้นแบบ: ส่งแล้ว → toast + ล้างช่องค้น + ขึ้นในรายการ "ส่งแล้ว"
                     setToast(t('pdl.pod.toast', { no }));
@@ -278,6 +290,7 @@ function DoStatus({
   err,
   onAct,
   say,
+  onFail,
   onPodDone,
 }: {
   token: string;
@@ -289,6 +302,7 @@ function DoStatus({
   err: string | null;
   onAct: (a: PodAction) => void;
   say: (msg: string) => void;
+  onFail: (r: PodEventResult) => void;
   onPodDone: (doNo: string) => void;
 }) {
   const { t } = useI18n();
@@ -296,7 +310,10 @@ function DoStatus({
   const action = recordable ? nextPodAction(m) : null;
   // ST4-T09: ถึงจุดส่งแล้ว (ปิดงาน + POD) หรือจุดส่งปิดแล้วยังไม่มี POD → ฟอร์มส่ง POD แทนข้อความ "แจ้งฝ่ายจัดรถ"
   const showPod = m.pod.mode === 'SUBMIT' || (m.pod.mode === 'CLOSE' && recordable);
-  const hint = showPod || m.pod.sent ? null : podHint(m);
+  // Q-LINK: แจ้งไม่สำเร็จแล้ว → กล่องแจ้งผลแทน "ส่ง POD แล้ว" (รูปแจ้งไม่สำเร็จเป็นหลักฐานชุดไม่สำเร็จ)
+  const failed = podFailed(m);
+  const hint = showPod || m.pod.sent || failed ? null : podHint(m);
+  const fail = recordable && !m.pod.sent ? podFailTarget(m) : null;
   return (
     <>
       <div className="cdl__card pdl__do" data-testid="pdl-do">
@@ -320,7 +337,14 @@ function DoStatus({
         </div>
       )}
       {showPod && <PodLinkCapture token={token} m={m} say={say} onDone={onPodDone} />}
-      {m.pod.sent && (
+      {failed && (
+        <div className="cdl__empty" data-testid="pdl-fail-done">
+          <i>⌕</i>
+          <b>{t('pdl.f.done')}</b>
+          <span className="cdl__muted">{t('pdl.f.doneD', { c: company })}</span>
+        </div>
+      )}
+      {m.pod.sent && !failed && (
         <div className="cdl__empty" data-testid="pdl-pod-sent">
           <i>⌕</i>
           <b>{t('pdl.pod.sent')}</b>
@@ -349,6 +373,16 @@ function DoStatus({
             {t(`pdl.hint.${hint}` as MessageKey)}
           </span>
         )
+      )}
+      {fail && (
+        <PodLinkFail
+          key={`${fail.stop.id}-${fail.stop.status}`}
+          token={token}
+          m={m}
+          target={fail}
+          pending={pending}
+          onDone={onFail}
+        />
       )}
     </>
   );

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { signStepUpToken } from '../src/auth/tokens';
 import { tryDecodeId } from '../src/common/ids';
 import { DbService } from '../src/db/db.service';
 import { resetPublicRateLimit } from '../src/http/public-rate-limit.middleware';
@@ -284,8 +285,18 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
       .patch('/v1/settings/messaging')
       .send({ lineChannelAccessToken: LINE_TOKEN })
       .expect(403);
+    // review round 2 #2 (D-67 ข้อ 2): ตั้ง token = credential → ต้อง step-up 2FA · เปิด/ปิดอย่างเดียวไม่ต้อง
+    expect(
+      (
+        await api(app, admin)
+          .patch('/v1/settings/messaging')
+          .send({ lineChannelAccessToken: LINE_TOKEN })
+          .expect(403)
+      ).body.code,
+    ).toBe('step_up_required');
     const s = await api(app, admin)
       .patch('/v1/settings/messaging')
+      .set('X-Step-Up', await signStepUpToken('user-test', tenantId))
       .send({ lineChannelAccessToken: LINE_TOKEN })
       .expect(200);
     expect(s.body).toMatchObject({
@@ -362,8 +373,13 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
     await dispatcher.drain();
     expect(await row(r4.body.id)).toMatchObject({ status: 'FAILED', errorCode: 'not_configured' });
     // ลบ token
+    await api(app, admin)
+      .patch('/v1/settings/messaging')
+      .send({ lineChannelAccessToken: null })
+      .expect(403);
     const cleared = await api(app, admin)
       .patch('/v1/settings/messaging')
+      .set('X-Step-Up', await signStepUpToken('user-test', tenantId))
       .send({ lineChannelAccessToken: null })
       .expect(200);
     expect(cleared.body).toMatchObject({

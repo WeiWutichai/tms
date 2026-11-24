@@ -1,6 +1,14 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
-import { DEMO_IDS, DEMO_PASSWORD, DEMO_TRUSTED_DEVICE, E2E_WEB, expect, test } from './fixtures';
+import {
+  DEMO_IDS,
+  DEMO_PASSWORD,
+  DEMO_TRUSTED_DEVICE,
+  E2E_WEB,
+  expect,
+  openIdleSubcon,
+  test,
+} from './fixtures';
 
 /**
  * E2E ST3-T13 มุมมองกระดาน (docs/04 D2 "View") — เกณฑ์ตรวจรับ: สลับมุมมองแล้วข้อมูลชุดเดียวกันจัดกลุ่มใหม่ ·
@@ -46,6 +54,7 @@ async function rowOrder(page: Page, go = true): Promise<string[]> {
   if (go) await page.goto('/plan');
   await page.getByRole('tab', { name: /^วันนี้/ }).click();
   await expect(page.getByTestId(`plan-track-${OWN}`)).toBeAttached();
+  await openIdleSubcon(page);
   await expect(page.getByTestId(`plan-track-${SUB}`)).toBeAttached();
   const ids = await page
     .locator('[data-testid^="plan-track-"]')
@@ -242,5 +251,45 @@ test.describe.serial('มุมมองกระดานวางแผน (ST
     expect(await rowOrder(page)).toEqual([SUB, OWN]);
     await pickView(page, 'รถบริษัท + รถร่วม');
     expect(await rowOrder(page, false)).toEqual([OWN, SUB]);
+  });
+
+  test('PLN-049 หัวกลุ่ม + กลุ่มพับ "รถร่วมทั้งหมด" · แถบบน: ค้นหา/ตัวกรองรถ/ตัวเลือกวัน (PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ)', async ({
+    page,
+  }) => {
+    await page.goto('/plan');
+    await page.evaluate(() => sessionStorage.clear());
+    await page.goto('/plan');
+    await page.getByRole('tab', { name: /^วันนี้/ }).click();
+    await expect(page.getByTestId(`plan-track-${OWN}`)).toBeAttached();
+    await expect(page.getByTestId('plan-grp-own')).toContainText('รถบริษัท');
+    // รถร่วมไม่มีงานวันนี้ → อยู่ในกลุ่มพับ (ค่าเริ่ม = พับ)
+    const idle = page.getByTestId('plan-grp-idle').getByRole('button');
+    await expect(idle).toHaveAttribute('aria-expanded', 'false');
+    await expect(idle).toContainText('รถร่วมทั้งหมด');
+    await expect(page.getByTestId(`plan-track-${SUB}`)).toHaveCount(0);
+    await page.screenshot({ path: test.info().outputPath('uiops-plan-groups-1440.png') });
+    await idle.click();
+    await expect(page.getByTestId(`plan-track-${SUB}`)).toBeAttached();
+    // ค้นหา SO → เหลือรถที่มีเที่ยวของ SO นี้
+    await page.getByTestId('plan-veh-q').fill(SO);
+    await expect(page.getByTestId(`plan-track-${OWN}`)).toBeAttached();
+    await expect(page.getByTestId(`plan-track-${SUB}`)).toHaveCount(0);
+    await page.getByTestId('plan-veh-q').fill('ไม่มีรถคันนี้แน่นอน');
+    await expect(page.getByTestId('plan-vf-none')).toHaveText('ไม่พบรถตามตัวกรอง');
+    await page.getByRole('button', { name: 'ล้างตัวกรอง' }).click();
+    await page.getByRole('combobox', { name: 'รถบริษัท / รถร่วม' }).selectOption('SUB');
+    await expect(page.getByTestId(`plan-track-${OWN}`)).toHaveCount(0);
+    await expect(page.getByTestId(`plan-track-${SUB}`)).toBeAttached();
+    await page.getByRole('button', { name: 'ล้างตัวกรอง' }).click();
+    // ตัวเลือกวัน: ถัดไป → วันแรกเลื่อน 1 วัน (แท็บไม่ใช่ "วันนี้") · เที่ยววันนี้ไม่อยู่บนแถว · "วันนี้" กลับ
+    const date = page.getByTestId('plan-date');
+    const d0 = await date.inputValue();
+    await page.getByRole('button', { name: 'ถัดไป' }).click();
+    await expect(date).not.toHaveValue(d0);
+    await expect(page.getByRole('tab', { name: /^วันนี้/ })).toHaveCount(0);
+    await expect(page.getByTestId(`plan-track-${OWN}`).getByTestId(/^plan-trip-/)).toHaveCount(0);
+    await page.getByRole('button', { name: 'วันนี้', exact: true }).click();
+    await expect(date).toHaveValue(d0);
+    await expect(page.getByTestId(`plan-track-${OWN}`).getByTestId(/^plan-trip-/)).toHaveCount(1);
   });
 });

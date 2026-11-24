@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  filterVehicles,
+  vehTypeOptions,
+  VEH_FILTER,
+  boardGroups,
   addDays,
   axisBox,
   blocksOn,
@@ -562,5 +566,87 @@ describe('ตารางรถ/คนขับรายวัน (ST3-T19)', ()
     });
     expect(tripLeaveNames(b, t, D)).toEqual(['สมชาย']);
     expect(tripLeaveNames(b, t, D2)).toEqual(['ก้อง']);
+  });
+});
+
+describe('boardGroups (PLN-049 หัวกลุ่ม + กลุ่มพับ)', () => {
+  const V = (plate: string, ownership: string, carrierName: string | null = null) =>
+    ({ id: plate, plate, plateProvince: 'TH-10', ownership, carrierName }) as never;
+  const vs = [
+    V('a', 'OWN'),
+    V('b', 'SUBCONTRACT', 'ศรีราชา'),
+    V('c', 'SUBCONTRACT', 'บางนา'),
+    V('d', 'OWN'),
+  ];
+  const busy = (v: { plate: string }) => v.plate === 'c';
+  it('FLEET: รถบริษัท → รถร่วม (มีงาน) → รถร่วมทั้งหมด (ไม่มีงาน) คงลำดับเดิม', () => {
+    expect(boardGroups(vs, 'FLEET', busy).map((g) => [g.kind, g.vs.map((v) => v.plate)])).toEqual([
+      ['own', ['a', 'd']],
+      ['sub', ['c']],
+      ['idle', ['b']],
+    ]);
+  });
+  it('CARRIER: หัวกลุ่มต่อรถร่วม (ไม่พับ) · กลุ่มว่างไม่แสดง', () => {
+    expect(boardGroups([vs[1]!, vs[2]!], 'CARRIER', busy).map((g) => [g.kind, g.carrier])).toEqual([
+      ['carrier', 'ศรีราชา'],
+      ['carrier', 'บางนา'],
+    ]);
+  });
+  it('VEHICLE / DRIVER: ไม่มีหัวกลุ่ม', () => {
+    expect(boardGroups(vs, 'VEHICLE', busy)).toEqual([{ key: 'all', kind: 'all', vs }]);
+    expect(boardGroups(vs, 'DRIVER', busy)[0]!.kind).toBe('all');
+  });
+});
+
+describe('filterVehicles (ตัวกรองรถ + ค้นหา บนแถบบน)', () => {
+  const V = (o: Record<string, unknown>) =>
+    ({
+      id: o.plate,
+      plateProvince: 'TH-10',
+      vehicleTypeId: 'vt6',
+      vehicleTypeName: '6 ล้อ',
+      ownership: 'OWN',
+      carrierName: null,
+      driver: null,
+      ...o,
+    }) as never as BoardVehicle;
+  const a = V({ plate: '70-1234', driver: { name: 'สมชาย' } });
+  const b2 = V({
+    plate: '71-5555',
+    ownership: 'SUBCONTRACT',
+    carrierName: 'ศรีราชา',
+    vehicleTypeId: 'vt10',
+    vehicleTypeName: '10 ล้อ',
+  });
+  const trips = (v: BoardVehicle) =>
+    v === a
+      ? ([
+          {
+            tripNo: 'TRP-1',
+            orders: [{ orderNo: 'SO-6911-0007', customerName: 'บจก. เอ็นเอสเอฟ' }],
+            doNos: ['DO-6911-0001'],
+          },
+        ] as never as BoardTrip[])
+      : [];
+  const f = (o: Partial<typeof VEH_FILTER>) =>
+    filterVehicles([a, b2], trips, { ...VEH_FILTER, ...o });
+  it('ค้นทะเบียน (ไม่สนขีด/ช่องว่าง) / SO / ลูกค้า / DO / คนขับ / รถร่วม', () => {
+    expect(f({ q: '701234' })).toEqual([a]);
+    expect(f({ q: 'so-6911-0007' })).toEqual([a]);
+    expect(f({ q: 'เอ็นเอสเอฟ' })).toEqual([a]);
+    expect(f({ q: 'DO-6911' })).toEqual([a]);
+    expect(f({ q: 'สมชาย' })).toEqual([a]);
+    expect(f({ q: 'ศรีราชา' })).toEqual([b2]);
+    expect(f({ q: 'ไม่มี' })).toEqual([]);
+  });
+  it('ประเภทรถ / รถบริษัท-รถร่วม', () => {
+    expect(f({ vt: 'vt10' })).toEqual([b2]);
+    expect(f({ own: 'OWN' })).toEqual([a]);
+    expect(f({ own: 'SUB' })).toEqual([b2]);
+    expect(f({})).toEqual([a, b2]);
+    expect(vehTypeOptions([a, b2])).toEqual([
+      { v: 'vt10', l: '10 ล้อ' },
+      { v: 'vt6', l: '6 ล้อ' },
+    ]);
   });
 });

@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
-import { expect, test } from './fixtures';
+import { E2E_WEB, expect, test } from './fixtures';
 
 /**
  * E2E ST4-T07 ePOD ผ่านเว็บ (docs/04 E2, docs/01 §4.3) — เกณฑ์ตรวจรับ:
@@ -218,5 +218,37 @@ test.describe.serial('ePOD ผ่านเว็บ: หลักฐานส่
       reason: 'ได้ลายเซ็นผู้รับภายหลังที่หน้าคลัง',
     });
     expect(pod.current.signature.kind).toBe('POD_SIGNATURE');
+  });
+
+  test('ลิงก์ติดตามสำหรับผู้รับ (PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ): สร้าง → เปิดหน้าผู้รับได้ → เพิกถอนพร้อมเหตุผล → ลิงก์ใช้ไม่ได้', async ({
+    page,
+    browser,
+  }) => {
+    const d = await openDocs(page);
+    // แผง DO: เปิดถ้ายังพับ (ปุ่มหัวแผงมี aria-expanded)
+    const head = d.getByTestId('do-pod').locator('button[aria-expanded]').first();
+    if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click();
+    await expect(head).toHaveAttribute('aria-expanded', 'true');
+    const trk = d.getByTestId('trk-link-do');
+    await expect(trk).toContainText('ลิงก์ติดตามสำหรับผู้รับ');
+    await trk.getByRole('button', { name: 'สร้างลิงก์ติดตาม' }).click();
+    await expect(trk.getByTestId('trk-link-url')).toContainText('/t/');
+    await expect(trk.getByRole('button', { name: 'ออกลิงก์ใหม่' })).toBeVisible();
+    await trk.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: test.info().outputPath('uiops-tracking-link-1440.png') });
+    const url = (await trk.getByRole('link', { name: 'เปิดหน้าผู้รับ' }).getAttribute('href'))!;
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const p = await ctx.newPage();
+    await p.goto(`${E2E_WEB}${new URL(url).pathname}`);
+    await expect(p.getByTestId('trk-status')).toBeVisible();
+    await trk.getByRole('button', { name: 'เพิกถอนลิงก์' }).click();
+    const dlg = page.getByRole('dialog', { name: 'เพิกถอนลิงก์ติดตาม' });
+    await dlg.getByRole('textbox').fill('ส่งลิงก์ให้ผู้รับผิดคน');
+    await dlg.getByRole('button', { name: 'เพิกถอนลิงก์' }).click();
+    await expect(trk.getByTestId('trk-link-url')).toHaveCount(0);
+    await expect(trk.getByRole('button', { name: 'สร้างลิงก์ติดตาม' })).toBeVisible();
+    await p.reload();
+    await expect(p.getByText('ลิงก์นี้ใช้ไม่ได้')).toBeVisible();
+    await ctx.close();
   });
 });

@@ -1,3 +1,4 @@
+import { assertHumanStepUp } from '../../auth/step-up';
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   ApiAcceptedResponse,
@@ -7,7 +8,7 @@ import {
   ApiTags,
   ApiTooManyRequestsResponse,
 } from '@nestjs/swagger';
-import { RequireScope, TenantResource } from '../../common/decorators';
+import { RequireScope, StepUpWhen, TenantResource } from '../../common/decorators';
 import { decodeIdOr404 } from '../../common/ids';
 import {
   ChannelStatusListDto,
@@ -93,8 +94,13 @@ export class MessagingSettingsController {
 
   @Patch()
   @RequireScope('settings:write')
+  @StepUpWhen(
+    'ส่ง `lineChannelAccessToken` (ตั้ง/เปลี่ยน/ลบ token = credential ของช่องทาง — D-67 ข้อ 2)',
+  )
   @ApiOkResponse({ type: MessagingSettingsDto })
   update(@Body() body: UpdateMessagingSettingsDto): Promise<MessagingSettingsDto> {
+    // review round 2 #2: token LINE OA = credential ของ connector → step-up 2FA (ตรวจหลัง validation) · เปิด/ปิดอย่างเดียวไม่ต้อง
+    if (body.lineChannelAccessToken !== undefined) assertHumanStepUp();
     return this.svc.updateSettings(body);
   }
 }

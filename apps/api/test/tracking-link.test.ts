@@ -259,7 +259,12 @@ describe('tracking link (ST4-T14)', () => {
   };
   const tokenOf = (url: string) => new URL(url).pathname.split('/').pop()!;
   const doLink = async (doId: string) =>
-    (await api(app, admin).post(`/v1/delivery-orders/${doId}/tracking-link`).expect(201)).body as {
+    (
+      await api(app, admin)
+        .post(`/v1/delivery-orders/${doId}/tracking-link`)
+        .send({ reason: 'ออกลิงก์ใหม่สำหรับทดสอบ' })
+        .expect(201)
+    ).body as {
       url: string;
       linkId: string;
       expiresAt: string;
@@ -268,6 +273,7 @@ describe('tracking link (ST4-T14)', () => {
     (
       await api(app, admin)
         .post(`/v1/customers/${encodeId('customer', customerId)}/tracking-link`)
+        .send({ reason: 'ออกลิงก์ใหม่สำหรับทดสอบ' })
         .expect(201)
     ).body as { url: string; linkId: string };
   const view = (token: string) => pub().get(`/v1/public/tracking/${token}`);
@@ -413,8 +419,17 @@ describe('tracking link (ST4-T14)', () => {
     await api(app, viewer)
       .get(`/v1/customers/${encodeId('customer', s.customerId)}/tracking-link`)
       .expect(403);
+    // review round 2 #8: มีลิงก์ที่ใช้ได้อยู่ → ออกใหม่ต้องมีเหตุผล (ไม่ส่ง = 422 ลิงก์เดิมยังใช้ได้)
+    expect(
+      (await api(app, dispatcher).post(`/v1/delivery-orders/${s.doId}/tracking-link`).expect(422))
+        .body.errors[0],
+    ).toMatchObject({ field: 'reason', code: 'required' });
+    await view(tokenOf(first.url)).expect(200);
     const second = (
-      await api(app, dispatcher).post(`/v1/delivery-orders/${s.doId}/tracking-link`).expect(201)
+      await api(app, dispatcher)
+        .post(`/v1/delivery-orders/${s.doId}/tracking-link`)
+        .send({ reason: 'ผู้รับขอลิงก์ใหม่ทางโทรศัพท์' })
+        .expect(201)
     ).body as { url: string };
     await view(tokenOf(first.url)).expect(404);
     await view(tokenOf(second.url)).expect(200);
@@ -426,6 +441,20 @@ describe('tracking link (ST4-T14)', () => {
       'magic_link.issued',
       'magic_link.revoked',
     ]);
+    // review M2: ออกใหม่พร้อมเหตุผล → เหตุผลลงการเพิกถอนลิงก์เดิม · เหตุผลสั้นเกิน → 422
+    await api(app, dispatcher)
+      .post(`/v1/delivery-orders/${s.doId}/tracking-link`)
+      .send({ reason: 'สั้น' })
+      .expect(422);
+    await api(app, dispatcher)
+      .post(`/v1/delivery-orders/${s.doId}/tracking-link`)
+      .send({ reason: 'ส่งลิงก์ให้ผู้รับผิดคน' })
+      .expect(201);
+    await view(tokenOf(second.url)).expect(404);
+    const revoked = await db.magicLink.findFirstOrThrow({
+      where: { entityId: s.uuid, revokedReason: 'ส่งลิงก์ให้ผู้รับผิดคน' },
+    });
+    expect(revoked).toBeTruthy();
   });
 
   it('เพิกถอน (เหตุผลบังคับ) / token ปลอม / หมดอายุ → 404 · งานจบเกิน linkDays วัน → 404', async () => {

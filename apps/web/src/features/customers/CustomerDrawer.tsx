@@ -7,6 +7,7 @@ import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { HistoryTab } from '../master/HistoryTab';
 import { CustomerSitesTab } from '../sites/CustomerSitesTab';
+import { CustomerTrackingLink } from '../tracking/TrackingLinkBlock';
 import { CustomerRatesTab } from '../rate-cards/CustomerRatesTab';
 import {
   CustomerPodSection,
@@ -648,7 +649,11 @@ export function CustomerDrawer({
         </div>
       )}
       {tab === 'addr' && (
-        <CustomerSitesTab customerId={c.id} customerName={c.legalName} canWrite={canWrite} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* ลิงก์ติดตามของลูกค้า (ST4-T14 — master:write ตาม API) */}
+          {canWrite && <CustomerTrackingLink customerId={c.id} />}
+          <CustomerSitesTab customerId={c.id} customerName={c.legalName} canWrite={canWrite} />
+        </div>
       )}
       {tab === 'erpc' && hasErp && (
         <CustomerErpCodesTab

@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Locator, Page } from '@playwright/test';
-import { expect, test, trustDevice } from './fixtures';
+import { expect, openIdleSubcon, test, trustDevice } from './fixtures';
 
 /**
  * E2E ST3-T14 กฎตอนจัดรถ — D-07 (PO 16 พ.ย. 2569 "ผสม"):
@@ -195,6 +195,7 @@ test.describe.serial('กฎตอนจัดรถ (ST3-T14)', () => {
       page,
     }) => {
       await open(page);
+      await openIdleSubcon(page);
       const row = page.getByTestId(`plan-row-${SUB}`);
       await row.scrollIntoViewIfNeeded();
       const track = page.getByTestId(`plan-track-${SUB}`);
@@ -224,6 +225,7 @@ test.describe.serial('กฎตอนจัดรถ (ST3-T14)', () => {
       await open(page);
       const why = 'รถร่วมส่งกรมธรรม์ใหม่แล้ว รอบันทึกในระบบ';
       // (i) ของแถวรถที่ยังไม่มีเที่ยวติดกฎ → ยกเว้นล่วงหน้าทั้งคันไม่ได้
+      await openIdleSubcon(page);
       const row = page.getByTestId(`plan-row-${SUB}`);
       await row.scrollIntoViewIfNeeded();
       await row.getByRole('button', { name: 'ดูสาเหตุ' }).click();
