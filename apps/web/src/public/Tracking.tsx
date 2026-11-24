@@ -5,6 +5,7 @@ import { ApiError } from '../api';
 import { formatDate, useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/th';
 import { toBangkok } from '../features/orders/orderForm';
+import { usePrivacyMeta } from './privacyMeta';
 import {
   stepViews,
   telHref,
@@ -48,21 +49,6 @@ const INPUT: CSSProperties = {
 const hm = (iso: string) => toBangkok(iso).time;
 const dayOf = (iso: string) => formatDate(new Date(`${toBangkok(iso).date}T00:00:00`), 'th', 'BE');
 const dayOfDate = (d: string) => formatDate(new Date(`${d}T00:00:00`), 'th', 'BE');
-
-/** ป้องกันการเก็บ index / ส่ง referrer (token อยู่ใน URL — EXE-063) */
-function usePrivacyMeta() {
-  useEffect(() => {
-    const add = (name: string, content: string) => {
-      const m = document.createElement('meta');
-      m.name = name;
-      m.content = content;
-      document.head.appendChild(m);
-      return m;
-    };
-    const metas = [add('robots', 'noindex, nofollow'), add('referrer', 'no-referrer')];
-    return () => metas.forEach((m) => m.remove());
-  }, []);
-}
 
 /** ต้นแบบสลับ layout ที่ 1024 px */
 function useWide() {

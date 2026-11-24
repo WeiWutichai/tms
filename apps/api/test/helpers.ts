@@ -77,12 +77,14 @@ const D67_STEP_UP_ROUTES: [string, RegExp][] = [
   // D-77 (PO 23 พ.ย. 2569): Platform Console — token Console ได้ step-up ของ Console (`pur: platform_step_up`)
   ['POST', /^\/v1\/platform\/tenants\/[^/?]+\/connectors(\?|$)/],
   ['PUT', /^\/v1\/platform\/connectors\/[^/?]+\/credentials(\?|$)/],
+  // ST9-T13 R2-M02: เข้าใช้งานแทนต้อง step-up ของ Console
+  ['POST', /^\/v1\/platform\/tenants\/[^/?]+\/impersonate(\?|$)/],
 ];
 
 const b64url = (v: string | Buffer) => Buffer.from(v).toString('base64url');
 
 /** step-up token (HS256 แบบเดียวกับ signStepUpToken) แบบ sync — ใช้ใน `api()` */
-function stepUpHeaderFor(token: string): string | null {
+export function stepUpHeaderFor(token: string): string | null {
   const parts = token.split('.');
   if (parts.length !== 3) return null; // API key `tk_…`
   let claims: { sub?: string; tid?: string; pt?: string; pur?: string; tv?: number };
