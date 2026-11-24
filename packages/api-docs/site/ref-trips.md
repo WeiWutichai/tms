@@ -1,6 +1,6 @@
 # เที่ยววิ่ง (trips)
 
-32 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+34 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -32,6 +32,8 @@
 | [`GET /v1/trips/{id}/offer-link`](#get-trips-id-offer-link) | `trips:assign` |
 | [`POST /v1/trips/{id}/offer-link`](#post-trips-id-offer-link) | `trips:assign` |
 | [`GET /v1/trips/{id}/offers`](#get-trips-id-offers) | `trips:read` |
+| [`GET /v1/subcon-offers/summary`](#get-subcon-offers-summary) | `trips:read` |
+| [`GET /v1/subcon-offers`](#get-subcon-offers) | `trips:read` |
 | [`POST /v1/trips/{id}/sheet`](#post-trips-id-sheet) | `trips:read` |
 | [`POST /v1/trips/{id}/sheet/driver-link`](#post-trips-id-sheet-driver-link) | `trips:dispatch` |
 | [`POST /v1/trips/{id}/sheet/driver-link/revoke`](#post-trips-id-sheet-driver-link-revoke) | `trips:dispatch` |
@@ -1402,6 +1404,75 @@ const { data, error } = await tms.GET('/v1/trips/{id}/offers', {
 });
 ```
 
+## ตัวนับหน้า "จ่ายงานรถร่วม" (รอตอบ/รับงาน/ปฏิเสธ/หมดเวลา + ต้นทุนรถร่วมเดือนนี้) {#get-subcon-offers-summary}
+
+`GET /v1/subcon-offers/summary`
+
+scope: `trips:read` · operationId: `SubconOffers_summary`
+
+นับด้วยนิยามเดียวกับ `GET /subcon-offers?status=` · `buyAcceptedThisMonth` เห็นเมื่อมี `prices.buy:read`
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `SubconOfferSummaryDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`trips:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/subcon-offers/summary" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/subcon-offers/summary');
+```
+
+## รายการจ่ายงานรถร่วม — การจ้างล่าสุดของแต่ละเที่ยว {#get-subcon-offers}
+
+`GET /v1/subcon-offers`
+
+scope: `trips:read` · operationId: `SubconOffers_index`
+
+หนึ่งแถวต่อเที่ยว (การจ้างล่าสุดที่ไม่ถูกถอน — การจ้างก่อนหน้าดูที่ `GET /trips/{id}/offers`) · แสดงเฉพาะงานที่ยังต้องดูแล: ปฏิเสธ/หมดเวลา = เที่ยวยังรอจัด (PLANNING/OFFERED), รับงาน = เที่ยวยังไม่จบ/ไม่ยกเลิก · กรองสถานะ (คั่นด้วย,) / ผู้รับเหมา · EXPIRED รวมข้อเสนอรอตอบที่ลิงก์หมดอายุแล้ว · cursor มาตรฐาน (updatedAt, id) · ราคาซื้อเห็นเมื่อมี `prices.buy:read`, รายได้เมื่อมี `prices.sell:read`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `limit` | query |   | `number` |   |
+| `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน |
+| `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull) |
+| `sort` | query |   | `string` ค่า: `updatedAt`, `-updatedAt` |   |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
+| `status` | query |   | `string` | สถานะ คั่นด้วย, (OFFERED / ACCEPTED / REJECTED / EXPIRED) — EXPIRED รวมข้อเสนอรอตอบที่เลยเวลาหมดอายุของลิงก์แล้ว |
+| `carrierId` | query |   | `string` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `SubconOfferPageDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`trips:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/subcon-offers" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/subcon-offers');
+```
+
 ## สร้าง PDF ใบคุมรถของเที่ยว (A4) — ต้องมี `trips:read` + `documents:write` {#post-trips-id-sheet}
 
 `POST /v1/trips/{id}/sheet`
@@ -1690,6 +1761,28 @@ const { data, error } = await tms.POST('/v1/trip-sheets', {
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `data` | ใช่ | `array<SubconOfferDto>` |   |   |   |
+
+### SubconOfferPageDto {#schema-SubconOfferPageDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<SubconOfferRowDto>` |   |   |   |
+| `nextCursor` | ใช่ | `string` | null ได้ |   |   |
+| `hasMore` | ใช่ | `boolean` |   |   |   |
+
+### SubconOfferSummaryDto {#schema-SubconOfferSummaryDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `offered` | ใช่ | `number` |   | รอตอบ = `status=OFFERED` |   |
+| `accepted` | ใช่ | `number` |   | รับงานแล้ว = `status=ACCEPTED` (เที่ยวยังไม่จบ/ไม่ยกเลิก) |   |
+| `rejected` | ใช่ | `number` |   | ปฏิเสธ = `status=REJECTED` (เที่ยวยังรอจัด) |   |
+| `expired` | ใช่ | `number` |   | หมดเวลา = `status=EXPIRED` (เที่ยวยังรอจัด) |   |
+| `buyAcceptedThisMonth` |   | `string` |   | ต้นทุนรถร่วมเดือนนี้ = Σ ราคาซื้อของงานที่รับแล้ว (ACCEPTED — รวมเที่ยวที่จบแล้ว ไม่รวมเที่ยวยกเลิก) ที่วันที่เที่ยวอยู่ในเดือนนี้ (เวลาไทย) — เห็นเมื่อมี `prices.buy:read` | `48200.00` |
 
 ### TripCostListDto {#schema-TripCostListDto}
 

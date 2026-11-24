@@ -12,7 +12,13 @@ import { PROVINCES } from '../vehicles/provinces';
 import { arabicDigits, plateNorm } from '../vehicles/vehicles.service';
 import { LINE_USER_ID_RE } from '../messaging/messaging.dto';
 import { MessagingService } from '../messaging/messaging.service';
-import { OFFER_LINK_PURPOSE, OfferLinks, POD_LINK_PURPOSE, podLinkUsable } from './offer-links';
+import {
+  offerDeadline,
+  OFFER_LINK_PURPOSE,
+  OfferLinks,
+  POD_LINK_PURPOSE,
+  podLinkUsable,
+} from './offer-links';
 import type {
   AcceptOfferDto,
   OfferLinkDto,
@@ -192,7 +198,7 @@ export class SubconOfferService {
         requirePodToPay: o.carrier.requirePodToPay,
       },
       contactName: user?.name ?? null,
-      expiresAt: (o.expiresAt ?? new Date(o.offeredAt.getTime() + 48 * 3600_000)).toISOString(),
+      expiresAt: offerDeadline(o).toISOString(),
       serverTime: this.clock.now().toISOString(),
       accepted:
         o.status === 'ACCEPTED' && o.acceptedPlate

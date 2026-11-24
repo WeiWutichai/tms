@@ -14,6 +14,9 @@ export const OFFER_LINK_ENTITY = 'subcon_offer' as const;
 export const OFFER_LINK_ACTIONS = { view: 'offer.view', respond: 'offer.respond' } as const;
 /** อายุข้อเสนอ/ลิงก์ (docs/04 D3 "ลิงก์อายุ 48 ชม.", docs/01 §4.2) */
 export const OFFER_TTL_MS = 48 * 3600_000;
+/** เวลาหมดอายุของข้อเสนอ — ไม่มี `expires_at` (ข้อมูลก่อน ST3-T23) = เวลาเสนอ + 48 ชม. (ใช้ร่วม: หน้าลิงก์ + หน้า `/sub`) */
+export const offerDeadline = (o: { expiresAt: Date | null; offeredAt: Date }): Date =>
+  o.expiresAt ?? new Date(o.offeredAt.getTime() + OFFER_TTL_MS);
 
 /**
  * ลิงก์งานของรถร่วมหลังรับงาน (ST4-T08 M10 ส่วนสถานะ — POD ST4-T09; docs/01 §5.5 `/public/pod/{token}`)

@@ -182,6 +182,35 @@ describe('ใบสำคัญจ่าย PDF (ST6-T04)', () => {
     );
   }, 90_000);
 
+  it('UAT 24 พ.ย. + review L6: 6 เที่ยว — เส้นรวม+ลายเซ็นไม่พอหน้าแรก → ย้ายเที่ยวสุดท้ายไปหน้า 2 พร้อมเส้นรวม/ลายเซ็น (ไม่มีหน้าที่มีแต่ยอด)', async () => {
+    const m = sampleSettlementPaid();
+    m.trips = Array.from({ length: 6 }, (_, k) => ({
+      ...m.trips[k % 3]!,
+      tripNo: `TRP-2610-03${String(k).padStart(2, '0')}`,
+    }));
+    const doc = settlementVoucherDocument(m);
+    const pages = (await r.withPage(doc, (p) =>
+      p.evaluate(`[...document.querySelectorAll('section.page')].map((pg) => ({
+        rows: pg.querySelectorAll('tbody tr').length,
+        end: !!pg.querySelector('.end'),
+        sig: !!pg.querySelector('.sig'),
+        text: pg.innerText,
+        over: pg.scrollHeight > pg.clientHeight + 1,
+      }))`),
+    )) as { rows: number; end: boolean; sig: boolean; text: string; over: boolean }[];
+    expect(pages.map((x) => [x.rows, x.end, x.sig])).toEqual([
+      [5, false, false],
+      [1, true, true],
+    ]);
+    expect(pages[0]!.text).not.toContain('13,394.50');
+    expect(pages[1]!.text).toContain('ใบสำคัญจ่าย SA-2610-0008 (ต่อ)');
+    expect(pages[1]!.text).toContain('TRP-2610-0305');
+    expect(pages[1]!.text).toContain('13,394.50');
+    expect(pages[1]!.text).toContain('หนึ่งหมื่นสามพันสามร้อยเก้าสิบสี่บาทห้าสิบสตางค์');
+    expect(pages[1]!.text).toContain('ผู้รับเงิน / Collector');
+    expect(pages.every((x) => !x.over)).toBe(true);
+  }, 90_000);
+
   it('sandbox (ตามแนว D-61): ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" ทุกหน้า (data-wm-kind sample) · live ไม่มีลายน้ำ · ร่างใน sandbox ยังเป็น "ร่าง"', async () => {
     const wms = async (m: ReturnType<typeof sampleSettlementPaid>) =>
       (await r.withPage(settlementVoucherDocument(m), (p) =>

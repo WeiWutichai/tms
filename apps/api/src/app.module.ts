@@ -170,8 +170,10 @@ import {
 } from './modules/attachments/attachments.controller';
 import {
   SubconOfferPublicController,
+  SubconOffersController,
   TripOffersController,
 } from './modules/trips/subcon-offer.controller';
+import { SubconOfferListService } from './modules/trips/subcon-offer-list.service';
 import { TripsController } from './modules/trips/trips.controller';
 import {
   DoSurchargesController,
@@ -375,6 +377,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     TripEventsController,
     StopEventFlagsController,
     TripOffersController,
+    SubconOffersController,
     SubconOfferPublicController,
     PodLinkPublicController,
     SettlementReviewPublicController,
@@ -481,6 +484,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     StopProjectionService,
     SubconHireService,
     SubconOfferService,
+    SubconOfferListService,
     SubconTimeoutService,
     OfferLinks,
     PodLinkService,

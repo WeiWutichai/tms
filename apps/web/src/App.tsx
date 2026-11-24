@@ -43,6 +43,7 @@ import { SettlementLinkPage } from './public/SettlementLink';
 import { CarrierPayLinkPage } from './public/CarrierPayLink';
 import { TrackingPage } from './public/Tracking';
 import { SettlePage } from './features/settlements/SettlePage';
+import { SubPage } from './features/sub/SubPage';
 import { ErpPage } from './features/erp/ErpPage';
 import { ConsoleApp } from './console/ConsoleApp';
 import { ReportPage } from './features/reports/ReportPage';
@@ -70,6 +71,7 @@ const READY: Record<string, () => ReactNode> = {
   '/so': () => <OrdersPage />,
   '/so/hold': () => <HoldPage />,
   '/do': () => <DoPage />,
+  '/sub': () => <SubPage />,
   '/bill': () => <BillPage />,
   '/pay': () => <PayPage />,
   '/settle': () => <SettlePage />,
