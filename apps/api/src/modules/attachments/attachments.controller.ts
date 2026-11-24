@@ -3,7 +3,8 @@ import { ApiBearerAuth, ApiOkResponse, ApiProperty, ApiTags } from '@nestjs/swag
 import { IsIn, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import { AuditService } from '../../audit/audit.service';
 import { RequireScope, TenantResource } from '../../common/decorators';
-import { decodeIdOr404, encodeId, tryDecodeId } from '../../common/ids';
+import { resolveRef } from '../../common/external-id';
+import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
 import { requestContext } from '../../common/request-context';
@@ -96,16 +97,19 @@ export class AttachmentsService {
     private readonly audit: AuditService,
   ) {}
 
+  /** `{id}` รับทั้ง id และ `ext:{externalId}` (ST7-T02 — ทุก route ของ resource) · ไม่พบ/ลบแล้ว/tenant อื่น → 404 */
   private async owner(kind: Owner, id: string): Promise<string> {
     const tx = this.db.tx;
-    const uuid = decodeIdOr404(kind, id);
-    const row =
+    const find = (where: { id: string } | { externalId: string }) =>
       kind === 'driver'
-        ? await tx.driver.findFirst({ where: { id: uuid, deletedAt: null }, select: { id: true } })
-        : await tx.carrier.findFirst({
-            where: { id: uuid, deletedAt: null },
-            select: { id: true },
-          });
+        ? tx.driver.findFirst({ where: { ...where, deletedAt: null }, select: { id: true } })
+        : tx.carrier.findFirst({ where: { ...where, deletedAt: null }, select: { id: true } });
+    const row = await resolveRef(
+      kind,
+      id,
+      (uuid) => find({ id: uuid }),
+      (externalId) => find({ externalId }),
+    );
     if (!row) throw new ProblemException('not_found');
     return row.id;
   }

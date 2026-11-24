@@ -47,12 +47,15 @@ describe('API versioning (ST7-T07)', () => {
   let rotatingId: string;
   let newKeyId: string;
   const srv = () => app.getHttpServer();
-  const today = bangkokDate(new Date());
+  // วันที่สร้างบริษัท (เวลาไทย) — คิดหลังสร้างจริง ไม่ใช่ตอนโหลดไฟล์ (กันล้มเมื่อรันคร่อมเที่ยงคืน)
+  let today: string;
 
   beforeAll(async () => {
     await truncateAll();
     app = await createApp(TestModule);
-    tenantId = (await createTenantWithDefaults(db, { name: 'บริษัท ขนส่ง เวอร์ชัน' })).id;
+    const tenant = await createTenantWithDefaults(db, { name: 'บริษัท ขนส่ง เวอร์ชัน' });
+    tenantId = tenant.id;
+    today = bangkokDate(tenant.createdAt);
     const u = await db.appUser.create({
       data: { tenantId, email: 'admin@v.test', name: 'ผู้ดูแล', status: 'ACTIVE' },
     });
