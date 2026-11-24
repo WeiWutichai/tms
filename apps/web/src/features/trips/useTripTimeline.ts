@@ -81,6 +81,9 @@ export function useRecordStopEvents() {
       qc.invalidateQueries({ queryKey: ['trip'] });
       qc.invalidateQueries({ queryKey: ['stop-event-flags'] });
       qc.invalidateQueries({ queryKey: ['planning-board'] });
+      // สถานะ DO เปลี่ยนตามผลที่จุดส่ง (หน้า /do รายการ + ตัวนับ + drawer DO)
+      qc.invalidateQueries({ queryKey: ['delivery-orders'] });
+      qc.invalidateQueries({ queryKey: ['delivery-order'] });
     },
   });
 }

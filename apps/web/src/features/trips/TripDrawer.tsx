@@ -47,6 +47,7 @@ import { useTripEvents } from './useTripTimeline';
 import { TripTimeline } from './TripTimeline';
 import { TripDocsTab } from '../pod/TripDocsTab';
 import { FieldChargesTab } from './FieldChargesTab';
+import { TripCostCloseButton, TripFooterSummary, TripMoneySection } from './TripCost';
 
 /** ป้ายสถานะเที่ยว — สี/ไอคอนตามกลุ่มสถานะของต้นแบบ (วางแผน / จัดรถแล้ว / ระหว่างส่ง / ส่งแล้ว) */
 const TONE: Record<string, { tone: 'off' | 'ok' | 'info' | 'warn' | 'err'; icon: string }> = {
@@ -349,6 +350,12 @@ export function TripDrawer({
   canOverride = false,
   canPrint = false,
   canHire = false,
+  canClose = false,
+  canSeeBuy = false,
+  canSeeSell = false,
+  initialTab = 'sum',
+  completeDoId,
+  startAssign = false,
   onDone,
   onClose,
 }: {
@@ -363,6 +370,18 @@ export function TripDrawer({
   canPrint?: boolean;
   /** ST3-T22 จ้างรถร่วม: `trips:assign` + `prices.buy:read` — ปุ่ม "ส่งต่อรถร่วม" ของเที่ยวที่ยังวางแผน */
   canHire?: boolean;
+  /** `trips:close` — ปุ่ม "ปิดต้นทุนเที่ยว" ของเที่ยวที่จบแล้ว (ST6-T01 API · UI UAT 24 พ.ย.) */
+  canClose?: boolean;
+  /** `prices.buy:read` — ยอดค่าเที่ยว/ต้นทุนในส่วนข้อมูล */
+  canSeeBuy?: boolean;
+  /** `prices.sell:read` — "รายได้จาก DO" ในส่วนยอดเงิน (กำไร = ต้องมีทั้งสองสิทธิ์) */
+  canSeeSell?: boolean;
+  /** แท็บที่เปิดก่อน (เช่น "ไทม์ไลน์" จากปุ่ม "ยืนยันส่งแล้ว" ของ DO) */
+  initialTab?: 'sum' | 'tl' | 'docs' | 'exp';
+  /** เปิด dialog ปิดงานที่จุดส่งของ DO นี้ทันที (ปุ่ม "ยืนยันส่งแล้ว" ของหน้า/drawer DO) */
+  completeDoId?: string;
+  /** เปิดฟอร์มจัดรถทันที (เที่ยวใหม่จากกระดานหน้าเที่ยวรถ) */
+  startAssign?: boolean;
   /** ปล่อยเที่ยวสำเร็จ → ผู้เรียกแสดง toast แล้วปิด drawer (ต้นแบบ releaseTrp: ปิดแผง + toast) */
   onDone?: (message: string) => void;
   onClose: () => void;
@@ -384,7 +403,7 @@ export function TripDrawer({
   const shareLink = useTripSheetLink();
   const [share, setShare] = useState<TripSheetLink | null>(null);
   /** ฟอร์มจัดรถ (ต้นแบบ pf.pick) — ค่าเริ่มจากเที่ยว (รถที่วางไว้ + คนขับเดิม) */
-  const [picking, setPicking] = useState(false);
+  const [picking, setPicking] = useState(startAssign);
   /** `auto` = คนขับตามคนขับประจำของรถที่เลือก (ยังไม่เลือกเอง — ต้นแบบ onVeh: d = V[n].d) */
   const [form, setForm] = useState<{
     veh: string;
@@ -403,7 +422,7 @@ export function TripDrawer({
   /** ST3-T25 เปลี่ยนผู้รับเหมา: เหตุผลจาก ReasonDialog ใน drawer จ่ายงานรถร่วม → drawer จ้างแบบเปลี่ยนราย */
   const [changeWhy, setChangeWhy] = useState<string | null>(null);
   /** ST4-T04 แท็บ รายละเอียด / ไทม์ไลน์ · ST4-T07 เอกสาร (ป้าย "เอกสารแนบ" ตามต้นแบบ) · ST4-T13 ค่าใช้จ่ายหน้างาน */
-  const [tab, setTab] = useState<'sum' | 'tl' | 'docs' | 'exp'>('sum');
+  const [tab, setTab] = useState<'sum' | 'tl' | 'docs' | 'exp'>(initialTab);
   const [failRest, setFailRest] = useState(false);
   /** ไทม์ไลน์ (แชร์ cache กับแท็บ) — footer "ส่งไม่สำเร็จจุดที่เหลือ" ไม่นับจุดที่มีปิดงานรอตัดสิน */
   const tl = useTripEvents(id, tab === 'tl');
@@ -590,6 +609,8 @@ export function TripDrawer({
   // ไม่มีคนขับ (ยังไม่จัด/รถร่วมยังไม่ใส่คนขับ) = ไม่มีผู้รับลิงก์ (review ST3-T20 L6)
   // ST4-T04 (review L5): เที่ยวจบ/ยกเลิกแล้วไม่ส่งลิงก์ใบคุมรถให้คนขับ · ระหว่างวิ่งยังส่งซ้ำได้ (คนขับทำลิงก์หาย)
   const showShare = showPrint && canDispatch && !!tr.driver && !DONE_FOR_SHARE.has(tr.status);
+  // ปิดต้นทุนเที่ยว (COMPLETED → COSTED — ST6-T01) [DECISION — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ]
+  const showCost = canClose && tr.status === 'COMPLETED' && tab === 'sum';
   const sheetBusy = print.isPending || shareLink.isPending;
   const printSheet = () => {
     setErr(null);
@@ -688,7 +709,7 @@ export function TripDrawer({
         { key: 'sum', label: t('drawer.tab.sum') },
         { key: 'tl', label: t('trip.tab.tl') },
         { key: 'docs', label: t('trip.tab.docs') },
-        // ST4-T13 ค่าใช้จ่ายหน้างาน (ต้นแบบ: แท็บของ drawer DO — ระบบยังไม่มี drawer DO)
+        // ST4-T13 ค่าใช้จ่ายหน้างาน (ต้นแบบ: แท็บของ drawer DO — drawer DO มีแท็บนี้แบบกรองตาม DO ด้วย)
         { key: 'exp', label: t('trip.tab.exp') },
       ]}
       tab={tab}
@@ -696,28 +717,44 @@ export function TripDrawer({
       labels={labels}
       footer={
         <>
-          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 500, color: '#59606B' }}>
-              {t('trip.foot.dos')}
-            </span>
-            <span className="tms-num" style={{ fontSize: 20, fontWeight: 600, color: '#101418' }}>
-              {t('trip.foot.n', {
-                n: tr.deliveryOrders.length + (tr.rescheduledDeliveryOrders?.length ?? 0),
-              })}
-              {(tr.rescheduledDeliveryOrders?.length ?? 0) > 0 && (
-                <span style={{ fontSize: 13, fontWeight: 500, color: '#3B424C' }}>
-                  {t('trip.foot.rescheduled', { n: tr.rescheduledDeliveryOrders.length })}
+          <TripFooterSummary
+            trip={tr}
+            canSeeBuy={canSeeBuy}
+            canSeeSell={canSeeSell}
+            fallback={
+              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 500, color: '#59606B' }}>
+                  {t('trip.foot.dos')}
                 </span>
-              )}
-            </span>
-          </div>
+                <span
+                  className="tms-num"
+                  style={{ fontSize: 20, fontWeight: 600, color: '#101418' }}
+                >
+                  {t('trip.foot.n', {
+                    n: tr.deliveryOrders.length + (tr.rescheduledDeliveryOrders?.length ?? 0),
+                  })}
+                  {(tr.rescheduledDeliveryOrders?.length ?? 0) > 0 && (
+                    <span style={{ fontSize: 13, fontWeight: 500, color: '#3B424C' }}>
+                      {t('trip.foot.rescheduled', { n: tr.rescheduledDeliveryOrders.length })}
+                    </span>
+                  )}
+                </span>
+              </div>
+            }
+          />
           <span style={{ flex: 1 }} />
           {err && (
             <span className="tms-field-error" role="alert">
               {err}
             </span>
           )}
-          {(showAssignBtn || showRelease || showPrint || showHire || showOffer || showFailRest) && (
+          {(showAssignBtn ||
+            showRelease ||
+            showPrint ||
+            showHire ||
+            showOffer ||
+            showFailRest ||
+            showCost) && (
             <div
               style={{
                 display: 'flex',
@@ -800,6 +837,14 @@ export function TripDrawer({
                   {t('trip.foot.assign')}
                 </button>
               )}
+              {showCost && (
+                <TripCostCloseButton
+                  trip={tr}
+                  onDone={(m) => {
+                    setToast(m);
+                  }}
+                />
+              )}
               {showRelease && (
                 <button
                   type="button"
@@ -831,6 +876,11 @@ export function TripDrawer({
           trip={tr}
           canRecord={canRecord}
           failRest={failRest && canRecord}
+          completeStopId={
+            completeDoId
+              ? (tr.deliveryOrders.find((d) => d.id === completeDoId)?.dropStopId ?? undefined)
+              : undefined
+          }
           onFailRestClose={() => setFailRest(false)}
           onToast={setToast}
           onOpenFlags={openFlags}
@@ -879,6 +929,7 @@ export function TripDrawer({
               />
             </div>
           </section>
+          <TripMoneySection trip={tr} canSeeBuy={canSeeBuy} canSeeSell={canSeeSell} />
           {assignable && (
             <section
               data-testid="trip-assign"

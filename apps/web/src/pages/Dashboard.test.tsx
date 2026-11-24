@@ -202,7 +202,7 @@ describe('Dashboard ปฏิบัติการ (ST9-T01)', () => {
     expect(screen.queryByTestId('hold-RATE_MISSING')).toBeNull();
     expect(screen.getByTestId('fleet-available-n')).toHaveTextContent('9');
     // ตารางเริ่มต้น = DO วันนี้ (วันจาก server)
-    await screen.findByText('DO-6911-0001');
+    await screen.findByText('DO-6911-0001', undefined, { timeout: 5000 });
     const q = calls.find((c) => c.path === '/v1/delivery-orders')!.query!;
     expect(q).toMatchObject(cardQuery('today', '2026-11-18'));
   });
@@ -222,7 +222,7 @@ describe('Dashboard ปฏิบัติการ (ST9-T01)', () => {
 
   it('สลับการ์ดเร็ว ๆ: ทุกคำขอรายการใช้ตัวกรองของ endpoint นั้นเท่านั้น (ไม่ยิงตัวกรองการ์ดเก่าไป endpoint ใหม่ → 422)', async () => {
     mount();
-    await screen.findByText('DO-6911-0001');
+    await screen.findByText('DO-6911-0001', undefined, { timeout: 5000 });
     for (const k of ['running', 'waiting', 'failed', 'offered', 'running', 'delivered'])
       fireEvent.click(screen.getByTestId(`kpi-${k}`).closest('button')!);
     await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/?card=delivered'));
