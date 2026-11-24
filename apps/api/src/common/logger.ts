@@ -1,3 +1,4 @@
+import type { LoggerService } from '@nestjs/common';
 import pino from 'pino';
 import { requestContext } from './request-context';
 
@@ -62,4 +63,43 @@ export function createLogger(destination?: pino.DestinationStream) {
     },
     destination,
   );
+}
+
+/**
+ * ST9-T13 R2 (L-02): ให้ `Logger` ของ Nest (ทุกโมดูล) ออกทาง pino ตัวเดียวกัน — ได้ requestId/tenantId + redact ของ object
+ * (ข้อความ string ไม่ถูก redact — โมดูลต้องไม่ใส่ค่าลับในข้อความอยู่ดี) · ใช้ใน main.ts / worker.ts (test ใช้ ConsoleLogger เดิม)
+ */
+export class PinoNestLogger implements LoggerService {
+  constructor(private readonly out: pino.Logger) {}
+  private write(
+    level: 'info' | 'warn' | 'error' | 'debug' | 'trace',
+    msg: unknown,
+    rest: unknown[],
+  ) {
+    const context =
+      typeof rest[rest.length - 1] === 'string' ? (rest[rest.length - 1] as string) : undefined;
+    if (msg instanceof Error) this.out[level]({ err: msg, context }, msg.message);
+    else if (msg !== null && typeof msg === 'object') this.out[level]({ ...msg, context });
+    else {
+      // Logger.error(message, stack, context) — stack อยู่ตัวกลาง
+      const stack =
+        level === 'error' && rest.length > 1 && typeof rest[0] === 'string' ? rest[0] : undefined;
+      this.out[level]({ context, ...(stack ? { stack } : {}) }, String(msg));
+    }
+  }
+  log(msg: unknown, ...rest: unknown[]) {
+    this.write('info', msg, rest);
+  }
+  error(msg: unknown, ...rest: unknown[]) {
+    this.write('error', msg, rest);
+  }
+  warn(msg: unknown, ...rest: unknown[]) {
+    this.write('warn', msg, rest);
+  }
+  debug(msg: unknown, ...rest: unknown[]) {
+    this.write('debug', msg, rest);
+  }
+  verbose(msg: unknown, ...rest: unknown[]) {
+    this.write('trace', msg, rest);
+  }
 }

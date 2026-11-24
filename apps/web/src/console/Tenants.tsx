@@ -8,7 +8,15 @@ import { useI18n, type Lang } from '../i18n';
 import { th, type MessageKey } from '../i18n/th';
 import { useTenantList } from './ConsoleShell';
 import { StepUpBox } from '../features/settings/OrgSections';
-import { can, consoleApi, consoleStepUp, cunwrap, dropConsoleStepUp, useStaff } from './session';
+import {
+  can,
+  consoleApi,
+  consoleStepUp,
+  consoleStepUpHeaders,
+  cunwrap,
+  dropConsoleStepUp,
+  useStaff,
+} from './session';
 
 type Tenant = components['schemas']['PlatformTenantDto'];
 type TenantDetail = components['schemas']['PlatformTenantDetailDto'];
@@ -761,6 +769,7 @@ function ImpersonateDialog({ x, onClose }: { x: TenantDetail; onClose: () => voi
           const r = await cunwrap(
             consoleApi.POST('/v1/platform/tenants/{id}/impersonate', {
               params: { path: { id: x.id } },
+              headers: consoleStepUpHeaders(), // ST9-T13 R2-M02 — ไม่มี/หมดอายุ → กล่องยืนยัน 2FA ของ ActionDialog
               body: {
                 reason,
                 ...(v.as ? { asUserId: v.as } : {}),

@@ -117,6 +117,8 @@ describe('user invitations', () => {
     await expect(loginFull(app, 'new.person@inv.test', 'x', ip())).rejects.toThrow(/401/);
     const info = await pub('inspect', { token });
     expect(info.status).toBe(200);
+    // ST9-T13 R2 (L-07): ตรวจคำเชิญ (ไม่ login) อยู่ใต้เพดานต่อ IP เดียวกับลิงก์สาธารณะ
+    expect(info.headers['ratelimit-limit']).toBeDefined();
     expect(info.body).toMatchObject({
       email: 'new.person@inv.test',
       tenantName: 'บริษัท เอ ขนส่ง จำกัด',
