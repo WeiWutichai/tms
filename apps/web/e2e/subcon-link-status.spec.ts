@@ -299,7 +299,7 @@ test.describe.serial('ลิงก์รถร่วม ส่วนสถาน
     expect(flags.data).toHaveLength(0);
   });
 
-  test('Q-LINK: ส่งไม่สำเร็จที่จุดส่ง พร้อมเหตุผลบังคับรูป + รูป → จุดส่งไม่สำเร็จ · รูปเป็นหลักฐานชุด "ไม่สำเร็จ" ของ DO ที่ผู้จัดรถเห็น', async ({
+  test('Q-LINK: ส่งไม่สำเร็จที่จุดส่ง · เหตุผลบังคับรูปต้องแนบรูป · เหตุผลนัดส่งใหม่อัตโนมัติ (ลูกค้าปิดทำการ) + รูป → DO เดิมยกเลิก (redeliver) แต่ลิงก์ยังเห็น "แจ้งไม่สำเร็จแล้ว" (review M1) · รูปเป็นหลักฐานชุด "ไม่สำเร็จ"', async ({
     page,
     browser,
   }) => {
@@ -323,21 +323,29 @@ test.describe.serial('ลิงก์รถร่วม ส่วนสถาน
       .getByTestId('pdl-fail-photo-input')
       .setInputFiles({ name: 'gate.png', mimeType: 'image/png', buffer: PNG });
     await expect(f.getByText('รูปที่ 1')).toBeVisible();
+    // เปลี่ยนเป็นเหตุผลที่ตั้งนัดส่งใหม่อัตโนมัติ (SHOP_CLOSED — reschedule) — รูปที่แนบยังส่งไปด้วย
+    await f.getByRole('button', { name: 'ลูกค้าปิดทำการ' }).click();
     await f.getByTestId('pdl-fail-ok').click();
     await expect(p.getByRole('status')).toContainText('แจ้งแล้ว');
     await expect(p.getByTestId('pdl-fail-done')).toBeVisible();
     await expect(p.getByTestId('pdl-stop-DELIVERY')).toContainText('ไม่สำเร็จ');
+    // review M1: โหลดใหม่แล้วค้นเลขเดิม — DO ถูกยกเลิกเพราะนัดส่งใหม่ แต่ยังค้นเจอ + กล่องแจ้งแล้ว
+    await p.reload();
+    await p.getByTestId('pdl-q').fill(S.doNo!);
+    await expect(p.getByTestId('pdl-fail-done')).toBeVisible();
+    await expect(p.getByTestId('pdl-nf')).toHaveCount(0);
     await ctx.close();
 
     const ev = await events(page);
     expect(ev.at(-1)).toMatchObject({ type: 'COMPLETE', source: 'LINK' });
-    const d = (
-      await get<{ data: { id: string; status: string }[] }>(
-        page,
-        `/v1/delivery-orders?orderId=${S.so!.id}`,
-      )
-    ).data[0]!;
-    expect(d.status).toBe('FAILED');
+    const all = (
+      await get<{
+        data: { id: string; doNo: string; status: string; redeliveryOfId: string | null }[];
+      }>(page, `/v1/delivery-orders?orderId=${S.so!.id}`)
+    ).data;
+    const d = all.find((x) => x.doNo === S.doNo)!;
+    expect(d.status).toBe('CANCELLED');
+    expect(all.some((x) => x.redeliveryOfId === d.id && x.status === 'DRAFT')).toBe(true);
     const pod = await get<{ current: { outcome: string; photos: unknown[] } }>(
       page,
       `/v1/delivery-orders/${d.id}/pod`,
