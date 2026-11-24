@@ -374,7 +374,7 @@ export class ConnectorQueueSummaryDto {
   @ApiProperty() done!: number;
   @ApiProperty({
     description:
-      'คำสั่งที่ส่งสำเร็จ (DONE) ใน 24 ชั่วโมงล่าสุด — การ์ด "สำเร็จ 24 ชม." ของหน้าคิว (ต้นแบบ kpis(\'erp\'); PO 24 พ.ย. 2569)',
+      'คำสั่งที่ส่งสำเร็จ (DONE ที่ไม่ต้องกรอกเลขเอง — DUPLICATE ที่หาเลขไม่เจอไม่นับ) ใน 24 ชั่วโมงล่าสุด — การ์ด "สำเร็จ 24 ชม." ของหน้าคิว (ต้นแบบ kpis(\'erp\'); PO 24 พ.ย. 2569)',
   })
   succeeded24h!: number;
   @ApiProperty({
@@ -618,10 +618,16 @@ export class ConnectorQueueService {
     const rows = await this.rows(tx, c, pageIds);
     const last = rows[rows.length - 1];
     const data = rows.map((r) => this.item(r.row, r.f));
-    // PO 24 พ.ย. 2569: แผนการแยกใบของรายการที่กรอกเลขเองได้ (ช่องกรอกต่อใบ) — เฉพาะรายการนั้น (แท็บล้มเหลวมีไม่กี่รายการ)
-    for (const [i, r] of rows.entries())
-      if (data[i]!.actions.externalId && isDocPush(r.row))
-        data[i]!.documents = await this.plannedFor(tx, c, r.row);
+    // PO 24 พ.ย. 2569: แผนการแยกใบของรายการที่กรอกเลขเองได้ (ช่องกรอกต่อใบ) — โหลดทั้งหน้าในครั้งเดียว
+    const docs = await this.plannedForPage(
+      tx,
+      c,
+      rows.filter((r, i) => data[i]!.actions.externalId && isDocPush(r.row)).map((r) => r.row),
+    );
+    for (const [i, r] of rows.entries()) {
+      const d = docs.get(r.row.id);
+      if (d) data[i]!.documents = d;
+    }
     return {
       data,
       nextCursor:
@@ -642,7 +648,7 @@ export class ConnectorQueueService {
       SELECT count(*) FILTER (WHERE ${tabSql('queued')})::int AS queued,
              count(*) FILTER (WHERE ${tabSql('failed')})::int AS failed,
              count(*) FILTER (WHERE ${tabSql('done')})::int AS done,
-             count(*) FILTER (WHERE o.status = 'DONE' AND o.done_at >= now() - interval '24 hours')::int AS ok24,
+             count(*) FILTER (WHERE o.status = 'DONE' AND (o.last_error->>'manualExternalIdRequired') IS DISTINCT FROM 'true' AND o.done_at >= now() - interval '24 hours')::int AS ok24,
              count(*) FILTER (WHERE o.status IN ('DONE', 'FAILED_FINAL') AND o.done_at >= now() - interval '24 hours')::int AS fin24
         FROM integration_outbox o WHERE ${base}`;
     const byClass = await tx.$queryRaw<{ cls: string | null; n: number }[]>`
@@ -1072,49 +1078,73 @@ export class ConnectorQueueService {
   }
 
   /**
-   * PO 24 พ.ย. 2569 ใบตามแผนการแยก (≥ 2 ใบ) + เลขที่ระบบรู้แล้ว (mapping ส่งไม่ครบ / กรอกไว้) — ให้หน้าคิวแสดงช่องกรอกต่อใบ
-   * ตรวจแผนไม่ได้ / เอกสารเดียว = [] (ทางกรอกเลขเดี่ยวเดิม — API ตอบ 422 ตามเดิมถ้าไม่ใช่)
+   * PO 24 พ.ย. 2569 ใบตามแผนการแยก (≥ 2 ใบ) + เลขที่ระบบรู้แล้ว (mapping ส่งไม่ครบ / กรอกไว้) ของรายการในหน้า — ช่องกรอกต่อใบของหน้าคิว
+   * review M2: adapter ไม่มี hook `plannedDocuments` = ไม่ query อะไรเลย · payload ฉบับแรก + mapping โหลดทั้งหน้าในครั้งเดียว ·
+   * วางแผนแต่ละรายการใน SAVEPOINT (ตรวจผังรหัสล้มไม่ทำให้ transaction ของ request พัง) · วางแผนไม่ได้ / เอกสารเดียว = ไม่ใส่ (`[]`)
    */
-  private async plannedFor(
+  private async plannedForPage(
     tx: Tx,
     c: Connector,
-    row: IntegrationOutbox,
-  ): Promise<QueuePlannedDocumentDto[]> {
-    let plan: Awaited<ReturnType<ErpAdapterSink['plannedDocuments']>>;
-    try {
-      plan = await this.plan(tx, c, row);
-    } catch {
-      return [];
+    rows: IntegrationOutbox[],
+  ): Promise<Map<string, QueuePlannedDocumentDto[]>> {
+    const out = new Map<string, QueuePlannedDocumentDto[]>();
+    if (!rows.length || !this.sink.canPlanDocuments(c)) return out;
+    const localIds = [...new Set(rows.map((r) => r.localId))];
+    const firsts = await tx.$queryRaw<
+      { entity_type: string; local_id: string; payload: unknown }[]
+    >`
+      SELECT DISTINCT ON (o.entity_type, o.local_id) o.entity_type, o.local_id::text AS local_id, o.payload
+        FROM integration_outbox o
+       WHERE o.sink = ${ERP_SINK} AND o.target_id = ${c.id}
+         AND ((o.entity_type = 'invoice' AND o.operation = 'PUSH_INVOICE')
+           OR (o.entity_type = 'settlement' AND o.operation = 'PUSH_SETTLEMENT'))
+         AND o.local_id = ANY(${localIds}::uuid[])
+       ORDER BY o.entity_type, o.local_id, o.seq ASC`;
+    const first = new Map(firsts.map((f) => [`${f.entity_type}:${f.local_id}`, f.payload]));
+    const maps = await tx.externalMapping.findMany({
+      where: { connectorId: c.id, localId: { in: localIds } },
+      select: { entityType: true, localId: true, detail: true },
+    });
+    const mapOf = new Map(maps.map((m) => [`${m.entityType}:${m.localId}`, m.detail]));
+    for (const row of rows) {
+      const op = row.entityType === 'invoice' ? 'PUSH_INVOICE' : 'PUSH_SETTLEMENT';
+      const doc =
+        (first.get(`${row.entityType}:${row.localId}`) as { document?: CanonicalDocument } | null)
+          ?.document ?? null;
+      let plan: Awaited<ReturnType<ErpAdapterSink['plannedDocuments']>>;
+      await tx.$executeRawUnsafe('SAVEPOINT queue_plan_row');
+      try {
+        plan = await this.sink.plannedDocuments(tx, c, op, doc);
+        await tx.$executeRawUnsafe('RELEASE SAVEPOINT queue_plan_row');
+      } catch {
+        await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT queue_plan_row');
+        continue;
+      }
+      if (plan.kind !== 'planned' || plan.parts.length < 2) continue;
+      const entity = row.entityType === 'invoice' ? MAP_ENTITY.invoice : MAP_ENTITY.settlement;
+      const detail = mapOf.get(`${entity}:${row.localId}`) ?? null;
+      const known = new Map(
+        ((detail as { documentsPartial?: unknown } | null)?.documentsPartial === true
+          ? mappingDocumentsOf(detail)
+          : []
+        ).map((p) => [p.ref, p]),
+      );
+      out.set(
+        row.id,
+        plan.parts.map((p) => {
+          const k = known.get(p.ref);
+          return {
+            ref: p.ref,
+            group: p.group ?? null,
+            lineNos: [...p.lineNos],
+            externalId: k?.externalId ?? null,
+            externalDocNo: k?.externalDocNo ?? null,
+            confirmed: !!k && k.source !== 'manual',
+          };
+        }),
+      );
     }
-    if (plan.kind !== 'planned' || plan.parts.length < 2) return [];
-    const m = await tx.externalMapping.findUnique({
-      where: {
-        connectorId_entityType_localId: {
-          connectorId: c.id,
-          entityType: row.entityType === 'invoice' ? MAP_ENTITY.invoice : MAP_ENTITY.settlement,
-          localId: row.localId,
-        },
-      },
-      select: { detail: true },
-    });
-    const detail = (m?.detail ?? {}) as { documentsPartial?: unknown };
-    const known = new Map(
-      (detail.documentsPartial === true ? mappingDocumentsOf(m?.detail) : []).map((p) => [
-        p.ref,
-        p,
-      ]),
-    );
-    return plan.parts.map((p) => {
-      const k = known.get(p.ref);
-      return {
-        ref: p.ref,
-        group: p.group ?? null,
-        lineNos: [...p.lineNos],
-        externalId: k?.externalId ?? null,
-        externalDocNo: k?.externalDocNo ?? null,
-        confirmed: !!k && k.source !== 'manual',
-      };
-    });
+    return out;
   }
 
   /** ST8-T09 แผนการแยกใบ (adapter `plannedDocuments`) ของฉบับที่ออก */

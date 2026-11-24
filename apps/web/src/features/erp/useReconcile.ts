@@ -84,3 +84,31 @@ export function useCloseAction() {
     onSettled: () => invalidateErp(qc),
   });
 }
+
+/**
+ * ต้นแบบ erp bulk "รับค่า {ERP}" (review L3): ยอมรับความต่างทีละรายการด้วยเหตุผลเดียว แล้วโหลดใหม่ครั้งเดียวหลังจบทั้งชุด
+ */
+export function useBulkAcknowledge() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (v: { rows: ReconcileResult[]; reason: string }) => {
+      const ok: ReconcileResult[] = [];
+      const failed: { x: ReconcileResult; err: unknown }[] = [];
+      for (const x of v.rows) {
+        try {
+          await unwrap(
+            api.POST('/v1/reconcile-results/{id}/acknowledge', {
+              params: { path: { id: x.id } },
+              body: { reason: v.reason },
+            }),
+          );
+          ok.push(x);
+        } catch (err) {
+          failed.push({ x, err });
+        }
+      }
+      return { ok, failed };
+    },
+    onSettled: () => invalidateErp(qc),
+  });
+}

@@ -34,7 +34,8 @@ vi.mock('../stepup/stepUp', async (orig) => ({
 }));
 
 const { PeriodClosePanel, closeResult, defaultCloseMonth } = await import('./PeriodClosePanel');
-const { okRate } = await import('./ErpPage');
+const { okRate, okColor } = await import('./ErpPage');
+const { bulkFailList } = await import('./queue');
 
 const report = (over: Record<string, unknown> = {}) => ({
   connector: { id: 'con_1', adapterKey: 'krs', displayName: 'KRS' },
@@ -247,5 +248,21 @@ describe('รายงานปิดงวด (#95)', () => {
     expect(okRate({ succeeded24h: 27, finished24h: 28 })).toBe('96.4%');
     expect(okRate({ succeeded24h: 0, finished24h: 0 })).toBe('—');
     expect(okRate(undefined)).toBe('—');
+    // review L5: ไม่มีคำสั่งที่จบ = สีปกติ · 0% = แดง · มีสำเร็จ = เขียวตามต้นแบบ
+    expect(okColor(undefined)).toBe('#101418');
+    expect(okColor({ succeeded24h: 0, finished24h: 0 })).toBe('#101418');
+    expect(okColor({ succeeded24h: 0, finished24h: 3 })).toBe('#B3322A');
+    expect(okColor({ succeeded24h: 2, finished24h: 3 })).toBe('#17733F');
+  });
+
+  it('review L3: รายการที่ bulk ทำไม่สำเร็จ = "เลข (เหตุ)" สูงสุด 5 รายการ', () => {
+    expect(
+      bulkFailList([
+        { no: 'INV-1', why: 'งวดปิด' },
+        { no: 'INV-2', why: null },
+      ]),
+    ).toBe('INV-1 (งวดปิด); INV-2');
+    const many = Array.from({ length: 7 }, (_, i) => ({ no: `INV-${i}`, why: null }));
+    expect(bulkFailList(many)).toBe('INV-0; INV-1; INV-2; INV-3; INV-4 …');
   });
 });

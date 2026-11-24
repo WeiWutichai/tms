@@ -27,7 +27,7 @@ import { useSessionState, useUrlSeed } from '../master/useCursorList';
 import { adapterName } from '../settings/ConnectorSettings';
 import { SavedViewMenu } from '../views/SavedViewMenu';
 import { pick, useSavedViews } from '../views/useSavedViews';
-import { CloseDialog, type DialogKind } from './ErpDialogs';
+import { CloseDialog, closeErrorText, type DialogKind } from './ErpDialogs';
 import { ErpDrawer } from './ErpDrawer';
 import {
   asTab,
@@ -44,11 +44,11 @@ import {
 } from './erpq';
 import { PeriodClosePanel } from './PeriodClosePanel';
 import { QueuePanel } from './QueuePanel';
-import { queueErrorText } from './queue';
+import { bulkFailList, queueErrorText } from './queue';
 import { useErpConnectors, useQueueSummary, useRetryAll } from './useQueue';
 import {
   type ReconcileResult,
-  useCloseAction,
+  useBulkAcknowledge,
   useReconcileCounts,
   useReconcileList,
 } from './useReconcile';
@@ -57,6 +57,12 @@ import {
 export function okRate(s: { succeeded24h: number; finished24h: number } | undefined): string {
   if (!s || s.finished24h <= 0) return '—';
   return `${((s.succeeded24h / s.finished24h) * 100).toFixed(1)}%`;
+}
+
+/** review L5: สีตัวเลขอัตรา — ไม่มีคำสั่งที่จบ = ปกติ · ไม่สำเร็จเลย = แดง · อื่น ๆ = เขียวตามต้นแบบ */
+export function okColor(s: { succeeded24h: number; finished24h: number } | undefined): string {
+  if (!s || s.finished24h <= 0) return '#101418';
+  return s.succeeded24h === 0 ? '#B3322A' : '#17733F';
 }
 
 const EMPTY_COL = { no: '', type: '', cust: '', fields: '', st: '' };
@@ -85,10 +91,13 @@ export function ErpPage() {
     const k = p.get('tab') ?? '';
     return { 'erp.tab': asTab(k), 'erp.cols': EMPTY_COL };
   });
+  // ลิงก์ไป connector ที่ต้องการ (`/erp?connector=con_…` — เช่น จากหน้าตั้งค่า/แจ้งเตือน) = ค่าของตัวเลือก connector
+  useUrlSeed(params, ['connector'], (p) => ({ 'erp.conn': p.get('connector') ?? '' }));
   useEffect(() => {
-    if (params.has('tab')) {
+    if (params.has('tab') || params.has('connector')) {
       const next = new URLSearchParams(params);
       next.delete('tab');
+      next.delete('connector');
       setParams(next, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ครั้งเดียวตอนเปิดหน้า
@@ -116,27 +125,30 @@ export function ErpPage() {
   // ต้นแบบ erp bulk "รับค่า {ERP}" (PO 24 พ.ย. 2569 — #86 ค้าง): หลายรายการ = ยอมรับความต่าง (ack) ด้วยเหตุผลเดียว ทีละรายการ
   // (ทาง "แก้ที่ TMS แล้ว" ต้องยกเลิกใบก่อน — ทำทีละรายการจาก dialog เดิม) [DECISION — lead 24 พ.ย. เพื่อ UAT, ย้อนได้]
   const [bulkAck, setBulkAck] = useState<ReconcileResult[] | null>(null);
-  const closer = useCloseAction();
-  const [bulkBusy, setBulkBusy] = useState(false);
-  const runBulkAck = async (rows: ReconcileResult[], reason: string) => {
-    setBulkBusy(true);
-    let n = 0;
-    for (const x of rows) {
-      try {
-        await closer.mutateAsync({ action: 'acknowledge', id: x.id, reason });
-        n++;
-      } catch {
-        /* นับเป็นไม่สำเร็จ */
-      }
-    }
-    setBulkBusy(false);
-    setBulkAck(null);
-    setToast(
-      n === rows.length
-        ? t('erpq.bulk.acked', { n })
-        : t('erpq.bulk.ackedSome', { n, m: rows.length - n }),
+  const bulkAckM = useBulkAcknowledge();
+  const runBulkAck = (rows: ReconcileResult[], reason: string) =>
+    bulkAckM.mutate(
+      { rows, reason },
+      {
+        onSuccess: (r) => {
+          setBulkAck(null);
+          setToast(
+            r.failed.length
+              ? t('erpq.bulk.ackedSome', {
+                  n: r.ok.length,
+                  m: r.failed.length,
+                  list: bulkFailList(
+                    r.failed.map((f) => ({
+                      no: f.x.localNumber ?? f.x.id,
+                      why: closeErrorText(f.err, t),
+                    })),
+                  ),
+                })
+              : t('erpq.bulk.acked', { n: r.ok.length }),
+          );
+        },
+      },
     );
-  };
   useDeepOpen('open', 'rec', (id) => {
     setPtab('sum');
     setOpen(id);
@@ -353,7 +365,7 @@ export function ErpPage() {
             pressed: curTab === 'failed',
           },
           // ต้นแบบ kpis('erp') การ์ดที่ 4 "สำเร็จ 24 ชม." = อัตราสำเร็จ (ต้นแบบ "96.4%" ไม่กดได้) — succeeded24h / finished24h
-          { value: okRate(qSum.data), label: t('erpq.kpi.ok24'), color: '#17733F' },
+          { value: okRate(qSum.data), label: t('erpq.kpi.ok24'), color: okColor(qSum.data) },
         ]}
       />
       <div className="tms-listbody">
@@ -455,8 +467,9 @@ export function ErpPage() {
             onHiddenColumnsChange={setHidden}
             onFilterChange={(k, v) => setCol((c) => ({ ...c, [k]: v }))}
             onRowClick={(x) => view(x)}
-            selectable={canAct && curTab === 'mm'}
+            pageScopedSelection
             bulkActions={
+              // review L4: ช่องเลือกแถวตามต้นแบบทุกแท็บ · แถบ bulk แสดงเฉพาะการกระทำที่ใช้ได้กับแท็บนี้
               canAct && curTab === 'mm'
                 ? [
                     {
@@ -466,6 +479,8 @@ export function ErpPage() {
                         setBulkAck(
                           shown.filter((x) => ids.includes(x.id) && rowStatus(x) === 'mm'),
                         ),
+                      disabled: bulkAckM.isPending,
+                      clearOnRun: true,
                     },
                   ]
                 : []
@@ -549,11 +564,11 @@ export function ErpPage() {
         okLabel={t('erpq.dlg.accept.ok')}
         cancelLabel={t('common.cancel')}
         closeLabel={t('drawer.close')}
-        busy={bulkBusy}
+        busy={bulkAckM.isPending}
         okDisabled={!bulkAck?.length}
         error={null}
-        onClose={() => !bulkBusy && setBulkAck(null)}
-        onOk={(reason) => bulkAck && void runBulkAck(bulkAck, reason)}
+        onClose={() => !bulkAckM.isPending && setBulkAck(null)}
+        onOk={(reason) => bulkAck && runBulkAck(bulkAck, reason)}
       />
       {toast && (
         <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />

@@ -5453,6 +5453,7 @@ export const th = {
   'cnx.f.rcDelayNow': '0 = อ่านเอกสารจาก {n} มาเทียบทันทีหลังส่งสำเร็จ',
   'cnx.f.rcDelayHint': 'อ่านเอกสารจาก {n} มาเทียบ {m} นาทีหลังส่งสำเร็จ',
   'cnx.f.rcDelayBad': 'กรอกจำนวนเต็ม 0–1440 นาที',
+  'cnx.f.rcDelayFail': 'บันทึกเวลาตรวจเทียบไม่สำเร็จ — คืนค่าเดิมแล้ว',
   'bill.kv.erpState': 'สถานะใน {erp}',
   'bill.kv.erpNo': 'เลขที่ใน {erp}',
   'bill.kv.erpNos': 'เลขที่ใน {erp} ({n} ใบ)',
@@ -5461,7 +5462,9 @@ export const th = {
   'erpq.bulk.ackD':
     'ยอมรับความต่างของทุกรายการที่เลือก ไม่ส่งค่า TMS ทับ — เหตุผลบันทึกใน audit ทุกรายการ · ถ้าแก้ที่ TMS แล้ว ให้ทำทีละรายการ',
   'erpq.bulk.acked': 'ยอมรับความต่าง {n} รายการแล้ว',
-  'erpq.bulk.ackedSome': 'ยอมรับความต่าง {n} รายการ · ไม่สำเร็จ {m} รายการ',
+  'erpq.bulk.ackedSome': 'ยอมรับความต่าง {n} รายการ · ไม่สำเร็จ {m} รายการ: {list}',
+  'erpq.bulk.retrySome': 'ส่งซ้ำ {n} รายการ · ไม่สำเร็จ {m} รายการ: {list}',
+  'car.payLinkFail': 'ออกลิงก์ค่าเที่ยวไม่สำเร็จ ลองอีกครั้ง',
 } as const;
 
 export type MessageKey = keyof typeof th;

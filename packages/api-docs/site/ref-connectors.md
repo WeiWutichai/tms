@@ -1322,7 +1322,7 @@ const { data, error } = await tms.POST('/v1/reconcile-runs', {
 | `queued` | ใช่ | `number` |   |   |   |
 | `failed` | ใช่ | `number` |   | ต้องมีคนทำ (badge ที่เมนู) |   |
 | `done` | ใช่ | `number` |   |   |   |
-| `succeeded24h` | ใช่ | `number` |   | คำสั่งที่ส่งสำเร็จ (DONE) ใน 24 ชั่วโมงล่าสุด — การ์ด "สำเร็จ 24 ชม." ของหน้าคิว (ต้นแบบ kpis('erp') 24 พ.ย. 2569) |   |
+| `succeeded24h` | ใช่ | `number` |   | คำสั่งที่ส่งสำเร็จ (DONE ที่ไม่ต้องกรอกเลขเอง — DUPLICATE ที่หาเลขไม่เจอไม่นับ) ใน 24 ชั่วโมงล่าสุด — การ์ด "สำเร็จ 24 ชม." ของหน้าคิว (ต้นแบบ kpis('erp') 24 พ.ย. 2569) |   |
 | `finished24h` | ใช่ | `number` |   | คำสั่งที่จบใน 24 ชั่วโมงล่าสุด (DONE + FAILED_FINAL) — อัตราสำเร็จ = `succeeded24h` / `finished24h` (0 = ไม่มีคำสั่งที่จบ) |   |
 | `failedByClass` | ใช่ | `object` |   | แท็บล้มเหลวแยกตาม ErrorClass | `{"VALIDATION":2,"PERIOD_CLOSED":1}` |
 

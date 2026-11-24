@@ -1551,6 +1551,16 @@ export class ConnectorsService {
     this.version(cur, expected);
     if (!canConnectorTransition('resume', cur.status))
       throw new ProblemException('invalid_state_transition');
+    // Q-RES (PO 24 พ.ย. 2569): เปิดใช้จาก ERROR (ระบบหยุดเพราะเชื่อมต่อไม่ได้) = override ต้องมีเหตุผล ≥ 10 ตัวอักษร ลง audit
+    // (CLAUDE.md "ทุกการยกเลิก/override/อนุมัติ ต้องมีเหตุผล") · PAUSED → ACTIVE ไม่บังคับ (ตามเดิม)
+    if (cur.status === 'ERROR' && (body.reason?.trim().length ?? 0) < 10)
+      throw new ProblemException('validation_failed', undefined, [
+        {
+          field: 'reason',
+          code: 'reason_required',
+          message: 'เปิดใช้ระบบบัญชีที่หยุดเพราะเชื่อมต่อไม่ได้ ต้องมีเหตุผลอย่างน้อย 10 ตัวอักษร',
+        },
+      ]);
     const r = await this.runHealth(cur);
     const at = this.clock.now();
     if (!r.ok) {

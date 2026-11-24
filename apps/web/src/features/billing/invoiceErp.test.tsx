@@ -22,11 +22,7 @@ vi.mock('./useInvoices', () => ({
 }));
 vi.mock('./usePayments', () => ({ useInvoicePayments: () => ({ data: { data: [] } }) }));
 vi.mock('../erp/useQueue', () => ({
-  useErpConnectors: () => ({
-    list: [{ id: 'con_1', adapterKey: 'krs', displayName: 'KRS' }],
-    current: null,
-    pick: vi.fn(),
-  }),
+  useErpConnectorList: () => [{ id: 'con_1', adapterKey: 'krs', displayName: 'KRS' }],
 }));
 vi.mock('../../shell/AppShell', () => ({
   useMe: () => ({ data: { scopes: ['*'], tenant: { yearStyle: 'BE' } } }),

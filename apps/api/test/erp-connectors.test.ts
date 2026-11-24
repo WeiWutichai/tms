@@ -318,6 +318,16 @@ describe('connectors (ST7-T13)', () => {
     expect(h.body.detail).not.toContain(GOOD_KEY); // ตัด credential ออกจากข้อความของปลายทาง
     expect(h.body.connector.status).toBe('ERROR');
     fake.health = undefined;
+    // Q-RES (PO 24 พ.ย. 2569): เปิดใช้จาก ERROR ต้องมีเหตุผล ≥ 10 ตัว → ไม่มี / สั้น = 422 (ไม่ทดสอบปลายทาง ไม่เปลี่ยนสถานะ)
+    for (const body of [{}, { reason: 'สั้นไป' }]) {
+      const bad = await api(app, token).post(`/v1/connectors/${id}/resume`).send(body);
+      expect(bad.status, JSON.stringify(bad.body)).toBe(422);
+      expect(bad.body.errors[0]).toMatchObject({ field: 'reason', code: 'reason_required' });
+    }
+    expect(
+      (await plat.connector.findUniqueOrThrow({ where: { id: tryDecodeId('connector', id)! } }))
+        .status,
+    ).toBe('ERROR');
     const h2 = await api(app, token).post(`/v1/connectors/${id}/health`).expect(200);
     expect(h2.body.connector.status).toBe('ACTIVE');
     const p = await api(app, token).post(`/v1/connectors/${id}/pause`).send({}).expect(200);

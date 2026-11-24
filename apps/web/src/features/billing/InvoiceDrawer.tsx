@@ -15,7 +15,7 @@ import { ApiError } from '../../api';
 import { problemText } from '../master/problems';
 import { cachedStepUp, useInlineStepUp } from '../stepup/stepUp';
 import { bangkokToday, money, useDateText } from '../rate-cards/rateFormat';
-import { useErpConnectors } from '../erp/useQueue';
+import { useErpConnectorList } from '../erp/useQueue';
 import { adapterName } from '../settings/ConnectorSettings';
 import { invoiceDisplayStatus, methodLabel, overdueDays } from './billing';
 import { useInvoicePayments } from './usePayments';
@@ -227,10 +227,10 @@ export function InvoiceDrawer({
   const [reissue, setReissue] = useState(false);
   const labels = { close: t('drawer.close'), more: t('drawer.more') };
   const inv = q.data;
-  const conns = useErpConnectors();
+  const conns = useErpConnectorList();
   /** ชื่อระบบบัญชีของ connector (ไม่มีสิทธิ์อ่าน connector = "ระบบบัญชี") */
   const erpName = (id: string | null | undefined) => {
-    const c = conns.list.find((x) => x.id === id);
+    const c = conns.find((x) => x.id === id);
     return c ? adapterName(t, c.adapterKey, c.displayName) : t('erpq.erpDefault');
   };
   if (!inv)

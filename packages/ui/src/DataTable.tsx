@@ -59,7 +59,17 @@ export interface DataTableProps<R> {
   onRowClick?: (r: R) => void;
   filters?: Record<string, string>;
   onFilterChange?: (key: string, value: string) => void;
-  bulkActions?: { label: string; icon: string; run: (ids: string[]) => void }[];
+  bulkActions?: {
+    label: string;
+    icon: string;
+    run: (ids: string[]) => void;
+    /** ปิดปุ่มระหว่างทำรายการ */
+    disabled?: boolean;
+    /** ล้างการเลือกหลังกด (ค่าเริ่ม false — คงพฤติกรรมเดิม) */
+    clearOnRun?: boolean;
+  }[];
+  /** การเลือกอยู่ในหน้าที่แสดงเท่านั้น — เปลี่ยนหน้า/รายการเปลี่ยน ตัดแถวที่ไม่อยู่ในหน้าออก (ค่าเริ่ม false) */
+  pageScopedSelection?: boolean;
   /** แสดงช่องเลือกแถว (ค่าเริ่มต้น true) — false เมื่อผู้ใช้ไม่มี bulk action ใดใช้ได้ (QA ST2-T19) */
   selectable?: boolean;
   rowMenu?: (r: R) => { label: string; icon: string; run: () => void }[];
@@ -123,6 +133,10 @@ export function DataTable<R>(p: DataTableProps<R>) {
   const allOn = ids.length > 0 && ids.every((i) => sel.includes(i));
   const selectable = p.selectable ?? true;
   const tid = useId();
+  useEffect(() => {
+    if (p.pageScopedSelection)
+      setSel((s) => (s.every((x) => ids.includes(x)) ? s : s.filter((x) => ids.includes(x))));
+  }, [ids, p.pageScopedSelection]);
 
   useEffect(() => {
     if (!menuFor) return;
@@ -169,7 +183,11 @@ export function DataTable<R>(p: DataTableProps<R>) {
                 key={b.label}
                 type="button"
                 className="tms-btn tms-btn--secondary tms-btn--sm"
-                onClick={() => b.run(sel)}
+                disabled={b.disabled}
+                onClick={() => {
+                  b.run(sel);
+                  if (b.clearOnRun) setSel([]);
+                }}
               >
                 <Icon n={b.icon} s={16} />
                 {b.label}

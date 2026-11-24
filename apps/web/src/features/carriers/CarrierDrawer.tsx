@@ -226,7 +226,7 @@ export function CarrierDrawer({
         setTab('sum');
         toast(t('settle.link.payDone'));
       },
-      onError: (e) => toast(problemText(e, t)),
+      onError: (e) => toast(problemText(e, t) ?? t('car.payLinkFail')),
     });
   const isNew = !c;
   const [tab, setTab] = useState<Tab>('sum');

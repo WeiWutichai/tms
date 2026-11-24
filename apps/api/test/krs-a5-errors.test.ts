@@ -1147,7 +1147,10 @@ describe('ST8-T09 KRS error handling ตาม A.5', { timeout: 600_000 }, () =>
     await drain();
     expect(posts().length - before).toBe(1);
     // ผู้ดูแลแก้ key แล้วเปิดต่อ → ส่งต่อเอง
-    await api(app, admin).post(`/v1/connectors/${conId}/resume`).send({}).expect(200);
+    await api(app, admin)
+      .post(`/v1/connectors/${conId}/resume`)
+      .send({ reason: 'แก้ key แล้ว เปิดใช้ต่อ (Q-RES)' })
+      .expect(200);
     await drain();
     expect(posts().length - before).toBe(2);
     expect(await reload(cmd.id)).toMatchObject({ status: 'DONE' });

@@ -390,6 +390,10 @@ describe('Connector queue (ST7-T19)', () => {
       guide: { key: 'duplicate_unresolved' },
       actions: { externalId: true },
     });
+    // review L5: DONE ที่ต้องกรอกเลขเอง (DUPLICATE หาไม่เจอ) ไม่นับเป็นสำเร็จของการ์ด "สำเร็จ 24 ชม."
+    const s24 = (await api(app, token).get(`/v1/connectors/${con.id}/queue/summary`).expect(200))
+      .body;
+    expect(s24).toMatchObject({ succeeded24h: 0, finished24h: 2 });
     await api(app, token)
       .post(`/v1/connectors/${con.id}/queue/${id}/external-id`)
       .send({ externalId: 'ERP-001' })

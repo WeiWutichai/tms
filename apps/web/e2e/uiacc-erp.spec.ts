@@ -83,7 +83,8 @@ test.describe('หน้าจอบัญชี/ERP ที่ประกอบ
       if (con.status !== 'ACTIVE')
         await db.connector.update({ where: { id: con.id }, data: { status: 'ACTIVE' } });
       await page.setViewportSize({ width: 1440, height: 900 });
-      await page.goto('/erp');
+      // review L6: เลือก connector ที่เตรียมไว้ตรง ๆ (ไม่พึ่งตัวเลือกอัตโนมัติ "ล้มเหลวมากสุด")
+      await page.goto(`/erp?connector=con_${con.id.replace(/-/g, '')}`);
       await expect(page.getByRole('heading', { name: 'คิวเชื่อมระบบบัญชี' })).toBeVisible();
       // การ์ดที่ 4 ของต้นแบบ
       await expect(page.getByText('สำเร็จ 24 ชม.')).toBeVisible();
@@ -118,42 +119,64 @@ test.describe('หน้าจอบัญชี/ERP ที่ประกอบ
     }
   });
 
-  test('Q-RES เปิดใช้จาก ERROR ต้องมีเหตุผล (audit) · #89 ช่องตรวจเทียบหลังส่ง', async ({
+  test('Q-RES เปิดใช้จาก ERROR ต้องมีเหตุผล → ACTIVE + audit ของ connector นี้ · #89 ช่องตรวจเทียบหลังส่ง', async ({
     page,
   }) => {
     const owner = await db.appUser.findUniqueOrThrow({ where: { id: DEMO_IDS[DEMO_EMAIL]! } });
     const tenantId = owner.tenantId as string;
-    const { con, existing, before } = await liveConnector(tenantId);
-    if (con.adapterKey !== 'demo') test.skip(true, 'ต้องใช้ ERP จำลอง');
+    // review M1: connector Demo ที่มี apiKey จริง (เชื่อมผ่านหน้าจอ) — ทดสอบผ่านแน่นอน · ตัวเดิมของ spec อื่น (ถ้ามี) พักไว้แล้วคืนตอนจบ
+    const parked = await db.connector.findMany({
+      where: { tenantId, status: { not: 'DISCONNECTED' }, companyId: null },
+      select: { id: true, status: true, disconnectedAt: true },
+    });
+    await db.connector.updateMany({
+      where: { id: { in: parked.map((p: { id: string }) => p.id) } },
+      data: { status: 'DISCONNECTED', disconnectedAt: new Date() },
+    });
+    let conId: string | null = null;
     try {
-      await db.connector.update({
-        where: { id: con.id },
-        data: { status: 'ERROR' },
-      });
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto('/settings?sec=conn');
       const card = page.getByRole('group', { name: 'ERP จำลอง (Demo)' });
       await card.getByRole('button', { name: 'เชื่อมต่อ' }).click();
+      const cd = page.getByRole('dialog');
+      await cd.getByLabel(/API key/).fill(`uiacc-key-${RUN}`);
+      await cd.getByRole('button', { name: 'เชื่อมต่อ' }).click();
+      await confirmStepUp(page); // D-77 credential ต้องยืนยัน 2FA
+      await expect(page.getByRole('status')).toContainText('ERP จำลอง (Demo)');
+      const con = await db.connector.findFirstOrThrow({
+        where: { tenantId, adapterKey: 'demo', status: 'ACTIVE', companyId: null },
+        orderBy: { createdAt: 'desc' },
+      });
+      conId = con.id;
+      // ระบบหยุดเพราะเชื่อมต่อไม่ได้ (จำลอง)
+      await db.connector.update({ where: { id: con.id }, data: { status: 'ERROR' } });
+      await page.reload();
+      await card.getByRole('button', { name: 'เชื่อมต่อ' }).click();
       const dlg = page.getByRole('dialog');
       await expect(dlg.getByText('เปิดใช้ ERP จำลอง (Demo) อีกครั้ง')).toBeVisible();
+      await expect(dlg.getByRole('button', { name: 'เชื่อมต่อ' })).toBeDisabled();
       await shot(page, 'connector-resume-reason');
       const reason = `แก้ key ในระบบบัญชีแล้ว (E2E ${RUN})`;
       await dlg.getByRole('textbox').fill(reason);
       await dlg.getByRole('button', { name: 'เชื่อมต่อ' }).click();
       await expect(dlg).toBeHidden();
+      await expect
+        .poll(async () => (await db.connector.findUniqueOrThrow({ where: { id: con.id } })).status)
+        .toBe('ACTIVE');
       const audit = await db.auditLog.findFirst({
         where: { tenantId, action: 'connector.resumed', entityId: con.id },
         orderBy: { seq: 'desc' },
       });
-      // ทดสอบผ่าน = เปิดใช้ + เหตุผลลง audit · ไม่ผ่าน (credential ของฐาน e2e) = ยังไม่มี audit แต่ต้องไม่เปิดโดยไม่มีเหตุผล
-      if (audit) expect(audit.reason).toBe(reason);
+      expect(audit?.reason).toBe(reason);
 
-      // #89 ช่องหน่วงเวลา (Demo อ่านเอกสารกลับได้) — บันทึกเมื่อออกจากช่อง (D-67 ยืนยัน 2FA)
+      // #89 ช่องหน่วงเวลา (Demo อ่านเอกสารกลับได้) — บันทึกเมื่อออกจากช่อง · D-67 แก้ค่าตั้งต้องยืนยัน 2FA
+      // (token เก็บในหน่วยความจำของหน้า — โหลดหน้าใหม่ข้างบนแล้วจึงถามอีกครั้งเสมอ)
       const delay = page.getByLabel('ตรวจเทียบหลังส่ง (นาที)');
       await expect(delay).toBeVisible();
       await delay.fill('15');
       await delay.blur();
-      await confirmStepUp(page).catch(() => undefined);
+      await confirmStepUp(page);
       await expect
         .poll(
           async () =>
@@ -163,15 +186,15 @@ test.describe('หน้าจอบัญชี/ERP ที่ประกอบ
         .toBe(15);
       await shot(page, 'connector-delay');
     } finally {
-      await db.connector.update({
-        where: { id: con.id },
-        data: { afterPushReconcileDelayMin: 0 },
-      });
-      if (existing) await db.connector.update({ where: { id: con.id }, data: before });
-      else
+      if (conId)
         await db.connector.update({
-          where: { id: con.id },
+          where: { id: conId },
           data: { status: 'DISCONNECTED', disconnectedAt: new Date() },
+        });
+      for (const p of parked as { id: string; status: string; disconnectedAt: Date | null }[])
+        await db.connector.update({
+          where: { id: p.id },
+          data: { status: p.status, disconnectedAt: p.disconnectedAt },
         });
     }
   });
@@ -202,5 +225,7 @@ test.describe('หน้าจอบัญชี/ERP ที่ประกอบ
     const box = page.getByTestId('settle-link');
     await expect(box).toContainText('/link/');
     await shot(page, 'carrier-pay-link');
+    // review L6: เก็บกวาด — รถร่วมทดสอบ soft delete (ลิงก์ของรถร่วมที่ถูกลบ = 404)
+    await db.carrier.update({ where: { id: c.id }, data: { deletedAt: new Date() } });
   });
 });

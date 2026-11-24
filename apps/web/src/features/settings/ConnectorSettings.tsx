@@ -881,7 +881,16 @@ function MapTab({
             onChange={(e) => setDelay(e.target.value)}
             onBlur={() => {
               if (badDelay || delayN === (c.afterPushReconcileDelayMinutes ?? 0)) return;
-              patch.mutate({ afterPushReconcileDelayMinutes: delayN });
+              // review L7: บันทึกไม่สำเร็จ (รวมยกเลิกยืนยัน 2FA) → กลับเป็นค่าที่บันทึกไว้ + แจ้ง
+              patch.mutate(
+                { afterPushReconcileDelayMinutes: delayN },
+                {
+                  onError: (e) => {
+                    setDelay(String(c.afterPushReconcileDelayMinutes ?? 0));
+                    onToast(problemText(e, t) ?? t('cnx.f.rcDelayFail'), true);
+                  },
+                },
+              );
             }}
           />
           <span className="cnx-f__h" style={badDelay ? { color: '#B3322A' } : undefined}>

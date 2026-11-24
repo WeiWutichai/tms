@@ -29715,7 +29715,7 @@
         },
         "responses": {
           "200": {
-            "description": "เปิดใช้ (PAUSED/ERROR → ACTIVE) หลัง healthCheck ผ่าน · ไม่ผ่าน → 409 `connector_health_failed`",
+            "description": "เปิดใช้ (PAUSED/ERROR → ACTIVE) หลัง healthCheck ผ่าน · ไม่ผ่าน → 409 `connector_health_failed` · จาก ERROR ต้องมี `reason` ≥ 10 ตัว (Q-RES — ลง audit `connector.resumed`) ไม่มี/สั้น → 422 `reason_required`",
             "content": {
               "application/json": {
                 "schema": {
@@ -87691,7 +87691,7 @@
           },
           "succeeded24h": {
             "type": "number",
-            "description": "คำสั่งที่ส่งสำเร็จ (DONE) ใน 24 ชั่วโมงล่าสุด — การ์ด \"สำเร็จ 24 ชม.\" ของหน้าคิว (ต้นแบบ kpis('erp'); PO 24 พ.ย. 2569)"
+            "description": "คำสั่งที่ส่งสำเร็จ (DONE ที่ไม่ต้องกรอกเลขเอง — DUPLICATE ที่หาเลขไม่เจอไม่นับ) ใน 24 ชั่วโมงล่าสุด — การ์ด \"สำเร็จ 24 ชม.\" ของหน้าคิว (ต้นแบบ kpis('erp'); PO 24 พ.ย. 2569)"
           },
           "finished24h": {
             "type": "number",

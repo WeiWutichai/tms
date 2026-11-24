@@ -75,6 +75,27 @@ export function useErpConnectors(): {
   return { list, current, pick: setWant };
 }
 
+/**
+ * review L9: ชื่อระบบบัญชีต่อ connector สำหรับหน้าอื่น (เช่น drawer ใบแจ้งหนี้) — ใช้ cache เดียวกับหน้าคิว ไม่โหลดซ้ำเป็นรอบ
+ * (ไม่มี refetchInterval · ข้อมูลเก่าได้ 10 นาที) · ไม่มีสิทธิ์/แพ็กเกจไม่มี `conn` = ไม่เรียก
+ */
+export function useErpConnectorList(): Metrics[] {
+  const me = useMe();
+  const scopes = me.data?.scopes ?? [];
+  const enabled =
+    !!me.data &&
+    (can(scopes, 'integrations:read') || can(scopes, 'settings:read')) &&
+    !!me.data.features?.includes('conn');
+  const q = useQuery({
+    queryKey: ['connector-metrics'],
+    queryFn: () => unwrap(api.GET('/v1/connectors/metrics')),
+    enabled,
+    retry: false,
+    staleTime: 10 * 60_000,
+  });
+  return enabled ? (q.data?.data ?? []) : [];
+}
+
 /** connector ของหน้านี้ (ตัวที่เลือก / ล้มเหลวมากสุด) */
 export function useErpConnector(): Metrics | null {
   return useErpConnectors().current;
@@ -200,6 +221,39 @@ export function useRetryAll(connectorId: string | null) {
           body: {},
         }),
       ),
+    onSettled: () => invalidateErp(qc),
+  });
+}
+
+export type BulkResult<X> = { ok: X[]; failed: { x: X; err: unknown }[] };
+
+/**
+ * ต้นแบบ erp bulk "ส่งซ้ำหลายรายการ" (review M2/L3): ส่งซ้ำทีละรายการ (`POST …/retry`) แล้วโหลดใหม่ครั้งเดียวหลังจบทั้งชุด
+ * รายการที่ส่งซ้ำไม่ได้ (`actions.retry` = false) นับเป็นไม่สำเร็จพร้อมเหตุ
+ */
+export function useBulkRetry(connectorId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (items: QueueItem[]): Promise<BulkResult<QueueItem>> => {
+      const r: BulkResult<QueueItem> = { ok: [], failed: [] };
+      for (const x of items) {
+        if (!x.actions.retry) {
+          r.failed.push({ x, err: 'not_retryable' });
+          continue;
+        }
+        try {
+          await unwrap(
+            api.POST('/v1/connectors/{id}/queue/{commandId}/retry', {
+              params: { path: { id: connectorId, commandId: x.id } },
+            }),
+          );
+          r.ok.push(x);
+        } catch (err) {
+          r.failed.push({ x, err });
+        }
+      }
+      return r;
+    },
     onSettled: () => invalidateErp(qc),
   });
 }
