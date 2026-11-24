@@ -170,13 +170,11 @@ test.describe('หน้าจอบัญชี/ERP ที่ประกอบ
       });
       expect(audit?.reason).toBe(reason);
 
-      // #89 ช่องหน่วงเวลา (Demo อ่านเอกสารกลับได้) — บันทึกเมื่อออกจากช่อง · D-67 แก้ค่าตั้งต้องยืนยัน 2FA
-      // (token เก็บในหน่วยความจำของหน้า — โหลดหน้าใหม่ข้างบนแล้วจึงถามอีกครั้งเสมอ)
+      // #89 ช่องหน่วงเวลา (Demo อ่านเอกสารกลับได้) — บันทึกเมื่อออกจากช่อง (ค่าตั้งไม่ลับ — API ไม่ขอยืนยัน 2FA)
       const delay = page.getByLabel('ตรวจเทียบหลังส่ง (นาที)');
       await expect(delay).toBeVisible();
       await delay.fill('15');
       await delay.blur();
-      await confirmStepUp(page);
       await expect
         .poll(
           async () =>
