@@ -371,6 +371,8 @@ describe('ops dashboard (ST9-T01)', () => {
     expect(await rows('/v1/trips?vehiclePlate=%E0%B8%AB%E0%B8%B2%E0%B8%87')).toBe(1); // "หาง"
     expect(await rows(`/v1/trips?driverName=${encodeURIComponent('รถร่วม')}`)).toBe(2);
     expect(await rows(`/v1/trips?tripNo=${tRun.tripNo!.toLowerCase()}`)).toBe(1);
+    expect(await rows('/v1/trips?tripNo=TRP_DASH')).toBe(0);
+    expect(await rows('/v1/trips?vehiclePlate=%25')).toBe(0);
     // คอลัมน์ รายได้ / ค่าเที่ยว — มีในรายการ (ไม่มีบรรทัด = 0.00)
     const tl = (await api(app, admin).get('/v1/trips?limit=50').expect(200)).body.data as {
       id: string;
@@ -427,15 +429,25 @@ describe('ops dashboard (ST9-T01)', () => {
       await rows('/v1/delivery-orders?status=DELIVERED,POD_PENDING,UNBILLED'),
     );
     expect(all.unbilled).toBe(3);
-    expect(all.returned).toBe(await rows('/v1/delivery-orders?status=RETURNED'));
-    expect(all.failedTotal).toBe(await rows('/v1/delivery-orders?status=FAILED'));
+    expect(all.failedTotal).toBe(await rows('/v1/delivery-orders?status=FAILED,RETURNED'));
     expect(all.failedTotal).toBe(1);
+    expect(all.deliveredClean).toBe(
+      await rows('/v1/delivery-orders?status=DELIVERED,POD_PENDING,UNBILLED&rejected=false'),
+    );
+    expect(all.rejected).toBe(
+      await rows('/v1/delivery-orders?status=DELIVERED,POD_PENDING,UNBILLED&rejected=true'),
+    );
+    expect(all.deliveredClean + all.rejected).toBe(all.unbilled);
     expect(all.billed).toBe(await rows('/v1/delivery-orders?status=BILLED'));
     expect(all.total).toBe(await rows('/v1/delivery-orders'));
     expect(all.inTransit).toBe(1);
     expect(all.sellUnbilledAmount).toMatch(/^\d+\.\d{2}$/);
     // ตัวกรองค้นของหน้า `/do`
     const total = await rows('/v1/delivery-orders');
+    // ค้นชื่อจุดรับ/ส่ง · อักขระ LIKE (% _) ค้นตามตัวอักษร ไม่ใช่ wildcard
+    expect(await rows(`/v1/delivery-orders?route=${encodeURIComponent('จุดรับส่ง')}`)).toBe(total);
+    expect(await rows('/v1/delivery-orders?route=%25')).toBe(0);
+    expect(await rows('/v1/delivery-orders?doNo=_')).toBe(0);
     // กระดานหน้า `/trips`: DO รอเข้าเที่ยว = ไม่อยู่ในเที่ยวที่ยังใช้งาน
     const inTrip = await rows('/v1/delivery-orders?inTrip=true');
     expect(inTrip).toBe(5);
@@ -489,11 +501,12 @@ describe('ops dashboard (ST9-T01)', () => {
       ds.draft,
       ds.inTransit,
       ds.unbilled,
-      ds.returned,
+      ds.deliveredClean,
+      ds.rejected,
       ds.failedTotal,
       ds.billed,
       ds.total,
-    ]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    ]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     expect(ds.sellUnbilledAmount).toBe('0.00');
     expect(await rows('/v1/trips?ownership=SUBCON', other)).toBe(1);
   });
@@ -535,7 +548,14 @@ describe('ops dashboard (ST9-T01)', () => {
       string,
       unknown
     >[];
-    for (const x of vt) expect(x).not.toHaveProperty('buyTotal');
+    for (const x of vt) {
+      expect(x).not.toHaveProperty('buyTotal');
+      expect(x).not.toHaveProperty('sellAmount');
+    }
+    // amounts=false → ไม่มียอดเงินแม้มีสิทธิ์
+    const na = (await api(app, admin).get('/v1/trips?limit=5&amounts=false').expect(200)).body
+      .data as Record<string, unknown>[];
+    for (const x of na) expect(x).not.toHaveProperty('sellAmount');
     // รายการ DO ของ dispatcher (ไม่มีสิทธิ์ราคา) ไม่มีรายได้
     const l = await api(app, disp).get('/v1/delivery-orders?limit=5').expect(200);
     expect(JSON.stringify(l.body)).not.toMatch(/revenue|price/i);

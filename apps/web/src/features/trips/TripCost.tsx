@@ -4,17 +4,32 @@ import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { problemText } from '../master/problems';
 import { useDateTimeText } from '../rate-cards/rateFormat';
+import { decimalFromSatang, satangFromDecimal } from '@tms/domain/src/money';
 import { useCloseTripCost, useTripCosts, useTripRevenue } from './useTripList';
 import type { TripDetail } from './useTrips';
 
 /** สถานะที่เกี่ยวกับต้นทุน: จบเที่ยว (ปิดได้) / ปิดแล้ว */
 const COST_STATES = new Set(['COMPLETED', 'COSTED', 'SETTLED']);
 
+/** กำไร = รายได้ − ต้นทุน (สตางค์ bigint — ไม่ใช้ float) */
+const profitOf = (rev: string, buy: string) =>
+  decimalFromSatang(satangFromDecimal(rev) - satangFromDecimal(buy));
+
 const money = (v: string) =>
   Number(v).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/** แถว "ยอดเงิน" (ต้นแบบ vPanel kvM: ป้ายซ้าย/ตัวเลขขวา · แถวกำไรตัวหนามีเส้นคั่นบน) */
-function Row({ k, v, bold, warn }: { k: ReactNode; v: ReactNode; bold?: boolean; warn?: boolean }) {
+/** แถว "ยอดเงิน" (ต้นแบบ vPanel kvM: ป้ายซ้าย/ตัวเลขขวา น้ำหนักปกติ · แถวกำไรมีเส้นคั่นบน) */
+function Row({
+  k,
+  v,
+  divider,
+  warn,
+}: {
+  k: ReactNode;
+  v: ReactNode;
+  divider?: boolean;
+  warn?: boolean;
+}) {
   return (
     <div
       style={{
@@ -22,14 +37,13 @@ function Row({ k, v, bold, warn }: { k: ReactNode; v: ReactNode; bold?: boolean;
         justifyContent: 'space-between',
         gap: 12,
         padding: '6px 0',
-        borderTop: bold ? '1px solid #E4E6E0' : '0',
+        borderTop: divider ? '1px solid #E4E6E0' : '0',
       }}
     >
-      <span style={{ color: '#3B424C', fontWeight: bold ? 600 : 400 }}>{k}</span>
+      <span style={{ color: '#3B424C' }}>{k}</span>
       <span
         className="tms-num"
         style={{
-          fontWeight: bold ? 600 : 400,
           color: warn ? '#8F5500' : '#101418',
           textAlign: 'right',
         }}
@@ -92,16 +106,7 @@ export function TripMoneySection({
           />
         )}
         {showRev && showBuy && (
-          <Row
-            k={t('trip.money.profit')}
-            v={money(
-              (
-                (Math.round(Number(rev) * 100) - Math.round(Number(s!.buyTotal!) * 100)) /
-                100
-              ).toFixed(2),
-            )}
-            bold
-          />
+          <Row k={t('trip.money.profit')} v={money(profitOf(rev, s!.buyTotal!))} divider />
         )}
         {relevant && s && (
           <Row
@@ -172,7 +177,7 @@ export function TripCostCloseButton({
                   onDone(t('trip.cost.done', { no: trip.tripNo }));
                 },
                 onError: (e) => {
-                  setErr(problemText(e, t) ?? t('trip.cost.blocked', { list: '' }));
+                  setErr(problemText(e, t) ?? t('trip.cost.failed'));
                   void q.refetch();
                 },
               },
@@ -245,6 +250,47 @@ function CostDialog({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+const EDITABLE_TRIP = new Set(['PLANNING', 'ASSIGNED']);
+
+/**
+ * ส่วนซ้ายของ footer drawer เที่ยว — ต้นแบบ: เที่ยวที่ยังแก้ได้ = "DO ในเที่ยว N ใบ" · เที่ยวที่ปล่อยแล้ว = "กำไรเที่ยวนี้ ฿…"
+ * กำไรแสดงเฉพาะผู้มีทั้ง `prices.sell:read` และ `prices.buy:read` (ไม่มี = คง "DO ในเที่ยว" — `fallback`)
+ */
+export function TripFooterSummary({
+  trip,
+  canSeeBuy,
+  canSeeSell,
+  fallback,
+}: {
+  trip: TripDetail;
+  canSeeBuy: boolean;
+  canSeeSell: boolean;
+  fallback: ReactNode;
+}) {
+  const { t } = useI18n();
+  const want = canSeeBuy && canSeeSell && !EDITABLE_TRIP.has(trip.status);
+  const q = useTripCosts(trip.id, want);
+  const rev = useTripRevenue(
+    trip.deliveryOrders.map((d) => d.id),
+    want,
+  );
+  const buy = q.data?.summary.buyTotal;
+  if (!want || rev === undefined || buy === undefined) return <>{fallback}</>;
+  return (
+    <div
+      style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}
+      data-testid="trip-foot-profit"
+    >
+      <span style={{ fontSize: 12.5, fontWeight: 500, color: '#59606B' }}>
+        {t('trip.money.profit')}
+      </span>
+      <span className="tms-num" style={{ fontSize: 20, fontWeight: 600, color: '#101418' }}>
+        {t('ord.baht', { n: money(profitOf(rev, buy)) })}
+      </span>
     </div>
   );
 }

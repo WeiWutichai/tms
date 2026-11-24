@@ -70,6 +70,7 @@ export function useReorderStops() {
     onSettled: () => {
       qc.invalidateQueries({ queryKey: [KEY] });
       qc.invalidateQueries({ queryKey: [BOARD_KEY] });
+      qc.invalidateQueries({ queryKey: ['delivery-orders'] });
     },
   });
 }
@@ -92,6 +93,7 @@ export function useDetachFromTrip() {
     onSettled: () => {
       qc.invalidateQueries({ queryKey: [KEY] });
       qc.invalidateQueries({ queryKey: [BOARD_KEY] });
+      qc.invalidateQueries({ queryKey: ['delivery-orders'] });
       qc.invalidateQueries({ queryKey: ['orders'] });
     },
   });
@@ -104,6 +106,8 @@ const invalidateAll = (qc: ReturnType<typeof useQueryClient>) => {
   qc.invalidateQueries({ queryKey: [KEY] });
   qc.invalidateQueries({ queryKey: [BOARD_KEY] });
   qc.invalidateQueries({ queryKey: ['orders'] });
+  // หน้า /do (รายการ + ตัวนับ) — สถานะ DO เปลี่ยนตามการจัดรถ/ปล่อยรถ
+  qc.invalidateQueries({ queryKey: ['delivery-orders'] });
 };
 
 /**

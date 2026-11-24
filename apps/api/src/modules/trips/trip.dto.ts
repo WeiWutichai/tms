@@ -64,7 +64,7 @@ export class TripListQuery extends ListQuery {
 
   @ApiPropertyOptional({
     example: 'TRP-2611',
-    description: 'ค้นเลขเที่ยว (มีคำนี้ ไม่สนตัวพิมพ์) — หน้ารายการเที่ยว `/trips`',
+    description: 'ค้นเลขเที่ยว (มีคำนี้ ไม่สนตัวพิมพ์)',
   })
   @IsOptional()
   @IsString()
@@ -96,6 +96,20 @@ export class TripListQuery extends ListQuery {
   @IsOptional()
   @IsIn(['OWN', 'SUBCON'])
   ownership?: 'OWN' | 'SUBCON';
+
+  @ApiPropertyOptional({ example: 'บางนา', description: 'ค้นชื่อสถานที่ของจุดแวะ (มีคำนี้)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  route?: string;
+
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description: '`false` = ไม่คำนวณ `sellAmount` / `buyTotal` ต่อแถว (ค่าเริ่ม true)',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  amounts?: 'true' | 'false';
 }
 
 class DeliveryOrderIdsDto {
@@ -815,7 +829,7 @@ export class TripDto {
     nullable: true,
     example: '9500.00',
     description:
-      'รายได้ของเที่ยว = ผลรวมบรรทัดรายได้ที่ใช้อยู่ของ DO ในเที่ยว (ก่อน VAT) — **มีเฉพาะ `GET /trips` (รายการ)** · เห็นเมื่อมี `prices.sell:read`',
+      'รายได้ของเที่ยว = ผลรวมบรรทัดรายได้ที่ใช้อยู่ของ DO ในเที่ยว (ก่อน VAT) — มีเฉพาะผลของ `GET /trips` · เห็นเมื่อมี `prices.sell:read`',
   })
   @PriceField('sell')
   sellAmount?: string | null;
@@ -824,7 +838,7 @@ export class TripDto {
     nullable: true,
     example: '6500.00',
     description:
-      'ค่าเที่ยว = ต้นทุนสุทธิของเที่ยว (บรรทัด trip_cost ที่ยืนยันแล้ว รวมกลับรายการ — ชุดเดียวกับ `GET /trips/{id}/costs` summary.buyTotal) — **มีเฉพาะ `GET /trips` (รายการ)** · เห็นเมื่อมี `prices.buy:read`',
+      'ต้นทุนสุทธิของเที่ยว (บรรทัด trip_cost ที่ยืนยันแล้ว รวมกลับรายการ — ชุดเดียวกับ `GET /trips/{id}/costs` summary.buyTotal) — มีเฉพาะผลของ `GET /trips` · เห็นเมื่อมี `prices.buy:read`',
   })
   @PriceField('buy')
   buyTotal?: string | null;
@@ -840,19 +854,18 @@ export class TripSummaryDto {
   @ApiProperty({ description: 'งานรถร่วมรอตอบ = `status=OFFERED` (ทุกวันที่)' })
   offered!: number;
   @ApiProperty({
-    description: 'หน้า `/trips` การ์ด "วางแผน" = `status=PLANNING,OFFERED,ASSIGNED` (ทุกวันที่)',
+    description: '`status=PLANNING,OFFERED,ASSIGNED` (ทุกวันที่ — ก่อนปล่อยรถ)',
   })
   planning!: number;
-  @ApiProperty({ description: 'การ์ด "ระหว่างส่ง" = `status=DISPATCHED,IN_PROGRESS` (ทุกวันที่)' })
+  @ApiProperty({ description: '`status=DISPATCHED,IN_PROGRESS` (ทุกวันที่)' })
   inTransit!: number;
-  @ApiProperty({ description: 'การ์ด "ส่งแล้ว" = `status=COMPLETED,COSTED,SETTLED` (ทุกวันที่)' })
+  @ApiProperty({ description: '`status=COMPLETED,COSTED,SETTLED` (ทุกวันที่)' })
   done!: number;
   @ApiProperty({
-    description:
-      'การ์ด "ใช้รถร่วม" = `ownership=SUBCON&status=` ทุกสถานะยกเว้น CANCELLED (ทุกวันที่)',
+    description: '`ownership=SUBCON&status=` ทุกสถานะยกเว้น CANCELLED (ทุกวันที่)',
   })
   subcon!: number;
-  @ApiProperty({ description: 'แท็บ "ทั้งหมด" = ทุกเที่ยว (ไม่มีตัวกรอง — รวมที่ยกเลิก)' })
+  @ApiProperty({ description: 'เที่ยวทั้งหมด (ไม่มีตัวกรอง — รวมที่ยกเลิก)' })
   total!: number;
 }
 

@@ -19,7 +19,11 @@ export const TRIP_TAB_IN_TRANSIT = [
   'IN_PROGRESS',
 ] as const satisfies readonly TripStatus[];
 /** เที่ยว "ส่งแล้ว" = จบเที่ยว / ปิดต้นทุนแล้ว / จ่ายรถร่วมแล้ว */
-export const TRIP_TAB_DONE = ['COMPLETED', 'COSTED', 'SETTLED'] as const satisfies readonly TripStatus[];
+export const TRIP_TAB_DONE = [
+  'COMPLETED',
+  'COSTED',
+  'SETTLED',
+] as const satisfies readonly TripStatus[];
 /** เที่ยวที่นับใน "ใช้รถร่วม" (ไม่นับที่ยกเลิก) */
 export const TRIP_NOT_CANCELLED = [
   ...TRIP_TAB_PLANNING,
@@ -31,15 +35,19 @@ export const TRIP_NOT_CANCELLED = [
 export const DO_TAB_DRAFT = ['DRAFT', 'PLANNED'] as const satisfies readonly DoStatus[];
 /** DO "ระหว่างส่ง" = ปล่อยรถแล้ว / รับของแล้ว */
 export const DO_TAB_IN_TRANSIT = ['DISPATCHED', 'PICKED_UP'] as const satisfies readonly DoStatus[];
-/** DO "ส่งแล้ว" = ส่งถึงแล้วแต่ยังไม่วางบิล (ส่งสำเร็จ / รอ POD / รอวางบิล) — ชุดเดียวกับการ์ด "ยังไม่วางบิล" */
+/**
+ * DO ส่งถึงแล้วแต่ยังไม่วางบิล (ส่งสำเร็จ / รอ POD / รอวางบิล) — การ์ด "ยังไม่วางบิล" · แท็บ "ส่งแล้ว" = ชุดนี้ + `rejected=false`
+ * · แท็บ "ตีกลับบางส่วน" (ต้นแบบ) = ชุดนี้ + `rejected=true` (มีบรรทัดปฏิเสธรับ — ไม่ใช่สถานะใน state machine)
+ */
 export const DO_TAB_DELIVERED = [
   'DELIVERED',
   'POD_PENDING',
   'UNBILLED',
 ] as const satisfies readonly DoStatus[];
-/** DO "ตีกลับ" (คืนคลัง) */
-export const DO_TAB_RETURNED = ['RETURNED'] as const satisfies readonly DoStatus[];
-/** DO "ส่งไม่สำเร็จ" */
-export const DO_TAB_FAILED = ['FAILED'] as const satisfies readonly DoStatus[];
+/**
+ * DO "ส่งไม่สำเร็จ" = FAILED + RETURNED (คืนคลังหลังส่งไม่สำเร็จ/ปฏิเสธรับ — docs/01 §4.3 `FAILED → RETURNED`)
+ * ต้นแบบไม่มีแท็บ RETURNED → อยู่ในแท็บที่ใกล้ที่สุดตาม state machine
+ */
+export const DO_TAB_FAILED = ['FAILED', 'RETURNED'] as const satisfies readonly DoStatus[];
 /** DO "วางบิลแล้ว" */
 export const DO_TAB_BILLED = ['BILLED'] as const satisfies readonly DoStatus[];

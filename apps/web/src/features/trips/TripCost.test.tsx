@@ -34,7 +34,7 @@ vi.mock('../../api', async (orig) => {
     },
   };
 });
-const { TripMoneySection, TripCostCloseButton } = await import('./TripCost');
+const { TripMoneySection, TripCostCloseButton, TripFooterSummary } = await import('./TripCost');
 
 const TRIP = {
   id: 'trp_1',
@@ -123,5 +123,28 @@ describe('ปิดต้นทุนเที่ยว', () => {
     const p = posts.at(-1)!;
     expect(p.path).toBe('/v1/trips/{id}/cost');
     expect((p.init as { headers: Record<string, string> }).headers['If-Match']).toBe('"7"');
+  });
+
+  it('footer: เที่ยวปล่อยแล้ว + มีทั้งสองสิทธิ์ราคา = "กำไรเที่ยวนี้ ฿…" · ขาดสิทธิ์ = คง DO ในเที่ยว', async () => {
+    costs = {
+      summary: { tripStatus: 'COMPLETED', buyTotal: '6500.00', pendingCount: 0, blockers: [] },
+    };
+    const { unmount } = mount(
+      <TripFooterSummary trip={TRIP} canSeeBuy canSeeSell fallback={<span>DO ในเที่ยว</span>} />,
+    );
+    expect(await screen.findByTestId('trip-foot-profit')).toHaveTextContent(
+      'กำไรเที่ยวนี้฿3,000.50',
+    );
+    unmount();
+    mount(
+      <TripFooterSummary
+        trip={TRIP}
+        canSeeBuy
+        canSeeSell={false}
+        fallback={<span>DO ในเที่ยว</span>}
+      />,
+    );
+    expect(screen.getByText('DO ในเที่ยว')).toBeInTheDocument();
+    expect(screen.queryByTestId('trip-foot-profit')).toBeNull();
   });
 });

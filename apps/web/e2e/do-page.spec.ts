@@ -14,7 +14,7 @@ import {
 /**
  * E2E หน้าใบส่งของ `/do` (UAT 24 พ.ย. 2569 — ต้นแบบ TMS v4 specDo + kpisX do + vPanel do)
  * - การ์ด "ร่าง" / "ระหว่างส่ง" = จำนวนแถวเมื่อคลิก · แท็บ → สถานะ · ค้นเลข DO
- * - drawer DO: ข้อมูล + จุดรับ–ส่ง + เปิดเที่ยวรถ / เปิดใบสั่งขนส่ง
+ * - drawer DO: ข้อมูล + จุดรับ–ส่ง + แท็บไทม์ไลน์ + เมนู "…" เปิดเที่ยวรถ · ยืนยันส่งแล้ว (เมนูแถว) → ไทม์ไลน์เที่ยว + dialog ปิดงาน
  * login ครั้งเดียวทั้งไฟล์ · ข้อมูลสมมติผ่าน /v1 + ตั้งสถานะ DO ผ่านฐาน e2e
  */
 const test = base.extend<{ loggedIn: void }>({
@@ -41,6 +41,8 @@ const db = new PrismaClient({ datasources: { db: { url: env.PLATFORM_DATABASE_UR
 test.afterAll(async () => db.$disconnect());
 
 const RUN = String(Date.now()).slice(-6);
+/** เที่ยวที่สร้างในไฟล์นี้ (ยกเลิกตอนจบ) */
+const created: string[] = [];
 const today = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 const num = (s: string | null) => Number((s ?? '').replace(/[^\d]/g, ''));
 let trip = { id: '', tripNo: '' };
@@ -52,7 +54,8 @@ async function countRows(p: Page): Promise<number> {
   if ((await size.inputValue()) !== '50') await size.selectOption('50');
   let n = 0;
   for (;;) {
-    await p.waitForTimeout(400);
+    // ตัวกรองหน่วง 300 ms (useCursorList) — ระหว่างนั้นตารางเป็น aria-busy อยู่แล้ว จึงรอเงื่อนไขแทนการหน่วงเวลา
+    await expect(busy).toHaveCount(0);
     await p.waitForLoadState('networkidle');
     await expect(busy).toHaveCount(0);
     n += await p.locator('tbody tr[aria-selected]').count();
@@ -155,6 +158,7 @@ test.describe.serial('หน้าใบส่งของ /do', () => {
       deliveryOrderIds: [dos[0]!.id, dos[1]!.id],
       vehicleId: veh.id,
     });
+    created.push(trip.id);
     // ใบแรกระหว่างส่ง (เที่ยวปล่อยแล้ว) · ใบที่สองส่งแล้ว · ใบที่สามยังเป็นร่าง (ไม่อยู่ในเที่ยว)
     const t = await db.trip.findFirstOrThrow({ where: { tripNo: trip.tripNo } });
     await db.trip.update({
@@ -170,7 +174,19 @@ test.describe.serial('หน้าใบส่งของ /do', () => {
       data: { status: 'UNBILLED' },
     });
   });
-  test.afterAll(async () => page?.context().close());
+  test.afterAll(async () => {
+    // เก็บกวาด: ยกเลิกเที่ยวที่สร้างในไฟล์นี้ที่ยังยกเลิกได้ (เที่ยวที่ปิดต้นทุน/ปล่อยแล้วคงไว้ — API ตอบ 409)
+    for (const id of created) {
+      const r = await page.request.get(`/v1/trips/${id}`, { headers: H });
+      if (!r.ok()) continue;
+      const tr = (await r.json()) as { version: number };
+      await page.request.post(`/v1/trips/${id}/cancel`, {
+        headers: { ...H, 'If-Match': `"${tr.version}"`, 'Idempotency-Key': randomUUID() },
+        data: { reason: 'เก็บกวาดข้อมูลทดสอบ E2E หน้ารายการ' },
+      });
+    }
+    await page?.context().close();
+  });
 
   test('หน้าเปิดได้ + การ์ด 4 ใบ + แท็บตามต้นแบบ', async () => {
     await page.goto('/do');
@@ -183,7 +199,7 @@ test.describe.serial('หน้าใบส่งของ /do', () => {
       'ร่าง',
       'ระหว่างส่ง',
       'ส่งแล้ว',
-      'ตีกลับ',
+      'ตีกลับบางส่วน',
       'ส่งไม่สำเร็จ',
       'วางบิลแล้ว',
     ])
@@ -223,8 +239,32 @@ test.describe.serial('หน้าใบส่งของ /do', () => {
     await expect(dlg.getByText('จุดรับ–ส่ง')).toBeVisible();
     await expect(dlg.getByText(trip.tripNo)).toBeVisible();
     await page.screenshot({ path: 'test-results/uitrips-do-drawer-e2e.png' });
-    await dlg.getByRole('button', { name: 'เปิดเที่ยวรถ' }).click();
+    for (const l of ['ไทม์ไลน์', 'หลักฐานส่ง', 'ค่าใช้จ่ายหน้างาน'])
+      await expect(dlg.getByRole('tab', { name: l })).toBeVisible();
+    await dlg.getByRole('tab', { name: 'ไทม์ไลน์' }).click();
+    await expect(dlg.getByText('สร้าง DO จาก SO')).toBeVisible();
+    await dlg.getByRole('tab', { name: 'รายละเอียด' }).click();
+    await dlg.getByRole('button', { name: 'เพิ่มเติม' }).click();
+    await dlg.getByRole('menuitem', { name: /เปิดเที่ยวรถ/ }).click();
     await expect(page.getByRole('dialog').getByText('เที่ยวรถ / ใบคุมรถ').first()).toBeVisible();
     await expect(page.getByRole('dialog').getByText(trip.tripNo).first()).toBeVisible();
+  });
+
+  test('เมนูแถว "ยืนยันส่งแล้ว" → drawer เที่ยวแท็บไทม์ไลน์ + dialog ปิดงานของจุดส่ง', async () => {
+    await page.evaluate(() => sessionStorage.clear());
+    await page.goto('/do');
+    await page.getByRole('tab', { name: /^ระหว่างส่ง/ }).click();
+    await page.locator('thead').getByPlaceholder('ค้นหา').first().fill(dos[0]!.doNo);
+    const row = page.locator('tbody tr[aria-selected]');
+    await expect(row).toHaveCount(1, { timeout: 15_000 });
+    await expect(row.first()).toContainText(dos[0]!.doNo);
+    await row.first().getByRole('button').last().click();
+    await page.getByRole('button', { name: 'ยืนยันส่งแล้ว' }).click();
+    await expect(page.getByRole('dialog').getByRole('tab', { name: 'ไทม์ไลน์' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(page.getByRole('dialog').filter({ hasText: 'ปิดงาน' }).last()).toBeVisible();
+    await page.screenshot({ path: 'test-results/uitrips-do-confirm-e2e.png' });
   });
 });

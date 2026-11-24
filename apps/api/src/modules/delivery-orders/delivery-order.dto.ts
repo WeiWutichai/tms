@@ -70,7 +70,7 @@ export class DeliveryOrderListQuery extends ListQuery {
 
   @ApiPropertyOptional({
     example: 'DO-2611',
-    description: 'ค้นเลข DO (มีคำนี้ ไม่สนตัวพิมพ์) — หน้ารายการ `/do`',
+    description: 'ค้นเลข DO (มีคำนี้ ไม่สนตัวพิมพ์)',
   })
   @IsOptional()
   @IsString()
@@ -112,12 +112,25 @@ export class DeliveryOrderListQuery extends ListQuery {
 
   @ApiPropertyOptional({
     enum: ['true', 'false'],
-    description:
-      'อยู่ในเที่ยวที่ยังใช้งาน (ไม่ยกเลิก) หรือไม่ — `false` = DO รอเข้าเที่ยว (กระดานหน้า `/trips`)',
+    description: 'อยู่ในเที่ยวที่ยังใช้งาน (ไม่ยกเลิก) หรือไม่ — `false` = ยังไม่เข้าเที่ยว',
   })
   @IsOptional()
   @IsIn(['true', 'false'])
   inTrip?: 'true' | 'false';
+
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description: 'มีบรรทัดที่ผู้รับปฏิเสธรับ (`lines[].rejectQty` > 0) หรือไม่',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  rejected?: 'true' | 'false';
+
+  @ApiPropertyOptional({ example: 'บางนา', description: 'ค้นชื่อจุดรับหรือจุดส่ง (มีคำนี้)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  route?: string;
 }
 
 export class DeliveryOrderLineQtyDto {
@@ -325,7 +338,7 @@ export class DeliveryOrderDto {
     nullable: true,
     type: String,
     example: '6 ล้อ',
-    description: 'ประเภทรถของเที่ยว (snapshot) — หน้า `/do` คอลัมน์รถบรรทัดรอง',
+    description: 'ประเภทรถของเที่ยว (snapshot)',
   })
   vehicleTypeName!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'คนขับของเที่ยว (snapshot)' })
@@ -417,32 +430,37 @@ export class DeliveryOrderSummaryDto {
   delivered!: number;
   @ApiProperty({ description: 'ส่งไม่สำเร็จ = `status=FAILED` ของวัน `date`' })
   failed!: number;
-  @ApiProperty({
-    description: 'หน้า `/do` การ์ด "ร่าง" = `status=DRAFT,PLANNED` (ทุกวันที่)',
-  })
+  @ApiProperty({ description: 'ทุกวันที่ `status=DRAFT,PLANNED` (ยังไม่ปล่อยรถ)' })
   draft!: number;
-  @ApiProperty({ description: 'การ์ด "ระหว่างส่ง" = `status=DISPATCHED,PICKED_UP` (ทุกวันที่)' })
+  @ApiProperty({ description: 'ทุกวันที่ `status=DISPATCHED,PICKED_UP` (ระหว่างส่ง)' })
   inTransit!: number;
   @ApiProperty({
-    description:
-      'การ์ด "ยังไม่วางบิล" = `status=DELIVERED,POD_PENDING,UNBILLED` (ทุกวันที่ — ส่งถึงแล้วยังไม่วางบิล)',
+    description: 'ทุกวันที่ `status=DELIVERED,POD_PENDING,UNBILLED` (ส่งถึงแล้ว ยังไม่วางบิล)',
   })
   unbilled!: number;
   @ApiPropertyOptional({
     type: String,
     example: '125400.00',
     description:
-      'มูลค่ารวมของ DO "ยังไม่วางบิล" = Σ บรรทัดรายได้ที่ใช้อยู่ (ก่อน VAT) — เห็นเมื่อมี `prices.sell:read`',
+      'มูลค่ารวมของ DO ชุด `unbilled` = Σ บรรทัดรายได้ที่ใช้อยู่ (ก่อน VAT) — เห็นเมื่อมี `prices.sell:read`',
   })
   @PriceField('sell')
   sellUnbilledAmount?: string;
-  @ApiProperty({ description: 'แท็บ "ตีกลับ" = `status=RETURNED` (ทุกวันที่)' })
-  returned!: number;
-  @ApiProperty({ description: 'แท็บ "ส่งไม่สำเร็จ" = `status=FAILED` (ทุกวันที่)' })
+  @ApiProperty({
+    description:
+      'ชุด `unbilled` ที่ไม่มีบรรทัดปฏิเสธรับ = `status=DELIVERED,POD_PENDING,UNBILLED&rejected=false`',
+  })
+  deliveredClean!: number;
+  @ApiProperty({
+    description:
+      'ชุด `unbilled` ที่มีบรรทัดปฏิเสธรับ = `status=DELIVERED,POD_PENDING,UNBILLED&rejected=true`',
+  })
+  rejected!: number;
+  @ApiProperty({ description: 'ทุกวันที่ `status=FAILED,RETURNED`' })
   failedTotal!: number;
-  @ApiProperty({ description: 'แท็บ "วางบิลแล้ว" = `status=BILLED` (ทุกวันที่)' })
+  @ApiProperty({ description: 'ทุกวันที่ `status=BILLED`' })
   billed!: number;
-  @ApiProperty({ description: 'แท็บ "ทั้งหมด" = ทุก DO (ไม่มีตัวกรอง — รวมที่ยกเลิก)' })
+  @ApiProperty({ description: 'DO ทั้งหมด (ไม่มีตัวกรอง — รวมที่ยกเลิก)' })
   total!: number;
 }
 

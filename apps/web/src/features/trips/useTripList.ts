@@ -1,5 +1,13 @@
 import type { Schemas } from '@tms/contracts';
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+  type InfiniteData,
+} from '@tanstack/react-query';
+import { decimalFromSatang, satangFromDecimal } from '@tms/domain/src/money';
 import { api, idempotent, unwrap } from '../../api';
 import { useCursorList } from '../master/useCursorList';
 import type { TripDetail } from './useTrips';
@@ -21,6 +29,7 @@ export interface TripFilters {
   tripNo: string;
   vehiclePlate: string;
   driverName: string;
+  route: string;
 }
 
 export function useTripList(filters: TripFilters) {
@@ -39,32 +48,64 @@ export function useTripSummary() {
   });
 }
 
-/** กระดาน: DO รอเข้าเที่ยว (DRAFT + ไม่อยู่ในเที่ยวที่ยังใช้งาน — DO ในเที่ยวที่ยังวางแผนยังเป็น DRAFT) — ต้นแบบ vTrpB pool */
+type DoPage = Schemas['DeliveryOrderPageDto'];
+type TripPage = Schemas['TripPageDto'];
+export const POOL_KEY = [KEY, 'pool'] as const;
+export const PLAN_KEY = [KEY, 'plan-cards'] as const;
+const BOARD_PAGE = 50;
+
+/**
+ * กระดาน: DO รอเข้าเที่ยว (DRAFT + ไม่อยู่ในเที่ยวที่ยังใช้งาน — DO ในเที่ยวที่ยังวางแผนยังเป็น DRAFT) — ต้นแบบ vTrpB pool
+ * ทีละ 50 ใบ + "โหลดเพิ่ม" (review L7)
+ */
 export function usePoolDos(enabled: boolean) {
-  return useQuery({
-    queryKey: [KEY, 'pool'],
+  return useInfiniteQuery({
+    queryKey: POOL_KEY,
     enabled,
     staleTime: 0,
-    queryFn: () =>
+    initialPageParam: '' as string,
+    getNextPageParam: (p: DoPage) => (p.hasMore && p.nextCursor ? p.nextCursor : undefined),
+    queryFn: ({ pageParam }) =>
       unwrap(
         api.GET('/v1/delivery-orders', {
-          params: { query: { status: 'DRAFT', inTrip: 'false', limit: 100, sort: '-updatedAt' } },
+          params: {
+            query: {
+              status: 'DRAFT',
+              inTrip: 'false',
+              limit: BOARD_PAGE,
+              sort: '-updatedAt',
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
+          },
         }),
-      ) as Promise<Schemas['DeliveryOrderPageDto']>,
+      ) as Promise<DoPage>,
   });
 }
 
-/** กระดาน: เที่ยวที่ยังเพิ่ม DO ได้ (ก่อนปล่อยรถ — API `/attach` รับ PLANNING/ASSIGNED) — ต้นแบบ vTrpB plan */
+/**
+ * กระดาน: เที่ยวที่ยังเพิ่ม DO ได้ (ก่อนปล่อยรถ — API `/attach` รับ PLANNING/ASSIGNED) — ต้นแบบ vTrpB plan
+ * ไม่ขอยอดเงินต่อแถว (`amounts=false` — review L6) · ทีละ 50 + "โหลดเพิ่ม"
+ */
 export function usePlanTrips() {
-  return useQuery({
-    queryKey: [KEY, 'plan-cards'],
+  return useInfiniteQuery({
+    queryKey: PLAN_KEY,
     staleTime: 0,
-    queryFn: () =>
+    initialPageParam: '' as string,
+    getNextPageParam: (p: TripPage) => (p.hasMore && p.nextCursor ? p.nextCursor : undefined),
+    queryFn: ({ pageParam }) =>
       unwrap(
         api.GET('/v1/trips', {
-          params: { query: { status: 'PLANNING,ASSIGNED', limit: 50, sort: '-updatedAt' } },
+          params: {
+            query: {
+              status: 'PLANNING,ASSIGNED',
+              amounts: 'false',
+              limit: BOARD_PAGE,
+              sort: '-updatedAt',
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
+          },
         }),
-      ) as Promise<Schemas['TripPageDto']>,
+      ) as Promise<TripPage>,
   });
 }
 
@@ -91,7 +132,21 @@ const invalidate = (qc: ReturnType<typeof useQueryClient>) => {
   qc.invalidateQueries({ queryKey: ['delivery-orders'] });
 };
 
-/** วาง DO บนการ์ดเที่ยว → POST /v1/trips/{id}/attach (If-Match = version ที่เห็น) */
+/** เอา DO ออกจากกระดานทันที (optimistic) — คืนค่าเดิมไว้ย้อนเมื่อผิดพลาด */
+function dropFromPool(qc: ReturnType<typeof useQueryClient>, doId: string) {
+  const prev = qc.getQueryData<InfiniteData<DoPage>>(POOL_KEY);
+  if (prev)
+    qc.setQueryData<InfiniteData<DoPage>>(POOL_KEY, {
+      ...prev,
+      pages: prev.pages.map((p) => ({ ...p, data: p.data.filter((d) => d.id !== doId) })),
+    });
+  return prev;
+}
+
+/**
+ * วาง DO บนการ์ดเที่ยว → POST /v1/trips/{id}/attach (If-Match = version ที่เห็น)
+ * review M2: เอา DO ออกจากกองทันที + เขียนเที่ยวที่ได้กลับลง cache (drawer/การ์ดเห็นทันที) · ผิดพลาด = คืนกอง
+ */
 export function useAttachDo() {
   const qc = useQueryClient();
   return useMutation({
@@ -105,11 +160,30 @@ export function useAttachDo() {
         }),
       );
     },
+    onMutate: async (v) => {
+      await qc.cancelQueries({ queryKey: POOL_KEY });
+      return { prev: dropFromPool(qc, v.doId) };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(POOL_KEY, ctx.prev);
+    },
+    onSuccess: (t) => {
+      qc.setQueryData([KEY, t.id], t);
+      const cards = qc.getQueryData<InfiniteData<TripPage>>(PLAN_KEY);
+      if (cards)
+        qc.setQueryData<InfiniteData<TripPage>>(PLAN_KEY, {
+          ...cards,
+          pages: cards.pages.map((p) => ({
+            ...p,
+            data: p.data.map((x) => (x.id === t.id ? { ...x, ...t } : x)),
+          })),
+        });
+    },
     onSettled: () => invalidate(qc),
   });
 }
 
-/** วาง DO บน "เที่ยวใหม่" → POST /v1/trips (เที่ยว PLANNING ยังไม่มีรถ — จัดรถใน drawer) */
+/** วาง DO บน "เที่ยวใหม่" → POST /v1/trips (เที่ยว PLANNING ยังไม่มีรถ — จัดรถใน drawer) · เอา DO ออกจากกองทันที */
 export function useNewTripFromDo() {
   const qc = useQueryClient();
   return useMutation({
@@ -122,6 +196,14 @@ export function useNewTripFromDo() {
         }),
       );
     },
+    onMutate: async (v) => {
+      await qc.cancelQueries({ queryKey: POOL_KEY });
+      return { prev: dropFromPool(qc, v.doId) };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(POOL_KEY, ctx.prev);
+    },
+    onSuccess: (t) => qc.setQueryData([KEY, t.id], t),
     onSettled: () => invalidate(qc),
   });
 }
@@ -176,6 +258,7 @@ export function useTripRevenue(doIds: string[], enabled: boolean): string | unde
   });
   if (!enabled || qs.some((q) => !q.data || q.data.sellRevenueTotal === undefined))
     return undefined;
-  const satang = qs.reduce((a, q) => a + Math.round(Number(q.data!.sellRevenueTotal) * 100), 0);
-  return (satang / 100).toFixed(2);
+  return decimalFromSatang(
+    qs.reduce((a, q) => a + satangFromDecimal(q.data!.sellRevenueTotal!), 0n),
+  );
 }

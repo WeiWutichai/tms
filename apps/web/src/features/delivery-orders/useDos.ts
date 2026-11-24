@@ -1,5 +1,5 @@
 import type { Schemas } from '@tms/contracts';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrap } from '../../api';
 import { useCursorList } from '../master/useCursorList';
 
@@ -18,6 +18,8 @@ export interface DoFilters {
   vehiclePlate: string;
   driverName: string;
   product: string;
+  route: string;
+  rejected: string;
 }
 
 export function useDoList(filters: DoFilters) {
@@ -56,5 +58,24 @@ export function useDoRevenue(id: string, enabled: boolean) {
       unwrap(
         api.GET('/v1/delivery-orders/{id}/revenue-lines', { params: { path: { id } } }),
       ) as Promise<Schemas['DeliveryOrderRevenueDto']>,
+  });
+}
+
+/** ยกเลิกใบส่งของ (เมนู "…" → ยกเลิกเอกสาร — `orders:cancel`, เหตุผล ≥ 10, If-Match) */
+export function useCancelDo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number; reason: string }): Promise<Do> =>
+      unwrap(
+        api.POST('/v1/delivery-orders/{id}/cancel', {
+          params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } },
+          body: { reason: v.reason },
+        }),
+      ) as Promise<Do>,
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: [KEY] });
+      qc.invalidateQueries({ queryKey: ['trip'] });
+      qc.invalidateQueries({ queryKey: ['orders'] });
+    },
   });
 }

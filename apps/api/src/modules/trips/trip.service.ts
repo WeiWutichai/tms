@@ -36,6 +36,7 @@ import {
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId } from '../../common/ids';
+import { likeEscape } from '../../common/ilike';
 import { redactPrices } from '../../common/price-fields';
 import { toTripDto } from './trip-dto';
 import { ProblemException } from '../../common/problem';
@@ -152,9 +153,11 @@ export interface TripFilter extends ListQuery {
   vehiclePlate?: string;
   driverName?: string;
   ownership?: 'OWN' | 'SUBCON';
+  /** ค้นชื่อสถานที่ของจุดแวะ */
+  route?: string;
 }
 
-const has = (v: string) => ({ contains: v.trim(), mode: 'insensitive' as const });
+const has = (v: string) => ({ contains: likeEscape(v.trim()), mode: 'insensitive' as const });
 
 /**
  * ตัวกรองของรายการเที่ยว — ใช้ร่วมกับตัวนับ (`summary`) เพื่อให้ตัวเลขบน dashboard = จำนวนแถวของรายการ (ST9-T01)
@@ -190,6 +193,7 @@ export function tripWhere(q: Omit<TripFilter, keyof ListQuery>): Prisma.TripWher
         : {},
       q.ownership === 'OWN' ? { carrierId: null } : {},
       q.ownership === 'SUBCON' ? { carrierId: { not: null } } : {},
+      q.route?.trim() ? { stops: { some: { site: { is: { name: has(q.route) } } } } } : {},
     ],
   };
 }
@@ -322,7 +326,7 @@ export class TripService {
     const [running, offered, planning, inTransit, done, subcon, total] = await Promise.all([
       n({ statuses: [...OPS_TRIP_RUNNING] }),
       n({ statuses: [...OPS_TRIP_AWAITING_CARRIER] }),
-      // หน้า `/trips` (UAT 24 พ.ย.) — ชุดสถานะเดียวกับแท็บ/ตัวกรองของหน้าเว็บ (`@tms/domain` ops-lists)
+      // ชุดสถานะเดียวกับ `@tms/domain` ops-lists (ตัวกรอง `status` ของรายการ)
       n({ statuses: [...TRIP_TAB_PLANNING] }),
       n({ statuses: [...TRIP_TAB_IN_TRANSIT] }),
       n({ statuses: [...TRIP_TAB_DONE] }),
@@ -333,7 +337,7 @@ export class TripService {
   }
 
   /**
-   * ยอดเงินต่อเที่ยวของหน้ารายการ `/trips` (คอลัมน์ "รายได้ (฿)" / "ค่าเที่ยว (฿)" ของต้นแบบ specTrp) — 2 aggregate ต่อหน้า
+   * ยอดเงินต่อเที่ยวของรายการ (`sellAmount` / `buyTotal`) — aggregate ต่อหน้า
    * รายได้ = Σ บรรทัดรายได้ ACTIVE ของ DO ในเที่ยว (ไม่นับ DO ยกเลิก) · ค่าเที่ยว = Σ trip_cost CONFIRMED (รวมกลับรายการ = buyTotal)
    * ตัดตามสิทธิ์ราคาที่ serializer (`sellAmount` / `buyTotal` เป็น PriceField)
    */

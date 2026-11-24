@@ -170,7 +170,7 @@ export class TripsController {
   @ApiOperation({
     summary: 'ตัวนับเที่ยวของ dashboard ปฏิบัติการ',
     description:
-      'นับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED` · การ์ดหน้า `/trips`: `planning` / `inTransit` / `done` / `subcon` ตามคำอธิบายของแต่ละช่อง',
+      'นับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED` · `planning` / `inTransit` / `done` / `subcon` / `total` ตามคำอธิบายของแต่ละช่อง',
   })
   @ApiProblems(T403('trips:read'))
   @RequireScope('trips:read')
@@ -200,8 +200,12 @@ export class TripsController {
       driverId: dec('driver', q.driverId),
       carrierId: dec('carrier', q.carrierId),
     });
-    // หน้า `/trips` คอลัมน์ รายได้ / ค่าเที่ยว (ตัดตามสิทธิ์ราคาที่ serializer)
-    const amounts = await this.trips.listAmounts(rows.map((r) => r.id));
+    // ยอดเงินต่อแถว (ตัดตามสิทธิ์ราคาที่ serializer) — ไม่คำนวณเมื่อผู้เรียกไม่มีสิทธิ์ราคาเลย หรือขอ `amounts=false`
+    const scopes = requestContext.get()?.scopes ?? [];
+    const priced =
+      q.amounts !== 'false' &&
+      (scopeAllows(scopes, 'prices.sell:read') || scopeAllows(scopes, 'prices.buy:read'));
+    const amounts = priced ? await this.trips.listAmounts(rows.map((r) => r.id)) : new Map();
     return toPage(rows, k, (r) => ({ ...toTripDto(r), ...amounts.get(r.id) }), q.fields);
   }
 

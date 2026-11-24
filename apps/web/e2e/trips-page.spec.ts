@@ -42,6 +42,8 @@ const db = new PrismaClient({ datasources: { db: { url: env.PLATFORM_DATABASE_UR
 test.afterAll(async () => db.$disconnect());
 
 const RUN = String(Date.now()).slice(-6);
+/** เที่ยวที่สร้างในไฟล์นี้ (ยกเลิกตอนจบ) */
+const created: string[] = [];
 const today = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 const num = (s: string | null) => Number((s ?? '').replace(/[^\d]/g, ''));
 let tripA = { id: '', tripNo: '' };
@@ -53,7 +55,8 @@ async function countRows(p: Page): Promise<number> {
   if ((await size.inputValue()) !== '50') await size.selectOption('50');
   let n = 0;
   for (;;) {
-    await p.waitForTimeout(400);
+    // ตัวกรองหน่วง 300 ms (useCursorList) — ระหว่างนั้นตารางเป็น aria-busy อยู่แล้ว จึงรอเงื่อนไขแทนการหน่วงเวลา
+    await expect(busy).toHaveCount(0);
     await p.waitForLoadState('networkidle');
     await expect(busy).toHaveCount(0);
     n += await p.locator('tbody tr[aria-selected]').count();
@@ -156,8 +159,21 @@ test.describe.serial('หน้าเที่ยวรถ /trips', () => {
       deliveryOrderIds: [dos[0]!.id],
       vehicleId: veh.id,
     });
+    created.push(tripA.id);
   });
-  test.afterAll(async () => page?.context().close());
+  test.afterAll(async () => {
+    // เก็บกวาด: ยกเลิกเที่ยวที่สร้างในไฟล์นี้ที่ยังยกเลิกได้ (เที่ยวที่ปิดต้นทุน/ปล่อยแล้วคงไว้ — API ตอบ 409)
+    for (const id of created) {
+      const r = await page.request.get(`/v1/trips/${id}`, { headers: H });
+      if (!r.ok()) continue;
+      const tr = (await r.json()) as { version: number };
+      await page.request.post(`/v1/trips/${id}/cancel`, {
+        headers: { ...H, 'If-Match': `"${tr.version}"`, 'Idempotency-Key': randomUUID() },
+        data: { reason: 'เก็บกวาดข้อมูลทดสอบ E2E หน้ารายการ' },
+      });
+    }
+    await page?.context().close();
+  });
 
   test('หน้าเปิดได้ (ไม่ใช่ "ยังไม่เปิดใช้") + การ์ด + กระดาน + ตาราง', async () => {
     await page.goto('/trips');
@@ -190,6 +206,17 @@ test.describe.serial('หน้าเที่ยวรถ /trips', () => {
       page.getByText(new RegExp(`สร้างเที่ยว TRP-\\S+ จาก ${dos[2]!.doNo} แล้ว`)),
     ).toBeVisible();
     await expect(page.getByTestId('trip-pool-do').filter({ hasText: dos[2]!.doNo })).toHaveCount(0);
+    // เที่ยวใหม่ → เปิด drawer ที่ส่วนจัดรถ (ไม่มีเสนอรถอัตโนมัติ — docs/04 D2 P1)
+    const dlg = page.getByRole('dialog');
+    await expect(dlg.getByTestId('trip-assign')).toBeVisible();
+    const no = (
+      await dlg.locator('h2, [id]').filter({ hasText: /^TRP-/ }).first().textContent()
+    )?.trim();
+    const listed = (await (
+      await page.request.get(`/v1/trips?tripNo=${encodeURIComponent(no ?? '')}`, { headers: H })
+    ).json()) as { data: { id: string }[] };
+    created.push(...listed.data.map((x) => x.id));
+    await dlg.getByRole('button', { name: 'ปิด' }).first().click();
   });
 
   test('การ์ด "วางแผน" = จำนวนแถวของแท็บ · ค้นเลขเที่ยว → drawer', async () => {

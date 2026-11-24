@@ -35,10 +35,10 @@ import {
   DO_TAB_DRAFT,
   DO_TAB_FAILED,
   DO_TAB_IN_TRANSIT,
-  DO_TAB_RETURNED,
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId } from '../../common/ids';
+import { likeEscape } from '../../common/ilike';
 import { toDeliveryOrderDto } from './do-dto';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
@@ -92,11 +92,15 @@ export interface DeliveryOrderFilter extends ListQuery {
   vehiclePlate?: string;
   driverName?: string;
   product?: string;
-  /** 'false' = ไม่อยู่ในเที่ยวที่ยังใช้งาน (กระดานหน้า `/trips`) */
+  /** 'false' = ไม่อยู่ในเที่ยวที่ยังใช้งาน */
   inTrip?: 'true' | 'false';
+  /** มีบรรทัดปฏิเสธรับ (reject_qty > 0) หรือไม่ */
+  rejected?: 'true' | 'false';
+  /** ค้นชื่อจุดรับหรือจุดส่ง */
+  route?: string;
 }
 
-const has = (v: string) => ({ contains: v.trim(), mode: 'insensitive' as const });
+const has = (v: string) => ({ contains: likeEscape(v.trim()), mode: 'insensitive' as const });
 
 export interface CancelInput {
   /** เหตุผล ≥ 10 ตัวอักษร (MD-222) */
@@ -188,6 +192,16 @@ export function deliveryOrderWhere(
       q.product?.trim() ? { lines: { some: { description: has(q.product) } } } : {},
       q.inTrip === 'true' ? ON_ACTIVE_TRIP_WHERE : {},
       q.inTrip === 'false' ? { NOT: ON_ACTIVE_TRIP_WHERE } : {},
+      q.rejected === 'true' ? { lines: { some: { rejectQty: { gt: 0 } } } } : {},
+      q.rejected === 'false' ? { lines: { none: { rejectQty: { gt: 0 } } } } : {},
+      q.route?.trim()
+        ? {
+            OR: [
+              { originSite: { is: { name: has(q.route) } } },
+              { destSite: { is: { name: has(q.route) } } },
+            ],
+          }
+        : {},
     ],
   };
 }
@@ -337,6 +351,8 @@ export class DeliveryOrderService {
       });
     const all = (statuses: readonly DoStatus[]) =>
       tx.deliveryOrder.count({ where: deliveryOrderWhere({ statuses: [...statuses] }) });
+    const where = (f: Omit<DeliveryOrderFilter, keyof ListQuery>) =>
+      tx.deliveryOrder.count({ where: deliveryOrderWhere(f) });
     const [
       today,
       delivered,
@@ -344,7 +360,8 @@ export class DeliveryOrderService {
       draft,
       inTransit,
       unbilled,
-      returned,
+      deliveredClean,
+      rejected,
       failedTotal,
       billed,
       total,
@@ -353,11 +370,12 @@ export class DeliveryOrderService {
       n(OPS_DO_TODAY),
       n(OPS_DO_DELIVERED),
       n(OPS_DO_FAILED),
-      // หน้า `/do` (UAT 24 พ.ย.) — ทุกวันที่ ชุดสถานะเดียวกับแท็บของหน้าเว็บ (`@tms/domain` ops-lists)
+      // ทุกวันที่ — ชุดสถานะเดียวกับ `@tms/domain` ops-lists
       all(DO_TAB_DRAFT),
       all(DO_TAB_IN_TRANSIT),
       all(DO_TAB_DELIVERED),
-      all(DO_TAB_RETURNED),
+      where({ statuses: [...DO_TAB_DELIVERED], rejected: 'false' }),
+      where({ statuses: [...DO_TAB_DELIVERED], rejected: 'true' }),
       all(DO_TAB_FAILED),
       all(DO_TAB_BILLED),
       tx.deliveryOrder.count(),
@@ -377,7 +395,8 @@ export class DeliveryOrderService {
       draft,
       inTransit,
       unbilled,
-      returned,
+      deliveredClean,
+      rejected,
       failedTotal,
       billed,
       total,

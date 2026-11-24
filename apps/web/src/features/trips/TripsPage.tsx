@@ -72,7 +72,7 @@ const TONE: Partial<Record<string, Tone>> = {
   SETTLED: 'ok',
   CANCELLED: 'off',
 };
-const EMPTY_VIEW = { tab: 'all', sub: false, no: '', veh: '', drv: '', st: '' };
+const EMPTY_VIEW = { tab: 'all', sub: false, no: '', veh: '', drv: '', route: '', st: '' };
 /** ปล่อยได้ (ก่อนปล่อยรถ) — ต้นแบบ menu `r.st === 'วางแผน'` */
 const RELEASABLE = new Set(['PLANNING', 'ASSIGNED']);
 const money = (v: string | null | undefined) =>
@@ -84,8 +84,8 @@ const money = (v: string | null | undefined) =>
  * ปฏิบัติการ → เที่ยวรถ (UAT 24 พ.ย. 2569) — ต้นแบบ TMS v4 หน้า `trips`: PageHeader + การ์ด (kpis trips) + กระดาน (vTrpB)
  * + ตาราง specTrp (แท็บ/ตัวกรองคอลัมน์/เมนูแถว/bulk) + drawer เที่ยว (vPanel 'trp' = TripDrawer)
  * ข้อมูลจาก /v1 ชุดเดียวกับลูกค้า · ต่างจากต้นแบบ (spec/12 §3 [DECISION — lead 24 พ.ย. เพื่อ UAT, ย้อนได้]):
- * ไม่มีปุ่ม "เปิดแอปคนขับ" (แอปคนขับนอกเฟส 0) และเมนู "แจ้งอุบัติเหตุ" (โมดูลอุบัติเหตุ P1) · คอลัมน์เส้นทางไม่มีตัวกรอง
- * (เที่ยวไม่ผูกเส้นทาง master) · รายได้/ค่าเที่ยวแสดงตามสิทธิ์ราคา
+ * ไม่มีปุ่ม "เปิดแอปคนขับ" (แอปคนขับ docs/04 M = P1) และเมนู "แจ้งอุบัติเหตุ" (โมดูลอุบัติเหตุ docs/04 B2 §8 = P1)
+ * · ตัวกรองเส้นทาง = ค้นชื่อสถานที่ของจุดแวะ (เที่ยวไม่ผูกเส้นทาง master) · รายได้/ค่าเที่ยวแสดงตามสิทธิ์ราคา
  */
 export function TripsPage() {
   const { t } = useI18n();
@@ -94,13 +94,21 @@ export function TripsPage() {
   const dateText = useDateText();
   const scopes = me.data?.scopes ?? [];
   const canAssign = can(scopes, 'trips:assign');
+  // ปล่อยเที่ยว (จัดรถและปล่อยในคำขอเดียว — bulk-assign) ต้องมีทั้ง trips:assign + trips:dispatch (review M3)
+  const canRelease = can(scopes, 'trips:dispatch') && can(scopes, 'trips:assign');
   const canDispatch = can(scopes, 'trips:dispatch');
   const canPrint = can(scopes, 'documents:write');
   const canSell = can(scopes, 'prices.sell:read');
   const canBuy = can(scopes, 'prices.buy:read');
   const [tab, setTab] = useSessionState<Tab>('trips.tab', 'all');
   const [sub, setSub] = useSessionState('trips.sub', false);
-  const [col, setCol] = useSessionState('trips.cols', { no: '', veh: '', drv: '', st: '' });
+  const [col, setCol] = useSessionState('trips.cols', {
+    no: '',
+    veh: '',
+    drv: '',
+    route: '',
+    st: '',
+  });
   const [hidden, setHidden] = useSessionState<string[] | null>('trips.hidden', null);
   const views = useSavedViews({
     page: 'trips',
@@ -111,7 +119,7 @@ export function TripsPage() {
       const s = pick(v.state, EMPTY_VIEW);
       setTab(TABS.includes(s.tab as Tab) ? (s.tab as Tab) : 'all');
       setSub(s.sub);
-      setCol({ no: s.no, veh: s.veh, drv: s.drv, st: s.st });
+      setCol({ no: s.no, veh: s.veh, drv: s.drv, route: s.route, st: s.st });
       setHidden(v.hidden);
     },
   });
@@ -123,11 +131,18 @@ export function TripsPage() {
     tripNo: col.no,
     vehiclePlate: col.veh,
     driverName: col.drv,
+    route: col.route ?? '',
   };
   const list = useTripList(filters);
   const summary = useTripSummary();
   const s = summary.data;
   const [openId, setOpenId] = useState<string | null>(null);
+  /** เที่ยวที่เพิ่งสร้างจาก "เที่ยวใหม่" → เปิด drawer ที่ส่วนจัดรถ */
+  const [assignNew, setAssignNew] = useState(false);
+  const openTrip = (id: string) => {
+    setAssignNew(false);
+    setOpenId(id);
+  };
   useDeepOpen('open', 'trp', setOpenId);
   const [toast, setToast] = useState<string | null>(null);
   const bulk = useBulkAssign();
@@ -213,6 +228,8 @@ export function TripsPage() {
       key: 'route',
       label: t('trips.col.route'),
       width: '1%',
+      // ต้นแบบมีตัวกรองเส้นทาง — เที่ยวไม่ผูกเส้นทาง master → ค้นชื่อสถานที่ของจุดแวะ (API `route`)
+      filter: { type: 'text', placeholder: t('table.search') },
       render: (r) => {
         const a = r.stops[0];
         const b = r.stops[r.stops.length - 1];
@@ -300,7 +317,7 @@ export function TripsPage() {
     transit: s?.inTransit,
     done: s?.done,
   };
-  const colFiltered = !!(col.no || col.veh || col.drv || (tab === 'all' && col.st));
+  const colFiltered = !!(col.no || col.veh || col.drv || col.route || (tab === 'all' && col.st));
   const shownTotal = listTotal(
     list,
     {
@@ -362,11 +379,15 @@ export function TripsPage() {
       />
       <TripBoard
         canAssign={canAssign}
-        canDispatch={canDispatch}
+        canDispatch={canRelease}
         canSeeTypes={can(scopes, 'master:read')}
         today={today}
         releasing={bulk.isPending}
-        onOpen={setOpenId}
+        onOpen={openTrip}
+        onCreated={(id) => {
+          setAssignNew(canAssign);
+          setOpenId(id);
+        }}
         onRelease={(x) => release([x])}
         onToast={setToast}
       />
@@ -405,9 +426,9 @@ export function TripsPage() {
             activeId={openId}
             loading={list.loading}
             labels={tableLabels(t)}
-            selectable={canDispatch || canPrint}
+            selectable={canRelease || canPrint}
             bulkActions={[
-              ...(canDispatch
+              ...(canRelease
                 ? [
                     {
                       label: t('trip.foot.release'),
@@ -426,14 +447,14 @@ export function TripsPage() {
                   ]
                 : []),
             ]}
-            filters={{ no: col.no, veh: col.veh, drv: col.drv, st: col.st }}
+            filters={{ no: col.no, veh: col.veh, drv: col.drv, route: col.route ?? '', st: col.st }}
             hiddenColumns={hidden}
             onHiddenColumnsChange={setHidden}
             onFilterChange={(k, v) => setCol((c) => ({ ...c, [k]: v }))}
-            onRowClick={(r) => setOpenId(r.id)}
+            onRowClick={(r) => openTrip(r.id)}
             rowMenu={(r) => [
-              { label: t('ord.menu.view'), icon: 'eye', run: () => setOpenId(r.id) },
-              ...(canDispatch && RELEASABLE.has(r.status) && r.deliveryOrders.length > 0
+              { label: t('ord.menu.view'), icon: 'eye', run: () => openTrip(r.id) },
+              ...(canRelease && RELEASABLE.has(r.status) && r.deliveryOrders.length > 0
                 ? [{ label: t('trip.foot.release'), icon: 'send', run: () => release([r]) }]
                 : []),
               ...(canPrint && r.status !== 'CANCELLED' && r.stops.length > 0
@@ -475,6 +496,7 @@ export function TripsPage() {
           canClose={can(scopes, 'trips:close')}
           canSeeBuy={canBuy}
           canSeeSell={canSell}
+          startAssign={assignNew}
           onDone={(m) => {
             setOpenId(null);
             setToast(m);
@@ -488,7 +510,7 @@ export function TripsPage() {
           tripNo={tripNoOf}
           onOpen={(id) => {
             setBulkFail(null);
-            setOpenId(id);
+            openTrip(id);
           }}
           onClose={() => setBulkFail(null)}
         />

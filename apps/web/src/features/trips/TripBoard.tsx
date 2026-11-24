@@ -32,6 +32,32 @@ const CHIP: Record<string, { c: string; bg: string }> = {
   RETURN: { c: '#17733F', bg: '#E6F4EC' },
 };
 const NEW = '__new';
+
+/** "โหลดเพิ่ม" ของกระดาน (ทีละ 50 — review L7) — ปุ่มแบบเม็ดยาขอบฟ้าเหมือน "ปล่อยเที่ยว" */
+function LoadMore({ busy, onClick }: { busy: boolean; onClick: () => void }) {
+  const { t } = useI18n();
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={onClick}
+      style={{
+        alignSelf: 'center',
+        height: 32,
+        padding: '0 14px',
+        border: '1px solid #9DB6E3',
+        borderRadius: 999,
+        background: '#FFFFFF',
+        color: '#2257C4',
+        fontWeight: 500,
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {t('trips.more')}
+    </button>
+  );
+}
 const kg = (v: string | number | null | undefined) => Number(v ?? 0);
 const num = (n: number) => n.toLocaleString('th-TH');
 
@@ -41,7 +67,8 @@ const num = (n: number) => n.toLocaleString('th-TH');
  * ต่างจากต้นแบบ [DECISION — lead 24 พ.ย. เพื่อ UAT, ย้อนได้ spec/12 §3]: (1) "ระบบเลือกรถว่างให้" ไม่มีใน API → เที่ยวใหม่ยังไม่มีรถ
  * ข้อความเปลี่ยนเป็น "…แล้วจัดรถในรายละเอียดเที่ยว" (2) การ์ด DO ไม่มีประเภทรถ (DO ไม่มีข้อมูลนี้) (3) วันที่บนการ์ด = วันที่เที่ยวจริง
  * (ต้นแบบ "พรุ่งนี้" คงที่) (4) แถบน้ำหนักใช้น้ำหนักบรรทุกของประเภทรถ — ไม่ทราบ = ไม่แสดงแถบ (5) "ปล่อยเที่ยว" ผ่าน bulk-assign
- * ชุดเดียวกับกระดานวางแผน (ไม่สำเร็จ → dialog รายการเหตุผล)
+ * ชุดเดียวกับกระดานวางแผน (ไม่สำเร็จ → dialog รายการเหตุผล) — ต้องมี `trips:assign` + `trips:dispatch` (`canDispatch` ที่ส่งเข้ามา)
+ * (6) โหลดทีละ 50 + "โหลดเพิ่ม" (7) สร้างเที่ยวใหม่สำเร็จ → เปิด drawer ที่ส่วนจัดรถ
  */
 export function TripBoard({
   canAssign,
@@ -52,6 +79,7 @@ export function TripBoard({
   onOpen,
   onRelease,
   onToast,
+  onCreated,
 }: {
   canAssign: boolean;
   canDispatch: boolean;
@@ -61,6 +89,8 @@ export function TripBoard({
   onOpen: (tripId: string) => void;
   onRelease: (trip: TripRow) => void;
   onToast: (m: string) => void;
+  /** สร้างเที่ยวใหม่จาก "เที่ยวใหม่" สำเร็จ → เปิด drawer ที่ส่วนจัดรถ */
+  onCreated: (tripId: string) => void;
 }) {
   const { t } = useI18n();
   const dateText = useDateText();
@@ -71,8 +101,8 @@ export function TripBoard({
   const create = useNewTripFromDo();
   const [drag, setDrag] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
-  const dos = pool.data?.data ?? [];
-  const trips = plan.data?.data ?? [];
+  const dos = pool.data?.pages.flatMap((p) => p.data) ?? [];
+  const trips = plan.data?.pages.flatMap((p) => p.data) ?? [];
   const busy = attach.isPending || create.isPending;
   const doOf = (id: string) => dos.find((d) => d.id === id);
 
@@ -81,7 +111,12 @@ export function TripBoard({
     const id = e.dataTransfer?.getData('text/plain') || drag;
     setDrag(null);
     setOver(null);
-    if (!id || busy || !canAssign) return;
+    if (!id || !canAssign) return;
+    // กำลังบันทึกการวางครั้งก่อน — ไม่เงียบ (review M2)
+    if (busy) {
+      onToast(t('trips.toast.busy'));
+      return;
+    }
     const d = doOf(id);
     if (!d) return;
     const fail = (x: unknown) => onToast(problemText(x, t) ?? t('trips.loadError'));
@@ -89,7 +124,11 @@ export function TripBoard({
       create.mutate(
         { doId: id, tripDate: d.doDate < today ? today : d.doDate },
         {
-          onSuccess: (x) => onToast(t('trips.toast.created', { trip: x.tripNo, do: d.doNo })),
+          onSuccess: (x) => {
+            onToast(t('trips.toast.created', { trip: x.tripNo, do: d.doNo }));
+            // เปิด drawer เที่ยวใหม่ที่ส่วนจัดรถ (ไม่มีเสนอรถอัตโนมัติ — docs/04 D2 "เสนอรถอัตโนมัติ" = P1)
+            onCreated(x.id);
+          },
           onError: fail,
         },
       );
@@ -151,7 +190,7 @@ export function TripBoard({
               alignItems: 'center',
             }}
           >
-            {pool.data ? (pool.data.hasMore ? `${dos.length}+` : dos.length) : '—'}
+            {pool.data ? (pool.hasNextPage ? `${dos.length}+` : dos.length) : '—'}
           </span>
         </div>
         <div
@@ -183,6 +222,9 @@ export function TripBoard({
               }}
             />
           ))}
+          {pool.hasNextPage && (
+            <LoadMore busy={pool.isFetchingNextPage} onClick={() => void pool.fetchNextPage()} />
+          )}
           {pool.data && !dos.length && (
             <div
               style={{
@@ -269,9 +311,12 @@ export function TripBoard({
                     : '—'}
                 </span>
                 <span style={{ fontSize: 13, color: '#3B424C' }}>
-                  {[x.driver?.name ?? '—', x.carrier?.name, x.trailer?.plate ?? '—']
-                    .filter(Boolean)
-                    .join(' · ')}
+                  {/* ต้นแบบ "{คนขับ}{ · รถร่วม} · {หาง|—}" — ไม่มีทั้งคนขับและหาง = "—" ตัวเดียว */}
+                  {!x.driver && !x.carrier && !x.trailer
+                    ? '—'
+                    : [x.driver?.name ?? '—', x.carrier?.name, x.trailer?.plate ?? '—']
+                        .filter(Boolean)
+                        .join(' · ')}
                 </span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -408,6 +453,11 @@ export function TripBoard({
             </div>
           );
         })}
+        {plan.hasNextPage && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <LoadMore busy={plan.isFetchingNextPage} onClick={() => void plan.fetchNextPage()} />
+          </div>
+        )}
         {canAssign && (
           <div
             data-testid="trip-new"

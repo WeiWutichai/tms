@@ -17,7 +17,6 @@ import {
   DO_TAB_DRAFT,
   DO_TAB_FAILED,
   DO_TAB_IN_TRANSIT,
-  DO_TAB_RETURNED,
 } from '@tms/domain/src/ops-lists';
 import { OPS_DO_DELIVERED } from '@tms/domain/src/ops-dashboard';
 import { useI18n } from '../../i18n';
@@ -34,22 +33,28 @@ import { addDays, bangkokToday, useDateText } from '../rate-cards/rateFormat';
 import { TripDrawer } from '../trips/TripDrawer';
 import { SavedViewMenu } from '../views/SavedViewMenu';
 import { pick, useSavedViews } from '../views/useSavedViews';
-import { DO_TONE, DoDrawer } from './DoDrawer';
+import { DO_TONE, DoDrawer, canConfirm, canReturnDo, type DoPerms } from './DoDrawer';
+import { api, unwrap } from '../../api';
+import { BulkFailDialog } from '../planning/BulkFailDialog';
+import { ReturnDialog } from '../pod/ReturnDialog';
+import { modeOf } from '../pod/returnForm';
+import { useDoPods } from '../pod/usePod';
+import { useBulkAssign, type BulkResults, type TripDetail } from '../trips/useTrips';
 import { useDoList, useDoSummary, type Do, type DoFilters } from './useDos';
 
-type Tab = 'all' | 'draft' | 'transit' | 'delivered' | 'returned' | 'failed' | 'billed';
-const TABS: Tab[] = ['all', 'draft', 'transit', 'delivered', 'returned', 'failed', 'billed'];
+type Tab = 'all' | 'draft' | 'transit' | 'delivered' | 'rejected' | 'failed' | 'billed';
+const TABS: Tab[] = ['all', 'draft', 'transit', 'delivered', 'rejected', 'failed', 'billed'];
 /**
  * แท็บของต้นแบบ (specDo: ร่าง / ระหว่างส่ง / ส่งแล้ว / ตีกลับบางส่วน / ส่งไม่สำเร็จ / วางบิลแล้ว) → สถานะจริงของ DO (docs/01 §4.3)
- * [DECISION — lead 24 พ.ย. เพื่อ UAT, ย้อนได้]: "ตีกลับบางส่วน" ของต้นแบบไม่ใช่สถานะใน state machine (ตีกลับบางส่วน = DO ส่งแล้ว
- * + ยอดปฏิเสธรับต่อบรรทัด) → แท็บ "ตีกลับ" = RETURNED (คืนคลัง) ตามชื่อสถานะจริง
+ * "ส่งแล้ว" / "ตีกลับบางส่วน" = ส่งถึงแล้วยังไม่วางบิล แยกด้วยบรรทัดปฏิเสธรับ (`rejected=false|true` — ตีกลับบางส่วนไม่ใช่สถานะ)
+ * · "ส่งไม่สำเร็จ" = FAILED + RETURNED (ต้นแบบไม่มีแท็บคืนคลัง — อยู่แท็บที่ใกล้ที่สุดตาม state machine `FAILED → RETURNED`)
  */
 const TAB_STATUS: Record<Tab, readonly string[]> = {
   all: [],
   draft: DO_TAB_DRAFT,
   transit: DO_TAB_IN_TRANSIT,
   delivered: DO_TAB_DELIVERED,
-  returned: DO_TAB_RETURNED,
+  rejected: DO_TAB_DELIVERED,
   failed: DO_TAB_FAILED,
   billed: DO_TAB_BILLED,
 };
@@ -76,6 +81,7 @@ const EMPTY_VIEW = {
   veh: '',
   drv: '',
   prod: '',
+  route: '',
   st: '',
 };
 const money = (v: string) =>
@@ -83,10 +89,10 @@ const money = (v: string) =>
 
 /**
  * ปฏิบัติการ → ใบส่งของ (DO) (UAT 24 พ.ย. 2569) — ต้นแบบ TMS v4 specDo + kpisX('do') + vPanel 'do' (DoDrawer)
- * ต่างจากต้นแบบ [DECISION — lead 24 พ.ย. เพื่อ UAT, ย้อนได้ spec/12 §3]: ไม่มีปุ่มหัวหน้า "นำเข้า CSV" / "พิมพ์ใบส่งของวันนี้" /
- * "สร้าง DO" (DO สร้างจาก SO เท่านั้น D-81 · ยังไม่มี PDF ใบส่งของ · ไม่มี API นำเข้า DO) · ไม่มีเมนู/bulk "ยืนยันส่งแล้ว" /
- * "ตีกลับบางส่วน" / "พิมพ์ใบส่งของ" (การส่ง/ตีกลับบันทึกที่จุดแวะของเที่ยว — เปิดจาก drawer) · คอลัมน์เส้นทางไม่มีตัวกรอง
- * (DO ไม่ผูกเส้นทาง master) · "น้ำหนัก / เที่ยว" = น้ำหนัก + เลขเที่ยว
+ * ต่างจากต้นแบบ (spec/12 §3 แถว UAT 24 พ.ย. หน้า /do): ไม่มีปุ่มหัว "นำเข้า CSV" / "สร้าง DO" (DO สร้างจาก SO เท่านั้น —
+ * docs/01 §4.3, D-81) และ "พิมพ์ใบส่งของวันนี้" / เมนู "พิมพ์ใบส่งของ" (PDF ใบส่งของไม่อยู่ใน backlog เฟส 0 — plan/01
+ * ผู้สมัครเพิ่ม #24) · "ยืนยันส่งแล้ว" ทีละใบ (ไม่มี bulk — event ของจุดต้องมี occurredAt ต่อจุด docs/04 E1) เปิดไทม์ไลน์เที่ยว
+ * ที่จุดส่งของใบ · ตัวกรองเส้นทาง = ค้นชื่อจุดรับ/ส่ง (DO ไม่ผูกเส้นทาง master) · "น้ำหนัก / เที่ยว" = น้ำหนัก + เลขเที่ยว
  */
 export function DoPage() {
   const { t } = useI18n();
@@ -105,6 +111,7 @@ export function DoPage() {
     veh: '',
     drv: '',
     prod: '',
+    route: '',
     st: '',
   });
   const [hidden, setHidden] = useSessionState<string[] | null>('do.hidden', null);
@@ -124,6 +131,7 @@ export function DoPage() {
         veh: s.veh,
         drv: s.drv,
         prod: s.prod,
+        route: s.route,
         st: s.st,
       });
       setHidden(v.hidden);
@@ -137,7 +145,7 @@ export function DoPage() {
     kf === 'today' || col.date === 'today'
       ? { dateFrom: today, dateTo: today }
       : col.date === 'week'
-        ? { dateFrom: addDays(today, -7), dateTo: today }
+        ? { dateFrom: addDays(today, -7), dateTo: addDays(today, -1) } // ต้นแบบ: -7..-1 (วันนี้แยกเป็น "วันนี้")
         : col.date === 'before'
           ? { dateFrom: '', dateTo: addDays(today, -8) }
           : { dateFrom: '', dateTo: '' };
@@ -156,11 +164,58 @@ export function DoPage() {
     vehiclePlate: col.veh,
     driverName: col.drv,
     product: col.prod,
+    route: col.route ?? '',
+    rejected: kf ? '' : tab === 'delivered' ? 'false' : tab === 'rejected' ? 'true' : '',
   };
   const list = useDoList(filters);
   const [openId, setOpenId] = useState<string | null>(null);
   useDeepOpen('open', 'do', setOpenId);
   const [tripId, setTripId] = useState<string | null>(null);
+  /** "ยืนยันส่งแล้ว" → drawer เที่ยว แท็บไทม์ไลน์ + dialog ปิดงานที่จุดส่งของ DO นี้ */
+  const [completeDo, setCompleteDo] = useState<string | null>(null);
+  const [returnDo, setReturnDo] = useState<Do | null>(null);
+  const bulk = useBulkAssign();
+  const [bulkFail, setBulkFail] = useState<{ results: BulkResults['results']; no: string } | null>(
+    null,
+  );
+  const perms: DoPerms = {
+    canSeePrice: canSell,
+    canSeeTrip: canTrips,
+    canRecord: canTrips && can(scopes, 'trips:dispatch'),
+    canRelease: canTrips && can(scopes, 'trips:dispatch') && can(scopes, 'trips:assign'),
+    canResolve: can(scopes, 'orders:write'),
+    canCancel: can(scopes, 'orders:cancel'),
+  };
+  const openTrip = (id: string) => {
+    setCompleteDo(null);
+    setTripId(id);
+  };
+  /** ยืนยันส่งแล้ว (ทีละใบ — event ต่อจุดต้องมี occurredAt ของจุดนั้น docs/04 E1 จึงไม่มีแบบหลายใบ) */
+  const confirm = (d: Do) => {
+    if (!d.tripId) return;
+    setCompleteDo(d.id);
+    setTripId(d.tripId);
+  };
+  /** ปล่อยงานให้คนขับ = ปล่อยเที่ยวของ DO (bulk-assign dispatch — กฎตอนจัดชุดเดียวกับกระดาน) */
+  const release = async (d: Do) => {
+    if (!d.tripId || bulk.isPending) return;
+    try {
+      const tr = (await unwrap(
+        api.GET('/v1/trips/{id}', { params: { path: { id: d.tripId } } }),
+      )) as TripDetail;
+      const r = await bulk.mutateAsync({
+        items: [{ tripId: tr.id, version: tr.version }],
+        dispatch: true,
+      });
+      if (r.results.some((i) => !i.trip)) setBulkFail({ results: r.results, no: tr.tripNo });
+      else {
+        setOpenId(null);
+        setToast(t('dos.toast.released', { no: d.doNo, trip: tr.tripNo }));
+      }
+    } catch (e) {
+      setToast(problemText(e, t) ?? t('dos.loadError'));
+    }
+  };
   const [orderId, setOrderId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -217,6 +272,8 @@ export function DoPage() {
       key: 'route',
       label: t('dos.col.route'),
       width: '1%',
+      // ต้นแบบมีตัวกรองเส้นทาง — DO ไม่ผูกเส้นทาง master → ค้นชื่อจุดรับ/จุดส่ง (API `route`)
+      filter: { type: 'text', placeholder: t('table.search') },
       render: (r) => (
         <span className="tms-route-cell" title={`${r.originSiteName} → ${r.destSiteName}`}>
           <RouteChip
@@ -325,8 +382,8 @@ export function DoPage() {
     all: s?.total,
     draft: s?.draft,
     transit: s?.inTransit,
-    delivered: s?.unbilled,
-    returned: s?.returned,
+    delivered: s?.deliveredClean,
+    rejected: s?.rejected,
     failed: s?.failedTotal,
     billed: s?.billed,
   };
@@ -337,6 +394,7 @@ export function DoPage() {
     col.veh ||
     col.drv ||
     col.prod ||
+    col.route ||
     (tab === 'all' && !kf && col.st)
   );
   const shownTotal = listTotal(
@@ -442,6 +500,7 @@ export function DoPage() {
               veh: col.veh,
               drv: col.drv,
               prod: col.prod,
+              route: col.route ?? '',
               st: col.st,
             }}
             hiddenColumns={hidden}
@@ -450,6 +509,18 @@ export function DoPage() {
             onRowClick={(r) => setOpenId(r.id)}
             rowMenu={(r) => [
               { label: t('ord.menu.view'), icon: 'eye', run: () => setOpenId(r.id) },
+              ...(canConfirm(r, perms)
+                ? [{ label: t('dos.act.confirm'), icon: 'circle-check', run: () => confirm(r) }]
+                : []),
+              ...(canReturnDo(r, perms)
+                ? [
+                    {
+                      label: t(modeOf(r.status) === 'failed' ? 'prt.btnFailed' : 'prt.btn'),
+                      icon: 'undo-2',
+                      run: () => setReturnDo(r),
+                    },
+                  ]
+                : []),
             ]}
             empty={
               colFiltered || tab !== 'all' || kf ? (
@@ -478,23 +549,29 @@ export function DoPage() {
         <DoDrawer
           key={openId}
           id={openId}
-          canSeePrice={canSell}
-          canSeeTrip={canTrips}
+          perms={perms}
           onOpenTrip={(x) => {
             setOpenId(null);
-            setTripId(x);
+            openTrip(x);
           }}
           onOpenOrder={(x) => {
             setOpenId(null);
             setOrderId(x);
           }}
+          onConfirm={(d) => {
+            setOpenId(null);
+            confirm(d);
+          }}
+          onRelease={(d) => release(d)}
+          onToast={setToast}
           onClose={() => setOpenId(null)}
         />
       )}
       {tripId && (
         <TripDrawer
-          key={tripId}
+          key={`${tripId}:${completeDo ?? ''}`}
           id={tripId}
+          {...(completeDo ? { initialTab: 'tl' as const, completeDoId: completeDo } : {})}
           canEdit={can(scopes, 'trips:assign')}
           canDispatch={can(scopes, 'trips:dispatch')}
           canOverride={can(scopes, 'trips:override')}
@@ -507,7 +584,10 @@ export function DoPage() {
             setTripId(null);
             setToast(m);
           }}
-          onClose={() => setTripId(null)}
+          onClose={() => {
+            setTripId(null);
+            setCompleteDo(null);
+          }}
         />
       )}
       {orderId && (
@@ -522,7 +602,7 @@ export function DoPage() {
           canSeeTrips={canTrips}
           onOpenTrip={(x) => {
             setOrderId(null);
-            setTripId(x);
+            openTrip(x);
           }}
           onClose={() => setOrderId(null)}
           onEdit={() => undefined}
@@ -531,7 +611,44 @@ export function DoPage() {
           onDone={(m) => setToast(m)}
         />
       )}
+      {returnDo && (
+        <DoReturnLauncher
+          d={returnDo}
+          onClose={() => setReturnDo(null)}
+          onDone={(m) => {
+            setReturnDo(null);
+            setToast(m);
+          }}
+        />
+      )}
+      {bulkFail && (
+        <BulkFailDialog
+          results={bulkFail.results}
+          tripNo={() => bulkFail.no}
+          onOpen={(id) => {
+            setBulkFail(null);
+            openTrip(id);
+          }}
+          onClose={() => setBulkFail(null)}
+        />
+      )}
       <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />
     </>
   );
+}
+
+/** "ตีกลับบางส่วน" จากเมนูแถว — โหลดหลักฐานส่งของใบแล้วเปิด dialog ชุดเดียวกับ drawer เที่ยว (ST4-T11) */
+function DoReturnLauncher({
+  d,
+  onClose,
+  onDone,
+}: {
+  d: Do;
+  onClose: () => void;
+  onDone: (m: string) => void;
+}) {
+  const pod = useDoPods([d.id], true)[0]?.data;
+  const mode = modeOf(d.status);
+  if (!pod || !mode) return null;
+  return <ReturnDialog d={d} pod={pod} mode={mode} onClose={onClose} onDone={onDone} />;
 }

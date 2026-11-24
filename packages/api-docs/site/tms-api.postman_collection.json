@@ -1238,7 +1238,7 @@
                 "summary"
               ]
             },
-            "description": "scope: orders:read\n\nนับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง · การ์ดหน้า `/do` (`draft` / `inTransit` / `unbilled`) นับทุกวันที่"
+            "description": "scope: orders:read\n\nนับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง · ช่องที่เหลือ (`draft` / `inTransit` / `unbilled` / …) นับทุกวันที่"
           }
         },
         {
@@ -1324,7 +1324,7 @@
                 {
                   "key": "doNo",
                   "value": "DO-2611",
-                  "description": "ค้นเลข DO (มีคำนี้ ไม่สนตัวพิมพ์) — หน้ารายการ `/do`",
+                  "description": "ค้นเลข DO (มีคำนี้ ไม่สนตัวพิมพ์)",
                   "disabled": true
                 },
                 {
@@ -1354,7 +1354,19 @@
                 {
                   "key": "inTrip",
                   "value": "",
-                  "description": "อยู่ในเที่ยวที่ยังใช้งาน (ไม่ยกเลิก) หรือไม่ — `false` = DO รอเข้าเที่ยว (กระดานหน้า `/trips`)",
+                  "description": "อยู่ในเที่ยวที่ยังใช้งาน (ไม่ยกเลิก) หรือไม่ — `false` = ยังไม่เข้าเที่ยว",
+                  "disabled": true
+                },
+                {
+                  "key": "rejected",
+                  "value": "",
+                  "description": "มีบรรทัดที่ผู้รับปฏิเสธรับ (`lines[].rejectQty` > 0) หรือไม่",
+                  "disabled": true
+                },
+                {
+                  "key": "route",
+                  "value": "บางนา",
+                  "description": "ค้นชื่อจุดรับหรือจุดส่ง (มีคำนี้)",
                   "disabled": true
                 }
               ]
@@ -2173,7 +2185,7 @@
                 "summary"
               ]
             },
-            "description": "scope: trips:read\n\nนับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED` · การ์ดหน้า `/trips`: `planning` / `inTransit` / `done` / `subcon` ตามคำอธิบายของแต่ละช่อง"
+            "description": "scope: trips:read\n\nนับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED` · `planning` / `inTransit` / `done` / `subcon` / `total` ตามคำอธิบายของแต่ละช่อง"
           }
         },
         {
@@ -2265,7 +2277,7 @@
                 {
                   "key": "tripNo",
                   "value": "TRP-2611",
-                  "description": "ค้นเลขเที่ยว (มีคำนี้ ไม่สนตัวพิมพ์) — หน้ารายการเที่ยว `/trips`",
+                  "description": "ค้นเลขเที่ยว (มีคำนี้ ไม่สนตัวพิมพ์)",
                   "disabled": true
                 },
                 {
@@ -2284,6 +2296,18 @@
                   "key": "ownership",
                   "value": "",
                   "description": "OWN = รถบริษัท (ไม่มีรถร่วม) · SUBCON = ใช้รถร่วม",
+                  "disabled": true
+                },
+                {
+                  "key": "route",
+                  "value": "บางนา",
+                  "description": "ค้นชื่อสถานที่ของจุดแวะ (มีคำนี้)",
+                  "disabled": true
+                },
+                {
+                  "key": "amounts",
+                  "value": "",
+                  "description": "`false` = ไม่คำนวณ `sellAmount` / `buyTotal` ต่อแถว (ค่าเริ่ม true)",
                   "disabled": true
                 }
               ]

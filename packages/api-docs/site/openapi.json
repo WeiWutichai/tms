@@ -25665,7 +25665,7 @@
     },
     "/v1/delivery-orders/summary": {
       "get": {
-        "description": "นับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง · การ์ดหน้า `/do` (`draft` / `inTransit` / `unbilled`) นับทุกวันที่",
+        "description": "นับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง · ช่องที่เหลือ (`draft` / `inTransit` / `unbilled` / …) นับทุกวันที่",
         "operationId": "DeliveryOrders_summary",
         "parameters": [
           {
@@ -25829,7 +25829,7 @@
             "name": "doNo",
             "required": false,
             "in": "query",
-            "description": "ค้นเลข DO (มีคำนี้ ไม่สนตัวพิมพ์) — หน้ารายการ `/do`",
+            "description": "ค้นเลข DO (มีคำนี้ ไม่สนตัวพิมพ์)",
             "schema": {
               "example": "DO-2611",
               "type": "string"
@@ -25879,13 +25879,36 @@
             "name": "inTrip",
             "required": false,
             "in": "query",
-            "description": "อยู่ในเที่ยวที่ยังใช้งาน (ไม่ยกเลิก) หรือไม่ — `false` = DO รอเข้าเที่ยว (กระดานหน้า `/trips`)",
+            "description": "อยู่ในเที่ยวที่ยังใช้งาน (ไม่ยกเลิก) หรือไม่ — `false` = ยังไม่เข้าเที่ยว",
             "schema": {
               "type": "string",
               "enum": [
                 "true",
                 "false"
               ]
+            }
+          },
+          {
+            "name": "rejected",
+            "required": false,
+            "in": "query",
+            "description": "มีบรรทัดที่ผู้รับปฏิเสธรับ (`lines[].rejectQty` > 0) หรือไม่",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "route",
+            "required": false,
+            "in": "query",
+            "description": "ค้นชื่อจุดรับหรือจุดส่ง (มีคำนี้)",
+            "schema": {
+              "example": "บางนา",
+              "type": "string"
             }
           },
           {
@@ -27103,7 +27126,7 @@
     },
     "/v1/trips/summary": {
       "get": {
-        "description": "นับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED` · การ์ดหน้า `/trips`: `planning` / `inTransit` / `done` / `subcon` ตามคำอธิบายของแต่ละช่อง",
+        "description": "นับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED` · `planning` / `inTransit` / `done` / `subcon` / `total` ตามคำอธิบายของแต่ละช่อง",
         "operationId": "Trips_summary",
         "parameters": [
           {
@@ -27300,7 +27323,7 @@
             "name": "tripNo",
             "required": false,
             "in": "query",
-            "description": "ค้นเลขเที่ยว (มีคำนี้ ไม่สนตัวพิมพ์) — หน้ารายการเที่ยว `/trips`",
+            "description": "ค้นเลขเที่ยว (มีคำนี้ ไม่สนตัวพิมพ์)",
             "schema": {
               "example": "TRP-2611",
               "type": "string"
@@ -27336,6 +27359,29 @@
               "enum": [
                 "OWN",
                 "SUBCON"
+              ]
+            }
+          },
+          {
+            "name": "route",
+            "required": false,
+            "in": "query",
+            "description": "ค้นชื่อสถานที่ของจุดแวะ (มีคำนี้)",
+            "schema": {
+              "example": "บางนา",
+              "type": "string"
+            }
+          },
+          {
+            "name": "amounts",
+            "required": false,
+            "in": "query",
+            "description": "`false` = ไม่คำนวณ `sellAmount` / `buyTotal` ต่อแถว (ค่าเริ่ม true)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
               ]
             }
           },
@@ -67217,7 +67263,7 @@
             "type": "string",
             "nullable": true,
             "example": "6 ล้อ",
-            "description": "ประเภทรถของเที่ยว (snapshot) — หน้า `/do` คอลัมน์รถบรรทัดรอง"
+            "description": "ประเภทรถของเที่ยว (snapshot)"
           },
           "driverName": {
             "type": "string",
@@ -67683,36 +67729,40 @@
           },
           "draft": {
             "type": "number",
-            "description": "หน้า `/do` การ์ด \"ร่าง\" = `status=DRAFT,PLANNED` (ทุกวันที่)"
+            "description": "ทุกวันที่ `status=DRAFT,PLANNED` (ยังไม่ปล่อยรถ)"
           },
           "inTransit": {
             "type": "number",
-            "description": "การ์ด \"ระหว่างส่ง\" = `status=DISPATCHED,PICKED_UP` (ทุกวันที่)"
+            "description": "ทุกวันที่ `status=DISPATCHED,PICKED_UP` (ระหว่างส่ง)"
           },
           "unbilled": {
             "type": "number",
-            "description": "การ์ด \"ยังไม่วางบิล\" = `status=DELIVERED,POD_PENDING,UNBILLED` (ทุกวันที่ — ส่งถึงแล้วยังไม่วางบิล)"
+            "description": "ทุกวันที่ `status=DELIVERED,POD_PENDING,UNBILLED` (ส่งถึงแล้ว ยังไม่วางบิล)"
           },
           "sellUnbilledAmount": {
             "type": "string",
             "example": "125400.00",
-            "description": "มูลค่ารวมของ DO \"ยังไม่วางบิล\" = Σ บรรทัดรายได้ที่ใช้อยู่ (ก่อน VAT) — เห็นเมื่อมี `prices.sell:read`"
+            "description": "มูลค่ารวมของ DO ชุด `unbilled` = Σ บรรทัดรายได้ที่ใช้อยู่ (ก่อน VAT) — เห็นเมื่อมี `prices.sell:read`"
           },
-          "returned": {
+          "deliveredClean": {
             "type": "number",
-            "description": "แท็บ \"ตีกลับ\" = `status=RETURNED` (ทุกวันที่)"
+            "description": "ชุด `unbilled` ที่ไม่มีบรรทัดปฏิเสธรับ = `status=DELIVERED,POD_PENDING,UNBILLED&rejected=false`"
+          },
+          "rejected": {
+            "type": "number",
+            "description": "ชุด `unbilled` ที่มีบรรทัดปฏิเสธรับ = `status=DELIVERED,POD_PENDING,UNBILLED&rejected=true`"
           },
           "failedTotal": {
             "type": "number",
-            "description": "แท็บ \"ส่งไม่สำเร็จ\" = `status=FAILED` (ทุกวันที่)"
+            "description": "ทุกวันที่ `status=FAILED,RETURNED`"
           },
           "billed": {
             "type": "number",
-            "description": "แท็บ \"วางบิลแล้ว\" = `status=BILLED` (ทุกวันที่)"
+            "description": "ทุกวันที่ `status=BILLED`"
           },
           "total": {
             "type": "number",
-            "description": "แท็บ \"ทั้งหมด\" = ทุก DO (ไม่มีตัวกรอง — รวมที่ยกเลิก)"
+            "description": "DO ทั้งหมด (ไม่มีตัวกรอง — รวมที่ยกเลิก)"
           }
         },
         "required": [
@@ -67723,7 +67773,8 @@
           "draft",
           "inTransit",
           "unbilled",
-          "returned",
+          "deliveredClean",
+          "rejected",
           "failedTotal",
           "billed",
           "total"
@@ -83406,13 +83457,13 @@
             "type": "string",
             "nullable": true,
             "example": "9500.00",
-            "description": "รายได้ของเที่ยว = ผลรวมบรรทัดรายได้ที่ใช้อยู่ของ DO ในเที่ยว (ก่อน VAT) — **มีเฉพาะ `GET /trips` (รายการ)** · เห็นเมื่อมี `prices.sell:read`"
+            "description": "รายได้ของเที่ยว = ผลรวมบรรทัดรายได้ที่ใช้อยู่ของ DO ในเที่ยว (ก่อน VAT) — มีเฉพาะผลของ `GET /trips` · เห็นเมื่อมี `prices.sell:read`"
           },
           "buyTotal": {
             "type": "string",
             "nullable": true,
             "example": "6500.00",
-            "description": "ค่าเที่ยว = ต้นทุนสุทธิของเที่ยว (บรรทัด trip_cost ที่ยืนยันแล้ว รวมกลับรายการ — ชุดเดียวกับ `GET /trips/{id}/costs` summary.buyTotal) — **มีเฉพาะ `GET /trips` (รายการ)** · เห็นเมื่อมี `prices.buy:read`"
+            "description": "ต้นทุนสุทธิของเที่ยว (บรรทัด trip_cost ที่ยืนยันแล้ว รวมกลับรายการ — ชุดเดียวกับ `GET /trips/{id}/costs` summary.buyTotal) — มีเฉพาะผลของ `GET /trips` · เห็นเมื่อมี `prices.buy:read`"
           },
           "version": {
             "type": "number"
@@ -83978,23 +84029,23 @@
           },
           "planning": {
             "type": "number",
-            "description": "หน้า `/trips` การ์ด \"วางแผน\" = `status=PLANNING,OFFERED,ASSIGNED` (ทุกวันที่)"
+            "description": "`status=PLANNING,OFFERED,ASSIGNED` (ทุกวันที่ — ก่อนปล่อยรถ)"
           },
           "inTransit": {
             "type": "number",
-            "description": "การ์ด \"ระหว่างส่ง\" = `status=DISPATCHED,IN_PROGRESS` (ทุกวันที่)"
+            "description": "`status=DISPATCHED,IN_PROGRESS` (ทุกวันที่)"
           },
           "done": {
             "type": "number",
-            "description": "การ์ด \"ส่งแล้ว\" = `status=COMPLETED,COSTED,SETTLED` (ทุกวันที่)"
+            "description": "`status=COMPLETED,COSTED,SETTLED` (ทุกวันที่)"
           },
           "subcon": {
             "type": "number",
-            "description": "การ์ด \"ใช้รถร่วม\" = `ownership=SUBCON&status=` ทุกสถานะยกเว้น CANCELLED (ทุกวันที่)"
+            "description": "`ownership=SUBCON&status=` ทุกสถานะยกเว้น CANCELLED (ทุกวันที่)"
           },
           "total": {
             "type": "number",
-            "description": "แท็บ \"ทั้งหมด\" = ทุกเที่ยว (ไม่มีตัวกรอง — รวมที่ยกเลิก)"
+            "description": "เที่ยวทั้งหมด (ไม่มีตัวกรอง — รวมที่ยกเลิก)"
           }
         },
         "required": [
@@ -89488,7 +89539,7 @@
             "type": "string",
             "nullable": true,
             "example": "6 ล้อ",
-            "description": "ประเภทรถของเที่ยว (snapshot) — หน้า `/do` คอลัมน์รถบรรทัดรอง"
+            "description": "ประเภทรถของเที่ยว (snapshot)"
           },
           "driverName": {
             "type": "string",
