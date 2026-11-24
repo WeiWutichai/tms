@@ -1,5 +1,5 @@
 import { FormDrawer, FormField, FormSection, Icon, TextInput } from '@tms/ui';
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { problemText } from '../master/problems';
@@ -40,6 +40,8 @@ const TD: CSSProperties = {
   color: '#101418',
   fontSize: 14,
 };
+/** ปุ่มรองที่มีไอคอน — ระยะไอคอน/ข้อความ 6 px (review L7) */
+const ICON_BTN: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6 };
 const NUM: CSSProperties = { fontVariantNumeric: 'tabular-nums', textAlign: 'right' };
 const BOX: CSSProperties = {
   border: '1px solid #D9DCD4',
@@ -115,6 +117,7 @@ export function CreateSettlementDrawer({
   const chosen = rows.filter((x) => picked.includes(x.id));
   const sum = useMemo(() => draftTotals(chosen, deds), [chosen, deds]);
   const create = useCreateSettlement();
+  const idem = useRef<{ sig: string; key: string }>({ sig: '', key: '' });
 
   const dedErr = (d: Deduction) => ({
     description: d.description.trim() ? undefined : t('field.required'),
@@ -128,25 +131,29 @@ export function CreateSettlementDrawer({
     setTried(true);
     setErr(null);
     if (bad || create.isPending) return;
+    const body = {
+      carrierId,
+      tripIds: chosen.map((x) => x.id),
+      ...(from && to ? { periodFrom: from, periodTo: to } : {}),
+      ...(deds.length
+        ? {
+            deductions: deds.map((d) => ({
+              deductionType: d.type,
+              description: d.description.trim(),
+              amount: `-${parseCost(d.amount)!}`,
+              reference: d.reference.trim(),
+            })),
+          }
+        : {}),
+      ...(inv.no.trim() ? { carrierInvoiceNo: inv.no.trim() } : {}),
+      ...(inv.date ? { carrierInvoiceDate: inv.date } : {}),
+      ...(inv.note.trim() ? { note: inv.note.trim() } : {}),
+    };
+    // Idempotency-Key เดิมตราบที่ข้อมูลเดิม (กดซ้ำ/ส่งใหม่หลังเน็ตหลุด = ได้ใบเดิม) · ข้อมูลเปลี่ยน = key ใหม่ (review L5)
+    const sig = JSON.stringify(body);
+    if (idem.current.sig !== sig) idem.current = { sig, key: crypto.randomUUID() };
     create.mutate(
-      {
-        carrierId,
-        tripIds: chosen.map((x) => x.id),
-        ...(from && to ? { periodFrom: from, periodTo: to } : {}),
-        ...(deds.length
-          ? {
-              deductions: deds.map((d) => ({
-                deductionType: d.type,
-                description: d.description.trim(),
-                amount: `-${parseCost(d.amount)!}`,
-                reference: d.reference.trim(),
-              })),
-            }
-          : {}),
-        ...(inv.no.trim() ? { carrierInvoiceNo: inv.no.trim() } : {}),
-        ...(inv.date ? { carrierInvoiceDate: inv.date } : {}),
-        ...(inv.note.trim() ? { note: inv.note.trim() } : {}),
-      },
+      { body, idempotencyKey: idem.current.key },
       {
         onSuccess: (s) => onCreated(s.id),
         onError: (e) => setErr(problemText(e, t)),
@@ -332,6 +339,11 @@ export function CreateSettlementDrawer({
             </div>
           )}
         </div>
+        {q.data?.hasMore && (
+          <span className="tms-field-hint" style={{ gridColumn: 'span 2' }}>
+            {t('settle.new.more', { n: rows.length })}
+          </span>
+        )}
         {tried && !chosen.length && (
           <span className="tms-field-error" style={{ gridColumn: 'span 2' }}>
             {t('settle.new.pickTrip')}
@@ -412,7 +424,7 @@ export function CreateSettlementDrawer({
                 <button
                   type="button"
                   className="tms-drawer__sec"
-                  style={{ color: '#B3322A' }}
+                  style={{ ...ICON_BTN, color: '#B3322A' }}
                   onClick={() => setDeds((xs) => xs.filter((x) => x.key !== d.key))}
                 >
                   <Icon n="trash-2" s={16} />
@@ -426,6 +438,7 @@ export function CreateSettlementDrawer({
           <button
             type="button"
             className="tms-drawer__sec"
+            style={ICON_BTN}
             onClick={() =>
               setDeds((xs) => [
                 ...xs,

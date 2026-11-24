@@ -60,7 +60,11 @@ export class SubconOfferRowDto {
   @PriceField('sell')
   sellAmount?: string | null;
   @ApiProperty({ description: 'ส่งข้อเสนอเมื่อ' }) offeredAt!: string;
-  @ApiProperty({ nullable: true, type: String, description: 'ลิงก์ข้อเสนอหมดอายุ (48 ชม.)' })
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'ข้อเสนอหมดอายุ (48 ชม. — ไม่มีเวลาหมดอายุที่บันทึก = เวลาเสนอ + 48 ชม.)',
+  })
   expiresAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) respondedAt!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'ทะเบียนที่รถร่วมกรอกตอนรับงาน' })
@@ -77,14 +81,15 @@ export class SubconOfferPageDto {
 
 export class SubconOfferSummaryDto {
   @ApiProperty({ description: 'รอตอบ = `status=OFFERED`' }) offered!: number;
-  @ApiProperty({ description: 'รับงานแล้ว = `status=ACCEPTED`' }) accepted!: number;
-  @ApiProperty({ description: 'ปฏิเสธ = `status=REJECTED`' }) rejected!: number;
-  @ApiProperty({ description: 'หมดเวลา = `status=EXPIRED`' }) expired!: number;
+  @ApiProperty({ description: 'รับงานแล้ว = `status=ACCEPTED` (เที่ยวยังไม่จบ/ไม่ยกเลิก)' })
+  accepted!: number;
+  @ApiProperty({ description: 'ปฏิเสธ = `status=REJECTED` (เที่ยวยังรอจัด)' }) rejected!: number;
+  @ApiProperty({ description: 'หมดเวลา = `status=EXPIRED` (เที่ยวยังรอจัด)' }) expired!: number;
   @ApiPropertyOptional({
     type: String,
     example: '48200.00',
     description:
-      'ต้นทุนรถร่วมเดือนนี้ = Σ ราคาซื้อของงานที่รับแล้ว (ACCEPTED) ที่วันที่เที่ยวอยู่ในเดือนนี้ (เวลาไทย) — เห็นเมื่อมี `prices.buy:read`',
+      'ต้นทุนรถร่วมเดือนนี้ = Σ ราคาซื้อของงานที่รับแล้ว (ACCEPTED — รวมเที่ยวที่จบแล้ว ไม่รวมเที่ยวยกเลิก) ที่วันที่เที่ยวอยู่ในเดือนนี้ (เวลาไทย) — เห็นเมื่อมี `prices.buy:read`',
   })
   @PriceField('buy')
   buyAcceptedThisMonth?: string;

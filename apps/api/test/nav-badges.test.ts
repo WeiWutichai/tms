@@ -72,6 +72,7 @@ describe('nav badges (D68-89)', () => {
       bill: 0,
       pay: 0,
       settle: 0,
+      sub: 0,
       erp: 0,
       fdoc: 0,
       rate: 0,
@@ -278,6 +279,12 @@ describe('nav badges (D68-89)', () => {
     expect(Object.keys(await badges(await tokenFor(tA, 'integrations:read', 'u-n')))).toEqual([
       'erp',
     ]);
+    // จ่ายงานรถร่วม (24 พ.ย. 2569) = trips:read เหมือนกระดาน/ข้อยกเว้น
+    expect(Object.keys(await badges(await tokenFor(tA, 'trips:read', 'u-t')))).toEqual([
+      'plan',
+      'exc',
+      'sub',
+    ]);
     expect(await badges(await tokenFor(tA, 'reports.ops:read', 'u-r'))).toEqual({});
   });
 
@@ -287,6 +294,7 @@ describe('nav badges (D68-89)', () => {
     const keys = Object.keys(await badges(adminB));
     expect(keys).not.toContain('settle');
     expect(keys).not.toContain('fdoc');
+    expect(keys).not.toContain('sub');
     expect(keys).toContain('so');
     await api(app).get('/v1/me/badges').expect(401);
   });

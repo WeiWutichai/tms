@@ -49,14 +49,14 @@ const NOWRAP = { whiteSpace: 'nowrap' } as const;
 /** ข้อความสองบรรทัดของต้นแบบ (cW) — ยาวเกินตัด … ไม่ให้ตารางล้นจอ 1440 */
 const CLIP = {
   display: 'block',
-  maxWidth: 180,
+  maxWidth: 120,
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
 } as const;
 const routeOf = (r: SubOfferRow) => `${r.origin ?? '—'} → ${r.destination ?? '—'}`;
 /** ป้ายตัวเลือกในตัวกรอง (select) — ตัดยาวไม่ให้ตารางล้นจอ (ค่าที่กรองยังเป็นข้อความเต็ม) */
-const short = (x: string, n = 16) => (x.length > n ? `${x.slice(0, n - 1)}…` : x);
+const short = (x: string, n = 14) => (x.length > n ? `${x.slice(0, n - 1)}…` : x);
 
 /**
  * ปฏิบัติการ → จ่ายงานรถร่วม (`/sub` — ต้นแบบ TMS v4 `specSub` + `kpisX('sub')` + vPanel kind 'sub')
@@ -159,14 +159,15 @@ export function SubPage() {
       render: (r) => {
         const d = docLabel(r);
         return (
-          <span style={NOWRAP}>
+          <div
+            title={[...r.deliveryOrderNos].join(', ') || undefined}
+            style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.4, ...NOWRAP }}
+          >
             <DocNo>{d.no}</DocNo>
             {d.more > 0 && (
-              <span style={{ color: '#59606B', marginLeft: 6 }}>
-                {t('subl.more', { n: d.more })}
-              </span>
+              <span style={{ color: '#59606B' }}>{t('subl.more', { n: d.more })}</span>
             )}
-          </span>
+          </div>
         );
       },
       csv: (r) => [...r.deliveryOrderNos].join(' ') || (r.tripNo ?? ''),
@@ -185,12 +186,12 @@ export function SubPage() {
         <span className="tms-route-cell" title={routeOf(r)}>
           <RouteChip
             from={
-              <span className="tms-ellipsis" style={{ maxWidth: 64 }}>
+              <span className="tms-ellipsis" style={{ maxWidth: 48 }}>
                 {r.origin ?? '—'}
               </span>
             }
             to={
-              <span className="tms-ellipsis" style={{ maxWidth: 64 }}>
+              <span className="tms-ellipsis" style={{ maxWidth: 48 }}>
                 {r.destination ?? '—'}
               </span>
             }
@@ -259,7 +260,17 @@ export function SubPage() {
       key: 'sent',
       label: t('subl.col.sent'),
       width: '1%',
-      render: (r) => <span style={NOWRAP}>{dtText(r.offeredAt)}</span>,
+      // วันที่/เวลาสองบรรทัด (รูปแบบ cW ของต้นแบบ) — ให้ครบ 9 คอลัมน์ในจอ 1440 ไม่ต้องเลื่อน (review M2)
+      render: (r) => {
+        const v = dtText(r.offeredAt);
+        const i = v.lastIndexOf(' ');
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.4, ...NOWRAP }}>
+            <span>{i > 0 ? v.slice(0, i) : v}</span>
+            {i > 0 && <span style={{ color: '#3B424C' }}>{v.slice(i + 1)}</span>}
+          </div>
+        );
+      },
       csv: (r) => r.offeredAt,
     },
     {

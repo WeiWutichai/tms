@@ -4692,7 +4692,7 @@ const { data, error } = await tms.GET('/v1/subcon-offers/summary');
 
 scope: `trips:read` · operationId: `SubconOffers_index`
 
-หนึ่งแถวต่อเที่ยว (การจ้างล่าสุดที่ไม่ถูกถอน — การจ้างก่อนหน้าดูที่ `GET /trips/{id}/offers`) · กรองสถานะ (คั่นด้วย,) / ผู้รับเหมา · EXPIRED รวมข้อเสนอรอตอบที่ลิงก์หมดอายุแล้ว · cursor มาตรฐาน (updatedAt, id) · ราคาซื้อเห็นเมื่อมี `prices.buy:read`, รายได้เมื่อมี `prices.sell:read`
+หนึ่งแถวต่อเที่ยว (การจ้างล่าสุดที่ไม่ถูกถอน — การจ้างก่อนหน้าดูที่ `GET /trips/{id}/offers`) · แสดงเฉพาะงานที่ยังต้องดูแล: ปฏิเสธ/หมดเวลา = เที่ยวยังรอจัด (PLANNING/OFFERED), รับงาน = เที่ยวยังไม่จบ/ไม่ยกเลิก · กรองสถานะ (คั่นด้วย,) / ผู้รับเหมา · EXPIRED รวมข้อเสนอรอตอบที่ลิงก์หมดอายุแล้ว · cursor มาตรฐาน (updatedAt, id) · ราคาซื้อเห็นเมื่อมี `prices.buy:read`, รายได้เมื่อมี `prices.sell:read`
 
 **Parameters**
 
@@ -5033,10 +5033,10 @@ const { data, error } = await tms.POST('/v1/trip-sheets', {
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `offered` | ใช่ | `number` |   | รอตอบ = `status=OFFERED` |   |
-| `accepted` | ใช่ | `number` |   | รับงานแล้ว = `status=ACCEPTED` |   |
-| `rejected` | ใช่ | `number` |   | ปฏิเสธ = `status=REJECTED` |   |
-| `expired` | ใช่ | `number` |   | หมดเวลา = `status=EXPIRED` |   |
-| `buyAcceptedThisMonth` |   | `string` |   | ต้นทุนรถร่วมเดือนนี้ = Σ ราคาซื้อของงานที่รับแล้ว (ACCEPTED) ที่วันที่เที่ยวอยู่ในเดือนนี้ (เวลาไทย) — เห็นเมื่อมี `prices.buy:read` | `48200.00` |
+| `accepted` | ใช่ | `number` |   | รับงานแล้ว = `status=ACCEPTED` (เที่ยวยังไม่จบ/ไม่ยกเลิก) |   |
+| `rejected` | ใช่ | `number` |   | ปฏิเสธ = `status=REJECTED` (เที่ยวยังรอจัด) |   |
+| `expired` | ใช่ | `number` |   | หมดเวลา = `status=EXPIRED` (เที่ยวยังรอจัด) |   |
+| `buyAcceptedThisMonth` |   | `string` |   | ต้นทุนรถร่วมเดือนนี้ = Σ ราคาซื้อของงานที่รับแล้ว (ACCEPTED — รวมเที่ยวที่จบแล้ว ไม่รวมเที่ยวยกเลิก) ที่วันที่เที่ยวอยู่ในเดือนนี้ (เวลาไทย) — เห็นเมื่อมี `prices.buy:read` | `48200.00` |
 
 ### TripCostListDto {#schema-TripCostListDto}
 

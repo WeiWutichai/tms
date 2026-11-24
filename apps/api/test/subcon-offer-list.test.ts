@@ -297,6 +297,12 @@ describe('subcon offers list (/sub)', () => {
     const s = await sum();
     expect(s.rejected).toBe(before.rejected);
     expect(s.offered).toBe((before.offered as number) + 1);
+    // badge เมนู "จ่ายงานรถร่วม" = รอตอบ ตัวเลขเดียวกับแถบสรุป (review L1)
+    const nav = (await api(app, admin).get('/v1/me/badges').expect(200)).body.data as {
+      key: string;
+      count: number;
+    }[];
+    expect(nav.find((b) => b.key === 'sub')?.count).toBe(s.offered);
   });
 
   it('รับงาน → ACCEPTED + ทะเบียน · ต้นทุนรถร่วมเดือนนี้ = Σ ราคาซื้อของงานรับแล้ว (Decimal string)', async () => {
@@ -320,6 +326,49 @@ describe('subcon offers list (/sub)', () => {
     expect(rows.map((r) => r.status)).toEqual(['EXPIRED']);
     expect((await listOf('?status=OFFERED')).some((r) => r.tripId === t.id)).toBe(false);
     expect(((await sum()).expired as number) >= 1).toBe(true);
+  });
+
+  it('review M1: ปฏิเสธแล้วเที่ยวถูกยกเลิก → ไม่แสดง · รับงานแล้วเที่ยวจบ → ไม่นับ "รับงานแล้ว" แต่ยังรวมในต้นทุนเดือนนี้', async () => {
+    const a = await offered();
+    await pub()
+      .post(`/v1/public/offers/${a.token}/reject`)
+      .send({ reason: 'PRICE_TOO_LOW' })
+      .expect(200);
+    expect((await listOf('?status=REJECTED')).some((r) => r.tripId === a.t.id)).toBe(true);
+    await api(app, admin)
+      .post(`/v1/trips/${a.t.id}/cancel`)
+      .send({ reason: 'ลูกค้ายกเลิกการส่งทั้งเที่ยว' })
+      .expect((res) => expect(res.status).toBeLessThan(300));
+    expect((await listOf()).some((r) => r.tripId === a.t.id)).toBe(false);
+
+    const before = await sum();
+    const b = await offered();
+    await pub()
+      .post(`/v1/public/offers/${b.token}/accept`)
+      .send({ vehiclePlate: b.C.plate, driverName: 'สมศักดิ์', driverPhone: b.C.phone })
+      .expect(200);
+    const mid = await sum();
+    expect(mid.accepted).toBe((before.accepted as number) + 1);
+    await db.trip.update({
+      where: { id: uuid('trip', b.t.id) },
+      data: { status: 'COMPLETED', completedAt: new Date() },
+    });
+    expect((await listOf('?status=ACCEPTED')).some((r) => r.tripId === b.t.id)).toBe(false);
+    const after = await sum();
+    expect(after.accepted).toBe(before.accepted);
+    expect(after.buyAcceptedThisMonth).toBe(mid.buyAcceptedThisMonth);
+  });
+
+  it('review L3: ข้อเสนอที่ไม่มีเวลาหมดอายุที่บันทึก → หมดเวลาเมื่อเวลาเสนอ + 48 ชม. (เหมือนหน้าลิงก์)', async () => {
+    const { offer, t } = await offered();
+    await db.subconOffer.update({ where: { id: offer.id }, data: { expiresAt: null } });
+    clock.set(new Date(offer.offeredAt.getTime() + 47 * H));
+    expect((await listOf('?status=OFFERED')).find((r) => r.tripId === t.id)?.status).toBe(
+      'OFFERED',
+    );
+    clock.set(new Date(offer.offeredAt.getTime() + 48 * H + 1000));
+    const r = (await listOf('?status=EXPIRED')).find((x) => x.tripId === t.id);
+    expect(r?.status).toBe('EXPIRED');
   });
 
   it('สิทธิ์: ไม่มี prices.buy:read → ไม่มีราคาซื้อ/ต้นทุนเดือนนี้ · ไม่มี trips:read → 403 · ตัวกรองผิด → 422 · cursor ใช้ได้', async () => {

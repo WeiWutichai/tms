@@ -1,6 +1,6 @@
 import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, unwrap } from '../../api';
+import { api, idempotent, unwrap } from '../../api';
 import { useCursorList } from '../master/useCursorList';
 import { showPdf } from '../billing/useInvoices';
 
@@ -121,11 +121,20 @@ export function useSettlementQueue(f: { carrierId?: string; dateFrom?: string; d
   });
 }
 
-/** ติ๊กเที่ยว → สร้างร่างใบสำคัญจ่าย (ST6-T03 `POST /v1/settlements`) */
+/**
+ * ติ๊กเที่ยว → สร้างร่างใบสำคัญจ่าย (ST6-T03 `POST /v1/settlements`) — ส่ง `Idempotency-Key` (docs/01 §5.1 ทุก POST):
+ * กดซ้ำ/เน็ตหลุดแล้วส่งใหม่ด้วยข้อมูลเดิม = ได้ใบเดิม ไม่สร้างซ้ำ (ผู้เรียกคง key เดิมตราบที่ข้อมูลไม่เปลี่ยน)
+ */
 export function useCreateSettlement() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: CreateSettlementInput) => unwrap(api.POST('/v1/settlements', { body })),
+    mutationFn: (v: { body: CreateSettlementInput; idempotencyKey: string }) =>
+      idempotent(() =>
+        api.POST('/v1/settlements', {
+          body: v.body,
+          headers: { 'Idempotency-Key': v.idempotencyKey },
+        }),
+      ),
     onSettled: () => qc.invalidateQueries({ queryKey: [KEY] }),
   });
 }

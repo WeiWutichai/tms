@@ -50015,7 +50015,7 @@
     },
     "/v1/subcon-offers": {
       "get": {
-        "description": "หนึ่งแถวต่อเที่ยว (การจ้างล่าสุดที่ไม่ถูกถอน — การจ้างก่อนหน้าดูที่ `GET /trips/{id}/offers`) · กรองสถานะ (คั่นด้วย,) / ผู้รับเหมา · EXPIRED รวมข้อเสนอรอตอบที่ลิงก์หมดอายุแล้ว · cursor มาตรฐาน (updatedAt, id) · ราคาซื้อเห็นเมื่อมี `prices.buy:read`, รายได้เมื่อมี `prices.sell:read`",
+        "description": "หนึ่งแถวต่อเที่ยว (การจ้างล่าสุดที่ไม่ถูกถอน — การจ้างก่อนหน้าดูที่ `GET /trips/{id}/offers`) · แสดงเฉพาะงานที่ยังต้องดูแล: ปฏิเสธ/หมดเวลา = เที่ยวยังรอจัด (PLANNING/OFFERED), รับงาน = เที่ยวยังไม่จบ/ไม่ยกเลิก · กรองสถานะ (คั่นด้วย,) / ผู้รับเหมา · EXPIRED รวมข้อเสนอรอตอบที่ลิงก์หมดอายุแล้ว · cursor มาตรฐาน (updatedAt, id) · ราคาซื้อเห็นเมื่อมี `prices.buy:read`, รายได้เมื่อมี `prices.sell:read`",
         "operationId": "SubconOffers_index",
         "parameters": [
           {
@@ -82456,7 +82456,7 @@
           "expiresAt": {
             "type": "string",
             "nullable": true,
-            "description": "ลิงก์ข้อเสนอหมดอายุ (48 ชม.)"
+            "description": "ข้อเสนอหมดอายุ (48 ชม. — ไม่มีเวลาหมดอายุที่บันทึก = เวลาเสนอ + 48 ชม.)"
           },
           "respondedAt": {
             "type": "string",
@@ -82504,20 +82504,20 @@
           },
           "accepted": {
             "type": "number",
-            "description": "รับงานแล้ว = `status=ACCEPTED`"
+            "description": "รับงานแล้ว = `status=ACCEPTED` (เที่ยวยังไม่จบ/ไม่ยกเลิก)"
           },
           "rejected": {
             "type": "number",
-            "description": "ปฏิเสธ = `status=REJECTED`"
+            "description": "ปฏิเสธ = `status=REJECTED` (เที่ยวยังรอจัด)"
           },
           "expired": {
             "type": "number",
-            "description": "หมดเวลา = `status=EXPIRED`"
+            "description": "หมดเวลา = `status=EXPIRED` (เที่ยวยังรอจัด)"
           },
           "buyAcceptedThisMonth": {
             "type": "string",
             "example": "48200.00",
-            "description": "ต้นทุนรถร่วมเดือนนี้ = Σ ราคาซื้อของงานที่รับแล้ว (ACCEPTED) ที่วันที่เที่ยวอยู่ในเดือนนี้ (เวลาไทย) — เห็นเมื่อมี `prices.buy:read`"
+            "description": "ต้นทุนรถร่วมเดือนนี้ = Σ ราคาซื้อของงานที่รับแล้ว (ACCEPTED — รวมเที่ยวที่จบแล้ว ไม่รวมเที่ยวยกเลิก) ที่วันที่เที่ยวอยู่ในเดือนนี้ (เวลาไทย) — เห็นเมื่อมี `prices.buy:read`"
           }
         },
         "required": [

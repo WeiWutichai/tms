@@ -3810,6 +3810,8 @@ export const th = {
   'settle.new.podNo': 'ไม่ครบ {a}/{b}',
   'settle.new.emptyTitle': 'ไม่มีเที่ยวรอจ่าย',
   'settle.new.pickTrip': 'เลือกอย่างน้อย 1 เที่ยว',
+  'settle.new.more':
+    'แสดง {n} เที่ยวแรก — ผู้รับเหมารายนี้มีเที่ยวรอจ่ายมากกว่านี้ · สร้างทีละงวดหรือกรองช่วงวันที่เที่ยวจบ',
   'settle.new.d.type': 'ชนิดรายการหัก',
   'settle.new.d.amount': 'ยอดหัก (฿)',
   'settle.new.d.desc': 'รายละเอียด',

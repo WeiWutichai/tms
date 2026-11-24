@@ -4,6 +4,7 @@ import { Clock } from '../../common/clock';
 import { DbService } from '../../db/db.service';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { decodeCursor, toPage } from '../../common/pagination';
+import { OFFER_TTL_MS, offerDeadline } from './offer-links';
 import {
   type SubconOfferListQuery,
   type SubconOfferListStatus,
@@ -28,26 +29,43 @@ export class SubconOfferListService {
     private readonly clock: Clock,
   ) {}
 
-  /** การจ้างล่าสุดของแต่ละเที่ยวที่ยังไม่ถูกถอน + สถานะที่แสดง (`st`) */
+  /**
+   * การจ้างล่าสุดของแต่ละเที่ยวที่ยังไม่ถูกถอน + สถานะที่แสดง (`st`) + แสดงในรายการ/ตัวนับไหม (`vis`)
+   * - หมดเวลา = รอตอบที่เลยเวลาหมดอายุ (`offerDeadline`: `expires_at` หรือเวลาเสนอ + 48 ชม.) หรือปิดเป็น EXPIRED แล้ว
+   * - `vis` (review M1 — งานที่ยังต้องดูแล): รอตอบ = เสมอ · ปฏิเสธ/หมดเวลา = เที่ยวยังรอจัด (PLANNING/OFFERED — ยังไม่จัดรถบริษัท/ยกเลิก/จ้างใหม่) ·
+   *   รับงาน = เที่ยวยังไม่จบ/ไม่ยกเลิก (ไม่ใช่ COMPLETED/COSTED/SETTLED/CANCELLED)
+   */
   private latest(now: Date) {
+    const ttl = `${OFFER_TTL_MS / 1000} seconds`;
     return Prisma.sql`
-      l AS (
-        SELECT o.id, o.trip_id, o.carrier_id, o.updated_at, o.buy_amount,
-               CASE WHEN o.status = 'OFFERED' AND o.expires_at IS NOT NULL AND o.expires_at <= ${now}::timestamptz
+      l0 AS (
+        SELECT o.id, o.trip_id, o.carrier_id, o.updated_at, o.buy_amount, t.status::text AS trip_status,
+               CASE WHEN o.status = 'OFFERED'
+                         AND COALESCE(o.expires_at, o.offered_at + ${ttl}::interval) <= ${now}::timestamptz
                     THEN 'EXPIRED' ELSE o.status::text END AS st
           FROM subcon_offer o
+          JOIN trip t ON t.id = o.trip_id
          WHERE o.status <> 'WITHDRAWN'
            AND NOT EXISTS (
              SELECT 1 FROM subcon_offer n
               WHERE n.trip_id = o.trip_id
                 AND (n.offered_at, n.id) > (o.offered_at, o.id))
+      ),
+      l AS (
+        SELECT l0.*,
+               CASE l0.st
+                 WHEN 'OFFERED' THEN true
+                 WHEN 'ACCEPTED' THEN l0.trip_status NOT IN ('COMPLETED', 'COSTED', 'SETTLED', 'CANCELLED')
+                 ELSE l0.trip_status IN ('PLANNING', 'OFFERED')
+               END AS vis
+          FROM l0
       )`;
   }
 
   async list(q: SubconOfferListQuery): Promise<SubconOfferPageDto> {
     const tx = this.db.tx;
     const now = this.clock.now();
-    const conds: Prisma.Sql[] = [Prisma.sql`true`];
+    const conds: Prisma.Sql[] = [Prisma.sql`l.vis`];
     if (q.status) conds.push(Prisma.sql`l.st = ANY(${q.status.split(',')}::text[])`);
     if (q.carrierId !== undefined)
       conds.push(Prisma.sql`l.carrier_id = ${tryDecodeId('carrier', q.carrierId) ?? NONE}::uuid`);
@@ -123,7 +141,7 @@ export class SubconOfferListService {
           buyAmount: r.buyAmount.toFixed(2),
           sellAmount: r.sellAmount?.toFixed(2) ?? null,
           offeredAt: r.offeredAt.toISOString(),
-          expiresAt: r.expiresAt?.toISOString() ?? null,
+          expiresAt: offerDeadline(r).toISOString(),
           respondedAt: r.respondedAt?.toISOString() ?? null,
           acceptedPlate: r.acceptedPlate,
           acceptedDriverName: r.acceptedDriverName,
@@ -135,7 +153,7 @@ export class SubconOfferListService {
     return page as SubconOfferPageDto;
   }
 
-  /** การ์ด KPI — นับด้วยนิยามเดียวกับรายการ (`status=`) · ต้นทุนเดือนนี้ = งานรับแล้วที่วันที่เที่ยวอยู่ในเดือนนี้ (เวลาไทย) */
+  /** การ์ด KPI — นับด้วยนิยามเดียวกับรายการ (`status=` + `vis`) · ต้นทุนเดือนนี้ = งานรับแล้ว (รวมเที่ยวที่จบแล้ว ไม่รวมยกเลิก) ที่วันที่เที่ยวอยู่ในเดือนนี้ (เวลาไทย) */
   async summary(): Promise<SubconOfferSummaryDto> {
     const tx = this.db.tx;
     const now = this.clock.now();
@@ -149,12 +167,12 @@ export class SubconOfferListService {
       }[]
     >`
       WITH ${this.latest(now)}
-      SELECT count(*) FILTER (WHERE l.st = 'OFFERED')::int AS offered,
-             count(*) FILTER (WHERE l.st = 'ACCEPTED')::int AS accepted,
-             count(*) FILTER (WHERE l.st = 'REJECTED')::int AS rejected,
-             count(*) FILTER (WHERE l.st = 'EXPIRED')::int AS expired,
+      SELECT count(*) FILTER (WHERE l.vis AND l.st = 'OFFERED')::int AS offered,
+             count(*) FILTER (WHERE l.vis AND l.st = 'ACCEPTED')::int AS accepted,
+             count(*) FILTER (WHERE l.vis AND l.st = 'REJECTED')::int AS rejected,
+             count(*) FILTER (WHERE l.vis AND l.st = 'EXPIRED')::int AS expired,
              sum(l.buy_amount) FILTER (
-               WHERE l.st = 'ACCEPTED'
+               WHERE l.st = 'ACCEPTED' AND l.trip_status <> 'CANCELLED'
                  AND date_trunc('month', t.trip_date) = date_trunc('month', (${now}::timestamptz AT TIME ZONE 'Asia/Bangkok')::date)
              ) AS cost
         FROM l JOIN trip t ON t.id = l.trip_id`;
