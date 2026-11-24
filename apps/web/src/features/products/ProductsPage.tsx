@@ -14,6 +14,7 @@ import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
 import { PageHeader } from '../../shell/Header';
+import { ImportExcelButton } from '../imports/ImportExcelButton';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
 import { downloadFile, exportFailText } from '../master/download';
@@ -230,6 +231,8 @@ export function ProductsPage() {
         sub={t('page.prod.sub')}
         actions={
           <>
+            {/* นำเข้า Excel (ST2-T23 — PO 24 พ.ย. 2569: เพิ่มปุ่มแบบหน้าลูกค้า) */}
+            <ImportExcelButton kind="product" label={t('prd.import')} onDone={setToast} />
             <Button variant="secondary" icon="ruler" onClick={() => setUnitsOpen(true)}>
               {t('prd.manageUnits')}
             </Button>

@@ -23,6 +23,7 @@ import {
   type TripStop,
 } from './tripStepper';
 import type { TripDetail } from './useTrips';
+import { openDocFile } from '../vehicles/useVehicleDocs';
 import {
   useRecordStopEvents,
   useTripEvents,
@@ -475,6 +476,18 @@ function EventLine({
         src: t(`exc.src.${e.source}` as MessageKey),
       })}
       {extra.length > 0 && ` · ${extra.join(' · ')}`}
+      {/* Q-LINK: รูปประกอบที่แนบกับ event (เช่น รับบางส่วนผ่านลิงก์รถร่วม) — เปิดไฟล์ทีละรูป */}
+      {(e.photoDocumentIds ?? []).map((id, i) => (
+        <button
+          key={id}
+          type="button"
+          className="tms-textlink"
+          style={{ marginLeft: 6, fontSize: 12 }}
+          onClick={() => void openDocFile(id).catch(() => undefined)}
+        >
+          {t('trip.tl.photo', { n: i + 1 })}
+        </button>
+      ))}
       {e.seqStatus === 'REDUNDANT' && (
         <Chip label={t('trip.tl.redundant')} c="#3B424C" bg="#ECEDEA" />
       )}

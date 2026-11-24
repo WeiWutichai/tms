@@ -5,6 +5,7 @@ import { formatDate, formatDateTime, useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { useMe } from '../../shell/AppShell';
 import { problemText } from '../master/problems';
+import { EntityAttachments } from '../master/EntityAttachments';
 import { openDocFile } from '../vehicles/useVehicleDocs';
 import {
   useDocSubmissions,
@@ -361,7 +362,8 @@ export function CarrierDocsTab({
         </div>
       </section>
 
-      <EmptyState icon="file-text" title={t('cdoc.att.empty')} description={t('cdoc.att.emptyD')} />
+      {/* ภ.พ.20 / สัญญาจ้าง (docs/04 B ผู้รับเหมา — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ) */}
+      <EntityAttachments owner="carrier" id={carrierId} canWrite={canWrite} />
 
       <ReasonDialog
         open={!!revoking}

@@ -2085,6 +2085,10 @@
               {
                 "key": "Idempotency-Key",
                 "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
               }
             ],
             "url": {
@@ -2106,7 +2110,16 @@
                 }
               ]
             },
-            "description": "scope: orders:write | trips:dispatch"
+            "description": "scope: orders:write | trips:dispatch",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"ส่งลิงก์ให้ผู้รับผิดคน\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           }
         },
         {
@@ -7051,6 +7064,10 @@
               {
                 "key": "Idempotency-Key",
                 "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
               }
             ],
             "url": {
@@ -7072,7 +7089,16 @@
                 }
               ]
             },
-            "description": "scope: master:write"
+            "description": "scope: master:write",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"ส่งลิงก์ให้ผู้รับผิดคน\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           }
         },
         {
@@ -12929,6 +12955,137 @@
           }
         },
         {
+          "name": "GET /v1/carriers/{id}/attachments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/carriers/:id/attachments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "carriers",
+                ":id",
+                "attachments"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:read"
+          }
+        },
+        {
+          "name": "POST /v1/carriers/{id}/attachments",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/carriers/:id/attachments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "carriers",
+                ":id",
+                "attachments"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:write",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentId\": \"doc_…\",\n  \"attachType\": \"VAT_REG\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /v1/carriers/{id}/attachments/remove",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/carriers/:id/attachments/remove",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "carriers",
+                ":id",
+                "attachments",
+                "remove"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:write",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentId\": \"doc_…\",\n  \"reason\": \"อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "GET /v1/carriers/{id}/recent-prices",
           "request": {
             "method": "GET",
@@ -14591,6 +14748,137 @@
     {
       "name": "คนขับ (drivers)",
       "item": [
+        {
+          "name": "GET /v1/drivers/{id}/attachments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/drivers/:id/attachments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "drivers",
+                ":id",
+                "attachments"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:read"
+          }
+        },
+        {
+          "name": "POST /v1/drivers/{id}/attachments",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/drivers/:id/attachments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "drivers",
+                ":id",
+                "attachments"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:write",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentId\": \"doc_…\",\n  \"attachType\": \"LICENCE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /v1/drivers/{id}/attachments/remove",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/drivers/:id/attachments/remove",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "drivers",
+                ":id",
+                "attachments",
+                "remove"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: master:write",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentId\": \"doc_…\",\n  \"reason\": \"อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
         {
           "name": "GET /v1/drivers",
           "request": {

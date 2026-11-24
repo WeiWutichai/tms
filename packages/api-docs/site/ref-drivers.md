@@ -1,9 +1,12 @@
 # คนขับ (drivers)
 
-12 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+15 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
+| [`GET /v1/drivers/{id}/attachments`](#get-drivers-id-attachments) | `master:read` |
+| [`POST /v1/drivers/{id}/attachments`](#post-drivers-id-attachments) | `master:write` |
+| [`POST /v1/drivers/{id}/attachments/remove`](#post-drivers-id-attachments-remove) | `master:write` |
 | [`GET /v1/drivers`](#get-drivers) | `master:read` |
 | [`POST /v1/drivers`](#post-drivers) | `master:write` |
 | [`GET /v1/drivers/summary`](#get-drivers-summary) | `master:read` |
@@ -16,6 +19,141 @@
 | [`GET /v1/drivers/{id}/history`](#get-drivers-id-history) | `master:read` |
 | [`POST /v1/drivers/{id}/status`](#post-drivers-id-status) | `master:write` |
 | [`POST /v1/drivers/{id}/delete`](#post-drivers-id-delete) | `master:write` |
+
+## GET /v1/drivers/{id}/attachments {#get-drivers-id-attachments}
+
+`GET /v1/drivers/{id}/attachments`
+
+scope: `master:read` · operationId: `DriverAttachments_list`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ไฟล์แนบของคนขับ (รูปใบขับขี่ / บัตร / อื่น ๆ) | `AttachmentListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/drivers/<id>/attachments" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/drivers/{id}/attachments', {
+  params: { path: { id: "…" } },
+});
+```
+
+## POST /v1/drivers/{id}/attachments {#post-drivers-id-attachments}
+
+`POST /v1/drivers/{id}/attachments`
+
+scope: `master:write` · operationId: `DriverAttachments_add`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Request body** `AddDriverAttachmentDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `documentId` | ใช่ | `string` |   | ไฟล์จาก `POST /v1/documents` ที่อัปโหลดเสร็จแล้ว | `doc_…` |
+| `attachType` | ใช่ | `string` | ค่า: `LICENCE`, `ID_CARD`, `OTHER` |   |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ผูกไฟล์ที่อัปโหลดแล้วกับคนขับ (audit) | `AttachmentListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/drivers/<id>/attachments" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"documentId":"doc_…","attachType":"LICENCE"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/drivers/{id}/attachments', {
+  params: { path: { id: "…" } },
+  body: {
+    "documentId": "doc_…",
+    "attachType": "LICENCE"
+  },
+});
+```
+
+## POST /v1/drivers/{id}/attachments/remove {#post-drivers-id-attachments-remove}
+
+`POST /v1/drivers/{id}/attachments/remove`
+
+scope: `master:write` · operationId: `DriverAttachments_remove`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Request body** `RemoveAttachmentDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `documentId` | ใช่ | `string` |   |   | `doc_…` |
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | เอาไฟล์ออก (เหตุผล ≥ 10 + audit — ไม่ลบไฟล์) | `AttachmentListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/drivers/<id>/attachments/remove" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"documentId":"doc_…","reason":"อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/drivers/{id}/attachments/remove', {
+  params: { path: { id: "…" } },
+  body: {
+    "documentId": "doc_…",
+    "reason": "อัปโหลดผิดไฟล์ ใช้ฉบับใหม่แทน"
+  },
+});
+```
 
 ## GET /v1/drivers {#get-drivers}
 
@@ -592,6 +730,14 @@ const { data, error } = await tms.POST('/v1/drivers/{id}/delete', {
 ```
 
 ## Schema ของ response {#schemas}
+
+### AttachmentListDto {#schema-AttachmentListDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<AttachmentDto>` |   |   |   |
 
 ### AuditPageDto {#schema-AuditPageDto}
 

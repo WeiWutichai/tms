@@ -6,6 +6,7 @@ import type { MessageKey } from '../../i18n/th';
 import { useMe } from '../../shell/AppShell';
 import { searchCarriers } from '../carriers/useCarriers';
 import { HistoryTab } from '../master/HistoryTab';
+import { EntityAttachments } from '../master/EntityAttachments';
 import { fieldErrors, isStale, problemText } from '../master/problems';
 import { RefPicker, type RefOption } from '../master/RefPicker';
 import { vehPlate } from '../vehicles/useVehicles';
@@ -586,13 +587,17 @@ export function DriverDrawer({
       {tab === 'score' && (
         <EmptyState icon="gauge" title={t('drv.score.empty')} description={t('drv.score.emptyD')} />
       )}
-      {tab === 'docs' && (
-        <EmptyState
-          icon="file-text"
-          title={t('car.docs.empty')}
-          description={t('drv.docs.emptyD')}
-        />
-      )}
+      {tab === 'docs' &&
+        (d ? (
+          // PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ: รูปใบขับขี่/บัตร (docs/04 B คนขับ)
+          <EntityAttachments owner="driver" id={d.id} canWrite={!ro} />
+        ) : (
+          <EmptyState
+            icon="file-text"
+            title={t('car.docs.empty')}
+            description={t('drv.docs.emptyD')}
+          />
+        ))}
       {tab === 'act' &&
         (d ? (
           <HistoryTab
