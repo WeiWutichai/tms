@@ -815,4 +815,51 @@ describe('เตือนต่ออายุ: job รายวัน (ST2-T18)
       });
     }
   }, 120_000);
+
+  it('review round 2 #3/#4: สรุปแยกต่อช่องทาง (ในระบบ = ภาษี · อีเมล = ประกัน) · ส่ง 7 วันแล้วไม่ส่ง 30 วันย้อนหลังเมื่อเปลี่ยนค่าตั้ง', async () => {
+    const base = Object.fromEntries(
+      EXPIRY_ALERT_TYPES.map((k) => [k, { levels: [60, 30, 7], inApp: true, email: true }]),
+    ) as Record<string, { levels: number[]; inApp: boolean; email: boolean }>;
+    const put = (cfg: typeof base) =>
+      db.tenantSetting.upsert({
+        where: { tenantId_key: { tenantId: tA, key: 'reminders.expiryAlerts' } },
+        create: { tenantId: tA, key: 'reminders.expiryAlerts', value: cfg },
+        update: { value: cfg },
+      });
+    try {
+      await put({
+        ...base,
+        ANNUAL_TAX: { levels: [7], inApp: true, email: false },
+        INSURANCE: { levels: [7], inApp: false, email: true },
+      });
+      const v = await vehicle(tA, vtA, '70-7171');
+      const tax = await doc(tA, v.id, addDays(D0, 5));
+      await doc(tA, v.id, addDays(D0, 5), { docType: 'INSURANCE' });
+      await runDay(D0);
+      const bell = await digests(tA, owner);
+      expect(bell).toHaveLength(1);
+      expect(items(bell[0]!).map((i) => i.docType)).toEqual(['ANNUAL_TAX']);
+      const mail = await db.notification.findMany({
+        where: { tenantId: tA, channel: 'email', recipientId: owner },
+      });
+      expect(mail).toHaveLength(1);
+      expect(
+        (mail[0]!.payload as unknown as { items: ExpiryDigestItem[] }).items.map((i) => i.docType),
+      ).toEqual(['INSURANCE']);
+      // สมุดเตือนจองครั้งเดียวต่อรายการ × ผู้รับ
+      expect(
+        await db.expiryReminder.count({ where: { entityId: tax.id, recipientId: owner } }),
+      ).toBe(1);
+
+      // #4: เปลี่ยนค่าตั้งภาษีเป็น 60/30 (ไม่มี 7) → วันถัดไปถึงเกณฑ์ D30 แต่ส่ง D7 ไปแล้ว → ไม่ส่งย้อน
+      await put({ ...base, ANNUAL_TAX: { levels: [60, 30], inApp: true, email: true } });
+      await runDay(addDays(D0, 1));
+      expect(await db.expiryReminder.count({ where: { entityId: tax.id, level: 'D30' } })).toBe(0);
+      expect(await digests(tA, owner)).toHaveLength(1);
+    } finally {
+      await db.tenantSetting.delete({
+        where: { tenantId_key: { tenantId: tA, key: 'reminders.expiryAlerts' } },
+      });
+    }
+  }, 120_000);
 });

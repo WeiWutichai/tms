@@ -51049,7 +51049,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -51060,7 +51060,7 @@
         },
         "responses": {
           "201": {
-            "description": "ออกลิงก์ใหม่ — ลิงก์เดิมถูกเพิกถอน (1 ลิงก์ต่อ DO) · DO ยกเลิกแล้ว → 409 · URL มี token — ต้องมีสิทธิ์ออกลิงก์ · ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token)",
+            "description": "ออกลิงก์ใหม่ — ลิงก์เดิมถูกเพิกถอน (1 ลิงก์ต่อ DO) · **มีลิงก์ที่ใช้ได้อยู่ต้องส่ง `reason` ≥ 10 ตัวอักษร** (ไม่ส่ง → 422 `reason` required) · DO ยกเลิกแล้ว → 409 · URL มี token — ต้องมีสิทธิ์ออกลิงก์ · ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token)",
             "content": {
               "application/json": {
                 "schema": {
@@ -51492,7 +51492,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -51503,7 +51503,7 @@
         },
         "responses": {
           "201": {
-            "description": "ออกลิงก์ใหม่ของลูกค้า — ลิงก์เดิมถูกเพิกถอน · URL มี token — ต้องมีสิทธิ์ออกลิงก์ · ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token)",
+            "description": "ออกลิงก์ใหม่ของลูกค้า — ลิงก์เดิมถูกเพิกถอน · **มีลิงก์ที่ใช้ได้อยู่ต้องส่ง `reason` ≥ 10 ตัวอักษร** (ไม่ส่ง → 422) · URL มี token — ต้องมีสิทธิ์ออกลิงก์ · ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token)",
             "content": {
               "application/json": {
                 "schema": {

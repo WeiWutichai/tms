@@ -243,8 +243,32 @@ export class ExpiryReminderService implements OnModuleInit {
     tenantId: string,
     today: string,
     userId: string,
-    items: ExpiryCandidate[],
+    items0: ExpiryCandidate[],
   ): Promise<number> {
+    // review round 2 #4: ระดับที่ด่วนกว่าถูกส่งไปแล้วสำหรับวันหมดเดียวกัน (เช่น ส่ง 7 วันแล้ว — เพิ่งเปิดระดับ 30 วัน /
+    // job ไม่ได้รันหลายวัน) → ไม่ส่งระดับที่ห่างกว่าย้อนหลัง
+    const sent = items0.length
+      ? await tx.expiryReminder.findMany({
+          where: {
+            tenantId,
+            recipientId: userId,
+            entityId: { in: [...new Set(items0.map((c) => c.entityId))] },
+          },
+          select: { entityType: true, entityId: true, level: true, expiresOn: true },
+        })
+      : [];
+    const best = new Map<string, number>();
+    for (const r of sent) {
+      const k = `${r.entityType}|${r.entityId}|${day(r.expiresOn)}`;
+      const rank = LEVEL_RANK[r.level as ReminderLevel] ?? 99;
+      best.set(k, Math.min(best.get(k) ?? 99, rank));
+    }
+    const items = items0.filter(
+      (c) =>
+        LEVEL_RANK[c.level] <= (best.get(`${c.entityType}|${c.entityId}|${c.expiresOn}`) ?? 99),
+    );
+    if (!items.length) return 0;
+    // จองครั้งเดียวต่อ (รายการ × ผู้รับ) — กันส่งซ้ำ แล้วส่งแยกตามช่องทาง
     const claimed = await tx.expiryReminder.createManyAndReturn({
       data: items.map((c) => ({
         tenantId,
@@ -260,27 +284,31 @@ export class ExpiryReminderService implements OnModuleInit {
     });
     if (!claimed.length) return 0;
     const got = new Set(claimed.map((r) => keyOf({ ...r, expiresOn: day(r.expiresOn) })));
-    const list = items.filter((c) => got.has(keyOf(c))); // ลำดับเดิม (เรียงแล้ว)
-    const kinds = new Set(list.map((c) => c.item.kind));
-    const only = kinds.size === 1 ? list[0]!.item : null;
-    const link = only
-      ? only.kind === 'RATE_CARD' && list.every((c) => c.item.side === 'BUY')
-        ? '/master/rate-cards?side=buy'
-        : LINK[only.kind]
-      : LINK[list[0]!.item.kind]; // หลายชนิด → หน้าของรายการที่ด่วนสุด
-    await this.notifications.notify(tx, {
-      tenantId,
-      to: { userIds: [userId] },
-      template: 'expiry.digest',
-      // #40 ช่องทาง = รวมของรายการในสรุป (ค่าตั้งต่อประเภท)
-      channels: [...new Set(list.flatMap((c) => c.channels ?? (['in_app', 'email'] as const)))],
-      vars: {
-        total: list.length,
-        more: Math.max(0, list.length - DIGEST_MAX_ITEMS),
-        items: list.slice(0, DIGEST_MAX_ITEMS).map((c) => c.item),
-      },
-      link,
-    });
+    const all = items.filter((c) => got.has(keyOf(c))); // ลำดับเดิม (เรียงแล้ว)
+    // review round 2 #3: สรุปแยกต่อช่องทาง — แต่ละฉบับมีเฉพาะรายการที่ตั้งให้ส่งทางนั้น (#40)
+    for (const ch of ['in_app', 'email'] as const) {
+      const list = all.filter((c) => (c.channels ?? ['in_app', 'email']).includes(ch));
+      if (!list.length) continue;
+      const kinds = new Set(list.map((c) => c.item.kind));
+      const only = kinds.size === 1 ? list[0]!.item : null;
+      const link = only
+        ? only.kind === 'RATE_CARD' && list.every((c) => c.item.side === 'BUY')
+          ? '/master/rate-cards?side=buy'
+          : LINK[only.kind]
+        : LINK[list[0]!.item.kind]; // หลายชนิด → หน้าของรายการที่ด่วนสุด
+      await this.notifications.notify(tx, {
+        tenantId,
+        to: { userIds: [userId] },
+        template: 'expiry.digest',
+        channels: [ch],
+        vars: {
+          total: list.length,
+          more: Math.max(0, list.length - DIGEST_MAX_ITEMS),
+          items: list.slice(0, DIGEST_MAX_ITEMS).map((c) => c.item),
+        },
+        link,
+      });
+    }
     return claimed.length;
   }
 

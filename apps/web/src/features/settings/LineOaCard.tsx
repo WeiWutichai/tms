@@ -5,8 +5,10 @@ import { api, unwrap } from '../../api';
 import { useI18n } from '../../i18n';
 import { problemText } from '../master/problems';
 import { Toggle } from './Settings';
+import { stepUpHeaders, useInlineStepUp } from '../stepup/stepUp';
 
 const KEY = ['settings-messaging'];
+type Body = { lineChannelAccessToken?: string | null; lineEnabled?: boolean; smsEnabled?: boolean };
 
 /**
  * การ์ด "LINE Official Account" ของ ตั้งค่า → การเชื่อมต่อ (ST3-T21; ต้นแบบ TMS v4 `st.others` — การ์ดขาว ไอคอน message-circle,
@@ -28,27 +30,37 @@ export function LineOaCard({
     queryFn: () => unwrap(api.GET('/v1/settings/messaging')),
     retry: false,
   });
+  // ตั้ง/ลบ token = credential → ยืนยัน 2FA (D-67 ข้อ 2) ด้วยกล่อง StepUpBox ในการ์ด
+  const su = useInlineStepUp();
   const save = useMutation({
-    mutationFn: (body: {
-      lineChannelAccessToken?: string | null;
-      lineEnabled?: boolean;
-      smsEnabled?: boolean;
-    }) => unwrap(api.PATCH('/v1/settings/messaging', { body })),
+    mutationFn: (v: { body: Body; token?: string }) =>
+      unwrap(
+        api.PATCH('/v1/settings/messaging', { body: v.body, headers: stepUpHeaders(v.token) }),
+      ),
     onSuccess: (d) => qc.setQueryData(KEY, d),
   });
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState('');
+  const [pending, setPending] = useState<{ body: Body; msg: string } | null>(null);
   const s = q.data;
   if (q.isError || !s) return null;
   const on = s.lineEnabled && s.lineConfigured;
-  const run = (body: Parameters<typeof save.mutate>[0], msg: string) =>
-    save.mutate(body, {
-      onSuccess: () => {
-        setToken('');
-        onToast(msg);
+  const run = (body: Body, msg: string, tok?: string) =>
+    save.mutate(
+      { body, ...(tok ? { token: tok } : {}) },
+      {
+        onSuccess: () => {
+          setToken('');
+          su.reset();
+          onToast(msg);
+        },
+        onError: (e) => {
+          // ต้องยืนยัน 2FA → แสดงกล่องในการ์ด แล้วส่งคำขอเดิมซ้ำพร้อม token
+          if (su.onError(e)) return setPending({ body, msg });
+          onToast(problemText(e, t) ?? t('line.e.save'), true);
+        },
       },
-      onError: (e) => onToast(problemText(e, t) ?? t('line.e.save'), true),
-    });
+    );
   return (
     <div className="cnx-card" data-on={on || undefined} data-testid="line-oa-card">
       <div className="cnx-card__hd">
@@ -87,6 +99,12 @@ export function LineOaCard({
               onChange={(e) => setToken(e.target.value)}
             />
           </label>
+          {pending && su.box((tok) => run(pending.body, pending.msg, tok))}
+          {su.error && (
+            <span className="tms-field-error" role="alert">
+              {su.error}
+            </span>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Toggle
               on={s.lineEnabled}

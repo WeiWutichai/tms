@@ -98,4 +98,19 @@ describe('EntityAttachments', () => {
     expect(screen.queryByRole('button', { name: 'แนบไฟล์' })).toBeNull();
     expect(screen.queryByRole('button', { name: /เอาไฟล์ออก/ })).toBeNull();
   });
+
+  it('ไฟล์ข้อมูลส่วนบุคคล (หน้าสมุดบัญชี / บัตร) ผู้ไม่มีสิทธิ์ดูค่าเต็ม → เห็นในรายการ แต่เปิดไม่ได้ (ไอคอนล็อก)', async () => {
+    GET.mockResolvedValue({
+      data: [
+        { ...ROW, id: 'doc_b', attachType: 'BANK_BOOK', filename: 'bank.pdf' },
+        { ...ROW, id: 'doc_c', attachType: 'ID_CARD', filename: 'id.jpg' },
+      ],
+    });
+    show(false);
+    expect(await screen.findByText('หน้าสมุดบัญชี · bank.pdf')).toBeTruthy();
+    expect(
+      screen.getByRole('img', { name: 'ไม่มีสิทธิ์เปิดไฟล์ข้อมูลส่วนบุคคลนี้ หน้าสมุดบัญชี' }),
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /ดาวน์โหลด/ })).toBeNull();
+  });
 });

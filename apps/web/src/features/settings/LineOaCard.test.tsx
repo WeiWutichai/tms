@@ -1,14 +1,20 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../../api';
 import { I18nProvider } from '../../i18n';
 
 /** การ์ด LINE Official Account (ตั้งค่า → การเชื่อมต่อ — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ) */
 const GET = vi.fn();
 const PATCH = vi.fn();
+const POST = vi.fn();
 vi.mock('../../api', async (orig) => ({
   ...(await orig<typeof import('../../api')>()),
-  api: { GET: (...a: unknown[]) => GET(...a), PATCH: (...a: unknown[]) => PATCH(...a) },
+  api: {
+    GET: (...a: unknown[]) => GET(...a),
+    PATCH: (...a: unknown[]) => PATCH(...a),
+    POST: (...a: unknown[]) => POST(...a),
+  },
   unwrap: (p: Promise<unknown>) => p,
 }));
 const { LineOaCard } = await import('./LineOaCard');
@@ -60,6 +66,7 @@ describe('LineOaCard', () => {
     });
     expect(PATCH).toHaveBeenCalledWith('/v1/settings/messaging', {
       body: { lineChannelAccessToken: 'tok-123', lineEnabled: true },
+      headers: {},
     });
     expect(onToast).toHaveBeenCalledWith('บันทึก token LINE OA แล้ว');
     expect(await screen.findByText('เชื่อมต่อ')).toBeTruthy();
@@ -76,5 +83,38 @@ describe('LineOaCard', () => {
     show(false);
     expect(await screen.findByText('เชื่อมต่อ')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'ตั้งค่า' })).toBeNull();
+  });
+
+  it('API ขอยืนยัน 2FA (step_up_required) → กล่องยืนยันในการ์ด → ส่งซ้ำพร้อม X-Step-Up', async () => {
+    GET.mockResolvedValue(S);
+    PATCH.mockRejectedValueOnce(
+      new ApiError({ status: 403, code: 'step_up_required', title: 'x' } as never),
+    ).mockResolvedValueOnce({
+      ...S,
+      lineEnabled: true,
+      lineConfigured: true,
+      lineTokenHint: '•••• 9',
+    });
+    POST.mockResolvedValueOnce({ stepUpToken: 'su-tok', expiresIn: 300 });
+    const onToast = show();
+    fireEvent.click(await screen.findByRole('button', { name: 'ตั้งค่า' }));
+    fireEvent.change(screen.getByLabelText('Channel access token (long-lived)'), {
+      target: { value: 'tok-9' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'บันทึก token' }));
+    });
+    const otp = await screen.findByLabelText('รหัส 6 หลัก');
+    fireEvent.change(otp, { target: { value: '123456' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'ยืนยัน' }));
+    });
+    await waitFor(() =>
+      expect(PATCH).toHaveBeenLastCalledWith('/v1/settings/messaging', {
+        body: { lineChannelAccessToken: 'tok-9', lineEnabled: true },
+        headers: { 'X-Step-Up': 'su-tok' },
+      }),
+    );
+    await waitFor(() => expect(onToast).toHaveBeenCalledWith('บันทึก token LINE OA แล้ว'));
   });
 });

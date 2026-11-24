@@ -28,6 +28,7 @@ import { scopeAllows } from '@tms/domain';
 import { Public, RequireScope, TenantResource } from '../../common/decorators';
 import { decodeIdOr404, encodeId, tryDecodeId } from '../../common/ids';
 import { PROBLEMS, ProblemException, type ProblemCode } from '../../common/problem';
+import { assertAttachmentAccess } from '../attachments/attachment-access';
 import { ApiProblems } from '../../common/problem.dto';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
@@ -324,6 +325,8 @@ export class DocumentsController {
     // ไฟล์นำเข้า (ST9-T16 R-1) — ไม่มีสิทธิ์ตอบ 404 เหมือนไม่มี (ไม่บอกใบ้ว่ามีอยู่) แบบเดียวกับไฟล์ส่งออก
     if (doc.kind === 'IMPORT' && !(await this.canSeeImportFile(doc)))
       throw new ProblemException('not_found');
+    // ไฟล์แนบที่เป็นข้อมูลส่วนบุคคล (คนขับ/ผู้รับเหมา — PO 24 พ.ย. 2569): ต้องผ่านด่านเดียวกับการดูค่าเต็ม
+    assertAttachmentAccess(doc);
     return this.withUrl(doc, req);
   }
 

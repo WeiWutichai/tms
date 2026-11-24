@@ -6,7 +6,8 @@ import { api, ApiError, unwrap } from '../../api';
 import { formatDate, useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { useMe } from '../../shell/AppShell';
-import { openDocFile } from '../vehicles/useVehicleDocs';
+import { can } from '../../nav';
+import { stepUpHeaders, StepUpCancelled, withStepUp } from '../stepup/stepUp';
 import { problemText } from './problems';
 
 type Attachment = Schemas['AttachmentDto'];
@@ -15,6 +16,32 @@ const TYPES: Record<AttachOwner, readonly string[]> = {
   driver: ['LICENCE', 'ID_CARD', 'OTHER'],
   carrier: ['VAT_REG', 'CONTRACT', 'ID_CARD', 'BANK_BOOK', 'OTHER'],
 };
+/**
+ * ไฟล์ที่เป็นข้อมูลส่วนบุคคล (review round 2 #1 — D-67(4)/D-79/D-73): เปิดได้เฉพาะผู้มีสิทธิ์ดูค่าเต็ม
+ * หน้าสมุดบัญชี = `settlements:pay` + ยืนยัน 2FA · บัตรประชาชน = `pii.national_id:read` (API ตรวจซ้ำ — ไม่มีสิทธิ์ = 404)
+ */
+const PII_SCOPE: Record<string, string> = {
+  BANK_BOOK: 'settlements:pay',
+  ID_CARD: 'pii.national_id:read',
+};
+
+/** เปิดไฟล์ (ลิงก์อายุสั้นจาก GET /v1/documents/{id}) — หน้าสมุดบัญชีขอยืนยัน 2FA ผ่านกล่องกลาง */
+async function openAttachment(id: string): Promise<void> {
+  const d = await withStepUp((tok) =>
+    unwrap(
+      api.GET('/v1/documents/{id}', { params: { path: { id } }, headers: stepUpHeaders(tok) }),
+    ),
+  );
+  if (!d.downloadUrl) throw new Error('not_ready');
+  const u = new URL(d.downloadUrl, location.origin);
+  const a = document.createElement('a');
+  a.href = u.pathname + u.search;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 const MIME = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'] as const;
 const MAX = 10 * 1024 * 1024;
 
@@ -61,6 +88,8 @@ export function EntityAttachments({
     onSuccess: (d) => qc.setQueryData(key, d),
   });
   const label = (k: string) => t(`att.type.${owner}.${k}` as MessageKey);
+  const scopes = me.data?.scopes ?? [];
+  const canOpen = (k: string) => !PII_SCOPE[k] || can(scopes, PII_SCOPE[k]);
 
   const upload = async (f: File | undefined) => {
     if (file.current) file.current.value = '';
@@ -140,15 +169,33 @@ export function EntityAttachments({
                 {t('att.meta', { d: formatDate(new Date(r.createdAt), lang, ys) })}
               </span>
             </div>
-            <button
-              type="button"
-              className="tms-vdoc__dl"
-              title={t('att.download')}
-              aria-label={`${t('att.download')} ${label(r.attachType)}`}
-              onClick={() => void openDocFile(r.id).catch(() => setToast(t('att.error')))}
-            >
-              <Icon n="download" s={16} />
-            </button>
+            {canOpen(r.attachType) ? (
+              <button
+                type="button"
+                className="tms-vdoc__dl"
+                title={t('att.download')}
+                aria-label={`${t('att.download')} ${label(r.attachType)}`}
+                onClick={() =>
+                  void openAttachment(r.id).catch((e: unknown) => {
+                    if (!(e instanceof StepUpCancelled))
+                      setToast(problemText(e, t) ?? t('att.error'));
+                  })
+                }
+              >
+                <Icon n="download" s={16} />
+              </button>
+            ) : (
+              // ไม่มีสิทธิ์ดูข้อมูลส่วนบุคคลนี้ — เห็นในรายการแต่เปิดไม่ได้
+              <span
+                className="tms-vdoc__dl"
+                role="img"
+                title={t('att.locked')}
+                aria-label={`${t('att.locked')} ${label(r.attachType)}`}
+                style={{ color: '#8A9099', cursor: 'not-allowed' }}
+              >
+                <Icon n="lock" s={16} />
+              </span>
+            )}
             {canWrite && (
               <button
                 type="button"

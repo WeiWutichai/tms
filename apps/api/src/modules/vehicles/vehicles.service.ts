@@ -674,7 +674,7 @@ export class VehiclesService {
       throw field422('photoDocumentIds', 'not_found', 'document not found');
     const docs = await this.db.tx.storedDocument.findMany({
       where: { id: { in: uuids as string[] } },
-      select: { id: true, status: true, mimeType: true },
+      select: { id: true, status: true, mimeType: true, entityId: true },
     });
     if (docs.length !== new Set(uuids).size)
       throw field422('photoDocumentIds', 'not_found', 'document not found');
@@ -683,6 +683,13 @@ export class VehiclesService {
       throw field422('photoDocumentIds', 'not_ready', 'document upload is not complete');
     if (docs.some((d) => !d.mimeType.startsWith('image/')))
       throw field422('photoDocumentIds', 'not_image', 'vehicle photos must be images');
+    // review round 2 #6: ไฟล์ที่ผูกกับรายการอื่นแล้ว (หลักฐานส่ง/ไฟล์แนบคนขับ ฯลฯ) ใช้เป็นรูปรถไม่ได้
+    if (docs.some((d) => d.entityId !== null))
+      throw field422(
+        'photoDocumentIds',
+        'already_linked',
+        'document is attached to something else',
+      );
   }
 
   /**

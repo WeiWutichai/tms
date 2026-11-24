@@ -28,6 +28,9 @@ export const CARRIER_ATTACH_TYPES = [
   'OTHER',
 ] as const;
 const ENTITY = { driver: 'driver', carrier: 'carrier' } as const;
+/** ไฟล์ที่ผูกเป็นไฟล์แนบได้ (อัปโหลดผ่าน /v1/documents) */
+const ATTACH_KINDS = ['OTHER', 'CONTRACT'];
+const ATTACH_MIME = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
 type Owner = keyof typeof ENTITY;
 
 export class AttachmentDto {
@@ -136,17 +139,31 @@ export class AttachmentsService {
     if (!doc) throw field422('documentId', 'not_found', 'document not found');
     if (doc.status !== 'READY')
       throw field422('documentId', 'not_ready', 'document upload is not complete');
+    // review round 2 #6: ไฟล์แนบ = PDF/รูปเท่านั้น (ชนิดที่หน้าเว็บอัปโหลด) — ไฟล์ระบบ (POD/PDF เอกสาร/ส่งออก/นำเข้า) ผูกไม่ได้
+    if (!ATTACH_KINDS.includes(doc.kind) || !ATTACH_MIME.includes(doc.mimeType))
+      throw field422('documentId', 'not_allowed', 'only uploaded PDF/image files can be attached');
     if (doc.entityId && !(doc.entityType === ENTITY[kind] && doc.entityId === entityId))
       throw field422('documentId', 'already_linked', 'document is attached to something else');
     if (doc.entityType && doc.entityType !== ENTITY[kind])
       throw field422('documentId', 'wrong_entity', `document was uploaded for ${doc.entityType}`);
-    const meta = { ...((doc.metadata as Record<string, unknown> | null) ?? {}), attachType };
-    await tx.storedDocument.update({
-      where: { id: doc.id },
+    const prev = (doc.metadata as Record<string, unknown> | null) ?? {};
+    // review round 2 #5: แนบไฟล์ที่เคยเอาออกกลับมา = ล้างธงเอาออก + audit
+    const restored = !!prev.removed && doc.entityId === entityId;
+    const { removed: _removed, ...rest } = prev;
+    void _removed;
+    const meta = { ...rest, attachType };
+    // review round 2 #6: ผูกแบบมีเงื่อนไข (ยังไม่ผูก หรือผูกกับรายการนี้อยู่แล้ว) — สองคำขอพร้อมกันผูกได้รายการเดียว
+    const n = await tx.storedDocument.updateMany({
+      where: {
+        id: doc.id,
+        OR: [{ entityId: null }, { entityType: ENTITY[kind], entityId }],
+      },
       data: { entityType: ENTITY[kind], entityId, metadata: meta },
     });
+    if (n.count !== 1)
+      throw field422('documentId', 'already_linked', 'document is attached to something else');
     await this.audit.record({
-      action: `${kind}.attachment_added`,
+      action: restored ? `${kind}.attachment_restored` : `${kind}.attachment_added`,
       entityType: kind,
       entityId,
       after: { documentId: encodeId('document', doc.id), attachType, filename: doc.filename },

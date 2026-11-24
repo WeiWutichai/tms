@@ -881,7 +881,7 @@ scope: `orders:write` หรือ `trips:dispatch` · operationId: `DeliveryOrd
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `201` | ออกลิงก์ใหม่ — ลิงก์เดิมถูกเพิกถอน (1 ลิงก์ต่อ DO) · DO ยกเลิกแล้ว → 409 · URL มี token — ต้องมีสิทธิ์ออกลิงก์ · ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token) | `TrackingLinkDto` |
+| `201` | ออกลิงก์ใหม่ — ลิงก์เดิมถูกเพิกถอน (1 ลิงก์ต่อ DO) · **มีลิงก์ที่ใช้ได้อยู่ต้องส่ง `reason` ≥ 10 ตัวอักษร** (ไม่ส่ง → 422 `reason` required) · DO ยกเลิกแล้ว → 409 · URL มี token — ต้องมีสิทธิ์ออกลิงก์ · ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token) | `TrackingLinkDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`orders:write` / `trips:dispatch`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
