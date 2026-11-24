@@ -1,4 +1,4 @@
-import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
+import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { from, lastValueFrom, Observable } from 'rxjs';
 import {
@@ -9,6 +9,8 @@ import {
 } from '../common/decorators';
 import { requestContext } from '../common/request-context';
 import { PrismaService } from '../db/prisma.service';
+
+const log = new Logger('TransactionInterceptor');
 
 /**
  * 1 request = 1 transaction ที่ตั้ง `app.tenant_id` ก่อน query แรก (RLS ใช้ค่านี้)
@@ -39,18 +41,29 @@ export class TransactionInterceptor implements NestInterceptor {
     if (isPublic || noTx || !ctx?.tenantId) return next.handle();
     const tenantId = ctx.tenantId;
     return from(
-      this.prisma.app.$transaction(
-        async (tx) => {
-          await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
-          ctx.tx = tx as any;
-          try {
-            return await lastValueFrom(next.handle(), { defaultValue: undefined });
-          } finally {
-            ctx.tx = undefined;
-          }
-        },
-        { timeout },
-      ),
+      this.prisma.app
+        .$transaction(
+          async (tx) => {
+            await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+            ctx.tx = tx as any;
+            try {
+              return await lastValueFrom(next.handle(), { defaultValue: undefined });
+            } finally {
+              ctx.tx = undefined;
+            }
+          },
+          { timeout },
+        )
+        .then(async (result) => {
+          // commit แล้วเท่านั้น (rollback = ไม่ถึงตรงนี้) — `ctx.afterCommit`
+          const jobs = ctx.afterCommit ?? [];
+          ctx.afterCommit = undefined;
+          for (const job of jobs)
+            await job().catch((e: unknown) =>
+              log.error(`afterCommit failed (request ${ctx.requestId}): ${String(e)}`),
+            );
+          return result;
+        }),
     );
   }
 }

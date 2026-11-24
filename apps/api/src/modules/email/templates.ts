@@ -58,6 +58,19 @@ export interface TemplateVars {
   };
   password_reset: { link: string; minutes: number };
   /**
+   * คำถามค้าง #81 (PO 24 พ.ย. 2569) แจ้งเจ้าของบัญชีเมื่อถูกรีเซ็ต 2FA — โดยผู้ดูแลของบริษัท (`byStaff` false)
+   * หรือทีม Innovera ผ่าน Console (`byStaff` true) · actorName ผ่าน safeName แล้ว
+   */
+  two_factor_reset: {
+    tenantName: string;
+    actorName: string;
+    byStaff: boolean;
+    reason: string;
+    at: string;
+    /** role/องค์กรบังคับ 2FA (D-78 / ST1-T17) → login ครั้งถัดไปต้องตั้งใหม่ · false = 2FA ปิดอยู่ เข้าด้วยรหัสผ่านได้ */
+    mustEnroll: boolean;
+  };
+  /**
    * ST5-T21 เอกสารถึงลูกค้า (แนบ PDF) — ไม่ใส่ยอดเงินในเนื้ออีเมล (ยอดอยู่ใน PDF) · วันที่จัดรูปแบบตามที่ tenant ตั้งแล้ว
    * BILLING_NOTE = ไฟล์รวม "ใบวางบิล + ใบแจ้งหนี้" · INVOICE = ใบแจ้งหนี้ · PAYMENT_REMINDER = ใบแจ้งเตือนชำระ (แนบใบแจ้งหนี้)
    */
@@ -255,6 +268,44 @@ const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
         subject: `Invitation to join ${tenantName} — TMS`,
         text: `${title}\n\n${paras.join('\n\n')}\n\n${link}\n`,
         html: layout('en', title, paras, { href: link, label: 'Accept invitation' }),
+      };
+    },
+  },
+  two_factor_reset: {
+    th: (v) => {
+      const title = 'ยืนยันตัวตน 2 ชั้น (2FA) ของคุณถูกรีเซ็ต';
+      const who = v.byStaff ? `${v.actorName} จากทีมงาน TMS` : v.actorName;
+      const paras = [
+        `${who} รีเซ็ตการยืนยันตัวตน 2 ชั้น (2FA) ของบัญชีคุณใน ${v.tenantName} เมื่อ ${v.at}`,
+        `เหตุผล: ${v.reason}`,
+        'แอปยืนยันตัวตนและรหัสสำรองเดิมใช้ไม่ได้แล้ว และทุกอุปกรณ์ถูกออกจากระบบ',
+        v.mustEnroll
+          ? 'เข้าสู่ระบบครั้งถัดไป ระบบจะให้ตั้ง 2FA ใหม่ก่อนใช้งาน'
+          : 'ตอนนี้บัญชีของคุณไม่มี 2FA เข้าสู่ระบบด้วยรหัสผ่านได้ตามปกติ',
+        'ถ้าคุณไม่ได้ขอ กรุณาแจ้งผู้ดูแลระบบของบริษัททันที',
+      ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('th', title, paras),
+      };
+    },
+    en: (v) => {
+      const title = 'Your two-factor authentication (2FA) was reset';
+      const who = v.byStaff ? `${v.actorName} from the TMS team` : v.actorName;
+      const paras = [
+        `${who} reset two-factor authentication (2FA) for your account in ${v.tenantName} at ${v.at}.`,
+        `Reason: ${v.reason}`,
+        'Your old authenticator app and backup codes no longer work, and every device has been signed out.',
+        v.mustEnroll
+          ? 'The next time you sign in, you will be asked to set up 2FA again before continuing.'
+          : 'Your account no longer has 2FA. You can sign in with your password as usual.',
+        'If you did not ask for this, contact your company administrator immediately.',
+      ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('en', title, paras),
       };
     },
   },
