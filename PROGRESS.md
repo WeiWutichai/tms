@@ -519,6 +519,17 @@
 
 ## บันทึกรายวัน
 
+### 24 พ.ย. 2569 (แก้ test ที่ล้มบน main — lane md, `fix/main-test-failures`, migration 0174)
+
+- **ที่มา (FACT):** script CI ในเครื่องของ lead มี bug ตั้งแต่ 23 พ.ย. ไม่ได้รัน unit/integration test → ~30 PR merge โดยไม่ผ่านชุดเต็ม · รันชุดเต็มบน main (`ba4aef0e`) ล้ม 5 ข้อ
+- **(1) `test/krs-so-poller.test.ts`** — คาด `capabilitiesEnabled` = `['pullOrders']` แต่ตั้งแต่ ST8-T08/T10 ค่าเริ่มต้นของ connector KRS = `pullOrders, fetchDocument, ownsDocumentNumber` · **test ล้าสมัย** → แก้ assertion + comment (เหมือน branch อื่น)
+- **(2) `test/external-id-conformance.test.ts` (1)** — model `ConnectorQueueResolution` (ST7-T19, `6ae2ef9a`) มีฟิลด์ `externalId` (= เลขเอกสารฝั่งระบบบัญชีที่คนกรอกเอง MANUAL_EXTERNAL_ID) แต่ไม่ได้ลงทะเบียน · ไม่ใช่ resource ที่รับ `ext:` → เพิ่มใน `NOT_RESOURCE` พร้อมเหตุผล
+- **(3) `test/notifications.test.ts` "role แอปแก้เนื้อหา/ลบแจ้งเตือนไม่ได้"** — migration 0163 (D-81 ชุด 4 review M1, `bdae635d`) ให้ `tms_app` UPDATE (title, body, payload) ตรง ๆ เพื่อรวมกลุ่มแจ้งเตือน → ข้อกำหนด ST1-T23 (แอปแก้ได้แค่สถานะการอ่าน) ไม่จริง · **test ถูก แก้โค้ด:** migration **0174_notification_regroup_fn** ถอนสิทธิ์คอลัมน์คืน + ฟังก์ชัน `tms_notification_regroup(id, title, body, payload)` (SECURITY DEFINER, tenant จาก `app.tenant_id` + FORCE RLS, เฉพาะ in_app ที่ยังไม่อ่าน, เฉพาะ template `connector.document_not_sent`/`reconcile.document_mismatch_found`) · `notification-events.ts` 2 จุดเรียกผ่านฟังก์ชัน · test D68 ใน `d68-connector-queue.test.ts` ปรับเป็น: ฟังก์ชันแก้ได้ / tenant อื่น-template อื่น-อ่านแล้ว = 0 แถว / UPDATE ตรงทุกคอลัมน์เนื้อหา (title/body/payload/ผู้รับ/tenant/template/link/channel) = permission denied
+- **(4) `test/rate-limit.test.ts` (M1)** — 2832 ms > 1000 ms ตอนรันชุดเต็มภายใต้ load สูง · รันเดี่ยว 2 รอบ (load ~3) ผ่าน (B 21–29 ms) → flake จาก load ไม่แก้
+- **(5) `packages/api-docs` site.test "เอกสารสาธารณะมีเฉพาะ endpoint ที่ API key เรียกได้"** — คาด `POST /v1/webhooks` ไม่อยู่ในเอกสาร แต่ D-81 · D68-49/62 (PO 23 พ.ย., `2c4ca79d`) เพิ่ม scope `webhooks:manage` ให้ API key โดยตั้งใจ · **test ล้าสมัย** → ตัวอย่าง settings:write อย่างเดียวเปลี่ยนเป็น `POST /v1/companies` (ยังต้องไม่อยู่) + ยืนยันว่า `POST /v1/webhooks` มี `webhooks:manage` และอยู่ในเอกสาร
+- **ไฟล์:** `apps/api/prisma/migrations/0174_notification_regroup_fn/migration.sql` · `apps/api/src/modules/notifications/notification-events.ts` · `apps/api/test/{krs-so-poller,external-id-conformance,d68-connector-queue}.test.ts` · `packages/api-docs/src/site.test.ts` · API surface ไม่เปลี่ยน (ไม่ต้อง openapi:export)
+- **ผลทดสอบ:** API ชุดเต็ม (`npx vitest run`) 197/197 ไฟล์ · 2107 passed + 1 todo · `@tms/api-docs` 13/13 · lint/typecheck API ผ่าน · ยังไม่ได้รัน `pnpm ci:local` (กติกา lane)
+
 ### 24 พ.ย. 2569 (ST9-T13 ตรวจความปลอดภัย รอบสุดท้าย — lane md, `st9/t13-security-final`, ไม่มี migration)
 
 - **ทำ:** รันซ้ำ checklist รอบแรกกับพื้นผิวใหม่ (ERP push/คิว/payment pull/KRS/reconcile/ปิดงวด/metrics/D-67–D-80/#81) — route inventory **558/558 (100%)**, isolation 5/5, magic-link matrix 3/3 (มี `carrier_pay`), step-up/Console/PII/SSRF/raw SQL/rate limit/`pnpm audit`/secret · ไม่พบ Critical/High · รายงาน `docs/security/st9-t13-review-r2.md`

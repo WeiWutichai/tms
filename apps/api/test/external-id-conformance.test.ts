@@ -278,6 +278,9 @@ const NOT_RESOURCE: Record<string, string> = {
   ExternalMapping:
     'ST8-T05 external_mapping (docs/01 §3.7) — `external_id` คือ id/รหัสฝั่ง ERP ของ entity อื่น (ลูกค้า/เอกสาร) ต่อ connector ' +
     'ไม่ใช่ externalId ของ resource (แก้ผ่าน /customers/{id}/erp-codes · /carriers/{id}/erp-codes)',
+  ConnectorQueueResolution:
+    'ST7-T19 connector_queue_resolution — `external_id` คือเลขเอกสารฝั่งระบบบัญชีที่คนกรอกเอง (MANUAL_EXTERNAL_ID) ' +
+    'ของคำสั่งในคิว ไม่ใช่ externalId ของ resource (บันทึกการจัดการคิว แอปเพิ่มได้อย่างเดียว)',
 };
 
 /**
