@@ -15,6 +15,7 @@ import {
   operationLabel,
   thDate,
 } from '../features/settings/ConnectorSettings';
+import { durText, lastPoll, pct } from '../features/dashboard/ConnectorDash';
 import { useTenantList } from './ConsoleShell';
 import { can, consoleApi, consoleStepUpHeaders, cunwrap, useStaff } from './session';
 import { ActionDialog, type Field, useProblemText } from './Tenants';
@@ -72,7 +73,7 @@ export function ConnectorsPage() {
   const nav = useNavigate();
   const { id } = useParams();
   const role = useStaff().data?.role;
-  const [tab, setTab] = useState<'con' | 'q'>('con');
+  const [tab, setTab] = useState<'con' | 'q' | 'h'>('con');
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState('');
   const list = useQuery({
@@ -87,6 +88,15 @@ export function ConnectorsPage() {
       ),
     enabled: tab === 'q',
   });
+  // #96 Health (docs/02 §5) — ทุก role อ่านได้ ไม่ต้อง step-up · เฉพาะ tenant live
+  const health = useQuery({
+    queryKey: ['console', 'connector-health'],
+    queryFn: () => cunwrap(consoleApi.GET('/v1/platform/connectors/health')),
+    refetchInterval: tab === 'h' ? 60_000 : false,
+  });
+  const hRows = (health.data?.data ?? []).flatMap((x) =>
+    x.connectors.map((c) => ({ tenantName: x.tenantName, c })),
+  );
   const adapters = useAdapters();
   useEffect(() => {
     if (!toast) return;
@@ -118,6 +128,12 @@ export function ConnectorsPage() {
           [
             ['con', t('con.conn.tab.con'), rows.length],
             ['q', t('con.conn.tab.q'), rows.reduce((n, r) => n + r.queue.open + r.queue.failed, 0)],
+            [
+              'h',
+              t('con.conn.tab.h'),
+              hRows.filter((r) => r.c.health.state === 'DOWN' || r.c.health.state === 'DEGRADED')
+                .length,
+            ],
           ] as const
         ).map(([k, l, n]) => (
           <button
@@ -134,7 +150,13 @@ export function ConnectorsPage() {
         ))}
       </div>
       <section className="con-card">
-        {tab === 'con' ? (
+        {tab === 'h' ? (
+          <HealthTable
+            rows={hRows}
+            name={name}
+            onOpen={(cid) => nav(`/console/connectors/${cid}`)}
+          />
+        ) : tab === 'con' ? (
           <table className="con-tbl">
             <thead>
               <tr>
@@ -227,7 +249,7 @@ export function ConnectorsPage() {
             </tbody>
           </table>
         )}
-        {(tab === 'con' ? list : cmds).isError && (
+        {(tab === 'con' ? list : tab === 'q' ? cmds : health).isError && (
           <div className="con-empty">{t('con.loadFailed')}</div>
         )}
         {tab === 'con' && !list.isLoading && !list.isError && !rows.length && (
@@ -235,6 +257,9 @@ export function ConnectorsPage() {
         )}
         {tab === 'q' && !cmds.isLoading && !cmds.isError && !cmds.data?.data.length && (
           <div className="con-empty">{t('con.conn.qEmpty')}</div>
+        )}
+        {tab === 'h' && !health.isLoading && !health.isError && !hRows.length && (
+          <div className="con-empty">{t('con.h.empty')}</div>
         )}
       </section>
       {id && (
@@ -264,6 +289,116 @@ export function ConnectorsPage() {
         </div>
       )}
     </>
+  );
+}
+
+/** สถานะ health → ป้าย (คำ/สีเดียวกับการ์ดหน้าภาพรวม: เขียว เชื่อมต่อ · แดง ผิดพลาด · เทา หยุดชั่วคราว — spec/12 §3 ST9-T04) */
+const HEALTH: Record<string, { k: MessageKey; tone: keyof typeof TONE; i: string }> = {
+  OK: { k: 'dash.conn.on', tone: 'ok', i: 'circle-check' },
+  UNKNOWN: { k: 'dash.conn.on', tone: 'ok', i: 'circle-check' },
+  DEGRADED: { k: 'dash.conn.err', tone: 'err', i: 'triangle-alert' },
+  DOWN: { k: 'dash.conn.err', tone: 'err', i: 'circle-x' },
+  PAUSED: { k: 'dash.conn.paused', tone: 'off', i: 'pause' },
+};
+
+/**
+ * #96 แท็บ "สุขภาพการเชื่อมต่อ" (docs/02 §5 Health) — ต้นแบบ Console ไม่มีหน้านี้ → PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ:
+ * ตาราง `con-tbl` + ป้าย `con-badge` แบบแท็บ Connector · ค่า = `GET /v1/platform/connectors/health` (ตัวนับ/เวลา/รหัสเท่านั้น)
+ */
+function HealthTable({
+  rows,
+  name,
+  onOpen,
+}: {
+  rows: { tenantName: string; c: components['schemas']['ConnectorMetricsDto'] }[];
+  name: (c: { adapterKey: string; displayName?: string | null }) => string;
+  onOpen: (id: string) => void;
+}) {
+  const { t, lang } = useI18n();
+  const num = (n: number) => n.toLocaleString('th-TH');
+  return (
+    <table className="con-tbl" aria-label={t('con.conn.tab.h')}>
+      <thead>
+        <tr>
+          <th>{t('con.conn.col.co')}</th>
+          <th>{t('con.conn.col.sys')}</th>
+          <th>{t('con.h.col.health')}</th>
+          <th style={{ textAlign: 'right' }}>{t('con.h.col.queued')}</th>
+          <th style={{ textAlign: 'right' }}>{t('con.h.col.failed')}</th>
+          <th style={{ textAlign: 'right' }}>{t('con.h.col.lag')}</th>
+          <th>{t('con.h.col.poll')}</th>
+          <th style={{ textAlign: 'right' }}>{t('con.h.col.err')}</th>
+          <th style={{ textAlign: 'right' }}>{t('con.h.col.mm')}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(({ tenantName, c }) => {
+          const h = HEALTH[c.health.state] ?? HEALTH.UNKNOWN!;
+          const poll = lastPoll(c);
+          return (
+            <tr key={c.id} onClick={() => onOpen(c.id)}>
+              <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>{tenantName}</td>
+              <td>{name(c)}</td>
+              <td>
+                <div className="con-cell">
+                  <Pill l={t(h.k)} tone={h.tone} i={h.i} />
+                  {c.health.failingSince && (
+                    <span className="con-cell__sub">
+                      {t('dash.conn.failingSince', {
+                        at: formatDateTime(c.health.failingSince, lang),
+                      })}
+                      {c.health.code ? ` · ${c.health.code}` : ''}
+                    </span>
+                  )}
+                </div>
+              </td>
+              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                {num(c.queue.queued)}
+              </td>
+              <td
+                style={{
+                  textAlign: 'right',
+                  fontVariantNumeric: 'tabular-nums',
+                  color: c.queue.failed ? '#B3322A' : undefined,
+                }}
+              >
+                {num(c.queue.failed)}
+              </td>
+              <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                {c.queue.queued ? durText(t, c.queue.lagSeconds) : '—'}
+              </td>
+              <td style={{ whiteSpace: 'nowrap', color: '#3B424C' }}>
+                {poll ? formatDateTime(poll, lang) : '—'}
+              </td>
+              <td
+                style={{
+                  textAlign: 'right',
+                  whiteSpace: 'nowrap',
+                  color: c.errorRate7d.failed ? '#B3322A' : undefined,
+                }}
+              >
+                {c.errorRate7d.calls
+                  ? t('dash.conn.errRateOf', {
+                      p: pct(c.errorRate7d.rate),
+                      f: num(c.errorRate7d.failed),
+                      c: num(c.errorRate7d.calls),
+                    })
+                  : '—'}
+              </td>
+              <td
+                style={{
+                  textAlign: 'right',
+                  fontVariantNumeric: 'tabular-nums',
+                  color: c.openMismatches ? '#B3322A' : undefined,
+                }}
+              >
+                {num(c.openMismatches)}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 
