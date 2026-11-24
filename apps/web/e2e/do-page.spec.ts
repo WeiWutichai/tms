@@ -212,6 +212,7 @@ test.describe.serial('หน้าใบส่งของ /do', () => {
     ['ระหว่างส่ง', 0],
   ] as const)
     test(`การ์ด "${label}" = จำนวนแถวเมื่อคลิก และมี DO ที่คาด`, async () => {
+      await page.goto('/do');
       await page.evaluate(() => sessionStorage.clear()); // ตัวกรองคอลัมน์จาก test ก่อนจำไว้ใน session
       await page.goto('/do');
       const item = page
@@ -227,6 +228,7 @@ test.describe.serial('หน้าใบส่งของ /do', () => {
     });
 
   test('drawer DO: ข้อมูล + จุดรับ–ส่ง + เปิดเที่ยวรถ', async () => {
+    await page.goto('/do');
     await page.evaluate(() => sessionStorage.clear());
     await page.goto('/do');
     await page.getByRole('tab', { name: /^ทั้งหมด/ }).click();
@@ -251,6 +253,7 @@ test.describe.serial('หน้าใบส่งของ /do', () => {
   });
 
   test('เมนูแถว "ยืนยันส่งแล้ว" → drawer เที่ยวแท็บไทม์ไลน์ + dialog ปิดงานของจุดส่ง', async () => {
+    await page.goto('/do');
     await page.evaluate(() => sessionStorage.clear());
     await page.goto('/do');
     await page.getByRole('tab', { name: /^ระหว่างส่ง/ }).click();
@@ -259,7 +262,7 @@ test.describe.serial('หน้าใบส่งของ /do', () => {
     await expect(row).toHaveCount(1, { timeout: 15_000 });
     await expect(row.first()).toContainText(dos[0]!.doNo);
     await row.first().getByRole('button').last().click();
-    await page.getByRole('button', { name: 'ยืนยันส่งแล้ว' }).click();
+    await page.getByText('ยืนยันส่งแล้ว', { exact: true }).click();
     await expect(page.getByRole('dialog').getByRole('tab', { name: 'ไทม์ไลน์' })).toHaveAttribute(
       'aria-selected',
       'true',
