@@ -401,45 +401,66 @@ export function Sidebar({
               </button>
               <div style={{ height: 1, background: '#E4E6E0', margin: '2px 4px' }} />
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 6px' }}>
-                <div
+                {/* ชื่อผู้ใช้ → หน้าโปรไฟล์ (ST1-T09 — ต้นแบบไม่มีหน้า/ทางเข้า · PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ) */}
+                <button
+                  type="button"
+                  onClick={() => nav('/profile')}
+                  title={t('profile.open')}
+                  aria-label={t('profile.open')}
                   style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: '50%',
-                    background: '#2257C4',
-                    color: '#FFFFFF',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    fontWeight: 600,
-                    fontSize: 13,
-                    flexShrink: 0,
-                  }}
-                >
-                  {initials}
-                </div>
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    lineHeight: 1.35,
-                    minWidth: 0,
+                    gap: 10,
                     flex: 1,
+                    minWidth: 0,
+                    border: 0,
+                    background: 'transparent',
+                    padding: 0,
+                    font: 'inherit',
+                    textAlign: 'left',
+                    cursor: 'pointer',
                   }}
                 >
-                  <span
+                  <div
                     style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: '50%',
+                      background: '#2257C4',
+                      color: '#FFFFFF',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                       fontWeight: 600,
-                      color: '#101418',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
+                      fontSize: 13,
+                      flexShrink: 0,
                     }}
                   >
-                    {actor}
-                  </span>
-                  {role && <span style={{ fontSize: 13, color: '#3B424C' }}>{role}</span>}
-                </div>
+                    {initials}
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      lineHeight: 1.35,
+                      minWidth: 0,
+                      flex: 1,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontWeight: 600,
+                        color: '#101418',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {actor}
+                    </span>
+                    {role && <span style={{ fontSize: 13, color: '#3B424C' }}>{role}</span>}
+                  </div>
+                </button>
                 <button
                   type="button"
                   onClick={onLogout}

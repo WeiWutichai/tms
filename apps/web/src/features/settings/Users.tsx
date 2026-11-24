@@ -10,7 +10,16 @@ import { can } from '../../nav';
 import { TwoFaBadge } from './Settings';
 import { useMe } from '../../shell/AppShell';
 import { StepUpBox } from './OrgSections';
-import { stepUp, useRoles, useUsers } from './useSettings';
+import { stepUp, useRoles, useUsers, type User } from './useSettings';
+import {
+  LoginHistory,
+  RolesDrawer,
+  RowMenu,
+  UserActionDialog,
+  useInvitations,
+  useResendInvitation,
+  userMenu,
+} from './UserActions';
 
 /**
  * แถวของตาราง "สิทธิ์ตามบทบาท" = ตาราง A3 (docs/04) — scope ตัวแทนของแต่ละแถว
@@ -51,11 +60,30 @@ const MATRIX: Array<[MessageKey, string]> = [
 /** ตั้งค่า → ผู้ใช้และสิทธิ์ (ST1-T12) — เชิญผู้ใช้เปิดใน ST1-T07 */
 export function UsersSection({ canWrite }: { canWrite: boolean }) {
   const { t, lang } = useI18n();
-  const [tab, setTab] = useState<'users' | 'matrix'>('users');
+  const [tab, setTab] = useState<'users' | 'matrix' | 'hist'>('users');
   const users = useUsers();
   const roles = useRoles();
+  const me = useMe();
+  const invitations = useInvitations(true);
   const [inviting, setInviting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // เมนูต่อแถว (PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ — spec/12 §3)
+  const [act, setAct] = useState<{
+    a: 'suspend' | 'activate' | 'delete' | 'reset2fa' | 'revoke';
+    u: User;
+  } | null>(null);
+  const [rolesFor, setRolesFor] = useState<User | null>(null);
+  const [histUser, setHistUser] = useState('');
+  // ส่งคำเชิญใหม่ล้มเหลว (เช่น เรียกถี่เกินไป) = toast แดง ไม่ใช่ toast สำเร็จ (review)
+  const [toastErr, setToastErr] = useState(false);
+  const say = (m: string, err = false) => {
+    setToastErr(err);
+    setToast(m);
+  };
+  const resend = useResendInvitation(say, (m) => say(m, true));
+  const invOf = (u: User) => invitations.data?.data.find((i) => i.userId === u.id);
+  const ownerName = roles.data?.data.find((r) => r.code === 'owner')?.name;
+  const isOwner = !!ownerName && !!me.data?.user?.roles.includes(ownerName);
   useEffect(() => {
     if (!toast) return;
     const h = setTimeout(() => setToast(null), 4000);
@@ -74,7 +102,7 @@ export function UsersSection({ canWrite }: { canWrite: boolean }) {
           )}
         </div>
         <div className="set-tabs" role="tablist">
-          {(['users', 'matrix'] as const).map((k) => (
+          {(['users', 'matrix', 'hist'] as const).map((k) => (
             <button
               key={k}
               type="button"
@@ -95,6 +123,7 @@ export function UsersSection({ canWrite }: { canWrite: boolean }) {
               <th>{t('users.col.role')}</th>
               <th>{t('users.col.2fa')}</th>
               <th>{t('users.col.last')}</th>
+              <th style={{ width: 48 }} aria-label={t('table.rowActions')} />
             </tr>
           </thead>
           <tbody>
@@ -117,13 +146,46 @@ export function UsersSection({ canWrite }: { canWrite: boolean }) {
                 </td>
                 <td>
                   {u.status === 'invited' ? (
-                    <Badge label={t('users.invited')} tone="warn" icon="mail" />
+                    invOf(u)?.status === 'expired' ? (
+                      <Badge label={t('users.inviteExpired')} tone="err" icon="mail" />
+                    ) : (
+                      <Badge label={t('users.invited')} tone="warn" icon="mail" />
+                    )
                   ) : (
-                    <TwoFaBadge on={u.twoFactorEnabled} />
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <TwoFaBadge on={u.twoFactorEnabled} />
+                      {u.status === 'disabled' && (
+                        <Badge label={t('users.disabled')} tone="err" icon="ban" />
+                      )}
+                    </div>
                   )}
                 </td>
                 <td style={{ color: '#3B424C' }}>
                   {u.lastLoginAt ? formatDateTime(u.lastLoginAt, lang) : '—'}
+                </td>
+                <td className="c">
+                  <RowMenu
+                    label={t('table.rowActions')}
+                    items={userMenu(u, {
+                      t,
+                      canWrite: canWrite && !isImpersonating(),
+                      self: !!me.data?.user && me.data.user.email === u.email,
+                      // จัดการเจ้าของได้เฉพาะ owner (API ตอบ 403 manage_owner) — ไม่แสดงเมนูที่ทำไม่ได้
+                      ownerLocked: u.roles.some((r) => r.code === 'owner') && !isOwner,
+                      invitation: invOf(u),
+                      open: (a) => {
+                        if (a === 'roles') setRolesFor(u);
+                        else if (a === 'history') {
+                          setHistUser(u.id);
+                          setTab('hist');
+                        } else if (a === 'resend') {
+                          const inv = invOf(u);
+                          // กันกดซ้ำระหว่างรอผล
+                          if (inv && !resend.isPending) resend.mutate({ inv, name: u.name });
+                        } else setAct({ a, u });
+                      },
+                    })}
+                  />
                 </td>
               </tr>
             ))}
@@ -167,20 +229,45 @@ export function UsersSection({ canWrite }: { canWrite: boolean }) {
           </table>
         </div>
       )}
+      {tab === 'hist' && (
+        <LoginHistory users={users.data?.data ?? []} userId={histUser} onUser={setHistUser} />
+      )}
+      <UserActionDialog
+        act={act?.a ?? null}
+        user={act?.u ?? null}
+        invitation={act ? invOf(act.u) : undefined}
+        onClose={() => setAct(null)}
+        onDone={(m) => {
+          setAct(null);
+          say(m);
+        }}
+      />
+      {rolesFor && (
+        <RolesDrawer
+          user={rolesFor}
+          roles={roles.data?.data ?? []}
+          isOwner={isOwner}
+          onClose={() => setRolesFor(null)}
+          onDone={(m) => {
+            setRolesFor(null);
+            say(m);
+          }}
+        />
+      )}
       {inviting && (
         <InviteDrawer
           roles={roles.data?.data ?? []}
           onClose={() => setInviting(false)}
           onSent={() => {
             setInviting(false);
-            setToast(t('users.inviteSent'));
+            say(t('users.inviteSent'));
           }}
         />
       )}
       {toast && (
         <div role="status" className="set-toast">
-          <span className="set-toast__ic">
-            <Icon n="check" s={14} />
+          <span className="set-toast__ic" style={toastErr ? { background: '#B3322A' } : undefined}>
+            <Icon n={toastErr ? 'x' : 'check'} s={14} />
           </span>
           <span>{toast}</span>
         </div>

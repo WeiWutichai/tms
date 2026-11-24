@@ -103,6 +103,8 @@ export const can = {
   suspend: (r?: StaffRole) => r === 'SUPER_ADMIN',
   plan: (r?: StaffRole) => r === 'SUPER_ADMIN' || r === 'BILLING',
   impersonate: (r?: StaffRole) => r === 'SUPER_ADMIN' || r === 'SUPPORT',
+  /** #81 รีเซ็ต 2FA ผู้ใช้ลูกค้า — SUPER_ADMIN เท่านั้น (docs/04 A6: SUPPORT ดู + เข้าใช้งานแทน) */
+  reset2fa: (r?: StaffRole) => r === 'SUPER_ADMIN',
 };
 
 export function useStaff() {

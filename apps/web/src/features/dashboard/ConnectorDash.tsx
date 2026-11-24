@@ -1,10 +1,10 @@
 import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Icon } from '@tms/ui';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, unwrap } from '../../api';
-import { formatDateTime, useI18n } from '../../i18n';
+import { formatDateTime, useI18n, type T } from '../../i18n';
 import { can } from '../../nav';
 import { useMe } from '../../shell/AppShell';
 import { problemText } from '../master/problems';
@@ -33,6 +33,25 @@ const tileN = (color: string): CSSProperties => ({
 });
 const tileL: CSSProperties = { fontSize: 12.5, fontWeight: 500, color: '#3B424C' };
 const num = (n: number) => n.toLocaleString('th-TH');
+
+/** ระยะเวลา (วินาที) → ข้อความสั้น — ใช้กับ lag ของการ์ดและหน้า Health ใน Console */
+export function durText(t: T, sec: number): string {
+  if (sec < 60) return t('dur.sec', { n: Math.max(0, Math.floor(sec)) });
+  if (sec < 3600) return t('dur.min', { n: Math.floor(sec / 60) });
+  if (sec < 86400) return t('dur.hour', { n: Math.floor(sec / 3600) });
+  return t('dur.day', { n: Math.floor(sec / 86400) });
+}
+
+/** รอบดึงล่าสุด = รอบดึง SO หรือรอบดึงสถานะรับชำระที่ใหม่กว่า (spec/12 §3 ST9-T04 ข้อ 5) */
+export function lastPoll(m: Metrics): string | null {
+  const xs = [m.poller.lastRunAt, m.poller.ordersLastRunAt, m.poller.paymentStatusLastRunAt].filter(
+    (x): x is string => !!x,
+  );
+  return xs.length ? xs.reduce((a, b) => (a > b ? a : b)) : null;
+}
+
+/** error rate 7 วัน เป็น % ทศนิยม 1 ตำแหน่ง */
+export const pct = (r: number) => (Math.round(r * 1000) / 10).toLocaleString('th-TH');
 
 /** สีจุด + ข้อความสถานะ — ต้นแบบมีเฉพาะ "เชื่อมต่อ" (เขียว) · แดง/เทา ตามแบบท้าย sidebar (ST7-T20) [DECISION spec/12 §3 ST9-T04] */
 function dotOf(m: Metrics): {
@@ -69,11 +88,33 @@ export function useConnectorMetrics(): { data: Metrics | null; enabled: boolean 
   return { data: c, enabled };
 }
 
+/** แถว ป้าย | ค่า แบบ "ซิงก์ล่าสุด" ของต้นแบบ */
+function Row({
+  label,
+  children,
+  testId,
+  color,
+}: {
+  label: string;
+  children: ReactNode;
+  testId: string;
+  color?: string;
+}) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#3B424C' }}>
+      <span style={{ color: '#3B424C' }}>{label}</span>
+      <span data-testid={testId} style={color ? { color, fontWeight: 500 } : undefined}>
+        {children}
+      </span>
+    </div>
+  );
+}
+
 /**
  * ST9-T04 การ์ด "การเชื่อมต่อ {ระบบ}" บนหน้าภาพรวม — ต้นแบบ is.dash `dash.conn` (แทนที่การ์ดลูกหนี้เมื่อเชื่อมระบบบัญชี):
  * หัว + จุดสถานะ · คิวรอส่ง (outbox) · ส่งไม่สำเร็จ · ซิงก์ล่าสุด · ปุ่ม "ส่งซ้ำ" + "ดูคิวเชื่อมระบบบัญชี →"
- * ตัวเลข = `GET /v1/connectors/metrics` (คิว/ล้มเหลว = แท็บของหน้าคิว ST7-T19) · lag / poller / error rate อยู่ใน API แล้ว แต่ต้นแบบไม่มีที่แสดง
- * [OPEN — PO] ส่ง Claude Design
+ * ตัวเลข = `GET /v1/connectors/metrics` (คิว/ล้มเหลว = แท็บของหน้าคิว ST7-T19)
+ * lag / poller / error rate / MISMATCH = แถวป้าย-ค่าแบบ "ซิงก์ล่าสุด" (ต้นแบบไม่มี — PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ, #96)
  */
 export function ConnectorCard({ m, onDone }: { m: Metrics; onDone: (msg: string) => void }) {
   const { t, lang } = useI18n();
@@ -134,11 +175,43 @@ export function ConnectorCard({ m, onDone }: { m: Metrics; onDone: (msg: string)
           <div style={tileL}>{t('dash.conn.failed')}</div>
         </div>
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#3B424C' }}>
-        <span style={{ color: '#3B424C' }}>{t('dash.conn.last')}</span>
-        <span data-testid="dash-conn-last">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <Row label={t('dash.conn.last')} testId="dash-conn-last">
           {m.lastSyncAt ? formatDateTime(m.lastSyncAt, lang) : '—'}
-        </span>
+        </Row>
+        {/* #96 ช่องเพิ่ม (ต้นแบบไม่มี — PO 24 พ.ย. 2569 ประกอบจากแถว "ซิงก์ล่าสุด") */}
+        {dot.key === 'dash.conn.err' && m.health.failingSince && (
+          <span data-testid="dash-conn-failing" style={{ color: '#B3322A', fontSize: 13 }}>
+            {t('dash.conn.failingSince', { at: formatDateTime(m.health.failingSince, lang) })}
+            {m.health.code ? ` · ${m.health.code}` : ''}
+          </span>
+        )}
+        <Row label={t('dash.conn.lag')} testId="dash-conn-lag">
+          {m.queue.queued ? durText(t, m.queue.lagSeconds) : t('dash.conn.lagNone')}
+        </Row>
+        <Row label={t('dash.conn.poll')} testId="dash-conn-poll">
+          {lastPoll(m) ? formatDateTime(lastPoll(m)!, lang) : '—'}
+        </Row>
+        <Row
+          label={t('dash.conn.errRate')}
+          testId="dash-conn-err"
+          color={m.errorRate7d.failed ? '#B3322A' : undefined}
+        >
+          {m.errorRate7d.calls
+            ? t('dash.conn.errRateOf', {
+                p: pct(m.errorRate7d.rate),
+                f: num(m.errorRate7d.failed),
+                c: num(m.errorRate7d.calls),
+              })
+            : '—'}
+        </Row>
+        <Row
+          label={t('dash.conn.mismatch')}
+          testId="dash-conn-mm"
+          color={m.openMismatches ? '#B3322A' : undefined}
+        >
+          {num(m.openMismatches)}
+        </Row>
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
         {canRetry && (
