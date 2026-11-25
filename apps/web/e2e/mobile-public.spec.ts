@@ -115,7 +115,7 @@ async function checkPage(p: Page, info: TestInfo, key: string): Promise<void> {
   });
   // ตรวจซ้ำที่ 360 px แล้วคืนขนาดเดิม
   await p.setViewportSize({ width: 360, height: vp.height });
-  await p.waitForTimeout(150);
+  await p.waitForFunction(() => document.documentElement.clientWidth === 360);
   const w360 = await widths();
   await p.setViewportSize(vp);
   const r: PageReport = {
@@ -227,6 +227,7 @@ test.describe.serial('ST4-T15 หน้า public บนมือถือ (จ�
     S.driver = `สมชาย มือถือ ${RUN}`;
     S.phone = `09${RUN.slice(-4)}${RUN.slice(0, 4)}`.slice(0, 10);
     S.po = `PO-MOB-${RUN}`;
+    // หมายเหตุ: ค่า tracking.* ค้างในฐาน <db>_e2e ข้ามรอบ (prepare.mjs ไม่ล้าง) — ปัจจุบันไม่มี spec ใดยืนยันว่าการ์ด POD ซ่อน
     // หน้าติดตาม: ปุ่มโทรบริษัท + การ์ดหลักฐานการส่ง (ค่าเริ่มปิด)
     const st = await request.patch('/v1/settings', {
       headers: H,
