@@ -303,10 +303,14 @@ export function TrackingPage() {
                   setFound(null);
                   setErr(null);
                 }}
+                // ST4-T15: ปุ่มข้อความ — พื้นที่กดสูง 44 px บนมือถือ (เดิม 22 px ต่ำกว่า WCAG 2.5.8 24 px) หน้าตาเดิม
+                // [DECISION — lead 25 พ.ย. 2569, ย้อนได้] ปุ่มนี้ไม่มีในต้นแบบ (spec/12 §3 ST4-T14 ข้อ 9)
                 style={{
                   alignSelf: 'center',
                   border: 0,
                   background: 'transparent',
+                  minHeight: 44,
+                  padding: '0 16px',
                   color: '#2257C4',
                   fontSize: 13,
                   cursor: 'pointer',
