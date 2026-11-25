@@ -848,6 +848,8 @@ VAT/WHT ต่อบรรทัด tax point ตอนรับชำระ เ
 | 39 | ทดสอบขนาด 100 tenant / 50,000 order ต่อเดือน + k6 ตามเป้า spec/11 §8 บน staging ก่อน release (ST9-T17 ticket P-4) — ต่อยอด `apps/api/scripts/perf/seed.ts` ให้สร้างหลาย tenant; ต้องมี staging | NFR ขนาด; spec/11 §16 [PROPOSED] | M |
 | 40 | **ทำแล้ว (ST5-T12b — วัดยืนยัน ST9-T17: ร่าง 1,000 DO คำขอเดียว 644 ms)** · ลด N+1 ตอนดึง DO เข้าร่างใบแจ้งหนี้ (ST9-T17 ticket P-5): ตรวจความพร้อม + หลักฐานส่งเป็นชุด (`readinessMany` / `checkCurrentMany`) | NFR Performance (finalize 500 DO, invoice run 2,000 DO) | S |
 | 41 | รอบวางบิลแบบ `releaseDeliveryOrders` ส่งบัญชีเป็นชุด (ST9-T17 R-2 / P-6): ตอนนี้ทีละ DO ≈ 15 ms/DO — 2,000 DO = 31 วิ (ผ่านเป้า 2 นาที) แต่ชนเป้าราว 7,500 DO ต่อรอบ → ส่งบัญชีต่อลูกค้าเป็นชุดในรอบ | NFR Performance (invoice run < 2 นาที) | S |
+| 42 | ยกรุ่น Node 20 → 22 LTS ทั้ง `.nvmrc` / GitHub CI / `infra/deploy/*.Dockerfile` (ARG `NODE_IMAGE`) พร้อมกัน — Node 20 หมดระยะ LTS 30 เม.ย. 2569 (lane ops 25 พ.ย. 2569) · และสแกน CVE ของ image ทุก build (trivy/scout) ใน `ci:local` ตามเกณฑ์ ST0-T03 | J Dependency scanning; NFR Deploy | S |
+| 43 | ที่เก็บไฟล์ย้ายจาก volume ในเครื่อง (`FILES_ROOT`) ไป object storage ที่เปิด versioning (plan/02 T-09, ST9-T13 L-05) — ตอนนี้ไฟล์ versioned ด้วย snapshot ทุก 6 ชม. (`scripts/backup/files-backup.sh`) + สำเนาไฟล์ใหม่ทุก 15 นาที (`files-sync.sh`) บนดิสก์เดียวกัน จนกว่าจะมี off-site | NFR Backup; J | M |
 
 สิ่งที่เฟส 0 เผื่อไว้ให้ #10/#22 โดยไม่เพิ่ม task: `trip.planned_route` + `planned_distance_m` (ST3-T11), schema `vehicle_position` + RLS (ST4-T01 สร้างตารางพร้อม `stop_event` แต่ไม่มีตัวป้อน), retention GPS 90 วัน (ST9-T14) — ดู T-18
 

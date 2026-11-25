@@ -1,0 +1,25 @@
+# ST0-T03 context ของ docker build (infra/deploy/*.Dockerfile) — ส่งเฉพาะซอร์สที่ต้อง build
+**/node_modules
+**/dist
+**/.turbo
+**/coverage
+.git
+.claude
+.data
+**/.env
+**/.env.*
+!.env.example
+infra/deploy/*.env
+infra/deploy/keys-*/
+infra/deploy/state/
+infra/deploy/backups
+design
+research
+docs
+spec
+plan
+apps/web/test-results
+apps/web/playwright-report
+apps/web/e2e
+apps/api/test
+apps/api/.data

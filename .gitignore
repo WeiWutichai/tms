@@ -18,3 +18,8 @@ apps/web/playwright-report/
 .claude/worktrees/
 packages/sdk/src/schema.d.ts
 packages/sdk/src/idempotency.gen.ts
+
+# ST0-T03 deploy: ไฟล์ env/กุญแจ/ประวัติของแต่ละ environment (ไม่ commit)
+infra/deploy/*.env
+infra/deploy/keys-*/
+infra/deploy/state/

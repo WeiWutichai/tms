@@ -1,0 +1,33 @@
+# ST0-T03 — เสิร์ฟ SPA (apps/web/dist) ภายในเครือข่าย compose เท่านั้น (TLS/โดเมนอยู่ที่ Caddyfile.edge)
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	root * /srv
+	encode zstd gzip
+
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	# ไฟล์ที่มี hash ในชื่อ (vite) cache ได้นาน · index.html ห้าม cache (deploy ใหม่ต้องเห็นทันที)
+	@hashed path /assets/*
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+	@html path / /index.html
+	header @html Cache-Control "no-cache"
+
+	# ST9-T13 M-01 — ค่าตามข้อเสนอใน docs/security/st9-t13-review.md §4 (HSTS ใส่ที่ Caddyfile.edge ซึ่งถือ TLS)
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+		X-Frame-Options DENY
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	# SPA: path ที่ไม่ใช่ไฟล์ → index.html (react-router)
+	try_files {path} /index.html
+	file_server
+}

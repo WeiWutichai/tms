@@ -1,0 +1,48 @@
+# ST0-T03 — reverse proxy ขาเข้า (ชั้นเดียว → TRUST_PROXY=1 ที่ API)
+#   https://{$TMS_DOMAIN}  /v1/*  → api:4410   (UI เรียก /v1 ชุดเดียวกับลูกค้า — API-first)
+#                          อื่น ๆ → web:8080   (SPA)
+# TMS_DOMAIN=โดเมนจริง → Caddy ขอใบรับรอง Let's Encrypt เอง (ต้องเปิดพอร์ต 80/443 สู่ internet)
+# TMS_DOMAIN=:80 (ซ้อม/ในเครื่อง) → HTTP ล้วน ไม่ขอใบรับรอง
+# ถ้า cloud มี load balancer ที่ทำ TLS ให้แล้ว: ตั้ง TMS_DOMAIN=:80 + TRUST_PROXY=2 (LB + Caddy) [รอ cloud decision]
+{
+	admin off
+	email {$ACME_EMAIL}
+}
+
+{$TMS_DOMAIN::80} {
+	encode zstd gzip
+	# /v1/metrics เปิดเฉพาะเครือข่ายภายใน (Prometheus เรียก api:4410 ตรง) — ไม่ให้หลุดออก internet
+	handle /v1/metrics* {
+		respond 404
+	}
+
+	handle /v1/* {
+		# Caddy ส่ง X-Forwarded-For/Proto ให้เอง — API เชื่อ 1 ชั้นตาม TRUST_PROXY=1
+		reverse_proxy api:4410
+	}
+
+	handle {
+		reverse_proxy web:8080
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	# ST9-T13 M-03 — access log ไม่เก็บ token: ตัด segment token หลัง /v1/public/*/, /link/*/, /v1/inbound/*/, /t/ (ลิงก์ติดตาม) และ query sig/t
+	# (Cookie/Authorization Caddy ปิดบังให้อยู่แล้ว) · เก็บ log ≤ 30 วันที่ปลายทาง log ของ cloud [รอ cloud decision]
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				request>uri multi_regexp {
+					regexp "^(/v1/public/[^/?]+/|/link/[^/?]+/|/v1/inbound/[^/?]+/|/t/)[^/?]+" "${1}REDACTED"
+					regexp "([?&](?:sig|t)=)[^&]*" "${1}REDACTED"
+				}
+				request>headers>Referer delete
+			}
+		}
+	}
+}
