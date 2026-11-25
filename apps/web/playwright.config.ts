@@ -27,6 +27,8 @@ const WEB = `http://localhost:${process.env.E2E_WEB_PORT}`;
 
 export default defineConfig({
   testDir: './e2e',
+  // ST4-T15 เมทริกซ์มือถือรันแยกด้วย playwright.mobile.config.ts (`e2e:mobile`) — ไม่รวมใน E2E ปกติ
+  testIgnore: /mobile-public\.spec\.ts$/,
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,

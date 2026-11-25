@@ -6,5 +6,6 @@
 |---|---|---|
 | `st5-t25-ar-ap-checklist.md` | ST5-T25 ชุดตรวจ AR/AP แบบเบา (รวม ST6-T12) — ชุดเอกสารจาก `pnpm --filter @tms/api uat:samples` | PO (รอบนี้) · นักบัญชี tenant นำร่อง (ก่อน go-live) |
 | `st9-t22-uat-standalone.md` | ST9-T22 UAT (ข) Standalone | PO (รอบ 0) · PO + นักบัญชี tenant นำร่อง (รอบ 1) |
+| `st4-t15-mobile-checklist.md` | ST4-T15 มือถือ 3 browser × 3 หน้า — ผลจำลอง (`pnpm e2e:mobile`) + ภาพใน `st4-t15/` · ช่องเครื่องจริงรอคนทดสอบ | ผู้ทดสอบเครื่องจริง (Android / iPhone / LINE) |
 | `st9-t21-uat-krs.md` | ST9-T21 UAT (ก) KRS | PO (ซ้อม) · ผู้ใช้ KRS + PO (2 งวดจริง) |
 | `../../docs/ops/st9-t23-go-live-runbook.md` §1 | ST9-T23 checklist ขึ้นใช้งานจริง | PO + Tech lead |

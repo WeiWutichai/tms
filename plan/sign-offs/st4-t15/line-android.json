@@ -1,0 +1,150 @@
+{
+  "project": "line-android",
+  "viewport": {
+    "width": 390,
+    "height": 731
+  },
+  "pages": {
+    "offer": {
+      "page": "offer",
+      "width390": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      },
+      "width360": {
+        "scrollWidth": 360,
+        "clientWidth": 360
+      },
+      "inputFontPx": [],
+      "smallTargets": [],
+      "failTargets": [],
+      "rawKeys": []
+    },
+    "offer-accept-form": {
+      "page": "offer-accept-form",
+      "width390": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      },
+      "width360": {
+        "scrollWidth": 360,
+        "clientWidth": 360
+      },
+      "inputFontPx": [
+        15
+      ],
+      "smallTargets": [],
+      "failTargets": [],
+      "rawKeys": []
+    },
+    "offer-accepted": {
+      "page": "offer-accepted",
+      "width390": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      },
+      "width360": {
+        "scrollWidth": 360,
+        "clientWidth": 360
+      },
+      "inputFontPx": [],
+      "smallTargets": [],
+      "failTargets": [],
+      "rawKeys": []
+    },
+    "pod": {
+      "page": "pod",
+      "width390": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      },
+      "width360": {
+        "scrollWidth": 360,
+        "clientWidth": 360
+      },
+      "inputFontPx": [
+        15
+      ],
+      "smallTargets": [],
+      "failTargets": [],
+      "rawKeys": []
+    },
+    "pod-filled": {
+      "page": "pod-filled",
+      "width390": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      },
+      "width360": {
+        "scrollWidth": 360,
+        "clientWidth": 360
+      },
+      "inputFontPx": [
+        15
+      ],
+      "smallTargets": [
+        {
+          "tag": "button",
+          "name": "ลบรูปที่ 1",
+          "w": 28,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "name": "ลบรูปที่ 2",
+          "w": 28,
+          "h": 28
+        }
+      ],
+      "failTargets": [],
+      "rawKeys": []
+    },
+    "tracking-search": {
+      "page": "tracking-search",
+      "width390": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      },
+      "width360": {
+        "scrollWidth": 360,
+        "clientWidth": 360
+      },
+      "inputFontPx": [
+        16
+      ],
+      "smallTargets": [],
+      "failTargets": [],
+      "rawKeys": []
+    },
+    "tracking-result": {
+      "page": "tracking-result",
+      "width390": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      },
+      "width360": {
+        "scrollWidth": 360,
+        "clientWidth": 360
+      },
+      "inputFontPx": [],
+      "smallTargets": [],
+      "failTargets": [],
+      "rawKeys": []
+    },
+    "tracking-do": {
+      "page": "tracking-do",
+      "width390": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      },
+      "width360": {
+        "scrollWidth": 360,
+        "clientWidth": 360
+      },
+      "inputFontPx": [],
+      "smallTargets": [],
+      "failTargets": [],
+      "rawKeys": []
+    }
+  }
+}

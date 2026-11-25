@@ -346,3 +346,14 @@
     position: fixed;
   }
 }
+
+/* ST4-T15 Safari iOS / LINE iOS (WKWebView) ซูมหน้าเข้าเองเมื่อแตะช่องกรอกที่ตัวอักษร < 16 px แล้วไม่ซูมกลับ
+   (ต้นแบบ TMS Subcon ใช้ 15 px) — ยก "เฉพาะ iOS" เป็น 16 px ส่วนอื่นคงค่าต้นแบบ · ไม่ใช้ maximum-scale=1 (ปิดการซูมของผู้ใช้บน Android)
+   [DECISION — lead 25 พ.ย. 2569, ย้อนได้] spec/12 §3 แถว ST4-T15 */
+@supports (-webkit-touch-callout: none) {
+  .cdl input,
+  .cdl textarea,
+  .cdl select {
+    font-size: 16px !important;
+  }
+}
