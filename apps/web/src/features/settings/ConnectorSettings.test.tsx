@@ -108,6 +108,11 @@ describe('ตั้งค่า → การเชื่อมต่อ (ST7-T2
       'ERP จำลอง (Demo)',
     ]);
     expect(within(cards[0]!).getAllByText('ใช้งานอยู่').length).toBeGreaterThan(0);
+    // D-54/D-56 + spec/12 §3: TMS ไม่ออกใบกำกับภาษี/ใบเสร็จ — การ์ด "ไม่เชื่อม" ตัดคำเหล่านั้นออกจากข้อความต้นแบบ
+    expect(cards[0]!.textContent).toContain(
+      'ใช้ TMS ออกเอกสารเอง ทั้งใบแจ้งหนี้ และส่งออกไฟล์ให้นักบัญชี',
+    );
+    expect(cards[0]!.textContent).not.toMatch(/ใบกำกับภาษี|ใบเสร็จ/);
     expect(screen.queryByTestId('connector-detail')).toBeNull();
   });
 

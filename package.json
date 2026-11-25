@@ -16,6 +16,7 @@
     "db:down": "docker compose -f infra/docker-compose.yml down",
     "format": "prettier --write .",
     "e2e": "pnpm --filter @tms/web e2e",
+    "e2e:mobile": "pnpm --filter @tms/web e2e:mobile",
     "ci:local": "bash scripts/ci-local.sh",
     "scan:secrets": "node scripts/scan-secrets.mjs"
   },
