@@ -9,7 +9,8 @@ err=0
 fail() { echo "✗ $*"; err=1; }
 for f in "$db" "$app"; do
   [ -f "$f" ] || { echo "✗ ไม่พบ $f (สร้างด้วย scripts/deploy/gen-secrets.sh $profile)"; exit 1; }
-  perm=$(stat -f %Lp "$f" 2>/dev/null || stat -c %a "$f")
+  # GNU stat ก่อน (บน Linux `stat -f` = ข้อมูล file system ไม่ใช่สิทธิ์ไฟล์) แล้วค่อย BSD/macOS
+  perm=$(stat -c %a "$f" 2>/dev/null || stat -f %Lp "$f")
   [ "$perm" = 600 ] || fail "$f ควรมีสิทธิ์ 600 (ตอนนี้ $perm)"
 done
 val() { # val <file> <KEY> → ค่าบรรทัดสุดท้ายที่ไม่ใช่ comment

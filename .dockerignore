@@ -10,6 +10,8 @@
 **/.env.*
 !.env.example
 infra/deploy/*.env
+infra/deploy/keys-*/
+infra/deploy/state/
 infra/deploy/backups
 design
 research

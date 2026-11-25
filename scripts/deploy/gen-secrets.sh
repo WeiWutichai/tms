@@ -30,9 +30,12 @@ sed -e "s|^NODE_ENV=production$|NODE_ENV=$node_env|" \
     "$dir/env/app.env.example" > "$app"
 mkdir -p "$keys"
 [ -n "$(ls "$keys"/*.pem 2>/dev/null)" ] || openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$keys/$(date +%Y-%m-%d).pem" 2>/dev/null
-# container อ่านด้วยผู้ใช้ node (uid 1000): เป็น root บน Linux → chown 1000 + 700/600 · อื่น ๆ (ซ้อมในเครื่อง) → 755/644
-if [ "$(id -u)" = 0 ]; then chown -R 1000:1000 "$keys"; chmod 700 "$keys"; chmod 600 "$keys"/*.pem
-else chmod 755 "$keys"; chmod 644 "$keys"/*.pem; echo "คำเตือน: บนเซิร์ฟเวอร์ให้ sudo chown -R 1000:1000 $keys && chmod 700/600"; fi
+# กุญแจส่วนตัว: โฟลเดอร์ 700 / ไฟล์ 600 เสมอ · container อ่านด้วยผู้ใช้ node (uid 1000)
+chmod 700 "$keys"; chmod 600 "$keys"/*.pem
+if [ "$(id -u)" = 0 ]; then chown -R 1000:1000 "$keys"
+elif [ "$(uname)" = Linux ] && [ "$(id -u)" != 1000 ]; then
+  echo "!! ต้องรัน: sudo chown -R 1000:1000 $keys   (ไม่งั้น api/worker อ่านกุญแจ OAuth ไม่ได้และไม่ยอมเริ่ม)"
+fi
 echo "สร้างแล้ว: $db · $app · $keys"
 echo "ต้องกรอกเอง: TMS_DOMAIN/ACME_EMAIL ($db) · PUBLIC_*_BASE_URL, EMAIL_SMTP_URL ($app) แล้วรัน scripts/deploy/check-env.sh $profile"
 echo "สำรองไฟล์ทั้งสอง + กุญแจไว้นอกเครื่อง (เช่น password manager ของทีม) — FIELD_ENCRYPTION_KEYS/BLIND_INDEX_KEY หาย = ข้อมูลเข้ารหัสอ่านไม่ได้"

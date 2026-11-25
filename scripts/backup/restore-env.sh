@@ -7,6 +7,7 @@
 #     --base         ชุด base ที่ใช้ (ค่าเริ่ม = ชุดล่าสุด · ใช้ --target-time ต้องระบุชุดที่เริ่มก่อนเวลานั้น)
 #     --target-time  กู้ถึงเวลานี้ (PITR) · ไม่ใส่ = ถึง WAL ล่าสุดใน archive
 #   profile ใช้ไฟล์ env เดียวกับ deploy.sh (infra/deploy/<profile>.db.env/.env) · project = $TMS_PROJECT หรือ tms-<profile>
+#   env: RESTORE_WAIT_SEC (3600) เพดานรอ replay WAL
 #   ต้องเป็น project ที่ volume pgdata ยังว่าง (สคริปต์ปฏิเสธถ้ามีข้อมูล) — **ห้ามกู้ทับฐานที่ใช้งานอยู่**
 # จบแล้ว: ฐานขึ้น + promote แล้ว + ไฟล์กลับที่เดิม → ต่อด้วย scripts/deploy.sh <profile> <tag> --skip-backup (migrate ต้องไม่มีอะไรค้าง)
 set -euo pipefail
@@ -66,12 +67,21 @@ docker run --rm "${src[@]}" -v "$pgdata_vol:/var/lib/postgresql/data" -v "$backu
 
 step "เริ่ม postgres → replay WAL → promote"
 dc up -d --wait postgres
-for _ in $(seq 1 600); do
+# เพดานรอ replay WAL (วินาที) — ค่าเริ่ม 3600 (WAL หลายชั่วโมงอาจนานกว่า 10 นาที) · ปรับด้วย RESTORE_WAIT_SEC
+for _ in $(seq 1 "${RESTORE_WAIT_SEC:-3600}"); do
   r=$(dc exec -T postgres sh -c 'psql -XtA -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select pg_is_in_recovery()"' 2>/dev/null || true)
   [ "$r" = f ] && break
   sleep 1
 done
 [ "$r" = f ] || { echo "ฐานยังอยู่ใน recovery — ดู log: docker compose logs postgres" >&2; exit 1; }
+step "promote แล้ว — ล้างค่า recovery ที่ restore.sh ใส่ (กันใช้ซ้ำโดยไม่ตั้งใจ)"
+dc exec -T postgres sh -c 'psql -XqAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+ALTER SYSTEM RESET restore_command;
+ALTER SYSTEM RESET recovery_target_time;
+ALTER SYSTEM RESET recovery_target_action;
+ALTER SYSTEM RESET recovery_target_timeline;
+SELECT pg_reload_conf();
+SQL
 step "promote แล้ว — ตรวจฐาน (verify-restore.sh)"
 dc exec -T postgres sh -c 'PGUSER=$POSTGRES_USER PGDATABASE=$POSTGRES_DB sh -s' < "$root/scripts/backup/verify-restore.sh"
 step "กู้ฐาน + ไฟล์เสร็จ — ต่อ: scripts/deploy.sh $profile <tag> --skip-backup"

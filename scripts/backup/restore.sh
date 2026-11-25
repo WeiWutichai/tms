@@ -4,7 +4,7 @@
 #   restore.sh --base <dir ของ base backup> --wal <dir WAL archive> --pgdata <dir ว่าง> [--target-time '2026-11-25 10:00:00+07']
 #   ไม่ใส่ --target-time = กู้ถึง WAL ล่าสุดที่มีใน archive (RPO ต่ำสุด)
 # แล้วเริ่ม postgres ตามปกติด้วย PGDATA นั้น → replay WAL → promote เป็นฐานหลักเอง (timeline ใหม่)
-# หลังขึ้น: scripts/backup/verify-restore.sh · ตั้ง archive ของ environment ใหม่ให้เป็นที่ใหม่ (ห้ามเขียนทับ archive ต้นทาง)
+# หลัง promote: ALTER SYSTEM RESET restore_command / recovery_target_* + pg_reload_conf() (restore-env.sh ทำให้) แล้ว scripts/backup/verify-restore.sh · ตั้ง archive ของ environment ใหม่ให้เป็นที่ใหม่ (ห้ามเขียนทับ archive ต้นทาง)
 set -eu
 base=""; wal=""; pgdata=""; target=""
 while [ $# -gt 0 ]; do

@@ -10,6 +10,9 @@ RETENTION_DAYS=${RETENTION_DAYS:-30}
 cutoff=$(date -u -d "@$(( $(date +%s) - RETENTION_DAYS * 86400 ))" +%Y%m%dT%H%M%SZ)
 run() { if [ "${DRY_RUN:-0}" = 1 ]; then echo "DRY_RUN: $*"; else "$@"; fi; }
 
+# --- base ที่ค้างจากรอบที่ถูกฆ่ากลางทาง (.inprogress-*) เก่ากว่า 1 วัน ---
+find "$BACKUP_DIR/base" -maxdepth 1 -name ".inprogress-*" -mmin +1440 2>/dev/null | while IFS= read -r d; do echo "prune: ลบ base ค้าง $d"; run rm -rf "$d"; done
+
 # --- base ---
 bases=$(ls -1 "$BACKUP_DIR/base" 2>/dev/null | grep -E '^[0-9]{8}T[0-9]{6}Z$' | sort || true)
 keep_from=""

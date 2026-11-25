@@ -540,7 +540,8 @@
   - ผู้สมัครเพิ่ม `plan/01` #42 (Node 20 → 22 + สแกน CVE image) · #43 (ไฟล์ไป object storage)
 - **[DECISION — lead 25 พ.ย. 2569, ย้อนได้]:** PostgreSQL self-host ใน compose (เปลี่ยนเป็น managed PITR ได้) · Caddy เป็นทั้ง web server และ reverse proxy · `archive_timeout=60` · สำเนาไฟล์ใหม่ทุก 15 นาที · staging/production = profile ไฟล์ env · VM ≥ 4 vCPU/8 GB/100 GB · Node 20 ตาม `.nvmrc` (หมด LTS แล้ว — #42)
 - **ค้าง (ต้องมี cloud):** เลือกผู้ให้บริการ/region ไทย · VM + Docker · registry (`--push`) · DNS + พอร์ต 80/443 · secret manager · `BACKUP_OFFSITE_CMD` → object storage (versioning/lock 30 วัน) + sync WAL ≤ 5 นาที · ซ้อมกู้คืนรอบ 2 บนเครื่องจริง (G-5) · cron `check-backup.sh` + ช่องทาง alert · SMTP (D-32) · deploy staging อัตโนมัติหลัง merge + สแกน CVE (ST0-T03 เกณฑ์) · error tracking
-- **ไม่ได้รัน:** `pnpm ci:local` (ไม่แตะโค้ดแอป/test — lead สั่งไม่รัน) · shellcheck ผ่าน (ยกเว้น SC2010/SC3012 ที่ตั้งใจ) · scan-secrets ผ่าน
+- **ตรวจ:** `pnpm ci:local` รันโดย lead ก่อน merge (pipeline เรียงคิว) · shellcheck ผ่าน (ยกเว้น SC2010/SC3012 ที่ตั้งใจ) · scan-secrets ผ่าน
+- **แก้ตาม review (รอบ 1):** `check-env.sh` ใช้ GNU `stat -c` ก่อน (เดิม Linux ล้มทุกครั้ง) · rollback อ่าน tag จาก container ที่รันจริง + history แบบ stack (deploy ล้มไม่นับ, rollback ซ้ำไม่เด้ง) · registry อ่านจาก `<profile>.db.env` · log ตัด token `/t/` · ล้างค่า recovery หลัง promote · `files-sync` ข้ามไฟล์ที่แก้ < 2 นาที · runbook ไม่ส่งกุญแจทางบรรทัดคำสั่ง · กุญแจ OAuth 700/600 · prune `.inprogress-*` · `RESTORE_WAIT_SEC`
 
 ### 24 พ.ย. 2569 (PO "ไม่ต้องรอ Claude Design" — หน้าจอบัญชี/ERP/รถร่วมที่ค้างเพราะต้นแบบไม่มี · lane mg, `ui/design-gaps-accounting`, ไม่มี migration)
 

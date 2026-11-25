@@ -86,9 +86,25 @@ dc exec -T api sha256sum /data/files/drill/marker.txt       # d1026a6c…f296 �
 
 ตรวจเพิ่ม: header ของเว็บตาม ST9-T13 M-01 (CSP, X-Frame-Options DENY, nosniff, Referrer-Policy no-referrer, HSTS) มีจริงจาก `curl -I` · access log ของ proxy ตัด token (M-03): `/v1/public/tracking/REDACTED/x?sig=REDACTED&t=REDACTED&q=1`, `/link/pod/REDACTED` · `check-env.sh` ปฏิเสธ `NODE_ENV=development`, กุญแจ dev, `AUTH_DEV_SECRET` (rc=1) · `platform-user.ts` สร้างผู้ใช้ Console ผ่าน image migrate ได้
 
+## 4.1 แก้ตาม review อิสระ (25 พ.ย. 10:30–10:45) และตรวจซ้ำบน Docker (project `tms-ops-drill-ck` / `-ckr`, image `t1` build ใหม่)
+
+| ข้อ | แก้ | ตรวจอย่างไร / ผล |
+|---|---|---|
+| B1 `check-env.sh` ใช้ `stat -f %Lp` ก่อน → บน Linux (GNU) ได้ข้อมูล file system ไม่ใช่สิทธิ์ → deploy ล้มทุกครั้ง | ใช้ `stat -c %a` ก่อน แล้วค่อย BSD | รันใน `node:20-bookworm-slim` (stat GNU coreutils 9.1): ไฟล์ 600 → `✓ env ของ cktest ผ่าน` rc=0 · chmod 644 → `✗ … ควรมีสิทธิ์ 600 (ตอนนี้ 644)` rc=1 · macOS ยังผ่าน |
+| B2 rollback หา "tag ปัจจุบัน" จาก history (บันทึกเฉพาะที่สำเร็จ) → deploy ล้มแล้ว rollback ข้าม / rollback ซ้ำเด้ง | อ่าน tag จาก image ของ container api ที่รันจริง (`docker inspect`) · history บันทึก `deploy`/`rollback`/`failed-*` · เป้า = เล่นซ้ำเป็น stack แล้วตัด tag ที่รันอยู่ · `--wait-timeout` (DEPLOY_WAIT_SEC 300) | deploy t1 ✓ → t2 ✓ → t3 (api พังโดยตั้งใจ) ล้ม rc=1 บันทึก `t3 failed-deploy`, api รัน `tms/api:t3` → `--rollback` = **t3 → t2** (readyz 200) → `--rollback` = **t2 → t1** (200) → `--rollback` = "ไม่พบ tag ก่อนหน้า (กำลังรัน: t1)" · ทดสอบ logic เพิ่ม 6 กรณี (รวม redeploy tag เดิม, rollback แล้ว deploy ใหม่) |
+| registry อ่านจาก shell เท่านั้น | อ่านจาก `<profile>.db.env` ด้วย | ตรวจโค้ด |
+| access log ไม่ตัด `/t/<token>` | เพิ่มใน regexp · `handle /v1/metrics*` | `/t/TRACKSECRET99` → log `"/t/REDACTED"` (ไม่พบ token ใน log) · `/v1/metrics` และ `/v1/metrics/x` → 404 |
+| ค่า recovery ค้างใน `postgresql.auto.conf` หลัง promote | `restore-env.sh`: `ALTER SYSTEM RESET restore_command, recovery_target_*` + `pg_reload_conf()` · เพดานรอ `RESTORE_WAIT_SEC` (3600) | หลังกู้: `restore_command=''`, `recovery_target_time=''` (ที่เหลือ = ค่าเริ่มของ PostgreSQL) · ไม่มีบรรทัด recovery ใน auto.conf (0) |
+| `files-sync` อาจสำเนาไฟล์ที่เขียนไม่เสร็จ (แล้วไม่ทับอีกเลย) | ข้ามไฟล์ที่แก้ < `FILES_SYNC_MIN_AGE_MIN` (2) นาที | ไฟล์ที่เพิ่งเขียน `fresh.txt` ถูกข้าม · ไฟล์เก่า `smoke.pdf` ถูกสำเนา |
+| PDF ใน image api ยังไม่ได้ทดสอบ | — | `PdfRenderer.pdf(sampleDocument)` ใน container api: **ได้ PDF 32,302 byte (`%PDF-1.4`) ใน 3.8 วิ ฝังฟอนต์ Sarabun** — Chromium headless + ฟอนต์ใน image ใช้ได้ (ยังไม่ได้ทดสอบ PDF ของเอกสารจริงผ่าน worker job) |
+| runbook ส่ง `FIELD_ENCRYPTION_KEYS` ทางบรรทัดคำสั่ง | export จากไฟล์ใน subshell + `-e ชื่อ` (ไม่มีค่า) | ตรวจโค้ด |
+| nits | `.dockerignore` กัน `keys-*/`, `state/` · กุญแจ OAuth 700/600 เสมอ + แจ้ง `sudo chown 1000` บน Linux · prune `.inprogress-*` > 1 วัน | api/worker อ่านกุญแจ 700/600 บน Docker Desktop ได้ (deploy t1/t2 ผ่าน) |
+
+**ข้อจำกัดที่ทราบ (ยังไม่แก้):** busybox `test \<` / `ls | grep` ในสคริปต์ backup (ชื่อไฟล์ระบบสร้างเอง) · การซ้อมใช้ volume backup บนเครื่องเดียวกันแทน off-site · ตัวเลขเวลาวัดขณะเครื่องไม่ว่าง · ไม่ได้ทดสอบ TLS จริง (ใช้ `TMS_DOMAIN=:80`)
+
 ## 5. เก็บกวาด
 
-`docker compose … down -v` ทั้ง 2 project + ลบ volume/network/image `tms/*:drill*` + ลบไฟล์ env/กุญแจของซ้อม · `tms-postgres` (dev) ยัง Up ตามเดิม
+รอบ review: ลบ project `tms-ops-drill-ck`/`-ckr`, volume, image `tms/*:t1–t3`, ไฟล์ env/กุญแจ/state ของการตรวจแล้ว · `docker compose … down -v` ทั้ง 2 project + ลบ volume/network/image `tms/*:drill*` + ลบไฟล์ env/กุญแจของซ้อม · `tms-postgres` (dev) ยัง Up ตามเดิม
 
 ## 6. ยังต้องทำบน cloud (รอบที่ 2 — ก่อนติ๊ก G-5)
 

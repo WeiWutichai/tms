@@ -52,7 +52,7 @@
 | ชุดบริการ | `infra/deploy/docker-compose.prod.yml` | postgres 16 (WAL archive) · backup · migrate · api · worker · web · proxy (Caddy: TLS อัตโนมัติ, `/v1/*` → api, อื่น ๆ → web, ปิด `/v1/metrics` จากภายนอก, log ตัด token — M-03) |
 | ค่า env | `infra/deploy/env/db.env.example`, `app.env.example` → `infra/deploy/<profile>.db.env`, `<profile>.env` (ไม่ commit, สิทธิ์ 600) | `scripts/deploy/gen-secrets.sh <profile>` สุ่มกุญแจทั้งหมด + กุญแจ OAuth ในเครื่อง · `scripts/deploy/check-env.sh <profile>` ตรวจ G-14 |
 | build | `scripts/deploy/build-images.sh [tag] [--push]` | tag = git sha · `-dirty` ห้ามใช้กับ production · push ต้องมี registry [รอ cloud decision] |
-| deploy / rollback | `scripts/deploy.sh <profile> <tag>` · `scripts/deploy.sh <profile> --rollback [tag]` | D-1 → D-2 → D-3 + readyz · ประวัติ tag `infra/deploy/state/<profile>.history` |
+| deploy / rollback | `scripts/deploy.sh <profile> <tag>` · `scripts/deploy.sh <profile> --rollback [tag]` | D-1 → D-2 → D-3 + readyz · ประวัติ `infra/deploy/state/<profile>.history` (deploy/rollback/failed-*) · rollback ไม่ใส่ tag = อ่าน tag ที่ api รันอยู่จริง แล้วถอยไป tag ที่ deploy สำเร็จก่อนหน้า (deploy ล้มไม่นับ) |
 
 **staging กับ production** = profile ของไฟล์ env ชุดเดียวกัน (compose project `tms-staging` / `tms-production`) [DECISION — lead 25 พ.ย. 2569, ย้อนได้]:
 staging: `NODE_ENV=staging`, ตั้ง `ERP_DEMO_ADAPTERS=1` ได้, กุญแจ/ฐานแยกจาก production ทั้งหมด (ห้ามคัดลอก secret ข้าม) · production: `NODE_ENV=production`, ห้าม demo adapter · แนะนำคนละ VM (ถ้าเครื่องเดียวกันต้องเปลี่ยน `HTTP_PORT/HTTPS_PORT`)
@@ -61,11 +61,11 @@ staging: `NODE_ENV=staging`, ตั้ง `ERP_DEMO_ADAPTERS=1` ได้, ก�
 1. `git clone` repo ที่ commit ของ release → `scripts/deploy/gen-secrets.sh production` → กรอก `TMS_DOMAIN`, `ACME_EMAIL`, `PUBLIC_*_BASE_URL`, SMTP → `scripts/deploy/check-env.sh production`
 2. **สำรองไฟล์ env + `infra/deploy/keys-production/` ไว้นอกเครื่องทันที** (FIELD_ENCRYPTION_KEYS / BLIND_INDEX_KEY หาย = ข้อมูลเข้ารหัสในทุก backup อ่านไม่ได้) — ที่เก็บ: secret manager [รอ cloud decision]; ระหว่างนี้ password manager ของทีม [DECISION — lead 25 พ.ย. 2569, ย้อนได้]
 3. `scripts/deploy/build-images.sh` (หรือ pull จาก registry) → `scripts/deploy.sh production <tag>`
-4. สร้างผู้ใช้ Platform Console คนแรก (ST1-T24): `dc --profile migrate run --rm -e FIELD_ENCRYPTION_KEYS=<ค่าจาก production.env> migrate sh -c 'SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register scripts/platform-user.ts <email> "<ชื่อ>" SUPER_ADMIN'` (ใช้ alias `dc` ด้านล่าง — พิมพ์รหัสผ่านชั่วคราว + otpauth ครั้งเดียว) · **ห้ามรัน seed บน production**
+4. สร้างผู้ใช้ Platform Console คนแรก (ST1-T24) — ส่งกุญแจผ่าน environment ไม่ใส่ค่าในบรรทัดคำสั่ง (ไม่หลุดเข้า shell history/`ps`): `(export $(grep -E '^FIELD_ENCRYPTION_KEYS=' infra/deploy/production.env); dc --profile migrate run --rm -e FIELD_ENCRYPTION_KEYS migrate sh -c 'SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register scripts/platform-user.ts <email> "<ชื่อ>" SUPER_ADMIN')` (`-e ชื่อ` ไม่มีค่า = ดึงจาก environment ของ shell · ใช้ alias `dc` ด้านล่าง — พิมพ์รหัสผ่านชั่วคราว + otpauth ครั้งเดียว) · **ห้ามรัน seed บน production**
 5. DNS ของโดเมนชี้ IP ของ VM + เปิดพอร์ต 80/443 เท่านั้น (ฐานข้อมูลไม่เปิดออกนอก — ไม่มี port mapping) [รอ cloud decision: DNS/firewall ของผู้ให้บริการ]
 
 **คำสั่งดูแลประจำ** (ตั้ง alias `dc='docker compose -p tms-production -f infra/deploy/docker-compose.prod.yml --env-file infra/deploy/production.db.env --env-file infra/deploy/production.env'` และ export `TMS_TAG=<tag ปัจจุบัน>` `TMS_APP_ENV_FILE=$PWD/infra/deploy/production.env`):
-`dc ps` · `dc logs -f --since 15m api worker` · `dc restart worker` · `dc exec postgres psql -U tms -d tms` · `dc exec backup sh /scripts/check-backup.sh`
+`dc ps` · `dc logs -f --since 15m api worker` · `dc restart worker` · `dc exec postgres psql -U tms -d tms` · `dc exec backup sh /scripts/check-backup.sh` · กู้คืน: `RESTORE_WAIT_SEC` (ค่าเริ่ม 3600) = เพดานรอ replay WAL ของ `restore-env.sh`
 
 ## 3. Onboard tenant (`plan/09` §2)
 
@@ -100,7 +100,7 @@ On-call ฝั่ง Innovera รับ alert จาก §4.5 · ช่องท
 - WAL archive ต่อเนื่อง: `archive_command` = `infra/deploy/postgres/archive-wal.sh` → volume `pgbackup:/backup/wal/*.gz` · `archive_timeout=60` วิ [DECISION — lead 25 พ.ย. 2569, ย้อนได้] → ข้อมูลที่อาจหายเมื่อเครื่องล่ม ≈ ≤ 1 นาที (ถ้า archive อยู่นอกเครื่องแล้ว)
 - container `backup` (`scripts/backup/backup-loop.sh`) ทุก 15 นาที: `files-sync.sh` สำเนาไฟล์ใหม่ (POD/ไฟล์แนบ) → `/backup/files-mirror` (RPO ของไฟล์ ≤ 15 นาที) · ทุก 6 ชม.: `base-backup.sh` (pg_basebackup `-Ft -z -X stream` + SHA256SUMS + meta) → `files-backup.sh` (snapshot `FILES_ROOT` = ไฟล์ versioned ตามรอบ) → `prune.sh` (เก็บ 30 วัน: base ทุกชุดในช่วง + ชุดก่อนเส้นตัด 1 ชุด, WAL ตัดด้วย `pg_archivecleanup`) → `BACKUP_OFFSITE_CMD`
 - **คัดลอกออกนอกเครื่อง (off-site) [รอ cloud decision]:** ตั้ง `BACKUP_OFFSITE_CMD` ให้ sync `/backup` → object storage ของ cloud (เปิด versioning + lock/retention 30 วัน, region ไทย) และ sync WAL ถี่กว่ารอบ base (cron ทุก 5 นาที) — **ก่อนตั้งค่านี้ backup อยู่บนดิสก์เดียวกับฐาน: กันข้อมูลเสีย/ลบผิด ได้ แต่ไม่กันเครื่อง/ดิสก์หาย** → ห้าม go-live ก่อนมี off-site
-- ตรวจความสด: `dc exec backup sh /scripts/check-backup.sh` (exit 1 ถ้า base > 7 ชม. หรือ WAL > 15 นาที) — ตั้ง cron/monitor ของ cloud เรียกทุก 15 นาที แล้วส่ง alert [รอ cloud decision: ช่องทาง alert]
+- ตรวจความสด: `dc exec backup sh /scripts/check-backup.sh` · กู้คืน: `RESTORE_WAIT_SEC` (ค่าเริ่ม 3600) = เพดานรอ replay WAL ของ `restore-env.sh` (exit 1 ถ้า base > 7 ชม. หรือ WAL > 15 นาที) — ตั้ง cron/monitor ของ cloud เรียกทุก 15 นาที แล้วส่ง alert [รอ cloud decision: ช่องทาง alert]
 - ไฟล์ env + กุญแจ (§2.1 ข้อ 2) ไม่อยู่ใน backup นี้ — ต้องกู้จากที่เก็บ secret แยก
 
 **กู้คืน / ซ้อมกู้คืน (คำสั่งจริง — ซ้อมแล้ว 25 พ.ย. 2569 ดูผลใน `plan/sign-offs/st9-t18-restore-drill.md`):**
