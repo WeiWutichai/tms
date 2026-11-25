@@ -7,4 +7,5 @@
 | `st5-t25-ar-ap-checklist.md` | ST5-T25 ชุดตรวจ AR/AP แบบเบา (รวม ST6-T12) — ชุดเอกสารจาก `pnpm --filter @tms/api uat:samples` | PO (รอบนี้) · นักบัญชี tenant นำร่อง (ก่อน go-live) |
 | `st9-t22-uat-standalone.md` | ST9-T22 UAT (ข) Standalone | PO (รอบ 0) · PO + นักบัญชี tenant นำร่อง (รอบ 1) |
 | `st9-t21-uat-krs.md` | ST9-T21 UAT (ก) KRS | PO (ซ้อม) · ผู้ใช้ KRS + PO (2 งวดจริง) |
+| `st9-t18-restore-drill.md` | ST9-T18 บันทึกซ้อมกู้คืน (รอบ 1 ในเครื่อง 25 พ.ย.: RPO 41 วิ / RTO 3 นาที 17 วิ) · รอบ 2 บน cloud ก่อน go-live | DevOps + Tech lead |
 | `../../docs/ops/st9-t23-go-live-runbook.md` §1 | ST9-T23 checklist ขึ้นใช้งานจริง | PO + Tech lead |

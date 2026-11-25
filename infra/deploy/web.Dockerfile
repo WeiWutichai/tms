@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1.7
+# ST0-T03 — เว็บ (SPA ไฟล์ static จาก vite build) เสิร์ฟด้วย Caddy · /v1 ไม่ผ่าน image นี้ (reverse proxy ส่งไป API เอง)
+# build จากราก repo:  docker build -f infra/deploy/web.Dockerfile -t tms/web:<tag> .
+# [DECISION — lead 25 พ.ย. 2569, ย้อนได้] Caddy แทน nginx: image เดียวกับ reverse proxy (TLS อัตโนมัติ) — ลดของที่ต้องดูแล
+ARG NODE_IMAGE=node:20-bookworm-slim
+ARG CADDY_IMAGE=caddy:2.11-alpine
+
+FROM ${NODE_IMAGE} AS build
+ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=1
+RUN corepack enable
+WORKDIR /repo
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/web/package.json apps/web/
+COPY packages/domain/package.json packages/domain/
+COPY packages/contracts/package.json packages/contracts/
+COPY packages/ui/package.json packages/ui/
+RUN --mount=type=cache,id=tms-pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile --filter "@tms/web..."
+COPY tsconfig.base.json ./
+COPY packages/domain packages/domain
+COPY packages/contracts packages/contracts
+COPY packages/ui packages/ui
+COPY apps/web apps/web
+RUN pnpm --filter @tms/domain build \
+ && pnpm --filter @tms/contracts build \
+ && pnpm --filter @tms/web build
+
+FROM ${CADDY_IMAGE} AS runtime
+COPY infra/deploy/caddy/Caddyfile.web /etc/caddy/Caddyfile
+COPY --from=build /repo/apps/web/dist /srv
+EXPOSE 8080
+HEALTHCHECK --interval=15s --timeout=3s --retries=4 CMD wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1

@@ -1,0 +1,169 @@
+# ST0-T03 / ST9-T18 — ชุด production/staging แบบ cloud-agnostic (VM เครื่องเดียวที่มี Docker Engine + compose v2.17+)
+# ใช้ผ่าน scripts/deploy.sh เท่านั้น (ตั้ง project name, env file, tag ให้) — ดู docs/ops/st9-t23-go-live-runbook.md §2
+#
+#   docker compose -p tms-<profile> -f infra/deploy/docker-compose.prod.yml \
+#     --env-file infra/deploy/<profile>.db.env --env-file infra/deploy/<profile>.env  ...
+#
+# ไฟล์ env (ไม่ commit — .gitignore): คัดลอกจาก infra/deploy/env/*.example
+#   <profile>.db.env — รหัสผ่านฐาน (ใช้แทนค่าใน compose + container postgres/backup/migrate เท่านั้น)
+#   <profile>.env    — ค่าของแอป (ส่งเข้า api/worker ทั้งไฟล์) — ไม่มีรหัสผ่าน owner ของฐาน
+#
+# [DECISION — lead 25 พ.ย. 2569, ย้อนได้] PostgreSQL อยู่ใน compose (self-host) เพื่อไม่ผูก cloud — ถ้าเลือก managed PostgreSQL
+#   ที่มี PITR: ตัด service postgres/backup ออก แล้วชี้ *_DATABASE_URL ไปที่ managed DB [รอ cloud decision]
+
+name: ${COMPOSE_PROJECT_NAME:-tms-production}
+
+x-app: &app
+  image: ${TMS_IMAGE_REPO:-tms}/api:${TMS_TAG:?ตั้ง TMS_TAG (ผ่าน scripts/deploy.sh)}
+  env_file:
+    - ${TMS_APP_ENV_FILE:?ตั้ง TMS_APP_ENV_FILE (ผ่าน scripts/deploy.sh)}
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+  volumes:
+    - files:/data/files
+    - ${OAUTH_KEYS_HOST_DIR:?ตั้ง OAUTH_KEYS_HOST_DIR (โฟลเดอร์ <kid>.pem ของ OAuth)}:/app/keys:ro
+  logging: &logging
+    driver: json-file
+    options: { max-size: "50m", max-file: "10" }
+
+x-db-urls: &db-urls
+  APP_DATABASE_URL: postgresql://tms_app:${POSTGRES_APP_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-tms}?schema=public
+  PLATFORM_DATABASE_URL: postgresql://tms_platform:${POSTGRES_PLATFORM_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-tms}?schema=public
+  FILES_ROOT: /data/files
+  OAUTH_SIGNING_KEYS_DIR: /app/keys
+  API_PORT: "4410"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    # สร้างโฟลเดอร์ archive ให้ผู้ใช้ postgres ก่อนส่งต่อ entrypoint ปกติของ image
+    entrypoint: ["sh", "-c", "mkdir -p /backup/wal /backup/base /backup/files && chown postgres:postgres /backup /backup/wal /backup/base /backup/files && exec docker-entrypoint.sh \"$$@\"", "--"]
+    command:
+      - postgres
+      # ST9-T18 WAL archive → /backup/wal (RPO) · archive_timeout บังคับปิด segment ทุก 60 วิ เมื่อมีงานเขียน
+      # [DECISION — lead 25 พ.ย. 2569, ย้อนได้] archive_timeout = 60 วิ (เป้า RPO 1 ชม. — เหลือเผื่อมาก; segment ว่างบีบ gzip เหลือ ~KB)
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=/usr/local/bin/archive-wal.sh %p %f
+      - -c
+      - archive_timeout=60
+      - -c
+      - max_wal_senders=5
+      - -c
+      - wal_compression=on
+      - -c
+      - log_timezone=Asia/Bangkok
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tms}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:-tms}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?}
+      POSTGRES_PLATFORM_PASSWORD: ${POSTGRES_PLATFORM_PASSWORD:?}
+      POSTGRES_BACKUP_PASSWORD: ${POSTGRES_BACKUP_PASSWORD:?}
+      POSTGRES_INITDB_ARGS: --data-checksums
+      WAL_ARCHIVE_DIR: /backup/wal
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - pgbackup:/backup
+      - ./postgres/01-roles.sh:/docker-entrypoint-initdb.d/01-roles.sh:ro
+      - ./postgres/archive-wal.sh:/usr/local/bin/archive-wal.sh:ro
+    shm_size: 256mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: *logging
+
+  # ST9-T18 base backup ทุก 6 ชม. + snapshot ไฟล์ + prune 30 วัน + สำเนาไฟล์ใหม่ทุก 15 นาที (scripts/backup/backup-loop.sh)
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    user: "70:70" # postgres ของ image alpine — เจ้าของ /backup
+    entrypoint: ["sh", "/scripts/backup-loop.sh"]
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: tms_backup
+      PGPASSWORD: ${POSTGRES_BACKUP_PASSWORD:?}
+      BACKUP_DIR: /backup
+      FILES_DIR: /data/files
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-6}
+      FILES_SYNC_MINUTES: ${FILES_SYNC_MINUTES:-15}
+      RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      # คำสั่งคัดลอก /backup ออกนอกเครื่อง (object storage ของ cloud ที่เลือก) — ว่าง = ไม่คัดลอก [รอ cloud decision]
+      BACKUP_OFFSITE_CMD: ${BACKUP_OFFSITE_CMD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - pgbackup:/backup
+      - files:/data/files:ro
+      - ../../scripts/backup:/scripts:ro
+    logging: *logging
+
+  # one-off: docker compose run --rm migrate  (prisma migrate deploy + bootstrap-tenants) — ไม่ขึ้นกับ `up`
+  migrate:
+    image: ${TMS_IMAGE_REPO:-tms}/migrate:${TMS_TAG:?}
+    profiles: ["migrate"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tms}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-tms}?schema=public
+      PLATFORM_DATABASE_URL: postgresql://tms_platform:${POSTGRES_PLATFORM_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-tms}?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *logging
+
+  api:
+    <<: *app
+    environment:
+      <<: *db-urls
+    command: ["node", "dist/main.js"]
+
+  worker:
+    <<: *app
+    environment:
+      <<: *db-urls
+      # self-probe ของ worker ชี้ API ทางเครือข่ายภายใน (ST9-T19)
+      MONITOR_PROBE_URL: http://api:4410/v1/readyz
+    command: ["node", "dist/worker.js"]
+    # worker ไม่เปิดพอร์ต — สถานะดูจาก /v1/readyz (worker heartbeat) + alert TmsWorkerDown
+    healthcheck:
+      disable: true
+
+  web:
+    image: ${TMS_IMAGE_REPO:-tms}/web:${TMS_TAG:?}
+    restart: unless-stopped
+    logging: *logging
+
+  proxy:
+    image: caddy:2.11-alpine
+    restart: unless-stopped
+    environment:
+      TMS_DOMAIN: ${TMS_DOMAIN:-:80}
+      ACME_EMAIL: ${ACME_EMAIL:-ops@example.invalid}
+    ports:
+      - "${HTTP_BIND:-0.0.0.0}:${HTTP_PORT:-80}:80"
+      - "${HTTP_BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./caddy/Caddyfile.edge:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    logging: *logging
+
+volumes:
+  pgdata:
+  pgbackup:
+  files:
+  caddy-data:
