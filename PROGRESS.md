@@ -537,7 +537,7 @@
   - ไฟล์: `apps/api/src/modules/me/me.controller.ts`, `apps/web/src/shell/StatusBanner.tsx`, `AppShell.tsx`, `App.tsx` (`/billing`), `i18n/th.ts` (`acctBn.*`, `page.billing.*`), `packages/domain/src/permissions.ts`, openapi + api-docs + help-center build
 - **[DECISION — lead 28 พ.ย. 2569, ย้อนได้]:** ประกอบแถบ 5 แบบที่ต้นแบบไม่มีจากการ์ดเดียวกัน (D-83) — รายละเอียดใน `spec/12` §3 แถว "แถบสถานะบัญชี" · ค้างชำระตัดยอด ฿/เลขใบ TMS-B ของต้นแบบจนกว่า P1-ST3-T02 · ปุ่ม X เฉพาะแบบที่ spec ให้ปิดได้
 - **[OPEN — PO]:** (1) ข้อความ pending_verification ของ spec/01 §5 "ออกใบกำกับภาษีได้หลังอนุมัติ" ขัด D-56 (TMS ไม่ออกเอกสารภาษี) → ใช้ "กำลังตรวจสอบข้อมูลบริษัท · ใช้งานได้ครบหลังทีมงานอนุมัติ" (2) ปุ่ม "ดูสถานะ" ของ pending ไม่มีหน้าปลายทาง → ยังไม่แสดง (3) "ส่งอีเมลแจ้ง" ใช้ mailto แทนการส่งจากระบบ
-- **test:** `apps/web/src/shell/StatusBanner.test.tsx` (6 — ลำดับ PLT-050 ครบ, เกณฑ์ตรวจรับ past_due วันที่ 3 + impersonation → ไม่มีแถบสถานะ, ปุ่มตามสิทธิ์ + dialog, ปิดได้/ไม่ได้, R-02) ผ่าน · `apps/api/test/me-account.test.ts` (3 — วัน trial ตามเวลาไทย, past_due readOnlyInDays, billing-admins แยก tenant) — ดูผลในรายงาน
+- **test:** `apps/web/src/shell/StatusBanner.test.tsx` (6 — ลำดับ PLT-050 ครบ, เกณฑ์ตรวจรับ past_due วันที่ 3 + impersonation → ไม่มีแถบสถานะ, ปุ่มตามสิทธิ์ + dialog, ปิดได้/ไม่ได้, R-02) ผ่าน · `apps/api/test/me-account.test.ts` (3 — วัน trial ตามเวลาไทย, past_due readOnlyInDays, billing-admins แยก tenant) ผ่าน · `src/app.test.tsx` ผ่าน
 - **ค้าง:** ภาพเทียบต้นแบบ 1440 · ปุ่มปลายทางจริงเมื่อ P1-ST3-T03 · ยอดค้าง/เลขใบเมื่อ P1-ST3-T02 · ไม่ได้รัน `ci:local` (lead รันก่อน push)
 
 ### 27 พ.ย. 2569 (เฟส 1 lane A2: P1-ST1-T03 วงจรสถานะ tenant 7 ค่า · `p1/st1-t03-tenant-lifecycle` (ซ้อนบน `p1/st1-t01-plan-version`) · migration 0178, 0179)
