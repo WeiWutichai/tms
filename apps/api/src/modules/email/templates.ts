@@ -32,7 +32,63 @@ function layout(
 /** ข้อความหลายบรรทัด → ย่อหน้าละบรรทัด (สรุปเตือนวันหมดอายุ ST2-T18) */
 const paras = (body: string) => body.split('\n').filter((l) => l.trim() !== '');
 
+/** P1-ST1-T03 ป้าย + คำอธิบายผลของแต่ละสถานะ (ป้ายไทยตรงกับ design/prototype/plans.js statuses) */
+const STATUS_TH: Record<string, [string, string]> = {
+  pending_verification: ['รอยืนยัน', 'ใช้งานแบบทดลองได้ระหว่างรอทีมงานตรวจข้อมูลบริษัท'],
+  trialing: ['ทดลองใช้', 'ใช้งานได้ตามปกติจนถึงวันหมดทดลองใช้'],
+  active: ['ใช้งาน', 'บัญชีกลับมาใช้งานได้ตามปกติแล้ว'],
+  past_due: ['ค้างชำระ', 'กรุณาชำระค่าบริการเพื่อไม่ให้บัญชีเปลี่ยนเป็นอ่านอย่างเดียว'],
+  read_only: [
+    'อ่านอย่างเดียว',
+    'สร้างงานใหม่หรือแก้ไขข้อมูลไม่ได้ ดูและส่งออกข้อมูลได้ตามปกติ ชำระค่าบริการเพื่อใช้งานต่อ',
+  ],
+  suspended: [
+    'ระงับ',
+    'ผู้ใช้ทุกคนเข้าระบบไม่ได้ชั่วคราว ข้อมูลยังอยู่ครบ ติดต่อทีมงาน TMS เพื่อใช้งานต่อ',
+  ],
+  cancelled: [
+    'ยกเลิก',
+    'บัญชีถูกยกเลิก ข้อมูลยังเก็บไว้ถึงวันที่กำหนดด้านล่าง ติดต่อทีมงาน TMS เพื่อขอข้อมูลคืนหรือกลับมาใช้งาน',
+  ],
+};
+const STATUS_EN: Record<string, [string, string]> = {
+  pending_verification: [
+    'Pending verification',
+    'You can use a limited trial while our team verifies your company.',
+  ],
+  trialing: ['Trial', 'You can use TMS as usual until your trial ends.'],
+  active: ['Active', 'Your account is fully active again.'],
+  past_due: [
+    'Past due',
+    'Please pay your subscription to keep your account from becoming read-only.',
+  ],
+  read_only: [
+    'Read-only',
+    'You cannot create or edit data. Viewing and exporting still work. Pay your subscription to continue.',
+  ],
+  suspended: [
+    'Suspended',
+    'Nobody in your company can sign in for now. Your data is kept. Contact the TMS team to continue.',
+  ],
+  cancelled: [
+    'Cancelled',
+    'Your account was cancelled. Your data is kept until the date below. Contact the TMS team to get your data back or to reactivate.',
+  ],
+};
+
 export interface TemplateVars {
+  /**
+   * P1-ST1-T03 แจ้งเจ้าของบริษัทเมื่อสถานะบัญชีเปลี่ยน (spec/01 §1 ข้อ 6 "อีเมล", PLT-103) — `to` = รหัสสถานะ (lowercase)
+   * reason ผ่าน safeName แล้ว · ไม่มียอดเงินในข้อความ
+   */
+  tenant_status_changed: {
+    tenantName: string;
+    to: string;
+    reason: string;
+    at: string;
+    /** วันที่ลบข้อมูลตามกำหนด (cancelled) — วันที่จัดรูปแบบแล้ว */
+    purgeDate?: string;
+  };
   /** ST1-T24 แจ้ง owner ทุกครั้งที่ทีม Innovera เข้าใช้งานแทน (docs/04 A6) */
   impersonation_started: {
     tenantName: string;
@@ -99,6 +155,38 @@ export type TemplateName = keyof TemplateVars;
 type Renderer<K extends TemplateName> = (v: TemplateVars[K]) => RenderedEmail;
 
 const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
+  tenant_status_changed: {
+    th: (v) => {
+      const [label, note] = STATUS_TH[v.to] ?? [v.to, ''];
+      const title = `สถานะบัญชี ${v.tenantName}: ${label}`;
+      const paras = [
+        `สถานะบัญชีของ ${v.tenantName} เปลี่ยนเป็น "${label}" เมื่อ ${v.at}`,
+        note,
+        `เหตุผล: ${v.reason}`,
+        ...(v.purgeDate ? [`ข้อมูลเก็บไว้ถึง ${v.purgeDate}`] : []),
+      ].filter(Boolean);
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('th', title, paras),
+      };
+    },
+    en: (v) => {
+      const [label, note] = STATUS_EN[v.to] ?? [v.to, ''];
+      const title = `${v.tenantName} account status: ${label}`;
+      const paras = [
+        `The account status of ${v.tenantName} changed to "${label}" at ${v.at}.`,
+        note,
+        `Reason: ${v.reason}`,
+        ...(v.purgeDate ? [`Your data is kept until ${v.purgeDate}.`] : []),
+      ].filter(Boolean);
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('en', title, paras),
+      };
+    },
+  },
   customer_document: {
     th: (v) => {
       const title =

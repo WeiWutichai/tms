@@ -23,6 +23,7 @@ import {
 } from './expiry-policy';
 import { alertChannels, alertRow } from './expiry-alerts';
 import { readSettings } from '../settings/settings.service';
+import { JOB_TENANT_STATUSES, canRunJobs } from '../tenants/tenant-status';
 
 const ALERTS_KEY = 'reminders.expiryAlerts' as const;
 
@@ -143,7 +144,7 @@ export class ExpiryReminderService implements OnModuleInit {
     return this.prisma.platform.$transaction(async (db) => {
       await db.$executeRaw`SELECT pg_advisory_xact_lock(8, hashtext('expiry.reminders'))`;
       const tenants = await db.tenant.findMany({
-        where: { status: { in: ['TRIAL', 'ACTIVE'] }, mode: 'live' }, // ST7-T09 sandbox ไม่รันงานประจำ
+        where: { status: { in: [...JOB_TENANT_STATUSES] }, mode: 'live' }, // ST7-T09 sandbox ไม่รันงานประจำ
         select: { id: true },
         orderBy: { createdAt: 'asc' },
       });
@@ -176,7 +177,7 @@ export class ExpiryReminderService implements OnModuleInit {
       where: { id: tenantId },
       select: { status: true },
     });
-    return t?.status === 'TRIAL' || t?.status === 'ACTIVE';
+    return canRunJobs(t?.status);
   }
 
   /** งานของ tenant หนึ่ง ณ วัน `today` (YYYY-MM-DD เวลาไทย) — แต่ละขั้นเป็น transaction สั้นของ tenant */

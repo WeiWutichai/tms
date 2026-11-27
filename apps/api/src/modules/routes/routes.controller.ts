@@ -31,6 +31,7 @@ import {
   TenantResource,
   RateLimitClass,
   StepUpWhen,
+  AllowReadOnlyTenant,
 } from '../../common/decorators';
 import { EXPORT_STEP_UP_WHEN } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
@@ -149,6 +150,7 @@ export class RoutesController {
    * ปุ่ม "คำนวณจากพิกัด" — ระยะทาง/เวลาโดยประมาณจากพิกัดของสถานที่ทั้งสอง (ผู้ให้บริการตาม `GEO_PROVIDER`)
    * ไม่บันทึกอะไร: ผู้ใช้ตรวจแล้วบันทึกฟอร์มเอง · ไม่มีพิกัด/ผู้ให้บริการไม่รองรับ = กรอกระยะทางเอง
    */
+  @AllowReadOnlyTenant() // P1-ST1-T03 ตาราง 1.6
   @Post('estimate')
   @HttpCode(200)
   @NoTransaction() // ไม่ถือ transaction ระหว่างรอผู้ให้บริการ (เส้นตาย GEO_TIMEOUT_MS)

@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient, Subscription } from '@prisma/client';
 import { readPlatformSetting } from '../../platform/platform-settings.service';
 import { currentPlanVersion } from './plan-catalog';
+import { subscriptionStatusFor } from '../tenants/tenant-status';
 
 /**
  * Subscription ต่อ tenant (P1-ST1-T01; spec/01 §6) — สร้าง/ย้ายในโค้ดแอปที่เดียว (review S2: ไม่ใช้ trigger)
@@ -8,7 +9,7 @@ import { currentPlanVersion } from './plan-catalog';
  * - สร้าง: bootstrapTenant (ขั้น `subscription`) — tenant ใหม่ทุกทาง (Console, createTenantWithDefaults, seed, tenants:bootstrap)
  * - ย้ายแพ็กเกจ: Console `PATCH /v1/platform/tenants/{id}/plan` → เวอร์ชันที่มีผลของแพ็กเกจใหม่
  * - publish เวอร์ชันใหม่ของแพ็กเกจเดิม → ไม่ย้ายใคร (PLT-060)
- * - status ตาม tenant.status (trial หมด/ค้างชำระ/ยกเลิก) = งานของ P1-ST1-T03
+ * - status ตาม tenant.status (trial หมด/ค้างชำระ/ยกเลิก): P1-ST1-T03 `TenantLifecycleService.transition()` sync ทุกครั้งที่เปลี่ยน
  */
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -19,10 +20,6 @@ const BKK = 7 * 3600e3;
 export function nextBangkokMonthStart(now: Date): Date {
   const b = new Date(now.getTime() + BKK);
   return new Date(Date.UTC(b.getUTCFullYear(), b.getUTCMonth() + 1, 1) - BKK);
-}
-
-function statusOf(t: string): string {
-  return t === 'TRIAL' ? 'trialing' : t === 'CANCELLED' ? 'cancelled' : 'active';
 }
 
 /** สร้างแถวถ้ายังไม่มี (idempotent) · sandbox (mode test) ใช้ของบริษัทจริง — ไม่มีแถวของตัวเอง */
@@ -39,12 +36,15 @@ export async function ensureSubscription(db: Db, tenantId: string): Promise<Subs
   // trial ของ tenant ใหม่ = ค่าตั้ง trial.days (ค่าเริ่มต้น 30 — D-43) อ่าน ณ ตอนสร้าง → แก้ค่าภายหลังไม่ย้อนแถวเดิม (PLT-099)
   const days = await readPlatformSetting<number>(db, 'trial.days');
   const now = new Date();
-  const trialEndsAt = t.status === 'TRIAL' ? new Date(now.getTime() + days * DAY) : null;
+  const trialEndsAt =
+    t.status === 'TRIALING' || t.status === 'PENDING_VERIFICATION'
+      ? new Date(now.getTime() + days * DAY)
+      : null;
   return db.subscription.create({
     data: {
       tenantId,
       planVersionId: v.id,
-      status: statusOf(t.status),
+      status: subscriptionStatusFor(t.status, null, null),
       trialEndsAt,
       currentPeriodStart: now,
       currentPeriodEnd: trialEndsAt ?? nextBangkokMonthStart(now),

@@ -25,6 +25,7 @@ import { pick, useSavedViews } from '../views/useSavedViews';
 import { VehicleActionDialog, type VehicleDialog } from './VehicleActionDialog';
 import { VehBadge, VehicleDrawer } from './VehicleDrawer';
 import { VehicleFormDrawer } from './VehicleFormDrawer';
+import { ActiveVehiclesBar } from './ActiveVehiclesBar';
 import {
   VEHICLE_STATUSES,
   useVehicleList,
@@ -132,6 +133,8 @@ export function VehiclesPage() {
   const [creating, setCreating] = useState(false);
   const [dialog, setDialog] = useState<VehicleDialog | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // P1-ST1-T06 drawer รายการทะเบียนที่ถูกนับเป็นรถ active
+  const [usageOpen, setUsageOpen] = useState(false);
   const current = selected ? (list.rows.find((r) => r.id === selected.id) ?? selected) : null;
   const sum = summary.data;
 
@@ -330,6 +333,12 @@ export function VehiclesPage() {
           onClick={() => setF('docAlert', filters.docAlert === 'true' ? '' : 'true')}
         />
       </div>
+      <ActiveVehiclesBar
+        plan={me.data?.plan.name}
+        open={usageOpen}
+        onOpen={() => setUsageOpen(true)}
+        onClose={() => setUsageOpen(false)}
+      />
       <div className="tms-listbody">
         <StatusTabs
           value={tab}

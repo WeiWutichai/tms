@@ -93,7 +93,7 @@ export async function createTenantWithDefaults(
       const t = await tx.tenant.create({
         data: {
           name: input.name,
-          status: input.status ?? 'TRIAL',
+          status: input.status ?? 'TRIALING',
           yearStyle: input.yearStyle ?? 'BE',
         },
       });

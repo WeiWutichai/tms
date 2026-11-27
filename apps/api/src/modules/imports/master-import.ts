@@ -704,7 +704,7 @@ export function defineMasterImport(def: MasterImportDef): ImportSpec<MasterValue
             x.issues.push({
               code: 'quota_exceeded',
               severity: 'warning',
-              message: `${quota.label}ในทะเบียนจะเป็น ${quota.used + creates} ${quota.unit} เกินโควตา ${quota.limit} ${quota.unit} — ยังนำเข้าได้ (โควตาคิดจาก${quota.label} active ที่มีเที่ยวในเดือน)`,
+              message: `${quota.label} เดือนนี้ ${quota.used} ${quota.unit} + นำเข้า ${creates} ${quota.unit} จะเกินโควตา ${quota.limit} ${quota.unit} เมื่อรถใหม่วิ่ง — ยังนำเข้าได้`,
             });
       }
       const keep =

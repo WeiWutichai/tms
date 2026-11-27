@@ -10,6 +10,7 @@ import type { UnbilledDoItem } from '../notifications/templates';
 import { UnbilledReportService, type UnbilledRow } from '../reports/unbilled-report.service';
 import { addDays, bangkokToday, daysBetween, isRealDate } from '../vehicle-documents/expiry';
 import { DIGEST_MAX_ITEMS, RUN_FROM_HOUR_BKK } from './expiry-reminder.service';
+import { JOB_TENANT_STATUSES, canRunJobs } from '../tenants/tenant-status';
 
 export const UNBILLED_REMINDER_JOB = 'delivery_order.unbilled';
 /**
@@ -115,7 +116,7 @@ export class UnbilledReminderService implements OnModuleInit {
     return this.prisma.platform.$transaction(async (db) => {
       await db.$executeRaw`SELECT pg_advisory_xact_lock(8, hashtext(${UNBILLED_REMINDER_JOB}))`;
       const tenants = await db.tenant.findMany({
-        where: { status: { in: ['TRIAL', 'ACTIVE'] }, mode: 'live' },
+        where: { status: { in: [...JOB_TENANT_STATUSES] }, mode: 'live' },
         select: { id: true },
         orderBy: { createdAt: 'asc' },
       });
@@ -146,7 +147,7 @@ export class UnbilledReminderService implements OnModuleInit {
       where: { id: tenantId },
       select: { status: true },
     });
-    return t?.status === 'TRIAL' || t?.status === 'ACTIVE';
+    return canRunJobs(t?.status);
   }
 
   /** งานของ tenant ณ วัน `today` (YYYY-MM-DD เวลาไทย) */

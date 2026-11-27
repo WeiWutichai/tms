@@ -25,7 +25,13 @@ import {
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
-import { RequireScope, StepUpWhen, TenantResource, RateLimitClass } from '../../common/decorators';
+import {
+  RequireScope,
+  StepUpWhen,
+  TenantResource,
+  RateLimitClass,
+  AllowReadOnlyTenant,
+} from '../../common/decorators';
 import { assertBankStepUp, EXPORT_STEP_UP_WHEN } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { ProblemException } from '../../common/problem';
@@ -227,6 +233,7 @@ export class CarriersController {
    * ดูเลขบัตรประชาชน/เลขบัญชีเต็ม (spec/11 NFR-153: ต้องมีสิทธิ์ + ลง audit ทุกครั้ง)
    * สิทธิ์ `settlements:pay` (เจ้าของ ผู้ดูแลระบบ บัญชี — ผู้จ่ายเงินรถร่วม) · ไม่รับ Idempotency-Key (ไม่เก็บค่าเต็มไว้ replay)
    */
+  @AllowReadOnlyTenant() // P1-ST1-T03 ตาราง 1.6
   @Post(':id/reveal')
   @HttpCode(200)
   @TenantResource('carrier')

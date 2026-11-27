@@ -21,6 +21,7 @@ import { lockSeconds, recordAttempt } from './throttle';
 import { ApiServiceBusyResponse, authTransaction } from './auth-tx';
 import { sha256 } from './tokens';
 import { iEquals } from '../common/ilike';
+import { ACCESS_TENANT_STATUSES, canAccess } from '../modules/tenants/tenant-status';
 
 export class InvitationTokenDto {
   @ApiProperty({ description: 'token จากลิงก์ในอีเมลเชิญ' })
@@ -65,8 +66,6 @@ export class AcceptInvitationDto extends InvitationTokenDto {
   currentPassword?: string;
 }
 
-const LIVE = ['TRIAL', 'ACTIVE'] as const;
-
 @Injectable()
 export class InvitationAcceptService {
   constructor(
@@ -90,8 +89,8 @@ export class InvitationAcceptService {
     )
       throw new ProblemException('invitation_invalid');
     const tenant = await db.tenant.findUnique({ where: { id: inv.tenantId } });
-    if (!tenant || !(LIVE as readonly string[]).includes(tenant.status))
-      throw new ProblemException('invitation_invalid');
+    // P1-ST1-T03: รับคำเชิญ = เพิ่มผู้ใช้ใหม่ — บริษัทระงับ/ยกเลิก (ใช้ได้แค่ชำระเงิน/ขอ export) รับไม่ได้ · read_only รับได้
+    if (!tenant || !canAccess(tenant.status)) throw new ProblemException('invitation_invalid');
     return { inv, tenant };
   }
 
@@ -108,7 +107,10 @@ export class InvitationAcceptService {
     });
     if (!users.length) return [];
     const live = await db.tenant.findMany({
-      where: { id: { in: users.map((u) => u.tenantId) }, status: { in: [...LIVE] } },
+      where: {
+        id: { in: users.map((u) => u.tenantId) },
+        status: { in: [...ACCESS_TENANT_STATUSES] },
+      },
       select: { id: true },
     });
     return users.filter((u) => live.some((t) => t.id === u.tenantId));

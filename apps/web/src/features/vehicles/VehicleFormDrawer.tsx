@@ -32,7 +32,7 @@ export function VehicleFormDrawer({
   finance: boolean;
   tenantName: string;
   /** โควตารถ — แสดง "รถในทะเบียน N / โควตา M" (D68-14: ไม่เตือนเกินโควตาจนกว่าจะนับรถ active) */
-  quota?: { limit: number | null; used: number } | undefined;
+  quota?: { limit: number | null; used: number; active: number } | undefined;
   onClose: () => void;
   onSaved: (v: Vehicle) => void;
 }) {
@@ -71,7 +71,8 @@ export function VehicleFormDrawer({
   const errs = { ...(tried ? local : {}), ...server };
   const topErr = create.error && !Object.keys(server).length ? problemText(create.error, t) : null;
   const opts = (types.data ?? []).map((x) => ({ id: x.id, name: x.name, payloadKg: x.payloadKg }));
-  // D-81 · D68-14: โควตานับรถ active ในเดือน (docs/02) ไม่ใช่ทะเบียน — แสดงเป็นข้อมูล "รถในทะเบียน N / โควตา M" ไม่เตือนเกินโควตา
+  // D-81 · D68-14 / P1-ST1-T06: โควตานับรถ active ในเดือน (docs/02) — แสดง "รถ active เดือนนี้ N / โควตา M" (ตัวเลขจริง)
+  // ไม่เตือนเกินโควตาตอนเพิ่มรถ (รถใหม่ยังไม่ active จนกว่าจะวิ่ง — เตือนตอนจ่ายงาน = P1-ST1-T08)
   const showQuota = !!quota && quota.limit !== null;
 
   const submit = () => {
@@ -118,7 +119,7 @@ export function VehicleFormDrawer({
     >
       {showQuota && (
         <div data-testid="veh-quota" style={{ fontSize: 13, color: '#3B424C' }}>
-          {t('veh.quota', { limit: quota!.limit!, used: quota!.used })}
+          {t('veh.quota', { limit: quota!.limit!, used: quota!.active })}
         </div>
       )}
       <ProblemAlert err={create.error} text={topErr} />
