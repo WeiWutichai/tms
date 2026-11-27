@@ -78,6 +78,8 @@ describe('tenant bootstrap', () => {
 
   it('รายการขั้นครบและเรียงตามที่ตั้งใจ (เพิ่มขั้นใหม่ = แก้ test นี้ด้วย)', () => {
     expect(bootstrapSteps().map((s) => s.name)).toEqual([
+      // P1-ST1-T01: subscription ก่อนทุกขั้น — tenant live ต้องมีแถวเมื่อจบ transaction (guard 0177)
+      'subscription',
       'system-roles',
       'document-series',
       'tax-billing-defaults',
