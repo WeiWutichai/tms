@@ -9,9 +9,9 @@
 #   migrate  — `prisma migrate deploy && node dist/cli/bootstrap-tenants.js` (= db:migrate:prod) เท่านั้น
 #              **ไม่มี** migrate dev / reset / seed ใน entrypoint (CLAUDE.md)
 #
-# [DECISION — lead 25 พ.ย. 2569, ย้อนได้] Node 20 ตาม .nvmrc และ GitHub CI — Node 20 หมดระยะ LTS 30 เม.ย. 2569
-#   ต้องยกเป็น 22 LTS พร้อมกันทั้ง .nvmrc / CI / ARG นี้ (งานแยก — เสนอใน "ผู้สมัครเพิ่ม")
-ARG NODE_IMAGE=node:20-bookworm-slim
+# P1-ST6-T07: Node 22 LTS ตาม .nvmrc และ GitHub CI — เปลี่ยนรุ่นต้องแก้พร้อมกันทั้ง .nvmrc / CI / ARG นี้ / web.Dockerfile
+#   image ที่ build ถูกสแกน CVE (critical) ใน `pnpm ci:local` — scripts/scan-images.sh
+ARG NODE_IMAGE=node:22-bookworm-slim
 
 # ---------- build: ติดตั้ง dependency ทั้งชุด + compile ----------
 FROM ${NODE_IMAGE} AS build
@@ -50,6 +50,10 @@ RUN --mount=type=cache,id=tms-pnpm,target=/pnpm/store \
 
 # ---------- migrate: มี prisma CLI (devDependency) — ใช้รัน migration เท่านั้น ----------
 FROM build AS migrate
+# P1-ST6-T07 (สแกน CVE): ลบเครื่องมือ build ที่ migrate ไม่ใช้ — pnpm ที่ corepack เก็บไว้ (tar รุ่นมี CVE critical) และ esbuild
+#   (Go stdlib รุ่นมี CVE critical; มาจาก vite/vitest ซึ่ง migrate ไม่เรียก) · [DECISION — lead 27 พ.ย. 2569, ย้อนได้] ตัดทิ้งแทนการปรับ
+#   stage migrate ใหม่ทั้งหมด — ทางที่ถาวรกว่า: stage migrate แบบบางที่มีแค่ dependency production + prisma CLI (งานต่อ)
+RUN rm -rf /root/.cache/node/corepack /repo/node_modules/.pnpm/esbuild@* /repo/node_modules/.pnpm/@esbuild+*
 WORKDIR /repo/apps/api
 ENV NODE_ENV=production
 USER node

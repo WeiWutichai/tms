@@ -42,7 +42,7 @@ jobs:
       - run: git config --global --add safe.directory '*'
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: pnpm }
+        with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - name: .env สำหรับ test/e2e (อ่านจาก .env แล้วสลับเป็น tms_test / tms_e2e)
         run: env | grep -E '^(DATABASE_URL|APP_DATABASE_URL|PLATFORM_DATABASE_URL|AUTH_DEV_SECRET|FIELD_ENCRYPTION_KEYS|BLIND_INDEX_KEY)=' > .env
@@ -78,6 +78,8 @@ jobs:
           if-no-files-found: ignore
       - name: CVE gate (critical = แดง)
         run: pnpm audit --audit-level=critical
+      - name: CVE ของ image ที่ deploy (critical = แดง — P1-ST6-T07)
+        run: bash scripts/scan-images.sh
 
   deploy-staging:
     needs: verify

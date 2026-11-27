@@ -17,6 +17,11 @@ BASE="${BASE:-origin/main}"
 step() { printf '\n\033[1;34m▶ %s\033[0m\n' "$1"; }
 start=$(date +%s)
 
+step "Node ตรงกับ .nvmrc (P1-ST6-T07 — CI และ image ใช้รุ่นเดียวกัน)"
+want="$(tr -d ' v\n' < .nvmrc)"; have="$(node -p 'process.versions.node.split(".")[0]')"
+if [ "$have" != "$want" ]; then echo "✘ ใช้ Node $(node -v) แต่ .nvmrc = $want — รัน \`nvm use\` แล้วลองใหม่"; exit 1; fi
+echo "Node $(node -v)"
+
 step "ไม่มีไฟล์ค้างที่ยังไม่ commit (CI เห็นเฉพาะที่ commit)"
 if [ -n "$(git status --porcelain)" ]; then git status --short; echo "✘ มีไฟล์ยังไม่ commit"; exit 1; fi
 
@@ -39,5 +44,6 @@ fi
 step "build";       pnpm -s build
 step "E2E";         pnpm -s e2e
 step "CVE gate (critical)"; pnpm -s audit --audit-level=critical
+step "CVE ของ image ที่ deploy (critical — P1-ST6-T07)"; bash scripts/scan-images.sh
 
 printf '\n\033[1;32m✔ CI ในเครื่องเขียวทั้งหมด (%ss) — push ได้\033[0m\n' "$(( $(date +%s) - start ))"
