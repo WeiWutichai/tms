@@ -209,7 +209,7 @@ describe('sandbox (ST7-T09)', () => {
       ent.invalidate();
       await request(srv()).get('/v1/orders').set(bearer(k.secret)).expect(401);
     } finally {
-      await db.tenant.update({ where: { id: liveId }, data: { status: 'TRIAL' } });
+      await db.tenant.update({ where: { id: liveId }, data: { status: 'TRIALING' } });
       ent.invalidate();
     }
     await db.tenant.update({ where: { id: liveId }, data: { planCode: 'start' } });

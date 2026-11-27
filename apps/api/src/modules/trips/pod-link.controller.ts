@@ -9,7 +9,7 @@ import {
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { apiOrigin } from '../documents/documents.controller';
-import { LinkAction } from '../../common/decorators';
+import { LinkAction, AllowReadOnlyTenant } from '../../common/decorators';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
@@ -29,6 +29,7 @@ import {
 } from './pod-link.dto';
 import { PodLinkService } from './pod-link.service';
 import { T409, T422 } from './trip-problems';
+import { ReadOnlyTripGate } from '../tenants/read-only-gate';
 
 /**
  * หน้าลิงก์งานของรถร่วม — ส่วนสถานะ (ST4-T08; ไม่ login — magic link `pod`, docs/01 §5.5 `/public/pod/{token}`)
@@ -39,7 +40,10 @@ import { T409, T422 } from './trip-problems';
 @ApiParam({ name: 'token', type: String, description: 'token ของลิงก์งาน (ml1.…)' })
 @Controller('public/pod')
 export class PodLinkPublicController {
-  constructor(private readonly pod: PodLinkService) {}
+  constructor(
+    private readonly pod: PodLinkService,
+    private readonly readOnly: ReadOnlyTripGate,
+  ) {}
 
   /** การจ้างที่ลิงก์ (ยืนยันแล้วโดย AuthGuard) ชี้ */
   private offerId(): string {
@@ -58,6 +62,7 @@ export class PodLinkPublicController {
     return this.pod.view(this.offerId(), requestContext.require().link!.id, q.doNo);
   }
 
+  @AllowReadOnlyTenant() // P1-ST1-T03 ตาราง 1.6
   @Post(':token/stops/:stopId/events')
   @HttpCode(201)
   @LinkAction(POD_LINK_ACTIONS.event)
@@ -90,6 +95,7 @@ export class PodLinkPublicController {
     @Body() body: PodLinkEventDto,
     @Res({ passthrough: true }) res: Response,
   ): Promise<PodLinkEventResultDto> {
+    await this.readOnly.forOffer(this.offerId()); // P1-ST1-T03 review S1
     const { result, replayed } = await this.pod.record(
       this.offerId(),
       requestContext.require().link!.id,
@@ -100,6 +106,7 @@ export class PodLinkPublicController {
     return result;
   }
 
+  @AllowReadOnlyTenant() // P1-ST1-T03 ตาราง 1.6
   @Post(':token/files')
   @LinkAction(POD_LINK_ACTIONS.capture)
   @ApiOperation({
@@ -110,7 +117,8 @@ export class PodLinkPublicController {
   @ApiCreatedResponse({ type: PodLinkFileDto })
   @ApiProblems(T409('pod_exists'), T422)
   @ApiTooManyRequestsResponse({ description: 'เรียกถี่เกินไป หรือเกินเพดานไฟล์ต่อ DO/ลิงก์' })
-  files(@Body() body: PodLinkFileReserveDto, @Req() req: Request): Promise<PodLinkFileDto> {
+  async files(@Body() body: PodLinkFileReserveDto, @Req() req: Request): Promise<PodLinkFileDto> {
+    await this.readOnly.forOffer(this.offerId()); // P1-ST1-T03 review S1
     return this.pod.reserveFile(
       this.offerId(),
       requestContext.require().link!.id,
@@ -119,6 +127,7 @@ export class PodLinkPublicController {
     );
   }
 
+  @AllowReadOnlyTenant() // P1-ST1-T03 ตาราง 1.6
   @Post(':token/pod')
   @HttpCode(201)
   @LinkAction(POD_LINK_ACTIONS.capture)
@@ -137,6 +146,7 @@ export class PodLinkPublicController {
     @Body() body: PodLinkCaptureDto,
     @Res({ passthrough: true }) res: Response,
   ): Promise<PodLinkCaptureResultDto> {
+    await this.readOnly.forOffer(this.offerId()); // P1-ST1-T03 review S1
     const { result, replayed } = await this.pod.capture(
       this.offerId(),
       requestContext.require().link!.id,

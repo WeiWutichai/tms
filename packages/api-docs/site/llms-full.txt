@@ -1,7 +1,7 @@
 <!-- index.md -->
 # TMS API v1
 
-เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 425 endpoint
+เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-27` · 426 endpoint
 
 เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
 
@@ -63,11 +63,12 @@
 - [invoices](ref-invoices.md) — 28 endpoint: GET /v1/invoices/queue, GET /v1/invoices/summary, POST /v1/invoices/preview, GET /v1/invoices, POST /v1/invoices, PUT /v1/invoices/external/{externalId}, …
 - [payments](ref-payments.md) — 9 endpoint: GET /v1/payments, POST /v1/payments, GET /v1/payments/summary, GET /v1/payments/aging, GET /v1/payments/{id}, PUT /v1/payments/external/{externalId}, …
 - [reports](ref-reports.md) — 2 endpoint: GET /v1/reports/revenue, GET /v1/reports/unbilled-delivery-orders
+- [usage](ref-usage.md) — 1 endpoint: GET /v1/usage/active-vehicles
 
 ## อ้างอิง
 
 - [Webhook events](webhook-events.md) — 31 event: connector.health_changed, credit_note.finalized, debit_note.finalized, delivery_order.status_changed, invoice.adjusted, invoice.finalized, invoice.paid, invoice.voided, …
-- [รหัส error](errors.md) — 140 code ของ problem+json
+- [รหัส error](errors.md) — 143 code ของ problem+json
 - [Changelog](changelog.md) — ประวัติเวอร์ชันของ API (added/changed/deprecated)
 
 ---
@@ -6804,7 +6805,7 @@ scope: `documents:write` · operationId: `Documents_create`
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `kind` | ใช่ | `string` | ค่า: `POD_PHOTO`, `POD_SIGNATURE`, `POD_FILE`, `SIGNATURE`, `LOGO`, `PDF`, `VEHICLE_DOC`, `RECEIPT`, `WHT_CERT`, `CONTRACT`, `IMPORT`, `OTHER` |   |   |
-| `mime` | ใช่ | `string` | ค่า: `application/pdf`, `image/png`, `image/jpeg`, `image/webp`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `text/csv` | ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง |   |
+| `mime` | ใช่ | `string` | ค่า: `application/pdf`, `image/png`, `image/jpeg`, `image/webp`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `text/csv`, `image/svg+xml` | ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง · kind `LOGO` = `image/png` ≤ 2 MB หรือ `image/svg+xml` ≤ 512 KB (SVG ใช้ได้กับ LOGO เท่านั้น และถูกล้าง script/event handler/อ้างของภายนอก/foreignObject ก่อนเก็บ) |   |
 | `bytes` | ใช่ | `number` |   | ขนาดไฟล์ (byte) ไม่เกิน 10485760 | `182044` |
 | `filename` |   | `string` |   |   | `pod-SO-2611-0001.jpg` |
 | `clientDocumentId` |   | `string` |   | id ฝั่ง client (อุปกรณ์) — ส่งซ้ำได้ ไม่สร้างแถวใหม่ |   |
@@ -6930,7 +6931,7 @@ scope: — · operationId: `Documents_upload`
 | `200` |   | `DocumentDto` |
 | `404` | ลายเซ็นของ URL ผิด/หมดอายุ หรือไม่พบไฟล์ (ผิดเกิน 30 ครั้ง/นาที/IP → 429) — [not_found](errors.md#not_found) | `ProblemDto` |
 | `409` | อัปโหลดแล้ว (ไฟล์เขียนครั้งเดียว) — [invalid_state_transition](errors.md#invalid_state_transition) | `ProblemDto` |
-| `422` | ไฟล์ว่าง / ใหญ่กว่าที่จองไว้ / เนื้อไฟล์ไม่ตรงชนิดที่ประกาศ — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `422` | ไฟล์ว่าง / ใหญ่กว่าที่จองไว้ / เนื้อไฟล์ไม่ตรงชนิดที่ประกาศ · `svg_unsafe` = SVG ของโลโก้ล้างไม่ได้ (ไม่ใช่ SVG) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
 
 **ตัวอย่าง**
@@ -17013,7 +17014,7 @@ const { data, error } = await tms.POST('/v1/vehicles/{id}/odometer/correct', {
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string (date-time)` |   |   |   |
 | `updatedAt` | ใช่ | `string (date-time)` |   |   |   |
-| `quotaExceeded` |   | `boolean` |   | มีเฉพาะในผลการสร้าง · D68-14: โควตารถนับ**รถ active** ไม่ใช่จำนวนในทะเบียน · ตอนนี้ `false` เสมอจนกว่าจะมีการนับรถ active (metering) — soft limit ไม่จำกัดการสร้าง |   |
+| `quotaExceeded` |   | `boolean` |   | มีเฉพาะในผลการสร้าง · D68-14: โควตารถนับ**รถ active** ไม่ใช่จำนวนในทะเบียน · `false` เสมอ — รถที่เพิ่งเพิ่มยังไม่ใช่รถ active จนกว่าจะมีเที่ยว · คำเตือนเกินโควตาอยู่ตอนจ่ายงาน — soft limit ไม่จำกัดการสร้าง |   |
 | `docAlert` |   | `VehicleDocAlertDto` |   | มีเฉพาะในรายการ (GET /vehicles): เอกสารใกล้หมด 30 วัน/หมดแล้วของคันนี้ (รถปลดระวาง = 0) · คำนวณจากเอกสารและวันนี้ทุกครั้ง **ไม่ทำให้ `updatedAt` ของรถเปลี่ยน** — ผู้ที่ sync แบบ `updatedAfter` ให้ดึงเอกสารจาก `GET /vehicle-documents` แทน |   |
 
 ### VehiclePageDto {#schema-VehiclePageDto}
@@ -24822,6 +24823,69 @@ const { data, error } = await tms.GET('/v1/reports/unbilled-delivery-orders');
 
 ---
 
+<!-- ref-usage.md -->
+# usage
+
+1 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+
+| Endpoint | scope |
+|---|---|
+| [`GET /v1/usage/active-vehicles`](#get-usage-active-vehicles) | `master:read` |
+
+## รถ active ของเดือน + ทะเบียนที่ถูกนับ {#get-usage-active-vehicles}
+
+`GET /v1/usage/active-vehicles`
+
+scope: `master:read` · operationId: `Usage_activeVehicles`
+
+รถ active = ทะเบียน (normalize: ตัดช่องว่าง/ขีด/จุด, เลขไทย → อารบิก — "กข-1234" = "กข1234") ที่มีเที่ยวเข้าเงื่อนไข ≥ 1 เที่ยวในเดือนปฏิทินเวลาไทย · นับทันทีเมื่อเที่ยวแรกของทะเบียนเข้าเงื่อนไข และนำออกเมื่อเที่ยวย้อนสถานะ (เช่น ยกเลิกหลังปล่อยรถ) ก่อนปิดยอด · ปิดยอดวันที่ 1 เวลา 02:00 น. ไทยของเดือนถัดไป · sandbox ไม่นับ
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `period` | query |   | `string` | เดือนปฏิทินเวลาไทย YYYY-MM (ไม่ส่ง = เดือนนี้) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `ActiveVehicleUsageDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`master:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/usage/active-vehicles" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/usage/active-vehicles');
+```
+
+## Schema ของ response {#schemas}
+
+### ActiveVehicleUsageDto {#schema-ActiveVehicleUsageDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `period` | ใช่ | `string` |   |   | `2026-11` |
+| `status` | ใช่ | `string` | ค่า: `open`, `finalized`, `invoiced` | open = ยังนับอยู่ (ค่าสด) · finalized = ปิดยอดแล้ว (วันที่ 1 เวลา 02:00 น. ไทยของเดือนถัดไป) |   |
+| `finalizedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
+| `activeVehicles` | ใช่ | `number` |   | รถ active ของเดือน (metric `vehicles.active`) = ทะเบียน normalize ที่มีเที่ยวเข้าเงื่อนไข ≥ 1 เที่ยว · กติกาปัจจุบัน: เที่ยวที่ปล่อยรถแล้ว (ไม่นับร่าง/ยกเลิกก่อนออกวิ่ง/sandbox) นับตามเวลาไทย R-05 |   |
+| `own` | ใช่ | `number` |   | รถบริษัท |   |
+| `subcontract` | ใช่ | `number` |   | รถร่วม |   |
+| `limit` | ใช่ | `number` | null ได้ | โควตารถ active ต่อเดือน (tenant.vehicle_quota → entitlement `veh`) — null = ไม่จำกัด |   |
+| `data` | ใช่ | `array<ActiveVehicleItemDto>` |   |   |   |
+
+---
+
 <!-- webhook-events.md -->
 # Webhook events
 
@@ -25795,6 +25859,9 @@ const { data, error } = await tms.GET('/v1/reports/unbilled-delivery-orders');
 | [`settlement_self_approval`](#settlement_self_approval) | 403 | ผู้เตรียมใบสำคัญจ่าย (สร้างใบ เพิ่มหรือนำรายการออก) อนุมัติใบนั้นไม่ได้ ต้องให้ผู้อนุมัติคนอื่น |
 | [`settlement_self_payment`](#settlement_self_payment) | 403 | ผู้อนุมัติใบสำคัญจ่าย บันทึกจ่ายใบนั้นเองไม่ได้ ต้องให้ผู้อื่นบันทึกจ่าย |
 | [`step_up_required`](#step_up_required) | 403 | ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้ |
+| [`tenant_cancelled`](#tenant_cancelled) | 403 | บัญชีบริษัทถูกยกเลิก ขอส่งออกข้อมูลได้จนถึงวันครบระยะเก็บข้อมูล |
+| [`tenant_read_only`](#tenant_read_only) | 403 | บัญชีเป็นอ่านอย่างเดียว สร้างงานใหม่ไม่ได้ ดูและ export ได้ |
+| [`tenant_suspended`](#tenant_suspended) | 403 | บัญชีบริษัทถูกระงับ ใช้ได้เฉพาะการชำระเงินและขอส่งออกข้อมูล |
 | [`two_factor_enrolment_required`](#two_factor_enrolment_required) | 403 | บัญชีนี้ต้องตั้งการยืนยันตัวตน 2 ชั้นก่อนใช้งาน |
 | [`not_found`](#not_found) | 404 | ไม่พบข้อมูล |
 | [`method_not_allowed`](#method_not_allowed) | 405 | ไม่รองรับวิธีเรียกนี้ |
@@ -25992,7 +26059,7 @@ HTTP `401` · กรอกรหัสยืนยันตัวตน 2 ชั
 
 HTTP `401` · ต้องเข้าสู่ระบบ
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 407 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 408 endpoint
 
 ## bank_change_requires_user {#bank_change_requires_user}
 
@@ -26058,7 +26125,7 @@ HTTP `403` · ส่วนต่างเกินวงเงินที่ต
 
 HTTP `403` · ไม่มีสิทธิ์ทำรายการนี้
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 407 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 408 endpoint
 
 ## sandbox_only {#sandbox_only}
 
@@ -26095,6 +26162,24 @@ HTTP `403` · ผู้อนุมัติใบสำคัญจ่าย �
 HTTP `403` · ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้
 
 พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`GET /v1/customer-sites/export`](ref-customer-sites.md#get-customer-sites-export), [`GET /v1/routes/export`](ref-routes.md#get-routes-export), [`GET /v1/products/export`](ref-products.md#get-products-export), [`GET /v1/vehicle-types/export`](ref-vehicle-types.md#get-vehicle-types-export), [`GET /v1/service-items/export`](ref-service-items.md#get-service-items-export), [`GET /v1/reason-codes/export`](ref-reason-codes.md#get-reason-codes-export), [`POST /v1/webhooks`](ref-webhooks.md#post-webhooks), [`PATCH /v1/webhooks/{id}`](ref-webhooks.md#patch-webhooks-id), [`POST /v1/webhooks/{id}/rotate-secret`](ref-webhooks.md#post-webhooks-id-rotate-secret), [`GET /v1/rate-cards/export`](ref-rate-cards.md#get-rate-cards-export) และอีก 11 endpoint
+
+## tenant_cancelled {#tenant_cancelled}
+
+HTTP `403` · บัญชีบริษัทถูกยกเลิก ขอส่งออกข้อมูลได้จนถึงวันครบระยะเก็บข้อมูล
+
+อาจตอบได้จากหลาย endpoint
+
+## tenant_read_only {#tenant_read_only}
+
+HTTP `403` · บัญชีเป็นอ่านอย่างเดียว สร้างงานใหม่ไม่ได้ ดูและ export ได้
+
+อาจตอบได้จากหลาย endpoint
+
+## tenant_suspended {#tenant_suspended}
+
+HTTP `403` · บัญชีบริษัทถูกระงับ ใช้ได้เฉพาะการชำระเงินและขอส่งออกข้อมูล
+
+อาจตอบได้จากหลาย endpoint
 
 ## two_factor_enrolment_required {#two_factor_enrolment_required}
 
@@ -26688,7 +26773,7 @@ HTTP `422` · ลำดับจุดไม่ถูกต้อง — จุ�
 
 HTTP `422` · ข้อมูลไม่ถูกต้อง
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId) และอีก 294 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId) และอีก 295 endpoint
 
 ## webhook_event_expired {#webhook_event_expired}
 
@@ -26749,7 +26834,15 @@ HTTP `503` · ระบบกำลังมีผู้ใช้งานมา
 <!-- changelog.md -->
 # Changelog
 
-เวอร์ชันพฤติกรรม (`X-Api-Version`) ล่าสุด: `2026-11-18` — วิธีเลือกเวอร์ชันดู [เวอร์ชันของ API](versioning.md)
+เวอร์ชันพฤติกรรม (`X-Api-Version`) ล่าสุด: `2026-11-27` — วิธีเลือกเวอร์ชันดู [เวอร์ชันของ API](versioning.md)
+
+## 2026-11-27
+
+สถานะบริษัท 7 ค่า: `GET /v1/me` `tenant.status` = pending_verification / trialing / active / past_due / read_only / suspended / cancelled — ก่อนหน้านี้ trial / active / suspended / cancelled (gate `tenant.status_lifecycle`)
+
+| รหัสการเปลี่ยน | รายละเอียด |
+|---|---|
+| `tenant.status_lifecycle` | สถานะบริษัท (`tenant.status`) มี 7 ค่า — ก่อนหน้านี้ 4 ค่า (trial / active / suspended / cancelled) |
 
 ## 2026-11-18
 

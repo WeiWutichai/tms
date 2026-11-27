@@ -96,6 +96,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           title={title}
           yearStyle={(me.data?.tenant.yearStyle as 'BE' | 'CE') ?? 'BE'}
           onCreate={() => setCmdk(true)}
+          page={locked ? undefined : page}
+          path={loc.pathname}
+          tenantId={me.data?.tenant.id}
         />
         <main
           style={{

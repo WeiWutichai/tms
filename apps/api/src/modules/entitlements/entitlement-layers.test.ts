@@ -83,16 +83,15 @@ describe('entitlement layers (P1-ST1-T02)', () => {
   });
 
   it.each([
-    ['TRIAL', true],
+    ['TRIALING', true],
     ['ACTIVE', true],
-    ['trialing', true],
-    ['past_due', true],
-    ['read_only', true], // ตัดที่ guard ของ P1-ST1-T03 ไม่ใช่ entitlement (คิว webhook ต้องพัก ไม่ทิ้ง)
-  ])('สถานะ %s ไม่ตัดฟีเจอร์', (status, same) => {
+    ['PAST_DUE', true],
+    ['READ_ONLY', true], // ตัดที่ guard ของ P1-ST1-T03 ไม่ใช่ entitlement (คิว webhook ต้องพัก ไม่ทิ้ง)
+  ] as const)('สถานะ %s ไม่ตัดฟีเจอร์', (status, same) => {
     expect(statusLayer(plan, status) === plan).toBe(same);
   });
 
-  it.each(['SUSPENDED', 'CANCELLED', 'suspended', 'cancelled'])(
+  it.each(['SUSPENDED', 'CANCELLED'] as const)(
     'สถานะ %s → ไม่มีฟีเจอร์ใดทำงาน (รวมพื้นฐาน)',
     (status) => {
       expect(statusLayer(plan, status)).toEqual({});
@@ -112,7 +111,7 @@ describe('entitlement layers (P1-ST1-T02)', () => {
     expect(out.veh).toEqual({ enabled: true, limit: 5 });
     expect(out.so?.enabled).toBe(true);
     expect(
-      statusLayer({ veh: { enabled: true, limit: null } }, 'pending_verification').veh?.limit,
+      statusLayer({ veh: { enabled: true, limit: null } }, 'PENDING_VERIFICATION').veh?.limit,
     ).toBe(5);
   });
 

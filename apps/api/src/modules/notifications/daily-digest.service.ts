@@ -13,6 +13,7 @@ import {
 } from './catalogue';
 import { NotificationService } from './notification.service';
 import type { DailyDigestGroup } from './templates';
+import { JOB_TENANT_STATUSES, canRunJobs } from '../tenants/tenant-status';
 
 export const DAILY_DIGEST_JOB = 'notification.daily_digest';
 /** สรุปรายวันส่งตั้งแต่ 08:00 เวลาไทย (docs/04 I) */
@@ -91,7 +92,7 @@ export class DailyDigestService implements OnModuleInit {
     return this.prisma.platform.$transaction(async (db) => {
       await db.$executeRaw`SELECT pg_advisory_xact_lock(8, hashtext(${DAILY_DIGEST_JOB}))`;
       const tenants = await db.tenant.findMany({
-        where: { status: { in: ['TRIAL', 'ACTIVE'] } },
+        where: { status: { in: [...JOB_TENANT_STATUSES] } },
         select: { id: true },
         orderBy: { createdAt: 'asc' },
       });
@@ -122,7 +123,7 @@ export class DailyDigestService implements OnModuleInit {
       where: { id: tenantId },
       select: { status: true },
     });
-    return t?.status === 'TRIAL' || t?.status === 'ACTIVE';
+    return canRunJobs(t?.status);
   }
 
   async runForTenant(

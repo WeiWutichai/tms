@@ -42,7 +42,7 @@ vi.mock('./trackingApi', async (orig) => {
 const { TrackingPage } = await import('./Tracking');
 const { stepViews, telHref } = await import('./trackingApi');
 
-const company = { name: 'ศรีไทยขนส่ง', phone: '02-118-4400' };
+const company = { name: 'ศรีไทยขนส่ง', phone: '02-118-4400', logoUrl: null as string | null };
 const show = () =>
   render(
     <I18nProvider>
@@ -100,9 +100,25 @@ describe('TrackingPage (ST4-T14)', () => {
     expect(document.body.textContent).not.toMatch(/บาท|฿/);
   });
 
+  it('P1-ST6-T04 (D68-93) โลโก้บริษัท: มี logoUrl → รูปแทนไอคอนรถ (30 px) · ไม่มี → ไอคอนตามต้นแบบ', () => {
+    view = ok({
+      company: { ...company, logoUrl: 'https://api.example/v1/public/tracking/logo/doc_1?sig=x' },
+      mode: 'SEARCH',
+      shipment: null,
+    });
+    const { unmount } = show();
+    const img = screen.getByTestId('trk-logo');
+    expect(img.getAttribute('src')).toBe('https://api.example/v1/public/tracking/logo/doc_1?sig=x');
+    expect(img.getAttribute('style')).toContain('width: 30px');
+    unmount();
+    view = ok({ company, mode: 'SEARCH', shipment: null });
+    show();
+    expect(screen.queryByTestId('trk-logo')).toBeNull();
+  });
+
   it('ส่งแล้ว + POD: ส่งถึงแล้ว (เขียว) · รูป/ลายเซ็น/ชื่อผู้รับ · ส่งจริงน้อยกว่าแผน', () => {
     view = ok({
-      company: { name: 'ศรีไทยขนส่ง', phone: null },
+      company: { name: 'ศรีไทยขนส่ง', phone: null, logoUrl: null },
       mode: 'SHIPMENT',
       shipment: ship({
         status: 'DELIVERED',

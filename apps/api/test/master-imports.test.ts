@@ -651,8 +651,8 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
       }),
     ).toBe(1);
 
-    const used0 = await db.vehicle.count({ where: { tenantId: tA, status: { not: 'RETIRED' } } });
-    await db.tenant.update({ where: { id: tA }, data: { vehicleQuota: Math.max(1, used0 - 1) } });
+    // P1-ST1-T06 · D68-14/21: ฐานโควตา = รถ active เดือนนี้ (tenant นี้ยังไม่มีเที่ยวที่ปล่อยรถ = 0) ไม่ใช่รถในทะเบียน
+    await db.tenant.update({ where: { id: tA }, data: { vehicleQuota: 1 } });
     const q = await dry(
       a,
       'vehicle',
@@ -667,10 +667,8 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
     const qw = (
       q.issues as { row: number; code: string; severity: string; message: string }[]
     ).filter((i) => i.code === 'quota_exceeded');
-    expect(qw.map((i) => [i.row, i.severity])).toEqual([
-      [2, 'warning'],
-      [3, 'warning'],
-    ]);
+    expect(qw.map((i) => [i.row, i.severity])).toEqual([[3, 'warning']]);
+    expect(qw[0]!.message).toContain('รถ active เดือนนี้ 0 คัน + นำเข้า 2 คัน');
     expect(qw[0]!.message).toContain('เกินโควตา');
     expect(qw[0]!.message).toContain('ยังนำเข้าได้');
     await commit(a, q.id);
@@ -678,8 +676,7 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
       await db.vehicle.count({ where: { tenantId: tA, plate: { in: ['75-0001', '75-0002'] } } }),
     ).toBe(2);
     // นับเฉพาะแถวที่จะสร้างจริง: แก้คันเดิม (upsert) + แถวผิด ไม่นับ
-    const used = await db.vehicle.count({ where: { tenantId: tA, status: { not: 'RETIRED' } } });
-    await db.tenant.update({ where: { id: tA }, data: { vehicleQuota: used + 1 } });
+    await db.tenant.update({ where: { id: tA }, data: { vehicleQuota: 1 } });
     const ok = await dry(
       a,
       'vehicle',

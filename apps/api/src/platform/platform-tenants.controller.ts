@@ -56,6 +56,12 @@ import { currentPlanVersion } from '../modules/entitlements/plan-catalog';
 import { moveSubscriptionPlan } from '../modules/entitlements/subscription';
 import { bootstrapTenant } from '../modules/tenants/bootstrap';
 import { platformAudit } from './platform-audit';
+import { TenantLifecycleService } from '../modules/tenants/tenant-lifecycle.service';
+import {
+  TENANT_STATUS_ENUM_DOC,
+  TENANT_STATUSES,
+  tenantStatusOut,
+} from '../modules/tenants/tenant-status';
 import { PlatformSettingsService } from './platform-settings.service';
 import { issueInvitation } from '../modules/users/invitations.controller';
 
@@ -160,7 +166,11 @@ export class PlatformTenantListQuery {
 export class PlatformTenantDto {
   @ApiProperty({ example: 'ten_…' }) id!: string;
   @ApiProperty() name!: string;
-  @ApiProperty({ enum: ['trial', 'active', 'suspended', 'cancelled'] }) status!: string;
+  @ApiProperty({
+    enum: TENANT_STATUS_ENUM_DOC,
+    description: 'สถานะบัญชีบริษัท 7 ค่า (P1-ST1-T03 · spec/01 PLT-010)',
+  })
+  status!: string;
   @ApiProperty() planCode!: string;
   @ApiProperty({ nullable: true, type: Number }) vehicleQuota!: number | null;
   @ApiProperty() users!: number;
@@ -227,8 +237,56 @@ export class EntitlementOverrideDto {
   @ApiProperty({ format: 'date-time' }) createdAt!: string;
 }
 
+/** P1-ST1-T03 ประวัติสถานะ (spec/01 PLT-019 · §10.2 แท็บภาพรวม "สถานะ + ประวัติสถานะ") */
+export class PlatformTenantStatusHistoryDto {
+  @ApiProperty({ nullable: true, type: String, enum: TENANT_STATUSES.map((x) => x.toLowerCase()) })
+  from!: string | null;
+  @ApiProperty({ enum: TENANT_STATUSES.map((x) => x.toLowerCase()) }) to!: string;
+  @ApiProperty() reason!: string;
+  @ApiProperty({ enum: ['system', 'platform_user', 'tenant_user'] }) actorType!: string;
+  @ApiProperty({ nullable: true, type: String, description: 'ชื่อทีมงาน/ผู้ใช้ (ระบบ = null)' })
+  actorName!: string | null;
+  @ApiProperty({ format: 'date-time' }) at!: string;
+}
 export class PlatformTenantDetailDto extends PlatformTenantDto {
   @ApiProperty({ type: [PlatformTenantUserDto] }) members!: PlatformTenantUserDto[];
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date-time',
+    description: 'วันหมดทดลองใช้ (subscription)',
+  })
+  trialEndsAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date-time',
+    description: 'สิ้นรอบบิลปัจจุบัน = วันต่ออายุ (subscription — แสดงเมื่อไม่ได้ทดลองใช้)',
+  })
+  currentPeriodEnd!: string | null;
+  @ApiProperty({
+    description: 'ระงับด้วยมือ (ปลดระงับได้) — ระงับเพราะค้างชำระปลดด้วยการชำระเท่านั้น',
+  })
+  manualSuspension!: boolean;
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' }) statusChangedAt!:
+    string | null;
+  @ApiProperty({ nullable: true, type: String }) statusReason!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date',
+    description: 'วัน 0 ของช่วงค้างชำระ (ใบครบกำหนด / วันหมด trial)',
+  })
+  pastDueSince!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date-time',
+    description: 'cancelled: วันครบระยะเก็บข้อมูล (retention.operationalDays — job ลบปิดอยู่)',
+  })
+  dataPurgeAt!: string | null;
+  @ApiProperty({ type: [PlatformTenantStatusHistoryDto] })
+  statusHistory!: PlatformTenantStatusHistoryDto[];
 }
 export class ImpersonationStartDto {
   @ApiProperty() sessionId!: string;
@@ -257,6 +315,7 @@ export class PlatformTenantsController {
     private readonly mfa: MfaService,
     private readonly settings: PlatformSettingsService,
     private readonly clock: Clock,
+    private readonly lifecycle: TenantLifecycleService,
   ) {}
 
   @Get()
@@ -299,8 +358,45 @@ export class PlatformTenantsController {
       select: { id: true, code: true },
     });
     const code = new Map(roles.map((r) => [r.id, r.code]));
+    const sub = await this.prisma.platform.subscription.findUnique({
+      where: { tenantId: t.id },
+      select: { trialEndsAt: true, currentPeriodEnd: true },
+    });
+    const hist = await this.lifecycle.history(t.id);
+    const staffIds = [
+      ...new Set(hist.filter((h) => h.actorType === 'platform_user').map((h) => h.actorId!)),
+    ];
+    const staffNames = new Map(
+      (
+        await this.prisma.platform.platformUser.findMany({
+          where: { id: { in: staffIds } },
+          select: { id: true, name: true },
+        })
+      ).map((u) => [u.id, u.name]),
+    );
+    const userNames = new Map(users.map((u) => [u.id, u.name]));
     return {
       ...this.toDto(t, users.length),
+      trialEndsAt: sub?.trialEndsAt?.toISOString() ?? null,
+      currentPeriodEnd: sub?.currentPeriodEnd?.toISOString() ?? null,
+      manualSuspension: await this.lifecycle.manuallySuspended(t.id),
+      statusChangedAt: t.statusChangedAt?.toISOString() ?? null,
+      statusReason: t.statusReason,
+      pastDueSince: t.pastDueSince?.toISOString().slice(0, 10) ?? null,
+      dataPurgeAt: t.dataPurgeAt?.toISOString() ?? null,
+      statusHistory: hist.map((h) => ({
+        from: h.fromStatus ? tenantStatusOut(h.fromStatus) : null,
+        to: tenantStatusOut(h.toStatus),
+        reason: h.reason,
+        actorType: h.actorType,
+        actorName:
+          h.actorType === 'platform_user'
+            ? (staffNames.get(h.actorId!) ?? null)
+            : h.actorType === 'tenant_user'
+              ? (userNames.get(h.actorId!) ?? null)
+              : null,
+        at: h.at.toISOString(),
+      })),
       members: users.map((u) => ({
         id: encodeId('user', u.id),
         name: u.name,
@@ -329,12 +425,17 @@ export class PlatformTenantsController {
         const created = await tx.tenant.create({
           data: {
             name: body.name,
-            status: 'TRIAL',
+            status: 'TRIALING',
             ...(body.planCode ? { planCode: body.planCode } : {}),
             ...(body.vehicleQuota !== undefined ? { vehicleQuota: body.vehicleQuota } : {}),
           },
         });
         await bootstrapTenant(tx, created.id);
+        // P1-ST1-T03 PLT-019: แถวแรกของประวัติ (ใหม่ → trialing)
+        await TenantLifecycleService.recordInitial(tx, created.id, 'TRIALING', body.reason, {
+          type: 'platform_user',
+          id: requestContext.require().platformUser!.id,
+        });
         const t = created;
         const tenant = created;
         const roles = await ensureSystemRoles(tx, t.id);
@@ -363,20 +464,66 @@ export class PlatformTenantsController {
     );
   }
 
+  /** ระงับ (ละเมิดเงื่อนไข/ทุจริต — spec/01 §1 ข้อ 6) ทุกสถานะยกเว้น cancelled · ผ่านบริการสถานะ (ประวัติ + audit + อีเมล) */
   @Post(':id/suspend')
   @HttpCode(200)
   @PlatformAuth('SUPER_ADMIN')
   @ApiOkResponse({ type: PlatformTenantDto })
   async suspend(@Param('id') id: string, @Body() body: TenantReasonDto) {
-    return this.setStatus(id, 'SUSPENDED', body.reason);
+    const t = await this.tenant(id);
+    if (t.status === 'SUSPENDED' || t.status === 'CANCELLED')
+      throw new ProblemException('invalid_state_transition');
+    const next = await this.lifecycle.suspend(
+      t.id,
+      body.reason,
+      this.staffActor(),
+      'platform.tenant_suspended',
+    );
+    return this.toDto(next!, await this.countUsers(t.id));
   }
 
+  /** ปลดระงับ → สถานะก่อนถูกระงับ (spec/01 §1 ข้อ 6 "suspended (ด้วยมือ) → สถานะก่อนหน้า") */
   @Post(':id/reactivate')
   @HttpCode(200)
   @PlatformAuth('SUPER_ADMIN')
   @ApiOkResponse({ type: PlatformTenantDto })
   async reactivate(@Param('id') id: string, @Body() body: TenantReasonDto) {
-    return this.setStatus(id, 'ACTIVE', body.reason);
+    const t = await this.tenant(id);
+    if (t.status !== 'SUSPENDED') throw new ProblemException('invalid_state_transition');
+    const next = await this.lifecycle.unsuspend(
+      t.id,
+      body.reason,
+      this.staffActor(),
+      'platform.tenant_reactivated',
+    );
+    return this.toDto(next, await this.countUsers(t.id));
+  }
+
+  /**
+   * P1-ST1-T03 บันทึกว่าชำระแล้ว → `active` ทันที (spec/01 §1 ข้อ 6 "Console เปลี่ยนเป็นจ่ายแล้ว" · PLT-013/018)
+   * จาก ทดลองใช้ / ค้างชำระ / อ่านอย่างเดียว / ระงับ / ยกเลิก (ยังไม่ถึงวันลบข้อมูล) · owner + finance (§11.4 "การชำระ")
+   * ต้นแบบ Console ยังไม่มีปุ่มนี้ → ประกอบจาก dialog การกระทำ (เหตุผล ≥ 10 ตัว) [DECISION — lead 27 พ.ย. 2569, ย้อนได้]
+   * — หน้าการเงิน/ตรวจสลิป (P1-ST3-T02/T04) จะเรียกบริการเดียวกัน
+   */
+  @Post(':id/activate')
+  @HttpCode(200)
+  @PlatformAuth('SUPER_ADMIN', 'BILLING')
+  @ApiOkResponse({ type: PlatformTenantDto })
+  async activate(@Param('id') id: string, @Body() body: TenantReasonDto) {
+    const t = await this.tenant(id);
+    if (t.status === 'ACTIVE' || t.status === 'PENDING_VERIFICATION')
+      throw new ProblemException('invalid_state_transition');
+    const next = await this.lifecycle.markPaid(
+      t.id,
+      body.reason,
+      this.staffActor(),
+      'platform.tenant_activated',
+    );
+    return this.toDto(next!, await this.countUsers(t.id));
+  }
+
+  private staffActor() {
+    return { type: 'platform_user' as const, id: requestContext.require().platformUser!.id };
   }
 
   /** เปลี่ยนแพ็กเกจ / quota รถ (จำนวนรถตามสัญญา — บังคับใช้ในโมดูลรถ ST2) */
@@ -775,36 +922,6 @@ export class PlatformTenantsController {
     }));
   }
 
-  private async setStatus(id: string, status: 'ACTIVE' | 'SUSPENDED', reason: string) {
-    const db = this.prisma.platform;
-    const t = await this.tenant(id);
-    const ok =
-      status === 'SUSPENDED'
-        ? t.status !== 'SUSPENDED' && t.status !== 'CANCELLED'
-        : t.status === 'SUSPENDED';
-    if (!ok) throw new ProblemException('invalid_state_transition');
-    const next = await db.$transaction(async (tx) => {
-      const u = await tx.tenant.update({ where: { id: t.id }, data: { status } });
-      // ระงับ = เข้าใช้งานแทนที่เปิดอยู่จบทันที
-      if (status === 'SUSPENDED')
-        await tx.impersonationSession.updateMany({
-          where: { tenantId: t.id, endedAt: null },
-          data: { endedAt: new Date(), endReason: 'revoked' },
-        });
-      await this.audit(
-        tx,
-        t.id,
-        status === 'SUSPENDED' ? 'platform.tenant_suspended' : 'platform.tenant_reactivated',
-        reason,
-        { status },
-        { status: t.status },
-      );
-      return u;
-    });
-    this.entitlements.invalidate(t.id);
-    return this.toDto(next, await this.countUsers(t.id));
-  }
-
   private async tenant(id: string): Promise<Tenant> {
     const t = await this.prisma.platform.tenant.findUnique({
       where: { id: decodeIdOr404('tenant', id) },
@@ -862,7 +979,7 @@ export class PlatformTenantsController {
     return {
       id: encodeId('tenant', t.id),
       name: t.name,
-      status: t.status.toLowerCase(),
+      status: tenantStatusOut(t.status),
       planCode: t.planCode,
       vehicleQuota: t.vehicleQuota,
       users,

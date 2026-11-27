@@ -576,7 +576,7 @@ describe('รถ (vehicles)', () => {
       total: 3,
       ready: 3,
       retired: 0,
-      quota: { limit: 2, used: 3 },
+      quota: { limit: 2, used: 3, active: 0 },
     });
     const csv = await api(app, tok).get('/v1/vehicles/export?format=csv').expect(200);
     expect(csv.text).toContain('70-7781');
@@ -769,7 +769,8 @@ describe('รถ (vehicles)', () => {
     expect(b.body.quotaExceeded).toBe(false);
     expect(b.headers.warning).toBeUndefined();
     const s = (await api(app, tok).get('/v1/vehicles/summary').expect(200)).body;
-    expect(s.quota).toEqual({ limit: 1, used: 2 });
+    // P1-ST1-T06: รถในทะเบียน 2 คันยังไม่มีเที่ยว → รถ active เดือนนี้ = 0 (ฐานโควตา — D68-14)
+    expect(s.quota).toEqual({ limit: 1, used: 2, active: 0 });
   });
 
   it('Defect ST2-T08 review: แก้เฉพาะวันที่ซื้อ (purchasedOn) ต้องบันทึก — ไม่ใช่ no-op', async () => {

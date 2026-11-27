@@ -10,7 +10,7 @@ import {
 import type { StopEvent, StopEventResolution } from '@prisma/client';
 import type { StopEventType, StopOutcome } from '@tms/domain';
 import type { Response } from 'express';
-import { RequireScope, TenantResource } from '../../common/decorators';
+import { RequireScope, TenantResource, AllowReadOnlyTenant } from '../../common/decorators';
 import { decodeIdOr404, encodeId } from '../../common/ids';
 import { PROBLEMS, ProblemException, type ProblemCode } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
@@ -27,6 +27,7 @@ import {
   type StopEventBaseDto,
 } from './stop-event.dto';
 import { flagsOf, StopEventsService, type StopEventPayload } from './stop-events.service';
+import { ReadOnlyTripGate } from '../tenants/read-only-gate';
 
 const num = (v: { toNumber(): number } | null) => (v === null ? null : v.toNumber());
 
@@ -153,7 +154,10 @@ const S422 = {
 @ApiBearerAuth()
 @Controller('stops')
 export class StopsController {
-  constructor(private readonly events_: StopEventsService) {}
+  constructor(
+    private readonly events_: StopEventsService,
+    private readonly readOnly: ReadOnlyTripGate,
+  ) {}
 
   /** สร้างใหม่ = 201 · ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) = 200 + event เดิม (ST4-T02; spec/04 DRV-061) */
   private async record(
@@ -162,11 +166,9 @@ export class StopsController {
     body: StopEventBaseDto & { outcome?: StopOutcome | null },
     res: Response,
   ) {
-    const { event, replayed } = await this.events_.record(
-      decodeIdOr404('tripStop', id),
-      type,
-      body,
-    );
+    const stopId = decodeIdOr404('tripStop', id);
+    await this.readOnly.forStop(stopId); // P1-ST1-T03 review S1 — read_only: เฉพาะเที่ยวที่ออกวิ่งก่อนเปลี่ยนสถานะ
+    const { event, replayed } = await this.events_.record(stopId, type, body);
     res.status(replayed ? 200 : 201);
     return toStopEventDto(event);
   }
@@ -258,6 +260,7 @@ export class StopsController {
     };
   }
 
+  @AllowReadOnlyTenant() // P1-ST1-T03 ตาราง 1.6
   @Post(':id/arrive')
   @ApiOperation({ summary: 'ถึงจุด' })
   @ApiProblems(S403, S404, S409, S422)
@@ -279,6 +282,7 @@ export class StopsController {
     return this.record(id, 'ARRIVE', body, res);
   }
 
+  @AllowReadOnlyTenant() // P1-ST1-T03 ตาราง 1.6
   @Post(':id/depart')
   @ApiOperation({ summary: 'ออกเดินทางมุ่งหน้าไปจุดนี้ (docs/01 §3.9 DEPART)' })
   @ApiProblems(S403, S404, S409, S422)
@@ -300,6 +304,7 @@ export class StopsController {
     return this.record(id, 'DEPART', body, res);
   }
 
+  @AllowReadOnlyTenant() // P1-ST1-T03 ตาราง 1.6
   @Post(':id/complete')
   @ApiOperation({
     summary: 'ปิดงานที่จุด พร้อมผล (ส่งสำเร็จ / บางส่วน / ไม่สำเร็จ / ของยังอยู่บนรถ)',
@@ -323,6 +328,7 @@ export class StopsController {
     return this.record(id, 'COMPLETE', body, res);
   }
 
+  @AllowReadOnlyTenant() // P1-ST1-T03 ตาราง 1.6
   @Post(':id/fail')
   @ApiOperation({ summary: 'ส่งไม่สำเร็จ (เหตุผลบังคับ)' })
   @ApiProblems(S403, S404, S409, S422)

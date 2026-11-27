@@ -29,6 +29,7 @@ import {
   RECONCILE_CHECK_PAYMENT_STATUS,
   ReconcileResultsService,
 } from './reconcile-results.service';
+import { SYNC_TENANT_STATUSES, canSync } from '../tenants/tenant-status';
 
 export const PAYMENT_STATUS_PULL_JOB = 'connector.payment_status';
 const CAPABILITY = 'fetchPaymentStatus';
@@ -228,7 +229,7 @@ export class PaymentStatusPullService implements OnModuleInit {
       const modes = new Map(
         (
           await db.tenant.findMany({
-            where: { id: { in: tenantIds }, status: { in: ['TRIAL', 'ACTIVE'] } },
+            where: { id: { in: tenantIds }, status: { in: [...SYNC_TENANT_STATUSES] } },
             select: { id: true, mode: true },
           })
         ).map((t) => [t.id, t.mode === 'test']),
@@ -312,7 +313,7 @@ export class PaymentStatusPullService implements OnModuleInit {
       where: { id: tenantId },
       select: { status: true },
     });
-    return t?.status === 'TRIAL' || t?.status === 'ACTIVE';
+    return canSync(t?.status);
   }
 
   // ---------- รอบดึง ----------

@@ -49,6 +49,11 @@ export const API_RELEASES: readonly ApiRelease[] = [
     summary:
       'API key: สถานะ `rotating` แยกจาก `active` (ST7-T07 — ตัวอย่างกลไก gate) · changed: payload webhook ตั้งฐานก่อน GA (ST7-T06 — id แบบ prefix ใน trip/stop/DO, DO `salesOrderId` → `orderId`, พักใบโดยระบบ = `order.held`, จัดรถใบค้าง = `order.released`; ไม่มี gate เพราะยังไม่มี production)',
   },
+  {
+    version: '2026-11-27',
+    summary:
+      'สถานะบริษัท 7 ค่า (P1-ST1-T03 · spec/01 PLT-010): `GET /v1/me` `tenant.status` = pending_verification / trialing / active / past_due / read_only / suspended / cancelled — ก่อนหน้านี้ trial / active / suspended / cancelled (gate `tenant.status_lifecycle`)',
+  },
 ];
 
 export const FIRST_API_VERSION: ApiVersion = API_RELEASES[0]!.version;
@@ -102,7 +107,33 @@ const apiKeyRotatingStatus: VersionChange = {
   },
 };
 
-export const VERSION_CHANGES: readonly VersionChange[] = [apiKeyRotatingStatus];
+/**
+ * P1-ST1-T03 (review S2): สถานะบริษัท 7 ค่า — client ที่ pin ก่อน 2026-11-27 ได้ชุดเดิม 4 ค่า
+ * trialing/pending_verification → `trial` · past_due/read_only → `active` (ยังเข้าระบบได้) · suspended/cancelled คงเดิม
+ */
+const TENANT_STATUS_OLD: Record<string, string> = {
+  trialing: 'trial',
+  pending_verification: 'trial',
+  past_due: 'active',
+  read_only: 'active',
+};
+const tenantStatusLifecycle: VersionChange = {
+  id: 'tenant.status_lifecycle',
+  version: '2026-11-27',
+  description:
+    'สถานะบริษัท (`tenant.status`) มี 7 ค่า — ก่อนหน้านี้ 4 ค่า (trial / active / suspended / cancelled)',
+  downgradeResponse(body) {
+    const t = (body as { tenant?: { status?: unknown } } | null)?.tenant;
+    if (t && typeof t.status === 'string' && TENANT_STATUS_OLD[t.status])
+      t.status = TENANT_STATUS_OLD[t.status];
+    return body;
+  },
+};
+
+export const VERSION_CHANGES: readonly VersionChange[] = [
+  apiKeyRotatingStatus,
+  tenantStatusLifecycle,
+];
 
 const CHANGES_BY_ID = new Map(VERSION_CHANGES.map((c) => [c.id, c]));
 export const versionChange = (id: string): VersionChange | undefined => CHANGES_BY_ID.get(id);

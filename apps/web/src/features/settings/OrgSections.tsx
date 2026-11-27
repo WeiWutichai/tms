@@ -3,6 +3,7 @@ import { EmptyState, Icon } from '@tms/ui';
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ApiError } from '../../api';
 import { markReviewed } from '../setup/SetupChecklist';
+import { OrgLogo } from './OrgLogo';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { rebaseDraft, type Values } from './draft';
@@ -474,35 +475,7 @@ export function OrgSection({ canWrite }: { canWrite: boolean }) {
   const year = new Date().getFullYear();
   return (
     <Card title={t('set.menu.org')} load={d.q}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        <div
-          style={{
-            width: 64,
-            height: 64,
-            borderRadius: 12,
-            background: '#13213F',
-            color: '#FFFFFF',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Icon n="truck" s={28} />
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={lbl}>{t('org.logo')}</span>
-          <button
-            type="button"
-            className="set-btn2"
-            disabled
-            title={t('set.notReady', { stage: 'ST1-T08' })}
-            style={{ alignSelf: 'flex-start' }}
-          >
-            <Icon n="upload" s={16} />
-            {t('org.logoChange')}
-          </button>
-        </div>
-      </div>
+      <OrgLogo canWrite={canWrite} />
       <div
         style={{
           display: 'grid',

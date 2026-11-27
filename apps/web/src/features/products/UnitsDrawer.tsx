@@ -24,6 +24,7 @@ import {
   type Unit,
   type UnitKind,
 } from './useProducts';
+import { ProblemAlert } from '../../help/ProblemAlert';
 
 const SEL: CSSProperties = { height: 40, padding: '0 12px', borderColor: '#CDD1C8', width: '100%' };
 const NUM = { textAlign: 'right', fontVariantNumeric: 'tabular-nums' } as const;
@@ -355,7 +356,7 @@ function UnitFormDrawer({
         </>
       }
     >
-      {topErr && <div className="tms-alert">{topErr}</div>}
+      <ProblemAlert err={save.error} text={topErr} />
       <section className="tms-fsec">
         <div className="tms-fgrid tms-fgrid--create">
           <FormField label={t('unit.f.code')} required error={errs.code}>

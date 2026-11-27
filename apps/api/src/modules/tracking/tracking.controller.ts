@@ -22,7 +22,13 @@ import {
   ApiTooManyRequestsResponse,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
-import { LinkAction, Public, RequireScope, TenantResource } from '../../common/decorators';
+import {
+  LinkAction,
+  Public,
+  RequireScope,
+  TenantResource,
+  AllowReadOnlyTenant,
+} from '../../common/decorators';
 import { refToId } from '../../common/external-id';
 import { decodeIdOr404 } from '../../common/ids';
 import { DbService } from '../../db/db.service';
@@ -75,6 +81,7 @@ export class TrackingPublicController {
     return this.tracking.view(apiOrigin(req));
   }
 
+  @AllowReadOnlyTenant() // P1-ST1-T03 ตาราง 1.6
   @Post(':token/lookup')
   @HttpCode(200)
   @LinkAction(TRACKING_ACTION)
@@ -98,6 +105,32 @@ export class TrackingPublicController {
     const shipment = await this.tracking.lookup(body.ref, body.phoneLast4, apiOrigin(req));
     await r.refund();
     return shipment;
+  }
+
+  @Get('logo/:doc')
+  @Public()
+  @ApiParam({ name: 'doc', type: String, description: 'id ไฟล์โลโก้ (doc_…)' })
+  @ApiOperation({
+    summary:
+      'P1-ST6-T04 (D68-93) โลโก้บริษัทบนหน้าติดตาม — URL มีลายเซ็นอายุ 15 นาที (จาก company.logoUrl) · แสดงในหน้า (inline) · SVG ล้างแล้วและส่งพร้อม CSP sandbox',
+  })
+  @ApiOkResponse({ description: 'รูป (image/png | image/svg+xml)' })
+  @ApiNotFoundResponse({ description: 'ลายเซ็นผิด/หมดอายุ/ไม่ใช่โลโก้' })
+  async logo(
+    @Param('doc') doc: string,
+    @Query() q: { t?: string; exp?: string; sig?: string },
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const img = await this.tracking.logoImage(doc, q);
+    res.setHeader('Content-Type', img.mime);
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    );
+    return new StreamableFile(img.data);
   }
 
   @Get('pod-image/:doc')

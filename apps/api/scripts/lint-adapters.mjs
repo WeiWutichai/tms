@@ -81,9 +81,7 @@ export function checkAdapterBoundary(srcRoot) {
         (d) => statSync(join(adaptersDir, d)).isDirectory() && !LEGACY_KEYS.has(d),
       )
     : [];
-  const KEY_RE = keys.length
-    ? new RegExp(`(${keys.join('|')})`, 'gi')
-    : null;
+  const KEY_RE = keys.length ? new RegExp(`(${keys.join('|')})`, 'gi') : null;
   // ลบ comment (// … และ /* … */) โดยคงตำแหน่งบรรทัด — ไม่แตะเนื้อสตริงแบบง่าย (พอสำหรับ lint นี้)
   const stripComments = (src) =>
     src

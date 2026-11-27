@@ -8,6 +8,7 @@ import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { stripImageMetadata } from '../../common/image-meta';
 import { store } from '../documents/documents.controller';
+import { LOGO_MIME } from '../documents/mime';
 import { signDocumentUrl, UPLOAD_TTL_S, verifyDocumentUrl } from '../documents/signed-url';
 import { encodeLinkToken, MagicLinkService } from '../links/magic-link.service';
 import { lockKey } from '../master/master-kit';
@@ -42,6 +43,7 @@ const SETTING_KEYS = [
   'tracking.contactPhone',
   'tracking.showPod',
   'tracking.linkDays',
+  'org.logoDocumentId',
 ] as const;
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 
@@ -219,7 +221,47 @@ export class TrackingService {
       phone: typeof s['tracking.contactPhone'] === 'string' ? s['tracking.contactPhone'] : null,
       showPod: s['tracking.showPod'] === true,
       linkDays: Number(s['tracking.linkDays'] ?? 30),
+      logo: s['org.logoDocumentId'],
     };
+  }
+
+  /**
+   * P1-ST6-T04 (D68-93) URL โลโก้บนหน้าติดตาม — ลายเซ็นอายุ 15 นาทีแบบรูป POD (`/v1/public/tracking/logo/{doc}`) ·
+   * ไม่ตั้ง/ไฟล์ไม่พร้อม = null (หน้าแสดงไอคอนรถตามต้นแบบ)
+   */
+  private async logoUrl(tx: Tx, ref: unknown, origin: string): Promise<string | null> {
+    const id = typeof ref === 'string' ? tryDecodeId('document', ref) : null;
+    if (!id) return null;
+    const d = await tx.storedDocument.findUnique({
+      where: { id },
+      select: { id: true, tenantId: true, status: true, kind: true, mimeType: true },
+    });
+    if (!d || d.status !== 'READY' || d.kind !== 'LOGO' || !LOGO_MIME.includes(d.mimeType as never))
+      return null;
+    const sgn = signDocumentUrl('preview', d.tenantId, d.id, POD_URL_TTL_S);
+    return `${origin.replace(/\/+$/, '')}/v1/public/tracking/logo/${encodeId('document', d.id)}?${sgn.query}`;
+  }
+
+  /** P1-ST6-T04 ไฟล์โลโก้ (ลายเซ็นถูก + kind LOGO เท่านั้น — URL ของรูป POD ใช้ที่นี่ไม่ได้และกลับกัน) */
+  async logoImage(
+    ref: string,
+    q: { t?: string; exp?: string; sig?: string },
+  ): Promise<{ mime: string; data: Buffer }> {
+    const docId = tryDecodeId('document', ref);
+    const tenantId = docId ? verifyDocumentUrl('preview', docId, q) : null;
+    if (!docId || !tenantId) throw new ProblemException('not_found');
+    const doc = await this.db.withTenant(tenantId, (tx) =>
+      tx.storedDocument.findUnique({ where: { id: docId } }),
+    );
+    if (
+      !doc ||
+      doc.status !== 'READY' ||
+      !doc.fileKey ||
+      doc.kind !== 'LOGO' ||
+      !LOGO_MIME.includes(doc.mimeType as never)
+    )
+      throw new ProblemException('not_found');
+    return { mime: doc.mimeType, data: await store().get(doc.fileKey) };
   }
 
   /** เปิดลิงก์ — ลิงก์ DO: เห็นงานเลย · ลิงก์ลูกค้า: หน้าค้นหา */
@@ -227,7 +269,11 @@ export class TrackingService {
     const tx = this.db.tx;
     const link = this.linkOf();
     const s = await this.settings(tx);
-    const company = { name: s.name, phone: s.phone };
+    const company = {
+      name: s.name,
+      phone: s.phone,
+      logoUrl: await this.logoUrl(tx, s.logo, origin),
+    };
     if (link.entityType === TRACKING_ENTITIES.customer) {
       if (!(await this.customerUsable(tx, link.entityId))) throw new ProblemException('not_found');
       return { company, mode: 'SEARCH', shipment: null };

@@ -442,4 +442,21 @@ describe('entitlement ฉบับเต็ม + override จาก Console (P1-
       (await api(app, t.token).post('/v1/me/feature-requests').send({ featureKey: 'api' })).status,
     ).toBe(403);
   });
+
+  it('connector ที่ประกาศ conn + Growth: Starter 403 · Growth ผ่าน · Starter ที่ได้ grant ผ่าน (R-09)', async () => {
+    const req = { feature: 'conn', minTier: 'growth' as const };
+    const s = await tenant('start');
+    const err = await ent.assertConnector(s.id, req).catch((e) => e);
+    expect(err).toMatchObject({
+      code: 'feature_not_in_plan',
+      extra: { featureKey: 'conn', minTier: 'growth' },
+    });
+    const g = await tenant('std');
+    await expect(ent.assertConnector(g.id, req)).resolves.toBeUndefined();
+    await db.tenantEntitlementOverride.create({
+      data: { tenantId: s.id, featureKey: 'conn', mode: 'grant', limit: 1, reason: REASON },
+    });
+    ent.invalidate(s.id);
+    await expect(ent.assertConnector(s.id, req)).resolves.toBeUndefined();
+  });
 });

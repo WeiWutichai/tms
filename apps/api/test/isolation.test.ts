@@ -1298,7 +1298,7 @@ describe('tenant isolation harness', () => {
     );
     const priv = await plat.$queryRaw<{ table: string; ins: boolean; upd: boolean }[]>`
       SELECT t AS table, has_table_privilege('tms_app', t, 'INSERT') AS ins, has_table_privilege('tms_app', t, 'UPDATE') AS upd
-        FROM unnest(ARRAY['plan_version', 'plan_entitlement', 'feature', 'platform_audit_log', 'platform_setting', 'subscription']) AS t`;
+        FROM unnest(ARRAY['plan_version', 'plan_entitlement', 'feature', 'platform_audit_log', 'platform_setting', 'subscription', 'tenant_status_history']) AS t`;
     expect(priv.filter((p) => p.ins || p.upd).map((p) => p.table)).toEqual([]);
   });
 

@@ -11,7 +11,11 @@ import {
   type AddOnGrant,
   type Entitlements,
 } from './entitlement-layers';
-import { currentPlanVersion, currentPlanVersions } from './plan-catalog';
+import { ProblemException } from '../../common/problem';
+import { currentPlanVersion, currentPlanVersions, PLANS } from './plan-catalog';
+
+/** tier ของ docs/02 §3.1 → รหัสแพ็กเกจ (plan-catalog: Growth = `std`) */
+const TIER_PLAN = { growth: 'std' } as const;
 
 /**
  * Feature flag ตามแพ็กเกจ (ST1-T18 → P1-ST1-T02 ฉบับเต็ม; docs/04 A5; spec/01 PLT-062, 076–078)
@@ -175,6 +179,35 @@ export class EntitlementService {
 
   async enabled(tenantId: string, feature: string): Promise<boolean> {
     return (await this.resolve(tenantId))[feature]?.enabled === true;
+  }
+
+  /**
+   * สิทธิ์ใช้ connector ที่ catalog ประกาศ feature + แพ็กเกจขั้นต่ำ (docs/02 §3.1: FlowAccount/PEAK ต่ำสุด Growth)
+   * - feature ต้องเปิด (หลัง add-on/override/สถานะ)
+   * - minTier: แพ็กเกจปัจจุบันต้องอยู่ลำดับ ≥ tier (ลำดับ `PLANS` — Growth = `std`) · ยกเว้นได้สิทธิ์ผ่าน add-on/override
+   *   (แพ็กเกจเองไม่รวม แต่ทีมงานเปิดให้ — R-09: add-on connector เปิดโดย Innovera)
+   * ไม่ผ่าน → 403 `feature_not_in_plan` + `featureKey` (+ `minTier`)
+   */
+  async assertConnector(
+    tenantId: string,
+    req: { feature: string; minTier: 'growth' | null },
+  ): Promise<void> {
+    const d = await this.detail(tenantId);
+    const deny = () =>
+      new ProblemException('feature_not_in_plan', undefined, undefined, {
+        featureKey: req.feature,
+        ...(req.minTier ? { minTier: req.minTier } : {}),
+      });
+    if (!d.effective[req.feature]?.enabled) throw deny();
+    if (!req.minTier || d.planModes[req.feature] !== 'included') return;
+    const live = await this.live(tenantId);
+    const t = await this.prisma.platform.tenant.findUnique({
+      where: { id: live },
+      select: { planCode: true },
+    });
+    const order = PLANS.map((p) => p.code as string);
+    const rank = t ? order.indexOf(t.planCode) : -1;
+    if (rank < order.indexOf(TIER_PLAN[req.minTier])) throw deny();
   }
 
   invalidate(tenantId?: string) {

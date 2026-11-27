@@ -77,3 +77,31 @@ test('Innovera เปิด connector demo ให้ลูกค้า → ล�
   await expect(page.getByRole('status')).toContainText('ตัดการเชื่อมต่อ ERP จำลอง (Demo) แล้ว');
   await expect(page.getByText('ไม่ได้เชื่อมระบบบัญชี')).toBeVisible();
 });
+
+test('P1-ST5-T01b การ์ด FlowAccount / PEAK มาจาก ConnectorDefinition: แสดงตามต้นแบบ · ยังไม่เปิดให้เชื่อมต่อ (ปุ่มปิด)', async ({
+  page,
+}) => {
+  await page.goto('/settings?sec=conn');
+  for (const [name, desc] of [
+    ['FlowAccount', 'บัญชีออนไลน์ FlowAccount · API'],
+    ['PEAK', 'บัญชีออนไลน์ PEAK · API'],
+  ] as const) {
+    const card = page.getByRole('group', { name, exact: true });
+    await expect(card).toBeVisible();
+    await expect(card.getByText(desc)).toBeVisible();
+    await expect(card.getByText('ยังไม่เชื่อม', { exact: true })).toBeVisible();
+    await expect(card.getByText('ยังไม่เปิดให้เชื่อมต่อ · เร็ว ๆ นี้')).toBeVisible();
+    const connect = card.getByRole('button', { name: 'เชื่อมต่อ', exact: true });
+    await expect(connect).toBeDisabled();
+    await expect(connect).toHaveAttribute(
+      'title',
+      'ระบบนี้ยังไม่เปิดให้เชื่อมต่อ — อยู่ระหว่างพัฒนา',
+    );
+  }
+  // การ์ดเรียงตามตัวอักษร (ต้นแบบ/spec/07 INT-010) — FlowAccount ก่อน PEAK
+  const names = await page
+    .getByTestId('connector-card')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')));
+  expect(names.indexOf('FlowAccount')).toBeLessThan(names.indexOf('PEAK'));
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});

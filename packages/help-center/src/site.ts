@@ -23,6 +23,10 @@ export const GROUPS = [
 ] as const;
 
 export const SEARCH_FILE = 'search-index.js';
+/** สคริปต์ค้นหาเป็นไฟล์แยก (ไม่ inline) — P1-ST6-T02 เสิร์ฟ help center ใต้ `/help/` ของเว็บ ซึ่ง CSP `script-src 'self'` ห้าม inline script */
+export const SEARCH_JS_FILE = 'search.js';
+/** บทความ "ติดต่อทีมงาน" (P1-ST6-T03) — ลิงก์จากแถบบนทุกหน้า */
+export const CONTACT_SLUG = 'contact';
 export const SOON_LABEL = 'เร็ว ๆ นี้';
 const BRAND = 'ศูนย์ช่วยเหลือ TMS';
 
@@ -33,6 +37,7 @@ body{margin:0;font-family:'IBM Plex Sans Thai Looped','IBM Plex Sans',system-ui,
 a{color:var(--accent)}
 .top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:16px;padding:10px 24px;background:var(--sheet);border-bottom:1px solid var(--line)}
 .top .brand{font-weight:600;font-size:16px;color:var(--ink);text-decoration:none;white-space:nowrap}
+.top .contact{font-size:14px;font-weight:600;text-decoration:none;white-space:nowrap;margin-left:auto}
 .search{position:relative;flex:1;max-width:520px}
 .search input{width:100%;font:inherit;font-size:14px;padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:var(--side)}
 .search input:focus{outline:2px solid var(--accent);outline-offset:0;background:#fff}
@@ -68,7 +73,7 @@ blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid var(--accent);ba
 .card b{display:block;margin-bottom:2px}
 .card span{color:var(--muted);font-size:13px}
 @media (max-width:1100px){nav.side{display:none}}
-@media (max-width:800px){.top{flex-wrap:wrap;padding:10px 16px}.search{flex-basis:100%;max-width:none}.desk{display:block;padding:16px}.sheet{width:auto;padding:20px}}
+@media (max-width:800px){.top{flex-wrap:wrap;padding:10px 16px}.top .contact{order:1}.search{order:2;flex-basis:100%;max-width:none}.desk{display:block;padding:16px}.sheet{width:auto;padding:20px}}
 @media print{.top,nav.side,.md-link{display:none}body{background:none}.desk{padding:0}.sheet{box-shadow:none;border-radius:0;width:auto;padding:0}}
 `;
 
@@ -137,6 +142,7 @@ ${md ? `<link rel="alternate" type="text/markdown" href="${md}">\n` : ''}<style>
 <header class="top">
 <a class="brand" href="index.html">${BRAND}</a>
 <div class="search" role="search"><input id="q" type="search" placeholder="ค้นหาวิธีใช้งานหรือข้อความ error" aria-label="ค้นหา" autocomplete="off"><div id="results" class="results"></div></div>
+<a class="contact" href="${CONTACT_SLUG}.html">ติดต่อทีมงาน</a>
 </header>
 <div class="desk">
 ${nav(pages, current)}
@@ -145,7 +151,7 @@ ${main}
 </main>
 </div>
 <script src="${SEARCH_FILE}"></script>
-<script>${SEARCH_JS.trim()}</script>
+<script src="${SEARCH_JS_FILE}"></script>
 </body>
 </html>
 `;
@@ -275,5 +281,6 @@ export function buildSite(
     files.set(`${p.slug}.html`, articleHtml(p, pages));
   }
   files.set(SEARCH_FILE, searchIndex(pages, extra));
+  files.set(SEARCH_JS_FILE, SEARCH_JS.trim() + '\n');
   return files;
 }

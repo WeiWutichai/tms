@@ -5,6 +5,7 @@ import { EntitlementService } from '../entitlements/entitlement.service';
 import { readyCapabilities } from '../erp/erp-adapter';
 import { ErpAdapterRegistry } from '../erp/erp-adapter.registry';
 import { CONNECTOR_PULL_JOB, ConnectorIntakeService } from './connector-intake.service';
+import { SYNC_TENANT_STATUSES } from '../tenants/tenant-status';
 
 /** docs/01 §6.1 `pullOrders` — "scheduler ทุก N นาที (ค่า default 5) ต่อ connector ที่เปิด" */
 export const CONNECTOR_PULL_EVERY_MS = 5 * 60_000;
@@ -45,7 +46,7 @@ export class ConnectorPullScheduler {
           await db.tenant.findMany({
             where: {
               id: { in: [...new Set(installed.map((r) => r.tenantId))] },
-              status: { in: ['TRIAL', 'ACTIVE'] },
+              status: { in: [...SYNC_TENANT_STATUSES] },
             },
             select: { id: true, mode: true },
           })

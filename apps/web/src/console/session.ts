@@ -101,12 +101,16 @@ export type StaffRole = 'SUPER_ADMIN' | 'SUPPORT' | 'BILLING';
 export const can = {
   create: (r?: StaffRole) => r === 'SUPER_ADMIN',
   suspend: (r?: StaffRole) => r === 'SUPER_ADMIN',
+  /** P1-ST1-T03 บันทึกว่าชำระแล้ว → ใช้งาน — owner + finance (spec/01 §11.4 "การชำระ") */
+  activate: (r?: StaffRole) => r === 'SUPER_ADMIN' || r === 'BILLING',
   plan: (r?: StaffRole) => r === 'SUPER_ADMIN' || r === 'BILLING',
   impersonate: (r?: StaffRole) => r === 'SUPER_ADMIN' || r === 'SUPPORT',
   /** #81 รีเซ็ต 2FA ผู้ใช้ลูกค้า — SUPER_ADMIN เท่านั้น (docs/04 A6: SUPPORT ดู + เข้าใช้งานแทน) */
   reset2fa: (r?: StaffRole) => r === 'SUPER_ADMIN',
   /** P1-ST1-T04 ค่าตั้งแพลตฟอร์ม — owner เท่านั้น (spec/01 §11.4, PLT-099) */
   settings: (r?: StaffRole) => r === 'SUPER_ADMIN',
+  /** P1-ST1-T06 ปรับยอดรถ active หลังปิดยอด — การเงิน (BILLING) + owner (spec/01 PLT-074) */
+  usage: (r?: StaffRole) => r === 'SUPER_ADMIN' || r === 'BILLING',
 };
 
 export function useStaff() {

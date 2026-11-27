@@ -1,3 +1,5 @@
+import type { TenantStatus } from '@prisma/client';
+
 /**
  * ชั้นของ entitlement ตาม spec/01 PLT-062 (P1-ST1-T02) — ฟังก์ชันบริสุทธิ์ ไม่แตะฐาน ทดสอบเป็นตารางได้
  *
@@ -92,22 +94,19 @@ export function overrideLayer(
 }
 
 /**
- * ชั้น 4: ตัดตามสถานะ tenant (spec/01 ตาราง 1.6) — สถานะเป็นตัวพิมพ์เล็กของ enum (`TRIAL` → `trial`)
- * enum ตอนนี้มี 4 ค่า (TRIAL/ACTIVE/SUSPENDED/CANCELLED) · 7 ค่าตาม PLT-010 มาพร้อม P1-ST1-T03 (R-10) — ตารางนี้รองรับไว้แล้ว
- * ไม่ต้องแก้เมื่อ enum เปลี่ยน
+ * ชั้น 4: ตัดตามสถานะ tenant (spec/01 ตาราง 1.6) — enum 7 ค่าของ P1-ST1-T03 (`TenantStatus`, `tenants/tenant-status.ts`)
  * - `suspended` / `cancelled`: ไม่มีฟีเจอร์ใดทำงาน (API/webhook/sync/job ข้ามหมด) — รวมฟีเจอร์พื้นฐาน (PLT-077: ข้อจำกัดเดียวของพื้นฐาน = สถานะ)
  * - `pending_verification`: Open API/MCP, webhook ขาออก, connector ปิด · รถ active ≤ 5 (PLT-014 [PROPOSED])
  * - `read_only`: **ไม่ตัดที่ entitlement** — webhook/connector ต้อง "พักคิว ส่งต่อเมื่อ active" (ตาราง 1.6) ถ้าปิด entitlement
- *   job จะถูกข้ามทิ้ง · guard เขียนไม่ได้ (`tenant_read_only`) + พักคิว = P1-ST1-T03 (TODO P1-ST1-T03)
- * - `trial` / `trialing` / `active` / `past_due`: ตามแพ็กเกจ
+ *   job จะถูกข้ามทิ้ง · guard เขียนไม่ได้ (`tenant_read_only`) = AuthGuard ของ P1-ST1-T03 · พักคิว = แถว P1-ST1-T03 ใน plan/13
+ * - `trialing` / `active` / `past_due`: ตามแพ็กเกจ
  */
 export const PENDING_VERIFICATION_OFF = ['api', 'webhook', 'conn'] as const;
 export const PENDING_VERIFICATION_VEHICLES = 5;
 
-export function statusLayer(base: Entitlements, status: string): Entitlements {
-  const s = status.toLowerCase();
-  if (s === 'suspended' || s === 'cancelled') return {};
-  if (s === 'pending_verification') {
+export function statusLayer(base: Entitlements, status: TenantStatus): Entitlements {
+  if (status === 'SUSPENDED' || status === 'CANCELLED') return {};
+  if (status === 'PENDING_VERIFICATION') {
     const out: Entitlements = { ...base };
     for (const k of PENDING_VERIFICATION_OFF)
       if (out[k]) out[k] = { enabled: false, limit: out[k].limit };
