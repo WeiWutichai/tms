@@ -121,6 +121,20 @@ describe('หน้าสมัคร /signup (P1-ST2-T03)', () => {
     expect(new Headers(verifyCall[1].headers).get('X-Signup-Token')).toBe('tok');
   });
 
+  it('ผิดครบ 5 ครั้ง → บอกเวลาที่เหลือจาก Retry-After', async () => {
+    signupToken.set('tok');
+    fetchMock
+      .mockReturnValueOnce(json(200, SESSION))
+      .mockReturnValueOnce(json(429, { code: 'otp_locked', retryAfter: 840 }));
+    await act(async () => {
+      renderSignup();
+    });
+    const input = await screen.findByPlaceholderText('••••••');
+    fireEvent.change(input, { target: { value: '000000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันรหัส' }));
+    await screen.findByText('ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่ได้ใน 14 นาที');
+  });
+
   it('มี token ใน sessionStorage (รีเฟรช / login แล้วกลับมา) → โหลดขั้นที่ค้าง', async () => {
     signupToken.set('resume');
     fetchMock.mockReturnValueOnce(

@@ -97027,8 +97027,8 @@
     },
     "otp_locked": {
       "status": 429,
-      "title": "ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่อีกครั้งใน 15 นาที",
-      "titleEn": "Too many incorrect codes — try again in 15 minutes"
+      "title": "ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่ภายหลัง",
+      "titleEn": "Too many incorrect codes — try again later"
     },
     "otp_resend_too_soon": {
       "status": 429,

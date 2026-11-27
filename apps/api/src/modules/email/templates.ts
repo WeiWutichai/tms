@@ -320,7 +320,8 @@ const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
         'ถ้าคุณไม่ได้สมัคร ไม่ต้องทำอะไร',
       ];
       return {
-        subject: `${code} คือรหัสยืนยันการสมัคร — TMS`,
+        // ไม่ใส่รหัสในหัวเรื่อง — หัวเรื่องคงอยู่ใน email_outbox หลังส่ง และ LogTransport บันทึกหัวเรื่อง
+        subject: 'รหัสยืนยันการสมัคร — TMS',
         text: `${title}\n\n${paras.join('\n\n')}\n`,
         html: layout('th', title, paras),
       };
@@ -333,7 +334,7 @@ const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
         'If you did not sign up, ignore this email.',
       ];
       return {
-        subject: `${code} is your sign-up code — TMS`,
+        subject: 'Your sign-up code — TMS',
         text: `${title}\n\n${paras.join('\n\n')}\n`,
         html: layout('en', title, paras),
       };

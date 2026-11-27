@@ -17,6 +17,7 @@ import { PasswordResetController, PasswordResetService } from './auth/password-r
 import { SignupController } from './modules/signup/signup.controller';
 import { SignupService } from './modules/signup/signup.service';
 import { OtpChannelService } from './modules/signup/otp-channel';
+import { SignupEnabledMiddleware } from './modules/signup/signup-enabled.middleware';
 import { EmailDispatcher, EmailService } from './modules/email/email.service';
 import { NotificationService } from './modules/notifications/notification.service';
 import { NotificationEvents } from './modules/notifications/notification-events';
@@ -589,6 +590,8 @@ export class AppModule implements NestModule {
     // ST9-T19 ตัวนับคำขอ HTTP (Prometheus) — นับตอนส่งคำตอบเสร็จ ตามแม่แบบ route
     consumer.apply(httpMetricsMiddleware).forRoutes('{*path}');
     // ST1-T06: ลิงก์สาธารณะ (ไม่ login) จำกัดอัตราต่อ IP
+    // P1-ST2-T03: ปิดการสมัคร (`SIGNUP_ENABLED`) = 404 ก่อนตัวจำกัด/ฐานข้อมูล
+    consumer.apply(SignupEnabledMiddleware).forRoutes('public/signup', 'public/signup/{*path}');
     consumer.apply(PublicRateLimitMiddleware).forRoutes('public/{*path}');
     // ST4-T14 หน้าติดตาม → ST9-T13 ทุกลิงก์สาธารณะ (NFR-135): ห้าม index/ส่ง referrer ทุกคำตอบ (รวม 404/429 ที่ออกก่อนถึง handler)
     // — token อยู่ใน URL · PDF ที่เปิด inline (ใบคุมรถ/ใบจ่ายเงิน) ก็ห้าม index

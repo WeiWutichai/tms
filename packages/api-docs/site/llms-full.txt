@@ -25902,7 +25902,7 @@ const { data, error } = await tms.GET('/v1/reports/unbilled-delivery-orders');
 | [`webhook_event_not_subscribed`](#webhook_event_not_subscribed) | 422 | endpoint นี้ไม่ได้สมัคร event ชนิดนี้ |
 | [`webhook_not_retryable`](#webhook_not_retryable) | 422 | ส่งซ้ำรายการนี้ไม่ได้ (event ทดสอบ) ใช้ "ส่ง event ทดสอบ" แทน |
 | [`account_locked`](#account_locked) | 429 | ใส่รหัสผ่านผิดหลายครั้ง ลองใหม่อีกครั้งใน 15 นาที |
-| [`otp_locked`](#otp_locked) | 429 | ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่อีกครั้งใน 15 นาที |
+| [`otp_locked`](#otp_locked) | 429 | ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่ภายหลัง |
 | [`otp_resend_too_soon`](#otp_resend_too_soon) | 429 | ขอรหัสใหม่ได้หลังครบ 60 วินาที |
 | [`rate_limited`](#rate_limited) | 429 | เรียกถี่เกินไป |
 | [`internal_error`](#internal_error) | 500 | ระบบขัดข้อง |
@@ -26746,7 +26746,7 @@ HTTP `429` · ใส่รหัสผ่านผิดหลายครั้
 
 ## otp_locked {#otp_locked}
 
-HTTP `429` · ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่อีกครั้งใน 15 นาที
+HTTP `429` · ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่ภายหลัง
 
 อาจตอบได้จากหลาย endpoint
 

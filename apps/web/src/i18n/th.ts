@@ -847,6 +847,7 @@ export const th = {
   'su.otp.resend': 'ขอรหัสใหม่',
   'su.otp.edit': 'แก้เบอร์โทร',
   'su.otp.wrong': 'รหัสไม่ถูกต้อง เหลือ {n} ครั้ง',
+  'su.otp.locked': 'ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่ได้ใน {n} นาที',
   'su.otp.required': 'กรอกรหัส 6 หลัก',
   'su.toast.sent': 'ส่งรหัส OTP ไปที่ {to} แล้ว',
   'su.toast.resent': 'ส่งรหัสใหม่แล้ว',
@@ -1031,7 +1032,7 @@ export const th = {
   'problem.signup_session_invalid': 'ไม่พบการสมัครนี้หรือหมดอายุแล้ว เริ่มสมัครใหม่',
   'problem.otp_invalid': 'รหัสไม่ถูกต้อง',
   'problem.otp_expired': 'รหัสหมดอายุแล้ว กดขอรหัสใหม่',
-  'problem.otp_locked': 'ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่อีกครั้งใน 15 นาที',
+  'problem.otp_locked': 'ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่ภายหลัง',
   'problem.otp_resend_too_soon': 'ขอรหัสใหม่ได้หลังครบ 60 วินาที',
   'problem.seat_limit_reached': 'จำนวนผู้ใช้ครบตามแพ็กเกจแล้ว',
   'problem.reset_link_invalid':

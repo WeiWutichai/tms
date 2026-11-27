@@ -193,11 +193,11 @@ export const PROBLEMS = {
     th: 'รหัสหมดอายุแล้ว กดขอรหัสใหม่',
     en: 'The code has expired — request a new one',
   },
-  /** P1-ST2-T03 ใส่ OTP ผิด 5 ครั้ง → ล็อก 15 นาที (มี Retry-After) */
+  /** P1-ST2-T03 ใส่ OTP ผิด 5 ครั้ง → ล็อก 15 นาที (มี Retry-After — UI แสดงเวลาที่เหลือ) */
   otp_locked: {
     status: 429,
-    th: 'ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่อีกครั้งใน 15 นาที',
-    en: 'Too many incorrect codes — try again in 15 minutes',
+    th: 'ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่ภายหลัง',
+    en: 'Too many incorrect codes — try again later',
   },
   /** P1-ST2-T03 ขอรหัสใหม่ได้หลัง 60 วินาที (มี Retry-After) */
   otp_resend_too_soon: {

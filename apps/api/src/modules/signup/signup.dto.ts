@@ -8,7 +8,6 @@ import {
   IsString,
   Matches,
   MaxLength,
-  MinLength,
 } from 'class-validator';
 
 const trimLower = ({ value }: { value: unknown }) =>
@@ -23,7 +22,7 @@ export class StartSignupDto {
   })
   @Transform(trim)
   @IsString()
-  @MinLength(3)
+  @IsNotEmpty()
   @MaxLength(200)
   name!: string;
 

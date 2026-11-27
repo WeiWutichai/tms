@@ -48,6 +48,18 @@ const STEP: Record<SignupSessionStatus, number> = {
   abandoned: 1,
 };
 
+/**
+ * สวิตช์ฝั่ง server (ปิด = ทุก route `/v1/public/signup*` ตอบ 404 + login ไม่พากลับการสมัครค้าง)
+ * `SIGNUP_ENABLED=true|false` · ไม่ตั้ง = เปิดเฉพาะ dev/test (E2E) — production ปิดจนกว่า go-live (คู่กับ `VITE_SIGNUP_LIVE`)
+ * [DECISION — lead 27 พ.ย. 2569, ย้อนได้]
+ */
+export function signupEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  const v = env.SIGNUP_ENABLED?.trim().toLowerCase();
+  if (v === 'true' || v === '1') return true;
+  if (v === 'false' || v === '0') return false;
+  return isLocalEnv();
+}
+
 /** key ของ HMAC OTP — นอก dev/test ต้องตั้ง (`OTP_HASH_KEY` หรือ `BLIND_INDEX_KEY`) */
 function otpKey(env = process.env): Buffer {
   const spec = env.OTP_HASH_KEY ?? env.BLIND_INDEX_KEY;
@@ -57,7 +69,8 @@ function otpKey(env = process.env): Buffer {
 }
 
 export function hashOtp(sessionId: string, code: string, key = otpKey()): string {
-  return createHmac('sha256', key).update(`${sessionId}:${code}`).digest('base64url');
+  // แยกโดเมนของ HMAC (key อาจเป็น BLIND_INDEX_KEY ตัวเดียวกับงานอื่น)
+  return createHmac('sha256', key).update(`signup-otp:${sessionId}:${code}`).digest('base64url');
 }
 
 /**
@@ -207,7 +220,8 @@ export class SignupService {
         // การสมัครเดิมที่ยังรอ OTP ถูกแทนที่ (กด "แก้เบอร์โทร" แล้วขอรหัสใหม่ / เปิดหลายแท็บ)
         if (open.length)
           await tx.signupSession.updateMany({
-            where: { id: { in: open.map((s) => s.id) } },
+            // เฉพาะที่ยังรอ OTP — ถ้าเพิ่งยืนยันพร้อมกัน (verify ถือ row lock) จะไม่ถูกทิ้ง
+            where: { id: { in: open.map((s) => s.id) }, status: 'account_pending_otp' },
             data: {
               status: 'abandoned',
               abandonedAt: new Date(now),
@@ -386,12 +400,13 @@ export async function resumeSignupByPassword(
 
 /**
  * งานรายวันของ worker: ทิ้งการสมัครที่ไม่เคลื่อน 7 วัน + ลบข้อมูลส่วนบุคคลเมื่อไม่เคลื่อน 30 วัน (spec/01 §2 ข้อ 6)
- * ลบ = ตั้ง null (ไม่ลบแถว — วัด funnel) · ใช้ client platform
+ * ลบ = ตั้ง null (ไม่ลบแถว — วัด funnel) · ลบแถว email_outbox ของ OTP ที่ส่งแล้ว · ใช้ client platform
+ * ประวัติ login (`login_attempt` ของอีเมลผู้สมัคร) ตาม retention ของประวัติ login (ST9-T14 — แถวไม่รู้ tenant ≥ 1 ปี; log ความปลอดภัย)
  */
 export async function signupMaintenance(
-  db: Pick<PrismaClient, 'signupSession'>,
+  db: Pick<PrismaClient, 'signupSession' | 'emailOutbox'>,
   now = Date.now(),
-): Promise<{ abandoned: number; erased: number }> {
+): Promise<{ abandoned: number; erased: number; otpEmails: number }> {
   const abandoned = await db.signupSession.updateMany({
     where: {
       status: { in: RESUMABLE },
@@ -415,5 +430,15 @@ export async function signupMaintenance(
       personalDataErasedAt: new Date(now),
     },
   });
-  return { abandoned: abandoned.count, erased: erased.count };
+  // อีเมล OTP: ส่งแล้ว/เลิกส่ง (เนื้อถูกลบแล้ว เหลือผู้รับ) หรือค้างเกิน 30 วัน → ลบทั้งแถว (ไม่เก็บอีเมลผู้สมัคร 90 วันตาม outbox ทั่วไป)
+  const otpEmails = await db.emailOutbox.deleteMany({
+    where: {
+      template: 'signup_otp',
+      OR: [
+        { status: { in: ['SENT', 'FAILED'] } },
+        { createdAt: { lte: new Date(now - SIGNUP_ERASE_MS) } },
+      ],
+    },
+  });
+  return { abandoned: abandoned.count, erased: erased.count, otpEmails: otpEmails.count };
 }

@@ -31,7 +31,9 @@ async function lastCode(email: string): Promise<string> {
     where: { toAddress: email, template: 'signup_otp' },
     orderBy: { createdAt: 'desc' },
   });
-  return /\b(\d{6})\b/.exec(m?.subject ?? '')?.[1] ?? '';
+  // หัวเรื่องไม่มีรหัส (คงอยู่หลังส่ง) — อ่านจากเนื้ออีเมล
+  expect(m?.subject ?? '').not.toMatch(/\d{6}/);
+  return /\b(\d{6})\b/.exec(m?.textBody ?? '')?.[1] ?? '';
 }
 
 test('สมัครขั้น 1: ฟอร์ม → OTP → ผิด → ถูก → ขั้น 2 · ปิดเบราว์เซอร์แล้ว login กลับมาขั้นที่ค้าง', async ({

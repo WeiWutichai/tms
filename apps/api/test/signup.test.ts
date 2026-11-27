@@ -52,13 +52,14 @@ describe('P1-ST2-T03 สมัครขั้น 1', () => {
   });
   const start = (email: string, extra: Record<string, unknown> = {}) =>
     http().post('/v1/public/signup').set('X-Forwarded-For', nextIp()).send(body(email, extra));
-  /** รหัสล่าสุดที่ส่งทางอีเมล (E2E/test ไม่รัน worker — อ่านจาก outbox) */
+  /** รหัสล่าสุดที่ส่งทางอีเมล — อ่านจากเนื้ออีเมลใน outbox (test ไม่รัน worker · หัวเรื่องไม่มีรหัส) */
   async function lastCode(email: string): Promise<string> {
     const m = await db.emailOutbox.findFirst({
       where: { toAddress: email, template: 'signup_otp' },
       orderBy: { createdAt: 'desc' },
     });
-    return /\b(\d{6})\b/.exec(m!.subject)![1]!;
+    expect(m!.subject).not.toMatch(/\d{6}/);
+    return /\b(\d{6})\b/.exec(m!.textBody ?? '')![1]!;
   }
   const verify = (token: string, code: string) =>
     http().post('/v1/public/signup/session/otp/verify').set('X-Signup-Token', token).send({ code });
@@ -331,15 +332,54 @@ describe('P1-ST2-T03 สมัครขั้น 1', () => {
           resumeTokenHash: randomBytes(16).toString('hex'),
           ip: '10.0.0.1',
           lastActivityAt: new Date(Date.now() - ageDays * day),
+          ...(status === 'abandoned' ? { abandonedAt: new Date() } : {}),
+          ...(status !== 'account_pending_otp' && status !== 'abandoned'
+            ? { verifiedAt: new Date() }
+            : {}),
         },
       });
+    // การสมัครจริง (มีรหัสผ่าน) ที่ค้าง 8 วัน → abandoned แล้ว login ไม่พากลับ (401 ตามปกติ)
+    const realEmail = `${uniq()}@company.co.th`;
+    const realToken = (await start(realEmail)).body.token as string;
+    await db.signupSession.updateMany({
+      where: { email: realEmail },
+      data: { lastActivityAt: new Date(Date.now() - 8 * day) },
+    });
+    // อีเมล OTP: ส่งแล้ว → ลบแถว · ยังรอส่ง (ใหม่) → คงไว้
+    await db.emailOutbox.updateMany({
+      where: { toAddress: realEmail, template: 'signup_otp' },
+      data: { status: 'SENT', textBody: null, htmlBody: null },
+    });
+    const pendingMail = `${uniq()}@company.co.th`;
+    await db.emailOutbox.create({
+      data: {
+        toAddress: pendingMail,
+        template: 'signup_otp',
+        locale: 'th',
+        subject: 's',
+        textBody: 't',
+        htmlBody: 'h',
+      },
+    });
     const fresh = await mk(6, 'account_pending_otp');
     const stale = await mk(8, 'account_verified');
     const old = await mk(31, 'abandoned');
     const done = await mk(31, 'completed');
     const now = Date.now();
     const r1 = await signupMaintenance(db, now);
-    expect(r1.abandoned).toBeGreaterThanOrEqual(1);
+    expect(r1.abandoned).toBeGreaterThanOrEqual(2);
+    expect(r1.otpEmails).toBeGreaterThanOrEqual(1);
+    expect(await db.emailOutbox.count({ where: { toAddress: realEmail } })).toBe(0);
+    expect(await db.emailOutbox.count({ where: { toAddress: pendingMail } })).toBe(1);
+    expect(
+      (await http().get('/v1/public/signup/session').set('X-Signup-Token', realToken)).status,
+    ).toBe(401);
+    const lg = await http()
+      .post('/v1/auth/login')
+      .set('X-Forwarded-For', nextIp())
+      .send({ email: realEmail, password: PW, codeChallenge: pkceChallenge('y'.repeat(43)) });
+    expect(lg.status).toBe(401);
+    expect(lg.body.code).toBe('invalid_credentials');
     const get = (id: string) => db.signupSession.findUniqueOrThrow({ where: { id } });
     expect((await get(fresh.id)).status).toBe('account_pending_otp');
     const s = await get(stale.id);
@@ -369,6 +409,45 @@ describe('P1-ST2-T03 สมัครขั้น 1', () => {
     });
     await signupMaintenance(db, now);
     expect((await get(stale.id)).email).toBeNull();
+  });
+
+  it('CHECK ของ signup_session: มือถือ E.164 · ตัวนับ ≥ 0 · verified ⇒ verified_at · abandoned ⇒ abandoned_at', async () => {
+    for (const data of [
+      { mobile: '0812345678' },
+      { otpFailedCount: -1 },
+      { status: 'account_verified' as const },
+      { status: 'abandoned' as const },
+    ])
+      await expect(db.signupSession.create({ data })).rejects.toThrow(/check constraint/i);
+  });
+
+  it('SIGNUP_ENABLED=false: ทุก route สมัคร 404 (ก่อนถึงฐาน) + login ไม่พากลับการสมัครค้าง', async () => {
+    const email = `${uniq()}@company.co.th`;
+    const token = (await start(email)).body.token as string;
+    process.env.SIGNUP_ENABLED = 'false';
+    try {
+      const r = await start(`${uniq()}@company.co.th`);
+      expect(r.status).toBe(404);
+      expect(r.body.code).toBe('not_found');
+      expect(r.headers['content-type']).toContain('application/problem+json');
+      for (const call of [
+        http().get('/v1/public/signup/session').set('X-Signup-Token', token),
+        resend(token),
+        verify(token, '123456'),
+      ])
+        expect((await call).status).toBe(404);
+      const lg = await http()
+        .post('/v1/auth/login')
+        .set('X-Forwarded-For', nextIp())
+        .send({ email, password: PW, codeChallenge: pkceChallenge('z'.repeat(43)) });
+      expect(lg.status).toBe(401);
+      expect(lg.body.code).toBe('invalid_credentials');
+    } finally {
+      delete process.env.SIGNUP_ENABLED;
+    }
+    expect(
+      (await http().get('/v1/public/signup/session').set('X-Signup-Token', token)).status,
+    ).toBe(200);
   });
 
   it('แยกข้อมูล: signup_session เป็นตาราง platform (ไม่มี tenant_id) — role แอป (tms_app) อ่าน/เขียนไม่ได้', async () => {

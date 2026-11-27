@@ -32,6 +32,13 @@ CREATE TABLE "signup_session" (
     CONSTRAINT "signup_session_pkey" PRIMARY KEY ("id"),
     -- OTP เก็บเฉพาะ HMAC-SHA256 (base64url 43 ตัว) — กันการเผลอเก็บรหัสดิบ
     CONSTRAINT "signup_session_otp_hash_shape" CHECK ("otp_hash" IS NULL OR "otp_hash" ~ '^[A-Za-z0-9_-]{43}$'),
+    CONSTRAINT "signup_session_counts_nonneg" CHECK ("otp_failed_count" >= 0 AND "otp_send_count" >= 0),
+    -- ยืนยัน OTP แล้ว (และสถานะถัดไป) ต้องมีเวลายืนยัน · ถูกทิ้งต้องมีเวลาทิ้ง
+    CONSTRAINT "signup_session_verified_at" CHECK (
+      "status" NOT IN ('account_verified', 'company_submitted', 'completed') OR "verified_at" IS NOT NULL),
+    CONSTRAINT "signup_session_abandoned_at" CHECK ("status" <> 'abandoned' OR "abandoned_at" IS NOT NULL),
+    -- มือถือไทย E.164 (+66 ตามด้วย 9 หลัก ขึ้นต้น 6/8/9)
+    CONSTRAINT "signup_session_mobile_e164" CHECK ("mobile" IS NULL OR "mobile" ~ '^\+66[689][0-9]{8}$'),
     -- ลบข้อมูลส่วนบุคคลแล้ว = ไม่เหลือข้อมูลส่วนบุคคล/ความลับ
     CONSTRAINT "signup_session_erased_empty" CHECK ("personal_data_erased_at" IS NULL OR
       ("full_name" IS NULL AND "email" IS NULL AND "mobile" IS NULL AND "password_hash" IS NULL

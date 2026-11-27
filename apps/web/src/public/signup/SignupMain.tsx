@@ -76,7 +76,8 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
       .get()
       .then((s) => {
         adopt(s);
-        if (s.otp?.lockedUntil) setCodeErr(t('problem.otp_locked'));
+        if (s.otp?.lockedUntil)
+          setCodeErr(lockedText((Date.parse(s.otp.lockedUntil) - Date.now()) / 1000));
       })
       .catch(() => signupToken.clear())
       .finally(() => setLoading(false));
@@ -93,6 +94,11 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
       {t(k)}
     </a>
   );
+  /** ล็อกจากใส่รหัสผิด 5 ครั้ง — บอกเวลาที่เหลือจาก Retry-After (หรือ lockedUntil) */
+  const lockedText = (seconds: number | undefined) =>
+    seconds && seconds > 0
+      ? t('su.otp.locked', { n: Math.max(1, Math.ceil(seconds / 60)) })
+      : t('problem.otp_locked');
   const problemText = (e: unknown) => {
     const p = e instanceof SignupError ? e.problem : { code: 'internal_error' };
     return t(`problem.${p.code}` as MessageKey);
@@ -154,7 +160,7 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
           else if (x.field === 'name') next.name = t('su.err.name');
         }
         setErrs(next);
-      } else if (p?.code === 'otp_locked') setErrs({ email: t('problem.otp_locked') });
+      } else if (p?.code === 'otp_locked') setErrs({ email: lockedText(p.retryAfter) });
       else onToast(problemText(e));
     } finally {
       setBusy(false);
@@ -177,6 +183,7 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
       setCode('');
       if (p?.code === 'otp_invalid' && p.attemptsLeft !== undefined)
         setCodeErr(t('su.otp.wrong', { n: p.attemptsLeft }));
+      else if (p?.code === 'otp_locked') setCodeErr(lockedText(p.retryAfter));
       else if (p?.code === 'signup_session_invalid') {
         signupToken.clear();
         setSession(null);
@@ -198,6 +205,7 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
     } catch (e) {
       const p = e instanceof SignupError ? e.problem : null;
       if (p?.code === 'otp_resend_too_soon' && p.retryAfter) startTimer(p.retryAfter);
+      else if (p?.code === 'otp_locked') setCodeErr(lockedText(p.retryAfter));
       else setCodeErr(problemText(e));
     } finally {
       setBusy(false);
