@@ -19,6 +19,7 @@ import { assertSigningKeys } from './auth/signing-keys';
 import { assertApiKeyPepper } from './modules/api-keys/key-material';
 import { assertNoDevKeys } from './common/crypto';
 import { isInboundWebhookRequest } from './modules/erp/inbound-webhook.controller';
+import { isSignupCertificateUpload } from './modules/signup/signup.controller';
 import { INBOUND_MAX_BYTES } from './modules/erp/inbound-webhook.service';
 
 export function buildOpenApi(app: NestExpressApplication): OpenAPIObject {
@@ -104,6 +105,15 @@ export async function createApp(module: unknown = AppModule): Promise<NestExpres
   app.useBodyParser('raw', {
     limit: INBOUND_MAX_BYTES,
     type: (req: { url?: string; method?: string }) => isInboundWebhookRequest(req),
+  });
+  // P1-ST2-T04 หนังสือรับรองบริษัทตอนสมัคร (raw ≤ 10 MB) — เฉพาะ PUT path นี้ที่มี header token การสมัคร
+  app.useBodyParser('raw', {
+    limit: '10mb',
+    type: (req: {
+      url?: string;
+      method?: string;
+      headers?: Record<string, string | string[] | undefined>;
+    }) => isSignupCertificateUpload(req),
   });
   app.useBodyParser('json', { limit: '1mb' });
   app.setGlobalPrefix('v1');

@@ -39,7 +39,8 @@ export function PublicShell({
   onFeatures,
   children,
 }: {
-  page: 'home' | 'pricing';
+  /** signup = หน้าสมัคร (P1-ST2-T03): header ทึบ ไม่มีเมนู on · ปุ่มทดลองใช้ = เลื่อนขึ้นบนสุด */
+  page: 'home' | 'pricing' | 'signup';
   config: LandingConfig;
   /** `pricing.publicVisible` (GET /v1/public/plans ≠ 404) — ซ่อนเมนู/ลิงก์ราคาเมื่อปิด (D-40) */
   showPrice: boolean;
@@ -52,7 +53,10 @@ export function PublicShell({
   const { t, lang, setLang } = useI18n();
   const [solid, setSolid] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const { contactParts, contactText, goSignup } = usePublicActions(config, setToast);
+  const actions = usePublicActions(config, setToast);
+  const { contactParts, contactText } = actions;
+  // อยู่หน้าสมัครแล้ว — ปุ่ม "ทดลองใช้ฟรี 30 วัน" เลื่อนขึ้นไปฟอร์ม (ไม่โหลดหน้าใหม่)
+  const goSignup = page === 'signup' ? () => window.scrollTo(0, 0) : actions.goSignup;
 
   useEffect(() => {
     const on = () => setSolid(window.scrollY > 24);
@@ -103,15 +107,16 @@ export function PublicShell({
       ['land.foot.terms', config.links.terms],
     ] as Array<[MessageKey, string | undefined]>
   ).filter(([, href]) => href);
-  const signupLink = config.signupLive
-    ? { href: config.signupPath }
-    : {
-        href: '#contact',
-        onClick: (e: { preventDefault(): void }) => {
-          e.preventDefault();
-          goSignup();
-        },
-      };
+  const signupLink =
+    config.signupLive || page === 'signup'
+      ? { href: config.signupPath }
+      : {
+          href: '#contact',
+          onClick: (e: { preventDefault(): void }) => {
+            e.preventDefault();
+            goSignup();
+          },
+        };
 
   return (
     <div className="land">

@@ -57,6 +57,8 @@ export interface TemplateVars {
     resolvedAt?: string;
   };
   password_reset: { link: string; minutes: number };
+  /** P1-ST2-T03 รหัสยืนยันการสมัคร (OtpChannel ทางอีเมล — จนกว่า X-04 SMS) · เนื้ออีเมลถูกลบหลังส่ง (outbox) */
+  signup_otp: { code: string; minutes: number };
   /**
    * คำถามค้าง #81 (PO 24 พ.ย. 2569) แจ้งเจ้าของบัญชีเมื่อถูกรีเซ็ต 2FA — โดยผู้ดูแลของบริษัท (`byStaff` false)
    * หรือทีม Innovera ผ่าน Console (`byStaff` true) · actorName ผ่าน safeName แล้ว
@@ -304,6 +306,35 @@ const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
       ];
       return {
         subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('en', title, paras),
+      };
+    },
+  },
+  signup_otp: {
+    th: ({ code, minutes }) => {
+      const title = 'รหัสยืนยันการสมัคร';
+      const paras = [
+        `รหัสยืนยันการสมัคร TMS ของคุณคือ ${code}`,
+        `รหัสใช้ได้ ${minutes} นาที อย่าบอกรหัสนี้กับผู้อื่น ทีมงานจะไม่ขอรหัสนี้จากคุณ`,
+        'ถ้าคุณไม่ได้สมัคร ไม่ต้องทำอะไร',
+      ];
+      return {
+        // ไม่ใส่รหัสในหัวเรื่อง — หัวเรื่องคงอยู่ใน email_outbox หลังส่ง และ LogTransport บันทึกหัวเรื่อง
+        subject: 'รหัสยืนยันการสมัคร — TMS',
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('th', title, paras),
+      };
+    },
+    en: ({ code, minutes }) => {
+      const title = 'Your sign-up code';
+      const paras = [
+        `Your TMS sign-up code is ${code}`,
+        `The code expires in ${minutes} minutes. Do not share it — our team will never ask for it.`,
+        'If you did not sign up, ignore this email.',
+      ];
+      return {
+        subject: 'Your sign-up code — TMS',
         text: `${title}\n\n${paras.join('\n\n')}\n`,
         html: layout('en', title, paras),
       };

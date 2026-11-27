@@ -96625,6 +96625,11 @@
     }
   },
   "x-problem-codes": {
+    "account_exists": {
+      "status": 409,
+      "title": "อีเมลนี้มีบัญชีแล้ว เข้าสู่ระบบเพื่อเพิ่มบริษัทใหม่",
+      "titleEn": "This email already has an account — sign in to add a new company"
+    },
     "account_locked": {
       "status": 429,
       "title": "ใส่รหัสผ่านผิดหลายครั้ง ลองใหม่อีกครั้งใน 15 นาที",
@@ -96689,6 +96694,11 @@
       "status": 409,
       "title": "ส่งทางช่องทางนี้ไม่ได้ตอนนี้ คัดลอกลิงก์ไปส่งเองได้",
       "titleEn": "This channel is not available — copy the link and send it yourself"
+    },
+    "company_exists": {
+      "status": 409,
+      "title": "บริษัทนี้ใช้ TMS อยู่แล้ว ส่งคำขอเข้าร่วมบริษัทหรือติดต่อเรา",
+      "titleEn": "This company already uses TMS — request to join or contact us"
     },
     "company_unavailable": {
       "status": 422,
@@ -97015,6 +97025,26 @@
       "title": "ต้นทางแก้ใบสั่งขนส่งนี้หลังวางแผน — เลือกรับค่าต้นทางหรือใช้ค่า TMS ก่อนจัดลงเที่ยว",
       "titleEn": "The source changed this order after planning — accept or reject the change before planning it"
     },
+    "otp_expired": {
+      "status": 422,
+      "title": "รหัสหมดอายุแล้ว กดขอรหัสใหม่",
+      "titleEn": "The code has expired — request a new one"
+    },
+    "otp_invalid": {
+      "status": 422,
+      "title": "รหัสไม่ถูกต้อง",
+      "titleEn": "Incorrect code"
+    },
+    "otp_locked": {
+      "status": 429,
+      "title": "ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่ภายหลัง",
+      "titleEn": "Too many incorrect codes — try again later"
+    },
+    "otp_resend_too_soon": {
+      "status": 429,
+      "title": "ขอรหัสใหม่ได้หลังครบ 60 วินาที",
+      "titleEn": "You can request a new code after 60 seconds"
+    },
     "payload_too_large": {
       "status": 413,
       "title": "ไฟล์หรือข้อมูลมีขนาดใหญ่เกินกำหนด",
@@ -97164,6 +97194,26 @@
       "status": 403,
       "title": "ผู้อนุมัติใบสำคัญจ่าย บันทึกจ่ายใบนั้นเองไม่ได้ ต้องให้ผู้อื่นบันทึกจ่าย",
       "titleEn": "Whoever approved a settlement cannot record its payment"
+    },
+    "signup_in_progress": {
+      "status": 409,
+      "title": "อีเมลนี้กำลังสมัครอยู่ เข้าสู่ระบบเพื่อทำต่อจากขั้นที่ค้างไว้",
+      "titleEn": "A sign-up with this email is in progress — sign in to continue"
+    },
+    "signup_incomplete": {
+      "status": 409,
+      "title": "การสมัครยังไม่เสร็จ ทำต่อจากขั้นที่ค้างไว้",
+      "titleEn": "Your sign-up is not finished — continue where you left off"
+    },
+    "signup_lookup_limit": {
+      "status": 429,
+      "title": "ค้นหาเลขผู้เสียภาษีครบจำนวนครั้งแล้ว กรอกข้อมูลบริษัทเองได้",
+      "titleEn": "Too many tax ID lookups — enter the company details manually"
+    },
+    "signup_session_invalid": {
+      "status": 401,
+      "title": "ไม่พบการสมัครนี้หรือหมดอายุแล้ว เริ่มสมัครใหม่",
+      "titleEn": "This sign-up was not found or has expired — start again"
     },
     "sor_fixed": {
       "status": 422,

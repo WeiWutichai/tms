@@ -210,12 +210,23 @@ describe('ชุดข้อความย่อยของ landing (i18n/land
   it('ตรงกับ th/en/zh ทุก key ที่ landing ใช้ — ถ้าไม่ตรง ให้รัน pnpm --filter @tms/web i18n:build', () => {
     const catalogs = { th, en, zh } as const;
     for (const lang of ['th', 'en', 'zh'] as const) {
+      // P1-ST2-T03: + หน้าสมัคร (`su.*`) + error code ที่หน้าสมัครแสดง (รายการใน scripts/build-i18n.mjs)
+      const got = LANDING_CATALOGS[lang] as Record<string, string>;
+      const problems = Object.keys(got).filter((k) => k.startsWith('problem.'));
+      if (lang === 'th')
+        expect(problems, lang).toEqual(
+          expect.arrayContaining(['problem.account_exists', 'problem.otp_locked']),
+        );
       const want = Object.fromEntries(
         Object.entries(catalogs[lang]).filter(
-          ([k]) => k.startsWith('land.') || k.startsWith('pub.'),
+          ([k]) =>
+            k.startsWith('land.') ||
+            k.startsWith('pub.') ||
+            k.startsWith('su.') ||
+            problems.includes(k),
         ),
       );
-      expect(LANDING_CATALOGS[lang], lang).toEqual(want);
+      expect(got, lang).toEqual(want);
     }
   });
 

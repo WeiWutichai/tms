@@ -18,6 +18,7 @@ import {
   ACCESS_TTL_SECONDS,
 } from './tokens';
 import { iEquals } from '../common/ilike';
+import { resumeSignupByPassword, signupEnabled } from '../modules/signup/signup.service';
 
 const CODE_TTL_MS = 60 * 1000;
 export const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -115,7 +116,18 @@ export class AuthService {
     for (const u of candidates) {
       if (await verifyPassword(u.passwordHash!, input.password)) matched.push(u);
     }
-    if (candidates.length === 0) await verifyPassword(await dummyHash(), input.password);
+    // P1-ST2-T03 (spec/01 §2 ข้อ 8): อีเมลนี้ยังไม่มีผู้ใช้ แต่มีการสมัครค้าง + รหัสตรง → กลับไปขั้นที่ค้าง
+    // (verifyPassword ครั้งเดียวเสมอ — hash ของการสมัคร หรือ dummy — เวลาตอบเท่ากับไม่มีอีเมลนี้)
+    // ปิดการสมัคร (`SIGNUP_ENABLED`) = ไม่พากลับ แต่ยังตรวจ dummy hash (เวลาตอบเท่าเดิม)
+    if (candidates.length === 0) {
+      const signupToken = signupEnabled()
+        ? await resumeSignupByPassword(db, email, input.password, dummyHash)
+        : (await verifyPassword(await dummyHash(), input.password), null);
+      if (signupToken) {
+        await recordAttempt(db, email, client, { success: false, reason: 'signup_incomplete' });
+        throw new ProblemException('signup_incomplete', undefined, undefined, { signupToken });
+      }
+    }
 
     const chosen = input.tenantId ? matched.filter((u) => u.tenantId === input.tenantId) : matched;
     if (chosen.length === 0) {

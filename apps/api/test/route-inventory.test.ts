@@ -51,6 +51,23 @@ const PUBLIC_ROUTES: Record<string, string> = {
     'URL ลายเซ็น HMAC อายุ 5 นาที (นำเข้า 60 วิ) · attachment + nosniff (documents.test.ts)',
   'POST /v1/inbound/:provider/:token':
     'token ขาเข้าต่อ connector (ผูก tenant) + ลายเซ็น (inbound-webhook.test.ts)',
+  // P1-ST2-T03/T04 (เพิ่มตอน merge เข้า P1-ST2-T02 — branch T04 ยังไม่ได้ลงทะเบียน): ปิดทั้งชุดด้วย SIGNUP_ENABLED (404)
+  'POST /v1/public/signup':
+    'สร้างบัญชีสมัคร · SignupAttemptLimit ต่อ IP + OtpSendLimit ต่อผู้รับ + BotProtected (signup.test.ts, public-entry)',
+  'GET /v1/public/signup/session':
+    'X-Signup-Token (สุ่ม เก็บ hash, หมดอายุ) — ผิด/หมดอายุ 401 signup_session_invalid (signup.test.ts)',
+  'POST /v1/public/signup/session/otp/resend':
+    'X-Signup-Token + ขอใหม่ได้หลัง 60 วิ + OtpSendLimit (signup.test.ts)',
+  'POST /v1/public/signup/session/otp/verify':
+    'X-Signup-Token + OTP 6 หลัก อายุ 5 นาที ผิด 5 ครั้งล็อก 15 นาที (signup.test.ts)',
+  'POST /v1/public/signup/session/company/lookup':
+    'X-Signup-Token (ผ่าน OTP แล้ว) + เพดานค้น (signup-company.test.ts)',
+  'PUT /v1/public/signup/session/company/certificate':
+    'X-Signup-Token (ผ่าน OTP แล้ว) + ตรวจชนิด/ขนาดไฟล์ (signup-company.test.ts)',
+  'POST /v1/public/signup/session/company':
+    'X-Signup-Token (ผ่าน OTP แล้ว) + checksum/dedup (signup-company.test.ts)',
+  'POST /v1/public/signup/session/company/join-request':
+    'X-Signup-Token (ผ่าน OTP แล้ว) (signup-company.test.ts)',
   'GET /v1/public/plans':
     'ราคาแพ็กเกจของแพลตฟอร์มเอง (ไม่มีข้อมูล tenant) · ปิดด้วย pricing.publicVisible → 404 · rate limit ต่อ IP (public-plans.test.ts)',
   'GET /v1/public/tracking/pod-image/:doc':

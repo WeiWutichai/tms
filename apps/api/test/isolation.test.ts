@@ -1385,4 +1385,30 @@ describe('tenant isolation harness', () => {
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual([]);
   });
+
+  /**
+   * (5) ตาราง platform ที่ **ไม่มี tenant_id** (ข้อมูลก่อนมีบริษัท — ไม่มี RLS ให้กั้น) ต้องไม่ให้ role แอป (tms_app) แตะเลย
+   * เพิ่มตารางแบบนี้ = เพิ่มในรายการพร้อมเหตุผล (CLAUDE.md "test แยกข้อมูลของตารางใหม่")
+   */
+  const PLATFORM_ONLY_TABLES: Record<string, string> = {
+    password_reset_token: 'ST1-T03 ลิงก์ลืมรหัสผ่าน — ก่อนรู้บริษัท (อีเมลเดียวข้ามบริษัท)',
+    signup_session:
+      'P1-ST2-T03 การสมัครเอง — ยังไม่มีบริษัท; ข้อมูลส่วนบุคคลผู้สมัคร + hash OTP/รหัสผ่าน (เข้าผ่าน client platform เท่านั้น)',
+    company_lookup:
+      'P1-ST2-T04 cache ผลค้นข้อมูลบริษัทจากกรมสรรพากร — ข้อมูลสาธารณะของนิติบุคคล ใช้ร่วมทุกการสมัคร (ก่อนมีบริษัท); key = (taxId, branchCode)',
+    company_lookup_log:
+      'P1-ST2-T04 log การส่งเลขผู้เสียภาษีออกไปหน่วยงานภายนอก (PDPA) + ตัวนับ circuit breaker — ระดับแพลตฟอร์ม ไม่ผูกบริษัท; append-only',
+  };
+  it('(5) ตาราง platform ที่ไม่มี tenant_id: tms_app ไม่มีสิทธิ์ใด ๆ', async () => {
+    const rows = await plat.$queryRaw<{ table: string; priv: string }[]>`
+      SELECT table_name AS table, privilege_type AS priv FROM information_schema.role_table_grants
+       WHERE grantee = 'tms_app' AND table_schema = 'public' AND table_name = ANY(${Object.keys(PLATFORM_ONLY_TABLES)})`;
+    const cols = await plat.$queryRaw<{ table: string }[]>`
+      SELECT table_name AS table FROM information_schema.columns
+       WHERE table_schema = 'public' AND column_name = 'tenant_id' AND table_name = ANY(${Object.keys(PLATFORM_ONLY_TABLES)})`;
+    expect(cols, 'ตารางในรายการ platform-only ต้องไม่มี tenant_id (ถ้ามี = ใช้ RLS แทน)').toEqual(
+      [],
+    );
+    expect(rows.map((r) => `${r.table}:${r.priv}`)).toEqual([]);
+  });
 });

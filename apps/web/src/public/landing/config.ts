@@ -32,6 +32,7 @@ export interface LandingConfig {
   /**
    * หน้าสมัคร (P1-ST2-T03) เปิดแล้วหรือยัง — ยังไม่เปิด = ปุ่ม/ลิงก์แสดงช่องทางติดต่อแทน
    * [DECISION — lead 27 พ.ย. 2569, ย้อนได้] ค่าเริ่ม false · เปิดก่อน go-live (checklist §5)
+   * P1-ST2-T03: route `/signup` มีแล้ว (ขั้น 1) แต่คง false จนกว่า P1-ST2-T05 (สมัครจนจบได้)
    */
   signupLive: boolean;
 }

@@ -31,3 +31,4 @@ export * from './billing-dashboard';
 export * from './invoice-lines';
 export * from './baht-text';
 export * from './platform-plan';
+export * from './thai-tax-id';

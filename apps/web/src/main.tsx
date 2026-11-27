@@ -11,7 +11,10 @@ const root: Promise<ComponentType> = /^\/home\/?$/.test(path)
   : // P1-ST2-T02: หน้าราคาสาธารณะ — chunk แยกเหมือน landing
     /^\/pricing\/?$/.test(path)
     ? import('./public/pricing/PricingRoot').then((m) => m.PricingRoot)
-    : import('./AppRoot').then((m) => m.AppRoot);
+    : // P1-ST2-T03: หน้าสมัคร — chunk แยกเหมือน landing
+      /^\/signup\/?$/.test(path)
+      ? import('./public/signup/SignupRoot').then((m) => m.SignupRoot)
+      : import('./AppRoot').then((m) => m.AppRoot);
 
 void root.then((Root) =>
   createRoot(document.getElementById('root')!).render(
