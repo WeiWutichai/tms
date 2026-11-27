@@ -5408,6 +5408,56 @@
         ]
       }
     },
+    "/v1/me/billing-admins/notify": {
+      "post": {
+        "operationId": "Me_notifyBillingAdmins",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingNotifyResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
     "/v1/me/badges": {
       "get": {
         "description": "นิยามตัวนับเดียวกับแท็บ/การ์ดของหน้านั้น (ดู `key`) · ไม่มีสิทธิ์อ่านของเมนูใด = ไม่มี key นั้น · ฟีเจอร์แพ็กเกจปิด = ไม่มี",
@@ -80018,14 +80068,10 @@
         "properties": {
           "name": {
             "type": "string"
-          },
-          "email": {
-            "type": "string"
           }
         },
         "required": [
-          "name",
-          "email"
+          "name"
         ]
       },
       "MeBillingAdminListDto": {
@@ -80040,6 +80086,23 @@
         },
         "required": [
           "data"
+        ]
+      },
+      "BillingNotifyResultDto": {
+        "type": "object",
+        "properties": {
+          "notified": {
+            "type": "number",
+            "description": "จำนวนผู้ดูแลที่ได้รับแจ้ง (0 เมื่อแจ้งซ้ำภายใน 24 ชม.)"
+          },
+          "alreadyRequested": {
+            "type": "boolean",
+            "description": "แจ้งไปแล้วภายใน 24 ชม. — ไม่ส่งซ้ำ"
+          }
+        },
+        "required": [
+          "notified",
+          "alreadyRequested"
         ]
       },
       "NavBadgeDto": {

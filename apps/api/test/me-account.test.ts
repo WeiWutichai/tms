@@ -80,9 +80,18 @@ describe('แถบสถานะบัญชี — /v1/me account (P1-ST1-T05
     });
   });
 
-  it('billing-admins: รายชื่อผู้ใช้ active ที่จัดการแพ็กเกจได้ของบริษัทตัวเองเท่านั้น', async () => {
+  it('past_due ที่ทีมงานตั้งเอง (ไม่มีวัน 0) → readOnlyInDays null', async () => {
+    const id = await tenant('PAST_DUE');
+    const me = await api(app, await tokenFor(id))
+      .get('/v1/me')
+      .expect(200);
+    expect(me.body.account).toMatchObject({ pastDueSince: null, readOnlyInDays: null });
+  });
+
+  it('billing-admins: ชื่ออย่างเดียว เฉพาะบริษัทตัวเอง · notify ส่งถึงผู้ดูแล (ไม่รวมผู้ขอ) กันซ้ำ 24 ชม. · token ไม่ใช่ผู้ใช้ → 403', async () => {
     const id = await tenant('ACTIVE');
     const other = await tenant('ACTIVE');
+    const users: Record<string, string> = {};
     for (const [tid, tag] of [
       [id, 'a'],
       [other, 'b'],
@@ -93,14 +102,33 @@ describe('แถบสถานะบัญชี — /v1/me account (P1-ST1-T05
           data: { tenantId: tid, email, name: email.split('@')[0]!, status },
         });
         await db.userRole.create({ data: { tenantId: tid, userId: u.id, roleId: roles[role]! } });
+        users[email] = u.id;
       };
       await mk(`owner-${tag}@banner.test`, 'owner');
       await mk(`gone-${tag}@banner.test`, 'owner', 'DISABLED');
-      await mk(`driver-${tag}@banner.test`, 'dispatcher');
+      await mk(`viewer-${tag}@banner.test`, 'viewer');
     }
-    const r = await api(app, await tokenFor(id, 'orders:read'))
+    const viewer = await tokenFor(id, 'orders:read', users['viewer-a@banner.test']);
+    const r = await api(app, viewer).get('/v1/me/billing-admins').expect(200);
+    expect(r.body.data).toEqual([{ name: 'owner-a' }]);
+    // token ที่ไม่ใช่ผู้ใช้ของบริษัท (API client / คนขับ / ลิงก์) → 403
+    await api(app, await tokenFor(id, '*', 'client-x'))
       .get('/v1/me/billing-admins')
-      .expect(200);
-    expect(r.body.data).toEqual([{ name: 'owner-a', email: 'owner-a@banner.test' }]);
+      .expect(403);
+    await api(app, await tokenFor(id, '*', 'client-x'))
+      .post('/v1/me/billing-admins/notify')
+      .expect(403);
+
+    const n1 = await api(app, viewer).post('/v1/me/billing-admins/notify').expect(200);
+    expect(n1.body).toEqual({ notified: 1, alreadyRequested: false });
+    const sent = await db.notification.findMany({
+      where: { tenantId: id, templateCode: 'billing.attention_requested' },
+    });
+    expect(new Set(sent.map((x) => x.recipientId))).toEqual(
+      new Set([users['owner-a@banner.test']]),
+    );
+    expect(new Set(sent.map((x) => x.channel))).toContain('in_app');
+    const n2 = await api(app, viewer).post('/v1/me/billing-admins/notify').expect(200);
+    expect(n2.body).toEqual({ notified: 0, alreadyRequested: true });
   });
 });

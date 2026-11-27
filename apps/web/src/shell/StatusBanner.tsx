@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
-import { Icon } from '@tms/ui';
-import { useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { color, Icon, useEscapeLayer, useModalFocus } from '@tms/ui';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, unwrap } from '../api';
 import { formatDate, useI18n } from '../i18n';
@@ -27,6 +27,9 @@ export type BannerKind =
 
 /** แถบที่ปิดได้ (spec/01 §5 คอลัมน์ "ปิดได้") — ปิดแล้วกลับมาวันถัดไป */
 export const DISMISSIBLE: readonly BannerKind[] = ['trial', 'quota', 'cancel'];
+
+/** ปลายทาง "ดูสถานะ" ของ pending_verification — หน้าตั้งค่า → ข้อมูลบริษัท */
+export const PENDING_STATUS_PATH = '/settings?sec=org';
 
 /** quota ≥ 90% (spec/01 §5 · §7) */
 export const QUOTA_WARN = 0.9;
@@ -58,10 +61,10 @@ export function pickBanner(
 
 // โทนสีตามต้นแบบ vBanner (info/warn/err) + เทาของ soft('off') สำหรับ "ร่าง" (spec/01 §5 cancelAtPeriodEnd)
 const TONE = {
-  info: ['#E9F0FA', '#9DB6E3', '#2257C4'],
-  warn: ['#FCF0DC', '#E9C98F', '#8F5500'],
-  err: ['#FBE9E7', '#EBB5AF', '#B3322A'],
-  off: ['#ECEDEA', '#D9DCD4', '#3B424C'],
+  info: [color.infoSoft, color.accentFocus, color.info],
+  warn: [color.warnSoft, '#E9C98F', color.warn],
+  err: [color.errSoft, '#EBB5AF', color.err],
+  off: [color.offSoft, color.line, color.off],
 } as const;
 
 const SPEC: Record<
@@ -82,8 +85,15 @@ const SPEC: Record<
     d: 'acctBn.pastDue.d',
     btn: 'acctBn.btn.pay',
   },
-  // ปุ่ม "ดูสถานะ" ของ spec ยังไม่มีหน้าปลายทาง (คิวอนุมัติฝั่งลูกค้า) — [DECISION — lead 28 พ.ย. 2569] ไม่แสดงปุ่ม
-  pending: { tone: 'warn', icon: 'hourglass', t: 'acctBn.pending.t', d: 'acctBn.pending.d' },
+  // ปุ่ม "ดูสถานะ" → หน้าตั้งค่าบริษัท (ข้อมูลที่กำลังตรวจ) — ทุกคนกดได้ ไม่ขึ้นกับสิทธิ์ billing
+  // [DECISION — lead 28 พ.ย. 2569, ย้อนได้] (D-83)
+  pending: {
+    tone: 'warn',
+    icon: 'hourglass',
+    t: 'acctBn.pending.t',
+    d: 'acctBn.pending.d',
+    btn: 'acctBn.btn.status',
+  },
   trial_soon: {
     tone: 'warn',
     icon: 'flask-conical',
@@ -184,7 +194,13 @@ export function StatusBanner({
     x: a.vehicles.active,
     limit: a.vehicles.limit ?? 0,
   };
-  const title = t(s.t, vars);
+  const titleKey: MessageKey =
+    kind === 'past_due' && a.readOnlyInDays === null
+      ? 'acctBn.pastDue.t0'
+      : kind === 'trial_soon' && a.trialDaysLeft === 0
+        ? 'acctBn.trialToday.t'
+        : s.t;
+  const title = t(titleKey, vars);
   // R-02: ผู้สมัครที่ไม่มีโปรแกรมบัญชี — บอกชัดว่าใบกำกับภาษี/ใบเสร็จออกจากโปรแกรมบัญชี (ข้อความเดียวกับการ์ด "ไม่เชื่อม")
   const r02 =
     a.accountingSoftware === 'none' && ['pending', 'trial_soon', 'trial'].includes(kind)
@@ -215,32 +231,38 @@ export function StatusBanner({
         <Icon n={s.icon} s={18} style={{ color: c, flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 240, display: 'flex', flexDirection: 'column' }}>
           <span style={{ fontWeight: 600, color: c }}>{title}</span>
-          <span style={{ fontSize: 13, color: '#3B424C' }}>
-            {t(s.d, vars)}
+          <span style={{ fontSize: 13, color: color.text2 }}>
+            {kind === 'past_due' && !a.pastDueSince ? t('acctBn.pastDue.d0') : t(s.d, vars)}
             {r02}
           </span>
         </div>
         {s.btn && (
           <button
             type="button"
-            onClick={() => (canManageBilling ? nav('/billing') : setAdmins(true))}
+            onClick={() =>
+              kind === 'pending'
+                ? nav(PENDING_STATUS_PATH)
+                : canManageBilling
+                  ? nav('/billing')
+                  : setAdmins(true)
+            }
             style={{
               display: 'inline-flex',
               alignItems: 'center',
               gap: 8,
               height: 36,
               padding: '0 16px',
-              border: '1px solid #2257C4',
+              border: `1px solid ${color.accent}`,
               borderRadius: 999,
-              background: '#2257C4',
-              color: '#FFFFFF',
+              background: color.accent,
+              color: color.surface,
               font: 'inherit',
               fontWeight: 500,
               cursor: 'pointer',
               whiteSpace: 'nowrap',
             }}
           >
-            {canManageBilling ? t(s.btn) : t('acctBn.btn.notify')}
+            {kind === 'pending' || canManageBilling ? t(s.btn) : t('acctBn.btn.notify')}
           </button>
         )}
         {DISMISSIBLE.includes(kind) && (
@@ -255,7 +277,7 @@ export function StatusBanner({
               border: 0,
               borderRadius: 999,
               background: 'transparent',
-              color: '#3B424C',
+              color: color.text2,
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
@@ -267,22 +289,29 @@ export function StatusBanner({
           </button>
         )}
       </div>
-      {admins && <AdminsDialog subject={title} onClose={() => setAdmins(false)} />}
+      {admins && <AdminsDialog onClose={() => setAdmins(false)} />}
     </>
   );
 }
 
-/** spec/01 §5 ข้อ 8 — ผู้ใช้ไม่มีสิทธิ์ billing กดปุ่ม → รายชื่อผู้ดูแลระบบ + "ส่งอีเมลแจ้ง" (เปิดโปรแกรมอีเมลของผู้ใช้) */
-function AdminsDialog({ subject, onClose }: { subject: string; onClose: () => void }) {
+/**
+ * spec/01 §5 ข้อ 8 — ผู้ใช้ไม่มีสิทธิ์ billing กดปุ่ม → รายชื่อผู้ดูแลระบบ (ชื่ออย่างเดียว — PDPA) + "ส่งอีเมลแจ้ง"
+ * ระบบส่งแจ้งเตือนในแอป + อีเมลถึงผู้ดูแลเอง (POST /v1/me/billing-admins/notify — กันส่งซ้ำ 24 ชม.)
+ */
+function AdminsDialog({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
+  const box = useRef<HTMLDivElement>(null);
+  useEscapeLayer(true, onClose);
+  useModalFocus(true, box);
   const q = useQuery({
     queryKey: ['me', 'billing-admins'],
     queryFn: () => unwrap(api.GET('/v1/me/billing-admins')),
   });
+  const send = useMutation({
+    mutationFn: () => unwrap(api.POST('/v1/me/billing-admins/notify')),
+  });
   const list = q.data?.data ?? [];
-  const mailto = `mailto:${list.map((u) => u.email).join(',')}?subject=${encodeURIComponent(
-    t('acctBn.adm.subject', { msg: subject }),
-  )}`;
+  const muted = { fontSize: 14, color: color.text3 } as const;
   return (
     <div
       onClick={onClose}
@@ -298,6 +327,8 @@ function AdminsDialog({ subject, onClose }: { subject: string; onClose: () => vo
       }}
     >
       <div
+        ref={box}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={t('acctBn.adm.title')}
@@ -305,51 +336,58 @@ function AdminsDialog({ subject, onClose }: { subject: string; onClose: () => vo
         style={{
           width: 480,
           maxWidth: '100%',
-          background: '#FFFFFF',
-          border: '1px solid #CDD1C8',
+          background: color.surface,
+          border: `1px solid ${color.cardBorder}`,
           borderRadius: 16,
           boxShadow: '0 18px 44px rgba(10, 23, 52, 0.14)',
           display: 'flex',
           flexDirection: 'column',
+          outline: 'none',
         }}
       >
         <div style={{ padding: '20px 24px 0', display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: '#101418' }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: color.text }}>
             {t('acctBn.adm.title')}
           </h2>
-          <span style={{ fontSize: 13, color: '#59606B' }}>{t('acctBn.adm.sub')}</span>
+          <span style={{ fontSize: 13, color: color.text3 }}>{t('acctBn.adm.sub')}</span>
         </div>
         <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {q.isSuccess && list.length === 0 && (
-            <span style={{ fontSize: 14, color: '#59606B' }}>{t('acctBn.adm.empty')}</span>
+          {q.isPending && <span style={muted}>{t('acctBn.adm.loading')}</span>}
+          {q.isError && (
+            <span role="alert" style={{ ...muted, color: color.err }}>
+              {t('acctBn.adm.error')}
+            </span>
           )}
-          {list.map((u) => (
+          {q.isSuccess && list.length === 0 && <span style={muted}>{t('acctBn.adm.empty')}</span>}
+          {list.map((u, i) => (
             <div
-              key={u.email}
+              key={`${u.name}-${i}`}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: 10,
                 padding: '8px 12px',
-                border: '1px solid #D9DCD4',
+                border: `1px solid ${color.line}`,
                 borderRadius: 10,
               }}
             >
-              <Icon n="user" s={16} style={{ color: '#3B424C' }} />
-              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                <span style={{ fontWeight: 500, color: '#101418' }}>{u.name}</span>
-                <span style={{ fontSize: 13, color: '#59606B' }}>{u.email}</span>
-              </div>
+              <Icon n="user" s={16} style={{ color: color.text2 }} />
+              <span style={{ fontWeight: 500, color: color.text }}>{u.name}</span>
             </div>
           ))}
+          {send.isSuccess && (
+            <span role="status" style={{ ...muted, color: color.ok }}>
+              {send.data.alreadyRequested ? t('acctBn.adm.already') : t('acctBn.adm.sent')}
+            </span>
+          )}
+          {send.isError && (
+            <span role="alert" style={{ ...muted, color: color.err }}>
+              {t('acctBn.adm.sendError')}
+            </span>
+          )}
         </div>
         <div
-          style={{
-            padding: '0 24px 20px',
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: 8,
-          }}
+          style={{ padding: '0 24px 20px', display: 'flex', justifyContent: 'flex-end', gap: 8 }}
         >
           <button
             type="button"
@@ -357,10 +395,10 @@ function AdminsDialog({ subject, onClose }: { subject: string; onClose: () => vo
             style={{
               height: 36,
               padding: '0 16px',
-              border: '1px solid #CDD1C8',
+              border: `1px solid ${color.cardBorder}`,
               borderRadius: 999,
-              background: '#FFFFFF',
-              color: '#101418',
+              background: color.surface,
+              color: color.text,
               font: 'inherit',
               fontWeight: 500,
               cursor: 'pointer',
@@ -368,26 +406,29 @@ function AdminsDialog({ subject, onClose }: { subject: string; onClose: () => vo
           >
             {t('acctBn.adm.close')}
           </button>
-          {list.length > 0 && (
-            <a
-              href={mailto}
+          {list.length > 0 && !send.isSuccess && (
+            <button
+              type="button"
+              disabled={send.isPending}
+              onClick={() => send.mutate()}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 8,
                 height: 36,
                 padding: '0 16px',
-                border: '1px solid #2257C4',
+                border: `1px solid ${color.accent}`,
                 borderRadius: 999,
-                background: '#2257C4',
-                color: '#FFFFFF',
+                background: color.accent,
+                color: color.surface,
+                font: 'inherit',
                 fontWeight: 500,
-                textDecoration: 'none',
+                cursor: 'pointer',
               }}
             >
               <Icon n="mail" s={16} />
               {t('acctBn.adm.send')}
-            </a>
+            </button>
           )}
         </div>
       </div>
