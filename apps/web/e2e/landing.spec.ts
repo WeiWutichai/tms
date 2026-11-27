@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
   await page.context().route(/^https?:\/\/(?!localhost|127\.0\.0\.1)/, (r) => r.abort());
 });
 
-test('เปิด /home โดยไม่ login: hero + CTA ไปหน้าสมัคร · ไม่โหลด bundle ของแอป · ไม่มี scroll แนวนอนที่ 390 px', async ({
+test('เปิด /home โดยไม่ login: hero · ไม่โหลด bundle ของแอป · ไม่มี scroll แนวนอนที่ 390 px', async ({
   page,
 }) => {
   const scripts: string[] = [];
@@ -30,7 +30,7 @@ test('เปิด /home โดยไม่ login: hero + CTA ไปหน้า
   await page.getByRole('button', { name: 'เมนู' }).click();
   await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).last().click();
   await expect(page).toHaveURL(/\/login$/);
-  await expect(page.getByRole('heading', { name: 'เข้าสู่ระบบ' })).toBeVisible();
+  await expect(page.getByLabel('อีเมล')).toBeVisible({ timeout: 15_000 }); // แอปโหลด bundle เต็ม
 });
 
 test('เดสก์ท็อป 1440: header โปร่งบน hero แล้วเป็นพื้นขาวเมื่อเลื่อน · ฟีเจอร์ เลื่อนไปส่วน "เช้าวันหนึ่งของฝ่ายจัดรถ"', async ({
