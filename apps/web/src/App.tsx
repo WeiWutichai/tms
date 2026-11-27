@@ -158,6 +158,7 @@ export function App() {
       <I18nProvider>
         <BrowserRouter>
           <Routes>
+            {/* P1-ST2-T01 landing `/home` โหลดเป็น bundle แยกใน main.tsx (LandingRoot) — ไม่อยู่ใน router ของแอป */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/forgot" element={<ForgotPasswordPage />} />
             {/* ST9-T13 R2 (L-01): หน้าที่มี token ใน URL — noindex + no-referrer */}
