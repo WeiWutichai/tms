@@ -11,11 +11,14 @@ import {
 import type { Prisma } from '@prisma/client';
 import { Transform } from 'class-transformer';
 import { IsDefined, IsString, MaxLength, MinLength } from 'class-validator';
+import { Clock } from '../common/clock';
 import { PlatformAuth } from '../common/decorators';
 import { expectedVersion, setEtag } from '../common/etag';
 import { ProblemException } from '../common/problem';
 import { requestContext } from '../common/request-context';
 import { PrismaService } from '../db/prisma.service';
+import { addMonths } from '../modules/depreciation/depreciation-policy';
+import { bangkokPeriod } from '../modules/usage/active-vehicles';
 import { platformAudit } from './platform-audit';
 import { PlatformSettingsService } from './platform-settings.service';
 import {
@@ -102,6 +105,7 @@ export class PlatformSettingsController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: PlatformSettingsService,
+    private readonly clock: Clock,
   ) {}
 
   @Get()
@@ -180,34 +184,43 @@ export class PlatformSettingsController {
       ]);
     const ctx = requestContext.require();
     const want = expectedVersion(req);
-    await this.prisma.platform.$transaction(async (tx) => {
-      // ล็อกแถวทั้งชุดตามลำดับ key กันสองคนแก้กฎข้ามช่อง (dunning) พร้อมกัน
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('platform_setting'))`;
-      const cur = await tx.platformSetting.findUnique({ where: { key: k } });
-      if (want !== undefined && want !== (cur?.version ?? 0))
-        throw new ProblemException('precondition_failed');
-      const all = await this.settings.all(tx);
-      const before = all[k];
-      const cross = crossSettingError({ ...all, [k]: parsed.value });
-      if (cross)
-        throw new ProblemException('validation_failed', undefined, [
-          { field: 'value', code: cross.code, message: cross.code },
-        ]);
-      const value = parsed.value as Prisma.InputJsonValue;
-      await tx.platformSetting.upsert({
-        where: { key: k },
-        create: { key: k, value, updatedBy: ctx.platformUser!.id },
-        update: { value, version: { increment: 1 }, updatedBy: ctx.platformUser!.id },
-      });
-      await platformAudit(tx, {
-        action: 'platform.setting_changed',
-        entityType: 'platform_setting',
-        entityId: k,
-        reason: body.reason,
-        before: { value: before },
-        after: { value: parsed.value },
-      });
-    });
+    await this.prisma.platform.$transaction(
+      async (tx) => {
+        // ล็อกแถวทั้งชุดตามลำดับ key กันสองคนแก้กฎข้ามช่อง (dunning) พร้อมกัน
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('platform_setting'))`;
+        const cur = await tx.platformSetting.findUnique({ where: { key: k } });
+        if (want !== undefined && want !== (cur?.version ?? 0))
+          throw new ProblemException('precondition_failed');
+        const all = await this.settings.all(tx);
+        const before = all[k];
+        const cross = crossSettingError({ ...all, [k]: parsed.value });
+        if (cross)
+          throw new ProblemException('validation_failed', undefined, [
+            { field: 'value', code: cross.code, message: cross.code },
+          ]);
+        const value = parsed.value as Prisma.InputJsonValue;
+        await tx.platformSetting.upsert({
+          where: { key: k },
+          create: { key: k, value, updatedBy: ctx.platformUser!.id },
+          update: { value, version: { increment: 1 }, updatedBy: ctx.platformUser!.id },
+        });
+        // P1-ST1-T06 (review L7): เปลี่ยนกติกานับรถ active → นับใหม่เดือนนี้และเดือนก่อน (เดือนที่ปิดยอดแล้วไม่แตะ — recount ข้ามเอง)
+        if (k === 'usage.activeVehicleRule' && before !== parsed.value) {
+          const cur = bangkokPeriod(this.clock.now());
+          for (const p of [addMonths(cur, -1), cur])
+            await tx.$queryRaw`SELECT tms_active_vehicle_recount_all(${p})::int AS n`;
+        }
+        await platformAudit(tx, {
+          action: 'platform.setting_changed',
+          entityType: 'platform_setting',
+          entityId: k,
+          reason: body.reason,
+          before: { value: before },
+          after: { value: parsed.value },
+        });
+      },
+      { timeout: 60_000 }, // เปลี่ยนกติกานับรถ active นับใหม่ทั้งเดือน
+    );
     return this.one(k, res);
   }
 }

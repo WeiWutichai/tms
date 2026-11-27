@@ -13,13 +13,13 @@ import { EntitlementService } from '../entitlements/entitlement.service';
 import { SandboxService } from '../sandbox/sandbox.service';
 import { apiKeyStatus } from './api-keys.service';
 import { API_KEY_RE, hashApiKey, ipAllowed, sameHash } from './key-material';
+import { API_TENANT_STATUSES } from '../tenants/tenant-status';
 
 /** กันชั้นที่ 2: scope ที่ห้ามให้ key (users/settings:write) ไม่ถูกใช้แม้มีค้างในแถว */
 const allowed = (scopes: string[]) =>
   scopes.filter((s) => (API_KEY_SCOPES as readonly string[]).includes(s));
 
 /** tenant ที่เรียก API ได้ (เหมือน login — spec/01 PLT-001) */
-const API_TENANT_STATUSES = ['TRIAL', 'ACTIVE'];
 /** เขียน lastUsedAt ไม่ถี่กว่านี้ (กันเขียนฐานทุก request) — IP เปลี่ยนเขียนทันที */
 const TOUCH_EVERY_MS = 60_000;
 

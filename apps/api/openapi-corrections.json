@@ -2,9 +2,19 @@
   "description": "แก้ชนิดใน OpenAPI ที่ผิดจากของจริง (ไม่เปลี่ยนข้อมูลบนสาย) — openapi-diff ยอมเฉพาะรายการนี้และเฉพาะ type object → string; ดู plan/02-tech-decisions.md T-22 · ลบรายการได้เมื่อ main มีชนิดใหม่แล้ว",
   "corrections": [
     { "schema": "UpdateProfileDto.phone", "from": "object", "to": "string", "adr": "T-22" },
-    { "schema": "UpdateProfileDto.signatureDocumentId", "from": "object", "to": "string", "adr": "T-22" },
+    {
+      "schema": "UpdateProfileDto.signatureDocumentId",
+      "from": "object",
+      "to": "string",
+      "adr": "T-22"
+    },
     { "schema": "OrderCustomerInputDto.id", "from": "object", "to": "string", "adr": "T-22" },
-    { "schema": "OrderCustomerInputDto.externalId", "from": "object", "to": "string", "adr": "T-22" },
+    {
+      "schema": "OrderCustomerInputDto.externalId",
+      "from": "object",
+      "to": "string",
+      "adr": "T-22"
+    },
     { "schema": "OrderCustomerInputDto.name", "from": "object", "to": "string", "adr": "T-22" },
     { "schema": "OrderStopInputDto.siteId", "from": "object", "to": "string", "adr": "T-22" },
     { "schema": "OrderStopInputDto.siteText", "from": "object", "to": "string", "adr": "T-22" },
@@ -14,14 +24,29 @@
     { "schema": "OrderLineInputDto.unit", "from": "object", "to": "string", "adr": "T-22" },
     { "schema": "OrderLineInputDto.productId", "from": "object", "to": "string", "adr": "T-22" },
     { "schema": "OrderLineInputDto.itemCode", "from": "object", "to": "string", "adr": "T-22" },
-    { "schema": "CreateOrderDto.billingCompanyId", "from": "object", "to": "string", "adr": "T-22" },
+    {
+      "schema": "CreateOrderDto.billingCompanyId",
+      "from": "object",
+      "to": "string",
+      "adr": "T-22"
+    },
     { "schema": "CreateOrderDto.customerRef", "from": "object", "to": "string", "adr": "T-22" },
     { "schema": "CreateOrderDto.vehicleTypeId", "from": "object", "to": "string", "adr": "T-22" },
     { "schema": "CreateOrderDto.externalId", "from": "object", "to": "string", "adr": "T-22" },
-    { "schema": "UpsertOrderDto.billingCompanyId", "from": "object", "to": "string", "adr": "T-22" },
+    {
+      "schema": "UpsertOrderDto.billingCompanyId",
+      "from": "object",
+      "to": "string",
+      "adr": "T-22"
+    },
     { "schema": "UpsertOrderDto.customerRef", "from": "object", "to": "string", "adr": "T-22" },
     { "schema": "UpsertOrderDto.vehicleTypeId", "from": "object", "to": "string", "adr": "T-22" },
-    { "schema": "CancelDeliveryOrderDto.reasonCodeId", "from": "object", "to": "string", "adr": "T-22" },
+    {
+      "schema": "CancelDeliveryOrderDto.reasonCodeId",
+      "from": "object",
+      "to": "string",
+      "adr": "T-22"
+    },
     { "schema": "CreateTripDto.plannedStartAt", "from": "object", "to": "string", "adr": "T-22" },
     { "schema": "CreateTripDto.plannedEndAt", "from": "object", "to": "string", "adr": "T-22" },
     { "schema": "DetachDeliveryOrdersDto.note", "from": "object", "to": "string", "adr": "T-22" },
@@ -35,5 +60,23 @@
     { "schema": "WebhookEvent_invoice_finalized.erpWarnings", "adr": "T-22b" },
     { "schema": "WebhookEvent_invoice_paid.erpWarnings", "adr": "T-22b" },
     { "schema": "WebhookEvent_invoice_voided.erpWarnings", "adr": "T-22b" }
+  ],
+  "removedEnumValuesDescription": "ลบค่า enum ที่มี version gate แล้ว (client ที่ pin ก่อนวันเปลี่ยนยังได้ค่าเดิม) หรือเป็น API ภายในของ Console — ยอมเฉพาะ 'enum values removed' ของ Name.prop + ค่าที่ระบุตรงตัว · ลบรายการได้เมื่อ main มี schema ใหม่แล้ว",
+  "removedEnumValues": [
+    {
+      "schema": "MeTenantDto.status",
+      "values": ["trial"],
+      "adr": "P1-ST1-T03 R-10 · gate tenant.status_lifecycle 2026-11-27"
+    },
+    {
+      "schema": "PlatformTenantDto.status",
+      "values": ["trial"],
+      "adr": "P1-ST1-T03 R-10 · Console ภายใน (ไม่มี client ภายนอก)"
+    },
+    {
+      "schema": "PlatformTenantDetailDto.status",
+      "values": ["trial"],
+      "adr": "P1-ST1-T03 R-10 · Console ภายใน (ไม่มี client ภายนอก)"
+    }
   ]
 }

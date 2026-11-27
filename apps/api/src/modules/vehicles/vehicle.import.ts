@@ -174,13 +174,12 @@ export function vehicleImportSpec(svc: VehiclesService) {
     ],
     findExisting,
     // MD-289: นับเฉพาะรถใหม่ที่ผ่านการตรวจ (แถวผิด/แถวที่แก้คันเดิมไม่นับ)
+    // P1-ST1-T06 · D68-14 / D68-21: ฐาน = รถ active เดือนนี้ (ไม่ใช่รถในทะเบียน) — เตือนเมื่อรถ active + รถใหม่ทุกคัน > โควตา
     async quota(tx) {
       const limit = await svc.quotaLimit();
       if (limit === null) return null;
-      const used = await tx.vehicle.count({
-        where: { deletedAt: null, status: { not: 'RETIRED' } },
-      });
-      return { limit, used, label: 'รถ', unit: 'คัน' };
+      const used = await svc.activeThisMonth(tx);
+      return { limit, used, label: 'รถ active', unit: 'คัน' };
     },
     async build(r, op) {
       const b: Record<string, unknown> = {};

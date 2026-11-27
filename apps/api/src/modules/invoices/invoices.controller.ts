@@ -38,6 +38,7 @@ import {
   TenantResource,
   IdempotencyLockMs,
   TransactionTimeout,
+  AllowReadOnlyTenant,
 } from '../../common/decorators';
 import { assertHumanStepUp } from '../../auth/step-up';
 import { expectedVersion, setEtag } from '../../common/etag';
@@ -237,6 +238,7 @@ export class InvoicesController {
     return this.svc.summary();
   }
 
+  @AllowReadOnlyTenant() // P1-ST1-T03 ตาราง 1.6
   @Post('preview')
   @HttpCode(200)
   @NoTransaction()

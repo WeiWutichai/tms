@@ -18,7 +18,9 @@ import { encodeId, tryDecodeId } from '../../common/ids';
 import { iEquals } from '../../common/ilike';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
+import { Clock } from '../../common/clock';
 import { DbService, type Tx } from '../../db/db.service';
+import { bangkokPeriod } from '../usage/active-vehicles';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { StateService } from '../../state/state.service';
 import { EXPORT_MAX_ROWS, exportFetchArgs, overSyncCap, type ExportPage } from '../master/export';
@@ -121,10 +123,13 @@ const THAI_DIGITS = '๐๑๒๓๔๕๖๗๘๙';
 /** เลขไทย ๐-๙ → 0-9 */
 export const arabicDigits = (s: string) =>
   s.replace(/[๐-๙]/g, (c) => String(THAI_DIGITS.indexOf(c)));
-/** ทะเบียนอย่างเดียว normalize: เลขไทย → อารบิก, ตัดช่องว่าง/ขีด/จุด, ตัวใหญ่ (สูตรเดียวกับ migration 0043) */
+/**
+ * ทะเบียนอย่างเดียว normalize: เลขไทย → อารบิก, ตัดช่องว่างทุกแบบ (รวม NBSP / ช่องว่าง Unicode / zero-width), ขีดทุกแบบ
+ * (- ‐ ‑ ‒ – — ― −) และจุด, ตัวใหญ่ — สูตรเดียวกับ SQL `tms_plate_normalize` (migration 0190; P1-ST1-T06 review L4)
+ */
 export function plateNorm(plate: string): string {
   return arabicDigits(plate)
-    .replace(/[\s\-.]/g, '')
+    .replace(/[\s\u200B\uFEFF\u2010-\u2015\u2212.-]/g, '')
     .toUpperCase();
 }
 export function plateKey(plate: string, province: string): string {
@@ -280,6 +285,7 @@ export class VehiclesService {
     private readonly state: StateService,
     private readonly audit: AuditService,
     private readonly entitlements: EntitlementService,
+    private readonly clock: Clock,
   ) {}
 
   // ---------- read ----------
@@ -402,7 +408,7 @@ export class VehiclesService {
     }));
   }
 
-  /** แถบสรุป + โควตารถ (soft limit — PLT-080 [OPEN O-PLT-4]; นับคันที่ยังไม่ปลดระวางจนกว่าจะมี metering รายเดือน) */
+  /** แถบสรุป + โควตารถ (soft limit — PLT-080 [OPEN O-PLT-4]) · `quota.active` = รถ active เดือนนี้ (P1-ST1-T06) */
   async summary() {
     const tx = this.db.tx;
     const g = await tx.vehicle.groupBy({
@@ -435,8 +441,18 @@ export class VehiclesService {
       retired: n('RETIRED'),
       subcontract,
       docAlert,
-      quota: { limit: await this.quotaLimit(), used },
+      quota: { limit: await this.quotaLimit(), used, active: await this.activeThisMonth() },
     };
+  }
+
+  /**
+   * P1-ST1-T06 รถ active ของเดือนนี้ (เวลาไทย) — ทะเบียนที่ถูกนับใน active_vehicle_usage (ไม่รวมที่ทีมการเงินตัดออก)
+   * ฐานของโควตา (D68-14 / D68-21: โควตานับรถ active ไม่ใช่รถในทะเบียน)
+   */
+  async activeThisMonth(tx: Tx = this.db.tx): Promise<number> {
+    return tx.activeVehicleUsage.count({
+      where: { period: bangkokPeriod(this.clock.now()), excludedAt: null },
+    });
   }
 
   /** โควตารถ: ค่าในสัญญา (`tenant.vehicle_quota` จาก Console ST1-T24) → limit ของ entitlement `veh` ตามแพ็กเกจ */

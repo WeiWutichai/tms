@@ -62,11 +62,12 @@
 - [invoices](ref-invoices.md): 28 endpoint: GET /v1/invoices/queue, GET /v1/invoices/summary, POST /v1/invoices/preview, GET /v1/invoices, POST /v1/invoices, PUT /v1/invoices/external/{externalId}, …
 - [payments](ref-payments.md): 9 endpoint: GET /v1/payments, POST /v1/payments, GET /v1/payments/summary, GET /v1/payments/aging, GET /v1/payments/{id}, PUT /v1/payments/external/{externalId}, …
 - [reports](ref-reports.md): 2 endpoint: GET /v1/reports/revenue, GET /v1/reports/unbilled-delivery-orders
+- [usage](ref-usage.md): 1 endpoint: GET /v1/usage/active-vehicles
 
 ## อ้างอิง
 
 - [Webhook events](webhook-events.md): 31 event: connector.health_changed, credit_note.finalized, debit_note.finalized, delivery_order.status_changed, invoice.adjusted, invoice.finalized, invoice.paid, invoice.voided, …
-- [รหัส error](errors.md): 150 code ของ problem+json
+- [รหัส error](errors.md): 143 code ของ problem+json
 - [Changelog](changelog.md): ประวัติเวอร์ชันของ API (added/changed/deprecated)
 
 ## Optional

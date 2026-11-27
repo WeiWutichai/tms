@@ -8,6 +8,7 @@ import { useI18n, type Lang } from '../i18n';
 import { th, type MessageKey } from '../i18n/th';
 import { useTenantList } from './ConsoleShell';
 import { StepUpBox } from '../features/settings/OrgSections';
+import { TenantUsage } from './TenantUsage';
 import {
   can,
   consoleApi,
@@ -22,13 +23,22 @@ type Tenant = components['schemas']['PlatformTenantDto'];
 type TenantDetail = components['schemas']['PlatformTenantDetailDto'];
 type Status = Tenant['status'];
 
-/** ป้ายสถานะ — statuses + tone ของ design/prototype/plans.js (เฉพาะสถานะที่ระบบมีในเฟสนี้) */
-const STATUS: Record<Status, { k: MessageKey; c: string; bg: string; i: string }> = {
-  trial: { k: 'tenantStatus.trial', c: '#2257C4', bg: '#E9F0FA', i: 'flask-conical' },
+/** ป้ายสถานะ 7 ค่า (P1-ST1-T03 · spec/01 PLT-010) — statuses + tone ของ design/prototype/plans.js */
+export const TENANT_STATUS: Record<string, { k: MessageKey; c: string; bg: string; i: string }> = {
+  pending_verification: {
+    k: 'tenantStatus.pending_verification',
+    c: '#59606B',
+    bg: '#EEF0EC',
+    i: 'hourglass',
+  },
+  trialing: { k: 'tenantStatus.trialing', c: '#2257C4', bg: '#E9F0FA', i: 'flask-conical' },
   active: { k: 'tenantStatus.active', c: '#17733F', bg: '#E7F3EC', i: 'circle-check' },
+  past_due: { k: 'tenantStatus.past_due', c: '#8F5500', bg: '#FCF0DC', i: 'circle-alert' },
+  read_only: { k: 'tenantStatus.read_only', c: '#8F5500', bg: '#FCF0DC', i: 'eye' },
   suspended: { k: 'tenantStatus.suspended', c: '#B3322A', bg: '#FBE9E7', i: 'ban' },
   cancelled: { k: 'tenantStatus.cancelled', c: '#59606B', bg: '#EEF0EC', i: 'circle-x' },
 };
+const STATUS = TENANT_STATUS as Record<Status, (typeof TENANT_STATUS)[string]>;
 const STATUSES = Object.keys(STATUS) as Status[];
 const PLANS = ['start', 'std', 'biz', 'ent'] as const;
 
@@ -52,6 +62,18 @@ function monthYear(iso: string, lang: Lang): string {
   return new Intl.DateTimeFormat(loc, {
     month: 'short',
     year: 'numeric',
+    timeZone: 'Asia/Bangkok',
+  }).format(new Date(iso));
+}
+
+/** "28 พ.ย. 2569" (+ เวลา) ตามเวลาไทย (ปี พ.ศ. เมื่อภาษาไทย) */
+function dayMonthYear(iso: string, lang: Lang, time = false): string {
+  const loc = lang === 'th' ? 'th-TH-u-ca-buddhist' : lang === 'zh' ? 'zh-CN' : 'en-GB';
+  return new Intl.DateTimeFormat(loc, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    ...(time ? { hour: '2-digit', minute: '2-digit' } : {}),
     timeZone: 'Asia/Bangkok',
   }).format(new Date(iso));
 }
@@ -208,7 +230,16 @@ export function TenantsPage() {
 }
 
 type Dlg =
-  'plan' | 'suspend' | 'reactivate' | 'imp' | { reset2fa: TenantDetail['members'][number] } | null;
+  | 'plan'
+  | 'suspend'
+  | 'reactivate'
+  | 'activate'
+  | 'imp'
+  | { reset2fa: TenantDetail['members'][number] }
+  | null;
+
+/** สถานะที่ "บันทึกว่าชำระแล้ว" ได้ (API `POST /v1/platform/tenants/{id}/activate`) */
+const ACTIVATABLE: string[] = ['trialing', 'past_due', 'read_only', 'suspended', 'cancelled'];
 
 function TenantDrawer({
   id,
@@ -221,7 +252,7 @@ function TenantDrawer({
 }) {
   const { t, lang } = useI18n();
   const role = useStaff().data?.role;
-  const [tab, setTab] = useState<'ov' | 'usr'>('ov');
+  const [tab, setTab] = useState<'ov' | 'use' | 'usr'>('ov');
   const [dlg, setDlg] = useState<Dlg>(null);
   const d = useQuery({
     queryKey: ['console', 'tenant', id],
@@ -243,7 +274,11 @@ function TenantDrawer({
   const actions: { l: MessageKey; i: string; fn: () => void; danger?: boolean }[] = [];
   if (x && can.plan(role))
     actions.push({ l: 'con.act.plan', i: 'repeat', fn: () => setDlg('plan') });
-  if (x && can.suspend(role) && x.status === 'suspended')
+  // P1-ST1-T03 บันทึกว่าชำระแล้ว → ใช้งาน (owner + finance) [DECISION — lead 27 พ.ย. 2569: ต้นแบบไม่มีปุ่มนี้ ประกอบจาก btns + vAct]
+  if (x && can.activate(role) && ACTIVATABLE.includes(x.status))
+    actions.push({ l: 'con.act.activate', i: 'circle-check', fn: () => setDlg('activate') });
+  // review N4: ปลดระงับได้เฉพาะที่ระงับด้วยมือ (ระงับเพราะค้างชำระ = "เปิดใช้งาน (ชำระแล้ว)")
+  if (x && can.suspend(role) && x.status === 'suspended' && x.manualSuspension)
     actions.push({ l: 'con.act.reactivate', i: 'ban', fn: () => setDlg('reactivate') });
   if (x && can.suspend(role) && x.status !== 'suspended' && x.status !== 'cancelled')
     actions.push({ l: 'con.act.suspend', i: 'ban', fn: () => setDlg('suspend'), danger: true });
@@ -281,6 +316,7 @@ function TenantDrawer({
             {(
               [
                 ['ov', 'con.dtab.ov'],
+                ['use', 'con.dtab.use'],
                 ['usr', 'con.dtab.usr'],
               ] as const
             ).map(([k, l]) => (
@@ -313,6 +349,18 @@ function TenantDrawer({
                       ],
                       ['con.kv.since', monthYear(x.createdAt, lang)],
                       ['con.kv.users', String(x.users)],
+                      // ต้นแบบ ov: "ต่ออายุ / ทดลองถึง" — วันหมดทดลองใช้จาก subscription (P1-ST1-T03)
+                      // ทดลองใช้/รอยืนยัน = วันหมดทดลอง · อื่น ๆ = สิ้นรอบบิล (วันต่ออายุ — review S6)
+                      [
+                        'con.kv.renew',
+                        (() => {
+                          const d =
+                            x.status === 'trialing' || x.status === 'pending_verification'
+                              ? x.trialEndsAt
+                              : x.currentPeriodEnd;
+                          return d ? dayMonthYear(d, lang) : '—';
+                        })(),
+                      ],
                     ] as [MessageKey, string][]
                   ).map(([k, v]) => (
                     <div key={k} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -340,8 +388,10 @@ function TenantDrawer({
                   </div>
                 </section>
               )}
+              <StatusHistory x={x} />
             </>
           )}
+          {x && tab === 'use' && <TenantUsage x={x} onToast={onToast} />}
           {x && tab === 'usr' && (
             <Members
               x={x}
@@ -378,6 +428,25 @@ function TenantDrawer({
             setDlg(null);
             refresh(n);
             onToast(t('con.toast.plan', { n: x.name, plan: planName(t, n.planCode) }));
+          }}
+        />
+      )}
+      {x && dlg === 'activate' && (
+        <ActionDialog
+          title={t('con.dlg.actT', { n: x.name })}
+          desc={t('con.dlg.actD')}
+          okL={t('con.act.activate')}
+          onClose={() => setDlg(null)}
+          onOk={async (_v, reason) => {
+            const n = await cunwrap(
+              consoleApi.POST('/v1/platform/tenants/{id}/activate', {
+                params: { path: { id: x.id } },
+                body: { reason },
+              }),
+            );
+            setDlg(null);
+            refresh(n);
+            onToast(t('con.toast.activated', { n: x.name }));
           }}
         />
       )}
@@ -425,6 +494,43 @@ const ROLE_CODES = [
   'approver',
   'viewer',
 ] as const;
+
+/**
+ * P1-ST1-T03 ประวัติสถานะ (spec/01 §10.2 แท็บภาพรวม "สถานะ + ประวัติสถานะ" · PLT-019) — ต้นแบบ ov ไม่มีส่วนนี้ →
+ * ประกอบจาก `rows(t, L, empty)` ของต้นแบบ (a = จาก → เป็น · s = เหตุผล · ผู้ทำ · b = วันเวลา) [DECISION — lead 27 พ.ย. 2569, ย้อนได้]
+ */
+function StatusHistory({ x }: { x: TenantDetail }) {
+  const { t, lang } = useI18n();
+  const label = (s: string | null) =>
+    s ? t(STATUS[s as Status]?.k ?? 'tenantStatus.cancelled') : '—';
+  return (
+    <section className="con-sec">
+      <span className="con-sec__t">{t('con.sec.statusHistory')}</span>
+      {x.statusHistory.length ? (
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {x.statusHistory.map((h, i) => (
+            <div key={i} className="con-row" style={{ gridTemplateColumns: 'minmax(0,1fr) auto' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <span style={{ fontWeight: 500 }}>
+                  {h.from ? `${label(h.from)} → ${label(h.to)}` : label(h.to)}
+                </span>
+                <span style={{ fontSize: 12.5, color: '#59606B' }}>
+                  {h.reason} ·{' '}
+                  {h.actorType === 'system' ? t('con.hist.system') : (h.actorName ?? '—')}
+                </span>
+              </div>
+              <span style={{ color: '#3B424C', whiteSpace: 'nowrap' }}>
+                {dayMonthYear(h.at, lang, true)}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <span style={{ color: '#59606B' }}>{t('con.hist.empty')}</span>
+      )}
+    </section>
+  );
+}
 
 function Members({
   x,

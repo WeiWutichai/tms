@@ -65,6 +65,7 @@ import {
 } from './erp-master-code.check';
 import type { ErrorClass } from '../integration/outbox.types';
 import { generateInboundToken, INBOUND_MAX_ATTEMPTS, INBOUND_PROCESS_JOB } from './inbound-token';
+import { SYNC_TENANT_STATUSES } from '../tenants/tenant-status';
 
 const HEALTH_TIMEOUT_MS = 15_000;
 
@@ -1758,7 +1759,7 @@ export class ConnectorsService {
       const tenantIds = [...new Set(rows.map((r) => r.tenantId))];
       const active = (
         await this.prisma.platform.tenant.findMany({
-          where: { id: { in: tenantIds }, status: { in: ['TRIAL', 'ACTIVE'] } },
+          where: { id: { in: tenantIds }, status: { in: [...SYNC_TENANT_STATUSES] } },
           select: { id: true },
         })
       ).map((t) => t.id);

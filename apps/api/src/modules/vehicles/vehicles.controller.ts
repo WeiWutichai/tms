@@ -161,7 +161,8 @@ export class VehiclesController {
 
   /**
    * ผลการสร้าง · D-81 · D68-14: โควตารถคิดจาก**รถ active** ในเดือน (docs/02 §2/§6) ไม่ใช่จำนวนในทะเบียน —
-   * จนกว่าจะมีงานนับรถ active (metering) ไม่ส่งสัญญาณ "เกินโควตา" (`quotaExceeded: false`, ไม่มี header `Warning`)
+   * รถที่เพิ่งสร้างยังไม่ใช่รถ active (นับเมื่อมีเที่ยว — P1-ST1-T06) จึงไม่ส่งสัญญาณ "เกินโควตา" (`quotaExceeded: false`,
+   * ไม่มี header `Warning`) — เตือนตอนจ่ายงานให้ทะเบียนที่จะเกินโควตา = P1-ST1-T08
    */
   private created(res: Response, v: VehicleFull): VehicleDto {
     return { ...this.send(res, v), quotaExceeded: false };

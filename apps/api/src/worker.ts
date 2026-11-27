@@ -37,6 +37,11 @@ import { UnbilledReminderService } from './modules/reminders/unbilled-reminder.s
 import { InvoiceStatusService } from './modules/invoices/invoice-status.service';
 import { DailyDigestService } from './modules/notifications/daily-digest.service';
 import { DepreciationService } from './modules/depreciation/depreciation.service';
+import { TenantLifecycleService } from './modules/tenants/tenant-lifecycle.service';
+import {
+  USAGE_FINALIZE_EVERY_MS,
+  UsageFinalizeService,
+} from './modules/usage/usage-finalize.service';
 import {
   OFFER_TIMEOUT_EVERY_MS,
   SubconTimeoutService,
@@ -133,6 +138,17 @@ async function main() {
     ]);
   void daily();
   const timer = setInterval(daily, 24 * 60 * 60 * 1000);
+  // P1-ST1-T03 วงจรสถานะ tenant: ตรวจทุก 10 นาที — ตั้งแต่ 00:30 เวลาไทยกวาดวันละครั้ง (trial หมด / ค้างชำระ → read_only → suspended → cancelled)
+  const lifecycle = ctx.get(TenantLifecycleService);
+  const scheduleLifecycle = () =>
+    lifecycle
+      .scheduleDue()
+      .then(
+        (r) => r && (r.transitions || r.failed) && log.info({ lifecycle: r }, 'tenant lifecycle'),
+      )
+      .catch((e) => log.error(e));
+  void scheduleLifecycle();
+  const lifecycleTimer = setInterval(scheduleLifecycle, 10 * 60 * 1000);
   // ST2-T18 เตือนต่ออายุ: ตรวจทุก 10 นาที — ตั้งแต่ 08:00 เวลาไทย (docs/04 I) สร้าง job ของวันนี้ให้ tenant ที่ยังไม่มี (ซ้ำได้ ไม่เตือนซ้ำ)
   const reminders = ctx.get(ExpiryReminderService);
   const schedule = () =>
@@ -187,6 +203,15 @@ async function main() {
       .catch((e) => log.error(e));
   void scheduleDepreciation();
   const depreciationTimer = setInterval(scheduleDepreciation, 10 * 60 * 1000);
+  // P1-ST1-T06 ปิดยอดรถ active: ตรวจทุก 10 นาที — ตั้งแต่วันที่ 1 เวลา 02:00 น. ไทย ปิดยอดเดือนที่เพิ่งจบให้ tenant ที่ยังไม่ปิด (spec/01 PLT-074 · ซ้ำได้)
+  const usageFinalize = ctx.get(UsageFinalizeService);
+  const scheduleUsageFinalize = () =>
+    usageFinalize
+      .scheduleDue()
+      .then((n) => n && log.info({ tenants: n }, 'active vehicle usage finalized'))
+      .catch((e) => log.error(e));
+  void scheduleUsageFinalize();
+  const usageFinalizeTimer = setInterval(scheduleUsageFinalize, USAGE_FINALIZE_EVERY_MS);
   // ST3-T24 ข้อเสนองานรถร่วม: ครบ N ชม. ยังไม่ตอบ → แจ้งผู้จัดรถ · ลิงก์หมดอายุ → EXPIRED — ตรวจทุก 1 นาที (spec/03 PLN-154)
   const offerTimeouts = ctx.get(SubconTimeoutService);
   const scheduleOfferTimeouts = () =>
@@ -270,11 +295,13 @@ async function main() {
   }
   clearInterval(timer);
   clearInterval(reminderTimer);
+  clearInterval(lifecycleTimer);
   clearInterval(digestTimer);
   clearInterval(overdueTimer);
   clearInterval(paymentDueTimer);
   clearInterval(unbilledTimer);
   clearInterval(depreciationTimer);
+  clearInterval(usageFinalizeTimer);
   clearInterval(offerTimeoutTimer);
   clearInterval(pullTimer);
   clearInterval(paymentPullTimer);
