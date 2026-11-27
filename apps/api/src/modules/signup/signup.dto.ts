@@ -164,11 +164,15 @@ const digits = ({ value }: { value: unknown }) =>
 const cleanText = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : value;
 
-/** โปรแกรมบัญชีที่ใช้ — ข้อมูล lead เท่านั้น ไม่เปิด connector (ตัวเลือก "ไม่มี" ก่อน แล้วตามตัวอักษร — spec/01 §2) */
+/**
+ * โปรแกรมบัญชีที่ใช้ — ข้อมูล lead เท่านั้น ไม่เปิด connector (ตัวเลือก "ไม่มี" ก่อน แล้วตามตัวอักษร — spec/01 §2)
+ * ค่าตรงกับรหัสรูปแบบส่งออกเดิม (`flowaccount` ใน AccountantExportDialog) — **เป็น enum ของ lead ไม่ใช่ key ของ ErpAdapter**
+ * (ถ้าภายหลังมีโฟลเดอร์ adapter ชื่อเดียวกันแล้ว lint-adapters กฎ 4 เตือน ให้ยกเว้นเฉพาะไฟล์นี้)
+ */
 export const ACCOUNTING_SOFTWARE = [
   'none',
   'express',
-  'flow_account',
+  'flowaccount',
   'krs',
   'peak',
   'sap_b1',
@@ -243,7 +247,10 @@ export class CompanyAddressDto {
 }
 
 export class SubmitCompanyDto {
-  @ApiProperty({ example: '0105567153766' })
+  @ApiProperty({
+    example: '0105567153766',
+    description: 'ต้องเป็นเลขที่กด "ค้นหา" ล่าสุด (ไม่งั้น 422 `lookup_required`)',
+  })
   @Transform(digits)
   @IsString()
   @IsThaiTaxId()

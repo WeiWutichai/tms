@@ -2853,7 +2853,7 @@ model SignupSession {
   address              Json?
   fleetSizeOwn         Int?                @map("fleet_size_own")
   fleetSizeSubcon      Int?                @map("fleet_size_subcon")
-  /// ข้อมูล lead เท่านั้น — ไม่เปิด connector เอง (none/express/flow_account/krs/peak/sap_b1/other)
+  /// ข้อมูล lead เท่านั้น — ไม่เปิด connector เอง (none/express/flowaccount/krs/peak/sap_b1/other)
   accountingSoftware   String?             @map("accounting_software")
   /// auto_vat | pending_manual | pending_verification (ผลตรวจ ณ วันส่งขั้น 2 — ขั้น 3 ใช้ตัดสินสถานะ tenant)
   verificationStatus   String?             @map("verification_status")
@@ -2865,8 +2865,11 @@ model SignupSession {
   flags                String[]            @default([])
   /// ผล lookup ที่ใช้ (company_lookup.id) — ไม่ผูก FK (แถว cache ถูกล้าง raw ได้)
   companyLookupId      String?             @map("company_lookup_id") @db.Uuid
-  /// จำนวนครั้งที่กด "ค้นหา" ใน session นี้ (กันใช้เป็นช่องทางไล่เลข)
+  /// จำนวนครั้งที่ค้นหา/ส่งขั้น 2/ส่งคำขอเข้าร่วม ใน session นี้ (เพดาน 20 — กันใช้เป็นช่องทางไล่เลข)
   lookupCount          Int                 @default(0) @map("lookup_count")
+  /// เลข/สาขาที่กด "ค้นหา" ล่าสุด — ส่งขั้น 2/คำขอเข้าร่วมต้องใช้เลขนี้ (ไม่เปิดช่องค้นเลขใหม่ผ่าน submit)
+  lastLookupTaxId      String?             @map("last_lookup_tax_id") @db.Char(13)
+  lastLookupBranchCode String?             @map("last_lookup_branch_code") @db.Char(5)
   /// หนังสือรับรองบริษัท (pending_manual) — key ใน FileStore (โฟลเดอร์ = id ของ session)
   certificateFileKey   String?             @map("certificate_file_key")
   certificateFilename  String?             @map("certificate_filename")
@@ -2911,7 +2914,7 @@ model CompanyLookup {
   fetchedAt    DateTime  @default(now()) @map("fetched_at") @db.Timestamptz(6)
   expiresAt    DateTime  @map("expires_at") @db.Timestamptz(6)
 
-  @@index([taxId, branchCode, expiresAt])
+  @@index([taxId, branchCode, provider, expiresAt])
   @@index([fetchedAt])
   @@map("company_lookup")
 }

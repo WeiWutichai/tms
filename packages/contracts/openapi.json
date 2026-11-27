@@ -75243,7 +75243,7 @@
             "enum": [
               "none",
               "express",
-              "flow_account",
+              "flowaccount",
               "krs",
               "peak",
               "sap_b1",
@@ -75640,7 +75640,8 @@
         "properties": {
           "taxId": {
             "type": "string",
-            "example": "0105567153766"
+            "example": "0105567153766",
+            "description": "ต้องเป็นเลขที่กด \"ค้นหา\" ล่าสุด (ไม่งั้น 422 `lookup_required`)"
           },
           "branchType": {
             "type": "string",
@@ -75687,7 +75688,7 @@
             "enum": [
               "none",
               "express",
-              "flow_account",
+              "flowaccount",
               "krs",
               "peak",
               "sap_b1",

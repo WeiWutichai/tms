@@ -26,7 +26,7 @@ export type CompanyAddress = Record<(typeof ADDRESS_KEYS)[number], string>;
 export const ACCOUNTING_SOFTWARE = [
   'none',
   'express',
-  'flow_account',
+  'flowaccount',
   'krs',
   'peak',
   'sap_b1',

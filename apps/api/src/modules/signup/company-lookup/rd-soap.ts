@@ -46,6 +46,8 @@ export function vatRequestXml(taxId: string, branchNumber: number, ns = RD_VAT_N
     username: 'anonymous',
     password: 'anonymous',
     TIN: taxId,
+    // ไม่ค้นด้วยชื่อ — ส่ง element ว่างตามตัวอย่างคำขอของ RD (Sample_SOAP_Request_V5)
+    Name: '',
     ProvinceCode: '0',
     BranchNumber: String(branchNumber),
     AmphurCode: '0',
@@ -138,6 +140,35 @@ export function parseTinResponse(xml: string): boolean {
   return v.includes('มี') && !v.includes('ไม่');
 }
 
+/** เพดานขนาดคำตอบ — ผลของ VAT/TIN Service เป็นแถวเดียว (ไม่กี่ KB) เกินนี้ = ผิดรูป (กันหน่วยความจำ) */
+export const RD_MAX_RESPONSE_BYTES = 256 * 1024;
+
+/** อ่าน body ไม่เกิน max byte — เกิน = bad_response (ตัดการอ่านทันที) */
+async function readCapped(res: Response, max: number, signal: AbortSignal): Promise<string> {
+  const declared = Number(res.headers.get('content-length'));
+  if (declared > max) throw new RegistryUnavailable('bad_response', res.status);
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > max) {
+        await reader.cancel().catch(() => undefined);
+        throw new RegistryUnavailable('bad_response', res.status);
+      }
+      chunks.push(value);
+    }
+  } catch (e) {
+    if (e instanceof RegistryUnavailable) throw e;
+    throw new RegistryUnavailable(signal.aborted ? 'timeout' : 'network', res.status);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 export interface RdSoapOptions {
   vatUrl: string;
   tinUrl: string;
@@ -164,13 +195,11 @@ export class RdSoapRegistry implements CompanyRegistry {
     } catch {
       throw new RegistryUnavailable(signal.aborted ? 'timeout' : 'network');
     }
-    let text: string;
-    try {
-      text = await res.text();
-    } catch {
-      throw new RegistryUnavailable(signal.aborted ? 'timeout' : 'network', res.status);
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => undefined);
+      throw new RegistryUnavailable('http_error', res.status);
     }
-    if (!res.ok) throw new RegistryUnavailable('http_error', res.status);
+    const text = await readCapped(res, RD_MAX_RESPONSE_BYTES, signal);
     return { text, status: res.status };
   }
 

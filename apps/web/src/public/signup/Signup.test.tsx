@@ -189,7 +189,7 @@ describe('หน้าสมัครขั้น 2 ข้อมูลบริ�
     vi.unstubAllGlobals();
     signupToken.clear();
   });
-  const taxBox = () => screen.getByPlaceholderText('0105556078912');
+  const taxBox = () => screen.getByPlaceholderText<HTMLInputElement>('0105556078912');
 
   it('checksum ผิด (PLT-020) → error ทันทีเมื่อพิมพ์ครบ 13 หลัก และกด "ค้นหา" ไม่ส่งคำขอ', async () => {
     await act(async () => {
@@ -204,6 +204,17 @@ describe('หน้าสมัครขั้น 2 ข้อมูลบริ�
     fireEvent.change(taxBox(), { target: { value: '01055' } });
     fireEvent.click(screen.getByRole('button', { name: 'ค้นหา' }));
     expect(screen.getByText('เลขผู้เสียภาษีต้องเป็นตัวเลข 13 หลัก')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // "ย้อนกลับ" ตามต้นแบบ → ขั้น 1 อ่านอย่างเดียว → "ถัดไป" กลับขั้น 2 (ค่าที่พิมพ์ยังอยู่)
+    fireEvent.click(screen.getByRole('button', { name: 'ย้อนกลับ' }));
+    await screen.findByRole('heading', { level: 1, name: 'สร้างบัญชี' });
+    const email = screen.getByText('อีเมลบริษัท').closest('label')!.querySelector('input')!;
+    expect(email.readOnly).toBe(true);
+    expect(email.value).toBe('somchai@company.co.th');
+    expect(screen.queryByRole('button', { name: 'ขอรหัส OTP' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'ถัดไป' }));
+    await screen.findByRole('heading', { level: 1, name: 'ข้อมูลบริษัท' });
+    expect(taxBox().value).toBe('01055');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

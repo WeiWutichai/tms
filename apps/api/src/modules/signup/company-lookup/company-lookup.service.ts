@@ -11,7 +11,7 @@ import { type CompanyRegistry, type RegistryCompany, RegistryUnavailable } from 
  * ค้นข้อมูลบริษัทตอนสมัคร (P1-ST2-T04; spec/01 PLT-021/023; research/company-verification §7.1–7.2)
  *
  * ลำดับ: (บุคคลธรรมดา → ไม่ส่งเลขออก) → cache → circuit breaker → RD VAT Service → (ไม่พบ) RD TIN Service
- * - cache `company_lookup`: พบ (vat_found / tin_exists) 24 ชม. · ไม่พบ 1 ชม. · ล้มเหลวไม่ cache
+ * - cache `company_lookup` (key = taxId + สาขา + ผู้ให้บริการ): พบ (vat_found / tin_exists) 24 ชม. · ไม่พบ 1 ชม. · ล้มเหลวไม่ cache
  * - log ทุกการส่งเลขออก `company_lookup_log` (หน่วยงาน, บริการ, เลข, ผล, เวลา) — PDPA accountability · append-only
  * - circuit breaker: 5 ครั้งล่าสุดที่ส่งไปหน่วยงานเดียวกันล้มเหลวทั้งหมด → เปิดวงจร 5 นาทีนับจากครั้งล่าสุด
  *   (นับจาก log ในฐาน — ทุก instance เห็นสถานะเดียวกัน) · ระหว่างเปิด = `unavailable` (ทุกเคส → pending_verification)
@@ -130,9 +130,9 @@ export class CompanyLookupService {
     return until.getTime() > now ? until : null;
   }
 
-  private async cached(taxId: string, branchCode: string, now: number) {
+  private async cached(taxId: string, branchCode: string, provider: string, now: number) {
     return this.db.companyLookup.findFirst({
-      where: { taxId, branchCode, expiresAt: { gt: new Date(now) } },
+      where: { taxId, branchCode, provider, expiresAt: { gt: new Date(now) } },
       orderBy: { fetchedAt: 'desc' },
     });
   }
@@ -149,41 +149,47 @@ export class CompanyLookupService {
   ): Promise<T | RegistryUnavailable> {
     const release = await CompanyLookupService.gate.acquire(QUEUE_WAIT_MS);
     if (!release) return new RegistryUnavailable('timeout');
-    const started = Date.now();
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), timeoutMs());
-    let out: T | RegistryUnavailable;
+    // ปล่อย gate หลังลง log แล้ว — คำขอที่รอคิวอยู่เห็นผลล้มเหลวล่าสุดเสมอ
     try {
-      out = await fn(ac.signal);
-    } catch (e) {
-      out =
-        e instanceof RegistryUnavailable
-          ? e
-          : new RegistryUnavailable(ac.signal.aborted ? 'timeout' : 'bad_response');
+      // ตรวจวงจรซ้ำหลังได้คิว (ระหว่างรอคิว/ระหว่าง VAT → TIN อาจล้มเหลวครบ 5 ครั้งแล้ว) — เปิดอยู่ = ไม่ส่งเลขออก ไม่ลง log
+      if (await this.breakerOpenUntil(reg.provider)) return new RegistryUnavailable('breaker_open');
+      const started = Date.now();
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), timeoutMs());
+      let out: T | RegistryUnavailable;
+      try {
+        out = await fn(ac.signal);
+      } catch (e) {
+        out =
+          e instanceof RegistryUnavailable
+            ? e
+            : new RegistryUnavailable(ac.signal.aborted ? 'timeout' : 'bad_response');
+      } finally {
+        clearTimeout(timer);
+      }
+      const err = out instanceof RegistryUnavailable ? out : null;
+      await this.db.companyLookupLog.create({
+        data: {
+          agency: AGENCY,
+          service,
+          provider: reg.provider,
+          taxId,
+          branchCode,
+          outcome: err ? 'error' : found(out as T) ? 'found' : 'not_found',
+          httpStatus: err ? err.httpStatus : (out as T & { httpStatus: number | null }).httpStatus,
+          durationMs: Math.max(0, Date.now() - started),
+          errorCode: err?.code ?? null,
+          signupSessionId: sessionId,
+        },
+      });
+      if (err)
+        this.log.warn(
+          `RD ${service} lookup failed: ${err.code}${err.httpStatus ? ` ${err.httpStatus}` : ''}`,
+        );
+      return out;
     } finally {
-      clearTimeout(timer);
       release();
     }
-    const err = out instanceof RegistryUnavailable ? out : null;
-    await this.db.companyLookupLog.create({
-      data: {
-        agency: AGENCY,
-        service,
-        provider: reg.provider,
-        taxId,
-        branchCode,
-        outcome: err ? 'error' : found(out as T) ? 'found' : 'not_found',
-        httpStatus: err ? err.httpStatus : (out as T & { httpStatus: number | null }).httpStatus,
-        durationMs: Math.max(0, Date.now() - started),
-        errorCode: err?.code ?? null,
-        signupSessionId: sessionId,
-      },
-    });
-    if (err)
-      this.log.warn(
-        `RD ${service} lookup failed: ${err.code}${err.httpStatus ? ` ${err.httpStatus}` : ''}`,
-      );
-    return out;
   }
 
   private async store(
@@ -228,7 +234,10 @@ export class CompanyLookupService {
     });
     if (thaiTaxIdKind(taxId) === 'individual') return none('individual');
     const now = Date.now();
-    const hit = await this.cached(taxId, branchCode, now);
+    const reg = registry();
+    if (!reg) return none('unavailable', 'disabled');
+    // cache แยกตามผู้ให้บริการ (ผลของ mock ไม่ปนกับ rd)
+    const hit = await this.cached(taxId, branchCode, reg.provider, now);
     if (hit)
       return {
         result: hit.result as LookupOutcome['result'],
@@ -238,8 +247,6 @@ export class CompanyLookupService {
         cached: true,
         reason: null,
       };
-    const reg = registry();
-    if (!reg) return none('unavailable', 'disabled');
     if (await this.breakerOpenUntil(reg.provider, now)) return none('unavailable', 'breaker_open');
     const sid = ctx.sessionId ?? null;
     const branchNumber = Number(branchCode);
@@ -338,7 +345,11 @@ export class CompanyLookupService {
   }
 }
 
-/** งานรายวัน: ล้าง raw response ที่เก่ากว่า 90 วัน (PLT-023) + ลบแถว cache ที่หมดอายุและล้าง raw แล้ว */
+/**
+ * งานรายวัน: ล้าง raw response ที่เก่ากว่า 90 วัน (PLT-023)
+ * แถว cache ที่หมดอายุ**ไม่ลบ** — ข้อมูล normalize (ชื่อ/ที่อยู่จาก RD) ใช้เทียบในคิวอนุมัติ (T06 "ที่กรอก | RD") ผ่าน `signup_session.company_lookup_id`
+ * (ข้อมูลสาธารณะของนิติบุคคล — ไม่มีเลขบุคคลธรรมดาเพราะไม่ส่งออก)
+ */
 export async function companyLookupMaintenance(
   db: PrismaService['platform'],
   now = Date.now(),

@@ -19,6 +19,8 @@ ADD COLUMN     "fleet_size_subcon" INTEGER,
 ADD COLUMN     "join_request_kind" TEXT,
 ADD COLUMN     "join_requested_at" TIMESTAMPTZ(6),
 ADD COLUMN     "join_tenant_id" UUID,
+ADD COLUMN     "last_lookup_branch_code" CHAR(5),
+ADD COLUMN     "last_lookup_tax_id" CHAR(13),
 ADD COLUMN     "legal_name" TEXT,
 ADD COLUMN     "lookup_count" INTEGER NOT NULL DEFAULT 0,
 ADD COLUMN     "marketing_opt_in" BOOLEAN NOT NULL DEFAULT false,
@@ -39,7 +41,7 @@ ALTER TABLE "signup_session"
     ("fleet_size_own" IS NULL OR "fleet_size_own" BETWEEN 0 AND 5000) AND
     ("fleet_size_subcon" IS NULL OR "fleet_size_subcon" BETWEEN 0 AND 5000)),
   ADD CONSTRAINT "signup_session_accounting_software" CHECK ("accounting_software" IS NULL OR
-    "accounting_software" IN ('none', 'express', 'flow_account', 'krs', 'peak', 'sap_b1', 'other')),
+    "accounting_software" IN ('none', 'express', 'flowaccount', 'krs', 'peak', 'sap_b1', 'other')),
   ADD CONSTRAINT "signup_session_verification_status" CHECK ("verification_status" IS NULL OR
     "verification_status" IN ('auto_vat', 'pending_manual', 'pending_verification')),
   ADD CONSTRAINT "signup_session_verification_source" CHECK ("verification_source" IS NULL OR
@@ -53,12 +55,15 @@ ALTER TABLE "signup_session"
     AND "fleet_size_own" IS NOT NULL AND "fleet_size_subcon" IS NOT NULL AND "accounting_software" IS NOT NULL
     AND "verification_status" IS NOT NULL AND "terms_version" IS NOT NULL AND "privacy_version" IS NOT NULL
     AND "terms_accepted_at" IS NOT NULL AND "company_submitted_at" IS NOT NULL)),
+  ADD CONSTRAINT "signup_session_last_lookup_shape" CHECK (
+    ("last_lookup_tax_id" IS NULL OR "last_lookup_tax_id" ~ '^[0-9]{13}$') AND
+    ("last_lookup_branch_code" IS NULL OR "last_lookup_branch_code" ~ '^[0-9]{5}$')),
   -- pending_manual ต้องมีหนังสือรับรอง (spec/01 §2 certificateFile "เมื่อ pending_manual")
   ADD CONSTRAINT "signup_session_manual_certificate" CHECK ("status" <> 'company_submitted'
     OR "verification_status" <> 'pending_manual' OR "certificate_file_key" IS NOT NULL),
   -- ลบข้อมูลส่วนบุคคลแล้ว: ข้อมูลขั้น 2 (เลขบุคคลธรรมดา/ที่อยู่/IP/ไฟล์) ต้องว่างด้วย
   ADD CONSTRAINT "signup_session_erased_company_empty" CHECK ("personal_data_erased_at" IS NULL OR
-    ("tax_id" IS NULL AND "legal_name" IS NULL AND "address" IS NULL AND "terms_accepted_ip" IS NULL
+    ("tax_id" IS NULL AND "last_lookup_tax_id" IS NULL AND "legal_name" IS NULL AND "address" IS NULL AND "terms_accepted_ip" IS NULL
      AND "certificate_file_key" IS NULL AND "certificate_filename" IS NULL));
 
 -- CreateTable
@@ -105,7 +110,7 @@ CREATE TABLE "company_lookup_log" (
 );
 
 -- CreateIndex
-CREATE INDEX "company_lookup_tax_id_branch_code_expires_at_idx" ON "company_lookup"("tax_id", "branch_code", "expires_at");
+CREATE INDEX "company_lookup_tax_id_branch_code_provider_expires_at_idx" ON "company_lookup"("tax_id", "branch_code", "provider", "expires_at");
 
 -- CreateIndex
 CREATE INDEX "company_lookup_fetched_at_idx" ON "company_lookup"("fetched_at");

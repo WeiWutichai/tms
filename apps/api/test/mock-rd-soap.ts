@@ -16,7 +16,11 @@ import { soapField } from '../src/modules/signup/company-lookup/rd-soap';
 export interface MockRd {
   url: string;
   fail: boolean;
+  /** ตอบ 200 แต่ body ใหญ่เกินเพดาน (300 KB) */
+  huge: boolean;
   delayMs: number;
+  /** คำขอที่ผิดรูป (operation/credentials ไม่ตรง) — test ต้องเป็น 0 */
+  invalid: string[];
   requests: Array<{
     service: 'vat' | 'tin';
     tin: string | null;
@@ -32,6 +36,8 @@ export async function startMockRd(): Promise<MockRd> {
   let inFlight = 0;
   const state = {
     fail: false,
+    huge: false,
+    invalid: [] as string[],
     delayMs: 0,
     requests: [] as MockRd['requests'],
     maxInFlight: 0,
@@ -50,12 +56,33 @@ export async function startMockRd(): Promise<MockRd> {
         branch,
         contentType: String(req.headers['content-type']),
       });
+      // ตรวจรูปคำขอตาม research §2.2: operation `Service` (VAT, มี Name ว่าง) / `ServiceTIN` + anonymous/anonymous
+      const op =
+        service === 'tin'
+          ? /<ServiceTIN\b/.test(body)
+          : /<Service\b/.test(body) && /<Name><\/Name>/.test(body);
+      if (
+        !op ||
+        soapField(body, 'username') !== 'anonymous' ||
+        soapField(body, 'password') !== 'anonymous' ||
+        !/soap-envelope/.test(body)
+      ) {
+        state.invalid.push(body);
+        res.writeHead(400).end('bad request');
+        return;
+      }
       inFlight++;
       state.maxInFlight = Math.max(state.maxInFlight, inFlight);
       setTimeout(() => {
         inFlight--;
         if (state.fail || (tin && RD_FIXTURE_DOWN.has(tin))) {
           res.writeHead(500, { 'Content-Type': 'text/plain' }).end('Server Error');
+          return;
+        }
+        if (state.huge) {
+          res
+            .writeHead(200, { 'Content-Type': 'application/soap+xml; charset=utf-8' })
+            .end(`<x>${'a'.repeat(300 * 1024)}</x>`);
           return;
         }
         const xml =
@@ -76,6 +103,15 @@ export async function startMockRd(): Promise<MockRd> {
     set fail(v) {
       state.fail = v;
     },
+    get huge() {
+      return state.huge;
+    },
+    set huge(v) {
+      state.huge = v;
+    },
+    get invalid() {
+      return state.invalid;
+    },
     get delayMs() {
       return state.delayMs;
     },
@@ -90,6 +126,8 @@ export async function startMockRd(): Promise<MockRd> {
     },
     reset() {
       state.fail = false;
+      state.huge = false;
+      state.invalid = [];
       state.delayMs = 0;
       state.requests = [];
       state.maxInFlight = 0;

@@ -51,6 +51,8 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
   const [busy, setBusy] = useState(false);
   /** ย้อนจากขั้น 3 มาแก้ข้อมูลบริษัท */
   const [editCompany, setEditCompany] = useState(false);
+  /** ย้อนจากขั้น 2 ไปดูขั้น 1 (อ่านอย่างเดียว — บัญชียืนยันแล้ว) ตามปุ่ม "ย้อนกลับ" ของต้นแบบ */
+  const [viewAccount, setViewAccount] = useState(false);
   const timer = useRef<number | undefined>(undefined);
 
   const startTimer = (n: number) => {
@@ -97,7 +99,10 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const step = session?.step === 3 && editCompany ? 2 : (session?.step ?? 1);
+  const realStep = session?.step === 3 && editCompany ? 2 : (session?.step ?? 1);
+  const step = realStep === 2 && viewAccount ? 1 : realStep;
+  /** ขั้น 1 แบบอ่านอย่างเดียว (ยืนยันแล้ว) */
+  const accountRO = step === 1 && realStep > 1;
   const otpSent = !!session && session.status === 'account_pending_otp' && !editing;
   const channel = session?.otp?.channel ?? DEFAULT_CHANNEL;
   const sms = channel === 'sms';
@@ -118,7 +123,7 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
   };
   const company = useCompanyStep({
     session,
-    active: step === 2,
+    active: realStep === 2,
     onSession: (s) => {
       setSession(s);
       if (s.status === 'company_submitted') setEditCompany(false);
@@ -382,7 +387,9 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
                         {x.pre && <span className="su-input__pre">{x.pre}</span>}
                         <input
                           type={x.type}
-                          value={f[x.k]}
+                          value={accountRO && x.k === 'pw' ? '••••••••••••' : f[x.k]}
+                          readOnly={accountRO}
+                          aria-readonly={accountRO || undefined}
                           placeholder={x.ph}
                           autoComplete={x.ac}
                           inputMode={x.k === 'phone' ? 'numeric' : 'text'}
@@ -487,6 +494,11 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
                 {t('su.back')}
               </button>
             )}
+            {step === 2 && (
+              <button type="button" className="su-back" onClick={() => setViewAccount(true)}>
+                {t('su.back')}
+              </button>
+            )}
             {step === 3 && (
               <button type="button" className="su-back" onClick={() => setEditCompany(true)}>
                 {t('su.back')}
@@ -503,7 +515,12 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
                 {t('su.next')}
               </button>
             )}
-            {step === 1 && (
+            {accountRO && (
+              <button type="button" className="su-next" onClick={() => setViewAccount(false)}>
+                {t('su.next')}
+              </button>
+            )}
+            {step === 1 && !accountRO && (
               <button
                 type="button"
                 className="su-next"

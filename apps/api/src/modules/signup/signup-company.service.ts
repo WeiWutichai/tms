@@ -1,8 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma, SignupSession } from '@prisma/client';
 import { ProblemException } from '../../common/problem';
 import { PrismaService } from '../../db/prisma.service';
-import { putFileLocked } from '../../pdf/file-store';
+import { defaultFileStore, putFileLocked } from '../../pdf/file-store';
 import { EXT, sniffMime } from '../documents/mime';
 import { CompanyLookupService, type LookupOutcome } from './company-lookup/company-lookup.service';
 import { ADDRESS_KEYS, type CompanyAddress, type RegistryCompany } from './company-lookup/types';
@@ -15,14 +15,15 @@ import { sessionByToken, viewOf, withJoinName, type SignupSessionView } from './
  * - ค้นหา: checksum (DTO) → dedup (taxId, branchCode) → RD VAT → RD TIN (CompanyLookupService) · เรียกได้หลังยืนยัน OTP เท่านั้น
  * - ส่งขั้น 2: ตรวจซ้ำทุกอย่างฝั่ง server (เลขซ้ำ = 409 company_exists) → ผลตรวจ auto_vat / pending_manual / pending_verification
  *   → `company_submitted` (ขั้น 3 = T05 สร้าง tenant ตามผลนี้ + นโยบาย `signup.approvalPolicy`)
- * - pending_manual (ไม่จด VAT / ไม่พบในฐาน RD) ต้องแนบหนังสือรับรองบริษัท (PDF/JPG/PNG ≤ 10 MB — ตรวจ magic bytes)
+ * - pending_manual (PLT-021: มีเลขในฐาน RD แต่ไม่จด VAT) ต้องแนบหนังสือรับรองบริษัท (PDF/JPG/PNG ≤ 10 MB — ตรวจ magic bytes)
+ *   เป็นสถานะย่อยของขั้นสมัคร — T05 แปลงเป็น tenant `pending_verification` (PLT-022) · ไม่พบเลขใน RD = pending_verification แนบได้ไม่บังคับ (spec §2 ข้อ 8)
+ * - ค้นหา + ส่งขั้น 2 + คำขอเข้าร่วม นับรวม ≤ 20 ครั้ง/การสมัคร · ส่งขั้น 2/คำขอเข้าร่วมต้องใช้เลขที่ค้นล่าสุด
  * - ยอมรับข้อกำหนด + นโยบาย: เก็บเวอร์ชัน + เวลา + IP
  *
  * [DECISION — lead 27 พ.ย. 2569, ย้อนได้]
  * - ชื่อ "ตรง" (PLT-022) = เท่ากันหลังตัดช่องว่าง/จุด และคำนำหน้า-ท้ายนิติบุคคล (บริษัท, บจก., บมจ., ห้างหุ้นส่วนจำกัด/สามัญ, หจก., หสน., จำกัด, (มหาชน))
- * - RD ค้นไม่ได้ (ล่ม/ปิดวงจร/ปิดผู้ให้บริการ) และบุคคลธรรมดา → pending_verification (ไม่บังคับหนังสือรับรอง — แนบได้)
+ * - RD ค้นไม่ได้ (ล่ม/ปิดวงจร/ปิดผู้ให้บริการ), ไม่พบ และบุคคลธรรมดา → pending_verification (ไม่บังคับหนังสือรับรอง — แนบได้)
  * - ที่อยู่: เลขที่ แขวง/ตำบล เขต/อำเภอ จังหวัด รหัสไปรษณีย์ บังคับ · หมู่ ซอย ถนน ว่างได้
- * - ค้นหาได้ ≤ 20 ครั้งต่อการสมัคร (กันไล่เลข) — เกิน = 429 signup_lookup_limit (กรอกเองต่อได้)
  * - ย้อนกลับมาแก้ขั้น 2 ได้ระหว่าง `company_submitted` (ยังไม่สร้าง tenant)
  */
 export const LOOKUPS_PER_SESSION = 20;
@@ -63,7 +64,8 @@ function verificationOf(
     case 'tin_exists':
       return { status: 'pending_manual', source: 'rd_tin', reason: 'rd_vat_not_found_tin_exists' };
     case 'not_found':
-      return { status: 'pending_manual', source: 'rd_tin', reason: 'rd_not_found' };
+      // spec/01 §2 ข้อ 8 "ไม่พบเลขใน RD → ให้กรอกเอง + แจ้ง 'จะตรวจภายหลัง'" — หนังสือรับรองไม่บังคับ (แนบได้)
+      return { status: 'pending_verification', source: 'rd_tin', reason: 'rd_not_found' };
     case 'individual':
       return { status: 'pending_verification', source: null, reason: 'individual' };
     default:
@@ -85,8 +87,39 @@ export class SignupCompanyService {
     private readonly lookups: CompanyLookupService,
   ) {}
 
+  private readonly log = new Logger('Signup');
+
   private get db() {
     return this.prisma.platform;
+  }
+
+  /**
+   * นับเข้าเพดานต่อการสมัคร (ค้นหา + ส่งขั้น 2 + คำขอเข้าร่วม รวมกัน ≤ 20) — UPDATE แบบมีเงื่อนไข กันหลายแท็บพร้อมกันเกินเพดาน
+   */
+  private async countAttempt(
+    id: string,
+    now: number,
+    extra: Prisma.SignupSessionUpdateManyMutationInput = {},
+  ) {
+    const n = await this.db.signupSession.updateMany({
+      where: { id, lookupCount: { lt: LOOKUPS_PER_SESSION } },
+      data: { lookupCount: { increment: 1 }, lastActivityAt: new Date(now), ...extra },
+    });
+    if (n.count === 0) throw new ProblemException('signup_lookup_limit');
+  }
+
+  /** ส่งขั้น 2 / คำขอเข้าร่วม ต้องใช้เลขที่กด "ค้นหา" ล่าสุด — submit ไม่ใช่ช่องค้นเลขใหม่ */
+  private assertLookedUp(s: SignupSession, taxId: string) {
+    if (s.lastLookupTaxId !== taxId)
+      throw bad('taxId', 'lookup_required', 'press search for this tax ID first');
+  }
+
+  /** event ตาม spec/01 §2 ข้อ 7 — ตาราง domain_event ต้องมี tenant → ยังเป็น log โครงสร้าง (ตาราง event ระดับแพลตฟอร์ม = งานต่อ T05/P1-ST4-T01) */
+  private event(
+    type: 'signup.company_lookup' | 'signup.join_requested',
+    data: Record<string, unknown>,
+  ) {
+    this.log.log({ event: type, ...data });
   }
 
   private async editable(token: string | undefined, now: number) {
@@ -103,12 +136,11 @@ export class SignupCompanyService {
     const now = Date.now();
     const s = await this.editable(token, now);
     const branchCode = input.branchCode ?? '00000';
-    // นับก่อนค้น (เพดานต่อการสมัคร) — UPDATE แบบมีเงื่อนไข กันกดพร้อมกันหลายแท็บเกินเพดาน
-    const n = await this.db.signupSession.updateMany({
-      where: { id: s.id, lookupCount: { lt: LOOKUPS_PER_SESSION } },
-      data: { lookupCount: { increment: 1 }, lastActivityAt: new Date(now) },
+    // นับก่อนค้น + จำเลขที่ค้นล่าสุด (ส่งขั้น 2 / คำขอเข้าร่วมต้องใช้เลขนี้)
+    await this.countAttempt(s.id, now, {
+      lastLookupTaxId: input.taxId,
+      lastLookupBranchCode: branchCode,
     });
-    if (n.count === 0) throw new ProblemException('signup_lookup_limit');
     const base = {
       taxId: input.taxId,
       branchCode,
@@ -119,7 +151,8 @@ export class SignupCompanyService {
       source: null,
     };
     const dup = await this.lookups.duplicate(input.taxId, branchCode);
-    if (dup.duplicate)
+    if (dup.duplicate) {
+      this.event('signup.company_lookup', { sessionId: s.id, result: 'duplicate' });
       return {
         ...base,
         result: 'duplicate',
@@ -128,14 +161,22 @@ export class SignupCompanyService {
           branchLabel: dup.duplicate.branchLabel,
         },
       };
+    }
     const o = await this.lookups.lookup(input.taxId, branchCode, { sessionId: s.id });
+    this.event('signup.company_lookup', {
+      sessionId: s.id,
+      result: o.result,
+      source: o.source,
+      cached: o.cached,
+    });
     return {
       ...base,
       result: o.result,
       source: o.source,
       company: o.result === 'vat_found' ? (o.company as RegistryCompany) : null,
       sameTaxOtherBranch: dup.sameTaxOtherBranch,
-      requiresCertificate: o.result === 'tin_exists' || o.result === 'not_found',
+      // pending_manual (PLT-021): มีเลขในฐานสรรพากรแต่ไม่จด VAT → หนังสือรับรองบังคับ
+      requiresCertificate: o.result === 'tin_exists',
     };
   }
 
@@ -170,6 +211,11 @@ export class SignupCompanyService {
         },
       });
     });
+    // แทนไฟล์เดิม: ลบไฟล์เก่าหลัง commit แล้ว (ล้มเหลว = ค้างในโฟลเดอร์ของ session — ลบทั้งโฟลเดอร์วันที่ 30)
+    if (s.certificateFileKey && s.certificateFileKey !== u.certificateFileKey)
+      await defaultFileStore()
+        .remove(s.certificateFileKey)
+        .catch(() => undefined);
     return viewOf(u, now);
   }
 
@@ -182,6 +228,8 @@ export class SignupCompanyService {
     const now = Date.now();
     const s = await this.editable(token, now);
     const branchCode = body.branchType === 'hq' ? '00000' : body.branchCode!;
+    this.assertLookedUp(s, body.taxId);
+    await this.countAttempt(s.id, now);
     const dup = await this.lookups.duplicate(body.taxId, branchCode);
     if (dup.duplicate) throw new ProblemException('company_exists');
     // ใช้ผลค้นหาจาก cache (กด "ค้นหา" แล้ว) — ไม่มี/หมดอายุ/เปลี่ยนสาขา = ค้นใหม่ (ผ่าน breaker + log เดียวกัน)
@@ -231,6 +279,8 @@ export class SignupCompanyService {
     const now = Date.now();
     const s = await this.editable(token, now);
     const branchCode = body.branchCode ?? '00000';
+    this.assertLookedUp(s, body.taxId);
+    await this.countAttempt(s.id, now);
     const dup = await this.lookups.duplicate(body.taxId, branchCode);
     if (!dup.duplicate)
       throw bad('taxId', 'not_existing_company', 'no existing company for this tax ID');
@@ -244,6 +294,11 @@ export class SignupCompanyService {
         joinRequestedAt: new Date(now),
         lastActivityAt: new Date(now),
       },
+    });
+    this.event('signup.join_requested', {
+      sessionId: s.id,
+      kind: body.kind,
+      tenantId: dup.duplicate.tenantId,
     });
     return withJoinName(this.db, u, viewOf(u, now));
   }

@@ -92,7 +92,7 @@ export const LANDING_CATALOGS: Catalogs = {
     'su.s2.acc': 'โปรแกรมบัญชีที่ใช้',
     'su.s2.acc.none': 'ไม่มี',
     'su.s2.acc.express': 'Express',
-    'su.s2.acc.flow_account': 'FlowAccount',
+    'su.s2.acc.flowaccount': 'FlowAccount',
     'su.s2.acc.krs': 'KRS',
     'su.s2.acc.peak': 'PEAK',
     'su.s2.acc.sap_b1': 'SAP B1',

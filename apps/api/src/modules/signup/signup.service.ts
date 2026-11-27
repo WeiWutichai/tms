@@ -490,7 +490,8 @@ export async function resumeSignupByPassword(
 export async function signupMaintenance(
   db: Pick<PrismaClient, 'signupSession' | 'emailOutbox'>,
   now = Date.now(),
-  removeFile: (key: string) => Promise<void> = (key) => defaultFileStore().remove(key),
+  removeNamespace: (sessionId: string) => Promise<void> = (id) =>
+    defaultFileStore().removeNamespace(id),
 ): Promise<{ abandoned: number; erased: number; otpEmails: number; certificates: number }> {
   const abandoned = await db.signupSession.updateMany({
     where: {
@@ -503,23 +504,28 @@ export async function signupMaintenance(
     personalDataErasedAt: null,
     lastActivityAt: { lte: new Date(now - SIGNUP_ERASE_MS) },
   };
-  // P1-ST2-T04 ไฟล์หนังสือรับรองของการสมัครที่ถึงวันลบ → ลบไฟล์จริงก่อนล้างแถว (ไฟล์อยู่ในโฟลเดอร์ของ session — ไม่ใช้ร่วมกับใคร)
-  // T05 ย้ายไฟล์เข้า tenant ก่อนการสมัครเสร็จ (แถว completed ถูกลบเฉพาะสำเนาใน session)
+  // P1-ST2-T04 ไฟล์ของการสมัคร (หนังสือรับรอง ทุกฉบับรวมที่ถูกแทน) อยู่ในโฟลเดอร์ `<sessionId>/` → ลบทั้งโฟลเดอร์
+  // ล้าง key **หลังลบไฟล์สำเร็จเท่านั้น** — ลบไม่ได้ = คงแถวไว้ (ไม่ลบข้อมูลรอบนี้) รอรอบถัดไป
+  // T05 ต้องย้ายไฟล์เข้า tenant ก่อนการสมัครเสร็จ (โฟลเดอร์ของ session ถูกลบวันที่ 30)
   const withFile = await db.signupSession.findMany({
     where: { ...eraseWhere, certificateFileKey: { not: null } },
-    select: { certificateFileKey: true },
+    select: { id: true },
   });
   let certificates = 0;
   for (const r of withFile) {
     try {
-      await removeFile(r.certificateFileKey!);
+      await removeNamespace(r.id);
+      await db.signupSession.update({
+        where: { id: r.id },
+        data: { certificateFileKey: null, certificateFilename: null },
+      });
       certificates++;
     } catch {
-      /* ลบไม่ได้รอบนี้ — key ถูกล้างจากแถว; ไฟล์ค้างจะถูกเก็บกวาดด้วยมือ (log ของ worker) */
+      /* ลบไม่ได้รอบนี้ — แถวยังมี key จึงไม่ถูกลบข้อมูล (เงื่อนไขด้านล่าง) ลองใหม่รอบหน้า */
     }
   }
   const erased = await db.signupSession.updateMany({
-    where: eraseWhere,
+    where: { ...eraseWhere, certificateFileKey: null },
     data: {
       fullName: null,
       email: null,
@@ -533,8 +539,9 @@ export async function signupMaintenance(
       legalName: null,
       address: Prisma.DbNull,
       termsAcceptedIp: null,
-      certificateFileKey: null,
       certificateFilename: null,
+      lastLookupTaxId: null,
+      lastLookupBranchCode: null,
       personalDataErasedAt: new Date(now),
     },
   });

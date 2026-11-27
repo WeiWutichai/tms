@@ -1,9 +1,9 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaClient } from '@prisma/client';
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { newOpaqueToken } from '../src/auth/tokens';
 import {
   BREAKER_OPEN_MS,
@@ -81,6 +81,8 @@ describe('P1-ST2-T04 สมัครขั้น 2 ข้อมูลบริ�
     // log เป็น append-only (UPDATE/DELETE ไม่ได้) — แต่ละ test เริ่มจากวงจรปิดด้วย TRUNCATE (owner)
     await owner.$executeRawUnsafe('TRUNCATE company_lookup_log, company_lookup');
   });
+  // mock SOAP ตรวจรูปคำขอ (operation + anonymous) — ทุก test ต้องไม่มีคำขอผิดรูป
+  afterEach(() => expect(rd.invalid).toEqual([]));
   afterAll(async () => {
     for (const k of ['COMPANY_LOOKUP_PROVIDER', 'RD_VAT_URL', 'RD_TIN_URL', 'RD_LOOKUP_TIMEOUT_MS'])
       delete process.env[k];
@@ -257,11 +259,15 @@ describe('P1-ST2-T04 สมัครขั้น 2 ข้อมูลบริ�
     const { token } = await verified();
     const tax = jur(1);
     const r = await lookup(token, tax);
-    expect(r.body).toMatchObject({ result: 'not_found', requiresCertificate: true });
+    // ไม่พบใน RD → กรอกเอง หนังสือรับรองไม่บังคับ (spec/01 §2 ข้อ 8) → pending_verification
+    expect(r.body).toMatchObject({ result: 'not_found', requiresCertificate: false });
+    const sub = await submit(token, submitBody(tax, { legalName: 'บริษัท ไม่พบ จำกัด' }));
+    expect(sub.status).toBe(200);
+    expect(sub.body.company.verificationStatus).toBe('pending_verification');
     const c = await db.companyLookup.findFirstOrThrow({ where: { taxId: tax } });
     expect(c.expiresAt.getTime() - c.fetchedAt.getTime()).toBe(LOOKUP_NOT_FOUND_TTL_MS);
     await lookup(token, tax);
-    expect(rd.requests).toHaveLength(2); // จาก cache
+    expect(rd.requests).toHaveLength(2); // จาก cache (submit ก็ใช้ cache)
     await db.companyLookup.update({
       where: { id: c.id },
       data: {
@@ -315,7 +321,15 @@ describe('P1-ST2-T04 สมัครขั้น 2 ข้อมูลบริ�
     await db.company.create({ data: { tenantId: sb.id, legalName: 'sandbox', taxId: sbTax } });
     expect((await lookup(token, sbTax)).body.result).not.toBe('duplicate');
 
-    // "ส่งคำขอเข้าร่วมบริษัท" → บันทึกใน session (ไม่สร้างบริษัท)
+    // "ส่งคำขอเข้าร่วมบริษัท" → บันทึกใน session (ไม่สร้างบริษัท) — ต้องเป็นเลขที่ค้นล่าสุด
+    const joinBody = { taxId: tax, kind: 'join' };
+    const notLast = await http()
+      .post('/v1/public/signup/session/company/join-request')
+      .set('X-Signup-Token', token)
+      .send(joinBody);
+    expect(notLast.status).toBe(422);
+    expect(notLast.body.errors[0]).toMatchObject({ field: 'taxId', code: 'lookup_required' });
+    await lookup(token, tax);
     const j = await http()
       .post('/v1/public/signup/session/company/join-request')
       .set('X-Signup-Token', token)
@@ -329,11 +343,13 @@ describe('P1-ST2-T04 สมัครขั้น 2 ข้อมูลบริ�
     expect(row.joinRequestKind).toBe('join');
     const g = await http().get('/v1/public/signup/session').set('X-Signup-Token', token);
     expect(g.body.joinRequest.companyName).toBe('บริษัท ศรีไทยขนส่ง จำกัด');
+    await lookup(token, jur(4));
     const notDup = await http()
       .post('/v1/public/signup/session/company/join-request')
       .set('X-Signup-Token', token)
       .send({ taxId: jur(4), kind: 'contact' });
     expect(notDup.status).toBe(422);
+    expect(notDup.body.errors[0]).toMatchObject({ code: 'not_existing_company' });
   });
 
   it('RD ล่ม 5 ครั้ง → circuit breaker 5 นาที: ทุกเคส unavailable / pending_verification โดยไม่ยิง RD (mock SOAP 500)', async () => {
@@ -404,7 +420,7 @@ describe('P1-ST2-T04 สมัครขั้น 2 ข้อมูลบริ�
       token,
       submitBody(FOUND, {
         legalName: 'บจก. ตัวอย่างขนส่ง',
-        accountingSoftware: 'flow_account',
+        accountingSoftware: 'flowaccount',
         marketingOptIn: true,
       }),
     );
@@ -419,7 +435,7 @@ describe('P1-ST2-T04 สมัครขั้น 2 ข้อมูลบริ�
         address: ADDRESS,
         fleetSizeOwn: 20,
         fleetSizeSubcon: 8,
-        accountingSoftware: 'flow_account',
+        accountingSoftware: 'flowaccount',
         verificationStatus: 'auto_vat',
         verificationSource: 'rd_vat',
         marketingOptIn: true,
@@ -454,6 +470,7 @@ describe('P1-ST2-T04 สมัครขั้น 2 ข้อมูลบริ�
 
   it('ไม่จด VAT (tin_exists) → ต้องแนบหนังสือรับรอง (pending_manual) · ตรวจชนิดไฟล์จากเนื้อไฟล์', async () => {
     const { token, id } = await verified();
+    await lookup(token, TIN_ONLY);
     const noCert = await submit(
       token,
       submitBody(TIN_ONLY, { legalName: 'บริษัท ไม่จดแวต จำกัด' }),
@@ -552,10 +569,114 @@ describe('P1-ST2-T04 สมัครขั้น 2 ข้อมูลบริ�
     }
   });
 
+  it('ส่งขั้น 2 / คำขอเข้าร่วมต้องใช้เลขที่ค้นล่าสุด (submit ไม่ใช่ช่องค้นเลขใหม่) · นับรวมเพดาน 20', async () => {
+    const { token, id } = await verified();
+    const never = await submit(token, submitBody(FOUND));
+    expect(never.status).toBe(422);
+    expect(never.body.errors[0]).toMatchObject({ field: 'taxId', code: 'lookup_required' });
+    await lookup(token, FOUND);
+    const other = await submit(token, submitBody(TIN_ONLY));
+    expect(other.body.errors[0]).toMatchObject({ code: 'lookup_required' });
+    expect(rd.requests.map((r) => r.tin)).toEqual([FOUND]); // ไม่มีการค้น TIN_ONLY
+    // ค้น 1 + ส่ง 1 = 2 · ตั้งให้เหลือ 1 ครั้ง → ส่งได้ 1 ครั้ง แล้ว 429 (ส่ง/คำขอเข้าร่วม)
+    expect((await db.signupSession.findUniqueOrThrow({ where: { id } })).lookupCount).toBe(1);
+    await db.signupSession.update({ where: { id }, data: { lookupCount: 19 } });
+    expect((await submit(token, submitBody(FOUND))).status).toBe(200);
+    const over = await submit(token, submitBody(FOUND));
+    expect(over.status).toBe(429);
+    expect(over.body.code).toBe('signup_lookup_limit');
+    const join = await http()
+      .post('/v1/public/signup/session/company/join-request')
+      .set('X-Signup-Token', token)
+      .send({ taxId: FOUND, kind: 'contact' });
+    expect(join.status).toBe(429);
+  });
+
+  it('breaker ตรวจซ้ำหลังได้คิว: ค้นพร้อมกัน 8 เลขขณะ RD ล่ม → คำขอที่รอคิวไม่ถูกส่งเมื่อครบ 5 ครั้ง', async () => {
+    rd.fail = true;
+    rd.delayMs = 120;
+    const sessions = await Promise.all(Array.from({ length: 8 }, () => verified()));
+    const rs = await Promise.all(sessions.map((s, i) => lookup(s.token, jur(60 + i))));
+    expect(rs.map((r) => r.body.result)).toEqual(Array(8).fill('unavailable'));
+    // gate 2 คำขอ: ส่งได้อย่างมาก 6 (คู่ที่ 3 ได้คิวก่อนครบ 5) — ที่เหลือเห็นวงจรเปิดแล้ว
+    expect(rd.requests.length).toBeGreaterThanOrEqual(5);
+    expect(rd.requests.length).toBeLessThanOrEqual(6);
+    expect(await logs()).toHaveLength(rd.requests.length);
+  });
+
+  it('breaker ระหว่าง VAT → TIN: วงจรเปิดหลัง VAT ไม่พบ → ไม่ยิง TIN', async () => {
+    const svc = app.get(CompanyLookupService);
+    // ลง log ล้มเหลว 5 ครั้ง "ระหว่าง" VAT กับ TIN — ใช้ provider จริงแต่แทรกผ่าน hook ของ breaker
+    const orig = svc.breakerOpenUntil.bind(svc);
+    let calls = 0;
+    svc.breakerOpenUntil = async (p: string, now?: number) => {
+      calls++;
+      if (calls === 3) {
+        for (let i = 0; i < 5; i++)
+          await db.companyLookupLog.create({
+            data: {
+              agency: 'RD',
+              service: 'vat',
+              provider: 'rd',
+              taxId: jur(70 + i),
+              outcome: 'error',
+              durationMs: 1,
+              errorCode: 'http_error',
+            },
+          });
+      }
+      return orig(p, now);
+    };
+    try {
+      const { token } = await verified();
+      const r = await lookup(token, jur(80));
+      expect(r.body.result).toBe('unavailable');
+      expect(rd.requests.map((x) => x.service)).toEqual(['vat']);
+    } finally {
+      svc.breakerOpenUntil = orig;
+    }
+  });
+
+  it('คำตอบ RD ใหญ่เกิน 256 KB → bad_response (นับล้มเหลว)', async () => {
+    rd.huge = true;
+    const { token } = await verified();
+    const r = await lookup(token, jur(90));
+    expect(r.body.result).toBe('unavailable');
+    expect((await logs())[0]).toMatchObject({ outcome: 'error', errorCode: 'bad_response' });
+  });
+
+  it('cache แยกตามผู้ให้บริการ: ผลของ rd ไม่ถูกใช้เมื่อเปลี่ยนเป็น mock', async () => {
+    const { token } = await verified();
+    await lookup(token, FOUND);
+    process.env.COMPANY_LOOKUP_PROVIDER = 'mock';
+    try {
+      expect((await lookup(token, FOUND)).body.result).toBe('vat_found');
+    } finally {
+      process.env.COMPANY_LOOKUP_PROVIDER = 'rd';
+    }
+    expect(rd.requests).toHaveLength(1);
+    const rows = await db.companyLookup.findMany({ where: { taxId: FOUND } });
+    expect(rows.map((r) => r.provider).sort()).toEqual(['mock', 'rd']);
+  });
+
+  it('หนังสือรับรองเกิน 10 MB → 413 problem+json (body-parser)', async () => {
+    const { token } = await verified();
+    const r = await upload(token, Buffer.alloc(11 * 1024 * 1024, 0x20));
+    expect(r.status).toBe(413);
+    expect(r.headers['content-type']).toContain('application/problem+json');
+    expect(r.body.code).toBe('payload_too_large');
+  });
+
   it('งานรายวัน: raw response > 90 วันถูกล้าง · ลบข้อมูลส่วนบุคคลวันที่ 30 ล้างข้อมูลขั้น 2 + ลบไฟล์หนังสือรับรอง', async () => {
     const { token, id } = await verified();
     await lookup(token, TIN_ONLY);
+    const root = process.env.FILES_ROOT ?? join(process.cwd(), '.data', 'files');
     await upload(token, PDF);
+    const first = (await db.signupSession.findUniqueOrThrow({ where: { id } })).certificateFileKey!;
+    expect(existsSync(join(root, first))).toBe(true);
+    // แทนไฟล์ → ไฟล์เดิมถูกลบหลัง commit
+    await upload(token, Buffer.concat([PDF, Buffer.from('% v2\n')]), 'ฉบับใหม่.pdf');
+    expect(existsSync(join(root, first))).toBe(false);
     await submit(token, submitBody(TIN_ONLY));
     const c = await db.companyLookup.findFirstOrThrow({ where: { taxId: TIN_ONLY } });
     await db.companyLookup.update({
@@ -568,8 +689,23 @@ describe('P1-ST2-T04 สมัครขั้น 2 ข้อมูลบริ�
     expect(c2.rawPurgedAt).not.toBeNull();
 
     const key = (await db.signupSession.findUniqueOrThrow({ where: { id } })).certificateFileKey!;
-    const path = join(process.env.FILES_ROOT ?? join(process.cwd(), '.data', 'files'), key);
+    expect(key).not.toBe(first);
+    const path = join(root, key);
     expect(existsSync(path)).toBe(true);
+    // ไฟล์ค้าง (เช่น ลบไฟล์เก่าไม่สำเร็จ) ในโฟลเดอร์เดียวกันต้องถูกลบด้วย
+    writeFileSync(join(root, id, 'stale.pdf'), PDF);
+    // ลบโฟลเดอร์ไม่สำเร็จ → ไม่ล้าง key ไม่ลบข้อมูลรอบนี้
+    await db.signupSession.update({
+      where: { id },
+      data: { lastActivityAt: new Date(Date.now() - 31 * 86_400_000) },
+    });
+    const failed = await signupMaintenance(db, Date.now(), async () => {
+      throw new Error('disk');
+    });
+    expect(failed.certificates).toBe(0);
+    const kept = await db.signupSession.findUniqueOrThrow({ where: { id } });
+    expect(kept.certificateFileKey).toBe(key);
+    expect(kept.personalDataErasedAt).toBeNull();
     await db.signupSession.update({
       where: { id },
       data: { lastActivityAt: new Date(Date.now() - 31 * 86_400_000) },
@@ -577,6 +713,7 @@ describe('P1-ST2-T04 สมัครขั้น 2 ข้อมูลบริ�
     const m = await signupMaintenance(db);
     expect(m.certificates).toBeGreaterThanOrEqual(1);
     expect(existsSync(path)).toBe(false);
+    expect(existsSync(join(root, id))).toBe(false);
     const e = await db.signupSession.findUniqueOrThrow({ where: { id } });
     expect(e).toMatchObject({
       status: 'abandoned',
@@ -613,6 +750,57 @@ describe('RD SOAP adapter (parser)', () => {
     expect(soapField(x, 'username')).toBe('anonymous');
     expect(soapField(x, 'TIN')).toBe('0105567153766');
     expect(soapField(x, 'BranchNumber')).toBe('1');
+    expect(x).toContain('<Service xmlns=');
+    expect(x).toContain('<Name></Name>');
+  });
+  it('แปลงผลแบบที่ borisat เห็น (เขียนมือ: prefix soap, ช่องว่าง/ขึ้นบรรทัด, anyType มี xsi:type, nil)', () => {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <soap:Body>
+    <ServiceResponse xmlns="https://rdws.rd.go.th/serviceRD3/vatserviceRD3">
+      <ServiceResult>
+        <vNID><anyType xsi:type="xsd:string">0105567153766</anyType></vNID>
+        <vtitleName><anyType xsi:type="xsd:string">บริษัท</anyType></vtitleName>
+        <vName>
+          <anyType xsi:type="xsd:string">ตัวอย่าง  ขนส่ง จำกัด</anyType>
+        </vName>
+        <vSurname><anyType xsi:type="xsd:string">-</anyType></vSurname>
+        <vBranchName><anyType xsi:type="xsd:string">สำนักงานใหญ่</anyType></vBranchName>
+        <vBranchNumber><anyType xsi:type="xsd:int">0</anyType></vBranchNumber>
+        <vBuildingName><anyType xsi:type="xsd:string">ทาวเวอร์ เอ</anyType></vBuildingName>
+        <vFloorNumber><anyType xsi:type="xsd:string">12</anyType></vFloorNumber>
+        <vVillageName><anyType xsi:type="xsd:string">-</anyType></vVillageName>
+        <vRoomNumber><anyType xsi:type="xsd:string">-</anyType></vRoomNumber>
+        <vHouseNumber><anyType xsi:type="xsd:string">1/23</anyType></vHouseNumber>
+        <vMooNumber><anyType xsi:type="xsd:string">-</anyType></vMooNumber>
+        <vSoiName><anyType xsi:type="xsd:string">สุขุมวิท 21</anyType></vSoiName>
+        <vStreetName><anyType xsi:type="xsd:string">สุขุมวิท</anyType></vStreetName>
+        <vThambol><anyType xsi:type="xsd:string">คลองเตยเหนือ</anyType></vThambol>
+        <vAmphur><anyType xsi:type="xsd:string">วัฒนา</anyType></vAmphur>
+        <vProvince><anyType xsi:type="xsd:string">กรุงเทพมหานคร</anyType></vProvince>
+        <vPostCode><anyType xsi:type="xsd:string">10110</anyType></vPostCode>
+        <vBusinessFirstDate><anyType xsi:type="xsd:string">2024/5/2</anyType></vBusinessFirstDate>
+        <vmsgerr xsi:nil="true" />
+      </ServiceResult>
+    </ServiceResponse>
+  </soap:Body>
+</soap:Envelope>`;
+    expect(parseVatResponse(xml)).toEqual({
+      legalName: 'บริษัท ตัวอย่าง ขนส่ง จำกัด',
+      branchNumber: 0,
+      branchName: 'สำนักงานใหญ่',
+      address: {
+        houseNo: '1/23 อาคารทาวเวอร์ เอ ชั้น 12',
+        moo: '',
+        soi: 'สุขุมวิท 21',
+        street: 'สุขุมวิท',
+        subDistrict: 'คลองเตยเหนือ',
+        district: 'วัฒนา',
+        province: 'กรุงเทพมหานคร',
+        postalCode: '10110',
+      },
+      vatRegisteredSince: '2024-05-02',
+    });
   });
   it('แปลงผลลัพธ์: anyType, entity, "-" = ว่าง, ไม่พบ = null, SOAP Fault = unavailable', () => {
     const xml = vatResponseXml('0105567153766', {

@@ -23,7 +23,9 @@ import {
  * - ช่องแนบหนังสือรับรอง (ต้นแบบไม่มี — PO 24 พ.ย. ประกอบจากโครงสร้างต้นแบบ): แสดงเมื่อค้นแล้วไม่พบผู้จด VAT
  *   บังคับเมื่อ pending_manual · ปุ่มสไตล์ "ค้นหา"
  * - checksum (PLT-020) ตรวจทันทีเมื่อพิมพ์ครบ 13 หลัก — ผิด = error ไม่ส่งคำขอ
- * - จำนวนรถเริ่มว่าง (ค่า 20/8 ของต้นแบบเป็นข้อมูลตัวอย่าง) · ไม่มีปุ่ม "ย้อนกลับ" ที่ขั้น 2 (บัญชียืนยันแล้ว แก้ไม่ได้)
+ * - จำนวนรถเริ่มว่าง — ค่า 20/8 ของต้นแบบใช้เป็น placeholder · "ย้อนกลับ" ที่ขั้น 2 แสดงขั้น 1 แบบอ่านอย่างเดียว (SignupMain)
+ * - หนังสือรับรองบังคับเฉพาะ tin_exists (pending_manual — PLT-021) · ไม่พบ/ค้นไม่ได้/บุคคลธรรมดา แนบได้ไม่บังคับ
+ * - ธง same_tax_other_branch (PLT-022 "แนะนำเพิ่มสาขาใน tenant เดิม") ไม่แสดง — ต้นแบบไม่มีช่อง (spec/12 §3)
  */
 type Status = CompanyLookupResult['result'] | 'manual';
 const NOTE: Partial<Record<Status, MessageKey>> = {
@@ -444,6 +446,7 @@ export function useCompanyStep(opts: {
               <input
                 className={`${input('own')} su-num`}
                 value={own}
+                placeholder="20"
                 inputMode="numeric"
                 onChange={(e) => {
                   setOwn(e.target.value.replace(/\D/g, '').slice(0, 4));
@@ -456,6 +459,7 @@ export function useCompanyStep(opts: {
               <input
                 className={`${input('sub')} su-num`}
                 value={sub}
+                placeholder="8"
                 inputMode="numeric"
                 onChange={(e) => {
                   setSub(e.target.value.replace(/\D/g, '').slice(0, 4));

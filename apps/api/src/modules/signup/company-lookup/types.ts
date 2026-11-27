@@ -51,7 +51,8 @@ export interface TinAnswer {
 /** ความล้มเหลวของปลายทาง (timeout / 5xx / เครือข่าย / ตอบผิดรูป) — นับใน circuit breaker */
 export class RegistryUnavailable extends Error {
   constructor(
-    readonly code: 'timeout' | 'http_error' | 'network' | 'bad_response' | 'soap_fault',
+    readonly code:
+      'timeout' | 'http_error' | 'network' | 'bad_response' | 'soap_fault' | 'breaker_open',
     readonly httpStatus: number | null = null,
   ) {
     super(code);
