@@ -17,6 +17,7 @@ import {
 import {
   BotProtected,
   OtpSendLimit,
+  phoneE164,
   recipientKey,
   SignupAttemptLimit,
 } from '../src/http/public-entry/public-entry.guard';
@@ -147,6 +148,14 @@ describe('P1-ST2-T08 ป้องกันทางเข้าสาธาร�
     expect(keys).toMatch(/su:otp:/);
     expect(keys).not.toMatch(/203\.0\.113\.77|0811112222|811112222/);
     expect(recipientKey('0811112222')).toBe(recipientKey('+66 81 111 2222'));
+    expect(recipientKey('0811112222')).toBe(recipientKey('0066811112222'));
+    // เบอร์บ้าน: 02 / +66 2 เป็นเบอร์เดียวกัน แต่ต่างจากมือถือที่เลขท้ายเหมือนกัน และต่างจากเบอร์ต่างประเทศ
+    expect(phoneE164('02-123-4567')).toBe('6621234567');
+    expect(recipientKey('02-123-4567')).toBe(recipientKey('+66 2 123 4567'));
+    expect(recipientKey('021234567')).not.toBe(recipientKey('021234568'));
+    expect(recipientKey('0621234567')).not.toBe(recipientKey('021234567'));
+    expect(recipientKey('+44 20 1234 5678')).not.toBe(recipientKey('020 1234 5678'));
+    expect(recipientKey(' A@Example.test ')).toBe(recipientKey('a@example.test'));
   });
 
   it('ด่านกันบอท: provider ปฏิเสธ → 403 bot_check_failed (ไม่ถึง handler) · ผ่าน → 201 · ได้ token จาก X-Bot-Token + action ของขั้น', async () => {
@@ -265,6 +274,15 @@ describe('BotProtection adapters (ไม่มีการเรียกออ�
         action: 'signup',
       }),
     ).toEqual({ ok: false, reason: 'unavailable' });
+    const host = (h: string) =>
+      new TurnstileBotProtection(
+        's',
+        fake({ success: true, hostname: h }),
+        undefined,
+        'tms.example',
+      ).verify({ token: 't', action: 'signup' });
+    expect(await host('tms.example')).toEqual({ ok: true });
+    expect(await host('evil.example')).toEqual({ ok: false, reason: 'invalid' });
     const n = calls.length;
     expect(
       await new TurnstileBotProtection('s', fake({ success: true })).verify({ action: 'signup' }),

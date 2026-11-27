@@ -32,6 +32,12 @@ export interface LandingConfig {
   links: { about?: string; privacy?: string; terms?: string };
   /** ปลายทางปุ่ม "ทดลองใช้ฟรี 30 วัน" — หน้าสมัคร (P1-ST2-T03) */
   signupPath: string;
+  /**
+   * หน้าสมัคร (P1-ST2-T03) / หน้าราคา (P1-ST2-T02) เปิดแล้วหรือยัง — ยังไม่เปิด = ปุ่ม/ลิงก์แสดงช่องทางติดต่อแทน
+   * [DECISION — lead 27 พ.ย. 2569, ย้อนได้] ค่าเริ่ม false · เปิดก่อน go-live (checklist §5)
+   */
+  signupLive: boolean;
+  pricingPageLive: boolean;
 }
 
 export function readLandingConfig(e: Record<string, string | undefined> = env): LandingConfig {
@@ -50,6 +56,8 @@ export function readLandingConfig(e: Record<string, string | undefined> = env): 
       terms: e.VITE_PUBLIC_TERMS_URL || undefined,
     },
     signupPath: '/signup',
+    signupLive: e.VITE_SIGNUP_LIVE === 'true',
+    pricingPageLive: e.VITE_PRICING_PAGE_LIVE === 'true',
   };
 }
 

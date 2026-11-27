@@ -93,11 +93,22 @@ describe('Landing (P1-ST2-T01)', () => {
   });
 
   it('เปิดราคา (ค่าจาก P1-ST1-T04/T02): เมนูราคา, ดูราคา, แถบ "เริ่ม ฿… ต่อรถต่อเดือน", FAQ คิดเงิน', () => {
-    renderLanding({ ...readLandingConfig({}), pricingVisible: true, fromPrice: '350' });
+    const { unmount } = renderLanding({
+      ...readLandingConfig({ VITE_PRICING_PAGE_LIVE: 'true' }),
+      pricingVisible: true,
+      fromPrice: '350',
+    });
     expect(screen.getByRole('button', { name: 'ราคา' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'ดูราคา →' })).toHaveAttribute('href', '/pricing');
     expect(screen.getByText('เริ่ม ฿350 ต่อรถต่อเดือน')).toBeTruthy();
     expect(screen.getByRole('button', { name: /คิดเงินอย่างไร/ })).toBeInTheDocument();
+    unmount();
+    // หน้าราคา (P1-ST2-T02) ยังไม่เปิด → ลิงก์ไม่พาไป /pricing แต่แสดงข้อความแทน
+    renderLanding({ ...readLandingConfig({}), pricingVisible: true, fromPrice: '350' });
+    const link = screen.getByRole('link', { name: 'ดูราคา →' });
+    expect(link).toHaveAttribute('href', '#contact');
+    fireEvent.click(link);
+    expect(screen.getByRole('status')).toHaveTextContent('เปิดรับสมัครเร็ว ๆ นี้');
   });
 
   it('ระบบที่เชื่อมได้มาจาก config (เปิด Express เมื่อยืนยันกับ ESG แล้ว — ไม่ต้องแก้โค้ด)', () => {
@@ -126,17 +137,25 @@ describe('Landing (P1-ST2-T01)', () => {
     );
   });
 
-  it('ปุ่มทดลองใช้ → /signup, เข้าสู่ระบบ → /login (โหลดหน้าใหม่ — landing เป็น bundle แยก)', () => {
+  it('หน้าสมัครยังไม่เปิด (ค่าเริ่ม): ปุ่มทดลองใช้แสดงช่องทางติดต่อ ไม่พาไป /signup · เปิดแล้ว (VITE_SIGNUP_LIVE) → /signup', () => {
     const go = vi.spyOn(landingNav, 'go').mockImplementation(() => undefined);
-    renderLanding();
+    const { unmount } = renderLanding(
+      readLandingConfig({ VITE_PUBLIC_CONTACT_EMAIL: 'sales@example.test' }),
+    );
     fireEvent.click(screen.getAllByRole('button', { name: 'ทดลองใช้ฟรี 30 วัน' })[0]!);
-    expect(go).toHaveBeenLastCalledWith('/signup');
+    expect(go).not.toHaveBeenCalled();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'เปิดรับสมัครเร็ว ๆ นี้ · ติดต่อ sales@example.test',
+    );
+    expect(screen.getByRole('link', { name: 'ทดลองใช้ฟรี' })).toHaveAttribute('href', '#contact');
     fireEvent.click(screen.getAllByRole('button', { name: 'เข้าสู่ระบบ' })[0]!);
     expect(go).toHaveBeenLastCalledWith('/login');
-    expect(screen.getAllByRole('link', { name: 'ทดลองใช้ฟรี' })[0]).toHaveAttribute(
-      'href',
-      '/signup',
-    );
+    unmount();
+
+    renderLanding(readLandingConfig({ VITE_SIGNUP_LIVE: 'true' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'ทดลองใช้ฟรี 30 วัน' })[0]!);
+    expect(go).toHaveBeenLastCalledWith('/signup');
+    expect(screen.getByRole('link', { name: 'ทดลองใช้ฟรี' })).toHaveAttribute('href', '/signup');
     go.mockRestore();
   });
 

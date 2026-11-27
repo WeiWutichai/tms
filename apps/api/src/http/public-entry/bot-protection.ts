@@ -49,6 +49,8 @@ export class TurnstileBotProtection implements BotProtectionProvider {
     private readonly secret: string,
     private readonly fetchImpl: FetchLike = fetch as unknown as FetchLike,
     private readonly timeoutMs = 5000,
+    /** `TURNSTILE_EXPECTED_HOSTNAME` — ตั้ง = token ต้องออกจากโดเมนนี้ (กัน token ที่ได้จากเว็บอื่นที่ใช้ site key เดียวกัน) */
+    private readonly expectedHostname?: string,
   ) {}
 
   async verify({ token, ip, action }: BotCheckInput): Promise<BotVerdict> {
@@ -57,7 +59,7 @@ export class TurnstileBotProtection implements BotProtectionProvider {
     if (token.length > 2048) return { ok: false, reason: 'invalid' };
     const body = new URLSearchParams({ secret: this.secret, response: token });
     if (ip) body.set('remoteip', ip);
-    let data: { success?: unknown; action?: unknown };
+    let data: { success?: unknown; action?: unknown; hostname?: unknown };
     try {
       const res = await this.fetchImpl(TURNSTILE_VERIFY_URL, {
         method: 'POST',
@@ -74,6 +76,8 @@ export class TurnstileBotProtection implements BotProtectionProvider {
     // widget ตั้ง action ไว้ → ต้องตรงกับขั้นที่เรียก (กัน token ของขั้นอื่น) · ไม่ตั้ง = ไม่ตรวจ
     if (typeof data.action === 'string' && data.action && data.action !== action)
       return { ok: false, reason: 'invalid' };
+    if (this.expectedHostname && data.hostname !== this.expectedHostname)
+      return { ok: false, reason: 'invalid' };
     return { ok: true };
   }
 }
@@ -87,7 +91,12 @@ export function createBotProtection(
   if (kind === 'turnstile') {
     const secret = env.TURNSTILE_SECRET_KEY?.trim();
     if (!secret) throw new Error('BOT_PROTECTION_PROVIDER=turnstile ต้องตั้ง TURNSTILE_SECRET_KEY');
-    return new TurnstileBotProtection(secret);
+    return new TurnstileBotProtection(
+      secret,
+      undefined,
+      undefined,
+      env.TURNSTILE_EXPECTED_HOSTNAME?.trim() || undefined,
+    );
   }
   throw new Error(`BOT_PROTECTION_PROVIDER ไม่รู้จัก: ${kind} (ใช้ none | turnstile)`);
 }

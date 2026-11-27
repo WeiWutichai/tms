@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 import type { MessageKey } from './th';
 
 /**
@@ -44,6 +52,10 @@ export function I18nCoreProvider({
     }
     document.documentElement.lang = l === 'zh' ? 'zh-CN' : l;
   }, []);
+  // ภาษาที่จำไว้ → `<html lang>` ตั้งแต่โหลดหน้าแรก (ไม่ใช่เฉพาะตอนกดสลับ)
+  useEffect(() => {
+    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : lang;
+  }, [lang]);
   const t = useCallback<T>(
     (key, params) => {
       let s = catalogs[lang][key] ?? catalogs.th[key] ?? key;

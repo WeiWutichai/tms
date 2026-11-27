@@ -5,12 +5,18 @@ export const EXTRA = {
     en: 'TMS — Dispatch, track, collect POD, bill. All in one place.',
     zh: 'TMS — 派车、追踪、收集 POD、开票,一站完成',
   },
+  'land.soon': { en: 'Sign-up opens soon', zh: '即将开放注册' },
+  'land.soonContact': {
+    en: 'Sign-up opens soon · contact {contact}',
+    zh: '即将开放注册 · 联系 {contact}',
+  },
+  'land.bill.t': { zh: '从 POD 已通过的 DO 开出 12 张对账单' },
   'land.and': { en: 'and', zh: '及' },
   'land.or': { en: 'or', zh: '或' },
   'land.worksWith': { en: 'Works with {list}', zh: '可与 {list} 配合使用' },
   'land.fact.bill': {
     en: 'Issue billing notes and invoices yourself',
-    zh: '自行开具对账单与发票',
+    zh: '自行开具对账单与请款单',
   },
   'land.fact.link': {
     en: 'Subcontractors accept jobs and send POD by link',
@@ -22,7 +28,7 @@ export const EXTRA = {
   },
   'land.bill.d': {
     en: 'Accounting picks the customer and period, ticks DOs that are delivered with POD approved, then issues the billing note and invoice. Freight is VAT-exempt and ancillary services carry 7% VAT, per customer terms.',
-    zh: '财务选择客户与账期,勾选已送达且 POD 通过的 DO,然后开具对账单与发票。按客户条款,运费免增值税,附加服务计 7% 增值税。',
+    zh: '财务选择客户与账期,勾选已送达且 POD 通过的 DO,然后开具对账单与请款单。按客户条款,运费免增值税,附加服务计 7% 增值税。',
   },
   'land.settle.p2': {
     en: 'Net amount to transfer, with the payment voucher issued on the spot',
@@ -30,11 +36,11 @@ export const EXTRA = {
   },
   'land.faq.erp.a': {
     en: 'No ERP needed. TMS issues billing notes and invoices itself; tax invoices and receipts come from your accounting software. Connect {list}, or export files for your accountant.',
-    zh: '无需 ERP。TMS 可自行开具对账单与发票,税务发票与收据由您的财务软件开具。可对接 {list},或导出文件给会计。',
+    zh: '无需 ERP。TMS 可自行开具对账单与请款单,税务发票与收据由您的财务软件开具。可对接 {list},或导出文件给会计。',
   },
   'land.faq.erp.aNone': {
     en: 'No ERP needed. TMS issues billing notes and invoices itself; tax invoices and receipts come from your accounting software, or export files for your accountant.',
-    zh: '无需 ERP。TMS 可自行开具对账单与发票,税务发票与收据由您的财务软件开具,或导出文件给会计。',
+    zh: '无需 ERP。TMS 可自行开具对账单与请款单,税务发票与收据由您的财务软件开具,或导出文件给会计。',
   },
   'land.faq.price.a': {
     en: 'By active vehicles per month, meaning vehicles with at least one trip. Unlimited users, no contract.',

@@ -55,6 +55,7 @@ const addRule =
     return descriptor;
   };
 
+/** ติดเฉพาะ handler ขั้น 1 ของการสมัคร (สร้างคำขอสมัคร) — ไม่ติดทุก route ใต้ /v1/public/signup (ผู้สมัครคนเดียวเรียกหลายครั้งต่อการสมัคร) */
 export const SignupAttemptLimit = () =>
   applyDecorators(
     addRule({ kind: 'signup_ip' }),
@@ -64,6 +65,10 @@ export const SignupAttemptLimit = () =>
     }),
   );
 
+/**
+ * ติดเฉพาะ handler ที่ส่ง OTP (ขอ/ขอใหม่) · ⚠ ใครก็ใช้โควตาของผู้รับคนอื่นได้ (ยิงขอ OTP ด้วยเบอร์ของเหยื่อ 5 ครั้ง
+ * → เจ้าของเบอร์ขอไม่ได้ทั้งวัน) — ยอมรับตาม PLT-026 · ด่านกันบอท + เพดานต่อ IP ช่วยลด (spec/12 §3)
+ */
 export const OtpSendLimit = (field: string) =>
   applyDecorators(
     addRule({ kind: 'otp_recipient', field }),
@@ -89,11 +94,21 @@ const RECIPIENT_KEY = (() => {
   const spec = process.env.RATE_LIMIT_KEY ?? process.env.BLIND_INDEX_KEY ?? '';
   return spec ? Buffer.from(spec, 'base64') : null;
 })();
-/** ผู้รับ OTP → key (ตัดช่องว่าง/ตัวพิมพ์ · เบอร์เหลือเฉพาะตัวเลขท้าย 9 หลัก: 08x / +668x นับเป็นเบอร์เดียวกัน) แล้ว hash */
+/**
+ * เบอร์โทร → E.164 แบบไม่มี `+` (ไทยเป็นค่าเริ่ม): ตัดช่องว่าง/ขีด/วงเล็บ · `+`/`00` นำหน้า = รหัสประเทศ ·
+ * `0` นำหน้า = เบอร์ในประเทศ → `66` + ที่เหลือ (มือถือ 08x และเบอร์บ้าน 02x ได้ผลต่างกัน) · ไม่ใช่เบอร์ = null
+ */
+export function phoneE164(raw: string): string | null {
+  const v = raw.trim().replace(/[\s\-().]/g, '');
+  if (!/^\+?\d{8,16}$/.test(v)) return null;
+  if (v.startsWith('+')) return v.slice(1);
+  if (v.startsWith('00')) return v.slice(2);
+  if (v.startsWith('0')) return `66${v.slice(1)}`;
+  return v;
+}
+/** ผู้รับ OTP → key: เบอร์ใช้ E.164 (08x / +668x / 00668x = เบอร์เดียวกัน) · อีเมลตัดช่องว่าง+ตัวพิมพ์เล็ก แล้ว hash (PDPA) */
 export function recipientKey(raw: string): string {
-  const v = raw.trim().toLowerCase();
-  const digits = v.replace(/[\s\-().+]/g, '');
-  const norm = /^\d{9,15}$/.test(digits) ? digits.slice(-9) : v;
+  const norm = phoneE164(raw) ?? raw.trim().toLowerCase();
   const h = RECIPIENT_KEY
     ? createHmac('sha256', RECIPIENT_KEY).update(norm)
     : createHash('sha256').update(norm);

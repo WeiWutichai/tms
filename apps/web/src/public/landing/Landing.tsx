@@ -74,7 +74,24 @@ export function LandingPage({ config = landingConfig }: { config?: LandingConfig
   const showPrice = config.pricingVisible;
 
   const dark = !solid && !menuOpen;
-  const goSignup = () => landingNav.go(config.signupPath);
+  /** หน้าสมัคร/ราคายังไม่เปิด (`signupLive` / `pricingPageLive` = false) → แสดงช่องทางติดต่อแทน (ไม่พาไปหน้า 404) */
+  const contactToast = () => {
+    setMenuOpen(false);
+    setToast(contactText ? t('land.soonContact', { contact: contactText }) : t('land.soon'));
+  };
+  const goSignup = () => (config.signupLive ? landingNav.go(config.signupPath) : contactToast());
+  const goPricing = () => (config.pricingPageLive ? landingNav.go('/pricing') : contactToast());
+  /** ลิงก์ <a> ไปหน้าที่อาจยังไม่เปิด — ไม่เปิด = กดแล้วแสดงช่องทางติดต่อ */
+  const linkProps = (live: boolean, href: string) =>
+    live
+      ? { href }
+      : {
+          href: '#contact',
+          onClick: (e: { preventDefault(): void }) => {
+            e.preventDefault();
+            contactToast();
+          },
+        };
   const goLogin = () => landingNav.go('/login');
   const toFeatures = () => {
     setMenuOpen(false);
@@ -83,9 +100,7 @@ export function LandingPage({ config = landingConfig }: { config?: LandingConfig
   };
   const menu: Array<{ k: MessageKey; fn: () => void }> = [
     { k: 'land.nav.features', fn: toFeatures },
-    ...(showPrice
-      ? [{ k: 'land.nav.pricing' as MessageKey, fn: () => landingNav.go('/pricing') }]
-      : []),
+    ...(showPrice ? [{ k: 'land.nav.pricing' as MessageKey, fn: goPricing }] : []),
     ...(contactText
       ? [
           {
@@ -215,7 +230,10 @@ export function LandingPage({ config = landingConfig }: { config?: LandingConfig
                   {t('land.cta')}
                 </button>
                 {showPrice && (
-                  <a href="/pricing" className="land-hero__price">
+                  <a
+                    {...linkProps(config.pricingPageLive, '/pricing')}
+                    className="land-hero__price"
+                  >
                     {t('land.seePrice')}
                   </a>
                 )}
@@ -226,9 +244,9 @@ export function LandingPage({ config = landingConfig }: { config?: LandingConfig
               <div className="land-hero__shot">
                 <img
                   src={heroPlan2x}
-                  srcSet={`${heroPlan1x} 1280w, ${heroPlan2x} 2560w`}
+                  srcSet={`${heroPlan1x} 1007w, ${heroPlan2x} 2014w`}
                   sizes="(max-width: 759px) 100vw, 60vw"
-                  width={2560}
+                  width={2014}
                   height={1680}
                   alt={t('land.heroAlt')}
                   fetchPriority="high"
@@ -286,7 +304,7 @@ export function LandingPage({ config = landingConfig }: { config?: LandingConfig
             <Shot src1={tSub1x} src2={tSub2x} w={1850} h={320} alt={t('land.sub.t')} />
           </Step>
           <Step time="17:00" title={t('land.bill.t')} desc={t('land.bill.d')}>
-            <Shot src1={tBill1x} src2={tBill2x} w={1914} h={590} alt={t('land.bill.t')} />
+            <Shot src1={tBill1x} src2={tBill2x} w={1914} h={292} alt={t('land.bill.t')} />
           </Step>
         </section>
 
@@ -351,7 +369,7 @@ export function LandingPage({ config = landingConfig }: { config?: LandingConfig
                 <span className="land-pricebar__dot"> · </span>
                 <span>{t('land.trialNoCard')}</span>
               </p>
-              <a href="/pricing" className="land-pricebar__a">
+              <a {...linkProps(config.pricingPageLive, '/pricing')} className="land-pricebar__a">
                 {t('land.allPrices')}
               </a>
             </div>
@@ -414,8 +432,10 @@ export function LandingPage({ config = landingConfig }: { config?: LandingConfig
             >
               {t('land.nav.features')}
             </a>
-            {showPrice && <a href="/pricing">{t('land.nav.pricing')}</a>}
-            <a href={config.signupPath}>{t('land.foot.trial')}</a>
+            {showPrice && (
+              <a {...linkProps(config.pricingPageLive, '/pricing')}>{t('land.nav.pricing')}</a>
+            )}
+            <a {...linkProps(config.signupLive, config.signupPath)}>{t('land.foot.trial')}</a>
             <a href="/login">{t('land.login')}</a>
           </div>
           {companyLinks.length > 0 && (

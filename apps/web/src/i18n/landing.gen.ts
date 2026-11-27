@@ -15,6 +15,8 @@ export const LANDING_CATALOGS: Catalogs = {
     'land.menu': 'เมนู',
     'land.login': 'เข้าสู่ระบบ',
     'land.cta': 'ทดลองใช้ฟรี 30 วัน',
+    'land.soon': 'เปิดรับสมัครเร็ว ๆ นี้',
+    'land.soonContact': 'เปิดรับสมัครเร็ว ๆ นี้ · ติดต่อ {contact}',
     'land.h1a': 'จัดรถ ตามงาน เก็บ POD',
     'land.h1b': 'วางบิล — จบในที่เดียว',
     'land.lead': 'สำหรับบริษัทขนส่ง 10–200 คัน ทั้งรถบริษัทและรถร่วม ใช้ได้ทันทีโดยไม่ต้องมี ERP',
@@ -97,6 +99,8 @@ export const LANDING_CATALOGS: Catalogs = {
     'land.menu': 'Menu',
     'land.login': 'Sign in',
     'land.cta': 'Start 30-day free trial',
+    'land.soon': 'Sign-up opens soon',
+    'land.soonContact': 'Sign-up opens soon · contact {contact}',
     'land.h1a': 'Dispatch, track, collect POD,',
     'land.h1b': 'bill. All in one place.',
     'land.lead':
@@ -180,6 +184,8 @@ export const LANDING_CATALOGS: Catalogs = {
     'land.menu': '菜单',
     'land.login': '登录',
     'land.cta': '免费试用 30 天',
+    'land.soon': '即将开放注册',
+    'land.soonContact': '即将开放注册 · 联系 {contact}',
     'land.h1a': '派车、追踪、收集 POD,',
     'land.h1b': '开票,一站完成',
     'land.lead': '适合 10–200 辆车的运输公司,自有车与外包车皆可,无需 ERP 即可使用',
@@ -190,7 +196,7 @@ export const LANDING_CATALOGS: Catalogs = {
     'land.card1s': 'DO-2611-00060 · 已签名 · 3 张照片',
     'land.card2t': '外包 3 分钟内接单',
     'land.card2s': '是拉差物流 · 74-5521',
-    'land.fact.bill': '自行开具对账单与发票',
+    'land.fact.bill': '自行开具对账单与请款单',
     'land.fact.link': '外协通过链接接单并提交 POD',
     'land.fact.acc': '对接 {n} 款财务 / ERP 系统',
     'land.worksWith': '可与 {list} 配合使用',
@@ -204,9 +210,9 @@ export const LANDING_CATALOGS: Catalogs = {
     'land.sub.t': '通过 LINE 派单给外包,3 分钟内接单',
     'land.sub.d':
       '邦浦到林查班的任务没有空闲自有车,于是通过 LINE 向是拉差物流发出 ฿5,800 报价。外包商打开链接填写车牌 74-5521 与司机姓名,无需账号。',
-    'land.bill.t': '从 POD 已通过的 DO 开出 12 张发票',
+    'land.bill.t': '从 POD 已通过的 DO 开出 12 张对账单',
     'land.bill.d':
-      '财务选择客户与账期,勾选已送达且 POD 通过的 DO,然后开具对账单与发票。按客户条款,运费免增值税,附加服务计 7% 增值税。',
+      '财务选择客户与账期,勾选已送达且 POD 通过的 DO,然后开具对账单与请款单。按客户条款,运费免增值税,附加服务计 7% 增值税。',
     'land.settle.t': '通过结算付款给外包,无需 Excel',
     'land.settle.d': '系统按账期汇总每家外包的车次,并对照 POD 与采购费率卡核对后提交审批。',
     'land.settle.p1': '自动扣除 1% 代扣税与司机预支',
@@ -224,9 +230,9 @@ export const LANDING_CATALOGS: Catalogs = {
     'land.faq.title': '常见问题',
     'land.faq.erp.q': '需要先有 ERP 或财务软件吗?',
     'land.faq.erp.a':
-      '无需 ERP。TMS 可自行开具对账单与发票,税务发票与收据由您的财务软件开具。可对接 {list},或导出文件给会计。',
+      '无需 ERP。TMS 可自行开具对账单与请款单,税务发票与收据由您的财务软件开具。可对接 {list},或导出文件给会计。',
     'land.faq.erp.aNone':
-      '无需 ERP。TMS 可自行开具对账单与发票,税务发票与收据由您的财务软件开具,或导出文件给会计。',
+      '无需 ERP。TMS 可自行开具对账单与请款单,税务发票与收据由您的财务软件开具,或导出文件给会计。',
     'land.faq.sub.q': '外包商需要安装 App 或注册账号吗?',
     'land.faq.sub.a':
       '不需要。外包商通过 LINE 链接即可接单、填写车牌与司机并提交 POD,链接有效期 48 小时。',

@@ -312,6 +312,8 @@ export const en: Partial<Record<MessageKey, string>> = {
   'land.menu': 'Menu',
   'land.login': 'Sign in',
   'land.cta': 'Start 30-day free trial',
+  'land.soon': 'Sign-up opens soon',
+  'land.soonContact': 'Sign-up opens soon · contact {contact}',
   'land.h1a': 'Dispatch, track, collect POD,',
   'land.h1b': 'bill. All in one place.',
   'land.lead':
