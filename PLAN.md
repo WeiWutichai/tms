@@ -150,6 +150,8 @@ flowchart LR
 
 ## 10. หลังเฟส 0
 
+> **เฟส 1 เริ่มแล้ว (PO สั่ง 27 พ.ย. 2569 "เริ่มเฟส 1 เลย"):** backlog อยู่ที่ `plan/13-phase1-backlog.md` — ขอบเขต, รายการ reconcile R-01–R-18 (เช่น FlowAccount/PEAK ส่งใบแจ้งหนี้เป็นร่าง เอกสารภาษีออกที่โปรแกรมบัญชีตาม D-54/D-55), ค่าเริ่มต้นของ D-40–D-46, ตัวขวางภายนอก X-01–X-12, stage P1-ST0–P1-ST7 แบบ 3 lane และเกณฑ์ผ่านเฟส 1 → task
+
 ตาม `docs/02` §7: เฟสขาย 1 (trial อัตโนมัติ, FlowAccount/PEAK, หน้าราคา) → เฟส 2 (Open API สาธารณะ, แอปคนขับ, e-Tax) → เฟส 3 (GPS, iOS) · ของที่ออกแบบไว้แล้วใน `spec/` และต้นแบบ (one-platform, fleet ส่วนขยาย, custom fields, MCP, AI, landing) จะถูกจัดเข้าเฟสหลังทบทวนผลนำร่อง (`plan/05` D-48)
 
 ## เอกสารที่เกี่ยวข้อง
@@ -166,6 +168,7 @@ flowchart LR
 | `plan/06`–`08` | คำถามถึงนักบัญชี, ทนาย, ทีม KRS |
 | `plan/09-pilot-rollout.md` | แผนนำร่อง |
 | `plan/11-reconcile-decisions.md` | ตารางตัดสินจุดขัดกัน 21 ข้อ (ST0-T19) |
+| `plan/13-phase1-backlog.md` | backlog เฟส 1 (เปิดขาย Standalone + Accounting connector) |
 | `plan/10-engineering-loop.md` + `plan/templates/` | วิธีทำงาน plan → dev → QA → deploy, PR/QA/release template, CI draft |
 | `PROGRESS.md`, `HANDOFF.md` | สถานะล่าสุด และวิธีส่งต่องาน |
 | `CLAUDE.md` | คำแนะนำสำหรับ Claude Code |
