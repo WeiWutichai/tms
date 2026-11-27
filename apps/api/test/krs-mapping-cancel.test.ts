@@ -187,7 +187,11 @@ describe('KRS mapping ลูกค้า + ยกเลิก SO (ST8-T05) — m
       status: 'PENDING',
       createdBy: plannerId,
     });
-    expect(await plat.customerAlias.count({ where: { tenantId, source: 'ERP:krs' } })).toBe(0);
+    expect(
+      await plat.externalMapping.count({
+        where: { tenantId, matchKind: { not: null }, channel: 'ERP:krs' },
+      }),
+    ).toBe(0);
     // ผู้มีแค่ orders:write ตั้งรหัสในระบบบัญชีไม่ได้ (settings:write — review M1)
     const ordersOnly = await tokenFor(tenantId, 'orders:write master:read master:write');
     await api(app, ordersOnly)
@@ -241,8 +245,14 @@ describe('KRS mapping ลูกค้า + ยกเลิก SO (ST8-T05) — m
     expect((await mapTo(EXT(3), custB)).status).toBe(200);
     expect((await mappings(b))[0]!.sourceCode).toBe('SAMPLE-C002');
     expect(
-      await plat.customerAlias.count({
-        where: { tenantId, source: 'ERP:krs', value: 'SAMPLE-C999', customerId: b },
+      await plat.externalMapping.count({
+        where: {
+          tenantId,
+          matchKind: 'EXTERNAL_ID',
+          channel: 'ERP:krs',
+          matchValue: 'SAMPLE-C999',
+          localId: b,
+        },
       }),
     ).toBe(1);
 
@@ -298,10 +308,15 @@ describe('KRS mapping ลูกค้า + ยกเลิก SO (ST8-T05) — m
     ).toBe(200);
     expect((await mappings(e))[0]).toMatchObject({ sourceCode: 'SAMPLE-C444' });
     expect(
-      await plat.customerAlias.findFirst({
-        where: { tenantId, source: 'ERP:krs', value: 'SAMPLE-C444' },
+      await plat.externalMapping.findFirst({
+        where: {
+          tenantId,
+          matchKind: 'EXTERNAL_ID',
+          channel: 'ERP:krs',
+          matchValue: 'SAMPLE-C444',
+        },
       }),
-    ).toMatchObject({ customerId: e });
+    ).toMatchObject({ localId: e });
     newSo(52, 'SAMPLE-C444');
     await pull();
     expect((await order(EXT(52))).customerId).toBe(e);

@@ -14,7 +14,6 @@ import { adapterShapeProblems, type ErpContext } from '../src/modules/erp/erp-ad
 import { ERP_SINK } from '../src/modules/erp/erp-adapter.sink';
 import { OutboxDispatcher } from '../src/modules/integration/outbox.dispatcher';
 import { OutboxService } from '../src/modules/integration/outbox.service';
-import { describeErpAdapterContract } from './erp-adapter-contract';
 import { api, bootApp, createTenant, platform, tokenFor, truncateAll } from './helpers';
 
 /**
@@ -33,27 +32,7 @@ const ctx = (config: Record<string, string>): ErpContext => ({
   config: Object.freeze({ ...config }),
 });
 
-// contract (ค่า baseUrl ตั้งหลัง mock เริ่ม — contract อ่าน config ตอนรันแต่ละข้อ)
-const contractMock: { m?: MockKrs } = {};
-const good: Record<string, string> = { baseUrl: '', apiKey: KEY, salePerson: 'S001' };
-const bad: Record<string, string> = { baseUrl: '', apiKey: 'wrong-key' };
-beforeAll(async () => {
-  contractMock.m = await startMockKrs({ apiKey: KEY });
-  good.baseUrl = bad.baseUrl = contractMock.m.apiBaseUrl;
-});
-afterAll(async () => {
-  await contractMock.m?.stop();
-});
-
-describeErpAdapterContract('krs (KrsAdapter — โครง)', {
-  make: () => new KrsAdapter({ allowPrivate: true }),
-  config: good,
-  badConfig: bad,
-  // ST8-T13 replaceDocument ทำแล้ว — ไม่มี capability ที่ค้าง
-  // ST8-T08 pushInvoice ทำแล้ว — ใบตัวอย่างที่ผ่านผังรหัส (ctx.masterCodes) → POST จริงกับ mock · ส่งซ้ำ = 409 DUPLICATE
-  samples: { invoice: contractInvoice() },
-  context: contractContext(),
-});
+// P1-ST5-T01 contract + conformance ของ adapter นี้อยู่ใน test/connector-conformance.test.ts
 
 describe('KrsAdapter (ST8-T03) — ไม่แตะฐานข้อมูล', () => {
   let mock: MockKrs;
@@ -531,48 +510,5 @@ function sampleInvoice() {
         toWay: 'ปลายทาง',
       },
     ],
-  };
-}
-
-/** ST8-T08 ใบตัวอย่าง (canonical) สำหรับ contract — รายการผูก DO ครบตามสัญญา KRS */
-function contractInvoice() {
-  const id = randomUUID();
-  return {
-    id,
-    number: `INV-CONTRACT-${id.slice(0, 8)}`,
-    issueDate: '2026-11-19',
-    dueDate: '2026-12-19',
-    customer: {
-      externalId: 'C001',
-      legalName: 'ลูกค้า ทดสอบ',
-      paymentTermDays: 30,
-      billingAddress: 'กรุงเทพฯ',
-    },
-    lines: [
-      {
-        lineNo: 1,
-        deliveryOrder: { number: 'DO-0001', date: '2026-11-19' },
-        trip: { vehiclePlate: '70-1234', driverName: 'คนขับ', carrierName: null },
-        route: { originName: 'ต้นทาง', destinationName: 'ปลายทาง' },
-        serviceItem: { externalId: null },
-        quantity: '1',
-        unitLabel: 'เที่ยว',
-        unitPrice: '1000',
-        discount: '0.00',
-        amount: '1000.00',
-        vatType: 'EXEMPT_TRANSPORT',
-      },
-    ],
-  };
-}
-
-/** ผังรหัสที่ core ตรวจแล้ว (ST8-T06) สำหรับ contract */
-function contractContext(): Pick<ErpContext, 'masterCodes'> {
-  return {
-    masterCodes: {
-      CUSTOMER: new Map([['c001', { code: 'C001', name: null }]]),
-      UNIT: new Map([['เที่ยว', { code: 'เที่ยว', name: 'เที่ยว', fromCatalogue: true }]]),
-      SALESPERSON: new Map([['s001', { code: 'S001', name: 'พนักงานขาย', fromCatalogue: true }]]),
-    },
   };
 }
