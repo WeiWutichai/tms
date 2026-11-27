@@ -9,6 +9,10 @@ import { zh } from '../../i18n/zh';
 import { LandingPage, landingNav } from './Landing';
 import { LandingRoot } from './LandingRoot';
 
+// ภาษาที่ test สลับถูกเก็บใน localStorage ของ jsdom (Node 20) — ล้างทุก test ไม่ให้ค้างไป test ถัดไป
+// (Node ≥ 22 มี localStorage ของตัวเองบัง jsdom จึงไม่เห็นปัญหานี้)
+afterEach(() => localStorage.clear());
+
 function renderLanding(config: LandingConfig = readLandingConfig({})) {
   return render(
     <I18nProvider lang="th">
