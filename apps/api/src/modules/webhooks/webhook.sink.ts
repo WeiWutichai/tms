@@ -6,6 +6,7 @@ import { EntitlementService } from '../entitlements/entitlement.service';
 import { OutboxSinkRegistry } from '../integration/outbox-sink.registry';
 import { OutboxSinkError, type OutboxDelivery, type OutboxSink } from '../integration/outbox.types';
 import { WebhookEngine } from './webhook-engine';
+import { canSync } from '../tenants/tenant-status';
 
 export const WEBHOOK_SINK = 'webhook';
 /** คำสั่งยืนยันปลายทาง (สร้างตอนเพิ่ม endpoint) — operation ของ outbox */
@@ -52,7 +53,7 @@ export class WebhookSink implements OutboxSink, OnModuleInit {
         })
         .then((t) => (t ? { status: t.liveTenant?.status ?? t.status } : null)),
     }));
-    if (ctx.tenant && (ctx.tenant.status === 'SUSPENDED' || ctx.tenant.status === 'CANCELLED'))
+    if (ctx.tenant && !canSync(ctx.tenant.status))
       throw new OutboxSinkError('tenant is not active — paused', 'AUTH', { code: 'tenant_paused' });
     const e = ctx.endpoint;
     if (!e || e.status !== 'ACTIVE')

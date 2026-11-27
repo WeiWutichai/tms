@@ -349,14 +349,19 @@ describe('auth: login + Auth Code/PKCE + refresh', () => {
     expect(await verifyAccessToken(dev)).not.toBeNull();
   });
 
-  it('tenant ถูกระงับ → access token เดิม 401 และ refresh ใช้ไม่ได้', async () => {
+  it('tenant ถูกระงับ → ยังเข้าระบบได้แต่ใช้ได้เฉพาะ /me ชำระเงิน export (spec/01 ตาราง 1.6 — P1-ST1-T03)', async () => {
     const t = await createTenant(db);
     await makeUser(t.id, 'suspend@example.co.th');
     const { access, cookie } = await fullLogin('suspend@example.co.th');
     expect((await me(access)).status).toBe(200);
     await db.tenant.update({ where: { id: t.id }, data: { status: 'SUSPENDED' } });
-    expect((await me(access)).status).toBe(401);
-    expect((await refresh(cookie)).status).toBe(400);
+    expect((await me(access)).status).toBe(200);
+    const r = await request(app.getHttpServer())
+      .get('/v1/customers')
+      .set('Authorization', `Bearer ${access}`);
+    expect(r.status).toBe(403);
+    expect(r.body.code).toBe('tenant_suspended');
+    expect((await refresh(cookie)).status).toBe(200);
   });
 
   it('bump tokenVersion → access token เดิม 401 ทันที และ refresh ใช้ไม่ได้', async () => {

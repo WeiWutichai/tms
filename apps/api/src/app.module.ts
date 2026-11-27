@@ -50,6 +50,8 @@ import { PlatformConnectorsController } from './platform/platform-connectors.con
 import { PlatformPlansController } from './platform/platform-plans.controller';
 import { PlatformSettingsController } from './platform/platform-settings.controller';
 import { PlatformSettingsService } from './platform/platform-settings.service';
+import { TenantLifecycleService } from './modules/tenants/tenant-lifecycle.service';
+import { ReadOnlyTripGate } from './modules/tenants/read-only-gate';
 import { PlatformTenantsController } from './platform/platform-tenants.controller';
 import { PlatformUsageController } from './platform/platform-usage.controller';
 import { UsageController } from './modules/usage/usage.controller';
@@ -438,6 +440,8 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     AccountingExportService,
     EntitlementService,
     PlatformSettingsService,
+    TenantLifecycleService,
+    ReadOnlyTripGate,
     MagicLinkService,
     DbService,
     StateService,

@@ -29,6 +29,7 @@ import { injectPersonalData } from './personal-data';
 import { applyReconcileBasis, CANONICAL_VERSION, parseReconcileBasis } from './reconcile-basis';
 import { compareDocuments } from './reconcile-compare';
 import { type DocumentOutcome, ReconcileResultsService } from './reconcile-results.service';
+import { SYNC_TENANT_STATUSES, canSync } from '../tenants/tenant-status';
 
 /** sink ของคำสั่ง ERP (= `ERP_SINK` ของ ErpAdapterSink — ไม่ import เพื่อตัดวงจร import ระหว่าง sink กับ service นี้) */
 const SINK = 'erp';
@@ -204,7 +205,7 @@ export class DocumentReconcileService implements OnModuleInit {
       where: { id: tenantId },
       select: { status: true },
     });
-    return t?.status === 'TRIAL' || t?.status === 'ACTIVE';
+    return canSync(t?.status);
   }
 
   // ---------- สร้างคำสั่งอ่าน ----------
@@ -553,7 +554,7 @@ export class DocumentReconcileService implements OnModuleInit {
       const modes = new Map(
         (
           await db.tenant.findMany({
-            where: { id: { in: tenantIds }, status: { in: ['TRIAL', 'ACTIVE'] } },
+            where: { id: { in: tenantIds }, status: { in: [...SYNC_TENANT_STATUSES] } },
             select: { id: true, mode: true },
           })
         ).map((t) => [t.id, t.mode === 'test']),

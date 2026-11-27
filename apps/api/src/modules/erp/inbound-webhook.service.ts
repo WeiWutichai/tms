@@ -30,6 +30,7 @@ import {
   INBOUND_TOKEN_RE,
   inboundTokenRateKey,
 } from './inbound-token';
+import { canSync } from '../tenants/tenant-status';
 
 export { INBOUND_MAX_ATTEMPTS, INBOUND_PROCESS_JOB };
 const MIN = 60_000;
@@ -165,7 +166,10 @@ export class InboundWebhookService implements OnModuleInit {
       where: { id: c.tenantId },
       select: { status: true },
     });
-    if (!tenant || !['TRIAL', 'ACTIVE'].includes(tenant.status)) throw denied();
+    // P1-ST1-T03 review S5: read_only = รับไว้แต่ยังไม่ประมวลผล (RECEIVED ไม่มี job — ตาราง 1.6 "คิวพัก ส่งต่อเมื่อ active")
+    // ชำระแล้ว → TenantLifecycleService ปลุก · พักเกิน 30 วัน payload ถูกล้าง = payload_expired (INT-085)
+    const parkOnly = tenant?.status === 'READ_ONLY';
+    if (!tenant || (!canSync(tenant.status) && !parkOnly)) throw denied();
     if (!(await this.entitlements.enabled(c.tenantId, 'conn'))) throw denied();
     // D68-58/96 ตามโหมดของ tenant (sandbox = เฉพาะ DemoProvider · demo ใน production = เฉพาะ sandbox)
     const adapter = await usableAdapter(this.adapters, this.prisma.platform, c);
@@ -230,12 +234,13 @@ export class InboundWebhookService implements OnModuleInit {
         ON CONFLICT (tenant_id, connector_id, event_key) DO NOTHING
         RETURNING id::text`;
       if (inserted.length) {
-        await this.queue.enqueue(tx, {
-          tenantId: c.tenantId,
-          type: INBOUND_PROCESS_JOB,
-          payload: { eventId: id },
-          maxAttempts: INBOUND_MAX_ATTEMPTS,
-        });
+        if (!parkOnly)
+          await this.queue.enqueue(tx, {
+            tenantId: c.tenantId,
+            type: INBOUND_PROCESS_JOB,
+            payload: { eventId: id },
+            maxAttempts: INBOUND_MAX_ATTEMPTS,
+          });
         return { received: true as const, duplicate: false, id: encodeId('inboundEvent', id) };
       }
       const dup = await tx.$queryRaw<{ id: string }[]>`
@@ -271,13 +276,12 @@ export class InboundWebhookService implements OnModuleInit {
       );
       return { status: 'FAILED' };
     }
-    // บริษัทถูกระงับ/ปิด: ไม่ประมวลผล — คง RECEIVED (เปิดใหม่แล้วยังไม่มีการปลุกอัตโนมัติ — ค้างใน PROGRESS)
+    // บริษัท read_only/ระงับ/ปิด: ไม่ประมวลผล — คง RECEIVED · กลับมา sync ได้ → TenantLifecycleService.wakeParked สร้าง job (P1-ST1-T03 S4)
     const tenant = await this.prisma.platform.tenant.findUnique({
       where: { id: tenantId },
       select: { status: true },
     });
-    if (!tenant || !['TRIAL', 'ACTIVE'].includes(tenant.status))
-      return { skipped: 'tenant_inactive' };
+    if (!tenant || !canSync(tenant.status)) return { skipped: 'tenant_inactive' };
     const c = await this.db.withTenant(tenantId, (tx) =>
       tx.connector.findUnique({ where: { id: row.connectorId } }),
     );

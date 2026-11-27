@@ -121,6 +121,14 @@ export const LIVE_ONLY = 'tms:liveOnly';
  * `ErpAdapterRegistry.usableIn` แทน) · คงไว้สำหรับ route ใหม่ที่ติดต่อภายนอกจริงและไม่มีตัวจำลอง
  */
 export const LiveOnly = () => SetMetadata(LIVE_ONLY, true);
+export const ALLOW_READ_ONLY_TENANT = 'tms:allowReadOnlyTenant';
+/**
+ * P1-ST1-T03: route เขียน (POST/PUT/PATCH/DELETE) ที่ tenant สถานะ `read_only` ยังเรียกได้ (spec/01 ตาราง 1.6)
+ * - คำขอที่ "อ่าน" แต่ใช้ POST (เปิดดูข้อมูลที่ปิดไว้, preview, ประมาณการ, ค้นหาในหน้าติดตาม)
+ * - แอปคนขับปิดงานที่ออกวิ่งแล้ว + POD (ตาราง 1.6 [PROPOSED]) — read_only สร้าง/จ่ายงานใหม่ไม่ได้ งานที่ปิดได้จึงเป็นงานที่ออกก่อนเปลี่ยนสถานะ
+ * suspended/cancelled ไม่มีข้อยกเว้น (นอกจากเส้นทาง /auth, /me, /exports, /billing ที่ AuthGuard ยกเว้นทั้งกลุ่ม)
+ */
+export const AllowReadOnlyTenant = () => SetMetadata(ALLOW_READ_ONLY_TENANT, true);
 export const TRANSACTION_TIMEOUT_MS = 'tms:transactionTimeoutMs';
 /** transaction ของคำขอ (ค่าเริ่ม) — คำขอเกินนี้ย้อนทั้งหมด → 503 `service_busy` */
 export const DEFAULT_TRANSACTION_TIMEOUT_MS = 15_000;

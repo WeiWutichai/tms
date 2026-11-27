@@ -30,7 +30,10 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <main>
 <a class="md-link" href="changelog.md">Markdown</a>
 <h1 id="changelog">Changelog</h1>
-<p>เวอร์ชันพฤติกรรม (<code>X-Api-Version</code>) ล่าสุด: <code>2026-11-18</code> — วิธีเลือกเวอร์ชันดู <a href="versioning.html">เวอร์ชันของ API</a></p>
+<p>เวอร์ชันพฤติกรรม (<code>X-Api-Version</code>) ล่าสุด: <code>2026-11-27</code> — วิธีเลือกเวอร์ชันดู <a href="versioning.html">เวอร์ชันของ API</a></p>
+<h2 id="2026-11-27">2026-11-27</h2>
+<p>สถานะบริษัท 7 ค่า: <code>GET /v1/me</code> <code>tenant.status</code> = pending_verification / trialing / active / past_due / read_only / suspended / cancelled — ก่อนหน้านี้ trial / active / suspended / cancelled (gate <code>tenant.status_lifecycle</code>)</p>
+<div class="table"><table><thead><tr><th>รหัสการเปลี่ยน</th><th>รายละเอียด</th></tr></thead><tbody><tr><td><code>tenant.status_lifecycle</code></td><td>สถานะบริษัท (<code>tenant.status</code>) มี 7 ค่า — ก่อนหน้านี้ 4 ค่า (trial / active / suspended / cancelled)</td></tr></tbody></table></div>
 <h2 id="2026-11-18">2026-11-18</h2>
 <p>API key: สถานะ <code>rotating</code> แยกจาก <code>active</code> · changed: payload webhook ตั้งฐานก่อน GA</p>
 <div class="table"><table><thead><tr><th>รหัสการเปลี่ยน</th><th>รายละเอียด</th></tr></thead><tbody><tr><td><code>api_key.status_rotating</code></td><td>API key ที่หมุนแล้ว (ใช้ได้ถึง revokeAt) มีสถานะ <code>rotating</code> — ก่อนหน้านี้แสดงเป็น <code>active</code> และตัวกรอง <code>status=active</code> รวม key เหล่านี้</td></tr></tbody></table></div>
