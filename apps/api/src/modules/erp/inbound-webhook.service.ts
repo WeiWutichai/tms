@@ -30,6 +30,7 @@ import {
   INBOUND_TOKEN_RE,
   inboundTokenRateKey,
 } from './inbound-token';
+import { canSync } from '../tenants/tenant-status';
 
 export { INBOUND_MAX_ATTEMPTS, INBOUND_PROCESS_JOB };
 const MIN = 60_000;
@@ -165,7 +166,7 @@ export class InboundWebhookService implements OnModuleInit {
       where: { id: c.tenantId },
       select: { status: true },
     });
-    if (!tenant || !['TRIAL', 'ACTIVE'].includes(tenant.status)) throw denied();
+    if (!tenant || !canSync(tenant.status)) throw denied();
     if (!(await this.entitlements.enabled(c.tenantId, 'conn'))) throw denied();
     // D68-58/96 ตามโหมดของ tenant (sandbox = เฉพาะ DemoProvider · demo ใน production = เฉพาะ sandbox)
     const adapter = await usableAdapter(this.adapters, this.prisma.platform, c);
@@ -276,8 +277,7 @@ export class InboundWebhookService implements OnModuleInit {
       where: { id: tenantId },
       select: { status: true },
     });
-    if (!tenant || !['TRIAL', 'ACTIVE'].includes(tenant.status))
-      return { skipped: 'tenant_inactive' };
+    if (!tenant || !canSync(tenant.status)) return { skipped: 'tenant_inactive' };
     const c = await this.db.withTenant(tenantId, (tx) =>
       tx.connector.findUnique({ where: { id: row.connectorId } }),
     );

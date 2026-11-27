@@ -10,9 +10,13 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// P1-ST1-T03 (R-10, spec/01 PLT-010) 7 ค่า — ป้ายไทยเดียวกันทุกแอป · การเปลี่ยนทุกครั้งผ่าน TenantLifecycleService (ประวัติ + เหตุผล + audit)
 enum TenantStatus {
-  TRIAL
+  PENDING_VERIFICATION
+  TRIALING
   ACTIVE
+  PAST_DUE
+  READ_ONLY
   SUSPENDED
   CANCELLED
 
@@ -41,7 +45,17 @@ enum JobStatus {
 model Tenant {
   id               String        @id @default(uuid()) @db.Uuid
   name             String
-  status           TenantStatus  @default(TRIAL)
+  status           TenantStatus  @default(TRIALING)
+  /// P1-ST1-T03 เวลา/เหตุผลของการเปลี่ยนสถานะล่าสุด (ประวัติเต็มอยู่ใน tenant_status_history)
+  statusChangedAt  DateTime?     @map("status_changed_at") @db.Timestamptz(6)
+  statusReason     String?       @map("status_reason")
+  /// P1-ST1-T03 วัน 0 ของ dunning (วันที่ตามเวลาไทย): ใบครบกำหนด (`invoice`) หรือวันหมด trial (`trial`) — null = ไม่อยู่ในช่วงค้างชำระ
+  pastDueSince     DateTime?     @map("past_due_since") @db.Date
+  dunningKind      String?       @map("dunning_kind") @db.VarChar(8) /// invoice | trial (CHECK)
+  cancelledAt      DateTime?     @map("cancelled_at") @db.Timestamptz(6)
+  /// = cancelledAt + retention.operationalDays (job purge ปิดอยู่ — R-12)
+  dataPurgeAt      DateTime?     @map("data_purge_at") @db.Timestamptz(6)
+  statusHistory    TenantStatusHistory[]
   yearStyle        String        @default("BE") @map("year_style") /// BE = พ.ศ., CE = ค.ศ. (D-30)
   vehicleQuota     Int?          @map("vehicle_quota") /// ST1-T24 จำนวนรถตามสัญญา (ตั้งจาก Console; null = ยังไม่กำหนด) — บังคับใช้ใน ST2
   planCode         String        @default("std") @map("plan_code") /// ST1-T18 แพ็กเกจ (FK → plan.code, migration 0017) — ตั้งจาก Platform Console (T24)
@@ -4326,4 +4340,21 @@ model BillingNoteInvoice {
   @@index([tenantId, billingNoteId])
   @@index([tenantId, invoiceId])
   @@map("billing_note_invoice")
+}
+
+/// P1-ST1-T03 ประวัติสถานะ tenant (spec/01 PLT-019) — append-only · เขียนผ่าน TenantLifecycleService (role platform) เท่านั้น
+model TenantStatusHistory {
+  id         String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String        @map("tenant_id") @db.Uuid
+  fromStatus TenantStatus? @map("from_status")
+  toStatus   TenantStatus  @map("to_status")
+  reason     String
+  actorType  String        @map("actor_type") @db.VarChar(16) /// system | platform_user | tenant_user (CHECK)
+  actorId    String?       @map("actor_id")
+  at         DateTime      @default(now()) @db.Timestamptz(6)
+  seq        BigInt        @default(autoincrement())
+  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, seq])
+  @@map("tenant_status_history")
 }

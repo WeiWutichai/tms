@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Put, Req, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { PodSource } from '@tms/domain';
 import type { Request, Response } from 'express';
-import { RequireScope, TenantResource } from '../../common/decorators';
+import { RequireScope, TenantResource, AllowReadOnlyTenant } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { PROBLEMS, type ProblemCode } from '../../common/problem';
@@ -126,6 +126,7 @@ export class PodController {
     return v;
   }
 
+  @AllowReadOnlyTenant() // P1-ST1-T03 ตาราง 1.6
   @Put(':id/pod')
   @ApiOperation({
     summary: 'บันทึก/แก้หลักฐานส่ง (ฉบับใหม่ทุกครั้ง)',

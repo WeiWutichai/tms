@@ -67,6 +67,7 @@ import {
   type PlannedDocumentPart,
   type PushResult,
 } from './erp-adapter';
+import { canSync } from '../tenants/tenant-status';
 
 export const ERP_SINK = 'erp';
 
@@ -769,7 +770,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         code: 'connector_disconnected',
       });
     }
-    if (tenant && (tenant.status === 'SUSPENDED' || tenant.status === 'CANCELLED'))
+    if (tenant && !canSync(tenant.status))
       throw new OutboxSinkError('tenant is not active — paused', 'AUTH', { code: 'tenant_paused' });
     if (connector.status !== 'ACTIVE')
       throw new OutboxSinkError(`connector ${connector.status.toLowerCase()}`, 'AUTH', {

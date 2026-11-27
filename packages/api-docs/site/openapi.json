@@ -97230,10 +97230,20 @@
       "title": "นิติบุคคลนี้ให้ระบบบัญชีเป็นผู้ออกใบกำกับภาษี — TMS ออกได้เฉพาะใบแจ้งหนี้/ใบวางบิล",
       "titleEn": "Tax documents for this legal entity are issued by the ERP — TMS issues invoices/billing notes only"
     },
+    "tenant_read_only": {
+      "status": 403,
+      "title": "บัญชีเป็นอ่านอย่างเดียว สร้างงานใหม่ไม่ได้ ดูและ export ได้",
+      "titleEn": "This account is read-only — viewing and exporting still work"
+    },
     "tenant_selection_required": {
       "status": 409,
       "title": "อีเมลนี้เป็นสมาชิกหลายบริษัท เลือกบริษัทที่ต้องการเข้า",
       "titleEn": "This account belongs to several organisations; choose one"
+    },
+    "tenant_suspended": {
+      "status": 403,
+      "title": "บัญชีบริษัทถูกระงับ ติดต่อผู้ดูแลระบบของบริษัท",
+      "titleEn": "This company account is suspended"
     },
     "trip_cost_allocation_failed": {
       "status": 500,

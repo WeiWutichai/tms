@@ -7,13 +7,15 @@ import { DbService } from '../../db/db.service';
 import { PrismaService } from '../../db/prisma.service';
 import { cheapestPlanWith, EntitlementService } from '../entitlements/entitlement.service';
 import { PLANS } from '../entitlements/plan-catalog';
+import { TENANT_STATUS_DOC, TENANT_STATUS_ENUM_DOC } from '../tenants/tenant-status';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export class MeTenantDto {
   @ApiProperty({ example: 'ten_…' }) id!: string;
   @ApiProperty() name!: string;
-  @ApiProperty({ enum: ['trial', 'active', 'suspended', 'cancelled'] }) status!: string;
+  @ApiProperty({ enum: TENANT_STATUS_ENUM_DOC, description: TENANT_STATUS_DOC })
+  status!: string;
   @ApiProperty({ enum: ['BE', 'CE'], description: 'ปีบนเอกสาร: BE = พ.ศ., CE = ค.ศ.' })
   yearStyle!: string;
 }

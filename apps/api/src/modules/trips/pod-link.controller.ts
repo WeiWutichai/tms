@@ -9,7 +9,7 @@ import {
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { apiOrigin } from '../documents/documents.controller';
-import { LinkAction } from '../../common/decorators';
+import { LinkAction, AllowReadOnlyTenant } from '../../common/decorators';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
@@ -58,6 +58,7 @@ export class PodLinkPublicController {
     return this.pod.view(this.offerId(), requestContext.require().link!.id, q.doNo);
   }
 
+  @AllowReadOnlyTenant() // P1-ST1-T03 ตาราง 1.6
   @Post(':token/stops/:stopId/events')
   @HttpCode(201)
   @LinkAction(POD_LINK_ACTIONS.event)
@@ -100,6 +101,7 @@ export class PodLinkPublicController {
     return result;
   }
 
+  @AllowReadOnlyTenant() // P1-ST1-T03 ตาราง 1.6
   @Post(':token/files')
   @LinkAction(POD_LINK_ACTIONS.capture)
   @ApiOperation({
@@ -119,6 +121,7 @@ export class PodLinkPublicController {
     );
   }
 
+  @AllowReadOnlyTenant() // P1-ST1-T03 ตาราง 1.6
   @Post(':token/pod')
   @HttpCode(201)
   @LinkAction(POD_LINK_ACTIONS.capture)

@@ -102,7 +102,22 @@ test.describe('Platform Console', () => {
     await react.getByLabel('เหตุผล').fill('ลูกค้าแก้ไขปัญหาเรียบร้อย');
     await react.getByRole('button', { name: 'ปลดระงับ' }).click();
     await expect(page.getByRole('status')).toContainText(`ปลดระงับ ${name} แล้ว`);
+    // P1-ST1-T03: ปลดระงับ = กลับสถานะก่อนถูกระงับ (ลูกค้าใหม่ = ทดลองใช้) + ประวัติสถานะในแท็บภาพรวม
+    await expect(drawer.locator('.con-badge', { hasText: 'ทดลองใช้' })).toBeVisible();
+    const hist = drawer.locator('.con-sec', { hasText: 'ประวัติสถานะ' });
+    await expect(hist.getByText('ทดลองใช้ → ระงับ')).toBeVisible();
+    await expect(hist.getByText('ระงับ → ทดลองใช้')).toBeVisible();
+    await expect(hist.getByText(/ทดสอบระงับบัญชีจาก E2E · ทีม/)).toBeVisible();
+
+    // P1-ST1-T03: บันทึกว่าชำระแล้ว → ใช้งานทันที (เหตุผล ≥ 10 ตัว + ประวัติ)
+    await drawer.getByRole('button', { name: 'เปิดใช้งาน (ชำระแล้ว)' }).click();
+    const act = page.getByRole('dialog', { name: `เปิดใช้งาน · ${name}` });
+    await act.getByLabel('เหตุผล').fill('ลูกค้าโอนชำระงวดแรกแล้ว');
+    await act.getByRole('button', { name: 'เปิดใช้งาน (ชำระแล้ว)' }).click();
+    await expect(page.getByRole('status')).toContainText(`เปิดใช้งาน ${name} แล้ว`);
     await expect(drawer.locator('.con-badge', { hasText: 'ใช้งาน' })).toBeVisible();
+    await expect(hist.getByText('ทดลองใช้ → ใช้งาน')).toBeVisible();
+    await expect(drawer.getByRole('button', { name: 'เปิดใช้งาน (ชำระแล้ว)' })).toHaveCount(0);
 
     // ค้นหาจากแถบบน
     await page.keyboard.press('Escape');

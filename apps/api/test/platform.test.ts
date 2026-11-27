@@ -136,7 +136,7 @@ describe('platform console (ST1-T24)', () => {
     const r = (await sa.post('/v1/platform/tenants', body).expect(201)).body;
     expect(r).toMatchObject({
       name: 'บริษัท นำร่อง ขนส่ง จำกัด',
-      status: 'trial',
+      status: 'trialing',
       planCode: 'ent',
       vehicleQuota: 30,
       users: 1,

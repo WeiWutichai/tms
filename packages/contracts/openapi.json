@@ -3080,6 +3080,68 @@
         ]
       }
     },
+    "/v1/platform/tenants/{id}/activate": {
+      "post": {
+        "operationId": "PlatformTenants_activate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformTenantDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
     "/v1/platform/tenants/{id}/plan": {
       "patch": {
         "operationId": "PlatformTenants_plan",
@@ -75988,11 +76050,16 @@
           "status": {
             "type": "string",
             "enum": [
-              "trial",
+              "pending_verification",
+              "trialing",
               "active",
+              "past_due",
+              "read_only",
               "suspended",
-              "cancelled"
-            ]
+              "cancelled",
+              "trial"
+            ],
+            "description": "สถานะบัญชีบริษัท 7 ค่า (P1-ST1-T03 · spec/01 PLT-010) — `trial` = ค่าเดิมก่อน 27 พ.ย. 2569 ไม่ส่งแล้ว (ใช้ `trialing`)"
           },
           "planCode": {
             "type": "string"
@@ -76054,6 +76121,64 @@
           "twoFactorEnabled"
         ]
       },
+      "PlatformTenantStatusHistoryDto": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "pending_verification",
+              "trialing",
+              "active",
+              "past_due",
+              "read_only",
+              "suspended",
+              "cancelled"
+            ]
+          },
+          "to": {
+            "type": "string",
+            "enum": [
+              "pending_verification",
+              "trialing",
+              "active",
+              "past_due",
+              "read_only",
+              "suspended",
+              "cancelled"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "actorType": {
+            "type": "string",
+            "enum": [
+              "system",
+              "platform_user",
+              "tenant_user"
+            ]
+          },
+          "actorName": {
+            "type": "string",
+            "nullable": true,
+            "description": "ชื่อทีมงาน/ผู้ใช้ (ระบบ = null)"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "reason",
+          "actorType",
+          "actorName",
+          "at"
+        ]
+      },
       "PlatformTenantDetailDto": {
         "type": "object",
         "properties": {
@@ -76067,11 +76192,16 @@
           "status": {
             "type": "string",
             "enum": [
-              "trial",
+              "pending_verification",
+              "trialing",
               "active",
+              "past_due",
+              "read_only",
               "suspended",
-              "cancelled"
-            ]
+              "cancelled",
+              "trial"
+            ],
+            "description": "สถานะบัญชีบริษัท 7 ค่า (P1-ST1-T03 · spec/01 PLT-010) — `trial` = ค่าเดิมก่อน 27 พ.ย. 2569 ไม่ส่งแล้ว (ใช้ `trialing`)"
           },
           "planCode": {
             "type": "string"
@@ -76092,6 +76222,39 @@
             "items": {
               "$ref": "#/components/schemas/PlatformTenantUserDto"
             }
+          },
+          "trialEndsAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "วันหมดทดลองใช้ (subscription)"
+          },
+          "statusChangedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "statusReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "pastDueSince": {
+            "type": "string",
+            "nullable": true,
+            "format": "date",
+            "description": "วัน 0 ของช่วงค้างชำระ (ใบครบกำหนด / วันหมด trial)"
+          },
+          "dataPurgeAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "cancelled: วันครบระยะเก็บข้อมูล (retention.operationalDays — job ลบปิดอยู่)"
+          },
+          "statusHistory": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlatformTenantStatusHistoryDto"
+            }
           }
         },
         "required": [
@@ -76102,7 +76265,13 @@
           "vehicleQuota",
           "users",
           "createdAt",
-          "members"
+          "members",
+          "trialEndsAt",
+          "statusChangedAt",
+          "statusReason",
+          "pastDueSince",
+          "dataPurgeAt",
+          "statusHistory"
         ]
       },
       "CreatePlatformTenantDto": {
@@ -78827,11 +78996,16 @@
           "status": {
             "type": "string",
             "enum": [
-              "trial",
+              "pending_verification",
+              "trialing",
               "active",
+              "past_due",
+              "read_only",
               "suspended",
-              "cancelled"
-            ]
+              "cancelled",
+              "trial"
+            ],
+            "description": "สถานะบัญชีบริษัท 7 ค่า (P1-ST1-T03 · spec/01 PLT-010) — `trial` = ค่าเดิมก่อน 27 พ.ย. 2569 ไม่ส่งแล้ว (ใช้ `trialing`)"
           },
           "yearStyle": {
             "type": "string",
@@ -118330,10 +118504,20 @@
       "title": "นิติบุคคลนี้ให้ระบบบัญชีเป็นผู้ออกใบกำกับภาษี — TMS ออกได้เฉพาะใบแจ้งหนี้/ใบวางบิล",
       "titleEn": "Tax documents for this legal entity are issued by the ERP — TMS issues invoices/billing notes only"
     },
+    "tenant_read_only": {
+      "status": 403,
+      "title": "บัญชีเป็นอ่านอย่างเดียว สร้างงานใหม่ไม่ได้ ดูและ export ได้",
+      "titleEn": "This account is read-only — viewing and exporting still work"
+    },
     "tenant_selection_required": {
       "status": 409,
       "title": "อีเมลนี้เป็นสมาชิกหลายบริษัท เลือกบริษัทที่ต้องการเข้า",
       "titleEn": "This account belongs to several organisations; choose one"
+    },
+    "tenant_suspended": {
+      "status": 403,
+      "title": "บัญชีบริษัทถูกระงับ ติดต่อผู้ดูแลระบบของบริษัท",
+      "titleEn": "This company account is suspended"
     },
     "trip_cost_allocation_failed": {
       "status": 500,

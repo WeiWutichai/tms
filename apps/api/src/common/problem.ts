@@ -104,6 +104,21 @@ export const PROBLEMS = {
     th: 'เวอร์ชันนี้เผยแพร่แล้วแก้ไขไม่ได้ — สร้างเวอร์ชันใหม่แทน',
     en: 'Published plan versions are immutable — create a new version',
   },
+  /**
+   * P1-ST1-T03 (spec/01 ตาราง 1.6, §1.8): บัญชีบริษัทเป็นอ่านอย่างเดียว (trial หมด / ค้างชำระเกินระยะผ่อนผัน)
+   * — ดู/ค้นหา/export ได้ · สร้าง/แก้ข้อมูลไม่ได้จนกว่าจะชำระ
+   */
+  tenant_read_only: {
+    status: 403,
+    th: 'บัญชีเป็นอ่านอย่างเดียว สร้างงานใหม่ไม่ได้ ดูและ export ได้',
+    en: 'This account is read-only — viewing and exporting still work',
+  },
+  /** P1-ST1-T03: บัญชีบริษัทถูกระงับ/ยกเลิก — ใช้งานไม่ได้ (ลิงก์สาธารณะที่เขียนข้อมูล) */
+  tenant_suspended: {
+    status: 403,
+    th: 'บัญชีบริษัทถูกระงับ ติดต่อผู้ดูแลระบบของบริษัท',
+    en: 'This company account is suspended',
+  },
   impersonation_read_only: {
     status: 403,
     th: 'กำลังเข้าใช้งานแทนแบบอ่านอย่างเดียว — แก้ไขข้อมูลไม่ได้',
