@@ -13,7 +13,8 @@
     "i18n:build": "node scripts/build-i18n.mjs",
     "e2e": "node e2e/prepare.mjs && playwright test",
     "e2e:a11y": "node e2e/prepare.mjs && playwright test -c playwright.a11y.config.ts",
-    "e2e:mobile": "node e2e/prepare.mjs && playwright test -c playwright.mobile.config.ts"
+    "e2e:mobile": "node e2e/prepare.mjs && playwright test -c playwright.mobile.config.ts",
+    "help:shots": "node e2e/prepare.mjs && playwright test -c playwright.help.config.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.62.0",
