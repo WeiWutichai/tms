@@ -91,7 +91,16 @@ describe('connector kit self-test (P1-ST5-T01) — adapter ที่ทำผิ
     const p = checkPushOutcome({ result: r }, 'auth401', ['AUTH']);
     expect(p.length).toBeGreaterThan(0);
     expect(p.join()).toContain('errorClass TRANSIENT');
-    expect(p.join()).toContain('retryable');
+    // retryable ไม่ตรงกับ class (AUTH ที่บอกว่าลองใหม่ได้) ก็ถูกปฏิเสธ
+    const authRetry: PushResult = {
+      ok: false,
+      errorClass: 'AUTH',
+      retryable: true,
+      problem: { code: 'unauthorized', message: 'x' },
+    };
+    expect(checkPushOutcome({ result: authRetry }, 'auth401', ['AUTH']).join()).toContain(
+      'retryable',
+    );
     // healthCheck ที่ผ่านภายใต้ 401 ก็ถูกปฏิเสธ
     expect(checkHealthOutcome(await a.healthCheck(), 'auth401', ['AUTH'])).not.toEqual([]);
   });

@@ -30,6 +30,19 @@ describe('Connector pipeline conformance (P1-ST5-T01)', { timeout: 300_000 }, ()
   const AS_KEY = 'inn_tms_pipeline_7a1d';
   const CUST_TAX = '0105555000001';
   let seq = 100;
+  /**
+   * ใบตัวอย่างของชุด pipeline — ลูกค้าจริงของ tenant · บรรทัดไม่ผูกค่าบริการ (ประตู mapping ค่าบริการ ST7-T18 `erp_mapping_incomplete`
+   * ทดสอบแยกใน erp-master-codes / erp-accountsystem-flow — ชุดนี้ตรวจทางเดินของ adapter)
+   */
+  const pipelineInvoice = (taxId: string | null) => {
+    const base = sampleInvoice(++seq);
+    return withSyncHash({
+      ...base,
+      id: randomUUID(),
+      customer: { ...base.customer, id: customerId, ...(taxId ? { taxId } : {}) },
+      lines: base.lines.map((l) => ({ ...l, serviceItem: null })),
+    } as CanonicalDocument);
+  };
 
   beforeAll(async () => {
     process.env.WEBHOOK_ALLOW_PRIVATE_TARGETS = '1';
@@ -86,12 +99,7 @@ describe('Connector pipeline conformance (P1-ST5-T01)', { timeout: 300_000 }, ()
           credentials: { apiKey: 'demo-pipeline-key' },
           capabilitiesEnabled: ['pushInvoice', 'fetchDocument', 'listDocuments'],
         }),
-        invoice: () =>
-          withSyncHash({
-            ...sampleInvoice(++seq),
-            id: randomUUID(),
-            customer: { ...sampleInvoice().customer, id: customerId },
-          } as CanonicalDocument),
+        invoice: () => pipelineInvoice(null),
         failNext: async (cls, h) => {
           await settings(h.connectorId, cls);
         },
@@ -114,12 +122,7 @@ describe('Connector pipeline conformance (P1-ST5-T01)', { timeout: 300_000 }, ()
           credentials: { apiKey: AS_KEY },
           capabilitiesEnabled: ['pushInvoice', 'pushSettlement'],
         }),
-        invoice: () =>
-          withSyncHash({
-            ...sampleInvoice(++seq),
-            id: randomUUID(),
-            customer: { ...sampleInvoice().customer, id: customerId, taxId: CUST_TAX },
-          } as CanonicalDocument),
+        invoice: () => pipelineInvoice(CUST_TAX),
         failNext: async (cls) => {
           mock.failNext(cls === 'AUTH' ? 401 : 422);
         },

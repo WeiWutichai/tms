@@ -533,7 +533,9 @@ export function describeConnectorConformance(name: string, opts: ConnectorConfor
             }
           }
           const h = await a.healthCheck(ctx(faultConfig(fault)));
-          fail(checkHealthOutcome(h, fault, expected));
+          // adapter ที่จำลองด้วยค่าตั้ง (Demo) จำลองความล้มเฉพาะคำสั่ง — healthCheck ตรวจเฉพาะ AUTH (key ผิด)
+          if (!opts.simulate || fault === 'auth401' || fault === 'auth403')
+            fail(checkHealthOutcome(h, fault, expected));
           expect(show(h)).not.toContain(SENTINEL);
           if (READ_FAULTS.has(fault)) await readsUnder(a, faultConfig(fault), fault, expected);
         } finally {

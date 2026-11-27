@@ -63,6 +63,7 @@ adapter ตัวเดียวใช้ร่วมทุก tenant — ห้
 | krs | `periodClosed` | ข้าม | ตาราง error ของ KRS (docs/01 A.1/A.5) ไม่มีกรณีงวดปิด — ไม่มีรูปคำตอบให้ทำ fixture |
 | krs | ชุด pipeline | ไม่อยู่ในชุด | ส่งใบเข้า KRS ต้องมีผังรหัส + รหัสลูกค้า PP ก่อน (ST8-T06) — ทดสอบทางเดียวกันใน `krs-push-invoice.test.ts` / `krs-a5-errors.test.ts` |
 | demo | `refused` | ข้าม | ERP จำลองในโปรเซส ไม่มีปลายทางเครือข่าย (TRANSIENT ตรวจผ่าน `failMode` แล้ว) |
+| demo | healthCheck ภายใต้ fault ที่ไม่ใช่ AUTH | ไม่ตรวจ | `failMode` จำลองความล้มเฉพาะคำสั่ง (สาธิต retry โดย connector ยัง ACTIVE) — healthCheck ล้มเฉพาะ key ผิด |
 | standalone | ทุกข้อ | ข้าม | ไม่มี capability และไม่ติดต่อภายนอก |
 
 ## 4. ไฟล์ของชุดแม่แบบ

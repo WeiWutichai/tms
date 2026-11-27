@@ -18,6 +18,10 @@ import { api, platform } from '../helpers';
  *
  * ผู้ใช้: `test/connector-conformance-pipeline.test.ts` — connector ใหม่เพิ่ม 1 ชุดที่นั่น
  */
+/** JSON ที่ทน BigInt (คอลัมน์ seq ของ outbox) */
+const stringify = (v: unknown) =>
+  JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? x.toString() : x));
+
 export interface PipelineConformanceSpec {
   adapterKey: string;
   /** body ของ `POST /v1/connectors` (ไม่รวม adapterKey) */
@@ -100,7 +104,11 @@ export async function runPipelineConformance(
   const doc = spec.invoice();
   const ok = await enqueue(doc);
   await drain();
-  expect(await cmd(ok), JSON.stringify(await cmd(ok))).toMatchObject({ status: 'DONE' });
+  const done = await cmd(ok);
+  expect(
+    done,
+    stringify({ status: done.status, errorClass: done.errorClass, lastError: done.lastError }),
+  ).toMatchObject({ status: 'DONE' });
   const maps = await plat.externalMapping.findMany({
     where: { tenantId, entityType: 'INVOICE', localId: doc.id },
   });
