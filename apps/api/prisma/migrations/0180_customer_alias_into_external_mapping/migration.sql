@@ -4,6 +4,9 @@
 --   match_kind = EXTERNAL_ID / NAME · channel = ช่องทาง (`ERP:{adapter}` / `API` / `EXCEL` / `PORTAL` / `MANUAL`; NAME = '') ·
 --   source_code = คีย์ที่ใช้ค้น (รหัสตรงตัว / matchKey ของชื่อ — เดิม value_key) · match_value = ข้อความตามต้นทาง (เดิม value)
 -- แถว mapping ของ connector เดิมไม่เปลี่ยน (match_kind NULL + connector_id NOT NULL — CHECK ด้านล่าง)
+-- FK customer_alias.customer_id → customer เดิมหายไปพร้อมตาราง: external_mapping.local_id ไม่มี FK (ใช้กับทุก entity) —
+--   ความถูกต้องอยู่ที่แอป (เขียนผ่าน ExternalMappingService ด้วยลูกค้าที่ผู้เรียกตรวจแล้ว) และลูกค้าเป็น soft delete (ไม่มี hard delete) จึงไม่มีแถวกำพร้า
+--   รูปแถวนี้ = [DECISION — lead 27 พ.ย. 2569, ย้อนได้] รอ PO ทบทวน (spec/12 §3)
 -- ย้ายข้อมูลทุกแถว (ไม่มี tenant production — PO 22 พ.ย. 2569 — แต่ฐาน dev/UAT ที่มี alias ต้องค้นได้เหมือนเดิม) แล้วลบตารางเดิม
 
 -- AlterTable

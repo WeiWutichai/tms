@@ -11,8 +11,10 @@ import type { AddressInfo } from 'node:net';
 export type HttpFault =
   /** ตอบ status นี้ (body JSON ตาม fixture ของ ERP หรือค่ากลาง) */
   | { kind: 'status'; status: number; body?: unknown; on: FaultTarget }
-  /** อ่าน body ครบแล้วตัดการเชื่อมต่อ (ERP อาจได้รับแล้ว — docs/01 §6.3 AMBIGUOUS) */
-  | { kind: 'reset'; on: FaultTarget };
+  /** อ่าน body ครบแล้วตัดการเชื่อมต่อ **โดยไม่ส่งต่อ** (ผู้ส่งไม่รู้ผล — docs/01 §6.3 AMBIGUOUS; ERP ไม่ได้รับจริง) */
+  | { kind: 'reset'; on: FaultTarget }
+  /** ส่งต่อให้ mock แล้ว**รอคำตอบครบ** จากนั้นตัดการเชื่อมต่อฝั่ง adapter (ERP บันทึกแล้วแต่ผู้ส่งไม่ได้คำตอบ — AMBIGUOUS ตัวจริง) */
+  | { kind: 'resetAfterForward'; on: FaultTarget };
 
 /**
  * คำขอที่โดน fault: `any` = ทุกคำขอ (เช่น key ผิด/ปลายทางล่มทั้งระบบ) · `write` = คำขอเขียน (ไม่ใช่ GET) ที่ path ตรง `writePath`
@@ -73,6 +75,28 @@ export class FaultProxy {
     return method !== 'GET' && (!this.writePath || this.writePath.test(path));
   }
 
+  /** ส่งต่อให้ mock แล้วอ่านคำตอบจนจบ (ใช้กับ resetAfterForward) */
+  private forward(
+    method: string,
+    path: string,
+    headers: IncomingMessage['headers'],
+    body: Buffer,
+  ): Promise<number> {
+    const up = new URL(path, this.upstream);
+    return new Promise((resolve, reject) => {
+      const p = httpRequest(
+        up,
+        { method, headers: forwardHeaders(headers, up.host, body.length) },
+        (r) => {
+          r.resume();
+          r.on('end', () => resolve(r.statusCode ?? 0));
+        },
+      );
+      p.on('error', reject);
+      p.end(body);
+    });
+  }
+
   private async handle(req: IncomingMessage, res: import('node:http').ServerResponse) {
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
@@ -91,17 +115,20 @@ export class FaultProxy {
       res.end(JSON.stringify(f.body ?? { error: `conformance fault HTTP ${f.status}` }));
       return;
     }
+    if (faulted && f?.kind === 'resetAfterForward') {
+      await this.forward(method, path, req.headers, body).catch(() => null);
+      req.socket.destroy();
+      return;
+    }
     if (!this.upstream) {
       res.writeHead(502, { 'content-type': 'application/json' });
       res.end('{"error":"no upstream"}');
       return;
     }
     const up = new URL(path, this.upstream);
-    const headers = { ...req.headers, host: up.host };
-    delete headers['content-length'];
     const p = httpRequest(
       up,
-      { method, headers: { ...headers, 'content-length': String(body.length) } },
+      { method, headers: forwardHeaders(req.headers, up.host, body.length) },
       (r) => {
         res.writeHead(r.statusCode ?? 502, r.headers);
         r.pipe(res);
@@ -113,6 +140,18 @@ export class FaultProxy {
     });
     p.end(body);
   }
+}
+
+/** header ที่ส่งต่อ — ตัด hop-by-hop (content-length / transfer-encoding / connection) แล้วตั้งความยาวจริงของ body ที่อ่านครบแล้ว */
+function forwardHeaders(
+  h: IncomingMessage['headers'],
+  host: string,
+  length: number,
+): IncomingMessage['headers'] {
+  const out: Record<string, string | string[] | undefined> = { ...h, host };
+  for (const k of ['content-length', 'transfer-encoding', 'connection', 'keep-alive'])
+    delete out[k];
+  return { ...out, 'content-length': String(length) };
 }
 
 /** พอร์ตที่ไม่มีใครฟัง (connection refused — docs/01 §6.3 TRANSIENT) */

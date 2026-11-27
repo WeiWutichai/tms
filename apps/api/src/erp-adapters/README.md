@@ -41,26 +41,34 @@
 | 401 / 403 (ทุกคำขอ) | `AUTH` (`retryable: false`) · อ่านกลับ = throw `ErpAdapterError('AUTH')` | คำสั่งคง PENDING ไม่นับครั้ง · connector `ERROR` + แจ้ง admin ทันที (D68-47) |
 | 429 / 503 / connection refused (ทุกคำขอ) · 500 (คำขอเขียน) | `TRANSIENT` (`retryable: true`) — throw Error ธรรมดาก็ได้ | ลองใหม่ 1, 2, 5, 15, 30, 60 นาที · healthCheck ล้ม ≥ 30 นาที = หยุดคิว |
 | 400 / 422 (คำขอเขียน) | `VALIDATION` (`retryable: false`) | FAILED_FINAL + แท็บ "ล้มเหลว" ของคิว |
-| สายหลุดหลังส่ง body (คำขอเขียน) | `AMBIGUOUS` (`retryable: true`) | ไม่ส่งซ้ำทันที — ค้นก่อน (fetch/list) |
+| สายหลุดหลังส่ง body (`resetAfterSend`) / ERP บันทึกแล้วแต่สายหลุดก่อนได้คำตอบ (`resetAfterForward`) | `AMBIGUOUS` (`retryable: true`) | ไม่ส่งซ้ำทันที — ค้นก่อน (fetch/list) |
 | fixture "เลขอ้างอิงซ้ำ" ของ ERP | `DUPLICATE` หรือ ok ที่ `applied !== true` | ตามหาเอกสารเดิม → SYNCED / MISMATCH / ให้คนกรอกเลข |
 | fixture "งวดบัญชีปิด" ของ ERP | `PERIOD_CLOSED` | FAILED_FINAL ไม่ลองใหม่ |
+| 404 ตอน `fetchDocument` / `replaceDocument` | fetch: `null` หรือ `ErpAdapterError('NOT_FOUND')` · replace: `NOT_FOUND` | REMOTE_MISSING ให้คนตัดสิน |
+| capability ใน `pendingCapabilities` | `CAPABILITY` + `not_implemented` | พักคำสั่ง (PENDING) |
 
 อื่น ๆ ที่ชุดตรวจ: ปลายทางล่มระหว่างอ่านกลับต้อง throw (ห้ามคืน `null` — core จะถือว่า "ไม่พบเอกสาร" → REMOTE_MISSING) ·
 externalId / เลขเอกสารไม่ว่างและ ≤ 100 ตัว (CHECK ของ `external_mapping`) · ค่าส่วนบุคคลที่ประกาศไม่ถูกสะท้อนในผล/ข้อความ error ·
 adapter ตัวเดียวใช้ร่วมทุก tenant — ห้ามค้าง credential/สถานะข้าม context · ระดับ pipeline: mapping แถวเดียวแม้ส่งซ้ำ, tenant อื่นไม่เห็น (RLS/404)
 
-ผลที่ต่างจากตารางได้เฉพาะเมื่อใส่ `exceptions` **พร้อมเหตุผล** (เหตุผลแสดงในชื่อ test) — ข้อยกเว้นปัจจุบัน:
+**ไม่มีการผ่านแบบเงียบ:** ข้อที่ฉีดกับ adapter ไม่ได้ (ไม่มี fixture ซ้ำ/งวดปิด, `simulate` คืน null, adapter ไม่ใช่ HTTP) ต้องมี `exceptions`
+พร้อมเหตุผล — ไม่มี = test "ทุกข้อมีข้อยกเว้น" ล้ม · ข้อที่มีเหตุผลแสดงเป็น test ที่ **ข้าม (skip) พร้อมเหตุผลในชื่อ** · push ที่ประกาศต้องมี `samples`
+· ตัวตรวจมี self-test กับ adapter ที่ตั้งใจทำผิด (`test/connector-kit-selftest.test.ts`) · ข้อยกเว้นปัจจุบัน:
 
-| adapter | ข้อ | เหตุผล |
-| --- | --- | --- |
-| accountsystem | สายหลุดหลังส่ง → `TRANSIENT` | AccountSystem กันซ้ำด้วย `external_ref` (เลข TMS) — ส่งซ้ำได้ร่างเดิม จึงลองใหม่ได้ปลอดภัย |
-| demo | connection refused | ไม่มีปลายทางจริง (จำลองด้วยค่าตั้ง `failMode`) |
-| krs | ชุด pipeline | ส่งใบเข้า KRS ต้องมีผังรหัส + รหัสลูกค้า PP ก่อน (ST8-T06) — ทดสอบทางเดียวกันใน `krs-push-invoice.test.ts` / `krs-a5-errors.test.ts` |
+| adapter | ข้อ | ผล | เหตุผล |
+| --- | --- | --- | --- |
+| accountsystem | `resetAfterSend`, `resetAfterForward` | `TRANSIENT` แทน `AMBIGUOUS` | กันซ้ำด้วย `external_ref` (เลข TMS) — ชุดส่งซ้ำจริงแล้วได้ `created=false` และ mock มีเอกสารใบเดียว · [DECISION — lead 27 พ.ย. 2569, ย้อนได้] ใน spec/12 §3 รอ PO ทบทวน |
+| accountsystem | `duplicate` | ข้าม | ไม่ตอบ "เลขซ้ำ" — POST ซ้ำด้วย `external_ref` เดิมคืนร่างเดิม (`applied` false) |
+| accountsystem | `periodClosed` | ข้าม | สัญญา ext/v1 ไม่มีคำตอบงวดปิด (สร้างเฉพาะร่าง) |
+| krs | `periodClosed` | ข้าม | ตาราง error ของ KRS (docs/01 A.1/A.5) ไม่มีกรณีงวดปิด — ไม่มีรูปคำตอบให้ทำ fixture |
+| krs | ชุด pipeline | ไม่อยู่ในชุด | ส่งใบเข้า KRS ต้องมีผังรหัส + รหัสลูกค้า PP ก่อน (ST8-T06) — ทดสอบทางเดียวกันใน `krs-push-invoice.test.ts` / `krs-a5-errors.test.ts` |
+| demo | `refused` | ข้าม | ERP จำลองในโปรเซส ไม่มีปลายทางเครือข่าย (TRANSIENT ตรวจผ่าน `failMode` แล้ว) |
+| standalone | ทุกข้อ | ข้าม | ไม่มี capability และไม่ติดต่อภายนอก |
 
 ## 4. ไฟล์ของชุดแม่แบบ
 
 - `test/connector-kit/conformance.ts` — `describeConnectorConformance()` (รวม contract เดิม `test/erp-adapter-contract.ts`)
-- `test/connector-kit/fault-proxy.ts` — reverse proxy ฉีด fault HTTP หน้า mock ใดก็ได้ + เก็บคำขอ
+- `test/connector-kit/fault-proxy.ts` — reverse proxy ฉีด fault HTTP หน้า mock ใดก็ได้ (status / ตัดสายก่อนส่งต่อ / ส่งต่อแล้วตัดสาย) + เก็บคำขอ
 - `test/connector-kit/pipeline.ts` — `runPipelineConformance()` ผ่าน API + outbox + sink + ฐานข้อมูล
 - `test/connector-kit/samples.ts` — canonical ตัวอย่าง (ข้อมูลสมมติ)
 

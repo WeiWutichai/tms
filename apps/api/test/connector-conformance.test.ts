@@ -6,7 +6,7 @@ import { AccountSystemAdapter } from '../src/erp-adapters/accountsystem/accounts
 import { DemoAdapter } from '../src/erp-adapters/demo/demo.adapter';
 import { KrsAdapter } from '../src/erp-adapters/krs/krs.adapter';
 import { STANDALONE_ADAPTER } from '../src/modules/erp/erp-adapter';
-import { describeConnectorConformance } from './connector-kit/conformance';
+import { allFaultsSkipped, describeConnectorConformance } from './connector-kit/conformance';
 import {
   krsContractContext,
   krsContractInvoice,
@@ -28,7 +28,13 @@ describe('ทะเบียน adapter (P1-ST5-T01)', () => {
   });
 });
 
-describeConnectorConformance('standalone', { make: () => STANDALONE_ADAPTER, config: {} });
+describeConnectorConformance('standalone', {
+  make: () => STANDALONE_ADAPTER,
+  config: {},
+  exceptions: allFaultsSkipped(
+    'Standalone ไม่มี capability และไม่ติดต่อภายนอก — ไม่มีคำขอให้ฉีดความผิดพลาด (healthCheck ผ่านเสมอ)',
+  ),
+});
 
 // ---------- Demo (ST7-T14) — ไม่ใช้ HTTP: จำลอง fault ด้วยค่าตั้ง failMode / credential `invalid` ----------
 describeConnectorConformance('demo (DemoProvider)', {
@@ -59,7 +65,10 @@ describeConnectorConformance('demo (DemoProvider)', {
       case 'rejected422':
         return { failMode: 'VALIDATION' };
       case 'resetAfterSend':
+      case 'resetAfterForward':
         return { failMode: 'AMBIGUOUS' };
+      case 'notFound404':
+        return {}; // เอกสารที่ไม่มีใน demo = ไม่พบตามจริง
       case 'duplicate':
         return { failMode: 'DUPLICATE' };
       case 'periodClosed':
@@ -68,19 +77,29 @@ describeConnectorConformance('demo (DemoProvider)', {
         return null; // refused — ไม่มีปลายทางจริง
     }
   },
+  exceptions: {
+    refused: {
+      expect: 'skip',
+      reason:
+        'Demo ไม่มีปลายทางเครือข่าย (ERP จำลองในโปรเซส) — ต่อไม่ติดไม่เกิดขึ้น · TRANSIENT ตรวจผ่าน failMode แล้ว',
+    },
+  },
 });
 
 // ---------- AccountSystem (ST8-T16) — mock จาก contract + FaultProxy ----------
+const AS_RETRY_SAFE =
+  'AccountSystem กันซ้ำด้วย external_ref (เลข TMS) — ส่งซ้ำหลังสายหลุดได้ร่างเดิม จึงลองใหม่แบบ TRANSIENT ได้ปลอดภัย (docs/01 §6.3 ให้ AMBIGUOUS — spec/12 §3 [DECISION])';
 const AS_KEY = 'inn_tms_conformance_5c2e';
 const as: { m?: MockAccountSystem } = {};
 const asGood: Record<string, string> = { baseUrl: '', apiKey: AS_KEY, webhookSecret: 'whsec_c0' };
+const asBad: Record<string, string> = { baseUrl: '', apiKey: 'inn_wrong_key' };
 beforeAll(async () => {
   as.m = await startMockAccountSystem({
     apiKey: AS_KEY,
     webhookSecret: 'whsec_c0',
     contacts: [{ code: 'C-0001', tax_id: '0105555000001', branch_code: '00000', kind: 'customer' }],
   });
-  asGood.baseUrl = as.m.url;
+  asGood.baseUrl = asBad.baseUrl = as.m.url;
 });
 afterAll(async () => {
   await as.m?.stop();
@@ -89,14 +108,32 @@ describeConnectorConformance('accountsystem (AccountSystemAdapter)', {
   profile: 'accounting',
   make: () => new AccountSystemAdapter({ allowPrivate: true }),
   config: asGood,
-  badConfig: { baseUrl: '', apiKey: 'inn_wrong_key' },
+  badConfig: asBad,
   samples: { invoice: sampleInvoice(90), settlement: sampleSettlement(90) },
-  http: { upstream: () => as.m!.url, writePath: /\/ext\/v1\/documents$/ },
+  http: {
+    upstream: () => as.m!.url,
+    writePath: /\/ext\/v1\/documents$/,
+    documentsWithRef: (ref) =>
+      [...as.m!.documents.values()].filter((d) => d.external_ref === ref).length,
+  },
   exceptions: {
     resetAfterSend: {
       expect: ['TRANSIENT'],
+      reason: AS_RETRY_SAFE,
+    },
+    resetAfterForward: {
+      expect: ['TRANSIENT'],
+      reason: `${AS_RETRY_SAFE} (ชุดนี้ส่งซ้ำจริง: ได้ created=false และ mock มีเอกสารใบเดียว)`,
+    },
+    duplicate: {
+      expect: 'skip',
       reason:
-        'AccountSystem กันซ้ำด้วย external_ref (เลข TMS) — ส่งซ้ำหลังสายหลุดได้ร่างเดิม (created=false) จึงลองใหม่แบบ TRANSIENT ได้ปลอดภัย',
+        'AccountSystem ไม่ตอบ "เลขซ้ำ" — POST ซ้ำด้วย external_ref เดิมคืนร่างเดิม (created=false → applied false) ตามสัญญา ext/v1',
+    },
+    periodClosed: {
+      expect: 'skip',
+      reason:
+        'สัญญา AccountSystem ext/v1 ไม่มีคำตอบ "งวดบัญชีปิด" (สร้างเฉพาะร่าง — งวดตรวจตอนผู้ใช้อนุมัติในระบบบัญชี)',
     },
   },
 });
@@ -105,10 +142,11 @@ describeConnectorConformance('accountsystem (AccountSystemAdapter)', {
 const KRS_KEY = 'krs-conformance-key-1e7c';
 const krs: { a?: MockKrs; b?: MockKrs } = {};
 const krsGood: Record<string, string> = { baseUrl: '', apiKey: KRS_KEY, salePerson: 'S001' };
+const krsBad: Record<string, string> = { baseUrl: '', apiKey: 'wrong-key' };
 beforeAll(async () => {
   krs.a = await startMockKrs({ apiKey: KRS_KEY });
   krs.b = await startMockKrs({ apiKey: KRS_KEY });
-  krsGood.baseUrl = krs.a.apiBaseUrl;
+  krsGood.baseUrl = krsBad.baseUrl = krs.a.apiBaseUrl;
 });
 afterAll(async () => {
   await krs.a?.stop();
@@ -117,7 +155,7 @@ afterAll(async () => {
 describeConnectorConformance('krs (KrsAdapter)', {
   make: () => new KrsAdapter({ allowPrivate: true }),
   config: krsGood,
-  badConfig: { baseUrl: '', apiKey: 'wrong-key' },
+  badConfig: krsBad,
   samples: { invoice: krsContractInvoice() },
   context: krsContractContext(),
   http: {
@@ -131,5 +169,15 @@ describeConnectorConformance('krs (KrsAdapter)', {
       },
     },
   },
-  isolation: { config: () => ({ ...krsGood, baseUrl: krs.b!.apiBaseUrl }) },
+  exceptions: {
+    periodClosed: {
+      expect: 'skip',
+      reason:
+        'ตาราง error ของ KRS (docs/01 A.1/A.5) ไม่มีกรณี "งวดบัญชีปิด" — ไม่มีรูปคำตอบจริงให้ทำ fixture (เพิ่มเมื่อ KRS ระบุ)',
+    },
+  },
+  isolation: {
+    config: () => ({ ...krsGood, baseUrl: krs.b!.apiBaseUrl }),
+    label: 'tenant B ชี้ mock KRS ตัวที่สอง — เอกสารของ tenant A ต้องไม่พบ',
+  },
 });
