@@ -17,7 +17,11 @@ import { requestContext } from '../../common/request-context';
 import type { Tx } from '../../db/db.service';
 import { cleanLine, lockKey, lockReferenced } from '../master/master-kit';
 import { SitesService } from '../sites/sites.service';
-import { ExternalMappingService } from '../erp/external-mapping.service';
+import {
+  aliasLockKey,
+  type CustomerAliasKind,
+  ExternalMappingService,
+} from '../erp/external-mapping.service';
 
 /** รายการแนะนำ (เก็บใน `match_candidates` / `customer_candidates` — id เป็น uuid; API แปลงเป็น public id) */
 export interface MatchSuggestion {
@@ -73,9 +77,9 @@ export type AliasLearnResult =
 
 /**
  * จับคู่อัตโนมัติ (ST3-T06; docs/04 C) — **อ่านอย่างเดียว** สำหรับ order (ไม่เขียน sales_order* — คนเขียนคือ
- * OrderIntakeService ที่เดียว) · เขียนเฉพาะ alias ที่เรียนรู้ (customer_site.aliases ผ่าน SitesService / customer_alias)
+ * OrderIntakeService ที่เดียว) · เขียนเฉพาะ alias ที่เรียนรู้ (customer_site.aliases ผ่าน SitesService / แถว alias ของ external_mapping — P1-ST5-T12)
  *
- * ลูกค้า: alias รหัสของช่องทางนี้ที่คนจับคู่ไว้ (`customer_alias` EXTERNAL_ID — **ชนะ** `customer.external_id` เพราะคนตัดสินแล้ว)
+ * ลูกค้า: alias รหัสของช่องทางนี้ที่คนจับคู่ไว้ (แถว alias EXTERNAL_ID ของ `external_mapping` — เดิม customer_alias · **ชนะ** `customer.external_id` เพราะคนตัดสินแล้ว)
  *   → `customer.external_id` ตรงตัว → (ไม่มีรหัส) alias ชื่อ (NAME) · **ไม่จับคู่เองด้วยความคล้ายของชื่อ** (ลูกค้าผิด = บิลผิด)
  * สถานที่: ขอบเขต = สถานที่ของลูกค้าของ order + สถานที่ของบริษัท (customer_id null) ที่ใช้งานอยู่ (กติกาเดียวกับ T01/T13)
  *   → `matchText` (alias/ชื่อตรงตัว — ชื่อซ้ำ: ของลูกค้าเองชนะของบริษัท → ความคล้ายเกินเกณฑ์และไม่กำกวม) · ไม่ถึงเกณฑ์ = แนะนำ
@@ -100,11 +104,8 @@ export class OrderMatchingService {
       // ST8-T05 ใบจาก connector: external_mapping(CUSTOMER).source_code ของ connector นั้นก่อน (คนตัดสินแล้ว — docs/01 A.4)
       const viaMapping = await this.mappings.matchCustomer(tx, q.source, q.externalId);
       if (viaMapping) return { customerId: viaMapping, method: 'ALIAS', candidates: [] };
-      const alias = await tx.customerAlias.findFirst({
-        where: { kind: 'EXTERNAL_ID', source: q.source, valueKey: q.externalId },
-        select: { customerId: true },
-      });
-      const viaAlias = await active(alias?.customerId);
+      const alias = await this.mappings.aliasCustomer(tx, 'EXTERNAL_ID', q.source, q.externalId);
+      const viaAlias = await active(alias ?? undefined);
       if (viaAlias) return { customerId: viaAlias, method: 'ALIAS', candidates: [] };
       const byExt = await tx.customer.findFirst({
         where: { externalId: q.externalId, deletedAt: null, status: 'ACTIVE' },
@@ -114,13 +115,8 @@ export class OrderMatchingService {
       if (id) return { customerId: id, method: 'EXTERNAL_ID', candidates: [] };
     } else if (q.text) {
       const key = matchKey(q.text);
-      const alias = key
-        ? await tx.customerAlias.findFirst({
-            where: { kind: 'NAME', source: '', valueKey: key },
-            select: { customerId: true },
-          })
-        : null;
-      const viaAlias = await active(alias?.customerId);
+      const alias = key ? await this.mappings.aliasCustomer(tx, 'NAME', '', key) : null;
+      const viaAlias = await active(alias ?? undefined);
       if (viaAlias) return { customerId: viaAlias, method: 'ALIAS', candidates: [] };
     }
     return { customerId: null, method: null, candidates: await this.customerSuggestions(tx, q) };
@@ -135,18 +131,22 @@ export class OrderMatchingService {
     if (!text || !matchKey(text)) return [];
     const rows = await tx.customer.findMany({
       where: { status: 'ACTIVE', deletedAt: null },
-      select: { id: true, code: true, legalName: true, aliases: { select: { value: true } } },
+      select: { id: true, code: true, legalName: true },
       orderBy: { code: 'asc' },
       take: SCOPE_LIMIT,
     });
     if (rows.length >= SCOPE_LIMIT)
       this.logger.warn(`customer suggestions: scope limit ${SCOPE_LIMIT} reached — list truncated`);
+    const learned = await this.mappings.aliasValues(
+      tx,
+      rows.map((c) => c.id),
+    );
     const r = matchText(
       text,
       rows.map((c) => ({
         id: c.id,
         name: c.legalName,
-        aliases: [c.code, ...c.aliases.map((a) => a.value)],
+        aliases: [c.code, ...(learned.get(c.id) ?? [])],
       })),
       { allowFuzzy: false },
     );
@@ -253,8 +253,7 @@ export class OrderMatchingService {
       reason?: string | null;
     },
   ): Promise<AliasLearnResult> {
-    const ctx = requestContext.require();
-    const kind = q.externalId ? 'EXTERNAL_ID' : 'NAME';
+    const kind: CustomerAliasKind = q.externalId ? 'EXTERNAL_ID' : 'NAME';
     const value = cleanLine(q.externalId ?? q.text ?? '');
     const valueKey = q.externalId ? value : matchKey(value);
     if (!valueKey) return 'empty';
@@ -273,21 +272,13 @@ export class OrderMatchingService {
       });
       if (viaMapping) return viaMapping;
     }
-    await lockKey(tx, `customer_alias:${kind}:${source}:${valueKey}`);
-    const owner = async () =>
-      (
-        await tx.$queryRaw<{ customer_id: string }[]>`
-          SELECT customer_id::text FROM customer_alias
-           WHERE kind = ${kind} AND source = ${source} AND value_key = ${valueKey} FOR UPDATE`
-      )[0]?.customer_id;
+    await lockKey(tx, aliasLockKey(kind, source, valueKey));
+    // P1-ST5-T12 (D68-29) ผลจับคู่เก็บใน external_mapping (แถว alias — connector_id NULL) แทนตาราง customer_alias เดิม
+    const alias = { kind, channel: source, key: valueKey, value, customerId: q.customerId };
+    const owner = () => this.mappings.aliasOwner(tx, kind, source, valueKey);
     let prev = await owner();
     if (!prev) {
-      const n = await tx.$executeRaw`
-        INSERT INTO customer_alias (id, tenant_id, customer_id, kind, source, value, value_key, created_by)
-        VALUES (gen_random_uuid(), ${ctx.tenantId!}::uuid, ${q.customerId}::uuid, ${kind}, ${source}, ${value},
-                ${valueKey}, ${ctx.actorId ?? null})
-        ON CONFLICT (tenant_id, kind, source, value_key) DO NOTHING`;
-      if (n === 1) {
+      if (await this.mappings.insertAlias(tx, alias)) {
         await this.audit.record({
           action: 'customer.alias_learned',
           entityType: 'customer',
@@ -305,10 +296,7 @@ export class OrderMatchingService {
         aliasValue: value,
         mappedCustomerId: encodeId('customer', prev!),
       });
-    await tx.$executeRaw`
-      UPDATE customer_alias SET customer_id = ${q.customerId}::uuid, value = ${value},
-             created_by = ${ctx.actorId ?? null}, updated_at = now()
-       WHERE kind = ${kind} AND source = ${source} AND value_key = ${valueKey}`;
+    await this.mappings.reassignAlias(tx, alias);
     await this.audit.record({
       action: 'customer.alias_reassigned',
       entityType: 'customer',

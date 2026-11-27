@@ -16,6 +16,9 @@ export default defineConfig({
   server: {
     port: Number(rootEnv.WEB_PORT ?? 4420),
     strictPort: true,
+    // แปลงโค้ดแอปไว้ตั้งแต่ server ขึ้น — หลังแยก entry landing/app (P1-ST2-T01) หน้าแรกของ E2E (/login) ต้องรอ vite
+    // แปลงทั้งแอปตอนเปิดครั้งแรก เกิน timeout 5 วิของ expect (a11y login ล้มเฉพาะ test แรกของรอบ)
+    warmup: { clientFiles: ['./src/main.tsx', './src/AppRoot.tsx', './src/App.tsx'] },
     proxy: {
       '/v1': rootEnv.VITE_API_TARGET ?? `http://localhost:${rootEnv.API_PORT ?? 4410}`,
     },

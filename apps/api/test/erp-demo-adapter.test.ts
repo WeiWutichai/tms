@@ -12,7 +12,6 @@ import {
   STANDALONE_ADAPTER,
 } from '../src/modules/erp/erp-adapter';
 import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
-import { describeErpAdapterContract } from './erp-adapter-contract';
 
 /** ST7-T14 DemoProvider (ERP จำลอง) + StandaloneProvider — ส่วนที่ไม่แตะฐานข้อมูล */
 
@@ -30,22 +29,7 @@ const ctx = (config: Record<string, string> = {}, key?: string, connector = 'c1'
 const ext = (key: string, connector = 'c1', kind = 'invoice') =>
   `DEMO-INV-${demoExternalSuffix(`${TENANT}:${connectorIdOf(connector)}`, kind, key)}`;
 
-describeErpAdapterContract('demo (DemoProvider)', {
-  make: () => new DemoAdapter(),
-  config: { apiKey: 'demo-key' },
-  badConfig: { apiKey: 'invalid' },
-  samples: {
-    invoice: docOf('inv-1', 'INV-00000-2611-0001', '1070.00'),
-    creditNote: docOf('cn-1', 'CN-00000-2611-0001', '107.00'),
-    settlement: docOf('stl-1', 'STL-2611-0001', '500.00'),
-    ref: {
-      entityType: 'invoice',
-      localId: 'inv-1',
-      number: 'INV-00000-2611-0001',
-      externalId: null,
-    },
-  },
-});
+// P1-ST5-T01 contract + conformance ของ adapter นี้อยู่ใน test/connector-conformance.test.ts
 
 describe('DemoProvider (ST7-T14)', () => {
   it('ลงทะเบียนผ่าน composition root เท่านั้น · localOnly (ไม่ใช่ production) · ไม่ใช่ค่าเริ่มต้น', () => {

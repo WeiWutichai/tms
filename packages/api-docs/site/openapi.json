@@ -76799,7 +76799,7 @@
           "scope": {
             "type": "string",
             "example": "tenant",
-            "description": "429 rate_limited: เพดานที่เต็ม — tenant · key · user · endpoint (คำขอหนัก) · ip · link · lookup"
+            "description": "429 rate_limited: เพดานที่เต็ม — tenant · key · user · endpoint (คำขอหนัก) · ip · link · lookup · recipient (ผู้รับ OTP)"
           },
           "module": {
             "type": "string",
@@ -96674,6 +96674,11 @@
       "status": 422,
       "title": "ฟีเจอร์พื้นฐานต้องรวมอยู่ในทุกแพ็กเกจ — ตั้งเป็นซื้อเพิ่มหรือไม่มีไม่ได้",
       "titleEn": "Basic features must be included in every plan"
+    },
+    "bot_check_failed": {
+      "status": 403,
+      "title": "ยืนยันว่าไม่ใช่บอทไม่สำเร็จ กรุณาลองใหม่อีกครั้ง",
+      "titleEn": "Bot check failed — please try again"
     },
     "branch_unavailable": {
       "status": 422,

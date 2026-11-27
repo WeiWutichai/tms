@@ -42,7 +42,7 @@ export class ProblemDto {
   @ApiPropertyOptional({
     example: 'tenant',
     description:
-      '429 rate_limited: เพดานที่เต็ม — tenant · key · user · endpoint (คำขอหนัก) · ip · link · lookup',
+      '429 rate_limited: เพดานที่เต็ม — tenant · key · user · endpoint (คำขอหนัก) · ip · link · lookup · recipient (ผู้รับ OTP)',
   })
   scope?: string;
   @ApiPropertyOptional({

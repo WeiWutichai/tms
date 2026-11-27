@@ -37,6 +37,22 @@ for (const lang of ['en', 'zh']) {
   const src = `// สร้างอัตโนมัติโดย scripts/build-i18n.mjs — อย่าแก้มือ (แก้ใน th.ts หรือ extra.mjs แล้วรันใหม่)\nimport type { MessageKey } from './th';\n\nexport const ${lang}: Partial<Record<MessageKey, string>> = {\n${body}\n};\n`;
   writeFileSync(file, await format(src, { ...(await resolveConfig(file)), filepath: file }));
 }
+// P1-ST2-T01: ชุดข้อความย่อยของ landing (`land.*`, `pub.*`) — landing เป็น bundle แยก ไม่โหลดข้อความทั้งแอป
+{
+  const pick = (o) =>
+    Object.fromEntries(
+      Object.entries(o)
+        .filter(([k]) => k.startsWith('land.') || k.startsWith('pub.'))
+        .map(([k, v]) => [k, v.replace(/\\'/g, "'")]),
+    );
+  const block = (o) =>
+    Object.entries(pick(o))
+      .map(([k, v]) => `    '${k}': ${JSON.stringify(v)},`)
+      .join('\n');
+  const file = root + 'src/i18n/landing.gen.ts';
+  const src = `// สร้างอัตโนมัติโดย scripts/build-i18n.mjs — อย่าแก้มือ (แก้ใน th.ts หรือ extra.mjs แล้วรันใหม่)\nimport type { Catalogs } from './core';\n\n/** ข้อความของ landing (P1-ST2-T01) — ชุดย่อยของ th/en/zh */\nexport const LANDING_CATALOGS: Catalogs = {\n  th: {\n${block(th)}\n  },\n  en: {\n${block(out.en)}\n  },\n  zh: {\n${block(out.zh)}\n  },\n};\n`;
+  writeFileSync(file, await format(src, { ...(await resolveConfig(file)), filepath: file }));
+}
 console.log(
   `en ${Object.keys(out.en).length}/${Object.keys(th).length}, zh ${Object.keys(out.zh).length}/${Object.keys(th).length}`,
 );
