@@ -20,6 +20,7 @@
 | [`mfa_required`](#mfa_required) | 401 | กรอกรหัสยืนยันตัวตน 2 ชั้นจากแอป Authenticator |
 | [`unauthorized`](#unauthorized) | 401 | ต้องเข้าสู่ระบบ |
 | [`bank_change_requires_user`](#bank_change_requires_user) | 403 | แก้หรือดูบัญชีธนาคารผู้รับเหมาผ่าน API key ไม่ได้ ต้องให้ผู้ใช้ทำในระบบ |
+| [`bot_check_failed`](#bot_check_failed) | 403 | ยืนยันว่าไม่ใช่บอทไม่สำเร็จ กรุณาลองใหม่อีกครั้ง |
 | [`edit_lock_user_required`](#edit_lock_user_required) | 403 | การล็อกเพื่อแก้ไขใช้ได้เฉพาะผู้ใช้ในระบบ |
 | [`erp_replace_self_approval`](#erp_replace_self_approval) | 403 | ผู้ขอแทนที่เอกสารในระบบบัญชี (ผู้ออกใบใหม่ ผู้ยกเลิกใบเดิม หรือผู้สั่งส่งซ้ำ) อนุมัติเองไม่ได้ ต้องให้ผู้อนุมัติคนอื่น |
 | [`feature_not_in_plan`](#feature_not_in_plan) | 403 | แพ็กเกจปัจจุบันยังไม่มีฟีเจอร์นี้ |
@@ -237,6 +238,12 @@ HTTP `401` · ต้องเข้าสู่ระบบ
 HTTP `403` · แก้หรือดูบัญชีธนาคารผู้รับเหมาผ่าน API key ไม่ได้ ต้องให้ผู้ใช้ทำในระบบ
 
 พบใน: [`POST /v1/carriers`](ref-carriers.md#post-carriers), [`PUT /v1/carriers/external/{externalId}`](ref-carriers.md#put-carriers-external-externalId), [`PATCH /v1/carriers/external/{externalId}`](ref-carriers.md#patch-carriers-external-externalId), [`PATCH /v1/carriers/{id}`](ref-carriers.md#patch-carriers-id), [`POST /v1/carriers/{id}/reveal`](ref-carriers.md#post-carriers-id-reveal)
+
+## bot_check_failed {#bot_check_failed}
+
+HTTP `403` · ยืนยันว่าไม่ใช่บอทไม่สำเร็จ กรุณาลองใหม่อีกครั้ง
+
+อาจตอบได้จากหลาย endpoint
 
 ## edit_lock_user_required {#edit_lock_user_required}
 

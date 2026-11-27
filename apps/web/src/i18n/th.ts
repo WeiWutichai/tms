@@ -962,6 +962,7 @@ export const th = {
   'problem.webhook_event_not_subscribed': 'endpoint นี้ไม่ได้สมัคร event ชนิดนี้',
   'problem.payload_too_large': 'ไฟล์หรือข้อมูลมีขนาดใหญ่เกินกำหนด',
   'problem.rate_limited': 'เรียกถี่เกินไป',
+  'problem.bot_check_failed': 'ยืนยันว่าไม่ใช่บอทไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
   'problem.service_busy': 'ระบบกำลังมีผู้ใช้งานมาก กรุณาลองใหม่อีกครั้ง',
   'problem.invitation_invalid':
     'ลิงก์คำเชิญไม่ถูกต้อง หมดอายุ หรือใช้ไปแล้ว ขอให้ผู้ดูแลส่งคำเชิญใหม่',

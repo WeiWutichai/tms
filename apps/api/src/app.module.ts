@@ -3,6 +3,8 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditService } from './audit/audit.service';
 import { MagicLinkService } from './modules/links/magic-link.service';
 import { PublicRateLimitMiddleware } from './http/public-rate-limit.middleware';
+import { BotProtectionService } from './http/public-entry/bot-protection';
+import { PublicEntryGuard } from './http/public-entry/public-entry.guard';
 import { RateLimitGuard } from './http/rate-limit/rate-limit.guard';
 import { ApiVersionInterceptor } from './http/api-version/api-version.interceptor';
 import { RateLimitService } from './http/rate-limit/rate-limit.service';
@@ -561,6 +563,9 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     { provide: APP_GUARD, useClass: AuthGuard },
     // ST7-T08: หลัง AuthGuard (ต้องรู้ tenant/principal ก่อน) — Nest เรียก guard ตามลำดับที่ลงทะเบียน
     { provide: APP_GUARD, useClass: RateLimitGuard },
+    // P1-ST2-T08: เพดานสมัคร/OTP + ด่านกันบอทของ `/v1/public/signup/*` (เฉพาะ handler ที่ติด decorator) — ก่อน interceptor/transaction
+    BotProtectionService,
+    { provide: APP_GUARD, useClass: PublicEntryGuard },
     { provide: APP_FILTER, useClass: ProblemFilter },
     // ลำดับสำคัญ: เวอร์ชัน (นอกสุด) → ราคา → idempotency → transaction (ใน)
     // ST7-T07: แปลง request/response ตาม X-Api-Version — นอกสุดเพื่อให้ response ที่ replay ถูกแปลงตามผู้เรียกปัจจุบัน
@@ -590,7 +595,9 @@ export class AppModule implements NestModule {
       .forRoutes('public/{*path}');
     // ST1-T24: login ของ Console จำกัดต่อ IP ด้วย (กันล็อกบัญชีทีมงานซ้ำ ๆ)
     consumer.apply(PublicRateLimitMiddleware).forRoutes('platform/auth/{*path}');
-    // ST9-T13 R2 (L-07): ตรวจ/รับคำเชิญ (ไม่ login) จำกัดต่อ IP แบบเดียวกับลิงก์สาธารณะ
-    consumer.apply(PublicRateLimitMiddleware).forRoutes('auth/invitations/{*path}');
+    // ST9-T13 R2 (L-07): ตรวจ/รับคำเชิญ (ไม่ login) จำกัดต่อ IP แบบเดียวกับลิงก์สาธารณะ (กลุ่ม `invite`)
+    // P1-ST2-T08: ทั้ง `/v1/auth/*` (login, 2FA, step-up, ลืม/ตั้งรหัสผ่าน — กลุ่ม `auth`) จำกัดต่อ IP ก่อนถึงฐานข้อมูล
+    // (ลงทะเบียนครั้งเดียวครอบคำเชิญด้วย — publicBucketGroup แยกตัวนับ ไม่นับซ้ำ)
+    consumer.apply(PublicRateLimitMiddleware).forRoutes('auth/{*path}');
   }
 }
