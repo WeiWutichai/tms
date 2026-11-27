@@ -1,23 +1,11 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
+import { I18nCoreProvider, type Catalogs, type Lang, type T } from './core';
 import { en } from './en';
 import { th, type MessageKey } from './th';
 import { zh } from './zh';
 
-export type Lang = 'th' | 'en' | 'zh';
-const CATALOG: Record<Lang, Partial<Record<MessageKey, string>>> = { th, en, zh };
-const STORAGE_KEY = 'tms.lang';
-
-function initialLang(): Lang {
-  try {
-    const v = localStorage.getItem(STORAGE_KEY);
-    if (v === 'th' || v === 'en' || v === 'zh') return v;
-  } catch {
-    /* private mode */
-  }
-  return 'th';
-}
-
-export type T = (key: MessageKey, params?: Record<string, string | number>) => string;
+export { useI18n, type Lang, type T } from './core';
+const CATALOG: Catalogs = { th, en, zh };
 
 /**
  * ST7-T07 ป้ายของค่า enum จาก API — API เพิ่มค่า enum ใหม่ได้โดยไม่ถือว่า breaking (docs/04 G1)
@@ -31,37 +19,13 @@ export function enumLabel(t: T, prefix: string, value: unknown): string {
   return s === key ? v : s;
 }
 
-const Ctx = createContext<{ lang: Lang; setLang: (l: Lang) => void; t: T } | null>(null);
-
-/** i18n (ST0-T15): ทุกข้อความผ่าน key; ภาษาที่ไม่มีคำแปล → ไทย (D-11) */
-export function I18nProvider({ children, lang: forced }: { children: ReactNode; lang?: Lang }) {
-  const [lang, setLangState] = useState<Lang>(forced ?? initialLang);
-  const setLang = useCallback((l: Lang) => {
-    setLangState(l);
-    try {
-      localStorage.setItem(STORAGE_KEY, l);
-    } catch {
-      /* ignore */
-    }
-    document.documentElement.lang = l === 'zh' ? 'zh-CN' : l;
-  }, []);
-  const t = useCallback<T>(
-    (key, params) => {
-      let s = CATALOG[lang][key] ?? th[key] ?? key;
-      if (params)
-        for (const [k, v] of Object.entries(params)) s = s.replaceAll(`{${k}}`, String(v));
-      return s;
-    },
-    [lang],
+/** i18n (ST0-T15): ทุกข้อความผ่าน key; ภาษาที่ไม่มีคำแปล → ไทย (D-11) — ชุดข้อความเต็มของแอป */
+export function I18nProvider({ children, lang }: { children: ReactNode; lang?: Lang }) {
+  return (
+    <I18nCoreProvider lang={lang} catalogs={CATALOG}>
+      {children}
+    </I18nCoreProvider>
   );
-  const value = useMemo(() => ({ lang, setLang, t }), [lang, setLang, t]);
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
-}
-
-export function useI18n() {
-  const v = useContext(Ctx);
-  if (!v) throw new Error('useI18n outside I18nProvider');
-  return v;
 }
 
 const TH_DAYS = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
