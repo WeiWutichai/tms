@@ -288,13 +288,13 @@ describe('nav badges (D68-89)', () => {
     expect(await badges(await tokenFor(tA, 'reports.ops:read', 'u-r'))).toEqual({});
   });
 
-  it('ฟีเจอร์แพ็กเกจปิด (เริ่มต้น: ไม่มี settle / fleet) → ไม่มี badge ของเมนูนั้น · ไม่ login → 401', async () => {
+  it('ฟีเจอร์แพ็กเกจปิด (Starter: ไม่มี fleet · settle/sub เป็นฟีเจอร์พื้นฐาน R-07) → ไม่มี badge ของเมนูนั้น · ไม่ login → 401', async () => {
     await db.tenant.update({ where: { id: tB }, data: { planCode: 'start' } });
     app.get(EntitlementService).invalidate(tB);
     const keys = Object.keys(await badges(adminB));
-    expect(keys).not.toContain('settle');
     expect(keys).not.toContain('fdoc');
-    expect(keys).not.toContain('sub');
+    expect(keys).toContain('settle');
+    expect(keys).toContain('sub');
     expect(keys).toContain('so');
     await api(app).get('/v1/me/badges').expect(401);
   });

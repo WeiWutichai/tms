@@ -1260,6 +1260,48 @@ describe('tenant isolation harness', () => {
     expect(bad, `ตารางที่ไม่มี RLS ครบ: ${bad.join(', ')}`).toEqual([]);
   });
 
+  /**
+   * (1b) plan/13 §1.1 DoR: ตารางระดับแพลตฟอร์ม (ไม่มี tenant_id) ต้องลงทะเบียนที่นี่พร้อมเหตุผล — ตารางใหม่ที่ลืม tenant_id จะไม่ผ่าน
+   * เข้าถึงผ่าน role platform / route `/v1/platform/*` (หรือเป็นตารางระบบที่ไม่มีข้อมูลลูกค้า)
+   */
+  const PLATFORM_TABLES: Record<string, string> = {
+    _prisma_migrations: 'ประวัติ migration ของ Prisma',
+    availability_probe: 'ผล health check ของระบบ (ST9-T19) — ไม่มีข้อมูลลูกค้า',
+    http_request_minute: 'ตัวนับคำขอรวมต่อนาทีสำหรับ monitoring — ไม่มีข้อมูลลูกค้า',
+    message_recipient_counter:
+      'ตัวนับต่อผู้รับข้ามบริษัท (ST3-T21) — role แอปเข้าผ่านฟังก์ชัน SECURITY DEFINER เท่านั้น',
+    monitor_alert: 'alert ถึงทีม Innovera (Console เท่านั้น)',
+    monitor_check: 'ผลตรวจสุขภาพระบบ (Console เท่านั้น)',
+    password_reset_token:
+      'token รีเซ็ตรหัสผ่าน (ค้นด้วย hash ก่อนรู้ tenant) — ใช้ผ่าน role platform',
+    plan: 'แคตตาล็อกแพ็กเกจกลาง — แก้จาก Console เท่านั้น (แอปอ่านอย่างเดียว)',
+    plan_entitlement: 'เซลล์ feature matrix ของ PlanVersion (P1-ST1-T01) — แคตตาล็อกกลาง',
+    plan_version:
+      'เวอร์ชันราคา/สิทธิ์ของแพ็กเกจ (P1-ST1-T01) — แคตตาล็อกกลาง แก้จาก /v1/platform/* เท่านั้น',
+    feature: 'แคตตาล็อกฟีเจอร์ (P1-ST1-T01) — เพิ่มโดย migration เท่านั้น',
+    platform_audit_log: 'audit การกระทำระดับแพลตฟอร์ม (P1-ST1-T01/T04) — role แอปเข้าไม่ได้',
+    platform_setting: 'ค่าตั้งของแพลตฟอร์ม (P1-ST1-T04) — role แอปเข้าไม่ได้',
+    platform_user: 'ทีม Innovera (Console)',
+    rate_limit_bucket: 'ถัง rate limit (key เป็น hash ของ tenant/key/user)',
+    tenant: 'ตาราง tenant เอง — RLS ด้วยคอลัมน์ id (ตรวจใน (1))',
+    worker_heartbeat: 'สถานะ worker — ไม่มีข้อมูลลูกค้า',
+  };
+  it('(1b) ตารางที่ไม่มี tenant_id อยู่ในรายการยกเว้นพร้อมเหตุผล · role แอปเขียนตารางระดับแพลตฟอร์มใหม่ไม่ได้', async () => {
+    const rows = await plat.$queryRaw<{ table: string }[]>`
+      SELECT c.relname AS table FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public' AND c.relkind = 'r'
+         AND NOT EXISTS (SELECT 1 FROM information_schema.columns col
+                          WHERE col.table_schema = 'public' AND col.table_name = c.relname AND col.column_name = 'tenant_id')`;
+    const missing = rows.map((r) => r.table).filter((t) => !(t in PLATFORM_TABLES));
+    expect(missing, `ตารางไม่มี tenant_id ที่ยังไม่ลงทะเบียนเหตุผล: ${missing.join(', ')}`).toEqual(
+      [],
+    );
+    const priv = await plat.$queryRaw<{ table: string; ins: boolean; upd: boolean }[]>`
+      SELECT t AS table, has_table_privilege('tms_app', t, 'INSERT') AS ins, has_table_privilege('tms_app', t, 'UPDATE') AS upd
+        FROM unnest(ARRAY['plan_version', 'plan_entitlement', 'feature', 'platform_audit_log', 'platform_setting', 'subscription']) AS t`;
+    expect(priv.filter((p) => p.ins || p.upd).map((p) => p.table)).toEqual([]);
+  });
+
   it('(2) ทุก route ที่มี :id ประกาศ @TenantResource และมี fixture', () => {
     const missing = collectRoutes(app)
       .filter((r) => r.path.includes(':id') && !r.isPublic)
