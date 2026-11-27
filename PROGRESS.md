@@ -529,6 +529,13 @@
 
 ## บันทึกรายวัน
 
+### 27 พ.ย. 2569 (วางแผนเฟส 1 — PO "เริ่มเฟส 1 เลย" · lane p1plan, `plan/phase1-backlog`, docs-only ไม่มี migration)
+- **ทำอะไร:** เขียน `plan/13-phase1-backlog.md` รูปแบบเดียวกับ `plan/01` — 55 งานใน P1-ST0–P1-ST6 (≈ 169 วันทำงาน ≈ 11–12 สัปดาห์ที่ 3 lane) + P1-ST7 เอกสารภาษี standalone แบบมีเงื่อนไข 10 งาน (≈ 31 วัน) · ตารางขอบเขตใน/นอกเฟส 1 · reconcile R-01–R-18 · ค่าเริ่มต้น D-40–D-46 · ตัวขวางภายนอก X-01–X-12 · ลำดับ 3 lane · เกณฑ์ผ่านเฟส 1 → task · เพิ่มตัวชี้ใน `PLAN.md` §10 + ตารางเอกสาร
+- **[DECISION — lead 27 พ.ย. 2569, ย้อนได้]** (เฉพาะช่องว่างที่ docs ไม่ระบุ): รถ active นับเมื่อ Trip ออกวิ่งแล้ว + ทะเบียน normalize (ค่าตั้ง `usage.activeVehicleRule`, `usage.subconWeight = 1.0`) · ราคา seed ตาม docs/02 §2 แต่หน้าราคาปิด (`pricing.publicVisible = false`) จน PO เคาะ D-40 · ชำระค่าบริการ = โอน + สลิปตรวจด้วยคน (`billing.paymentMethods = ['transfer']`) · purge หลังยกเลิกปิดไว้จนทนายตอบ · ผู้สมัคร `accountingSoftware = none` ได้ trial แต่แปลงเป็น paid ไม่ได้จนกว่า P1-ST7 ผ่าน
+- **ค้าง / ต้องให้ PO ตอบ (P1-ST0-T04):** R-02 tenant ที่ไม่มีโปรแกรมบัญชี (ยืนยัน D-56 + เลือกทำ P1-ST7 ในเฟส 1 หรือรับเฉพาะลูกค้าที่มีโปรแกรมบัญชี) · R-11 ถ้อยคำ landing (ซ่อนของนอกเฟส: AI/แอปคนขับ/MCP/SAP B1/Express) · R-15 เครื่องมือ chat · เสนอปิด D-42 = ทุกแพ็กเกจ และ D-43 = 30 วัน ตาม docs/02 · D-40/D-41 ต้องเคาะก่อน go-live
+- **ตัวขวางภายนอกใหม่ (P1-ST0-T02 ต้องส่ง):** X-02 FlowAccount sandbox + swagger · X-03 สมัคร PEAK API · X-04 SMS · X-05 บัญชีรับเงิน/ระบบบัญชีของ Innovera · X-06 ทนาย (ข้อกำหนด/นโยบายสมัครเอง, purge) · X-07 นักบัญชี (ชนิดเอกสารปลายทาง FlowAccount/PEAK + ชุด ACC ถ้าทำ P1-ST7) · X-08 ไฟล์ตัวอย่าง Express/PEAK/FlowAccount · X-09 ชื่อ/โดเมน (D-37) · X-10 pentest · X-11 Turnstile · X-12 ลูกค้า FlowAccount/PEAK รายแรก · X-01 cloud/production (หางเฟส 0) ขวาง go-live ทั้งเฟส
+- **เริ่มได้ทันที:** P1-ST0-T01–T03 · P1-ST1-T01, T04 (แล้ว T02/T03/T06) · P1-ST2-T01, T03, T04 (mock RD), T08 · P1-ST4-T06 · P1-ST5-T01, T12 · P1-ST6-T01, T04, T07
+
 ### 25 พ.ย. 2569 (ST0-T03 + ST9-T18 แบบ cloud-agnostic + ซ้อมกู้คืนในเครื่อง · lane ops, `ops/st0-t03-st9-t18-selfhost`, ไม่มี migration)
 - **ทำอะไร:** PO สั่ง "ทำให้จบโดยไม่รอใคร" แต่ cloud ยังไม่เลือก → ทำทุกอย่างที่ไม่ขึ้นกับผู้ให้บริการ ให้เหลือแค่ "ชี้ไปที่ cloud ที่เลือก"
   - image: `infra/deploy/api.Dockerfile` (target `runtime` = API/worker + Chromium สำหรับ PDF, `migrate` = `prisma migrate deploy` + bootstrap-tenants เท่านั้น) · `infra/deploy/web.Dockerfile` (Caddy เสิร์ฟ SPA + header ST9-T13 M-01) · `.dockerignore`
