@@ -21652,6 +21652,43 @@
           }
         }
       ]
+    },
+    {
+      "name": "usage",
+      "item": [
+        {
+          "name": "รถ active ของเดือน + ทะเบียนที่ถูกนับ",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/usage/active-vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "usage",
+                "active-vehicles"
+              ],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "2026-11",
+                  "description": "เดือนปฏิทินเวลาไทย YYYY-MM (ไม่ส่ง = เดือนนี้)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "scope: master:read\n\nรถ active = ทะเบียน (normalize: ตัดช่องว่าง/ขีด/จุด, เลขไทย → อารบิก — \"กข-1234\" = \"กข1234\") ที่มีเที่ยวเข้าเงื่อนไข ≥ 1 เที่ยวในเดือนปฏิทินเวลาไทย · นับทันทีเมื่อเที่ยวแรกของทะเบียนเข้าเงื่อนไข และนำออกเมื่อเที่ยวย้อนสถานะ (เช่น ยกเลิกหลังปล่อยรถ) ก่อนปิดยอด · ปิดยอดวันที่ 1 เวลา 02:00 น. ไทยของเดือนถัดไป · sandbox ไม่นับ"
+          }
+        }
+      ]
     }
   ]
 }
