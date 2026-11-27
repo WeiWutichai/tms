@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma, PrismaClient, SignupSession, SignupSessionStatus } from '@prisma/client';
+import {
+  Prisma,
+  type PrismaClient,
+  type SignupSession,
+  type SignupSessionStatus,
+} from '@prisma/client';
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import type { Response } from 'express';
 import { hashPassword, verifyPassword } from '../../auth/password';
@@ -8,8 +13,10 @@ import { isLocalEnv, newOpaqueToken, sha256 } from '../../auth/tokens';
 import { iEquals } from '../../common/ilike';
 import { ProblemException } from '../../common/problem';
 import { PrismaService } from '../../db/prisma.service';
+import { defaultFileStore } from '../../pdf/file-store';
 import { otpRecipientBuckets, phoneE164 } from '../../http/public-entry/public-entry.guard';
 import { RateLimitService } from '../../http/rate-limit/rate-limit.service';
+import type { CompanyAddress } from './company-lookup/types';
 import { OtpChannelService } from './otp-channel';
 
 /**
@@ -92,6 +99,21 @@ export interface SignupOtpState {
   attemptsLeft: number;
 }
 
+export interface SignupCompanyState {
+  taxId: string;
+  branchCode: string;
+  legalName: string | null;
+  address: CompanyAddress | null;
+  fleetSizeOwn: number | null;
+  fleetSizeSubcon: number | null;
+  accountingSoftware: string | null;
+  verificationStatus: string | null;
+  verificationSource: string | null;
+  marketingOptIn: boolean;
+  certificate: { filename: string | null; mime: string; bytes: number } | null;
+  submittedAt: string;
+}
+
 export interface SignupSessionView {
   status: SignupSessionStatus;
   /** ขั้นของ stepper (1 บัญชี · 2 บริษัท · 3 แพ็กเกจ) */
@@ -100,6 +122,42 @@ export interface SignupSessionView {
   email: string;
   mobile: string;
   otp: SignupOtpState | null;
+  /** ข้อมูลบริษัทที่ส่งแล้ว (ขั้น 2 — P1-ST2-T04) · null = ยังไม่ส่ง */
+  company: SignupCompanyState | null;
+  /** หนังสือรับรองที่แนบแล้ว (ก่อนหรือหลังส่งขั้น 2) */
+  certificate: SignupCompanyState['certificate'];
+  /** คำขอเข้าร่วมบริษัทเดิม / ติดต่อเรา (P1-ST2-T04) — `companyName` เติมโดยผู้เรียก */
+  joinRequest: {
+    kind: string;
+    companyName: string | null;
+    taxId: string;
+    requestedAt: string;
+  } | null;
+}
+
+function certificateOf(s: SignupSession): SignupCompanyState['certificate'] {
+  return s.certificateFileKey && s.certificateMime
+    ? { filename: s.certificateFilename, mime: s.certificateMime, bytes: s.certificateBytes ?? 0 }
+    : null;
+}
+
+function companyOf(s: SignupSession): SignupCompanyState | null {
+  // ยังไม่ส่งขั้น 2 (หรือมีแค่คำขอเข้าร่วม) = null
+  if (!s.taxId || !s.branchCode || !s.companySubmittedAt) return null;
+  return {
+    taxId: s.taxId,
+    branchCode: s.branchCode,
+    legalName: s.legalName,
+    address: (s.address as unknown as CompanyAddress | null) ?? null,
+    fleetSizeOwn: s.fleetSizeOwn,
+    fleetSizeSubcon: s.fleetSizeSubcon,
+    accountingSoftware: s.accountingSoftware,
+    verificationStatus: s.verificationStatus,
+    verificationSource: s.verificationSource,
+    marketingOptIn: s.marketingOptIn,
+    certificate: certificateOf(s),
+    submittedAt: s.companySubmittedAt.toISOString(),
+  };
 }
 
 export function viewOf(s: SignupSession, now = Date.now()): SignupSessionView {
@@ -123,6 +181,17 @@ export function viewOf(s: SignupSession, now = Date.now()): SignupSessionView {
             attemptsLeft: locked ? 0 : Math.max(0, OTP_MAX_FAILS - s.otpFailedCount),
           }
         : null,
+    company: companyOf(s),
+    certificate: certificateOf(s),
+    joinRequest:
+      s.joinRequestKind && s.joinRequestedAt && s.taxId
+        ? {
+            kind: s.joinRequestKind,
+            companyName: null,
+            taxId: s.taxId,
+            requestedAt: s.joinRequestedAt.toISOString(),
+          }
+        : null,
   };
 }
 
@@ -133,7 +202,7 @@ const lockedErr = (until: Date, now: number) =>
 const newCode = () => String(randomInt(0, 1_000_000)).padStart(6, '0');
 
 /** หาแถวจาก token ทำต่อ — ผิด/หมดอายุ/ทิ้ง/ลบข้อมูลแล้ว = 401 signup_session_invalid (เหมือนกันทุกกรณี) */
-async function sessionByToken(
+export async function sessionByToken(
   db: Pick<PrismaClient, 'signupSession'>,
   token: string | undefined,
   now: number,
@@ -266,7 +335,8 @@ export class SignupService {
 
   async get(token: string | undefined): Promise<SignupSessionView> {
     const now = Date.now();
-    return viewOf(await sessionByToken(this.db, token, now), now);
+    const s = await sessionByToken(this.db, token, now);
+    return withJoinName(this.db, s, viewOf(s, now));
   }
 
   /** ขอรหัสใหม่ — หลัง 60 วิ, ไม่ระหว่างล็อก, นับโควตาต่อผู้รับ (อีเมล + เบอร์) หลังผ่านเงื่อนไขเวลา */
@@ -366,6 +436,20 @@ export class SignupService {
   }
 }
 
+/** ชื่อบริษัทเดิมของคำขอเข้าร่วม (เลขเดียวกับที่ผู้สมัครกรอก — ไม่เปิดเผยอะไรเกินผลค้นหา) */
+export async function withJoinName(
+  db: Pick<PrismaClient, 'company'>,
+  s: SignupSession,
+  v: SignupSessionView,
+): Promise<SignupSessionView> {
+  if (!v.joinRequest || !s.joinTenantId || !s.taxId) return v;
+  const c = await db.company.findFirst({
+    where: { tenantId: s.joinTenantId, taxId: s.taxId },
+    select: { legalName: true },
+  });
+  return { ...v, joinRequest: { ...v.joinRequest, companyName: c?.legalName ?? null } };
+}
+
 /**
  * login ด้วยอีเมล/รหัสของการสมัครที่ยังไม่เสร็จ (spec/01 §2 ข้อ 8 "ปิดเบราว์เซอร์กลางทาง → login แล้วกลับมาขั้นที่ค้าง")
  * — เรียกจาก AuthService เมื่ออีเมลนี้ยังไม่มีผู้ใช้ · รหัสถูก → ออก token ทำต่อใหม่ (ตัวเก่าใช้ไม่ได้) · ไม่ตรง = null
@@ -406,7 +490,8 @@ export async function resumeSignupByPassword(
 export async function signupMaintenance(
   db: Pick<PrismaClient, 'signupSession' | 'emailOutbox'>,
   now = Date.now(),
-): Promise<{ abandoned: number; erased: number; otpEmails: number }> {
+  removeFile: (key: string) => Promise<void> = (key) => defaultFileStore().remove(key),
+): Promise<{ abandoned: number; erased: number; otpEmails: number; certificates: number }> {
   const abandoned = await db.signupSession.updateMany({
     where: {
       status: { in: RESUMABLE },
@@ -414,11 +499,27 @@ export async function signupMaintenance(
     },
     data: { status: 'abandoned', abandonedAt: new Date(now), resumeTokenHash: null, otpHash: null },
   });
+  const eraseWhere = {
+    personalDataErasedAt: null,
+    lastActivityAt: { lte: new Date(now - SIGNUP_ERASE_MS) },
+  };
+  // P1-ST2-T04 ไฟล์หนังสือรับรองของการสมัครที่ถึงวันลบ → ลบไฟล์จริงก่อนล้างแถว (ไฟล์อยู่ในโฟลเดอร์ของ session — ไม่ใช้ร่วมกับใคร)
+  // T05 ย้ายไฟล์เข้า tenant ก่อนการสมัครเสร็จ (แถว completed ถูกลบเฉพาะสำเนาใน session)
+  const withFile = await db.signupSession.findMany({
+    where: { ...eraseWhere, certificateFileKey: { not: null } },
+    select: { certificateFileKey: true },
+  });
+  let certificates = 0;
+  for (const r of withFile) {
+    try {
+      await removeFile(r.certificateFileKey!);
+      certificates++;
+    } catch {
+      /* ลบไม่ได้รอบนี้ — key ถูกล้างจากแถว; ไฟล์ค้างจะถูกเก็บกวาดด้วยมือ (log ของ worker) */
+    }
+  }
   const erased = await db.signupSession.updateMany({
-    where: {
-      personalDataErasedAt: null,
-      lastActivityAt: { lte: new Date(now - SIGNUP_ERASE_MS) },
-    },
+    where: eraseWhere,
     data: {
       fullName: null,
       email: null,
@@ -427,6 +528,13 @@ export async function signupMaintenance(
       resumeTokenHash: null,
       otpHash: null,
       ip: null,
+      // P1-ST2-T04 ข้อมูลขั้น 2 (เลขบุคคลธรรมดา/ที่อยู่/IP ที่ยอมรับข้อกำหนด/ไฟล์)
+      taxId: null,
+      legalName: null,
+      address: Prisma.DbNull,
+      termsAcceptedIp: null,
+      certificateFileKey: null,
+      certificateFilename: null,
       personalDataErasedAt: new Date(now),
     },
   });
@@ -440,5 +548,10 @@ export async function signupMaintenance(
       ],
     },
   });
-  return { abandoned: abandoned.count, erased: erased.count, otpEmails: otpEmails.count };
+  return {
+    abandoned: abandoned.count,
+    erased: erased.count,
+    otpEmails: otpEmails.count,
+    certificates,
+  };
 }

@@ -205,6 +205,18 @@ export const PROBLEMS = {
     th: 'ขอรหัสใหม่ได้หลังครบ 60 วินาที',
     en: 'You can request a new code after 60 seconds',
   },
+  /** P1-ST2-T04 สมัคร: (เลขผู้เสียภาษี, สาขา) ใช้ TMS อยู่แล้ว — ไม่สร้างบริษัทใหม่ ส่งคำขอเข้าร่วม/ติดต่อเรา (PLT-022) */
+  company_exists: {
+    status: 409,
+    th: 'บริษัทนี้ใช้ TMS อยู่แล้ว ส่งคำขอเข้าร่วมบริษัทหรือติดต่อเรา',
+    en: 'This company already uses TMS — request to join or contact us',
+  },
+  /** P1-ST2-T04 สมัคร: กด "ค้นหา" เกินเพดานต่อการสมัคร (กันใช้เป็นช่องทางไล่เลขผู้เสียภาษี) */
+  signup_lookup_limit: {
+    status: 429,
+    th: 'ค้นหาเลขผู้เสียภาษีครบจำนวนครั้งแล้ว กรอกข้อมูลบริษัทเองได้',
+    en: 'Too many tax ID lookups — enter the company details manually',
+  },
   /** ST9-T11 มุมมองที่บันทึกไว้ครบ 50 ต่อหน้าต่อผู้ใช้ — มี `limit` */
   saved_view_limit: {
     status: 409,

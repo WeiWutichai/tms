@@ -48,6 +48,7 @@
 | [`carrier_change_not_allowed`](#carrier_change_not_allowed) | 409 | เปลี่ยนผู้รับเหมาได้เฉพาะเที่ยวที่รอรถร่วมตอบ หรือรถร่วมรับงานแล้วแต่ยังไม่ปล่อยรถ |
 | [`carrier_change_requires_cancel`](#carrier_change_requires_cancel) | 409 | เปลี่ยนรถร่วมหรือสลับรถร่วม/รถบริษัทไม่ได้ — ยกเลิกการจ้างเดิมก่อน |
 | [`channel_unavailable`](#channel_unavailable) | 409 | ส่งทางช่องทางนี้ไม่ได้ตอนนี้ คัดลอกลิงก์ไปส่งเองได้ |
+| [`company_exists`](#company_exists) | 409 | บริษัทนี้ใช้ TMS อยู่แล้ว ส่งคำขอเข้าร่วมบริษัทหรือติดต่อเรา |
 | [`concurrent_update`](#concurrent_update) | 409 | มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง |
 | [`conflict`](#conflict) | 409 | ข้อมูลขัดแย้งกับที่มีอยู่ |
 | [`connector_health_failed`](#connector_health_failed) | 409 | ทดสอบการเชื่อมต่อไม่ผ่าน ตรวจค่าตั้งและ credential แล้วลองใหม่ |
@@ -146,6 +147,7 @@
 | [`otp_locked`](#otp_locked) | 429 | ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่ภายหลัง |
 | [`otp_resend_too_soon`](#otp_resend_too_soon) | 429 | ขอรหัสใหม่ได้หลังครบ 60 วินาที |
 | [`rate_limited`](#rate_limited) | 429 | เรียกถี่เกินไป |
+| [`signup_lookup_limit`](#signup_lookup_limit) | 429 | ค้นหาเลขผู้เสียภาษีครบจำนวนครั้งแล้ว กรอกข้อมูลบริษัทเองได้ |
 | [`internal_error`](#internal_error) | 500 | ระบบขัดข้อง |
 | [`trip_cost_allocation_failed`](#trip_cost_allocation_failed) | 500 | ปันต้นทุนเที่ยวลงใบส่งของไม่ลงตัว — ยังไม่ปิดต้นทุน กรุณาแจ้งผู้ดูแลระบบ |
 | [`pdf_render_timeout`](#pdf_render_timeout) | 503 | สร้าง PDF ไม่ทันเวลา กรุณาลองใหม่อีกครั้ง |
@@ -412,6 +414,12 @@ HTTP `409` · เปลี่ยนรถร่วมหรือสลับร
 ## channel_unavailable {#channel_unavailable}
 
 HTTP `409` · ส่งทางช่องทางนี้ไม่ได้ตอนนี้ คัดลอกลิงก์ไปส่งเองได้
+
+อาจตอบได้จากหลาย endpoint
+
+## company_exists {#company_exists}
+
+HTTP `409` · บริษัทนี้ใช้ TMS อยู่แล้ว ส่งคำขอเข้าร่วมบริษัทหรือติดต่อเรา
 
 อาจตอบได้จากหลาย endpoint
 
@@ -1002,6 +1010,12 @@ HTTP `429` · ขอรหัสใหม่ได้หลังครบ 60 �
 HTTP `429` · เรียกถี่เกินไป
 
 พบใน: [`POST /v1/invoices/{id}/send`](ref-invoices.md#post-invoices-id-send), [`POST /v1/billing-notes/{id}/send`](ref-billing-notes.md#post-billing-notes-id-send)
+
+## signup_lookup_limit {#signup_lookup_limit}
+
+HTTP `429` · ค้นหาเลขผู้เสียภาษีครบจำนวนครั้งแล้ว กรอกข้อมูลบริษัทเองได้
+
+อาจตอบได้จากหลาย endpoint
 
 ## internal_error {#internal_error}
 

@@ -47,6 +47,9 @@ const SIGNUP_PROBLEMS = [
   'otp_expired',
   'otp_locked',
   'otp_resend_too_soon',
+  // P1-ST2-T04 ขั้น 2
+  'company_exists',
+  'signup_lookup_limit',
   'rate_limited',
   'bot_check_failed',
   'service_busy',

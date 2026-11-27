@@ -375,3 +375,235 @@
     position: static;
   }
 }
+
+/* ── P1-ST2-T04 ขั้น 2 "ข้อมูลบริษัท" — ค่าจากต้นแบบ view `signup` (su.s2 / co.*) ── */
+.su-in {
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid #cdd1c8;
+  border-radius: 8px;
+  background: #ffffff;
+  font: inherit;
+  font-size: 14px;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.su-in.is-err {
+  border-color: #b3322a;
+}
+.su-tax {
+  display: flex;
+  gap: 8px;
+}
+.su-tax__in {
+  flex: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+.su-find {
+  height: 44px;
+  padding: 0 18px;
+  border: 1px solid #9db6e3;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #2257c4;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+/* ปุ่มเลือกไฟล์หนังสือรับรอง — สไตล์ "ค้นหา" ความสูงเท่าปุ่มสาขา (36) */
+.su-find--sm {
+  height: 36px;
+  padding: 0 14px;
+}
+.su-find:disabled {
+  cursor: default;
+}
+.su-dup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid #e9c98f;
+  border-radius: 12px;
+  background: #fcf0dc;
+}
+.su-dup__t {
+  display: flex;
+  gap: 8px;
+  font-weight: 600;
+  color: #8f5500;
+}
+.su-dup__t svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.su-dup__d {
+  color: #3b424c;
+}
+.su-dup__row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.su-btn {
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font: inherit;
+  cursor: pointer;
+}
+.su-btn--pri {
+  border: 1px solid #2257c4;
+  background: #2257c4;
+  color: #ffffff;
+  font-weight: 600;
+}
+.su-btn--sec {
+  border: 1px solid #9db6e3;
+  background: #ffffff;
+  color: #2257c4;
+  font-weight: 500;
+}
+.su-src {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #e7f3ec;
+  color: #17733f;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.su-group {
+  display: block;
+}
+.su-pills {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.su-pill {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid #cdd1c8;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #101418;
+  font: inherit;
+  cursor: pointer;
+}
+.su-pill.is-on {
+  border-color: #2257c4;
+  background: #e9f0fa;
+}
+.su-brno {
+  width: 110px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid #cdd1c8;
+  border-radius: 8px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.su-brno.is-err {
+  border-color: #b3322a;
+}
+.su-file {
+  font-size: 13px;
+  color: #3b424c;
+  overflow-wrap: anywhere;
+}
+.su-consent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #e4e6e0;
+}
+.su-check {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  cursor: pointer;
+}
+.su-check input {
+  width: 18px;
+  height: 18px;
+  margin: 3px 0 0;
+  accent-color: #2257c4;
+  flex-shrink: 0;
+}
+
+/* view `pending` ของต้นแบบ (ส่งคำขอเข้าร่วมบริษัท) */
+.su-auth {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 56px 24px;
+}
+.su-auth__card {
+  width: 440px;
+  max-width: 100%;
+  background: #ffffff;
+  border: 1px solid #cdd1c8;
+  border-radius: 16px;
+  box-shadow:
+    0 1px 2px rgba(16, 20, 24, 0.06),
+    0 8px 24px rgba(16, 20, 24, 0.06);
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-sizing: border-box;
+}
+.su-auth__card h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  color: #13213f;
+}
+.su-auth__ic {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: #e9f0fa;
+  color: #2257c4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.su-auth__d {
+  color: #3b424c;
+  text-wrap: pretty;
+}
+.su-auth__rows {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid #e4e6e0;
+}
+.su-auth__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #ebede8;
+}
+.su-auth__row span:first-child {
+  color: #59606b;
+}
+.su-auth__row span:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}

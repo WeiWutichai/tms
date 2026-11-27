@@ -10,6 +10,7 @@ import { OutboxDispatcher } from './modules/integration/outbox.dispatcher';
 import { OutboxWorkerPool } from './modules/integration/outbox-worker';
 import { purgeAuthData } from './auth/maintenance';
 import { signupMaintenance } from './modules/signup/signup.service';
+import { companyLookupMaintenance } from './modules/signup/company-lookup/company-lookup.service';
 import { PrismaService } from './db/prisma.service';
 import { MonitorScheduler } from './modules/monitoring/monitor-scheduler';
 import {
@@ -108,6 +109,10 @@ async function main() {
       // P1-ST2-T03 การสมัครไม่เคลื่อน 7 วัน → abandoned · 30 วัน → ลบข้อมูลส่วนบุคคล (spec/01 §2 ข้อ 6)
       signupMaintenance(prisma.platform)
         .then((r) => log.info({ signup: r }, 'signup maintenance'))
+        .catch((e) => log.error(e)),
+      // P1-ST2-T04 raw response ของการค้นข้อมูลบริษัทเก็บ 90 วัน (PLT-023)
+      companyLookupMaintenance(prisma.platform)
+        .then((r) => log.info({ companyLookup: r }, 'company lookup maintenance'))
         .catch((e) => log.error(e)),
       // ST7-T10 งานที่ client สั่ง (bulk/นำเข้า) เก็บ 7 วันหลังจบ (docs/04 G1)
       queue

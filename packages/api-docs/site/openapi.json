@@ -96690,6 +96690,11 @@
       "title": "ส่งทางช่องทางนี้ไม่ได้ตอนนี้ คัดลอกลิงก์ไปส่งเองได้",
       "titleEn": "This channel is not available — copy the link and send it yourself"
     },
+    "company_exists": {
+      "status": 409,
+      "title": "บริษัทนี้ใช้ TMS อยู่แล้ว ส่งคำขอเข้าร่วมบริษัทหรือติดต่อเรา",
+      "titleEn": "This company already uses TMS — request to join or contact us"
+    },
     "company_unavailable": {
       "status": 422,
       "title": "นิติบุคคลออกบิลไม่พบหรือปิดใช้อยู่",
@@ -97189,6 +97194,11 @@
       "status": 409,
       "title": "การสมัครยังไม่เสร็จ ทำต่อจากขั้นที่ค้างไว้",
       "titleEn": "Your sign-up is not finished — continue where you left off"
+    },
+    "signup_lookup_limit": {
+      "status": 429,
+      "title": "ค้นหาเลขผู้เสียภาษีครบจำนวนครั้งแล้ว กรอกข้อมูลบริษัทเองได้",
+      "titleEn": "Too many tax ID lookups — enter the company details manually"
     },
     "signup_session_invalid": {
       "status": 401,

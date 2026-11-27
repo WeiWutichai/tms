@@ -116,7 +116,8 @@ describe('หน้าสมัคร /signup (P1-ST2-T03)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'ยืนยันรหัส' }));
     await screen.findByRole('heading', { level: 1, name: 'ข้อมูลบริษัท' });
     expect(screen.getByText('ขั้น 2 จาก 3')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'ถัดไป' })).toBeNull();
+    // P1-ST2-T04: ขั้น 2 เปิดแล้ว — ฟอร์มข้อมูลบริษัท (ช่องเลขผู้เสียภาษี + ปุ่มค้นหา)
+    expect(screen.getByRole('button', { name: 'ค้นหา' })).toBeTruthy();
     const verifyCall = fetchMock.mock.calls[2]!;
     expect(new Headers(verifyCall[1].headers).get('X-Signup-Token')).toBe('tok');
   });
@@ -147,5 +148,159 @@ describe('หน้าสมัคร /signup (P1-ST2-T03)', () => {
       expect(screen.getByRole('heading', { level: 1, name: 'ข้อมูลบริษัท' })).toBeTruthy(),
     );
     expect(fetchMock.mock.calls[0]![0]).toBe('/v1/public/signup/session');
+  });
+});
+
+/** P1-ST2-T04 ขั้น 2 "ข้อมูลบริษัท" (fetch ปลอม) */
+describe('หน้าสมัครขั้น 2 ข้อมูลบริษัท (P1-ST2-T04)', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  const STEP2 = { ...SESSION, status: 'account_verified', step: 2, otp: null };
+  const LOOKUP = {
+    taxId: '0105567153766',
+    branchCode: '00000',
+    result: 'vat_found',
+    source: 'rd_vat',
+    company: {
+      legalName: 'บริษัท ตัวอย่างขนส่ง จำกัด',
+      branchNumber: 0,
+      branchName: 'สำนักงานใหญ่',
+      address: {
+        houseNo: '99/1',
+        moo: '4',
+        soi: '',
+        street: 'พระราม 2',
+        subDistrict: 'แสมดำ',
+        district: 'บางขุนเทียน',
+        province: 'กรุงเทพมหานคร',
+        postalCode: '10150',
+      },
+      vatRegisteredSince: '2024-05-02',
+    },
+    duplicate: null,
+    sameTaxOtherBranch: false,
+    requiresCertificate: false,
+  };
+  beforeEach(() => {
+    signupToken.set('tok');
+    fetchMock = vi.fn().mockReturnValueOnce(json(200, STEP2));
+    vi.stubGlobal('fetch', fetchMock);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    signupToken.clear();
+  });
+  const taxBox = () => screen.getByPlaceholderText('0105556078912');
+
+  it('checksum ผิด (PLT-020) → error ทันทีเมื่อพิมพ์ครบ 13 หลัก และกด "ค้นหา" ไม่ส่งคำขอ', async () => {
+    await act(async () => {
+      renderSignup();
+    });
+    await screen.findByRole('heading', { level: 1, name: 'ข้อมูลบริษัท' });
+    fireEvent.change(taxBox(), { target: { value: '0105567153767' } });
+    expect(screen.getByText('เลขผู้เสียภาษีไม่ถูกต้อง ตรวจตัวเลขอีกครั้ง')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'ค้นหา' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ถัดไป' }));
+    expect(fetchMock).toHaveBeenCalledTimes(1); // แค่โหลด session
+    fireEvent.change(taxBox(), { target: { value: '01055' } });
+    fireEvent.click(screen.getByRole('button', { name: 'ค้นหา' }));
+    expect(screen.getByText('เลขผู้เสียภาษีต้องเป็นตัวเลข 13 หลัก')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('ค้นหา → ป้าย "ข้อมูลจากกรมสรรพากร" + prefill ที่อยู่แยกฟิลด์ → ยอมรับข้อกำหนด → ส่ง → ขั้น 3 (stub) → ย้อนกลับแก้ได้', async () => {
+    await act(async () => {
+      renderSignup();
+    });
+    await screen.findByRole('heading', { level: 1, name: 'ข้อมูลบริษัท' });
+    fetchMock.mockReturnValueOnce(json(200, LOOKUP));
+    fireEvent.change(taxBox(), { target: { value: '0105567153766' } });
+    fireEvent.click(screen.getByRole('button', { name: 'ค้นหา' }));
+    await screen.findByText('ข้อมูลจากกรมสรรพากร · แก้ได้');
+    expect(fetchMock.mock.calls[1]![0]).toBe('/v1/public/signup/session/company/lookup');
+    const nameInput = screen.getByText('ชื่อนิติบุคคล').closest('label')!.querySelector('input')!;
+    expect(nameInput.value).toBe('บริษัท ตัวอย่างขนส่ง จำกัด');
+    for (const l of [
+      'เลขที่',
+      'หมู่',
+      'ซอย',
+      'ถนน',
+      'แขวง/ตำบล',
+      'เขต/อำเภอ',
+      'จังหวัด',
+      'รหัสไปรษณีย์',
+    ])
+      expect(screen.getByText(l)).toBeTruthy();
+    for (const l of ['ไม่มี', 'Express', 'FlowAccount', 'KRS', 'PEAK', 'SAP B1', 'อื่นๆ'])
+      expect(screen.getByRole('button', { name: l })).toBeTruthy();
+    fill('รถบริษัท (โดยประมาณ)', '20');
+    fill('รถร่วม (โดยประมาณ)', '8');
+    fireEvent.click(screen.getByRole('button', { name: 'ถัดไป' }));
+    expect(screen.getByText('ต้องยอมรับเงื่อนไขและนโยบายความเป็นส่วนตัว')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByLabelText(/ยอมรับเงื่อนไขการใช้บริการ/));
+    fireEvent.click(screen.getByLabelText(/ยอมรับนโยบายความเป็นส่วนตัว/));
+    fireEvent.click(screen.getByRole('button', { name: 'PEAK' }));
+    fetchMock.mockReturnValueOnce(
+      json(200, {
+        ...STEP2,
+        status: 'company_submitted',
+        step: 3,
+        company: { taxId: '0105567153766', branchCode: '00000', verificationStatus: 'auto_vat' },
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'ถัดไป' }));
+    await screen.findByRole('heading', { level: 1, name: 'เลือกแพ็กเกจ' });
+    expect(screen.getByText('ขั้น 3 จาก 3')).toBeTruthy();
+    const sent = JSON.parse(fetchMock.mock.calls[2]![1].body as string);
+    expect(fetchMock.mock.calls[2]![0]).toBe('/v1/public/signup/session/company');
+    expect(sent).toMatchObject({
+      taxId: '0105567153766',
+      branchType: 'hq',
+      legalName: 'บริษัท ตัวอย่างขนส่ง จำกัด',
+      address: { houseNo: '99/1', postalCode: '10150', province: 'กรุงเทพมหานคร' },
+      fleetSizeOwn: 20,
+      fleetSizeSubcon: 8,
+      accountingSoftware: 'peak',
+      acceptTerms: true,
+      acceptPrivacy: true,
+      marketingOptIn: false,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'ย้อนกลับ' }));
+    await screen.findByRole('heading', { level: 1, name: 'ข้อมูลบริษัท' });
+  });
+
+  it('เลขซ้ำ tenant เดิม → กล่อง "บริษัทนี้ใช้ TMS อยู่แล้ว" + ส่งคำขอเข้าร่วม/ติดต่อเรา ไม่มีปุ่มถัดไป → ส่งคำขอ → การ์ด "ส่งคำขอเข้าร่วมแล้ว"', async () => {
+    await act(async () => {
+      renderSignup();
+    });
+    await screen.findByRole('heading', { level: 1, name: 'ข้อมูลบริษัท' });
+    fetchMock.mockReturnValueOnce(
+      json(200, {
+        ...LOOKUP,
+        result: 'duplicate',
+        source: null,
+        company: null,
+        duplicate: { companyName: 'บริษัท ศรีไทยขนส่ง จำกัด', branchLabel: 'สำนักงานใหญ่' },
+      }),
+    );
+    fireEvent.change(taxBox(), { target: { value: '0105567153766' } });
+    fireEvent.click(screen.getByRole('button', { name: 'ค้นหา' }));
+    await screen.findByText('บริษัทนี้ใช้ TMS อยู่แล้ว · บริษัท ศรีไทยขนส่ง จำกัด (สำนักงานใหญ่)');
+    expect(screen.queryByRole('button', { name: 'ถัดไป' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'ติดต่อเรา' })).toBeTruthy();
+    fetchMock.mockReturnValueOnce(
+      json(200, {
+        ...STEP2,
+        joinRequest: {
+          kind: 'join',
+          companyName: 'บริษัท ศรีไทยขนส่ง จำกัด',
+          taxId: '0105567153766',
+          requestedAt: new Date().toISOString(),
+        },
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'ส่งคำขอเข้าร่วมบริษัท' }));
+    await screen.findByRole('heading', { level: 1, name: 'ส่งคำขอเข้าร่วมแล้ว' });
+    expect(screen.getByText('รอยืนยัน')).toBeTruthy();
   });
 });

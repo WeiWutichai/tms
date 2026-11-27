@@ -1352,6 +1352,10 @@ describe('tenant isolation harness', () => {
     password_reset_token: 'ST1-T03 ลิงก์ลืมรหัสผ่าน — ก่อนรู้บริษัท (อีเมลเดียวข้ามบริษัท)',
     signup_session:
       'P1-ST2-T03 การสมัครเอง — ยังไม่มีบริษัท; ข้อมูลส่วนบุคคลผู้สมัคร + hash OTP/รหัสผ่าน (เข้าผ่าน client platform เท่านั้น)',
+    company_lookup:
+      'P1-ST2-T04 cache ผลค้นข้อมูลบริษัทจากกรมสรรพากร — ข้อมูลสาธารณะของนิติบุคคล ใช้ร่วมทุกการสมัคร (ก่อนมีบริษัท); key = (taxId, branchCode)',
+    company_lookup_log:
+      'P1-ST2-T04 log การส่งเลขผู้เสียภาษีออกไปหน่วยงานภายนอก (PDPA) + ตัวนับ circuit breaker — ระดับแพลตฟอร์ม ไม่ผูกบริษัท; append-only',
   };
   it('(5) ตาราง platform ที่ไม่มี tenant_id: tms_app ไม่มีสิทธิ์ใด ๆ', async () => {
     const rows = await plat.$queryRaw<{ table: string; priv: string }[]>`

@@ -1,5 +1,5 @@
 // ภาพเทียบ "ต้นแบบ | ของจริง" ของหน้า public (TMS Signup) ที่ 1440 และ 390 px — เครื่อง dev เท่านั้น
-// ต้องมี web dev (4420) + API dev (4410) · ใช้: node scripts/compare-public.mjs forgot landing signup
+// ต้องมี web dev (4420) + API dev (4410) · ใช้: node scripts/compare-public.mjs forgot landing signup company
 // landing (P1-ST2-T01): ไม่ต้องมี API · ซ่อนแถบ DEMO ของต้นแบบ · เลื่อนลงสุดก่อนถ่าย (รูป loading=lazy)
 import { chromium } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
@@ -10,7 +10,53 @@ const PAGES = {
   landing: ['#home', '/home'],
   // P1-ST2-T03: ขั้น 1 ฟอร์ม → (กรอก + ขอ OTP) กล่องกรอกรหัส · ต้นแบบซ่อนปุ่ม Google (R-08) ให้เทียบส่วนที่เหลือ
   signup: ['#signup', '/signup', { signup: true }],
+  // P1-ST2-T04: ขั้น 2 ว่าง → (กรอกเลข 0105567153766 + ค้นหา) ฟอร์มที่ prefill · ของจริงทำขั้น 1 ผ่าน API (อ่าน OTP จากฐาน dev)
+  company: ['#signup', '/signup', { company: true }],
 };
+const COMPANY_TAX = '0105567153766';
+/** ของจริง: เริ่มสมัคร + ยืนยัน OTP ผ่าน API (proxy ของ web dev) → token ทำต่อ */
+async function verifiedToken(base) {
+  const { readFileSync } = await import('node:fs');
+  const { createRequire } = await import('node:module');
+  const env = Object.fromEntries(
+    readFileSync(new URL('../../../.env', import.meta.url), 'utf8')
+      .split('\n')
+      .map((l) => /^([A-Z0-9_]+)=(.*)$/.exec(l.trim()))
+      .filter(Boolean)
+      .map((m) => [m[1], m[2]]),
+  );
+  const { PrismaClient } = createRequire(new URL('../../api/package.json', import.meta.url))(
+    '@prisma/client',
+  );
+  const db = new PrismaClient({ datasources: { db: { url: env.PLATFORM_DATABASE_URL } } });
+  const email = `compare2-${Date.now()}@company.co.th`;
+  const post = (path, body, token) =>
+    fetch(base + path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'X-Signup-Token': token } : {}),
+      },
+      body: JSON.stringify(body),
+    }).then((r) => r.json());
+  const { token } = await post('/v1/public/signup', {
+    name: 'พรทิพย์ ศรีวงศ์',
+    email,
+    mobile: '+66812345678',
+    password: 'compare-password-2569',
+  });
+  const m = await db.emailOutbox.findFirst({
+    where: { toAddress: email, template: 'signup_otp' },
+    orderBy: { createdAt: 'desc' },
+  });
+  await post(
+    '/v1/public/signup/session/otp/verify',
+    { code: /\b(\d{6})\b/.exec(m.textBody)[1] },
+    token,
+  );
+  await db.$disconnect();
+  return token;
+}
 /** กรอกฟอร์มสมัครขั้น 1 ทั้งสองฝั่ง (ต้นแบบ: เบอร์ 9 หลัก + รหัสผ่านมีตัวเลข · ของจริง: อีเมลใหม่ทุกครั้ง) */
 async function fillSignup(p, real) {
   const email = real ? `compare-${Date.now()}@company.co.th` : 'porntip@chaiyapruek.co.th';
@@ -47,10 +93,45 @@ async function shot(url, vp, step) {
       const local = LOCAL_UMD[r.request().url()];
       return local ? r.fulfill({ path: local, contentType: 'text/javascript' }) : r.abort();
     });
+  const real0 = !url.includes('.dc.html');
+  if (step?.company && real0) {
+    const token = await verifiedToken(new URL(url).origin);
+    await ctx.addInitScript((t) => sessionStorage.setItem('tms.signupToken', t), token);
+  }
   const p = await ctx.newPage();
   await p.goto(url);
   await p.waitForTimeout(2000);
   await p.addStyleTag({ content: '[data-demo]{display:none!important}' });
+  if (step?.company) {
+    if (!real0) {
+      // ต้นแบบ: ขั้น 1 (รหัสเดโม 123456) → ขั้น 2
+      await fillSignup(p, false);
+      await p
+        .locator('input[placeholder="••••••"]')
+        .filter({ visible: true })
+        .first()
+        .fill('123456');
+      await p
+        .getByRole('button', { name: 'ยืนยันรหัส' })
+        .filter({ visible: true })
+        .first()
+        .dispatchEvent('click');
+      await p.waitForTimeout(800);
+    }
+    const first = await p.screenshot({ fullPage: true });
+    await p
+      .locator('input[placeholder="0105556078912"]')
+      .filter({ visible: true })
+      .first()
+      .fill(COMPANY_TAX);
+    await p
+      .getByRole('button', { name: 'ค้นหา' })
+      .filter({ visible: true })
+      .first()
+      .dispatchEvent('click');
+    await p.waitForTimeout(1200);
+    return [first, await p.screenshot({ fullPage: true })];
+  }
   if (step?.signup) {
     const real = !url.includes('.dc.html');
     if (!real) {
@@ -101,7 +182,7 @@ for (const n of names) {
     );
     for (const [i, tag] of [
       [0, ''],
-      [1, step?.signup ? '-otp' : '-sent'],
+      [1, step?.company ? '-found' : step?.signup ? '-otp' : '-sent'],
     ]) {
       if (!a[i] || !c[i]) continue;
       const M = await (

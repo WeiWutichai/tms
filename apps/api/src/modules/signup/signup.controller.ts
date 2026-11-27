@@ -1,7 +1,20 @@
-import { Body, Controller, Get, Headers, HttpCode, Post, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpCode,
+  Post,
+  Put,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
 import {
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiBody,
+  ApiConsumes,
   ApiHeader,
   ApiOkResponse,
   ApiOperation,
@@ -18,12 +31,32 @@ import {
   SignupAttemptLimit,
 } from '../../http/public-entry/public-entry.guard';
 import {
+  CertificateQueryDto,
+  CompanyLookupResultDto,
+  JoinCompanyRequestDto,
+  LookupCompanyDto,
   SignupSessionDto,
   SignupStartResultDto,
   StartSignupDto,
+  SubmitCompanyDto,
   VerifySignupOtpDto,
 } from './signup.dto';
+import { SignupCompanyService } from './signup-company.service';
 import { SignupService, type SignupSessionView } from './signup.service';
+
+/** PUT หนังสือรับรอง = raw body (≤ 10 MB) — อ่าน body เฉพาะ path นี้ + มี header token รูปถูก (bootstrap.ts) */
+export const SIGNUP_CERTIFICATE_PATH = '/v1/public/signup/session/company/certificate';
+export function isSignupCertificateUpload(req: {
+  url?: string;
+  method?: string;
+  headers?: Record<string, string | string[] | undefined>;
+}): boolean {
+  if (req.method !== 'PUT') return false;
+  const path = (req.url ?? '').split('?')[0];
+  if (path !== SIGNUP_CERTIFICATE_PATH) return false;
+  const t = req.headers?.['x-signup-token'];
+  return typeof t === 'string' && /^[A-Za-z0-9_-]{20,200}$/.test(t);
+}
 
 const TOKEN_HEADER = {
   name: 'X-Signup-Token',
@@ -34,13 +67,16 @@ const noStore = (res: Response) => res.setHeader('Cache-Control', 'no-store');
 
 /**
  * สมัครใช้งานเอง ขั้น 1 "สร้างบัญชี" (P1-ST2-T03; spec/01 §2) — ไม่ login (`/v1/public/*` จำกัดต่อ IP)
- * ขั้น 2–3 (ข้อมูลบริษัท / แพ็กเกจ) = P1-ST2-T04/T05
+ * ขั้น 2 "ข้อมูลบริษัท" (P1-ST2-T04) = `session/company*` · ขั้น 3 (แพ็กเกจ + สร้าง tenant) = P1-ST2-T05
  */
 @ApiTags('public')
 @Public()
 @Controller('public/signup')
 export class SignupController {
-  constructor(private readonly signup: SignupService) {}
+  constructor(
+    private readonly signup: SignupService,
+    private readonly company: SignupCompanyService,
+  ) {}
 
   @Post()
   @HttpCode(201)
@@ -124,5 +160,103 @@ export class SignupController {
   ): Promise<SignupSessionView> {
     noStore(res);
     return this.signup.verify(token, body.code);
+  }
+
+  @Post('session/company/lookup')
+  @HttpCode(200)
+  @ApiHeader(TOKEN_HEADER)
+  @ApiOperation({
+    summary: 'ขั้น 2 ปุ่ม "ค้นหา" — เลขซ้ำ → RD VAT Service → RD TIN Service',
+    description:
+      'เรียกได้หลังยืนยัน OTP · checksum ผิด = 422 (ไม่ส่งเลขออก) · เลขซ้ำ tenant เดิม = `result: duplicate` (ไม่ค้น RD) · ' +
+      'ผลค้นหาเก็บ cache 24 ชม. (พบ) / 1 ชม. (ไม่พบ) · ทุกการส่งเลขออกถูกบันทึก (PDPA) · RD ล้มเหลวติดกัน 5 ครั้ง → 5 นาทีถัดไปตอบ `unavailable` ทันที · ' +
+      'เลขบุคคลธรรมดา (หลักแรก ≠ 0) ไม่ส่งออก (`individual`) · ค้นได้ ≤ 20 ครั้งต่อการสมัคร',
+  })
+  @ApiOkResponse({ type: CompanyLookupResultDto })
+  @ApiUnauthorizedResponse({ description: 'signup_session_invalid' })
+  @ApiConflictResponse({ description: 'invalid_state_transition — ยังไม่ยืนยัน OTP' })
+  @ApiUnprocessableEntityResponse({ description: 'validation_failed — `taxId` (thai_tax_id)' })
+  @ApiTooManyRequestsResponse({ description: 'signup_lookup_limit' })
+  async lookup(
+    @Headers('x-signup-token') token: string | undefined,
+    @Body() body: LookupCompanyDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<CompanyLookupResultDto> {
+    noStore(res);
+    return this.company.lookup(token, body);
+  }
+
+  @Put('session/company/certificate')
+  @HttpCode(200)
+  @ApiHeader(TOKEN_HEADER)
+  @ApiConsumes('application/pdf', 'image/jpeg', 'image/png')
+  @ApiBody({ description: 'เนื้อไฟล์ (raw) PDF/JPG/PNG ≤ 10 MB — ตรวจชนิดจากเนื้อไฟล์' })
+  @ApiOperation({
+    summary: 'ขั้น 2 แนบหนังสือรับรองบริษัท (จำเป็นเมื่อไม่พบผู้จด VAT — pending_manual)',
+    description: 'อัปโหลดซ้ำ = แทนไฟล์เดิม',
+  })
+  @ApiOkResponse({ type: SignupSessionDto })
+  @ApiUnauthorizedResponse({ description: 'signup_session_invalid' })
+  @ApiUnprocessableEntityResponse({
+    description: 'validation_failed — `content` (empty_file / file_too_large / unsupported_type)',
+  })
+  async certificate(
+    @Headers('x-signup-token') token: string | undefined,
+    @Query() q: CertificateQueryDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SignupSessionView> {
+    noStore(res);
+    const data = Buffer.isBuffer(req.body) ? (req.body as Buffer) : Buffer.alloc(0);
+    return this.company.uploadCertificate(token, data, q.filename);
+  }
+
+  @Post('session/company')
+  @HttpCode(200)
+  @ApiHeader(TOKEN_HEADER)
+  @ApiOperation({
+    summary: 'ขั้น 2 ส่งข้อมูลบริษัท → company_submitted',
+    description:
+      'ตรวจซ้ำฝั่ง server: checksum, เลขซ้ำ (409 `company_exists`), ผลค้น RD (cache หรือค้นใหม่) → `verificationStatus` ' +
+      'auto_vat (พบผู้จด VAT + ชื่อตรง) / pending_manual (ไม่จด VAT หรือไม่พบ — ต้องแนบหนังสือรับรอง) / pending_verification (ชื่อไม่ตรง, RD ค้นไม่ได้, บุคคลธรรมดา) · ' +
+      'เก็บเวอร์ชันข้อกำหนด/นโยบาย + เวลา + IP · `accountingSoftware` เป็นข้อมูล lead ไม่เปิด connector · แก้ซ้ำได้จนกว่าขั้น 3 สร้างบริษัท',
+  })
+  @ApiOkResponse({ type: SignupSessionDto })
+  @ApiUnauthorizedResponse({ description: 'signup_session_invalid' })
+  @ApiConflictResponse({ description: 'company_exists / invalid_state_transition' })
+  @ApiUnprocessableEntityResponse({
+    description:
+      'validation_failed — `taxId` (thai_tax_id), `certificateFile` (certificate_required), ฟิลด์อื่น',
+  })
+  async submitCompany(
+    @Headers('x-signup-token') token: string | undefined,
+    @Body() body: SubmitCompanyDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SignupSessionView> {
+    noStore(res);
+    return this.company.submit(token, body, { ip: req.ip });
+  }
+
+  @Post('session/company/join-request')
+  @HttpCode(200)
+  @ApiHeader(TOKEN_HEADER)
+  @ApiOperation({
+    summary: 'ขั้น 2 เลขซ้ำ → "ส่งคำขอเข้าร่วมบริษัท" / "ติดต่อเรา"',
+    description:
+      'บันทึกคำขอใน session (ไม่สร้างบริษัท) · การส่งถึงผู้ดูแลระบบของบริษัทเดิม/คิวอนุมัติ = P1-ST2-T06 · เลขไม่ซ้ำ = 422',
+  })
+  @ApiOkResponse({ type: SignupSessionDto })
+  @ApiUnauthorizedResponse({ description: 'signup_session_invalid' })
+  @ApiUnprocessableEntityResponse({
+    description: 'validation_failed — `taxId` (not_existing_company)',
+  })
+  async joinRequest(
+    @Headers('x-signup-token') token: string | undefined,
+    @Body() body: JoinCompanyRequestDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SignupSessionView> {
+    noStore(res);
+    return this.company.joinRequest(token, body);
   }
 }

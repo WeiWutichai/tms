@@ -1,13 +1,24 @@
-import { Building2, Check, Info, Rocket, RotateCcw, ShieldCheck, User } from 'lucide-react';
+import {
+  Building2,
+  Check,
+  Hourglass,
+  Info,
+  Rocket,
+  RotateCcw,
+  ShieldCheck,
+  User,
+} from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useI18n } from '../../i18n/core';
 import type { MessageKey } from '../../i18n/th';
+import { useCompanyStep } from './CompanyStep';
 import { signupApi, SignupError, signupToken, type SignupSession } from './signupApi';
 import './signup.css';
 
 /**
  * หน้าสมัคร ขั้น 1 "สร้างบัญชี" (P1-ST2-T03) — `design/prototype/TMS Signup.dc.html` view `signup` (su.s1 / su.otp)
- * ขั้น 2–3 = P1-ST2-T04/T05: หลังยืนยันแสดง stepper ขั้น 2 + หัวข้อ "ข้อมูลบริษัท" ของต้นแบบ และแจ้งว่ายังไม่เปิด
+ * ขั้น 2 "ข้อมูลบริษัท" (P1-ST2-T04) = `CompanyStep.tsx` · ขั้น 3 (T05): stepper ขั้น 3 + หัวข้อ "เลือกแพ็กเกจ" ของต้นแบบ
+ * และแจ้งว่ายังไม่เปิด (ปุ่ม "ย้อนกลับ" กลับไปแก้ขั้น 2) · คำขอเข้าร่วมบริษัทเดิม → การ์ด "ส่งคำขอเข้าร่วมแล้ว" (view `pending` ของต้นแบบ)
  *
  * ต่างจากต้นแบบ [DECISION — lead 27 พ.ย. 2569, ย้อนได้] (spec/12 §3 แถว "สมัครขั้น 1"):
  * - ไม่มีปุ่ม "สมัครด้วย Google" + เส้น "หรือกรอกข้อมูล" (R-08 — Google sign-in หลังเฟส 1)
@@ -38,6 +49,8 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
   const [codeErr, setCodeErr] = useState('');
   const [sec, setSec] = useState(0);
   const [busy, setBusy] = useState(false);
+  /** ย้อนจากขั้น 3 มาแก้ข้อมูลบริษัท */
+  const [editCompany, setEditCompany] = useState(false);
   const timer = useRef<number | undefined>(undefined);
 
   const startTimer = (n: number) => {
@@ -84,7 +97,7 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const step = session?.step ?? 1;
+  const step = session?.step === 3 && editCompany ? 2 : (session?.step ?? 1);
   const otpSent = !!session && session.status === 'account_pending_otp' && !editing;
   const channel = session?.otp?.channel ?? DEFAULT_CHANNEL;
   const sms = channel === 'sms';
@@ -103,6 +116,16 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
     const p = e instanceof SignupError ? e.problem : { code: 'internal_error' };
     return t(`problem.${p.code}` as MessageKey);
   };
+  const company = useCompanyStep({
+    session,
+    active: step === 2,
+    onSession: (s) => {
+      setSession(s);
+      if (s.status === 'company_submitted') setEditCompany(false);
+    },
+    onToast,
+    problemText,
+  });
 
   const validate = (): Errs => {
     const er: Errs = {};
@@ -278,7 +301,43 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
       ? otpSent
         ? t(sms ? 'su.foot.s1OtpSms' : 'su.foot.s1OtpEmail')
         : t('su.foot.s1')
-      : t('su.foot.s2');
+      : step === 2
+        ? t('su.foot.s2')
+        : t('su.foot.s3');
+
+  // เลขซ้ำ → "ส่งคำขอเข้าร่วมบริษัท" แล้ว: view `pending` ของต้นแบบ (การ์ดกลางจอ)
+  const join = session?.joinRequest?.kind === 'join' ? session.joinRequest : null;
+  if (join && session)
+    return (
+      <main className="su-auth">
+        <section className="su-auth__card" role="status">
+          <span className="su-auth__ic" aria-hidden="true">
+            <Hourglass size={24} strokeWidth={1.8} />
+          </span>
+          <h1>{t('su.pend.joinT')}</h1>
+          <span className="su-auth__d">{t('su.pend.joinD', { name: join.companyName ?? '' })}</span>
+          <div className="su-auth__rows">
+            {(
+              [
+                ['su.pend.applicant', session.name],
+                ['su.pend.email', session.email],
+                ['su.pend.company', join.companyName ?? '—'],
+                ['su.pend.tax', join.taxId],
+                ['su.pend.status', t('su.pend.waiting')],
+              ] as Array<[MessageKey, string]>
+            ).map(([k, v]) => (
+              <div key={k} className="su-auth__row">
+                <span>{t(k)}</span>
+                <span>{v}</span>
+              </div>
+            ))}
+          </div>
+          <a href="/" className="su-link">
+            {t('su.pend.home')}
+          </a>
+        </section>
+      </main>
+    );
 
   return (
     <main className="su-main">
@@ -401,15 +460,16 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
               )}
             </>
           )}
-          {step >= 2 && (
+          {step === 2 && company.body}
+          {step === 3 && (
             <>
               <div className="su-head">
-                <h1>{t('su.s2.title')}</h1>
-                <span>{t('su.s2.sub')}</span>
+                <h1>{t('su.s3.title')}</h1>
+                <span>{t('su.s3.sub')}</span>
               </div>
               <div className="su-note" role="status">
                 <Info size={16} strokeWidth={1.8} className="su-note__i" aria-hidden="true" />
-                <span>{t('su.s2.soon')}</span>
+                <span>{t('su.s3.soon')}</span>
               </div>
             </>
           )}
@@ -427,7 +487,22 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
                 {t('su.back')}
               </button>
             )}
+            {step === 3 && (
+              <button type="button" className="su-back" onClick={() => setEditCompany(true)}>
+                {t('su.back')}
+              </button>
+            )}
             <span className="su-foot__t">{foot}</span>
+            {step === 2 && company.showNext && (
+              <button
+                type="button"
+                className="su-next"
+                disabled={company.busy}
+                onClick={() => void company.next()}
+              >
+                {t('su.next')}
+              </button>
+            )}
             {step === 1 && (
               <button
                 type="button"

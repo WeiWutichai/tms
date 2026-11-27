@@ -103,3 +103,120 @@ test('อีเมลมีบัญชีแล้ว → "เข้าสู�
   );
   expect(overflow).toBeLessThanOrEqual(0);
 });
+
+/**
+ * E2E P1-ST2-T04 ขั้น 2 "ข้อมูลบริษัท" — ผู้ให้บริการค้นข้อมูล = `mock` (NODE_ENV=test; ไม่เรียกกรมสรรพากรจริง)
+ * ขั้น 1 ทำผ่าน API (ทดสอบ UI แล้วในเทสต์แรก) → checksum ผิดไม่ส่งคำขอ → ไม่จด VAT + แนบหนังสือรับรอง → ขั้น 3 (stub)
+ * → ย้อนกลับ → เลขซ้ำบริษัทเดิม (ไม่มีปุ่มถัดไป) · จอ 390 ไม่มี scroll แนวนอน
+ */
+test('สมัครขั้น 2: checksum ผิดไม่ส่งคำขอ · ไม่จด VAT → หนังสือรับรอง → ขั้น 3 · เลขซ้ำ → ส่งคำขอเข้าร่วม/ติดต่อเรา', async ({
+  page,
+  request,
+}) => {
+  const API = `http://localhost:${process.env.E2E_API_PORT ?? '4510'}`;
+  const email = `signup2-${Date.now()}@e2e-company.test`;
+  const start = await request.post(`${API}/v1/public/signup`, {
+    data: { name: 'ทดสอบ ขั้นสอง', email, mobile: '+66812345678', password: PW },
+  });
+  expect(start.status()).toBe(201);
+  const { token } = (await start.json()) as { token: string };
+  const ok = await request.post(`${API}/v1/public/signup/session/otp/verify`, {
+    headers: { 'X-Signup-Token': token },
+    data: { code: await lastCode(email) },
+  });
+  expect(ok.status()).toBe(200);
+
+  // บริษัทเดิมใน TMS (เลขซ้ำ)
+  const dupTax = '0105569000029';
+  const tenant = await db.tenant.findFirst({
+    where: { mode: 'live' },
+    orderBy: { createdAt: 'asc' },
+  });
+  if (!(await db.company.findFirst({ where: { tenantId: tenant.id, taxId: dupTax } })))
+    await db.company.create({
+      data: { tenantId: tenant.id, legalName: 'บริษัท ซ้ำเดิมขนส่ง จำกัด', taxId: dupTax },
+    });
+
+  await page.addInitScript((t) => sessionStorage.setItem('tms.signupToken', t), token);
+  const lookups: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/company/lookup')) lookups.push(r.postData() ?? '');
+  });
+  await page.goto('/signup');
+  await expect(page.getByRole('heading', { level: 1, name: 'ข้อมูลบริษัท' })).toBeVisible();
+  await expect(page.getByText('ขั้น 2 จาก 3')).toBeVisible();
+
+  const tax = page.getByPlaceholder('0105556078912');
+  await tax.fill('0105569000012');
+  await expect(page.getByText('เลขผู้เสียภาษีไม่ถูกต้อง ตรวจตัวเลขอีกครั้ง')).toBeVisible();
+  await page.getByRole('button', { name: 'ค้นหา' }).click();
+  await page.waitForTimeout(300);
+  expect(lookups).toHaveLength(0);
+
+  // มีเลขในฐานสรรพากรแต่ไม่จด VAT → กรอกเอง + หนังสือรับรอง (บังคับ)
+  await tax.fill('0105569000011');
+  await page.getByRole('button', { name: 'ค้นหา' }).click();
+  await expect(
+    page.getByText(/ไม่พบเลขนี้ในข้อมูลผู้จดทะเบียนภาษีมูลค่าเพิ่มของกรมสรรพากร/),
+  ).toBeVisible();
+  expect(lookups).toHaveLength(1);
+  const field = (l: string) =>
+    page.locator('label.su-field').filter({ hasText: l }).locator('input').first();
+  await field('ชื่อนิติบุคคล').fill('บริษัท ไม่จดแวตขนส่ง จำกัด');
+  await field('เลขที่').fill('12/3');
+  await field('แขวง/ตำบล').fill('บางพลีใหญ่');
+  await field('เขต/อำเภอ').fill('บางพลี');
+  await field('จังหวัด').fill('สมุทรปราการ');
+  await field('รหัสไปรษณีย์').fill('10540');
+  await field('รถบริษัท (โดยประมาณ)').fill('12');
+  await field('รถร่วม (โดยประมาณ)').fill('5');
+  await page.getByLabel(/ยอมรับเงื่อนไขการใช้บริการ/).check();
+  await page.getByLabel(/ยอมรับนโยบายความเป็นส่วนตัว/).check();
+  await page.getByRole('button', { name: 'ถัดไป' }).click();
+  await expect(page.getByText('แนบหนังสือรับรองบริษัท')).toBeVisible();
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'หนังสือรับรอง.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4\n%%EOF\n'),
+  });
+  await expect(page.getByText('หนังสือรับรอง.pdf')).toBeVisible();
+  await page.getByRole('button', { name: 'ถัดไป' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'เลือกแพ็กเกจ' })).toBeVisible();
+  await expect(page.getByText('ขั้น 3 จาก 3')).toBeVisible();
+  const row = await db.signupSession.findFirst({ where: { email } });
+  expect(row).toMatchObject({
+    status: 'company_submitted',
+    taxId: '0105569000011',
+    verificationStatus: 'pending_manual',
+    accountingSoftware: 'none',
+    fleetSizeOwn: 12,
+  });
+  expect(row.termsVersion).toBeTruthy();
+  expect(row.termsAcceptedAt).not.toBeNull();
+  // ทุกการส่งเลขออกถูกบันทึก (ผู้ให้บริการ mock ใน E2E)
+  expect(
+    await db.companyLookupLog.count({ where: { taxId: '0105569000011', signupSessionId: row.id } }),
+  ).toBeGreaterThanOrEqual(1);
+
+  // ย้อนกลับมาแก้ → เลขซ้ำบริษัทเดิม → ไม่มีปุ่ม "ถัดไป"
+  await page.getByRole('button', { name: 'ย้อนกลับ' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'ข้อมูลบริษัท' })).toBeVisible();
+  await expect(tax).toHaveValue('0105569000011');
+  await tax.fill(dupTax);
+  await page.getByRole('button', { name: 'ค้นหา' }).click();
+  await expect(
+    page.getByText(/บริษัทนี้ใช้ TMS อยู่แล้ว · บริษัท ซ้ำเดิมขนส่ง จำกัด/),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'ส่งคำขอเข้าร่วมบริษัท' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'ถัดไป' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'ติดต่อเรา' }).click();
+  await expect(
+    page.getByText('ส่งข้อความถึงทีมงานแล้ว · เราจะติดต่อกลับภายใน 1 วันทำการ'),
+  ).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(0);
+});
