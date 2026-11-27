@@ -277,13 +277,13 @@ describe('password reset + email outbox', () => {
     for (const r of rs.filter((x) => x.status !== 204)) expect([400, 412]).toContain(r.status);
   });
 
-  it('บริษัทที่ถูกระงับไม่ถูกนับ: ผู้ใช้อยู่แต่บริษัทระงับ → ไม่ได้อีเมล', async () => {
+  it('บริษัทที่ถูกระงับยัง login ได้ (spec/01 ตาราง 1.6 — P1-ST1-T03) → ได้อีเมลตั้งรหัสใหม่', async () => {
     const tC = (await createTenant(db)).id;
     await user(tC, 'suspended-co@reset.test');
     await db.tenant.update({ where: { id: tC }, data: { status: 'SUSPENDED' } });
     await forgot('suspended-co@reset.test').expect(202);
     await dispatcher.drain();
-    expect(mail.sent.filter((m) => m.to === 'suspended-co@reset.test')).toHaveLength(0);
+    expect(mail.sent.filter((m) => m.to === 'suspended-co@reset.test')).toHaveLength(1);
   });
 
   it('ส่งค้างสถานะ SENDING เกิน lease และครบจำนวนครั้ง → FAILED (ไม่วนไม่จบ)', async () => {

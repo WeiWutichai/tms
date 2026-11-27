@@ -220,12 +220,14 @@ describe('platform console (ST1-T24)', () => {
           .expect(200)
       ).body.status,
     ).toBe('suspended');
-    await http().get('/v1/me').set('Authorization', `Bearer ${accessToken}`).expect(401);
+    // P1-ST1-T03 (ตาราง 1.6): ระงับ = เข้าได้เฉพาะ /me ชำระเงิน export — หน้าอื่น 403 tenant_suspended
+    await http().get('/v1/me').set('Authorization', `Bearer ${accessToken}`).expect(200);
+    await http().get('/v1/customers').set('Authorization', `Bearer ${accessToken}`).expect(403);
     await sa.post(`/v1/platform/tenants/${id}/suspend`, { reason: 'ซ้ำอีกครั้งหนึ่ง' }).expect(409);
     await sa
       .post(`/v1/platform/tenants/${id}/reactivate`, { reason: 'ลูกค้าชำระครบแล้ว' })
       .expect(200);
-    await http().get('/v1/me').set('Authorization', `Bearer ${accessToken}`).expect(200);
+    await http().get('/v1/customers').set('Authorization', `Bearer ${accessToken}`).expect(200);
     expect(
       await db.auditLog.count({
         where: {

@@ -9,7 +9,7 @@ import { PrismaService } from '../../db/prisma.service';
 import { JobQueue } from '../../jobs/job-queue.service';
 import { NotificationService } from '../notifications/notification.service';
 import { TripService } from './trip.service';
-import { JOB_TENANT_STATUSES } from '../tenants/tenant-status';
+import { INTERNAL_JOB_TENANT_STATUSES } from '../tenants/tenant-status';
 
 export const OFFER_TIMEOUT_JOB = 'subcon_offer.timeouts';
 /** worker ตรวจทุก 1 นาที (spec/03 PLN-154 "job ตรวจทุก 1 นาที") */
@@ -88,7 +88,7 @@ export class SubconTimeoutService implements OnModuleInit {
           FROM subcon_offer o
           JOIN tenant t ON t.id = o.tenant_id
          WHERE o.status = 'OFFERED'
-           AND t.status::text = ANY(${[...JOB_TENANT_STATUSES]})
+           AND t.status::text = ANY(${[...INTERNAL_JOB_TENANT_STATUSES]})
            AND (o.timeout_next_at IS NULL OR o.timeout_next_at <= ${now})
            AND ((o.timeout_notified_at IS NULL AND o.response_due_at <= ${now})
                 OR o.expires_at <= ${now})`;

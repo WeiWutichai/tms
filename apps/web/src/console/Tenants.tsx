@@ -276,7 +276,8 @@ function TenantDrawer({
   // P1-ST1-T03 บันทึกว่าชำระแล้ว → ใช้งาน (owner + finance) [DECISION — lead 27 พ.ย. 2569: ต้นแบบไม่มีปุ่มนี้ ประกอบจาก btns + vAct]
   if (x && can.activate(role) && ACTIVATABLE.includes(x.status))
     actions.push({ l: 'con.act.activate', i: 'circle-check', fn: () => setDlg('activate') });
-  if (x && can.suspend(role) && x.status === 'suspended')
+  // review N4: ปลดระงับได้เฉพาะที่ระงับด้วยมือ (ระงับเพราะค้างชำระ = "เปิดใช้งาน (ชำระแล้ว)")
+  if (x && can.suspend(role) && x.status === 'suspended' && x.manualSuspension)
     actions.push({ l: 'con.act.reactivate', i: 'ban', fn: () => setDlg('reactivate') });
   if (x && can.suspend(role) && x.status !== 'suspended' && x.status !== 'cancelled')
     actions.push({ l: 'con.act.suspend', i: 'ban', fn: () => setDlg('suspend'), danger: true });
@@ -347,7 +348,17 @@ function TenantDrawer({
                       ['con.kv.since', monthYear(x.createdAt, lang)],
                       ['con.kv.users', String(x.users)],
                       // ต้นแบบ ov: "ต่ออายุ / ทดลองถึง" — วันหมดทดลองใช้จาก subscription (P1-ST1-T03)
-                      ['con.kv.renew', x.trialEndsAt ? dayMonthYear(x.trialEndsAt, lang) : '—'],
+                      // ทดลองใช้/รอยืนยัน = วันหมดทดลอง · อื่น ๆ = สิ้นรอบบิล (วันต่ออายุ — review S6)
+                      [
+                        'con.kv.renew',
+                        (() => {
+                          const d =
+                            x.status === 'trialing' || x.status === 'pending_verification'
+                              ? x.trialEndsAt
+                              : x.currentPeriodEnd;
+                          return d ? dayMonthYear(d, lang) : '—';
+                        })(),
+                      ],
                     ] as [MessageKey, string][]
                   ).map(([k, v]) => (
                     <div key={k} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

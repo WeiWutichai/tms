@@ -15,11 +15,14 @@ export const TENANT_STATUSES = [
 ] as const satisfies readonly TenantStatus[];
 
 /**
- * login เข้าแอป + token/session เดิมยังใช้ได้ (ตาราง 1.6 แถว "login")
- * `suspended`/`cancelled` = L (เฉพาะหน้าแพ็กเกจ/ชำระเงิน/ขอ export) — หน้าเหล่านั้นยังไม่มี (P1-ST3/ST4) จึงยังเข้าไม่ได้เลย
- * [DECISION — lead 27 พ.ย. 2569, ย้อนได้] (เหมือนก่อน T03 — เปิดเมื่อมีหน้าชำระเงิน)
+ * login เข้าแอป + token/session เดิมยังใช้ได้ (ตาราง 1.6 แถว "login") — ทุกสถานะ (review S3: ตามตาราง 1.6 ตรงตัว)
+ * `suspended`/`cancelled` = L: AuthGuard จำกัดเฉพาะเส้นทาง แพ็กเกจ/ชำระเงิน/ขอ export/me/auth (`TENANT_LIMITED_PATHS`) —
+ * อื่น ๆ ทุก method → 403 `tenant_suspended` / `tenant_cancelled`
  */
-export const LOGIN_TENANT_STATUSES = [
+export const LOGIN_TENANT_STATUSES = TENANT_STATUSES;
+
+/** ใช้แอปได้ทุกหน้า (ดูข้อมูลเดิม/ลิงก์สาธารณะ — ตาราง 1.6 แถว "ดู/ค้นหา/พิมพ์/export") */
+export const ACCESS_TENANT_STATUSES = [
   'PENDING_VERIFICATION',
   'TRIALING',
   'ACTIVE',
@@ -44,10 +47,23 @@ export const API_TENANT_STATUSES = [
 ] as const satisfies readonly TenantStatus[];
 
 /**
- * งานประจำที่เขียนข้อมูลของ tenant (เตือน/สรุป/ค่าเสื่อม/หมดเวลาข้อเสนอ) — สถานะที่เขียนได้เท่านั้น
- * read_only/suspended/cancelled ไม่รันงานเบื้องหลัง [DECISION — lead 27 พ.ย. 2569, ย้อนได้]
+ * งานประจำที่ส่งแจ้งเตือน/สร้างข้อมูลใหม่ (เตือน/สรุปรายวัน/ค่าเสื่อม) — สถานะที่เขียนได้เท่านั้น
+ * [OPEN — PO] ตาราง 1.6 ไม่มีแถวงานเบื้องหลัง: ทำตามแนวทางที่ระมัดระวัง (พักงานแจ้งเตือน/sync ใน read_only/suspended/cancelled)
  */
 export const JOB_TENANT_STATUSES = WRITE_TENANT_STATUSES;
+
+/**
+ * งานที่รักษาความถูกต้องของข้อมูลเดิม (สถานะใบแจ้งหนี้เลยกำหนด · หมดเวลาข้อเสนอรถร่วม) — รันต่อใน read_only/suspended
+ * (ไม่รันเมื่อ cancelled) [OPEN — PO] (review S3 — ตาราง 1.6 ไม่มีแถวนี้)
+ */
+export const INTERNAL_JOB_TENANT_STATUSES = [
+  'PENDING_VERIFICATION',
+  'TRIALING',
+  'ACTIVE',
+  'PAST_DUE',
+  'READ_ONLY',
+  'SUSPENDED',
+] as const satisfies readonly TenantStatus[];
 
 /** webhook ขาออก / connector sync (ตาราง 1.6: pending ✗ · read_only ✗ คิวพักส่งต่อเมื่อ active · suspended/cancelled ✗) */
 export const SYNC_TENANT_STATUSES = [
@@ -58,6 +74,9 @@ export const SYNC_TENANT_STATUSES = [
 
 const has = (list: readonly string[], s: string | null | undefined) => !!s && list.includes(s);
 export const canLogin = (s: string | null | undefined) => has(LOGIN_TENANT_STATUSES, s);
+export const canAccess = (s: string | null | undefined) => has(ACCESS_TENANT_STATUSES, s);
+export const canRunInternalJobs = (s: string | null | undefined) =>
+  has(INTERNAL_JOB_TENANT_STATUSES, s);
 export const canWrite = (s: string | null | undefined) => has(WRITE_TENANT_STATUSES, s);
 export const canUseApi = (s: string | null | undefined) => has(API_TENANT_STATUSES, s);
 export const canRunJobs = (s: string | null | undefined) => has(JOB_TENANT_STATUSES, s);
@@ -66,13 +85,10 @@ export const canSync = (s: string | null | undefined) => has(SYNC_TENANT_STATUSE
 /** ค่าที่ API/UI ใช้ (`trialing`, `read_only`, …) — spec/01 PLT-010 */
 export const tenantStatusOut = (s: TenantStatus) => s.toLowerCase();
 
-/**
- * enum ใน OpenAPI ของ field สถานะ tenant: 7 ค่า + `trial` (ค่าเดิมก่อน T03 — ไม่ส่งแล้ว คงไว้ในเอกสารเพื่อไม่ให้ OpenAPI diff gate นับเป็น
- * breaking; client ต้องรับค่า enum ใหม่ได้ตาม ST7-T07) [DECISION — lead 27 พ.ย. 2569, ย้อนได้ · ยังไม่มี production (D-76) จึงไม่ทำ version gate]
- */
-export const TENANT_STATUS_ENUM_DOC = [...TENANT_STATUSES.map((x) => x.toLowerCase()), 'trial'];
+/** enum ใน OpenAPI ของ field สถานะ tenant (7 ค่า — ค่าเดิม `trial` ของ client เก่าแปลงด้วย version gate `tenant.status_lifecycle`) */
+export const TENANT_STATUS_ENUM_DOC = TENANT_STATUSES.map((x) => x.toLowerCase());
 export const TENANT_STATUS_DOC =
-  'สถานะบัญชีบริษัท 7 ค่า (P1-ST1-T03 · spec/01 PLT-010) — `trial` = ค่าเดิมก่อน 27 พ.ย. 2569 ไม่ส่งแล้ว (ใช้ `trialing`)';
+  'สถานะบัญชีบริษัท 7 ค่า (P1-ST1-T03 · spec/01 PLT-010) — `X-Api-Version` ก่อน 2026-11-27 ได้ชุดเดิม 4 ค่า (trial / active / suspended / cancelled)';
 
 export type DunningKind = 'invoice' | 'trial';
 export type DunningStage = 'PAST_DUE' | 'READ_ONLY' | 'SUSPENDED' | 'CANCELLED';
@@ -105,6 +121,22 @@ export function dunningStage(kind: DunningKind, day: number, s: DunningSettings)
     return 'SUSPENDED';
   }
   return day <= s.trialReadOnlyDays ? 'READ_ONLY' : 'SUSPENDED';
+}
+
+/** วันแรก (นับจากวัน 0) ที่ช่วงนั้นมีผล — ใช้ประทับเวลาเมื่อ cron รันย้อน (review N1) */
+export function dunningStageFirstDay(
+  kind: DunningKind,
+  stage: DunningStage,
+  s: DunningSettings,
+): number {
+  if (stage === 'CANCELLED') return s.suspendUntilDay + 1;
+  if (kind === 'invoice')
+    return stage === 'PAST_DUE'
+      ? 0
+      : stage === 'READ_ONLY'
+        ? s.pastDueDays + 1
+        : s.readOnlyUntilDay + 1;
+  return stage === 'READ_ONLY' ? 1 : s.trialReadOnlyDays + 1;
 }
 
 /** ลำดับของช่วง dunning — cron เดินหน้าอย่างเดียว (ไม่ถอยสถานะที่ทีมงานระงับไว้) */

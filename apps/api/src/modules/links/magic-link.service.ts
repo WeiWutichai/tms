@@ -4,7 +4,7 @@ import { isLocalEnv } from '../../auth/tokens';
 import { PrismaService } from '../../db/prisma.service';
 import type { Tx } from '../../db/db.service';
 import { requestContext } from '../../common/request-context';
-import { canLogin } from '../tenants/tenant-status';
+import { canAccess } from '../tenants/tenant-status';
 
 /**
  * Magic link (ST1-T06; docs/04 A1 "เข้าถึงโดยไม่ login", J "Magic link"; docs/01 §5.5 M10)
@@ -181,7 +181,7 @@ export class MagicLinkService {
     });
     // ST7-T09: ลิงก์ของ sandbox ตามสถานะบริษัทจริง
     const tenant = t0 ? { status: t0.liveTenant?.status ?? t0.status } : null;
-    if (!tenant || !canLogin(tenant.status)) return null;
+    if (!tenant || !canAccess(tenant.status)) return null;
     // บันทึกการใช้ล่าสุดไม่เกินนาทีละครั้ง (ไม่เขียนฐานทุก request)
     if (!row.lastUsedAt || Date.now() - row.lastUsedAt.getTime() > 60_000)
       void this.prisma.platform.magicLink

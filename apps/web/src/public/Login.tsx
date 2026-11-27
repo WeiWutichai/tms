@@ -7,7 +7,7 @@ import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/th';
 import { PublicLayout } from './PublicLayout';
 
-/** ป้ายสถานะบริษัท — statuses + tone ของ design/prototype/plans.js (สถานะที่ login ได้ — P1-ST1-T03) */
+/** ป้ายสถานะบริษัท — statuses + tone ของ design/prototype/plans.js (login ได้ทุกสถานะ — P1-ST1-T03) */
 const TENANT_BADGE: Record<string, { k: MessageKey; c: string; bg: string; i: string }> = {
   pending_verification: {
     k: 'tenantStatus.pending_verification',
@@ -19,6 +19,8 @@ const TENANT_BADGE: Record<string, { k: MessageKey; c: string; bg: string; i: st
   active: { k: 'tenantStatus.active', c: '#17733F', bg: '#E7F3EC', i: 'circle-check' },
   past_due: { k: 'tenantStatus.past_due', c: '#8F5500', bg: '#FCF0DC', i: 'circle-alert' },
   read_only: { k: 'tenantStatus.read_only', c: '#8F5500', bg: '#FCF0DC', i: 'eye' },
+  suspended: { k: 'tenantStatus.suspended', c: '#B3322A', bg: '#FBE9E7', i: 'ban' },
+  cancelled: { k: 'tenantStatus.cancelled', c: '#59606B', bg: '#EEF0EC', i: 'circle-x' },
 };
 
 /** ตัวย่อ 2 ตัวจากชื่อบริษัท (ตัดคำนำหน้านิติบุคคล + "จำกัด" และสระ/วรรณยุกต์) — แทน c.ini ที่ต้นแบบใส่มือ */

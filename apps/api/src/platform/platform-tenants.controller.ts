@@ -43,7 +43,6 @@ import { moveSubscriptionPlan } from '../modules/entitlements/subscription';
 import { bootstrapTenant } from '../modules/tenants/bootstrap';
 import { TenantLifecycleService } from '../modules/tenants/tenant-lifecycle.service';
 import {
-  TENANT_STATUS_DOC,
   TENANT_STATUS_ENUM_DOC,
   TENANT_STATUSES,
   tenantStatusOut,
@@ -152,7 +151,11 @@ export class PlatformTenantListQuery {
 export class PlatformTenantDto {
   @ApiProperty({ example: 'ten_…' }) id!: string;
   @ApiProperty() name!: string;
-  @ApiProperty({ enum: TENANT_STATUS_ENUM_DOC, description: TENANT_STATUS_DOC }) status!: string;
+  @ApiProperty({
+    enum: TENANT_STATUS_ENUM_DOC,
+    description: 'สถานะบัญชีบริษัท 7 ค่า (P1-ST1-T03 · spec/01 PLT-010)',
+  })
+  status!: string;
   @ApiProperty() planCode!: string;
   @ApiProperty({ nullable: true, type: Number }) vehicleQuota!: number | null;
   @ApiProperty() users!: number;
@@ -187,6 +190,17 @@ export class PlatformTenantDetailDto extends PlatformTenantDto {
     description: 'วันหมดทดลองใช้ (subscription)',
   })
   trialEndsAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date-time',
+    description: 'สิ้นรอบบิลปัจจุบัน = วันต่ออายุ (subscription — แสดงเมื่อไม่ได้ทดลองใช้)',
+  })
+  currentPeriodEnd!: string | null;
+  @ApiProperty({
+    description: 'ระงับด้วยมือ (ปลดระงับได้) — ระงับเพราะค้างชำระปลดด้วยการชำระเท่านั้น',
+  })
+  manualSuspension!: boolean;
   @ApiProperty({ nullable: true, type: String, format: 'date-time' }) statusChangedAt!:
     string | null;
   @ApiProperty({ nullable: true, type: String }) statusReason!: string | null;
@@ -278,7 +292,7 @@ export class PlatformTenantsController {
     const code = new Map(roles.map((r) => [r.id, r.code]));
     const sub = await this.prisma.platform.subscription.findUnique({
       where: { tenantId: t.id },
-      select: { trialEndsAt: true },
+      select: { trialEndsAt: true, currentPeriodEnd: true },
     });
     const hist = await this.lifecycle.history(t.id);
     const staffIds = [
@@ -296,6 +310,8 @@ export class PlatformTenantsController {
     return {
       ...this.toDto(t, users.length),
       trialEndsAt: sub?.trialEndsAt?.toISOString() ?? null,
+      currentPeriodEnd: sub?.currentPeriodEnd?.toISOString() ?? null,
+      manualSuspension: await this.lifecycle.manuallySuspended(t.id),
       statusChangedAt: t.statusChangedAt?.toISOString() ?? null,
       statusReason: t.statusReason,
       pastDueSince: t.pastDueSince?.toISOString().slice(0, 10) ?? null,

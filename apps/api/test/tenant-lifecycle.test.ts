@@ -95,6 +95,15 @@ describe('วงจรสถานะ tenant (P1-ST1-T03)', () => {
     await db.$disconnect();
   });
 
+  /** active → past_due → read_only (วัน 0 = 10 วันก่อน) ด้วยนาฬิกาปัจจุบัน */
+  async function toReadOnly(id: string) {
+    const since = new Date(Date.now() - 10 * 86_400_000 + 7 * 3600_000).toISOString().slice(0, 10);
+    const base = { tenantId: id, reason: 'ทดสอบ read_only', actor: { type: 'system' as const } };
+    const dunning = { kind: 'invoice' as const, since };
+    await svc.transition({ ...base, to: 'PAST_DUE', dunning });
+    await svc.transition({ ...base, to: 'READ_ONLY', expectFrom: 'PAST_DUE', dunning });
+  }
+
   describe('กติกาวัน (pure)', () => {
     const S: DunningSettings = {
       pastDueDays: 7,
@@ -195,11 +204,27 @@ describe('วงจรสถานะ tenant (P1-ST1-T03)', () => {
     const t = await tenant('TRIALING', { trialEndsAt: bkk('2026-10-01 09:00') });
     const p = await tenant('PENDING_VERIFICATION', { trialEndsAt: bkk('2026-10-01 09:00') });
     await cronAt('2026-12-20 00:30');
-    expect((await history(t.id)).map((x) => [x.fromStatus, x.toStatus])).toEqual([
+    const h = await history(t.id);
+    expect(h.map((x) => [x.fromStatus, x.toStatus])).toEqual([
       ['TRIALING', 'READ_ONLY'],
       ['READ_ONLY', 'SUSPENDED'],
       ['SUSPENDED', 'CANCELLED'],
     ]);
+    // review N1: ประทับวันที่ขั้นนั้นมีผลจริง (00:30 ของวันที่ 1 / 15 / 61 นับจากวันหมด trial) + เหตุผลบอกว่าบันทึกย้อนหลัง
+    expect(h.map((x) => x.at.toISOString())).toEqual([
+      bkk('2026-10-02 00:30').toISOString(),
+      bkk('2026-10-16 00:30').toISOString(),
+      bkk('2026-12-01 00:30').toISOString(),
+    ]);
+    expect(h[0]!.reason).toContain('มีผลวันที่ 2026-10-02');
+    const c = await statusOf(t.id);
+    expect(c.cancelledAt!.toISOString()).toBe(bkk('2026-12-01 00:30').toISOString());
+    // อีเมลเฉพาะขั้นสุดท้าย
+    const mails = await db.emailOutbox.findMany({
+      where: { tenantId: t.id, template: 'tenant_status_changed' },
+    });
+    expect(mails).toHaveLength(1);
+    expect(mails[0]!.subject).toContain('ยกเลิก');
     expect((await statusOf(p.id)).status).toBe('PENDING_VERIFICATION');
   });
 
@@ -244,8 +269,8 @@ describe('วงจรสถานะ tenant (P1-ST1-T03)', () => {
       ];
       for (const w of writes) {
         const r = await w;
-        expect(r.status, r.req.path).toBe(403);
-        expect(r.body.code, r.req.path).toBe('tenant_read_only');
+        expect(r.status, JSON.stringify(r.body)).toBe(403);
+        expect(r.body.code, JSON.stringify(r.body)).toBe('tenant_read_only');
         expect(r.headers['content-type']).toContain('application/problem+json');
       }
       await a.get('/v1/customers').expect(200);
@@ -262,21 +287,41 @@ describe('วงจรสถานะ tenant (P1-ST1-T03)', () => {
       );
     });
 
-    it('read_only ผู้ใช้ยัง login ได้ (ตาราง 1.6) · ระงับ → token เดิมใช้ไม่ได้ทันที + login ไม่ได้', async () => {
-      const { access } = await loginFull(app, t.email, 'owner-password-2569', '10.33.0.1');
+    it('read_only ผู้ใช้ยัง login ได้ · ระงับ → ใช้ได้เฉพาะ /me ชำระเงิน export (ตาราง 1.6 — review S3)', async () => {
+      const { access, secret } = await loginFull(app, t.email, 'owner-password-2569', '10.33.0.1');
       const srv = app.getHttpServer();
       await request(srv).get('/v1/me').set('Authorization', `Bearer ${access}`).expect(200);
       await cronAt('2026-11-23 00:30'); // วันที่ 22 → ระงับ
       expect((await statusOf(t.id)).status).toBe('SUSPENDED');
-      await request(srv).get('/v1/me').set('Authorization', `Bearer ${access}`).expect(401);
-      // token dev (ไม่ผ่าน session) เขียน → tenant_suspended
-      const w = await api(app, token).post('/v1/customers').send({});
-      expect(w.status).toBe(403);
-      expect(w.body.code).toBe('tenant_suspended');
+      const me = await request(srv).get('/v1/me').set('Authorization', `Bearer ${access}`);
+      expect(me.status).toBe(200);
+      expect(me.body.tenant.status).toBe('suspended');
+      // login ใหม่ได้ (ตาราง 1.6 "L")
+      await loginFull(app, t.email, 'owner-password-2569', '10.33.0.2', { secret });
+      for (const r of [
+        await request(srv).get('/v1/customers').set('Authorization', `Bearer ${access}`),
+        await api(app, token).post('/v1/customers').send({}),
+        await api(app, token).get('/v1/orders'),
+      ]) {
+        expect(r.status, JSON.stringify(r.body)).toBe(403);
+        expect(r.body).toMatchObject({ code: 'tenant_suspended', tenantStatus: 'suspended' });
+      }
+      // ขอ export ได้ · /v1/payments ยกเว้นตาม spec (ไปถึง validation/handler)
+      await api(app, token).post('/v1/exports').send({ resource: 'customers' }).expect(202);
+      expect((await api(app, token).get('/v1/payments')).body.code).not.toBe('tenant_suspended');
     });
 
     it('ชำระแล้ว (Console BILLING) → active ทันที ในคำขอเดียว (PLT-013) · ล้าง dunning · cron ถัดไปไม่เปลี่ยน', async () => {
       const R = 'ลูกค้าโอนชำระครบ ตรวจสลิปแล้ว';
+      // review N4: ระงับเพราะค้างชำระ (ระบบ) ปลดระงับไม่ได้ — ต้องชำระ · Console ซ่อนปุ่ม (manualSuspension=false)
+      await as('SUPER_ADMIN')
+        .post(`/v1/platform/tenants/${t.ref}/reactivate`)
+        .send({ reason: 'ลองปลดระงับเอง ไม่ควรได้' })
+        .expect(409);
+      expect(
+        (await as('SUPPORT').get(`/v1/platform/tenants/${t.ref}`).expect(200)).body
+          .manualSuspension,
+      ).toBe(false);
       await as('SUPPORT')
         .post(`/v1/platform/tenants/${t.ref}/activate`)
         .send({ reason: R })
@@ -363,6 +408,9 @@ describe('วงจรสถานะ tenant (P1-ST1-T03)', () => {
     const s = await statusOf(t.id);
     expect(s.status).toBe('SUSPENDED');
     expect(s.subscription!.status).toBe('trialing'); // ระงับด้วยมือ ไม่ใช่ค้างชำระ
+    expect(
+      (await as('SUPPORT').get(`/v1/platform/tenants/${t.ref}`).expect(200)).body.manualSuspension,
+    ).toBe(true);
     await as('SUPER_ADMIN')
       .post(`/v1/platform/tenants/${t.ref}/reactivate`)
       .send({ reason: 'ลูกค้าชี้แจงแล้ว ปลดระงับ' })
@@ -370,6 +418,7 @@ describe('วงจรสถานะ tenant (P1-ST1-T03)', () => {
     expect((await statusOf(t.id)).status).toBe('TRIALING');
     const d = (await as('SUPPORT').get(`/v1/platform/tenants/${t.ref}`).expect(200)).body;
     expect(d.trialEndsAt).toBe(bkk('2027-01-31 12:00').toISOString());
+    expect(d).toHaveProperty('currentPeriodEnd'); // review S6 — วันต่ออายุเมื่อไม่ได้ทดลองใช้
     expect(d.statusHistory.map((h: { from: string; to: string }) => `${h.from}>${h.to}`)).toEqual([
       'suspended>trialing',
       'trialing>suspended',
@@ -393,6 +442,12 @@ describe('วงจรสถานะ tenant (P1-ST1-T03)', () => {
       reason: 'ลูกค้าขอยกเลิก (ทดสอบ)',
       actor: { type: 'system' },
     });
+    // review N7: ยกเลิก → 403 tenant_cancelled (ขอ export ได้)
+    const tok = await tokenFor(t.id);
+    const r = await api(app, tok).get('/v1/customers');
+    expect(r.status).toBe(403);
+    expect(r.body.code).toBe('tenant_cancelled');
+    await api(app, tok).post('/v1/exports').send({ resource: 'customers' }).expect(202);
     await as('SUPER_ADMIN')
       .post(`/v1/platform/tenants/${t.ref}/activate`)
       .send({ reason: 'ลูกค้ากลับมาชำระค่าบริการ' })
@@ -420,6 +475,128 @@ describe('วงจรสถานะ tenant (P1-ST1-T03)', () => {
     expect((await history(tid)).map((h) => [h.fromStatus, h.toStatus, h.actorType])).toEqual([
       [null, 'TRIALING', 'platform_user'],
     ]);
+  });
+
+  it('version gate tenant.status_lifecycle (review S2): client ที่ pin ก่อน 2026-11-27 ได้สถานะ 4 ค่าเดิม', async () => {
+    const t = await tenant('ACTIVE');
+    const tok = await tokenFor(t.id);
+    clock.set(null);
+    await toReadOnly(t.id);
+    expect((await statusOf(t.id)).status).toBe('READ_ONLY');
+    const get = (v: string) => api(app, tok).get('/v1/me').set('X-Api-Version', v);
+    expect((await get('2026-11-27').expect(200)).body.tenant.status).toBe('read_only');
+    expect((await get('2026-11-18').expect(200)).body.tenant.status).toBe('active');
+    const tr = await tenant('TRIALING');
+    const old = await api(app, await tokenFor(tr.id))
+      .get('/v1/me')
+      .set('X-Api-Version', '2026-11-01')
+      .expect(200);
+    expect(old.body.tenant.status).toBe('trial');
+  });
+
+  describe('read_only: แอปคนขับปิดงานเฉพาะเที่ยวที่ออกวิ่งก่อนเปลี่ยนสถานะ + จองไฟล์ได้เฉพาะรูป/ลายเซ็น POD (review S1)', () => {
+    let seed = 0;
+    async function trip(tid: string) {
+      const n = ++seed;
+      const vt = await db.vehicleType.create({
+        data: { tenantId: tid, code: `RO${n}`, nameTh: `6 ล้อ ${n}`, vehicleClass: '6W' },
+      });
+      const v = await db.vehicle.create({
+        data: {
+          tenantId: tid,
+          plate: `72-${1000 + n}`,
+          plateProvince: 'TH-10',
+          plateKey: `72${1000 + n}|TH-10`,
+          plateNorm: `72${1000 + n}`,
+          vehicleTypeId: vt.id,
+          ownership: 'OWN',
+        },
+      });
+      const site = (k: string) =>
+        db.customerSite.create({
+          data: {
+            tenantId: tid,
+            code: `RO-${k}${n}`,
+            name: `จุด ${k}${n}`,
+            address: { line1: 'x' },
+          },
+        });
+      const [a, b] = [await site('A'), await site('B')];
+      const t = await db.trip.create({
+        data: {
+          tenantId: tid,
+          tripNo: `TRP-RO-${n}`,
+          tripDate: new Date(),
+          status: 'DISPATCHED',
+          dispatchedAt: new Date(),
+          vehicleId: v.id,
+          vehiclePlateSnapshot: v.plate,
+          vehicleTypeId: vt.id,
+        },
+      });
+      const stop = (sequence: number, siteId: string, type: 'PICKUP' | 'DELIVERY') =>
+        db.tripStop.create({ data: { tenantId: tid, tripId: t.id, sequence, type, siteId } });
+      return {
+        trip: t,
+        pickup: await stop(1, a.id, 'PICKUP'),
+        drop: await stop(2, b.id, 'DELIVERY'),
+      };
+    }
+    const url = (s: { id: string }, action: string) =>
+      `/v1/stops/${encodeId('tripStop', s.id)}/${action}`;
+    const ev = () => ({ clientEventId: randomUUID(), occurredAt: new Date().toISOString() });
+
+    it('เที่ยวที่ถึงจุดแรกก่อน read_only ปิดงานต่อได้ · เที่ยวที่ยังไม่ออกวิ่ง 403 · จองไฟล์อื่นนอกจาก POD 403', async () => {
+      clock.set(null);
+      const t = await tenant('ACTIVE');
+      const tok = await tokenFor(t.id);
+      const running = await trip(t.id);
+      const idle = await trip(t.id);
+      await api(app, tok).post(url(running.pickup, 'arrive')).send(ev()).expect(201);
+      expect((await db.trip.findUniqueOrThrow({ where: { id: running.trip.id } })).status).toBe(
+        'IN_PROGRESS',
+      );
+      await new Promise((r) => setTimeout(r, 20));
+      await toReadOnly(t.id);
+      await api(app, tok).post(url(running.pickup, 'depart')).send(ev()).expect(201);
+      const blocked = await api(app, tok).post(url(idle.pickup, 'arrive')).send(ev());
+      expect(blocked.status).toBe(403);
+      expect(blocked.body.code).toBe('tenant_read_only');
+      // POST /documents: รูป/ลายเซ็น POD ได้ · ไฟล์ชนิดอื่น 403
+      await api(app, tok)
+        .post('/v1/documents')
+        .send({ kind: 'POD_PHOTO', mime: 'image/jpeg', bytes: 1000 })
+        .expect(201);
+      await api(app, tok)
+        .post('/v1/documents')
+        .send({ kind: 'POD_SIGNATURE', mime: 'image/png', bytes: 1000 })
+        .expect(201);
+      const other = await api(app, tok)
+        .post('/v1/documents')
+        .send({ kind: 'CONTRACT', mime: 'application/pdf', bytes: 1000 });
+      expect(other.status).toBe(403);
+      expect(other.body.code).toBe('tenant_read_only');
+    });
+  });
+
+  it('review N10: ชำระพร้อม cron (Promise.all) → จบที่ active เสมอ ไม่มีขั้นหลัง active', async () => {
+    for (let i = 0; i < 3; i++) {
+      const t = await tenant('ACTIVE');
+      clock.set(bkk('2026-12-15 09:00'));
+      await svc.transition({
+        tenantId: t.id,
+        to: 'PAST_DUE',
+        reason: 'ทดสอบชนกัน',
+        actor: { type: 'system' },
+        dunning: { kind: 'invoice', since: '2026-10-01' },
+      });
+      await Promise.all([
+        svc.markPaid(t.id, 'ชำระพร้อม cron (ทดสอบ)', { type: 'system' }),
+        svc.advance(t.id, '2026-12-15').catch(() => 0),
+      ]);
+      expect((await statusOf(t.id)).status).toBe('ACTIVE');
+      expect((await history(t.id)).at(-1)!.toStatus).toBe('ACTIVE');
+    }
   });
 
   it('แยก tenant: ประวัติสถานะ (RLS) — role แอปเห็นเฉพาะของตัวเอง และเขียน/แก้/ลบไม่ได้', async () => {

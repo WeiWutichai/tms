@@ -8,9 +8,12 @@ import { PrismaService } from '../../db/prisma.service';
 import { PlatformSettingsService } from '../../platform/platform-settings.service';
 import { EmailService } from '../email/email.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
-import { bangkokToday, daysBetween } from '../vehicle-documents/expiry';
+import { INBOUND_MAX_ATTEMPTS, INBOUND_PROCESS_JOB } from '../erp/inbound-token';
+import { addDays, bangkokToday, daysBetween } from '../vehicle-documents/expiry';
 import {
+  canSync,
   dunningStage,
+  dunningStageFirstDay,
   dunningSteps,
   subscriptionStatusFor,
   tenantStatusOut,
@@ -35,6 +38,10 @@ export interface TransitionInput {
   auditAction?: string;
   /** ตั้ง/ล้างวัน 0 ของ dunning พร้อมการเปลี่ยน (undefined = คงเดิม · null = ล้าง) */
   dunning?: { kind: DunningKind; since: string } | null;
+  /** cron รันย้อน: เวลาที่ขั้นนี้มีผลจริง (ประวัติ/statusChangedAt/cancelledAt ใช้ค่านี้ — review N1) · ไม่ส่ง = ตอนนี้ */
+  effectiveAt?: Date;
+  /** ส่งอีเมลแจ้ง owner (ค่าเริ่มต้น true — cron รันย้อนหลายขั้นส่งเฉพาะขั้นสุดท้าย — review N1) */
+  notify?: boolean;
 }
 
 /** ผลของการกวาดรายวัน */
@@ -106,12 +113,21 @@ export class TenantLifecycleService {
     const cur = await tx.tenant.findUnique({ where: { id: input.tenantId } });
     if (!cur || cur.mode !== 'live') throw new ProblemException('not_found');
     if (input.expectFrom && cur.status !== input.expectFrom) return null;
+    // review N2: cron คำนวณขั้นจากแถวที่อ่านก่อน lock — วัน 0/ชนิดของ dunning เปลี่ยนไปแล้ว (ชำระแล้วค้างใหม่) = ข้าม
+    if (
+      input.expectFrom &&
+      input.dunning &&
+      cur.dunningKind &&
+      (cur.dunningKind !== input.dunning.kind ||
+        (cur.pastDueSince ? ymd(cur.pastDueSince) : null) !== input.dunning.since)
+    )
+      return null;
     if (cur.status === input.to || !transitionAllowed(cur.status, input.to))
       throw new ProblemException('invalid_state_transition', undefined, undefined, {
         from: tenantStatusOut(cur.status),
         to: tenantStatusOut(input.to),
       });
-    const now = this.clock.now();
+    const now = input.effectiveAt ?? this.clock.now();
     const dunning =
       input.to === 'ACTIVE' ||
       input.to === 'TRIALING' ||
@@ -197,8 +213,29 @@ export class TenantLifecycleService {
         where: { tenantId: cur.id, endedAt: null },
         data: { endedAt: now, endReason: 'revoked' },
       });
-    await this.notifyOwners(tx, next, reason, now);
+    // review S4: กลับมา sync ได้ (เช่น ชำระแล้ว) → ปลุกงานที่พักไว้ทันที: คำสั่งขาออก (webhook/ERP) ที่ PENDING รอรอบตรวจ 15 นาที +
+    // webhook ขาเข้าที่รับไว้ระหว่าง read_only (RECEIVED ไม่มี job — S5) · พักเกิน 30 วัน payload ถูกล้าง = payload_expired (INT-085)
+    if (!canSync(cur.status) && canSync(next.status)) await this.wakeParked(tx, cur.id);
+    if (input.notify !== false) await this.notifyOwners(tx, next, reason, now);
     return next;
+  }
+
+  /** ปลุกงานเชื่อมต่อที่พักไว้ของ tenant (ทุก sink + webhook ขาเข้าทุก connector) — ทำในธุรกรรมเดียวกับการเปลี่ยนสถานะ */
+  private async wakeParked(tx: Tx, tenantId: string): Promise<number> {
+    const out = await tx.$executeRaw`
+      UPDATE integration_outbox SET next_run_at = now(), updated_at = now()
+       WHERE tenant_id = ${tenantId}::uuid AND status = 'PENDING' AND next_run_at > now()`;
+    const inbound = await tx.$executeRaw`
+      INSERT INTO job (id, tenant_id, type, payload, max_attempts)
+      SELECT gen_random_uuid(), e.tenant_id, ${INBOUND_PROCESS_JOB},
+             jsonb_build_object('eventId', e.id::text), ${INBOUND_MAX_ATTEMPTS}::int
+        FROM processed_webhook_event e
+       WHERE e.tenant_id = ${tenantId}::uuid AND e.status = 'RECEIVED'
+         AND NOT EXISTS (SELECT 1 FROM job j
+                          WHERE j.tenant_id = e.tenant_id AND j.type = ${INBOUND_PROCESS_JOB}
+                            AND j.status IN ('PENDING', 'RUNNING')
+                            AND j.payload->>'eventId' = e.id::text)`;
+    return out + inbound;
   }
 
   /** อีเมลแจ้ง owner ทุกคนที่ใช้งานอยู่ (spec/01 §1 ข้อ 6 · PLT-103) — ผ่าน outbox ธุรกรรมเดียวกัน */
@@ -328,8 +365,23 @@ export class TenantLifecycleService {
     if (!kind || !since) return 0;
     const target = dunningStage(kind, daysBetween(since, day), settings);
     let n = 0;
-    for (const to of dunningSteps(status, kind, target)) {
-      const reason = SYSTEM_REASON[`${kind}_${to}`] ?? SYSTEM_REASON[to] ?? 'เปลี่ยนสถานะตามกำหนด';
+    const steps = dunningSteps(status, kind, target);
+    let prevAt = 0;
+    for (const [i, to] of steps.entries()) {
+      // review N1: รันย้อน → ประทับเวลา/เหตุผลด้วยวันที่ขั้นนั้นมีผลจริง (00:30 ของวันนั้น) · อีเมลเฉพาะขั้นสุดท้าย
+      const effDay = addDays(since, dunningStageFirstDay(kind, to, settings));
+      const late = effDay < day;
+      const at = late
+        ? new Date(
+            Math.max(
+              prevAt,
+              bangkokDayStart(effDay).getTime() + LIFECYCLE_RUN_FROM_MINUTE_BKK * 60_000,
+            ),
+          )
+        : undefined;
+      if (at) prevAt = at.getTime();
+      const base = SYSTEM_REASON[`${kind}_${to}`] ?? SYSTEM_REASON[to] ?? 'เปลี่ยนสถานะตามกำหนด';
+      const reason = late ? `${base} (มีผลวันที่ ${effDay} — บันทึกย้อนหลัง)` : base;
       const done = await this.transition({
         tenantId,
         to,
@@ -337,6 +389,8 @@ export class TenantLifecycleService {
         actor: { type: 'system' },
         expectFrom: status,
         dunning: { kind, since },
+        effectiveAt: at,
+        notify: i === steps.length - 1,
       });
       if (!done) break; // มีคนเปลี่ยนสถานะพร้อมกัน (เช่น ชำระแล้ว) — หยุด
       status = done.status;
@@ -390,6 +444,8 @@ export class TenantLifecycleService {
       where: { tenantId, toStatus: 'SUSPENDED' },
       orderBy: { seq: 'desc' },
     });
+    // review N4 (spec/01 §1 ข้อ 6 "suspended (ด้วยมือ) → สถานะก่อนหน้า"): ระงับโดยระบบ (ค้างชำระ) ปลดด้วยการชำระเท่านั้น
+    if (last?.actorType === 'system') throw new ProblemException('invalid_state_transition');
     const to: TenantStatus = last?.fromStatus ?? 'ACTIVE';
     return this.transition({
       tenantId,
@@ -402,6 +458,21 @@ export class TenantLifecycleService {
       if (!r) throw new ProblemException('invalid_state_transition');
       return r;
     });
+  }
+
+  /** ระงับอยู่และเป็นการระงับด้วยมือ (ปลดระงับได้) — review N4 */
+  async manuallySuspended(tenantId: string): Promise<boolean> {
+    const t = await this.db.tenant.findUnique({
+      where: { id: tenantId },
+      select: { status: true },
+    });
+    if (t?.status !== 'SUSPENDED') return false;
+    const last = await this.db.tenantStatusHistory.findFirst({
+      where: { tenantId, toStatus: 'SUSPENDED' },
+      orderBy: { seq: 'desc' },
+      select: { actorType: true },
+    });
+    return last?.actorType !== 'system';
   }
 
   /** ประวัติสถานะล่าสุด (Console — ใหม่สุดก่อน) */

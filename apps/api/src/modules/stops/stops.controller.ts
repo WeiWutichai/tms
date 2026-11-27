@@ -27,6 +27,7 @@ import {
   type StopEventBaseDto,
 } from './stop-event.dto';
 import { flagsOf, StopEventsService, type StopEventPayload } from './stop-events.service';
+import { ReadOnlyTripGate } from '../tenants/read-only-gate';
 
 const num = (v: { toNumber(): number } | null) => (v === null ? null : v.toNumber());
 
@@ -153,7 +154,10 @@ const S422 = {
 @ApiBearerAuth()
 @Controller('stops')
 export class StopsController {
-  constructor(private readonly events_: StopEventsService) {}
+  constructor(
+    private readonly events_: StopEventsService,
+    private readonly readOnly: ReadOnlyTripGate,
+  ) {}
 
   /** สร้างใหม่ = 201 · ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) = 200 + event เดิม (ST4-T02; spec/04 DRV-061) */
   private async record(
@@ -162,11 +166,9 @@ export class StopsController {
     body: StopEventBaseDto & { outcome?: StopOutcome | null },
     res: Response,
   ) {
-    const { event, replayed } = await this.events_.record(
-      decodeIdOr404('tripStop', id),
-      type,
-      body,
-    );
+    const stopId = decodeIdOr404('tripStop', id);
+    await this.readOnly.forStop(stopId); // P1-ST1-T03 review S1 — read_only: เฉพาะเที่ยวที่ออกวิ่งก่อนเปลี่ยนสถานะ
+    const { event, replayed } = await this.events_.record(stopId, type, body);
     res.status(replayed ? 200 : 201);
     return toStopEventDto(event);
   }

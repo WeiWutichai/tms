@@ -113,11 +113,17 @@ export const PROBLEMS = {
     th: 'บัญชีเป็นอ่านอย่างเดียว สร้างงานใหม่ไม่ได้ ดูและ export ได้',
     en: 'This account is read-only — viewing and exporting still work',
   },
-  /** P1-ST1-T03: บัญชีบริษัทถูกระงับ/ยกเลิก — ใช้งานไม่ได้ (ลิงก์สาธารณะที่เขียนข้อมูล) */
+  /** P1-ST1-T03 (ตาราง 1.6): บัญชีบริษัทถูกระงับ — ใช้ได้เฉพาะหน้าแพ็กเกจ/ชำระเงิน/ขอ export */
   tenant_suspended: {
     status: 403,
-    th: 'บัญชีบริษัทถูกระงับ ติดต่อผู้ดูแลระบบของบริษัท',
-    en: 'This company account is suspended',
+    th: 'บัญชีบริษัทถูกระงับ ใช้ได้เฉพาะการชำระเงินและขอส่งออกข้อมูล',
+    en: 'This company account is suspended — only payment and data export are available',
+  },
+  /** P1-ST1-T03 (ตาราง 1.6, review N7): บัญชีบริษัทถูกยกเลิก — ขอ export ได้ถึงวันครบระยะเก็บข้อมูล */
+  tenant_cancelled: {
+    status: 403,
+    th: 'บัญชีบริษัทถูกยกเลิก ขอส่งออกข้อมูลได้จนถึงวันครบระยะเก็บข้อมูล',
+    en: 'This company account is cancelled — you can still request a data export until the retention date',
   },
   impersonation_read_only: {
     status: 403,

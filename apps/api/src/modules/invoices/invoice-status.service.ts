@@ -14,7 +14,7 @@ import { applyInvoicePayments, type InvoicePaymentChange } from './invoice-payme
 import { invoiceEventObject } from './invoice-finalize.service';
 import type { InvoiceDto } from './invoice.dto';
 import { InvoicesService } from './invoices.service';
-import { JOB_TENANT_STATUSES, canRunJobs } from '../tenants/tenant-status';
+import { canRunInternalJobs, INTERNAL_JOB_TENANT_STATUSES } from '../tenants/tenant-status';
 
 const ENTITY = 'invoice';
 export const INVOICE_OVERDUE_JOB = 'invoice.overdue';
@@ -108,7 +108,7 @@ export class InvoiceStatusService implements OnModuleInit {
     return this.prisma.platform.$transaction(async (db) => {
       await db.$executeRaw`SELECT pg_advisory_xact_lock(8, hashtext(${INVOICE_OVERDUE_JOB}))`;
       const tenants = await db.tenant.findMany({
-        where: { status: { in: [...JOB_TENANT_STATUSES] }, mode: 'live' },
+        where: { status: { in: [...INTERNAL_JOB_TENANT_STATUSES] }, mode: 'live' },
         select: { id: true },
         orderBy: { createdAt: 'asc' },
       });
@@ -139,7 +139,7 @@ export class InvoiceStatusService implements OnModuleInit {
       where: { id: tenantId },
       select: { status: true },
     });
-    return canRunJobs(t?.status);
+    return canRunInternalJobs(t?.status);
   }
 
   /**

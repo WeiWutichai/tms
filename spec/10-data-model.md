@@ -224,6 +224,7 @@ erDiagram
 | nextBillingAt | timestamptz | | |
 
 > `Tenant.status` = สิทธิ์การใช้งาน (guard อ่านตัวนี้), `Subscription.status` = สถานะการเงิน; cron เป็นผู้ sync `Tenant.status` จากวันครบกำหนดตาม `PlatformSetting`
+> **[OPEN — PO] (P1-ST1-T03 review N3):** trial หมดโดยไม่ได้ชำระ → tenant `read_only` → `suspended` ระหว่างนั้น `Subscription.status` เป็นอะไร — ยังไม่มีหนี้ (ไม่มีใบแจ้งหนี้ค้าง) แต่ชุดค่าไม่มี "expired" · ตอนนี้ใช้ `past_due` (ต้องชำระเพื่อใช้ต่อ) ทั้ง trial หมดและค้างชำระจริง · ระงับด้วยมือคงค่าเดิม — ควรเพิ่มค่า `trial_expired`/`unpaid` หรือใช้ `ended` หรือไม่
 
 **TenantEntitlementOverride**: `tenantId`, `featureKey`, `mode` (enable · disable · set_limit), `limitValue`, `reason` (≥ 10 ตัวอักษร) ✓, `approvedBy → PlatformUser` ✓, `validFrom`, `validTo`
 - สิทธิ์จริง = `PlanEntitlement(version) ∪ SubscriptionAddOn ∪ Override − (Tenant.status ∈ {read_only, suspended} → เฉพาะอ่าน/ชำระเงิน/export)` คำนวณใน guard ตัวเดียว และ cache 60 วินาที

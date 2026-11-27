@@ -8,6 +8,7 @@ import { PrismaService } from '../../db/prisma.service';
 import { cheapestPlanWith, EntitlementService } from '../entitlements/entitlement.service';
 import { PLANS } from '../entitlements/plan-catalog';
 import { TENANT_STATUS_DOC, TENANT_STATUS_ENUM_DOC } from '../tenants/tenant-status';
+import { VersionGate } from '../../http/api-version/api-version.decorators';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -87,6 +88,7 @@ export class MeController {
   ) {}
 
   @Get()
+  @VersionGate('tenant.status_lifecycle') // P1-ST1-T03 — client เก่าได้สถานะ 4 ค่าเดิม
   @ApiOkResponse({ type: MeDto })
   async me(): Promise<MeDto> {
     const ctx = requestContext.require();
