@@ -21,6 +21,9 @@ CREATE TABLE "usage_daily" (
 CREATE INDEX "usage_daily_metric_date_idx" ON "usage_daily"("metric", "date");
 CREATE UNIQUE INDEX "usage_daily_tenant_id_date_metric_source_key" ON "usage_daily"("tenant_id", "date", "metric", "source");
 
+-- ค่า ณ วันของพื้นที่ POD (usage-metrics.ts gaugeSelect) ค้นไฟล์ READY ต่อ tenant ทุก 10 นาที (review L8)
+CREATE INDEX "stored_document_tenant_id_status_idx" ON "stored_document"("tenant_id", "status");
+
 ALTER TABLE "usage_daily" ADD CONSTRAINT "usage_daily_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenant"("id") ON DELETE CASCADE;
 
 DO $$ BEGIN

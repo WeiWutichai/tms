@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import type { Month } from '../depreciation/depreciation-policy';
-import { periodRange } from './active-vehicles';
+import { ACTIVE_VEHICLES_METRIC, periodRange } from './active-vehicles';
 
 /**
  * เมตริกการใช้งานอื่นนอกจากรถ active (P1-ST1-T07; docs/02 §5 Usage & Billing · spec/01 §7 `UsageDaily` · plan/13 R-17)
@@ -135,6 +135,13 @@ export async function rollupUsageDaily(db: Db, now: Date): Promise<void> {
   const today = new Date(`${bangkokDate(now)}T00:00:00+07:00`);
   const from = new Date(today.getTime() - 24 * 3600_000);
   const to = new Date(today.getTime() + 24 * 3600_000);
+  // M2: lock (20, tenant:เดือน) แบบ shared ของทุก tenant live × เดือนในช่วง (finalize ถือ exclusive) — เรียงกัน deadlock
+  const periods = [...new Set([bangkokDate(from).slice(0, 7), bangkokDate(now).slice(0, 7)])];
+  await db.$executeRaw`
+    SELECT pg_advisory_xact_lock_shared(20, hashtext(k))
+      FROM (SELECT t.id::text || ':' || p AS k FROM tenant t CROSS JOIN unnest(${periods}::text[]) AS p
+             WHERE t.mode = 'live') x
+     ORDER BY k`;
   await recomputeFlows(db, { from, to });
   await snapshotGauges(db, now);
 }
@@ -214,7 +221,8 @@ export async function readFinalizedMonth(
     SELECT metric, value, detail FROM usage_record
      WHERE tenant_id = ${tenantId}::uuid AND period = ${period}
        AND metric IN (${Prisma.join([...FLOW_METRICS, ...GAUGE_METRICS])})`;
-  if (!rows.length) return null;
+  // ไม่มีแถวครบทุกเมตริก (เดือนที่ปิดก่อน T07) = null → ผู้เรียกคำนวณจาก usage_daily
+  if (rows.length < FLOW_METRICS.length + GAUGE_METRICS.length) return null;
   const v = (m: string) => Number(rows.find((r) => r.metric === m)?.value ?? 0);
   const d = (m: string) =>
     (rows.find((r) => r.metric === m)?.detail ?? {}) as Record<string, unknown>;
@@ -238,6 +246,8 @@ export interface UsageMetricsView extends MonthMetrics {
   period: Month;
   status: 'open' | 'finalized' | 'invoiced';
   finalizedAt: string | null;
+  /** usage_record = ยอดปิดของเมตริกเหล่านี้ · usage_daily = คำนวณจากยอดรายวัน (เดือนเปิด หรือปิดยอดก่อน P1-ST1-T07) */
+  metricsSource: 'usage_record' | 'usage_daily';
 }
 
 /**
@@ -250,22 +260,22 @@ export async function readUsageMetrics(
   period: Month,
   currentPeriod: Month,
 ): Promise<UsageMetricsView> {
-  const fin = await readFinalizedMonth(db, tenantId, period);
-  if (fin) {
-    const [r] = await db.$queryRaw<{ status: string; finalized_at: Date | null }[]>`
-      SELECT status, finalized_at FROM usage_record
-       WHERE tenant_id = ${tenantId}::uuid AND period = ${period} AND metric = ${USAGE_METRIC.doCreated}`;
-    return {
-      ...fin,
-      period,
-      status: (r?.status ?? 'finalized') as UsageMetricsView['status'],
-      finalizedAt: r?.finalized_at?.toISOString() ?? null,
-    };
-  }
+  // M3: สถานะของเดือน = แถวรถ active (แถวที่ใช้ออกบิล)
+  const [bill] = await db.$queryRaw<{ status: string; finalized_at: Date | null }[]>`
+    SELECT status, finalized_at FROM usage_record
+     WHERE tenant_id = ${tenantId}::uuid AND period = ${period} AND metric = ${ACTIVE_VEHICLES_METRIC}`;
+  const head = bill
+    ? {
+        status: bill.status as UsageMetricsView['status'],
+        finalizedAt: bill.finalized_at?.toISOString() ?? null,
+      }
+    : { status: 'open' as const, finalizedAt: null };
+  const fin = bill ? await readFinalizedMonth(db, tenantId, period) : null;
+  if (fin) return { ...fin, period, ...head, metricsSource: 'usage_record' };
   const m = await sumMonth(db, tenantId, period);
   if (period === currentPeriod) {
     const g = await liveGauges(db, tenantId);
     Object.assign(m, { podStorageGb: g.pod, connectors: g.conn, users: g.users, gaugeAsOf: null });
   }
-  return { ...m, period, status: 'open', finalizedAt: null };
+  return { ...m, period, ...head, metricsSource: 'usage_daily' };
 }

@@ -180,4 +180,10 @@ export class UsageMetricsDto {
     description: 'วันของค่า POD/connector/ผู้ใช้ (null = ค่าสด)',
   })
   gaugeAsOf!: string | null;
+  @ApiProperty({
+    enum: ['usage_record', 'usage_daily'],
+    description:
+      'ที่มาของตัวเลข: usage_record = ยอดปิดของเมตริกเหล่านี้ · usage_daily = คำนวณจากยอดรายวัน (เดือนที่ยังเปิด หรือเดือนที่ปิดยอดรถ active ก่อนมีเมตริกอื่น)',
+  })
+  metricsSource!: string;
 }

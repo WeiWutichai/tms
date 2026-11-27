@@ -7,29 +7,9 @@ import { DbService } from '../../db/db.service';
 import { VehiclesService } from '../vehicles/vehicles.service';
 import { bangkokPeriod, readActiveVehicles } from './active-vehicles';
 import { ActiveVehicleQuery, ActiveVehicleUsageDto, UsageMetricsDto } from './usage.dto';
-import { readUsageMetrics, type UsageMetricsView } from './usage-metrics';
+import { readUsageMetrics } from './usage-metrics';
+import { toUsageMetricsDto } from './usage-metrics.mapper';
 import { EntitlementService } from '../entitlements/entitlement.service';
-
-/** แปลงผลอ่านเป็น DTO (ลูกค้า + Console ใช้ร่วม) */
-export function toUsageMetricsDto(
-  u: UsageMetricsView,
-  connectorLimit: number | null,
-): UsageMetricsDto {
-  return {
-    period: u.period,
-    status: u.status,
-    finalizedAt: u.finalizedAt,
-    doCreated: u.doCreated,
-    invoicesIssued: u.invoicesIssued,
-    apiCalls: u.apiCalls,
-    podStorageGb: u.podStorageGb,
-    connectors: u.connectors,
-    connectorLimit,
-    users: u.users,
-    eTaxDocuments: null, // R-17: ไม่มี e-Tax ในเฟส 1
-    gaugeAsOf: u.gaugeAsOf,
-  };
-}
 
 /**
  * การใช้งานของบริษัท (P1-ST1-T06; spec/01 §7) — ลูกค้าดูรายการรถที่ถูกนับเป็นรถ active ของเดือน

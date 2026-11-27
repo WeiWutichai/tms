@@ -24938,6 +24938,7 @@ const { data, error } = await tms.GET('/v1/usage/active-vehicles');
 | `users` | ใช่ | `number` |   | `users.active` — ผู้ใช้สถานะใช้งาน |   |
 | `eTaxDocuments` | ใช่ | `number` | null ได้ | เอกสาร e-Tax — ไม่มีในเฟส 1 จึงเป็น null เสมอ (UI แสดง "—") |   |
 | `gaugeAsOf` | ใช่ | `string (date)` | null ได้ | วันของค่า POD/connector/ผู้ใช้ (null = ค่าสด) |   |
+| `metricsSource` | ใช่ | `string` | ค่า: `usage_record`, `usage_daily` | ที่มาของตัวเลข: usage_record = ยอดปิดของเมตริกเหล่านี้ · usage_daily = คำนวณจากยอดรายวัน (เดือนที่ยังเปิด หรือเดือนที่ปิดยอดรถ active ก่อนมีเมตริกอื่น) |   |
 
 ---
 

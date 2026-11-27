@@ -2478,6 +2478,8 @@ model StoredDocument {
 
   @@unique([tenantId, clientDocumentId])
   @@index([tenantId, entityType, entityId])
+  /// P1-ST1-T07 ค่า ณ วันของพื้นที่ POD (migration 0193)
+  @@index([tenantId, status])
   /// ST9-T14 retention job หาไฟล์ตามชนิด + อายุ
   @@index([kind, createdAt])
   /// ST9-T14 ตรวจว่ายังมีแถวอ้างไฟล์ก่อนลบ

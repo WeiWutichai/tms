@@ -209,12 +209,60 @@ describe('เมตริกการใช้งานรายวัน/รา
       invoicesIssued: 0,
       eTaxDocuments: null,
       gaugeAsOf: '2026-11-30',
+      metricsSource: 'usage_record',
     });
     const p = await request(srv())
       .get(`/v1/platform/tenants/${encodeId('tenant', liveId)}/usage/metrics?period=2026-11`)
       .set(bearer(staff))
       .expect(200);
     expect(p.body).toEqual(c.body);
+  });
+
+  it('review M2: flush ที่ชนการปิดยอด (lock 20 exclusive) รอให้ปิดเสร็จ แล้วไม่บวกเดือนที่ปิด · ยอดรายวันรวม = ยอดเดือน', async () => {
+    const m = new ApiUsageMeter();
+    m.record(liveId, 'rest', new Date('2026-12-10T10:00:00+07:00'));
+    let flushed: Promise<number> | null = null;
+    await db.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(20, hashtext(${`${liveId}:2026-12`}))`;
+      flushed = m.flush(db);
+      await new Promise((ok) => setTimeout(ok, 500));
+      await tx.$executeRaw`
+        INSERT INTO usage_record (tenant_id, metric, period, value, status, finalized_at)
+        VALUES (${liveId}::uuid, 'api.calls', '2026-12', 3, 'finalized', now())`;
+    });
+    await flushed;
+    const dec = await db.usageDaily.findMany({
+      where: {
+        tenantId: liveId,
+        metric: USAGE_METRIC.apiCalls,
+        date: { gte: new Date('2026-12-01') },
+      },
+    });
+    const sum = dec.reduce((a, d) => a + Number(d.value), 0);
+    expect(sum).toBe(3); // ไม่มี +1 หลังปิด
+    await db.$executeRaw`DELETE FROM usage_daily WHERE tenant_id = ${liveId}::uuid AND date >= '2026-12-01'`;
+  });
+
+  it('review M3: เดือนที่ปิดยอดรถ active ก่อน T07 (มีแต่แถวรถ) = finalized + คำนวณจาก usage_daily', async () => {
+    await db.$executeRaw`
+      INSERT INTO usage_record (tenant_id, metric, period, value, status, finalized_at)
+      VALUES (${liveId}::uuid, 'vehicles.active', '2026-10', 2, 'invoiced', '2026-11-01T02:05:00+07:00')`;
+    await db.usageDaily.create({
+      data: {
+        tenantId: liveId,
+        date: new Date('2026-10-20'),
+        metric: USAGE_METRIC.apiCalls,
+        source: 'rest',
+        value: 8,
+      },
+    });
+    const r = await api(app, admin).get('/v1/usage/metrics?period=2026-10').expect(200);
+    expect(r.body).toMatchObject({
+      status: 'invoiced',
+      metricsSource: 'usage_daily',
+      apiCalls: { total: 8, rest: 8, mcp: 0 },
+    });
+    expect(r.body.finalizedAt).toBe('2026-10-31T19:05:00.000Z');
   });
 
   it('role แอปเขียน usage_daily ไม่ได้ · RLS เปิด', async () => {

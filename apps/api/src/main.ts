@@ -17,8 +17,18 @@ async function main() {
   const flushUsage = () =>
     apiUsageMeter.flush(platformDb).catch((e) => log.error(e, 'api usage flush failed'));
   setInterval(flushUsage, API_USAGE_FLUSH_MS).unref();
-  for (const sig of ['SIGTERM', 'SIGINT'] as const)
-    process.once(sig, () => void flushUsage().finally(() => process.exit(0)));
+  // ปิด process: หยุดรับคำขอ + รอคำขอที่ค้างจบ (app.close) → flush รอบสุดท้าย (ไม่เกิน 5 วิ) → ออก 0 (SIGTERM) / 130 (SIGINT)
+  for (const [sig, code] of [
+    ['SIGTERM', 0],
+    ['SIGINT', 130],
+  ] as const)
+    process.once(sig, () => {
+      void (async () => {
+        await app.close().catch((e) => log.error(e, 'app close failed'));
+        await Promise.race([flushUsage(), new Promise((ok) => setTimeout(ok, 5_000).unref())]);
+        process.exit(code);
+      })();
+    });
   log.info({ port }, 'TMS API listening');
 }
 

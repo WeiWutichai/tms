@@ -22,7 +22,7 @@ import {
   UsageAdjustReasonDto,
   UsageMetricsDto,
 } from '../modules/usage/usage.dto';
-import { toUsageMetricsDto } from '../modules/usage/usage.controller';
+import { toUsageMetricsDto } from '../modules/usage/usage-metrics.mapper';
 import { readUsageMetrics } from '../modules/usage/usage-metrics';
 import { plateNorm } from '../modules/vehicles/vehicles.service';
 import { platformAudit } from './platform-audit';

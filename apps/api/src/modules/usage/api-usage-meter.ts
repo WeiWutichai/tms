@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 import type { PrismaClient } from '@prisma/client';
 import { requestContext } from '../../common/request-context';
@@ -19,7 +20,11 @@ const MAX_PENDING_KEYS = 50_000;
  * - ฐานล่ม: เก็บไว้ส่งรอบหน้า · process ตายกะทันหันเสียได้ไม่เกิน ~30 วิของตัวนับ (ยอมรับได้สำหรับการนับใช้งาน — ไม่ใช่เงิน)
  */
 export class ApiUsageMeter {
+  private readonly logger = new Logger('ApiUsageMeter');
   private pending = new Map<string, number>();
+  /** L4: คำขอที่ทิ้งเพราะคีย์ค้างเต็มเพดาน (สะสมตลอดอายุ process) */
+  dropped = 0;
+  private warnedAt = 0;
 
   get pendingKeys(): number {
     return this.pending.size;
@@ -28,12 +33,21 @@ export class ApiUsageMeter {
   record(tenantId: string, source: ApiSource, at: Date = new Date()): void {
     const k = `${tenantId}|${bangkokDate(at)}|${source}`;
     const cur = this.pending.get(k);
-    if (cur === undefined && this.pending.size >= MAX_PENDING_KEYS) return;
+    if (cur === undefined && this.pending.size >= MAX_PENDING_KEYS) {
+      this.dropped += 1;
+      if (Date.now() - this.warnedAt > 60_000) {
+        this.warnedAt = Date.now();
+        this.logger.warn(
+          `api usage meter: pending keys full (${MAX_PENDING_KEYS}) — dropped ${this.dropped} calls so far`,
+        );
+      }
+      return;
+    }
     this.pending.set(k, (cur ?? 0) + 1);
   }
 
   /** เขียนยอดที่ค้างลง usage_daily (บวกเพิ่ม) — คืนจำนวนคีย์ที่เขียน */
-  async flush(db: Pick<PrismaClient, '$executeRaw'>): Promise<number> {
+  async flush(db: Pick<PrismaClient, '$transaction'>): Promise<number> {
     const rows = [...this.pending.entries()];
     if (!rows.length) return 0;
     this.pending = new Map();
@@ -48,8 +62,16 @@ export class ApiUsageMeter {
       sources.push(s!);
       counts.push(n);
     }
+    // M2: lock (20, tenant:เดือน) แบบ shared ต่อคู่ที่เขียน (finalize ถือแบบ exclusive) — flush ที่ชนการปิดยอดรอให้ปิดเสร็จ
+    // แล้ว NOT EXISTS เห็นยอดปิด (ไม่บวกเดือนที่ปิดแล้ว) · เรียงคีย์กัน deadlock
+    const locks = [
+      ...new Set(rows.map(([k]) => k.split('|')[0] + ':' + k.split('|')[1]!.slice(0, 7))),
+    ].sort();
     try {
-      await db.$executeRaw`
+      await db.$transaction(async (tx) => {
+        await tx.$executeRaw`
+          SELECT pg_advisory_xact_lock_shared(20, hashtext(k)) FROM unnest(${locks}::text[]) AS k ORDER BY k`;
+        await tx.$executeRaw`
         INSERT INTO usage_daily (tenant_id, date, metric, source, value)
         SELECT x.t, x.d, ${USAGE_METRIC.apiCalls}, x.s, x.n
           FROM unnest(${tenants}::uuid[], ${days}::date[], ${sources}::text[], ${counts}::int[]) AS x(t, d, s, n)
@@ -58,6 +80,7 @@ export class ApiUsageMeter {
                             WHERE r.tenant_id = x.t AND r.period = to_char(x.d, 'YYYY-MM'))
         ON CONFLICT (tenant_id, date, metric, source) DO UPDATE
           SET value = usage_daily.value + excluded.value, updated_at = now()`;
+      });
     } catch (e) {
       for (const [k, n] of rows) this.pending.set(k, (this.pending.get(k) ?? 0) + n);
       throw e;
