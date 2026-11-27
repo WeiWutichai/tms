@@ -555,7 +555,7 @@ erDiagram
 | คอลัมน์ | ชนิด | หมายเหตุ |
 | --- | --- | --- |
 | `id` | uuid PK |  |
-| `connector_id` | uuid FK |  |
+| `connector_id` | uuid FK | null เฉพาะแถว alias ของลูกค้า (`match_kind` มีค่า — D68-29) |
 | `entity_type` | enum | `CUSTOMER` / `CARRIER` / `SERVICE_ITEM` / `SALES_ORDER` / `DELIVERY_ORDER` / `INVOICE` / `CREDIT_NOTE` / `DEBIT_NOTE` / `RECEIPT` / `SETTLEMENT` — รหัสค่าบริการ/master ฝั่ง ERP เก็บในตาราง `erp_code_mapping` (ต่อ connector) ไม่ใช้แถว `SERVICE_ITEM` ของตารางนี้ (D-81 · D68-09 · 23 พ.ย. 2569) |
 | `local_id` | uuid | id ฝั่ง TMS |
 | `external_id` | text | id ฝั่ง ERP ที่ใช้เป็น path/key (เช่น transactionNo) |
@@ -566,6 +566,7 @@ erDiagram
 | `status` | enum | `SYNCED` / `PENDING` / `FAILED` / `MISMATCH` / `RETIRED` |
 | `last_error` | jsonb null | problem+json ล่าสุด |
 | `source_code` | text null | รหัสฝั่งต้นทาง SO (เช่นรหัสลูกค้า NSF ของ KRS) ใช้จับคู่ SO; `external_id` = รหัสฝั่งเอกสาร (PP) (D-81 · D68-64 · 23 พ.ย. 2569) |
+| `match_kind`, `channel`, `match_value` | text null | แถวผลจับคู่ลูกค้าที่คนสอน (alias — แทนตาราง `customer_alias` เดิม): `match_kind` = `EXTERNAL_ID` / `NAME` · `channel` = ช่องทาง (`ERP:{adapter}` / `API` / `EXCEL` / `PORTAL` / `MANUAL`; NAME = '') · `source_code` = คีย์ค้น · `connector_id` = null (alias ผูกช่องทาง ไม่ผูก connector) · unique `(tenant_id, match_kind, channel, source_code)` (D-81 · D68-29 · P1-ST5-T12 · 27 พ.ย. 2569) |
 | unique |  | `(connector_id, entity_type, local_id)` และ `(connector_id, entity_type, external_id)` |
 
 **integration_outbox** — คิวคำสั่งทุกอย่างที่ออกจาก core (ทั้ง adapter และ webhook)
@@ -919,7 +920,7 @@ stateDiagram-v2
 | --- | --- | --- | --- |
 | `LOCATION_UNMAPPED` | map ต้นทาง/ปลายทางเป็น site ไม่ได้ (แทน `ROUTE_PENDING` เดิม) | auto-match | เลือก site จาก master หรือสร้างใหม่ (ระบบจำ alias) |
 | `RATE_MISSING` | คิดราคาไม่ได้ (ไม่มี rate card/เส้นทางที่ตรง) | pricing | ตั้ง rate card/route หรือใส่ราคาเอง (D-81 · D68-23 · 23 พ.ย. 2569) |
-| `CUSTOMER_UNMAPPED` | รหัสลูกค้าจากต้นทางไม่ตรง customer ใด | connector / import | map ลูกค้า → ระบบบันทึกผลจับคู่ในตาราง `customer_alias` (EXTERNAL_ID แยกตามช่องทาง / NAME) — ต้องรวม/เชื่อมกับ `external_mapping` ให้เสร็จก่อนเปิด connector ตัวที่สอง (D-81 · D68-29 · 23 พ.ย. 2569) |
+| `CUSTOMER_UNMAPPED` | รหัสลูกค้าจากต้นทางไม่ตรง customer ใด | connector / import | map ลูกค้า → ระบบบันทึกผลจับคู่ใน `external_mapping` (CUSTOMER): ใบจาก connector = `source_code` ของแถว connector · อื่น ๆ / รหัสที่ 2 = แถว alias (`connector_id` null + `match_kind` EXTERNAL_ID แยกตามช่องทาง `channel` / NAME) — รวมตาราง `customer_alias` เดิมแล้ว (D-81 · D68-29 · P1-ST5-T12 · 27 พ.ย. 2569) |
 | `UNALLOCATED_NO_VEHICLE` | ไม่มีรถว่างในวัน/ประเภทที่ต้องการ | planner หรือ auto-suggest | จัดรถ, เปลี่ยนวัน, ส่งรถร่วม |
 | `CAPACITY_EXCEEDED` | น้ำหนัก/ปริมาตรเกินรถที่เลือก | validation ตอน assign | แยก SO เป็นหลาย DO หรือเปลี่ยนรถ |
 | `CARRIER_REJECTED` | รถร่วมกดปฏิเสธหรือลิงก์หมดอายุ | assignment flow | cascade รถร่วมรายถัดไป |
