@@ -42,6 +42,7 @@ import { PodLinkPage } from './public/PodLink';
 import { SettlementLinkPage } from './public/SettlementLink';
 import { CarrierPayLinkPage } from './public/CarrierPayLink';
 import { TrackingPage } from './public/Tracking';
+import { LandingPage } from './public/landing/Landing';
 import { SettlePage } from './features/settlements/SettlePage';
 import { SubPage } from './features/sub/SubPage';
 import { ErpPage } from './features/erp/ErpPage';
@@ -158,6 +159,8 @@ export function App() {
       <I18nProvider>
         <BrowserRouter>
           <Routes>
+            {/* P1-ST2-T01 landing สาธารณะ (TMS Signup view home) — `/home` [DECISION — lead 27 พ.ย. 2569, ย้อนได้: โดเมน/ราก X-09] */}
+            <Route path="/home" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/forgot" element={<ForgotPasswordPage />} />
             {/* ST9-T13 R2 (L-01): หน้าที่มี token ใน URL — noindex + no-referrer */}
