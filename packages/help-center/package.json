@@ -1,0 +1,25 @@
+{
+  "name": "@tms/help-center",
+  "version": "0.0.1",
+  "private": true,
+  "description": "ศูนย์ช่วยเหลือสาธารณะภาษาไทย (P1-ST6-T01): สร้าง site/ (HTML + .md ทุกหน้า + ดัชนีค้นหา) จาก articles/ + catalog error (packages/contracts/openapi.json x-problem-codes + @tms/domain connector-guides) — ภาพหน้าจอใน site/images/ สร้างโดย `pnpm --filter @tms/web help:shots` · ผลลัพธ์ commit ไว้; docs:check ตรวจว่าตรง + ลิงก์/ภาพไม่ขาด",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "docs:build": "tsc -p tsconfig.json && node dist/cli.js",
+    "docs:check": "tsc -p tsconfig.json && node dist/cli.js --check",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "prettier --check src"
+  },
+  "dependencies": {
+    "@tms/api-docs": "workspace:*",
+    "@tms/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.12"
+  }
+}

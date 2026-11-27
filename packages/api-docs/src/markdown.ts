@@ -1,7 +1,7 @@
 /**
  * Markdown → HTML ขนาดเล็กสำหรับ docs site (ไม่เพิ่ม dependency — ST7-T12)
  * รองรับเฉพาะที่ guides/ และหน้าที่ generate ใช้: หัวข้อ (# – ####, `{#id}` ท้ายหัวข้อ), ย่อหน้า, code block (```lang),
- * ตาราง (| a | b |), รายการ - / 1., blockquote >, เส้น ---, inline `code` **ตัวหนา** [ลิงก์](url) และ <br>
+ * ตาราง (| a | b |), รายการ - / 1., blockquote >, เส้น ---, inline `code` **ตัวหนา** [ลิงก์](url), ภาพ ![alt](src) และ <br>
  * ข้อความทุกส่วนถูก escape — HTML ดิบใน markdown ไม่ถูกส่งต่อ (ยกเว้น comment `<!-- -->` ที่ถูกตัดทิ้ง)
  */
 export function escapeHtml(s: string): string {
@@ -38,6 +38,10 @@ function inline(src: string, opts: RenderOptions): string {
     }
     let s = escapeHtml(p);
     s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    // ภาพ (help center — P1-ST6-T01) ก่อนลิงก์ · src เฉพาะ path สัมพัทธ์ (ไม่มี scheme)
+    s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (m, alt: string, src: string) =>
+      /^[a-z][a-z0-9+.-]*:/i.test(src) ? m : `<img src="${src}" alt="${alt}" loading="lazy">`,
+    );
     s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, text: string, href: string) => {
       const raw = href.replace(/&amp;/g, '&');
       const h = opts.rewriteHref ? opts.rewriteHref(raw) : raw;
