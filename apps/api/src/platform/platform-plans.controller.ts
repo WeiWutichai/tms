@@ -1,7 +1,9 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Req, Res } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
+  ApiHeader,
   ApiOkResponse,
   ApiProperty,
   ApiPropertyOptional,
@@ -35,6 +37,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { PlatformAuth } from '../common/decorators';
+import { expectedVersion, setEtag } from '../common/etag';
 import { decodeIdOr404, encodeId } from '../common/ids';
 import { ProblemException, type FieldError } from '../common/problem';
 import { requestContext } from '../common/request-context';
@@ -186,7 +189,13 @@ export class PublishPlanVersionDto {
 export class PlanVersionDto {
   @ApiProperty({ example: 'plv_…' }) id!: string;
   @ApiProperty({ example: 'std' }) planCode!: string;
-  @ApiProperty({ example: 1 }) version!: number;
+  @ApiProperty({ example: 1, description: 'เลขเวอร์ชันราคาของแพ็กเกจ (v1, v2, …)' })
+  version!: number;
+  @ApiProperty({
+    example: 1,
+    description: 'เลขแก้ไขของแถว = ETag (ส่งกลับใน If-Match — docs/01 §5.1)',
+  })
+  rowVersion!: number;
   @ApiProperty({ enum: ['draft', 'published', 'retired'] }) status!: string;
   @ApiProperty({ nullable: true, type: String, example: '280.00' }) pricePerVehicleMonthly!:
     string | null;
@@ -234,6 +243,12 @@ export class PlatformFeatureDto {
 }
 
 type VersionRow = PlanVersion & { entitlements: PlanEntitlement[] };
+
+const IF_MATCH = {
+  name: 'If-Match',
+  required: false,
+  description: 'ETag/rowVersion ของเวอร์ชัน — ไม่ตรง → 412 precondition_failed',
+};
 
 /**
  * แพ็กเกจ + เวอร์ชันราคา (P1-ST1-T01; spec/01 §6, §10.4 — PLT-060/061)
@@ -304,19 +319,27 @@ export class PlatformPlansController {
 
   @Get('plan-versions/:id')
   @PlatformAuth()
-  @ApiOkResponse({ type: PlanVersionDto })
-  async version(@Param('id') id: string): Promise<PlanVersionDto> {
+  @ApiOkResponse({ type: PlanVersionDto, description: 'header ETag = rowVersion' })
+  async version(
+    @Param('id') id: string,
+    @Res({ passthrough: true }) res?: Response,
+  ): Promise<PlanVersionDto> {
     const v = await this.load(id);
+    if (res) setEtag(res, v.rowVersion);
     return this.toDto(v, (await this.subscriberCounts()).get(v.id) ?? 0);
   }
 
-  /** สร้างเวอร์ชัน draft ใหม่ของแพ็กเกจ — คัดจากเวอร์ชันที่มีผล (หรือล่าสุด) แล้วทับด้วยค่าที่ส่ง · draft ได้ทีละ 1 */
+  /**
+   * สร้างเวอร์ชัน draft ใหม่ของแพ็กเกจ — คัดจากเวอร์ชันล่าสุด (เลขสูงสุด รวมที่ตั้งวันมีผลล่วงหน้า — review N1) แล้วทับด้วยค่าที่ส่ง
+   * draft ได้ทีละ 1
+   */
   @Post('plans/:code/versions')
   @PlatformAuth('SUPER_ADMIN')
   @ApiCreatedResponse({ type: PlanVersionDto })
   async createDraft(
     @Param('code') code: string,
     @Body() body: PlanVersionInputDto,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<PlanVersionDto> {
     const db = this.prisma.platform;
     const plan = await db.plan.findUnique({
@@ -330,10 +353,7 @@ export class PlatformPlansController {
         'แพ็กเกจนี้มีเวอร์ชันร่างอยู่แล้ว — แก้ร่างเดิมหรือเผยแพร่ก่อน',
         [{ field: 'code', code: 'draft_exists', message: 'a draft version already exists' }],
       );
-    const now = Date.now();
-    const base =
-      plan.versions.find((v) => v.status === 'published' && v.effectiveFrom.getTime() <= now) ??
-      plan.versions[0];
+    const base = plan.versions[0];
     const next = await this.merge(base ?? null, body);
     const created = await this.write(db, async (tx) => {
       const v = await tx.planVersion.create({
@@ -360,22 +380,28 @@ export class PlatformPlansController {
       });
       return v.id;
     });
-    return this.version(encodeId('planVersion', created));
+    return this.version(encodeId('planVersion', created), res);
   }
 
-  /** แก้เวอร์ชัน draft — เวอร์ชันที่เผยแพร่แล้ว → 409 plan_version_immutable */
+  /** แก้เวอร์ชัน draft — เวอร์ชันที่เผยแพร่แล้ว → 409 plan_version_immutable · If-Match ไม่ตรง → 412 */
   @Patch('plan-versions/:id')
   @PlatformAuth('SUPER_ADMIN')
+  @ApiHeader(IF_MATCH)
   @ApiOkResponse({ type: PlanVersionDto })
   async updateDraft(
     @Param('id') id: string,
     @Body() body: PlanVersionInputDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<PlanVersionDto> {
     const cur = await this.load(id);
     if (cur.status !== 'draft') throw new ProblemException('plan_version_immutable');
+    const want = expectedVersion(req);
+    if (want !== undefined && want !== cur.rowVersion)
+      throw new ProblemException('precondition_failed');
     const next = await this.merge(cur, body);
     await this.write(this.prisma.platform, async (tx) => {
-      await tx.planVersion.update({ where: { id: cur.id }, data: next.fields });
+      await this.bump(tx, cur, next.fields);
       await tx.planEntitlement.deleteMany({ where: { planVersionId: cur.id } });
       if (next.cells.length)
         await tx.planEntitlement.createMany({
@@ -390,7 +416,7 @@ export class PlatformPlansController {
         after: this.snapshot(next),
       });
     });
-    return this.version(id);
+    return this.version(id, res);
   }
 
   /**
@@ -400,15 +426,22 @@ export class PlatformPlansController {
   @Post('plan-versions/:id/publish')
   @HttpCode(200)
   @PlatformAuth('SUPER_ADMIN')
+  @ApiHeader(IF_MATCH)
   @ApiOkResponse({ type: PlanVersionDto })
   async publish(
     @Param('id') id: string,
     @Body() body: PublishPlanVersionDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<PlanVersionDto> {
     const cur = await this.load(id);
     if (cur.status !== 'draft') throw new ProblemException('plan_version_immutable');
+    const want = expectedVersion(req);
+    if (want !== undefined && want !== cur.rowVersion)
+      throw new ProblemException('precondition_failed');
     const at = body.effectiveFrom ? new Date(body.effectiveFrom) : new Date();
     const now = new Date();
+    // ขอบเขต (N8): ยอมย้อน ≤ 60 วิ (นาฬิกาเครื่องผู้ใช้ช้า) แล้วปัดเป็น now — ย้อนเกินนั้น = 422
     if (at.getTime() < now.getTime() - 60_000)
       throw new ProblemException('validation_failed', undefined, [
         {
@@ -417,17 +450,32 @@ export class PlatformPlansController {
           message: 'effectiveFrom must not be in the past',
         },
       ]);
-    // ตรวจซ้ำก่อนล็อก (ข้อมูลร่างอาจมาจากก่อนเพิ่มฟีเจอร์พื้นฐาน)
+    const effectiveFrom = at < now ? now : at;
+    // review N1: วันมีผลต้องไม่ก่อนเวอร์ชันที่เผยแพร่แล้วของแพ็กเกจเดียวกัน (กันลำดับเวอร์ชันสลับกับลำดับวันมีผล)
+    const later = await this.prisma.platform.planVersion.findFirst({
+      where: { planCode: cur.planCode, status: 'published', effectiveFrom: { gt: effectiveFrom } },
+      orderBy: { effectiveFrom: 'desc' },
+    });
+    if (later)
+      throw new ProblemException(
+        'conflict',
+        `มีเวอร์ชัน v${later.version} ตั้งวันมีผลไว้หลังวันนี้แล้ว — ตั้งวันมีผลของเวอร์ชันนี้ให้ไม่ก่อนวันนั้น`,
+        [
+          {
+            field: 'effectiveFrom',
+            code: 'version_scheduled',
+            message: later.effectiveFrom.toISOString(),
+          },
+        ],
+      );
+    // ตรวจซ้ำก่อนล็อก (ข้อมูลร่างอาจมาจากก่อนเพิ่มฟีเจอร์พื้นฐาน — trigger 0177 ตรวจอีกชั้น)
     await this.merge(cur, { reason: body.reason });
     await this.write(this.prisma.platform, async (tx) => {
-      await tx.planVersion.update({
-        where: { id: cur.id },
-        data: {
-          status: 'published',
-          effectiveFrom: at < now ? now : at,
-          publishedAt: now,
-          publishedBy: this.staffId(),
-        },
+      await this.bump(tx, cur, {
+        status: 'published',
+        effectiveFrom,
+        publishedAt: now,
+        publishedBy: this.staffId(),
       });
       await platformAudit(tx, {
         action: 'platform.plan_version_published',
@@ -439,10 +487,23 @@ export class PlatformPlansController {
     });
     // ลูกค้าเดิมไม่เปลี่ยน แต่ "limit สูงสุดของ grant" และ lockedIn อ่านเวอร์ชันที่มีผล → ล้าง cache ทั้งหมด
     this.entitlements.invalidate();
-    return this.version(id);
+    return this.version(id, res);
   }
 
   // ───────────────────────── helpers ─────────────────────────
+
+  /** อัปเดตแบบมีเงื่อนไข rowVersion (กันสองคนแก้ร่างพร้อมกันระหว่างอ่านกับเขียน) → 412 · rowVersion + 1 */
+  private async bump(
+    tx: Prisma.TransactionClient,
+    cur: PlanVersion,
+    data: Prisma.PlanVersionUpdateManyMutationInput,
+  ) {
+    const r = await tx.planVersion.updateMany({
+      where: { id: cur.id, rowVersion: cur.rowVersion, status: 'draft' },
+      data: { ...data, rowVersion: { increment: 1 } },
+    });
+    if (r.count !== 1) throw new ProblemException('precondition_failed');
+  }
 
   private staffId(): string | null {
     return requestContext.get()?.platformUser?.id ?? null;
@@ -471,6 +532,7 @@ export class PlatformPlansController {
       id: encodeId('planVersion', v.id),
       planCode: v.planCode,
       version: v.version,
+      rowVersion: v.rowVersion,
       status: v.status,
       ...this.fieldsOf(v),
       currency: v.currency,

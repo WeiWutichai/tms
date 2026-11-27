@@ -18,6 +18,7 @@ import { sha256 } from '../src/auth/tokens';
 import { FieldCipher } from '../src/common/crypto';
 import { bootstrapTenant } from '../src/modules/tenants/bootstrap';
 import { ensurePlanCatalog } from '../src/modules/entitlements/plan-catalog';
+import { ensureSubscription, moveSubscriptionPlan } from '../src/modules/entitlements/subscription';
 
 export const DEMO_A = '00000000-0000-4000-8000-00000000000a';
 export const DEMO_B = '00000000-0000-4000-8000-00000000000b';
@@ -170,10 +171,15 @@ async function main() {
     { id: DEMO_B, name: 'ตัวอย่างบี (DEMO)', planCode: 'start' },
   ]) {
     // demo-b อยู่แพ็กเกจ "เริ่มต้น" ไว้เดโมเมนู 🔒 / หน้าไม่รวมในแพ็กเกจ (ST1-T18)
-    await db.tenant.upsert({
-      where: { id: t.id },
-      create: { ...t, status: 'ACTIVE' },
-      update: { name: t.name, ...('planCode' in t ? { planCode: t.planCode } : {}) },
+    // P1-ST1-T01: tenant live ต้องมี subscription ใน transaction เดียวกัน (guard 0177)
+    await db.$transaction(async (tx) => {
+      const row = await tx.tenant.upsert({
+        where: { id: t.id },
+        create: { ...t, status: 'ACTIVE' },
+        update: { name: t.name, ...('planCode' in t ? { planCode: t.planCode } : {}) },
+      });
+      await ensureSubscription(tx, row.id);
+      await moveSubscriptionPlan(tx, row.id, row.planCode);
     });
   }
   for (const c of COMPANIES) {

@@ -3442,7 +3442,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "header ETag = rowVersion",
             "content": {
               "application/json": {
                 "schema": {
@@ -3484,6 +3484,15 @@
             }
           },
           {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag/rowVersion ของเวอร์ชัน — ไม่ตรง → 412 precondition_failed",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -3518,6 +3527,9 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -3605,6 +3617,15 @@
             }
           },
           {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag/rowVersion ของเวอร์ชัน — ไม่ตรง → 412 precondition_failed",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -3639,6 +3660,9 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -3696,6 +3720,50 @@
       }
     },
     "/v1/platform/settings/{key}": {
+      "get": {
+        "operationId": "PlatformSettings_one",
+        "parameters": [
+          {
+            "name": "key",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformSettingDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      },
       "put": {
         "operationId": "PlatformSettings_update",
         "parameters": [
@@ -3703,6 +3771,15 @@
             "name": "key",
             "required": true,
             "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag/version ของค่าตั้ง (\"0\" = ยังไม่เคยตั้ง) — ไม่ตรง → 412",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -3739,6 +3816,9 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -76271,7 +76351,13 @@
           },
           "version": {
             "type": "number",
-            "example": 1
+            "example": 1,
+            "description": "เลขเวอร์ชันราคาของแพ็กเกจ (v1, v2, …)"
+          },
+          "rowVersion": {
+            "type": "number",
+            "example": 1,
+            "description": "เลขแก้ไขของแถว = ETag (ส่งกลับใน If-Match — docs/01 §5.1)"
           },
           "status": {
             "type": "string",
@@ -76350,6 +76436,7 @@
           "id",
           "planCode",
           "version",
+          "rowVersion",
           "status",
           "pricePerVehicleMonthly",
           "minimumMonthly",
@@ -76643,7 +76730,7 @@
           },
           "version": {
             "type": "number",
-            "description": "เลขเวอร์ชันของค่า (0 = ไม่เคยตั้ง) — ส่งกลับใน expectedVersion กันทับกัน"
+            "description": "เลขเวอร์ชันของค่า (0 = ไม่เคยตั้ง) = ETag — ส่งกลับใน If-Match กันทับกัน (docs/01 §5.1)"
           },
           "updatedAt": {
             "type": "string",
@@ -76701,10 +76788,6 @@
                 }
               }
             ]
-          },
-          "expectedVersion": {
-            "type": "number",
-            "description": "เวอร์ชันที่เห็นล่าสุด — ไม่ตรง → 412 precondition_failed"
           },
           "reason": {
             "type": "string",

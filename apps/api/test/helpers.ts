@@ -5,6 +5,7 @@ import request from 'supertest';
 import { signDevToken } from '../src/auth/auth.guard';
 import { createApp } from '../src/bootstrap';
 import { INVOICE_TEMPLATE_VERSION } from '../src/modules/invoices/invoice.template';
+import { ensureSubscription } from '../src/modules/entitlements/subscription';
 
 export const platform = () =>
   new PrismaClient({ datasources: { db: { url: process.env.PLATFORM_DATABASE_URL } } });
@@ -37,7 +38,12 @@ export async function truncateAll(): Promise<void> {
 }
 
 export async function createTenant(db: PrismaClient, name = `tenant-${randomUUID().slice(0, 8)}`) {
-  return db.tenant.create({ data: { name } });
+  // P1-ST1-T01: tenant live ต้องมี subscription เมื่อจบ transaction (guard 0177)
+  return db.$transaction(async (tx) => {
+    const t = await tx.tenant.create({ data: { name } });
+    await ensureSubscription(tx, t.id);
+    return t;
+  });
 }
 
 export async function tokenFor(tenantId: string, scope = '*', sub = 'user-test') {

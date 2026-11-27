@@ -32,11 +32,16 @@ export async function resolveEntitlements(
   // PLT-062 ชั้นสุดท้าย: tenant ที่ถูกระงับ/ยกเลิกไม่มีฟีเจอร์ใดทำงาน (webhook, sync, job ข้ามหมด — ตาราง 1.6)
   if (!tenant || tenant.status === 'SUSPENDED' || tenant.status === 'CANCELLED') return {};
   // P1-ST1-T01: ลูกค้าอยู่บนเวอร์ชันของ subscription (grandfather — PLT-060) แม้มีเวอร์ชันใหม่กว่า
+  // tenant.planCode เป็นตัวบอกแพ็กเกจ · subscription ปักเวอร์ชันภายในแพ็กเกจนั้น — ถ้าไม่ตรงกัน (plan_code ถูกแก้ไม่ผ่าน
+  // moveSubscriptionPlan เช่น SQL/test ตรง) → ใช้เวอร์ชันที่มีผลของ planCode (ไม่ให้สิทธิ์ของแพ็กเกจเก่าค้าง)
   const sub = await db.subscription.findUnique({
     where: { tenantId },
-    select: { planVersionId: true },
+    select: { planVersionId: true, planVersion: { select: { planCode: true } } },
   });
-  const versionId = sub?.planVersionId ?? (await currentPlanVersion(db, tenant.planCode))?.id;
+  const versionId =
+    sub && sub.planVersion.planCode === tenant.planCode
+      ? sub.planVersionId
+      : (await currentPlanVersion(db, tenant.planCode))?.id;
   if (!versionId) return {};
   const current = [...(await currentPlanVersions(db)).values()].map((v) => v.id);
   const [rows, overrides, all] = await Promise.all([

@@ -39,6 +39,7 @@ import { PrismaService } from '../db/prisma.service';
 import { EmailService } from '../modules/email/email.service';
 import { EntitlementService } from '../modules/entitlements/entitlement.service';
 import { currentPlanVersion } from '../modules/entitlements/plan-catalog';
+import { moveSubscriptionPlan } from '../modules/entitlements/subscription';
 import { bootstrapTenant } from '../modules/tenants/bootstrap';
 import { PlatformSettingsService } from './platform-settings.service';
 import { issueInvitation } from '../modules/users/invitations.controller';
@@ -334,6 +335,9 @@ export class PlatformTenantsController {
           ...(body.vehicleQuota !== undefined ? { vehicleQuota: body.vehicleQuota } : {}),
         },
       });
+      // P1-ST1-T01: เปลี่ยนแพ็กเกจ → subscription ไปเวอร์ชันที่มีผลของแพ็กเกจใหม่ (ลูกค้าเดิมของแพ็กเกจเดิมไม่ถูกย้าย — PLT-060)
+      if (body.planCode && body.planCode !== t.planCode)
+        await moveSubscriptionPlan(tx, t.id, body.planCode);
       await this.audit(
         tx,
         t.id,

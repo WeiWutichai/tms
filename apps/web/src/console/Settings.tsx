@@ -291,8 +291,9 @@ function SettingDialog({
       onOk={async (v, reason) => {
         await cunwrap(
           consoleApi.PUT('/v1/platform/settings/{key}', {
-            params: { path: { key: s.key } },
-            body: { value: parse(s, v)!, expectedVersion: s.version, reason },
+            // docs/01 §5.1: If-Match = version ที่เห็น → มีคนแก้ก่อน = 412 "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว"
+            params: { path: { key: s.key }, header: { 'If-Match': `"${s.version}"` } as never },
+            body: { value: parse(s, v)!, reason },
           }),
         );
         onDone();

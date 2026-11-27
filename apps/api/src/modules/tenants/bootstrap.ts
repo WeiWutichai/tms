@@ -7,6 +7,7 @@ import { ensureDefaultReasonCodes } from '../reason-codes/defaults';
 import { ensureDefaultServiceItems } from '../service-items/defaults';
 import { ensureDefaultVehicleTypes } from '../vehicle-types/defaults';
 import { backfillTripLegs } from '../trips/trip-legs';
+import { ensureSubscription } from '../entitlements/subscription';
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -32,6 +33,8 @@ const SNAPSHOT_KEYS = (Object.keys(SETTINGS) as SettingKey[]).filter(
 );
 
 const STEPS: readonly BootstrapStep[] = [
+  // P1-ST1-T01: subscription บนเวอร์ชันแพ็กเกจที่มีผล (guard 0177 บังคับทุก tenant live มีแถวเมื่อจบ transaction)
+  { name: 'subscription', run: async (db, t) => void (await ensureSubscription(db, t)) },
   {
     name: 'system-roles',
     run: async (db, t) => void (await ensureSystemRoles(db as PrismaClient, t)),
@@ -94,6 +97,8 @@ export async function createTenantWithDefaults(
           yearStyle: input.yearStyle ?? 'BE',
         },
       });
+      // ขั้น subscription บังคับเสมอ (guard 0177) แม้ test ส่งรายการขั้นเอง
+      await ensureSubscription(tx, t.id);
       await bootstrapTenant(tx, t.id, steps);
       return t;
     },

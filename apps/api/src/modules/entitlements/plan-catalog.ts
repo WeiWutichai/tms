@@ -14,7 +14,11 @@ export const PLANS = [
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
-/** เวอร์ชันที่มีผลตอนนี้ของแพ็กเกจ = published ล่าสุดที่ effectiveFrom ≤ now (ตรงกับ SQL `tms_current_plan_version`) */
+/**
+ * เวอร์ชันที่มีผลตอนนี้ของแพ็กเกจ = published ที่เลขเวอร์ชันสูงสุดในกลุ่ม effectiveFrom ≤ now
+ * ขอบเขต (review N8): ≤ = รวมวินาทีที่ถึงวันมีผลพอดี · publish บังคับวันมีผลไม่ก่อนเวอร์ชันที่เผยแพร่แล้ว (N1)
+ * → เลขเวอร์ชันเรียงตามวันมีผลเสมอ "สูงสุด" จึงเท่ากับ "วันมีผลล่าสุด" · เวลาเทียบกับนาฬิกาเครื่อง API (ไม่ใช่ DB)
+ */
 export async function currentPlanVersion(db: Db, planCode: string): Promise<PlanVersion | null> {
   return db.planVersion.findFirst({
     where: { planCode, status: 'published', effectiveFrom: { lte: new Date() } },

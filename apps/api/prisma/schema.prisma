@@ -52,7 +52,7 @@ model Tenant {
   liveTenantId     String?       @unique @map("live_tenant_id") @db.Uuid
   liveTenant       Tenant?       @relation("TenantSandbox", fields: [liveTenantId], references: [id], onDelete: Restrict)
   sandbox          Tenant?       @relation("TenantSandbox")
-  /// P1-ST1-T01 (trigger 0175 สร้าง/ตาม plan_code ให้อัตโนมัติ)
+  /// P1-ST1-T01 (สร้างใน bootstrapTenant — guard 0177)
   subscription     Subscription?
   createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -2704,6 +2704,8 @@ model PlanVersion {
   vatMode                String            @default("exclusive") @map("vat_mode") @db.VarChar(10)
   /// ราคาตั้งต้น — ยังไม่ประกาศ (R-06 / D-40 ค้าง) — แสดงป้ายในหน้าราคา/Console
   provisional            Boolean           @default(false)
+  /// P1-ST1-T01 S1: ETag/If-Match (docs/01 §5.1) — เพิ่มทุกครั้งที่แก้ draft (คนละอย่างกับ `version` = เลขเวอร์ชันราคา)
+  rowVersion             Int               @default(1) @map("row_version")
   effectiveFrom          DateTime          @map("effective_from") @db.Timestamptz(6)
   publishedAt            DateTime?         @map("published_at") @db.Timestamptz(6)
   publishedBy            String?           @map("published_by") @db.Uuid
@@ -2733,8 +2735,9 @@ model PlanEntitlement {
 }
 
 /// P1-ST1-T01 การสมัครใช้แพ็กเกจของ tenant (spec/01 §6 `Subscription`) — 1 แถว/tenant · tenant_id + RLS
-/// สร้าง/ตามแพ็กเกจอัตโนมัติด้วย trigger บน tenant (0175): สร้าง tenant → แถวใหม่บนเวอร์ชันปัจจุบันของ plan_code ·
-/// เปลี่ยน tenant.plan_code → ย้ายไปเวอร์ชันปัจจุบันของแพ็กเกจใหม่ · publish เวอร์ชันใหม่ของแพ็กเกจเดิม → ไม่ย้าย (PLT-060)
+/// สร้าง/ย้ายในโค้ดแอป (modules/entitlements/subscription.ts — bootstrapTenant, Console เปลี่ยนแพ็กเกจ) · ฐานข้อมูลมีแค่ guard
+/// (0177: tenant live ทุกรายต้องมีแถว — constraint trigger แบบ deferred) · publish เวอร์ชันใหม่ของแพ็กเกจเดิม → ไม่ย้าย (PLT-060)
+/// status ตาม tenant.status = งานของ P1-ST1-T03
 model Subscription {
   id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId           String       @unique @map("tenant_id") @db.Uuid

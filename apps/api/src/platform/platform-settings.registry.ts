@@ -144,10 +144,11 @@ export const PLATFORM_SETTINGS = {
   },
   'billing.paymentMethods': {
     group: 'billing',
-    type: { kind: 'set', values: ['transfer', 'card', 'promptpay'] },
+    // review N4: เฟส 1 มีแค่โอน + แนบสลิป — `card`/`promptpay` เพิ่มเข้ารายการเมื่อ P1-ST3-T08 (ขวางโดย D-44) มีผู้ให้บริการจริง
+    type: { kind: 'set', values: ['transfer'] },
     default: ['transfer'],
     source: 'plan/13 R-04 [DECISION — lead 27 พ.ย. 2569, ย้อนได้]',
-    description: 'ช่องทางชำระค่าบริการที่เปิด (บัตร/PromptPay รอ D-44)',
+    description: 'ช่องทางชำระค่าบริการที่เปิด (บัตร/PromptPay มาใน P1-ST3-T08 — รอ D-44)',
   },
   'invoice.dueDays': {
     group: 'billing',
@@ -237,7 +238,11 @@ export function parsePlatformSetting(
   }
 }
 
-/** กฎข้ามช่อง: ลำดับวัน dunning ต้องเพิ่มขึ้น (past_due < read_only < suspended) */
+/**
+ * กฎข้ามช่อง: ลำดับวัน dunning ต้องเพิ่มขึ้น (past_due < read_only < suspended) และวันเตือนต้องอยู่ในช่วงของสถานะนั้น (review N5)
+ * นับเป็นวันที่เลยกำหนดชำระ: ค้างชำระ 1…pastDueDays · อ่านอย่างเดียว pastDueDays+1…readOnlyUntilDay ·
+ * ระงับ readOnlyUntilDay+1…suspendUntilDay (ค่าเริ่มต้น spec/01 §9: 1,3,6 · 8,14,20 · 22,45,55 กับ 7 / 21 / 60)
+ */
 export function crossSettingError(
   values: Record<string, unknown>,
 ): { field: string; code: string } | null {
@@ -245,5 +250,10 @@ export function crossSettingError(
   const b = values['dunning.readOnlyUntilDay'] as number;
   const c = values['dunning.suspendUntilDay'] as number;
   if (!(a < b && b < c)) return { field: 'dunning', code: 'dunning_order' };
+  const r = values['dunning.reminderDays'] as Record<string, readonly number[]>;
+  const within = (list: readonly number[] | undefined, lo: number, hi: number) =>
+    (list ?? []).every((d) => d >= lo && d <= hi);
+  if (!within(r.past_due, 1, a) || !within(r.read_only, a + 1, b) || !within(r.suspended, b + 1, c))
+    return { field: 'dunning.reminderDays', code: 'reminder_window' };
   return null;
 }

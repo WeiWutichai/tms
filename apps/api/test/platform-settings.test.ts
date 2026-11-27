@@ -85,6 +85,7 @@ describe('ค่าตั้งแพลตฟอร์ม (P1-ST1-T04)', () => 
     ['billing.paymentMethods', [], 'setting_range'],
     ['billing.paymentMethods', ['transfer', 'transfer'], 'setting_range'],
     ['billing.paymentMethods', ['cash'], 'setting_option'],
+    ['billing.paymentMethods', ['card'], 'setting_option'],
     [
       'dunning.reminderDays',
       { past_due: [3, 1], read_only: [8], suspended: [22] },
@@ -107,38 +108,51 @@ describe('ค่าตั้งแพลตฟอร์ม (P1-ST1-T04)', () => 
       .expect(401);
   });
 
-  it('แก้ค่า: normalize + audit before/after พร้อมเหตุผล + optimistic version · กฎข้ามช่อง dunning', async () => {
-    const r = await put('SUPER_ADMIN', 'billing.paymentMethods', {
-      value: ['promptpay', 'transfer'],
-      expectedVersion: 0,
-      reason: R,
-    }).expect(200);
-    expect(r.body).toMatchObject({
-      value: ['transfer', 'promptpay'],
-      isDefault: false,
-      version: 1,
-    });
+  it('แก้ค่า: ETag/If-Match (docs/01 §5.1) + audit before/after พร้อมเหตุผล · กฎข้ามช่อง dunning + วันเตือนในช่วง', async () => {
+    const g = await as('BILLING').get('/v1/platform/settings/pricing.publicVisible').expect(200);
+    expect(g.headers.etag).toBe('"0"');
+    const r = await put('SUPER_ADMIN', 'pricing.publicVisible', { value: true, reason: R })
+      .set('If-Match', '"0"')
+      .expect(200);
+    expect(r.body).toMatchObject({ value: true, isDefault: false, version: 1 });
+    expect(r.headers.etag).toBe('"1"');
     expect(r.body.updatedBy).toBe('ทีม SUPER_ADMIN');
-    await put('SUPER_ADMIN', 'billing.paymentMethods', {
-      value: ['transfer'],
-      expectedVersion: 0,
-      reason: R,
-    }).expect(412);
+    const stale = await put('SUPER_ADMIN', 'pricing.publicVisible', { value: false, reason: R })
+      .set('If-Match', '"0"')
+      .expect(412);
+    expect(stale.body.code).toBe('precondition_failed');
+    await as('SUPPORT').get('/v1/platform/settings/nope.key').expect(404);
     const a = await db.platformAuditLog.findFirstOrThrow({
-      where: { entityType: 'platform_setting', entityId: 'billing.paymentMethods' },
+      where: { entityType: 'platform_setting', entityId: 'pricing.publicVisible' },
     });
     expect(a).toMatchObject({
       action: 'platform.setting_changed',
       reason: R,
-      before: { value: ['transfer'] },
-      after: { value: ['transfer', 'promptpay'] },
+      before: { value: false },
+      after: { value: true },
     });
     expect(a.platformUserId).toBeTruthy();
+    // N4: เฟส 1 เปิดได้แค่โอน (บัตร/PromptPay = P1-ST3-T08)
+    const pm = await put('SUPER_ADMIN', 'billing.paymentMethods', {
+      value: ['transfer', 'promptpay'],
+      reason: R,
+    }).expect(422);
+    expect(pm.body.errors[0].code).toBe('setting_option');
 
     const d = await put('SUPER_ADMIN', 'dunning.readOnlyUntilDay', { value: 70, reason: R }).expect(
       422,
     );
     expect(d.body.errors[0].code).toBe('dunning_order');
+    // N5: อ่านอย่างเดียวถึงวันที่ 25 → วันเตือนช่วงระงับ (22) ตกอยู่ก่อนเริ่มระงับ
+    const w = await put('SUPER_ADMIN', 'dunning.readOnlyUntilDay', { value: 25, reason: R }).expect(
+      422,
+    );
+    expect(w.body.errors[0].code).toBe('reminder_window');
+    const w2 = await put('SUPER_ADMIN', 'dunning.reminderDays', {
+      value: { past_due: [1, 3, 8], read_only: [8, 14, 20], suspended: [22, 45, 55] },
+      reason: R,
+    }).expect(422);
+    expect(w2.body.errors[0].code).toBe('reminder_window');
     await put('SUPER_ADMIN', 'usage.subconWeight', { value: '0.5', reason: R }).expect(200);
     expect(await app.get(PlatformSettingsService).get('usage.subconWeight')).toBe('0.50');
   });

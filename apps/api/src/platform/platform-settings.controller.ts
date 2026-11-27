@@ -1,15 +1,18 @@
-import { Body, Controller, Get, Param, Put } from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, Req, Res } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import {
   ApiBearerAuth,
+  ApiHeader,
   ApiOkResponse,
   ApiProperty,
   ApiPropertyOptional,
   ApiTags,
 } from '@nestjs/swagger';
 import type { Prisma } from '@prisma/client';
-import { Transform, Type } from 'class-transformer';
-import { IsDefined, IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsDefined, IsString, MaxLength, MinLength } from 'class-validator';
 import { PlatformAuth } from '../common/decorators';
+import { expectedVersion, setEtag } from '../common/etag';
 import { ProblemException } from '../common/problem';
 import { requestContext } from '../common/request-context';
 import { PrismaService } from '../db/prisma.service';
@@ -45,7 +48,8 @@ export class PlatformSettingDto {
   @ApiProperty({ example: 'docs/02 §2 · D-43' }) source!: string;
   @ApiProperty() description!: string;
   @ApiProperty({
-    description: 'เลขเวอร์ชันของค่า (0 = ไม่เคยตั้ง) — ส่งกลับใน expectedVersion กันทับกัน',
+    description:
+      'เลขเวอร์ชันของค่า (0 = ไม่เคยตั้ง) = ETag — ส่งกลับใน If-Match กันทับกัน (docs/01 §5.1)',
   })
   version!: number;
   @ApiProperty({ format: 'date-time', nullable: true, type: String }) updatedAt!: string | null;
@@ -67,12 +71,6 @@ export class UpdatePlatformSettingDto {
   })
   @IsDefined()
   value!: unknown;
-  @ApiPropertyOptional({ description: 'เวอร์ชันที่เห็นล่าสุด — ไม่ตรง → 412 precondition_failed' })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  expectedVersion?: number;
   @ApiProperty({ example: 'PO เคาะ D-43 trial 30 วัน', minLength: 10 })
   @Transform(trim)
   @IsString()
@@ -131,13 +129,34 @@ export class PlatformSettingsController {
     });
   }
 
-  /** ตั้งค่า (upsert) — key ไม่มีใน registry → 404 · ค่าผิด type/ช่วง → 422 · เวอร์ชันไม่ตรง → 412 */
+  /** ค่าตั้ง 1 ตัว + header ETag = version (0 = ยังเป็นค่าเริ่มต้น) */
+  @Get(':key')
+  @PlatformAuth()
+  @ApiOkResponse({ type: PlatformSettingDto })
+  async one(
+    @Param('key') key: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<PlatformSettingDto> {
+    const s = (await this.list()).find((x) => x.key === key);
+    if (!s) throw new ProblemException('not_found');
+    setEtag(res, s.version);
+    return s;
+  }
+
+  /** ตั้งค่า (upsert) — key ไม่มีใน registry → 404 · ค่าผิด type/ช่วง → 422 · If-Match ไม่ตรง → 412 */
   @Put(':key')
   @PlatformAuth('SUPER_ADMIN')
+  @ApiHeader({
+    name: 'If-Match',
+    required: false,
+    description: 'ETag/version ของค่าตั้ง ("0" = ยังไม่เคยตั้ง) — ไม่ตรง → 412',
+  })
   @ApiOkResponse({ type: PlatformSettingDto })
   async update(
     @Param('key') key: string,
     @Body() body: UpdatePlatformSettingDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<PlatformSettingDto> {
     if (!(PLATFORM_SETTING_KEYS as string[]).includes(key)) throw new ProblemException('not_found');
     const k = key as PlatformSettingKey;
@@ -148,11 +167,12 @@ export class PlatformSettingsController {
         { field: 'value', code: parsed.code, message: `${key}: ${parsed.code}` },
       ]);
     const ctx = requestContext.require();
+    const want = expectedVersion(req);
     await this.prisma.platform.$transaction(async (tx) => {
       // ล็อกแถวทั้งชุดตามลำดับ key กันสองคนแก้กฎข้ามช่อง (dunning) พร้อมกัน
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('platform_setting'))`;
       const cur = await tx.platformSetting.findUnique({ where: { key: k } });
-      if (body.expectedVersion !== undefined && body.expectedVersion !== (cur?.version ?? 0))
+      if (want !== undefined && want !== (cur?.version ?? 0))
         throw new ProblemException('precondition_failed');
       const all = await this.settings.all(tx);
       const before = all[k];
@@ -176,6 +196,6 @@ export class PlatformSettingsController {
         after: { value: parsed.value },
       });
     });
-    return (await this.list()).find((s) => s.key === k)!;
+    return this.one(k, res);
   }
 }
