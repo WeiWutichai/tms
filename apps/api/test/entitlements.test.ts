@@ -1,11 +1,19 @@
 import { Controller, Get, Module } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module';
 import { createApp } from '../src/bootstrap';
+import { signPlatformToken } from '../src/auth/tokens';
+import { ensureSystemRoles } from '../src/auth/system-roles';
+import { Clock } from '../src/common/clock';
 import { RequireFeature } from '../src/common/decorators';
+import { encodeId } from '../src/common/ids';
 import { JobQueue } from '../src/jobs/job-queue.service';
-import { EntitlementService } from '../src/modules/entitlements/entitlement.service';
+import {
+  ENTITLEMENT_TTL_MS,
+  EntitlementService,
+} from '../src/modules/entitlements/entitlement.service';
 import { api, createTenant, platform, tokenFor, truncateAll } from './helpers';
 
 /** endpoint ชั่วคราวเฉพาะ test — gate ด้วย `api` (docs/02 §2: Open API เริ่มที่ Growth · รถร่วม/รายงานพื้นฐานมีใน Starter ตั้งแต่ P1-ST1-T01) */
@@ -172,5 +180,231 @@ describe('feature flag ตามแพ็กเกจ + override', () => {
       }),
     ).rejects.toThrow(/permission denied/);
     await ps.onModuleDestroy();
+  });
+});
+
+/**
+ * P1-ST1-T02: EntitlementService.resolve ฉบับเต็ม — เกณฑ์ตรวจรับ (plan/13):
+ * override `revoke` แล้ว endpoint ของฟีเจอร์ได้ 403 ภายใน 60 วิ · ฟีเจอร์พื้นฐานไม่ขึ้น 🔒 ในทุกกรณี
+ */
+describe('entitlement ฉบับเต็ม + override จาก Console (P1-ST1-T02)', () => {
+  let app: NestExpressApplication;
+  const db = platform();
+  let ent: EntitlementService;
+  let clock: Clock;
+  const staff: Record<string, string> = {};
+
+  async function tenant(planCode: string) {
+    const t = await createTenant(db);
+    await db.tenant.update({ where: { id: t.id }, data: { planCode } });
+    return { id: t.id, enc: encodeId('tenant', t.id), token: await tokenFor(t.id) };
+  }
+  async function mkStaff(role: 'SUPER_ADMIN' | 'SUPPORT') {
+    const u = await db.platformUser.create({
+      data: {
+        email: `${role.toLowerCase()}-${randomUUID().slice(0, 6)}@innovera.test`,
+        name: `ทีม ${role}`,
+        role,
+        passwordHash: 'x',
+        totpSecret: 'x',
+      },
+    });
+    staff[role] = await signPlatformToken({ sub: u.id, role, tv: u.tokenVersion });
+  }
+  const as = (role: string) => api(app, staff[role]!);
+  const REASON = 'ลูกค้าค้างชำระ add-on ตามสัญญา';
+
+  beforeAll(async () => {
+    await truncateAll();
+    app = await createApp(TestModule);
+    ent = app.get(EntitlementService);
+    clock = app.get(Clock);
+    await Promise.all([mkStaff('SUPER_ADMIN'), mkStaff('SUPPORT')]);
+  });
+  afterEach(() => clock.set(null));
+  afterAll(async () => {
+    await app.close();
+    await db.$disconnect();
+  });
+
+  it('เกณฑ์ตรวจรับ: Console revoke → 403 ทันทีใน instance นี้; instance อื่น (แก้ตรงในฐาน) → 403 ภายใน 60 วิ', async () => {
+    const t = await tenant('std');
+    await api(app, t.token).get('/v1/__test/api').expect(200);
+    // ทาง Console: ล้าง cache ของ instance นี้ทันที
+    const r = await as('SUPER_ADMIN')
+      .put(`/v1/platform/tenants/${t.enc}/entitlement-overrides/api`)
+      .send({ mode: 'revoke', reason: REASON })
+      .expect(200);
+    expect(r.body).toMatchObject({
+      featureKey: 'api',
+      mode: 'revoke',
+      limit: null,
+      expired: false,
+    });
+    const res = await api(app, t.token).get('/v1/__test/api');
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ code: 'feature_not_in_plan', featureKey: 'api' });
+
+    // อีก instance (worker / API ตัวอื่น) เปลี่ยนสิทธิ์ — cache ของ instance นี้ไม่ถูกล้าง
+    const u = await tenant('std');
+    const t0 = new Date();
+    clock.set(t0);
+    await api(app, u.token).get('/v1/__test/api').expect(200); // เติม cache
+    await db.tenantEntitlementOverride.create({
+      data: { tenantId: u.id, featureKey: 'api', mode: 'revoke', reason: REASON },
+    });
+    clock.set(new Date(t0.getTime() + ENTITLEMENT_TTL_MS - 1000));
+    await api(app, u.token).get('/v1/__test/api').expect(200); // ยังอยู่ในรอบ cache
+    clock.set(new Date(t0.getTime() + ENTITLEMENT_TTL_MS));
+    expect((await api(app, u.token).get('/v1/__test/api')).status).toBe(403);
+
+    // ลบ override → กลับตามแพ็กเกจ + audit ทั้งสองครั้ง
+    clock.set(null);
+    await as('SUPER_ADMIN')
+      .post(`/v1/platform/tenants/${t.enc}/entitlement-overrides/api/remove`)
+      .send({ reason: 'ลูกค้าชำระ add-on แล้ว' })
+      .expect(204);
+    await api(app, t.token).get('/v1/__test/api').expect(200);
+    const audit = await db.auditLog.findMany({
+      where: { tenantId: t.id, action: { startsWith: 'platform.entitlement_override' } },
+      orderBy: { at: 'asc' },
+    });
+    expect(audit.map((a) => a.action)).toEqual([
+      'platform.entitlement_override_set',
+      'platform.entitlement_override_removed',
+    ]);
+    expect(audit[0]!.reason).toBe(REASON);
+    expect(audit[1]!.before).toMatchObject({ featureKey: 'api', mode: 'revoke' });
+  });
+
+  it('grant ที่หมดอายุ: cache หมดตรงเวลาหมดอายุ (ไม่ค้างถึง 60 วิ)', async () => {
+    const t = await tenant('start');
+    const t0 = new Date();
+    clock.set(t0);
+    await as('SUPER_ADMIN')
+      .put(`/v1/platform/tenants/${t.enc}/entitlement-overrides/api`)
+      .send({
+        mode: 'grant',
+        reason: 'ทดลอง Open API 10 วินาที',
+        expiresAt: new Date(t0.getTime() + 10_000).toISOString(),
+      })
+      .expect(200);
+    await api(app, t.token).get('/v1/__test/api').expect(200);
+    clock.set(new Date(t0.getTime() + 10_001));
+    expect((await api(app, t.token).get('/v1/__test/api')).status).toBe(403);
+    const list = await as('SUPPORT')
+      .get(`/v1/platform/tenants/${t.enc}/entitlement-overrides`)
+      .expect(200);
+    expect(list.body).toEqual([
+      expect.objectContaining({ featureKey: 'api', mode: 'grant', expired: true }),
+    ]);
+  });
+
+  it('ตั้ง override: owner เท่านั้น · ฟีเจอร์พื้นฐาน 422 basic_feature_locked · ค่าผิด 422', async () => {
+    const t = await tenant('std');
+    const put = (role: string, key: string, body: object) =>
+      as(role).put(`/v1/platform/tenants/${t.enc}/entitlement-overrides/${key}`).send(body);
+    expect((await put('SUPPORT', 'api', { mode: 'revoke', reason: REASON })).status).toBe(403);
+    const basic = await put('SUPER_ADMIN', 'settle', { mode: 'revoke', reason: REASON });
+    expect(basic.status).toBe(422);
+    expect(basic.body).toMatchObject({ code: 'basic_feature_locked', featureKey: 'settle' });
+    expect((await put('SUPER_ADMIN', 'nope', { mode: 'grant', reason: REASON })).status).toBe(422);
+    expect((await put('SUPER_ADMIN', 'api', { mode: 'revoke', reason: 'สั้น' })).status).toBe(422);
+    expect((await put('SUPER_ADMIN', 'veh', { mode: 'set_limit', reason: REASON })).status).toBe(
+      422,
+    );
+    const past = await put('SUPER_ADMIN', 'api', {
+      mode: 'grant',
+      reason: REASON,
+      expiresAt: new Date(Date.now() - 1000).toISOString(),
+    });
+    expect(past.status).toBe(422);
+    await put('SUPER_ADMIN', 'veh', { mode: 'set_limit', limit: 35, reason: REASON }).expect(200);
+    expect((await ent.resolve(t.id)).veh).toEqual({ enabled: true, limit: 35 });
+    // ลบแถวที่ไม่มี = 404
+    expect(
+      (
+        await as('SUPER_ADMIN')
+          .post(`/v1/platform/tenants/${t.enc}/entitlement-overrides/api/remove`)
+          .send({ reason: REASON })
+      ).status,
+    ).toBe(404);
+  });
+
+  it('เกณฑ์ตรวจรับ: ฟีเจอร์พื้นฐานไม่ขึ้น 🔒 ทุกกรณี (แพ็กเกจต่ำสุด / ระงับ) · locks บอกแพ็กเกจ ราคา และ add-on', async () => {
+    const basic = (await db.feature.findMany({ where: { isBasic: true } })).map((f) => f.key);
+    expect(basic).toEqual(expect.arrayContaining(['so', 'sub', 'settle', 'bill']));
+    const s = await tenant('start');
+    const me = (await api(app, s.token).get('/v1/me').expect(200)).body;
+    for (const k of basic) expect(me.locks[k], k).toBeUndefined();
+    const growth = await db.planVersion.findFirstOrThrow({
+      where: { planCode: 'std', status: 'published' },
+      orderBy: { version: 'desc' },
+    });
+    expect(me.locks.api).toEqual({
+      planCode: 'std',
+      planName: 'Growth',
+      pricePerVehicleMonthly: growth.pricePerVehicleMonthly?.toFixed(2) ?? null,
+      addon: expect.any(Boolean),
+    });
+    expect(me.lockedIn.api).toBe('Growth');
+
+    // ระงับ: ไม่มีฟีเจอร์ใดทำงาน แต่เมนูไม่ขึ้น 🔒 ทั้งพื้นฐานและฟีเจอร์ที่แพ็กเกจมี (สถานะ ≠ ไม่รวมในแพ็กเกจ)
+    const g = await tenant('std');
+    await db.tenant.update({ where: { id: g.id }, data: { status: 'SUSPENDED' } });
+    ent.invalidate(g.id);
+    const detail = await ent.detail(g.id);
+    expect(detail.effective).toEqual({});
+    expect(detail.beforeStatus.api?.enabled).toBe(true);
+    const meS = (await api(app, g.token).get('/v1/me').expect(200)).body;
+    expect(meS.features).toEqual([]);
+    for (const k of [...basic, 'api', 'report']) expect(meS.locks[k], k).toBeUndefined();
+
+    // override revoke ฟีเจอร์ที่ไม่ใช่พื้นฐาน → 🔒 (ไม่รวมในแพ็กเกจ)
+    const r = await tenant('std');
+    await db.tenantEntitlementOverride.create({
+      data: { tenantId: r.id, featureKey: 'report', mode: 'revoke', reason: REASON },
+    });
+    ent.invalidate(r.id);
+    expect((await api(app, r.token).get('/v1/me').expect(200)).body.locks.report).toBeDefined();
+  });
+
+  it('แจ้งผู้ดูแลระบบ: แจ้งผู้มีสิทธิ์จัดการแพ็กเกจ (ไม่รวมผู้ขอ) · ซ้ำใน 24 ชม. ไม่ส่ง · ฟีเจอร์ที่ไม่ล็อก 422', async () => {
+    const t = await tenant('start');
+    const roles = await ensureSystemRoles(db, t.id);
+    const mk = async (role: string, email: string) => {
+      const u = await db.appUser.create({
+        data: { tenantId: t.id, email, name: email, status: 'ACTIVE', locale: 'th' },
+      });
+      await db.userRole.create({ data: { tenantId: t.id, userId: u.id, roleId: roles[role]! } });
+      return u.id;
+    };
+    const admin = await mk('admin', `adm-${randomUUID().slice(0, 6)}@ent.test`);
+    const planner = await mk('planner', `pl-${randomUUID().slice(0, 6)}@ent.test`);
+    const asPlanner = api(app, await tokenFor(t.id, '*', planner));
+    const first = await asPlanner
+      .post('/v1/me/feature-requests')
+      .send({ featureKey: 'api' })
+      .expect(200);
+    expect(first.body).toEqual({ notified: expect.any(Number), alreadyRequested: false });
+    expect(first.body.notified).toBeGreaterThanOrEqual(1);
+    const rows = await db.notification.findMany({
+      where: { tenantId: t.id, templateCode: 'feature.upgrade_requested', channel: 'in_app' },
+    });
+    expect(rows.map((n) => n.recipientId)).toContain(admin);
+    expect(rows.map((n) => n.recipientId)).not.toContain(planner);
+    expect(rows[0]!.body).toContain('ไม่รวมในแพ็กเกจปัจจุบัน');
+    const again = await asPlanner
+      .post('/v1/me/feature-requests')
+      .send({ featureKey: 'api' })
+      .expect(200);
+    expect(again.body).toEqual({ notified: 0, alreadyRequested: true });
+    expect(
+      (await asPlanner.post('/v1/me/feature-requests').send({ featureKey: 'so' })).status,
+    ).toBe(422);
+    // API key / token ที่ไม่ใช่ผู้ใช้ → 403
+    expect(
+      (await api(app, t.token).post('/v1/me/feature-requests').send({ featureKey: 'api' })).status,
+    ).toBe(403);
   });
 });

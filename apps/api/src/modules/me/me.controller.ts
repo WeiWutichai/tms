@@ -1,12 +1,22 @@
-import { Controller, Get } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiProperty, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
+import { IsString, Matches } from 'class-validator';
+import {
+  ApiBearerAuth,
+  ApiExtraModels,
+  ApiOkResponse,
+  ApiProperty,
+  ApiTags,
+  getSchemaPath,
+} from '@nestjs/swagger';
 import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
+import { safeName } from '../../common/safe-text';
+import { NotificationService } from '../notifications/notification.service';
 import { DbService } from '../../db/db.service';
 import { PrismaService } from '../../db/prisma.service';
 import { cheapestPlanWith, EntitlementService } from '../entitlements/entitlement.service';
-import { PLANS } from '../entitlements/plan-catalog';
+import { currentPlanVersions, PLANS } from '../entitlements/plan-catalog';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -27,6 +37,30 @@ export class MeUserDto {
 export class MePlanDto {
   @ApiProperty({ example: 'std' }) code!: string;
   @ApiProperty({ example: 'มาตรฐาน' }) name!: string;
+}
+
+/** โมดูลที่ไม่รวมในแพ็กเกจ (P1-ST1-T02; spec/01 PLT-076) — ข้อมูลของหน้าแนะนำโมดูล (ต้นแบบ v4 `lkp`) */
+export class MeLockDto {
+  @ApiProperty({
+    example: 'std',
+    nullable: true,
+    type: String,
+    description: 'แพ็กเกจแรก (ถูกไปแพง) ที่รวมฟีเจอร์นี้ · null = ไม่มีแพ็กเกจใดรวมไว้',
+  })
+  planCode!: string | null;
+  @ApiProperty({ example: 'Growth', nullable: true, type: String }) planName!: string | null;
+  @ApiProperty({
+    example: '280.00',
+    nullable: true,
+    type: String,
+    description:
+      'ราคา/รถ active/เดือน ก่อน VAT ของเวอร์ชันที่มีผลของแพ็กเกจนั้น · null = ตกลงราคา (ติดต่อฝ่ายขาย)',
+  })
+  pricePerVehicleMonthly!: string | null;
+  @ApiProperty({
+    description: 'แพ็กเกจปัจจุบันขายฟีเจอร์นี้เป็น add-on (ปุ่ม "ซื้อ Add-on" แทน "อัปเกรด")',
+  })
+  addon!: boolean;
 }
 
 export class MeImpersonationDto {
@@ -71,18 +105,102 @@ export class MeDto {
       'ฟีเจอร์ที่ยังไม่มี → ชื่อแพ็กเกจแรกที่รวมไว้ (หน้า "ไม่รวมในแพ็กเกจ" — spec/01 PLT-076)',
   })
   lockedIn!: Record<string, string>;
+
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: { $ref: getSchemaPath(MeLockDto) },
+    description:
+      'P1-ST1-T02: ฟีเจอร์ที่ไม่รวมในแพ็กเกจ (หลัง add-on/override ก่อนตัดตามสถานะ) → เมนูขึ้น 🔒 + หน้าแนะนำโมดูล (PLT-076) · ' +
+      'ฟีเจอร์พื้นฐาน (isBasic) ไม่อยู่ที่นี่ทุกกรณี (PLT-077)',
+  })
+  locks!: Record<string, MeLockDto>;
 }
+
+export class FeatureRequestDto {
+  @ApiProperty({
+    example: 'report',
+    description: 'featureKey ของโมดูลที่ไม่รวมในแพ็กเกจ (จาก `locks` ของ GET /me)',
+  })
+  @IsString()
+  @Matches(/^[a-z0-9_.]{1,40}$/)
+  featureKey!: string;
+}
+export class FeatureRequestResultDto {
+  @ApiProperty({ description: 'จำนวนผู้ดูแลระบบที่ได้รับแจ้ง (0 เมื่อแจ้งซ้ำภายใน 24 ชม.)' })
+  notified!: number;
+  @ApiProperty({ description: 'แจ้งโมดูลนี้ไปแล้วภายใน 24 ชม. — ไม่ส่งซ้ำ' })
+  alreadyRequested!: boolean;
+}
+
+/** ผู้ที่ได้รับแจ้งเมื่อผู้ใช้ขอโมดูลที่ไม่รวมในแพ็กเกจ — สิทธิ์จัดการแพ็กเกจ (`billing.manage` มากับ P1-ST3-T03) ระหว่างนี้ใช้ `settings:write` (owner/admin) */
+export const BILLING_MANAGE_STANDIN = 'settings:write';
+const REQUEST_DEDUPE_MS = 24 * 3600e3;
 
 /** ข้อมูลของ credential ที่เรียกอยู่ (docs/01 §5.2 #15) — UI ใช้แสดง shell */
 @ApiTags('platform')
 @ApiBearerAuth()
+@ApiExtraModels(MeLockDto)
 @Controller('me')
 export class MeController {
   constructor(
     private readonly db: DbService,
     private readonly entitlements: EntitlementService,
     private readonly prisma: PrismaService,
+    private readonly notifications: NotificationService,
   ) {}
+
+  /**
+   * "แจ้งผู้ดูแลระบบ" จากหน้าแนะนำโมดูลที่ไม่รวมในแพ็กเกจ (P1-ST1-T02; spec/01 PLT-076) — สำหรับผู้ไม่มีสิทธิ์จัดการแพ็กเกจ
+   * แจ้งในแอป + อีเมล ถึงผู้มีสิทธิ์จัดการแพ็กเกจ (ดู BILLING_MANAGE_STANDIN) · ผู้ใช้คนเดิมขอโมดูลเดิมซ้ำภายใน 24 ชม. = ไม่ส่งซ้ำ
+   * ใช้ได้เฉพาะผู้ใช้ที่ login (API key ไม่มีหน้าจอ) · ฟีเจอร์ที่ไม่ได้ล็อก → 422
+   */
+  @Post('feature-requests')
+  @HttpCode(200)
+  @ApiOkResponse({ type: FeatureRequestResultDto })
+  async requestFeature(@Body() body: FeatureRequestDto): Promise<FeatureRequestResultDto> {
+    const ctx = requestContext.require();
+    const u = UUID.test(ctx.actorId ?? '')
+      ? await this.db.tx.appUser.findFirst({ where: { id: ctx.actorId! } })
+      : null;
+    if (!u) throw new ProblemException('forbidden');
+    const f = await this.db.tx.feature.findUnique({ where: { key: body.featureKey } });
+    const ent = await this.entitlements.detail(ctx.tenantId!);
+    const locked = !!f && !ent.basic.includes(f.key) && !ent.beforeStatus[f.key]?.enabled;
+    if (!f || !locked)
+      throw new ProblemException('validation_failed', undefined, [
+        {
+          field: 'featureKey',
+          code: f ? 'not_locked' : 'unknown_feature',
+          message: f ? 'feature is already in plan' : 'unknown feature',
+        },
+      ]);
+    const dup = await this.db.tx.notification.findFirst({
+      where: {
+        tenantId: ctx.tenantId!,
+        templateCode: 'feature.upgrade_requested',
+        createdAt: { gt: new Date(Date.now() - REQUEST_DEDUPE_MS) },
+        AND: [
+          { payload: { path: ['featureKey'], equals: f.key } },
+          { payload: { path: ['requesterId'], equals: u.id } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (dup) return { notified: 0, alreadyRequested: true };
+    const notified = await this.notifications.notify(this.db.tx, {
+      tenantId: ctx.tenantId!,
+      to: { permissions: [BILLING_MANAGE_STANDIN], exclude: [u.id] },
+      template: 'feature.upgrade_requested',
+      vars: {
+        feature: f.nameTh,
+        requester: safeName(u.name),
+        featureKey: f.key,
+        requesterId: u.id,
+      },
+      link: '/settings/billing',
+    });
+    return { notified, alreadyRequested: false };
+  }
 
   @Get()
   @ApiOkResponse({ type: MeDto })
@@ -105,8 +223,8 @@ export class MeController {
           orderBy: { code: 'asc' },
         })
       : [];
-    const ent = await this.entitlements.resolve(ctx.tenantId!);
-    const features = Object.entries(ent)
+    const ent = await this.entitlements.detail(ctx.tenantId!);
+    const features = Object.entries(ent.effective)
       .filter(([, e]) => e.enabled)
       .map(([k]) => k)
       .sort();
@@ -114,10 +232,28 @@ export class MeController {
     const order = PLANS.map((p) => p.code).filter((c) => plans.some((p) => p.code === c));
     const first = await cheapestPlanWith(this.db.tx as never, order);
     const name = (code: string) => plans.find((p) => p.code === code)?.nameTh ?? code;
+    const versions = await currentPlanVersions(this.db.tx as never);
+    // P1-ST1-T02: 🔒 = ไม่มีในแพ็กเกจ+add-on+override (ก่อนตัดตามสถานะ) และไม่ใช่ฟีเจอร์พื้นฐาน (PLT-076/077)
+    const catalog = await this.db.tx.feature.findMany({
+      select: { key: true },
+      orderBy: { key: 'asc' },
+    });
+    const locks: Record<string, MeLockDto> = {};
+    for (const { key } of catalog) {
+      if (ent.basic.includes(key) || ent.beforeStatus[key]?.enabled) continue;
+      const code = first[key] ?? null;
+      const price = code ? versions.get(code)?.pricePerVehicleMonthly : null;
+      locks[key] = {
+        planCode: code,
+        planName: code ? name(code) : null,
+        pricePerVehicleMonthly: price ? price.toFixed(2) : null,
+        addon: ent.planModes[key] === 'addon',
+      };
+    }
     const lockedIn = Object.fromEntries(
-      Object.entries(first)
-        .filter(([f]) => !features.includes(f))
-        .map(([f, code]) => [f, name(code)]),
+      Object.entries(locks)
+        .filter(([, l]) => l.planName)
+        .map(([f, l]) => [f, l.planName!]),
     );
     const imp = ctx.impersonationSessionId
       ? await this.prisma.platform.impersonationSession.findUnique({
@@ -136,6 +272,7 @@ export class MeController {
       features,
       plan: { code: t.planCode, name: name(t.planCode) },
       lockedIn,
+      locks,
       user: u
         ? { name: u.name, email: u.email, roles: roles.map((r) => r.nameTh), locale: u.locale }
         : null,

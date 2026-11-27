@@ -14,6 +14,16 @@ export interface NotificationVars {
   'job.failed': { label: string };
   /** ฟีเจอร์ถูกปิด (แพ็กเกจ) หลังสั่งงาน → งานไม่ได้ทำ */
   'job.skipped': { label: string };
+  /**
+   * P1-ST1-T02 ผู้ใช้ที่ไม่มีสิทธิ์จัดการแพ็กเกจกด "แจ้งผู้ดูแลระบบ" ในหน้าแนะนำโมดูลที่ไม่รวมในแพ็กเกจ (spec/01 PLT-076)
+   * feature = ชื่อโมดูล (ไทย จากแคตตาล็อก) · requester = ชื่อผู้ขอ (safeName) · featureKey/requesterId ใช้กันส่งซ้ำ 24 ชม.
+   */
+  'feature.upgrade_requested': {
+    feature: string;
+    requester: string;
+    featureKey: string;
+    requesterId: string;
+  };
   /** ST1-T19 งานนำเข้าไฟล์ใหญ่ (job) — label = ชนิดข้อมูล (ชื่อไฟล์) */
   'import.validated': ImportVars;
   'import.file_failed': ImportVars;
@@ -497,6 +507,16 @@ const TEMPLATES: {
     en: ({ label }) => ({
       title: 'Job not run',
       body: `${label} was not run because the current plan does not include this feature.`,
+    }),
+  },
+  'feature.upgrade_requested': {
+    th: (v) => ({
+      title: 'มีผู้ขอใช้โมดูลที่ไม่รวมในแพ็กเกจ',
+      body: `${v.requester} ขอใช้ ${v.feature} ซึ่งไม่รวมในแพ็กเกจปัจจุบัน — อัปเกรดแพ็กเกจหรือซื้อ add-on ได้ที่ ตั้งค่า → แพ็กเกจและการเรียกเก็บเงิน`,
+    }),
+    en: (v) => ({
+      title: 'A module outside your plan was requested',
+      body: `${v.requester} asked to use ${v.feature}, which is not included in the current plan — upgrade or add it in Settings → Plan & billing.`,
     }),
   },
   'import.validated': {

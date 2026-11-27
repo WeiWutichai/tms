@@ -17,6 +17,7 @@ export function Sidebar({
   role,
   scopes,
   features,
+  locks,
   onLogout,
 }: {
   mini: boolean;
@@ -28,8 +29,10 @@ export function Sidebar({
   role?: string;
   /** scope ของผู้ใช้จาก /me — เมนูที่ไม่มีสิทธิ์ถูกซ่อน */
   scopes: readonly string[];
-  /** ฟีเจอร์ของแพ็กเกจ (ST1-T18) — เมนูของฟีเจอร์ที่ปิดถูกซ่อน */
+  /** ฟีเจอร์ที่เปิดอยู่ (ST1-T18) — ใช้ตัดสินส่วนที่ขึ้นกับฟีเจอร์ (เช่น แถบ ERP ท้ายเมนู) */
   features?: readonly string[];
+  /** ฟีเจอร์ที่ไม่รวมในแพ็กเกจ (P1-ST1-T02 — `locks` ของ /me) → เมนูขึ้น 🔒 ไม่ซ่อน (PLT-076) */
+  locks?: Readonly<Record<string, unknown>>;
   onLogout: () => void;
 }) {
   const { t } = useI18n();
@@ -285,7 +288,7 @@ export function Sidebar({
                     : setOpen((o) => ({ ...o, [g.key]: !o[g.key] }))
                 }
                 go={(p) => nav(p)}
-                features={features}
+                locks={locks}
                 badges={badges}
               />
             ))}
@@ -522,12 +525,12 @@ function Group({
   isOn,
   onToggle,
   go,
-  features,
+  locks,
   badges = {},
 }: {
   /** ตัวนับงานค้างต่อ key ของเมนู (D68-89 — `GET /v1/me/badges`) */
   badges?: Readonly<Record<string, number>>;
-  features?: readonly string[];
+  locks?: Readonly<Record<string, unknown>>;
   g: NavGroup;
   mini: boolean;
   open: boolean;
@@ -633,7 +636,7 @@ function Group({
             >
               {label}
             </span>
-            {isLocked(g.feature, features) && (
+            {isLocked(g.feature, locks) && (
               <Icon
                 n="lock"
                 s={12}
@@ -727,7 +730,7 @@ function Group({
                 >
                   {t(k.label)}
                 </span>
-                {isLocked(k.feature, features) && (
+                {isLocked(k.feature, locks) && (
                   <Icon
                     n="lock"
                     s={12}

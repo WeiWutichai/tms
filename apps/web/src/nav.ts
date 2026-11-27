@@ -368,6 +368,16 @@ export function featureOf(path: string): string | undefined {
   return undefined;
 }
 
-/** ฟีเจอร์ที่ยังไม่อยู่ในแพ็กเกจ → แสดงเมนูพร้อมไอคอน 🔒 (ไม่ซ่อน — spec/01 PLT-076, ต้นแบบ lockOf) */
-export const isLocked = (feature: string | undefined, features?: readonly string[]) =>
-  !!feature && !!features && !features.includes(feature);
+/**
+ * สิทธิ์จัดการแพ็กเกจ (ปุ่ม "อัปเกรด/ซื้อ Add-on" ในหน้าโมดูลที่ล็อก — PLT-076) · `billing.manage` มากับ P1-ST3-T03
+ * ระหว่างนี้ใช้ `settings:write` (owner/admin) เหมือน API (`BILLING_MANAGE_STANDIN` ใน me.controller) — spec/12 §3
+ */
+export const BILLING_MANAGE = 'settings:write';
+
+/**
+ * ฟีเจอร์ที่ไม่รวมในแพ็กเกจ → แสดงเมนูพร้อมไอคอน 🔒 (ไม่ซ่อน — spec/01 PLT-076, ต้นแบบ lockOf)
+ * `locks` = `locks` ของ /me (P1-ST1-T02): คิดจากแพ็กเกจ + add-on + override ก่อนตัดตามสถานะ tenant และไม่มีฟีเจอร์พื้นฐานเลย
+ * → ฟีเจอร์พื้นฐานไม่ขึ้น 🔒 ทุกกรณี (PLT-077) · tenant ถูกระงับไม่ทำให้ทุกเมนูขึ้น 🔒 (banner สถานะเป็นคนบอก)
+ */
+export const isLocked = (feature: string | undefined, locks?: Readonly<Record<string, unknown>>) =>
+  !!feature && !!locks && Object.prototype.hasOwnProperty.call(locks, feature);
