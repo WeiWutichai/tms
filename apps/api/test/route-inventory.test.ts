@@ -53,6 +53,8 @@ const PUBLIC_ROUTES: Record<string, string> = {
     'token ขาเข้าต่อ connector (ผูก tenant) + ลายเซ็น (inbound-webhook.test.ts)',
   'GET /v1/public/tracking/pod-image/:doc':
     'URL ลายเซ็น preview อายุ 15 นาที · เฉพาะรูป POD · ตัด EXIF (tracking-link.test.ts)',
+  'GET /v1/public/tracking/logo/:doc':
+    'P1-ST6-T04 URL ลายเซ็น preview อายุ 15 นาที · เฉพาะไฟล์ kind LOGO (PNG/SVG ที่ล้างแล้ว) + CSP sandbox (org-logo.test.ts)',
 };
 
 /** route ที่ใช้ token ลูกค้าแต่มี path param ที่ไม่ใช่ `:id` (และไม่ใช่ `/external/:externalId`) */

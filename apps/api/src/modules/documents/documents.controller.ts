@@ -36,7 +36,16 @@ import { defaultFileStore, FILE_KEY_LOCK_NS, putFileLocked } from '../../pdf/fil
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { ImportRegistry, importSpecAllowed } from '../imports/import-spec';
 import { POD_LINK_PURPOSE, podLinkUsable } from '../trips/offer-links';
-import { ALLOWED_MIME, EXT, IMPORT_MIME, sniffMime, type AllowedMime } from './mime';
+import {
+  ALLOWED_MIME,
+  EXT,
+  IMPORT_MIME,
+  LOGO_MAX_BYTES,
+  LOGO_MIME,
+  sniffMime,
+  type AllowedMime,
+} from './mime';
+import { sanitizeSvg } from './svg-sanitize';
 import {
   DOWNLOAD_TTL_S,
   IMPORT_DOWNLOAD_TTL_S,
@@ -67,7 +76,9 @@ export class CreateDocumentDto {
   @ApiProperty({ enum: DOCUMENT_KINDS }) @IsIn([...DOCUMENT_KINDS]) kind!: string;
   @ApiProperty({
     enum: ALLOWED_MIME,
-    description: 'ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง',
+    description:
+      'ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง · kind `LOGO` (โลโก้องค์กร P1-ST6-T04) = `image/png` หรือ `image/svg+xml` ≤ 2 MB ' +
+      '(SVG ใช้ได้กับ LOGO เท่านั้น และถูกล้าง script/event handler/อ้างของภายนอก/foreignObject ก่อนเก็บ)',
   })
   @IsIn([...ALLOWED_MIME])
   mime!: AllowedMime;
@@ -191,7 +202,8 @@ const D_UPLOAD_409 = {
 };
 const D_UPLOAD_422 = {
   status: 422,
-  description: 'ไฟล์ว่าง / ใหญ่กว่าที่จองไว้ / เนื้อไฟล์ไม่ตรงชนิดที่ประกาศ',
+  description:
+    'ไฟล์ว่าง / ใหญ่กว่าที่จองไว้ / เนื้อไฟล์ไม่ตรงชนิดที่ประกาศ · `svg_unsafe` = SVG ของโลโก้ล้างไม่ได้ (ไม่ใช่ SVG)',
   examples: {
     validation_failed: DP('validation_failed', '/v1/documents/doc_3f2a…/content', {
       errors: [
@@ -272,6 +284,19 @@ export class DocumentsController {
     if ((body.kind === 'IMPORT') !== IMPORT_MIME.includes(body.mime))
       throw new ProblemException('validation_failed', undefined, [
         { field: 'mime', code: 'mime_not_allowed', message: 'mime is not allowed for this kind' },
+      ]);
+    // P1-ST6-T04 โลโก้องค์กร: PNG/SVG ≤ 2 MB · SVG ใช้ได้กับ LOGO เท่านั้น (ล้างก่อนเก็บ — svg-sanitize.ts)
+    if (body.kind === 'LOGO' ? !LOGO_MIME.includes(body.mime) : body.mime === 'image/svg+xml')
+      throw new ProblemException('validation_failed', undefined, [
+        { field: 'mime', code: 'mime_not_allowed', message: 'mime is not allowed for this kind' },
+      ]);
+    if (body.kind === 'LOGO' && body.bytes > LOGO_MAX_BYTES)
+      throw new ProblemException('validation_failed', undefined, [
+        {
+          field: 'bytes',
+          code: 'file_too_large',
+          message: `logo must be at most ${LOGO_MAX_BYTES} bytes`,
+        },
       ]);
     const existing = body.clientDocumentId
       ? await tx.storedDocument.findFirst({ where: { clientDocumentId: body.clientDocumentId } })
@@ -383,7 +408,14 @@ export class DocumentsController {
           'mime_mismatch',
           `file content is ${real ?? 'unknown'}, declared ${doc.mimeType}`,
         );
-      const f = await putFileLocked(tx, tenantId, data, EXT[real]);
+      let content = data;
+      if (real === 'image/svg+xml') {
+        // P1-ST6-T04 เก็บเฉพาะ SVG ที่ล้างแล้ว (script / event handler / อ้างของภายนอก / foreignObject ถูกตัด)
+        const clean = sanitizeSvg(data.toString('utf8'));
+        if (!clean) throw fail('svg_unsafe', 'SVG could not be sanitized');
+        content = Buffer.from(clean, 'utf8');
+      }
+      const f = await putFileLocked(tx, tenantId, content, EXT[real]);
       const ready = await tx.storedDocument.update({
         where: { id: docId },
         data: { status: 'READY', fileKey: f.key, sha256: f.sha256, sizeBytes: f.size },
@@ -424,6 +456,12 @@ export class DocumentsController {
     );
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, no-store');
+    // SVG (โลโก้ — ล้างแล้ว) เปิดตรงในเบราว์เซอร์ต้องไม่รันอะไร
+    if (doc.mimeType === 'image/svg+xml')
+      res.setHeader(
+        'Content-Security-Policy',
+        "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+      );
     return new StreamableFile(data);
   }
 

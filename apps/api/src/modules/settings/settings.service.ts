@@ -5,6 +5,7 @@ import { tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { LOGO_MIME } from '../documents/mime';
 import { stableStringify } from '../master/master-kit';
 import {
   normalizeSetting,
@@ -156,6 +157,23 @@ export class SettingsService {
         errors.some((e) => e.field === `values.${key}`)
       )
         continue;
+      if (def.type.entity === 'document') {
+        // P1-ST6-T04 โลโก้: ไฟล์ของบริษัทนี้ (RLS) ที่อัปโหลดเสร็จ kind LOGO ชนิด PNG/SVG
+        const id = tryDecodeId('document', v);
+        const d = id ? await tx.storedDocument.findUnique({ where: { id } }) : null;
+        if (
+          !d ||
+          d.status !== 'READY' ||
+          d.kind !== 'LOGO' ||
+          !LOGO_MIME.includes(d.mimeType as never)
+        )
+          errors.push({
+            field: `values.${key}`,
+            code: 'invalid_setting',
+            message: 'logo document not found or not a ready PNG/SVG logo',
+          });
+        continue;
+      }
       const id = tryDecodeId('company', v);
       const c = id ? await tx.company.findUnique({ where: { id } }) : null;
       if (!c || c.status !== 'ACTIVE')

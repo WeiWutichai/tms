@@ -1,6 +1,9 @@
+import { looksLikeSvg } from './svg-sanitize';
+
 /**
  * ตรวจชนิดไฟล์จากเนื้อไฟล์ (magic bytes) ไม่เชื่อนามสกุล/Content-Type ที่ส่งมา (ST1-T08; docs/04 I "ตรวจ MIME จริง")
  * รองรับเฉพาะชนิดที่ระบบใช้: PDF, PNG, JPEG, WebP + ไฟล์นำเข้า .xlsx/.csv (ST1-T19 — kind IMPORT เท่านั้น)
+ * + SVG (P1-ST6-T04 — kind LOGO เท่านั้น · ล้างด้วย `sanitizeSvg` ก่อนเก็บ)
  */
 export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 export const ALLOWED_MIME = [
@@ -10,6 +13,7 @@ export const ALLOWED_MIME = [
   'image/webp',
   XLSX_MIME,
   'text/csv',
+  'image/svg+xml',
 ] as const;
 /** ชนิดไฟล์ของ kind IMPORT (และ kind อื่นใช้ชนิดเหล่านี้ไม่ได้) */
 export const IMPORT_MIME: readonly AllowedMime[] = [XLSX_MIME, 'text/csv'];
@@ -21,7 +25,11 @@ export const EXT: Record<AllowedMime, string> = {
   'image/webp': 'webp',
   [XLSX_MIME]: 'xlsx',
   'text/csv': 'csv',
+  'image/svg+xml': 'svg',
 };
+/** P1-ST6-T04 โลโก้องค์กร: PNG หรือ SVG ≤ 2 MB (SVG ใช้ได้กับ kind LOGO เท่านั้น) */
+export const LOGO_MIME: readonly AllowedMime[] = ['image/png', 'image/svg+xml'];
+export const LOGO_MAX_BYTES = 2 * 1024 * 1024;
 
 export function sniffMime(buf: Buffer): AllowedMime | null {
   if (buf.length >= 5 && buf.subarray(0, 5).toString('latin1') === '%PDF-')
@@ -43,6 +51,8 @@ export function sniffMime(buf: Buffer): AllowedMime | null {
     const head = buf.subarray(0, Math.min(buf.length, 1 << 20)).toString('latin1');
     return head.includes('[Content_Types].xml') && head.includes('xl/') ? XLSX_MIME : null;
   }
+  // P1-ST6-T04 SVG (markup ที่ root เป็น <svg>) — ตรวจก่อน csv ที่ปฏิเสธ markup
+  if (looksLikeSvg(buf)) return 'image/svg+xml';
   // csv = ข้อความล้วน (ไม่มี byte 0 และไม่มีอักขระควบคุมนอกจาก tab/CR/LF) — UTF-8 หรือ TIS-620
   const probe = buf.subarray(0, Math.min(buf.length, 64 * 1024));
   // ไม่รับเอกสาร markup (HTML/SVG/XML) ที่ปลอมเป็น CSV

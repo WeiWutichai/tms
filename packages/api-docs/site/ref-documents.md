@@ -20,7 +20,7 @@ scope: `documents:write` · operationId: `Documents_create`
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `kind` | ใช่ | `string` | ค่า: `POD_PHOTO`, `POD_SIGNATURE`, `POD_FILE`, `SIGNATURE`, `LOGO`, `PDF`, `VEHICLE_DOC`, `RECEIPT`, `WHT_CERT`, `CONTRACT`, `IMPORT`, `OTHER` |   |   |
-| `mime` | ใช่ | `string` | ค่า: `application/pdf`, `image/png`, `image/jpeg`, `image/webp`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `text/csv` | ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง |   |
+| `mime` | ใช่ | `string` | ค่า: `application/pdf`, `image/png`, `image/jpeg`, `image/webp`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `text/csv`, `image/svg+xml` | ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง · kind `LOGO` = `image/png` หรือ `image/svg+xml` ≤ 2 MB (SVG ใช้ได้กับ LOGO เท่านั้น และถูกล้าง script/event handler/อ้างของภายนอก/foreignObject ก่อนเก็บ) |   |
 | `bytes` | ใช่ | `number` |   | ขนาดไฟล์ (byte) ไม่เกิน 10485760 | `182044` |
 | `filename` |   | `string` |   |   | `pod-SO-2611-0001.jpg` |
 | `clientDocumentId` |   | `string` |   | id ฝั่ง client (อุปกรณ์) — ส่งซ้ำได้ ไม่สร้างแถวใหม่ |   |
@@ -146,7 +146,7 @@ scope: — · operationId: `Documents_upload`
 | `200` |   | `DocumentDto` |
 | `404` | ลายเซ็นของ URL ผิด/หมดอายุ หรือไม่พบไฟล์ (ผิดเกิน 30 ครั้ง/นาที/IP → 429) — [not_found](errors.md#not_found) | `ProblemDto` |
 | `409` | อัปโหลดแล้ว (ไฟล์เขียนครั้งเดียว) — [invalid_state_transition](errors.md#invalid_state_transition) | `ProblemDto` |
-| `422` | ไฟล์ว่าง / ใหญ่กว่าที่จองไว้ / เนื้อไฟล์ไม่ตรงชนิดที่ประกาศ — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `422` | ไฟล์ว่าง / ใหญ่กว่าที่จองไว้ / เนื้อไฟล์ไม่ตรงชนิดที่ประกาศ · `svg_unsafe` = SVG ของโลโก้ล้างไม่ได้ (ไม่ใช่ SVG) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
 
 **ตัวอย่าง**

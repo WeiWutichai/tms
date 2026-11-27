@@ -29,6 +29,13 @@ export class TrackingCompanyDto {
     description: 'เบอร์บริษัท (ค่าตั้ง tracking.contactPhone) — ไม่ใช่เบอร์คนขับ · null = ไม่ตั้ง',
   })
   phone!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'P1-ST6-T04 (D68-93) URL โลโก้บริษัท (ค่าตั้ง org.logoDocumentId) — ลายเซ็นหมดอายุ 15 นาที · null = ไม่ตั้ง (แสดงไอคอนตามเดิม)',
+  })
+  logoUrl!: string | null;
 }
 
 export class TrackingStepDto {

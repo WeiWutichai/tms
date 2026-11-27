@@ -35,6 +35,8 @@ export interface BillingNotePrintInvoice {
 
 export interface BillingNotePrintModel {
   yearStyle: 'BE' | 'CE';
+  /** P1-ST6-T04 โลโก้องค์กร (`data:` URI) — null/ไม่มี = กล่องตัวย่อชื่อตามต้นแบบ */
+  logo?: string | null;
   /** null = ร่าง */
   billingNoteNo: string | null;
   copy: 'ORIGINAL' | 'COPY' | null;
@@ -79,6 +81,7 @@ export function billingNoteDocument(m: BillingNotePrintModel) {
   return financeDocument({
     yearStyle: m.yearStyle,
     title: 'ใบวางบิล',
+    logo: m.logo ?? null,
     titleEn: 'BILLING NOTE',
     docNo: m.billingNoteNo,
     copyLabel:

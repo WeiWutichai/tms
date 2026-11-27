@@ -97,6 +97,52 @@ test.describe('ตั้งค่า: องค์กร / ภาษี / คว
   });
 });
 
+test.describe('ตั้งค่า → องค์กร: โลโก้ (P1-ST6-T04)', () => {
+  test('เปลี่ยนโลโก้: อัปโหลด SVG ที่มี script → แสดงรูปในกล่อง · ค่าตั้งเป็นไฟล์ที่ล้างแล้ว · ไฟล์ผิดชนิด = ข้อความไทย', async ({
+    page,
+  }) => {
+    await page.goto('/settings?sec=org');
+    const btn = page.getByRole('button', { name: 'เปลี่ยนโลโก้' });
+    await expect(btn).toBeEnabled();
+    const input = page.getByTestId('org-logo-input');
+    await input.setInputFiles({
+      name: 'bad.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from([0xff, 0xd8, 0xff, 0x00]),
+    });
+    await expect(page.getByRole('alert')).toHaveText(
+      'ไฟล์โลโก้ต้องเป็น PNG หรือ SVG ขนาดไม่เกิน 2 MB',
+    );
+    const saved = page.waitForResponse(
+      (r) => r.url().endsWith('/v1/settings') && r.request().method() === 'PATCH',
+    );
+    await input.setInputFiles({
+      name: 'logo.svg',
+      mimeType: 'image/svg+xml',
+      buffer: Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" onload="alert(1)"><script>alert(2)</script><rect width="10" height="10" fill="#13213F"/></svg>',
+      ),
+    });
+    const res = await saved;
+    expect(res.status()).toBe(200);
+    await expect(page.getByRole('status')).toContainText('บันทึกโลโก้แล้ว');
+    const img = page.getByTestId('org-logo').locator('img');
+    await expect(img).toBeVisible();
+    // ไฟล์ที่เก็บ = SVG ที่ล้างแล้ว
+    const src = await img.getAttribute('src');
+    const body = await (await page.request.get(src!)).text();
+    expect(body).toContain('<rect width="10" height="10" fill="#13213F"/>');
+    expect(body).not.toMatch(/script|onload|alert/);
+    // คืนค่า (spec อื่นไม่ต้องเห็นโลโก้) — ใช้ token เดียวกับคำขอของหน้า
+    const auth = (await res.request().allHeaders())['authorization']!;
+    const reset = await page.request.patch('/v1/settings', {
+      headers: { Authorization: auth },
+      data: { values: { 'org.logoDocumentId': null } },
+    });
+    expect(reset.status()).toBe(200);
+  });
+});
+
 test.describe('ตั้งค่า (viewer)', () => {
   test.use({ loginEmail: 'viewer@demo-a.test' });
   test('เห็นเฉพาะ "การแจ้งเตือน" (ของตัวเอง — ST9-T08) + "เหตุผล" แบบอ่านอย่างเดียว (ST2-T12: master:read)', async ({
