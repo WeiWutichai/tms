@@ -42,7 +42,7 @@ jobs:
       - run: git config --global --add safe.directory '*'
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: pnpm }
+        with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - name: .env สำหรับ test/e2e (อ่านจาก .env แล้วสลับเป็น tms_test / tms_e2e)
         run: env | grep -E '^(DATABASE_URL|APP_DATABASE_URL|PLATFORM_DATABASE_URL|AUTH_DEV_SECRET|FIELD_ENCRYPTION_KEYS|BLIND_INDEX_KEY)=' > .env
@@ -59,6 +59,8 @@ jobs:
         run: pnpm --filter @tms/api openapi:check
       - name: เอกสาร API / Postman / llms.txt ต้องสร้างใหม่จาก openapi.json แล้ว (ST7-T12)
         run: pnpm --filter @tms/api-docs docs:check
+      - name: help center ต้องสร้างใหม่จากบทความ/catalog error แล้ว · ลิงก์และภาพไม่ขาด (P1-ST6-T01)
+        run: pnpm --filter "@tms/help-center^..." build && pnpm --filter @tms/help-center docs:check
       - name: OpenAPI breaking-change gate (เทียบกับ base branch)
         if: github.event_name == 'pull_request'
         run: |
@@ -78,6 +80,15 @@ jobs:
           if-no-files-found: ignore
       - name: CVE gate (critical = แดง)
         run: pnpm audit --audit-level=critical
+
+  # P1-ST6-T07 (review S3) สแกน CVE ของ image — แยก job บน runner ที่มี docker (job verify รันใน container ไม่มี docker)
+  scan-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: CVE ของ image ที่ deploy (critical ที่มีรุ่นแก้ = แดง)
+        run: SCAN_IMAGES=1 bash scripts/scan-images.sh
 
   deploy-staging:
     needs: verify

@@ -2,7 +2,7 @@
 # ST0-T03 — เว็บ (SPA ไฟล์ static จาก vite build) เสิร์ฟด้วย Caddy · /v1 ไม่ผ่าน image นี้ (reverse proxy ส่งไป API เอง)
 # build จากราก repo:  docker build -f infra/deploy/web.Dockerfile -t tms/web:<tag> .
 # [DECISION — lead 25 พ.ย. 2569, ย้อนได้] Caddy แทน nginx: image เดียวกับ reverse proxy (TLS อัตโนมัติ) — ลดของที่ต้องดูแล
-ARG NODE_IMAGE=node:20-bookworm-slim
+ARG NODE_IMAGE=node:22-bookworm-slim
 ARG CADDY_IMAGE=caddy:2.11-alpine
 
 FROM ${NODE_IMAGE} AS build

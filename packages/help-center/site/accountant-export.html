@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ส่งออกไฟล์ให้นักบัญชี · ศูนย์ช่วยเหลือ TMS</title>
+<link rel="alternate" type="text/markdown" href="accountant-export.md">
+<style>:root{--ink:#101418;--muted:#59606B;--line:#E4E6E0;--desk:#f5f5f4;--sheet:#FFFFFF;--side:#F4F5F2;--accent:#2257C4;--code:#EEF0EC;--soon-bg:#FFF4D6;--soon-ink:#7A5200}
+*{box-sizing:border-box}
+body{margin:0;font-family:'IBM Plex Sans Thai Looped','IBM Plex Sans',system-ui,sans-serif;color:var(--ink);background:var(--desk);font-size:15px;line-height:1.7}
+a{color:var(--accent)}
+.top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:16px;padding:10px 24px;background:var(--sheet);border-bottom:1px solid var(--line)}
+.top .brand{font-weight:600;font-size:16px;color:var(--ink);text-decoration:none;white-space:nowrap}
+.search{position:relative;flex:1;max-width:520px}
+.search input{width:100%;font:inherit;font-size:14px;padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:var(--side)}
+.search input:focus{outline:2px solid var(--accent);outline-offset:0;background:#fff}
+.results{position:absolute;left:0;right:0;top:calc(100% + 4px);background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 2px 10px rgba(20,20,19,.12);max-height:60vh;overflow:auto;display:none}
+.results.on{display:block}
+.results a{display:block;padding:8px 12px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--line)}
+.results a:last-child{border-bottom:0}
+.results a:hover,.results a.sel{background:var(--side)}
+.results small{display:block;color:var(--muted);font-size:12px}
+.results .none{padding:8px 12px;color:var(--muted);font-size:13px}
+.desk{display:flex;gap:24px;align-items:flex-start;justify-content:center;padding:48px 24px}
+nav.side{width:232px;flex:none;position:sticky;top:72px;font-size:13.5px}
+nav.side h4{font-size:12px;color:var(--muted);margin:16px 0 4px;font-weight:600}
+nav.side h4:first-child{margin-top:0}
+nav.side a{display:block;padding:3px 8px;border-radius:6px;text-decoration:none;color:var(--ink)}
+nav.side a.on{background:var(--sheet);color:var(--accent);font-weight:600}
+.sheet{width:8.5in;max-width:100%;min-width:0;background:var(--sheet);box-shadow:0 2px 10px rgba(20,20,19,.12);border-radius:7px;padding:.75in}
+.sheet h1{font-size:26px;line-height:1.3;margin:0 0 12px;text-wrap:balance}
+.sheet h2{font-size:19px;margin:32px 0 8px;padding-top:12px;border-top:1px solid var(--line);text-wrap:balance}
+.sheet h3{font-size:16px;margin:22px 0 6px}
+.sheet p,.sheet li{text-wrap:pretty}
+.sheet img{display:block;max-width:100%;height:auto;margin:12px 0;border:1px solid var(--line);border-radius:7px}
+code{font-family:'IBM Plex Mono',monospace;font-size:13px;background:var(--code);padding:1px 4px;border-radius:4px}
+pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto}pre code{background:none;padding:0}
+.table{overflow-x:auto}table{border-collapse:collapse;width:100%;margin:8px 0;font-size:14px}th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}th{background:var(--side);font-weight:600}
+td[id]{scroll-margin-top:72px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid var(--accent);background:var(--side);border-radius:0 6px 6px 0}
+.soon{display:inline-block;font-size:12px;font-weight:600;color:var(--soon-ink);background:var(--soon-bg);border-radius:999px;padding:1px 10px;margin-left:6px;vertical-align:middle}
+.md-link{float:right;font-size:12px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin:12px 0 24px}
+.card{display:block;border:1px solid var(--line);border-radius:7px;padding:12px 14px;text-decoration:none;color:var(--ink)}
+.card:hover{border-color:var(--accent)}
+.card b{display:block;margin-bottom:2px}
+.card span{color:var(--muted);font-size:13px}
+@media (max-width:1100px){nav.side{display:none}}
+@media (max-width:800px){.top{flex-wrap:wrap;padding:10px 16px}.search{flex-basis:100%;max-width:none}.desk{display:block;padding:16px}.sheet{width:auto;padding:20px}}
+@media print{.top,nav.side,.md-link{display:none}body{background:none}.desk{padding:0}.sheet{box-shadow:none;border-radius:0;width:auto;padding:0}}</style>
+</head>
+<body>
+<header class="top">
+<a class="brand" href="index.html">ศูนย์ช่วยเหลือ TMS</a>
+<div class="search" role="search"><input id="q" type="search" placeholder="ค้นหาวิธีใช้งานหรือข้อความ error" aria-label="ค้นหา" autocomplete="off"><div id="results" class="results"></div></div>
+</header>
+<div class="desk">
+<nav class="side" aria-label="หมวดบทความ"><h4>เริ่มต้นใช้งาน</h4><a href="signup-trial.html">สมัครใช้งานและทดลองใช้ <span class="soon">เร็ว ๆ นี้</span></a><a href="company-setup.html">ตั้งค่าองค์กร</a><a href="import-data.html">นำเข้าข้อมูล</a><h4>งานขนส่ง</h4><a href="orders.html">รับงาน (ใบสั่งขนส่ง)</a><a href="dispatch.html">จัดรถและปล่อยเที่ยว</a><a href="subcontractor-link.html">ส่งงานให้รถร่วมผ่านลิงก์</a><a href="pod.html">หลักฐานการส่ง (POD)</a><h4>การเงิน</h4><a href="billing.html">วางบิลและออกใบแจ้งหนี้</a><a href="payments.html">รับชำระจากลูกค้า</a><a href="carrier-settlement.html">จ่ายรถร่วม (ใบสำคัญจ่าย)</a><a href="accountant-export.html" class="on">ส่งออกไฟล์ให้นักบัญชี</a><h4>เชื่อมระบบบัญชี</h4><a href="connect-flowaccount-peak.html">เชื่อม FlowAccount / PEAK <span class="soon">เร็ว ๆ นี้</span></a><h4>บัญชีและแพ็กเกจ</h4><a href="plans-billing.html">แพ็กเกจและการชำระค่าบริการ <span class="soon">เร็ว ๆ นี้</span></a><h4>อ้างอิง</h4><a href="errors.html">รหัส error ของระบบ</a><a href="connector-errors.html">error การเชื่อมระบบบัญชี</a></nav>
+<main class="sheet">
+<a class="md-link" href="accountant-export.md">Markdown</a>
+<h1 id="ส่งออกไฟล์ให้นักบัญชี">ส่งออกไฟล์ให้นักบัญชี</h1>
+<p>สำหรับกิจการที่ไม่ได้เชื่อมระบบบัญชี หรือต้องการไฟล์ส่งสำนักงานบัญชี — นักบัญชีนำไฟล์ไปบันทึกและออกเอกสารภาษีในโปรแกรมบัญชี</p>
+<h2 id="ขั้นตอน">ขั้นตอน</h2>
+<ol><li>กดปุ่ม <strong>ส่งออกให้นักบัญชี</strong> ที่หน้า วางบิลและใบแจ้งหนี้ · รับชำระ · หรือ Settlement รถร่วม</li><li>เลือก &quot;งวด&quot; (เดือน หรือไตรมาส) และ &quot;ชนิดไฟล์&quot; (Excel / CSV)</li><li>เลือก &quot;ชุดข้อมูล&quot;: <strong>รายการขาย</strong> (ใบแจ้งหนี้ที่ออกแล้ว แสดงใบที่ยกเลิกแยกยอด) · <strong>รับชำระ</strong> · <strong>จ่ายรถร่วม</strong> (Settlement ที่บันทึกจ่ายแล้ว) · <strong>หัก ณ ที่จ่าย</strong> (ประมาณการ ไม่ใช่แบบยื่น)</li><li>&quot;รูปแบบไฟล์&quot; ใช้ <strong>ทั่วไป</strong> (หัวคอลัมน์ภาษาไทย) · แม่แบบของ Express / PEAK / FlowAccount ยังไม่เปิดใช้</li><li>กด <strong>ส่งออก</strong> แล้วยืนยันตัวตน 2 ชั้น — ไฟล์ใหญ่ระบบทำต่อเบื้องหลังและแจ้งเตือนเมื่อพร้อม (เก็บไว้ 7 วัน)</li></ol>
+<h2 id="ข้อควรรู้">ข้อควรรู้</h2>
+<ul><li>ไฟล์หัก ณ ที่จ่ายเป็น<strong>ยอดประมาณการ</strong>จากที่บันทึกใน TMS ไม่ใช่แบบ ภ.ง.ด. หรือหนังสือรับรอง 50 ทวิ</li><li>เลขบัตรประชาชนเต็มของผู้รับเหมาบุคคลธรรมดา แสดงเฉพาะผู้มีสิทธิ์ (เจ้าของ บัญชี) — คนอื่นเห็นเฉพาะ 4 หลักท้าย · การส่งออกที่มีเลขบัตรประชาชนถูกบันทึกในประวัติทุกครั้ง</li></ul>
+<p><img src="images/billing.png" alt="หน้าวางบิลพร้อมปุ่มส่งออกให้นักบัญชี" loading="lazy"></p>
+</main>
+</div>
+<script src="search-index.js"></script>
+<script>(function(){var box=document.getElementById('q'),out=document.getElementById('results');if(!box||!out)return;var sel=-1;
+function norm(s){return (s||'').toLowerCase().normalize('NFC')}
+function run(){var q=norm(box.value).trim();out.innerHTML='';sel=-1;if(!q){out.classList.remove('on');return}
+var terms=q.split(/\s+/),idx=window.HELP_INDEX||[],hits=[];
+for(var i=0;i<idx.length;i++){var d=idx[i],t=norm(d.t),b=norm(d.b),ok=true,score=0;
+for(var j=0;j<terms.length;j++){var w=terms[j];if(t.indexOf(w)>=0)score+=10;else if(b.indexOf(w)>=0)score+=1;else{ok=false;break}}
+if(ok)hits.push([score,i])}
+hits.sort(function(a,b){return b[0]-a[0]||a[1]-b[1]});
+if(!hits.length){out.innerHTML='<div class="none">ไม่พบผลลัพธ์ ลองใช้คำอื่น</div>'}
+hits.slice(0,12).forEach(function(h){var d=idx[h[1]],a=document.createElement('a');a.href=d.u;a.textContent=d.t;var s=document.createElement('small');s.textContent=d.g;a.appendChild(s);out.appendChild(a)});
+out.classList.add('on')}
+box.addEventListener('input',run);
+box.addEventListener('keydown',function(e){var as=out.querySelectorAll('a');if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();if(!as.length)return;sel=(sel+(e.key==='ArrowDown'?1:-1)+as.length)%as.length;as.forEach(function(a,k){a.classList.toggle('sel',k===sel)})}else if(e.key==='Enter'){var t=as[sel>=0?sel:0];if(t)location.href=t.href}else if(e.key==='Escape'){out.classList.remove('on')}});
+document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('.search'))out.classList.remove('on')});
+})();</script>
+</body>
+</html>
