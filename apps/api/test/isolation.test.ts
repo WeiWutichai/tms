@@ -1282,6 +1282,10 @@ describe('tenant isolation harness', () => {
     platform_audit_log: 'audit การกระทำระดับแพลตฟอร์ม (P1-ST1-T01/T04) — role แอปเข้าไม่ได้',
     platform_setting: 'ค่าตั้งของแพลตฟอร์ม (P1-ST1-T04) — role แอปเข้าไม่ได้',
     platform_user: 'ทีม Innovera (Console)',
+    // P1-ST2-T03/T04 (ก่อนมีบริษัท — รายละเอียด/สิทธิ์ตรวจใน (5) PLATFORM_ONLY_TABLES)
+    signup_session: 'P1-ST2-T03 การสมัครเอง — ยังไม่มีบริษัท (client platform เท่านั้น)',
+    company_lookup: 'P1-ST2-T04 cache ผลค้นข้อมูลบริษัทจากกรมสรรพากร (ข้อมูลสาธารณะของนิติบุคคล)',
+    company_lookup_log: 'P1-ST2-T04 log การส่งเลขผู้เสียภาษีออกภายนอก (PDPA) — append-only',
     rate_limit_bucket: 'ถัง rate limit (key เป็น hash ของ tenant/key/user)',
     tenant: 'ตาราง tenant เอง — RLS ด้วยคอลัมน์ id (ตรวจใน (1))',
     worker_heartbeat: 'สถานะ worker — ไม่มีข้อมูลลูกค้า',
