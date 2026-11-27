@@ -23,6 +23,9 @@ export const GROUPS = [
 ] as const;
 
 export const SEARCH_FILE = 'search-index.js';
+/** สคริปต์ค้นหาเป็นไฟล์แยก (ไม่ inline) — P1-ST6-T02 เสิร์ฟ help center ใต้ `/help/` ของเว็บ ซึ่ง CSP `script-src 'self'` ห้าม inline script */
+export const SEARCH_JS_FILE = 'search.js';
+
 export const SOON_LABEL = 'เร็ว ๆ นี้';
 const BRAND = 'ศูนย์ช่วยเหลือ TMS';
 
@@ -145,7 +148,7 @@ ${main}
 </main>
 </div>
 <script src="${SEARCH_FILE}"></script>
-<script>${SEARCH_JS.trim()}</script>
+<script src="${SEARCH_JS_FILE}"></script>
 </body>
 </html>
 `;
@@ -275,5 +278,6 @@ export function buildSite(
     files.set(`${p.slug}.html`, articleHtml(p, pages));
   }
   files.set(SEARCH_FILE, searchIndex(pages, extra));
+  files.set(SEARCH_JS_FILE, SEARCH_JS.trim() + '\n');
   return files;
 }

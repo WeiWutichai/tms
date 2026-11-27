@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { checkSite, REQUIRED_FLOWS } from './check';
 import { connectorEntries, problemCodes } from './errors';
 import { loadInputs, parseArticle, parseProblemMessages, TH_I18N_PATH } from './inputs';
-import { buildSite, GROUPS, plainText, SEARCH_FILE } from './site';
+import { buildSite, GROUPS, plainText, SEARCH_FILE, SEARCH_JS_FILE } from './site';
 
 const { articles, doc, problemMessages } = loadInputs();
 const files = buildSite(articles, doc, problemMessages);
@@ -76,6 +76,36 @@ describe('help center (P1-ST6-T01)', () => {
     for (const a of articles) expect(idx.some((d) => d.u === `${a.slug}.html`)).toBe(true);
     for (const p of problems) expect(idx.some((d) => d.u === `errors.html#${p.code}`)).toBe(true);
     expect(files.get('index.html')).toContain(`<script src="${SEARCH_FILE}"></script>`);
+  });
+
+  it('P1-ST6-T02: ไม่มี inline script (เสิร์ฟใต้ /help/ ของเว็บที่ CSP script-src self)', () => {
+    expect(files.has(SEARCH_JS_FILE)).toBe(true);
+    for (const [name, body] of files)
+      if (name.endsWith('.html')) {
+        expect(body, name).not.toMatch(/<script>/);
+        expect(body, name).toContain(`<script src="${SEARCH_JS_FILE}"></script>`);
+      }
+  });
+
+  it('P1-ST6-T02: `type` ของ problem+json ทุกตัวใน openapi.json = https://docs.tms.example/problems/<code> ของตัวเอง และ code นั้นมีหัวข้อใน catalog', () => {
+    const anchors = new Set(problems.map((p) => p.code));
+    const bad: string[] = [];
+    let n = 0;
+    const walk = (o: unknown): void => {
+      if (Array.isArray(o)) return o.forEach(walk);
+      if (!o || typeof o !== 'object') return;
+      const v = o as Record<string, unknown>;
+      if (typeof v.code === 'string' && typeof v.type === 'string' && /^https?:/.test(v.type)) {
+        n++;
+        if (v.type !== `https://docs.tms.example/problems/${v.code}`)
+          bad.push(`${v.code} → ${v.type}`);
+        if (!anchors.has(v.code)) bad.push(`${v.code} ไม่มีหัวข้อใน errors.html`);
+      }
+      Object.values(v).forEach(walk);
+    };
+    walk(doc);
+    expect(n).toBeGreaterThan(100);
+    expect(bad).toEqual([]);
   });
 
   it('front matter ผิด = error ชัด · plainText ตัด markdown', () => {

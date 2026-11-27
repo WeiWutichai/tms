@@ -21,6 +21,7 @@ import {
   type Special,
   type Unit,
 } from './useProducts';
+import { ProblemAlert } from '../../help/ProblemAlert';
 
 interface AltRow {
   unitId: string;
@@ -374,7 +375,7 @@ export function ProductFormDrawer({
         </>
       }
     >
-      {topErr && <div className="tms-alert">{topErr}</div>}
+      {topErr && <ProblemAlert err={m.error} text={topErr} />}
       <section className="tms-fsec">
         <div className="tms-fgrid tms-fgrid--create">
           <FormField label={t('prd.f.code')} required error={errs.code}>

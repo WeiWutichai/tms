@@ -13,6 +13,7 @@ import {
   type ApiKeyWithSecret,
 } from './useApiKeys';
 import { modeOrder, type ApiMode } from './mode';
+import { ProblemAlert } from '../../help/ProblemAlert';
 
 const SEL: CSSProperties = { height: 40, padding: '0 12px', borderColor: '#CDD1C8', width: '100%' };
 const IPV4 = /^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/;
@@ -182,7 +183,7 @@ export function ApiKeyFormDrawer({
         </>
       }
     >
-      {topErr && <div className="tms-alert">{topErr}</div>}
+      {topErr && <ProblemAlert err={m.error} text={topErr} />}
       <section className="tms-fsec">
         <div className="tms-fgrid tms-fgrid--create">
           {!edit && (

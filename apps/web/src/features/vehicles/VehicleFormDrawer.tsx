@@ -12,6 +12,7 @@ import {
   type VehicleForm,
 } from './VehicleFields';
 import { useCreateVehicle, useVehicleTypeOptions, type Vehicle } from './useVehicles';
+import { ProblemAlert } from '../../help/ProblemAlert';
 
 /**
  * "เพิ่มรถ" — ต้นแบบ TMS v4 newWithCf('veh'): ส่วน "ข้อมูลหลัก" (ทะเบียน ประเภทรถ น้ำหนักบรรทุก) + "ข้อมูลเพิ่มเติม" (เลข GPS box)
@@ -120,7 +121,7 @@ export function VehicleFormDrawer({
           {t('veh.quota', { limit: quota!.limit!, used: quota!.used })}
         </div>
       )}
-      {topErr && <div className="tms-alert">{topErr}</div>}
+      {topErr && <ProblemAlert err={create.error} text={topErr} />}
       <section className="tms-fsec">
         <h3 className="tms-fsec__h">{t('veh.sec.main')}</h3>
         <div className="tms-fgrid tms-fgrid--create">

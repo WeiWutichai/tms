@@ -59,13 +59,13 @@ blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid var(--accent);ba
 <main class="sheet">
 <a class="md-link" href="dispatch.md">Markdown</a>
 <h1 id="จัดรถและปล่อยเที่ยว">จัดรถและปล่อยเที่ยว</h1>
-<h2 id="บนกระดานวางแผน">บนกระดานวางแผน</h2>
+<h2 id="board">บนกระดานวางแผน</h2>
 <ol><li>เปิดเมนู <strong>ปฏิบัติการ → กระดานวางแผน</strong> เลือก วันนี้ / พรุ่งนี้ / 7 วัน</li><li>ลาก SO จากรายการ <strong>SO รอจัด</strong> ทางซ้ายไปวางบนแถวรถ — ขอบเขียว = วางได้ · ขอบแดง = วางไม่ได้ · ระบบสร้างเที่ยวให้</li><li>กด <strong>ส่งแผนให้คนขับ</strong> เพื่อส่งแผนทั้งวัน</li></ol>
 <p><img src="images/plan-board.png" alt="กระดานวางแผน" loading="lazy"></p>
-<h2 id="ในหน้าเที่ยวรถ">ในหน้าเที่ยวรถ</h2>
+<h2 id="trips">ในหน้าเที่ยวรถ</h2>
 <ol><li>เปิด <strong>ปฏิบัติการ → เที่ยวรถ</strong> ลาก DO จาก <strong>DO รอเข้าเที่ยว</strong> ไปวางบนเที่ยว หรือบน <strong>เที่ยวใหม่</strong></li><li>เปิดเที่ยว ที่หัวข้อ &quot;รถ / คนขับ&quot; กด <strong>จัดรถ</strong> เลือกรถ (เรียงตามความเหมาะสม) คนขับ และคนขับสำรอง</li><li>กด <strong>ปล่อยเที่ยว</strong> · พิมพ์ใบคุมรถด้วย <strong>พิมพ์ใบคุมรถ</strong> หรือ <strong>ส่งให้คนขับ</strong></li><li>ถ้าใช้รถร่วม กด <strong>ส่งต่อรถร่วม</strong> — ดู <a href="subcontractor-link.html">ลิงก์รถร่วม</a></li></ol>
 <p><img src="images/trips.png" alt="หน้าเที่ยวรถ" loading="lazy"></p>
-<h2 id="คำเตือนและกฎห้ามจ่ายงาน">คำเตือนและกฎห้ามจ่ายงาน</h2>
+<h2 id="warnings">คำเตือนและกฎห้ามจ่ายงาน</h2>
 <ul><li><strong>คำเตือน</strong> เช่น น้ำหนักเกิน · เอกสารรถหมดอายุ · ใบขับขี่หมดอายุ · เวลาชนกัน — ยืนยันจัดรถต่อได้ด้วย <strong>อนุมัติยกเว้น</strong> พร้อมเหตุผล (บันทึกในประวัติ)</li><li><strong>ห้ามจ่ายงาน</strong> — ต้องแก้ข้อมูลให้ครบ หรือให้ผู้จัดการกด <strong>ยกเว้นกฎ</strong> พร้อมเหตุผล (ผู้วางแผนยกเว้นเองไม่ได้)</li></ul>
 <h2 id="สิทธิ์">สิทธิ์</h2>
 <p>จัดรถ: เจ้าของ ผู้ดูแลระบบ ผู้จัดการ ผู้วางแผน ผู้จ่ายงาน · ปล่อยเที่ยว: เจ้าของ ผู้ดูแลระบบ ผู้จัดการ ผู้จ่ายงาน</p>
@@ -74,20 +74,6 @@ blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid var(--accent);ba
 </main>
 </div>
 <script src="search-index.js"></script>
-<script>(function(){var box=document.getElementById('q'),out=document.getElementById('results');if(!box||!out)return;var sel=-1;
-function norm(s){return (s||'').toLowerCase().normalize('NFC')}
-function run(){var q=norm(box.value).trim();out.innerHTML='';sel=-1;if(!q){out.classList.remove('on');return}
-var terms=q.split(/\s+/),idx=window.HELP_INDEX||[],hits=[];
-for(var i=0;i<idx.length;i++){var d=idx[i],t=norm(d.t),b=norm(d.b),ok=true,score=0;
-for(var j=0;j<terms.length;j++){var w=terms[j];if(t.indexOf(w)>=0)score+=10;else if(b.indexOf(w)>=0)score+=1;else{ok=false;break}}
-if(ok)hits.push([score,i])}
-hits.sort(function(a,b){return b[0]-a[0]||a[1]-b[1]});
-if(!hits.length){out.innerHTML='<div class="none">ไม่พบผลลัพธ์ ลองใช้คำอื่น</div>'}
-hits.slice(0,12).forEach(function(h){var d=idx[h[1]],a=document.createElement('a');a.href=d.u;a.textContent=d.t;var s=document.createElement('small');s.textContent=d.g;a.appendChild(s);out.appendChild(a)});
-out.classList.add('on')}
-box.addEventListener('input',run);
-box.addEventListener('keydown',function(e){var as=out.querySelectorAll('a');if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();if(!as.length)return;sel=(sel+(e.key==='ArrowDown'?1:-1)+as.length)%as.length;as.forEach(function(a,k){a.classList.toggle('sel',k===sel)})}else if(e.key==='Enter'){var t=as[sel>=0?sel:0];if(t)location.href=t.href}else if(e.key==='Escape'){out.classList.remove('on')}});
-document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('.search'))out.classList.remove('on')});
-})();</script>
+<script src="search.js"></script>
 </body>
 </html>

@@ -177,6 +177,10 @@ describe('drawer + dialog ของคิว', () => {
     );
     expect(screen.getByRole('alert').textContent).toContain('งวดบัญชีปิดแล้ว');
     expect(screen.getByText('เปิดงวดแล้วส่งซ้ำ')).toBeTruthy();
+    // P1-ST6-T02 (K7): ลิงก์คู่มือของรหัสนี้ใน help center
+    expect(screen.getByRole('link', { name: 'อ่านคู่มือ' }).getAttribute('href')).toBe(
+      '/help/connector-errors.html#PERIOD_CLOSED',
+    );
     expect(screen.getAllByText('บริษัท ลูกค้า จำกัด').length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: 'ข้ามพร้อมเหตุผล' }));
     expect(onAsk).toHaveBeenLastCalledWith('skip', expect.objectContaining({ id: 'obx_1' }));

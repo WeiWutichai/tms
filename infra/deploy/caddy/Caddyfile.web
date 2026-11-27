@@ -27,6 +27,11 @@
 		-Server
 	}
 
+	# P1-ST6-T02 help center (packages/help-center/site → /srv/help) — ลิงก์ "คู่มือ" ในแอปชี้มาที่นี่ (VITE_HELP_CENTER_URL ค่าเริ่ม /help/)
+	redir /help /help/ 308
+	@helpRoot path /help/
+	rewrite @helpRoot /help/index.html
+
 	# SPA: path ที่ไม่ใช่ไฟล์ → index.html (react-router)
 	try_files {path} /index.html
 	file_server
