@@ -28,8 +28,10 @@ function renderLanding(
 const pageText = (c: HTMLElement) =>
   [c.textContent ?? '', ...[...c.querySelectorAll('img')].map((i) => i.alt)].join('\n');
 
+// ภาษาที่ test สลับถูกเก็บใน localStorage ของ jsdom (Node 20/22) — ล้างทุก test ไม่ให้ค้างไป test ถัดไป
 afterEach(() => {
   document.title = '';
+  localStorage.clear();
 });
 
 /**
