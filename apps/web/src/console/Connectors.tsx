@@ -273,7 +273,8 @@ export function ConnectorsPage() {
       )}
       {creating && (
         <CreateDialog
-          adapters={adapters.data?.data ?? []}
+          // P1-ST5-T01b ระบบที่ยังไม่เปิดให้เชื่อมต่อ (ConnectorDefinition) ไม่อยู่ในตัวเลือก
+          adapters={(adapters.data?.data ?? []).filter((a) => a.availability !== 'COMING_SOON')}
           onClose={() => setCreating(false)}
           onDone={(c, msg) => {
             setCreating(false);

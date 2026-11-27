@@ -70130,6 +70130,27 @@
             "items": {
               "$ref": "#/components/schemas/ConnectorConfigFieldDto"
             }
+          },
+          "availability": {
+            "type": "string",
+            "enum": [
+              "AVAILABLE",
+              "COMING_SOON"
+            ],
+            "description": "P1-b `AVAILABLE` = เชื่อมต่อได้ · `COMING_SOON` = ประกาศใน catalog (ConnectorDefinition) แต่ยังไม่มี adapter — หน้าจอแสดงการ์ดแต่ปิดปุ่มเชื่อมต่อ · `POST /connectors` ด้วย key นี้ → 422 `adapter_coming_soon` · `capabilities` = ที่วางแผนไว้ (อยู่ใน `capabilitiesPending` ทั้งหมด)"
+          },
+          "requiredFeature": {
+            "type": "string",
+            "example": "conn",
+            "description": "feature ของแพ็กเกจที่ต้องเปิดจึงใช้ connector นี้ได้ (`conn` = การเชื่อมต่อระบบบัญชี)"
+          },
+          "minTier": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "growth"
+            ],
+            "description": "แพ็กเกจขั้นต่ำที่ประกาศ — ข้อมูลประกอบ ยังไม่บังคับแยกจาก `requiredFeature` จนกว่าจะมี tier ในแพ็กเกจ · null = ไม่กำหนด"
           }
         },
         "required": [
@@ -70140,7 +70161,10 @@
           "capabilitiesPending",
           "masterCodeKinds",
           "fixedTaxDocumentOwner",
-          "configFields"
+          "configFields",
+          "availability",
+          "requiredFeature",
+          "minTier"
         ]
       },
       "ErpAdapterListDto": {
