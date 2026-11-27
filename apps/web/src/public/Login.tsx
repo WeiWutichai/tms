@@ -1,12 +1,18 @@
 import { Icon } from '@tms/ui';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { login, peekLoginNotice, type MfaStep, type TenantChoice } from '../auth/session';
+import {
+  login,
+  loginWithCode,
+  peekLoginNotice,
+  type MfaStep,
+  type TenantChoice,
+} from '../auth/session';
 import { MfaEnroll, MfaVerify } from './TwoFactor';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/th';
 import { PublicLayout } from './PublicLayout';
-import { signupToken } from './signup/signupApi';
+import { signupHandoff, signupToken } from './signup/signupApi';
 
 /** ป้ายสถานะบริษัท — statuses + tone ของ design/prototype/plans.js (login ได้ทุกสถานะ — P1-ST1-T03) */
 const TENANT_BADGE: Record<string, { k: MessageKey; c: string; bg: string; i: string }> = {
@@ -62,6 +68,27 @@ export function LoginPage() {
   const [mfa, setMfa] = useState<{ step: MfaStep; enroll: boolean } | null>(null);
 
   const next = () => nav(safeNextPath(params.get('next')), { replace: true });
+
+  // P1-ST2-T05: ปุ่ม "เข้าใช้งาน TMS" หลังสมัครเสร็จ (`/login?from=signup`) — แลก code ทันที หรือทำ 2FA ต่อ (owner ต้องตั้ง 2FA)
+  // code อายุ 60 วิ — หมด/ไม่มี = เข้าสู่ระบบด้วยอีเมล/รหัสผ่านตามปกติ
+  useEffect(() => {
+    if (params.get('from') !== 'signup') return;
+    const h = signupHandoff.take();
+    if (!h) return;
+    if (h.signIn.kind === 'mfa') {
+      setMfa({
+        step: { mfaToken: h.signIn.mfaToken, verifier: h.verifier },
+        enroll: h.signIn.purpose === 'enroll',
+      });
+      return;
+    }
+    if (Date.now() - h.at > 55_000) return;
+    setBusy(true);
+    void loginWithCode(h.signIn.code, h.verifier)
+      .then((r) => (r.ok ? next() : undefined))
+      .finally(() => setBusy(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function attempt(tenantId?: string) {
     setBusy(true);

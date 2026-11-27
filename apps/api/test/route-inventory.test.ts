@@ -68,6 +68,10 @@ const PUBLIC_ROUTES: Record<string, string> = {
     'X-Signup-Token (ผ่าน OTP แล้ว) + checksum/dedup (signup-company.test.ts)',
   'POST /v1/public/signup/session/company/join-request':
     'X-Signup-Token (ผ่าน OTP แล้ว) (signup-company.test.ts)',
+  'GET /v1/public/signup/session/plans':
+    'X-Signup-Token · แคตตาล็อกแพ็กเกจของแพลตฟอร์ม (ราคาเฉพาะเมื่อ pricing.publicVisible) (signup-complete.test.ts)',
+  'POST /v1/public/signup/session/complete':
+    'X-Signup-Token (ส่งขั้น 2 แล้ว) · สร้างบริษัทในธุรกรรมเดียว + ตรวจเลขซ้ำใต้ advisory lock (signup-complete.test.ts)',
   'GET /v1/public/plans':
     'ราคาแพ็กเกจของแพลตฟอร์มเอง (ไม่มีข้อมูล tenant) · ปิดด้วย pricing.publicVisible → 404 · rate limit ต่อ IP (public-plans.test.ts)',
   'GET /v1/public/tracking/pod-image/:doc':
@@ -80,6 +84,8 @@ const PUBLIC_ROUTES: Record<string, string> = {
  */
 const PUBLIC_PRICE_FIELDS: Record<string, string[]> = {
   '/v1/public/plans': ['pricePerVehicleMonthly'],
+  // P1-ST2-T05 ขั้น 3 แสดงราคาแพ็กเกจของแพลตฟอร์ม (เฉพาะเมื่อเปิดราคาสาธารณะ)
+  '/v1/public/signup/session/plans': ['pricePerVehicleMonthly', 'pricesVisible'],
 };
 
 /** route ที่ใช้ token ลูกค้าแต่มี path param ที่ไม่ใช่ `:id` (และไม่ใช่ `/external/:externalId`) */

@@ -110,34 +110,13 @@ export class SandboxService {
     try {
       const t = await this.db.$transaction(
         async (tx) => {
-          const row = await tx.tenant.create({
-            data: {
-              name: `${live.name} (Sandbox)`,
-              status: 'ACTIVE',
-              mode: 'test',
-              liveTenantId: live.id,
-              planCode: live.planCode,
-              yearStyle: live.yearStyle,
-            },
-          });
-          await bootstrapTenant(tx, row.id);
-          await copyLegalEntities(tx, live.id, row.id, 'create');
-          // ใครเปิด sandbox เมื่อไร — audit ของบริษัทจริง
           const ctx = requestContext.get();
-          await tx.auditLog.create({
-            data: {
-              tenantId: live.id,
-              actorId: ctx?.actorId ?? null,
-              actAs: ctx?.actAs ?? null,
-              action: 'sandbox.created',
-              entityType: 'tenant',
-              entityId: row.id,
-              after: { mode: 'test', name: row.name },
-              requestId: ctx?.requestId ?? null,
-              ip: ctx?.ip ?? null,
-            },
+          return createSandboxTx(tx, live, {
+            actorId: ctx?.actorId ?? null,
+            actAs: ctx?.actAs ?? null,
+            requestId: ctx?.requestId ?? null,
+            ip: ctx?.ip ?? null,
           });
-          return row;
         },
         { timeout: 30_000 },
       );
@@ -168,6 +147,49 @@ export class SandboxService {
       select: { id: true, name: true, status: true },
     });
   }
+}
+
+/**
+ * สร้าง sandbox ใน transaction ของผู้เรียก (ST7-T09) — ใช้ทั้งตอนสลับโหมดครั้งแรก (ensure) และตอนสมัครเอง (P1-ST2-T05 PLT-025:
+ * sandbox สร้างในธุรกรรมเดียวกับบริษัทจริง) · แถว tenant mode test + ค่าเริ่มต้นไทย + นิติบุคคลที่คัดลอก + audit ของบริษัทจริง
+ */
+export async function createSandboxTx(
+  tx: Prisma.TransactionClient,
+  live: { id: string; name: string; planCode: string; yearStyle: string },
+  actor: {
+    actorId: string | null;
+    actAs?: string | null;
+    requestId?: string | null;
+    ip?: string | null;
+  },
+) {
+  const row = await tx.tenant.create({
+    data: {
+      name: `${live.name} (Sandbox)`,
+      status: 'ACTIVE',
+      mode: 'test',
+      liveTenantId: live.id,
+      planCode: live.planCode,
+      yearStyle: live.yearStyle,
+    },
+  });
+  await bootstrapTenant(tx, row.id);
+  await copyLegalEntities(tx, live.id, row.id, 'create');
+  // ใครเปิด sandbox เมื่อไร — audit ของบริษัทจริง
+  await tx.auditLog.create({
+    data: {
+      tenantId: live.id,
+      actorId: actor.actorId,
+      actAs: actor.actAs ?? null,
+      action: 'sandbox.created',
+      entityType: 'tenant',
+      entityId: row.id,
+      after: { mode: 'test', name: row.name },
+      requestId: actor.requestId ?? null,
+      ip: actor.ip ?? null,
+    },
+  });
+  return row;
 }
 
 const ROUTING_KEYS = ['routing.invoiceAsCompanyId', 'routing.tenderAsCompanyId'] as const;

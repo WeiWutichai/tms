@@ -68,6 +68,8 @@ model Tenant {
   sandbox          Tenant?       @relation("TenantSandbox")
   /// P1-ST1-T01 (สร้างใน bootstrapTenant — guard 0177)
   subscription     Subscription?
+  /// P1-ST2-T05 ข้อมูลการสมัครเอง (เฉพาะ tenant ที่มาจากหน้าสมัคร)
+  signup           TenantSignup?
   createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -3006,6 +3008,15 @@ model SignupSession {
   joinTenantId         String?             @map("join_tenant_id") @db.Uuid
   joinRequestedAt      DateTime?           @map("join_requested_at") @db.Timestamptz(6)
 
+  // ── P1-ST2-T05 ขั้น 3 "เลือกแพ็กเกจ" ──
+  /// แพ็กเกจที่เลือก (ทดลองใช้) หรือแพ็กเกจที่ขอนัด demo
+  planCode             String?             @map("plan_code")
+  /// ขอนัด demo (แพ็กเกจตกลงราคา) — ไม่สร้างบริษัท ฝ่ายขายติดต่อกลับ
+  demoRequestedAt      DateTime?           @map("demo_requested_at") @db.Timestamptz(6)
+  /// บริษัทที่สร้างจากการสมัครนี้ (completed) — ไม่ผูก FK (ตาราง platform)
+  createdTenantId      String?             @map("created_tenant_id") @db.Uuid
+  completedAt          DateTime?           @map("completed_at") @db.Timestamptz(6)
+
   @@index([email, status])
   @@index([status, lastActivityAt])
   @@index([taxId, branchCode])
@@ -4489,4 +4500,37 @@ model TenantStatusHistory {
 
   @@index([tenantId, seq])
   @@map("tenant_status_history")
+}
+
+/// P1-ST2-T05 การสมัครใช้งานเองของ tenant (spec/01 §2 PLT-022/025) — 1 แถวต่อ tenant ที่มาจากหน้าสมัคร
+/// คัดลอกจาก signup_session ก่อนข้อมูล session ถูกลบวันที่ 30: ผลตรวจบริษัท, การยอมรับข้อกำหนด (เวอร์ชัน/เวลา/IP),
+/// ไฟล์หนังสือรับรอง (stored_document), ข้อมูล lead · ใช้ในคิวอนุมัติ (P1-ST2-T06), banner R-02 (P1-ST1-T05)
+/// เขียนผ่าน role platform เท่านั้น (แอปอ่านได้ของ tenant ตัวเอง — RLS)
+model TenantSignup {
+  tenantId              String   @id @map("tenant_id") @db.Uuid
+  tenant                Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  signupSessionId       String   @unique @map("signup_session_id") @db.Uuid
+  /// auto_vat | pending_manual | pending_verification (ผลตรวจขั้น 2)
+  verificationStatus    String   @map("verification_status")
+  verificationSource    String?  @map("verification_source")
+  verificationReason    String?  @map("verification_reason")
+  /// นโยบาย `signup.approvalPolicy` ณ ตอนสร้าง (auto_when_verified | manual_all)
+  approvalPolicy        String   @map("approval_policy")
+  /// ธงให้ทีมดู: same_tax_other_branch, no_accounting_software (R-02)
+  flags                 String[] @default([])
+  companyLookupId       String?  @map("company_lookup_id") @db.Uuid
+  accountingSoftware    String?  @map("accounting_software")
+  fleetSizeOwn          Int?     @map("fleet_size_own")
+  fleetSizeSubcon       Int?     @map("fleet_size_subcon")
+  planCode              String   @map("plan_code")
+  termsVersion          String   @map("terms_version")
+  privacyVersion        String   @map("privacy_version")
+  termsAcceptedAt       DateTime @map("terms_accepted_at") @db.Timestamptz(6)
+  termsAcceptedIp       String?  @map("terms_accepted_ip")
+  marketingOptIn        Boolean  @default(false) @map("marketing_opt_in")
+  /// หนังสือรับรองบริษัท (stored_document kind COMPANY_CERTIFICATE) — null = ไม่ได้แนบ
+  certificateDocumentId String?  @map("certificate_document_id") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("tenant_signup")
 }

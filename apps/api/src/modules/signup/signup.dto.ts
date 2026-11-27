@@ -145,6 +145,20 @@ export class SignupSessionDto {
     description: 'คำขอเข้าร่วมบริษัทเดิม / ติดต่อเรา (เลขซ้ำ tenant เดิม)',
   })
   joinRequest!: SignupJoinRequestDto | null;
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    example: 'std',
+    description: 'แพ็กเกจที่เลือกในขั้น 3 (P1-ST2-T05)',
+  })
+  planCode!: string | null;
+  @ApiProperty({
+    type: String,
+    format: 'date-time',
+    nullable: true,
+    description: 'ขอนัด demo แล้ว (แพ็กเกจตกลงราคา — ไม่สร้างบริษัท)',
+  })
+  demoRequestedAt!: string | null;
 }
 
 export class SignupStartResultDto {
@@ -441,4 +455,104 @@ export class SignupJoinRequestDto {
   companyName!: string | null;
   @ApiProperty({ example: '0105567153766' }) taxId!: string;
   @ApiProperty({ type: String, format: 'date-time' }) requestedAt!: string;
+}
+
+// ── P1-ST2-T05 ขั้น 3 "เลือกแพ็กเกจ" ──
+
+/** PKCE S256 (เหมือน `POST /v1/auth/login`) */
+const PKCE_CHALLENGE = /^[A-Za-z0-9\-._~]{43,128}$/;
+
+export class CompleteSignupDto {
+  @ApiProperty({ example: 'std', description: 'รหัสแพ็กเกจจาก `GET …/session/plans`' })
+  @IsString()
+  @Matches(/^[a-z0-9_-]{1,32}$/)
+  planCode!: string;
+
+  @ApiProperty({
+    description:
+      'PKCE S256: BASE64URL(SHA256(code_verifier)) — ใช้ออก authorization code ให้เข้าแอปทันทีเมื่อสถานะ `trialing`',
+  })
+  @Matches(PKCE_CHALLENGE)
+  codeChallenge!: string;
+}
+
+export class SignupPlanChoiceDto {
+  @ApiProperty({ example: 'std' }) code!: string;
+  @ApiProperty({ example: 'Growth' }) nameTh!: string;
+  @ApiProperty({ nullable: true, type: String }) nameEn!: string | null;
+  @ApiProperty({ nullable: true, type: String, example: 'นิยม' }) badge!: string | null;
+  @ApiProperty({ description: 'ตกลงราคากับฝ่ายขาย → "นัด demo" (ไม่สร้างบริษัท)' })
+  isContactSales!: boolean;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '280.00',
+    description:
+      'บาท/รถ active/เดือน ก่อน VAT — null = ตกลงราคา หรือยังไม่เปิดราคาสาธารณะ (`pricing.publicVisible = false`)',
+  })
+  pricePerVehicleMonthly!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'ก่อน VAT (null เมื่อไม่เปิดราคา)' })
+  minimumMonthly!: string | null;
+  @ApiProperty({ example: '15.00' }) annualDiscountPct!: string;
+  @ApiProperty({
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: { fromVehicle: { type: 'integer' }, discountPct: { type: 'string' } },
+    },
+    description: 'ส่วนลดตามจำนวนรถ (ว่างเมื่อไม่เปิดราคา)',
+  })
+  volumeTiers!: { fromVehicle: number; discountPct: string }[];
+  @ApiProperty({ example: 16 }) vehicleMin!: number;
+  @ApiProperty({ nullable: true, type: Number, example: 60 }) vehicleMax!: number | null;
+}
+
+export class SignupPlansDto {
+  @ApiProperty({ example: 30, description: 'จำนวนวันทดลองใช้ของบริษัทใหม่ (`trial.days`)' })
+  trialDays!: number;
+  @ApiProperty({
+    description: 'เปิดราคาสาธารณะแล้ว (`pricing.publicVisible`) — false = ไม่แสดงราคา/ประมาณการ',
+  })
+  pricesVisible!: boolean;
+  @ApiProperty({ type: [SignupPlanChoiceDto], description: 'เรียงตาม sortOrder' })
+  plans!: SignupPlanChoiceDto[];
+}
+
+export class SignupCompletionDto {
+  @ApiProperty({
+    enum: ['ready', 'pending', 'demo'],
+    description:
+      'ready = บริษัทสถานะ trialing ("พร้อมใช้งานแล้ว") · pending = pending_verification ("เราได้รับข้อมูลแล้ว") · demo = ขอนัด demo (ไม่สร้างบริษัท)',
+  })
+  outcome!: string;
+  @ApiProperty({ enum: ['trialing', 'pending_verification'], nullable: true, type: String })
+  tenantStatus!: string | null;
+  @ApiProperty() companyName!: string;
+  @ApiProperty({ example: 'std' }) planCode!: string;
+  @ApiProperty({ example: 'Growth' }) planName!: string;
+  @ApiProperty({ type: String, format: 'date-time', nullable: true }) trialEndsAt!: string | null;
+}
+
+export class SignupSignInDto {
+  @ApiProperty({
+    enum: ['code', 'mfa'],
+    description:
+      'code = authorization code (แลกที่ `POST /v1/oauth/token` ด้วย code_verifier) · mfa = ต้องผ่าน 2FA ก่อน (เหมือน login: `/v1/auth/2fa/*`)',
+  })
+  kind!: string;
+  @ApiPropertyOptional() code?: string;
+  @ApiPropertyOptional({ example: 60 }) expiresIn?: number;
+  @ApiPropertyOptional() mfaToken?: string;
+  @ApiPropertyOptional({ enum: ['verify', 'enroll'] }) purpose?: string;
+}
+
+export class SignupCompleteResultDto {
+  @ApiProperty({ type: SignupSessionDto }) session!: SignupSessionDto;
+  @ApiProperty({ type: SignupCompletionDto }) completion!: SignupCompletionDto;
+  @ApiProperty({
+    type: SignupSignInDto,
+    nullable: true,
+    description: 'มีเฉพาะ outcome = ready ครั้งแรก (เรียกซ้ำ = null — เข้าสู่ระบบด้วยรหัสผ่าน)',
+  })
+  signIn!: SignupSignInDto | null;
 }

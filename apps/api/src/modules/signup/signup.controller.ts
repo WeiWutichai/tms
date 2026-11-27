@@ -33,6 +33,9 @@ import {
 import {
   CertificateQueryDto,
   CompanyLookupResultDto,
+  CompleteSignupDto,
+  SignupCompleteResultDto,
+  SignupPlansDto,
   JoinCompanyRequestDto,
   LookupCompanyDto,
   SignupSessionDto,
@@ -42,6 +45,10 @@ import {
   VerifySignupOtpDto,
 } from './signup.dto';
 import { SignupCompanyService } from './signup-company.service';
+import { SignupCompleteService } from './signup-complete.service';
+import { PrismaService } from '../../db/prisma.service';
+import { readPlatformSetting } from '../../platform/platform-settings.service';
+import { sessionByToken } from './signup.service';
 import { SignupService, type SignupSessionView } from './signup.service';
 
 /** PUT หนังสือรับรอง = raw body (≤ 10 MB) — อ่าน body เฉพาะ path นี้ + มี header token รูปถูก (bootstrap.ts) */
@@ -67,7 +74,7 @@ const noStore = (res: Response) => res.setHeader('Cache-Control', 'no-store');
 
 /**
  * สมัครใช้งานเอง ขั้น 1 "สร้างบัญชี" (P1-ST2-T03; spec/01 §2) — ไม่ login (`/v1/public/*` จำกัดต่อ IP)
- * ขั้น 2 "ข้อมูลบริษัท" (P1-ST2-T04) = `session/company*` · ขั้น 3 (แพ็กเกจ + สร้าง tenant) = P1-ST2-T05
+ * ขั้น 2 "ข้อมูลบริษัท" (P1-ST2-T04) = `session/company*` · ขั้น 3 (แพ็กเกจ + สร้าง tenant, P1-ST2-T05) = `session/plans`, `session/complete`
  */
 @ApiTags('public')
 @Public()
@@ -76,6 +83,8 @@ export class SignupController {
   constructor(
     private readonly signup: SignupService,
     private readonly company: SignupCompanyService,
+    private readonly completer: SignupCompleteService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Post()
@@ -258,5 +267,76 @@ export class SignupController {
   ): Promise<SignupSessionView> {
     noStore(res);
     return this.company.joinRequest(token, body);
+  }
+
+  @Get('session/plans')
+  @ApiHeader(TOKEN_HEADER)
+  @ApiOperation({
+    summary: 'ขั้น 3 แพ็กเกจที่เลือกได้ (ทดลองใช้ / นัด demo)',
+    description:
+      'แพ็กเกจ active + แสดงบนเว็บ ที่มีเวอร์ชันที่มีผล · ราคา (ก่อน VAT) แสดงเมื่อเปิดราคาสาธารณะ (`pricing.publicVisible`) เท่านั้น — ปิดอยู่ = ราคาเป็น null',
+  })
+  @ApiOkResponse({ type: SignupPlansDto })
+  @ApiUnauthorizedResponse({ description: 'signup_session_invalid' })
+  async plans(
+    @Headers('x-signup-token') token: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SignupPlansDto> {
+    noStore(res);
+    await sessionByToken(this.prisma.platform, token, Date.now());
+    const db = this.prisma.platform;
+    const [choices, trialDays, visible] = await Promise.all([
+      this.completer.choices(),
+      readPlatformSetting<number>(db, 'trial.days'),
+      readPlatformSetting<boolean>(db, 'pricing.publicVisible'),
+    ]);
+    const money = (v: { toFixed(n: number): string } | null) => (v === null ? null : v.toFixed(2));
+    return {
+      trialDays,
+      pricesVisible: !!visible,
+      plans: choices.map(({ plan, version: v }) => ({
+        code: plan.code,
+        nameTh: plan.nameTh,
+        nameEn: plan.nameEn,
+        badge: plan.badge,
+        isContactSales: plan.isContactSales,
+        pricePerVehicleMonthly: visible ? money(v.pricePerVehicleMonthly) : null,
+        minimumMonthly: visible ? money(v.minimumMonthly) : null,
+        annualDiscountPct: v.annualDiscountPct.toFixed(2),
+        volumeTiers: visible
+          ? ((v.volumeTiers as unknown as { fromVehicle: number; discountPct: string }[]) ?? [])
+          : [],
+        vehicleMin: v.vehicleMin,
+        vehicleMax: v.vehicleMax,
+      })),
+    };
+  }
+
+  @Post('session/complete')
+  @HttpCode(200)
+  @ApiHeader(TOKEN_HEADER)
+  @ApiOperation({
+    summary: 'ขั้น 3 "เริ่มใช้งาน" — สร้างบริษัทในธุรกรรมเดียว (หรือขอนัด demo)',
+    description:
+      'สร้าง Tenant + ค่าเริ่มต้นไทย + Subscription (ทดลองใช้ `trial.days` วัน) + นิติบุคคล/สาขาจากขั้น 2 + ผู้ใช้ owner + checklist ตั้งค่า + sandbox ' +
+      'ในธุรกรรมเดียว (ล้มกลางทาง = ไม่มีอะไรถูกสร้าง) · ตรวจเลขซ้ำอีกครั้งในธุรกรรม (409 `company_exists`) · ' +
+      'สถานะ: `signup.approvalPolicy` = auto_when_verified และผลตรวจ auto_vat → `trialing` (`signIn` = code/2FA เพื่อเข้าแอปทันที) · ' +
+      'อื่น ๆ → `pending_verification` (ทีมงานตรวจภายใน 1 วันทำการ) · แพ็กเกจตกลงราคา → บันทึกคำขอนัด demo ไม่สร้างบริษัท · ' +
+      'เรียกซ้ำหลังสร้างแล้ว = ผลเดิม (`signIn` = null)',
+  })
+  @ApiOkResponse({ type: SignupCompleteResultDto })
+  @ApiUnauthorizedResponse({ description: 'signup_session_invalid' })
+  @ApiConflictResponse({
+    description: 'company_exists / account_exists / invalid_state_transition (ยังไม่ส่งขั้น 2)',
+  })
+  @ApiUnprocessableEntityResponse({ description: 'validation_failed — `planCode` (unknown_plan)' })
+  async complete(
+    @Headers('x-signup-token') token: string | undefined,
+    @Body() body: CompleteSignupDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SignupCompleteResultDto> {
+    noStore(res);
+    return this.completer.complete(token, body, { ip: req.ip }) as Promise<SignupCompleteResultDto>;
   }
 }

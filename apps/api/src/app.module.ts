@@ -17,6 +17,7 @@ import { PasswordResetController, PasswordResetService } from './auth/password-r
 import { SignupController } from './modules/signup/signup.controller';
 import { SignupService } from './modules/signup/signup.service';
 import { SignupCompanyService } from './modules/signup/signup-company.service';
+import { SignupCompleteService } from './modules/signup/signup-complete.service';
 import { CompanyLookupService } from './modules/signup/company-lookup/company-lookup.service';
 import { OtpChannelService } from './modules/signup/otp-channel';
 import { SignupEnabledMiddleware } from './modules/signup/signup-enabled.middleware';
@@ -429,6 +430,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     PasswordResetService,
     SignupService,
     SignupCompanyService,
+    SignupCompleteService,
     CompanyLookupService,
     OtpChannelService,
     InvitationAcceptService,
