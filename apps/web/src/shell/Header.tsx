@@ -1,18 +1,28 @@
 import { Icon } from '@tms/ui';
 import { api, queryClient } from '../api';
 import { formatLongDate, useI18n, type Lang } from '../i18n';
+import { HelpMenu } from '../help/HelpMenu';
 import { Bell } from './Bell';
 
-/** แถบบน — <header> สูง 56 ใน TMS v4: breadcrumb, วันที่, สลับภาษา, กระดิ่ง, ปุ่ม + */
+/** แถบบน — <header> สูง 56 ใน TMS v4: breadcrumb, วันที่, สลับภาษา, (คู่มือ — P1-ST6-T02), กระดิ่ง, ปุ่ม + */
 export function Header({
   group,
   title,
   yearStyle,
   onCreate,
+  page,
+  path = '/',
+  tenantId,
 }: {
   group: string;
   title: string;
   yearStyle: 'BE' | 'CE';
+  /** key ของหน้า (nav.ts `pageOf`) — เลือกบทความ "คู่มือหน้านี้" */
+  page?: string | undefined;
+  /** location.pathname — แนบในข้อความติดต่อทีมงาน */
+  path?: string;
+  /** รหัสบริษัท (id ของ tenant จาก /v1/me) — แนบในข้อความติดต่อทีมงาน */
+  tenantId?: string | undefined;
   /** ปุ่ม + เปิดค้นหา ⌘K (ต้นแบบ onClick openCmd — หมวด "คำสั่ง" มีสร้าง SO / ใบวางบิล) */
   onCreate?: () => void;
 }) {
@@ -120,6 +130,7 @@ export function Header({
           );
         })}
       </div>
+      <HelpMenu page={page} pageTitle={title} path={path} tenantId={tenantId} />
       <Bell />
       <button
         type="button"

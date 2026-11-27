@@ -14,6 +14,7 @@ import {
   type ReasonFlag,
   type ReasonInput,
 } from './useReasonCodes';
+import { ProblemAlert } from '../../help/ProblemAlert';
 
 interface Form {
   cat: ReasonCategory;
@@ -205,7 +206,7 @@ export function ReasonFormDrawer({
         </>
       }
     >
-      {topErr && <div className="tms-alert">{topErr}</div>}
+      <ProblemAlert err={m.error} text={topErr} />
       {item?.system && (
         <div
           role="note"

@@ -27,7 +27,17 @@
 		-Server
 	}
 
-	# SPA: path ที่ไม่ใช่ไฟล์ → index.html (react-router)
-	try_files {path} /index.html
-	file_server
+	# P1-ST6-T02 help center (packages/help-center/site → /srv/help) — ลิงก์ "คู่มือ" ในแอปชี้มาที่นี่ (VITE_HELP_CENTER_URL ค่าเริ่ม /help/)
+	# ไฟล์ไม่มี hash ในชื่อ (html, search.js, search-index.js) → no-cache · ไม่มีไฟล์ = 404 (ไม่ตกไป SPA)
+	redir /help /help/ 308
+	handle /help/* {
+		header Cache-Control "no-cache"
+		file_server
+	}
+
+	# SPA: path ที่ไม่ใช่ไฟล์ → index.html (react-router) — อยู่ใน handle แยก เพื่อไม่ให้ try_files (rewrite รันก่อน handle) ครอบ /help/*
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
 }
