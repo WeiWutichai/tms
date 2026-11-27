@@ -10,6 +10,7 @@ body{margin:0;font-family:'IBM Plex Sans Thai Looped','IBM Plex Sans',system-ui,
 a{color:var(--accent)}
 .top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:16px;padding:10px 24px;background:var(--sheet);border-bottom:1px solid var(--line)}
 .top .brand{font-weight:600;font-size:16px;color:var(--ink);text-decoration:none;white-space:nowrap}
+.top .contact{font-size:14px;font-weight:600;text-decoration:none;white-space:nowrap;margin-left:auto}
 .search{position:relative;flex:1;max-width:520px}
 .search input{width:100%;font:inherit;font-size:14px;padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:var(--side)}
 .search input:focus{outline:2px solid var(--accent);outline-offset:0;background:#fff}
@@ -45,16 +46,17 @@ blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid var(--accent);ba
 .card b{display:block;margin-bottom:2px}
 .card span{color:var(--muted);font-size:13px}
 @media (max-width:1100px){nav.side{display:none}}
-@media (max-width:800px){.top{flex-wrap:wrap;padding:10px 16px}.search{flex-basis:100%;max-width:none}.desk{display:block;padding:16px}.sheet{width:auto;padding:20px}}
+@media (max-width:800px){.top{flex-wrap:wrap;padding:10px 16px}.top .contact{order:1}.search{order:2;flex-basis:100%;max-width:none}.desk{display:block;padding:16px}.sheet{width:auto;padding:20px}}
 @media print{.top,nav.side,.md-link{display:none}body{background:none}.desk{padding:0}.sheet{box-shadow:none;border-radius:0;width:auto;padding:0}}</style>
 </head>
 <body>
 <header class="top">
 <a class="brand" href="index.html">ศูนย์ช่วยเหลือ TMS</a>
 <div class="search" role="search"><input id="q" type="search" placeholder="ค้นหาวิธีใช้งานหรือข้อความ error" aria-label="ค้นหา" autocomplete="off"><div id="results" class="results"></div></div>
+<a class="contact" href="contact.html">ติดต่อทีมงาน</a>
 </header>
 <div class="desk">
-<nav class="side" aria-label="หมวดบทความ"><h4>เริ่มต้นใช้งาน</h4><a href="signup-trial.html">สมัครใช้งานและทดลองใช้ <span class="soon">เร็ว ๆ นี้</span></a><a href="company-setup.html">ตั้งค่าองค์กร</a><a href="import-data.html">นำเข้าข้อมูล</a><h4>งานขนส่ง</h4><a href="orders.html">รับงาน (ใบสั่งขนส่ง)</a><a href="dispatch.html">จัดรถและปล่อยเที่ยว</a><a href="subcontractor-link.html">ส่งงานให้รถร่วมผ่านลิงก์</a><a href="pod.html">หลักฐานการส่ง (POD)</a><h4>การเงิน</h4><a href="billing.html">วางบิลและออกใบแจ้งหนี้</a><a href="payments.html">รับชำระจากลูกค้า</a><a href="carrier-settlement.html">จ่ายรถร่วม (ใบสำคัญจ่าย)</a><a href="accountant-export.html">ส่งออกไฟล์ให้นักบัญชี</a><h4>เชื่อมระบบบัญชี</h4><a href="connect-flowaccount-peak.html">เชื่อม FlowAccount / PEAK <span class="soon">เร็ว ๆ นี้</span></a><h4>บัญชีและแพ็กเกจ</h4><a href="plans-billing.html">แพ็กเกจและการชำระค่าบริการ <span class="soon">เร็ว ๆ นี้</span></a><h4>อ้างอิง</h4><a href="errors.html">รหัส error ของระบบ</a><a href="connector-errors.html">error การเชื่อมระบบบัญชี</a></nav>
+<nav class="side" aria-label="หมวดบทความ"><h4>เริ่มต้นใช้งาน</h4><a href="signup-trial.html">สมัครใช้งานและทดลองใช้ <span class="soon">เร็ว ๆ นี้</span></a><a href="company-setup.html">ตั้งค่าองค์กร</a><a href="import-data.html">นำเข้าข้อมูล</a><h4>งานขนส่ง</h4><a href="orders.html">รับงาน (ใบสั่งขนส่ง)</a><a href="dispatch.html">จัดรถและปล่อยเที่ยว</a><a href="subcontractor-link.html">ส่งงานให้รถร่วมผ่านลิงก์</a><a href="pod.html">หลักฐานการส่ง (POD)</a><h4>การเงิน</h4><a href="billing.html">วางบิลและออกใบแจ้งหนี้</a><a href="payments.html">รับชำระจากลูกค้า</a><a href="carrier-settlement.html">จ่ายรถร่วม (ใบสำคัญจ่าย)</a><a href="accountant-export.html">ส่งออกไฟล์ให้นักบัญชี</a><h4>เชื่อมระบบบัญชี</h4><a href="connect-flowaccount-peak.html">เชื่อม FlowAccount / PEAK <span class="soon">เร็ว ๆ นี้</span></a><h4>บัญชีและแพ็กเกจ</h4><a href="plans-billing.html">แพ็กเกจและการชำระค่าบริการ <span class="soon">เร็ว ๆ นี้</span></a><h4>อ้างอิง</h4><a href="contact.html">ติดต่อทีมงาน</a><a href="errors.html">รหัส error ของระบบ</a><a href="connector-errors.html">error การเชื่อมระบบบัญชี</a></nav>
 <main class="sheet">
 <h1>ศูนย์ช่วยเหลือ TMS</h1>
 <p>คู่มือใช้งาน TMS ทีละขั้น ตั้งแต่ตั้งค่าบริษัท รับงาน จัดรถ ไปจนถึงวางบิล รับชำระ และจ่ายรถร่วม — พิมพ์สิ่งที่ต้องการในช่องค้นหาด้านบน หรือเลือกหัวข้อด้านล่าง</p>
@@ -69,24 +71,10 @@ blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid var(--accent);ba
 <h2>บัญชีและแพ็กเกจ</h2>
 <div class="cards"><a class="card" href="plans-billing.html"><b>แพ็กเกจและการชำระค่าบริการ <span class="soon">เร็ว ๆ นี้</span></b><span>ดูแพ็กเกจ เปลี่ยนแพ็กเกจ และชำระค่าบริการ TMS — กำลังจะเปิดให้ใช้</span></a></div>
 <h2>อ้างอิง</h2>
-<div class="cards"><a class="card" href="errors.html"><b>รหัส error ของระบบ</b><span>140 รหัส error ที่หน้าจออาจแสดง พร้อมวิธีแก้ตามกลุ่ม</span></a><a class="card" href="connector-errors.html"><b>error การเชื่อมระบบบัญชี</b><span>18 กรณีที่ส่งเอกสารเข้าระบบบัญชีไม่สำเร็จ พร้อมวิธีแก้</span></a></div>
+<div class="cards"><a class="card" href="contact.html"><b>ติดต่อทีมงาน</b><span>แจ้งปัญหาหรือสอบถามทีมงานจากในระบบ — ระบบแนบรหัสบริษัทและหน้าที่เปิดอยู่ให้</span></a><a class="card" href="errors.html"><b>รหัส error ของระบบ</b><span>140 รหัส error ที่หน้าจออาจแสดง พร้อมวิธีแก้ตามกลุ่ม</span></a><a class="card" href="connector-errors.html"><b>error การเชื่อมระบบบัญชี</b><span>18 กรณีที่ส่งเอกสารเข้าระบบบัญชีไม่สำเร็จ พร้อมวิธีแก้</span></a></div>
 </main>
 </div>
 <script src="search-index.js"></script>
-<script>(function(){var box=document.getElementById('q'),out=document.getElementById('results');if(!box||!out)return;var sel=-1;
-function norm(s){return (s||'').toLowerCase().normalize('NFC')}
-function run(){var q=norm(box.value).trim();out.innerHTML='';sel=-1;if(!q){out.classList.remove('on');return}
-var terms=q.split(/\s+/),idx=window.HELP_INDEX||[],hits=[];
-for(var i=0;i<idx.length;i++){var d=idx[i],t=norm(d.t),b=norm(d.b),ok=true,score=0;
-for(var j=0;j<terms.length;j++){var w=terms[j];if(t.indexOf(w)>=0)score+=10;else if(b.indexOf(w)>=0)score+=1;else{ok=false;break}}
-if(ok)hits.push([score,i])}
-hits.sort(function(a,b){return b[0]-a[0]||a[1]-b[1]});
-if(!hits.length){out.innerHTML='<div class="none">ไม่พบผลลัพธ์ ลองใช้คำอื่น</div>'}
-hits.slice(0,12).forEach(function(h){var d=idx[h[1]],a=document.createElement('a');a.href=d.u;a.textContent=d.t;var s=document.createElement('small');s.textContent=d.g;a.appendChild(s);out.appendChild(a)});
-out.classList.add('on')}
-box.addEventListener('input',run);
-box.addEventListener('keydown',function(e){var as=out.querySelectorAll('a');if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();if(!as.length)return;sel=(sel+(e.key==='ArrowDown'?1:-1)+as.length)%as.length;as.forEach(function(a,k){a.classList.toggle('sel',k===sel)})}else if(e.key==='Enter'){var t=as[sel>=0?sel:0];if(t)location.href=t.href}else if(e.key==='Escape'){out.classList.remove('on')}});
-document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('.search'))out.classList.remove('on')});
-})();</script>
+<script src="search.js"></script>
 </body>
 </html>

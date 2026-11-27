@@ -4,6 +4,7 @@ import { ApiError } from '../../api';
 import { useI18n } from '../../i18n';
 import { fieldErrors, problemText } from '../master/problems';
 import { useCreateCustomer, useNextCustomerCode, type Customer } from './useCustomers';
+import { ProblemAlert } from '../../help/ProblemAlert';
 
 interface Form {
   name: string;
@@ -141,7 +142,7 @@ export function CustomerCreateDrawer({
         </>
       }
     >
-      {top && <div className="tms-alert">{top}</div>}
+      <ProblemAlert err={create.error} text={top} />
       <FormSection title={t('cust.sec.main')}>
         <FormField label={t('cust.f.name')} required span={2} error={errs.legalName}>
           {input('name', { autoFocus: true })}
