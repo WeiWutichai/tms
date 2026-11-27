@@ -9,7 +9,7 @@ import { consoleApi, consoleLogout, cunwrap, useStaff, type StaffRole } from './
 import './console.css';
 
 /**
- * เมนูตามต้นแบบ (NAV ใน TMS Platform Console) — เฟสนี้ใช้ได้ "ลูกค้า" (ST1-T24) และ "Connector ระบบบัญชี" (ST7-T20)
+ * เมนูตามต้นแบบ (NAV ใน TMS Platform Console) — เฟสนี้ใช้ได้ "ลูกค้า" (ST1-T24), "Connector ระบบบัญชี" (ST7-T20), "ทีมงาน" + "Audit log" (P1-ST4-T06)
  * ต้นแบบไม่มีเมนู Connectors (docs/02 §5 มี) [DECISION spec/12 §3]: วางต่อจาก "การใช้งาน API และ AI" ไอคอน plug
  */
 const NAV: ({ k: string; i: string; path?: string } | 'sep')[] = [
@@ -23,8 +23,8 @@ const NAV: ({ k: string; i: string; path?: string } | 'sep')[] = [
   { k: 'use', i: 'activity' },
   { k: 'conn', i: 'plug', path: '/console/connectors' },
   'sep',
-  { k: 'team', i: 'users' },
-  { k: 'aud', i: 'scroll-text' },
+  { k: 'team', i: 'users', path: '/console/team' },
+  { k: 'aud', i: 'scroll-text', path: '/console/audit' },
 ];
 
 export const ROLE_LABEL: Record<StaffRole, MessageKey> = {
@@ -87,6 +87,8 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
   const name = staff.data?.name ?? '…';
   const onTenants = loc.pathname.startsWith('/console/tenants');
   const onConn = loc.pathname.startsWith('/console/connectors');
+  const onTeam = loc.pathname.startsWith('/console/team');
+  const onAud = loc.pathname.startsWith('/console/audit');
 
   return (
     <div className="con">
@@ -97,7 +99,15 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
         <span className="con-hd__brand">TMS</span>
         <span className="con-hd__pill">PLATFORM CONSOLE</span>
         <span className="con-hd__crumb">
-          {onTenants ? t('con.nav.ten') : onConn ? t('con.nav.conn') : ''}
+          {onTenants
+            ? t('con.nav.ten')
+            : onConn
+              ? t('con.nav.conn')
+              : onTeam
+                ? t('con.nav.team')
+                : onAud
+                  ? t('con.nav.aud')
+                  : ''}
         </span>
         <div style={{ flex: 1 }} />
         <label className="con-hd__search">

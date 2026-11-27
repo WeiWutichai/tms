@@ -87,6 +87,10 @@ export const ID_PREFIX = {
   documentEmail: 'dem',
   /** ST7-T16 การเรียกระบบบัญชี 1 ครั้ง (erp_sync_log — docs/01 §6.4) */
   syncLog: 'slg',
+  /** P1-ST4-T06 ทีมงาน Innovera (platform_user — Platform Console เท่านั้น) */
+  platformUser: 'stf',
+  /** P1-ST4-T06 audit ของทีม Innovera ที่ไม่ผูก tenant (platform_audit_log) */
+  platformAudit: 'pal',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

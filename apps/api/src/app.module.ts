@@ -48,6 +48,11 @@ import { SetupChecklistController } from './modules/setup/setup.controller';
 import { PlatformAuthController } from './platform/platform-auth.controller';
 import { PlatformConnectorsController } from './platform/platform-connectors.controller';
 import { PlatformTenantsController } from './platform/platform-tenants.controller';
+import { PlatformAuditController } from './platform/platform-audit.controller';
+import {
+  PlatformInvitationController,
+  PlatformTeamController,
+} from './platform/platform-team.controller';
 import { ImpersonationController } from './platform/impersonation.controller';
 import {
   InvitationAcceptController,
@@ -315,6 +320,9 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     PlatformAuthController,
     PlatformTenantsController,
     PlatformConnectorsController,
+    PlatformTeamController,
+    PlatformInvitationController,
+    PlatformAuditController,
     ImpersonationController,
     HealthController,
     MonitoringController,

@@ -2949,16 +2949,41 @@ model PlatformUser {
   /// TOTP (เข้ารหัสด้วย FieldCipher) — บังคับทุกคน ตั้งตอนสร้างบัญชี
   totpSecret     String                 @map("totp_secret")
   totpLastStep   BigInt?                @map("totp_last_step")
-  status         String                 @default("ACTIVE") /// ACTIVE · DISABLED
+  status         String                 @default("ACTIVE") /// ACTIVE · INVITED (P1-ST4-T06) · DISABLED
   tokenVersion   Int                    @default(0) @map("token_version")
   failedLogins   Int                    @default(0) @map("failed_logins")
   lockedUntil    DateTime?              @map("locked_until") @db.Timestamptz(6)
   lastLoginAt    DateTime?              @map("last_login_at") @db.Timestamptz(6)
+  /// P1-ST4-T06 คำเชิญทีมงาน: sha256 ของ token ในลิงก์ (ใช้ครั้งเดียว) + วันหมดอายุ — รับแล้ว/ปิดแล้ว = null
+  inviteTokenHash String?               @unique @map("invite_token_hash")
+  inviteExpiresAt DateTime?             @map("invite_expires_at") @db.Timestamptz(6)
+  invitedBy      String?                @map("invited_by") @db.Uuid
+  deactivatedAt  DateTime?              @map("deactivated_at") @db.Timestamptz(6)
   createdAt      DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   impersonations ImpersonationSession[]
 
   @@map("platform_user")
+}
+
+/// P1-ST4-T06 audit การกระทำของทีม Innovera ที่ไม่เกี่ยวกับ tenant ใด (เชิญ/ปิดทีมงาน, ส่งออก audit) — append-only (PLT-126)
+/// การกระทำกับข้อมูลลูกค้ายังลง audit_log ของ tenant นั้น (actor `platform:<id>`) — หน้า Audit log ของ Console รวมสองแหล่ง
+model PlatformAuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  at         DateTime @default(now()) @db.Timestamptz(6)
+  actorId    String?  @map("actor_id") @db.Uuid /// platform_user.id
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id")
+  before     Json?
+  after      Json?
+  reason     String?
+  requestId  String?  @map("request_id")
+  ip         String?
+  seq        BigInt   @default(autoincrement())
+
+  @@index([at])
+  @@map("platform_audit_log")
 }
 
 /// เข้าใช้งานแทน (ST1-T24; spec/01 §11.1) — เฟส 0 อ่านอย่างเดียวเสมอ, หมดอายุ 60 นาที

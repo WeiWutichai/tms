@@ -14,12 +14,16 @@ import { ConsoleShell } from './ConsoleShell';
 import { consoleLogin, consoleMfa, consoleSession } from './session';
 import { ConnectorsPage } from './Connectors';
 import { TenantsPage } from './Tenants';
+import { TeamPage } from './Team';
+import { AuditPage } from './Audit';
+import { ConsoleInvite } from './Invite';
 
 /** Platform Console (ST1-T24) — route group /console/* แยกจากแอปลูกค้า (layout, login, token ของตัวเอง) */
 export function ConsoleApp() {
   return (
     <Routes>
       <Route path="login" element={<ConsoleLogin />} />
+      <Route path="invite" element={<ConsoleInvite />} />
       <Route
         path="*"
         element={
@@ -31,6 +35,8 @@ export function ConsoleApp() {
                 <Route path="tenants/:id" element={<TenantsPage />} />
                 <Route path="connectors" element={<ConnectorsPage />} />
                 <Route path="connectors/:id" element={<ConnectorsPage />} />
+                <Route path="team" element={<TeamPage />} />
+                <Route path="audit" element={<AuditPage />} />
                 <Route path="*" element={<Navigate to="/console/tenants" replace />} />
               </Routes>
             </ConsoleShell>
