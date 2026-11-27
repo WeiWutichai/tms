@@ -87,7 +87,8 @@ export function krsFail(
   return {
     ok: false,
     errorClass,
-    retryable: errorClass === 'TRANSIENT',
+    // P1-ST5-T01 (conformance) AMBIGUOUS = core ลองใหม่ (FAILED_RETRYABLE, ค้นก่อน — docs/01 §6.3) → retryable ตรงกับ class
+    retryable: errorClass === 'TRANSIENT' || errorClass === 'AMBIGUOUS',
     problem: {
       code,
       message: message.trim().slice(0, 500),
