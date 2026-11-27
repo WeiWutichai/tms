@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../../i18n';
 import { readLandingConfig, type LandingConfig } from './config';
@@ -7,12 +7,20 @@ import { LANDING_CATALOGS } from '../../i18n/landing.gen';
 import { th } from '../../i18n/th';
 import { zh } from '../../i18n/zh';
 import { LandingPage, landingNav } from './Landing';
+import { plansApi, type PublicPlans } from './plans';
+import fixture from '../pricing/plans.fixture.json';
 import { LandingRoot } from './LandingRoot';
 
-function renderLanding(config: LandingConfig = readLandingConfig({})) {
+const plansData = fixture as unknown as PublicPlans;
+
+/** plans: null = pricing.publicVisible = false (ค่าเริ่ม — D-40) */
+function renderLanding(
+  config: LandingConfig = readLandingConfig({}),
+  plans: PublicPlans | null = null,
+) {
   return render(
     <I18nProvider lang="th">
-      <LandingPage config={config} />
+      <LandingPage config={config} plans={plans} />
     </I18nProvider>,
   );
 }
@@ -84,7 +92,7 @@ describe('Landing (P1-ST2-T01)', () => {
     ).toBeTruthy();
   });
 
-  it('ราคาซ่อนเมื่อ pricingVisible = false (D-40) — ไม่มีเมนูราคา / ดูราคา / แถบราคา / FAQ คิดเงิน', () => {
+  it('ราคาซ่อนเมื่อ pricing.publicVisible = false (GET /v1/public/plans → 404 — D-40) — ไม่มีเมนูราคา / ดูราคา / แถบราคา / FAQ คิดเงิน', () => {
     const { container } = renderLanding();
     const text = pageText(container);
     expect(text).not.toMatch(/ราคา(?!ขาซื้อ|\s?฿5,800)/);
@@ -92,23 +100,39 @@ describe('Landing (P1-ST2-T01)', () => {
     expect(container.querySelector('a[href="/pricing"]')).toBeNull();
   });
 
-  it('เปิดราคา (ค่าจาก P1-ST1-T04/T02): เมนูราคา, ดูราคา, แถบ "เริ่ม ฿… ต่อรถต่อเดือน", FAQ คิดเงิน', () => {
-    const { unmount } = renderLanding({
-      ...readLandingConfig({ VITE_PRICING_PAGE_LIVE: 'true' }),
-      pricingVisible: true,
-      fromPrice: '350',
-    });
-    expect(screen.getByRole('button', { name: 'ราคา' })).toBeInTheDocument();
+  it('เปิดราคา (P1-ST2-T02 — ค่าจาก API): เมนูราคา, ดูราคา → /pricing, แถบ "เริ่ม ฿… ต่อรถต่อเดือน" จากแพ็กเกจแรก, FAQ คิดเงิน', () => {
+    const go = vi.spyOn(landingNav, 'go').mockImplementation(() => undefined);
+    renderLanding(readLandingConfig({}), plansData);
+    fireEvent.click(screen.getByRole('button', { name: 'ราคา' }));
+    expect(go).toHaveBeenLastCalledWith('/pricing');
     expect(screen.getByRole('link', { name: 'ดูราคา →' })).toHaveAttribute('href', '/pricing');
+    expect(screen.getByRole('link', { name: 'ดูราคาทั้งหมด →' })).toHaveAttribute(
+      'href',
+      '/pricing',
+    );
     expect(screen.getByText('เริ่ม ฿350 ต่อรถต่อเดือน')).toBeTruthy();
     expect(screen.getByRole('button', { name: /คิดเงินอย่างไร/ })).toBeInTheDocument();
-    unmount();
-    // หน้าราคา (P1-ST2-T02) ยังไม่เปิด → ลิงก์ไม่พาไป /pricing แต่แสดงข้อความแทน
-    renderLanding({ ...readLandingConfig({}), pricingVisible: true, fromPrice: '350' });
-    const link = screen.getByRole('link', { name: 'ดูราคา →' });
-    expect(link).toHaveAttribute('href', '#contact');
-    fireEvent.click(link);
-    expect(screen.getByRole('status')).toHaveTextContent('เปิดรับสมัครเร็ว ๆ นี้');
+    go.mockRestore();
+  });
+
+  it('โหลดราคาจาก API เอง: 404 = ซ่อน · 200 = แสดง · ผิดพลาด = ซ่อน', async () => {
+    const spy = vi.spyOn(plansApi, 'fetch').mockResolvedValueOnce(plansData);
+    const view = render(
+      <I18nProvider lang="th">
+        <LandingPage config={readLandingConfig({})} />
+      </I18nProvider>,
+    );
+    expect(await screen.findByText('เริ่ม ฿350 ต่อรถต่อเดือน')).toBeTruthy();
+    view.unmount();
+    spy.mockRejectedValueOnce(new Error('x'));
+    const v2 = render(
+      <I18nProvider lang="th">
+        <LandingPage config={readLandingConfig({})} />
+      </I18nProvider>,
+    );
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+    expect(v2.container.querySelector('a[href="/pricing"]')).toBeNull();
+    spy.mockRestore();
   });
 
   it('ระบบที่เชื่อมได้มาจาก config (เปิด Express เมื่อยืนยันกับ ESG แล้ว — ไม่ต้องแก้โค้ด)', () => {
@@ -196,6 +220,7 @@ describe('ชุดข้อความย่อยของ landing (i18n/land
   });
 
   it('LandingRoot (bundle แยก) แสดงหน้าได้ด้วยชุดย่อย — ไม่มีชื่อ key หลุดบนจอ', () => {
+    vi.spyOn(plansApi, 'fetch').mockResolvedValue(null);
     const { container } = render(<LandingRoot />);
     expect(container.textContent).not.toMatch(/\bland\.[a-z]|\bpub\.[a-z]/);
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('จัดรถ ตามงาน เก็บ POD');

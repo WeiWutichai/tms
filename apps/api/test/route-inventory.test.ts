@@ -51,9 +51,17 @@ const PUBLIC_ROUTES: Record<string, string> = {
     'URL ลายเซ็น HMAC อายุ 5 นาที (นำเข้า 60 วิ) · attachment + nosniff (documents.test.ts)',
   'POST /v1/inbound/:provider/:token':
     'token ขาเข้าต่อ connector (ผูก tenant) + ลายเซ็น (inbound-webhook.test.ts)',
+  'GET /v1/public/plans':
+    'ราคาแพ็กเกจของแพลตฟอร์มเอง (ไม่มีข้อมูล tenant) · ปิดด้วย pricing.publicVisible → 404 · rate limit ต่อ IP (public-plans.test.ts)',
   'GET /v1/public/tracking/pod-image/:doc':
     'URL ลายเซ็น preview อายุ 15 นาที · เฉพาะรูป POD · ตัด EXIF (tracking-link.test.ts)',
 };
+
+/**
+ * P1-ST2-T02: ราคาแพ็กเกจ (ราคาขายของแพลตฟอร์มเอง — ตั้งใจเผยแพร่ docs/02 §7 "ราคาสาธารณะบนเว็บ") ไม่ใช่ราคาของ tenant
+ * → ยกเว้นจากตรวจ "ไม่รั่วราคา" · ไม่มีข้อมูล tenant (public-plans.test.ts)
+ */
+const PUBLIC_PRICE_LIST = ['/v1/public/plans'];
 
 /** route ที่ใช้ token ลูกค้าแต่มี path param ที่ไม่ใช่ `:id` (และไม่ใช่ `/external/:externalId`) */
 const OTHER_PARAM: Record<string, string> = {
@@ -227,7 +235,9 @@ describe('route inventory (ST9-T13)', () => {
       )?.[0];
     const leaks: string[] = [];
     let positive = 0; // ตัวควบคุม: walker เจอราคาซื้อของรถร่วมในหน้าข้อเสนองานจริง (ไม่ใช่ผ่านเพราะอ่าน schema ไม่ออก)
-    for (const r of routes.filter((x) => x.path.startsWith('/v1/public/'))) {
+    for (const r of routes.filter(
+      (x) => x.path.startsWith('/v1/public/') && !PUBLIC_PRICE_LIST.includes(x.path),
+    )) {
       const oaPath = r.path.replace(/(?<!\\):([A-Za-z0-9_]+)/g, '{$1}').replace(/\\:/g, ':');
       const op = (doc.paths[oaPath] as Record<string, any> | undefined)?.[r.method.toLowerCase()];
       expect(op, `${keyOf(r)} ไม่มีใน OpenAPI`).toBeTruthy();

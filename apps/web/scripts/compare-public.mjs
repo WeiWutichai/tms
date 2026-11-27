@@ -1,6 +1,7 @@
 // ภาพเทียบ "ต้นแบบ | ของจริง" ของหน้า public (TMS Signup) ที่ 1440 และ 390 px — เครื่อง dev เท่านั้น
 // ต้องมี web dev (4420) + API dev (4410) · ใช้: node scripts/compare-public.mjs forgot landing
 // landing (P1-ST2-T01): ไม่ต้องมี API · ซ่อนแถบ DEMO ของต้นแบบ · เลื่อนลงสุดก่อนถ่าย (รูป loading=lazy)
+// pricing (P1-ST2-T02): ต้องมี API dev และตั้ง pricing.publicVisible = true ในฐาน dev ก่อน (ปิด = หน้าราคากลับ /home)
 import { chromium } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 
@@ -8,16 +9,30 @@ const PAGES = {
   // [hash ต้นแบบ, path ของจริง, ขั้นหลังกรอก (ส่งลิงก์)]
   forgot: ['#forgot', '/forgot', { email: 'owner@demo-a.test', button: 'ส่งลิงก์' }],
   landing: ['#home', '/home'],
+  pricing: ['#pricing', '/pricing'],
 };
 const names = process.argv.slice(2).filter((s) => PAGES[s]);
 const out = fileURLToPath(new URL('../../../design/compare/', import.meta.url));
 const proto =
   'file://' +
   fileURLToPath(new URL('../../../design/prototype/TMS Signup.dc.html', import.meta.url));
+const pnpmDir = fileURLToPath(new URL('../../../node_modules/.pnpm/', import.meta.url));
+const LOCAL_UMD = {
+  'https://unpkg.com/react@18.3.1/umd/react.production.min.js': `${pnpmDir}react@18.3.1/node_modules/react/umd/react.production.min.js`,
+  'https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js': `${pnpmDir}react-dom@18.3.1_react@18.3.1/node_modules/react-dom/umd/react-dom.production.min.js`,
+};
 const b = await chromium.launch();
 
 async function shot(url, vp, step) {
-  const p = await (await b.newContext({ viewport: vp, locale: 'th-TH' })).newPage();
+  const ctx = await b.newContext({ viewport: vp, locale: 'th-TH' });
+  // OFFLINE=1: ไม่เรียกออกภายนอก (Google Fonts / unpkg ของต้นแบบ) — ทั้งสองฝั่งใช้ฟอนต์สำรองเหมือนกัน ไอคอนต้นแบบไม่ขึ้น
+  //   React UMD ของต้นแบบ (unpkg) เสิร์ฟจาก node_modules ในเครื่อง (react@18.3.1 รุ่นเดียวกัน)
+  if (process.env.OFFLINE === '1')
+    await ctx.route(/^https?:\/\/(?!localhost|127\.0\.0\.1)/, (r) => {
+      const local = LOCAL_UMD[r.request().url()];
+      return local ? r.fulfill({ path: local, contentType: 'text/javascript' }) : r.abort();
+    });
+  const p = await ctx.newPage();
   await p.goto(url);
   await p.waitForTimeout(2000);
   await p.addStyleTag({ content: '[data-demo]{display:none!important}' });

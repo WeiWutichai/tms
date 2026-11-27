@@ -3810,6 +3810,74 @@
         ]
       }
     },
+    "/v1/public/plans": {
+      "get": {
+        "description": "ราคาไม่รวม VAT · คำนวณค่าใช้จ่ายด้วย `estimatePlanCharge` ของ @tms/domain (ตัวเดียวกับประมาณการบิล) · ปิดหน้าราคา (`pricing.publicVisible = false`) → 404",
+        "operationId": "PublicPlans_list",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicPlansDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "404": {
+            "description": "หน้าราคาสาธารณะยังไม่เปิด (pricing.publicVisible = false)"
+          },
+          "429": {
+            "description": "เรียกถี่เกินไป (ต่อ IP)",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "แพ็กเกจ ราคา และตารางเปรียบเทียบสำหรับหน้าราคาสาธารณะ",
+        "tags": [
+          "public"
+        ]
+      }
+    },
     "/v1/platform/settings": {
       "get": {
         "operationId": "PlatformSettings_list",
@@ -76765,6 +76833,254 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "PublicVolumeTierDto": {
+        "type": "object",
+        "properties": {
+          "fromVehicle": {
+            "type": "number",
+            "example": 51,
+            "description": "คันที่เริ่มได้ส่วนลด (รวมคันนี้)"
+          },
+          "discountPct": {
+            "type": "string",
+            "example": "10.00",
+            "description": "ส่วนลด %"
+          }
+        },
+        "required": [
+          "fromVehicle",
+          "discountPct"
+        ]
+      },
+      "PublicPlanDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "std"
+          },
+          "nameTh": {
+            "type": "string",
+            "example": "Growth"
+          },
+          "nameEn": {
+            "type": "string",
+            "nullable": true
+          },
+          "badge": {
+            "type": "string",
+            "nullable": true,
+            "example": "นิยม"
+          },
+          "isContactSales": {
+            "type": "boolean",
+            "description": "ตกลงราคากับฝ่ายขาย (ไม่มีราคาต่อรถ)"
+          },
+          "version": {
+            "type": "number",
+            "example": 1,
+            "description": "เลขเวอร์ชันราคาที่มีผล"
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "pricePerVehicleMonthly": {
+            "type": "string",
+            "nullable": true,
+            "example": "280.00",
+            "description": "บาท/รถ active/เดือน ก่อน VAT — null = ตกลงราคา"
+          },
+          "minimumMonthly": {
+            "type": "string",
+            "nullable": true,
+            "example": "4500.00",
+            "description": "ก่อน VAT"
+          },
+          "annualDiscountPct": {
+            "type": "string",
+            "example": "15.00",
+            "description": "ส่วนลดรายปี %"
+          },
+          "volumeTiers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicVolumeTierDto"
+            }
+          },
+          "vehicleMin": {
+            "type": "number",
+            "example": 16
+          },
+          "vehicleMax": {
+            "type": "number",
+            "nullable": true,
+            "example": 60
+          },
+          "trialDays": {
+            "type": "number",
+            "example": 30
+          },
+          "provisional": {
+            "type": "boolean",
+            "description": "ราคาตั้งต้น — ยังไม่ประกาศ (D-40)"
+          }
+        },
+        "required": [
+          "code",
+          "nameTh",
+          "nameEn",
+          "badge",
+          "isContactSales",
+          "version",
+          "effectiveFrom",
+          "pricePerVehicleMonthly",
+          "minimumMonthly",
+          "annualDiscountPct",
+          "volumeTiers",
+          "vehicleMin",
+          "vehicleMax",
+          "trialDays",
+          "provisional"
+        ]
+      },
+      "PublicPlanCellDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "addon",
+              "no",
+              "limit",
+              "unlimited"
+            ],
+            "description": "yes = ✓ · addon = ซื้อเพิ่ม · no = — · limit = ตัวเลขโควตา · unlimited = ไม่จำกัด"
+          },
+          "limit": {
+            "type": "number",
+            "nullable": true,
+            "description": "เฉพาะ kind = limit"
+          }
+        },
+        "required": [
+          "kind",
+          "limit"
+        ]
+      },
+      "PublicFeatureDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "example": "track"
+          },
+          "category": {
+            "type": "string",
+            "example": "ปฏิบัติการ"
+          },
+          "nameTh": {
+            "type": "string",
+            "example": "ติดตามรถ (GPS)"
+          },
+          "nameEn": {
+            "type": "string",
+            "nullable": true
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "boolean",
+              "limit",
+              "metered"
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "nullable": true,
+            "example": "ตัว"
+          },
+          "isBasic": {
+            "type": "boolean",
+            "description": "ฟีเจอร์พื้นฐาน — มีทุกแพ็กเกจ (PLT-061)"
+          },
+          "cells": {
+            "description": "เซลล์ต่อแพ็กเกจ เรียงตาม `plans` — มาจาก plan_entitlement ของเวอร์ชันที่มีผล",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicPlanCellDto"
+            }
+          }
+        },
+        "required": [
+          "key",
+          "category",
+          "nameTh",
+          "nameEn",
+          "type",
+          "unit",
+          "isBasic",
+          "cells"
+        ]
+      },
+      "PublicPlansDto": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string",
+            "example": "THB"
+          },
+          "vatMode": {
+            "type": "string",
+            "example": "exclusive",
+            "description": "ราคาทั้งหมดยังไม่รวม VAT"
+          },
+          "provisional": {
+            "type": "boolean",
+            "description": "มีแพ็กเกจที่ราคาตั้งต้น (ยังไม่ประกาศ) อย่างน้อย 1 รายการ"
+          },
+          "retentionDays": {
+            "type": "number",
+            "example": 90,
+            "description": "เก็บข้อมูลหลังยกเลิกกี่วัน (retention.operationalDays)"
+          },
+          "trialDays": {
+            "type": "number",
+            "example": 30,
+            "description": "จำนวนวันทดลองใช้ของ tenant ใหม่ (trial.days — ที่ใช้จริงตอนสมัคร)"
+          },
+          "subconWeight": {
+            "type": "string",
+            "example": "1.00",
+            "description": "น้ำหนักรถร่วมในการนับรถ active (usage.subconWeight — 1.00 = เต็มคัน)"
+          },
+          "plans": {
+            "description": "เรียงตาม sortOrder",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicPlanDto"
+            }
+          },
+          "features": {
+            "description": "feature matrix เรียงตามแคตตาล็อก",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicFeatureDto"
+            }
+          }
+        },
+        "required": [
+          "currency",
+          "vatMode",
+          "provisional",
+          "retentionDays",
+          "trialDays",
+          "subconWeight",
+          "plans",
+          "features"
         ]
       },
       "PlatformSettingDto": {

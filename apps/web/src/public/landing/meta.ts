@@ -6,7 +6,7 @@ import { useEffect } from 'react';
  * ⚠ og:url / og:image แบบ absolute และ tag แบบ static (สำหรับ bot ที่ไม่รัน JS เช่นตัวสร้าง preview ของ LINE)
  *   ต้องรอโดเมนจริง X-09 → ติดตามใน go-live checklist (P1-ST6-T08)
  */
-export function useLandingMeta(title: string, description: string) {
+export function useLandingMeta(title: string, description: string, path = '/home') {
   useEffect(() => {
     const prevTitle = document.title;
     document.title = title;
@@ -26,12 +26,12 @@ export function useLandingMeta(title: string, description: string) {
     set('name', 'twitter:card', 'summary');
     const link = document.createElement('link');
     link.rel = 'canonical';
-    link.href = `${window.location.origin}/home`;
+    link.href = `${window.location.origin}${path}`;
     document.head.appendChild(link);
     added.push(link);
     return () => {
       document.title = prevTitle;
       added.forEach((el) => el.remove());
     };
-  }, [title, description]);
+  }, [title, description, path]);
 }

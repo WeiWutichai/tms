@@ -47,6 +47,7 @@ import { ListExports } from './modules/exports/list-exports';
 import { SetupChecklistController } from './modules/setup/setup.controller';
 import { PlatformAuthController } from './platform/platform-auth.controller';
 import { PlatformConnectorsController } from './platform/platform-connectors.controller';
+import { PublicPlansController } from './modules/entitlements/public-plans.controller';
 import { PlatformPlansController } from './platform/platform-plans.controller';
 import { PlatformSettingsController } from './platform/platform-settings.controller';
 import { PlatformSettingsService } from './platform/platform-settings.service';
@@ -318,6 +319,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     PlatformAuthController,
     PlatformTenantsController,
     PlatformPlansController,
+    PublicPlansController,
     PlatformSettingsController,
     PlatformConnectorsController,
     ImpersonationController,
