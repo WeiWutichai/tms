@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { isSandboxTenant } from '../sandbox/users';
 import { isLocalEnv } from '../../auth/tokens';
+import { type ConnectorDefinition, definitionProblems } from './connector-definition';
 import {
   adapterShapeProblems,
   type ErpAdapter,
@@ -70,7 +71,39 @@ export class ErpAdapterRegistry {
       throw new Error(`erp adapter key '${STANDALONE_KEY}' is reserved`);
     if (this.adapters.has(adapter.key))
       throw new Error(`erp adapter '${adapter.key}' already registered`);
+    if (this.defs.has(adapter.key))
+      throw new Error(`erp adapter '${adapter.key}' is declared as a coming-soon definition`);
     this.put(adapter);
+  }
+
+  /** P1-ST5-T01b connector ที่ประกาศล่วงหน้า (ยังไม่มี adapter — เชื่อมต่อไม่ได้) */
+  private readonly defs = new Map<string, ConnectorDefinition>();
+
+  /** ลงทะเบียน `ConnectorDefinition` (จาก `src/erp-adapters/index.ts` เท่านั้น) — key ซ้ำกับ adapter/definition อื่น = error */
+  define(def: ConnectorDefinition): void {
+    if (def.key === STANDALONE_KEY)
+      throw new Error(`connector key '${STANDALONE_KEY}' is reserved`);
+    if (this.adapters.has(def.key) || this.defs.has(def.key))
+      throw new Error(`connector '${def.key}' already registered`);
+    const problems = definitionProblems(def);
+    if (problems.length)
+      throw new Error(`connector definition '${def.key}' invalid: ${problems.join('; ')}`);
+    this.defs.set(def.key, def);
+  }
+
+  /** definition ที่ยังไม่มี adapter (null = ไม่มี หรือมี adapter แล้ว) */
+  comingSoon(key: string): ConnectorDefinition | null {
+    return this.adapters.has(key) ? null : (this.defs.get(key) ?? null);
+  }
+
+  /**
+   * definition ที่เชื่อมต่อไม่ได้ เรียงตามรหัส · tenant sandbox ไม่เห็น (ใช้ได้เฉพาะ adapter จำลอง — D68-96)
+   */
+  definitions(sandbox?: boolean): ConnectorDefinition[] {
+    if (sandbox) return [];
+    return [...this.defs.values()]
+      .filter((d) => !this.adapters.has(d.key))
+      .sort((a, b) => a.key.localeCompare(b.key));
   }
 
   /** test: แทนที่/เพิ่ม adapter */

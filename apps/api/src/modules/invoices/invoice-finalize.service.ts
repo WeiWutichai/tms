@@ -16,6 +16,7 @@ import { DeliveryOrderService } from '../delivery-orders/delivery-order.service'
 import { ErpSyncService } from '../erp/erp-sync.service';
 import { putFileLocked, store } from '../documents/documents.controller';
 import { issueNumber } from '../sequences/sequences.service';
+import { usableLogoId } from '../settings/org-logo';
 import { readSettings } from '../settings/settings.service';
 import { InvoiceBillingGuard } from './billing-guard.service';
 import {
@@ -250,6 +251,9 @@ export class InvoiceFinalizeService implements OnModuleInit {
       templateVersion: INVOICE_TEMPLATE_VERSION,
       ...(sandbox ? { sandbox: true } : {}),
     };
+    // P1-ST6-T04 ตรึงโลโก้ ณ วันออก (สำเนา/ฉบับยกเลิกที่ render ภายหลังได้ภาพเดียวกับต้นฉบับ)
+    const logoId = await usableLogoId(tx, ctx.tenantId!);
+    if (logoId) print.logoDocumentId = logoId;
     const before = await this.invoices.get(id, tx);
     await tx.invoice.update({
       where: { id },

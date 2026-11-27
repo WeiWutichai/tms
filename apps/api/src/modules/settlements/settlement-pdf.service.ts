@@ -1,3 +1,4 @@
+import { currentLogoId, loadLogo } from '../settings/org-logo';
 import { Injectable, type OnModuleInit } from '@nestjs/common';
 import type { StoredDocument } from '@prisma/client';
 import { createHash, randomUUID } from 'node:crypto';
@@ -319,6 +320,8 @@ export class SettlementPdfService implements OnModuleInit {
     // live ตั้ง prefix เองได้ และใบที่อนุมัติใน sandbox ก่อนเลข `TEST-` ก็ได้ลายน้ำด้วย
     const tenant = await tx.tenant.findFirst({ select: { yearStyle: true, mode: true } });
     const yearStyle = tenant?.yearStyle === 'CE' ? 'CE' : 'BE';
+    // P1-ST6-T04 โลโก้ปัจจุบัน — ฉบับที่เก็บแล้ว (D-66) ไม่ render ใหม่ จึงตรึงอยู่ในไฟล์ (เหมือน yearStyle ด้านบน)
+    const logo = await loadLogo(tx, await currentLogoId(tx, requestContext.require().tenantId!));
 
     // แถวต่อเที่ยว (ลำดับตามบรรทัดแรกของเที่ยว): ค่าเที่ยว = Σ FREIGHT · ค่าใช้จ่ายหน้างาน = Σ SURCHARGE
     const rows: (SettlementPrintTrip & { driver: string | null })[] = tripIds.map((tid) => {
@@ -377,6 +380,7 @@ export class SettlementPdfService implements OnModuleInit {
       dto,
       model: {
         yearStyle,
+        logo: logo?.dataUri ?? null,
         settlementNo: dto.settlementNo,
         docDate,
         payer: payerParty(
