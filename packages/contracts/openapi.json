@@ -3474,6 +3474,498 @@
         }
       }
     },
+    "/v1/platform/features": {
+      "get": {
+        "operationId": "PlatformPlans_features",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlatformFeatureDto"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/plans": {
+      "get": {
+        "operationId": "PlatformPlans_plans",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlatformPlanDto"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/plan-versions/{id}": {
+      "get": {
+        "operationId": "PlatformPlans_version",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "header ETag = rowVersion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanVersionDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      },
+      "patch": {
+        "operationId": "PlatformPlans_updateDraft",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag/rowVersion ของเวอร์ชัน — ไม่ตรง → 412 precondition_failed",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanVersionInputDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanVersionDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/plans/{code}/versions": {
+      "post": {
+        "operationId": "PlatformPlans_createDraft",
+        "parameters": [
+          {
+            "name": "code",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanVersionInputDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanVersionDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/plan-versions/{id}/publish": {
+      "post": {
+        "operationId": "PlatformPlans_publish",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag/rowVersion ของเวอร์ชัน — ไม่ตรง → 412 precondition_failed",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishPlanVersionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanVersionDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/settings": {
+      "get": {
+        "operationId": "PlatformSettings_list",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlatformSettingDto"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/settings/{key}": {
+      "get": {
+        "operationId": "PlatformSettings_one",
+        "parameters": [
+          {
+            "name": "key",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformSettingDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      },
+      "put": {
+        "operationId": "PlatformSettings_update",
+        "parameters": [
+          {
+            "name": "key",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag/version ของค่าตั้ง (\"0\" = ยังไม่เคยตั้ง) — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePlatformSettingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformSettingDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
     "/v1/platform/connectors/adapters": {
       "get": {
         "operationId": "PlatformConnectors_adapters",
@@ -75883,6 +76375,627 @@
           "twoFactorEnabled"
         ]
       },
+      "PlatformFeatureDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "example": "settle"
+          },
+          "category": {
+            "type": "string",
+            "example": "บัญชี"
+          },
+          "nameTh": {
+            "type": "string"
+          },
+          "nameEn": {
+            "type": "string",
+            "nullable": true
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "boolean",
+              "limit",
+              "metered"
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "nullable": true
+          },
+          "isBasic": {
+            "type": "boolean",
+            "description": "ฟีเจอร์พื้นฐาน — included ทุกแพ็กเกจ แก้ไม่ได้ (PLT-061)"
+          },
+          "sortOrder": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "category",
+          "nameTh",
+          "nameEn",
+          "type",
+          "unit",
+          "isBasic",
+          "sortOrder"
+        ]
+      },
+      "VolumeTierDto": {
+        "type": "object",
+        "properties": {
+          "fromVehicle": {
+            "type": "number",
+            "example": 51,
+            "description": "คันที่เริ่มได้ส่วนลด (รวมคันนี้)"
+          },
+          "discountPct": {
+            "type": "string",
+            "example": "10.00",
+            "description": "ส่วนลด % (0–100 ทศนิยม ≤ 2)"
+          }
+        },
+        "required": [
+          "fromVehicle",
+          "discountPct"
+        ]
+      },
+      "PlanEntitlementDto": {
+        "type": "object",
+        "properties": {
+          "featureKey": {
+            "type": "string",
+            "example": "settle"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "included",
+              "addon",
+              "not_available"
+            ]
+          },
+          "limit": {
+            "type": "number",
+            "nullable": true,
+            "description": "null = ไม่จำกัด"
+          }
+        },
+        "required": [
+          "featureKey",
+          "mode",
+          "limit"
+        ]
+      },
+      "PlanVersionDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "plv_…"
+          },
+          "planCode": {
+            "type": "string",
+            "example": "std"
+          },
+          "version": {
+            "type": "number",
+            "example": 1,
+            "description": "เลขเวอร์ชันราคาของแพ็กเกจ (v1, v2, …)"
+          },
+          "rowVersion": {
+            "type": "number",
+            "example": 1,
+            "description": "เลขแก้ไขของแถว = ETag (ส่งกลับใน If-Match — docs/01 §5.1)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "published",
+              "retired"
+            ]
+          },
+          "pricePerVehicleMonthly": {
+            "type": "string",
+            "nullable": true,
+            "example": "280.00"
+          },
+          "minimumMonthly": {
+            "type": "string",
+            "nullable": true,
+            "example": "4500.00"
+          },
+          "annualDiscountPct": {
+            "type": "string",
+            "example": "15.00"
+          },
+          "volumeTiers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VolumeTierDto"
+            }
+          },
+          "vehicleMin": {
+            "type": "number",
+            "example": 16
+          },
+          "vehicleMax": {
+            "type": "number",
+            "nullable": true,
+            "example": 60
+          },
+          "trialDays": {
+            "type": "number",
+            "example": 30
+          },
+          "currency": {
+            "type": "string",
+            "example": "THB"
+          },
+          "vatMode": {
+            "type": "string",
+            "example": "exclusive"
+          },
+          "provisional": {
+            "type": "boolean",
+            "description": "ราคาตั้งต้น — ยังไม่ประกาศ"
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "subscribers": {
+            "type": "number",
+            "description": "จำนวน tenant ที่อยู่บนเวอร์ชันนี้"
+          },
+          "entitlements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanEntitlementDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "planCode",
+          "version",
+          "rowVersion",
+          "status",
+          "pricePerVehicleMonthly",
+          "minimumMonthly",
+          "annualDiscountPct",
+          "volumeTiers",
+          "vehicleMin",
+          "vehicleMax",
+          "trialDays",
+          "currency",
+          "vatMode",
+          "provisional",
+          "effectiveFrom",
+          "publishedAt",
+          "subscribers",
+          "entitlements"
+        ]
+      },
+      "PlatformPlanDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "std"
+          },
+          "nameTh": {
+            "type": "string",
+            "example": "Growth"
+          },
+          "nameEn": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "archived"
+            ]
+          },
+          "sortOrder": {
+            "type": "number"
+          },
+          "showOnWeb": {
+            "type": "boolean"
+          },
+          "isContactSales": {
+            "type": "boolean"
+          },
+          "badge": {
+            "type": "string",
+            "nullable": true
+          },
+          "current": {
+            "nullable": true,
+            "description": "เวอร์ชันที่มีผลตอนนี้",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PlanVersionDto"
+              }
+            ]
+          },
+          "draft": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PlanVersionDto"
+              }
+            ]
+          },
+          "versions": {
+            "description": "ทุกเวอร์ชัน (ใหม่ → เก่า)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanVersionDto"
+            }
+          }
+        },
+        "required": [
+          "code",
+          "nameTh",
+          "nameEn",
+          "status",
+          "sortOrder",
+          "showOnWeb",
+          "isContactSales",
+          "badge",
+          "current",
+          "draft",
+          "versions"
+        ]
+      },
+      "PlanEntitlementInputDto": {
+        "type": "object",
+        "properties": {
+          "featureKey": {
+            "type": "string",
+            "example": "report"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "included",
+              "addon",
+              "not_available"
+            ]
+          },
+          "limit": {
+            "type": "number",
+            "nullable": true,
+            "description": "null/ไม่ส่ง = ไม่จำกัด"
+          }
+        },
+        "required": [
+          "featureKey",
+          "mode"
+        ]
+      },
+      "PlanVersionInputDto": {
+        "type": "object",
+        "properties": {
+          "pricePerVehicleMonthly": {
+            "type": "string",
+            "example": "350.00",
+            "nullable": true,
+            "description": "บาท/รถ active/เดือน ก่อน VAT — null = ตกลงราคา"
+          },
+          "minimumMonthly": {
+            "type": "string",
+            "example": "2500.00",
+            "nullable": true
+          },
+          "annualDiscountPct": {
+            "type": "string",
+            "example": "15.00",
+            "description": "ส่วนลดรายปี %"
+          },
+          "volumeTiers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VolumeTierDto"
+            }
+          },
+          "vehicleMin": {
+            "type": "number",
+            "example": 1
+          },
+          "vehicleMax": {
+            "type": "number",
+            "example": 15,
+            "nullable": true,
+            "description": "null = ไม่มีเพดาน"
+          },
+          "trialDays": {
+            "type": "number",
+            "example": 30
+          },
+          "provisional": {
+            "type": "boolean",
+            "description": "ราคาตั้งต้น — ยังไม่ประกาศ (D-40)"
+          },
+          "entitlements": {
+            "description": "เซลล์ที่จะตั้ง (บางส่วนได้) — ฟีเจอร์พื้นฐานต้อง included (422 basic_feature_locked)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanEntitlementInputDto"
+            }
+          },
+          "reason": {
+            "type": "string",
+            "example": "ปรับราคาตามมติ PO รอบ D-40",
+            "minLength": 10
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "PublishPlanVersionDto": {
+        "type": "object",
+        "properties": {
+          "effectiveFrom": {
+            "type": "string",
+            "format": "date-time",
+            "description": "วันมีผล (ไม่ส่ง = ทันที) — ลูกค้าใหม่ใช้เวอร์ชันนี้ตั้งแต่วันนี้ ลูกค้าเดิมคงเวอร์ชันเดิม"
+          },
+          "reason": {
+            "type": "string",
+            "example": "เผยแพร่ราคาใหม่ตามมติ PO",
+            "minLength": 10
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "PlatformSettingDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "example": "trial.days",
+            "enum": [
+              "trial.days",
+              "trial.vehicleLimit",
+              "pendingVerification.vehicleLimit",
+              "signup.approvalPolicy",
+              "dunning.pastDueDays",
+              "dunning.readOnlyUntilDay",
+              "dunning.suspendUntilDay",
+              "dunning.reminderDays",
+              "trialExpiry.readOnlyDays",
+              "retention.operationalDays",
+              "retention.purgeEnabled",
+              "retention.platformTaxDocsYears",
+              "retention.auditLogYears",
+              "usage.activeVehicleRule",
+              "usage.subconWeight",
+              "pricing.publicVisible",
+              "billing.paymentMethods",
+              "invoice.dueDays",
+              "planMigration.noticeDays",
+              "impersonation.maxMinutes"
+            ]
+          },
+          "group": {
+            "type": "string",
+            "enum": [
+              "trial",
+              "dunning",
+              "retention",
+              "usage",
+              "billing",
+              "ops"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "int",
+              "bool",
+              "enum",
+              "decimal",
+              "set",
+              "dayLists"
+            ],
+            "description": "ชนิดค่า (ตรวจที่ server — ผิด type → 422)"
+          },
+          "value": {
+            "description": "ค่าที่มีผล (ชนิดตาม `type`)",
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                }
+              }
+            ]
+          },
+          "default": {
+            "description": "ค่าเริ่มต้น (ชนิดตาม `type`)",
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                }
+              }
+            ]
+          },
+          "isDefault": {
+            "type": "boolean",
+            "description": "ยังใช้ค่าเริ่มต้น (ไม่เคยตั้ง)"
+          },
+          "options": {
+            "description": "ค่าที่เลือกได้ (enum / set)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "min": {
+            "description": "ต่ำสุด (int / dayLists = จำนวนเต็ม · decimal = สตริงทศนิยม)",
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "max": {
+            "description": "สูงสุด (int / dayLists = จำนวนเต็ม · decimal = สตริงทศนิยม)",
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "keys": {
+            "description": "ชื่อกลุ่มวัน (dayLists)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source": {
+            "type": "string",
+            "example": "docs/02 §2 · D-43"
+          },
+          "description": {
+            "type": "string"
+          },
+          "version": {
+            "type": "number",
+            "description": "เลขเวอร์ชันของค่า (0 = ไม่เคยตั้ง) = ETag — ส่งกลับใน If-Match กันทับกัน (docs/01 §5.1)"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updatedBy": {
+            "type": "string",
+            "nullable": true,
+            "description": "ชื่อทีมงานที่แก้ล่าสุด"
+          }
+        },
+        "required": [
+          "key",
+          "group",
+          "type",
+          "value",
+          "default",
+          "isDefault",
+          "source",
+          "description",
+          "version",
+          "updatedAt",
+          "updatedBy"
+        ]
+      },
+      "UpdatePlatformSettingDto": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "description": "ค่าใหม่ตามชนิดของ key",
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                }
+              }
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "example": "PO เคาะ D-43 trial 30 วัน",
+            "minLength": 10
+          }
+        },
+        "required": [
+          "value",
+          "reason"
+        ]
+      },
       "ConnectorConfigFieldDto": {
         "type": "object",
         "properties": {
@@ -116843,6 +117956,11 @@
       "title": "แก้หรือดูบัญชีธนาคารผู้รับเหมาผ่าน API key ไม่ได้ ต้องให้ผู้ใช้ทำในระบบ",
       "titleEn": "Carrier bank account details can only be changed or viewed by a signed-in user"
     },
+    "basic_feature_locked": {
+      "status": 422,
+      "title": "ฟีเจอร์พื้นฐานต้องรวมอยู่ในทุกแพ็กเกจ — ตั้งเป็นซื้อเพิ่มหรือไม่มีไม่ได้",
+      "titleEn": "Basic features must be included in every plan"
+    },
     "bot_check_failed": {
       "status": 403,
       "title": "ยืนยันว่าไม่ใช่บอทไม่สำเร็จ กรุณาลองใหม่อีกครั้ง",
@@ -117217,6 +118335,11 @@
       "status": 403,
       "title": "ไม่มีสิทธิ์ทำรายการนี้",
       "titleEn": "You do not have permission for this action"
+    },
+    "plan_version_immutable": {
+      "status": 409,
+      "title": "เวอร์ชันนี้เผยแพร่แล้วแก้ไขไม่ได้ — สร้างเวอร์ชันใหม่แทน",
+      "titleEn": "Published plan versions are immutable — create a new version"
     },
     "pod_exists": {
       "status": 409,

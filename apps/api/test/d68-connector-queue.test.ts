@@ -12,7 +12,7 @@ import { OutboxDispatcher } from '../src/modules/integration/outbox.dispatcher';
 import { OutboxService } from '../src/modules/integration/outbox.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { FakeErpAdapter } from './fake-erp-adapter';
-import { api, bootApp, platform, tokenFor, truncateAll } from './helpers';
+import { api, bootApp, createTenant, platform, tokenFor, truncateAll } from './helpers';
 
 /**
  * D-81 กลุ่ม (F) D68-47/57 (+ เงื่อนไข D68-09) และ (I) D68-58/96 (PO 23 พ.ย. 2569)
@@ -346,7 +346,7 @@ describe('D-81 (F)(I) connector: AUTH/health หยุดคิว · แจ้�
       payload: { count: 2 },
     });
     // tenant อื่น / template อื่น / อ่านแล้ว = ไม่แก้
-    const other = await plat.tenant.create({ data: { name: 'd68-regroup-other' } });
+    const other = await createTenant(plat, 'd68-regroup-other');
     expect((await regroup(other.id, row.id))[0]!.n).toBe(0);
     const job = await mk('job.succeeded');
     expect((await regroup(tenantId, job.id))[0]!.n).toBe(0);

@@ -566,8 +566,11 @@ describe('รายงานรายได้ (ST9-T05)', { timeout: 600_000 },
 
     await api(app, planner).get('/v1/reports/revenue').expect(403);
 
+    // P1-ST1-T01: ทุกแพ็กเกจมีรายงานพื้นฐาน (docs/02 §2) — ปิดโมดูลด้วย override revoke
     const ent = app.get(EntitlementService);
-    await db.tenant.update({ where: { id: tenantId }, data: { planCode: 'start' } });
+    await db.tenantEntitlementOverride.create({
+      data: { tenantId, featureKey: 'report', mode: 'revoke', reason: 'ทดสอบไม่มีโมดูลรายงาน' },
+    });
     ent.invalidate(tenantId);
     try {
       const res = await api(app, admin).get('/v1/reports/revenue');
@@ -579,7 +582,7 @@ describe('รายงานรายได้ (ST9-T05)', { timeout: 600_000 },
       expect(ex.status).toBe(403);
       expect(ex.body.code).toBe('feature_not_in_plan');
     } finally {
-      await db.tenant.update({ where: { id: tenantId }, data: { planCode: 'std' } });
+      await db.tenantEntitlementOverride.deleteMany({ where: { tenantId, featureKey: 'report' } });
       ent.invalidate(tenantId);
     }
 

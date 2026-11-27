@@ -85,7 +85,7 @@ test.describe('Platform Console', () => {
     await plan.getByLabel('โควตารถ (คัน)').fill('');
     await plan.getByLabel('เหตุผล').fill('ลูกค้าขยายกองรถทั้งบริษัท');
     await plan.getByRole('button', { name: 'เปลี่ยนแพ็กเกจ' }).click();
-    await expect(page.getByRole('status')).toContainText('เป็นแพ็กเกจองค์กรแล้ว');
+    await expect(page.getByRole('status')).toContainText('เป็นแพ็กเกจ Enterprise แล้ว');
     await expect(drawer.getByText('— / ไม่จำกัด')).toBeVisible();
 
     // ระงับ → ปลดระงับ (เหตุผล ≥ 10 ตัว)

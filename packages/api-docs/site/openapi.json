@@ -96660,6 +96660,11 @@
       "title": "แก้หรือดูบัญชีธนาคารผู้รับเหมาผ่าน API key ไม่ได้ ต้องให้ผู้ใช้ทำในระบบ",
       "titleEn": "Carrier bank account details can only be changed or viewed by a signed-in user"
     },
+    "basic_feature_locked": {
+      "status": 422,
+      "title": "ฟีเจอร์พื้นฐานต้องรวมอยู่ในทุกแพ็กเกจ — ตั้งเป็นซื้อเพิ่มหรือไม่มีไม่ได้",
+      "titleEn": "Basic features must be included in every plan"
+    },
     "bot_check_failed": {
       "status": 403,
       "title": "ยืนยันว่าไม่ใช่บอทไม่สำเร็จ กรุณาลองใหม่อีกครั้ง",
@@ -97034,6 +97039,11 @@
       "status": 403,
       "title": "ไม่มีสิทธิ์ทำรายการนี้",
       "titleEn": "You do not have permission for this action"
+    },
+    "plan_version_immutable": {
+      "status": 409,
+      "title": "เวอร์ชันนี้เผยแพร่แล้วแก้ไขไม่ได้ — สร้างเวอร์ชันใหม่แทน",
+      "titleEn": "Published plan versions are immutable — create a new version"
     },
     "pod_exists": {
       "status": 409,

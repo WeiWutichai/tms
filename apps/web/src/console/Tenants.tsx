@@ -30,7 +30,7 @@ const STATUS: Record<Status, { k: MessageKey; c: string; bg: string; i: string }
   cancelled: { k: 'tenantStatus.cancelled', c: '#59606B', bg: '#EEF0EC', i: 'circle-x' },
 };
 const STATUSES = Object.keys(STATUS) as Status[];
-const PLANS = ['start', 'std', 'ent'] as const;
+const PLANS = ['start', 'std', 'biz', 'ent'] as const;
 
 function StatusBadge({ s }: { s: Status }) {
   const { t } = useI18n();

@@ -765,10 +765,13 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
       expect(await inbox(fresh)).toHaveLength(0);
       expect(await inApp(inv)).toHaveLength(5);
 
-      // review M1: แพ็กเกจไม่มีโมดูลรายงาน (start) → ลิงก์หน้าวางบิล + ข้อความชี้หน้าวางบิล · แพ็กเกจที่มี → ลิงก์รายงาน
+      // review M1: ไม่มีโมดูลรายงาน → ลิงก์หน้าวางบิล + ข้อความชี้หน้าวางบิล · มี → ลิงก์รายงาน
+      // (P1-ST1-T01: ทุกแพ็กเกจมีรายงานพื้นฐานตาม docs/02 §2 — ปิดด้วย override revoke แทนการเปลี่ยนแพ็กเกจ)
       const ent = app.get(EntitlementService);
       const late = await member('invoicer');
-      await db.tenant.update({ where: { id: tenantId }, data: { planCode: 'start' } });
+      await db.tenantEntitlementOverride.create({
+        data: { tenantId, featureKey: 'report', mode: 'revoke', reason: 'ทดสอบไม่มีโมดูลรายงาน' },
+      });
       ent.invalidate(tenantId);
       try {
         await reminders.runForTenant(tenantId, addDays(D, 4));
@@ -779,7 +782,9 @@ describe('รายงาน DO ยังไม่วางบิล + aging (ST
         expect(s1.body).toContain('หน้า วางบิลและใบแจ้งหนี้');
         expect(s1.body).not.toContain('รายงาน');
       } finally {
-        await db.tenant.update({ where: { id: tenantId }, data: { planCode: 'std' } });
+        await db.tenantEntitlementOverride.deleteMany({
+          where: { tenantId, featureKey: 'report' },
+        });
         ent.invalidate(tenantId);
       }
       expect(n0.body).toContain('รายงาน → DO ยังไม่วางบิล');
