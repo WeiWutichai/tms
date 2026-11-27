@@ -225,6 +225,24 @@ describe('Console: Audit log', () => {
     expect(head.textContent).toBe('เวลาใครทำอะไรลูกค้ารายละเอียดเหตุผล');
   });
 
+  it('คลิกแถว → drawer: ใคร/ในนาม/IP/session + diff ก่อน/หลัง (spec/01 §11.5)', async () => {
+    mount('/console/audit');
+    fireEvent.click(await screen.findByText('เริ่มเข้าใช้งานแทน'));
+    const dlg = await screen.findByRole('dialog', { name: 'เริ่มเข้าใช้งานแทน' });
+    expect(dlg.textContent).toContain('Audit log · aud_1');
+    expect(dlg.textContent).toContain('มาลี ใจดี (support)');
+    expect(dlg.textContent).toContain('คุณหนึ่ง');
+    expect(dlg.textContent).toContain('10.0.0.1');
+    expect(dlg.textContent).toContain('s1');
+    const diff = within(dlg).getByRole('table', { name: 'การเปลี่ยนแปลง' });
+    const r = within(diff)
+      .getAllByRole('row')
+      .find((x) => x.textContent?.startsWith('ticketRef'))!;
+    expect(r.textContent).toBe('ticketRef—#77');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'ปิด' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it('กรอง → query ไป API · ส่งออก CSV ใช้ตัวกรองเดียวกัน', async () => {
     URL.createObjectURL = vi.fn(() => 'blob:x');
     URL.revokeObjectURL = vi.fn();

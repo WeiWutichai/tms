@@ -122,6 +122,8 @@ interface Row {
   src: 'a' | 'p';
   id: string;
   at: Date;
+  /** เวลาเป็นไมโครวินาทีจาก epoch (ความละเอียดเต็มของ timestamptz — ใช้ทำ cursor; Date ของ JS ละเอียดแค่มิลลิวินาที) */
+  at_us: bigint;
   seq: bigint;
   tenant_id: string | null;
   actor_id: string | null;
@@ -139,20 +141,19 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const staffOf = (v: string | null) =>
   v?.startsWith('platform:') && UUID.test(v.slice(9)) ? v.slice(9) : null;
 
-/** cursor = ตำแหน่งแถวสุดท้าย (at, แหล่ง, seq) — เรียงใหม่ก่อน */
-function decodeCursor(c: string): { at: Date; src: string; seq: bigint } {
+/** cursor = ตำแหน่งแถวสุดท้าย (at เป็นไมโครวินาที, แหล่ง, seq) — เรียงใหม่ก่อน */
+function decodeCursor(c: string): { us: bigint; src: string; seq: bigint } {
   try {
     const v = JSON.parse(Buffer.from(c, 'base64url').toString('utf8')) as Record<string, unknown>;
     if (
       typeof v.t !== 'string' ||
+      !/^\d{1,18}$/.test(v.t) ||
       (v.r !== 'a' && v.r !== 'p') ||
       typeof v.s !== 'string' ||
       !/^\d{1,18}$/.test(v.s)
     )
       throw new Error();
-    const at = new Date(v.t);
-    if (Number.isNaN(at.getTime())) throw new Error();
-    return { at, src: v.r, seq: BigInt(v.s) };
+    return { us: BigInt(v.t), src: v.r, seq: BigInt(v.s) };
   } catch {
     throw new ProblemException('validation_failed', undefined, [
       { field: 'cursor', code: 'invalid_cursor', message: 'cursor is invalid' },
@@ -189,7 +190,7 @@ export class PlatformAuditController {
       nextCursor:
         hasMore && last
           ? Buffer.from(
-              JSON.stringify({ t: last.at.toISOString(), r: last.src, s: String(last.seq) }),
+              JSON.stringify({ t: String(last.at_us), r: last.src, s: String(last.seq) }),
             ).toString('base64url')
           : null,
       hasMore,
@@ -268,14 +269,16 @@ export class PlatformAuditController {
   private async query(
     q: PlatformAuditQuery,
     take: number,
-    cursor: { at: Date; src: string; seq: bigint } | null,
+    cursor: { us: bigint; src: string; seq: bigint } | null,
   ): Promise<Row[]> {
     if (q.from && q.to && q.from > q.to)
       throw new ProblemException('validation_failed', undefined, [
         { field: 'to', code: 'date_range', message: 'to must be on or after from' },
       ]);
     // ตัวกรองที่ไม่ตรงรูป id → ไม่มีผล (ไม่ใช่ 422 — เหมือน /audit-logs entityId)
-    const tenant = q.tenantId ? (tryDecodeId('tenant', q.tenantId) ?? '__none__') : null;
+    const tenant: string | false | null = q.tenantId
+      ? (tryDecodeId('tenant', q.tenantId) ?? false)
+      : null;
     const staff = q.staffId ? (tryDecodeId('platformUser', q.staffId) ?? '__none__') : null;
     const a: Prisma.Sql[] = [
       Prisma.sql`(a.actor_id LIKE 'platform:%' OR a.act_as LIKE 'platform:%')`,
@@ -291,8 +294,9 @@ export class PlatformAuditController {
       a.push(Prisma.sql`a.at < ${t}`);
       p.push(Prisma.sql`p.at < ${t}`);
     }
-    if (tenant) {
-      a.push(Prisma.sql`a.tenant_id::text = ${tenant}`);
+    if (tenant !== null) {
+      // id ผิดรูป = ไม่มีแถวตรง (ไม่ cast ค่าที่ไม่ใช่ uuid)
+      a.push(tenant === false ? Prisma.sql`FALSE` : Prisma.sql`a.tenant_id = ${tenant}::uuid`);
       p.push(Prisma.sql`FALSE`); // แถวระดับแพลตฟอร์มไม่ผูกลูกค้า
     }
     if (staff) {
@@ -306,10 +310,10 @@ export class PlatformAuditController {
       p.push(Prisma.sql`p.action LIKE ${like}`);
     }
     const after = cursor
-      ? Prisma.sql`WHERE (x.at, x.src, x.seq) < (${cursor.at}, ${cursor.src}, ${cursor.seq})`
+      ? Prisma.sql`WHERE (x.at, x.src, x.seq) < ('epoch'::timestamptz + ${cursor.us}::bigint * interval '1 microsecond', ${cursor.src}, ${cursor.seq})`
       : Prisma.empty;
     return this.prisma.platform.$queryRaw<Row[]>`
-      SELECT * FROM (
+      SELECT * FROM (SELECT x0.*, (EXTRACT(EPOCH FROM x0.at) * 1000000)::bigint AS at_us FROM (
         SELECT 'a'::text AS src, a.id::text AS id, a.at, a.seq, a.tenant_id::text AS tenant_id,
                a.actor_id, a.act_as, a.action, a.entity_type, a.entity_id, a.before, a.after, a.reason, a.ip
           FROM audit_log a WHERE ${Prisma.join(a, ' AND ')}
@@ -318,7 +322,7 @@ export class PlatformAuditController {
                CASE WHEN p.actor_id IS NULL THEN NULL ELSE 'platform:' || p.actor_id::text END, NULL::text,
                p.action, p.entity_type, p.entity_id, p.before, p.after, p.reason, p.ip
           FROM platform_audit_log p WHERE ${Prisma.join(p, ' AND ')}
-      ) x ${after}
+      ) x0) x ${after}
       ORDER BY x.at DESC, x.src DESC, x.seq DESC
       LIMIT ${take}`;
   }

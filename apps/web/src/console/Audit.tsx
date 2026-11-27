@@ -35,6 +35,7 @@ export function AuditPage() {
   const [f, setF] = useState<Filter>(EMPTY);
   const [toast, setToast] = useState('');
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState<Entry | null>(null);
   const team = useTeam();
   const tenants = useTenantList('');
   const list = useInfiniteQuery({
@@ -182,7 +183,7 @@ export function AuditPage() {
         )}
       </div>
       <section className="con-card">
-        <table className="con-tbl con-tbl--static">
+        <table className="con-tbl">
           <thead>
             <tr>
               <th>{t('con.aud.col.at')}</th>
@@ -205,7 +206,7 @@ export function AuditPage() {
                   </tr>
                 ))
               : rows.map((e) => (
-                  <tr key={e.id}>
+                  <tr key={e.id} aria-selected={open?.id === e.id} onClick={() => setOpen(e)}>
                     <td style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                       {formatDateTime(e.at, lang)}
                     </td>
@@ -237,11 +238,157 @@ export function AuditPage() {
           </div>
         )}
       </section>
+      {open && (
+        <AuditDrawer
+          e={open}
+          label={label(open.action)}
+          who={who(open)}
+          onClose={() => setOpen(null)}
+        />
+      )}
       {toast && (
         <div className="con-toast" role="status">
           {toast}
         </div>
       )}
+    </>
+  );
+}
+
+/** ค่าใน diff — ข้อความตรง ๆ / ตัวเลข / JSON ย่อของ object */
+const show = (v: unknown) =>
+  v === undefined ? '' : v === null ? '—' : typeof v === 'string' ? v : JSON.stringify(v);
+
+/**
+ * drawer แถว audit (spec/01 §11.5 "drawer แสดง before/after (diff)") — ต้นแบบ `aud` ไม่มี drawer:
+ * ประกอบจาก drawer ลูกค้าของต้นแบบ (หัว kind/ชื่อ + ปุ่มปิด, ส่วน `con-sec` + `con-kv`, แถว `con-row`) [DECISION spec/12 §3]
+ */
+function AuditDrawer({
+  e,
+  label,
+  who,
+  onClose,
+}: {
+  e: Entry;
+  label: string;
+  who: string;
+  onClose: () => void;
+}) {
+  const { t, lang } = useI18n();
+  useEffect(() => {
+    const onKey = (k: KeyboardEvent) => k.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const before = (e.before ?? {}) as Record<string, unknown>;
+  const after = (e.after ?? {}) as Record<string, unknown>;
+  const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])];
+  const kv: [MessageKey, string][] = [
+    ['con.aud.kv.by', who],
+    ['con.aud.kv.as', e.onBehalfOf ? (e.onBehalfOf.name ?? e.onBehalfOf.id) : '—'],
+    ['con.aud.kv.co', e.tenant ? (e.tenant.name ?? e.tenant.id) : t('con.aud.platform')],
+    ['con.aud.kv.obj', [e.entityType, e.entityId].filter(Boolean).join(' · ')],
+    ['con.aud.kv.ip', e.ip ?? '—'],
+    ['con.aud.kv.sid', e.impersonationSessionId ?? '—'],
+  ];
+  return (
+    <>
+      <div className="con-scrim" onClick={onClose} />
+      <aside className="con-drawer" role="dialog" aria-modal="true" aria-label={label}>
+        <div className="con-drawer__head">
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span className="con-drawer__kind">{t('con.aud.kind', { id: e.id })}</span>
+              <span className="con-drawer__t">{label}</span>
+              <span style={{ color: '#3B424C' }}>{formatDateTime(e.at, lang)}</span>
+            </div>
+            <button
+              type="button"
+              className="con-iconbtn"
+              title={t('drawer.close')}
+              aria-label={t('drawer.close')}
+              onClick={onClose}
+            >
+              <Icon n="x" s={18} strokeWidth={1.8} />
+            </button>
+          </div>
+        </div>
+        <div className="con-drawer__body">
+          <section className="con-sec">
+            <span className="con-sec__t">{t('con.aud.sec.info')}</span>
+            <div className="con-kv">
+              {kv.map(([k, v]) => (
+                <div key={k} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span className="con-kv__k">{t(k)}</span>
+                  <span className="con-kv__v" style={{ wordBreak: 'break-all' }}>
+                    {v}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span className="con-kv__k">{t('con.aud.kv.why')}</span>
+              <span className="con-kv__v">{e.reason ?? '—'}</span>
+            </div>
+          </section>
+          <section className="con-sec">
+            <span className="con-sec__t">{t('con.aud.sec.diff')}</span>
+            {keys.length ? (
+              <div role="table" aria-label={t('con.aud.sec.diff')}>
+                <div
+                  role="row"
+                  className="con-row"
+                  style={{ gridTemplateColumns: '140px minmax(0,1fr) minmax(0,1fr)' }}
+                >
+                  {(
+                    ['con.aud.diff.field', 'con.aud.diff.before', 'con.aud.diff.after'] as const
+                  ).map((k) => (
+                    <span key={k} role="columnheader" className="con-kv__k">
+                      {t(k)}
+                    </span>
+                  ))}
+                </div>
+                {keys.map((k) => {
+                  const b = show(before[k]);
+                  const a = show(after[k]);
+                  return (
+                    <div
+                      key={k}
+                      role="row"
+                      className="con-row"
+                      style={{ gridTemplateColumns: '140px minmax(0,1fr) minmax(0,1fr)' }}
+                    >
+                      <span role="cell" style={{ fontWeight: 500, wordBreak: 'break-all' }}>
+                        {k}
+                      </span>
+                      <span
+                        role="cell"
+                        style={{
+                          color: b && b !== a ? '#B3322A' : '#3B424C',
+                          wordBreak: 'break-all',
+                        }}
+                      >
+                        {b || '—'}
+                      </span>
+                      <span
+                        role="cell"
+                        style={{
+                          color: a && b !== a ? '#17733F' : '#3B424C',
+                          wordBreak: 'break-all',
+                        }}
+                      >
+                        {a || '—'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <span style={{ color: '#59606B' }}>{t('con.aud.diff.none')}</span>
+            )}
+          </section>
+        </div>
+      </aside>
     </>
   );
 }

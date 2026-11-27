@@ -210,13 +210,31 @@ export class PlatformTeamController {
       deactivatedAt: null,
     };
     const u = await db.$transaction(async (tx) => {
-      const row = existing
-        ? await tx.platformUser.update({
-            where: { id: existing.id },
-            // token Console ใด ๆ ที่ค้างจากรอบก่อนใช้ไม่ได้
-            data: { ...data, tokenVersion: { increment: 1 } },
-          })
-        : await tx.platformUser.create({ data: { email: body.email, ...data } });
+      let row: PlatformUser;
+      if (existing) {
+        // เขียนทับเฉพาะเมื่อแถวยังเป็นสถานะเดิมที่อ่านมา (review: กันชนกับผู้รับคำเชิญที่เพิ่งกดรับ — ไม่งั้นรหัสผ่าน/2FA
+        // ที่เพิ่งตั้งถูกล้างเงียบ ๆ) · ไม่ตรง = 409 concurrent_update ให้ผู้เชิญโหลดใหม่
+        const r = await tx.platformUser.updateMany({
+          where: {
+            id: existing.id,
+            status: existing.status,
+            inviteTokenHash: existing.inviteTokenHash,
+            tokenVersion: existing.tokenVersion,
+          },
+          // token Console ใด ๆ ที่ค้างจากรอบก่อนใช้ไม่ได้
+          data: { ...data, tokenVersion: { increment: 1 } },
+        });
+        if (r.count !== 1) throw new ProblemException('concurrent_update');
+        row = await tx.platformUser.findUniqueOrThrow({ where: { id: existing.id } });
+      } else {
+        // อีเมลเดียวกันถูกเชิญพร้อมกัน → unique email ชน → 409 duplicate
+        row = await tx.platformUser
+          .create({ data: { email: body.email, ...data } })
+          .catch((e: { code?: string }) => {
+            if (e?.code === 'P2002') throw new ProblemException('duplicate');
+            throw e;
+          });
+      }
       await platformAudit(tx, {
         action: existing ? 'platform.staff_reinvited' : 'platform.staff_invited',
         entityType: 'platform_user',
@@ -394,8 +412,16 @@ export class PlatformInvitationController {
         action: 'platform.staff_joined',
         entityType: 'platform_user',
         entityId: u.id,
-        before: { status: 'invited' },
-        after: { status: 'active', role: u.role },
+        // ผู้รับแก้ชื่อที่ผู้เชิญตั้งไว้ได้ — บันทึกชื่อเดิม/ใหม่ไว้ตรวจย้อนหลัง (review)
+        before: {
+          status: 'invited',
+          ...(body.name && body.name !== u.name ? { name: u.name } : {}),
+        },
+        after: {
+          status: 'active',
+          role: u.role,
+          ...(body.name && body.name !== u.name ? { name: body.name } : {}),
+        },
       });
     });
   }

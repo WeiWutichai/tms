@@ -1,12 +1,13 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { hashPassword } from '../src/auth/password';
 import { ensureSystemRoles } from '../src/auth/system-roles';
 import { currentStep, hotp } from '../src/auth/totp';
 import { FieldCipher } from '../src/common/crypto';
 import { encodeId } from '../src/common/ids';
+import { PrismaService } from '../src/db/prisma.service';
 import { EmailDispatcher } from '../src/modules/email/email.service';
 import { MemoryTransport } from '../src/modules/email/transport';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
@@ -410,7 +411,134 @@ describe('platform console: ทีมงาน + audit log (P1-ST4-T06)', () => 
       .expect(401);
   });
 
+  it('เชิญซ้ำชนกับการรับคำเชิญ: แถวเปลี่ยนหลังอ่าน → 409 ไม่ล้างรหัสผ่าน/2FA ที่เพิ่งตั้ง (review)', async () => {
+    const admin = as(await signIn('admin'));
+    const body = {
+      email: 'race@innovera.test',
+      name: 'ทดสอบ ชนกัน',
+      role: 'SUPPORT',
+      reason: 'ทดสอบการเชิญที่ชนกับการรับคำเชิญ',
+    };
+    await admin.post('/v1/platform/team/invitations', body).expect(201);
+    const stale = await db.platformUser.findUniqueOrThrow({ where: { email: body.email } });
+    // ผู้รับกดรับคำเชิญไปแล้ว (ACTIVE + รหัสผ่าน/2FA ใหม่) หลังจากที่ API อ่านแถวเดิมไว้
+    const accepted = await db.platformUser.update({
+      where: { id: stale.id },
+      data: {
+        status: 'ACTIVE',
+        inviteTokenHash: null,
+        inviteExpiresAt: null,
+        passwordHash: await hashPassword(PW),
+        tokenVersion: { increment: 1 },
+      },
+    });
+    const svc = app.get(PrismaService).platform.platformUser;
+    const real = svc.findUnique.bind(svc);
+    // AuthGuard ก็เรียก findUnique (ด้วย id) — คืนแถวเก่าเฉพาะการค้นด้วยอีเมลของ API เชิญ
+    const spy = vi
+      .spyOn(svc, 'findUnique')
+      .mockImplementation(((args: { where: { email?: string } }) =>
+        args.where.email === body.email ? Promise.resolve(stale) : real(args as never)) as never);
+    try {
+      const r = await admin.post('/v1/platform/team/invitations', body);
+      expect(r.status).toBe(409);
+      expect(r.body.code).toBe('concurrent_update');
+    } finally {
+      spy.mockRestore();
+    }
+    const now = await db.platformUser.findUniqueOrThrow({ where: { id: stale.id } });
+    expect(now).toMatchObject({
+      status: 'ACTIVE',
+      passwordHash: accepted.passwordHash,
+      totpSecret: accepted.totpSecret,
+      tokenVersion: accepted.tokenVersion,
+    });
+    expect(
+      await db.platformAuditLog.count({
+        where: { action: 'platform.staff_reinvited', entityId: stale.id },
+      }),
+    ).toBe(0);
+  });
+
+  it('รับคำเชิญแล้วแก้ชื่อ → audit เก็บชื่อเดิม/ใหม่', async () => {
+    const admin = as(await signIn('admin'));
+    await admin
+      .post('/v1/platform/team/invitations', {
+        email: 'rename@innovera.test',
+        name: 'ชื่อที่ผู้เชิญตั้ง',
+        role: 'BILLING',
+        reason: 'ทดสอบการแก้ชื่อตอนรับคำเชิญ',
+      })
+      .expect(201);
+    await dispatcher.drain();
+    const m = mail.sent.find((x) => x.to === 'rename@innovera.test')!;
+    const token = /\/console\/invite#token=([\w-]+)/.exec(m.text)![1]!;
+    const info = (
+      await http().post('/v1/platform/auth/invitations/inspect').send({ token }).expect(200)
+    ).body;
+    await http()
+      .post('/v1/platform/auth/invitations/accept')
+      .send({
+        token,
+        password: 'staff-password-2569',
+        code: hotp(info.secret, currentStep()),
+        name: 'ชื่อจริงของฉัน',
+      })
+      .expect(204);
+    const u = await db.platformUser.findUniqueOrThrow({ where: { email: 'rename@innovera.test' } });
+    const j = await db.platformAuditLog.findFirstOrThrow({
+      where: { action: 'platform.staff_joined', entityId: u.id },
+    });
+    expect(j.before).toMatchObject({ name: 'ชื่อที่ผู้เชิญตั้ง' });
+    expect(j.after).toMatchObject({ name: 'ชื่อจริงของฉัน' });
+  });
+
+  it('cursor ละเอียดระดับไมโครวินาที: แถวที่ห่างกัน < 1 ms ไม่หาย/ไม่ซ้ำ · tenantId ผิดรูป = ว่าง', async () => {
+    // เวลาไมโครวินาทีต่างกันในมิลลิวินาทีเดียว (Date ของ JS ปัดทิ้ง)
+    const owner = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
+    try {
+      for (const us of [100, 300, 500])
+        await owner.$executeRawUnsafe(
+          `INSERT INTO platform_audit_log (id, at, actor_id, action, entity_type)
+           VALUES (gen_random_uuid(), '2001-01-01T00:00:00.000${us}Z', '${ids.admin}', 'platform.test_us', 'x')`,
+        );
+    } finally {
+      await owner.$disconnect();
+    }
+    const bi = as(await signIn('billing'));
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: { data: { id: string }[]; nextCursor: string | null } = (
+        await bi
+          .get(
+            `/v1/platform/audit-logs?action=platform.test_us&limit=1${cursor ? `&cursor=${cursor}` : ''}`,
+          )
+          .expect(200)
+      ).body;
+      seen.push(...page.data.map((e) => e.id));
+      cursor = page.nextCursor;
+    } while (cursor);
+    expect(seen).toHaveLength(3);
+    expect(new Set(seen).size).toBe(3);
+    expect(
+      (await bi.get('/v1/platform/audit-logs?tenantId=ten_nope').expect(200)).body.data,
+    ).toEqual([]);
+  });
+
   it('platform_audit_log append-only: platform แก้/ลบไม่ได้ · role แอปอ่านไม่ได้', async () => {
+    // trigger append-only มีผลแม้เจ้าของตาราง (ชั้นที่สอง ต่อจาก REVOKE)
+    const owner = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
+    try {
+      await expect(
+        owner.$executeRaw`UPDATE platform_audit_log SET reason = 'แก้ย้อนหลัง'`,
+      ).rejects.toThrow(/append-only/);
+      await expect(owner.$executeRaw`DELETE FROM platform_audit_log`).rejects.toThrow(
+        /append-only/,
+      );
+    } finally {
+      await owner.$disconnect();
+    }
     await expect(db.$executeRaw`DELETE FROM platform_audit_log`).rejects.toThrow(
       /permission denied/,
     );

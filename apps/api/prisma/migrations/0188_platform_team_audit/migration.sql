@@ -3,7 +3,7 @@
 -- 2) platform_audit_log: การกระทำของทีมงานที่ไม่ผูก tenant (เชิญ/ปิดทีมงาน, ส่งออก audit) — append-only
 --    ตารางระดับแพลตฟอร์ม ไม่มี tenant_id (เหมือน platform_user) → ไม่ใช้ RLS · role แอป (tms_app) เข้าไม่ได้เลย
 -- 3) partial index ของ audit_log เฉพาะแถวที่ทีม Innovera ทำ (actor/act = `platform:<id>`) — หน้า Audit log ข้าม tenant
--- ย้อนกลับ: DROP INDEX "audit_log_platform_actor_idx"; DROP TABLE "platform_audit_log";
+-- ย้อนกลับ: DROP INDEX "audit_log_platform_actor_idx"; DROP TABLE "platform_audit_log"; (trigger หายไปกับตาราง)
 --           ALTER TABLE "platform_user" DROP COLUMN "invite_token_hash", DROP COLUMN "invite_expires_at", DROP COLUMN "invited_by", DROP COLUMN "deactivated_at";
 
 -- AlterTable
@@ -39,6 +39,12 @@ CREATE INDEX "platform_audit_log_at_idx" ON "platform_audit_log"("at");
 -- หน้า Audit log ของ Console: เฉพาะแถวที่ทีม Innovera ทำ (ไม่อยู่ใน schema.prisma — partial index แบบ 0172)
 CREATE INDEX "audit_log_platform_actor_idx" ON "audit_log" ("at" DESC)
   WHERE "actor_id" LIKE 'platform:%' OR "act_as" LIKE 'platform:%';
+
+-- append-only ระดับฐาน (มีผลทุก role รวมเจ้าของตาราง) — ใช้ฟังก์ชันเดียวกับ audit_log (0007/0108):
+-- UPDATE ปฏิเสธเสมอ · DELETE ได้เฉพาะงานล้างตามอายุที่ตั้งธง tms.audit_retention_purge ในนามเจ้าของตาราง (ยังไม่มีงานนี้สำหรับตารางนี้)
+CREATE TRIGGER "platform_audit_log_append_only"
+  BEFORE UPDATE OR DELETE ON "platform_audit_log"
+  FOR EACH ROW EXECUTE FUNCTION tms_audit_append_only();
 
 -- สิทธิ์: append-only (PLT-126) — platform อ่าน/เพิ่มได้ ไม่มี UPDATE/DELETE · tms_app ไม่แตะเลย
 DO $$ BEGIN
