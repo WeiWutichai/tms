@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { checkSite, REQUIRED_FLOWS } from './check';
 import { connectorEntries, problemCodes } from './errors';
 import { loadInputs, parseArticle, parseProblemMessages, TH_I18N_PATH } from './inputs';
-import { buildSite, GROUPS, plainText, SEARCH_FILE, SEARCH_JS_FILE } from './site';
+import { buildSite, CONTACT_SLUG, GROUPS, plainText, SEARCH_FILE, SEARCH_JS_FILE } from './site';
 
 const { articles, doc, problemMessages } = loadInputs();
 const files = buildSite(articles, doc, problemMessages);
@@ -78,12 +78,14 @@ describe('help center (P1-ST6-T01)', () => {
     expect(files.get('index.html')).toContain(`<script src="${SEARCH_FILE}"></script>`);
   });
 
-  it('P1-ST6-T02: ไม่มี inline script (เสิร์ฟใต้ /help/ ของเว็บที่ CSP script-src self)', () => {
+  it('P1-ST6-T02: ไม่มี inline script (เสิร์ฟใต้ /help/ ของเว็บที่ CSP script-src self) · ทุกหน้ามีลิงก์ติดต่อทีมงาน (P1-ST6-T03)', () => {
     expect(files.has(SEARCH_JS_FILE)).toBe(true);
+    expect(files.has(`${CONTACT_SLUG}.html`)).toBe(true);
     for (const [name, body] of files)
       if (name.endsWith('.html')) {
         expect(body, name).not.toMatch(/<script>/);
         expect(body, name).toContain(`<script src="${SEARCH_JS_FILE}"></script>`);
+        expect(body, name).toContain(`href="${CONTACT_SLUG}.html">ติดต่อทีมงาน</a>`);
       }
   });
 

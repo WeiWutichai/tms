@@ -6,6 +6,7 @@ import { ApiError } from '../api';
 import { I18nProvider } from '../i18n';
 import { NAV, SUBPAGES } from '../nav';
 import { readHelpConfig } from './config';
+import { cleanPath, SUPPORT_TAG } from './contact';
 import { HelpMenu } from './HelpMenu';
 import { ProblemAlert } from './ProblemAlert';
 import { connectorGuideUrl, HELP_ROUTES, helpUrlFor, problemHelpUrl } from './routes';
@@ -109,5 +110,56 @@ describe('เมนูคู่มือและติดต่อทีมง�
     fireEvent.click(screen.getByRole('button', { name: 'คู่มือและติดต่อทีมงาน' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'ศูนย์ช่วยเหลือ' }));
     expect(open).toHaveBeenLastCalledWith('/help/', '_blank', 'noopener');
+  });
+
+  it('ยังไม่ตั้งช่องทาง (X-04) → ปุ่มติดต่อปิด + ข้อความบอกเหตุ · ไม่มีค่าเดา', () => {
+    const cfg = readHelpConfig({
+      VITE_SUPPORT_EMAIL: 'ไม่ใช่อีเมล',
+      VITE_SUPPORT_LINE_OA: 'no-at',
+    });
+    expect(cfg.supportEmail).toBeUndefined();
+    expect(cfg.supportLineOa).toBeUndefined();
+    wrap(<HelpMenu {...ctx} cfg={cfg} />);
+    fireEvent.click(screen.getByRole('button', { name: 'คู่มือและติดต่อทีมงาน' }));
+    const b = screen.getByRole('menuitem', { name: 'ติดต่อทีมงาน' }) as HTMLButtonElement;
+    expect(b.disabled).toBe(true);
+    expect(screen.getByText(/ยังไม่ได้ตั้งช่องทางติดต่อทีมงาน/)).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: 'ติดต่อทีมงานทางอีเมล' })).toBeNull();
+  });
+
+  it('อีเมล: ถึง support · หัวเรื่องมีป้าย + รหัสบริษัท · เนื้อความมีหน้าที่เปิด (ไม่มี query/hash) · ไม่มีข้อมูลผู้ใช้', () => {
+    const cfg = readHelpConfig({
+      VITE_SUPPORT_EMAIL: 'support@example.test',
+      VITE_SUPPORT_LINE_OA: '@example',
+    });
+    wrap(<HelpMenu {...ctx} cfg={cfg} />);
+    fireEvent.click(screen.getByRole('button', { name: 'คู่มือและติดต่อทีมงาน' }));
+    // คลิก = window.location.assign(mailto) — jsdom ไม่รองรับการเปลี่ยนหน้า จึงตรวจปลายทางจาก data-href
+    const url = screen
+      .getByRole('menuitem', { name: 'ติดต่อทีมงานทางอีเมล' })
+      .getAttribute('data-href')!;
+    expect(url.startsWith('mailto:support@example.test?subject=')).toBe(true);
+    const q = new URLSearchParams(url.slice(url.indexOf('?') + 1));
+    expect(q.get('subject')).toBe(`${SUPPORT_TAG} ติดต่อทีมงาน · รหัสบริษัท ten_abc`);
+    expect(q.get('body')).toContain('รหัสบริษัท: ten_abc');
+    expect(q.get('body')).toContain('หน้าที่เปิดอยู่: ใบค้าง (/so/hold)');
+    expect(url).not.toContain(encodeURIComponent('สมชาย'));
+  });
+
+  it('LINE OA: ข้อความร่างถึงบัญชีทางการพร้อมรหัสบริษัท', () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const cfg = readHelpConfig({ VITE_SUPPORT_LINE_OA: '@example' });
+    wrap(<HelpMenu {...ctx} cfg={cfg} />);
+    fireEvent.click(screen.getByRole('button', { name: 'คู่มือและติดต่อทีมงาน' }));
+    expect(screen.queryByRole('menuitem', { name: 'ติดต่อทีมงานทางอีเมล' })).toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'ติดต่อทีมงานทาง LINE' }));
+    const url = open.mock.calls[0]![0] as string;
+    expect(url.startsWith('https://line.me/R/oaMessage/%40example/?')).toBe(true);
+    expect(decodeURIComponent(url.split('/?')[1]!)).toContain('รหัสบริษัท: ten_abc');
+  });
+
+  it('cleanPath ตัด query/hash', () => {
+    expect(cleanPath('/pay?tab=over#x')).toBe('/pay');
+    expect(cleanPath('')).toBe('/');
   });
 });
