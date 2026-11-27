@@ -1036,7 +1036,7 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
 // เดิมเลื่อนทีละตัวทำให้ n=2 กับ n=3 ชนวันเดียวกันได้เมื่อ today+2 เป็นวันทำการสุดท้าย (เช่น 28 พ.ย. 2569)
 function nightlyDay(today: string, n: number): string {
   let d = today;
-  for (let k = 0; k < n; ) {
+  for (let k = 0; k < n;) {
     d = addDay(d, 1);
     if (d !== lastBusinessDay(d)) k++;
   }
