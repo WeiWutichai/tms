@@ -114,6 +114,12 @@ export const PROBLEMS = {
     en: 'Payload too large',
   },
   rate_limited: { status: 429, th: 'เรียกถี่เกินไป', en: 'Too many requests' },
+  /** P1-ST2-T08: ด่านกันบอทของทางเข้าสาธารณะ (สมัครขั้น 1) ไม่ผ่าน — token ไม่มี/ไม่ถูกต้อง (ให้หน้าเว็บทำ challenge ใหม่) */
+  bot_check_failed: {
+    status: 403,
+    th: 'ยืนยันว่าไม่ใช่บอทไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
+    en: 'Bot check failed — please try again',
+  },
   /** ระบบ/ฐานข้อมูลรับงานไม่ทัน (connection pool เต็ม, เริ่ม transaction ไม่ทัน) — ไม่ใช่ความผิดของผู้เรียก ลองใหม่ได้ (มี Retry-After) */
   pdf_render_timeout: {
     status: 503,

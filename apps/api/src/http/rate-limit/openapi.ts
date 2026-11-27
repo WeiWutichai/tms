@@ -3,8 +3,8 @@ import type { OpenAPIObject } from '@nestjs/swagger';
 /**
  * ST7-T08: บรรยาย rate limit ใน OpenAPI — header `RateLimit-Limit/-Remaining/-Reset` บน response สำเร็จ
  * และ response 429 (`components.responses.RateLimited`, problem+json + `Retry-After`) ทุก operation ที่ถูกจำกัด:
- * route ที่ยืนยันตัวตนของบริษัท (ชั้น tenant/key/user/heavy), `/v1/public/*` และ `/v1/platform/auth/*` (ต่อ IP)
- * ไม่ครอบ Platform Console อื่น ๆ และ `/v1/auth/*` (มีเพดาน login ของตัวเอง — 429 บรรยายที่ route)
+ * route ที่ยืนยันตัวตนของบริษัท (ชั้น tenant/key/user/heavy), `/v1/public/*`, `/v1/platform/auth/*` และ `/v1/auth/*` (ต่อ IP —
+ * P1-ST2-T08) · ไม่ครอบ Platform Console อื่น ๆ
  */
 const HEADERS = {
   'RateLimit-Limit': 'ความจุของ bucket ที่ใกล้เต็มที่สุด (จำนวนคำขอ)',
@@ -14,7 +14,12 @@ const HEADERS = {
 
 /** 'all' = header บน 2xx + 429 · '429' = เฉพาะ 429 (จำกัดเฉพาะคำขอที่ผิด เช่น URL ลายเซ็นผิด) · false = ไม่จำกัด */
 const limited = (path: string, op: { security?: unknown[] }): 'all' | '429' | false => {
-  if (path.startsWith('/v1/public/') || path.startsWith('/v1/platform/auth/')) return 'all';
+  if (
+    path.startsWith('/v1/public/') ||
+    path.startsWith('/v1/platform/auth/') ||
+    path.startsWith('/v1/auth/')
+  )
+    return 'all';
   if (path === '/v1/oauth/token') return 'all';
   if (path === '/v1/documents/{id}/content') return '429';
   if (path.startsWith('/v1/platform/')) return false;
