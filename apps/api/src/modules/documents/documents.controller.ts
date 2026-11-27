@@ -41,6 +41,7 @@ import {
   EXT,
   IMPORT_MIME,
   LOGO_MAX_BYTES,
+  LOGO_SVG_MAX_BYTES,
   LOGO_MIME,
   sniffMime,
   type AllowedMime,
@@ -77,7 +78,7 @@ export class CreateDocumentDto {
   @ApiProperty({
     enum: ALLOWED_MIME,
     description:
-      'ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง · kind `LOGO` (โลโก้องค์กร P1-ST6-T04) = `image/png` หรือ `image/svg+xml` ≤ 2 MB ' +
+      'ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง · kind `LOGO` (โลโก้องค์กร P1-ST6-T04) = `image/png` ≤ 2 MB หรือ `image/svg+xml` ≤ 512 KB ' +
       '(SVG ใช้ได้กับ LOGO เท่านั้น และถูกล้าง script/event handler/อ้างของภายนอก/foreignObject ก่อนเก็บ)',
   })
   @IsIn([...ALLOWED_MIME])
@@ -290,12 +291,13 @@ export class DocumentsController {
       throw new ProblemException('validation_failed', undefined, [
         { field: 'mime', code: 'mime_not_allowed', message: 'mime is not allowed for this kind' },
       ]);
-    if (body.kind === 'LOGO' && body.bytes > LOGO_MAX_BYTES)
+    const logoMax = body.mime === 'image/svg+xml' ? LOGO_SVG_MAX_BYTES : LOGO_MAX_BYTES;
+    if (body.kind === 'LOGO' && body.bytes > logoMax)
       throw new ProblemException('validation_failed', undefined, [
         {
           field: 'bytes',
           code: 'file_too_large',
-          message: `logo must be at most ${LOGO_MAX_BYTES} bytes`,
+          message: `logo must be at most ${logoMax} bytes`,
         },
       ]);
     const existing = body.clientDocumentId

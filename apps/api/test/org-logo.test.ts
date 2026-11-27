@@ -88,6 +88,11 @@ describe('โลโก้องค์กร (P1-ST6-T04)', { timeout: 300_000 },
     expect(big.status).toBe(422);
     expect(big.body.errors[0]).toMatchObject({ field: 'bytes', code: 'file_too_large' });
     await reserve({ kind: 'LOGO', mime: 'image/png', bytes: 2 * 1024 * 1024 }).expect(201);
+    // review: SVG ≤ 512 KB (ล้างใน transaction ของการอัปโหลด)
+    const bigSvg = await reserve({ kind: 'LOGO', mime: 'image/svg+xml', bytes: 512 * 1024 + 1 });
+    expect(bigSvg.status).toBe(422);
+    expect(bigSvg.body.errors[0]).toMatchObject({ field: 'bytes', code: 'file_too_large' });
+    await reserve({ kind: 'LOGO', mime: 'image/svg+xml', bytes: 512 * 1024 }).expect(201);
     const svgOther = await reserve({ kind: 'OTHER', mime: 'image/svg+xml', bytes: 100 });
     expect(svgOther.status).toBe(422);
     expect(svgOther.body.errors[0].code).toBe('mime_not_allowed');

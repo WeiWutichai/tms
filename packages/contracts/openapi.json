@@ -79540,7 +79540,7 @@
               "text/csv",
               "image/svg+xml"
             ],
-            "description": "ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง · kind `LOGO` (โลโก้องค์กร P1-ST6-T04) = `image/png` หรือ `image/svg+xml` ≤ 2 MB (SVG ใช้ได้กับ LOGO เท่านั้น และถูกล้าง script/event handler/อ้างของภายนอก/foreignObject ก่อนเก็บ)"
+            "description": "ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง · kind `LOGO` (โลโก้องค์กร P1-ST6-T04) = `image/png` ≤ 2 MB หรือ `image/svg+xml` ≤ 512 KB (SVG ใช้ได้กับ LOGO เท่านั้น และถูกล้าง script/event handler/อ้างของภายนอก/foreignObject ก่อนเก็บ)"
           },
           "bytes": {
             "type": "number",

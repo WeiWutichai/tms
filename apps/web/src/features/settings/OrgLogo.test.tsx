@@ -81,9 +81,9 @@ describe('โลโก้องค์กร (P1-ST6-T04)', () => {
     const input = screen.getByTestId('org-logo-input');
     fireEvent.change(input, { target: { files: [file('image/jpeg', 100)] } });
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'ไฟล์โลโก้ต้องเป็น PNG หรือ SVG ขนาดไม่เกิน 2 MB',
+      'ไฟล์โลโก้ต้องเป็น PNG ไม่เกิน 2 MB หรือ SVG ไม่เกิน 512 KB',
     );
-    fireEvent.change(input, { target: { files: [file('image/svg+xml', 2 * 1024 * 1024 + 1)] } });
+    fireEvent.change(input, { target: { files: [file('image/svg+xml', 512 * 1024 + 1)] } });
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
     expect(POST).not.toHaveBeenCalled();
     expect(mutateAsync).not.toHaveBeenCalled();

@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { tryDecodeId } from '../../common/ids';
 import type { Tx } from '../../db/db.service';
 import { LOGO_MIME } from '../documents/mime';
@@ -11,6 +12,8 @@ import { readSettings } from './settings.service';
  * - ร่าง / ใบสำคัญจ่าย (render ครั้งเดียวตอนอนุมัติ/จ่ายแล้วเก็บ — D-66) ใช้ค่าตั้งปัจจุบัน
  * - ไฟล์โลโก้ไม่มีการลบ (ไม่มี hard delete · retention ไม่แตะ kind LOGO)
  */
+const log = new Logger('OrgLogo');
+
 export interface OrgLogo {
   /** uuid ของ stored_document */
   documentId: string;
@@ -45,14 +48,19 @@ export async function usableLogoId(tx: Tx, tenantId: string): Promise<string | n
 export async function loadLogo(tx: Tx, documentId: string | null): Promise<OrgLogo | null> {
   if (!documentId) return null;
   const d = await tx.storedDocument.findUnique({ where: { id: documentId } });
-  if (
+  const bad =
     !d ||
     d.status !== 'READY' ||
     !d.fileKey ||
     d.kind !== 'LOGO' ||
-    !LOGO_MIME.includes(d.mimeType as never)
-  )
+    !LOGO_MIME.includes(d.mimeType as never);
+  if (bad || !d?.fileKey) {
+    // โลโก้ที่ตรึง/ตั้งไว้ใช้ไม่ได้แล้ว (ไม่ควรเกิด — ไม่มีการลบไฟล์) → PDF/หน้าติดตามไม่มีโลโก้ ให้ตรวจย้อนได้
+    log.warn(
+      `logo document ${documentId} is not a READY PNG/SVG logo (status ${d?.status ?? 'missing'}) — rendering without logo`,
+    );
     return null;
+  }
   const data = await defaultFileStore().get(d.fileKey);
   return {
     documentId: d.id,

@@ -9,12 +9,15 @@ import { useSaveTenantSettings, useTenantSettings } from './useSettings';
 /** P1-ST6-T04 ชนิด/ขนาดโลโก้ (ตรงกับ API: kind LOGO = PNG/SVG ≤ 2 MB) */
 export const LOGO_TYPES = ['image/png', 'image/svg+xml'] as const;
 export const LOGO_MAX = 2 * 1024 * 1024;
+/** SVG ≤ 512 KB (API ล้าง SVG ก่อนเก็บ — [DECISION — lead 27 พ.ย. 2569, ย้อนได้]) */
+export const LOGO_SVG_MAX = 512 * 1024;
 const KEY = 'org.logoDocumentId';
 
 /** อัปโหลดไฟล์โลโก้ (POST /v1/documents kind LOGO → PUT เนื้อไฟล์ — SVG ถูกล้างที่ server) → id */
 export async function uploadLogo(f: File): Promise<string> {
   const mime = LOGO_TYPES.find((m) => m === f.type);
-  if (!mime || f.size === 0 || f.size > LOGO_MAX) throw new Error('bad_file');
+  if (!mime || f.size === 0 || f.size > (mime === 'image/svg+xml' ? LOGO_SVG_MAX : LOGO_MAX))
+    throw new Error('bad_file');
   const doc = await unwrap(
     api.POST('/v1/documents', {
       body: { kind: 'LOGO', mime, bytes: f.size, filename: f.name || 'logo' },
@@ -29,7 +32,7 @@ export async function uploadLogo(f: File): Promise<string> {
 /**
  * ตั้งค่า → องค์กร: กล่องโลโก้ 64 px + "โลโก้ (ใช้บนเอกสารและหน้าติดตามของผู้รับ)" + ปุ่ม "เปลี่ยนโลโก้" (ต้นแบบ TMS v4 `st.is.org`)
  * - ยังไม่มีโลโก้ = กล่องกรมท่า + ไอคอนรถ ตามต้นแบบ · มีแล้ว = รูปโลโก้ในกล่องขนาดเดิม [DECISION spec/12 §3 — ต้นแบบไม่มีสถานะนี้]
- * - เลือกไฟล์ (PNG/SVG ≤ 2 MB) → อัปโหลด → บันทึกค่าตั้ง `org.logoDocumentId` ทันที (ไม่รอปุ่ม "บันทึก" ลอย — ไฟล์อัปโหลดแล้ว)
+ * - เลือกไฟล์ (PNG ≤ 2 MB / SVG ≤ 512 KB) → อัปโหลด → บันทึกค่าตั้ง `org.logoDocumentId` ทันที (ไม่รอปุ่ม "บันทึก" ลอย — ไฟล์อัปโหลดแล้ว)
  */
 export function OrgLogo({ canWrite }: { canWrite: boolean }) {
   const { t } = useI18n();

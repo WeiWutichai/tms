@@ -47,9 +47,8 @@ describe('sanitizeSvg (P1-ST6-T04)', () => {
         <path d="M0 0" filter="url(data:image/svg+xml;base64,AAAA)"/>
       </svg>`,
     )!;
-    expect(out).not.toMatch(/evil\.example|javascript|data:|@import|<image|<a[\s>]/i);
+    expect(out).not.toMatch(/evil\.example|javascript|data:|@import|<image|<a[\s>]|<style/i);
     expect(out).toContain('<use href="#ok"/>');
-    expect(out).toContain('.b{fill:url(#g)}');
     expect(out).toContain('<rect width="3"/>');
     expect(out).toContain('<rect width="4"/>');
   });
@@ -84,5 +83,48 @@ describe('sanitizeSvg (P1-ST6-T04)', () => {
     expect(looksLikeSvg(Buffer.from(LOGO))).toBe(true);
     expect(sniffMime(Buffer.from(`﻿<!-- logo --><svg xmlns="x"></svg>`))).toBe('image/svg+xml');
     expect(sniffMime(Buffer.from('<html><svg></svg></html>'))).toBeNull();
+  });
+
+  it('review: href ใต้ prefix อื่น (x:href) · xmlns:* ที่ไม่ใช่ SVG/XLink · CSS escape (\\75rl) · entity ใน <style> (&#64;import) ถูกตัด', () => {
+    const out = sanitizeSvg(
+      `<svg xmlns="http://www.w3.org/2000/svg" xmlns:x="http://www.w3.org/1999/xlink" xmlns:e="https://evil.example/ns">
+        <use x:href="https://evil.example/s.svg#i"/><use x:href="#ok"/>
+        <rect style="fill:\\75rl(https://evil.example/t)" width="1"/>
+        <style>&#64;import url(https://evil.example/x.css);</style>
+        <rect fill="\\75 rl(x)" width="2"/>
+      </svg>`,
+    )!;
+    expect(out).not.toMatch(/evil\.example|\\|@import|&#64;|<style/i);
+    expect(out).toContain('<use x:href="#ok"/>');
+    expect(out).toContain('xmlns:x="http://www.w3.org/1999/xlink"');
+    expect(out).toContain('<rect width="1"/>');
+    expect(out).toContain('<rect width="2"/>');
+  });
+
+  it('review: entity อื่นที่ไม่ใช่ของ XML (&nbsp; &copy;) ถูก escape — ผลลัพธ์ยังเป็น XML ที่ถูกต้อง · entity มาตรฐาน/เลขคงเดิม', () => {
+    const out = sanitizeSvg(
+      '<svg xmlns="http://www.w3.org/2000/svg"><text>A&nbsp;B &copy; &amp; &#169; &lt; R&D</text></svg>',
+    )!;
+    expect(out).toContain('<text>A&amp;nbsp;B &amp;copy; &amp; &#169; &lt; R&amp;D</text>');
+  });
+
+  it('review ReDoS: ข้อมูลที่ออกแบบให้ regex ย้อนกลับ (~2 MB) ล้างเสร็จเร็ว (< 1 วินาที) — tag ไม่ปิด, comment/PI/DOCTYPE ไม่ปิด, & จำนวนมาก', () => {
+    const big = 2 * 1024 * 1024;
+    const cases = [
+      '<svg>' + '<a'.repeat(big / 2),
+      '<svg>' + '<!--'.repeat(big / 4),
+      '<svg><!--' + 'x'.repeat(big),
+      '<?' + 'x'.repeat(big),
+      '<!DOCTYPE svg [' + '<!ENTITY a "x">'.repeat(big / 16),
+      '<svg><text>' + '&'.repeat(big) + '</text></svg>',
+      '<svg><rect fill="' + 'url('.repeat(big / 4) + '"/></svg>',
+      '<svg ' + 'a='.repeat(big / 2),
+    ];
+    for (const c of cases) {
+      const t0 = performance.now();
+      sanitizeSvg(c);
+      looksLikeSvg(Buffer.from(c));
+      expect(performance.now() - t0, c.slice(0, 20)).toBeLessThan(1000);
+    }
   });
 });

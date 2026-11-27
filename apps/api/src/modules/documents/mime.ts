@@ -30,6 +30,11 @@ export const EXT: Record<AllowedMime, string> = {
 /** P1-ST6-T04 โลโก้องค์กร: PNG หรือ SVG ≤ 2 MB (SVG ใช้ได้กับ kind LOGO เท่านั้น) */
 export const LOGO_MIME: readonly AllowedMime[] = ['image/png', 'image/svg+xml'];
 export const LOGO_MAX_BYTES = 2 * 1024 * 1024;
+/**
+ * SVG ของโลโก้ ≤ 512 KB (review 27 พ.ย. 2569 — ล้างใน transaction ของการอัปโหลด; โลโก้ SVG ปกติไม่กี่ KB)
+ * [DECISION — lead 27 พ.ย. 2569, ย้อนได้] PNG คง 2 MB
+ */
+export const LOGO_SVG_MAX_BYTES = 512 * 1024;
 
 export function sniffMime(buf: Buffer): AllowedMime | null {
   if (buf.length >= 5 && buf.subarray(0, 5).toString('latin1') === '%PDF-')

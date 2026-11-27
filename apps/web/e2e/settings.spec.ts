@@ -111,7 +111,7 @@ test.describe('ตั้งค่า → องค์กร: โลโก้ (P1
       buffer: Buffer.from([0xff, 0xd8, 0xff, 0x00]),
     });
     await expect(page.getByRole('alert')).toHaveText(
-      'ไฟล์โลโก้ต้องเป็น PNG หรือ SVG ขนาดไม่เกิน 2 MB',
+      'ไฟล์โลโก้ต้องเป็น PNG ไม่เกิน 2 MB หรือ SVG ไม่เกิน 512 KB',
     );
     const saved = page.waitForResponse(
       (r) => r.url().endsWith('/v1/settings') && r.request().method() === 'PATCH',
