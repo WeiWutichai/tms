@@ -14,6 +14,9 @@ import { AuthController } from './auth/auth.controller';
 import { MfaController } from './auth/mfa.controller';
 import { PasswordController } from './auth/password.controller';
 import { PasswordResetController, PasswordResetService } from './auth/password-reset.controller';
+import { SignupController } from './modules/signup/signup.controller';
+import { SignupService } from './modules/signup/signup.service';
+import { OtpChannelService } from './modules/signup/otp-channel';
 import { EmailDispatcher, EmailService } from './modules/email/email.service';
 import { NotificationService } from './modules/notifications/notification.service';
 import { NotificationEvents } from './modules/notifications/notification-events';
@@ -305,6 +308,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     MfaController,
     PasswordController,
     PasswordResetController,
+    SignupController,
     InvitationAcceptController,
     InvitationsController,
     NotificationsController,
@@ -411,6 +415,8 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     MfaService,
     PasswordPolicy,
     PasswordResetService,
+    SignupService,
+    OtpChannelService,
     InvitationAcceptService,
     EmailService,
     EmailDispatcher,

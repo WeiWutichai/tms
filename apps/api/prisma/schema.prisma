@@ -2800,6 +2800,54 @@ model PasswordResetToken {
   @@map("password_reset_token")
 }
 
+/// สถานะการสมัครเอง (P1-ST2-T03; spec/01 §2 ข้อ 6) — abandoned = ไม่เคลื่อน 7 วัน
+enum SignupSessionStatus {
+  account_pending_otp
+  account_verified
+  company_submitted
+  completed
+  abandoned
+
+  @@map("signup_session_status")
+}
+
+/// การสมัครใช้งานเอง (P1-ST2-T03; spec/01 §2 ขั้น 1 + ข้อ 6, 8) — **ตาราง platform ไม่มี tenant_id** (ก่อนมีบริษัท)
+/// เข้าถึงผ่าน client platform เท่านั้น (tms_app ถูก REVOKE) · lane B เป็นเจ้าของ (plan/13 §6.2)
+/// OTP เก็บเฉพาะ HMAC (`otp_hash`) · รหัสผ่านเก็บ argon2 hash · resume token เก็บ sha256
+/// ข้อมูลส่วนบุคคล (ชื่อ อีเมล มือถือ รหัสผ่าน IP) ถูกลบ (null) โดย job วันที่ 30 นับจากเคลื่อนไหวล่าสุด — แถวคงไว้วัด funnel
+model SignupSession {
+  id                   String              @id @default(uuid()) @db.Uuid
+  status               SignupSessionStatus @default(account_pending_otp)
+  fullName             String?             @map("full_name")
+  /// lower-case แล้ว
+  email                String?
+  /// E.164 มี + (เช่น +66812345678)
+  mobile               String?
+  passwordHash         String?             @map("password_hash")
+  resumeTokenHash      String?             @unique @map("resume_token_hash")
+  /// ช่องทางที่ส่ง OTP ล่าสุด (`email` จนกว่า X-04 / `sms`)
+  otpChannel           String?             @map("otp_channel")
+  otpHash              String?             @map("otp_hash")
+  otpSentAt            DateTime?           @map("otp_sent_at") @db.Timestamptz(6)
+  otpExpiresAt         DateTime?           @map("otp_expires_at") @db.Timestamptz(6)
+  /// ผิดสะสมตั้งแต่ล็อกครั้งก่อน (ขอรหัสใหม่ไม่ล้าง) — ครบ 5 = ล็อก 15 นาที
+  otpFailedCount       Int                 @default(0) @map("otp_failed_count")
+  otpLockedUntil       DateTime?           @map("otp_locked_until") @db.Timestamptz(6)
+  otpSendCount         Int                 @default(0) @map("otp_send_count")
+  ip                   String?
+  locale               String              @default("th")
+  verifiedAt           DateTime?           @map("verified_at") @db.Timestamptz(6)
+  lastActivityAt       DateTime            @default(now()) @map("last_activity_at") @db.Timestamptz(6)
+  abandonedAt          DateTime?           @map("abandoned_at") @db.Timestamptz(6)
+  personalDataErasedAt DateTime?           @map("personal_data_erased_at") @db.Timestamptz(6)
+  createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([email, status])
+  @@index([status, lastActivityAt])
+  @@map("signup_session")
+}
+
 /// คำเชิญผู้ใช้ (ST1-T07; docs/04 A2; spec/01 §3) — ลิงก์อีเมล 7 วัน ใช้ครั้งเดียว · ผูกกับแถว app_user สถานะ INVITED (role ตั้งตอนเชิญ)
 /// ส่งใหม่ = เพิกถอนแถวเดิม + ออกแถวใหม่ · เก็บแค่ hash ของ token
 model UserInvitation {

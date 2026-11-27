@@ -128,7 +128,7 @@
   cursor: pointer;
   white-space: nowrap;
 }
-.land-hd:not(.land-hd--dark) .land-nav__i:first-child {
+.land-hd:not(.land-hd--dark):not(.land-hd--sub) .land-nav__i:first-child {
   /* "ฟีเจอร์" = เมนูของหน้านี้ (on) */
   background: #e9f0fa;
   color: #2257c4;

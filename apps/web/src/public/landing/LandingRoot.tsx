@@ -4,13 +4,13 @@ import { LandingPage } from './Landing';
 import './landing-base.css';
 
 /**
- * จุดเข้าแยกของ landing (`/home`) — main.tsx โหลดไฟล์นี้แทนแอปทั้งก้อน
+ * จุดเข้าแยกของ landing (`/home`) + หน้าสมัคร (`/signup` — P1-ST2-T03) — main.tsx โหลดไฟล์นี้แทนแอปทั้งก้อน
  * ไม่ดึง @tms/ui / React Query / หน้าหลัง login / ข้อความทั้งแอป (ใช้ชุดย่อย landing.gen) — Lighthouse มือถือ ≥ 80
  */
 export function LandingRoot() {
   return (
     <I18nCoreProvider catalogs={LANDING_CATALOGS}>
-      <LandingPage />
+      <LandingPage view={/^\/signup\/?$/.test(window.location.pathname) ? 'signup' : 'home'} />
     </I18nCoreProvider>
   );
 }

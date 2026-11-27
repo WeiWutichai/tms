@@ -4,6 +4,7 @@ import { useI18n, type Lang } from '../../i18n/core';
 import type { MessageKey } from '../../i18n/th';
 import { ACCOUNTING_ORDER, landingConfig, WORKS_WITH_ORDER, type LandingConfig } from './config';
 import { useLandingMeta } from './meta';
+import { SignupMain } from '../signup/SignupMain';
 import './landing.css';
 import heroPlan1x from './img/hero-plan-1x.webp';
 import heroPlan2x from './img/hero-plan-2x.webp';
@@ -39,14 +40,28 @@ import fFdoc2x from './img/f-fdoc-2x.webp';
  */
 export const landingNav = { go: (path: string) => window.location.assign(path) };
 
-export function LandingPage({ config = landingConfig }: { config?: LandingConfig }) {
+export function LandingPage({
+  config = landingConfig,
+  view = 'home',
+}: {
+  config?: LandingConfig;
+  /** `signup` = หน้าสมัคร (P1-ST2-T03 — ต้นแบบ view `signup`: header/footer เดียวกัน header ทึบเสมอ) */
+  view?: 'home' | 'signup';
+}) {
+  const home = view === 'home';
   const { t, lang, setLang } = useI18n();
   const [solid, setSolid] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [faq, setFaq] = useState(0);
   const [toast, setToast] = useState('');
-  useLandingMeta(t('land.meta.title'), t('land.lead'));
+  useLandingMeta(home ? t('land.meta.title') : t('su.meta.title'), t('land.lead'));
 
+  // มาจากหน้าอื่น (หน้าสมัคร → "ฟีเจอร์") — เลื่อนไปส่วนฟีเจอร์
+  useEffect(() => {
+    if (!home || window.location.hash !== '#features') return;
+    const el = document.getElementById('features');
+    if (el) window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 72);
+  }, [home]);
   useEffect(() => {
     const on = () => setSolid(window.scrollY > 24);
     on();
@@ -73,13 +88,21 @@ export function LandingPage({ config = landingConfig }: { config?: LandingConfig
   const contactText = [...contactParts, config.contact.email].filter(Boolean).join(' · ');
   const showPrice = config.pricingVisible;
 
-  const dark = !solid && !menuOpen;
+  const dark = home && !solid && !menuOpen;
   /** หน้าสมัคร/ราคายังไม่เปิด (`signupLive` / `pricingPageLive` = false) → แสดงช่องทางติดต่อแทน (ไม่พาไปหน้า 404) */
   const contactToast = () => {
     setMenuOpen(false);
     setToast(contactText ? t('land.soonContact', { contact: contactText }) : t('land.soon'));
   };
-  const goSignup = () => (config.signupLive ? landingNav.go(config.signupPath) : contactToast());
+  const goSignup = () => {
+    if (!home) {
+      setMenuOpen(false);
+      window.scrollTo(0, 0);
+      return;
+    }
+    if (config.signupLive) landingNav.go(config.signupPath);
+    else contactToast();
+  };
   const goPricing = () => (config.pricingPageLive ? landingNav.go('/pricing') : contactToast());
   /** ลิงก์ <a> ไปหน้าที่อาจยังไม่เปิด — ไม่เปิด = กดแล้วแสดงช่องทางติดต่อ */
   const linkProps = (live: boolean, href: string) =>
@@ -95,6 +118,7 @@ export function LandingPage({ config = landingConfig }: { config?: LandingConfig
   const goLogin = () => landingNav.go('/login');
   const toFeatures = () => {
     setMenuOpen(false);
+    if (!home) return landingNav.go('/home#features');
     const el = document.getElementById('features');
     if (el) window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 72);
   };
@@ -147,7 +171,7 @@ export function LandingPage({ config = landingConfig }: { config?: LandingConfig
 
   return (
     <div className="land">
-      <header className={`land-hd${dark ? ' land-hd--dark' : ''}`}>
+      <header className={`land-hd${dark ? ' land-hd--dark' : ''}${home ? '' : ' land-hd--sub'}`}>
         <a href="/home" className="land-logo">
           <span className="land-logo__mark">
             <Truck size={18} strokeWidth={2} aria-hidden="true" />
@@ -215,204 +239,207 @@ export function LandingPage({ config = landingConfig }: { config?: LandingConfig
         </div>
       )}
 
-      <main className="land-main">
-        <section className="land-hero">
-          <div className="land-hero__bg" />
-          <div className="land-hero__ov" />
-          <div className="land-wrap land-hero__grid">
-            <div className="land-hero__copy">
-              <h1 className="land-h1">
-                <span>{t('land.h1a')}</span> <span>{t('land.h1b')}</span>
-              </h1>
-              <p className="land-hero__lead">{t('land.lead')}</p>
-              <div className="land-hero__acts">
-                <button type="button" className="land-btn land-btn--white" onClick={goSignup}>
-                  {t('land.cta')}
-                </button>
-                {showPrice && (
-                  <a
-                    {...linkProps(config.pricingPageLive, '/pricing')}
-                    className="land-hero__price"
-                  >
-                    {t('land.seePrice')}
-                  </a>
-                )}
-              </div>
-              <span className="land-hero__note">{t('land.noCard')}</span>
-            </div>
-            <div className="land-hero__shotwrap">
-              <div className="land-hero__shot">
-                <img
-                  src={heroPlan2x}
-                  srcSet={`${heroPlan1x} 1007w, ${heroPlan2x} 2014w`}
-                  sizes="(max-width: 759px) 100vw, 60vw"
-                  width={2014}
-                  height={1680}
-                  alt={t('land.heroAlt')}
-                  fetchPriority="high"
-                  decoding="async"
-                />
-              </div>
-              <div className="land-hero__card land-hero__card--pod">
-                <span className="land-hero__cardt">
-                  <span className="land-dot" />
-                  {t('land.card1t')}
-                </span>
-                <span className="land-hero__cards">{t('land.card1s')}</span>
-              </div>
-              <div className="land-hero__card land-hero__card--sub">
-                <span className="land-hero__cardt">{t('land.card2t')}</span>
-                <span className="land-hero__cards">{t('land.card2s')}</span>
-              </div>
-            </div>
-          </div>
-          <div className="land-facts">
-            <div className="land-wrap land-facts__row">
-              {facts.map((f) => (
-                <span key={f} className="land-facts__i">
-                  {f}
-                </span>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {worksWith.length > 0 && (
-          <section className="land-with">
-            <p className="land-wrap land-with__p">
-              {t('land.worksWith', { list: joinList(worksWith, 'land.and') })}
-            </p>
-          </section>
-        )}
-
-        <section id="features" className="land-wrap land-sec">
-          <div className="land-intro">
-            <h2 className="land-h2">{t('land.day.title')}</h2>
-            <p className="land-p">{t('land.day.sub')}</p>
-          </div>
-          <Step time="07:10" title={t('land.plan.t')} desc={t('land.plan.d')}>
-            <Shot
-              src1={tPlan1x}
-              src2={tPlan2x}
-              w={1198}
-              h={1041}
-              alt={t('land.plan.t')}
-              max={600}
-            />
-          </Step>
-          <Step time="07:40" title={t('land.sub.t')} desc={t('land.sub.d')}>
-            <Shot src1={tSub1x} src2={tSub2x} w={1850} h={320} alt={t('land.sub.t')} />
-          </Step>
-          <Step time="17:00" title={t('land.bill.t')} desc={t('land.bill.d')}>
-            <Shot src1={tBill1x} src2={tBill2x} w={1914} h={292} alt={t('land.bill.t')} />
-          </Step>
-        </section>
-
-        <section className="land-feat">
-          <div className="land-wrap land-feat__in">
-            <div className="land-c84">
-              <div className="land-settle">
-                <Shot
-                  src1={fSettle1x}
-                  src2={fSettle2x}
-                  w={1920}
-                  h={560}
-                  alt={t('land.settle.alt')}
-                />
-                <span className="land-pin" style={{ left: '69.5%' }}>
-                  1
-                </span>
-                <span className="land-pin" style={{ left: '77%' }}>
-                  2
-                </span>
-                <span className="land-pin" style={{ left: '84.5%' }}>
-                  3
-                </span>
-              </div>
-              <div className="land-feat__copy">
-                <h3 className="land-h3">{t('land.settle.t')}</h3>
-                <p className="land-p">{t('land.settle.d')}</p>
-                {(['land.settle.p1', 'land.settle.p2', 'land.settle.p3'] as MessageKey[]).map(
-                  (k, i) => (
-                    <div key={k} className="land-num">
-                      <span className="land-num__n">{i + 1}</span>
-                      <span className="land-num__t">{t(k)}</span>
-                    </div>
-                  ),
-                )}
-              </div>
-            </div>
-            <div className="land-fdoc">
-              <div className="land-c66 land-c66--end">
-                <h3 className="land-h3">{t('land.fdoc.t')}</h3>
-                <p className="land-p">{t('land.fdoc.d')}</p>
-              </div>
-              <div className="land-c66 land-c66--imgs">
-                <Shot
-                  src1={fFdockpi1x}
-                  src2={fFdockpi2x}
-                  w={1220}
-                  h={250}
-                  alt={t('land.fdoc.altKpi')}
-                />
-                <Shot src1={fFdoc1x} src2={fFdoc2x} w={1180} h={560} alt={t('land.fdoc.alt')} />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {showPrice && config.fromPrice && (
-          <section className="land-wrap land-pricebar">
-            <div className="land-pricebar__in">
-              <p className="land-pricebar__p">
-                <b>{t('land.priceFrom', { price: config.fromPrice })}</b>
-                <span className="land-pricebar__dot"> · </span>
-                <span>{t('land.trialNoCard')}</span>
-              </p>
-              <a {...linkProps(config.pricingPageLive, '/pricing')} className="land-pricebar__a">
-                {t('land.allPrices')}
-              </a>
-            </div>
-          </section>
-        )}
-
-        <section className="land-wrap land-faq">
-          <h2 className="land-h2">{t('land.faq.title')}</h2>
-          <div className="land-faq__list">
-            {faqs.map((f, i) => {
-              const open = faq === i;
-              return (
-                <div key={f.q} className="land-faq__i">
-                  <button
-                    type="button"
-                    className="land-faq__q"
-                    aria-expanded={open}
-                    onClick={() => setFaq(open ? -1 : i)}
-                  >
-                    <span style={{ flex: 1 }}>{t(f.q)}</span>
-                    <span className="land-faq__sym">{open ? '−' : '+'}</span>
+      {!home && <SignupMain onToast={setToast} />}
+      {home && (
+        <main className="land-main">
+          <section className="land-hero">
+            <div className="land-hero__bg" />
+            <div className="land-hero__ov" />
+            <div className="land-wrap land-hero__grid">
+              <div className="land-hero__copy">
+                <h1 className="land-h1">
+                  <span>{t('land.h1a')}</span> <span>{t('land.h1b')}</span>
+                </h1>
+                <p className="land-hero__lead">{t('land.lead')}</p>
+                <div className="land-hero__acts">
+                  <button type="button" className="land-btn land-btn--white" onClick={goSignup}>
+                    {t('land.cta')}
                   </button>
-                  {open && <p className="land-faq__a">{f.a}</p>}
+                  {showPrice && (
+                    <a
+                      {...linkProps(config.pricingPageLive, '/pricing')}
+                      className="land-hero__price"
+                    >
+                      {t('land.seePrice')}
+                    </a>
+                  )}
                 </div>
-              );
-            })}
-          </div>
-        </section>
+                <span className="land-hero__note">{t('land.noCard')}</span>
+              </div>
+              <div className="land-hero__shotwrap">
+                <div className="land-hero__shot">
+                  <img
+                    src={heroPlan2x}
+                    srcSet={`${heroPlan1x} 1007w, ${heroPlan2x} 2014w`}
+                    sizes="(max-width: 759px) 100vw, 60vw"
+                    width={2014}
+                    height={1680}
+                    alt={t('land.heroAlt')}
+                    fetchPriority="high"
+                    decoding="async"
+                  />
+                </div>
+                <div className="land-hero__card land-hero__card--pod">
+                  <span className="land-hero__cardt">
+                    <span className="land-dot" />
+                    {t('land.card1t')}
+                  </span>
+                  <span className="land-hero__cards">{t('land.card1s')}</span>
+                </div>
+                <div className="land-hero__card land-hero__card--sub">
+                  <span className="land-hero__cardt">{t('land.card2t')}</span>
+                  <span className="land-hero__cards">{t('land.card2s')}</span>
+                </div>
+              </div>
+            </div>
+            <div className="land-facts">
+              <div className="land-wrap land-facts__row">
+                {facts.map((f) => (
+                  <span key={f} className="land-facts__i">
+                    {f}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </section>
 
-        <section className="land-band">
-          <div className="land-band__ov" />
-          <p className="land-wrap land-band__p">{t('land.band')}</p>
-        </section>
+          {worksWith.length > 0 && (
+            <section className="land-with">
+              <p className="land-wrap land-with__p">
+                {t('land.worksWith', { list: joinList(worksWith, 'land.and') })}
+              </p>
+            </section>
+          )}
 
-        <section className="land-final">
-          <div className="land-wrap land-final__in">
-            <p className="land-final__p">{t('land.final')}</p>
-            <button type="button" className="land-btn" onClick={goSignup}>
-              {t('land.cta')}
-            </button>
-          </div>
-        </section>
-      </main>
+          <section id="features" className="land-wrap land-sec">
+            <div className="land-intro">
+              <h2 className="land-h2">{t('land.day.title')}</h2>
+              <p className="land-p">{t('land.day.sub')}</p>
+            </div>
+            <Step time="07:10" title={t('land.plan.t')} desc={t('land.plan.d')}>
+              <Shot
+                src1={tPlan1x}
+                src2={tPlan2x}
+                w={1198}
+                h={1041}
+                alt={t('land.plan.t')}
+                max={600}
+              />
+            </Step>
+            <Step time="07:40" title={t('land.sub.t')} desc={t('land.sub.d')}>
+              <Shot src1={tSub1x} src2={tSub2x} w={1850} h={320} alt={t('land.sub.t')} />
+            </Step>
+            <Step time="17:00" title={t('land.bill.t')} desc={t('land.bill.d')}>
+              <Shot src1={tBill1x} src2={tBill2x} w={1914} h={292} alt={t('land.bill.t')} />
+            </Step>
+          </section>
+
+          <section className="land-feat">
+            <div className="land-wrap land-feat__in">
+              <div className="land-c84">
+                <div className="land-settle">
+                  <Shot
+                    src1={fSettle1x}
+                    src2={fSettle2x}
+                    w={1920}
+                    h={560}
+                    alt={t('land.settle.alt')}
+                  />
+                  <span className="land-pin" style={{ left: '69.5%' }}>
+                    1
+                  </span>
+                  <span className="land-pin" style={{ left: '77%' }}>
+                    2
+                  </span>
+                  <span className="land-pin" style={{ left: '84.5%' }}>
+                    3
+                  </span>
+                </div>
+                <div className="land-feat__copy">
+                  <h3 className="land-h3">{t('land.settle.t')}</h3>
+                  <p className="land-p">{t('land.settle.d')}</p>
+                  {(['land.settle.p1', 'land.settle.p2', 'land.settle.p3'] as MessageKey[]).map(
+                    (k, i) => (
+                      <div key={k} className="land-num">
+                        <span className="land-num__n">{i + 1}</span>
+                        <span className="land-num__t">{t(k)}</span>
+                      </div>
+                    ),
+                  )}
+                </div>
+              </div>
+              <div className="land-fdoc">
+                <div className="land-c66 land-c66--end">
+                  <h3 className="land-h3">{t('land.fdoc.t')}</h3>
+                  <p className="land-p">{t('land.fdoc.d')}</p>
+                </div>
+                <div className="land-c66 land-c66--imgs">
+                  <Shot
+                    src1={fFdockpi1x}
+                    src2={fFdockpi2x}
+                    w={1220}
+                    h={250}
+                    alt={t('land.fdoc.altKpi')}
+                  />
+                  <Shot src1={fFdoc1x} src2={fFdoc2x} w={1180} h={560} alt={t('land.fdoc.alt')} />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {showPrice && config.fromPrice && (
+            <section className="land-wrap land-pricebar">
+              <div className="land-pricebar__in">
+                <p className="land-pricebar__p">
+                  <b>{t('land.priceFrom', { price: config.fromPrice })}</b>
+                  <span className="land-pricebar__dot"> · </span>
+                  <span>{t('land.trialNoCard')}</span>
+                </p>
+                <a {...linkProps(config.pricingPageLive, '/pricing')} className="land-pricebar__a">
+                  {t('land.allPrices')}
+                </a>
+              </div>
+            </section>
+          )}
+
+          <section className="land-wrap land-faq">
+            <h2 className="land-h2">{t('land.faq.title')}</h2>
+            <div className="land-faq__list">
+              {faqs.map((f, i) => {
+                const open = faq === i;
+                return (
+                  <div key={f.q} className="land-faq__i">
+                    <button
+                      type="button"
+                      className="land-faq__q"
+                      aria-expanded={open}
+                      onClick={() => setFaq(open ? -1 : i)}
+                    >
+                      <span style={{ flex: 1 }}>{t(f.q)}</span>
+                      <span className="land-faq__sym">{open ? '−' : '+'}</span>
+                    </button>
+                    {open && <p className="land-faq__a">{f.a}</p>}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="land-band">
+            <div className="land-band__ov" />
+            <p className="land-wrap land-band__p">{t('land.band')}</p>
+          </section>
+
+          <section className="land-final">
+            <div className="land-wrap land-final__in">
+              <p className="land-final__p">{t('land.final')}</p>
+              <button type="button" className="land-btn" onClick={goSignup}>
+                {t('land.cta')}
+              </button>
+            </div>
+          </section>
+        </main>
+      )}
 
       <footer className="land-ft">
         <div className="land-ft__cols">

@@ -161,6 +161,50 @@ export const PROBLEMS = {
     th: 'อีเมลนี้เป็นสมาชิกของบริษัทแล้ว',
     en: 'This email is already a member',
   },
+  /** P1-ST2-T03 สมัคร: อีเมลมีบัญชีแล้ว — ผู้ใช้เดิมเข้าสู่ระบบแล้วเพิ่มบริษัทใหม่ (spec/01 §2 ข้อ 8) */
+  account_exists: {
+    status: 409,
+    th: 'อีเมลนี้มีบัญชีแล้ว เข้าสู่ระบบเพื่อเพิ่มบริษัทใหม่',
+    en: 'This email already has an account — sign in to add a new company',
+  },
+  /** P1-ST2-T03 สมัคร: อีเมลนี้ยืนยันแล้วและกำลังสมัครอยู่ — เข้าสู่ระบบเพื่อทำต่อจากขั้นที่ค้าง */
+  signup_in_progress: {
+    status: 409,
+    th: 'อีเมลนี้กำลังสมัครอยู่ เข้าสู่ระบบเพื่อทำต่อจากขั้นที่ค้างไว้',
+    en: 'A sign-up with this email is in progress — sign in to continue',
+  },
+  /** P1-ST2-T03 login ด้วยอีเมล/รหัสของการสมัครที่ยังไม่เสร็จ — มี `signupToken` ใช้ทำต่อที่ /signup */
+  signup_incomplete: {
+    status: 409,
+    th: 'การสมัครยังไม่เสร็จ ทำต่อจากขั้นที่ค้างไว้',
+    en: 'Your sign-up is not finished — continue where you left off',
+  },
+  /** P1-ST2-T03 token การสมัครผิด/หมดอายุ/ถูกทิ้ง (ไม่เคลื่อน 7 วัน) */
+  signup_session_invalid: {
+    status: 401,
+    th: 'ไม่พบการสมัครนี้หรือหมดอายุแล้ว เริ่มสมัครใหม่',
+    en: 'This sign-up was not found or has expired — start again',
+  },
+  /** P1-ST2-T03 OTP ผิด — มี `attemptsLeft` */
+  otp_invalid: { status: 422, th: 'รหัสไม่ถูกต้อง', en: 'Incorrect code' },
+  /** P1-ST2-T03 OTP หมดอายุ (5 นาที) หรือถูกยกเลิกหลังล็อก */
+  otp_expired: {
+    status: 422,
+    th: 'รหัสหมดอายุแล้ว กดขอรหัสใหม่',
+    en: 'The code has expired — request a new one',
+  },
+  /** P1-ST2-T03 ใส่ OTP ผิด 5 ครั้ง → ล็อก 15 นาที (มี Retry-After) */
+  otp_locked: {
+    status: 429,
+    th: 'ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่อีกครั้งใน 15 นาที',
+    en: 'Too many incorrect codes — try again in 15 minutes',
+  },
+  /** P1-ST2-T03 ขอรหัสใหม่ได้หลัง 60 วินาที (มี Retry-After) */
+  otp_resend_too_soon: {
+    status: 429,
+    th: 'ขอรหัสใหม่ได้หลังครบ 60 วินาที',
+    en: 'You can request a new code after 60 seconds',
+  },
   /** ST9-T11 มุมมองที่บันทึกไว้ครบ 50 ต่อหน้าต่อผู้ใช้ — มี `limit` */
   saved_view_limit: {
     status: 409,

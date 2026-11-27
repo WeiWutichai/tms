@@ -15,7 +15,7 @@ export const LOGIN_MAX_FAILURES = 5;
  * รหัส 2FA ที่ผิดเขียน `attempt` โดยไม่มีแถวสำเร็จมาหัก → นับเป็นครั้งผิดของอีเมล/IP นั้น (review T05 B2/B3)
  */
 /** แถวที่หมายถึง "ผ่านขั้นรหัสผ่านแล้ว" — หักกับแถว `attempt` ของตัวเองแบบ 1:1 */
-const PASSWORD_OK = ['ok', 'tenant_selection_required', 'password_ok'];
+const PASSWORD_OK = ['ok', 'tenant_selection_required', 'password_ok', 'signup_incomplete'];
 /** รหัส 2FA ผิด (login, ตั้ง 2FA, step-up) — นับแยก ไม่มีแถวสำเร็จใดหักได้ (re-review T05) */
 export const OTP_FAILED = 'otp_failed';
 

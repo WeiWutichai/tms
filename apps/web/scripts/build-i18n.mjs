@@ -38,11 +38,33 @@ for (const lang of ['en', 'zh']) {
   writeFileSync(file, await format(src, { ...(await resolveConfig(file)), filepath: file }));
 }
 // P1-ST2-T01: ชุดข้อความย่อยของ landing (`land.*`, `pub.*`) — landing เป็น bundle แยก ไม่โหลดข้อความทั้งแอป
+// P1-ST2-T03: + หน้าสมัคร (`su.*`) + error code ที่หน้าสมัครแสดง
+const SIGNUP_PROBLEMS = [
+  'account_exists',
+  'signup_in_progress',
+  'signup_session_invalid',
+  'otp_invalid',
+  'otp_expired',
+  'otp_locked',
+  'otp_resend_too_soon',
+  'rate_limited',
+  'bot_check_failed',
+  'service_busy',
+  'validation_failed',
+  'invalid_state_transition',
+  'internal_error',
+].map((c) => `problem.${c}`);
 {
   const pick = (o) =>
     Object.fromEntries(
       Object.entries(o)
-        .filter(([k]) => k.startsWith('land.') || k.startsWith('pub.'))
+        .filter(
+          ([k]) =>
+            k.startsWith('land.') ||
+            k.startsWith('pub.') ||
+            k.startsWith('su.') ||
+            SIGNUP_PROBLEMS.includes(k),
+        )
         .map(([k, v]) => [k, v.replace(/\\'/g, "'")]),
     );
   const block = (o) =>

@@ -1,0 +1,377 @@
+/* หน้าสมัคร (P1-ST2-T03) — ค่าจาก design/prototype/TMS Signup.dc.html view `signup` */
+.su-main {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 32px 32px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.su-steps {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: center;
+}
+.su-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.su-step__dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1.5px solid #c9cdc3;
+  background: #ffffff;
+  color: #59606b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 13px;
+}
+.su-step__dot.is-cur {
+  border-color: #2257c4;
+  color: #2257c4;
+}
+.su-step__dot.is-done {
+  border-color: #2257c4;
+  background: #2257c4;
+  color: #ffffff;
+}
+.su-step__l {
+  font-weight: 500;
+  color: #59606b;
+  white-space: nowrap;
+}
+.su-step__l.is-on {
+  color: #101418;
+}
+.su-step__l.is-cur {
+  font-weight: 600;
+}
+.su-step__line {
+  width: 56px;
+  height: 2px;
+  background: #d9dcd4;
+  border-radius: 1px;
+}
+.su-step__line.is-done {
+  background: #2257c4;
+}
+.su-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.su-card {
+  background: #ffffff;
+  border: 1px solid #cdd1c8;
+  border-radius: 16px;
+  box-shadow:
+    0 1px 2px rgba(16, 20, 24, 0.06),
+    0 2px 6px rgba(16, 20, 24, 0.04);
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.su-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.su-head h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  color: #13213f;
+}
+.su-head span {
+  color: #3b424c;
+}
+.su-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px 16px;
+}
+.su-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  grid-column: span 1;
+  min-width: 0;
+}
+.su-field--wide {
+  grid-column: span 2;
+}
+.su-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #3b424c;
+}
+.su-req {
+  color: #b3322a;
+}
+.su-input {
+  display: flex;
+  align-items: center;
+  height: 44px;
+  border: 1px solid #cdd1c8;
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+}
+.su-input.is-err {
+  border-color: #b3322a;
+}
+.su-input:focus-within {
+  outline: 2px solid #2257c4;
+  outline-offset: 1px;
+}
+.su-input__pre {
+  padding: 0 10px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  background: #f4f5f2;
+  border-right: 1px solid #cdd1c8;
+  color: #3b424c;
+  font-variant-numeric: tabular-nums;
+}
+.su-input input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  padding: 0 12px;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.su-err {
+  font-size: 12.5px;
+  color: #b3322a;
+}
+.su-hint {
+  font-size: 12.5px;
+  color: #59606b;
+}
+.su-link {
+  color: #2257c4;
+  font-weight: 600;
+}
+.su-otp {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid #e4e6e0;
+  border-radius: 12px;
+  background: #f7f8f5;
+}
+.su-otp__t {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.su-otp__in {
+  width: 240px;
+  max-width: 100%;
+  height: 52px;
+  padding: 0 14px;
+  border: 1px solid #cdd1c8;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 24px;
+  letter-spacing: 0.4em;
+  font-variant-numeric: tabular-nums;
+  background: #ffffff;
+}
+.su-otp__in.is-err {
+  border-color: #b3322a;
+}
+.su-otp__err {
+  font-size: 13px;
+  color: #b3322a;
+  font-weight: 500;
+}
+.su-otp__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: #3b424c;
+}
+.su-num {
+  font-variant-numeric: tabular-nums;
+}
+.su-otp__resend {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #2257c4;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.su-otp__edit {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #3b424c;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.su-note {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #fcf0dc;
+  color: #8f5500;
+  display: flex;
+  gap: 8px;
+}
+.su-note__i {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.su-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #e4e6e0;
+}
+.su-back {
+  height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #3b424c;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.su-foot__t {
+  flex: 1;
+  font-size: 13px;
+  color: #59606b;
+}
+.su-next {
+  height: 44px;
+  padding: 0 22px;
+  border: 1px solid #2257c4;
+  border-radius: 999px;
+  background: #2257c4;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.su-next:disabled {
+  cursor: default;
+}
+.su-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: 96px;
+}
+.su-side {
+  background: #ffffff;
+  border: 1px solid #cdd1c8;
+  border-radius: 16px;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.su-side h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #13213f;
+}
+.su-side__i {
+  display: flex;
+  gap: 12px;
+}
+.su-side__ic {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: #e9f0fa;
+  color: #2257c4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.su-side__txt {
+  display: flex;
+  flex-direction: column;
+}
+.su-side__t {
+  font-weight: 600;
+}
+.su-side__d {
+  font-size: 13px;
+  color: #3b424c;
+}
+.su-trust {
+  padding: 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #3b424c;
+  font-size: 13px;
+}
+.su-trust span {
+  display: flex;
+  gap: 8px;
+}
+.su-trust svg {
+  color: #17733f;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+/* [DECISION — lead 27 พ.ย. 2569, ย้อนได้] ต้นแบบไม่มีแบบจอแคบของหน้านี้ — ใช้จุดตัด `narrow` (< 760) + px 20 ของ landing */
+@media (max-width: 759px) {
+  .su-main {
+    padding: 24px 20px 56px;
+  }
+  .su-steps {
+    gap: 8px;
+  }
+  .su-step__line {
+    width: 24px;
+  }
+  .su-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .su-card {
+    padding: 20px;
+  }
+  .su-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .su-field,
+  .su-field--wide {
+    grid-column: span 1;
+  }
+  .su-aside {
+    position: static;
+  }
+}
