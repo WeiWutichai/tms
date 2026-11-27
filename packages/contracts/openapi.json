@@ -3536,6 +3536,69 @@
         }
       }
     },
+    "/v1/platform/tenants/{id}/usage/metrics": {
+      "get": {
+        "operationId": "PlatformUsage_metrics",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "period",
+            "required": false,
+            "in": "query",
+            "description": "เดือนปฏิทินเวลาไทย YYYY-MM (ไม่ส่ง = เดือนนี้)",
+            "schema": {
+              "example": "2026-11",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageMetricsDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "การใช้งานอื่นของลูกค้าต่อเดือน (DO, ใบแจ้งหนี้, API calls, พื้นที่ POD, connector, ผู้ใช้) — P1-ST1-T07",
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
     "/v1/platform/tenants/{id}/usage/active-vehicles": {
       "get": {
         "operationId": "PlatformUsage_list",
@@ -70969,6 +71032,77 @@
         ]
       }
     },
+    "/v1/usage/metrics": {
+      "get": {
+        "description": "docs/02 §5 Usage & Billing · spec/01 §7 — ยอดเดือน = ผลรวมของยอดรายวัน (`usage_daily`) สำหรับ DO / ใบแจ้งหนี้ / API calls · พื้นที่ POD / connector / ผู้ใช้ = ค่า ณ วันล่าสุดของเดือน (เดือนนี้ = ค่าสด) · ปิดยอดพร้อมรถ active · e-Tax ไม่มีในเฟส 1 (`eTaxDocuments` = null) · sandbox ไม่นับ · ใช้ออกบิลเฉพาะรถ active (เมตริกอื่นเพื่อดู/โควตา)",
+        "operationId": "Usage_metrics",
+        "parameters": [
+          {
+            "name": "period",
+            "required": false,
+            "in": "query",
+            "description": "เดือนปฏิทินเวลาไทย YYYY-MM (ไม่ส่ง = เดือนนี้)",
+            "schema": {
+              "example": "2026-11",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageMetricsDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_master.read"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "การใช้งานอื่นของเดือน (DO, ใบแจ้งหนี้, API calls, พื้นที่ POD, connector, ผู้ใช้)",
+        "tags": [
+          "usage"
+        ],
+        "x-required-scopes": [
+          "master:read"
+        ]
+      }
+    },
     "/v1/usage/active-vehicles": {
       "get": {
         "description": "รถ active = ทะเบียน (normalize: ตัดช่องว่าง/ขีด/จุด, เลขไทย → อารบิก — \"กข-1234\" = \"กข1234\") ที่มีเที่ยวเข้าเงื่อนไข ≥ 1 เที่ยวในเดือนปฏิทินเวลาไทย (docs/02 §2 · spec/01 PLT-070–075) · นับทันทีเมื่อเที่ยวแรกของทะเบียนเข้าเงื่อนไข และนำออกเมื่อเที่ยวย้อนสถานะ (เช่น ยกเลิกหลังปล่อยรถ) ก่อนปิดยอด · ปิดยอดวันที่ 1 เวลา 02:00 น. ไทยของเดือนถัดไป · sandbox ไม่นับ",
@@ -76903,6 +77037,110 @@
         "required": [
           "id",
           "twoFactorEnabled"
+        ]
+      },
+      "ApiCallsDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number",
+            "description": "รวมทุก source"
+          },
+          "rest": {
+            "type": "number",
+            "description": "REST (API key / OAuth client)"
+          },
+          "mcp": {
+            "type": "number",
+            "description": "MCP (ยังไม่มีในเฟส 1 = 0)"
+          }
+        },
+        "required": [
+          "total",
+          "rest",
+          "mcp"
+        ]
+      },
+      "UsageMetricsDto": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "string",
+            "example": "2026-11"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "finalized",
+              "invoiced"
+            ],
+            "description": "open = ยังนับอยู่ (DO/ใบแจ้งหนี้อัปเดตทุก ≤ 10 นาที, API calls ≤ 30 วินาที) · finalized = ปิดยอดพร้อมรถ active (วันที่ 1 เวลา 02:00 น. ไทย)"
+          },
+          "finalizedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "doCreated": {
+            "type": "number",
+            "description": "`do.created` — DO ที่สร้างในเดือน (เวลาไทย) ไม่รวมที่ยกเลิก = ผลรวมรายวัน"
+          },
+          "invoicesIssued": {
+            "type": "number",
+            "description": "`invoices.issued` — ใบแจ้งหนี้ที่ออกเลขในเดือน = ผลรวมรายวัน"
+          },
+          "apiCalls": {
+            "description": "`api.calls` — คำขอ `/v1` ของ API key / OAuth client ที่ตอบ 2xx/3xx/4xx (ไม่นับ 429 และ 5xx) · UI ของระบบไม่นับ · key ของ sandbox ไม่นับ",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ApiCallsDto"
+              }
+            ]
+          },
+          "podStorageGb": {
+            "type": "number",
+            "example": 1.25,
+            "description": "`storage.pod_gb` — ขนาดไฟล์ POD + เอกสารแนบที่อัปโหลด (GB = 1024³ ทศนิยม 2, สะสมไม่รีเซ็ต) ณ วันล่าสุดของเดือน"
+          },
+          "connectors": {
+            "type": "number",
+            "description": "`connectors.accounting` — connector ระบบบัญชีที่ active"
+          },
+          "connectorLimit": {
+            "type": "number",
+            "nullable": true,
+            "description": "จำนวน connector สูงสุดตามแพ็กเกจ (entitlement `conn`) — null = ไม่จำกัด/ไม่กำหนด"
+          },
+          "users": {
+            "type": "number",
+            "description": "`users.active` — ผู้ใช้สถานะใช้งาน"
+          },
+          "eTaxDocuments": {
+            "type": "number",
+            "nullable": true,
+            "description": "เอกสาร e-Tax — ไม่มีในเฟส 1 (plan/13 R-17) จึงเป็น null เสมอ (UI แสดง \"—\")"
+          },
+          "gaugeAsOf": {
+            "type": "string",
+            "nullable": true,
+            "format": "date",
+            "description": "วันของค่า POD/connector/ผู้ใช้ (null = ค่าสด)"
+          }
+        },
+        "required": [
+          "period",
+          "status",
+          "finalizedAt",
+          "doCreated",
+          "invoicesIssued",
+          "apiCalls",
+          "podStorageGb",
+          "connectors",
+          "connectorLimit",
+          "users",
+          "eTaxDocuments",
+          "gaugeAsOf"
         ]
       },
       "PlatformActiveVehicleItemDto": {

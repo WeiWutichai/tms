@@ -1,6 +1,8 @@
 import { createApp } from './bootstrap';
 import { createLogger, PinoNestLogger } from './common/logger';
 import { MonitorScheduler } from './modules/monitoring/monitor-scheduler';
+import { PrismaService } from './db/prisma.service';
+import { API_USAGE_FLUSH_MS, apiUsageMeter } from './modules/usage/api-usage-meter';
 
 async function main() {
   const log = createLogger();
@@ -10,6 +12,13 @@ async function main() {
   await app.listen(port);
   // ST9-T19 flush ตัวนับคำขอ + ตรวจแทน worker เมื่อ worker หยุด (MONITOR=off ปิด)
   app.get(MonitorScheduler).startApi();
+  // P1-ST1-T07 flush ตัวนับ API calls ลง usage_daily แบบ batch (บวกเพิ่ม) + รอบสุดท้ายตอนปิด process
+  const platformDb = app.get(PrismaService).platform;
+  const flushUsage = () =>
+    apiUsageMeter.flush(platformDb).catch((e) => log.error(e, 'api usage flush failed'));
+  setInterval(flushUsage, API_USAGE_FLUSH_MS).unref();
+  for (const sig of ['SIGTERM', 'SIGINT'] as const)
+    process.once(sig, () => void flushUsage().finally(() => process.exit(0)));
   log.info({ port }, 'TMS API listening');
 }
 

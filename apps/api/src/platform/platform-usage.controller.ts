@@ -20,7 +20,10 @@ import {
   AddActiveVehicleDto,
   PlatformActiveVehicleUsageDto,
   UsageAdjustReasonDto,
+  UsageMetricsDto,
 } from '../modules/usage/usage.dto';
+import { toUsageMetricsDto } from '../modules/usage/usage.controller';
+import { readUsageMetrics } from '../modules/usage/usage-metrics';
 import { plateNorm } from '../modules/vehicles/vehicles.service';
 import { platformAudit } from './platform-audit';
 
@@ -46,6 +49,20 @@ export class PlatformUsageController {
     private readonly entitlements: EntitlementService,
     private readonly clock: Clock,
   ) {}
+
+  @Get(':id/usage/metrics')
+  @PlatformAuth()
+  @ApiOperation({
+    summary:
+      'การใช้งานอื่นของลูกค้าต่อเดือน (DO, ใบแจ้งหนี้, API calls, พื้นที่ POD, connector, ผู้ใช้) — P1-ST1-T07',
+  })
+  @ApiOkResponse({ type: UsageMetricsDto })
+  async metrics(@Param('id') id: string, @Query() q: ActiveVehicleQuery): Promise<UsageMetricsDto> {
+    const t = await this.tenant(id);
+    const now = bangkokPeriod(this.clock.now());
+    const u = await readUsageMetrics(this.prisma.platform, t.id, q.period ?? now, now);
+    return toUsageMetricsDto(u, (await this.entitlements.resolve(t.id)).conn?.limit ?? null);
+  }
 
   @Get(':id/usage/active-vehicles')
   @PlatformAuth()

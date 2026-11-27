@@ -10,6 +10,51 @@ import { can, consoleApi, cunwrap, useStaff } from './session';
 type TenantDetail = components['schemas']['PlatformTenantDetailDto'];
 type Usage = components['schemas']['PlatformActiveVehicleUsageDto'];
 type Row = Usage['data'][number];
+type Metrics = components['schemas']['UsageMetricsDto'];
+
+/** แถบการใช้งานแบบต้นแบบ Console `bar(l, u, q, unit)`: "u / q หน่วย" · q null = ไม่จำกัด · ≥ 90% แดง ≥ 75% ส้ม */
+function Bar({ l, u, q, unit }: { l: string; u: number; q: number | null; unit: string }) {
+  const { t } = useI18n();
+  const pct = q ? Math.min(100, (u / q) * 100) : 0;
+  const tone = pct >= 90 ? '#B3322A' : pct >= 75 ? '#8F5500' : '#2257C4';
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+        <span>{l}</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums', color: '#3B424C' }}>
+          {t('con.use.barV', { u: u.toLocaleString(), q: q ?? t('con.unlimited'), unit })}
+        </span>
+      </div>
+      <div style={{ height: 6, borderRadius: 3, background: '#EBEDE8', overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${pct.toFixed(0)}%`, background: tone }} />
+      </div>
+    </div>
+  );
+}
+
+/** แถวแบบ `isRows` ของต้นแบบ (ชื่อ + คำอธิบาย / ค่า) */
+function MetricRow({ a, s, b }: { a: string; s?: string; b: string }) {
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'minmax(0,1fr) auto',
+        gap: 12,
+        alignItems: 'center',
+        padding: '8px 0',
+        borderBottom: '1px solid #EBEDE8',
+      }}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <span style={{ fontWeight: 500 }}>{a}</span>
+        {s && <span style={{ fontSize: 12.5, color: '#59606B' }}>{s}</span>}
+      </div>
+      <span style={{ fontVariantNumeric: 'tabular-nums', color: '#3B424C', whiteSpace: 'nowrap' }}>
+        {b}
+      </span>
+    </div>
+  );
+}
 
 /** เดือนปฏิทินเวลาไทยย้อนหลัง n เดือน (YYYY-MM) */
 function months(n: number, now = new Date()): string[] {
@@ -35,7 +80,9 @@ type Dlg = { kind: 'exclude' | 'include'; row: Row } | { kind: 'add' } | null;
  * + แถวรายการแบบ `isRows` (ทะเบียน · ประเภท / จำนวนเที่ยว · วันที่วิ่ง / ป้าย) + ปุ่มแบบ `isBtns`
  * [DECISION — lead 28 พ.ย. 2569, ย้อนได้] spec/12 §3: ต้นแบบแสดงเฉพาะแถบของเดือนนี้ — เพิ่มตัวเลือกเดือน (ปรับยอดเดือนที่ปิดแล้ว),
  * รายการทะเบียนที่ถูกนับ และปุ่มตัดออก/นับกลับ/เพิ่มทะเบียน (spec/01 PLT-074 "หลัง finalize แก้ได้เฉพาะ finance ใน Console")
- * แถบเมตริกอื่น (ผู้ใช้ / API / AI / POD) = P1-ST1-T07 — ยังไม่แสดงตัวเลขสมมุติ
+ * P1-ST1-T07: แถบ ผู้ใช้ / API calls / พื้นที่ POD ตามต้นแบบ (AI credit ไม่แสดง — ไม่มีในเฟส 1, D-48)
+ * [DECISION — lead 28 พ.ย. 2569, ย้อนได้] spec/12 §3: ต้นแบบไม่มีที่แสดง DO / ใบแจ้งหนี้ / connector / API แยกช่องทาง / e-Tax
+ * (docs/02 §5) — ประกอบเป็นส่วน "การใช้งานอื่นของเดือน" แบบแถว `isRows` ของต้นแบบ · e-Tax แสดง "—" (plan/13 R-17)
  */
 export function TenantUsage({ x, onToast }: { x: TenantDetail; onToast: (m: string) => void }) {
   const { t, lang } = useI18n();
@@ -54,6 +101,16 @@ export function TenantUsage({ x, onToast }: { x: TenantDetail; onToast: (m: stri
       ),
   });
   const u = q.data;
+  const mq = useQuery({
+    queryKey: ['console', 'tenant', x.id, 'usage-metrics', period],
+    queryFn: () =>
+      cunwrap(
+        consoleApi.GET('/v1/platform/tenants/{id}/usage/metrics', {
+          params: { path: { id: x.id }, query: { period } },
+        }),
+      ),
+  });
+  const mt: Metrics | undefined = mq.data;
   const edit = can.usage(role) && u?.status === 'finalized';
   const pct = u?.limit ? Math.min(100, (u.activeVehicles / u.limit) * 100) : 0;
   const tone = pct >= 90 ? '#B3322A' : pct >= 75 ? '#8F5500' : '#2257C4';
@@ -113,7 +170,50 @@ export function TenantUsage({ x, onToast }: { x: TenantDetail; onToast: (m: stri
             </span>
           </div>
         )}
+        {mt && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }} data-testid="use-bars">
+            <Bar l={t('con.use.users')} u={mt.users} q={null} unit={t('con.use.unit.users')} />
+            <Bar l={t('con.use.api')} u={mt.apiCalls.total} q={null} unit={t('con.use.unit.req')} />
+            <Bar l={t('con.use.pod')} u={mt.podStorageGb} q={null} unit={t('con.use.unit.gb')} />
+          </div>
+        )}
       </section>
+      {mt && (
+        <section className="con-sec">
+          <span className="con-sec__t">{t('con.use.other')}</span>
+          <div style={{ display: 'flex', flexDirection: 'column' }} data-testid="use-other">
+            <MetricRow
+              a={t('con.use.do')}
+              s={t('con.use.doS')}
+              b={t('con.use.nDoc', { n: mt.doCreated.toLocaleString() })}
+            />
+            <MetricRow
+              a={t('con.use.inv')}
+              b={t('con.use.nDoc', { n: mt.invoicesIssued.toLocaleString() })}
+            />
+            <MetricRow
+              a={t('con.use.apiSrc')}
+              s={t('con.use.apiSrcS')}
+              b={t('con.use.apiSrcV', {
+                r: mt.apiCalls.rest.toLocaleString(),
+                m: mt.apiCalls.mcp.toLocaleString(),
+              })}
+            />
+            <MetricRow
+              a={t('con.use.conn')}
+              b={t('con.use.connV', {
+                u: mt.connectors,
+                q: mt.connectorLimit ?? t('con.unlimited'),
+              })}
+            />
+            <MetricRow
+              a={t('con.use.etax')}
+              s={t('con.use.etaxS')}
+              b={mt.eTaxDocuments == null ? '—' : String(mt.eTaxDocuments)}
+            />
+          </div>
+        </section>
+      )}
       {u && (
         <section className="con-sec">
           <span className="con-sec__t">{t('con.use.list')}</span>

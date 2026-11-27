@@ -493,6 +493,8 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'con.dtab.usr': '用户',
   'con.use.t': '本月用量',
   'con.use.veh': '活跃车辆',
+  'con.use.users': '用户',
+  'con.use.conn': '会计连接器',
   'con.use.sub': '外包车',
   'con.use.f.plate': '车牌',
   'con.sec.actions': '操作',

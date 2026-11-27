@@ -6,7 +6,30 @@ import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
 import { VehiclesService } from '../vehicles/vehicles.service';
 import { bangkokPeriod, readActiveVehicles } from './active-vehicles';
-import { ActiveVehicleQuery, ActiveVehicleUsageDto } from './usage.dto';
+import { ActiveVehicleQuery, ActiveVehicleUsageDto, UsageMetricsDto } from './usage.dto';
+import { readUsageMetrics, type UsageMetricsView } from './usage-metrics';
+import { EntitlementService } from '../entitlements/entitlement.service';
+
+/** แปลงผลอ่านเป็น DTO (ลูกค้า + Console ใช้ร่วม) */
+export function toUsageMetricsDto(
+  u: UsageMetricsView,
+  connectorLimit: number | null,
+): UsageMetricsDto {
+  return {
+    period: u.period,
+    status: u.status,
+    finalizedAt: u.finalizedAt,
+    doCreated: u.doCreated,
+    invoicesIssued: u.invoicesIssued,
+    apiCalls: u.apiCalls,
+    podStorageGb: u.podStorageGb,
+    connectors: u.connectors,
+    connectorLimit,
+    users: u.users,
+    eTaxDocuments: null, // R-17: ไม่มี e-Tax ในเฟส 1
+    gaugeAsOf: u.gaugeAsOf,
+  };
+}
 
 /**
  * การใช้งานของบริษัท (P1-ST1-T06; spec/01 §7) — ลูกค้าดูรายการรถที่ถูกนับเป็นรถ active ของเดือน
@@ -21,7 +44,26 @@ export class UsageController {
     private readonly db: DbService,
     private readonly vehicles: VehiclesService,
     private readonly clock: Clock,
+    private readonly entitlements: EntitlementService,
   ) {}
+
+  @Get('metrics')
+  @RequireScope('master:read')
+  @ApiOperation({
+    summary: 'การใช้งานอื่นของเดือน (DO, ใบแจ้งหนี้, API calls, พื้นที่ POD, connector, ผู้ใช้)',
+    description:
+      'docs/02 §5 Usage & Billing · spec/01 §7 — ยอดเดือน = ผลรวมของยอดรายวัน (`usage_daily`) สำหรับ DO / ใบแจ้งหนี้ / API calls · ' +
+      'พื้นที่ POD / connector / ผู้ใช้ = ค่า ณ วันล่าสุดของเดือน (เดือนนี้ = ค่าสด) · ปิดยอดพร้อมรถ active · ' +
+      'e-Tax ไม่มีในเฟส 1 (`eTaxDocuments` = null) · sandbox ไม่นับ · ใช้ออกบิลเฉพาะรถ active (เมตริกอื่นเพื่อดู/โควตา)',
+  })
+  @ApiOkResponse({ type: UsageMetricsDto })
+  async metrics(@Query() q: ActiveVehicleQuery): Promise<UsageMetricsDto> {
+    const tenantId = requestContext.require().tenantId!;
+    const now = bangkokPeriod(this.clock.now());
+    const u = await readUsageMetrics(this.db.tx, tenantId, q.period ?? now, now);
+    const conn = (await this.entitlements.resolve(tenantId)).conn?.limit ?? null;
+    return toUsageMetricsDto(u, conn);
+  }
 
   @Get('active-vehicles')
   @RequireScope('master:read')
