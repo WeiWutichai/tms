@@ -1422,7 +1422,7 @@ export const th = {
   'con.dlg.createT': 'เพิ่มลูกค้า',
   'con.dlg.createD': 'สร้างบริษัทในสถานะทดลองใช้ และส่งอีเมลเชิญเจ้าของบริษัทตั้งรหัสผ่าน',
   'con.toast.created': 'เพิ่ม {n} แล้ว · ส่งอีเมลเชิญเจ้าของบริษัทแล้ว',
-  'con.toast.plan': 'เปลี่ยน {n} เป็นแพ็กเกจ{plan}แล้ว',
+  'con.toast.plan': 'เปลี่ยน {n} เป็นแพ็กเกจ {plan} แล้ว',
   'con.toast.suspended': 'ระงับ {n} แล้ว',
   'con.toast.reactivated': 'ปลดระงับ {n} แล้ว',
   'con.act.reset2fa': 'รีเซ็ต 2FA',
