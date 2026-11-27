@@ -64,6 +64,7 @@
 | OpenAPI | `pnpm --filter @tms/api openapi:export` (ต้องรันทุกครั้งที่ API เปลี่ยน แล้ว commit `packages/contracts/openapi.json`) |
 | เอกสาร API / SDK | `pnpm --filter @tms/api-docs docs:build` (รันต่อจาก openapi:export ทุกครั้ง แล้ว commit `packages/api-docs/site/` — CI ตรวจด้วย `docs:check`, ST7-T12) |
 | ทำงานขนานหลาย worktree | `bash scripts/lane-init.sh <lane> <portBase>` — ฐาน `tms_<lane>` (+`_test`/`_e2e`) และพอร์ตของตัวเอง ดู `HANDOFF.md` §5.1 |
+| Help center | `pnpm --filter @tms/help-center docs:build` (รันต่อจาก openapi:export และทุกครั้งที่แก้ `problem.*` ใน th.ts หรือบทความใน `packages/help-center/articles/` แล้ว commit `packages/help-center/site/` — CI ตรวจด้วย `docs:check`, P1-ST6-T01) · ภาพหน้าจอ: `pnpm --filter @tms/web help:shots` (opt-in — รันเองเมื่อ UI ที่บทความใช้เปลี่ยน) |
 | ข้อความภาษา | แก้ `apps/web/src/i18n/th.ts` → `pnpm --filter @tms/web i18n:build` |
 
 กติกาโค้ดที่ตรวจด้วย test/lint (ห้ามปิด): E2E, harness แยก tenant (`apps/api/test/isolation.test.ts` — route ที่มี `:id` ต้องมี `@TenantResource` + fixture), lint DTO, lint i18n (ห้ามข้อความไทย hard-code), OpenAPI diff gate, PDF golden

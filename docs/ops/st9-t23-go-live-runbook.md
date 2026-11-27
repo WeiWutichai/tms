@@ -32,6 +32,7 @@
 
 | ขั้น | ทำ | หมายเหตุ |
 |---|---|---|
+| D-0 | **บังคับ** สแกน CVE ของ image ที่จะ deploy: `SCAN_IMAGES=1 bash scripts/scan-images.sh` (หรือ GitHub CI job `scan-images`) ต้องเขียว — CRITICAL ที่มีรุ่นแก้ = ห้าม deploy | P1-ST6-T07 · ci:local สแกนอัตโนมัติเฉพาะเมื่อ infra/deploy / Dockerfile / pnpm-lock.yaml / .nvmrc เปลี่ยน — release ต้องสั่ง `SCAN_IMAGES=1` เสมอ · ข้อยกเว้นใน `infra/deploy/trivyignore` ต้องมีเหตุผล + วันทบทวน |
 | D-1 | backup production ก่อน deploy ทุกครั้ง + ยืนยันว่าเสร็จ | `scripts/deploy.sh` ทำ base backup (`scripts/backup/base-backup.sh`) ก่อน migrate ให้เอง — ล้ม = หยุด deploy |
 | D-2 | migration: service `migrate` (image `tms/migrate:<tag>`) = `prisma migrate deploy` + `bootstrap-tenants` (เท่ากับ `db:migrate:prod`) — `deploy.sh` รันให้ | **ห้าม** `prisma migrate reset` / `migrate dev` / `db:reset` บนฐานที่มีข้อมูล (CLAUDE.md) · migration ต้อง expand-only (release checklist) · ทุกตารางใหม่มี `tms_enable_tenant_rls` |
 | D-3 | deploy image API + worker + web (tag เดียวกัน) + proxy · ตรวจ `/v1/readyz` = 200 | `scripts/deploy.sh <profile> <tag>` · worker ต้องขึ้นด้วย (PDF/outbox/แจ้งเตือน/reconcile) |
