@@ -59,7 +59,14 @@ export function usePlanStep({
         setData(d);
         const pick =
           d.plans.find((p) => p.code === session?.planCode) ??
-          planForVehicles(d.plans, total) ??
+          (d.pricesVisible
+            ? planForVehicles(
+                d.plans.filter((p) => p.vehicleMin !== null) as Array<
+                  SignupPlan & { vehicleMin: number }
+                >,
+                total,
+              )
+            : undefined) ??
           d.plans.find((p) => p.code === 'std') ??
           d.plans[0];
         setSel(pick?.code ?? null);
@@ -85,7 +92,10 @@ export function usePlanStep({
   const est = (() => {
     if (!cur) return '';
     if (cur.isContactSales) return t('su.s3.estDemo', { n: total });
-    const e = data?.pricesVisible ? estimatePlanCharge(cur, total, 'monthly') : null;
+    const e =
+      data?.pricesVisible && cur.annualDiscountPct !== null
+        ? estimatePlanCharge({ ...cur, annualDiscountPct: cur.annualDiscountPct }, total, 'monthly')
+        : null;
     return e ? t('su.s3.est', { n: total, amount: fmtMoney(e.monthly) }) : '';
   })();
 

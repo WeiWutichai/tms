@@ -493,7 +493,13 @@ export class SignupPlanChoiceDto {
   pricePerVehicleMonthly!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'ก่อน VAT (null เมื่อไม่เปิดราคา)' })
   minimumMonthly!: string | null;
-  @ApiProperty({ example: '15.00' }) annualDiscountPct!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '15.00',
+    description: 'null เมื่อไม่เปิดราคา',
+  })
+  annualDiscountPct!: string | null;
   @ApiProperty({
     type: 'array',
     items: {
@@ -503,7 +509,13 @@ export class SignupPlanChoiceDto {
     description: 'ส่วนลดตามจำนวนรถ (ว่างเมื่อไม่เปิดราคา)',
   })
   volumeTiers!: { fromVehicle: number; discountPct: string }[];
-  @ApiProperty({ example: 16 }) vehicleMin!: number;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    example: 16,
+    description: 'ช่วงจำนวนรถของ tier — null เมื่อไม่เปิดราคา',
+  })
+  vehicleMin!: number | null;
   @ApiProperty({ nullable: true, type: Number, example: 60 }) vehicleMax!: number | null;
 }
 
@@ -525,7 +537,13 @@ export class SignupCompletionDto {
       'ready = บริษัทสถานะ trialing ("พร้อมใช้งานแล้ว") · pending = pending_verification ("เราได้รับข้อมูลแล้ว") · demo = ขอนัด demo (ไม่สร้างบริษัท)',
   })
   outcome!: string;
-  @ApiProperty({ enum: ['trialing', 'pending_verification'], nullable: true, type: String })
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'trialing',
+    description:
+      'สถานะบริษัท (ค่าเดียวกับ `tenant.status` 7 ค่า — ครั้งแรกเป็น trialing หรือ pending_verification; เรียกซ้ำ = สถานะปัจจุบัน) · null = ขอนัด demo',
+  })
   tenantStatus!: string | null;
   @ApiProperty() companyName!: string;
   @ApiProperty({ example: 'std' }) planCode!: string;

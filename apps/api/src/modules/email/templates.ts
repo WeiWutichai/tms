@@ -119,6 +119,16 @@ export interface TemplateVars {
    * P1-ST2-T05 สมัครเสร็จ (ถึงเจ้าของบัญชี) — `pending` = รอทีมงานตรวจข้อมูลบริษัท (tenant pending_verification)
    * trialEnds = วันที่แสดงผลแล้ว (เวลาไทย) · link = หน้าเข้าสู่ระบบ
    */
+  /** P1-ST2-T05 คำขอนัด demo จากหน้าสมัคร → ทีมขาย/support (อีเมลระบบ ไม่มี tenant) */
+  signup_demo_request: {
+    companyName: string;
+    taxId: string;
+    planName: string;
+    applicantName: string;
+    email: string;
+    mobile: string;
+    vehicles: number;
+  };
   signup_completed: {
     companyName: string;
     planName: string;
@@ -434,6 +444,36 @@ const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
       ];
       return {
         subject: 'Your sign-up code — TMS',
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('en', title, paras),
+      };
+    },
+  },
+  signup_demo_request: {
+    th: (v) => {
+      const title = `คำขอนัด demo — ${v.companyName}`;
+      const paras = [
+        `ผู้สมัครเลือกแพ็กเกจ${v.planName} (ตกลงราคา) และขอนัด demo — ติดต่อกลับภายใน 1 วันทำการ`,
+        `บริษัท: ${v.companyName} · เลขผู้เสียภาษี ${v.taxId}`,
+        `ผู้ติดต่อ: ${v.applicantName} · ${v.email} · ${v.mobile}`,
+        `จำนวนรถโดยประมาณ: ${v.vehicles} คัน`,
+      ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('th', title, paras),
+      };
+    },
+    en: (v) => {
+      const title = `Demo request — ${v.companyName}`;
+      const paras = [
+        `A sign-up chose the ${v.planName} plan (contact sales) and asked for a demo — reply within 1 business day.`,
+        `Company: ${v.companyName} · Tax ID ${v.taxId}`,
+        `Contact: ${v.applicantName} · ${v.email} · ${v.mobile}`,
+        `Approx. vehicles: ${v.vehicles}`,
+      ];
+      return {
+        subject: `${title} — TMS`,
         text: `${title}\n\n${paras.join('\n\n')}\n`,
         html: layout('en', title, paras),
       };

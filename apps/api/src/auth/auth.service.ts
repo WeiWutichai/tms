@@ -21,7 +21,7 @@ import { iEquals } from '../common/ilike';
 import { resumeSignupByPassword, signupEnabled } from '../modules/signup/signup.service';
 import { LOGIN_TENANT_STATUSES } from '../modules/tenants/tenant-status';
 
-const CODE_TTL_MS = 60 * 1000;
+export const CODE_TTL_MS = 60 * 1000;
 export const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** idle 8 ชม. ค่าเริ่มต้น — tenant ตั้งเองได้ที่ `security.idleTimeoutMinutes` (ST1-T17) */
 /** review 10 พ.ย. 2569 ข้อ 3 */

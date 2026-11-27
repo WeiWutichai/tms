@@ -80,9 +80,11 @@ export interface SignupPlan {
   isContactSales: boolean;
   pricePerVehicleMonthly: string | null;
   minimumMonthly: string | null;
-  annualDiscountPct: string;
+  /** null เมื่อไม่เปิดราคา */
+  annualDiscountPct: string | null;
   volumeTiers: { fromVehicle: number; discountPct: string }[];
-  vehicleMin: number;
+  /** ช่วงจำนวนรถของ tier — null เมื่อไม่เปิดราคา */
+  vehicleMin: number | null;
   vehicleMax: number | null;
 }
 export interface SignupPlans {

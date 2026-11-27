@@ -965,6 +965,8 @@ export const th = {
   'su.done.d':
     '{company} เริ่มทดลองใช้แพ็กเกจ{plan} ถึง {date} เราส่งอีเมลยืนยันไปที่ {email} แล้ว',
   'su.done.go': 'เข้าใช้งาน TMS',
+  'login.signupHandoffFailed':
+    'สมัครเรียบร้อยแล้ว เข้าสู่ระบบด้วยอีเมลและรหัสผ่านที่ตั้งไว้ตอนสมัคร',
   'su.side.title': 'เริ่มใช้งานได้ใน 3 ขั้น',
   'su.side.account': 'บัญชีผู้ใช้',
   'su.side.accountDSms': 'อีเมลบริษัทและยืนยันเบอร์มือถือ',

@@ -10,7 +10,7 @@ import { newOpaqueToken } from '../src/auth/tokens';
 import { defaultFileStore } from '../src/pdf/file-store';
 import { SignupCompleteService } from '../src/modules/signup/signup-complete.service';
 import { TERMS_VERSION_PLACEHOLDER } from '../src/modules/signup/signup-company.service';
-import { bootApp, platform, truncateAll } from './helpers';
+import { bootApp, createTenant, platform, truncateAll } from './helpers';
 
 /**
  * P1-ST2-T05 สมัครขั้น 3 "เลือกแพ็กเกจ" + สร้างบริษัทในธุรกรรมเดียว — เกณฑ์ตรวจรับ (plan/13; spec/01 §2 PLT-022, PLT-025):
@@ -65,6 +65,7 @@ describe('P1-ST2-T05 สมัครขั้น 3 + สร้างบริษ
     });
 
   beforeAll(async () => {
+    process.env.SIGNUP_COMPLETE_RATE_LIMIT_PER_IP_PER_HOUR = '1000';
     await truncateAll();
     pwHash = await hashPassword(PASSWORD);
     app = await bootApp();
@@ -77,6 +78,8 @@ describe('P1-ST2-T05 สมัครขั้น 3 + สร้างบริษ
     });
   });
   afterAll(async () => {
+    delete process.env.SIGNUP_COMPLETE_RATE_LIMIT_PER_IP_PER_HOUR;
+    delete process.env.SIGNUP_SALES_EMAILS;
     await app.close();
     await db.$disconnect();
     await owner.$disconnect();
@@ -167,6 +170,15 @@ describe('P1-ST2-T05 สมัครขั้น 3 + สร้างบริษ
         (p: { pricePerVehicleMonthly: unknown }) => p.pricePerVehicleMonthly === null,
       ),
     ).toBe(true);
+    // ยังไม่เปิดราคา = ไม่เผยส่วนลด/ช่วง tier ด้วย (review L6)
+    for (const p of r.body.plans as Record<string, unknown>[])
+      expect(p).toMatchObject({
+        annualDiscountPct: null,
+        vehicleMin: null,
+        vehicleMax: null,
+        volumeTiers: [],
+        minimumMonthly: null,
+      });
     await setSetting('pricing.publicVisible', true);
     const v = await http().get('/v1/public/signup/session/plans').set('X-Signup-Token', token);
     const std = v.body.plans.find((p: { code: string }) => p.code === 'std');
@@ -431,9 +443,24 @@ describe('P1-ST2-T05 สมัครขั้น 3 + สร้างบริษ
     const bad = await complete(token, 'nope');
     expect(bad.status).toBe(422);
     expect(bad.body.errors[0]).toMatchObject({ field: 'planCode', code: 'unknown_plan' });
+    process.env.SIGNUP_SALES_EMAILS = 'Sales@innovera.test, support@innovera.test';
     const r = await complete(token, 'ent');
     expect(r.status).toBe(200);
     expect(r.body.completion.outcome).toBe('demo');
+    // lead ถาวรของฝ่ายขาย (review M2): platform_audit_log + อีเมลถึงผู้รับที่ตั้ง · ขอซ้ำไม่บันทึกซ้ำ
+    expect((await complete(token, 'ent')).status).toBe(200);
+    const leads = await db.platformAuditLog.findMany({
+      where: { action: 'signup.demo_requested', entityId: id },
+    });
+    expect(leads).toHaveLength(1);
+    expect(leads[0]!.after).toMatchObject({ planCode: 'ent', taxId: jur(5) });
+    const mails = await db.emailOutbox.findMany({
+      where: { template: 'signup_demo_request', tenantId: null },
+      orderBy: { toAddress: 'asc' },
+    });
+    expect(mails.map((m) => m.toAddress)).toEqual(['sales@innovera.test', 'support@innovera.test']);
+    expect(mails[0]!.subject).toContain('คำขอนัด demo');
+    delete process.env.SIGNUP_SALES_EMAILS;
     expect(r.body.session.demoRequestedAt).not.toBeNull();
     const s = await db.signupSession.findUniqueOrThrow({ where: { id } });
     expect(s.status).toBe('company_submitted');
@@ -471,5 +498,53 @@ describe('P1-ST2-T05 สมัครขั้น 3 + สร้างบริษ
         await tx.tenantSignup.update({ where: { tenantId: a!.tenantId }, data: { flags: [] } });
       }),
     ).rejects.toThrow();
+  });
+
+  it('ธง same_tax_other_branch จากการตรวจซ้ำในธุรกรรม (บริษัทเลขเดียวกันต่างสาขาเกิดหลังขั้น 2) (review M1)', async () => {
+    const tax = jur(6);
+    const { token, id } = await submitted(tax);
+    await db.signupSession.update({ where: { id }, data: { branchCode: '00001' } });
+    // บริษัทอื่นสมัครเลขเดียวกัน (สำนักงานใหญ่) หลังผู้สมัครรายนี้ส่งขั้น 2
+    const other = await createTenant(db);
+    const co = await db.company.create({
+      data: { tenantId: other.id, legalName: 'บริษัท สำนักงานใหญ่ จำกัด', taxId: tax },
+    });
+    await db.branch.create({
+      data: {
+        tenantId: other.id,
+        companyId: co.id,
+        branchCode: '00000',
+        branchLabel: 'สำนักงานใหญ่',
+        address: {},
+      },
+    });
+    const r = await complete(token);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const s = await db.signupSession.findUniqueOrThrow({ where: { id } });
+    const ts = await db.tenantSignup.findUniqueOrThrow({ where: { tenantId: s.createdTenantId! } });
+    expect(ts.flags).toContain('same_tax_other_branch');
+    expect(
+      (await db.branch.findFirstOrThrow({ where: { tenantId: s.createdTenantId! } })).branchCode,
+    ).toBe('00001');
+  });
+
+  it('complete มี bucket rate limit ต่อ IP ของตัวเอง (review L7)', async () => {
+    process.env.SIGNUP_COMPLETE_RATE_LIMIT_PER_IP_PER_HOUR = '2';
+    try {
+      const ip = `10.77.${Date.now() % 250}.${(Date.now() >> 8) % 250}`;
+      const call = () =>
+        http()
+          .post('/v1/public/signup/session/complete')
+          .set('X-Signup-Token', 'invalid-token-xxxxxxxxxxxxxxxx')
+          .set('X-Forwarded-For', ip)
+          .send({ planCode: 'std', codeChallenge: pkce().challenge });
+      expect((await call()).status).toBe(401);
+      expect((await call()).status).toBe(401);
+      const r = await call();
+      expect(r.status).toBe(429);
+      expect(r.body.code).toBe('rate_limited');
+    } finally {
+      process.env.SIGNUP_COMPLETE_RATE_LIMIT_PER_IP_PER_HOUR = '1000';
+    }
   });
 });

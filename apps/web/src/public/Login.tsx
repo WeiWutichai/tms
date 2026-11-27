@@ -85,7 +85,8 @@ export function LoginPage() {
     if (Date.now() - h.at > 55_000) return;
     setBusy(true);
     void loginWithCode(h.signIn.code, h.verifier)
-      .then((r) => (r.ok ? next() : undefined))
+      .then((r) => (r.ok ? next() : setErr(t('login.signupHandoffFailed'))))
+      .catch(() => setErr(t('login.signupHandoffFailed')))
       .finally(() => setBusy(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

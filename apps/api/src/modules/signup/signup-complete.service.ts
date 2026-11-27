@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { AppUser, Plan, PlanVersion, SignupSession, TenantStatus } from '@prisma/client';
-import { AuthService } from '../../auth/auth.service';
+import { AuthService, CODE_TTL_MS } from '../../auth/auth.service';
 import { MfaService } from '../../auth/mfa.service';
 import { webBaseUrl } from '../../auth/password-reset.controller';
 import { ensureSystemRoles } from '../../auth/system-roles';
@@ -51,7 +51,8 @@ export interface SignupPlanChoice {
 
 export interface SignupCompletion {
   outcome: 'ready' | 'pending' | 'demo';
-  tenantStatus: 'trialing' | 'pending_verification' | null;
+  /** สถานะ tenant (ค่า 7 สถานะตัวพิมพ์เล็ก) · null = ขอนัด demo */
+  tenantStatus: string | null;
   companyName: string;
   planCode: string;
   planName: string;
@@ -91,6 +92,9 @@ export function branchAddressOf(a: CompanyAddress | null) {
     postcode: v('postalCode'),
   };
 }
+
+const planNameOf = (p: { nameTh: string; nameEn: string | null }, locale: string | null) =>
+  locale === 'en' ? (p.nameEn ?? p.nameTh) : p.nameTh;
 
 const branchLabelOf = (code: string) => (code === '00000' ? 'สำนักงานใหญ่' : `สาขาที่ ${code}`);
 
@@ -173,6 +177,7 @@ export class SignupCompleteService {
         ? { data: await defaultFileStore().get(s.certificateFileKey), mime: s.certificateMime }
         : null;
     let movedKey: string | null = null;
+    let createdId: string | null = null;
 
     let out: { user: AppUser; tenantId: string; trialEndsAt: Date | null };
     try {
@@ -182,6 +187,9 @@ export class SignupCompleteService {
           await tx.$queryRaw`SELECT id FROM signup_session WHERE id = ${s.id}::uuid FOR UPDATE`;
           const cur = await tx.signupSession.findUniqueOrThrow({ where: { id: s.id } });
           if (cur.status !== 'company_submitted')
+            throw new ProblemException('invalid_state_transition');
+          // ไฟล์หนังสือรับรองถูกแทนระหว่างอ่านไฟล์ (อีกแท็บอัปโหลดใหม่) → ให้ลองใหม่ ไม่ย้ายไฟล์ผิดฉบับ
+          if (cur.certificateFileKey !== s.certificateFileKey)
             throw new ProblemException('invalid_state_transition');
           const email = cur.email!;
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LOCK_EMAIL}::int, hashtext(${email}))`;
@@ -199,6 +207,7 @@ export class SignupCompleteService {
           const tenant = await tx.tenant.create({
             data: { name: cur.legalName!, status, planCode: choice.plan.code },
           });
+          createdId = tenant.id;
           await this.checkpoint('tenant_created');
           await TenantLifecycleService.recordInitial(
             tx,
@@ -277,9 +286,13 @@ export class SignupCompleteService {
             certificateDocumentId = doc.id;
           }
 
+          // ธงจากการตรวจซ้ำในธุรกรรม (สถานะ ณ ตอนสร้าง) + ธงจากขั้น 2
           const flags = [
-            ...cur.flags,
-            ...(cur.accountingSoftware === 'none' ? ['no_accounting_software'] : []),
+            ...new Set([
+              ...cur.flags,
+              ...(dup.sameTaxOtherBranch ? ['same_tax_other_branch'] : []),
+              ...(cur.accountingSoftware === 'none' ? ['no_accounting_software'] : []),
+            ]),
           ];
           await tx.tenantSignup.create({
             data: {
@@ -350,10 +363,7 @@ export class SignupCompleteService {
             locale: cur.locale === 'en' ? 'en' : 'th',
             vars: {
               companyName: cur.legalName!,
-              planName:
-                cur.locale === 'en'
-                  ? (choice.plan.nameEn ?? choice.plan.nameTh)
-                  : choice.plan.nameTh,
+              planName: planNameOf(choice.plan, cur.locale),
               trialEnds: trialEndsAt ? docDate(trialEndsAt, 'BE') : '—',
               pending: status !== 'TRIALING',
               link: `${webBaseUrl()}/login`,
@@ -361,6 +371,7 @@ export class SignupCompleteService {
           });
 
           // รหัสผ่านย้ายไปที่ผู้ใช้แล้ว — ไม่เก็บซ้ำใน session · ข้อมูลอื่นลบตามรอบวันที่ 30 (signupMaintenance)
+          // resumeTokenHash คงไว้ให้เรียกซ้ำได้ผลเดิม (สายหลุด) — ใช้ได้เฉพาะ `complete` (ไม่ออก code ใหม่) · ถูกล้างพร้อมข้อมูลอื่นวันที่ 30
           await tx.signupSession.update({
             where: { id: cur.id },
             data: {
@@ -380,10 +391,17 @@ export class SignupCompleteService {
       );
     } catch (e) {
       // ไฟล์ไม่อยู่ในธุรกรรม — rollback แล้วลบไฟล์ที่เพิ่งเขียนในโฟลเดอร์ของ tenant ที่ไม่ถูกสร้าง
-      if (movedKey)
-        await defaultFileStore()
-          .remove(movedKey)
-          .catch(() => undefined);
+      // ไม่รู้ผล commit (สายหลุดตอน COMMIT) → ตรวจว่า tenant มีจริงไหมก่อน — มี = ไม่ลบ (stored_document อ้างไฟล์นี้)
+      if (movedKey && createdId) {
+        const committed = await this.db.tenant
+          .findUnique({ where: { id: createdId }, select: { id: true } })
+          .then((t) => !!t)
+          .catch(() => true);
+        if (!committed)
+          await defaultFileStore()
+            .remove(movedKey)
+            .catch(() => undefined);
+      }
       throw e;
     }
 
@@ -416,7 +434,7 @@ export class SignupCompleteService {
         tenantStatus: status === 'TRIALING' ? 'trialing' : 'pending_verification',
         companyName: s.legalName!,
         planCode: choice.plan.code,
-        planName: choice.plan.nameTh,
+        planName: planNameOf(choice.plan, s.locale),
         trialEndsAt: out.trialEndsAt?.toISOString() ?? null,
       },
       signIn,
@@ -433,24 +451,85 @@ export class SignupCompleteService {
         purpose: need,
       };
     const code = await this.auth.issueAuthCode(user, codeChallenge);
-    return { kind: 'code', code, expiresIn: 60 };
+    return { kind: 'code', code, expiresIn: CODE_TTL_MS / 1000 };
   }
 
-  /** แพ็กเกจตกลงราคา → บันทึกคำขอนัด demo (ไม่สร้างบริษัท) — ฝ่ายขายติดต่อภายใน 1 วันทำการ */
+  /**
+   * แพ็กเกจตกลงราคา → บันทึกคำขอนัด demo (ไม่สร้างบริษัท) — ฝ่ายขายติดต่อภายใน 1 วันทำการ
+   * บันทึกถาวร (review M2): แถว platform_audit_log `signup.demo_requested` (lead ของฝ่ายขาย — ไม่ถูกลบพร้อม session วันที่ 30)
+   * + อีเมลถึงทีม (outbox ในธุรกรรมเดียวกัน): `SIGNUP_SALES_EMAILS` (คั่นด้วย ,) — ไม่ตั้ง = ทีม Platform Console ที่ ACTIVE
+   * บทบาท SUPER_ADMIN/SUPPORT (แบบเดียวกับ MONITOR_ALERT_EMAILS) · ไม่มีผู้รับ = มีแค่แถว audit · ขอซ้ำ = ไม่บันทึกซ้ำ
+   * หน้าคิวของฝ่ายขาย = P1-ST2-T06 / P1-ST4
+   */
   private async requestDemo(
     s: SignupSession,
     choice: SignupPlanChoice,
     now: number,
   ): Promise<SignupCompleteResult> {
-    const u = await this.db.signupSession.update({
-      where: { id: s.id },
-      data: {
+    const recipients = await salesRecipients(this.db);
+    const u = await this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM signup_session WHERE id = ${s.id}::uuid FOR UPDATE`;
+      const cur = await tx.signupSession.findUniqueOrThrow({ where: { id: s.id } });
+      if (cur.status !== 'company_submitted')
+        throw new ProblemException('invalid_state_transition');
+      const first = !cur.demoRequestedAt;
+      const row = await tx.signupSession.update({
+        where: { id: s.id },
+        data: {
+          planCode: choice.plan.code,
+          demoRequestedAt: cur.demoRequestedAt ?? new Date(now),
+          lastActivityAt: new Date(now),
+        },
+      });
+      if (!first) return row;
+      const lead = {
         planCode: choice.plan.code,
-        demoRequestedAt: s.demoRequestedAt ?? new Date(now),
-        lastActivityAt: new Date(now),
-      },
+        companyName: cur.legalName,
+        taxId: cur.taxId,
+        branchCode: cur.branchCode,
+        applicantName: cur.fullName,
+        email: cur.email,
+        mobile: cur.mobile,
+        fleetSizeOwn: cur.fleetSizeOwn,
+        fleetSizeSubcon: cur.fleetSizeSubcon,
+        accountingSoftware: cur.accountingSoftware,
+      };
+      await tx.platformAuditLog.create({
+        data: {
+          action: 'signup.demo_requested',
+          entityType: 'signup_session',
+          entityId: cur.id,
+          after: lead,
+          reason: 'ผู้สมัครขอนัด demo (แพ็กเกจตกลงราคา)',
+        },
+      });
+      if (recipients.length)
+        await this.email.enqueueMany(
+          tx,
+          recipients.map((to) => ({
+            tenantId: null,
+            to,
+            template: 'signup_demo_request' as const,
+            locale: 'th',
+            vars: {
+              companyName: cur.legalName ?? '—',
+              taxId: cur.taxId ?? '—',
+              planName: choice.plan.nameTh,
+              applicantName: cur.fullName ?? '—',
+              email: cur.email ?? '—',
+              mobile: cur.mobile ?? '—',
+              vehicles: (cur.fleetSizeOwn ?? 0) + (cur.fleetSizeSubcon ?? 0),
+            },
+          })),
+        );
+      return row;
     });
-    this.log.log({ event: 'signup.demo_requested', sessionId: s.id, planCode: choice.plan.code });
+    this.log.log({
+      event: 'signup.demo_requested',
+      sessionId: s.id,
+      planCode: choice.plan.code,
+      notified: recipients.length,
+    });
     return {
       session: viewOf(u, now),
       completion: {
@@ -458,7 +537,7 @@ export class SignupCompleteService {
         tenantStatus: null,
         companyName: s.legalName ?? '',
         planCode: choice.plan.code,
-        planName: choice.plan.nameTh,
+        planName: planNameOf(choice.plan, s.locale),
         trialEndsAt: null,
       },
       signIn: null,
@@ -471,15 +550,16 @@ export class SignupCompleteService {
       where: { id: s.createdTenantId! },
       include: { plan: true, subscription: true },
     });
-    const ready = t.status !== 'PENDING_VERIFICATION';
+    // สถานะจริง ณ ตอนนี้ (อาจถูกอนุมัติ/ระงับแล้ว) — pending_verification = หน้า "เราได้รับข้อมูลแล้ว"
+    const pending = t.status === 'PENDING_VERIFICATION';
     return {
       session: viewOf(s, now),
       completion: {
-        outcome: ready ? 'ready' : 'pending',
-        tenantStatus: ready ? 'trialing' : 'pending_verification',
+        outcome: pending ? 'pending' : 'ready',
+        tenantStatus: t.status.toLowerCase(),
         companyName: t.name,
         planCode: t.planCode,
-        planName: t.plan.nameTh,
+        planName: planNameOf(t.plan, s.locale),
         trialEndsAt: t.subscription?.trialEndsAt?.toISOString() ?? null,
       },
       signIn: null,
@@ -491,4 +571,27 @@ export class SignupCompleteService {
     if (s.status !== 'completed' || !s.createdTenantId) return null;
     return (await this.replay(s, Date.now())).completion;
   }
+}
+
+/** ผู้รับคำขอนัด demo: `SIGNUP_SALES_EMAILS` → ทีม Platform Console (SUPER_ADMIN/SUPPORT ที่ ACTIVE) */
+export async function salesRecipients(
+  db: Pick<PrismaService['platform'], 'platformUser'>,
+  env = process.env,
+): Promise<string[]> {
+  const v = env.SIGNUP_SALES_EMAILS?.trim();
+  if (v)
+    return [
+      ...new Set(
+        v
+          .split(',')
+          .map((e) => e.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    ];
+  const staff = await db.platformUser.findMany({
+    where: { status: 'ACTIVE', role: { in: ['SUPER_ADMIN', 'SUPPORT'] } },
+    select: { email: true },
+    orderBy: { email: 'asc' },
+  });
+  return staff.map((x) => x.email);
 }

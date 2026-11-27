@@ -1539,7 +1539,28 @@
             "description": "validation_failed — `planCode` (unknown_plan)"
           },
           "429": {
-            "$ref": "#/components/responses/RateLimited"
+            "description": "rate_limited (`scope: ip`) — เรียกเกินเพดานต่อ IP (ค่าเริ่ม 10 ครั้ง/ชม.) มี header Retry-After",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                }
+              }
+            }
           }
         },
         "summary": "ขั้น 3 \"เริ่มใช้งาน\" — สร้างบริษัทในธุรกรรมเดียว (หรือขอนัด demo)",
@@ -76564,7 +76585,9 @@
           },
           "annualDiscountPct": {
             "type": "string",
-            "example": "15.00"
+            "nullable": true,
+            "example": "15.00",
+            "description": "null เมื่อไม่เปิดราคา"
           },
           "volumeTiers": {
             "type": "array",
@@ -76583,7 +76606,9 @@
           },
           "vehicleMin": {
             "type": "number",
-            "example": 16
+            "nullable": true,
+            "example": 16,
+            "description": "ช่วงจำนวนรถของ tier — null เมื่อไม่เปิดราคา"
           },
           "vehicleMax": {
             "type": "number",
@@ -76663,11 +76688,9 @@
           },
           "tenantStatus": {
             "type": "string",
-            "enum": [
-              "trialing",
-              "pending_verification"
-            ],
-            "nullable": true
+            "nullable": true,
+            "example": "trialing",
+            "description": "สถานะบริษัท (ค่าเดียวกับ `tenant.status` 7 ค่า — ครั้งแรกเป็น trialing หรือ pending_verification; เรียกซ้ำ = สถานะปัจจุบัน) · null = ขอนัด demo"
           },
           "companyName": {
             "type": "string"

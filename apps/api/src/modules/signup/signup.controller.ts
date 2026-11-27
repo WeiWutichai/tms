@@ -29,6 +29,7 @@ import {
   BotProtected,
   OtpSendLimit,
   SignupAttemptLimit,
+  SignupCompleteLimit,
 } from '../../http/public-entry/public-entry.guard';
 import {
   CertificateQueryDto,
@@ -302,18 +303,20 @@ export class SignupController {
         isContactSales: plan.isContactSales,
         pricePerVehicleMonthly: visible ? money(v.pricePerVehicleMonthly) : null,
         minimumMonthly: visible ? money(v.minimumMonthly) : null,
-        annualDiscountPct: v.annualDiscountPct.toFixed(2),
+        // ยังไม่เปิดราคา (D-40) = ไม่เผยโครงราคาใด ๆ (ส่วนลด/ช่วง tier) — review L6
+        annualDiscountPct: visible ? v.annualDiscountPct.toFixed(2) : null,
         volumeTiers: visible
           ? ((v.volumeTiers as unknown as { fromVehicle: number; discountPct: string }[]) ?? [])
           : [],
-        vehicleMin: v.vehicleMin,
-        vehicleMax: v.vehicleMax,
+        vehicleMin: visible ? v.vehicleMin : null,
+        vehicleMax: visible ? v.vehicleMax : null,
       })),
     };
   }
 
   @Post('session/complete')
   @HttpCode(200)
+  @SignupCompleteLimit()
   @ApiHeader(TOKEN_HEADER)
   @ApiOperation({
     summary: 'ขั้น 3 "เริ่มใช้งาน" — สร้างบริษัทในธุรกรรมเดียว (หรือขอนัด demo)',
