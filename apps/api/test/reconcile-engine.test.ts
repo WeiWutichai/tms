@@ -1032,9 +1032,14 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
  * วันของรอบ NIGHTLY ที่ไม่ใช่วันทำการสุดท้ายของเดือน — วันนั้นรอบ NIGHTLY ข้ามใบของเดือนนี้ (รอ PRE_CLOSE)
  * test ที่คาดว่ารอบถัดไปจะอ่านใบวันนี้จึงล้มเมื่อ today+n ตรงวันนั้น (เช่น 27 พ.ย. 2569 + 3 = จ. 30 พ.ย.)
  */
+// วันที่ n (นับ 1, 2, 3 …) หลัง today ที่ไม่ใช่วันทำการสุดท้ายของเดือน — เพิ่มขึ้นเสมอ (n ต่างกัน = วันต่างกัน)
+// เดิมเลื่อนทีละตัวทำให้ n=2 กับ n=3 ชนวันเดียวกันได้เมื่อ today+2 เป็นวันทำการสุดท้าย (เช่น 28 พ.ย. 2569)
 function nightlyDay(today: string, n: number): string {
-  let d = addDay(today, n);
-  while (d === lastBusinessDay(d)) d = addDay(d, 1);
+  let d = today;
+  for (let k = 0; k < n;) {
+    d = addDay(d, 1);
+    if (d !== lastBusinessDay(d)) k++;
+  }
   return d;
 }
 

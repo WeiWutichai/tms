@@ -51,6 +51,9 @@ import { PlatformPlansController } from './platform/platform-plans.controller';
 import { PlatformSettingsController } from './platform/platform-settings.controller';
 import { PlatformSettingsService } from './platform/platform-settings.service';
 import { PlatformTenantsController } from './platform/platform-tenants.controller';
+import { PlatformUsageController } from './platform/platform-usage.controller';
+import { UsageController } from './modules/usage/usage.controller';
+import { UsageFinalizeService } from './modules/usage/usage-finalize.service';
 import { ImpersonationController } from './platform/impersonation.controller';
 import {
   InvitationAcceptController,
@@ -317,6 +320,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     SetupChecklistController,
     PlatformAuthController,
     PlatformTenantsController,
+    PlatformUsageController,
     PlatformPlansController,
     PlatformSettingsController,
     PlatformConnectorsController,
@@ -402,6 +406,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     CarrierRecentPricesController,
     CarriersController,
     VehiclesController,
+    UsageController,
     DriversController,
     VehicleDocumentsController,
     CarrierDocsController,
@@ -560,6 +565,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     PaymentDueReminderService,
     UnbilledReminderService,
     DepreciationService,
+    UsageFinalizeService,
     GeoService,
     AuditService,
     BranchesService,
