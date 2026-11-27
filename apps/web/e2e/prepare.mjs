@@ -47,7 +47,8 @@ await admin.$disconnect();
 sh('pnpm -s db:migrate'); // ทางเดียวกับทุกที่: migrate + bootstrap tenant
 const owner = new PrismaClient({ datasources: { db: { url: env.DATABASE_URL } } });
 const tables = await owner.$queryRawUnsafe(
-  "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'",
+  // แคตตาล็อกแพ็กเกจ (plan / plan_version / plan_entitlement / feature) มากับ migration 0175+ — ไม่ล้าง (เหมือน REFERENCE_TABLES ของ test API)
+  "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> ALL(ARRAY['_prisma_migrations', 'plan', 'plan_version', 'plan_entitlement', 'feature'])",
 );
 if (tables.length)
   await owner.$executeRawUnsafe(

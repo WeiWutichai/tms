@@ -13,6 +13,7 @@ import { PublicLayout } from '../public/PublicLayout';
 import { ConsoleShell } from './ConsoleShell';
 import { consoleLogin, consoleMfa, consoleSession } from './session';
 import { ConnectorsPage } from './Connectors';
+import { SettingsPage } from './Settings';
 import { TenantsPage } from './Tenants';
 
 /** Platform Console (ST1-T24) — route group /console/* แยกจากแอปลูกค้า (layout, login, token ของตัวเอง) */
@@ -31,6 +32,7 @@ export function ConsoleApp() {
                 <Route path="tenants/:id" element={<TenantsPage />} />
                 <Route path="connectors" element={<ConnectorsPage />} />
                 <Route path="connectors/:id" element={<ConnectorsPage />} />
+                <Route path="settings" element={<SettingsPage />} />
                 <Route path="*" element={<Navigate to="/console/tenants" replace />} />
               </Routes>
             </ConsoleShell>
