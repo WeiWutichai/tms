@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Put, Req, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { PodSource } from '@tms/domain';
 import type { Request, Response } from 'express';
-import { RequireScope, TenantResource } from '../../common/decorators';
+import { RequireScope, TenantResource, AllowReadOnlyTenant } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { PROBLEMS, type ProblemCode } from '../../common/problem';
@@ -11,6 +11,7 @@ import { requestContext } from '../../common/request-context';
 import { stopEventSourceOf } from '../stops/stop-events.service';
 import { DeliveryOrderPodDto, SubmitPodDto } from './pod.dto';
 import { PodService } from './pod.service';
+import { ReadOnlyTripGate } from '../tenants/read-only-gate';
 
 const P = (code: ProblemCode, extra: Record<string, unknown> = {}) => ({
   type: `https://docs.tms.example/problems/${code}`,
@@ -105,7 +106,10 @@ const W422 = {
 @ApiBearerAuth()
 @Controller('delivery-orders')
 export class PodController {
-  constructor(private readonly pods: PodService) {}
+  constructor(
+    private readonly pods: PodService,
+    private readonly readOnly: ReadOnlyTripGate,
+  ) {}
 
   @Get(':id/pod')
   @ApiOperation({
@@ -126,6 +130,7 @@ export class PodController {
     return v;
   }
 
+  @AllowReadOnlyTenant() // P1-ST1-T03 ตาราง 1.6
   @Put(':id/pod')
   @ApiOperation({
     summary: 'บันทึก/แก้หลักฐานส่ง (ฉบับใหม่ทุกครั้ง)',
@@ -150,6 +155,7 @@ export class PodController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<DeliveryOrderPodDto> {
+    await this.readOnly.forDeliveryOrder(decodeIdOr404('deliveryOrder', id)); // P1-ST1-T03 review S1
     const v = await this.pods.submit(decodeIdOr404('deliveryOrder', id), body, {
       source: stopEventSourceOf(requestContext.require().principalType) as PodSource,
       expectedVersion: expectedVersion(req),

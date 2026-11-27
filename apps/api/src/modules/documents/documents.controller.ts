@@ -25,7 +25,7 @@ import type { StoredDocument } from '@prisma/client';
 import { IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import type { Request, Response } from 'express';
 import { scopeAllows } from '@tms/domain';
-import { Public, RequireScope, TenantResource } from '../../common/decorators';
+import { Public, RequireScope, TenantResource, AllowReadOnlyTenant } from '../../common/decorators';
 import { decodeIdOr404, encodeId, tryDecodeId } from '../../common/ids';
 import { PROBLEMS, ProblemException, type ProblemCode } from '../../common/problem';
 import { assertAttachmentAccess } from '../attachments/attachment-access';
@@ -54,6 +54,7 @@ import {
   UPLOAD_TTL_S,
   verifyDocumentUrl,
 } from './signed-url';
+import { ReadOnlyTripGate } from '../tenants/read-only-gate';
 
 /** docs/04 I "10 MB/ไฟล์" (POD ของแอปคนขับมีเพดานเล็กกว่า — กำหนดตอน ST4) */
 export const MAX_BYTES = 10 * 1024 * 1024;
@@ -233,6 +234,7 @@ export class DocumentsController {
     private readonly limiter: RateLimitService,
     private readonly importSpecs: ImportRegistry,
     @Optional() private readonly entitlements?: EntitlementService,
+    @Optional() private readonly readOnly?: ReadOnlyTripGate,
   ) {}
 
   /**
@@ -273,6 +275,7 @@ export class DocumentsController {
     throw new ProblemException('not_found');
   }
 
+  @AllowReadOnlyTenant() // P1-ST1-T03 review S1 — read_only จองได้เฉพาะรูป/ลายเซ็น POD (ตรวจใน handler)
   @Post()
   @ApiBearerAuth()
   @RequireScope('documents:write')
@@ -280,6 +283,7 @@ export class DocumentsController {
   @ApiCreatedResponse({ type: DocumentDto })
   async create(@Body() body: CreateDocumentDto, @Req() req: Request): Promise<DocumentDto> {
     const ctx = requestContext.require();
+    await this.readOnly?.assertDocumentKind(body.kind);
     const tx = this.db.tx;
     // ไฟล์ตาราง (.xlsx/.csv) ใช้ได้กับ kind IMPORT เท่านั้น และ IMPORT รับแค่ไฟล์ตาราง (ST1-T19)
     if ((body.kind === 'IMPORT') !== IMPORT_MIME.includes(body.mime))

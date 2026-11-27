@@ -106,6 +106,20 @@ describe('diffOpenApi', () => {
     t.components.schemas.Company.properties.id = { type: 'number' };
     expect(diffOpenApi(base, t, [], [{ schema: 'Company.id', adr: 'T-22b' }]).length).toBe(1);
   });
+
+  it('ลบค่า enum ยอมเฉพาะ Name.prop + ค่าที่ระบุตรงตัว (P1-ST1-T03) — ต้องอ้าง ADR', () => {
+    const b = clone();
+    b.components.schemas.Company.properties.status = { type: 'string', enum: ['a', 'b', 'c'] };
+    const h = clone();
+    h.components.schemas.Company.properties.status = { type: 'string', enum: ['c', 'd'] };
+    expect(diffOpenApi(b, h).length).toBe(1);
+    const ok = [{ schema: 'Company.status', values: ['a', 'b'], adr: 'P1-ST1-T03' }];
+    expect(diffOpenApi(b, h, [], [], ok)).toEqual([]);
+    expect(
+      diffOpenApi(b, h, [], [], [{ schema: 'Company.status', values: ['a'], adr: 'x' }]).length,
+    ).toBe(1);
+    expect(diffOpenApi(b, h, [], [], [{ ...ok[0]!, adr: '' }]).length).toBe(1);
+  });
 });
 
 describe('OpenAPI ที่ export (packages/contracts/openapi.json)', () => {

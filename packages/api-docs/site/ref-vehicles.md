@@ -876,7 +876,7 @@ const { data, error } = await tms.POST('/v1/vehicles/{id}/odometer/correct', {
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string (date-time)` |   |   |   |
 | `updatedAt` | ใช่ | `string (date-time)` |   |   |   |
-| `quotaExceeded` |   | `boolean` |   | มีเฉพาะในผลการสร้าง · D68-14: โควตารถนับ**รถ active** ไม่ใช่จำนวนในทะเบียน · ตอนนี้ `false` เสมอจนกว่าจะมีการนับรถ active (metering) — soft limit ไม่จำกัดการสร้าง |   |
+| `quotaExceeded` |   | `boolean` |   | มีเฉพาะในผลการสร้าง · D68-14: โควตารถนับ**รถ active** ไม่ใช่จำนวนในทะเบียน · `false` เสมอ — รถที่เพิ่งเพิ่มยังไม่ใช่รถ active จนกว่าจะมีเที่ยว · คำเตือนเกินโควตาอยู่ตอนจ่ายงาน — soft limit ไม่จำกัดการสร้าง |   |
 | `docAlert` |   | `VehicleDocAlertDto` |   | มีเฉพาะในรายการ (GET /vehicles): เอกสารใกล้หมด 30 วัน/หมดแล้วของคันนี้ (รถปลดระวาง = 0) · คำนวณจากเอกสารและวันนี้ทุกครั้ง **ไม่ทำให้ `updatedAt` ของรถเปลี่ยน** — ผู้ที่ sync แบบ `updatedAfter` ให้ดึงเอกสารจาก `GET /vehicle-documents` แทน |   |
 
 ### VehiclePageDto {#schema-VehiclePageDto}

@@ -7,13 +7,16 @@ import { DbService } from '../../db/db.service';
 import { PrismaService } from '../../db/prisma.service';
 import { cheapestPlanWith, EntitlementService } from '../entitlements/entitlement.service';
 import { PLANS } from '../entitlements/plan-catalog';
+import { TENANT_STATUS_DOC, TENANT_STATUS_ENUM_DOC } from '../tenants/tenant-status';
+import { VersionGate } from '../../http/api-version/api-version.decorators';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export class MeTenantDto {
   @ApiProperty({ example: 'ten_…' }) id!: string;
   @ApiProperty() name!: string;
-  @ApiProperty({ enum: ['trial', 'active', 'suspended', 'cancelled'] }) status!: string;
+  @ApiProperty({ enum: TENANT_STATUS_ENUM_DOC, description: TENANT_STATUS_DOC })
+  status!: string;
   @ApiProperty({ enum: ['BE', 'CE'], description: 'ปีบนเอกสาร: BE = พ.ศ., CE = ค.ศ.' })
   yearStyle!: string;
 }
@@ -85,6 +88,7 @@ export class MeController {
   ) {}
 
   @Get()
+  @VersionGate('tenant.status_lifecycle') // P1-ST1-T03 — client เก่าได้สถานะ 4 ค่าเดิม
   @ApiOkResponse({ type: MeDto })
   async me(): Promise<MeDto> {
     const ctx = requestContext.require();

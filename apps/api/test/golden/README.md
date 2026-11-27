@@ -16,10 +16,10 @@
 
 ### ใบแจ้งหนี้ (ST5-T08)
 
-| ไฟล์ | สร้างบน |
-| --- | --- |
-| `invoice-{exempt,mixed,long}-th.darwin.png` | ใบตัวอย่าง `sampleInvoiceExempt/Mixed/Long()` (`src/modules/invoices/invoice.sample.ts`, ภาพ fullPage) — `UPDATE_GOLDEN=1 pnpm --filter @tms/api exec vitest run test/invoice-pdf.test.ts` |
-| `invoice-{exempt,mixed,long}-th.linux.png` | image `mcr.microsoft.com/playwright:v1.65.0-noble` แบบ **linux/amd64** — dump HTML จาก `new PdfRenderer().html(invoiceDocument(sampleInvoice…()))` แล้ว render หลัง `html[data-paged]` เหมือน `PdfRenderer.withPage` (viewport 794×1123, scale 1, th-TH, Asia/Bangkok, `--font-render-hinting=none`, ภาพ fullPage) |
+| ไฟล์                                        | สร้างบน                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `invoice-{exempt,mixed,long}-th.darwin.png` | ใบตัวอย่าง `sampleInvoiceExempt/Mixed/Long()` (`src/modules/invoices/invoice.sample.ts`, ภาพ fullPage) — `UPDATE_GOLDEN=1 pnpm --filter @tms/api exec vitest run test/invoice-pdf.test.ts`                                                                                                                         |
+| `invoice-{exempt,mixed,long}-th.linux.png`  | image `mcr.microsoft.com/playwright:v1.65.0-noble` แบบ **linux/amd64** — dump HTML จาก `new PdfRenderer().html(invoiceDocument(sampleInvoice…()))` แล้ว render หลัง `html[data-paged]` เหมือน `PdfRenderer.withPage` (viewport 794×1123, scale 1, th-TH, Asia/Bangkok, `--font-render-hinting=none`, ภาพ fullPage) |
 
 ### ใบแจ้งหนี้ที่มีโลโก้องค์กร (P1-ST6-T04)
 
@@ -30,17 +30,18 @@
 
 ### ใบสำคัญจ่ายรถร่วม (ST6-T04)
 
-| ไฟล์ | สร้างบน |
-| --- | --- |
+| ไฟล์                                         | สร้างบน                                                                                                                                                                                                  |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `settlement-{paid,draft,long}-th.darwin.png` | ใบตัวอย่าง `sampleSettlementPaid/Draft/Long()` (`src/modules/settlements/settlement-pdf.sample.ts`, ภาพ fullPage) — `UPDATE_GOLDEN=1 pnpm --filter @tms/api exec vitest run test/settlement-pdf.test.ts` |
-| `settlement-{paid,draft,long}-th.linux.png` | image `mcr.microsoft.com/playwright:v1.65.0-noble` แบบ **linux/amd64** — dump HTML จาก `new PdfRenderer().html(settlementVoucherDocument(sampleSettlement…()))` แล้ว render เหมือนใบแจ้งหนี้ด้านบน |
+| `settlement-{paid,draft,long}-th.linux.png`  | image `mcr.microsoft.com/playwright:v1.65.0-noble` แบบ **linux/amd64** — dump HTML จาก `new PdfRenderer().html(settlementVoucherDocument(sampleSettlement…()))` แล้ว render เหมือนใบแจ้งหนี้ด้านบน       |
 
 ### ใบวางบิล (ST5-T11)
 
-| ไฟล์ | สร้างบน |
-| --- | --- |
-| `billing-note-{issued,long}-th.darwin.png` | `sampleBillingNote/Long()` (`src/modules/billing-notes/billing-note.sample.ts`, ภาพ fullPage) — `UPDATE_GOLDEN=1 pnpm --filter @tms/api exec vitest run test/billing-note-pdf.test.ts` |
-| `billing-note-{issued,long}-th.linux.png` | image `mcr.microsoft.com/playwright:v1.65.0-noble` แบบ **linux/amd64** — dump HTML จาก `new PdfRenderer().html(billingNoteDocument(sampleBillingNote…()))` แล้ว render แบบเดียวกับใบแจ้งหนี้ |
+| ไฟล์                                       | สร้างบน                                                                                                                                                                                      |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `billing-note-{issued,long}-th.darwin.png` | `sampleBillingNote/Long()` (`src/modules/billing-notes/billing-note.sample.ts`, ภาพ fullPage) — `UPDATE_GOLDEN=1 pnpm --filter @tms/api exec vitest run test/billing-note-pdf.test.ts`       |
+| `billing-note-{issued,long}-th.linux.png`  | image `mcr.microsoft.com/playwright:v1.65.0-noble` แบบ **linux/amd64** — dump HTML จาก `new PdfRenderer().html(billingNoteDocument(sampleBillingNote…()))` แล้ว render แบบเดียวกับใบแจ้งหนี้ |
+
 ### สร้าง Linux ใหม่โดยไม่ npm install ใน container (21 พ.ย. 2569 — แก้ "→" เป็น "–")
 
 dump HTML ด้วย `node -r @swc-node/register` (`new PdfRenderer().html(invoiceDocument(sampleInvoice…()))` ฯลฯ) แล้ว

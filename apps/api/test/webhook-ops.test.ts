@@ -11,6 +11,7 @@ import { OutboxDispatcher } from '../src/modules/integration/outbox.dispatcher';
 import { WebhookEngine } from '../src/modules/webhooks/webhook-engine';
 import { WebhookOpsService } from '../src/modules/webhooks/webhook-ops.service';
 import { WebhookRetentionService } from '../src/modules/webhooks/webhook-retention';
+import { TenantLifecycleService } from '../src/modules/tenants/tenant-lifecycle.service';
 import { api, bootApp, createTenant, platform, tokenFor, truncateAll } from './helpers';
 
 interface Hit {
@@ -633,5 +634,24 @@ describe('webhook ops (ST7-T05)', () => {
     });
     expect(c3.status).toBe('DONE');
     expect(c3.parkedAt).toBeNull();
+  });
+  it('P1-ST1-T03 review S4: ระงับ → webhook พัก · ชำระแล้ว (active) → ปลุกคิวทันที ส่งได้ในรอบถัดไป (ไม่ต้องรอ 15 นาที)', async () => {
+    const life = app.get(TenantLifecycleService);
+    await createHook(['order.created']);
+    await life.suspend(tenantId, 'ทดสอบพักคิว webhook', { type: 'system' });
+    const ev = await emit('order.created');
+    await dispatcher.drain();
+    const parked = await plat.integrationOutbox.findFirstOrThrow({
+      where: { eventId: ev.id, operation: 'order.created' },
+    });
+    expect(parked).toMatchObject({ status: 'PENDING', errorClass: 'AUTH' });
+    expect(parked.nextRunAt.getTime()).toBeGreaterThan(Date.now() + 60_000);
+    const paidAt = Date.now();
+    await life.markPaid(tenantId, 'ลูกค้าชำระแล้ว ทดสอบปลุกคิว', { type: 'system' });
+    await dispatcher.drain(); // ไม่บังคับ next_run_at — ต้องถูกปลุกโดยการเปลี่ยนสถานะเอง
+    const done = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: parked.id } });
+    expect(done.status).toBe('DONE');
+    expect(Date.now() - paidAt).toBeLessThan(60_000);
+    expect(rx.hits.length).toBeGreaterThan(0);
   });
 });

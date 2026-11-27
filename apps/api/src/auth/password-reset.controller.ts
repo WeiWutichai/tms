@@ -21,6 +21,7 @@ import { PasswordPolicy } from './password-policy';
 import { isLockTimeout } from './auth-tx';
 import { isLocalEnv, newOpaqueToken, sha256 } from './tokens';
 import { iEquals } from '../common/ilike';
+import { LOGIN_TENANT_STATUSES } from '../modules/tenants/tenant-status';
 
 /** PLT-032: ลิงก์อายุ 30 นาที ใช้ครั้งเดียว */
 export const RESET_TTL_MS = 30 * 60 * 1000;
@@ -86,7 +87,10 @@ export class PasswordResetService {
     });
     if (!users.length) return [];
     const ok = await db.tenant.findMany({
-      where: { id: { in: users.map((u) => u.tenantId) }, status: { in: ['TRIAL', 'ACTIVE'] } },
+      where: {
+        id: { in: users.map((u) => u.tenantId) },
+        status: { in: [...LOGIN_TENANT_STATUSES] },
+      },
       select: { id: true },
     });
     return users.filter((u) => ok.some((t) => t.id === u.tenantId));

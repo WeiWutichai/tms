@@ -22,7 +22,13 @@ import {
   ApiTooManyRequestsResponse,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
-import { LinkAction, Public, RequireScope, TenantResource } from '../../common/decorators';
+import {
+  LinkAction,
+  Public,
+  RequireScope,
+  TenantResource,
+  AllowReadOnlyTenant,
+} from '../../common/decorators';
 import { refToId } from '../../common/external-id';
 import { decodeIdOr404 } from '../../common/ids';
 import { DbService } from '../../db/db.service';
@@ -75,6 +81,7 @@ export class TrackingPublicController {
     return this.tracking.view(apiOrigin(req));
   }
 
+  @AllowReadOnlyTenant() // P1-ST1-T03 ตาราง 1.6
   @Post(':token/lookup')
   @HttpCode(200)
   @LinkAction(TRACKING_ACTION)

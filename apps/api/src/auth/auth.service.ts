@@ -18,6 +18,7 @@ import {
   ACCESS_TTL_SECONDS,
 } from './tokens';
 import { iEquals } from '../common/ilike';
+import { LOGIN_TENANT_STATUSES } from '../modules/tenants/tenant-status';
 
 const CODE_TTL_MS = 60 * 1000;
 export const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -25,7 +26,6 @@ export const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** review 10 พ.ย. 2569 ข้อ 3 */
 export const REFRESH_REUSE_GRACE_MS = 30 * 1000;
 export const IDLE_TTL_MS = 8 * 60 * 60 * 1000;
-const LOGIN_TENANT_STATUSES = ['TRIAL', 'ACTIVE'] as const;
 
 export interface TokenPair {
   accessToken: string;

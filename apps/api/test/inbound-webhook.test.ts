@@ -18,6 +18,7 @@ import {
 } from '../src/modules/erp/inbound-webhook.service';
 import { signatureHeader } from '../src/modules/webhooks/signature';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
+import { TenantLifecycleService } from '../src/modules/tenants/tenant-lifecycle.service';
 import { FakeErpAdapter, GOOD_KEY } from './fake-erp-adapter';
 import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
 
@@ -423,6 +424,32 @@ describe('Inbound webhook ledger (ST7-T22)', () => {
     }
     expect((await ledger())[0]!.status).toBe('RECEIVED');
     expect(demo.inboundHandled(tenantId, conUuid)).toHaveLength(0);
+  });
+
+  it('P1-ST1-T03 review S5: บริษัท read_only → รับเข้า ledger (RECEIVED ไม่มี job) → ชำระแล้วปลุกประมวลผล · ระงับ → 401', async () => {
+    const open = () =>
+      plat.job.count({
+        where: { tenantId, type: INBOUND_PROCESS_JOB, status: { in: ['PENDING', 'RUNNING'] } },
+      });
+    await plat.tenant.update({ where: { id: tenantId }, data: { status: 'READ_ONLY' } });
+    try {
+      await send(body({ id: 'evt-ro', type: 'invoice.paid' })).expect(200);
+      expect((await ledger())[0]!.status).toBe('RECEIVED');
+      expect(await open()).toBe(0);
+      await drain();
+      expect(demo.inboundHandled(tenantId, conUuid)).toHaveLength(0);
+      await app
+        .get(TenantLifecycleService)
+        .markPaid(tenantId, 'ลูกค้าชำระแล้ว ทดสอบปลุก inbound', { type: 'system' });
+      expect(await open()).toBe(1);
+      await drain();
+      expect((await ledger())[0]!.status).toBe('PROCESSED');
+      expect(demo.inboundHandled(tenantId, conUuid)).toHaveLength(1);
+      await plat.tenant.update({ where: { id: tenantId }, data: { status: 'SUSPENDED' } });
+      await send(body({ id: 'evt-susp2', type: 'invoice.paid' })).expect(401);
+    } finally {
+      await plat.tenant.update({ where: { id: tenantId }, data: { status: 'ACTIVE' } });
+    }
   });
 
   it('handle ล้มแบบลองใหม่ได้ → รอ 1 นาทีก่อนลองครั้งที่ 2 (backoff ของ inbound.process)', async () => {
