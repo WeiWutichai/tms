@@ -8,11 +8,11 @@ import { JobQueue } from '../src/jobs/job-queue.service';
 import { EntitlementService } from '../src/modules/entitlements/entitlement.service';
 import { api, createTenant, platform, tokenFor, truncateAll } from './helpers';
 
-/** endpoint ชั่วคราวเฉพาะ test — endpoint จริงที่ gate (รถร่วม, connector, fleet) มาใน ST2+ */
+/** endpoint ชั่วคราวเฉพาะ test — gate ด้วย `report` (Starter ไม่มี; รถร่วมเป็นฟีเจอร์พื้นฐานตั้งแต่ P1-ST1-T01 R-07) */
 @Controller('__test/sub')
 class GatedController {
   @Get()
-  @RequireFeature('sub')
+  @RequireFeature('report')
   get() {
     return { ok: true };
   }
@@ -42,19 +42,22 @@ describe('feature flag ตามแพ็กเกจ + override', () => {
     return { id: t.id, token: await tokenFor(t.id) };
   }
 
-  it('แพ็กเกจมาตรฐานมีรถร่วม (200); แพ็กเกจเริ่มต้นไม่มี (403 feature_not_enabled); /me บอกฟีเจอร์', async () => {
+  it('แพ็กเกจ Growth มีรายงาน (200); Starter ไม่มี (403 feature_not_in_plan); /me บอกฟีเจอร์', async () => {
     const std = await tenant('std');
     const start = await tenant('start');
     await api(app, std.token).get('/v1/__test/sub').expect(200);
     const res = await api(app, start.token).get('/v1/__test/sub');
     expect(res.status).toBe(403);
-    expect(res.body).toMatchObject({ code: 'feature_not_in_plan', featureKey: 'sub' });
+    expect(res.body).toMatchObject({ code: 'feature_not_in_plan', featureKey: 'report' });
     const me = await api(app, start.token).get('/v1/me').expect(200);
     expect(me.body.features).toContain('so');
-    expect(me.body.features).not.toContain('sub');
-    expect(me.body.plan).toEqual({ code: 'start', name: 'เริ่มต้น' });
-    expect(me.body.lockedIn.sub).toBe('มาตรฐาน');
-    expect(me.body.lockedIn.multi).toBe('องค์กร');
+    expect(me.body.features).not.toContain('report');
+    // P1-ST1-T01 R-07: ลิงก์รถร่วม/settlement เป็นฟีเจอร์พื้นฐาน — Starter มีด้วย
+    expect(me.body.features).toEqual(expect.arrayContaining(['sub', 'settle']));
+    expect(me.body.plan).toEqual({ code: 'start', name: 'Starter' });
+    expect(me.body.lockedIn.report).toBe('Growth');
+    expect(me.body.lockedIn.multi).toBe('Business');
+    expect(me.body.lockedIn.sub).toBeUndefined();
     expect(me.body.lockedIn.so).toBeUndefined();
   });
 
@@ -83,12 +86,12 @@ describe('feature flag ตามแพ็กเกจ + override', () => {
     ).rejects.toThrow();
     await expect(
       db.tenantEntitlementOverride.create({
-        data: { tenantId: t.id, featureKey: 'sub', mode: 'grant ', reason: 'เหตุผลยาวพอสมควร' },
+        data: { tenantId: t.id, featureKey: 'report', mode: 'grant ', reason: 'เหตุผลยาวพอสมควร' },
       }),
     ).rejects.toThrow();
     await expect(
       db.tenantEntitlementOverride.create({
-        data: { tenantId: t.id, featureKey: 'sub', mode: 'grant', reason: 'สั้น' },
+        data: { tenantId: t.id, featureKey: 'report', mode: 'grant', reason: 'สั้น' },
       }),
     ).rejects.toThrow();
   });
@@ -98,7 +101,7 @@ describe('feature flag ตามแพ็กเกจ + override', () => {
     await db.tenantEntitlementOverride.create({
       data: {
         tenantId: std.id,
-        featureKey: 'sub',
+        featureKey: 'report',
         mode: 'revoke',
         reason: 'ค้างชำระ add-on รถร่วมเกินกำหนด',
       },
@@ -110,7 +113,7 @@ describe('feature flag ตามแพ็กเกจ + override', () => {
     await db.tenantEntitlementOverride.create({
       data: {
         tenantId: start.id,
-        featureKey: 'sub',
+        featureKey: 'report',
         mode: 'grant',
         reason: 'ทดลองรถร่วม 14 วัน',
         expiresAt: new Date(Date.now() + 864e5),
@@ -130,7 +133,7 @@ describe('feature flag ตามแพ็กเกจ + override', () => {
     expect((await ent.resolve(start.id)).veh).toEqual({ enabled: true, limit: 35 });
 
     await db.tenantEntitlementOverride.updateMany({
-      where: { tenantId: start.id, featureKey: 'sub' },
+      where: { tenantId: start.id, featureKey: 'report' },
       data: { expiresAt: new Date(Date.now() - 1000) },
     });
     ent.invalidate(start.id);
@@ -140,16 +143,16 @@ describe('feature flag ตามแพ็กเกจ + override', () => {
   it('งานเบื้องหลังที่ผูกฟีเจอร์: tenant ที่ปิดถูกข้าม (SKIPPED), tenant ที่เปิดรันตามปกติ; tenantsWith กรองให้ cron', async () => {
     const queue = app.get(JobQueue);
     let ran = 0;
-    queue.register('test.sub-sync', async () => void ran++, { feature: 'sub' });
+    queue.register('test.report-sync', async () => void ran++, { feature: 'report' });
     const off = await tenant('start');
     const on = await tenant('std');
-    const jOff = await db.job.create({ data: { tenantId: off.id, type: 'test.sub-sync' } });
-    const jOn = await db.job.create({ data: { tenantId: on.id, type: 'test.sub-sync' } });
+    const jOff = await db.job.create({ data: { tenantId: off.id, type: 'test.report-sync' } });
+    const jOn = await db.job.create({ data: { tenantId: on.id, type: 'test.report-sync' } });
     while (await queue.runOnce());
     expect((await db.job.findUniqueOrThrow({ where: { id: jOff.id } })).status).toBe('SKIPPED');
     expect((await db.job.findUniqueOrThrow({ where: { id: jOn.id } })).status).toBe('SUCCEEDED');
     expect(ran).toBe(1);
-    expect(await ent.tenantsWith('sub', [off.id, on.id])).toEqual([on.id]);
+    expect(await ent.tenantsWith('report', [off.id, on.id])).toEqual([on.id]);
   });
 
   it('role แอปแก้แพ็กเกจ/override ไม่ได้', async () => {

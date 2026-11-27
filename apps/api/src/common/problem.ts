@@ -92,6 +92,18 @@ export const PROBLEMS = {
     th: 'แพ็กเกจปัจจุบันยังไม่มีฟีเจอร์นี้',
     en: 'This feature is not included in your plan',
   },
+  /** P1-ST1-T01 (PLT-061): ฟีเจอร์พื้นฐาน (ปิดเดือน — plan/13 R-07) ต้อง included ทุกแพ็กเกจ */
+  basic_feature_locked: {
+    status: 422,
+    th: 'ฟีเจอร์พื้นฐานต้องรวมอยู่ในทุกแพ็กเกจ — ตั้งเป็นซื้อเพิ่มหรือไม่มีไม่ได้',
+    en: 'Basic features must be included in every plan',
+  },
+  /** P1-ST1-T01 (PLT-060): เวอร์ชันที่ publish แล้วแก้ไม่ได้ — สร้างเวอร์ชันใหม่ */
+  plan_version_immutable: {
+    status: 409,
+    th: 'เวอร์ชันนี้เผยแพร่แล้วแก้ไขไม่ได้ — สร้างเวอร์ชันใหม่แทน',
+    en: 'Published plan versions are immutable — create a new version',
+  },
   impersonation_read_only: {
     status: 403,
     th: 'กำลังเข้าใช้งานแทนแบบอ่านอย่างเดียว — แก้ไขข้อมูลไม่ได้',

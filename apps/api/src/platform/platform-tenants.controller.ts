@@ -38,8 +38,15 @@ import { safeName } from '../common/safe-text';
 import { PrismaService } from '../db/prisma.service';
 import { EmailService } from '../modules/email/email.service';
 import { EntitlementService } from '../modules/entitlements/entitlement.service';
+import { currentPlanVersion } from '../modules/entitlements/plan-catalog';
 import { bootstrapTenant } from '../modules/tenants/bootstrap';
+import { PlatformSettingsService } from './platform-settings.service';
 import { issueInvitation } from '../modules/users/invitations.controller';
+
+async function sellablePlan(db: PrismaService['platform'], code: string): Promise<boolean> {
+  const p = await db.plan.findUnique({ where: { code } });
+  return !!p && p.status !== 'archived' && !!(await currentPlanVersion(db, code));
+}
 
 /** spec/01 §10 กติการ่วม: ทุกการเปลี่ยนข้อมูลลูกค้าต้องมีเหตุผล ≥ 10 ตัว + audit (PLT-004) */
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
@@ -51,7 +58,7 @@ class ReasonBody {
   @MaxLength(500)
   reason!: string;
 }
-/** เข้าใช้งานแทนได้นานสุด (spec/01 PLT-121 `impersonation.maxMinutes`) */
+/** เข้าใช้งานแทนได้นานสุด — ค่าเริ่มต้นของ `impersonation.maxMinutes` (spec/01 PLT-121; แก้ได้จาก Console — P1-ST1-T04) */
 export const IMPERSONATION_MINUTES = 60;
 
 export class CreatePlatformTenantDto extends ReasonBody {
@@ -180,6 +187,7 @@ export class PlatformTenantsController {
     private readonly auth: AuthService,
     private readonly entitlements: EntitlementService,
     private readonly mfa: MfaService,
+    private readonly settings: PlatformSettingsService,
   ) {}
 
   @Get()
@@ -241,7 +249,8 @@ export class PlatformTenantsController {
   @ApiCreatedResponse({ type: PlatformTenantDto })
   async create(@Body() body: CreatePlatformTenantDto): Promise<PlatformTenantDto> {
     const db = this.prisma.platform;
-    if (body.planCode && !(await db.plan.findUnique({ where: { code: body.planCode } })))
+    // P1-ST1-T01: แพ็กเกจต้องรับลูกค้าใหม่ (ไม่ archived) และมีเวอร์ชันที่มีผล — subscription ผูกเวอร์ชันนั้น (trigger 0175)
+    if (body.planCode && !(await sellablePlan(db, body.planCode)))
       throw new ProblemException('validation_failed', undefined, [
         { field: 'planCode', code: 'unknown_plan', message: 'plan not found' },
       ]);
@@ -312,7 +321,8 @@ export class PlatformTenantsController {
       throw new ProblemException('validation_failed', undefined, [
         { field: 'planCode', code: 'nothing_to_change', message: 'send planCode or vehicleQuota' },
       ]);
-    if (body.planCode && !(await db.plan.findUnique({ where: { code: body.planCode } })))
+    // P1-ST1-T01: แพ็กเกจต้องรับลูกค้าใหม่ (ไม่ archived) และมีเวอร์ชันที่มีผล — subscription ผูกเวอร์ชันนั้น (trigger 0175)
+    if (body.planCode && !(await sellablePlan(db, body.planCode)))
       throw new ProblemException('validation_failed', undefined, [
         { field: 'planCode', code: 'unknown_plan', message: 'plan not found' },
       ]);
@@ -392,7 +402,9 @@ export class PlatformTenantsController {
         },
       ]);
     const asUser = await db.appUser.findUniqueOrThrow({ where: { id: asUserId } });
-    const expiresAt = new Date(Date.now() + IMPERSONATION_MINUTES * 60_000);
+    // P1-ST1-T04: อ่านค่าตั้งสด — มีผลกับ session ถัดไป ไม่ย้อน session ที่เปิดอยู่
+    const minutes = await this.settings.get<number>('impersonation.maxMinutes');
+    const expiresAt = new Date(Date.now() + minutes * 60_000);
     const session = await db.$transaction(async (tx) => {
       const s = await tx.impersonationSession.create({
         data: {
@@ -438,7 +450,7 @@ export class PlatformTenantsController {
             staffName: safeName(staff.name),
             asUserName: safeName(asUser.name),
             reason: safeName(body.reason, 300),
-            minutes: IMPERSONATION_MINUTES,
+            minutes,
             at,
           },
         })),
@@ -448,7 +460,7 @@ export class PlatformTenantsController {
     const scope = await this.auth.scopeOf(t.id, asUserId);
     const accessToken = await signAccessToken(
       { sub: asUserId, tid: t.id, scope, pt: 'imp', act: staff.id, sid: session.id },
-      IMPERSONATION_MINUTES * 60, // อายุนับจากตอนนี้ (ตรงกับ session)
+      minutes * 60, // อายุนับจากตอนนี้ (ตรงกับ session)
     );
     return {
       sessionId: session.id,

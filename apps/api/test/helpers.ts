@@ -10,7 +10,13 @@ export const platform = () =>
   new PrismaClient({ datasources: { db: { url: process.env.PLATFORM_DATABASE_URL } } });
 
 /** ข้อมูลอ้างอิงที่มากับ migration (ไม่ใช่ข้อมูลของ tenant) — ห้ามล้าง */
-const REFERENCE_TABLES = ['_prisma_migrations', 'plan', 'plan_entitlement'];
+const REFERENCE_TABLES = [
+  '_prisma_migrations',
+  'plan',
+  'plan_entitlement',
+  'plan_version',
+  'feature',
+];
 
 /** ลบข้อมูลทุกตาราง business (ใช้ role owner เพื่อ TRUNCATE ได้) */
 export async function truncateAll(): Promise<void> {
