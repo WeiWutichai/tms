@@ -20,6 +20,11 @@ describe('help center (P1-ST6-T01)', () => {
     const soon = articles.filter((a) => a.status === 'soon').map((a) => a.slug);
     expect(soon.sort()).toEqual(['connect-flowaccount-peak', 'plans-billing', 'signup-trial']);
     expect(files.get('signup-trial.html')).toContain('เร็ว ๆ นี้');
+    // ไม่มีขั้นตอนใช้งาน (รายการลำดับเลข) สำหรับ UI ที่ยังไม่มี
+    for (const a of articles.filter((x) => x.status === 'soon')) {
+      expect(a.md, a.slug).not.toMatch(/^\s*\d+\.\s/m);
+      expect(files.get(`${a.slug}.html`), a.slug).not.toContain('<ol>');
+    }
   });
 
   it('ทุก code ใน x-problem-codes และในตัวอย่าง problem+json มีหัวข้อใน catalog', () => {

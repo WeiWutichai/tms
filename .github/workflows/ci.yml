@@ -80,8 +80,15 @@ jobs:
           if-no-files-found: ignore
       - name: CVE gate (critical = แดง)
         run: pnpm audit --audit-level=critical
-      - name: CVE ของ image ที่ deploy (critical = แดง — P1-ST6-T07)
-        run: bash scripts/scan-images.sh
+
+  # P1-ST6-T07 (review S3) สแกน CVE ของ image — แยก job บน runner ที่มี docker (job verify รันใน container ไม่มี docker)
+  scan-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: CVE ของ image ที่ deploy (critical ที่มีรุ่นแก้ = แดง)
+        run: SCAN_IMAGES=1 bash scripts/scan-images.sh
 
   deploy-staging:
     needs: verify

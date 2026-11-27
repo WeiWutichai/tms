@@ -95,13 +95,12 @@ export function connectorErrorGuide(
   errorClass: string | null,
   code: string | null,
 ): { key: string; title: string; action: string } | null {
-  const key =
-    code && CONNECTOR_CODE_GUIDE[code]
-      ? code
-      : errorClass && CONNECTOR_CLASS_GUIDE[errorClass]
-        ? errorClass
+  // Object.hasOwn — ค่าจากฐาน/ERP เช่น `constructor` / `__proto__` ต้องไม่ไปเจอ property ของ prototype
+  const g =
+    code && Object.hasOwn(CONNECTOR_CODE_GUIDE, code)
+      ? { key: code, ...CONNECTOR_CODE_GUIDE[code]! }
+      : errorClass && Object.hasOwn(CONNECTOR_CLASS_GUIDE, errorClass)
+        ? { key: errorClass, ...CONNECTOR_CLASS_GUIDE[errorClass]! }
         : null;
-  if (!key) return null;
-  const g = (CONNECTOR_CODE_GUIDE[key] ?? CONNECTOR_CLASS_GUIDE[key])!;
-  return { key, title: g.title, action: g.action };
+  return g && { key: g.key, title: g.title, action: g.action };
 }

@@ -154,7 +154,7 @@ ${main}
 function articleHtml(p: Page, pages: Page[]): string {
   const soon =
     p.status === 'soon'
-      ? `<blockquote><p><span class="soon">${SOON_LABEL}</span> ฟีเจอร์นี้ยังไม่เปิดใช้งาน — หน้านี้จะมีขั้นตอนการใช้งานเมื่อเปิดให้ใช้</p></blockquote>\n`
+      ? `<p><span class="soon">${SOON_LABEL}</span></p>\n` // ข้อความ "ยังไม่เปิด" อยู่ในบทความเอง (ไม่ซ้ำ)
       : '';
   return shell(
     p.title,

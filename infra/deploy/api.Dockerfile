@@ -67,12 +67,18 @@ ENV NODE_ENV=production \
     FILES_ROOT=/data/files \
     API_PORT=4410
 WORKDIR /app
-COPY --from=build /out /app
-# Chromium headless (ตรงรุ่นกับ playwright-core ใน lockfile) + font/lib ที่ต้องใช้ — render PDF (ST3-T20)
+# Chromium headless + font/lib ที่ต้องใช้ — render PDF (ST3-T20) · ติดตั้ง**ก่อน** COPY โค้ด → layer นี้ใช้ cache ได้เมื่อแก้แค่โค้ด
+# (P1-ST6-T07 review S2) · รุ่นตรึงตาม playwright-core ใน pnpm-lock.yaml — scripts/deploy/build-images.sh / scan-images.sh ส่ง ARG ให้
+# และขั้นหลัง COPY ตรวจซ้ำว่าตรงกับ /app/node_modules (lockfile เปลี่ยนแต่ ARG ไม่เปลี่ยน = build แดง)
+ARG PLAYWRIGHT_CORE_VERSION=1.65.0
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
- && node node_modules/playwright-core/cli.js install --with-deps chromium-headless-shell \
- && rm -rf /var/lib/apt/lists/* \
+ && npx --yes "playwright-core@${PLAYWRIGHT_CORE_VERSION}" install --with-deps chromium-headless-shell \
+ && rm -rf /var/lib/apt/lists/* /root/.npm \
  && mkdir -p /data/files /app/keys && chown -R node:node /data /app/keys
+COPY --from=build /out /app
+RUN v="$(node -p "require('/app/node_modules/playwright-core/package.json').version")" \
+ && [ "$v" = "$PLAYWRIGHT_CORE_VERSION" ] \
+ || { echo "playwright-core ใน lockfile = $v แต่ PLAYWRIGHT_CORE_VERSION = $PLAYWRIGHT_CORE_VERSION — แก้ ARG / ใช้ scripts/deploy/build-images.sh" >&2; exit 1; }
 USER node
 EXPOSE 4410
 # liveness เท่านั้น (readyz ขึ้นกับ worker heartbeat — ไม่ใช้เป็น healthcheck ของ container)

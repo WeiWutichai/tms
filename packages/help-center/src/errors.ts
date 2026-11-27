@@ -9,6 +9,9 @@ import type { Article } from './inputs';
 
 type Json = Record<string, any>;
 
+/** เรียงแบบเทียบ code unit (ไม่ขึ้นกับ locale/ICU ของเครื่อง — ผลลัพธ์ deterministic ทุกเครื่อง) */
+export const byteOrder = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
 export interface ProblemEntry {
   code: string;
   status: number;
@@ -42,7 +45,7 @@ export function problemCodes(doc: Json, messages: Record<string, string>): Probl
   };
   walk(doc.paths);
   walk(doc.components);
-  return [...out.values()].sort((a, b) => a.status - b.status || a.code.localeCompare(b.code));
+  return [...out.values()].sort((a, b) => a.status - b.status || byteOrder(a.code, b.code));
 }
 
 /**
@@ -141,7 +144,7 @@ export function connectorEntries(): ConnectorEntry[] {
       ...g,
     })),
     ...Object.entries(CONNECTOR_CODE_GUIDE)
-      .sort(([a], [b]) => a.localeCompare(b))
+      .sort(([a], [b]) => byteOrder(a, b))
       .map(([key, g]) => ({ key, kind: 'code' as const, ...g })),
   ];
 }

@@ -25,6 +25,8 @@ test.beforeAll(() => mkdirSync(OUT, { recursive: true }));
 
 for (const s of SHOTS)
   test(`ภาพ ${s.name}`, async ({ page }) => {
+    // เวลาคงที่ — วันที่บนหัวหน้าและช่วงวันที่ค่าเริ่มต้นไม่เปลี่ยนทุกรอบ
+    await page.clock.setFixedTime(new Date('2026-11-27T10:00:00+07:00'));
     await page.goto(s.path);
     await expect(page.getByRole('heading', { name: s.heading, exact: true }).first()).toBeVisible();
     await page.waitForLoadState('networkidle');
