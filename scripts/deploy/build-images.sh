@@ -14,7 +14,9 @@ if [ -z "$tag" ]; then
 fi
 repo=${TMS_IMAGE_REPO:-tms}
 rev=$(git -C "$root" rev-parse HEAD)
-labels=(--label "org.opencontainers.image.revision=$rev" --label "org.opencontainers.image.version=$tag")
+# รุ่น Chromium ของ image runtime ตาม playwright-core ใน lockfile (api.Dockerfile ตรวจซ้ำ)
+pw=$(sed -n 's/^  playwright-core@\([0-9][^:]*\):$/\1/p' "$root/pnpm-lock.yaml" | head -1)
+labels=(--build-arg "PLAYWRIGHT_CORE_VERSION=$pw" --label "org.opencontainers.image.revision=$rev" --label "org.opencontainers.image.version=$tag")
 cd "$root"
 docker build -f infra/deploy/api.Dockerfile --target runtime "${labels[@]}" -t "$repo/api:$tag" .
 docker build -f infra/deploy/api.Dockerfile --target migrate "${labels[@]}" -t "$repo/migrate:$tag" .
