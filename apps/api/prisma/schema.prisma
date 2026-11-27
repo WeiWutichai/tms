@@ -424,40 +424,39 @@ enum TaxInvoiceMode {
 }
 
 model Customer {
-  id                      String          @id @default(uuid()) @db.Uuid
-  tenantId                String          @map("tenant_id") @db.Uuid
+  id                      String         @id @default(uuid()) @db.Uuid
+  tenantId                String         @map("tenant_id") @db.Uuid
   code                    String
-  externalId              String?         @map("external_id")
-  legalName               String          @map("legal_name")
-  taxId                   String?         @map("tax_id") @db.Char(13)
-  branchCode              String?         @map("branch_code") @db.Char(5)
-  billingAddress          Json?           @map("billing_address") /// null = ยังไม่กรอก (ออกใบกำกับภาษีไม่ได้จนกว่าจะกรอก — ST5 ตรวจ)
-  contacts                Json            @default("[]") /// [{name, phone, email, isPrimary}] — ST2-T01
-  vatRegistered           Boolean         @default(true) @map("vat_registered") /// ลูกค้าจด VAT หรือไม่ (docs/04 B)
-  etaxCapable             Boolean         @default(false) @map("etax_capable") /// รับ e-Tax Invoice ได้ไหม (docs/04 B)
-  freeTimeMin             Int?            @map("free_time_min") /// free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร
-  salesOwnerUserId        String?         @map("sales_owner_user_id") @db.Uuid
-  deletedAt               DateTime?       @map("deleted_at") @db.Timestamptz(6) /// MD-004 soft delete (เฉพาะรายการที่ไม่เคยถูกอ้างอิง)
-  deletedExternalId       String?         @map("deleted_external_id") /// externalId เดิมของรายการที่ลบ (ปล่อย externalId ให้ระบบต้นทางส่งใหม่ได้)
-  billingCycle            BillingCycle    @default(MONTHLY) @map("billing_cycle")
-  paymentTermDays         Int             @default(30) @map("payment_term_days")
-  taxInvoiceMode          TaxInvoiceMode  @default(ON_PAYMENT) @map("tax_invoice_mode")
-  defaultVatType          VatType?        @map("default_vat_type") /// D-28 ค่าตั้งต้น — ค่าจริงอยู่ที่บรรทัด
-  whtExpectedRate         Decimal?        @map("wht_expected_rate") @db.Decimal(5, 2)
-  creditLimit             Decimal?        @map("credit_limit") @db.Decimal(14, 2)
-  podRequirements         Json            @default("{}") @map("pod_requirements")
+  externalId              String?        @map("external_id")
+  legalName               String         @map("legal_name")
+  taxId                   String?        @map("tax_id") @db.Char(13)
+  branchCode              String?        @map("branch_code") @db.Char(5)
+  billingAddress          Json?          @map("billing_address") /// null = ยังไม่กรอก (ออกใบกำกับภาษีไม่ได้จนกว่าจะกรอก — ST5 ตรวจ)
+  contacts                Json           @default("[]") /// [{name, phone, email, isPrimary}] — ST2-T01
+  vatRegistered           Boolean        @default(true) @map("vat_registered") /// ลูกค้าจด VAT หรือไม่ (docs/04 B)
+  etaxCapable             Boolean        @default(false) @map("etax_capable") /// รับ e-Tax Invoice ได้ไหม (docs/04 B)
+  freeTimeMin             Int?           @map("free_time_min") /// free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร
+  salesOwnerUserId        String?        @map("sales_owner_user_id") @db.Uuid
+  deletedAt               DateTime?      @map("deleted_at") @db.Timestamptz(6) /// MD-004 soft delete (เฉพาะรายการที่ไม่เคยถูกอ้างอิง)
+  deletedExternalId       String?        @map("deleted_external_id") /// externalId เดิมของรายการที่ลบ (ปล่อย externalId ให้ระบบต้นทางส่งใหม่ได้)
+  billingCycle            BillingCycle   @default(MONTHLY) @map("billing_cycle")
+  paymentTermDays         Int            @default(30) @map("payment_term_days")
+  taxInvoiceMode          TaxInvoiceMode @default(ON_PAYMENT) @map("tax_invoice_mode")
+  defaultVatType          VatType?       @map("default_vat_type") /// D-28 ค่าตั้งต้น — ค่าจริงอยู่ที่บรรทัด
+  whtExpectedRate         Decimal?       @map("wht_expected_rate") @db.Decimal(5, 2)
+  creditLimit             Decimal?       @map("credit_limit") @db.Decimal(14, 2)
+  podRequirements         Json           @default("{}") @map("pod_requirements")
   /// ST4-T10 (docs/04 E2 "วางบิลตามยอดส่งจริงได้ (ตั้งต่อลูกค้า)") — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณส่งจริง
-  billByActualQty         Boolean         @default(false) @map("bill_by_actual_qty")
+  billByActualQty         Boolean        @default(false) @map("bill_by_actual_qty")
   /// ST5-T04 "ไม่มี POD ไม่วางบิล" (docs/04 F3; spec/05 §1 requirePodForBilling) — true = DO ต้องมีหลักฐานส่งครบตาม checklist ก่อนขึ้นคิวพร้อมวางบิล
-  requirePodToBill        Boolean         @default(true) @map("require_pod_to_bill")
-  defaultBillingCompanyId String?         @map("default_billing_company_id") @db.Uuid
-  status                  ActiveStatus    @default(ACTIVE)
-  version                 Int             @default(1)
-  createdAt               DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt               DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  requirePodToBill        Boolean        @default(true) @map("require_pod_to_bill")
+  defaultBillingCompanyId String?        @map("default_billing_company_id") @db.Uuid
+  status                  ActiveStatus   @default(ACTIVE)
+  version                 Int            @default(1)
+  createdAt               DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   sites                   CustomerSite[]
   products                Product[]
-  aliases                 CustomerAlias[]
 
   rateCards      RateCard[]
   salesOrders    SalesOrder[]
@@ -548,27 +547,6 @@ model CustomerSite {
   @@index([tenantId, kind], map: "customer_site_tenant_kind_idx")
   @@index([tenantId, geocodeStatus], map: "customer_site_tenant_geocode_idx")
   @@map("customer_site")
-}
-
-/// ข้อความ/รหัสลูกค้าจากต้นทางที่คนเคยจับคู่ไว้ (ST3-T06 "เรียนรู้ alias" docs/04 C) — order ถัดไปจับคู่เอง
-/// EXTERNAL_ID = รหัสลูกค้าของระบบต้นทาง ขอบเขตต่อช่องทาง (`source` เช่น `ERP:krs`, `API`, `EXCEL`) · NAME = ชื่อตามต้นทาง (ทุกช่องทาง, source = '')
-/// `value_key` = รหัสตรงตัว (EXTERNAL_ID) หรือ matchKey ของชื่อ (NAME) · คนจับคู่ใหม่ = ย้ายไปลูกค้าใหม่ (audit) · ST7-T15 external_mapping มาแทนส่วน connector ได้
-model CustomerAlias {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @map("tenant_id") @db.Uuid
-  customerId String   @map("customer_id") @db.Uuid
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  kind       String /// EXTERNAL_ID / NAME (CHECK)
-  source     String   @default("")
-  value      String /// ข้อความตามต้นทาง (ล้างแล้ว)
-  valueKey   String   @map("value_key")
-  createdBy  String?  @map("created_by")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
-
-  @@unique([tenantId, kind, source, valueKey])
-  @@index([tenantId, customerId])
-  @@map("customer_alias")
 }
 
 /// เส้นทาง (OD pair) — ST2-T09; docs/04 B เส้นทาง "key สำหรับ rate card และจับคู่ order"
@@ -3808,8 +3786,16 @@ enum ExternalMappingStatus {
 model ExternalMapping {
   id               String                  @id @default(uuid()) @db.Uuid
   tenantId         String                  @map("tenant_id") @db.Uuid
-  connectorId      String                  @map("connector_id") @db.Uuid
-  connector        Connector               @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// P1-ST5-T12 (D68-29) null = แถวผลจับคู่ลูกค้าที่คนสอน (alias — `match_kind` มีค่า) ซึ่งผูกกับ**ช่องทาง** (`channel`) ไม่ใช่ connector
+  connectorId      String?                 @map("connector_id") @db.Uuid
+  connector        Connector?              @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// P1-ST5-T12 (D68-29 — แทนตาราง customer_alias เดิม) ชนิดผลจับคู่: `EXTERNAL_ID` (รหัสลูกค้าต้นทาง ต่อช่องทาง) / `NAME`
+  /// (ชื่อตามต้นทาง ทุกช่องทาง) · null = แถว mapping ของ connector ตามเดิม · แถวที่มีค่า: entity = CUSTOMER, `source_code` = คีย์ที่ใช้ค้น
+  matchKind        String?                 @map("match_kind")
+  /// P1-ST5-T12 ช่องทางของผลจับคู่ (`ERP:{adapter}` / `API` / `EXCEL` / `PORTAL` / `MANUAL`; NAME = '') — เฉพาะแถวที่มี `match_kind`
+  channel          String?
+  /// P1-ST5-T12 ข้อความตามต้นทาง (ล้างแล้ว — ใช้แสดง/แนะนำ) — เฉพาะแถวที่มี `match_kind`
+  matchValue       String?                 @map("match_value")
   entityType       ExternalEntityType      @map("entity_type")
   /// id ฝั่ง TMS (uuid ของ entity)
   localId          String                  @map("local_id") @db.Uuid

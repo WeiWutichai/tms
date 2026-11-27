@@ -23,6 +23,13 @@ export interface CustomerErpCodeView {
 export type PartyErpCodeView = CustomerErpCodeView;
 
 const ENTITY = 'CUSTOMER' as const;
+
+/** P1-ST5-T12 ชนิดผลจับคู่ลูกค้าที่คนสอน (`external_mapping.match_kind`) */
+export type CustomerAliasKind = 'EXTERNAL_ID' | 'NAME';
+/** advisory lock ของคีย์ alias 1 คีย์ (ใช้ร่วมกับ OrderMatchingService — ชื่อเดิมของ ST3-T06) */
+export function aliasLockKey(kind: CustomerAliasKind, channel: string, key: string): string {
+  return `customer_alias:${kind}:${channel}:${key}`;
+}
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** ช่องคู่ค้าใน canonical → entity ของ external_mapping (docs/01 §7.1 `customer`, §7.3 `carrier`) */
 const PARTY_FIELDS = [
@@ -145,22 +152,22 @@ export class ExternalMappingService {
     // รหัสยาว/รูปแบบที่ external_mapping เก็บไม่ได้ → ใช้ alias ของช่องทางแบบเดิม (ST3-T06)
     if (code.length > MAX_CODE || !ERP_CODE_RE.test(code)) return null;
     // alias เดิมของช่องทางนี้ชี้ลูกค้าอื่น → ห้ามทับเงียบ (mapping ชนะ alias ตอนจับคู่) — ยืนยันแล้วย้าย alias มาด้วย
-    await lockKey(tx, `customer_alias:EXTERNAL_ID:${q.source}:${code}`);
-    const alias = await tx.customerAlias.findFirst({
-      where: { kind: 'EXTERNAL_ID', source: q.source, valueKey: code },
-      select: { id: true, customerId: true },
-    });
-    if (alias && alias.customerId !== q.customerId) {
-      this.conflict(alias.customerId, code, q);
-      const ctx = requestContext.require();
-      await tx.$executeRaw`
-        UPDATE customer_alias SET customer_id = ${q.customerId}::uuid, created_by = ${ctx.actorId ?? null},
-               updated_at = now() WHERE id = ${alias.id}::uuid`;
+    await lockKey(tx, aliasLockKey('EXTERNAL_ID', q.source, code));
+    const aliasOwner = await this.aliasOwner(tx, 'EXTERNAL_ID', q.source, code);
+    if (aliasOwner && aliasOwner !== q.customerId) {
+      this.conflict(aliasOwner, code, q);
+      await this.reassignAlias(tx, {
+        kind: 'EXTERNAL_ID',
+        channel: q.source,
+        key: code,
+        value: code,
+        customerId: q.customerId,
+      });
       await this.audit.record({
         action: 'customer.alias_reassigned',
         entityType: 'customer',
         entityId: q.customerId,
-        before: { aliasOf: encodeId('customer', alias.customerId) },
+        before: { aliasOf: encodeId('customer', aliasOwner) },
         after: { kind: 'EXTERNAL_ID', source: q.source, value: code },
         reason: q.reason!,
       });
@@ -205,6 +212,79 @@ export class ExternalMappingService {
       if (result !== null) result = 'learned';
     }
     return result;
+  }
+
+  // ---------- P1-ST5-T12 (D68-29) ผลจับคู่ลูกค้าที่คนสอน (alias) — เดิมตาราง customer_alias ----------
+  // แถว external_mapping ที่ `connector_id` NULL + `match_kind` (EXTERNAL_ID / NAME) · ผูกกับช่องทาง (`channel`) ·
+  // `source_code` = คีย์ค้น · `match_value` = ข้อความตามต้นทาง · ไม่มี hard delete (คนจับคู่ใหม่ = ย้ายลูกค้า + audit)
+
+  /** ลูกค้าเจ้าของ alias (ล็อกแถว) — ไม่มี = null */
+  async aliasOwner(
+    tx: Tx,
+    kind: CustomerAliasKind,
+    channel: string,
+    key: string,
+  ): Promise<string | null> {
+    const rows = await tx.$queryRaw<{ customer_id: string }[]>`
+      SELECT local_id::text AS customer_id FROM external_mapping
+       WHERE match_kind = ${kind} AND channel = ${channel} AND source_code = ${key}
+         AND entity_type = 'CUSTOMER' FOR UPDATE`;
+    return rows[0]?.customer_id ?? null;
+  }
+
+  /** ลูกค้าตาม alias (อ่านอย่างเดียว — ผู้เรียกตรวจสถานะลูกค้าเอง) */
+  async aliasCustomer(
+    tx: Tx,
+    kind: CustomerAliasKind,
+    channel: string,
+    key: string,
+  ): Promise<string | null> {
+    const row = await tx.externalMapping.findFirst({
+      where: { entityType: ENTITY, matchKind: kind, channel, sourceCode: key },
+      select: { localId: true },
+    });
+    return row?.localId ?? null;
+  }
+
+  /** เพิ่ม alias (ชนคีย์เดิม = ไม่ทำอะไร) — true = เพิ่มแล้ว */
+  async insertAlias(
+    tx: Tx,
+    a: { kind: CustomerAliasKind; channel: string; key: string; value: string; customerId: string },
+  ): Promise<boolean> {
+    const ctx = requestContext.require();
+    const n = await tx.$executeRaw`
+      INSERT INTO external_mapping (id, tenant_id, connector_id, entity_type, local_id, source_code, match_kind,
+                                    channel, match_value, status, created_by, updated_by)
+      VALUES (gen_random_uuid(), ${ctx.tenantId!}::uuid, NULL, 'CUSTOMER', ${a.customerId}::uuid, ${a.key},
+              ${a.kind}, ${a.channel}, ${a.value}, 'SYNCED', ${ctx.actorId ?? null}, ${ctx.actorId ?? null})
+      ON CONFLICT (tenant_id, match_kind, channel, source_code) WHERE match_kind IS NOT NULL DO NOTHING`;
+    return n === 1;
+  }
+
+  /** ย้าย alias ไปลูกค้าใหม่ (ผู้เรียกบันทึก audit + เหตุผล) */
+  async reassignAlias(
+    tx: Tx,
+    a: { kind: CustomerAliasKind; channel: string; key: string; value: string; customerId: string },
+  ): Promise<void> {
+    const ctx = requestContext.require();
+    await tx.$executeRaw`
+      UPDATE external_mapping SET local_id = ${a.customerId}::uuid, match_value = ${a.value},
+             updated_by = ${ctx.actorId ?? null}, version = version + 1, updated_at = now()
+       WHERE match_kind = ${a.kind} AND channel = ${a.channel} AND source_code = ${a.key}
+         AND entity_type = 'CUSTOMER'`;
+  }
+
+  /** ข้อความ alias ทุกชนิดของลูกค้า (ใช้ในรายการแนะนำ) */
+  async aliasValues(tx: Tx, customerIds: string[]): Promise<Map<string, string[]>> {
+    const out = new Map<string, string[]>();
+    if (!customerIds.length) return out;
+    const rows = await tx.externalMapping.findMany({
+      where: { entityType: ENTITY, matchKind: { not: null }, localId: { in: customerIds } },
+      select: { localId: true, matchValue: true },
+    });
+    for (const r of rows)
+      if (r.matchValue) out.set(r.localId, [...(out.get(r.localId) ?? []), r.matchValue]);
+    return out;
   }
 
   /** รหัสเดิมเป็นของลูกค้าอื่น — ต้องยืนยัน + เหตุผล (กติกาเดียวกับย้าย alias — ST3-T06) */
@@ -516,7 +596,8 @@ export class ExternalMappingService {
     const r = rows[0];
     if (!r) return null;
     return {
-      connectorId: r.connectorId,
+      // แถวของเอกสารมี connector เสมอ (CHECK external_mapping_alias_shape_check — ไม่มี connector = แถว alias ของลูกค้า)
+      connectorId: r.connectorId!,
       state: r.status,
       externalId: r.externalId,
       externalDocNo: r.externalDocNo,
@@ -569,7 +650,7 @@ export class ExternalMappingService {
         entityId: localId,
         after: {
           postedAt: now.toISOString(),
-          connectors: fresh.map((r) => encodeId('connector', r.connectorId)),
+          connectors: fresh.map((r) => encodeId('connector', r.connectorId!)),
           externalIds: fresh.map((r) => r.externalId),
         },
       });

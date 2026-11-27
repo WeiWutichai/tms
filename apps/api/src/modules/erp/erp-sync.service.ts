@@ -168,7 +168,8 @@ export class ErpSyncService {
     });
     const targets = new Map<string, { number: string; externalId: string | null }>();
     for (const m of maps)
-      targets.set(m.connectorId, {
+      // แถวของเอกสารมี connector เสมอ (CHECK — แถว alias ไม่มี connector เป็นของลูกค้าเท่านั้น)
+      targets.set(m.connectorId!, {
         number: m.localNumber ?? inv.invoiceNo ?? '',
         externalId: m.externalId,
       });
