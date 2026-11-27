@@ -72,7 +72,7 @@ test.describe('Platform Console', () => {
     await expect(page.getByRole('status')).toContainText(`เพิ่ม ${name} แล้ว`, { timeout: 20_000 });
 
     const drawer = page.getByRole('dialog', { name });
-    await expect(drawer.getByText('ทดลองใช้')).toBeVisible();
+    await expect(drawer.locator('.con-badge', { hasText: 'ทดลองใช้' })).toBeVisible();
     await expect(drawer.getByText('— / 25')).toBeVisible();
     await drawer.getByRole('tab', { name: 'ผู้ใช้' }).click();
     await expect(drawer.getByText('รอตอบรับคำเชิญ')).toBeVisible();
@@ -85,7 +85,7 @@ test.describe('Platform Console', () => {
     await plan.getByLabel('โควตารถ (คัน)').fill('');
     await plan.getByLabel('เหตุผล').fill('ลูกค้าขยายกองรถทั้งบริษัท');
     await plan.getByRole('button', { name: 'เปลี่ยนแพ็กเกจ' }).click();
-    await expect(page.getByRole('status')).toContainText('เป็นแพ็กเกจองค์กรแล้ว');
+    await expect(page.getByRole('status')).toContainText('เป็นแพ็กเกจEnterpriseแล้ว');
     await expect(drawer.getByText('— / ไม่จำกัด')).toBeVisible();
 
     // ระงับ → ปลดระงับ (เหตุผล ≥ 10 ตัว)
