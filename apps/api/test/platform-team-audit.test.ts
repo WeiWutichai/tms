@@ -166,7 +166,7 @@ describe('platform console: ทีมงาน + audit log (P1-ST4-T06)', () => 
       orderBy: { seq: 'asc' },
     });
     expect(rows.map((r) => r.action)).toEqual(['platform.staff_invited', 'platform.staff_joined']);
-    expect(rows[0]).toMatchObject({ actorId: ids.admin, reason: body.reason });
+    expect(rows[0]).toMatchObject({ platformUserId: ids.admin, reason: body.reason });
     // ไม่มี secret/รหัสผ่านใน audit (PLT-127)
     expect(JSON.stringify(rows, (_k, v) => (typeof v === 'bigint' ? String(v) : v))).not.toContain(
       info.secret,
@@ -237,7 +237,7 @@ describe('platform console: ทีมงาน + audit log (P1-ST4-T06)', () => 
     const a = await db.platformAuditLog.findFirstOrThrow({
       where: { action: 'platform.staff_deactivated', entityId: ids.support },
     });
-    expect(a).toMatchObject({ actorId: ids.admin, reason });
+    expect(a).toMatchObject({ platformUserId: ids.admin, reason });
     expect(a.after).toMatchObject({ status: 'disabled', impersonationsEnded: 1 });
 
     // SUPER_ADMIN ปิด SUPER_ADMIN อีกคนได้ (ยังเหลือผู้ปิดเอง)
@@ -343,7 +343,7 @@ describe('platform console: ทีมงาน + audit log (P1-ST4-T06)', () => 
         e.action === 'platform.staff_deactivated' && e.entityId === sid('support'),
     );
     expect(deact).toMatchObject({ tenant: null, entityId: sid('support') });
-    expect(deact.id).toMatch(/^pal_/);
+    expect(deact.id).toMatch(/^pau_/);
     // เรียงใหม่ก่อน
     const times = all.data.map((e: { at: string }) => e.at);
     expect([...times].sort().reverse()).toEqual(times);
@@ -402,7 +402,7 @@ describe('platform console: ทีมงาน + audit log (P1-ST4-T06)', () => 
     const ex = await db.platformAuditLog.findFirstOrThrow({
       where: { action: 'platform.audit_exported' },
     });
-    expect(ex).toMatchObject({ actorId: ids.billing });
+    expect(ex).toMatchObject({ platformUserId: ids.billing });
 
     // token ลูกค้าเข้าไม่ได้
     await http()
@@ -499,7 +499,7 @@ describe('platform console: ทีมงาน + audit log (P1-ST4-T06)', () => 
     try {
       for (const us of [100, 300, 500])
         await owner.$executeRawUnsafe(
-          `INSERT INTO platform_audit_log (id, at, actor_id, action, entity_type)
+          `INSERT INTO platform_audit_log (id, at, platform_user_id, action, entity_type)
            VALUES (gen_random_uuid(), '2001-01-01T00:00:00.000${us}Z', '${ids.admin}', 'platform.test_us', 'x')`,
         );
     } finally {
@@ -524,6 +524,30 @@ describe('platform console: ทีมงาน + audit log (P1-ST4-T06)', () => 
     expect(
       (await bi.get('/v1/platform/audit-logs?tenantId=ten_nope').expect(200)).body.data,
     ).toEqual([]);
+  });
+
+  it('ค่าตั้งแพลตฟอร์ม (P1-ST1-T04) อยู่ใน Audit log ข้าม tenant ด้วย', async () => {
+    const token = await signIn('admin');
+    await http()
+      .put('/v1/platform/settings/pricing.publicVisible')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ value: true, reason: 'เปิดหน้าราคาสาธารณะสำหรับเปิดขาย' })
+      .expect(200);
+    const list = (
+      await as(await signIn('billing'))
+        .get('/v1/platform/audit-logs?action=platform.setting')
+        .expect(200)
+    ).body.data;
+    expect(list[0]).toMatchObject({
+      action: 'platform.setting_changed',
+      staff: { id: sid('admin'), role: 'SUPER_ADMIN' },
+      tenant: null,
+      entityType: 'platform_setting',
+      entityId: 'pricing.publicVisible',
+      before: { value: false },
+      after: { value: true },
+    });
+    expect(list[0].id).toMatch(/^pau_/);
   });
 
   it('platform_audit_log append-only: platform แก้/ลบไม่ได้ · role แอปอ่านไม่ได้', async () => {

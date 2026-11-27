@@ -408,7 +408,7 @@ export class PlatformInvitationController {
       });
       if (r.count !== 1) throw new ProblemException('invitation_invalid');
       await platformAudit(tx, {
-        actorId: u.id,
+        platformUserId: u.id,
         action: 'platform.staff_joined',
         entityType: 'platform_user',
         entityId: u.id,

@@ -39,21 +39,23 @@ enum JobStatus {
 
 /// tenant = ลูกค้าของแพลตฟอร์ม 1 ราย (RLS: เห็นเฉพาะแถวของตัวเอง)
 model Tenant {
-  id               String       @id @default(uuid()) @db.Uuid
+  id               String        @id @default(uuid()) @db.Uuid
   name             String
-  status           TenantStatus @default(TRIAL)
-  yearStyle        String       @default("BE") @map("year_style") /// BE = พ.ศ., CE = ค.ศ. (D-30)
-  vehicleQuota     Int?         @map("vehicle_quota") /// ST1-T24 จำนวนรถตามสัญญา (ตั้งจาก Console; null = ยังไม่กำหนด) — บังคับใช้ใน ST2
-  planCode         String       @default("std") @map("plan_code") /// ST1-T18 แพ็กเกจ (FK → plan.code, migration 0017) — ตั้งจาก Platform Console (T24)
-  rateLimitProfile String?      @map("rate_limit_profile") @db.VarChar(20) /// ST7-T08 ทับโปรไฟล์ rate limit ของแพ็กเกจ (null = ตามแพ็กเกจ) — standard | high (CHECK)
-  plan             Plan         @relation(fields: [planCode], references: [code], onUpdate: Cascade, onDelete: Restrict)
+  status           TenantStatus  @default(TRIAL)
+  yearStyle        String        @default("BE") @map("year_style") /// BE = พ.ศ., CE = ค.ศ. (D-30)
+  vehicleQuota     Int?          @map("vehicle_quota") /// ST1-T24 จำนวนรถตามสัญญา (ตั้งจาก Console; null = ยังไม่กำหนด) — บังคับใช้ใน ST2
+  planCode         String        @default("std") @map("plan_code") /// ST1-T18 แพ็กเกจ (FK → plan.code, migration 0017) — ตั้งจาก Platform Console (T24)
+  rateLimitProfile String?       @map("rate_limit_profile") @db.VarChar(20) /// ST7-T08 ทับโปรไฟล์ rate limit ของแพ็กเกจ (null = ตามแพ็กเกจ) — standard | high (CHECK)
+  plan             Plan          @relation(fields: [planCode], references: [code], onUpdate: Cascade, onDelete: Restrict)
   /// ST7-T09 live = บริษัทจริง · test = sandbox ของบริษัท `liveTenantId` (แถวแยก ข้อมูลแยกด้วย RLS — migration 0107; แก้ไม่ได้)
-  mode             String       @default("live") @db.VarChar(8)
-  liveTenantId     String?      @unique @map("live_tenant_id") @db.Uuid
-  liveTenant       Tenant?      @relation("TenantSandbox", fields: [liveTenantId], references: [id], onDelete: Restrict)
-  sandbox          Tenant?      @relation("TenantSandbox")
-  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  mode             String        @default("live") @db.VarChar(8)
+  liveTenantId     String?       @unique @map("live_tenant_id") @db.Uuid
+  liveTenant       Tenant?       @relation("TenantSandbox", fields: [liveTenantId], references: [id], onDelete: Restrict)
+  sandbox          Tenant?       @relation("TenantSandbox")
+  /// P1-ST1-T01 (สร้างใน bootstrapTenant — guard 0177)
+  subscription     Subscription?
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("tenant")
 }
@@ -2625,29 +2627,151 @@ model PasswordHistory {
   @@map("password_history")
 }
 
-/// แพ็กเกจ (ST1-T18; spec/01 §6) — ข้อมูลตัวอย่างจาก design/prototype/plans.js (ราคา/โควตายังไม่สรุป)
+/// แพ็กเกจ (ST1-T18; spec/01 §6) — P1-ST1-T01: ราคา/สิทธิ์อยู่ที่ PlanVersion (มีเวอร์ชัน, publish แล้วแก้ไม่ได้)
 model Plan {
-  code             String            @id
-  nameTh           String            @map("name_th")
-  nameEn           String?           @map("name_en")
-  rateLimitProfile String            @default("standard") @map("rate_limit_profile") @db.VarChar(20) /// ST7-T08 standard | high (CHECK) — ค่าใน http/rate-limit/profiles.ts
-  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  code             String        @id
+  nameTh           String        @map("name_th")
+  nameEn           String?       @map("name_en")
+  rateLimitProfile String        @default("standard") @map("rate_limit_profile") @db.VarChar(20) /// ST7-T08 standard | high (CHECK) — ค่าใน http/rate-limit/profiles.ts
+  /// P1-ST1-T01 draft | active | archived (CHECK) — archived = ไม่รับลูกค้าใหม่ ลูกค้าเดิมคงอยู่ (spec/01 §6 ข้อ 6)
+  status           String        @default("active") @db.VarChar(10)
+  sortOrder        Int           @default(0) @map("sort_order")
+  showOnWeb        Boolean       @default(true) @map("show_on_web")
+  isContactSales   Boolean       @default(false) @map("is_contact_sales")
+  badge            String?
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   tenants          Tenant[]
-  entitlements     PlanEntitlement[]
+  versions         PlanVersion[]
 
   @@map("plan")
 }
 
-/// เซลล์ใน feature matrix: แพ็กเกจ × ฟีเจอร์ → mode included / addon / not_available + limit (null = ไม่จำกัด)
-model PlanEntitlement {
-  planCode   String @map("plan_code")
-  featureKey String @map("feature_key")
-  mode       String /// included | addon | not_available (CHECK — migration 0017)
-  limit      Int?
-  plan       Plan   @relation(fields: [planCode], references: [code], onUpdate: Cascade, onDelete: Cascade)
+/// P1-ST1-T01 แคตตาล็อกฟีเจอร์กลาง (spec/01 §6 `Feature`) — เพิ่มโดย dev ผ่าน migration · isBasic = บังคับ included ทุก PlanVersion (PLT-061, R-07)
+model Feature {
+  key          String            @id
+  category     String
+  nameTh       String            @map("name_th")
+  nameEn       String?           @map("name_en")
+  type         String            @default("boolean") @db.VarChar(10) /// boolean | limit | metered (CHECK)
+  unit         String?
+  isBasic      Boolean           @default(false) @map("is_basic")
+  sortOrder    Int               @default(0) @map("sort_order")
+  entitlements PlanEntitlement[]
 
-  @@id([planCode, featureKey])
+  @@map("feature")
+}
+
+/// P1-ST1-T01 เวอร์ชันราคา + สิทธิ์ของแพ็กเกจ (spec/01 §6 `PlanVersion`, PLT-060) — draft แก้ได้ · published/retired แก้ไม่ได้ (trigger 0175)
+/// เงิน numeric(14,2) · ลูกค้าเดิมอยู่บนเวอร์ชันของ subscription จนกว่าจะย้าย (grandfather)
+model PlanVersion {
+  id                     String            @id @default(uuid()) @db.Uuid
+  planCode               String            @map("plan_code")
+  version                Int
+  status                 String            @default("draft") @db.VarChar(10) /// draft | published | retired (CHECK)
+  /// บาท/รถ active/เดือน ก่อน VAT — null = ตกลงราคา (Enterprise)
+  pricePerVehicleMonthly Decimal?          @map("price_per_vehicle_monthly") @db.Decimal(14, 2)
+  minimumMonthly         Decimal?          @map("minimum_monthly") @db.Decimal(14, 2)
+  annualDiscountPct      Decimal           @default(0) @map("annual_discount_pct") @db.Decimal(5, 2)
+  /// [{ fromVehicle, discountPct }] เรียง fromVehicle จากน้อยไปมาก (ตรวจด้วย planPricingErrors ของ @tms/domain)
+  volumeTiers            Json              @default("[]") @map("volume_tiers")
+  /// ช่วงจำนวนรถ active ของ tier (docs/02 §2) — vehicleMax null = ไม่มีเพดาน
+  vehicleMin             Int               @default(1) @map("vehicle_min")
+  vehicleMax             Int?              @map("vehicle_max")
+  trialDays              Int               @default(30) @map("trial_days")
+  currency               String            @default("THB") @db.Char(3)
+  vatMode                String            @default("exclusive") @map("vat_mode") @db.VarChar(10)
+  /// ราคาตั้งต้น — ยังไม่ประกาศ (R-06 / D-40 ค้าง) — แสดงป้ายในหน้าราคา/Console
+  provisional            Boolean           @default(false)
+  /// P1-ST1-T01 S1: ETag/If-Match (docs/01 §5.1) — เพิ่มทุกครั้งที่แก้ draft (คนละอย่างกับ `version` = เลขเวอร์ชันราคา)
+  rowVersion             Int               @default(1) @map("row_version")
+  effectiveFrom          DateTime          @map("effective_from") @db.Timestamptz(6)
+  publishedAt            DateTime?         @map("published_at") @db.Timestamptz(6)
+  publishedBy            String?           @map("published_by") @db.Uuid
+  createdBy              String?           @map("created_by") @db.Uuid
+  createdAt              DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  plan                   Plan              @relation(fields: [planCode], references: [code], onUpdate: Cascade, onDelete: Restrict)
+  entitlements           PlanEntitlement[]
+  subscriptions          Subscription[]    @relation("SubscriptionPlanVersion")
+  nextSubscriptions      Subscription[]    @relation("SubscriptionNextPlanVersion")
+
+  @@unique([planCode, version])
+  @@map("plan_version")
+}
+
+/// เซลล์ใน feature matrix: PlanVersion × ฟีเจอร์ → mode included / addon / not_available + limit (null = ไม่จำกัด)
+/// P1-ST1-T01 ย้ายจากผูก plan_code → plan_version_id · ฟีเจอร์ isBasic ต้อง included (trigger 0175 + API 422 basic_feature_locked)
+model PlanEntitlement {
+  planVersionId String      @map("plan_version_id") @db.Uuid
+  featureKey    String      @map("feature_key")
+  mode          String /// included | addon | not_available (CHECK — migration 0017)
+  limit         Int?
+  planVersion   PlanVersion @relation(fields: [planVersionId], references: [id], onDelete: Cascade)
+  feature       Feature     @relation(fields: [featureKey], references: [key], onUpdate: Cascade, onDelete: Restrict)
+
+  @@id([planVersionId, featureKey])
   @@map("plan_entitlement")
+}
+
+/// P1-ST1-T01 การสมัครใช้แพ็กเกจของ tenant (spec/01 §6 `Subscription`) — 1 แถว/tenant · tenant_id + RLS
+/// สร้าง/ย้ายในโค้ดแอป (modules/entitlements/subscription.ts — bootstrapTenant, Console เปลี่ยนแพ็กเกจ) · ฐานข้อมูลมีแค่ guard
+/// (0177: tenant live ทุกรายต้องมีแถว — constraint trigger แบบ deferred) · publish เวอร์ชันใหม่ของแพ็กเกจเดิม → ไม่ย้าย (PLT-060)
+/// status ตาม tenant.status = งานของ P1-ST1-T03
+model Subscription {
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String       @unique @map("tenant_id") @db.Uuid
+  planVersionId      String       @map("plan_version_id") @db.Uuid
+  billingCycle       String       @default("monthly") @map("billing_cycle") @db.VarChar(10) /// monthly | annual (CHECK)
+  status             String       @default("trialing") @db.VarChar(10) /// trialing | active | past_due | cancelled (CHECK)
+  trialEndsAt        DateTime?    @map("trial_ends_at") @db.Timestamptz(6)
+  currentPeriodStart DateTime?    @map("current_period_start") @db.Timestamptz(6)
+  currentPeriodEnd   DateTime?    @map("current_period_end") @db.Timestamptz(6)
+  cancelAtPeriodEnd  Boolean      @default(false) @map("cancel_at_period_end")
+  /// รายปี: จำนวนรถที่ตกลง (spec/01 §6)
+  committedVehicles  Int?         @map("committed_vehicles")
+  /// downgrade/ย้ายเวอร์ชันที่รอมีผลสิ้นรอบ
+  nextPlanVersionId  String?      @map("next_plan_version_id") @db.Uuid
+  version            Int          @default(1)
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  tenant             Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  planVersion        PlanVersion  @relation("SubscriptionPlanVersion", fields: [planVersionId], references: [id], onDelete: Restrict)
+  nextPlanVersion    PlanVersion? @relation("SubscriptionNextPlanVersion", fields: [nextPlanVersionId], references: [id], onDelete: Restrict)
+
+  @@index([planVersionId])
+  @@map("subscription")
+}
+
+/// P1-ST1-T04 ค่าตั้งของแพลตฟอร์ม (spec/01 §9, PLT-099) — key/type/ค่าเริ่มต้นอยู่ใน platform-settings.registry.ts
+/// ไม่มีแถว = ค่าเริ่มต้น · ตารางระดับแพลตฟอร์ม (ไม่มี tenant_id) · role แอปเข้าไม่ได้ · แก้จาก Console owner + เหตุผล + platform_audit_log
+model PlatformSetting {
+  key       String   @id
+  value     Json
+  version   Int      @default(1)
+  updatedBy String?  @map("updated_by") @db.Uuid
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("platform_setting")
+}
+
+/// P1-ST1-T01/T04 audit ของการกระทำระดับแพลตฟอร์มที่ไม่ผูก tenant (แพ็กเกจ/ราคา/ค่าตั้งแพลตฟอร์ม — PLT-099) — append-only
+/// ตารางระดับแพลตฟอร์ม (ไม่มี tenant_id) · role แอปเข้าไม่ได้ · role platform เพิ่มได้อย่างเดียว
+model PlatformAuditLog {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  at             DateTime @default(now()) @db.Timestamptz(6)
+  platformUserId String?  @map("platform_user_id") @db.Uuid
+  action         String
+  entityType     String   @map("entity_type")
+  entityId       String?  @map("entity_id")
+  before         Json?
+  after          Json?
+  reason         String?
+  requestId      String?  @map("request_id")
+  ip             String?
+  seq            BigInt   @default(autoincrement())
+
+  @@index([entityType, entityId, seq])
+  @@index([at])
+  @@map("platform_audit_log")
 }
 
 /// override ต่อ tenant (spec/01 PLT-062): grant / revoke / set_limit + เหตุผล + วันหมดอายุ — แก้จาก Platform Console เท่านั้น
@@ -2964,26 +3088,6 @@ model PlatformUser {
   impersonations ImpersonationSession[]
 
   @@map("platform_user")
-}
-
-/// P1-ST4-T06 audit การกระทำของทีม Innovera ที่ไม่เกี่ยวกับ tenant ใด (เชิญ/ปิดทีมงาน, ส่งออก audit) — append-only (PLT-126)
-/// การกระทำกับข้อมูลลูกค้ายังลง audit_log ของ tenant นั้น (actor `platform:<id>`) — หน้า Audit log ของ Console รวมสองแหล่ง
-model PlatformAuditLog {
-  id         String   @id @default(uuid()) @db.Uuid
-  at         DateTime @default(now()) @db.Timestamptz(6)
-  actorId    String?  @map("actor_id") @db.Uuid /// platform_user.id
-  action     String
-  entityType String   @map("entity_type")
-  entityId   String?  @map("entity_id")
-  before     Json?
-  after      Json?
-  reason     String?
-  requestId  String?  @map("request_id")
-  ip         String?
-  seq        BigInt   @default(autoincrement())
-
-  @@index([at])
-  @@map("platform_audit_log")
 }
 
 /// เข้าใช้งานแทน (ST1-T24; spec/01 §11.1) — เฟส 0 อ่านอย่างเดียวเสมอ, หมดอายุ 60 นาที

@@ -19,6 +19,8 @@ const GROUPS: [string, MessageKey][] = [
   ['connector.', 'con.aud.g.connector'],
   ['user.', 'con.aud.g.user'],
   ['platform.staff_', 'con.aud.g.staff'],
+  ['platform.plan_version', 'con.aud.g.plan'],
+  ['platform.setting', 'con.aud.g.setting'],
 ];
 
 const query = (f: Filter) => ({
@@ -82,6 +84,7 @@ export function AuditPage() {
     if (e.entityType === 'platform_user' && typeof a.email === 'string') parts.push(a.email);
     if (e.entityType === 'platform_user' && typeof a.role === 'string')
       parts.push(t(ROLE_LABEL[a.role as StaffRole] ?? 'con.aud.system'));
+    if (e.action === 'platform.setting_changed' && e.entityId) parts.push(e.entityId);
     if (e.action === 'platform.audit_exported' && typeof a.rows === 'number')
       parts.push(t('con.aud.rows', { n: a.rows }));
     return parts.join(' · ') || '—';

@@ -107,6 +107,8 @@ export const can = {
   reset2fa: (r?: StaffRole) => r === 'SUPER_ADMIN',
   /** P1-ST4-T06 เชิญ/ปิดทีมงาน — SUPER_ADMIN เท่านั้น (spec/01 §11.4 "จัดการทีมงาน" = owner) */
   team: (r?: StaffRole) => r === 'SUPER_ADMIN',
+  /** P1-ST1-T04 ค่าตั้งแพลตฟอร์ม — owner เท่านั้น (spec/01 §11.4, PLT-099) */
+  settings: (r?: StaffRole) => r === 'SUPER_ADMIN',
 };
 
 export function useStaff() {

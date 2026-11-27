@@ -84,7 +84,7 @@ export class PlatformAuditTenantDto {
 export class PlatformAuditEntryDto {
   @ApiProperty({
     example: 'aud_…',
-    description: '`aud_` = audit ของลูกค้า · `pal_` = audit ระดับแพลตฟอร์ม',
+    description: '`aud_` = audit ของลูกค้า · `pau_` = audit ระดับแพลตฟอร์ม',
   })
   id!: string;
   @ApiProperty({ format: 'date-time' }) at!: string;
@@ -302,7 +302,7 @@ export class PlatformAuditController {
     if (staff) {
       const k = `platform:${staff}`;
       a.push(Prisma.sql`(a.actor_id = ${k} OR a.act_as = ${k})`);
-      p.push(Prisma.sql`p.actor_id::text = ${staff}`);
+      p.push(Prisma.sql`p.platform_user_id::text = ${staff}`);
     }
     if (q.action) {
       const like = `${q.action.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
@@ -319,7 +319,7 @@ export class PlatformAuditController {
           FROM audit_log a WHERE ${Prisma.join(a, ' AND ')}
         UNION ALL
         SELECT 'p'::text, p.id::text, p.at, p.seq, NULL::text,
-               CASE WHEN p.actor_id IS NULL THEN NULL ELSE 'platform:' || p.actor_id::text END, NULL::text,
+               CASE WHEN p.platform_user_id IS NULL THEN NULL ELSE 'platform:' || p.platform_user_id::text END, NULL::text,
                p.action, p.entity_type, p.entity_id, p.before, p.after, p.reason, p.ip
           FROM platform_audit_log p WHERE ${Prisma.join(p, ' AND ')}
       ) x0) x ${after}

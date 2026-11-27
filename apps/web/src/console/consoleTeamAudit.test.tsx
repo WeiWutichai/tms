@@ -62,7 +62,7 @@ const AUDIT = {
       impersonationSessionId: 's1',
     },
     {
-      id: 'pal_1',
+      id: 'pau_1',
       at: '2026-11-04T03:00:00.000Z',
       staff: { id: 'stf_me', name: 'กิตติ วัฒนา', role: 'SUPER_ADMIN' },
       onBehalfOf: null,

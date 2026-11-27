@@ -13,6 +13,7 @@ import { PublicLayout } from '../public/PublicLayout';
 import { ConsoleShell } from './ConsoleShell';
 import { consoleLogin, consoleMfa, consoleSession } from './session';
 import { ConnectorsPage } from './Connectors';
+import { SettingsPage } from './Settings';
 import { TenantsPage } from './Tenants';
 import { TeamPage } from './Team';
 import { AuditPage } from './Audit';
@@ -37,6 +38,7 @@ export function ConsoleApp() {
                 <Route path="connectors/:id" element={<ConnectorsPage />} />
                 <Route path="team" element={<TeamPage />} />
                 <Route path="audit" element={<AuditPage />} />
+                <Route path="settings" element={<SettingsPage />} />
                 <Route path="*" element={<Navigate to="/console/tenants" replace />} />
               </Routes>
             </ConsoleShell>

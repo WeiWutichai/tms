@@ -47,6 +47,9 @@ import { ListExports } from './modules/exports/list-exports';
 import { SetupChecklistController } from './modules/setup/setup.controller';
 import { PlatformAuthController } from './platform/platform-auth.controller';
 import { PlatformConnectorsController } from './platform/platform-connectors.controller';
+import { PlatformPlansController } from './platform/platform-plans.controller';
+import { PlatformSettingsController } from './platform/platform-settings.controller';
+import { PlatformSettingsService } from './platform/platform-settings.service';
 import { PlatformTenantsController } from './platform/platform-tenants.controller';
 import { PlatformAuditController } from './platform/platform-audit.controller';
 import {
@@ -319,6 +322,8 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     SetupChecklistController,
     PlatformAuthController,
     PlatformTenantsController,
+    PlatformPlansController,
+    PlatformSettingsController,
     PlatformConnectorsController,
     PlatformTeamController,
     PlatformInvitationController,
@@ -435,6 +440,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     FileExportAdapterRegistry,
     AccountingExportService,
     EntitlementService,
+    PlatformSettingsService,
     MagicLinkService,
     DbService,
     StateService,

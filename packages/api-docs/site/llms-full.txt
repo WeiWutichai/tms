@@ -67,7 +67,7 @@
 ## อ้างอิง
 
 - [Webhook events](webhook-events.md) — 31 event: connector.health_changed, credit_note.finalized, debit_note.finalized, delivery_order.status_changed, invoice.adjusted, invoice.finalized, invoice.paid, invoice.voided, …
-- [รหัส error](errors.md) — 139 code ของ problem+json
+- [รหัส error](errors.md) — 141 code ของ problem+json
 - [Changelog](changelog.md) — ประวัติเวอร์ชันของ API (added/changed/deprecated)
 
 ---
@@ -25845,6 +25845,7 @@ const { data, error } = await tms.GET('/v1/reports/unbilled-delivery-orders');
 | [`order_on_trip`](#order_on_trip) | 409 | ใบสั่งขนส่งนี้มีใบส่งของอยู่ในเที่ยวรถ — ถอดออกจากเที่ยวก่อน |
 | [`order_source_change_pending`](#order_source_change_pending) | 409 | ต้นทางแก้ใบสั่งขนส่งนี้หลังวางแผน — เลือกรับค่าต้นทางหรือใช้ค่า TMS ก่อนจัดลงเที่ยว |
 | [`payment_exceeds_outstanding`](#payment_exceeds_outstanding) | 409 | ยอดตัดหนี้เกินยอดคงค้าง |
+| [`plan_version_immutable`](#plan_version_immutable) | 409 | เวอร์ชันนี้เผยแพร่แล้วแก้ไขไม่ได้ — สร้างเวอร์ชันใหม่แทน |
 | [`pod_exists`](#pod_exists) | 409 | ส่ง POD ของใบส่งของนี้แล้ว |
 | [`pod_not_allowed`](#pod_not_allowed) | 409 | บันทึกหลักฐานส่งของใบส่งของนี้ไม่ได้ในสถานะปัจจุบัน |
 | [`queue_action_not_allowed`](#queue_action_not_allowed) | 409 | ทำรายการนี้กับคำสั่งนี้ไม่ได้ (จัดการไปแล้ว หรือไม่ใช่รายการที่ล้มเหลว หรือต้องทำในระบบบัญชีเอง) |
@@ -25882,6 +25883,7 @@ const { data, error } = await tms.GET('/v1/reports/unbilled-delivery-orders');
 | [`webhook_limit_reached`](#webhook_limit_reached) | 409 | จำนวน webhook endpoint ครบตามแพ็กเกจแล้ว |
 | [`precondition_failed`](#precondition_failed) | 412 | ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่ |
 | [`payload_too_large`](#payload_too_large) | 413 | ไฟล์หรือข้อมูลมีขนาดใหญ่เกินกำหนด |
+| [`basic_feature_locked`](#basic_feature_locked) | 422 | ฟีเจอร์พื้นฐานต้องรวมอยู่ในทุกแพ็กเกจ — ตั้งเป็นซื้อเพิ่มหรือไม่มีไม่ได้ |
 | [`branch_unavailable`](#branch_unavailable) | 422 | นิติบุคคลออกบิลยังไม่มีสาขาที่ออกเอกสาร |
 | [`company_unavailable`](#company_unavailable) | 422 | นิติบุคคลออกบิลไม่พบหรือปิดใช้อยู่ |
 | [`document_email_no_recipient`](#document_email_no_recipient) | 422 | ลูกค้ายังไม่มีอีเมลผู้ติดต่อ — เพิ่มอีเมลในข้อมูลลูกค้า หรือดาวน์โหลด PDF แล้วส่งเอง |
@@ -26395,6 +26397,12 @@ HTTP `409` · ยอดตัดหนี้เกินยอดคงค้า
 
 พบใน: [`POST /v1/payments`](ref-payments.md#post-payments)
 
+## plan_version_immutable {#plan_version_immutable}
+
+HTTP `409` · เวอร์ชันนี้เผยแพร่แล้วแก้ไขไม่ได้ — สร้างเวอร์ชันใหม่แทน
+
+อาจตอบได้จากหลาย endpoint
+
 ## pod_exists {#pod_exists}
 
 HTTP `409` · ส่ง POD ของใบส่งของนี้แล้ว
@@ -26616,6 +26624,12 @@ HTTP `412` · ข้อมูลถูกแก้ไขโดยผู้อื
 HTTP `413` · ไฟล์หรือข้อมูลมีขนาดใหญ่เกินกำหนด
 
 พบใน: [`POST /v1/orders:bulk`](ref-orders.md#post-orders-bulk), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id)
+
+## basic_feature_locked {#basic_feature_locked}
+
+HTTP `422` · ฟีเจอร์พื้นฐานต้องรวมอยู่ในทุกแพ็กเกจ — ตั้งเป็นซื้อเพิ่มหรือไม่มีไม่ได้
+
+อาจตอบได้จากหลาย endpoint
 
 ## branch_unavailable {#branch_unavailable}
 

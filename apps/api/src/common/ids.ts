@@ -89,8 +89,10 @@ export const ID_PREFIX = {
   syncLog: 'slg',
   /** P1-ST4-T06 ทีมงาน Innovera (platform_user — Platform Console เท่านั้น) */
   platformUser: 'stf',
-  /** P1-ST4-T06 audit ของทีม Innovera ที่ไม่ผูก tenant (platform_audit_log) */
-  platformAudit: 'pal',
+  /** P1-ST1-T01 เวอร์ชันราคา/สิทธิ์ของแพ็กเกจ (plan_version — Platform Console) */
+  planVersion: 'plv',
+  /** P1-ST1-T01/T04 audit ระดับแพลตฟอร์ม (platform_audit_log) */
+  platformAudit: 'pau',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

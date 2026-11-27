@@ -4,33 +4,37 @@ import { requestContext } from '../common/request-context';
 type Writer = Pick<Prisma.TransactionClient, 'platformAuditLog'>;
 
 /**
- * P1-ST4-T06 audit การกระทำของทีม Innovera ที่ไม่ผูก tenant (เชิญ/ปิดทีมงาน, ส่งออก audit) → `platform_audit_log` (append-only)
- * การกระทำกับข้อมูลลูกค้ายังลง audit_log ของ tenant นั้น (actor `platform:<id>`) ตามเดิม — หน้า Audit log ของ Console รวมสองแหล่ง
- * ห้ามใส่ข้อมูลอ่อนไหว (รหัสผ่าน/secret/token) ใน before/after (PLT-127)
+ * audit ของการกระทำระดับแพลตฟอร์มที่ไม่ผูก tenant → `platform_audit_log` (append-only: role platform เพิ่มได้อย่างเดียว
+ * + trigger `platform_audit_log_append_only` — migration 0188)
+ * - P1-ST1-T01/T04 แพ็กเกจ/ราคา/ค่าตั้งแพลตฟอร์ม (spec/01 PLT-099)
+ * - P1-ST4-T06 เชิญ/ปิดทีมงาน, รับคำเชิญ, ส่งออก audit
+ * การกระทำต่อ tenant ใช้ audit_log ของ tenant นั้นตามเดิม (actor `platform:<id>`) — หน้า Audit log ของ Console รวมสองแหล่ง
+ * ห้ามใส่ข้อมูลลับใน before/after (PLT-127)
  */
 export function platformAudit(
   tx: Writer,
-  e: {
+  a: {
     action: string;
     entityType: string;
     entityId?: string | null;
-    before?: object | null;
-    after?: object | null;
     reason?: string | null;
-    /** ไม่ส่ง = ทีมงานที่เรียก (requestContext) · null = ระบบ/ผู้รับคำเชิญที่ยังไม่มี session */
-    actorId?: string | null;
+    after?: unknown;
+    before?: unknown;
+    /** ไม่ส่ง = ทีมงานที่เรียก (requestContext) · null/ระบุ = ผู้รับคำเชิญที่ยังไม่มี session ฯลฯ */
+    platformUserId?: string | null;
   },
 ) {
   const ctx = requestContext.get();
   return tx.platformAuditLog.create({
     data: {
-      actorId: e.actorId !== undefined ? e.actorId : (ctx?.platformUser?.id ?? null),
-      action: e.action,
-      entityType: e.entityType,
-      entityId: e.entityId ?? null,
-      before: (e.before ?? undefined) as Prisma.InputJsonValue | undefined,
-      after: (e.after ?? undefined) as Prisma.InputJsonValue | undefined,
-      reason: e.reason ?? null,
+      platformUserId:
+        a.platformUserId !== undefined ? a.platformUserId : (ctx?.platformUser?.id ?? null),
+      action: a.action,
+      entityType: a.entityType,
+      entityId: a.entityId ?? null,
+      before: (a.before ?? undefined) as Prisma.InputJsonValue | undefined,
+      after: (a.after ?? undefined) as Prisma.InputJsonValue | undefined,
+      reason: a.reason ?? null,
       requestId: ctx?.requestId ?? null,
       ip: ctx?.ip ?? null,
     },

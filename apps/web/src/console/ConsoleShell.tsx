@@ -25,6 +25,8 @@ const NAV: ({ k: string; i: string; path?: string } | 'sep')[] = [
   'sep',
   { k: 'team', i: 'users', path: '/console/team' },
   { k: 'aud', i: 'scroll-text', path: '/console/audit' },
+  // P1-ST1-T04 ต้นแบบไม่มีเมนูนี้ — วางท้ายกลุ่มทีมงาน/audit ไอคอน settings (D-83) [DECISION — lead 27 พ.ย. 2569, ย้อนได้]
+  { k: 'set', i: 'settings', path: '/console/settings' },
 ];
 
 export const ROLE_LABEL: Record<StaffRole, MessageKey> = {
@@ -89,6 +91,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
   const onConn = loc.pathname.startsWith('/console/connectors');
   const onTeam = loc.pathname.startsWith('/console/team');
   const onAud = loc.pathname.startsWith('/console/audit');
+  const onSet = loc.pathname.startsWith('/console/settings');
 
   return (
     <div className="con">
@@ -107,7 +110,9 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
                 ? t('con.nav.team')
                 : onAud
                   ? t('con.nav.aud')
-                  : ''}
+                  : onSet
+                    ? t('con.nav.set')
+                    : ''}
         </span>
         <div style={{ flex: 1 }} />
         <label className="con-hd__search">
