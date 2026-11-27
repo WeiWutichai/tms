@@ -650,7 +650,8 @@ export class VehicleDto {
   @ApiPropertyOptional({
     description:
       'มีเฉพาะในผลการสร้าง — D-81 · D68-14: โควตารถนับ**รถ active** (มีเที่ยวในเดือน — docs/02 §2/§6) ไม่ใช่จำนวนในทะเบียน · ' +
-      'ตอนนี้ `false` เสมอจนกว่าจะมีการนับรถ active (metering) — soft limit ไม่จำกัดการสร้าง',
+      '`false` เสมอ — รถที่เพิ่งเพิ่มยังไม่ใช่รถ active จนกว่าจะมีเที่ยว (P1-ST1-T06 นับแล้ว: `GET /vehicles/summary` → `quota.active`) · ' +
+      'คำเตือนเกินโควตาอยู่ตอนจ่ายงาน (P1-ST1-T08) — soft limit ไม่จำกัดการสร้าง',
   })
   quotaExceeded?: boolean;
   @ApiPropertyOptional({
@@ -678,9 +679,14 @@ export class VehicleQuotaDto {
   limit!: number | null;
   @ApiProperty({
     description:
-      'รถในทะเบียนที่ยังไม่ปลดระวาง (บริษัท + รถร่วม) — **ไม่ใช่ฐานโควตา** (D68-14: โควตานับรถ active ในเดือน) ใช้แสดง "รถในทะเบียน N / โควตา M"',
+      'รถในทะเบียนที่ยังไม่ปลดระวาง (บริษัท + รถร่วม) — **ไม่ใช่ฐานโควตา** (D68-14: โควตานับรถ active ในเดือน — ดู `active`)',
   })
   used!: number;
+  @ApiProperty({
+    description:
+      'P1-ST1-T06 รถ active เดือนนี้ (เวลาไทย) = ฐานโควตา (D68-14 / D68-21) — ทะเบียนที่มีเที่ยวเข้าเงื่อนไข ≥ 1 เที่ยว · รายการที่ `GET /usage/active-vehicles`',
+  })
+  active!: number;
 }
 
 /** ST9-T01 dashboard ปฏิบัติการ: รถบริษัท (OWN) ว่าง / ใช้งาน / ซ่อม — เงื่อนไขเดียวกับตัวกรองของรายการ */
