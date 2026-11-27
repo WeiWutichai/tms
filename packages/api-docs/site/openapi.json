@@ -57599,6 +57599,77 @@
         ]
       }
     },
+    "/v1/usage/active-vehicles": {
+      "get": {
+        "description": "รถ active = ทะเบียน (normalize: ตัดช่องว่าง/ขีด/จุด, เลขไทย → อารบิก — \"กข-1234\" = \"กข1234\") ที่มีเที่ยวเข้าเงื่อนไข ≥ 1 เที่ยวในเดือนปฏิทินเวลาไทย · นับทันทีเมื่อเที่ยวแรกของทะเบียนเข้าเงื่อนไข และนำออกเมื่อเที่ยวย้อนสถานะ (เช่น ยกเลิกหลังปล่อยรถ) ก่อนปิดยอด · ปิดยอดวันที่ 1 เวลา 02:00 น. ไทยของเดือนถัดไป · sandbox ไม่นับ",
+        "operationId": "Usage_activeVehicles",
+        "parameters": [
+          {
+            "name": "period",
+            "required": false,
+            "in": "query",
+            "description": "เดือนปฏิทินเวลาไทย YYYY-MM (ไม่ส่ง = เดือนนี้)",
+            "schema": {
+              "example": "2026-11",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveVehicleUsageDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_master.read"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "รถ active ของเดือน + ทะเบียนที่ถูกนับ",
+        "tags": [
+          "usage"
+        ],
+        "x-required-scopes": [
+          "master:read"
+        ]
+      }
+    },
     "/v1/drivers": {
       "get": {
         "operationId": "Drivers_list",
@@ -61152,6 +61223,127 @@
         "required": [
           "receivedBy",
           "receivedOn"
+        ]
+      },
+      "ActiveVehicleItemDto": {
+        "type": "object",
+        "properties": {
+          "plate": {
+            "type": "string",
+            "nullable": true,
+            "example": "กข-1234",
+            "description": "ทะเบียนตามเที่ยวแรกที่ทำให้นับ — null = เอกสารรถร่วมไม่มีทะเบียน (`plateMissing`)"
+          },
+          "plateMissing": {
+            "type": "boolean",
+            "description": "เที่ยวไม่มีทะเบียน — นับด้วยรถร่วม + คนขับแทน ให้เติมทะเบียนบนเที่ยว"
+          },
+          "subcontract": {
+            "type": "boolean",
+            "description": "รถร่วม (เที่ยวมีผู้รับเหมา)"
+          },
+          "vehicleType": {
+            "type": "string",
+            "nullable": true,
+            "description": "ประเภทรถตามเที่ยวแรก"
+          },
+          "carrierName": {
+            "type": "string",
+            "nullable": true,
+            "description": "ผู้รับเหมา (รถร่วม)"
+          },
+          "trips": {
+            "type": "number",
+            "description": "จำนวนเที่ยวในเดือนที่เข้าเงื่อนไขการนับของทะเบียนนี้"
+          },
+          "firstTripId": {
+            "type": "string",
+            "nullable": true,
+            "example": "trp_…",
+            "description": "เที่ยวแรกที่ทำให้นับ (null = ทีมผู้ให้บริการเพิ่มเอง / เที่ยวถูกลบ)"
+          },
+          "firstTripNo": {
+            "type": "string",
+            "nullable": true,
+            "example": "TRP-2611-0001"
+          },
+          "firstCountedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "เวลาที่เที่ยวแรกเข้าเงื่อนไข (ปล่อยรถ / ปิดงาน)"
+          },
+          "adjusted": {
+            "type": "boolean",
+            "description": "ทีมผู้ให้บริการปรับหลังปิดยอด"
+          }
+        },
+        "required": [
+          "plate",
+          "plateMissing",
+          "subcontract",
+          "vehicleType",
+          "carrierName",
+          "trips",
+          "firstTripId",
+          "firstTripNo",
+          "firstCountedAt",
+          "adjusted"
+        ]
+      },
+      "ActiveVehicleUsageDto": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "string",
+            "example": "2026-11"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "finalized",
+              "invoiced"
+            ],
+            "description": "open = ยังนับอยู่ (ค่าสด) · finalized = ปิดยอดแล้ว (วันที่ 1 เวลา 02:00 น. ไทยของเดือนถัดไป)"
+          },
+          "finalizedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "activeVehicles": {
+            "type": "number",
+            "description": "รถ active ของเดือน (metric `vehicles.active`) = ทะเบียน normalize ที่มีเที่ยวเข้าเงื่อนไข ≥ 1 เที่ยว · กติกาปัจจุบัน: เที่ยวที่ปล่อยรถแล้ว (ไม่นับร่าง/ยกเลิกก่อนออกวิ่ง/sandbox) นับตามเวลาไทย R-05"
+          },
+          "own": {
+            "type": "number",
+            "description": "รถบริษัท"
+          },
+          "subcontract": {
+            "type": "number",
+            "description": "รถร่วม"
+          },
+          "limit": {
+            "type": "number",
+            "nullable": true,
+            "description": "โควตารถ active ต่อเดือน (tenant.vehicle_quota → entitlement `veh`) — null = ไม่จำกัด"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActiveVehicleItemDto"
+            }
+          }
+        },
+        "required": [
+          "period",
+          "status",
+          "finalizedAt",
+          "activeVehicles",
+          "own",
+          "subcontract",
+          "limit",
+          "data"
         ]
       },
       "AddCarrierAttachmentDto": {
@@ -89700,7 +89892,7 @@
           },
           "quotaExceeded": {
             "type": "boolean",
-            "description": "มีเฉพาะในผลการสร้าง · D68-14: โควตารถนับ**รถ active** ไม่ใช่จำนวนในทะเบียน · ตอนนี้ `false` เสมอจนกว่าจะมีการนับรถ active (metering) — soft limit ไม่จำกัดการสร้าง"
+            "description": "มีเฉพาะในผลการสร้าง · D68-14: โควตารถนับ**รถ active** ไม่ใช่จำนวนในทะเบียน · `false` เสมอ — รถที่เพิ่งเพิ่มยังไม่ใช่รถ active จนกว่าจะมีเที่ยว · คำเตือนเกินโควตาอยู่ตอนจ่ายงาน — soft limit ไม่จำกัดการสร้าง"
           },
           "docAlert": {
             "description": "มีเฉพาะในรายการ (GET /vehicles): เอกสารใกล้หมด 30 วัน/หมดแล้วของคันนี้ (รถปลดระวาง = 0) · คำนวณจากเอกสารและวันนี้ทุกครั้ง **ไม่ทำให้ `updatedAt` ของรถเปลี่ยน** — ผู้ที่ sync แบบ `updatedAfter` ให้ดึงเอกสารจาก `GET /vehicle-documents` แทน",
@@ -89802,12 +89994,17 @@
           },
           "used": {
             "type": "number",
-            "description": "รถในทะเบียนที่ยังไม่ปลดระวาง (บริษัท + รถร่วม) — **ไม่ใช่ฐานโควตา** (D68-14: โควตานับรถ active ในเดือน) ใช้แสดง \"รถในทะเบียน N / โควตา M\""
+            "description": "รถในทะเบียนที่ยังไม่ปลดระวาง (บริษัท + รถร่วม) — **ไม่ใช่ฐานโควตา** (D68-14: โควตานับรถ active ในเดือน — ดู `active`)"
+          },
+          "active": {
+            "type": "number",
+            "description": "P1- รถ active เดือนนี้ (เวลาไทย) = ฐานโควตา (D68-14 / D68-21) — ทะเบียนที่มีเที่ยวเข้าเงื่อนไข ≥ 1 เที่ยว · รายการที่ `GET /usage/active-vehicles`"
           }
         },
         "required": [
           "limit",
-          "used"
+          "used",
+          "active"
         ]
       },
       "VehicleRefDto": {

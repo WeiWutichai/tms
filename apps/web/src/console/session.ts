@@ -109,6 +109,8 @@ export const can = {
   reset2fa: (r?: StaffRole) => r === 'SUPER_ADMIN',
   /** P1-ST1-T04 ค่าตั้งแพลตฟอร์ม — owner เท่านั้น (spec/01 §11.4, PLT-099) */
   settings: (r?: StaffRole) => r === 'SUPER_ADMIN',
+  /** P1-ST1-T06 ปรับยอดรถ active หลังปิดยอด — การเงิน (BILLING) + owner (spec/01 PLT-074) */
+  usage: (r?: StaffRole) => r === 'SUPER_ADMIN' || r === 'BILLING',
 };
 
 export function useStaff() {
