@@ -17,6 +17,7 @@ import type {
   PaymentStatus,
   PushResult,
 } from '../../modules/erp/erp-adapter';
+import { ErpAdapterError } from '../../modules/erp/erp-adapter';
 import { verifyWebhookSignature } from '../../modules/webhooks/signature';
 import type { ErrorClass } from '../../modules/integration/outbox.types';
 
@@ -236,8 +237,7 @@ export class DemoAdapter implements ErpAdapter {
 
   /** credential ผิด / failMode AUTH หรือ TRANSIENT = throw (core ไม่เปลี่ยนผังรหัสเดิม) */
   async fetchMasterCodes(ctx: ErpContext, kind: ErpMasterCodeKind): Promise<ErpMasterCodeEntry[]> {
-    if (this.badKey(ctx) || this.failMode(ctx) === 'AUTH')
-      throw new Error('demo ERP rejected the API key (simulated)');
+    if (this.badKey(ctx) || this.failMode(ctx) === 'AUTH') throw this.authError();
     if (this.failMode(ctx) === 'TRANSIENT')
       throw new Error('demo ERP is unavailable (simulated 503)');
     const own = this.scope(ctx).masterCodes.get(kind);
@@ -339,6 +339,17 @@ export class DemoAdapter implements ErpAdapter {
     if (n >= Number(t)) return false;
     s.failures.set(counterKey, n + 1);
     return true;
+  }
+
+  /**
+   * P1-ST5-T01 (conformance) อ่านกลับ/ดึง order ด้วย credential ผิด = `ErpAdapterError('AUTH')` — Error ธรรมดา core ถือเป็น TRANSIENT
+   * (ยิงซ้ำ/ไม่หยุด connector) ซึ่งขัด docs/01 §6.3 + D68-47
+   */
+  private authError(): ErpAdapterError {
+    return new ErpAdapterError('AUTH', {
+      code: 'unauthorized',
+      message: 'demo ERP rejected the API key (simulated)',
+    });
   }
 
   private authFailure(): PushResult {
@@ -579,7 +590,7 @@ export class DemoAdapter implements ErpAdapter {
   }
 
   async fetchDocument(ctx: ErpContext, ref: ExternalRef): Promise<CanonicalDocument | null> {
-    if (this.badKey(ctx)) throw new Error('demo ERP rejected the API key (simulated)');
+    if (this.badKey(ctx)) throw this.authError();
     const d = this.find(this.scopes.get(this.scopeId(ctx)), ref);
     const out = d
       ? { ...clone(d.document), externalId: d.externalId, externalDocNo: d.externalDocNo }
@@ -591,7 +602,7 @@ export class DemoAdapter implements ErpAdapter {
   }
 
   async fetchPaymentStatus(ctx: ErpContext, ref: ExternalRef): Promise<PaymentStatus | null> {
-    if (this.badKey(ctx)) throw new Error('demo ERP rejected the API key (simulated)');
+    if (this.badKey(ctx)) throw this.authError();
     const d = this.find(this.scopes.get(this.scopeId(ctx)), ref);
     if (!d) return null;
     // ST7-T21 สถานะที่ test/สาธิตตั้งให้เอกสารใบนี้โดยตรง (ไม่มี = ตามค่าตั้ง `paymentStatus` ของ connector)
@@ -615,7 +626,7 @@ export class DemoAdapter implements ErpAdapter {
     ctx: ErpContext,
     q: ListDocumentsQuery,
   ): Promise<{ items: ExternalRef[]; next: string | null }> {
-    if (this.badKey(ctx)) throw new Error('demo ERP rejected the API key (simulated)');
+    if (this.badKey(ctx)) throw this.authError();
     const s = this.scopes.get(this.scopeId(ctx));
     const all = s ? [...s.docs.values()] : [];
     const items = all
@@ -683,8 +694,7 @@ export class DemoAdapter implements ErpAdapter {
    */
   async pullOrders(ctx: ErpContext, since: string | null, limit: number): Promise<PullPage> {
     const mode = this.failMode(ctx);
-    if (this.badKey(ctx) || mode === 'AUTH')
-      throw new Error('demo ERP rejected the API key (simulated)');
+    if (this.badKey(ctx) || mode === 'AUTH') throw this.authError();
     if (mode === 'TRANSIENT') throw new Error('demo ERP is unavailable (simulated 503)');
     const s = this.scope(ctx);
     s.orderDate ??= new Date(this.now().getTime() + 7 * 3600_000 + 86_400_000)

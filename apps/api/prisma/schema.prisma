@@ -422,40 +422,39 @@ enum TaxInvoiceMode {
 }
 
 model Customer {
-  id                      String          @id @default(uuid()) @db.Uuid
-  tenantId                String          @map("tenant_id") @db.Uuid
+  id                      String         @id @default(uuid()) @db.Uuid
+  tenantId                String         @map("tenant_id") @db.Uuid
   code                    String
-  externalId              String?         @map("external_id")
-  legalName               String          @map("legal_name")
-  taxId                   String?         @map("tax_id") @db.Char(13)
-  branchCode              String?         @map("branch_code") @db.Char(5)
-  billingAddress          Json?           @map("billing_address") /// null = ยังไม่กรอก (ออกใบกำกับภาษีไม่ได้จนกว่าจะกรอก — ST5 ตรวจ)
-  contacts                Json            @default("[]") /// [{name, phone, email, isPrimary}] — ST2-T01
-  vatRegistered           Boolean         @default(true) @map("vat_registered") /// ลูกค้าจด VAT หรือไม่ (docs/04 B)
-  etaxCapable             Boolean         @default(false) @map("etax_capable") /// รับ e-Tax Invoice ได้ไหม (docs/04 B)
-  freeTimeMin             Int?            @map("free_time_min") /// free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร
-  salesOwnerUserId        String?         @map("sales_owner_user_id") @db.Uuid
-  deletedAt               DateTime?       @map("deleted_at") @db.Timestamptz(6) /// MD-004 soft delete (เฉพาะรายการที่ไม่เคยถูกอ้างอิง)
-  deletedExternalId       String?         @map("deleted_external_id") /// externalId เดิมของรายการที่ลบ (ปล่อย externalId ให้ระบบต้นทางส่งใหม่ได้)
-  billingCycle            BillingCycle    @default(MONTHLY) @map("billing_cycle")
-  paymentTermDays         Int             @default(30) @map("payment_term_days")
-  taxInvoiceMode          TaxInvoiceMode  @default(ON_PAYMENT) @map("tax_invoice_mode")
-  defaultVatType          VatType?        @map("default_vat_type") /// D-28 ค่าตั้งต้น — ค่าจริงอยู่ที่บรรทัด
-  whtExpectedRate         Decimal?        @map("wht_expected_rate") @db.Decimal(5, 2)
-  creditLimit             Decimal?        @map("credit_limit") @db.Decimal(14, 2)
-  podRequirements         Json            @default("{}") @map("pod_requirements")
+  externalId              String?        @map("external_id")
+  legalName               String         @map("legal_name")
+  taxId                   String?        @map("tax_id") @db.Char(13)
+  branchCode              String?        @map("branch_code") @db.Char(5)
+  billingAddress          Json?          @map("billing_address") /// null = ยังไม่กรอก (ออกใบกำกับภาษีไม่ได้จนกว่าจะกรอก — ST5 ตรวจ)
+  contacts                Json           @default("[]") /// [{name, phone, email, isPrimary}] — ST2-T01
+  vatRegistered           Boolean        @default(true) @map("vat_registered") /// ลูกค้าจด VAT หรือไม่ (docs/04 B)
+  etaxCapable             Boolean        @default(false) @map("etax_capable") /// รับ e-Tax Invoice ได้ไหม (docs/04 B)
+  freeTimeMin             Int?           @map("free_time_min") /// free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร
+  salesOwnerUserId        String?        @map("sales_owner_user_id") @db.Uuid
+  deletedAt               DateTime?      @map("deleted_at") @db.Timestamptz(6) /// MD-004 soft delete (เฉพาะรายการที่ไม่เคยถูกอ้างอิง)
+  deletedExternalId       String?        @map("deleted_external_id") /// externalId เดิมของรายการที่ลบ (ปล่อย externalId ให้ระบบต้นทางส่งใหม่ได้)
+  billingCycle            BillingCycle   @default(MONTHLY) @map("billing_cycle")
+  paymentTermDays         Int            @default(30) @map("payment_term_days")
+  taxInvoiceMode          TaxInvoiceMode @default(ON_PAYMENT) @map("tax_invoice_mode")
+  defaultVatType          VatType?       @map("default_vat_type") /// D-28 ค่าตั้งต้น — ค่าจริงอยู่ที่บรรทัด
+  whtExpectedRate         Decimal?       @map("wht_expected_rate") @db.Decimal(5, 2)
+  creditLimit             Decimal?       @map("credit_limit") @db.Decimal(14, 2)
+  podRequirements         Json           @default("{}") @map("pod_requirements")
   /// ST4-T10 (docs/04 E2 "วางบิลตามยอดส่งจริงได้ (ตั้งต่อลูกค้า)") — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณส่งจริง
-  billByActualQty         Boolean         @default(false) @map("bill_by_actual_qty")
+  billByActualQty         Boolean        @default(false) @map("bill_by_actual_qty")
   /// ST5-T04 "ไม่มี POD ไม่วางบิล" (docs/04 F3; spec/05 §1 requirePodForBilling) — true = DO ต้องมีหลักฐานส่งครบตาม checklist ก่อนขึ้นคิวพร้อมวางบิล
-  requirePodToBill        Boolean         @default(true) @map("require_pod_to_bill")
-  defaultBillingCompanyId String?         @map("default_billing_company_id") @db.Uuid
-  status                  ActiveStatus    @default(ACTIVE)
-  version                 Int             @default(1)
-  createdAt               DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt               DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  requirePodToBill        Boolean        @default(true) @map("require_pod_to_bill")
+  defaultBillingCompanyId String?        @map("default_billing_company_id") @db.Uuid
+  status                  ActiveStatus   @default(ACTIVE)
+  version                 Int            @default(1)
+  createdAt               DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   sites                   CustomerSite[]
   products                Product[]
-  aliases                 CustomerAlias[]
 
   rateCards      RateCard[]
   salesOrders    SalesOrder[]
@@ -546,27 +545,6 @@ model CustomerSite {
   @@index([tenantId, kind], map: "customer_site_tenant_kind_idx")
   @@index([tenantId, geocodeStatus], map: "customer_site_tenant_geocode_idx")
   @@map("customer_site")
-}
-
-/// ข้อความ/รหัสลูกค้าจากต้นทางที่คนเคยจับคู่ไว้ (ST3-T06 "เรียนรู้ alias" docs/04 C) — order ถัดไปจับคู่เอง
-/// EXTERNAL_ID = รหัสลูกค้าของระบบต้นทาง ขอบเขตต่อช่องทาง (`source` เช่น `ERP:krs`, `API`, `EXCEL`) · NAME = ชื่อตามต้นทาง (ทุกช่องทาง, source = '')
-/// `value_key` = รหัสตรงตัว (EXTERNAL_ID) หรือ matchKey ของชื่อ (NAME) · คนจับคู่ใหม่ = ย้ายไปลูกค้าใหม่ (audit) · ST7-T15 external_mapping มาแทนส่วน connector ได้
-model CustomerAlias {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @map("tenant_id") @db.Uuid
-  customerId String   @map("customer_id") @db.Uuid
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  kind       String /// EXTERNAL_ID / NAME (CHECK)
-  source     String   @default("")
-  value      String /// ข้อความตามต้นทาง (ล้างแล้ว)
-  valueKey   String   @map("value_key")
-  createdBy  String?  @map("created_by")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
-
-  @@unique([tenantId, kind, source, valueKey])
-  @@index([tenantId, customerId])
-  @@map("customer_alias")
 }
 
 /// เส้นทาง (OD pair) — ST2-T09; docs/04 B เส้นทาง "key สำหรับ rate card และจับคู่ order"
@@ -3108,52 +3086,52 @@ enum ConnectorStatus {
 /// 1 connector ที่ยังไม่ยกเลิกต่อขอบเขต (tenant, company) — partial unique index ใน migration 0099
 /// credential เข้ารหัส (FieldCipher) ไม่ส่งกลับทาง API · ค่าที่ไม่ลับ (base URL ฯลฯ) อยู่ใน settings
 model Connector {
-  id                   String          @id @default(uuid()) @db.Uuid
-  tenantId             String          @map("tenant_id") @db.Uuid
+  id                         String          @id @default(uuid()) @db.Uuid
+  tenantId                   String          @map("tenant_id") @db.Uuid
   /// `ErpAdapter.key` ที่ลงทะเบียนใน ErpAdapterRegistry (CONNECTOR_KEY_RE) — ไม่มี enum ของ ERP ใน schema
-  adapterKey           String          @map("adapter_key") @db.VarChar(32)
+  adapterKey                 String          @map("adapter_key") @db.VarChar(32)
   /// นิติบุคคลที่ใช้ connector นี้ (FK company) — null = ค่าเริ่มต้นทุกนิติบุคคล
-  companyId            String?         @map("company_id") @db.Uuid
+  companyId                  String?         @map("company_id") @db.Uuid
   /// รหัสบริษัท/ฐานข้อมูลฝั่ง ERP ของนิติบุคคลนี้ (docs/04 A4 "map 1 สาขา ↔ 1 company ใน ERP")
-  erpCompanyCode       String?         @map("erp_company_code") @db.VarChar(64)
+  erpCompanyCode             String?         @map("erp_company_code") @db.VarChar(64)
   /// สาขา TMS (uuid) → รหัสบริษัท/สาขาฝั่ง ERP — ไม่มี = ใช้ erp_company_code
-  branchMap            Json            @default("{}") @map("branch_map")
+  branchMap                  Json            @default("{}") @map("branch_map")
   /// subset ของ adapter.capabilities() ที่ tenant เปิด
-  capabilitiesEnabled  String[]        @default([]) @map("capabilities_enabled")
+  capabilitiesEnabled        String[]        @default([]) @map("capabilities_enabled")
   /// ค่าตั้งที่ไม่ลับตาม configFields ของ adapter (base URL ฯลฯ)
-  settings             Json            @default("{}")
+  settings                   Json            @default("{}")
   /// credential (ช่อง secret ของ adapter) JSON เข้ารหัส FieldCipher — ไม่ส่งกลับ ไม่ลง log/audit
-  credentialsEnc       String?         @map("credentials_enc")
+  credentialsEnc             String?         @map("credentials_enc")
   /// ชื่อช่อง credential ที่ตั้งแล้ว (แสดง "ตั้งแล้ว" ได้โดยไม่ถอดรหัส)
-  credentialKeys       String[]        @default([]) @map("credential_keys")
-  credentialsUpdatedAt DateTime?       @map("credentials_updated_at") @db.Timestamptz(6)
+  credentialKeys             String[]        @default([]) @map("credential_keys")
+  credentialsUpdatedAt       DateTime?       @map("credentials_updated_at") @db.Timestamptz(6)
   /// ไม่ push เอกสารที่ issue_date ก่อนวันนี้ (docs/01 §6.4)
-  syncFromDate         DateTime?       @map("sync_from_date") @db.Date
+  syncFromDate               DateTime?       @map("sync_from_date") @db.Date
   /// PO 24 พ.ย. 2569 (#89) หน่วงเวลาอ่านเอกสารกลับมาเทียบรอบ AFTER_PUSH ครั้งแรก (นาทีหลังส่งสำเร็จ) 0–1440 · 0 = ทันที (worker ≤ 1 นาที) · CHECK
-  afterPushReconcileDelayMin Int       @default(0) @map("after_push_reconcile_delay_min")
+  afterPushReconcileDelayMin Int             @default(0) @map("after_push_reconcile_delay_min")
   /// ST7-T17 system-of-record (docs/04 G3; docs/01 §8.1) — ใครเป็นเจ้าของข้อมูลลูกค้า(หลัก) · null = ยังไม่เลือก
-  customerOwner        SorOwner?       @map("customer_owner")
+  customerOwner              SorOwner?       @map("customer_owner")
   /// ST7-T17 ใครเป็นเจ้าของเอกสารภาษี — ERP + ใบแจ้งหนี้ไปถึง ERP = TMS ไม่ออกเลขใบกำกับภาษี (SystemOfRecordPolicy)
   /// null = ยังไม่เลือก ("ต้องเลือก" docs/01 §8.1) → TMS ออกเลขตามปกติ แต่เปิด/ส่ง pushInvoice/pushCreditNote/replaceDocument ไม่ได้
-  taxDocumentOwner     SorOwner?       @map("tax_document_owner")
+  taxDocumentOwner           SorOwner?       @map("tax_document_owner")
   /// ST7-T17 กลุ่ม field → AUTO_SYNC / REGENERATE (เก็บเฉพาะที่ตั้ง — ค่าเริ่มต้นใน @tms/domain DEFAULT_SOR_FIELD_SYNC) · CHECK เป็น object
-  fieldSync            Json            @default("{}") @map("field_sync")
-  status               ConnectorStatus @default(PAUSED)
+  fieldSync                  Json            @default("{}") @map("field_sync")
+  status                     ConnectorStatus @default(PAUSED)
   /// เหตุผลของสถานะล่าสุด (หยุด/ผิดพลาด/ยกเลิก)
-  statusReason         String?         @map("status_reason")
-  statusChangedAt      DateTime?       @map("status_changed_at") @db.Timestamptz(6)
-  lastHealthAt         DateTime?       @map("last_health_at") @db.Timestamptz(6)
-  lastHealthOk         Boolean?        @map("last_health_ok")
+  statusReason               String?         @map("status_reason")
+  statusChangedAt            DateTime?       @map("status_changed_at") @db.Timestamptz(6)
+  lastHealthAt               DateTime?       @map("last_health_at") @db.Timestamptz(6)
+  lastHealthOk               Boolean?        @map("last_health_ok")
   /// ผล healthCheck ล่าสุดที่ล้ม {errorClass, code, message} (ตัด secret แล้ว)
-  lastHealthError      Json?           @map("last_health_error")
+  lastHealthError            Json?           @map("last_health_error")
   /// ST8-T03 เวลาที่ healthCheck เริ่มล้มแบบ TRANSIENT ต่อเนื่อง (null = ปกติ) — ล้มต่อเนื่อง ≥ 30 นาที → ERROR (spec/07 §1 ตารางสถานะ)
-  healthFailingSince   DateTime?       @map("health_failing_since") @db.Timestamptz(6)
-  activatedAt          DateTime?       @map("activated_at") @db.Timestamptz(6)
-  disconnectedAt       DateTime?       @map("disconnected_at") @db.Timestamptz(6)
-  createdBy            String?         @map("created_by")
-  version              Int             @default(1)
-  createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  healthFailingSince         DateTime?       @map("health_failing_since") @db.Timestamptz(6)
+  activatedAt                DateTime?       @map("activated_at") @db.Timestamptz(6)
+  disconnectedAt             DateTime?       @map("disconnected_at") @db.Timestamptz(6)
+  createdBy                  String?         @map("created_by")
+  version                    Int             @default(1)
+  createdAt                  DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   /// ST7-T22 token ใน URL รับ webhook ขาเข้า: HMAC-SHA256(pepper, token) — ไม่เก็บตัวจริง (แสดงครั้งเดียวตอนออก/หมุน) · null = ไม่รับ
   inboundTokenHash      String?   @unique @map("inbound_token_hash") @db.VarChar(64)
@@ -3536,51 +3514,59 @@ enum ExternalMappingStatus {
 ///   คน map ครั้งเดียว = ได้ทั้งสองรหัส (adapter `deriveCustomerCode`) · ตารางเดียวกันใช้กับเอกสาร/hash/เลขเอกสารฝั่ง ERP ใน ST7-T15
 /// ไม่มี hard delete — ยกเลิก = external_id null / status RETIRED
 model ExternalMapping {
-  id              String                @id @default(uuid()) @db.Uuid
-  tenantId        String                @map("tenant_id") @db.Uuid
-  connectorId     String                @map("connector_id") @db.Uuid
-  connector       Connector             @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  entityType      ExternalEntityType    @map("entity_type")
+  id               String                  @id @default(uuid()) @db.Uuid
+  tenantId         String                  @map("tenant_id") @db.Uuid
+  /// P1-ST5-T12 (D68-29) null = แถวผลจับคู่ลูกค้าที่คนสอน (alias — `match_kind` มีค่า) ซึ่งผูกกับ**ช่องทาง** (`channel`) ไม่ใช่ connector
+  connectorId      String?                 @map("connector_id") @db.Uuid
+  connector        Connector?              @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// P1-ST5-T12 (D68-29 — แทนตาราง customer_alias เดิม) ชนิดผลจับคู่: `EXTERNAL_ID` (รหัสลูกค้าต้นทาง ต่อช่องทาง) / `NAME`
+  /// (ชื่อตามต้นทาง ทุกช่องทาง) · null = แถว mapping ของ connector ตามเดิม · แถวที่มีค่า: entity = CUSTOMER, `source_code` = คีย์ที่ใช้ค้น
+  matchKind        String?                 @map("match_kind")
+  /// P1-ST5-T12 ช่องทางของผลจับคู่ (`ERP:{adapter}` / `API` / `EXCEL` / `PORTAL` / `MANUAL`; NAME = '') — เฉพาะแถวที่มี `match_kind`
+  channel          String?
+  /// P1-ST5-T12 ข้อความตามต้นทาง (ล้างแล้ว — ใช้แสดง/แนะนำ) — เฉพาะแถวที่มี `match_kind`
+  matchValue       String?                 @map("match_value")
+  entityType       ExternalEntityType      @map("entity_type")
   /// id ฝั่ง TMS (uuid ของ entity)
-  localId         String                @map("local_id") @db.Uuid
+  localId          String                  @map("local_id") @db.Uuid
   /// id/รหัสฝั่ง ERP ที่ใช้เป็น key (เช่น transactionNo, custOrSuppCode) — null = ยังไม่ map
-  externalId      String?               @map("external_id")
+  externalId       String?                 @map("external_id")
   /// เลขเอกสารที่ ERP ออก (เช่น voucherNo)
-  externalDocNo   String?               @map("external_doc_no")
-  externalVersion String?               @map("external_version")
+  externalDocNo    String?                 @map("external_doc_no")
+  externalVersion  String?                 @map("external_version")
   /// ST8-T05 รหัสของ entity นี้ในข้อมูลขาเข้าของ connector (จับคู่ตอนดึง) — null = ไม่มี/ใช้ external_id
-  sourceCode      String?               @map("source_code")
+  sourceCode       String?                 @map("source_code")
   /// ST8-T16 เลขเอกสาร TMS ตอนส่ง (invoice_no / settlement_no / payment_no) — หาเอกสารจากเลขใน webhook
-  localNumber     String?               @map("local_number")
+  localNumber      String?                 @map("local_number")
   /// ST8-T16 สถานะเอกสารฝั่ง ERP (แยกจาก `status` ของการซิงก์): DRAFT / POSTED / VOIDED / PAID
-  externalStatus  String?               @map("external_status")
+  externalStatus   String?                 @map("external_status")
   /// ST8-T16 รายละเอียดจาก ERP (เลขใบจ่าย / เลข 50 ทวิ / เหตุยกเลิก) — ห้ามมี credential
-  detail          Json?
+  detail           Json?
   /// ST8-T13 เวลาที่ฝ่ายบัญชีกดปุ่ม "ลงบัญชีแล้ว" (ERP ที่ไม่มี capability `postedStatus` — docs/01 A.2/A.6, §6.5 `posted_at`) —
   /// มีค่า = การแทนที่เอกสารฝั่ง ERP (`replaceDocument`) ต้องมีผู้อนุมัติก่อนส่ง
-  postedAt        DateTime?             @map("posted_at") @db.Timestamptz(6)
+  postedAt         DateTime?               @map("posted_at") @db.Timestamptz(6)
   /// ST8-T13 ผู้กดปุ่ม "ลงบัญชีแล้ว"
-  postedBy        String?               @map("posted_by")
+  postedBy         String?                 @map("posted_by")
   /// ST7-T21 เวลาที่รอบ "Payment status pull" ถามสถานะรับชำระของเอกสารนี้ล่าสุด — รอบถัดไปเริ่มจากใบที่ถามนานสุด (ท้ายแถวไม่อด)
-  paymentCheckedAt DateTime?            @map("payment_checked_at") @db.Timestamptz(6)
+  paymentCheckedAt DateTime?               @map("payment_checked_at") @db.Timestamptz(6)
   /// ST8-T11 ผลกระทบยอดเนื้อหาเอกสารล่าสุด (docs/01 §4.4 `SENT → ACCEPTED / MISMATCH`) — null = ยังไม่เคยเทียบ (ส่งแล้ว = SENT)
   /// แยกจาก `status` (ผลการส่ง/ซิงก์) · ACCEPTED = อ่านกลับแล้วตรง หรือคนยอมรับส่วนต่างนั้นแล้ว
-  reconcileState  ReconcileDocumentState? @map("reconcile_state")
+  reconcileState   ReconcileDocumentState? @map("reconcile_state")
   /// ST8-T11 เวลาที่เทียบเนื้อหาล่าสุด
-  reconciledAt    DateTime?             @map("reconciled_at") @db.Timestamptz(6)
+  reconciledAt     DateTime?               @map("reconciled_at") @db.Timestamptz(6)
   /// sha256 ของ canonical payload ล่าสุดที่ส่งสำเร็จ (ST7-T15)
-  lastSyncedHash  String?               @map("last_synced_hash")
+  lastSyncedHash   String?                 @map("last_synced_hash")
   /// ST7-T16 hash แยกตามกลุ่ม field (CUSTOMER / DATES / PRICE / ACCESSORIAL / OTHER) ของ payload ล่าสุดที่ส่งสำเร็จ —
   /// ใช้ตัดสินว่าเอกสารที่ส่งแล้วเปลี่ยนกลุ่มไหน (`fieldChangePolicy`) · null = ไม่รู้ (ถือว่าเปลี่ยนทุกกลุ่ม)
-  lastSyncedParts Json?                 @map("last_synced_parts")
-  lastSyncedAt    DateTime?             @map("last_synced_at") @db.Timestamptz(6)
-  status          ExternalMappingStatus @default(PENDING)
-  lastError       Json?                 @map("last_error")
-  createdBy       String?               @map("created_by")
-  updatedBy       String?               @map("updated_by")
-  version         Int                   @default(1)
-  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  lastSyncedParts  Json?                   @map("last_synced_parts")
+  lastSyncedAt     DateTime?               @map("last_synced_at") @db.Timestamptz(6)
+  status           ExternalMappingStatus   @default(PENDING)
+  lastError        Json?                   @map("last_error")
+  createdBy        String?                 @map("created_by")
+  updatedBy        String?                 @map("updated_by")
+  version          Int                     @default(1)
+  createdAt        DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([connectorId, entityType, localId])
   @@unique([connectorId, entityType, externalId])
@@ -3710,48 +3696,48 @@ enum ReconcileSeverity {
 /// - `acknowledged_*` / `ack_reason`: คนยอมรับความต่างพร้อมเหตุผล — route ปิดรายการ = ST8-T12
 /// - ไม่มี hard delete (REVOKE DELETE) · snapshot/diff ห้ามมี credential
 model ReconcileResult {
-  id             String             @id @default(uuid()) @db.Uuid
-  tenantId       String             @map("tenant_id") @db.Uuid
-  connectorId    String             @map("connector_id") @db.Uuid
-  connector      Connector          @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  entityType     ExternalEntityType @map("entity_type")
+  id                      String             @id @default(uuid()) @db.Uuid
+  tenantId                String             @map("tenant_id") @db.Uuid
+  connectorId             String             @map("connector_id") @db.Uuid
+  connector               Connector          @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  entityType              ExternalEntityType @map("entity_type")
   /// id ฝั่ง TMS (uuid ของ entity)
-  localId        String             @map("local_id") @db.Uuid
+  localId                 String             @map("local_id") @db.Uuid
   /// เลขเอกสาร TMS ณ เวลาที่ตรวจ (แสดงผล/ค้นหา)
-  localNumber    String?            @map("local_number")
-  runAt          DateTime           @map("run_at") @db.Timestamptz(6)
-  source         ReconcileSource
-  localSnapshot  Json               @map("local_snapshot")
-  remoteSnapshot Json               @map("remote_snapshot")
+  localNumber             String?            @map("local_number")
+  runAt                   DateTime           @map("run_at") @db.Timestamptz(6)
+  source                  ReconcileSource
+  localSnapshot           Json               @map("local_snapshot")
+  remoteSnapshot          Json               @map("remote_snapshot")
   /// รายการที่ต่าง — ST7-T21: `{check: 'PAYMENT_STATUS', code, ...}`
-  diff           Json
-  diffHash       String             @map("diff_hash") @db.Char(64)
-  result         ReconcileOutcome
-  severity       ReconcileSeverity
-  acknowledgedBy String?            @map("acknowledged_by")
-  acknowledgedAt DateTime?          @map("acknowledged_at") @db.Timestamptz(6)
-  ackReason      String?            @map("ack_reason")
+  diff                    Json
+  diffHash                String             @map("diff_hash") @db.Char(64)
+  result                  ReconcileOutcome
+  severity                ReconcileSeverity
+  acknowledgedBy          String?            @map("acknowledged_by")
+  acknowledgedAt          DateTime?          @map("acknowledged_at") @db.Timestamptz(6)
+  ackReason               String?            @map("ack_reason")
   /// ST8-T12 ผู้ปิด (คน — แก้ที่ TMS) · null = ระบบปิดเอง
-  resolvedBy     String?            @map("resolved_by")
+  resolvedBy              String?            @map("resolved_by")
   /// ST8-T12 วิธีปิด: FIXED_IN_TMS (ยกเลิก+ออกใหม่ — D-54) / ERP_OVERWRITTEN (ส่งทับแล้วรอบถัดไปตรง) / NEXT_RUN_MATCHED
-  resolution     String?
-  resolutionReason String?          @map("resolution_reason")
+  resolution              String?
+  resolutionReason        String?            @map("resolution_reason")
   /// ST8-T12 ขอส่งทับระบบบัญชีด้วยค่า TMS (ลงบัญชีแล้ว — ต้องอนุมัติ; ผู้อนุมัติ ≠ ผู้ขอ): REQUESTED / APPROVED / REJECTED
-  overwriteStatus        String?    @map("overwrite_status")
-  overwriteRequestedBy   String?    @map("overwrite_requested_by")
-  overwriteRequestedAt   DateTime?  @map("overwrite_requested_at") @db.Timestamptz(6)
-  overwriteReason        String?    @map("overwrite_reason")
-  overwriteDecidedBy     String?    @map("overwrite_decided_by")
-  overwriteDecidedAt     DateTime?  @map("overwrite_decided_at") @db.Timestamptz(6)
-  overwriteDecisionReason String?   @map("overwrite_decision_reason")
+  overwriteStatus         String?            @map("overwrite_status")
+  overwriteRequestedBy    String?            @map("overwrite_requested_by")
+  overwriteRequestedAt    DateTime?          @map("overwrite_requested_at") @db.Timestamptz(6)
+  overwriteReason         String?            @map("overwrite_reason")
+  overwriteDecidedBy      String?            @map("overwrite_decided_by")
+  overwriteDecidedAt      DateTime?          @map("overwrite_decided_at") @db.Timestamptz(6)
+  overwriteDecisionReason String?            @map("overwrite_decision_reason")
   /// คำสั่ง REPLACE_DOCUMENT/PUSH_* ที่สร้างตอนส่งทับ (integration_outbox.id)
-  overwriteCommandId     String?    @map("overwrite_command_id") @db.Uuid
+  overwriteCommandId      String?            @map("overwrite_command_id") @db.Uuid
   /// ระบบปิดเอง: รอบถัดไปตรงกัน หรือส่วนต่างเปลี่ยน (มีแถวใหม่แทน)
-  resolvedAt     DateTime?          @map("resolved_at") @db.Timestamptz(6)
+  resolvedAt              DateTime?          @map("resolved_at") @db.Timestamptz(6)
   /// รอบล่าสุดที่ยังเห็นส่วนต่างเดิม (ไม่สร้างแถวซ้ำ)
-  lastSeenAt     DateTime           @map("last_seen_at") @db.Timestamptz(6)
-  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  lastSeenAt              DateTime           @map("last_seen_at") @db.Timestamptz(6)
+  createdAt               DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([tenantId, updatedAt, id])
   @@index([tenantId, entityType, localId])

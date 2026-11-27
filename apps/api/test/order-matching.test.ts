@@ -530,11 +530,25 @@ describe('order auto-matching + alias learning', () => {
     });
     expect(m.body.holdCodes).toEqual(['RATE_MISSING']);
     expect(
-      await db.customerAlias.findMany({
-        where: { tenantId },
-        select: { kind: true, source: true, value: true, customerId: true },
+      await db.externalMapping.findMany({
+        where: { tenantId, matchKind: { not: null } },
+        select: {
+          matchKind: true,
+          channel: true,
+          matchValue: true,
+          localId: true,
+          connectorId: true,
+        },
       }),
-    ).toEqual([{ kind: 'EXTERNAL_ID', source: 'ERP:krs', value: 'NSF-777', customerId: cust }]);
+    ).toEqual([
+      {
+        matchKind: 'EXTERNAL_ID',
+        channel: 'ERP:krs',
+        matchValue: 'NSF-777',
+        localId: cust,
+        connectorId: null,
+      },
+    ]);
     expect(
       await db.auditLog.count({ where: { entityId: cust, action: 'customer.alias_learned' } }),
     ).toBe(1);
@@ -604,10 +618,10 @@ describe('order auto-matching + alias learning', () => {
       })
       .expect(200);
     expect(ok.body.aliasLearning).toBe('learned');
-    const moved = await db.customerAlias.findFirstOrThrow({
-      where: { tenantId, kind: 'EXTERNAL_ID', valueKey: 'NSF-888' },
+    const moved = await db.externalMapping.findFirstOrThrow({
+      where: { tenantId, matchKind: 'EXTERNAL_ID', sourceCode: 'NSF-888' },
     });
-    expect(moved.customerId).toBe(cust);
+    expect(moved.localId).toBe(cust);
     expect(
       await db.auditLog.findFirst({
         where: { entityId: cust, action: 'customer.alias_reassigned' },
@@ -666,7 +680,7 @@ describe('order auto-matching + alias learning', () => {
     expect(other.order.customerId).toBeNull();
   });
 
-  it('แยก tenant: alias/สถานที่ของ tenant A ไม่ถูกใช้จับคู่ใน tenant B; customer_alias มี RLS; map ใบของอีก tenant → 404', async () => {
+  it('แยก tenant: alias/สถานที่ของ tenant A ไม่ถูกใช้จับคู่ใน tenant B; alias (external_mapping) มี RLS; map ใบของอีก tenant → 404', async () => {
     const cust = await newCustomer({ externalId: 'ISO-C-1' });
     const originA = await newSite('ต้นทาง ก');
     const destA = await newSite('ปลายทางแยกข้อมูล', undefined, admin, ['ข้อความลับของเอ']);
@@ -694,7 +708,11 @@ describe('order auto-matching + alias learning', () => {
     expect(b.order.customerId).toBeNull(); // alias ISO-X อยู่ใน tenant A
     expect(b.order.stops[1]).toMatchObject({ siteId: null, matchCandidates: null });
     // RLS: role แอปใน tenant B มองไม่เห็น alias ของ A
-    const seen = await app.get(DbService).withTenant(otherId, (tx) => tx.customerAlias.count());
+    const seen = await app
+      .get(DbService)
+      .withTenant(otherId, (tx) =>
+        tx.externalMapping.count({ where: { matchKind: { not: null } } }),
+      );
     expect(seen).toBe(0);
     await api(app, other)
       .post(`/v1/orders/${pubOrder(a.order.id)}/stops/2/map-site`)
