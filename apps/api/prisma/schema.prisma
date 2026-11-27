@@ -2678,6 +2678,8 @@ model Feature {
   unit         String?
   isBasic      Boolean           @default(false) @map("is_basic")
   sortOrder    Int               @default(0) @map("sort_order")
+  /// P1-ST2-T02 แสดงในหน้าราคาสาธารณะ — false = ฟีเจอร์นอกเฟส/ไม่มีถ้อยคำใน docs/02 §2 (migration 0187)
+  showOnWeb    Boolean           @default(true) @map("show_on_web")
   entitlements PlanEntitlement[]
 
   @@map("feature")

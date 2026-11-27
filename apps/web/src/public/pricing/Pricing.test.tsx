@@ -1,4 +1,4 @@
-import { estimatePlanCharge, type BillingCycle } from '@tms/domain';
+import { estimatePlanCharge, vatEstimate, type BillingCycle } from '@tms/domain';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../../i18n';
@@ -61,7 +61,7 @@ describe('หน้าราคา (P1-ST2-T02)', () => {
     expect(growth.getByText('รถ active 16–60 คัน')).toBeTruthy();
     expect(growth.getByText('ขั้นต่ำ ฿4,500 / เดือน · ผู้ใช้ไม่จำกัด')).toBeTruthy();
     expect(growth.getByRole('button', { name: 'เริ่มทดลองใช้ 30 วัน' })).toBeTruthy();
-    expect(growth.getByText('+ ติดตามรถ (GPS), Customer portal')).toBeTruthy();
+    expect(growth.getByText('+ Customer portal')).toBeTruthy();
     expect(growth.getByText('Open API (req/นาที): 300')).toBeTruthy();
     const ent = within(screen.getByTestId('plan-ent'));
     expect(ent.getAllByText('ติดต่อฝ่ายขาย').length).toBe(2);
@@ -101,21 +101,30 @@ describe('หน้าราคา (P1-ST2-T02)', () => {
       expect(screen.getByRole('button', { name: plan(code).nameTh, pressed: true })).toBeTruthy();
       expect(month()).toBe(domainMonth(code, n, cycle));
       const out = within(screen.getByTestId('calc-result'));
-      expect(out.getByText('ราคายังไม่รวม VAT')).toBeTruthy();
+      // ราคายังไม่รวม VAT + VAT เป็นประมาณการ (vatEstimate — VAT_RATE_7 ของ domain)
+      const inclMonth = vatEstimate(estimatePlanCharge(plan(code), n, cycle)!.monthly).total;
+      expect(
+        out.getByText(`ราคายังไม่รวม VAT · รวม VAT ≈ ฿${fmtMoney(inclMonth)} / เดือน`),
+      ).toBeTruthy();
       const est = estimatePlanCharge(plan(code), n, cycle)!;
       expect(!!out.queryByText('ต่ำกว่าขั้นต่ำ · คิดขั้นต่ำต่อเดือน')).toBe(est.minimumApplied);
       expect(out.getByText(`฿${fmtMoney(est.yearly)}`)).toBeTruthy();
     },
   );
 
-  it('รถ 30 คัน = ฿8,400.00 / เดือน (docs/02 §7) · รายปี ฿7,140.00 · ไม่แสดง VAT 7%', () => {
+  it('รถ 30 คัน = ฿8,400.00 / เดือน (docs/02 §7) · รายปี ฿7,140.00 · VAT 7% เป็นประมาณการ', () => {
     renderPricing();
     setN(30);
     expect(month()).toBe('฿8,400.00 / เดือน');
+    const out = within(screen.getByTestId('calc-result'));
+    expect(out.getByText('ราคายังไม่รวม VAT · รวม VAT ≈ ฿8,988.00 / เดือน')).toBeTruthy();
+    expect(out.getByText('VAT 7% ของยอดต่อปี (ประมาณการ)')).toBeTruthy();
+    expect(out.getByText('฿7,056.00')).toBeTruthy();
+    expect(out.getByText('ต่อปี รวม VAT (ประมาณการ)')).toBeTruthy();
+    expect(out.getByText('฿107,856.00')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /รายปี/ }));
     expect(month()).toBe('฿7,140.00 / เดือน');
     expect(screen.getByText('ส่วนลดรายปี 15%')).toBeTruthy();
-    expect(screen.getByTestId('calc-result').textContent).not.toMatch(/VAT 7%|(?<!ไม่)รวม VAT/);
   });
 
   it('กดแพ็กเกจนอกช่วงรถ → ย้ายจำนวนรถเข้าช่วง · Enterprise = ติดต่อฝ่ายขาย', () => {
@@ -136,12 +145,12 @@ describe('หน้าราคา (P1-ST2-T02)', () => {
         .getAllByRole('cell')
         .slice(1)
         .map((c) => (c.querySelector('[role="img"]') ? '✓' : c.textContent));
-    expect(cells('track')).toEqual(['—', '✓', '✓', '✓']);
-    expect(cells('fleetx')).toEqual(['—', 'ซื้อเพิ่ม', 'ซื้อเพิ่ม', '✓']);
+    expect(cells('multi')).toEqual(['—', '—', '✓', '✓']);
+    expect(cells('portal')).toEqual(['ซื้อเพิ่ม', '✓', '✓', '✓']);
     expect(cells('api')).toEqual(['—', '300', '1,000', '1,000']);
     expect(cells('conn')).toEqual(['—', '1', '1', 'ไม่จำกัด']);
     expect(cells('settle')).toEqual(['✓', '✓', '✓', '✓']);
-    for (const cat of ['ปฏิบัติการ', 'บัญชี', 'Fleet', 'รายงานและลูกค้า', 'เชื่อมต่อ', 'โควตา'])
+    for (const cat of ['ปฏิบัติการ', 'บัญชี', 'รายงานและลูกค้า', 'เชื่อมต่อ', 'โควตา'])
       expect(screen.getByRole('cell', { name: cat })).toBeTruthy();
     expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
       'ฟีเจอร์',

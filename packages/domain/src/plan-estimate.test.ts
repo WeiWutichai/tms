@@ -4,8 +4,10 @@ import {
   estimatePlanCharge,
   perVehicleMonthly,
   planForVehicles,
+  vatEstimate,
   type PlanChargeInput,
 } from './platform-plan';
+import { VAT_RATE_7 } from './tax';
 
 /** ราคาตั้งต้น docs/02 §2 (seed migration 0175 — R-06 / D-40 ยังไม่ประกาศ) */
 const starter: PlanChargeInput = {
@@ -156,4 +158,39 @@ describe('entitlementCell — เซลล์ตารางเปรียบ�
     ['metered', { mode: 'included', limit: 20 }, { kind: 'limit', limit: 20 }],
     ['limit', { mode: 'not_available', limit: 5 }, { kind: 'no' }],
   ] as const)('%s %j → %j', (type, e, cell) => expect(entitlementCell(type, e)).toEqual(cell));
+});
+
+describe('ส่วนลดตามจำนวนรถ + ขั้นต่ำ + รายปี รวมกัน (review S3 — ขั้นต่ำได้ส่วนลดรายปีด้วย [OPEN — PO] D-40)', () => {
+  const p: PlanChargeInput = {
+    pricePerVehicleMonthly: '100.00',
+    minimumMonthly: '2000.00',
+    annualDiscountPct: '15.00',
+    volumeTiers: [{ fromVehicle: 11, discountPct: '10.00' }],
+  };
+  it.each([
+    // [รถ, รอบ, ส่วนลดจำนวนรถ, ยอดตามรถ, คิดขั้นต่ำ, ส่วนลดรายปี, ต่อเดือน]
+    [15, 'monthly', '50.00', '1450.00', true, '0.00', '2000.00'],
+    [15, 'annual', '50.00', '1450.00', true, '300.00', '1700.00'], // ขั้นต่ำ − 15%
+    [22, 'monthly', '120.00', '2080.00', false, '0.00', '2080.00'],
+    [22, 'annual', '120.00', '2080.00', false, '312.00', '1768.00'],
+    // ก่อนส่วนลดจำนวนรถเกินขั้นต่ำ (2,100) แต่หลังส่วนลดต่ำกว่า (2,090) → ขั้นต่ำ
+    [21, 'monthly', '110.00', '1990.00', true, '0.00', '2000.00'],
+  ] as const)('%i คัน %s', (n, cycle, vol, usage, minApplied, annual, monthly) => {
+    const e = estimatePlanCharge(p, n, cycle)!;
+    expect([e.volumeDiscountMonthly, e.usageMonthly, e.minimumApplied]).toEqual([
+      vol,
+      usage,
+      minApplied,
+    ]);
+    expect([e.annualDiscountMonthly, e.monthly]).toEqual([annual, monthly]);
+  });
+});
+
+describe('vatEstimate — ประมาณการ VAT ตามต้นแบบ (ไม่ใช่เอกสารภาษี)', () => {
+  it('อัตรา = VAT_RATE_7 · ปัด half-up', () => {
+    expect(vatEstimate('8400.00')).toEqual({ rate: VAT_RATE_7, vat: '588.00', total: '8988.00' });
+    expect(vatEstimate('100800.00')).toEqual({ rate: '0.07', vat: '7056.00', total: '107856.00' });
+    expect(vatEstimate('0.07').vat).toBe('0.00'); // 0.0049 → 0.00
+    expect(vatEstimate('0.08').vat).toBe('0.01'); // 0.0056 → 0.01
+  });
 });

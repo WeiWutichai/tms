@@ -17,7 +17,12 @@ describe('หน้าราคาสาธารณะ GET /v1/public/plans (P1
   let app: NestExpressApplication;
   const owner = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
   const tag = randomUUID().slice(0, 6);
-  const P = { shown: `tp_pub_${tag}`, hidden: `tp_hid_${tag}`, future: `tp_fut_${tag}` };
+  const P = {
+    shown: `tp_pub_${tag}`,
+    hidden: `tp_hid_${tag}`,
+    future: `tp_fut_${tag}`,
+    archived: `tp_arc_${tag}`,
+  };
   const get = () => request(app.getHttpServer()).get('/v1/public/plans');
   const setVisible = (v: boolean) =>
     owner.platformSetting.upsert({
@@ -33,9 +38,14 @@ describe('หน้าราคาสาธารณะ GET /v1/public/plans (P1
   }
 
   /** แพ็กเกจทดสอบ + เวอร์ชัน (insert เป็น draft ใส่สิทธิ์ แล้วค่อย publish — guard 0175/0177) */
-  async function mkPlan(code: string, showOnWeb: boolean, effectiveFrom: Date, publish = true) {
+  async function mkPlan(
+    code: string,
+    showOnWeb: boolean,
+    effectiveFrom: Date,
+    status: 'active' | 'archived' = 'active',
+  ) {
     await owner.plan.create({
-      data: { code, nameTh: `ทดสอบ ${code}`, sortOrder: 90, showOnWeb },
+      data: { code, nameTh: `ทดสอบ ${code}`, sortOrder: 90, showOnWeb, status },
     });
     const v = await owner.planVersion.create({
       data: {
@@ -56,19 +66,18 @@ describe('หน้าราคาสาธารณะ GET /v1/public/plans (P1
         planVersionId: v.id,
         featureKey: f.key,
         mode: f.isBasic ? 'included' : f.key === 'portal' ? 'addon' : 'not_available',
-        limit: f.key === 'cf' ? 7 : null,
+        limit: f.key === 'webhook' ? 7 : null,
       })),
     });
-    // cf ต้อง included ถึงจะเป็นตัวเลข (not_available = —)
+    // webhook ต้อง included ถึงจะเป็นตัวเลข (not_available = —)
     await owner.planEntitlement.update({
-      where: { planVersionId_featureKey: { planVersionId: v.id, featureKey: 'cf' } },
+      where: { planVersionId_featureKey: { planVersionId: v.id, featureKey: 'webhook' } },
       data: { mode: 'included' },
     });
-    if (publish)
-      await owner.planVersion.update({
-        where: { id: v.id },
-        data: { status: 'published', publishedAt: new Date() },
-      });
+    await owner.planVersion.update({
+      where: { id: v.id },
+      data: { status: 'published', publishedAt: new Date() },
+    });
     return v.id;
   }
 
@@ -79,6 +88,7 @@ describe('หน้าราคาสาธารณะ GET /v1/public/plans (P1
     await mkPlan(P.shown, true, new Date(Date.now() - 60_000));
     await mkPlan(P.hidden, false, new Date(Date.now() - 60_000));
     await mkPlan(P.future, true, new Date(Date.now() + 86_400_000));
+    await mkPlan(P.archived, true, new Date(Date.now() - 60_000), 'archived');
   });
   afterAll(async () => {
     await app.close();
@@ -157,7 +167,10 @@ describe('หน้าราคาสาธารณะ GET /v1/public/plans (P1
     // ทุกเซลล์ตรงกับ matrix ในฐาน (เวอร์ชัน 1 ของ 4 แพ็กเกจ seed)
     const ents = await owner.planEntitlement.findMany({
       include: { planVersion: true, feature: true },
-      where: { planVersion: { planCode: { in: ['start', 'std', 'biz', 'ent'] }, version: 1 } },
+      where: {
+        planVersion: { planCode: { in: ['start', 'std', 'biz', 'ent'] }, version: 1 },
+        feature: { showOnWeb: true },
+      },
     });
     expect(ents.length).toBeGreaterThan(0);
     for (const e of ents) {
@@ -176,13 +189,12 @@ describe('หน้าราคาสาธารณะ GET /v1/public/plans (P1
     }
     // ตัวอย่างตามชนิดเซลล์
     expect(cell('settle', 'start')).toEqual({ kind: 'yes', limit: null }); // พื้นฐานทุกแพ็กเกจ (R-07)
-    expect(cell('track', 'start')).toEqual({ kind: 'no', limit: null });
-    expect(cell('fleetx', 'std')).toEqual({ kind: 'addon', limit: null });
+    expect(cell('multi', 'std')).toEqual({ kind: 'no', limit: null });
     expect(cell('api', 'std')).toEqual({ kind: 'limit', limit: 300 });
     expect(cell('conn', 'ent')).toEqual({ kind: 'unlimited', limit: null });
     // แพ็กเกจทดสอบ
     expect(cell('portal', P.shown)).toEqual({ kind: 'addon', limit: null });
-    expect(cell('cf', P.shown)).toEqual({ kind: 'limit', limit: 7 });
+    expect(cell('webhook', P.shown)).toEqual({ kind: 'limit', limit: 7 });
     expect(cell('multi', P.shown)).toEqual({ kind: 'no', limit: null });
     // ทุกฟีเจอร์มีเซลล์ครบทุกคอลัมน์
     for (const f of b.features) expect(f.cells).toHaveLength(b.plans.length);
@@ -213,6 +225,55 @@ describe('หน้าราคาสาธารณะ GET /v1/public/plans (P1
       expect([e.monthly, e.yearly]).toEqual([monthly, yearly]);
     },
   );
+
+  it('ไม่แสดงแพ็กเกจ showOnWeb = false / status ≠ active / เวอร์ชันยังไม่ถึงวันมีผล', async () => {
+    const codes = (await get().expect(200)).body.plans.map((p: { code: string }) => p.code);
+    expect(codes).toContain(P.shown);
+    for (const c of [P.hidden, P.archived, P.future]) expect(codes, c).not.toContain(c);
+  });
+
+  it('B1 (R-11): ไม่แสดงฟีเจอร์นอกเฟส 1 (track / cf / veh / fleet / fleetx) · ไม่มี MCP / แอปคนขับ / ศูนย์ข้อยกเว้น ในชื่อสาธารณะ', async () => {
+    const b = (await get().expect(200)).body;
+    const keys = b.features.map((f: { key: string }) => f.key);
+    for (const k of ['track', 'cf', 'veh', 'fleet', 'fleetx']) expect(keys, k).not.toContain(k);
+    expect(keys).toEqual(expect.arrayContaining(['driver', 'api', 'exc', 'settle', 'users']));
+    const names = [
+      ...b.features.flatMap((f: { nameTh: string; nameEn: string | null; category: string }) => [
+        f.nameTh,
+        f.nameEn ?? '',
+        f.category,
+      ]),
+      ...b.plans.flatMap((p: { nameTh: string; nameEn: string | null }) => [
+        p.nameTh,
+        p.nameEn ?? '',
+      ]),
+    ].join('\n');
+    for (const banned of [
+      /MCP/,
+      /แอปคนขับ/,
+      /ศูนย์ข้อยกเว้น/,
+      /GPS/,
+      /custom field|ฟิลด์เพิ่มเติม/i,
+    ])
+      expect(names, String(banned)).not.toMatch(banned);
+    // ถ้อยคำ docs/02 §2
+    const name = (k: string) => b.features.find((f: { key: string }) => f.key === k).nameTh;
+    expect(name('driver')).toBe('ePOD — web POD โดยแอดมิน, ลิงก์อัปโหลด POD สำหรับรถร่วมไม่มีแอป');
+    expect(name('api')).toBe('Open API (req/นาที)');
+    expect(name('exc')).toBe('ใบค้าง + reason code');
+  });
+
+  it('S1: ไม่มีแพ็กเกจให้แสดง → 404 (landing + หน้าราคาซ่อนพร้อมกัน)', async () => {
+    const on = await owner.plan.findMany({ where: { showOnWeb: true }, select: { code: true } });
+    const codes = on.map((p) => p.code);
+    try {
+      await owner.plan.updateMany({ where: { code: { in: codes } }, data: { showOnWeb: false } });
+      await get().expect(404);
+    } finally {
+      await owner.plan.updateMany({ where: { code: { in: codes } }, data: { showOnWeb: true } });
+    }
+    await get().expect(200);
+  });
 
   it('ราคาเป็นข้อมูล: ปิด publicVisible อีกครั้ง → 404 ทันที (ไม่มี cache)', async () => {
     await setVisible(false);

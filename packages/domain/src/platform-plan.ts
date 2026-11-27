@@ -4,6 +4,7 @@
  * ไม่ใช่กฎภาษี — TMS ไม่ออกเอกสารภาษีค่าบริการของตัวเอง (plan/13 R-03)
  */
 import { decimalFromSatang, mulRateHalfUp, satangFromDecimal } from './money';
+import { VAT_RATE_7 } from './tax';
 
 export const ENTITLEMENT_MODES = ['included', 'addon', 'not_available'] as const;
 export type EntitlementMode = (typeof ENTITLEMENT_MODES)[number];
@@ -223,4 +224,15 @@ export function entitlementCell(
   if (e.mode === 'addon') return { kind: 'addon' };
   if (featureType === 'boolean') return { kind: 'yes' };
   return e.limit === null ? { kind: 'unlimited' } : { kind: 'limit', limit: e.limit };
+}
+
+/**
+ * ประมาณการ VAT ของยอดค่าบริการ (ก่อน VAT) — **ประมาณการเพื่อแสดงตามต้นแบบเท่านั้น** (plan/13 P1-ST3-T01
+ * "แสดง VAT 7% เป็นประมาณการตามต้นแบบเท่านั้น") ไม่ใช่การคำนวณภาษีของเอกสาร (TMS ไม่ออกเอกสารภาษีค่าบริการ — R-03)
+ * อัตรา = VAT_RATE_7 ของ ./tax (ไม่ตั้งอัตราใหม่) · ปัด half-up
+ */
+export function vatEstimate(amountBeforeVat: string): { rate: string; vat: string; total: string } {
+  const base = satangFromDecimal(amountBeforeVat);
+  const vat = mulRateHalfUp(base, VAT_RATE_7);
+  return { rate: VAT_RATE_7, vat: decimalFromSatang(vat), total: decimalFromSatang(base + vat) };
 }

@@ -59,9 +59,11 @@ const PUBLIC_ROUTES: Record<string, string> = {
 
 /**
  * P1-ST2-T02: ราคาแพ็กเกจ (ราคาขายของแพลตฟอร์มเอง — ตั้งใจเผยแพร่ docs/02 §7 "ราคาสาธารณะบนเว็บ") ไม่ใช่ราคาของ tenant
- * → ยกเว้นจากตรวจ "ไม่รั่วราคา" · ไม่มีข้อมูล tenant (public-plans.test.ts)
+ * → ยกเว้นเฉพาะ field ราคาแพ็กเกจที่ตั้งใจเผยแพร่ (field อื่นของ route นี้ยังตรวจตามปกติ) · ไม่มีข้อมูล tenant (public-plans.test.ts)
  */
-const PUBLIC_PRICE_LIST = ['/v1/public/plans'];
+const PUBLIC_PRICE_FIELDS: Record<string, string[]> = {
+  '/v1/public/plans': ['pricePerVehicleMonthly'],
+};
 
 /** route ที่ใช้ token ลูกค้าแต่มี path param ที่ไม่ใช่ `:id` (และไม่ใช่ `/external/:externalId`) */
 const OTHER_PARAM: Record<string, string> = {
@@ -235,9 +237,8 @@ describe('route inventory (ST9-T13)', () => {
       )?.[0];
     const leaks: string[] = [];
     let positive = 0; // ตัวควบคุม: walker เจอราคาซื้อของรถร่วมในหน้าข้อเสนองานจริง (ไม่ใช่ผ่านเพราะอ่าน schema ไม่ออก)
-    for (const r of routes.filter(
-      (x) => x.path.startsWith('/v1/public/') && !PUBLIC_PRICE_LIST.includes(x.path),
-    )) {
+    let priceList = 0; // ตัวควบคุม: walker เห็น field ราคาแพ็กเกจจริง (ข้อยกเว้นไม่ลอย)
+    for (const r of routes.filter((x) => x.path.startsWith('/v1/public/'))) {
       const oaPath = r.path.replace(/(?<!\\):([A-Za-z0-9_]+)/g, '{$1}').replace(/\\:/g, ':');
       const op = (doc.paths[oaPath] as Record<string, any> | undefined)?.[r.method.toLowerCase()];
       expect(op, `${keyOf(r)} ไม่มีใน OpenAPI`).toBeTruthy();
@@ -249,10 +250,18 @@ describe('route inventory (ST9-T13)', () => {
       const p = purposeOf(r.linkAction);
       const forbidden =
         p && !NO_PRICE_PURPOSES.includes(p) ? /^sell/i : /^(sell|buy)|price|cost|margin/i;
-      for (const n of names) if (forbidden.test(n)) leaks.push(`${keyOf(r)} → ${n}`);
+      const allowed = PUBLIC_PRICE_FIELDS[r.path] ?? [];
+      for (const n of names) {
+        if (allowed.includes(n)) {
+          priceList++;
+          continue;
+        }
+        if (forbidden.test(n)) leaks.push(`${keyOf(r)} → ${n}`);
+      }
       if (r.path === '/v1/public/offers/:token' && names.includes('buyAmount')) positive++;
     }
     expect(positive).toBe(1);
+    expect(priceList).toBeGreaterThan(0);
     expect(leaks).toEqual([]);
   });
 

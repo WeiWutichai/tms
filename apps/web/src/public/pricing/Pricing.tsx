@@ -4,6 +4,7 @@ import {
   perVehicleMonthly,
   planForVehicles,
   satangFromDecimal,
+  vatEstimate,
   type BillingCycle,
 } from '@tms/domain';
 import { BadgeCheck, Check, Minus, Plus } from 'lucide-react';
@@ -195,6 +196,9 @@ function PricingBody({
   const count = Math.max(1, parseInt(n, 10) || 1);
   const cp = plans.find((p) => p.code === sel) ?? plans[0]!;
   const est = estimatePlanCharge(cp, count, cycle);
+  const vatMonth = est ? vatEstimate(est.monthly) : null;
+  const vatYear = est ? vatEstimate(est.yearly) : null;
+  const vatPct = vatMonth ? fmtPct(decimalFromSatang(satangFromDecimal(vatMonth.rate) * 100n)) : '';
   const onN = (v: string) => {
     const s = v.replace(/\D/g, '').slice(0, 4);
     setN(s);
@@ -232,6 +236,9 @@ function PricingBody({
           k: t(yearly ? 'land.price.calc.yearAnnual' : 'land.price.calc.yearMonthly'),
           v: baht(est.yearly),
         },
+        // review S2: VAT เป็นประมาณการตามต้นแบบ (VAT_RATE_7 ของ @tms/domain) — ไม่ใช่เอกสารภาษี
+        { k: t('land.price.calc.vatYear', { pct: vatPct }), v: baht(vatYear!.vat) },
+        { k: t('land.price.calc.inclVatYear'), v: baht(vatYear!.total) },
       ]
     : [{ k: t('land.price.calc.sales'), v: '' }];
 
@@ -419,7 +426,11 @@ function PricingBody({
               ? t('land.price.calc.month', { amount: fmtMoney(est.monthly) })
               : t('land.price.contactSales')}
           </span>
-          {est && <span className="prc-calc__sub">{t('land.price.calc.noVat')}</span>}
+          {vatMonth && (
+            <span className="prc-calc__sub">
+              {t('land.price.calc.noVatIncl', { amount: fmtMoney(vatMonth.total) })}
+            </span>
+          )}
           {lines.map((l) => (
             <div key={l.k} className="prc-calc__line">
               <span>{l.k}</span>

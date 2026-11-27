@@ -70,7 +70,9 @@ test('เปิดราคา: landing "เริ่ม ฿350" → หน้�
   await box.fill('30');
   await expect(page.getByTestId('calc-month')).toHaveText('฿8,400.00 / เดือน');
   await expect(page.getByRole('button', { name: 'Growth', pressed: true })).toBeVisible();
-  await expect(page.getByTestId('calc-result')).toContainText('ราคายังไม่รวม VAT');
+  await expect(page.getByTestId('calc-result')).toContainText(
+    'ราคายังไม่รวม VAT · รวม VAT ≈ ฿8,988.00 / เดือน',
+  );
   await page.getByRole('button', { name: /รายปี/ }).click();
   await expect(page.getByTestId('calc-month')).toHaveText('฿7,140.00 / เดือน');
   await expect(page.getByTestId('plan-std')).toContainText('฿238');
@@ -78,14 +80,13 @@ test('เปิดราคา: landing "เริ่ม ฿350" → หน้�
   await box.fill('5');
   await expect(page.getByTestId('calc-month')).toHaveText('฿2,125.00 / เดือน');
 
-  const row = page.getByTestId('row-fleetx');
-  await expect(row.getByRole('cell')).toHaveText([
-    'ยาง อะไหล่ ถังน้ำมัน',
-    '—',
-    'ซื้อเพิ่ม',
-    'ซื้อเพิ่ม',
-    '',
-  ]);
+  const row = page.getByTestId('row-multi');
+  await expect(row.getByRole('cell')).toHaveText(['หลายนิติบุคคล', '—', '—', '', '']);
+  // B1: ฟีเจอร์นอกเฟส 1 ไม่อยู่ในตาราง · ไม่มี MCP
+  await expect(page.getByTestId('row-track')).toHaveCount(0);
+  await expect(page.getByTestId('row-veh')).toHaveCount(0);
+  await expect(page.locator('main')).not.toContainText('MCP');
+  await expect(page.getByTestId('calc-result')).toContainText('VAT 7% ของยอดต่อปี (ประมาณการ)');
   await expect(page.getByTestId('row-api').getByRole('cell').nth(2)).toHaveText('300');
 });
 

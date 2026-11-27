@@ -110,8 +110,8 @@ const money = (v: { toFixed(n: number): string } | null) => (v === null ? null :
 /**
  * แพ็กเกจและราคาสาธารณะ (P1-ST2-T02; spec/01 §2 ข้อ 3, PLT-002 "ทุกหน้าอ่านราคาจาก API เดียว") — ไม่ login
  * เฉพาะแพ็กเกจ `status = active` + `showOnWeb` ที่มีเวอร์ชัน published ซึ่งถึงวันมีผลแล้ว (draft ไม่แสดง)
- * `pricing.publicVisible = false` (ค่าเริ่ม — D-40 ยังไม่เคาะราคา) → 404 (หน้าราคา + ลิงก์ราคาใน landing ซ่อน)
- * rate limit ต่อ IP ของ `/v1/public/*` (public-rate-limit.middleware) · ไม่มีข้อมูล tenant
+ * `pricing.publicVisible = false` (ค่าเริ่ม — D-40 ยังไม่เคาะราคา) หรือไม่มีแพ็กเกจให้แสดง → 404 (หน้าราคา + ลิงก์ราคาใน landing ซ่อน)
+ * rate limit ต่อ IP กลุ่ม `pricing` แยกจากลิงก์สาธารณะ (public-rate-limit.middleware) · no-store · ไม่มีข้อมูล tenant
  */
 @ApiTags('public')
 @Controller('public/plans')
@@ -139,7 +139,11 @@ export class PublicPlansController {
         orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
       }),
       currentPlanVersions(db),
-      db.feature.findMany({ orderBy: [{ sortOrder: 'asc' }, { key: 'asc' }] }),
+      // B1 (R-11): เฉพาะฟีเจอร์ที่แสดงบนเว็บได้ — นอกเฟส 1 / ไม่มีถ้อยคำใน docs/02 §2 ซ่อน (migration 0187)
+      db.feature.findMany({
+        where: { showOnWeb: true },
+        orderBy: [{ sortOrder: 'asc' }, { key: 'asc' }],
+      }),
       readPlatformSetting<number>(db, 'retention.operationalDays'),
       readPlatformSetting<string>(db, 'usage.subconWeight'),
       readPlatformSetting<number>(db, 'trial.days'),
@@ -147,6 +151,8 @@ export class PublicPlansController {
     const shown = plans
       .map((p: Plan) => ({ plan: p, version: current.get(p.code) }))
       .filter((x): x is { plan: Plan; version: PlanVersion } => !!x.version);
+    // S1: ไม่มีแพ็กเกจให้แสดง = ปิดหน้าราคา (landing + หน้าราคาซ่อนพร้อมกัน)
+    if (!shown.length) throw new ProblemException('not_found');
     const ents = await db.planEntitlement.findMany({
       where: { planVersionId: { in: shown.map((x) => x.version.id) } },
     });

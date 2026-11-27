@@ -5,6 +5,9 @@ import { publicBucketGroup } from './public-rate-limit.middleware';
 describe('publicBucketGroup', () => {
   it('แยกกลุ่มตาม path (ไม่สน query)', () => {
     expect(publicBucketGroup('/v1/public/offers/ml1.x')).toBe('public');
+    expect(publicBucketGroup('/v1/public/plans')).toBe('pricing');
+    expect(publicBucketGroup('/v1/public/plans?x=1')).toBe('pricing');
+    expect(publicBucketGroup('/v1/public/plansx')).toBe('public');
     expect(publicBucketGroup('/v1/platform/auth/login')).toBe('console');
     expect(publicBucketGroup('/v1/platform/auth/step-up?x=1')).toBe('console');
     expect(publicBucketGroup('/v1/auth/invitations/inspect')).toBe('invite');
