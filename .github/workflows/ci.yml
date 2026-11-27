@@ -59,6 +59,8 @@ jobs:
         run: pnpm --filter @tms/api openapi:check
       - name: เอกสาร API / Postman / llms.txt ต้องสร้างใหม่จาก openapi.json แล้ว (ST7-T12)
         run: pnpm --filter @tms/api-docs docs:check
+      - name: help center ต้องสร้างใหม่จากบทความ/catalog error แล้ว · ลิงก์และภาพไม่ขาด (P1-ST6-T01)
+        run: pnpm --filter "@tms/help-center^..." build && pnpm --filter @tms/help-center docs:check
       - name: OpenAPI breaking-change gate (เทียบกับ base branch)
         if: github.event_name == 'pull_request'
         run: |

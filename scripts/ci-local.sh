@@ -34,6 +34,7 @@ step "typecheck";   pnpm -s typecheck
 step "test (unit + integration + isolation + seed + PDF golden + KRS contract)"; pnpm -s test
 step "OpenAPI ตรงกับโค้ด"; pnpm -s --filter @tms/api openapi:check
 step "เอกสาร API / Postman / llms.txt ตรงกับ openapi.json (ST7-T12)"; pnpm -s --filter @tms/api-docs docs:check
+step "help center ตรงกับบทความ/catalog error · ลิงก์และภาพไม่ขาด (P1-ST6-T01)"; pnpm -s --filter "@tms/help-center^..." build >/dev/null && pnpm -s --filter @tms/help-center docs:check
 step "OpenAPI breaking-change gate เทียบ $BASE"
 git fetch -q origin || true
 if git show "$BASE:packages/contracts/openapi.json" > "$tmp/base-openapi.json" 2>/dev/null; then
