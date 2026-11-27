@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { Clock } from '../../common/clock';
 import { PrismaService } from '../../db/prisma.service';
 import { readPlatformSetting } from '../../platform/platform-settings.service';
-import type { Month } from '../depreciation/depreciation-policy';
+import { addMonths, type Month } from '../depreciation/depreciation-policy';
 import {
   ACTIVE_VEHICLES_METRIC,
   finalizablePeriod,
@@ -13,11 +13,16 @@ import {
 
 /** worker เรียก scheduleDue ทุก 10 นาที (แบบเดียวกับค่าเสื่อม ST2-T22) */
 export const USAGE_FINALIZE_EVERY_MS = 10 * 60 * 1000;
+/** เดือนแรกที่ปิดยอด = เดือนที่ใช้ migration 0190 (PO 22 พ.ย. 2569: ยังไม่มีลูกค้าจริง) · เดือนก่อนนี้ไม่ปิดยอด */
+export const USAGE_METERING_FROM: Month = '2026-11';
+/** ปิดยอดย้อนหลังได้สูงสุดกี่เดือน (worker หยุดข้ามเดือน — review M1) */
+export const FINALIZE_CATCH_UP_MONTHS = 3;
 
 /**
  * ปิดยอดรถ active รายเดือน (P1-ST1-T06; spec/01 PLT-074 "finalize วันที่ 1 เวลา 02:00 ของเดือนถัดไป → UsageRecord.finalizedAt")
  *
  * - ตั้งแต่วันที่ 1 เวลา 02:00 น. ไทย: tenant live ทุกรายที่สร้างก่อนสิ้นเดือนและยังไม่มี `usage_record` ของเดือนที่เพิ่งจบ
+ *   (รวมเดือนก่อนหน้าที่ตกหล่น ย้อนได้ FINALIZE_CATCH_UP_MONTHS เดือน)
  *   → นับแถว `active_vehicle_usage` (ไม่รวมที่ตัดออก) แล้วเขียน `usage_record` สถานะ finalized (รันซ้ำได้ — ON CONFLICT DO NOTHING)
  * - lock (20, tenant:เดือน) แบบ exclusive — trigger นับรถถือแบบ shared → เที่ยวที่กำลังเปลี่ยนสถานะอยู่ตอนปิดยอดรอให้ปิดเสร็จ
  *   แล้วเห็นว่าเดือนปิดแล้ว (ไม่แตะ) · หลังปิดยอดแก้ได้เฉพาะ Console การเงิน + เหตุผล (PlatformUsageController)
@@ -32,23 +37,35 @@ export class UsageFinalizeService {
     private readonly clock: Clock,
   ) {}
 
-  /** ปิดยอดเดือนที่ถึงเวลาให้ทุก tenant ที่ยังไม่ปิด — คืนจำนวน tenant ที่ปิดรอบนี้ */
+  /**
+   * ปิดยอดทุกเดือนที่ถึงเวลาแล้วแต่ยังไม่ปิด — เดือนล่าสุดที่ถึงเวลา + ย้อนหลังรวม FINALIZE_CATCH_UP_MONTHS เดือน
+   * (worker หยุดข้ามวันที่ 1 หลายครั้งก็ปิดครบ) · ไม่ก่อน USAGE_METERING_FROM และไม่ก่อนเดือนที่สร้าง tenant
+   * เรียงจากเดือนเก่าไปใหม่ · คืนจำนวน (tenant × เดือน) ที่ปิดรอบนี้
+   */
   async scheduleDue(now: Date = this.clock.now()): Promise<number> {
-    const period = finalizablePeriod(now);
-    const { end } = periodRange(period);
+    const last = finalizablePeriod(now);
+    const periods: Month[] = [];
+    for (let i = FINALIZE_CATCH_UP_MONTHS - 1; i >= 0; i--) {
+      const p = addMonths(last, -i);
+      if (p >= USAGE_METERING_FROM) periods.push(p);
+    }
     const db = this.prisma.platform;
-    const todo = await db.$queryRaw<{ id: string }[]>`
-      SELECT t.id FROM tenant t
-       WHERE t.mode = 'live' AND t.created_at < ${end}
-         AND NOT EXISTS (SELECT 1 FROM usage_record u
-                          WHERE u.tenant_id = t.id AND u.metric = ${ACTIVE_VEHICLES_METRIC} AND u.period = ${period})
-       ORDER BY t.created_at`;
     let n = 0;
-    for (const t of todo) {
-      try {
-        if (await this.finalize(t.id, period, now)) n += 1;
-      } catch (e) {
-        this.logger.warn(`tenant ${t.id} ${period}: usage finalize failed: ${String(e)}`);
+    for (const period of periods) {
+      const { end } = periodRange(period);
+      // tenant ที่มีตัวตนในเดือนนั้น (สร้างก่อนสิ้นเดือน) และยังไม่ปิดยอด
+      const todo = await db.$queryRaw<{ id: string }[]>`
+        SELECT t.id FROM tenant t
+         WHERE t.mode = 'live' AND t.created_at < ${end}
+           AND NOT EXISTS (SELECT 1 FROM usage_record u
+                            WHERE u.tenant_id = t.id AND u.metric = ${ACTIVE_VEHICLES_METRIC} AND u.period = ${period})
+         ORDER BY t.created_at`;
+      for (const t of todo) {
+        try {
+          if (await this.finalize(t.id, period, now)) n += 1;
+        } catch (e) {
+          this.logger.warn(`tenant ${t.id} ${period}: usage finalize failed: ${String(e)}`);
+        }
       }
     }
     return n;

@@ -74,7 +74,8 @@ export class PlatformUsageController {
   ): Promise<PlatformActiveVehicleUsageDto> {
     const t = await this.tenant(id);
     const key = plateNorm(body.plate);
-    if (!key)
+    // "?…" = ตัวนับของเที่ยวที่ไม่มีทะเบียน (สร้างโดยระบบเท่านั้น — review L5)
+    if (!key || key.includes('?'))
       throw new ProblemException('validation_failed', undefined, [
         { field: 'plate', code: 'plate_format', message: 'plate is empty after normalization' },
       ]);
@@ -180,11 +181,17 @@ export class PlatformUsageController {
       });
       await platformAudit(tx, {
         action: c.action,
-        entityType: 'usage_record',
+        entityType: 'active_vehicle_usage',
         entityId: encodeId('activeVehicleUsage', c.row),
         reason,
         before: { period, value: Number(rec.value) },
-        after: { period, value: n.total, ...c.after, tenant: encodeId('tenant', t.id) },
+        after: {
+          period,
+          value: n.total,
+          ...c.after,
+          tenant: encodeId('tenant', t.id),
+          usageRecord: rec.id,
+        },
       });
       const ctx = requestContext.require();
       await tx.auditLog.create({

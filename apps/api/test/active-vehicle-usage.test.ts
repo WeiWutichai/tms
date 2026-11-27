@@ -12,6 +12,7 @@ import {
   periodRange,
 } from '../src/modules/usage/active-vehicles';
 import { UsageFinalizeService } from '../src/modules/usage/usage-finalize.service';
+import { plateNorm } from '../src/modules/vehicles/vehicles.service';
 import { USAGE_ADJUST_CUSTOMER_REASON } from '../src/platform/platform-usage.controller';
 import { api, bootApp, createTenant, platform, tokenFor, truncateAll } from './helpers';
 
@@ -108,6 +109,12 @@ describe('รถ active ต่อเดือน (P1-ST1-T06)', () => {
     move(id, 'DISPATCHED', { dispatchedAt: new Date(at) });
   const cancel = (id: string) =>
     move(id, 'CANCELLED', { cancelledAt: new Date(), cancelReason: 'ลูกค้ายกเลิกงานกะทันหัน' });
+  /** tenant ที่สร้างก่อนเดือนที่ทดสอบ (ปิดยอดนับเฉพาะ tenant ที่สร้างก่อนสิ้นเดือน) */
+  const oldTenant = async () => {
+    const t = await createTenant(db);
+    await db.tenant.update({ where: { id: t.id }, data: { createdAt: new Date('2026-10-15') } });
+    return t;
+  };
   const rows = (tenantId: string, period?: string) =>
     db.activeVehicleUsage.findMany({
       where: { tenantId, ...(period ? { period } : {}) },
@@ -190,17 +197,30 @@ describe('รถ active ต่อเดือน (P1-ST1-T06)', () => {
     const t = await createTenant(db);
     const a = await vehicle(t.id, 'กข-1234');
     const b = await vehicle(t.id, 'กข1234', 'TH-11'); // master อีกแถว (ต่างจังหวัด) — ทะเบียนเดียวกันบนเอกสาร
-    const plates = ['กข-1234', 'กข1234', 'กข 1234', 'กข-๑๒๓๔'];
+    // review L4: NBSP / ช่องว่าง Unicode / en-dash / em-dash / minus / zero-width / จุด — SQL = JS
+    const plates = [
+      'กข-1234',
+      'กข1234',
+      'กข 1234',
+      'กข-๑๒๓๔',
+      'กข\u00A01234',
+      'กข\u20131234',
+      'กข \u2014 1234',
+      'กข\u22121234',
+      'กข\u200B12.34',
+      'กข\u30001234',
+    ];
+    for (const p of plates) expect(plateNorm(p)).toBe('กข1234');
     for (const [i, p] of plates.entries()) {
       const x = await trip(t.id, i % 2 ? b : a, p);
-      await dispatch(x.id, `2026-11-0${i + 2}T09:00:00+07:00`);
+      await dispatch(x.id, `2026-11-${String(i + 2).padStart(2, '0')}T09:00:00+07:00`);
     }
     const r = await rows(t.id);
     expect(r).toHaveLength(1);
     expect(r[0]).toMatchObject({ plateNormalized: 'กข1234', plate: 'กข-1234' });
     const res = (await api(app, await tokenFor(t.id)).get('/v1/usage/active-vehicles')).body;
     expect(res.activeVehicles).toBe(1);
-    expect(res.data[0].trips).toBe(4);
+    expect(res.data[0].trips).toBe(plates.length);
   });
 
   it('เกณฑ์ตรวจรับ: sandbox ไม่ถูกนับ (PLT-071)', async () => {
@@ -284,7 +304,7 @@ describe('รถ active ต่อเดือน (P1-ST1-T06)', () => {
   });
 
   it('finalize วันที่ 1 02:00 ไทย → usage_record · หลังปิดยอดเที่ยวที่ย้อน/เพิ่มย้อนหลังไม่เปลี่ยนยอด · Console การเงินปรับได้ + เหตุผล', async () => {
-    const t = await createTenant(db);
+    const t = await oldTenant();
     const fin = app.get(UsageFinalizeService);
     const v1 = await vehicle(t.id, '75-0001');
     const v2 = await vehicle(t.id, '75-0002');
@@ -369,6 +389,7 @@ describe('รถ active ต่อเดือน (P1-ST1-T06)', () => {
         .send({ period: '2026-11', plate, reason: 'เที่ยวบันทึกนอกระบบ ลูกค้ายืนยันว่าวิ่งจริง' });
     expect((await add('75 0003').expect(200)).body.activeVehicles).toBe(2);
     await add('75-0003').expect(409);
+    await add('?own:abc').expect(422); // review L5: "?…" = ตัวนับเที่ยวไม่มีทะเบียน (ระบบสร้างเท่านั้น)
     await as('BILLING')
       .post(url)
       .send({ period: '2026-12', plate: '75-0009', reason: 'เดือนที่ยังไม่ปิดยอดต้องไม่ได้' })
@@ -395,6 +416,76 @@ describe('รถ active ต่อเดือน (P1-ST1-T06)', () => {
       )
       .send({ reason: why })
       .expect(404);
+  });
+
+  it('review M1: worker หยุดข้ามวันที่ 1 สองครั้ง → ปิดยอดครบทั้งสองเดือน (ไม่ก่อนเดือนเริ่มนับ / เดือนที่สร้าง tenant)', async () => {
+    const t = await oldTenant();
+    const v = await vehicle(t.id, '77-0001');
+    const a = await trip(t.id, v, '77-0001');
+    const b = await trip(t.id, v, '77-0001');
+    await dispatch(a.id, '2026-11-10T08:00:00+07:00');
+    await dispatch(b.id, '2026-12-10T08:00:00+07:00');
+    const late = await createTenant(db); // สร้างจริงวันนี้ → ไม่มีเดือน ต.ค.
+    await app.get(UsageFinalizeService).scheduleDue(new Date('2027-01-01T03:00:00+07:00'));
+    const recs = await db.usageRecord.findMany({
+      where: { tenantId: t.id },
+      orderBy: { period: 'asc' },
+    });
+    expect(recs.map((r) => [r.period, r.status, Number(r.value)])).toEqual([
+      ['2026-11', 'finalized', 1],
+      ['2026-12', 'finalized', 1],
+    ]);
+    expect(await db.usageRecord.count({ where: { tenantId: late.id, period: '2026-10' } })).toBe(0);
+  });
+
+  it('review M2/M3/L2: นับใหม่ทั้งเดือน (backfill) · เที่ยวปิดงานที่ไม่มี dispatched_at ยังนับ · เลื่อนเวลาปล่อยรถในเดือน → เที่ยวแรกเลื่อน', async () => {
+    const t = await createTenant(db);
+    const v = await vehicle(t.id, '78-0001');
+    const w = await vehicle(t.id, '78-0002');
+    // M3: ข้อมูลเก่า/นำเข้า — ปิดงานแล้วแต่ไม่มีเวลาปล่อยรถ
+    const x = await trip(t.id, v, '78-0001');
+    await move(x.id, 'COMPLETED', { completedAt: new Date('2026-11-08T10:00:00+07:00') });
+    expect((await rows(t.id)).map((r) => r.firstTripId)).toEqual([x.id]);
+    await move(x.id, 'COSTED', { costedAt: new Date() });
+    // L2: เลื่อนเวลาปล่อยรถภายในเดือน
+    const y = await trip(t.id, w, '78-0002');
+    await dispatch(y.id, '2026-11-20T08:00:00+07:00');
+    await db.trip.update({
+      where: { id: y.id },
+      data: { dispatchedAt: new Date('2026-11-05T08:00:00+07:00') },
+    });
+    const r = await rows(t.id);
+    expect(r.map((z) => [z.plate, z.firstCountedAt.toISOString()])).toEqual([
+      ['78-0002', '2026-11-05T01:00:00.000Z'],
+      ['78-0001', '2026-11-08T03:00:00.000Z'],
+    ]);
+    // M2: แถวหาย (เช่น ก่อน migration) → นับใหม่ทั้งเดือนได้คืน (role platform เรียกได้ · role แอปเรียกไม่ได้)
+    await owner.activeVehicleUsage.deleteMany({ where: { tenantId: t.id } });
+    await db.$queryRaw`SELECT tms_active_vehicle_recount_all('2026-11')::int AS n`;
+    expect((await rows(t.id)).map((z) => z.plate)).toEqual(['78-0002', '78-0001']);
+    const appPriv = await db.$queryRaw<{ ok: boolean }[]>`
+      SELECT has_function_privilege('tms_app', 'tms_active_vehicle_recount_all(text)', 'EXECUTE') AS ok`;
+    expect(appPriv[0]!.ok).toBe(false);
+  });
+
+  it('review L7: Console เปลี่ยนกติกา → นับใหม่เดือนนี้ทันที', async () => {
+    const t = await createTenant(db);
+    const v = await vehicle(t.id, '79-0001');
+    const x = await trip(t.id, v, '79-0001');
+    await dispatch(x.id, '2026-11-12T08:00:00+07:00'); // ยังไม่ปิดงาน
+    expect(await rows(t.id)).toHaveLength(1);
+    const put = (value: string) =>
+      api(app, staff.SUPER_ADMIN!)
+        .put('/v1/platform/settings/usage.activeVehicleRule')
+        .send({ value, reason: 'ทดสอบเปลี่ยนกติกาการนับรถ active' });
+    try {
+      await put('doc_closed').expect(200);
+      expect(await rows(t.id)).toHaveLength(0);
+      await put('trip_started').expect(200);
+      expect((await rows(t.id)).map((r) => r.rule)).toEqual(['trip_started']);
+    } finally {
+      await owner.platformSetting.deleteMany({ where: { key: 'usage.activeVehicleRule' } });
+    }
   });
 
   it('trigger ทำงานใต้ role แอป + RLS (ทางเดียวกับ TripService.dispatch / cancel)', async () => {

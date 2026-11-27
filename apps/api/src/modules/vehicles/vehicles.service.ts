@@ -123,10 +123,13 @@ const THAI_DIGITS = '๐๑๒๓๔๕๖๗๘๙';
 /** เลขไทย ๐-๙ → 0-9 */
 export const arabicDigits = (s: string) =>
   s.replace(/[๐-๙]/g, (c) => String(THAI_DIGITS.indexOf(c)));
-/** ทะเบียนอย่างเดียว normalize: เลขไทย → อารบิก, ตัดช่องว่าง/ขีด/จุด, ตัวใหญ่ (สูตรเดียวกับ migration 0043) */
+/**
+ * ทะเบียนอย่างเดียว normalize: เลขไทย → อารบิก, ตัดช่องว่างทุกแบบ (รวม NBSP / ช่องว่าง Unicode / zero-width), ขีดทุกแบบ
+ * (- ‐ ‑ ‒ – — ― −) และจุด, ตัวใหญ่ — สูตรเดียวกับ SQL `tms_plate_normalize` (migration 0190; P1-ST1-T06 review L4)
+ */
 export function plateNorm(plate: string): string {
   return arabicDigits(plate)
-    .replace(/[\s\-.]/g, '')
+    .replace(/[\s\u200B\uFEFF\u2010-\u2015\u2212.-]/g, '')
     .toUpperCase();
 }
 export function plateKey(plate: string, province: string): string {
