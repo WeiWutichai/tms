@@ -55,6 +55,7 @@ import { EntitlementService } from '../modules/entitlements/entitlement.service'
 import { currentPlanVersion } from '../modules/entitlements/plan-catalog';
 import { moveSubscriptionPlan } from '../modules/entitlements/subscription';
 import { bootstrapTenant } from '../modules/tenants/bootstrap';
+import { platformAudit } from './platform-audit';
 import { PlatformSettingsService } from './platform-settings.service';
 import { issueInvitation } from '../modules/users/invitations.controller';
 
@@ -174,6 +175,10 @@ export class PlatformTenantUserDto {
   @ApiProperty({ description: 'ตั้ง 2FA แล้ว (#81 — รีเซ็ตได้เมื่อ true)' })
   twoFactorEnabled!: boolean;
 }
+/**
+ * ข้อความใน audit_log ของ tenant (ลูกค้าเห็น) เมื่อทีมงานตั้ง/ลบ override — เหตุผลจริงเป็นข้อมูลภายใน (PLT-066) อยู่ใน platform_audit_log
+ */
+export const OVERRIDE_AUDIT_TEXT = 'ผู้ให้บริการระบบปรับสิทธิ์พิเศษของบริษัท';
 /** P1-ST1-T02 override สิทธิ์ต่อ tenant (spec/01 §6 `TenantEntitlementOverride`, PLT-062/066) */
 export const OVERRIDE_MODES = ['grant', 'revoke', 'set_limit'] as const;
 export class SetEntitlementOverrideDto extends ReasonBody {
@@ -637,6 +642,10 @@ export class PlatformTenantsController {
       throw bad('limit', 'not_allowed', 'revoke takes no limit');
     if (body.mode === 'grant' && body.limit === null)
       throw bad('limit', 'not_allowed', 'omit limit for the plan maximum');
+    if (f.type === 'boolean' && body.limit !== undefined && body.limit !== null)
+      throw bad('limit', 'not_allowed', 'feature has no limit');
+    if (f.type === 'boolean' && body.mode === 'set_limit')
+      throw bad('mode', 'not_allowed', 'set_limit needs a limit-type feature');
     const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
     if (expiresAt && expiresAt.getTime() <= this.clock.now().getTime())
       throw bad('expiresAt', 'must_be_future', 'expiresAt must be in the future');
@@ -657,20 +666,26 @@ export class PlatformTenantsController {
         create: { tenantId: t.id, featureKey: f.key, ...data },
         update: { ...data, createdAt: this.clock.now() },
       });
+      const after = { featureKey: f.key, mode: r.mode, limit: r.limit, expiresAt: r.expiresAt };
+      const prev = before
+        ? { featureKey: f.key, mode: before.mode, limit: before.limit, expiresAt: before.expiresAt }
+        : undefined;
+      // PLT-066: เหตุผลเป็นข้อมูลภายใน → platform_audit_log · audit ของ tenant (ลูกค้าเห็น) มีแค่ก่อน/หลัง + ข้อความกลาง
+      await platformAudit(tx, {
+        action: 'platform.entitlement_override_set',
+        entityType: 'tenant',
+        entityId: t.id,
+        reason: body.reason,
+        after,
+        before: prev,
+      });
       await this.audit(
         tx,
         t.id,
         'platform.entitlement_override_set',
-        body.reason,
-        { featureKey: f.key, mode: r.mode, limit: r.limit, expiresAt: r.expiresAt },
-        before
-          ? {
-              featureKey: f.key,
-              mode: before.mode,
-              limit: before.limit,
-              expiresAt: before.expiresAt,
-            }
-          : undefined,
+        OVERRIDE_AUDIT_TEXT,
+        after,
+        prev,
       );
       return r;
     });
@@ -695,18 +710,28 @@ export class PlatformTenantsController {
       });
       if (!before) throw new ProblemException('not_found');
       await tx.tenantEntitlementOverride.delete({ where: { id: before.id } });
+      const after = { featureKey: f.key, removed: true };
+      const prev = {
+        featureKey: f.key,
+        mode: before.mode,
+        limit: before.limit,
+        expiresAt: before.expiresAt,
+      };
+      await platformAudit(tx, {
+        action: 'platform.entitlement_override_removed',
+        entityType: 'tenant',
+        entityId: t.id,
+        reason: body.reason,
+        after,
+        before: prev,
+      });
       await this.audit(
         tx,
         t.id,
         'platform.entitlement_override_removed',
-        body.reason,
-        { featureKey: f.key, removed: true },
-        {
-          featureKey: f.key,
-          mode: before.mode,
-          limit: before.limit,
-          expiresAt: before.expiresAt,
-        },
+        OVERRIDE_AUDIT_TEXT,
+        after,
+        prev,
       );
     });
     this.entitlements.invalidate(t.id);
@@ -719,12 +744,9 @@ export class PlatformTenantsController {
         { field: 'featureKey', code: 'unknown_feature', message: 'unknown feature' },
       ]);
     if (f.isBasic)
-      throw new ProblemException(
-        'basic_feature_locked',
-        'ฟีเจอร์พื้นฐานใช้ได้ทุกแพ็กเกจ ตั้งสิทธิ์พิเศษไม่ได้',
-        undefined,
-        { featureKey: f.key },
-      );
+      throw new ProblemException('basic_feature_locked', undefined, undefined, {
+        featureKey: f.key,
+      });
     return f;
   }
 

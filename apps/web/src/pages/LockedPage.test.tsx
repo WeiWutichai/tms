@@ -43,6 +43,7 @@ const growth: MeLock = {
   planName: 'Growth',
   pricePerVehicleMonthly: '1280.00',
   addon: false,
+  reason: 'not_in_plan',
 };
 
 describe('LockedPage (P1-ST1-T02)', () => {
@@ -97,9 +98,34 @@ describe('LockedPage (P1-ST1-T02)', () => {
   });
 
   it('ไม่มีแพ็กเกจใดรวมไว้ → ไม่มีการ์ดขวาและปุ่มอัปเกรด (เหลือเทียบแพ็กเกจ)', () => {
-    show({ planCode: null, planName: null, pricePerVehicleMonthly: null, addon: false }, true);
+    show(
+      {
+        planCode: null,
+        planName: null,
+        pricePerVehicleMonthly: null,
+        addon: false,
+        reason: 'not_in_plan',
+      },
+      true,
+    );
     expect(screen.queryByText('มีในแพ็กเกจ')).toBeNull();
     expect(screen.queryByRole('button', { name: /อัปเกรดเป็น/ })).toBeNull();
     expect(screen.getByRole('button', { name: 'เทียบแพ็กเกจ' })).toBeInTheDocument();
+  });
+
+  it('แพ็กเกจรวมอยู่แต่ถูกปิดสิทธิ์ (revoked): ไม่มีปุ่มอัปเกรด/เทียบแพ็กเกจ · บอกให้ติดต่อผู้ให้บริการ', () => {
+    const revoked: MeLock = {
+      planCode: null,
+      planName: null,
+      pricePerVehicleMonthly: null,
+      addon: false,
+      reason: 'revoked',
+    };
+    show(revoked, true);
+    expect(screen.getByText('ปิดใช้งานโดยผู้ให้บริการระบบ')).toBeInTheDocument();
+    expect(screen.getByText(/ติดต่อทีมงานผู้ให้บริการ/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /อัปเกรดเป็น/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'เทียบแพ็กเกจ' })).toBeNull();
+    expect(screen.queryByText('มีในแพ็กเกจ')).toBeNull();
   });
 });

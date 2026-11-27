@@ -79350,13 +79350,22 @@
           "addon": {
             "type": "boolean",
             "description": "แพ็กเกจปัจจุบันขายฟีเจอร์นี้เป็น add-on (ปุ่ม \"ซื้อ Add-on\" แทน \"อัปเกรด\")"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "not_in_plan",
+              "revoked"
+            ],
+            "description": "not_in_plan = แพ็กเกจไม่รวม (อัปเกรด/ซื้อ add-on) · revoked = แพ็กเกจรวมอยู่แต่ผู้ให้บริการปิดสิทธิ์ให้ tenant นี้ (override) — ไม่มีแพ็กเกจให้อัปเกรด (planCode/planName/ราคา = null) ติดต่อทีมงานผู้ให้บริการ"
           }
         },
         "required": [
           "planCode",
           "planName",
           "pricePerVehicleMonthly",
-          "addon"
+          "addon",
+          "reason"
         ]
       },
       "FeatureRequestDto": {
@@ -79562,7 +79571,7 @@
             "example": {
               "multi": "องค์กร"
             },
-            "description": "ฟีเจอร์ที่ยังไม่มี → ชื่อแพ็กเกจแรกที่รวมไว้ (หน้า \"ไม่รวมในแพ็กเกจ\" — spec/01 PLT-076)"
+            "description": "[deprecated — ใช้ `locks` แทน; คงไว้เพื่อไม่ breaking] ฟีเจอร์ที่ยังไม่มี → ชื่อแพ็กเกจแรกที่รวมไว้ (หน้า \"ไม่รวมในแพ็กเกจ\" — spec/01 PLT-076)"
           },
           "locks": {
             "type": "object",

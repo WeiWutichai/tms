@@ -9,6 +9,7 @@ import { ensureSystemRoles } from '../src/auth/system-roles';
 import { Clock } from '../src/common/clock';
 import { RequireFeature } from '../src/common/decorators';
 import { encodeId } from '../src/common/ids';
+import { OVERRIDE_AUDIT_TEXT } from '../src/platform/platform-tenants.controller';
 import { JobQueue } from '../src/jobs/job-queue.service';
 import {
   ENTITLEMENT_TTL_MS,
@@ -273,8 +274,24 @@ describe('entitlement ฉบับเต็ม + override จาก Console (P1-
       'platform.entitlement_override_set',
       'platform.entitlement_override_removed',
     ]);
-    expect(audit[0]!.reason).toBe(REASON);
+    // PLT-066: เหตุผลภายในไม่อยู่ใน audit ของ tenant (ลูกค้าเห็น) — อยู่ใน platform_audit_log
+    for (const a of audit) {
+      expect(a.reason).toBe(OVERRIDE_AUDIT_TEXT);
+      expect(JSON.stringify([a.before, a.after])).not.toContain(REASON);
+    }
     expect(audit[1]!.before).toMatchObject({ featureKey: 'api', mode: 'revoke' });
+    const pa = await db.platformAuditLog.findMany({
+      where: {
+        entityType: 'tenant',
+        entityId: t.id,
+        action: { startsWith: 'platform.entitlement_override' },
+      },
+      orderBy: { seq: 'asc' },
+    });
+    expect(pa.map((a) => [a.action, a.reason])).toEqual([
+      ['platform.entitlement_override_set', REASON],
+      ['platform.entitlement_override_removed', 'ลูกค้าชำระ add-on แล้ว'],
+    ]);
   });
 
   it('grant ที่หมดอายุ: cache หมดตรงเวลาหมดอายุ (ไม่ค้างถึง 60 วิ)', async () => {
@@ -313,6 +330,13 @@ describe('entitlement ฉบับเต็ม + override จาก Console (P1-
     expect((await put('SUPER_ADMIN', 'veh', { mode: 'set_limit', reason: REASON })).status).toBe(
       422,
     );
+    // ฟีเจอร์เปิด/ปิด (boolean) ส่ง limit ไม่ได้
+    expect(
+      (await put('SUPER_ADMIN', 'report', { mode: 'grant', limit: 3, reason: REASON })).status,
+    ).toBe(422);
+    expect(
+      (await put('SUPER_ADMIN', 'report', { mode: 'set_limit', limit: 3, reason: REASON })).status,
+    ).toBe(422);
     const past = await put('SUPER_ADMIN', 'api', {
       mode: 'grant',
       reason: REASON,
@@ -346,6 +370,7 @@ describe('entitlement ฉบับเต็ม + override จาก Console (P1-
       planName: 'Growth',
       pricePerVehicleMonthly: growth.pricePerVehicleMonthly?.toFixed(2) ?? null,
       addon: expect.any(Boolean),
+      reason: 'not_in_plan',
     });
     expect(me.lockedIn.api).toBe('Growth');
 
@@ -366,7 +391,17 @@ describe('entitlement ฉบับเต็ม + override จาก Console (P1-
       data: { tenantId: r.id, featureKey: 'report', mode: 'revoke', reason: REASON },
     });
     ent.invalidate(r.id);
-    expect((await api(app, r.token).get('/v1/me').expect(200)).body.locks.report).toBeDefined();
+    // แพ็กเกจรวมอยู่แต่ถูก revoke → reason revoked ไม่ชี้ไปแพ็กเกจอื่น (ไม่แนะนำ "อัปเกรด" ที่เป็นดาวน์เกรด — review M1)
+    const meR = (await api(app, r.token).get('/v1/me').expect(200)).body;
+    expect(meR.locks.report).toEqual({
+      planCode: null,
+      planName: null,
+      pricePerVehicleMonthly: null,
+      addon: false,
+      reason: 'revoked',
+    });
+    expect(meR.lockedIn.report).toBeUndefined();
+    expect(me.locks.api.reason).toBe('not_in_plan');
   });
 
   it('แจ้งผู้ดูแลระบบ: แจ้งผู้มีสิทธิ์จัดการแพ็กเกจ (ไม่รวมผู้ขอ) · ซ้ำใน 24 ชม. ไม่ส่ง · ฟีเจอร์ที่ไม่ล็อก 422', async () => {

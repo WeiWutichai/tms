@@ -56,6 +56,8 @@ function Guard({ perm, path, children }: { perm?: string[]; path?: string; child
   if (!me.data) return null;
   if (!canAny(me.data.scopes, perm)) return <NoAccess role={me.data.user?.roles[0] ?? '—'} />;
   // ฟีเจอร์ไม่อยู่ในแพ็กเกจ → หน้า "ไม่รวมในแพ็กเกจ" (ST1-T18; PLT-076)
+  // ฟีเจอร์ที่ปิดเพราะสถานะ tenant (ระงับ ฯลฯ) ไม่อยู่ใน locks → หน้าเปิดได้แต่ API ตอบ 403
+  // TODO(P1-ST1-T05): banner สถานะ + หน้าที่เข้าได้ตอน suspended เป็นคนบอกผู้ใช้ — ไม่ใช่ 🔒
   const feature = path ? featureOf(path) : undefined;
   if (feature && isLocked(feature, me.data.locks))
     return (

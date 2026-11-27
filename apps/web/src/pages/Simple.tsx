@@ -67,6 +67,8 @@ export function LockedPage({
     onError: (e) => setToast({ m: problemText(e, t) ?? t('lock.notifyFailed'), err: true }),
   });
   const need = lock?.planName ?? null;
+  /** แพ็กเกจรวมอยู่แต่ผู้ให้บริการปิดสิทธิ์ (override revoke) — ไม่มีแพ็กเกจให้อัปเกรด → ติดต่อทีมงานผู้ให้บริการ */
+  const revoked = lock?.reason === 'revoked';
   return (
     <>
       <PageHeader title={k('t')} sub={t('lock.pageSub')} />
@@ -100,7 +102,7 @@ export function LockedPage({
             }}
           >
             <Icon n="lock" s={12} />
-            {t('lock.badge', { plan })}
+            {revoked ? t('lock.badgeRevoked') : t('lock.badge', { plan })}
           </span>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: '#13213F' }}>{k('t')}</h2>
           <p style={{ margin: 0, color: '#3B424C', maxWidth: 520 }}>{k('d')}</p>
@@ -112,8 +114,13 @@ export function LockedPage({
               </span>
             ))}
           </div>
+          {revoked && (
+            <p style={{ margin: 0, color: '#3B424C', maxWidth: 520 }}>
+              {t(canManage ? 'lock.revokedNote' : 'lock.revokedNoteUser')}
+            </p>
+          )}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-            {canManage ? (
+            {revoked && canManage ? null : canManage ? (
               <>
                 {lock?.addon ? (
                   <Button

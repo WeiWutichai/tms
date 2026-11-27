@@ -8,6 +8,7 @@ import {
   ApiTags,
   getSchemaPath,
 } from '@nestjs/swagger';
+import { Clock } from '../../common/clock';
 import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
@@ -61,6 +62,13 @@ export class MeLockDto {
     description: 'แพ็กเกจปัจจุบันขายฟีเจอร์นี้เป็น add-on (ปุ่ม "ซื้อ Add-on" แทน "อัปเกรด")',
   })
   addon!: boolean;
+  @ApiProperty({
+    enum: ['not_in_plan', 'revoked'],
+    description:
+      'not_in_plan = แพ็กเกจไม่รวม (อัปเกรด/ซื้อ add-on) · revoked = แพ็กเกจรวมอยู่แต่ผู้ให้บริการปิดสิทธิ์ให้ tenant นี้ (override) — ' +
+      'ไม่มีแพ็กเกจให้อัปเกรด (planCode/planName/ราคา = null) ติดต่อทีมงานผู้ให้บริการ',
+  })
+  reason!: 'not_in_plan' | 'revoked';
 }
 
 export class MeImpersonationDto {
@@ -102,6 +110,7 @@ export class MeDto {
     additionalProperties: { type: 'string' },
     example: { multi: 'องค์กร' },
     description:
+      '[deprecated — ใช้ `locks` แทน; คงไว้เพื่อไม่ breaking] ' +
       'ฟีเจอร์ที่ยังไม่มี → ชื่อแพ็กเกจแรกที่รวมไว้ (หน้า "ไม่รวมในแพ็กเกจ" — spec/01 PLT-076)',
   })
   lockedIn!: Record<string, string>;
@@ -147,6 +156,7 @@ export class MeController {
     private readonly entitlements: EntitlementService,
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
+    private readonly clock: Clock,
   ) {}
 
   /**
@@ -174,11 +184,14 @@ export class MeController {
           message: f ? 'feature is already in plan' : 'unknown feature',
         },
       ]);
+    // กันกดพร้อมกันหลายครั้งแล้วส่งซ้ำ (review L3) — ล็อกต่อ tenant+ผู้ขอ+ฟีเจอร์ จนจบ transaction ของคำขอ
+    await this.db.tx
+      .$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`feature-request:${ctx.tenantId}:${u.id}:${f.key}`}))`;
     const dup = await this.db.tx.notification.findFirst({
       where: {
         tenantId: ctx.tenantId!,
         templateCode: 'feature.upgrade_requested',
-        createdAt: { gt: new Date(Date.now() - REQUEST_DEDUPE_MS) },
+        createdAt: { gt: new Date(this.clock.now().getTime() - REQUEST_DEDUPE_MS) },
         AND: [
           { payload: { path: ['featureKey'], equals: f.key } },
           { payload: { path: ['requesterId'], equals: u.id } },
@@ -241,6 +254,17 @@ export class MeController {
     const locks: Record<string, MeLockDto> = {};
     for (const { key } of catalog) {
       if (ent.basic.includes(key) || ent.beforeStatus[key]?.enabled) continue;
+      // แพ็กเกจรวมอยู่แล้วแต่ถูก override ปิด → ไม่ชี้ไปแพ็กเกจอื่น (กันแนะนำ "อัปเกรด" ไปแพ็กเกจที่ถูกกว่า — review M1)
+      if (ent.planModes[key] === 'included') {
+        locks[key] = {
+          planCode: null,
+          planName: null,
+          pricePerVehicleMonthly: null,
+          addon: false,
+          reason: 'revoked',
+        };
+        continue;
+      }
       const code = first[key] ?? null;
       const price = code ? versions.get(code)?.pricePerVehicleMonthly : null;
       locks[key] = {
@@ -248,6 +272,7 @@ export class MeController {
         planName: code ? name(code) : null,
         pricePerVehicleMonthly: price ? price.toFixed(2) : null,
         addon: ent.planModes[key] === 'addon',
+        reason: 'not_in_plan',
       };
     }
     const lockedIn = Object.fromEntries(

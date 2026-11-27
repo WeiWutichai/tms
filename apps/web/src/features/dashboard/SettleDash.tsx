@@ -52,6 +52,7 @@ export function SettleDash() {
   const me = useMe();
   const scopes = me.data?.scopes ?? [];
   // โมดูลปิด (แพ็กเกจ/สถานะ tenant — `features` ของ /me) → ไม่ render (P1-ST1-T02: 🔒 แยกไปใช้ `locks`)
+  // TODO(P1-ST1-T05): ตอน tenant ถูกระงับ banner สถานะเป็นคนบอก — การ์ดนี้แค่ซ่อน
   const off = !!me.data?.features && !me.data.features.includes('settle');
   if (!me.data || !can(scopes, 'settlements:read') || off) return null;
   return <SettleDashCard canBuy={can(scopes, 'prices.buy:read')} />;
