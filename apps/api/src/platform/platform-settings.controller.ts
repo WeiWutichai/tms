@@ -27,6 +27,15 @@ import {
   type PlatformSettingKey,
 } from './platform-settings.registry';
 
+/** ชนิดค่าของค่าตั้ง (int · bool · enum/decimal = string · set = string[] · dayLists = object ของ integer[]) */
+const SETTING_VALUE_SCHEMAS = [
+  { type: 'integer' },
+  { type: 'boolean' },
+  { type: 'string' },
+  { type: 'array', items: { type: 'string' } },
+  { type: 'object', additionalProperties: { type: 'array', items: { type: 'integer' } } },
+];
+
 export class PlatformSettingDto {
   @ApiProperty({ example: 'trial.days', enum: PLATFORM_SETTING_KEYS }) key!: string;
   @ApiProperty({ enum: ['trial', 'dunning', 'retention', 'usage', 'billing', 'ops'] })
@@ -36,14 +45,23 @@ export class PlatformSettingDto {
     description: 'ชนิดค่า (ตรวจที่ server — ผิด type → 422)',
   })
   type!: string;
-  @ApiProperty({ description: 'ค่าที่มีผล (number · boolean · string · string[] · object)' })
+  @ApiProperty({ description: 'ค่าที่มีผล (ชนิดตาม `type`)', oneOf: SETTING_VALUE_SCHEMAS })
   value!: unknown;
-  @ApiProperty({ description: 'ค่าเริ่มต้น' }) default!: unknown;
+  @ApiProperty({ description: 'ค่าเริ่มต้น (ชนิดตาม `type`)', oneOf: SETTING_VALUE_SCHEMAS })
+  default!: unknown;
   @ApiProperty({ description: 'ยังใช้ค่าเริ่มต้น (ไม่เคยตั้ง)' }) isDefault!: boolean;
   @ApiPropertyOptional({ type: [String], description: 'ค่าที่เลือกได้ (enum / set)' })
   options?: string[];
-  @ApiPropertyOptional({ description: 'ต่ำสุด (int / decimal / dayLists)' }) min?: number | string;
-  @ApiPropertyOptional({ description: 'สูงสุด (int / decimal / dayLists)' }) max?: number | string;
+  @ApiPropertyOptional({
+    description: 'ต่ำสุด (int / dayLists = จำนวนเต็ม · decimal = สตริงทศนิยม)',
+    oneOf: [{ type: 'integer' }, { type: 'string' }],
+  })
+  min?: number | string;
+  @ApiPropertyOptional({
+    description: 'สูงสุด (int / dayLists = จำนวนเต็ม · decimal = สตริงทศนิยม)',
+    oneOf: [{ type: 'integer' }, { type: 'string' }],
+  })
+  max?: number | string;
   @ApiPropertyOptional({ type: [String], description: 'ชื่อกลุ่มวัน (dayLists)' }) keys?: string[];
   @ApiProperty({ example: 'docs/02 §2 · D-43' }) source!: string;
   @ApiProperty() description!: string;
@@ -61,13 +79,7 @@ const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? val
 export class UpdatePlatformSettingDto {
   @ApiProperty({
     description: 'ค่าใหม่ตามชนิดของ key',
-    oneOf: [
-      { type: 'integer' },
-      { type: 'boolean' },
-      { type: 'string' },
-      { type: 'array', items: { type: 'string' } },
-      { type: 'object', additionalProperties: { type: 'array', items: { type: 'integer' } } },
-    ],
+    oneOf: SETTING_VALUE_SCHEMAS,
   })
   @IsDefined()
   value!: unknown;
