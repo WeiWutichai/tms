@@ -8,6 +8,7 @@ import { useI18n, type Lang } from '../i18n';
 import { th, type MessageKey } from '../i18n/th';
 import { useTenantList } from './ConsoleShell';
 import { StepUpBox } from '../features/settings/OrgSections';
+import { TenantUsage } from './TenantUsage';
 import {
   can,
   consoleApi,
@@ -221,7 +222,7 @@ function TenantDrawer({
 }) {
   const { t, lang } = useI18n();
   const role = useStaff().data?.role;
-  const [tab, setTab] = useState<'ov' | 'usr'>('ov');
+  const [tab, setTab] = useState<'ov' | 'use' | 'usr'>('ov');
   const [dlg, setDlg] = useState<Dlg>(null);
   const d = useQuery({
     queryKey: ['console', 'tenant', id],
@@ -281,6 +282,7 @@ function TenantDrawer({
             {(
               [
                 ['ov', 'con.dtab.ov'],
+                ['use', 'con.dtab.use'],
                 ['usr', 'con.dtab.usr'],
               ] as const
             ).map(([k, l]) => (
@@ -342,6 +344,7 @@ function TenantDrawer({
               )}
             </>
           )}
+          {x && tab === 'use' && <TenantUsage x={x} onToast={onToast} />}
           {x && tab === 'usr' && (
             <Members
               x={x}

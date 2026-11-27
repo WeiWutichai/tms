@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../../i18n';
 
-/** D-81 · D68-14: โควตารถนับรถ active ในเดือน (docs/02) — ฟอร์มเพิ่มรถแสดง "รถในทะเบียน N / โควตา M" ไม่เตือนเกินโควตา */
+/** D-81 · D68-14 / P1-ST1-T06: โควตารถนับรถ active ในเดือน (docs/02) — ฟอร์มเพิ่มรถแสดง "รถ active เดือนนี้ N / โควตา M" (ตัวเลขจริง) ไม่เตือนเกินโควตา */
 vi.mock('../../api', async (orig) => {
   const real = await orig<typeof import('../../api')>();
   const ok = (data: unknown) =>
@@ -16,7 +16,7 @@ vi.mock('../../api', async (orig) => {
 
 const { VehicleFormDrawer } = await import('./VehicleFormDrawer');
 
-const mount = (quota: { limit: number | null; used: number } | undefined) =>
+const mount = (quota: { limit: number | null; used: number; active: number } | undefined) =>
   render(
     <QueryClientProvider client={new QueryClient()}>
       <I18nProvider>
@@ -33,13 +33,15 @@ const mount = (quota: { limit: number | null; used: number } | undefined) =>
   );
 
 describe('ฟอร์มเพิ่มรถ: โควตา (D68-14)', () => {
-  it('รถในทะเบียนเกินโควตา → แสดงตัวเลขเฉย ๆ ไม่มีคำว่า "เกินโควตา"', () => {
-    mount({ limit: 10, used: 12 });
-    expect(screen.getByTestId('veh-quota')).toHaveTextContent('รถในทะเบียน 12 คัน / โควตา 10 คัน');
+  it('แสดงรถ active เดือนนี้ (ไม่ใช่รถในทะเบียน) เทียบโควตา ไม่มีคำว่า "เกินโควตา"', () => {
+    mount({ limit: 10, used: 12, active: 7 });
+    expect(screen.getByTestId('veh-quota')).toHaveTextContent(
+      'รถ active เดือนนี้ 7 คัน / โควตา 10 คัน',
+    );
     expect(screen.queryByText(/เกินโควตา/)).toBeNull();
   });
   it('ไม่จำกัดโควตา → ไม่แสดง', () => {
-    mount({ limit: null, used: 3 });
+    mount({ limit: null, used: 3, active: 1 });
     expect(screen.queryByTestId('veh-quota')).toBeNull();
   });
 });
