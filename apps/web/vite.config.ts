@@ -27,7 +27,12 @@ const helpStatic: Connect.NextHandleFunction = (req, res, next) => {
     res.setHeader('Location', '/help/');
     return res.end();
   }
-  const rel = normalize(decodeURIComponent(url.slice('/help/'.length)) || 'index.html');
+  let rel: string;
+  try {
+    rel = normalize(decodeURIComponent(url.slice('/help/'.length)) || 'index.html');
+  } catch {
+    return next(); // %-encoding เสีย (URIError)
+  }
   const file = join(HELP_DIR, rel);
   if (rel.startsWith('..') || !file.startsWith(HELP_DIR)) return next();
   const type = HELP_TYPES[extname(file)];

@@ -280,7 +280,7 @@ export function ServiceItemFormDrawer({
         </>
       }
     >
-      {topErr && <ProblemAlert err={m.error} text={topErr} />}
+      <ProblemAlert err={m.error} text={topErr} />
       <section className="tms-fsec">
         <div className="tms-fgrid tms-fgrid--create">
           <FormField label={t('svc.f.name')} required span={2} error={errs.name}>

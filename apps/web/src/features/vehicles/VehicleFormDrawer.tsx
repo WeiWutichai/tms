@@ -121,7 +121,7 @@ export function VehicleFormDrawer({
           {t('veh.quota', { limit: quota!.limit!, used: quota!.used })}
         </div>
       )}
-      {topErr && <ProblemAlert err={create.error} text={topErr} />}
+      <ProblemAlert err={create.error} text={topErr} />
       <section className="tms-fsec">
         <h3 className="tms-fsec__h">{t('veh.sec.main')}</h3>
         <div className="tms-fgrid tms-fgrid--create">

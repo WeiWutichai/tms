@@ -119,6 +119,12 @@ describe('เมนูคู่มือและติดต่อทีมง�
     });
     expect(cfg.supportEmail).toBeUndefined();
     expect(cfg.supportLineOa).toBeUndefined();
+    // review: อีเมลที่พา query ไปด้วย (ฉีด cc/bcc ใน mailto) ต้องไม่ผ่าน
+    for (const bad of ['support@x.co?cc=evil', 'a%40b@x.co', 'a@x.co#x', 'a/b@x.co', 'a=b@x.co'])
+      expect(readHelpConfig({ VITE_SUPPORT_EMAIL: bad }).supportEmail, bad).toBeUndefined();
+    expect(readHelpConfig({ VITE_SUPPORT_EMAIL: 'help+tms@example.co.th' }).supportEmail).toBe(
+      'help+tms@example.co.th',
+    );
     wrap(<HelpMenu {...ctx} cfg={cfg} />);
     fireEvent.click(screen.getByRole('button', { name: 'คู่มือและติดต่อทีมงาน' }));
     const b = screen.getByRole('menuitem', { name: 'ติดต่อทีมงาน' }) as HTMLButtonElement;

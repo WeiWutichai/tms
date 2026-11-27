@@ -183,7 +183,7 @@ export function ApiKeyFormDrawer({
         </>
       }
     >
-      {topErr && <ProblemAlert err={m.error} text={topErr} />}
+      <ProblemAlert err={m.error} text={topErr} />
       <section className="tms-fsec">
         <div className="tms-fgrid tms-fgrid--create">
           {!edit && (

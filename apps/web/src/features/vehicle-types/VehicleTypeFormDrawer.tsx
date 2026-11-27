@@ -254,7 +254,7 @@ export function VehicleTypeFormDrawer({
         </>
       }
     >
-      {topErr && <ProblemAlert err={m.error} text={topErr} />}
+      <ProblemAlert err={m.error} text={topErr} />
       <section className="tms-fsec">
         <div className="tms-fgrid tms-fgrid--create">
           <FormField label={t('vt.f.name')} required span={2} error={errs.name}>

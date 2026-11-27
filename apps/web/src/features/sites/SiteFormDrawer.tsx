@@ -370,7 +370,7 @@ export function SiteFormDrawer({
         </>
       }
     >
-      {topErr && <ProblemAlert err={m.error} text={topErr} />}
+      <ProblemAlert err={m.error} text={topErr} />
       <section className="tms-fsec">
         <div className="tms-fgrid tms-fgrid--create">
           <FormField label={t('loc.f.name')} required span={2} error={errs.name}>

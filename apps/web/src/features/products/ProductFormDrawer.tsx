@@ -375,7 +375,7 @@ export function ProductFormDrawer({
         </>
       }
     >
-      {topErr && <ProblemAlert err={m.error} text={topErr} />}
+      <ProblemAlert err={m.error} text={topErr} />
       <section className="tms-fsec">
         <div className="tms-fgrid tms-fgrid--create">
           <FormField label={t('prd.f.code')} required error={errs.code}>

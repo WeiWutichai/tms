@@ -206,7 +206,7 @@ export function ReasonFormDrawer({
         </>
       }
     >
-      {topErr && <ProblemAlert err={m.error} text={topErr} />}
+      <ProblemAlert err={m.error} text={topErr} />
       {item?.system && (
         <div
           role="note"

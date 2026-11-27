@@ -18,7 +18,8 @@ export interface HelpConfig {
   supportLineOa?: string;
 }
 
-const EMAIL = /^[^\s@<>()"',;:]+@[^\s@<>()"',;:]+\.[^\s@<>()"',;:]+$/;
+/** เข้มงวด — ห้าม `% ? & = # /` (กันการฉีด header ของ mailto เช่น `?cc=`) */
+const EMAIL = /^[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 const LINE_OA = /^@[A-Za-z0-9._-]{2,40}$/;
 
 export function readHelpConfig(e: Record<string, string | undefined> = env): HelpConfig {

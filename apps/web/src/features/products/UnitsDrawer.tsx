@@ -356,7 +356,7 @@ function UnitFormDrawer({
         </>
       }
     >
-      {topErr && <ProblemAlert err={save.error} text={topErr} />}
+      <ProblemAlert err={save.error} text={topErr} />
       <section className="tms-fsec">
         <div className="tms-fgrid tms-fgrid--create">
           <FormField label={t('unit.f.code')} required error={errs.code}>

@@ -142,7 +142,7 @@ export function CustomerCreateDrawer({
         </>
       }
     >
-      {top && <ProblemAlert err={create.error} text={top} />}
+      <ProblemAlert err={create.error} text={top} />
       <FormSection title={t('cust.sec.main')}>
         <FormField label={t('cust.f.name')} required span={2} error={errs.legalName}>
           {input('name', { autoFocus: true })}
