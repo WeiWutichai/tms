@@ -315,7 +315,7 @@ export const NAV: NavGroup[] = [
 ];
 
 /** หน้าย่อยที่ไม่อยู่ในเมนู → key ของหน้า (META) + path ของเมนูแม่ (สิทธิ์/แพ็กเกจเดียวกัน) */
-const SUBPAGES: { re: RegExp; page: string; parent: string }[] = [
+export const SUBPAGES: { re: RegExp; page: string; parent: string }[] = [
   { re: /^\/fleet\/vehicles\/[^/]+$/, page: 'fprof', parent: '/fleet/vehicles' },
 ];
 export const parentOf = (pathname: string) =>

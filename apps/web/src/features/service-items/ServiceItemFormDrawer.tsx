@@ -20,6 +20,7 @@ import {
   type VatType,
   type WhtRate,
 } from './useServiceItems';
+import { ProblemAlert } from '../../help/ProblemAlert';
 
 interface Form {
   name: string;
@@ -279,7 +280,7 @@ export function ServiceItemFormDrawer({
         </>
       }
     >
-      {topErr && <div className="tms-alert">{topErr}</div>}
+      <ProblemAlert err={m.error} text={topErr} />
       <section className="tms-fsec">
         <div className="tms-fgrid tms-fgrid--create">
           <FormField label={t('svc.f.name')} required span={2} error={errs.name}>

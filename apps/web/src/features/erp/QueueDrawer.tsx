@@ -6,6 +6,7 @@ import { DoneNote, KvSection, logTimeline, MsgBar, Step } from './ErpDrawer';
 import { classKey, queueMessage, queueStatusKey, queueType, type QueueItem } from './queue';
 import type { QueueDialogKind } from './QueueDialogs';
 import { useCommandSyncLog } from './useQueue';
+import { connectorGuideUrl } from '../../help/routes';
 
 /**
  * drawer รายการคิว (PO #86 24 พ.ย. 2569 — หน้าตา vPanel kind `erp` ของต้นแบบ): หัว "คิวเชื่อมระบบบัญชี · {ประเภท}" + เลข + ลูกค้า + ป้ายสถานะ ·
@@ -140,6 +141,15 @@ export function QueueDrawer({
                 )}
               </h3>
               <span style={{ color: '#101418' }}>{x.guide.action}</span>
+              {/* P1-ST6-T02 (docs/04 G3 "คู่มือต่อ error code (ลิงก์ help)" · K7) — หัวข้อของรหัสนี้ใน help center */}
+              <a
+                href={connectorGuideUrl(x.guide.key)}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: '#2257C4', fontWeight: 500, textDecoration: 'none' }}
+              >
+                {t('erpq.q.manual')}
+              </a>
               {x.link && (
                 <Link to={x.link} style={{ color: '#2257C4', fontWeight: 500 }}>
                   {t('erpq.q.goFix')}
