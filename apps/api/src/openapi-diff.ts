@@ -44,11 +44,22 @@ export interface OpenApiPropertyRemoval {
   adr: string;
 }
 
+/**
+ * ค่า enum ที่ลบได้ (P1-ST1-T03 review S2) — `schema` = `Name.prop` ตรงตัว · ต้องอ้าง ADR/งาน และการเปลี่ยนบนสายต้องมี version gate แล้ว
+ * (client ที่ pin ก่อนยังได้ค่าเดิม) · ยอมเฉพาะ "enum values removed" ที่ค่าที่ลบตรงกับ `values` ทุกตัว
+ */
+export interface OpenApiEnumRemoval {
+  schema: string;
+  values: string[];
+  adr: string;
+}
+
 export function diffOpenApi(
   base: Json,
   head: Json,
   corrections: readonly OpenApiCorrection[] = [],
   removals: readonly OpenApiPropertyRemoval[] = [],
+  enumRemovals: readonly OpenApiEnumRemoval[] = [],
 ): Breaking[] {
   const out = diffAll(base, head);
   const allowed = new Set([
@@ -58,6 +69,9 @@ export function diffOpenApi(
     ...removals
       .filter((r) => !!r.adr && /^[A-Za-z0-9_]+\.[A-Za-z0-9_]+$/.test(r.schema))
       .map((r) => `schema ${r.schema}: property removed`),
+    ...enumRemovals
+      .filter((r) => !!r.adr && /^[A-Za-z0-9_]+\.[A-Za-z0-9_]+$/.test(r.schema) && r.values.length)
+      .map((r) => `schema ${r.schema}: enum values removed: ${r.values.join(', ')}`),
   ]);
   return out.filter((x) => !allowed.has(`${x.where}: ${x.change}`));
 }

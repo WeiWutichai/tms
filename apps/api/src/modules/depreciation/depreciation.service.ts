@@ -11,6 +11,7 @@ import {
   lastDayOf,
   type Month,
 } from './depreciation-policy';
+import { JOB_TENANT_STATUSES, canRunJobs } from '../tenants/tenant-status';
 
 export const DEPRECIATION_JOB = 'depreciation.monthly';
 /** job ของเดือนที่เพิ่งปิด สร้างตั้งแต่วันที่ 1 เวลา 02:00 น. ไทย */
@@ -91,7 +92,7 @@ export class DepreciationService implements OnModuleInit {
     return this.prisma.platform.$transaction(async (db) => {
       await db.$executeRaw`SELECT pg_advisory_xact_lock(9, hashtext('depreciation.monthly'))`;
       const tenants = await db.tenant.findMany({
-        where: { status: { in: ['TRIAL', 'ACTIVE'] }, mode: 'live' }, // ST7-T09 sandbox ไม่รันงานประจำ
+        where: { status: { in: [...JOB_TENANT_STATUSES] }, mode: 'live' }, // ST7-T09 sandbox ไม่รันงานประจำ
         select: { id: true },
         orderBy: { createdAt: 'asc' },
       });
@@ -129,7 +130,7 @@ export class DepreciationService implements OnModuleInit {
       where: { id: tenantId },
       select: { status: true },
     });
-    return t?.status === 'TRIAL' || t?.status === 'ACTIVE';
+    return canRunJobs(t?.status);
   }
 
   /** ลงค่าเสื่อมของ tenant ถึงเดือน `through` (รวม) */

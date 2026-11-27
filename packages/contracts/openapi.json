@@ -3854,6 +3854,68 @@
         ]
       }
     },
+    "/v1/platform/tenants/{id}/activate": {
+      "post": {
+        "operationId": "PlatformTenants_activate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformTenantDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
     "/v1/platform/tenants/{id}/plan": {
       "patch": {
         "operationId": "PlatformTenants_plan",
@@ -5733,7 +5795,11 @@
         ],
         "tags": [
           "platform"
-        ]
+        ],
+        "x-api-version-gates": [
+          "tenant.status_lifecycle"
+        ],
+        "description": "**หมายเหตุต่อเวอร์ชัน (X-Api-Version)**\n- 2026-11-27: สถานะบริษัท (`tenant.status`) มี 7 ค่า — ก่อนหน้านี้ 4 ค่า (trial / active / suspended / cancelled)"
       }
     },
     "/v1/me/badges": {
@@ -75205,7 +75271,7 @@
     "description": "Open API ชุดเดียวกับที่ UI ใช้ (docs/01 §5) — error เป็น application/problem+json",
     "version": "v1",
     "contact": {},
-    "x-api-version-latest": "2026-11-18",
+    "x-api-version-latest": "2026-11-27",
     "x-api-versions": [
       {
         "version": "2026-11-01",
@@ -75219,6 +75285,16 @@
           {
             "id": "api_key.status_rotating",
             "description": "API key ที่หมุนแล้ว (ใช้ได้ถึง revokeAt) มีสถานะ `rotating` — ก่อนหน้านี้แสดงเป็น `active` และตัวกรอง `status=active` รวม key เหล่านี้"
+          }
+        ]
+      },
+      {
+        "version": "2026-11-27",
+        "summary": "สถานะบริษัท 7 ค่า (P1-ST1-T03 · spec/01 PLT-010): `GET /v1/me` `tenant.status` = pending_verification / trialing / active / past_due / read_only / suspended / cancelled — ก่อนหน้านี้ trial / active / suspended / cancelled (gate `tenant.status_lifecycle`)",
+        "changes": [
+          {
+            "id": "tenant.status_lifecycle",
+            "description": "สถานะบริษัท (`tenant.status`) มี 7 ค่า — ก่อนหน้านี้ 4 ค่า (trial / active / suspended / cancelled)"
           }
         ]
       }
@@ -77520,11 +77596,15 @@
           "status": {
             "type": "string",
             "enum": [
-              "trial",
+              "pending_verification",
+              "trialing",
               "active",
+              "past_due",
+              "read_only",
               "suspended",
               "cancelled"
-            ]
+            ],
+            "description": "สถานะบัญชีบริษัท 7 ค่า (P1-ST1-T03 · spec/01 PLT-010)"
           },
           "planCode": {
             "type": "string"
@@ -77586,6 +77666,64 @@
           "twoFactorEnabled"
         ]
       },
+      "PlatformTenantStatusHistoryDto": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "pending_verification",
+              "trialing",
+              "active",
+              "past_due",
+              "read_only",
+              "suspended",
+              "cancelled"
+            ]
+          },
+          "to": {
+            "type": "string",
+            "enum": [
+              "pending_verification",
+              "trialing",
+              "active",
+              "past_due",
+              "read_only",
+              "suspended",
+              "cancelled"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "actorType": {
+            "type": "string",
+            "enum": [
+              "system",
+              "platform_user",
+              "tenant_user"
+            ]
+          },
+          "actorName": {
+            "type": "string",
+            "nullable": true,
+            "description": "ชื่อทีมงาน/ผู้ใช้ (ระบบ = null)"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "reason",
+          "actorType",
+          "actorName",
+          "at"
+        ]
+      },
       "PlatformTenantDetailDto": {
         "type": "object",
         "properties": {
@@ -77599,11 +77737,15 @@
           "status": {
             "type": "string",
             "enum": [
-              "trial",
+              "pending_verification",
+              "trialing",
               "active",
+              "past_due",
+              "read_only",
               "suspended",
               "cancelled"
-            ]
+            ],
+            "description": "สถานะบัญชีบริษัท 7 ค่า (P1-ST1-T03 · spec/01 PLT-010)"
           },
           "planCode": {
             "type": "string"
@@ -77624,6 +77766,49 @@
             "items": {
               "$ref": "#/components/schemas/PlatformTenantUserDto"
             }
+          },
+          "trialEndsAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "วันหมดทดลองใช้ (subscription)"
+          },
+          "currentPeriodEnd": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "สิ้นรอบบิลปัจจุบัน = วันต่ออายุ (subscription — แสดงเมื่อไม่ได้ทดลองใช้)"
+          },
+          "manualSuspension": {
+            "type": "boolean",
+            "description": "ระงับด้วยมือ (ปลดระงับได้) — ระงับเพราะค้างชำระปลดด้วยการชำระเท่านั้น"
+          },
+          "statusChangedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "statusReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "pastDueSince": {
+            "type": "string",
+            "nullable": true,
+            "format": "date",
+            "description": "วัน 0 ของช่วงค้างชำระ (ใบครบกำหนด / วันหมด trial)"
+          },
+          "dataPurgeAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "cancelled: วันครบระยะเก็บข้อมูล (retention.operationalDays — job ลบปิดอยู่)"
+          },
+          "statusHistory": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlatformTenantStatusHistoryDto"
+            }
           }
         },
         "required": [
@@ -77634,7 +77819,15 @@
           "vehicleQuota",
           "users",
           "createdAt",
-          "members"
+          "members",
+          "trialEndsAt",
+          "currentPeriodEnd",
+          "manualSuspension",
+          "statusChangedAt",
+          "statusReason",
+          "pastDueSince",
+          "dataPurgeAt",
+          "statusHistory"
         ]
       },
       "CreatePlatformTenantDto": {
@@ -80671,11 +80864,15 @@
           "status": {
             "type": "string",
             "enum": [
-              "trial",
+              "pending_verification",
+              "trialing",
               "active",
+              "past_due",
+              "read_only",
               "suspended",
               "cancelled"
-            ]
+            ],
+            "description": "สถานะบัญชีบริษัท 7 ค่า (P1-ST1-T03 · spec/01 PLT-010) — `X-Api-Version` ก่อน 2026-11-27 ได้ชุดเดิม 4 ค่า (trial / active / suspended / cancelled)"
           },
           "yearStyle": {
             "type": "string",
@@ -119327,11 +119524,11 @@
         "name": "X-Api-Version",
         "in": "header",
         "required": false,
-        "description": "เวอร์ชันพฤติกรรมของ API (วันที่ YYYY-MM-DD ตั้งแต่ 2026-11-01 ถึงวันนี้ — ได้ทุกการเปลี่ยนที่ออกในหรือก่อนวันนั้น; ล่าสุด 2026-11-18). ไม่ส่ง = เวอร์ชันที่ pin ไว้บน API key → วันที่สร้างบริษัท. ผิดรูปแบบ/ก่อนเวอร์ชันแรก/อนาคต → 400 `invalid_api_version`. เพิ่ม field/enum ใหม่ไม่ถือว่า breaking — client ต้องรับค่า enum ที่ไม่รู้จักได้",
+        "description": "เวอร์ชันพฤติกรรมของ API (วันที่ YYYY-MM-DD ตั้งแต่ 2026-11-01 ถึงวันนี้ — ได้ทุกการเปลี่ยนที่ออกในหรือก่อนวันนั้น; ล่าสุด 2026-11-27). ไม่ส่ง = เวอร์ชันที่ pin ไว้บน API key → วันที่สร้างบริษัท. ผิดรูปแบบ/ก่อนเวอร์ชันแรก/อนาคต → 400 `invalid_api_version`. เพิ่ม field/enum ใหม่ไม่ถือว่า breaking — client ต้องรับค่า enum ที่ไม่รู้จักได้",
         "schema": {
           "type": "string",
           "format": "date",
-          "example": "2026-11-18"
+          "example": "2026-11-27"
         }
       }
     }
@@ -120229,10 +120426,25 @@
       "title": "นิติบุคคลนี้ให้ระบบบัญชีเป็นผู้ออกใบกำกับภาษี — TMS ออกได้เฉพาะใบแจ้งหนี้/ใบวางบิล",
       "titleEn": "Tax documents for this legal entity are issued by the ERP — TMS issues invoices/billing notes only"
     },
+    "tenant_cancelled": {
+      "status": 403,
+      "title": "บัญชีบริษัทถูกยกเลิก ขอส่งออกข้อมูลได้จนถึงวันครบระยะเก็บข้อมูล",
+      "titleEn": "This company account is cancelled — you can still request a data export until the retention date"
+    },
+    "tenant_read_only": {
+      "status": 403,
+      "title": "บัญชีเป็นอ่านอย่างเดียว สร้างงานใหม่ไม่ได้ ดูและ export ได้",
+      "titleEn": "This account is read-only — viewing and exporting still work"
+    },
     "tenant_selection_required": {
       "status": 409,
       "title": "อีเมลนี้เป็นสมาชิกหลายบริษัท เลือกบริษัทที่ต้องการเข้า",
       "titleEn": "This account belongs to several organisations; choose one"
+    },
+    "tenant_suspended": {
+      "status": 403,
+      "title": "บัญชีบริษัทถูกระงับ ใช้ได้เฉพาะการชำระเงินและขอส่งออกข้อมูล",
+      "titleEn": "This company account is suspended — only payment and data export are available"
     },
     "trip_cost_allocation_failed": {
       "status": 500,

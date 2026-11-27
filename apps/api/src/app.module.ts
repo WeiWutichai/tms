@@ -57,6 +57,8 @@ import { PublicPlansController } from './modules/entitlements/public-plans.contr
 import { PlatformPlansController } from './platform/platform-plans.controller';
 import { PlatformSettingsController } from './platform/platform-settings.controller';
 import { PlatformSettingsService } from './platform/platform-settings.service';
+import { TenantLifecycleService } from './modules/tenants/tenant-lifecycle.service';
+import { ReadOnlyTripGate } from './modules/tenants/read-only-gate';
 import { PlatformTenantsController } from './platform/platform-tenants.controller';
 import { ImpersonationController } from './platform/impersonation.controller';
 import {
@@ -446,6 +448,8 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     AccountingExportService,
     EntitlementService,
     PlatformSettingsService,
+    TenantLifecycleService,
+    ReadOnlyTripGate,
     MagicLinkService,
     DbService,
     StateService,

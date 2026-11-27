@@ -31,6 +31,7 @@ import {
 import { NotificationEvents } from '../notifications/notification-events';
 import { OrderSourceRegistry } from './order-source-registry';
 import type { ExternalOrder, PullPage, PullProblem } from './order-source.port';
+import { canSync } from '../tenants/tenant-status';
 
 export const CONNECTOR_PULL_JOB = 'connector.pull';
 /** จำนวนใบต่อหน้าที่ขอจาก adapter */
@@ -1092,7 +1093,7 @@ export class ConnectorIntakeService implements OnModuleInit {
       where: { id: tenantId },
       select: { status: true, mode: true },
     });
-    if (!t || (t.status !== 'TRIAL' && t.status !== 'ACTIVE')) return null;
+    if (!t || !canSync(t.status)) return null;
     return t.mode === 'test' ? 'test' : 'live';
   }
 }

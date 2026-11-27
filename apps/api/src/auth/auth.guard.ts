@@ -4,6 +4,7 @@ import { requiresTwoFactor, scopeAllows } from '@tms/domain';
 import type { Request } from 'express';
 import {
   ALLOW_BEFORE_2FA,
+  ALLOW_READ_ONLY_TENANT,
   IS_PUBLIC,
   LINK_ACTION,
   PLATFORM_ROLES,
@@ -24,6 +25,7 @@ import { ApiKeyAuthService, type KeyPrincipal } from '../modules/api-keys/api-ke
 import { looksLikeApiKey } from '../modules/api-keys/key-material';
 import { MODE_HEADER, SandboxService } from '../modules/sandbox/sandbox.service';
 import { isRs256, verifyClientToken } from './signing-keys';
+import { canWrite, tenantStatusOut } from '../modules/tenants/tenant-status';
 import {
   signAccessToken,
   verifyAccessToken,
@@ -32,6 +34,15 @@ import {
   verifyStepUpToken,
   type AccessClaims,
 } from './tokens';
+
+/**
+ * P1-ST1-T03 (spec/01 ตาราง 1.6 + "API ที่ยกเว้นจาก guard สถานะเสมอ: /auth/*, /billing/*, /payments/*, /exports/*, /me"):
+ * ยกเว้นจาก guard สถานะ tenant ทั้งกลุ่ม + หน้าแพ็กเกจ (`/plan*`, `/subscription*` — ฝั่งลูกค้า P1-ST4) ที่ suspended/cancelled ยังเข้าได้
+ * `/v1/payments` ตาม spec ตรงตัว (review S3 — เดิมไม่ยกเว้นเพราะในระบบนี้คือรับชำระจากลูกค้าของ tenant: [OPEN — PO] ความหมาย `/payments/*`)
+ */
+const TENANT_STATUS_EXEMPT =
+  /^\/v1\/(auth|oauth|me|exports|billing|payments|plans?|subscriptions?)(\/|$)/;
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /** principal ของ API key / client credentials (ST7-T01) — actor = `apikey:<uuid>` ใน audit */
 const keyClaims = (p: KeyPrincipal): AccessClaims => ({
@@ -119,6 +130,7 @@ export class AuthGuard implements CanActivate {
       const token = String((req.params as Record<string, string>)?.token ?? '');
       const link = await this.links.resolve(token, linkAction);
       if (!link) throw new ProblemException('not_found');
+      await this.assertTenantAllowed(req, targets, link.tenantId, 'link');
       const ctx = requestContext.require();
       ctx.tenantId = link.tenantId;
       ctx.actorId = `link:${link.id}`;
@@ -209,6 +221,8 @@ export class AuthGuard implements CanActivate {
         throw new ProblemException('two_factor_enrolment_required');
     }
     // spec/01 PLT-001 ลำดับ: สถานะ tenant (ตรวจกับ tokenVersion แล้ว) → entitlement → สิทธิ์ role
+    // P1-ST1-T03: read_only เขียนไม่ได้ · suspended/cancelled ใช้ได้เฉพาะเส้นทางที่ยกเว้น — tenant ของ token (sandbox ใช้สถานะบริษัทจริง)
+    await this.assertTenantAllowed(req, targets, claims.tid, claims.pt);
     const feature = this.reflector.getAllAndOverride<string>(REQUIRED_FEATURE, targets);
     if (feature && !(await this.entitlements.enabled(claims.tid, feature)))
       throw new ProblemException('feature_not_in_plan', undefined, undefined, {
@@ -250,6 +264,7 @@ export class AuthGuard implements CanActivate {
       };
     if (link?.mode === 'test' && this.reflector.getAllAndOverride<boolean>(LIVE_ONLY, targets))
       throw new ProblemException('sandbox_unsupported');
+
     ctx.actorId = claims.sub;
     ctx.scopes = scopes;
     ctx.principalType = claims.pt;
@@ -258,6 +273,43 @@ export class AuthGuard implements CanActivate {
       ctx.impersonationSessionId = claims.sid;
     }
     return true;
+  }
+
+  /**
+   * P1-ST1-T03 guard สถานะ tenant (spec/01 ตาราง 1.6 · PLT-001 ลำดับแรก) — อ่านสถานะสดทุกคำขอ (ไม่มี cache)
+   * - เขียนได้ (pending/trialing/active/past_due) หรือเส้นทางที่ยกเว้น → ผ่าน
+   * - read_only: อ่านได้ · เขียน → 403 `tenant_read_only` (ยกเว้น `@AllowReadOnlyTenant()`)
+   * - suspended/cancelled: login ได้แต่ใช้ได้เฉพาะเส้นทางที่ยกเว้น — อื่น ๆ ทุก method → 403 `tenant_suspended` / `tenant_cancelled`
+   *   (เข้าใช้งานแทนยังอ่านได้ — spec/01 §11.8)
+   */
+  private async assertTenantAllowed(
+    req: Request,
+    targets: Parameters<Reflector['getAllAndOverride']>[1],
+    tenantId: string,
+    principal: string | undefined,
+  ): Promise<void> {
+    if (TENANT_STATUS_EXEMPT.test(req.path)) return;
+    const safe = SAFE_METHODS.has(req.method.toUpperCase());
+    const t = await this.prisma.platform.tenant.findUnique({
+      where: { id: tenantId },
+      select: { status: true, liveTenant: { select: { status: true } } },
+    });
+    const status = t?.liveTenant?.status ?? t?.status;
+    if (!status || canWrite(status)) return;
+    if (status === 'READ_ONLY') {
+      if (safe || this.reflector.getAllAndOverride<boolean>(ALLOW_READ_ONLY_TENANT, targets))
+        return;
+      throw new ProblemException('tenant_read_only', undefined, undefined, {
+        tenantStatus: 'read_only',
+      });
+    }
+    if (safe && principal === 'imp') return;
+    throw new ProblemException(
+      status === 'CANCELLED' ? 'tenant_cancelled' : 'tenant_suspended',
+      undefined,
+      undefined,
+      { tenantStatus: tenantStatusOut(status) },
+    );
   }
 
   /** ทีม Innovera: token Console + บัญชียังใช้งาน (tokenVersion ตรง) + role อยู่ในรายการ */

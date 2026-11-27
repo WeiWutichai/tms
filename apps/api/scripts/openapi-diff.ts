@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 import {
   diffOpenApi,
   type OpenApiCorrection,
+  type OpenApiEnumRemoval,
   type OpenApiPropertyRemoval,
 } from '../src/openapi-diff';
 
@@ -18,14 +19,21 @@ if (!baseFile) {
   process.exit(2);
 }
 // รายการแก้ที่ไม่เปลี่ยนข้อมูลบนสาย — ชนิด (ADR T-22) + ลบ property ที่ไม่เคยส่ง (ADR T-22b) · ยอมเฉพาะที่ระบุในไฟล์นี้ (ไม่ใช่ ALLOW_BREAKING ทั้งก้อน)
-const { corrections, removedProperties = [] } = JSON.parse(
-  readFileSync(resolve(__dirname, '../openapi-corrections.json'), 'utf8'),
-) as { corrections: OpenApiCorrection[]; removedProperties?: OpenApiPropertyRemoval[] };
+const {
+  corrections,
+  removedProperties = [],
+  removedEnumValues = [],
+} = JSON.parse(readFileSync(resolve(__dirname, '../openapi-corrections.json'), 'utf8')) as {
+  corrections: OpenApiCorrection[];
+  removedProperties?: OpenApiPropertyRemoval[];
+  removedEnumValues?: OpenApiEnumRemoval[];
+};
 const breaking = diffOpenApi(
   JSON.parse(readFileSync(baseFile, 'utf8')),
   JSON.parse(readFileSync(headFile, 'utf8')),
   corrections,
   removedProperties,
+  removedEnumValues,
 );
 if (breaking.length === 0) {
   console.log('OpenAPI: no breaking changes');
