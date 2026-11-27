@@ -77013,12 +77013,62 @@
             "description": "ชนิดค่า (ตรวจที่ server — ผิด type → 422)"
           },
           "value": {
-            "type": "object",
-            "description": "ค่าที่มีผล (number · boolean · string · string[] · object)"
+            "description": "ค่าที่มีผล (ชนิดตาม `type`)",
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                }
+              }
+            ]
           },
           "default": {
-            "type": "object",
-            "description": "ค่าเริ่มต้น"
+            "description": "ค่าเริ่มต้น (ชนิดตาม `type`)",
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                }
+              }
+            ]
           },
           "isDefault": {
             "type": "boolean",
@@ -77032,12 +77082,26 @@
             }
           },
           "min": {
-            "type": "object",
-            "description": "ต่ำสุด (int / decimal / dayLists)"
+            "description": "ต่ำสุด (int / dayLists = จำนวนเต็ม · decimal = สตริงทศนิยม)",
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
           },
           "max": {
-            "type": "object",
-            "description": "สูงสุด (int / decimal / dayLists)"
+            "description": "สูงสุด (int / dayLists = จำนวนเต็ม · decimal = สตริงทศนิยม)",
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
           },
           "keys": {
             "description": "ชื่อกลุ่มวัน (dayLists)",
