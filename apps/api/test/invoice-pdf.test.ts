@@ -8,7 +8,10 @@ import {
   sampleInvoiceLong,
   sampleInvoiceMixed,
   sampleInvoiceSandbox,
+  sampleInvoiceWithLogo,
+  SAMPLE_LOGO_DATA_URI,
 } from '../src/modules/invoices/invoice.sample';
+import { sanitizeSvg } from '../src/modules/documents/svg-sanitize';
 import {
   NON_VAT_ISSUER_WARNING,
   invoiceDocument,
@@ -319,4 +322,37 @@ describe('ใบแจ้งหนี้ PDF (ST5-T08)', () => {
     const i = await info(doc);
     expect(i.over).toBe(false);
   }, 60_000);
+
+  it('P1-ST6-T04 โลโก้องค์กร: รูปแทนกล่องตัวย่อ 44 px ที่หัวเอกสาร (ตำแหน่ง/ขนาดเดิม) · ไม่มีโลโก้ = HTML เดิม (PDF ที่ออกแล้ว hash ไม่เปลี่ยน — ST9-T15) · golden', async () => {
+    const base = sampleInvoiceExempt();
+    // ไม่มีโลโก้ / null = HTML เดียวกันทุกไบต์ (ใบที่ออกก่อนมีโลโก้ render ซ้ำได้ผลเดิม)
+    expect(invoiceDocument({ ...base, logo: null }).body).toBe(invoiceDocument(base).body);
+    expect(invoiceDocument(base).body).not.toContain('class="logo"');
+    // โลโก้ตัวอย่างผ่านตัวล้าง SVG แล้วเหมือนเดิม
+    expect(
+      sanitizeSvg(Buffer.from(SAMPLE_LOGO_DATA_URI.split(',')[1]!, 'base64').toString('utf8')),
+    ).not.toBeNull();
+    const m = sampleInvoiceWithLogo();
+    const doc = invoiceDocument(m);
+    expect(doc.body).toContain(`<img src="${SAMPLE_LOGO_DATA_URI}"`);
+    // ค่าโลโก้ที่ไม่ใช่ data URI ของ PNG/SVG = ไม่ฝัง (กันอ้างของภายนอก) → กล่องตัวย่อ
+    const bad = invoiceDocument({ ...base, logo: 'https://evil.example/logo.png' }).body;
+    expect(bad).not.toContain('evil.example');
+    expect(bad).toBe(invoiceDocument(base).body);
+    const box = await r.withPage(doc, (page) =>
+      page.evaluate(`(() => {
+        const img = document.querySelector('.head .logo img');
+        const r = img.getBoundingClientRect();
+        return { w: r.width, h: r.height, loaded: img.complete && img.naturalWidth > 0 };
+      })()`),
+    );
+    expect(box).toMatchObject({ loaded: true });
+    expect((box as { w: number }).w).toBeLessThanOrEqual(44);
+    const pdf = await r.pdf(doc);
+    expect(pageCount(pdf)).toBe(1);
+    matchGolden(
+      golden('logo'),
+      await r.withPage(doc, (p) => p.screenshot({ fullPage: true, type: 'png' })),
+    );
+  }, 90_000);
 });

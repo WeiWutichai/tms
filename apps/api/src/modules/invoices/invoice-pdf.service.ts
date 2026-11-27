@@ -5,6 +5,7 @@ import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { PdfRenderer } from '../../pdf/pdf-renderer';
 import { decodeIdOr404 } from '../../common/ids';
+import { currentLogoId, loadLogo } from '../settings/org-logo';
 import { readSettings } from '../settings/settings.service';
 import type { CreateInvoiceDto } from './invoice.dto';
 import { InvoicesService, type InvoicePartySnapshot } from './invoices.service';
@@ -145,12 +146,20 @@ export class InvoicePdfService {
             l.deliveryOrder.trip?.vehicle?.plate ??
             null,
         );
+    // P1-ST6-T04 โลโก้: ใบที่ออกแล้ว = ที่ตรึงไว้ตอนออกเลข · ร่าง = ค่าตั้งปัจจุบัน
+    const logo = await loadLogo(
+      tx,
+      snap
+        ? (snap.print.logoDocumentId ?? null)
+        : await currentLogoId(tx, requestContext.require().tenantId!),
+    );
     // ร่าง: วันที่ = วันพิมพ์ (เวลาไทย) · ครบกำหนด = วันพิมพ์ + เครดิต
     const issueDate = issued?.issueDate ?? todayBkk();
     return {
       status: inv.status,
       model: {
         yearStyle: tenant?.yearStyle === 'CE' ? 'CE' : 'BE',
+        logo: logo?.dataUri ?? null,
         invoiceNo: inv.invoiceNo,
         copy: issued?.copy ?? null,
         // D-61: ลายน้ำ sandbox จากค่าพิมพ์ ณ วันออก (ร่างใช้ลายน้ำ "ร่าง")
@@ -255,6 +264,11 @@ export interface InvoicePrintOptions {
   templateVersion?: number;
   /** D-61: ออกใน sandbox (tenant `mode='test'`) → PDF ต้นฉบับ/สำเนามีลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" · ไม่มี = ใบ live */
   sandbox?: boolean;
+  /**
+   * P1-ST6-T04 โลโก้ ณ วันออก (uuid ของ stored_document kind LOGO) — สำเนา/ฉบับยกเลิกที่ render ภายหลังใช้ภาพเดิม ·
+   * ไม่มี = ไม่มีโลโก้ (ใบที่ออกก่อนมีฟีเจอร์ — ผลพิมพ์เดิม ST9-T15)
+   */
+  logoDocumentId?: string;
 }
 
 function issuedSnapshot(row: {

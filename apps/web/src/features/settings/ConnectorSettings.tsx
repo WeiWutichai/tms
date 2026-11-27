@@ -27,7 +27,19 @@ type T = ReturnType<typeof useI18n>['t'];
 type Tab = 'map' | 'log' | 'hist';
 
 /** ไอคอนการ์ดตามระบบ (ต้นแบบ this.CONN) — ระบบที่ไม่รู้จัก = database */
-const ICON: Record<string, string> = { demo: 'database', krs: 'database' };
+const ICON: Record<string, string> = {
+  demo: 'database',
+  krs: 'database',
+  peak: 'cloud',
+  flowaccount: 'calculator',
+};
+
+/** คำอธิบายการ์ด (ต้นแบบ this.CONN คอลัมน์ 2) — มีข้อความเฉพาะระบบใน i18n (`cnx.def.{key}.d`) ใช้อันนั้น ไม่มี = ข้อความกลาง */
+function adapterDesc(t: T, a: Adapter): string {
+  if (a.demo) return t('cnx.demo.d');
+  const k = `cnx.def.${a.key}.d` as MessageKey;
+  return t(k) === k ? t('cnx.adapter.d') : t(k);
+}
 
 /** ป้ายสถานะ connector (ต้นแบบ badge 'เชื่อมต่อ' / 'ยังไม่เชื่อม' + สถานะที่ต้นแบบไม่มี — [DECISION spec/12 §3]) */
 const STATUS_BADGE: Record<string, { k: MessageKey; tone: Tone; i: string }> = {
@@ -308,14 +320,16 @@ export function ConnectorSettingsSection({ canWrite }: { canWrite: boolean }) {
             const on = c?.status === 'ACTIVE';
             // เชื่อมได้ครั้งละ 1 ระบบ (ขอบเขต "ทุกนิติบุคคล") — มีระบบอื่นอยู่ = ต้องตัดก่อน
             const other = !c && conns.some((x) => !x.companyId);
+            // P1-ST5-T01b ประกาศใน catalog แต่ยังไม่มี adapter — การ์ดตามต้นแบบ ปุ่มเชื่อมต่อปิด [DECISION spec/12 §3]
+            const soon = a.availability === 'COMING_SOON' && !c;
             return (
               <Card
                 key={a.key}
                 on={!!c}
                 icon={ICON[a.key] ?? 'database'}
                 name={n}
-                desc={t(a.demo ? 'cnx.demo.d' : 'cnx.adapter.d')}
-                meta={<CardMeta c={c} />}
+                desc={adapterDesc(t, a)}
+                meta={soon ? t('cnx.meta.soon') : <CardMeta c={c} />}
                 badge={<Badge label={t(b.k)} tone={b.tone} icon={b.i} />}
                 onPick={() => setSel(a.key)}
               >
@@ -323,8 +337,8 @@ export function ConnectorSettingsSection({ canWrite }: { canWrite: boolean }) {
                   <button
                     type="button"
                     className="cnx-tog"
-                    disabled={other || resume.isPending}
-                    title={other ? t('cnx.oneAtATime') : undefined}
+                    disabled={soon || other || resume.isPending}
+                    title={soon ? t('cnx.soon') : other ? t('cnx.oneAtATime') : undefined}
                     onClick={(e) => {
                       e.stopPropagation();
                       setSel(a.key);

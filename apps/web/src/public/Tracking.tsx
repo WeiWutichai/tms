@@ -158,21 +158,31 @@ export function TrackingPage() {
             borderBottom: '1px solid #E5E7EB',
           }}
         >
-          <div
-            style={{
-              width: 30,
-              height: 30,
-              borderRadius: 8,
-              background: '#0B1F3A',
-              color: '#FFFFFF',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          >
-            <Icon n="truck" s={16} />
-          </div>
+          {company?.logoUrl ? (
+            // P1-ST6-T04 (D68-93) โลโก้บริษัท (ค่าตั้ง org.logoDocumentId) แทนไอคอนรถ ขนาด 30 px เท่ากล่องเดิม
+            <img
+              src={company.logoUrl}
+              alt=""
+              data-testid="trk-logo"
+              style={{ width: 30, height: 30, objectFit: 'contain', flexShrink: 0 }}
+            />
+          ) : (
+            <div
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: 8,
+                background: '#0B1F3A',
+                color: '#FFFFFF',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <Icon n="truck" s={16} />
+            </div>
+          )}
           <span
             data-testid="trk-company"
             style={{

@@ -8543,7 +8543,7 @@
             }
           },
           "422": {
-            "description": "ไฟล์ว่าง / ใหญ่กว่าที่จองไว้ / เนื้อไฟล์ไม่ตรงชนิดที่ประกาศ",
+            "description": "ไฟล์ว่าง / ใหญ่กว่าที่จองไว้ / เนื้อไฟล์ไม่ตรงชนิดที่ประกาศ · `svg_unsafe` = SVG ของโลโก้ล้างไม่ได้ (ไม่ใช่ SVG)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -64312,6 +64312,63 @@
         ]
       }
     },
+    "/v1/public/tracking/logo/{doc}": {
+      "get": {
+        "operationId": "TrackingPublic_logo",
+        "parameters": [
+          {
+            "name": "doc",
+            "required": true,
+            "in": "path",
+            "description": "id ไฟล์โลโก้ (doc_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "description": "token ของลิงก์ติดตาม (ml1.…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "รูป (image/png | image/svg+xml)",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "404": {
+            "description": "ลายเซ็นผิด/หมดอายุ/ไม่ใช่โลโก้"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "summary": "P1-ST6-T04 (D68-93) โลโก้บริษัทบนหน้าติดตาม — URL มีลายเซ็นอายุ 15 นาที (จาก company.logoUrl) · แสดงในหน้า (inline) · SVG ล้างแล้วและส่งพร้อม CSP sandbox",
+        "tags": [
+          "public"
+        ]
+      }
+    },
     "/v1/public/tracking/pod-image/{doc}": {
       "get": {
         "operationId": "TrackingPublic_podImage",
@@ -77821,6 +77878,27 @@
             "items": {
               "$ref": "#/components/schemas/ConnectorConfigFieldDto"
             }
+          },
+          "availability": {
+            "type": "string",
+            "enum": [
+              "AVAILABLE",
+              "COMING_SOON"
+            ],
+            "description": "P1-ST5-T01b `AVAILABLE` = เชื่อมต่อได้ · `COMING_SOON` = ประกาศใน catalog (ConnectorDefinition) แต่ยังไม่มี adapter — หน้าจอแสดงการ์ดแต่ปิดปุ่มเชื่อมต่อ · `POST /connectors` ด้วย key นี้ → 422 `adapter_coming_soon` · `capabilities` = ที่วางแผนไว้ (อยู่ใน `capabilitiesPending` ทั้งหมด)"
+          },
+          "requiredFeature": {
+            "type": "string",
+            "example": "conn",
+            "description": "feature ของแพ็กเกจที่ต้องเปิดจึงใช้ connector นี้ได้ (`conn` = การเชื่อมต่อระบบบัญชี)"
+          },
+          "minTier": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "growth"
+            ],
+            "description": "แพ็กเกจขั้นต่ำที่ประกาศ (docs/02 §3.1) — ข้อมูลประกอบ ยังไม่บังคับแยกจาก `requiredFeature` จนกว่าจะมี tier ในแพ็กเกจ · null = ไม่กำหนด"
           }
         },
         "required": [
@@ -77831,7 +77909,10 @@
           "capabilitiesPending",
           "masterCodeKinds",
           "fixedTaxDocumentOwner",
-          "configFields"
+          "configFields",
+          "availability",
+          "requiredFeature",
+          "minTier"
         ]
       },
       "ErpAdapterListDto": {
@@ -81273,9 +81354,10 @@
               "image/jpeg",
               "image/webp",
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-              "text/csv"
+              "text/csv",
+              "image/svg+xml"
             ],
-            "description": "ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง"
+            "description": "ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง · kind `LOGO` (โลโก้องค์กร P1-ST6-T04) = `image/png` ≤ 2 MB หรือ `image/svg+xml` ≤ 512 KB (SVG ใช้ได้กับ LOGO เท่านั้น และถูกล้าง script/event handler/อ้างของภายนอก/foreignObject ก่อนเก็บ)"
           },
           "bytes": {
             "type": "number",
@@ -107034,11 +107116,17 @@
             "nullable": true,
             "example": "02-118-4400",
             "description": "เบอร์บริษัท (ค่าตั้ง tracking.contactPhone) — ไม่ใช่เบอร์คนขับ · null = ไม่ตั้ง"
+          },
+          "logoUrl": {
+            "type": "string",
+            "nullable": true,
+            "description": "P1-ST6-T04 (D68-93) URL โลโก้บริษัท (ค่าตั้ง org.logoDocumentId) — ลายเซ็นหมดอายุ 15 นาที · null = ไม่ตั้ง (แสดงไอคอนตามเดิม)"
           }
         },
         "required": [
           "name",
-          "phone"
+          "phone",
+          "logoUrl"
         ]
       },
       "TrackingShipmentDto": {
