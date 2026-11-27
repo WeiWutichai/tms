@@ -531,9 +531,11 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
     ).toBe(1);
 
     // รันซ้ำ (NIGHTLY + สั่งเอง) — ส่วนต่างเดิม: ไม่สร้างแถว/ไม่แจ้ง/ไม่ลง audit ซ้ำ
-    const r1 = await engine.runRound(tenantId, conUuid, 'NIGHTLY', today);
+    const r1 = await engine.runRound(tenantId, conUuid, 'NIGHTLY', nightlyDay(today, 0));
     expect(r1.queued).toBeGreaterThanOrEqual(1);
-    expect((await engine.runRound(tenantId, conUuid, 'NIGHTLY', today)).queued).toBe(0);
+    expect((await engine.runRound(tenantId, conUuid, 'NIGHTLY', nightlyDay(today, 0))).queued).toBe(
+      0,
+    );
     await drain();
     // สั่งเอง = คน + settings:write (แบบเดียวกับการจัดการ connector — ST7-T21)
     const manual = await api(app, admin)
@@ -574,7 +576,7 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
     expect(await mapping(inv.uuid)).toMatchObject({ reconcileState: 'ACCEPTED' });
     // ใบที่ 2 (VAT 7%) เหลือรายการแรกรายการเดียว
     mock.overwriteInvoice(docs[1]!.externalId, { keepLines: 1 });
-    await engine.runRound(tenantId, conUuid, 'NIGHTLY', today);
+    await engine.runRound(tenantId, conUuid, 'NIGHTLY', nightlyDay(today, 0));
     await drain();
     const [row] = await results(inv.uuid);
     expect(row).toMatchObject({ result: 'MISMATCH', source: 'NIGHTLY', severity: 'MONEY' });
@@ -595,7 +597,7 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
 
     const before = { inApp: (await noti()).length, email: (await noti('email')).length };
     mock.overwriteInvoice(inv.transactionNo, { keepLines: null, blankFields: ['carId'] });
-    await engine.runRound(tenantId, conUuid, 'NIGHTLY', addDay(today, 1));
+    await engine.runRound(tenantId, conUuid, 'NIGHTLY', nightlyDay(today, 1));
     await drain();
     const [row] = await results(inv.uuid);
     expect(row).toMatchObject({ result: 'MISMATCH', severity: 'FIELD' });
@@ -632,11 +634,11 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
     const [f] = await fetches(inv.uuid);
     expect(f).toMatchObject({ status: 'DONE' });
     // ซ้ำ = ไม่สร้างแถวใหม่
-    await engine.runRound(tenantId, conUuid, 'NIGHTLY', addDay(today, 2));
+    await engine.runRound(tenantId, conUuid, 'NIGHTLY', nightlyDay(today, 2));
     await drain();
     expect(await results(inv.uuid)).toHaveLength(1);
     mock.clearFaults();
-    await engine.runRound(tenantId, conUuid, 'NIGHTLY', addDay(today, 3));
+    await engine.runRound(tenantId, conUuid, 'NIGHTLY', nightlyDay(today, 3));
     await drain();
     const [closed] = await results(inv.uuid);
     expect(closed!.resolvedAt).not.toBeNull();
@@ -780,9 +782,9 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
       data: { healthFailingSince: new Date() },
     });
     expect(await engine.scheduleRounds(new Date('2026-11-23T19:00:00Z'))).toBe(0);
-    expect((await engine.runRound(tenantId, conUuid, 'NIGHTLY', today)).skipped).toBe(
-      'connector_unhealthy',
-    );
+    expect(
+      (await engine.runRound(tenantId, conUuid, 'NIGHTLY', nightlyDay(today, 0))).skipped,
+    ).toBe('connector_unhealthy');
     await plat.connector.update({ where: { id: conUuid }, data: { healthFailingSince: null } });
     await plat.job.deleteMany({ where: { tenantId, type: RECONCILE_JOB } });
   });
@@ -814,7 +816,7 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
     });
     // คำสั่งส่งที่ไม่มีฐาน (ส่งก่อน deploy / คนกรอกเลขเอง) = เทียบไม่ได้ — บันทึก INFO ครั้งเดียว ไม่เปลี่ยนผลกระทบยอด
     await plat.$executeRaw`UPDATE integration_outbox SET result = result - 'reconcileBasis' WHERE id = ${push.id}::uuid`;
-    for (const day of [addDay(today, 4), addDay(today, 5)]) {
+    for (const day of [nightlyDay(today, 4), nightlyDay(today, 5)]) {
       await engine.runRound(tenantId, conUuid, 'NIGHTLY', day);
       await drain();
     }
@@ -1025,6 +1027,16 @@ describe('Reconcile engine ครบวงจร (ST8-T11)', { timeout: 900_000 
     }
   });
 });
+
+/**
+ * วันของรอบ NIGHTLY ที่ไม่ใช่วันทำการสุดท้ายของเดือน — วันนั้นรอบ NIGHTLY ข้ามใบของเดือนนี้ (รอ PRE_CLOSE)
+ * test ที่คาดว่ารอบถัดไปจะอ่านใบวันนี้จึงล้มเมื่อ today+n ตรงวันนั้น (เช่น 27 พ.ย. 2569 + 3 = จ. 30 พ.ย.)
+ */
+function nightlyDay(today: string, n: number): string {
+  let d = addDay(today, n);
+  while (d === lastBusinessDay(d)) d = addDay(d, 1);
+  return d;
+}
 
 function addDay(day: string, n: number): string {
   const d = new Date(`${day}T00:00:00Z`);
