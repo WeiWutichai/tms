@@ -30,6 +30,15 @@
               }
             },
             "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
               "X-Api-Version": {
                 "$ref": "#/components/headers/X-Api-Version"
               }
@@ -42,7 +51,28 @@
             "description": "tenant_selection_required — มี `tenants: [{id, name, status}]`"
           },
           "429": {
-            "description": "account_locked — มี header Retry-After"
+            "description": "account_locked — มี header Retry-After",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                }
+              }
+            }
           },
           "503": {
             "description": "service_busy — ระบบ/ฐานข้อมูลรับงานไม่ทัน ลองใหม่หลังเวลาใน header Retry-After",
@@ -221,10 +251,22 @@
               }
             },
             "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
               "X-Api-Version": {
                 "$ref": "#/components/headers/X-Api-Version"
               }
             }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           },
           "503": {
             "description": "service_busy — ระบบ/ฐานข้อมูลรับงานไม่ทัน ลองใหม่หลังเวลาใน header Retry-After",
@@ -272,10 +314,22 @@
               }
             },
             "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
               "X-Api-Version": {
                 "$ref": "#/components/headers/X-Api-Version"
               }
             }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         },
         "tags": [
@@ -312,10 +366,22 @@
               }
             },
             "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
               "X-Api-Version": {
                 "$ref": "#/components/headers/X-Api-Version"
               }
             }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           },
           "503": {
             "description": "service_busy — ระบบ/ฐานข้อมูลรับงานไม่ทัน ลองใหม่หลังเวลาใน header Retry-After",
@@ -620,13 +686,43 @@
           "202": {
             "description": "รับคำขอแล้ว — ตอบแบบเดียวกันเสมอไม่ว่าอีเมลมีในระบบหรือไม่ ถ้ามีจะได้อีเมลลิงก์อายุ 30 นาที",
             "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
               "X-Api-Version": {
                 "$ref": "#/components/headers/X-Api-Version"
               }
             }
           },
           "429": {
-            "description": "rate_limited — ขอถี่เกินไป มี header Retry-After"
+            "description": "rate_limited — ขอถี่เกินไป มี header Retry-After",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -656,6 +752,15 @@
           "204": {
             "description": "ตั้งรหัสใหม่แล้ว — ทุก session ของทุกบริษัทที่ใช้อีเมลนี้หลุด ต้องเข้าระบบใหม่",
             "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
               "X-Api-Version": {
                 "$ref": "#/components/headers/X-Api-Version"
               }
@@ -663,6 +768,9 @@
           },
           "400": {
             "description": "reset_link_invalid — ลิงก์ผิด หมดอายุ หรือใช้ไปแล้ว"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         },
         "tags": [
@@ -699,6 +807,15 @@
               }
             },
             "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
               "X-Api-Version": {
                 "$ref": "#/components/headers/X-Api-Version"
               }
@@ -706,6 +823,9 @@
           },
           "400": {
             "description": "invitation_invalid — ไม่มี/หมดอายุ/ใช้แล้ว/เพิกถอน"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         },
         "tags": [
@@ -735,6 +855,15 @@
           "204": {
             "description": "เป็นสมาชิกแล้ว — เข้าสู่ระบบด้วยอีเมลนี้ (role ที่บังคับ 2FA จะถูกพาไปตั้ง 2FA ตอน login)",
             "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
               "X-Api-Version": {
                 "$ref": "#/components/headers/X-Api-Version"
               }
@@ -742,6 +871,9 @@
           },
           "400": {
             "description": "invitation_invalid"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           },
           "503": {
             "description": "service_busy — ระบบ/ฐานข้อมูลรับงานไม่ทัน ลองใหม่หลังเวลาใน header Retry-After",
@@ -78148,7 +78280,7 @@
           "scope": {
             "type": "string",
             "example": "tenant",
-            "description": "429 rate_limited: เพดานที่เต็ม — tenant · key · user · endpoint (คำขอหนัก) · ip · link · lookup"
+            "description": "429 rate_limited: เพดานที่เต็ม — tenant · key · user · endpoint (คำขอหนัก) · ip · link · lookup · recipient (ผู้รับ OTP)"
           },
           "module": {
             "type": "string",
@@ -116710,6 +116842,11 @@
       "status": 403,
       "title": "แก้หรือดูบัญชีธนาคารผู้รับเหมาผ่าน API key ไม่ได้ ต้องให้ผู้ใช้ทำในระบบ",
       "titleEn": "Carrier bank account details can only be changed or viewed by a signed-in user"
+    },
+    "bot_check_failed": {
+      "status": 403,
+      "title": "ยืนยันว่าไม่ใช่บอทไม่สำเร็จ กรุณาลองใหม่อีกครั้ง",
+      "titleEn": "Bot check failed — please try again"
     },
     "branch_unavailable": {
       "status": 422,

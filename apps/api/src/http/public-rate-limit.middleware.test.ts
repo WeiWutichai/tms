@@ -9,5 +9,8 @@ describe('publicBucketGroup', () => {
     expect(publicBucketGroup('/v1/platform/auth/step-up?x=1')).toBe('console');
     expect(publicBucketGroup('/v1/auth/invitations/inspect')).toBe('invite');
     expect(publicBucketGroup('/v1/public/x?u=/v1/platform/auth/')).toBe('public');
+    // P1-ST2-T08: /v1/auth/* อื่น (login, 2FA, ลืมรหัสผ่าน) = กลุ่ม auth แยกจากคำเชิญ
+    expect(publicBucketGroup('/v1/auth/login')).toBe('auth');
+    expect(publicBucketGroup('/v1/auth/password/forgot?x=/v1/auth/invitations/')).toBe('auth');
   });
 });

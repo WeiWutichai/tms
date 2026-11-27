@@ -1,0 +1,11 @@
+/* ค่าพื้นฐานของหน้า (เท่ากับ packages/ui/src/ui.css ส่วน html/body) — landing โหลดแยกจาก @tms/ui */
+html,
+body {
+  margin: 0;
+  background: #f4f5f2;
+  color: #101418;
+  font-family: 'IBM Plex Sans Thai Looped', 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}

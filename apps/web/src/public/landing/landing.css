@@ -1,0 +1,944 @@
+/* Landing (P1-ST2-T01) — ค่าจาก design/prototype/TMS Signup.dc.html view `home` (ฟังก์ชัน hm + inline style)
+   breakpoint ตามต้นแบบ: mob = กว้าง < 1100 (เมนูย่อ), narrow = < 760 (คอลัมน์เดียว), card2R เปลี่ยนที่ < 1300 */
+.land {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #f4f5f2;
+  color: #101418;
+  font-size: 14px;
+  line-height: 1.6;
+  --px: 32px;
+  --secPt: 104px;
+}
+.land *,
+.land *::before,
+.land *::after {
+  box-sizing: border-box;
+}
+.land a {
+  color: #2257c4;
+  text-decoration: none;
+}
+.land a:hover {
+  color: #1b479f;
+  text-decoration: underline;
+}
+.land button {
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.land button:focus-visible,
+.land a:focus-visible {
+  outline: 2px solid #2257c4;
+  outline-offset: 1px;
+}
+.land-wrap {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-left: var(--px);
+  padding-right: var(--px);
+}
+
+/* ---------- header ---------- */
+.land-hd {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: 64px;
+  background: #ffffff;
+  border-bottom: 1px solid #e4e6e0;
+  transition:
+    background 160ms,
+    border-color 160ms;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 0 var(--px);
+  --fg: #101418;
+  --sub: #59606b;
+  --logoBg: #13213f;
+  --hov: #f4f5f2;
+  --lgBg: #ebede8;
+  --lgBd: #d9dcd4;
+  --ctaBg: #2257c4;
+  --ctaC: #ffffff;
+  --btnBg: #ffffff;
+}
+.land-hd--dark {
+  background: transparent;
+  border-bottom-color: transparent;
+  --fg: #ffffff;
+  --sub: rgba(255, 255, 255, 0.75);
+  --logoBg: rgba(255, 255, 255, 0.16);
+  --hov: rgba(255, 255, 255, 0.12);
+  --lgBg: rgba(255, 255, 255, 0.1);
+  --lgBd: rgba(255, 255, 255, 0.24);
+  --ctaBg: #ffffff;
+  --ctaC: #13213f;
+  --btnBg: transparent;
+}
+.land .land-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--fg);
+  flex-shrink: 0;
+  text-decoration: none;
+}
+.land-logo__mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--logoBg);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.land-logo__txt {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  text-align: left;
+}
+.land-logo__name {
+  font-weight: 700;
+  font-size: 16px;
+}
+.land-logo__sub {
+  font-size: 12px;
+  color: var(--sub);
+  white-space: nowrap;
+}
+.land-nav {
+  display: flex;
+  gap: 4px;
+}
+.land-nav__i {
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.land-hd:not(.land-hd--dark) .land-nav__i:first-child {
+  /* "ฟีเจอร์" = เมนูของหน้านี้ (on) */
+  background: #e9f0fa;
+  color: #2257c4;
+}
+.land-nav__i:hover {
+  background: var(--hov);
+}
+.land-lang {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--lgBg);
+  border: 1px solid var(--lgBd);
+  border-radius: 999px;
+}
+.land-lang__i {
+  height: 28px;
+  min-width: 42px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #3b424c;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.land .land-lang__i {
+  font-size: 13px;
+}
+.land-hd--dark .land-lang__i {
+  color: rgba(255, 255, 255, 0.88);
+}
+.land-lang__i.is-on {
+  background: #ffffff;
+  color: #2257c4;
+  font-weight: 600;
+}
+.land-hd--dark .land-lang__i.is-on {
+  color: #13213f;
+}
+.land-hd__login {
+  height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.land-hd__login:hover {
+  background: var(--hov);
+}
+.land-hd__cta {
+  height: 38px;
+  padding: 0 18px;
+  border: 1px solid var(--ctaBg);
+  border-radius: 999px;
+  background: var(--ctaBg);
+  color: var(--ctaC);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.land-hd__menu {
+  display: none;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--lgBd);
+  border-radius: 999px;
+  background: var(--btnBg);
+  color: var(--fg);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+}
+.land-mmenu {
+  position: sticky;
+  top: 64px;
+  z-index: 19;
+  background: #ffffff;
+  border-bottom: 1px solid #e4e6e0;
+  padding: 8px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-shadow: 0 8px 24px rgba(16, 20, 24, 0.08);
+}
+.land .land-mmenu__i {
+  height: 48px;
+  padding: 0 8px;
+  border: 0;
+  border-bottom: 1px solid #e4e6e0;
+  background: transparent;
+  color: #101418;
+  font-weight: 500;
+  font-size: 16px;
+  cursor: pointer;
+  text-align: left;
+}
+.land .land-mmenu__i--last {
+  border-bottom: 0;
+}
+.land .land-mmenu__cta {
+  height: 44px;
+  padding: 0 20px;
+  font-size: 15px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+/* ---------- ปุ่ม ---------- */
+.land .land-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 22px;
+  border: 1px solid #2257c4;
+  border-radius: 999px;
+  background: #2257c4;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 16px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.land .land-btn:hover {
+  background: #1b479f;
+}
+.land .land-btn--white {
+  background: #ffffff;
+  color: #13213f;
+  border-color: #ffffff;
+}
+.land .land-btn--white:hover {
+  background: #e9f0fa;
+}
+
+/* ---------- hero ---------- */
+.land-main {
+  display: flex;
+  flex-direction: column;
+  background: #f4f5f2;
+}
+.land-hero {
+  position: relative;
+  margin-top: -64px;
+  min-height: 88vh;
+  overflow: hidden;
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+}
+.land-hero__bg {
+  position: absolute;
+  inset: 0;
+  background: #dce0d8;
+}
+.land-hero__ov {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(19, 33, 63, 0.88) 0%,
+    rgba(19, 33, 63, 0.8) 42%,
+    rgba(19, 33, 63, 0.2) 100%
+  );
+}
+.land-hero__grid {
+  position: relative;
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 6fr) minmax(0, 6fr);
+  gap: 40px;
+  align-items: center;
+  padding-top: 136px;
+  padding-bottom: 40px;
+}
+.land-hero__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-width: 0;
+  container-type: inline-size;
+}
+.land-h1 {
+  margin: 0;
+  font-size: clamp(30px, calc(100cqi / 11.2), 56px);
+  line-height: 1.2;
+  font-weight: 600;
+  color: #ffffff;
+  word-break: keep-all;
+}
+.land-h1 > span {
+  display: block;
+  white-space: nowrap;
+}
+.land-hero__lead {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.82);
+  max-width: 560px;
+  text-wrap: pretty;
+}
+.land-hero__acts {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.land .land-hero__price {
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 16px;
+  text-decoration: none;
+}
+.land .land-hero__price:hover {
+  color: #ffffff;
+  text-decoration: underline;
+}
+.land-hero__note {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.75);
+}
+.land-hero__shotwrap {
+  position: relative;
+  min-width: 0;
+  perspective: 1600px;
+}
+.land-hero__shot {
+  transform: rotateY(-8deg) rotateX(2deg);
+  transform-origin: left center;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow:
+    0 30px 60px rgba(8, 14, 30, 0.45),
+    0 4px 12px rgba(8, 14, 30, 0.25);
+  background: #ffffff;
+  width: 128%;
+}
+.land-hero__shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.land-hero__card {
+  position: absolute;
+  background: #ffffff;
+  border: 1px solid #cdd1c8;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(8, 14, 30, 0.28);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #101418;
+}
+.land-hero__card--pod {
+  left: -36px;
+  bottom: 14%;
+  min-width: 220px;
+}
+.land-hero__card--sub {
+  right: -24%;
+  top: 8%;
+  min-width: 210px;
+}
+.land-hero__cardt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.land-hero__cards {
+  font-size: 13px;
+  color: #3b424c;
+}
+.land-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #17733f;
+}
+.land-facts {
+  position: relative;
+  background: rgba(10, 18, 38, 0.55);
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+.land-facts__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 0;
+  padding-top: 16px;
+  padding-bottom: 16px;
+}
+.land-facts__i {
+  font-size: 15px;
+  color: #ffffff;
+  white-space: nowrap;
+  padding-right: 24px;
+  margin-right: 24px;
+  border-right: 1px solid rgba(255, 255, 255, 0.28);
+}
+.land-facts__i:last-child {
+  border-right: 0;
+}
+
+/* ---------- ใช้คู่กับ ---------- */
+.land-with {
+  background: #ffffff;
+  border-bottom: 1px solid #e4e6e0;
+}
+.land-with__p {
+  margin: 0 auto;
+  padding-top: 22px;
+  padding-bottom: 22px;
+  font-size: 16px;
+  color: #3b424c;
+}
+
+/* ---------- ทั่วไป ---------- */
+.land-sec {
+  padding-top: var(--secPt);
+  padding-bottom: var(--secPt);
+}
+.land-h2 {
+  margin: 0;
+  font-size: 40px;
+  line-height: 1.3;
+  font-weight: 600;
+  color: #101418;
+  text-wrap: balance;
+  word-break: keep-all;
+}
+.land-h3 {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.35;
+  font-weight: 600;
+  text-wrap: balance;
+  word-break: keep-all;
+}
+.land-p {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.7;
+  color: #3b424c;
+  text-wrap: pretty;
+}
+.land-shot {
+  background: #ffffff;
+  border: 1px solid #cdd1c8;
+  border-radius: 12px;
+  box-shadow:
+    0 1px 2px rgba(16, 20, 24, 0.06),
+    0 8px 24px rgba(16, 20, 24, 0.06);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.land-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-width: 0;
+}
+
+/* ---------- เช้าวันหนึ่งของฝ่ายจัดรถ ---------- */
+.land-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 24px 40px;
+  margin-bottom: 56px;
+  align-items: end;
+}
+.land-tl {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 24px;
+  position: relative;
+  padding-bottom: 72px;
+}
+.land-tl__time {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.land-tl__time span {
+  font-size: 28px;
+  font-weight: 600;
+  color: #101418;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.land-tl__body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+  border-left: 1px solid #cdd1c8;
+  padding-left: 40px;
+  position: relative;
+}
+.land-tl__dot {
+  position: absolute;
+  left: -5px;
+  top: 12px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #2257c4;
+  box-shadow: 0 0 0 4px #f4f5f2;
+}
+.land-tl__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 640px;
+}
+.land-tl__t {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.45;
+  font-weight: 600;
+  color: #101418;
+  text-wrap: balance;
+  word-break: keep-all;
+}
+
+/* ---------- ฟีเจอร์ (พื้นขาว) ---------- */
+.land-feat {
+  background: #ffffff;
+  border-top: 1px solid #e4e6e0;
+  border-bottom: 1px solid #e4e6e0;
+}
+.land-feat__in {
+  padding-top: var(--secPt);
+  padding-bottom: var(--secPt);
+  display: flex;
+  flex-direction: column;
+  gap: 112px;
+}
+.land-c84 {
+  display: grid;
+  grid-template-columns: minmax(0, 8fr) minmax(0, 4fr);
+  gap: 40px;
+  align-items: center;
+}
+.land-settle {
+  position: relative;
+  min-width: 0;
+}
+.land-pin {
+  position: absolute;
+  top: 14%;
+  transform: translate(-50%, -50%);
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #2257c4;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 4px rgba(34, 87, 196, 0.18);
+}
+.land-feat__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.land-num {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.land-num__n {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #2257c4;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.land-num__t {
+  font-size: 16px;
+  line-height: 1.65;
+  color: #3b424c;
+}
+.land-fdoc {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.land-c66 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.land-c66--end {
+  gap: 24px 40px;
+  align-items: end;
+}
+.land-c66--imgs {
+  gap: 20px;
+  align-items: start;
+}
+
+/* ---------- แถบราคา ---------- */
+.land-pricebar {
+  padding-top: 40px;
+  padding-bottom: 40px;
+}
+.land-pricebar__in {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  border-top: 1px solid #cdd1c8;
+  border-bottom: 1px solid #cdd1c8;
+  padding: 24px 0;
+}
+.land-pricebar__p {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.5;
+  color: #101418;
+}
+.land-pricebar__p b {
+  font-weight: 600;
+}
+.land-pricebar__dot {
+  color: #59606b;
+}
+.land .land-pricebar__a {
+  font-weight: 600;
+  font-size: 16px;
+}
+
+/* ---------- FAQ ---------- */
+.land-faq {
+  /* ต้นแบบ: แถบราคา (40 + 40) + 24 = 104 = secPt · ไม่มีแถบราคา (D-40) → เว้นเท่า secPt */
+  padding-top: var(--secPt);
+  padding-bottom: var(--secPt);
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+  gap: 24px 48px;
+}
+.land-pricebar + .land-faq {
+  padding-top: 24px;
+}
+.land-faq__list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid #cdd1c8;
+  min-width: 0;
+}
+.land-faq__i {
+  border-bottom: 1px solid #cdd1c8;
+}
+.land .land-faq__q {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: #101418;
+  font-size: 17px;
+  font-weight: 600;
+}
+.land .land-faq__q:hover {
+  color: #2257c4;
+}
+.land-faq__sym {
+  font-size: 22px;
+  font-weight: 400;
+  color: #59606b;
+  width: 20px;
+  text-align: center;
+}
+.land-faq__a {
+  margin: 0 0 20px;
+  font-size: 16px;
+  color: #3b424c;
+  line-height: 1.7;
+  max-width: 680px;
+}
+
+/* ---------- ภาพคั่น + CTA ท้าย ---------- */
+.land-band {
+  position: relative;
+  height: 360px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  background: #dce0d8;
+}
+.land-band__ov {
+  position: absolute;
+  inset: 0;
+  background: rgba(19, 33, 63, 0.6);
+}
+.land-band__p {
+  position: relative;
+  margin: 0 auto;
+  font-size: 36px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: #ffffff;
+  text-wrap: balance;
+  word-break: keep-all;
+}
+.land-final {
+  background: #ffffff;
+}
+.land-final__in {
+  padding-top: 64px;
+  padding-bottom: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.land-final__p {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: #101418;
+  text-wrap: balance;
+  word-break: keep-all;
+}
+
+/* ---------- footer ---------- */
+.land-ft {
+  margin-top: auto;
+  border-top: 1px solid #e4e6e0;
+  background: #ffffff;
+}
+.land-ft__cols {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 36px var(--px) 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px 48px;
+}
+.land-ft__brand {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #3b424c;
+}
+.land-ft__name {
+  font-weight: 700;
+  color: #13213f;
+}
+.land-ft__desc {
+  max-width: 280px;
+  line-height: 1.6;
+}
+.land-ft__col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 140px;
+}
+.land-ft__h {
+  font-size: 13px;
+  font-weight: 600;
+  color: #101418;
+}
+.land .land-ft__col a {
+  color: #3b424c;
+}
+.land-ft__row {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px var(--px) 24px;
+  border-top: 1px solid #e4e6e0;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  color: #59606b;
+  font-size: 13px;
+}
+.land-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 90;
+  background: #13213f;
+  color: #ffffff;
+  border-radius: 12px;
+  padding: 12px 16px;
+  box-shadow: 0 8px 24px rgba(16, 20, 24, 0.24);
+  max-width: 560px;
+}
+
+/* ---------- breakpoints ---------- */
+@media (max-width: 1299px) {
+  .land-hero__card--sub {
+    right: -8%;
+  }
+}
+@media (max-width: 1099px) {
+  .land-logo__sub,
+  .land-nav,
+  .land-hd__login,
+  .land-hd__cta,
+  .land-pin {
+    display: none;
+  }
+  .land-hd__menu {
+    display: inline-flex;
+  }
+}
+@media (max-width: 759px) {
+  .land {
+    --px: 20px;
+    --secPt: 56px;
+  }
+  .land-hd {
+    gap: 10px;
+  }
+  .land-hero {
+    min-height: auto;
+  }
+  .land-hero__ov {
+    background: rgba(19, 33, 63, 0.86);
+  }
+  .land-hero__grid {
+    grid-template-columns: minmax(0, 1fr);
+    padding-top: 120px;
+  }
+  .land-h1 {
+    font-size: 34px;
+  }
+  .land-h1 > span {
+    display: inline;
+    white-space: normal;
+  }
+  .land-hero__shot {
+    transform: none;
+    width: 100%;
+  }
+  .land-hero__card {
+    display: none;
+  }
+  .land-facts__i {
+    border-right: 0;
+  }
+  .land-intro,
+  .land-tl,
+  .land-c84,
+  .land-c66,
+  .land-faq {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .land-tl {
+    gap: 8px;
+    padding-bottom: 48px;
+  }
+  .land-tl__time span {
+    font-size: 24px;
+  }
+  .land-tl__body {
+    padding-left: 20px;
+  }
+  .land-h2 {
+    font-size: 28px;
+  }
+  .land-feat__in {
+    gap: 64px;
+  }
+  .land-shot img {
+    min-width: 600px;
+  }
+  .land-band {
+    height: 240px;
+  }
+  .land-band__p {
+    font-size: 26px;
+  }
+}
