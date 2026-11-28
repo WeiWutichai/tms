@@ -50,7 +50,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const page = pageOf(loc.pathname);
   // หน้าโมดูลนอกแพ็กเกจ: หัวหน้าเป็น "แพ็กเกจ > ชื่อโมดูล" ตาม META locked ของต้นแบบ (ST1-T18)
   const feature = featureOf(loc.pathname);
-  const locked = isLocked(feature, me.data?.features);
+  const locked = isLocked(feature, me.data?.locks);
   const groupLabel = locked
     ? t('lock.group')
     : page
@@ -82,6 +82,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         role={me.data?.user?.roles[0]}
         scopes={me.data?.scopes ?? []}
         features={me.data?.features}
+        locks={me.data?.locks}
         onLogout={() => {
           void logout().then(() => {
             clearStepUp();

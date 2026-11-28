@@ -293,7 +293,8 @@ export class AuthController {
   @ApiOkResponse({ type: LoginResultDto })
   @ApiUnauthorizedResponse({ description: 'invalid_credentials' })
   @ApiConflictResponse({
-    description: 'tenant_selection_required — มี `tenants: [{id, name, status}]`',
+    description:
+      'tenant_selection_required — มี `tenants: [{id, name, status}]` · signup_incomplete — อีเมล/รหัสของการสมัครที่ยังไม่เสร็จ มี `signupToken` (ใช้ทำต่อที่ /v1/public/signup/session — P1-ST2-T03)',
   })
   @ApiTooManyRequestsResponse({ description: 'account_locked — มี header Retry-After' })
   @ApiServiceBusyResponse()
@@ -321,7 +322,7 @@ export class AuthController {
   @ApiOkResponse({
     type: TokenDto,
     description:
-      'authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` — รับเฉพาะ JSON จากหน้าเว็บเดียวกัน (form / `Sec-Fetch-Site` ข้ามเว็บ → 403 `forbidden`) · client_credentials: รับ JSON หรือ form (RFC 6749) ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed)',
+      'authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` — รับเฉพาะ JSON จากหน้าเว็บเดียวกัน (form / `Sec-Fetch-Site` ข้ามเว็บ → 403 `forbidden`) · client_credentials: รับ JSON หรือ form (RFC 6749) ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed / api_disabled_by_platform)',
   })
   @ApiTooManyRequestsResponse({
     description: `rate_limited — เกิน ${TOKEN_PER_IP_PER_MIN} ครั้ง/นาที ต่อ IP หรือ ${TOKEN_PER_CLIENT_PER_MIN} ครั้ง/นาที ต่อ client id (client_credentials) มี header Retry-After`,

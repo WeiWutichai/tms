@@ -4,7 +4,7 @@ import { DevImportPage } from './features/imports/DevImportPage';
 import { RequireAuth } from './auth/RequireAuth';
 import { queryClient } from './api';
 import { I18nProvider } from './i18n';
-import { canAny, featureOf, isLocked, NAV, permOf } from './nav';
+import { BILLING_MANAGE, can, canAny, featureOf, isLocked, NAV, permOf } from './nav';
 import { SettingsPage } from './features/settings/Settings';
 import { ProfilePage } from './features/profile/ProfilePage';
 import { ApiKeysPage } from './features/api-keys/ApiKeysPage';
@@ -57,10 +57,17 @@ function Guard({ perm, path, children }: { perm?: string[]; path?: string; child
   if (!me.data) return null;
   if (!canAny(me.data.scopes, perm)) return <NoAccess role={me.data.user?.roles[0] ?? '—'} />;
   // ฟีเจอร์ไม่อยู่ในแพ็กเกจ → หน้า "ไม่รวมในแพ็กเกจ" (ST1-T18; PLT-076)
+  // ฟีเจอร์ที่ปิดเพราะสถานะ tenant (ระงับ ฯลฯ) ไม่อยู่ใน locks → หน้าเปิดได้แต่ API ตอบ 403
+  // TODO(P1-ST1-T05): banner สถานะ + หน้าที่เข้าได้ตอน suspended เป็นคนบอกผู้ใช้ — ไม่ใช่ 🔒
   const feature = path ? featureOf(path) : undefined;
-  if (feature && isLocked(feature, me.data.features))
+  if (feature && isLocked(feature, me.data.locks))
     return (
-      <LockedPage feature={feature} plan={me.data.plan.name} need={me.data.lockedIn[feature]} />
+      <LockedPage
+        feature={feature}
+        plan={me.data.plan.name}
+        lock={me.data.locks[feature]}
+        canManage={can(me.data.scopes, BILLING_MANAGE)}
+      />
     );
   return <>{children}</>;
 }
@@ -125,6 +132,15 @@ function Inside() {
             }
           />
           {/* โปรไฟล์รถ (ST2-T07) — หน้าย่อยของทะเบียนรถ: สิทธิ์/แพ็กเกจเดียวกัน */}
+          {/* P1-ST1-T02 ปลายทางของปุ่ม "อัปเกรด/ซื้อ Add-on/เทียบแพ็กเกจ" ในหน้าโมดูลที่ล็อก — หน้าจริงคือ P1-ST3-T03/T05 (ต้นแบบ v4 `billing`) */}
+          <Route
+            path="/settings/billing"
+            element={
+              <Guard perm={[BILLING_MANAGE]}>
+                <NotReady page="billing" stage="P1-ST3" phase1 />
+              </Guard>
+            }
+          />
           {/* ST9-T10 ลิงก์ดาวน์โหลดไฟล์ส่งออกจากแจ้งเตือน — API ตรวจผู้สั่ง (export:run) เอง */}
           <Route path="/exports/:id" element={<ExportPage />} />
           <Route

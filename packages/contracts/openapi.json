@@ -48,7 +48,7 @@
             "description": "mfa_required / mfa_enrollment_required — มี `mfaToken` ใช้ต่อที่ /v1/auth/2fa/verify หรือ /v1/auth/2fa/enroll\n\ninvalid_credentials"
           },
           "409": {
-            "description": "tenant_selection_required — มี `tenants: [{id, name, status}]`"
+            "description": "tenant_selection_required — มี `tenants: [{id, name, status}]` · signup_incomplete — อีเมล/รหัสของการสมัครที่ยังไม่เสร็จ มี `signupToken` (ใช้ทำต่อที่ /v1/public/signup/session — P1-ST2-T03)"
           },
           "429": {
             "description": "account_locked — มี header Retry-After",
@@ -116,7 +116,7 @@
         },
         "responses": {
           "200": {
-            "description": "authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` — รับเฉพาะ JSON จากหน้าเว็บเดียวกัน (form / `Sec-Fetch-Site` ข้ามเว็บ → 403 `forbidden`) · client_credentials: รับ JSON หรือ form (RFC 6749) ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed)",
+            "description": "authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` — รับเฉพาะ JSON จากหน้าเว็บเดียวกัน (form / `Sec-Fetch-Site` ข้ามเว็บ → 403 `forbidden`) · client_credentials: รับ JSON หรือ form (RFC 6749) ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed / api_disabled_by_platform)",
             "content": {
               "application/json": {
                 "schema": {
@@ -775,6 +775,648 @@
         },
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/v1/public/signup": {
+      "post": {
+        "description": "OTP ส่งทางอีเมลจนกว่าจะมีผู้ให้บริการ SMS (X-04) · อีเมลมีบัญชีแล้ว = 409 `account_exists` (\"เข้าสู่ระบบเพื่อเพิ่มบริษัทใหม่\") · อีเมลที่ยืนยันแล้วและสมัครค้าง = 409 `signup_in_progress` · การสมัครเดิมที่ยังรอ OTP ของอีเมลเดียวกันถูกแทนที่ (ตัวนับใส่รหัสผิดตามไปด้วย)",
+        "operationId": "Signup_start",
+        "parameters": [
+          {
+            "name": "X-Bot-Token",
+            "in": "header",
+            "description": "token ของด่านกันบอท (เช่น Cloudflare Turnstile) — บังคับเมื่อระบบเปิดด่าน (BOT_PROTECTION_PROVIDER ≠ none)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartSignupDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupStartResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "403": {
+            "description": "bot_check_failed — token ไม่มีหรือไม่ถูกต้อง"
+          },
+          "409": {
+            "description": "account_exists / signup_in_progress"
+          },
+          "422": {
+            "description": "validation_failed — field `password` (password_too_short/password_breached), `mobile` (invalid_mobile)"
+          },
+          "429": {
+            "description": "rate_limited (`scope: recipient`) — ขอ OTP ไปผู้รับเดียวกันเกินเพดาน (ค่าเริ่ม 5 ครั้ง/วัน) มี header Retry-After\n\nrate_limited (`scope: recipient`) — ขอ OTP ไปผู้รับเดียวกันเกินเพดาน (ค่าเริ่ม 5 ครั้ง/วัน) มี header Retry-After\n\nrate_limited (`scope: ip`) — สมัครเกินเพดานต่อ IP (ค่าเริ่ม 5 ครั้ง/ชม.) มี header Retry-After",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "เริ่มสมัคร — ตรวจข้อมูลแล้วส่ง OTP 6 หลัก (อายุ 5 นาที)",
+        "tags": [
+          "public"
+        ]
+      }
+    },
+    "/v1/public/signup/session": {
+      "get": {
+        "operationId": "Signup_get",
+        "parameters": [
+          {
+            "name": "X-Signup-Token",
+            "in": "header",
+            "description": "token ทำต่อที่ได้จาก `POST /v1/public/signup` หรือจาก login (`signup_incomplete`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupSessionDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "description": "signup_session_invalid — token ผิด/หมดอายุ/ถูกทิ้ง"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "summary": "สถานะการสมัคร (ใช้กลับมาทำต่อจากขั้นที่ค้าง)",
+        "tags": [
+          "public"
+        ]
+      }
+    },
+    "/v1/public/signup/session/otp/resend": {
+      "post": {
+        "description": "นับเพดาน OTP ต่อผู้รับ (≤ 5 ครั้ง/วัน ต่ออีเมลและต่อเบอร์ — ตัวนับเดียวกับขั้นเริ่มสมัคร) · รหัสเดิมใช้ไม่ได้ทันที",
+        "operationId": "Signup_resend",
+        "parameters": [
+          {
+            "name": "X-Signup-Token",
+            "in": "header",
+            "description": "token ทำต่อที่ได้จาก `POST /v1/public/signup` หรือจาก login (`signup_incomplete`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupSessionDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "description": "signup_session_invalid"
+          },
+          "409": {
+            "description": "invalid_state_transition — ยืนยันรหัสแล้ว"
+          },
+          "429": {
+            "description": "otp_resend_too_soon / otp_locked / rate_limited (`scope: recipient`) — มี header Retry-After",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "ขอรหัสใหม่ — ได้หลัง 60 วินาที ไม่ระหว่างล็อก",
+        "tags": [
+          "public"
+        ]
+      }
+    },
+    "/v1/public/signup/session/otp/verify": {
+      "post": {
+        "description": "ผิดสะสม 5 ครั้ง → ล็อก 15 นาที และรหัสเดิมใช้ไม่ได้ (ปลดล็อกแล้วขอรหัสใหม่)",
+        "operationId": "Signup_verify",
+        "parameters": [
+          {
+            "name": "X-Signup-Token",
+            "in": "header",
+            "description": "token ทำต่อที่ได้จาก `POST /v1/public/signup` หรือจาก login (`signup_incomplete`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifySignupOtpDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupSessionDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "description": "signup_session_invalid"
+          },
+          "422": {
+            "description": "otp_invalid (มี `attemptsLeft`) / otp_expired / validation_failed"
+          },
+          "429": {
+            "description": "otp_locked — มี header Retry-After",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "ยืนยันรหัส → account_verified",
+        "tags": [
+          "public"
+        ]
+      }
+    },
+    "/v1/public/signup/session/company/lookup": {
+      "post": {
+        "description": "เรียกได้หลังยืนยัน OTP · checksum ผิด = 422 (ไม่ส่งเลขออก) · เลขซ้ำ tenant เดิม = `result: duplicate` (ไม่ค้น RD) · ผลค้นหาเก็บ cache 24 ชม. (พบ) / 1 ชม. (ไม่พบ) · ทุกการส่งเลขออกถูกบันทึก (PDPA) · RD ล้มเหลวติดกัน 5 ครั้ง → 5 นาทีถัดไปตอบ `unavailable` ทันที · เลขบุคคลธรรมดา (หลักแรก ≠ 0) ไม่ส่งออก (`individual`) · ค้นได้ ≤ 20 ครั้งต่อการสมัคร",
+        "operationId": "Signup_lookup",
+        "parameters": [
+          {
+            "name": "X-Signup-Token",
+            "in": "header",
+            "description": "token ทำต่อที่ได้จาก `POST /v1/public/signup` หรือจาก login (`signup_incomplete`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LookupCompanyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyLookupResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "description": "signup_session_invalid"
+          },
+          "409": {
+            "description": "invalid_state_transition — ยังไม่ยืนยัน OTP"
+          },
+          "422": {
+            "description": "validation_failed — `taxId` (thai_tax_id)"
+          },
+          "429": {
+            "description": "signup_lookup_limit",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "ขั้น 2 ปุ่ม \"ค้นหา\" — เลขซ้ำ → RD VAT Service → RD TIN Service",
+        "tags": [
+          "public"
+        ]
+      }
+    },
+    "/v1/public/signup/session/company/certificate": {
+      "put": {
+        "description": "อัปโหลดซ้ำ = แทนไฟล์เดิม",
+        "operationId": "Signup_certificate",
+        "parameters": [
+          {
+            "name": "filename",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อไฟล์เดิม (แสดงผล)",
+            "schema": {
+              "example": "หนังสือรับรอง.pdf",
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Signup-Token",
+            "in": "header",
+            "description": "token ทำต่อที่ได้จาก `POST /v1/public/signup` หรือจาก login (`signup_incomplete`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "เนื้อไฟล์ (raw) PDF/JPG/PNG ≤ 10 MB — ตรวจชนิดจากเนื้อไฟล์",
+          "content": {
+            "application/pdf": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "image/jpeg": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "image/png": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupSessionDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "description": "signup_session_invalid"
+          },
+          "422": {
+            "description": "validation_failed — `content` (empty_file / file_too_large / unsupported_type)"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "summary": "ขั้น 2 แนบหนังสือรับรองบริษัท (จำเป็นเมื่อไม่พบผู้จด VAT — pending_manual)",
+        "tags": [
+          "public"
+        ]
+      }
+    },
+    "/v1/public/signup/session/company": {
+      "post": {
+        "description": "ตรวจซ้ำฝั่ง server: checksum, เลขซ้ำ (409 `company_exists`), ผลค้น RD (cache หรือค้นใหม่) → `verificationStatus` auto_vat (พบผู้จด VAT + ชื่อตรง) / pending_manual (ไม่จด VAT หรือไม่พบ — ต้องแนบหนังสือรับรอง) / pending_verification (ชื่อไม่ตรง, RD ค้นไม่ได้, บุคคลธรรมดา) · เก็บเวอร์ชันข้อกำหนด/นโยบาย + เวลา + IP · `accountingSoftware` เป็นข้อมูล lead ไม่เปิด connector · แก้ซ้ำได้จนกว่าขั้น 3 สร้างบริษัท",
+        "operationId": "Signup_submitCompany",
+        "parameters": [
+          {
+            "name": "X-Signup-Token",
+            "in": "header",
+            "description": "token ทำต่อที่ได้จาก `POST /v1/public/signup` หรือจาก login (`signup_incomplete`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitCompanyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupSessionDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "description": "signup_session_invalid"
+          },
+          "409": {
+            "description": "company_exists / invalid_state_transition"
+          },
+          "422": {
+            "description": "validation_failed — `taxId` (thai_tax_id), `certificateFile` (certificate_required), ฟิลด์อื่น"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "summary": "ขั้น 2 ส่งข้อมูลบริษัท → company_submitted",
+        "tags": [
+          "public"
+        ]
+      }
+    },
+    "/v1/public/signup/session/company/join-request": {
+      "post": {
+        "description": "บันทึกคำขอใน session (ไม่สร้างบริษัท) · การส่งถึงผู้ดูแลระบบของบริษัทเดิม/คิวอนุมัติ = P1-ST2-T06 · เลขไม่ซ้ำ = 422",
+        "operationId": "Signup_joinRequest",
+        "parameters": [
+          {
+            "name": "X-Signup-Token",
+            "in": "header",
+            "description": "token ทำต่อที่ได้จาก `POST /v1/public/signup` หรือจาก login (`signup_incomplete`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinCompanyRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupSessionDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "description": "signup_session_invalid"
+          },
+          "422": {
+            "description": "validation_failed — `taxId` (not_existing_company)"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "summary": "ขั้น 2 เลขซ้ำ → \"ส่งคำขอเข้าร่วมบริษัท\" / \"ติดต่อเรา\"",
+        "tags": [
+          "public"
         ]
       }
     },
@@ -3536,6 +4178,191 @@
         }
       }
     },
+    "/v1/platform/tenants/{id}/entitlement-overrides": {
+      "get": {
+        "operationId": "PlatformTenants_overrides",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EntitlementOverrideDto"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/tenants/{id}/entitlement-overrides/{featureKey}": {
+      "put": {
+        "operationId": "PlatformTenants_setOverride",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "featureKey",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetEntitlementOverrideDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitlementOverrideDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/tenants/{id}/entitlement-overrides/{featureKey}/remove": {
+      "post": {
+        "operationId": "PlatformTenants_removeOverride",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "featureKey",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "",
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
     "/v1/platform/tenants/{id}/usage/metrics": {
       "get": {
         "operationId": "PlatformUsage_metrics",
@@ -3860,6 +4687,171 @@
           }
         ],
         "summary": "นับทะเบียนที่ตัดออกกลับเข้าไป",
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/api-usage": {
+      "get": {
+        "operationId": "PlatformApiUsage_list",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiUsageDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "การใช้งาน Open API ทุกบริษัท 30 วันล่าสุด — คำขอ, error rate, p95, 429, rate limit, สถานะปิด API",
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/tenants/{id}/api/disable": {
+      "post": {
+        "operationId": "PlatformApiUsage_disable",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiAccessDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ปิด Open API ของบริษัทชั่วคราว (PLT-115) — API key / OAuth client ทุกตัว (รวม sandbox) ได้ 403 `api_disabled_by_platform` ทันที · key ไม่ถูกลบ · ปิดอยู่แล้ว = 409",
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/tenants/{id}/api/enable": {
+      "post": {
+        "operationId": "PlatformApiUsage_enable",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiAccessDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "เปิด Open API ของบริษัทอีกครั้ง — key เดิมใช้ได้ทันที · ไม่ได้ปิดอยู่ = 409",
         "tags": [
           "platform-console"
         ]
@@ -4198,6 +5190,74 @@
         ],
         "tags": [
           "platform-console"
+        ]
+      }
+    },
+    "/v1/public/plans": {
+      "get": {
+        "description": "ราคาไม่รวม VAT · คำนวณค่าใช้จ่ายด้วย `estimatePlanCharge` ของ @tms/domain (ตัวเดียวกับประมาณการบิล) · ปิดหน้าราคา (`pricing.publicVisible = false`) → 404",
+        "operationId": "PublicPlans_list",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicPlansDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "404": {
+            "description": "หน้าราคาสาธารณะยังไม่เปิด (pricing.publicVisible = false)"
+          },
+          "429": {
+            "description": "เรียกถี่เกินไป (ต่อ IP)",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "แพ็กเกจ ราคา และตารางเปรียบเทียบสำหรับหน้าราคาสาธารณะ",
+        "tags": [
+          "public"
         ]
       }
     },
@@ -5902,6 +6962,69 @@
           }
         ],
         "summary": "availability รายเดือน (เป้า 99.5%)",
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/me/feature-requests": {
+      "post": {
+        "operationId": "Me_requestFeature",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureRequestResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
         "tags": [
           "platform"
         ]
@@ -76153,6 +77276,696 @@
           "newPassword"
         ]
       },
+      "StartSignupDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "สมชาย ใจดี",
+            "description": "ชื่อ-นามสกุล (ช่องเดียวตามต้นแบบ — ตรงกับ `name` ของผู้ใช้)"
+          },
+          "email": {
+            "type": "string",
+            "example": "name@company.co.th"
+          },
+          "mobile": {
+            "type": "string",
+            "example": "+66812345678",
+            "description": "เบอร์มือถือไทย E.164 (+66 ตามด้วย 9 หลัก) — รับ 08x / +66 8x ได้ ระบบ normalize ให้"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "description": "≥ 12 ตัว ไม่อยู่ในรายการรหัสที่รั่ว (นโยบาย ST1-T02)"
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "th",
+              "en"
+            ],
+            "description": "ภาษาของข้อความ OTP (ค่าเริ่ม th)"
+          }
+        },
+        "required": [
+          "name",
+          "email",
+          "mobile",
+          "password"
+        ]
+      },
+      "SignupOtpStateDto": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms"
+            ],
+            "description": "ช่องทางที่ส่งรหัส (อีเมลจนกว่า X-04)"
+          },
+          "sentTo": {
+            "type": "string",
+            "description": "ปลายทางที่ส่งรหัสไป (อีเมลหรือเบอร์ของผู้สมัคร)"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "รหัสหมดอายุ (5 นาทีหลังส่ง) · null = ไม่มีรหัสที่ใช้ได้ (ต้องขอใหม่)"
+          },
+          "resendAvailableAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "ขอรหัสใหม่ได้ตั้งแต่เวลานี้ (60 วินาทีหลังส่ง)"
+          },
+          "lockedUntil": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "ล็อกถึง (ผิด 5 ครั้ง → 15 นาที)"
+          },
+          "attemptsLeft": {
+            "type": "number",
+            "description": "ใส่ผิดได้อีกกี่ครั้งก่อนล็อก"
+          }
+        },
+        "required": [
+          "channel",
+          "sentTo",
+          "expiresAt",
+          "resendAvailableAt",
+          "lockedUntil",
+          "attemptsLeft"
+        ]
+      },
+      "CompanyAddressViewDto": {
+        "type": "object",
+        "properties": {
+          "houseNo": {
+            "type": "string"
+          },
+          "moo": {
+            "type": "string"
+          },
+          "soi": {
+            "type": "string"
+          },
+          "street": {
+            "type": "string"
+          },
+          "subDistrict": {
+            "type": "string"
+          },
+          "district": {
+            "type": "string"
+          },
+          "province": {
+            "type": "string"
+          },
+          "postalCode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "houseNo",
+          "moo",
+          "soi",
+          "street",
+          "subDistrict",
+          "district",
+          "province",
+          "postalCode"
+        ]
+      },
+      "SignupCertificateDto": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string",
+            "nullable": true,
+            "example": "หนังสือรับรอง.pdf"
+          },
+          "mime": {
+            "type": "string",
+            "example": "application/pdf"
+          },
+          "bytes": {
+            "type": "number",
+            "example": 120345
+          }
+        },
+        "required": [
+          "filename",
+          "mime",
+          "bytes"
+        ]
+      },
+      "SignupCompanyStateDto": {
+        "type": "object",
+        "properties": {
+          "taxId": {
+            "type": "string",
+            "example": "0105567153766"
+          },
+          "branchCode": {
+            "type": "string",
+            "example": "00000"
+          },
+          "legalName": {
+            "type": "string",
+            "nullable": true
+          },
+          "address": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CompanyAddressViewDto"
+              }
+            ]
+          },
+          "fleetSizeOwn": {
+            "type": "number",
+            "nullable": true
+          },
+          "fleetSizeSubcon": {
+            "type": "number",
+            "nullable": true
+          },
+          "accountingSoftware": {
+            "type": "string",
+            "enum": [
+              "none",
+              "express",
+              "flowaccount",
+              "krs",
+              "peak",
+              "sap_b1",
+              "other"
+            ],
+            "nullable": true
+          },
+          "verificationStatus": {
+            "type": "string",
+            "enum": [
+              "auto_vat",
+              "pending_manual",
+              "pending_verification"
+            ],
+            "nullable": true,
+            "description": "ผลตรวจตอนส่งขั้น 2 — auto_vat = พบผู้จด VAT และชื่อตรง"
+          },
+          "verificationSource": {
+            "type": "string",
+            "enum": [
+              "rd_vat",
+              "rd_tin"
+            ],
+            "nullable": true
+          },
+          "marketingOptIn": {
+            "type": "boolean"
+          },
+          "certificate": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SignupCertificateDto"
+              }
+            ]
+          },
+          "submittedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "taxId",
+          "branchCode",
+          "legalName",
+          "address",
+          "fleetSizeOwn",
+          "fleetSizeSubcon",
+          "accountingSoftware",
+          "verificationStatus",
+          "verificationSource",
+          "marketingOptIn",
+          "certificate",
+          "submittedAt"
+        ]
+      },
+      "SignupJoinRequestDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "join",
+              "contact"
+            ]
+          },
+          "companyName": {
+            "type": "string",
+            "example": "บริษัท ศรีไทยขนส่ง จำกัด",
+            "nullable": true
+          },
+          "taxId": {
+            "type": "string",
+            "example": "0105567153766"
+          },
+          "requestedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "kind",
+          "companyName",
+          "taxId",
+          "requestedAt"
+        ]
+      },
+      "SignupSessionDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "account_pending_otp",
+              "account_verified",
+              "company_submitted",
+              "completed",
+              "abandoned"
+            ]
+          },
+          "step": {
+            "type": "number",
+            "description": "ขั้นของ stepper: 1 บัญชี · 2 บริษัท · 3 แพ็กเกจ"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "mobile": {
+            "type": "string",
+            "example": "+66812345678"
+          },
+          "otp": {
+            "nullable": true,
+            "description": "สถานะ OTP — มีเฉพาะ account_pending_otp",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SignupOtpStateDto"
+              }
+            ]
+          },
+          "company": {
+            "nullable": true,
+            "description": "ข้อมูลบริษัทที่ส่งแล้ว (ขั้น 2) — ใช้ prefill เมื่อย้อนกลับมาแก้ · null = ยังไม่ส่ง",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SignupCompanyStateDto"
+              }
+            ]
+          },
+          "certificate": {
+            "nullable": true,
+            "description": "หนังสือรับรองบริษัทที่แนบแล้ว (ขั้น 2)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SignupCertificateDto"
+              }
+            ]
+          },
+          "joinRequest": {
+            "nullable": true,
+            "description": "คำขอเข้าร่วมบริษัทเดิม / ติดต่อเรา (เลขซ้ำ tenant เดิม)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SignupJoinRequestDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "step",
+          "name",
+          "email",
+          "mobile",
+          "otp",
+          "company",
+          "certificate",
+          "joinRequest"
+        ]
+      },
+      "SignupStartResultDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "token ทำต่อ — ส่งใน header `X-Signup-Token` ของคำขอถัดไป · แสดงครั้งเดียว (ระบบเก็บแค่ hash) · login ด้วยอีเมล/รหัสของการสมัครได้ token ใหม่"
+          },
+          "session": {
+            "$ref": "#/components/schemas/SignupSessionDto"
+          }
+        },
+        "required": [
+          "token",
+          "session"
+        ]
+      },
+      "VerifySignupOtpDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "123456",
+            "description": "รหัส 6 หลัก"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "LookupCompanyDto": {
+        "type": "object",
+        "properties": {
+          "taxId": {
+            "type": "string",
+            "example": "0105567153766",
+            "description": "เลขผู้เสียภาษี 13 หลัก — checksum ผิด = 422 `thai_tax_id` (ไม่ส่งเลขออกไปหน่วยงานใด)"
+          },
+          "branchCode": {
+            "type": "string",
+            "example": "00000",
+            "description": "รหัสสาขา 5 หลัก (ค่าเริ่ม 00000 = สำนักงานใหญ่)"
+          }
+        },
+        "required": [
+          "taxId"
+        ]
+      },
+      "RegistryCompanyDto": {
+        "type": "object",
+        "properties": {
+          "legalName": {
+            "type": "string",
+            "example": "บริษัท ตัวอย่างขนส่ง จำกัด"
+          },
+          "branchNumber": {
+            "type": "number",
+            "example": 0
+          },
+          "branchName": {
+            "type": "string",
+            "nullable": true,
+            "example": "สำนักงานใหญ่"
+          },
+          "address": {
+            "$ref": "#/components/schemas/CompanyAddressViewDto"
+          },
+          "vatRegisteredSince": {
+            "type": "string",
+            "nullable": true,
+            "example": "2024-05-02",
+            "description": "วันที่อนุมัติเป็นผู้จด VAT"
+          }
+        },
+        "required": [
+          "legalName",
+          "branchNumber",
+          "branchName",
+          "address",
+          "vatRegisteredSince"
+        ]
+      },
+      "DuplicateCompanyDto": {
+        "type": "object",
+        "properties": {
+          "companyName": {
+            "type": "string",
+            "example": "บริษัท ศรีไทยขนส่ง จำกัด"
+          },
+          "branchLabel": {
+            "type": "string",
+            "nullable": true,
+            "example": "สำนักงานใหญ่"
+          }
+        },
+        "required": [
+          "companyName",
+          "branchLabel"
+        ]
+      },
+      "CompanyLookupResultDto": {
+        "type": "object",
+        "properties": {
+          "taxId": {
+            "type": "string",
+            "example": "0105567153766"
+          },
+          "branchCode": {
+            "type": "string",
+            "example": "00000"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "duplicate",
+              "vat_found",
+              "tin_exists",
+              "not_found",
+              "unavailable",
+              "individual"
+            ],
+            "description": "duplicate = เลขนี้ใช้ TMS อยู่แล้ว (ไม่มีปุ่มสร้างบริษัท) · vat_found = พบผู้จด VAT (prefill) · tin_exists = มีเลขในฐานสรรพากรแต่ไม่จด VAT · not_found = ไม่พบ · unavailable = ค้นไม่ได้ตอนนี้ (RD ล่ม/ปิดวงจร) · individual = บุคคลธรรมดา (ไม่ส่งเลขออก)"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "rd_vat",
+              "rd_tin"
+            ],
+            "nullable": true,
+            "description": "แหล่งข้อมูลจริง — ใช้แสดงป้าย \"ข้อมูลจากกรมสรรพากร\""
+          },
+          "company": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RegistryCompanyDto"
+              }
+            ]
+          },
+          "duplicate": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DuplicateCompanyDto"
+              }
+            ]
+          },
+          "sameTaxOtherBranch": {
+            "type": "boolean",
+            "description": "เลขเดียวกันมีใน TMS แต่สาขาต่าง — สร้างได้ ทีมขายจะดู"
+          },
+          "requiresCertificate": {
+            "type": "boolean",
+            "description": "ต้องแนบหนังสือรับรองบริษัท (pending_manual)"
+          }
+        },
+        "required": [
+          "taxId",
+          "branchCode",
+          "result",
+          "source",
+          "company",
+          "duplicate",
+          "sameTaxOtherBranch",
+          "requiresCertificate"
+        ]
+      },
+      "CompanyAddressDto": {
+        "type": "object",
+        "properties": {
+          "houseNo": {
+            "type": "string",
+            "example": "99/1",
+            "description": "เลขที่ (รวมอาคาร/ชั้น/ห้อง ถ้ามี)"
+          },
+          "moo": {
+            "type": "string",
+            "example": "4",
+            "description": "หมู่ (ว่างได้)"
+          },
+          "soi": {
+            "type": "string",
+            "example": "",
+            "description": "ซอย (ว่างได้)"
+          },
+          "street": {
+            "type": "string",
+            "example": "พระราม 2",
+            "description": "ถนน (ว่างได้)"
+          },
+          "subDistrict": {
+            "type": "string",
+            "example": "แสมดำ",
+            "description": "แขวง/ตำบล"
+          },
+          "district": {
+            "type": "string",
+            "example": "บางขุนเทียน",
+            "description": "เขต/อำเภอ"
+          },
+          "province": {
+            "type": "string",
+            "example": "กรุงเทพมหานคร"
+          },
+          "postalCode": {
+            "type": "string",
+            "example": "10150",
+            "description": "รหัสไปรษณีย์ 5 หลัก"
+          }
+        },
+        "required": [
+          "houseNo",
+          "moo",
+          "soi",
+          "street",
+          "subDistrict",
+          "district",
+          "province",
+          "postalCode"
+        ]
+      },
+      "SubmitCompanyDto": {
+        "type": "object",
+        "properties": {
+          "taxId": {
+            "type": "string",
+            "example": "0105567153766",
+            "description": "ต้องเป็นเลขที่กด \"ค้นหา\" ล่าสุด (ไม่งั้น 422 `lookup_required`)"
+          },
+          "branchType": {
+            "type": "string",
+            "enum": [
+              "hq",
+              "branch"
+            ],
+            "description": "hq ⇒ รหัสสาขา 00000"
+          },
+          "branchCode": {
+            "type": "string",
+            "example": "00001",
+            "description": "รหัสสาขา 5 หลัก (บังคับเมื่อ branch, ไม่ใช่ 00000)"
+          },
+          "legalName": {
+            "type": "string",
+            "example": "บริษัท ตัวอย่างขนส่ง จำกัด",
+            "description": "ชื่อนิติบุคคล (prefill จาก RD แก้ได้)"
+          },
+          "address": {
+            "description": "ที่อยู่ออกใบกำกับภาษี แยกฟิลด์",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CompanyAddressDto"
+              }
+            ]
+          },
+          "fleetSizeOwn": {
+            "type": "number",
+            "example": 20,
+            "minimum": 0,
+            "maximum": 5000,
+            "description": "รถบริษัท (โดยประมาณ)"
+          },
+          "fleetSizeSubcon": {
+            "type": "number",
+            "example": 8,
+            "minimum": 0,
+            "maximum": 5000,
+            "description": "รถร่วม (โดยประมาณ)"
+          },
+          "accountingSoftware": {
+            "type": "string",
+            "enum": [
+              "none",
+              "express",
+              "flowaccount",
+              "krs",
+              "peak",
+              "sap_b1",
+              "other"
+            ],
+            "description": "โปรแกรมบัญชีที่ใช้ — ข้อมูล lead เท่านั้น ไม่เปิด connector ใด ๆ"
+          },
+          "acceptTerms": {
+            "type": "boolean",
+            "example": true,
+            "description": "ยอมรับเงื่อนไขการใช้บริการ (ต้องเป็น true)"
+          },
+          "acceptPrivacy": {
+            "type": "boolean",
+            "example": true,
+            "description": "ยอมรับนโยบายความเป็นส่วนตัว (ต้องเป็น true) — เก็บเวอร์ชัน + เวลา + IP"
+          },
+          "marketingOptIn": {
+            "type": "boolean",
+            "example": false,
+            "description": "รับข่าวสาร (ไม่บังคับ)"
+          }
+        },
+        "required": [
+          "taxId",
+          "branchType",
+          "legalName",
+          "address",
+          "fleetSizeOwn",
+          "fleetSizeSubcon",
+          "accountingSoftware",
+          "acceptTerms",
+          "acceptPrivacy"
+        ]
+      },
+      "JoinCompanyRequestDto": {
+        "type": "object",
+        "properties": {
+          "taxId": {
+            "type": "string",
+            "example": "0105567153766"
+          },
+          "branchCode": {
+            "type": "string",
+            "example": "00000"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "join",
+              "contact"
+            ],
+            "description": "join = ส่งคำขอเข้าร่วมบริษัท (ถึงผู้ดูแลระบบของบริษัทเดิม) · contact = ติดต่อเรา (เข้าคิวทีมงาน)"
+          }
+        },
+        "required": [
+          "taxId",
+          "kind"
+        ]
+      },
       "InvitationTokenDto": {
         "type": "object",
         "properties": {
@@ -77736,6 +79549,99 @@
           "twoFactorEnabled"
         ]
       },
+      "EntitlementOverrideDto": {
+        "type": "object",
+        "properties": {
+          "featureKey": {
+            "type": "string",
+            "example": "report"
+          },
+          "featureName": {
+            "type": "string",
+            "example": "รายงาน"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "grant",
+              "revoke",
+              "set_limit"
+            ]
+          },
+          "limit": {
+            "type": "number",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "description": "เหตุผลภายใน (ไม่แสดงลูกค้า — PLT-066)"
+          },
+          "approvedBy": {
+            "type": "string",
+            "nullable": true,
+            "description": "ทีมงานที่อนุมัติ (platform user)"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "expired": {
+            "type": "boolean",
+            "description": "หมดอายุแล้ว (ไม่มีผล)"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "featureKey",
+          "featureName",
+          "mode",
+          "limit",
+          "reason",
+          "approvedBy",
+          "expiresAt",
+          "expired",
+          "createdAt"
+        ]
+      },
+      "SetEntitlementOverrideDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "ลูกค้าขอระงับชั่วคราวระหว่างย้ายระบบ",
+            "minLength": 10
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "grant",
+              "revoke",
+              "set_limit"
+            ],
+            "description": "grant = เปิดให้ · revoke = ปิด · set_limit = เปลี่ยนโควตา"
+          },
+          "limit": {
+            "type": "number",
+            "nullable": true,
+            "example": 3,
+            "description": "โควตา (set_limit ต้องส่งเป็นตัวเลข · grant ไม่ส่ง = คงโควตาเดิม หรือโควตาสูงสุดของแพ็กเกจที่มีฟีเจอร์นี้ · revoke ไม่ส่ง)"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "หมดอายุ (ต้องเป็นอนาคต) · ไม่ส่ง/null = ไม่หมดอายุ — หมดแล้วฟีเจอร์กลับตามแพ็กเกจในรอบ cache ถัดไป (≤ 60 วิ)"
+          }
+        },
+        "required": [
+          "reason",
+          "mode"
+        ]
+      },
       "ApiCallsDto": {
         "type": "object",
         "properties": {
@@ -78017,6 +79923,180 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "ApiUsageRateLimitDto": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string",
+            "example": "standard",
+            "description": "โปรไฟล์ที่ใช้ (tenant ทับแพ็กเกจ) — standard | high"
+          },
+          "override": {
+            "type": "boolean",
+            "description": "ปรับเฉพาะบริษัทนี้ (tenant.rate_limit_profile) — false = ตามแพ็กเกจ"
+          },
+          "tenantPerMinute": {
+            "type": "number",
+            "example": 3000,
+            "description": "เพดานรวมของบริษัท (req/นาที) = rate ของชั้น tenant × 60"
+          },
+          "keyPerMinute": {
+            "type": "number",
+            "example": 1200,
+            "description": "เพดานต่อ API key / OAuth client (req/นาที)"
+          }
+        },
+        "required": [
+          "profile",
+          "override",
+          "tenantPerMinute",
+          "keyPerMinute"
+        ]
+      },
+      "ApiUsageRowDto": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "example": "ten_…"
+          },
+          "name": {
+            "type": "string"
+          },
+          "planCode": {
+            "type": "string",
+            "example": "std"
+          },
+          "planName": {
+            "type": "string",
+            "example": "มาตรฐาน"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_verification",
+              "trialing",
+              "active",
+              "past_due",
+              "read_only",
+              "suspended",
+              "cancelled"
+            ]
+          },
+          "apiInPlan": {
+            "type": "boolean",
+            "description": "แพ็กเกจ/override เปิดฟีเจอร์ Open API (`api`)"
+          },
+          "apiDisabled": {
+            "type": "boolean",
+            "description": "ทีมผู้ให้บริการปิด Open API อยู่ (PLT-115) — key ได้ 403 `api_disabled_by_platform`"
+          },
+          "apiDisabledAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "requests": {
+            "type": "number",
+            "description": "คำขอ REST ของ API key / OAuth client 30 วัน (ทุกสถานะ รวม 429)"
+          },
+          "errors4xx": {
+            "type": "number",
+            "description": "4xx ที่ไม่ใช่ 429"
+          },
+          "errors5xx": {
+            "type": "number"
+          },
+          "throttled": {
+            "type": "number",
+            "description": "429 ที่ rate limit ตัด"
+          },
+          "p95Ms": {
+            "type": "number",
+            "nullable": true,
+            "description": "p95 เวลาตอบ (ms) = ขอบบนของช่อง histogram (ค่าจริง ≤ ค่านี้) · null = ไม่มีคำขอ · ไม่รวม 429"
+          },
+          "p95Over": {
+            "type": "boolean",
+            "description": "p95 เกินขอบสุดท้ายของ histogram (แสดงเป็น \"> p95Ms\")"
+          },
+          "rateLimit": {
+            "$ref": "#/components/schemas/ApiUsageRateLimitDto"
+          }
+        },
+        "required": [
+          "tenantId",
+          "name",
+          "planCode",
+          "planName",
+          "status",
+          "apiInPlan",
+          "apiDisabled",
+          "requests",
+          "errors4xx",
+          "errors5xx",
+          "throttled",
+          "p95Over",
+          "rateLimit"
+        ]
+      },
+      "ApiUsageDto": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "example": "2026-10-30",
+            "description": "วันแรกของช่วง (เวลาไทย)"
+          },
+          "to": {
+            "type": "string",
+            "example": "2026-11-28",
+            "description": "วันสุดท้าย (วันนี้)"
+          },
+          "days": {
+            "type": "number",
+            "example": 30
+          },
+          "totalRequests": {
+            "type": "number",
+            "description": "คำขอรวมทุกบริษัทในตาราง"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiUsageRowDto"
+            }
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "days",
+          "totalRequests",
+          "rows"
+        ]
+      },
+      "ApiAccessDto": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "example": "ten_…"
+          },
+          "apiDisabled": {
+            "type": "boolean"
+          },
+          "apiDisabledAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "tenantId",
+          "apiDisabled"
         ]
       },
       "PlatformFeatureDto": {
@@ -78409,6 +80489,254 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "PublicVolumeTierDto": {
+        "type": "object",
+        "properties": {
+          "fromVehicle": {
+            "type": "number",
+            "example": 51,
+            "description": "คันที่เริ่มได้ส่วนลด (รวมคันนี้)"
+          },
+          "discountPct": {
+            "type": "string",
+            "example": "10.00",
+            "description": "ส่วนลด %"
+          }
+        },
+        "required": [
+          "fromVehicle",
+          "discountPct"
+        ]
+      },
+      "PublicPlanDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "std"
+          },
+          "nameTh": {
+            "type": "string",
+            "example": "Growth"
+          },
+          "nameEn": {
+            "type": "string",
+            "nullable": true
+          },
+          "badge": {
+            "type": "string",
+            "nullable": true,
+            "example": "นิยม"
+          },
+          "isContactSales": {
+            "type": "boolean",
+            "description": "ตกลงราคากับฝ่ายขาย (ไม่มีราคาต่อรถ)"
+          },
+          "version": {
+            "type": "number",
+            "example": 1,
+            "description": "เลขเวอร์ชันราคาที่มีผล"
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "pricePerVehicleMonthly": {
+            "type": "string",
+            "nullable": true,
+            "example": "280.00",
+            "description": "บาท/รถ active/เดือน ก่อน VAT — null = ตกลงราคา"
+          },
+          "minimumMonthly": {
+            "type": "string",
+            "nullable": true,
+            "example": "4500.00",
+            "description": "ก่อน VAT"
+          },
+          "annualDiscountPct": {
+            "type": "string",
+            "example": "15.00",
+            "description": "ส่วนลดรายปี %"
+          },
+          "volumeTiers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicVolumeTierDto"
+            }
+          },
+          "vehicleMin": {
+            "type": "number",
+            "example": 16
+          },
+          "vehicleMax": {
+            "type": "number",
+            "nullable": true,
+            "example": 60
+          },
+          "trialDays": {
+            "type": "number",
+            "example": 30
+          },
+          "provisional": {
+            "type": "boolean",
+            "description": "ราคาตั้งต้น — ยังไม่ประกาศ (D-40)"
+          }
+        },
+        "required": [
+          "code",
+          "nameTh",
+          "nameEn",
+          "badge",
+          "isContactSales",
+          "version",
+          "effectiveFrom",
+          "pricePerVehicleMonthly",
+          "minimumMonthly",
+          "annualDiscountPct",
+          "volumeTiers",
+          "vehicleMin",
+          "vehicleMax",
+          "trialDays",
+          "provisional"
+        ]
+      },
+      "PublicPlanCellDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "addon",
+              "no",
+              "limit",
+              "unlimited"
+            ],
+            "description": "yes = ✓ · addon = ซื้อเพิ่ม · no = — · limit = ตัวเลขโควตา · unlimited = ไม่จำกัด"
+          },
+          "limit": {
+            "type": "number",
+            "nullable": true,
+            "description": "เฉพาะ kind = limit"
+          }
+        },
+        "required": [
+          "kind",
+          "limit"
+        ]
+      },
+      "PublicFeatureDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "example": "track"
+          },
+          "category": {
+            "type": "string",
+            "example": "ปฏิบัติการ"
+          },
+          "nameTh": {
+            "type": "string",
+            "example": "ติดตามรถ (GPS)"
+          },
+          "nameEn": {
+            "type": "string",
+            "nullable": true
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "boolean",
+              "limit",
+              "metered"
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "nullable": true,
+            "example": "ตัว"
+          },
+          "isBasic": {
+            "type": "boolean",
+            "description": "ฟีเจอร์พื้นฐาน — มีทุกแพ็กเกจ (PLT-061)"
+          },
+          "cells": {
+            "description": "เซลล์ต่อแพ็กเกจ เรียงตาม `plans` — มาจาก plan_entitlement ของเวอร์ชันที่มีผล",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicPlanCellDto"
+            }
+          }
+        },
+        "required": [
+          "key",
+          "category",
+          "nameTh",
+          "nameEn",
+          "type",
+          "unit",
+          "isBasic",
+          "cells"
+        ]
+      },
+      "PublicPlansDto": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string",
+            "example": "THB"
+          },
+          "vatMode": {
+            "type": "string",
+            "example": "exclusive",
+            "description": "ราคาทั้งหมดยังไม่รวม VAT"
+          },
+          "provisional": {
+            "type": "boolean",
+            "description": "มีแพ็กเกจที่ราคาตั้งต้น (ยังไม่ประกาศ) อย่างน้อย 1 รายการ"
+          },
+          "retentionDays": {
+            "type": "number",
+            "example": 90,
+            "description": "เก็บข้อมูลหลังยกเลิกกี่วัน (retention.operationalDays)"
+          },
+          "trialDays": {
+            "type": "number",
+            "example": 30,
+            "description": "จำนวนวันทดลองใช้ของ tenant ใหม่ (trial.days — ที่ใช้จริงตอนสมัคร)"
+          },
+          "subconWeight": {
+            "type": "string",
+            "example": "1.00",
+            "description": "น้ำหนักรถร่วมในการนับรถ active (usage.subconWeight — 1.00 = เต็มคัน)"
+          },
+          "plans": {
+            "description": "เรียงตาม sortOrder",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicPlanDto"
+            }
+          },
+          "features": {
+            "description": "feature matrix เรียงตามแคตตาล็อก",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicFeatureDto"
+            }
+          }
+        },
+        "required": [
+          "currency",
+          "vatMode",
+          "provisional",
+          "retentionDays",
+          "trialDays",
+          "subconWeight",
+          "plans",
+          "features"
         ]
       },
       "PlatformSettingDto": {
@@ -81011,6 +83339,77 @@
           "resolveNotifiedAt"
         ]
       },
+      "MeLockDto": {
+        "type": "object",
+        "properties": {
+          "planCode": {
+            "type": "string",
+            "example": "std",
+            "nullable": true,
+            "description": "แพ็กเกจแรก (ถูกไปแพง) ที่รวมฟีเจอร์นี้ · null = ไม่มีแพ็กเกจใดรวมไว้"
+          },
+          "planName": {
+            "type": "string",
+            "example": "Growth",
+            "nullable": true
+          },
+          "pricePerVehicleMonthly": {
+            "type": "string",
+            "example": "280.00",
+            "nullable": true,
+            "description": "ราคา/รถ active/เดือน ก่อน VAT ของเวอร์ชันที่มีผลของแพ็กเกจนั้น · null = ตกลงราคา (ติดต่อฝ่ายขาย)"
+          },
+          "addon": {
+            "type": "boolean",
+            "description": "แพ็กเกจปัจจุบันขายฟีเจอร์นี้เป็น add-on (ปุ่ม \"ซื้อ Add-on\" แทน \"อัปเกรด\")"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "not_in_plan",
+              "revoked"
+            ],
+            "description": "not_in_plan = แพ็กเกจไม่รวม (อัปเกรด/ซื้อ add-on) · revoked = แพ็กเกจรวมอยู่แต่ผู้ให้บริการปิดสิทธิ์ให้ tenant นี้ (override) — ไม่มีแพ็กเกจให้อัปเกรด (planCode/planName/ราคา = null) ติดต่อทีมงานผู้ให้บริการ"
+          }
+        },
+        "required": [
+          "planCode",
+          "planName",
+          "pricePerVehicleMonthly",
+          "addon",
+          "reason"
+        ]
+      },
+      "FeatureRequestDto": {
+        "type": "object",
+        "properties": {
+          "featureKey": {
+            "type": "string",
+            "example": "report",
+            "description": "featureKey ของโมดูลที่ไม่รวมในแพ็กเกจ (จาก `locks` ของ GET /me)"
+          }
+        },
+        "required": [
+          "featureKey"
+        ]
+      },
+      "FeatureRequestResultDto": {
+        "type": "object",
+        "properties": {
+          "notified": {
+            "type": "number",
+            "description": "จำนวนผู้ดูแลระบบที่ได้รับแจ้ง (0 เมื่อแจ้งซ้ำภายใน 24 ชม.)"
+          },
+          "alreadyRequested": {
+            "type": "boolean",
+            "description": "แจ้งโมดูลนี้ไปแล้วภายใน 24 ชม. — ไม่ส่งซ้ำ"
+          }
+        },
+        "required": [
+          "notified",
+          "alreadyRequested"
+        ]
+      },
       "MeImpersonationDto": {
         "type": "object",
         "properties": {
@@ -81265,7 +83664,7 @@
             "example": {
               "multi": "องค์กร"
             },
-            "description": "ฟีเจอร์ที่ยังไม่มี → ชื่อแพ็กเกจแรกที่รวมไว้ (หน้า \"ไม่รวมในแพ็กเกจ\" — spec/01 PLT-076)"
+            "description": "[deprecated — ใช้ `locks` แทน; คงไว้เพื่อไม่ breaking] ฟีเจอร์ที่ยังไม่มี → ชื่อแพ็กเกจแรกที่รวมไว้ (หน้า \"ไม่รวมในแพ็กเกจ\" — spec/01 PLT-076)"
           },
           "account": {
             "description": "ข้อมูลแถบสถานะบัญชี (P1-ST1-T05)",
@@ -81274,6 +83673,13 @@
                 "$ref": "#/components/schemas/MeAccountDto"
               }
             ]
+          },
+          "locks": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/MeLockDto"
+            },
+            "description": "P1-ST1-T02: ฟีเจอร์ที่ไม่รวมในแพ็กเกจ (หลัง add-on/override ก่อนตัดตามสถานะ) → เมนูขึ้น 🔒 + หน้าแนะนำโมดูล (PLT-076) · ฟีเจอร์พื้นฐาน (isBasic) ไม่อยู่ที่นี่ทุกกรณี (PLT-077)"
           }
         },
         "required": [
@@ -81285,7 +83691,8 @@
           "features",
           "plan",
           "lockedIn",
-          "account"
+          "account",
+          "locks"
         ]
       },
       "MeBillingAdminDto": {
@@ -120211,6 +122618,11 @@
     }
   },
   "x-problem-codes": {
+    "account_exists": {
+      "status": 409,
+      "title": "อีเมลนี้มีบัญชีแล้ว เข้าสู่ระบบเพื่อเพิ่มบริษัทใหม่",
+      "titleEn": "This email already has an account — sign in to add a new company"
+    },
     "account_locked": {
       "status": 429,
       "title": "ใส่รหัสผ่านผิดหลายครั้ง ลองใหม่อีกครั้งใน 15 นาที",
@@ -120225,6 +122637,11 @@
       "status": 409,
       "title": "อีเมลนี้เป็นสมาชิกของบริษัทแล้ว",
       "titleEn": "This email is already a member"
+    },
+    "api_disabled_by_platform": {
+      "status": 403,
+      "title": "ผู้ให้บริการปิดการใช้งาน API ของบริษัทนี้ชั่วคราว กรุณาติดต่อผู้ให้บริการ",
+      "titleEn": "API access for this company has been disabled by the platform. Please contact support."
     },
     "assignment_blocked": {
       "status": 409,
@@ -120275,6 +122692,11 @@
       "status": 409,
       "title": "ส่งทางช่องทางนี้ไม่ได้ตอนนี้ คัดลอกลิงก์ไปส่งเองได้",
       "titleEn": "This channel is not available — copy the link and send it yourself"
+    },
+    "company_exists": {
+      "status": 409,
+      "title": "บริษัทนี้ใช้ TMS อยู่แล้ว ส่งคำขอเข้าร่วมบริษัทหรือติดต่อเรา",
+      "titleEn": "This company already uses TMS — request to join or contact us"
     },
     "company_unavailable": {
       "status": 422,
@@ -120601,6 +123023,26 @@
       "title": "ต้นทางแก้ใบสั่งขนส่งนี้หลังวางแผน — เลือกรับค่าต้นทางหรือใช้ค่า TMS ก่อนจัดลงเที่ยว",
       "titleEn": "The source changed this order after planning — accept or reject the change before planning it"
     },
+    "otp_expired": {
+      "status": 422,
+      "title": "รหัสหมดอายุแล้ว กดขอรหัสใหม่",
+      "titleEn": "The code has expired — request a new one"
+    },
+    "otp_invalid": {
+      "status": 422,
+      "title": "รหัสไม่ถูกต้อง",
+      "titleEn": "Incorrect code"
+    },
+    "otp_locked": {
+      "status": 429,
+      "title": "ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่ภายหลัง",
+      "titleEn": "Too many incorrect codes — try again later"
+    },
+    "otp_resend_too_soon": {
+      "status": 429,
+      "title": "ขอรหัสใหม่ได้หลังครบ 60 วินาที",
+      "titleEn": "You can request a new code after 60 seconds"
+    },
     "payload_too_large": {
       "status": 413,
       "title": "ไฟล์หรือข้อมูลมีขนาดใหญ่เกินกำหนด",
@@ -120750,6 +123192,26 @@
       "status": 403,
       "title": "ผู้อนุมัติใบสำคัญจ่าย บันทึกจ่ายใบนั้นเองไม่ได้ ต้องให้ผู้อื่นบันทึกจ่าย",
       "titleEn": "Whoever approved a settlement cannot record its payment"
+    },
+    "signup_in_progress": {
+      "status": 409,
+      "title": "อีเมลนี้กำลังสมัครอยู่ เข้าสู่ระบบเพื่อทำต่อจากขั้นที่ค้างไว้",
+      "titleEn": "A sign-up with this email is in progress — sign in to continue"
+    },
+    "signup_incomplete": {
+      "status": 409,
+      "title": "การสมัครยังไม่เสร็จ ทำต่อจากขั้นที่ค้างไว้",
+      "titleEn": "Your sign-up is not finished — continue where you left off"
+    },
+    "signup_lookup_limit": {
+      "status": 429,
+      "title": "ค้นหาเลขผู้เสียภาษีครบจำนวนครั้งแล้ว กรอกข้อมูลบริษัทเองได้",
+      "titleEn": "Too many tax ID lookups — enter the company details manually"
+    },
+    "signup_session_invalid": {
+      "status": 401,
+      "title": "ไม่พบการสมัครนี้หรือหมดอายุแล้ว เริ่มสมัครใหม่",
+      "titleEn": "This sign-up was not found or has expired — start again"
     },
     "sor_fixed": {
       "status": 422,

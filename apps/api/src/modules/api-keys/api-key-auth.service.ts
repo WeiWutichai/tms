@@ -8,6 +8,7 @@ import {
 } from '../../auth/signing-keys';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
+import { requestContext } from '../../common/request-context';
 import { PrismaService } from '../../db/prisma.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { SandboxService } from '../sandbox/sandbox.service';
@@ -52,7 +53,7 @@ export class ApiKeyAuthService {
     return this.prisma.platform;
   }
 
-  /** ตรวจ key ที่หาเจอแล้ว: สถานะ tenant → เพิกถอน → หมดอายุ → IP → แพ็กเกจมี Open API */
+  /** ตรวจ key ที่หาเจอแล้ว: สถานะ tenant → Console ปิด API → เพิกถอน → หมดอายุ → IP → แพ็กเกจมี Open API */
   private async check(k: ApiKey, ip: string | undefined): Promise<void> {
     // ST7-T09: key `tk_test_` อยู่ในแถว sandbox — สถานะที่ใช้ = ของบริษัทจริง (ระงับบริษัท = sandbox หยุดด้วย)
     const own = await this.db.tenant.findUnique({
@@ -61,15 +62,20 @@ export class ApiKeyAuthService {
     });
     if (!own || (own.mode === 'test') !== (k.mode === 'test'))
       throw new ProblemException('unauthorized'); // key live ในแถว sandbox (หรือกลับกัน) ห้ามใช้
+    // P1-ST4-T05: นับสถิติ Console ตั้งแต่ตรงนี้ (รวมคำขอที่ถูกปฏิเสธด้านล่าง — 403/401 ของ key) · sandbox ไม่นับ
+    const rc = requestContext.get();
+    if (rc && own.mode === 'live') rc.trafficTenantId = k.tenantId;
     const t = await this.db.tenant.findFirst({
       where: {
         id: own.mode === 'test' ? own.liveTenantId! : k.tenantId,
         mode: 'live',
         status: { in: API_TENANT_STATUSES as never },
       },
-      select: { id: true },
+      select: { id: true, apiDisabledAt: true },
     });
     if (!t) throw new ProblemException('unauthorized');
+    // P1-ST4-T05 (PLT-115): Console ปิด Open API ของบริษัท (sandbox ตามบริษัทจริง) — มีผลคำขอถัดไปทันที ไม่ลบ key
+    if (t.apiDisabledAt) throw new ProblemException('api_disabled_by_platform');
     const st = apiKeyStatus(k);
     if (st === 'revoked') throw new ProblemException('key_revoked');
     if (st === 'expired') throw new ProblemException('key_expired');

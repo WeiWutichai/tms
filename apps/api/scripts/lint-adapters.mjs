@@ -117,7 +117,9 @@ export function checkAdapterBoundary(srcRoot) {
         problems.push(
           `${relative(root, f)}:${line(m.index)}  core อ้างชื่อจาก adapter ตรง (${m[1]}) — ใช้ ErpAdapterRegistry`,
         );
-    if (!inAdapters && KEY_RE && f !== appModule) {
+    // ไฟล์ที่ใช้ชื่อโปรแกรมบัญชีเป็น enum ข้อมูล lead (ไม่ใช่ key ของ ErpAdapter) — ยกเว้นเฉพาะกฎนี้
+    const LEAD_ENUM_FILES = [join(root, 'modules/signup/signup.dto.ts')];
+    if (!inAdapters && KEY_RE && f !== appModule && !LEAD_ENUM_FILES.includes(f)) {
       const code = stripComments(src);
       for (const m of code.matchAll(KEY_RE))
         problems.push(

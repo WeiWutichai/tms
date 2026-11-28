@@ -37,8 +37,12 @@ export const authLimitPerMin = () =>
  * (ผู้ใช้หลายคนหลัง NAT เดียวกันเปิดลิงก์รถร่วมเยอะ ไม่ทำให้ทีม Innovera login Console หรือผู้ถูกเชิญรับคำเชิญไม่ได้)
  * ⚠ ต่อ IP ต้องตั้ง `TRUST_PROXY` ให้ตรงกับจำนวน proxy (UAT/production) — ไม่ตั้ง = ทุกคำขอเป็น IP ของ load balancer = เพดานเดียวทั้งระบบ
  */
-export function publicBucketGroup(url: string): 'public' | 'console' | 'invite' | 'auth' {
+export function publicBucketGroup(
+  url: string,
+): 'public' | 'console' | 'invite' | 'auth' | 'pricing' {
   const path = url.split('?')[0] ?? '';
+  // P1-ST2-T02 review S4: หน้าราคาสาธารณะ (ผู้เข้าชมเว็บจำนวนมาก) ไม่ใช้เพดานร่วมกับลิงก์รถร่วม/ผู้รับ
+  if (/^\/v1\/public\/plans\/?$/.test(path)) return 'pricing';
   if (/^\/v1\/platform\/auth\//.test(path)) return 'console';
   if (/^\/v1\/auth\/invitations\//.test(path)) return 'invite';
   if (/^\/v1\/auth\//.test(path)) return 'auth';

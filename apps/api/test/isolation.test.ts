@@ -1282,6 +1282,10 @@ describe('tenant isolation harness', () => {
     platform_audit_log: 'audit การกระทำระดับแพลตฟอร์ม (P1-ST1-T01/T04) — role แอปเข้าไม่ได้',
     platform_setting: 'ค่าตั้งของแพลตฟอร์ม (P1-ST1-T04) — role แอปเข้าไม่ได้',
     platform_user: 'ทีม Innovera (Console)',
+    // P1-ST2-T03/T04 (ก่อนมีบริษัท — รายละเอียด/สิทธิ์ตรวจใน (5) PLATFORM_ONLY_TABLES)
+    signup_session: 'P1-ST2-T03 การสมัครเอง — ยังไม่มีบริษัท (client platform เท่านั้น)',
+    company_lookup: 'P1-ST2-T04 cache ผลค้นข้อมูลบริษัทจากกรมสรรพากร (ข้อมูลสาธารณะของนิติบุคคล)',
+    company_lookup_log: 'P1-ST2-T04 log การส่งเลขผู้เสียภาษีออกภายนอก (PDPA) — append-only',
     rate_limit_bucket: 'ถัง rate limit (key เป็น hash ของ tenant/key/user)',
     tenant: 'ตาราง tenant เอง — RLS ด้วยคอลัมน์ id (ตรวจใน (1))',
     worker_heartbeat: 'สถานะ worker — ไม่มีข้อมูลลูกค้า',
@@ -1384,5 +1388,31 @@ describe('tenant isolation harness', () => {
     const res = await api(app, tokenB).get('/v1/companies');
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual([]);
+  });
+
+  /**
+   * (5) ตาราง platform ที่ **ไม่มี tenant_id** (ข้อมูลก่อนมีบริษัท — ไม่มี RLS ให้กั้น) ต้องไม่ให้ role แอป (tms_app) แตะเลย
+   * เพิ่มตารางแบบนี้ = เพิ่มในรายการพร้อมเหตุผล (CLAUDE.md "test แยกข้อมูลของตารางใหม่")
+   */
+  const PLATFORM_ONLY_TABLES: Record<string, string> = {
+    password_reset_token: 'ST1-T03 ลิงก์ลืมรหัสผ่าน — ก่อนรู้บริษัท (อีเมลเดียวข้ามบริษัท)',
+    signup_session:
+      'P1-ST2-T03 การสมัครเอง — ยังไม่มีบริษัท; ข้อมูลส่วนบุคคลผู้สมัคร + hash OTP/รหัสผ่าน (เข้าผ่าน client platform เท่านั้น)',
+    company_lookup:
+      'P1-ST2-T04 cache ผลค้นข้อมูลบริษัทจากกรมสรรพากร — ข้อมูลสาธารณะของนิติบุคคล ใช้ร่วมทุกการสมัคร (ก่อนมีบริษัท); key = (taxId, branchCode)',
+    company_lookup_log:
+      'P1-ST2-T04 log การส่งเลขผู้เสียภาษีออกไปหน่วยงานภายนอก (PDPA) + ตัวนับ circuit breaker — ระดับแพลตฟอร์ม ไม่ผูกบริษัท; append-only',
+  };
+  it('(5) ตาราง platform ที่ไม่มี tenant_id: tms_app ไม่มีสิทธิ์ใด ๆ', async () => {
+    const rows = await plat.$queryRaw<{ table: string; priv: string }[]>`
+      SELECT table_name AS table, privilege_type AS priv FROM information_schema.role_table_grants
+       WHERE grantee = 'tms_app' AND table_schema = 'public' AND table_name = ANY(${Object.keys(PLATFORM_ONLY_TABLES)})`;
+    const cols = await plat.$queryRaw<{ table: string }[]>`
+      SELECT table_name AS table FROM information_schema.columns
+       WHERE table_schema = 'public' AND column_name = 'tenant_id' AND table_name = ANY(${Object.keys(PLATFORM_ONLY_TABLES)})`;
+    expect(cols, 'ตารางในรายการ platform-only ต้องไม่มี tenant_id (ถ้ามี = ใช้ RLS แทน)').toEqual(
+      [],
+    );
+    expect(rows.map((r) => `${r.table}:${r.priv}`)).toEqual([]);
   });
 });

@@ -16,10 +16,9 @@ export const CONNECTOR_AVAILABILITY = ['AVAILABLE', 'COMING_SOON'] as const;
 export type ConnectorAvailability = (typeof CONNECTOR_AVAILABILITY)[number];
 
 /**
- * แพ็กเกจขั้นต่ำตาม docs/02 §3.1 (API connector โปรแกรมบัญชี = Growth) — **ยังไม่บังคับ**: catalog แพ็กเกจที่มีบน main
- * (`plan-catalog.ts`: start/std/ent) ยังไม่มี tier Growth จนกว่า P1-ST1-T01 (PlanVersion) จะ merge — ระหว่างนี้การเปิดใช้คุมด้วย
- * feature `conn` (= `connectors.accounting` ของ spec/01 §6) + limit จำนวน เหมือน connector อื่น
- * [DECISION — lead 27 พ.ย. 2569, ย้อนได้] ชี้ประตูใหม่เมื่อ P1-ST1-T01 merge (บันทึกใน PROGRESS)
+ * แพ็กเกจขั้นต่ำตาม docs/02 §3.1 (API connector โปรแกรมบัญชี = Growth) — **บังคับแล้ว (P1-ST1-T02)**:
+ * adapter ตัวจริงที่ประกาศ `entitlement` ผ่าน `EntitlementService.assertConnector` ตอนสร้าง connector (หลังเช็ก coming-soon 422)
+ * ได้สิทธิ์ผ่าน add-on/override (R-09) = ผ่านแม้แพ็กเกจต่ำกว่า
  */
 export const CONNECTOR_TIERS = ['growth'] as const;
 export type ConnectorTier = (typeof CONNECTOR_TIERS)[number];
