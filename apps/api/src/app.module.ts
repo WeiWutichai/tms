@@ -72,6 +72,7 @@ import { PlatformUsageController } from './platform/platform-usage.controller';
 import { PlatformApiUsageController } from './platform/platform-api-usage.controller';
 import { UsageController } from './modules/usage/usage.controller';
 import { UsageFinalizeService } from './modules/usage/usage-finalize.service';
+import { QuotaAlertService } from './modules/usage/quota-alert.service';
 import { apiUsageMiddleware } from './modules/usage/api-usage-meter';
 import { ImpersonationController } from './platform/impersonation.controller';
 import {
@@ -600,6 +601,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     UnbilledReminderService,
     DepreciationService,
     UsageFinalizeService,
+    QuotaAlertService,
     GeoService,
     AuditService,
     BranchesService,

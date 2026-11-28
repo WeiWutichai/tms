@@ -91,7 +91,7 @@ scope: `settings:write` หรือ `webhooks:manage` · operationId: `Webhooks
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `201` | `secret` แสดงครั้งเดียว · ส่ง `webhook.verification` (challenge) หลังบันทึก 1 ครั้ง — ผลไม่บล็อก · ไม่รับ Idempotency-Key · เกิน limit ของแพ็กเกจ → 409 `webhook_limit_reached` | `WebhookEndpointSecretDto` |
+| `201` | `secret` แสดงครั้งเดียว · ส่ง `webhook.verification` (challenge) หลังบันทึก 1 ครั้ง — ผลไม่บล็อก · ไม่รับ Idempotency-Key · เกิน limit ของแพ็กเกจ → 409 `webhook_limit_reached` (มี `featureKey` `limit` `used` `upgradePlan`) | `WebhookEndpointSecretDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`settings:write` / `webhooks:manage` — มีตัวใดตัวหนึ่งก็พอ) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) — [permission_denied](errors.md#permission_denied), [step_up_required](errors.md#step_up_required) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |

@@ -1,6 +1,10 @@
 # Changelog
 
-เวอร์ชันพฤติกรรม (`X-Api-Version`) ล่าสุด: `2026-11-27` — วิธีเลือกเวอร์ชันดู [เวอร์ชันของ API](versioning.md)
+เวอร์ชันพฤติกรรม (`X-Api-Version`) ล่าสุด: `2026-11-28` — วิธีเลือกเวอร์ชันดู [เวอร์ชันของ API](versioning.md)
+
+## 2026-11-28
+
+โควตา: จ่ายงานให้รถที่ยังไม่ถูกนับเดือนนี้และจะทำให้รถ active เกินโควตา → คำเตือน `vehicle_quota_exceeded` — `POST /v1/trips/{id}/dispatch` (และ `/assign` แบบ `dispatch: true`) ตอบ 409 `assignment_warnings` จนกว่าจะยืนยันด้วย `ruleKeys` + `overrideReason` · 409 `connector_limit_reached` / `webhook_limit_reached` / `seat_limit_reached` เพิ่ม `featureKey` `used` `upgradePlan` (เพิ่มค่า — ไม่มี gate)
 
 ## 2026-11-27
 

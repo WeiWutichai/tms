@@ -17,6 +17,7 @@ import { can } from '../../nav';
 import { useMe } from '../../shell/AppShell';
 import { MappingTable } from './Connectors';
 import { Radio } from './OrgSections';
+import { limitProblem, QuotaLimitDialog } from '../quota/QuotaLimitDialog';
 import { Toggle } from './Settings';
 
 type Connector = Schemas['ConnectorDto'];
@@ -1330,6 +1331,7 @@ function ConnectDialog({
   const [v, setV] = useState<Record<string, string>>({});
   const [reason, setReason] = useState('');
   const [err, setErr] = useState<string | null>(null);
+  const [limit, setLimit] = useState<ReturnType<typeof limitProblem>>(null);
   const [busy, setBusy] = useState(false);
   const missing = fields.some((f) => f.required && !v[f.key]?.trim());
   const ok = !missing && !busy && (!rotate || reason.trim().length >= 10);
@@ -1384,7 +1386,10 @@ function ConnectDialog({
         onDone(healthFail(t, e), true);
       }
     } catch (e) {
-      setErr(problemText(e, t));
+      // P1-ST1-T08 ครบจำนวนการเชื่อมต่อตามแพ็กเกจ → dialog เสนออัปเกรด
+      const lp = limitProblem(e);
+      if (lp) setLimit(lp);
+      else setErr(problemText(e, t));
       setBusy(false);
     }
   }
@@ -1398,6 +1403,7 @@ function ConnectDialog({
         aria-labelledby={`${id}-t`}
         onClick={(e) => e.stopPropagation()}
       >
+        {limit && <QuotaLimitDialog problem={limit} onClose={() => setLimit(null)} />}
         <div className="tms-dialog__head">
           <div style={{ flex: 1 }}>
             <h2 id={`${id}-t`} className="tms-dialog__title">

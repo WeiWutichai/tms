@@ -130,7 +130,7 @@ export class WebhooksController {
   @ApiCreatedResponse({
     type: WebhookEndpointSecretDto,
     description:
-      '`secret` แสดงครั้งเดียว · ส่ง `webhook.verification` (challenge) หลังบันทึก 1 ครั้ง — ผลไม่บล็อก · ไม่รับ Idempotency-Key · เกิน limit ของแพ็กเกจ → 409 `webhook_limit_reached`',
+      '`secret` แสดงครั้งเดียว · ส่ง `webhook.verification` (challenge) หลังบันทึก 1 ครั้ง — ผลไม่บล็อก · ไม่รับ Idempotency-Key · เกิน limit ของแพ็กเกจ → 409 `webhook_limit_reached` (มี `featureKey` `limit` `used` `upgradePlan`)',
   })
   async create(
     @Body() body: CreateWebhookDto,

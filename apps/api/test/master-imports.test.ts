@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { tryDecodeId } from '../src/common/ids';
 import { Prisma } from '@prisma/client';
 import { DbService } from '../src/db/db.service';
+import { EntitlementService } from '../src/modules/entitlements/entitlement.service';
 import { JobQueue } from '../src/jobs/job-queue.service';
 import { ImportRegistry } from '../src/modules/imports/import-spec';
 import { ImportService } from '../src/modules/imports/import.service';
@@ -653,6 +654,7 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
 
     // P1-ST1-T06 · D68-14/21: ฐานโควตา = รถ active เดือนนี้ (tenant นี้ยังไม่มีเที่ยวที่ปล่อยรถ = 0) ไม่ใช่รถในทะเบียน
     await db.tenant.update({ where: { id: tA }, data: { vehicleQuota: 1 } });
+    app.get(EntitlementService).invalidate(tA); // P1-ST1-T08: vehicleLimit memo ต่อ tenant — แก้ฐานตรงต้องล้างเอง
     const q = await dry(
       a,
       'vehicle',
@@ -677,6 +679,7 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
     ).toBe(2);
     // นับเฉพาะแถวที่จะสร้างจริง: แก้คันเดิม (upsert) + แถวผิด ไม่นับ
     await db.tenant.update({ where: { id: tA }, data: { vehicleQuota: 1 } });
+    app.get(EntitlementService).invalidate(tA); // P1-ST1-T08: vehicleLimit memo ต่อ tenant — แก้ฐานตรงต้องล้างเอง
     const ok = await dry(
       a,
       'vehicle',
@@ -691,6 +694,7 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
     expect(ok).toMatchObject({ status: 'validated', errorRows: 1, fileErrorCode: null });
     expect(ok.issues.some((i: { code: string }) => i.code === 'quota_exceeded')).toBe(false);
     await db.tenant.update({ where: { id: tA }, data: { vehicleQuota: null } });
+    app.get(EntitlementService).invalidate(tA);
   }, 180_000); // 201 แถวผ่าน job ทีละแถว — เครื่องโหลดหนักเกิน 30 วิ
 
   it('แก้ตามรหัส: object ย่อย (ที่อยู่/ผู้ติดต่อ/บัญชี) แก้เฉพาะช่องที่ให้มา ช่องอื่นและผู้ติดต่ออื่นคงเดิม (MD-284)', async () => {
