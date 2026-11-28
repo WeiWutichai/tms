@@ -2478,6 +2478,8 @@ model StoredDocument {
 
   @@unique([tenantId, clientDocumentId])
   @@index([tenantId, entityType, entityId])
+  /// P1-ST1-T07 ค่า ณ วันของพื้นที่ POD (migration 0193)
+  @@index([tenantId, status])
   /// ST9-T14 retention job หาไฟล์ตามชนิด + อายุ
   @@index([kind, createdAt])
   /// ST9-T14 ตรวจว่ายังมีแถวอ้างไฟล์ก่อนลบ
@@ -2817,6 +2819,26 @@ model UsageRecord {
   @@map("usage_record")
 }
 
+/// P1-ST1-T07 ยอดการใช้งานรายวันต่อ metric (spec/01 §7 `UsageDaily`) — วันปฏิทินเวลาไทย
+/// - เมตริกสะสม (`do.created`, `invoices.issued`, `api.calls`): ยอดเดือน = ผลรวมรายวัน (usage_record ตอนปิดยอด)
+/// - เมตริกค่า ณ วัน (`storage.pod_gb`, `connectors.accounting`, `users.active`): ยอดเดือน = ค่าของวันล่าสุดในเดือน
+/// - `api.calls` แยก source (`rest` / `mcp`) — ตัวนับในหน่วยความจำของ API flush แบบบวกเพิ่ม (ApiUsageMeter) · เมตริกอื่นแยก source = ''
+/// role แอปอ่านอย่างเดียว · เขียนโดย role platform (worker rollup + flush) · เดือนที่ปิดยอดแล้วไม่ถูกแตะ
+model UsageDaily {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  date      DateTime @db.Date
+  metric    String   @db.VarChar(40)
+  source    String   @default("") @db.VarChar(16)
+  value     Decimal  @default(0) @db.Decimal(14, 2)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([tenantId, date, metric, source])
+  @@index([metric, date])
+  @@map("usage_daily")
+}
+
 /// P1-ST1-T04 ค่าตั้งของแพลตฟอร์ม (spec/01 §9, PLT-099) — key/type/ค่าเริ่มต้นอยู่ใน platform-settings.registry.ts
 /// ไม่มีแถว = ค่าเริ่มต้น · ตารางระดับแพลตฟอร์ม (ไม่มี tenant_id) · role แอปเข้าไม่ได้ · แก้จาก Console owner + เหตุผล + platform_audit_log
 model PlatformSetting {
@@ -3149,11 +3171,16 @@ model PlatformUser {
   /// TOTP (เข้ารหัสด้วย FieldCipher) — บังคับทุกคน ตั้งตอนสร้างบัญชี
   totpSecret     String                 @map("totp_secret")
   totpLastStep   BigInt?                @map("totp_last_step")
-  status         String                 @default("ACTIVE") /// ACTIVE · DISABLED
+  status         String                 @default("ACTIVE") /// ACTIVE · INVITED (P1-ST4-T06) · DISABLED
   tokenVersion   Int                    @default(0) @map("token_version")
   failedLogins   Int                    @default(0) @map("failed_logins")
   lockedUntil    DateTime?              @map("locked_until") @db.Timestamptz(6)
   lastLoginAt    DateTime?              @map("last_login_at") @db.Timestamptz(6)
+  /// P1-ST4-T06 คำเชิญทีมงาน: sha256 ของ token ในลิงก์ (ใช้ครั้งเดียว) + วันหมดอายุ — รับแล้ว/ปิดแล้ว = null
+  inviteTokenHash String?               @unique @map("invite_token_hash")
+  inviteExpiresAt DateTime?             @map("invite_expires_at") @db.Timestamptz(6)
+  invitedBy      String?                @map("invited_by") @db.Uuid
+  deactivatedAt  DateTime?              @map("deactivated_at") @db.Timestamptz(6)
   createdAt      DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   impersonations ImpersonationSession[]

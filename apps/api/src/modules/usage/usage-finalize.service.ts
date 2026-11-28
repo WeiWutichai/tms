@@ -10,6 +10,7 @@ import {
   periodRange,
   tallyActiveVehicles,
 } from './active-vehicles';
+import { monthRecords, recomputeFlows, rollupUsageDaily, sumMonth } from './usage-metrics';
 
 /** worker เรียก scheduleDue ทุก 10 นาที (แบบเดียวกับค่าเสื่อม ST2-T22) */
 export const USAGE_FINALIZE_EVERY_MS = 10 * 60 * 1000;
@@ -71,13 +72,35 @@ export class UsageFinalizeService {
     return n;
   }
 
-  /** ปิดยอด 1 tenant × 1 เดือน — false = ปิดไปแล้ว */
+  /** P1-ST1-T07 ยอดรายวัน (worker ทุก 10 นาที หลัง scheduleDue) — set-based ทุก tenant live */
+  async rollupDaily(now: Date = this.clock.now()): Promise<void> {
+    await this.prisma.platform.$transaction((tx) => rollupUsageDaily(tx, now));
+  }
+
+  /**
+   * ปิดยอด 1 tenant × 1 เดือน — false = ปิดไปแล้ว
+   * P1-ST1-T07: ปิดเมตริกอื่นในรอบเดียวกัน — คำนวณ DO/ใบแจ้งหนี้รายวันของทั้งเดือนใหม่ก่อน แล้ว usage_record = ผลรวมรายวัน
+   * (GAUGE = วันล่าสุดในเดือน) · เขียนก่อนแถวรถ active เพราะแถว usage_record ใด ๆ ของเดือน = เดือนปิดแล้ว (rollup/flush ไม่แตะ)
+   */
   async finalize(tenantId: string, period: Month, now: Date = this.clock.now()): Promise<boolean> {
     return this.prisma.platform.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(20, hashtext(${`${tenantId}:${period}`}))`;
+      const done = await tx.$queryRaw<unknown[]>`
+        SELECT 1 FROM usage_record WHERE tenant_id = ${tenantId}::uuid AND metric = ${ACTIVE_VEHICLES_METRIC}
+           AND period = ${period}`;
+      if (done.length) return false;
+      const { start, end } = periodRange(period);
+      await recomputeFlows(tx, { from: start, to: end }, tenantId);
+      const month = await sumMonth(tx, tenantId, period);
       const t = await tallyActiveVehicles(tx, tenantId, period);
       const rule = await readPlatformSetting<string>(tx, 'usage.activeVehicleRule');
       const subconWeight = await readPlatformSetting<string>(tx, 'usage.subconWeight');
+      for (const m of monthRecords(month))
+        await tx.$executeRaw`
+          INSERT INTO usage_record (tenant_id, metric, period, value, status, finalized_at, detail)
+          VALUES (${tenantId}::uuid, ${m.metric}, ${period}, ${new Prisma.Decimal(m.value)}, 'finalized', ${now},
+                  ${JSON.stringify(m.detail)}::jsonb)
+          ON CONFLICT (tenant_id, metric, period) DO NOTHING`;
       const r = await tx.$executeRaw`
         INSERT INTO usage_record (tenant_id, metric, period, value, status, finalized_at, detail)
         VALUES (${tenantId}::uuid, ${ACTIVE_VEHICLES_METRIC}, ${period}, ${new Prisma.Decimal(t.total)},

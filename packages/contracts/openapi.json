@@ -3536,15 +3536,25 @@
         }
       }
     },
-    "/v1/platform/tenants/{id}/entitlement-overrides": {
+    "/v1/platform/tenants/{id}/usage/metrics": {
       "get": {
-        "operationId": "PlatformTenants_overrides",
+        "operationId": "PlatformUsage_metrics",
         "parameters": [
           {
             "name": "id",
             "required": true,
             "in": "path",
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "period",
+            "required": false,
+            "in": "query",
+            "description": "เดือนปฏิทินเวลาไทย YYYY-MM (ไม่ส่ง = เดือนนี้)",
+            "schema": {
+              "example": "2026-11",
               "type": "string"
             }
           },
@@ -3558,77 +3568,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/EntitlementOverrideDto"
-                  }
-                }
-              }
-            },
-            "headers": {
-              "X-Api-Version": {
-                "$ref": "#/components/headers/X-Api-Version"
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "tags": [
-          "platform-console"
-        ]
-      }
-    },
-    "/v1/platform/tenants/{id}/entitlement-overrides/{featureKey}": {
-      "put": {
-        "operationId": "PlatformTenants_setOverride",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "featureKey",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "$ref": "#/components/parameters/ApiVersion"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetEntitlementOverrideDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EntitlementOverrideDto"
+                  "$ref": "#/components/schemas/UsageMetricsDto"
                 }
               }
             },
@@ -3653,69 +3593,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "platform-console"
-        ]
-      }
-    },
-    "/v1/platform/tenants/{id}/entitlement-overrides/{featureKey}/remove": {
-      "post": {
-        "operationId": "PlatformTenants_removeOverride",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "featureKey",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "$ref": "#/components/parameters/ApiVersion"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TenantReasonDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "204": {
-            "description": "",
-            "headers": {
-              "X-Api-Version": {
-                "$ref": "#/components/headers/X-Api-Version"
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          },
-          "422": {
-            "$ref": "#/components/responses/ValidationFailed"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
+        "summary": "การใช้งานอื่นของลูกค้าต่อเดือน (DO, ใบแจ้งหนี้, API calls, พื้นที่ POD, connector, ผู้ใช้) — P1-ST1-T07",
         "tags": [
           "platform-console"
         ]
@@ -5120,6 +4998,546 @@
         ]
       }
     },
+    "/v1/platform/team": {
+      "get": {
+        "operationId": "PlatformTeam_list",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlatformStaffDto"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/team/invitations": {
+      "post": {
+        "operationId": "PlatformTeam_invite",
+        "parameters": [
+          {
+            "name": "X-Step-Up",
+            "in": "header",
+            "description": "stepUpToken จาก POST /v1/platform/auth/step-up",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteStaffDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformStaffDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/platform/team/invitations",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ],
+        "x-step-up": {
+          "mode": "platform"
+        }
+      }
+    },
+    "/v1/platform/team/{id}/deactivate": {
+      "post": {
+        "operationId": "PlatformTeam_deactivate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Step-Up",
+            "in": "header",
+            "description": "stepUpToken จาก POST /v1/platform/auth/step-up",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeactivateStaffDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformStaffDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/platform/team/3f2a…/deactivate",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ],
+        "x-step-up": {
+          "mode": "platform"
+        }
+      }
+    },
+    "/v1/platform/auth/invitations/inspect": {
+      "post": {
+        "operationId": "PlatformInvitation_inspect",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffInviteTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffInvitationInfoDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "400": {
+            "description": "invitation_invalid — ไม่มี/หมดอายุ/ใช้แล้ว/ปิดแล้ว"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/auth/invitations/accept": {
+      "post": {
+        "operationId": "PlatformInvitation_accept",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptStaffInvitationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "เป็นทีมงานแล้ว — เข้าสู่ระบบ Console ด้วยอีเมลนี้",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "400": {
+            "description": "invitation_invalid"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/audit-logs": {
+      "get": {
+        "operationId": "PlatformAudit_list",
+        "parameters": [
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "description": "ตั้งแต่วันที่ (เวลาไทย)",
+            "schema": {
+              "example": "2026-11-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "description": "ถึงวันที่ (รวมวันนั้น — เวลาไทย)",
+            "schema": {
+              "example": "2026-11-30",
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะลูกค้ารายนี้",
+            "schema": {
+              "example": "ten_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "staffId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะทีมงานคนนี้ (ผู้ทำ หรือผู้เข้าใช้งานแทน)",
+            "schema": {
+              "example": "stf_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "required": false,
+            "in": "query",
+            "description": "รหัสการกระทำ — ขึ้นต้นด้วยค่านี้ (เช่น `impersonation.` / `platform.staff_`)",
+            "schema": {
+              "example": "impersonation.",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformAuditPageDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/audit-logs/export": {
+      "get": {
+        "operationId": "PlatformAudit_export",
+        "parameters": [
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "description": "ตั้งแต่วันที่ (เวลาไทย)",
+            "schema": {
+              "example": "2026-11-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "description": "ถึงวันที่ (รวมวันนั้น — เวลาไทย)",
+            "schema": {
+              "example": "2026-11-30",
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะลูกค้ารายนี้",
+            "schema": {
+              "example": "ten_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "staffId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะทีมงานคนนี้ (ผู้ทำ หรือผู้เข้าใช้งานแทน)",
+            "schema": {
+              "example": "stf_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "required": false,
+            "in": "query",
+            "description": "รหัสการกระทำ — ขึ้นต้นด้วยค่านี้ (เช่น `impersonation.` / `platform.staff_`)",
+            "schema": {
+              "example": "impersonation.",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ไฟล์ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว ใหม่ก่อน)",
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
     "/v1/me/impersonation/end": {
       "post": {
         "operationId": "Impersonation_end",
@@ -5484,69 +5902,6 @@
           }
         ],
         "summary": "availability รายเดือน (เป้า 99.5%)",
-        "tags": [
-          "platform"
-        ]
-      }
-    },
-    "/v1/me/feature-requests": {
-      "post": {
-        "operationId": "Me_requestFeature",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/ApiVersion"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/FeatureRequestDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FeatureRequestResultDto"
-                }
-              }
-            },
-            "headers": {
-              "RateLimit-Limit": {
-                "$ref": "#/components/headers/RateLimit-Limit"
-              },
-              "RateLimit-Remaining": {
-                "$ref": "#/components/headers/RateLimit-Remaining"
-              },
-              "RateLimit-Reset": {
-                "$ref": "#/components/headers/RateLimit-Reset"
-              },
-              "X-Api-Version": {
-                "$ref": "#/components/headers/X-Api-Version"
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "422": {
-            "$ref": "#/components/responses/ValidationFailed"
-          },
-          "429": {
-            "$ref": "#/components/responses/RateLimited"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
         "tags": [
           "platform"
         ]
@@ -71274,6 +71629,77 @@
         ]
       }
     },
+    "/v1/usage/metrics": {
+      "get": {
+        "description": "docs/02 §5 Usage & Billing · spec/01 §7 — ยอดเดือน = ผลรวมของยอดรายวัน (`usage_daily`) สำหรับ DO / ใบแจ้งหนี้ / API calls · พื้นที่ POD / connector / ผู้ใช้ = ค่า ณ วันล่าสุดของเดือน (เดือนนี้ = ค่าสด) · ปิดยอดพร้อมรถ active · e-Tax ไม่มีในเฟส 1 (`eTaxDocuments` = null) · sandbox ไม่นับ · ใช้ออกบิลเฉพาะรถ active (เมตริกอื่นเพื่อดู/โควตา)",
+        "operationId": "Usage_metrics",
+        "parameters": [
+          {
+            "name": "period",
+            "required": false,
+            "in": "query",
+            "description": "เดือนปฏิทินเวลาไทย YYYY-MM (ไม่ส่ง = เดือนนี้)",
+            "schema": {
+              "example": "2026-11",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageMetricsDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_master.read"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "การใช้งานอื่นของเดือน (DO, ใบแจ้งหนี้, API calls, พื้นที่ POD, connector, ผู้ใช้)",
+        "tags": [
+          "usage"
+        ],
+        "x-required-scopes": [
+          "master:read"
+        ]
+      }
+    },
     "/v1/usage/active-vehicles": {
       "get": {
         "description": "รถ active = ทะเบียน (normalize: ตัดช่องว่าง/ขีด/จุด, เลขไทย → อารบิก — \"กข-1234\" = \"กข1234\") ที่มีเที่ยวเข้าเงื่อนไข ≥ 1 เที่ยวในเดือนปฏิทินเวลาไทย (docs/02 §2 · spec/01 PLT-070–075) · นับทันทีเมื่อเที่ยวแรกของทะเบียนเข้าเงื่อนไข และนำออกเมื่อเที่ยวย้อนสถานะ (เช่น ยกเลิกหลังปล่อยรถ) ก่อนปิดยอด · ปิดยอดวันที่ 1 เวลา 02:00 น. ไทยของเดือนถัดไป · sandbox ไม่นับ",
@@ -77210,97 +77636,117 @@
           "twoFactorEnabled"
         ]
       },
-      "EntitlementOverrideDto": {
+      "ApiCallsDto": {
         "type": "object",
         "properties": {
-          "featureKey": {
-            "type": "string",
-            "example": "report"
-          },
-          "featureName": {
-            "type": "string",
-            "example": "รายงาน"
-          },
-          "mode": {
-            "type": "string",
-            "enum": [
-              "grant",
-              "revoke",
-              "set_limit"
-            ]
-          },
-          "limit": {
+          "total": {
             "type": "number",
-            "nullable": true
+            "description": "รวมทุก source"
           },
-          "reason": {
-            "type": "string",
-            "description": "เหตุผลภายใน (ไม่แสดงลูกค้า — PLT-066)"
+          "rest": {
+            "type": "number",
+            "description": "REST (API key / OAuth client)"
           },
-          "approvedBy": {
-            "type": "string",
-            "nullable": true,
-            "description": "ทีมงานที่อนุมัติ (platform user)"
-          },
-          "expiresAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
-          "expired": {
-            "type": "boolean",
-            "description": "หมดอายุแล้ว (ไม่มีผล)"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
+          "mcp": {
+            "type": "number",
+            "description": "MCP (ยังไม่มีในเฟส 1 = 0)"
           }
         },
         "required": [
-          "featureKey",
-          "featureName",
-          "mode",
-          "limit",
-          "reason",
-          "approvedBy",
-          "expiresAt",
-          "expired",
-          "createdAt"
+          "total",
+          "rest",
+          "mcp"
         ]
       },
-      "SetEntitlementOverrideDto": {
+      "UsageMetricsDto": {
         "type": "object",
         "properties": {
-          "reason": {
+          "period": {
             "type": "string",
-            "example": "ลูกค้าขอระงับชั่วคราวระหว่างย้ายระบบ",
-            "minLength": 10
+            "example": "2026-11"
           },
-          "mode": {
+          "status": {
             "type": "string",
             "enum": [
-              "grant",
-              "revoke",
-              "set_limit"
+              "open",
+              "finalized",
+              "invoiced"
             ],
-            "description": "grant = เปิดให้ · revoke = ปิด · set_limit = เปลี่ยนโควตา"
+            "description": "open = ยังนับอยู่ (DO/ใบแจ้งหนี้อัปเดตทุก ≤ 10 นาที, API calls ≤ 30 วินาที) · finalized = ปิดยอดพร้อมรถ active (วันที่ 1 เวลา 02:00 น. ไทย)"
           },
-          "limit": {
+          "finalizedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "doCreated": {
+            "type": "number",
+            "description": "`do.created` — DO ที่สร้างในเดือน (เวลาไทย) ไม่รวมที่ยกเลิก = ผลรวมรายวัน"
+          },
+          "invoicesIssued": {
+            "type": "number",
+            "description": "`invoices.issued` — ใบแจ้งหนี้ที่ออกเลขในเดือน = ผลรวมรายวัน"
+          },
+          "apiCalls": {
+            "description": "`api.calls` — คำขอ `/v1` ของ API key / OAuth client ที่ตอบ 2xx/3xx/4xx (ไม่นับ 429 และ 5xx) · UI ของระบบไม่นับ · key ของ sandbox ไม่นับ",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ApiCallsDto"
+              }
+            ]
+          },
+          "podStorageGb": {
+            "type": "number",
+            "example": 1.25,
+            "description": "`storage.pod_gb` — ขนาดไฟล์ POD + เอกสารแนบที่อัปโหลด (GB = 1024³ ทศนิยม 2, สะสมไม่รีเซ็ต) ณ วันล่าสุดของเดือน"
+          },
+          "connectors": {
+            "type": "number",
+            "description": "`connectors.accounting` — connector ระบบบัญชีที่ active"
+          },
+          "connectorLimit": {
             "type": "number",
             "nullable": true,
-            "example": 3,
-            "description": "โควตา (set_limit ต้องส่งเป็นตัวเลข · grant ไม่ส่ง = คงโควตาเดิม หรือโควตาสูงสุดของแพ็กเกจที่มีฟีเจอร์นี้ · revoke ไม่ส่ง)"
+            "description": "จำนวน connector สูงสุดตามแพ็กเกจ (entitlement `conn`) — null = ไม่จำกัด/ไม่กำหนด"
           },
-          "expiresAt": {
-            "type": "string",
-            "format": "date-time",
+          "users": {
+            "type": "number",
+            "description": "`users.active` — ผู้ใช้สถานะใช้งาน"
+          },
+          "eTaxDocuments": {
+            "type": "number",
             "nullable": true,
-            "description": "หมดอายุ (ต้องเป็นอนาคต) · ไม่ส่ง/null = ไม่หมดอายุ — หมดแล้วฟีเจอร์กลับตามแพ็กเกจในรอบ cache ถัดไป (≤ 60 วิ)"
+            "description": "เอกสาร e-Tax — ไม่มีในเฟส 1 (plan/13 R-17) จึงเป็น null เสมอ (UI แสดง \"—\")"
+          },
+          "gaugeAsOf": {
+            "type": "string",
+            "nullable": true,
+            "format": "date",
+            "description": "วันของค่า POD/connector/ผู้ใช้ (null = ค่าสด)"
+          },
+          "metricsSource": {
+            "type": "string",
+            "enum": [
+              "usage_record",
+              "usage_daily"
+            ],
+            "description": "ที่มาของตัวเลข: usage_record = ยอดปิดของเมตริกเหล่านี้ · usage_daily = คำนวณจากยอดรายวัน (เดือนที่ยังเปิด หรือเดือนที่ปิดยอดรถ active ก่อนมีเมตริกอื่น)"
           }
         },
         "required": [
-          "reason",
-          "mode"
+          "period",
+          "status",
+          "finalizedAt",
+          "doCreated",
+          "invoicesIssued",
+          "apiCalls",
+          "podStorageGb",
+          "connectors",
+          "connectorLimit",
+          "users",
+          "eTaxDocuments",
+          "gaugeAsOf",
+          "metricsSource"
         ]
       },
       "PlatformActiveVehicleItemDto": {
@@ -79806,6 +80252,363 @@
           "reason"
         ]
       },
+      "PlatformStaffDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "stf_…"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "SUPER_ADMIN",
+              "SUPPORT",
+              "BILLING"
+            ]
+          },
+          "twoFactorEnabled": {
+            "type": "boolean",
+            "description": "ตั้ง 2FA แล้ว — ทีมงานต้องตั้งตอนรับคำเชิญ (รอรับคำเชิญ = false)"
+          },
+          "lastLoginAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "invited",
+              "disabled"
+            ]
+          },
+          "inviteExpiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "คำเชิญหมดอายุ (เฉพาะ invited)"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "role",
+          "twoFactorEnabled",
+          "lastLoginAt",
+          "status",
+          "inviteExpiresAt"
+        ]
+      },
+      "InviteStaffDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "ย้ายไปทีมอื่น ไม่ต้องใช้ Console แล้ว",
+            "minLength": 10
+          },
+          "email": {
+            "type": "string",
+            "example": "malee@innovera.co.th"
+          },
+          "name": {
+            "type": "string",
+            "example": "มาลี ใจดี"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "SUPER_ADMIN",
+              "SUPPORT",
+              "BILLING"
+            ]
+          }
+        },
+        "required": [
+          "reason",
+          "email",
+          "name",
+          "role"
+        ]
+      },
+      "DeactivateStaffDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "ย้ายไปทีมอื่น ไม่ต้องใช้ Console แล้ว",
+            "minLength": 10
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "StaffInviteTokenDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "token จากลิงก์ในอีเมลเชิญทีมงาน"
+          }
+        },
+        "required": [
+          "token"
+        ]
+      },
+      "StaffInvitationInfoDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "SUPER_ADMIN",
+              "SUPPORT",
+              "BILLING"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "secret": {
+            "type": "string",
+            "description": "secret TOTP (base32) ของคำเชิญนี้ — ตั้งในแอป Authenticator"
+          },
+          "otpauthUri": {
+            "type": "string",
+            "description": "otpauth:// สำหรับสร้าง QR"
+          }
+        },
+        "required": [
+          "email",
+          "name",
+          "role",
+          "expiresAt",
+          "secret",
+          "otpauthUri"
+        ]
+      },
+      "AcceptStaffInvitationDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "token จากลิงก์ในอีเมลเชิญทีมงาน"
+          },
+          "name": {
+            "type": "string",
+            "example": "มาลี ใจดี"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "description": "รหัสผ่าน (นโยบายเดียวกับผู้ใช้ — ST1-T02)"
+          },
+          "code": {
+            "type": "string",
+            "example": "123456",
+            "description": "รหัส 6 หลักจากแอป Authenticator ที่ตั้งแล้ว"
+          }
+        },
+        "required": [
+          "token",
+          "password",
+          "code"
+        ]
+      },
+      "PlatformAuditStaffDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "stf_…"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "role": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "SUPER_ADMIN",
+              "SUPPORT",
+              "BILLING"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role"
+        ]
+      },
+      "PlatformAuditUserDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "usr_…"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      },
+      "PlatformAuditTenantDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ten_…"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      },
+      "PlatformAuditEntryDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "aud_…",
+            "description": "`aud_` = audit ของลูกค้า · `pau_` = audit ระดับแพลตฟอร์ม"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "staff": {
+            "nullable": true,
+            "description": "ทีมงาน Innovera ที่ทำ — เข้าใช้งานแทน = claim `act` ของ token",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PlatformAuditStaffDto"
+              }
+            ]
+          },
+          "onBehalfOf": {
+            "nullable": true,
+            "description": "เข้าใช้งานแทน: ผู้ใช้ของลูกค้าที่สวม (sub) · null = ทีมงานทำเองจาก Console",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PlatformAuditUserDto"
+              }
+            ]
+          },
+          "action": {
+            "type": "string",
+            "example": "impersonation.started"
+          },
+          "tenant": {
+            "nullable": true,
+            "description": "null = ไม่ผูกลูกค้า",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PlatformAuditTenantDto"
+              }
+            ]
+          },
+          "entityType": {
+            "type": "string"
+          },
+          "entityId": {
+            "type": "string",
+            "nullable": true
+          },
+          "before": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "after": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "ip": {
+            "type": "string",
+            "nullable": true
+          },
+          "impersonationSessionId": {
+            "type": "string",
+            "nullable": true,
+            "description": "การเข้าใช้งานแทนที่เกี่ยวข้อง"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "staff",
+          "onBehalfOf",
+          "action",
+          "tenant",
+          "entityType",
+          "entityId",
+          "before",
+          "after",
+          "reason",
+          "ip",
+          "impersonationSessionId"
+        ]
+      },
+      "PlatformAuditPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlatformAuditEntryDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
       "ReadinessDto": {
         "type": "object",
         "properties": {
@@ -80108,77 +80911,6 @@
           "resolveNotifiedAt"
         ]
       },
-      "MeLockDto": {
-        "type": "object",
-        "properties": {
-          "planCode": {
-            "type": "string",
-            "example": "std",
-            "nullable": true,
-            "description": "แพ็กเกจแรก (ถูกไปแพง) ที่รวมฟีเจอร์นี้ · null = ไม่มีแพ็กเกจใดรวมไว้"
-          },
-          "planName": {
-            "type": "string",
-            "example": "Growth",
-            "nullable": true
-          },
-          "pricePerVehicleMonthly": {
-            "type": "string",
-            "example": "280.00",
-            "nullable": true,
-            "description": "ราคา/รถ active/เดือน ก่อน VAT ของเวอร์ชันที่มีผลของแพ็กเกจนั้น · null = ตกลงราคา (ติดต่อฝ่ายขาย)"
-          },
-          "addon": {
-            "type": "boolean",
-            "description": "แพ็กเกจปัจจุบันขายฟีเจอร์นี้เป็น add-on (ปุ่ม \"ซื้อ Add-on\" แทน \"อัปเกรด\")"
-          },
-          "reason": {
-            "type": "string",
-            "enum": [
-              "not_in_plan",
-              "revoked"
-            ],
-            "description": "not_in_plan = แพ็กเกจไม่รวม (อัปเกรด/ซื้อ add-on) · revoked = แพ็กเกจรวมอยู่แต่ผู้ให้บริการปิดสิทธิ์ให้ tenant นี้ (override) — ไม่มีแพ็กเกจให้อัปเกรด (planCode/planName/ราคา = null) ติดต่อทีมงานผู้ให้บริการ"
-          }
-        },
-        "required": [
-          "planCode",
-          "planName",
-          "pricePerVehicleMonthly",
-          "addon",
-          "reason"
-        ]
-      },
-      "FeatureRequestDto": {
-        "type": "object",
-        "properties": {
-          "featureKey": {
-            "type": "string",
-            "example": "report",
-            "description": "featureKey ของโมดูลที่ไม่รวมในแพ็กเกจ (จาก `locks` ของ GET /me)"
-          }
-        },
-        "required": [
-          "featureKey"
-        ]
-      },
-      "FeatureRequestResultDto": {
-        "type": "object",
-        "properties": {
-          "notified": {
-            "type": "number",
-            "description": "จำนวนผู้ดูแลระบบที่ได้รับแจ้ง (0 เมื่อแจ้งซ้ำภายใน 24 ชม.)"
-          },
-          "alreadyRequested": {
-            "type": "boolean",
-            "description": "แจ้งโมดูลนี้ไปแล้วภายใน 24 ชม. — ไม่ส่งซ้ำ"
-          }
-        },
-        "required": [
-          "notified",
-          "alreadyRequested"
-        ]
-      },
       "MeImpersonationDto": {
         "type": "object",
         "properties": {
@@ -80356,14 +81088,7 @@
             "example": {
               "multi": "องค์กร"
             },
-            "description": "[deprecated — ใช้ `locks` แทน; คงไว้เพื่อไม่ breaking] ฟีเจอร์ที่ยังไม่มี → ชื่อแพ็กเกจแรกที่รวมไว้ (หน้า \"ไม่รวมในแพ็กเกจ\" — spec/01 PLT-076)"
-          },
-          "locks": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/components/schemas/MeLockDto"
-            },
-            "description": "P1-ST1-T02: ฟีเจอร์ที่ไม่รวมในแพ็กเกจ (หลัง add-on/override ก่อนตัดตามสถานะ) → เมนูขึ้น 🔒 + หน้าแนะนำโมดูล (PLT-076) · ฟีเจอร์พื้นฐาน (isBasic) ไม่อยู่ที่นี่ทุกกรณี (PLT-077)"
+            "description": "ฟีเจอร์ที่ยังไม่มี → ชื่อแพ็กเกจแรกที่รวมไว้ (หน้า \"ไม่รวมในแพ็กเกจ\" — spec/01 PLT-076)"
           }
         },
         "required": [
@@ -80374,8 +81099,7 @@
           "user",
           "features",
           "plan",
-          "lockedIn",
-          "locks"
+          "lockedIn"
         ]
       },
       "NavBadgeDto": {
@@ -119818,6 +120542,11 @@
       "status": 409,
       "title": "การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่",
       "titleEn": "This source change was already decided or superseded — reload"
+    },
+    "staff_deactivate_not_allowed": {
+      "status": 409,
+      "title": "ปิดบัญชีตัวเองหรือผู้ดูแลสูงสุดคนสุดท้ายไม่ได้",
+      "titleEn": "You cannot deactivate yourself or the last super admin"
     },
     "step_up_required": {
       "status": 403,
