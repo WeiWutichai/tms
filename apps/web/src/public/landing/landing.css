@@ -128,8 +128,8 @@
   cursor: pointer;
   white-space: nowrap;
 }
-.land-hd:not(.land-hd--dark) .land-nav__i:first-child {
-  /* "ฟีเจอร์" = เมนูของหน้านี้ (on) */
+.land-hd:not(.land-hd--dark) .land-nav__i.is-on {
+  /* เมนูของหน้านี้ (on) — ฟีเจอร์ = landing, ราคา = หน้าราคา */
   background: #e9f0fa;
   color: #2257c4;
 }

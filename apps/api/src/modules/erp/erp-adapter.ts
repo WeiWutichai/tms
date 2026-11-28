@@ -608,6 +608,11 @@ export interface ErpAdapter {
    */
   readonly fixedSystemOfRecord?: { readonly taxDocumentOwner?: SorOwner };
   /**
+   * P1-ST1-T02 สิทธิ์ตามแพ็กเกจที่ adapter ต้องใช้ (แบบเดียวกับ `ConnectorDefinition.entitlement` — FlowAccount/PEAK = `conn` + Growth)
+   * ไม่ประกาศ = ใช้แค่ `conn` ของ controller · ประกาศ = `EntitlementService.assertConnector` ตอนสร้าง connector
+   */
+  readonly entitlement?: { readonly feature: string; readonly minTier: 'growth' | null };
+  /**
    * ST8-T07 ข้อมูลส่วนบุคคลแบบตัวเลือกที่ adapter ต้องใช้ใน canonical (เช่น ชื่อคนขับ) — ไม่ประกาศ = core ไม่ใส่ลง payload ของคำสั่ง
    * (ประกาศเท่าที่สัญญาของปลายทางบังคับเท่านั้น)
    */

@@ -293,7 +293,8 @@ export class AuthController {
   @ApiOkResponse({ type: LoginResultDto })
   @ApiUnauthorizedResponse({ description: 'invalid_credentials' })
   @ApiConflictResponse({
-    description: 'tenant_selection_required — มี `tenants: [{id, name, status}]`',
+    description:
+      'tenant_selection_required — มี `tenants: [{id, name, status}]` · signup_incomplete — อีเมล/รหัสของการสมัครที่ยังไม่เสร็จ มี `signupToken` (ใช้ทำต่อที่ /v1/public/signup/session — P1-ST2-T03)',
   })
   @ApiTooManyRequestsResponse({ description: 'account_locked — มี header Retry-After' })
   @ApiServiceBusyResponse()

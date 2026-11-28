@@ -2,7 +2,7 @@ import { Button, Icon } from '@tms/ui';
 import type { CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useI18n } from '../../i18n';
-import { can, isLocked } from '../../nav';
+import { can } from '../../nav';
 import { useMe } from '../../shell/AppShell';
 import { money } from '../rate-cards/rateFormat';
 import { countOf } from '../settlements/settle';
@@ -51,8 +51,10 @@ const num = (n: number) => n.toLocaleString('th-TH');
 export function SettleDash() {
   const me = useMe();
   const scopes = me.data?.scopes ?? [];
-  if (!me.data || !can(scopes, 'settlements:read') || isLocked('settle', me.data.features))
-    return null;
+  // โมดูลปิด (แพ็กเกจ/สถานะ tenant — `features` ของ /me) → ไม่ render (P1-ST1-T02: 🔒 แยกไปใช้ `locks`)
+  // TODO(P1-ST1-T05): ตอน tenant ถูกระงับ banner สถานะเป็นคนบอก — การ์ดนี้แค่ซ่อน
+  const off = !!me.data?.features && !me.data.features.includes('settle');
+  if (!me.data || !can(scopes, 'settlements:read') || off) return null;
   return <SettleDashCard canBuy={can(scopes, 'prices.buy:read')} />;
 }
 

@@ -194,6 +194,62 @@ export const PROBLEMS = {
     th: 'อีเมลนี้เป็นสมาชิกของบริษัทแล้ว',
     en: 'This email is already a member',
   },
+  /** P1-ST2-T03 สมัคร: อีเมลมีบัญชีแล้ว — ผู้ใช้เดิมเข้าสู่ระบบแล้วเพิ่มบริษัทใหม่ (spec/01 §2 ข้อ 8) */
+  account_exists: {
+    status: 409,
+    th: 'อีเมลนี้มีบัญชีแล้ว เข้าสู่ระบบเพื่อเพิ่มบริษัทใหม่',
+    en: 'This email already has an account — sign in to add a new company',
+  },
+  /** P1-ST2-T03 สมัคร: อีเมลนี้ยืนยันแล้วและกำลังสมัครอยู่ — เข้าสู่ระบบเพื่อทำต่อจากขั้นที่ค้าง */
+  signup_in_progress: {
+    status: 409,
+    th: 'อีเมลนี้กำลังสมัครอยู่ เข้าสู่ระบบเพื่อทำต่อจากขั้นที่ค้างไว้',
+    en: 'A sign-up with this email is in progress — sign in to continue',
+  },
+  /** P1-ST2-T03 login ด้วยอีเมล/รหัสของการสมัครที่ยังไม่เสร็จ — มี `signupToken` ใช้ทำต่อที่ /signup */
+  signup_incomplete: {
+    status: 409,
+    th: 'การสมัครยังไม่เสร็จ ทำต่อจากขั้นที่ค้างไว้',
+    en: 'Your sign-up is not finished — continue where you left off',
+  },
+  /** P1-ST2-T03 token การสมัครผิด/หมดอายุ/ถูกทิ้ง (ไม่เคลื่อน 7 วัน) */
+  signup_session_invalid: {
+    status: 401,
+    th: 'ไม่พบการสมัครนี้หรือหมดอายุแล้ว เริ่มสมัครใหม่',
+    en: 'This sign-up was not found or has expired — start again',
+  },
+  /** P1-ST2-T03 OTP ผิด — มี `attemptsLeft` */
+  otp_invalid: { status: 422, th: 'รหัสไม่ถูกต้อง', en: 'Incorrect code' },
+  /** P1-ST2-T03 OTP หมดอายุ (5 นาที) หรือถูกยกเลิกหลังล็อก */
+  otp_expired: {
+    status: 422,
+    th: 'รหัสหมดอายุแล้ว กดขอรหัสใหม่',
+    en: 'The code has expired — request a new one',
+  },
+  /** P1-ST2-T03 ใส่ OTP ผิด 5 ครั้ง → ล็อก 15 นาที (มี Retry-After — UI แสดงเวลาที่เหลือ) */
+  otp_locked: {
+    status: 429,
+    th: 'ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่ภายหลัง',
+    en: 'Too many incorrect codes — try again later',
+  },
+  /** P1-ST2-T03 ขอรหัสใหม่ได้หลัง 60 วินาที (มี Retry-After) */
+  otp_resend_too_soon: {
+    status: 429,
+    th: 'ขอรหัสใหม่ได้หลังครบ 60 วินาที',
+    en: 'You can request a new code after 60 seconds',
+  },
+  /** P1-ST2-T04 สมัคร: (เลขผู้เสียภาษี, สาขา) ใช้ TMS อยู่แล้ว — ไม่สร้างบริษัทใหม่ ส่งคำขอเข้าร่วม/ติดต่อเรา (PLT-022) */
+  company_exists: {
+    status: 409,
+    th: 'บริษัทนี้ใช้ TMS อยู่แล้ว ส่งคำขอเข้าร่วมบริษัทหรือติดต่อเรา',
+    en: 'This company already uses TMS — request to join or contact us',
+  },
+  /** P1-ST2-T04 สมัคร: กด "ค้นหา" เกินเพดานต่อการสมัคร (กันใช้เป็นช่องทางไล่เลขผู้เสียภาษี) */
+  signup_lookup_limit: {
+    status: 429,
+    th: 'ค้นหาเลขผู้เสียภาษีครบจำนวนครั้งแล้ว กรอกข้อมูลบริษัทเองได้',
+    en: 'Too many tax ID lookups — enter the company details manually',
+  },
   /** P1-ST4-T06 ปิดบัญชีทีมงานของตัวเอง หรือ SUPER_ADMIN คนสุดท้ายที่ใช้งานอยู่ไม่ได้ (กันไม่มีใครจัดการทีม) */
   staff_deactivate_not_allowed: {
     status: 409,

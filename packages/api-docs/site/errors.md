@@ -18,6 +18,7 @@
 | [`mfa_enrollment_required`](#mfa_enrollment_required) | 401 | บัญชีนี้ต้องตั้งการยืนยันตัวตน 2 ชั้นก่อนเข้าใช้งาน |
 | [`mfa_expired`](#mfa_expired) | 401 | หมดเวลายืนยันตัวตน เข้าสู่ระบบใหม่อีกครั้ง |
 | [`mfa_required`](#mfa_required) | 401 | กรอกรหัสยืนยันตัวตน 2 ชั้นจากแอป Authenticator |
+| [`signup_session_invalid`](#signup_session_invalid) | 401 | ไม่พบการสมัครนี้หรือหมดอายุแล้ว เริ่มสมัครใหม่ |
 | [`unauthorized`](#unauthorized) | 401 | ต้องเข้าสู่ระบบ |
 | [`api_disabled_by_platform`](#api_disabled_by_platform) | 403 | ผู้ให้บริการปิดการใช้งาน API ของบริษัทนี้ชั่วคราว กรุณาติดต่อผู้ให้บริการ |
 | [`bank_change_requires_user`](#bank_change_requires_user) | 403 | แก้หรือดูบัญชีธนาคารผู้รับเหมาผ่าน API key ไม่ได้ ต้องให้ผู้ใช้ทำในระบบ |
@@ -43,6 +44,7 @@
 | [`two_factor_enrolment_required`](#two_factor_enrolment_required) | 403 | บัญชีนี้ต้องตั้งการยืนยันตัวตน 2 ชั้นก่อนใช้งาน |
 | [`not_found`](#not_found) | 404 | ไม่พบข้อมูล |
 | [`method_not_allowed`](#method_not_allowed) | 405 | ไม่รองรับวิธีเรียกนี้ |
+| [`account_exists`](#account_exists) | 409 | อีเมลนี้มีบัญชีแล้ว เข้าสู่ระบบเพื่อเพิ่มบริษัทใหม่ |
 | [`alias_conflict`](#alias_conflict) | 409 | รหัสหรือชื่อลูกค้าตามต้นทางนี้เคยจับคู่กับลูกค้ารายอื่นไว้แล้ว — ยืนยันการย้ายพร้อมเหตุผล |
 | [`already_member`](#already_member) | 409 | อีเมลนี้เป็นสมาชิกของบริษัทแล้ว |
 | [`assignment_blocked`](#assignment_blocked) | 409 | รถหรือคนขับติดกฎห้ามจ่ายงาน — แก้เอกสารให้ครบ หรือให้ผู้จัดการยกเว้นพร้อมเหตุผล |
@@ -50,6 +52,7 @@
 | [`carrier_change_not_allowed`](#carrier_change_not_allowed) | 409 | เปลี่ยนผู้รับเหมาได้เฉพาะเที่ยวที่รอรถร่วมตอบ หรือรถร่วมรับงานแล้วแต่ยังไม่ปล่อยรถ |
 | [`carrier_change_requires_cancel`](#carrier_change_requires_cancel) | 409 | เปลี่ยนรถร่วมหรือสลับรถร่วม/รถบริษัทไม่ได้ — ยกเลิกการจ้างเดิมก่อน |
 | [`channel_unavailable`](#channel_unavailable) | 409 | ส่งทางช่องทางนี้ไม่ได้ตอนนี้ คัดลอกลิงก์ไปส่งเองได้ |
+| [`company_exists`](#company_exists) | 409 | บริษัทนี้ใช้ TMS อยู่แล้ว ส่งคำขอเข้าร่วมบริษัทหรือติดต่อเรา |
 | [`concurrent_update`](#concurrent_update) | 409 | มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง |
 | [`conflict`](#conflict) | 409 | ข้อมูลขัดแย้งกับที่มีอยู่ |
 | [`connector_health_failed`](#connector_health_failed) | 409 | ทดสอบการเชื่อมต่อไม่ผ่าน ตรวจค่าตั้งและ credential แล้วลองใหม่ |
@@ -104,6 +107,8 @@
 | [`settlement_line_resolved`](#settlement_line_resolved) | 409 | บริษัทยืนยันยอดของรายการนี้แล้ว ตอบรายการนี้ไม่ได้อีก |
 | [`settlement_net_negative`](#settlement_net_negative) | 409 | ยอดสุทธิติดลบ อนุมัติไม่ได้ — นำรายการหักส่วนเกินออกแล้วยกไปงวดถัดไป |
 | [`settlement_review_required`](#settlement_review_required) | 409 | ต้องส่งให้รถร่วมตรวจก่อนอนุมัติ (ตั้งค่าบริษัท) |
+| [`signup_in_progress`](#signup_in_progress) | 409 | อีเมลนี้กำลังสมัครอยู่ เข้าสู่ระบบเพื่อทำต่อจากขั้นที่ค้างไว้ |
+| [`signup_incomplete`](#signup_incomplete) | 409 | การสมัครยังไม่เสร็จ ทำต่อจากขั้นที่ค้างไว้ |
 | [`sor_locked`](#sor_locked) | 409 | เปลี่ยนเจ้าของเอกสารไม่ได้ เพราะมีเอกสารส่งหรือรอส่งเข้าระบบบัญชีแล้ว — ยกเลิกการเชื่อมแล้วตั้งใหม่ |
 | [`source_change_not_pending`](#source_change_not_pending) | 409 | การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่ |
 | [`staff_deactivate_not_allowed`](#staff_deactivate_not_allowed) | 409 | ปิดบัญชีตัวเองหรือผู้ดูแลสูงสุดคนสุดท้ายไม่ได้ |
@@ -134,6 +139,8 @@
 | [`document_email_no_recipient`](#document_email_no_recipient) | 422 | ลูกค้ายังไม่มีอีเมลผู้ติดต่อ — เพิ่มอีเมลในข้อมูลลูกค้า หรือดาวน์โหลด PDF แล้วส่งเอง |
 | [`email_attachment_too_large`](#email_attachment_too_large) | 422 | ไฟล์ใหญ่เกินกว่าจะส่งทางอีเมล — ดาวน์โหลด PDF แล้วส่งเอง |
 | [`idempotency_mismatch`](#idempotency_mismatch) | 422 | Idempotency-Key นี้เคยใช้กับข้อมูลอื่น |
+| [`otp_expired`](#otp_expired) | 422 | รหัสหมดอายุแล้ว กดขอรหัสใหม่ |
+| [`otp_invalid`](#otp_invalid) | 422 | รหัสไม่ถูกต้อง |
 | [`pod_incomplete`](#pod_incomplete) | 422 | หลักฐานการส่ง (POD) ยังไม่ครบตามที่ลูกค้ากำหนด |
 | [`routing_not_configured`](#routing_not_configured) | 422 | บริษัทมีหลายนิติบุคคลแต่ยังไม่ได้กำหนดนิติบุคคลออกบิล — ส่ง billingCompanyId (จาก GET /v1/companies) หรือตั้ง "ออกบิลในนาม" ที่ลูกค้า/ค่าตั้งต้นของบริษัท |
 | [`sor_fixed`](#sor_fixed) | 422 | ระบบบัญชีนี้เป็นผู้ออกเอกสารภาษีเสมอ เปลี่ยนไม่ได้ |
@@ -144,7 +151,10 @@
 | [`webhook_event_not_subscribed`](#webhook_event_not_subscribed) | 422 | endpoint นี้ไม่ได้สมัคร event ชนิดนี้ |
 | [`webhook_not_retryable`](#webhook_not_retryable) | 422 | ส่งซ้ำรายการนี้ไม่ได้ (event ทดสอบ) ใช้ "ส่ง event ทดสอบ" แทน |
 | [`account_locked`](#account_locked) | 429 | ใส่รหัสผ่านผิดหลายครั้ง ลองใหม่อีกครั้งใน 15 นาที |
+| [`otp_locked`](#otp_locked) | 429 | ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่ภายหลัง |
+| [`otp_resend_too_soon`](#otp_resend_too_soon) | 429 | ขอรหัสใหม่ได้หลังครบ 60 วินาที |
 | [`rate_limited`](#rate_limited) | 429 | เรียกถี่เกินไป |
+| [`signup_lookup_limit`](#signup_lookup_limit) | 429 | ค้นหาเลขผู้เสียภาษีครบจำนวนครั้งแล้ว กรอกข้อมูลบริษัทเองได้ |
 | [`internal_error`](#internal_error) | 500 | ระบบขัดข้อง |
 | [`trip_cost_allocation_failed`](#trip_cost_allocation_failed) | 500 | ปันต้นทุนเที่ยวลงใบส่งของไม่ลงตัว — ยังไม่ปิดต้นทุน กรุณาแจ้งผู้ดูแลระบบ |
 | [`pdf_render_timeout`](#pdf_render_timeout) | 503 | สร้าง PDF ไม่ทันเวลา กรุณาลองใหม่อีกครั้ง |
@@ -231,6 +241,12 @@ HTTP `401` · หมดเวลายืนยันตัวตน เข้�
 ## mfa_required {#mfa_required}
 
 HTTP `401` · กรอกรหัสยืนยันตัวตน 2 ชั้นจากแอป Authenticator
+
+อาจตอบได้จากหลาย endpoint
+
+## signup_session_invalid {#signup_session_invalid}
+
+HTTP `401` · ไม่พบการสมัครนี้หรือหมดอายุแล้ว เริ่มสมัครใหม่
 
 อาจตอบได้จากหลาย endpoint
 
@@ -384,6 +400,12 @@ HTTP `405` · ไม่รองรับวิธีเรียกนี้
 
 อาจตอบได้จากหลาย endpoint
 
+## account_exists {#account_exists}
+
+HTTP `409` · อีเมลนี้มีบัญชีแล้ว เข้าสู่ระบบเพื่อเพิ่มบริษัทใหม่
+
+อาจตอบได้จากหลาย endpoint
+
 ## alias_conflict {#alias_conflict}
 
 HTTP `409` · รหัสหรือชื่อลูกค้าตามต้นทางนี้เคยจับคู่กับลูกค้ารายอื่นไว้แล้ว — ยืนยันการย้ายพร้อมเหตุผล
@@ -423,6 +445,12 @@ HTTP `409` · เปลี่ยนรถร่วมหรือสลับร
 ## channel_unavailable {#channel_unavailable}
 
 HTTP `409` · ส่งทางช่องทางนี้ไม่ได้ตอนนี้ คัดลอกลิงก์ไปส่งเองได้
+
+อาจตอบได้จากหลาย endpoint
+
+## company_exists {#company_exists}
+
+HTTP `409` · บริษัทนี้ใช้ TMS อยู่แล้ว ส่งคำขอเข้าร่วมบริษัทหรือติดต่อเรา
 
 อาจตอบได้จากหลาย endpoint
 
@@ -750,6 +778,18 @@ HTTP `409` · ต้องส่งให้รถร่วมตรวจก่
 
 อาจตอบได้จากหลาย endpoint
 
+## signup_in_progress {#signup_in_progress}
+
+HTTP `409` · อีเมลนี้กำลังสมัครอยู่ เข้าสู่ระบบเพื่อทำต่อจากขั้นที่ค้างไว้
+
+อาจตอบได้จากหลาย endpoint
+
+## signup_incomplete {#signup_incomplete}
+
+HTTP `409` · การสมัครยังไม่เสร็จ ทำต่อจากขั้นที่ค้างไว้
+
+อาจตอบได้จากหลาย endpoint
+
 ## sor_locked {#sor_locked}
 
 HTTP `409` · เปลี่ยนเจ้าของเอกสารไม่ได้ เพราะมีเอกสารส่งหรือรอส่งเข้าระบบบัญชีแล้ว — ยกเลิกการเชื่อมแล้วตั้งใหม่
@@ -930,6 +970,18 @@ HTTP `422` · Idempotency-Key นี้เคยใช้กับข้อม�
 
 พบใน: [`POST /v1/orders:bulk`](ref-orders.md#post-orders-bulk), [`GET /v1/orders`](ref-orders.md#get-orders), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/stops/{sequence}/map-site`](ref-orders.md#post-orders-id-stops-sequence-map-site), [`POST /v1/orders/{id}/manual-price`](ref-orders.md#post-orders-id-manual-price), [`POST /v1/orders/{id}/resolve-source-error`](ref-orders.md#post-orders-id-resolve-source-error), [`POST /v1/orders/{id}/map-customer`](ref-orders.md#post-orders-id-map-customer), [`POST /v1/delivery-orders/{id}/revert-delivery`](ref-delivery-orders.md#post-delivery-orders-id-revert-delivery), [`GET /v1/trips`](ref-trips.md#get-trips) และอีก 91 endpoint
 
+## otp_expired {#otp_expired}
+
+HTTP `422` · รหัสหมดอายุแล้ว กดขอรหัสใหม่
+
+อาจตอบได้จากหลาย endpoint
+
+## otp_invalid {#otp_invalid}
+
+HTTP `422` · รหัสไม่ถูกต้อง
+
+อาจตอบได้จากหลาย endpoint
+
 ## pod_incomplete {#pod_incomplete}
 
 HTTP `422` · หลักฐานการส่ง (POD) ยังไม่ครบตามที่ลูกค้ากำหนด
@@ -990,11 +1042,29 @@ HTTP `429` · ใส่รหัสผ่านผิดหลายครั้
 
 อาจตอบได้จากหลาย endpoint
 
+## otp_locked {#otp_locked}
+
+HTTP `429` · ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่ภายหลัง
+
+อาจตอบได้จากหลาย endpoint
+
+## otp_resend_too_soon {#otp_resend_too_soon}
+
+HTTP `429` · ขอรหัสใหม่ได้หลังครบ 60 วินาที
+
+อาจตอบได้จากหลาย endpoint
+
 ## rate_limited {#rate_limited}
 
 HTTP `429` · เรียกถี่เกินไป
 
 พบใน: [`POST /v1/invoices/{id}/send`](ref-invoices.md#post-invoices-id-send), [`POST /v1/billing-notes/{id}/send`](ref-billing-notes.md#post-billing-notes-id-send)
+
+## signup_lookup_limit {#signup_lookup_limit}
+
+HTTP `429` · ค้นหาเลขผู้เสียภาษีครบจำนวนครั้งแล้ว กรอกข้อมูลบริษัทเองได้
+
+อาจตอบได้จากหลาย endpoint
 
 ## internal_error {#internal_error}
 

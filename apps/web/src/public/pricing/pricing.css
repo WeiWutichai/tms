@@ -1,0 +1,493 @@
+/* หน้าราคา (P1-ST2-T02) — ค่าจาก design/prototype/TMS Signup.dc.html view `pricing` (inline style)
+   มือถือ (< 760) ต้นแบบไม่มี layout ของหน้านี้ → คอลัมน์เดียว ตารางเลื่อนแนวนอน · ระยะข้าง 20px เท่า landing */
+.prc {
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 48px 32px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
+.prc-state {
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #3b424c;
+}
+.prc-h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #13213f;
+}
+.prc-lbl {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #59606b;
+}
+.prc-tab {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- hero ---------- */
+.prc-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+.prc-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.prc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #e7f3ec;
+  color: #17733f;
+  font-size: 13px;
+  font-weight: 600;
+}
+.prc-badge--warn {
+  background: #fcf0dc;
+  color: #8f5500;
+}
+.prc-h1 {
+  margin: 0;
+  font-size: 36px;
+  line-height: 1.45;
+  font-weight: 600;
+  color: #13213f;
+}
+.prc-lead {
+  margin: 0;
+  max-width: 640px;
+  color: #3b424c;
+  font-size: 16px;
+  text-wrap: pretty;
+}
+.prc-cycle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 4px;
+  background: #ffffff;
+  border: 1px solid #cdd1c8;
+  border-radius: 999px;
+  margin-top: 6px;
+}
+.land .prc-cycle__i {
+  height: 34px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #3b424c;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.land .prc-cycle__i.is-on {
+  background: #e9f0fa;
+  color: #2257c4;
+  font-weight: 600;
+}
+.prc-tag {
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #e7f3ec;
+  color: #17733f;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ---------- การ์ดแพ็กเกจ ---------- */
+.prc-cards {
+  display: grid;
+  grid-template-columns: repeat(var(--n, 3), minmax(0, 1fr));
+  gap: 20px;
+  align-items: stretch;
+}
+.prc-card {
+  position: relative;
+  background: #ffffff;
+  border: 1px solid #cdd1c8;
+  box-shadow: 0 1px 2px rgba(16, 20, 24, 0.06);
+  border-radius: 16px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.prc-card--pop {
+  border-color: #2257c4;
+  box-shadow:
+    0 0 0 1px #2257c4,
+    0 8px 24px rgba(34, 87, 196, 0.1);
+}
+.prc-card__badge {
+  position: absolute;
+  top: -12px;
+  left: 24px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #2257c4;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+}
+.prc-card__head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.prc-card__name {
+  font-size: 18px;
+  font-weight: 600;
+  color: #13213f;
+}
+.prc-card__blurb {
+  color: #3b424c;
+}
+.prc-card__price {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-height: 48px;
+}
+.prc-card__amt {
+  font-size: 34px;
+  font-weight: 600;
+  color: #101418;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.prc-card__unit {
+  color: #59606b;
+}
+.prc-card__note {
+  font-size: 13px;
+  color: #59606b;
+  min-height: 21px;
+}
+.land .prc-cta {
+  height: 44px;
+  border: 1px solid #2257c4;
+  border-radius: 999px;
+  background: #2257c4;
+  color: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 20px;
+}
+.land .prc-cta:hover {
+  background: #1b479f;
+}
+.land .prc-cta--sec {
+  border-color: #9db6e3;
+  background: #ffffff;
+  color: #2257c4;
+}
+.land .prc-cta--sec:hover {
+  background: #f4f5f2;
+}
+.prc-card__hr {
+  height: 1px;
+  background: #e4e6e0;
+}
+.prc-card__pts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.prc-pt,
+.prc-rule {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.prc-rule {
+  color: #3b424c;
+}
+.prc-pt__ic {
+  color: #17733f;
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.prc-pt__ic--no {
+  color: #9aa0a6;
+}
+.prc-pt__t {
+  color: #101418;
+}
+.prc-pt__t--no {
+  color: #59606b;
+}
+.prc-pt__nl {
+  color: #59606b;
+}
+
+/* ---------- กล่อง (ตัวคำนวณ / ตาราง) ---------- */
+.prc-box {
+  background: #ffffff;
+  border: 1px solid #cdd1c8;
+  border-radius: 16px;
+  box-shadow:
+    0 1px 2px rgba(16, 20, 24, 0.06),
+    0 2px 6px rgba(16, 20, 24, 0.04);
+}
+.prc-calc {
+  padding: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 32px;
+  align-items: center;
+}
+.prc-calc__in {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.prc-calc__lbl {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.prc-calc__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.prc-range {
+  flex: 1;
+  accent-color: #2257c4;
+}
+.prc-num {
+  width: 80px;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid #cdd1c8;
+  border-radius: 8px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font: inherit;
+}
+.prc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.land .prc-chip {
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid #cdd1c8;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #101418;
+  font-weight: 500;
+  cursor: pointer;
+}
+.land .prc-chip.is-on {
+  border-color: #2257c4;
+  background: #e9f0fa;
+  color: #2257c4;
+}
+.prc-calc__out {
+  background: #f7f8f5;
+  border: 1px solid #e4e6e0;
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.prc-calc__month {
+  font-size: 32px;
+  font-weight: 600;
+  color: #13213f;
+  font-variant-numeric: tabular-nums;
+}
+.prc-calc__sub {
+  font-size: 13px;
+  color: #59606b;
+  margin-top: -6px;
+}
+.prc-calc__line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #3b424c;
+}
+
+/* ---------- ตารางเปรียบเทียบ ---------- */
+.prc-cmp {
+  overflow: hidden;
+}
+.prc-cmp__hd {
+  padding: 20px 24px;
+  border-bottom: 1px solid #e4e6e0;
+}
+.prc-tbl {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.prc-tbl th {
+  position: sticky;
+  top: 64px;
+  background: #f4f5f2;
+  height: 44px;
+  border-bottom: 1px solid #e4e6e0;
+}
+.prc-tbl__f {
+  padding: 0 24px;
+  text-align: left;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #3b424c;
+}
+.prc-tbl__p {
+  padding: 0 16px;
+  text-align: center;
+  font-weight: 600;
+  color: #13213f;
+  width: 180px;
+}
+.prc-tbl__cat {
+  padding: 14px 24px 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #59606b;
+  border-bottom: 1px solid #e4e6e0;
+}
+.prc-tbl__l {
+  height: 44px;
+  padding: 0 24px;
+  border-bottom: 1px solid #ebede8;
+}
+.prc-tbl__c {
+  height: 44px;
+  padding: 0 16px;
+  border-bottom: 1px solid #ebede8;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.prc-yes {
+  color: #17733f;
+  vertical-align: middle;
+}
+.prc-no {
+  color: #9aa0a6;
+}
+.prc-add {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #eef0ec;
+  color: #3b424c;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ---------- FAQ ---------- */
+.prc-faq {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 32px;
+}
+.prc-faq__side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.prc-faq__help {
+  color: #3b424c;
+}
+.prc-faq__list {
+  background: #ffffff;
+  border: 1px solid #cdd1c8;
+  border-radius: 16px;
+  overflow: hidden;
+}
+.land .prc-faq__q {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border: 0;
+  border-bottom: 1px solid #e4e6e0;
+  background: #ffffff;
+  cursor: pointer;
+  text-align: left;
+  color: #101418;
+  font-weight: 600;
+  font-size: 15px;
+}
+.prc-faq__ic {
+  color: #59606b;
+  flex-shrink: 0;
+}
+.prc-faq__a {
+  padding: 0 20px 16px;
+  border-bottom: 1px solid #e4e6e0;
+  color: #3b424c;
+  text-wrap: pretty;
+}
+
+/* ---------- breakpoints ---------- */
+@media (max-width: 1099px) {
+  .prc-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 759px) {
+  .prc {
+    padding: 32px 20px 56px;
+  }
+  .prc-h1 {
+    font-size: 28px;
+  }
+  .prc-cards,
+  .prc-calc,
+  .prc-faq {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .prc-cards {
+    gap: 24px;
+  }
+  .prc-cmp__wrap {
+    overflow-x: auto;
+  }
+  .prc-tbl {
+    min-width: 640px;
+  }
+  .prc-tbl th {
+    position: static;
+  }
+  .prc-tbl__p {
+    width: auto;
+  }
+}

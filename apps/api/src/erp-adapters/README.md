@@ -46,7 +46,7 @@
   `POST /v1/connectors` = 422 `adapter_coming_soon` · tenant sandbox ไม่เห็น · **ไม่มี payload builder / mapping / กฎ VAT** ใน definition
 - adapter ตัวจริงเสร็จ = ลบออกจาก `CONNECTOR_DEFINITIONS` แล้วลงทะเบียนใน `ERP_ADAPTER_FACTORIES` ด้วย key เดิม (registry ไม่ยอมให้มีทั้งสองแบบ)
   · ถ้าจะเปลี่ยน credential schema หลังมีแถว connector แล้ว = ต้องมี migration
-- `minTier: growth` (docs/02 §3.1) **ยังไม่บังคับ** — แพ็กเกจบน main ยังไม่มี tier Growth; ชี้ประตูใหม่เมื่อ P1-ST1-T01 (PlanVersion) merge
+- `minTier: growth` (docs/02 §3.1) **บังคับแล้ว (P1-ST1-T02)** — adapter ตัวจริงประกาศ `entitlement` เดิมต่อ → `EntitlementService.assertConnector` ตอนสร้าง (coming-soon ยัง 422 ก่อน)
 
 ปัจจุบัน: `flowaccount` (รอ X-02, X-07) · `peak` (รอ X-03, X-07)
 

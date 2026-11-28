@@ -115,6 +115,15 @@ export function recipientKey(raw: string): string {
   return h.digest('base64url').slice(0, 22);
 }
 
+/** bucket เพดาน OTP ต่อผู้รับ (≤ 5/วัน) — ใช้ร่วมกับ `@OtpSendLimit` (เช่น ขอรหัสใหม่ที่ผู้รับมาจาก session ไม่ใช่ body) */
+export function otpRecipientBuckets(values: string[]): Bucket[] {
+  return values
+    .filter((v) => typeof v === 'string' && v.trim())
+    .map((v) =>
+      slidingWindow(`su:otp:${recipientKey(v)}`, otpPerRecipientPerDay(), DAY_MS, 'recipient'),
+    );
+}
+
 @Injectable()
 export class PublicEntryGuard implements CanActivate {
   constructor(
@@ -141,15 +150,7 @@ export class PublicEntryGuard implements CanActivate {
       if (r.kind === 'otp_recipient') {
         const v = (req.body as Record<string, unknown> | undefined)?.[r.field];
         // ไม่มีผู้รับ = ไม่มี OTP ถูกส่ง (validation ตอบ 422 ต่อ) — ไม่นับ
-        if (typeof v === 'string' && v.trim())
-          buckets.push(
-            slidingWindow(
-              `su:otp:${recipientKey(v)}`,
-              otpPerRecipientPerDay(),
-              DAY_MS,
-              'recipient',
-            ),
-          );
+        if (typeof v === 'string') buckets.push(...otpRecipientBuckets([v]));
       }
     }
     if (buckets.length) await this.limiter.assert(buckets, res);

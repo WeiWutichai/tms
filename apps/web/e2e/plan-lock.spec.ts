@@ -22,5 +22,12 @@ test.describe('แพ็กเกจ Starter (demo-b)', () => {
     // ฟีเจอร์ที่มีในแพ็กเกจ (รวมฟีเจอร์พื้นฐาน R-07 และรายงานพื้นฐาน docs/02 §2) ไม่มี 🔒
     for (const name of ['ใบสั่งขนส่ง (SO)', 'จ่ายงานรถร่วม', 'รายงาน'])
       await expect(page.getByRole('button', { name }).getByLabel('ไม่รวมในแพ็กเกจ')).toHaveCount(0);
+    // P1-ST1-T02 ต้นแบบ v4 `lkp`: ราคา/รถ/เดือนของแพ็กเกจที่มี + ปุ่ม "อัปเกรดเป็น…" (owner = จัดการแพ็กเกจได้) + "เทียบแพ็กเกจ"
+    await expect(page.getByText(/^฿[\d,]+ \/ รถ \/ เดือน$/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'เทียบแพ็กเกจ' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'แจ้งผู้ดูแลระบบ' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'อัปเกรดเป็น Growth' }).click();
+    await expect(page).toHaveURL(/\/settings\/billing\?plan=std$/);
+    await expect(page.getByText('หน้านี้จะเปิดใช้ใน P1-ST3 ตามแผนพัฒนาเฟส 1')).toBeVisible();
   });
 });

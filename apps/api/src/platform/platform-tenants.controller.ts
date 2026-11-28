@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Req,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import {
   ApiBearerAuth,
@@ -12,7 +23,9 @@ import {
 import type { Prisma, Tenant } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
 import {
+  IsDateString,
   IsEmail,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -30,6 +43,7 @@ import { cleanupSecondFactor, resetSecondFactor } from '../auth/two-factor-reset
 import { webBaseUrl } from '../auth/password-reset.controller';
 import { ensureSystemRoles } from '../auth/system-roles';
 import { signAccessToken } from '../auth/tokens';
+import { Clock } from '../common/clock';
 import { PlatformAuth, StepUpAlways } from '../common/decorators';
 import { decodeIdOr404, encodeId, tryDecodeId } from '../common/ids';
 import { ProblemException } from '../common/problem';
@@ -41,6 +55,7 @@ import { EntitlementService } from '../modules/entitlements/entitlement.service'
 import { currentPlanVersion } from '../modules/entitlements/plan-catalog';
 import { moveSubscriptionPlan } from '../modules/entitlements/subscription';
 import { bootstrapTenant } from '../modules/tenants/bootstrap';
+import { platformAudit } from './platform-audit';
 import { TenantLifecycleService } from '../modules/tenants/tenant-lifecycle.service';
 import {
   TENANT_STATUS_ENUM_DOC,
@@ -170,6 +185,58 @@ export class PlatformTenantUserDto {
   @ApiProperty({ description: 'ตั้ง 2FA แล้ว (#81 — รีเซ็ตได้เมื่อ true)' })
   twoFactorEnabled!: boolean;
 }
+/**
+ * ข้อความใน audit_log ของ tenant (ลูกค้าเห็น) เมื่อทีมงานตั้ง/ลบ override — เหตุผลจริงเป็นข้อมูลภายใน (PLT-066) อยู่ใน platform_audit_log
+ */
+export const OVERRIDE_AUDIT_TEXT = 'ผู้ให้บริการระบบปรับสิทธิ์พิเศษของบริษัท';
+/** P1-ST1-T02 override สิทธิ์ต่อ tenant (spec/01 §6 `TenantEntitlementOverride`, PLT-062/066) */
+export const OVERRIDE_MODES = ['grant', 'revoke', 'set_limit'] as const;
+export class SetEntitlementOverrideDto extends ReasonBody {
+  @ApiProperty({
+    enum: OVERRIDE_MODES,
+    description: 'grant = เปิดให้ · revoke = ปิด · set_limit = เปลี่ยนโควตา',
+  })
+  @IsIn([...OVERRIDE_MODES])
+  mode!: (typeof OVERRIDE_MODES)[number];
+  @ApiPropertyOptional({
+    type: Number,
+    nullable: true,
+    example: 3,
+    description:
+      'โควตา (set_limit ต้องส่งเป็นตัวเลข · grant ไม่ส่ง = คงโควตาเดิม หรือโควตาสูงสุดของแพ็กเกจที่มีฟีเจอร์นี้ · revoke ไม่ส่ง)',
+  })
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1_000_000)
+  limit?: number | null;
+  @ApiPropertyOptional({
+    type: String,
+    format: 'date-time',
+    nullable: true,
+    description:
+      'หมดอายุ (ต้องเป็นอนาคต) · ไม่ส่ง/null = ไม่หมดอายุ — หมดแล้วฟีเจอร์กลับตามแพ็กเกจในรอบ cache ถัดไป (≤ 60 วิ)',
+  })
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsDateString()
+  expiresAt?: string | null;
+}
+export class EntitlementOverrideDto {
+  @ApiProperty({ example: 'report' }) featureKey!: string;
+  @ApiProperty({ example: 'รายงาน' }) featureName!: string;
+  @ApiProperty({ enum: OVERRIDE_MODES }) mode!: string;
+  @ApiProperty({ type: Number, nullable: true }) limit!: number | null;
+  @ApiProperty({ description: 'เหตุผลภายใน (ไม่แสดงลูกค้า — PLT-066)' }) reason!: string;
+  @ApiProperty({ type: String, nullable: true, description: 'ทีมงานที่อนุมัติ (platform user)' })
+  approvedBy!: string | null;
+  @ApiProperty({ type: String, format: 'date-time', nullable: true }) expiresAt!: string | null;
+  @ApiProperty({ description: 'หมดอายุแล้ว (ไม่มีผล)' }) expired!: boolean;
+  @ApiProperty({ format: 'date-time' }) createdAt!: string;
+}
+
 /** P1-ST1-T03 ประวัติสถานะ (spec/01 PLT-019 · §10.2 แท็บภาพรวม "สถานะ + ประวัติสถานะ") */
 export class PlatformTenantStatusHistoryDto {
   @ApiProperty({ nullable: true, type: String, enum: TENANT_STATUSES.map((x) => x.toLowerCase()) })
@@ -247,6 +314,7 @@ export class PlatformTenantsController {
     private readonly entitlements: EntitlementService,
     private readonly mfa: MfaService,
     private readonly settings: PlatformSettingsService,
+    private readonly clock: Clock,
     private readonly lifecycle: TenantLifecycleService,
   ) {}
 
@@ -681,6 +749,177 @@ export class PlatformTenantsController {
       await cleanupSecondFactor(tx, user);
     });
     return { id: encodeId('user', user.id), twoFactorEnabled: false };
+  }
+
+  /** override สิทธิ์ของ tenant (P1-ST1-T02) — ทีมงานทุก role ดูได้ (แท็บ "สิทธิ์พิเศษ" ของ Console เป็นงาน P1-ST4-T02) */
+  @Get(':id/entitlement-overrides')
+  @PlatformAuth()
+  @ApiOkResponse({ type: [EntitlementOverrideDto] })
+  async overrides(@Param('id') id: string): Promise<EntitlementOverrideDto[]> {
+    const t = await this.tenant(id);
+    const rows = await this.prisma.platform.tenantEntitlementOverride.findMany({
+      where: { tenantId: t.id },
+      orderBy: { featureKey: 'asc' },
+    });
+    return this.overrideDtos(rows);
+  }
+
+  /**
+   * ตั้ง override (P1-ST1-T02; spec/01 PLT-062, PLT-066) — 1 แถวต่อฟีเจอร์ (ตั้งซ้ำ = แทนที่) · เหตุผล ≥ 10 + audit (before/after)
+   * owner (SUPER_ADMIN) เท่านั้น → ผู้อนุมัติ = ผู้ตั้งเอง · คำขอจาก sales/support ที่ต้องให้ owner อนุมัติ = P1-ST4-T02
+   * ฟีเจอร์พื้นฐาน (isBasic) ตั้งไม่ได้ (422 `basic_feature_locked` — PLT-077: ข้อจำกัดเดียวของพื้นฐาน = สถานะ tenant)
+   * cache ของ instance นี้ล้างทันที · instance อื่น/worker ภายใน 60 วิ
+   */
+  @Put(':id/entitlement-overrides/:featureKey')
+  @PlatformAuth('SUPER_ADMIN')
+  @ApiOkResponse({ type: EntitlementOverrideDto })
+  async setOverride(
+    @Param('id') id: string,
+    @Param('featureKey') featureKey: string,
+    @Body() body: SetEntitlementOverrideDto,
+  ): Promise<EntitlementOverrideDto> {
+    const db = this.prisma.platform;
+    const t = await this.tenant(id);
+    const f = await this.overrideFeature(featureKey);
+    const bad = (field: string, code: string, message: string) =>
+      new ProblemException('validation_failed', undefined, [{ field, code, message }]);
+    if (body.mode === 'set_limit' && (body.limit === undefined || body.limit === null))
+      throw bad('limit', 'required', 'set_limit requires limit');
+    if (body.mode === 'revoke' && body.limit !== undefined && body.limit !== null)
+      throw bad('limit', 'not_allowed', 'revoke takes no limit');
+    if (body.mode === 'grant' && body.limit === null)
+      throw bad('limit', 'not_allowed', 'omit limit for the plan maximum');
+    if (f.type === 'boolean' && body.limit !== undefined && body.limit !== null)
+      throw bad('limit', 'not_allowed', 'feature has no limit');
+    if (f.type === 'boolean' && body.mode === 'set_limit')
+      throw bad('mode', 'not_allowed', 'set_limit needs a limit-type feature');
+    const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
+    if (expiresAt && expiresAt.getTime() <= this.clock.now().getTime())
+      throw bad('expiresAt', 'must_be_future', 'expiresAt must be in the future');
+    const staff = requestContext.require().platformUser!.id;
+    const data = {
+      mode: body.mode,
+      limit: body.mode === 'revoke' ? null : (body.limit ?? null),
+      reason: body.reason,
+      approvedBy: staff,
+      expiresAt,
+    };
+    const row = await db.$transaction(async (tx) => {
+      const before = await tx.tenantEntitlementOverride.findUnique({
+        where: { tenantId_featureKey: { tenantId: t.id, featureKey: f.key } },
+      });
+      const r = await tx.tenantEntitlementOverride.upsert({
+        where: { tenantId_featureKey: { tenantId: t.id, featureKey: f.key } },
+        create: { tenantId: t.id, featureKey: f.key, ...data },
+        update: { ...data, createdAt: this.clock.now() },
+      });
+      const after = { featureKey: f.key, mode: r.mode, limit: r.limit, expiresAt: r.expiresAt };
+      const prev = before
+        ? { featureKey: f.key, mode: before.mode, limit: before.limit, expiresAt: before.expiresAt }
+        : undefined;
+      // PLT-066: เหตุผลเป็นข้อมูลภายใน → platform_audit_log · audit ของ tenant (ลูกค้าเห็น) มีแค่ก่อน/หลัง + ข้อความกลาง
+      await platformAudit(tx, {
+        action: 'platform.entitlement_override_set',
+        entityType: 'tenant',
+        entityId: t.id,
+        reason: body.reason,
+        after,
+        before: prev,
+      });
+      await this.audit(
+        tx,
+        t.id,
+        'platform.entitlement_override_set',
+        OVERRIDE_AUDIT_TEXT,
+        after,
+        prev,
+      );
+      return r;
+    });
+    this.entitlements.invalidate(t.id);
+    return (await this.overrideDtos([row]))[0]!;
+  }
+
+  /** ลบ override (P1-ST1-T02) — ฟีเจอร์กลับตามแพ็กเกจ/add-on · เหตุผล + audit · ไม่มีแถว = 404 */
+  @Post(':id/entitlement-overrides/:featureKey/remove')
+  @HttpCode(204)
+  @PlatformAuth('SUPER_ADMIN')
+  async removeOverride(
+    @Param('id') id: string,
+    @Param('featureKey') featureKey: string,
+    @Body() body: TenantReasonDto,
+  ): Promise<void> {
+    const t = await this.tenant(id);
+    const f = await this.overrideFeature(featureKey);
+    await this.prisma.platform.$transaction(async (tx) => {
+      const before = await tx.tenantEntitlementOverride.findUnique({
+        where: { tenantId_featureKey: { tenantId: t.id, featureKey: f.key } },
+      });
+      if (!before) throw new ProblemException('not_found');
+      await tx.tenantEntitlementOverride.delete({ where: { id: before.id } });
+      const after = { featureKey: f.key, removed: true };
+      const prev = {
+        featureKey: f.key,
+        mode: before.mode,
+        limit: before.limit,
+        expiresAt: before.expiresAt,
+      };
+      await platformAudit(tx, {
+        action: 'platform.entitlement_override_removed',
+        entityType: 'tenant',
+        entityId: t.id,
+        reason: body.reason,
+        after,
+        before: prev,
+      });
+      await this.audit(
+        tx,
+        t.id,
+        'platform.entitlement_override_removed',
+        OVERRIDE_AUDIT_TEXT,
+        after,
+        prev,
+      );
+    });
+    this.entitlements.invalidate(t.id);
+  }
+
+  private async overrideFeature(featureKey: string) {
+    const f = await this.prisma.platform.feature.findUnique({ where: { key: featureKey } });
+    if (!f)
+      throw new ProblemException('validation_failed', undefined, [
+        { field: 'featureKey', code: 'unknown_feature', message: 'unknown feature' },
+      ]);
+    if (f.isBasic)
+      throw new ProblemException('basic_feature_locked', undefined, undefined, {
+        featureKey: f.key,
+      });
+    return f;
+  }
+
+  private async overrideDtos(
+    rows: Prisma.TenantEntitlementOverrideGetPayload<object>[],
+  ): Promise<EntitlementOverrideDto[]> {
+    const names = new Map(
+      (
+        await this.prisma.platform.feature.findMany({
+          where: { key: { in: rows.map((r) => r.featureKey) } },
+          select: { key: true, nameTh: true },
+        })
+      ).map((f) => [f.key, f.nameTh]),
+    );
+    const now = this.clock.now().getTime();
+    return rows.map((r) => ({
+      featureKey: r.featureKey,
+      featureName: names.get(r.featureKey) ?? r.featureKey,
+      mode: r.mode,
+      limit: r.limit,
+      reason: r.reason,
+      approvedBy: r.approvedBy,
+      expiresAt: r.expiresAt?.toISOString() ?? null,
+      expired: !!r.expiresAt && r.expiresAt.getTime() <= now,
+      createdAt: r.createdAt.toISOString(),
+    }));
   }
 
   private async tenant(id: string): Promise<Tenant> {
