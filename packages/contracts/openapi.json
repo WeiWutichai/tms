@@ -1353,7 +1353,7 @@
     },
     "/v1/public/signup/session/company/join-request": {
       "post": {
-        "description": "บันทึกคำขอใน session (ไม่สร้างบริษัท) · การส่งถึงผู้ดูแลระบบของบริษัทเดิม/คิวอนุมัติ = P1-ST2-T06 · เลขไม่ซ้ำ = 422",
+        "description": "บันทึกคำขอ (ไม่สร้างบริษัท) · join → อีเมลถึงผู้ดูแลระบบ (owner) ของบริษัทเดิม ตัดสินใน 3 วันทำการ ไม่ตอบ = เข้าคิวอนุมัติของทีมงาน · contact → เข้าคิวอนุมัติทันที (P1-ST2-T06, PLT-107) · ส่งซ้ำ = ใช้คำขอเดิม · เลขไม่ซ้ำ = 422",
         "operationId": "Signup_joinRequest",
         "parameters": [
           {
@@ -1944,6 +1944,135 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_users.write"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ],
+        "x-required-scopes": [
+          "users:write"
+        ]
+      }
+    },
+    "/v1/users/join-requests": {
+      "get": {
+        "operationId": "JoinRequests_list",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinRequestListDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_users.read"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ],
+        "x-required-scopes": [
+          "users:read"
+        ]
+      }
+    },
+    "/v1/users/join-requests/{id}/decline": {
+      "post": {
+        "operationId": "JoinRequests_decline",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclineJoinRequestDto"
               }
             }
           }
@@ -6744,6 +6873,300 @@
         ],
         "tags": [
           "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/signup-queue": {
+      "get": {
+        "operationId": "PlatformSignupQueue_list",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupQueueListDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/platform/signup-queue/{id}": {
+      "get": {
+        "operationId": "PlatformSignupQueue_detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupQueueDetailDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/platform/signup-queue/{id}/certificate": {
+      "get": {
+        "operationId": "PlatformSignupQueue_certificate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ไฟล์หนังสือรับรองบริษัทที่ผู้สมัครแนบ (attachment, no-store)",
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/platform/signup-queue/{id}/approve": {
+      "post": {
+        "operationId": "PlatformSignupQueue_approve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignupQueueApproveDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "",
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/platform/signup-queue/{id}/reject": {
+      "post": {
+        "operationId": "PlatformSignupQueue_reject",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignupQueueDecisionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "",
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/platform/signup-queue/{id}/request-info": {
+      "post": {
+        "operationId": "PlatformSignupQueue_requestInfo",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignupQueueDecisionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "",
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
         ]
       }
     },
@@ -78439,6 +78862,83 @@
           "reason"
         ]
       },
+      "JoinRequestDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "jrq_…"
+          },
+          "applicantName": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "mobile": {
+            "type": "string",
+            "nullable": true
+          },
+          "branchCode": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_owner",
+              "pending"
+            ],
+            "description": "pending_owner = รอผู้ดูแลระบบตัดสิน · pending = เลย 3 วันทำการแล้ว ทีมงาน TMS ตรวจแทน (ยังตัดสินเองได้)"
+          },
+          "ownerDueAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "applicantName",
+          "email",
+          "mobile",
+          "branchCode",
+          "status",
+          "ownerDueAt",
+          "createdAt"
+        ]
+      },
+      "JoinRequestListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JoinRequestDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "DeclineJoinRequestDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "ไม่ใช่พนักงานของบริษัท",
+            "minLength": 10,
+            "description": "เหตุผล (ส่งถึงผู้ขอทางอีเมล + ลง audit)"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
       "NotificationDto": {
         "type": "object",
         "properties": {
@@ -83327,6 +83827,488 @@
           "data",
           "nextCursor",
           "hasMore"
+        ]
+      },
+      "SignupQueueItemDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ten_…",
+            "description": "`ten_…` = บริษัทที่รอยืนยัน · `jrq_…` = คำขอเข้าร่วมบริษัทเดิม"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "signup",
+              "join",
+              "contact"
+            ],
+            "description": "signup = สมัครใหม่ (pending_verification) · join = ขอเข้าร่วมบริษัทเดิม (owner ไม่ตอบใน 3 วันทำการ) · contact = \"ติดต่อเรา\""
+          },
+          "name": {
+            "type": "string",
+            "description": "ชื่อบริษัท (ที่กรอก / บริษัทเดิมของคำขอเข้าร่วม)"
+          },
+          "taxId": {
+            "type": "string",
+            "nullable": true
+          },
+          "branchCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "applicantName": {
+            "type": "string",
+            "nullable": true
+          },
+          "applicantEmail": {
+            "type": "string",
+            "nullable": true
+          },
+          "fleetSizeOwn": {
+            "type": "number",
+            "nullable": true
+          },
+          "fleetSizeSubcon": {
+            "type": "number",
+            "nullable": true
+          },
+          "check": {
+            "type": "string",
+            "enum": [
+              "duplicate",
+              "not_found",
+              "mismatch",
+              "match"
+            ],
+            "description": "ผลตรวจ: เลขซ้ำ / ไม่พบในกรมสรรพากร (หรือเรียกไม่สำเร็จ) / ข้อมูลต่าง / ตรงกัน"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "info_requested"
+            ]
+          },
+          "flags": {
+            "description": "ธง: same_tax_other_branch, no_accounting_software (R-02 — แปลงเป็นจ่ายจริงไม่ได้จนกว่า P1-ST7)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "submittedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "waitingSince": {
+            "type": "string",
+            "format": "date-time",
+            "description": "เริ่มนับเวลารอในคิว"
+          },
+          "overSla": {
+            "type": "boolean",
+            "description": "รอเกิน SLA 1 วันทำการ (ขอข้อมูลเพิ่มแล้ว = รอผู้สมัคร ไม่นับ)"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "taxId",
+          "branchCode",
+          "applicantName",
+          "applicantEmail",
+          "fleetSizeOwn",
+          "fleetSizeSubcon",
+          "check",
+          "status",
+          "flags",
+          "submittedAt",
+          "waitingSince",
+          "overSla"
+        ]
+      },
+      "SignupQueueListDto": {
+        "type": "object",
+        "properties": {
+          "policy": {
+            "type": "string",
+            "enum": [
+              "auto_when_verified",
+              "manual_all"
+            ],
+            "description": "นโยบาย `signup.approvalPolicy` ปัจจุบัน (เปลี่ยนที่ PUT /v1/platform/settings/signup.approvalPolicy)"
+          },
+          "data": {
+            "description": "เรียงตามเวลารอ นานสุดก่อน",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SignupQueueItemDto"
+            }
+          }
+        },
+        "required": [
+          "policy",
+          "data"
+        ]
+      },
+      "SignupQueueCompareRowDto": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "name",
+              "address",
+              "branch",
+              "businessStatus",
+              "vatRegisteredSince",
+              "tsic"
+            ]
+          },
+          "entered": {
+            "type": "string",
+            "nullable": true,
+            "description": "ที่กรอก"
+          },
+          "rd": {
+            "type": "string",
+            "nullable": true,
+            "description": "กรมสรรพากร (null = ไม่พบ/เรียกไม่สำเร็จ)"
+          },
+          "dbd": {
+            "type": "string",
+            "nullable": true,
+            "description": "กรมพัฒนาธุรกิจการค้า — เฟส 1 ไม่มี API (R-08) = null เสมอ ค้นด้วยมือ"
+          },
+          "differs": {
+            "type": "boolean",
+            "description": "ที่กรอกต่างจากข้อมูลทางการ → ไฮไลต์"
+          }
+        },
+        "required": [
+          "field",
+          "entered",
+          "rd",
+          "dbd",
+          "differs"
+        ]
+      },
+      "SignupQueueCertificateDto": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string",
+            "nullable": true
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "filename",
+          "mimeType",
+          "sizeBytes"
+        ]
+      },
+      "SignupQueueDuplicateDto": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "example": "ten_…"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenantId",
+          "name",
+          "status"
+        ]
+      },
+      "SignupQueueHistoryRowDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tenant",
+              "join",
+              "session"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "match": {
+            "type": "string",
+            "enum": [
+              "ip",
+              "email",
+              "both"
+            ]
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "status",
+          "match",
+          "at"
+        ]
+      },
+      "SignupQueueVerificationDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "info_requested"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "decidedByName": {
+            "type": "string",
+            "nullable": true
+          },
+          "decidedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "status",
+          "reason",
+          "decidedByName",
+          "decidedAt"
+        ]
+      },
+      "SignupQueueDetailDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ten_…",
+            "description": "`ten_…` = บริษัทที่รอยืนยัน · `jrq_…` = คำขอเข้าร่วมบริษัทเดิม"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "signup",
+              "join",
+              "contact"
+            ],
+            "description": "signup = สมัครใหม่ (pending_verification) · join = ขอเข้าร่วมบริษัทเดิม (owner ไม่ตอบใน 3 วันทำการ) · contact = \"ติดต่อเรา\""
+          },
+          "name": {
+            "type": "string",
+            "description": "ชื่อบริษัท (ที่กรอก / บริษัทเดิมของคำขอเข้าร่วม)"
+          },
+          "taxId": {
+            "type": "string",
+            "nullable": true
+          },
+          "branchCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "applicantName": {
+            "type": "string",
+            "nullable": true
+          },
+          "applicantEmail": {
+            "type": "string",
+            "nullable": true
+          },
+          "fleetSizeOwn": {
+            "type": "number",
+            "nullable": true
+          },
+          "fleetSizeSubcon": {
+            "type": "number",
+            "nullable": true
+          },
+          "check": {
+            "type": "string",
+            "enum": [
+              "duplicate",
+              "not_found",
+              "mismatch",
+              "match"
+            ],
+            "description": "ผลตรวจ: เลขซ้ำ / ไม่พบในกรมสรรพากร (หรือเรียกไม่สำเร็จ) / ข้อมูลต่าง / ตรงกัน"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "info_requested"
+            ]
+          },
+          "flags": {
+            "description": "ธง: same_tax_other_branch, no_accounting_software (R-02 — แปลงเป็นจ่ายจริงไม่ได้จนกว่า P1-ST7)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "submittedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "waitingSince": {
+            "type": "string",
+            "format": "date-time",
+            "description": "เริ่มนับเวลารอในคิว"
+          },
+          "overSla": {
+            "type": "boolean",
+            "description": "รอเกิน SLA 1 วันทำการ (ขอข้อมูลเพิ่มแล้ว = รอผู้สมัคร ไม่นับ)"
+          },
+          "rdStatus": {
+            "type": "string",
+            "enum": [
+              "found",
+              "tin_only",
+              "not_found",
+              "unavailable"
+            ]
+          },
+          "compare": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SignupQueueCompareRowDto"
+            }
+          },
+          "certificate": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SignupQueueCertificateDto"
+              }
+            ]
+          },
+          "duplicate": {
+            "nullable": true,
+            "description": "บริษัทเดิมที่ใช้เลขนี้",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SignupQueueDuplicateDto"
+              }
+            ]
+          },
+          "history": {
+            "description": "การสมัครอื่นจาก IP/อีเมลเดียวกัน",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SignupQueueHistoryRowDto"
+            }
+          },
+          "accountingSoftware": {
+            "type": "string",
+            "nullable": true
+          },
+          "planCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "ownerDueAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "กำหนด owner ตอบ (join)"
+          },
+          "verification": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SignupQueueVerificationDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "taxId",
+          "branchCode",
+          "applicantName",
+          "applicantEmail",
+          "fleetSizeOwn",
+          "fleetSizeSubcon",
+          "check",
+          "status",
+          "flags",
+          "submittedAt",
+          "waitingSince",
+          "overSla",
+          "rdStatus",
+          "compare",
+          "certificate",
+          "duplicate",
+          "history",
+          "accountingSoftware",
+          "planCode",
+          "ownerDueAt",
+          "verification"
+        ]
+      },
+      "SignupQueueApproveDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "ชื่อไม่ตรงกับ ภ.พ.20 ที่แนบมา กรุณาส่งเอกสารใหม่",
+            "minLength": 10
+          },
+          "applyOfficialData": {
+            "type": "boolean",
+            "description": "PLT-106 แก้ชื่อ/ที่อยู่ของบริษัทให้ตรงข้อมูลกรมสรรพากรในขั้นเดียวกับอนุมัติ (เฉพาะ signup ที่พบใน RD)"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "SignupQueueDecisionDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "ชื่อไม่ตรงกับ ภ.พ.20 ที่แนบมา กรุณาส่งเอกสารใหม่",
+            "minLength": 10
+          }
+        },
+        "required": [
+          "reason"
         ]
       },
       "ReadinessDto": {

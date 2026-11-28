@@ -92,6 +92,22 @@ vi.mock('../../api', async (orig) => {
         hasMore: true,
         nextCursor: 'c2',
       });
+    // P1-ST2-T06 คำขอเข้าร่วมบริษัท
+    if (path === '/v1/users/join-requests')
+      return ok({
+        data: [
+          {
+            id: 'jrq_1',
+            applicantName: 'ณัฐวุฒิ แก้วดี',
+            email: 'natt@x.th',
+            mobile: null,
+            branchCode: '00000',
+            status: 'pending_owner',
+            ownerDueAt: '2026-12-02T03:00:00.000Z',
+            createdAt: '2026-11-27T03:00:00.000Z',
+          },
+        ],
+      });
     if (path === '/v1/users/invitations/{id}/resend' && resendFail)
       return Promise.resolve({
         error: { code: 'rate_limited', status: 429, title: '', type: '' },
@@ -282,6 +298,33 @@ describe('UsersSection — เมนูต่อแถว', () => {
       expect(
         calls.filter((c) => c.path === '/v1/login-history').map((c) => c.opts?.params),
       ).toContainEqual({ query: { limit: 50, userId: 'usr_a', cursor: 'c2' } }),
+    );
+  });
+
+  it('คำขอเข้าร่วม (P1-ST2-T06): แถว "ขอเข้าร่วม" · เชิญ = ฟอร์มเชิญกรอกชื่อ/อีเมลให้ · ปฏิเสธ = เหตุผล → POST decline', async () => {
+    mount();
+    const r = await row('ณัฐวุฒิ แก้วดี');
+    expect(within(r).getByText('ขอเข้าร่วม')).toBeTruthy();
+    expect(await openMenu('ณัฐวุฒิ แก้วดี')).toEqual(['เชิญเข้าบริษัท', 'ปฏิเสธ']);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'เชิญเข้าบริษัท' }));
+    const form = await screen.findByRole('dialog');
+    expect(within(form).getByDisplayValue('natt@x.th')).toBeTruthy();
+    expect(within(form).getByDisplayValue('ณัฐวุฒิ แก้วดี')).toBeTruthy();
+    fireEvent.click(within(form).getByRole('button', { name: 'ยกเลิก' }));
+    await openMenu('ณัฐวุฒิ แก้วดี');
+    fireEvent.click(screen.getByRole('menuitem', { name: 'ปฏิเสธ' }));
+    const dlg = await screen.findByRole('dialog');
+    fireEvent.change(within(dlg).getByRole('textbox'), {
+      target: { value: 'ไม่ใช่พนักงานของบริษัทเรา' },
+    });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'ปฏิเสธ' }));
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.path === '/v1/users/join-requests/{id}/decline')?.opts,
+      ).toMatchObject({
+        params: { path: { id: 'jrq_1' } },
+        body: { reason: 'ไม่ใช่พนักงานของบริษัทเรา' },
+      }),
     );
   });
 });

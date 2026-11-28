@@ -254,7 +254,8 @@ export class SignupController {
   @ApiOperation({
     summary: 'ขั้น 2 เลขซ้ำ → "ส่งคำขอเข้าร่วมบริษัท" / "ติดต่อเรา"',
     description:
-      'บันทึกคำขอใน session (ไม่สร้างบริษัท) · การส่งถึงผู้ดูแลระบบของบริษัทเดิม/คิวอนุมัติ = P1-ST2-T06 · เลขไม่ซ้ำ = 422',
+      'บันทึกคำขอ (ไม่สร้างบริษัท) · join → อีเมลถึงผู้ดูแลระบบ (owner) ของบริษัทเดิม ตัดสินใน 3 วันทำการ ไม่ตอบ = เข้าคิวอนุมัติของทีมงาน · ' +
+      'contact → เข้าคิวอนุมัติทันที (P1-ST2-T06, PLT-107) · ส่งซ้ำ = ใช้คำขอเดิม · เลขไม่ซ้ำ = 422',
   })
   @ApiOkResponse({ type: SignupSessionDto })
   @ApiUnauthorizedResponse({ description: 'signup_session_invalid' })
@@ -264,10 +265,11 @@ export class SignupController {
   async joinRequest(
     @Headers('x-signup-token') token: string | undefined,
     @Body() body: JoinCompanyRequestDto,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<SignupSessionView> {
     noStore(res);
-    return this.company.joinRequest(token, body);
+    return this.company.joinRequest(token, body, { ip: req.ip });
   }
 
   @Get('session/plans')

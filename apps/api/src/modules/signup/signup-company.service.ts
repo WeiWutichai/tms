@@ -4,7 +4,9 @@ import { ProblemException } from '../../common/problem';
 import { PrismaService } from '../../db/prisma.service';
 import { defaultFileStore, putFileLocked } from '../../pdf/file-store';
 import { EXT, sniffMime } from '../documents/mime';
+import { EmailService } from '../email/email.service';
 import { CompanyLookupService, type LookupOutcome } from './company-lookup/company-lookup.service';
+import { createJoinRequest } from './join-request';
 import { ADDRESS_KEYS, type CompanyAddress, type RegistryCompany } from './company-lookup/types';
 import type { CompanyLookupResultDto, JoinCompanyRequestDto, SubmitCompanyDto } from './signup.dto';
 import { sessionByToken, viewOf, withJoinName, type SignupSessionView } from './signup.service';
@@ -85,6 +87,7 @@ export class SignupCompanyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly lookups: CompanyLookupService,
+    private readonly email: EmailService,
   ) {}
 
   private readonly log = new Logger('Signup');
@@ -271,10 +274,15 @@ export class SignupCompanyService {
     return viewOf(u, now);
   }
 
-  /** เลขซ้ำ tenant เดิม → "ส่งคำขอเข้าร่วมบริษัท" / "ติดต่อเรา" (ส่งถึงผู้ดูแลระบบ/คิวอนุมัติ = T06) */
+  /**
+   * เลขซ้ำ tenant เดิม → "ส่งคำขอเข้าร่วมบริษัท" / "ติดต่อเรา"
+   * P1-ST2-T06 (PLT-107): บันทึกคำขอถาวร `tenant_join_request` (session ถูกลบวันที่ 30) — join = อีเมลถึง owner ของบริษัทเดิม
+   * ตัดสินใน 3 วันทำการ ไม่ตอบ = เข้าคิวอนุมัติ · contact = เข้าคิวทันที
+   */
   async joinRequest(
     token: string | undefined,
     body: JoinCompanyRequestDto,
+    meta: { ip?: string } = {},
   ): Promise<SignupSessionView> {
     const now = Date.now();
     const s = await this.editable(token, now);
@@ -295,6 +303,23 @@ export class SignupCompanyService {
         lastActivityAt: new Date(now),
       },
     });
+    await createJoinRequest(
+      this.db,
+      this.email,
+      {
+        tenantId: dup.duplicate.tenantId,
+        kind: body.kind,
+        applicantName: u.fullName ?? u.email ?? '—',
+        email: u.email!,
+        mobile: u.mobile,
+        taxId: body.taxId,
+        branchCode,
+        ip: meta.ip ?? u.ip ?? null,
+        signupSessionId: u.id,
+        locale: u.locale,
+      },
+      new Date(now),
+    );
     this.event('signup.join_requested', {
       sessionId: s.id,
       kind: body.kind,

@@ -95,6 +95,8 @@ export const ID_PREFIX = {
   platformAudit: 'pau',
   /** P1-ST1-T06 ทะเบียนที่ถูกนับรถ active 1 แถว/เดือน (active_vehicle_usage — Platform Console ปรับหลังปิดยอด) */
   activeVehicleUsage: 'avu',
+  /** P1-ST2-T06 คำขอเข้าร่วมบริษัทเดิม (tenant_join_request — PLT-107) */
+  joinRequest: 'jrq',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

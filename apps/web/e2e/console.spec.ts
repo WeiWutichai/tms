@@ -185,4 +185,29 @@ test.describe('Platform Console', () => {
     await expect(page.getByRole('heading', { name: 'ลิงก์เข้าใช้งานแทนใช้ไม่ได้' })).toBeVisible();
     expect(page.url()).not.toContain('token');
   });
+
+  test('คิวอนุมัติการสมัคร (P1-ST2-T06): เมนู "คิวอนุมัติ" เปิดหน้าคิว + นโยบายปัจจุบัน · support ไม่มีสิทธิ์เปลี่ยนนโยบาย', async ({
+    page,
+  }) => {
+    await consoleLogin(page, 'support@platform.test');
+    await page
+      .getByRole('navigation', { name: 'เมนู Platform Console' })
+      .getByRole('button', { name: /คิวอนุมัติ/ })
+      .click();
+    await expect(page).toHaveURL(/\/console\/queue$/);
+    await expect(page.getByRole('heading', { name: 'คิวอนุมัติการสมัคร', level: 1 })).toBeVisible();
+    await expect(page.getByText(/^นโยบายปัจจุบัน:/)).toBeVisible();
+    for (const h of [
+      'บริษัท',
+      'เลขผู้เสียภาษี',
+      'ผู้สมัคร',
+      'รถ',
+      'ตรวจ RD',
+      'สถานะ',
+      'สมัครเมื่อ',
+    ])
+      await expect(page.getByRole('columnheader', { name: h, exact: true })).toBeVisible();
+    await page.getByRole('button', { name: /^เปลี่ยนเป็น/ }).click();
+    await expect(page.getByRole('status')).toHaveText('เฉพาะ owner');
+  });
 });

@@ -647,6 +647,22 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('invitation', i.id);
     },
+    // P1-ST2-T06 คำขอเข้าร่วมบริษัทเดิม (tenant_id = บริษัทเดิม)
+    joinRequest: async (db, tenantId, n) => {
+      const j = await db.tenantJoinRequest.create({
+        data: {
+          tenantId,
+          kind: 'join',
+          status: 'pending_owner',
+          applicantName: `jrq ${n}`,
+          email: `jrq${n}@iso.test`,
+          taxId: '0105567153766',
+          branchCode: '00000',
+          ownerDueAt: new Date(Date.now() + 3 * 86400_000),
+        },
+      });
+      return encodeId('joinRequest', j.id);
+    },
     notification: async (db, tenantId, n) => {
       const u = await db.appUser.create({
         data: { tenantId, email: `ntf${n}@iso.test`, name: `ntf ${n}`, status: 'ACTIVE' },
@@ -1058,6 +1074,7 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   delete: { reason: 'isolation test reason' },
   revoke: { reason: 'isolation test' },
   cancel: { reason: 'isolation test' },
+  decline: { reason: 'isolation test reason' }, // P1-ST2-T06 คำขอเข้าร่วม
   // ST3-T09 /delivery-orders/:id/split และ /merge
   split: {
     parts: [{ lines: [{ soLineNo: 1, qty: '1' }] }, { lines: [{ soLineNo: 1, qty: '1' }] }],
@@ -1302,7 +1319,7 @@ describe('tenant isolation harness', () => {
     );
     const priv = await plat.$queryRaw<{ table: string; ins: boolean; upd: boolean }[]>`
       SELECT t AS table, has_table_privilege('tms_app', t, 'INSERT') AS ins, has_table_privilege('tms_app', t, 'UPDATE') AS upd
-        FROM unnest(ARRAY['plan_version', 'plan_entitlement', 'feature', 'platform_audit_log', 'platform_setting', 'subscription', 'tenant_status_history', 'tenant_signup']) AS t`;
+        FROM unnest(ARRAY['plan_version', 'plan_entitlement', 'feature', 'platform_audit_log', 'platform_setting', 'subscription', 'tenant_status_history', 'tenant_signup', 'tenant_verification']) AS t`;
     expect(priv.filter((p) => p.ins || p.upd).map((p) => p.table)).toEqual([]);
   });
 

@@ -779,3 +779,33 @@
 .con-filters .con-rowbtn {
   height: 40px;
 }
+
+/* P1-ST2-T06 ตัวเลขเมนูสีรอ (ต้นแบบ NAV n[4]: pbg/pbd #FCF0DC, pc #8F5500) */
+.con-nav__badge--warn {
+  background: #fcf0dc;
+  border-color: #fcf0dc;
+  color: #8f5500;
+}
+/* P1-ST2-T06 ตารางเทียบ ที่กรอก | RD | DBD — ตัวอักษร/สี/ไฮไลต์จาก kv ของ drawer ต้นแบบ (x.hl radius 4px) */
+.con-cmp {
+  display: flex;
+  flex-direction: column;
+}
+.con-cmp__row {
+  display: grid;
+  grid-template-columns: 112px repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #ebede8;
+  align-items: start;
+}
+.con-cmp__row > span {
+  word-break: break-word;
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.con-cmp__row--hd > span {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #59606b;
+}

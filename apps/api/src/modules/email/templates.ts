@@ -179,6 +179,25 @@ export interface TemplateVars {
     inviterName: string;
     roles: string;
   };
+  /**
+   * P1-ST2-T06 คิวอนุมัติ: ทีมงานขอข้อมูลเพิ่มจากผู้สมัคร (PLT-105 — เหตุผล ≥ 10 ตัว) · ส่งถึง owner ของบริษัทที่รอยืนยัน
+   * ผู้สมัครตอบโดยตอบกลับอีเมลนี้ (ยังไม่มีหน้าตอบในแอป — DECISION spec/12 §3)
+   */
+  signup_info_requested: { companyName: string; reason: string };
+  /** P1-ST2-T06 PLT-107 แจ้ง owner ของบริษัทเดิมว่ามีคำขอเข้าร่วม (ตัดสินใน 3 วันทำการ ไม่ตอบ = ทีมงานตรวจแทน) · ชื่อผ่าน safeName แล้ว */
+  join_request_owner: {
+    companyName: string;
+    applicantName: string;
+    applicantEmail: string;
+    dueDate: string;
+    link: string;
+  };
+  /** P1-ST2-T06 ผลคำขอเข้าร่วมบริษัทเดิม ถึงผู้สมัคร (ปฏิเสธ / ขอข้อมูลเพิ่ม — อนุมัติ = อีเมลคำเชิญ `user_invitation`) */
+  join_request_decision: {
+    companyName: string;
+    outcome: 'rejected' | 'info_requested';
+    reason: string;
+  };
 }
 export type TemplateName = keyof TemplateVars;
 
@@ -593,6 +612,103 @@ const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
         subject: `${title} — TMS`,
         text: `${title}\n\n${paras.join('\n\n')}\n\n${v.link}\n`,
         html: layout('en', title, paras, { href: v.link, label: 'Open TMS' }),
+      };
+    },
+  },
+  signup_info_requested: {
+    th: (v) => {
+      const title = 'ขอข้อมูลเพิ่มเติมเพื่อยืนยันบริษัท';
+      const paras = [
+        `ทีมงานกำลังตรวจข้อมูลการสมัครของ ${v.companyName} และต้องการข้อมูลเพิ่มเติม`,
+        `รายละเอียด: ${v.reason}`,
+        'กรุณาตอบกลับอีเมลนี้พร้อมข้อมูลหรือเอกสารที่ขอ ทีมงานจะตรวจต่อและแจ้งผลทางอีเมล',
+      ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('th', title, paras),
+      };
+    },
+    en: (v) => {
+      const title = 'More information needed to verify your company';
+      const paras = [
+        `Our team is reviewing the sign-up for ${v.companyName} and needs more information.`,
+        `Details: ${v.reason}`,
+        'Please reply to this email with the requested information or documents. We will continue the review and email you the result.',
+      ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('en', title, paras),
+      };
+    },
+  },
+  join_request_owner: {
+    th: (v) => {
+      const title = `คำขอเข้าร่วม ${v.companyName}`;
+      const paras = [
+        `${v.applicantName} (${v.applicantEmail}) ขอเข้าร่วม ${v.companyName} ใน TMS`,
+        'ถ้ารู้จักผู้ขอ ให้เชิญเข้าบริษัทพร้อมเลือกบทบาทจากหน้าตั้งค่า → ผู้ใช้และสิทธิ์ ถ้าไม่รู้จักให้ปฏิเสธพร้อมเหตุผล',
+        `ถ้าไม่ตัดสินภายใน ${v.dueDate} ทีมงาน TMS จะตรวจคำขอนี้แทน`,
+      ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n\n${v.link}\n`,
+        html: layout('th', title, paras, { href: v.link, label: 'ดูคำขอ' }),
+      };
+    },
+    en: (v) => {
+      const title = `Request to join ${v.companyName}`;
+      const paras = [
+        `${v.applicantName} (${v.applicantEmail}) asked to join ${v.companyName} on TMS.`,
+        'If you know this person, invite them with a role from Settings → Users and permissions. Otherwise decline with a reason.',
+        `If no decision is made by ${v.dueDate}, the TMS team will review the request.`,
+      ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n\n${v.link}\n`,
+        html: layout('en', title, paras, { href: v.link, label: 'View request' }),
+      };
+    },
+  },
+  join_request_decision: {
+    th: (v) => {
+      const title =
+        v.outcome === 'rejected'
+          ? `คำขอเข้าร่วม ${v.companyName} ไม่ได้รับอนุมัติ`
+          : `ขอข้อมูลเพิ่มเติมสำหรับคำขอเข้าร่วม ${v.companyName}`;
+      const paras =
+        v.outcome === 'rejected'
+          ? [`เหตุผล: ${v.reason}`, 'ถ้าคิดว่าข้อมูลไม่ถูกต้อง ตอบกลับอีเมลนี้เพื่อติดต่อทีมงาน']
+          : [
+              `รายละเอียด: ${v.reason}`,
+              'กรุณาตอบกลับอีเมลนี้พร้อมข้อมูลที่ขอ ทีมงานจะตรวจต่อและแจ้งผลทางอีเมล',
+            ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('th', title, paras),
+      };
+    },
+    en: (v) => {
+      const title =
+        v.outcome === 'rejected'
+          ? `Your request to join ${v.companyName} was declined`
+          : `More information needed for your request to join ${v.companyName}`;
+      const paras =
+        v.outcome === 'rejected'
+          ? [
+              `Reason: ${v.reason}`,
+              'If you think this is a mistake, reply to this email to contact our team.',
+            ]
+          : [
+              `Details: ${v.reason}`,
+              'Please reply to this email with the requested information. We will continue the review and email you the result.',
+            ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('en', title, paras),
       };
     },
   },

@@ -141,12 +141,27 @@ export class InvitationsController {
       data: roles.map((r) => ({ tenantId, userId: user.id, roleId: r.id })),
     });
     const inv = await this.issue(tx, user, roles);
+    // P1-ST2-T06 (PLT-107): เชิญอีเมลที่มีคำขอเข้าร่วมค้างอยู่ = อนุมัติคำขอนั้น (owner ตัดสิน — ไม่เข้าคิวทีมงานอีก)
+    const joined = await tx.tenantJoinRequest.updateMany({
+      where: { email: body.email, status: { in: ['pending_owner', 'pending', 'info_requested'] } },
+      data: {
+        status: 'approved',
+        decidedByType: 'tenant_user',
+        decidedBy: /^[0-9a-f-]{36}$/i.test(ctx.actorId ?? '') ? ctx.actorId! : null,
+        decidedAt: new Date(),
+        invitedUserId: user.id,
+      },
+    });
     await this.audit.record({
       action: 'user.invited',
       entityType: 'user',
       entityId: user.id,
       // ไม่เก็บอีเมลใน audit (append-only ลบไม่ได้ — PDPA); อ้างผู้ใช้ด้วย entityId
-      after: { roles: [...body.roles].sort(), invitationId: inv.id },
+      after: {
+        roles: [...body.roles].sort(),
+        invitationId: inv.id,
+        ...(joined.count ? { joinRequestApproved: true } : {}),
+      },
     });
     return this.toDto(inv, user, roles);
   }
