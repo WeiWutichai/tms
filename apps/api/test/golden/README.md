@@ -21,6 +21,13 @@
 | `invoice-{exempt,mixed,long}-th.darwin.png` | ใบตัวอย่าง `sampleInvoiceExempt/Mixed/Long()` (`src/modules/invoices/invoice.sample.ts`, ภาพ fullPage) — `UPDATE_GOLDEN=1 pnpm --filter @tms/api exec vitest run test/invoice-pdf.test.ts`                                                                                                                         |
 | `invoice-{exempt,mixed,long}-th.linux.png`  | image `mcr.microsoft.com/playwright:v1.65.0-noble` แบบ **linux/amd64** — dump HTML จาก `new PdfRenderer().html(invoiceDocument(sampleInvoice…()))` แล้ว render หลัง `html[data-paged]` เหมือน `PdfRenderer.withPage` (viewport 794×1123, scale 1, th-TH, Asia/Bangkok, `--font-render-hinting=none`, ภาพ fullPage) |
 
+### ใบแจ้งหนี้ที่มีโลโก้องค์กร (P1-ST6-T04)
+
+| ไฟล์ | สร้างบน |
+| --- | --- |
+| `invoice-logo-th.darwin.png` | `sampleInvoiceWithLogo()` (= `sampleInvoiceExempt()` + `SAMPLE_LOGO_DATA_URI` — SVG ตัวอย่างที่ผ่านตัวล้างแล้ว) — test สร้างให้เองเมื่อไม่มีไฟล์ (ไม่ใช้ `UPDATE_GOLDEN=1` ที่เขียนทับ golden อื่นของไฟล์) |
+| `invoice-logo-th.linux.png` | วิธี "สร้าง Linux ใหม่โดยไม่ npm install" ด้านล่าง (27 พ.ย. 2569) — ตรวจวิธีก่อนด้วย `invoice-exempt` ได้ภาพตรง golden เดิม (ต่าง 0 pixel) · ไม่มีโลโก้ = HTML เดิมทุกไบต์ (test) → golden/hash ของ PDF ที่ออกแล้วไม่เปลี่ยน |
+
 ### ใบสำคัญจ่ายรถร่วม (ST6-T04)
 
 | ไฟล์                                         | สร้างบน                                                                                                                                                                                                  |

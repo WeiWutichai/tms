@@ -63,6 +63,8 @@ export interface InvoiceTotals {
 
 export interface InvoicePrintModel {
   yearStyle: 'BE' | 'CE';
+  /** P1-ST6-T04 โลโก้องค์กร (`data:` URI) — null/ไม่มี = กล่องตัวย่อชื่อตามต้นแบบ */
+  logo?: string | null;
   /** null = ร่าง */
   invoiceNo: string | null;
   copy: 'ORIGINAL' | 'COPY' | null;
@@ -203,6 +205,7 @@ export function invoiceDocument(m: InvoicePrintModel) {
   return financeDocument({
     yearStyle: m.yearStyle,
     title: 'ใบแจ้งหนี้',
+    logo: m.logo ?? null,
     titleEn: 'INVOICE',
     docNo: m.invoiceNo,
     // ST5-T10 ยกเลิก + D-61 sandbox — ยกเลิกใน sandbox แสดงทั้งสองข้อความ

@@ -428,7 +428,7 @@ describe('รถ active ต่อเดือน (P1-ST1-T06)', () => {
     const late = await createTenant(db); // สร้างจริงวันนี้ → ไม่มีเดือน ต.ค.
     await app.get(UsageFinalizeService).scheduleDue(new Date('2027-01-01T03:00:00+07:00'));
     const recs = await db.usageRecord.findMany({
-      where: { tenantId: t.id },
+      where: { tenantId: t.id, metric: 'vehicles.active' }, // P1-ST1-T07 ปิดเมตริกอื่นในรอบเดียวกัน
       orderBy: { period: 'asc' },
     });
     expect(recs.map((r) => [r.period, r.status, Number(r.value)])).toEqual([

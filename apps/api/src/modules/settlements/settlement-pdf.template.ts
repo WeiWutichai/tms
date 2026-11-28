@@ -33,6 +33,8 @@ export interface SettlementPrintTrip {
 
 export interface SettlementPrintModel {
   yearStyle: 'BE' | 'CE';
+  /** P1-ST6-T04 โลโก้องค์กร (`data:` URI) — null/ไม่มี = กล่องตัวย่อชื่อตามต้นแบบ */
+  logo?: string | null;
   /** null = ยังไม่อนุมัติ (ร่าง — ลายน้ำ) */
   settlementNo: string | null;
   /** YYYY-MM-DD — จ่ายแล้ว = วันที่จ่าย · อนุมัติแล้ว = วันอนุมัติ · ร่าง = วันพิมพ์ (เวลาไทย) */
@@ -122,6 +124,7 @@ export function settlementVoucherDocument(m: SettlementPrintModel) {
   return financeDocument({
     yearStyle: m.yearStyle,
     title: 'ใบสำคัญจ่าย',
+    logo: m.logo ?? null,
     titleEn: 'PAYMENT VOUCHER',
     docNo: m.settlementNo,
     copyLabel: null,

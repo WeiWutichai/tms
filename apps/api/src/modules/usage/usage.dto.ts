@@ -121,3 +121,69 @@ export class AddActiveVehicleDto extends UsageReasonBody {
   @MaxLength(20)
   plate!: string;
 }
+
+// ---------- P1-ST1-T07 เมตริกอื่นต่อเดือน ----------
+
+export class ApiCallsDto {
+  @ApiProperty({ description: 'รวมทุก source' }) total!: number;
+  @ApiProperty({ description: 'REST (API key / OAuth client)' }) rest!: number;
+  @ApiProperty({ description: 'MCP (ยังไม่มีในเฟส 1 = 0)' }) mcp!: number;
+}
+
+export class UsageMetricsDto {
+  @ApiProperty({ example: '2026-11' }) period!: string;
+  @ApiProperty({
+    enum: ['open', 'finalized', 'invoiced'],
+    description:
+      'open = ยังนับอยู่ (DO/ใบแจ้งหนี้อัปเดตทุก ≤ 10 นาที, API calls ≤ 30 วินาที) · finalized = ปิดยอดพร้อมรถ active (วันที่ 1 เวลา 02:00 น. ไทย)',
+  })
+  status!: string;
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' }) finalizedAt!: string | null;
+  @ApiProperty({
+    description: '`do.created` — DO ที่สร้างในเดือน (เวลาไทย) ไม่รวมที่ยกเลิก = ผลรวมรายวัน',
+  })
+  doCreated!: number;
+  @ApiProperty({ description: '`invoices.issued` — ใบแจ้งหนี้ที่ออกเลขในเดือน = ผลรวมรายวัน' })
+  invoicesIssued!: number;
+  @ApiProperty({
+    type: ApiCallsDto,
+    description:
+      '`api.calls` — คำขอ `/v1` ของ API key / OAuth client ที่ตอบ 2xx/3xx/4xx (ไม่นับ 429 และ 5xx) · ' +
+      'UI ของระบบไม่นับ · key ของ sandbox ไม่นับ',
+  })
+  apiCalls!: ApiCallsDto;
+  @ApiProperty({
+    example: 1.25,
+    description:
+      '`storage.pod_gb` — ขนาดไฟล์ POD + เอกสารแนบที่อัปโหลด (GB = 1024³ ทศนิยม 2, สะสมไม่รีเซ็ต) ณ วันล่าสุดของเดือน',
+  })
+  podStorageGb!: number;
+  @ApiProperty({ description: '`connectors.accounting` — connector ระบบบัญชีที่ active' })
+  connectors!: number;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description: 'จำนวน connector สูงสุดตามแพ็กเกจ (entitlement `conn`) — null = ไม่จำกัด/ไม่กำหนด',
+  })
+  connectorLimit!: number | null;
+  @ApiProperty({ description: '`users.active` — ผู้ใช้สถานะใช้งาน' }) users!: number;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description: 'เอกสาร e-Tax — ไม่มีในเฟส 1 (plan/13 R-17) จึงเป็น null เสมอ (UI แสดง "—")',
+  })
+  eTaxDocuments!: number | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date',
+    description: 'วันของค่า POD/connector/ผู้ใช้ (null = ค่าสด)',
+  })
+  gaugeAsOf!: string | null;
+  @ApiProperty({
+    enum: ['usage_record', 'usage_daily'],
+    description:
+      'ที่มาของตัวเลข: usage_record = ยอดปิดของเมตริกเหล่านี้ · usage_daily = คำนวณจากยอดรายวัน (เดือนที่ยังเปิด หรือเดือนที่ปิดยอดรถ active ก่อนมีเมตริกอื่น)',
+  })
+  metricsSource!: string;
+}

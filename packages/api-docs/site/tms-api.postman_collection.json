@@ -21657,6 +21657,38 @@
       "name": "usage",
       "item": [
         {
+          "name": "การใช้งานอื่นของเดือน (DO, ใบแจ้งหนี้, API calls, พื้นที่ POD, connector, ผู้ใช้)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/usage/metrics",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "usage",
+                "metrics"
+              ],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "2026-11",
+                  "description": "เดือนปฏิทินเวลาไทย YYYY-MM (ไม่ส่ง = เดือนนี้)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "scope: master:read\n\nUsage & Billing — ยอดเดือน = ผลรวมของยอดรายวัน (`usage_daily`) สำหรับ DO / ใบแจ้งหนี้ / API calls · พื้นที่ POD / connector / ผู้ใช้ = ค่า ณ วันล่าสุดของเดือน (เดือนนี้ = ค่าสด) · ปิดยอดพร้อมรถ active · e-Tax ไม่มีในเฟส 1 (`eTaxDocuments` = null) · sandbox ไม่นับ · ใช้ออกบิลเฉพาะรถ active (เมตริกอื่นเพื่อดู/โควตา)"
+          }
+        },
+        {
           "name": "รถ active ของเดือน + ทะเบียนที่ถูกนับ",
           "request": {
             "method": "GET",

@@ -107,6 +107,32 @@ export class TrackingPublicController {
     return shipment;
   }
 
+  @Get('logo/:doc')
+  @Public()
+  @ApiParam({ name: 'doc', type: String, description: 'id ไฟล์โลโก้ (doc_…)' })
+  @ApiOperation({
+    summary:
+      'P1-ST6-T04 (D68-93) โลโก้บริษัทบนหน้าติดตาม — URL มีลายเซ็นอายุ 15 นาที (จาก company.logoUrl) · แสดงในหน้า (inline) · SVG ล้างแล้วและส่งพร้อม CSP sandbox',
+  })
+  @ApiOkResponse({ description: 'รูป (image/png | image/svg+xml)' })
+  @ApiNotFoundResponse({ description: 'ลายเซ็นผิด/หมดอายุ/ไม่ใช่โลโก้' })
+  async logo(
+    @Param('doc') doc: string,
+    @Query() q: { t?: string; exp?: string; sig?: string },
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const img = await this.tracking.logoImage(doc, q);
+    res.setHeader('Content-Type', img.mime);
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    );
+    return new StreamableFile(img.data);
+  }
+
   @Get('pod-image/:doc')
   @Public()
   @ApiParam({ name: 'doc', type: String, description: 'id รูปหลักฐาน (doc_…)' })
