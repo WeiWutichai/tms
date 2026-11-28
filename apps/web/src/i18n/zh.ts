@@ -268,6 +268,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'sample.type.customer_site': '地点',
   'sample.type.carrier': '外包车',
   'sample.type.vehicle': '车辆',
+  'sample.type.driver': '司机',
   'sample.type.sales_order': '运输订单',
   'imp.step1': '上传文件',
   'imp.next': '下一步',

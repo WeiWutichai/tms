@@ -654,12 +654,13 @@ export const th = {
   // P1-ST2-T09 ข้อมูลตัวอย่างสำหรับ trial (ต้นแบบไม่มี — ประกอบจากการ์ดขั้น `chk`)
   'sample.title': 'ลองใช้ด้วยข้อมูลตัวอย่าง',
   'sample.desc':
-    'บริษัทขนส่งสมมติ: ลูกค้า สถานที่ รถ รถร่วม rate card และใบสั่งขนส่งตัวอย่าง · ไม่นับรถ active · ล้างออกได้ทุกเมื่อ',
+    'บริษัทขนส่งสมมติ: ลูกค้า สถานที่ รถ คนขับ รถร่วม rate card และใบสั่งขนส่งตัวอย่าง · ไม่นับรถ active ช่วงทดลองใช้ · ล้างออกได้ทุกเมื่อ',
   'sample.load': 'ใส่ข้อมูลตัวอย่าง',
   'sample.loadedToast': 'ใส่ข้อมูลตัวอย่างแล้ว',
   'sample.loadedTitle': 'มีข้อมูลตัวอย่างอยู่ในระบบ',
   'sample.loadedDesc':
-    'ลูกค้า {c} · สถานที่ {s} · รถ {v} · รถร่วม {k} · rate card {r} · ใบสั่งขนส่ง {o} — ชื่อมีคำว่า "ตัวอย่าง"',
+    'ลูกค้า {c} · สถานที่ {s} · รถ {v} · คนขับ {d} · รถร่วม {k} · rate card {r} · ใบสั่งขนส่ง {o} — ชื่อมีคำว่า "ตัวอย่าง"',
+  'sample.inUseNote': 'ที่เหลือถูกใช้งานจริงแล้ว จึงไม่ลบ',
   'sample.clear': 'ล้างข้อมูลตัวอย่าง',
   'sample.clearTitle': 'ล้างข้อมูลตัวอย่าง?',
   'sample.clearDesc':
@@ -673,6 +674,7 @@ export const th = {
   'sample.type.customer_site': 'สถานที่',
   'sample.type.carrier': 'รถร่วม',
   'sample.type.vehicle': 'รถ',
+  'sample.type.driver': 'คนขับ',
   'sample.type.rate_card': 'rate card',
   'sample.type.sales_order': 'ใบสั่งขนส่ง',
   'imp.title': 'นำเข้า{kind}จาก Excel',
@@ -2064,6 +2066,7 @@ export const th = {
   'problem.in_use': 'ลบไม่ได้ เพราะมีเอกสารหรือข้อมูลอื่นอ้างถึงแล้ว — ใช้ "ปิดใช้" แทน',
   'problem.in_use_active': 'ปิดใช้ไม่ได้ เพราะยังมีข้อมูลที่ใช้งานอยู่อ้างถึง',
   'problem.sample_data_not_allowed': 'ใส่ข้อมูลตัวอย่างได้เฉพาะช่วงทดลองใช้หรือใน sandbox',
+  'field.sample_customer': 'ลูกค้านี้เป็นข้อมูลตัวอย่าง — ออกเอกสารไม่ได้',
   'problem.sample_data_loaded': 'มีข้อมูลตัวอย่างอยู่แล้ว — ล้างข้อมูลตัวอย่างก่อนจึงใส่ใหม่ได้',
   'problem.conflict': 'ข้อมูลขัดแย้งกับที่มีอยู่',
   'problem.concurrent_update': 'มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง',

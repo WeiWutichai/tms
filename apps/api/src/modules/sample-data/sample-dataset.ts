@@ -264,3 +264,9 @@ export const SAMPLE_ORDERS: {
     ],
   },
 ];
+
+/** คนขับตัวอย่าง (พนักงานบริษัท) — เบอร์ 08x-000-xxxx ไม่ใช่เบอร์ที่ใช้งาน · ไม่มีเลขบัตรประชาชน */
+export const SAMPLE_DRIVERS: { name: string; phone: string; licenceClass: 'T2' | 'T3' }[] = [
+  { name: 'นายตัวอย่าง ขับดี', phone: '081-000-0001', licenceClass: 'T2' },
+  { name: 'นายทดลอง ใจเย็น', phone: '081-000-0002', licenceClass: 'T3' },
+];

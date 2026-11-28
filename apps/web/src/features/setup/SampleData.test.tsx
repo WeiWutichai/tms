@@ -28,6 +28,7 @@ const ZERO = {
   customer_site: 0,
   carrier: 0,
   vehicle: 0,
+  driver: 0,
   rate_card: 0,
   sales_order: 0,
 };
@@ -36,6 +37,7 @@ const LOADED = {
   customer_site: 7,
   carrier: 2,
   vehicle: 5,
+  driver: 2,
   rate_card: 6,
   sales_order: 4,
 };
@@ -79,7 +81,9 @@ describe('ข้อมูลตัวอย่าง (P1-ST2-T09)', () => {
     const onToast = vi.fn();
     show({ allowed: true, loaded: true, counts: LOADED }, onToast);
     expect(
-      screen.getByText(/ลูกค้า 3 · สถานที่ 7 · รถ 5 · รถร่วม 2 · rate card 6 · ใบสั่งขนส่ง 4/),
+      screen.getByText(
+        /ลูกค้า 3 · สถานที่ 7 · รถ 5 · คนขับ 2 · รถร่วม 2 · rate card 6 · ใบสั่งขนส่ง 4/,
+      ),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'ล้างข้อมูลตัวอย่าง' }));
     const dlg = screen.getByRole('alertdialog', { name: 'ล้างข้อมูลตัวอย่าง?' });
@@ -113,6 +117,12 @@ describe('ข้อมูลตัวอย่าง (P1-ST2-T09)', () => {
     const dlg = await screen.findByRole('dialog', { name: 'ล้างแล้ว — เก็บไว้ 1 รายการ' });
     expect(dlg).toHaveTextContent('CUS-0002 บริษัท ตัวอย่างค้าวัสดุ จำกัด');
     expect(screen.getByTestId('sample-kept')).toHaveTextContent('ลูกค้า');
+    // เหลือแต่แถวที่ถูกใช้งานจริง → บอกชัด ไม่มีปุ่มล้างซ้ำ
+    fireEvent.click(screen.getAllByRole('button', { name: 'ปิด' })[0]!);
+    expect(screen.getByTestId('sample-data')).toHaveTextContent(
+      'ที่เหลือถูกใช้งานจริงแล้ว จึงไม่ลบ',
+    );
+    expect(screen.queryByRole('button', { name: 'ล้างข้อมูลตัวอย่าง' })).toBeNull();
   });
 
   it('บริษัทที่ใช้งานจริงแล้ว และไม่มีข้อมูลตัวอย่าง → ไม่แสดง', () => {

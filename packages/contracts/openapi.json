@@ -3514,7 +3514,7 @@
         ]
       },
       "post": {
-        "description": "ใส่บริษัทขนส่งสมมติ: ลูกค้า 3 · สถานที่ 7 · รถร่วม 2 · รถ 5 · rate card (ขาย/ซื้อ อนุมัติแล้ว) · ใบสั่งขนส่ง 4 — ทุกแถวติดธงตัวอย่าง · ไม่นับรถ active / usage · เฉพาะช่วงทดลองใช้หรือ sandbox (409 `sample_data_not_allowed`) · มีอยู่แล้ว → 409 `sample_data_loaded`",
+        "description": "ใส่บริษัทขนส่งสมมติ: ลูกค้า 3 · สถานที่ 7 · รถร่วม 2 · รถ 5 · คนขับ 2 · rate card (ขาย/ซื้อ อนุมัติแล้ว) · ใบสั่งขนส่ง 4 — ทุกแถวติดธงตัวอย่าง · ไม่ส่ง webhook · ช่วงทดลองใช้ไม่นับรถ active / usage · ออกใบแจ้งหนี้ให้ลูกค้าตัวอย่างไม่ได้ · เฉพาะช่วงทดลองใช้หรือ sandbox (409 `sample_data_not_allowed`) · มีอยู่แล้ว → 409 `sample_data_loaded`",
         "operationId": "SampleData_load",
         "parameters": [
           {
@@ -79543,6 +79543,10 @@
           "vehicle": {
             "type": "number"
           },
+          "driver": {
+            "type": "number",
+            "description": "คนขับ"
+          },
           "rate_card": {
             "type": "number"
           },
@@ -79556,6 +79560,7 @@
           "customer_site",
           "carrier",
           "vehicle",
+          "driver",
           "rate_card",
           "sales_order"
         ]
@@ -79596,6 +79601,7 @@
               "customer_site",
               "carrier",
               "vehicle",
+              "driver",
               "rate_card",
               "sales_order"
             ]

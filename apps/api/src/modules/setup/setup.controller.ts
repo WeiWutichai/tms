@@ -264,7 +264,7 @@ export class SetupChecklistController {
       // P1-ST2-T09: ข้อมูลตัวอย่างไม่นับเป็น "นำเข้าข้อมูลหลัก" แล้ว (ธงใน sample_record)
       tx.sampleRecord
         .findMany({
-          where: { entityType: { in: ['customer', 'carrier', 'vehicle'] } },
+          where: { entityType: { in: ['customer', 'carrier', 'vehicle', 'driver'] } },
           select: { entityId: true },
         })
         .then((sample) => {
@@ -273,7 +273,10 @@ export class SetupChecklistController {
             tx.customer.findFirst({ where: notSample, select: { id: true } }),
             tx.carrier.findFirst({ where: notSample, select: { id: true } }),
             tx.vehicle.findFirst({ where: notSample, select: { id: true } }),
-            tx.driver.findFirst({ select: { id: true } }),
+            tx.driver.findFirst({
+              where: { id: notSample.id },
+              select: { id: true },
+            }),
           ]);
         })
         .then((r) => r.some(Boolean)),

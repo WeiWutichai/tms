@@ -2,6 +2,8 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ensureSystemRoles } from '../src/auth/system-roles';
 import { encodeId } from '../src/common/ids';
+import { DbService } from '../src/db/db.service';
+import { assertNotSampleCustomer } from '../src/modules/sample-data/sample-guard';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { api, bootApp, platform, tokenFor, truncateAll } from './helpers';
 
@@ -11,6 +13,7 @@ const TABLES = [
   'customer_site',
   'carrier',
   'vehicle',
+  'driver',
   'rate_card',
   'rate_card_accessorial',
   'sales_order',
@@ -100,6 +103,7 @@ describe('ข้อมูลตัวอย่าง (P1-ST2-T09)', () => {
         customer_site: 7,
         carrier: 2,
         vehicle: 5,
+        driver: 2,
         rate_card: 6,
         sales_order: 4,
       },
@@ -129,6 +133,7 @@ describe('ข้อมูลตัวอย่าง (P1-ST2-T09)', () => {
         customer_site: 7,
         carrier: 2,
         vehicle: 5,
+        driver: 2,
         rate_card: 6,
         sales_order: 4,
       },
@@ -143,6 +148,18 @@ describe('ข้อมูลตัวอย่าง (P1-ST2-T09)', () => {
       orderBy: { at: 'asc' },
     });
     expect(audit.map((x) => x.action)).toEqual(['sample_data.loaded', 'sample_data.cleared']);
+    // audit ของการล้างเก็บรายการที่ลบ (ชนิด + id + ป้าย)
+    const removedList = (
+      audit[1]!.after as { removed: { type: string; id: string; label: string }[] }
+    ).removed;
+    expect(removedList).toHaveLength(29);
+    expect(removedList).toContainEqual(
+      expect.objectContaining({
+        type: 'vehicle',
+        label: 'ตย-9001',
+        id: expect.stringMatching(/^veh_/),
+      }),
+    );
     // ใส่ใหม่ได้หลังล้าง
     await a.post('/v1/sample-data').expect(200);
   });
@@ -237,6 +254,149 @@ describe('ข้อมูลตัวอย่าง (P1-ST2-T09)', () => {
     expect(u.data.map((x: { plate: string; trips: number }) => [x.plate, x.trips])).toEqual([
       ['70-5555', 1],
     ]);
+  });
+
+  it('B1: พ้น trial แล้ว (ACTIVE) เที่ยวรถตัวอย่าง และรถจริงใต้รถร่วมตัวอย่าง นับรถ active ตามปกติ', async () => {
+    const { id, a } = await tenant();
+    await a.post('/v1/sample-data').expect(200);
+    const sampleOwn = await db.vehicle.findFirst({ where: { tenantId: id, plate: 'ตย-9002' } });
+    const sampleCarrier = await db.carrier.findFirst({
+      where: { tenantId: id, legalName: { contains: 'ตัวอย่างรถร่วม' } },
+    });
+    const underSample = await db.vehicle.create({
+      data: {
+        tenantId: id,
+        plate: '71-7777',
+        plateProvince: 'TH-10',
+        plateKey: '717777|TH-10',
+        plateNorm: '717777',
+        vehicleTypeId: sampleOwn!.vehicleTypeId,
+        ownership: 'SUBCONTRACT',
+        carrierId: sampleCarrier!.id,
+      },
+    });
+    // แปลงเป็นลูกค้าจ่ายเงิน (สถานะ + ประวัติ)
+    await db.tenant.update({ where: { id }, data: { status: 'ACTIVE' } });
+    await db.tenantStatusHistory.create({
+      data: {
+        tenantId: id,
+        fromStatus: 'TRIALING',
+        toStatus: 'ACTIVE',
+        reason: 'ชำระเงินแล้ว',
+        actorType: 'system',
+        at: new Date(Date.now() - 1000),
+      },
+    });
+    let n = 0;
+    for (const v of [sampleOwn!, underSample])
+      await db.trip.create({
+        data: {
+          tenantId: id,
+          tripNo: `TRP-ACT-${++n}`,
+          tripDate: new Date(),
+          vehicleId: v.id,
+          carrierId: v.carrierId,
+          carrierNameSnapshot: v.carrierId ? 'รถร่วม' : null,
+          vehicleTypeId: v.vehicleTypeId,
+          vehiclePlateSnapshot: v.plate,
+          vehicleTypeSnapshot: '6 ล้อ',
+          status: 'DISPATCHED',
+          dispatchedAt: new Date(),
+        },
+      });
+    const rows = await db.activeVehicleUsage.findMany({ where: { tenantId: id } });
+    expect(rows.map((r) => r.plate).sort()).toEqual(['71-7777', 'ตย-9002']);
+  });
+
+  it('S6: SO ตัวอย่างที่ DO เดินสถานะ / ลงเที่ยว / บรรทัดรายได้ล็อก → เก็บไว้ (kept) · ใบที่ยังไม่ถูกใช้ลบได้', async () => {
+    const { id, a } = await tenant();
+    await a.post('/v1/sample-data').expect(200);
+    const sos = await db.salesOrder.findMany({ where: { tenantId: id }, orderBy: { soNo: 'asc' } });
+    const dos = await db.deliveryOrder.findMany({ where: { tenantId: id } });
+    const doOf = (soId: string) => dos.find((d) => d.salesOrderId === soId)!;
+    // (1) ใบสั่งพ้นขั้นรับงาน (วางแผนแล้ว)
+    await db.salesOrder.update({ where: { id: sos[0]!.id }, data: { status: 'PLANNED' } });
+    // (2) DO ลงเที่ยว
+    const v = await db.vehicle.findFirst({ where: { tenantId: id, plate: 'ตย-9001' } });
+    const trip = await db.trip.create({
+      data: {
+        tenantId: id,
+        tripNo: 'TRP-S6-1',
+        tripDate: new Date(),
+        vehicleId: v!.id,
+        vehicleTypeId: v!.vehicleTypeId,
+        vehiclePlateSnapshot: v!.plate,
+        vehicleTypeSnapshot: '6 ล้อ',
+      },
+    });
+    await db.deliveryOrder.update({
+      where: { id: doOf(sos[1]!.id).id },
+      data: { tripId: trip.id, status: 'PLANNED' },
+    });
+    // (3) บรรทัดรายได้ล็อก (ออกเอกสารแล้ว)
+    await db.revenueLine.updateMany({
+      where: { tenantId: id, salesOrderId: sos[2]!.id },
+      data: { lockedAt: new Date() },
+    });
+    const r = (await a.post('/v1/sample-data/clear').expect(200)).body;
+    const keptSo = r.kept
+      .filter((k: { entityType: string }) => k.entityType === 'sales_order')
+      .map((k: { id: string }) => k.id)
+      .sort();
+    expect(keptSo).toEqual(
+      [sos[0]!.id, sos[1]!.id, sos[2]!.id].map((x) => encodeId('salesOrder', x)).sort(),
+    );
+    expect(r.removed.sales_order).toBe(1);
+    expect(await db.salesOrder.count({ where: { id: sos[3]!.id } })).toBe(0);
+    expect(await db.deliveryOrder.count({ where: { salesOrderId: sos[1]!.id } })).toBe(1);
+    // รถที่ลงเที่ยวแล้วก็เก็บไว้ (FK)
+    expect(r.kept).toContainEqual(
+      expect.objectContaining({ entityType: 'vehicle', label: 'ตย-9001' }),
+    );
+  });
+
+  it('S2: role แอปเขียนธงตรงไม่ได้ · tms_sample_flag ปฏิเสธแถวที่ไม่ได้สร้างใน transaction นี้', async () => {
+    const { id, a } = await tenant();
+    const real = (
+      await a.post('/v1/customers').send({ legalName: 'บริษัท ลูกค้าจริง สอง จำกัด' }).expect(201)
+    ).body;
+    const realId = (await db.customer.findFirst({ where: { tenantId: id, code: real.code } }))!.id;
+    const dbs = app.get(DbService);
+    await expect(
+      dbs.withTenant(id, (tx) =>
+        tx.sampleRecord.create({
+          data: { tenantId: id, entityType: 'customer', entityId: realId },
+        }),
+      ),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      dbs.withTenant(
+        id,
+        (tx) => tx.$queryRaw`SELECT tms_sample_flag('customer', ${[realId]}::uuid[])`,
+      ),
+    ).rejects.toThrow(/created in this transaction/);
+    expect(await db.sampleRecord.count({ where: { tenantId: id } })).toBe(0);
+  });
+
+  it('S3: ใส่ข้อมูลตัวอย่างไม่สร้างคำสั่ง outbox (webhook/ERP) · ข้อมูลจริงยังสร้างตามปกติ · M4 ออกใบแจ้งหนี้ให้ลูกค้าตัวอย่างไม่ได้', async () => {
+    const { id, a } = await tenant();
+    await db.integrationSubscription.create({
+      data: { tenantId: id, kind: 'WEBHOOK', sink: 'webhook', targetId: 'test', eventTypes: ['*'] },
+    });
+    await a.post('/v1/sample-data').expect(200);
+    expect(await db.integrationOutbox.count({ where: { tenantId: id } })).toBe(0);
+    await a.post('/v1/sample-data/clear').expect(200);
+    expect(await db.integrationOutbox.count({ where: { tenantId: id } })).toBe(0);
+    await a.post('/v1/customers').send({ legalName: 'บริษัท ลูกค้าจริง สาม จำกัด' }).expect(201);
+    expect(await db.integrationOutbox.count({ where: { tenantId: id } })).toBeGreaterThan(0);
+
+    await a.post('/v1/sample-data').expect(200);
+    const cus = await db.customer.findFirst({
+      where: { tenantId: id, legalName: 'บริษัท ตัวอย่างค้าวัสดุ จำกัด' },
+    });
+    await expect(
+      app.get(DbService).withTenant(id, (tx) => assertNotSampleCustomer(tx, cus!.id)),
+    ).rejects.toMatchObject({ status: 422 });
   });
 
   it('ใส่ได้เฉพาะช่วงทดลองใช้ / sandbox — บริษัทที่ใช้งานจริงแล้ว 409 · ล้างได้เสมอ (ไม่มี = ไม่ทำอะไร)', async () => {

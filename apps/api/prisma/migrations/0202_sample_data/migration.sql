@@ -1,11 +1,15 @@
 -- P1-ST2-T09: ข้อมูลตัวอย่างสำหรับ trial (docs/02 §2 "มีข้อมูลตัวอย่างบริษัทขนส่งไทยให้ลองทันที" · plan/01 ผู้สมัคร #30)
--- (1) sample_record = ธง "ข้อมูลตัวอย่าง" ต่อแถว (customer / customer_site / carrier / vehicle / rate_card / sales_order)
---     แอปเพิ่มแถวได้ตอนใส่ข้อมูลตัวอย่างเท่านั้น — แก้/ลบตรงไม่ได้ (ลบผ่าน tms_sample_data_purge เท่านั้น)
+-- (1) sample_record = ธง "ข้อมูลตัวอย่าง" ต่อแถว (customer / customer_site / carrier / vehicle / driver / rate_card / sales_order)
+--     role แอปเขียน/แก้/ลบตรงไม่ได้ — ติดธงผ่าน tms_sample_flag() (เฉพาะแถวที่สร้างใน transaction เดียวกันของ tenant นี้)
+--     ลบผ่าน tms_sample_data_purge() เท่านั้น (กันติดธงแถวจริงแล้ว hard delete — review S2)
 -- (2) tms_sample_data_purge(): ลบจริงเฉพาะแถวที่มีธงของ tenant ปัจจุบัน และยังไม่ถูกอ้างอิงจากข้อมูลจริง
 --     ตารางเหล่านี้ role แอปลบตรงไม่ได้ (MD-004) — ฟังก์ชันนี้เป็นทางเดียว ·
 --     แถวที่ถูกใช้ต่อแล้ว (เช่น SO ตัวอย่างที่สร้าง DO / ออกใบแจ้งหนี้ไปแล้ว, ลูกค้าตัวอย่างที่ใบสั่งจริงอ้างถึง) ไม่ลบ คงธงไว้
 --     และคืนเหตุผลให้ผู้ใช้เห็น [DECISION — lead 28 พ.ย. 2569, ย้อนได้ — spec/12 §3]
--- (3) รถ active: เที่ยวที่ใช้รถตัวอย่างหรือรถร่วมตัวอย่างไม่ถูกนับ (tms_trip_is_sample) — แทน tms_active_vehicle_recount ของ 0190
+-- (3) รถ active: เที่ยวที่ใช้รถ/รถร่วมตัวอย่างไม่ถูกนับ **เฉพาะเมื่อบริษัทยังไม่พ้นช่วงทดลองใช้ ณ เวลาที่เที่ยวเข้าเงื่อนไข**
+--     (TRIALING / PENDING_VERIFICATION; sandbox ไม่นับอยู่แล้ว) — พ้น trial แล้วนับปกติทุกคัน (review B1: ธงไม่หมดอายุ = หลบค่าบริการได้)
+--     แทน tms_active_vehicle_recount ของ 0190
+-- (4) domain_event ระหว่างใส่ข้อมูลตัวอย่าง (ธง tms.suppress_outbox ใน transaction) ไม่ถูกส่งต่อเป็นคำสั่ง outbox (webhook / ERP)
 
 CREATE TABLE "sample_record" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
@@ -16,25 +20,72 @@ CREATE TABLE "sample_record" (
 
     CONSTRAINT "sample_record_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "sample_record_entity_type_check" CHECK ("entity_type" IN
-      ('customer', 'customer_site', 'carrier', 'vehicle', 'rate_card', 'sales_order'))
+      ('customer', 'customer_site', 'carrier', 'vehicle', 'driver', 'rate_card', 'sales_order'))
 );
 
 CREATE UNIQUE INDEX "sample_record_tenant_id_entity_type_entity_id_key" ON "sample_record"("tenant_id", "entity_type", "entity_id");
 
 ALTER TABLE "sample_record" ADD CONSTRAINT "sample_record_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenant"("id") ON DELETE CASCADE;
 
--- เที่ยวนี้ใช้รถ/รถร่วมตัวอย่างไหม (นิยามเดียว — trigger นับรถ active และ API จำนวนเที่ยว)
-CREATE OR REPLACE FUNCTION tms_trip_is_sample(p_tenant uuid, p_vehicle uuid, p_carrier uuid) RETURNS boolean
-  LANGUAGE sql STABLE PARALLEL SAFE AS
+-- สถานะของบริษัท ณ เวลา p_at (ประวัติ tenant_status_history: แถวล่าสุดก่อน p_at → to_status · ไม่มี → from_status ของแถวแรกหลัง p_at
+-- · ไม่มีประวัติ → สถานะปัจจุบัน)
+CREATE OR REPLACE FUNCTION tms_tenant_status_at(p_tenant uuid, p_at timestamptz) RETURNS text
+  LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS
 $$
-  SELECT (p_vehicle IS NOT NULL OR p_carrier IS NOT NULL) AND EXISTS (
-    SELECT 1 FROM sample_record s
-     WHERE s.tenant_id = p_tenant
-       AND ((s.entity_type = 'vehicle' AND s.entity_id = p_vehicle)
-         OR (s.entity_type = 'carrier' AND s.entity_id = p_carrier)))
+  SELECT coalesce(
+    (SELECT h.to_status::text FROM public.tenant_status_history h
+      WHERE h.tenant_id = p_tenant AND h.at <= p_at ORDER BY h.at DESC, h.seq DESC LIMIT 1),
+    (SELECT h.from_status::text FROM public.tenant_status_history h
+      WHERE h.tenant_id = p_tenant AND h.at > p_at ORDER BY h.at, h.seq LIMIT 1),
+    (SELECT t.status::text FROM public.tenant t WHERE t.id = p_tenant))
 $$;
 
--- นับใหม่ 1 ทะเบียน × 1 เดือน (เหมือน 0190 ทุกอย่าง + ไม่นับเที่ยวที่ใช้รถ/รถร่วมตัวอย่าง)
+-- เที่ยวนี้ข้ามการนับรถ active ไหม: ใช้รถ/รถร่วมตัวอย่าง **และ** บริษัทยังอยู่ช่วงทดลองใช้ ณ เวลาที่เที่ยวเข้าเงื่อนไข
+-- (นิยามเดียว — trigger นับรถ active และ API จำนวนเที่ยว)
+CREATE OR REPLACE FUNCTION tms_trip_is_sample(p_tenant uuid, p_vehicle uuid, p_carrier uuid, p_at timestamptz)
+  RETURNS boolean
+  LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS
+$$
+  SELECT (p_vehicle IS NOT NULL OR p_carrier IS NOT NULL) AND p_at IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM public.sample_record s
+        WHERE s.tenant_id = p_tenant
+          AND ((s.entity_type = 'vehicle' AND s.entity_id = p_vehicle)
+            OR (s.entity_type = 'carrier' AND s.entity_id = p_carrier)))
+     AND public.tms_tenant_status_at(p_tenant, p_at) IN ('TRIALING', 'PENDING_VERIFICATION')
+$$;
+
+-- ติดธงตัวอย่าง: แถวต้องเป็นของ tenant ปัจจุบันและถูกสร้าง/แก้ล่าสุดใน transaction นี้ (xmin = xid ปัจจุบัน) — ไม่งั้นปฏิเสธทั้งชุด
+CREATE OR REPLACE FUNCTION tms_sample_flag(p_type text, p_ids uuid[]) RETURNS integer
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS
+$$
+DECLARE
+  t uuid := tms_current_tenant();
+  x text := (pg_catalog.pg_current_xact_id()::text::bigint % 4294967296)::text;
+  ids uuid[] := ARRAY(SELECT DISTINCT u FROM unnest(p_ids) AS u WHERE u IS NOT NULL);
+  ok integer;
+BEGIN
+  IF t IS NULL THEN
+    RAISE EXCEPTION 'tms_sample_flag: tenant not set' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF p_type NOT IN ('customer', 'customer_site', 'carrier', 'vehicle', 'driver', 'rate_card', 'sales_order') THEN
+    RAISE EXCEPTION 'tms_sample_flag: bad type %', p_type USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+  IF cardinality(ids) = 0 THEN RETURN 0; END IF;
+  EXECUTE format('SELECT count(*)::int FROM public.%I r WHERE r.tenant_id = $1 AND r.id = ANY($2) AND r.xmin::text = $3', p_type)
+     INTO ok USING t, ids, x;
+  IF ok <> cardinality(ids) THEN
+    RAISE EXCEPTION 'tms_sample_flag: rows must belong to this tenant and be created in this transaction'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  INSERT INTO public.sample_record (tenant_id, entity_type, entity_id)
+  SELECT t, p_type, u FROM unnest(ids) AS u
+  ON CONFLICT (tenant_id, entity_type, entity_id) DO NOTHING;
+  RETURN ok;
+END
+$$;
+
+-- นับใหม่ 1 ทะเบียน × 1 เดือน (เหมือน 0190 ทุกอย่าง + ไม่นับเที่ยวที่ใช้รถ/รถร่วมตัวอย่างช่วงทดลองใช้)
 CREATE OR REPLACE FUNCTION tms_active_vehicle_recount(p_tenant uuid, p_period text, p_key text) RETURNS void
   LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS
 $$
@@ -60,9 +111,9 @@ BEGIN
             FROM trip t
            WHERE t.tenant_id = p_tenant
              AND t.status IN ('DISPATCHED', 'IN_PROGRESS', 'COMPLETED', 'COSTED', 'SETTLED')
-             AND tms_trip_usage_key(t.vehicle_plate_snapshot, t.carrier_id, t.driver_id, t.driver_name_snapshot, t.id) = p_key
-             AND NOT tms_trip_is_sample(t.tenant_id, t.vehicle_id, t.carrier_id)) x
+             AND tms_trip_usage_key(t.vehicle_plate_snapshot, t.carrier_id, t.driver_id, t.driver_name_snapshot, t.id) = p_key) x
    WHERE x.at >= m_start AND x.at < m_end
+     AND NOT tms_trip_is_sample(p_tenant, x.vehicle_id, x.carrier_id, x.at)
    ORDER BY x.at, x.id LIMIT 1;
   IF f.id IS NULL THEN
     DELETE FROM active_vehicle_usage
@@ -85,8 +136,10 @@ END
 $$;
 
 -- ล้างข้อมูลตัวอย่างของ tenant ปัจจุบัน (app.tenant_id — ผู้เรียกระบุ tenant อื่นไม่ได้)
--- ลำดับ: SO → rate card → รถ → รถร่วม → สถานที่ → ลูกค้า (ลูกก่อนแม่) · ทีละแถวใน sub-transaction:
---   ถูกอ้างอิง (FK RESTRICT) / บรรทัดรายได้ที่ล็อกแล้วหรือคนเพิ่มเอง (trigger revenue_line_guard) → ย้อนเฉพาะแถวนั้น คงธงไว้ คืน in_use
+-- ลำดับ: SO → rate card → คนขับ → รถ → รถร่วม → สถานที่ → ลูกค้า (ลูกก่อนแม่) · ทีละแถวใน sub-transaction:
+--   ถูกอ้างอิง (FK RESTRICT) / ตัวอ้างอิงที่ไม่มี FK (ไฟล์แนบ, อีเมลเอกสาร, แจ้งเตือนหมดอายุ, การจับคู่/คิว connector, ตำแหน่ง GPS,
+--   ต้นทุนเที่ยวของรถร่วม) / trigger ปฏิเสธ (บรรทัดรายได้ล็อก, POD append-only ฯลฯ) → ย้อนเฉพาะแถวนั้น คงธงไว้ คืน in_use
+-- ล็อกแถว SO/DO (FOR UPDATE) ก่อนตรวจสถานะ — กันจัดลงเที่ยวพร้อมกันระหว่างตรวจ→ลบ (review S1)
 -- SO: ลบได้เมื่อยังอยู่ขั้นรับงาน (DRAFT/RECEIVED/ON_HOLD/CANCELLED) และ DO ทุกใบยังเป็นร่าง/ยกเลิกที่ไม่เคยลงเที่ยว —
 --   ลบบรรทัดรายได้ / DO (สร้างอัตโนมัติตอนรับใบ) / ราคา / สินค้า / จุดรับส่ง / ชุดเปลี่ยนจากต้นทาง ของใบนั้นก่อน (ล็อกแก้ไขลบตาม FK CASCADE)
 --   DO ที่มี POD / ค่าใช้จ่ายหน้างาน / อยู่ในใบแจ้งหนี้ → FK/trigger ปฏิเสธ = in_use
@@ -98,7 +151,7 @@ $$
 DECLARE
   t uuid := tms_current_tenant();
   s record;
-  ord text[] := ARRAY['sales_order', 'rate_card', 'vehicle', 'carrier', 'customer_site', 'customer'];
+  ord text[] := ARRAY['sales_order', 'rate_card', 'driver', 'vehicle', 'carrier', 'customer_site', 'customer'];
 BEGIN
   IF t IS NULL THEN
     RAISE EXCEPTION 'tms_sample_data_purge: tenant not set' USING ERRCODE = 'insufficient_privilege';
@@ -109,7 +162,21 @@ BEGIN
      ORDER BY array_position(ord, r.entity_type::text), r.created_at, r.entity_id
   LOOP
     BEGIN
+      -- ตัวอ้างอิงที่ไม่มี FK (review S4) — ของ SO รวม DO ของใบนั้นด้วย
+      IF EXISTS (SELECT 1 FROM stored_document x WHERE x.tenant_id = t AND (x.entity_id = s.eid OR (s.et = 'sales_order'
+                   AND x.entity_id IN (SELECT d.id FROM delivery_order d WHERE d.tenant_id = t AND d.sales_order_id = s.eid))))
+         OR EXISTS (SELECT 1 FROM document_email x WHERE x.tenant_id = t AND (x.entity_id = s.eid OR (s.et = 'sales_order'
+                   AND x.entity_id IN (SELECT d.id FROM delivery_order d WHERE d.tenant_id = t AND d.sales_order_id = s.eid))))
+         OR EXISTS (SELECT 1 FROM expiry_reminder x WHERE x.tenant_id = t AND x.entity_id = s.eid)
+         OR EXISTS (SELECT 1 FROM external_mapping x WHERE x.tenant_id = t AND x.local_id = s.eid)
+         OR EXISTS (SELECT 1 FROM integration_outbox x WHERE x.tenant_id = t AND x.local_id = s.eid)
+         OR (s.et = 'vehicle' AND EXISTS (SELECT 1 FROM vehicle_position x WHERE x.tenant_id = t AND x.vehicle_id = s.eid))
+         OR (s.et = 'carrier' AND EXISTS (SELECT 1 FROM trip_cost x WHERE x.tenant_id = t AND x.carrier_id = s.eid)) THEN
+        RAISE EXCEPTION 'sample % % referenced', s.et, s.eid USING ERRCODE = 'foreign_key_violation';
+      END IF;
       IF s.et = 'sales_order' THEN
+        PERFORM 1 FROM sales_order o WHERE o.tenant_id = t AND o.id = s.eid FOR UPDATE;
+        PERFORM 1 FROM delivery_order d WHERE d.tenant_id = t AND d.sales_order_id = s.eid FOR UPDATE;
         -- ใช้งานต่อแล้ว = ใบสั่งพ้นขั้นรับงาน หรือ DO (สร้างอัตโนมัติตอนรับใบ) ถูกจัดลงเที่ยว/เดินสถานะไปแล้ว
         IF EXISTS (SELECT 1 FROM sales_order o WHERE o.tenant_id = t AND o.id = s.eid
                       AND o.status NOT IN ('DRAFT', 'RECEIVED', 'ON_HOLD', 'CANCELLED'))
@@ -133,6 +200,8 @@ BEGIN
       ELSIF s.et = 'rate_card' THEN
         DELETE FROM rate_card_accessorial WHERE tenant_id = t AND rate_card_id = s.eid;
         DELETE FROM rate_card WHERE tenant_id = t AND id = s.eid;
+      ELSIF s.et = 'driver' THEN
+        DELETE FROM driver WHERE tenant_id = t AND id = s.eid;
       ELSIF s.et = 'vehicle' THEN
         DELETE FROM vehicle WHERE tenant_id = t AND id = s.eid;
       ELSIF s.et = 'carrier' THEN
@@ -145,7 +214,8 @@ BEGIN
       DELETE FROM sample_record r WHERE r.tenant_id = t AND r.entity_type = s.et AND r.entity_id = s.eid;
       entity_type := s.et; entity_id := s.eid; removed := true; reason := NULL;
       RETURN NEXT;
-    EXCEPTION WHEN foreign_key_violation OR check_violation OR insufficient_privilege THEN
+    EXCEPTION WHEN OTHERS THEN
+      -- FK / CHECK / trigger ที่ปฏิเสธ (P0001, 42501 …) = ถูกใช้ต่อแล้ว — ย้อนเฉพาะแถวนี้ ไม่ทำให้ทั้งคำขอล้ม (review M2)
       entity_type := s.et; entity_id := s.eid; removed := false; reason := 'in_use';
       RETURN NEXT;
     END;
@@ -153,12 +223,46 @@ BEGIN
 END
 $$;
 
+-- domain_event → integration_outbox (0093) + ข้ามเมื่อ transaction ตั้งธง tms.suppress_outbox = on (ใส่ข้อมูลตัวอย่าง — review S3)
+CREATE OR REPLACE FUNCTION tms_domain_event_to_outbox() RETURNS trigger LANGUAGE plpgsql AS
+$$
+DECLARE
+  cust text;
+BEGIN
+  IF pg_catalog.current_setting('tms.suppress_outbox', true) = 'on' THEN
+    RETURN NULL;
+  END IF;
+  cust := tms_outbox_customer_key(NEW.entity_type, NEW.local_id, NEW.snapshot);
+  INSERT INTO integration_outbox (tenant_id, kind, sink, target_id, subscription_id, operation, entity_type,
+                                  local_id, event_id, event_type, serialize_key, idempotency_key, max_attempt, updated_at)
+  SELECT NEW.tenant_id, s.kind, s.sink, s.target_id, s.id, coalesce(s.operation, NEW.type), NEW.entity_type,
+         NEW.local_id, NEW.id, NEW.type,
+         s.sink || ':' || coalesce(s.target_id, '-') || ':' ||
+           CASE WHEN s.kind = 'WEBHOOK' THEN 'evt:' || NEW.id::text
+                WHEN cust IS NOT NULL THEN 'cus:' || cust
+                ELSE NEW.entity_type || ':' || NEW.local_id::text END,
+         s.sink || ':' || coalesce(s.target_id, '-') || ':' || coalesce(s.operation, NEW.type) || ':' || NEW.id::text,
+         CASE WHEN s.kind = 'WEBHOOK' THEN 9 ELSE 7 END,
+         now()
+    FROM integration_subscription s
+   WHERE s.tenant_id = NEW.tenant_id
+     AND s.active
+     AND (NEW.type = ANY (s.event_types)
+          OR '*' = ANY (s.event_types)
+          OR (split_part(NEW.type, '.', 1) || '.*') = ANY (s.event_types))
+  ON CONFLICT (tenant_id, idempotency_key) DO NOTHING;
+  RETURN NULL;
+END
+$$;
+
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tms_app') THEN
-    -- ธงเพิ่มได้ (ตอนใส่ข้อมูลตัวอย่าง) แต่แก้/ลบตรงไม่ได้ — ลบผ่านฟังก์ชันด้านบนเท่านั้น (กันติดธงแถวจริงแล้วลบ: ฟังก์ชันลบเฉพาะแถวที่ไม่ถูกอ้างอิง)
-    EXECUTE 'REVOKE UPDATE, DELETE, TRUNCATE ON sample_record FROM tms_app';
+    -- อ่านได้อย่างเดียว — ติดธงผ่าน tms_sample_flag() · ลบผ่าน tms_sample_data_purge() (review S2)
+    EXECUTE 'REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON sample_record FROM tms_app';
     EXECUTE 'REVOKE EXECUTE ON FUNCTION tms_sample_data_purge() FROM PUBLIC';
     EXECUTE 'GRANT EXECUTE ON FUNCTION tms_sample_data_purge() TO tms_app';
+    EXECUTE 'REVOKE EXECUTE ON FUNCTION tms_sample_flag(text, uuid[]) FROM PUBLIC';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION tms_sample_flag(text, uuid[]) TO tms_app';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tms_platform') THEN
     EXECUTE 'REVOKE TRUNCATE ON sample_record FROM tms_platform';

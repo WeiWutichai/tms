@@ -8,6 +8,7 @@ import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { CARRIER_CODE_PREFIX } from '../carriers/carriers.service';
 import { CUSTOMER_CODE_PREFIX } from '../customers/customers.service';
+import { DRIVER_CODE_PREFIX, phoneNorm } from '../drivers/drivers.service';
 import { lockKey, nextCode } from '../master/master-kit';
 import { OrderIntakeService } from '../orders/order-intake.service';
 import { SITE_CODE_PREFIX, SITE_CODE_WIDTH } from '../sites/sites.service';
@@ -15,6 +16,7 @@ import { plateKey, plateNorm } from '../vehicles/vehicles.service';
 import {
   SAMPLE_CARRIERS,
   SAMPLE_CUSTOMERS,
+  SAMPLE_DRIVERS,
   SAMPLE_ORDERS,
   SAMPLE_SITES,
   SAMPLE_VEHICLES,
@@ -26,6 +28,7 @@ export const SAMPLE_ENTITY_TYPES = [
   'customer_site',
   'carrier',
   'vehicle',
+  'driver',
   'rate_card',
   'sales_order',
 ] as const;
@@ -36,6 +39,7 @@ const ID_KIND: Record<SampleEntityType, IdKind> = {
   customer_site: 'site',
   carrier: 'carrier',
   vehicle: 'vehicle',
+  driver: 'driver',
   rate_card: 'rateCard',
   sales_order: 'salesOrder',
 };
@@ -57,6 +61,12 @@ export interface SampleKept {
   reason: 'in_use';
 }
 
+export interface SampleRemoved {
+  entityType: SampleEntityType;
+  id: string;
+  label: string;
+}
+
 export interface SampleClearResult extends SampleStatus {
   removed: SampleCounts;
   kept: SampleKept[];
@@ -75,12 +85,16 @@ const bkkDate = (now: Date, addDays = 0) =>
 /**
  * ข้อมูลตัวอย่างสำหรับ trial (P1-ST2-T09; docs/02 §2 "มีข้อมูลตัวอย่างบริษัทขนส่งไทยให้ลองทันที" · plan/01 ผู้สมัคร #30)
  *
- * - ใส่: ลูกค้า / สถานที่ / รถร่วม / รถ / rate card (ขาย + ซื้อ อนุมัติแล้ว) / ใบสั่งขนส่ง ของบริษัทสมมติ (`sample-dataset.ts`
- *   — ชื่อมีคำว่า "ตัวอย่าง" ไม่เหมือนบริษัทจริง ตามคำเตือน design/README.md) ทุกแถวติดธงใน `sample_record`
- *   ข้อมูลหลักเขียนตรง (ไม่ส่ง domain event — ไม่ไหลไป webhook / ระบบบัญชีของลูกค้า) · ใบสั่งผ่าน `upsertOrder` (ทางเดียวของ order)
- * - ล้าง: `tms_sample_data_purge()` ลบเฉพาะแถวที่มีธงและยังไม่ถูกอ้างอิง — ถูกใช้ต่อแล้ว (DO / เอกสาร / ใบสั่งจริงอ้างถึง) = คงไว้ + เหตุผล
- * - ไม่นับ usage: เที่ยวที่ใช้รถ/รถร่วมตัวอย่างไม่นับรถ active (trigger 0202) · DO จาก SO ตัวอย่างไม่นับ `do.created`
- *   · ไม่ทำให้ขั้น "นำเข้าข้อมูลหลัก" ของ checklist เสร็จ
+ * - ใส่: ลูกค้า / สถานที่ / รถร่วม / รถ / คนขับ / rate card (ขาย + ซื้อ อนุมัติแล้ว) / ใบสั่งขนส่ง ของบริษัทสมมติ (`sample-dataset.ts`
+ *   — ชื่อมีคำว่า "ตัวอย่าง" ไม่เหมือนบริษัทจริง ตามคำเตือน design/README.md) ทุกแถวติดธงผ่าน `tms_sample_flag()` (ตรวจว่าแถวสร้างใน
+ *   transaction นี้) · ข้อมูลหลักเขียนตรง · ใบสั่งผ่าน `upsertOrder` (ทางเดียวของ order — DO ร่างถูกสร้างอัตโนมัติ)
+ *   · ทั้ง transaction ตั้งธง `tms.suppress_outbox` → domain_event ที่เกิด (order.created ฯลฯ) ไม่ถูกส่งต่อไป webhook / ERP
+ *   (ยังอยู่ในตาราง domain_event — ประวัติ)
+ * - ล้าง: `tms_sample_data_purge()` ลบเฉพาะแถวที่มีธงและยังไม่ถูกใช้ต่อ (SO พ้นขั้นรับงาน / DO ลงเที่ยว / มี FK หรือตัวอ้างอิงอื่น)
+ *   = คงไว้ + เหตุผล · ไม่ส่ง event
+ * - ไม่นับ usage: เที่ยวที่ใช้รถ/รถร่วมตัวอย่างขณะบริษัทยังอยู่ช่วงทดลองใช้ไม่นับรถ active (trigger 0202 — พ้น trial แล้วนับปกติ)
+ *   · DO จาก SO ตัวอย่างไม่นับ `do.created` · ไม่ทำให้ขั้น "นำเข้าข้อมูลหลัก" ของ checklist เสร็จ
+ *   · ออกใบแจ้งหนี้ให้ลูกค้าตัวอย่างไม่ได้ (422 — `assertNotSampleCustomer`; ใบวางบิลต้องอ้างใบแจ้งหนี้ที่ออกแล้ว จึงไม่เกิดตามไปด้วย)
  * [DECISION — lead 28 พ.ย. 2569, ย้อนได้ — spec/12 §3]
  */
 @Injectable()
@@ -123,6 +137,8 @@ export class SampleDataService {
     const ctx = requestContext.require();
     const tenantId = ctx.tenantId!;
     const now = this.clock.now();
+    // event ของข้อมูลตัวอย่างไม่ออก webhook / ERP (trigger domain_event_to_outbox อ่านธงนี้) — ปิดธงก่อนจบ
+    await tx.$executeRaw`SELECT set_config('tms.suppress_outbox', 'on', true)`;
     const flags: { entityType: SampleEntityType; entityId: string }[] = [];
     const flag = (entityType: SampleEntityType, entityId: string) =>
       flags.push({ entityType, entityId });
@@ -212,14 +228,9 @@ export class SampleDataService {
       flag('carrier', row.id);
     }
 
-    // 4) รถ (ทะเบียนตัวอย่าง "ตย-…" — ข้ามคันที่ทะเบียนชนกับรถที่มีอยู่)
+    // 4) รถ (ทะเบียนตัวอย่าง "ตย-…" — ข้ามคันที่ทะเบียนชนกับรถใดก็ตามที่มีอยู่ รวมที่ปลดระวาง/ลบ — ไม่ล้มทั้งชุด)
     const taken = new Set(
-      (
-        await tx.vehicle.findMany({
-          where: { deletedAt: null, status: { not: 'RETIRED' } },
-          select: { plateKey: true },
-        })
-      ).map((v) => v.plateKey),
+      (await tx.vehicle.findMany({ select: { plateKey: true } })).map((v) => v.plateKey),
     );
     for (const v of SAMPLE_VEHICLES) {
       const key = plateKey(v.plate, v.province);
@@ -240,6 +251,28 @@ export class SampleDataService {
         select: { id: true },
       });
       flag('vehicle', row.id);
+    }
+
+    // 4b) คนขับตัวอย่าง (พนักงานของบริษัท — ให้รถบริษัทตัวอย่างปล่อยเที่ยวได้) · ข้ามเบอร์ที่ชนคนขับที่มีอยู่
+    await lockKey(tx, 'driver.code');
+    const phones = new Set(
+      (await tx.driver.findMany({ select: { phoneNorm: true } })).map((d) => d.phoneNorm),
+    );
+    for (const d of SAMPLE_DRIVERS) {
+      if (phones.has(phoneNorm(d.phone))) continue;
+      const row = await tx.driver.create({
+        data: {
+          tenantId,
+          code: await nextCode(tx, 'driver', DRIVER_CODE_PREFIX),
+          name: d.name,
+          phone: d.phone,
+          phoneNorm: phoneNorm(d.phone),
+          licenceClass: d.licenceClass,
+          employmentType: 'EMPLOYEE_SALARIED',
+        },
+        select: { id: true },
+      });
+      flag('driver', row.id);
     }
 
     // 5) rate card ขาย (ลูกค้า × เส้นทางของใบสั่งตัวอย่าง) + ซื้อ (รถร่วม) — อนุมัติแล้ว เริ่มใช้วันนี้
@@ -342,7 +375,12 @@ export class SampleDataService {
       flag('sales_order', r.order.id);
     }
 
-    await tx.sampleRecord.createMany({ data: flags.map((f) => ({ tenantId, ...f })) });
+    // ติดธงผ่านฟังก์ชันฐานข้อมูล (แอปเขียน sample_record ตรงไม่ได้ — ฟังก์ชันตรวจว่าแถวสร้างใน transaction นี้)
+    for (const t of SAMPLE_ENTITY_TYPES) {
+      const ids = flags.filter((f) => f.entityType === t).map((f) => f.entityId);
+      if (ids.length) await tx.$queryRaw`SELECT tms_sample_flag(${t}, ${ids}::uuid[])`;
+    }
+    await tx.$executeRaw`SELECT set_config('tms.suppress_outbox', 'off', true)`;
     const after = await this.status(tx);
     await this.audit.record({
       action: 'sample_data.loaded',
@@ -367,10 +405,17 @@ export class SampleDataService {
       }[]
     >`SELECT entity_type, entity_id, removed, reason FROM tms_sample_data_purge()`;
     const removed = zero();
+    const removedList: SampleRemoved[] = [];
     const kept: SampleKept[] = [];
     for (const r of rows) {
-      if (r.removed) removed[r.entity_type] += 1;
-      else
+      if (r.removed) {
+        removed[r.entity_type] += 1;
+        removedList.push({
+          entityType: r.entity_type,
+          id: encodeId(ID_KIND[r.entity_type], r.entity_id),
+          label: labels.get(r.entity_id) ?? '',
+        });
+      } else
         kept.push({
           entityType: r.entity_type,
           id: encodeId(ID_KIND[r.entity_type], r.entity_id),
@@ -384,7 +429,15 @@ export class SampleDataService {
         action: 'sample_data.cleared',
         entityType: 'tenant',
         entityId: requestContext.require().tenantId!,
-        after: { removed, kept: kept.map((k) => ({ type: k.entityType, label: k.label })) },
+        after: {
+          removed: removedList.map((k) => ({ type: k.entityType, id: k.id, label: k.label })),
+          kept: kept.map((k) => ({
+            type: k.entityType,
+            id: k.id,
+            label: k.label,
+            reason: k.reason,
+          })),
+        },
       });
     return { ...after, removed, kept };
   }
@@ -422,6 +475,11 @@ export class SampleDataService {
       select: { id: true, plate: true },
     }))
       put(r.id, r.plate);
+    for (const r of await tx.driver.findMany({
+      where: await ids('driver'),
+      select: { id: true, code: true, name: true },
+    }))
+      put(r.id, r.code, r.name);
     for (const r of await tx.rateCard.findMany({
       where: await ids('rate_card'),
       select: { id: true, code: true },

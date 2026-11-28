@@ -8,6 +8,7 @@ export class SampleCountsDto {
   @ApiProperty({ description: 'สถานที่ / จุดรับส่ง' }) customer_site!: number;
   @ApiProperty({ description: 'รถร่วม' }) carrier!: number;
   @ApiProperty() vehicle!: number;
+  @ApiProperty({ description: 'คนขับ' }) driver!: number;
   @ApiProperty() rate_card!: number;
   @ApiProperty({ description: 'ใบสั่งขนส่ง' }) sales_order!: number;
 }
@@ -67,8 +68,8 @@ export class SampleDataController {
   @ApiOperation({
     summary: 'ใส่ข้อมูลตัวอย่าง',
     description:
-      'ใส่บริษัทขนส่งสมมติ: ลูกค้า 3 · สถานที่ 7 · รถร่วม 2 · รถ 5 · rate card (ขาย/ซื้อ อนุมัติแล้ว) · ใบสั่งขนส่ง 4 ' +
-      '— ทุกแถวติดธงตัวอย่าง · ไม่นับรถ active / usage · เฉพาะช่วงทดลองใช้หรือ sandbox (409 `sample_data_not_allowed`) · ' +
+      'ใส่บริษัทขนส่งสมมติ: ลูกค้า 3 · สถานที่ 7 · รถร่วม 2 · รถ 5 · คนขับ 2 · rate card (ขาย/ซื้อ อนุมัติแล้ว) · ใบสั่งขนส่ง 4 ' +
+      '— ทุกแถวติดธงตัวอย่าง · ไม่ส่ง webhook · ช่วงทดลองใช้ไม่นับรถ active / usage · ออกใบแจ้งหนี้ให้ลูกค้าตัวอย่างไม่ได้ · เฉพาะช่วงทดลองใช้หรือ sandbox (409 `sample_data_not_allowed`) · ' +
       'มีอยู่แล้ว → 409 `sample_data_loaded`',
   })
   @ApiOkResponse({ type: SampleDataStatusDto })

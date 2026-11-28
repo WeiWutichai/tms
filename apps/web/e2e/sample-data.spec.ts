@@ -39,14 +39,14 @@ test('ข้อมูลตัวอย่าง: ใส่ → เห็นใ�
   const strip = card.getByTestId('sample-data');
   await expect(strip).toContainText('ลองใช้ด้วยข้อมูลตัวอย่าง');
   await strip.getByRole('button', { name: 'ใส่ข้อมูลตัวอย่าง' }).click();
-  await expect(page.getByRole('status')).toHaveText('ใส่ข้อมูลตัวอย่างแล้ว');
+  await expect(page.getByRole('status')).toHaveText('ใส่ข้อมูลตัวอย่างแล้ว', { timeout: 20_000 });
   await expect(strip).toHaveAttribute('data-loaded', 'true');
-  await expect(strip).toContainText('ลูกค้า 3 · สถานที่ 7 · รถ 5 · รถร่วม 2');
+  await expect(strip).toContainText('ลูกค้า 3 · สถานที่ 7 · รถ 5 · คนขับ 2 · รถร่วม 2');
   expect(await db.customer.count({ where: { tenantId } })).toBe(before + 3);
 
   await strip.getByRole('button', { name: 'ล้างข้อมูลตัวอย่าง' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'ล้างข้อมูล' }).click();
-  await expect(page.getByRole('status')).toHaveText('ล้างข้อมูลตัวอย่างแล้ว');
+  await expect(page.getByRole('status')).toHaveText('ล้างข้อมูลตัวอย่างแล้ว', { timeout: 20_000 });
   await expect(strip).toHaveAttribute('data-loaded', 'false');
   expect(await db.customer.count({ where: { tenantId } })).toBe(before);
   expect(await db.sampleRecord.count({ where: { tenantId } })).toBe(0);

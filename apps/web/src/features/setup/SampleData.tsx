@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Icon, useEscapeLayer, useModalFocus } from '@tms/ui';
 import { useRef, useState } from 'react';
-import { api, queryClient, unwrap } from '../../api';
+import { ApiError, api, queryClient, unwrap } from '../../api';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { problemText } from '../master/problems';
@@ -9,7 +9,7 @@ import { problemText } from '../master/problems';
 export const SAMPLE_KEY = ['sample-data'] as const;
 
 type Counts = Record<
-  'customer' | 'customer_site' | 'carrier' | 'vehicle' | 'rate_card' | 'sales_order',
+  'customer' | 'customer_site' | 'carrier' | 'vehicle' | 'driver' | 'rate_card' | 'sales_order',
   number
 >;
 export interface SampleStatus {
@@ -55,6 +55,8 @@ export function SampleDataStrip({
   const { t } = useI18n();
   const [confirm, setConfirm] = useState(false);
   const [kept, setKept] = useState<Kept[] | null>(null);
+  /** ล้างแล้วเหลือแต่แถวที่ถูกใช้งานจริง — ไม่ชวนกดล้างซ้ำ */
+  const [onlyInUse, setOnlyInUse] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const load = useMutation({
     mutationFn: () => unwrap(api.POST('/v1/sample-data')),
@@ -64,7 +66,12 @@ export function SampleDataStrip({
       refreshAll();
       onToast(t('sample.loadedToast'));
     },
-    onError: (e) => setErr(problemText(e, t)),
+    onError: (e) => {
+      setErr(problemText(e, t));
+      // มีอยู่แล้ว (แท็บอื่นใส่ไปแล้ว) → โหลดสถานะใหม่
+      if (e instanceof ApiError && e.problem.code === 'sample_data_loaded')
+        void queryClient.invalidateQueries({ queryKey: SAMPLE_KEY });
+    },
   });
   const clear = useMutation({
     mutationFn: () => unwrap(api.POST('/v1/sample-data/clear')),
@@ -74,6 +81,7 @@ export function SampleDataStrip({
       queryClient.setQueryData(SAMPLE_KEY, d);
       refreshAll();
       const k = (d as { kept: Kept[] }).kept;
+      setOnlyInUse(k.length > 0);
       if (k.length) setKept(k);
       else onToast(t('sample.clearedToast'));
     },
@@ -121,14 +129,15 @@ export function SampleDataStrip({
         </span>
         <span style={{ fontSize: 12.5, color: '#59606B' }}>
           {s.loaded
-            ? t('sample.loadedDesc', {
+            ? `${t('sample.loadedDesc', {
                 c: c.customer,
                 s: c.customer_site,
                 v: c.vehicle,
+                d: c.driver,
                 k: c.carrier,
                 r: c.rate_card,
                 o: c.sales_order,
-              })
+              })}${onlyInUse ? ` · ${t('sample.inUseNote')}` : ''}`
             : t('sample.desc')}
         </span>
         {err && (
@@ -137,30 +146,30 @@ export function SampleDataStrip({
           </span>
         )}
       </div>
-      {s.loaded ? (
-        <button
-          type="button"
-          className="tms-btn tms-btn--sm tms-btn--danger"
-          onClick={() => setConfirm(true)}
-          disabled={clear.isPending}
-        >
-          <Icon n="trash-2" s={15} />
-          {t('sample.clear')}
-        </button>
-      ) : (
-        s.allowed && (
-          <button
-            type="button"
-            className="tms-btn tms-btn--sm tms-btn--secondary"
-            onClick={() => load.mutate()}
-            disabled={load.isPending}
-            aria-busy={load.isPending}
-          >
-            <Icon n="database" s={15} />
-            {t('sample.load')}
-          </button>
-        )
-      )}
+      {s.loaded
+        ? !onlyInUse && (
+            <button
+              type="button"
+              className="tms-btn tms-btn--sm tms-btn--danger"
+              onClick={() => setConfirm(true)}
+              disabled={clear.isPending}
+            >
+              <Icon n="trash-2" s={15} />
+              {t('sample.clear')}
+            </button>
+          )
+        : s.allowed && (
+            <button
+              type="button"
+              className="tms-btn tms-btn--sm tms-btn--secondary"
+              onClick={() => load.mutate()}
+              disabled={load.isPending}
+              aria-busy={load.isPending}
+            >
+              <Icon n="database" s={15} />
+              {t('sample.load')}
+            </button>
+          )}
       {confirm && (
         <ClearDialog
           busy={clear.isPending}
@@ -201,8 +210,19 @@ function ClearDialog({
         <div className="tms-dialog__head">
           <div style={{ flex: 1 }}>
             <h2 className="tms-dialog__title">{t('sample.clearTitle')}</h2>
-            <p className="tms-dialog__desc">{t('sample.clearDesc')}</p>
           </div>
+          <button
+            type="button"
+            className="tms-drawer__iconbtn"
+            aria-label={t('drawer.close')}
+            title={t('drawer.close')}
+            onClick={onClose}
+          >
+            <Icon n="x" s={18} />
+          </button>
+        </div>
+        <div className="tms-dialog__body">
+          <p style={{ margin: 0, color: '#3B424C' }}>{t('sample.clearDesc')}</p>
         </div>
         <div className="tms-dialog__foot">
           <button type="button" className="tms-dialog__cancel" onClick={onClose}>

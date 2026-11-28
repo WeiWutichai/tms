@@ -268,6 +268,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'sample.type.customer_site': 'Place',
   'sample.type.carrier': 'Subcontractors',
   'sample.type.vehicle': 'Vehicle',
+  'sample.type.driver': 'Driver',
   'sample.type.sales_order': 'Shipment order',
   'imp.step1': 'Upload file',
   'imp.next': 'Next',
