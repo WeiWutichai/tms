@@ -61,7 +61,7 @@ model Tenant {
   planCode         String        @default("std") @map("plan_code") /// ST1-T18 แพ็กเกจ (FK → plan.code, migration 0017) — ตั้งจาก Platform Console (T24)
   rateLimitProfile String?       @map("rate_limit_profile") @db.VarChar(20) /// ST7-T08 ทับโปรไฟล์ rate limit ของแพ็กเกจ (null = ตามแพ็กเกจ) — standard | high (CHECK)
   /// P1-ST4-T05 (spec/01 PLT-115) ทีม Innovera ปิด Open API ของบริษัทชั่วคราว — ไม่ null = API key / OAuth client ทุกตัว (รวม sandbox)
-  /// ได้ 403 `api_disabled_by_platform` (key ไม่ถูกลบ) · เหตุผลอยู่ใน audit_log ของบริษัท + platform_audit_log
+  /// ได้ 403 `api_disabled_by_platform` (key ไม่ถูกลบ) · เหตุผลอยู่ใน audit_log ของบริษัท (`platform.api_disabled` / `platform.api_enabled`)
   apiDisabledAt    DateTime?     @map("api_disabled_at") @db.Timestamptz(6)
   apiDisabledBy    String?       @map("api_disabled_by") @db.Uuid /// platform_user ที่ปิด
   plan             Plan          @relation(fields: [planCode], references: [code], onUpdate: Cascade, onDelete: Restrict)

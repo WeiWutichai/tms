@@ -117,6 +117,8 @@ describe('Console: การใช้งาน API', () => {
 
   it('ตาราง: คอลัมน์ตาม spec/01 §10.7 ไม่มี AI/MCP · ตัวเลข · ไม่มีในแพ็กเกจ', async () => {
     mount();
+    // ระหว่างโหลด: ยังไม่รู้ยอด → "—" (ไม่ใช่ 0)
+    expect(screen.getByText(/REST — ครั้ง/)).toBeTruthy();
     expect(await screen.findByRole('heading', { name: 'การใช้งาน API' })).toBeTruthy();
     expect(await screen.findByText(/ทุก tenant 30 วันล่าสุด · REST 12,480 ครั้ง/)).toBeTruthy();
     const head = within(screen.getByRole('table')).getAllByRole('row')[0]!;

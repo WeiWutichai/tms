@@ -8,6 +8,7 @@ import {
 } from '../../auth/signing-keys';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
+import { requestContext } from '../../common/request-context';
 import { PrismaService } from '../../db/prisma.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { SandboxService } from '../sandbox/sandbox.service';
@@ -61,6 +62,9 @@ export class ApiKeyAuthService {
     });
     if (!own || (own.mode === 'test') !== (k.mode === 'test'))
       throw new ProblemException('unauthorized'); // key live ในแถว sandbox (หรือกลับกัน) ห้ามใช้
+    // P1-ST4-T05: นับสถิติ Console ตั้งแต่ตรงนี้ (รวมคำขอที่ถูกปฏิเสธด้านล่าง — 403/401 ของ key) · sandbox ไม่นับ
+    const rc = requestContext.get();
+    if (rc && own.mode === 'live') rc.trafficTenantId = k.tenantId;
     const t = await this.db.tenant.findFirst({
       where: {
         id: own.mode === 'test' ? own.liveTenantId! : k.tenantId,

@@ -30,6 +30,12 @@ export interface RequestContext {
    * ST7-T09: tenant ของคำขอนี้เป็น sandbox (`tenant.mode = 'test'`) — key `tk_test_` หรือผู้ใช้ที่สลับโหมด Sandbox
    * (header `X-Tms-Mode: test` บน route ที่ติด @SandboxAware) · `users` = หาผู้ใช้ของบริษัทจริง (ชื่อผู้สร้าง/ผู้ทำรายการ)
    */
+  /**
+   * P1-ST4-T05: บริษัท live ของ API key ที่หาเจอแล้ว (ตั้งโดย ApiKeyAuthService ก่อนตรวจสถานะ/เพิกถอน/IP/แพ็กเกจ)
+   * ใช้นับสถิติ Console (`api_traffic_daily`) ให้รวมคำขอที่ถูกปฏิเสธตอนตรวจ key ด้วย — ไม่ใช่ principal (ห้ามใช้ตัดสินสิทธิ์)
+   * key sandbox ไม่ตั้ง (ไม่นับ)
+   */
+  trafficTenantId?: string;
   sandbox?: {
     liveTenantId: string;
     users: (where: {

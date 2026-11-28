@@ -60,7 +60,7 @@ export function ApiUsagePage() {
           <p>
             {t('con.apiu.sub', {
               d: String(q.data?.days ?? 30),
-              n: num(q.data?.totalRequests ?? 0),
+              n: q.data ? num(q.data.totalRequests) : '—',
             })}
           </p>
         </div>

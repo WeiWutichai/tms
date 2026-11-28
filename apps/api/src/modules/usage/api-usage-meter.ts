@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 import type { PrismaClient } from '@prisma/client';
 import { requestContext } from '../../common/request-context';
-import { apiTrafficMeter, countsAsApiTraffic } from './api-traffic-meter';
+import { apiTrafficMeter, apiTrafficTenant } from './api-traffic-meter';
 import { type ApiSource, bangkokDate, USAGE_METRIC } from './usage-metrics';
 
 /** flush ลง usage_daily ทุก 30 วินาที (main.ts) */
@@ -111,15 +111,21 @@ export function countsAsApiCall(
 export function apiUsageMiddleware(_req: Request, res: Response, next: NextFunction): void {
   const ctx = requestContext.get();
   const t0 = process.hrtime.bigint();
+  let done = false;
+  // P1-ST4-T05 สถิติ Console (ทุกสถานะ + เวลาตอบ) — `finish` = ส่งคำตอบครบ · `close` อย่างเดียว = client ตัดก่อน (timeout)
+  // นับครั้งเดียวต่อคำขอ · ข้อจำกัด: คำขอที่ทำสำเร็จแต่ client ตัดก่อนได้คำตอบ แล้วลองใหม่ = นับ 2 ครั้ง (สถิติ ไม่ใช่เงิน)
+  const traffic = () => {
+    if (done) return;
+    done = true;
+    const tid = apiTrafficTenant(ctx);
+    if (tid)
+      apiTrafficMeter.record(tid, res.statusCode, Number(process.hrtime.bigint() - t0) / 1e6);
+  };
   res.on('finish', () => {
+    // ตัวนับบิล (P1-ST1-T07) นับเฉพาะคำขอที่ส่งคำตอบครบ
     if (countsAsApiCall(ctx, res.statusCode)) apiUsageMeter.record(ctx.tenantId, 'rest');
-    // P1-ST4-T05 สถิติ Console (ทุกสถานะ + เวลาตอบ)
-    if (countsAsApiTraffic(ctx))
-      apiTrafficMeter.record(
-        ctx.tenantId,
-        res.statusCode,
-        Number(process.hrtime.bigint() - t0) / 1e6,
-      );
+    traffic();
   });
+  res.on('close', traffic);
   next();
 }

@@ -10,7 +10,7 @@ import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import {
   ApiTrafficMeter,
   apiTrafficMeter,
-  countsAsApiTraffic,
+  apiTrafficTenant,
   latencySlot,
   LATENCY_BOUNDS_MS,
   p95FromHist,
@@ -47,10 +47,13 @@ describe('สถิติคำขอ (ฟังก์ชันบริสุ�
     expect(p95FromHist(slow)).toEqual({ ms: 10000, over: true });
   });
   it('นับเฉพาะ client ภายนอกที่รู้ tenant · ไม่นับ UI / sandbox', () => {
-    expect(countsAsApiTraffic({ tenantId: 't', principalType: 'client' })).toBe(true);
-    expect(countsAsApiTraffic({ tenantId: 't', principalType: 'user' })).toBe(false);
-    expect(countsAsApiTraffic({ tenantId: 't', principalType: 'client', sandbox: {} })).toBe(false);
-    expect(countsAsApiTraffic({ principalType: 'client' })).toBe(false);
+    expect(apiTrafficTenant({ tenantId: 't', principalType: 'client' })).toBe('t');
+    expect(apiTrafficTenant({ tenantId: 't', principalType: 'user' })).toBeNull();
+    expect(apiTrafficTenant({ tenantId: 't', principalType: 'client', sandbox: {} })).toBeNull();
+    expect(apiTrafficTenant({ principalType: 'client' })).toBeNull();
+    // ถูกปฏิเสธตอนตรวจ key (ยังไม่มี principal) — นับด้วย trafficTenantId
+    expect(apiTrafficTenant({ trafficTenantId: 't' })).toBe('t');
+    expect(apiTrafficTenant(undefined)).toBeNull();
     const m = new ApiTrafficMeter();
     m.record('t', 200, 5);
     m.record('t', 429, 1);
@@ -198,6 +201,21 @@ describe('Console การใช้งาน API + ปิด/เปิด API (
       .expect(404);
     await con('SUPPORT').post(`/v1/platform/tenants/${id}/api/enable`, { reason }).expect(409);
 
+    // JWT ของ client credentials ที่ขอไว้ก่อนปิด
+    const jwt = (
+      await request(srv())
+        .post('/v1/oauth/token')
+        .send({
+          grantType: 'client_credentials',
+          clientId: live.clientId,
+          clientSecret: live.secret,
+        })
+        .expect(200)
+    ).body.accessToken as string;
+    await request(srv()).get('/v1/customers').set(bearer(jwt)).expect(200);
+    await apiTrafficMeter.flush(db);
+    await db.apiTrafficDaily.deleteMany({});
+
     const d = await con('SUPPORT')
       .post(`/v1/platform/tenants/${id}/api/disable`, { reason })
       .expect(200);
@@ -218,6 +236,14 @@ describe('Console การใช้งาน API + ปิด/เปิด API (
     });
     expect(tok.status).toBe(403);
     expect(tok.body.code).toBe('api_disabled_by_platform');
+    // JWT ที่ออกก่อนปิดก็ใช้ไม่ได้ทันที (ตรวจ key กับฐานทุกคำขอ)
+    const viaJwt = await request(srv()).get('/v1/customers').set(bearer(jwt));
+    expect(viaJwt.status).toBe(403);
+    expect(viaJwt.body.code).toBe('api_disabled_by_platform');
+    // คำขอที่ถูกปฏิเสธตอนตรวจ key ถูกนับในสถิติ (key live + /oauth/token + JWT = 3 · sandbox ไม่นับ)
+    await apiTrafficMeter.flush(db);
+    const rej = await db.apiTrafficDaily.findMany({ where: { tenantId } });
+    expect(rej.map((r) => [r.requests, r.errors4xx, r.errors5xx])).toEqual([[3, 3, 0]]);
     // key ยังอยู่ (ไม่ถูกเพิกถอน/ลบ) · ผู้ใช้หน้าเว็บใช้งานได้ตามปกติ
     const keys = await api(app, admin).get('/v1/api-keys').expect(200);
     expect(JSON.stringify(keys.body)).toContain(live.id);
@@ -236,6 +262,7 @@ describe('Console การใช้งาน API + ปิด/เปิด API (
       .expect(200);
     await request(srv()).get('/v1/customers').set(bearer(live.secret)).expect(200);
     await request(srv()).get('/v1/customers').set(bearer(test.secret)).expect(200);
+    await request(srv()).get('/v1/customers').set(bearer(jwt)).expect(200);
     const t = await db.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     expect([t.apiDisabledAt, t.apiDisabledBy]).toEqual([null, null]);
 

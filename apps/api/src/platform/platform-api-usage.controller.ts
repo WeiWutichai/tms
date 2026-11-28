@@ -146,6 +146,14 @@ export class PlatformApiUsageController {
       a.th += d.throttled;
       a.h.push(d.latencyHist);
     }
+    // ฟีเจอร์ `api` ต่อบริษัท: ใช้ EntitlementService (cache 60 วิ — ตรรกะเดียวกับที่บังคับใช้จริง ไม่เขียนซ้ำแบบ batch)
+    // อ่านพร้อมกันทีละ 20 บริษัท แทนทีละตัว (review P1-ST4-T05)
+    const inPlan = new Map<string, boolean>();
+    for (let i = 0; i < tenants.length; i += 20) {
+      const part = tenants.slice(i, i + 20);
+      const r = await Promise.all(part.map((t) => this.entitlements.enabled(t.id, 'api')));
+      part.forEach((t, j) => inPlan.set(t.id, r[j]!));
+    }
     const rows: ApiUsageRowDto[] = [];
     for (const t of tenants) {
       const x = byT.get(t.id);
@@ -159,7 +167,7 @@ export class PlatformApiUsageController {
         planCode: t.planCode,
         planName: t.plan.nameTh,
         status: tenantStatusOut(t.status),
-        apiInPlan: await this.entitlements.enabled(t.id, 'api'),
+        apiInPlan: inPlan.get(t.id) ?? false,
         apiDisabled: !!t.apiDisabledAt,
         apiDisabledAt: t.apiDisabledAt?.toISOString() ?? null,
         requests: x?.r ?? 0,

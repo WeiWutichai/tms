@@ -143,9 +143,16 @@ export class ApiTrafficMeter {
 /** instance เดียวต่อ process */
 export const apiTrafficMeter = new ApiTrafficMeter();
 
-/** นับเข้าสถิติไหม: client ภายนอกที่ยืนยันตัวตนแล้ว (รู้ tenant) และไม่ใช่ sandbox — ทุกสถานะ */
-export function countsAsApiTraffic(
-  ctx: { tenantId?: string; principalType?: string; sandbox?: unknown } | undefined,
-): ctx is { tenantId: string } {
-  return !!ctx?.tenantId && ctx.principalType === 'client' && !ctx.sandbox;
+/**
+ * บริษัทที่จะนับคำขอนี้เข้าสถิติ (null = ไม่นับ): API key / OAuth client ของบริษัท live ทุกสถานะ —
+ * รวมคำขอที่ถูกปฏิเสธตอนตรวจ key (`trafficTenantId` — ปิด API, เพิกถอน, หมดอายุ, IP, แพ็กเกจ) และ `POST /oauth/token` · UI / sandbox ไม่นับ
+ */
+export function apiTrafficTenant(
+  ctx:
+    | { tenantId?: string; principalType?: string; sandbox?: unknown; trafficTenantId?: string }
+    | undefined,
+): string | null {
+  if (!ctx || ctx.sandbox) return null;
+  if (ctx.trafficTenantId) return ctx.trafficTenantId;
+  return ctx.tenantId && ctx.principalType === 'client' ? ctx.tenantId : null;
 }

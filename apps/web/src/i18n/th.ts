@@ -1508,6 +1508,7 @@ export const th = {
     'ล้างแอปยืนยันตัวตนและรหัสสำรองทั้งหมดของผู้ใช้นี้ ผู้ใช้ออกจากระบบทุกเครื่อง และต้องตั้ง 2FA ใหม่ตอนเข้าสู่ระบบครั้งถัดไป (ถ้าบทบาทบังคับ)',
   'con.dlg.reset2faW': 'ระบบส่งอีเมลแจ้งเจ้าของบัญชี และบันทึกเหตุผลใน audit ของบริษัทนี้',
   // P1-ST4-T06 ทีมงาน (`team`) + Audit log (`aud`) ตามต้นแบบ Platform Console
+  // P1-ST4-T05 Console "การใช้งาน API" (`ApiUsage.tsx`, ต้นแบบ Platform Console `use` — ไม่มี AI/MCP ตาม D-48)
   'con.apiu.title': 'การใช้งาน API',
   'con.apiu.sub': 'ทุก tenant {d} วันล่าสุด · REST {n} ครั้ง · ปิด API ต้องระบุเหตุผล',
   'con.apiu.col.co': 'บริษัท',
