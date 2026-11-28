@@ -31,21 +31,37 @@
    (ทดสอบกับ sandbox เป็นขั้นตอน go-live แยก — ตัวขวาง X-02 / X-03 ใน plan/13 §4.2)
 4. ลงทะเบียน 1 บรรทัดใน `ERP_ADAPTER_FACTORIES` (`src/erp-adapters/index.ts`)
 5. เพิ่มชุดใน `test/connector-conformance.test.ts` (`describeConnectorConformance`) และ
-   `test/connector-conformance-pipeline.test.ts` (`runPipelineConformance`) — test "ทะเบียน adapter" ล้มถ้าลืม
+   `test/connector-conformance-pipeline.test.ts` (`runPipelineConformance` + `runReadbackConformance`) — test "ทะเบียน adapter" ล้มถ้าลืม
 6. `pnpm --filter @tms/api openapi:export` (catalog ของ adapter อยู่ใน `GET /v1/connectors/adapters`) + i18n ป้ายช่องตั้งค่า
+
+### 2.1 ประกาศใน catalog ก่อนมี adapter (`ConnectorDefinition` — P1-ST5-T01b)
+
+ระบบที่ยังทำ adapter ไม่ได้ (รอ sandbox / คำตอบนักบัญชี) แต่ต้องการให้การ์ดขึ้นในหน้าตั้งค่าการเชื่อมต่อ (ต้นแบบ `this.CONN`) →
+ประกาศ `ConnectorDefinition` (`src/modules/erp/connector-definition.ts`) ในโฟลเดอร์ของระบบ (เช่น `flowaccount/flowaccount.definition.ts`)
+แล้วเพิ่มใน `CONNECTOR_DEFINITIONS` (`src/erp-adapters/index.ts`):
+
+- มีแค่ข้อมูล: credential schema (`configFields` — ช่องยืนยันตัวตน `secret: true`; `definitionProblems` ตรวจชื่อช่องที่ดูเป็น credential),
+  capability ที่วางแผน, `fixedSystemOfRecord` (R-01: `taxDocumentOwner = 'ERP'`), `entitlement` (`conn` + `minTier`), `blockedBy`
+- catalog ตอบ `availability: COMING_SOON` (capability ทั้งหมดอยู่ใน `capabilitiesPending`) · หน้าจอปิดปุ่มเชื่อมต่อ ·
+  `POST /v1/connectors` = 422 `adapter_coming_soon` · tenant sandbox ไม่เห็น · **ไม่มี payload builder / mapping / กฎ VAT** ใน definition
+- adapter ตัวจริงเสร็จ = ลบออกจาก `CONNECTOR_DEFINITIONS` แล้วลงทะเบียนใน `ERP_ADAPTER_FACTORIES` ด้วย key เดิม (registry ไม่ยอมให้มีทั้งสองแบบ)
+  · ถ้าจะเปลี่ยน credential schema หลังมีแถว connector แล้ว = ต้องมี migration
+- `minTier: growth` (docs/02 §3.1) **ยังไม่บังคับ** — แพ็กเกจบน main ยังไม่มี tier Growth; ชี้ประตูใหม่เมื่อ P1-ST1-T01 (PlanVersion) merge
+
+ปัจจุบัน: `flowaccount` (รอ X-02, X-07) · `peak` (รอ X-03, X-07)
 
 ## 3. ErrorClass ที่ชุด conformance ฉีดและคาดหวัง (docs/01 §6.3)
 
-| fault ที่ฉีด | คาด | core ทำอะไร |
-| --- | --- | --- |
-| 401 / 403 (ทุกคำขอ) | `AUTH` (`retryable: false`) · อ่านกลับ = throw `ErpAdapterError('AUTH')` | คำสั่งคง PENDING ไม่นับครั้ง · connector `ERROR` + แจ้ง admin ทันที (D68-47) |
-| 429 / 503 / connection refused (ทุกคำขอ) · 500 (คำขอเขียน) | `TRANSIENT` (`retryable: true`) — throw Error ธรรมดาก็ได้ | ลองใหม่ 1, 2, 5, 15, 30, 60 นาที · healthCheck ล้ม ≥ 30 นาที = หยุดคิว |
-| 400 / 422 (คำขอเขียน) | `VALIDATION` (`retryable: false`) | FAILED_FINAL + แท็บ "ล้มเหลว" ของคิว |
-| สายหลุดหลังส่ง body (`resetAfterSend`) / ERP บันทึกแล้วแต่สายหลุดก่อนได้คำตอบ (`resetAfterForward`) | `AMBIGUOUS` (`retryable: true`) | ไม่ส่งซ้ำทันที — ค้นก่อน (fetch/list) |
-| fixture "เลขอ้างอิงซ้ำ" ของ ERP | `DUPLICATE` หรือ ok ที่ `applied !== true` | ตามหาเอกสารเดิม → SYNCED / MISMATCH / ให้คนกรอกเลข |
-| fixture "งวดบัญชีปิด" ของ ERP | `PERIOD_CLOSED` | FAILED_FINAL ไม่ลองใหม่ |
-| 404 ตอน `fetchDocument` / `replaceDocument` | fetch: `null` หรือ `ErpAdapterError('NOT_FOUND')` · replace: `NOT_FOUND` | REMOTE_MISSING ให้คนตัดสิน |
-| capability ใน `pendingCapabilities` | `CAPABILITY` + `not_implemented` | พักคำสั่ง (PENDING) |
+| fault ที่ฉีด                                                                                        | คาด                                                                      | core ทำอะไร                                                                  |
+| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| 401 / 403 (ทุกคำขอ)                                                                                 | `AUTH` (`retryable: false`) · อ่านกลับ = throw `ErpAdapterError('AUTH')` | คำสั่งคง PENDING ไม่นับครั้ง · connector `ERROR` + แจ้ง admin ทันที (D68-47) |
+| 429 / 503 / connection refused (ทุกคำขอ) · 500 (คำขอเขียน)                                          | `TRANSIENT` (`retryable: true`) — throw Error ธรรมดาก็ได้                | ลองใหม่ 1, 2, 5, 15, 30, 60 นาที · healthCheck ล้ม ≥ 30 นาที = หยุดคิว       |
+| 400 / 422 (คำขอเขียน)                                                                               | `VALIDATION` (`retryable: false`)                                        | FAILED_FINAL + แท็บ "ล้มเหลว" ของคิว                                         |
+| สายหลุดหลังส่ง body (`resetAfterSend`) / ERP บันทึกแล้วแต่สายหลุดก่อนได้คำตอบ (`resetAfterForward`) | `AMBIGUOUS` (`retryable: true`)                                          | ไม่ส่งซ้ำทันที — ค้นก่อน (fetch/list)                                        |
+| fixture "เลขอ้างอิงซ้ำ" ของ ERP                                                                     | `DUPLICATE` หรือ ok ที่ `applied !== true`                               | ตามหาเอกสารเดิม → SYNCED / MISMATCH / ให้คนกรอกเลข                           |
+| fixture "งวดบัญชีปิด" ของ ERP                                                                       | `PERIOD_CLOSED`                                                          | FAILED_FINAL ไม่ลองใหม่                                                      |
+| 404 ตอน `fetchDocument` / `replaceDocument`                                                         | fetch: `null` หรือ `ErpAdapterError('NOT_FOUND')` · replace: `NOT_FOUND` | REMOTE_MISSING ให้คนตัดสิน                                                   |
+| capability ใน `pendingCapabilities`                                                                 | `CAPABILITY` + `not_implemented`                                         | พักคำสั่ง (PENDING)                                                          |
 
 อื่น ๆ ที่ชุดตรวจ: ปลายทางล่มระหว่างอ่านกลับต้อง throw (ห้ามคืน `null` — core จะถือว่า "ไม่พบเอกสาร" → REMOTE_MISSING) ·
 externalId / เลขเอกสารไม่ว่างและ ≤ 100 ตัว (CHECK ของ `external_mapping`) · ค่าส่วนบุคคลที่ประกาศไม่ถูกสะท้อนในผล/ข้อความ error ·
@@ -55,22 +71,25 @@ adapter ตัวเดียวใช้ร่วมทุก tenant — ห้
 พร้อมเหตุผล — ไม่มี = test "ทุกข้อมีข้อยกเว้น" ล้ม · ข้อที่มีเหตุผลแสดงเป็น test ที่ **ข้าม (skip) พร้อมเหตุผลในชื่อ** · push ที่ประกาศต้องมี `samples`
 · ตัวตรวจมี self-test กับ adapter ที่ตั้งใจทำผิด (`test/connector-kit-selftest.test.ts`) · ข้อยกเว้นปัจจุบัน:
 
-| adapter | ข้อ | ผล | เหตุผล |
-| --- | --- | --- | --- |
-| accountsystem | `resetAfterSend`, `resetAfterForward` | `TRANSIENT` แทน `AMBIGUOUS` | กันซ้ำด้วย `external_ref` (เลข TMS) — ชุดส่งซ้ำจริงแล้วได้ `created=false` และ mock มีเอกสารใบเดียว · [DECISION — lead 27 พ.ย. 2569, ย้อนได้] ใน spec/12 §3 รอ PO ทบทวน |
-| accountsystem | `duplicate` | ข้าม | ไม่ตอบ "เลขซ้ำ" — POST ซ้ำด้วย `external_ref` เดิมคืนร่างเดิม (`applied` false) |
-| accountsystem | `periodClosed` | ข้าม | สัญญา ext/v1 ไม่มีคำตอบงวดปิด (สร้างเฉพาะร่าง) |
-| krs | `periodClosed` | ข้าม | ตาราง error ของ KRS (docs/01 A.1/A.5) ไม่มีกรณีงวดปิด — ไม่มีรูปคำตอบให้ทำ fixture |
-| krs | ชุด pipeline | ไม่อยู่ในชุด | ส่งใบเข้า KRS ต้องมีผังรหัส + รหัสลูกค้า PP ก่อน (ST8-T06) — ทดสอบทางเดียวกันใน `krs-push-invoice.test.ts` / `krs-a5-errors.test.ts` |
-| demo | `refused` | ข้าม | ERP จำลองในโปรเซส ไม่มีปลายทางเครือข่าย (TRANSIENT ตรวจผ่าน `failMode` แล้ว) |
-| demo | healthCheck ภายใต้ fault ที่ไม่ใช่ AUTH | ไม่ตรวจ | `failMode` จำลองความล้มเฉพาะคำสั่ง (สาธิต retry โดย connector ยัง ACTIVE) — healthCheck ล้มเฉพาะ key ผิด |
-| standalone | ทุกข้อ | ข้าม | ไม่มี capability และไม่ติดต่อภายนอก |
+| adapter       | ข้อ                                     | ผล                          | เหตุผล                                                                                                                                                                  |
+| ------------- | --------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| accountsystem | `resetAfterSend`, `resetAfterForward`   | `TRANSIENT` แทน `AMBIGUOUS` | กันซ้ำด้วย `external_ref` (เลข TMS) — ชุดส่งซ้ำจริงแล้วได้ `created=false` และ mock มีเอกสารใบเดียว · [DECISION — lead 27 พ.ย. 2569, ย้อนได้] ใน spec/12 §3 รอ PO ทบทวน |
+| accountsystem | `duplicate`                             | ข้าม                        | ไม่ตอบ "เลขซ้ำ" — POST ซ้ำด้วย `external_ref` เดิมคืนร่างเดิม (`applied` false)                                                                                         |
+| accountsystem | `periodClosed`                          | ข้าม                        | สัญญา ext/v1 ไม่มีคำตอบงวดปิด (สร้างเฉพาะร่าง)                                                                                                                          |
+| krs           | `periodClosed`                          | ข้าม                        | ตาราง error ของ KRS (docs/01 A.1/A.5) ไม่มีกรณีงวดปิด — ไม่มีรูปคำตอบให้ทำ fixture                                                                                      |
+| krs           | ชุด pipeline                            | ไม่อยู่ในชุด                | ส่งใบเข้า KRS ต้องมีผังรหัส + รหัสลูกค้า PP ก่อน (ST8-T06) — ทดสอบทางเดียวกันใน `krs-push-invoice.test.ts` / `krs-a5-errors.test.ts`                                    |
+| demo          | `refused`                               | ข้าม                        | ERP จำลองในโปรเซส ไม่มีปลายทางเครือข่าย (TRANSIENT ตรวจผ่าน `failMode` แล้ว)                                                                                            |
+| demo          | healthCheck ภายใต้ fault ที่ไม่ใช่ AUTH | ไม่ตรวจ                     | `failMode` จำลองความล้มเฉพาะคำสั่ง (สาธิต retry โดย connector ยัง ACTIVE) — healthCheck ล้มเฉพาะ key ผิด                                                                |
+| standalone    | ทุกข้อ                                  | ข้าม                        | ไม่มี capability และไม่ติดต่อภายนอก                                                                                                                                     |
 
 ## 4. ไฟล์ของชุดแม่แบบ
 
 - `test/connector-kit/conformance.ts` — `describeConnectorConformance()` (รวม contract เดิม `test/erp-adapter-contract.ts`)
 - `test/connector-kit/fault-proxy.ts` — reverse proxy ฉีด fault HTTP หน้า mock ใดก็ได้ (status / ตัดสายก่อนส่งต่อ / ส่งต่อแล้วตัดสาย) + เก็บคำขอ
-- `test/connector-kit/pipeline.ts` — `runPipelineConformance()` ผ่าน API + outbox + sink + ฐานข้อมูล
+- `test/connector-kit/pipeline.ts` — `runPipelineConformance()` ผ่าน API + outbox + sink + ฐานข้อมูล ·
+  `runReadbackConformance()` (P1-ST5-T01b) ขาอ่านกลับกับใบแจ้งหนี้จริง: **fetch → reconcile → payment pull** ทางช่อง `pull`
+  (`fetchDocument`/`fetchPaymentStatus` ผ่าน `POST /v1/reconcile-runs`) หรือ `inbound` (webhook ขาเข้า) — ผลในมุมผู้ใช้ต้องเท่ากัน:
+  เลข/สถานะฝั่งบัญชีเข้า `sync` ของใบ · ยอดไม่ตรง = MISMATCH / คิวตรวจ (ไม่เงียบ) · รับชำระ → payment `CONNECTOR` 1 รายการ ใบ PAID ไม่ซ้ำ · แยก tenant
 - `test/connector-kit/samples.ts` — canonical ตัวอย่าง (ข้อมูลสมมติ)
 
 ## 5. จับคู่ลูกค้า (D68-29 — P1-ST5-T12)

@@ -116,6 +116,58 @@ describe('ตั้งค่า → การเชื่อมต่อ (ST7-T2
     expect(screen.queryByTestId('connector-detail')).toBeNull();
   });
 
+  it('P1-ST5-T01b FlowAccount / PEAK จาก catalog (COMING_SOON): การ์ดตามต้นแบบ (ไอคอน/คำอธิบาย/ยังไม่เชื่อม) · ปุ่มเชื่อมต่อปิดพร้อมเหตุผล · ไม่เปิดฟอร์ม', async () => {
+    const soon = (key: string, displayName: string) => ({
+      key,
+      displayName,
+      demo: false,
+      availability: 'COMING_SOON',
+      capabilities: ['pushInvoice', 'pushSettlement', 'fetchDocument', 'fetchPaymentStatus'],
+      capabilitiesPending: ['pushInvoice', 'pushSettlement', 'fetchDocument', 'fetchPaymentStatus'],
+      fixedTaxDocumentOwner: 'ERP',
+      requiredFeature: 'conn',
+      minTier: 'growth',
+      configFields: [],
+    });
+    GET.mockImplementation(async (path: string) => {
+      if (path === '/v1/connectors') return { data: { data: [] } };
+      if (path === '/v1/connectors/adapters')
+        return {
+          data: {
+            data: [
+              { ...ADAPTER, availability: 'AVAILABLE' },
+              soon('flowaccount', 'FlowAccount'),
+              soon('peak', 'PEAK'),
+            ],
+          },
+        };
+      return { data: { data: [] } };
+    });
+    wrap();
+    const fa = await screen.findByRole('group', { name: 'FlowAccount' });
+    const pk = screen.getByRole('group', { name: 'PEAK' });
+    // ต้นแบบ: การ์ดเรียงตามตัวอักษร (localeCompare)
+    expect(
+      screen.getAllByTestId('connector-card').map((c) => c.getAttribute('aria-label')),
+    ).toEqual(['ไม่เชื่อม', 'API ทั่วไป', 'ERP จำลอง (Demo)', 'FlowAccount', 'PEAK']);
+    expect(fa.textContent).toContain('บัญชีออนไลน์ FlowAccount · API');
+    expect(pk.textContent).toContain('บัญชีออนไลน์ PEAK · API');
+    expect(fa.textContent).toContain('ยังไม่เชื่อม');
+    expect(fa.textContent).toContain('ยังไม่เปิดให้เชื่อมต่อ · เร็ว ๆ นี้');
+    expect(fa.querySelector('[data-lucide], svg')).not.toBeNull();
+    for (const card of [fa, pk]) {
+      const b = within(card).getByRole('button', { name: 'เชื่อมต่อ' });
+      expect(b).toBeDisabled();
+      expect(b).toHaveAttribute('title', 'ระบบนี้ยังไม่เปิดให้เชื่อมต่อ — อยู่ระหว่างพัฒนา');
+      fireEvent.click(b);
+    }
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(POST).not.toHaveBeenCalled();
+    // ระบบที่เปิดให้เชื่อมได้ยังกดได้ตามเดิม
+    const demo = screen.getByRole('group', { name: 'ERP จำลอง (Demo)' });
+    expect(within(demo).getByRole('button', { name: 'เชื่อมต่อ' })).toBeEnabled();
+  });
+
   it('เชื่อมต่อ: กรอก apiKey (ช่องรหัสผ่าน) → สร้างแล้วเปิดใช้', async () => {
     wrap();
     const card = await screen.findByRole('group', { name: 'ERP จำลอง (Demo)' });

@@ -60,6 +60,11 @@ import { PlatformSettingsService } from './platform/platform-settings.service';
 import { TenantLifecycleService } from './modules/tenants/tenant-lifecycle.service';
 import { ReadOnlyTripGate } from './modules/tenants/read-only-gate';
 import { PlatformTenantsController } from './platform/platform-tenants.controller';
+import { PlatformAuditController } from './platform/platform-audit.controller';
+import {
+  PlatformInvitationController,
+  PlatformTeamController,
+} from './platform/platform-team.controller';
 import { PlatformUsageController } from './platform/platform-usage.controller';
 import { UsageController } from './modules/usage/usage.controller';
 import { UsageFinalizeService } from './modules/usage/usage-finalize.service';
@@ -335,6 +340,9 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     PublicPlansController,
     PlatformSettingsController,
     PlatformConnectorsController,
+    PlatformTeamController,
+    PlatformInvitationController,
+    PlatformAuditController,
     ImpersonationController,
     HealthController,
     MonitoringController,

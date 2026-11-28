@@ -78,6 +78,11 @@ export interface FinanceDocument {
    * · `stacked` (ใบสำคัญจ่าย TMS Print #pv: เส้นรวม 320 px ชิดขวาใต้ตาราง → กล่องจำนวนเงินตัวอักษรเต็มแถว, ลายเซ็นห่าง 24 px)
    */
   layout?: 'side' | 'stacked';
+  /**
+   * P1-ST6-T04 โลโก้องค์กร (`data:` URI ของ PNG/SVG ที่ล้างแล้ว) — แทนกล่องตัวย่อชื่อ 44 px ที่หัวเอกสาร (ขนาด/ตำแหน่งเดิม)
+   * · ไม่ส่ง/null = กล่องตัวย่อตามต้นแบบ (HTML เดิมทุกไบต์ — PDF ที่ออกก่อนมีโลโก้ render ได้ผลเดิม)
+   */
+  logo?: string | null;
 }
 
 const e = escapeHtml;
@@ -133,6 +138,13 @@ const SUB = 'font-weight:400;font-size:13px;color:#3B424C';
 const TD = 'padding:9px 10px;border-bottom:1px solid #E4E6E0;vertical-align:top';
 const NUM = 'font-variant-numeric:tabular-nums;font-size:15px';
 
+/** โลโก้ (ถ้ามี) หรือกล่องตัวย่อชื่อผู้ออก 44×44 ตามต้นแบบ */
+function logoBox(logo: string | null | undefined, name: string): string {
+  if (logo && /^data:image\/(png|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(logo))
+    return `<div class="logo" style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0"><img src="${logo}" alt="" style="max-width:44px;max-height:44px;object-fit:contain"></div>`;
+  return `<div style="width:44px;height:44px;border-radius:10px;background:#13213F;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0">${e(companyInitials(name))}</div>`;
+}
+
 function headBlock(d: FinanceDocument): string {
   const i = d.issuer;
   const right = [
@@ -154,7 +166,7 @@ function headBlock(d: FinanceDocument): string {
     .join('');
   return `<div class="head" style="display:flex;flex-direction:column;gap:20px">
 <div style="display:flex;justify-content:space-between;gap:24px;align-items:flex-start;padding-bottom:16px;border-bottom:2px solid #13213F">
-<div style="display:flex;gap:12px"><div style="width:44px;height:44px;border-radius:10px;background:#13213F;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0">${e(companyInitials(i.name))}</div><div style="display:flex;flex-direction:column"><span style="font-weight:600;font-size:17px">${partyName(i)}</span>${
+<div style="display:flex;gap:12px">${logoBox(d.logo, i.name)}<div style="display:flex;flex-direction:column"><span style="font-weight:600;font-size:17px">${partyName(i)}</span>${
     i.address ? `<span style="font-size:14px;color:#3B424C">${e(i.address)}</span>` : ''
   }${i.taxId ? `<span style="font-size:14px;color:#3B424C">เลขประจำตัวผู้เสียภาษี ${e(i.taxId)}</span>` : ''}</div></div>
 <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0;text-align:right">${right}</div>

@@ -40,6 +40,10 @@ const PUBLIC_ROUTES: Record<string, string> = {
   'POST /v1/auth/invitations/accept': 'token คำเชิญ + ล็อกตามรหัสผ่านผิด (invitations.test.ts)',
   'POST /v1/platform/auth/login': 'login ทีม Innovera แยก + rate limit ต่อ IP (platform.test.ts)',
   'POST /v1/platform/auth/mfa': 'TOTP บังคับของทีม Innovera (platform.test.ts)',
+  'POST /v1/platform/auth/invitations/inspect':
+    'token คำเชิญทีมงานสุ่ม 256 bit อายุ 7 วัน ใช้ครั้งเดียว + rate limit ต่อ IP (platform-team-audit.test.ts)',
+  'POST /v1/platform/auth/invitations/accept':
+    'token คำเชิญทีมงาน + รหัส TOTP จาก secret ของคำเชิญ (platform-team-audit.test.ts)',
   'GET /v1/health': 'สถานะ process — ไม่มีข้อมูล tenant',
   'GET /v1/healthz': 'liveness — ไม่มีข้อมูล tenant (monitoring.test.ts)',
   'GET /v1/readyz': 'readiness — ไม่มีข้อมูล tenant (monitoring.test.ts)',
@@ -72,6 +76,8 @@ const PUBLIC_ROUTES: Record<string, string> = {
     'ราคาแพ็กเกจของแพลตฟอร์มเอง (ไม่มีข้อมูล tenant) · ปิดด้วย pricing.publicVisible → 404 · rate limit ต่อ IP (public-plans.test.ts)',
   'GET /v1/public/tracking/pod-image/:doc':
     'URL ลายเซ็น preview อายุ 15 นาที · เฉพาะรูป POD · ตัด EXIF (tracking-link.test.ts)',
+  'GET /v1/public/tracking/logo/:doc':
+    'P1-ST6-T04 URL ลายเซ็น preview อายุ 15 นาที · เฉพาะไฟล์ kind LOGO (PNG/SVG ที่ล้างแล้ว) + CSP sandbox (org-logo.test.ts)',
 };
 
 /**

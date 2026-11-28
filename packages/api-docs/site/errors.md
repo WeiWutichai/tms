@@ -110,6 +110,7 @@
 | [`signup_incomplete`](#signup_incomplete) | 409 | การสมัครยังไม่เสร็จ ทำต่อจากขั้นที่ค้างไว้ |
 | [`sor_locked`](#sor_locked) | 409 | เปลี่ยนเจ้าของเอกสารไม่ได้ เพราะมีเอกสารส่งหรือรอส่งเข้าระบบบัญชีแล้ว — ยกเลิกการเชื่อมแล้วตั้งใหม่ |
 | [`source_change_not_pending`](#source_change_not_pending) | 409 | การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่ |
+| [`staff_deactivate_not_allowed`](#staff_deactivate_not_allowed) | 409 | ปิดบัญชีตัวเองหรือผู้ดูแลสูงสุดคนสุดท้ายไม่ได้ |
 | [`stop_already_closed`](#stop_already_closed) | 409 | จุดนี้ถูกปิดแล้ว — ส่ง POD ของ DO นี้ได้ |
 | [`stop_event_already_resolved`](#stop_event_already_resolved) | 409 | เหตุการณ์นี้ถูกตัดสินไปแล้ว |
 | [`stop_event_duplicate`](#stop_event_duplicate) | 409 | clientEventId นี้ถูกใช้กับ event อื่นแล้ว |
@@ -793,6 +794,12 @@ HTTP `409` · เปลี่ยนเจ้าของเอกสารไม
 HTTP `409` · การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่
 
 พบใน: [`POST /v1/orders/{id}/source-changes/{changeId}/accept`](ref-orders.md#post-orders-id-source-changes-changeId-accept), [`POST /v1/orders/{id}/source-changes/{changeId}/reject`](ref-orders.md#post-orders-id-source-changes-changeId-reject)
+
+## staff_deactivate_not_allowed {#staff_deactivate_not_allowed}
+
+HTTP `409` · ปิดบัญชีตัวเองหรือผู้ดูแลสูงสุดคนสุดท้ายไม่ได้
+
+อาจตอบได้จากหลาย endpoint
 
 ## stop_already_closed {#stop_already_closed}
 

@@ -5645,6 +5645,546 @@
         ]
       }
     },
+    "/v1/platform/team": {
+      "get": {
+        "operationId": "PlatformTeam_list",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlatformStaffDto"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/team/invitations": {
+      "post": {
+        "operationId": "PlatformTeam_invite",
+        "parameters": [
+          {
+            "name": "X-Step-Up",
+            "in": "header",
+            "description": "stepUpToken จาก POST /v1/platform/auth/step-up",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteStaffDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformStaffDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/platform/team/invitations",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ],
+        "x-step-up": {
+          "mode": "platform"
+        }
+      }
+    },
+    "/v1/platform/team/{id}/deactivate": {
+      "post": {
+        "operationId": "PlatformTeam_deactivate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Step-Up",
+            "in": "header",
+            "description": "stepUpToken จาก POST /v1/platform/auth/step-up",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeactivateStaffDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformStaffDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "step_up_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/step_up_required",
+                      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+                      "status": 403,
+                      "code": "step_up_required",
+                      "instance": "/v1/platform/team/3f2a…/deactivate",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ],
+        "x-step-up": {
+          "mode": "platform"
+        }
+      }
+    },
+    "/v1/platform/auth/invitations/inspect": {
+      "post": {
+        "operationId": "PlatformInvitation_inspect",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffInviteTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffInvitationInfoDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "400": {
+            "description": "invitation_invalid — ไม่มี/หมดอายุ/ใช้แล้ว/ปิดแล้ว"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/auth/invitations/accept": {
+      "post": {
+        "operationId": "PlatformInvitation_accept",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptStaffInvitationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "เป็นทีมงานแล้ว — เข้าสู่ระบบ Console ด้วยอีเมลนี้",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "400": {
+            "description": "invitation_invalid"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/audit-logs": {
+      "get": {
+        "operationId": "PlatformAudit_list",
+        "parameters": [
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "description": "ตั้งแต่วันที่ (เวลาไทย)",
+            "schema": {
+              "example": "2026-11-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "description": "ถึงวันที่ (รวมวันนั้น — เวลาไทย)",
+            "schema": {
+              "example": "2026-11-30",
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะลูกค้ารายนี้",
+            "schema": {
+              "example": "ten_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "staffId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะทีมงานคนนี้ (ผู้ทำ หรือผู้เข้าใช้งานแทน)",
+            "schema": {
+              "example": "stf_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "required": false,
+            "in": "query",
+            "description": "รหัสการกระทำ — ขึ้นต้นด้วยค่านี้ (เช่น `impersonation.` / `platform.staff_`)",
+            "schema": {
+              "example": "impersonation.",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformAuditPageDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/audit-logs/export": {
+      "get": {
+        "operationId": "PlatformAudit_export",
+        "parameters": [
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "description": "ตั้งแต่วันที่ (เวลาไทย)",
+            "schema": {
+              "example": "2026-11-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "description": "ถึงวันที่ (รวมวันนั้น — เวลาไทย)",
+            "schema": {
+              "example": "2026-11-30",
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะลูกค้ารายนี้",
+            "schema": {
+              "example": "ten_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "staffId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะทีมงานคนนี้ (ผู้ทำ หรือผู้เข้าใช้งานแทน)",
+            "schema": {
+              "example": "stf_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "required": false,
+            "in": "query",
+            "description": "รหัสการกระทำ — ขึ้นต้นด้วยค่านี้ (เช่น `impersonation.` / `platform.staff_`)",
+            "schema": {
+              "example": "impersonation.",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ไฟล์ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว ใหม่ก่อน)",
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
     "/v1/me/impersonation/end": {
       "post": {
         "operationId": "Impersonation_end",
@@ -9253,7 +9793,7 @@
             }
           },
           "422": {
-            "description": "ไฟล์ว่าง / ใหญ่กว่าที่จองไว้ / เนื้อไฟล์ไม่ตรงชนิดที่ประกาศ",
+            "description": "ไฟล์ว่าง / ใหญ่กว่าที่จองไว้ / เนื้อไฟล์ไม่ตรงชนิดที่ประกาศ · `svg_unsafe` = SVG ของโลโก้ล้างไม่ได้ (ไม่ใช่ SVG)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -65022,6 +65562,63 @@
         ]
       }
     },
+    "/v1/public/tracking/logo/{doc}": {
+      "get": {
+        "operationId": "TrackingPublic_logo",
+        "parameters": [
+          {
+            "name": "doc",
+            "required": true,
+            "in": "path",
+            "description": "id ไฟล์โลโก้ (doc_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "description": "token ของลิงก์ติดตาม (ml1.…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "รูป (image/png | image/svg+xml)",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "404": {
+            "description": "ลายเซ็นผิด/หมดอายุ/ไม่ใช่โลโก้"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "summary": "P1-ST6-T04 (D68-93) โลโก้บริษัทบนหน้าติดตาม — URL มีลายเซ็นอายุ 15 นาที (จาก company.logoUrl) · แสดงในหน้า (inline) · SVG ล้างแล้วและส่งพร้อม CSP sandbox",
+        "tags": [
+          "public"
+        ]
+      }
+    },
     "/v1/public/tracking/pod-image/{doc}": {
       "get": {
         "operationId": "TrackingPublic_podImage",
@@ -79469,6 +80066,27 @@
             "items": {
               "$ref": "#/components/schemas/ConnectorConfigFieldDto"
             }
+          },
+          "availability": {
+            "type": "string",
+            "enum": [
+              "AVAILABLE",
+              "COMING_SOON"
+            ],
+            "description": "P1-ST5-T01b `AVAILABLE` = เชื่อมต่อได้ · `COMING_SOON` = ประกาศใน catalog (ConnectorDefinition) แต่ยังไม่มี adapter — หน้าจอแสดงการ์ดแต่ปิดปุ่มเชื่อมต่อ · `POST /connectors` ด้วย key นี้ → 422 `adapter_coming_soon` · `capabilities` = ที่วางแผนไว้ (อยู่ใน `capabilitiesPending` ทั้งหมด)"
+          },
+          "requiredFeature": {
+            "type": "string",
+            "example": "conn",
+            "description": "feature ของแพ็กเกจที่ต้องเปิดจึงใช้ connector นี้ได้ (`conn` = การเชื่อมต่อระบบบัญชี)"
+          },
+          "minTier": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "growth"
+            ],
+            "description": "แพ็กเกจขั้นต่ำที่ประกาศ (docs/02 §3.1) — ข้อมูลประกอบ ยังไม่บังคับแยกจาก `requiredFeature` จนกว่าจะมี tier ในแพ็กเกจ · null = ไม่กำหนด"
           }
         },
         "required": [
@@ -79479,7 +80097,10 @@
           "capabilitiesPending",
           "masterCodeKinds",
           "fixedTaxDocumentOwner",
-          "configFields"
+          "configFields",
+          "availability",
+          "requiredFeature",
+          "minTier"
         ]
       },
       "ErpAdapterListDto": {
@@ -81030,6 +81651,363 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "PlatformStaffDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "stf_…"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "SUPER_ADMIN",
+              "SUPPORT",
+              "BILLING"
+            ]
+          },
+          "twoFactorEnabled": {
+            "type": "boolean",
+            "description": "ตั้ง 2FA แล้ว — ทีมงานต้องตั้งตอนรับคำเชิญ (รอรับคำเชิญ = false)"
+          },
+          "lastLoginAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "invited",
+              "disabled"
+            ]
+          },
+          "inviteExpiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "คำเชิญหมดอายุ (เฉพาะ invited)"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "role",
+          "twoFactorEnabled",
+          "lastLoginAt",
+          "status",
+          "inviteExpiresAt"
+        ]
+      },
+      "InviteStaffDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "ย้ายไปทีมอื่น ไม่ต้องใช้ Console แล้ว",
+            "minLength": 10
+          },
+          "email": {
+            "type": "string",
+            "example": "malee@innovera.co.th"
+          },
+          "name": {
+            "type": "string",
+            "example": "มาลี ใจดี"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "SUPER_ADMIN",
+              "SUPPORT",
+              "BILLING"
+            ]
+          }
+        },
+        "required": [
+          "reason",
+          "email",
+          "name",
+          "role"
+        ]
+      },
+      "DeactivateStaffDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "ย้ายไปทีมอื่น ไม่ต้องใช้ Console แล้ว",
+            "minLength": 10
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "StaffInviteTokenDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "token จากลิงก์ในอีเมลเชิญทีมงาน"
+          }
+        },
+        "required": [
+          "token"
+        ]
+      },
+      "StaffInvitationInfoDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "SUPER_ADMIN",
+              "SUPPORT",
+              "BILLING"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "secret": {
+            "type": "string",
+            "description": "secret TOTP (base32) ของคำเชิญนี้ — ตั้งในแอป Authenticator"
+          },
+          "otpauthUri": {
+            "type": "string",
+            "description": "otpauth:// สำหรับสร้าง QR"
+          }
+        },
+        "required": [
+          "email",
+          "name",
+          "role",
+          "expiresAt",
+          "secret",
+          "otpauthUri"
+        ]
+      },
+      "AcceptStaffInvitationDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "token จากลิงก์ในอีเมลเชิญทีมงาน"
+          },
+          "name": {
+            "type": "string",
+            "example": "มาลี ใจดี"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "description": "รหัสผ่าน (นโยบายเดียวกับผู้ใช้ — ST1-T02)"
+          },
+          "code": {
+            "type": "string",
+            "example": "123456",
+            "description": "รหัส 6 หลักจากแอป Authenticator ที่ตั้งแล้ว"
+          }
+        },
+        "required": [
+          "token",
+          "password",
+          "code"
+        ]
+      },
+      "PlatformAuditStaffDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "stf_…"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "role": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "SUPER_ADMIN",
+              "SUPPORT",
+              "BILLING"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role"
+        ]
+      },
+      "PlatformAuditUserDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "usr_…"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      },
+      "PlatformAuditTenantDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ten_…"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      },
+      "PlatformAuditEntryDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "aud_…",
+            "description": "`aud_` = audit ของลูกค้า · `pau_` = audit ระดับแพลตฟอร์ม"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "staff": {
+            "nullable": true,
+            "description": "ทีมงาน Innovera ที่ทำ — เข้าใช้งานแทน = claim `act` ของ token",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PlatformAuditStaffDto"
+              }
+            ]
+          },
+          "onBehalfOf": {
+            "nullable": true,
+            "description": "เข้าใช้งานแทน: ผู้ใช้ของลูกค้าที่สวม (sub) · null = ทีมงานทำเองจาก Console",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PlatformAuditUserDto"
+              }
+            ]
+          },
+          "action": {
+            "type": "string",
+            "example": "impersonation.started"
+          },
+          "tenant": {
+            "nullable": true,
+            "description": "null = ไม่ผูกลูกค้า",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PlatformAuditTenantDto"
+              }
+            ]
+          },
+          "entityType": {
+            "type": "string"
+          },
+          "entityId": {
+            "type": "string",
+            "nullable": true
+          },
+          "before": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "after": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "ip": {
+            "type": "string",
+            "nullable": true
+          },
+          "impersonationSessionId": {
+            "type": "string",
+            "nullable": true,
+            "description": "การเข้าใช้งานแทนที่เกี่ยวข้อง"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "staff",
+          "onBehalfOf",
+          "action",
+          "tenant",
+          "entityType",
+          "entityId",
+          "before",
+          "after",
+          "reason",
+          "ip",
+          "impersonationSessionId"
+        ]
+      },
+      "PlatformAuditPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlatformAuditEntryDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
         ]
       },
       "ReadinessDto": {
@@ -82921,9 +83899,10 @@
               "image/jpeg",
               "image/webp",
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-              "text/csv"
+              "text/csv",
+              "image/svg+xml"
             ],
-            "description": "ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง"
+            "description": "ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง · kind `LOGO` (โลโก้องค์กร P1-ST6-T04) = `image/png` ≤ 2 MB หรือ `image/svg+xml` ≤ 512 KB (SVG ใช้ได้กับ LOGO เท่านั้น และถูกล้าง script/event handler/อ้างของภายนอก/foreignObject ก่อนเก็บ)"
           },
           "bytes": {
             "type": "number",
@@ -108682,11 +109661,17 @@
             "nullable": true,
             "example": "02-118-4400",
             "description": "เบอร์บริษัท (ค่าตั้ง tracking.contactPhone) — ไม่ใช่เบอร์คนขับ · null = ไม่ตั้ง"
+          },
+          "logoUrl": {
+            "type": "string",
+            "nullable": true,
+            "description": "P1-ST6-T04 (D68-93) URL โลโก้บริษัท (ค่าตั้ง org.logoDocumentId) — ลายเซ็นหมดอายุ 15 นาที · null = ไม่ตั้ง (แสดงไอคอนตามเดิม)"
           }
         },
         "required": [
           "name",
-          "phone"
+          "phone",
+          "logoUrl"
         ]
       },
       "TrackingShipmentDto": {
@@ -121008,6 +121993,11 @@
       "status": 409,
       "title": "การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่",
       "titleEn": "This source change was already decided or superseded — reload"
+    },
+    "staff_deactivate_not_allowed": {
+      "status": 409,
+      "title": "ปิดบัญชีตัวเองหรือผู้ดูแลสูงสุดคนสุดท้ายไม่ได้",
+      "titleEn": "You cannot deactivate yourself or the last super admin"
     },
     "step_up_required": {
       "status": 403,

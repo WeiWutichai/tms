@@ -142,6 +142,8 @@ export interface TemplateVars {
     collectionDate: string | null;
     filename: string;
   };
+  /** P1-ST4-T06 เชิญทีมงาน Innovera เข้า Platform Console (ตั้งรหัสผ่าน + 2FA ในหน้ารับคำเชิญ) · ชื่อผ่าน safeName แล้ว */
+  platform_staff_invitation: { link: string; days: number; inviterName: string; role: string };
   user_invitation: {
     link: string;
     days: number;
@@ -330,6 +332,34 @@ const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
         subject: `${title} — TMS monitoring`,
         text: `${title}\n\n${paras.join('\n\n')}\n`,
         html: layout('en', title, paras),
+      };
+    },
+  },
+  platform_staff_invitation: {
+    th: ({ link, days, inviterName, role }) => {
+      const title = 'คำเชิญเข้าร่วมทีมงาน TMS Platform Console';
+      const paras = [
+        `${inviterName} เชิญคุณเข้าร่วมทีมงาน TMS Platform Console ในบทบาท ${role}`,
+        `เปิดลิงก์ด้านล่างเพื่อตั้งรหัสผ่านและยืนยันตัวตน 2 ชั้น (2FA) ลิงก์ใช้ได้ ${days} วันและใช้ได้ครั้งเดียว`,
+        'ถ้าคุณไม่รู้จักผู้เชิญ ไม่ต้องทำอะไร',
+      ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n\n${link}\n`,
+        html: layout('th', title, paras, { href: link, label: 'รับคำเชิญ' }),
+      };
+    },
+    en: ({ link, days, inviterName, role }) => {
+      const title = 'Invitation to the TMS Platform Console team';
+      const paras = [
+        `${inviterName} invited you to the TMS Platform Console team as ${role}.`,
+        `Open the link below to set your password and two-factor authentication. The link works once and expires in ${days} days.`,
+        'If you do not know the sender, ignore this email.',
+      ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n\n${link}\n`,
+        html: layout('en', title, paras, { href: link, label: 'Accept invitation' }),
       };
     },
   },

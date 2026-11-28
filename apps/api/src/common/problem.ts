@@ -249,6 +249,11 @@ export const PROBLEMS = {
     status: 429,
     th: 'ค้นหาเลขผู้เสียภาษีครบจำนวนครั้งแล้ว กรอกข้อมูลบริษัทเองได้',
     en: 'Too many tax ID lookups — enter the company details manually',
+  /** P1-ST4-T06 ปิดบัญชีทีมงานของตัวเอง หรือ SUPER_ADMIN คนสุดท้ายที่ใช้งานอยู่ไม่ได้ (กันไม่มีใครจัดการทีม) */
+  staff_deactivate_not_allowed: {
+    status: 409,
+    th: 'ปิดบัญชีตัวเองหรือผู้ดูแลสูงสุดคนสุดท้ายไม่ได้',
+    en: 'You cannot deactivate yourself or the last super admin',
   },
   /** ST9-T11 มุมมองที่บันทึกไว้ครบ 50 ต่อหน้าต่อผู้ใช้ — มี `limit` */
   saved_view_limit: {

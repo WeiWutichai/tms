@@ -32,6 +32,8 @@ function enumOf(path: string): string[] {
  */
 const ENUM_LABELS: Array<{ prefix: string; from: string; suffix?: string; except?: string[] }> = [
   { prefix: 'ord.st.', from: 'OrderDto.status' },
+  { prefix: 'con.team.st.', from: 'PlatformStaffDto.status' },
+  { prefix: 'con.team.perm.', from: 'PlatformStaffDto.role' },
   { prefix: 'do.st.', from: 'DeliveryOrderDto.status' },
   { prefix: 'trip.st.', from: 'TripDto.status' },
   { prefix: 'trk.st.', from: 'TrackingShipmentDto.status' },
