@@ -328,8 +328,8 @@ export class ConnectorsService {
       fixedTaxDocumentOwner: a.fixedSystemOfRecord?.taxDocumentOwner ?? null,
       configFields: a.configFields.map(field),
       availability: 'AVAILABLE' as const,
-      requiredFeature: 'conn',
-      minTier: null,
+      requiredFeature: a.entitlement?.feature ?? 'conn',
+      minTier: a.entitlement?.minTier ?? null,
     }));
     return [...ready, ...soon].sort((a, b) => a.key.localeCompare(b.key));
   }
@@ -788,7 +788,9 @@ export class ConnectorsService {
     const ctx = requestContext.require();
     const tx = this.db.tx;
     const tenantId = ctx.tenantId!;
-    const adapter = this.adapterOr422(body.adapterKey);
+    const adapter = this.adapterOr422(body.adapterKey); // coming-soon → 422 ก่อนเสมอ
+    // P1-ST1-T02: adapter ที่ประกาศ feature/แพ็กเกจขั้นต่ำ (catalog — FlowAccount/PEAK) → 403 `feature_not_in_plan`
+    if (adapter.entitlement) await this.entitlements.assertConnector(tenantId, adapter.entitlement);
     const companyId = await this.checkCompany(tx, body.companyId);
     const settings = this.checkGroup(adapter, 'settings', body.settings);
     const credentials = this.checkGroup(adapter, 'credentials', body.credentials);

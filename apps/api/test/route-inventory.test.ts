@@ -55,10 +55,37 @@ const PUBLIC_ROUTES: Record<string, string> = {
     'URL ลายเซ็น HMAC อายุ 5 นาที (นำเข้า 60 วิ) · attachment + nosniff (documents.test.ts)',
   'POST /v1/inbound/:provider/:token':
     'token ขาเข้าต่อ connector (ผูก tenant) + ลายเซ็น (inbound-webhook.test.ts)',
+  // P1-ST2-T03/T04 (เพิ่มตอน merge เข้า P1-ST2-T02 — branch T04 ยังไม่ได้ลงทะเบียน): ปิดทั้งชุดด้วย SIGNUP_ENABLED (404)
+  'POST /v1/public/signup':
+    'สร้างบัญชีสมัคร · SignupAttemptLimit ต่อ IP + OtpSendLimit ต่อผู้รับ + BotProtected (signup.test.ts, public-entry)',
+  'GET /v1/public/signup/session':
+    'X-Signup-Token (สุ่ม เก็บ hash, หมดอายุ) — ผิด/หมดอายุ 401 signup_session_invalid (signup.test.ts)',
+  'POST /v1/public/signup/session/otp/resend':
+    'X-Signup-Token + ขอใหม่ได้หลัง 60 วิ + OtpSendLimit (signup.test.ts)',
+  'POST /v1/public/signup/session/otp/verify':
+    'X-Signup-Token + OTP 6 หลัก อายุ 5 นาที ผิด 5 ครั้งล็อก 15 นาที (signup.test.ts)',
+  'POST /v1/public/signup/session/company/lookup':
+    'X-Signup-Token (ผ่าน OTP แล้ว) + เพดานค้น (signup-company.test.ts)',
+  'PUT /v1/public/signup/session/company/certificate':
+    'X-Signup-Token (ผ่าน OTP แล้ว) + ตรวจชนิด/ขนาดไฟล์ (signup-company.test.ts)',
+  'POST /v1/public/signup/session/company':
+    'X-Signup-Token (ผ่าน OTP แล้ว) + checksum/dedup (signup-company.test.ts)',
+  'POST /v1/public/signup/session/company/join-request':
+    'X-Signup-Token (ผ่าน OTP แล้ว) (signup-company.test.ts)',
+  'GET /v1/public/plans':
+    'ราคาแพ็กเกจของแพลตฟอร์มเอง (ไม่มีข้อมูล tenant) · ปิดด้วย pricing.publicVisible → 404 · rate limit ต่อ IP (public-plans.test.ts)',
   'GET /v1/public/tracking/pod-image/:doc':
     'URL ลายเซ็น preview อายุ 15 นาที · เฉพาะรูป POD · ตัด EXIF (tracking-link.test.ts)',
   'GET /v1/public/tracking/logo/:doc':
     'P1-ST6-T04 URL ลายเซ็น preview อายุ 15 นาที · เฉพาะไฟล์ kind LOGO (PNG/SVG ที่ล้างแล้ว) + CSP sandbox (org-logo.test.ts)',
+};
+
+/**
+ * P1-ST2-T02: ราคาแพ็กเกจ (ราคาขายของแพลตฟอร์มเอง — ตั้งใจเผยแพร่ docs/02 §7 "ราคาสาธารณะบนเว็บ") ไม่ใช่ราคาของ tenant
+ * → ยกเว้นเฉพาะ field ราคาแพ็กเกจที่ตั้งใจเผยแพร่ (field อื่นของ route นี้ยังตรวจตามปกติ) · ไม่มีข้อมูล tenant (public-plans.test.ts)
+ */
+const PUBLIC_PRICE_FIELDS: Record<string, string[]> = {
+  '/v1/public/plans': ['pricePerVehicleMonthly'],
 };
 
 /** route ที่ใช้ token ลูกค้าแต่มี path param ที่ไม่ใช่ `:id` (และไม่ใช่ `/external/:externalId`) */
@@ -233,6 +260,7 @@ describe('route inventory (ST9-T13)', () => {
       )?.[0];
     const leaks: string[] = [];
     let positive = 0; // ตัวควบคุม: walker เจอราคาซื้อของรถร่วมในหน้าข้อเสนองานจริง (ไม่ใช่ผ่านเพราะอ่าน schema ไม่ออก)
+    let priceList = 0; // ตัวควบคุม: walker เห็น field ราคาแพ็กเกจจริง (ข้อยกเว้นไม่ลอย)
     for (const r of routes.filter((x) => x.path.startsWith('/v1/public/'))) {
       const oaPath = r.path.replace(/(?<!\\):([A-Za-z0-9_]+)/g, '{$1}').replace(/\\:/g, ':');
       const op = (doc.paths[oaPath] as Record<string, any> | undefined)?.[r.method.toLowerCase()];
@@ -245,10 +273,18 @@ describe('route inventory (ST9-T13)', () => {
       const p = purposeOf(r.linkAction);
       const forbidden =
         p && !NO_PRICE_PURPOSES.includes(p) ? /^sell/i : /^(sell|buy)|price|cost|margin/i;
-      for (const n of names) if (forbidden.test(n)) leaks.push(`${keyOf(r)} → ${n}`);
+      const allowed = PUBLIC_PRICE_FIELDS[r.path] ?? [];
+      for (const n of names) {
+        if (allowed.includes(n)) {
+          priceList++;
+          continue;
+        }
+        if (forbidden.test(n)) leaks.push(`${keyOf(r)} → ${n}`);
+      }
       if (r.path === '/v1/public/offers/:token' && names.includes('buyAmount')) positive++;
     }
     expect(positive).toBe(1);
+    expect(priceList).toBeGreaterThan(0);
     expect(leaks).toEqual([]);
   });
 

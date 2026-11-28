@@ -14,6 +14,12 @@ import { AuthController } from './auth/auth.controller';
 import { MfaController } from './auth/mfa.controller';
 import { PasswordController } from './auth/password.controller';
 import { PasswordResetController, PasswordResetService } from './auth/password-reset.controller';
+import { SignupController } from './modules/signup/signup.controller';
+import { SignupService } from './modules/signup/signup.service';
+import { SignupCompanyService } from './modules/signup/signup-company.service';
+import { CompanyLookupService } from './modules/signup/company-lookup/company-lookup.service';
+import { OtpChannelService } from './modules/signup/otp-channel';
+import { SignupEnabledMiddleware } from './modules/signup/signup-enabled.middleware';
 import { EmailDispatcher, EmailService } from './modules/email/email.service';
 import { NotificationService } from './modules/notifications/notification.service';
 import { NotificationEvents } from './modules/notifications/notification-events';
@@ -47,6 +53,7 @@ import { ListExports } from './modules/exports/list-exports';
 import { SetupChecklistController } from './modules/setup/setup.controller';
 import { PlatformAuthController } from './platform/platform-auth.controller';
 import { PlatformConnectorsController } from './platform/platform-connectors.controller';
+import { PublicPlansController } from './modules/entitlements/public-plans.controller';
 import { PlatformPlansController } from './platform/platform-plans.controller';
 import { PlatformSettingsController } from './platform/platform-settings.controller';
 import { PlatformSettingsService } from './platform/platform-settings.service';
@@ -320,6 +327,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     MfaController,
     PasswordController,
     PasswordResetController,
+    SignupController,
     InvitationAcceptController,
     InvitationsController,
     NotificationsController,
@@ -331,6 +339,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     PlatformTenantsController,
     PlatformUsageController,
     PlatformPlansController,
+    PublicPlansController,
     PlatformSettingsController,
     PlatformConnectorsController,
     PlatformTeamController,
@@ -433,6 +442,10 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     MfaService,
     PasswordPolicy,
     PasswordResetService,
+    SignupService,
+    SignupCompanyService,
+    CompanyLookupService,
+    OtpChannelService,
     InvitationAcceptService,
     EmailService,
     EmailDispatcher,
@@ -612,6 +625,8 @@ export class AppModule implements NestModule {
     // P1-ST1-T07 นับ API calls ของ API key / OAuth client (ในหน่วยความจำ → flush แบบ batch — api-usage-meter.ts)
     consumer.apply(apiUsageMiddleware).forRoutes('{*path}');
     // ST1-T06: ลิงก์สาธารณะ (ไม่ login) จำกัดอัตราต่อ IP
+    // P1-ST2-T03: ปิดการสมัคร (`SIGNUP_ENABLED`) = 404 ก่อนตัวจำกัด/ฐานข้อมูล
+    consumer.apply(SignupEnabledMiddleware).forRoutes('public/signup', 'public/signup/{*path}');
     consumer.apply(PublicRateLimitMiddleware).forRoutes('public/{*path}');
     // ST4-T14 หน้าติดตาม → ST9-T13 ทุกลิงก์สาธารณะ (NFR-135): ห้าม index/ส่ง referrer ทุกคำตอบ (รวม 404/429 ที่ออกก่อนถึง handler)
     // — token อยู่ใน URL · PDF ที่เปิด inline (ใบคุมรถ/ใบจ่ายเงิน) ก็ห้าม index

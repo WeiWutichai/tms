@@ -126,6 +126,8 @@ export type LoginResult =
       tenants?: TenantChoice[];
       /** ขั้นที่ 2 (ST1-T05): ใช้ต่อกับ verifyMfa / startEnroll / confirmEnroll */
       mfa?: MfaStep;
+      /** P1-ST2-T03 `signup_incomplete`: อีเมล/รหัสของการสมัครที่ยังไม่เสร็จ → ทำต่อที่ /signup */
+      signupToken?: string;
     };
 
 export interface MfaStep {
@@ -145,11 +147,17 @@ export async function login(
     body: { email, password, codeChallenge: challenge, ...(tenantId ? { tenantId } : {}) },
   });
   if (!r1.data) {
-    const p = (r1.error ?? {}) as { code?: string; tenants?: TenantChoice[]; mfaToken?: string };
+    const p = (r1.error ?? {}) as {
+      code?: string;
+      tenants?: TenantChoice[];
+      mfaToken?: string;
+      signupToken?: string;
+    };
     return {
       ok: false,
       code: p.code ?? 'internal_error',
       tenants: p.tenants,
+      ...(p.signupToken ? { signupToken: p.signupToken } : {}),
       ...(p.mfaToken ? { mfa: { mfaToken: p.mfaToken, verifier } } : {}),
     };
   }

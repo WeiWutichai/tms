@@ -1,0 +1,296 @@
+{
+  "currency": "THB",
+  "vatMode": "exclusive",
+  "provisional": true,
+  "retentionDays": 90,
+  "subconWeight": "1.00",
+  "trialDays": 30,
+  "plans": [
+    {
+      "code": "start",
+      "nameTh": "Starter",
+      "nameEn": "Starter",
+      "badge": null,
+      "isContactSales": false,
+      "version": 1,
+      "effectiveFrom": "2026-11-26T17:00:00.000Z",
+      "pricePerVehicleMonthly": "350.00",
+      "minimumMonthly": "2500.00",
+      "annualDiscountPct": "15.00",
+      "volumeTiers": [],
+      "vehicleMin": 1,
+      "vehicleMax": 15,
+      "trialDays": 30,
+      "provisional": true
+    },
+    {
+      "code": "std",
+      "nameTh": "Growth",
+      "nameEn": "Growth",
+      "badge": "นิยม",
+      "isContactSales": false,
+      "version": 1,
+      "effectiveFrom": "2026-11-26T17:00:00.000Z",
+      "pricePerVehicleMonthly": "280.00",
+      "minimumMonthly": "4500.00",
+      "annualDiscountPct": "15.00",
+      "volumeTiers": [],
+      "vehicleMin": 16,
+      "vehicleMax": 60,
+      "trialDays": 30,
+      "provisional": true
+    },
+    {
+      "code": "biz",
+      "nameTh": "Business",
+      "nameEn": "Business",
+      "badge": null,
+      "isContactSales": false,
+      "version": 1,
+      "effectiveFrom": "2026-11-26T17:00:00.000Z",
+      "pricePerVehicleMonthly": "220.00",
+      "minimumMonthly": "13500.00",
+      "annualDiscountPct": "15.00",
+      "volumeTiers": [],
+      "vehicleMin": 61,
+      "vehicleMax": 200,
+      "trialDays": 30,
+      "provisional": true
+    },
+    {
+      "code": "ent",
+      "nameTh": "Enterprise",
+      "nameEn": "Enterprise",
+      "badge": null,
+      "isContactSales": true,
+      "version": 1,
+      "effectiveFrom": "2026-11-26T17:00:00.000Z",
+      "pricePerVehicleMonthly": null,
+      "minimumMonthly": null,
+      "annualDiscountPct": "0.00",
+      "volumeTiers": [],
+      "vehicleMin": 201,
+      "vehicleMax": null,
+      "trialDays": 30,
+      "provisional": true
+    }
+  ],
+  "features": [
+    {
+      "key": "so",
+      "category": "ปฏิบัติการ",
+      "nameTh": "ใบสั่งขนส่ง (SO) / ใบส่งของ (DO)",
+      "nameEn": "Sales / delivery orders",
+      "type": "boolean",
+      "unit": null,
+      "isBasic": true,
+      "cells": [
+        {
+          "kind": "yes",
+          "limit": null
+        },
+        {
+          "kind": "yes",
+          "limit": null
+        },
+        {
+          "kind": "yes",
+          "limit": null
+        },
+        {
+          "kind": "yes",
+          "limit": null
+        }
+      ]
+    },
+    {
+      "key": "sub",
+      "category": "ปฏิบัติการ",
+      "nameTh": "จ่ายงานรถร่วม",
+      "nameEn": "Subcontractor dispatch",
+      "type": "boolean",
+      "unit": null,
+      "isBasic": true,
+      "cells": [
+        {
+          "kind": "yes",
+          "limit": null
+        },
+        {
+          "kind": "yes",
+          "limit": null
+        },
+        {
+          "kind": "yes",
+          "limit": null
+        },
+        {
+          "kind": "yes",
+          "limit": null
+        }
+      ]
+    },
+    {
+      "key": "settle",
+      "category": "บัญชี",
+      "nameTh": "Settlement รถร่วม",
+      "nameEn": "Subcontractor settlement",
+      "type": "boolean",
+      "unit": null,
+      "isBasic": true,
+      "cells": [
+        {
+          "kind": "yes",
+          "limit": null
+        },
+        {
+          "kind": "yes",
+          "limit": null
+        },
+        {
+          "kind": "yes",
+          "limit": null
+        },
+        {
+          "kind": "yes",
+          "limit": null
+        }
+      ]
+    },
+    {
+      "key": "conn",
+      "category": "บัญชี",
+      "nameTh": "เชื่อมโปรแกรมบัญชี (connector)",
+      "nameEn": "Accounting connector",
+      "type": "limit",
+      "unit": "ตัว",
+      "isBasic": false,
+      "cells": [
+        {
+          "kind": "no",
+          "limit": null
+        },
+        {
+          "kind": "limit",
+          "limit": 1
+        },
+        {
+          "kind": "limit",
+          "limit": 1
+        },
+        {
+          "kind": "unlimited",
+          "limit": null
+        }
+      ]
+    },
+    {
+      "key": "multi",
+      "category": "บัญชี",
+      "nameTh": "หลายนิติบุคคล",
+      "nameEn": "Multiple legal entities",
+      "type": "boolean",
+      "unit": null,
+      "isBasic": false,
+      "cells": [
+        {
+          "kind": "no",
+          "limit": null
+        },
+        {
+          "kind": "no",
+          "limit": null
+        },
+        {
+          "kind": "yes",
+          "limit": null
+        },
+        {
+          "kind": "yes",
+          "limit": null
+        }
+      ]
+    },
+    {
+      "key": "portal",
+      "category": "รายงานและลูกค้า",
+      "nameTh": "Customer portal",
+      "nameEn": "Customer portal",
+      "type": "boolean",
+      "unit": null,
+      "isBasic": false,
+      "cells": [
+        {
+          "kind": "addon",
+          "limit": null
+        },
+        {
+          "kind": "yes",
+          "limit": null
+        },
+        {
+          "kind": "yes",
+          "limit": null
+        },
+        {
+          "kind": "yes",
+          "limit": null
+        }
+      ]
+    },
+    {
+      "key": "api",
+      "category": "เชื่อมต่อ",
+      "nameTh": "Open API (req/นาที)",
+      "nameEn": "Open API (req/min)",
+      "type": "limit",
+      "unit": "req/นาที",
+      "isBasic": false,
+      "cells": [
+        {
+          "kind": "no",
+          "limit": null
+        },
+        {
+          "kind": "limit",
+          "limit": 300
+        },
+        {
+          "kind": "limit",
+          "limit": 1000
+        },
+        {
+          "kind": "limit",
+          "limit": 1000
+        }
+      ]
+    },
+    {
+      "key": "users",
+      "category": "โควตา",
+      "nameTh": "ผู้ใช้",
+      "nameEn": "Users",
+      "type": "limit",
+      "unit": "คน",
+      "isBasic": true,
+      "cells": [
+        {
+          "kind": "unlimited",
+          "limit": null
+        },
+        {
+          "kind": "unlimited",
+          "limit": null
+        },
+        {
+          "kind": "unlimited",
+          "limit": null
+        },
+        {
+          "kind": "unlimited",
+          "limit": null
+        }
+      ]
+    }
+  ]
+}
