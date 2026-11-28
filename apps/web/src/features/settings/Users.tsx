@@ -10,6 +10,12 @@ import { can } from '../../nav';
 import { TwoFaBadge } from './Settings';
 import { useMe } from '../../shell/AppShell';
 import { StepUpBox } from './OrgSections';
+import {
+  DeclineJoinDialog,
+  JoinRequestRows,
+  useJoinRequests,
+  type JoinRequest,
+} from './JoinRequests';
 import { stepUp, useRoles, useUsers, type User } from './useSettings';
 import { limitProblem, QuotaLimitDialog } from '../quota/QuotaLimitDialog';
 import {
@@ -66,7 +72,10 @@ export function UsersSection({ canWrite }: { canWrite: boolean }) {
   const roles = useRoles();
   const me = useMe();
   const invitations = useInvitations(true);
-  const [inviting, setInviting] = useState(false);
+  const joins = useJoinRequests(true);
+  // P1-ST2-T06 เชิญจากคำขอเข้าร่วม = ฟอร์มเชิญเดิมกรอกชื่อ/อีเมลให้
+  const [inviting, setInviting] = useState<false | { email: string; name: string }>(false);
+  const [declining, setDeclining] = useState<JoinRequest | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   // เมนูต่อแถว (PO 24 พ.ย. 2569 ประกอบจากโครงสร้างต้นแบบ — spec/12 §3)
   const [act, setAct] = useState<{
@@ -96,7 +105,11 @@ export function UsersSection({ canWrite }: { canWrite: boolean }) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h2>{t('set.menu.users')}</h2>
           {canWrite && (
-            <button type="button" className="set-btn2" onClick={() => setInviting(true)}>
+            <button
+              type="button"
+              className="set-btn2"
+              onClick={() => setInviting({ email: '', name: '' })}
+            >
               <Icon n="user-plus" s={16} />
               {t('users.invite')}
             </button>
@@ -128,6 +141,12 @@ export function UsersSection({ canWrite }: { canWrite: boolean }) {
             </tr>
           </thead>
           <tbody>
+            <JoinRequestRows
+              rows={joins.data?.data ?? []}
+              canWrite={canWrite && !isImpersonating()}
+              onInvite={(j) => setInviting({ email: j.email, name: j.applicantName })}
+              onDecline={setDeclining}
+            />
             {sortUsers(users.data?.data ?? [], roles.data?.data ?? []).map((u) => (
               <tr key={u.id}>
                 <td>
@@ -255,9 +274,18 @@ export function UsersSection({ canWrite }: { canWrite: boolean }) {
           }}
         />
       )}
+      <DeclineJoinDialog
+        request={declining}
+        onClose={() => setDeclining(null)}
+        onDone={(m) => {
+          setDeclining(null);
+          say(m);
+        }}
+      />
       {inviting && (
         <InviteDrawer
           roles={roles.data?.data ?? []}
+          init={inviting}
           onClose={() => setInviting(false)}
           onSent={() => {
             setInviting(false);
@@ -296,10 +324,13 @@ function sortUsers<U extends { name: string; roles: { code: string }[] }>(
  */
 function InviteDrawer({
   roles,
+  init,
   onClose,
   onSent,
 }: {
   roles: { id: string; code: string; name: string }[];
+  /** P1-ST2-T06 เชิญจากคำขอเข้าร่วม — ชื่อ/อีเมลของผู้ขอ */
+  init?: { email: string; name: string };
   onClose: () => void;
   onSent: () => void;
 }) {
@@ -310,7 +341,11 @@ function InviteDrawer({
   const ownerName = roles.find((r) => r.code === 'owner')?.name;
   const isOwner = !!ownerName && !!me.data?.user?.roles.includes(ownerName);
   const choices = roles.filter((r) => r.code !== 'owner' || isOwner);
-  const [form, setForm] = useState({ email: '', name: '', roles: [] as string[] });
+  const [form, setForm] = useState({
+    email: init?.email ?? '',
+    name: init?.name ?? '',
+    roles: [] as string[],
+  });
   const [needStepUp, setNeedStepUp] = useState(false);
   // token step-up อายุ 5 นาที — เก็บไว้ใช้ซ้ำ (เชิญไม่สำเร็จแล้วแก้ข้อมูลส่งใหม่ไม่ต้องรอรหัสรอบถัดไป — QA T07 D3)
   const [su, setSu] = useState<{ token: string; at: number } | null>(null);
@@ -353,6 +388,7 @@ function InviteDrawer({
           params: { header: { 'X-Step-Up': token } } as never,
         }),
       );
+      // ['users'] ครอบ ['users', 'join-requests'] ด้วย (คำขอที่อีเมลตรงถูกปิดเป็นอนุมัติ)
       void qc.invalidateQueries({ queryKey: ['users'] });
       onSent();
     } catch (e) {

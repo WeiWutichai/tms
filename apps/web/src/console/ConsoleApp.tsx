@@ -19,6 +19,7 @@ import { TeamPage } from './Team';
 import { AuditPage } from './Audit';
 import { ApiUsagePage } from './ApiUsage';
 import { ConsoleInvite } from './Invite';
+import { QueuePage } from './Queue';
 
 /** Platform Console (ST1-T24) — route group /console/* แยกจากแอปลูกค้า (layout, login, token ของตัวเอง) */
 export function ConsoleApp() {
@@ -35,6 +36,8 @@ export function ConsoleApp() {
                 <Route index element={<Navigate to="tenants" replace />} />
                 <Route path="tenants" element={<TenantsPage />} />
                 <Route path="tenants/:id" element={<TenantsPage />} />
+                <Route path="queue" element={<QueuePage />} />
+                <Route path="queue/:id" element={<QueuePage />} />
                 <Route path="api-usage" element={<ApiUsagePage />} />
                 <Route path="connectors" element={<ConnectorsPage />} />
                 <Route path="connectors/:id" element={<ConnectorsPage />} />

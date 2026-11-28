@@ -4,7 +4,9 @@ import { ProblemException } from '../../common/problem';
 import { PrismaService } from '../../db/prisma.service';
 import { defaultFileStore, putFileLocked } from '../../pdf/file-store';
 import { EXT, sniffMime } from '../documents/mime';
+import { EmailService } from '../email/email.service';
 import { CompanyLookupService, type LookupOutcome } from './company-lookup/company-lookup.service';
+import { createJoinRequest } from './join-request';
 import { ADDRESS_KEYS, type CompanyAddress, type RegistryCompany } from './company-lookup/types';
 import type { CompanyLookupResultDto, JoinCompanyRequestDto, SubmitCompanyDto } from './signup.dto';
 import { sessionByToken, viewOf, withJoinName, type SignupSessionView } from './signup.service';
@@ -27,6 +29,8 @@ import { sessionByToken, viewOf, withJoinName, type SignupSessionView } from './
  * - ย้อนกลับมาแก้ขั้น 2 ได้ระหว่าง `company_submitted` (ยังไม่สร้าง tenant)
  */
 export const LOOKUPS_PER_SESSION = 20;
+/** P1-ST2-T06 คำขอเข้าร่วมได้ไม่เกินกี่บริษัทต่อการสมัคร */
+export const JOINS_PER_SESSION = 3;
 export const CERTIFICATE_MAX_BYTES = 10 * 1024 * 1024;
 const CERT_MIME = ['application/pdf', 'image/jpeg', 'image/png'] as const;
 
@@ -85,6 +89,7 @@ export class SignupCompanyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly lookups: CompanyLookupService,
+    private readonly email: EmailService,
   ) {}
 
   private readonly log = new Logger('Signup');
@@ -271,10 +276,15 @@ export class SignupCompanyService {
     return viewOf(u, now);
   }
 
-  /** เลขซ้ำ tenant เดิม → "ส่งคำขอเข้าร่วมบริษัท" / "ติดต่อเรา" (ส่งถึงผู้ดูแลระบบ/คิวอนุมัติ = T06) */
+  /**
+   * เลขซ้ำ tenant เดิม → "ส่งคำขอเข้าร่วมบริษัท" / "ติดต่อเรา"
+   * P1-ST2-T06 (PLT-107): บันทึกคำขอถาวร `tenant_join_request` (session ถูกลบวันที่ 30) — join = อีเมลถึง owner ของบริษัทเดิม
+   * ตัดสินใน 3 วันทำการ ไม่ตอบ = เข้าคิวอนุมัติ · contact = เข้าคิวทันที
+   */
   async joinRequest(
     token: string | undefined,
     body: JoinCompanyRequestDto,
+    meta: { ip?: string } = {},
   ): Promise<SignupSessionView> {
     const now = Date.now();
     const s = await this.editable(token, now);
@@ -284,16 +294,44 @@ export class SignupCompanyService {
     const dup = await this.lookups.duplicate(body.taxId, branchCode);
     if (!dup.duplicate)
       throw bad('taxId', 'not_existing_company', 'no existing company for this tax ID');
-    const u = await this.db.signupSession.update({
-      where: { id: s.id },
-      data: {
-        taxId: body.taxId,
-        branchCode,
-        joinRequestKind: body.kind,
-        joinTenantId: dup.duplicate.tenantId,
-        joinRequestedAt: new Date(now),
-        lastActivityAt: new Date(now),
-      },
+    const u = await this.db.$transaction(async (tx) => {
+      // การสมัคร 1 ครั้งขอเข้าร่วมได้ไม่เกิน JOINS_PER_SESSION บริษัท (กันใช้เป็นช่องส่งอีเมลถึง owner หลายบริษัท)
+      // ล็อก session ก่อนนับ — ส่งพร้อมกันหลายแท็บนับถูก (re-review 5)
+      await tx.$queryRaw`SELECT id FROM signup_session WHERE id = ${s.id}::uuid FOR UPDATE`;
+      const others = await tx.tenantJoinRequest.findMany({
+        where: { signupSessionId: s.id, tenantId: { not: dup.duplicate!.tenantId } },
+        distinct: ['tenantId'],
+        select: { tenantId: true },
+      });
+      if (others.length >= JOINS_PER_SESSION) throw new ProblemException('signup_join_limit');
+      const row = await tx.signupSession.update({
+        where: { id: s.id },
+        data: {
+          taxId: body.taxId,
+          branchCode,
+          joinRequestKind: body.kind,
+          joinTenantId: dup.duplicate!.tenantId,
+          joinRequestedAt: new Date(now),
+          lastActivityAt: new Date(now),
+        },
+      });
+      await createJoinRequest(
+        tx,
+        this.email,
+        {
+          tenantId: dup.duplicate!.tenantId,
+          kind: body.kind,
+          applicantName: row.fullName ?? row.email ?? '—',
+          email: row.email!,
+          mobile: row.mobile,
+          taxId: body.taxId,
+          branchCode,
+          ip: meta.ip ?? row.ip ?? null,
+          signupSessionId: row.id,
+        },
+        new Date(now),
+      );
+      return row;
     });
     this.event('signup.join_requested', {
       sessionId: s.id,

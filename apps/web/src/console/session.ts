@@ -115,6 +115,8 @@ export const can = {
   usage: (r?: StaffRole) => r === 'SUPER_ADMIN' || r === 'BILLING',
   /** P1-ST4-T05 ปิด/เปิด Open API ของลูกค้า — owner + support (spec/01 §10.7 / §11.4 "ปิด API/AI") */
   api: (r?: StaffRole) => r === 'SUPER_ADMIN' || r === 'SUPPORT',
+  /** P1-ST2-T06 อนุมัติ/ปฏิเสธ/ขอข้อมูลเพิ่มในคิวสมัคร — owner + support (spec/01 §11.4; sales ยังไม่มีบทบาทใน Console) */
+  approveSignup: (r?: StaffRole) => r === 'SUPER_ADMIN' || r === 'SUPPORT',
 };
 
 export function useStaff() {
@@ -122,5 +124,13 @@ export function useStaff() {
     queryKey: ['console', 'me'],
     queryFn: () => cunwrap(consoleApi.GET('/v1/platform/auth/me')),
     staleTime: Infinity,
+  });
+}
+
+/** P1-ST2-T06 คิวอนุมัติการสมัคร (หน้า + ตัวเลขบนเมนู) */
+export function useSignupQueue() {
+  return useQuery({
+    queryKey: ['console', 'signup-queue'],
+    queryFn: () => cunwrap(consoleApi.GET('/v1/platform/signup-queue')),
   });
 }

@@ -139,12 +139,47 @@ export class InvitationsController {
       data: roles.map((r) => ({ tenantId, userId: user.id, roleId: r.id })),
     });
     const inv = await this.issue(tx, user, roles);
+    // P1-ST2-T06 (PLT-107): เชิญอีเมลที่มีคำขอเปิดอยู่ = owner ตัดสินแล้ว · join → อนุมัติ · contact → ปิด (ได้เข้าบริษัทแล้ว — re-review 7)
+    // ล็อก seat (advisory 6) ถืออยู่แล้วจาก assertSeat → ลำดับเดียวกับทีมงานอนุมัติ · อัปเดตแบบมีเงื่อนไขสถานะ (ไม่ทับการตัดสินพร้อมกัน)
+    const joins = await tx.tenantJoinRequest.findMany({
+      where: { email: body.email, status: { in: ['pending_owner', 'pending', 'info_requested'] } },
+      select: { id: true, kind: true, status: true },
+    });
+    let joined = 0;
+    for (const j of joins) {
+      const r = await tx.tenantJoinRequest.updateMany({
+        where: { id: j.id, status: j.status },
+        data: {
+          status: 'approved',
+          decidedByType: 'tenant_user',
+          decidedBy: /^[0-9a-f-]{36}$/i.test(ctx.actorId ?? '') ? ctx.actorId! : null,
+          decidedAt: new Date(),
+          invitedUserId: user.id,
+        },
+      });
+      if (r.count !== 1) continue;
+      joined++;
+      await this.audit.record({
+        action:
+          j.kind === 'join'
+            ? 'tenant.join_request_approved'
+            : 'tenant.contact_request_closed_by_invite',
+        entityType: 'join_request',
+        entityId: j.id,
+        before: { status: j.status },
+        after: { status: 'approved', user: encodeId('user', user.id) },
+      });
+    }
     await this.audit.record({
       action: 'user.invited',
       entityType: 'user',
       entityId: user.id,
       // ไม่เก็บอีเมลใน audit (append-only ลบไม่ได้ — PDPA); อ้างผู้ใช้ด้วย entityId
-      after: { roles: [...body.roles].sort(), invitationId: inv.id },
+      after: {
+        roles: [...body.roles].sort(),
+        invitationId: inv.id,
+        ...(joined ? { joinRequestApproved: true } : {}),
+      },
     });
     return this.toDto(inv, user, roles);
   }

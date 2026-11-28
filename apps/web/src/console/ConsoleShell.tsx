@@ -5,7 +5,14 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { queryClient } from '../api';
 import { useI18n, type Lang } from '../i18n';
 import type { MessageKey } from '../i18n/th';
-import { consoleApi, consoleLogout, cunwrap, useStaff, type StaffRole } from './session';
+import {
+  consoleApi,
+  consoleLogout,
+  cunwrap,
+  useSignupQueue,
+  useStaff,
+  type StaffRole,
+} from './session';
 import './console.css';
 
 /**
@@ -15,7 +22,8 @@ import './console.css';
 const NAV: ({ k: string; i: string; path?: string } | 'sep')[] = [
   { k: 'ov', i: 'layout-dashboard' },
   { k: 'ten', i: 'building-2', path: '/console/tenants' },
-  { k: 'q', i: 'user-check' },
+  // P1-ST2-T06 คิวอนุมัติการสมัคร — ตัวเลขสีรอ (n[4] ของต้นแบบ) = รายการที่รอ
+  { k: 'q', i: 'user-check', path: '/console/queue' },
   'sep',
   { k: 'pkg', i: 'package' },
   { k: 'add', i: 'ticket-percent' },
@@ -67,6 +75,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
   const [params] = useSearchParams();
   const staff = useStaff();
   const all = useTenantList('');
+  const queue = useSignupQueue();
   const [q, setQ] = useState(params.get('q') ?? '');
 
   // ช่องค้นหาบนแถบบน → กรองตารางลูกค้า (?q=) หน่วง 250 ms
@@ -94,6 +103,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
   const onAud = loc.pathname.startsWith('/console/audit');
   const onSet = loc.pathname.startsWith('/console/settings');
   const onUse = loc.pathname.startsWith('/console/api-usage');
+  const onQueue = loc.pathname.startsWith('/console/queue');
 
   return (
     <div className="con">
@@ -106,17 +116,19 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
         <span className="con-hd__crumb">
           {onTenants
             ? t('con.nav.ten')
-            : onUse
-              ? t('con.nav.use')
-              : onConn
-                ? t('con.nav.conn')
-                : onTeam
-                  ? t('con.nav.team')
-                  : onAud
-                    ? t('con.nav.aud')
-                    : onSet
-                      ? t('con.nav.set')
-                      : ''}
+            : onQueue
+              ? t('con.nav.q')
+              : onUse
+                ? t('con.nav.use')
+                : onConn
+                  ? t('con.nav.conn')
+                  : onTeam
+                    ? t('con.nav.team')
+                    : onAud
+                      ? t('con.nav.aud')
+                      : onSet
+                        ? t('con.nav.set')
+                        : ''}
         </span>
         <div style={{ flex: 1 }} />
         <label className="con-hd__search">
@@ -152,7 +164,12 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
             {NAV.map((n, i) => {
               if (n === 'sep') return <div key={`s${i}`} className="con-nav__sep" />;
               const on = !!n.path && loc.pathname.startsWith(n.path);
-              const count = n.k === 'ten' ? all.data?.length : undefined;
+              const count =
+                n.k === 'ten'
+                  ? all.data?.length
+                  : n.k === 'q'
+                    ? queue.data?.data.filter((x) => x.status === 'pending').length
+                    : undefined;
               return (
                 <button
                   key={n.k}
@@ -167,7 +184,11 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
                     <Icon n={n.i} s={16} strokeWidth={1.8} />
                   </span>
                   <span className="con-nav__l">{t(`con.nav.${n.k}` as MessageKey)}</span>
-                  {count ? <span className="con-nav__badge">{count}</span> : null}
+                  {count ? (
+                    <span className={`con-nav__badge${n.k === 'q' ? ' con-nav__badge--warn' : ''}`}>
+                      {count}
+                    </span>
+                  ) : null}
                 </button>
               );
             })}

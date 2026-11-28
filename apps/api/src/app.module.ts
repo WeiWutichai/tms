@@ -80,6 +80,9 @@ import {
   InvitationAcceptService,
 } from './auth/invitation-accept.controller';
 import { InvitationsController } from './modules/users/invitations.controller';
+import { JoinRequestsController } from './modules/users/join-requests.controller';
+import { PlatformSignupQueueController } from './platform/platform-signup-queue.controller';
+import { SignupQueueService } from './modules/signup/signup-queue.service';
 import { PasswordPolicy } from './auth/password-policy';
 import { MfaService } from './auth/mfa.service';
 import { BranchesController } from './modules/branches/branches.controller';
@@ -334,6 +337,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     SignupController,
     InvitationAcceptController,
     InvitationsController,
+    JoinRequestsController,
     NotificationsController,
     NotificationPreferencesController,
     ImportsController,
@@ -351,6 +355,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     PlatformTeamController,
     PlatformInvitationController,
     PlatformAuditController,
+    PlatformSignupQueueController,
     ImpersonationController,
     HealthController,
     MonitoringController,
@@ -450,6 +455,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     PasswordResetService,
     SignupService,
     SignupCompanyService,
+    SignupQueueService,
     SignupCompleteService,
     CompanyLookupService,
     OtpChannelService,

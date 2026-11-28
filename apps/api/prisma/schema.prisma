@@ -74,6 +74,8 @@ model Tenant {
   subscription     Subscription?
   /// P1-ST2-T05 ข้อมูลการสมัครเอง (เฉพาะ tenant ที่มาจากหน้าสมัคร)
   signup           TenantSignup?
+  verification     TenantVerification?
+  joinRequests     TenantJoinRequest[]
   createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -4689,4 +4691,66 @@ model TenantSignup {
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@map("tenant_signup")
+}
+
+/// P1-ST2-T06 ผลตรวจ/การตัดสินของคิวอนุมัติการสมัคร (spec/01 §10.3 `TenantVerification`) — 1 แถวต่อ tenant ที่เข้าคิว
+/// pending → approved | rejected | info_requested → (ผู้สมัครตอบ — ทีมงานกด "ตรวจต่อ") pending
+/// snapshot RD/DBD + ช่องที่ต่าง บันทึก ณ ตอนตัดสิน (ก่อนตัดสินคำนวณสดจาก company_lookup) · DBD = null เสมอในเฟส 1 (R-08)
+/// เขียนผ่าน role platform เท่านั้น (แอปอ่านได้ของ tenant ตัวเอง — RLS) · ไม่มีลบ
+model TenantVerification {
+  tenantId        String    @id @map("tenant_id") @db.Uuid
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  /// pending | approved | rejected | info_requested
+  status          String    @default("pending")
+  /// แหล่งที่ใช้เทียบ (rd_vat, rd_tin, dbd)
+  source          String[]  @default([])
+  snapshotRd      Json?     @map("snapshot_rd")
+  snapshotDbd     Json?     @map("snapshot_dbd")
+  /// ช่องที่ต่างระหว่างที่กรอกกับข้อมูลทางการ (name, address, branch)
+  diffFields      String[]  @default([]) @map("diff_fields")
+  reason          String?
+  decidedBy       String?   @map("decided_by") @db.Uuid
+  decidedAt       DateTime? @map("decided_at") @db.Timestamptz(6)
+  /// เริ่มนับเวลารอ (SLA 1 วันทำการ) — สร้างแถว / ตรวจต่อหลังขอข้อมูลเพิ่ม
+  waitingSince    DateTime  @default(now()) @map("waiting_since") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status, waitingSince])
+  @@map("tenant_verification")
+}
+
+/// P1-ST2-T06 คำขอเข้าร่วมบริษัทเดิม (spec/01 PLT-107) — tenant_id = บริษัทเดิมที่ขอเข้าร่วม
+/// kind join → owner ของบริษัทเดิมตัดสินก่อน (owner_due_at = +3 วันทำการ) ไม่ตอบ → เข้าคิวอนุมัติของ Console · kind contact ("ติดต่อเรา") → เข้าคิวทันที
+/// อนุมัติ = เชิญผู้สมัครเข้าบริษัทเดิม (app_user INVITED + คำเชิญ) · ไม่มีลบ
+model TenantJoinRequest {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  /// join | contact
+  kind            String
+  /// pending_owner | pending | info_requested | approved | rejected
+  status          String
+  applicantName   String    @map("applicant_name")
+  /// lower-case แล้ว
+  email           String
+  mobile          String?
+  taxId           String    @map("tax_id") @db.Char(13)
+  branchCode      String    @map("branch_code") @db.Char(5)
+  ip              String?
+  signupSessionId String?   @map("signup_session_id") @db.Uuid
+  /// owner ต้องตอบภายในเวลานี้ (3 วันทำการ) — เลยแล้วยัง pending_owner = อยู่ในคิว Console
+  ownerDueAt      DateTime? @map("owner_due_at") @db.Timestamptz(6)
+  reason          String?
+  /// tenant_user | platform_user
+  decidedByType   String?   @map("decided_by_type")
+  decidedBy       String?   @map("decided_by") @db.Uuid
+  decidedAt       DateTime? @map("decided_at") @db.Timestamptz(6)
+  invitedUserId   String?   @map("invited_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([tenantId, status])
+  @@index([status, createdAt])
+  @@map("tenant_join_request")
 }
