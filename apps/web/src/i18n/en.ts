@@ -592,6 +592,8 @@ export const en: Partial<Record<MessageKey, string>> = {
   'con.dtab.usr': 'Users',
   'con.use.t': 'Usage this month',
   'con.use.veh': 'active vehicles',
+  'con.use.users': 'Users',
+  'con.use.conn': 'Accounting connector',
   'con.use.sub': 'Subcontractors',
   'con.use.f.plate': 'Plate',
   'con.sec.actions': 'Actions',

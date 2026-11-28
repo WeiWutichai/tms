@@ -68,6 +68,7 @@ import {
 import { PlatformUsageController } from './platform/platform-usage.controller';
 import { UsageController } from './modules/usage/usage.controller';
 import { UsageFinalizeService } from './modules/usage/usage-finalize.service';
+import { apiUsageMiddleware } from './modules/usage/api-usage-meter';
 import { ImpersonationController } from './platform/impersonation.controller';
 import {
   InvitationAcceptController,
@@ -619,6 +620,8 @@ export class AppModule implements NestModule {
     consumer.apply(RequestContextMiddleware).forRoutes('{*path}');
     // ST9-T19 ตัวนับคำขอ HTTP (Prometheus) — นับตอนส่งคำตอบเสร็จ ตามแม่แบบ route
     consumer.apply(httpMetricsMiddleware).forRoutes('{*path}');
+    // P1-ST1-T07 นับ API calls ของ API key / OAuth client (ในหน่วยความจำ → flush แบบ batch — api-usage-meter.ts)
+    consumer.apply(apiUsageMiddleware).forRoutes('{*path}');
     // ST1-T06: ลิงก์สาธารณะ (ไม่ login) จำกัดอัตราต่อ IP
     // P1-ST2-T03: ปิดการสมัคร (`SIGNUP_ENABLED`) = 404 ก่อนตัวจำกัด/ฐานข้อมูล
     consumer.apply(SignupEnabledMiddleware).forRoutes('public/signup', 'public/signup/{*path}');

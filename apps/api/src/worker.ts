@@ -209,6 +209,8 @@ async function main() {
     usageFinalize
       .scheduleDue()
       .then((n) => n && log.info({ tenants: n }, 'active vehicle usage finalized'))
+      // P1-ST1-T07 ยอดรายวัน (DO / ใบแจ้งหนี้ / snapshot POD-connector-ผู้ใช้) — หลังปิดยอด (เดือนที่ปิดแล้วไม่แตะ)
+      .then(() => usageFinalize.rollupDaily())
       .catch((e) => log.error(e));
   void scheduleUsageFinalize();
   const usageFinalizeTimer = setInterval(scheduleUsageFinalize, USAGE_FINALIZE_EVERY_MS);
