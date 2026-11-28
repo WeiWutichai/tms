@@ -3536,6 +3536,191 @@
         }
       }
     },
+    "/v1/platform/tenants/{id}/entitlement-overrides": {
+      "get": {
+        "operationId": "PlatformTenants_overrides",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EntitlementOverrideDto"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/tenants/{id}/entitlement-overrides/{featureKey}": {
+      "put": {
+        "operationId": "PlatformTenants_setOverride",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "featureKey",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetEntitlementOverrideDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitlementOverrideDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/tenants/{id}/entitlement-overrides/{featureKey}/remove": {
+      "post": {
+        "operationId": "PlatformTenants_removeOverride",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "featureKey",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "",
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
     "/v1/platform/tenants/{id}/usage/metrics": {
       "get": {
         "operationId": "PlatformUsage_metrics",
@@ -5902,6 +6087,69 @@
           }
         ],
         "summary": "availability รายเดือน (เป้า 99.5%)",
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/me/feature-requests": {
+      "post": {
+        "operationId": "Me_requestFeature",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureRequestResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
         "tags": [
           "platform"
         ]
@@ -77636,6 +77884,99 @@
           "twoFactorEnabled"
         ]
       },
+      "EntitlementOverrideDto": {
+        "type": "object",
+        "properties": {
+          "featureKey": {
+            "type": "string",
+            "example": "report"
+          },
+          "featureName": {
+            "type": "string",
+            "example": "รายงาน"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "grant",
+              "revoke",
+              "set_limit"
+            ]
+          },
+          "limit": {
+            "type": "number",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "description": "เหตุผลภายใน (ไม่แสดงลูกค้า — PLT-066)"
+          },
+          "approvedBy": {
+            "type": "string",
+            "nullable": true,
+            "description": "ทีมงานที่อนุมัติ (platform user)"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "expired": {
+            "type": "boolean",
+            "description": "หมดอายุแล้ว (ไม่มีผล)"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "featureKey",
+          "featureName",
+          "mode",
+          "limit",
+          "reason",
+          "approvedBy",
+          "expiresAt",
+          "expired",
+          "createdAt"
+        ]
+      },
+      "SetEntitlementOverrideDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "ลูกค้าขอระงับชั่วคราวระหว่างย้ายระบบ",
+            "minLength": 10
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "grant",
+              "revoke",
+              "set_limit"
+            ],
+            "description": "grant = เปิดให้ · revoke = ปิด · set_limit = เปลี่ยนโควตา"
+          },
+          "limit": {
+            "type": "number",
+            "nullable": true,
+            "example": 3,
+            "description": "โควตา (set_limit ต้องส่งเป็นตัวเลข · grant ไม่ส่ง = คงโควตาเดิม หรือโควตาสูงสุดของแพ็กเกจที่มีฟีเจอร์นี้ · revoke ไม่ส่ง)"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "หมดอายุ (ต้องเป็นอนาคต) · ไม่ส่ง/null = ไม่หมดอายุ — หมดแล้วฟีเจอร์กลับตามแพ็กเกจในรอบ cache ถัดไป (≤ 60 วิ)"
+          }
+        },
+        "required": [
+          "reason",
+          "mode"
+        ]
+      },
       "ApiCallsDto": {
         "type": "object",
         "properties": {
@@ -80911,6 +81252,77 @@
           "resolveNotifiedAt"
         ]
       },
+      "MeLockDto": {
+        "type": "object",
+        "properties": {
+          "planCode": {
+            "type": "string",
+            "example": "std",
+            "nullable": true,
+            "description": "แพ็กเกจแรก (ถูกไปแพง) ที่รวมฟีเจอร์นี้ · null = ไม่มีแพ็กเกจใดรวมไว้"
+          },
+          "planName": {
+            "type": "string",
+            "example": "Growth",
+            "nullable": true
+          },
+          "pricePerVehicleMonthly": {
+            "type": "string",
+            "example": "280.00",
+            "nullable": true,
+            "description": "ราคา/รถ active/เดือน ก่อน VAT ของเวอร์ชันที่มีผลของแพ็กเกจนั้น · null = ตกลงราคา (ติดต่อฝ่ายขาย)"
+          },
+          "addon": {
+            "type": "boolean",
+            "description": "แพ็กเกจปัจจุบันขายฟีเจอร์นี้เป็น add-on (ปุ่ม \"ซื้อ Add-on\" แทน \"อัปเกรด\")"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "not_in_plan",
+              "revoked"
+            ],
+            "description": "not_in_plan = แพ็กเกจไม่รวม (อัปเกรด/ซื้อ add-on) · revoked = แพ็กเกจรวมอยู่แต่ผู้ให้บริการปิดสิทธิ์ให้ tenant นี้ (override) — ไม่มีแพ็กเกจให้อัปเกรด (planCode/planName/ราคา = null) ติดต่อทีมงานผู้ให้บริการ"
+          }
+        },
+        "required": [
+          "planCode",
+          "planName",
+          "pricePerVehicleMonthly",
+          "addon",
+          "reason"
+        ]
+      },
+      "FeatureRequestDto": {
+        "type": "object",
+        "properties": {
+          "featureKey": {
+            "type": "string",
+            "example": "report",
+            "description": "featureKey ของโมดูลที่ไม่รวมในแพ็กเกจ (จาก `locks` ของ GET /me)"
+          }
+        },
+        "required": [
+          "featureKey"
+        ]
+      },
+      "FeatureRequestResultDto": {
+        "type": "object",
+        "properties": {
+          "notified": {
+            "type": "number",
+            "description": "จำนวนผู้ดูแลระบบที่ได้รับแจ้ง (0 เมื่อแจ้งซ้ำภายใน 24 ชม.)"
+          },
+          "alreadyRequested": {
+            "type": "boolean",
+            "description": "แจ้งโมดูลนี้ไปแล้วภายใน 24 ชม. — ไม่ส่งซ้ำ"
+          }
+        },
+        "required": [
+          "notified",
+          "alreadyRequested"
+        ]
+      },
       "MeImpersonationDto": {
         "type": "object",
         "properties": {
@@ -81088,7 +81500,14 @@
             "example": {
               "multi": "องค์กร"
             },
-            "description": "ฟีเจอร์ที่ยังไม่มี → ชื่อแพ็กเกจแรกที่รวมไว้ (หน้า \"ไม่รวมในแพ็กเกจ\" — spec/01 PLT-076)"
+            "description": "[deprecated — ใช้ `locks` แทน; คงไว้เพื่อไม่ breaking] ฟีเจอร์ที่ยังไม่มี → ชื่อแพ็กเกจแรกที่รวมไว้ (หน้า \"ไม่รวมในแพ็กเกจ\" — spec/01 PLT-076)"
+          },
+          "locks": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/MeLockDto"
+            },
+            "description": "P1-ST1-T02: ฟีเจอร์ที่ไม่รวมในแพ็กเกจ (หลัง add-on/override ก่อนตัดตามสถานะ) → เมนูขึ้น 🔒 + หน้าแนะนำโมดูล (PLT-076) · ฟีเจอร์พื้นฐาน (isBasic) ไม่อยู่ที่นี่ทุกกรณี (PLT-077)"
           }
         },
         "required": [
@@ -81099,7 +81518,8 @@
           "user",
           "features",
           "plan",
-          "lockedIn"
+          "lockedIn",
+          "locks"
         ]
       },
       "NavBadgeDto": {
