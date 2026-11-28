@@ -289,9 +289,16 @@ describe('P1-ST2-T06 คิวอนุมัติการสมัคร', ()
     const x = await signUp(FOUND, { legalName: 'บจก. ตัวอย่างขนส่งไทย' });
     const r = await as('support').post(`/v1/platform/signup-queue/${x.id}/approve`, {
       reason: 'โทรยืนยันกับผู้สมัครแล้ว ชื่อย่อในฟอร์ม',
+      message: 'ปรับชื่อบริษัทให้ตรงกับกรมสรรพากรแล้ว',
       applyOfficialData: true,
     });
     expect(r.status, JSON.stringify(r.body)).toBe(204);
+    // อีเมลอนุมัติ: วันหมดทดลอง + ข้อความถึงผู้สมัคร · เหตุผลภายในไม่อยู่ในอีเมล (review S3)
+    const mails = await db.emailOutbox.findMany({ where: { toAddress: x.email } });
+    const ok = mails.find((m) => m.subject.includes('ยืนยันบริษัทแล้ว'));
+    expect(ok?.textBody).toContain('ปรับชื่อบริษัทให้ตรงกับกรมสรรพากรแล้ว');
+    expect(ok?.textBody).toMatch(/ถึง \d+ /);
+    expect(mails.some((m) => (m.textBody ?? '').includes('โทรยืนยันกับผู้สมัครแล้ว'))).toBe(false);
     const t = await db.tenant.findUniqueOrThrow({ where: { id: x.tenant.id } });
     expect(t.status).toBe('TRIALING');
     expect(t.name).toBe(FOUND_NAME);
@@ -314,14 +321,15 @@ describe('P1-ST2-T06 คิวอนุมัติการสมัคร', ()
         where: { tenantId: x.tenant.id, type: 'verification.approved' },
       }),
     ).toBe(1);
-    // ตัดสินแล้ว = ไม่อยู่ในคิว · อนุมัติซ้ำ = 404
+    // ตัดสินแล้ว = ไม่อยู่ในคิว (GET 404) · ตัดสินซ้ำ = 409
+    expect((await as('support').get(`/v1/platform/signup-queue/${x.id}`)).status).toBe(404);
     expect(
       (
         await as('support').post(`/v1/platform/signup-queue/${x.id}/approve`, {
           reason: 'อนุมัติซ้ำอีกครั้งหนึ่ง',
         })
       ).status,
-    ).toBe(404);
+    ).toBe(409);
   });
 
   it('นโยบายทีมตรวจทุกราย: ชื่อ/ที่อยู่ตรง RD ก็เข้าคิว ผลตรวจ "ตรงกัน"', async () => {
@@ -358,7 +366,22 @@ describe('P1-ST2-T06 คิวอนุมัติการสมัคร', ()
       where: { toAddress: x.email, subject: { contains: 'ขอข้อมูลเพิ่มเติม' } },
     });
     expect(mail?.textBody).toContain('หนังสือรับรองบริษัท');
-    // อนุมัติต่อจาก info_requested ได้
+    // ตรวจต่อ (ผู้สมัครตอบแล้ว) → pending เริ่มนับเวลารอใหม่ (review S2) · ตรวจต่อซ้ำ = 409
+    const rs = await as('support').post(`/v1/platform/signup-queue/${x.id}/resume`, {
+      reason: 'ผู้สมัครส่งเอกสารทางอีเมลแล้ว',
+    });
+    expect(rs.status).toBe(204);
+    const v2 = await db.tenantVerification.findUniqueOrThrow({ where: { tenantId: x.tenant.id } });
+    expect(v2.status).toBe('pending');
+    expect(v2.waitingSince.getTime()).toBeGreaterThan(Date.now() - 60_000);
+    expect(
+      (
+        await as('support').post(`/v1/platform/signup-queue/${x.id}/resume`, {
+          reason: 'ผู้สมัครส่งเอกสารทางอีเมลแล้ว',
+        })
+      ).status,
+    ).toBe(409);
+    // อนุมัติต่อได้
     expect(
       (
         await as('admin').post(`/v1/platform/signup-queue/${x.id}/approve`, {
@@ -400,7 +423,9 @@ describe('P1-ST2-T06 คิวอนุมัติการสมัคร', ()
     await as('admin').post(`/v1/platform/signup-queue/${host.id}/approve`, {
       reason: 'ตรวจเอกสารครบแล้วอนุมัติ',
     });
-    const j = await joinRequest(jur(7), 'join');
+    // ผู้ขอมีบัญชีในบริษัทอื่นอยู่แล้ว — ไม่ใช่ already_member ของบริษัทนี้ (review S1)
+    const other = await signUp(jur(17), { legalName: 'บริษัท บัญชีอื่นขนส่ง จำกัด' });
+    const j = await joinRequest(jur(7), 'join', other.email);
     expect(j).toMatchObject({ status: 'pending_owner', kind: 'join', tenantId: host.tenant.id });
     expect(j.ownerDueAt!.getTime()).toBeGreaterThan(Date.now() + 2 * 86_400_000);
     // อีเมลถึง owner ของบริษัทเดิม
@@ -429,10 +454,25 @@ describe('P1-ST2-T06 คิวอนุมัติการสมัคร', ()
       tenantId: host.id,
       name: 'บริษัท บริษัทเดิมขนส่ง จำกัด',
     });
+    // owner เห็นว่าเลยกำหนดแล้ว = "ทีมงาน TMS กำลังตรวจ" (QA-S2)
+    const tok = await tokenFor(host.tenant.id);
+    const ol = await http().get('/v1/users/join-requests').set('Authorization', `Bearer ${tok}`);
+    expect(ol.body.data[0]).toMatchObject({ id: jid, status: 'pending' });
     const ok = await as('support').post(`/v1/platform/signup-queue/${jid}/approve`, {
       reason: 'owner ไม่ตอบ ยืนยันกับผู้ขอทางโทรศัพท์แล้ว',
     });
     expect(ok.status, JSON.stringify(ok.body)).toBe(204);
+    // owner ทุกคนได้อีเมลว่าทีมงานเพิ่มใคร + วิธีปิดผู้ใช้ (review B1)
+    const added = await db.emailOutbox.findFirst({
+      where: { toAddress: host.email, subject: { contains: 'เพิ่มผู้ใช้' } },
+    });
+    expect(added?.textBody).toContain(j.email);
+    expect(added?.textBody).toContain('ผู้ใช้และสิทธิ์');
+    expect(
+      await db.auditLog.count({
+        where: { entityId: j.id, action: 'platform.join_request_approved' },
+      }),
+    ).toBe(1);
     const row = await db.tenantJoinRequest.findUniqueOrThrow({ where: { id: j.id } });
     expect(row).toMatchObject({ status: 'approved', decidedByType: 'platform_user' });
     const u = await db.appUser.findUniqueOrThrow({ where: { id: row.invitedUserId! } });
@@ -440,7 +480,11 @@ describe('P1-ST2-T06 คิวอนุมัติการสมัคร', ()
     const links = await db.userRole.findMany({ where: { userId: u.id } });
     const roles = await db.role.findMany({ where: { id: { in: links.map((l) => l.roleId) } } });
     expect(roles.map((r) => r.code)).toEqual(['viewer']);
-    expect(await db.emailOutbox.count({ where: { toAddress: j.email } })).toBe(1);
+    expect(
+      await db.emailOutbox.count({
+        where: { toAddress: j.email, tenantId: host.tenant.id },
+      }),
+    ).toBe(1);
   });
 
   it('คำขอเข้าร่วม: owner เห็นในหน้าผู้ใช้ · ปฏิเสธ (เหตุผล ≥ 10) → อีเมลถึงผู้ขอ · owner เชิญอีเมลเดียวกัน = อนุมัติ · "ติดต่อเรา" เข้าคิวทันที', async () => {
@@ -489,22 +533,88 @@ describe('P1-ST2-T06 คิวอนุมัติการสมัคร', ()
     // ติดต่อเรา → เข้าคิวทีมงานทันที (owner ไม่เห็น)
     const c = await joinRequest(jur(8), 'contact');
     expect(c.status).toBe('pending');
+    const cid = encodeId('joinRequest', c.id);
     const q = await as('admin').get('/v1/platform/signup-queue');
-    expect(
-      q.body.data.find((i: { id: string }) => i.id === encodeId('joinRequest', c.id)),
-    ).toMatchObject({
+    expect(q.body.data.find((i: { id: string }) => i.id === cid)).toMatchObject({
       kind: 'contact',
     });
     const ol = await http().get('/v1/users/join-requests').set('Authorization', `Bearer ${tok}`);
     expect(ol.body.data).toEqual([]);
-    // ทีมงานปฏิเสธ "ติดต่อเรา" → อีเมลถึงผู้ขอ
-    const rj = await as('admin').post(
-      `/v1/platform/signup-queue/${encodeId('joinRequest', c.id)}/reject`,
-      {
-        reason: 'ตรวจแล้วข้อมูลบริษัทถูกต้อง',
-      },
+    // ติดต่อเรา: อนุมัติ (= เพิ่มคน) / ปฏิเสธ ไม่ได้ — ปิดเรื่องหรือส่งต่อ owner เท่านั้น (review B1)
+    for (const a of ['approve', 'reject'])
+      expect(
+        (
+          await as('admin').post(`/v1/platform/signup-queue/${cid}/${a}`, {
+            reason: 'ตรวจแล้วอนุมัติได้เลย',
+          })
+        ).status,
+      ).toBe(422);
+    const fw = await as('admin').post(`/v1/platform/signup-queue/${cid}/forward-owner`, {
+      reason: 'ผู้ติดต่อเป็นพนักงาน ส่งให้ owner ตัดสิน',
+    });
+    expect(fw.status).toBe(204);
+    const fwd = await db.tenantJoinRequest.findUniqueOrThrow({ where: { id: c.id } });
+    expect(fwd).toMatchObject({ kind: 'join', status: 'pending_owner' });
+    expect(
+      await db.emailOutbox.count({
+        where: { toAddress: host.email, subject: { contains: 'คำขอเข้าร่วม' } },
+      }),
+    ).toBe(3);
+    // ส่ง "ติดต่อเรา" ซ้ำขณะ owner ถือคำขออยู่ = คงคำขอเดิม (ไม่ข้าม owner)
+    const again = await joinRequest(jur(8), 'contact', c.email);
+    expect(again).toMatchObject({ id: c.id, kind: 'join', status: 'pending_owner' });
+    // ติดต่อเราอีกราย → ปิดเรื่อง (เหตุผล ≥ 10) + อีเมลถึงผู้ติดต่อ
+    const c2 = await joinRequest(jur(8), 'contact');
+    const cl = await as('admin').post(
+      `/v1/platform/signup-queue/${encodeId('joinRequest', c2.id)}/close`,
+      { reason: 'ตรวจแล้วข้อมูลบริษัทถูกต้อง', message: 'ข้อมูลบริษัทในระบบถูกต้องแล้ว' },
     );
-    expect(rj.status).toBe(204);
+    expect(cl.status).toBe(204);
+    expect(await db.tenantJoinRequest.findUniqueOrThrow({ where: { id: c2.id } })).toMatchObject({
+      status: 'rejected',
+    });
+    const cm = await db.emailOutbox.findFirst({ where: { toAddress: c2.email } });
+    expect(cm?.textBody).toContain('ข้อมูลบริษัทในระบบถูกต้องแล้ว');
+    expect(cm?.textBody).not.toContain('ตรวจแล้วข้อมูลบริษัทถูกต้อง');
+  });
+
+  it('คำขอเข้าร่วมบริษัทที่ถูกยกเลิก → 409 · บริษัทไม่มี owner ที่ใช้งานอยู่ → เข้าคิวทันที (review S5)', async () => {
+    const dead = await signUp(jur(9), { legalName: 'บริษัท ยกเลิกแล้วขนส่ง จำกัด' });
+    await as('admin').post(`/v1/platform/signup-queue/${dead.id}/reject`, {
+      reason: 'ปฏิเสธเพื่อทดสอบคำขอเข้าร่วม',
+    });
+    const { token, hash } = newOpaqueToken();
+    await db.signupSession.create({
+      data: {
+        status: 'account_verified',
+        fullName: 'ผู้ขอ ทดสอบ',
+        email: `dead${++seq}@company.co.th`,
+        passwordHash: pwHash,
+        resumeTokenHash: hash,
+        verifiedAt: new Date(),
+      },
+    });
+    // บริษัทที่ยกเลิกแล้วไม่นับเป็นเลขซ้ำตอนค้นหา → ส่งคำขอเข้าร่วมไม่ได้
+    await http()
+      .post('/v1/public/signup/session/company/lookup')
+      .set('X-Signup-Token', token)
+      .send({ taxId: jur(9) });
+    const r = await http()
+      .post('/v1/public/signup/session/company/join-request')
+      .set('X-Signup-Token', token)
+      .send({ taxId: jur(9), kind: 'join' });
+    expect([409, 422]).toContain(r.status);
+    // บริษัทที่ไม่มี owner ที่ใช้งานอยู่ → คำขอเข้าคิวทีมงานทันที
+    const host = await signUp(jur(10), { legalName: 'บริษัท ไม่มีเจ้าของขนส่ง จำกัด' });
+    await as('admin').post(`/v1/platform/signup-queue/${host.id}/approve`, {
+      reason: 'ตรวจเอกสารครบแล้วอนุมัติ',
+    });
+    await owner.appUser.updateMany({
+      where: { tenantId: host.tenant.id },
+      data: { status: 'DISABLED' },
+    });
+    const j = await joinRequest(jur(10), 'join');
+    expect(j).toMatchObject({ status: 'pending', ownerDueAt: null });
   });
 
   it('สิทธิ์: ไม่มี token Console → 401 · token ลูกค้าเรียก /v1/platform/signup-queue ไม่ได้', async () => {

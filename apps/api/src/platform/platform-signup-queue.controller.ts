@@ -116,8 +116,17 @@ export class SignupQueueVerificationDto {
   @ApiProperty({ nullable: true, type: String }) decidedByName!: string | null;
   @ApiProperty({ nullable: true, type: String, format: 'date-time' }) decidedAt!: string | null;
 }
+export class SignupQueueManualSearchDto {
+  @ApiProperty({ description: 'หน้าค้นผู้จด VAT ของกรมสรรพากร' }) rd!: string;
+  @ApiProperty({ description: 'หน้าค้นนิติบุคคลของกรมพัฒนาธุรกิจการค้า' }) dbd!: string;
+}
 export class SignupQueueDetailDto extends SignupQueueItemDto {
   @ApiProperty({ enum: ['found', 'tin_only', 'not_found', 'unavailable'] }) rdStatus!: string;
+  @ApiProperty({
+    type: SignupQueueManualSearchDto,
+    description: 'ลิงก์ค้นด้วยมือ (spec §10.3 ข้อ 8)',
+  })
+  manualSearch!: SignupQueueManualSearchDto;
   @ApiProperty({ type: [SignupQueueCompareRowDto] }) compare!: SignupQueueCompareRowDto[];
   @ApiProperty({ type: SignupQueueCertificateDto, nullable: true })
   certificate!: SignupQueueCertificateDto | null;
@@ -147,7 +156,12 @@ export class SignupQueueDetailDto extends SignupQueueItemDto {
 
 /** PLT-105 เหตุผล ≥ 10 ตัว — ไม่ส่ง/สั้นไป = 422 */
 export class SignupQueueDecisionDto {
-  @ApiProperty({ example: 'ชื่อไม่ตรงกับ ภ.พ.20 ที่แนบมา กรุณาส่งเอกสารใหม่', minLength: 10 })
+  @ApiProperty({
+    example: 'ชื่อไม่ตรงกับ ภ.พ.20 ที่แนบมา กรุณาส่งเอกสารใหม่',
+    minLength: 10,
+    description:
+      'ปฏิเสธ / ขอข้อมูลเพิ่ม: ส่งถึงผู้สมัครทางอีเมล (PLT-105) · อนุมัติ / ปิดเรื่อง / ตรวจต่อ / ส่งต่อ owner: เหตุผลภายใน ลง audit อย่างเดียว',
+  })
   @Transform(trim)
   @IsString()
   @MinLength(10)
@@ -156,12 +170,33 @@ export class SignupQueueDecisionDto {
 }
 export class SignupQueueApproveDto extends SignupQueueDecisionDto {
   @ApiPropertyOptional({
+    maxLength: 500,
+    description: 'ข้อความถึงผู้สมัครในอีเมลอนุมัติ (ไม่บังคับ — เหตุผลภายในไม่ถูกส่ง)',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(500)
+  message?: string;
+  @ApiPropertyOptional({
     description:
       'PLT-106 แก้ชื่อ/ที่อยู่ของบริษัทให้ตรงข้อมูลกรมสรรพากรในขั้นเดียวกับอนุมัติ (เฉพาะ signup ที่พบใน RD)',
   })
   @IsOptional()
   @IsBoolean()
   applyOfficialData?: boolean;
+}
+
+export class SignupQueueCloseDto extends SignupQueueDecisionDto {
+  @ApiPropertyOptional({
+    maxLength: 500,
+    description: 'ข้อความถึงผู้ติดต่อ (ไม่บังคับ — ไม่ส่ง = ข้อความมาตรฐาน)',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(500)
+  message?: string;
 }
 
 /**
@@ -201,8 +236,16 @@ export class PlatformSignupQueueController {
     const doc = await this.queue.certificate(id);
     const data = await defaultFileStore().get(doc.fileKey!);
     const ext = (EXT as Record<string, string>)[doc.mimeType] ?? 'bin';
+    const ascii = `company-certificate.${ext}`;
+    const utf8 = encodeURIComponent(doc.filename ?? ascii).replace(
+      /['()*]/g,
+      (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+    );
     res.setHeader('Content-Type', doc.mimeType);
-    res.setHeader('Content-Disposition', `attachment; filename="company-certificate.${ext}"`);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`,
+    );
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, no-store');
     return new StreamableFile(data);
@@ -220,6 +263,30 @@ export class PlatformSignupQueueController {
   @PlatformAuth('SUPER_ADMIN', 'SUPPORT')
   async reject(@Param('id') id: string, @Body() body: SignupQueueDecisionDto): Promise<void> {
     await this.queue.reject(id, body.reason);
+  }
+
+  /** "ตรวจต่อ" หลังผู้สมัครตอบ: info_requested → pending (เริ่มนับเวลารอใหม่) */
+  @Post(':id/resume')
+  @HttpCode(204)
+  @PlatformAuth('SUPER_ADMIN', 'SUPPORT')
+  async resume(@Param('id') id: string, @Body() body: SignupQueueDecisionDto): Promise<void> {
+    await this.queue.resume(id, body.reason);
+  }
+
+  /** "ติดต่อเรา": ปิดเรื่อง (ไม่เพิ่มคนเข้าบริษัท) — รายการอื่น 422 */
+  @Post(':id/close')
+  @HttpCode(204)
+  @PlatformAuth('SUPER_ADMIN', 'SUPPORT')
+  async close(@Param('id') id: string, @Body() body: SignupQueueCloseDto): Promise<void> {
+    await this.queue.close(id, body);
+  }
+
+  /** "ติดต่อเรา": ส่งต่อ owner ของบริษัทเดิม (คำขอเข้าร่วม +3 วันทำการ) — ไม่มี owner ที่ใช้งานอยู่ 409 */
+  @Post(':id/forward-owner')
+  @HttpCode(204)
+  @PlatformAuth('SUPER_ADMIN', 'SUPPORT')
+  async forwardOwner(@Param('id') id: string, @Body() body: SignupQueueDecisionDto): Promise<void> {
+    await this.queue.forwardToOwner(id, body.reason);
   }
 
   @Post(':id/request-info')

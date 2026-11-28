@@ -29,6 +29,8 @@ import { sessionByToken, viewOf, withJoinName, type SignupSessionView } from './
  * - ย้อนกลับมาแก้ขั้น 2 ได้ระหว่าง `company_submitted` (ยังไม่สร้าง tenant)
  */
 export const LOOKUPS_PER_SESSION = 20;
+/** P1-ST2-T06 คำขอเข้าร่วมได้ไม่เกินกี่บริษัทต่อการสมัคร */
+export const JOINS_PER_SESSION = 3;
 export const CERTIFICATE_MAX_BYTES = 10 * 1024 * 1024;
 const CERT_MIME = ['application/pdf', 'image/jpeg', 'image/png'] as const;
 
@@ -292,34 +294,43 @@ export class SignupCompanyService {
     const dup = await this.lookups.duplicate(body.taxId, branchCode);
     if (!dup.duplicate)
       throw bad('taxId', 'not_existing_company', 'no existing company for this tax ID');
-    const u = await this.db.signupSession.update({
-      where: { id: s.id },
-      data: {
-        taxId: body.taxId,
-        branchCode,
-        joinRequestKind: body.kind,
-        joinTenantId: dup.duplicate.tenantId,
-        joinRequestedAt: new Date(now),
-        lastActivityAt: new Date(now),
-      },
+    const u = await this.db.$transaction(async (tx) => {
+      // การสมัคร 1 ครั้งขอเข้าร่วมได้ไม่เกิน JOINS_PER_SESSION บริษัท (กันใช้เป็นช่องส่งอีเมลถึง owner หลายบริษัท)
+      const others = await tx.tenantJoinRequest.findMany({
+        where: { signupSessionId: s.id, tenantId: { not: dup.duplicate!.tenantId } },
+        distinct: ['tenantId'],
+        select: { tenantId: true },
+      });
+      if (others.length >= JOINS_PER_SESSION) throw new ProblemException('signup_lookup_limit');
+      const row = await tx.signupSession.update({
+        where: { id: s.id },
+        data: {
+          taxId: body.taxId,
+          branchCode,
+          joinRequestKind: body.kind,
+          joinTenantId: dup.duplicate!.tenantId,
+          joinRequestedAt: new Date(now),
+          lastActivityAt: new Date(now),
+        },
+      });
+      await createJoinRequest(
+        tx,
+        this.email,
+        {
+          tenantId: dup.duplicate!.tenantId,
+          kind: body.kind,
+          applicantName: row.fullName ?? row.email ?? '—',
+          email: row.email!,
+          mobile: row.mobile,
+          taxId: body.taxId,
+          branchCode,
+          ip: meta.ip ?? row.ip ?? null,
+          signupSessionId: row.id,
+        },
+        new Date(now),
+      );
+      return row;
     });
-    await createJoinRequest(
-      this.db,
-      this.email,
-      {
-        tenantId: dup.duplicate.tenantId,
-        kind: body.kind,
-        applicantName: u.fullName ?? u.email ?? '—',
-        email: u.email!,
-        mobile: u.mobile,
-        taxId: body.taxId,
-        branchCode,
-        ip: meta.ip ?? u.ip ?? null,
-        signupSessionId: u.id,
-        locale: u.locale,
-      },
-      new Date(now),
-    );
     this.event('signup.join_requested', {
       sessionId: s.id,
       kind: body.kind,

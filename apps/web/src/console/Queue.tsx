@@ -12,10 +12,6 @@ import { can, consoleApi, cunwrap, useSignupQueue, useStaff } from './session';
 type Item = components['schemas']['SignupQueueItemDto'];
 type Detail = components['schemas']['SignupQueueDetailDto'];
 
-/** ลิงก์ค้นด้วยมือเมื่อเรียกข้อมูลทางการไม่สำเร็จ (spec/01 §10.3 ข้อ 8 · R-08) */
-export const RD_SEARCH_URL = 'https://vsreg.rd.go.th/VATINFOWSWeb/jsp/V001.jsp';
-export const DBD_SEARCH_URL = 'https://datawarehouse.dbd.go.th/';
-
 /** soft() ของต้นแบบ Platform Console */
 const SOFT = {
   ok: ['#17733F', '#E7F3EC', 'circle-check'],
@@ -245,7 +241,7 @@ export function QueuePage() {
   );
 }
 
-type Dlg = 'approve' | 'reject' | 'info' | null;
+type Dlg = 'approve' | 'reject' | 'info' | 'resume' | 'close' | 'forward' | null;
 const COMPARE_LABEL: Record<string, MessageKey> = {
   name: 'con.q.f.name',
   address: 'con.q.f.address',
@@ -295,25 +291,28 @@ function QueueDrawer({
         : null;
   const canDecide = can.approveSignup(role);
   const rdDiffers = !!x && x.rdStatus === 'found' && x.compare.some((c) => c.differs);
-  const finish = (k: 'approved' | 'rejected' | 'info') => {
+  const contact = x?.kind === 'contact';
+  const waitingApplicant = x?.status === 'info_requested';
+  const finish = (k: 'approved' | 'rejected' | 'info' | 'resumed' | 'closed' | 'forwarded') => {
     void queryClient.invalidateQueries({ queryKey: ['console', 'signup-queue'] });
     void queryClient.invalidateQueries({ queryKey: ['console', 'tenants'] });
     setDlg(null);
     onDone(t(`con.q.toast.${k}`, { n: x?.name ?? '' }));
   };
+  type Path = 'approve' | 'reject' | 'request-info' | 'resume' | 'close' | 'forward-owner';
   const post = (
-    path: 'approve' | 'reject' | 'request-info',
-    body: { reason: string; applyOfficialData?: boolean },
-  ) => {
-    const opts = { params: { path: { id } }, body };
-    return cunwrap(
-      path === 'approve'
-        ? consoleApi.POST('/v1/platform/signup-queue/{id}/approve', opts)
-        : path === 'reject'
-          ? consoleApi.POST('/v1/platform/signup-queue/{id}/reject', opts)
-          : consoleApi.POST('/v1/platform/signup-queue/{id}/request-info', opts),
+    path: Path,
+    body: { reason: string; message?: string; applyOfficialData?: boolean },
+  ) =>
+    cunwrap(
+      consoleApi.POST(
+        `/v1/platform/signup-queue/{id}/${path}` as '/v1/platform/signup-queue/{id}/approve',
+        {
+          params: { path: { id } },
+          body,
+        },
+      ),
     );
-  };
 
   async function downloadCert() {
     const r = await consoleApi.GET('/v1/platform/signup-queue/{id}/certificate', {
@@ -425,7 +424,9 @@ function QueueDrawer({
                         {c.entered ?? '—'}
                       </span>
                       <span role="cell" style={{ color: c.rd ? '#101418' : '#59606B' }}>
-                        {c.rd ?? (join ? '—' : t('con.q.notFound'))}
+                        {c.rd && c.field === 'vatRegisteredSince'
+                          ? thaiDate(c.rd, lang)
+                          : (c.rd ?? (join ? '—' : t('con.q.notFound')))}
                       </span>
                       <span role="cell" style={{ color: '#59606B' }}>
                         {c.dbd ?? t('con.q.notFound')}
@@ -435,11 +436,11 @@ function QueueDrawer({
                 </div>
                 <span style={{ fontSize: 12.5, color: '#59606B' }}>
                   {t('con.q.manual')}{' '}
-                  <a href={RD_SEARCH_URL} target="_blank" rel="noopener noreferrer">
+                  <a href={x.manualSearch.rd} target="_blank" rel="noopener noreferrer">
                     {t('con.q.colRd')}
                   </a>
                   {' · '}
-                  <a href={DBD_SEARCH_URL} target="_blank" rel="noopener noreferrer">
+                  <a href={x.manualSearch.dbd} target="_blank" rel="noopener noreferrer">
                     {t('con.q.colDbd')}
                   </a>
                 </span>
@@ -534,22 +535,48 @@ function QueueDrawer({
         </div>
         {x && canDecide && (
           <div className="con-drawer__foot">
-            <button type="button" className="con-fbtn" onClick={() => setDlg('reject')}>
-              <Icon n="x" s={16} strokeWidth={1.8} />
-              {t('con.q.reject')}
-            </button>
-            <button type="button" className="con-fbtn" onClick={() => setDlg('info')}>
-              <Icon n="mail" s={16} strokeWidth={1.8} />
-              {t('con.q.info')}
-            </button>
-            <button
-              type="button"
-              className="con-fbtn con-fbtn--pri"
-              onClick={() => setDlg('approve')}
-            >
-              <Icon n="check" s={16} strokeWidth={1.8} />
-              {t(join ? 'con.q.approveJoin' : 'con.q.approve')}
-            </button>
+            {contact ? (
+              // "ติดต่อเรา": ทีมงานไม่เพิ่มคนเข้าบริษัทเอง — ปิดเรื่อง / ส่งต่อ owner (review B1)
+              <button type="button" className="con-fbtn" onClick={() => setDlg('close')}>
+                <Icon n="x" s={16} strokeWidth={1.8} />
+                {t('con.q.close')}
+              </button>
+            ) : (
+              <button type="button" className="con-fbtn" onClick={() => setDlg('reject')}>
+                <Icon n="x" s={16} strokeWidth={1.8} />
+                {t('con.q.reject')}
+              </button>
+            )}
+            {waitingApplicant ? (
+              <button type="button" className="con-fbtn" onClick={() => setDlg('resume')}>
+                <Icon n="rotate-ccw" s={16} strokeWidth={1.8} />
+                {t('con.q.resume')}
+              </button>
+            ) : (
+              <button type="button" className="con-fbtn" onClick={() => setDlg('info')}>
+                <Icon n="mail" s={16} strokeWidth={1.8} />
+                {t('con.q.info')}
+              </button>
+            )}
+            {contact ? (
+              <button
+                type="button"
+                className="con-fbtn con-fbtn--pri"
+                onClick={() => setDlg('forward')}
+              >
+                <Icon n="send" s={16} strokeWidth={1.8} />
+                {t('con.q.forward')}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="con-fbtn con-fbtn--pri"
+                onClick={() => setDlg('approve')}
+              >
+                <Icon n="check" s={16} strokeWidth={1.8} />
+                {t(join ? 'con.q.approveJoin' : 'con.q.approve')}
+              </button>
+            )}
           </div>
         )}
       </aside>
@@ -558,27 +585,38 @@ function QueueDrawer({
           title={t('con.q.approveT', { n: x.name })}
           desc={t(join ? 'con.q.approveJoinD' : 'con.q.approveD')}
           warn={join ? t('con.q.approveJoinWarn') : undefined}
-          fields={
-            rdDiffers
+          fields={[
+            ...(rdDiffers
               ? [
                   {
                     k: 'official',
-                    l: 'con.q.official',
-                    type: 'sel',
+                    l: 'con.q.official' as const,
+                    type: 'sel' as const,
                     opts: [
                       { v: 'keep', l: t('con.q.officialKeep') },
                       { v: 'rd', l: t('con.q.officialRd') },
                     ],
                   },
                 ]
-              : []
-          }
-          init={{ official: 'keep' }}
+              : []),
+            ...(join
+              ? []
+              : [
+                  {
+                    k: 'message',
+                    l: 'con.q.message' as const,
+                    type: 'in' as const,
+                    hint: t('con.q.messageHint'),
+                  },
+                ]),
+          ]}
+          init={{ official: 'keep', message: '' }}
           okL={t(join ? 'con.q.approveJoin' : 'con.q.approve')}
           onClose={() => setDlg(null)}
           onOk={async (v, reason) => {
             await post('approve', {
               reason,
+              ...(v.message?.trim() ? { message: v.message.trim() } : {}),
               ...(rdDiffers && v.official === 'rd' ? { applyOfficialData: true } : {}),
             });
             finish('approved');
@@ -610,8 +648,62 @@ function QueueDrawer({
           }}
         />
       )}
+      {x && dlg === 'resume' && (
+        <ActionDialog
+          title={t('con.q.resumeT', { n: x.name })}
+          desc={t('con.q.resumeD')}
+          okL={t('con.q.resume')}
+          onClose={() => setDlg(null)}
+          onOk={async (_v, reason) => {
+            await post('resume', { reason });
+            finish('resumed');
+          }}
+        />
+      )}
+      {x && dlg === 'close' && (
+        <ActionDialog
+          title={t('con.q.closeT', { n: x.name })}
+          desc={t('con.q.closeD')}
+          fields={[{ k: 'message', l: 'con.q.message', type: 'in', hint: t('con.q.messageHint') }]}
+          init={{ message: '' }}
+          okL={t('con.q.close')}
+          onClose={() => setDlg(null)}
+          onOk={async (v, reason) => {
+            await post('close', {
+              reason,
+              ...(v.message?.trim() ? { message: v.message.trim() } : {}),
+            });
+            finish('closed');
+          }}
+        />
+      )}
+      {x && dlg === 'forward' && (
+        <ActionDialog
+          title={t('con.q.forwardT', { n: x.name })}
+          desc={t('con.q.forwardD')}
+          okL={t('con.q.forward')}
+          onClose={() => setDlg(null)}
+          onOk={async (_v, reason) => {
+            await post('forward-owner', { reason });
+            finish('forwarded');
+          }}
+        />
+      )}
     </>
   );
+}
+
+/** "2024-05-02" → "2 พ.ค. 2567" (ปี พ.ศ. เมื่อภาษาไทย — QA-S3) */
+function thaiDate(ymd: string, lang: Lang): string {
+  const d = new Date(`${ymd}T00:00:00+07:00`);
+  if (Number.isNaN(d.getTime())) return ymd;
+  const loc = lang === 'th' ? 'th-TH-u-ca-buddhist' : lang === 'zh' ? 'zh-CN' : 'en-GB';
+  return new Intl.DateTimeFormat(loc, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'Asia/Bangkok',
+  }).format(d);
 }
 
 export type { Detail as SignupQueueDetail };

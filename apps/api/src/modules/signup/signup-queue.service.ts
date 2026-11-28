@@ -15,7 +15,15 @@ import { TenantLifecycleService } from '../tenants/tenant-lifecycle.service';
 import { issueInvitation } from '../users/invitations.controller';
 import type { CompanyAddress, RegistryCompany } from './company-lookup/types';
 import { normalizeCompanyName } from './signup-company.service';
-import { inQueue, notifyJoinApplicant, ownersOfMany } from './join-request';
+import {
+  inQueue,
+  notifyJoinApplicant,
+  notifyOwnersOfJoin,
+  ownersOf,
+  ownersOfMany,
+} from './join-request';
+import { webBaseUrl } from '../../auth/password-reset.controller';
+import { docDate } from '../../common/thai-date';
 import { branchAddressOf } from './signup-complete.service';
 
 /**
@@ -82,6 +90,7 @@ export interface QueueHistoryRow {
 
 export interface QueueDetail extends QueueItem {
   rdStatus: RdStatus;
+  manualSearch: { rd: string; dbd: string };
   compare: CompareRow[];
   certificate: { filename: string | null; mimeType: string; sizeBytes: number } | null;
   duplicate: { tenantId: string; name: string; status: string } | null;
@@ -110,6 +119,25 @@ function addressLine(a: unknown): string | null {
   return s || null;
 }
 const norm = (v: string) => v.replace(/[\s.,]/g, '').toLowerCase();
+
+/** "ติดต่อเรา" ทีมงานปิดเรื่อง/ส่งต่อ owner เท่านั้น · คำขอเข้าร่วม/สมัครใหม่ใช้ปุ่มอื่น (review B1) */
+const contactOnly = (action: string) =>
+  new ProblemException('validation_failed', undefined, [
+    {
+      field: 'kind',
+      code: 'queue_action_unavailable',
+      message: `${action} not allowed for this item`,
+    },
+  ]);
+
+/**
+ * ลิงก์ค้นด้วยมือเมื่อเรียกข้อมูลทางการไม่สำเร็จ (spec/01 §10.3 ข้อ 8 · R-08)
+ * [DECISION — lead 28 พ.ย. 2569, ย้อนได้] URL หน้าค้นสาธารณะ รอ PO ยืนยัน
+ */
+export const MANUAL_SEARCH = {
+  rd: 'https://vsreg.rd.go.th/VATINFOWSWeb/jsp/V001.jsp',
+  dbd: 'https://datawarehouse.dbd.go.th/',
+} as const;
 
 interface SignupFacts {
   tenant: Tenant;
@@ -184,6 +212,7 @@ export class SignupQueueService {
       return {
         ...item,
         rdStatus: f!.rdStatus,
+        manualSearch: { ...MANUAL_SEARCH },
         compare: this.compare(f!),
         certificate: cert
           ? { filename: cert.filename, mimeType: cert.mimeType, sizeBytes: cert.sizeBytes }
@@ -230,6 +259,7 @@ export class SignupQueueService {
     return {
       ...item,
       rdStatus: 'unavailable',
+      manualSearch: { ...MANUAL_SEARCH },
       // คำขอเข้าร่วม: "ที่กรอก" = เลข/สาขาที่ผู้สมัครค้น · ข้อมูลบริษัทเดิมในระบบแสดงคู่กัน (ไม่ค้น RD ซ้ำ)
       compare: [
         {
@@ -296,43 +326,72 @@ export class SignupQueueService {
         })
       : null;
     if (!doc?.fileKey) throw new ProblemException('not_found');
+    // เปิดเอกสารของผู้สมัคร = ลง audit ของ tenant (ข้อมูลส่วนบุคคลในหนังสือรับรอง)
+    await this.tenantAudit(this.db, t.id, 'platform.signup_certificate_viewed', null, {
+      document: encodeId('document', doc.id),
+    });
     return doc;
   }
 
   // ───────────────────────── ตัดสิน ─────────────────────────
 
-  async approve(id: string, body: { reason: string; applyOfficialData?: boolean }) {
+  /**
+   * อนุมัติ — signup: `trialing` + อีเมลถึงผู้สมัคร (วันหมดทดลอง + `message` ถ้ามี — เหตุผลเป็นข้อมูลภายใน ลง audit อย่างเดียว)
+   * join (เลยกำหนด owner 3 วันทำการ — PLT-107): เชิญผู้สมัคร (viewer) + อีเมลแจ้ง owner ทุกคน · contact อนุมัติไม่ได้ (422)
+   */
+  async approve(
+    id: string,
+    body: { reason: string; message?: string; applyOfficialData?: boolean },
+  ) {
     const ref = this.parse(id);
     if (ref.kind === 'join') return this.approveJoin(ref.id, body.reason);
-    const t = await this.pendingTenant(ref.id);
-    const [f] = await this.signupFacts([t]);
-    const compare = this.compare(f!);
-    const diff = compare.filter((c) => c.differs).map((c) => c.field);
+    const t = await this.actionTenant(ref.id);
     const staff = this.staffId();
-    if (body.applyOfficialData && !f!.rd)
-      throw new ProblemException('validation_failed', undefined, [
-        {
-          field: 'applyOfficialData',
-          code: 'official_data_unavailable',
-          message: 'no RD data to apply',
-        },
-      ]);
     await this.db.$transaction(
       async (tx) => {
-        // PLT-106 แก้ชื่อ/ที่อยู่ให้ตรงข้อมูลทางการในขั้นเดียวกับอนุมัติ
+        await this.lockTenant(tx, t.id);
+        // อ่านผลตรวจหลังล็อก — PLT-106 ใช้ข้อมูล RD ชุดเดียวกับที่บันทึก (review S4)
+        const [f] = await this.signupFacts([t], tx);
+        const compare = this.compare(f!);
+        const diff = compare.filter((c) => c.differs).map((c) => c.field);
+        if (body.applyOfficialData && !f!.rd)
+          throw new ProblemException('validation_failed', undefined, [
+            {
+              field: 'applyOfficialData',
+              code: 'official_data_unavailable',
+              message: 'no RD data to apply',
+            },
+          ]);
+        // PLT-106 แก้ชื่อ/ที่อยู่/สาขาให้ตรงข้อมูลทางการในขั้นเดียวกับอนุมัติ (เฉพาะช่องที่ต่าง)
         if (body.applyOfficialData && f!.rd) {
           const rd = f!.rd;
-          await tx.tenant.update({ where: { id: t.id }, data: { name: rd.legalName } });
-          if (f!.company)
-            await tx.company.updateMany({
-              where: { tenantId: t.id, taxId: f!.company.taxId },
-              data: { legalName: rd.legalName },
-            });
-          if (f!.branch)
+          const rdCode = String(rd.branchNumber).padStart(5, '0');
+          if (diff.includes('name')) {
+            await tx.tenant.update({ where: { id: t.id }, data: { name: rd.legalName } });
+            if (f!.company)
+              await tx.company.updateMany({
+                where: { tenantId: t.id, taxId: f!.company.taxId },
+                data: { legalName: rd.legalName },
+              });
+          }
+          if (f!.branch && (diff.includes('address') || diff.includes('branch')))
             await tx.branch.update({
               where: { id: f!.branch.id },
-              data: { address: branchAddressOf(rd.address) },
+              data: {
+                ...(diff.includes('address') ? { address: branchAddressOf(rd.address) } : {}),
+                ...(diff.includes('branch')
+                  ? { branchCode: rdCode, branchLabel: branchLabelOf(rdCode) }
+                  : {}),
+              },
             });
+          await this.tenantAudit(
+            tx,
+            t.id,
+            'platform.signup_official_data_applied',
+            body.reason,
+            Object.fromEntries(compare.filter((c) => c.differs).map((c) => [c.field, c.rd])),
+            Object.fromEntries(compare.filter((c) => c.differs).map((c) => [c.field, c.entered])),
+          );
         }
         const next = await this.lifecycle.transition(
           {
@@ -342,45 +401,51 @@ export class SignupQueueService {
             actor: { type: 'platform_user', id: staff },
             expectFrom: 'PENDING_VERIFICATION',
             auditAction: 'platform.signup_approved',
+            // อีเมลสถานะปกติแนบเหตุผล — อนุมัติส่งอีเมลของตัวเอง (เหตุผลภายในไม่ถึงลูกค้า — review S3)
+            notify: false,
           },
           tx,
         );
         if (!next) throw new ProblemException('invalid_state_transition');
         await this.saveVerification(tx, f!, 'approved', body.reason, diff, staff);
-        if (body.applyOfficialData)
-          await this.tenantAudit(
-            tx,
-            t.id,
-            'platform.signup_official_data_applied',
-            body.reason,
-            {
-              name: f!.rd!.legalName,
-              address: addressLine(branchAddressOf(f!.rd!.address)),
-            },
-            {
-              name: f!.company?.legalName ?? t.name,
-              address: addressLine(f!.branch?.address),
-            },
-          );
         await this.event(tx, t.id, 'verification.approved', { diffFields: diff });
+        if (f!.owner) {
+          const sub = await tx.subscription.findUnique({ where: { tenantId: t.id } });
+          const lang = f!.owner.locale === 'en' ? 'en' : 'th';
+          await this.email.enqueue(tx, {
+            tenantId: t.id,
+            to: f!.owner.email,
+            template: 'signup_approved',
+            locale: lang,
+            vars: {
+              companyName: safeName(next.name),
+              trialEnds: sub?.trialEndsAt
+                ? docDate(sub.trialEndsAt, lang === 'th' ? 'BE' : 'CE')
+                : '—',
+              message: body.message?.trim() ? safeName(body.message.trim(), 500) : null,
+              link: `${webBaseUrl()}/login`,
+            },
+          });
+        }
       },
       { timeout: 30_000 },
     );
     this.entitlements.invalidate(t.id);
   }
 
+  /** ปฏิเสธ — signup: `cancelled` + อีเมลสถานะพร้อมเหตุผล (PLT-105 ส่งเหตุผลถึงผู้สมัคร) · join: rejected + อีเมล · contact ใช้ "ปิดเรื่อง" */
   async reject(id: string, reason: string) {
     const ref = this.parse(id);
     if (ref.kind === 'join') return this.decideJoin(ref.id, 'rejected', reason);
-    const t = await this.pendingTenant(ref.id);
-    const [f] = await this.signupFacts([t]);
-    const diff = this.compare(f!)
-      .filter((c) => c.differs)
-      .map((c) => c.field);
+    const t = await this.actionTenant(ref.id);
     const staff = this.staffId();
     await this.db.$transaction(
       async (tx) => {
-        // อีเมลแจ้งผู้สมัครพร้อมเหตุผล = อีเมลเปลี่ยนสถานะของบริการสถานะ (ส่งถึง owner = ผู้สมัคร)
+        await this.lockTenant(tx, t.id);
+        const [f] = await this.signupFacts([t], tx);
+        const diff = this.compare(f!)
+          .filter((c) => c.differs)
+          .map((c) => c.field);
         const next = await this.lifecycle.transition(
           {
             tenantId: t.id,
@@ -401,20 +466,20 @@ export class SignupQueueService {
     this.entitlements.invalidate(t.id);
   }
 
+  /** ขอข้อมูลเพิ่ม — เหตุผลส่งถึงผู้สมัครทางอีเมล (PLT-105) · รายการยังอยู่ในคิว (ไม่นับ SLA) */
   async requestInfo(id: string, reason: string) {
     const ref = this.parse(id);
     if (ref.kind === 'join') return this.decideJoin(ref.id, 'info_requested', reason);
-    const t = await this.pendingTenant(ref.id);
-    const [f] = await this.signupFacts([t]);
-    const diff = this.compare(f!)
-      .filter((c) => c.differs)
-      .map((c) => c.field);
+    const t = await this.actionTenant(ref.id);
     const staff = this.staffId();
     await this.db.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM tenant WHERE id = ${t.id}::uuid FOR UPDATE`;
-      const cur = await tx.tenant.findUniqueOrThrow({ where: { id: t.id } });
-      if (cur.status !== 'PENDING_VERIFICATION')
+      await this.lockTenant(tx, t.id);
+      const [f] = await this.signupFacts([t], tx);
+      if (f!.verification?.status === 'info_requested')
         throw new ProblemException('invalid_state_transition');
+      const diff = this.compare(f!)
+        .filter((c) => c.differs)
+        .map((c) => c.field);
       await this.saveVerification(tx, f!, 'info_requested', reason, diff, staff);
       await this.tenantAudit(tx, t.id, 'platform.signup_info_requested', reason, {
         verification: 'info_requested',
@@ -425,9 +490,51 @@ export class SignupQueueService {
           tenantId: t.id,
           to: f!.owner.email,
           template: 'signup_info_requested',
-          locale: f!.owner.locale,
+          locale: f!.owner.locale === 'en' ? 'en' : 'th',
           vars: { companyName: safeName(t.name), reason: safeName(reason, 500) },
         });
+    });
+  }
+
+  /** "ตรวจต่อ" หลังผู้สมัครตอบ: info_requested → pending · เริ่มนับเวลารอใหม่ (spec §10.3 ข้อ 6 — review S2) */
+  async resume(id: string, reason: string) {
+    const ref = this.parse(id);
+    const now = new Date();
+    const staff = this.staffId();
+    if (ref.kind === 'join') {
+      await this.db.$transaction(async (tx) => {
+        const cur = await this.lockJoin(tx, ref.id, now);
+        if (cur.status !== 'info_requested') throw new ProblemException('invalid_state_transition');
+        // ownerDueAt = เวลาที่เข้าคิว (เลยกำหนด owner แล้ว) — เริ่มนับเวลารอใหม่
+        await tx.tenantJoinRequest.update({
+          where: { id: cur.id },
+          data: { status: 'pending', ownerDueAt: now },
+        });
+        await this.tenantAudit(
+          tx,
+          cur.tenantId,
+          'platform.join_request_review_resumed',
+          reason,
+          { status: 'pending' },
+          { status: cur.status },
+          'join_request',
+          cur.id,
+        );
+      });
+      return;
+    }
+    const t = await this.actionTenant(ref.id);
+    await this.db.$transaction(async (tx) => {
+      await this.lockTenant(tx, t.id);
+      const v = await tx.tenantVerification.findUnique({ where: { tenantId: t.id } });
+      if (v?.status !== 'info_requested') throw new ProblemException('invalid_state_transition');
+      await tx.tenantVerification.update({
+        where: { tenantId: t.id },
+        data: { status: 'pending', waitingSince: now, decidedBy: staff, decidedAt: now },
+      });
+      await this.tenantAudit(tx, t.id, 'platform.signup_review_resumed', reason, {
+        verification: 'pending',
+      });
     });
   }
 
@@ -435,16 +542,22 @@ export class SignupQueueService {
 
   private async approveJoin(id: string, reason: string) {
     const now = new Date();
-    const j = await this.openJoin(id, now);
+    await this.actionJoin(id, now);
     const staff = this.staffId();
     await this.db.$transaction(
       async (tx) => {
-        const cur = await this.lockJoin(tx, j.id, now);
+        const cur = await this.lockJoin(tx, id, now);
+        if (cur.kind !== 'join') throw contactOnly('approve');
         const target = await tx.tenant.findUniqueOrThrow({ where: { id: cur.tenantId } });
         if (target.status === 'CANCELLED' || target.status === 'SUSPENDED')
           throw new ProblemException('invalid_state_transition');
+        // มีบัญชีในบริษัทเดิมแล้ว (บัญชีในบริษัทอื่นไม่นับ — review S1)
         const existing = await tx.appUser.findFirst({
-          where: { email: iEquals(cur.email), status: { not: 'DELETED' } },
+          where: {
+            tenantId: cur.tenantId,
+            email: iEquals(cur.email),
+            status: { not: 'DELETED' },
+          },
           select: { id: true },
         });
         if (existing) throw new ProblemException('already_member');
@@ -485,12 +598,34 @@ export class SignupQueueService {
             invitedUserId: user.id,
           },
         });
+        // owner ไม่ได้ตัดสินเอง → แจ้ง owner ที่ใช้งานอยู่ทุกคน: ใครถูกเพิ่ม + วิธีปิดผู้ใช้ (review B1)
+        const owners = await ownersOf(tx, cur.tenantId);
+        await this.email.enqueueMany(
+          tx,
+          owners.map((o) => ({
+            tenantId: cur.tenantId,
+            to: o.email,
+            template: 'join_request_added' as const,
+            locale: o.locale === 'en' ? 'en' : 'th',
+            vars: {
+              companyName: safeName(target.name),
+              applicantName: safeName(cur.applicantName),
+              applicantEmail: cur.email,
+              link: `${webBaseUrl()}/settings?sec=users`,
+            },
+          })),
+        );
         await this.tenantAudit(
           tx,
           cur.tenantId,
           'platform.join_request_approved',
           reason,
-          { status: 'approved', user: encodeId('user', user.id), roles: ['viewer'] },
+          {
+            status: 'approved',
+            user: encodeId('user', user.id),
+            roles: ['viewer'],
+            ownersNotified: owners.length,
+          },
           { status: cur.status },
           'join_request',
           cur.id,
@@ -502,19 +637,16 @@ export class SignupQueueService {
 
   private async decideJoin(id: string, status: 'rejected' | 'info_requested', reason: string) {
     const now = new Date();
-    const j = await this.openJoin(id, now);
+    await this.actionJoin(id, now);
     const staff = this.staffId();
     await this.db.$transaction(async (tx) => {
-      const cur = await this.lockJoin(tx, j.id, now);
+      const cur = await this.lockJoin(tx, id, now);
+      if (status === 'rejected' && cur.kind !== 'join') throw contactOnly('reject');
+      if (status === 'info_requested' && cur.status === 'info_requested')
+        throw new ProblemException('invalid_state_transition');
       await tx.tenantJoinRequest.update({
         where: { id: cur.id },
-        data: {
-          status,
-          reason,
-          decidedByType: 'platform_user',
-          decidedBy: staff,
-          decidedAt: now,
-        },
+        data: { status, reason, decidedByType: 'platform_user', decidedBy: staff, decidedAt: now },
       });
       await this.tenantAudit(
         tx,
@@ -532,10 +664,86 @@ export class SignupQueueService {
     });
   }
 
+  /**
+   * "ติดต่อเรา": ปิดเรื่อง — ไม่เพิ่มคนเข้าบริษัท · เหตุผลภายใน (audit) · `message` ถึงผู้สมัคร (ไม่ส่ง = ข้อความมาตรฐาน)
+   */
+  async close(id: string, body: { reason: string; message?: string }) {
+    const ref = this.parse(id);
+    if (ref.kind !== 'join') throw contactOnly('close');
+    const now = new Date();
+    await this.actionJoin(ref.id, now);
+    const staff = this.staffId();
+    await this.db.$transaction(async (tx) => {
+      const cur = await this.lockJoin(tx, ref.id, now);
+      if (cur.kind !== 'contact') throw contactOnly('close');
+      await tx.tenantJoinRequest.update({
+        where: { id: cur.id },
+        data: {
+          status: 'rejected',
+          reason: body.reason,
+          decidedByType: 'platform_user',
+          decidedBy: staff,
+          decidedAt: now,
+        },
+      });
+      await this.tenantAudit(
+        tx,
+        cur.tenantId,
+        'platform.contact_request_closed',
+        body.reason,
+        { status: 'rejected' },
+        { status: cur.status },
+        'join_request',
+        cur.id,
+      );
+      await notifyJoinApplicant(tx, this.email, cur, 'closed', body.message?.trim() ?? '');
+    });
+  }
+
+  /** "ติดต่อเรา": ส่งต่อ owner ของบริษัทเดิม = คำขอเข้าร่วม pending_owner (+3 วันทำการ) + อีเมล owner · ไม่มี owner ที่ใช้งานอยู่ = 409 */
+  async forwardToOwner(id: string, reason: string) {
+    const ref = this.parse(id);
+    if (ref.kind !== 'join') throw contactOnly('forward');
+    const now = new Date();
+    await this.actionJoin(ref.id, now);
+    await this.db.$transaction(async (tx) => {
+      const cur = await this.lockJoin(tx, ref.id, now);
+      if (cur.kind !== 'contact') throw contactOnly('forward');
+      if (!(await ownersOf(tx, cur.tenantId)).length)
+        throw new ProblemException('invalid_state_transition', undefined, undefined, {
+          reason: 'no_active_owner',
+        });
+      const due = addBusinessDays(now, 3);
+      const next = await tx.tenantJoinRequest.update({
+        where: { id: cur.id },
+        data: { kind: 'join', status: 'pending_owner', ownerDueAt: due },
+      });
+      await notifyOwnersOfJoin(tx, this.email, next, due);
+      await this.tenantAudit(
+        tx,
+        cur.tenantId,
+        'platform.contact_request_forwarded',
+        reason,
+        { kind: 'join', status: 'pending_owner', ownerDueAt: due.toISOString() },
+        { kind: cur.kind, status: cur.status },
+        'join_request',
+        cur.id,
+      );
+    });
+  }
+
   private async lockJoin(tx: Prisma.TransactionClient, id: string, now: Date) {
     await tx.$queryRaw`SELECT id FROM tenant_join_request WHERE id = ${id}::uuid FOR UPDATE`;
     const cur = await tx.tenantJoinRequest.findUniqueOrThrow({ where: { id } });
     if (!inQueue(cur, now)) throw new ProblemException('invalid_state_transition');
+    return cur;
+  }
+
+  private async lockTenant(tx: Prisma.TransactionClient, id: string) {
+    await tx.$queryRaw`SELECT id FROM tenant WHERE id = ${id}::uuid FOR UPDATE`;
+    const cur = await tx.tenant.findUniqueOrThrow({ where: { id } });
+    if (cur.status !== 'PENDING_VERIFICATION')
+      throw new ProblemException('invalid_state_transition');
     return cur;
   }
 
@@ -549,7 +757,7 @@ export class SignupQueueService {
     return { kind: m[1] === 'ten' ? 'tenant' : 'join', id: uuid };
   }
 
-  /** tenant ที่อยู่ในคิว (live + pending_verification) — อื่น ๆ 404 (ตัดสินแล้ว = ไม่อยู่ในคิว) */
+  /** tenant ที่อยู่ในคิว (live + pending_verification) — อื่น ๆ 404 (ดูรายละเอียด) */
   private async pendingTenant(id: string): Promise<Tenant> {
     const t = await this.db.tenant.findUnique({ where: { id } });
     if (!t || t.mode !== 'live' || t.status !== 'PENDING_VERIFICATION')
@@ -560,6 +768,22 @@ export class SignupQueueService {
   private async openJoin(id: string, now: Date): Promise<TenantJoinRequest> {
     const j = await this.db.tenantJoinRequest.findUnique({ where: { id } });
     if (!j || !inQueue(j, now)) throw new ProblemException('not_found');
+    return j;
+  }
+
+  /** tenant ที่ตัดสินได้: ไม่มี = 404 · ตัดสินแล้ว/ไม่อยู่ในคิว = 409 */
+  private async actionTenant(id: string): Promise<Tenant> {
+    const t = await this.db.tenant.findUnique({ where: { id } });
+    if (!t || t.mode !== 'live') throw new ProblemException('not_found');
+    if (t.status !== 'PENDING_VERIFICATION') throw new ProblemException('invalid_state_transition');
+    return t;
+  }
+
+  /** คำขอที่ตัดสินได้: ไม่มี = 404 · ตัดสินแล้ว / owner ยังถืออยู่ = 409 */
+  private async actionJoin(id: string, now: Date): Promise<TenantJoinRequest> {
+    const j = await this.db.tenantJoinRequest.findUnique({ where: { id } });
+    if (!j) throw new ProblemException('not_found');
+    if (!inQueue(j, now)) throw new ProblemException('invalid_state_transition');
     return j;
   }
 
@@ -582,10 +806,12 @@ export class SignupQueueService {
     return m;
   }
 
-  private async signupFacts(tenants: Tenant[]): Promise<SignupFacts[]> {
+  private async signupFacts(
+    tenants: Tenant[],
+    db: Prisma.TransactionClient = this.db,
+  ): Promise<SignupFacts[]> {
     if (!tenants.length) return [];
     const ids = tenants.map((t) => t.id);
-    const db = this.db;
     const [companies, branches, signups, verifications] = await Promise.all([
       db.company.findMany({ where: { tenantId: { in: ids } }, orderBy: { createdAt: 'asc' } }),
       db.branch.findMany({
@@ -609,7 +835,12 @@ export class SignupQueueService {
       : [];
     const dupTenants = sameTax.length
       ? await db.tenant.findMany({
-          where: { id: { in: sameTax.map((c) => c.tenantId) }, mode: 'live' },
+          // บริษัทที่ยกเลิกแล้วไม่นับเป็นเลขซ้ำ (QA-S1 — ตาราง/drawer ใช้ค่าเดียวกันนี้)
+          where: {
+            id: { in: sameTax.map((c) => c.tenantId) },
+            mode: 'live',
+            status: { not: 'CANCELLED' },
+          },
         })
       : [];
     const dupById = new Map(dupTenants.map((t) => [t.id, t]));
@@ -733,8 +964,8 @@ export class SignupQueueService {
   }
 
   private joinItem(j: TenantJoinRequest, companyName: string, now: Date): QueueItem {
-    // เวลาเริ่มรอในคิว: join = ครบกำหนด owner ตอบ · contact = ส่งคำขอ
-    const waiting = j.kind === 'join' && j.ownerDueAt ? j.ownerDueAt : j.createdAt;
+    // เวลาเริ่มรอในคิว: ownerDueAt = ครบกำหนด owner ตอบ / กด "ตรวจต่อ" · ไม่มี (contact / ไม่มี owner) = ส่งคำขอ
+    const waiting = j.ownerDueAt ?? j.createdAt;
     const status = j.status === 'info_requested' ? 'info_requested' : 'pending';
     return {
       id: encodeId('joinRequest', j.id),
@@ -864,10 +1095,10 @@ export class SignupQueueService {
   }
 
   private tenantAudit(
-    tx: Prisma.TransactionClient,
+    tx: Pick<Prisma.TransactionClient, 'auditLog'>,
     tenantId: string,
     action: string,
-    reason: string,
+    reason: string | null,
     after: object,
     before?: object,
     entityType = 'tenant',

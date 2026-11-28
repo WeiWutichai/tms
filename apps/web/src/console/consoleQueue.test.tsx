@@ -63,6 +63,7 @@ const join = {
 const detail = {
   ...item,
   rdStatus: 'found',
+  manualSearch: { rd: 'https://rd.example/search', dbd: 'https://dbd.example/search' },
   compare: [
     {
       field: 'name',
@@ -212,5 +213,34 @@ describe('คิวอนุมัติการสมัคร (P1-ST2-T06)', 
     await screen.findByText('cert.pdf');
     expect(screen.queryByRole('button', { name: th['con.q.approve'] })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: th['con.q.reject'] })).not.toBeInTheDocument();
+  });
+
+  it('ติดต่อเรา: ไม่มีปุ่มอนุมัติ — ปิดเรื่อง / ส่งต่อ owner · ขอข้อมูลเพิ่มแล้ว = ปุ่ม "ตรวจต่อ" · วันจด VAT เป็นวันที่ไทย', async () => {
+    get.mockImplementation((p: string) =>
+      Promise.resolve({
+        data:
+          p === '/v1/platform/signup-queue'
+            ? { policy: 'auto_when_verified', data: [join] }
+            : { ...detail, ...join, kind: 'contact', status: 'info_requested' },
+      }),
+    );
+    show('/console/queue/jrq_bbbb');
+    await screen.findByRole('button', { name: th['con.q.close'] });
+    expect(screen.queryByRole('button', { name: th['con.q.approve'] })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: th['con.q.approveJoin'] })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: th['con.q.close'] })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: th['con.q.resume'] })).toBeInTheDocument();
+    expect(screen.getByText('2 พ.ค. 2567')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: th['con.q.forward'] }));
+    const dlg = await screen.findByRole('dialog', {
+      name: th['con.q.forwardT'].replace('{n}', join.name),
+    });
+    fireEvent.change(within(dlg).getByLabelText(th['con.reason']), {
+      target: { value: 'ผู้ติดต่อเป็นพนักงานบริษัท' },
+    });
+    fireEvent.click(within(dlg).getByRole('button', { name: th['con.q.forward'] }));
+    await waitFor(() =>
+      expect(post.mock.calls[0]![0]).toBe('/v1/platform/signup-queue/{id}/forward-owner'),
+    );
   });
 });

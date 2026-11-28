@@ -7115,6 +7115,171 @@
         ]
       }
     },
+    "/v1/platform/signup-queue/{id}/resume": {
+      "post": {
+        "operationId": "PlatformSignupQueue_resume",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignupQueueDecisionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "",
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/platform/signup-queue/{id}/close": {
+      "post": {
+        "operationId": "PlatformSignupQueue_close",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignupQueueCloseDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "",
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/platform/signup-queue/{id}/forward-owner": {
+      "post": {
+        "operationId": "PlatformSignupQueue_forwardOwner",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignupQueueDecisionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "",
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
     "/v1/platform/signup-queue/{id}/request-info": {
       "post": {
         "operationId": "PlatformSignupQueue_requestInfo",
@@ -78877,7 +79042,8 @@
           },
           "mobile": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "เฉพาะผู้มีสิทธิ์ users:write"
           },
           "branchCode": {
             "type": "string"
@@ -83954,6 +84120,23 @@
           "data"
         ]
       },
+      "SignupQueueManualSearchDto": {
+        "type": "object",
+        "properties": {
+          "rd": {
+            "type": "string",
+            "description": "หน้าค้นผู้จด VAT ของกรมสรรพากร"
+          },
+          "dbd": {
+            "type": "string",
+            "description": "หน้าค้นนิติบุคคลของกรมพัฒนาธุรกิจการค้า"
+          }
+        },
+        "required": [
+          "rd",
+          "dbd"
+        ]
+      },
       "SignupQueueCompareRowDto": {
         "type": "object",
         "properties": {
@@ -84198,6 +84381,14 @@
               "unavailable"
             ]
           },
+          "manualSearch": {
+            "description": "ลิงก์ค้นด้วยมือ (spec §10.3 ข้อ 8)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SignupQueueManualSearchDto"
+              }
+            ]
+          },
           "compare": {
             "type": "array",
             "items": {
@@ -84271,6 +84462,7 @@
           "waitingSince",
           "overSla",
           "rdStatus",
+          "manualSearch",
           "compare",
           "certificate",
           "duplicate",
@@ -84287,7 +84479,13 @@
           "reason": {
             "type": "string",
             "example": "ชื่อไม่ตรงกับ ภ.พ.20 ที่แนบมา กรุณาส่งเอกสารใหม่",
-            "minLength": 10
+            "minLength": 10,
+            "description": "ปฏิเสธ / ขอข้อมูลเพิ่ม: ส่งถึงผู้สมัครทางอีเมล (PLT-105) · อนุมัติ / ปิดเรื่อง / ตรวจต่อ / ส่งต่อ owner: เหตุผลภายใน ลง audit อย่างเดียว"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "ข้อความถึงผู้สมัครในอีเมลอนุมัติ (ไม่บังคับ — เหตุผลภายในไม่ถูกส่ง)"
           },
           "applyOfficialData": {
             "type": "boolean",
@@ -84304,7 +84502,27 @@
           "reason": {
             "type": "string",
             "example": "ชื่อไม่ตรงกับ ภ.พ.20 ที่แนบมา กรุณาส่งเอกสารใหม่",
-            "minLength": 10
+            "minLength": 10,
+            "description": "ปฏิเสธ / ขอข้อมูลเพิ่ม: ส่งถึงผู้สมัครทางอีเมล (PLT-105) · อนุมัติ / ปิดเรื่อง / ตรวจต่อ / ส่งต่อ owner: เหตุผลภายใน ลง audit อย่างเดียว"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "SignupQueueCloseDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "ชื่อไม่ตรงกับ ภ.พ.20 ที่แนบมา กรุณาส่งเอกสารใหม่",
+            "minLength": 10,
+            "description": "ปฏิเสธ / ขอข้อมูลเพิ่ม: ส่งถึงผู้สมัครทางอีเมล (PLT-105) · อนุมัติ / ปิดเรื่อง / ตรวจต่อ / ส่งต่อ owner: เหตุผลภายใน ลง audit อย่างเดียว"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "ข้อความถึงผู้ติดต่อ (ไม่บังคับ — ไม่ส่ง = ข้อความมาตรฐาน)"
           }
         },
         "required": [

@@ -141,17 +141,34 @@ export class InvitationsController {
       data: roles.map((r) => ({ tenantId, userId: user.id, roleId: r.id })),
     });
     const inv = await this.issue(tx, user, roles);
-    // P1-ST2-T06 (PLT-107): เชิญอีเมลที่มีคำขอเข้าร่วมค้างอยู่ = อนุมัติคำขอนั้น (owner ตัดสิน — ไม่เข้าคิวทีมงานอีก)
-    const joined = await tx.tenantJoinRequest.updateMany({
-      where: { email: body.email, status: { in: ['pending_owner', 'pending', 'info_requested'] } },
-      data: {
-        status: 'approved',
-        decidedByType: 'tenant_user',
-        decidedBy: /^[0-9a-f-]{36}$/i.test(ctx.actorId ?? '') ? ctx.actorId! : null,
-        decidedAt: new Date(),
-        invitedUserId: user.id,
+    // P1-ST2-T06 (PLT-107): เชิญอีเมลที่มีคำขอเข้าร่วม (kind join) ค้างอยู่ = owner อนุมัติคำขอนั้น · audit ต่อคำขอ
+    const joins = await tx.tenantJoinRequest.findMany({
+      where: {
+        kind: 'join',
+        email: body.email,
+        status: { in: ['pending_owner', 'pending', 'info_requested'] },
       },
+      select: { id: true, status: true },
     });
+    for (const j of joins) {
+      await tx.tenantJoinRequest.update({
+        where: { id: j.id },
+        data: {
+          status: 'approved',
+          decidedByType: 'tenant_user',
+          decidedBy: /^[0-9a-f-]{36}$/i.test(ctx.actorId ?? '') ? ctx.actorId! : null,
+          decidedAt: new Date(),
+          invitedUserId: user.id,
+        },
+      });
+      await this.audit.record({
+        action: 'tenant.join_request_approved',
+        entityType: 'join_request',
+        entityId: j.id,
+        before: { status: j.status },
+        after: { status: 'approved', user: encodeId('user', user.id) },
+      });
+    }
     await this.audit.record({
       action: 'user.invited',
       entityType: 'user',
@@ -160,7 +177,7 @@ export class InvitationsController {
       after: {
         roles: [...body.roles].sort(),
         invitationId: inv.id,
-        ...(joined.count ? { joinRequestApproved: true } : {}),
+        ...(joins.length ? { joinRequestApproved: true } : {}),
       },
     });
     return this.toDto(inv, user, roles);

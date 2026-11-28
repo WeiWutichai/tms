@@ -16,7 +16,8 @@ export class JoinRequestDto {
   @ApiProperty({ example: 'jrq_…' }) id!: string;
   @ApiProperty() applicantName!: string;
   @ApiProperty() email!: string;
-  @ApiProperty({ nullable: true, type: String }) mobile!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'เฉพาะผู้มีสิทธิ์ users:write' })
+  mobile!: string | null;
   @ApiProperty() branchCode!: string;
   @ApiProperty({
     enum: ['pending_owner', 'pending'],
@@ -71,7 +72,11 @@ export class JoinRequestsController {
       orderBy: { createdAt: 'asc' },
       take: 100,
     });
-    return { data: rows.map(toDto) };
+    // เบอร์มือถือผู้ขอ: เฉพาะผู้ที่ตัดสินได้ (users:write)
+    const sc = requestContext.require().scopes ?? [];
+    const canSee = sc.includes('*') || sc.includes('users:write');
+    const now = new Date();
+    return { data: rows.map((j) => toDto(j, now, canSee)) };
   }
 
   @Post(':id/decline')
@@ -104,17 +109,19 @@ export class JoinRequestsController {
       after: { status: 'rejected' },
       reason: body.reason,
     });
-    await notifyJoinApplicant(tx, this.email, j, 'rejected', body.reason);
+    await notifyJoinApplicant(tx, this.email, j, 'rejected', body.reason, false);
   }
 }
 
-const toDto = (j: TenantJoinRequest): JoinRequestDto => ({
+/** เลยกำหนด 3 วันทำการแล้ว = "pending" (ทีมงาน TMS ตรวจแทน — QA-S2) แม้แถวยังเป็น pending_owner */
+const toDto = (j: TenantJoinRequest, now: Date, mobile: boolean): JoinRequestDto => ({
   id: encodeId('joinRequest', j.id),
   applicantName: j.applicantName,
   email: j.email,
-  mobile: j.mobile,
+  mobile: mobile ? j.mobile : null,
   branchCode: j.branchCode,
-  status: j.status,
+  status:
+    j.status === 'pending_owner' && j.ownerDueAt && j.ownerDueAt <= now ? 'pending' : j.status,
   ownerDueAt: j.ownerDueAt?.toISOString() ?? null,
   createdAt: j.createdAt.toISOString(),
 });
