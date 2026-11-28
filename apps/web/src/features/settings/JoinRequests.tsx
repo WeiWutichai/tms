@@ -50,6 +50,8 @@ export function JoinRequestRows({
           <td>
             {j.status === 'pending' ? (
               <Badge label={t('users.join.escalated')} tone="warn" icon="clock" />
+            ) : j.status === 'info_requested' ? (
+              <Badge label={t('users.join.infoRequested')} tone="warn" icon="mail" />
             ) : (
               <span style={{ color: '#3B424C' }}>
                 {j.ownerDueAt

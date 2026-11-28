@@ -530,7 +530,8 @@ export class SignupQueueService {
       if (v?.status !== 'info_requested') throw new ProblemException('invalid_state_transition');
       await tx.tenantVerification.update({
         where: { tenantId: t.id },
-        data: { status: 'pending', waitingSince: now, decidedBy: staff, decidedAt: now },
+        // decidedBy/At คงไว้ = ผู้ขอข้อมูลเพิ่ม · ผู้กด "ตรวจต่อ" อยู่ใน audit (re-review 6)
+        data: { status: 'pending', waitingSince: now },
       });
       await this.tenantAudit(tx, t.id, 'platform.signup_review_resumed', reason, {
         verification: 'pending',
@@ -542,10 +543,12 @@ export class SignupQueueService {
 
   private async approveJoin(id: string, reason: string) {
     const now = new Date();
-    await this.actionJoin(id, now);
+    const pre = await this.actionJoin(id, now);
     const staff = this.staffId();
     await this.db.$transaction(
       async (tx) => {
+        // ลำดับล็อกเดียวกับการเชิญในแอป: seat ของ tenant (advisory 6) ก่อน แถวคำขอ — กัน deadlock (re-review 1)
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(6, hashtext(${pre.tenantId}))`;
         const cur = await this.lockJoin(tx, id, now);
         if (cur.kind !== 'join') throw contactOnly('approve');
         const target = await tx.tenant.findUniqueOrThrow({ where: { id: cur.tenantId } });
@@ -561,8 +564,7 @@ export class SignupQueueService {
           select: { id: true },
         });
         if (existing) throw new ProblemException('already_member');
-        // seat ตาม entitlement `users` (ล็อกเดียวกับการเชิญในแอป)
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(6, hashtext(${cur.tenantId}))`;
+        // seat ตาม entitlement `users` (ถือล็อก 6 แล้วด้านบน)
         const limit = (await this.entitlements.resolve(cur.tenantId)).users?.limit ?? null;
         if (limit !== null) {
           const used = await tx.appUser.count({

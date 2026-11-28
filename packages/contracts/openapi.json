@@ -79052,9 +79052,10 @@
             "type": "string",
             "enum": [
               "pending_owner",
-              "pending"
+              "pending",
+              "info_requested"
             ],
-            "description": "pending_owner = รอผู้ดูแลระบบตัดสิน · pending = เลย 3 วันทำการแล้ว ทีมงาน TMS ตรวจแทน (ยังตัดสินเองได้)"
+            "description": "pending_owner = รอผู้ดูแลระบบตัดสิน · pending = เลย 3 วันทำการแล้ว ทีมงาน TMS ตรวจแทน (ยังตัดสินเองได้) · info_requested = ทีมงานขอข้อมูลเพิ่มจากผู้ขอ"
           },
           "ownerDueAt": {
             "type": "string",
@@ -124566,6 +124567,11 @@
       "status": 409,
       "title": "การสมัครยังไม่เสร็จ ทำต่อจากขั้นที่ค้างไว้",
       "titleEn": "Your sign-up is not finished — continue where you left off"
+    },
+    "signup_join_limit": {
+      "status": 429,
+      "title": "ส่งคำขอเข้าร่วมบริษัทครบจำนวนแล้ว ติดต่อเราหากต้องการความช่วยเหลือ",
+      "titleEn": "Too many company join requests for this sign-up — contact us for help"
     },
     "signup_lookup_limit": {
       "status": 429,

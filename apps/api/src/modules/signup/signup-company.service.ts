@@ -296,12 +296,14 @@ export class SignupCompanyService {
       throw bad('taxId', 'not_existing_company', 'no existing company for this tax ID');
     const u = await this.db.$transaction(async (tx) => {
       // การสมัคร 1 ครั้งขอเข้าร่วมได้ไม่เกิน JOINS_PER_SESSION บริษัท (กันใช้เป็นช่องส่งอีเมลถึง owner หลายบริษัท)
+      // ล็อก session ก่อนนับ — ส่งพร้อมกันหลายแท็บนับถูก (re-review 5)
+      await tx.$queryRaw`SELECT id FROM signup_session WHERE id = ${s.id}::uuid FOR UPDATE`;
       const others = await tx.tenantJoinRequest.findMany({
         where: { signupSessionId: s.id, tenantId: { not: dup.duplicate!.tenantId } },
         distinct: ['tenantId'],
         select: { tenantId: true },
       });
-      if (others.length >= JOINS_PER_SESSION) throw new ProblemException('signup_lookup_limit');
+      if (others.length >= JOINS_PER_SESSION) throw new ProblemException('signup_join_limit');
       const row = await tx.signupSession.update({
         where: { id: s.id },
         data: {

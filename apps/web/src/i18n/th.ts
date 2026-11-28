@@ -6737,6 +6737,8 @@ export const th = {
   'con.q.toast.resumed': 'กลับมาตรวจ {n} แล้ว',
   'con.q.toast.closed': 'ปิดเรื่อง {n} แล้ว',
   'con.q.toast.forwarded': 'ส่งต่อคำขอถึงผู้ดูแลระบบของ {n} แล้ว',
+  'users.join.infoRequested': 'ทีมงาน TMS ขอข้อมูลเพิ่มจากผู้ขอ',
+  'problem.signup_join_limit': 'ส่งคำขอเข้าร่วมบริษัทครบจำนวนแล้ว ติดต่อเราหากต้องการความช่วยเหลือ',
   'users.join.badge': 'ขอเข้าร่วม',
   'users.join.escalated': 'ทีมงาน TMS กำลังตรวจ',
   'users.join.due': 'ตัดสินภายใน {d}',

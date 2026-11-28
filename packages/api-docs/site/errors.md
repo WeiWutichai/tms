@@ -154,6 +154,7 @@
 | [`otp_locked`](#otp_locked) | 429 | ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่ภายหลัง |
 | [`otp_resend_too_soon`](#otp_resend_too_soon) | 429 | ขอรหัสใหม่ได้หลังครบ 60 วินาที |
 | [`rate_limited`](#rate_limited) | 429 | เรียกถี่เกินไป |
+| [`signup_join_limit`](#signup_join_limit) | 429 | ส่งคำขอเข้าร่วมบริษัทครบจำนวนแล้ว ติดต่อเราหากต้องการความช่วยเหลือ |
 | [`signup_lookup_limit`](#signup_lookup_limit) | 429 | ค้นหาเลขผู้เสียภาษีครบจำนวนครั้งแล้ว กรอกข้อมูลบริษัทเองได้ |
 | [`internal_error`](#internal_error) | 500 | ระบบขัดข้อง |
 | [`trip_cost_allocation_failed`](#trip_cost_allocation_failed) | 500 | ปันต้นทุนเที่ยวลงใบส่งของไม่ลงตัว — ยังไม่ปิดต้นทุน กรุณาแจ้งผู้ดูแลระบบ |
@@ -1059,6 +1060,12 @@ HTTP `429` · ขอรหัสใหม่ได้หลังครบ 60 �
 HTTP `429` · เรียกถี่เกินไป
 
 พบใน: [`POST /v1/invoices/{id}/send`](ref-invoices.md#post-invoices-id-send), [`POST /v1/billing-notes/{id}/send`](ref-billing-notes.md#post-billing-notes-id-send)
+
+## signup_join_limit {#signup_join_limit}
+
+HTTP `429` · ส่งคำขอเข้าร่วมบริษัทครบจำนวนแล้ว ติดต่อเราหากต้องการความช่วยเหลือ
+
+อาจตอบได้จากหลาย endpoint
 
 ## signup_lookup_limit {#signup_lookup_limit}
 

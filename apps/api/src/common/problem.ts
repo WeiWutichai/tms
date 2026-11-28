@@ -245,6 +245,12 @@ export const PROBLEMS = {
     en: 'This company already uses TMS — request to join or contact us',
   },
   /** P1-ST2-T04 สมัคร: กด "ค้นหา" เกินเพดานต่อการสมัคร (กันใช้เป็นช่องทางไล่เลขผู้เสียภาษี) */
+  /** P1-ST2-T06 คำขอเข้าร่วมบริษัทครบเพดานต่อการสมัคร */
+  signup_join_limit: {
+    status: 429,
+    th: 'ส่งคำขอเข้าร่วมบริษัทครบจำนวนแล้ว ติดต่อเราหากต้องการความช่วยเหลือ',
+    en: 'Too many company join requests for this sign-up — contact us for help',
+  },
   signup_lookup_limit: {
     status: 429,
     th: 'ค้นหาเลขผู้เสียภาษีครบจำนวนครั้งแล้ว กรอกข้อมูลบริษัทเองได้',

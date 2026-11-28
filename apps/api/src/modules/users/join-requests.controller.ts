@@ -20,9 +20,9 @@ export class JoinRequestDto {
   mobile!: string | null;
   @ApiProperty() branchCode!: string;
   @ApiProperty({
-    enum: ['pending_owner', 'pending'],
+    enum: ['pending_owner', 'pending', 'info_requested'],
     description:
-      'pending_owner = รอผู้ดูแลระบบตัดสิน · pending = เลย 3 วันทำการแล้ว ทีมงาน TMS ตรวจแทน (ยังตัดสินเองได้)',
+      'pending_owner = รอผู้ดูแลระบบตัดสิน · pending = เลย 3 วันทำการแล้ว ทีมงาน TMS ตรวจแทน (ยังตัดสินเองได้) · info_requested = ทีมงานขอข้อมูลเพิ่มจากผู้ขอ',
   })
   status!: string;
   @ApiProperty({ nullable: true, type: String, format: 'date-time' }) ownerDueAt!: string | null;
@@ -44,7 +44,8 @@ export class DeclineJoinRequestDto {
   reason!: string;
 }
 
-const OWNER_VISIBLE = ['pending_owner', 'pending'];
+/** owner เห็น/ปฏิเสธได้ทุกสถานะที่ยังเปิด (รวมขอข้อมูลเพิ่ม — เชิญก็อนุมัติได้ re-review 4) */
+const OWNER_VISIBLE = ['pending_owner', 'pending', 'info_requested'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**

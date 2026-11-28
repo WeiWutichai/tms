@@ -374,6 +374,14 @@ describe('P1-ST2-T06 คิวอนุมัติการสมัคร', ()
     const v2 = await db.tenantVerification.findUniqueOrThrow({ where: { tenantId: x.tenant.id } });
     expect(v2.status).toBe('pending');
     expect(v2.waitingSince.getTime()).toBeGreaterThan(Date.now() - 60_000);
+    // ผู้ขอข้อมูลเพิ่มยังอยู่ (ตรวจต่อไม่เขียนทับ — re-review 6) · ผู้กดตรวจต่ออยู่ใน audit
+    expect(v2.reason).toBe('กรุณาแนบหนังสือรับรองบริษัทไม่เกิน 6 เดือน');
+    expect(v2.decidedBy).not.toBeNull();
+    expect(
+      await db.auditLog.count({
+        where: { tenantId: x.tenant.id, action: 'platform.signup_review_resumed' },
+      }),
+    ).toBe(1);
     expect(
       (
         await as('support').post(`/v1/platform/signup-queue/${x.id}/resume`, {
@@ -615,6 +623,137 @@ describe('P1-ST2-T06 คิวอนุมัติการสมัคร', ()
     });
     const j = await joinRequest(jur(10), 'join');
     expect(j).toMatchObject({ status: 'pending', ownerDueAt: null });
+  });
+
+  it('re-review: owner ปฏิเสธคำขอที่ทีมงานขอข้อมูลเพิ่มได้ · เชิญอีเมลของ "ติดต่อเรา" = ปิดคำขอ · BILLING 403 ทุกปุ่ม · ≤ 3 บริษัท/การสมัคร', async () => {
+    const host = await signUp(jur(11), { legalName: 'บริษัท รีวิวรอบสอง จำกัด' });
+    await as('admin').post(`/v1/platform/signup-queue/${host.id}/approve`, {
+      reason: 'ตรวจเอกสารครบแล้วอนุมัติ',
+    });
+    const tok = await tokenFor(host.tenant.id);
+    // info_requested: owner ยังเห็นและปฏิเสธได้
+    const j = await joinRequest(jur(11), 'join');
+    await owner.tenantJoinRequest.update({
+      where: { id: j.id },
+      data: { ownerDueAt: new Date(Date.now() - 60_000) },
+    });
+    const jid = encodeId('joinRequest', j.id);
+    expect(
+      (
+        await as('support').post(`/v1/platform/signup-queue/${jid}/request-info`, {
+          reason: 'ขอชื่อหัวหน้างานที่รับรองผู้ขอ',
+        })
+      ).status,
+    ).toBe(204);
+    const ol = await http().get('/v1/users/join-requests').set('Authorization', `Bearer ${tok}`);
+    expect(ol.body.data.find((x: { id: string }) => x.id === jid)).toMatchObject({
+      status: 'info_requested',
+    });
+    expect(
+      (
+        await http()
+          .post(`/v1/users/join-requests/${jid}/decline`)
+          .set('Authorization', `Bearer ${tok}`)
+          .send({ reason: 'ไม่ใช่พนักงานของบริษัทเรา' })
+      ).status,
+    ).toBe(204);
+    // BILLING (finance) ใช้ปุ่มใหม่ไม่ได้ (§11.4)
+    const c = await joinRequest(jur(11), 'contact');
+    const cid = encodeId('joinRequest', c.id);
+    for (const a of ['close', 'forward-owner', 'resume'])
+      expect(
+        (
+          await as('billing').post(`/v1/platform/signup-queue/${cid}/${a}`, {
+            reason: 'การเงินพยายามตัดสินคำขอ',
+          })
+        ).status,
+        a,
+      ).toBe(403);
+    // owner เชิญอีเมลของ "ติดต่อเรา" ที่เปิดอยู่ → คำขอปิดอัตโนมัติ + audit
+    const inv = await http()
+      .post('/v1/users/invitations')
+      .set('Authorization', `Bearer ${tok}`)
+      .set('X-Step-Up', stepUpHeaderFor(tok)!)
+      .send({ email: c.email, name: 'ผู้ติดต่อ', roles: ['viewer'] });
+    expect(inv.status, JSON.stringify(inv.body)).toBe(201);
+    expect(await db.tenantJoinRequest.findUniqueOrThrow({ where: { id: c.id } })).toMatchObject({
+      status: 'approved',
+      decidedByType: 'tenant_user',
+    });
+    expect(
+      await db.auditLog.count({
+        where: { entityId: c.id, action: 'tenant.contact_request_closed_by_invite' },
+      }),
+    ).toBe(1);
+    // เพดาน 3 บริษัทต่อการสมัคร → 429 signup_join_limit
+    const hosts = [];
+    for (const n of [12, 13, 14, 15]) {
+      const h = await signUp(jur(n), { legalName: `บริษัท เพดาน${n} จำกัด` });
+      await as('admin').post(`/v1/platform/signup-queue/${h.id}/approve`, {
+        reason: 'ตรวจเอกสารครบแล้วอนุมัติ',
+      });
+      hosts.push(n);
+    }
+    const { token, hash } = newOpaqueToken();
+    await db.signupSession.create({
+      data: {
+        status: 'account_verified',
+        fullName: 'ผู้ขอ หลายบริษัท',
+        email: `many${++seq}@company.co.th`,
+        passwordHash: pwHash,
+        resumeTokenHash: hash,
+        verifiedAt: new Date(),
+      },
+    });
+    const codes: number[] = [];
+    for (const n of hosts) {
+      await http()
+        .post('/v1/public/signup/session/company/lookup')
+        .set('X-Signup-Token', token)
+        .send({ taxId: jur(n) });
+      const r = await http()
+        .post('/v1/public/signup/session/company/join-request')
+        .set('X-Signup-Token', token)
+        .send({ taxId: jur(n), kind: 'join' });
+      codes.push(r.status);
+      if (r.status !== 200) expect(r.body.code).toBe('signup_join_limit');
+    }
+    expect(codes).toEqual([200, 200, 200, 429]);
+  });
+
+  it('re-review: ทีมงานอนุมัติคำขอเข้าร่วม พร้อมกับ owner เชิญอีเมลเดียวกัน → สำเร็จทางเดียว ไม่ deadlock', async () => {
+    const host = await signUp(jur(16), { legalName: 'บริษัท พร้อมกันขนส่ง จำกัด' });
+    await as('admin').post(`/v1/platform/signup-queue/${host.id}/approve`, {
+      reason: 'ตรวจเอกสารครบแล้วอนุมัติ',
+    });
+    const tok = await tokenFor(host.tenant.id);
+    for (let i = 0; i < 3; i++) {
+      const j = await joinRequest(jur(16), 'join');
+      await owner.tenantJoinRequest.update({
+        where: { id: j.id },
+        data: { ownerDueAt: new Date(Date.now() - 60_000) },
+      });
+      const [a, b] = await Promise.all([
+        as('support').post(`/v1/platform/signup-queue/${encodeId('joinRequest', j.id)}/approve`, {
+          reason: 'owner ไม่ตอบ ยืนยันกับผู้ขอแล้ว',
+        }),
+        http()
+          .post('/v1/users/invitations')
+          .set('Authorization', `Bearer ${tok}`)
+          .set('X-Step-Up', stepUpHeaderFor(tok)!)
+          .send({ email: j.email, name: 'ผู้ขอ', roles: ['viewer'] }),
+      ]);
+      const ok = [a.status === 204, b.status === 201].filter(Boolean).length;
+      expect(
+        ok,
+        `${a.status} ${JSON.stringify(a.body)} / ${b.status} ${JSON.stringify(b.body)}`,
+      ).toBe(1);
+      expect(a.status).not.toBe(500);
+      expect(b.status).not.toBe(500);
+      expect(await db.appUser.count({ where: { tenantId: host.tenant.id, email: j.email } })).toBe(
+        1,
+      );
+    }
   });
 
   it('สิทธิ์: ไม่มี token Console → 401 · token ลูกค้าเรียก /v1/platform/signup-queue ไม่ได้', async () => {

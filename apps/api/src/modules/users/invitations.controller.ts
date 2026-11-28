@@ -141,18 +141,16 @@ export class InvitationsController {
       data: roles.map((r) => ({ tenantId, userId: user.id, roleId: r.id })),
     });
     const inv = await this.issue(tx, user, roles);
-    // P1-ST2-T06 (PLT-107): เชิญอีเมลที่มีคำขอเข้าร่วม (kind join) ค้างอยู่ = owner อนุมัติคำขอนั้น · audit ต่อคำขอ
+    // P1-ST2-T06 (PLT-107): เชิญอีเมลที่มีคำขอเปิดอยู่ = owner ตัดสินแล้ว · join → อนุมัติ · contact → ปิด (ได้เข้าบริษัทแล้ว — re-review 7)
+    // ล็อก seat (advisory 6) ถืออยู่แล้วจาก assertSeat → ลำดับเดียวกับทีมงานอนุมัติ · อัปเดตแบบมีเงื่อนไขสถานะ (ไม่ทับการตัดสินพร้อมกัน)
     const joins = await tx.tenantJoinRequest.findMany({
-      where: {
-        kind: 'join',
-        email: body.email,
-        status: { in: ['pending_owner', 'pending', 'info_requested'] },
-      },
-      select: { id: true, status: true },
+      where: { email: body.email, status: { in: ['pending_owner', 'pending', 'info_requested'] } },
+      select: { id: true, kind: true, status: true },
     });
+    let joined = 0;
     for (const j of joins) {
-      await tx.tenantJoinRequest.update({
-        where: { id: j.id },
+      const r = await tx.tenantJoinRequest.updateMany({
+        where: { id: j.id, status: j.status },
         data: {
           status: 'approved',
           decidedByType: 'tenant_user',
@@ -161,8 +159,13 @@ export class InvitationsController {
           invitedUserId: user.id,
         },
       });
+      if (r.count !== 1) continue;
+      joined++;
       await this.audit.record({
-        action: 'tenant.join_request_approved',
+        action:
+          j.kind === 'join'
+            ? 'tenant.join_request_approved'
+            : 'tenant.contact_request_closed_by_invite',
         entityType: 'join_request',
         entityId: j.id,
         before: { status: j.status },
@@ -177,7 +180,7 @@ export class InvitationsController {
       after: {
         roles: [...body.roles].sort(),
         invitationId: inv.id,
-        ...(joins.length ? { joinRequestApproved: true } : {}),
+        ...(joined ? { joinRequestApproved: true } : {}),
       },
     });
     return this.toDto(inv, user, roles);
