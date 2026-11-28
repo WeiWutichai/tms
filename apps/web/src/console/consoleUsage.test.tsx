@@ -67,12 +67,28 @@ const usage = (o: Record<string, unknown> = {}) => ({
   ...o,
 });
 
+const METRICS = {
+  period: '2026-11',
+  status: 'finalized',
+  finalizedAt: '2026-11-30T19:05:00.000Z',
+  doCreated: 1240,
+  invoicesIssued: 18,
+  apiCalls: { total: 128430, rest: 128430, mcp: 0 },
+  podStorageGb: 6.4,
+  connectors: 1,
+  connectorLimit: 2,
+  users: 12,
+  eTaxDocuments: null,
+  gaugeAsOf: '2026-11-30',
+};
+
 vi.mock('./session', async (orig) => {
   const real = await orig<typeof import('./session')>();
   const handle = (method: string) => (path: string, opts?: Call['opts']) => {
     calls.push({ method, path, opts });
     if (path === '/v1/platform/tenants') return ok([]);
     if (path === '/v1/platform/tenants/{id}') return ok(DETAIL);
+    if (path === '/v1/platform/tenants/{id}/usage/metrics') return ok(METRICS);
     if (path === '/v1/platform/tenants/{id}/usage/active-vehicles' && method === 'GET')
       return ok(usage());
     return ok(usage({ activeVehicles: 1 }));
@@ -158,5 +174,26 @@ describe('Console: แท็บการใช้งาน — รถ active (P1
     fireEvent.click(await screen.findByRole('tab', { name: 'การใช้งาน' }));
     await screen.findByTestId('use-rows');
     expect(screen.queryByRole('button', { name: /ตัดออก|เพิ่มทะเบียน/ })).toBeNull();
+  });
+
+  it('P1-ST1-T07: แถบ ผู้ใช้ / API calls / พื้นที่ POD + การใช้งานอื่น (DO, ใบแจ้งหนี้, REST·MCP, connector, e-Tax "—")', async () => {
+    mount();
+    fireEvent.click(await screen.findByRole('tab', { name: 'การใช้งาน' }));
+    const bars = await screen.findByTestId('use-bars');
+    expect(bars.textContent).toContain('ผู้ใช้');
+    expect(bars.textContent).toContain('12 / ไม่จำกัด คน');
+    expect(bars.textContent).toContain('128,430 / ไม่จำกัด req');
+    expect(bars.textContent).toContain('6.4 / ไม่จำกัด GB');
+    const other = screen.getByTestId('use-other');
+    expect(other.textContent).toContain('DO ที่สร้าง');
+    expect(other.textContent).toContain('1,240 ใบ');
+    expect(other.textContent).toContain('18 ใบ');
+    expect(other.textContent).toContain('REST 128,430 · MCP 0');
+    expect(other.textContent).toContain('1 / 2 ตัว');
+    expect(other.textContent).toContain('เอกสาร e-Tax');
+    expect(other.textContent).toContain('—');
+    expect(calls.find((c) => c.path.endsWith('/usage/metrics'))?.opts).toMatchObject({
+      params: { path: { id: 'ten_1' }, query: { period: expect.any(String) } },
+    });
   });
 });
