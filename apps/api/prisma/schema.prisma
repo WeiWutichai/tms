@@ -3353,6 +3353,32 @@ model SetupChecklistState {
   @@map("setup_checklist_state")
 }
 
+/// P1-ST2-T09 ธง "ข้อมูลตัวอย่าง" (docs/02 §2 "มีข้อมูลตัวอย่างบริษัทขนส่งไทยให้ลองทันที") — 1 แถว/แถวข้อมูลที่ระบบใส่ให้ลอง
+/// entity_type: customer / customer_site / carrier / vehicle / rate_card / sales_order · เขียนโดย SampleDataService ตอนใส่เท่านั้น
+/// ล้าง = ฟังก์ชัน `tms_sample_data_purge()` (migration 0202) ลบเฉพาะแถวที่มีธงและยังไม่ถูกอ้างอิง (role แอปลบ/แก้ตารางนี้ตรงไม่ได้)
+/// รถ/รถร่วมตัวอย่างไม่ถูกนับรถ active · ไม่นับขั้น "นำเข้าข้อมูลหลัก" ของ checklist · DO จาก SO ตัวอย่างไม่นับ usage
+model SampleRecord {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  entityType String   @map("entity_type") @db.VarChar(24)
+  entityId   String   @map("entity_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, entityType, entityId])
+  @@map("sample_record")
+}
+
+/// P1-ST2-T09 domain_event ที่เกิดระหว่างใส่ข้อมูลตัวอย่าง (trigger domain_event_to_outbox เขียน) — ไม่ส่ง outbox, ซ่อนจาก GET /v1/events,
+/// ส่งซ้ำไม่ได้ · คงไว้หลังล้างข้อมูลตัวอย่าง (migration 0202)
+model SampleEvent {
+  tenantId  String   @map("tenant_id") @db.Uuid
+  eventId   String   @map("event_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([tenantId, eventId])
+  @@map("sample_event")
+}
+
 /// ทีม Innovera (ST1-T24; docs/04 A6) — แยกจากผู้ใช้ของลูกค้า ไม่มี tenant_id; role แอปเข้าไม่ได้ (platform เท่านั้น)
 enum PlatformRole {
   SUPER_ADMIN

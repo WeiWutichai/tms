@@ -381,6 +381,18 @@ export const PROBLEMS = {
     th: 'อ่านข้อมูลลับเดิมไม่ได้ (กุญแจเข้ารหัสเดิมถูกถอดออกแล้ว) — กรอกเลขใหม่แทน',
     en: 'Stored secret cannot be decrypted (retired key) — provide a new value',
   },
+  /** P1-ST2-T09 ใส่ข้อมูลตัวอย่างได้เฉพาะบริษัทช่วงทดลองใช้ / sandbox */
+  sample_data_not_allowed: {
+    status: 409,
+    th: 'ใส่ข้อมูลตัวอย่างได้เฉพาะช่วงทดลองใช้หรือใน sandbox',
+    en: 'Sample data is available only during the trial or in the sandbox',
+  },
+  /** P1-ST2-T09 มีข้อมูลตัวอย่างอยู่แล้ว — ล้างก่อนจึงใส่ใหม่ได้ */
+  sample_data_loaded: {
+    status: 409,
+    th: 'มีข้อมูลตัวอย่างอยู่แล้ว — ล้างข้อมูลตัวอย่างก่อนจึงใส่ใหม่ได้',
+    en: 'Sample data is already loaded — clear it first',
+  },
   in_use_active: {
     status: 409,
     th: 'ปิดใช้ไม่ได้ เพราะยังมีข้อมูลที่ใช้งานอยู่อ้างถึง',

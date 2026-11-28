@@ -1,3 +1,4 @@
+import { assertNotSampleCustomer } from '../sample-data/sample-guard';
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma, type StoredDocument } from '@prisma/client';
@@ -199,6 +200,8 @@ export class InvoiceFinalizeService implements OnModuleInit {
       throw new ProblemException('invalid_state_transition', undefined, undefined, {
         currentStatus: inv.status,
       });
+    // P1-ST2-T09: ลูกค้าตัวอย่าง (ข้อมูลสมมติ) ออกเลขเอกสารไม่ได้
+    await assertNotSampleCustomer(tx, inv.customerId);
     const tenant = await tx.tenant.findFirst({ select: { mode: true, yearStyle: true } });
     // D-61 (PO 21 พ.ย. 2569 "ออกเลขชุดแยก"): sandbox ออกใบได้ — เลขจากชุดเลขของแถว sandbox เอง + `TEST-` นำหน้า (issueNumber
     // markSandbox) · PDF ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" (print_options.sandbox) · ไม่ถึง connector/ERP (sink `erp` ข้าม sandbox — ST7-T09)

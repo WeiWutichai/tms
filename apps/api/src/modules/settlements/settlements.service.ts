@@ -1,3 +1,4 @@
+import { assertNotSampleCarrier } from '../sample-data/sample-guard';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
@@ -545,6 +546,8 @@ export class SettlementsService {
     ]);
     // ไม่รู้ประเภทรถร่วม → ตรึง WHT/จัดแบบยื่นไม่ได้ → 409 แทน 500 (หลังสิทธิ์/SoD — แถวเขียนฐานตรงเท่านั้น)
     requireWhtEntityType(s.carrierSnapshot);
+    // P1-ST2-T09: รถร่วมตัวอย่าง (ข้อมูลสมมติ) ออกเลขใบสำคัญจ่าย/50 ทวิ ไม่ได้
+    await assertNotSampleCarrier(tx, s.carrierId);
     await this.assertNoOpenDisputes(tx, s);
     // ต้องมีบรรทัดค่าขนส่ง (FREIGHT) อย่างน้อย 1 — ค่าใช้จ่ายเพิ่ม (SURCHARGE) อย่างเดียวไม่นับเป็นใบ (review L4)
     const trips = await tx.settlementLine.count({

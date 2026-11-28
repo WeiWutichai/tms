@@ -39,7 +39,7 @@ import type {
 import { iEquals } from '../../common/ilike';
 
 export const SITE_CODE_PREFIX = 'LOC';
-const SITE_CODE_WIDTH = 5; // spec/02 §2 `LOC-00001`
+export const SITE_CODE_WIDTH = 5; // spec/02 §2 `LOC-00001`
 const DECIMAL_FIELDS = ['lat', 'lng'] as const;
 type SiteEvent = 'activate' | 'deactivate';
 export const SITE_TRANSITIONS: TransitionTable<ActiveStatus, SiteEvent> = {

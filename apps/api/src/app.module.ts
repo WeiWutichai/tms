@@ -51,6 +51,8 @@ import { ExportRegistry } from './modules/exports/export-spec';
 import { ExportsController } from './modules/exports/exports.controller';
 import { ExportsService } from './modules/exports/exports.service';
 import { ListExports } from './modules/exports/list-exports';
+import { SampleDataController } from './modules/sample-data/sample-data.controller';
+import { SampleDataService } from './modules/sample-data/sample-data.service';
 import { SetupChecklistController } from './modules/setup/setup.controller';
 import { PlatformAuthController } from './platform/platform-auth.controller';
 import { PlatformConnectorsController } from './platform/platform-connectors.controller';
@@ -337,6 +339,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     ImportsController,
     ExportsController,
     SetupChecklistController,
+    SampleDataController,
     PlatformAuthController,
     PlatformTenantsController,
     PlatformUsageController,
@@ -494,6 +497,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     RateCardsService,
     PricingService,
     OrderIntakeService,
+    SampleDataService,
     OrderBillingService,
     OrderMatchingService,
     DeliveryOrderService,

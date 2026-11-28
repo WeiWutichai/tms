@@ -8,6 +8,7 @@ import { ACTIVE_VEHICLES_METRIC, periodRange } from './active-vehicles';
  * - ตาราง `usage_daily` (วันปฏิทินเวลาไทย) → ปิดยอดเดือนลง `usage_record` พร้อมรถ active (UsageFinalizeService)
  * - เมตริกสะสม (FLOW): ยอดเดือน = ผลรวมรายวัน (เกณฑ์ตรวจรับ "ยอดรายวันรวม = ยอดรายเดือน")
  *   - `do.created` DO ที่สร้างในวัน ไม่รวมที่ยกเลิก [DECISION — lead 28 พ.ย. 2569, ย้อนได้]
+ *     และไม่รวม DO ของใบสั่งตัวอย่างที่สร้างขณะบริษัทยังอยู่ช่วงทดลองใช้ (P1-ST2-T09 — sample_record + tms_tenant_status_at)
  *   - `invoices.issued` ใบแจ้งหนี้ที่ออกเลขในวัน (issued_at — ยกเลิกภายหลังยังนับ เพราะออกเอกสารไปแล้ว)
  *   - `api.calls` แยก source `rest` / `mcp` — นับคำขอของ API key / OAuth client ที่ตอบ < 500 และไม่ใช่ 429 (ApiUsageMeter)
  *     UI ของเราเองไม่นับ (เรียก /v1 ชุดเดียวกันแต่ไม่ใช่ "API calls" ของลูกค้า) · MCP ยังไม่มีในเฟส 1 = 0
@@ -79,6 +80,9 @@ export async function recomputeFlows(
     SELECT x.tenant_id, ${bkkDay(Prisma.sql`x.created_at`)}, ${USAGE_METRIC.doCreated}, '', count(*)
       FROM delivery_order x JOIN tenant t ON t.id = x.tenant_id AND t.mode = 'live'
      WHERE x.created_at >= ${range.from} AND x.created_at < ${range.to} AND x.status <> 'CANCELLED'
+       AND NOT (EXISTS (SELECT 1 FROM sample_record s WHERE s.tenant_id = x.tenant_id
+                           AND s.entity_type = 'sales_order' AND s.entity_id = x.sales_order_id)
+                AND tms_tenant_status_at(x.tenant_id, x.created_at) IN ('TRIALING', 'PENDING_VERIFICATION'))
        AND ${notFinalized(Prisma.sql`x.tenant_id`, bkkDay(Prisma.sql`x.created_at`))} ${only(Prisma.sql`x.tenant_id`)}
      GROUP BY 1, 2
     ON CONFLICT (tenant_id, date, metric, source) DO UPDATE SET value = excluded.value, updated_at = now()`;

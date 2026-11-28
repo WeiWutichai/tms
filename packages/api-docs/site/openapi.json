@@ -97541,6 +97541,16 @@
       "title": "บริษัทมีหลายนิติบุคคลแต่ยังไม่ได้กำหนดนิติบุคคลออกบิล — ส่ง billingCompanyId (จาก GET /v1/companies) หรือตั้ง \"ออกบิลในนาม\" ที่ลูกค้า/ค่าตั้งต้นของบริษัท",
       "titleEn": "Several legal entities and no billing entity set — send billingCompanyId (from GET /v1/companies) or set the customer/company default"
     },
+    "sample_data_loaded": {
+      "status": 409,
+      "title": "มีข้อมูลตัวอย่างอยู่แล้ว — ล้างข้อมูลตัวอย่างก่อนจึงใส่ใหม่ได้",
+      "titleEn": "Sample data is already loaded — clear it first"
+    },
+    "sample_data_not_allowed": {
+      "status": 409,
+      "title": "ใส่ข้อมูลตัวอย่างได้เฉพาะช่วงทดลองใช้หรือใน sandbox",
+      "titleEn": "Sample data is available only during the trial or in the sandbox"
+    },
     "sandbox_finalize_disabled": {
       "status": 409,
       "title": "โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้",

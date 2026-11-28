@@ -6,6 +6,7 @@ import { api, queryClient, unwrap } from '../../api';
 import { can } from '../../nav';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
+import { SampleDataStrip, useSampleData } from './SampleData';
 
 const KEY = ['setup-checklist'] as const;
 
@@ -55,170 +56,188 @@ export function SetupChecklist() {
     refetchOnWindowFocus: true,
     retry: false,
   });
+  // P1-ST2-T09 ข้อมูลตัวอย่าง (ใส่ / ล้าง) — แถบท้ายการ์ด
+  const sample = useSampleData(allowed);
   const c = q.data;
   // ต้นแบบ: กดซ่อนแล้วมี toast — ส่วน "เปิดอีกครั้งได้ที่ …" ยังไม่มีหน้า [OPEN spec/12 §3]
-  if (toast) return <Toast text={toast} onClose={() => setToast(null)} />;
-  if (!c || c.completed || c.hidden) return null;
+  const toastEl = toast ? <Toast text={toast} onClose={() => setToast(null)} /> : null;
+  const strip = sample.data ? <SampleDataStrip s={sample.data} onToast={setToast} /> : null;
+  if (!c || c.completed || c.hidden)
+    // การ์ดหาย (ครบ/ซ่อน) แต่ยังมีข้อมูลตัวอย่าง → เหลือแถบล้างข้อมูลตัวอย่างในกรอบการ์ดเดียวกัน
+    return (
+      <>
+        {sample.data?.loaded && (
+          <section aria-label={t('sample.loadedTitle')} style={CARD}>
+            {strip}
+          </section>
+        )}
+        {toastEl}
+      </>
+    );
   const pct = `${Math.round((c.done / c.total) * 100)}%`;
   return (
-    <section
-      aria-labelledby="setup-title"
-      style={{
-        background: '#FFFFFF',
-        border: '1px solid #CDD1C8',
-        borderRadius: 12,
-        boxShadow: '0 1px 2px rgba(16,20,24,.06),0 2px 6px rgba(16,20,24,.04)',
-        padding: '16px 20px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 14,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 220 }}>
-          <h2
-            id="setup-title"
-            style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#101418' }}
+    <>
+      <section aria-labelledby="setup-title" style={CARD}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 220 }}>
+            <h2
+              id="setup-title"
+              style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#101418' }}
+            >
+              {t('setup.title')}
+            </h2>
+            <span style={{ fontSize: 13, color: '#3B424C' }}>
+              {t('setup.sub', { n: `${c.done}/${c.total}` })}
+            </span>
+          </div>
+          <div
+            role="progressbar"
+            aria-label={t('setup.title')}
+            aria-valuemin={0}
+            aria-valuemax={c.total}
+            aria-valuenow={c.done}
+            style={{
+              width: 200,
+              height: 6,
+              borderRadius: 3,
+              background: '#EBEDE8',
+              overflow: 'hidden',
+            }}
           >
-            {t('setup.title')}
-          </h2>
-          <span style={{ fontSize: 13, color: '#3B424C' }}>
-            {t('setup.sub', { n: `${c.done}/${c.total}` })}
-          </span>
+            <div style={{ height: '100%', width: pct, background: '#2257C4' }} />
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              const r = await api.POST('/v1/setup-checklist/hide').catch(() => null);
+              if (r?.data) {
+                queryClient.setQueryData(KEY, r.data);
+                setToast(t('setup.hidden'));
+              } else {
+                const code = (r?.error as { code?: string } | undefined)?.code;
+                setToast(
+                  code === 'impersonation_read_only'
+                    ? t('problem.impersonation_read_only')
+                    : t('problem.internal_error'),
+                );
+              }
+            }}
+            style={{
+              border: 0,
+              background: 'transparent',
+              padding: 0,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              color: '#3B424C',
+              fontWeight: 500,
+            }}
+          >
+            {t('setup.hide')}
+          </button>
         </div>
         <div
-          role="progressbar"
-          aria-label={t('setup.title')}
-          aria-valuemin={0}
-          aria-valuemax={c.total}
-          aria-valuenow={c.done}
           style={{
-            width: 200,
-            height: 6,
-            borderRadius: 3,
-            background: '#EBEDE8',
-            overflow: 'hidden',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))',
+            gap: 10,
           }}
         >
-          <div style={{ height: '100%', width: pct, background: '#2257C4' }} />
-        </div>
-        <button
-          type="button"
-          onClick={async () => {
-            const r = await api.POST('/v1/setup-checklist/hide').catch(() => null);
-            if (r?.data) {
-              queryClient.setQueryData(KEY, r.data);
-              setToast(t('setup.hidden'));
-            } else {
-              const code = (r?.error as { code?: string } | undefined)?.code;
-              setToast(
-                code === 'impersonation_read_only'
-                  ? t('problem.impersonation_read_only')
-                  : t('problem.internal_error'),
-              );
-            }
-          }}
-          style={{
-            border: 0,
-            background: 'transparent',
-            padding: 0,
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-            color: '#3B424C',
-            fontWeight: 500,
-          }}
-        >
-          {t('setup.hide')}
-        </button>
-      </div>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))',
-          gap: 10,
-        }}
-      >
-        {c.steps.map((s, i) => {
-          const done = s.status !== 'todo';
-          const to = GO[s.key];
-          return (
-            <button
-              key={s.key}
-              type="button"
-              data-step={s.key}
-              data-status={s.status}
-              onClick={() => to && nav(to)}
-              aria-disabled={to ? undefined : true}
-              className="tms-setup-step"
-              style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 10,
-                padding: 12,
-                border: '1px solid #E4E6E0',
-                borderRadius: 10,
-                background: '#F7F8F5',
-                cursor: to ? 'pointer' : 'default',
-                textAlign: 'left',
-                color: '#101418',
-                minWidth: 0,
-              }}
-            >
-              {done ? (
-                <span
-                  aria-hidden="true"
-                  style={{
-                    width: 24,
-                    height: 24,
-                    borderRadius: '50%',
-                    background: '#17733F',
-                    color: '#FFFFFF',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  <Icon n="check" s={14} />
-                </span>
-              ) : (
-                <span
-                  style={{
-                    width: 24,
-                    height: 24,
-                    borderRadius: '50%',
-                    border: '1.5px solid #9DB6E3',
-                    color: '#2257C4',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  {i + 1}
-                </span>
-              )}
-              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                <span style={{ fontWeight: 600 }}>
-                  {t(`setup.${s.key}` as MessageKey)}
-                  <span className="tms-sr-only">
-                    {' · '}
-                    {done ? t('setup.done') : t('setup.todo')}
+          {c.steps.map((s, i) => {
+            const done = s.status !== 'todo';
+            const to = GO[s.key];
+            return (
+              <button
+                key={s.key}
+                type="button"
+                data-step={s.key}
+                data-status={s.status}
+                onClick={() => to && nav(to)}
+                aria-disabled={to ? undefined : true}
+                className="tms-setup-step"
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 10,
+                  padding: 12,
+                  border: '1px solid #E4E6E0',
+                  borderRadius: 10,
+                  background: '#F7F8F5',
+                  cursor: to ? 'pointer' : 'default',
+                  textAlign: 'left',
+                  color: '#101418',
+                  minWidth: 0,
+                }}
+              >
+                {done ? (
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: '50%',
+                      background: '#17733F',
+                      color: '#FFFFFF',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Icon n="check" s={14} />
                   </span>
-                </span>
-                <span style={{ fontSize: 12.5, color: '#59606B' }}>
-                  {t(`setup.${s.key}.d` as MessageKey)}
-                </span>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </section>
+                ) : (
+                  <span
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: '50%',
+                      border: '1.5px solid #9DB6E3',
+                      color: '#2257C4',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {i + 1}
+                  </span>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                  <span style={{ fontWeight: 600 }}>
+                    {t(`setup.${s.key}` as MessageKey)}
+                    <span className="tms-sr-only">
+                      {' · '}
+                      {done ? t('setup.done') : t('setup.todo')}
+                    </span>
+                  </span>
+                  <span style={{ fontSize: 12.5, color: '#59606B' }}>
+                    {t(`setup.${s.key}.d` as MessageKey)}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        {strip}
+      </section>
+      {toastEl}
+    </>
   );
 }
+
+/** กรอบการ์ดของต้นแบบ `chk` */
+const CARD = {
+  background: '#FFFFFF',
+  border: '1px solid #CDD1C8',
+  borderRadius: 12,
+  boxShadow: '0 1px 2px rgba(16,20,24,.06),0 2px 6px rgba(16,20,24,.04)',
+  padding: '16px 20px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 14,
+} as const;
 
 /** toast มาตรฐานของต้นแบบ (มุมขวาล่าง) */
 function Toast({ text, onClose }: { text: string; onClose: () => void }) {
