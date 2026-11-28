@@ -261,12 +261,22 @@ export class SetupChecklistController {
           select: { id: true },
         })
         .then(Boolean),
-      Promise.all([
-        tx.customer.findFirst({ where: { deletedAt: null }, select: { id: true } }),
-        tx.carrier.findFirst({ where: { deletedAt: null }, select: { id: true } }),
-        tx.vehicle.findFirst({ where: { deletedAt: null }, select: { id: true } }),
-        tx.driver.findFirst({ select: { id: true } }),
-      ]).then((r) => r.some(Boolean)),
+      // P1-ST2-T09: ข้อมูลตัวอย่างไม่นับเป็น "นำเข้าข้อมูลหลัก" แล้ว (ธงใน sample_record)
+      tx.sampleRecord
+        .findMany({
+          where: { entityType: { in: ['customer', 'carrier', 'vehicle'] } },
+          select: { entityId: true },
+        })
+        .then((sample) => {
+          const notSample = { deletedAt: null, id: { notIn: sample.map((x) => x.entityId) } };
+          return Promise.all([
+            tx.customer.findFirst({ where: notSample, select: { id: true } }),
+            tx.carrier.findFirst({ where: notSample, select: { id: true } }),
+            tx.vehicle.findFirst({ where: notSample, select: { id: true } }),
+            tx.driver.findFirst({ select: { id: true } }),
+          ]);
+        })
+        .then((r) => r.some(Boolean)),
       // ทีม = ผู้ใช้ที่ใช้งานอยู่ + ผู้ถูกเชิญที่คำเชิญยังใช้ได้ (หมดอายุ/เพิกถอนแล้วไม่นับ)
       tx.appUser.count({
         where: {

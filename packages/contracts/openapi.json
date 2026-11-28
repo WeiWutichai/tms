@@ -3457,6 +3457,177 @@
         ]
       }
     },
+    "/v1/sample-data": {
+      "get": {
+        "operationId": "SampleData_status",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SampleDataStatusDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.write"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "สถานะข้อมูลตัวอย่าง",
+        "tags": [
+          "platform"
+        ],
+        "x-required-scopes": [
+          "settings:write"
+        ]
+      },
+      "post": {
+        "description": "ใส่บริษัทขนส่งสมมติ: ลูกค้า 3 · สถานที่ 7 · รถร่วม 2 · รถ 5 · rate card (ขาย/ซื้อ อนุมัติแล้ว) · ใบสั่งขนส่ง 4 — ทุกแถวติดธงตัวอย่าง · ไม่นับรถ active / usage · เฉพาะช่วงทดลองใช้หรือ sandbox (409 `sample_data_not_allowed`) · มีอยู่แล้ว → 409 `sample_data_loaded`",
+        "operationId": "SampleData_load",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SampleDataStatusDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.write"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ใส่ข้อมูลตัวอย่าง",
+        "tags": [
+          "platform"
+        ],
+        "x-required-scopes": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/sample-data/clear": {
+      "post": {
+        "description": "ลบเฉพาะแถวที่ติดธงตัวอย่าง — แถวที่ถูกใช้ต่อแล้ว (เช่น SO ที่สร้าง DO / ออกเอกสารแล้ว, ลูกค้าที่ใบสั่งจริงอ้างถึง) ไม่ลบและคืนใน `kept` · ไม่มีข้อมูลตัวอย่าง = ไม่ทำอะไร",
+        "operationId": "SampleData_clear",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SampleDataClearDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.write"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ล้างข้อมูลตัวอย่าง",
+        "tags": [
+          "platform"
+        ],
+        "x-required-scopes": [
+          "settings:write"
+        ]
+      }
+    },
     "/v1/platform/auth/login": {
       "post": {
         "operationId": "PlatformAuth_login",
@@ -79355,6 +79526,147 @@
           "reason"
         ]
       },
+      "SampleCountsDto": {
+        "type": "object",
+        "properties": {
+          "customer": {
+            "type": "number"
+          },
+          "customer_site": {
+            "type": "number",
+            "description": "สถานที่ / จุดรับส่ง"
+          },
+          "carrier": {
+            "type": "number",
+            "description": "รถร่วม"
+          },
+          "vehicle": {
+            "type": "number"
+          },
+          "rate_card": {
+            "type": "number"
+          },
+          "sales_order": {
+            "type": "number",
+            "description": "ใบสั่งขนส่ง"
+          }
+        },
+        "required": [
+          "customer",
+          "customer_site",
+          "carrier",
+          "vehicle",
+          "rate_card",
+          "sales_order"
+        ]
+      },
+      "SampleDataStatusDto": {
+        "type": "object",
+        "properties": {
+          "allowed": {
+            "type": "boolean",
+            "description": "ใส่ข้อมูลตัวอย่างได้ไหม — บริษัทช่วงทดลองใช้ (TRIALING / PENDING_VERIFICATION) หรือ sandbox"
+          },
+          "loaded": {
+            "type": "boolean",
+            "description": "มีแถวที่ติดธงข้อมูลตัวอย่างอยู่"
+          },
+          "counts": {
+            "description": "จำนวนแถวตัวอย่างที่ยังอยู่ต่อชนิด",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SampleCountsDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "allowed",
+          "loaded",
+          "counts"
+        ]
+      },
+      "SampleKeptDto": {
+        "type": "object",
+        "properties": {
+          "entityType": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "customer_site",
+              "carrier",
+              "vehicle",
+              "rate_card",
+              "sales_order"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "example": "ord_…"
+          },
+          "label": {
+            "type": "string",
+            "description": "รหัส/ชื่อ/เลขที่ให้ผู้ใช้จำได้",
+            "example": "SO-2611-0001"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "in_use"
+            ],
+            "description": "in_use = ถูกใช้ต่อแล้ว (มี DO/เอกสาร หรือข้อมูลจริงอ้างถึง) — ไม่ลบ คงธงตัวอย่างไว้"
+          }
+        },
+        "required": [
+          "entityType",
+          "id",
+          "label",
+          "reason"
+        ]
+      },
+      "SampleDataClearDto": {
+        "type": "object",
+        "properties": {
+          "allowed": {
+            "type": "boolean",
+            "description": "ใส่ข้อมูลตัวอย่างได้ไหม — บริษัทช่วงทดลองใช้ (TRIALING / PENDING_VERIFICATION) หรือ sandbox"
+          },
+          "loaded": {
+            "type": "boolean",
+            "description": "มีแถวที่ติดธงข้อมูลตัวอย่างอยู่"
+          },
+          "counts": {
+            "description": "จำนวนแถวตัวอย่างที่ยังอยู่ต่อชนิด",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SampleCountsDto"
+              }
+            ]
+          },
+          "removed": {
+            "description": "จำนวนที่ลบต่อชนิด",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SampleCountsDto"
+              }
+            ]
+          },
+          "kept": {
+            "description": "แถวตัวอย่างที่ลบไม่ได้เพราะถูกใช้ต่อแล้ว",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SampleKeptDto"
+            }
+          }
+        },
+        "required": [
+          "allowed",
+          "loaded",
+          "counts",
+          "removed",
+          "kept"
+        ]
+      },
       "PlatformLoginDto": {
         "type": "object",
         "properties": {
@@ -123276,6 +123588,16 @@
       "status": 422,
       "title": "บริษัทมีหลายนิติบุคคลแต่ยังไม่ได้กำหนดนิติบุคคลออกบิล — ส่ง billingCompanyId (จาก GET /v1/companies) หรือตั้ง \"ออกบิลในนาม\" ที่ลูกค้า/ค่าตั้งต้นของบริษัท",
       "titleEn": "Several legal entities and no billing entity set — send billingCompanyId (from GET /v1/companies) or set the customer/company default"
+    },
+    "sample_data_loaded": {
+      "status": 409,
+      "title": "มีข้อมูลตัวอย่างอยู่แล้ว — ล้างข้อมูลตัวอย่างก่อนจึงใส่ใหม่ได้",
+      "titleEn": "Sample data is already loaded — clear it first"
+    },
+    "sample_data_not_allowed": {
+      "status": 409,
+      "title": "ใส่ข้อมูลตัวอย่างได้เฉพาะช่วงทดลองใช้หรือใน sandbox",
+      "titleEn": "Sample data is available only during the trial or in the sandbox"
     },
     "sandbox_finalize_disabled": {
       "status": 409,

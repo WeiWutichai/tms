@@ -8,6 +8,7 @@ import { addMonths, MONTH_RE, type Month } from '../depreciation/depreciation-po
  * - การนับเกิดใน DB: trigger `trip_active_vehicle` → `tms_active_vehicle_recount` (migration 0190) เขียน `active_vehicle_usage`
  *   ครอบทุกทางที่เปลี่ยนสถานะเที่ยว (ปล่อยรถ / เริ่มวิ่ง / ปิดงาน / ยกเลิก / นำเข้า) · ไฟล์นี้อ่านอย่างเดียว + ปิดยอด
  * - เดือน = เดือนปฏิทินเวลาไทย (YYYY-MM) · เดือนที่ยังไม่ปิดยอด = ค่าสด · ปิดยอดแล้ว = `usage_record.value`
+ * - เที่ยวที่ใช้รถ/รถร่วมตัวอย่าง (P1-ST2-T09 — `tms_trip_is_sample`, migration 0202) ไม่นับ
  * - แถวที่ Console การเงินตัดออก (`excluded_at`) ไม่นับ และไม่แสดงให้ลูกค้า · เหตุผลจริงอยู่ใน platform_audit_log (PLT-066 pattern)
  */
 
@@ -105,6 +106,7 @@ export async function readActiveVehicles(
              r.rule
         FROM trip t CROSS JOIN (VALUES ('trip_started'), ('doc_closed')) AS r(rule)
        WHERE t.tenant_id = ${tenantId}::uuid
+         AND NOT tms_trip_is_sample(t.tenant_id, t.vehicle_id, t.carrier_id)
          AND (t.dispatched_at >= ${start} OR t.completed_at >= ${start})
          AND tms_trip_usage_at(r.rule, t.status::text, t.dispatched_at, t.completed_at) >= ${start}
          AND tms_trip_usage_at(r.rule, t.status::text, t.dispatched_at, t.completed_at) < ${end}
