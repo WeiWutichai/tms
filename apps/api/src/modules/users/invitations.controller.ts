@@ -44,11 +44,9 @@ export const RESEND_COOLDOWN_S = 60;
 /** นับ seat (ACTIVE + INVITED) เทียบ entitlement `users` — ล็อกต่อ tenant ให้นับพร้อมกันถูก (ใช้ทั้งเชิญและเปิดใช้คืน) */
 export async function assertSeat(tx: Tx, entitlements: EntitlementService, tenantId: string) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(6, hashtext(${tenantId}))`;
-  const limit = (await entitlements.resolve(tenantId)).users?.limit ?? null;
-  if (limit === null) return;
+  if (((await entitlements.resolve(tenantId)).users?.limit ?? null) === null) return;
   const used = await tx.appUser.count({ where: { status: { in: ['ACTIVE', 'INVITED'] } } });
-  if (used >= limit)
-    throw new ProblemException('seat_limit_reached', undefined, undefined, { limit });
+  await entitlements.assertLimit(tenantId, 'seat_limit_reached', 'users', used);
 }
 
 /** อีเมลจริงของผู้ใช้ที่ลบ/เพิกถอน → ค่า anonymize (PDPA) — ใช้ร่วมกับ users/:id/delete */

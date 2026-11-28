@@ -97,6 +97,8 @@
 | [`pod_exists`](#pod_exists) | 409 | ส่ง POD ของใบส่งของนี้แล้ว |
 | [`pod_not_allowed`](#pod_not_allowed) | 409 | บันทึกหลักฐานส่งของใบส่งของนี้ไม่ได้ในสถานะปัจจุบัน |
 | [`queue_action_not_allowed`](#queue_action_not_allowed) | 409 | ทำรายการนี้กับคำสั่งนี้ไม่ได้ (จัดการไปแล้ว หรือไม่ใช่รายการที่ล้มเหลว หรือต้องทำในระบบบัญชีเอง) |
+| [`sample_data_loaded`](#sample_data_loaded) | 409 | มีข้อมูลตัวอย่างอยู่แล้ว — ล้างข้อมูลตัวอย่างก่อนจึงใส่ใหม่ได้ |
+| [`sample_data_not_allowed`](#sample_data_not_allowed) | 409 | ใส่ข้อมูลตัวอย่างได้เฉพาะช่วงทดลองใช้หรือใน sandbox |
 | [`sandbox_finalize_disabled`](#sandbox_finalize_disabled) | 409 | โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้ |
 | [`saved_view_limit`](#saved_view_limit) | 409 | บันทึกได้สูงสุด 50 มุมมองต่อหน้า |
 | [`seat_limit_reached`](#seat_limit_reached) | 409 | จำนวนผู้ใช้ครบตามแพ็กเกจแล้ว |
@@ -716,6 +718,18 @@ HTTP `409` · บันทึกหลักฐานส่งของใบส
 ## queue_action_not_allowed {#queue_action_not_allowed}
 
 HTTP `409` · ทำรายการนี้กับคำสั่งนี้ไม่ได้ (จัดการไปแล้ว หรือไม่ใช่รายการที่ล้มเหลว หรือต้องทำในระบบบัญชีเอง)
+
+อาจตอบได้จากหลาย endpoint
+
+## sample_data_loaded {#sample_data_loaded}
+
+HTTP `409` · มีข้อมูลตัวอย่างอยู่แล้ว — ล้างข้อมูลตัวอย่างก่อนจึงใส่ใหม่ได้
+
+อาจตอบได้จากหลาย endpoint
+
+## sample_data_not_allowed {#sample_data_not_allowed}
+
+HTTP `409` · ใส่ข้อมูลตัวอย่างได้เฉพาะช่วงทดลองใช้หรือใน sandbox
 
 อาจตอบได้จากหลาย endpoint
 

@@ -17,6 +17,7 @@ import {
   type JoinRequest,
 } from './JoinRequests';
 import { stepUp, useRoles, useUsers, type User } from './useSettings';
+import { limitProblem, QuotaLimitDialog } from '../quota/QuotaLimitDialog';
 import {
   LoginHistory,
   RolesDrawer,
@@ -351,8 +352,11 @@ function InviteDrawer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const errs = fieldErrors(error, t);
-  const top =
-    error instanceof ApiError && !error.problem.errors?.length
+  // P1-ST1-T08 ครบจำนวนผู้ใช้ตามแพ็กเกจ → dialog เสนออัปเกรด
+  const limit = limitProblem(error);
+  const top = limit
+    ? null
+    : error instanceof ApiError && !error.problem.errors?.length
       ? t(`problem.${error.problem.code}` as MessageKey)
       : error && !(error instanceof ApiError)
         ? t('problem.internal_error')
@@ -424,6 +428,7 @@ function InviteDrawer({
         />
       }
     >
+      {limit && <QuotaLimitDialog problem={limit} onClose={() => setError(null)} />}
       {top && (
         <div role="alert" className="set-alert">
           {top}

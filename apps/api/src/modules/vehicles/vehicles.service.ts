@@ -20,7 +20,6 @@ import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { Clock } from '../../common/clock';
 import { DbService, type Tx } from '../../db/db.service';
-import { PlatformSettingsService } from '../../platform/platform-settings.service';
 import { bangkokPeriod } from '../usage/active-vehicles';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { StateService } from '../../state/state.service';
@@ -286,7 +285,6 @@ export class VehiclesService {
     private readonly state: StateService,
     private readonly audit: AuditService,
     private readonly entitlements: EntitlementService,
-    private readonly platformSettings: PlatformSettingsService,
     private readonly clock: Clock,
   ) {}
 
@@ -459,22 +457,13 @@ export class VehiclesService {
 
   /**
    * โควตารถ: ค่าในสัญญา (`tenant.vehicle_quota` จาก Console ST1-T24) → limit ของ entitlement `veh` ตามแพ็กเกจ
-   * P1-ST2-T05 (PLT-014): บริษัท `pending_verification` → ไม่เกิน `pendingVerification.vehicleLimit` (ค่าเริ่ม 5)
-   * — ใช้กลไกโควตาเดิม (เกินโควตา = คำเตือน D-81) [OPEN — PO] จะบังคับแบบปฏิเสธหรือไม่
+   * P1-ST1-T08: ทดลองใช้ไม่เกิน `trial.vehicleLimit` (20 — docs/02 §2) · รอยืนยันไม่เกิน `pendingVerification.vehicleLimit` · sandbox = null
+   * (ชุดเดียวกับคำเตือนตอนจ่ายงาน `vehicle_quota_exceeded`)
+   * P1-ST2-T05 (PLT-014): บริษัท `pending_verification` → เพดาน `pendingVerification.vehicleLimit` อยู่ใน resolveVehicleLimit แล้ว [OPEN — PO] จะบังคับแบบปฏิเสธหรือไม่
    */
   async quotaLimit(): Promise<number | null> {
     const tenantId = requestContext.require().tenantId!;
-    const t = await this.db.tx.tenant.findUnique({
-      where: { id: tenantId },
-      select: { vehicleQuota: true, status: true },
-    });
-    const base =
-      t?.vehicleQuota !== null && t?.vehicleQuota !== undefined
-        ? t.vehicleQuota
-        : ((await this.entitlements.resolve(tenantId)).veh?.limit ?? null);
-    if (t?.status !== 'PENDING_VERIFICATION') return base;
-    const cap = await this.platformSettings.get<number>('pendingVerification.vehicleLimit');
-    return base === null ? cap : Math.min(base, cap);
+    return (await this.entitlements.vehicleLimit(tenantId)).limit;
   }
 
   async get(id: string): Promise<VehicleFull> {

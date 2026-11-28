@@ -12,6 +12,7 @@ import {
   type WebhookWithSecret,
 } from './useWebhooks';
 import { modeOrder, type ApiMode } from '../api-keys/mode';
+import { limitProblem, QuotaLimitDialog } from '../quota/QuotaLimitDialog';
 
 const SEL: CSSProperties = { height: 40, padding: '0 12px', borderColor: '#CDD1C8', width: '100%' };
 
@@ -73,7 +74,10 @@ export function WebhookFormDrawer({
       server.extraHeaders = t('whk.v.reserved');
   }
   const errs = { ...(tried ? local : {}), ...server };
-  const topErr = create.error && !Object.keys(server).length ? problemText(create.error, t) : null;
+  // P1-ST1-T08 ครบโควตา webhook → dialog เสนออัปเกรด (แทนข้อความบนฟอร์ม)
+  const limit = limitProblem(create.error);
+  const topErr =
+    create.error && !limit && !Object.keys(server).length ? problemText(create.error, t) : null;
 
   const submit = () => {
     setTried(true);
@@ -131,6 +135,7 @@ export function WebhookFormDrawer({
         </>
       }
     >
+      {limit && <QuotaLimitDialog problem={limit} onClose={() => create.reset()} />}
       {topErr && <div className="tms-alert">{topErr}</div>}
       <section className="tms-fsec">
         <div className="tms-fgrid tms-fgrid--create">

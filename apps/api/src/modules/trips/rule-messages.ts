@@ -50,3 +50,12 @@ export const driverOnLeaveMessageTh = (
 /** รถมีเที่ยวอื่นในช่วงเวลาเดียวกัน */
 export const vehicleOverlapMessageTh = (plate: string | null, tripNos: string[]): string =>
   `รถ ${plate ?? ''} มีเที่ยวอื่นในช่วงเวลาเดียวกัน: ${tripNos.join(', ')}`;
+
+/** P1-ST1-T08 จ่ายงานแล้วรถ active จะเกินโควตา (soft limit — ทำต่อได้) */
+export const vehicleQuotaMessageTh = (
+  plate: string | null,
+  active: number,
+  limit: number,
+): string =>
+  `รถ active เดือนนี้ ${active.toLocaleString('en-US')} จาก ${limit.toLocaleString('en-US')} คันตามแพ็กเกจ — ` +
+  `จ่ายงานให้รถ ${plate ?? '(ไม่มีทะเบียน)'} จะเกินโควตา (จ่ายงานต่อได้ ไม่หยุดงานขนส่ง)`;

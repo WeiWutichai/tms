@@ -1,7 +1,7 @@
 <!-- index.md -->
 # TMS API v1
 
-เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-27` · 427 endpoint
+เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-28` · 427 endpoint
 
 เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
 
@@ -68,7 +68,7 @@
 ## อ้างอิง
 
 - [Webhook events](webhook-events.md) — 31 event: connector.health_changed, credit_note.finalized, debit_note.finalized, delivery_order.status_changed, invoice.adjusted, invoice.finalized, invoice.paid, invoice.voided, …
-- [รหัส error](errors.md) — 156 code ของ problem+json
+- [รหัส error](errors.md) — 157 code ของ problem+json
 - [Changelog](changelog.md) — ประวัติเวอร์ชันของ API (added/changed/deprecated)
 
 ---
@@ -3848,7 +3848,7 @@ const { data, error } = await tms.POST('/v1/trips/{id}/reorder-stops', {
 
 scope: `trips:assign` · operationId: `Trips_assign`
 
-PLANNING → ASSIGNED (รถบริษัท) · ASSIGNED → ASSIGNED · OFFERED → ASSIGNED (รถร่วมรับงาน) · `dispatch: true` → ปล่อยรถต่อทันที (atomic; ต้องมี `trips:dispatch`; คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`)
+PLANNING → ASSIGNED (รถบริษัท) · ASSIGNED → ASSIGNED · OFFERED → ASSIGNED (รถร่วมรับงาน) · `dispatch: true` → ปล่อยรถต่อทันที (atomic; ต้องมี `trips:dispatch`; คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`) · รถที่ยังไม่ถูกนับเดือนนี้และจะทำให้รถ active เกินโควตา → คำเตือน `vehicle_quota_exceeded`
 
 **Parameters**
 
@@ -7063,7 +7063,7 @@ scope: `settings:write` หรือ `webhooks:manage` · operationId: `Webhooks
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `201` | `secret` แสดงครั้งเดียว · ส่ง `webhook.verification` (challenge) หลังบันทึก 1 ครั้ง — ผลไม่บล็อก · ไม่รับ Idempotency-Key · เกิน limit ของแพ็กเกจ → 409 `webhook_limit_reached` | `WebhookEndpointSecretDto` |
+| `201` | `secret` แสดงครั้งเดียว · ส่ง `webhook.verification` (challenge) หลังบันทึก 1 ครั้ง — ผลไม่บล็อก · ไม่รับ Idempotency-Key · เกิน limit ของแพ็กเกจ → 409 `webhook_limit_reached` (มี `featureKey` `limit` `used` `upgradePlan`) | `WebhookEndpointSecretDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`settings:write` / `webhooks:manage` — มีตัวใดตัวหนึ่งก็พอ) · ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) — [permission_denied](errors.md#permission_denied), [step_up_required](errors.md#step_up_required) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
@@ -25976,6 +25976,8 @@ const { data, error } = await tms.GET('/v1/usage/active-vehicles');
 | [`pod_exists`](#pod_exists) | 409 | ส่ง POD ของใบส่งของนี้แล้ว |
 | [`pod_not_allowed`](#pod_not_allowed) | 409 | บันทึกหลักฐานส่งของใบส่งของนี้ไม่ได้ในสถานะปัจจุบัน |
 | [`queue_action_not_allowed`](#queue_action_not_allowed) | 409 | ทำรายการนี้กับคำสั่งนี้ไม่ได้ (จัดการไปแล้ว หรือไม่ใช่รายการที่ล้มเหลว หรือต้องทำในระบบบัญชีเอง) |
+| [`sample_data_loaded`](#sample_data_loaded) | 409 | มีข้อมูลตัวอย่างอยู่แล้ว — ล้างข้อมูลตัวอย่างก่อนจึงใส่ใหม่ได้ |
+| [`sample_data_not_allowed`](#sample_data_not_allowed) | 409 | ใส่ข้อมูลตัวอย่างได้เฉพาะช่วงทดลองใช้หรือใน sandbox |
 | [`sandbox_finalize_disabled`](#sandbox_finalize_disabled) | 409 | โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้ |
 | [`saved_view_limit`](#saved_view_limit) | 409 | บันทึกได้สูงสุด 50 มุมมองต่อหน้า |
 | [`seat_limit_reached`](#seat_limit_reached) | 409 | จำนวนผู้ใช้ครบตามแพ็กเกจแล้ว |
@@ -26033,7 +26035,6 @@ const { data, error } = await tms.GET('/v1/usage/active-vehicles');
 | [`otp_locked`](#otp_locked) | 429 | ใส่รหัสผิดครบ 5 ครั้ง ลองใหม่ภายหลัง |
 | [`otp_resend_too_soon`](#otp_resend_too_soon) | 429 | ขอรหัสใหม่ได้หลังครบ 60 วินาที |
 | [`rate_limited`](#rate_limited) | 429 | เรียกถี่เกินไป |
-| [`signup_join_limit`](#signup_join_limit) | 429 | ส่งคำขอเข้าร่วมบริษัทครบจำนวนแล้ว ติดต่อเราหากต้องการความช่วยเหลือ |
 | [`signup_lookup_limit`](#signup_lookup_limit) | 429 | ค้นหาเลขผู้เสียภาษีครบจำนวนครั้งแล้ว กรอกข้อมูลบริษัทเองได้ |
 | [`internal_error`](#internal_error) | 500 | ระบบขัดข้อง |
 | [`trip_cost_allocation_failed`](#trip_cost_allocation_failed) | 500 | ปันต้นทุนเที่ยวลงใบส่งของไม่ลงตัว — ยังไม่ปิดต้นทุน กรุณาแจ้งผู้ดูแลระบบ |
@@ -26598,6 +26599,18 @@ HTTP `409` · ทำรายการนี้กับคำสั่งนี
 
 อาจตอบได้จากหลาย endpoint
 
+## sample_data_loaded {#sample_data_loaded}
+
+HTTP `409` · มีข้อมูลตัวอย่างอยู่แล้ว — ล้างข้อมูลตัวอย่างก่อนจึงใส่ใหม่ได้
+
+อาจตอบได้จากหลาย endpoint
+
+## sample_data_not_allowed {#sample_data_not_allowed}
+
+HTTP `409` · ใส่ข้อมูลตัวอย่างได้เฉพาะช่วงทดลองใช้หรือใน sandbox
+
+อาจตอบได้จากหลาย endpoint
+
 ## sandbox_finalize_disabled {#sandbox_finalize_disabled}
 
 HTTP `409` · โหมดทดสอบ (sandbox) ยังออกเลขใบแจ้งหนี้ไม่ได้
@@ -26940,12 +26953,6 @@ HTTP `429` · เรียกถี่เกินไป
 
 พบใน: [`POST /v1/invoices/{id}/send`](ref-invoices.md#post-invoices-id-send), [`POST /v1/billing-notes/{id}/send`](ref-billing-notes.md#post-billing-notes-id-send)
 
-## signup_join_limit {#signup_join_limit}
-
-HTTP `429` · ส่งคำขอเข้าร่วมบริษัทครบจำนวนแล้ว ติดต่อเราหากต้องการความช่วยเหลือ
-
-อาจตอบได้จากหลาย endpoint
-
 ## signup_lookup_limit {#signup_lookup_limit}
 
 HTTP `429` · ค้นหาเลขผู้เสียภาษีครบจำนวนครั้งแล้ว กรอกข้อมูลบริษัทเองได้
@@ -26981,7 +26988,11 @@ HTTP `503` · ระบบกำลังมีผู้ใช้งานมา
 <!-- changelog.md -->
 # Changelog
 
-เวอร์ชันพฤติกรรม (`X-Api-Version`) ล่าสุด: `2026-11-27` — วิธีเลือกเวอร์ชันดู [เวอร์ชันของ API](versioning.md)
+เวอร์ชันพฤติกรรม (`X-Api-Version`) ล่าสุด: `2026-11-28` — วิธีเลือกเวอร์ชันดู [เวอร์ชันของ API](versioning.md)
+
+## 2026-11-28
+
+โควตา: จ่ายงานให้รถที่ยังไม่ถูกนับเดือนนี้และจะทำให้รถ active เกินโควตา → คำเตือน `vehicle_quota_exceeded` — `POST /v1/trips/{id}/dispatch` (และ `/assign` แบบ `dispatch: true`) ตอบ 409 `assignment_warnings` จนกว่าจะยืนยันด้วย `ruleKeys` + `overrideReason` · 409 `connector_limit_reached` / `webhook_limit_reached` / `seat_limit_reached` เพิ่ม `featureKey` `used` `upgradePlan` (เพิ่มค่า — ไม่มี gate)
 
 ## 2026-11-27
 

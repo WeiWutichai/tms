@@ -239,7 +239,7 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <h2 id="post-trips-id-assign">จัดรถ / จัดรถและปล่อยเที่ยว</h2>
 <p><code>POST /v1/trips/{id}/assign</code></p>
 <p>scope: <code>trips:assign</code> · operationId: <code>Trips_assign</code></p>
-<p>PLANNING → ASSIGNED (รถบริษัท) · ASSIGNED → ASSIGNED · OFFERED → ASSIGNED (รถร่วมรับงาน) · <code>dispatch: true</code> → ปล่อยรถต่อทันที (atomic; ต้องมี <code>trips:dispatch</code>; คำเตือนที่ยังไม่ยืนยัน → 409 <code>assignment_warnings</code>)</p>
+<p>PLANNING → ASSIGNED (รถบริษัท) · ASSIGNED → ASSIGNED · OFFERED → ASSIGNED (รถร่วมรับงาน) · <code>dispatch: true</code> → ปล่อยรถต่อทันที (atomic; ต้องมี <code>trips:dispatch</code>; คำเตือนที่ยังไม่ยืนยัน → 409 <code>assignment_warnings</code>) · รถที่ยังไม่ถูกนับเดือนนี้และจะทำให้รถ active เกินโควตา → คำเตือน <code>vehicle_quota_exceeded</code></p>
 <p><strong>Parameters</strong></p>
 <div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td></td></tr><tr><td><code>Idempotency-Key</code></td><td>header</td><td></td><td><code>string</code></td><td></td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
 <p><strong>Request body</strong> <code>AssignTripDto</code></p>

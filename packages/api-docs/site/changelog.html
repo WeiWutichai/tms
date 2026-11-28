@@ -30,7 +30,9 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <main>
 <a class="md-link" href="changelog.md">Markdown</a>
 <h1 id="changelog">Changelog</h1>
-<p>เวอร์ชันพฤติกรรม (<code>X-Api-Version</code>) ล่าสุด: <code>2026-11-27</code> — วิธีเลือกเวอร์ชันดู <a href="versioning.html">เวอร์ชันของ API</a></p>
+<p>เวอร์ชันพฤติกรรม (<code>X-Api-Version</code>) ล่าสุด: <code>2026-11-28</code> — วิธีเลือกเวอร์ชันดู <a href="versioning.html">เวอร์ชันของ API</a></p>
+<h2 id="2026-11-28">2026-11-28</h2>
+<p>โควตา: จ่ายงานให้รถที่ยังไม่ถูกนับเดือนนี้และจะทำให้รถ active เกินโควตา → คำเตือน <code>vehicle_quota_exceeded</code> — <code>POST /v1/trips/{id}/dispatch</code> (และ <code>/assign</code> แบบ <code>dispatch: true</code>) ตอบ 409 <code>assignment_warnings</code> จนกว่าจะยืนยันด้วย <code>ruleKeys</code> + <code>overrideReason</code> · 409 <code>connector_limit_reached</code> / <code>webhook_limit_reached</code> / <code>seat_limit_reached</code> เพิ่ม <code>featureKey</code> <code>used</code> <code>upgradePlan</code> (เพิ่มค่า — ไม่มี gate)</p>
 <h2 id="2026-11-27">2026-11-27</h2>
 <p>สถานะบริษัท 7 ค่า: <code>GET /v1/me</code> <code>tenant.status</code> = pending_verification / trialing / active / past_due / read_only / suspended / cancelled — ก่อนหน้านี้ trial / active / suspended / cancelled (gate <code>tenant.status_lifecycle</code>)</p>
 <div class="table"><table><thead><tr><th>รหัสการเปลี่ยน</th><th>รายละเอียด</th></tr></thead><tbody><tr><td><code>tenant.status_lifecycle</code></td><td>สถานะบริษัท (<code>tenant.status</code>) มี 7 ค่า — ก่อนหน้านี้ 4 ค่า (trial / active / suspended / cancelled)</td></tr></tbody></table></div>

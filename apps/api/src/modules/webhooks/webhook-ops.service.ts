@@ -224,6 +224,9 @@ export class WebhookOpsService {
     // ชนิดที่ขอแต่ไม่มีสิทธิ์อ่าน = ไม่มีรายการ (ไม่ใช่ 403 — เหมือนรายการที่กรองตามสิทธิ์)
     const types = asked ? asked.filter((t) => readable.includes(t)) : readable;
     const and: Prisma.DomainEventWhereInput[] = [{ type: { in: types } }];
+    // P1-ST2-T09: event ของข้อมูลตัวอย่างไม่อยู่ใน feed
+    const sample = await this.db.tx.sampleEvent.findMany({ select: { eventId: true } });
+    if (sample.length) and.push({ id: { notIn: sample.map((x) => x.eventId) } });
     if (q.cursor) {
       const c = decodeCursor(q.cursor, sort);
       and.push({ OR: [{ occurredAt: { [op]: c.u } }, { occurredAt: c.u, id: { [op]: c.i } }] });
@@ -249,7 +252,8 @@ export class WebhookOpsService {
   /** ST7-T11 `GET /v1/events/{id}` — ไม่ใช่ event สาธารณะ / อ่าน resource ไม่ได้ / บริษัทอื่น = 404 */
   async getEvent(id: string): Promise<EventDto> {
     const ev = await this.db.tx.domainEvent.findFirst({ where: { id } });
-    if (!ev || !this.readableTypes().includes(ev.type)) throw new ProblemException('not_found');
+    if (!ev || !this.readableTypes().includes(ev.type) || (await isSampleEvent(this.db.tx, id)))
+      throw new ProblemException('not_found');
     return this.eventDto(ev);
   }
 
@@ -306,7 +310,7 @@ export class WebhookOpsService {
     const started = Date.now();
     const prepared = await this.withTx(tenantId, async (tx) => {
       const ev = await tx.domainEvent.findFirst({ where: { id: eventId }, select: { type: true } });
-      if (!ev) throw new ProblemException('not_found');
+      if (!ev || (await isSampleEvent(tx, eventId))) throw new ProblemException('not_found');
       let targets: string[];
       if (endpointId) targets = [endpointId];
       else {
@@ -344,7 +348,7 @@ export class WebhookOpsService {
         endpointStatus: e.status.toLowerCase(),
       });
     const ev = await tx.domainEvent.findFirst({ where: { id: eventId } });
-    if (!ev) throw new ProblemException('not_found');
+    if (!ev || (await isSampleEvent(tx, eventId))) throw new ProblemException('not_found');
     if (ev.occurredAt.getTime() < Date.now() - WEBHOOK_DELIVERY_RETENTION_DAYS * DAY)
       throw new ProblemException('webhook_event_expired');
     if (
@@ -490,4 +494,9 @@ export class WebhookOpsService {
       errorCode: d.errorCode,
     };
   }
+}
+
+/** P1-ST2-T09 event ที่เกิดระหว่างใส่ข้อมูลตัวอย่าง — ไม่แสดงใน feed และส่งซ้ำไม่ได้ (404) */
+async function isSampleEvent(tx: Tx, eventId: string): Promise<boolean> {
+  return !!(await tx.sampleEvent.findFirst({ where: { eventId }, select: { eventId: true } }));
 }

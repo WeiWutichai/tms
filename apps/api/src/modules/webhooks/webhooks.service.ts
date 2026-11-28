@@ -289,11 +289,9 @@ export class WebhooksService {
 
   private async assertLimit(tx: Tx, tenantId: string) {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(7, hashtext(${tenantId}))`;
-    const limit = (await this.entitlements.resolve(tenantId)).webhook?.limit ?? null;
-    if (limit === null) return;
+    if (((await this.entitlements.resolve(tenantId)).webhook?.limit ?? null) === null) return;
     const used = await tx.webhookEndpoint.count({ where: { deletedAt: null } });
-    if (used >= limit)
-      throw new ProblemException('webhook_limit_reached', undefined, undefined, { limit });
+    await this.entitlements.assertLimit(tenantId, 'webhook_limit_reached', 'webhook', used);
   }
 
   private sortedEvents(events: string[]): string[] {

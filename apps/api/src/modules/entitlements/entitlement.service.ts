@@ -13,6 +13,7 @@ import {
 } from './entitlement-layers';
 import { ProblemException } from '../../common/problem';
 import { currentPlanVersion, currentPlanVersions, PLANS } from './plan-catalog';
+import { assertHardLimit, resolveVehicleLimit, type VehicleLimit } from './quota';
 
 /** tier ของ docs/02 §3.1 → รหัสแพ็กเกจ (plan-catalog: Growth = `std`) */
 const TIER_PLAN = { growth: 'std' } as const;
@@ -181,6 +182,28 @@ export class EntitlementService {
     return (await this.resolve(tenantId))[feature]?.enabled === true;
   }
 
+  /** P1-ST1-T08 hard limit (PLT-079) — limit ของฟีเจอร์ตามแพ็กเกจ + override · `used >= limit` → 409 `code` + upgradePlan */
+  async assertLimit(
+    tenantId: string,
+    code: Parameters<typeof assertHardLimit>[2],
+    featureKey: string,
+    used: number,
+  ): Promise<void> {
+    const limit = (await this.resolve(tenantId))[featureKey]?.limit ?? null;
+    await assertHardLimit(this.prisma.platform, tenantId, code, featureKey, limit, used);
+  }
+
+  /** P1-ST1-T08 เพดานรถ active ของเดือน (soft limit — PLT-080) */
+  async vehicleLimit(tenantId: string): Promise<VehicleLimit> {
+    // memo ต่อ tenant (TTL เดียวกับ entitlement) — refreshWarnings เรียกทุกการกระทำบนเที่ยว (review N6)
+    const hit = this.vehLimit.get(tenantId);
+    if (hit && Date.now() - hit.at < ENTITLEMENT_TTL_MS) return hit.value;
+    const value = await resolveVehicleLimit(this.prisma.platform, tenantId);
+    this.vehLimit.set(tenantId, { at: Date.now(), value });
+    return value;
+  }
+  private readonly vehLimit = new Map<string, { at: number; value: VehicleLimit }>();
+
   /**
    * สิทธิ์ใช้ connector ที่ catalog ประกาศ feature + แพ็กเกจขั้นต่ำ (docs/02 §3.1: FlowAccount/PEAK ต่ำสุด Growth)
    * - feature ต้องเปิด (หลัง add-on/override/สถานะ)
@@ -211,8 +234,13 @@ export class EntitlementService {
   }
 
   invalidate(tenantId?: string) {
-    if (tenantId) this.cache.delete(tenantId);
-    else this.cache.clear();
+    if (tenantId) {
+      this.cache.delete(tenantId);
+      this.vehLimit.delete(tenantId);
+    } else {
+      this.cache.clear();
+      this.vehLimit.clear();
+    }
   }
 
   /** tenant ทั้งหมดที่เปิดฟีเจอร์นี้ — ใช้ใน scheduler/cron ให้ข้าม tenant ที่ปิด (A5 "ตรวจซ้ำใน cron job") */
