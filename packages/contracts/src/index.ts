@@ -19,7 +19,7 @@ export interface Problem {
  * ST7-T07: เวอร์ชันพฤติกรรมของ API ที่ schema นี้สร้างจาก (= `info.x-api-version-latest` ของ openapi.json — test ฝั่ง API ตรวจให้ตรงกัน)
  * client ส่ง `X-Api-Version` ค่านี้ทุกคำขอ → UI ได้พฤติกรรมล่าสุดเสมอ ไม่ขึ้นกับวันสร้างบริษัท
  */
-export const API_VERSION = '2026-11-27';
+export const API_VERSION = '2026-11-28';
 
 export interface ClientOptions {
   baseUrl: string;

@@ -1660,6 +1660,8 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'con.conn.f.tenant': '公司',
   'con.conn.f.adapter': '系统',
   'con.conn.f.pick': '选择公司',
+  'quota.unit.conn': '集成',
+  'quota.unit.item': '项',
   'erpq.erpDefault': '财务系统',
   'erpq.kpi.mm': '不一致',
   'erpq.kpi.failed': '送货失败',

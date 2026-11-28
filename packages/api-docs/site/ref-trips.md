@@ -557,7 +557,7 @@ const { data, error } = await tms.POST('/v1/trips/{id}/reorder-stops', {
 
 scope: `trips:assign` · operationId: `Trips_assign`
 
-PLANNING → ASSIGNED (รถบริษัท) · ASSIGNED → ASSIGNED · OFFERED → ASSIGNED (รถร่วมรับงาน) · `dispatch: true` → ปล่อยรถต่อทันที (atomic; ต้องมี `trips:dispatch`; คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`)
+PLANNING → ASSIGNED (รถบริษัท) · ASSIGNED → ASSIGNED · OFFERED → ASSIGNED (รถร่วมรับงาน) · `dispatch: true` → ปล่อยรถต่อทันที (atomic; ต้องมี `trips:dispatch`; คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`) · รถที่ยังไม่ถูกนับเดือนนี้และจะทำให้รถ active เกินโควตา → คำเตือน `vehicle_quota_exceeded`
 
 **Parameters**
 

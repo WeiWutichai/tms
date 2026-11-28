@@ -5,7 +5,7 @@
     "description": "TMS Open API v1 — เฉพาะ endpoint ที่เรียกด้วย API key / OAuth client ได้",
     "version": "v1",
     "contact": {},
-    "x-api-version-latest": "2026-11-27",
+    "x-api-version-latest": "2026-11-28",
     "x-api-versions": [
       {
         "version": "2026-11-01",
@@ -31,6 +31,11 @@
             "description": "สถานะบริษัท (`tenant.status`) มี 7 ค่า — ก่อนหน้านี้ 4 ค่า (trial / active / suspended / cancelled)"
           }
         ]
+      },
+      {
+        "version": "2026-11-28",
+        "summary": "โควตา: จ่ายงานให้รถที่ยังไม่ถูกนับเดือนนี้และจะทำให้รถ active เกินโควตา → คำเตือน `vehicle_quota_exceeded` — `POST /v1/trips/{id}/dispatch` (และ `/assign` แบบ `dispatch: true`) ตอบ 409 `assignment_warnings` จนกว่าจะยืนยันด้วย `ruleKeys` + `overrideReason` · 409 `connector_limit_reached` / `webhook_limit_reached` / `seat_limit_reached` เพิ่ม `featureKey` `used` `upgradePlan` (เพิ่มค่า — ไม่มี gate)",
+        "changes": []
       }
     ]
   },
@@ -19108,7 +19113,7 @@
         },
         "responses": {
           "201": {
-            "description": "`secret` แสดงครั้งเดียว · ส่ง `webhook.verification` (challenge) หลังบันทึก 1 ครั้ง — ผลไม่บล็อก · ไม่รับ Idempotency-Key · เกิน limit ของแพ็กเกจ → 409 `webhook_limit_reached`",
+            "description": "`secret` แสดงครั้งเดียว · ส่ง `webhook.verification` (challenge) หลังบันทึก 1 ครั้ง — ผลไม่บล็อก · ไม่รับ Idempotency-Key · เกิน limit ของแพ็กเกจ → 409 `webhook_limit_reached` (มี `featureKey` `limit` `used` `upgradePlan`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -29187,7 +29192,7 @@
     },
     "/v1/trips/{id}/assign": {
       "post": {
-        "description": "PLANNING → ASSIGNED (รถบริษัท) · ASSIGNED → ASSIGNED · OFFERED → ASSIGNED (รถร่วมรับงาน) · `dispatch: true` → ปล่อยรถต่อทันที (atomic; ต้องมี `trips:dispatch`; คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`)",
+        "description": "PLANNING → ASSIGNED (รถบริษัท) · ASSIGNED → ASSIGNED · OFFERED → ASSIGNED (รถร่วมรับงาน) · `dispatch: true` → ปล่อยรถต่อทันที (atomic; ต้องมี `trips:dispatch`; คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`) · รถที่ยังไม่ถูกนับเดือนนี้และจะทำให้รถ active เกินโควตา → คำเตือน `vehicle_quota_exceeded`",
         "operationId": "Trips_assign",
         "parameters": [
           {
@@ -96805,11 +96810,11 @@
         "name": "X-Api-Version",
         "in": "header",
         "required": false,
-        "description": "เวอร์ชันพฤติกรรมของ API (วันที่ YYYY-MM-DD ตั้งแต่ 2026-11-01 ถึงวันนี้ — ได้ทุกการเปลี่ยนที่ออกในหรือก่อนวันนั้น; ล่าสุด 2026-11-27). ไม่ส่ง = เวอร์ชันที่ pin ไว้บน API key → วันที่สร้างบริษัท. ผิดรูปแบบ/ก่อนเวอร์ชันแรก/อนาคต → 400 `invalid_api_version`. เพิ่ม field/enum ใหม่ไม่ถือว่า breaking — client ต้องรับค่า enum ที่ไม่รู้จักได้",
+        "description": "เวอร์ชันพฤติกรรมของ API (วันที่ YYYY-MM-DD ตั้งแต่ 2026-11-01 ถึงวันนี้ — ได้ทุกการเปลี่ยนที่ออกในหรือก่อนวันนั้น; ล่าสุด 2026-11-28). ไม่ส่ง = เวอร์ชันที่ pin ไว้บน API key → วันที่สร้างบริษัท. ผิดรูปแบบ/ก่อนเวอร์ชันแรก/อนาคต → 400 `invalid_api_version`. เพิ่ม field/enum ใหม่ไม่ถือว่า breaking — client ต้องรับค่า enum ที่ไม่รู้จักได้",
         "schema": {
           "type": "string",
           "format": "date",
-          "example": "2026-11-27"
+          "example": "2026-11-28"
         }
       }
     }

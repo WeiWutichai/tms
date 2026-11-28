@@ -542,7 +542,8 @@ export class TripsController {
     summary: 'จัดรถ / จัดรถและปล่อยเที่ยว',
     description:
       'PLANNING → ASSIGNED (รถบริษัท) · ASSIGNED → ASSIGNED (เปลี่ยนรถ/คนขับก่อนปล่อยรถ — docs/01 §4.2) · OFFERED → ASSIGNED (รถร่วมรับงาน) · ' +
-      '`dispatch: true` → ปล่อยรถต่อทันที (atomic; ต้องมี `trips:dispatch`; คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`)',
+      '`dispatch: true` → ปล่อยรถต่อทันที (atomic; ต้องมี `trips:dispatch`; คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`) · ' +
+      'รถที่ยังไม่ถูกนับเดือนนี้และจะทำให้รถ active เกินโควตา → คำเตือน `vehicle_quota_exceeded` (soft limit — ยืนยันแล้วปล่อยรถต่อได้; P1-ST1-T08)',
   })
   @ApiProblems(
     T403('trips:assign'),

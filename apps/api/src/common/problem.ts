@@ -262,7 +262,7 @@ export const PROBLEMS = {
     th: 'บันทึกได้สูงสุด 50 มุมมองต่อหน้า',
     en: 'At most 50 saved views per page',
   },
-  /** ST7-T13 จำนวน connector ครบตามแพ็กเกจ (entitlement `conn`) — มี `limit` */
+  /** ST7-T13 จำนวน connector ครบตามแพ็กเกจ (entitlement `conn`) — มี `limit` · P1-ST1-T08 + `featureKey` `used` `upgradePlan` */
   connector_limit_reached: {
     status: 409,
     th: 'จำนวนการเชื่อมระบบบัญชีครบตามแพ็กเกจแล้ว',
@@ -331,7 +331,7 @@ export const PROBLEMS = {
     th: 'ทดสอบการเชื่อมต่อไม่ผ่าน ตรวจค่าตั้งและ credential แล้วลองใหม่',
     en: 'Connection test failed — check settings and credentials',
   },
-  /** ST7-T04 จำนวน webhook endpoint ครบตามแพ็กเกจ (entitlement `webhook`) — มี `limit` */
+  /** ST7-T04 จำนวน webhook endpoint ครบตามแพ็กเกจ (entitlement `webhook`) — มี `limit` · P1-ST1-T08 + `featureKey` `used` `upgradePlan` */
   webhook_limit_reached: {
     status: 409,
     th: 'จำนวน webhook endpoint ครบตามแพ็กเกจแล้ว',
@@ -355,6 +355,7 @@ export const PROBLEMS = {
     th: 'endpoint นี้ไม่ได้สมัคร event ชนิดนี้',
     en: 'The endpoint is not subscribed to this event type',
   },
+  /** จำนวนผู้ใช้ (ACTIVE + INVITED) ครบตามแพ็กเกจ (entitlement `users`) — P1-ST1-T08 มี `featureKey` `limit` `used` `upgradePlan` */
   seat_limit_reached: {
     status: 409,
     th: 'จำนวนผู้ใช้ครบตามแพ็กเกจแล้ว',

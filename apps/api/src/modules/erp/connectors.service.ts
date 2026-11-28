@@ -764,11 +764,9 @@ export class ConnectorsService {
   }
 
   private async assertLimit(tx: Tx, tenantId: string) {
-    const limit = (await this.entitlements.resolve(tenantId)).conn?.limit ?? null;
-    if (limit === null) return;
+    if (((await this.entitlements.resolve(tenantId)).conn?.limit ?? null) === null) return;
     const used = await tx.connector.count({ where: { status: { not: 'DISCONNECTED' } } });
-    if (used >= limit)
-      throw new ProblemException('connector_limit_reached', undefined, undefined, { limit });
+    await this.entitlements.assertLimit(tenantId, 'connector_limit_reached', 'conn', used);
   }
 
   private async assertScopeFree(tx: Tx, companyId: string | null) {

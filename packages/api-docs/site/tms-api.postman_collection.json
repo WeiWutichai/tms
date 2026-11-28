@@ -25,7 +25,7 @@
     },
     {
       "key": "apiVersion",
-      "value": "2026-11-27"
+      "value": "2026-11-28"
     }
   ],
   "item": [
@@ -2744,7 +2744,7 @@
                 }
               ]
             },
-            "description": "scope: trips:assign\n\nPLANNING → ASSIGNED (รถบริษัท) · ASSIGNED → ASSIGNED · OFFERED → ASSIGNED (รถร่วมรับงาน) · `dispatch: true` → ปล่อยรถต่อทันที (atomic; ต้องมี `trips:dispatch`; คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`)",
+            "description": "scope: trips:assign\n\nPLANNING → ASSIGNED (รถบริษัท) · ASSIGNED → ASSIGNED · OFFERED → ASSIGNED (รถร่วมรับงาน) · `dispatch: true` → ปล่อยรถต่อทันที (atomic; ต้องมี `trips:dispatch`; คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`) · รถที่ยังไม่ถูกนับเดือนนี้และจะทำให้รถ active เกินโควตา → คำเตือน `vehicle_quota_exceeded`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"ruleKeys\": [\n    \"OVERWEIGHT|v=…\"\n  ],\n  \"vehicleId\": \"veh_3f2a…\"\n}",

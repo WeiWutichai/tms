@@ -54,6 +54,11 @@ export const API_RELEASES: readonly ApiRelease[] = [
     summary:
       'สถานะบริษัท 7 ค่า (P1-ST1-T03 · spec/01 PLT-010): `GET /v1/me` `tenant.status` = pending_verification / trialing / active / past_due / read_only / suspended / cancelled — ก่อนหน้านี้ trial / active / suspended / cancelled (gate `tenant.status_lifecycle`)',
   },
+  {
+    version: '2026-11-28',
+    summary:
+      'โควตา (P1-ST1-T08 · spec/01 PLT-079–082): จ่ายงานให้รถที่ยังไม่ถูกนับเดือนนี้และจะทำให้รถ active เกินโควตา → คำเตือน `vehicle_quota_exceeded` — `POST /v1/trips/{id}/dispatch` (และ `/assign` แบบ `dispatch: true`) ตอบ 409 `assignment_warnings` จนกว่าจะยืนยันด้วย `ruleKeys` + `overrideReason` · 409 `connector_limit_reached` / `webhook_limit_reached` / `seat_limit_reached` เพิ่ม `featureKey` `used` `upgradePlan` (เพิ่มค่า — ไม่มี gate)',
+  },
 ];
 
 export const FIRST_API_VERSION: ApiVersion = API_RELEASES[0]!.version;

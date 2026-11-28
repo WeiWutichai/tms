@@ -1669,6 +1669,8 @@ export const en: Partial<Record<MessageKey, string>> = {
   'con.conn.f.tenant': 'Company',
   'con.conn.f.adapter': 'System',
   'con.conn.f.pick': 'Choose company',
+  'quota.unit.conn': 'Integrations',
+  'quota.unit.item': 'items',
   'erpq.erpDefault': 'Accounting system',
   'erpq.kpi.mm': 'Mismatch',
   'erpq.kpi.failed': 'Failed',

@@ -66,6 +66,11 @@ export interface NotificationVars {
   'subcon_offer.expired': { tripNo: string; carrier: string };
   /** ST7-T04 webhook endpoint ถูกปิดอัตโนมัติ (event ล้มเหลวติดกัน 50 รายการ — docs/04 G1) · label = คำอธิบาย/รหัส endpoint (ไม่ใส่ URL — safeName) */
   'webhook.auto_disabled': { label: string; failures: number };
+  /**
+   * P1-ST1-T08 metric ถึง 80/90/100% ของโควตา (spec/01 PLT-082) — ครั้งเดียวต่อระดับต่อเดือน (quota_alert) · ผู้ดูแลระบบ
+   * metric = `vehicles.active` · level = ระดับสูงสุดที่เพิ่งถึง · ไม่อยู่ใน event ของศูนย์แจ้งเตือน (ปิดไม่ได้)
+   */
+  'quota.threshold': { metric: 'vehicles.active'; level: number; used: number; limit: number };
   /** ST9-T08 ใบสั่งงานเข้าใบค้าง (docs/04 I "ใบค้างใหม่") · reason = ข้อความเหตุค้าง (reason code ภาษาไทย) */
   'order.held': { orderNo: string; customer: string; reasonCode: string; reason: string };
   /** ST9-T08 ใบค้างจากงานทีละมาก (นำเข้าไฟล์ / ดึงจาก connector) รวมฉบับเดียว · orderNos = ตัวอย่างไม่เกิน 5 · reasons = "รหัส จำนวน, …" */
@@ -636,6 +641,30 @@ const TEMPLATES: {
           : v.reason === 'permission_denied'
             ? `${v.label} export failed: you no longer have permission.`
             : `${v.label} export failed — please try again.`,
+    }),
+  },
+  'quota.threshold': {
+    th: (v) => ({
+      title:
+        v.level >= 100
+          ? 'รถ active ถึงโควตาแพ็กเกจแล้ว'
+          : `รถ active ใช้ไป ${n(v.level)}% ของโควตา`,
+      body: `เดือนนี้มีรถ active ${n(v.used)} จาก ${n(v.limit)} คันตามแพ็กเกจ — ${
+        v.level >= 100
+          ? 'จ่ายงานให้รถคันใหม่ยังทำได้ (ระบบเตือนก่อนจ่ายงาน) ติดต่อทีมงานเพื่อเพิ่มโควตาหรืออัปเกรดแพ็กเกจ'
+          : 'ดูรายการรถที่ถูกนับได้ที่ ทะเบียนรถ'
+      }`,
+    }),
+    en: (v) => ({
+      title:
+        v.level >= 100
+          ? 'Active vehicles reached your plan quota'
+          : `Active vehicles at ${n(v.level)}% of quota`,
+      body: `${n(v.used)} of ${n(v.limit)} active vehicles this month — ${
+        v.level >= 100
+          ? 'you can still dispatch new vehicles (with a warning). Contact us to raise the quota or upgrade.'
+          : 'see counted vehicles under Vehicles.'
+      }`,
     }),
   },
   'webhook.auto_disabled': {

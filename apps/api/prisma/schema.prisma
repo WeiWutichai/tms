@@ -2847,6 +2847,24 @@ model UsageDaily {
   @@map("usage_daily")
 }
 
+/// P1-ST1-T08 แจ้งผู้ดูแลระบบเมื่อ metric ถึง 80/90/100% ของโควตา (spec/01 PLT-082) — 1 แถว = แจ้งแล้ว 1 ระดับ/เดือน (ครั้งเดียวต่อระดับต่อเดือน)
+/// เขียนโดย worker (QuotaAlertService) ใน transaction เดียวกับการแจ้ง · role แอป insert ได้ (RLS) แก้/ลบไม่ได้
+model QuotaAlert {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  metric     String   @db.VarChar(40)
+  /// เดือนปฏิทินเวลาไทย YYYY-MM
+  period     String   @db.Char(7)
+  /// 80 | 90 | 100 (CHECK)
+  level      Int      @db.SmallInt
+  used       Int
+  limit      Int
+  notifiedAt DateTime @default(now()) @map("notified_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, metric, period, level])
+  @@map("quota_alert")
+}
+
 /// P1-ST4-T05 สถิติคำขอ Open API รายวันต่อบริษัท (spec/01 §10.7 — Console "การใช้งาน API"): ทุกคำขอของ API key / OAuth client ที่ยืนยันตัวตนผ่าน
 /// (live เท่านั้น — sandbox ไม่นับ) · ไม่ใช่ตัวเลขออกบิล (ตัวนับบิล = usage_daily `api.calls` ที่ไม่นับ 429/5xx)
 /// `latency_hist` = จำนวนคำขอต่อช่วงเวลาตอบ (ms) ตามขอบ `LATENCY_BOUNDS_MS` ใน api-traffic-meter.ts (ช่องท้าย = เกินขอบสุดท้าย) — ไม่รวม 429
