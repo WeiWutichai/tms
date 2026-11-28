@@ -249,6 +249,7 @@ export const PROBLEMS = {
     status: 429,
     th: 'ค้นหาเลขผู้เสียภาษีครบจำนวนครั้งแล้ว กรอกข้อมูลบริษัทเองได้',
     en: 'Too many tax ID lookups — enter the company details manually',
+  },
   /** P1-ST4-T06 ปิดบัญชีทีมงานของตัวเอง หรือ SUPER_ADMIN คนสุดท้ายที่ใช้งานอยู่ไม่ได้ (กันไม่มีใครจัดการทีม) */
   staff_deactivate_not_allowed: {
     status: 409,
