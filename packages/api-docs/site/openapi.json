@@ -97417,6 +97417,11 @@
       "title": "การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่",
       "titleEn": "This source change was already decided or superseded — reload"
     },
+    "staff_deactivate_not_allowed": {
+      "status": 409,
+      "title": "ปิดบัญชีตัวเองหรือผู้ดูแลสูงสุดคนสุดท้ายไม่ได้",
+      "titleEn": "You cannot deactivate yourself or the last super admin"
+    },
     "step_up_required": {
       "status": 403,
       "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",

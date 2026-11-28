@@ -107,6 +107,8 @@ export const can = {
   impersonate: (r?: StaffRole) => r === 'SUPER_ADMIN' || r === 'SUPPORT',
   /** #81 รีเซ็ต 2FA ผู้ใช้ลูกค้า — SUPER_ADMIN เท่านั้น (docs/04 A6: SUPPORT ดู + เข้าใช้งานแทน) */
   reset2fa: (r?: StaffRole) => r === 'SUPER_ADMIN',
+  /** P1-ST4-T06 เชิญ/ปิดทีมงาน — SUPER_ADMIN เท่านั้น (spec/01 §11.4 "จัดการทีมงาน" = owner) */
+  team: (r?: StaffRole) => r === 'SUPER_ADMIN',
   /** P1-ST1-T04 ค่าตั้งแพลตฟอร์ม — owner เท่านั้น (spec/01 §11.4, PLT-099) */
   settings: (r?: StaffRole) => r === 'SUPER_ADMIN',
   /** P1-ST1-T06 ปรับยอดรถ active หลังปิดยอด — การเงิน (BILLING) + owner (spec/01 PLT-074) */

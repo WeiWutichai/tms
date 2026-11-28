@@ -3149,11 +3149,16 @@ model PlatformUser {
   /// TOTP (เข้ารหัสด้วย FieldCipher) — บังคับทุกคน ตั้งตอนสร้างบัญชี
   totpSecret     String                 @map("totp_secret")
   totpLastStep   BigInt?                @map("totp_last_step")
-  status         String                 @default("ACTIVE") /// ACTIVE · DISABLED
+  status         String                 @default("ACTIVE") /// ACTIVE · INVITED (P1-ST4-T06) · DISABLED
   tokenVersion   Int                    @default(0) @map("token_version")
   failedLogins   Int                    @default(0) @map("failed_logins")
   lockedUntil    DateTime?              @map("locked_until") @db.Timestamptz(6)
   lastLoginAt    DateTime?              @map("last_login_at") @db.Timestamptz(6)
+  /// P1-ST4-T06 คำเชิญทีมงาน: sha256 ของ token ในลิงก์ (ใช้ครั้งเดียว) + วันหมดอายุ — รับแล้ว/ปิดแล้ว = null
+  inviteTokenHash String?               @unique @map("invite_token_hash")
+  inviteExpiresAt DateTime?             @map("invite_expires_at") @db.Timestamptz(6)
+  invitedBy      String?                @map("invited_by") @db.Uuid
+  deactivatedAt  DateTime?              @map("deactivated_at") @db.Timestamptz(6)
   createdAt      DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   impersonations ImpersonationSession[]
