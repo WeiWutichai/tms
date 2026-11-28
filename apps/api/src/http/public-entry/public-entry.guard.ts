@@ -35,6 +35,7 @@ export const PUBLIC_ENTRY = 'tms:publicEntry';
 
 type EntryRule =
   | { kind: 'signup_ip' }
+  | { kind: 'signup_complete_ip' }
   | { kind: 'otp_recipient'; field: string }
   | { kind: 'bot'; action: string };
 
@@ -42,6 +43,9 @@ const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
 /** อ่านทุกคำขอ (test/ops ปรับได้โดยไม่ต้อง restart ในกระบวนการเดียวกัน) */
 export const signupPerIpPerHour = () => Number(process.env.SIGNUP_RATE_LIMIT_PER_IP_PER_HOUR ?? 5);
+/** P1-ST2-T05 สร้างบริษัทจากหน้าสมัคร (ธุรกรรมหนัก) — bucket แยกต่อ IP เพดานต่ำ (ค่าเริ่ม 10 ครั้ง/ชม.) */
+export const signupCompletePerIpPerHour = () =>
+  Number(process.env.SIGNUP_COMPLETE_RATE_LIMIT_PER_IP_PER_HOUR ?? 10);
 export const otpPerRecipientPerDay = () =>
   Number(process.env.OTP_RATE_LIMIT_PER_RECIPIENT_PER_DAY ?? 5);
 
@@ -62,6 +66,16 @@ export const SignupAttemptLimit = () =>
     ApiTooManyRequestsResponse({
       description:
         'rate_limited (`scope: ip`) — สมัครเกินเพดานต่อ IP (ค่าเริ่ม 5 ครั้ง/ชม.) มี header Retry-After',
+    }),
+  );
+
+/** P1-ST2-T05 ขั้น 3 "เริ่มใช้งาน" (สร้างบริษัท/ขอนัด demo) — bucket ของตัวเอง แยกจากขั้น 1 */
+export const SignupCompleteLimit = () =>
+  applyDecorators(
+    addRule({ kind: 'signup_complete_ip' }),
+    ApiTooManyRequestsResponse({
+      description:
+        'rate_limited (`scope: ip`) — เรียกเกินเพดานต่อ IP (ค่าเริ่ม 10 ครั้ง/ชม.) มี header Retry-After',
     }),
   );
 
@@ -146,6 +160,10 @@ export class PublicEntryGuard implements CanActivate {
       if (r.kind === 'signup_ip')
         buckets.push(
           slidingWindow(`su:ip:${route}:${ipKey(req.ip)}`, signupPerIpPerHour(), HOUR_MS, 'ip'),
+        );
+      if (r.kind === 'signup_complete_ip')
+        buckets.push(
+          slidingWindow(`su:done:${ipKey(req.ip)}`, signupCompletePerIpPerHour(), HOUR_MS, 'ip'),
         );
       if (r.kind === 'otp_recipient') {
         const v = (req.body as Record<string, unknown> | undefined)?.[r.field];

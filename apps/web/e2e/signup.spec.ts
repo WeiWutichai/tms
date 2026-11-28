@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { expect, test } from '@playwright/test';
+import { totp } from './fixtures';
 
 /**
  * E2E P1-ST2-T03 สมัครขั้น 1 "สร้างบัญชี" (/signup — chunk เดียวกับ landing)
@@ -219,4 +220,77 @@ test('สมัครขั้น 2: checksum ผิดไม่ส่งคำ�
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
   expect(overflow).toBeLessThanOrEqual(0);
+});
+
+/**
+ * E2E P1-ST2-T05 ขั้น 3 "เลือกแพ็กเกจ" — เกณฑ์ตรวจรับ: เลข RD พบ + ชื่อตรง → เข้าแอปภายใน 60 วิ สถานะ `trialing`
+ * ขั้น 1 ผ่าน API → ขั้น 2 ในหน้าเว็บ (ค้นหา → prefill จาก mock RD) → ขั้น 3 "เริ่มใช้งาน" → "พร้อมใช้งานแล้ว"
+ * → "เข้าใช้งาน TMS" → ตั้ง 2FA (owner — D-78) → อยู่ในแอป
+ */
+test('สมัครขั้น 3: RD พบ + ชื่อตรง → พร้อมใช้งานแล้ว → เข้าแอปภายใน 60 วิ สถานะ trialing', async ({
+  page,
+  request,
+}) => {
+  const API = `http://localhost:${process.env.E2E_API_PORT ?? '4510'}`;
+  const email = `signup3-${Date.now()}@e2e-company.test`;
+  const start = await request.post(`${API}/v1/public/signup`, {
+    data: { name: 'ทดสอบ ขั้นสาม', email, mobile: '+66812345678', password: PW },
+  });
+  expect(start.status()).toBe(201);
+  const { token } = (await start.json()) as { token: string };
+  const ok = await request.post(`${API}/v1/public/signup/session/otp/verify`, {
+    headers: { 'X-Signup-Token': token },
+    data: { code: await lastCode(email) },
+  });
+  expect(ok.status()).toBe(200);
+
+  await page.addInitScript((t) => {
+    if (location.pathname === '/signup') sessionStorage.setItem('tms.signupToken', t);
+  }, token);
+  await page.goto('/signup');
+  await expect(page.getByRole('heading', { level: 1, name: 'ข้อมูลบริษัท' })).toBeVisible();
+  await page.getByPlaceholder('0105556078912').fill('0105567153766');
+  await page.getByRole('button', { name: 'ค้นหา' }).click();
+  await expect(page.getByText(/ข้อมูลจากกรมสรรพากร/).first()).toBeVisible();
+  const field = (l: string) =>
+    page.locator('label.su-field').filter({ hasText: l }).locator('input').first();
+  await field('รถบริษัท (โดยประมาณ)').fill('12');
+  await field('รถร่วม (โดยประมาณ)').fill('3');
+  await page.getByLabel(/ยอมรับเงื่อนไขการใช้บริการ/).check();
+  await page.getByLabel(/ยอมรับนโยบายความเป็นส่วนตัว/).check();
+  await page.getByRole('button', { name: 'ถัดไป' }).click();
+
+  // ขั้น 3 ตามต้นแบบ
+  await expect(page.getByRole('heading', { level: 1, name: 'เลือกแพ็กเกจ' })).toBeVisible();
+  await expect(page.getByText('ขั้น 3 จาก 3')).toBeVisible();
+  await expect(page.getByRole('radio', { name: /ทดลองใช้ .* 30 วัน/ }).first()).toBeVisible();
+  await expect(page.getByRole('radio', { name: /นัด demo/ })).toBeVisible();
+  const t0 = Date.now();
+  await page.getByRole('button', { name: 'เริ่มใช้งาน' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'พร้อมใช้งานแล้ว' })).toBeVisible();
+  await expect(page.getByText(/บริษัท ตัวอย่างขนส่ง จำกัด เริ่มทดลองใช้แพ็กเกจ/)).toBeVisible();
+  await expect(page.getByText(new RegExp(`เราส่งอีเมลยืนยันไปที่ ${email} แล้ว`))).toBeVisible();
+
+  const s = await db.signupSession.findFirst({ where: { email } });
+  const tenant = await db.tenant.findUnique({
+    where: { id: s.createdTenantId },
+    include: { subscription: true },
+  });
+  expect(tenant.status).toBe('TRIALING');
+  expect(tenant.subscription.status).toBe('trialing');
+
+  // เข้าใช้งาน → owner ต้องตั้ง 2FA ก่อน (D-78) → อยู่ในแอป
+  await page.getByRole('link', { name: 'เข้าใช้งาน TMS' }).click();
+  await expect(page.getByRole('heading', { name: 'ตั้งการยืนยันตัวตน 2 ชั้น' })).toBeVisible();
+  const secret = ((await page.getByTestId('totp-secret').textContent()) ?? '').replace(/\s/g, '');
+  expect(secret.length).toBeGreaterThan(10);
+  await page.getByLabel('รหัส 6 หลัก').fill(totp(secret));
+  await page.getByRole('button', { name: 'ยืนยันและเปิดใช้' }).click();
+  await page.getByRole('button', { name: 'บันทึกแล้ว ดำเนินการต่อ' }).click();
+  await expect(page).not.toHaveURL(/\/(login|signup)/);
+  await expect(page.getByText('ทดสอบ ขั้นสาม').first()).toBeVisible();
+  expect(Date.now() - t0).toBeLessThan(60_000);
+  expect(
+    await db.domainEvent.count({ where: { tenantId: tenant.id, type: 'signup.completed' } }),
+  ).toBe(1);
 });

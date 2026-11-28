@@ -1,8 +1,8 @@
 import {
   Building2,
   Check,
+  CircleCheck,
   Hourglass,
-  Info,
   Rocket,
   RotateCcw,
   ShieldCheck,
@@ -12,13 +12,21 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useI18n } from '../../i18n/core';
 import type { MessageKey } from '../../i18n/th';
 import { useCompanyStep } from './CompanyStep';
-import { signupApi, SignupError, signupToken, type SignupSession } from './signupApi';
+import { usePlanStep } from './PlanStep';
+import {
+  signupApi,
+  SignupError,
+  signupToken,
+  type SignupCompleteResult,
+  type SignupSession,
+} from './signupApi';
 import './signup.css';
 
 /**
  * หน้าสมัคร ขั้น 1 "สร้างบัญชี" (P1-ST2-T03) — `design/prototype/TMS Signup.dc.html` view `signup` (su.s1 / su.otp)
- * ขั้น 2 "ข้อมูลบริษัท" (P1-ST2-T04) = `CompanyStep.tsx` · ขั้น 3 (T05): stepper ขั้น 3 + หัวข้อ "เลือกแพ็กเกจ" ของต้นแบบ
- * และแจ้งว่ายังไม่เปิด (ปุ่ม "ย้อนกลับ" กลับไปแก้ขั้น 2) · คำขอเข้าร่วมบริษัทเดิม → การ์ด "ส่งคำขอเข้าร่วมแล้ว" (view `pending` ของต้นแบบ)
+ * ขั้น 2 "ข้อมูลบริษัท" (P1-ST2-T04) = `CompanyStep.tsx` · ขั้น 3 "เลือกแพ็กเกจ" (P1-ST2-T05) = `PlanStep.tsx`
+ * หน้าผล (การ์ดกลางจอของต้นแบบ): view `done` "พร้อมใช้งานแล้ว" · view `pending` "เราได้รับข้อมูลแล้ว" / "เราได้รับคำขอ demo แล้ว" /
+ * "ส่งคำขอเข้าร่วมแล้ว" (คำขอเข้าร่วมบริษัทเดิม)
  *
  * ต่างจากต้นแบบ [DECISION — lead 27 พ.ย. 2569, ย้อนได้] (spec/12 §3 แถว "สมัครขั้น 1"):
  * - ไม่มีปุ่ม "สมัครด้วย Google" + เส้น "หรือกรอกข้อมูล" (R-08 — Google sign-in หลังเฟส 1)
@@ -53,6 +61,8 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
   const [editCompany, setEditCompany] = useState(false);
   /** ย้อนจากขั้น 2 ไปดูขั้น 1 (อ่านอย่างเดียว — บัญชียืนยันแล้ว) ตามปุ่ม "ย้อนกลับ" ของต้นแบบ */
   const [viewAccount, setViewAccount] = useState(false);
+  /** P1-ST2-T05 ผลของขั้น 3 (สร้างบริษัทแล้ว / รอตรวจ / ขอนัด demo) */
+  const [result, setResult] = useState<SignupCompleteResult | null>(null);
   const timer = useRef<number | undefined>(undefined);
 
   const startTimer = (n: number) => {
@@ -127,6 +137,18 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
     onSession: (s) => {
       setSession(s);
       if (s.status === 'company_submitted') setEditCompany(false);
+    },
+    onToast,
+    problemText,
+  });
+  const plan = usePlanStep({
+    session,
+    active: step === 3,
+    onDone: (r) => {
+      setResult(r);
+      setSession(r.session);
+      // สร้างบริษัทแล้ว — token ของการสมัครใช้ทำต่อไม่ได้อีก (เข้าสู่ระบบด้วยอีเมล/รหัสผ่าน)
+      if (r.completion.outcome !== 'demo') signupToken.clear();
     },
     onToast,
     problemText,
@@ -310,24 +332,82 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
         ? t('su.foot.s2')
         : t('su.foot.s3');
 
-  // เลขซ้ำ → "ส่งคำขอเข้าร่วมบริษัท" แล้ว: view `pending` ของต้นแบบ (การ์ดกลางจอ)
+  // หน้าผล — การ์ดกลางจอของต้นแบบ (view `done` / `pending`)
+  const thDate = (iso: string | null) =>
+    iso
+      ? new Intl.DateTimeFormat(lang === 'en' ? 'en-GB' : 'th-TH-u-ca-buddhist', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+          timeZone: 'Asia/Bangkok',
+        }).format(new Date(iso))
+      : '—';
+  const done = result?.completion.outcome === 'ready' ? result.completion : null;
+  if (done && session)
+    return (
+      <main className="su-auth">
+        <section className="su-auth__card" role="status">
+          <span className="su-auth__ic su-auth__ic--ok" aria-hidden="true">
+            <CircleCheck size={24} strokeWidth={1.8} />
+          </span>
+          <h1>{t('su.done.title')}</h1>
+          <span className="su-auth__d">
+            {t('su.done.d', {
+              company: done.companyName,
+              plan: done.planName,
+              date: thDate(done.trialEndsAt),
+              email: session.email,
+            })}
+          </span>
+          <a href="/login?from=signup" className="su-go">
+            {t('su.done.go')}
+          </a>
+        </section>
+      </main>
+    );
+  // เลขซ้ำ → "ส่งคำขอเข้าร่วมบริษัท" แล้ว · รอทีมงานตรวจ · ขอนัด demo: view `pending` ของต้นแบบ
   const join = session?.joinRequest?.kind === 'join' ? session.joinRequest : null;
-  if (join && session)
+  const pendKind =
+    result?.completion.outcome === 'pending'
+      ? 'review'
+      : result?.completion.outcome === 'demo' || session?.demoRequestedAt
+        ? 'demo'
+        : join
+          ? 'join'
+          : null;
+  if (pendKind && session) {
+    const companyName =
+      pendKind === 'join'
+        ? (join?.companyName ?? '—')
+        : (result?.completion.companyName ?? session.company?.legalName ?? '—');
+    const taxId = pendKind === 'join' ? join!.taxId : (session.company?.taxId ?? '—');
     return (
       <main className="su-auth">
         <section className="su-auth__card" role="status">
           <span className="su-auth__ic" aria-hidden="true">
             <Hourglass size={24} strokeWidth={1.8} />
           </span>
-          <h1>{t('su.pend.joinT')}</h1>
-          <span className="su-auth__d">{t('su.pend.joinD', { name: join.companyName ?? '' })}</span>
+          <h1>
+            {t(
+              pendKind === 'join'
+                ? 'su.pend.joinT'
+                : pendKind === 'demo'
+                  ? 'su.pend.demoT'
+                  : 'su.pend.reviewT',
+            )}
+          </h1>
+          <span className="su-auth__d">
+            {pendKind === 'join'
+              ? t('su.pend.joinD', { name: join?.companyName ?? '' })
+              : t(pendKind === 'demo' ? 'su.pend.demoD' : 'su.pend.reviewD')}
+          </span>
           <div className="su-auth__rows">
             {(
               [
                 ['su.pend.applicant', session.name],
                 ['su.pend.email', session.email],
-                ['su.pend.company', join.companyName ?? '—'],
-                ['su.pend.tax', join.taxId],
+                ['su.pend.company', companyName],
+                ['su.pend.tax', taxId],
                 ['su.pend.status', t('su.pend.waiting')],
               ] as Array<[MessageKey, string]>
             ).map(([k, v]) => (
@@ -343,6 +423,7 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
         </section>
       </main>
     );
+  }
 
   return (
     <main className="su-main">
@@ -468,18 +549,7 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
             </>
           )}
           {step === 2 && company.body}
-          {step === 3 && (
-            <>
-              <div className="su-head">
-                <h1>{t('su.s3.title')}</h1>
-                <span>{t('su.s3.sub')}</span>
-              </div>
-              <div className="su-note" role="status">
-                <Info size={16} strokeWidth={1.8} className="su-note__i" aria-hidden="true" />
-                <span>{t('su.s3.soon')}</span>
-              </div>
-            </>
-          )}
+          {step === 3 && plan.body}
           <div className="su-foot">
             {step === 1 && otpSent && (
               <button
@@ -513,6 +583,16 @@ export function SignupMain({ onToast }: { onToast: (m: string) => void }) {
                 onClick={() => void company.next()}
               >
                 {t('su.next')}
+              </button>
+            )}
+            {step === 3 && (
+              <button
+                type="button"
+                className="su-next"
+                disabled={plan.busy}
+                onClick={() => void plan.next()}
+              >
+                {plan.nextLabel}
               </button>
             )}
             {accountRO && (

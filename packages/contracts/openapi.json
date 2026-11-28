@@ -1420,6 +1420,155 @@
         ]
       }
     },
+    "/v1/public/signup/session/plans": {
+      "get": {
+        "description": "แพ็กเกจ active + แสดงบนเว็บ ที่มีเวอร์ชันที่มีผล · ราคา (ก่อน VAT) แสดงเมื่อเปิดราคาสาธารณะ (`pricing.publicVisible`) เท่านั้น — ปิดอยู่ = ราคาเป็น null",
+        "operationId": "Signup_plans",
+        "parameters": [
+          {
+            "name": "X-Signup-Token",
+            "in": "header",
+            "description": "token ทำต่อที่ได้จาก `POST /v1/public/signup` หรือจาก login (`signup_incomplete`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupPlansDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "description": "signup_session_invalid"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "summary": "ขั้น 3 แพ็กเกจที่เลือกได้ (ทดลองใช้ / นัด demo)",
+        "tags": [
+          "public"
+        ]
+      }
+    },
+    "/v1/public/signup/session/complete": {
+      "post": {
+        "description": "สร้าง Tenant + ค่าเริ่มต้นไทย + Subscription (ทดลองใช้ `trial.days` วัน) + นิติบุคคล/สาขาจากขั้น 2 + ผู้ใช้ owner + checklist ตั้งค่า + sandbox ในธุรกรรมเดียว (ล้มกลางทาง = ไม่มีอะไรถูกสร้าง) · ตรวจเลขซ้ำอีกครั้งในธุรกรรม (409 `company_exists`) · สถานะ: `signup.approvalPolicy` = auto_when_verified และผลตรวจ auto_vat → `trialing` (`signIn` = code/2FA เพื่อเข้าแอปทันที) · อื่น ๆ → `pending_verification` (ทีมงานตรวจภายใน 1 วันทำการ) · แพ็กเกจตกลงราคา → บันทึกคำขอนัด demo ไม่สร้างบริษัท · เรียกซ้ำหลังสร้างแล้ว = ผลเดิม (`signIn` = null)",
+        "operationId": "Signup_complete",
+        "parameters": [
+          {
+            "name": "X-Signup-Token",
+            "in": "header",
+            "description": "token ทำต่อที่ได้จาก `POST /v1/public/signup` หรือจาก login (`signup_incomplete`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteSignupDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupCompleteResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "description": "signup_session_invalid"
+          },
+          "409": {
+            "description": "company_exists / account_exists / invalid_state_transition (ยังไม่ส่งขั้น 2)"
+          },
+          "422": {
+            "description": "validation_failed — `planCode` (unknown_plan)"
+          },
+          "429": {
+            "description": "rate_limited (`scope: ip`) — เรียกเกินเพดานต่อ IP (ค่าเริ่ม 10 ครั้ง/ชม.) มี header Retry-After",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "ขั้น 3 \"เริ่มใช้งาน\" — สร้างบริษัทในธุรกรรมเดียว (หรือขอนัด demo)",
+        "tags": [
+          "public"
+        ]
+      }
+    },
     "/v1/auth/invitations/inspect": {
       "post": {
         "operationId": "InvitationAccept_inspect",
@@ -77515,6 +77664,18 @@
                 "$ref": "#/components/schemas/SignupJoinRequestDto"
               }
             ]
+          },
+          "planCode": {
+            "type": "string",
+            "nullable": true,
+            "example": "std",
+            "description": "แพ็กเกจที่เลือกในขั้น 3 (P1-ST2-T05)"
+          },
+          "demoRequestedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "ขอนัด demo แล้ว (แพ็กเกจตกลงราคา — ไม่สร้างบริษัท)"
           }
         },
         "required": [
@@ -77526,7 +77687,9 @@
           "otp",
           "company",
           "certificate",
-          "joinRequest"
+          "joinRequest",
+          "planCode",
+          "demoRequestedAt"
         ]
       },
       "SignupStartResultDto": {
@@ -77864,6 +78027,235 @@
         "required": [
           "taxId",
           "kind"
+        ]
+      },
+      "SignupPlanChoiceDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "std"
+          },
+          "nameTh": {
+            "type": "string",
+            "example": "Growth"
+          },
+          "nameEn": {
+            "type": "string",
+            "nullable": true
+          },
+          "badge": {
+            "type": "string",
+            "nullable": true,
+            "example": "นิยม"
+          },
+          "isContactSales": {
+            "type": "boolean",
+            "description": "ตกลงราคากับฝ่ายขาย → \"นัด demo\" (ไม่สร้างบริษัท)"
+          },
+          "pricePerVehicleMonthly": {
+            "type": "string",
+            "nullable": true,
+            "example": "280.00",
+            "description": "บาท/รถ active/เดือน ก่อน VAT — null = ตกลงราคา หรือยังไม่เปิดราคาสาธารณะ (`pricing.publicVisible = false`)"
+          },
+          "minimumMonthly": {
+            "type": "string",
+            "nullable": true,
+            "description": "ก่อน VAT (null เมื่อไม่เปิดราคา)"
+          },
+          "annualDiscountPct": {
+            "type": "string",
+            "nullable": true,
+            "example": "15.00",
+            "description": "null เมื่อไม่เปิดราคา"
+          },
+          "volumeTiers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "fromVehicle": {
+                  "type": "integer"
+                },
+                "discountPct": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "ส่วนลดตามจำนวนรถ (ว่างเมื่อไม่เปิดราคา)"
+          },
+          "vehicleMin": {
+            "type": "number",
+            "nullable": true,
+            "example": 16,
+            "description": "ช่วงจำนวนรถของ tier — null เมื่อไม่เปิดราคา"
+          },
+          "vehicleMax": {
+            "type": "number",
+            "nullable": true,
+            "example": 60
+          }
+        },
+        "required": [
+          "code",
+          "nameTh",
+          "nameEn",
+          "badge",
+          "isContactSales",
+          "pricePerVehicleMonthly",
+          "minimumMonthly",
+          "annualDiscountPct",
+          "volumeTiers",
+          "vehicleMin",
+          "vehicleMax"
+        ]
+      },
+      "SignupPlansDto": {
+        "type": "object",
+        "properties": {
+          "trialDays": {
+            "type": "number",
+            "example": 30,
+            "description": "จำนวนวันทดลองใช้ของบริษัทใหม่ (`trial.days`)"
+          },
+          "pricesVisible": {
+            "type": "boolean",
+            "description": "เปิดราคาสาธารณะแล้ว (`pricing.publicVisible`) — false = ไม่แสดงราคา/ประมาณการ"
+          },
+          "plans": {
+            "description": "เรียงตาม sortOrder",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SignupPlanChoiceDto"
+            }
+          }
+        },
+        "required": [
+          "trialDays",
+          "pricesVisible",
+          "plans"
+        ]
+      },
+      "CompleteSignupDto": {
+        "type": "object",
+        "properties": {
+          "planCode": {
+            "type": "string",
+            "example": "std",
+            "description": "รหัสแพ็กเกจจาก `GET …/session/plans`"
+          },
+          "codeChallenge": {
+            "type": "string",
+            "description": "PKCE S256: BASE64URL(SHA256(code_verifier)) — ใช้ออก authorization code ให้เข้าแอปทันทีเมื่อสถานะ `trialing`"
+          }
+        },
+        "required": [
+          "planCode",
+          "codeChallenge"
+        ]
+      },
+      "SignupCompletionDto": {
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "pending",
+              "demo"
+            ],
+            "description": "ready = บริษัทสถานะ trialing (\"พร้อมใช้งานแล้ว\") · pending = pending_verification (\"เราได้รับข้อมูลแล้ว\") · demo = ขอนัด demo (ไม่สร้างบริษัท)"
+          },
+          "tenantStatus": {
+            "type": "string",
+            "nullable": true,
+            "example": "trialing",
+            "description": "สถานะบริษัท (ค่าเดียวกับ `tenant.status` 7 ค่า — ครั้งแรกเป็น trialing หรือ pending_verification; เรียกซ้ำ = สถานะปัจจุบัน) · null = ขอนัด demo"
+          },
+          "companyName": {
+            "type": "string"
+          },
+          "planCode": {
+            "type": "string",
+            "example": "std"
+          },
+          "planName": {
+            "type": "string",
+            "example": "Growth"
+          },
+          "trialEndsAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "outcome",
+          "tenantStatus",
+          "companyName",
+          "planCode",
+          "planName",
+          "trialEndsAt"
+        ]
+      },
+      "SignupSignInDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "code",
+              "mfa"
+            ],
+            "description": "code = authorization code (แลกที่ `POST /v1/oauth/token` ด้วย code_verifier) · mfa = ต้องผ่าน 2FA ก่อน (เหมือน login: `/v1/auth/2fa/*`)"
+          },
+          "code": {
+            "type": "string"
+          },
+          "expiresIn": {
+            "type": "number",
+            "example": 60
+          },
+          "mfaToken": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "verify",
+              "enroll"
+            ]
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "SignupCompleteResultDto": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "$ref": "#/components/schemas/SignupSessionDto"
+          },
+          "completion": {
+            "$ref": "#/components/schemas/SignupCompletionDto"
+          },
+          "signIn": {
+            "nullable": true,
+            "description": "มีเฉพาะ outcome = ready ครั้งแรก (เรียกซ้ำ = null — เข้าสู่ระบบด้วยรหัสผ่าน)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SignupSignInDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "session",
+          "completion",
+          "signIn"
         ]
       },
       "InvitationTokenDto": {
