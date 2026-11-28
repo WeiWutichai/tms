@@ -9,7 +9,7 @@ import { consoleApi, consoleLogout, cunwrap, useStaff, type StaffRole } from './
 import './console.css';
 
 /**
- * เมนูตามต้นแบบ (NAV ใน TMS Platform Console) — เฟสนี้ใช้ได้ "ลูกค้า" (ST1-T24), "Connector ระบบบัญชี" (ST7-T20), "ทีมงาน" + "Audit log" (P1-ST4-T06)
+ * เมนูตามต้นแบบ (NAV ใน TMS Platform Console) — เฟสนี้ใช้ได้ "ลูกค้า" (ST1-T24), "การใช้งาน API" (P1-ST4-T05), "Connector ระบบบัญชี" (ST7-T20), "ทีมงาน" + "Audit log" (P1-ST4-T06)
  * ต้นแบบไม่มีเมนู Connectors (docs/02 §5 มี) [DECISION spec/12 §3]: วางต่อจาก "การใช้งาน API และ AI" ไอคอน plug
  */
 const NAV: ({ k: string; i: string; path?: string } | 'sep')[] = [
@@ -20,7 +20,8 @@ const NAV: ({ k: string; i: string; path?: string } | 'sep')[] = [
   { k: 'pkg', i: 'package' },
   { k: 'add', i: 'ticket-percent' },
   { k: 'fin', i: 'wallet' },
-  { k: 'use', i: 'activity' },
+  // P1-ST4-T05 ต้นแบบ "การใช้งาน API และ AI" — ส่วน AI/MCP ไม่ทำ (D-48) จึงตัด "และ AI" ออกจากชื่อ [DECISION spec/12 §3]
+  { k: 'use', i: 'activity', path: '/console/api-usage' },
   { k: 'conn', i: 'plug', path: '/console/connectors' },
   'sep',
   { k: 'team', i: 'users', path: '/console/team' },
@@ -92,6 +93,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
   const onTeam = loc.pathname.startsWith('/console/team');
   const onAud = loc.pathname.startsWith('/console/audit');
   const onSet = loc.pathname.startsWith('/console/settings');
+  const onUse = loc.pathname.startsWith('/console/api-usage');
 
   return (
     <div className="con">
@@ -104,15 +106,17 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
         <span className="con-hd__crumb">
           {onTenants
             ? t('con.nav.ten')
-            : onConn
-              ? t('con.nav.conn')
-              : onTeam
-                ? t('con.nav.team')
-                : onAud
-                  ? t('con.nav.aud')
-                  : onSet
-                    ? t('con.nav.set')
-                    : ''}
+            : onUse
+              ? t('con.nav.use')
+              : onConn
+                ? t('con.nav.conn')
+                : onTeam
+                  ? t('con.nav.team')
+                  : onAud
+                    ? t('con.nav.aud')
+                    : onSet
+                      ? t('con.nav.set')
+                      : ''}
         </span>
         <div style={{ flex: 1 }} />
         <label className="con-hd__search">

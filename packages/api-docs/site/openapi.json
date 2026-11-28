@@ -65,7 +65,7 @@
         },
         "responses": {
           "200": {
-            "description": "authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` — รับเฉพาะ JSON จากหน้าเว็บเดียวกัน (form / `Sec-Fetch-Site` ข้ามเว็บ → 403 `forbidden`) · client_credentials: รับ JSON หรือ form (RFC 6749) ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed)",
+            "description": "authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` — รับเฉพาะ JSON จากหน้าเว็บเดียวกัน (form / `Sec-Fetch-Site` ข้ามเว็บ → 403 `forbidden`) · client_credentials: รับ JSON หรือ form (RFC 6749) ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed / api_disabled_by_platform)",
             "content": {
               "application/json": {
                 "schema": {
@@ -97060,6 +97060,11 @@
       "status": 409,
       "title": "อีเมลนี้เป็นสมาชิกของบริษัทแล้ว",
       "titleEn": "This email is already a member"
+    },
+    "api_disabled_by_platform": {
+      "status": 403,
+      "title": "ผู้ให้บริการปิดการใช้งาน API ของบริษัทนี้ชั่วคราว กรุณาติดต่อผู้ให้บริการ",
+      "titleEn": "API access for this company has been disabled by the platform. Please contact support."
     },
     "assignment_blocked": {
       "status": 409,

@@ -116,7 +116,7 @@
         },
         "responses": {
           "200": {
-            "description": "authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` — รับเฉพาะ JSON จากหน้าเว็บเดียวกัน (form / `Sec-Fetch-Site` ข้ามเว็บ → 403 `forbidden`) · client_credentials: รับ JSON หรือ form (RFC 6749) ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed)",
+            "description": "authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` — รับเฉพาะ JSON จากหน้าเว็บเดียวกัน (form / `Sec-Fetch-Site` ข้ามเว็บ → 403 `forbidden`) · client_credentials: รับ JSON หรือ form (RFC 6749) ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed / api_disabled_by_platform)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4687,6 +4687,171 @@
           }
         ],
         "summary": "นับทะเบียนที่ตัดออกกลับเข้าไป",
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/api-usage": {
+      "get": {
+        "operationId": "PlatformApiUsage_list",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiUsageDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "การใช้งาน Open API ทุกบริษัท 30 วันล่าสุด — คำขอ, error rate, p95, 429, rate limit, สถานะปิด API",
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/tenants/{id}/api/disable": {
+      "post": {
+        "operationId": "PlatformApiUsage_disable",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiAccessDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ปิด Open API ของบริษัทชั่วคราว (PLT-115) — API key / OAuth client ทุกตัว (รวม sandbox) ได้ 403 `api_disabled_by_platform` ทันที · key ไม่ถูกลบ · ปิดอยู่แล้ว = 409",
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/tenants/{id}/api/enable": {
+      "post": {
+        "operationId": "PlatformApiUsage_enable",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiAccessDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "เปิด Open API ของบริษัทอีกครั้ง — key เดิมใช้ได้ทันที · ไม่ได้ปิดอยู่ = 409",
         "tags": [
           "platform-console"
         ]
@@ -79660,6 +79825,180 @@
           "reason"
         ]
       },
+      "ApiUsageRateLimitDto": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string",
+            "example": "standard",
+            "description": "โปรไฟล์ที่ใช้ (tenant ทับแพ็กเกจ) — standard | high"
+          },
+          "override": {
+            "type": "boolean",
+            "description": "ปรับเฉพาะบริษัทนี้ (tenant.rate_limit_profile) — false = ตามแพ็กเกจ"
+          },
+          "tenantPerMinute": {
+            "type": "number",
+            "example": 3000,
+            "description": "เพดานรวมของบริษัท (req/นาที) = rate ของชั้น tenant × 60"
+          },
+          "keyPerMinute": {
+            "type": "number",
+            "example": 1200,
+            "description": "เพดานต่อ API key / OAuth client (req/นาที)"
+          }
+        },
+        "required": [
+          "profile",
+          "override",
+          "tenantPerMinute",
+          "keyPerMinute"
+        ]
+      },
+      "ApiUsageRowDto": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "example": "ten_…"
+          },
+          "name": {
+            "type": "string"
+          },
+          "planCode": {
+            "type": "string",
+            "example": "std"
+          },
+          "planName": {
+            "type": "string",
+            "example": "มาตรฐาน"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_verification",
+              "trialing",
+              "active",
+              "past_due",
+              "read_only",
+              "suspended",
+              "cancelled"
+            ]
+          },
+          "apiInPlan": {
+            "type": "boolean",
+            "description": "แพ็กเกจ/override เปิดฟีเจอร์ Open API (`api`)"
+          },
+          "apiDisabled": {
+            "type": "boolean",
+            "description": "ทีมผู้ให้บริการปิด Open API อยู่ (PLT-115) — key ได้ 403 `api_disabled_by_platform`"
+          },
+          "apiDisabledAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "requests": {
+            "type": "number",
+            "description": "คำขอ REST ของ API key / OAuth client 30 วัน (ทุกสถานะ รวม 429)"
+          },
+          "errors4xx": {
+            "type": "number",
+            "description": "4xx ที่ไม่ใช่ 429"
+          },
+          "errors5xx": {
+            "type": "number"
+          },
+          "throttled": {
+            "type": "number",
+            "description": "429 ที่ rate limit ตัด"
+          },
+          "p95Ms": {
+            "type": "number",
+            "nullable": true,
+            "description": "p95 เวลาตอบ (ms) = ขอบบนของช่อง histogram (ค่าจริง ≤ ค่านี้) · null = ไม่มีคำขอ · ไม่รวม 429"
+          },
+          "p95Over": {
+            "type": "boolean",
+            "description": "p95 เกินขอบสุดท้ายของ histogram (แสดงเป็น \"> p95Ms\")"
+          },
+          "rateLimit": {
+            "$ref": "#/components/schemas/ApiUsageRateLimitDto"
+          }
+        },
+        "required": [
+          "tenantId",
+          "name",
+          "planCode",
+          "planName",
+          "status",
+          "apiInPlan",
+          "apiDisabled",
+          "requests",
+          "errors4xx",
+          "errors5xx",
+          "throttled",
+          "p95Over",
+          "rateLimit"
+        ]
+      },
+      "ApiUsageDto": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "example": "2026-10-30",
+            "description": "วันแรกของช่วง (เวลาไทย)"
+          },
+          "to": {
+            "type": "string",
+            "example": "2026-11-28",
+            "description": "วันสุดท้าย (วันนี้)"
+          },
+          "days": {
+            "type": "number",
+            "example": 30
+          },
+          "totalRequests": {
+            "type": "number",
+            "description": "คำขอรวมทุกบริษัทในตาราง"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiUsageRowDto"
+            }
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "days",
+          "totalRequests",
+          "rows"
+        ]
+      },
+      "ApiAccessDto": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "example": "ten_…"
+          },
+          "apiDisabled": {
+            "type": "boolean"
+          },
+          "apiDisabledAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "tenantId",
+          "apiDisabled"
+        ]
+      },
       "PlatformFeatureDto": {
         "type": "object",
         "properties": {
@@ -122070,6 +122409,11 @@
       "status": 409,
       "title": "อีเมลนี้เป็นสมาชิกของบริษัทแล้ว",
       "titleEn": "This email is already a member"
+    },
+    "api_disabled_by_platform": {
+      "status": 403,
+      "title": "ผู้ให้บริการปิดการใช้งาน API ของบริษัทนี้ชั่วคราว กรุณาติดต่อผู้ให้บริการ",
+      "titleEn": "API access for this company has been disabled by the platform. Please contact support."
     },
     "assignment_blocked": {
       "status": 409,
