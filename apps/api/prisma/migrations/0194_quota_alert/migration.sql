@@ -1,4 +1,5 @@
 -- P1-ST1-T08 แจ้งเตือนโควตา 80/90/100% ครั้งเดียวต่อระดับต่อเดือน (spec/01 PLT-082)
+-- role แอป INSERT ได้ (แถว + แจ้งเตือนใน transaction เดียวกันของ tenant — RLS) · แก้/ลบไม่ได้
 CREATE TABLE "quota_alert" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "tenant_id" UUID NOT NULL,
@@ -21,7 +22,7 @@ ALTER TABLE "quota_alert" ADD CONSTRAINT "quota_alert_tenant_id_fkey" FOREIGN KE
 
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tms_app') THEN
-    EXECUTE 'REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON quota_alert FROM tms_app';
+    EXECUTE 'REVOKE UPDATE, DELETE, TRUNCATE ON quota_alert FROM tms_app';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tms_platform') THEN
     EXECUTE 'REVOKE TRUNCATE ON quota_alert FROM tms_platform';

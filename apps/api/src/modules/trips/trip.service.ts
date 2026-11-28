@@ -2306,6 +2306,8 @@ export class TripService {
     windowConflicts?: number[],
     /** false = ผู้เรียกขยับ version ในคำขอนี้แล้ว (เช่น reorder — QA ST3-T16: 1 คำขอ = +1) */
     bump = true,
+    /** P1-ST1-T08 false = ไม่ตรวจโควตาใหม่ (ตรวจคำเตือนทีละมาก เช่น วันลาคนขับ) — คงผลโควตาเดิมของเที่ยวไว้ */
+    o: { quota?: boolean } = {},
   ): Promise<TripRecord> {
     const trip = await this.get(id, tx);
     const out: TripWarning[] = [];
@@ -2399,7 +2401,13 @@ export class TripService {
         });
       out.push(...(await this.overlapWarnings(tx, trip, 'vehicle')));
     }
-    out.push(...(await this.quotaWarnings(tx, trip)));
+    out.push(
+      ...(o.quota === false
+        ? ((trip.ruleWarnings as unknown as TripWarning[]) ?? []).filter(
+            (w) => w.code === 'vehicle_quota_exceeded',
+          )
+        : await this.quotaWarnings(tx, trip)),
+    );
     // คนขับหลัก + คนขับสำรอง: ลา / ซ้อนเวลา (เทียบกับทั้งคนขับหลักและสำรองของเที่ยวอื่น)
     for (const [role, driverId, name] of [
       ['driver', trip.driverId, trip.driverNameSnapshot],
@@ -2662,7 +2670,7 @@ export class TripService {
         where: { id: r.id },
         select: { version: true, ruleWarnings: true },
       });
-      const after = await this.refreshWarnings(tx, r.id);
+      const after = await this.refreshWarnings(tx, r.id, undefined, true, { quota: false });
       // คำเตือนเปลี่ยน → `trip.updated` (outbox — review L2)
       if (after.version !== before.version) {
         await this.emit(tx, 'trip.updated', after, { ruleWarnings: before.ruleWarnings });

@@ -66,25 +66,29 @@ export function reachedLevels(used: number, limit: number): number[] {
 }
 
 /**
- * แพ็กเกจถัดไป (เรียงถูก → แพง) ที่รวมฟีเจอร์นี้และ limit มากกว่า `need` (null = ไม่จำกัด) — ใช้ใน dialog เสนออัปเกรด
- * ไม่มี = null (เช่น อยู่แพ็กเกจสูงสุดแล้ว → ติดต่อทีมขาย)
+ * แพ็กเกจถัดไป (เรียงถูก → แพง) ที่รวมฟีเจอร์นี้และ limit มากกว่าทั้งที่ใช้อยู่ (`used`) และ limit ที่มีผลตอนนี้ (`current` — รวม override)
+ * (null = ไม่จำกัด) — ใช้ใน dialog เสนออัปเกรด · แพ็กเกจของ tenant ไม่อยู่ใน PLANS / อยู่สูงสุดแล้ว / ไม่มีที่มากกว่า = null
  */
 export async function upgradePlanFor(
   db: Db,
   tenantId: string,
   featureKey: string,
-  need: number,
+  used: number,
+  current: number,
 ): Promise<{ code: string; name: string; limit: number | null } | null> {
   const t = await db.tenant.findUnique({ where: { id: tenantId }, select: { planCode: true } });
   const order = PLANS.map((p) => p.code as string);
-  const from = t ? order.indexOf(t.planCode) + 1 : 0;
+  const at = t ? order.indexOf(t.planCode) : -1;
+  if (at < 0) return null;
+  const later = order.slice(at + 1);
   const cur = await currentPlanVersions(db);
-  const ids = order.slice(from).flatMap((c) => (cur.get(c) ? [cur.get(c)!.id] : []));
+  const ids = later.flatMap((c) => (cur.get(c) ? [cur.get(c)!.id] : []));
   if (!ids.length) return null;
   const rows = await db.planEntitlement.findMany({
     where: { planVersionId: { in: ids }, featureKey, mode: 'included' },
   });
-  for (const code of order.slice(from)) {
+  const need = Math.max(used, current);
+  for (const code of later) {
     const r = rows.find((x) => x.planVersionId === cur.get(code)?.id);
     if (r && (r.limit === null || r.limit > need)) {
       const p = PLANS.find((x) => x.code === code)!;
@@ -111,6 +115,6 @@ export async function assertHardLimit(
     featureKey,
     limit,
     used,
-    upgradePlan: await upgradePlanFor(db, tenantId, featureKey, used),
+    upgradePlan: await upgradePlanFor(db, tenantId, featureKey, used, limit),
   });
 }

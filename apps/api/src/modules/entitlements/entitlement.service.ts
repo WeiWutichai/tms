@@ -117,13 +117,24 @@ export class EntitlementService {
   }
 
   /** P1-ST1-T08 เพดานรถ active ของเดือน (soft limit — PLT-080) */
-  vehicleLimit(tenantId: string): Promise<VehicleLimit> {
-    return resolveVehicleLimit(this.prisma.platform, tenantId);
+  async vehicleLimit(tenantId: string): Promise<VehicleLimit> {
+    // memo ต่อ tenant (TTL เดียวกับ entitlement) — refreshWarnings เรียกทุกการกระทำบนเที่ยว (review N6)
+    const hit = this.vehLimit.get(tenantId);
+    if (hit && Date.now() - hit.at < TTL_MS) return hit.value;
+    const value = await resolveVehicleLimit(this.prisma.platform, tenantId);
+    this.vehLimit.set(tenantId, { at: Date.now(), value });
+    return value;
   }
+  private readonly vehLimit = new Map<string, { at: number; value: VehicleLimit }>();
 
   invalidate(tenantId?: string) {
-    if (tenantId) this.cache.delete(tenantId);
-    else this.cache.clear();
+    if (tenantId) {
+      this.cache.delete(tenantId);
+      this.vehLimit.delete(tenantId);
+    } else {
+      this.cache.clear();
+      this.vehLimit.clear();
+    }
   }
 
   /** tenant ทั้งหมดที่เปิดฟีเจอร์นี้ — ใช้ใน scheduler/cron ให้ข้าม tenant ที่ปิด (A5 "ตรวจซ้ำใน cron job") */

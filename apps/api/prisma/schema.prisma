@@ -2840,7 +2840,7 @@ model UsageDaily {
 }
 
 /// P1-ST1-T08 แจ้งผู้ดูแลระบบเมื่อ metric ถึง 80/90/100% ของโควตา (spec/01 PLT-082) — 1 แถว = แจ้งแล้ว 1 ระดับ/เดือน (ครั้งเดียวต่อระดับต่อเดือน)
-/// เขียนโดย worker (QuotaAlertService) เท่านั้น · role แอปอ่านอย่างเดียว
+/// เขียนโดย worker (QuotaAlertService) ใน transaction เดียวกับการแจ้ง · role แอป insert ได้ (RLS) แก้/ลบไม่ได้
 model QuotaAlert {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId   String   @map("tenant_id") @db.Uuid

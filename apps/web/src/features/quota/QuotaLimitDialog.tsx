@@ -1,4 +1,4 @@
-import { Icon, useEscapeLayer, useModalFocus } from '@tms/ui';
+import { color, Icon, useEscapeLayer, useModalFocus } from '@tms/ui';
 import { useRef } from 'react';
 import { ApiError } from '../../api';
 import { useI18n } from '../../i18n';
@@ -88,7 +88,7 @@ export function QuotaLimitDialog({
             <Icon
               n="arrow-up-circle"
               s={16}
-              style={{ color: '#2257C4', marginTop: 4, flexShrink: 0 }}
+              style={{ color: color.accent, marginTop: 4, flexShrink: 0 }}
             />
             {up
               ? up.limit === null

@@ -10,7 +10,7 @@ import { ACTIVE_VEHICLES_METRIC, bangkokPeriod } from './active-vehicles';
 /**
  * แจ้งผู้ดูแลระบบเมื่อรถ active ถึง 80 / 90 / 100% ของโควตา (P1-ST1-T08; spec/01 PLT-082 — อีเมล + ในแอป ครั้งเดียวต่อระดับต่อเดือน)
  * - worker เรียก `scheduleDue()` ทุก 10 นาที (ต่อจากปิดยอด/ยอดรายวัน) — ทุก tenant live ที่ยังใช้งาน · sandbox ไม่นับ
- * - ระดับที่ถึงแล้ว → แถว `quota_alert` (unique tenant×metric×เดือน×ระดับ — ON CONFLICT DO NOTHING) · ระดับใหม่หลายระดับในรอบเดียว
+ * - ระดับที่ถึงแล้ว → แถว `quota_alert` (transaction เดียวกับการแจ้ง) (unique tenant×metric×เดือน×ระดับ — ON CONFLICT DO NOTHING) · ระดับใหม่หลายระดับในรอบเดียว
  *   = แจ้งฉบับเดียว (ระดับสูงสุด) · ระดับที่แจ้งแล้วไม่แจ้งซ้ำแม้ยอดลดแล้วขึ้นใหม่ในเดือนเดียวกัน
  * - ผู้รับ = role owner / admin (แบบเดียวกับ webhook ถูกปิดอัตโนมัติ)
  * - metric อื่นที่เป็น hard limit (connector / webhook / ผู้ใช้) สร้างเกินไม่ได้อยู่แล้ว → ยังไม่แจ้งตามระดับ [DECISION — lead 2026-11-28, ย้อนได้]
@@ -56,8 +56,9 @@ export class QuotaAlertService {
       const used = await tx.activeVehicleUsage.count({ where: { period, excludedAt: null } });
       const levels = reachedLevels(used, limit);
       if (!levels.length) return null;
-      // แถวแจ้งเตือนเขียนด้วย client แพลตฟอร์ม (role แอปอ่านอย่างเดียว) — ชนกันพร้อมกัน = ฝั่งเดียวได้แถว
-      const fresh = await this.prisma.platform.$queryRaw<{ level: number }[]>`
+      // แถว + แจ้งเตือนใน transaction เดียวของ tenant (RLS) — ส่งไม่สำเร็จ = ย้อนทั้งคู่ · พร้อมกัน 2 รอบ: unique + ON CONFLICT
+      // ทำให้รอบหลังรอรอบแรก commit แล้วได้ 0 แถว (ไม่แจ้งซ้ำ)
+      const fresh = await tx.$queryRaw<{ level: number }[]>`
         INSERT INTO quota_alert (tenant_id, metric, period, level, used, "limit")
         SELECT ${tenantId}::uuid, ${ACTIVE_VEHICLES_METRIC}, ${period}, l, ${used}, ${limit}
           FROM unnest(${levels}::int[]) AS l
@@ -65,26 +66,13 @@ export class QuotaAlertService {
         RETURNING level`;
       if (!fresh.length) return null;
       const level = Math.max(...fresh.map((r) => Number(r.level)));
-      try {
-        await this.notifications.notify(tx, {
-          tenantId,
-          to: { roles: ['owner', 'admin'] },
-          template: 'quota.threshold',
-          vars: { metric: ACTIVE_VEHICLES_METRIC, level, used, limit },
-          link: '/fleet/vehicles',
-        });
-      } catch (e) {
-        // ส่งไม่สำเร็จ → ถอนแถวที่เพิ่งใส่ ให้รอบถัดไปแจ้งใหม่
-        await this.prisma.platform.quotaAlert.deleteMany({
-          where: {
-            tenantId,
-            metric: ACTIVE_VEHICLES_METRIC,
-            period,
-            level: { in: fresh.map((r) => Number(r.level)) },
-          },
-        });
-        throw e;
-      }
+      await this.notifications.notify(tx, {
+        tenantId,
+        to: { roles: ['owner', 'admin'] },
+        template: 'quota.threshold',
+        vars: { metric: ACTIVE_VEHICLES_METRIC, level, used, limit },
+        link: '/fleet/vehicles',
+      });
       return level;
     });
   }

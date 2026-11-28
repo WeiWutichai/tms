@@ -222,15 +222,13 @@ describe('quota (P1-ST1-T08)', () => {
     );
     // "จ่ายงานต่อ" = ยืนยันคำเตือน → ปล่อยรถได้ ไม่หยุดงานขนส่ง
     const keys = blocked.body.warnings.map((x: { key: string }) => x.key);
-    const ok = await api(app, t.token)
-      .post(`/v1/trips/${trip.id}/assign`)
-      .send({
-        vehicleId: vehicle.id,
-        driverId,
-        dispatch: true,
-        ruleKeys: keys,
-        overrideReason: REASON,
-      });
+    const ok = await api(app, t.token).post(`/v1/trips/${trip.id}/assign`).send({
+      vehicleId: vehicle.id,
+      driverId,
+      dispatch: true,
+      ruleKeys: keys,
+      overrideReason: REASON,
+    });
     expect(ok.status).toBe(200);
     expect(ok.body.status).toBe('DISPATCHED');
     expect(
@@ -297,6 +295,7 @@ describe('quota (P1-ST1-T08)', () => {
     const ent = app.get(EntitlementService);
     expect(await ent.vehicleLimit(t.id)).toMatchObject({ source: 'plan' });
     await db.tenant.update({ where: { id: t.id }, data: { vehicleQuota: 5 } });
+    ent.invalidate(t.id);
     expect(await ent.vehicleLimit(t.id)).toEqual({ limit: 5, source: 'contract' });
     await db.tenant.update({ where: { id: t.id }, data: { vehicleQuota: null, planCode: 'ent' } });
     ent.invalidate(t.id);
@@ -345,12 +344,31 @@ describe('quota (P1-ST1-T08)', () => {
     const dbs = app.get(DbService);
     expect(await dbs.withTenant(a.id, (tx) => tx.quotaAlert.count())).toBe(3);
     expect(await dbs.withTenant(b.id, (tx) => tx.quotaAlert.count())).toBe(0);
+    // role แอป insert ได้เฉพาะ tenant ตัวเอง (RLS) · แก้/ลบไม่ได้
     await expect(
       dbs.withTenant(b.id, (tx) =>
         tx.quotaAlert.create({
-          data: { tenantId: b.id, metric: 'vehicles.active', period, level: 80, used: 1, limit: 1 },
+          data: { tenantId: a.id, metric: 'vehicles.active', period, level: 80, used: 1, limit: 1 },
         }),
       ),
     ).rejects.toThrow();
+    await expect(
+      dbs.withTenant(a.id, (tx) => tx.quotaAlert.updateMany({ data: { used: 0 } })),
+    ).rejects.toThrow();
+    await expect(dbs.withTenant(a.id, (tx) => tx.quotaAlert.deleteMany({}))).rejects.toThrow();
+  });
+
+  it('review N1: แจ้งไม่สำเร็จ → ไม่มีแถว quota_alert (ย้อนทั้ง transaction) · รอบถัดไปแจ้งได้', async () => {
+    const t = await tenant('TRIALING');
+    await seedActive(t.id, 16);
+    const alerts = app.get(QuotaAlertService);
+    const n = (alerts as unknown as { notifications: { notify: (...a: unknown[]) => unknown } })
+      .notifications;
+    const orig = n.notify;
+    n.notify = () => Promise.reject(new Error('smtp down'));
+    await expect(alerts.check(t.id, NOW)).rejects.toThrow('smtp down');
+    n.notify = orig;
+    expect(await owner.quotaAlert.count({ where: { tenantId: t.id } })).toBe(0);
+    expect(await alerts.check(t.id, NOW)).toBe(80);
   });
 });
