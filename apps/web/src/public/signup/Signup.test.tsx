@@ -315,3 +315,140 @@ describe('หน้าสมัครขั้น 2 ข้อมูลบริ�
     expect(screen.getByText('รอยืนยัน')).toBeTruthy();
   });
 });
+
+/** P1-ST2-T05 ขั้น 3 "เลือกแพ็กเกจ" + หน้าผล (fetch ปลอม) */
+describe('หน้าสมัครขั้น 3 เลือกแพ็กเกจ (P1-ST2-T05)', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  const STEP3 = {
+    ...SESSION,
+    status: 'company_submitted',
+    step: 3,
+    otp: null,
+    company: {
+      taxId: '0105567153766',
+      branchCode: '00000',
+      legalName: 'บริษัท ตัวอย่างขนส่ง จำกัด',
+      fleetSizeOwn: 12,
+      fleetSizeSubcon: 0,
+      verificationStatus: 'auto_vat',
+    },
+    joinRequest: null,
+    planCode: null,
+    demoRequestedAt: null,
+  };
+  const plan = (code: string, nameTh: string, extra: Record<string, unknown> = {}) => ({
+    code,
+    nameTh,
+    nameEn: null,
+    badge: null,
+    isContactSales: false,
+    pricePerVehicleMonthly: null,
+    minimumMonthly: null,
+    annualDiscountPct: '15.00',
+    volumeTiers: [],
+    vehicleMin: 1,
+    vehicleMax: 15,
+    ...extra,
+  });
+  const PLANS = {
+    trialDays: 30,
+    pricesVisible: true,
+    plans: [
+      plan('start', 'Starter', { pricePerVehicleMonthly: '350.00', minimumMonthly: '1500.00' }),
+      plan('std', 'Growth', { pricePerVehicleMonthly: '450.00', vehicleMin: 16, vehicleMax: 60 }),
+      plan('ent', 'Enterprise', { isContactSales: true, vehicleMin: 201, vehicleMax: null }),
+    ],
+  };
+  const completion = (outcome: string) => ({
+    session: { ...STEP3, status: outcome === 'demo' ? 'company_submitted' : 'completed' },
+    completion: {
+      outcome,
+      tenantStatus:
+        outcome === 'ready' ? 'trialing' : outcome === 'pending' ? 'pending_verification' : null,
+      companyName: 'บริษัท ตัวอย่างขนส่ง จำกัด',
+      planCode: outcome === 'demo' ? 'ent' : 'start',
+      planName: outcome === 'demo' ? 'Enterprise' : 'Starter',
+      trialEndsAt: '2026-12-28T05:00:00.000Z',
+    },
+    signIn: outcome === 'ready' ? { kind: 'mfa', mfaToken: 'mfa-tok', purpose: 'enroll' } : null,
+  });
+  beforeEach(() => {
+    signupToken.set('tok');
+    sessionStorage.removeItem('tms.signupSignIn');
+    fetchMock = vi.fn().mockReturnValueOnce(json(200, STEP3)).mockReturnValueOnce(json(200, PLANS));
+    vi.stubGlobal('fetch', fetchMock);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    signupToken.clear();
+  });
+
+  it('ตามต้นแบบ: การ์ดแพ็กเกจ (ทดลองใช้ / นัด demo) + ราคาหลังทดลอง + ประมาณการ · ค่าเริ่ม = แพ็กเกจที่ครอบจำนวนรถ', async () => {
+    renderSignup();
+    await screen.findByRole('heading', { level: 1, name: 'เลือกแพ็กเกจ' });
+    expect(
+      screen.getByText('ทดลองใช้ 30 วัน ไม่ต้องใช้บัตร เปลี่ยนแพ็กเกจได้ทุกเมื่อ'),
+    ).toBeTruthy();
+    const starter = await screen.findByRole('radio', { name: /ทดลองใช้ Starter 30 วัน/ });
+    expect(starter.getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByText('หลังทดลอง ฿350 / รถ')).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /Enterprise · นัด demo/ })).toBeTruthy();
+    expect(screen.getByText('ติดต่อฝ่ายขาย')).toBeTruthy();
+    // 12 คัน × 350 = 4,200 (มากกว่าขั้นต่ำ 1,500)
+    expect(
+      screen.getByText(
+        'ประมาณการหลังทดลอง 12 คัน · ฿4,200.00 / เดือน ก่อน VAT · ไม่มีการตัดเงินระหว่างทดลอง',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'เริ่มใช้งาน' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: /Enterprise/ }));
+    expect(screen.getByRole('button', { name: 'นัด demo' })).toBeTruthy();
+    expect(screen.getByText('ทีมขายจะนัด demo และเสนอราคาตามจำนวนรถ 12 คัน')).toBeTruthy();
+  });
+
+  it('"เริ่มใช้งาน" → สร้างบริษัท → "พร้อมใช้งานแล้ว" + ปุ่ม "เข้าใช้งาน TMS" (ส่งต่อ 2FA ไปหน้า login)', async () => {
+    renderSignup();
+    await screen.findByRole('radio', { name: /ทดลองใช้ Starter/ });
+    fetchMock.mockReturnValueOnce(json(200, completion('ready')));
+    fireEvent.click(screen.getByRole('button', { name: 'เริ่มใช้งาน' }));
+    await screen.findByRole('heading', { level: 1, name: 'พร้อมใช้งานแล้ว' });
+    const call = fetchMock.mock.calls[2]!;
+    expect(call[0]).toBe('/v1/public/signup/session/complete');
+    const sent = JSON.parse(call[1].body as string);
+    expect(sent.planCode).toBe('start');
+    expect(sent.codeChallenge).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(
+      screen.getByText(/บริษัท ตัวอย่างขนส่ง จำกัด เริ่มทดลองใช้แพ็กเกจStarter ถึง 28 ธ.ค. 2569/),
+    ).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'เข้าใช้งาน TMS' }).getAttribute('href')).toBe(
+      '/login?from=signup',
+    );
+    const h = JSON.parse(sessionStorage.getItem('tms.signupSignIn')!);
+    expect(h.signIn).toEqual({ kind: 'mfa', mfaToken: 'mfa-tok', purpose: 'enroll' });
+    expect(h.verifier).toBeTruthy();
+    expect(signupToken.get()).toBeNull();
+  });
+
+  it('รอทีมงานตรวจ → "เราได้รับข้อมูลแล้ว" · นัด demo → "เราได้รับคำขอ demo แล้ว"', async () => {
+    renderSignup();
+    await screen.findByRole('radio', { name: /ทดลองใช้ Starter/ });
+    fetchMock.mockReturnValueOnce(json(200, completion('pending')));
+    fireEvent.click(screen.getByRole('button', { name: 'เริ่มใช้งาน' }));
+    await screen.findByRole('heading', { level: 1, name: 'เราได้รับข้อมูลแล้ว' });
+    expect(
+      screen.getByText(
+        'ทีมงานจะตรวจข้อมูลบริษัทและแจ้งผลทางอีเมลภายใน 1 วันทำการ ระหว่างนี้ยังไม่ต้องทำอะไรเพิ่ม',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText('รอยืนยัน')).toBeTruthy();
+  });
+
+  it('นัด demo → "เราได้รับคำขอ demo แล้ว"', async () => {
+    renderSignup();
+    fireEvent.click(await screen.findByRole('radio', { name: /Enterprise/ }));
+    fetchMock.mockReturnValueOnce(json(200, completion('demo')));
+    fireEvent.click(screen.getByRole('button', { name: 'นัด demo' }));
+    await screen.findByRole('heading', { level: 1, name: 'เราได้รับคำขอ demo แล้ว' });
+    expect(JSON.parse(fetchMock.mock.calls[2]![1].body as string).planCode).toBe('ent');
+  });
+});

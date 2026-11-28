@@ -123,6 +123,27 @@ export interface TemplateVars {
   /** P1-ST2-T03 รหัสยืนยันการสมัคร (OtpChannel ทางอีเมล — จนกว่า X-04 SMS) · เนื้ออีเมลถูกลบหลังส่ง (outbox) */
   signup_otp: { code: string; minutes: number };
   /**
+   * P1-ST2-T05 สมัครเสร็จ (ถึงเจ้าของบัญชี) — `pending` = รอทีมงานตรวจข้อมูลบริษัท (tenant pending_verification)
+   * trialEnds = วันที่แสดงผลแล้ว (เวลาไทย) · link = หน้าเข้าสู่ระบบ
+   */
+  /** P1-ST2-T05 คำขอนัด demo จากหน้าสมัคร → ทีมขาย/support (อีเมลระบบ ไม่มี tenant) */
+  signup_demo_request: {
+    companyName: string;
+    taxId: string;
+    planName: string;
+    applicantName: string;
+    email: string;
+    mobile: string;
+    vehicles: number;
+  };
+  signup_completed: {
+    companyName: string;
+    planName: string;
+    trialEnds: string;
+    pending: boolean;
+    link: string;
+  };
+  /**
    * คำถามค้าง #81 (PO 24 พ.ย. 2569) แจ้งเจ้าของบัญชีเมื่อถูกรีเซ็ต 2FA — โดยผู้ดูแลของบริษัท (`byStaff` false)
    * หรือทีม Innovera ผ่าน Console (`byStaff` true) · actorName ผ่าน safeName แล้ว
    */
@@ -504,6 +525,74 @@ const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
         subject: 'Your sign-up code — TMS',
         text: `${title}\n\n${paras.join('\n\n')}\n`,
         html: layout('en', title, paras),
+      };
+    },
+  },
+  signup_demo_request: {
+    th: (v) => {
+      const title = `คำขอนัด demo — ${v.companyName}`;
+      const paras = [
+        `ผู้สมัครเลือกแพ็กเกจ${v.planName} (ตกลงราคา) และขอนัด demo — ติดต่อกลับภายใน 1 วันทำการ`,
+        `บริษัท: ${v.companyName} · เลขผู้เสียภาษี ${v.taxId}`,
+        `ผู้ติดต่อ: ${v.applicantName} · ${v.email} · ${v.mobile}`,
+        `จำนวนรถโดยประมาณ: ${v.vehicles} คัน`,
+      ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('th', title, paras),
+      };
+    },
+    en: (v) => {
+      const title = `Demo request — ${v.companyName}`;
+      const paras = [
+        `A sign-up chose the ${v.planName} plan (contact sales) and asked for a demo — reply within 1 business day.`,
+        `Company: ${v.companyName} · Tax ID ${v.taxId}`,
+        `Contact: ${v.applicantName} · ${v.email} · ${v.mobile}`,
+        `Approx. vehicles: ${v.vehicles}`,
+      ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('en', title, paras),
+      };
+    },
+  },
+  signup_completed: {
+    th: (v) => {
+      const title = v.pending ? 'เราได้รับข้อมูลการสมัครแล้ว' : 'พร้อมใช้งานแล้ว';
+      const paras = v.pending
+        ? [
+            `ขอบคุณที่สมัครใช้งาน TMS สำหรับ ${v.companyName}`,
+            'ทีมงานจะตรวจข้อมูลบริษัทและแจ้งผลทางอีเมลภายใน 1 วันทำการ ระหว่างนี้ยังไม่ต้องทำอะไรเพิ่ม',
+            `ระหว่างรอ คุณเข้าสู่ระบบด้วยอีเมลและรหัสผ่านที่ตั้งไว้ได้ และใช้งานแบบทดลองได้บางส่วน ทดลองใช้แพ็กเกจ${v.planName}ถึง ${v.trialEnds}`,
+          ]
+        : [
+            `${v.companyName} เริ่มทดลองใช้แพ็กเกจ${v.planName} ถึง ${v.trialEnds}`,
+            'เข้าสู่ระบบด้วยอีเมลและรหัสผ่านที่ตั้งไว้ตอนสมัคร ไม่มีการตัดเงินระหว่างทดลองใช้',
+          ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n\n${v.link}\n`,
+        html: layout('th', title, paras, { href: v.link, label: 'เข้าใช้งาน TMS' }),
+      };
+    },
+    en: (v) => {
+      const title = v.pending ? 'We received your sign-up' : "You're all set";
+      const paras = v.pending
+        ? [
+            `Thank you for signing up to TMS for ${v.companyName}.`,
+            'Our team will review your company details and email you within 1 business day. Nothing else to do for now.',
+            `Meanwhile you can sign in with the email and password you set and use a limited trial of the ${v.planName} plan until ${v.trialEnds}.`,
+          ]
+        : [
+            `${v.companyName} is now on a ${v.planName} trial until ${v.trialEnds}.`,
+            'Sign in with the email and password you set during sign-up. You will not be charged during the trial.',
+          ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n\n${v.link}\n`,
+        html: layout('en', title, paras, { href: v.link, label: 'Open TMS' }),
       };
     },
   },

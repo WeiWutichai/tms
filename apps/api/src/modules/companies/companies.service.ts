@@ -45,6 +45,7 @@ export class CompaniesService {
 
   async create(input: CreateCompanyDto): Promise<Company> {
     const tx = this.db.tx;
+    await lockTaxId(tx, input.taxId);
     const dup = await tx.company.findFirst({ where: { taxId: input.taxId }, select: { id: true } });
     if (dup) {
       throw new ProblemException('duplicate', undefined, [
@@ -88,6 +89,8 @@ export class CompaniesService {
     const current = await this.get(id);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
+    const nextTax = (input as { taxId?: string }).taxId;
+    if (nextTax && nextTax !== current.taxId) await lockTaxId(this.db.tx, nextTax);
     const c = await this.bumpVersion(current, { ...input });
     await this.audit.changed(
       'company.updated',
@@ -139,4 +142,15 @@ export class CompaniesService {
     if (r.count !== 1) throw new ProblemException('precondition_failed');
     return (await tx.company.findUnique({ where: { id: current.id } }))!;
   }
+}
+
+/**
+ * P1-ST2-T05 (review L8): ล็อก advisory ต่อเลขผู้เสียภาษี namespace 32 เดียวกับการสร้างบริษัทจากหน้าสมัคร
+ * — การเพิ่ม/แก้เลขนิติบุคคลกับการสมัครด้วยเลขเดียวกันทำทีละรายการ (การสมัครตรวจเลขซ้ำใต้ล็อกนี้)
+ */
+async function lockTaxId(
+  tx: { $executeRaw: (q: TemplateStringsArray, ...v: unknown[]) => PromiseLike<unknown> },
+  taxId: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(32::int, hashtext(${taxId}))`;
 }

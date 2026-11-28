@@ -1,6 +1,6 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { hashPassword } from '../src/auth/password';
@@ -333,6 +333,10 @@ describe('P1-ST2-T03 สมัครขั้น 1', () => {
           ip: '10.0.0.1',
           lastActivityAt: new Date(Date.now() - ageDays * day),
           ...(status === 'abandoned' ? { abandonedAt: new Date() } : {}),
+          // P1-ST2-T05: completed ต้องมีบริษัทที่สร้าง (CHECK signup_session_completed_check)
+          ...(status === 'completed'
+            ? { createdTenantId: randomUUID(), completedAt: new Date() }
+            : {}),
           ...(status !== 'account_pending_otp' && status !== 'abandoned'
             ? { verifiedAt: new Date() }
             : {}),

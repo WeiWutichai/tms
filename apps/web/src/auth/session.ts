@@ -164,6 +164,12 @@ export async function login(
   return exchange(r1.data.code, verifier);
 }
 
+/** P1-ST2-T05 หลังสมัครเสร็จ — แลก authorization code ที่ได้จาก `POST /v1/public/signup/session/complete` */
+export function loginWithCode(code: string, verifier: string): Promise<LoginResult> {
+  loginNotice = null;
+  return exchange(code, verifier);
+}
+
 async function exchange(code: string, verifier: string): Promise<LoginResult> {
   const r2 = await raw.POST('/v1/oauth/token', {
     body: { grantType: 'authorization_code', code, codeVerifier: verifier },

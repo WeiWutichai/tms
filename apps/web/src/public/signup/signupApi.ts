@@ -66,6 +66,47 @@ export interface SignupSession {
     taxId: string;
     requestedAt: string;
   } | null;
+  /** P1-ST2-T05 แพ็กเกจที่เลือกในขั้น 3 */
+  planCode?: string | null;
+  /** P1-ST2-T05 ขอนัด demo แล้ว */
+  demoRequestedAt?: string | null;
+}
+/** P1-ST2-T05 แพ็กเกจที่เลือกได้ในขั้น 3 (`GET …/session/plans`) — ราคา null = ยังไม่เปิดราคาสาธารณะ / ตกลงราคา */
+export interface SignupPlan {
+  code: string;
+  nameTh: string;
+  nameEn: string | null;
+  badge: string | null;
+  isContactSales: boolean;
+  pricePerVehicleMonthly: string | null;
+  minimumMonthly: string | null;
+  /** null เมื่อไม่เปิดราคา */
+  annualDiscountPct: string | null;
+  volumeTiers: { fromVehicle: number; discountPct: string }[];
+  /** ช่วงจำนวนรถของ tier — null เมื่อไม่เปิดราคา */
+  vehicleMin: number | null;
+  vehicleMax: number | null;
+}
+export interface SignupPlans {
+  trialDays: number;
+  pricesVisible: boolean;
+  plans: SignupPlan[];
+}
+export interface SignupCompletion {
+  outcome: 'ready' | 'pending' | 'demo';
+  tenantStatus: string | null;
+  companyName: string;
+  planCode: string;
+  planName: string;
+  trialEndsAt: string | null;
+}
+export type SignupSignIn =
+  | { kind: 'code'; code: string; expiresIn: number }
+  | { kind: 'mfa'; mfaToken: string; purpose: 'verify' | 'enroll' };
+export interface SignupCompleteResult {
+  session: SignupSession;
+  completion: SignupCompletion;
+  signIn: SignupSignIn | null;
 }
 export interface CompanyLookupResult {
   taxId: string;
@@ -111,6 +152,44 @@ export class SignupError extends Error {
 }
 
 const KEY = 'tms.signupToken';
+/** P1-ST2-T05 ส่งต่อการเข้าแอปหลังสมัคร → หน้า login (`/login?from=signup`) แลก code / ทำ 2FA ต่อ (คนละ chunk) */
+const HANDOFF = 'tms.signupSignIn';
+export interface SignupHandoff {
+  signIn: SignupSignIn;
+  verifier: string;
+  at: number;
+}
+export const signupHandoff = {
+  set(v: SignupHandoff) {
+    try {
+      sessionStorage.setItem(HANDOFF, JSON.stringify(v));
+    } catch {
+      /* ไม่มี storage — เข้าสู่ระบบด้วยรหัสผ่านแทน */
+    }
+  },
+  /** อ่านแล้วลบทันที (ใช้ได้ครั้งเดียว) */
+  take(): SignupHandoff | null {
+    try {
+      const v = sessionStorage.getItem(HANDOFF);
+      sessionStorage.removeItem(HANDOFF);
+      return v ? (JSON.parse(v) as SignupHandoff) : null;
+    } catch {
+      return null;
+    }
+  },
+};
+
+const b64url = (bytes: Uint8Array) => {
+  let s = '';
+  bytes.forEach((b) => (s += String.fromCharCode(b)));
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+/** PKCE S256 (เหมือน auth/session.ts — ไม่ดึง client ทั้งแอปเข้า chunk หน้าสมัคร) */
+export async function signupPkce(): Promise<{ verifier: string; challenge: string }> {
+  const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  return { verifier, challenge: b64url(new Uint8Array(digest)) };
+}
 export const signupToken = {
   get(): string | null {
     try {
@@ -205,5 +284,12 @@ export const signupApi = {
     call<SignupSession>('/v1/public/signup/session/company/join-request', {
       method: 'POST',
       body: JSON.stringify({ taxId, branchCode, kind }),
+    }),
+  // P1-ST2-T05 ขั้น 3
+  plans: () => call<SignupPlans>('/v1/public/signup/session/plans'),
+  complete: (planCode: string, codeChallenge: string) =>
+    call<SignupCompleteResult>('/v1/public/signup/session/complete', {
+      method: 'POST',
+      body: JSON.stringify({ planCode, codeChallenge }),
     }),
 };

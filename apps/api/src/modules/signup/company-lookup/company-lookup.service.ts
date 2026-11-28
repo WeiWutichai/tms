@@ -319,11 +319,13 @@ export class CompanyLookupService {
   async duplicate(
     taxId: string,
     branchCode: string,
+    /** P1-ST2-T05 ตรวจซ้ำในธุรกรรมสร้าง tenant (หลังล็อก advisory ต่อเลข) */
+    db: Pick<PrismaService['platform'], '$queryRaw'> = this.db,
   ): Promise<{
     duplicate: { tenantId: string; companyName: string; branchLabel: string | null } | null;
     sameTaxOtherBranch: boolean;
   }> {
-    const rows = await this.db.$queryRaw<
+    const rows = await db.$queryRaw<
       { tenant_id: string; legal_name: string; branch_label: string | null; has_branch: boolean }[]
     >`
       SELECT c.tenant_id::text, c.legal_name, b.branch_label, (b.id IS NOT NULL) AS has_branch

@@ -133,6 +133,10 @@ export interface SignupSessionView {
     taxId: string;
     requestedAt: string;
   } | null;
+  /** P1-ST2-T05 แพ็กเกจที่เลือกในขั้น 3 (null = ยังไม่เลือก) */
+  planCode: string | null;
+  /** P1-ST2-T05 ขอนัด demo แล้ว (แพ็กเกจตกลงราคา — ไม่สร้างบริษัท) */
+  demoRequestedAt: string | null;
 }
 
 function certificateOf(s: SignupSession): SignupCompanyState['certificate'] {
@@ -192,6 +196,8 @@ export function viewOf(s: SignupSession, now = Date.now()): SignupSessionView {
             requestedAt: s.joinRequestedAt.toISOString(),
           }
         : null,
+    planCode: s.planCode,
+    demoRequestedAt: s.demoRequestedAt?.toISOString() ?? null,
   };
 }
 
