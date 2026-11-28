@@ -3043,7 +3043,7 @@ model SignupSession {
   abandonedAt          DateTime?           @map("abandoned_at") @db.Timestamptz(6)
   personalDataErasedAt DateTime?           @map("personal_data_erased_at") @db.Timestamptz(6)
   createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt            DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   // ── P1-ST2-T04 ขั้น 2 "ข้อมูลบริษัท" (spec/01 §2 ขั้น 2, PLT-020–023) ──
   /// เลขผู้เสียภาษี 13 หลัก (checksum PLT-020 ผ่านแล้ว)
