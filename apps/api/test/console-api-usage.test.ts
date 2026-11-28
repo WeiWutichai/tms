@@ -25,6 +25,9 @@ import { api, bootApp, platform, tokenFor, truncateAll } from './helpers';
  * เหตุผล + audit + แจ้งลูกค้า · ตาราง: calls 30 วัน, 4xx/5xx, p95, 429, rate limit ปัจจุบัน
  */
 
+const NOW = new Date();
+const bkkDate = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+
 describe('สถิติคำขอ (ฟังก์ชันบริสุทธิ์)', () => {
   it('ช่อง histogram + p95 = ขอบบนของช่องที่ยอดสะสมถึง 95%', () => {
     expect(latencySlot(0)).toBe(0);
@@ -81,7 +84,8 @@ describe('Console การใช้งาน API + ปิด/เปิด API (
   beforeAll(async () => {
     await truncateAll();
     app = await bootApp();
-    app.get(Clock).set(new Date('2026-11-28T10:00:00+07:00'));
+    // ตัวนับใน middleware ใช้เวลาจริง → ตั้ง Clock = เวลาจริงด้วย (เดิมฝังวันที่ 28 พ.ย. — ล้มหลังเที่ยงคืน)
+    app.get(Clock).set(NOW);
     const t = await createTenantWithDefaults(db, {
       name: 'บริษัท ใช้ API จำกัด',
       status: 'ACTIVE',
@@ -141,17 +145,21 @@ describe('Console การใช้งาน API + ปิด/เปิด API (
     await api(app, admin).get('/v1/customers').expect(200);
     await apiTrafficMeter.flush(db);
     // 429 + 5xx เขียนตรงผ่านตัวนับ (rate limit ปิดใน test) — flush รอบสองบวกเพิ่มแถวเดิม + histogram
-    apiTrafficMeter.record(tenantId, 429, 1, new Date('2026-11-28T03:00:00Z'));
-    apiTrafficMeter.record(tenantId, 503, 2000, new Date('2026-11-28T03:00:00Z'));
+    apiTrafficMeter.record(tenantId, 429, 1, NOW);
+    apiTrafficMeter.record(tenantId, 503, 2000, NOW);
     // วันเก่ากว่า 30 วัน ไม่อยู่ในตาราง
-    apiTrafficMeter.record(tenantId, 200, 5, new Date('2026-10-01T03:00:00Z'));
+    apiTrafficMeter.record(tenantId, 200, 5, new Date(NOW.getTime() - 60 * 86_400_000));
     await apiTrafficMeter.flush(db);
     const day = await db.apiTrafficDaily.findMany({ where: { tenantId } });
     expect(day).toHaveLength(2);
 
     await con('BILLING').get('/v1/platform/api-usage').expect(200); // ทุก role ดูได้
     const r = await con('SUPPORT').get('/v1/platform/api-usage').expect(200);
-    expect(r.body).toMatchObject({ from: '2026-10-30', to: '2026-11-28', days: 30 });
+    expect(r.body).toMatchObject({
+      from: bkkDate(new Date(NOW.getTime() - 29 * 86_400_000)),
+      to: bkkDate(NOW),
+      days: 30,
+    });
     const names = r.body.rows.map((x: { name: string }) => x.name);
     expect(names).not.toContain('บริษัท ยกเลิกแล้ว');
     const row = r.body.rows.find(
