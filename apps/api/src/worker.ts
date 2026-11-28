@@ -40,6 +40,7 @@ import {
   USAGE_FINALIZE_EVERY_MS,
   UsageFinalizeService,
 } from './modules/usage/usage-finalize.service';
+import { QuotaAlertService } from './modules/usage/quota-alert.service';
 import {
   OFFER_TIMEOUT_EVERY_MS,
   SubconTimeoutService,
@@ -195,12 +196,15 @@ async function main() {
   const depreciationTimer = setInterval(scheduleDepreciation, 10 * 60 * 1000);
   // P1-ST1-T06 ปิดยอดรถ active: ตรวจทุก 10 นาที — ตั้งแต่วันที่ 1 เวลา 02:00 น. ไทย ปิดยอดเดือนที่เพิ่งจบให้ tenant ที่ยังไม่ปิด (spec/01 PLT-074 · ซ้ำได้)
   const usageFinalize = ctx.get(UsageFinalizeService);
+  const quotaAlerts = ctx.get(QuotaAlertService);
   const scheduleUsageFinalize = () =>
     usageFinalize
       .scheduleDue()
       .then((n) => n && log.info({ tenants: n }, 'active vehicle usage finalized'))
       // P1-ST1-T07 ยอดรายวัน (DO / ใบแจ้งหนี้ / snapshot POD-connector-ผู้ใช้) — หลังปิดยอด (เดือนที่ปิดแล้วไม่แตะ)
       .then(() => usageFinalize.rollupDaily())
+      // P1-ST1-T08 แจ้งผู้ดูแลเมื่อรถ active ถึง 80/90/100% ของโควตา (ครั้งเดียวต่อระดับต่อเดือน — PLT-082)
+      .then(() => quotaAlerts.scheduleDue())
       .catch((e) => log.error(e));
   void scheduleUsageFinalize();
   const usageFinalizeTimer = setInterval(scheduleUsageFinalize, USAGE_FINALIZE_EVERY_MS);

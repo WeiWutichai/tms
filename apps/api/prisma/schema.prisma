@@ -2839,6 +2839,24 @@ model UsageDaily {
   @@map("usage_daily")
 }
 
+/// P1-ST1-T08 แจ้งผู้ดูแลระบบเมื่อ metric ถึง 80/90/100% ของโควตา (spec/01 PLT-082) — 1 แถว = แจ้งแล้ว 1 ระดับ/เดือน (ครั้งเดียวต่อระดับต่อเดือน)
+/// เขียนโดย worker (QuotaAlertService) เท่านั้น · role แอปอ่านอย่างเดียว
+model QuotaAlert {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  metric     String   @db.VarChar(40)
+  /// เดือนปฏิทินเวลาไทย YYYY-MM
+  period     String   @db.Char(7)
+  /// 80 | 90 | 100 (CHECK)
+  level      Int      @db.SmallInt
+  used       Int
+  limit      Int
+  notifiedAt DateTime @default(now()) @map("notified_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, metric, period, level])
+  @@map("quota_alert")
+}
+
 /// P1-ST1-T04 ค่าตั้งของแพลตฟอร์ม (spec/01 §9, PLT-099) — key/type/ค่าเริ่มต้นอยู่ใน platform-settings.registry.ts
 /// ไม่มีแถว = ค่าเริ่มต้น · ตารางระดับแพลตฟอร์ม (ไม่มี tenant_id) · role แอปเข้าไม่ได้ · แก้จาก Console owner + เหตุผล + platform_audit_log
 model PlatformSetting {

@@ -5772,6 +5772,18 @@ export const th = {
   'problem.connector_health_failed':
     'ทดสอบการเชื่อมต่อไม่ผ่าน ตรวจค่าตั้งและ credential แล้วลองใหม่',
   'problem.webhook_limit_reached': 'จำนวน webhook endpoint ครบตามแพ็กเกจแล้ว',
+  // P1-ST1-T08 dialog ครบโควตาแพ็กเกจ (hard limit — PLT-079)
+  'quota.limit.sub':
+    'แพ็กเกจปัจจุบันรองรับ {limit} {unit} · ตอนนี้ใช้ {used} {unit} — สร้างเพิ่มไม่ได้จนกว่าจะเพิ่มโควตา',
+  'quota.limit.upgrade':
+    'อัปเกรดเป็น{plan} รองรับ {limit} {unit} — ติดต่อทีมงานเพื่อเปลี่ยนแพ็กเกจ',
+  'quota.limit.upgradeUnlimited':
+    'อัปเกรดเป็น{plan} รองรับไม่จำกัด {unit} — ติดต่อทีมงานเพื่อเปลี่ยนแพ็กเกจ',
+  'quota.limit.contact': 'ติดต่อทีมงานเพื่อเพิ่มโควตา',
+  'quota.unit.conn': 'การเชื่อมต่อ',
+  'quota.unit.webhook': 'endpoint',
+  'quota.unit.users': 'คน',
+  'quota.unit.item': 'รายการ',
   'problem.external_id_conflict': 'เลขอ้างอิงต้นทางนี้ถูกใช้กับใบสั่งขนส่งจากช่องทางอื่นแล้ว',
   'problem.order_not_ready_for_delivery':
     'ยังสร้างใบส่งของจากใบสั่งขนส่งนี้ไม่ได้ (ร่าง ยกเลิก วางแผนแล้ว หรือยังจับคู่ลูกค้า/สถานที่ไม่ครบ)',

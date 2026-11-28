@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { PrismaService } from '../../db/prisma.service';
 import { currentPlanVersion, currentPlanVersions } from './plan-catalog';
+import { assertHardLimit, resolveVehicleLimit, type VehicleLimit } from './quota';
 
 /**
  * Feature flag ตามแพ็กเกจ + override ต่อ tenant (ST1-T18; docs/04 A5; spec/01 PLT-062)
@@ -102,6 +103,22 @@ export class EntitlementService {
 
   async enabled(tenantId: string, feature: string): Promise<boolean> {
     return (await this.resolve(tenantId))[feature]?.enabled === true;
+  }
+
+  /** P1-ST1-T08 hard limit (PLT-079) — limit ของฟีเจอร์ตามแพ็กเกจ + override · `used >= limit` → 409 `code` + upgradePlan */
+  async assertLimit(
+    tenantId: string,
+    code: Parameters<typeof assertHardLimit>[2],
+    featureKey: string,
+    used: number,
+  ): Promise<void> {
+    const limit = (await this.resolve(tenantId))[featureKey]?.limit ?? null;
+    await assertHardLimit(this.prisma.platform, tenantId, code, featureKey, limit, used);
+  }
+
+  /** P1-ST1-T08 เพดานรถ active ของเดือน (soft limit — PLT-080) */
+  vehicleLimit(tenantId: string): Promise<VehicleLimit> {
+    return resolveVehicleLimit(this.prisma.platform, tenantId);
   }
 
   invalidate(tenantId?: string) {

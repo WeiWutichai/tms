@@ -64,6 +64,9 @@ import {
   tripCostingEnabled,
 } from './trip-costs';
 import { Clock } from '../../common/clock';
+import { EntitlementService } from '../entitlements/entitlement.service';
+import { bangkokPeriod } from '../usage/active-vehicles';
+import { vehicleQuotaMessageTh } from './rule-messages';
 import { OfferLinks, OFFER_TTL_MS } from './offer-links';
 import { refreshTripLegs } from './trip-legs';
 import {
@@ -312,6 +315,8 @@ export class TripService {
     private readonly offerLinks: OfferLinks,
     /** ST3-T24 (review L1): เวลาข้อเสนองานรถร่วม (เสนอ/หมดเวลา/ตอบ) อ่านจาก Clock ทั้งหมด — test เลื่อนเวลาได้ */
     private readonly clock: Clock,
+    /** P1-ST1-T08 เพดานรถ active (soft limit — PLT-080) */
+    private readonly entitlements: EntitlementService,
   ) {}
 
   // ---------------------------------------------------------------------------------------------
@@ -2394,6 +2399,7 @@ export class TripService {
         });
       out.push(...(await this.overlapWarnings(tx, trip, 'vehicle')));
     }
+    out.push(...(await this.quotaWarnings(tx, trip)));
     // คนขับหลัก + คนขับสำรอง: ลา / ซ้อนเวลา (เทียบกับทั้งคนขับหลักและสำรองของเที่ยวอื่น)
     for (const [role, driverId, name] of [
       ['driver', trip.driverId, trip.driverNameSnapshot],
@@ -2460,6 +2466,40 @@ export class TripService {
         },
       });
     return this.get(id, tx);
+  }
+
+  /**
+   * P1-ST1-T08 โควตารถ active = soft limit (spec/01 PLT-080 [OPEN O-PLT-4] · D68-14 "คำเตือน ไม่ปฏิเสธ"):
+   * ทะเบียนของเที่ยวยังไม่ถูกนับเดือนนี้ (เวลาไทย) และนับเพิ่มแล้วจะเกินเพดาน → คำเตือน `vehicle_quota_exceeded`
+   * (ยืนยันแล้วปล่อยรถต่อได้ — ไม่หยุดงานขนส่ง) · ทะเบียนที่นับแล้ว (รวมที่ทีมการเงินตัดออก) ไม่เตือน · sandbox / ไม่จำกัด = ไม่เตือน
+   * กุญแจกฎผูกรถ (ไม่มี identity param) → จำนวนที่เปลี่ยนไม่ทำให้ต้องยืนยันใหม่
+   */
+  private async quotaWarnings(tx: Tx, trip: TripRecord): Promise<TripWarning[]> {
+    if (!trip.vehicleId && !trip.carrierId) return [];
+    // เตือนเฉพาะก่อนปล่อยรถ — ปล่อยแล้ว = ถูกนับไปแล้ว (หรือยืนยันไปแล้ว)
+    if (!['PLANNING', 'OFFERED', 'ASSIGNED'].includes(trip.status)) return [];
+    const tenantId = requestContext.require().tenantId!;
+    const { limit } = await this.entitlements.vehicleLimit(tenantId);
+    if (limit === null) return [];
+    const period = bangkokPeriod(this.clock.now());
+    const [r] = await tx.$queryRaw<{ counted: boolean; active: number }[]>`
+      SELECT EXISTS (SELECT 1 FROM active_vehicle_usage a
+                      WHERE a.tenant_id = ${tenantId}::uuid AND a.period = ${period}
+                        AND a.plate_normalized = tms_trip_usage_key(${trip.vehiclePlateSnapshot}, ${trip.carrierId}::uuid,
+                              ${trip.driverId}::uuid, ${trip.driverNameSnapshot}, ${trip.id}::uuid)) AS counted,
+             (SELECT count(*)::int FROM active_vehicle_usage a
+               WHERE a.tenant_id = ${tenantId}::uuid AND a.period = ${period} AND a.excluded_at IS NULL) AS active`;
+    if (!r || r.counted || r.active + 1 <= limit) return [];
+    return [
+      {
+        code: 'vehicle_quota_exceeded',
+        severity: 'warning',
+        source: 'assignment',
+        messageKey: 'trip.vehicleQuotaExceeded',
+        message: vehicleQuotaMessageTh(trip.vehiclePlateSnapshot, r.active, limit),
+        params: { limit, active: r.active, period },
+      },
+    ];
   }
 
   private async compatWarnings(

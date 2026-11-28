@@ -455,15 +455,14 @@ export class VehiclesService {
     });
   }
 
-  /** โควตารถ: ค่าในสัญญา (`tenant.vehicle_quota` จาก Console ST1-T24) → limit ของ entitlement `veh` ตามแพ็กเกจ */
+  /**
+   * โควตารถ: ค่าในสัญญา (`tenant.vehicle_quota` จาก Console ST1-T24) → limit ของ entitlement `veh` ตามแพ็กเกจ
+   * P1-ST1-T08: ทดลองใช้ไม่เกิน `trial.vehicleLimit` (20 — docs/02 §2) · รอยืนยันไม่เกิน `pendingVerification.vehicleLimit` · sandbox = null
+   * (ชุดเดียวกับคำเตือนตอนจ่ายงาน `vehicle_quota_exceeded`)
+   */
   async quotaLimit(): Promise<number | null> {
     const tenantId = requestContext.require().tenantId!;
-    const t = await this.db.tx.tenant.findUnique({
-      where: { id: tenantId },
-      select: { vehicleQuota: true },
-    });
-    if (t?.vehicleQuota !== null && t?.vehicleQuota !== undefined) return t.vehicleQuota;
-    return (await this.entitlements.resolve(tenantId)).veh?.limit ?? null;
+    return (await this.entitlements.vehicleLimit(tenantId)).limit;
   }
 
   async get(id: string): Promise<VehicleFull> {
