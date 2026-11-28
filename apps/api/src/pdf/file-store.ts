@@ -58,6 +58,16 @@ export class LocalFileStore implements FileStore {
     if (!/^[0-9a-f-]{36}\/[0-9a-f]{64}\.[a-z0-9]{1,8}$/.test(key)) throw new Error('invalid key');
     await rm(join(this.root, key), { force: true });
   }
+
+  /**
+   * ลบทั้งโฟลเดอร์ของ namespace — ใช้เฉพาะไฟล์ของการสมัคร (P1-ST2-T04: โฟลเดอร์ = id ของ signup_session ไม่ใช้ร่วมกับ tenant)
+   * วันลบข้อมูลส่วนบุคคล (วันที่ 30) · ไม่มีโฟลเดอร์ = ไม่ error
+   */
+  async removeNamespace(ns: string): Promise<void> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(ns))
+      throw new Error('invalid namespace');
+    await rm(join(this.root, ns), { recursive: true, force: true });
+  }
 }
 
 /** ที่เก็บไฟล์ของระบบ (`FILES_ROOT`) — ใช้ร่วมกับ worker อีเมล (ไฟล์แนบ ST5-T21) โดยไม่ต้อง import controller */

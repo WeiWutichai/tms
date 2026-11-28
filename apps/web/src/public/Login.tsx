@@ -6,6 +6,7 @@ import { MfaEnroll, MfaVerify } from './TwoFactor';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/th';
 import { PublicLayout } from './PublicLayout';
+import { signupToken } from './signup/signupApi';
 
 /** ป้ายสถานะบริษัท — statuses + tone ของ design/prototype/plans.js (login ได้ทุกสถานะ — P1-ST1-T03) */
 const TENANT_BADGE: Record<string, { k: MessageKey; c: string; bg: string; i: string }> = {
@@ -70,6 +71,12 @@ export function LoginPage() {
       if (r.mfa && (r.code === 'mfa_required' || r.code === 'mfa_enrollment_required')) {
         setTenants(null);
         setMfa({ step: r.mfa, enroll: r.code === 'mfa_enrollment_required' });
+        return;
+      }
+      // P1-ST2-T03 (spec/01 §2 ข้อ 8): การสมัครค้าง → กลับไปขั้นที่ค้างที่หน้าสมัคร (chunk แยก — โหลดหน้าใหม่)
+      if (r.code === 'signup_incomplete' && r.signupToken) {
+        signupToken.set(r.signupToken);
+        window.location.assign('/signup');
         return;
       }
       if (r.code === 'tenant_selection_required' && r.tenants?.length) {

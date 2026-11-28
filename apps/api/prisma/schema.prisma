@@ -2677,6 +2677,8 @@ model Feature {
   unit         String?
   isBasic      Boolean           @default(false) @map("is_basic")
   sortOrder    Int               @default(0) @map("sort_order")
+  /// P1-ST2-T02 แสดงในหน้าราคาสาธารณะ — false = ฟีเจอร์นอกเฟส/ไม่มีถ้อยคำใน docs/02 §2 (migration 0187)
+  showOnWeb    Boolean           @default(true) @map("show_on_web")
   entitlements PlanEntitlement[]
 
   @@map("feature")
@@ -2998,6 +3000,150 @@ model PasswordResetToken {
   @@index([email, createdAt])
   @@index([ip, createdAt])
   @@map("password_reset_token")
+}
+
+/// สถานะการสมัครเอง (P1-ST2-T03; spec/01 §2 ข้อ 6) — abandoned = ไม่เคลื่อน 7 วัน
+enum SignupSessionStatus {
+  account_pending_otp
+  account_verified
+  company_submitted
+  completed
+  abandoned
+
+  @@map("signup_session_status")
+}
+
+/// การสมัครใช้งานเอง (P1-ST2-T03; spec/01 §2 ขั้น 1 + ข้อ 6, 8) — **ตาราง platform ไม่มี tenant_id** (ก่อนมีบริษัท)
+/// เข้าถึงผ่าน client platform เท่านั้น (tms_app ถูก REVOKE) · lane B เป็นเจ้าของ (plan/13 §6.2)
+/// OTP เก็บเฉพาะ HMAC (`otp_hash`) · รหัสผ่านเก็บ argon2 hash · resume token เก็บ sha256
+/// ข้อมูลส่วนบุคคล (ชื่อ อีเมล มือถือ รหัสผ่าน IP) ถูกลบ (null) โดย job วันที่ 30 นับจากเคลื่อนไหวล่าสุด — แถวคงไว้วัด funnel
+model SignupSession {
+  id                   String              @id @default(uuid()) @db.Uuid
+  status               SignupSessionStatus @default(account_pending_otp)
+  fullName             String?             @map("full_name")
+  /// lower-case แล้ว
+  email                String?
+  /// E.164 มี + (เช่น +66812345678)
+  mobile               String?
+  passwordHash         String?             @map("password_hash")
+  resumeTokenHash      String?             @unique @map("resume_token_hash")
+  /// ช่องทางที่ส่ง OTP ล่าสุด (`email` จนกว่า X-04 / `sms`)
+  otpChannel           String?             @map("otp_channel")
+  otpHash              String?             @map("otp_hash")
+  otpSentAt            DateTime?           @map("otp_sent_at") @db.Timestamptz(6)
+  otpExpiresAt         DateTime?           @map("otp_expires_at") @db.Timestamptz(6)
+  /// ผิดสะสมตั้งแต่ล็อกครั้งก่อน (ขอรหัสใหม่ไม่ล้าง) — ครบ 5 = ล็อก 15 นาที
+  otpFailedCount       Int                 @default(0) @map("otp_failed_count")
+  otpLockedUntil       DateTime?           @map("otp_locked_until") @db.Timestamptz(6)
+  otpSendCount         Int                 @default(0) @map("otp_send_count")
+  ip                   String?
+  locale               String              @default("th")
+  verifiedAt           DateTime?           @map("verified_at") @db.Timestamptz(6)
+  lastActivityAt       DateTime            @default(now()) @map("last_activity_at") @db.Timestamptz(6)
+  abandonedAt          DateTime?           @map("abandoned_at") @db.Timestamptz(6)
+  personalDataErasedAt DateTime?           @map("personal_data_erased_at") @db.Timestamptz(6)
+  createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  // ── P1-ST2-T04 ขั้น 2 "ข้อมูลบริษัท" (spec/01 §2 ขั้น 2, PLT-020–023) ──
+  /// เลขผู้เสียภาษี 13 หลัก (checksum PLT-020 ผ่านแล้ว)
+  taxId                String?             @map("tax_id") @db.Char(13)
+  /// รหัสสาขา 5 หลัก (สำนักงานใหญ่ = 00000)
+  branchCode           String?             @map("branch_code") @db.Char(5)
+  legalName            String?             @map("legal_name")
+  /// ที่อยู่แยกฟิลด์ {houseNo, moo, soi, street, subDistrict, district, province, postalCode}
+  address              Json?
+  fleetSizeOwn         Int?                @map("fleet_size_own")
+  fleetSizeSubcon      Int?                @map("fleet_size_subcon")
+  /// ข้อมูล lead เท่านั้น — ไม่เปิด connector เอง (none/express/flowaccount/krs/peak/sap_b1/other)
+  accountingSoftware   String?             @map("accounting_software")
+  /// auto_vat | pending_manual | pending_verification (ผลตรวจ ณ วันส่งขั้น 2 — ขั้น 3 ใช้ตัดสินสถานะ tenant)
+  verificationStatus   String?             @map("verification_status")
+  /// แหล่งข้อมูลที่ prefill: rd_vat | rd_tin | null (กรอกเอง)
+  verificationSource   String?             @map("verification_source")
+  /// เหตุผลของผลตรวจ (name_mismatch, rd_unavailable, individual, rd_vat_not_found_tin_exists, not_found, …)
+  verificationReason   String?             @map("verification_reason")
+  /// ธงให้ทีมดู เช่น same_tax_other_branch
+  flags                String[]            @default([])
+  /// ผล lookup ที่ใช้ (company_lookup.id) — ไม่ผูก FK (แถว cache ถูกล้าง raw ได้)
+  companyLookupId      String?             @map("company_lookup_id") @db.Uuid
+  /// จำนวนครั้งที่ค้นหา/ส่งขั้น 2/ส่งคำขอเข้าร่วม ใน session นี้ (เพดาน 20 — กันใช้เป็นช่องทางไล่เลข)
+  lookupCount          Int                 @default(0) @map("lookup_count")
+  /// เลข/สาขาที่กด "ค้นหา" ล่าสุด — ส่งขั้น 2/คำขอเข้าร่วมต้องใช้เลขนี้ (ไม่เปิดช่องค้นเลขใหม่ผ่าน submit)
+  lastLookupTaxId      String?             @map("last_lookup_tax_id") @db.Char(13)
+  lastLookupBranchCode String?             @map("last_lookup_branch_code") @db.Char(5)
+  /// หนังสือรับรองบริษัท (pending_manual) — key ใน FileStore (โฟลเดอร์ = id ของ session)
+  certificateFileKey   String?             @map("certificate_file_key")
+  certificateFilename  String?             @map("certificate_filename")
+  certificateMime      String?             @map("certificate_mime")
+  certificateBytes     Int?                @map("certificate_bytes")
+  certificateUploadedAt DateTime?          @map("certificate_uploaded_at") @db.Timestamptz(6)
+  /// เวอร์ชันข้อกำหนด/นโยบายที่ยอมรับ + เวลา + IP (X-06 — เวอร์ชัน placeholder จนกว่าทนายส่งฉบับจริง)
+  termsVersion         String?             @map("terms_version")
+  privacyVersion       String?             @map("privacy_version")
+  termsAcceptedAt      DateTime?           @map("terms_accepted_at") @db.Timestamptz(6)
+  termsAcceptedIp      String?             @map("terms_accepted_ip")
+  marketingOptIn       Boolean             @default(false) @map("marketing_opt_in")
+  companySubmittedAt   DateTime?           @map("company_submitted_at") @db.Timestamptz(6)
+  /// เลขซ้ำ tenant เดิม → join (ส่งคำขอเข้าร่วมบริษัท) | contact (ติดต่อเรา)
+  joinRequestKind      String?             @map("join_request_kind")
+  joinTenantId         String?             @map("join_tenant_id") @db.Uuid
+  joinRequestedAt      DateTime?           @map("join_requested_at") @db.Timestamptz(6)
+
+  @@index([email, status])
+  @@index([status, lastActivityAt])
+  @@index([taxId, branchCode])
+  @@map("signup_session")
+}
+
+/// cache ผลค้นข้อมูลบริษัทจากกรมสรรพากร (P1-ST2-T04; PLT-023) — **ตาราง platform ไม่มี tenant_id** (ก่อนมีบริษัท)
+/// พบ = 24 ชม. · ไม่พบ = 1 ชม. (`expires_at`) · raw response เก็บ 90 วัน (job ล้าง `raw_response`)
+/// ความล้มเหลว (timeout/5xx) ไม่ถูก cache — นับใน company_lookup_log (circuit breaker)
+model CompanyLookup {
+  id           String    @id @default(uuid()) @db.Uuid
+  taxId        String    @map("tax_id") @db.Char(13)
+  branchCode   String    @map("branch_code") @db.Char(5)
+  /// vat_found | tin_exists | not_found
+  result       String
+  /// rd_vat | rd_tin (บริการที่ให้คำตอบสุดท้าย)
+  source       String
+  /// rd | mock
+  provider     String
+  /// ข้อมูล normalize (ชื่อ, ที่อยู่แยกฟิลด์, สาขา, วันจด VAT) — null เมื่อไม่พบ
+  data         Json?
+  rawResponse  String?   @map("raw_response")
+  rawPurgedAt  DateTime? @map("raw_purged_at") @db.Timestamptz(6)
+  fetchedAt    DateTime  @default(now()) @map("fetched_at") @db.Timestamptz(6)
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(6)
+
+  @@index([taxId, branchCode, provider, expiresAt])
+  @@index([fetchedAt])
+  @@map("company_lookup")
+}
+
+/// log ทุกการส่งเลขผู้เสียภาษีออกไปหน่วยงานภายนอก (P1-ST2-T04; PLT-023 — PDPA accountability)
+/// **ตาราง platform ไม่มี tenant_id** · append-only (ไม่มี UPDATE/DELETE จากแอป) · ใช้นับ circuit breaker ด้วย
+model CompanyLookupLog {
+  id              String   @id @default(uuid()) @db.Uuid
+  /// หน่วยงานปลายทาง (RD = กรมสรรพากร)
+  agency          String
+  /// vat | tin
+  service         String
+  /// rd | mock
+  provider        String
+  taxId           String   @map("tax_id") @db.Char(13)
+  branchCode      String?  @map("branch_code") @db.Char(5)
+  /// found | not_found | error
+  outcome         String
+  httpStatus      Int?     @map("http_status")
+  durationMs      Int      @map("duration_ms")
+  errorCode       String?  @map("error_code")
+  signupSessionId String?  @map("signup_session_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([agency, createdAt])
+  @@index([taxId])
+  @@map("company_lookup_log")
 }
 
 /// คำเชิญผู้ใช้ (ST1-T07; docs/04 A2; spec/01 §3) — ลิงก์อีเมล 7 วัน ใช้ครั้งเดียว · ผูกกับแถว app_user สถานะ INVITED (role ตั้งตอนเชิญ)

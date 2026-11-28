@@ -28,14 +28,16 @@
 - [x] ภาพ hero (`hero-plan`) ตัด sidebar ทิ้ง — ไม่มีเมนู "กล่องรับงาน", "ศูนย์ข้อยกเว้น", "ติดตามรถ"
 - [x] ภาพอื่น (t-plan, t-sub, f-settle, f-fdockpi, f-fdoc) ตรวจแล้ว ไม่มีของนอกเฟส/ข้อความภาษี · ถ่ายใหม่จากแอปจริงได้เมื่อมีข้อมูลตัวอย่าง (P1-ST2-T09)
 
-## 4. ราคา (D-40) — `pricingVisible` ค่าเริ่มซ่อน (env `VITE_PRICING_PUBLIC` แทน `pricing.publicVisible` ของ P1-ST1-T04 ชั่วคราว)
+## 4. ราคา (D-40) — ซ่อนเมื่อ `pricing.publicVisible = false` (ค่าเริ่ม) — P1-ST2-T02 อ่านจาก `GET /v1/public/plans` (404 = ปิด)
 
 - [x] ไม่มีเมนู "ราคา", "ดูราคา →", แถบ "เริ่ม ฿…", FAQ "คิดเงินอย่างไร", ลิงก์ราคาใน footer
-- [ ] ตามงาน: เมื่อ P1-ST1-T04 + P1-ST2-T02 merge → อ่าน `pricing.publicVisible` + ราคาเริ่มจาก `GET /v1/public/plans` (PLT-002) แทน env
+- [x] P1-ST2-T02: อ่าน `pricing.publicVisible` + ราคาเริ่มจาก `GET /v1/public/plans` (PLT-002) — ลบ env `VITE_PRICING_PUBLIC` / `VITE_PRICING_FROM` / `VITE_PRICING_PAGE_LIVE` แล้ว · หน้า `/pricing` (ภาพเทียบ `design/compare/pricing-{1440,390}.png`)
 
 ## 5. ยังเหลือก่อน go-live (ไม่ขวาง merge)
 
-- **ขวาง go-live:** ตั้ง `VITE_SIGNUP_LIVE=true` เมื่อ P1-ST2-T03 merge และ `VITE_PRICING_PAGE_LIVE=true` เมื่อ P1-ST2-T02 merge — ก่อนนั้นปุ่ม "ทดลองใช้ฟรี 30 วัน" / ลิงก์ราคาแสดง "เปิดรับสมัครเร็ว ๆ นี้ · ติดต่อ …" แทน
+- **P1-ST2-T03 (27 พ.ย.):** route `/signup` มีแล้ว (ขั้น 1 สร้างบัญชี + OTP; chunk แยก `SignupRoot` — โครงหน้า `PublicShell` ร่วม landing/หน้าราคา) แต่ **`VITE_SIGNUP_LIVE` คงค่าเริ่ม false จนกว่า P1-ST2-T05 merge** (ขั้น 2–3 ยังไม่มี — สมัครให้จบไม่ได้) → ปุ่ม "ทดลองใช้ฟรี 30 วัน" บน production ยังแสดงช่องทางติดต่อ · เปิดเองได้ที่ `/signup` (เดโม/ทดสอบ)
+- **ขวาง go-live:** ตั้ง `VITE_SIGNUP_LIVE=true` (เว็บ) **พร้อม `SIGNUP_ENABLED=true` (API — สวิตช์ฝั่ง server; ไม่ตั้ง = ปิดนอก dev/test → `/v1/public/signup*` 404)** เมื่อ P1-ST2-T05 merge (เดิมระบุ T03) — ก่อนนั้นปุ่ม "ทดลองใช้ฟรี 30 วัน" (landing + การ์ดหน้าราคา) แสดง "เปิดรับสมัครเร็ว ๆ นี้ · ติดต่อ …" แทน
+- **ขวาง go-live หน้าราคา:** PO เคาะ D-40 → publish PlanVersion ราคาจริง (provisional = false) → Console ตั้ง `pricing.publicVisible = true` (ไม่มี env ของหน้าราคาแล้ว — P1-ST2-T02) · ก่อนนั้นปิด [OPEN — PO] spec/12 แถว "หน้าราคาสาธารณะ" (โควตา veh vs ช่วง tier, ส่วนลดรายปีกับขั้นต่ำ)
 - ถ้อยคำ R-11: `land.day.sub` "…ทุกช่วงด้านล่างเป็นหน้าจอจริงจากระบบ" (ภาพมาจากต้นแบบ ไม่ใช่แอปจริง — แก้ข้อความหรือถ่ายภาพใหม่)
 
 - X-09 โดเมน: route ตอนนี้ `/home` · og:url/og:image + meta แบบ static สำหรับ bot ที่ไม่รัน JS
