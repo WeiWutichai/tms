@@ -3,7 +3,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ensureSystemRoles } from '../src/auth/system-roles';
 import { encodeId } from '../src/common/ids';
 import { DbService } from '../src/db/db.service';
-import { assertNotSampleCustomer } from '../src/modules/sample-data/sample-guard';
+import {
+  assertNotSampleCarrier,
+  assertNotSampleCustomer,
+} from '../src/modules/sample-data/sample-guard';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { api, bootApp, platform, tokenFor, truncateAll } from './helpers';
 
@@ -374,7 +377,7 @@ describe('ข้อมูลตัวอย่าง (P1-ST2-T09)', () => {
         id,
         (tx) => tx.$queryRaw`SELECT tms_sample_flag('customer', ${[realId]}::uuid[])`,
       ),
-    ).rejects.toThrow(/created in this transaction/);
+    ).rejects.toThrow(/written in this transaction/);
     expect(await db.sampleRecord.count({ where: { tenantId: id } })).toBe(0);
   });
 
@@ -396,6 +399,61 @@ describe('ข้อมูลตัวอย่าง (P1-ST2-T09)', () => {
     });
     await expect(
       app.get(DbService).withTenant(id, (tx) => assertNotSampleCustomer(tx, cus!.id)),
+    ).rejects.toMatchObject({ status: 422 });
+  });
+
+  it('รอบ 2 ข้อ 1: event ของข้อมูลตัวอย่างไม่อยู่ใน GET /v1/events · GET/redeliver = 404 (แม้ล้างแล้ว)', async () => {
+    const { id, a } = await tenant();
+    const t0 = new Date();
+    await a.post('/v1/sample-data').expect(200);
+    const evs = await db.domainEvent.findMany({ where: { tenantId: id, occurredAt: { gte: t0 } } });
+    expect(evs.length).toBeGreaterThan(0);
+    expect(await db.sampleEvent.count({ where: { tenantId: id } })).toBe(evs.length);
+    const feedIds = new Set(
+      (await a.get('/v1/events?limit=200').expect(200)).body.data.map((e: { id: string }) => e.id),
+    );
+    for (const e of evs) expect(feedIds.has(encodeId('event', e.id))).toBe(false);
+    const ev = encodeId('event', evs[0]!.id);
+    await a.get(`/v1/events/${ev}`).expect(404);
+    await a.post(`/v1/events/${ev}/redeliver`).expect(404);
+    await a.post('/v1/sample-data/clear').expect(200);
+    await a.get(`/v1/events/${ev}`).expect(404);
+    // event จริงหลังจากนี้ไม่ถูกติดป้ายตัวอย่าง (ธงอยู่แค่ใน transaction ที่ใส่)
+    const n = await db.sampleEvent.count({ where: { tenantId: id } });
+    await a.post('/v1/customers').send({ legalName: 'บริษัท ลูกค้าจริง สี่ จำกัด' }).expect(201);
+    expect(await db.sampleEvent.count({ where: { tenantId: id } })).toBe(n);
+  });
+
+  it('รอบ 2 ข้อ 2: tms_app เรียกฟังก์ชันนับด้วย tenant อื่น ไม่ได้ข้อมูลของ tenant นั้น', async () => {
+    const A = await tenant();
+    const B = await tenant();
+    await A.a.post('/v1/sample-data').expect(200);
+    const v = await db.vehicle.findFirst({ where: { tenantId: A.id, plate: 'ตย-9001' } });
+    const dbs = app.get(DbService);
+    const own = await dbs.withTenant(
+      A.id,
+      (tx) =>
+        tx.$queryRaw<{ s: boolean; st: string | null }[]>`
+        SELECT tms_trip_is_sample(${A.id}::uuid, ${v!.id}::uuid, NULL, now()) AS s,
+               tms_tenant_status_at(${A.id}::uuid, now()) AS st`,
+    );
+    expect(own[0]).toEqual({ s: true, st: 'TRIALING' });
+    const other = await dbs.withTenant(
+      B.id,
+      (tx) =>
+        tx.$queryRaw<{ s: boolean; st: string | null }[]>`
+        SELECT tms_trip_is_sample(${A.id}::uuid, ${v!.id}::uuid, NULL, now()) AS s,
+               tms_tenant_status_at(${A.id}::uuid, now()) AS st`,
+    );
+    expect(other[0]).toEqual({ s: false, st: null });
+  });
+
+  it('รอบ 2 ข้อ 8: อนุมัติใบสำคัญจ่ายให้รถร่วมตัวอย่างไม่ได้ (422 sample_carrier)', async () => {
+    const { id, a } = await tenant();
+    await a.post('/v1/sample-data').expect(200);
+    const c = await db.carrier.findFirst({ where: { tenantId: id } });
+    await expect(
+      app.get(DbService).withTenant(id, (tx) => assertNotSampleCarrier(tx, c!.id)),
     ).rejects.toMatchObject({ status: 422 });
   });
 

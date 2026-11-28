@@ -27,10 +27,11 @@ CREATE UNIQUE INDEX "sample_record_tenant_id_entity_type_entity_id_key" ON "samp
 
 ALTER TABLE "sample_record" ADD CONSTRAINT "sample_record_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenant"("id") ON DELETE CASCADE;
 
+-- (สิทธิ์ผู้เรียก — RLS จำกัดเฉพาะ tenant ของผู้เรียก; recount เรียกในนามเจ้าของ · review รอบ 2 ข้อ 2)
 -- สถานะของบริษัท ณ เวลา p_at (ประวัติ tenant_status_history: แถวล่าสุดก่อน p_at → to_status · ไม่มี → from_status ของแถวแรกหลัง p_at
 -- · ไม่มีประวัติ → สถานะปัจจุบัน)
 CREATE OR REPLACE FUNCTION tms_tenant_status_at(p_tenant uuid, p_at timestamptz) RETURNS text
-  LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS
+  LANGUAGE sql STABLE SET search_path = public, pg_temp AS
 $$
   SELECT coalesce(
     (SELECT h.to_status::text FROM public.tenant_status_history h
@@ -44,7 +45,7 @@ $$;
 -- (นิยามเดียว — trigger นับรถ active และ API จำนวนเที่ยว)
 CREATE OR REPLACE FUNCTION tms_trip_is_sample(p_tenant uuid, p_vehicle uuid, p_carrier uuid, p_at timestamptz)
   RETURNS boolean
-  LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS
+  LANGUAGE sql STABLE SET search_path = public, pg_temp AS
 $$
   SELECT (p_vehicle IS NOT NULL OR p_carrier IS NOT NULL) AND p_at IS NOT NULL
      AND EXISTS (
@@ -55,7 +56,8 @@ $$
      AND public.tms_tenant_status_at(p_tenant, p_at) IN ('TRIALING', 'PENDING_VERIFICATION')
 $$;
 
--- ติดธงตัวอย่าง: แถวต้องเป็นของ tenant ปัจจุบันและถูกสร้าง/แก้ล่าสุดใน transaction นี้ (xmin = xid ปัจจุบัน) — ไม่งั้นปฏิเสธทั้งชุด
+-- ติดธงตัวอย่าง: แถวต้องเป็นของ tenant ปัจจุบันและเวอร์ชันล่าสุดของแถวถูกเขียนใน transaction นี้ (xmin = xid ปัจจุบัน —
+-- สร้างหรือแก้ใน tx นี้ก็ผ่าน; ผู้เรียกเดียวคือ SampleDataService ที่สร้างแถวเอง) — ไม่งั้นปฏิเสธทั้งชุด
 CREATE OR REPLACE FUNCTION tms_sample_flag(p_type text, p_ids uuid[]) RETURNS integer
   LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS
 $$
@@ -75,7 +77,7 @@ BEGIN
   EXECUTE format('SELECT count(*)::int FROM public.%I r WHERE r.tenant_id = $1 AND r.id = ANY($2) AND r.xmin::text = $3', p_type)
      INTO ok USING t, ids, x;
   IF ok <> cardinality(ids) THEN
-    RAISE EXCEPTION 'tms_sample_flag: rows must belong to this tenant and be created in this transaction'
+    RAISE EXCEPTION 'tms_sample_flag: rows must belong to this tenant and be written in this transaction'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
   INSERT INTO public.sample_record (tenant_id, entity_type, entity_id)
@@ -162,6 +164,11 @@ BEGIN
      ORDER BY array_position(ord, r.entity_type::text), r.created_at, r.entity_id
   LOOP
     BEGIN
+      -- ล็อกแถวแม่ (ทุกชนิด) + DO ของ SO ก่อนตรวจ — กันถูกอ้างอิง/จัดลงเที่ยวพร้อมกันระหว่างตรวจ→ลบ (review S1 / รอบ 2 ข้อ 4)
+      EXECUTE format('SELECT 1 FROM public.%I WHERE tenant_id = $1 AND id = $2 FOR UPDATE', s.et) USING t, s.eid;
+      IF s.et = 'sales_order' THEN
+        PERFORM 1 FROM delivery_order d WHERE d.tenant_id = t AND d.sales_order_id = s.eid FOR UPDATE;
+      END IF;
       -- ตัวอ้างอิงที่ไม่มี FK (review S4) — ของ SO รวม DO ของใบนั้นด้วย
       IF EXISTS (SELECT 1 FROM stored_document x WHERE x.tenant_id = t AND (x.entity_id = s.eid OR (s.et = 'sales_order'
                    AND x.entity_id IN (SELECT d.id FROM delivery_order d WHERE d.tenant_id = t AND d.sales_order_id = s.eid))))
@@ -175,8 +182,6 @@ BEGIN
         RAISE EXCEPTION 'sample % % referenced', s.et, s.eid USING ERRCODE = 'foreign_key_violation';
       END IF;
       IF s.et = 'sales_order' THEN
-        PERFORM 1 FROM sales_order o WHERE o.tenant_id = t AND o.id = s.eid FOR UPDATE;
-        PERFORM 1 FROM delivery_order d WHERE d.tenant_id = t AND d.sales_order_id = s.eid FOR UPDATE;
         -- ใช้งานต่อแล้ว = ใบสั่งพ้นขั้นรับงาน หรือ DO (สร้างอัตโนมัติตอนรับใบ) ถูกจัดลงเที่ยว/เดินสถานะไปแล้ว
         IF EXISTS (SELECT 1 FROM sales_order o WHERE o.tenant_id = t AND o.id = s.eid
                       AND o.status NOT IN ('DRAFT', 'RECEIVED', 'ON_HOLD', 'CANCELLED'))
@@ -215,13 +220,25 @@ BEGIN
       entity_type := s.et; entity_id := s.eid; removed := true; reason := NULL;
       RETURN NEXT;
     EXCEPTION WHEN OTHERS THEN
+      -- deadlock / serialization / ล็อกไม่ได้ = ไม่ใช่ "ถูกใช้ต่อ" → ล้มทั้งคำขอ (API ตอบ 409 ให้ลองใหม่) (รอบ 2 ข้อ 3)
+      IF SQLSTATE LIKE '40%' OR SQLSTATE = '55P03' THEN RAISE; END IF;
       -- FK / CHECK / trigger ที่ปฏิเสธ (P0001, 42501 …) = ถูกใช้ต่อแล้ว — ย้อนเฉพาะแถวนี้ ไม่ทำให้ทั้งคำขอล้ม (review M2)
-      entity_type := s.et; entity_id := s.eid; removed := false; reason := 'in_use';
+      entity_type := s.et; entity_id := s.eid; removed := false;
+      reason := CASE WHEN SQLSTATE IN ('23503', '23514', '42501', 'P0001') THEN 'in_use' ELSE 'in_use:' || SQLSTATE END;
       RETURN NEXT;
     END;
   END LOOP;
 END
 $$;
+
+-- event ที่เกิดระหว่างใส่ข้อมูลตัวอย่าง (เขียนโดย trigger ด้านล่าง) — ซ่อนจาก feed / ห้ามส่งซ้ำ · คงอยู่แม้ล้างข้อมูลตัวอย่างแล้ว
+CREATE TABLE "sample_event" (
+    "tenant_id" UUID NOT NULL,
+    "event_id" UUID NOT NULL,
+    "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "sample_event_pkey" PRIMARY KEY ("tenant_id", "event_id")
+);
+ALTER TABLE "sample_event" ADD CONSTRAINT "sample_event_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenant"("id") ON DELETE CASCADE;
 
 -- domain_event → integration_outbox (0093) + ข้ามเมื่อ transaction ตั้งธง tms.suppress_outbox = on (ใส่ข้อมูลตัวอย่าง — review S3)
 CREATE OR REPLACE FUNCTION tms_domain_event_to_outbox() RETURNS trigger LANGUAGE plpgsql AS
@@ -230,6 +247,8 @@ DECLARE
   cust text;
 BEGIN
   IF pg_catalog.current_setting('tms.suppress_outbox', true) = 'on' THEN
+    -- จำไว้ว่าเป็น event ของข้อมูลตัวอย่าง → ไม่แสดงใน GET /v1/events และส่งซ้ำไม่ได้ (รอบ 2 ข้อ 1)
+    INSERT INTO sample_event (tenant_id, event_id) VALUES (NEW.tenant_id, NEW.id) ON CONFLICT DO NOTHING;
     RETURN NULL;
   END IF;
   cust := tms_outbox_customer_key(NEW.entity_type, NEW.local_id, NEW.snapshot);
@@ -263,10 +282,20 @@ DO $$ BEGIN
     EXECUTE 'GRANT EXECUTE ON FUNCTION tms_sample_data_purge() TO tms_app';
     EXECUTE 'REVOKE EXECUTE ON FUNCTION tms_sample_flag(text, uuid[]) FROM PUBLIC';
     EXECUTE 'GRANT EXECUTE ON FUNCTION tms_sample_flag(text, uuid[]) TO tms_app';
+    -- sample_event: แอปเพิ่มได้ (ผ่าน trigger ของ domain_event ในนามผู้เขียน) อ่านได้ แก้/ลบไม่ได้
+    EXECUTE 'REVOKE UPDATE, DELETE, TRUNCATE ON sample_event FROM tms_app';
+    -- ฟังก์ชันช่วยนับ (สิทธิ์ผู้เรียก + RLS) — ไม่เปิดให้ PUBLIC ตามแบบ 0190
+    EXECUTE 'REVOKE EXECUTE ON FUNCTION tms_tenant_status_at(uuid, timestamptz) FROM PUBLIC';
+    EXECUTE 'REVOKE EXECUTE ON FUNCTION tms_trip_is_sample(uuid, uuid, uuid, timestamptz) FROM PUBLIC';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION tms_tenant_status_at(uuid, timestamptz) TO tms_app';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION tms_trip_is_sample(uuid, uuid, uuid, timestamptz) TO tms_app';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tms_platform') THEN
-    EXECUTE 'REVOKE TRUNCATE ON sample_record FROM tms_platform';
+    EXECUTE 'REVOKE TRUNCATE ON sample_record, sample_event FROM tms_platform';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION tms_tenant_status_at(uuid, timestamptz) TO tms_platform';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION tms_trip_is_sample(uuid, uuid, uuid, timestamptz) TO tms_platform';
   END IF;
 END $$;
 
 SELECT tms_enable_tenant_rls('sample_record');
+SELECT tms_enable_tenant_rls('sample_event');

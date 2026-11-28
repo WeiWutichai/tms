@@ -19,3 +19,22 @@ export async function assertNotSampleCustomer(tx: Tx, customerId: string): Promi
       },
     ]);
 }
+
+/**
+ * ห้ามอนุมัติ (ออกเลข) ใบสำคัญจ่าย / 50 ทวิ ให้รถร่วมตัวอย่าง (P1-ST2-T09 review รอบ 2) — 422 field `carrierId` code `sample_carrier`
+ * [DECISION — lead 28 พ.ย. 2569, ย้อนได้]
+ */
+export async function assertNotSampleCarrier(tx: Tx, carrierId: string): Promise<void> {
+  const hit = await tx.sampleRecord.findFirst({
+    where: { entityType: 'carrier', entityId: carrierId },
+    select: { id: true },
+  });
+  if (hit)
+    throw new ProblemException('validation_failed', undefined, [
+      {
+        field: 'carrierId',
+        code: 'sample_carrier',
+        message: 'sample-data carrier — documents cannot be issued',
+      },
+    ]);
+}

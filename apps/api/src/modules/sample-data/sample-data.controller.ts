@@ -30,9 +30,10 @@ export class SampleKeptDto {
   @ApiProperty({ description: 'รหัส/ชื่อ/เลขที่ให้ผู้ใช้จำได้', example: 'SO-2611-0001' })
   label!: string;
   @ApiProperty({
-    enum: ['in_use'],
+    example: 'in_use',
     description:
-      'in_use = ถูกใช้ต่อแล้ว (มี DO/เอกสาร หรือข้อมูลจริงอ้างถึง) — ไม่ลบ คงธงตัวอย่างไว้',
+      'in_use = ถูกใช้ต่อแล้ว (มี DO/เอกสาร หรือข้อมูลจริงอ้างถึง) — ไม่ลบ คงธงตัวอย่างไว้ · ' +
+      'in_use:<SQLSTATE> = ฐานข้อมูลปฏิเสธการลบด้วยเหตุอื่น (เก็บไว้เช่นกัน)',
   })
   reason!: string;
 }

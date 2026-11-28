@@ -3350,6 +3350,17 @@ model SampleRecord {
   @@map("sample_record")
 }
 
+/// P1-ST2-T09 domain_event ที่เกิดระหว่างใส่ข้อมูลตัวอย่าง (trigger domain_event_to_outbox เขียน) — ไม่ส่ง outbox, ซ่อนจาก GET /v1/events,
+/// ส่งซ้ำไม่ได้ · คงไว้หลังล้างข้อมูลตัวอย่าง (migration 0202)
+model SampleEvent {
+  tenantId  String   @map("tenant_id") @db.Uuid
+  eventId   String   @map("event_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([tenantId, eventId])
+  @@map("sample_event")
+}
+
 /// ทีม Innovera (ST1-T24; docs/04 A6) — แยกจากผู้ใช้ของลูกค้า ไม่มี tenant_id; role แอปเข้าไม่ได้ (platform เท่านั้น)
 enum PlatformRole {
   SUPER_ADMIN

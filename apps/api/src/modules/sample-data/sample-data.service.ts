@@ -58,7 +58,8 @@ export interface SampleKept {
   entityType: SampleEntityType;
   id: string;
   label: string;
-  reason: 'in_use';
+  /** `in_use` = ถูกอ้างอิง/ใช้ต่อแล้ว · `in_use:<SQLSTATE>` = ฐานข้อมูลปฏิเสธการลบด้วยเหตุอื่น (เก็บไว้เช่นกัน) */
+  reason: string;
 }
 
 export interface SampleRemoved {
@@ -420,7 +421,7 @@ export class SampleDataService {
           entityType: r.entity_type,
           id: encodeId(ID_KIND[r.entity_type], r.entity_id),
           label: labels.get(r.entity_id) ?? '',
-          reason: 'in_use',
+          reason: r.reason ?? 'in_use',
         });
     }
     const after = await this.status(tx);
