@@ -60,6 +60,10 @@ model Tenant {
   vehicleQuota     Int?          @map("vehicle_quota") /// ST1-T24 จำนวนรถตามสัญญา (ตั้งจาก Console; null = ยังไม่กำหนด) — บังคับใช้ใน ST2
   planCode         String        @default("std") @map("plan_code") /// ST1-T18 แพ็กเกจ (FK → plan.code, migration 0017) — ตั้งจาก Platform Console (T24)
   rateLimitProfile String?       @map("rate_limit_profile") @db.VarChar(20) /// ST7-T08 ทับโปรไฟล์ rate limit ของแพ็กเกจ (null = ตามแพ็กเกจ) — standard | high (CHECK)
+  /// P1-ST4-T05 (spec/01 PLT-115) ทีม Innovera ปิด Open API ของบริษัทชั่วคราว — ไม่ null = API key / OAuth client ทุกตัว (รวม sandbox)
+  /// ได้ 403 `api_disabled_by_platform` (key ไม่ถูกลบ) · เหตุผลอยู่ใน audit_log ของบริษัท (`platform.api_disabled` / `platform.api_enabled`)
+  apiDisabledAt    DateTime?     @map("api_disabled_at") @db.Timestamptz(6)
+  apiDisabledBy    String?       @map("api_disabled_by") @db.Uuid /// platform_user ที่ปิด
   plan             Plan          @relation(fields: [planCode], references: [code], onUpdate: Cascade, onDelete: Restrict)
   /// ST7-T09 live = บริษัทจริง · test = sandbox ของบริษัท `liveTenantId` (แถวแยก ข้อมูลแยกด้วย RLS — migration 0107; แก้ไม่ได้)
   mode             String        @default("live") @db.VarChar(8)
@@ -68,6 +72,8 @@ model Tenant {
   sandbox          Tenant?       @relation("TenantSandbox")
   /// P1-ST1-T01 (สร้างใน bootstrapTenant — guard 0177)
   subscription     Subscription?
+  /// P1-ST2-T05 ข้อมูลการสมัครเอง (เฉพาะ tenant ที่มาจากหน้าสมัคร)
+  signup           TenantSignup?
   createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -2859,6 +2865,25 @@ model QuotaAlert {
   @@map("quota_alert")
 }
 
+/// P1-ST4-T05 สถิติคำขอ Open API รายวันต่อบริษัท (spec/01 §10.7 — Console "การใช้งาน API"): ทุกคำขอของ API key / OAuth client ที่ยืนยันตัวตนผ่าน
+/// (live เท่านั้น — sandbox ไม่นับ) · ไม่ใช่ตัวเลขออกบิล (ตัวนับบิล = usage_daily `api.calls` ที่ไม่นับ 429/5xx)
+/// `latency_hist` = จำนวนคำขอต่อช่วงเวลาตอบ (ms) ตามขอบ `LATENCY_BOUNDS_MS` ใน api-traffic-meter.ts (ช่องท้าย = เกินขอบสุดท้าย) — ไม่รวม 429
+/// เขียนโดย role platform เท่านั้น (ApiTrafficMeter flush แบบบวกเพิ่ม)
+model ApiTrafficDaily {
+  tenantId    String   @map("tenant_id") @db.Uuid
+  date        DateTime @db.Date
+  requests    Int      @default(0)
+  errors4xx   Int      @default(0) @map("errors_4xx") /// 4xx ที่ไม่ใช่ 429
+  errors5xx   Int      @default(0) @map("errors_5xx")
+  throttled   Int      @default(0) /// 429 ที่ถูก rate limit ตัด
+  latencyHist Int[]    @map("latency_hist")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@id([tenantId, date])
+  @@index([date])
+  @@map("api_traffic_daily")
+}
+
 /// P1-ST1-T04 ค่าตั้งของแพลตฟอร์ม (spec/01 §9, PLT-099) — key/type/ค่าเริ่มต้นอยู่ใน platform-settings.registry.ts
 /// ไม่มีแถว = ค่าเริ่มต้น · ตารางระดับแพลตฟอร์ม (ไม่มี tenant_id) · role แอปเข้าไม่ได้ · แก้จาก Console owner + เหตุผล + platform_audit_log
 model PlatformSetting {
@@ -3107,6 +3132,15 @@ model SignupSession {
   joinRequestKind      String?             @map("join_request_kind")
   joinTenantId         String?             @map("join_tenant_id") @db.Uuid
   joinRequestedAt      DateTime?           @map("join_requested_at") @db.Timestamptz(6)
+
+  // ── P1-ST2-T05 ขั้น 3 "เลือกแพ็กเกจ" ──
+  /// แพ็กเกจที่เลือก (ทดลองใช้) หรือแพ็กเกจที่ขอนัด demo
+  planCode             String?             @map("plan_code")
+  /// ขอนัด demo (แพ็กเกจตกลงราคา) — ไม่สร้างบริษัท ฝ่ายขายติดต่อกลับ
+  demoRequestedAt      DateTime?           @map("demo_requested_at") @db.Timestamptz(6)
+  /// บริษัทที่สร้างจากการสมัครนี้ (completed) — ไม่ผูก FK (ตาราง platform)
+  createdTenantId      String?             @map("created_tenant_id") @db.Uuid
+  completedAt          DateTime?           @map("completed_at") @db.Timestamptz(6)
 
   @@index([email, status])
   @@index([status, lastActivityAt])
@@ -4596,4 +4630,37 @@ model TenantStatusHistory {
 
   @@index([tenantId, seq])
   @@map("tenant_status_history")
+}
+
+/// P1-ST2-T05 การสมัครใช้งานเองของ tenant (spec/01 §2 PLT-022/025) — 1 แถวต่อ tenant ที่มาจากหน้าสมัคร
+/// คัดลอกจาก signup_session ก่อนข้อมูล session ถูกลบวันที่ 30: ผลตรวจบริษัท, การยอมรับข้อกำหนด (เวอร์ชัน/เวลา/IP),
+/// ไฟล์หนังสือรับรอง (stored_document), ข้อมูล lead · ใช้ในคิวอนุมัติ (P1-ST2-T06), banner R-02 (P1-ST1-T05)
+/// เขียนผ่าน role platform เท่านั้น (แอปอ่านได้ของ tenant ตัวเอง — RLS)
+model TenantSignup {
+  tenantId              String   @id @map("tenant_id") @db.Uuid
+  tenant                Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  signupSessionId       String   @unique @map("signup_session_id") @db.Uuid
+  /// auto_vat | pending_manual | pending_verification (ผลตรวจขั้น 2)
+  verificationStatus    String   @map("verification_status")
+  verificationSource    String?  @map("verification_source")
+  verificationReason    String?  @map("verification_reason")
+  /// นโยบาย `signup.approvalPolicy` ณ ตอนสร้าง (auto_when_verified | manual_all)
+  approvalPolicy        String   @map("approval_policy")
+  /// ธงให้ทีมดู: same_tax_other_branch, no_accounting_software (R-02)
+  flags                 String[] @default([])
+  companyLookupId       String?  @map("company_lookup_id") @db.Uuid
+  accountingSoftware    String?  @map("accounting_software")
+  fleetSizeOwn          Int?     @map("fleet_size_own")
+  fleetSizeSubcon       Int?     @map("fleet_size_subcon")
+  planCode              String   @map("plan_code")
+  termsVersion          String   @map("terms_version")
+  privacyVersion        String   @map("privacy_version")
+  termsAcceptedAt       DateTime @map("terms_accepted_at") @db.Timestamptz(6)
+  termsAcceptedIp       String?  @map("terms_accepted_ip")
+  marketingOptIn        Boolean  @default(false) @map("marketing_opt_in")
+  /// หนังสือรับรองบริษัท (stored_document kind COMPANY_CERTIFICATE) — null = ไม่ได้แนบ
+  certificateDocumentId String?  @map("certificate_document_id") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("tenant_signup")
 }

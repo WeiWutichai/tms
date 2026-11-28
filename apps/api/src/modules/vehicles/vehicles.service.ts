@@ -459,6 +459,7 @@ export class VehiclesService {
    * โควตารถ: ค่าในสัญญา (`tenant.vehicle_quota` จาก Console ST1-T24) → limit ของ entitlement `veh` ตามแพ็กเกจ
    * P1-ST1-T08: ทดลองใช้ไม่เกิน `trial.vehicleLimit` (20 — docs/02 §2) · รอยืนยันไม่เกิน `pendingVerification.vehicleLimit` · sandbox = null
    * (ชุดเดียวกับคำเตือนตอนจ่ายงาน `vehicle_quota_exceeded`)
+   * P1-ST2-T05 (PLT-014): บริษัท `pending_verification` → เพดาน `pendingVerification.vehicleLimit` อยู่ใน resolveVehicleLimit แล้ว [OPEN — PO] จะบังคับแบบปฏิเสธหรือไม่
    */
   async quotaLimit(): Promise<number | null> {
     const tenantId = requestContext.require().tenantId!;

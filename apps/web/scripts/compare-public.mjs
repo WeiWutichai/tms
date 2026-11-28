@@ -14,6 +14,9 @@ const PAGES = {
   signup: ['#signup', '/signup', { signup: true }],
   // P1-ST2-T04: ขั้น 2 ว่าง → (กรอกเลข 0105567153766 + ค้นหา) ฟอร์มที่ prefill · ของจริงทำขั้น 1 ผ่าน API (อ่าน OTP จากฐาน dev)
   company: ['#signup', '/signup', { company: true }],
+  // P1-ST2-T05: ขั้น 3 "เลือกแพ็กเกจ" → (กด "เริ่มใช้งาน") "พร้อมใช้งานแล้ว" · ขั้น 2 เลข 0105567153766 รถ 20/8
+  //   ของจริงสร้างบริษัทในฐาน dev (เลขนี้ใช้ได้ครั้งเดียวต่อฐาน — รันซ้ำ = เลขซ้ำ)
+  plan: ['#signup', '/signup', { company: true, plan: true }],
 };
 const COMPANY_TAX = '0105567153766';
 /** ของจริง: เริ่มสมัคร + ยืนยัน OTP ผ่าน API (proxy ของ web dev) → token ทำต่อ */
@@ -44,7 +47,8 @@ async function verifiedToken(base) {
   const { token } = await post('/v1/public/signup', {
     name: 'พรทิพย์ ศรีวงศ์',
     email,
-    mobile: '+66812345678',
+    // เบอร์สุ่มต่อครั้ง — เพดาน OTP ต่อเบอร์ 5 ครั้ง/วัน (PLT-026)
+    mobile: `+668${String(Date.now()).slice(-8)}`,
     password: 'compare-password-2569',
   });
   const m = await db.emailOutbox.findFirst({
@@ -120,6 +124,41 @@ async function shot(url, vp, step) {
         .dispatchEvent('click');
       await p.waitForTimeout(800);
     }
+    if (step.plan) {
+      await p
+        .locator('input[placeholder="0105556078912"]')
+        .filter({ visible: true })
+        .first()
+        .fill(COMPANY_TAX);
+      await p
+        .getByRole('button', { name: 'ค้นหา' })
+        .filter({ visible: true })
+        .first()
+        .dispatchEvent('click');
+      await p.waitForTimeout(1200);
+      if (real0) {
+        const field = (l) =>
+          p.locator('label.su-field').filter({ hasText: l }).locator('input').first();
+        await field('รถบริษัท (โดยประมาณ)').fill('20');
+        await field('รถร่วม (โดยประมาณ)').fill('8');
+      }
+      for (const l of [/ยอมรับเงื่อนไขการใช้บริการ/, /ยอมรับนโยบายความเป็นส่วนตัว/])
+        await p.getByLabel(l).filter({ visible: true }).first().check();
+      await p
+        .getByRole('button', { name: 'ถัดไป' })
+        .filter({ visible: true })
+        .first()
+        .dispatchEvent('click');
+      await p.waitForTimeout(1500);
+      const s3 = await p.screenshot({ fullPage: true });
+      await p
+        .getByRole('button', { name: 'เริ่มใช้งาน' })
+        .filter({ visible: true })
+        .first()
+        .dispatchEvent('click');
+      await p.waitForTimeout(2500);
+      return [s3, await p.screenshot({ fullPage: true })];
+    }
     const first = await p.screenshot({ fullPage: true });
     await p
       .locator('input[placeholder="0105556078912"]')
@@ -175,7 +214,7 @@ for (const n of names) {
   for (const vp of [
     { width: 1440, height: 900 },
     { width: 390, height: 844 },
-  ]) {
+  ].filter((v) => !process.env.ONLY_WIDTH || String(v.width) === process.env.ONLY_WIDTH)) {
     const a = await shot(proto + hash, vp, step);
     const c = await shot(
       (process.env.WEB ?? `http://localhost:${process.env.WEB_PORT ?? 4420}`) + path,
@@ -184,7 +223,7 @@ for (const n of names) {
     );
     for (const [i, tag] of [
       [0, ''],
-      [1, step?.company ? '-found' : step?.signup ? '-otp' : '-sent'],
+      [1, step?.plan ? '-done' : step?.company ? '-found' : step?.signup ? '-otp' : '-sent'],
     ]) {
       if (!a[i] || !c[i]) continue;
       const M = await (

@@ -607,3 +607,97 @@
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
+
+/* P1-ST2-T05 ขั้น 3 "เลือกแพ็กเกจ" (su.s3 ของต้นแบบ) */
+.su-plans {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.su-plan {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #cdd1c8;
+  box-shadow: none;
+  border-radius: 12px;
+  background: #ffffff;
+  cursor: pointer;
+  text-align: left;
+  color: #101418;
+  font: inherit;
+}
+.su-plan.is-on {
+  border-color: #2257c4;
+  box-shadow: 0 0 0 1px #2257c4;
+}
+.su-plan__ring {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid #c9cdc3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+.su-plan.is-on .su-plan__ring {
+  border-color: #2257c4;
+}
+.su-plan__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: transparent;
+}
+.su-plan.is-on .su-plan__dot {
+  background: #2257c4;
+}
+.su-plan__txt {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.su-plan__t {
+  font-weight: 600;
+}
+.su-plan__d {
+  font-size: 13px;
+  color: #59606b;
+}
+.su-plan__price {
+  font-variant-numeric: tabular-nums;
+  color: #3b424c;
+  white-space: nowrap;
+}
+.su-plan__est {
+  font-size: 13px;
+  color: #59606b;
+}
+
+/* view `done` ของต้นแบบ — "พร้อมใช้งานแล้ว" */
+.su-auth__ic--ok {
+  background: #e7f3ec;
+  color: #17733f;
+}
+.land .su-go,
+.su-go {
+  height: 44px;
+  border-radius: 999px;
+  background: #2257c4;
+  color: #ffffff;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+.land .su-go:hover,
+.su-go:hover {
+  background: #1b479f;
+  color: #ffffff;
+  text-decoration: none;
+}

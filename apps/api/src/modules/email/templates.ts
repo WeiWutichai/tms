@@ -98,6 +98,13 @@ export interface TemplateVars {
     minutes: number;
     at: string;
   };
+  /** P1-ST4-T05 (PLT-115 / PLT-103) แจ้ง owner เมื่อทีมผู้ให้บริการปิด/เปิด Open API ของบริษัท */
+  api_access_changed: {
+    tenantName: string;
+    disabled: boolean;
+    reason: string;
+    at: string;
+  };
   /** ST1-T23 ช่องอีเมลของแจ้งเตือน — title/body render ตามภาษาผู้รับแล้ว; link = URL เต็มของเว็บ */
   notification: { title: string; body: string; link?: string };
   /** ST9-T19 alert ถึงทีม Innovera (เปิด/ปิด) — ค่าเป็นตัวเลข/รหัส sink/connector เท่านั้น ไม่มีข้อมูลลูกค้า */
@@ -115,6 +122,27 @@ export interface TemplateVars {
   password_reset: { link: string; minutes: number };
   /** P1-ST2-T03 รหัสยืนยันการสมัคร (OtpChannel ทางอีเมล — จนกว่า X-04 SMS) · เนื้ออีเมลถูกลบหลังส่ง (outbox) */
   signup_otp: { code: string; minutes: number };
+  /**
+   * P1-ST2-T05 สมัครเสร็จ (ถึงเจ้าของบัญชี) — `pending` = รอทีมงานตรวจข้อมูลบริษัท (tenant pending_verification)
+   * trialEnds = วันที่แสดงผลแล้ว (เวลาไทย) · link = หน้าเข้าสู่ระบบ
+   */
+  /** P1-ST2-T05 คำขอนัด demo จากหน้าสมัคร → ทีมขาย/support (อีเมลระบบ ไม่มี tenant) */
+  signup_demo_request: {
+    companyName: string;
+    taxId: string;
+    planName: string;
+    applicantName: string;
+    email: string;
+    mobile: string;
+    vehicles: number;
+  };
+  signup_completed: {
+    companyName: string;
+    planName: string;
+    trialEnds: string;
+    pending: boolean;
+    link: string;
+  };
   /**
    * คำถามค้าง #81 (PO 24 พ.ย. 2569) แจ้งเจ้าของบัญชีเมื่อถูกรีเซ็ต 2FA — โดยผู้ดูแลของบริษัท (`byStaff` false)
    * หรือทีม Innovera ผ่าน Console (`byStaff` true) · actorName ผ่าน safeName แล้ว
@@ -244,6 +272,48 @@ const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
       ];
       return {
         subject: `${title} — ${v.issuerName}`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('en', title, paras),
+      };
+    },
+  },
+  api_access_changed: {
+    th: (v) => {
+      const title = v.disabled
+        ? `ปิดการใช้งาน API ของ ${v.tenantName} ชั่วคราว`
+        : `เปิดการใช้งาน API ของ ${v.tenantName} อีกครั้ง`;
+      const paras = v.disabled
+        ? [
+            `ทีมผู้ให้บริการ TMS ปิดการใช้งาน Open API ของบริษัทเมื่อ ${v.at} — ระบบที่เชื่อมด้วย API key จะได้รับข้อผิดพลาด 403 (api_disabled_by_platform) จนกว่าจะเปิดอีกครั้ง`,
+            `เหตุผล: ${v.reason}`,
+            'API key ทุกตัวยังอยู่ ไม่ต้องสร้างใหม่ · ผู้ใช้ยังเข้าใช้งาน TMS ผ่านหน้าเว็บได้ตามปกติ · สอบถามได้ที่ทีมผู้ให้บริการ',
+          ]
+        : [
+            `ทีมผู้ให้บริการ TMS เปิดการใช้งาน Open API ของบริษัทอีกครั้งเมื่อ ${v.at} — API key เดิมใช้งานได้ทันที`,
+            `เหตุผล: ${v.reason}`,
+          ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('th', title, paras),
+      };
+    },
+    en: (v) => {
+      const title = v.disabled
+        ? `API access for ${v.tenantName} has been disabled`
+        : `API access for ${v.tenantName} has been re-enabled`;
+      const paras = v.disabled
+        ? [
+            `The TMS team disabled Open API access for your company at ${v.at}. Integrations using API keys will receive 403 (api_disabled_by_platform) until access is re-enabled.`,
+            `Reason: ${v.reason}`,
+            'Your API keys are kept and do not need to be re-created. Users can still sign in to TMS on the web. Contact our team with any questions.',
+          ]
+        : [
+            `The TMS team re-enabled Open API access for your company at ${v.at}. Your existing API keys work again immediately.`,
+            `Reason: ${v.reason}`,
+          ];
+      return {
+        subject: `${title} — TMS`,
         text: `${title}\n\n${paras.join('\n\n')}\n`,
         html: layout('en', title, paras),
       };
@@ -455,6 +525,74 @@ const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
         subject: 'Your sign-up code — TMS',
         text: `${title}\n\n${paras.join('\n\n')}\n`,
         html: layout('en', title, paras),
+      };
+    },
+  },
+  signup_demo_request: {
+    th: (v) => {
+      const title = `คำขอนัด demo — ${v.companyName}`;
+      const paras = [
+        `ผู้สมัครเลือกแพ็กเกจ${v.planName} (ตกลงราคา) และขอนัด demo — ติดต่อกลับภายใน 1 วันทำการ`,
+        `บริษัท: ${v.companyName} · เลขผู้เสียภาษี ${v.taxId}`,
+        `ผู้ติดต่อ: ${v.applicantName} · ${v.email} · ${v.mobile}`,
+        `จำนวนรถโดยประมาณ: ${v.vehicles} คัน`,
+      ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('th', title, paras),
+      };
+    },
+    en: (v) => {
+      const title = `Demo request — ${v.companyName}`;
+      const paras = [
+        `A sign-up chose the ${v.planName} plan (contact sales) and asked for a demo — reply within 1 business day.`,
+        `Company: ${v.companyName} · Tax ID ${v.taxId}`,
+        `Contact: ${v.applicantName} · ${v.email} · ${v.mobile}`,
+        `Approx. vehicles: ${v.vehicles}`,
+      ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('en', title, paras),
+      };
+    },
+  },
+  signup_completed: {
+    th: (v) => {
+      const title = v.pending ? 'เราได้รับข้อมูลการสมัครแล้ว' : 'พร้อมใช้งานแล้ว';
+      const paras = v.pending
+        ? [
+            `ขอบคุณที่สมัครใช้งาน TMS สำหรับ ${v.companyName}`,
+            'ทีมงานจะตรวจข้อมูลบริษัทและแจ้งผลทางอีเมลภายใน 1 วันทำการ ระหว่างนี้ยังไม่ต้องทำอะไรเพิ่ม',
+            `ระหว่างรอ คุณเข้าสู่ระบบด้วยอีเมลและรหัสผ่านที่ตั้งไว้ได้ และใช้งานแบบทดลองได้บางส่วน ทดลองใช้แพ็กเกจ${v.planName}ถึง ${v.trialEnds}`,
+          ]
+        : [
+            `${v.companyName} เริ่มทดลองใช้แพ็กเกจ${v.planName} ถึง ${v.trialEnds}`,
+            'เข้าสู่ระบบด้วยอีเมลและรหัสผ่านที่ตั้งไว้ตอนสมัคร ไม่มีการตัดเงินระหว่างทดลองใช้',
+          ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n\n${v.link}\n`,
+        html: layout('th', title, paras, { href: v.link, label: 'เข้าใช้งาน TMS' }),
+      };
+    },
+    en: (v) => {
+      const title = v.pending ? 'We received your sign-up' : "You're all set";
+      const paras = v.pending
+        ? [
+            `Thank you for signing up to TMS for ${v.companyName}.`,
+            'Our team will review your company details and email you within 1 business day. Nothing else to do for now.',
+            `Meanwhile you can sign in with the email and password you set and use a limited trial of the ${v.planName} plan until ${v.trialEnds}.`,
+          ]
+        : [
+            `${v.companyName} is now on a ${v.planName} trial until ${v.trialEnds}.`,
+            'Sign in with the email and password you set during sign-up. You will not be charged during the trial.',
+          ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n\n${v.link}\n`,
+        html: layout('en', title, paras, { href: v.link, label: 'Open TMS' }),
       };
     },
   },
