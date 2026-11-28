@@ -316,7 +316,7 @@ describe('tracking link (ST4-T14)', () => {
     expect(v.headers['x-robots-tag']).toBe('noindex, nofollow');
     expect(v.headers['referrer-policy']).toBe('no-referrer');
     expect(v.body).toEqual({
-      company: { name: 'ศรีไทยขนส่ง', phone: '02-118-4400' },
+      company: { name: 'ศรีไทยขนส่ง', phone: '02-118-4400', logoUrl: null },
       mode: 'SEARCH',
       shipment: null,
     });

@@ -42,7 +42,7 @@ export type SettingType =
   | { kind: 'bool' }
   | { kind: 'int'; min: number; max: number; nullable?: boolean }
   /** id ของ entity อื่น (เช่น `cmp_…`) — ตรวจว่ามีอยู่จริงที่ service */
-  | { kind: 'ref'; entity: 'company'; nullable: true }
+  | { kind: 'ref'; entity: 'company' | 'document'; nullable: true }
   /** POD checklist ค่าเริ่มต้นของ tenant (ST4-T05) — ตรวจด้วย `parsePodRequirements` ของ @tms/domain */
   | { kind: 'podRequirements' }
   /** เบอร์โทร (ST4-T14 เบอร์บริษัทบนหน้าติดตาม) — null = ไม่ตั้ง */
@@ -83,6 +83,13 @@ export const SETTINGS = {
     type: { kind: 'enum', values: ['Asia/Bangkok'] },
     default: 'Asia/Bangkok',
     description: 'เขตเวลา',
+  },
+  'org.logoDocumentId': {
+    group: 'org',
+    type: { kind: 'ref', entity: 'document', nullable: true },
+    default: null,
+    description:
+      'P1-ST6-T04 โลโก้องค์กร (`doc_…` จาก POST /v1/documents kind LOGO · PNG/SVG ≤ 2 MB) — บน PDF ใบแจ้งหนี้/ใบวางบิล/ใบสำคัญจ่าย และหน้าติดตามของผู้รับ · null = ไม่มีโลโก้ (ใช้ตัวย่อชื่อตามเดิม)',
   },
   'org.yearStyle': {
     group: 'org',
@@ -354,10 +361,13 @@ export function validateSetting(key: SettingKey, value: unknown): string | null 
       return t.values.includes(value as never) ? null : `must be one of ${t.values.join(', ')}`;
     case 'bool':
       return typeof value === 'boolean' ? null : 'must be boolean';
-    case 'ref':
-      return value === null || (typeof value === 'string' && /^cmp_[0-9a-f]{32}$/i.test(value))
+    case 'ref': {
+      const prefix = t.entity === 'document' ? 'doc' : 'cmp';
+      return value === null ||
+        (typeof value === 'string' && new RegExp(`^${prefix}_[0-9a-f]{32}$`, 'i').test(value))
         ? null
-        : 'must be a company id (cmp_…) or null';
+        : `must be a ${t.entity} id (${prefix}_…) or null`;
+    }
     case 'expiryAlerts':
       return expiryAlertsError(value);
     case 'podRequirements': {

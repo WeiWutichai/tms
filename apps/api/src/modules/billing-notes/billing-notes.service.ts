@@ -1,3 +1,4 @@
+import { currentLogoId, loadLogo, usableLogoId } from '../settings/org-logo';
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma, type StoredDocument } from '@prisma/client';
@@ -393,6 +394,8 @@ export class BillingNotesService implements OnModuleInit {
       markSandbox: true,
     });
     const tenant = await tx.tenant.findFirst({ select: { yearStyle: true, mode: true } });
+    // P1-ST6-T04 ตรึงโลโก้ ณ วันออก (สำเนาที่ render ภายหลังได้ภาพเดียวกับต้นฉบับ)
+    const logoId = await usableLogoId(tx, ctx.tenantId!);
     const customer: InvoicePartySnapshot = { code: bn.customer.code, ...customerParty(bn) };
     const issuer: InvoicePartySnapshot = issuerParty(bn);
     await tx.billingNote.update({
@@ -410,6 +413,7 @@ export class BillingNotesService implements OnModuleInit {
           templateVersion: BILLING_NOTE_TEMPLATE_VERSION,
           // D-61: ใบวางบิลใน sandbox (รวมใบแจ้งหนี้ `TEST-`) → PDF ลายน้ำ "ตัวอย่าง — ใช้ไม่ได้จริง" (เลข `TEST-` จากชุดเลขของ sandbox)
           ...(tenant?.mode === 'test' ? { sandbox: true } : {}),
+          ...(logoId ? { logoDocumentId: logoId } : {}),
         },
         updatedBy: ctx.actorId ?? null,
         version: { increment: 1 },
@@ -590,8 +594,10 @@ export class BillingNotesService implements OnModuleInit {
           currentStatus: bn.status,
         });
       const tenant = await tx.tenant.findFirst({ select: { yearStyle: true } });
+      const logo = await loadLogo(tx, await currentLogoId(tx, requestContext.require().tenantId!));
       return printModel(bn, {
         yearStyle: tenant?.yearStyle === 'CE' ? 'CE' : 'BE',
+        logo: logo?.dataUri ?? null,
         no: null,
         copy: null,
         billingDate: bangkokDay(this.clock.now()),
@@ -626,6 +632,7 @@ export class BillingNotesService implements OnModuleInit {
         yearStyle?: string;
         templateVersion?: number;
         sandbox?: boolean;
+        logoDocumentId?: string;
       } | null;
       if (print?.templateVersion !== BILLING_NOTE_TEMPLATE_VERSION)
         throw new ProblemException('invoice_pdf_template_changed', undefined, undefined, {
@@ -634,8 +641,10 @@ export class BillingNotesService implements OnModuleInit {
         });
       const cs = bn.customerSnapshot as unknown as InvoicePartySnapshot;
       const is = bn.issuerSnapshot as unknown as InvoicePartySnapshot;
+      const logo = await loadLogo(tx, print.logoDocumentId ?? null);
       const model = printModel(bn, {
         yearStyle: print.yearStyle === 'CE' ? 'CE' : 'BE',
+        logo: logo?.dataUri ?? null,
         no: bn.billingNoteNo,
         copy,
         billingDate: ymd(bn.billingDate),
@@ -960,12 +969,16 @@ function printModel(
       outstandingAmount: Prisma.Decimal;
     }[];
   },
-  o: Pick<BillingNotePrintModel, 'yearStyle' | 'copy' | 'billingDate' | 'issuer' | 'customer'> & {
+  o: Pick<
+    BillingNotePrintModel,
+    'yearStyle' | 'copy' | 'billingDate' | 'issuer' | 'customer' | 'logo'
+  > & {
     no: string | null;
   },
 ): BillingNotePrintModel {
   return {
     yearStyle: o.yearStyle,
+    logo: o.logo ?? null,
     billingNoteNo: o.no,
     copy: o.copy,
     billingDate: o.billingDate,

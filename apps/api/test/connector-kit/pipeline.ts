@@ -156,3 +156,205 @@ export async function runPipelineConformance(
   await spec.reset?.(h);
   return { conId, conUuid };
 }
+
+/**
+ * P1-ST5-T01b ชุด pipeline ขาอ่านกลับ: **fetch → reconcile → payment pull** กับใบแจ้งหนี้จริง (finalize ผ่าน API → outbox → adapter)
+ * adapter บอกช่องทางที่ระบบบัญชีส่งข้อมูลกลับ (`channel`):
+ * - `pull` (มี `fetchDocument` + `fetchPaymentStatus` — docs/01 §6.1/§6.5): TMS อ่านเองผ่าน `POST /v1/reconcile-runs`
+ *   (DOCUMENT → คำสั่ง FETCH_DOCUMENT ในคิว · PAYMENT_STATUS → job ดึงสถานะรับชำระ)
+ * - `inbound` (webhook ขาเข้า — ST7-T22): ระบบบัญชีส่ง event "ลงบัญชีแล้ว" / "รับชำระ" มาที่ URL ของ connector
+ * ข้อที่ตรวจ (ทั้งสองช่องทาง ผลต้องเท่ากันในมุมผู้ใช้):
+ * (6) fetch: เอกสารฝั่งระบบบัญชีถูกอ่านกลับ → `sync` ของใบมีเลข/สถานะฝั่งระบบบัญชี (pull: `reconcileState` ACCEPTED)
+ * (7) reconcile: ยอดฝั่งระบบบัญชี ≠ TMS → ไม่เงียบ (pull: MISMATCH ใน `/v1/reconcile-results` + `sync.reconcileState` ·
+ *     inbound: event เข้าคิวตรวจ `external_total_mismatch`) · ใบ TMS ไม่ถูกแก้ยอด
+ * (8) payment pull: ระบบบัญชีรับชำระครบ (ตัดหนี้ = รับ + WHT) → payment `source CONNECTOR` 1 รายการ ใบเป็น PAID ·
+ *     ระบบบัญชีรายงานซ้ำ → ไม่สร้างซ้ำ · tenant อื่นไม่เห็น payment
+ */
+export interface IssuedInvoice {
+  /** id สาธารณะ (`ivc_…`) */
+  id: string;
+  uuid: string;
+  invoiceNo: string;
+}
+
+export interface ReadbackConformanceSpec {
+  adapterKey: string;
+  channel: 'pull' | 'inbound';
+  /** body ของ `POST /v1/connectors` (ไม่รวม adapterKey) — pull ต้องเปิด `fetchDocument` (`fetchPaymentStatus` = opt-in เปิดใน `prepare` พร้อมเหตุผล) */
+  create: () => Record<string, unknown>;
+  /** หลังเปิดใช้ connector: mapping รหัสสินค้า / ออก token รับ webhook ฯลฯ */
+  prepare?: (h: PipelineHandles) => Promise<void>;
+  /**
+   * ระบบบัญชียืนยันเอกสารของใบนี้ — `total` = ยอดที่ระบบบัญชีถือ (ไม่ระบุ = ยอดเดียวกับที่ส่ง)
+   * pull: ทำให้การอ่านกลับครั้งถัดไปได้ยอดนี้ · inbound: ส่ง event "ลงบัญชีแล้ว" ด้วยยอดนี้
+   */
+  erpConfirms: (h: PipelineHandles, inv: IssuedInvoice, total?: string) => Promise<void>;
+  /** ระบบบัญชีบันทึกรับชำระของใบนี้: ตัดหนี้รวม `settled` = รับจริง `received` + WHT `wht` — pull: สถานะให้ fetchPaymentStatus · inbound: event รับชำระ */
+  erpPaid: (
+    h: PipelineHandles,
+    inv: IssuedInvoice,
+    p: { settled: string; received: string; wht: string; seq: number },
+  ) => Promise<void>;
+  /** คืนค่าที่ฉีด (เช่น spy) */
+  reset?: (h: PipelineHandles) => Promise<void>;
+}
+
+export async function runReadbackConformance(
+  spec: ReadbackConformanceSpec,
+  env: {
+    app: NestExpressApplication;
+    tenantId: string;
+    /** ผู้ดูแล (settings:write) */
+    token: string;
+    otherTenantId: string;
+    otherToken: string;
+    /** ร่าง + finalize ใบแจ้งหนี้ 1 บรรทัดของ tenant (คำสั่งส่งเข้าคิวเอง) */
+    issueInvoice: (amount: string) => Promise<IssuedInvoice>;
+    /** run job ที่ถึงเวลา (inbound / รอบดึง) */
+    drainJobs: () => Promise<void>;
+  },
+) {
+  const { app, tenantId, token } = env;
+  const plat = platform();
+  const db = app.get(DbService);
+  const dispatcher = app.get(OutboxDispatcher);
+  const drain = async () => {
+    await plat.$executeRaw`UPDATE integration_outbox SET next_run_at = now() - interval '1 second'
+                            WHERE status IN ('PENDING', 'FAILED_RETRYABLE')`;
+    await dispatcher.drain();
+  };
+  const settle = async () => {
+    await drain();
+    await env.drainJobs();
+    await drain();
+  };
+  const r = await api(app, token)
+    .post('/v1/connectors')
+    .send({ adapterKey: spec.adapterKey, ...spec.create() });
+  expect(r.status, JSON.stringify(r.body)).toBe(201);
+  const conId = r.body.id as string;
+  const conUuid = tryDecodeId('connector', conId)!;
+  const res = await api(app, token).post(`/v1/connectors/${conId}/resume`).send({});
+  expect(res.status, JSON.stringify(res.body)).toBe(200);
+  const h: PipelineHandles = { app, token, connectorId: conId };
+  await spec.prepare?.(h);
+  const sync = async (inv: IssuedInvoice) =>
+    (await api(app, token).get(`/v1/invoices/${inv.id}`).expect(200)).body.sync as Record<
+      string,
+      unknown
+    > | null;
+  const issued = async (amount: string) => {
+    const inv = await env.issueInvoice(amount);
+    await drain();
+    const s = await sync(inv);
+    expect(s, `ใบ ${inv.invoiceNo} ต้องถึงระบบบัญชี`).toMatchObject({
+      connectorId: conId,
+      state: 'SYNCED',
+    });
+    return inv;
+  };
+  const readBack = async (inv: IssuedInvoice) => {
+    if (spec.channel !== 'pull') return settle();
+    const run = await api(app, token)
+      .post('/v1/reconcile-runs')
+      .send({
+        check: 'DOCUMENT',
+        connectorId: conId,
+        invoiceIds: [inv.id],
+        reason: 'ชุด conformance ตรวจการอ่านเอกสารกลับ',
+      });
+    expect(run.status, JSON.stringify(run.body)).toBe(202);
+    await settle();
+  };
+  const openMismatch = async (inv: IssuedInvoice) =>
+    (
+      (
+        await api(app, token)
+          .get(`/v1/reconcile-results?invoiceId=${inv.id}&status=OPEN`)
+          .expect(200)
+      ).body.data as { result: string }[]
+    ).filter((x) => x.result === 'MISMATCH');
+  const inboundEvents = () =>
+    plat.processedWebhookEvent.findMany({
+      where: { tenantId, connectorId: conUuid },
+      orderBy: { receivedAt: 'asc' },
+    });
+
+  // (6) fetch: ยอดตรง
+  const a = await issued('1000.00');
+  const seen = (await inboundEvents()).length;
+  await spec.erpConfirms(h, a);
+  await readBack(a);
+  const s6 = await sync(a);
+  expect(s6, JSON.stringify(s6)).toMatchObject({ state: 'SYNCED' });
+  if (spec.channel === 'pull') {
+    expect(s6!.reconcileState).toBe('ACCEPTED');
+  } else {
+    expect(s6!.externalDocNo).toBeTruthy();
+    const evs = (await inboundEvents()).slice(seen);
+    expect(evs.length).toBeGreaterThan(0);
+    expect(
+      evs.every((e) => e.status === 'PROCESSED'),
+      JSON.stringify(evs),
+    ).toBe(true);
+  }
+  expect(await openMismatch(a)).toHaveLength(0);
+
+  // (7) reconcile: ยอดฝั่งระบบบัญชีไม่ตรง → ไม่เงียบ
+  const b = await issued('440.00');
+  const seenB = (await inboundEvents()).length;
+  await spec.erpConfirms(h, b, '470.80');
+  await readBack(b);
+  if (spec.channel === 'pull') {
+    expect((await sync(b))!.reconcileState).toBe('MISMATCH');
+    expect(await openMismatch(b)).toHaveLength(1);
+  } else {
+    const evs = (await inboundEvents()).slice(seenB);
+    expect(
+      evs.some(
+        (e) =>
+          e.status === 'FAILED' &&
+          (e.lastError as { code?: string } | null)?.code === 'external_total_mismatch',
+      ),
+      JSON.stringify(evs.map((e) => [e.status, e.lastError])),
+    ).toBe(true);
+  }
+  const bInv = await api(app, token).get(`/v1/invoices/${b.id}`).expect(200);
+  expect(bInv.body.sellTotal).toBe('440.00');
+  await spec.reset?.(h);
+
+  // (8) payment pull: ตัดหนี้ครบ → PAID · ซ้ำไม่สร้าง
+  const pullPayments = async () => {
+    if (spec.channel === 'pull') {
+      const run = await api(app, token)
+        .post('/v1/reconcile-runs')
+        .send({ check: 'PAYMENT_STATUS', connectorId: conId });
+      expect(run.status, JSON.stringify(run.body)).toBe(202);
+    }
+    await settle();
+  };
+  const payments = () =>
+    plat.payment.findMany({
+      where: { tenantId, source: 'CONNECTOR', allocations: { some: { invoiceId: a.uuid } } },
+    });
+  await spec.erpPaid(h, a, { settled: '1000.00', received: '990.00', wht: '10.00', seq: 1 });
+  await pullPayments();
+  const inv = await api(app, token).get(`/v1/invoices/${a.id}`).expect(200);
+  expect(inv.body.status, JSON.stringify(inv.body)).toBe('PAID');
+  let pays = await payments();
+  expect(pays).toHaveLength(1);
+  expect(pays[0]!.amountReceived.toFixed(2)).toBe('990.00');
+  expect(pays[0]!.whtAmount.toFixed(2)).toBe('10.00');
+  await spec.erpPaid(h, a, { settled: '1000.00', received: '990.00', wht: '10.00', seq: 2 });
+  await pullPayments();
+  pays = await payments();
+  expect(pays).toHaveLength(1);
+  // แยก tenant
+  expect(
+    await db.withTenant(env.otherTenantId, (tx) =>
+      tx.payment.count({ where: { id: pays[0]!.id } }),
+    ),
+  ).toBe(0);
+  await api(app, env.otherToken).get(`/v1/invoices/${a.id}`).expect(404);
+  return { conId, conUuid };
+}

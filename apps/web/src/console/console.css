@@ -708,3 +708,49 @@
   box-shadow: 0 8px 24px rgba(16, 20, 24, 0.24);
   max-width: 600px;
 }
+
+/* P1-ST4-T06 ทีมงาน / Audit log — ปุ่มหลักของหัวหน้า (acts: bd/bg #2257C4, c #FFFFFF) + ปุ่มในแถว (cell isBtn ของต้นแบบ) */
+.con-act--pri {
+  border-color: #2257c4;
+  background: #2257c4;
+  color: #ffffff;
+}
+.con-act:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.con-rowbtn {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid #9db6e3;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #2257c4;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.con-rowbtn--danger {
+  border-color: #ebb5af;
+  color: #b3322a;
+}
+.con-rowbtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.con-tbl--static tbody tr {
+  cursor: default;
+}
+/* ตัวกรอง audit — ช่องแบบเดียวกับ dialog (select/input 40px, ขอบ #CDD1C8, มุม 8px) [DECISION spec/12 §3] */
+.con-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.con-filters .con-field {
+  min-width: 160px;
+}
+.con-filters .con-rowbtn {
+  height: 40px;
+}

@@ -11,6 +11,12 @@ import {
 } from '@tms/domain';
 import { Transform, Type } from 'class-transformer';
 import {
+  CONNECTOR_AVAILABILITY,
+  CONNECTOR_TIERS,
+  type ConnectorAvailability,
+  type ConnectorTier,
+} from './connector-definition';
+import {
   ArrayMaxSize,
   IsArray,
   IsIn,
@@ -89,6 +95,28 @@ export class ErpAdapterDto {
   })
   fixedTaxDocumentOwner!: 'TMS' | 'ERP' | null;
   @ApiProperty({ type: [ConnectorConfigFieldDto] }) configFields!: ConnectorConfigFieldDto[];
+  @ApiProperty({
+    enum: CONNECTOR_AVAILABILITY,
+    description:
+      'P1-ST5-T01b `AVAILABLE` = เชื่อมต่อได้ · `COMING_SOON` = ประกาศใน catalog (ConnectorDefinition) แต่ยังไม่มี adapter — ' +
+      'หน้าจอแสดงการ์ดแต่ปิดปุ่มเชื่อมต่อ · `POST /connectors` ด้วย key นี้ → 422 `adapter_coming_soon` · ' +
+      '`capabilities` = ที่วางแผนไว้ (อยู่ใน `capabilitiesPending` ทั้งหมด)',
+  })
+  availability!: ConnectorAvailability;
+  @ApiProperty({
+    example: 'conn',
+    description:
+      'feature ของแพ็กเกจที่ต้องเปิดจึงใช้ connector นี้ได้ (`conn` = การเชื่อมต่อระบบบัญชี)',
+  })
+  requiredFeature!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    enum: CONNECTOR_TIERS,
+    description:
+      'แพ็กเกจขั้นต่ำที่ประกาศ (docs/02 §3.1) — ข้อมูลประกอบ ยังไม่บังคับแยกจาก `requiredFeature` จนกว่าจะมี tier ในแพ็กเกจ · null = ไม่กำหนด',
+  })
+  minTier!: ConnectorTier | null;
 }
 
 export class ErpAdapterListDto {
