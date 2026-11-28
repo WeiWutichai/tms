@@ -59,6 +59,7 @@ import {
   PlatformTeamController,
 } from './platform/platform-team.controller';
 import { PlatformUsageController } from './platform/platform-usage.controller';
+import { PlatformApiUsageController } from './platform/platform-api-usage.controller';
 import { UsageController } from './modules/usage/usage.controller';
 import { UsageFinalizeService } from './modules/usage/usage-finalize.service';
 import { apiUsageMiddleware } from './modules/usage/api-usage-meter';
@@ -329,6 +330,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     PlatformAuthController,
     PlatformTenantsController,
     PlatformUsageController,
+    PlatformApiUsageController,
     PlatformPlansController,
     PlatformSettingsController,
     PlatformConnectorsController,

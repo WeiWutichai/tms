@@ -52,7 +52,7 @@ export class ApiKeyAuthService {
     return this.prisma.platform;
   }
 
-  /** ตรวจ key ที่หาเจอแล้ว: สถานะ tenant → เพิกถอน → หมดอายุ → IP → แพ็กเกจมี Open API */
+  /** ตรวจ key ที่หาเจอแล้ว: สถานะ tenant → Console ปิด API → เพิกถอน → หมดอายุ → IP → แพ็กเกจมี Open API */
   private async check(k: ApiKey, ip: string | undefined): Promise<void> {
     // ST7-T09: key `tk_test_` อยู่ในแถว sandbox — สถานะที่ใช้ = ของบริษัทจริง (ระงับบริษัท = sandbox หยุดด้วย)
     const own = await this.db.tenant.findUnique({
@@ -67,9 +67,11 @@ export class ApiKeyAuthService {
         mode: 'live',
         status: { in: API_TENANT_STATUSES as never },
       },
-      select: { id: true },
+      select: { id: true, apiDisabledAt: true },
     });
     if (!t) throw new ProblemException('unauthorized');
+    // P1-ST4-T05 (PLT-115): Console ปิด Open API ของบริษัท (sandbox ตามบริษัทจริง) — มีผลคำขอถัดไปทันที ไม่ลบ key
+    if (t.apiDisabledAt) throw new ProblemException('api_disabled_by_platform');
     const st = apiKeyStatus(k);
     if (st === 'revoked') throw new ProblemException('key_revoked');
     if (st === 'expired') throw new ProblemException('key_expired');

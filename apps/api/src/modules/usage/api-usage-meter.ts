@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 import type { PrismaClient } from '@prisma/client';
 import { requestContext } from '../../common/request-context';
+import { apiTrafficMeter, countsAsApiTraffic } from './api-traffic-meter';
 import { type ApiSource, bangkokDate, USAGE_METRIC } from './usage-metrics';
 
 /** flush ลง usage_daily ทุก 30 วินาที (main.ts) */
@@ -106,11 +107,19 @@ export function countsAsApiCall(
   );
 }
 
-/** middleware: อ่าน context ตอนส่งคำตอบเสร็จ (AuthGuard เติม tenant/principal ใน object เดียวกัน) */
+/** middleware: อ่าน context ตอนส่งคำตอบเสร็จ (AuthGuard เติม tenant/principal ใน object เดียวกัน) — นับ API calls (บิล) + สถิติคำขอ (Console) */
 export function apiUsageMiddleware(_req: Request, res: Response, next: NextFunction): void {
   const ctx = requestContext.get();
+  const t0 = process.hrtime.bigint();
   res.on('finish', () => {
     if (countsAsApiCall(ctx, res.statusCode)) apiUsageMeter.record(ctx.tenantId, 'rest');
+    // P1-ST4-T05 สถิติ Console (ทุกสถานะ + เวลาตอบ)
+    if (countsAsApiTraffic(ctx))
+      apiTrafficMeter.record(
+        ctx.tenantId,
+        res.statusCode,
+        Number(process.hrtime.bigint() - t0) / 1e6,
+      );
   });
   next();
 }

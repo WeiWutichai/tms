@@ -113,6 +113,8 @@ export const can = {
   settings: (r?: StaffRole) => r === 'SUPER_ADMIN',
   /** P1-ST1-T06 ปรับยอดรถ active หลังปิดยอด — การเงิน (BILLING) + owner (spec/01 PLT-074) */
   usage: (r?: StaffRole) => r === 'SUPER_ADMIN' || r === 'BILLING',
+  /** P1-ST4-T05 ปิด/เปิด Open API ของลูกค้า — owner + support (spec/01 §10.7 / §11.4 "ปิด API/AI") */
+  api: (r?: StaffRole) => r === 'SUPER_ADMIN' || r === 'SUPPORT',
 };
 
 export function useStaff() {

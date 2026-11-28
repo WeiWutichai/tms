@@ -19,6 +19,7 @@
 | [`mfa_expired`](#mfa_expired) | 401 | หมดเวลายืนยันตัวตน เข้าสู่ระบบใหม่อีกครั้ง |
 | [`mfa_required`](#mfa_required) | 401 | กรอกรหัสยืนยันตัวตน 2 ชั้นจากแอป Authenticator |
 | [`unauthorized`](#unauthorized) | 401 | ต้องเข้าสู่ระบบ |
+| [`api_disabled_by_platform`](#api_disabled_by_platform) | 403 | ผู้ให้บริการปิดการใช้งาน API ของบริษัทนี้ชั่วคราว กรุณาติดต่อผู้ให้บริการ |
 | [`bank_change_requires_user`](#bank_change_requires_user) | 403 | แก้หรือดูบัญชีธนาคารผู้รับเหมาผ่าน API key ไม่ได้ ต้องให้ผู้ใช้ทำในระบบ |
 | [`bot_check_failed`](#bot_check_failed) | 403 | ยืนยันว่าไม่ใช่บอทไม่สำเร็จ กรุณาลองใหม่อีกครั้ง |
 | [`edit_lock_user_required`](#edit_lock_user_required) | 403 | การล็อกเพื่อแก้ไขใช้ได้เฉพาะผู้ใช้ในระบบ |
@@ -238,6 +239,12 @@ HTTP `401` · กรอกรหัสยืนยันตัวตน 2 ชั
 HTTP `401` · ต้องเข้าสู่ระบบ
 
 พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/search`](ref-search.md#get-search), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id) และอีก 409 endpoint
+
+## api_disabled_by_platform {#api_disabled_by_platform}
+
+HTTP `403` · ผู้ให้บริการปิดการใช้งาน API ของบริษัทนี้ชั่วคราว กรุณาติดต่อผู้ให้บริการ
+
+อาจตอบได้จากหลาย endpoint
 
 ## bank_change_requires_user {#bank_change_requires_user}
 

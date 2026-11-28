@@ -788,6 +788,12 @@ export const PROBLEMS = {
     th: 'IP นี้ไม่ได้รับอนุญาตให้ใช้ API key นี้',
     en: 'This IP address is not allowed for this API key',
   },
+  /** P1-ST4-T05 (spec/01 PLT-115) ทีมผู้ให้บริการปิด Open API ของบริษัทชั่วคราว — key ยังอยู่ ใช้ได้อีกเมื่อเปิดกลับ */
+  api_disabled_by_platform: {
+    status: 403,
+    th: 'ผู้ให้บริการปิดการใช้งาน API ของบริษัทนี้ชั่วคราว กรุณาติดต่อผู้ให้บริการ',
+    en: 'API access for this company has been disabled by the platform. Please contact support.',
+  },
   sandbox_only: {
     status: 403,
     th: 'ใช้ได้เฉพาะโหมด Sandbox (key tk_test_ หรือสลับเป็น Sandbox)',

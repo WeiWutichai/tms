@@ -60,6 +60,10 @@ model Tenant {
   vehicleQuota     Int?          @map("vehicle_quota") /// ST1-T24 จำนวนรถตามสัญญา (ตั้งจาก Console; null = ยังไม่กำหนด) — บังคับใช้ใน ST2
   planCode         String        @default("std") @map("plan_code") /// ST1-T18 แพ็กเกจ (FK → plan.code, migration 0017) — ตั้งจาก Platform Console (T24)
   rateLimitProfile String?       @map("rate_limit_profile") @db.VarChar(20) /// ST7-T08 ทับโปรไฟล์ rate limit ของแพ็กเกจ (null = ตามแพ็กเกจ) — standard | high (CHECK)
+  /// P1-ST4-T05 (spec/01 PLT-115) ทีม Innovera ปิด Open API ของบริษัทชั่วคราว — ไม่ null = API key / OAuth client ทุกตัว (รวม sandbox)
+  /// ได้ 403 `api_disabled_by_platform` (key ไม่ถูกลบ) · เหตุผลอยู่ใน audit_log ของบริษัท + platform_audit_log
+  apiDisabledAt    DateTime?     @map("api_disabled_at") @db.Timestamptz(6)
+  apiDisabledBy    String?       @map("api_disabled_by") @db.Uuid /// platform_user ที่ปิด
   plan             Plan          @relation(fields: [planCode], references: [code], onUpdate: Cascade, onDelete: Restrict)
   /// ST7-T09 live = บริษัทจริง · test = sandbox ของบริษัท `liveTenantId` (แถวแยก ข้อมูลแยกด้วย RLS — migration 0107; แก้ไม่ได้)
   mode             String        @default("live") @db.VarChar(8)
@@ -2837,6 +2841,25 @@ model UsageDaily {
   @@unique([tenantId, date, metric, source])
   @@index([metric, date])
   @@map("usage_daily")
+}
+
+/// P1-ST4-T05 สถิติคำขอ Open API รายวันต่อบริษัท (spec/01 §10.7 — Console "การใช้งาน API"): ทุกคำขอของ API key / OAuth client ที่ยืนยันตัวตนผ่าน
+/// (live เท่านั้น — sandbox ไม่นับ) · ไม่ใช่ตัวเลขออกบิล (ตัวนับบิล = usage_daily `api.calls` ที่ไม่นับ 429/5xx)
+/// `latency_hist` = จำนวนคำขอต่อช่วงเวลาตอบ (ms) ตามขอบ `LATENCY_BOUNDS_MS` ใน api-traffic-meter.ts (ช่องท้าย = เกินขอบสุดท้าย) — ไม่รวม 429
+/// เขียนโดย role platform เท่านั้น (ApiTrafficMeter flush แบบบวกเพิ่ม)
+model ApiTrafficDaily {
+  tenantId    String   @map("tenant_id") @db.Uuid
+  date        DateTime @db.Date
+  requests    Int      @default(0)
+  errors4xx   Int      @default(0) @map("errors_4xx") /// 4xx ที่ไม่ใช่ 429
+  errors5xx   Int      @default(0) @map("errors_5xx")
+  throttled   Int      @default(0) /// 429 ที่ถูก rate limit ตัด
+  latencyHist Int[]    @map("latency_hist")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@id([tenantId, date])
+  @@index([date])
+  @@map("api_traffic_daily")
 }
 
 /// P1-ST1-T04 ค่าตั้งของแพลตฟอร์ม (spec/01 §9, PLT-099) — key/type/ค่าเริ่มต้นอยู่ใน platform-settings.registry.ts
