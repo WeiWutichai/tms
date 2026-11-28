@@ -16,7 +16,12 @@ vi.mock('../api', async (orig) => ({
   api: { GET: (p: string) => GET(p) },
 }));
 
-function show(mini = false, scopes: string[] = ['*']) {
+function show(
+  mini = false,
+  scopes: string[] = ['*'],
+  locks?: Record<string, unknown>,
+  features: string[] = ['sub', 'settle', 'fleet', 'report', 'api'],
+) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
@@ -28,7 +33,8 @@ function show(mini = false, scopes: string[] = ['*']) {
             tenantName="ศรีไทยขนส่ง"
             actor="พรทิพย์ ศรีวงศ์"
             scopes={scopes}
-            features={['sub', 'settle', 'fleet', 'report', 'api']}
+            features={features}
+            locks={locks}
             onLogout={() => {}}
           />
         </MemoryRouter>
@@ -80,5 +86,15 @@ describe('Sidebar badge งานค้าง (D68-89)', () => {
     const dot = within(item('ปฏิบัติการ')).getByTestId('nav-dot');
     expect(dot).toHaveStyle({ background: '#B3322A' });
     expect(screen.queryAllByTestId('nav-badge')).toHaveLength(0);
+  });
+});
+
+/** P1-ST1-T02 / PLT-076–077: 🔒 มาจาก `locks` ของ /me — ฟีเจอร์พื้นฐานไม่ขึ้น 🔒 แม้ปิดอยู่ (เช่น tenant ถูกระงับ) */
+describe('Sidebar 🔒 ตาม locks (P1-ST1-T02)', () => {
+  it('เมนูที่อยู่ใน locks ขึ้น 🔒 · เมนูพื้นฐานที่ปิดเพราะสถานะไม่ขึ้น', () => {
+    show(false, ['*'], { report: {}, fleet: {} }, []);
+    expect(within(item('รายงาน')).getByLabelText('ไม่รวมในแพ็กเกจ')).toBeInTheDocument();
+    for (const name of ['จ่ายงานรถร่วม', 'Settlement รถร่วม'])
+      expect(within(item(name)).queryByLabelText('ไม่รวมในแพ็กเกจ')).toBeNull();
   });
 });
