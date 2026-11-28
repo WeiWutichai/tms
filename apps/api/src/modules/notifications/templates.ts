@@ -15,6 +15,11 @@ export interface NotificationVars {
   /** ฟีเจอร์ถูกปิด (แพ็กเกจ) หลังสั่งงาน → งานไม่ได้ทำ */
   'job.skipped': { label: string };
   /**
+   * P1-ST1-T05 ผู้ใช้ที่ไม่มีสิทธิ์จัดการแพ็กเกจกด "แจ้งผู้ดูแลระบบ" บนแถบสถานะบัญชี (spec/01 §5 ข้อ 8)
+   * status = สถานะบัญชีตอนกด · requesterId ใช้กันส่งซ้ำ 24 ชม.
+   */
+  'billing.attention_requested': { requester: string; status: string; requesterId: string };
+  /**
    * P1-ST1-T02 ผู้ใช้ที่ไม่มีสิทธิ์จัดการแพ็กเกจกด "แจ้งผู้ดูแลระบบ" ในหน้าแนะนำโมดูลที่ไม่รวมในแพ็กเกจ (spec/01 PLT-076)
    * feature = ชื่อโมดูล (ไทย จากแคตตาล็อก) · requester = ชื่อผู้ขอ (safeName) · featureKey/requesterId ใช้กันส่งซ้ำ 24 ชม.
    */
@@ -487,6 +492,14 @@ export interface RenderedNotification {
 
 type Renderer<K extends NotificationTemplate> = (v: NotificationVars[K]) => RenderedNotification;
 
+const STATUS_TH: Record<string, string> = {
+  trialing: 'ทดลองใช้',
+  past_due: 'ค้างชำระ',
+  read_only: 'อ่านอย่างเดียว',
+  pending_verification: 'รอตรวจสอบ',
+  active: 'ใช้งาน',
+};
+
 const TEMPLATES: {
   [K in NotificationTemplate]: Record<NotificationLocale, Renderer<K>>;
 } = {
@@ -502,6 +515,16 @@ const TEMPLATES: {
     en: ({ label }) => ({
       title: 'Job failed',
       body: `${label} failed after all retries.`,
+    }),
+  },
+  'billing.attention_requested': {
+    th: (v) => ({
+      title: 'มีผู้แจ้งเรื่องแพ็กเกจ/การชำระเงิน',
+      body: `${v.requester} แจ้งว่าบัญชีบริษัทต้องการการดำเนินการ (${STATUS_TH[v.status] ?? v.status}) — เลือกแพ็กเกจหรือชำระเงินได้ที่ แพ็กเกจและการเรียกเก็บเงิน`,
+    }),
+    en: (v) => ({
+      title: 'Plan / payment attention requested',
+      body: `${v.requester} reported that the company account needs attention (${v.status}) — choose a plan or pay in Plan & billing.`,
     }),
   },
   'job.skipped': {
