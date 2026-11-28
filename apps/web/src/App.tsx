@@ -30,6 +30,7 @@ import { FleetDocsPage } from './features/vehicles/FleetDocsPage';
 import { VehicleProfilePage } from './features/vehicles/VehicleProfilePage';
 import { Dashboard } from './pages/Dashboard';
 import { DesignSystem } from './pages/DesignSystem';
+import { BILLING_MANAGE_SCOPE } from '@tms/domain';
 import { ErrorBoundary, ErrorPage, LockedPage, NoAccess, NotFound, NotReady } from './pages/Simple';
 import { PrivateLinkLayout } from './public/privacyMeta';
 import { LoginPage } from './public/Login';
@@ -147,6 +148,15 @@ function Inside() {
             element={
               <Guard perm={permOf('/fleet/vehicles')} path="/fleet/vehicles">
                 <VehicleProfilePage />
+              </Guard>
+            }
+          />
+          {/* P1-ST1-T05 ปลายทางปุ่ม "เลือกแพ็กเกจ/ชำระเงิน" ของแถบสถานะ — หน้าเต็มคือ P1-ST3-T03 */}
+          <Route
+            path="/billing"
+            element={
+              <Guard perm={[BILLING_MANAGE_SCOPE]}>
+                <NotReady page="billing" stage="P1-ST3" />
               </Guard>
             }
           />

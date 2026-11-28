@@ -7233,6 +7233,106 @@
         "description": "**หมายเหตุต่อเวอร์ชัน (X-Api-Version)**\n- 2026-11-27: สถานะบริษัท (`tenant.status`) มี 7 ค่า — ก่อนหน้านี้ 4 ค่า (trial / active / suspended / cancelled)"
       }
     },
+    "/v1/me/billing-admins": {
+      "get": {
+        "operationId": "Me_billingAdmins",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeBillingAdminListDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/me/billing-admins/notify": {
+      "post": {
+        "operationId": "Me_notifyBillingAdmins",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingNotifyResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
     "/v1/me/badges": {
       "get": {
         "description": "นิยามตัวนับเดียวกับแท็บ/การ์ดของหน้านั้น (ดู `key`) · ไม่มีสิทธิ์อ่านของเมนูใด = ไม่มี key นั้น · ฟีเจอร์แพ็กเกจปิด = ไม่มี",
@@ -83815,6 +83915,83 @@
           "name"
         ]
       },
+      "MeVehicleQuotaDto": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "number",
+            "description": "รถ active เดือนนี้ (เวลาไทย — P1-ST1-T06)"
+          },
+          "limit": {
+            "type": "number",
+            "nullable": true,
+            "description": "โควตารถ (สัญญา → แพ็กเกจ) · null = ไม่จำกัด"
+          }
+        },
+        "required": [
+          "active",
+          "limit"
+        ]
+      },
+      "MeAccountDto": {
+        "type": "object",
+        "properties": {
+          "trialEndsAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "trialDaysLeft": {
+            "type": "number",
+            "nullable": true,
+            "description": "trialing: เหลือกี่วัน (วันที่ไทยของวันหมด − วันนี้, ≥ 0) · สถานะอื่น null"
+          },
+          "pastDueSince": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "description": "past_due: วันครบกำหนดของใบที่ค้าง (วัน 0 ของ dunning)"
+          },
+          "readOnlyInDays": {
+            "type": "number",
+            "nullable": true,
+            "description": "past_due: เหลือกี่วันก่อนเป็นอ่านอย่างเดียว (ตามค่าตั้ง `dunning.pastDueDays`) · สถานะอื่น null"
+          },
+          "cancelAtPeriodEnd": {
+            "type": "boolean",
+            "description": "ขอยกเลิกเมื่อครบรอบแล้ว"
+          },
+          "currentPeriodEnd": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "vehicles": {
+            "$ref": "#/components/schemas/MeVehicleQuotaDto"
+          },
+          "accountingSoftware": {
+            "type": "string",
+            "nullable": true,
+            "example": "none",
+            "description": "โปรแกรมบัญชีที่ตอบตอนสมัคร (P1-ST2-T05) — `none` = ไม่มี (UI แสดงข้อความ R-02) · null = ไม่ได้มาจากหน้าสมัคร"
+          },
+          "canManageBilling": {
+            "type": "boolean",
+            "description": "ผู้ใช้นี้จัดการแพ็กเกจ/ชำระเงินได้ (`billing.manage` — ตอนนี้ใช้สิทธิ์ `settings:write` แทน)"
+          }
+        },
+        "required": [
+          "trialEndsAt",
+          "trialDaysLeft",
+          "pastDueSince",
+          "readOnlyInDays",
+          "cancelAtPeriodEnd",
+          "currentPeriodEnd",
+          "vehicles",
+          "accountingSoftware",
+          "canManageBilling"
+        ]
+      },
       "MeDto": {
         "type": "object",
         "properties": {
@@ -83881,6 +84058,14 @@
             },
             "description": "[deprecated — ใช้ `locks` แทน; คงไว้เพื่อไม่ breaking] ฟีเจอร์ที่ยังไม่มี → ชื่อแพ็กเกจแรกที่รวมไว้ (หน้า \"ไม่รวมในแพ็กเกจ\" — spec/01 PLT-076)"
           },
+          "account": {
+            "description": "ข้อมูลแถบสถานะบัญชี (P1-ST1-T05)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MeAccountDto"
+              }
+            ]
+          },
           "locks": {
             "type": "object",
             "additionalProperties": {
@@ -83898,7 +84083,50 @@
           "features",
           "plan",
           "lockedIn",
+          "account",
           "locks"
+        ]
+      },
+      "MeBillingAdminDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "MeBillingAdminListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MeBillingAdminDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "BillingNotifyResultDto": {
+        "type": "object",
+        "properties": {
+          "notified": {
+            "type": "number",
+            "description": "จำนวนผู้ดูแลที่ได้รับแจ้ง (0 เมื่อแจ้งซ้ำภายใน 24 ชม.)"
+          },
+          "alreadyRequested": {
+            "type": "boolean",
+            "description": "แจ้งไปแล้วภายใน 24 ชม. — ไม่ส่งซ้ำ"
+          }
+        },
+        "required": [
+          "notified",
+          "alreadyRequested"
         ]
       },
       "NavBadgeDto": {

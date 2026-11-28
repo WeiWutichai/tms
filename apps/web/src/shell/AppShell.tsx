@@ -11,6 +11,7 @@ import { clearStepUp, StepUpHost } from '../features/stepup/stepUp';
 import { CommandPalette } from './CommandPalette';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
+import { StatusBanner } from './StatusBanner';
 import './shell.css';
 
 export function useMe() {
@@ -112,6 +113,21 @@ export function AppShell({ children }: { children: ReactNode }) {
             gap: 24,
           }}
         >
+          {/* P1-ST1-T05 แถบสถานะบัญชี — ต้นแบบ v4 วาง bn.show เป็นลูกแรกของ <main> */}
+          {me.data?.account && (
+            <StatusBanner
+              key={me.data.tenant.id}
+              input={{
+                impersonating: !!me.data.impersonation,
+                status: me.data.tenant.status,
+                account: me.data.account,
+              }}
+              tenantId={me.data.tenant.id}
+              planName={me.data.plan.name}
+              canManageBilling={me.data.account.canManageBilling}
+              yearStyle={(me.data.tenant.yearStyle as 'BE' | 'CE') ?? 'BE'}
+            />
+          )}
           {children}
         </main>
       </div>

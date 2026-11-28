@@ -293,6 +293,13 @@ export function scopeAllows(granted: readonly string[], required: string): boole
 }
 
 /**
+ * P1-ST1-T05 สิทธิ์ "จัดการแพ็กเกจ/ชำระเงิน" (spec/01 §5/§8 `billing.manage`) — ชุดสิทธิ์ยังไม่มี `billing:manage`
+ * ใช้ `settings:write` แทน (เหมือน P1-ST1-T02) [DECISION — lead 28 พ.ย. 2569, ย้อนได้]
+ * TODO P1-ST3-T03: เปลี่ยนเป็นสิทธิ์ของหน้าแพ็กเกจเมื่อเพิ่มเข้า PERMISSIONS
+ */
+export const BILLING_MANAGE_SCOPE: Permission = 'settings:write';
+
+/**
  * D-78 (PO 23 พ.ย. 2569): ผู้ใช้ที่ถือสิทธิ์ตัวใดตัวหนึ่งนี้ (ตั้งค่า / จ่ายเงินรถร่วม / ยกเลิกใบแจ้งหนี้ / ส่งออก)
  * **ต้องตั้ง 2FA (TOTP)** — login ครั้งถัดไปต้องผ่านขั้นตั้ง 2FA ก่อน · token ที่ออกก่อนหน้าได้ 403 `two_factor_enrolment_required`
  * (role ระบบที่เข้าเกณฑ์: owner, admin, manager, planner, invoicer, accounting) · API key / ทีม Innovera เข้าใช้งานแทน ไม่เกี่ยว
