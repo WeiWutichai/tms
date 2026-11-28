@@ -61,6 +61,15 @@ import { PlatformSettingsService } from './platform/platform-settings.service';
 import { TenantLifecycleService } from './modules/tenants/tenant-lifecycle.service';
 import { ReadOnlyTripGate } from './modules/tenants/read-only-gate';
 import { PlatformTenantsController } from './platform/platform-tenants.controller';
+import { PlatformAuditController } from './platform/platform-audit.controller';
+import {
+  PlatformInvitationController,
+  PlatformTeamController,
+} from './platform/platform-team.controller';
+import { PlatformUsageController } from './platform/platform-usage.controller';
+import { UsageController } from './modules/usage/usage.controller';
+import { UsageFinalizeService } from './modules/usage/usage-finalize.service';
+import { apiUsageMiddleware } from './modules/usage/api-usage-meter';
 import { ImpersonationController } from './platform/impersonation.controller';
 import {
   InvitationAcceptController,
@@ -328,10 +337,14 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     SetupChecklistController,
     PlatformAuthController,
     PlatformTenantsController,
+    PlatformUsageController,
     PlatformPlansController,
     PublicPlansController,
     PlatformSettingsController,
     PlatformConnectorsController,
+    PlatformTeamController,
+    PlatformInvitationController,
+    PlatformAuditController,
     ImpersonationController,
     HealthController,
     MonitoringController,
@@ -414,6 +427,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     CarrierRecentPricesController,
     CarriersController,
     VehiclesController,
+    UsageController,
     DriversController,
     VehicleDocumentsController,
     CarrierDocsController,
@@ -579,6 +593,7 @@ import { PaymentDueReminderService } from './modules/reminders/payment-due-remin
     PaymentDueReminderService,
     UnbilledReminderService,
     DepreciationService,
+    UsageFinalizeService,
     GeoService,
     AuditService,
     BranchesService,
@@ -607,6 +622,8 @@ export class AppModule implements NestModule {
     consumer.apply(RequestContextMiddleware).forRoutes('{*path}');
     // ST9-T19 ตัวนับคำขอ HTTP (Prometheus) — นับตอนส่งคำตอบเสร็จ ตามแม่แบบ route
     consumer.apply(httpMetricsMiddleware).forRoutes('{*path}');
+    // P1-ST1-T07 นับ API calls ของ API key / OAuth client (ในหน่วยความจำ → flush แบบ batch — api-usage-meter.ts)
+    consumer.apply(apiUsageMiddleware).forRoutes('{*path}');
     // ST1-T06: ลิงก์สาธารณะ (ไม่ login) จำกัดอัตราต่อ IP
     // P1-ST2-T03: ปิดการสมัคร (`SIGNUP_ENABLED`) = 404 ก่อนตัวจำกัด/ฐานข้อมูล
     consumer.apply(SignupEnabledMiddleware).forRoutes('public/signup', 'public/signup/{*path}');

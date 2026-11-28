@@ -7,7 +7,10 @@ import {
 } from '../modules/accounting-export/file-export-adapter';
 import { ErpAdapterRegistry } from '../modules/erp/erp-adapter.registry';
 import { AccountSystemAdapter } from './accountsystem/accountsystem.adapter';
+import type { ConnectorDefinition } from '../modules/erp/connector-definition';
 import { DemoAdapter } from './demo/demo.adapter';
+import { FLOWACCOUNT_DEFINITION } from './flowaccount/flowaccount.definition';
+import { PEAK_DEFINITION } from './peak/peak.definition';
 import { GenericFileExport } from './file-generic/generic-file-export';
 import { KrsAdapter } from './krs/krs.adapter';
 
@@ -32,6 +35,15 @@ export const ERP_ADAPTER_FACTORIES: ReadonlyArray<() => ErpAdapter> = [
   () => new DemoAdapter(),
   () => new KrsAdapter(),
   () => new AccountSystemAdapter(),
+];
+
+/**
+ * P1-ST5-T01b connector ที่ประกาศใน catalog ล่วงหน้าแต่ยังเชื่อมต่อไม่ได้ (การ์ด "ยังไม่เปิดให้เชื่อมต่อ") —
+ * adapter ตัวจริงมาแล้ว = ย้าย key นั้นไป `ERP_ADAPTER_FACTORIES` และลบออกจากรายการนี้ (key เดียวกันลงทะเบียนสองแบบไม่ได้)
+ */
+export const CONNECTOR_DEFINITIONS: readonly ConnectorDefinition[] = [
+  FLOWACCOUNT_DEFINITION,
+  PEAK_DEFINITION,
 ];
 
 /** ST7-T23 รูปแบบไฟล์ส่งออกให้นักบัญชี */
@@ -59,6 +71,8 @@ export class ErpAdaptersBootstrap implements OnModuleInit, OnApplicationBootstra
       // D68-96: demo ใน production ลงทะเบียนไว้ให้ tenant sandbox — บริษัทจริงใช้ไม่ได้ (`usableIn`)
       if (!this.registry.get(a.key)) this.registry.register(a);
     }
+    for (const d of CONNECTOR_DEFINITIONS)
+      if (!this.registry.get(d.key) && !this.registry.comingSoon(d.key)) this.registry.define(d);
   }
 
   /** เตือนตอนบูต: connector ของบริษัทจริงที่ยังไม่ยกเลิกแต่ใช้ adapter ที่ใช้ได้เฉพาะ sandbox ใน environment นี้ (demo ค้างใน production) */

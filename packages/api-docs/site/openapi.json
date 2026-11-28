@@ -1444,7 +1444,7 @@
             }
           },
           "422": {
-            "description": "ไฟล์ว่าง / ใหญ่กว่าที่จองไว้ / เนื้อไฟล์ไม่ตรงชนิดที่ประกาศ",
+            "description": "ไฟล์ว่าง / ใหญ่กว่าที่จองไว้ / เนื้อไฟล์ไม่ตรงชนิดที่ประกาศ · `svg_unsafe` = SVG ของโลโก้ล้างไม่ได้ (ไม่ใช่ SVG)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -57599,6 +57599,148 @@
         ]
       }
     },
+    "/v1/usage/metrics": {
+      "get": {
+        "description": "Usage & Billing — ยอดเดือน = ผลรวมของยอดรายวัน (`usage_daily`) สำหรับ DO / ใบแจ้งหนี้ / API calls · พื้นที่ POD / connector / ผู้ใช้ = ค่า ณ วันล่าสุดของเดือน (เดือนนี้ = ค่าสด) · ปิดยอดพร้อมรถ active · e-Tax ไม่มีในเฟส 1 (`eTaxDocuments` = null) · sandbox ไม่นับ · ใช้ออกบิลเฉพาะรถ active (เมตริกอื่นเพื่อดู/โควตา)",
+        "operationId": "Usage_metrics",
+        "parameters": [
+          {
+            "name": "period",
+            "required": false,
+            "in": "query",
+            "description": "เดือนปฏิทินเวลาไทย YYYY-MM (ไม่ส่ง = เดือนนี้)",
+            "schema": {
+              "example": "2026-11",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageMetricsDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_master.read"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "การใช้งานอื่นของเดือน (DO, ใบแจ้งหนี้, API calls, พื้นที่ POD, connector, ผู้ใช้)",
+        "tags": [
+          "usage"
+        ],
+        "x-required-scopes": [
+          "master:read"
+        ]
+      }
+    },
+    "/v1/usage/active-vehicles": {
+      "get": {
+        "description": "รถ active = ทะเบียน (normalize: ตัดช่องว่าง/ขีด/จุด, เลขไทย → อารบิก — \"กข-1234\" = \"กข1234\") ที่มีเที่ยวเข้าเงื่อนไข ≥ 1 เที่ยวในเดือนปฏิทินเวลาไทย · นับทันทีเมื่อเที่ยวแรกของทะเบียนเข้าเงื่อนไข และนำออกเมื่อเที่ยวย้อนสถานะ (เช่น ยกเลิกหลังปล่อยรถ) ก่อนปิดยอด · ปิดยอดวันที่ 1 เวลา 02:00 น. ไทยของเดือนถัดไป · sandbox ไม่นับ",
+        "operationId": "Usage_activeVehicles",
+        "parameters": [
+          {
+            "name": "period",
+            "required": false,
+            "in": "query",
+            "description": "เดือนปฏิทินเวลาไทย YYYY-MM (ไม่ส่ง = เดือนนี้)",
+            "schema": {
+              "example": "2026-11",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveVehicleUsageDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_master.read"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "รถ active ของเดือน + ทะเบียนที่ถูกนับ",
+        "tags": [
+          "usage"
+        ],
+        "x-required-scopes": [
+          "master:read"
+        ]
+      }
+    },
     "/v1/drivers": {
       "get": {
         "operationId": "Drivers_list",
@@ -61154,6 +61296,127 @@
           "receivedOn"
         ]
       },
+      "ActiveVehicleItemDto": {
+        "type": "object",
+        "properties": {
+          "plate": {
+            "type": "string",
+            "nullable": true,
+            "example": "กข-1234",
+            "description": "ทะเบียนตามเที่ยวแรกที่ทำให้นับ — null = เอกสารรถร่วมไม่มีทะเบียน (`plateMissing`)"
+          },
+          "plateMissing": {
+            "type": "boolean",
+            "description": "เที่ยวไม่มีทะเบียน — นับด้วยรถร่วม + คนขับแทน ให้เติมทะเบียนบนเที่ยว"
+          },
+          "subcontract": {
+            "type": "boolean",
+            "description": "รถร่วม (เที่ยวมีผู้รับเหมา)"
+          },
+          "vehicleType": {
+            "type": "string",
+            "nullable": true,
+            "description": "ประเภทรถตามเที่ยวแรก"
+          },
+          "carrierName": {
+            "type": "string",
+            "nullable": true,
+            "description": "ผู้รับเหมา (รถร่วม)"
+          },
+          "trips": {
+            "type": "number",
+            "description": "จำนวนเที่ยวในเดือนที่เข้าเงื่อนไขการนับของทะเบียนนี้"
+          },
+          "firstTripId": {
+            "type": "string",
+            "nullable": true,
+            "example": "trp_…",
+            "description": "เที่ยวแรกที่ทำให้นับ (null = ทีมผู้ให้บริการเพิ่มเอง / เที่ยวถูกลบ)"
+          },
+          "firstTripNo": {
+            "type": "string",
+            "nullable": true,
+            "example": "TRP-2611-0001"
+          },
+          "firstCountedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "เวลาที่เที่ยวแรกเข้าเงื่อนไข (ปล่อยรถ / ปิดงาน)"
+          },
+          "adjusted": {
+            "type": "boolean",
+            "description": "ทีมผู้ให้บริการปรับหลังปิดยอด"
+          }
+        },
+        "required": [
+          "plate",
+          "plateMissing",
+          "subcontract",
+          "vehicleType",
+          "carrierName",
+          "trips",
+          "firstTripId",
+          "firstTripNo",
+          "firstCountedAt",
+          "adjusted"
+        ]
+      },
+      "ActiveVehicleUsageDto": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "string",
+            "example": "2026-11"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "finalized",
+              "invoiced"
+            ],
+            "description": "open = ยังนับอยู่ (ค่าสด) · finalized = ปิดยอดแล้ว (วันที่ 1 เวลา 02:00 น. ไทยของเดือนถัดไป)"
+          },
+          "finalizedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "activeVehicles": {
+            "type": "number",
+            "description": "รถ active ของเดือน (metric `vehicles.active`) = ทะเบียน normalize ที่มีเที่ยวเข้าเงื่อนไข ≥ 1 เที่ยว · กติกาปัจจุบัน: เที่ยวที่ปล่อยรถแล้ว (ไม่นับร่าง/ยกเลิกก่อนออกวิ่ง/sandbox) นับตามเวลาไทย R-05"
+          },
+          "own": {
+            "type": "number",
+            "description": "รถบริษัท"
+          },
+          "subcontract": {
+            "type": "number",
+            "description": "รถร่วม"
+          },
+          "limit": {
+            "type": "number",
+            "nullable": true,
+            "description": "โควตารถ active ต่อเดือน (tenant.vehicle_quota → entitlement `veh`) — null = ไม่จำกัด"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActiveVehicleItemDto"
+            }
+          }
+        },
+        "required": [
+          "period",
+          "status",
+          "finalizedAt",
+          "activeVehicles",
+          "own",
+          "subcontract",
+          "limit",
+          "data"
+        ]
+      },
       "AddCarrierAttachmentDto": {
         "type": "object",
         "properties": {
@@ -61473,6 +61736,28 @@
         "required": [
           "unitId",
           "factorToBase"
+        ]
+      },
+      "ApiCallsDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number",
+            "description": "รวมทุก source"
+          },
+          "rest": {
+            "type": "number",
+            "description": "REST (API key / OAuth client)"
+          },
+          "mcp": {
+            "type": "number",
+            "description": "MCP (ยังไม่มีในเฟส 1 = 0)"
+          }
+        },
+        "required": [
+          "total",
+          "rest",
+          "mcp"
         ]
       },
       "ArriveStopDto": {
@@ -66184,9 +66469,10 @@
               "image/jpeg",
               "image/webp",
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-              "text/csv"
+              "text/csv",
+              "image/svg+xml"
             ],
-            "description": "ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง"
+            "description": "ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง · kind `LOGO` = `image/png` ≤ 2 MB หรือ `image/svg+xml` ≤ 512 KB (SVG ใช้ได้กับ LOGO เท่านั้น และถูกล้าง script/event handler/อ้างของภายนอก/foreignObject ก่อนเก็บ)"
           },
           "bytes": {
             "type": "number",
@@ -70140,6 +70426,27 @@
             "items": {
               "$ref": "#/components/schemas/ConnectorConfigFieldDto"
             }
+          },
+          "availability": {
+            "type": "string",
+            "enum": [
+              "AVAILABLE",
+              "COMING_SOON"
+            ],
+            "description": "P1-b `AVAILABLE` = เชื่อมต่อได้ · `COMING_SOON` = ประกาศใน catalog (ConnectorDefinition) แต่ยังไม่มี adapter — หน้าจอแสดงการ์ดแต่ปิดปุ่มเชื่อมต่อ · `POST /connectors` ด้วย key นี้ → 422 `adapter_coming_soon` · `capabilities` = ที่วางแผนไว้ (อยู่ใน `capabilitiesPending` ทั้งหมด)"
+          },
+          "requiredFeature": {
+            "type": "string",
+            "example": "conn",
+            "description": "feature ของแพ็กเกจที่ต้องเปิดจึงใช้ connector นี้ได้ (`conn` = การเชื่อมต่อระบบบัญชี)"
+          },
+          "minTier": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "growth"
+            ],
+            "description": "แพ็กเกจขั้นต่ำที่ประกาศ — ข้อมูลประกอบ ยังไม่บังคับแยกจาก `requiredFeature` จนกว่าจะมี tier ในแพ็กเกจ · null = ไม่กำหนด"
           }
         },
         "required": [
@@ -70150,7 +70457,10 @@
           "capabilitiesPending",
           "masterCodeKinds",
           "fixedTaxDocumentOwner",
-          "configFields"
+          "configFields",
+          "availability",
+          "requiredFeature",
+          "minTier"
         ]
       },
       "ErpAdapterListDto": {
@@ -89103,6 +89413,97 @@
           "minLicenceClass"
         ]
       },
+      "UsageMetricsDto": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "string",
+            "example": "2026-11"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "finalized",
+              "invoiced"
+            ],
+            "description": "open = ยังนับอยู่ (DO/ใบแจ้งหนี้อัปเดตทุก ≤ 10 นาที, API calls ≤ 30 วินาที) · finalized = ปิดยอดพร้อมรถ active (วันที่ 1 เวลา 02:00 น. ไทย)"
+          },
+          "finalizedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "doCreated": {
+            "type": "number",
+            "description": "`do.created` — DO ที่สร้างในเดือน (เวลาไทย) ไม่รวมที่ยกเลิก = ผลรวมรายวัน"
+          },
+          "invoicesIssued": {
+            "type": "number",
+            "description": "`invoices.issued` — ใบแจ้งหนี้ที่ออกเลขในเดือน = ผลรวมรายวัน"
+          },
+          "apiCalls": {
+            "description": "`api.calls` — คำขอ `/v1` ของ API key / OAuth client ที่ตอบ 2xx/3xx/4xx (ไม่นับ 429 และ 5xx) · UI ของระบบไม่นับ · key ของ sandbox ไม่นับ",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ApiCallsDto"
+              }
+            ]
+          },
+          "podStorageGb": {
+            "type": "number",
+            "example": 1.25,
+            "description": "`storage.pod_gb` — ขนาดไฟล์ POD + เอกสารแนบที่อัปโหลด (GB = 1024³ ทศนิยม 2, สะสมไม่รีเซ็ต) ณ วันล่าสุดของเดือน"
+          },
+          "connectors": {
+            "type": "number",
+            "description": "`connectors.accounting` — connector ระบบบัญชีที่ active"
+          },
+          "connectorLimit": {
+            "type": "number",
+            "nullable": true,
+            "description": "จำนวน connector สูงสุดตามแพ็กเกจ (entitlement `conn`) — null = ไม่จำกัด/ไม่กำหนด"
+          },
+          "users": {
+            "type": "number",
+            "description": "`users.active` — ผู้ใช้สถานะใช้งาน"
+          },
+          "eTaxDocuments": {
+            "type": "number",
+            "nullable": true,
+            "description": "เอกสาร e-Tax — ไม่มีในเฟส 1 จึงเป็น null เสมอ (UI แสดง \"—\")"
+          },
+          "gaugeAsOf": {
+            "type": "string",
+            "nullable": true,
+            "format": "date",
+            "description": "วันของค่า POD/connector/ผู้ใช้ (null = ค่าสด)"
+          },
+          "metricsSource": {
+            "type": "string",
+            "enum": [
+              "usage_record",
+              "usage_daily"
+            ],
+            "description": "ที่มาของตัวเลข: usage_record = ยอดปิดของเมตริกเหล่านี้ · usage_daily = คำนวณจากยอดรายวัน (เดือนที่ยังเปิด หรือเดือนที่ปิดยอดรถ active ก่อนมีเมตริกอื่น)"
+          }
+        },
+        "required": [
+          "period",
+          "status",
+          "finalizedAt",
+          "doCreated",
+          "invoicesIssued",
+          "apiCalls",
+          "podStorageGb",
+          "connectors",
+          "connectorLimit",
+          "users",
+          "eTaxDocuments",
+          "gaugeAsOf",
+          "metricsSource"
+        ]
+      },
       "VehicleDocAlertDto": {
         "type": "object",
         "properties": {
@@ -89700,7 +90101,7 @@
           },
           "quotaExceeded": {
             "type": "boolean",
-            "description": "มีเฉพาะในผลการสร้าง · D68-14: โควตารถนับ**รถ active** ไม่ใช่จำนวนในทะเบียน · ตอนนี้ `false` เสมอจนกว่าจะมีการนับรถ active (metering) — soft limit ไม่จำกัดการสร้าง"
+            "description": "มีเฉพาะในผลการสร้าง · D68-14: โควตารถนับ**รถ active** ไม่ใช่จำนวนในทะเบียน · `false` เสมอ — รถที่เพิ่งเพิ่มยังไม่ใช่รถ active จนกว่าจะมีเที่ยว · คำเตือนเกินโควตาอยู่ตอนจ่ายงาน — soft limit ไม่จำกัดการสร้าง"
           },
           "docAlert": {
             "description": "มีเฉพาะในรายการ (GET /vehicles): เอกสารใกล้หมด 30 วัน/หมดแล้วของคันนี้ (รถปลดระวาง = 0) · คำนวณจากเอกสารและวันนี้ทุกครั้ง **ไม่ทำให้ `updatedAt` ของรถเปลี่ยน** — ผู้ที่ sync แบบ `updatedAfter` ให้ดึงเอกสารจาก `GET /vehicle-documents` แทน",
@@ -89802,12 +90203,17 @@
           },
           "used": {
             "type": "number",
-            "description": "รถในทะเบียนที่ยังไม่ปลดระวาง (บริษัท + รถร่วม) — **ไม่ใช่ฐานโควตา** (D68-14: โควตานับรถ active ในเดือน) ใช้แสดง \"รถในทะเบียน N / โควตา M\""
+            "description": "รถในทะเบียนที่ยังไม่ปลดระวาง (บริษัท + รถร่วม) — **ไม่ใช่ฐานโควตา** (D68-14: โควตานับรถ active ในเดือน — ดู `active`)"
+          },
+          "active": {
+            "type": "number",
+            "description": "P1- รถ active เดือนนี้ (เวลาไทย) = ฐานโควตา (D68-14 / D68-21) — ทะเบียนที่มีเที่ยวเข้าเงื่อนไข ≥ 1 เที่ยว · รายการที่ `GET /usage/active-vehicles`"
           }
         },
         "required": [
           "limit",
-          "used"
+          "used",
+          "active"
         ]
       },
       "VehicleRefDto": {
@@ -97244,6 +97650,11 @@
       "status": 409,
       "title": "การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่",
       "titleEn": "This source change was already decided or superseded — reload"
+    },
+    "staff_deactivate_not_allowed": {
+      "status": 409,
+      "title": "ปิดบัญชีตัวเองหรือผู้ดูแลสูงสุดคนสุดท้ายไม่ได้",
+      "titleEn": "You cannot deactivate yourself or the last super admin"
     },
     "step_up_required": {
       "status": 403,

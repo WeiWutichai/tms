@@ -31,8 +31,24 @@
    (ทดสอบกับ sandbox เป็นขั้นตอน go-live แยก — ตัวขวาง X-02 / X-03 ใน plan/13 §4.2)
 4. ลงทะเบียน 1 บรรทัดใน `ERP_ADAPTER_FACTORIES` (`src/erp-adapters/index.ts`)
 5. เพิ่มชุดใน `test/connector-conformance.test.ts` (`describeConnectorConformance`) และ
-   `test/connector-conformance-pipeline.test.ts` (`runPipelineConformance`) — test "ทะเบียน adapter" ล้มถ้าลืม
+   `test/connector-conformance-pipeline.test.ts` (`runPipelineConformance` + `runReadbackConformance`) — test "ทะเบียน adapter" ล้มถ้าลืม
 6. `pnpm --filter @tms/api openapi:export` (catalog ของ adapter อยู่ใน `GET /v1/connectors/adapters`) + i18n ป้ายช่องตั้งค่า
+
+### 2.1 ประกาศใน catalog ก่อนมี adapter (`ConnectorDefinition` — P1-ST5-T01b)
+
+ระบบที่ยังทำ adapter ไม่ได้ (รอ sandbox / คำตอบนักบัญชี) แต่ต้องการให้การ์ดขึ้นในหน้าตั้งค่าการเชื่อมต่อ (ต้นแบบ `this.CONN`) →
+ประกาศ `ConnectorDefinition` (`src/modules/erp/connector-definition.ts`) ในโฟลเดอร์ของระบบ (เช่น `flowaccount/flowaccount.definition.ts`)
+แล้วเพิ่มใน `CONNECTOR_DEFINITIONS` (`src/erp-adapters/index.ts`):
+
+- มีแค่ข้อมูล: credential schema (`configFields` — ช่องยืนยันตัวตน `secret: true`; `definitionProblems` ตรวจชื่อช่องที่ดูเป็น credential),
+  capability ที่วางแผน, `fixedSystemOfRecord` (R-01: `taxDocumentOwner = 'ERP'`), `entitlement` (`conn` + `minTier`), `blockedBy`
+- catalog ตอบ `availability: COMING_SOON` (capability ทั้งหมดอยู่ใน `capabilitiesPending`) · หน้าจอปิดปุ่มเชื่อมต่อ ·
+  `POST /v1/connectors` = 422 `adapter_coming_soon` · tenant sandbox ไม่เห็น · **ไม่มี payload builder / mapping / กฎ VAT** ใน definition
+- adapter ตัวจริงเสร็จ = ลบออกจาก `CONNECTOR_DEFINITIONS` แล้วลงทะเบียนใน `ERP_ADAPTER_FACTORIES` ด้วย key เดิม (registry ไม่ยอมให้มีทั้งสองแบบ)
+  · ถ้าจะเปลี่ยน credential schema หลังมีแถว connector แล้ว = ต้องมี migration
+- `minTier: growth` (docs/02 §3.1) **บังคับแล้ว (P1-ST1-T02)** — adapter ตัวจริงประกาศ `entitlement` เดิมต่อ → `EntitlementService.assertConnector` ตอนสร้าง (coming-soon ยัง 422 ก่อน)
+
+ปัจจุบัน: `flowaccount` (รอ X-02, X-07) · `peak` (รอ X-03, X-07)
 
 ## 3. ErrorClass ที่ชุด conformance ฉีดและคาดหวัง (docs/01 §6.3)
 
@@ -70,7 +86,10 @@ adapter ตัวเดียวใช้ร่วมทุก tenant — ห้
 
 - `test/connector-kit/conformance.ts` — `describeConnectorConformance()` (รวม contract เดิม `test/erp-adapter-contract.ts`)
 - `test/connector-kit/fault-proxy.ts` — reverse proxy ฉีด fault HTTP หน้า mock ใดก็ได้ (status / ตัดสายก่อนส่งต่อ / ส่งต่อแล้วตัดสาย) + เก็บคำขอ
-- `test/connector-kit/pipeline.ts` — `runPipelineConformance()` ผ่าน API + outbox + sink + ฐานข้อมูล
+- `test/connector-kit/pipeline.ts` — `runPipelineConformance()` ผ่าน API + outbox + sink + ฐานข้อมูล ·
+  `runReadbackConformance()` (P1-ST5-T01b) ขาอ่านกลับกับใบแจ้งหนี้จริง: **fetch → reconcile → payment pull** ทางช่อง `pull`
+  (`fetchDocument`/`fetchPaymentStatus` ผ่าน `POST /v1/reconcile-runs`) หรือ `inbound` (webhook ขาเข้า) — ผลในมุมผู้ใช้ต้องเท่ากัน:
+  เลข/สถานะฝั่งบัญชีเข้า `sync` ของใบ · ยอดไม่ตรง = MISMATCH / คิวตรวจ (ไม่เงียบ) · รับชำระ → payment `CONNECTOR` 1 รายการ ใบ PAID ไม่ซ้ำ · แยก tenant
 - `test/connector-kit/samples.ts` — canonical ตัวอย่าง (ข้อมูลสมมติ)
 
 ## 5. จับคู่ลูกค้า (D68-29 — P1-ST5-T12)

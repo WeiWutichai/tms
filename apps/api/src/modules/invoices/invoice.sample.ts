@@ -198,3 +198,15 @@ export function sampleInvoiceSandbox(): InvoicePrintModel {
     sandbox: true,
   };
 }
+
+/**
+ * P1-ST6-T04 โลโก้ตัวอย่าง (SVG ที่ผ่าน `sanitizeSvg` แล้ว — วงกลมกรมท่า + แถบเขียว · ไม่มีข้อความ ไม่ขึ้นกับฟอนต์) สำหรับ golden
+ */
+export const SAMPLE_LOGO_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="#13213F"/><rect x="14" y="27" width="36" height="10" rx="5" fill="#17733F"/></svg>';
+export const SAMPLE_LOGO_DATA_URI = `data:image/svg+xml;base64,${Buffer.from(SAMPLE_LOGO_SVG).toString('base64')}`;
+
+/** P1-ST6-T04 ใบยกเว้นล้วน (เหมือน `sampleInvoiceExempt`) + โลโก้องค์กรแทนกล่องตัวย่อ */
+export function sampleInvoiceWithLogo(): InvoicePrintModel {
+  return { ...sampleInvoiceExempt(), logo: SAMPLE_LOGO_DATA_URI };
+}

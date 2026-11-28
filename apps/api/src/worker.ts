@@ -39,6 +39,10 @@ import { DailyDigestService } from './modules/notifications/daily-digest.service
 import { DepreciationService } from './modules/depreciation/depreciation.service';
 import { TenantLifecycleService } from './modules/tenants/tenant-lifecycle.service';
 import {
+  USAGE_FINALIZE_EVERY_MS,
+  UsageFinalizeService,
+} from './modules/usage/usage-finalize.service';
+import {
   OFFER_TIMEOUT_EVERY_MS,
   SubconTimeoutService,
 } from './modules/trips/subcon-timeout.service';
@@ -199,6 +203,17 @@ async function main() {
       .catch((e) => log.error(e));
   void scheduleDepreciation();
   const depreciationTimer = setInterval(scheduleDepreciation, 10 * 60 * 1000);
+  // P1-ST1-T06 ปิดยอดรถ active: ตรวจทุก 10 นาที — ตั้งแต่วันที่ 1 เวลา 02:00 น. ไทย ปิดยอดเดือนที่เพิ่งจบให้ tenant ที่ยังไม่ปิด (spec/01 PLT-074 · ซ้ำได้)
+  const usageFinalize = ctx.get(UsageFinalizeService);
+  const scheduleUsageFinalize = () =>
+    usageFinalize
+      .scheduleDue()
+      .then((n) => n && log.info({ tenants: n }, 'active vehicle usage finalized'))
+      // P1-ST1-T07 ยอดรายวัน (DO / ใบแจ้งหนี้ / snapshot POD-connector-ผู้ใช้) — หลังปิดยอด (เดือนที่ปิดแล้วไม่แตะ)
+      .then(() => usageFinalize.rollupDaily())
+      .catch((e) => log.error(e));
+  void scheduleUsageFinalize();
+  const usageFinalizeTimer = setInterval(scheduleUsageFinalize, USAGE_FINALIZE_EVERY_MS);
   // ST3-T24 ข้อเสนองานรถร่วม: ครบ N ชม. ยังไม่ตอบ → แจ้งผู้จัดรถ · ลิงก์หมดอายุ → EXPIRED — ตรวจทุก 1 นาที (spec/03 PLN-154)
   const offerTimeouts = ctx.get(SubconTimeoutService);
   const scheduleOfferTimeouts = () =>
@@ -288,6 +303,7 @@ async function main() {
   clearInterval(paymentDueTimer);
   clearInterval(unbilledTimer);
   clearInterval(depreciationTimer);
+  clearInterval(usageFinalizeTimer);
   clearInterval(offerTimeoutTimer);
   clearInterval(pullTimer);
   clearInterval(paymentPullTimer);

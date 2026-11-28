@@ -87,10 +87,14 @@ export const ID_PREFIX = {
   documentEmail: 'dem',
   /** ST7-T16 การเรียกระบบบัญชี 1 ครั้ง (erp_sync_log — docs/01 §6.4) */
   syncLog: 'slg',
+  /** P1-ST4-T06 ทีมงาน Innovera (platform_user — Platform Console เท่านั้น) */
+  platformUser: 'stf',
   /** P1-ST1-T01 เวอร์ชันราคา/สิทธิ์ของแพ็กเกจ (plan_version — Platform Console) */
   planVersion: 'plv',
   /** P1-ST1-T01/T04 audit ระดับแพลตฟอร์ม (platform_audit_log) */
   platformAudit: 'pau',
+  /** P1-ST1-T06 ทะเบียนที่ถูกนับรถ active 1 แถว/เดือน (active_vehicle_usage — Platform Console ปรับหลังปิดยอด) */
+  activeVehicleUsage: 'avu',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

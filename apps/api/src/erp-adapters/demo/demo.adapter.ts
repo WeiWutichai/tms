@@ -601,6 +601,14 @@ export class DemoAdapter implements ErpAdapter {
     return out;
   }
 
+  /**
+   * P1-ST5-T01b ERP จำลองเก็บ canonical ทั้งใบตามที่ได้รับ → ส่วนที่เทียบได้ = ทั้งใบ (reconcile เนื้อหาเอกสาร ST8-T11 เทียบได้จริง
+   * แทน NOT_COMPARABLE — ให้ชุด conformance ขาอ่านกลับ fetch → reconcile ใช้ demo เป็นตัวอ้างอิงของช่องทาง `pull`)
+   */
+  comparableDocument(_ctx: ErpContext, doc: CanonicalDocument): CanonicalDocument {
+    return doc;
+  }
+
   async fetchPaymentStatus(ctx: ErpContext, ref: ExternalRef): Promise<PaymentStatus | null> {
     if (this.badKey(ctx)) throw this.authError();
     const d = this.find(this.scopes.get(this.scopeId(ctx)), ref);

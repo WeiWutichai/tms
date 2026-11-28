@@ -1780,6 +1780,8 @@ model Trip {
   stopEventResolutions StopEventResolution[]
   doSurcharges         DoSurcharge[]
   settlementLines      SettlementLine[]
+  /// P1-ST1-T06 รถ active ที่เที่ยวนี้เป็นเที่ยวแรกที่ทำให้นับ
+  activeVehicleUsages  ActiveVehicleUsage[]
 
   @@unique([tenantId, tripNo])
   @@index([tenantId, tripDate, status])
@@ -1787,6 +1789,9 @@ model Trip {
   @@index([tenantId, updatedAt, id])
   @@index([tenantId, vehicleId, tripDate])
   @@index([tenantId, driverId, tripDate])
+  /// P1-ST1-T06 นับรถ active ต่อเดือน (trigger tms_trip_active_vehicle)
+  @@index([tenantId, dispatchedAt])
+  @@index([tenantId, completedAt])
   @@map("trip")
 }
 
@@ -2475,6 +2480,8 @@ model StoredDocument {
 
   @@unique([tenantId, clientDocumentId])
   @@index([tenantId, entityType, entityId])
+  /// P1-ST1-T07 ค่า ณ วันของพื้นที่ POD (migration 0193)
+  @@index([tenantId, status])
   /// ST9-T14 retention job หาไฟล์ตามชนิด + อายุ
   @@index([kind, createdAt])
   /// ST9-T14 ตรวจว่ายังมีแถวอ้างไฟล์ก่อนลบ
@@ -2759,6 +2766,83 @@ model Subscription {
   @@map("subscription")
 }
 
+/// P1-ST1-T06 รถ active ต่อเดือน (spec/01 §7 `ActiveVehicleUsage`, PLT-070–075 · plan/13 R-05 / D-41) — 1 แถว/ทะเบียน/เดือน (เวลาไทย)
+/// แถว `auto` เขียนโดย trigger ของ trip (tms_active_vehicle_recount — migration 0190) เท่านั้น: insert เมื่อ Trip เข้าเงื่อนไขครั้งแรกของเดือน
+/// ตามค่าตั้ง `usage.activeVehicleRule`, ลบเมื่อไม่มีเที่ยวเข้าเงื่อนไขเหลือ (ย้อนสถานะ) ก่อน finalize · sandbox ไม่นับ
+/// หลัง finalize แก้ได้เฉพาะ Console การเงิน + เหตุผล (`source = console` / `excluded_at`) · role แอปอ่านอย่างเดียว
+model ActiveVehicleUsage {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  /// เดือนปฏิทินเวลาไทย YYYY-MM
+  period          String    @db.Char(7)
+  /// ทะเบียน normalize (เลขไทย → อารบิก, ตัดช่องว่าง/ขีด/จุด, ตัวใหญ่) · ไม่มีทะเบียน = "?<carrier|own>:<driver|trip>"
+  plateNormalized String    @map("plate_normalized")
+  /// ทะเบียนตามเอกสาร (snapshot บนเที่ยวแรก) — แสดงผล
+  plate           String?
+  vehicleId       String?   @map("vehicle_id") @db.Uuid /// ไม่ผูก FK — รถถูกลบกลางเดือนยังนับ (PLT-071)
+  carrierId       String?   @map("carrier_id") @db.Uuid
+  subcontract     Boolean   @default(false)
+  plateMissing    Boolean   @default(false) @map("plate_missing")
+  /// กติกาที่ใช้ตอนนับ: trip_started | doc_closed | manual (เพิ่มจาก Console)
+  rule            String    @db.VarChar(16)
+  firstTripId     String?   @map("first_trip_id") @db.Uuid
+  firstTrip       Trip?     @relation(fields: [firstTripId], references: [id], onDelete: SetNull)
+  firstCountedAt  DateTime  @map("first_counted_at") @db.Timestamptz(6)
+  /// auto = ระบบนับ · console = ทีมการเงินเพิ่มหลัง finalize
+  source          String    @default("auto") @db.VarChar(8)
+  /// Console การเงินตัดออกหลัง finalize (เหตุผลจริงอยู่ใน platform_audit_log — ลูกค้าไม่เห็น)
+  excludedAt      DateTime? @map("excluded_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([tenantId, period, plateNormalized])
+  @@index([firstTripId])
+  @@map("active_vehicle_usage")
+}
+
+/// P1-ST1-T06 ยอดการใช้งานรายเดือนต่อ metric (spec/01 §7 `UsageRecord`) — `vehicles.active` ปิดยอด (finalize) วันที่ 1 เวลา 02:00 ไทย
+/// ของเดือนถัดไป (UsageFinalizeService) · ไม่มีแถว = เดือนยังเปิด (ค่าสดจาก active_vehicle_usage) · open → finalized → invoiced
+/// role แอปอ่านอย่างเดียว · หลัง finalize แก้ได้เฉพาะ Console การเงิน + เหตุผล (ค่าถูกคำนวณใหม่จากแถวรถ)
+model UsageRecord {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  metric      String    @db.VarChar(40)
+  period      String    @db.Char(7)
+  value       Decimal   @db.Decimal(14, 2)
+  /// open | finalized | invoiced (CHECK)
+  status      String    @default("open") @db.VarChar(10)
+  finalizedAt DateTime? @map("finalized_at") @db.Timestamptz(6)
+  /// รายละเอียดตอนปิดยอด เช่น { own, subcontract, plateMissing, rule, subconWeight, adjusted }
+  detail      Json      @default("{}")
+  version     Int       @default(1)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([tenantId, metric, period])
+  @@index([metric, period])
+  @@map("usage_record")
+}
+
+/// P1-ST1-T07 ยอดการใช้งานรายวันต่อ metric (spec/01 §7 `UsageDaily`) — วันปฏิทินเวลาไทย
+/// - เมตริกสะสม (`do.created`, `invoices.issued`, `api.calls`): ยอดเดือน = ผลรวมรายวัน (usage_record ตอนปิดยอด)
+/// - เมตริกค่า ณ วัน (`storage.pod_gb`, `connectors.accounting`, `users.active`): ยอดเดือน = ค่าของวันล่าสุดในเดือน
+/// - `api.calls` แยก source (`rest` / `mcp`) — ตัวนับในหน่วยความจำของ API flush แบบบวกเพิ่ม (ApiUsageMeter) · เมตริกอื่นแยก source = ''
+/// role แอปอ่านอย่างเดียว · เขียนโดย role platform (worker rollup + flush) · เดือนที่ปิดยอดแล้วไม่ถูกแตะ
+model UsageDaily {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  date      DateTime @db.Date
+  metric    String   @db.VarChar(40)
+  source    String   @default("") @db.VarChar(16)
+  value     Decimal  @default(0) @db.Decimal(14, 2)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([tenantId, date, metric, source])
+  @@index([metric, date])
+  @@map("usage_daily")
+}
+
 /// P1-ST1-T04 ค่าตั้งของแพลตฟอร์ม (spec/01 §9, PLT-099) — key/type/ค่าเริ่มต้นอยู่ใน platform-settings.registry.ts
 /// ไม่มีแถว = ค่าเริ่มต้น · ตารางระดับแพลตฟอร์ม (ไม่มี tenant_id) · role แอปเข้าไม่ได้ · แก้จาก Console owner + เหตุผล + platform_audit_log
 model PlatformSetting {
@@ -2961,7 +3045,7 @@ model SignupSession {
   abandonedAt          DateTime?           @map("abandoned_at") @db.Timestamptz(6)
   personalDataErasedAt DateTime?           @map("personal_data_erased_at") @db.Timestamptz(6)
   createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt            DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   // ── P1-ST2-T04 ขั้น 2 "ข้อมูลบริษัท" (spec/01 §2 ขั้น 2, PLT-020–023) ──
   /// เลขผู้เสียภาษี 13 หลัก (checksum PLT-020 ผ่านแล้ว)
@@ -3244,11 +3328,16 @@ model PlatformUser {
   /// TOTP (เข้ารหัสด้วย FieldCipher) — บังคับทุกคน ตั้งตอนสร้างบัญชี
   totpSecret     String                 @map("totp_secret")
   totpLastStep   BigInt?                @map("totp_last_step")
-  status         String                 @default("ACTIVE") /// ACTIVE · DISABLED
+  status         String                 @default("ACTIVE") /// ACTIVE · INVITED (P1-ST4-T06) · DISABLED
   tokenVersion   Int                    @default(0) @map("token_version")
   failedLogins   Int                    @default(0) @map("failed_logins")
   lockedUntil    DateTime?              @map("locked_until") @db.Timestamptz(6)
   lastLoginAt    DateTime?              @map("last_login_at") @db.Timestamptz(6)
+  /// P1-ST4-T06 คำเชิญทีมงาน: sha256 ของ token ในลิงก์ (ใช้ครั้งเดียว) + วันหมดอายุ — รับแล้ว/ปิดแล้ว = null
+  inviteTokenHash String?               @unique @map("invite_token_hash")
+  inviteExpiresAt DateTime?             @map("invite_expires_at") @db.Timestamptz(6)
+  invitedBy      String?                @map("invited_by") @db.Uuid
+  deactivatedAt  DateTime?              @map("deactivated_at") @db.Timestamptz(6)
   createdAt      DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   impersonations ImpersonationSession[]

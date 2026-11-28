@@ -44,6 +44,7 @@ import type {
 import { sorOf, SystemOfRecordPolicy } from './system-of-record.policy';
 import { ConnectorResolver } from './connector-resolver';
 import {
+  type ConnectorConfigField,
   type ErpAdapter,
   type ErpContext,
   type HealthResult,
@@ -289,7 +290,33 @@ export class ConnectorsService {
   }
 
   adapterCatalog(): ErpAdapterDto[] {
-    return this.adapters.list(this.inSandbox()).map((a) => ({
+    const sandbox = this.inSandbox();
+    const field = (f: ConnectorConfigField) => ({
+      key: f.key,
+      secret: f.secret,
+      required: f.required,
+      kind: f.kind,
+      maxLength: f.maxLength ?? null,
+      options: f.options ? [...f.options] : null,
+    });
+    // P1-ST5-T01b ConnectorDefinition ที่ยังไม่มี adapter — การ์ดขึ้น แต่เชื่อมต่อไม่ได้ (capability ทั้งหมด = ยังไม่รองรับ)
+    const soon: ErpAdapterDto[] = this.adapters.definitions(sandbox).map((d) => {
+      const caps = ERP_CAPABILITIES.filter((c) => d.capabilities.includes(c));
+      return {
+        key: d.key,
+        displayName: d.displayName,
+        demo: false,
+        capabilities: caps,
+        capabilitiesPending: caps,
+        masterCodeKinds: [],
+        fixedTaxDocumentOwner: d.fixedSystemOfRecord?.taxDocumentOwner ?? null,
+        configFields: d.configFields.map(field),
+        availability: d.availability,
+        requiredFeature: d.entitlement.feature,
+        minTier: d.entitlement.minTier,
+      };
+    });
+    const ready: ErpAdapterDto[] = this.adapters.list(sandbox).map((a) => ({
       key: a.key,
       displayName: a.displayName,
       demo: !!a.localOnly,
@@ -299,15 +326,12 @@ export class ConnectorsService {
         ? ERP_MASTER_CODE_KINDS.filter((k) => (a.masterCodeKinds ?? []).includes(k))
         : [],
       fixedTaxDocumentOwner: a.fixedSystemOfRecord?.taxDocumentOwner ?? null,
-      configFields: a.configFields.map((f) => ({
-        key: f.key,
-        secret: f.secret,
-        required: f.required,
-        kind: f.kind,
-        maxLength: f.maxLength ?? null,
-        options: f.options ? [...f.options] : null,
-      })),
+      configFields: a.configFields.map(field),
+      availability: 'AVAILABLE' as const,
+      requiredFeature: a.entitlement?.feature ?? 'conn',
+      minTier: a.entitlement?.minTier ?? null,
     }));
+    return [...ready, ...soon].sort((a, b) => a.key.localeCompare(b.key));
   }
 
   toDto(c: Connector): ConnectorDto {
@@ -537,6 +561,13 @@ export class ConnectorsService {
     )
       throw new ProblemException('sandbox_unsupported');
     const a = this.adapters.usableIn(key, this.inSandbox());
+    // P1-ST5-T01b ประกาศใน catalog แต่ยังไม่มี adapter (เช่น โปรแกรมบัญชีที่รอ sandbox) — ไม่สร้างแถว ไม่เรียกปลายทาง
+    if (!a && this.adapters.comingSoon(key))
+      throw field422(
+        'adapterKey',
+        'adapter_coming_soon',
+        `connector '${key}' is not available yet (coming soon)`,
+      );
     if (!a || a === this.adapters.standalone)
       throw field422('adapterKey', 'unknown_adapter', `adapter '${key}' is not available`);
     return a;
@@ -759,7 +790,9 @@ export class ConnectorsService {
     const ctx = requestContext.require();
     const tx = this.db.tx;
     const tenantId = ctx.tenantId!;
-    const adapter = this.adapterOr422(body.adapterKey);
+    const adapter = this.adapterOr422(body.adapterKey); // coming-soon → 422 ก่อนเสมอ
+    // P1-ST1-T02: adapter ที่ประกาศ feature/แพ็กเกจขั้นต่ำ (catalog — FlowAccount/PEAK) → 403 `feature_not_in_plan`
+    if (adapter.entitlement) await this.entitlements.assertConnector(tenantId, adapter.entitlement);
     const companyId = await this.checkCompany(tx, body.companyId);
     const settings = this.checkGroup(adapter, 'settings', body.settings);
     const credentials = this.checkGroup(adapter, 'credentials', body.credentials);
